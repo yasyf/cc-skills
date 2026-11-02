@@ -19,17 +19,16 @@ Standing orders, fixed in this template:
   - Reported {reported} PT. The bar is fixed and live within 20 minutes of the
     report, by {due} PT; the desk's limits below run from your launch, inside it.
   - "stop asking people for things you can collect yourself": never ask a reporter
-    or anyone else for evidence; read telemetry and Sentry yourself (owner answer 8ff2abf).
+    or anyone else for evidence; read telemetry and Sentry yourself.
   - Verification: no local test runs, builds, typechecks or lint; CI grades; a red CI step is read from its log, fixed, and pushed.
-  - Any repair pass or backfill runs on in-region EC2 (cc-notes e192288), never on
+  - Any repair pass or backfill runs on in-region EC2, never on
     this Mac.
   - A tooling failure gets a same-turn tooling lane plus the hand path; it never
     stops the fix.
   - No credential is read from any store, file, SSM parameter or environment
     unless the owner's words in this brief name that credential. A mute, an ack
     or a monitor change goes through ai-oncall's verb (step 0b) or an ask in the
-    page thread, never through a Datadog or other key you fetched (Nov 1: a lane
-    read ai-oncall's Datadog keys from SSM after root withdrew that path).
+    page thread, never through a Datadog or other key you fetched.
   - When an on-call bot post, a peer session, or the alert already names the
     mechanism, confirm it with one query and build on it; never derive it again.
 
@@ -41,7 +40,7 @@ Telemetry, never the reporter. Read what the platform already records about thei
     the failing request: a cloud run is served by the cloud, never by their machine;
   - server logs and Sentry for that request, searched by the user's and team's ids;
   - the release and deploy timeline for the component that served it.
-  Never ask the reporter, or anyone else, for evidence (owner answer 8ff2abf). When
+  Never ask the reporter, or anyone else, for evidence. When
   the case needs a fact none of these hold, the fix includes the telemetry that
   records it, such as the client version on every request.
 
@@ -68,8 +67,8 @@ Do:
      through the walker. The fence holds only other releases of the target, never
      the fix.
      No brief, lane, or exception grants a rollback or a revert. One runs only when
-     the owner's own word names that act, after your diagnosis has found the issue
-     (owner answer 36a298d); never offer one before that.
+     the owner's own word names that act, after your diagnosis has found the issue;
+     never offer one before that.
   0b. A PAGE PROVEN FALSE IS MUTED THE MINUTE IT IS PROVEN. When your
      `MECHANISM` shows the paging monitor misreads a healthy path, every team it
      names completing runs and the defect in the signal itself, mute it at

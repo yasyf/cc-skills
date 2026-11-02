@@ -1,502 +1,72 @@
 # The orca desk runner
 
-`desk-runner.py` owns Orca worker traffic and ready-prefix landing. Run two detached
-processes against one config and store: `run --desk orca` and `run --desk landing`.
-No model-operated orca-desk sits between the root and Orca. The landing runner is
-the drive's merge queue and runs D3, D14, D16, and D20; the landing-desk lane keeps
-the duties in [its brief](landing-desk-brief.md).
-
-*Prevents G130's `AmiBake` launch being lost behind a desk handoff, R620 going to a
-superseded desk, and GO carrying no start deadline (2026-10-01 audit, Brief 3 and
-ranked fix 3).*
-
-## Root discipline
-
-Issue commands with the drive's R/L numbering. Submit a key once per action;
-submitting it again in the same lane returns the existing action. Never `SendMessage`
-a desk.
-
-The root never types an `R<n>` or a clock, since a key it picks can collide with one
-already held. `desk-launch.py` mints every keyed line the root sends. It takes one past
-the highest `R<n>` on a cci record addressed to `orca-desk`, stamps the Pacific clock,
-posts the line to `orca-desk` on cci, and prints the key and the line.
-
-```text
-desk-launch.py incident <name> <fix-brief> [<evidence-brief>] [--alert TEXT]
-desk-launch.py lane <lane> <model> <effort> <brief> [--now]
-desk-launch.py relay <lane>[,<lane>...] <text>
-desk-launch.py hold <slug> <owner> <what>
-desk-launch.py unhold <slug>
-desk-launch.py withdraw <R<n> | unfixed:<msg>:<n> | lane>
-```
-
-A relay or a reply posted on cci can be any length and span lines; post it whole, as one record, and the runner relays all of it.
-Keep every other inbox line under 400 characters; put evidence in a file or cc-notes and leave a pointer in the line.
-
-A desk keys its own commands to the runner:
-
-```text
-desk-runner.py relay --config C --key R<n> --lane L --text T [--reply-to <question msg id>]
-desk-runner.py launch --config C --key R<n> --lane L --model M --effort E --brief PATH [--owner-directed]
-desk-runner.py policy --config C --key L<n> --landing prefix|whole --revision REV --source TEXT --supersedes <current revision>
-desk-runner.py rebind --config C
-desk-runner.py show --config C
-```
-
-The runner reads orders only from cci records; set the required `orca.desk_inbox`
-config field to the drive's `inbox/orca-desk.md`, which anchors its logs and state and
-which it never reads. The orca runner reads each cci record addressed to `orca-desk`
-from a saved sequence that starts at the drive's newest record, so history never
-replays; a record that is no
-directive logs `DIRECTIVE-FAILED`, quoting how it opens. A directive may open with a
-`H:MM AM|PM` clock label before its key or `orca-desk:`. A line is a relay only in this form, one
-relay per line, its text running to the end of the line:
-
-```text
-R<n> (<time>) orca-desk: relay to <lane>[, <lane>…][ and <lane>]: <text>
-```
-
-In a cci record the first line is the directive and the text runs to the end of
-the record, starting on that line or the next, so a relay posted on cci keeps its
-paragraphs and lists. One record is one relay, so a later line is relay text,
-never a second directive.
-
-For each named lane with a live dispatch, the runner does what `relay --key R<n>`
-does. When the dispatch's newest question to the Run has no answer on its terminal,
-the relay is a reply to that question, which releases a worker blocked in
-`orca orchestration ask`; otherwise, it is a plain relay that wakes the terminal.
-A record without `R<n>` takes the key `inbox@cci#<seq>`. Each lane logs once to the
-cci drive as `RELAYED <key> <lane>` or `RELAY-FAILED <key> <lane>: <reason>`,
-addressed to root.
-A dead or missing dispatch, a key that already holds different text, and a line that
-says `orca-desk: relay` outside this form each fail visibly; nothing is relayed for
-them. A `relay` command accepted for a lane with no live dispatch and no launch in
-flight fails the same way on the next pass, never later as a `DEADLINE`, unless a send
-already delivered it; a delivered relay is never failed or reported again. A dispatch
-is dead only when Orca answers that it is. When Orca gives no answer, a runtime or
-connection error, a timeout, or output that is not its JSON, the runner stops that pass
-without reading any dispatch as gone or failing any relay, logs `ORCA-UNREACHABLE` once
-for the streak, backs off up to two minutes between passes, and logs `ORCA-BACK` on the
-first pass Orca answers.
-
-A launch is one cci record addressed to `orca-desk`, in this form only, one launch per
-record, with nothing after the brief path. `desk-launch.py` posts it; by hand it is:
-
-```sh
-cci post --drive <drive> --lane root --kind go --to orca-desk --text 'R<n> (<h:mm AM|PM>) orca-desk: launch <lane> [NOW] <model> <effort> [role=<role>] brief=<absolute path>'
-```
-
-The runner does what `launch --key R<n>` does with the same model, effort, and
-brief; `NOW` is `--owner-directed`, so under load the launch fails at once instead of
-waiting out the hold, and `role=<role>` is `--role`, the launch's role for the incident
-clock. An incident
-fix lane is `R<n> (<time>) orca-desk: launch <dir> NOW incident xhigh role=fix brief=<state>/<dir>/brief.md`,
-since a lane launched from a `brief.md` takes its directory's name. The runner refuses any other name
-with `LAUNCH-FAILED` and the order that launches the lane under that name. Only
-`incident` runs on the fast tier, and plain `sol` is the standard tier. A record without `R<n>` takes the key
-`inbox@cci#<seq>`. A verified launch logs `LAUNCHED <key> <lane>: dispatch
-<ctx> terminal <handle>`. The runner logs `LAUNCH-FAILED <key> <lane>: <reason>`
-and launches nothing for a lane with a live dispatch or a launch still in flight,
-a key that already holds an action, a model or effort `launch` refuses, a brief
-that is not a file, or a brief with no `Register slice: lane=<lane> step=<n>` line
-or no `Scale:` line unless the launch is an incident fix's. A non-incident launch whose `Scale:` line a judge reads as
-missing the N the brief's paths run at launches anyway, with one `SCALE-MISSED <key> <lane>` to the root. Before it launches, the runner refreshes the
-slice under that line with `rulings.py slice --refresh <brief>`, writing
-`Register slice: lane=<lane> step=incident` into an incident brief that has none, and
-it writes the slice into every alert, case, fallback and manual release brief it
-attaches. A slice that does not read logs `SLICE-UNREAD` and the launch goes ahead.
-A line that says `orca-desk: launch` outside the form logs
-`LAUNCH-FAILED <key> inbox`. A `launch` or `incident` line is valid for 15 minutes from
-its record's time: one read later, such as a backlog replayed after an outage, launches
-nothing and logs `LAUNCH-EXPIRED <key> <lane>` to the root, so post a fresh line to launch it.
-
-`desk-launch.py incident <name> <fix-brief> [<evidence-brief>]` and
-`desk-launch.py lane <lane> <model> <effort> <brief> [--now]` post these lines for the
-root; `incident` posts `role=fix` and `role=evidence` on its two lines. Each takes the next `R<n>`
-past every key on an `orca-desk` cci record, posts
-with `--to orca-desk`, waits for `LAUNCHED`, `LAUNCH-FAILED`, `LAUNCH-EXPIRED`, `LAUNCH-HELD`, or
-`UNVERIFIABLE`, and prints the runner's line with the dispatch and terminal.
-
-A launch or a lane is withdrawn with one line naming its launch key, `R<m>` or a case
-launch's `unfixed:<msg>:<n>`, or the lane itself, which `desk-launch.py withdraw` posts:
-
-```text
-R<n> (<time>) orca-desk: withdraw R<m>
-R<n> (<time>) orca-desk: withdraw <lane>
-```
-
-The runner fails a launch it accepted and has not started, such as one held on load,
-and stops a launched dispatch with worker-stop, as `orca-gc --done` does. A launch still
-starting logs `WITHDRAW-PENDING` and is stopped the same way the moment it logs `LAUNCHED`,
-so an incident clock's Opus fallback the root withdraws never runs on. It logs
-`WITHDRAWN` and marks the lane withdrawn, so the lane's `UNFIXED` lines launch no case
-lane and Orca's offer to dispatch it again logs `WITHDRAWN`, not `DECIDE`. A launch
-A settled launch with no dispatch, a key or lane that holds nothing, or
-a worker-stop Orca refuses logs `WITHDRAW-FAILED`. A worker-stop Orca takes but never
-shows settled, with its terminal gone or at an idle prompt, within 30 seconds, such as one
-answering `stop_unknown`, logs `WITHDRAW-UNCONFIRMED` with the dispatch and terminal
-instead of `WITHDRAWN`.
-A root `cci post --kind withdraw --re <seq>` whose record is a launch line addressed
-to `orca-desk` withdraws that launch the same way. A record addressed to `orca-desk`
-whose text is a directive runs as that directive even when it carries `--re`. One that is
-neither a directive nor a root reply this desk acts on logs `DIRECTIVE-FAILED`, so no
-order to the desk goes unanswered (root #279034: two `--re` launch orders for incident
-takeover-500 drew nothing for ten minutes).
-
-Each other root cci record carrying `--re` is read as a reply. One to the runner's
-`DECIDE` on a worker question is relayed as the reply to that question. One to a
-lane's own record, such as its cci ask, is relayed as the reply to that lane's open
-Orca question, which the cci answer superseded. When another reply, an inbox relay
-line included, already claims that question, or every open question, it goes to the
-lane as a plain relay, since Orca refuses a second answer to one question. A reply
-Orca still refuses with `answer_conflict`, answered outside the runner, goes once to
-the dispatch as a message on the relay's thread. A lane with no open question gets
-nothing, since it reads the answer on cci.
-
-A monitor transition and an incident launch are each one line in the same inbox:
-
-```text
-orca-desk: alert <slug> <link> :: <what fired>
-orca-desk: incident <slug> <link> reported=<HH:MM> :: <what fired>
-```
-
-`reported=` takes the first report's Pacific time as `18:41` or `6:41 PM`, and a slug may
-carry a Slack channel name's underscores. `monitor-watch.py --alert-drive` posts `alert` records. The runner records the
-transition as `ALERT` and launches nothing; a repeat relays to a live fix lane.
-The alerts desk writes an `incident` line only when it judges a lane necessary.
-For an `incident` line the runner fills `reference/alert-fix-brief.md` with `alert.facts`, attaches
-it to the briefs log as `<slug>-fix.full.md` with `ccn log append --attach
---replace`, and launches `<slug>-fix` on incident xhigh at once on that
-attachment's `ccn attachment path`. Nothing goes under `~/.claude/scratch`. A brief that fails
-to attach logs `INCIDENT` with the ccn error and launches nothing. A repeat relays
-to the live lane and keeps its brief. An incident another owner holds launches no lane: the root's `done` that resolves a
-record naming the slug, its `stopped` addressed to `<slug>-fix`, or an `answer` from another
-drive's root addressed to `root@<this drive>` that names the slug. The runner reads cci for
-these at intake and again just before the launch starts, fails a pending launch, and posts one
-`state` record, `INCIDENT-OWNED <key> <lane>: incident <slug> owned by <who>; no launch`.
-The root ratifies from `INCIDENT`: evidence
-and incident-doc lanes, target fence, and comms in the affected account channels
-and, for a platform-wide incident, `#outage` under R16. The evidence lane attaches
-`<slug>-evidence.md` to the same briefs log, where the fix brief tells the fix
-lane to read it.
-The incident executor can adopt the launched lane with `--adopt fix=<lane>`.
-A malformed line logs `ALERT-FAILED` or `INCIDENT-FAILED` and launches nothing.
-
-Every incident fix lane the runner launched is on a clock from its verified launch.
-A lane is one when it launched on the `incident` alias, or when its brief's `ccx:`
-line says `role=incident` or names an `incident=`. A launch whose line or brief names
-another role, such as `role=evidence`, is never clocked, and neither is `incident=none`
-or a lane whose name has an `evidence`, `proof`, `closeout`, `desk`, or `audit` part.
-`desk-launch.py incident` launches `<name>-evidence` with `role=evidence`, so an
-evidence lane gets no mechanism, PR, or ready threshold and no Opus fallback. On each
-pass the runner reads the lane's own cci records, posted as `<name>` or `<name>-fix`,
-and its `mechanism:`, `ready:`, and `fix-live:` Run statuses:
-
-| Minutes since launch | Missing | The runner |
-|---|---|---|
-| `deadlines.incident_mechanism_minutes`, default 10 | a `mechanism` record or status, or a record of any kind whose text says mechanism | launches the Opus fallback and logs `INCIDENT-CLOCK <lane> mechanism` |
-| `deadlines.incident_pr_minutes`, default 15 | an `opened` record | launches the fallback unless it already did, and logs `INCIDENT-CLOCK <lane> pr` |
-| `deadlines.incident_ready_minutes`, default 20 | a `ready` record or status, or a `report` or `incident` that starts `READY` | launches the fallback unless it already did, and logs `INCIDENT-CLOCK <lane> ready` with the missing milestones and the minutes each phase took |
-
-A fallback whose Orca launch fails is launched once more under `<key>:retry`. After a
-second failure, while the lane's clock runs, the runner logs
-`INCIDENT-CLOCK <lane> in-process: the Orca launch of the Opus fallback <lane>-opus failed twice: <reasons> | root: start <lane>-opus in-process now, ...`
-with the fallback brief's path, and launches nothing more for it.
-
-A later milestone counts for the earlier ones, so an opened PR also settles the
-mechanism threshold. Each threshold logs once per launch. The clock stops at `ready`,
-at a `fix-live`, `not-ours`, `stopped`, or `stand-down` record, at a `fix-live:`
-status, at a root `hold` addressed to the lane or naming it, or when the dispatch
-settles. A root `decide` steers the lane and leaves its clock running: on Oct 31 the
-root's handoff `decide` stopped the runnerdb fix lane's clock a minute after launch, and
-no fallback launched. A record posted before the launch does not count.
-
-```text
-INCIDENT-CLOCK <lane> ready: not ready 20 min after its launch at 11:02, limit 20 min; missing PR, ready; launch to mechanism 7 min, mechanism to now 13 min | the Opus fallback <lane>-opus is already launched
-```
-
-The fallback is `<lane>-opus` on opus xhigh in Claude fast mode, launched on the Mac
-as an `--owner-directed` launch. Its brief is the lane's own brief, unchanged, under
-a header that says why the clock started it, that it works in parallel and the first
-PR wins, and that it posts on cci as `<lane>-opus` and addresses `<lane>` and root.
-The runner attaches that brief to the briefs log as `<lane>-opus.full.md` and writes
-it to `<state>/briefs/<lane>-opus.full.md`, the path its lines name. A `-opus`
-lane is clocked and gets no fallback of its own. A lane whose `<lane>-opus` already
-has a live dispatch or a launch in flight gets no second, and the line says so.
-`show` prints each clocked lane's minutes and milestones.
-
-A fix lane gets one Opus fallback. The incident executor, `incident.py`, launches
-its own Opus backup for a fix lane it adopted after 15 quiet minutes. While that
-backup is launching or live the clock launches none and the line names it, and
-the executor launches none while the clock's `<lane>-opus` is launching or live.
-
-*Prevents the seven incidents of 2026-10-13, which ran from 57 minutes to over four
-hours. Lanes went more than 15 minutes with no mechanism and nobody was told, and
-the Opus fallback was started by hand an hour late.*
-
-A mechanism-to-PR clock also covers lanes the root started in-process. Any lane
-named `inc-`, `incident-`, or `outage-` that is not an `-evidence` lane counts, as
-does every fix lane the runner launched. A `mechanism` record, or a `report`,
-`incident`, or `state` that starts `MECHANISM` or `CANDIDATE`, starts it. With no
-`opened`, `head`, `ready`, `blocker`, `blocked`, or closing record, and no text
-record starting `OPENED`, `BLOCKER`, `READY`, or `NOT-OURS`, from the lane or its
-`-opus` pair within `deadlines.pr_silent_minutes` (default 10), the runner logs a
-`PR-SILENT` blocker, then again every `deadlines.pr_silent_every_minutes` (default 5).
-It fires only for a lane that owns a worktree or owes a PR, as a fix lane the
-runner launched or one named `-fix`, `-fix-<n>`, `-opus`, or `-case<n>` does. A lane whose name or brief, `<state>/briefs/<lane>.md`
-or `<state>/<lane>/brief.md`, names an evidence, proof, closeout, desk, or audit
-role never fires it. Any lane's `opened`, `head`, `ready`, or `fix-live` answers the
-mechanism when it names the seq with `--re`, shares the topic, or names one of its
-incident tags. A root `go` or `decision` answers it the same way. `SAND-5A`,
-`[SAND-5A]`, and `SAND5A` read as one tag, and an answer posted before the
-mechanism counts too. A root `decide` or `decision` addressed to the lane, and the
-lane's own `done` or a text record starting `DONE` or `STOPPED`, settle it as well.
-
-The line carries `lanes.lane_status`, the code behind `drive.py lane-status <lane>`.
-It names every worktree the lane owns, found from the runner's launch receipts, the
-lane's cci records of the last day, the briefs checkout's `git worktree list`, and
-its PRs' head branches. Each worktree reads as branch, dirty files, commits ahead of
-`origin/dev`, last commit, push state from `git ls-remote`, and PR with CI state, or
-`no worktree found for lane <lane>`. Incident clocks never defer it. A root
-`stand-down` or `stopped` to the lane, or a root `--re` or `--resolves` on one of
-its lines, ends the repeats.
-
-```text
-PR-SILENT <lane> #<seq>: MECHANISM at 21:11, 10 min with no OPENED or BLOCKER record; <path> (git worktree list): HEAD (no branch), 0 dirty files, 0 ahead of trunk, last commit 130 min ago <sha> <subject>, not pushed, no PR | <lane>: commit and push the fix, open its PR with the submit skill and post OPENED, or post BLOCKER
-```
-
-*Prevents the Oct 20 stall in which `inc-liam-load-opus` posted its mechanism at 9:11 PM and its worktree was still clean on a detached HEAD at 9:16 PM, which the root found only by checking by hand.*
-
-A case a fix does not cover is an incident lane, never backlog. The alert fix brief
-and the executor's fix brief make every incident fix lane reproduce the reporter's
-own case before it reports ready. The lane closes its `ready:` and `fix-live:` Run
-statuses with one `UNFIXED <lane>: <case>` line per known case the fix does not cover,
-or `UNFIXED <lane>: none`. Only those two partial-fix reports launch case lanes; a
-`worker_done`, a `NOT-OURS`, or a `STOPPED` launches nothing, whatever its body says.
-
-For each case the runner launches `<first>-case<n>` on incident xhigh in the same pass,
-with no root turn. `<first>` is the lane's name without its trailing `-opus` and
-`-case<n>` parts, so every case lane of one incident sits beside the first fix lane,
-and `<n>` is the lowest no lane container holds. The runner fills
-`reference/unfixed-case-brief.md` with the case verbatim, the reporting lane, the path
-of that lane's brief, and the PRs its cci `opened` records name. It attaches that brief
-to the briefs log as `<first>-case<n>.full.md` and logs:
-
-```text
-INCIDENT <lane> <time>: its fix does not cover: <case> | case lane <first>-case<n> launching on incident xhigh, brief <path>; root: ratify, and keep the reporter told that this case is still open
-```
-
-Only a line that names the reporting lane counts, and `UNFIXED <lane>: none`
-launches nothing. A case launches once across a lane, its `-opus` fallback, and its
-case lanes, however often and by whichever of them it is reported. A case whose
-launch is refused, or whose brief does not attach, logs `not launched` with the
-reason and launches on the next report that names it. The clock above covers each
-case lane.
-
-An incident launches at most `incident.case_lanes` case lanes, two by default. The
-runner launches nothing for a report's remaining new cases and puts them to the root
-in one line, with a brief attached and a launch line ready for each:
-
-```text
-DECIDE unfixed:<msg> <lane>: <reason>: <case> | to launch its lane, post `orca-desk: launch <first>-case<n> NOW incident xhigh brief=<path>`; <case> | …
-```
-
-The reason is one of three. The case is past the cap. A case lane reported it, and
-case lanes are one generation. Or the report's own text, or the lane's newest
-`mechanism` record or status, says `UNKNOWN`. A lane without a named cause offers a
-case lane nothing to extend, so each case waits for the root to post its line.
-
-An incident ends at a `not-ours` or `stand-down` record its fix lane or `-opus`
-fallback posts, or at a root `stand-down` or `stopped` addressed to either or to the case lane. A
-`stopped` the reporting lane posted before its report ends it for that report. A report whose
-subject or first body line opens with `NOT-OURS`, `stood down`, or `Stopped` launches no case
-lane and files no `DECIDE`. A report after the end, or from a lane the root withdrew, launches nothing and logs one
-line:
-
-```text
-UNFIXED <lane> <time>: <case>; <case> | no case lane launched: the incident ended with #<seq> <KIND> <lane>
-```
-
-A case launch the runner accepted and has not started fails once its incident ends,
-and logs `WITHDRAWN unfixed:<msg>:<n> <first>-case<n>: the incident ended with …`.
-
-*Prevents the resume fix of 2026-10-13. It was reported fixed after a test on a
-neighbouring case while the reporter's own thread still failed, and two edge cases
-the fix lane had named sat as backlog for two hours until a customer hit them.*
-
-*The cap, the end, and the `UNKNOWN` gate come from 3:43 AM Oct 16. Lane
-`alerts-api-0335-fix` posted `NOT-OURS` (cci #81930) and `STOPPED` (#81931) after the
-root's stand-down (#81925), and its `worker_done` listed the ten original 524s as
-`UNFIXED`. The runner launched a case lane for each Cloudflare `RayID` on incident xhigh (#81941 to
-#81950), and five started after the root stood them down (#81955).*
-
-An urgent release hold is one line in the same inbox. The holding lane names
-itself or a dedicated decision-owner lane and states both the release and its
-blocker:
-
-```text
-orca-desk: hold <slug> owner=<lane> :: <what is held, and on what>
-orca-desk: unhold <slug>
-```
-
-Use `hold` for a release the plan marks urgent or any blocked catch-up of a
-coupled control-plane set. A held or blocked coupled release gets its own
-decision-owner lane. The holding lane writes `unhold` when the release moves.
-Repeating an active hold keeps its first clock; a hold after `unhold` starts a
-new one. A malformed hold or unhold logs `HOLD-FAILED`.
-
-After `deadlines.hold_minutes` (default 15), the runner writes once per hold:
-
-```text
-DECIDE hold:<slug> <owner>: held <n> min: <what> | the root decides it now with <owner>, ahead of any open owner question on another subject
-```
-
-The root resolves it with the named lane ahead of any open owner card on another
-subject; that card keeps waiting for its tap. The line reaches the root over the `cci` channel as
-soon as the runner writes it. The hold verb records
-a decision clock; it does not hold or lift a PR or authorize a release.
-
-*Prevents the api/runtime-v2/restate-worker catch-up waiting behind the Demeter
-questions on 2026-10-03 while executor shipped alone. cc-notes answer `5548bb2`,
-option 3; retro `849e294`.*
-
-Use `--model incident --effort xhigh` for fix and evidence lanes. A worker-question
-`DECIDE` carries the question message id as its key; answer with
-`relay --reply-to <msg id>`. A `hold:<slug>` key names a release decision, not a
-question message id. Other relays carry guidance or a brief attachment pointer.
-Keep each brief complete as an attachment on the drive's `briefs: <slug>` log.
-
-Read runner traffic from the cci drive named by the config's `drive` field.
-Each escalation posts with `--lane desk-runner --to root`; its topic is the line's
-key, the second token. `DECIDE` uses kind `decide`, `INCIDENT` uses `incident`,
-`UNBOUND`, `UNOWNED`, `UNACKED`, `INCIDENT-CLOCK`, `PR-SILENT`, and `LOAD-HIGH` use `blocker`, any `*-FAILED` uses
-`defect`, and all other labels use `report`. Text over 400 characters is clipped, with the full line saved
-to `<receipts>/cci/<hash>.txt` and attached with `--path`. Landing restack
-routes sent through cci use `--kind blocker --to <lane> --topic <pr>` with the same
-text limit and attachment rule. A landing's release record and its blockers use
-`--kind release` and `--kind blocker` with `--to <landing.release_owner>,root --topic <pr> --pr <pr>`.
-
-`monitor-watch.py --alert-drive` posts alert records to `orca-desk` on cci.
-The runner posts each Datadog alert's `INCIDENT` to root through cci with topic
-`dd-<id>`; a `fix-live` record with `--topic dd-<id>` closes it.
-
-The root receives cci records over the `cci` channel subscription R9 defines.
-
-`show` and the config's `view` file render action state. Runner-owned `inbox/`
-files are views, never command authority. Keep existing history; do not mirror
-runner actions into `TaskCreate`/`TaskUpdate` or complete shadow tasks for them.
-
-Only the orca runner consumes the Run. To cut over from a running orca-desk,
-let it finish its current pass and acknowledge its delivered batch, then end its
-loop before starting the runner. Keep its session open. Carry unresolved work into
-runner commands with its existing keys.
-
-The runner reads `orchestration inbox --terminal run:<run>` without a waiter or
-acknowledgement. No other loop may run `check --run` with `--wait` or `--ack`.
-
-## Config and startup
-
-Fill the paths and ids in this JSON and use the same file for both processes.
-Set `drive` to the same cci drive used by the root's Monitor. `orca.desk_inbox` is
-required.
-
-`store` is optional; omitting it uses `~/.claude/long-running/incidents`. The store
-holds one JSON container per lane, plus `desk-landing` and `desk-runner`, with an
-owner and `owner_generation`. Match `orca.run` to the launch environment. The runner
-reads each lane's dispatch and terminal from `~/.claude/scratch/orca-launch/<orca.run>`,
-the receipt directory orca-launch.sh writes by default, and launches with
-`ORCA_LAUNCH_STATE` set to it. A lane launched by hand with orca-launch.sh is therefore
-relayed to like one the runner launched, with no receipts to copy; never set
-`ORCA_LAUNCH_STATE` on a hand launch. `orca.gc` names the repo's gc command, which every `RECLAIM` line
-carries after `desk-runner.py gc`. Set the accepted prefix policy's revision to #28601's revision.
-
-`landing.release_owner` is required by `run --desk landing`, which exits on a config
-without it. It is the cci `--to` address of the lane that starts releases, such as
-`peer:<session name>` for a session bound to another drive.
-`landing.release_cli` is the repo's release command line, its first word relative to
-`landing.checkout`; the landing desk reads `<release_cli> live --json` and
-`<release_cli> live <id> --json` through it, and a CUT-SILENT hand path and the manual
-release brief name it. On a config without it, `run --desk landing` exits with
-`MQ-CONFIG-INVALID`, whose line lists it with every other missing member, as
-`"release_cli": "tools/ci release"` on a checkout that carries `tools/ci`.
-`landing.applying`, optional, turns on the orca runner's apply announcements: `build` is
-the command line, first word relative to `landing.checkout`, that prints a release
-build as Buildkite's REST build JSON, with `{build}`, `{pipeline}`, and `{number}`
-filled from the build URL a lane's `release` record names; `step` is a regular
-expression with `component` and `env` named groups that a job's step key must match
-whole; and `components` lists the fnmatch globs of the components whose applies peer
-drives watch. `run --desk orca` posts `APPLYING-CONFIG-INVALID` and exits on a partial one.
-`reference/release-lanes.md` has what the runner claims, announces, and asks.
-`landing.pages`, optional, turns on the orca runner's page watch during releases:
-`channels` lists the Slack channel ids whose top-level messages are pages, and `build`
-is the release build reader, as `landing.applying.build` is; with `landing.applying`
-set, the runner reads builds through that one. `reference/release-lanes.md` has the
-window and the record each page becomes.
-`landing.merge_mode` is required too: the owner's pick of `every`, `high-risk`, or
-`auto`, which the root asks once at execution start and records as a cc-notes answer.
-Without one of those values the landing runner exits and posts `MERGE-MODE-UNSET`. It
-re-reads the value on every use, so a change needs no restart. Under `high-risk`,
-`landing.high_risk_paths` lists the fnmatch globs of the repository's high-risk files.
-
-`landing.status_card`, optional, makes the landing desk redraw the root's status card
-from the ledger each pass the picture changes, as SKILL.md's status-card section
-describes. Start the landing desk from the root's shell after its first status card.
-
-`landing.adapter` names the merge queue's repository adapter, and the root writes it at
-drive start along with `landing.high_risk_paths`. Use
-`{"kind": "trunk-stack-enqueue", "script": ".agents/skills/submit-pr/scripts/stack-enqueue"}`
-when the checkout carries that script and the repository's ccx queue, git config `ccx.queue`
-or `[vcs] queue` in `.claude/ccx.toml`, is `trunk`,
-`{"kind": "graphite-stack-enqueue", "script": ".agents/skills/submit-pr/scripts/stack-enqueue"}`
-when the checkout carries that script on a legacy Graphite queue only (the runner refuses it on a
-Trunk repository), and `{"kind": "label"}` otherwise,
-for a queue that takes the `merge` label through `ledger.py label`. The runner never picks one itself. `landing.checks`, optional, lists the
-check registry in order, from `hold`, `precondition`, `rulings`, `fidelity`, `finder`,
-`merge-mode`, `approvals`, and `required-ci`; without it every check runs. On an adapter, a check,
-or a high-risk setting it cannot run, the landing runner exits and posts `MQ-CONFIG-INVALID`,
-ending with the exact `landing` members that fix every fault at once.
-
-`deadlines.release_start_minutes` is the step between the blockers D20 posts, 10 by default.
-
-`finder`, optional, turns on the orca desk's finder dispatch, O17. `model` is the
-`codex-ask -m` model, `sol` by default; `concurrent` caps the passes running at once,
-2 by default; `checkout` is the repo checkout codex reads in, `landing.checkout` by
-default; `to` lists cci addresses that get every finder record besides the head's lane;
-`repo` defaults to `landing.repo`; `timeout_minutes`, 60 by default, fails a pass with no
-result. The runner reads the object every pass, so adding or changing it needs no restart.
-
-Ordinary launches require `orca.sprite` and run `orca.sprite.launcher`, the
-repository's `worker-launch.sh`, on a Sprite, with `orca.sprite.env` and `WORKER_RUN`
-set by the runner. Neither `place=remote` nor `cpu=high` is required. The runner sets
-no Sprite limit: the provider admits or refuses each one. `place=local` keeps a
-launch on the Mac. Fable, incident, an incident clock fallback, and a `role=desk` or
-`role=watch` brief launch locally whatever the line says.
-
-Set `CC_REMOTE_CONFIG` in `orca.sprite.env`: without it cc-remote reads
-`~/.config/cc-remote/config.yaml`. The runner reads its config only at start.
-Point `WORKER_CC_REMOTE` and `CC_REMOTE_CONFIG` at a worktree that moves only
-with a cc-remote pin PR, never at a session's checkout. Each launch reads the
-branch of their checkout and refuses one that is neither `dev` nor a branch
-named `cc-remote-<version>`. Missing `orca.sprite`, a lane name a Sprite refuses,
-that checkout refusal, and a Sprite launch whose
-receipts prove worker-start never ran each fail with `LAUNCH-FAILED`; nothing
-starts locally in its place. A Sprite launch with no ready line and no such proof
-logs `SPRITE-UNVERIFIABLE` and launches nothing locally.
-A Sprite launch that prints nothing is `UNVERIFIABLE` and is never relaunched.
-
-Generated fix briefs are attachments on `orca.briefs.log`. The runner checks that
-log at start and before every brief it attaches. When the log is unset or no longer
-resolves, the runner switches to the drive's `briefs: <drive>` log, creating it if
-missing, and logs `BRIEFS-LOG` naming the new id for the config. `alert.facts` names
-the file whose contents go into each brief: drive checkout, apply authority,
-target facts, and the drive's deploy inbox for `MECHANISM`, `FIX-LIVE`, and
-`NOT-OURS` lines.
-
-`orca.launch_env.ORCA_LAUNCH_PREPARE` is one shell command the launch script runs
-in each worktree it creates, before the worker starts. Set it to the repo's code
-generators, so a worker's first build finds the generated code in place. A command
-that fails, or runs past `ORCA_LAUNCH_PREPARE_SECONDS` (default 120), never fails
-the launch. The worker's brief then ends with the command and the path of its log.
+## Contents
+
+- [Run the desk processes](#run-the-desk-processes)
+- [Configure and start the runners](#configure-and-start-the-runners)
+- [Subscribe the root and issue commands](#subscribe-the-root-and-issue-commands)
+- [Relay, launch, and withdraw lines](#relay-launch-and-withdraw-lines)
+- [Track actions and acknowledgements](#track-actions-and-acknowledgements)
+- [Follow Orca pass rules O1 to O16](#follow-orca-pass-rules-o1-to-o16)
+- [Handle alerts, incident clocks, and case lanes](#handle-alerts-incident-clocks-and-case-lanes)
+- [Hold an urgent release](#hold-an-urgent-release)
+- [Act on runner escalations](#act-on-runner-escalations)
+
+## Run the desk processes
+
+**`desk-runner.py` owns Orca worker traffic and ready-prefix landing.** Run two detached processes with one config and store. Run `desk-runner.py run --desk orca` and `desk-runner.py run --desk landing`. Restarting either process uses the same records and is idempotent. Keep one process per desk.
+
+Restarting a runner never relaunches its workers. No model-operated orca-desk sits between the root and Orca. The root never runs the check/ack loop, relaunch sweeps, or helper scripts inline.
+
+**The landing process is the drive's merge queue.** Its passes, checks, and rules D3, D14, D16, and D20 are in [reference/landing.md](landing.md). The landing-desk lane keeps the duties in [reference/landing-desk-brief.md](landing-desk-brief.md).
+
+**Each runner publishes liveness on cci.** A runner posts a `<desk> alive` cci `state` record to `drive-watchdog` at start and once a minute from a timer thread, whatever its pass is doing. The record reads `<desk> alive <time> pass <n>`, plus ``running `<command>` for <m>m<s>s`` while a command is in flight, so the watchdog alarms within 10 minutes of silence and sees a pass stuck on one command. Its attrs carry the runner's pid, plugin version, config, terminal, and `restart` command. Every reader reads the newest alive record from cci, so neither runner writes a heartbeat nor writes a view file and either may run on any machine. `desk-runner.py show` renders the view on demand.
+
+**Hooks and readers check the alive record.** A `cci post` that fails stays queued for the next pass instead of stopping the runner. When a `cci post --to orca-desk` finds no orca alive record from the last five minutes, the `desk_liveness` hook answers `LAUNCH-FAILED` with the restart command that record carries, and the restarted runner reads the record from its saved cursor. A cci that does not answer leaves the hook silent.
+
+A Bash append to `orca-desk.md` in a drive session draws `UNREAD` and the `cci post` form, since nothing reads the file. `desk-runner.py handoff` reads the newest record to see a runner re-run in place. `drive.py digest` reads it for each desk's version and liveness. The stall watch posts a `desk` stall to root when a runner that posted one in its window falls silent for 10 minutes, as [reference/watchers.md](watchers.md) describes.
+
+**Runner commands time out and exceptions escalate.** A GitHub, cci, or ccx read gets 60 seconds, `rulings.py check-pr` gets 180 seconds, and `stack-enqueue --check` gets 300 seconds. A command that runs over is killed, logged as `TIMED-OUT` in the runner log, and read as a failed command. A pass that raises logs its traceback, posts one `blocker` to the root naming the desk and the exception, and continues to the next pass. When the next pass raises the same exception, the runner posts that too and exits.
+
+**The orca runner rotates inbox markdown files once an hour.** It rotates every `*.md` file beside `orca.desk_inbox`. `inbox-rotate.py` records time and stream-end marks and archives through the newest mark at least six hours old into `<file>.archive/YYYY-MM-DD.md`, so the first archival happens about six hours after the first mark.
+
+## Configure and start the runners
+
+**Share one JSON config across both processes.** Start the orca runner before the first worker. The runner reads its config at start, except for fields noted below that it re-reads every pass.
+
+| Config key | Meaning and default |
+|---|---|
+| `store` | Action store path; optional, defaults to `~/.claude/long-running/incidents`. Holds one JSON container per lane, plus `desk-landing` and `desk-runner`, with an owner and `owner_generation`. |
+| `drive` | Required cci drive name for runner traffic and escalations to root. |
+| `version` | Top-level plugin version pin written on the drive's first `run`. A plugin update never moves a running desk. |
+| `alert.facts` | File path whose contents go into each generated brief. The file lists drive checkout, apply authority, target facts, and the drive's deploy inbox for `MECHANISM`, `FIX-LIVE`, and `NOT-OURS` lines. |
+| `incident.case_lanes` | Cap on case lanes launched per incident; default `2`. |
+| `orca.run` | Orca Run id. Match it to the launch environment. |
+| `orca.desk_inbox` | Required path to the drive's `inbox/orca-desk.md`. Anchors runner logs and state; the runner never reads this file. |
+| `orca.briefs.repo` | Drive checkout path for cc-notes brief attachments. |
+| `orca.briefs.log` | Briefs log id for generated fix briefs. Checked at start and before every attachment; if unset or unresolvable, the runner switches to or creates `briefs: <drive>` and logs `BRIEFS-LOG` with the new id. |
+| `orca.gc` | Repo gc command, which every `RECLAIM` line carries after `desk-runner.py gc`. |
+| `orca.launch_env` | Environment variables passed to `orca-launch.sh`. `ORCA_LAUNCH_PREPARE` is one shell command run in each new worktree before the worker starts; set it to the repo's code generators. A failure or a run past `ORCA_LAUNCH_PREPARE_SECONDS`, which defaults to `120`, does not stop the launch, and the worker's brief ends with the command and its log path. |
+| `orca.sprite.launcher` | Path to the repository's `worker-launch.sh` for Sprite launches. |
+| `orca.sprite.env` | Environment passed to Sprite launches alongside `WORKER_RUN`. Set `CC_REMOTE_CONFIG`, because without it `cc-remote` reads `~/.config/cc-remote/config.yaml`. Set `WORKER_CC_REMOTE` to a worktree on branch `dev` or `cc-remote-<version>` that moves only with a `cc-remote` pin PR, never a session checkout. |
+| `stall.every_minutes` | Cadence in minutes for `stall_watch.py`; default `5`. Re-read every pass. |
+| `deadlines.start_minutes` | Minutes before an accepted action without start proof triggers `DEADLINE`; default `10`. |
+| `deadlines.launch_minutes` | Minutes a launch or incident line stays valid from its record time; default `15`. |
+| `deadlines.load_hold_minutes` | Minutes a Mac launch waits under high load before failing with `LAUNCH-HELD`; default `5`. |
+| `deadlines.hold_minutes` | Minutes before an urgent release hold triggers `DECIDE hold:<slug>`; default `15`. |
+| `deadlines.incident_mechanism_minutes` | Minutes from incident fix launch to mechanism milestone; default `10`. |
+| `deadlines.incident_pr_minutes` | Minutes from incident fix launch to PR opened milestone; default `15`. |
+| `deadlines.incident_ready_minutes` | Minutes from incident fix launch to ready milestone; default `20`. |
+| `deadlines.pr_silent_minutes` | Minutes from mechanism to PR or blocker before `PR-SILENT`; default `10`. |
+| `deadlines.pr_silent_every_minutes` | Repeat interval in minutes for `PR-SILENT`; default `5`. |
+| `deadlines.enqueue_minutes` | Enqueue deadline in minutes; default `15`. |
+| `deadlines.release_start_minutes` | Step in minutes between D20 release blockers; default `10`. |
+| `finder` | Optional object that turns on finder dispatch. Keys include `model` for the `codex-ask -m` model with default `sol`, `concurrent` for max running passes with default `2`, `checkout` for the repo checkout with default `landing.checkout`, `to` for extra cci addresses, `repo` with default `landing.repo`, and `timeout_minutes` with default `60`. Re-read every pass. |
+| `landing.*` | Merge queue and release configuration covering `repo`, `ledger`, `checkout`, `fidelity_lane`, `merge_mode`, `high_risk_paths`, `adapter`, `checks`, `release_owner`, `release_cli`, `interval_seconds`, `status_card`, and `policy`. Set `policy.revision` to `#28601`'s revision. Full landing configuration is in [reference/landing.md](landing.md). |
+| `landing.applying` | Optional object enabling the orca runner's apply announcements. `build` is a command relative to `landing.checkout` printing Buildkite REST build JSON with `{build}`, `{pipeline}`, and `{number}`. `step` is a regex with `component` and `env` named groups matching a job's step key whole, and `components` holds fnmatch globs. Partial config logs `APPLYING-CONFIG-INVALID` and exits. Details are in [reference/release-lanes.md](release-lanes.md). |
+| `landing.pages` | Optional object enabling the orca runner's page watch during releases. `channels` lists Slack channel ids whose top-level messages are pages, and `build` sets the release build reader or falls back to `landing.applying.build`. Details are in [reference/release-lanes.md](release-lanes.md). |
+
+**Share receipt state through `ORCA_LAUNCH_STATE`.** The runner reads each lane's dispatch and terminal from `~/.claude/scratch/orca-launch/<orca.run>`, the default receipt directory `orca-launch.sh` writes, and launches with `ORCA_LAUNCH_STATE` set to it. A lane launched by hand with `orca-launch.sh` is relayed to like one the runner launched, with no receipts to copy. Never set `ORCA_LAUNCH_STATE` on a hand launch.
 
 ```json
 {
@@ -565,9 +135,7 @@ the launch. The worker's brief then ends with the command and the path of its lo
 }
 ```
 
-Start each process detached so it survives the root's compaction, in a dedicated
-Orca terminal with coordinator identity or with `nohup`. After filling the config,
-start both:
+**Start both processes detached.** Run them in a dedicated Orca terminal with coordinator identity or with `nohup` so they survive compaction. Start the landing desk from the root's shell after its first status card when `landing.status_card` is enabled.
 
 ```sh
 DRIVE='/absolute/drive'
@@ -577,403 +145,272 @@ nohup desk-runner.py run --config "$CONFIG" --desk orca > "$DRIVE/orca-runner.lo
 nohup desk-runner.py run --config "$CONFIG" --desk landing > "$DRIVE/landing-runner.log" 2>&1 < /dev/null &
 ```
 
-Restarting either process uses the same records and is idempotent. Keep one process
-per desk. Restarting a runner never means relaunching its workers.
+**Cut over cleanly from an existing desk or config.** To cut over from a running orca-desk, let it finish its current pass and acknowledge its delivered batch, then end its loop before starting the runner. Keep its session open and carry unresolved work into runner commands with existing keys. For the cci cutover, the root adds `drive` to the runner config, confirms `orca.desk_inbox`, and restarts both runners.
 
-Each process posts a `<desk> alive` cci `state` record to the drive watchdog when it
-starts and every minute after, and its `restart` attr is the command to run from the
-bound terminal when the `desk_liveness` hook or `desk-launch.py` reports
-`LAUNCH-FAILED`. Every reader reads that record from cci, so neither runner writes a
-heartbeat file and either may run on another machine.
+**Upgrade or reload a live runner with `desk-runner.py handoff`.** A fix reaches a running desk only as a merged PR, a release, and a handoff; nothing edits an installed copy. Run `desk-runner.py handoff --desk orca --config "$CONFIG" --version <installed version>` or pass `--desk landing` from the Run's bound terminal. `handoff` verifies the version's install against its release tag and runs its `preflight` for the desk, stopping nothing if a file is missing, differs, or fails preflight. It then writes the version pin. Without `--version`, `handoff` restarts the desk on the pinned version to reload `$CONFIG`.
 
-For the cci cutover, the root adds `drive` to the runner config, confirms
-`orca.desk_inbox`, and restarts both runners. Its records keep arriving over the
-`cci` channel. The root owns that cutover.
+Every runner holds `$CONFIG.<desk>.lock` for its life, and a second `run` on the same config and desk refuses to start. `handoff` writes the holder's pid to `$CONFIG.stop`; the runner finishes its pass, removes `$CONFIG.stop`, and exits 0. `handoff` then starts the new runner writing to `<desk>-runner.log`. The other desk follows the moved pin at the end of its pass.
 
-Both desks run the plugin version `$CONFIG` pins in its top-level `version`, and a
-plugin update never moves them, and a drive's first `run` pins the version it runs. A
-fix reaches a running desk only as a merged PR, a release, and a handoff; nothing edits
-an installed copy.
+**Keep the Run bound to the coordinator terminal.** Only the terminal bound to the Run may call `worker-start`. Every pass, the orca runner reads the Run's coordinator from Orca and calls Orca and starts launchers as that terminal. When the Run has no coordinator or that terminal is gone, a runner started inside an Orca terminal rebinds the Run to its terminal; one started outside any Orca terminal refuses to start and prints the rebind command. If the coordinator disappears while the runner runs, the runner posts one `UNBOUND` line and fails every launch at once with `LAUNCH-FAILED`, which no incident clock defers, so the root launches by hand with `orca-launch.sh`. When the root moves to a new terminal, run `desk-runner.py rebind --config "$CONFIG"` there; the running desk follows on its next pass without a restart. `desk-runner.py show` prints the binding first.
 
-To move a desk to a new release, run `desk-runner.py handoff --desk orca --config
-"$CONFIG" --version <installed version>`, or `--desk landing` for the landing desk,
-from the Run's bound terminal. `handoff` first reads that version's install against its
-release tag. It stops nothing when a file is missing or differs, as after an install cut
-short or a copy edited in place. It then runs that version's own `preflight` for the desk
-and stops nothing when that refuses. Only then does it write the pin. Without `--version`
-it restarts the desk on the pinned version, which reloads `$CONFIG`.
+## Subscribe the root and issue commands
 
-Every runner holds `$CONFIG.<desk>.lock` for its life, and a second `run` on the same
-config and desk refuses to start. `handoff` reads the lock's holder and writes its pid to
-`$CONFIG.stop`. That runner finishes its pass, removes `$CONFIG.stop`, and exits 0. Once
-it has exited, `handoff` starts the next runner on the pinned version with the same
-config and desk. Its output goes to `<desk>-runner.log` in the drive's state directory,
-so one process per desk runs at every moment. The other desk follows the moved pin at
-the end of its pass.
+**Subscribe the root to the `cci` channel at drive start.** Under R9 in [SKILL.md](../SKILL.md), launch the root with `--channels plugin:cc-inbox@cc-inbox`, which `allowedChannelPlugins` lists in managed settings, and run once:
 
-Only the terminal bound to the Run may call `worker-start`. Every pass the orca desk
-reads the Run's coordinator from Orca and calls Orca, and starts each launcher, as that
-terminal, whatever terminal the desk itself was started from. When the Run has no
-coordinator or Orca finds that terminal gone, a desk started inside an Orca terminal rebinds
-the Run to that terminal; one started outside any refuses to start and prints the rebind
-command. When the coordinator disappears while it runs, it writes one `UNBOUND` line and
-fails every launch at once with `LAUNCH-FAILED`, which no incident clock defers, so the
-root launches it by hand with `orca-launch.sh`. After the root moves to a new terminal, run
-`desk-runner.py rebind --config "$CONFIG"` there; the running desk follows on its next
-pass and needs no restart. `show` prints the binding first.
+```bash
+cci subscribe --drive <drive> --reader root --kind incident,decide,ask,defect,blocker --follow oncall=incident
+```
 
-## Actions and acknowledgements
+Full bus delivery rules, cursor catch-up after compaction, and desk watch commands are in [reference/bus-contracts.md](bus-contracts.md) and R9 in [SKILL.md](../SKILL.md).
 
-Actions move from `accepted` to `started`, `completed`, and `verified`; `failed`
-and `unverifiable` record failure or missing proof. For guidance relays, a send is
-delivery evidence only. Question-reply actions currently complete on send and
-carry no started/done instructions. Before acting on a guidance relay, the worker
-sends a status on the thread named in the message; after acting it sends the
-result, using its own dispatch:
+**Mint root commands with `desk-launch.py`.** The root never types an `R<n>` or a clock by hand, because a duplicate key logs `LAUNCH-FAILED`. `desk-launch.py` takes one past the highest `R<n>` on a cci record addressed to `orca-desk`, stamps the Pacific clock, posts the line as `cci post --lane <lane> --kind go --to orca-desk --text '<line>'`, and prints the key and line.
+
+```text
+desk-launch.py incident <name> <fix-brief> [<evidence-brief>] [--alert TEXT]
+desk-launch.py lane <lane> <model> <effort> <brief> [--now]
+desk-launch.py relay <lane>[,<lane>...] <text>
+desk-launch.py hold <slug> <owner> <what>
+desk-launch.py unhold <slug>
+desk-launch.py withdraw <R<n> | unfixed:<msg>:<n> | lane>
+```
+
+`lane` and `incident` wait for `LAUNCHED`, `LAUNCH-FAILED`, `LAUNCH-EXPIRED`, `LAUNCH-HELD`, or `UNVERIFIABLE` and print the runner's line with the dispatch and terminal. The other verbs return at once, and the runner's verdict reaches the root on cci. Submitting the same key again in the same lane returns the existing action. Never `SendMessage` a desk.
+
+**A desk keys its own commands with `desk-runner.py`.**
+
+```text
+desk-runner.py relay --config C --key R<n> --lane L --text T [--reply-to <question msg id>]
+desk-runner.py launch --config C --key R<n> --lane L --model M --effort E --brief PATH [--owner-directed]
+desk-runner.py policy --config C --key L<n> --landing prefix|whole --revision REV --source TEXT --supersedes <current revision>
+desk-runner.py rebind --config C
+desk-runner.py show --config C
+```
+
+**Post relays and replies whole.** A relay or root reply posted on cci can be any length and span lines; post it as one record without shortening or splitting it. Keep every other inbox line under 400 characters; put evidence in a file or cc-notes and leave a pointer in the line. Never reconstruct lane state with `grep ... | tail` across files or `orca orchestration inbox | grep -A`. `show` and the config's `view` file render action state; `inbox/` files are views, never command authority. Do not mirror runner actions into `TaskCreate` or `TaskUpdate`.
+
+## Relay, launch, and withdraw lines
+
+**The orca runner reads orders only from cci records addressed to `orca-desk`.** It starts at the drive's newest sequence so history never replays. A directive may open with a `H:MM AM|PM` clock label before its key or `orca-desk:`. A record without `R<n>` takes the key `inbox@cci#<seq>`. Any record addressed to `orca-desk` whose text is a directive runs as that directive even when it carries `--re`. When a record is not a valid directive and is not a root `--re` reply, the runner logs `DIRECTIVE-FAILED`, quoting how it opens.
+
+**Format a relay directive on the first line.**
+
+```text
+R<n> (<time>) orca-desk: relay to <lane>[, <lane>…][ and <lane>]: <text>
+```
+
+In a cci record, the first line is the directive and the relay text runs to the end of the record, keeping all paragraphs and lists. One record is one relay. For each named lane with a live dispatch, the runner runs `relay --key R<n>`. When the dispatch's newest question to the Run has no answer on its terminal, the relay replies to that question and releases `orca orchestration ask`; otherwise, it sends a plain relay that wakes the terminal. Each lane logs `RELAYED <key> <lane>` or `RELAY-FAILED <key> <lane>: <reason>` to root on cci.
+
+A dead or missing dispatch, a key holding different text, or malformed `orca-desk: relay` text fails visibly and relays nothing. If a lane has no live dispatch and has no launch in flight, an accepted relay fails on the next pass, never later as a `DEADLINE`, unless a send already delivered it. When Orca is unreachable, times out, errors, or returns non-JSON, the runner stops the pass without marking any dispatch dead or failing any relay. It logs `ORCA-UNREACHABLE` once for the streak, backs off up to two minutes between passes, and logs `ORCA-BACK` on the first pass Orca answers.
+
+**Route root `--re` records as question replies.** Any non-directive root cci record carrying `--re` is read as a reply. A `--re` to the runner's `DECIDE` on a worker question, or to a lane's own record such as its cci ask, is relayed as the reply to that lane's open Orca question. When another reply or inbox relay line already claimed that question, it goes to the lane as a plain relay, because Orca refuses a second answer to one question. When Orca refuses a reply with `answer_conflict` because something answered it outside the runner, the runner sends the reply once to the dispatch as a message on the relay's thread. A lane with no open question gets nothing on Orca because it reads the answer on cci.
+
+**Format a launch directive as one record with nothing after the brief path.**
+
+```sh
+cci post --drive <drive> --lane root --kind go --to orca-desk --text 'R<n> (<h:mm AM|PM>) orca-desk: launch <lane> [NOW] <model> <effort> [role=<role>] brief=<absolute path>'
+```
+
+`NOW` sets `--owner-directed`, and `role=<role>` sets `--role` for the incident clock. An incident fix lane launched from `<state>/<dir>/brief.md` must take `<dir>` as its lane name, using `R<n> (<time>) orca-desk: launch <dir> NOW incident xhigh role=fix brief=<state>/<dir>/brief.md`; the runner refuses any other name with `LAUNCH-FAILED` and the command that launches it under `<dir>`. `desk-launch.py incident` posts two lines with `role=fix` and `role=evidence`. The evidence lane attaches `<slug>-evidence.md` to the same briefs log, where the fix brief tells the fix lane to read it. The incident executor can adopt the launched lane with `--adopt fix=<lane>`. Only `incident` runs on the fast tier; plain `sol` runs on the standard tier.
+
+**Verify brief metadata and freshness before launching.** A launch or incident line expires after `deadlines.launch_minutes`, which defaults to 15, from its record time, logging `LAUNCH-EXPIRED <key> <lane>`, and launching nothing. The runner logs `LAUNCH-FAILED <key> <lane>: <reason>` and launches nothing when any of these conditions hold:
+- the lane has a live dispatch or a launch in flight,
+- the key already holds an action,
+- `launch` refuses the model or effort,
+- the brief is not a file,
+- the line says `orca-desk: launch` outside the exact form, which logs as `LAUNCH-FAILED <key> inbox`, or
+- a non-incident-fix brief lacks a `Register slice: lane=<lane> step=<n>` line.
+
+If a judge reads a non-incident brief's `Scale:` line as missing the N its paths run at, the runner launches anyway and posts `SCALE-MISSED <key> <lane>` to root. Before launching, the runner refreshes the slice with `rulings.py slice --refresh <brief>`. That refresh writes `Register slice: lane=<lane> step=incident` into an incident brief that lacks one, and into every alert, case, fallback, and manual release brief it attaches. An unreadable slice logs `SLICE-UNREAD` and the launch proceeds. A verified launch logs `LAUNCHED <key> <lane>: dispatch <ctx> terminal <handle>`.
+
+**Withdraw a launch or lane with `withdraw`.** `desk-launch.py withdraw` posts one of:
+
+```text
+R<n> (<time>) orca-desk: withdraw R<m>
+R<n> (<time>) orca-desk: withdraw <lane>
+```
+
+The target may also be `unfixed:<msg>:<n>`, or the root can run `cci post --kind withdraw --re <seq>` on a launch record. The runner fails an accepted launch that has not started, stops a launched dispatch with `worker-stop`, marks the lane withdrawn, and logs `WITHDRAWN`. Once a lane is withdrawn, its `UNFIXED` lines launch no case lane and a repeat Orca dispatch offer logs `WITHDRAWN`, not `DECIDE`. A launch still starting logs `WITHDRAW-PENDING` and is stopped the moment it logs `LAUNCHED`. A settled launch with no dispatch, a target holding nothing, or a `worker-stop` Orca refuses logs `WITHDRAW-FAILED`. A `worker-stop` Orca accepts that does not show its terminal gone or idle within 30 seconds, such as `stop_unknown`, logs `WITHDRAW-UNCONFIRMED` with the dispatch, and terminal; the root runs `orca-gc --done` on it.
+
+## Track actions and acknowledgements
+
+**Move actions through distinct states.** Actions progress from `accepted` to `started`, `completed`, and `verified`, while `failed` and `unverifiable` record failure or missing proof. Question-reply actions complete on send without worker acks. For guidance relays, sending proves delivery only; the message carries the action's thread id and instructs the worker to send status before and after acting:
 
 ```text
 orca orchestration send --type status --thread-id <thread> --dispatch-id <its dispatch> --subject "started <key>"
 orca orchestration send --type status --thread-id <thread> --dispatch-id <its dispatch> --subject "done <key>: <result>"
 ```
 
-Carry the addressing and capability arguments from the worker's Orca preamble.
-A relaunch offers the lane's container to the new dispatch. Its first ack takes
-ownership at the next generation. Until that ack the old owner still owns the
-container; after it, another dispatch's ack gets a stand-down reply and cannot
-move the original action. A transfer changes logical ownership, never a session.
-A done reply records completion; verification needs the action's external receipt.
+Carry the addressing and capability arguments from the worker's Orca preamble on both status sends. A `done` reply records completion; verification requires the action's external receipt.
 
-The runner settles an `unverifiable` send through Orca `request-show` and
-`--retry-request`, or the recipient's mailbox. An unparseable CLI response is
-`unverifiable` too. A send to a dispatch that is no longer the lane's live one
-stays `unverifiable`, emits `UNVERIFIABLE`, and is never resent. A launch with
-neither a launch line nor a new receipt is `UNVERIFIABLE`, never relaunched
-automatically.
+**Settle unverifiable sends and resend after 30 seconds.** The runner checks Orca `request-show`, `--retry-request`, or the recipient's mailbox for an `unverifiable` send, including when the CLI response is unparseable. A send to a dispatch that is no longer the lane's live one stays `unverifiable`, emits `UNVERIFIABLE`, and is never resent. When neither a receipt nor mailbox proof appears 30 seconds after sending to a live dispatch, the runner resends on the same thread under the same key every 30 seconds until proof appears, logging nothing for a delivered resend.
 
-With neither proof thirty seconds after a send to the lane's live dispatch, the
-runner sends the relay again on the same thread, under the same key. It repeats
-that once every thirty seconds until Orca holds a receipt or the message shows on
-the thread, and a delivered resend emits nothing. A lane that already read its
-mailbox leaves no message there, so a status the lane posts on the Run naming the
-relay's R-number or cci sequence also counts. It acknowledges the relay as `started`
-when its subject starts so and `done` otherwise, settles every send, and ends the
-resends. After two resends all lost the same way the runner emits `UNACKED` once,
-with the count, and its record's path holds the relay text; it sends nothing more.
-A resend Orca rejects emits `SEND-FAILED`.
+A status the lane posts on the Run naming the relay's `R<n>` or cci sequence also settles the send. It acknowledges `started` when its subject starts with `started`, and `done` otherwise. After two resends lost the same way, the runner emits `UNACKED` once with the count and the relay text at the record's path, and stops resending. A resend Orca rejects emits `SEND-FAILED`.
 
-A relay record or a root reply can be any length. `cci post` keeps only the first
-line of a text over 400 characters in the record, clipped, and writes the whole
-text to a file the record names by path. The runner reads that file and relays
-the whole text with its line breaks. A file whose first line is not the record's
-text is an attachment, and the runner relays the record's own text. A record that
-names a file the runner cannot read, such as one replicated from another machine
-without its file, is refused as `RELAY-FAILED` naming the path, and nothing is
-relayed. Post it again on the runner's machine.
+**Relay long cci texts from their attached file.** When `cci post` clips a record over 400 characters and writes the full text to a path, the runner reads that file and relays the full text with line breaks. If the file's first line does not match the record's text, it is an attachment and the runner relays the record's own text. If the runner cannot read the named file, such as one on another machine, it refuses the relay with `RELAY-FAILED` naming the path; post it again on the runner's machine.
 
-## Orca passes and standing rules
+## Follow Orca pass rules O1 to O16
 
-Each pass settles detached launches, delivers accepted relays and launches,
-reconciles lost sends, reads new Run messages, checks start and launch deadlines
-and the incident clock, and writes changed views and escalation lines. A quiet pass writes nothing.
-Stale mail, prompts, and liveness are swept every five minutes.
+Each pass settles detached launches, delivers accepted relays and launches, reconciles lost sends, reads new Run messages, checks start and launch deadlines and the incident clock, and writes changed views and escalation lines. A quiet pass writes nothing. Every five minutes, the runner sweeps stale mail, prompts, and dispatch liveness.
 
-**O1. Launch through the runner.** It starts `orca-launch.sh` detached; the root
-submits `launch` and never runs lifecycle helpers inline.
+**O1. Launch through the runner.** The root runs `desk-launch.py lane <lane> <model> <effort> <brief> [--now]`, and the runner runs `launch` and starts `orca-launch.sh` detached. No model desk runs lifecycle helpers.
 
-**O2. Settle launches from receipts.** Count a `ready` or `unsupervised` launch
-line, or a new dispatch receipt when the log is empty. Other output fails the
-launch. No output and no new receipt leaves it unverifiable.
+**O2. Settle a launch from its line or receipt.** A `ready` or `unsupervised` line counts as launched, as does a new dispatch receipt when the log is empty. Other output logs `LAUNCH-FAILED`. When a launch produces neither an output line nor a new receipt, the runner marks it `UNVERIFIABLE` and never triggers an automatic relaunch. `unsupervised` escalates separately as `UNSUPERVISED`.
 
-**O3. Keep one Run reader.** The orca runner calls
-`orca orchestration inbox --terminal run:<run> --limit N --json`. It processes
-sequences after the saved cursor oldest first, skips heartbeats, and saves each
-sequence in the `desk-runner` container's `facts` under `inbox:<run>`. Full pages expand
-until the cursor is covered. A first read saves the newest sequence without
-replaying read history; restarts resume there, including messages marked read elsewhere.
+**O3. Keep one Run reader.** Only the orca runner consumes the Run. Each pass takes the Run's oldest unacknowledged Delivery with `orca orchestration check --run <run>` and reads `orca orchestration inbox --terminal run:<run> --limit N --json` past its saved cursor oldest first. It expands full pages until the cursor is covered, skips heartbeats, and saves each sequence in `desk-runner` `facts` under `inbox:<run>`. Once the read is relayed, it acknowledges that Delivery with `--ack <delivery id> --peek`.
 
-Each pass takes the Run's oldest unacknowledged Delivery with
-`orca orchestration check --run <run>` before the read and acknowledges it with
-`--ack <delivery id> --peek` once the read is relayed. Relayed message ids are saved
-under `relayed:<run>`. A Delivery message with no saved id is relayed before the
-acknowledgement, or logged `UNRELAYED` when its type has no relay.
+Its first read saves the newest sequence without replaying history, and nothing launches or relays until that read succeeds. Relayed message ids are saved under `relayed:<run>`. Any Delivery message with no saved id is relayed before acknowledgement, whatever its sequence, or logged `UNRELAYED` with sender, type, and sequence when its type has no relay. No other loop may run `orca orchestration check --run <run>` with `--wait` or `--ack`.
 
-**O4. Only the root answers a worker's question.** Each question or escalation
-goes to root as `DECIDE` with the worker's question and options. The runner never
-answers one; only this drive's root answers, through `relay --reply-to` or a cci
-reply with `--re`.
+**O4. Only the root answers a worker's question.** The runner escalates every worker `question` or `escalation` to root as `DECIDE` with the question and options. It never answers one itself. Only this drive's root answers, by using `relay --reply-to <msg id>` or `cci post --kind answer --to <lane> --re <DECIDE seq> --text "<answer>"`, or `--re` on the lane's own record; a peer drive's reply relays nothing.
 
-**O5. Address the current dispatch.** Relays use the current receipt and
-`worker-show`; completed or failed dispatches receive no new relay. Replies
-address the original question id through `--reply-to`.
+**O5. Relay to the current dispatch.** Relays check the current receipt and `worker-show`. Completed or failed dispatches receive no new relay. Replies address the original question id through `--reply-to`.
 
-**O6. Never end a session.** The runner never stops, signals, releases, or closes
-Claude, Codex, Orca, a terminal, a PTY daemon, or a supervisor. Finished sessions
-stay open. An `OUTCOME` line does not authorize cleanup. The sweep names each
-newly settled dispatch once in a `RECLAIM` line with `desk-runner.py gc` and then
-the `orca.gc` command, and the root runs both under R195. `gc` closes only the
-terminal a settled launch's `<lane>.terminal.json` receipt names, idle at an empty
-prompt, and keeps and names every other.
+**O6. Never end a session.** The runner never stops, signals, releases, or closes Claude, Codex, Orca, terminals, pseudo-terminal daemons, or their supervisors, except on an explicit `withdraw`. Finished sessions stay open. The 5-minute sweep names each newly settled dispatch once in a `RECLAIM` line with `desk-runner.py gc` and the config's `orca.gc` command, which the root runs under R195 in [reference/orca-workers.md](orca-workers.md). `desk-runner.py gc` closes only the idle terminal named in a settled launch's `<lane>.terminal.json` receipt, and keeps and names every other. The root ends a lane it decides is done with `<orca.gc> --run <run> --done <ctx>`, without messaging the lane to send `worker_done` first.
 
-**O7. Keep action records.** The action record carries acceptance,
-delivery, start, result, and verification. Neither a sent message nor a moved
-inbox cursor proves the lane acted.
+**O7. Keep acceptance, start, result, and verification distinct.** The action record tracks `accepted`, `started`, `completed`, `verified`, `failed`, and `unverifiable` as described in [Track actions and acknowledgements](#track-actions-and-acknowledgements). Never resend a send that has a receipt, and never resend by hand before `UNACKED`.
 
-**O8. A stale heartbeat never authorizes a relaunch.** The sweep escalates a
-non-live dispatch as `LIVENESS`; resume its existing session in place. The
-runner does not infer that missing liveness means the session ended.
+**O8. A stale heartbeat never authorizes a relaunch.** Every 5 minutes the runner sweeps receipt dispatches. A non-live active dispatch emits `LIVENESS`; resume its session in place. A requested relaunch offers the lane container to the new dispatch, whose first ack takes ownership at the next generation. Until that ack, the old owner retains authority; after transfer, another dispatch's ack gets a stand-down reply and cannot move the original action.
 
-**O9. Never re-brief.** Update the attachment with
-`ccn log append <briefs log> --entry "<what changed>" --attach <lane>.full.md --replace`,
-then submit its pointer from `ccn attachment path <briefs log> <lane>.full.md`
-through `relay`.
+**O9. Never re-brief.** Update the attachment with `ccn log append <briefs log> --entry "<what changed>" --attach <lane>.full.md --replace`, then relay its pointer from `ccn attachment path <briefs log> <lane>.full.md`. Never start another lane to carry a follow-up.
 
-**O10. Never answer a stale dispatch's question to its replacement.** Preserve
-the original question id. The runner does not fence stale senders; do not treat
-it as proof that this rule is enforced.
+**O10. Never answer stale questions to a replacement.** Keep the original question id as the reply address. The runner has no stale-sender fence; never report this rule as an enforced runner guarantee.
 
-**O11. Treat a capacity fallback like an ask.** Workers send `question` or
-`escalation` when `ask` returns `capacity reached`; both escalate as `DECIDE`.
+**O11. Treat a capacity fallback like an ask.** Workers whose `ask` returns `capacity reached` send `question` or `escalation`. Both escalate as `DECIDE`.
 
-**O12. Pause ten seconds between Run reads.** The orca runner sleeps ten seconds
-between passes; the landing process sleeps for its configured interval.
+**O12. Pause ten seconds between Run reads.** The orca runner sleeps 10 seconds between passes. The landing process sleeps for `landing.interval_seconds` (default 180). Model desks retain the 60-second inbox-wait rule.
 
-**O13. A prompt is a bug, and the prompt watch finds it.** `prompt_watch.py` is the
-one reader of `agentWait` and posts each prompt to the root itself. The sweep reads its
-last poll and emits `PROMPT-WATCH-DOWN` while that poll is over two minutes old. It
-never types a guessed answer. Stale unread mail gets one terminal wake per message,
-typed only at the lane's plain empty prompt; completed or failed dispatch mail emits
-`STALE-MAIL`.
+**O13. A prompt is a bug, and the prompt watch finds it.** `prompt_watch.py` is the one reader of Orca's `agentWait`, as [reference/watchers.md](watchers.md) describes. The runner's 5-minute sweep reads the watch's last poll and emits `PROMPT-WATCH-DOWN` once an hour while that poll is over two minutes old. Stale unread mail gets one terminal wake per message, typed only when the lane's screen shows the plain empty prompt. Completed or failed dispatch mail emits `STALE-MAIL`. No sweep relaunches a worker or types a guessed answer to a prompt.
 
-**O14. Refuse launches under load and tell the root to move it.** Before each Mac
-launch, the runner reads the 1-minute load average. Above the core count no launch
-starts, and each ten minutes of it posts one `LOAD-HIGH` blocker to the root.
-Incident and `--owner-directed` launches fail at once with `LAUNCH-FAILED`. Any other
-launch stays accepted and `show` marks it `HELD`; after `deadlines.load_hold_minutes`
-it fails with a `LAUNCH-HELD` escalation and a Run mailbox message. It never kills a
-worker to lower load.
+**O14. Refuse Mac launches while load exceeds the core count, and tell the root to move the load.** Before each Mac launch, the runner reads the 1-minute load average. Above the core count, an Orca worktree checkout times out, so no normal Mac launch starts. Every 10 minutes of high load posts one `LOAD-HIGH` blocker to the root, which moves the load that turn to in-region compute under R15 in [SKILL.md](../SKILL.md). An incident launch is never held; it starts under the load and posts one `LOAD-INCIDENT` report.
 
-**O15. Preserve the codex and incident routes.** `sol`, `codex`, and `gpt-*` use
-Orca's codex agent on the standard tier. `incident xhigh` uses `gpt-6.1-sol`, a
-`--no-parent` worktree, and a terminal command with
-`--dangerously-bypass-approvals-and-sandbox` and `-c service_tier=fast`. An `unsupervised` result escalates; it is not a failed
-launch to repeat. Leave Orca's runtime defaults unchanged.
+A launch submitted with `--owner-directed` (`NOW`) fails at once with `LAUNCH-FAILED`, and the root launches that lane in its own session. The pack's Agent hook lets that spawn through when named for the refused lane within 30 minutes of `LAUNCH-FAILED … refused on load` or `LOAD-HIGH`, and `desk-launch.py refused <lane> --session <id>` prints the record the hook reads. Any other Mac launch stays accepted, `show` marks it `HELD` with the load and age, and after `deadlines.load_hold_minutes`, which defaults to five, it fails with a `LAUNCH-HELD` escalation and a Run mailbox message. The runner never kills a worker to lower load. A Sprite launch never reads Mac load.
 
-**O16. Run the stall watch on its cadence.** While `runner.json` holds a `stall` object,
-the orca runner starts `stall_watch.py --config <runner.json>` detached every
-`stall.every_minutes` (default 5), never while the last pass still runs, and logs it to
-`stall-watch.log` beside `orca.desk_inbox`. It reads the object on every pass, so adding
-it needs no restart. Each stall the pass finds reaches root once as an `urgent`
-`STALL` record naming its owner and next step; SKILL.md "The stall watch" lists the kinds.
+**O15. Preserve the codex and incident launch routes.** `sol`, `codex`, and `gpt-*` use Orca's codex agent on the standard tier. Incident launches name `--model incident --effort xhigh`, which selects `gpt-6.1-sol`, a `--no-parent` worktree, and an explicit terminal command with `--dangerously-bypass-approvals-and-sandbox` and `-c service_tier=fast`. Keep Orca's runtime defaults unchanged. Inline lanes use `Skill(codex)` or `codex:codex-wrapper`; one-off questions use `codex-ask`.
 
-**O17. Dispatch a finder on every head.** With `finder` in the config, each pass reads
-the drive's `head` records past its saved sequence and queues one finder pass per PR and
-full head; two records naming one head queue it once. The newest queued head of each PR
-starts at once, beside the fidelity desks, while fewer than `finder.concurrent` run, and
-an older queued head of the same PR settles as superseded. A head a `finder-desk`
-`finder:` record already names starts nothing. Each pass runs `finder.py` detached, which runs
-`codex-ask --schema findings` from `reference/finder-desk-brief.md` over the head's own
-commits against the base branch's current tip, or only since the head the PR's last finder
-record graded, skipping a patch-identical restack and a head the PR no longer carries, and posts `finder: ok <head> …` or
-`finder: major <head> <n> open: …` under lane `finder-desk` to the head's lane, root and the
-runner, whose landing check reads finder records by address. A pass
-that fails, whose process exits with no result, or that writes no result within
-`finder.timeout_minutes` frees its slot that pass and runs again, up to three attempts;
-the third failure posts one `FINDER-FAILED` to the root, and root asks `finder-desk` for
-`finder: whole` on the PR. A head the landing check refuses `FINDER-PENDING` with no finder record and
-no pass waiting or running queues one again. While passes wait and none settles for 15
-minutes, the runner posts one `FINDER-DESK-STALLED` to the root, naming how many wait and
-each running pass's age. `show` lists each queued and running pass.
+**O16. Default ordinary lanes to a Sprite and run the stall watch on its cadence.**
+- Sprite placement: A brief's `ccx:` line sets `place=remote` for a Sprite or `place=local` for the Mac. With no `place=`, an ordinary lane goes to a Sprite even without `cpu=high`, running `orca.sprite.launcher` (`worker-launch.sh`). Fable, incident, an incident clock fallback, and a standing desk's `role=desk` or `role=watch` brief launch locally whatever the line says. [reference/orca-lane-brief.md](orca-lane-brief.md) states when to choose each. Missing `orca.sprite`, a lane name a Sprite refuses, or a `WORKER_CC_REMOTE` or `CC_REMOTE_CONFIG` checkout not on `dev` or `cc-remote-<version>` fails the launch with `LAUNCH-FAILED` and starts nothing locally. Receipts in the brief's `.worker` directory that lack `worker-start.json` and have a nonzero exit in `prepare.status`, or lack `prepare.status` after the launcher exited, prove `worker-start` did not run and also fail with `LAUNCH-FAILED`. Any other Sprite launch without a ready line marks the launch `unverifiable`, logs `SPRITE-UNVERIFIABLE` with the receipt directory and any Task and Dispatch, and starts nothing locally; inspect them before relaunching. A Sprite launch that prints nothing is `UNVERIFIABLE` and is never relaunched. Model and effort are identical on both routes, the runner sets no Codex service tier on either, and remote API keys travel only to the worker process.
+- Stall watch: While `runner.json` holds a `stall` object, the orca runner starts `stall_watch.py --config <runner.json>` detached every `stall.every_minutes`, which defaults to five, never while the last pass still runs, logging to `stall-watch.log` beside `orca.desk_inbox`. Each stall reaches root once as an `urgent` `STALL` record; see [reference/watchers.md](watchers.md).
 
-## Landing passes
+**Dispatch a finder on every head.** With `finder` in the config, each pass reads the drive's `head` records past its saved sequence and queues one finder pass per PR and full head, deduplicating identical heads. While fewer than `finder.concurrent` run, the newest queued head of each PR starts at once beside the fidelity desks, and older queued heads of the same PR settle as superseded. A head already named by a `finder-desk` `finder:` record starts nothing. Each pass runs `finder.py` detached, which runs `codex-ask --schema findings` from [reference/finder-desk-brief.md](finder-desk-brief.md) over the head's own commits against the base branch's current tip. When a prior graded head exists, it compares since that head while skipping patch-identical restacks and superseded heads, and posts `finder: ok <head> …` or `finder: major <head> <n> open: …` under lane `finder-desk` to the head's lane, root, and the runner.
 
-Every pass runs `ledger.py refresh` and `reconcile`, then reads the rows. It
-reconciles uncertain enqueues, verifies prefixes whose rows are `landed` by squash
-on the base, and routes restacks. It gates every tracked open stack tip in
-parallel through the adapter's check, `stack-enqueue <tip> --check [--whole]` under
-`trunk-stack-enqueue` or `graphite-stack-enqueue`, in `(priority, root PR)` order.
-`trunk-stack-enqueue` consumes the helper's `GREEN`, `WAITING`, and `BLOCKED` prefix
-statuses and the structured `tools/ci trunk status` `active` boolean without guessing
-queue membership, and never passes `--partial`.
-Under `graphite-stack-enqueue`, a check or enqueue that exits 5 with no verdict and a transient network error (TLS handshake
-timeout, connection reset, DNS failure, HTTP 5xx) runs again, three attempts 20 seconds apart,
-and only the third failure posts its one `GATE-FAILED` or `ENQUEUE-FAILED`.
+A pass that fails, exits with no result, or passes `finder.timeout_minutes` frees its slot and retries up to three attempts; the third failure posts `FINDER-FAILED` to root, and root asks `finder-desk` for `finder: whole` on the PR. When the landing check refuses a head with `FINDER-PENDING`, and that head has no finder record and has no pass waiting or running, the runner queues the head again. While passes wait and none settles for 15 minutes, the runner posts `FINDER-DESK-STALLED` to root naming the queue count and each running pass's age. `show` lists queued and running passes.
 
-Each exact set of prefix heads gets one enqueue action. Only attempts proven to
-have enqueued nothing permit another attempt for those heads. Accepted enqueues
-run in one parallel wave per priority, lowest first, each through the adapter's
-enqueue after the check registry's `hold` check reads the open cci `hold` records fresh.
-A `hold` label on a PR holds it too,
-and the runner never adds or removes that label.
+## Handle alerts, incident clocks, and case lanes
 
-A prefix is accepted only when every PR in it has a fidelity ok at its current
-head. The runner reads `cci tail --kind=review --lane <fidelity lane> --pr <n>`,
-keeps the records that start `fidelity: ok` or `fidelity: missing` and name
-that head by a short sha, and takes the newest; only `fidelity: ok` passes. An
-ok that names an older head, or no head, does not count, so the fidelity lane
-names the head it graded in every record, as in `fidelity: ok F307 at 9c0b891`.
-Without an ok the runner enqueues nothing from the prefix and posts one cci
-`blocker` per head and grade to the PR's lane and the fidelity lane. It checks
-again just before the enqueue call and completes the action as `blocked` when
-the ok is gone. `landing.fidelity_lane` names the lane, with no default: the landing desk
-refuses to start without it and posts `FIDELITY-LANE-UNSET`. The
-runner re-reads it from `runner.json` on every use, so an edit needs no restart. It
-also takes a list of lane names, `"fidelity_lane": ["fidelity-desk-6", "fidelity-desk-7"]`,
-for a drive that shards grading: a grade from any listed lane counts, the newest
-across them decides, and a blocker goes to the PR's lane and every listed lane.
-A head no grade names takes
-an ok carried from an older head an ok names, whose own newest grade is ok, when
-`git patch-id --stable` of both heads' diffs against the PR's base, read from
-GitHub's compare, is equal. The carried grade reads `fidelity: ok at <head>,
-patch-identical to <graded head>` under the graded record's seq. A compare GitHub
-refuses for the PR's own head logs `PATCH-READ-FAILED` once and carries nothing.
+Full root incident execution, scope rules, and comms under R16 are in [reference/active-alert-brief.md](active-alert-brief.md). Below are the runner's intake, clocks, and case-lane mechanics.
 
-The runner posts no `fidelity` status. Its check registry alone enforces holds
-and fidelity, so a hand `gt merge`, a web-UI enqueue, or a hand adapter
-call bypasses both. `mq.py --config <runner config> why <n>` prints each check's
-state at the PR's head. The fidelity lane keeps naming the head in each `review` record.
+**Process `alert` and `incident` lines.** `monitor-watch.py --alert-drive` posts `alert` records to `orca-desk`, and the alerts desk writes an `incident` line when it judges a lane necessary:
 
-`landing.merge_mode` decides which ready prefixes wait for the owner. Under `auto`
-none waits. Under `every` each PR waits, and under `high-risk` each PR whose changed
-files, read once per head from `gh api --paginate repos/<repo>/pulls/<n>/files`, match a
-`landing.high_risk_paths` glob, such as migrations and SQL, backfills, credentials and
-secrets, the release pipeline, storage formats, and infra rows. A
-waiting PR's prefix enqueues nothing, and the runner asks one merge card per PR and head
-on the root's board and in the root's Slack status thread and logs one `MERGE-ASK` naming the card and the record that answers it.
-With `landing.merge_ask_surface` set to `board` (default `slack`), the runner posts and edits no card, and the root asks every merge
-question on its own board. On that surface the runner carries the owner's board taps itself. An approval on a `pr-groups` row
-at an older head of an open PR moves to the PR's head through a `board-write` carry record, which the board's recorder applies, whatever
-changed between the two heads, since a PR the owner tapped never returns to his board (owner 2:48 AM Oct 31). One `TAP-CARRIED` note naming
-both heads goes to root and each lane `landing.board_lane` names. Board records that do not read, or a carry
-that does not post, log `TAP-CARRY-FAILED`; a carry cc-present refuses comes back as the recorder's `defect` record.
-Under `every` the runner then checks only heads a root `go` names: no check or enqueue call names any
-other PR or sweeps it in, and a PR stacked on it waits. Its blockers and `MERGE-ASK` come from the pass's `ccx vcs pr status` read instead. `landing.checks_wait_for_go`, a cci sequence number,
-pauses the whole gate until a root `go` record comes after it: no `stack-enqueue --check`, `MERGE-ASK`, or
-enqueue runs, one `GATE-PAUSED` says so, and refresh, reconcile, head reads, restack routes, and an approved, green incident fix's plain squash go on. The prefix enqueues on
-the pass after a root `go` record names every waiting PR and its current head by a
-short sha. A changed-files read that fails logs `FILES-READ-FAILED` once per head and
-enqueues nothing from that prefix until it reads.
+```text
+orca-desk: alert <slug> <link> :: <what fired>
+orca-desk: incident <slug> <link> reported=<HH:MM> :: <what fired>
+```
 
-After a prefix lands, the runner routes `ccx vcs stack submit` to the owner of the
-first PR above it. Orca lanes receive a relay; other lanes receive
-`cci post --drive <drive> --lane landing-desk --kind blocker --topic <pr> --to <lane> --text "<restack route>"`.
-It verifies a restack route when the child's head moves or the child lands. The
-landing-desk lane never enqueues or duplicates these restack routes beside the runner.
+`reported=` takes the first report's Pacific time as `18:41` or `6:41 PM`, and `<slug>` may contain `_` characters. A malformed line logs `ALERT-FAILED` or `INCIDENT-FAILED` and launches nothing. For `alert`, the runner logs `ALERT` and launches nothing; a repeat relays to a live fix lane. For `incident`, the runner checks cci at intake and right before launch for another owner. Another owner shows as a root `done` resolving a record naming `<slug>`, a root `stopped` addressed to `<slug>-fix`, or an `answer` from another drive's root addressed to `root@<this drive>` naming `<slug>`. If owned elsewhere, it fails any pending launch and posts one `state` record: `INCIDENT-OWNED <key> <lane>: incident <slug> owned by <who>; no launch`.
 
-A row that lands carrying the `merge-fast` label, with a `Release-With:` line in the
-PR body, gets one cci record in the pass that reads the landing:
-`cci post --drive <drive> --lane desk-runner --kind release --to <landing.release_owner>,root --topic <pr> --pr <pr> --id release:<pr>:<step> --text "<squash, components, start the release now>"`.
-The runner reads the label from the row's `labels` and the body with one
-`gh pr view <pr> --json body`. From then on each pass reads `cci tail --kind=release`
-and the root's records. A `release` record on this drive from any lane but
-`desk-runner`, stamped at or after the landing, that names one of the components with
-`--target` or the PR with `--pr` settles the landing. `cci tail` also returns peer
-mail from other drives, and a `release` record on another drive settles nothing. A
-record this drive's root posts with `--re` or `--resolves` naming the release record
-or one of its blockers settles the landing too.
+Otherwise, it fills [reference/alert-fix-brief.md](alert-fix-brief.md) with `alert.facts`, attaches it to `orca.briefs.log` as `<slug>-fix.full.md` with `ccn log append --attach --replace` instead of writing under `~/.claude/scratch`, and launches `<slug>-fix` on `incident xhigh` at that attachment path. A brief that fails to attach logs `INCIDENT` with the `ccn` error and launches nothing. A repeat `incident` line relays to the live lane and keeps its brief. For a Datadog alert, the runner posts `INCIDENT` to root with topic `dd-<id>`; a `fix-live` record with `--topic dd-<id>` closes it.
 
-Until then the runner posts one `blocker` to the same two addresses at each
-`deadlines.release_start_minutes` step after the landing, with the minutes elapsed.
-A landing first read after a step has passed gets the `release` record then and its
-first blocker at the next step. Each record's `--id` names its step, so a runner that
-stops between the post and its own save reposts under the same id, cci returns the
-stored record, and no step is posted twice.
+**Clock every incident fix lane the runner launches.** A lane is clocked when launched on the `incident` alias or when its brief's `ccx:` line says `role=incident` or names an `incident=`. A launch naming another role such as `role=evidence` from `desk-launch.py incident`, `incident=none`, or a lane name containing `evidence`, `proof`, `closeout`, `desk`, or `audit` is never clocked. On each pass, the runner reads the lane's cci records, posted as `<name>` or `<name>-fix`, and its `mechanism:`, `ready:`, and `fix-live:` Run statuses:
 
-Each landing is judged once, by the first pass that reads it, and the landing desk's
-store keeps the set it has read across restarts and upgrades. The desk's first pass
-records every landing it reads as history and sends nothing, and a landed row with no
-`landed_at` is not read until it has one. A `merge-fast` landing whose body has no
-`Release-With:` line is read once and sends nothing.
+| Minutes since launch | Missing milestone | Runner action |
+|---|---|---|
+| `deadlines.incident_mechanism_minutes` (default 10) | `mechanism` record or status, or any record whose text says `mechanism` | Launches `<lane>-opus` fallback and logs `INCIDENT-CLOCK <lane> mechanism`. |
+| `deadlines.incident_pr_minutes` (default 15) | `opened` record | Launches `<lane>-opus` unless already launched, and logs `INCIDENT-CLOCK <lane> pr`. |
+| `deadlines.incident_ready_minutes` (default 20) | `ready` record or status, or a `report` or `incident` starting `READY` | Launches `<lane>-opus` unless already launched, and logs `INCIDENT-CLOCK <lane> ready` with missing milestones and phase minutes. |
 
-An incident fix PR, one from an `incident-` or `outage-` lane, a fix lane on the
-incident clock, or named as an open incident's repair, is merged by the runner with
-`gh pr merge <n> --squash --match-head-commit <head>` in the pass its head is
-approved and green, and never enqueued. Its landing owes a release whatever its
-label, posts a blocker every `deadlines.incident_release_minutes` while an incident
-clock runs, and settles only on a `release` record with `--build` and `--target`.
-Once the settling record names a build, each pass reads
-`tools/ci release live <id> --json` and posts one `RELEASED` `fix-live` record to the
-root alone when every component reads live.
+```text
+INCIDENT-CLOCK <lane> ready: not ready 20 min after its launch at 11:02, limit 20 min; missing PR, ready; launch to mechanism 7 min, mechanism to now 13 min | the Opus fallback <lane>-opus is already launched
+```
 
-A `BLOCKED` head routes at most once per head, and only for red CI, a merge
-conflict, a changes-requested review or fidelity grade, or a queue ejection. A
-pending check, a missing approval, an ejection blaming a PR outside the stack,
-and a PR held, labelled `hold`, or stacked above such a PR never route. A PR
-based on another open PR's branch gets no failing-required route unless a
-status other than a gate's, such as `buildkite/test`, is red on its own head. A queue drop that blames a PR outside the stack
-re-enqueues the same head after the root's next `go` record naming the PR. The runner
-re-runs the gate immediately before creating the route, suppressing a blocker
-that has already cleared. Orca delivery can occur later; the gate is not re-read
-at that later send. The landing desk retains `ledger.py route` for red CI and
-conflicts, but does not repeat the runner's per-head gate messages.
+**Manage the `<lane>-opus` fallback and clock lifecycle.** A later milestone satisfies earlier thresholds, a record posted before launch does not count, and each threshold logs once per launch. The clock stops at `ready`, a `fix-live`, `not-ours`, `stopped`, or `stand-down` record, a `fix-live:` status, a root `hold` addressed to or naming the lane, or when the dispatch settles. A root `decide` steers the lane and leaves its clock running. The fallback is `<lane>-opus` on `opus xhigh` in Claude fast mode, launched on the Mac as `--owner-directed`. Its brief is the lane's brief under a header stating why the clock started it, that it works in parallel and the first PR wins, and that it posts on cci as `<lane>-opus` to `<lane>` and root. The runner attaches it to the briefs log as `<lane>-opus.full.md` and writes `<state>/briefs/<lane>-opus.full.md`.
 
-The first landing run seeds the policy from config. Each later `policy` command
-must name the current revision with `--supersedes`; another predecessor fails
-with `STALE-POLICY`. A stale-checkout ruling such as L260 cannot replace #28601's
-accepted prefix rule by omitting that edge. The root changes policy by command,
-never by editing a rendered inbox view.
+A `-opus` lane is clocked but gets no fallback of its own. A fix lane gets at most one Opus fallback across the runner and `incident.py`, which launches its own backup after 15 quiet minutes. While that backup is launching or live, the clock launches none and the `INCIDENT-CLOCK` line names it, and `incident.py` launches none while the clock's `<lane>-opus` is launching or live. If the Orca launch of `<lane>-opus` fails, the runner retries once under `<key>:retry`; after a second failure while the clock runs, it logs `INCIDENT-CLOCK <lane> in-process: the Orca launch of the Opus fallback <lane>-opus failed twice: <reasons> | root: start <lane>-opus in-process now, ...` with the brief path and launches nothing more. `show` prints each clocked lane's minutes and milestones.
 
-## Escalations
+**Count milestones across the incident.** A clocked fix lane sharing the lane's incident name or `incident=` slug, such as `inc-disk-cred` beside `inc-disk-fix`, a `-case<n>` sibling, or the `-opus` fallback, and the incident executor's Opus backup for one of them, are siblings. The incident name is the lane's name less `-opus`, `-case<n>`, and its last `-<part>`; a two-part name such as `api-fix` is its own. One mechanism, PR, or ready anywhere among the siblings counts as the lane's mechanism, so no mechanism fallback launches, while the PR threshold still clocks the lane that has no PR. A clock whose lane the root withdrew, or sent `stand-down` or `stopped`, ends as `withdrawn by <who>` and posts no `INCIDENT-CLOCK` line.
 
-Each line uses `<HH:MM Pacific> <KIND> <key> <lane>: <text>`, with Pacific `HH:MM`
-and no zone label. The lane slot can name `landing`, `runner`, or a PR. Keys
-identify the cause; `DECIDE` uses a question id or `hold:<slug>`.
+**Defer outside escalations while a clock runs.** While any incident clock runs, `DEADLINE`, `UNACKED`, `LIVENESS`, `STALE-MAIL`, and `RECLAIM` escalations about anything outside the incident go to the runner's view only. When the last clock ends, they reach the root as one `DEFERRED <n> escalations held during <incident>` record naming each.
+
+**Enforce the mechanism-to-PR clock (`PR-SILENT`).** This clock covers every fix lane the runner launched and any lane the root started in-process named `inc-`, `incident-`, or `outage-` that owns a worktree or owes a PR, including `-fix`, `-fix-<n>`, `-opus`, and `-case<n>`. It never covers a lane whose name or brief at `<state>/briefs/<lane>.md` or `<state>/<lane>/brief.md` names an `evidence`, `proof`, `closeout`, `desk`, or `audit` role. It starts on a `mechanism` record, or a `report`, `incident`, or `state` starting `MECHANISM` or `CANDIDATE`. The clock waits `deadlines.pr_silent_minutes`, which defaults to 10, for the lane or its `-opus` pair to post an `opened`, `head`, `ready`, `blocker`, `blocked`, or closing record, or text starting `OPENED`, `BLOCKER`, `READY`, `NOT-OURS`, `DONE`, or `STOPPED`. Without one, the runner logs a `PR-SILENT` blocker and repeats it every `deadlines.pr_silent_every_minutes`, which defaults to five.
+
+Any lane's `opened`, `head`, `ready`, or `fix-live`, or a root `go` or `decision`, answers the mechanism when it names the seq with `--re`, shares the topic, or shares an incident tag. `SAND-5A`, `[SAND-5A]`, and `SAND5A` match as one tag, even if posted before the mechanism. A root `decide` or `decision` to the lane settles it, and a root `stand-down`, `stopped`, `--re`, or `--resolves` ends repeats. The line embeds `lanes.lane_status` (`drive.py lane-status <lane>`) across launch receipts, last-day cci records, `git worktree list`, and PR head branches. Each worktree reads as branch, dirty files, commits ahead of `origin/dev`, last commit, push state from `git ls-remote`, and PR with CI state, or `no worktree found for lane <lane>`. Incident clocks never defer `PR-SILENT`.
+
+```text
+PR-SILENT <lane> #<seq>: MECHANISM at 21:11, 10 min with no OPENED or BLOCKER record; <path> (git worktree list): HEAD (no branch), 0 dirty files, 0 ahead of trunk, last commit 130 min ago <sha> <subject>, not pushed, no PR | <lane>: commit and push the fix, open its PR with the submit skill and post OPENED, or post BLOCKER
+```
+
+**Launch case lanes from `UNFIXED` lines.** Fix lanes close their `ready:` and `fix-live:` Run statuses with one `UNFIXED <lane>: <case>` line per uncovered case, or `UNFIXED <lane>: none`. Only a line that names the reporting lane counts, and `UNFIXED <lane>: none` launches nothing. Only `ready:` and `fix-live:` statuses launch case lanes; `worker_done`, `NOT-OURS`, `STOPPED`, or a report opening with `NOT-OURS`, `stood down`, or `Stopped` launches nothing. Each unique case across a lane, its `-opus` fallback, and its case lanes launches `<first>-case<n>` once on `incident xhigh` in the same pass, where `<first>` strips trailing `-opus` and `-case<n>`, and `<n>` is the lowest unused container index. The runner fills [reference/unfixed-case-brief.md](unfixed-case-brief.md) with the case verbatim, the reporting lane, the path of that lane's brief, and the PRs its cci `opened` records name. It attaches `<first>-case<n>.full.md`, clocks the new lane, and logs:
+
+```text
+INCIDENT <lane> <time>: its fix does not cover: <case> | case lane <first>-case<n> launching on incident xhigh, brief <path>; root: ratify, and keep the reporter told that this case is still open
+```
+
+A case whose launch is refused, or whose brief does not attach, logs `not launched` with the reason and launches on the next report that names it. If a case is past `incident.case_lanes`, which defaults to two, if a case lane reports it since case lanes are one generation, or if the report or newest `mechanism` says `UNKNOWN`, the runner attaches the brief without launching and posts:
+
+```text
+DECIDE unfixed:<msg> <lane>: <reason>: <case> | to launch its lane, post `orca-desk: launch <first>-case<n> NOW incident xhigh brief=<path>`; <case> | …
+```
+
+An incident ends at a `not-ours` or `stand-down` from the fix or `-opus` lane, a `stopped` posted by the reporting lane before its report, or a root `stand-down` or `stopped` to the fix, `-opus`, or case lane. A report after the end or from a withdrawn lane launches nothing and logs:
+
+```text
+UNFIXED <lane> <time>: <case>; <case> | no case lane launched: the incident ended with #<seq> <KIND> <lane>
+```
+
+A pending case launch whose incident ends fails and logs `WITHDRAWN unfixed:<msg>:<n> <first>-case<n>: the incident ended with …`.
+
+## Hold an urgent release
+
+**Clock urgent holds under R9a.** A lane holding an urgent release or a blocked catch-up of a coupled control-plane set posts a hold with `desk-launch.py hold`, and lifts it with `desk-launch.py unhold` when the release moves, as R9a in [SKILL.md](../SKILL.md) describes. It names itself or a dedicated decision-owner lane as owner. A held or blocked coupled release gets its own decision-owner lane.
+
+```text
+orca-desk: hold <slug> owner=<lane> :: <what is held, and on what>
+orca-desk: unhold <slug>
+```
+
+Repeating an active hold keeps its first clock; a hold after `unhold` starts a new clock. A malformed line logs `HOLD-FAILED`. After `deadlines.hold_minutes` (default 15), the runner writes once per hold:
+
+```text
+DECIDE hold:<slug> <owner>: held <n> min: <what> | the root decides it now with <owner>, ahead of any open owner question on another subject
+```
+
+The hold verb records a decision clock only; it does not hold or lift a PR or authorize a release.
+
+## Act on runner escalations
+
+**Read runner escalations from cci.** Each escalation posts to the config's `drive` with `--lane desk-runner --to root` and the line's second token, its key, as `--topic`. Each line formats as `<HH:MM Pacific> <KIND> <key> <lane>: <text>` with no zone label. `DECIDE` uses kind `decide`; `INCIDENT` uses `incident`; `UNBOUND`, `UNOWNED`, `UNACKED`, `INCIDENT-CLOCK`, `PR-SILENT`, and `LOAD-HIGH` use `blocker`; any `*-FAILED` uses `defect`; all other labels use `report`. Text over 400 characters is clipped, saved to `<receipts>/cci/<hash>.txt`, and attached with `--path`.
+
+Landing restack routes sent through cci use `--kind blocker --to <lane> --topic <pr>` with the same text limit and attachment rule. A landing's release record and its blockers use `--kind release` and `--kind blocker` with `--to <landing.release_owner>,root --topic <pr> --pr <pr>`. Store keys deduplicate escalations; liveness keys include the hour and `ORCA-INBOX` keys include a 10-minute bucket so an unchanged fault can recur.
 
 | Kind | Root action |
 |---|---|
-| `DECIDE` | For `hold:<slug>`, decide with the named lane ahead of unrelated owner questions. For a worker question, answer with `cci post --kind answer --to <lane> --re <DECIDE seq>`, or `relay --reply-to <msg id>`. |
-| `INCIDENT` | Ratify the fix launch, start evidence and incident-doc lanes, fence the target, and start account comms plus `#outage` for a platform-wide incident; adopt the fix lane into the incident executor. For a line that says a fix does not cover a case, ratify the case lane it launched and keep the reporter told that the case is still open. A `DECIDE unfixed:<msg>` line lists cases the runner did not launch; post the launch line of each case worth a lane. |
-| `INCIDENT-OWNED` | None. Another owner holds the incident the line names, so the runner launched nothing; check the named record agrees. |
-| `INCIDENT-CLOCK` | Tell the owner the line in one plain line of your next reply, ahead of any other work in that turn, never as a Slack post. Ratify the `<lane>-opus` fallback the line names. When the line says none was launched, launch one unless it names an Opus backup already on the lane. For `in-process`, start `<lane>-opus` in that turn as an `Agent` of type `long-running:lane-ship` on opus in fast mode with the brief the line names. For `ready`, clear what holds the missing milestone. The key is the lane. |
-| `MERGE-ASK` | One line: `#<n> <head> waits on the owner's tap on `merge:<n>:<head>``, where the card is, and the merge mode. The runner already asked that merge card on the root's board and in the root's Slack status thread, with `Merge (Recommended)`, `Hold`, `Other`, and `Explain more` (93037c3); never send a second card or an `AskUserQuestion`. On a `Merge` tap, post `cci post --kind go --pr <n> --text "merge #<n> at <head>"`, and for each reserved row the line names, run the `rulings.py authorize` command it gives, since a go never authorizes a row; on a `Hold` tap, run `mq.py --config <runner config> hold <n> --reason "owner's Hold tap"`; the text the owner types in `Other`'s modal arrives as the card's capture, which merges nothing and is a capture to classify; on an `Explain more` tap, post `cci post --kind ask --to root --text "explain more: merge:<n>:<head>"` and answer in plain words with `cc-present reply --block <the card's waits id> --body <answer>`, which replies on the board and under the Slack card with the link back to it and resolves nothing. The key is the PR and head. |
-| `MERGE-CARD-FAILED` | A merge card did not post: register the root session with `drive.py start --drive <drive> --ledger <ledger>` from that session when the line says it is missing, otherwise read the error; the next pass tries again. |
-| `RULING-ASK` | Ruling confirmations queue for the next board round, never one card each (standing rule 23: 5 to 10 cards a round, foundational picks first). When the owner can take a round, run `rulings.py round --drive <id>`: it opens a new round on the root's cc-present board with at most ten queued rulings, foundational rows first, and leaves out a row the owner's own pick, tap or reply on a card made. Never as an `AskUserQuestion` or a bare Slack card. An `Explain more` tap resolves nothing: answer in plain words with `cc-present reply --block <card id> --body <answer>`, which also replies under the Slack card with a link back to it. A pick or a note on a ruling is a capture: `Right` runs `rulings.py confirm <key> --tick all --capture <digest>`, and `Some wrong` waits for the owner's note naming the lines. Silence decides nothing. The key is the round. |
-| `SLICE-UNREAD` | Read the named `rulings.py slice --refresh` failure, fix the register or the brief's `Register slice:` line, run the refresh by hand, and relay the fresh slice to the lane, which launched without it. The key is the launch. |
-| `MERGE-MODE-UNSET` | Ask the owner which merge mode the drive runs in, record the answer, write `landing.merge_mode` to `runner.json`, and start the landing runner again. |
-| `MQ-CONFIG-INVALID` | Add the members the line ends with to the `landing` object of `runner.json`, replacing any of the same name, adjust the suggested `high_risk_paths` globs to the repository, and start the landing runner again. |
-| `FILES-READ-FAILED` | None while it is brief; the runner reads the PR's changed files again on its next pass. |
-| `LOAD-HIGH` | Move the load off the Mac in that turn: stop or move each local pass, backfill, dry run, or bulk rewrite to in-region compute, and launch a refused incident lane in-process meanwhile, as an Agent named for the refused lane, which the pack's Agent hook lets through for 30 minutes. Never wait the load out. The key is the ten-minute window. |
-| `ALERT-FAILED` | Correct the alert line's slug, link, or form and append it again. |
-| `HOLD-FAILED` | Correct the hold or unhold grammar and append the line again. |
-| `RELAYED` | None; an inbox relay line was accepted for that lane and is delivered in the same pass. |
-| `RELAY-FAILED` | Fix the named relay's lane, key, or form, or launch the lane, and send a corrected relay under a new key. When the line names a file that is not readable, post the relay again on the runner's machine. |
-| `LAUNCHED` | None; the launch is verified and the line names its dispatch and terminal. |
-| `LAUNCH-EXPIRED` | Decide whether the lane is still wanted; if it is, post a fresh launch line under a new key. The line was read over 15 minutes after it was posted, so nothing launched. |
-| `DEADLINE` | Resolve the named action's missing delivery, start, launch, or enqueue proof. A lane that posted a `head` or `review` record for the relayed PR since the relay, or sent a heartbeat after it, counts as started and draws none; a lane that heartbeat within thirty minutes before the relay draws none for thirty minutes. |
-| `UNACKED` | Read the lane's Run messages first; if it never acted, deliver the relay text at the record's path by hand. The send and two resends lost their response, the lane never named the relay, and the runner sends nothing more. |
+| `DECIDE` | For `hold:<slug>`, decide with the named lane ahead of unrelated owner questions under R9a in [SKILL.md](../SKILL.md). For a worker question, answer with `cci post --kind answer --to <lane> --re <DECIDE seq>` or `relay --reply-to <msg id>`. For `unfixed:<msg>`, post the launch line of each case worth a lane. |
+| `INCIDENT` | Follow R16 and [reference/active-alert-brief.md](active-alert-brief.md) to ratify the fix launch, start evidence and incident-doc lanes, fence the target, start comms, and adopt the fix lane into `incident.py`, or ratify a launched case lane and update the reporter. |
+| `INCIDENT-OWNED` | None. Another owner holds the incident; verify the named record agrees. |
+| `INCIDENT-CLOCK` | Follow [reference/active-alert-brief.md](active-alert-brief.md). Tell the owner the line in one plain line of your next reply ahead of other work and never on Slack, ratify or launch `<lane>-opus` or start it in-process as an `Agent` of type `long-running:lane-ship` on `opus` in fast mode for `in-process`, and clear what holds the missing milestone. |
+| `PR-SILENT` | Read the code state in the line or run `drive.py lane-status <lane>`. With dirty files or a fresh commit, order the lane to push and open its PR now; with a clean, detached, or missing worktree, start `<lane>-opus` on the lane's brief and tell the owner. Resolve once the PR is open or the lane is stood down. |
+| `MERGE-ASK`, `MERGE-CARD-FAILED`, `MERGE-MODE-UNSET`, `MQ-CONFIG-INVALID`, `FILES-READ-FAILED`, `STALE-POLICY`, `ENQUEUE-STRANDED`, `ENQUEUE-UNSETTLED`, `ENQUEUE-FAILED`, `ROUTE`, `UNOWNED`, `GITHUB-BACKOFF`, `QUOTA-READ-FAILED`, `RELEASED`, `RELEASE-HELD-AFTER-LANDING`, `CUT-SILENT`, `PARKED`, `DEFERRED`, `SQUASH-FAILED`, `RELEASE-FAILED` | Landing and release escalations; act per [reference/landing.md](landing.md) and [reference/release-lanes.md](release-lanes.md). |
+| `RULING-ASK` | Queue ruling confirmations for the next board round with `rulings.py round --drive <id>`, presenting 5 to 10 cards per round with foundational rows first, and confirm or reply per [reference/owner-rulings.md](owner-rulings.md). |
+| `SLICE-UNREAD` | Read the `rulings.py slice --refresh` failure, fix the register or the brief's `Register slice:` line, run the refresh by hand, and relay the fresh slice to the lane. |
+| `LOAD-HIGH` | Move local passes, backfills, dry runs, or bulk rewrites to in-region compute in that turn, and launch any refused incident or owner-directed lane in-process as an Agent named for the refused lane. Never wait the load out. |
+| `ALERT-FAILED`, `HOLD-FAILED`, `DIRECTIVE-FAILED` | Correct the line's grammar, slug, link, or form and post it again. |
+| `RELAYED`, `LAUNCHED`, `ORCA-BACK` | None; informational confirmation. |
+| `RELAY-FAILED` | Fix the relay's lane, key, or form, or launch the lane, and send under a new key. If a file path was unreadable, post the relay again on the runner's machine. |
+| `LAUNCH-EXPIRED` | If the lane is still wanted, post a fresh launch line under a new key. |
+| `LAUNCH-FAILED`, `LAUNCH-HELD` | Read the failure before issuing a new action; relay to a live dispatch, move load, or post a corrected launch line under a new key. |
+| `DEADLINE` | Resolve the action's missing delivery, start, launch, or enqueue proof. A lane that posted a `head` or `review` record for the relayed PR since the relay, or sent a heartbeat after it, counts as started and draws no `DEADLINE`; a lane that sent a heartbeat within 30 minutes before the relay draws no `DEADLINE` for 30 minutes. |
+| `UNACKED` | Read the lane's Run messages first; if it never acted, deliver the relay text at the record's path by hand. |
 | `UNVERIFIABLE` | Reconcile the missing external receipt; never repeat the mutation blindly. |
-| `SPRITE-UNVERIFIABLE` | Inspect the named receipt directory and any Task or Dispatch before relaunching; a remote worker may be running, and the runner launched nothing locally. |
+| `SPRITE-UNVERIFIABLE` | Inspect the named `.worker` receipt directory and any Task or Dispatch before relaunching; a remote worker may be running. |
 | `OUTCOME` | Consume the worker's `worker_done` result. |
-| `FIX-LIVE`, `MECHANISM`, `READY` | Read the lane's status milestone by message id; the line includes its subject and up to 300 body characters. |
-| `PROMPT-WATCH-DOWN` | Run the line's `prompt_watch.py start` command; until it polls again no prompt on this drive is being read. |
-| `LIVENESS` | Inspect the non-live dispatch; preserve its session. |
+| `FIX-LIVE`, `MECHANISM`, `READY` | Read the lane's status milestone by message id; the line includes the subject and up to 300 body characters. |
+| `PROMPT-WATCH-DOWN` | Run the line's `prompt_watch.py start` command. |
+| `LIVENESS` | Inspect the non-live dispatch and preserve its session. |
 | `STALE-MAIL` | Resolve unread work on a completed or failed dispatch. |
-| `RECLAIM` | Run the line's two commands: `desk-runner.py gc` closes each idle terminal a settled launch's receipt names, and the `orca.gc` command closes the rest and removes each finished worktree under R195. |
-| `STALE-POLICY` | Reconcile the rejected revision with the accepted predecessor. |
-| `LAUNCH-FAILED` | Read the named launch failure before issuing any new action; for an inbox launch line, relay to the live dispatch or append a corrected line under a new key. |
-| `UNSUPERVISED` | Arrange the launched lane's reporting without launching it again. |
-| `SEND-FAILED` | Resolve a send that failed three explicit attempts, or a resend Orca rejected. |
-| `ENQUEUE-STRANDED`, `ENQUEUE-UNSETTLED`, `ENQUEUE-FAILED` | Resolve the queue result from current evidence. |
-| `ROUTE`, `UNOWNED` | Supply the missing route or owner. |
-| `GITHUB-BACKOFF` | None while it lasts; the landing desk reads nothing from GitHub until the reset the line names, and accepted enqueues and root `go` records run on the first pass after it. A line every quota window means another consumer is spending the installation's quota; find it before the next window. |
-| `QUOTA-READ-FAILED` | Read why `ccx vcs gh -- api rate_limit` failed; until it reads again the desk runs without its back-off. |
-| `RELEASED` | Forward the line to the owner verbatim; it is the only publish line the root sends. |
-| `RELEASE-HELD-AFTER-LANDING` | Lift the hold the line names and start the landed fix's cut now; the other PR gets its own cut when it lands. |
-| `PR-SILENT` | Read the code state in the line, or run `drive.py lane-status <lane>` for it now. With dirty files or a fresh commit, order the lane to push and open its PR now; with a clean, detached, or missing worktree, start `<lane>-opus` on the lane's brief and tell the owner. Resolve the line once the PR is open or the lane is stood down. |
-| `CUT-SILENT` | Ratify the `manual-release-<component>` lane the line names, or run its hand command in a lane when none launched; never order the silent release lane again. |
-| `PARKED` | None while the PR stays parked; its lane has no live dispatch or session, so its conflict routes to no one. Relaunch or reassign the lane to have the conflict routed. A lane silent on cci for 60 minutes is dead instead, and its blockers reach root as `owner lane dead`. |
-| `DEFERRED` | Work each held escalation the line names, now that the incident clock has ended. |
-| `SQUASH-FAILED` | Read GitHub's refusal of the incident fix's plain squash; fix what it names, and the runner merges the next approved, green head. |
-| `RELEASE-FAILED` | Start the release the line names, or post its `release` record when it is already running. When the line says cci refused the record, the `peer:` session has most often ended, so correct `landing.release_owner` and restart the landing runner. When it says cci printed no sequence, read what cci printed; the runner posts the record again under the same `--id` on its next pass. |
+| `RECLAIM` | Run `desk-runner.py gc` and then the `orca.gc` command from the line under R195 in [reference/orca-workers.md](orca-workers.md). |
+| `UNSUPERVISED` | Arrange the launched lane's cci reporting without launching it again. |
+| `SEND-FAILED` | Resolve a send that failed three explicit attempts or a resend Orca rejected. |
 | `DECISION_GATE`, `HANDOFF` | Act on the worker's gate or handoff. |
 | `ORCA-INBOX` | Resolve the mailbox error without restarting Orca. |
-| `ORCA-UNREACHABLE` | None while it is brief; the runner retries with backoff and changes no dispatch or relay meanwhile. With no `ORCA-BACK` after ten minutes, check `orca status` and tell the owner; never restart Orca. |
-| `ORCA-BACK` | None; Orca answers again and the runner resumes every relay and launch where it stopped. |
-| `FINDER-DESK-STALLED` | Read each running pass's `job.log` the line names; a pass hung past its use, or a slot cap too low for the queue, is why nothing settles. Raise `finder.concurrent` in runner.json, or fix what the logs name; the runner reads runner.json again each pass. |
+| `ORCA-UNREACHABLE` | None while brief; if no `ORCA-BACK` arrives after 10 minutes, check `orca status` and tell the owner. Never restart Orca. |
+| `FINDER-DESK-STALLED`, `FINDER-FAILED` | Inspect each running pass's `job.log`, raise `finder.concurrent` in `runner.json` or fix the error, or ask `finder-desk` for `finder: whole` on `FINDER-FAILED`. |
 
-The store deduplicates escalation keys. Liveness keys include the hour;
-`ORCA-INBOX` keys include a ten-minute bucket, so an unchanged fault can recur. Routine
-quiet polls do not wake a model.
-
-The runner never edits worker code, mutates production, writes Slack, invents
-scope, or derives authority from a branch prefix or a display name. The root
-owns decisions and holds; lanes own their worktrees.
+The runner never edits worker code, mutates production, writes Slack, invents scope, or derives authority from a branch prefix or display name. The root owns decisions and holds; lanes own their worktrees.

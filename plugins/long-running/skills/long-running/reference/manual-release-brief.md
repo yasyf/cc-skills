@@ -22,7 +22,7 @@ Do, in order:
    `--kind refuse --target {component}`, then run the hand path:
    `{hand}`. Fill `--env` from the release skill's target table when it reads
    `<env>`. Never run `{release} claim`: the owner allows no claim he did not ask
-   for (root #262864). A start that refuses over another release's claim goes to
+   for. A start that refuses over another release's claim goes to
    root as a `blocker` naming that claim's owner.
 4. Watch to the publish. `{release} live <id> --json` names the live version;
    post `--kind fix-live --target {component} --build <url>` with

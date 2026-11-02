@@ -23,9 +23,9 @@ Standing orders, fixed in this template:
   - Reported {reported} PT. The bar is fixed and live within 20 minutes of the
     report, by {due} PT; the desk's limits below run from your launch, inside it.
   - "stop asking people for things you can collect yourself": never ask a reporter
-    or anyone else for evidence; read telemetry and Sentry yourself (owner answer 8ff2abf).
+    or anyone else for evidence; read telemetry and Sentry yourself.
   - Verification: no local test runs, builds, typechecks or lint; CI grades; a red CI step is read from its log, fixed, and pushed.
-  - Any repair pass or backfill runs on in-region EC2 (cc-notes e192288), never on
+  - Any repair pass or backfill runs on in-region EC2, never on
     this Mac.
   - A tooling failure gets a same-turn tooling lane plus the hand path; it never
     stops the fix.
@@ -53,8 +53,8 @@ Do:
      through the walker. The fence holds only other releases of the target, never
      the fix.
      No brief, lane, or exception grants a rollback or a revert. One runs only when
-     the owner's own word names that act, after your diagnosis has found the issue
-     (owner answer 36a298d); never offer one before that.
+     the owner's own word names that act, after your diagnosis has found the issue;
+     never offer one before that.
   1. Reproduce the case above exactly as written: the thread, run, request, or
      monitor query it names, and which component served the failing request: a
      cloud run is served by the cloud, never by their machine. Record it failing
