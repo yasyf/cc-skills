@@ -432,6 +432,17 @@ def test_a_desk_runner_tap_note_about_another_head_leaves_the_carry_stall_standi
     assert shell.post("carry:101:abc1234")["to"] == "root"
 
 
+def test_no_carry_stall_asks_for_a_go_at_a_ledger_head_the_pr_has_moved_past(config):
+    """root #324772: carry stalls 324751, 324752 and 324754 asked for gos on b41451c, 4922d3a and 7ac37b9 after their PRs had moved and root had gone the new heads."""
+    fixed = f"HEAD #101 {HEAD} (was {OLD}): answers the reviewer bot's finding with a nil check and its test"
+    shell = FakeShell([head(1, "101", OLD, 90), head(2, "101", HEAD, 40, fixed), head(3, "101", OTHER, 5), record(4, "root", "go", f"go #101 at {OTHER[:7]}", 4)], [row("101")])
+    shell.triage = {"merge-prs": {"101": {"verdict": "approved", "head": OLD[:7], "at": stamp(60)}}}
+
+    watch(shell, config)
+
+    assert not [topic for topic in shell.topics() if topic.startswith(("carry:", "tap:"))]
+
+
 def test_a_go_the_runner_answered_with_a_merge_ask_is_no_go_stall(config):
     records = [record(1, "root", "go", f"go #101 at {HEAD[:7]}", 30), record(2, "desk-runner", "blocker", f"MERGE-ASK #101 at {HEAD[:10]}: the owner's merge row waits on his tap", 20)]
     shell = FakeShell(records, [row("101")])

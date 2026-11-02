@@ -72,7 +72,9 @@ green or failing-first proof, or do not merge, never merges, so it draws no stal
               `stall.minutes.unfixed` since; a blocker to root and the class's owner, once per PR and head
     sweep     a red head has stood `stall.minutes.sweep` and no lane named `red-sweep` or `red-sweep-<n>`
               is live; one blocker to root naming every red PR, until a red-sweep lane posts
-    tap       the owner's board tap approves the head, and no go names it
+    tap       the owner's board tap approves the head, and no go names it; this stall and `carry`
+              judge only the head the ledger row and the PR's newest `head` record agree on, never a
+              row head the PR has moved past (root #324772)
     ungraded  a `head` record names the head, its build has read green for `stall.minutes.ungraded`, counted
               from its ledger row's `green_at`, and no finder review or no fidelity grade names it, whatever
               the desks hold queued, read from the PR's whole history when the window holds none; it is the finder or fidelity stall of a green head, posted to the
@@ -1062,9 +1064,11 @@ class Pass:
             state = grades.go_state(gos, pr, head)
             tap = (board.taps.get(pr) if board else None) or {}
             tapped = tap["head"] if tap.get("verdict") == "approved" and tap.get("head") and tap.get("at") else ""
+            moved = next((named for record in reversed(records) if record["kind"] == "head" and grades.about_pr(record, repo, pr) and (named := grades.head_of(record, repo, pr))), "")
+            behind = bool(moved) and not grades.names_head(moved, head)
             if tapped and grades.names_head(tapped, head):
                 tapped_at = actions.parse_stamp(tap["at"])
-                if self.now - tapped_at >= self.watch.age("tap"):
+                if not behind and self.now - tapped_at >= self.watch.age("tap"):
                     stalls.append(Stall(f"tap:{pr}:{short(head)}", "tap", tapped_at, subject, f"the owner approved it on the board at {pacific(tapped_at, self.now)}, and {state.said()}", tuple(dict.fromkeys((self.watch.board_lane, *go_owners))), f"post `go #{pr} at {short(head)}`", pr))
                 continue
             if head_at is None:
@@ -1103,7 +1107,7 @@ class Pass:
             if board is None:
                 continue
             if tapped or (older := state.older):
-                if not board.shows(pr, head) and self.now - head_at >= self.watch.age("carry") and not any(named == pr and grades.names_head(sha, head) for named, sha in carried):
+                if not behind and not board.shows(pr, head) and self.now - head_at >= self.watch.age("carry") and not any(named == pr and grades.names_head(sha, head) for named, sha in carried):
                     if tapped:
                         stalls.append(Stall(f"carry:{pr}:{short(head)}", "carry", head_at, subject, f"his board tap names {short(tapped)}, and no go names this head, first named {pacific(head_at, self.now)}", tuple(dict.fromkeys((self.watch.board_lane, *go_owners))), f"post `go #{pr} at {short(head)}`: his tap at {short(tapped)} carries to every later head of this PR (owner, Oct 31 2:48 AM); it never goes back to his board", pr))
                     else:
