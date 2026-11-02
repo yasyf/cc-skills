@@ -43,6 +43,26 @@ CASE WHEN kind = 'bus' THEN
     END
 ELSE 0 END
 """
+_REFUSAL_PR_KEY = rf"""
+CASE
+    WHEN NOT json_valid(record) THEN NULL
+    WHEN json_type(record, '$.target') IS NOT 'text' THEN NULL
+    WHEN NOT json_valid(json_extract(record, '$.target')) THEN NULL
+    WHEN json_type(json_extract(record, '$.target')) IS NOT 'object' THEN NULL
+    WHEN instr(lower(record), '\u006') OR instr(lower(record), '\u007') THEN NULL
+    WHEN length({_COMPACT_RECORD}) - length(replace({_COMPACT_RECORD}, '"target":', '')) > 9 THEN NULL
+    WHEN length({_COMPACT_TARGET}) - length(replace({_COMPACT_TARGET}, '"kind":', '')) > 7 THEN NULL
+    WHEN length({_COMPACT_TARGET}) - length(replace({_COMPACT_TARGET}, '"pr":', '')) > 5 THEN NULL
+    WHEN json_extract(json_extract(record, '$.target'), '$.kind') IS NOT 'blocker' THEN X''
+    WHEN json_type(json_extract(record, '$.target'), '$.pr') = 'text' THEN
+        CASE WHEN instr(json_extract(json_extract(record, '$.target'), '$.pr'), char(0)) THEN NULL
+        ELSE json_extract(json_extract(record, '$.target'), '$.pr') END
+    WHEN json_type(json_extract(record, '$.target'), '$.pr') = 'integer'
+        AND typeof(json_extract(json_extract(record, '$.target'), '$.pr')) = 'integer'
+        THEN CAST(json_extract(json_extract(record, '$.target'), '$.pr') AS TEXT)
+    ELSE NULL
+END
+"""
 _RELEASE_ACTION_DDL = (
     """CREATE TABLE release_action_clock (
     singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
@@ -149,6 +169,7 @@ CREATE INDEX action_status ON action(status, ordinal);
 CREATE INDEX action_kind_status ON action(kind, status, ordinal);
 CREATE INDEX action_blocker_candidates ON action(ordinal) WHERE {_BLOCKER_CANDIDATES};
 CREATE INDEX action_direct_merge_candidates ON action(ordinal) WHERE {_DIRECT_MERGE_CANDIDATES};
+CREATE INDEX action_refusal_pr ON action(({_REFUSAL_PR_KEY}), ordinal) WHERE kind = 'bus';
 CREATE TRIGGER action_added AFTER INSERT ON action BEGIN
     UPDATE incident SET action_count = action_count + 1 WHERE singleton = 1;
 END;
@@ -864,6 +885,17 @@ ORDER BY ordinal"""
             if identity != (after.st_dev, after.st_ino):
                 raise ValueError(f"action store changed during release snapshot: {path}")
             return selected, version
+
+    def refusal_candidates(self, incident_id: str, members: set[str]) -> list[Action]:
+        selected = json.dumps(sorted(members))
+        with self._read(incident_id) as connection:
+            query = f"""SELECT action.record FROM (
+    SELECT ordinal FROM action WHERE kind = 'bus' AND ({_REFUSAL_PR_KEY}) IN (SELECT value FROM json_each(?))
+    UNION ALL
+    SELECT ordinal FROM action WHERE kind = 'bus' AND ({_REFUSAL_PR_KEY}) IS NULL
+) AS candidate CROSS JOIN action ON action.ordinal = candidate.ordinal
+ORDER BY action.ordinal"""
+            return [Action.load(json.loads(row[0])) for row in connection.execute(query, (selected,))]
 
     def blocker_candidates(self, incident_id: str) -> list[Action]:
         with self._read(incident_id) as connection:

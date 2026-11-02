@@ -113,6 +113,9 @@ class Book:
     def release_action_changes(self, container: str, previous: ReleaseActionVersion | None, active_ordinals: tuple[int, ...]) -> tuple[list[tuple[int, actions.Action]], ReleaseActionVersion]:
         return self.store.release_action_changes(container, previous, active_ordinals)
 
+    def refusal_candidates(self, container: str, members: set[str]) -> list[actions.Action]:
+        return self.store.refusal_candidates(container, members)
+
     def blocker_candidates(self, container: str) -> list[actions.Action]:
         return self.store.blocker_candidates(container)
 

@@ -127,6 +127,44 @@ jobs:
           if-no-files-found: error
       - uses: actions/checkout@v7
         with:
+          ref: c19f048042b4b8eb52598a609054b907679af5b3
+          path: .ci-selected-refusal-baseline
+          persist-credentials: false
+      - name: Immutable whole-bus selected refusal negative controls
+        shell: bash
+        run: |
+          set -o pipefail
+          baseline=.ci-selected-refusal-baseline/plugins/long-running
+          test "$(git -C .ci-selected-refusal-baseline rev-parse HEAD)" = c19f048042b4b8eb52598a609054b907679af5b3
+          cp plugins/long-running/tests/test_refusal_selected_pr_contract.py "$baseline/tests/test_refusal_selected_pr_contract.py"
+          for route in gate state; do
+            for history in 32 10000; do
+              negative="$RUNNER_TEMP/selected-refusal-old-$route-$history.log"
+              if uv run --locked --project "$baseline" pytest -c "$baseline/pyproject.toml" "$baseline/tests/test_refusal_selected_pr_contract.py::test_actual_refusal_callers_do_not_load_unrelated_pr_history[$history-$route]" -q -s --junitxml="$RUNNER_TEMP/selected-refusal-old-$route-$history.xml" >"$negative" 2>&1; then
+                cat "$negative"
+                exit 1
+              else
+                test "$?" -eq 1
+              fi
+              cat "$negative"
+              grep -F "$route loaded $((history + 1)) refusal Action records for $history unrelated records" "$negative"
+              grep -F '1 failed' "$negative"
+              if grep -E '[1-9][0-9]* (skipped|errors?)' "$negative"; then exit 1; fi
+            done
+          done
+      - name: Selected refusal caller parity freshness natural plans and bounded costs
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_refusal_selected_pr_contract.py plugins/long-running/tests/test_refusal_selected_pr_index.py -q -s --junitxml="$RUNNER_TEMP/selected-refusal-current.xml" | tee "$RUNNER_TEMP/selected-refusal-current.log"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: selected-refusal-${{ runner.os }}
+          path: ${{ runner.temp }}/selected-refusal-*
+          if-no-files-found: error
+      - uses: actions/checkout@v7
+        with:
           ref: 3a0cf42c873087b50698fcdd43cd9856413ec6f5
           path: .ci-refusal-history-baseline
           persist-credentials: false
