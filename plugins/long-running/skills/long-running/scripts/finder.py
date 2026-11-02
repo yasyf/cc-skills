@@ -48,8 +48,8 @@ from __future__ import annotations
 
 import argparse
 from long_running import cci
+from long_running import desk_result
 import json
-import os
 import re
 import shlex
 import subprocess
@@ -73,7 +73,6 @@ SCOPED_STEP = (
 )
 LANE = FINDER_DESK
 JOB = "job.json"
-RESULT = "result.json"
 LOG = "job.log"
 PID = "pid"
 POSTS = "posts.jsonl"
@@ -560,12 +559,7 @@ def failure(error: Exception) -> str:
 
 
 def write_result(directory: Path, outcome: dict) -> None:
-    staged = directory / f".{RESULT}"
-    with staged.open("w") as out:
-        out.write(json.dumps(outcome, default=lambda posted: cci.receipt(posted.seq)) + "\n")
-        out.flush()
-        os.fsync(out.fileno())
-    staged.replace(directory / RESULT)
+    desk_result.write(directory, json.dumps(outcome, default=lambda posted: cci.receipt(posted.seq)) + "\n")
 
 
 def main(argv: list[str] | None = None, shell: Shell | None = None) -> int:

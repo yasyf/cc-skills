@@ -678,6 +678,7 @@ from long_running.build_cache import BuildCache
 from long_running.desk_control import DeskControl, QuiesceFailed
 from long_running import board_rows
 from long_running import cci
+from long_running import desk_result
 from long_running import drive
 import fidelity
 import finder
@@ -1590,13 +1591,6 @@ def job_command(spec: dict, sprite: str, script: str, directory: Path) -> tuple[
     if sprite:
         return [str(SCRIPTS / "sprite-job.sh"), sprite, str(SCRIPTS / script), str(directory)], {"SPRITE_JOB_KEYS": json.dumps(spec.get("sprite_keys", {}))}
     return [sys.executable, str(SCRIPTS / script), str(directory)], {}
-
-
-def desk_outcome(result: Path) -> dict:
-    try:
-        return json.loads(result.read_text())
-    except json.JSONDecodeError:
-        return {"error": f"its {result.name} is empty or does not parse, as when its Sprite hibernates before the write reaches its disk"}
 
 
 def whole_minutes(start: datetime, end: datetime) -> int:
@@ -4851,25 +4845,19 @@ class Runner:
                 self.finder_failed(action, f"its job directory {directory} is gone")
                 settled = True
                 continue
-            exited = self.job_gone(directory)
-            result = directory / finder.RESULT
-            ran = whole_minutes(actions.parse_stamp(action.started_at), self.now())
-            if result.is_file():
-                outcome = desk_outcome(result)
-                if "error" in outcome:
-                    self.finder_failed(action, outcome["error"], hold=not outcome.get("no_result"))
-                else:
-                    self.repost(directory)
-                    self.finder_settled(action.action_id, outcome)
+            outcome = desk_result.read(directory, lambda: self.job_gone(directory))
+            if outcome is None:
+                if self.now() < actions.parse_stamp(action.deadline):
+                    continue
+                self.finder_failed(action, f"no result {whole_minutes(actions.parse_stamp(action.started_at), self.now())} min after it started")
+            elif "error" in outcome:
+                self.finder_failed(action, outcome["error"], hold=not outcome.get(desk_result.LOST))
+            else:
+                self.repost(directory)
+                self.finder_settled(action.action_id, outcome)
                 if outcome.get("ungraded"):
                     job = json.loads(action.target)
                     self.book.accept(FINDER, f"finder:{job['pr']}:whole:{job['head']}", "finder", json.dumps({"pr": job["pr"], "head": "", "lane": job["lane"], "seq": job["seq"], "full": True}), "ungraded", None)
-            elif exited:
-                self.finder_failed(action, f"finder.py exited {ran} min after it started and wrote no result", hold=False)
-            elif self.now() >= actions.parse_stamp(action.deadline):
-                self.finder_failed(action, f"no result {ran} min after it started")
-            else:
-                continue
             settled = True
         if settled:
             self.book.edit(FINDER, lambda incident: incident.facts.update({FINDER_SETTLED: self.book.stamp()}))
@@ -5013,9 +5001,7 @@ class Runner:
         deadline = self.now() + timedelta(minutes=spec.get("timeout_minutes", FINDER_MINUTES))
         if not self.book.attempt(FINDER, lambda incident: incident.start(action.action_id, self.now(), deadline=deadline, dispatch_id=str(directory))):
             return False
-        argv, env = job_command(spec, sprite, "finder.py", directory)
-        process = self.shell.spawn(argv, directory / finder.LOG, env)
-        drive.write_atomic(directory / finder.PID, process.pid)
+        self.spawn_job(spec, sprite, "finder.py", directory)
         return True
 
     def root_settled(self, repo: str, pr: str, named: list[dict]) -> dict[str, int]:
@@ -5130,6 +5116,12 @@ class Runner:
         for pr, row in self.green_heads(FIDELITY, rows):
             self.book.accept(FIDELITY, f"fidelity:{pr}:{row['head']}:ledger", "fidelity", json.dumps({"pr": pr, "head": row["head"], "lane": row.get("lane") or ROOT, "seq": cursor}), "ledger", None)
 
+    def spawn_job(self, spec: dict, sprite: str, script: str, directory: Path) -> None:
+        """Run the desk job `directory` through `script` and record the wrapper's pid beside it, so `job_gone` can tell a wrapper that ended from one still running."""
+        argv, env = job_command(spec, sprite, script, directory)
+        process = self.shell.spawn(argv, directory / finder.LOG, env)
+        drive.write_atomic(directory / finder.PID, process.pid)
+
     def job_gone(self, directory: Path) -> bool:
         """Whether the process that ran the desk job in `directory`, named by its pid file, no longer runs it; a job whose pid file is empty is gone too (root #220372)."""
         pid = directory / finder.PID
@@ -5140,19 +5132,15 @@ class Runner:
             if not Path(action.dispatch_id).is_dir():
                 self.fidelity_failed(action, f"its job directory {action.dispatch_id} is gone")
                 continue
-            result = Path(action.dispatch_id) / fidelity.RESULT
-            ran = whole_minutes(actions.parse_stamp(action.started_at), self.now())
-            if not result.is_file():
-                if self.job_gone(Path(action.dispatch_id)):
-                    self.fidelity_failed(action, f"fidelity.py exited {ran} min after it started and wrote no result", hold=False)
-                elif self.now() >= actions.parse_stamp(action.deadline):
-                    self.fidelity_failed(action, f"no result {ran} min after it started")
-                continue
-            outcome = desk_outcome(result)
-            if "error" in outcome:
-                self.fidelity_failed(action, outcome["error"], hold=not outcome.get("no_result"))
+            directory = Path(action.dispatch_id)
+            outcome = desk_result.read(directory, lambda: self.job_gone(directory))
+            if outcome is None:
+                if self.now() >= actions.parse_stamp(action.deadline):
+                    self.fidelity_failed(action, f"no result {whole_minutes(actions.parse_stamp(action.started_at), self.now())} min after it started")
+            elif "error" in outcome:
+                self.fidelity_failed(action, outcome["error"], hold=not outcome.get(desk_result.LOST))
             else:
-                self.repost(result.parent)
+                self.repost(directory)
                 self.settle(FIDELITY, action.action_id, outcome)
 
     def repost(self, directory: Path) -> None:
@@ -5235,9 +5223,7 @@ class Runner:
         deadline = self.now() + timedelta(minutes=spec.get("timeout_minutes", FIDELITY_MINUTES))
         if not self.book.attempt(FIDELITY, lambda incident: incident.start(action.action_id, self.now(), deadline=deadline, dispatch_id=str(directory))):
             return False
-        argv, env = job_command(spec, sprite, "fidelity.py", directory)
-        process = self.shell.spawn(argv, directory / fidelity.LOG, env)
-        drive.write_atomic(directory / finder.PID, process.pid)
+        self.spawn_job(spec, sprite, "fidelity.py", directory)
         return True
 
     def least_busy_sprite(self, spec: dict) -> str | None:
