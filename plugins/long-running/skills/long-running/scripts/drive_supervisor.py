@@ -336,6 +336,7 @@ def launchctl(*argv: str) -> subprocess.CompletedProcess:
 
 
 def cmd_install(config: lr_config.Config, path: Path) -> int:
+    release.promote(lr_drive.PLUGIN)
     name = label(config)
     plist = Path.home() / "Library" / "LaunchAgents" / f"{name}.plist"
     log = str(path.parent / "supervisor.log")
