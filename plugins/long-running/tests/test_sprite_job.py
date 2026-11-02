@@ -192,6 +192,7 @@ def test_a_sprite_names_a_new_plugin_copy_by_one_rename_and_deletes_an_older_cop
     executable(script.parent / "rulings.py", "")
     executable(mac / "bin" / "sprite", SPRITE)
     executable(mac / "bin" / "cci", "#!/bin/sh\n")
+    executable(mac / "bin" / "sleep", "#!/bin/sh\nexec /bin/sleep 0.05\n")
     directory.mkdir(parents=True)
     (directory / "job.json").write_text(json.dumps({"drive": "d1", "checkout": str(checkout)}))
     (config / "long-running" / "drives").mkdir(parents=True)
@@ -414,7 +415,7 @@ JOBS = {
 
 QUICK_SLEEP = """#!/bin/sh
 [ "$1" = 0.2 ] && exec /bin/sleep 0.2
-exit 0
+exec /bin/sleep 0.05
 """
 
 
