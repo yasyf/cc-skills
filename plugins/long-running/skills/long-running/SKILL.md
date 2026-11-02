@@ -4727,10 +4727,19 @@ so the hook does not re-inject the register.
 `scripts/drive_supervisor.py` runs under launchd and keeps every lane the drive needs
 alive, with no root action. Each tick reads the bus once and `cci who` once:
 
-- **Registry.** A lane enters the `lanes` table of the drive store from the `SPAWNED`
-  state record that `drive.py spawned` posts at each Orca launch and drive-lane spawn,
-  with its brief, model, effort and role. Helper roles and `<lane>-handoff` writers stay
-  out. A lane's `head` and `opened` records move their PRs to it, `landed` records drop
+- **Registry.** The `lanes` table of the drive store holds one row per worker, and only
+  the supervisor writes it. A worker enters it from the `SPAWNED` state record that
+  `drive.py spawned` posts at each launch: `orca-launch.sh` posts placement `orca`, the
+  desk runner posts `sprite` for a Sprite launch, and the Agent hook posts `teammate` for
+  an in-process lane. The record carries the brief, model, effort and role. A relaunch
+  also carries `successor-of`, from `--successor-of` or the brief's `Replaces:` line. The
+  successor takes that worker's PRs, and the supervisor posts the one `stand-down
+  --successor` record cci routes mail by. Root and every desk change a row only through
+  `drive_supervisor.py request <stand-down|park|unpark|owner|done> <lane> --config lr.json`,
+  with `--successor <lane>`, `--last-read <seq>` and `--pr <n>` as the verb needs. Nobody
+  posts a `stand-down` for another lane. `drive_supervisor.py route <lane> --config
+  lr.json` prints where that lane's mail goes. Helper roles and `<lane>-handoff` writers
+  stay out. A lane's `head` and `opened` records move their PRs to it, `landed` records drop
   them, a root `decide ... owner=<lane>` moves them, the lane's own `done`, `stopped` or
   `stand-down` record retires it, and a root `stand-down` retires it or hands it to the
   successor it names. Only these structured records retire a lane, never prose: a lane

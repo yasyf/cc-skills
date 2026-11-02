@@ -277,6 +277,8 @@ def fold(store: Store, records: Iterable[dict], live: set[str] | None, briefs: P
             name, brief, model, effort, role = found.name, found.brief, found.model, found.effort, found.role
             if found.successor_of and (old := store.lane(found.successor_of)) and old.name != name:
                 takes_over(store, name, old, at)
+                if live is None:
+                    out.stood.append((old.name, name, old.prs, record["seq"]))
             for old in [store.lane(other) for other in store.names() if succeeds(name, other)]:
                 takes_over(store, name, old, at)
             if (mine := store.lane(name)) and mine.state == "launching" and mine.reason and Path(brief).resolve() != (briefs / f"{name}.brief.md").resolve():
@@ -581,7 +583,7 @@ def liveness(store: Store, now: datetime) -> list[dict]:
     registered = {lane.name: lane for lane in store.all_lanes()}
     heard, owned, probes = store.heard(), store.owners(), store.probes()
     return [
-        {"lane": name, "state": lane.state if lane else "unregistered", "live": not (probes.get(name) or {}).get("dead"), "heard": stamp(heard[name]) if name in heard else None, "prs": owned.get(name, []), "handoff": lane.handoff if lane else None, "retired_by": lane.retired_by if lane else None, "placement": lane.placement if lane else None, "route": route(store, name)}
+        {"lane": name, "state": lane.state if lane else "unregistered", "live": not (probes.get(name) or {}).get("dead"), "heard": stamp(heard[name]) if name in heard else None, "prs": owned.get(name, []), "handoff": lane.handoff if lane else None, "retired_by": lane.retired_by if lane else None, "placement": lane.placement if lane else None, "predecessor": lane.predecessor if lane else None, "route": route(store, name)}
         for name in sorted(registered.keys() | heard.keys() | owned.keys())
         for lane in [registered.get(name)]
     ]
@@ -613,7 +615,7 @@ def tick(store: Store, deps: Deps, now: datetime, generation: int) -> Outcome:
     folded = fold(store, records, {lane for lane, peer in found.items() if alive(peer, peer.seen, now)} if fresh else None, deps.briefs)
     out.adopted, hand, dead, unread = folded.adopted, folded.hand, folded.dead, folded.unread
     for old, successor, prs, seq in folded.stood:
-        post(deps, "stand-down", old, f"{pacific(now)} {old} stood down{f' for {successor}' if successor else ', its PRs to root'} on request #{seq}.", *(("--successor", successor) if successor else ()), "--re", str(seq), *[arg for n in prs for arg in ("--pr", str(n))])
+        post(deps, "stand-down", old, f"{pacific(now)} {old} stood down{f' for {successor}' if successor else ', its PRs to root'} by record #{seq}.", *(("--successor", successor) if successor else ()), "--re", str(seq), *[arg for n in prs for arg in ("--pr", str(n))])
     for line in dead:
         escalate(store, deps, f"lane:{line.split(' ', 1)[0]}", line, now)
     for name, why in unread:

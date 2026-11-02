@@ -76,8 +76,8 @@ def test_every_worker_has_one_row_written_only_by_the_supervisor_and_every_sende
         assert store.owner_of([10_000 + i]) == {10_000 + i: owner}
         assert (rows[name].waiting is not None) == (name in parked)
     downs = posted(fake, "stand-down")
-    assert sorted(flag(argv, "--to")[0] for argv in downs) == sorted([*stood, *dropped])
-    assert {flag(argv, "--to")[0]: flag(argv, "--successor") for argv in downs} == {name: ([f"{name}-heir"] if name in stood else []) for name in [*stood, *dropped]}
+    assert sorted(flag(argv, "--to")[0] for argv in downs) == sorted([*relaunched, *stood, *dropped])
+    assert {flag(argv, "--to")[0]: flag(argv, "--successor") for argv in downs} == {name: [heir] if (heir := f"{name}-next" if name in relaunched else f"{name}-heir" if name in stood else None) else [] for name in [*relaunched, *stood, *dropped]}
     assert {row["lane"]: row["route"] for row in lanes.liveness(store, T0) if row["lane"] in rows} == {name: lanes.route(store, name) for name in rows}
 
 
@@ -213,6 +213,19 @@ def test_a_launch_naming_the_worker_it_succeeds_takes_its_prs_whatever_its_name(
 
     assert lanes.route(store, "conflicts-2") == "restack-desk" and store.owners() == {"restack-desk": [46001]}
     assert store.lane("restack-desk").placement == "sprite"
+
+
+def test_a_launch_naming_the_worker_it_succeeds_tells_cci_once_so_every_senders_records_reach_the_successor(tmp_path, brief):
+    """cc-skills#1335: a rotation records its successor in cci, so a record any lane addresses to the old name reaches the new one."""
+    store = Store.memory()
+    fake = adopted(tmp_path, brief, store, prs=(46001,))
+    fake.feed.append(spawned(5, "conflicts-3", brief, T0, placement="teammate", **{"successor-of": "conflicts-2"}))
+    fake.peers.append(who("conflicts-3", True, T0))
+
+    lanes.tick(store, fake.deps, T0, 1)
+
+    [down] = posted(fake, "stand-down")
+    assert flag(down, "--to") == ["conflicts-2"] and flag(down, "--successor") == ["conflicts-3"] and flag(down, "--pr") == ["46001"]
 
 
 def test_a_cci_spawn_record_is_a_workers_birth(tmp_path, brief):

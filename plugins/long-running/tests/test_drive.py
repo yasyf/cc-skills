@@ -683,3 +683,24 @@ def test_release_faults_reads_the_release_the_marketplace_entry_pins(tmp_path, m
     assert drive.release_faults("1.2.9") == [f"{plugins / 'cache' / 'skills' / 'long-running' / '1.2.9'} holds no install of 1.2.9"]
     monkeypatch.setattr(drive, "PLUGIN", tmp_path / "cc-skills" / "plugins" / "long-running")
     assert drive.release_faults("1.2.3") == []
+
+
+@pytest.mark.parametrize(
+    ("argv", "expected"),
+    [
+        ([], {"role": "build", "successor-of": "conflicts-2"}),
+        (["--role", "fix", "--successor-of", "desk-9"], {"role": "fix", "successor-of": "desk-9"}),
+    ],
+)
+def test_a_launch_records_its_placement_role_and_the_worker_it_succeeds(repo, tmp_path, argv, expected):
+    """cc-skills#1335 and #1474: a relaunch names the worker it takes over in its launch record, so the registry moves that worker's PRs and mail to it."""
+    started(repo, "--cci-drive", DRIVE)
+    brief = tmp_path / "conflicts-3.brief.md"
+    brief.write_text("Replaces: conflicts-2\nccx: role=build place=local\n# conflicts-3\n")
+    shell = FakeShell()
+
+    assert drive.main(["spawned", "--lane", "conflicts-3", "--brief", str(brief), "--drive", "900424b6", "--model", "opus", "--placement", "sprite", *argv], shell) == 0
+
+    [post] = [call for call in shell.calls if call[:2] == ["cci", "post"]]
+    attrs = dict(value.split("=", 1) for flag, value in zip(post, post[1:]) if flag == "--attr")
+    assert attrs == {"brief": str(brief), "model": "opus", "placement": "sprite"} | expected
