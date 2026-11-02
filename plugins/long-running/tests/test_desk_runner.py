@@ -12571,6 +12571,27 @@ def test_a_mechanism_a_case_sibling_posted_stops_the_mechanism_fallback_but_not_
     assert f"{LANE}-opus" in [call[1] for call in launches(shell)]
 
 
+@pytest.mark.parametrize("source", ["cci", "status"])
+def test_a_fix_live_from_any_lane_of_the_incident_stops_every_clock_of_that_incident(shell, config, tmp_path, capsys, source):
+    for lane in ("inc-disk-fix", "inc-disk-cred", "inc-dusk-fix"):
+        clocked_lane(shell, config, tmp_path, lane=lane)
+    shell.sleep(5 * 60)
+    if source == "status":
+        shell.receive({"subject": "fix-live: 11:05 AM PT alert recovered", "from_handle": "term_ctx_inc-disk-fix"})
+    else:
+        lane_record(shell, "inc-disk-fix", "fix-live")
+    orca_pass(shell, config)
+    shell.sleep(20 * 60)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert clock_lines(shell, "inc-disk-fix") == clock_lines(shell, "inc-disk-cred") == []
+    assert [line.split(":", 1)[0] for line in clock_lines(shell, "inc-dusk-fix")] == [f"INCIDENT-CLOCK inc-dusk-fix {about}" for about in ("mechanism", "pr", "ready")]
+    assert [call[1] for call in launches(shell)][3:] == ["inc-dusk-fix-opus"]
+    capsys.readouterr()
+    cli(shell, config, "show")
+    assert capsys.readouterr().out.count("- incident clock [stopped: fix-live] launched 11:00; ") == 2
+
+
 def test_a_mechanism_another_fix_lane_on_the_incident_posted_stops_the_mechanism_fallback(shell, config, tmp_path):
     for lane in ("inc-disk-fix", "inc-disk-cred", "inc-dusk-fix"):
         clocked_lane(shell, config, tmp_path, lane=lane)
