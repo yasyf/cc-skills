@@ -8646,6 +8646,7 @@ def test_a_go_named_head_whose_check_would_also_land_an_ungone_parent_the_ledger
     two_pr_stack(shell)
     shell.rows[1] = dict(shell.rows[1], base="dev", test_state="success")
     shell.queue["29031"] = "not queued"
+    tap(shell, "29031", "dddd444444")
     merge_go(shell, "29031", "merge #29031 at dddd444")
     landing_pass(shell, config)
     landing_pass(shell, config)
