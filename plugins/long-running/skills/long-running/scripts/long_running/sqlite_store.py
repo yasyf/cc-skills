@@ -125,19 +125,19 @@ _RELEASE_ACTION_SCHEMA = {
     'release_action_delete': _RELEASE_ACTION_DDL[7],
 }
 _ESCALATION_SCHEMA = """
-CREATE TABLE IF NOT EXISTS escalation_pr (
+CREATE TABLE escalation_pr (
     pr TEXT NOT NULL,
     action_ordinal INTEGER NOT NULL,
     PRIMARY KEY(pr, action_ordinal)
 ) WITHOUT ROWID;
-CREATE INDEX IF NOT EXISTS escalation_pr_action ON escalation_pr(action_ordinal);
-CREATE TRIGGER IF NOT EXISTS escalation_added AFTER INSERT ON action WHEN NEW.kind = 'escalation' BEGIN
+CREATE INDEX escalation_pr_action ON escalation_pr(action_ordinal);
+CREATE TRIGGER escalation_added AFTER INSERT ON action WHEN NEW.kind = 'escalation' BEGIN
     INSERT INTO escalation_pr(pr, action_ordinal)
     SELECT DISTINCT substr(part.value, 1, length(part.value) - length(ltrim(part.value, '0123456789'))), NEW.ordinal
     FROM json_each('[' || replace(json_quote(json_extract(NEW.record, '$.target')), '#', '","') || ']') AS part
     WHERE part.key > 0 AND part.value GLOB '[0-9]*';
 END;
-CREATE TRIGGER IF NOT EXISTS escalation_changed AFTER UPDATE OF kind, record ON action
+CREATE TRIGGER escalation_changed AFTER UPDATE OF kind, record ON action
 WHEN CASE
     WHEN OLD.kind != 'escalation' AND NEW.kind != 'escalation' THEN 0
     WHEN OLD.kind IS NOT NEW.kind THEN 1
@@ -149,15 +149,9 @@ END BEGIN
     FROM json_each('[' || replace(json_quote(json_extract(NEW.record, '$.target')), '#', '","') || ']') AS part
     WHERE NEW.kind = 'escalation' AND part.key > 0 AND part.value GLOB '[0-9]*';
 END;
-CREATE TRIGGER IF NOT EXISTS escalation_deleted AFTER DELETE ON action BEGIN
+CREATE TRIGGER escalation_deleted AFTER DELETE ON action BEGIN
     DELETE FROM escalation_pr WHERE action_ordinal = OLD.ordinal;
 END;
-"""
-_ESCALATION_BACKFILL = """
-INSERT OR IGNORE INTO escalation_pr(pr, action_ordinal)
-SELECT DISTINCT substr(part.value, 1, length(part.value) - length(ltrim(part.value, '0123456789'))), action.ordinal
-FROM action, json_each('[' || replace(json_quote(json_extract(action.record, '$.target')), '#', '","') || ']') AS part
-WHERE action.kind = 'escalation' AND part.key > 0 AND part.value GLOB '[0-9]*';
 """
 
 
@@ -725,8 +719,6 @@ class Store:
                 raise ValueError(f"unsupported action store version: {path}")
             if writable:
                 connection.execute("PRAGMA synchronous = FULL")
-                if connection.execute("SELECT 1 FROM sqlite_schema WHERE name = 'escalation_pr'").fetchone() is None:
-                    connection.executescript(f"BEGIN IMMEDIATE;\n{_ESCALATION_SCHEMA}\n{_ESCALATION_BACKFILL}\nCOMMIT;")
         except BaseException:
             connection.close()
             raise
@@ -796,10 +788,7 @@ class Store:
     def _create(self, incident: Incident, existing_snapshot: bool) -> Incident | None:
         with self._locked(incident.incident_id) as path:
             if path.exists():
-                if existing_snapshot:
-                    return self.load(incident.incident_id)
-                self._connect(path, writable=True).close()
-                return None
+                return self.load(incident.incident_id) if existing_snapshot else None
             return _create_database(self.root, incident)
 
     def create(self, incident: Incident) -> Incident:
