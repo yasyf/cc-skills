@@ -46,14 +46,14 @@ class DeskControl:
             return holder
 
     @contextmanager
-    def quiesced(self, desk: str, wait: timedelta, wake: float) -> Iterator[None]:
+    def quiesced(self, desk: str, wait: timedelta, wake: float) -> Iterator[int | None]:
         pid = None
         deadline = self.clock.now() + wait
         while True:
             with self.lock(desk) as holder:
                 if holder is None:
                     try:
-                        yield
+                        yield pid
                     finally:
                         if pid is not None:
                             self.marker(pid).unlink(missing_ok=True)
