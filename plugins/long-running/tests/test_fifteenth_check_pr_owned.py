@@ -79,7 +79,8 @@ def overrides(selected):
 
 
 def receipt(argv, cwd, env, timeout, selected, budget):
-    assert cwd == selected["PWD"] and Path(cwd).is_dir() and 0 < timeout <= budget
+    expected = Path(selected["CLAUDE_CONFIG_DIR"]) / "long-running" / "headless-cwd" if argv[0] == "claude" else selected["PWD"]
+    assert cwd == str(expected) and Path(cwd).is_dir() and 0 < timeout <= budget
     for name in ("HOME", "CLAUDE_CONFIG_DIR", "LONG_RUNNING_JUDGE", "CLAUDE_LONG_RUNNING_DRIVE"):
         assert env[name] == selected[name]
     parent, deadline = env[handoff.DEADLINE_ENV].split(":")
