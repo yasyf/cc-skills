@@ -179,8 +179,10 @@ def receipt_seq(value: str) -> int | None:
     return int(found[1])
 
 
-def _native_json(path: str, request: dict, deadline: float) -> tuple[int, dict]:
+def _native_json(path: str, request: dict, deadline: float | None) -> tuple[int, dict]:
     def remaining():
+        if deadline is None:
+            return None
         seconds = deadline - monotonic()
         if seconds <= 0:
             raise TimeoutError("native CCI read budget expired")
@@ -232,9 +234,42 @@ def native_tail(argv: list[str], timeout: float, env: dict[str, str] | None = No
         return 1, "", f"cci: native tail: {error}\n"
 
 
-def _tail_output(encoded: str) -> str:
-    with io.TextIOWrapper(io.BytesIO(base64.b64decode(encoded, validate=True)), errors="replace") as output:
+def _tail_output(encoded: str, encoding: str | None = None) -> str:
+    with io.TextIOWrapper(io.BytesIO(base64.b64decode(encoded, validate=True)), encoding=encoding, errors="replace") as output:
         return output.read()
+
+
+class CapturedBody:
+    def __init__(self, envelope: dict):
+        self.envelope = envelope
+
+    def is_file(self) -> bool:
+        return self.envelope["is_file"]
+
+    def open(self):
+        if self.envelope["error"]:
+            raise OSError(self.envelope["error"])
+        return io.TextIOWrapper(io.BytesIO(base64.b64decode(self.envelope["body_b64"], validate=True)), encoding="utf-8")
+
+
+def board_request(drive: str, repo: str, go_lanes: list[str], prs: list[str], row_ids: list[str]) -> dict:
+    environment = os.environ
+    cwd = os.getcwd()
+    return {
+        "contract": "board-query-v1",
+        "home": native_home(environment, cwd),
+        "session": environment.get("CLAUDE_CODE_SESSION_ID") or environment.get("CODEX_THREAD_ID", ""),
+        "agent": environment.get("CCI_AGENT_ID", ""),
+        "drive": drive,
+        "repo": repo,
+        "cwd": cwd,
+        "go_lanes": go_lanes,
+        "ruling_argv": record_argv(drive, tuple(f"--kind={kind}" for kind in sorted(ROOT_ANSWER_KINDS | {"answer"})), 0),
+        "withdraw_argv": record_argv(drive, ("--lane", "root", "--kind=withdraw"), 0),
+        "review_argv": record_argv(drive, ("--kind=review", "--kind=head"), 0),
+        "prs": prs,
+        "row_ids": row_ids,
+    }
 
 
 def since_args(since: int | str) -> list[str]:
@@ -289,7 +324,7 @@ def paged(run: Callable[[list[str]], str], drive: str, filters: tuple[str, ...],
     """The records `cci tail` prints for `filters` after `since`, paged by sequence; a page is the last when it holds fewer than the `PAGE_ROWS` records cci prints per call and fills under half the byte budget, since cci caps a record far below that."""
     found: list[dict] = []
     while True:
-        out = run(["cci", "tail", "--drive", drive, *since_args(since), "--json", "--budget", str(PAGE_BYTES), *filters])
+        out = run(record_argv(drive, filters, since))
         page = [interned(json.loads(line)) for line in out.splitlines() if line.strip()]
         found += page
         if len(page) < PAGE_ROWS and len(out.encode()) < PAGE_BYTES // 2:
@@ -303,6 +338,10 @@ def interned(record: dict) -> dict:
         if (value := record.get(key)).__class__ is str:
             record[key] = sys.intern(value)
     return {sys.intern(key): value for key, value in record.items()}
+
+
+def record_argv(drive: str, filters: tuple[str, ...], since: int | str) -> list[str]:
+    return ["cci", "tail", "--drive", drive, *since_args(since), "--json", "--budget", str(PAGE_BYTES), *filters]
 
 
 def resolved(record: dict) -> set[int]:

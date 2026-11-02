@@ -86,6 +86,7 @@ every row it covers. `--json` prints it all as one object.
 from __future__ import annotations
 
 import argparse
+import http.client
 import itertools
 import json
 import os
@@ -166,6 +167,17 @@ class Shell:
 
     def files(self, directory: Path) -> list[str]:
         return [path.name for path in directory.iterdir()] if directory.is_dir() else []
+
+    def board_records(self, request: dict) -> dict:
+        try:
+            status, result = cci._native_json("/v1/board-records", request, None)
+        except (OSError, http.client.HTTPException) as error:
+            raise ReadFailed(f"cci board-records: {error}") from error
+        if status != 200:
+            raise ReadFailed(result["error"])
+        if result["contract"] != "board-query-v1":
+            raise ReadFailed(f"cci board-records: unexpected contract {result['contract']!r}")
+        return result
 
 
 class ReadFailed(Exception):
@@ -345,6 +357,26 @@ def tail(shell: Shell) -> Callable[[list[str]], str]:
 def ruling_text(shell: Shell, record: dict) -> str:
     path = record.get("refs", {}).get("path")
     return (shell.read(path) if path else None) or record["text"]
+
+
+def board_reply(shell: Shell, request: dict) -> dict | ReadFailed:
+    try:
+        result = shell.board_records(request)
+        if type(result["scope_id"]) is not str or not result["scope_id"] or type(result["source_revision"]) is not int or type(result["clock_ms"]) is not int:
+            raise ReadFailed("cci board-records: missing closing-cut identity")
+        return result
+    except ReadFailed as error:
+        return error
+
+
+def board_category(reply: dict | ReadFailed, name: str) -> dict:
+    if isinstance(reply, ReadFailed):
+        raise reply
+    group = reply[name]
+    if group["error"] is not None:
+        stderr = "cci: " + group["error"] + "\n"
+        raise ReadFailed(f"cci tail exited 1: {stderr.strip()[:200]}")
+    return group
 
 
 def root_rulings(shell: Shell, drive: str, lanes: list[str]) -> list[dict]:
@@ -662,7 +694,7 @@ def flags(rows: list[Row]) -> list[dict]:
     return found
 
 
-def check(shell: Shell, config: dict, block: dict, outcomes: list[str], finders: Path) -> tuple[list[Row], list[dict], list[str]]:
+def check(shell: Shell, config: dict, block: dict, outcomes: list[str], finders: Path, board_provider: str | None = None) -> tuple[list[Row], list[dict], list[str]]:
     drive, landing = config["drive"], config["landing"]
     repo, configured = landing["repo"], landing["fidelity_lane"]
     lanes = [configured] if isinstance(configured, str) else list(configured)
@@ -679,9 +711,23 @@ def check(shell: Shell, config: dict, block: dict, outcomes: list[str], finders:
     listed = sorted(set(listed_prs(block)))
     asked = {row.pr for row in named} | {pr for prs in blockers.values() for pr in prs} | {pr for *_, members in claims for pr in members} | {pr for _, pr in listed}
     pulls = read_pulls(shell, repo, sorted(asked, key=int), warnings)
+    reply = board_reply(shell, cci.board_request(drive, repo, landing.get("go_lanes", []), sorted(asked, key=int), [row.id for row in rows])) if board_provider else {}
     try:
-        rulings = sorted(root_rulings(shell, drive, ["root", *landing.get("go_lanes", [])]), key=lambda record: record["seq"])
-        withdrawn = {seq for record in cci.records(tail(shell), drive, "--lane", "root", "--kind=withdraw") if record["lane"] == "root" for seq in grades.closes(record)}
+        if board_provider:
+            group = board_category(reply, "rulings_withdrawals")
+            rulers = ["root", *landing.get("go_lanes", [])]
+            rulings = []
+            for entry in group["rulings"]:
+                record = entry["record"]
+                if not (grades.delegated(record["lane"], rulers) and record["drive"] == drive and record["kind"] in RULING_KINDS):
+                    continue
+                whole = cci._tail_output(entry["body_b64"], "utf-8") if entry["body_b64"] is not None else None
+                rulings.append(record | {"full": whole or record["text"]})
+            rulings.sort(key=lambda record: record["seq"])
+            withdrawn = {seq for record in group["withdrawals"] if record["lane"] == "root" for seq in grades.closes(record)}
+        else:
+            rulings = sorted(root_rulings(shell, drive, ["root", *landing.get("go_lanes", [])]), key=lambda record: record["seq"])
+            withdrawn = {seq for record in cci.records(tail(shell), drive, "--lane", "root", "--kind=withdraw") if record["lane"] == "root" for seq in grades.closes(record)}
     except ReadFailed as failed:
         rulings, withdrawn = None, set()
         warnings.append(f"WARN the root rulings did not read ({failed}); no row is checked for a closing ruling or a root go at its head, and no renamed row is excused by a re-key")
@@ -693,8 +739,13 @@ def check(shell: Shell, config: dict, block: dict, outcomes: list[str], finders:
         warnings.append(f"WARN the board's verdicts did not read ({failed}); no row is checked for a moved, renamed, rejected or already approved verdict, or a one-tap claim over a rejected PR")
     moved = verdict_reasons(rows, verdicts, rulings) if verdicts is not None else {}
     try:
-        reviews = cci.records(tail(shell), drive, "--kind=review", "--kind=head")
-        lanes = grades.with_successors(lanes, reviews)
+        if board_provider:
+            group = board_category(reply, "reviews")
+            reviews = [record | {"_captured_body": cci.CapturedBody(group["bodies"][str(record["seq"])])} for record in group["records"]]
+            lanes = grades.with_successors(lanes, [{"lane": lane} for lane in group["lanes"]])
+        else:
+            reviews = cci.records(tail(shell), drive, "--kind=review", "--kind=head")
+            lanes = grades.with_successors(lanes, reviews)
     except ReadFailed as failed:
         reviews = None
         warnings.append(f"WARN the grades did not read ({failed}); no row is checked for a grade or finder at its head")
@@ -873,6 +924,7 @@ def main(argv: list[str], shell: Shell | None = None) -> int:
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--session")
     parser.add_argument("--finders", type=Path)
+    parser.add_argument("--board-provider", choices=["board-query-v1"])
     parser.add_argument("block", type=Path)
     args = parser.parse_args(ours)
     if args.check == bool(command):
@@ -880,7 +932,7 @@ def main(argv: list[str], shell: Shell | None = None) -> int:
     block = json.loads(args.block.read_text())
     config = args.config.expanduser()
     loaded = json.loads(config.read_text())
-    rows, found, warnings = check(shell, loaded, block, outcomes_args(args.session, command), (args.finders or config.parent / FINDERS).expanduser())
+    rows, found, warnings = check(shell, loaded, block, outcomes_args(args.session, command), (args.finders or config.parent / FINDERS).expanduser(), args.board_provider)
     if (banner := trunk_banner(shell, loaded["drive"], warnings)) and not args.json:
         print(f"BANNER {banner}")
     report(rows, found, warnings, args.json)

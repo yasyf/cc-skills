@@ -321,7 +321,7 @@ def owes(record: dict, lane: str) -> bool:
 
 def full_text(record: dict) -> str:
     """The whole text of `record`: the body file cci spilled it to when it ran past cci's text limit, else its text, as when its path names an attachment such as a tarball rather than a text body (#207472 stopped every stall pass for 3.5 hours on Oct 30), or a body file its lane rewrote after posting, which no longer opens with the text cci clipped from it (#304302 dated a 7:53 PM head to a 3:47 PM count whose file a later count rewrote)."""
-    spilled = Path(record.get("refs", {}).get("path") or "")
+    spilled = record["_captured_body"] if "_captured_body" in record else Path(record.get("refs", {}).get("path") or "")
     if not spilled.is_file():
         return record["text"]
     try:
