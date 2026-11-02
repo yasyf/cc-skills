@@ -6,7 +6,7 @@
 set -eu
 
 case "$0" in */*) d=${0%/*} ;; *) d=. ;; esac
-ROOT="$(cd "$d/.." && pwd)"
+ROOT="$(cd "$d/.." && pwd -P)"
 TOOL=${0##*/}
 
 is_version() {

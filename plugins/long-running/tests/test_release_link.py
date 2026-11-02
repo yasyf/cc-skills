@@ -49,6 +49,16 @@ def shim_reader(cache: Path, started_on: str) -> str:
     ).stdout.strip()
 
 
+def launchd_reader() -> str:
+    return subprocess.run(
+        [str(release.link() / "bin" / "tool.py")],
+        capture_output=True,
+        text=True,
+        check=True,
+        env={"PATH": os.environ["PATH"], "CLAUDE_CONFIG_DIR": str(release.config_dir())},
+    ).stdout.strip()
+
+
 def hook_reader(started_on: Path) -> str:
     root = release.current(started_on)
     return f"{root.name} {(root / 'data.txt').read_text()}"
@@ -67,6 +77,7 @@ def test_a_reader_that_starts_during_an_install_runs_one_whole_version(tmp_path:
             assert hook_reader(started_on) == f"{expected} {expected}"
             if installs == 1 or step == 2:
                 assert shim_reader(cache, "0.7.1") == f"{expected} {expected}"
+                assert launchd_reader() == f"{expected} {expected}"
 
 
 @pytest.mark.parametrize("relinks", [1, 144])

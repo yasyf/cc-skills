@@ -2537,7 +2537,7 @@ class Runner:
         agent = plistlib.dumps(
             {
                 "Label": label,
-                "ProgramArguments": ["/bin/zsh", "-c", f"{exports}exec {shlex.quote(str(RUNNER_BIN))} run --config {shlex.quote(str(self.config.source))} --desk {desk}"],
+                "ProgramArguments": ["/bin/zsh", "-c", f"{exports}exec {shlex.quote(str(release.link() / 'bin' / 'desk-runner.py'))} run --config {shlex.quote(str(self.config.source))} --desk {desk}"],
                 "EnvironmentVariables": {"PATH": self.shell.env("PATH")},
                 "KeepAlive": True,
                 "ThrottleInterval": LAUNCHD_THROTTLE_SECONDS,

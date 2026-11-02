@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import plistlib
 import os
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -106,6 +107,29 @@ def test_a_reinstall_bootstraps_only_once_launchd_has_finished_booting_out_the_o
 
     assert supervisor.cmd_install(config, tmp_path / "lr.json") == 0
     assert calls == ["print", "bootout", "print", "print", "print", "bootstrap"]
+
+
+def test_the_supervisor_agent_names_the_install_link_so_a_plugin_update_never_changes_it(tmp_path: Path, monkeypatch):
+    """cc-skills#1492: every plugin update changed the version directory in the agent, so each one booted the supervisor out and waited for launchd."""
+    monkeypatch.setattr(supervisor.Path, "home", lambda: tmp_path)
+    calls: list[str] = []
+    loaded: list[bool] = []
+
+    def launchctl(*argv: str):
+        calls.append(argv[0])
+        if argv[0] == "bootstrap":
+            loaded.append(True)
+        return supervisor.subprocess.CompletedProcess(argv, 113 if argv[0] == "print" and not loaded else 0, "", "")
+
+    monkeypatch.setattr(supervisor, "launchctl", launchctl)
+    config = lr_config.Config("org/repo", "d1", "/srv/checkout", "bot", "drive", ("lanes",))
+
+    assert supervisor.cmd_install(config, tmp_path / "lr.json") == 0
+    plist = tmp_path / "Library" / "LaunchAgents" / f"{supervisor.label(config)}.plist"
+    assert plistlib.loads(plist.read_bytes())["ProgramArguments"][0] == str(tmp_path / ".claude" / "long-running" / "current" / "bin" / "drive_supervisor.py")
+    calls.clear()
+    assert supervisor.cmd_install(config, tmp_path / "lr.json") == 0
+    assert calls == ["print"]
 
 
 def test_a_supervisor_re_executes_into_a_newer_install_at_the_end_of_its_tick(tmp_path: Path, monkeypatch):
