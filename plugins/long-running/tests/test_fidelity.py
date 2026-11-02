@@ -120,6 +120,7 @@ def job(tmp_path: Path, **changes) -> Path:
         "settled": {},
         "rulings": [],
         "contract": "contract: builds the resubscribe from the fetched position; deletes nothing",
+        "sources": "",
         "exempt": {"port": PORT_PHRASE, "test-only": TEST_ONLY_PHRASE},
         "exempt_grades": [PORT_PHRASE, TEST_ONLY_PHRASE],
         "baseline": BASELINE,
@@ -510,3 +511,11 @@ def test_a_deletion_on_owner_words_that_never_name_the_deleted_thing_grades_miss
     if missing:
         assert said.startswith("deletes /graphiql page, and the owner words it cites never name graphiql: “remove entirely the code that installs litestream at runtime")
         assert owner_grounded(f"{fidelity.FIDELITY_MISSING} abc1234 {fidelity.DELETION_KEY} {said}")
+
+
+def test_the_grader_reads_the_plan_grounds_root_accepted_outside_the_package_from_the_jobs_sources_file(tmp_path):
+    sources = tmp_path / "sources.md"
+    directory = job(tmp_path, sources=str(sources))
+    shell = Fake(tmp_path, [reply()])
+    fidelity.main([str(directory)], shell)
+    assert f"Plan grounds root accepted outside the package, such as a class-fix inventory or a lane's\naccepted design contract: {sources}." in (directory / "question-1.md").read_text()

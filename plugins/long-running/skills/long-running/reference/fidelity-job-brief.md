@@ -123,6 +123,11 @@ words or taps in the rows file that postdate a doc and say otherwise rule over t
 mechanism a doc line names is not grounded when a later tap passed over it or later words
 remove it, so read the rows on a mechanism's subject before you ground it in a doc line.
 
+Plan grounds root accepted outside the package, such as a class-fix inventory or a lane's
+accepted design contract: {sources}. Read that file before you grade. A mechanism one of them
+puts where the head puts it is planned, the same as one a package doc names, and a `missing`
+that contradicts one keys `plan:sources.md:<line>`.
+
 The lane's contract, its read-back of what it builds, moves or deletes, is a claim to check,
 never the standard:
 {contract}
