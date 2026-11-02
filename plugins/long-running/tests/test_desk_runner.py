@@ -6592,10 +6592,10 @@ def test_a_slow_stack_check_holds_no_other_stack_out_of_the_queue(shell, config,
     waited: list[bool] = []
     stacks, chains = runner_module.Landing.proven_stacks, runner_module.Landing.enqueue_chains
 
-    def slow(self, tips):
+    def slow(self, tips, open_rows):
         if tips == ["29020"]:
             waited.append(other_queued.wait(5))
-        return stacks(self, tips)
+        return stacks(self, tips, open_rows)
 
     def chained(self, tops, heads, whole):
         done = chains(self, tops, heads, whole)
@@ -6714,10 +6714,10 @@ def test_a_stack_worker_past_the_gate_budget_runs_on_after_the_pass_while_the_ot
     release = threading.Event()
     stacks = runner_module.Landing.proven_stacks
 
-    def stuck(self, tips):
+    def stuck(self, tips, open_rows):
         if tips == ["29020"]:
             release.wait(10)
-        return stacks(self, tips)
+        return stacks(self, tips, open_rows)
 
     monkeypatch.setattr(runner_module.Landing, "proven_stacks", stuck)
     landing = landing_of(shell, config, tmp_path)
@@ -8595,6 +8595,25 @@ def test_a_stacked_head_on_a_base_the_pass_did_not_admit_reads_below_blocked_nev
     [line] = settled(shell, "BELOW-BLOCKED")
     assert line.startswith(f"BELOW-BLOCKED above #33000: root gos name #33001 at aaaa111111 (go #{go_of(shell, '33001')} by root at ")
     assert line.endswith("stacked on #33000, which the pass did not admit, so its graphite-stack-enqueue check read no verdict: stack-enqueue: error: #33001's native stack contains an unavailable pull request")
+
+
+def test_a_child_whose_native_stack_starts_above_its_open_parent_waits_on_it_and_the_parent_is_checked_alone(shell, config, tmp_path):
+    """Root #297121: #47402's check exited with "#47402's native stack targets ssql-transition-log, not dev", since #47394 below it is open and outside that native stack; the runner posted GATE-FAILED to root every pass and never checked #47394 itself."""
+    shell.rows = [
+        {"pr": "33000", "lane": LANE, "branch": "g/0", "base": "dev", "head": "aaaa000000", "state": "open", "reported_head": "aaaa000000", "test_state": "success"},
+        {"pr": "33001", "lane": LANE, "branch": "g/1", "base": "g/0", "head": "aaaa111111", "state": "open", "reported_head": "aaaa111111", "test_state": "success"},
+    ]
+    shell.gates["33001"] = [(1, "", "stack-enqueue failed: #33001's native stack targets g/0, not dev\n")]
+    shell.gates["33000"] = [gate("#33000 WAITING aaaa000000 CI running")]
+    shell.queue |= {"33000": "not queued", "33001": "not queued"}
+    for pr, sha in (("33000", "aaaa000"), ("33001", "aaaa111")):
+        grade(shell, pr, f"ok F307 at {sha}.")
+        merge_go(shell, pr, f"merge #{pr} at {sha}")
+    landing_pass(shell, config)
+    assert not [line for line in said(shell) if line.startswith("GATE-FAILED") or "unsettled" in line]
+    [line] = settled(shell, "BELOW-BLOCKED")
+    assert line.endswith("waits on #33000, open and not landed: its native stack starts above #33000, so its graphite-stack-enqueue check reads no verdict until #33000 lands")
+    assert any(line.startswith("REFUSED #33000") and line.endswith("the gate read aaaa000000 WAITING: CI running") for line in settled(shell, "REFUSED"))
 
 
 @pytest.mark.parametrize("admitted_by", ["exemption", "go-while-conflicting"])

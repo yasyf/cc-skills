@@ -1060,6 +1060,7 @@ UNKNOWN_CAUSE = re.compile(r"\bUNKNOWN\b")
 HANDED_BACK = re.compile(r"^(?:[\w-]+:\s*)?(?:NOT-OURS|stood down|stopped)\b", re.IGNORECASE)
 MONITOR_ID = re.compile(r"(?:monitors/|\bmonitor |\bDatadog )(\d{4,})")
 INCIDENT_ANNOTATION = re.compile(r"^ccx:.*\bincident=([\w.-]+)", re.MULTILINE)
+NATIVE_BASE = re.compile(r"#(\d+)'s native stack targets (\S+), not ")
 POSTER = re.compile(r"\bcci post\b[^`\n]*?--lane[= ]['\"]?([\w.-]+)")
 NAMES_NOTHING = "none"
 ROLE = re.compile(r"^ccx:(?:.*[ \t])?role=([\w-]+)", re.MULTILINE)
@@ -5707,6 +5708,11 @@ def verdictless(gate: merge_queue.Gate) -> bool:
     return bool(gate.code) and not gate.verdicts
 
 
+def native_parent(tip: str, gate: merge_queue.Gate, open_rows: dict[str, dict]) -> str:
+    found = NATIVE_BASE.search(gate.last)
+    return next((pr for pr, row in open_rows.items() if found and found[1] == tip and row.get("branch") == found[2]), "")
+
+
 class Landing:
     """The merge queue: gate every tracked stack read-only through the repository adapter, run the check registry over each ready prefix, enqueue it once per set of heads in priority order, classify each ejection, verify by squash, route the restack above it, and send a landed merge-fast PR's release to its release owner."""
 
@@ -6231,7 +6237,7 @@ class Landing:
             self.track(key, tree, open_rows, "fetch")
             self.fetch_heads([head for pr in sorted(members) if (head := open_rows[pr].get("head"))])
             self.track(key, tree, open_rows, "check")
-            gated = self.proven_stacks(tree)
+            gated = self.proven_stacks(tree, open_rows)
             self.track(key, tree, open_rows, "settle")
             self.settle_tree(rows, held, gated)
             if accepted := [action for action in self.book.actions(LANDING, kind="enqueue", status="accepted") if set(action.target.split(",")) <= members]:
@@ -6423,6 +6429,9 @@ class Landing:
                 base, above = below
                 self.settle({pr: open_rows[pr].get("head", "") for pr in above}, BelowBlocked(base, f"stacked on {base}, which the pass did not admit, so its {self.adapter.kind} check read no verdict: {done.last}"))
                 continue
+            if parent := native_parent(tip, done, open_rows):
+                self.settle({pr: open_rows[pr].get("head", "") for pr in stack - downstack(open_rows, parent)}, BelowBlocked(f"#{parent}", f"waits on #{parent}, open and not landed: its native stack starts above #{parent}, so its {self.adapter.kind} check reads no verdict until #{parent} lands"))
+                continue
             failed.append(tip)
             self.settle({pr: open_rows[pr].get("head", "") for pr in stack}, Refused(f"the {self.adapter.kind} check {said}"))
         if failed:
@@ -6457,8 +6466,8 @@ class Landing:
         statuses = self.head_statuses(pr, sha)
         return statuses is None or not any(status["state"] in RED_STATES and status["context"] not in GATE_STATUSES for status in statuses)
 
-    def proven_stacks(self, tips: list[str]) -> list[tuple[list[str], Done]]:
-        """Each tip's gate, joined with every other tip its own check names as one stack. When the last pass's check of the first tip named every other tip, one joined check over every tip gates the tree, and the solo checks run only when stack-enqueue refuses it."""
+    def proven_stacks(self, tips: list[str], open_rows: dict[str, dict]) -> list[tuple[list[str], Done]]:
+        """Each tip's gate, joined with every other tip its own check names as one stack. When the last pass's check of the first tip named every other tip, one joined check over every tip gates the tree, and the solo checks run only when stack-enqueue refuses it. A tip whose native stack starts above an open parent gets that parent checked as a tip of its own, since no other check covers it (root #297121)."""
         gated = []
         while tips:
             self.runner.checkpoint()
@@ -6476,6 +6485,8 @@ class Landing:
             else:
                 gated.append((shared, joined))
             tips = [tip for tip in rest if tip not in members]
+            if verdictless(alone) and (parent := native_parent(first, alone, open_rows)) and parent not in tips and all(parent not in checked for checked, _ in gated):
+                tips.append(parent)
         return gated
 
     def checked(self, tips: list[str]) -> merge_queue.Gate:
