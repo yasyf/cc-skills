@@ -4,6 +4,7 @@
     replay.py capture --drive D --class NAME --defect SEQ --fix PR --recurs REGEX [--recurs-kind KIND]... --check lanes --lane LANE... --from SEQ --upto SEQ --expect JSON --out FIXTURE
     replay.py capture --drive D --class NAME --defect SEQ --fix PR --recurs REGEX [--recurs-kind KIND]... --check test-only --repo R --pr N... --expect JSON --out FIXTURE
     replay.py run --scripts DIR --input FILE
+    replay.py reads --scripts DIR
     replay.py gate --drive D [--repo R] --old VERSION --new VERSION
     replay.py recur --drive D
 
@@ -22,13 +23,20 @@ exist yet, and a stand-down cci marks on a row counts only once a stand-down rec
 spawned lane's brief is a stub, and no network is read. It prints one JSON object: the lanes the mover
 relaunched and held, and the PRs whose test-only claim the class check refused.
 
+`reads` prints, for the pack at `--scripts`, one hash per check of everything that check reads: for the lanes
+mover, the files of its module and of every pack module it imports, the files their `Path` globals name, and
+`lr.loop.TICK`; for the class check, the source of `test_only_offender` and of each pack function, class and
+value its code names, down to the whole file of a pack module it calls into. Two packs that hash alike for a
+check decide alike on any input, so the gate replays only the checks whose hash moved.
+
 `gate` is the install step, run by `desk-runner.py handoff --version` and by the supervisor before it
 re-executes into a newer install. It replays the drive's last 24 hours, with the current `cci who` rows
 and the changed files of every PR whose test-only claim the class check judged in them, through `--old`
-and `--new`; the 48 hours before fold in first, so lanes spawned then are registered when the day opens. When `--new`
-relaunches a lane or refuses a PR `--old` did not, it posts one `blocker` to root naming each and exits 3;
-otherwise it posts one `state` record, `REPLAY-PASSED`, naming the fixture classes `--new` adds, and exits
-0. Each verdict posts once per version.
+and `--new`; the 48 hours before fold in first, so lanes spawned then are registered when the day opens. It replays
+only the checks whose `reads` hash differs between the two, and reads no record, row or patch when neither
+does. When `--new` relaunches a lane or refuses a PR `--old` did not, it posts one `blocker` to root naming
+each and exits 3; otherwise it posts one `state` record, `REPLAY-PASSED`, naming the fixture classes `--new`
+adds, and exits 0. Each verdict posts once per version.
 
 `recur` is the orca desk's hourly pass. For each `REPLAY-PASSED` record of the last 72 hours whose 24 hours
 have run, it posts one `report` to root per fixture class that install added: how many records in those 24
@@ -39,7 +47,10 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import functools
+import hashlib
 import importlib.util
+import inspect
 import json
 import re
 import subprocess
@@ -47,6 +58,7 @@ import sys
 import tempfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import CodeType, FunctionType, ModuleType
 
 from long_running import cci, drive, ghread
 
@@ -81,10 +93,13 @@ KEPT_FIELDS = ("seq", "at", "lane", "kind", "to", "re", "resolves", "also_resolv
 KEPT_ATTRS = ("brief", "model", "effort", "role", "successor", "verb", "lane", "last-read", "placement", "successor-of")
 KEPT_ROW = ("lane", "live", "seen_at", "announced_at", "stood_down", "roster")
 WHO_FIELDS = ("lane", "live", "seen_at", "announced_at", "stood_down")
+LANES = "lanes"
+CLASS_CHECK = "class check"
 
 
+@functools.cache
 def at_of(text: str) -> datetime:
-    return datetime.fromisoformat(text.replace("Z", "+00:00")).astimezone(UTC)
+    return datetime.fromisoformat(text).astimezone(UTC)
 
 
 def iso(at: datetime) -> str:
@@ -238,6 +253,63 @@ def run_pack(scripts: Path, given: Path) -> dict:
     return json.loads(shell([sys.executable, str(Path(__file__).resolve()), "run", "--scripts", str(scripts), "--input", str(given)]))
 
 
+def home(root: Path, value: object) -> str | None:
+    """The file under `root` that module, function or class `value` comes from, relative to `root`, or `None` for one from outside the pack."""
+    module = value if isinstance(value, ModuleType) else sys.modules.get(value.__module__)
+    path = Path(getattr(module, "__file__", None) or "/").resolve()
+    return path.relative_to(root).as_posix() if path.is_relative_to(root) else None
+
+
+def names(code: CodeType) -> set[str]:
+    return set(code.co_names).union(*(names(const) for const in code.co_consts if isinstance(const, CodeType)))
+
+
+def stable(value: object) -> str:
+    """`value` as text that is the same in every process and install: a file's contents for a `Path` naming one, a pattern's whole source, and a set's members in order."""
+    if isinstance(value, Path) and value.is_file():
+        return value.read_text()
+    if isinstance(value, re.Pattern):
+        return f"re {value.pattern!r} {value.flags}"
+    if isinstance(value, set | frozenset):
+        return "{" + ", ".join(sorted(map(stable, value))) + "}"
+    return repr(value)
+
+
+def digest(scripts: Path, *roots: object) -> str:
+    """A hash of what `roots` read in the pack at `scripts`: a module's whole file, and those of the pack modules it imports from; a function's or class's own source, and each pack global its code names; and every other value they reach, by `stable`."""
+    root, seen, parts, todo = scripts.resolve(), set(), [], list(roots)
+    while todo:
+        value = todo.pop()
+        if id(value) in seen:
+            continue
+        seen.add(id(value))
+        if isinstance(value, ModuleType | FunctionType | type):
+            if (source := home(root, value)) is None:
+                continue
+            if isinstance(value, ModuleType):
+                parts.append(f"{source}\n{(root / source).read_text()}")
+                imported = [item for item in vars(value).values() if isinstance(item, ModuleType | FunctionType | type) and home(root, item)]
+                todo += [item if isinstance(item, ModuleType) else sys.modules[item.__module__] for item in imported]
+                todo += [item for item in vars(value).values() if isinstance(item, Path)]
+                continue
+            parts.append(inspect.getsource(value))
+            for function in [value] if isinstance(value, FunctionType) else [item for item in vars(value).values() if isinstance(item, FunctionType)]:
+                todo += [function.__globals__[name] for name in names(function.__code__) if name in function.__globals__]
+                todo += [*(function.__defaults__ or ()), *(cell.cell_contents for cell in function.__closure__ or ())]
+            continue
+        parts.append(stable(value))
+    return hashlib.sha256("\0".join(sorted(parts)).encode()).hexdigest()
+
+
+def reads(scripts: Path) -> dict[str, str]:
+    loop, lanes, _, runner = load_pack(scripts)
+    return {LANES: digest(scripts, lanes, loop.TICK), CLASS_CHECK: digest(scripts, runner.test_only_offender)}
+
+
+def pack_reads(scripts: Path) -> dict[str, str]:
+    return json.loads(shell([sys.executable, str(Path(__file__).resolve()), "reads", "--scripts", str(scripts)]))
+
+
 def installed(version: str) -> Path:
     return drive.installs() / version / INSTALLED_SCRIPTS
 
@@ -306,24 +378,36 @@ def cmd_run(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_reads(args: argparse.Namespace) -> int:
+    print(json.dumps(reads(Path(args.scripts))))
+    return 0
+
+
 def cmd_gate(args: argparse.Namespace) -> int:
     start = datetime.now(UTC) - DAY
-    records = cci.paged(shell, args.drive, (), HISTORY)
-    judged = sorted({pr for record in records if at_of(record["at"]) >= start and CLASS_CHECKED.search(record.get("text") or "") for pr in prs_of(record)}) if args.repo else []
-    given = {"records": records, "since": iso(start), "who": who_rows(args.drive), "prs": [{"pr": pr, "patches": changed_files(args.repo, pr)} for pr in judged]}
-    with tempfile.NamedTemporaryFile("w", suffix=".json") as handle:
-        json.dump(given, handle)
-        handle.flush()
-        old, new = run_pack(installed(args.old), Path(handle.name)), run_pack(installed(args.new), Path(handle.name))
-    replayed = f"{sum(at_of(record['at']) >= start for record in records):,} records and {len(judged)} test-only class checks of the last 24 hours"
-    if found := differences(old, new):
+    old_reads, new_reads = pack_reads(installed(args.old)), pack_reads(installed(args.new))
+    changed = {check for check, read in new_reads.items() if read != old_reads[check]}
+    records = cci.paged(shell, args.drive, (), HISTORY if LANES in changed else WINDOW) if changed else []
+    judged = sorted({pr for record in records if at_of(record["at"]) >= start and CLASS_CHECKED.search(record.get("text") or "") for pr in prs_of(record)}) if args.repo and CLASS_CHECK in changed else []
+    replays = [f"{sum(at_of(record['at']) >= start for record in records):,} records"] if LANES in changed else []
+    replays += [f"{len(judged)} test-only class checks"] if CLASS_CHECK in changed else []
+    found = []
+    if changed:
+        given = {"records": records if LANES in changed else [], "since": iso(start), "who": who_rows(args.drive) if LANES in changed else [], "prs": [{"pr": pr, "patches": changed_files(args.repo, pr)} for pr in judged]}
+        with tempfile.NamedTemporaryFile("w", suffix=".json") as handle:
+            json.dump(given, handle)
+            handle.flush()
+            found = differences(run_pack(installed(args.old), Path(handle.name)), run_pack(installed(args.new), Path(handle.name)))
+    replayed = f"{' and '.join(replays)} of the last 24 hours"
+    if found:
         why = f"{args.new} replayed {replayed} against {args.old} and {'; '.join(found)}, which {args.old} did not, so it is not installed"
         post(args.drive, "blocker", f"replay-refused:{args.new}", f"REPLAY-REFUSED {why}", "--attr", f"version={args.new}")
         print(why)
         return REFUSED
     added = {name: fixture for name, fixture in classes(args.new).items() if name not in classes(args.old)}
     fixes = ", ".join(f"{name} (defect #{fixture['defect']}, {fixture['fix']})" for name, fixture in added.items()) or "no new fixture class"
-    post(args.drive, "state", f"replay-passed:{args.new}", f"{PASSED} {args.new} replayed {replayed} against {args.old} with no new relaunch or refusal; it installs {fixes}", "--attr", f"version={args.new}", "--attr", f"classes={','.join(added)}")
+    verdict = f"replayed {replayed} against {args.old} with no new relaunch or refusal" if changed else f"reads what {args.old} reads in its lanes mover and class check, so it replays nothing"
+    post(args.drive, "state", f"replay-passed:{args.new}", f"{PASSED} {args.new} {verdict}; it installs {fixes}", "--attr", f"version={args.new}", "--attr", f"classes={','.join(added)}")
     return 0
 
 
@@ -370,6 +454,9 @@ def main(argv: list[str]) -> int:
     run.add_argument("--scripts", required=True)
     run.add_argument("--input", required=True)
     run.set_defaults(cmd=cmd_run)
+    hashed = verbs.add_parser("reads", help="hash what each check reads in the pack at --scripts")
+    hashed.add_argument("--scripts", required=True)
+    hashed.set_defaults(cmd=cmd_reads)
     gate = verbs.add_parser("gate", help="refuse an install that acts differently on the drive's last 24 hours")
     gate.add_argument("--drive", required=True)
     gate.add_argument("--repo", default="")

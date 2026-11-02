@@ -78,7 +78,7 @@ def stamp(at: datetime) -> str:
 
 
 def parse(text: str) -> datetime:
-    return datetime.strptime(text, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
+    return datetime.fromisoformat(text)
 
 
 @dataclass(frozen=True)
