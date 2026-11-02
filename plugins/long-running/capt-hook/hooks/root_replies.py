@@ -6,7 +6,7 @@ import subprocess
 import sys
 import time
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from itertools import pairwise
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -24,7 +24,9 @@ from captain_hook import (
     T,
     Tool,
     Warn,
+    WorkflowState,
     on,
+    workflow_state,
 )
 from captain_hook.transcripts import TranscriptLoadError
 from captain_hook.util import reqenv
@@ -711,3 +713,101 @@ def tap_claims_match_the_board(evt: BaseHookEvent) -> HookResult | None:
     except (OSError, subprocess.SubprocessError, ValueError):
         return None
     return evt.block(FALSE_TAP.format(lines="\n".join(lines), command=f"{script('owner_waits.py')} --drive {drive}")) if lines else None
+
+
+UPDATE_ASK = re.compile(r"\b(?:status|update|progress|recap|catch me up|where (?:are|is|do) (?:we|things)|what(?:'s| is| has) (?:done|left|landed|happening))\b", re.IGNORECASE)
+NOT_STARTED = re.compile(r"\bnot (?:yet )?(?:started|begun)\b|\b(?:has|have)(?:n't| not) (?:yet )?(?:started|begun)\b", re.IGNORECASE)
+LANE_SUFFIX = re.compile(r"-\d+$")
+OWNER_UPDATE = f"{sys.executable} {script('owner_update.py')}"
+OWNER_UPDATE_SECONDS = 30
+UPDATE_WINDOW_SECONDS = 2 * 60 * 60
+IN_FLIGHT_MINUTES = 30
+SUBJECT_WORDS = 3
+OMITTED_DELIVERY = (
+    "An owner update covers every delivery `{command}` lists and calls nothing in flight not started. "
+    "Add each line below to the update in plain words, then stop again:\n```\n{lines}\n```"
+)
+UPDATE_DRIVE = f"{OWNER_UPDATE} --drive brook-drive --json"
+
+
+@workflow_state("long_running_owner_updates")
+class UpdateClock(WorkflowState):
+    at: float = 0.0
+
+
+def update_ask(evt: BaseHookEvent) -> bool:
+    asked = [text for event in evt.ctx.t.events if (text := owner_text(event)) and not text.lstrip().startswith(SYSTEM_PREFIXES)]
+    return bool(asked) and UPDATE_ASK.search(asked[-1]) is not None
+
+
+def mentioned(text: str, item: dict) -> bool:
+    lane, said = item["lane"], set(WORD.findall(text.lower()))
+    subject = {word for word in WORD.findall(item["subject"].lower()) if len(word) > 4} - set(lane.split("-"))
+    return (
+        lane in text
+        or LANE_SUFFIX.sub("", lane) in text
+        or any(pr in said for pr in item.get("prs", []))
+        or bool(subject) and len(subject & said) >= min(SUBJECT_WORDS, len(subject))
+    )
+
+
+def fresh(item: dict, now: datetime) -> bool:
+    return bool(last := item.get("last")) and (now - datetime.fromisoformat(last["at"].replace("Z", "+00:00"))).total_seconds() < IN_FLIGHT_MINUTES * 60
+
+
+def omitted_deliveries(reply: str, found: dict, now: datetime) -> list[str]:
+    lines = [item["line"] for item in found["delivered"] if not mentioned(reply, item)]
+    refused = [sentence for sentence in SENTENCE_END.split(reply) if NOT_STARTED.search(sentence)]
+    lines += [f"{item['line']}: in flight, not 'not started'" for item in found["in_flight"] if fresh(item, now) and any(mentioned(sentence, item) for sentence in refused)]
+    return lines
+
+
+def owner_update(drive: str, since: float) -> dict:
+    argv = [sys.executable, str(script("owner_update.py")), "--drive", drive, "--json", "--since", datetime.fromtimestamp(since).astimezone().isoformat()]
+    done = subprocess.run(argv, capture_output=True, text=True, timeout=OWNER_UPDATE_SECONDS, env=dict(reqenv.env_map()), check=True)
+    return json.loads(done.stdout)
+
+
+def update_found(delivered: list[dict] = (), in_flight: list[dict] = ()) -> str:
+    return json.dumps({"since": "2026-01-15T18:00:00+00:00", "asks": [], "in_flight": list(in_flight), "delivered": list(delivered), "board": [], "incidents": []})
+
+
+DELIVERY = {"task": "1815", "lane": "devbox-explore-7", "subject": "perf worker next scenarios: single-chat latency, idle resources", "prs": ["47525"], "line": "delivered #1815 devbox-explore-7: perf worker next scenarios | report #305141 8:45 PM: scenario 3 measured"}
+FLYING = {"task": "952", "lane": "next-build-tester-2", "subject": "tester round on every next build", "prs": [], "last": {"kind": "head", "at": datetime.now(UTC).isoformat()}, "line": "in flight #952 next-build-tester-2: tester round on every next build | last head 10:01 PM"}
+
+
+@on(
+    Event.Stop,
+    skip_if=[FromSubagent()],
+    transcript_events=REPLY_WINDOW,
+    tests={
+        Input(transcript=[T.user("status?"), T.assistant("The chat-list fix landed; nothing else moved.")], state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={UPDATE_DRIVE: update_found([DELIVERY])}): Block(
+            pattern=r"delivered #1815 devbox-explore-7"
+        ),
+        Input(transcript=[T.user("status?"), T.assistant("The perf worker measured scenario 3: single-chat latency holds and idle resources are flat.")], state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={UPDATE_DRIVE: update_found([DELIVERY])}): Allow(),
+        Input(transcript=[T.user("status?"), T.assistant("#47525 has its scenario 3 numbers.")], state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={UPDATE_DRIVE: update_found([DELIVERY])}): Allow(),
+        Input(transcript=[T.user("where are we?"), T.assistant("The tester round on every next build has not started.")], state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={UPDATE_DRIVE: update_found(in_flight=[FLYING])}): Block(
+            pattern=r"in flight, not 'not started'"
+        ),
+        Input(transcript=[T.user("where are we?"), T.assistant("The tester round on every next build posted its newest head.")], state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={UPDATE_DRIVE: update_found(in_flight=[FLYING])}): Allow(),
+        Input(transcript=[T.user("merge #47525 now"), T.assistant("Queued.")], state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={UPDATE_DRIVE: update_found([DELIVERY])}): Allow(),
+        Input(transcript=[T.user("status?"), T.assistant("Nothing moved.")], state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={UPDATE_DRIVE: (1, "ccn down")}): Allow(),
+        Input(transcript=[T.user("status?"), T.assistant("Nothing moved.")], state=DRIVE_ACTIVE, env=DRIVE_CONFIG, agent_id="a1b2c3", commands={UPDATE_DRIVE: update_found([DELIVERY])}): Allow(),
+        Input(transcript=[T.user("status?"), T.assistant("Nothing moved.")], env=DRIVE_CONFIG, commands={UPDATE_DRIVE: update_found([DELIVERY])}): Allow(),
+    },
+)
+def owner_updates_cover_every_delivery(evt: BaseHookEvent) -> HookResult | None:
+    """A root reply to the owner's status or update ask covers every delivery `owner_update.py` lists since the last update that passed, and calls no in-flight task not started; else it goes back with the lines to add (owner, 9:55 PM Nov 1). A read that fails blocks nothing."""
+    if not CompactionState.load(evt).active or not (entry := drive_entry(evt)) or not update_ask(evt):
+        return None
+    now = time.time()
+    since = UpdateClock.load(evt).at or now - UPDATE_WINDOW_SECONDS
+    try:
+        found = owner_update(bus_name(entry), since)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+    if lines := omitted_deliveries(last_reply(evt), found, datetime.now(UTC)):
+        return evt.block(OMITTED_DELIVERY.format(command=f"{script('owner_update.py')} --drive {bus_name(entry)}", lines="\n".join(lines)))
+    with UpdateClock.mutate(evt) as clock:
+        clock.at = now
+    return None
