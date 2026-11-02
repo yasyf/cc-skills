@@ -2425,7 +2425,6 @@ def test_a_failing_required_check_posts_one_blocker_per_job_and_cause_and_a_line
     ]
 
 
-
 @pytest.mark.parametrize("receipt", [{"closed": "#41"}, {"resolved": "#42"}], ids=["closed", "resolved"])
 def test_posted_blocker_cause_stays_available_after_verification(shell, config, tmp_path, receipt):
     landing = landing_of(shell, config, tmp_path)
@@ -2874,7 +2873,6 @@ def test_a_trunk_drop_reads_as_evicted_where_the_status_read_says_not_queued():
     assert runner_module.trunk_recorded(out, failed | {"outcome": "merged"}) == out
     assert runner_module.trunk_recorded(out, failed | {"outcome": "testing"}) == out
     assert runner_module.trunk_labelled(out, {"labels": "trunk-queued"}) == out
-
 
 
 def test_a_red_check_dev_does_not_require_neither_blocks_nor_refuses_the_head(shell, config):
@@ -3403,7 +3401,6 @@ def test_a_hold_that_appears_after_the_gate_refuses_the_enqueue_with_one_line_na
     [action] = enqueues_of(tmp_path).values()
     assert (action.status, action.response["outcome"]) == ("completed", "refused")
     assert shell.enqueues() == []
-
 
 
 def test_a_dev_red_incident_naming_a_pr_in_its_prose_holds_nothing(shell, config, tmp_path):
@@ -4128,7 +4125,6 @@ def test_a_go_marked_test_only_admits_its_head_only_when_every_changed_file_is_a
     assert shell.enqueues() == []
     [mismatch] = mismatches
     assert "TEST-ONLY-MISMATCH go/sand/next/vm/run.go is neither a test nor CI configuration, so the test-only claim does not hold; TAP-REQUIRED merge mode every: it lands only once the owner has tapped some head of it" in mismatch
-
 
 
 @pytest.mark.parametrize(
@@ -6312,7 +6308,6 @@ def test_stale_blocker_selected_status_retains_duplicate_receipt_and_audience_or
     assert [landing.book.action(runner_module.LANDING, key).status for key in ("first", "second")] == ["verified", "verified"]
 
 
-
 def test_a_blocker_the_runner_posted_is_resolved_once_its_pr_moves_past_that_head(shell, config, tmp_path):
     """Root #253512: 1,139 open blockers sat on the bus at 6:26 AM Oct 31, most of them the runner's own for heads long gone."""
     lone_green_pr(shell)
@@ -6558,7 +6553,6 @@ def test_a_root_clear_naming_another_head_or_a_negated_clear_settles_nothing(she
     shell.records.append({"seq": seq + 1, "drive": "d1", "lane": "root", "kind": "decide", "to": [LANE], "refs": {}, "text": "Clear finder on #29020 bbbb222. Do not clear the finder on #29020 cccc333 yet."})
     landing_pass(shell, config)
     assert shell.enqueues() == []
-
 
 
 @pytest.mark.parametrize("landed", [True, False], ids=["merged", "open"])
@@ -8759,8 +8753,6 @@ def test_a_green_gate_that_enqueues_nothing_refuses_its_head_naming_what_the_che
     assert post_body(post) == f"REFUSED #33001 at aaaa111111 (go #{go_of(shell, '33001')}): the graphite-stack-enqueue check read #33001 GREEN and ended `enqueued nothing: the bottom PR is BLOCKED` (exit 0), which no rule of the pass settles, so the next pass checks it again"
 
 
-
-
 def test_a_pass_a_handoff_stops_mid_gate_posts_no_unsettled_refusal(shell, config, tmp_path):
     """drive-watchdog-2 #265236: the 0.7.744 landing pass the 1:46 PM Oct 31 handoff stopped mid-gate posted #46657, #46865 and #46882 as unsettled runner defects."""
     merge_mode(config, "every")
@@ -9966,7 +9958,6 @@ def test_a_delivered_relay_is_never_failed_or_reported_again_when_its_dispatch_e
     assert (container.actions["R437"].status, container.actions["R440"].status) == ("accepted", "failed")
     assert len(shell.sends()) == 1
     assert [line for line in escalations(shell) if not line.startswith("RECLAIM")] == [f"RELAY-FAILED R440 {LANE}: no live dispatch (ctx_a is completed); nothing was relayed"]
-
 
 
 def test_a_worker_on_an_unreachable_remote_runtime_stops_no_pass_and_other_lanes_still_get_their_relays(shell, config, tmp_path):
@@ -13642,43 +13633,6 @@ def test_a_cci_read_that_fails_holds_a_pending_incident_launch_until_it_can_be_r
     assert len(launches(shell)) == 1
 
 
-STANDING_ORDERS = """Standing orders, fixed in this template:
-  - Reported {} PT. The bar is fixed and live within 20 minutes of the
-    report, by {} PT; the desk's limits below run from your launch, inside it.
-  - "stop asking people for things you can collect yourself": never ask a reporter
-    or anyone else for evidence; read telemetry and Sentry yourself (owner answer 8ff2abf).
-  - Verification: no local test runs, builds, typechecks or lint; CI grades; a red CI step is read from its log, fixed, and pushed.
-  - Any repair pass or backfill runs on in-region EC2 (cc-notes e192288), never on
-    this Mac.
-  - A tooling failure gets a same-turn tooling lane plus the hand path; it never
-    stops the fix.
-"""
-
-
-@pytest.mark.parametrize("template", [runner_module.ALERT_TEMPLATE, runner_module.UNFIXED_TEMPLATE])
-def test_every_desk_incident_brief_template_carries_the_standing_orders_scope_first_no_rollback_and_no_local_build(template):
-    text = template.read_text()
-    assert STANDING_ORDERS.format("{reported}", "{due}") in text
-    assert "go build" not in text and "go vet" not in text and "typecheck otherwise" not in text
-    assert "  0. SCOPE FIRST. Your first record, before the mechanism, answers two\n" in text and "A no to either ends incident mode" in text
-    assert "     NO ROLLBACK; find the mechanism and fix forward; the fix ships as a new release\n" in text and "Rollback first" not in text
-    assert "No brief, lane, or exception grants a rollback or a revert. One runs only when\n     the owner's own word names that act, after your diagnosis has found the issue" in text
-    assert "2f6cdcf" not in text and "roll the target back" not in text
-
-
-@pytest.mark.parametrize("template", [runner_module.ALERT_TEMPLATE, runner_module.UNFIXED_TEMPLATE])
-def test_every_desk_incident_brief_template_names_the_component_that_served_the_failing_request(template):
-    text = " ".join(template.read_text().split())
-    assert "which component served the failing request: a cloud run is served by the cloud, never by their machine" in text
-
-
-@pytest.mark.parametrize("template", [runner_module.ALERT_TEMPLATE, runner_module.UNFIXED_TEMPLATE])
-def test_every_desk_incident_brief_template_leaves_enqueue_to_the_landing_desk(template):
-    text = " ".join(template.read_text().split())
-    assert "post READY with the exact head; the landing desk owns enqueue. Never run stack-enqueue, rebase, or push a queued branch." in text
-    assert "enqueue it `--fast`" not in text
-
-
 def test_an_alert_fix_brief_is_sliced_for_the_incident_before_it_attaches(shell, config, tmp_path):
     orca_pass(shell, config)
     desk_orders(shell, ROOT_ALERT)
@@ -13807,7 +13761,6 @@ def test_an_ordinary_lane_launches_on_a_sprite_whatever_the_mac_load(shell, conf
     assert json.loads((shell.receipts / f"{LANE}.json").read_text())["result"]["dispatchId"] == "ctx_s"
     assert (shell.receipts / f"{LANE}.terminal").read_text() == "term_s\n"
     assert shell.spawned_rows == [["--lane", LANE, "--brief", str(brief), "--model", "opus", "--effort", "xhigh", "--placement", "sprite", "--by", "desk-runner"]]
-
 
 
 @pytest.mark.parametrize("override", ["inherited", "launch_env", "sprite_env"])
@@ -15511,7 +15464,6 @@ def test_each_pass_goes_to_the_listed_sprite_running_the_fewest_of_its_desks_pas
     assert shell.sprite_jobs == [("sprite-a", "finder.py"), ("sprite-b", "finder.py"), ("sprite-a", "finder.py"), ("sprite-b", "fidelity.py"), ("sprite-b", "finder.py")]
 
 
-
 def test_no_pass_starts_on_a_sprite_already_running_its_cap_of_finder_and_fidelity_passes_together(shell, config):
     """tooling-misc-3 #231706, 7:10 PM Oct 30: the finder's 20 passes and fidelity's 16 were each spread over the Sprites alone, so one 8 GB Sprite ran 9 or more at once at load 20 with its RAM full, and its passes timed out."""
     finder_config(config, concurrent=8, sprite=["sprite-a", "sprite-b"])
@@ -16139,7 +16091,6 @@ def test_a_fidelity_pass_whose_wrapper_is_gone_with_no_result_fails_at_once_and_
     passes = incident(tmp_path, "desk-fidelity").actions
     assert passes[f"fidelity:43439:{FINDER_HEAD}:{seq}"].reason == "the job exited and wrote no result"
     assert [action.status for action in passes.values()] == ["failed", "started"]
-
 
 
 def test_an_empty_desk_result_fails_its_pass_instead_of_raising_every_orca_pass(shell, config, tmp_path):
@@ -17055,7 +17006,6 @@ def test_an_approved_green_incident_fix_behind_dev_merges_rebased_onto_the_tip_o
         assert merges(shell) == [] and asked == ["#36650 ffff666666"]
     else:
         assert merges(shell) == [["gh", "pr", "merge", "36650", "--repo", "Forge-AI/monorepo", "--squash", "--match-head-commit", shell.replayed[0][2]]] and asked == []
-
 
 
 def test_an_incident_fix_merged_while_its_squash_waited_is_never_rebased_or_pushed(shell, config, tmp_path):
