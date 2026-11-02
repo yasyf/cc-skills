@@ -13818,7 +13818,6 @@ def test_a_selected_remote_lane_clears_only_the_local_route_override(shell, conf
     assert env.get("WORKER_LOCAL") == "", "selected remote route retained local override"
     assert (env["WORKER_LOCAL"], env["WORKER_RUN"], env["WORKER_REF"], env["WORKER_CC_REMOTE"]) == ("", "run_1", "dev", "/repo/tools/cc-remote/bin/cc-remote")
     spawned = []
-    monkeypatch.setattr(runner_module.cci, "installed", lambda argv, spawn: spawn())
     monkeypatch.setattr(runner_module.subprocess, "Popen", lambda argv, **kwargs: spawned.append(kwargs["env"]["WORKER_LOCAL"]) or Process())
     runner_module.Shell().spawn(sprite_launches(shell)[0], tmp_path / "route.log", env)
     assert spawned == [""]
