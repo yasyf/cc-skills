@@ -598,6 +598,25 @@ def test_a_go_from_a_numbered_successor_of_a_go_lane_settles_the_tap(config):
     assert "tap:102:fedcba9" not in shell.topics()
 
 
+def test_a_tap_stall_goes_to_root_and_the_live_registry_lanes_its_go_lanes_route_to_never_a_dead_name(config):
+    """Root #310193: tap stalls went to go-carry-sweep and go-carry-sweep-3, dead lane names from the config's go lanes."""
+    raw = json.loads(config.read_text())
+    raw["landing"]["go_lanes"] = ["go-carry-sweep", "go-carry-sweep-3", "go-sweep-7"]
+    config.write_text(json.dumps(raw))
+    shell = FakeShell([head(1, "102", OTHER, 40), finder(2, "102", OTHER, 30), fidelity(3, "102", OTHER, 30)], [row("102", OTHER)])
+    shell.registry_rows = [
+        {"lane": "go-carry-sweep-3", "live": False, "state": "retired", "retired_by": None, "predecessor": None, "route": "root", "heard": None},
+        {"lane": "go-sweep-7", "live": True, "state": "retired", "retired_by": "go-sweep-8", "predecessor": None, "route": "go-sweep-8", "heard": None},
+        {"lane": "go-sweep-8", "live": True, "state": "desired", "retired_by": None, "predecessor": "go-sweep-7", "route": "go-sweep-8", "heard": None},
+    ]
+    shell.doc = {"blocks": [{"id": "merge-prs", "type": "pr-groups", "groups": [{"id": "g", "prs": [{"number": 102, "head": OTHER[:7]}]}]}]}
+    shell.triage = {"merge-prs": {"102": {"verdict": "approved", "head": OTHER[:7], "at": stamp(30)}}}
+
+    watch(shell, config)
+
+    assert shell.post("tap:102:fedcba9")["to"] == "root,go-sweep-8@d1"
+
+
 def test_a_tap_at_an_earlier_head_asks_sonnet_once_whether_the_new_head_replays_it(config):
     restack = f"HEAD #101 {HEAD} (was {OLD}): restack, range-diff patch-identical (3 commits)"
     shell = FakeShell([head(1, "101", OLD, 90), head(2, "101", HEAD, 20, restack)], [row("101", test_state="pending")])

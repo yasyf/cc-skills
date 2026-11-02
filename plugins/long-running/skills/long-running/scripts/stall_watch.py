@@ -958,6 +958,7 @@ class Pass:
         repo, drive_name = landing["repo"], self.watch.drive
         fidelity_lanes = lanes_of(landing.get("fidelity_lane", []))
         go_lanes = [ROOT, *landing.get("go_lanes", [])]
+        go_owners = [ROOT, *dict.fromkeys(routed for lane in landing.get("go_lanes", []) if (routed := self.registry().route(lane)) != ROOT and self.registry().live(routed) and not self.registry().retired(routed))]
         exempt = landing.get("exempt_grades", [landing.get("port_phrase", grades.PORT_PHRASE), *grades.TEST_ONLY_PHRASES])
         closed = {seq for record in records if record["lane"] in ROOT_NAMES for seq in grades.closes(record) | grades.voids(record)}
         gos = [record | {"voided": set()} for record in records if record["kind"] in grades.GO_KINDS and (record["lane"] == RUNNER or grades.delegated(record["lane"], go_lanes)) and record["seq"] not in closed and grades.go_heads(record)]
@@ -1045,7 +1046,7 @@ class Pass:
             if tapped and grades.names_head(tapped, head):
                 tapped_at = actions.parse_stamp(tap["at"])
                 if self.now - tapped_at >= self.watch.age("tap"):
-                    stalls.append(Stall(f"tap:{pr}:{short(head)}", "tap", tapped_at, subject, f"the owner approved it on the board at {pacific(tapped_at, self.now)}, and {state.said()}", tuple(go_lanes), f"post `go #{pr} at {short(head)}`", pr))
+                    stalls.append(Stall(f"tap:{pr}:{short(head)}", "tap", tapped_at, subject, f"the owner approved it on the board at {pacific(tapped_at, self.now)}, and {state.said()}", tuple(go_owners), f"post `go #{pr} at {short(head)}`", pr))
                 continue
             if head_at is None:
                 continue
