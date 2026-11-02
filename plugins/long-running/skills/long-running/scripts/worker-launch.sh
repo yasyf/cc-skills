@@ -60,7 +60,7 @@ if [ "$route" = sprite ]; then
     die "WORKER_EXPECT_BASE is a full 40- or 64-character lowercase commit; nothing was prepared"
   checkout=$(cd "${WORKER_CHECKOUT:?set WORKER_CHECKOUT to the checkout whose tools/cc-remote starts Sprites}" && pwd -P)
   cci_url=${WORKER_CCI_URL:?set WORKER_CCI_URL to the cci linux_amd64 release archive a Sprite installs}
-  cci_sha=${WORKER_CCI_SHA256:?set WORKER_CCI_SHA256 to that archive's SHA-256}
+  cci_sha=${WORKER_CCI_SHA256:?set WORKER_CCI_SHA256 to the SHA-256 of that archive}
   cc_remote=${WORKER_CC_REMOTE:-$checkout/tools/cc-remote/bin/cc-remote}
   command -v "$cc_remote" >/dev/null ||
     die "WORKER_CC_REMOTE names no cc-remote command at $cc_remote; unset it to run this checkout's pinned one; nothing was prepared"
