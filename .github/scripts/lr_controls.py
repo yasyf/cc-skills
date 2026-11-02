@@ -12,6 +12,7 @@ request it runs only when one of those changed, and on every other event it
 always runs.
 
 Env contract:
+  LR_CONTROLS_SHARD  "i/n" keeps the selected scripts whose path hashes to shard i
   GITHUB_EVENT_NAME  "pull_request" narrows the negative controls to the diff
   GITHUB_WORKSPACE   the checkout, a merge commit on a pull request
   RUNNER_TEMP        where each control's log lands, under lr-controls/
@@ -24,6 +25,7 @@ import re
 import subprocess
 import sys
 import time
+import zlib
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -54,7 +56,8 @@ def selected(diff: set[str] | None) -> list[Path]:
     for script in sorted((CONTROLS / "negative").glob("*.sh")):
         if diff is None or diff & (SHARED | {str(script), *COPIED.findall(script.read_text())}):
             scripts.append(script)
-    return scripts
+    index, count = map(int, os.environ["LR_CONTROLS_SHARD"].split("/"))
+    return [script for script in scripts if zlib.crc32(str(script).encode()) % count == index - 1]
 
 
 def run(script: Path, logs: Path) -> tuple[Path, int, float, Path]:
@@ -68,8 +71,7 @@ def run(script: Path, logs: Path) -> tuple[Path, int, float, Path]:
 def main() -> int:
     diff = changed()
     scripts = selected(diff)
-    skipped = len(list((CONTROLS / "negative").glob("*.sh"))) - sum(script.parent.name == "negative" for script in scripts)
-    print(f"{len(scripts)} controls selected, {skipped} negative controls skipped: the diff touches none of their inputs", flush=True)
+    print(f"{len(scripts)} controls in shard {os.environ['LR_CONTROLS_SHARD']}{'' if diff is None else ', negative controls narrowed to the diff'}", flush=True)
     if commits := sorted({commit for script in scripts for commit in COMMIT.findall(script.read_text())}):
         subprocess.run(["git", "fetch", "--no-tags", "--quiet", "--depth=1", "origin", *commits], check=True)
     subprocess.run(["uv", "sync", "--locked", "--quiet", "--project", "plugins/long-running"], check=True)
