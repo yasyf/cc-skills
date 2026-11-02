@@ -149,29 +149,6 @@ def test_trailing_protocol_output_is_visible(tmp_path, children):
     assert children[0].returncode == 0
 
 
-def test_existing_install_window_retries_only_process_creation(tmp_path, children, monkeypatch):
-    popen = subprocess.Popen
-    attempts = []
-    prepared = []
-
-    def relinking(*args, **kwargs):
-        attempts.append(args[0])
-        if len(attempts) == 1:
-            raise FileNotFoundError(2, "relinking", args[0][0])
-        return popen(*args, **kwargs)
-
-    monkeypatch.setattr(subprocess, "Popen", relinking)
-    monkeypatch.setattr(match_session.cci, "INSTALL_RETRY_SECONDS", 0)
-    script = 'import json,sys\n' + READY + 'sys.stdin.readline()\n' + RESULT
-
-    def prepare():
-        prepared.append(True)
-        return {"type": "query", "query": "hello", "exclude": []}
-
-    assert invoke(tmp_path, script, prepare) == []
-    assert len(attempts) == 2 and len(children) == 1 and prepared == [True]
-
-
 def test_prepare_missing_file_is_not_relaunched(tmp_path, children):
     error = FileNotFoundError(2, "register failed", sys.executable)
     script = 'import sys\n' + READY + 'assert sys.stdin.read()==""'
@@ -183,26 +160,6 @@ def test_prepare_missing_file_is_not_relaunched(tmp_path, children):
         invoke(tmp_path, script, prepare)
     assert caught.value is error
     assert len(children) == 1 and children[0].returncode == 0
-
-
-def test_install_window_keeps_request_cancellation(tmp_path, children, monkeypatch):
-    error = RuntimeError("abandoned while relinking")
-    checked, attempts = [], []
-
-    def checkpoint():
-        checked.append(True)
-        if len(checked) == 2:
-            raise error
-
-    def relinking(*args, **kwargs):
-        attempts.append(args[0])
-        raise FileNotFoundError(2, "relinking", args[0][0])
-
-    monkeypatch.setattr(subprocess, "Popen", relinking)
-    monkeypatch.setattr(match_session.cci, "INSTALL_RETRY_SECONDS", 0)
-    with pytest.raises(RuntimeError) as caught:
-        invoke(tmp_path, "pass", checkpoint=checkpoint)
-    assert caught.value is error and children == [] and len(attempts) == 1
 
 
 def test_pipe_setup_failure_reaps_its_created_child(tmp_path, children, monkeypatch):

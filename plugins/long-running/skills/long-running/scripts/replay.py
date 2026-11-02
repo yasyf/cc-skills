@@ -263,11 +263,11 @@ def brief_path(path: str) -> str:
 
 
 def scrubbed_text(text: str) -> str:
-    """The parts of a record's text the lanes mover reads, joined by `; `, so a fixture in this public repository carries no drive prose: a `SPAWNED` line with its brief's folder and name, runner launch and outcome lines, stand-downs, replacements, handoffs, owners, cards, `#N` mentions, and a closing question mark."""
+    """The parts of a record's text the lanes mover reads, joined by `; ` in the order the text has them, so a fixture in this public repository carries no drive prose and scrubs to itself: a `SPAWNED` line with its brief's folder and name, runner launch and outcome lines, stand-downs, replacements, handoffs, owners, cards, `#N` mentions, and a closing question mark."""
     if text.startswith("SPAWNED "):
         name, path = text.split()[1:3]
         return f"SPAWNED {name} {brief_path(path)}"
-    kept = dict.fromkeys(found[0] for pattern in READ_TEXT for found in pattern.finditer(text))
+    kept = dict.fromkeys(found[0] for found in sorted((found for pattern in READ_TEXT for found in pattern.finditer(text)), key=lambda found: found.start()))
     return "; ".join(kept) + ("?" if text.rstrip().endswith("?") else "")
 
 
