@@ -83,7 +83,9 @@ green or failing-first proof, or do not merge, never merges, so it draws no stal
               no queued pass on the head, nor a running one younger than `stall.minutes.running`;
               a pass past that is the desk runner's to stop and requeue
     fidelity  a `head` record names the head, and no fidelity grade does, and the fidelity desk holds
-              no queued grade on it, nor a running one younger than `stall.minutes.running`
+              no queued grade on it, nor a running one younger than `stall.minutes.running`; a grade
+              past that goes to the fidelity lane whose newest `claim` names the head, else to
+              fidelity-pipeline, never to the landing desk (root #324375)
     missing   the newest fidelity grade naming the head reads `fidelity: missing`, and for
               `stall.minutes.missing` (default 20) no record of a lane other than a grader or desk answers
               its seq by `--re` or names `#<seq>`, and no PR comment a bot did not write follows it; it
@@ -311,6 +313,7 @@ RUN_CRASHES = re.compile(r"\brun crashes \S+ (?P<count>\d+)\b")
 APM_ERRORS = re.compile(r"\bapm (?P<count>\d+)/\d+")
 TRAILING_COUNT = re.compile(r"(?P<count>\d+)$")
 FIDELITY_DESK = "desk-fidelity"
+FIDELITY_PIPELINE = "fidelity-pipeline"
 QUEUE_LIVE = frozenset({"accepted", "started"})
 FINDER_PENDING = "FINDER-PENDING"
 REFUSAL_KINDS = frozenset({"blocker", "report", "defect", "urgent"})
@@ -1086,7 +1089,8 @@ class Pass:
                 stalls.append(Stall(f"fidelity:{pr}:{short(head)}", "ungraded", green, subject, f"its build has read green since {pacific(green, self.now)}, and no fidelity grade names this head", tuple(fidelity_lanes), f"grade {subject} and post its `fidelity: ok` or `fidelity: missing` line", pr))
             elif not standing and fidelity_lanes and self.now - head_at >= self.watch.age("fidelity"):
                 if started := self.overran(FIDELITY_DESK, pr, head):
-                    stalls.append(Stall(f"fidelity:{pr}:{short(head)}", "fidelity", started, subject, f"the fidelity desk's grade of this head has run since {pacific(started, self.now)}", (RUNNER,), f"read `desk-runner.py show`, then stop and requeue the fidelity grade of {subject}", pr))
+                    claimant = next((record["lane"] for record in reversed(announced) if record["kind"] == "claim" and record["lane"] in fidelity_lanes), FIDELITY_PIPELINE)
+                    stalls.append(Stall(f"fidelity:{pr}:{short(head)}", "fidelity", started, subject, f"the fidelity desk's grade of this head has run since {pacific(started, self.now)}", (claimant,), f"read `desk-runner.py show`, then stop and requeue the fidelity grade of {subject}", pr))
                 elif self.queued(FIDELITY_DESK, pr, head) is None:
                     stalls.append(Stall(f"fidelity:{pr}:{short(head)}", "fidelity", head_at, subject, f"no fidelity grade names this head, and the fidelity desk holds none queued, first named {pacific(head_at, self.now)} in #{announced[0]['seq']}", tuple(fidelity_lanes), f"grade {subject} and post its `fidelity: ok` or `fidelity: missing` line", pr))
             try:
