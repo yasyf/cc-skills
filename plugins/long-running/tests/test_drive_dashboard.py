@@ -904,20 +904,50 @@ def test_the_model_request_serves_the_prebuilt_view_and_never_builds_it(tmp_path
         httpd.shutdown()
 
 
-def test_a_record_that_answers_the_owners_question_reads_as_his_question_then_prose(tmp_path):
-    """Root #203757: the answer to the owner's question opened as the raw cci record, header, routing, pr: tag and /tmp path included."""
-    body = tmp_path / "answer.txt"
-    body.write_text("Who paused the queue\n\nThe host-pressure run paused it at 7:02 PM.\n\n- 1615 pending\n- 122 paused\n")
-    asked = {"seq": 10, "lane": "dashboard", "kind": "owner", "at": "2026-10-30T08:00:00Z", "text": "Asked on the dashboard: who paused the cleanup queue?", "refs": {}}
-    record = {"seq": 11, "lane": "tooling-misc-2", "kind": "answer", "at": "2026-10-30T08:08:48Z", "re": 10, "text": "1:08 AM Paused by the host-pressure run pr:Forge-AI/monorepo#45381 /tmp/p8a7-a200848.txt", "refs": {"path": str(body)}}
+def test_a_worker_answer_routed_through_root_reads_as_the_owners_question_then_labelled_lines():
+    """Owner 12:03 AM Nov 2: the parsed records were still blocks of text. Records 307877, 307888 and 307894 from that night."""
+    owner = {"seq": 307877, "lane": "owner-board", "kind": "ask", "at": "2026-11-02T07:27:00Z", "text": 'what is a "chat copy"?', "refs": {"prs": [46811]}}
+    routed = {"seq": 307888, "lane": "root", "kind": "ask", "at": "2026-11-02T07:28:00Z", "re": 307877, "text": '11:28 PM owner on the #46811 board row, 11:27 PM: "what is a chat copy?" Answer within 5 minutes in two plain sentences.', "refs": {"prs": [46811]}}
+    answer = {"seq": 307894, "lane": "signal-valkey-2", "kind": "answer", "at": "2026-11-02T07:30:00Z", "re": 307888, "to": ["root", "board-refresher-6"], "refs": {"prs": [46811]},
+              "text": "11:30 PM A chat copy is a reader's local replica of a shared chat: in code a ReplicaChat opened from a Mount whose At (incarnation) and Stop fix the point the share was taken. The row borrowed 'copy' from #46811's title. board-refresher-6: replace 'copy' in the #46811 row with 'share replica (ReplicaChat at a stop)'."}
 
-    page = server.record_page(record, asked, None)
+    page = server.record_page(answer, [routed, owner], None, {"46811": "replica: a copy never lists"})
 
-    assert "<h1>who paused the cleanup queue?</h1>" in page
-    assert "tooling-misc-2 answered at 1:08 AM" in page
-    assert "<p>Paused by the host-pressure run</p><p>Who paused the queue</p><p>The host-pressure run paused it at 7:02 PM.</p><ul><li>1615 pending</li><li>122 paused</li></ul>" in page
-    assert "pr:" not in page and "/tmp/" not in page
-    assert 'href="/record/11?raw=1"' in page
+    assert "<h1>what is a &quot;chat copy&quot;?</h1>" in page
+    assert "<dt>Who</dt><dd>signal-valkey-2, to root, board-refresher-6</dd>" in page
+    assert "<dt>Answers</dt><dd>Your question on #46811 at 11:27 PM: “what is a &quot;chat copy&quot;?”, routed through #307888</dd>" in page
+    assert "<dt>Says</dt><dd>A chat copy is a reader&#x27;s local replica of a shared chat: in code a ReplicaChat opened from a Mount whose At (incarnation) and Stop fix the point the share was taken.</dd>" in page
+    assert "<dt>Asks board-refresher-6</dt><dd>replace &#x27;copy&#x27; in the #46811 row with &#x27;share replica (ReplicaChat at a stop)&#x27;.</dd>" in page
+    assert "<li>The row borrowed &#x27;copy&#x27; from #46811&#x27;s title.</li>" in page
+    assert '<li><a href="/#/review/46811">#46811</a> replica: a copy never lists</li>' in page
+    assert '<details class="rec-raw"><summary>The record as written</summary><pre>11:30 PM A chat copy' in page
+
+
+def test_a_ruling_that_quotes_the_owner_says_what_was_decided_not_his_words_again():
+    """Record 307433: root's ruling opened with the owner's own words, which the page already shows as the question."""
+    owner = {"seq": 307420, "lane": "owner-board", "kind": "ask", "at": "2026-11-02T06:51:00Z", "text": "we control both ends right so we dont need http/1 at all right? even IPC could work", "refs": {"prs": [47206]}}
+    ruling = {"seq": 307433, "lane": "root", "kind": "decide", "at": "2026-11-02T06:53:00Z", "re": 307420, "to": ["signal-valkey-2"], "refs": {"prs": [47206]},
+              "text": '10:53 PM OWNER RULING 10:51 PM on #47206, verbatim: "we control both ends right so we dont need http/1 at all right? even IPC could work". The lane owning #47206 drops HTTP/1 from the wire. Owner: the lane that holds #47206, within 15 minutes.'}
+
+    lines = dict(server.parse_record(ruling, [owner])["lines"])
+
+    assert lines["Says"] == "The lane owning #47206 drops HTTP/1 from the wire."
+    assert lines["Answers"].startswith("Your question on #47206 at 10:51 PM")
+
+
+def test_a_head_record_names_its_pull_request_at_its_commit_and_a_dump_says_why_it_is_not_parsed():
+    """Record 308569, a HEAD post, and a record whose body is a JSON dump."""
+    head = {"seq": 308569, "lane": "s22-class-1", "kind": "head", "at": "2026-11-02T08:07:00Z", "to": ["root"], "refs": {},
+            "text": "12:07 AM HEAD #47760 at eebb3a105452: answers fidelity 195812@bd2bdc0c. The composer box is the column's content box. Also fixes the style guard that failed at 0ecc726, see #308001 and https://buildkite.com/forge/builds/9."}
+    dump = {"seq": 308600, "lane": "desk-runner", "kind": "report", "at": "2026-11-02T08:09:00Z", "refs": {}, "text": json.dumps({"rows": [{"pr": 47760, "state": "open"}] * 40})}
+
+    parsed = server.parse_record(head, [])
+    page = server.record_page(dump, [], None, {})
+
+    assert dict(parsed["lines"])["Says"] == "answers fidelity 195812@bd2bdc0c."
+    assert (parsed["prs"], parsed["heads"], parsed["commits"], parsed["records"], parsed["urls"]) == ([47760], {47760: "eebb3a105452"}, ["bd2bdc0c", "0ecc726"], [308001], ["https://buildkite.com/forge/builds/9"])
+    assert "<dt>Not parsed</dt><dd>It is JSON data, not sentences.</dd>" in page
+    assert "<dt>Says</dt>" not in page and "<dt>Details</dt>" not in page
 
 
 def test_a_tap_row_whose_live_head_or_parent_is_not_green_leaves_the_deck_and_says_why():
