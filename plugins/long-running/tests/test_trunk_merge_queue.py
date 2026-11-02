@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -107,8 +108,8 @@ def test_known_native_conflict_routes_as_conflict():
 
 def test_registry_preserves_legacy_adapter_and_selects_native_explicitly():
     shell = Shell()
-    native = merge_queue.adapter(shell, Path("/repo"), {"kind": "trunk-stack-enqueue", "script": "stack-enqueue"}, None, "o/r", "ledger")
-    legacy = merge_queue.adapter(shell, Path("/repo"), {"kind": "graphite-stack-enqueue", "script": "stack-enqueue"}, None, "o/r", "ledger")
+    native = merge_queue.adapter(shell, Path("/repo"), {"kind": "trunk-stack-enqueue", "script": "stack-enqueue"}, None, "o/r", "ledger", "drive", Path("/jobs"))
+    legacy = merge_queue.adapter(shell, Path("/repo"), {"kind": "graphite-stack-enqueue", "script": "stack-enqueue"}, None, "o/r", "ledger", "drive", Path("/jobs"))
     assert isinstance(native, merge_queue.TrunkStackEnqueue)
     assert type(legacy) is merge_queue.GraphiteStackEnqueue
 
@@ -156,3 +157,48 @@ def test_a_tls_handshake_timeout_reaching_trunk_is_retried_instead_of_failing_th
     shell = Shell(timeout, done("#10 GREEN aaaa111111 Trunk notSubmitted\nwould enqueue native stack through #10: #10\n"))
     gate = adapter(shell).check(["10"], False, {}, False)
     assert gate.would == ["10"] and len(shell.calls) == 2 and shell.slept == [merge_queue.TRANSIENT_PAUSE_SECONDS]
+
+
+class SpriteShell:
+    def __init__(self, *results):
+        self.results = iter(results)
+        self.jobs = []
+        self.slept = []
+
+    def run(self, command, env=None):
+        job = json.loads((Path(command[3]) / "job.json").read_text())
+        self.jobs.append((command[1], Path(command[2]).name, job, env))
+        if (result := next(self.results)) is not None:
+            (Path(command[3]) / "result.json").write_text(json.dumps(result))
+        return done(code=0 if result is not None else 1)
+
+    def sleep(self, seconds):
+        self.slept.append(seconds)
+
+
+def fleet_adapter(shell, tmp_path, sprites):
+    checkout = tmp_path / "checkout"
+    subprocess.run(["git", "init", "-q", str(checkout)], check=True)
+    subprocess.run(["git", "-C", str(checkout), "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "a"], check=True)
+    head = subprocess.run(["git", "-C", str(checkout), "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
+    config = {"kind": "trunk-stack-enqueue", "script": "stack-enqueue", "sprite": sprites, "sprite_keys": {"TRUNK_MERGE_API_KEY": ["printenv", "TRUNK_MERGE_API_KEY"]}}
+    return merge_queue.adapter(shell, checkout, config, None, "o/r", "ledger", "drive", tmp_path / "jobs"), checkout, head
+
+
+def test_a_fanned_out_check_runs_on_a_sprite_at_the_checkout_head_and_reads_its_verdict(tmp_path):
+    shell = SpriteShell({"code": 0, "out": "#10 GREEN aaaa111111 Trunk notSubmitted\nwould enqueue native stack through #10: #10\n", "err": ""})
+    queue, checkout, head = fleet_adapter(shell, tmp_path, ["dar-fleet-5", "dar-fleet-7"])
+    gate = queue.check(["10"], False, {}, False)
+    assert gate.would == ["10"]
+    sprite, script, job, env = shell.jobs[0]
+    assert (sprite, script) == ("dar-fleet-5", "merge_task.py")
+    assert job == {"checkout": str(checkout), "drive": "drive", "head": head, "argv": [f"{checkout}/stack-enqueue", "10", "--check"], "sprite": "dar-fleet-5"}
+    assert json.loads(env["SPRITE_JOB_KEYS"]) == {"TRUNK_MERGE_API_KEY": ["printenv", "TRUNK_MERGE_API_KEY"]}
+    assert not list((tmp_path / "jobs").iterdir())
+
+
+def test_a_merge_task_whose_sprite_left_no_result_is_retried_as_a_transient_failure(tmp_path):
+    shell = SpriteShell(None, {"code": 0, "out": "#10 GREEN aaaa111111 Trunk notSubmitted\nwould enqueue native stack through #10: #10\n", "err": ""})
+    queue, _, _ = fleet_adapter(shell, tmp_path, ["dar-fleet-5"])
+    gate = queue.check(["10"], False, {}, False)
+    assert gate.would == ["10"] and len(shell.jobs) == 2 and shell.slept == [merge_queue.TRANSIENT_PAUSE_SECONDS]

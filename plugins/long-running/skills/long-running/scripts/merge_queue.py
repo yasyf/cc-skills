@@ -16,9 +16,12 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import subprocess
 import threading
 import tomllib
+import uuid
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import timedelta
@@ -48,9 +51,10 @@ ENQUEUE_FAILED = 5
 RATE_LIMITED = "rate-limited"
 DEQUEUE_RELEASED = (0, 1)
 TRANSIENT_FAILURE = re.compile(
-    r"TLS handshake timeout|i/o timeout|context deadline exceeded|urlopen error|Connection reset|Connection refused|reset by peer|Remote end closed|Temporary failure in name resolution|nodename nor servname|Name or service not known|HTTP(?: Error)? 5\d\d|[Oo]peration timed out|Failed to connect to .* port 443|Recv failure|Could not resolve host"
+    r"left no result, a transient failure|TLS handshake timeout|i/o timeout|context deadline exceeded|urlopen error|Connection reset|Connection refused|reset by peer|Remote end closed|Temporary failure in name resolution|nodename nor servname|Name or service not known|HTTP(?: Error)? 5\d\d|[Oo]peration timed out|Failed to connect to .* port 443|Recv failure|Could not resolve host"
 )
 TRUNK_CALLS = 2
+SCRIPTS = Path(__file__).resolve().parent
 TRUNK_LIMITED = re.compile(r"HTTP 429\b")
 TRUNK_BACKOFF_SECONDS = (30, 60, 120)
 TRANSIENT_ATTEMPTS = 3
@@ -168,8 +172,48 @@ def outside_failure(segment: str, stack: set[str]) -> bool:
     return bool(named and named[1] not in stack)
 
 
+@dataclass
+class TaskDone:
+    code: int
+    out: str
+    err: str
+
+
+class Fleet:
+    """Runs each merge task, one stack-enqueue or tools/ci call, as a `sprite-job.sh` job of `merge_task.py` on the Sprite `landing.adapter.sprite` lists that runs the fewest of them now, in the `.merge` worktree of the landing checkout's clone there at the head the checkout here holds, with `landing.adapter.sprite_keys` passed in its environment; a job that leaves no exit code reads as a transient failure."""
+
+    def __init__(self, shell, checkout: Path, sprites: list[str], keys: dict, drive: str, jobs: Path):
+        self.shell = shell
+        self.checkout = checkout
+        self.sprites = sprites
+        self.keys = json.dumps(keys)
+        self.drive = drive
+        self.jobs = jobs
+        self.running: Counter[str] = Counter()
+        self.picking = threading.Lock()
+
+    def run(self, argv: list[str]):
+        with self.picking:
+            sprite = min(self.sprites, key=lambda name: self.running[name])
+            self.running[sprite] += 1
+        directory = self.jobs / uuid.uuid4().hex
+        try:
+            directory.mkdir(parents=True)
+            head = subprocess.run(["git", "-C", str(self.checkout), "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
+            (directory / "job.json").write_text(json.dumps({"checkout": str(self.checkout), "drive": self.drive, "head": head, "argv": argv, "sprite": sprite}))
+            done = self.shell.run([str(SCRIPTS / "sprite-job.sh"), sprite, str(SCRIPTS / "merge_task.py"), str(directory)], env={"SPRITE_JOB_KEYS": self.keys})
+            result = json.loads((directory / "result.json").read_text()) if (directory / "result.json").is_file() else {}
+            if "code" in result:
+                return TaskDone(result["code"], result["out"], result["err"])
+            return TaskDone(ENQUEUE_FAILED, "", f"merge task {Path(argv[0]).name} {' '.join(argv[1:3])} on Sprite {sprite} left no result, a transient failure: {result.get('error') or (done.err or done.out).strip()[-300:]}")
+        finally:
+            shutil.rmtree(directory, ignore_errors=True)
+            with self.picking:
+                self.running[sprite] -= 1
+
+
 class GraphiteStackEnqueue:
-    """The repository's own stack-enqueue script: one Graphite API call per prefix, every gate in its `--check`, and `--dequeue`, `--recover`, and `--status` for the rest."""
+    """The repository's own stack-enqueue script: one Graphite API call per prefix, every gate in its `--check`, and `--dequeue`, `--recover`, and `--status` for the rest. With `landing.adapter.sprite` listing Sprites, each call runs there through a `Fleet`, as many at once as the list names."""
 
     kind = "graphite-stack-enqueue"
     required_env: tuple[str, ...] = ()
@@ -178,7 +222,9 @@ class GraphiteStackEnqueue:
         self.shell = shell
         self.script = str(checkout / config["script"])
         self.repo = repo
-        self.trunk_slots = threading.BoundedSemaphore(TRUNK_CALLS)
+        sprites = [config["sprite"]] if isinstance(config.get("sprite"), str) else list(config.get("sprite") or [])
+        self.fleet = Fleet(shell, checkout, sprites, config.get("sprite_keys") or {}, config["drive"], Path(config["jobs"])) if sprites else None
+        self.trunk_slots = threading.BoundedSemaphore(len(sprites) or TRUNK_CALLS)
         self.resume_at = None
 
     def run(self, argv: list[str]):
@@ -212,7 +258,7 @@ class GraphiteStackEnqueue:
             with self.trunk_slots:
                 if self.resume_at and (wait := (self.resume_at - self.shell.now()).total_seconds()) > 0:
                     self.shell.sleep(wait)
-                done = self.shell.run(argv)
+                done = self.fleet.run(argv) if self.fleet else self.shell.run(argv)
             if pause is None or VERDICT_LINE.search(done.out) or not TRUNK_LIMITED.search(done.err + done.out):
                 return done
             self.resume_at = max(filter(None, (self.resume_at, self.shell.now() + timedelta(seconds=pause))))
@@ -467,9 +513,9 @@ class LabelEnqueue:
         return None
 
 
-def adapter(shell, checkout: Path, config: dict, ledger_py: Callable, repo: str, ledger: str):
+def adapter(shell, checkout: Path, config: dict, ledger_py: Callable, repo: str, ledger: str, drive: str, jobs: Path):
     """The adapter `landing.adapter` names; a kind no adapter has raises KeyError, which the landing desk refuses to start on."""
-    return ADAPTERS[config["kind"]](shell, checkout, {**config, "ledger": ledger}, ledger_py, repo)
+    return ADAPTERS[config["kind"]](shell, checkout, {**config, "ledger": ledger, "drive": drive, "jobs": str(jobs)}, ledger_py, repo)
 
 
 ADAPTERS = {kind.kind: kind for kind in (TrunkStackEnqueue, GraphiteStackEnqueue, LabelEnqueue)}
