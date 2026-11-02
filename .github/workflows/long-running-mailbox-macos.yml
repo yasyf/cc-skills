@@ -5,11 +5,6 @@ on:
     branches: [main]
     tags: ["long-running--v*", "live-dashboard--v*"]
     paths:
-      - "plugins/long-running/**"
-      - "plugins/live-dashboard/skills/live-dashboard/scripts/**"
-      - ".github/workflows/long-running-mailbox-macos.yml"
-  pull_request:
-    paths:
       - "plugins/long-running/skills/long-running/scripts/long_running/roster_events.py"
       - "plugins/long-running/skills/long-running/scripts/long_running/roster_service.py"
       - "plugins/long-running/skills/long-running/scripts/long_running/rosters.py"
@@ -56,6 +51,8 @@ on:
       - "plugins/long-running/tests/test_register_reads.py"
       - "plugins/long-running/benchmarks/mailbox-index.py"
       - ".github/workflows/long-running-mailbox-macos.yml"
+  schedule:
+    - cron: "1 11 * * *"
   workflow_dispatch:
 
 concurrency:

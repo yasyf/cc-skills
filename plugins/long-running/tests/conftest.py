@@ -11,7 +11,9 @@ as the plain ``gh`` command it runs.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
+import zlib
 from copy import deepcopy
 from pathlib import Path
 from urllib.parse import unquote_plus
@@ -31,6 +33,17 @@ LEDGER_CREATED = "2026-01-01T00:00:00Z"
 DRIVE = "d1"
 FLOOR_REFUSAL = "ccx: GitHub rate limit floor: app graphql has 812 of 10000 left, under the floor of 1000, until 7:13AM (2026-09-21T07:13:20-07:00); top callers: desk-runner.py 412"
 
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """Keep only shard `i` of `n` when LR_TEST_SHARD is `i/n`, by a stable hash of each node id, so CI's matrix jobs split one collection without overlap or gaps."""
+    if not (shard := os.environ.get("LR_TEST_SHARD")):
+        return
+    index, count = map(int, shard.split("/"))
+    kept, dropped = [], []
+    for item in items:
+        (kept if zlib.crc32(item.nodeid.encode()) % count == index - 1 else dropped).append(item)
+    config.hook.pytest_deselected(items=dropped)
+    items[:] = kept
 
 def gateway(argv: list[str]) -> list[str]:
     """The plain `gh` command behind `argv`, failing the test on a GitHub read outside ccx's gateway or a write through it, which ccx refuses."""

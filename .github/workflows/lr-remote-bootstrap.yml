@@ -5,12 +5,11 @@ on:
     branches: [main]
     tags: ["long-running--v*"]
     paths:
-      - "plugins/long-running/**"
+      - "plugins/long-running/skills/long-running/scripts/sprite-job.sh"
+      - "plugins/long-running/tests/test_sprite_job.py"
       - ".github/workflows/lr-remote-bootstrap.yml"
-  pull_request:
-    paths:
-      - "plugins/long-running/**"
-      - ".github/workflows/lr-remote-bootstrap.yml"
+  schedule:
+    - cron: "11 11 * * *"
   workflow_dispatch:
 
 concurrency:
@@ -24,7 +23,7 @@ jobs:
   test:
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-15]
+        os: [macos-15]
     runs-on: ${{ matrix.os }}
     env:
       UV_PYTHON: "3.14"
