@@ -18,8 +18,9 @@ import pytest
         ("The tenant-api incident: SoFi users see 'index unavailable'.", None),
         ("tenant-api-fix reports SoFi users see 'index unavailable'.", None),
         ("The sand dry run plans 1 replace on the tenants and 0 deletes.", None),
+        ("It carries stall-watch opening customer-break only on run crashes, APM errors or an uncovered count.", None),
     ],
-    ids=["predicted-by-a-release", "will-crash", "past-customer-failure", "conditional", "negated", "is-not", "question", "recovered", "names-an-incident", "incident-lane", "no-harm"],
+    ids=["predicted-by-a-release", "will-crash", "past-customer-failure", "conditional", "negated", "is-not", "question", "recovered", "names-an-incident", "incident-lane", "no-harm", "names-the-alarm"],
 )
 def test_a_sentence_names_customer_breakage_only_when_customers_fail_now_or_from_a_change_already_moving(text, said):
     assert breakage.customer_break(text) == said
