@@ -39,7 +39,7 @@ line. --inbox names the desk's inbox file; its cursor is <inbox file>.cursor.
 
   ORCA_CHECK_STALE_MINUTES  unread age that flags an in-progress dispatch, default 10
   ORCA_CHECK_TIMEOUT_MS     longest wait, default 60000, so the caller reads its inbox file every minute
-  ORCA_CHECK_STATE          orca-launch.sh receipt directory, default ~/.claude/scratch/orca-launch/<run>
+  ORCA_CHECK_STATE          orca-launch.sh receipt directory, default ~/.vcache/scratch/orca-launch/<run>
   ORCA_CHECK_RETRY_SECONDS  wait before a retry, default 30
 EOF
   exit 2
@@ -67,7 +67,7 @@ orca_json() {
 }
 
 if [ -n "$STALE" ]; then
-  STATE=${ORCA_CHECK_STATE:-$HOME/.claude/scratch/orca-launch/$ORCA_LAUNCH_RUN}
+  STATE=${ORCA_CHECK_STATE:-$HOME/.vcache/scratch/orca-launch/$ORCA_LAUNCH_RUN}
   CURSOR=0
   [ -z "$INBOX" ] || CURSOR=$(cat "$INBOX.cursor" 2>/dev/null || echo 0)
   for receipt in "$STATE"/*.terminal; do
@@ -114,7 +114,7 @@ while :; do
   sleep "$RETRY"
 done
 
-STATE=${ORCA_CHECK_STATE:-$HOME/.claude/scratch/orca-launch/$(printf '%s' "$OUT" | jq -r '.result.runId')}
+STATE=${ORCA_CHECK_STATE:-$HOME/.vcache/scratch/orca-launch/$(printf '%s' "$OUT" | jq -r '.result.runId')}
 LANES={}
 for receipt in "$STATE"/*.terminal; do
   [ -e "$receipt" ] || continue

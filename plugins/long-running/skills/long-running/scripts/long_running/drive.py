@@ -162,7 +162,7 @@ PR_SPEC = re.compile(r"^(?:(?P<repo>[\w.-]+/[\w.-]+)#)?(?P<pr>\d+)(?:=(?P<head>[
 LANE_RECORDS = timedelta(days=1)
 PR_OWED_WINDOW = timedelta(hours=12)
 OUTSIDE_REPO = 3
-LAUNCH_RECEIPTS = Path(".claude") / "scratch" / "orca-launch"
+LAUNCH_RECEIPTS = Path(".vcache") / "scratch" / "orca-launch"
 PLUGIN = Path(__file__).resolve().parents[4]
 DESKS = ("orca", "landing")
 DESK_RUNNER = "desk-runner"

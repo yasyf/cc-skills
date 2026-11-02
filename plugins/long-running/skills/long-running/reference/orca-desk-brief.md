@@ -66,7 +66,7 @@ A Bash append to `orca-desk.md` in a drive session draws `UNREAD` and the `cci p
 | `landing.applying` | Optional object enabling the orca runner's apply announcements. `build` is a command relative to `landing.checkout` printing Buildkite REST build JSON with `{build}`, `{pipeline}`, and `{number}`. `step` is a regex with `component` and `env` named groups matching a job's step key whole, and `components` holds fnmatch globs. Partial config logs `APPLYING-CONFIG-INVALID` and exits. Details are in [reference/release-lanes.md](release-lanes.md). |
 | `landing.pages` | Optional object enabling the orca runner's page watch during releases. `channels` lists Slack channel ids whose top-level messages are pages, and `build` sets the release build reader or falls back to `landing.applying.build`. Details are in [reference/release-lanes.md](release-lanes.md). |
 
-**Share receipt state through `ORCA_LAUNCH_STATE`.** The runner reads each lane's dispatch and terminal from `~/.claude/scratch/orca-launch/<orca.run>`, the default receipt directory `orca-launch.sh` writes, and launches with `ORCA_LAUNCH_STATE` set to it. A lane launched by hand with `orca-launch.sh` is relayed to like one the runner launched, with no receipts to copy. Never set `ORCA_LAUNCH_STATE` on a hand launch.
+**Share receipt state through `ORCA_LAUNCH_STATE`.** The runner reads each lane's dispatch and terminal from `~/.vcache/scratch/orca-launch/<orca.run>`, the default receipt directory `orca-launch.sh` writes, and launches with `ORCA_LAUNCH_STATE` set to it. A lane launched by hand with `orca-launch.sh` is relayed to like one the runner launched, with no receipts to copy. Never set `ORCA_LAUNCH_STATE` on a hand launch.
 
 ```json
 {
@@ -84,7 +84,6 @@ A Bash append to `orca-desk.md` in a drive session draws `UNREAD` and the `cci p
       "ORCA_LAUNCH_REPO": "<Orca repo id>",
       "ORCA_LAUNCH_PARENT": "/absolute/coordinator/worktree",
       "ORCA_LAUNCH_PREFIX": "<drive prefix>",
-      "ORCA_LAUNCH_ROOT": "/absolute/worktrees",
       "ORCA_LAUNCH_BASE": "origin/dev",
       "ORCA_LAUNCH_CLAUDE_ARGS": "",
       "ORCA_LAUNCH_BOOT_SECONDS": "180",

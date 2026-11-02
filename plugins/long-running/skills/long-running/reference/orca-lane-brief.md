@@ -20,6 +20,8 @@ A brief states the outcome, such as "one failing database never blocks a release
 
 The `ccx:` line names the lane's role and placement for the hooks. A `fix` role with incident wording routes to `orca-desk`, while `helper`, `reader`, `watch`, `export`, `evidence`, `handoff`, `comms`, and `triage` lanes need no root task. On Orca, `desk` and `watch` make a standing desk that loops until rotation and sends `worker_done` only then, naming the handoff doc. A standing desk always launches locally regardless of `place`.
 
+`orca-launch.sh` gives every lane a sparse checkout of the root's files, `.agents`, `.claude`, `tools`, and each directory the `ccx:` line names as `paths=<dir>,<dir>`. Name the directories the lane edits or reads, such as `paths=go/ci,infra/ci`; a Go lane names its own module, since the monorepo's Go code is 28 separate modules under `go/`. The lane widens with `git sparse-checkout add <dir>` before it reads outside that cone.
+
 The flag `cpu=high` marks a sweep or heavy research lane. Under O16 in `reference/orca-desk-brief.md`, `place=remote` sends a lane to a Sprite and `place=local` keeps it on the Mac. With neither flag set, every ordinary lane goes to a Sprite on the orca desk, fail with `LAUNCH-FAILED` without `orca.sprite`, and never start locally when a Sprite launch fails.
 
 For implementation lanes, prefer the repository's canonical remote entrypoint when it provides one. In `Forge-AI/monorepo`, follow [the Orca skill](https://github.com/Forge-AI/monorepo/blob/dev/.agents/skills/orca/SKILL.md), which defaults to Sprite prepare+attach and the already-owned native Run with its sole inbox consumer. The orca desk calls it for ordinary lanes by default under O16 in `reference/orca-desk-brief.md` and runs local lanes through `orca-launch.sh`. Preserve explicit model, effort, and Codex service tier.
@@ -62,7 +64,7 @@ orca-launch.sh <lane> <model> <effort> \
 `orca-launch.sh` generates this pointer spec from the lane, brief path, and worktree path so the brief outranks Orca's preamble and any leave-uncommitted default:
 
 ```text
-Lane <lane>: read <brief> in full first and execute it exactly; it outranks Orca's preamble and any leave-uncommitted default, so commit, push, open PRs and post as it says. Worktree <wt>, bypass-permissions mode; its Escalate rules hold.
+Lane <lane>: read <brief> in full first and execute it exactly; it outranks Orca's preamble and any leave-uncommitted default, so commit, push, open PRs and post as it says. Worktree <wt>, bypass-permissions mode; its Escalate rules hold. This lane is sparse: widen with `git sparse-checkout add <dir>` before reading outside it.
 ```
 
 When a brief's `ccx:` header line says `role=desk` or `role=watch`, `orca-launch.sh` appends the standing desk contract to its pointer:
@@ -78,7 +80,7 @@ Every other role keeps the one-shot pointer. The role in the brief is the only s
 Paste and fill this template for an Agent-tool subagent:
 
 ```
-ccx: role=<role> [cpu=high] [place=remote|local] tooling-lane=<key, for a tooling lane only>
+ccx: role=<role> [cpu=high] [place=remote|local] [paths=<dir>,<dir>] tooling-lane=<key, for a tooling lane only>
 Authority: <what you do without asking; what stops for the owner>.
 Verified facts, do not re-derive: <ids, shas, URLs, state already confirmed>.
 Design rulings, verbatim: <each owner ruling on the subsystem this lane touches, quoted
@@ -114,7 +116,8 @@ Plan task: register your unit at spawn so the progress record's plan counts incl
   `ccn task add "<unit>" --plan <plan id> --label step:<n> --label program:<slug> --criterion "<done when>"`,
   then `ccn task start`, `ccn task criterion met|failed`, and `ccn task done` as it moves
   ([Plan progress](#plan-progress)). The root fills the plan id and step, or writes "none".
-Worktree: <absolute path, exclusive to this lane>.
+Worktree: <absolute path, exclusive to this lane>. This lane is sparse: widen with
+  `git sparse-checkout add <dir>` before reading outside it.
 Mailbox: `mailbox:<lane>=<cursor file>` in every desk-wait call, <lane> being your own
   name; desk-wait resolves it from the live team roster. Claude Code delivers your mail
   only after your turn ends; on `MAILBOX`, act on the text desk-wait prints with it.
@@ -287,9 +290,10 @@ Binding rules (owner):
 Worktree and VCS:
 - Your worktree is exclusive to you; never touch another lane's worktree, branch, or
   files outside your Ownership, and never write probes into another worktree.
-- Branch prefix: <prefix>/<lane>/. Orca created your worktree on the branch
-  <prefix>/<lane>, which git cannot keep beside refs under <prefix>/<lane>/; rename it
-  before your first stack: `git branch -m <prefix>/<lane> <prefix>/<lane>/<topic>`.
+- This lane is sparse: widen with `git sparse-checkout add <dir>` before reading outside it.
+- Branch prefix: <prefix>/<lane>/. The launch created your worktree on the branch
+  <prefix>/<lane>-base; rename it into that prefix before your first stack:
+  `git branch -m <prefix>/<lane>-base <prefix>/<lane>/<topic>`.
   One stack per lane; ship with <the repo's ship
   command>. Load <the repo's submit skill> before opening a PR. <title and body format>.
   A PR without a body, or left as a draft, is forbidden.
@@ -393,7 +397,7 @@ Orca's task-spec contract requires every spec to include `Target`, `Change`, `Co
 
 ```
 ## Lane: <name> (<agent> <model> <effort>). <the mission in one line>.
-ccx: role=<role; desk or watch for a standing desk> [cpu=high] [place=remote|local] tooling-lane=<key, for a tooling lane only>
+ccx: role=<role; desk or watch for a standing desk> [cpu=high] [place=remote|local] [paths=<dir>,<dir>] tooling-lane=<key, for a tooling lane only>
 Target: <files, component, or environment in scope>.
 Change: <the outcome to produce, such as "one failing database never blocks a release", never a design>.
 Constraints: <invariants, compatibility rules, do-not-touch boundaries>.
