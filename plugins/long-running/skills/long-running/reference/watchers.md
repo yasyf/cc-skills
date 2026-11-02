@@ -40,6 +40,7 @@
 | `lane` | a lane with an in-progress task on root's task list stays silent past the time its last record promised, or past 30 minutes | 30 | the lane, or root when the lane posted nothing in the window |
 | `ask` | a lane's ask to root is open, and no root record answers it | 15 | root |
 | `pick` | board-watch's `needs-lane:<block>` ask for an owner pick or written answer is open, and no record resolves or answers it, and no claim, lane record, spawn record, or spawned brief names the block or the ask's number | 15 | root, once per pick |
+| `unfinished` | a retro row, owner ask, sweep finding or owner pick is not done and unchanged for a day, or a retro row is past its due; read from the retro, ask and findings ledgers themselves, so an old row never ages out of the record window | 1 day | root, as a `blocker`, once each Pacific day per row |
 | `customer` | a record the pass reads for the first time says customers or tenants are failing now, or will fail from a change already moving, and no incident record, incident lane, or break it answers covers it; it posts as an `incident` record `--re` that record, and the board text gate refuses a card that says the same | 0 | root, under R16 in `SKILL.md` |
 | `order` | a root `decide` record relays an owner order, Sonnet reads it as naming a change that ships as a new PR, and no lane it names, or a numbered successor, posts a record citing a PR after it, such as `opened`, `done`, or a `state` with a PR reference; it stops at two hours or when a root record closes it | 3 | root, as `urgent` |
 
