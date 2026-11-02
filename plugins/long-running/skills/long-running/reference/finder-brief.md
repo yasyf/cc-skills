@@ -47,6 +47,15 @@ The reply follows the `findings` schema, so the codex plugin needs nothing new:
   a stream or signal exists, a cache, cap, timer, retry, or idle wait whose PR body names
   no fundamental fix it stands in for, local state in a JSON file, or a branch on whether
   required configuration is set.
+- A change to a request or response shape between two separately released components
+  (GraphQL inputs and fields, REST bodies, the SandSQL wire, signal payloads) must work against the old and the new peer: the reader ships first and
+  accepts both shapes, and the writer switches a release later (the owner's Oct 29 pick on
+  card-wire-order, rule 7ab71e2). A writer that sends a shape the released reader rejects,
+  such as a new input field sent on every call, is a major, and so is a reader that stops
+  accepting a shape a released writer still sends, such as a resolver that now refuses a
+  call older clients make. A removal of an accepted shape stays a major until every
+  installed client is past it, which the PR body shows by the release that carried the new
+  shape to them. The dual-shape reader the rule asks for is never a compat layer.
 - A major cites at least one `path:line` inside a hunk the diff adds or changes
   (`git diff --unified=0 origin/<base>...<sha>`). A finding that rests only on lines
   the diff leaves as they were is a census finding, its defect starting `census:`: the
@@ -118,6 +127,11 @@ Do three things and report all three in the findings schema.
 
 1. Find defects in the diff: wrong results, broken callers, lost data, races,
    tests that assert less than they claim. Rate each blocker, major, minor, or nit.
+   A change to a request or response shape between two separately released components
+   (GraphQL inputs and fields, REST bodies, the SandSQL wire, signal payloads) must work against the old and the new peer
+   (rule 7ab71e2): a writer that sends a shape the released reader rejects, or a reader
+   that stops accepting a shape a released writer still sends, is a major, and a removal
+   of an accepted shape stays one until every installed client is past it.
    A major cites at least one `path:line` inside a hunk the diff adds or changes; a
    finding on lines the diff leaves as they were starts its defect with "census:".
 

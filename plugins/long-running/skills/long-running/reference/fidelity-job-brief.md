@@ -48,6 +48,17 @@ one of them forbids, or undoes what one requires, is `missing` keyed by that lin
 only touches a rule's subject breaks nothing, and style, coverage and defects no rule names
 are the finder's.
 
+A change to a request or response shape between two separately released components
+(GraphQL inputs and fields, REST bodies, the SandSQL wire, signal payloads) must work against the old and the new peer: the
+reader ships first and accepts both shapes, and the writer switches a release later (the
+owner's Oct 29 pick on card-wire-order, rule 7ab71e2). A writer that sends a shape the
+released reader rejects, or a reader that stops accepting a shape a released writer still
+sends, is `missing`, and a removal of an accepted shape stays `missing` until every installed
+client is past it, which the PR body shows by the release that carried the new shape to them.
+Key it `rule/7ab71e2` when the rows file carries that row, otherwise by the plan line of the
+step the hunk carries out, its line quoting this rule. The dual-shape reader the rule asks for
+is never the compat layer an AGENTS.md line forbids.
+
 Answer in the schema:
 
 - `verdict`: `ok` when no row breaks and the plan's text or an owner row names every

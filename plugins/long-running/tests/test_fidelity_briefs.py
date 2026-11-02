@@ -75,6 +75,21 @@ def test_finders_grade_a_ports_tests_against_the_old_tree_pr_not_the_plan():
         assert "graded against the old-tree PR" in brief and "<test> <- old-tree #<n>" in brief, name
 
 
+
+def test_every_grader_holds_a_shape_change_to_the_old_and_the_new_peer():
+    for name in ("finder-brief.md", "finder-desk-brief.md", "fidelity-desk-brief.md", "fidelity-job-brief.md"):
+        brief = " ".join((SKILL / "reference" / name).read_text().split())
+        assert "between two separately released components" in brief and "must work against the old and the new peer" in brief, name
+        assert "until every installed client is past it" in brief and "rule 7ab71e2" in brief, name
+
+
+def test_the_reader_first_breaks_replay_as_fixtures_pinned_to_their_merges_that_grade_missing():
+    rows = {row[0]: row for row in readme_rows()}
+    for fixture, merged in (("`46612-new-input-to-old-api`", "a88b7a6a1f3caf1023e70dcc91ae5534517f4242"), ("`46615-api-refuses-list-all`", "5b2f97e067b20721112e0630f080aa8c15ed3df6")):
+        source, grade, row = rows[fixture][1:]
+        assert f"diff {merged}^ {merged}`" in source and grade == "`missing`" and row == "`rule/7ab71e2`", fixture
+
+
 @pytest.mark.parametrize(
     ("text", "grade"),
     [

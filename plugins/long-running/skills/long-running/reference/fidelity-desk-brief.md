@@ -64,6 +64,15 @@ whether the code, as it runs after the change, does what the words say.
   itself all the same. A deletion that arrives without its trace reads `missing`
   with the line `no caller trace`; one whose callers lose behavior a row protects
   reads `missing` against that row.
+- A change to a request or response shape between two separately released components
+  (GraphQL inputs and fields, REST bodies, the SandSQL wire, signal payloads) must work against the old and the new peer:
+  the reader ships first and accepts both shapes, and the writer switches a release later
+  (rule 7ab71e2, implications 68 and 69). A writer that sends a shape the released reader
+  rejects, or a reader that stops accepting a shape a released writer still sends, reads
+  `missing` against `rule/7ab71e2`, and a removal of an accepted shape stays `missing`
+  until every installed client is past it, which the PR body shows by the release that
+  carried the new shape to them. The rule binds whether or not the head's slice prints
+  that row, and the dual-shape reader it asks for is never a compat layer.
 - A new refusal kind is not a fix. A head that answers a failure with a new
   refusal, error class, quarantine, or explanation, instead of making the case
   work, reads `missing` (8330d10).
@@ -245,8 +254,8 @@ read the blob.
 
 ## Fixtures
 
-[`fidelity-fixtures/`](fidelity-fixtures/README.md) names six heads, each with its
-expected grade and the row it reads against: four real ones as pointers the desk
+[`fidelity-fixtures/`](fidelity-fixtures/README.md) names eight heads, each with its
+expected grade and the row it reads against: six real ones as pointers the desk
 fetches, and two synthetic diffs. After its launch the sweep desk grades
 every fixture once in head mode and records each grade, beside the expected one,
 with `ccn note add`. A grade that differs from the expected one goes to the root as
