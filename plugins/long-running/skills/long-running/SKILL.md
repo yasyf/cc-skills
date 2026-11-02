@@ -444,7 +444,7 @@ report, and the root dispatches the tooling lane on reading it. The capt-hook
 
 **R15. CI is the verifier, not the machine.** No lane runs tests, builds, typechecks or
 lint locally; CI grades, and a red step is read from its log, fixed and pushed. That holds
-for one failing test as much as for a whole package. The pack's `local_builds` hook warns
+for one failing test as much as for a whole package. The pack's `local_builds` hook refuses
 on each such command in every session of a drive, the root's included; a Go golden's
 single `go test -update` run is the one exception. Machine load never holds a
 Buildkite build, a hand apply of a saved plan, an incident step or an owner-directed

@@ -1,0 +1,175 @@
+from __future__ import annotations
+
+import json
+import re
+import subprocess
+from datetime import UTC, datetime, timedelta
+
+from captain_hook import Allow, Annotated, BaseHookEvent, Block, Event, FromSubagent, HookResult, Input, Tool, on
+from captain_hook.util import reqenv
+
+from .compaction_handoff import ROOT_LANE, CompactionState, bus_name, drive_entry
+from .owner_facing import CCI_POST, posted_text
+from .root_replies import DRIVE_ACTIVE, OWNER_WAITS, PACIFIC, owner_waits
+from .tests.register_fixtures import DRIVE_CONFIG
+
+READ_SECONDS = 30
+RECORD_BYTES = 4_000_000
+NOTE_WINDOW = timedelta(hours=24)
+NOTE_GRACE = timedelta(minutes=10)
+NOTE_CHARS = 120
+BOARD_LANE = "board-watch"
+FEEDBACK = "feedback.created"
+ROW_PREFIX = "merge-row-"
+PR_NUMBER = re.compile(r"#(\d{3,6})\b")
+BOARD_ROWS = re.compile(r"\bboard rows?\b|\b(?:on|to|onto) (?:the |his |your )?board\b", re.IGNORECASE)
+UNANSWERED = (
+    "These owner board notes have waited over 10 minutes with no reply on the board. "
+    "Answer each with `cc-present reply --block <block> --body '<answer>'`, then stop again.\n```\n{lines}\n```"
+)
+APPROVED = "The owner already approved these PRs at their current heads, so they get no new board row. Drop them from the order and post it again.\n```\n{lines}\n```"
+
+NOW = datetime.now(UTC)
+NOTE = "why is the relay slot here at all?"
+ROW_NOTE = "no one said to get rid of this"
+BOARD = "cc-present outcomes --all --no-doc --session"
+NOTES = f"cci tail --drive brook-drive --lane {BOARD_LANE}"
+ROOTS = f"cci tail --drive brook-drive --lane {ROOT_LANE}"
+CHECK = f"{OWNER_WAITS} --drive brook-drive --json --pr"
+
+
+def stamp(minutes_ago: float) -> str:
+    return (NOW - timedelta(minutes=minutes_ago)).isoformat().replace("+00:00", "Z")
+
+
+def board(feedback: dict | None = None, triage: dict | None = None, replies: dict | None = None, retired: tuple[str, ...] = ()) -> str:
+    return json.dumps({"interactions": {"feedback": feedback or {}, "triage": triage or {}, "replies": replies or {}}, "retired": list(retired)})
+
+
+def noted(minutes_ago: float, block: str = "card-relay", text: str = NOTE) -> str:
+    return json.dumps({"seq": 7, "lane": BOARD_LANE, "kind": "owner", "at": stamp(minutes_ago), "text": f"Owner on board s, Relay card ({block}): noted “{text}”", "fields": {"attrs": {"block": block, "event": FEEDBACK}}})
+
+
+def root_record(minutes_ago: float, text: str) -> str:
+    return json.dumps({"seq": 9, "lane": ROOT_LANE, "kind": "answer", "at": stamp(minutes_ago), "text": text, "refs": {}})
+
+
+def row_note(minutes_ago: float) -> dict:
+    return {"merge-prs": {"47326": {"verdict": "rejected", "head": "770a31b", "note": ROW_NOTE, "at": stamp(minutes_ago)}}}
+
+
+def waits(line: str) -> str:
+    return json.dumps([{"pr": "47265", "head": "827dd7f0a1", "waiting": False, "line": line}])
+
+
+def read(argv: list[str]) -> str | None:
+    done = subprocess.run(argv, capture_output=True, text=True, timeout=READ_SECONDS, env=dict(reqenv.env_map()))
+    return None if done.returncode else done.stdout
+
+
+def records(drive: str, lane: str, *extra: str) -> list[dict] | None:
+    out = read(["cci", "tail", "--drive", drive, "--lane", lane, *extra, "--since", "24h", "--budget", str(RECORD_BYTES), "--json"])
+    return None if out is None else [json.loads(line) for line in out.splitlines() if line.strip()]
+
+
+def at(value: str) -> datetime:
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def clock(moment: datetime) -> str:
+    return moment.astimezone(PACIFIC).strftime("%-I:%M %p")
+
+
+def due(moment: datetime, now: datetime) -> bool:
+    return NOTE_GRACE < now - moment <= NOTE_WINDOW
+
+
+def unanswered_notes(state: dict, notes: list[dict], now: datetime) -> list[str]:
+    feedback, retired = state["interactions"].get("feedback") or {}, set(state.get("retired") or ())
+    lines = []
+    for record in notes:
+        attrs = (record.get("fields") or {}).get("attrs") or {}
+        if attrs.get("event") != FEEDBACK or (block := attrs.get("block", "")) in retired or not due(at(record["at"]), now):
+            continue
+        lines += [
+            f"{block} at {clock(at(record['at']))}: “{note['text'][:NOTE_CHARS]}”"
+            for note in feedback.get(block, [])
+            if note.get("text") and note["text"][:NOTE_CHARS] in record["text"] and not note.get("replies")
+        ]
+    return lines
+
+
+def row_notes(state: dict, now: datetime) -> list[tuple[str, str, dict]]:
+    replies, retired = state["interactions"].get("replies") or {}, set(state.get("retired") or ())
+    pending = []
+    for block, rows in (state["interactions"].get("triage") or {}).items():
+        for row, entry in rows.items():
+            pr = row.removeprefix(ROW_PREFIX)
+            if block in retired or not (entry.get("note") and entry.get("at") and due(at(entry["at"]), now)) or any(mentions(reply.get("md") or "", pr) for reply in replies.get(block, [])):
+                continue
+            pending.append((block, pr, entry))
+    return pending
+
+
+def mentions(text: str, pr: str) -> bool:
+    return bool(re.search(rf"\b{re.escape(pr)}\b", text))
+
+
+def answered(pr: str, since: datetime, roots: list[dict]) -> bool:
+    return any(at(record["at"]) > since and (mentions(record.get("text") or "", pr) or pr in {str(n) for n in (record.get("refs") or {}).get("prs") or ()}) for record in roots)
+
+
+@on(
+    Event.Stop,
+    skip_if=[FromSubagent()],
+    tests={
+        Input(state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={BOARD: board({"card-relay": [{"id": "f1", "text": NOTE}]}), NOTES: noted(30), ROOTS: ""}): Block(pattern=r"card-relay at \d{1,2}:\d{2} [AP]M: “why is the relay slot here at all\?”"),
+        Input(state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={BOARD: board({"card-relay": [{"id": "f1", "text": NOTE, "replies": [{"id": "r1", "md": "It carries the session."}]}]}), NOTES: noted(30), ROOTS: ""}): Allow(),
+        Input(state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={BOARD: board({"card-relay": [{"id": "f1", "text": NOTE}]}), NOTES: noted(5), ROOTS: ""}): Allow(),
+        Input(state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={BOARD: board({"card-relay": [{"id": "f1", "text": NOTE}]}, retired=("card-relay",)), NOTES: noted(30), ROOTS: ""}): Allow(),
+        Input(state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={BOARD: board(triage=row_note(30)), NOTES: "", ROOTS: ""}): Block(pattern=r"merge-prs #47326 at .*: “no one said to get rid of this”"),
+        Input(state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={BOARD: board(triage=row_note(30)), NOTES: "", ROOTS: root_record(20, "Closed PR 47326 at the owner's word")}): Allow(),
+        Input(state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={BOARD: board(triage=row_note(30), replies={"merge-prs": [{"id": "r2", "md": "#47326 is closed."}]}), NOTES: "", ROOTS: ""}): Allow(),
+        Input(state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={BOARD: (1, "no board"), NOTES: noted(30), ROOTS: ""}): Allow(),
+        Input(env=DRIVE_CONFIG, commands={BOARD: board({"card-relay": [{"id": "f1", "text": NOTE}]}), NOTES: noted(30), ROOTS: ""}): Allow(),
+    },
+)
+def owner_notes_get_answers(evt: BaseHookEvent) -> HookResult | None:
+    """The root stops only once every owner note on its board from the last day that is over 10 minutes old has an answer: a board note gets a reply in its thread, and a merge-row note a board reply or a root record naming its PR. A board or bus that does not read blocks nothing."""
+    if not CompactionState.load(evt).active or not (entry := drive_entry(evt)):
+        return None
+    drive = bus_name(entry)
+    if (shown := read(["cc-present", "outcomes", "--all", "--no-doc", "--session", evt.session_id])) is None or (notes := records(drive, BOARD_LANE, "--kind", "owner")) is None:
+        return None
+    state, now = json.loads(shown), datetime.now(UTC)
+    lines = unanswered_notes(state, notes, now)
+    if (pending := row_notes(state, now)) and (roots := records(drive, ROOT_LANE)) is not None:
+        lines += [f"{block} #{pr} at {clock(at(entry['at']))}: “{entry['note'][:NOTE_CHARS]}”" for block, pr, entry in pending if not answered(pr, at(entry["at"]), roots)]
+    return evt.block(UNANSWERED.format(lines="\n".join(lines))) if lines else None
+
+
+@on(
+    Event.PreToolUse,
+    only_if=[Tool("Bash")],
+    skip_if=[FromSubagent(), Annotated("raw")],
+    tests={
+        Input(command="cci post --drive brook-drive --lane root --kind go --to board-refresher-6 --text 'put #47265 on his board'", state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={CHECK: waits("#47265 at 827dd7f: not waiting on you: you approved it at 827dd7f at 1:46 AM")}): Block(pattern=r"#47265 at 827dd7f: not waiting on you: you approved it"),
+        Input(command="cci post --drive brook-drive --lane root --kind go --to board-refresher-6 --text 'board rows for #47265'", state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={CHECK: waits("#47265 at 827dd7f: not waiting on you: the board holds no row for it")}): Allow(),
+        Input(command="cci post --drive brook-drive --lane root --kind go --to landing-desk-3 --text 'land #47265'", state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={CHECK: waits("#47265 at 827dd7f: not waiting on you: you approved it at 827dd7f")}): Allow(),
+        Input(command="cci post --drive brook-drive --lane board-refresher-6 --kind state --text 'put #47265 on his board'", state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={CHECK: waits("#47265 at 827dd7f: not waiting on you: you approved it at 827dd7f")}): Allow(),
+        Input(command="cci post --drive brook-drive --lane root --kind go --text 'put #47265 on his board'", env=DRIVE_CONFIG, commands={CHECK: waits("#47265 at 827dd7f: not waiting on you: you approved it at 827dd7f")}): Allow(),
+    },
+)
+def board_rows_skip_approved_prs(evt: BaseHookEvent) -> HookResult | None:
+    """A root order that asks for board rows on PRs the owner already approved at their current heads goes back with those PRs (owner, 2:48 AM Oct 31). A read that fails blocks nothing."""
+    if not CompactionState.load(evt).active or not (entry := drive_entry(evt)):
+        return None
+    texts = [posted_text(values) for call in evt.command.calls("cci") if (values := CCI_POST.bind(call).values).get("words", ())[:1] == ("post",) and (values.get("lane") or (ROOT_LANE,))[0] in (ROOT_LANE, "main")]
+    if not (prs := sorted({pr for text in texts if BOARD_ROWS.search(text) for pr in PR_NUMBER.findall(text)})):
+        return None
+    try:
+        found = owner_waits(bus_name(entry), *(arg for pr in prs for arg in ("--pr", pr)))
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+    lines = [item["line"] for item in found if item.get("head") and f"approved it at {item['head'][:7]}" in item["line"]]
+    return evt.block(APPROVED.format(lines="\n".join(lines))) if lines else None
