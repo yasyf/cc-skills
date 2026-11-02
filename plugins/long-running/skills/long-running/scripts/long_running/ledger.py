@@ -111,6 +111,7 @@ from . import match_session
 
 AI_REVIEW_CHECK = "ai-review"
 AI_REVIEW_ABSENT = "absent"
+AI_REVIEW_HELD = "neutral"
 FAILED_CHECKS = frozenset({"FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "STARTUP_FAILURE", "ACTION_REQUIRED"})
 STACK_MERGEABILITY_CHECK = "Graphite / mergeability_check"
 APPROVED = "APPROVED"
@@ -1333,6 +1334,9 @@ def cmd_init(args: argparse.Namespace, shell: Shell) -> int:
 
 
 def cmd_report(args: argparse.Namespace, shell: Shell) -> int:
+    if args.verdict == "clean" and (review := latest_ai_review(Github(shell, args.repo), args.head)) and review["conclusion"] == AI_REVIEW_HELD:
+        finding = (review.get("output") or {}).get("title")
+        raise SystemExit(f"#{args.pr} at {args.head[:9]} is not clean: ai-review holds a blocking finding{f' ({finding})' if finding else ''}; report it held, or settle the finding and report again (root #336613)")
     notes = Notes(shell, args.ledger, args.scope)
     key = notes.key(args.pr)
     if args.ask:
