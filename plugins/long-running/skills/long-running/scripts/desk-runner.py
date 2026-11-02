@@ -498,7 +498,7 @@ fidelity lane, `fidelity-pipeline` included, already graded or sent to a reader 
 `<config dir>/fidelity-pipeline/<pr>-<head12>-<seq>/job.json` and starts `fidelity.py` on it detached, which carries
 an earlier head's ok with no model call when its own commits are patch-identical, else runs `codex-ask -m
 <fidelity.model, default sol> --incident`, at the fast tier unless `fidelity.fast` is false, over the head's own diff, its required register rows, the plan, the lane's newest
-contract, the PR body, and the plan grounds root accepted outside the plan package that `fidelity.sources` names, each cc-notes doc in `docs` and each cci record `records` lists under the head's lane, written in full to the pass's `sources.md`, and posts the fidelity line and the `old-app:` line against `fidelity.baseline` under lane
+contract, the PR body, and the plan grounds root accepted outside the plan package that `fidelity.sources` names, each cc-notes doc in `docs` and each cci record `records` lists under the head's lane, with `*` records for every lane and, on an `options/<card>-<option>` branch, that card as the root's board shows it, written in full to the pass's `sources.md`, and posts the fidelity line and the `old-app:` line against `fidelity.baseline` under lane
 `fidelity-pipeline` to the head's lane, root, the runner and each `fidelity.to` address; a head it cannot settle goes to
 the other `landing.fidelity_lane` lanes as `fidelity: reader`. A pass whose job wrote an error, or no result within
 `fidelity.timeout_minutes` (default 60), fails at once and logs `FIDELITY-FAILED` to those lanes; the next `head`
@@ -798,6 +798,7 @@ DONE_MARKER = re.compile(r"^✻ .* · done ")
 NOT_IDLE = "not idle: busy, prompt typed or asking, or output in the last 10 minutes"
 MODELS = re.compile(r"opus|sonnet|fable|astra|codex|sol|incident|claude-[\w.-]+|gpt-[\w.-]+")
 INCIDENT_MODEL = "incident"
+OPTIONS_BRANCH = "options/"
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
 GO_UNQUEUED_OUTCOMES = frozenset({"blocked", "failed", "stranded", "unsettled"})
 RETRYABLE = frozenset({"blocked", "superseded", "foreign", "dropped", "refused", "dequeued", merge_queue.RATE_LIMITED})
@@ -5020,9 +5021,9 @@ class Runner:
         return [(record, pr, full) for record, pr, head in named if (full := head if finder.FULL_SHA.fullmatch(head) else (live.get(pr) or {}).get("headRefOid", "")).startswith(head)]
 
     def live_heads(self, repo: str, prs: list[str]) -> dict[str, dict]:
-        """Each of `prs` GitHub answered for, to its `state`, `headRefOid`, `title` and `body`, read fresh in one GraphQL query, with state `NOT_FOUND` for a number that names no pull request in `repo`, such as a cci seq a record bound as one (#177997), which GitHub answers beside the rest; a read that answers for none answers none, and each pass then reads its PR itself."""
+        """Each of `prs` GitHub answered for, to its `state`, `headRefOid`, `headRefName`, `title` and `body`, read fresh in one GraphQL query, with state `NOT_FOUND` for a number that names no pull request in `repo`, such as a cci seq a record bound as one (#177997), which GitHub answers beside the rest; a read that answers for none answers none, and each pass then reads its PR itself."""
         owner, name = repo.split("/")
-        fields = " ".join(f"p{pr}: pullRequest(number: {pr}) {{ state headRefOid title body }}" for pr in prs)
+        fields = " ".join(f"p{pr}: pullRequest(number: {pr}) {{ state headRefOid headRefName title body }}" for pr in prs)
         done = self.shell.run(ghread.read("api", "graphql", "-f", f'query=query {{ repository(owner: "{owner}", name: "{name}") {{ {fields} }} }}', max_age=ghread.FRESH), env={"GH_REPO": repo})
         read = json.loads(done.out) if done.out.lstrip().startswith("{") else {}
         answered = (read.get("data") or {}).get("repository") or {}
@@ -5279,19 +5280,26 @@ class Runner:
             if running >= spec.get("concurrent", FIDELITY_CONCURRENT) or self.least_busy_sprite(spec) is None:
                 return
             if not self.waiting_on_fix(action):
-                running += self.start_fidelity(spec, repo, action, rows)
+                running += self.start_fidelity(spec, repo, action, rows, live.get(json.loads(action.target)["pr"], {}).get("headRefName", ""))
 
-    def fidelity_sources(self, spec: dict, drive_id: str, lane: str) -> str:
-        """The plan grounds root accepted outside the plan package that `fidelity.sources` names for a head of `lane`, in full: each cc-notes doc in `docs`, then each cci record `records` lists under `lane`."""
+    def fidelity_sources(self, spec: dict, drive_id: str, lane: str, branch: str) -> str:
+        """The plan grounds root accepted outside the plan package for a head of `lane` on `branch`, in full: each cc-notes doc in `fidelity.sources.docs`, each cci record `records` lists under `*` or `lane`, and, on an `options/<card>-<option>` branch, the root board's card the branch builds an option of, as `cc-present block show` prints it."""
         docs = [json.loads(self.briefs("doc", "show", ident, "--json").out) for ident in spec.get("docs", [])]
-        records = cci.selected_records(self.cci_tail, drive_id, spec.get("records", {}).get(lane, []))
-        return "\n\n".join([*(f"## cc-notes doc {doc['id'][:7]}: {doc['title']}\n\n{doc['body'].strip()}" for doc in docs), *(f"## cci #{record['seq']}, {record['kind']} from {record['lane']}\n\n{full_text(record)}" for record in records)])
+        records = cci.selected_records(self.cci_tail, drive_id, [*spec.get("records", {}).get("*", []), *spec.get("records", {}).get(lane, [])])
+        sections = [*(f"## cc-notes doc {doc['id'][:7]}: {doc['title']}\n\n{doc['body'].strip()}" for doc in docs), *(f"## cci #{record['seq']}, {record['kind']} from {record['lane']}\n\n{full_text(record)}" for record in records)]
+        if branch.startswith(OPTIONS_BRANCH):
+            card, option = branch.removeprefix(OPTIONS_BRANCH).rsplit("-", 1)
+            shown = self.shell.run(["cc-present", "block", "show", card, "--session", drive.root_session(drive_id)])
+            if shown.code:
+                raise RuntimeError(f"cc-present block show {card}: {shown.err.strip()}")
+            sections.append(f"## Board card {card}, whose option {option} this branch builds\n\n{shown.out.strip()}")
+        return "\n\n".join(sections)
 
     def incident_fix_row(self, row: dict) -> bool:
         lane = row.get("lane", "")
         return bool(INCIDENT_NAME.match(lane) or (self.book.exists(lane_container(lane)) and self.fix_launch(lane_container(lane))))
 
-    def start_fidelity(self, spec: dict, repo: str, action: actions.Action, rows: dict[str, dict]) -> bool:
+    def start_fidelity(self, spec: dict, repo: str, action: actions.Action, rows: dict[str, dict], branch: str) -> bool:
         """Settle a head a fidelity lane already graded or sent to a reader, or write the pass's job, with every fidelity grade and `old-app:` line on the PR, the grades a root `class wrong` decision answers, and the lane's newest contract, and start fidelity.py on it detached."""
         job = json.loads(action.target)
         drive_id, landing = self.config.drive, self.config.landing or {}
@@ -5306,7 +5314,7 @@ class Runner:
         contract = max((record for record in contracts if about_pr(record, repo, job["pr"])), key=lambda record: record["seq"], default=None) or max(contracts, key=lambda record: record["seq"], default=None)
         directory = self.config.source.parent / fidelity.LANE / (f"{job['pr']}-{job['head'][:12]}-{job['seq']}" + (f"-{attempt}" if (attempt := action.action_id.partition("#")[2]) else ""))
         directory.mkdir(parents=True, exist_ok=True)
-        if sources := self.fidelity_sources(spec.get("sources", {}), drive_id, job["lane"]):
+        if sources := self.fidelity_sources(spec.get("sources", {}), drive_id, job["lane"], branch):
             (directory / fidelity.SOURCES).write_text(sources)
         sprite = self.least_busy_sprite(spec)
         drive.write_atomic(
