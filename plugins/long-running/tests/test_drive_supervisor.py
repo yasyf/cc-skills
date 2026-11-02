@@ -86,7 +86,7 @@ def test_an_ended_orca_dispatch_is_a_process_row_that_reads_not_live_since_its_l
 
     rows = supervisor.orca_rows("run_1", tmp_path, None, NOW)
 
-    assert rows == [{"lane": "sol-fix", "live": True, "seen_at": "2026-10-31T17:00:00Z", "dispatch": "ctx_1"}, {"lane": "sol-done", "live": False, "seen_at": "2026-10-31T15:00:00Z", "dispatch": "ctx_2"}]
+    assert rows == [{"lane": "sol-done", "live": False, "seen_at": "2026-10-31T15:00:00Z", "dispatch": "ctx_2"}, {"lane": "sol-fix", "live": True, "seen_at": "2026-10-31T17:00:00Z", "dispatch": "ctx_1"}]
     assert len(calls) == 1
     assert supervisor.orca_rows("run_1", tmp_path, {"sol-gone"}, NOW) == []
 
@@ -113,6 +113,8 @@ def test_a_supervisor_re_executes_into_a_newer_install_at_the_end_of_its_tick(tm
     monkeypatch.setattr(supervisor.lr_drive, "installed_version", lambda: "9999.0.0")
     monkeypatch.setattr(supervisor.lr_drive, "run_installed", execs.append)
     monkeypatch.setattr(supervisor.time, "sleep", lambda seconds: pytest.fail("the supervisor slept on a superseded release"))
+    spawn = supervisor.subprocess.run
+    monkeypatch.setattr(supervisor.subprocess, "run", lambda argv, **kwargs: supervisor.subprocess.CompletedProcess(argv, 0, "", "") if "gate" in argv else spawn(argv, **kwargs))
     config = lr_config.Config("org/repo", "d1", "/srv/checkout", "bot", "drive", ())
 
     assert supervisor.cmd_run(config, tmp_path / "lr.json") == 0

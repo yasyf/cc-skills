@@ -772,6 +772,7 @@ def test_root_naming_a_lane_that_left_its_ask_unanswered_gets_one_blocker_back(t
     store.probe("conflicts-2", T0 - timedelta(minutes=40))
     store.probe_dead("conflicts-2", T0 - timedelta(minutes=20))
     fake.feed.append(record(2, "root", "decide", T0 - timedelta(minutes=1), "#46731 owner=conflicts-2", refs={"prs": ["Forge-AI/monorepo#46731"]}))
+    fake.peers = [who("conflicts-3", True, T0)]
 
     lanes.tick(store, fake.deps, T0, 1)
     lanes.tick(store, fake.deps, T0 + timedelta(minutes=1), 1)
