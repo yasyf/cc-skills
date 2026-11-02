@@ -40,3 +40,15 @@ def test_a_worktree_a_failed_first_task_left_without_its_git_link_is_made_again(
     (tmp_path / "runner.merge" / "infra").mkdir(parents=True)
     ran = merge_task.run({"checkout": str(checkout), "head": head, "argv": [str(checkout / "task.sh")]})
     assert ran["out"] == f"{tmp_path / 'runner.merge'}/task.sh first \n"
+
+
+def test_a_worktree_whose_index_a_sprite_restart_truncated_is_made_again(tmp_path):
+    checkout = tmp_path / "runner"
+    subprocess.run(["git", "init", "-q", str(checkout)], check=True)
+    first = commit(checkout, "first")
+    second = commit(checkout, "second")
+    merge_task.run({"checkout": str(checkout), "head": first, "argv": [str(checkout / "task.sh")]})
+    index = checkout / ".git" / "worktrees" / "runner.merge" / "index"
+    index.write_bytes(index.read_bytes()[:10])
+    ran = merge_task.run({"checkout": str(checkout), "head": second, "argv": [str(checkout / "task.sh")]})
+    assert ran["out"] == f"{tmp_path / 'runner.merge'}/task.sh second \n"
