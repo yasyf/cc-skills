@@ -6171,8 +6171,7 @@ class Landing:
         self.scanning = threading.Lock()
         self.designed_red: dict[str, bool] = {}
         self.body_preconditions: dict[tuple[str, str], list[str]] = {}
-        self.said_preconditions: dict[str, list[tuple[str, str]]] = {}
-        self.resolved_preconditions: dict[str, set[int]] = {}
+        self.said_preconditions: dict[str, tuple[set[int], list[tuple[str, str]]]] = {}
         self.gos: list[dict] | None = None
         self.owner_taps: tuple[set[str] | None] | None = None
         self.cleared: dict[str, int] = {}
@@ -8207,20 +8206,22 @@ class Landing:
         """Every landing precondition sentence about `pr`, each with where it was said: the PR body, read once per head and read again next pass when GitHub refuses it, then each cci record about the PR that a lane other than the runner posted, read once per pass; a record a root record about the PR resolves, and a sentence naming one, is no longer a precondition (root #194669)."""
         if (pr, sha) not in self.body_preconditions and (body := self.body(pr, timedelta(0))) is not None:
             self.body_preconditions[(pr, sha)] = precondition_sentences(body)
-        if pr not in self.said_preconditions:
+        if (said := self.said_preconditions.get(pr)) is None:
             drive = self.runner.config.drive
             records = [record for record in cci.records(self.cci_tail, drive, "--pr", f"{self.repo}#{pr}") if record["drive"] == drive]
             resolved = {seq for record in records if record["lane"] == ROOT for seq in closes(record)}
-            self.resolved_preconditions[pr] = resolved
-            self.said_preconditions[pr] = [
-                (f"cci #{record['seq']}", sentence)
-                for record in records
-                if record["lane"] != RUNNER and record["seq"] not in resolved and about_pr(record, self.repo, pr)
-                for sentence in precondition_sentences(full_text(record))
-                if not names_resolved(sentence, resolved)
-            ]
-        resolved = self.resolved_preconditions[pr]
-        return [("the PR body", sentence) for sentence in self.body_preconditions.get((pr, sha), []) if not names_resolved(sentence, resolved)] + self.said_preconditions[pr]
+            said = self.said_preconditions[pr] = (
+                resolved,
+                [
+                    (f"cci #{record['seq']}", sentence)
+                    for record in records
+                    if record["lane"] != RUNNER and record["seq"] not in resolved and about_pr(record, self.repo, pr)
+                    for sentence in precondition_sentences(full_text(record))
+                    if not names_resolved(sentence, resolved)
+                ],
+            )
+        resolved, sentences = said
+        return [("the PR body", sentence) for sentence in self.body_preconditions.get((pr, sha), []) if not names_resolved(sentence, resolved)] + sentences
 
     @property
     def merge_mode(self) -> str:
@@ -10526,7 +10527,7 @@ class Landing:
 
     def gate_pass(self) -> None:
         with self.runner.pass_io.phase("gate-setup"):
-            self.live, self.designed_red, self.full_runs_read, self.said_preconditions, self.resolved_preconditions = None, {}, {}, {}, {}
+            self.live, self.designed_red, self.full_runs_read, self.said_preconditions = None, {}, {}, {}
             self.grading, self.grade_tried = True, set()
             self.gate_deadline = time.monotonic() + GATE_BUDGET.total_seconds()
             self.trusted_from, self.pass_began = self.pass_began, time.monotonic()
