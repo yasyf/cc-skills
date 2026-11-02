@@ -75,12 +75,21 @@ def recorded_exec(argv):
 
 drive.reexec = recorded_exec
 fresh = root / '9999.0.0' / 'skills' / 'long-running' / 'scripts' / 'board_watch.py'
+
+def installed(version):
+    (root / '.claude' / 'plugins').mkdir(parents=True, exist_ok=True)
+    (root / '.claude' / 'plugins' / 'installed_plugins.json').write_text(json.dumps({'version': 2, 'plugins': {'long-running@skills': [{'version': version, 'installPath': str(root / version)}]}}))
+    link = root / '.claude' / 'long-running' / 'current'
+    link.parent.mkdir(parents=True, exist_ok=True)
+    link.unlink(missing_ok=True)
+    link.symlink_to(root / version)
+
 if mode == 'direct':
     drive.reexec([sys.executable, str(fresh), mode])
 else:
     import board_watch
-    drive.plugin_manifest = lambda: {'version': '0.0.0'}
-    drive.release.held = lambda: root / '9999.0.0'
+    drive.plugin_manifest = lambda: {'name': 'long-running', 'version': '0.0.0'}
+    installed('9999.0.0')
     board_watch.SNAPSHOT_SECONDS = 0.01
     class Shell(board_watch.Shell):
         def stale(self):
@@ -98,7 +107,7 @@ else:
         while not shell.stale():
             assert time.monotonic() < deadline, 'owned streams never started'
             time.sleep(0.01)
-        drive.release.held = lambda: root / '0.0.0'
+        installed('0.0.0')
         shell.reexec()
         assert not shell._closing and len(shell._watches) == 2
         assert all(child.poll() is None for child in shell._watches)
@@ -130,6 +139,9 @@ def reexec_probe(tmp_path: Path, mode: str) -> dict:
         path.chmod(0o700)
     old = root / 'probe.py'
     old.write_text(PROBE)
+    (root / '0.0.0').mkdir()
+    (root / '9999.0.0' / '.claude-plugin').mkdir(parents=True)
+    (root / '9999.0.0' / '.claude-plugin' / 'plugin.json').write_text(json.dumps({'name': 'long-running', 'version': '9999.0.0'}))
     target = root / '9999.0.0' / 'skills' / 'long-running' / 'scripts' / 'board_watch.py'
     target.parent.mkdir(parents=True)
     target.write_text(PROBE)
