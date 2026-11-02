@@ -17,7 +17,7 @@ That service runs `desk-creds.py run`, which points each pushed profile's `crede
 `host.region`, names `host.github_app` for ccx's GitHub reads, whose `private_key_command` reads the key at run time
 with those profiles, writes the gh user `host.gh_user`'s token, the pushed secret `GH_TOKEN`, into a gh config under
 /dev/shm for writes, exports every other pushed secret, each `host.ssm` name the SSM parameter it maps to as
-`host.ssm_profile` reads it, the desk's own `env` and `host.tz`, and execs the desk runner, logging to the
+`host.ssm_profile` reads it and `host.tz`, and execs the desk runner, logging to the
 `<desk>-runner.log` beside runner.json.
 
 usage:
@@ -247,7 +247,7 @@ def run(config: Path, desk: str) -> None:
     hosts = gh / "hosts.yml"
     hosts.touch(mode=0o600)
     hosts.write_text(f"github.com:\n    users:\n        {host['gh_user']}:\n            oauth_token: {token}\n    git_protocol: https\n    oauth_token: {token}\n    user: {host['gh_user']}\n")
-    os.environ |= {**secrets, **ssm, **raw[desk].get("env", {}), "GH_CONFIG_DIR": str(gh), "TZ": host["tz"], "CCX_CALLER": "desk-runner"}
+    os.environ |= {**secrets, **ssm, "GH_CONFIG_DIR": str(gh), "TZ": host["tz"], "CCX_CALLER": "desk-runner"}
     log = os.open(config.parent / f"{desk}-runner.log", os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
     os.dup2(log, 1)
     os.dup2(log, 2)
