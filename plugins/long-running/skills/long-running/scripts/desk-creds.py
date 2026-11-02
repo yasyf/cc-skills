@@ -1,26 +1,29 @@
 #!/usr/bin/env python3
-"""Run a desk on a remote Sprite host with short-lived credentials held in memory and never in a file, a record or an argument.
+"""Run a desk on a remote Sprite host whose credentials are short-lived or held in memory, never in a file, a record, an argument or a Sprite service's environment.
 
-STDLIB ONLY. On the host, `serve` keeps each profile's credentials in memory and answers on 127.0.0.1, so a profile
+STDLIB ONLY. On the host, `serve` keeps each profile's credentials and each pushed secret in memory, answers on
+127.0.0.1, and holds a Sprite task that it refreshes every minute, so the host never pauses while it serves. A profile
 whose `credential_process` is `desk-creds.py get <profile>` reads them and the AWS CLI and SDKs ask again once they
-expire. On the machine whose AWS sign-in mints them, `push` exports each profile's session credentials with
-`aws configure export-credentials` and hands them to the host's `serve` over `sprite exec`, through standard input
-only; a supervised job runs it more often than they expire.
+expire. On the machine whose AWS sign-in mints them, `push` exports each `host.aws_profiles` profile's session
+credentials with `aws configure export-credentials`, runs each `host.secrets` command for the value it prints, and
+hands them to the host's `serve` over `sprite exec`, through standard input only, each secret expiring after three
+pushes; a supervised job runs it every 15 minutes.
 
-`install` moves a desk onto the Sprite runner.json's `host.sprite` names: it copies the pinned plugin version, the
-drive's registry and the state beside runner.json, writes the host's runner.json with `host.landing` merged over
-`landing`, starts `serve` as a Sprite service, loads the launchd job that pushes `host.aws_profiles` every 15
-minutes and pushes them once, and starts the desk as a Sprite service whose environment holds each `host.env` name,
-the value its command prints here, passed through standard input. That service runs `desk-creds.py run`, which
-points each pushed profile's `credential_process` at `get` in `host.region`, names `host.github_app` for ccx's
-GitHub reads, whose `private_key_command` reads the key at run time with those profiles, keeps the gh user
-`host.gh_user`'s token from `DESK_GH_USER_TOKEN` for writes in a gh config under /dev/shm, sets `host.tz`, and
-execs the desk runner.
+`install` moves a desk onto the Sprite runner.json's `host.sprite` names: it copies the pinned plugin version and the
+drive's registry, the state beside runner.json only when the host holds no runner.json yet, writes the host's
+runner.json with `host.landing` merged over `landing`, starts `serve` as a Sprite service, loads the launchd job that
+pushes every 15 minutes and pushes once, and starts the desk as a Sprite service whose environment holds nothing.
+That service runs `desk-creds.py run`, which points each pushed profile's `credential_process` at `get` in
+`host.region`, names `host.github_app` for ccx's GitHub reads, whose `private_key_command` reads the key at run time
+with those profiles, writes the gh user `host.gh_user`'s token, the pushed secret `GH_TOKEN`, into a gh config under
+/dev/shm for writes, exports every other pushed secret, each `host.ssm` name the SSM parameter it maps to as
+`host.ssm_profile` reads it, the desk's own `env` and `host.tz`, and execs the desk runner, logging to the
+`<desk>-runner.log` beside runner.json.
 
 usage:
   desk-creds.py serve [--port N]
   desk-creds.py get <profile> [<field>]
-  desk-creds.py push --sprite <sprite> [--port N] <profile>...
+  desk-creds.py push --config <runner.json> [--port N]
   desk-creds.py install --config <runner.json> --desk <desk>
   desk-creds.py run --config <runner.json> --desk <desk>
 """
@@ -35,9 +38,10 @@ import shlex
 import subprocess
 import sys
 import threading
+import time
 import urllib.error
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -45,10 +49,14 @@ PORT = 9181
 HOME = "/home/sprite"
 PLUGINS = Path.home() / ".claude/plugins/cache/skills/long-running"
 SCRIPTS = Path(__file__).resolve().parent
-USER_TOKEN = "DESK_GH_USER_TOKEN"
+USER_TOKEN = "GH_TOKEN"
 PUSH_SECONDS = 900
+SECRET = "secret/"
 SHM = Path("/dev/shm")
 FIELDS = ("Version", "AccessKeyId", "SecretAccessKey", "SessionToken", "Expiration")
+SECRET_FIELDS = ("Value", "Expiration")
+AWAKE_TASK = "desk-creds"
+AWAKE_SECONDS = 60
 
 
 def expired(credentials: dict) -> bool:
@@ -75,11 +83,13 @@ def server(port: int) -> ThreadingHTTPServer:
 
         def do_PUT(self) -> None:
             credentials = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
-            if set(FIELDS) - set(credentials) or expired(credentials):
-                self.send_error(400, f"credentials need {', '.join(FIELDS)} and an Expiration still ahead")
+            key = self.path.strip("/")
+            fields = SECRET_FIELDS if key.startswith(SECRET) else FIELDS
+            if set(fields) - set(credentials) or expired(credentials):
+                self.send_error(400, f"{key} needs {', '.join(fields)} and an Expiration still ahead")
                 return
             with holding:
-                held[self.path.strip("/")] = {name: credentials[name] for name in FIELDS}
+                held[key] = {name: credentials[name] for name in fields}
             self.send_response(204)
             self.end_headers()
 
@@ -89,10 +99,23 @@ def server(port: int) -> ThreadingHTTPServer:
     return ThreadingHTTPServer(("127.0.0.1", port), Handler)
 
 
+def hold_awake() -> None:
+    """Keep this Sprite running while `serve` does: a Sprite pauses whenever no exec session is open, whatever its services do, unless a task holds it, so refresh one every `AWAKE_SECONDS` with five minutes to spare."""
+    while True:
+        held = subprocess.run(["/.sprite/bin/sprite-env", "curl", "-sSf", "-X", "PUT", f"/v1/tasks/{AWAKE_TASK}", "-H", "Content-Type: application/json", "-d", '{"expire": "5m"}'], capture_output=True, text=True)
+        if held.returncode:
+            print(f"desk-creds: the {AWAKE_TASK} task was not refreshed: {held.stderr.strip()[-300:]}", file=sys.stderr, flush=True)
+        time.sleep(AWAKE_SECONDS)
+
+
+def fetch(key: str, port: int) -> dict:
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}/{key}", timeout=10) as answer:
+        return json.load(answer)
+
+
 def get(profile: str, field: str, port: int) -> int:
     try:
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}/{profile}", timeout=10) as answer:
-            credentials = json.load(answer)
+        credentials = fetch(profile, port)
     except urllib.error.URLError as error:
         print(f"desk-creds get: no credentials for {profile} on port {port}: {error}", file=sys.stderr)
         return 1
@@ -100,25 +123,42 @@ def get(profile: str, field: str, port: int) -> int:
     return 0
 
 
-def push(sprite: str, port: int, profiles: list[str]) -> int:
-    failed = 0
-    for profile in profiles:
+def send(sprite: str, port: int, key: str, body: str) -> str:
+    sent = subprocess.run(
+        ["sprite", "exec", "-s", sprite, "--", "curl", "-sS", "-f", "-X", "PUT", "-H", "Content-Type: application/json", "--data-binary", "@-", f"http://127.0.0.1:{port}/{key}"],
+        input=body,
+        capture_output=True,
+        text=True,
+    )
+    return sent.stderr.strip()[-300:] if sent.returncode else ""
+
+
+def push(config: Path, port: int) -> int:
+    host = json.loads(config.read_text())["host"]
+    sprite, failed = host["sprite"], 0
+    for profile in host["aws_profiles"]:
         exported = subprocess.run(["aws", "configure", "export-credentials", "--profile", profile, "--format", "process"], capture_output=True, text=True)
         if exported.returncode:
             print(f"desk-creds push: {profile} did not export: {exported.stderr.strip()[-300:]}", file=sys.stderr)
             failed = 1
             continue
-        sent = subprocess.run(
-            ["sprite", "exec", "-s", sprite, "--", "curl", "-sS", "-f", "-X", "PUT", "-H", "Content-Type: application/json", "--data-binary", "@-", f"http://127.0.0.1:{port}/{profile}"],
-            input=exported.stdout,
-            capture_output=True,
-            text=True,
-        )
-        if sent.returncode:
-            print(f"desk-creds push: {profile} did not reach {sprite}: {sent.stderr.strip()[-300:]}", file=sys.stderr)
+        if refused := send(sprite, port, profile, exported.stdout):
+            print(f"desk-creds push: {profile} did not reach {sprite}: {refused}", file=sys.stderr)
             failed = 1
             continue
         print(f"desk-creds push: {profile} on {sprite} until {json.loads(exported.stdout)['Expiration']}")
+    until = (datetime.now(timezone.utc) + timedelta(seconds=3 * PUSH_SECONDS)).isoformat(timespec="seconds")
+    for name, argv in host["secrets"].items():
+        printed = subprocess.run(argv, capture_output=True, text=True)
+        if printed.returncode or not (value := printed.stdout.strip()):
+            print(f"desk-creds push: {name}'s command printed nothing, exit {printed.returncode}", file=sys.stderr)
+            failed = 1
+            continue
+        if refused := send(sprite, port, f"{SECRET}{name}", json.dumps({"Value": value, "Expiration": until})):
+            print(f"desk-creds push: {name} did not reach {sprite}: {refused}", file=sys.stderr)
+            failed = 1
+            continue
+        print(f"desk-creds push: {name} on {sprite} until {until}")
     return failed
 
 
@@ -138,14 +178,18 @@ def tar(root: Path, *names: str) -> bytes:
     return subprocess.run(["tar", "--no-xattrs", "--exclude=__pycache__", "--exclude=.in_use", "-C", str(root), "-czf", "-", *names], capture_output=True, check=True, env=os.environ | {"COPYFILE_DISABLE": "1"}).stdout
 
 
-def keep_pushing(drive: str, sprite: str, profiles: list[str]) -> None:
-    """Load the launchd job that pushes `profiles` to `sprite` every `PUSH_SECONDS`, unless it is loaded."""
+def keep_pushing(drive: str, config: Path) -> None:
+    """Load the launchd job that runs `push` for `config` every `PUSH_SECONDS`, replacing a loaded one whose plist differs."""
     label = f"com.long-running.{drive}.desk-creds"
-    if subprocess.run(["launchctl", "print", f"gui/{os.getuid()}/{label}"], capture_output=True).returncode == 0:
-        return
     plist = Path.home() / "Library/LaunchAgents" / f"{label}.plist"
     log = str(Path.home() / ".claude/long-running" / f"{label}.log")
-    plist.write_bytes(plistlib.dumps({"Label": label, "ProgramArguments": [str(SCRIPTS.parents[2] / "bin/desk-creds.py"), "push", "--sprite", sprite, *profiles], "EnvironmentVariables": {"PATH": os.environ["PATH"]}, "StartInterval": PUSH_SECONDS, "RunAtLoad": True, "StandardOutPath": log, "StandardErrorPath": log}))
+    wanted = plistlib.dumps({"Label": label, "ProgramArguments": [str(SCRIPTS.parents[2] / "bin/desk-creds.py"), "push", "--config", str(config)], "EnvironmentVariables": {"PATH": os.environ["PATH"]}, "StartInterval": PUSH_SECONDS, "RunAtLoad": True, "StandardOutPath": log, "StandardErrorPath": log})
+    loaded = subprocess.run(["launchctl", "print", f"gui/{os.getuid()}/{label}"], capture_output=True).returncode == 0
+    if loaded and plist.is_file() and plist.read_bytes() == wanted:
+        return
+    if loaded:
+        subprocess.run(["launchctl", "bootout", f"gui/{os.getuid()}/{label}"], check=True)
+    plist.write_bytes(wanted)
     subprocess.run(["launchctl", "bootstrap", f"gui/{os.getuid()}", str(plist)], check=True)
 
 
@@ -157,50 +201,56 @@ def install(config: Path, desk: str) -> int:
     sprite_sh(sprite, 'mkdir -p "$1" && tar -xzf - -m -C "$1"', plugins, stdin=tar(PLUGINS, version))
     registry = Path.home() / ".claude/long-running/drives" / f"{raw['drive']}.json"
     sprite_sh(sprite, 'mkdir -p "$(dirname "$1")" && cat >"$1"', f"{HOME}/.claude/long-running/drives/{registry.name}", stdin=registry.read_bytes())
-    files = [path.name for path in state.iterdir() if path.is_file() and path.suffix != ".log" and path != config]
-    sprite_sh(sprite, 'mkdir -p "$1" && tar -xzf - -m -C "$1"', str(state), stdin=tar(state, *[name for name in ("runner", "cards") if (state / name).is_dir()], *files))
+    if subprocess.run(["sprite", "exec", "-s", sprite, "--no-stdin", "--", "test", "-f", str(config)]).returncode:
+        files = [path.name for path in state.iterdir() if path.is_file() and path.suffix != ".log" and path != config]
+        sprite_sh(sprite, 'mkdir -p "$1" && tar -xzf - -m -C "$1"', str(state), stdin=tar(state, *[name for name in ("runner", "cards") if (state / name).is_dir()], *files))
     sprite_sh(sprite, 'cat >"$1"', str(config), stdin=(json.dumps(host_config(raw), indent=2) + "\n").encode())
     entry = f"{plugins}/{version}/bin/desk-creds.py"
-    sprite_sh(sprite, 'sprite-env services get desk-creds >/dev/null 2>&1 || sprite-env services create desk-creds --cmd "$1" --args serve --no-stream >/dev/null', entry)
-    keep_pushing(raw["drive"], sprite, host["aws_profiles"])
-    if failed := push(sprite, PORT, host["aws_profiles"]):
-        return failed
-    values = {name: subprocess.run(argv, capture_output=True, text=True, check=True).stdout.strip() for name, argv in host["env"].items()}
-    if unfit := [name for name, value in values.items() if not value or "," in value]:
-        print(f"desk-creds install: {', '.join(unfit)} printed nothing or a comma, which a Sprite service environment cannot hold; no service changed", file=sys.stderr)
-        return 1
     sprite_sh(
         sprite,
-        'env=$(paste -sd, -); sprite-env services delete "$1" >/dev/null 2>&1; sprite-env services create "$1" --cmd "$2" --args "run,--config,$3,--desk,$4" --env "$env" --needs desk-creds --no-stream >/dev/null',
+        'sprite-env services delete "$1" >/dev/null 2>&1; sprite-env services delete desk-creds >/dev/null 2>&1; sprite-env services create desk-creds --cmd "$2" --args serve --no-stream >/dev/null && timeout 30 sh -c "until curl -so /dev/null http://127.0.0.1:$3/; do sleep 1; done"',
+        f"desk-{desk}",
+        entry,
+        str(PORT),
+    )
+    keep_pushing(raw["drive"], config)
+    failed = push(config, PORT)
+    sprite_sh(
+        sprite,
+        'sprite-env services create "$1" --cmd "$2" --args "run,--config,$3,--desk,$4" --needs desk-creds --no-stream >/dev/null',
         f"desk-{desk}",
         entry,
         str(config),
         desk,
-        stdin="".join(f"{name}={value}\n" for name, value in values.items()).encode(),
     )
-    print(f"desk-creds install: the {desk} desk runs on {sprite} as Sprite service desk-{desk} on {version}")
-    return 0
+    print(f"desk-creds install: the {desk} desk runs on {sprite} as Sprite service desk-{desk} on {version}{', waiting on the next push' if failed else ''}")
+    return failed
 
 
 def run(config: Path, desk: str) -> None:
     raw = json.loads(config.read_text())
     host = raw["host"]
-    aws = Path.home() / ".aws/config"
+    home = Path.home()
+    aws = home / ".aws/config"
     aws.parent.mkdir(parents=True, exist_ok=True)
     shim = shlex.quote(str(SCRIPTS.parents[2] / "bin/desk-creds.py"))
     aws.write_text("".join(f"[profile {profile}]\ncredential_process = {shim} get {profile}\nregion = {host['region']}\n\n" for profile in host["aws_profiles"]))
-    ccx = Path.home() / ".config/ccx/github-app.toml"
+    ccx = home / ".config/ccx/github-app.toml"
     ccx.parent.mkdir(parents=True, exist_ok=True)
     ccx.write_text("".join(f"{key} = {json.dumps(value)}\n" for key, value in host["github_app"].items()))
+    os.environ |= {"HOME": str(home), "PATH": f"{home}/.local/bin:{home}/.bun/bin:/.sprite/bin:{os.environ.get('PATH', '/usr/local/bin:/usr/bin:/bin')}"}
+    secrets = {name: fetch(f"{SECRET}{name}", PORT)["Value"] for name in host["secrets"]}
+    token = secrets.pop(USER_TOKEN)
+    ssm = {name: subprocess.run(["aws", "ssm", "get-parameter", "--profile", host["ssm_profile"], "--region", host["region"], "--name", path, "--with-decryption", "--query", "Parameter.Value", "--output", "text"], capture_output=True, text=True, check=True).stdout.strip() for name, path in host.get("ssm", {}).items()}
     gh = SHM / f"{raw['drive']}-gh"
     gh.mkdir(mode=0o700, parents=True, exist_ok=True)
-    token = os.environ.pop(USER_TOKEN)
     hosts = gh / "hosts.yml"
     hosts.touch(mode=0o600)
     hosts.write_text(f"github.com:\n    users:\n        {host['gh_user']}:\n            oauth_token: {token}\n    git_protocol: https\n    oauth_token: {token}\n    user: {host['gh_user']}\n")
-    os.environ.pop("GH_TOKEN", None)
-    home = Path.home()
-    os.environ |= {"GH_CONFIG_DIR": str(gh), "TZ": host["tz"], "CCX_CALLER": "desk-runner", "PATH": f"{home}/.local/bin:{home}/.bun/bin:/.sprite/bin:{os.environ.get('PATH', '/usr/local/bin:/usr/bin:/bin')}"}
+    os.environ |= {**secrets, **ssm, **raw[desk].get("env", {}), "GH_CONFIG_DIR": str(gh), "TZ": host["tz"], "CCX_CALLER": "desk-runner"}
+    log = os.open(config.parent / f"{desk}-runner.log", os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+    os.dup2(log, 1)
+    os.dup2(log, 2)
     os.execv(sys.executable, [sys.executable, str(SCRIPTS / "desk-runner.py"), "run", "--config", str(config), "--desk", desk])
 
 
@@ -214,15 +264,15 @@ def main() -> int:
     getting.add_argument("field", nargs="?", default="")
     getting.add_argument("--port", type=int, default=PORT)
     pushing = verbs.add_parser("push")
-    pushing.add_argument("--sprite", required=True)
+    pushing.add_argument("--config", type=Path, required=True)
     pushing.add_argument("--port", type=int, default=PORT)
-    pushing.add_argument("profiles", nargs="+")
     for verb in ("install", "run"):
         desk = verbs.add_parser(verb)
         desk.add_argument("--config", type=Path, required=True)
         desk.add_argument("--desk", required=True)
     args = parser.parse_args()
     if args.verb == "serve":
+        threading.Thread(target=hold_awake, daemon=True).start()
         server(args.port).serve_forever()
         return 0
     if args.verb == "get":
@@ -231,7 +281,7 @@ def main() -> int:
         return install(args.config, args.desk)
     if args.verb == "run":
         run(args.config, args.desk)
-    return push(args.sprite, args.port, args.profiles)
+    return push(args.config, args.port)
 
 
 if __name__ == "__main__":
