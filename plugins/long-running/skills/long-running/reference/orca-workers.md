@@ -22,11 +22,13 @@
 
 **Build explicit Claude terminal commands that disallow prompts.** Orca's default user settings launch `claude` with `--permission-mode plan`. Keep the interactive default in plan mode, and create every worker terminal with an explicit command that sets `bypassPermissions` and `--disallowedTools AskUserQuestion,EnterPlanMode,ExitPlanMode` so a worker never blocks on an unwatched terminal prompt. Pass any other default arguments through `ORCA_LAUNCH_CLAUDE_ARGS`; `--channels plugin:cc-review@cc-review` below stands for those arguments, not a fixed requirement.
 
-**`orca-launch.sh` creates a sparse worktree, creates the terminal, and starts the worker.** `orca worktree create` has no sparse option. The `git worktree add` it runs from the main checkout copies no sparse config either, so each monorepo lane it made held the whole tree, 34,196 entries and 0.56 GB. The script adds the worktree with git under `~/repos/claude/worktrees/<repo>` and checks out only the root's files, `.agents`, `.claude`, `tools`, and the directories the brief's `ccx:` line names in `paths=`, a few hundred entries. Orca lists the worktree once it reads git's registry, and `orca worktree set` gives it Orca's name and parent:
+**`orca-launch.sh` creates a sparse worktree, creates the terminal, and starts the worker.** `orca worktree create` has no sparse option. The `git worktree add` it runs from the main checkout copies no sparse config either, so each monorepo lane it made held the whole tree, 34,196 entries and 0.56 GB. The script adds the worktree with git under `~/repos/claude/worktrees/<repo>`.
+
+When HEAD tracks more than `ORCA_LAUNCH_SPARSE_FILES` files, 5,000 by default, the script checks out only the root's files, `.agents`, `.claude`, `tools`, `infra/ci/hooks/lib`, and the directories the brief's `ccx:` line names in `paths=`. The monorepo's `tools/ci` sources `infra/ci/hooks/lib`. That cone is about 1,800 entries in the monorepo, and a smaller repo keeps a full checkout. Orca lists the worktree once it reads git's registry, and `orca worktree set` gives it Orca's name and parent:
 
 ```sh
 git -C "<main checkout>" worktree add --no-checkout --no-track -b "<user>/<lane>-base" "<root>/<lane>-base" "origin/<base>"
-printf '%s\n' .agents .claude tools <paths> | git -C "<wt>" sparse-checkout set --cone --stdin
+printf '%s\n' .agents .claude tools infra/ci/hooks/lib <paths> | git -C "<wt>" sparse-checkout set --cone --stdin
 git -C "<wt>" reset --hard
 orca worktree set --worktree "path:<wt>" --display-name "<lane>-base" \
   --parent-worktree "path:<coordinator worktree>" --json
@@ -137,6 +139,7 @@ usage: orca-launch.sh <lane> <model> <effort> <brief-file>
 | `ORCA_LAUNCH_WORKTREE_SECONDS` | Ceiling in seconds waiting for Orca to list a worktree the launch added; defaults to `180`. |
 | `ORCA_LAUNCH_PREPARE` | Optional shell command run in the new worktree before worker start, such as code generators. |
 | `ORCA_LAUNCH_PREPARE_SECONDS` | Timeout in seconds for `ORCA_LAUNCH_PREPARE`; defaults to `120`. |
+| `ORCA_LAUNCH_SPARSE_FILES` | Tracked-file count above which a new worktree is sparse; defaults to `5000`. |
 
 **Verify the launch output line and receipt files.** A successful launch prints one of:
 

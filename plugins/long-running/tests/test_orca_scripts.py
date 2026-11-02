@@ -104,6 +104,7 @@ class Orca:
             "ORCA_LAUNCH_PARENT": str(self.parent),
             "ORCA_LAUNCH_PREFIX": "v3-",
             "ORCA_LAUNCH_ROOT": str(self.parent.parent),
+            "ORCA_LAUNCH_SPARSE_FILES": "1",
             "ORCA_LAUNCH_BASE": "origin/dev",
             "ORCA_LAUNCH_STATE": str(self.receipts),
             "ORCA_LAUNCH_CLAUDE_ARGS": "--channels plugin:cc-review@cc-review",
@@ -350,7 +351,7 @@ def test_a_new_worktree_checks_out_only_the_root_files_the_agent_dirs_and_the_br
     assert sorted(path.name for path in orca.worktree.iterdir()) == [".agents", ".claude", ".git", "go", "infra", "root.md", "tools"]
     assert [path.name for path in (orca.worktree / "go").iterdir()] == ["ci"]
     assert git(orca.worktree, "status", "--porcelain") == ""
-    assert f"lane-a sparse: .agents .claude tools go/ci infra; widen with git -C {orca.worktree} sparse-checkout add <dir>" in result.stderr
+    assert f"lane-a sparse: .agents .claude tools infra/ci/hooks/lib go/ci infra; widen with git -C {orca.worktree} sparse-checkout add <dir>" in result.stderr
     assert flag(orca.calls("orchestration worker-start")[0], "--spec").endswith(SPARSE)
 
 
@@ -366,6 +367,17 @@ def test_a_launch_without_a_root_adds_the_worktree_to_the_ccx_worktree_pool(orca
     assert result.returncode == 0, result.stdout + result.stderr
     assert result.stdout.strip().endswith(f"worktree={root}/main/v3-lane-a-base")
     assert (root / "main" / "v3-lane-a-base" / ".agents").is_dir()
+
+
+def test_a_repo_with_no_more_tracked_files_than_the_sparse_floor_keeps_a_full_checkout(orca):
+    orca.healthy()
+    orca.env["ORCA_LAUNCH_SPARSE_FILES"] = "8"
+    result = orca.launch()
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert (orca.worktree / "api" / "app.py").exists() and (orca.worktree / "go" / "other" / "main.go").exists()
+    assert subprocess.run(["git", "-C", str(orca.worktree), "config", "--get", "core.sparseCheckout"], check=False).returncode == 1
+    assert "sparse:" not in result.stderr
+    assert flag(orca.calls("orchestration worker-start")[0], "--spec").endswith("its Escalate rules hold.")
 
 
 def test_a_relaunch_into_a_full_checkout_keeps_the_plain_spec(orca):

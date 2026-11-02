@@ -17,9 +17,11 @@ the name rewritten to '-' and <user> the gitUsername Orca records for the repo,
 as Orca names its own: a branch <user>/<prefix><lane> would make git refuse every
 branch under the lane's <user>/<prefix><lane>/ prefix. An existing branch of that
 name is checked out as it stands; a new one starts at the base, fetched from its
-remote first as Orca does, and tracks nothing. The checkout is sparse in cone
-mode: the root's files, .agents, .claude, tools, and each directory a
-paths=<dir>,<dir> key on the brief's ccx: header line names. The script prints
+remote first as Orca does, and tracks nothing. A checkout whose HEAD tracks more
+than ORCA_LAUNCH_SPARSE_FILES files is sparse in cone mode: the root's files,
+.agents, .claude, tools, infra/ci/hooks/lib, which the monorepo's tools/ci
+sources, and each directory a paths=<dir>,<dir> key on the brief's ccx: header
+line names. A smaller repo keeps a full checkout. The script prints
 the cone and the widen command, git -C <wt> sparse-checkout add <dir>, on stderr,
 and the spec tells the worker to widen before reading outside it. orca worktree
 create cannot make a sparse checkout, and git copies sparse config only from the
@@ -181,6 +183,7 @@ and branch that existed before the launch stay. Every failure line is one line, 
   ORCA_LAUNCH_WORKTREE_SECONDS  ceiling on the wait for Orca to list a worktree this launch added, default 180
   ORCA_LAUNCH_PREPARE        shell command run in each worktree this launch creates, before its worker starts, default none
   ORCA_LAUNCH_PREPARE_SECONDS  ceiling on that command, default 120
+  ORCA_LAUNCH_SPARSE_FILES   tracked-file count above which a new worktree is sparse, default 5000
 EOF
   exit 2
 }
@@ -194,6 +197,7 @@ BOOT=${ORCA_LAUNCH_BOOT_SECONDS:-180}
 WORKTREE_WAIT=${ORCA_LAUNCH_WORKTREE_SECONDS:-180}
 PREPARE=${ORCA_LAUNCH_PREPARE:-}
 PREPARE_WAIT=${ORCA_LAUNCH_PREPARE_SECONDS:-120}
+SPARSE_FILES=${ORCA_LAUNCH_SPARSE_FILES:-5000}
 POLL=4
 STALL=${ORCA_LAUNCH_STALL_SECONDS:-180}
 
@@ -368,15 +372,20 @@ shared() {
     mkdir -p "$(dirname "$WT/$path")" && cp -R "$MAIN/$path" "$WT/$path"
   done
 }
+checked() {
+  [ -z "$CONE" ] || printf '%s\n' "$CONE" | git -C "$WT" sparse-checkout set --cone --stdin || return 1
+  git -C "$WT" reset --quiet --hard && shared
+}
 
 ROLLBACK=1
 if ! is_checkout; then
   added >"$STATE/$LANE.worktree.log" 2>&1 || fail "worktree add $WT: $(tail -n 3 "$STATE/$LANE.worktree.log")"
   MADE=1
-  CONE=$(printf '%s\n' .agents .claude tools; sed -En 's/^ccx:(.* )?paths=([^[:space:]]+).*/\2/p' "$BRIEF" | tr , '\n')
-  { printf '%s\n' "$CONE" | git -C "$WT" sparse-checkout set --cone --stdin && git -C "$WT" reset --quiet --hard && shared; } >>"$STATE/$LANE.worktree.log" 2>&1 ||
-    fail "worktree checkout $WT: $(tail -n 3 "$STATE/$LANE.worktree.log")"
-  printf '%s sparse: %s; widen with git -C %s sparse-checkout add <dir>\n' "$LANE" "$(printf '%s' "$CONE" | tr '\n' ' ')" "$WT" >&2
+  CONE=$(printf '%s\n' .agents .claude tools infra/ci/hooks/lib; sed -En 's/^ccx:(.* )?paths=([^[:space:]]+).*/\2/p' "$BRIEF" | tr , '\n')
+  FILES=$(git -C "$WT" ls-tree -r --name-only HEAD | wc -l)
+  [ $((FILES)) -gt "$SPARSE_FILES" ] || CONE=''
+  checked >>"$STATE/$LANE.worktree.log" 2>&1 || fail "worktree checkout $WT: $(tail -n 3 "$STATE/$LANE.worktree.log")"
+  [ -z "$CONE" ] || printf '%s sparse: %s; widen with git -C %s sparse-checkout add <dir>\n' "$LANE" "$(printf '%s' "$CONE" | tr '\n' ' ')" "$WT" >&2
 fi
 waited=0
 until orca worktree show --worktree "path:$WT" --json >"$STATE/$LANE.worktree.json" 2>&1; do
