@@ -148,6 +148,14 @@ and, across the drive:
     desk      a desk runner that posted a `<desk> alive` record in the window posted none for
               `stall.minutes.desk`; the record is its heartbeat wherever it runs, and the stall goes
               to root with the restart command the runner's newest record carries
+    customer  a record the pass reads for the first time says, in one sentence, that customers or
+              tenants are failing now or will fail from a change already moving (a release that ships
+              sand before api, a crash-looping tenant pod, users who see an error), and no incident
+              record, incident lane or earlier break it answers covers it: the pass posts an
+              `incident` record to root that answers it with `--re`, which opens the incident under
+              R16 with the executor's fix authority in that same pass, never a card or a flag; a
+              conditional, a negation, a question or a recovery says no break (retro C4, owner 3:03 PM
+              Nov 1, root #296632)
 
 A lane's own liveness, whether it stopped, went silent or outgrew its context, is the lane supervisor's
 (`lr/movers/lanes.py`), which relaunches it with no root action; no stall names a lane for its silence.
@@ -203,6 +211,7 @@ from functools import cached_property
 
 from long_running import actions, judge
 from long_running import board_rows
+from long_running import breakage
 from long_running import cci
 from long_running import drive
 from long_running import ghread
@@ -222,9 +231,12 @@ PACIFIC = ZoneInfo("America/Los_Angeles")
 WINDOW_HOURS = 24
 MINUTES = {"go": 10, "silent": 15, "refusal": 10, "red": 2, "unclassed": 20, "unfixed": 60, "sweep": 20, "order": 3, "tap": 10, "ungraded": 10, "finder": 10, "fidelity": 10, "missing": 20, "regrade": 15, "running": 25, "board": 15, "carry": 20, "ask": 15, "pick": 15, "gate": 10, "stale": 120, "desk": 10, "shape": 10}
 DESK_KINDS = frozenset({"finder", "fidelity"})
-ROOT_KINDS = frozenset({"missing", "unclassed", "unfixed"})
+ROOT_KINDS = frozenset({"missing", "unclassed", "unfixed", "customer"})
 REPOSTED = frozenset({"red"})
-POST_KINDS = {"red": "blocker", "unclassed": "blocker", "unfixed": "blocker", "sweep": "blocker", "probe": "report"}
+POST_KINDS = {"red": "blocker", "unclassed": "blocker", "unfixed": "blocker", "sweep": "blocker", "probe": "report", "customer": "incident"}
+INCIDENT_KINDS = frozenset({"incident", "fix-live", "mechanism"})
+SAYS_KINDS = frozenset({"urgent", "decide", "decision", "answer", "report", "note", "evidence", "blocker", "ask", "correction", "defect", "owner", "state"})
+CUSTOMER_STEP = "R16 this turn: `incident.py open` and `incident.py run`, whose fix lane holds the pre-authorized fix apply; post the two scope answers, and a no to either closes it"
 RED_CLASSES = ("inherited", "flake", "real", "stale")
 RED_FIELD = re.compile(r"\b(class|head|owner)=(\S+)")
 HANDED_TO = re.compile(r"\bsuccessor ([a-z][a-z0-9]*(?:-[a-z0-9]+)+)\b")
@@ -420,9 +432,10 @@ class Stall:
     step: str
     pr: str = ""
     quiet: bool = False
+    re: str = ""
 
     def line(self, now: datetime) -> str:
-        word = "STALE" if self.kind == "stale" else f"STALL {self.kind}"
+        word = {"stale": "STALE", "customer": "INCIDENT customer-break"}.get(self.kind, f"STALL {self.kind}")
         return f"{word} {self.subject}, {int((now - self.since).total_seconds() // 60)} min: {self.what} | owner {', '.join(self.owner)} | {self.step}"
 
     def to(self, drive_name: str, desk_lanes: list[str], live: Callable[[str], str | None]) -> str:
@@ -648,6 +661,7 @@ class Pass:
         self.refused: set[str] = set()
         self.queues: dict[str, list[actions.Action]] = {}
         self.probe_day = ""
+        self.customer_seq: int | None = None
 
     def tail(self, argv: list[str]) -> str:
         done = self.shell.run(argv)
@@ -675,7 +689,7 @@ class Pass:
         records = [record for record in cci.records(self.tail, self.watch.drive, since=actions.stamp(self.now - self.watch.window)) if record["drive"] == self.watch.drive]
         self.lane_newest = {record["lane"]: record for record in records}
         stalls, questions, entries = self.prs(records)
-        stalls += self.asks(records) + self.picks(records) + self.gates(records) + self.desks(records) + self.shapes()
+        stalls += self.asks(records) + self.picks(records) + self.gates(records) + self.desks(records) + self.shapes() + self.customers(records, saved.get("customer_seq"))
         questions += self.orders(records)
         cached = saved.get("verdicts", {})
         fresh = self.judge([question.ask | {"id": question.key} for question in questions if question.key not in cached])
@@ -704,6 +718,8 @@ class Pass:
             done = self.post(stall)
             if done.code:
                 failed.append(f"cci post exited {done.code} for {stall.id}: {(done.err or done.out).strip()[:300]}")
+                if stall.kind == "customer":
+                    self.customer_seq = min(self.customer_seq, int(stall.re) - 1)
                 print(failed[-1], file=sys.stderr)
                 continue
             kept[stall.id] = {"kind": stall.kind, "since": actions.stamp(stall.since), "posted": done.out.strip()[:200]}
@@ -733,7 +749,7 @@ class Pass:
                 told |= dict.fromkeys(fresh, actions.stamp(self.now))
         if not dry_run:
             staged = self.watch.state.with_name(f".{STATE}")
-            staged.write_text(json.dumps({"open": kept, "last": last, "verdicts": verdicts, "states": self.states, "told": told, "probe_day": self.probe_day}, indent=1) + "\n")
+            staged.write_text(json.dumps({"open": kept, "last": last, "verdicts": verdicts, "states": self.states, "told": told, "probe_day": self.probe_day, "customer_seq": self.customer_seq}, indent=1) + "\n")
             staged.replace(self.watch.state)
             if self.stack is not None:
                 stack = self.watch.state.with_name(drive.STACK)
@@ -748,6 +764,8 @@ class Pass:
         argv = ["cci", "post", "--drive", self.watch.drive, "--lane", LANE, "--kind", POST_KINDS.get(stall.kind, "urgent"), "--to", stall.to(self.watch.drive, self.watch.desk_lanes, self.live_lane), "--topic", stall.id]
         if stall.pr:
             argv += ["--pr", f"{self.watch.landing['repo']}#{stall.pr}"]
+        if stall.re:
+            argv += ["--re", stall.re]
         return self.shell.run([*argv, "--text", stall.line(self.now)])
 
     def judge(self, questions: list[dict]) -> dict[str, dict]:
@@ -1389,6 +1407,22 @@ class Pass:
                 f"{lane} said at cci #{said['seq']} that work waits on #{pr}, and {gate['lane']} posted it {'landed' if gate['kind'] == 'landed' else 'queued'} at cci #{gate['seq']}, {pacific(at(gate), self.now)}; {lane} has posted no OPENED or HEAD since",
                 (lane,), f"open the work that waited on #{pr} and post OPENED or HEAD, or post why it still waits",
             ))
+        return stalls
+
+    def customers(self, records: list[dict], after: int | None) -> list[Stall]:
+        """An incident to root for each record after `after` that says customers are failing or will fail, unless an incident record answers it, an incident lane wrote or hears it, or it answers a break already covered; the first pass reads no history, only sets `after` to the newest record (retro C4, owner 3:03 PM Nov 1)."""
+        self.customer_seq = max((record["seq"] for record in records), default=after)
+        answered = {seq for record in records if record["kind"] in INCIDENT_KINDS for seq in {record.get("re"), *cci.resolved(record)}}
+        covered: set[int] = set()
+        stalls = []
+        for record in records:
+            if record["kind"] in INCIDENT_KINDS or record["seq"] in answered or {record.get("re"), *cci.resolved(record)} & covered or any(breakage.INCIDENT_LANE.fullmatch(lane) for lane in [record["lane"], *(record.get("to") or [])]):
+                covered.add(record["seq"])
+                continue
+            if after is None or record["seq"] <= after or record["kind"] not in SAYS_KINDS or record["lane"] == LANE or not (said := breakage.customer_break(grades.full_text(record))):
+                continue
+            covered.add(record["seq"])
+            stalls.append(Stall(f"customer:{record['seq']}", "customer", at(record), f"#{record['seq']} from {record['lane']}", f"its {record['kind']} at {pacific(at(record), self.now)} says “{clip(said, RECORD_CHARS)}”", (ROOT,), CUSTOMER_STEP, re=str(record["seq"])))
         return stalls
 
     def shapes(self) -> list[Stall]:

@@ -1698,3 +1698,47 @@ def test_a_pass_whose_post_cci_refuses_ends_its_output_on_that_refusal(config, c
         assert stall_watch.main(["--config", str(config)], shell) == 1
     last = capsys.readouterr().err.strip().splitlines()[-1]
     assert last.startswith("1 cci post failed this pass, first cci post exited 1 for finder:101:abc1234: cci: store locked")
+
+
+def test_a_replay_of_nov_1_opens_the_tenant_incident_at_290083_in_the_pass_that_first_reads_it(config):
+    """Retro C4: release-5 said at 11:45 AM (#290083) that Anubhav's release ships sand ahead of api, so tenant users see 'index unavailable'; root put it on a card (#290155), told the detector to hold its finding (#290003), and no incident opened until 1:54 PM (owner 3:03 PM Nov 1, root #296632)."""
+    replay = [{"drive": DRIVE, "num": f"#{found['seq']}", "refs": {}, "to": []} | found for found in map(json.loads, (Path(__file__).parent / "fixtures/customer_break/nov1.jsonl").read_text().splitlines())]
+    shell = FakeShell([], [])
+    opened: list[tuple[str, datetime]] = []
+    clock = stall_watch.at(replay[0])
+    while clock <= stall_watch.at(replay[-1]) + timedelta(minutes=5):
+        shell.clock = clock
+        shell.records = sorted([*shell.records, *(found for found in replay if clock - timedelta(minutes=5) < stall_watch.at(found) <= clock)], key=lambda found: found["seq"])
+        posted = len(shell.posts)
+        watch(shell, config)
+        for post in shell.posts[posted:]:
+            if post[post.index("--kind") + 1] == "incident":
+                opened.append((post[post.index("--re") + 1], clock))
+                shell.records.append(record(shell.records[-1]["seq"] + 1, "stall-watch", "incident", post[post.index("--text") + 1], 0, re=int(opened[-1][0])) | {"at": actions.stamp(clock)})
+        clock += timedelta(minutes=5)
+
+    assert [seq for seq, _ in opened] == ["290083", "292325"]
+    first = next(found for found in replay if found["seq"] == 290083)
+    assert stall_watch.at(first) <= opened[0][1] < stall_watch.at(first) + timedelta(minutes=5)
+    post = shell.post("customer:290083")
+    assert (post["kind"], post["to"]) == ("incident", "root")
+    assert post["text"].startswith("INCIDENT customer-break #290083 from release-5")
+    assert "tenant users' sidebar shows 'index unavailable' until api deploys there" in post["text"]
+    assert "R16 this turn: `incident.py open` and `incident.py run`, whose fix lane holds the pre-authorized fix apply" in post["text"]
+
+
+def test_the_first_pass_reads_no_history_and_a_failed_incident_post_is_read_again_next_pass(config):
+    warned = record(5, "release-5", "urgent", "Release 11719 ships sand ahead of api, so tenant users see 'index unavailable' in the sidebar.", 2)
+    shell = FakeShell([record(4, "api-lane", "note", "SoFi users see 'chat failed' since the 11:52 release.", 30)], [])
+    watch(shell, config)
+    assert shell.posts == []
+
+    shell.records.append(warned)
+    shell.run = lambda argv, stdin=None, env=None, timeout=0, run=shell.run: stall_watch.Done(1, "", "cci down") if argv[:2] == ["cci", "post"] else run(argv, stdin, env, timeout)
+    with pytest.MonkeyPatch.context() as patched:
+        patched.setattr(stall_watch.judge, "batch", shell.batch)
+        assert stall_watch.main(["--config", str(config)], shell) == 1
+    del shell.run
+    watch(shell, config)
+
+    assert shell.topics() == ["customer:5"]

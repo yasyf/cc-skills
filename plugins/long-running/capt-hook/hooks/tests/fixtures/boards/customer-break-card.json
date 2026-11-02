@@ -1,0 +1,25 @@
+{
+  "id": "sand-order",
+  "type": "card",
+  "title": "Release the api to the three tenant clusters now?",
+  "summary": "Anubhav's release 11719 ships the sand app ahead of api on three tenant clusters, so their users see 'index unavailable' in the sidebar until api deploys there.",
+  "children": [
+    {
+      "id": "sand-order-pick",
+      "type": "choice",
+      "prompt": "Release the api to the three tenant clusters now?",
+      "options": [
+        {
+          "id": "yes",
+          "label": "Yes, release the api now",
+          "hint": "Six settings-file rolls and no replaces"
+        },
+        {
+          "id": "wait",
+          "label": "Wait for Anubhav's release to finish",
+          "hint": "The sidebar stays broken until then"
+        }
+      ]
+    }
+  ]
+}
