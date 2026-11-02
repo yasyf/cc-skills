@@ -870,6 +870,39 @@ def test_the_handoff_lists_each_incident_lane_with_its_last_record_and_age(drive
     assert "enum-local-client" not in body and "inc-old-fix" not in body
 
 
+def test_each_open_task_whose_lane_delivered_since_the_last_progress_record_is_listed_with_that_record(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    session = json.loads((drive_home / "session.json").read_text())
+    session["tasks"] = [
+        {"id": "11", "status": "in_progress", "subject": "Perf worker scenarios", "owner": "devbox-explore-7"},
+        {"id": "12", "status": "in_progress", "subject": "Quiet work", "owner": "quiet-lane-1"},
+        {"id": "13", "status": "pending", "subject": "Board rows", "owner": "board-refresher-6"},
+    ]
+    (drive_home / "session.json").write_text(json.dumps(session))
+    shell = shell_with()
+    shell.updated["a" * 40] = (datetime.now(timezone.utc) - timedelta(minutes=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    shell.lane_records = [
+        lane_record(20, "devbox-explore-7", "report", "scenario 3 measured", 10),
+        lane_record(21, "devbox-explore-7", "state", "measuring", 5),
+        lane_record(22, "quiet-lane-1", "report", "before the last progress record", 45),
+        lane_record(23, "board-refresher-6", "head", "rows at the new head", 8),
+        lane_record(24, "stranger-1", "report", "owns no open task", 8),
+    ]
+
+    body = shell.docs[generate(drive_home, shell, capsys=capsys)["id"]]
+
+    listed = body.split(f"{handoff.DELIVERED}\n")[1].split("\n\n")[0].splitlines()
+    assert [line.split(" | ")[0] for line in listed] == ["- #11 devbox-explore-7: Perf worker scenarios", "- #13 board-refresher-6: Board rows"]
+    assert listed[0].startswith("- #11 devbox-explore-7: Perf worker scenarios | report #20 ") and listed[0].endswith(": scenario 3 measured")
+
+
+def test_a_drive_with_no_delivery_says_none(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    shell = shell_with()
+
+    body = shell.docs[generate(drive_home, shell, capsys=capsys)["id"]]
+
+    assert f"{handoff.DELIVERED}\n- none\n" in body
+
+
 def test_a_drive_with_no_incident_lane_says_so(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
     shell = shell_with()
 

@@ -4,7 +4,7 @@
 # ///
 """What the owner's next update must cover, read from the root's task list, the PR ledger, the board and cci, never from memory.
 
-    owner_update.py --drive D [--since TIME] [--json]
+    owner_update.py --drive D [--since TIME] [--kind KIND]... [--only SECTION]... [--json]
 
 STDLIB ONLY. The drive's root is its newest registry session; its task list is
 `$CLAUDE_CONFIG_DIR/tasks/session-<root8>/`. Prints one line per item, in five sections:
@@ -18,14 +18,17 @@ STDLIB ONLY. The drive's root is its newest registry session; its task list is
 An ask is every owner ask the PR ledger holds that is neither dropped nor answered, graded
 as `ledger.py summary` grades it, read without the reconcile that command writes first.
 In flight is every in-progress task whose owner is a lane. Delivered is every open task
-whose lane posted a `report`, `done` or `fix-live` record after `--since` (default 2 h
-ago), the newest such record per lane. The board is every PR row on the root's live
-board; a board that does not read prints `board unread: <why>` and the rest still prints.
+whose lane posted a `report`, `done`, `fix-live` or `handoff` record after `--since`
+(default 2 h ago), the newest such record per lane; each `--kind` replaces those kinds,
+as the compaction nudge does with :data:`REPORTED_KINDS` to add `head`. The board is
+every PR row on the root's live board; a board that does not read prints
+`board unread: <why>` and the rest still prints.
 Incidents are the drive's open `incident` records. Times are Pacific.
 
-`--json` prints `{since, asks, in_flight, delivered, board, incidents}`, each a list of
-objects carrying a `line`; the root's Stop hook reads it to refuse an update to the owner
-that omits a delivered item or calls an in-flight one not started.
+Each `--only` limits the reads to the sections it names, as the compaction nudge reads
+only `delivered`. `--json` prints `{since, asks, in_flight, delivered, board, incidents}`,
+each a list of objects carrying a `line`; the root's Stop hook reads it to refuse an
+update to the owner that omits a delivered item or calls an in-flight one not started.
 """
 
 from __future__ import annotations
@@ -43,7 +46,8 @@ from long_running import drive
 from long_running import ledger
 import owner_waits
 
-DELIVERED_KINDS = frozenset({"report", "done", "fix-live"})
+DELIVERED_KINDS = frozenset({"report", "done", "fix-live", "handoff"})
+REPORTED_KINDS = DELIVERED_KINDS | {"head"}
 CLOSED_ASKS = frozenset({ledger.ASK_DROPPED, ledger.ASK_ANSWERED})
 OPEN_TASKS = frozenset({"in_progress", "pending"})
 RECORD_WINDOW = "24h"
@@ -94,13 +98,13 @@ def in_flight(tasks: list[dict], records: dict[str, dict]) -> list[dict]:
     ]
 
 
-def delivered(tasks: list[dict], records: list[dict], since: datetime) -> list[dict]:
+def delivered(tasks: list[dict], records: list[dict], since: datetime, kinds: frozenset[str] = DELIVERED_KINDS) -> list[dict]:
     """The newest deliverable record after `since` of each lane that owns an open task, with that task, its in-progress one first."""
     owned: dict[str, dict] = {}
     for task in sorted(tasks, key=lambda task: task["status"] != "in_progress"):
         if task["status"] in OPEN_TASKS and task.get("owner"):
             owned.setdefault(task["owner"], task)
-    newest = newest_by_lane([record for record in records if record["kind"] in DELIVERED_KINDS and owner_waits.at(record) > since and record["lane"] in owned])
+    newest = newest_by_lane([record for record in records if record["kind"] in kinds and owner_waits.at(record) > since and record["lane"] in owned])
     return [
         {
             "task": (task := owned[lane])["id"],
@@ -141,39 +145,44 @@ def since_of(value: str | None, now: datetime) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00")) if value else now - DEFAULT_SINCE
 
 
-def update(drive_name: str, since: datetime, runner: Runner) -> dict:
+SECTIONS = ("asks", "in_flight", "delivered", "board", "incidents")
+
+
+def update(drive_name: str, since: datetime, runner: Runner, kinds: frozenset[str] = DELIVERED_KINDS, only: tuple[str, ...] = SECTIONS) -> dict:
     entry = next(entry for entry in drive.drives() if drive.cci_drive(entry) == drive_name and entry.get("sessions"))
     session = entry["sessions"][-1]
     tasks = tasks_of(session)
     lanes = sorted({task["owner"] for task in tasks if task.get("owner") and task["status"] in OPEN_TASKS})
-    records = cci.records(owner_waits.tail(runner), drive_name, *(f"--lane={lane}" for lane in lanes), since=RECORD_WINDOW) if lanes else []
+    window = min(since, datetime.now(timezone.utc) - timedelta(hours=int(RECORD_WINDOW.removesuffix("h")))).isoformat()
+    records = cci.records(owner_waits.tail(runner), drive_name, *(f"--lane={lane}" for lane in lanes), since=window) if lanes else []
     latest = newest_by_lane(records)
-    return {
-        "since": since.isoformat(),
-        "asks": ask_rows(runner, entry["checkout"], entry["ledger"], latest),
-        "in_flight": in_flight(tasks, latest),
-        "delivered": delivered(tasks, records, since),
-        "board": board_rows(runner, drive_name, session),
-        "incidents": incidents(runner, drive_name),
+    reads = {
+        "asks": lambda: ask_rows(runner, entry["checkout"], entry["ledger"], latest),
+        "in_flight": lambda: in_flight(tasks, latest),
+        "delivered": lambda: delivered(tasks, records, since, kinds),
+        "board": lambda: board_rows(runner, drive_name, session),
+        "incidents": lambda: incidents(runner, drive_name),
     }
+    return {"since": since.isoformat()} | {section: reads[section]() if section in only else [] for section in SECTIONS}
 
 
 def main(argv: list[str] | None = None, runner: Runner = owner_waits.run) -> int:
     parser = argparse.ArgumentParser(prog="owner_update.py", description=__doc__.split("\n\n", 1)[0])
     parser.add_argument("--drive", required=True)
     parser.add_argument("--since", help="an RFC 3339 time; delivered records after it count (default: 2 h ago)")
+    parser.add_argument("--kind", action="append", help="a record kind that counts as a delivery, repeatable (default: report, done, fix-live, handoff)")
+    parser.add_argument("--only", action="append", choices=SECTIONS, help="read only this section, repeatable (default: every section)")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
     try:
-        found = update(args.drive, since_of(args.since, datetime.now(timezone.utc)), runner)
+        found = update(args.drive, since_of(args.since, datetime.now(timezone.utc)), runner, frozenset(args.kind or DELIVERED_KINDS), tuple(args.only or SECTIONS))
     except owner_waits.ReadFailed as failed:
         print(f"owner-update: {failed}", file=sys.stderr)
         return 1
     if args.json:
         print(json.dumps(found, default=str))
         return 0
-    sections = ("asks", "in_flight", "delivered", "board", "incidents")
-    print("\n".join(item["line"] for section in sections for item in found[section]) or "nothing open")
+    print("\n".join(item["line"] for section in SECTIONS for item in found[section]) or "nothing open")
     return 0
 
 
