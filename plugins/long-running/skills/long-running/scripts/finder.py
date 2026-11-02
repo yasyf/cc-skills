@@ -85,6 +85,7 @@ WHOLE_READ = "over whole "
 HEAD_SHA = re.compile(r"(?<!was )\b[0-9a-f]{40}\b")
 SHORT_SHA = re.compile(r"(?<!was )\b(?=[0-9]*[a-f])[0-9a-f]{7,39}\b")
 FULL_SHA = re.compile(r"\b[0-9a-f]{40}\b")
+PR_HEAD = re.compile(r"#(\d+):? (?:at )?((?=[0-9]*[a-f])[0-9a-f]{7,40})\b")
 TEXT_PR = re.compile(r"\b([\w.-]+/[\w.-]+)#(\d+)\b|(?<![\w/])#(\d{4,})\b")
 ZERO_REF = re.compile(r"bad object (?:0{40}|worktrees/\S+/HEAD)")
 WAS = re.compile(r"\(was ([0-9a-f]{7,40})\b")
@@ -130,11 +131,16 @@ class Shell:
 
 
 def heads(record: dict, repo: str) -> list[tuple[str, str]]:
-    """Each `(pr, head)` a `head` record names: each `head:<pr>` attribute of a multi-head record in `repo`, else its `commit` field, else the first full sha of its text that no `was` precedes, else the first abbreviated one, which the caller spells whole from the PR's live head (#220098), for each PR its refs name in `repo`, or with no PR refs the PR its text names, as a lane that posts a head without `--pr` still gets its finder pass (root #158365)."""
+    """Each `(pr, head)` a `head` record names: each `head:<pr>` attribute of a multi-head record in `repo`, else its `commit` field, else the sha its text pairs with each PR as `#<pr> <sha>`, as a restack posted in prose names one head per PR (root #304381), else the first full sha of its text that no `was` precedes, else the first abbreviated one, which the caller spells whole from the PR's live head (#220098), for each PR its refs name in `repo`, or with no PR refs the PR its text names, as a lane that posts a head without `--pr` still gets its finder pass (root #158365)."""
     if (entries := head_entries(record, repo)) is not None:
         return [(pr, entry["commit"]) for pr, entry in entries.items()]
-    head = (record.get("fields") or {}).get("commit") or next(iter(HEAD_SHA.findall(record["text"])), "") or next(iter(SHORT_SHA.findall(record["text"])), "")
     prs = [pr for pr, _ in repo_prs(record, repo)] if (record.get("refs") or {}).get("prs") else text_pr(record["text"], repo)
+    if commit := (record.get("fields") or {}).get("commit"):
+        return [(pr, commit) for pr in prs]
+    paired = dict(PR_HEAD.findall(record["text"]))
+    if named := [(pr, paired[pr]) for pr in prs if pr in paired]:
+        return named
+    head = next(iter(HEAD_SHA.findall(record["text"])), "") or next(iter(SHORT_SHA.findall(record["text"])), "")
     return [(pr, head) for pr in prs] if head else []
 
 
