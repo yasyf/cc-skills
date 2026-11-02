@@ -49,6 +49,8 @@ on:
       - "plugins/long-running/tests/test_stall_watch.py"
       - "plugins/long-running/tests/test_build_cache.py"
       - "plugins/long-running/tests/overflow_read_integration.py"
+      - "plugins/long-running/tests/test_paired_handoff.py"
+      - "plugins/long-running/skills/long-running/scripts/long_running/desk_control.py"
       - "plugins/long-running/tests/test_rosters.py"
       - "plugins/long-running/tests/test_inboxes.py"
       - "plugins/long-running/tests/test_register_reads.py"
@@ -581,6 +583,8 @@ jobs:
           uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_desk_runner.py -k stale_blocker -q
       - name: native mailbox freshness and lifecycle, and the shells' command reaping
         run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_rosters.py plugins/long-running/tests/test_inboxes.py plugins/long-running/tests/test_register_reads.py plugins/long-running/tests/test_ledger_shell.py plugins/long-running/tests/test_stall_watch.py plugins/long-running/tests/test_build_cache.py plugins/long-running/tests/overflow_read_integration.py plugins/long-running/tests/test_rulings_dispatch.py plugins/long-running/tests/test_rulings_owned_hooks.py plugins/long-running/tests/test_rulings_consumers.py plugins/long-running/tests/test_lane_landing.py plugins/long-running/tests/test_judge_request_owned.py plugins/long-running/tests/test_judge.py plugins/long-running/tests/test_fifteenth_check_pr_owned.py plugins/long-running/tests/test_owned_reexec.py plugins/long-running/tests/test_board_watch.py::test_a_reexecuted_watch_ends_the_streams_its_older_image_started -q -s
+      - name: Paired controller handoff boundaries and lifecycle
+        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_paired_handoff.py -q -s
       - name: Actual completed-bus cleanup history costs
         run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_desk_runner.py::test_stale_blocker_cleanup_has_history_bounded_noop_work -q -s
       - uses: actions/checkout@v7

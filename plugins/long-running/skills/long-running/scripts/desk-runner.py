@@ -662,7 +662,7 @@ import threading
 import time
 import traceback
 from collections import Counter
-from contextlib import closing, contextmanager
+from contextlib import ExitStack, closing, contextmanager
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from concurrent.futures import Future, ThreadPoolExecutor
 from concurrent.futures import wait as finished_by
@@ -2435,6 +2435,41 @@ class Runner:
         started = self.shell.spawn([str(RUNNER_BIN), "run", "--config", str(self.config.source), "--desk", desk], self.runner_log(desk), self.config.desk_env[desk], append=True)
         print(f"desk-runner handoff: {f'runner {pid} exited' if pid is not None else f'no live {desk} runner'}; started runner {started.pid}, logging to {self.runner_log(desk)}")
         return 0
+
+    def handoff_pair(self, version: str = "") -> int:
+        current = self.pinned() or RUNNING_VERSION
+        target = version or current
+        desks = sorted(DESKS)
+        if faults := drive.release_faults(target):
+            shown = "; ".join(faults[:HANDOFF_FAULTS]) + (f"; and {len(faults) - HANDOFF_FAULTS} more" if len(faults) > HANDOFF_FAULTS else "")
+            print(f"desk-runner handoff: no runner was stopped, since the {target} install is not its release: {shown}", file=sys.stderr)
+            return 1
+        supervised = {desk: self.supervised(desk) for desk in desks}
+        for desk in desks:
+            if fault := self.successor_fault(desk, target, supervised[desk]):
+                print(f"desk-runner handoff: no runner was stopped, since its {desk} successor on {target} would refuse: {fault}", file=sys.stderr)
+                return 3
+        if target != current and (refused := self.replay_refusal(current, target)):
+            print(f"desk-runner handoff: no runner was stopped, since {refused}", file=sys.stderr)
+            return 3
+        predecessors = {}
+        try:
+            with ExitStack() as held:
+                for desk in desks:
+                    predecessors[desk] = held.enter_context(self.control.quiesced(desk, HANDOFF_WAIT, WAKE_SECONDS))
+                self.pin(target)
+        except QuiesceFailed as error:
+            print(f"desk-runner handoff: {error}; the shared pin was not changed", file=sys.stderr)
+            return 1
+        result = 0
+        for desk in desks:
+            if supervised[desk]:
+                result = max(result, self.await_launchd(desk, predecessors[desk]))
+            else:
+                started = self.shell.spawn([str(RUNNER_BIN), "run", "--config", str(self.config.source), "--desk", desk], self.runner_log(desk), self.config.desk_env[desk], append=True)
+                print(f"desk-runner handoff: started {desk} runner {started.pid}, logging to {self.runner_log(desk)}")
+        print(f"desk-runner handoff: paired pin {target}; target uptake still requires native process evidence and two fresh target heartbeats per desk")
+        return result
 
     def await_launchd(self, desk: str, pid: int | None) -> int:
         """Wait up to LAUNCHD_START for the runner launchd restarts to hold `desk`'s lock under a pid other than `pid`'s."""
@@ -10461,7 +10496,9 @@ def build_parser() -> argparse.ArgumentParser:
     loop.add_argument("--once", action="store_true")
     rebind = verbs.add_parser("rebind")
     handoff = verbs.add_parser("handoff")
-    handoff.add_argument("--desk", choices=DESKS, required=True)
+    handoff_scope = handoff.add_mutually_exclusive_group(required=True)
+    handoff_scope.add_argument("--desk", choices=DESKS)
+    handoff_scope.add_argument("--paired", action="store_true", help="gracefully exit both desks before changing their shared version pin once")
     handoff.add_argument("--version", default="", help="the installed plugin version to pin and move the desk onto, after its release check and its own preflight pass; the pinned version when omitted")
     supervise = verbs.add_parser("supervise", help="install, uninstall, or report the launchd user agent com.long-running.<drive>.<desk> that keeps the desk's runner alive; status exits 0 while launchd has it loaded")
     supervise.add_argument("action", choices=("install", "uninstall", "status"))
@@ -10558,7 +10595,7 @@ def main(argv: list[str] | None = None, shell: Shell | None = None) -> int:
     if args.verb == "rebind":
         return runner.rebind()
     if args.verb == "handoff":
-        return runner.handoff(args.desk, args.version)
+        return runner.handoff_pair(args.version) if args.paired else runner.handoff(args.desk, args.version)
     if args.verb == "supervise":
         return runner.supervise(args.action, args.desk)
     if args.verb == "preflight":
