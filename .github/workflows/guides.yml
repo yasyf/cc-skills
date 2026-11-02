@@ -3,6 +3,7 @@ name: Guides
 on:
   push: {branches: [main]}
   pull_request:
+    branches: [main]
     paths:
       - ".claude/fragments/**"
       - ".claude/settings.json"
