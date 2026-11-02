@@ -1780,7 +1780,6 @@ class Config:
     briefs_repo: str
     briefs_log: str
     launch_env: dict[str, str]
-    sprite: dict | None
     gc: str | None
     start_minutes: int
     launch_minutes: int
@@ -1816,7 +1815,6 @@ class Config:
             briefs_repo=str(Path(orca["briefs"]["repo"]).expanduser()),
             briefs_log=orca["briefs"].get("log", ""),
             launch_env=orca.get("launch_env", {}),
-            sprite=orca.get("sprite"),
             gc=orca.get("gc"),
             start_minutes=deadlines.get("start_minutes", 10),
             launch_minutes=deadlines.get("launch_minutes", 15),
@@ -3647,9 +3645,13 @@ class Runner:
             env[CLAUDE_ARGS] = " ".join(filter(None, [env.get(CLAUDE_ARGS, self.shell.env(CLAUDE_ARGS)), CLAUDE_FAST_MODE]))
         self.launching[f"{container}/{action.action_id}"] = self.shell.spawn(argv, self.launch_log(container, action.action_id), env)
 
+    def sprite(self) -> dict | None:
+        """runner.json's `orca.sprite`, read at each launch so an edit reaches the next one with no handoff."""
+        return json.loads(self.config.source.read_text())["orca"].get("sprite")
+
     def launch_sprite(self, container: str, lane: str, action: actions.Action) -> None:
         spec = json.loads(action.target)
-        sprite = self.config.sprite or {}
+        sprite = self.sprite() or {}
         argv = [sprite["launcher"], lane, sprite_model(spec["model"]), spec["effort"], spec["brief"]]
         env = {**self.config.launch_env, **self.orca.sender, "WORKER_RUN": self.config.run, **sprite.get("env", {}), "WORKER_LOCAL": ""}
         key = f"{container}/{action.action_id}"
@@ -3659,12 +3661,12 @@ class Runner:
     def sprite_refusal(self, lane: str, spec: dict) -> str | None:
         if FABLE_MODEL.search(spec["model"]) or spec["model"] == INCIDENT_MODEL or spec.get("fast") or not sprite_placed(Path(spec["brief"])):
             return ""
-        if not self.config.sprite:
+        if not (sprite := self.sprite()):
             return "a runner config with no orca.sprite"
         if not SPRITE_LANE.fullmatch(lane):
             return f"lane {lane}, not a Sprite name of up to 55 lowercase letters, digits, and dashes"
         for name in ("WORKER_CC_REMOTE", "CC_REMOTE_CONFIG"):
-            if (path := self.config.sprite.get("env", {}).get(name)) and not PIN_BRANCH.fullmatch(branch := self.shell.run(["git", "-C", str(Path(path).parent), "branch", "--show-current"]).out.strip()):
+            if (path := sprite.get("env", {}).get(name)) and not PIN_BRANCH.fullmatch(branch := self.shell.run(["git", "-C", str(Path(path).parent), "branch", "--show-current"]).out.strip()):
                 return f"{name} {path}, whose checkout is on {f'branch {branch}' if branch else 'no branch'}, not dev or a cc-remote pin branch; point it at a worktree that moves only with a pin PR"
         return None
 
@@ -10633,7 +10635,7 @@ def edit_config(runner: Runner, action: str, key: str, value: str | None) -> int
         staged.replace(source)
     finally:
         staged.unlink(missing_ok=True)
-    print(f"desk-runner config: {action} {key} in {source}; the landing desk would start on it. A running desk keeps the config it started with, so the edit reaches it only at its next `desk-runner.py handoff`")
+    print(f"desk-runner config: {action} {key} in {source}; the landing desk would start on it")
     return 0
 
 
