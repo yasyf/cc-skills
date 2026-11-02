@@ -736,3 +736,84 @@ def test_a_reply_cut_off_at_the_models_output_cap_is_asked_once_more_on_sol(tmp_
     with pytest.raises(subprocess.CalledProcessError):
         finder.main([str(other)], shell)
     assert [ask[2] for ask, _ in shell.asks()] == ["luna"]
+
+
+FIXED_AREA = "a" * 40
+OTHER_AREA = "c" * 40
+LEDGER_ROWS = [
+    {"key": "47001", "fields": {"title": "sand: 🐛 the replica keeps its held marker", "landed_sha": FIXED_AREA}},
+    {"key": "47002", "fields": {"title": "sand: ✨ replica metrics", "landed_sha": "b" * 40}},
+    {"key": "47003", "fields": {"title": "api: 🐛 the parent read retries", "landed_sha": OTHER_AREA}},
+    {"key": "47004", "fields": {"title": "sand: 🐛 the open replica fix", "state": "open"}},
+]
+LANDED_FILES = f"@{FIXED_AREA}\n\ngo/sand/internal/replica/marker.go\ngo/sand/internal/replica/marker_test.go\n@{OTHER_AREA}\n\napi/parent.go\n"
+
+
+class AreaFake(Fake):
+    def __init__(self, tmp_path: Path, title: str, body: str = "## Summary\nA cut signal resubscribes from the position it fetched.") -> None:
+        super().__init__(tmp_path, [reply()])
+        self.title, self.body = title, body
+
+    def run(self, argv: list[str], cwd: Path | None = None, timeout: int = finder.READ_SECONDS) -> str:
+        if gateway(argv)[:3] == ["gh", "pr", "view"]:
+            return json.dumps(json.loads(super().run(argv, cwd, timeout)) | {"title": self.title, "body": self.body})
+        if argv[0] == "ccn":
+            self.calls.append((argv, cwd))
+            assert argv[1:] == ["-R", str(self.tmp_path / "checkout"), "ledger", "show", "abc", "--json"]
+            return json.dumps({"rows": LEDGER_ROWS})
+        return super().run(argv, cwd, timeout)
+
+    def git(self, argv: list[str]) -> str:
+        if argv[:2] == ["log", "--ignore-missing"]:
+            assert argv[-2:] == [FIXED_AREA, OTHER_AREA]
+            return LANDED_FILES
+        return super().git(argv)
+
+
+@pytest.fixture
+def registry(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    home = tmp_path / "claude"
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(home))
+    entry = home / "long-running/drives/d1.json"
+    entry.parent.mkdir(parents=True)
+    entry.write_text(json.dumps({"drive": "d1", "cci_drive": "d1", "ledger": "abc", "repo": REPO, "checkout": str(tmp_path / "checkout"), "sessions": []}))
+
+
+def test_a_second_bug_fix_in_an_area_the_drive_already_fixed_posts_a_blocking_point_naming_the_earlier_fix(tmp_path, registry):
+    directory = job(tmp_path)
+    shell = AreaFake(tmp_path, "sand: 🐛 the replica resubscribes from its fetched position")
+
+    assert finder.main([str(directory)], shell) == 0
+
+    [post] = shell.posted
+    assert post["--text"].startswith(f"finder: major {HEAD} 1 open over whole {OWN[:7]}^..{HEAD[:7]}: go/sand/internal/replica/follow.go:40 {finder.SECOND_FIX}.")
+    record = (directory / "record.md").read_text()
+    assert "#47001 (sand: 🐛 the replica keeps its held marker) fixed go/sand/internal/replica" in record
+    assert "#47002" not in record and "#47003" not in record and "#47004" not in record
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "## Summary\nThe class: a resubscribe that reads its position twice. This fix removes it, since one owner holds the position.",
+        "## Summary\nThe replica reader is deleted at cutover, so this is its last fix.",
+    ],
+)
+def test_a_second_fix_whose_body_names_the_class_it_removes_or_the_cutover_deletion_stands_ok(tmp_path, registry, body):
+    directory = job(tmp_path)
+    shell = AreaFake(tmp_path, "sand: 🐛 the replica resubscribes from its fetched position", body)
+
+    assert finder.main([str(directory)], shell) == 0
+
+    [post] = shell.posted
+    assert post["--text"].startswith(f"finder: ok {HEAD} ")
+
+
+def test_a_change_that_is_no_bug_fix_reads_no_landed_area(tmp_path, registry):
+    directory = job(tmp_path)
+    shell = AreaFake(tmp_path, "sand: ✨ the replica streams its position")
+
+    assert finder.main([str(directory)], shell) == 0
+
+    assert shell.posted[0]["--text"].startswith(f"finder: ok {HEAD} ")
+    assert not [argv for argv, _ in shell.calls if argv[0] == "ccn"]
