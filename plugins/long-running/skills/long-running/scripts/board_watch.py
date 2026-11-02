@@ -67,10 +67,10 @@ owner made it, then reads the records again and exits 1, naming each, while any 
 still differs: the landing runner reads taps only from records once this prints `verified`.
 
 `blanket` records an owner word that approves the whole board, such as "every pending PR on the
-board is approved", as one approved `owner` record per row whose text was written at or before
-the word's `--at` time, at the row's head and that time. A row written after the word gets no
-record and prints `LEFT`, so it waits on his tap at its own row: every landing path reads the
-verdict records, never the word (root 313672, 314327).
+board is approved", as one approved `owner` record per row of the newest `board-rows` snapshot
+posted for the session by the word's `--at` time, at that row's head and the word's time. A row
+put up after the word gets no record, so it waits on his tap at its own row: every landing path
+reads the verdict records, never the word (root 313672, 314327).
 """
 
 from __future__ import annotations
@@ -427,14 +427,18 @@ def post_owner(shell: Shell, bus: Bus, key: str, text: str, block: str, names: l
     return resolves
 
 
-def board_records(shell: Shell, drive_name: str) -> list[dict]:
+def bus_records(shell: Shell, drive_name: str, *filters: str) -> list[dict]:
     def run(argv: list[str]) -> str:
         done = shell.cci(argv[1:])
         if done.returncode:
             raise RuntimeError(f"cci {' '.join(argv[1:3])} exited {done.returncode}: {done.stderr.strip()[:200]}")
         return done.stdout
 
-    return sorted([*cci.records(run, drive_name, "--lane", BUS_LANE, "--kind=owner"), *cci.records(run, drive_name, "--lane", RUNNER, f"--topic={board_rows.WRITE_TOPIC}")], key=lambda record: record["seq"])
+    return cci.records(run, drive_name, *filters)
+
+
+def board_records(shell: Shell, drive_name: str) -> list[dict]:
+    return sorted([*bus_records(shell, drive_name, "--lane", BUS_LANE, "--kind=owner"), *bus_records(shell, drive_name, "--lane", RUNNER, f"--topic={board_rows.WRITE_TOPIC}")], key=lambda record: record["seq"])
 
 
 def post_snapshot(shell: Shell, bus: Bus, session: str, posted: dict) -> None:
@@ -594,21 +598,20 @@ def cmd_backfill(args: argparse.Namespace, shell: Shell) -> int:
 
 def cmd_blanket(args: argparse.Namespace, shell: Shell) -> int:
     drive_name = bus_drive(args)
-    if (outcomes := shell.outcomes(args.session)) is None:
-        print(f"board-watch blanket: cc-present outcomes did not read for {args.session}", file=sys.stderr)
-        return 1
     word = datetime.fromisoformat(args.at)
+    shown = board_rows.snapshot_of_records([record for record in bus_records(shell, drive_name, "--lane", BUS_LANE, f"--topic={board_rows.SNAPSHOT_TOPIC}") if datetime.fromisoformat(record["at"]) <= word and board_rows.attrs(record).get("session") == args.session])
+    if shown is None:
+        print(f"board-watch blanket: board {args.session[:8]} posted no snapshot by {args.at}", file=sys.stderr)
+        return 1
+    [block] = shown["blocks"]
     standing = board_rows.verdicts_of_records(board_records(shell, drive_name))
-    for row in board_rows.rows_of(outcomes.get("doc") or {}):
-        written = board_rows.parsed(row.text_at)
-        if not (row.head and written and written <= word):
-            print(f"LEFT #{row.pr} at {row.head[:7] or 'no head'}: its row was written {row.text_at or 'at an unknown time'}, not by the owner's word {args.word} at {args.at}")
+    for pr, head, _ in shown["rows"]:
+        if same(standing.get(block, {}).get(pr), {"verdict": "approved", "head": head}):
             continue
-        if same(standing.get(row.block, {}).get(row.id), {"verdict": "approved", "head": row.head}):
-            continue
-        text = f"The owner's word {args.word} at {args.at} approved board {args.session[:8]}: {row.id} ({row.block}) at {row.head}, written {row.text_at}"
-        fields = {"event": "blanket", "word": args.word, "session": args.session, "block": row.block, "row": row.id, "verdict": "approved", "head": row.head, "at": args.at}
-        backfilled(shell, drive_name, f"blanket:{args.word}:{row.block}:{row.id}:{row.head}", text, [row.pr], fields)
+        text = f"The owner's word {args.word} at {args.at} approved board {args.session[:8]}, which showed #{pr} at {head}"
+        fields = {"event": "blanket", "word": args.word, "session": args.session, "block": block, "row": pr, "verdict": "approved", "head": head, "at": args.at}
+        backfilled(shell, drive_name, f"blanket:{args.word}:{block}:{pr}:{head}", text, [pr], fields)
+    print(f"blanket {args.word}: approved {', '.join(f'#{pr} at {head}' for pr, head, _ in shown['rows']) or 'no rows'}, the rows board {args.session[:8]} showed by {args.at}")
     return 0
 
 
