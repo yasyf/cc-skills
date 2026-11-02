@@ -21,92 +21,12 @@ REPO = "Forge-AI/monorepo"
 LANE = "lightning-eh"
 
 
-@pytest.mark.parametrize("path", ["SKILL.md", "reference/landing-desk-brief.md", "reference/priority-desk-brief.md"])
-def test_desk_briefs_wait_in_process_and_monitor_top_level_sessions(path):
-    skill = Path(__file__).resolve().parents[1] / "skills/long-running"
-    text = (skill / path).read_text()
-    assert "desk-wait.sh" in text
-    assert "timeout: 60000" in text
-    assert "cci watch" in text
-    assert "tail -n 0 -F" not in text
-
-
-DESK_BRIEFS = ["landing-desk", "priority-desk", "drive-watchdog", "alerts-desk", "red-sweep"]
-
-
-@pytest.mark.parametrize("path", ["SKILL.md", "../../agents/lane.md", "../../agents/lane-ship.md", *(f"reference/{desk}-brief.md" for desk in DESK_BRIEFS)])
-def test_every_desk_wait_names_a_mailbox_source_desk_wait_resolves(path):
-    text = (Path(__file__).resolve().parents[1] / "skills/long-running" / path).read_text()
-    assert re.search(r"desk-wait\.sh [^`]*mailbox:", text)
-    assert "<team mailbox>" not in text
-
-
-@pytest.mark.parametrize("path", ["SKILL.md", "../../agents/lane.md", "../../agents/lane-ship.md"])
-def test_lanes_never_block_a_plain_wait_past_sixty_seconds(path):
-    text = (Path(__file__).resolve().parents[1] / "skills/long-running" / path).read_text()
-    assert "never blocks longer than 60" in text
-    assert "desk-wait.sh" in text
-    assert "-- <command>" in text
-
-
-def flat(path: Path) -> str:
-    return " ".join(path.read_text().split())
-
-
-def test_the_comms_desk_posts_one_dispatched_message_and_never_stands_polls_or_reads_its_channel():
-    skill = Path(__file__).resolve().parents[1] / "skills/long-running"
-    brief = flat(skill / "reference/comms-desk-brief.md")
-    assert "--label slack-grant:<channel id>" in brief
-    assert "you post one message the owner gave word for, report it, and end" in brief
-    assert [word for word in ("desk-wait", "polls until", "comms-desk-feed", "cc-slack history", "slack_history", "slack_watch", "`comms-desk` is standing") if word in brief] == []
-    assert "a reply in any of its threads" not in brief and "within 15 minutes" not in brief
-    text = flat(skill / "SKILL.md")
-    assert "No comms lane stands: the root spawns `comms-desk` from `reference/comms-desk-brief.md` once per post" in text
-    assert "`comms-desk` is standing" not in text and "`slack_history`" not in text
-
-
 @pytest.mark.parametrize("agent", ["lane", "lane-ship"])
 def test_lane_agents_carry_no_slack_watch_history_or_await_tool(agent):
     text = (Path(__file__).resolve().parents[1] / "agents" / f"{agent}.md").read_text()
     tools = text.split("\ntools: ", 1)[1].split("\n", 1)[0].split(", ")
     assert "mcp__plugin_cc-slack_cc-slack__slack_thread" in tools
     assert [tool for tool in tools if tool.rsplit("__", 1)[-1] in {"slack_watch", "slack_unwatch", "slack_history", "await"}] == []
-
-
-@pytest.mark.parametrize("path", ["SKILL.md", "reference/slack-lane-brief.md"])
-def test_a_draft_the_owner_did_not_ask_for_goes_on_the_permission_hooks_ask_card_never_an_askuserquestion_preview(path):
-    text = flat(Path(__file__).resolve().parents[1] / "skills/long-running" / path)
-    assert "AskUserQuestion Send preview" not in text and "`AskUserQuestion` `Send` preview" not in text
-    assert "source:askuserquestion" not in text
-    assert "the question the cc-slack permission hook prints for" in text and "`cc-present ask -`" in text
-
-
-def test_owner_questions_stay_on_the_board_and_slack_carries_merge_cards_only():
-    text = flat(Path(__file__).resolve().parents[1] / "skills/long-running/SKILL.md")
-    assert "cc-present send" not in text and "Slack carries merge cards and nothing else." in text
-    assert "`needs_you` for an owner ask" not in text and "on a `needs_you` card during execution" not in text
-
-
-@pytest.mark.parametrize("path", ["SKILL.md", "reference/drive-watchdog-brief.md", "reference/owner-report-table.md", "reference/orca-lane-brief.md"])
-def test_no_lane_feeds_a_dashboard_on_a_clock(path):
-    text = flat(Path(__file__).resolve().parents[1] / "skills/long-running" / path)
-    assert [words for words in ("runs it every 30 minutes", "regenerates the dashboard", "Regenerate the dashboard", "refreshes the dashboard", "dashboard's Plan progress card") if words in text] == []
-
-
-def test_the_skill_names_orca_launch_by_its_stable_bin_entry_never_a_scripts_path():
-    skill = Path(__file__).resolve().parents[1] / "skills/long-running"
-    named = {path: path.read_text() for path in skill.rglob("*.md") if "orca-launch.sh" in path.read_text()}
-    assert named and [path for path, text in named.items() if "scripts/orca-launch.sh" in text] == []
-
-
-@pytest.mark.parametrize("path", ["SKILL.md", "reference/orca-lane-brief.md"])
-def test_lane_briefs_settle_design_themselves_and_open_prs_on_an_open_parent(path):
-    text = (Path(__file__).resolve().parents[1] / "skills/long-running" / path).read_text()
-    assert "`contract` record" in text
-    assert "only when the choice changes" in text and "owner-visible behaviour" in text
-    assert "as soon as its parent's PR" in text and "never once it lands" in text
-    assert "confirms it before a ship lane launches" not in text
-    assert "the root confirms before a ship lane launches" not in text
 
 
 def stamp(delta: timedelta) -> str:

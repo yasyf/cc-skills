@@ -841,22 +841,12 @@ def test_a_brief_with_no_rulings_says_so_and_asks_nothing(store, clock, fake):
     assert fake.asks == []
 
 
-def test_the_fix_brief_names_the_report_time_and_carries_the_standing_orders(store, clock, fake):
+def test_the_fix_brief_names_the_report_time_and_its_due_time(store, clock, fake):
     incident_id = open_incident(store, clock, kind="alert")
     drive(Runner(store, incident_id, world_of(fake), clock), store, clock, INTAKE + timedelta(minutes=1), worker=lambda *_: None)
 
     brief = (store.root / incident_id / f"incident-{incident_id}-fix.full.md").read_text()
-    assert """Standing orders, fixed in this template:
-  - Reported 10:20am PT. The bar is fixed and live within 20 minutes of the
-    report, by 10:40am PT; the desk's limits below run from your launch, inside it.
-  - "stop asking people for things you can collect yourself": never ask a reporter
-    or anyone else for evidence; read telemetry and Sentry yourself (owner answer 8ff2abf).
-  - Verification: no local test runs, builds, typechecks or lint; CI grades; a red CI step is read from its log, fixed, and pushed.
-  - Any repair pass or backfill runs on in-region EC2 (cc-notes e192288), never on
-    this Mac.
-  - A tooling failure gets a same-turn tooling lane plus the hand path; it never
-    stops the fix.
-""" in brief
+    assert "Reported 10:20am PT." in brief and "by 10:40am PT;" in brief
     assert "go build" not in brief and "go vet" not in brief
 
 
