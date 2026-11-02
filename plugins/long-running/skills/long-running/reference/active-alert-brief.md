@@ -99,6 +99,8 @@ cci post --lane root --drive <drive> --kind incident --topic <slug> --to <fix la
 
 Active means customer runs are failing now in telemetry since the last check-in. An error earlier today, a fix still in flight, or a replay that still fails is not active. Release gates are always active. A failing Forge release smoke team, a red dev build, and a failing release check are `active yes` always, with the release that preceded the failure as the first suspect. "No customer impact" is recorded as scope, naming who is hit so far, and never downgrades the incident.
 
+**Own our failures and leave Akamai's.** A failure on our own build, such as a sand-next release, is ours by default and gets a fix lane at once. An alert whose cause is Akamai, such as a tenant-edge 403, gets a look and no fix work: the fix lane records it with `incident.py note --not-ours` and stops. Whether a recent PR caused a failure is evidence for the mechanism, never a stop. Customer harm now and a path the plan keeps are the only gates.
+
 Push back on false-alarm or mute closes while unfixed. A mute, a false-alarm verdict, or a monitor change that stops counting failing teams, proposed by ai-oncall or anyone while the mechanism is unfixed, is never a close. The root posts pushback where it was proposed, keeps the incident open, and names the fix owner that turn. The desk runner refuses a fix lane's stop that scopes a release gate out (`REFUSED-STOP`, launching its Opus fallback at once) and flags every proposed mute (`MUTE-PUSHBACK`).
 
 Mute a proven false page as a window, never a close. When the fix lane's mechanism proves a page false because every team the monitor names is completing runs and the defect is in the signal, the lane mutes it the minute it is proven. It posts `MUTE <lane>: monitors <ids> until fix-live: <proof>` and requests the mute from ai-oncall through `ci oncall connect` and `ci oncall say --kind request`, never a prose Slack post. The incident stays open until `FIX-LIVE`. A release smoke team, a release check, or dev red is never false. The plan keeps the path when no step of the drive's plan deletes or replaces it before its next milestone. A path deleted at cutover is `no`, however far off cutover is.
@@ -328,6 +330,12 @@ Do:
      is no, and why>` and leave any candidate as an ordinary PR. A fix that
      grows into a redesign of a path the plan deletes is the signal to stop,
      never a reason to widen the fix.
+     A failure on our own build is ours by default. An alert whose cause is
+     Akamai, such as a tenant-edge 403, gets a look and no fix work: record it with
+     `incident.py note --incident <incident id> --not-ours "<evidence, one line>"`
+     and stop. Whether a recent PR caused the failure is evidence for the
+     mechanism, never a stop: customer harm now and a path the plan keeps are
+     the only gates.
      NO ROLLBACK; find the mechanism and fix forward; the fix ships as a new release
      through the walker. The fence holds only other releases of the target, never
      the fix.
@@ -370,7 +378,8 @@ Do:
   6. Before you call the fix ready, reproduce the reporter's own case, the exact
      thread, run, request, or monitor query the report named. Show it failing
      before the fix and passing on the build that carries the fix. A fix proven
-     only on a synthetic or neighbouring case is not ready.
+     only on a synthetic or neighbouring case is not ready, and no release ships
+     before that case passes at the candidate head.
   7. When the PR is green and that case passes, say so on cci:
      `cci post --drive <bus id> --lane <fix lane name> --kind ready --pr <PR number> --text "READY <fix lane name>: <PR number, head, the case failing before and passing after>"`.
      Then send a status Run message with subject `ready: <PR number>`. Its body
