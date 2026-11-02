@@ -172,6 +172,13 @@ def test_overflow_thread_reuses_readers_sees_writes_and_closes_on_exit(shell, co
         if not resume.wait(5):
             raise EndLoop
 
+    class ControlledWait(threading.Event):
+        def wait(self, timeout=None):
+            sleep(timeout)
+            return self.is_set()
+
+    landing.keepers_stopped = ControlledWait()
+
     monkeypatch.setattr(sqlite3, "connect", observed)
     monkeypatch.setattr(runner_module.threading, "Thread", thread)
     monkeypatch.setattr(runner_module.Landing, "overflow", probe)
@@ -187,6 +194,7 @@ def test_overflow_thread_reuses_readers_sees_writes_and_closes_on_exit(shell, co
         resume.set()
         if selected:
             selected[0].join(5)
+        landing.close()
     assert selected and not selected[0].is_alive()
     assert values == [1, 2]
     assert selected[0].ident != main_thread
