@@ -7,7 +7,7 @@
     mq.py --config PATH status
     mq.py --config PATH gos
     mq.py --config PATH why PR
-    mq.py --config PATH gate PR... [--partial]
+    mq.py --config PATH gate PR... [--partial] [--checks NAME,...]
     mq.py --config PATH enqueue PR... [--partial]
     mq.py --config PATH checks
     mq.py --config PATH hold PR --reason R
@@ -25,7 +25,7 @@ open PR a standing root go names that the queue does not hold, with the head the
 and verdict from one batched status read, and any hold, never a GitHub read per PR. `why` prints the
 adapter's verdict on the PR's current head, then one `<check> pass|pending|fail <reason>` line per
 configured check, posting nothing. `gate` prints each hold or enqueue check that does not pass a head a hand
-`stack-enqueue` of the PRs puts in the queue, and exits 1 when it prints any. `enqueue` runs that gate and
+`stack-enqueue` of the PRs puts in the queue, and exits 1 when it prints any; `--checks fidelity,finder` keeps only the named checks, the bar every hand enqueue path runs before it enqueues (root 318864). `enqueue` runs that gate and
 enqueues through the desk's adapter only when it prints nothing, then names the head the queue took
 for each PR, and posts a note for one that moved while the call ran; it is the hand enqueue a desk runs. `checks` prints the registry in order with the stage each runs at.
 `hold` posts a root cci `hold` record leading `hold #<n> <reason>`, and `lift` posts one `lift` record
@@ -86,6 +86,8 @@ def build_parser() -> argparse.ArgumentParser:
         gated = verbs.add_parser(verb)
         gated.add_argument("prs", nargs="+")
         gated.add_argument("--partial", action="store_true")
+        if verb == "gate":
+            gated.add_argument("--checks", type=lambda names: set(names.split(",")))
     return parser
 
 
@@ -116,7 +118,7 @@ def main(argv: list[str] | None = None, shell=None) -> int:
         print("\n".join(landing.why(args.pr)))
         return 0
     if args.verb == "gate":
-        if lines := landing.hand_enqueue_gate(args.prs, args.partial)[1]:
+        if lines := [line for line in landing.hand_enqueue_gate(args.prs, args.partial)[1] if not args.checks or line.split(" ", 3)[2] in args.checks]:
             print("\n".join(lines))
         return 1 if lines else 0
     if args.verb == "enqueue":
