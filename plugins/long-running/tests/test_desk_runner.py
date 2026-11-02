@@ -8570,17 +8570,16 @@ def test_an_admitted_head_whose_check_keeps_timing_out_is_refused_for_the_timeou
     assert line.endswith(f": GATE-TIMEOUT its graphite-stack-enqueue check ran past {runner_module.GATE_CHECK_SECONDS}s on both tries and was killed, so the next pass checks it again")
 
 
-def test_an_admitted_head_no_branch_settles_is_refused_unsettled_to_the_watchdog_never_the_root_naming_what_the_check_read(shell, config, tmp_path):
-    """Oct 30 7:52 AM to 12:10 PM: every GREEN gate enqueued nothing and posted nothing, since a GREEN verdict with no prefix was no outcome anyone recorded. Root #257204: the refusal names what the check read and that the next pass clears it."""
+def test_a_green_gate_that_enqueues_nothing_refuses_its_head_naming_what_the_check_read(shell, config, tmp_path):
+    """Oct 30 7:52 AM to 12:10 PM: every GREEN gate enqueued nothing and posted nothing, since a GREEN verdict with no prefix was no outcome anyone recorded. Root #257204: the refusal names what the check read and that the next pass clears it; root #300098: the pass decides it, so it is no unsettled defect."""
     merge_mode(config, "every")
     gone_green(shell, "#33001 GREEN aaaa111111 graphite READY")
     shell.gates["33001"] = [gate("#33001 GREEN aaaa111111 graphite READY")]
     shell.queue["33001"] = "not queued"
     landing_pass(shell, config)
     [post] = [post for post in shell.posts if post_body(post).startswith("REFUSED ")]
-    assert post["kind"] == "defect" and "drive-watchdog@d1" in post["to"].split(",") and "root" not in post["to"].split(",")
-    assert post_body(post) == f"REFUSED #33001 at aaaa111111 (go #{go_of(shell, '33001')}): unsettled: the graphite-stack-enqueue check read aaaa111111 GREEN graphite READY and ended `enqueued nothing: the bottom PR is BLOCKED`, and no step of the pass decided it: a runner defect the watchdog hears, its lane owes nothing, and the next pass checks it again"
-    assert admitted_heads(config)["33001"]["state"] == "defect"
+    assert post["kind"] != "defect" and "unsettled" not in post_body(post)
+    assert post_body(post) == f"REFUSED #33001 at aaaa111111 (go #{go_of(shell, '33001')}): the graphite-stack-enqueue check read #33001 GREEN and ended `enqueued nothing: the bottom PR is BLOCKED` (exit 0), which no rule of the pass settles, so the next pass checks it again"
 
 
 
@@ -8751,6 +8750,29 @@ def test_a_child_whose_native_stack_starts_above_its_open_parent_waits_on_it_and
     [line] = settled(shell, "BELOW-BLOCKED")
     assert line.endswith("waits on #33000, open and not landed: its native stack starts above #33000, so its graphite-stack-enqueue check reads no verdict until #33000 lands")
     assert any(line.startswith("REFUSED #33000") and line.endswith("the gate read aaaa000000 WAITING: CI running") for line in settled(shell, "REFUSED"))
+
+
+def test_an_unsettled_heads_trace_keeps_every_step_that_saw_it_and_each_settle_at_another_head():
+    """Root #303609: #47306 and #47326 read `unsettled: the gate's status read` on 0.7.838 at 7:23 PM Nov 1 with only the last step named, so nothing showed which read raced the slow merge-mode check."""
+    settlement = runner_module.Settlement({"33001": "aaaa111111"}, {"33001": "2026-11-01T00:00:00Z"})
+    settlement.saw(["33001", "33002"], "the gate's status read")
+    settlement.settle("33001", "bbbb222222", runner_module.Refused("stale"))
+    settlement.saw(["33001"], "the dispatch, which skipped it since worker `33001` still holds it")
+    trace = settlement.seen["33001"]
+    assert [entry.rsplit(" at ", 1)[0] for entry in trace] == ["the gate's status read", "a settle at bbbb222222, not its admitted head,", "the dispatch, which skipped it since worker `33001` still holds it"]
+    assert "33002" not in settlement.seen and not settlement.settled("33001")
+
+
+def test_a_check_that_dies_after_its_preflight_lines_settles_every_admitted_head_it_read(shell, config, tmp_path):
+    """Root #300098, 7:19 PM Nov 1 on 0.7.838: #47496, #47498 and #47499 read `unsettled: the stack worker's settle step`, since a check that printed only its `CHECK` preflight lines before it failed reads as a verdict no rule of the pass settles."""
+    shell.rows = [{"pr": "33000", "lane": LANE, "branch": "g/0", "base": "dev", "head": "aaaa000000", "state": "open", "reported_head": "aaaa000000", "test_state": "success"}]
+    shell.gates["33000"] = [(5, "#33000 CHECK aaaa000000 merge preflight aaaa000000 with dev 1234567890\n", "stack-enqueue failed: required checks for #33000: HTTP 502\n")]
+    shell.queue |= {"33000": "not queued"}
+    grade(shell, "33000", "ok F307 at aaaa000.")
+    merge_go(shell, "33000", "merge #33000 at aaaa000")
+    landing_pass(shell, config)
+    assert not [line for line in said(shell) if "unsettled" in line]
+    assert any(line.startswith("REFUSED #33000") and "check read #33000 CHECK and ended `stack-enqueue failed: required checks for #33000: HTTP 502` (exit 5)" in line for line in settled(shell, "REFUSED"))
 
 
 def test_an_admitted_bottom_under_an_unadmitted_middle_is_checked_alone_when_the_tip_check_reads_no_verdict(shell, config, tmp_path):

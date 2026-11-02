@@ -5742,6 +5742,10 @@ Outcome = Queued | Refused | BelowBlocked | InFlight | Landed
 Posted = Queued | Refused | BelowBlocked
 
 
+def clock() -> str:
+    return datetime.now(timezone.utc).strftime("%H:%M:%SZ")
+
+
 class Settlement:
     """The heads a landing pass admits, each open, the drive's, green, unheld, and named at its ledger head by a root `go` or an exemption, with the outcome a branch of the pass settled it as and the last branch that saw it; every branch that acts on or drops one settles it, and `Landing.close_settlement` posts what changed."""
 
@@ -5749,12 +5753,14 @@ class Settlement:
         self.heads = heads
         self.since = since
         self.outcomes: dict[str, Outcome] = {}
-        self.seen: dict[str, str] = {}
+        self.seen: dict[str, list[str]] = {}
         self.lock = threading.Lock()
 
     def settle(self, pr: str, head: str, outcome: Outcome) -> None:
         """Record `outcome` for `pr` when the pass admits it at `head`, over any earlier one but a below-blocked outcome on the same base, whose first account stands."""
         with self.lock:
+            if pr in self.heads and not (head and names_head(head, self.heads[pr])):
+                self.seen.setdefault(pr, []).append(f"a settle at {head[:10] or 'no head'}, not its admitted head, at {clock()}")
             if pr not in self.heads or not head or not names_head(head, self.heads[pr]):
                 return
             if isinstance(outcome, BelowBlocked) and isinstance(earlier := self.outcomes.get(pr), BelowBlocked) and earlier.base == outcome.base:
@@ -5763,7 +5769,9 @@ class Settlement:
 
     def saw(self, prs: Iterable[str], branch: str) -> None:
         with self.lock:
-            self.seen |= {pr: branch for pr in prs if pr in self.heads}
+            for pr in prs:
+                if pr in self.heads:
+                    self.seen.setdefault(pr, []).append(f"{branch} at {clock()}")
 
     def carry(self, earlier: "Settlement", prs: set[str]) -> None:
         with earlier.lock:
@@ -6298,7 +6306,8 @@ class Landing:
     def dispatch(self, key: str, members: set[str], work: Callable[[], None]) -> Future | None:
         """Queue `work` on a stack worker under `key`, unless a worker that still runs or waits holds any PR of `members`, so two workers never enqueue one PR."""
         with self.dispatching:
-            if any(not future.done() and members & others for others, future in self.inflight.values()):
+            if holder := next((key for key, (others, future) in self.inflight.items() if not future.done() and members & others), None):
+                self.settlement.saw(members, f"the dispatch, which skipped it since worker `{holder}` still holds it")
                 return None
             def read():
                 with self.book.store.reading(), self.build_cache.book.store.reading():
@@ -6491,6 +6500,9 @@ class Landing:
                         continue
                     if blocker := self.adapter.blocker(match, stack, gated_red):
                         self.route_blocker(pr, match["sha"], blocker, rows[pr], tips, stack, gated_red, self.adapter.failing_required(match))
+            undecided = {pr: open_rows[pr].get("head", "") for tip in tips for pr in downstack(open_rows, tip) if not self.settlement.settled(pr)}
+            read = ", ".join(f"#{pr} {match['verdict']}" for pr, match in verdicts.items())
+            self.settle(undecided, Refused(f"the {self.adapter.kind} check read {read} and ended `{done.last}` (exit {done.code}), which no rule of the pass settles, so the next pass checks it again"))
 
     def direct_would(self, done: merge_queue.Gate) -> list[str] | None:
         """The PRs a gate's prefix offers for landing: what the check would enqueue, and, while Graphite is down, every PR it reads queued in Graphite's dead queue or reads blocked only by that queue's eviction too, bottom first, since nothing else merges them (root #202044, #208430)."""
@@ -8965,7 +8977,7 @@ class Landing:
             elif pr in busy:
                 outcomes[pr] = InFlight(steps[pr]["step"], steps[pr]["since"]) if pr in steps else InFlight("waiting for a stack worker", self.book.stamp())
             else:
-                outcomes[pr] = Refused(f"{UNSETTLED} {seen.get(pr, 'no branch of the pass saw it')}, and no step of the pass decided it: a runner defect the watchdog hears, its lane owes nothing, and the next pass checks it again")
+                outcomes[pr] = Refused(f"{UNSETTLED} {"; then ".join(seen.get(pr, ["no branch of the pass saw it"])[-4:])}, and no step of the pass decided it: a runner defect the watchdog hears, its lane owes nothing, and the next pass checks it again")
         groups: dict[Posted, dict[str, str]] = {}
         for pr, outcome in outcomes.items():
             if isinstance(outcome, Posted):
