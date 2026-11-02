@@ -892,7 +892,7 @@ def test_only_a_pull_request_still_open_on_the_ledger_and_the_runner_keeps_its_w
 def test_the_model_request_serves_the_prebuilt_view_and_never_builds_it(tmp_path):
     drive = Drive({"board_url": "http://board/p/x"}, None)
     drive.live = lambda model: (_ for _ in ()).throw(AssertionError("built inside a request"))
-    body = json.dumps({"version": 3, "prs": {}}).encode()
+    body = json.dumps({"version": 3, **{key: {} for key in server.NOW_DRAWS}, "prs": {}, "pr_state": {}, "history": {}, "drive": {"prs": []}, "records": [], "lanes": []}).encode()
     snapshot = tmp_path / "served.json.gz"
     snapshot.write_bytes(gzip.compress(body))
     drive.restore(snapshot)
@@ -900,6 +900,7 @@ def test_the_model_request_serves_the_prebuilt_view_and_never_builds_it(tmp_path
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     try:
         assert urllib.request.urlopen(f"http://127.0.0.1:{httpd.server_port}/api/model", timeout=5).read() == body
+        assert json.loads(urllib.request.urlopen(f"http://127.0.0.1:{httpd.server_port}/api/model?tab=now", timeout=5).read())["cut"] is True
     finally:
         httpd.shutdown()
 
@@ -1111,10 +1112,34 @@ def test_a_prevention_due_that_is_not_a_time_is_blanked_and_named_while_real_tim
 
 
 def test_a_refresh_carries_only_the_parts_that_changed_since_the_version_the_browser_holds():
-    served = {"version": 8, "view": {"version": 8, "prs": {"1": "big"}, "brief": "new"}, "digests": {"version": b"8", "prs": b"p", "brief": b"n"}}
-    assert changed_since(served, {"version": b"7", "prs": b"p", "brief": b"o"}) == {"version": 8, "changed": {"version": 8, "brief": "new"}}
-    assert changed_since(served, None) is None
-    assert changed_since(served, {"version": b"7", "prs": b"p"}) is None
+    view, digests = {"version": 8, "prs": {"1": "big"}, "brief": "new"}, {"version": b"8", "prs": b"p", "brief": b"n"}
+    assert changed_since(8, view, digests, {"version": b"7", "prs": b"p", "brief": b"o"}) == {"version": 8, "changed": {"version": 8, "brief": "new"}}
+    assert changed_since(8, view, digests, None) is None
+    assert changed_since(8, view, digests, {"version": b"7", "prs": b"p"}) is None
+
+
+def test_the_first_load_carries_what_the_now_tab_draws_and_leaves_the_rest_for_a_later_request():
+    """Root #306148: one 4.8 MB model was parsed on every load; Now draws from open pull requests and the ones it names."""
+    event = lambda i: {"ts": f"2026-11-02T08:{i:02d}:00Z", "kind": "state", "text": f"step {i}", "holder": None, "next": None}
+    landed = {"number": 41000, "state": "landed", "base": None, "tree": "Shared", "part": "tools", "step": None, "owner": "w-1", "word": {"text": "long"}, "next": "Nothing: it has landed."}
+    view = {
+        "version": 9, "title": "Drive", "board": {"rows": []}, "brief": {"work": [{"changes": [46811], "workers": ["signal-valkey-2"]}]}, "milestone_state": [], "pages": {}, "workers": [], "now": {}, "status_now": {},
+        "needs": [{"kind": "prs", "prs": [{"number": 45000}]}],
+        "prs": {"45000": {"state": "landed", "lane": "old-1"}, "46811": {"state": "open", "lane": "signal-valkey-2"}, "47999": {"state": "open", "lane": "w-2"}, "41000": {"state": "landed", "lane": "w-1"}},
+        "pr_state": {"45000": {"state": "landed"}, "41000": {"state": "landed"}},
+        "history": {"pr:46811": {"events": [event(i) for i in range(9)]}, "pr:41000": {"events": [event(1)]}, "lane:signal-valkey": {"events": [event(2)]}, "lane:far-away": {"events": [event(3)]}},
+        "drive": {"source": "ledger", "tracked": [], "prs": [landed]},
+        "records": [{"seq": n} for n in range(400)],
+        "lanes": [{"lane": "w-1"}],
+    }
+
+    now = server.now_view(view)
+
+    assert now["cut"] is True and now["title"] == "Drive" and now["needs"] == view["needs"]
+    assert sorted(now["prs"]) == ["45000", "46811", "47999"] and list(now["pr_state"]) == ["45000"]
+    assert sorted(now["history"]) == ["lane:signal-valkey", "pr:46811"] and len(now["history"]["pr:46811"]["events"]) == 5
+    assert now["drive"]["prs"] == [{"number": 41000, "state": "landed", "part": "tools", "step": None, "tree": "Shared"}]
+    assert now["records"][0] == {"seq": 100} and now["lanes"] == []
 
 
 def test_an_owner_question_stays_open_until_an_answer_lands_down_its_chain_or_a_new_version_is_pushed():

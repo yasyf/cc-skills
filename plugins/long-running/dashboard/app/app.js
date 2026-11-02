@@ -285,9 +285,18 @@ function prOpen(r = route()) {
 function pageRoute() {
   return route(baseOf());
 }
+function cutDraws() {
+  return pageRoute().screen === 'overview' && stackOf().every((seg) => /^review\/\d+/.test(seg) && state.model.prs[seg.split('/')[1]]);
+}
 function render() {
   const m = state.model;
   if (!m || !m.prs) return;
+  if (m.cut && !cutDraws()) {
+    state.wantFull = true;
+    load();
+    $('#main').innerHTML = '<div class="sk"></div><div class="sk"></div><div class="sk"></div>';
+    return;
+  }
   const p = pageRoute();
   const stack = stackOf();
   document.title = m.title;
@@ -488,13 +497,17 @@ function tickFresh() {
 
 let loading = null;
 function load() {
-  loading ??= fetchModel().finally(() => {
+  loading ??= fetchModel().then(() => state.wantFull && state.served?.cut && setTimeout(load)).finally(() => {
     loading = null;
     if (state.wanted !== undefined && state.wanted !== state.fetched) load();
   });
 }
+function modelUrl() {
+  if (!state.served || (state.served.cut && state.wantFull)) return '/api/model';
+  return `/api/model?${state.served.cut ? 'tab=now&' : ''}since=${state.served.version}`;
+}
 async function fetchModel() {
-  const answer = await (window.firstModel ?? fetch(`/api/model${state.served ? `?since=${state.served.version}` : ''}`, { cache: 'no-store' }).then((res) => res.json()));
+  const answer = await (window.firstModel ?? fetch(modelUrl(), { cache: 'no-store' }).then((res) => res.json()));
   window.firstModel = null;
   const served = answer.changed ? { ...state.served, ...answer.changed } : answer;
   state.fetched = served.version;

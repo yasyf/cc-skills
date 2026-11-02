@@ -44,6 +44,12 @@ LIVE_SOURCES = ["cc-present store: taps and questions", "cci bus: records and wo
 REBUILD_AFTER = 2.0
 LIVE_REFRESH = 5.0
 DELTAS_KEPT = 30
+LAZY_KEYS = ("prs", "history", "drive", "records", "pr_state", "lanes")
+NOW_DRAWS = ("needs", "board", "brief", "milestone_state", "pages", "workers", "now", "status_now")
+NOW_EVENTS = 5
+NOW_RECORDS = 300
+DRIVE_LIGHT = ("number", "state", "part", "step", "tree")
+LANE_NAME = re.compile(r'"([a-z][a-z0-9]*(?:-[a-z0-9]+)+)"')
 WORD_BYSTANDERS = ("dashboard", "register", "cc-present", "desk-runner")
 PR_NAMED = re.compile(r"#(\d{5})(?!\d)")
 SLOW_REFRESH = 300
@@ -250,10 +256,32 @@ def browser_view(model):
     return {**{k: v for k, v in model.items() if k != "words"}, "words_at": max((w["at"] for w in model["words"]), default=None), "records": lean(model["records"]), "lanes": lean(model["lanes"])}
 
 
-def changed_since(served, past):
-    if not past or past.keys() != served["digests"].keys():
+def now_view(view):
+    """`view` cut to what the Now tab draws, so a first load parses that alone (root #306148): the open pull requests and those Now names, their state and newest few history events, each landed change as a light, the newest records, and no lanes."""
+    drawn = json.dumps([view[key] for key in NOW_DRAWS])
+    named = set(re.findall(r"\b\d{3,6}\b", drawn))
+    numbers = {n for n, pr in view["prs"].items() if pr.get("state") == "open" or n in named}
+    lanes = {re.sub(r"-\d+$", "", lane) for lane in [*(view["prs"][n].get("lane") for n in numbers), *LANE_NAME.findall(drawn)] if lane}
+    return {
+        **{key: value for key, value in view.items() if key not in LAZY_KEYS},
+        "cut": True,
+        "prs": {n: view["prs"][n] for n in numbers},
+        "pr_state": {n: state for n, state in view["pr_state"].items() if n in numbers},
+        "history": {key: {**entry, "events": entry["events"][:NOW_EVENTS]} for key, entry in view["history"].items() if key.partition(":")[2] in (numbers if key.startswith("pr:") else lanes)},
+        "drive": {**view["drive"], "prs": [entry if entry["state"] != "landed" else {key: entry[key] for key in DRIVE_LIGHT} for entry in view["drive"]["prs"]]},
+        "records": view["records"][-NOW_RECORDS:],
+        "lanes": [],
+    }
+
+
+def digests_of(view):
+    return {key: hashlib.sha1(json.dumps(value).encode()).digest() for key, value in view.items()}
+
+
+def changed_since(version, view, digests, past):
+    if not past or past.keys() != digests.keys():
         return None
-    return {"version": served["version"], "changed": {key: served["view"][key] for key, digest in served["digests"].items() if past[key] != digest}}
+    return {"version": version, "changed": {key: view[key] for key, digest in digests.items() if past[key] != digest}}
 
 
 def part_of(title, parts):
@@ -1116,7 +1144,8 @@ class Drive:
     def restore(self, snapshot):
         if snapshot.exists():
             lean = gzip.decompress(snapshot.read_bytes())
-            self.served = {"version": json.loads(lean)["version"], "full": None, "lean": (lean, snapshot.read_bytes())}
+            cut = json.dumps(now_view(json.loads(lean))).encode()
+            self.served = {"version": json.loads(lean)["version"], "full": None, "lean": (lean, snapshot.read_bytes()), "now": (cut, gzip.compress(cut, 5))}
 
     def serve_loop(self, snapshot):
         seen = None
@@ -1133,20 +1162,22 @@ class Drive:
             version = (self.served["version"] if self.served else 0) + 1
             live = {**live, "version": version}
             view = browser_view(live)
-            full, lean = json.dumps(live).encode(), json.dumps(view).encode()
+            now = now_view(view)
+            full, lean, cut = json.dumps(live).encode(), json.dumps(view).encode(), json.dumps(now).encode()
             zipped = gzip.compress(lean, 5)
-            digests = {key: hashlib.sha1(json.dumps(value).encode()).digest() for key, value in view.items()}
+            views = {"lean": (view, digests_of(view)), "now": (now, digests_of(now))}
             with self.serving:
                 self.live_model = live
-                self.served = {"version": version, "sig": sig, "full": (full, gzip.compress(full, 5)), "lean": (lean, zipped), "view": view, "digests": digests}
-                self.digests.append((version, digests))
+                self.served = {"version": version, "sig": sig, "full": (full, gzip.compress(full, 5)), "lean": (lean, zipped), "now": (cut, gzip.compress(cut, 5)), "views": views}
+                self.digests.append((version, {kind: digests for kind, (_, digests) in views.items()}))
                 self.serving.notify_all()
             snapshot.with_suffix(".tmp").write_bytes(zipped)
             snapshot.with_suffix(".tmp").replace(snapshot)
 
-    def delta(self, since):
+    def delta(self, since, kind):
         with self.serving:
-            answer = changed_since(self.served, dict(self.digests).get(since))
+            past = dict(self.digests).get(since)
+            answer = past and changed_since(self.served["version"], *self.served["views"][kind], past[kind])
         if answer is None:
             return None
         body = json.dumps(answer).encode()
@@ -1441,14 +1472,14 @@ def handler(drive):
                     body = body.replace("</body>", ASSIST.read_text() + "</body>").replace("<head>", f'<head>\n<meta name="build" content="{BUILD}">', 1)
                 return self.send(200, kind, body.encode())
             if path == "/api/model":
-                kind = "full" if "full=1" in self.path else "lean"
+                kind = "full" if "full=1" in self.path else "now" if "tab=now" in self.path else "lean"
                 with drive.serving:
                     drive.serving.wait_for(lambda: drive.served and drive.served[kind], timeout=60)
                     served = drive.served and drive.served[kind]
                 if not served:
                     return self.send(503, "text/plain", b"The dashboard is building its first view.")
-                since = re.search(r"since=(\d+)", self.path)
-                return self.send_built(*(since and drive.delta(int(since[1])) or served))
+                since = kind != "full" and re.search(r"since=(\d+)", self.path)
+                return self.send_built(*(since and drive.delta(int(since[1]), kind) or served))
             if path == "/api/words":
                 with drive.lock:
                     words = drive.model.get("words", [])
