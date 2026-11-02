@@ -7983,6 +7983,21 @@ def test_a_queued_pr_whose_head_moved_past_its_go_dequeues_and_enqueues_again_on
     assert len(shell.enqueues()) == 2
 
 
+@pytest.mark.parametrize("identical", [True, False], ids=["restacked", "changed"])
+def test_a_queued_pr_whose_head_moved_to_the_same_patch_stays_queued_under_its_go(shell, config, identical):
+    """Root #337665: trunk-io[bot] restacked queued #48391 from d12e9ce onto dev as 3b77268 with the same patch, and the runner dequeued it."""
+    merge_mode(config, "every")
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    merge_go(shell, "29020", "merge #29020 at cccc333")
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
+    shell.diffs["cccc333"] = "diff --git a/x.go b/x.go\n+port\n"
+    shell.diffs["eeee555555"] = shell.diffs["cccc333"] if identical else "diff --git a/x.go b/x.go\n+changed\n"
+    shell.rows[0] |= {"head": "eeee555555", "reported_head": "eeee555555"}
+    landing_pass(shell, config)
+    assert dequeues(shell) == ([] if identical else [["29020", "--dequeue"]])
+
 def test_a_queued_pr_a_go_names_at_its_current_head_stays_queued(shell, config):
     merge_mode(config, "every")
     lone_green_pr(shell)
