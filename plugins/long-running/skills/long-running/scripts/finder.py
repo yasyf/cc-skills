@@ -121,6 +121,7 @@ READ_SECONDS = 120
 PLAN_SECONDS = 300
 RETRY_BACKOFF = (2, 5, 10)
 SLICE_SECONDS = 900
+BLOB_FETCH = ("-c", "fetch.negotiationAlgorithm=noop", "fetch", "-q", "--no-tags", "--no-write-fetch-head", "--recurse-submodules=no", "--filter=blob:none", "origin")
 FINDER_SECONDS = 5400
 STAGE_WORDS = 4
 FIX_GLYPHS = ("🐛", "🚑", "🩹")
@@ -387,8 +388,11 @@ def beyond(shell: Shell, job: dict, others: tuple[str, ...], head: str) -> list[
 
 
 def own_since(shell: Shell, job: dict, other: str, head: str) -> str:
-    paths = dict.fromkeys(git(shell, job, "log", "--no-merges", "--no-renames", "--format=", "--name-only", f"{other}..{head}").split("\n"))
-    return git(shell, job, "rev-list", "--cherry-pick", "--right-only", "--no-merges", "--reverse", f"{other}...{head}", "--", *filter(None, paths))
+    """The commits of `head` since `other` that no commit of `other` since their merge-base matches by patch, over the head's own paths, with the blobs that match compares fetched in one request first, since a partial clone otherwise fetches each one on demand."""
+    paths = [path for path in dict.fromkeys(git(shell, job, "log", "--no-merges", "--no-renames", "--format=", "--name-only", f"{other}..{head}").split("\n")) if path]
+    if missing := [line[1:] for line in git(shell, job, "rev-list", "--objects", "--missing=print", "--no-object-names", f"{other}...{head}", "--", *paths).splitlines() if line.startswith("?")]:
+        git(shell, job, *BLOB_FETCH, *missing)
+    return git(shell, job, "rev-list", "--cherry-pick", "--right-only", "--no-merges", "--reverse", f"{other}...{head}", "--", *paths)
 
 
 def parent(shell: Shell, job: dict, base: str, trunk: str) -> str:

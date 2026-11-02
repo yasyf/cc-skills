@@ -58,13 +58,14 @@ def pairs(*marks: str) -> str:
 
 
 class Fake:
-    def __init__(self, tmp_path: Path, replies: list[dict], state: str = "OPEN", heads: tuple[str, ...] = (HEAD,), own: dict | None = None, resolve: dict | None = None, failures: int = 0, gone: tuple[str, ...] = (), ranges: dict | None = None, shows: dict | None = None, trunk: str = BASE, history: tuple[str, ...] = (), pulls: dict | None = None, races: int = 0, subjects: tuple[str, ...] = (), base_gone: bool = False, rows: str = ROWS):
+    def __init__(self, tmp_path: Path, replies: list[dict], state: str = "OPEN", heads: tuple[str, ...] = (HEAD,), own: dict | None = None, resolve: dict | None = None, failures: int = 0, gone: tuple[str, ...] = (), ranges: dict | None = None, shows: dict | None = None, trunk: str = BASE, history: tuple[str, ...] = (), pulls: dict | None = None, races: int = 0, subjects: tuple[str, ...] = (), base_gone: bool = False, rows: str = ROWS, missing: tuple[str, ...] = ()):
         self.tmp_path = tmp_path
         self.rows = rows
         self.replies = list(replies)
         self.state = state
         self.heads = list(heads)
         self.own = {(BASE, HEAD): [OWN]} if own is None else own
+        self.missing = missing
         self.resolve = resolve or {}
         self.failures = failures
         self.gone = gone
@@ -114,6 +115,8 @@ class Fake:
         if argv[0] == "ls-remote":
             tips = {"HEAD": self.trunk, **({} if self.base_gone else {"refs/heads/dev": BASE})}
             return "".join(f"{tips[ref]}\t{ref}\n" for ref in argv[2:] if ref in tips)
+        if argv[: len(finder.BLOB_FETCH)] == list(finder.BLOB_FETCH):
+            return ""
         if argv[0] == "fetch":
             if self.races:
                 self.races -= 1
@@ -145,6 +148,8 @@ class Fake:
         if argv[:2] == ["rev-list", "--topo-order"]:
             assert argv[2:] == [HEAD, f"^{self.trunk}"]
             return "".join(f"{sha}\n" for sha in self.history)
+        if argv[:4] == ["rev-list", "--objects", "--missing=print", "--no-object-names"]:
+            return "".join(f"?{oid}\n" for oid in self.missing) + "".join(f"{sha}\n" for sha in self.own.get(tuple(argv[4].split("...")), []))
         if argv[0] == "rev-list":
             return "".join(f"{sha}\n" for sha in self.own.get(tuple(argv[argv.index("--") - 1].split("...")), []))
         raise AssertionError(f"unexpected git {argv}")
@@ -218,7 +223,7 @@ def test_a_head_whose_parent_was_restacked_reads_only_its_own_commits_against_th
     directory = job(tmp_path)
     shell = Fake(tmp_path, [reply()], own={(BASE, HEAD): [OWN, NEWER]})
     finder.main([str(directory)], shell)
-    [rev_list] = [argv for argv, _ in shell.calls if argv[:2] == ["git", "rev-list"]]
+    [rev_list] = [argv for argv, _ in shell.calls if argv[:3] == ["git", "rev-list", "--cherry-pick"]]
     assert rev_list[:7] == ["git", "rev-list", "--cherry-pick", "--right-only", "--no-merges", "--reverse", f"{BASE}...{HEAD}"]
     question = (directory / "question-1.md").read_text()
     assert f"`git diff {OWN}^ {HEAD}`" in question and f"{BASE}...{HEAD}" not in question and f"{STALE_BASE}...{HEAD}" not in question
@@ -231,6 +236,17 @@ def test_the_patch_match_against_the_trunk_reads_only_the_paths_the_heads_own_co
     finder.main([str(directory)], shell)
     [rev_list] = [argv for argv, _ in shell.calls if argv[:3] == ["git", "rev-list", "--cherry-pick"]]
     assert rev_list[7:] == ["--", *OWN_PATHS]
+
+
+def test_the_patch_match_fetches_the_blobs_it_compares_in_one_request_before_comparing(tmp_path):
+    """remote-desks-5, Nov 2: after a merge burst, `rev-list --cherry-pick` against an earlier head fetched each missing blob of the head's paths on demand and ran past its timeout on #47225 and #47172."""
+    blobs = ("a" * 40, "b" * 40)
+    directory = job(tmp_path)
+    shell = Fake(tmp_path, [reply()], missing=blobs)
+    finder.main([str(directory)], shell)
+    calls = [argv for argv, _ in shell.calls if argv[:1] == ["git"]]
+    batch = ["git", *finder.BLOB_FETCH, *blobs]
+    assert calls.index(batch) < next(index for index, argv in enumerate(calls) if argv[:3] == ["git", "rev-list", "--cherry-pick"])
 
 
 def test_a_head_rebased_past_its_stale_base_branch_onto_the_trunk_reads_and_scopes_only_its_own_commits(tmp_path):
