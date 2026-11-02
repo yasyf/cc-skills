@@ -116,8 +116,8 @@ def test_selected_escalation_lookup_is_history_bounded_and_read_only(tmp_path, m
     assert 0 < counts["vm_steps"] < 512
 
 
-def test_old_created_store_requires_manual_provision_without_read_backfill(tmp_path):
-    store = populated(tmp_path, ["GATE-FAILED #29 retained"])
+def test_old_created_store_is_provisioned_by_its_first_writer_never_by_a_read(tmp_path):
+    store = populated(tmp_path, ["GATE-FAILED #29 retained", "GATE-FAILED #30 #029", "LAUNCH-FAILED no pull request"])
     with sqlite3.connect(store.path("runner")) as connection:
         for name in ("escalation_added", "escalation_changed", "escalation_deleted"):
             connection.execute(f"DROP TRIGGER {name}")
@@ -128,3 +128,12 @@ def test_old_created_store_requires_manual_provision_without_read_backfill(tmp_p
     with sqlite3.connect(store.path("runner")) as connection:
         assert connection.execute("SELECT * FROM action ORDER BY ordinal").fetchall() == canonical
         assert connection.execute("SELECT name FROM sqlite_schema WHERE name = 'escalation_pr'").fetchall() == []
+    store.ensure(actions.Incident("runner", "owner", 0, actions.stamp(NOW), {}))
+    store.ensure(actions.Incident("runner", "owner", 0, actions.stamp(NOW), {}))
+    with sqlite3.connect(store.path("runner")) as connection:
+        assert connection.execute("SELECT * FROM action ORDER BY ordinal").fetchall() == canonical
+        assert connection.execute("SELECT pr, action_ordinal FROM escalation_pr ORDER BY pr").fetchall() == [("029", 2), ("29", 1), ("30", 2)]
+    assert [action.target for action in store.escalations_for("runner", "29")] == ["GATE-FAILED #29 retained"]
+    with store.transaction("runner") as incident:
+        incident.accept("3", "escalation", "GATE-FAILED #31 after provision", None, NOW)
+    assert [action.action_id for action in store.escalations_for("runner", "31")] == ["3"]
