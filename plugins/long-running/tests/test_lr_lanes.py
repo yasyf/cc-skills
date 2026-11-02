@@ -812,6 +812,20 @@ def test_a_fresh_store_pages_no_lane_from_the_blockers_it_refolds(tmp_path, brie
     assert store.lane("conflicts-2").page is None and all(page is None for page in fake.pages)
 
 
+def test_a_root_decide_to_the_supervisor_with_no_registry_request_is_answered_with_the_request_to_post(tmp_path, brief):
+    """retro-close-1 #313837: root's decide #312386 told the supervisor in prose that four lanes were closed, the registry kept them, and the supervisor woke retro-close-1 until root closed its task 30 minutes later."""
+    store = Store.memory()
+    fake = adopted(tmp_path, brief, store)
+    fake.feed.append(record(2, "root", "decide", T0, "Root task list: conflicts-2 (1985) is complete and closed; supervisor, stop waking it. last-read=1", ("supervisor", "conflicts-2")))
+    fake.feed.append(ask(3, "done", "conflicts-2", T0))
+
+    lanes.tick(store, fake.deps, T0, 1)
+
+    [defect] = [argv for argv in fake.posts if argv[argv.index("--kind") + 1] == "defect"]
+    assert defect[defect.index("--re") + 1] == "2" and "post `drive_supervisor.py request <done|owner|park|stand-down|unpark> <lane>`" in defect[-1]
+    assert store.lane("conflicts-2").state == "retired"
+
+
 def test_a_lane_whose_newest_record_settles_it_is_never_woken(tmp_path, brief):
     store = Store.memory()
     fake = adopted(tmp_path, brief, store, prs=(46475,))

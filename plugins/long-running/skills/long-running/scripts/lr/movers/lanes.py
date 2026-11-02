@@ -218,6 +218,7 @@ class Folded:
     dead: list[str] = field(default_factory=list)
     unread: list[tuple[str, str]] = field(default_factory=list)
     stood: list[tuple[str, str | None, tuple[int, ...], int]] = field(default_factory=list)
+    untyped: list[int] = field(default_factory=list)
 
 
 def takes_over(store: Store, name: str, old: Lane, at: datetime) -> None:
@@ -327,6 +328,8 @@ def fold(store: Store, records: Iterable[dict], live: set[str] | None, briefs: P
                         store.lane_page(waiter.name, {"topic": f"owner:{record['seq']}", "why": f"the owner answered {waiter.awaits}, the card you wait on: {text}", "text": text, "prs": list(waiter.prs)})
         if lane == SELF:
             continue
+        if lane in (ROOT, "main") and kind == REQUEST and SELF in addressed(record) and not request(record) and live is None:
+            out.untyped.append(record["seq"])
         if asked := request(record):
             granted(store, record, asked, live, at, out)
         elif lane == RUNNER and (done := WORKER_DONE.match(text)) and (ended := store.lane(done["lane"])) and ended.state != "retired":
@@ -625,6 +628,8 @@ def tick(store: Store, deps: Deps, now: datetime, generation: int) -> Outcome:
         post(deps, "stand-down", old, f"{pacific(now)} {old} stood down{f' for {successor}' if successor else ', its PRs to root'} by record #{seq}.", *(("--successor", successor) if successor else ()), "--re", str(seq), *[arg for n in prs for arg in ("--pr", str(n))])
     for line in dead:
         escalate(store, deps, f"lane:{line.split(' ', 1)[0]}", line, now)
+    for seq in folded.untyped:
+        post(deps, "defect", ROOT, f"{pacific(now)} root's decide #{seq} reaches the supervisor with no registry request, so the registry is unchanged and its lanes are still woken while their tasks read in progress; post `drive_supervisor.py request <{'|'.join(sorted(VERBS))}> <lane>` for each lane it names.", "--re", str(seq))
     for name, why in unread:
         post(deps, "defect", ROOT, f"{pacific(now)} {why}, so the supervisor refused it and holds {name} with its PRs, never relaunched or retired, until {name} posts again; {name}, keep working. Root: read {name} with `cci tail --lane {name} --since <its wake seq> --oldest` and the registry's heard time, then post it again citing last-read=<seq>.", "--to", name, "--lane-ref", name)
     probe_owners(store, deps, found, now)

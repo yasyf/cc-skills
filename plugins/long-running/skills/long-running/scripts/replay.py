@@ -171,10 +171,10 @@ def who_at(rows: list[dict], orca: list[tuple[str, datetime, datetime | None]], 
 
 
 def replay_lanes(pack, records: list[dict], rows: list[dict], since: str | None) -> dict[str, list[str]]:
-    """The lanes the mover relaunched, held, tried to wake, and refused to stand down unread, ticking from `since`, or the first record, to the last record; records before `since` fold in at the first tick, so lanes spawned earlier are registered when the compared window opens."""
+    """The lanes the mover relaunched, held, tried to wake, and refused to stand down unread, and the root decides to it that carried no registry request, ticking from `since`, or the first record, to the last record; records before `since` fold in at the first tick, so lanes spawned earlier are registered when the compared window opens."""
     loop, lanes, Store, _ = pack
     if not records:
-        return {"relaunched": [], "held": [], "woken": [], "unread": []}
+        return {"relaunched": [], "held": [], "woken": [], "unread": [], "untyped": []}
     with tempfile.TemporaryDirectory() as scratch:
         briefs = Path(scratch)
         feed = sorted(stubbed(records, briefs), key=lambda record: record["seq"])
@@ -220,7 +220,7 @@ def replay_lanes(pack, records: list[dict], rows: list[dict], since: str | None)
             if clock["now"] >= end:
                 break
             clock["now"] = min(clock["now"] + loop.TICK, end)
-        return {"relaunched": sorted(relaunched), "held": sorted(held), "woken": sorted(woken), "unread": sorted(argv[argv.index("--lane-ref") + 1] for argv in posts if argv[argv.index("--kind") + 1] == "defect")}
+        return {"relaunched": sorted(relaunched), "held": sorted(held), "woken": sorted(woken), "unread": sorted(argv[argv.index("--lane-ref") + 1] for argv in posts if argv[argv.index("--kind") + 1] == "defect" and "--lane-ref" in argv), "untyped": sorted(int(argv[argv.index("--re") + 1]) for argv in posts if argv[argv.index("--kind") + 1] == "defect" and "--re" in argv)}
 
 
 def replay_class_check(pack, prs: list[dict]) -> list[int]:
