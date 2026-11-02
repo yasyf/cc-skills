@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import time
 from datetime import datetime, timedelta, timezone
@@ -76,6 +77,7 @@ class FakeShell(stall_watch.Shell):
         self.registry_rows: list[dict] = []
         self.successions: dict[str, str] = {}
         self.ledgers: dict[str, list[dict]] = {}
+        self.live: dict[str, str] = {}
         self.clock = NOW
 
     def run(self, argv, stdin=None, env=None, timeout=stall_watch.COMMAND_SECONDS):
@@ -97,6 +99,10 @@ class FakeShell(stall_watch.Shell):
             return stall_watch.Done(0, f"posted #{9000 + len(self.posts)}", "")
         if argv[:3] == ["ccx", "vcs", "gh"] and argv[argv.index("--") + 1 : argv.index("--") + 3] == ["pr", "view"]:
             return stall_watch.Done(0, json.dumps({"comments": self.comments.get(argv[argv.index("--") + 3], [])}), "")
+        if argv[:3] == ["ccx", "vcs", "gh"] and argv[argv.index("--") + 1 : argv.index("--") + 3] == ["api", "graphql"]:
+            heads = {found["pr"]: found["head"] for found in self.rows}
+            asked = re.findall(r"p(\d+): pullRequest", argv[-1])
+            return stall_watch.Done(0, json.dumps({"data": {"repository": {f"p{pr}": {"headRefOid": self.live.get(pr, heads.get(pr))} for pr in asked}}}), "")
         if argv[:3] == ["ccx", "vcs", "gh"]:
             endpoint = argv[argv.index("--") + 2]
             assert endpoint.endswith("/check-runs?check_name=ai-review")
@@ -433,10 +439,11 @@ def test_a_desk_runner_tap_note_about_another_head_leaves_the_carry_stall_standi
 
 
 def test_no_carry_stall_asks_for_a_go_at_a_ledger_head_the_pr_has_moved_past(config):
-    """root #324772: carry stalls 324751, 324752 and 324754 asked for gos on b41451c, 4922d3a and 7ac37b9 after their PRs had moved and root had gone the new heads."""
+    """root #324772 and #326064: carry stalls asked for gos on ledger heads the PRs had left, #48166 at 54c36ff after it moved to the 543ad64 the owner tapped, with no head record for the move."""
     fixed = f"HEAD #101 {HEAD} (was {OLD}): answers the reviewer bot's finding with a nil check and its test"
-    shell = FakeShell([head(1, "101", OLD, 90), head(2, "101", HEAD, 40, fixed), head(3, "101", OTHER, 5), record(4, "root", "go", f"go #101 at {OTHER[:7]}", 4)], [row("101")])
+    shell = FakeShell([head(1, "101", OLD, 90), head(2, "101", HEAD, 40, fixed)], [row("101")])
     shell.triage = {"merge-prs": {"101": {"verdict": "approved", "head": OLD[:7], "at": stamp(60)}}}
+    shell.live = {"101": OTHER}
 
     watch(shell, config)
 
