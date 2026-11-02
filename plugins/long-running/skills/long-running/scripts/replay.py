@@ -61,6 +61,7 @@ from pathlib import Path
 from types import CodeType, FunctionType, ModuleType
 
 from long_running import cci, drive, ghread
+from lr.movers.lanes import VERB_NAMED
 
 SCRIPTS = Path(__file__).resolve().parent
 FIXTURES = drive.PLUGIN / "tests" / "fixtures" / "replay"
@@ -88,6 +89,7 @@ READ_TEXT = (
     re.compile(r"\bcard-[\w.-]*\w"),
     re.compile(r"#\d+\b"),
     re.compile(r"\bPARKED [\w.-]+:"),
+    VERB_NAMED,
 )
 KEPT_FIELDS = ("seq", "at", "lane", "kind", "to", "re", "resolves", "also_resolves", "topic")
 KEPT_ATTRS = ("brief", "model", "effort", "role", "successor", "verb", "lane", "last-read", "placement", "successor-of")

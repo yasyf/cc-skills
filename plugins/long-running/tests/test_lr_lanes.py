@@ -863,6 +863,16 @@ def test_a_root_decide_to_the_supervisor_with_no_registry_request_is_answered_wi
     assert store.lane("conflicts-2").state == "retired"
 
 
+def test_a_root_decide_to_the_supervisor_naming_no_registry_verb_raises_no_defect(tmp_path, brief):
+    """Root #333189: 333185 chased old-chat-titles-1 for #48348 and named no verb, yet drew 'no registry request' to root."""
+    store = Store.memory()
+    fake = adopted(tmp_path, brief, store)
+    fake.feed.append(record(2, "root", "decide", T0, "root: #48348 c0035cd: no answer to the 12:07 chase and fidelity still missing since 11:47. conflicts-2, post by 12:30 or root names a successor from your handoff c93936e.", ("supervisor", "conflicts-2")))
+
+    lanes.tick(store, fake.deps, T0, 1)
+
+    assert not [argv for argv in fake.posts if argv[argv.index("--kind") + 1] == "defect"]
+
 def test_a_lane_whose_newest_record_settles_it_is_never_woken(tmp_path, brief):
     store = Store.memory()
     fake = adopted(tmp_path, brief, store, prs=(46475,))

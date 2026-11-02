@@ -1992,7 +1992,7 @@
      "prs": []
     },
     "seq": 312386,
-    "text": "last-read=312311",
+    "text": "complete; closed; stop waking; last-read=312311",
     "to": [
      "supervisor",
      "retro-close-1",
