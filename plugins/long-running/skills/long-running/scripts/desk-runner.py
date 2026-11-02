@@ -1060,6 +1060,7 @@ TRUNK_REDS_FACT = "trunk-reds"
 FLAKE_DUE = timedelta(hours=24)
 FLAKY_SEEN_FACT = "flaky-notices-seen"
 FLAKY_NOTICE = re.compile(r"> failed (?:`([^`]+)`.*? )?on <(https://buildkite\.com/[^|>]+)\|[^>]*> at <[^|>]*/commit/([0-9a-f]+)\|.*?(?:it looks flaky and|touches what it reads, so) nobody was told")
+DATA_SUFFIXES = (".json", ".md", ".txt", ".yaml", ".yml")
 TEST_NAME = re.compile(r"(?:Test\w+|\w+(?:::\w+)+)")
 FAILED_TEST = re.compile(r"--- FAIL: (?P<go>[\w.-]+)|^test (?P<cargo>\S+) \.\.\. FAILED|^\s*FAIL \[\s*[\d.]+s\] \S+ (?P<nextest>\S+)", re.MULTILINE)
 LOG_CONTROL = re.compile(r"\x1b(?:_[^\x07]*\x07|\[[0-9;]*[A-Za-z])|\r")
@@ -7182,8 +7183,8 @@ class Landing:
         return LOG_CONTROL.sub("", json.loads(done.out)["content"]) if done.code == 0 else ""
 
     def test_file(self, test: str) -> str:
-        """The first trunk file naming `test` as a word, a Rust test by its last path segment."""
-        return next(iter(self.shell.run(["git", "-C", str(self.checkout), "grep", "-l", "-w", "-F", "-e", test.rsplit("::", 1)[-1]]).out.split()), "")
+        """The first trunk source file naming `test` as a word, a Rust test by its last path segment; a data file such as `go/sand/.test-timings.json` lists every test by name and is never the test's file (#316249)."""
+        return next((path for path in self.shell.run(["git", "-C", str(self.checkout), "grep", "-l", "-w", "-F", "-e", test.rsplit("::", 1)[-1]]).out.split() if not path.endswith(DATA_SUFFIXES)), "")
 
     def compare_trunk_builds(self, history: list[dict], check: str, rows: dict[str, dict]) -> None:
         """Compare each finished `check` build on the trunk newer than the last one compared with the finished build before it, oldest first, each build read once through `landing.ci_build`: every job name that fails or soft-fails more often in the newer build posts one `POST-MERGE-RED` to root, each `landing.desk_lane`, and the lanes of the PRs whose squashes landed between the two, naming the newer build, those jobs, and those PRs. A build that passes because its failing jobs soft-fail is read here, since its status alone reads green. The walk stops at a build that does not read or whose record did not post, and starts there again the next pass."""
