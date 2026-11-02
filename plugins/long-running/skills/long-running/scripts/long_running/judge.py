@@ -25,7 +25,7 @@ from zoneinfo import ZoneInfo
 
 Backend = Literal["sonnet", "jev", "jev+sonnet", "sonnet+jev"]
 BACKENDS: tuple[Backend, ...] = ("sonnet", "jev", "jev+sonnet", "sonnet+jev")
-DEFAULT_BACKEND: Backend = "sonnet+jev"
+DEFAULT_BACKEND: Backend = "jev+sonnet"
 BACKEND_ENV = "LONG_RUNNING_JUDGE"
 SONNET = "claude-sonnet-5-5"
 SPAWNLLM = "spawnllm>=0.17.1"

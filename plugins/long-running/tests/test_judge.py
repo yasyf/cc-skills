@@ -167,7 +167,9 @@ def test_the_digest_counts_each_kinds_verdicts_errors_and_latency():
     ]
 
 
-def test_a_batch_asks_sonnet_once_under_its_own_system_prompt_and_logs_an_answered_call(tmp_path, monkeypatch):
+@pytest.mark.parametrize("backend", judge.BACKENDS)
+def test_a_batch_asks_sonnet_once_under_its_own_system_prompt_and_logs_an_answered_call(tmp_path, monkeypatch, backend):
+    monkeypatch.setenv(judge.BACKEND_ENV, backend)
     monkeypatch.setattr(judge, "state_dir", lambda drive, env=None: tmp_path)
     argv = []
 
@@ -215,18 +217,18 @@ def replayed(backend: judge.Backend, answers: dict = ANSWERS) -> tuple[int, int,
     return passed, missed, false_flags
 
 
-def test_the_default_backend_scores_best_on_the_recorded_eval_answers():
+def test_the_sonnet_first_backend_scores_best_on_the_recorded_eval_answers():
     scores = {backend: replayed(backend) for backend in judge.BACKENDS}
 
-    assert scores[judge.DEFAULT_BACKEND] == (43, 5, 0)
-    assert all(scores[judge.DEFAULT_BACKEND][0] > passed for backend, (passed, _, _) in scores.items() if backend != judge.DEFAULT_BACKEND)
+    assert scores["sonnet+jev"] == (43, 5, 0)
+    assert all(scores["sonnet+jev"][0] > passed for backend, (passed, _, _) in scores.items() if backend != "sonnet+jev")
 
 
-def test_the_plain_words_judge_flags_under_one_in_ten_clean_texts_on_its_recorded_answers():
+def test_the_sonnet_first_plain_words_judge_flags_under_one_in_ten_clean_texts_on_its_recorded_answers():
     clean = sum(len(case["runs"]) for case in PLAIN_ANSWERS.values() if case["expect"] in ("no", "not-yes"))
     jargon = sum(len(case["runs"]) for case in PLAIN_ANSWERS.values() if case["expect"] == "yes")
 
-    _, missed, false_flags = replayed(judge.DEFAULT_BACKEND, PLAIN_ANSWERS)
+    _, missed, false_flags = replayed("sonnet+jev", PLAIN_ANSWERS)
 
     assert false_flags * 10 < clean
     assert missed * 10 < jargon

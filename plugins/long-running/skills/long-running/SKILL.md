@@ -1106,19 +1106,13 @@ pass judges the ten newest contracts and relays of the last day citing that row 
 under all his words; a yes there that the judge had read as carried before is a miss,
 said so in the flag and written under `judge/misses/` as an eval case. The
 `ruling_misread` hook judges the tests a pull request ships the same way at ship.
-Every small-model question in the pack goes through one library,
-`scripts/long_running/judge.py`; a caller with many questions of its own shape in one pass,
-the stall watch, asks them in one `batch` call on the same command line. A judge reads the owner's words verbatim and what they
-answered, never the register's summaries. A yes is asked a second time, and a split is
-unsure, which never warns. A failed call returns nothing, so the caller keeps the
-behavior it had without a judge. `LONG_RUNNING_JUDGE` picks the model: `sonnet+jev`, the
-default, asks Sonnet at low effort with Claude Code's own system prompt replaced and lets
-TypeSafe Jev settle a first answer of unsure; `sonnet`, `jev` and `jev+sonnet` are the
-others. Each call appends one line to `judge/calls.jsonl` in the drive's state folder,
-and `drive.py digest` prints each judge kind's verdicts, errors and latency over the last
-day. `judge-eval.py <fixtures>` scores every backend on the same answers over fixture
-files kept in the drive's state folder, because they carry the owner's words; it calls
-models, so it runs by hand before a judge ships or a prompt changes, never in CI.
+
+Every small-model question in the pack goes through one library, `scripts/long_running/judge.py`. A caller with many questions of its own shape in one pass, the stall watch, asks them in one `batch` call on the same command line. That `batch` call still calls Sonnet once regardless of `LONG_RUNNING_JUDGE`. A judge reads the owner's words verbatim and what they answered, never the register's summaries.
+
+`LONG_RUNNING_JUDGE` selects the policy from `sonnet`, `jev`, `jev+sonnet` and `sonnet+jev`. The default, `jev+sonnet`, asks Jev first and returns a nonflagged verdict without calling Sonnet. A flagged Jev verdict gets a single confirmation from Sonnet at low effort with Claude Code's own system prompt replaced. With `sonnet+jev`, Sonnet answers first and Jev settles a first answer of unsure. Disagreement stays unsure, which never warns, and a failed call returns nothing, so the caller keeps the behavior it had without a judge.
+
+Each call appends one line to `judge/calls.jsonl` in the drive's state folder. `drive.py digest` prints each judge kind's verdicts, errors and latency over the last day. `judge-eval.py <fixtures>` scores every backend on the same answers over fixture files kept in the drive's state folder because they carry the owner's words. It calls models, so it runs by hand before a judge ships or a prompt changes, never in CI.
+
 The same library judges what a lane ships and what the root tells the owner, each as a
 warning beside the check it replaces or fronts. At ship, `refusal_kinds_need_owner_answer`
 reads the refusal kinds, retries, clocks and budgets a pull request adds and asks whether
