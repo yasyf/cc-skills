@@ -562,15 +562,15 @@ def test_a_root_decide_moves_pr_ownership(tmp_path, brief):
     [
         (record(4, "root", "stand-down", text="8:02 PM stand-down conflicts-2: silent since 4:45 PM", to=("conflicts-2",)), "cites no last-read=<seq>"),
         (record(4, "root", "stand-down", text="8:02 PM stand-down conflicts-2: silent since 4:45 PM last-read=2", to=("conflicts-2",)), "cites last-read=2, older than conflicts-2's newest record #3"),
-        (record(4, "root", "decide", text="8:02 PM owner=conflicts-3 for #46001; conflicts-2 stands down", to=("conflicts-2",)), "cites no last-read=<seq>"),
-        (record(4, "root", "state", text="8:02 PM conflicts-3 replaces conflicts-2 last-read=2"), "cites last-read=2, older than conflicts-2's newest record #3"),
+        (record(4, "root", "decide", text="8:02 PM owner=restack-children-2 for #46001; conflicts-2 stands down", to=("conflicts-2",)), "cites no last-read=<seq>"),
+        (record(4, "root", "state", text="8:02 PM restack-children-2 replaces conflicts-2 last-read=2"), "cites last-read=2, older than conflicts-2's newest record #3"),
     ],
 )
 def test_a_root_record_standing_down_a_lane_it_has_not_read_since_its_newest_record_is_refused_and_the_lane_stays(tmp_path, brief, stand_down, cited):
     store = Store.memory()
     fake = adopted(tmp_path, brief, store, prs=(46001,))
-    fake.feed += [spawned(2, "conflicts-3", brief), record(3, "conflicts-2", "head", text="#46001 e590637", refs={"prs": ["Forge-AI/monorepo#46001"]}), stand_down]
-    fake.peers.append(who("conflicts-3", True, T0))
+    fake.feed += [spawned(2, "restack-children-2", brief), record(3, "conflicts-2", "head", text="#46001 e590637", refs={"prs": ["Forge-AI/monorepo#46001"]}), stand_down]
+    fake.peers.append(who("restack-children-2", True, T0))
 
     lanes.tick(store, fake.deps, T0, 1)
 
