@@ -80,7 +80,8 @@ oldest first, each board tap with the card it answered as ``cc-present block sho
 exception's plan text labelled as the root's, and none of the register's implications or summaries.
 ``check-pr`` and ``sweep --diff`` print one ``MECHANISM-BANNED`` line for the added lines, in code and tests alike, that
 start a timer or wait inside a loop when the drive's judge reads them as named by neither the owner's words nor the plan,
-and one per added line that writes a credential to a file or runs a build or test on this machine, naming the shape,
+and one per added line that writes a credential to a file or runs a build or test on this machine, outside a script
+that only CI configuration names, naming the shape,
 the line and the rule; a ``# owner: <answer id>`` line under ``## Rulings`` citing an owner answer whose words name that
 shape clears the second kind. Each is a warning like every other cause. ``RULINGS-UNCITED`` names, for an incident fix
 alone, the anchored rows its diff touches that no ``## Rulings`` line cites.
@@ -1672,7 +1673,7 @@ def cmd_sweep(args: argparse.Namespace, shell: ledger.Shell) -> int:
         hits = sweeper.files([Path(path) for path in args.artifact])
         hits += sweeper.files(globbed(args.root or args.repo, args.paths), args.root or args.repo)
         diff = parse_diff(Path(args.diff).read_text()) if args.diff else None
-        banned = banned_mechanisms(diff) if diff else []
+        banned = banned_mechanisms(diff, lambda name: set()) if diff else []
         hits += [*sweeper.diff(diff), *of_shapes(banned, waits=False)] if diff else []
         hits += unnamed_waits(loaded, Head("", "", "", "", diff), of_shapes(banned, waits=True), plan_path(args, loaded), (entry_of(args) or {}).get("drive"), runtime=args.runtime) if diff else []
     else:
@@ -2483,7 +2484,7 @@ def check_pr(loaded: Register, args: argparse.Namespace, head: Head, findings: F
         if later is None or not grades.root_settles_finder(later, head.number, head.sha, major):
             findings.refusals.append(f"FINDER-MAJOR {head.sha[:SHORT]}")
     authorizers, scope = loaded.answer_words(), loaded.scope()
-    hits = banned_mechanisms(head.diff)
+    hits = banned_mechanisms(head.diff, callers_at(args, loaded.shell, head))
     findings.refusals += [str(hit) for hit in uncleared(of_shapes(hits, waits=False), head, authorizers)]
     findings.refusals += unnamed_waits(loaded, head, of_shapes(hits, waits=True), loaded.plan(args.plan), entry_of(args)["drive"], runtime=args.runtime)
     for hit in Sweeper(loaded, scope).statuses(facts["named"]):
@@ -2569,8 +2570,8 @@ def names_secret(text: str) -> bool:
     return False
 
 
-def banned_mechanisms(diff: Diff) -> list[BannedHit]:
-    """Each added line, in code and tests alike, that starts a timer, waits inside a loop, writes a credential to a file, or runs a build or test on this machine."""
+def banned_mechanisms(diff: Diff, callers: Callable[[str], set[str]]) -> list[BannedHit]:
+    """Each added line, in code and tests alike, that starts a timer, waits inside a loop, writes a credential to a file, or runs a build or test on this machine, which a script only CI runs never does."""
     sides: dict[str, dict[int, str]] = {}
     for file, number, text in [*diff.kept_after, *diff.added]:
         sides.setdefault(file, {})[number] = text
@@ -2583,11 +2584,35 @@ def banned_mechanisms(diff: Diff) -> list[BannedHit]:
         found = [
             *([TIMER] if TICKER.search(text) else [POLL] if WAIT.search(text) and in_loop(lines, number, text) else []),
             *([CREDENTIAL_FILE] if (FILE_WRITE.search(text) or FILE_OPEN.search(text) and WRITE_FLAG.search(call)) and names_secret(call) else []),
-            *([LOCAL_EXEC] if not CI_CONFIG.search(file) and LOCAL_RUN.search(ARGUMENT_PUNCTUATION.sub(" ", text)) and (LOCAL_TOOL.search(file) or MAC_PATH.search(text)) else []),
+            *([LOCAL_EXEC] if not CI_CONFIG.search(file) and LOCAL_RUN.search(ARGUMENT_PUNCTUATION.sub(" ", text)) and (LOCAL_TOOL.search(file) or MAC_PATH.search(text)) and not ci_only(file, diff, callers) else []),
         ]
         if found:
             hits.append(BannedHit(tuple(found), file, number, text.strip()))
     return hits
+
+
+def ci_only(file: str, diff: Diff, callers: Callable[[str], set[str]]) -> bool:
+    """Whether CI configuration names `file` and nothing else outside prose does, read by its basename across the head's tree and the diff's added lines."""
+    name = Path(file).name
+    named = {path for path in {*callers(name), *(path for path, _, text in diff.added if name in text)} - {file} if Path(path).suffix not in PROSE_SUFFIXES}
+    return bool(named) and all(CI_CONFIG.search(path) for path in named)
+
+
+def callers_at(args: argparse.Namespace, shell: ledger.Shell, head: Head) -> Callable[[str], set[str]]:
+    """The files of `head`'s tree that name a file, by `git grep` in the drive's checkout when its origin is the PR's repository, else none."""
+    checkout = (entry_of(args) or {}).get("checkout")
+    if not checkout or ledger.origin_repo(shell, Path(checkout)).lower() != head.repo.lower():
+        return lambda name: set()
+
+    def callers(name: str) -> set[str]:
+        try:
+            return {line.partition(":")[2] for line in shell.run(["git", "-C", checkout, "grep", "-l", "-F", "-e", name, head.sha, "--"]).splitlines()}
+        except subprocess.CalledProcessError as error:
+            if error.returncode != 1:
+                raise
+            return set()
+
+    return callers
 
 
 def of_shapes(hits: list[BannedHit], *, waits: bool) -> list[BannedHit]:

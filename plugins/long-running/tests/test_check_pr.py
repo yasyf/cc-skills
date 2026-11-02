@@ -78,6 +78,7 @@ class CheckShell(RegisterShell):
         plan: Path | None = None,
         stamp: str | None = None,
         bus: tuple[dict, ...] = (),
+        callers: dict[str, list[str]] | None = None,
     ) -> None:
         stamp = stamp or current_stamp(rows, plan)
         super().__init__(rows, answers=answers, diff=diff, records=[read_back(stamp)])
@@ -87,6 +88,7 @@ class CheckShell(RegisterShell):
         self.reviews = [graded(stamp)] if reviews is None else reviews
         self.failing = failing
         self.bus = bus
+        self.callers = callers or {}
 
     def run(self, argv: list[str], stdin: str | None = None, cwd: Path | None = None) -> str:
         plain = gateway(argv)
@@ -99,6 +101,10 @@ class CheckShell(RegisterShell):
                 return "".join(json.dumps(record) + "\n" for record in self.pr_records if record["seq"] > int(since))
             case ["cci", "tail", "--drive", "brook-cci", "--since-seq", since, "--json", "--budget", _]:
                 return "".join(json.dumps(record) + "\n" for record in [*self.pr_records, *self.bus] if record["seq"] > int(since))
+            case ["git", "-C", "/repo", "grep", "-l", "-F", "-e", name, sha, "--"]:
+                if name not in self.callers:
+                    raise subprocess.CalledProcessError(1, argv)
+                return "".join(f"{sha}:{path}\n" for path in self.callers[name])
             case ["cci", "tail", "--drive", "brook-cci", "--since-seq", since, "--json", "--budget", _, "--kind", "review", "--kind", "answer"]:
                 return "".join(json.dumps(record) + "\n" for record in self.reviews if record["seq"] > int(since) and record["kind"] in ("review", "answer"))
         return super().run(argv, stdin, cwd)
@@ -699,6 +705,7 @@ BANNED_CELLS = {
     "timer that writes a token": (changed("api/src/renew.ts", [], ["setInterval(() => writeFileSync(tokenPath, token), 1000);"]), ("credential written to a file", "timer"), "api/src/renew.ts", 1),
     "cargo test from a tool script": (changed("tools/check.sh", [], ["cargo test -p sandsql-server"]), ("local exec",), "tools/check.sh", 1),
     "go test from a hook": (changed(".claude/hooks/verify.py", [], ['subprocess.run(["go", "test", "./..."], check=True)']), ("local exec",), ".claude/hooks/verify.py", 1),
+    "go run in a script CI and a dev tool both run": (changed("go/sand/scripts/vet.sh", [], ["go run ./cmd/vet ./..."]) + changed("infra/ci/src/pipelines/test/sand.ts", [], ['  command: "go/sand/scripts/vet.sh",']) + changed("tools/dev.sh", [], ["go/sand/scripts/vet.sh"]), ("local exec",), "go/sand/scripts/vet.sh", 1),
 }
 BENIGN_CELLS = {
     "one-shot sleep with its reason": changed("go/sand/cmd/dial.go", [], ["func dial() {", "\t// the socket binds a beat after listen returns", "\ttime.Sleep(50 * time.Millisecond)", "\tconnect()", "}"]),
@@ -710,6 +717,7 @@ BENIGN_CELLS = {
     "cargo test in CI config": changed(".buildkite/pipeline.yml", [], ["  - cargo test -p sandsql-server"]),
     "cargo test in a doc": changed("docs/testing.md", [], ["Run `cargo test -p sandsql-server` in CI."]),
     "go test named in product code": changed("go/sand/internal/build/plan.go", [], ['steps = append(steps, "go test ./...")']),
+    "go run in a script only a pipeline the diff adds runs": changed("go/sand/scripts/vet.sh", [], ["go run ./cmd/vet ./..."]) + changed("infra/ci/src/pipelines/test/sand.ts", [], ['  command: "go/sand/scripts/vet.sh",']),
 }
 TIMER_ANSWER_ROW = {"kind": "pick", "status": "in-force", "words": "The signal keeps its keep-alive timer every 15 s.", "answer": '["abcabca"]', "lanes": '["all"]', "paths": "none"}
 
@@ -730,6 +738,21 @@ def test_a_banned_mechanism_on_an_added_line_warns_with_its_rule_and_line(
 @pytest.mark.parametrize("diff", list(BENIGN_CELLS.values()), ids=list(BENIGN_CELLS))
 def test_a_neighbour_of_a_banned_mechanism_warns_nothing(package: Path, state: Path, registered: Path, capsys, diff: str) -> None:
     assert check(capsys, CheckShell(pinned(package), diff=DIFF + diff)) == (0, [])
+
+
+@pytest.mark.parametrize(
+    ("callers", "verdict"),
+    [
+        (["infra/ci/src/pipelines/test/sand.ts", "go/sand/README.md"], (0, [])),
+        (["infra/ci/src/pipelines/test/sand.ts", "go/sand/justfile.local"], (1, ["local exec"])),
+        ([], (1, ["local exec"])),
+    ],
+    ids=["named-only-by-a-pipeline-and-a-doc", "named-by-a-dev-file-too", "named-by-nothing"],
+)
+def test_a_script_only_ci_pipelines_name_at_the_head_runs_its_build_unwarned(package: Path, state: Path, registered: Path, capsys, callers: list[str], verdict: tuple[int, list[str]]) -> None:
+    code, lines = check(capsys, CheckShell(pinned(package), diff=DIFF + changed("go/sand/scripts/vet.sh", [], ["go run ./cmd/vet ./..."]), callers={"vet.sh": callers} if callers else None))
+
+    assert (code, [line.split()[1] + " " + line.split()[2] for line in lines]) == verdict
 
 
 def test_a_timer_warns_only_when_the_judge_reads_it_as_named_by_neither_his_words_nor_the_plan(
