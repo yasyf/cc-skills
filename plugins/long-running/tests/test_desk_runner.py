@@ -3006,13 +3006,19 @@ def trunk_checks(shell: FakeShell) -> list[list[str]]:
 
 
 @pytest.mark.parametrize("count", [1, runner_module.GATE_WORKERS * 3])
-def test_a_trunk_gate_wave_checks_every_tree_in_one_each_run(shell, config, monkeypatch, count):
-    """Nov 1: the landing desk ran one `stack-enqueue --check` per tree, 49 a pass and two at a time behind its Trunk slots, each repeating one ls-remote, one Trunk read and every PR's GitHub reads; the owner picked one `--check --each` run per gate wave ("A, merge when green")."""
+def test_a_trunk_gate_wave_checks_each_eight_trees_in_one_each_run(shell, config, monkeypatch, count):
+    """Nov 1: the landing desk ran one `stack-enqueue --check` per tree, 49 a pass and two at a time behind its Trunk slots, each repeating one ls-remote, one Trunk read and every PR's GitHub reads; the owner picked batching them as `--check --each` runs ("A, merge when green"). Nov 2: one run over a whole wave took 409 s for 16 trees under load, past the check bound, so a run carries `EACH_TREES`."""
     prs = [str(29100 + n) for n in range(count)]
     trunk_rows(shell, config, monkeypatch, prs)
     landing_pass(shell, config)
-    [run] = trunk_checks(shell)
-    assert sorted(run[run.index("--each") + 1 :], key=int) == prs
+    runs = trunk_checks(shell)
+    assert all("--each" in run and len(run[run.index("--each") + 1 :]) <= runner_module.EACH_TREES for run in runs)
+    assert len(runs) == -(-count // runner_module.EACH_TREES)
+    assert sorted((tip for run in runs for tip in run[run.index("--each") + 1 :]), key=int) == prs
+
+
+def test_an_each_run_is_bounded_at_two_single_check_rounds():
+    assert runner_module.time_bound([".agents/skills/submit-pr/scripts/stack-enqueue", "--check", "--each", "1", "2"]) == 2 * runner_module.time_bound([".agents/skills/submit-pr/scripts/stack-enqueue", "1", "--check"])
 
 
 def test_a_trunk_each_run_that_times_out_leaves_every_tree_to_its_own_check(shell, config, monkeypatch):

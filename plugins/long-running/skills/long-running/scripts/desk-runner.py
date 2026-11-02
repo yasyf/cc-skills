@@ -293,9 +293,9 @@ record names, sixteen trees at a time, so the only PRs that can land reach the q
 over every other tree. Every gate checks only a tree holding a PR the queue read calls landable on PRs below it that are landable
 or queued, since a check of any other tree enqueues nothing and spends GitHub reads; each PR of the rest hears what its status
 entry asks of its lane. Each tree runs in a stack worker of its own from its check through its settling to the enqueue it accepts, so no
-stack waits on another stack's settling or enqueue. Under the `trunk-stack-enqueue` adapter a wave's first checks are one
-`stack-enqueue --check --each` run, made by the first of its workers to reach its check, which reads GitHub, Trunk and
-`git ls-remote` once for the wave (owner, Nov 1: "A, merge when green"); a tree that run does not answer is checked alone. The workers outlive the pass: the pass queues them with the lanes taking turns, waits for
+stack waits on another stack's settling or enqueue. Under the `trunk-stack-enqueue` adapter each eight trees of a wave share their first checks as one
+`stack-enqueue --check --each` run, made by the first of their workers to reach its check, which reads GitHub, Trunk and
+`git ls-remote` once for those trees (owner, Nov 1: "A, merge when green"); a tree that run does not answer is checked alone. The workers outlive the pass: the pass queues them with the lanes taking turns, waits for
 them at most 120 s, skips a tree whose worker still runs or waits, and its releases, announcements and restack checks run
 on a side worker, never ahead of the gate, and its worktree removal on a worker of its own, so a slow removal holds back neither. Each worker writes its step and when it began to `<config>.landing-stacks.json`, which
 stall_watch reads to name a stack stuck past its step's budget. Every pass posts one `state` record to root on topic `landing-state`
@@ -950,6 +950,8 @@ GRAPHITE_BASE = "graphite-base/"
 QUICK_SECONDS = 60
 CHECK_PR_SECONDS = 180
 GATE_CHECK_SECONDS = ENQUEUE_SECONDS
+EACH_TREES = 8
+EACH_CHECK_SECONDS = 2 * GATE_CHECK_SECONDS
 QUEUE_STATUS_SECONDS = 300
 LANDABLE = "landable"
 CHECK_PR_TIMEOUT = "CHECK-PR-TIMEOUT"
@@ -1199,6 +1201,8 @@ def time_bound(argv: list[str]) -> float:
         return BUS_PROBE_SECONDS
     if len(argv) > 2 and Path(argv[1]).name == "rulings.py" and argv[2] == "check-pr":
         return CHECK_PR_SECONDS
+    if "--each" in argv:
+        return EACH_CHECK_SECONDS
     if "--check" in argv:
         return GATE_CHECK_SECONDS
     if argv[:4] == ["ccx", "vcs", "pr", "status"]:
@@ -6366,24 +6370,28 @@ class Landing:
         return [kept for tree in trees if (kept := [tip for tip in tree if tip not in waiting])]
 
     def gate_trees(self, rows: dict[str, dict], held: list[str], trees: list[list[str]]) -> None:
-        """Hand each tree of `trees` that `landable_trees` keeps to a stack worker that outlives the pass and runs its check, its settling and the enqueue of what it accepts, so no stack's settling or enqueue waits on another's (landing-desk-3 #185922, owner 9524276). A tree whose worker still runs or waits from an earlier pass is skipped, the drive runs `GATE_WORKERS` at once with the lanes taking turns in its queue, and the pass waits for its workers no longer than its `GATE_BUDGET`. One wave per priority value, the lowest first, so a higher-priority stack reaches the queue first. Each enqueue still runs its stack's chains bottom-up. Under the `trunk-stack-enqueue` adapter a wave's first checks are one `CheckBatch`, so the wave reads GitHub, Trunk and `git ls-remote` once instead of once per tree, and a tree waits on that one run rather than on two Trunk slots."""
+        """Hand each tree of `trees` that `landable_trees` keeps to a stack worker that outlives the pass and runs its check, its settling and the enqueue of what it accepts, so no stack's settling or enqueue waits on another's (landing-desk-3 #185922, owner 9524276). A tree whose worker still runs or waits from an earlier pass is skipped, the drive runs `GATE_WORKERS` at once with the lanes taking turns in its queue, and the pass waits for its workers no longer than its `GATE_BUDGET`. One wave per priority value, the lowest first, so a higher-priority stack reaches the queue first. Each enqueue still runs its stack's chains bottom-up. Under the `trunk-stack-enqueue` adapter each `EACH_TREES` trees of a wave share their first checks as one `CheckBatch`, sealed once it is full, so those trees read GitHub, Trunk and `git ls-remote` once instead of once per tree. Each run carries the per-PR git work of its trees four at a time, so a batch the size of a whole wave outran the 300 s check bound under load (16 trees in 409 s at load 40, Nov 2); `EACH_CHECK_SECONDS` bounds a batch at two single-check rounds, the Trunk slots run two batches at once, and a batch that still times out sends only its own trees to their single checks."""
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
         self.settlement.saw({pr for tree in trees for tip in tree for pr in downstack(open_rows, tip)}, "the gate's status read")
         waves: dict[int, list[list[str]]] = {}
         for tree in self.landable_trees(rows, trees):
             waves.setdefault(min(self.priority(open_rows, pr) for tip in tree for pr in downstack(open_rows, tip)), []).append(tree)
         for priority in sorted(waves):
-            batch = CheckBatch(self) if self.adapter.kind == merge_queue.TrunkStackEnqueue.kind else None
+            batches = [CheckBatch(self)] if self.adapter.kind == merge_queue.TrunkStackEnqueue.kind else []
             futures = []
             try:
                 for tree in lane_turns(waves[priority], open_rows):
+                    if batches and len(batches[-1].targets) == EACH_TREES:
+                        batches[-1].sealed.set()
+                        batches.append(CheckBatch(self))
+                    batch = batches[-1] if batches else None
                     members = {pr for tip in tree for pr in downstack(open_rows, tip)}
                     if future := self.dispatch(",".join(tree), members, lambda tree=tree, batch=batch: self.land_tree(rows, held, tree, batch)):
                         futures.append(future)
                         if batch:
                             batch.add(self.first_check(tree), [head for pr in sorted(members) if (head := open_rows[pr].get("head"))])
             finally:
-                if batch:
+                for batch in batches:
                     batch.sealed.set()
             self.await_workers(futures)
 
