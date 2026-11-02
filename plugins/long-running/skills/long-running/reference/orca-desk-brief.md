@@ -45,10 +45,10 @@ A Bash append to `orca-desk.md` in a drive session draws `UNREAD` and the `cci p
 | `orca.desk_inbox` | Required path to the drive's `inbox/orca-desk.md`. Anchors runner logs and state; the runner never reads this file. |
 | `orca.briefs.repo` | Drive checkout path for cc-notes brief attachments. |
 | `orca.briefs.log` | Briefs log id for generated fix briefs. Checked at start and before every attachment; if unset or unresolvable, the runner switches to or creates `briefs: <drive>` and logs `BRIEFS-LOG` with the new id. |
-| `orca.gc` | Repo gc command, which every `RECLAIM` line carries after `desk-runner.py gc`. |
+| `orca.gc` | This skill's `scripts/orca-gc`, prefixed with the `WORKER_CC_REMOTE` and `CC_REMOTE_CONFIG` it destroys Sprites with, which every `RECLAIM` line carries after `desk-runner.py gc`; the root runs it from the drive checkout. |
 | `orca.launch_env` | Environment variables passed to `orca-launch.sh`. `ORCA_LAUNCH_PREPARE` is one shell command run in each new worktree before the worker starts; set it to the repo's code generators. A failure or a run past `ORCA_LAUNCH_PREPARE_SECONDS`, which defaults to `120`, does not stop the launch, and the worker's brief ends with the command and its log path. |
-| `orca.sprite.launcher` | Path to the repository's `worker-launch.sh` for Sprite launches. |
-| `orca.sprite.env` | Environment passed to Sprite launches alongside `WORKER_RUN`. Set `CC_REMOTE_CONFIG`, because without it `cc-remote` reads `~/.config/cc-remote/config.yaml`. Set `WORKER_CC_REMOTE` to a worktree on branch `dev` or `cc-remote-<version>` that moves only with a `cc-remote` pin PR, never a session checkout. |
+| `orca.sprite.launcher` | Path to this skill's `scripts/worker-launch.sh` for Sprite launches. |
+| `orca.sprite.env` | Environment passed to Sprite launches alongside `WORKER_RUN`. Set `WORKER_CHECKOUT` to the checkout whose `tools/cc-remote` starts Sprites, and `WORKER_CCI_URL` and `WORKER_CCI_SHA256` to the cci `linux_amd64` release archive each Sprite worker installs before its brief. Set `CC_REMOTE_CONFIG`, because without it `cc-remote` reads `~/.config/cc-remote/config.yaml`. Set `WORKER_CC_REMOTE` to a worktree on branch `dev` or `cc-remote-<version>` that moves only with a `cc-remote` pin PR, never a session checkout. |
 | `stall.every_minutes` | Cadence in minutes for `stall_watch.py`; default `5`. Re-read every pass. |
 | `deadlines.start_minutes` | Minutes before an accepted action without start proof triggers `DEADLINE`; default `10`. |
 | `deadlines.launch_minutes` | Minutes a launch or incident line stays valid from its record time; default `15`. |
@@ -78,7 +78,7 @@ A Bash append to `orca-desk.md` in a drive session draws `UNREAD` and the `cci p
     "run": "<run id>",
     "desk_inbox": "/absolute/drive/inbox/orca-desk.md",
     "briefs": {"repo": "/absolute/drive/checkout", "log": "<briefs log id>"},
-    "gc": "/absolute/drive/checkout/.agents/skills/orca/scripts/orca-gc",
+    "gc": "env WORKER_CC_REMOTE=/absolute/drive/checkout/tools/cc-remote/bin/cc-remote CC_REMOTE_CONFIG=/absolute/drive/checkout/tools/cc-remote/config.yaml /absolute/plugin/skills/long-running/scripts/orca-gc",
     "launch_env": {
       "ORCA_LAUNCH_RUN": "<run id>",
       "ORCA_LAUNCH_REPO": "<Orca repo id>",
@@ -90,8 +90,11 @@ A Bash append to `orca-desk.md` in a drive session draws `UNREAD` and the `cci p
       "ORCA_LAUNCH_PREPARE": "<the repo's code generators, one shell command>"
     },
     "sprite": {
-      "launcher": "/absolute/drive/checkout/.agents/skills/orca/scripts/worker-launch.sh",
+      "launcher": "/absolute/plugin/skills/long-running/scripts/worker-launch.sh",
       "env": {
+        "WORKER_CHECKOUT": "/absolute/drive/checkout",
+        "WORKER_CCI_URL": "https://github.com/yasyf/cc-inbox/releases/download/v<version>/cci_<version>_linux_amd64.tar.gz",
+        "WORKER_CCI_SHA256": "<that archive's SHA-256 from the release checksums.txt>",
         "WORKER_CC_REMOTE": "/absolute/drive/checkout/tools/cc-remote/bin/cc-remote",
         "CC_REMOTE_CONFIG": "/absolute/drive/checkout/tools/cc-remote/config.yaml",
         "WORKER_REF": "dev"
