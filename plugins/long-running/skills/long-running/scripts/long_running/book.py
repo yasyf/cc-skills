@@ -113,6 +113,12 @@ class Book:
     def escalations_for(self, container: str, pr: str) -> list[actions.Action]:
         return self.store.escalations_for(container, pr)
 
+    def actions_prefixed(self, container: str, kind: str, prefix: str) -> list[actions.Action]:
+        return self.store.actions_prefixed(container, kind, prefix)
+
+    def action_keys(self, container: str, kind: str) -> frozenset[str]:
+        return self.store.action_keys(container, kind)
+
     def release_action_changes(self, container: str, previous: ReleaseActionVersion | None, active_ordinals: tuple[int, ...]) -> tuple[list[tuple[int, actions.Action]], ReleaseActionVersion]:
         return self.store.release_action_changes(container, previous, active_ordinals)
 
