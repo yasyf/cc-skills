@@ -10266,9 +10266,9 @@ class Landing:
         closed: dict[str, int] = {}
         for key, seq in pending.items():
             record = current.get(seq)
-            if record is None or record["kind"] != "blocker" or record["lane"] != RUNNER or record["status"] not in ("open", "closed"):
+            if record is not None and (record["kind"] != "blocker" or record["lane"] != RUNNER):
                 raise ValueError(f"owned landing blocker {key} has no current blocker record at internal sequence {seq}")
-            if record["status"] == "closed" or cci.expired(record, self.runner.now()):
+            if record is None or record["status"] != "open" or cci.expired(record, self.runner.now()):
                 closed[key] = seq
                 stale.pop(key, None)
         for key, seq in closed.items():
