@@ -4655,6 +4655,29 @@ def test_a_board_tap_carries_itself_to_every_later_head_whatever_changed(shell, 
     assert [line for line in escalations(shell) if line.startswith("TAP-")] == []
 
 
+def test_a_queued_head_the_runner_carried_a_tap_to_stays_queued_in_the_pass_that_posted_its_go(shell, config, tmp_path):
+    """Root #306708: #47437 was queued at cde6f49 on the runner's own TAP-CARRIED go, and the dequeue read only go-sweep-8's go at 79a45cd and pulled it."""
+    board_surface(config)
+    board_lane(config)
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    merge_go(shell, "29020", "go #29020 at aaaa111")
+    tap(shell, "29020", "aaaa111111")
+    shell.queue["29020"] = "queued"
+    run = shell.run
+
+    def posting(argv, *args, **kwargs):
+        done = run(argv, *args, **kwargs)
+        if argv[:2] == ["cci", "post"] and argv[argv.index("--kind") + 1] == "go":
+            merge_go(shell, "29020", argv[argv.index("--text") + 1], lane="desk-runner")
+        return done
+
+    shell.run = posting
+    landing_pass(shell, config)
+    assert [post["text"][:28] for post in shell.posts if post["kind"] == "go"] == ["go #29020 at cccc333 TAP-CAR"]
+    assert dequeues(shell) == []
+
+
 def test_a_successor_fidelity_desk_grade_counts_with_no_config_edit(shell, config, tmp_path):
     """Root #197631: fidelity-desk-13 succeeded fidelity-desk-12, and its ok on #45427 read as ungraded because the configured list stopped at -12."""
     merge_mode(config, "every")
