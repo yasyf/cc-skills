@@ -10482,7 +10482,8 @@ class Landing:
         if not read:
             return f"{TRUNK}'s trunk check did not read"
         if self.checks_paused():
-            return "landing.checks_wait_for_go waits for a newer root go"
+            after = self.landing_config["checks_wait_for_go"]
+            return f"landing.checks_wait_for_go is cci #{after}, so nothing gates until any root go record posts after #{after} in this host's store, which a go on any PR does; sequences are local to each host, so a remote desk's config must name its own store's sequence or drop the key"
         return ""
 
 
