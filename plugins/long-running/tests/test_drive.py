@@ -669,9 +669,9 @@ def test_tree_faults_names_every_file_of_a_directory_the_install_lacks(tmp_path)
     [
         ([{"name": "long-running CI", "run_attempt": 1, "status": "completed", "conclusion": "success", "html_url": "u1"}], ""),
         ([{"name": "long-running CI", "run_attempt": 1, "status": "completed", "conclusion": "failure", "html_url": "u1"}, {"name": "long-running CI", "run_attempt": 2, "status": "completed", "conclusion": "success", "html_url": "u2"}], ""),
-        ([{"name": "long-running CI", "run_attempt": 1, "status": "completed", "conclusion": "failure", "html_url": "u1"}], "the long-running CI run on 7ae7b77939, the commit long-running--v1.2.4 was bumped from, ended failure: u1"),
-        ([{"name": "long-running CI", "run_attempt": 1, "status": "in_progress", "conclusion": None, "html_url": "u1"}], "the long-running CI run on 7ae7b77939, the commit long-running--v1.2.4 was bumped from, is in_progress: u1"),
-        ([{"name": "Guides", "run_attempt": 1, "status": "completed", "conclusion": "success", "html_url": "u0"}], "no long-running CI run on main has started for 7ae7b77939, the commit long-running--v1.2.4 was bumped from"),
+        ([{"name": "long-running CI", "run_attempt": 1, "status": "completed", "conclusion": "failure", "html_url": "u1"}], "the long-running CI run on 7ae7b77930, the commit long-running--v1.2.4 was bumped from, ended failure: u1"),
+        ([{"name": "long-running CI", "run_attempt": 1, "status": "in_progress", "conclusion": None, "html_url": "u1"}], "the long-running CI run on 7ae7b77930, the commit long-running--v1.2.4 was bumped from, is in_progress: u1"),
+        ([{"name": "Guides", "run_attempt": 1, "status": "completed", "conclusion": "success", "html_url": "u0"}], "no long-running CI run on main has started for 7ae7b77930, the commit long-running--v1.2.4 was bumped from"),
     ],
     ids=["passed", "passed-on-rerun", "failed", "running", "none"],
 )
