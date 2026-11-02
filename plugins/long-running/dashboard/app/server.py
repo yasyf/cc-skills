@@ -701,29 +701,6 @@ def live_evidence(evidence, prs, runner, records):
     return {number: entry for number, entry in evidence.items() if still_open(number, prs, runner) and entry["at"] >= (pushed_at(records, number, prs[number].get("head") or "") or "")}
 
 
-def at_live_head(rows, prs, records):
-    """Each board row waiting on the owner's tap, re-read at its PR's live head: one whose tests fail or have not passed there, or whose parent's tests fail, leaves the tap deck as `failing` and says why until that head is green (root #203813)."""
-    by_branch = {pr["branch"]: number for number, pr in prs.items() if pr.get("state") == "open" and pr.get("branch")}
-
-    def pushed(number, head):
-        found = pushed_at(records, number, head)
-        return f" pushed at {at(found).astimezone(PACIFIC).strftime('%-I:%M %p')}" if found else ""
-
-    def held_back(row):
-        if not (pr := prs.get(str(row["number"]))):
-            return None
-        head = pr.get("head") or row["head"]
-        if pr.get("test_state") == "failure":
-            return f"Tests failing on the version{pushed(row['number'], head)}; back when green."
-        if pr.get("test_state") != "success":
-            return f"Tests still running on the version{pushed(row['number'], head)}; back when green."
-        if (parent := by_branch.get(pr.get("base"))) and prs[parent].get("test_state") == "failure":
-            return f"#{parent} below it fails its tests; back when green."
-        return None
-
-    return [{**row, "state": "failing", "blocker": why} if row["state"] == "you" and (why := held_back(row)) else row for row in rows]
-
-
 def owner_asks(records, prs):
     """Each pull request's questions from the owner's row box, oldest first, with every reply down its chain; one stays open until an answer lands in that chain or a new version of the pull request is pushed (owner 12:03 AM Nov 2, root #308820)."""
     children = {}
@@ -1349,7 +1326,7 @@ class Drive:
         board = self.board()
         self.check_gos(board["rows"])
         pushes = [record for record in model["records"] if record["kind"] in ("head", "opened")]
-        board["rows"] = awaiting_reply(at_live_head(with_conflicts(board["rows"], model["prs"]), model["prs"], pushes), model["asks"])
+        board["rows"] = awaiting_reply(with_conflicts(board["rows"], model["prs"]), model["asks"])
         board["cards"] = unanswered(board["cards"], model["words"])
         stamp(board)
         now = dt.datetime.now(dt.timezone.utc)

@@ -951,24 +951,17 @@ def test_a_head_record_names_its_pull_request_at_its_commit_and_a_dump_says_why_
     assert "<dt>Says</dt>" not in page and "<dt>Details</dt>" not in page
 
 
-def test_a_tap_row_whose_live_head_or_parent_is_not_green_leaves_the_deck_and_says_why():
-    """Owner 2:11 AM on #45412 (root #203813): 'why am I being asked to review this if tests are failing?'"""
-    rows = [{"number": n, "head": "aaaa111", "state": "you", "blocker": "Green, reviewed and checked against the plan; it waits on your tap"} for n in (45411, 45412, 45413, 45414)]
+def test_every_board_row_waiting_on_the_owner_stays_on_the_deck_whatever_the_ledger_says_about_its_tests():
+    """Owner 12:14 PM Nov 2: 'why are there PRs to approve on my board that are not showing in the long-running dashboard?'"""
+    rows = [{"number": n, "key": str(n), "head": "aaaa111", "state": "you", "verdict": None, "go_head": None, "blocker": "", "block": "b", "group_id": "g", "group": "G", "group_summary": ""} for n in (45411, 45412, 45413)]
     prs = {
-        "45411": {"state": "open", "branch": "b11", "base": "dev", "head": "aaaa111", "test_state": "failure"},
-        "45412": {"state": "open", "branch": "b12", "base": "b11", "head": "bbbb222", "test_state": "pending"},
-        "45413": {"state": "open", "branch": "b13", "base": "b11", "head": "aaaa111", "test_state": "success"},
-        "45414": {"state": "open", "branch": "b14", "base": "dev", "head": "aaaa111", "test_state": "success"},
+        "45411": {"state": "open", "head": "aaaa111", "test_state": "failure"},
+        "45412": {"state": "open", "head": "bbbb222", "test_state": "pending"},
     }
-    records = [{"kind": "head", "at": "2026-10-30T09:06:00Z", "text": "HEAD #45412 bbbb2222 (was aaaa111)"}]
 
-    out = {row["number"]: row for row in server.at_live_head(rows, prs, records)}
+    out = server.with_conflicts(rows, prs)
 
-    assert (out[45411]["state"], out[45411]["blocker"]) == ("failing", "Tests failing on the version; back when green.")
-    assert (out[45412]["state"], out[45412]["blocker"]) == ("failing", "Tests still running on the version pushed at 2:06 AM; back when green.")
-    assert (out[45413]["state"], out[45413]["blocker"]) == ("failing", "#45411 below it fails its tests; back when green.")
-    assert out[45414]["state"] == "you"
-    assert [need["prs"][0]["number"] for need in server.merge_needs([{**row, "block": "b", "group_id": "g", "group": "G", "group_summary": "", "key": str(row["number"])} for row in out.values()], "u")] == [45414]
+    assert [need["prs"][0]["number"] for need in server.merge_needs(out, "u")] == [45411, 45412, 45413]
 
 
 def test_evidence_written_before_the_live_head_was_pushed_never_reaches_the_owner():
