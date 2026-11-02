@@ -17,6 +17,7 @@ import statistics
 import subprocess
 import zlib
 from copy import deepcopy
+from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import unquote_plus
 
@@ -37,61 +38,83 @@ FLOOR_REFUSAL = "ccx: GitHub rate limit floor: app graphql has 812 of 10000 left
 
 
 SCALES = frozenset({"144", "256", "1000", "10000", "100000"})
-SHARD = pytest.StashKey[dict[str, tuple[int, set[int]]]]()
 
 
-def scaled(item: pytest.Item) -> bool:
+@dataclass
+class Shard:
+    """One CI matrix job's share: each test file's `(parts, the parts this job runs)`, every test planned on its own for its recorded seconds, and those of them this job runs."""
+
+    parts: dict[str, tuple[int, set[int]]]
+    slow: set[str]
+    mine: set[str] = field(default_factory=set)
+
+    def collects(self, name: str) -> bool:
+        return bool(self.parts[name][1]) or any(nodeid.startswith(f"tests/{name}::") for nodeid in self.mine)
+
+    def runs(self, item: pytest.Item) -> bool:
+        if item.nodeid in self.slow:
+            return item.nodeid in self.mine
+        split, parts = self.parts.get(item.path.name, (1, {0}))
+        return zlib.crc32(item.nodeid.encode()) % split in parts
+
+
+SHARD = pytest.StashKey[Shard]()
+
+
+def scaled(nodeid: str) -> bool:
     """A test parametrized at fleet or history scale: one dash-separated part of its id is 144, 256, 1000, 10000 or 100000."""
-    callspec = getattr(item, "callspec", None)
-    return callspec is not None and not SCALES.isdisjoint(callspec.id.split("-"))
+    return "[" in nodeid and not SCALES.isdisjoint(nodeid[nodeid.index("[") + 1 : -1].split("-"))
 
 
-def shard_plan(weights: dict[str, float], count: int) -> list[dict[str, tuple[int, set[int]]]]:
-    """Every file's `(parts, the parts this shard runs)` per shard, by longest-first assignment of recorded seconds; a file heavier than one shard's share splits into parts by a hash of node id."""
-    share = sum(weights.values()) / count
-    pieces = []
-    for name, weight in weights.items():
-        split = max(1, math.ceil(weight / share))
-        pieces += [(weight / split, name, part, split) for part in range(split)]
+def shard_plan(files: dict[str, float], slow: dict[str, float], count: int) -> list[Shard]:
+    """Every shard's share, assigning longest first by recorded seconds: each slow test on its own, and the rest of each file whole, or in parts by a hash of node id once it outweighs one shard's share."""
+    share = (sum(files.values()) + sum(slow.values())) / count
+    splits = {name: max(1, math.ceil(seconds / share)) for name, seconds in files.items()}
+    pieces = [(seconds, nodeid, -1) for nodeid, seconds in slow.items()]
+    pieces += [(files[name] / split, name, part) for name, split in splits.items() for part in range(split)]
     loads = [0.0] * count
-    plan = [{name: (split, set()) for _, name, _, split in pieces} for _ in range(count)]
-    for weight, name, part, _ in sorted(pieces, key=lambda piece: (-piece[0], piece[1], piece[2])):
+    plan = [Shard({name: (split, set()) for name, split in splits.items()}, set(slow)) for _ in range(count)]
+    for seconds, name, part in sorted(pieces, key=lambda piece: (-piece[0], piece[1], piece[2])):
         shard = loads.index(min(loads))
-        loads[shard] += weight
-        plan[shard][name][1].add(part)
+        loads[shard] += seconds
+        if part < 0:
+            plan[shard].mine.add(name)
+        else:
+            plan[shard].parts[name][1].add(part)
     return plan
 
 
 def pytest_configure(config: pytest.Config) -> None:
-    """Under LR_TEST_SHARD `i/n`, plan shard `i` from the seconds per file in LR_TEST_DURATIONS, so each CI matrix job collects only its own files; LR_TEST_SCALE=skip leaves the scale tests out of the plan and the run."""
+    """Under LR_TEST_SHARD `i/n`, plan shard `i` from the seconds in LR_TEST_DURATIONS, so each CI matrix job collects only its own files; LR_TEST_SCALE=skip leaves the scale tests out of the plan and the run."""
     config.addinivalue_line("markers", "scale: parametrized at fleet or history scale; pull requests skip it, main and nightly run it")
     if not (shard := os.environ.get("LR_TEST_SHARD")):
         return
     index, count = map(int, shard.split("/"))
+    scale = os.environ.get("LR_TEST_SCALE") != "skip"
     recorded = json.loads(Path(os.environ["LR_TEST_DURATIONS"]).read_text())
-    files = sorted({path.name for pattern in config.getini("python_files") for path in FIXTURES.parent.glob(pattern)})
-    known = {name: plain + (0 if os.environ.get("LR_TEST_SCALE") == "skip" else scale) for name, (plain, scale) in recorded.items() if name in files}
+    names = sorted({path.name for pattern in config.getini("python_files") for path in FIXTURES.parent.glob(pattern)})
+    known = {name: plain + scaled_seconds * scale for name, (plain, scaled_seconds) in recorded["files"].items() if name in names}
+    slow = {nodeid: seconds for nodeid, seconds in recorded["slow"].items() if nodeid.split("::")[0].removeprefix("tests/") in names and (scale or not scaled(nodeid))}
     median = statistics.median(known.values())
-    config.stash[SHARD] = shard_plan({name: known.get(name, median) for name in files}, count)[index - 1]
+    config.stash[SHARD] = shard_plan({name: known.get(name, median) for name in names}, slow, count)[index - 1]
 
 
 def pytest_ignore_collect(collection_path: Path, config: pytest.Config) -> bool | None:
-    if collection_path.parent == FIXTURES.parent and (planned := config.stash.get(SHARD, {}).get(collection_path.name)):
-        return not planned[1] or None
+    if collection_path.parent == FIXTURES.parent and (shard := config.stash.get(SHARD, None)) and collection_path.name in shard.parts:
+        return not shard.collects(collection_path.name) or None
     return None
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    """Mark the scale tests, record them in the junit report for lr_durations.py, and keep only this shard's part of each split file."""
-    shard = config.stash.get(SHARD, {})
+    """Mark the scale tests, record them in the junit report for lr_durations.py, and keep only this shard's tests."""
+    shard = config.stash.get(SHARD, None)
     skip = os.environ.get("LR_TEST_SCALE") == "skip"
     kept, dropped = [], []
     for item in items:
-        if scale := scaled(item):
+        if scale := scaled(item.nodeid):
             item.add_marker(pytest.mark.scale)
             item.user_properties.append(("scale", "1"))
-        split, parts = shard.get(item.path.name, (1, {0}))
-        (dropped if (scale and skip) or zlib.crc32(item.nodeid.encode()) % split not in parts else kept).append(item)
+        (dropped if (scale and skip) or (shard and not shard.runs(item)) else kept).append(item)
     config.hook.pytest_deselected(items=dropped)
     items[:] = kept
 
