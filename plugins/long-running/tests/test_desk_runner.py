@@ -805,7 +805,7 @@ class FakeShell(runner_module.Shell):
             record
             for record in self.records
             if (record["seq"] > int(since) if since.isdigit() else "at" in record and actions.parse_stamp(record["at"]) >= actions.parse_stamp(since))
-            and ("--to" not in argv or argv[argv.index("--to") + 1] in record["to"])
+            and ("--to" not in argv or argv[argv.index("--to") + 1] in record["to"] or bool({"all", "owner"} & set(record["to"])))
             and (not lanes or record.get("lane") in lanes)
             and ("--pr" not in argv or cci_names(record, argv[argv.index("--pr") + 1]))
             and (not kinds or record.get("kind") in kinds)
@@ -11981,6 +11981,15 @@ def test_a_record_to_the_orca_desk_outside_the_grammar_fails_visibly(shell, conf
     [line] = escalations(shell)
     assert line.startswith("DIRECTIVE-FAILED cci#34766 inbox: it opens `launch incident-timeout-fix on the incident route now`, and a record addressed to orca-desk is one `[<H:MM AM|PM>] [R<n> (<clock>)] orca-desk: ")
     assert [(post["kind"], post["topic"]) for post in shell.posts] == [("defect", "cci#34766")]
+
+
+def test_an_owner_tap_broadcast_to_all_is_no_orca_desk_directive(shell, config, tmp_path):
+    """Root #306118: the orca desk answered each board-watch owner tap broadcast to `all` with a DIRECTIVE-FAILED, about 120 a night."""
+    orca_pass(shell, config)
+    shell.records.append({"seq": 34766 + len(shell.records), "drive": "d1", "lane": "board-watch", "kind": "owner", "text": "Owner on board d50e80e8, Which open pull requests may merge now, at the versions shown? (merge-prs): 47302 approved at d0e8262, at 9:43 PM", "to": ["all"], "source": "post", "at": actions.stamp(shell.clock)})
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert [line for line in escalations(shell) if line.startswith("DIRECTIVE-FAILED")] == []
 
 
 def test_a_failed_cci_read_escalates_and_rereads_from_the_same_sequence(shell, config, tmp_path):

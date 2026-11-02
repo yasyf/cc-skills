@@ -2636,7 +2636,7 @@ class Runner:
         return self.book.accept(self.lane(lane), key, "reply" if reply_to else "relay", target, key, self.now() + timedelta(minutes=minutes))
 
     def read_cci(self) -> None:
-        """Act in sequence order on each cci record past the saved sequence that is addressed to the orca desk, as one `orca-desk:` line, or that this drive's root posted with `--re`, as a reply; a peer drive's root reply relays nothing. A reply to the runner's `DECIDE` on a worker question answers that question, a reply to a lane's own record answers that lane's open question, which the cci reply superseded, and a `withdraw` of a launch record withdraws that launch. A first read starts at the newest record."""
+        """Act in sequence order on each cci record past the saved sequence that names the orca desk in its `--to`, as one `orca-desk:` line, or that this drive's root posted with `--re`, as a reply; a peer drive's root reply relays nothing, and a broadcast to `all`, such as board-watch's owner taps, is no directive (root #306118). A reply to the runner's `DECIDE` on a worker question answers that question, a reply to a lane's own record answers that lane's open question, which the cci reply superseded, and a `withdraw` of a launch record withdraws that launch. A first read starts at the newest record."""
         fact = f"cci:{self.config.drive}:{ORCA_DESK}"
         cursor = self.book.fact(RUNNER, fact, None)
         try:
@@ -2647,12 +2647,12 @@ class Runner:
             addressed = cci.records(self.cci_tail, self.config.drive, "--to", ORCA_DESK, since=cursor)
             replies = [record for record in cci.records(self.cci_tail, self.config.drive, "--lane", ROOT, since=cursor) if record.get("re")]
             for record in sorted({record["seq"]: record for record in [*addressed, *replies]}.values(), key=lambda record: record["seq"]):
-                desk_line = ORCA_DESK in (record.get("to") or [])
+                desk_line = ORCA_DESK in {to.split("@", 1)[0] for to in record.get("to") or []}
                 if record.get("re") and not (desk_line and INBOX_DIRECTIVE.match(record["text"].strip())):
                     answered = record["lane"] == ROOT and record["drive"] == self.config.drive and self.root_reply(record, self.cci_record(record["re"]))
                     if desk_line and not answered:
                         self.refuse_line(record)
-                else:
+                elif desk_line:
                     self.cci_line(record)
                 self.book.edit(RUNNER, lambda incident, at=record["seq"]: incident.facts.update({fact: at}))
         except CciTailFailed as failure:
