@@ -104,6 +104,7 @@ from statistics import median
 from urllib.parse import urlencode
 
 from . import cci
+from . import release
 from . import ghread
 from . import match_session
 
@@ -321,7 +322,7 @@ class Shell:
         with tempfile.TemporaryFile("w+") as feed:
             feed.write(stdin or "")
             feed.seek(0)
-            with cci.installed(argv, lambda: subprocess.Popen(argv, stdin=feed, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=cwd, env=os.environ | drive.deadline_env(COMMAND_TIMEOUT_SECONDS - drive.REAP_SECONDS))) as child:
+            with subprocess.Popen(release.command(argv), stdin=feed, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=cwd, env=os.environ | drive.deadline_env(COMMAND_TIMEOUT_SECONDS - drive.REAP_SECONDS)) as child:
                 try:
                     out, err = child.communicate(timeout=COMMAND_TIMEOUT_SECONDS)
                 except BaseException:

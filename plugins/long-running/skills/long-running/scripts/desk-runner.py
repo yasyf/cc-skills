@@ -684,6 +684,7 @@ from long_running.desk_control import DeskControl, QuiesceFailed
 from long_running import board_rows
 from long_running import cci
 from long_running import desk_result
+from long_running import release
 from long_running import drive
 import fidelity
 import finder
@@ -1050,7 +1051,6 @@ HANDOFF_WAIT = timedelta(minutes=20)
 HANDOFF_FAULTS = 12
 LAUNCHD_THROTTLE_SECONDS = 60
 RUNNER_OPEN_FILES = 65536
-CCI_SHIM = Path(".claude/plugins/marketplaces/cc-inbox/plugin/bin")
 LAUNCHD_START = timedelta(minutes=3)
 AGENT_PID = re.compile(r"^\s*pid = (\d+)$", re.MULTILINE)
 RELAY_REF = re.compile(r"(?:^|cci#)(R?\d+)$")
@@ -1338,7 +1338,7 @@ class Shell:
                 feed.write(stdin or "")
                 feed.seek(0)
                 try:
-                    proc = cci.installed(argv, lambda: subprocess.run(argv, stdin=feed, capture_output=True, text=True, errors="replace", env={**os.environ, **(env or {}), **drive.deadline_env(timeout - drive.REAP_SECONDS)}, cwd=cwd, timeout=timeout))
+                    proc = subprocess.run(release.command(argv), stdin=feed, capture_output=True, text=True, errors="replace", env={**os.environ, **(env or {}), **drive.deadline_env(timeout - drive.REAP_SECONDS)}, cwd=cwd, timeout=timeout)
                     if proc.returncode == -signal.SIGALRM:
                         raise subprocess.TimeoutExpired(argv, timeout)
                 except subprocess.TimeoutExpired:
@@ -1381,7 +1381,7 @@ class Shell:
     def spawn(self, argv: list[str], out: Path, env: dict[str, str], append: bool = False) -> subprocess.Popen:
         out.parent.mkdir(parents=True, exist_ok=True)
         with out.open("a" if append else "w") as sink:
-            return cci.installed(argv, lambda: subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=sink, stderr=subprocess.STDOUT, env={**os.environ, **env}, start_new_session=True))
+            return subprocess.Popen(release.command(argv), stdin=subprocess.DEVNULL, stdout=sink, stderr=subprocess.STDOUT, env={**os.environ, **env}, start_new_session=True)
 
     def runs_job(self, pid: int, directory: Path) -> bool:
         """Whether process `pid` still runs the desk job in `directory`: it exists and its command line names that directory, since macOS hands an exited job's pid to another process within minutes; a child that exited is reaped at the next spawn."""
@@ -2538,7 +2538,7 @@ class Runner:
             {
                 "Label": label,
                 "ProgramArguments": ["/bin/zsh", "-c", f"{exports}exec {shlex.quote(str(RUNNER_BIN))} run --config {shlex.quote(str(self.config.source))} --desk {desk}"],
-                "EnvironmentVariables": {"PATH": f"{self.shell.env('PATH')}:{Path.home() / CCI_SHIM}"},
+                "EnvironmentVariables": {"PATH": self.shell.env("PATH")},
                 "KeepAlive": True,
                 "ThrottleInterval": LAUNCHD_THROTTLE_SECONDS,
                 "SoftResourceLimits": {"NumberOfFiles": RUNNER_OPEN_FILES},
