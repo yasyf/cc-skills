@@ -1833,7 +1833,7 @@ def test_a_replay_of_nov_1_opens_the_tenant_incident_at_290083_in_the_pass_that_
                 shell.records.append(record(shell.records[-1]["seq"] + 1, "stall-watch", "incident", post[post.index("--text") + 1], 0, re=int(opened[-1][0])) | {"at": actions.stamp(clock)})
         clock += timedelta(minutes=5)
 
-    assert [seq for seq, _ in opened] == ["290083", "292325"]
+    assert [seq for seq, _ in opened] == ["290083"]
     first = next(found for found in replay if found["seq"] == 290083)
     assert stall_watch.at(first) <= opened[0][1] < stall_watch.at(first) + timedelta(minutes=5)
     post = shell.post("customer:290083")
@@ -1841,6 +1841,23 @@ def test_a_replay_of_nov_1_opens_the_tenant_incident_at_290083_in_the_pass_that_
     assert post["text"].startswith("INCIDENT customer-break #290083 from release-5")
     assert "tenant users' sidebar shows 'index unavailable' until api deploys there" in post["text"]
     assert "R16 this turn: `incident.py open` and `incident.py run`, whose fix lane holds the pre-authorized fix apply" in post["text"]
+
+
+@pytest.mark.parametrize(
+    ("seq", "kind", "text"),
+    [
+        (308806, "note", "card-sofi-crashed-runs: merged with the 5:26 AM crashed-run Slack pick (releases-slack-choice moved here unchanged, same ids)."),
+        (308810, "report", "card-sofi-crashed-runs: re-run or tell SoFi, and tell the 5:26 AM team."),
+        (309258, "answer", "NOT CODE (a release, a post, a billing or a person's step): card-releases, card-sofi-crashed-runs (both picks), card-logged-secrets (both). SoFi runs crashed and users see errors."),
+    ],
+)
+def test_a_board_lane_note_naming_a_customer_card_opens_no_customer_break(config, seq, kind, text):
+    """Root #310188: three board-curate-1 notes naming card-sofi-crashed-runs, an Oct 31 card already settled, each opened an INCIDENT customer-break (309794, 309795, 309846)."""
+    shell = FakeShell([record(1, "root", "state", "seed", 30)], [])
+    watch(shell, config)
+    shell.records += [record(seq, "board-curate-1", kind, text, 1), record(seq + 1, "release-5", "urgent", "Release 11719 ships sand ahead of api, so tenant users see 'index unavailable' in the sidebar.", 1)]
+    watch(shell, config)
+    assert shell.topics() == [f"customer:{seq + 1}"]
 
 
 def test_the_first_pass_reads_no_history_and_a_failed_incident_post_is_read_again_next_pass(config):

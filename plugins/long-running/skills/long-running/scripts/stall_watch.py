@@ -155,7 +155,8 @@ and, across the drive:
     desk      a desk runner that posted a `<desk> alive` record in the window posted none for
               `stall.minutes.desk`; the record is its heartbeat wherever it runs, and the stall goes
               to root with the restart command the runner's newest record carries
-    customer  a record the pass reads for the first time says, in one sentence, that customers or
+    customer  a record from an alert lane (oncall-cci-bridge, dev-health-desk, a release lane; never a
+              board, desk or root note, root #310188) the pass reads for the first time says, in one sentence, that customers or
               tenants are failing now or will fail from a change already moving (a release that ships
               sand before api, a crash-looping tenant pod, users who see an error), and no incident
               record, incident lane or earlier break it answers covers it: the pass posts an
@@ -295,6 +296,7 @@ LANDING = "desk-landing"
 FINDER_DESK = "desk-finder"
 FINDER_LANE = "finder-desk"
 DEV_HEALTH = re.compile(r"dev-health-desk(?:-\d{1,2})*")
+ALERT_LANE = re.compile(r"(?:oncall-cci-bridge|dev-health-desk|release(?:-[a-z0-9]+)*?)(?:-\d{1,2})*")
 PROD_COUNTS = re.compile(r"^prod: (?P<counts>.+)$", re.MULTILINE)
 OPEN_FINDINGS = re.compile(r"\bopen findings: (?P<keys>[^\n]+)")
 RUN_CRASHES = re.compile(r"\brun crashes \S+ (?P<count>\d+)\b")
@@ -1517,7 +1519,7 @@ class Pass:
         return stalls
 
     def customers(self, records: list[dict], after: int | None) -> list[Stall]:
-        """An incident to root for each record after `after` that says customers are failing or will fail, unless an incident record answers it, an incident lane wrote or hears it, or it answers a break already covered; the first pass reads no history, only sets `after` to the newest record (retro C4, owner 3:03 PM Nov 1)."""
+        """An incident to root for each record after `after` from an alert lane (oncall-cci-bridge, dev-health-desk, a release lane) that says customers are failing or will fail, never a board, desk or root note that names a card (root #310188), unless an incident record answers it, an incident lane wrote or hears it, or it answers a break already covered; the first pass reads no history, only sets `after` to the newest record (retro C4, owner 3:03 PM Nov 1)."""
         self.customer_seq = max((record["seq"] for record in records), default=after)
         answered = {seq for record in records if record["kind"] in INCIDENT_KINDS for seq in {record.get("re"), *cci.resolved(record)}}
         covered: set[int] = set()
@@ -1527,7 +1529,7 @@ class Pass:
                 covered.add(record["seq"])
                 continue
             text = grades.full_text(record)
-            if after is None or record["seq"] <= after or record["kind"] not in SAYS_KINDS or record["lane"] == LANE or not (said := dev_health_break(text) if DEV_HEALTH.fullmatch(record["lane"]) and PROD_COUNTS.search(text) else breakage.customer_break(text)):
+            if after is None or record["seq"] <= after or record["kind"] not in SAYS_KINDS or not ALERT_LANE.fullmatch(record["lane"]) or not (said := dev_health_break(text) if DEV_HEALTH.fullmatch(record["lane"]) and PROD_COUNTS.search(text) else breakage.customer_break(text)):
                 continue
             covered.add(record["seq"])
             stalls.append(Stall(f"customer:{record['seq']}", "customer", at(record), f"#{record['seq']} from {record['lane']}", f"its {record['kind']} at {pacific(at(record), self.now)} says “{clip(said, RECORD_CHARS)}”", (ROOT,), CUSTOMER_STEP, re=str(record["seq"])))
