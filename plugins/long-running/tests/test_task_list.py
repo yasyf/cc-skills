@@ -57,7 +57,7 @@ class Drive:
     def activate(self) -> None:
         CompactionState(active=True).save(self.event(PostToolUseEvent, tool_name="Bash", tool_input={"command": "ls"}))
 
-    def lane(self, name: str, *, behind: timedelta = timedelta(minutes=2), busy: bool = True) -> None:
+    def lane(self, name: str, *, behind: timedelta = timedelta(minutes=2), busy: bool = True, prompt: str = "go") -> None:
         subagents = self.root.with_suffix("") / "subagents"
         subagents.mkdir(parents=True, exist_ok=True)
         meta = {"name": name, "description": f"{name} lane", "teamName": TEAM, "taskKind": "in_process_teammate"}
@@ -66,7 +66,7 @@ class Drive:
         usage = {"input_tokens": 1, "output_tokens": 1, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 1}
         reply = {"role": "assistant", "model": "claude-opus-5-5", "usage": usage, "content": [{"type": "text", "text": "ok"}]}
         rows = [
-            user_row("go", at - timedelta(hours=1), sidechain=True),
+            user_row(prompt, at - timedelta(hours=1), sidechain=True),
             envelope("assistant", at, sidechain=True) | {"message": reply},
         ]
         (subagents / f"agent-a{name}.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows))
@@ -220,6 +220,62 @@ def test_lane_cannot_complete_the_roots_task_for_it(drive: Drive) -> None:
     )
     assert gate(drive, "62", status="in_progress") is None
     assert gate(drive, "90") is None
+
+
+@pytest.fixture
+def posts(drive: Drive, monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
+    posted: list[list[str]] = []
+    monkeypatch.setattr(task_list, "drive_entry", lambda evt: {"drive": "d1", "state_dir": "/state/d1"})
+    monkeypatch.setattr(task_list.subprocess, "run", lambda argv, **_: posted.append(argv))
+    return posted
+
+
+def maintain(drive: Drive, tool: str, tool_input: dict, agent: str = "ajanitor") -> list[str]:
+    results = []
+    for cls in (PreToolUseEvent, PostToolUseEvent):
+        evt = drive.event(cls, tool_name=tool, tool_input=tool_input, agent_id=agent)
+        results += [result.message for result in fire(task_list, evt)]
+    return results
+
+
+@pytest.mark.parametrize("role_line", ["Role: maintenance", "ccx: drive=d1 role=maintenance"])
+def test_a_maintenance_lane_closes_the_roots_task_unwarned_and_records_it(drive: Drive, posts: list[list[str]], role_line: str) -> None:
+    drive.lane("janitor", prompt=f"You are lane janitor.\n{role_line}\nClose stale tasks.")
+    drive.task("62", "Auto-register PRs", owner="ledger-auto-register")
+
+    assert maintain(drive, "TaskUpdate", {"taskId": "62", "status": "deleted"}) == []
+    assert posts == [["cci", "post", "--drive", "d1", "--lane", "janitor", "--kind", "applied", "--text", "MAINTENANCE janitor deleted task #62 (Auto-register PRs)"]]
+
+
+def test_a_maintenance_lane_records_each_ledger_row_and_registry_lane_it_closes(drive: Drive, posts: list[list[str]]) -> None:
+    drive.lane("janitor", prompt="Role: maintenance")
+
+    assert maintain(drive, "Bash", {"command": "cd ~/x && python3 ledger.py drop --pr 4511   --why superseded"}) == []
+    assert maintain(drive, "Bash", {"command": "drive_supervisor.py request done old-1 --config lr.json --by janitor"}) == []
+    assert maintain(drive, "Bash", {"command": "python3 ledger.py list"}) == []
+    assert [argv[-1] for argv in posts] == [
+        "MAINTENANCE janitor ran `ledger.py drop --pr 4511 --why superseded`",
+        "MAINTENANCE janitor ran `drive_supervisor.py request done old-1 --config lr.json --by janitor`",
+    ]
+
+
+def test_a_maintenance_role_is_read_from_the_brief_file_the_prompt_names(drive: Drive, posts: list[list[str]], tmp_path: Path) -> None:
+    brief = tmp_path / "brief.md"
+    brief.write_text("# janitor\nRole: maintenance\n")
+    drive.lane("janitor", prompt=f"You are lane janitor. Your brief is {brief}; read it first.")
+    drive.task("62", "Auto-register PRs", owner="ledger-auto-register")
+
+    assert maintain(drive, "TaskUpdate", {"taskId": "62", "status": "completed"}) == []
+    assert [argv[-1] for argv in posts] == ["MAINTENANCE janitor completed task #62 (Auto-register PRs)"]
+
+
+def test_an_ordinary_lane_records_nothing_and_is_still_warned(drive: Drive, posts: list[list[str]]) -> None:
+    drive.lane("worker", prompt="You are lane worker.\nccx: drive=d1 role=fix")
+    drive.task("62", "Auto-register PRs", owner="ledger-auto-register")
+
+    assert maintain(drive, "TaskUpdate", {"taskId": "62", "status": "completed"}, agent="aworker") != []
+    assert maintain(drive, "Bash", {"command": "python3 ledger.py drop --pr 4511"}, agent="aworker") == []
+    assert posts == []
 
 
 def test_owner_ask_soon_after_a_task_create_is_not_flagged(drive: Drive) -> None:

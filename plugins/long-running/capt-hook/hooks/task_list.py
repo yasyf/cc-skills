@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import re
+import shlex
+import subprocess
 import time
 from collections.abc import Iterable, Iterator
+from pathlib import Path
 
 from cc_transcript import AttachmentEvent, UserEvent
 from cc_transcript.models import TranscriptEvent
@@ -21,11 +24,13 @@ from captain_hook import (
     on,
     workflow_state,
 )
+from captain_hook.util import reqenv
 
 from . import session_tree
-from .compaction_handoff import TURN_WINDOW, CompactionState
+from .compaction_handoff import TURN_WINDOW, CompactionState, bus_name, drive_entry
 from .lane_rotation import DriveActive
 from .nudges import once_per_hour, queue_nudge
+from .register_injection import MAINTENANCE, own_prompt, own_role
 from .session_tree import TEAMMATE_MESSAGE, lane_of
 
 ASK_CALLS = 3
@@ -41,6 +46,14 @@ ASK = re.compile(
 )
 LANE_TASK = {"id": "1", "subject": "Land the stack", "status": "in_progress", "owner": "stack-lander"}
 SYSTEM_PREFIXES = ("<", "/", "This session is being continued", "[Request interrupted")
+CLOSING = ("completed", "deleted")
+MAINTENANCE_VERBS = {"ledger.py": frozenset({"drop", "answer", "unregister", "unadmit", "gone"}), "drive_supervisor.py": frozenset({"request"})}
+RECORD_TIMEOUT_SECONDS = 10
+
+
+@workflow_state("long_running_maintenance")
+class MaintenanceState(WorkflowState):
+    subjects: dict[str, str] = {}
 
 
 @workflow_state("long_running_task_asks")
@@ -149,9 +162,57 @@ def lanes_leave_root_tasks_open(evt: BaseHookEvent) -> HookResult | None:
     call = evt.as_input(TaskUpdateCall)
     if call.status != "completed":
         return None
-    if (task := evt.task(call.task_id)) and (lane := lane_of(task)):
+    if (task := evt.task(call.task_id)) and (lane := lane_of(task)) and own_role(evt) != MAINTENANCE:
         return evt.context(
             f"Warning, nothing was blocked: Task #{task.id} is the root's record of lane {lane}; the root completes it once it has consumed "
             "your deliverable. SendMessage team-lead the deliverable instead and leave the task open."
         )
     return None
+
+
+@on(
+    Event.PreToolUse | Event.PostToolUse,
+    only_if=[Tool("TaskUpdate", "Bash"), FromSubagent(), DriveActive()],
+    tests={
+        Input(tool="TaskUpdate", agent_id="a1b2c3", tool_input={"taskId": "1", "status": "completed"}, tasks=[LANE_TASK], state=[CompactionState(active=True)]): Allow(),
+    },
+)
+def record_maintenance(evt: BaseHookEvent) -> HookResult | None:
+    """A maintenance lane's closed task, closed ledger row or retired registry lane is one cci `applied` record naming it, posted once the call succeeds; the task's subject is read before the call, since a deleted task is gone after it."""
+    if evt.tool_name == "TaskUpdate":
+        call = evt.as_input(TaskUpdateCall)
+        if call.status not in CLOSING:
+            return None
+        if evt.event == Event.PreToolUse:
+            if (task := evt.task(call.task_id)) and own_role(evt) == MAINTENANCE:
+                with MaintenanceState.mutate(evt) as state:
+                    state.subjects[call.task_id] = task.subject
+            return None
+        subject = MaintenanceState.load(evt).subjects.get(call.task_id)
+        what = f"{call.status} task #{call.task_id}" + (f" ({subject})" if subject else "")
+    elif evt.event == Event.PostToolUse and (ran := maintenance_runs(evt)):
+        what = "; ".join(f"ran `{run[:240]}`" for run in ran)
+    else:
+        return None
+    if own_role(evt) != MAINTENANCE or not (entry := drive_entry(evt)):
+        return None
+    lane = own_prompt(evt)[0].name
+    argv = ["cci", "post", "--drive", bus_name(entry), "--lane", lane, "--kind", "applied", "--text", f"MAINTENANCE {lane} {what}"]
+    try:
+        subprocess.run(argv, capture_output=True, text=True, timeout=RECORD_TIMEOUT_SECONDS, env=dict(reqenv.env_map()))
+    except (OSError, subprocess.TimeoutExpired):
+        return evt.context(f"Warning, nothing was blocked: this maintenance action posted no cci record, so post one now: `cci post --lane {lane} --kind applied --text 'MAINTENANCE {lane} {what}'`.")
+    return None
+
+
+def maintenance_runs(evt: BaseHookEvent) -> list[str]:
+    runs = []
+    for call in evt.command.calls():
+        argv = [call.name, *call.args]
+        at = next((i for i, word in enumerate(argv) if Path(word).name in MAINTENANCE_VERBS), None)
+        if at is None:
+            continue
+        script = Path(argv[at]).name
+        if next((word for word in argv[at + 1 :] if not word.startswith("-")), "") in MAINTENANCE_VERBS[script]:
+            runs.append(shlex.join([script, *argv[at + 1 :]]))
+    return runs

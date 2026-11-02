@@ -148,3 +148,4 @@ def test_the_supervisor_moves_to_a_newer_install_unless_its_replay_gate_refuses_
     assert gates == [["gate", "--drive", "d1", "--repo", "org/repo", "--old", "0.7.820", "--new", version] for version in ("0.7.821", "0.7.822", "0.7.823")]
     [post] = posts
     assert post[post.index("--id") + 1] == "replay-failed:0.7.823" and post[-1] == "the supervisor moves from 0.7.820 to 0.7.823 unreplayed: its replay gate exited 1: Traceback: boom"
+
