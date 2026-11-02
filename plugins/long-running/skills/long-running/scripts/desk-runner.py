@@ -766,6 +766,7 @@ FINDER_MODEL = "sol"
 FINDER_FAST = True
 FINDER_ATTEMPTS = 3
 GRADER_RETRY_AFTER = timedelta(minutes=10)
+STALE_READ_WAIT = timedelta(minutes=10)
 TOOLING_CAUSE = re.compile(r"[0-9a-f]{7,}|\d+|/\S+")
 FINDER_STALLED_AFTER = timedelta(minutes=15)
 FINDER_STALL = re.compile(r"finder:(?P<pr>\d+):(?P<head>[0-9a-f]{7,40})(?::quiet)?")
@@ -4998,7 +4999,7 @@ class Runner:
             self.book.edit(FINDER, lambda incident: incident.facts.update({FINDER_SETTLED: self.book.stamp()}))
 
     def start_finders(self, spec: dict, repo: str, rows: dict[str, dict]) -> None:
-        """Start the newest queued head of each PR, a requested full pass over any head, while fewer than `finder.concurrent` passes run: a lower ledger `priority` first, then full passes, then those a root `go` or an owner's board tap names, then heads of a PR a finder pass already graded, which carry or read only a delta, then the PR waiting longest, counted from the first of its heads a newer one superseded. An older queued head of the same PR settles as superseded, and so does a running pass of it, its codex run cancelled. A queued head whose PR is closed, or no longer at that head, or whose number names no PR, settles as skipped without a pass."""
+        """Start the newest queued head of each PR, a requested full pass over any head, while fewer than `finder.concurrent` passes run: a lower ledger `priority` first, then full passes, then those a root `go` or an owner's board tap names, then heads of a PR a finder pass already graded, which carry or read only a delta, then the PR waiting longest, counted from the first of its heads a newer one superseded. An older queued head of the same PR settles as superseded, and so does a running pass of it, its codex run cancelled. A queued head whose PR is closed, or no longer at that head, or whose number names no PR, settles as skipped without a pass, except a live read that names an older queued head of the PR, which `read_lags` holds."""
         newest: dict[str, actions.Action] = {}
         for action in sorted(self.book.actions(FINDER, kind="finder", status="accepted"), key=lambda action: (full_pass(action), json.loads(action.target)["seq"])):
             if (older := newest.get(pr := json.loads(action.target)["pr"])) is not None:
@@ -5013,7 +5014,8 @@ class Runner:
         for pr, action in list(newest.items()):
             job = json.loads(action.target)
             if (state := live.get(pr)) and (skipped := grading_skip(state, repo, pr, job["head"])):
-                self.finder_settled(action.action_id, {"skipped": skipped})
+                if not self.read_lags(FINDER, action, state):
+                    self.finder_settled(action.action_id, {"skipped": skipped})
                 del newest[pr]
         going = self.tapped() | {pr for record in cci.records(self.cci_tail, self.config.drive, "--lane", ROOT, *GO_KIND_FLAGS) if record["lane"] == ROOT and is_go(record) for pr in go_heads(record)}
         history: dict[str, list[actions.Action]] = {}
@@ -5032,6 +5034,19 @@ class Runner:
         """The PRs a root `decide` of the last `ROOT_FIRST_HORIZON` puts first, such as root #324665's "#48141 at a04386d ... is first in every grading queue": they start ahead of every other head, and only they may take the `reserved` slots of `finder.concurrent` and `fidelity.concurrent` (root #325189)."""
         decides = cci.records(self.cci_tail, self.config.drive, "--lane", ROOT, "--kind=decide", since=actions.stamp(self.now() - ROOT_FIRST_HORIZON))
         return {pr for record in decides if record["lane"] == ROOT for pr in ROOT_FIRST.findall(full_text(record))}
+
+    def read_lags(self, container: str, action: actions.Action, state: dict) -> bool:
+        """Whether a queued head whose live read names another head of its open PR waits for that read instead of settling as skipped. GitHub can answer a read a second after a push with the head the push replaced, which skipped #48102 at 449d438 as moved to its older 8942a2d and left it ungraded (cci #329206), so a live head the runner already queued for the PR reads as that lag for `STALE_READ_WAIT`. Past it the move is real, and the live head queues under a fresh key unless a pass of it holds a verdict or is under way, since its own key already settled."""
+        job = json.loads(action.target)
+        live = state["headRefOid"]
+        earlier = [other for other in self.book.actions(container, kind=action.kind) if other.action_id != action.action_id and json.loads(other.target)["pr"] == job["pr"] and json.loads(other.target)["head"] == live]
+        if state["state"] != "OPEN" or not earlier:
+            return False
+        if self.now() - actions.parse_stamp(action.accepted_at) < STALE_READ_WAIT:
+            return True
+        if not any(other.status in ("accepted", "started") or {"verdict", "answered"} & set(other.response or {}) for other in earlier):
+            self.book.accept(container, f"{action.kind}:{job['pr']}:{live}:live:{job['seq']}", action.kind, json.dumps({**job, "head": live}), action.authority_ref, None)
+        return False
 
     def cancel_finder(self, action: actions.Action, queued: actions.Action | None) -> bool:
         """Settle a running pass as superseded when a newer head of its PR is queued, write its job's `cancelled` mark so it asks codex nothing, and cancel each codex run it started, since a head that moves while codex reads it posts nothing."""
@@ -5294,7 +5309,7 @@ class Runner:
                 print(f"{directory.name}: reposting a desk record failed: {(done.err or done.out).strip()[:300]}", file=sys.stderr)
 
     def start_fidelities(self, spec: dict, repo: str, rows: dict[str, dict]) -> None:
-        """Start the newest queued head of each PR, an incident fix row first, then a lower ledger `priority`, then oldest PR first, while fewer than `fidelity.concurrent` passes run; an older queued head of the same PR settles as superseded, and a queued head whose PR is closed, no longer at that head, or whose number names no PR, such as a cci seq a record bound as one, settles as skipped without a pass."""
+        """Start the newest queued head of each PR, an incident fix row first, then a lower ledger `priority`, then oldest PR first, while fewer than `fidelity.concurrent` passes run; an older queued head of the same PR settles as superseded, and a queued head whose PR is closed, no longer at that head, or whose number names no PR, such as a cci seq a record bound as one, settles as skipped without a pass, except a live read that names an older queued head of the PR, which `read_lags` holds."""
         newest: dict[str, actions.Action] = {}
         for action in sorted(self.book.actions(FIDELITY, kind="fidelity", status="accepted"), key=lambda action: json.loads(action.target)["seq"]):
             if (older := newest.get(pr := json.loads(action.target)["pr"])) is not None:
@@ -5306,7 +5321,8 @@ class Runner:
         live = self.live_heads(repo, list(newest))
         for pr, action in list(newest.items()):
             if (state := live.get(pr)) and (skipped := grading_skip(state, repo, pr, json.loads(action.target)["head"])):
-                self.settle(FIDELITY, action.action_id, {"skipped": skipped})
+                if not self.read_lags(FIDELITY, action, state):
+                    self.settle(FIDELITY, action.action_id, {"skipped": skipped})
                 del newest[pr]
         ranks = {pr: (not self.incident_fix_row(row), int(row.get("priority", DEFAULT_PRIORITY))) for pr, row in rows.items()}
         first = self.root_firsts()
