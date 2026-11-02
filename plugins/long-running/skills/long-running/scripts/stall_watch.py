@@ -200,7 +200,8 @@ for a stale PR. A stall every owner of which is a desk, a lane named `<x>-desk` 
 its owners and not to root, except an `ungraded` one, which root always hears; one the desk runner owns goes
 to `landing.desk_lane` when the config names one.
 A `red` stall a live lane owns posts again every `REPEAT` while it stands. An id that no longer stands clears, and posts again if it stalls again, but never sooner than `REPEAT` after
-its last post; a source that does not read keeps the stalls it would have cleared. `stall.board_lane`, else the first `landing.board_lane`, else root, owns every tap, board and carry stall, with root in copy
+its last post; a cleared stall posted as a `blocker`, such as an `unclassed` one a `red` record with `--pr` classed, is resolved by one
+`CLEARED` note per pass, so no lane closes it by hand (root #313433); a source that does not read keeps the stalls it would have cleared. `stall.board_lane`, else the first `landing.board_lane`, else root, owns every tap, board and carry stall, with root in copy
 (root #313384); a board row the board lane posted about in the last ten minutes goes to it alone. State lives in
 `stall-watch.json` beside `orca.desk_inbox`, under a lock a second pass meets by exiting. Each pass also
 writes `stack.json` there: one row per open PR with its head, base, the PR below it, its state and next
@@ -257,6 +258,7 @@ MINUTES = {"go": 10, "silent": 15, "refusal": 10, "red": 2, "unclassed": 20, "un
 DESK_KINDS = frozenset({"finder", "fidelity"})
 ROOT_KINDS = frozenset({"missing", "unclassed", "unfixed", "customer", "acked", "unfinished"})
 REPOSTED = frozenset({"red"})
+POSTED_SEQ = re.compile(r"#(\d+)")
 POST_KINDS = {"unfinished": "blocker", "red": "blocker", "unclassed": "blocker", "unfixed": "blocker", "sweep": "blocker", "probe": "report", "customer": "incident"}
 INCIDENT_KINDS = frozenset({"incident", "fix-live", "mechanism"})
 SAYS_KINDS = frozenset({"urgent", "decide", "decision", "answer", "report", "note", "evidence", "blocker", "ask", "correction", "defect", "owner", "state"})
@@ -794,6 +796,12 @@ class Pass:
             if stall.kind == "probe":
                 self.probe_day = stall.id.split(":", 1)[1]
             last[stall.id] = actions.stamp(self.now)
+        cleared = {key: seq for key, entry in saved["open"].items() if key not in standing and key not in kept and POST_KINDS.get(entry["kind"]) == "blocker" and (seq := POSTED_SEQ.search(entry.get("posted", "")))}
+        if cleared and not dry_run:
+            done = self.shell.run(["cci", "post", "--drive", self.watch.drive, "--lane", LANE, "--kind", "note", "--to", ROOT, "--topic", f"cleared:{actions.stamp(self.now)}", "--resolves", ",".join(f"#{seq[1]}" for seq in cleared.values()), "--text", f"CLEARED {', '.join(cleared)}: no longer standing this pass"])
+            if done.code:
+                failed.append(f"cci post exited {done.code} closing {', '.join(cleared)}: {(done.err or done.out).strip()[:300]}")
+                print(failed[-1], file=sys.stderr)
         if alarms:
             listed = "; ".join(f"{stall.subject} has no {stall.id.split(':', 1)[0]} grade, green since {pacific(stall.since, self.now)}, owner {', '.join(stall.owner)}" for stall in alarms)
             done = self.shell.run(["cci", "post", "--drive", self.watch.drive, "--lane", LANE, "--kind", "urgent", "--to", ROOT, "--topic", f"ungraded:{actions.stamp(self.now)}", *(arg for pr in dict.fromkeys(stall.pr for stall in alarms) for arg in ("--pr", f"{self.watch.landing['repo']}#{pr}")), "--text", f"STALL ungraded, {len(alarms)} green head{'' if len(alarms) == 1 else 's'} past {self.watch.minutes['ungraded']} min with no grade: {listed} | each owner heard its own line"])
