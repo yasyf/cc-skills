@@ -105,8 +105,8 @@ class Deps:
     withdraw: Callable[[str], None]
     wake: Callable[[str, dict, dict | None], bool]
     pr_states: Callable[[list[int]], dict[int, str]]
-    held: Callable[[], set[int]]
     rotate_at: int
+    held: Callable[[], set[int]] = set
 
 
 @dataclass
@@ -423,7 +423,7 @@ def successor_note(store: Store, name: str) -> str:
 
 
 def probe_owners(store: Store, deps: Deps, found: dict[str, Peer], now: datetime) -> None:
-    """Ask each lane that has posted nothing for `LIVE_WITHIN` and owns a PR needing work (conflicting, red, or not approved) whether it is there, waking it if it idles on a roster, and name it to root only if the ask goes unanswered for `STALE_AFTER`; a green, approved, conflict-free PR waits only on the owner's tap and needs no live owner. A PR root holds because it stood down its lane with no successor, or whose owner retired, is named to root once each time it comes to need work (root #280532). A PR an open typed hold covers owes no work and is asked about nowhere (root #328888)."""
+    """Ask each lane that has posted nothing for `LIVE_WITHIN` and owns a PR needing work (conflicting, red, or not approved) whether it is there, waking it if it idles on a roster, and name it to root only if the ask goes unanswered for `STALE_AFTER`; a green, approved, conflict-free PR waits only on the owner's tap and needs no live owner. A PR root holds because it stood down its lane with no successor is named to root once each time it comes to need work (root #280532). A retired lane is never asked, and a PR an open typed hold covers owes no work and is asked about nowhere (root #328888)."""
     heard, probes, lines = store.heard(), store.probes(), []
     for name in [name for name, probe in probes.items() if name in heard and heard[name] > probe["asked"]]:
         store.unprobe(name)
@@ -432,8 +432,9 @@ def probe_owners(store: Store, deps: Deps, found: dict[str, Peer], now: datetime
         holds = deps.held()
     except Unread:
         return
-    owners = {name: [n for n in prs if n not in holds] for name, prs in store.owners().items()}
-    unowned = [n for name in {ROOT, *(lane.name for lane in store.lanes("retired"))} & owners.keys() for n in owners.pop(name)]
+    retired = {lane.name for lane in store.lanes("retired")}
+    owners = {name: [n for n in prs if n not in holds] for name, prs in store.owners().items() if name not in retired}
+    unowned = owners.pop(ROOT, [])
     quiet = {name: prs for name, prs in owners.items() if not (since := heard.get(name)) or now - since >= LIVE_WITHIN}
     try:
         states = deps.pr_states(sorted({n for prs in [*quiet.values(), unowned] for n in prs}))

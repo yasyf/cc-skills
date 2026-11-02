@@ -222,10 +222,9 @@ def replay_lanes(pack, records: list[dict], rows: list[dict], since: str | None)
             "withdraw": lambda name: None,
             "wake": lambda name, row, page: woken.add(name) or False,
             "pr_states": lambda prs: {},
-            "held": lambda: set(),
             "rotate_at": 0,
         }
-        deps = lanes.Deps(**{field.name: offered[field.name] for field in dataclasses.fields(lanes.Deps)})
+        deps = lanes.Deps(**{field.name: offered[field.name] for field in dataclasses.fields(lanes.Deps) if field.name in offered})
         store = Store.memory()
         store.advance(lanes.CURSOR, feed[0]["seq"] - 1)
         relaunched, held, posts = set(), set(), []

@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
+import types
+from collections.abc import Callable
 import re
 import shutil
 from datetime import UTC, datetime, timedelta
@@ -11,6 +14,9 @@ from pathlib import Path
 
 import pytest
 import replay
+from lr import loop
+from lr.movers import lanes
+from lr.store import Store
 
 FIXTURES = sorted(replay.FIXTURES.glob("*.json"))
 NOW = datetime(2026, 11, 1, 20, 0, tzinfo=UTC)
@@ -181,3 +187,15 @@ def test_recurrences_are_counted_once_the_24_hours_after_an_install_have_run(mon
     assert (kind, key) == ("report", "recurrence:0.7.821:supervisor-finished-lane")
     assert text == "RECURRENCE supervisor-finished-lane: 1 in the 24 hours after 0.7.821 installed (defect #283488, fix yasyf/cc-skills#1575): #2"
     assert flags == ["--attr", "class=supervisor-finished-lane", "--count", "recurrences=1"]
+
+
+def test_the_lane_replay_builds_deps_from_what_it_offers_so_a_newer_packs_defaulted_field_never_fails_the_gate():
+    """Root #329609: the supervisor's replay gate exited 1 with KeyError 'held' when 0.7.911's replay built 0.7.922's lanes.Deps."""
+
+    @dataclasses.dataclass
+    class Newer(lanes.Deps):
+        later: Callable[[], set[int]] = set
+
+    pack = (loop, types.SimpleNamespace(**{**vars(lanes), "Deps": Newer}), Store, None)
+    records = [{"seq": 1, "drive": "d", "lane": "root", "kind": "note", "at": "2026-11-02T17:00:00Z", "text": "x", "to": [], "refs": {}}]
+    assert replay.replay_lanes(pack, records, [], None)["relaunched"] == []
