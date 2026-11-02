@@ -180,6 +180,16 @@ def test_an_alert_fills_the_incident_template_into_the_lanes_own_brief(drive, st
     assert line.endswith(f"orca-desk: launch run-queue-fix NOW incident xhigh role=fix brief={brief}")
 
 
+def test_an_alert_holding_its_own_angle_brackets_still_fills_and_posts(drive, state, tmp_path):
+    """Root #305172: an --alert quoting `<RUN>` and `<X>` read as an unfilled template field, so the incident launched nothing."""
+    template = tmp_path / "incident-template-fix.md"
+    template.write_text(TEMPLATE)
+    drive.verdicts = {"R2026": "LAUNCHED R2026 {lane}: dispatch ctx_fix terminal term_fix"}
+    alert = "monitor 339599887 fires on <RUN> for team <X>, 8:40 PM PT"
+    assert desk_launch.main(["incident", "run-queue", str(template), "--alert", alert]) == 0
+    assert f"Alert: {alert}\n" in (state / "run-queue-fix" / "brief.md").read_text()
+
+
 @pytest.mark.parametrize("text", [
     "# <lane>\n\nAlert: monitor 1, 4:46 PM\n",
     "# run-queue-fix\n\nAlert: <monitor or Slack link>\n",

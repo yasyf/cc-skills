@@ -36,6 +36,7 @@ ROOT = "root"
 FINDER_CLEARED = re.compile(r"(?<!not )(?<!never )\bclear(?:s|ed)?\b|\brebuttal accepted\b|\bland it\b", re.IGNORECASE)
 ROOT_FINDER_CLEAR = r"(?:^|[.;]\s+)(?:\d{{1,2}}:\d\d [AP]M\s+)?(?:root:\s+)?clear(?:ed|s)?\b[^.;]*\bfinder\b[^.;]*#{pr}\s+(?:at\s+)?{sha}"
 OVERRIDE_NAMED = re.compile(r"\b(?:finder|fidelity)-override\b[^.;\n]*", re.IGNORECASE)
+CLAUSE_START = re.compile(r"(?:^|[.!?]\s+)(?:\d{1,2}:\d{2} [AP]M\s+)?$", re.MULTILINE)
 OVERRIDE = re.compile(r"(finder|fidelity)-override\s+#?(\d+)\s+(?:at\s+)?([0-9a-f]{7,40})\b", re.IGNORECASE)
 FINDER_OVERRIDE = "finder"
 FIDELITY_OVERRIDE = "fidelity"
@@ -448,9 +449,11 @@ def root_settles_finder(records: list[dict], pr: str, sha: str, verdict: dict) -
 
 
 def overrides(text: str) -> tuple[set[tuple[str, str, str]], list[str]]:
-    """The `(kind, pr, sha)` each `finder-override` or `fidelity-override` in `text` names as `<kind>-override [#]<pr> [at] <sha>`, whatever id follows it, such as `174488`, `174488@f3c89519` or a drive copy's seq, and each such clause that reads as no such form."""
+    """The `(kind, pr, sha)` each `finder-override` or `fidelity-override` opening a line or a sentence of `text` names as `<kind>-override [#]<pr> [at] <sha>`, whatever id follows it, such as `174488`, `174488@f3c89519` or a drive copy's seq, and each such clause that reads as no such form; one inside a sentence is prose about an override, never one (root #304845)."""
     read, unread = set(), []
     for named in OVERRIDE_NAMED.finditer(text):
+        if not CLAUSE_START.search(text, 0, named.start()):
+            continue
         if found := OVERRIDE.match(named[0]):
             read.add((found[1].lower(), found[2], found[3].lower()))
         else:

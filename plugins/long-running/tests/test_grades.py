@@ -244,8 +244,10 @@ def test_a_root_finder_override_in_each_accepted_form_settles_the_major_at_its_h
         ("fidelity-override at 1f99697: 174488", set(), ["fidelity-override at 1f99697: 174488"]),
         ("finder-override #46153 at <sha>: 171507", set(), ["finder-override #46153 at <sha>: 171507"]),
         ("fidelity-override #47225 at 1f99697: 174488. finder-override #47225: 283952", {("fidelity", "47225", "1f99697")}, ["finder-override #47225: 283952"]),
+        ("8:23 PM Stale: hold 303438 is lifted (304595) and fidelity-override 303061 posted.", set(), []),
+        ("8:23 PM fidelity-override #47636 at 179a8c4: 303061", {("fidelity", "47636", "179a8c4")}, []),
     ],
-    ids=["hash-pr", "bare-pr-id-at-origin", "no-head", "no-pr", "placeholder-head", "one-of-two"],
+    ids=["hash-pr", "bare-pr-id-at-origin", "no-head", "no-pr", "placeholder-head", "one-of-two", "prose-mention", "stamped"],
 )
 def test_an_override_reads_its_kind_pr_and_head_and_names_each_clause_it_cannot_read(text, read, unread):
     assert grades.overrides(text) == (read, unread)
