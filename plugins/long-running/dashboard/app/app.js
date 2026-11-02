@@ -302,7 +302,14 @@ function render() {
   const screens = { overview: nowScreen, plan: planScreen, work: workScreen, review: () => reviewScreen(p.id ?? ''), milestone: () => (curated('plan') ? milestonePage(curated('plan'), Number(p.id)) : writing(state.model.milestones[p.id])), history: () => historyScreen(p.id), ask: askScreen, status: statusScreen, jump: () => `<div class="pg">${pageHead('Jump to anything')}<p class="pg-lead">Find a change, a part of the plan, a piece of work or a page, or ask the assistant a question.</p></div>` };
   const y = window.scrollY;
   const kept = [...document.querySelectorAll('[data-keep-scroll]')].map((el) => [el.dataset.keepScroll, el.scrollLeft, el.scrollTop]);
-  $('#main').innerHTML = (screens[p.screen] ?? nowScreen)() + drawers(stack) + `<div class="foot">${m.errors && Object.keys(m.errors).length ? `Some sources could not be read just now (${esc(Object.keys(m.errors).join(', '))}). ` : ''}All times Pacific.</div>`;
+  let screen;
+  try {
+    screen = (screens[p.screen] ?? nowScreen)();
+  } catch (error) {
+    console.error(error);
+    screen = `<div class="pg"><p class="pg-fail">This page could not be drawn from the drive's data: ${esc(error)}. The other tabs still work.</p></div>`;
+  }
+  $('#main').innerHTML = screen + drawers(stack) + `<div class="foot">${m.errors && Object.keys(m.errors).length ? `Some sources could not be read just now (${esc(Object.keys(m.errors).join(', '))}). ` : ''}All times Pacific.</div>`;
   for (const el of $('#main').children) el.inert = stack.length > 0 && !el.matches('.pr-scrim, .pr-drawer');
   if (stack.length > (state.depth ?? 0)) $('#main .pr-drawer.front')?.classList.add('in');
   state.depth = stack.length;

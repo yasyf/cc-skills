@@ -170,6 +170,17 @@ def at(iso):
     return dt.datetime.fromisoformat(iso.replace("Z", "+00:00"))
 
 
+def dated_preventions(rows):
+    dated, problems = [], []
+    for row in rows:
+        try:
+            dated.append({**row, "due": row.get("due") and at(row["due"]).isoformat()})
+        except ValueError:
+            dated.append({**row, "due": None})
+            problems.append(f"{row.get('owner') or 'the progress desk'} wrote the due time '{row['due']}', which is not a time")
+    return dated, problems
+
+
 def verdict_state(row):
     heads = [row["head"][:7], *(sha[:7] for sha in row.get("carried") or [])]
     verdict = row["verdict"] or {}
@@ -1116,6 +1127,7 @@ class Drive:
         milestone_rows = self.milestone_state(drive["prs"], now, board["answered"])
         self.flag_stale(milestone_rows, progress["steps"], board["answered"], now)
         need_items = needs(board["rows"], board["cards"], model["story"].get("asks", []), board["url"], {entry["number"] for entry in drive["prs"] if entry["state"] == "landed"})
+        preventions, undated = dated_preventions(progress.get("preventions", []))
         return {
             **model,
             "board": board,
@@ -1128,7 +1140,8 @@ class Drive:
             "steps_at": progress["updated"],
             "history": with_releases(progress.get("history", {}), self.milestone_cache[2]),
             "pr_state": progress.get("pr_state", {}),
-            "preventions": progress.get("preventions", []),
+            "preventions": preventions,
+            "errors": {**model["errors"], **({"preventions": "; ".join(undated)} if undated else {})},
             "live": LIVE_SOURCES,
             "needs": need_items,
             "journeys": journeys(drive, steps, releases, need_items, model["records"], model["prs"], progress.get("now", {}), model["tree_names"], now),

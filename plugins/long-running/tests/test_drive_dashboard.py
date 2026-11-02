@@ -18,7 +18,7 @@ from holds import Entry
 from pages import stamp
 from review_assistant import ReviewAssistant
 import server
-from server import QUEUED_NEXT, Drive, drive_prs, drive_workers, journeys, needs, open_findings, parse_plan, plan_prs, step_rows, release_path, paths_current, hold_reasons, verdict_state, with_conflicts
+from server import QUEUED_NEXT, Drive, dated_preventions, drive_prs, drive_workers, journeys, needs, open_findings, parse_plan, plan_prs, step_rows, release_path, paths_current, hold_reasons, verdict_state, with_conflicts
 
 NOW = dt.datetime(2026, 10, 27, 8, 0, tzinfo=dt.timezone.utc)
 TREES = ["New tree", "Old tree", "Shared"]
@@ -1067,3 +1067,14 @@ def test_a_change_request_the_record_tool_cannot_post_answers_with_the_reason(mo
         assert "cci" in json.loads(failed.value.read())["error"]
     finally:
         httpd.shutdown()
+
+
+def test_a_prevention_due_that_is_not_a_time_is_blanked_and_named_while_real_times_pass_through():
+    rows = [
+        {"failure": "a", "owner": "mq-health-5", "due": "Oct 31 morning"},
+        {"failure": "b", "owner": "tooling-misc-1", "due": "2026-10-30T03:15:00Z"},
+        {"failure": "c", "owner": None, "due": None},
+    ]
+    dated, problems = dated_preventions(rows)
+    assert [row["due"] for row in dated] == [None, "2026-10-30T03:15:00+00:00", None]
+    assert problems == ["mq-health-5 wrote the due time 'Oct 31 morning', which is not a time"]
