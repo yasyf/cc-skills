@@ -114,14 +114,14 @@ def hand_over(evt: BaseHookEvent, old: str, successor: str) -> None:
         return
 
 
-def stand_down(evt: BaseHookEvent, lane: str) -> tuple[bool, str | None]:
-    """Whether cci records `lane` stood down, and the lane at the end of its successor chain, if any."""
+def stand_down(evt: BaseHookEvent, lane: str) -> tuple[int | None, str | None]:
+    """The seq of `lane`'s own stand-down cci read, 0 when cci names no seq, or None when it never stood down, and the lane at the end of its successor chain, if any."""
     if not (entry := drive_entry(evt)):
-        return False, None
+        return None, None
     argv = [*SUCCESSOR_OF.split(), lane, "--drive", bus_name(entry), "--json"]
     done = subprocess.run(argv, capture_output=True, text=True, timeout=SUCCESSOR_TIMEOUT_SECONDS, env=dict(reqenv.env_map()), check=True)
     found = json.loads(done.stdout)
-    return found["stood_down"], found["successor"] or None
+    return (found.get("record") or 0) if found["stood_down"] else None, found["successor"] or None
 
 
 def successor_live(evt: BaseHookEvent, lane: str) -> bool:
@@ -172,8 +172,8 @@ def cci_successor(to: str, chain: list[str], live: bool = True) -> dict:
             tool="SendMessage",
             tool_input={"to": "desk", "message": "status?"},
             env=DRIVE_CONFIG,
-            commands={SUCCESSOR_OF: json.dumps({"drive": "brook-drive", "lane": "desk", "stood_down": True, "successor": "", "chain": []}), LIVE_LANE: ""},
-        ): Warn(pattern=r"^Warning, nothing was blocked: `desk` is stood down with no successor"),
+            commands={SUCCESSOR_OF: json.dumps({"drive": "brook-drive", "lane": "desk", "stood_down": True, "record": 293308, "successor": "", "chain": []}), LIVE_LANE: ""},
+        ): Warn(pattern=r"^Warning, nothing was blocked: `desk` is stood down by cci stand-down record 293308 with no successor"),
         Input(
             tool="SendMessage",
             tool_input={"to": "release-5", "message": "status?"},
@@ -198,6 +198,7 @@ def redirect_retired_lanes(evt: BaseHookEvent) -> HookResult | None:
         return None
     retired = RotationState.load(evt).retired
     recorded, successor = stand_down(evt, to)
+    read = f" by cci stand-down record {recorded}" if recorded else ""
     successor = successor or (heir(retired, to) if to in retired else None)
     if successor and not successor_live(evt, successor):
         return evt.context(f"Warning, nothing was blocked: `{to}` is stood down for `{successor}`, which `cci who` lists no live session for, so this message goes to `{to}` as addressed.")
@@ -206,10 +207,10 @@ def redirect_retired_lanes(evt: BaseHookEvent) -> HookResult | None:
     if successor:
         stop = f" `TaskStop` `{to}` if it still runs." if evt.agent_id is None else ""
         return evt.rewrite(raw | {"to": successor}, note=f"`{to}` is stood down, so this message went to its successor `{successor}`, which owns its work.{stop}")
-    if recorded and successor_live(evt, to):
+    if recorded is not None and successor_live(evt, to):
         return None
-    if evt.agent_id is not None and (recorded or to in retired):
-        return evt.rewrite(raw | {"to": MAIN}, note=f"`{to}` is stood down with no successor, so this message went to `{MAIN}` instead of resuming it on its stale brief.")
-    if recorded:
-        return evt.context(f"Warning, nothing was blocked: `{to}` is stood down with no successor, and this message resumes it on its stale brief.")
+    if evt.agent_id is not None and (recorded is not None or to in retired):
+        return evt.rewrite(raw | {"to": MAIN}, note=f"`{to}` is stood down{read} with no successor, so this message went to `{MAIN}` instead of resuming it on its stale brief.")
+    if recorded is not None:
+        return evt.context(f"Warning, nothing was blocked: `{to}` is stood down{read} with no successor, and this message resumes it on its stale brief.")
     return None
