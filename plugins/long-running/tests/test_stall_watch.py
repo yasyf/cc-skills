@@ -977,6 +977,7 @@ def test_a_ledger_head_the_pr_left_draws_no_stale_line(config, moved, stales):
     """Root #329604, fidelity-desk-3 #329600: stall-watch posted STALE lines for #48067 at 2608172 and #47760 at 40ab93f after each PR had moved to a new head."""
     records = [record(1, "gone-lane", "head", f"HEAD #201 {HEAD}", 200, "201"), *graded(1, "201", HEAD, 200)[1:], record(11, "gone-lane", "stand-down", "standing down", 150)]
     shell = FakeShell([*records, *([record(20, "gone-lane", "head", f"HEAD #201 {OTHER}", 100, "201")] if moved else [])], [row("201", mergeable_state="dirty", lane="gone-lane")])
+    shell.doc = {"blocks": [{"id": f"merge:201:{HEAD[:7]}", "type": "card", "children": []}]}
     watch(shell, config)
     assert [topic for topic in shell.topics() if topic.startswith("stale:")] == stales
 
