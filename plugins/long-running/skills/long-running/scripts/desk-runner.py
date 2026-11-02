@@ -8519,7 +8519,7 @@ class Landing:
         current = enqueue_key(would, fresh.verdicts) if (would := self.direct_would(fresh)) is not None else ""
         if current != key.split("#")[0]:
             self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": "superseded", "out": fresh.out[-800:], "at": self.book.stamp()}))
-            self.settle(heads, Refused(f"its accepted enqueue was superseded, since the check now reads: {fresh.last}"))
+            self.settle(heads, Queued(IN_QUEUE_SAID) if PREFIX_HELD.search(fresh.out) else Refused(f"its accepted enqueue was superseded, since the check now reads: {fresh.last}"))
             return
         if failed := self.failing(ENQUEUE_CHECKS, graded):
             name, states = failed
