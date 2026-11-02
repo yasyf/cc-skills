@@ -954,6 +954,37 @@ def test_a_red_head_goes_to_the_lane_of_its_newest_head_record_never_to_a_live_s
     assert shell.post("red:108:abc1234")["to"] == "enum-lane-11@d1"
 
 
+def red_shell(config: Path, *later: dict) -> FakeShell:
+    red = {"name": "buildkite/test", "url": "https://buildkite.com/forge/test/builds/9", "job": "Test (nextest)", "error": "FAILED", "probe": False}
+    raw = json.loads(config.read_text())
+    config.write_text(json.dumps(raw | {"stall": {"minutes": {"unclassed": 600, "sweep": 600}}}))
+    records = [record(1, "enum-lane-11", "head", f"HEAD #108 {HEAD}", 5, "108"), *later]
+    return FakeShell(records, [row("108", lane="enum-lane-11", test_state="failure", red_at=stamp(1), failing_checks=json.dumps([red]))])
+
+
+@pytest.mark.parametrize(("moved", "stalls"), [(False, ["red:108:abc1234"]), (True, [])])
+def test_a_red_on_a_ledger_head_the_pr_left_draws_no_red_stall(config, moved, stalls):
+    """root #328647, #329080: stall-watch paged #48102 five times for 8c53f62 and #48138 for f1422b1 after each PR had moved on."""
+    shell = red_shell(config, *([record(2, "enum-lane-11", "head", f"HEAD #108 {OTHER}", 3, "108")] if moved else []))
+    watch(shell, config)
+    shell.clock = NOW + timedelta(minutes=2)
+    watch(shell, config)
+    assert [topic for topic in shell.topics() if topic.startswith("red:")] == stalls
+
+
+def test_a_red_stall_whose_post_a_record_resolved_is_not_posted_again_at_that_head(config):
+    """#329080: stall-watch re-raised red:48138:f1422b1 three times although each post was resolved."""
+    shell = red_shell(config)
+    watch(shell, config)
+    shell.clock = NOW + timedelta(minutes=2)
+    watch(shell, config)
+    posted = 9001 + next(index for index, argv in enumerate(shell.posts) if "red:108:abc1234" in argv)
+    shell.records.append(record(3, "enum-lane-11", "note", "red is the base's, fixed on dev", 1, "108", resolves=posted))
+    shell.clock = NOW + timedelta(minutes=40)
+    watch(shell, config)
+    assert sum("red:108:abc1234" in argv for argv in shell.posts) == 1
+
+
 @pytest.mark.parametrize(("red_class", "stalls"), [("inherited", []), ("flake", []), ("stale", []), ("real", ["red:101:abc1234"])])
 def test_a_red_head_classed_inherited_flake_or_stale_draws_no_red_stall_until_the_head_moves(config, red_class, stalls):
     red = {"name": "buildkite/test", "url": "https://buildkite.com/forge/test/builds/9", "job": "Run api tests", "error": "FAIL api/src/x.test.ts", "probe": False}
