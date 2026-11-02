@@ -691,6 +691,17 @@ def test_a_failed_command_reports_the_end_of_its_traceback_where_the_exception_i
     assert "rulings.py plan --repo exited 1: " in reported
 
 
+def test_a_restack_posted_in_prose_names_each_prs_own_head():
+    """Root #304381: n-enumeration-12's 7:54 PM restack #304136 named nine heads in prose, every PR read dev's 1eb90d3 as its head, and #45638's pass at its old head ran on until 8:03 PM."""
+    record = {
+        "refs": {"prs": [45492, 45493, 45638, 46720]},
+        "fields": {},
+        "text": "7:54 PM HEAD n-enum chain restacked onto dev 1eb90d3: #45492 1dcb6e6, #45493 c63add9, #45638 d740b78, #46720 483a700. Clears desk-runner 301062 (#45493 conflicting with dev)",
+    }
+    assert finder.heads(record, REPO) == [("45492", "1dcb6e6"), ("45493", "c63add9"), ("45638", "d740b78"), ("46720", "483a700")]
+    assert finder.heads({"refs": {"prs": [47525]}, "text": "9:02 PM HEAD #47525 bfd51e7 over 46f153f: removes the heap return"}, REPO) == [("47525", "bfd51e7")]
+
+
 def test_a_multi_head_record_names_each_prs_own_head_and_the_head_it_replaced():
     record = {
         "refs": {"prs": [f"{REPO}#43299", 43300, "yasyf/cc-skills#836"]},
