@@ -2,7 +2,9 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 import json
 import sqlite3
+import sys
 import threading
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -37,6 +39,7 @@ def readonly_connections(monkeypatch):
         def close(self):
             assert self.owner == threading.get_ident()
             self.closed = True
+            self.closed_at = time.monotonic()
             super().close()
 
     def observed(database, *args, **kwargs):
@@ -44,6 +47,16 @@ def readonly_connections(monkeypatch):
             return connect(database, *args, **kwargs)
         connection = connect(database, *args, **kwargs, factory=ObservedConnection)
         connection.owner = threading.get_ident()
+        connection.thread_name = threading.current_thread().name
+        connection.opened_at = time.monotonic()
+        connection.closed_at = None
+        frames = []
+        frame = sys._getframe(1)
+        while frame is not None and len(frames) < 8:
+            frames.append((frame.f_code.co_filename.rsplit("/", 1)[-1], frame.f_code.co_name, frame.f_lineno))
+            frame = frame.f_back
+        del frame
+        connection.origin = tuple(frames)
         connection.closed = False
         connection.database = str(database)
         connections.append(connection)

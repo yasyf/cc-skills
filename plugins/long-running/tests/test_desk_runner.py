@@ -6954,11 +6954,14 @@ def test_a_pass_reads_the_ledger_the_background_refresh_keeps_and_waits_on_no_re
         return len([call for call in list(shell.calls) if "refresh" in call])
 
     landing.keep_fresh()
-    deadline = time.monotonic() + 5
-    while not refreshes() and time.monotonic() < deadline:
-        time.sleep(0.01)
-    landing.run()
-    assert refreshes() == 1 and [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
+    try:
+        deadline = time.monotonic() + 5
+        while not refreshes() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        landing.run()
+        assert refreshes() == 1 and [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
+    finally:
+        landing.close()
 
 
 @pytest.mark.parametrize("page", [1, 25])

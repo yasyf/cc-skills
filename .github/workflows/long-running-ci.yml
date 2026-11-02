@@ -36,6 +36,8 @@ jobs:
           ref: 14e26e2b070d27c28d49530cc08ae0a6a4a42d7a
           path: .ci-rulings-diff-baseline
           persist-credentials: false
+      - name: Owned keeper startup, cadence and teardown
+        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_landing_keepers.py -q -s
       - name: Immutable811 concurrent cold copy-diff negatives
         shell: bash
         run: |
