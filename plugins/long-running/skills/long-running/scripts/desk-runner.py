@@ -6376,6 +6376,7 @@ class Landing:
             and (head := rows.get(pr, {}).get("head", ""))
             and (named := [go_heads(go)[pr] for go in gos if pr in go_heads(go)])
             and not self.free_to_land(gos, pr, head)
+            and not self.replays_go(pr, head, named[-1])
         }
         if not self.taps_on_board or (tapped := self.board_taps()) is None:
             return moved
@@ -6390,6 +6391,11 @@ class Landing:
             and gone_at(gos, pr, head)
             and not self.exempt_admitted(pr, head)[0]
         }
+
+    def replays_go(self, pr: str, head: str, named: str) -> bool:
+        """Whether the queued `head` carries the same patch of the PR's own commits as `named`, the head its go names, as Trunk's own restack of a queued child onto the trunk does, so the go holds at `head` and the PR stays queued (root #337665: trunk-io[bot] restacked #48391 from d12e9ce to 3b77268 at 2:39 PM and the runner dequeued it)."""
+        commits = self.own_commits(pr, head)
+        return bool(commits) and (ours := self.patch_id(pr, head, commits, escalate=False)) != "" and ours == self.patch_id(pr, named, commits, escalate=False)
 
     def settle_order(self, key: str, order: dict, rows: dict[str, dict], statuses: dict[str, dict]) -> None:
         pr, why = order["pr"], order["why"]
