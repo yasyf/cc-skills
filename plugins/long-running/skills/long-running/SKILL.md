@@ -124,7 +124,11 @@ retry, or a "known issue" label.
 - Responsibly means the owner lane tracks the fix to live: a PR that merges on green,
   the release installed, and the lane that hit the defect confirming it live. The lanes
   that depend on the tool hear of the change at handoff. A release is pinned so a
-  half-shipped fix never runs under a live desk.
+  half-shipped fix never runs under a live desk. A fix for a supervisor misfire lands
+  alone off main and installs first, never inside a stack.
+- A fix that widens a permission, such as a Slack, merge, release or credential
+  permission, goes to the owner's board as a pick. It never ships as a defect fix and
+  never rests on an inference from his words.
 - A root that acknowledges the same tooling defect twice has a defect of its own.
 
 ### Fix the class, not the instance
@@ -591,7 +595,9 @@ design. Incident fix lanes record the check with `incident.py note --design-chec
 completion, after taking its report, the root calls `TaskStop` on it. Before any spawn, it
 stops every finished agent of its own. A full concurrent-subagent limit means finished
 agents still hold slots, never a blocker to report. Live lanes, flushed lanes and Orca
-terminals are not finished agents.
+terminals are not finished agents. A testing lane under the owner's standing testing
+order is never finished: when a scenario is done it moves to the next one, and only the
+owner retires it.
 
 **R24. A production operation is logged the turn it runs, and read before a mechanism is
 named.** Every destructive or state-changing production operation an agent runs on the

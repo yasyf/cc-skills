@@ -43,7 +43,7 @@ Loop, forever, in the foreground:
   printed, then rerun. Run it as the Bash call itself and never filter or discard
   its output: the `MAILBOX` text is your only copy of that mail.
 
-For every record, judge eight things:
+For every record, judge nine things:
   (a) OFF-PLAN: work that is not in the plan, or off the critical path while a
       critical-path item sits idle.
   (b) DISTRACTION: lanes, PRs, or asks nobody asked for.
@@ -65,6 +65,9 @@ For every record, judge eight things:
   (h) RED PRS: `drive.py reds --drive <drive>` lists an open PR whose build reads red,
       and `cci who` shows no live `red-sweep` or `red-sweep-<n>` lane: root spawns one
       from reference/red-sweep-brief.md. The stall watch's `sweep` blocker says the same.
+  (i) MISCITE: a record calls a rule the owner's ("his rule", "owner rule") without
+      quoting his timed words, or quotes words no capture in the drive's
+      `owner-prompts.jsonl` holds. Every other rule is cited as "root rule".
 
 For each finding act at once:
   cci post --drive <drive> --lane drive-watchdog --kind decide --to <lane>,root \

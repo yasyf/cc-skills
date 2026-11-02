@@ -205,6 +205,8 @@ Deletion: a change that deletes a code path, proposed or in a PR, carries its ca
   trace before the root GOs it: every caller of the removed path, each one read, and what
   the path deletes or changes for each (cc-notes 83695d86 is the worked example). The
   fidelity desk grades what the deletion does to each caller, never the diff's shape.
+Credentials: before reporting a credential out of reach, check the parameter store
+  (SSM) and the secret stores this brief names, and report where it sits.
 GitHub budget: read GitHub only through ccx, with `ccx vcs pr status`, `vcs pr state`,
   `vcs pr watch`, or `ccx vcs gh -- <gh args>` for any other read. Writes stay plain `gh`.
   No loop reads faster than every five minutes, and every `ccx vcs gh` read in a loop passes
@@ -214,9 +216,9 @@ GitHub budget: read GitHub only through ccx, with `ccx vcs pr status`, `vcs pr s
 Report short deltas with pointers (file:line, PR number, sha, Slack ts, disk path); never
   paste a diff, log, PR body, or thread into a message. Write it to disk and send the path.
 Finish: a lane with a PR finishes only once its squash `(#N)` is on the base branch.
-  Drive to a terminal state, then SendMessage <orchestrator> exactly one report,
-  ≤10 lines: verdict | ids | what changed | what is next. That message is your last
-  action. Do not end a turn waiting. Every push to a reported PR re-reports the new
+  Drive to a terminal state, post the report as a cci `report` record, then
+  SendMessage <orchestrator> exactly one report, ≤10 lines: verdict | ids | what
+  changed | what is next. That message is your last action. Do not end a turn waiting. Every push to a reported PR re-reports the new
   head with `ledger.py report --drive <drive>` in the same turn; the desk grades without waiting for it.
 ```
 
@@ -336,6 +338,8 @@ Landing desk (PR rows in cc-notes, lane messages in cci, shared by every checkou
   `conflicting` means rebase now: `ccx vcs stack submit` from your lane's worktree,
   then report the new head; the landing runner re-enqueues it.
   `red <check>` means fix it. Your watch ends only when your PRs land.
+- Before reporting a credential out of reach, check the parameter store (SSM) and the
+  secret stores the brief names, and report where it sits.
 - GitHub budget: read GitHub only through ccx, with `ccx vcs pr status`, `vcs pr state`,
   `vcs pr watch`, or `ccx vcs gh -- <gh args>` for any other read. Writes stay plain
   `gh`. No loop reads faster than every five minutes, and every `ccx vcs gh` read in a loop

@@ -131,6 +131,8 @@ JUDGE <kind> #<seq> <key>: <sentence>
 
 **Extending a ruling row triggers a retroactive re-judge.** When `rulings.py classify` extends an existing row with new owner words, `judge_watch.py` re-judges the 10 newest contracts and relays from the last 24 hours that cite that row against all of the owner's words. Any artifact that flips from carried to `yes` is flagged as a miss in the `JUDGE` record and written as an eval case under `judge/misses/`.
 
+**Cite a rule as the owner's only with his words.** A record that calls a rule the owner's quotes his timed words. Any other rule, the root's own included, is cited as "root rule". `drive-watchdog` checks each such cite against the drive's `owner-prompts.jsonl` captures.
+
 ## Run `judge.py` and `judge-eval.py`
 
 **All small-model judge calls go through `scripts/long_running/judge.py`.** Callers with multiple questions of the same shape in a single pass, such as the stall watch, pass them in one `batch` call on the command line. That `batch` call calls Sonnet once, whatever `LONG_RUNNING_JUDGE` says.
