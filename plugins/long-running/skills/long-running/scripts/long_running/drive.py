@@ -174,7 +174,7 @@ ADMITTED = "landing-admitted.json"
 ROLE = re.compile(r"^ccx:(?:.* )?role=([\w-]+)", re.MULTILINE)
 NUMBERED = re.compile(r"(?<![\w&])#\d+\b")
 SLUG_WORDS = 6
-INSTALL_MARKERS = frozenset({"__pycache__", ".in_use", ".orphaned_at"})
+INSTALL_MARKERS = frozenset({"__pycache__", ".in_use", ".orphaned_at", ".whole"})
 
 
 def drives_dir() -> Path:

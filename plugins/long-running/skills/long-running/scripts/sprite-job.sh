@@ -74,7 +74,7 @@ import hashlib, os, sys
 seen = hashlib.sha256()
 for here, dirs, names in os.walk(sys.argv[1]):
     dirs[:] = sorted(name for name in dirs if name not in ("__pycache__", ".in_use"))
-    for name in sorted(set(names) - {".orphaned_at"}):
+    for name in sorted(set(names) - {".orphaned_at", ".whole"}):
         path = os.path.join(here, name)
         stat = os.stat(path)
         seen.update(f"{os.path.relpath(path, sys.argv[1])} {stat.st_size} {stat.st_mtime_ns}\n".encode())
@@ -84,7 +84,7 @@ print(seen.hexdigest())' "$1"
 ship() {
   sum=$(digest "$1")
   if [ "$(sprite exec -s "$sprite" --no-stdin -- sh -c 'mkdir -p "$(dirname "$1")"; cat "$1.digest" 2>/dev/null' sh "$1")" != "$sum" ]; then
-    tar --no-xattrs --exclude=__pycache__ --exclude=.in_use --exclude=.orphaned_at -C "$1" -cz . | sprite exec -s "$sprite" -- flock "$1.lock" sh -c '
+    tar --no-xattrs --exclude=__pycache__ --exclude=.in_use --exclude=.orphaned_at --exclude=.whole -C "$1" -cz . | sprite exec -s "$sprite" -- flock "$1.lock" sh -c '
       if [ "$(cat "$1.digest" 2>/dev/null)" = "$2" ]; then exec cat >/dev/null; fi
       rm -rf "$1.new" && mkdir -p "$1.new" && tar -xz -m -C "$1.new" && rm -rf "$1" && mv "$1.new" "$1" && printf %s "$2" >"$1.digest"' sh "$1" "$sum"
   fi

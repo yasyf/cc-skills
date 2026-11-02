@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import time
 from pathlib import Path
 
 PLUGIN = Path(__file__).resolve().parents[1]
@@ -27,7 +28,14 @@ def plugin_cache(tmp_path: Path, versions: dict[str, bool]) -> Path:
         sh.chmod(0o755)
         if orphaned:
             (root / ".orphaned_at").write_text("1790178260989")
+    settle(cache)
     return cache
+
+
+def settle(cache: Path) -> None:
+    past = time.time() - 600
+    for path in cache.rglob("*"):
+        os.utime(path, (past, past), follow_symlinks=False)
 
 
 def run(cache: Path, version: str, tool: str = "tool.py") -> str:
@@ -107,6 +115,17 @@ def test_runs_the_newest_whole_orphaned_copy_while_the_newest_install_is_half_wr
     assert run(cache, "0.7.512") == "0.7.700 py a b c"
     assert run(cache, "0.7.512", "tool.sh") == "0.7.700 sh a b c"
 
+
+
+def test_runs_a_newer_copy_only_once_its_install_has_been_quiet_for_two_minutes(tmp_path: Path):
+    """board-refresher-6 #307653: desk-wait hopped to 0.7.851 while Claude Code was still copying it, so its inboxes.py ran before long_running/roster_service.py existed."""
+    cache = plugin_cache(tmp_path, {"0.7.849": False, "0.7.851": False})
+    (cache / "0.7.851" / "skills" / "long-running" / "scripts" / "late.py").write_text("")
+    assert run(cache, "0.7.849") == "0.7.849 py a b c"
+    assert not (cache / "0.7.851" / ".whole").exists()
+    settle(cache)
+    assert run(cache, "0.7.849") == "0.7.851 py a b c"
+    assert (cache / "0.7.851" / ".whole").exists()
 
 
 def test_stays_on_the_version_long_running_pin_names_and_hops_from_any_other(tmp_path: Path):

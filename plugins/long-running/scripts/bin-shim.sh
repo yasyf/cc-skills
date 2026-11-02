@@ -24,12 +24,18 @@ version_gt() {
   return 1
 }
 
+whole_copy() {
+  [ -e "$1/.whole" ] && return
+  [ -z "$(find "$1" -mindepth 1 \( -name __pycache__ -o -name .in_use -o -name .orphaned_at \) -prune -o -mmin -2 -print -quit)" ] || return 1
+  : >"$1/.whole"
+}
+
 if is_version "${ROOT##*/}" && [ "${LONG_RUNNING_PIN:-}" != "${ROOT##*/}" ]; then
   newest=$ROOT whole=$ROOT
   for sibling in "${ROOT%/*}"/*/; do
     sibling=${sibling%/}
     is_version "${sibling##*/}" || continue
-    [ -x "$sibling/bin/$TOOL" ] && [ -e "$sibling/skills/long-running/scripts/$TOOL" ] || continue
+    [ -x "$sibling/bin/$TOOL" ] && [ -e "$sibling/skills/long-running/scripts/$TOOL" ] && whole_copy "$sibling" || continue
     if [ ! -e "$sibling/.orphaned_at" ] && version_gt "${sibling##*/}" "${newest##*/}"; then
       newest=$sibling
     fi
