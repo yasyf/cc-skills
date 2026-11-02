@@ -264,7 +264,9 @@ def test_actual_match_source_policy_and_snapshot_parity(tmp_path, case):
     if case in {"body", "title", "unicode", "empty_body"}:
         assert metrics["text_calls"] == 1
         assert changed["title"] in current["words"]
-        if changed["body"]:
+        if case == "unicode":
+            assert "  > 漢字 λ 🐳\n  > Second line.\n" in current["words"]
+        elif changed["body"]:
             assert changed["body"] in current["words"]
     if case in {"metadata", "delete_restore", "extra_markdown"}:
         assert metrics["text_calls"] == 0
