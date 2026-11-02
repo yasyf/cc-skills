@@ -79,7 +79,7 @@ UTC_CLOCK = re.compile(r"\b\d{1,2}:\d[\dx](?::\d\d)?\s?(?:Z|UTC)\b")
 UTC_IN_REPLY = "Next reply to the owner: give times in Pacific with no zone label, never UTC."
 PUBLISH_CLAIM = re.compile(r"(?<!not )(?<!n't )\b(?:is|are|was|were|been|now|went|got)\s+(?:published|released|live|cut)\b", re.IGNORECASE)
 RELEASE_NUMBER = re.compile(r"\b\d{3,}\b|\bv?\d+\.\d+(?:\.\d+)?\b")
-PUBLISH_PROOF = re.compile(r"#\d{3,}\b|buildkite\.com/\S+/builds/\d+")
+PUBLISH_PROOF = re.compile(r"#\d{3,}\b|buildkite\.com/\S+/builds/\d+|```[^`]*\blive\b[^`]*```")
 PUBLISH_FROM_MEMORY = "Warning, nothing was blocked: quote the RELEASED record or run `tools/ci release live`; never from memory"
 RECORD_IDS = re.compile(r"\b[GRL]\d{3,4}\b|\b(?:answer|grant|ruling|note|doc|log) [0-9a-f]{7}\b|\b(?:ctx|msg)_\w+")
 PLAIN_WORDS = (
@@ -466,6 +466,12 @@ def nudge_utc_in_owner_replies(evt: BaseHookEvent) -> HookResult | None:
             pattern=r"quote the RELEASED record"
         ),
         Input(transcript=reply_transcript("sand 1437 is published (#103935)."), state=ACTIVE, commands=incident_sources(OUTAGE_0820)): Allow(),
+        Input(
+            transcript=reply_transcript('rsw-cp 11846 is live on staging only, so the fix is not out on plat:\n```\n{"rsw-cp":{"live":"3975fbea5ec","since":"2026-11-02T01:20:00Z"}}\n```'),
+            state=ACTIVE,
+            commands=incident_sources(OUTAGE_0820),
+        ): Allow(),
+        Input(transcript=reply_transcript("rsw-cp 11846 is live on staging.\n```\nci release start rsw-cp\n```"), state=ACTIVE, commands=incident_sources(OUTAGE_0820)): Warn(),
         Input(
             transcript=reply_transcript("sand 1437 is live: https://buildkite.com/forge/release/builds/8748"),
             state=ACTIVE,
