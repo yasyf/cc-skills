@@ -66,7 +66,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from long_running import ghread
+from long_running import drive, ghread
 from long_running.actions import OPEN, Action, Incident, StaleGeneration, Store, parse_stamp, stamp
 
 SCRIPTS = Path(__file__).resolve().parent
@@ -174,7 +174,7 @@ class Orca:
         return match.groupdict()
 
     def state(self) -> Path:
-        return Path(os.environ.get("ORCA_LAUNCH_STATE") or Path.home() / ".vcache" / "scratch" / "orca-launch" / str(self.run_id))
+        return Path(os.environ.get("ORCA_LAUNCH_STATE") or drive.launch_receipts(str(self.run_id)))
 
     def receipt(self, lane: str) -> dict | None:
         state = self.state()
@@ -1163,7 +1163,5 @@ def main(argv: list[str] | None = None, store: Store | None = None, shell: Shell
 
 
 if __name__ == "__main__":
-    from long_running import drive
-
     drive.run_installed(__file__)
     raise SystemExit(main())
