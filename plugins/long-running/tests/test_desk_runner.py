@@ -999,6 +999,8 @@ class FakeShell(runner_module.Shell):
         return message
 
     def stack_enqueue(self, argv: list[str]) -> runner_module.Done:
+        if "--each" in argv:
+            return self.check_each(argv)
         if "--status" in argv:
             return runner_module.Done(0, self.statuses, "")
         if "--dequeue" in argv:
@@ -1009,6 +1011,13 @@ class FakeShell(runner_module.Shell):
             out = outs.pop(0) if len(outs) > 1 else outs[0]
             return runner_module.Done(*out) if isinstance(out, tuple) else runner_module.Done(0, out, "")
         return runner_module.Done(*self.enqueue_out[tip], "")
+
+    def check_each(self, argv: list[str]) -> runner_module.Done:
+        keys = argv[argv.index("--each") + 1 :]
+        if any(self.gates[key.replace(",", " ")][0][0] == runner_module.TIMED_OUT for key in keys if isinstance(self.gates[key.replace(",", " ")][0], tuple)):
+            return runner_module.Done(runner_module.TIMED_OUT, "", "stack-enqueue --check --each timed out and was killed")
+        ran = {key: self.stack_enqueue([*key.split(","), "--check", *(["--whole"] if "--whole" in argv else [])]) for key in keys}
+        return runner_module.Done(0, "".join(f"=== {key}\n{done.out}{'' if done.out.endswith(chr(10)) or not done.out else chr(10)}" + "".join(f"=== {key} stderr {line}\n" for line in done.err.strip().splitlines()[-1:]) + f"=== {key} exit {done.code}\n" for key, done in ran.items()), "")
 
     def sends(self) -> list[list[str]]:
         return [call for call in self.calls if call[:3] == ["orca", "orchestration", "send"]]
@@ -2988,6 +2997,46 @@ def test_a_trunk_enqueue_answered_http_429_is_retried_next_pass_and_fails_nothin
     shell.enqueue_out["33001"] = (0, "#33001 QUEUED aaaa111111 native stack covers #33001\n")
     landing_pass(shell, config)
     assert len(shell.enqueues()) == 2
+
+
+def trunk_rows(shell: FakeShell, config: Path, monkeypatch, prs: list[str]) -> None:
+    raw = json.loads(config.read_text())
+    raw["landing"]["adapter"] = {"kind": "trunk-stack-enqueue", "script": ".agents/skills/submit-pr/scripts/stack-enqueue"}
+    config.write_text(json.dumps(raw))
+    monkeypatch.setenv("TRUNK_MERGE_API_KEY", "trunk-secret")
+    shell.rows = [{"pr": pr, "lane": LANE, "branch": f"g/{pr}", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"} for pr in prs]
+    shell.gates = {pr: [f"#{pr} GREEN cccc333333 Trunk notSubmitted\n"] for pr in prs}
+
+
+def trunk_checks(shell: FakeShell) -> list[list[str]]:
+    return [call for call in shell.calls if Path(call[0]).name == "stack-enqueue" and "--check" in call]
+
+
+@pytest.mark.parametrize("count", [1, runner_module.GATE_WORKERS * 3])
+def test_a_trunk_gate_wave_checks_each_eight_trees_in_one_each_run(shell, config, monkeypatch, count):
+    """Nov 1: the landing desk ran one `stack-enqueue --check` per tree, 49 a pass and two at a time behind its Trunk slots, each repeating one ls-remote, one Trunk read and every PR's GitHub reads; the owner picked batching them as `--check --each` runs ("A, merge when green"). Nov 2: one run over a whole wave took 409 s for 16 trees under load, past the check bound, so a run carries `EACH_TREES`."""
+    prs = [str(29100 + n) for n in range(count)]
+    trunk_rows(shell, config, monkeypatch, prs)
+    landing_pass(shell, config)
+    runs = trunk_checks(shell)
+    assert all("--each" in run and len(run[run.index("--each") + 1 :]) <= runner_module.EACH_TREES for run in runs)
+    assert len(runs) == -(-count // runner_module.EACH_TREES)
+    assert sorted((tip for run in runs for tip in run[run.index("--each") + 1 :]), key=int) == prs
+
+
+def test_an_each_run_is_bounded_at_two_single_check_rounds():
+    assert runner_module.time_bound([".agents/skills/submit-pr/scripts/stack-enqueue", "--check", "--each", "1", "2"]) == 2 * runner_module.time_bound([".agents/skills/submit-pr/scripts/stack-enqueue", "1", "--check"])
+
+
+def test_a_trunk_each_run_that_times_out_leaves_every_tree_to_its_own_check(shell, config, monkeypatch):
+    prs = ["29100", "29101"]
+    trunk_rows(shell, config, monkeypatch, prs)
+    real = shell.stack_enqueue
+    shell.stack_enqueue = lambda argv: runner_module.Done(runner_module.TIMED_OUT, "", "stack-enqueue --check --each timed out and was killed") if "--each" in argv else real(argv)
+    landing_pass(shell, config)
+    checks = trunk_checks(shell)
+    assert len([call for call in checks if "--each" in call]) == 1
+    assert sorted(call[1] for call in checks if "--each" not in call) == prs
 
 
 def test_a_refused_stack_link_runs_again_only_once_a_head_in_its_chain_moves(shell, config, tmp_path):
@@ -6711,10 +6760,10 @@ def test_a_slow_stack_check_holds_no_other_stack_out_of_the_queue(shell, config,
     waited: list[bool] = []
     stacks, chains = runner_module.Landing.proven_stacks, runner_module.Landing.enqueue_chains
 
-    def slow(self, tips, open_rows):
+    def slow(self, tips, open_rows, batch=None):
         if tips == ["29020"]:
             waited.append(other_queued.wait(5))
-        return stacks(self, tips, open_rows)
+        return stacks(self, tips, open_rows, batch)
 
     def chained(self, tops, heads, whole):
         done = chains(self, tops, heads, whole)
@@ -6833,10 +6882,10 @@ def test_a_stack_worker_past_the_gate_budget_runs_on_after_the_pass_while_the_ot
     release = threading.Event()
     stacks = runner_module.Landing.proven_stacks
 
-    def stuck(self, tips, open_rows):
+    def stuck(self, tips, open_rows, batch=None):
         if tips == ["29020"]:
             release.wait(10)
-        return stacks(self, tips, open_rows)
+        return stacks(self, tips, open_rows, batch)
 
     monkeypatch.setattr(runner_module.Landing, "proven_stacks", stuck)
     landing = landing_of(shell, config, tmp_path)

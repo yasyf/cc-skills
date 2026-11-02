@@ -50,6 +50,70 @@ def test_native_enqueue_distinguishes_an_admission_from_already_queued():
     assert all("--partial" not in command for command in shell.calls)
 
 
+GREEN_TEN = "#10 GREEN aaaa111111 Trunk notSubmitted\nwould enqueue native stack through #10: #10\n"
+BLOCKED_TWENTY = "#20 BLOCKED bbbb222222 ai-review in progress\nenqueued nothing: no approved green bottom prefix\n"
+
+
+def each_out(*sections):
+    return "".join(f"=== {key}\n{out}" + (f"=== {key} stderr {err}\n" if err else "") + f"=== {key} exit {code}\n" for key, out, code, err in sections)
+
+
+def test_one_each_run_gates_every_target_as_its_own_check_reads_it():
+    shell = Shell(done(each_out(("10", GREEN_TEN, 0, ""), ("20,21", BLOCKED_TWENTY, 1, ""), ("30", "", 5, "stack-enqueue failed: #30 targets b/2 without a native GitHub stack; link it with gh stack link"))))
+    gates = adapter(shell).check_each([["10"], ["20", "21"], ["30"]], False)
+    assert shell.calls == [["/repo/stack-enqueue", "--check", "--each", "10", "20,21", "30"]]
+    assert gates["10"] == merge_queue.trunk_gate(done(GREEN_TEN))
+    assert gates["20,21"] == merge_queue.trunk_gate(done(BLOCKED_TWENTY, code=1))
+    assert (gates["30"].code, gates["30"].verdicts, gates["30"].last) == (5, {}, "stack-enqueue failed: #30 targets b/2 without a native GitHub stack; link it with gh stack link")
+
+
+def test_an_each_target_that_failed_on_the_network_runs_again_alone():
+    timeout = 'stack-enqueue failed: required checks for #20: Post "https://api.github.com/graphql": net/http: TLS handshake timeout'
+    shell = Shell(done(each_out(("10", GREEN_TEN, 0, ""), ("20", "", 5, timeout))), done(each_out(("20", BLOCKED_TWENTY, 1, ""))))
+    gates = adapter(shell).check_each([["10"], ["20"]], True)
+    assert shell.calls[1] == ["/repo/stack-enqueue", "--check", "--whole", "--each", "20"]
+    assert shell.slept == [merge_queue.TRANSIENT_PAUSE_SECONDS]
+    assert gates["10"].would == ["10"] and gates["20"].verdicts["20"]["verdict"] == "BLOCKED"
+
+
+def test_an_each_run_that_fails_whole_gives_no_target_a_gate():
+    shell = Shell(done(code=124, err="timed out after 300s and was killed"))
+    assert adapter(shell).check_each([["10"], ["20"]], False) == {}
+    assert len(shell.calls) == 1
+
+
+def test_an_each_target_trunk_answered_with_http_429_is_left_to_its_own_check():
+    limited = "stack-enqueue failed: ci trunk: Trunk GET /v2/pull-requests/20/history answered HTTP 429 (): "
+    shell = Shell(done(each_out(("10", GREEN_TEN, 0, ""), ("20", "", 5, limited))))
+    gates = adapter(shell).check_each([["10"], ["20"]], False)
+    assert list(gates) == ["10"]
+    assert len(shell.calls) == 1 and shell.slept == []
+
+
+def test_a_network_rerun_that_fails_whole_leaves_its_targets_to_their_own_checks():
+    timeout = 'stack-enqueue failed: required checks for #20: Post "https://api.github.com/graphql": net/http: TLS handshake timeout'
+    shell = Shell(done(each_out(("10", GREEN_TEN, 0, ""), ("20", "", 5, timeout))), done(code=124, err="timed out after 300s and was killed"))
+    assert list(adapter(shell).check_each([["10"], ["20"]], False)) == ["10"]
+
+
+COMPUTING_TWENTY = "#20 BLOCKED bbbb222222 GitHub still computing mergeability; GitHub merge state UNKNOWN\nenqueued nothing: no approved green bottom prefix\n"
+
+
+def test_a_computing_rerun_that_fails_whole_leaves_its_targets_to_their_own_checks():
+    shell = Shell(done(each_out(("10", GREEN_TEN, 0, ""), ("20", COMPUTING_TWENTY, 1, ""))), done("true\n"), done(code=124, err="timed out after 300s and was killed"))
+    assert list(adapter(shell).check_each([["10"], ["20"]], False)) == ["10"]
+    assert len(shell.calls) == 3
+
+
+def test_only_the_targets_github_still_computes_run_again():
+    shell = Shell(done(each_out(("10", GREEN_TEN, 0, ""), ("20", COMPUTING_TWENTY, 1, ""))), done("true\n"), done(each_out(("20", BLOCKED_TWENTY, 1, ""))))
+    gates = adapter(shell).check_each([["10"], ["20"]], False)
+    assert "repos/Forge-AI/monorepo/pulls/20" in shell.calls[1]
+    assert shell.calls[2] == ["/repo/stack-enqueue", "--check", "--each", "20"]
+    assert shell.slept == [merge_queue.COMPUTE_POLL_SECONDS]
+    assert gates["10"].would == ["10"] and gates["20"].verdicts["20"]["detail"] == "ai-review in progress"
+
+
 def test_queue_membership_uses_authoritative_active_flag_instead_of_state_names():
     shell = Shell(done(json.dumps({"10": {"isCurrentlySubmittedToQueue": True, "queueEntry": {"state": "waitingForUnknownFutureStage"}}, "20": {"isCurrentlySubmittedToQueue": False, "queueEntry": {"state": "merged"}}})))
     assert adapter(shell).queued(["10", "20"]) == {"10": True, "20": False}

@@ -293,7 +293,9 @@ record names, sixteen trees at a time, so the only PRs that can land reach the q
 over every other tree. Every gate checks only a tree holding a PR the queue read calls landable on PRs below it that are landable
 or queued, since a check of any other tree enqueues nothing and spends GitHub reads; each PR of the rest hears what its status
 entry asks of its lane. Each tree runs in a stack worker of its own from its check through its settling to the enqueue it accepts, so no
-stack waits on another stack's checks or enqueue. The workers outlive the pass: the pass queues them with the lanes taking turns, waits for
+stack waits on another stack's settling or enqueue. Under the `trunk-stack-enqueue` adapter each eight trees of a wave share their first checks as one
+`stack-enqueue --check --each` run, made by the first of their workers to reach its check, which reads GitHub, Trunk and
+`git ls-remote` once for those trees (owner, Nov 1: "A, merge when green"); a tree that run does not answer is checked alone. The workers outlive the pass: the pass queues them with the lanes taking turns, waits for
 them at most 120 s, skips a tree whose worker still runs or waits, and its releases, announcements and restack checks run
 on a side worker, never ahead of the gate, and its worktree removal on a worker of its own, so a slow removal holds back neither. Each worker writes its step and when it began to `<config>.landing-stacks.json`, which
 stall_watch reads to name a stack stuck past its step's budget. Every pass posts one `state` record to root on topic `landing-state`
@@ -948,6 +950,8 @@ GRAPHITE_BASE = "graphite-base/"
 QUICK_SECONDS = 60
 CHECK_PR_SECONDS = 180
 GATE_CHECK_SECONDS = ENQUEUE_SECONDS
+EACH_TREES = 8
+EACH_CHECK_SECONDS = 2 * GATE_CHECK_SECONDS
 QUEUE_STATUS_SECONDS = 300
 LANDABLE = "landable"
 CHECK_PR_TIMEOUT = "CHECK-PR-TIMEOUT"
@@ -1197,6 +1201,8 @@ def time_bound(argv: list[str]) -> float:
         return BUS_PROBE_SECONDS
     if len(argv) > 2 and Path(argv[1]).name == "rulings.py" and argv[2] == "check-pr":
         return CHECK_PR_SECONDS
+    if "--each" in argv:
+        return EACH_CHECK_SECONDS
     if "--check" in argv:
         return GATE_CHECK_SECONDS
     if argv[:4] == ["ccx", "vcs", "pr", "status"]:
@@ -1218,29 +1224,29 @@ def reread_pauses(argv: list[str]) -> tuple[int, ...]:
 
 
 def rereadable(argv: list[str]) -> bool:
-    """Whether `argv` only reads, so a run that timed out or failed on a transient network error runs again after each pause of `REREAD_PAUSES`, logging `RETRIED` (root #222205)."""
+    """Whether `argv` only reads, so a run that timed out or failed on a transient network error runs again after each pause of `REREAD_PAUSES`, logging `RETRIED` (root #222205); a `--check --each` run is not, since its adapter repeats a transient failure itself and a run that timed out leaves each tree to its own check."""
     return (
         (argv[:2] in (["cci", "tail"], ["cci", "who"]) and argv[:4] != BUS_PROBE)
         or argv[:3] == ghread.GATEWAY
         or argv[:4] in (["ccx", "vcs", "pr", "status"], ["ccx", "vcs", "auth", "status"])
         or (Path(argv[0]).name == "ci" and argv[1:3] == ["trunk", "status"])
-        or (Path(argv[0]).name == "stack-enqueue" and bool({"--check", "--status"} & set(argv)))
+        or (Path(argv[0]).name == "stack-enqueue" and bool({"--check", "--status"} & set(argv)) and "--each" not in argv)
     )
 
 
 def command_family(argv: list[str]) -> str:
-    """The program, its verbs (up to three words that are no flag, path or number, read until a flag or path follows them), and `--check` when it carries one: what a pass's cost line groups by. A read through ccx's gateway groups as the `gh` command it runs."""
+    """The program, its verbs (up to three words that are no flag, path or number, read until a flag or path follows them), and `--each` and `--check` when it carries them: what a pass's cost line groups by. A read through ccx's gateway groups as the `gh` command it runs."""
     words = argv[1:] if Path(argv[0]).name.startswith("python") else ghread.gh_args(argv)
     verbs: list[str] = []
     for word in words[1:]:
-        if word.startswith("-") or "/" in word or word.isdigit():
+        if word.startswith("-") or "/" in word or word.replace(",", "").isdigit():
             if verbs:
                 break
             continue
         verbs.append(word)
         if len(verbs) == 3:
             break
-    return " ".join([Path(words[0]).name, *verbs, *(["--check"] if "--check" in words else [])])
+    return " ".join([Path(words[0]).name, *verbs, *(["--each"] if "--each" in words else []), *(["--check"] if "--check" in words else [])])
 
 
 def reserved_fingerprint(rows: dict[str, dict]) -> str:
@@ -5906,6 +5912,31 @@ def native_parent(tip: str, gate: merge_queue.Gate, open_rows: dict[str, dict]) 
     return next((pr for pr, row in open_rows.items() if found and found[1] == tip and row.get("branch") == found[2]), "")
 
 
+class CheckBatch:
+    """The first check of every tree one gate wave hands to a stack worker, read by the first of those workers to reach its check, once the wave is sealed, as one `check_each` run after one fetch of every member head the landing checkout lacks (owner, Nov 1: "A, merge when green"). A tree the run gave no gate is checked alone."""
+
+    def __init__(self, landing: "Landing"):
+        self.landing = landing
+        self.targets: list[list[str]] = []
+        self.heads: list[str] = []
+        self.sealed = threading.Event()
+        self.reading = threading.Lock()
+        self.gates: dict[str, merge_queue.Gate] | None = None
+
+    def add(self, tips: list[str], heads: list[str]) -> None:
+        self.targets.append(tips)
+        self.heads.extend(heads)
+
+    def gate(self, tips: list[str]) -> merge_queue.Gate | None:
+        self.sealed.wait()
+        with self.reading:
+            if self.gates is None:
+                self.gates = {}
+                self.landing.fetch_heads(self.heads)
+                self.gates = self.landing.adapter.check_each(self.targets, self.landing.whole())
+            return self.gates.pop(",".join(tips), None)
+
+
 class Landing:
     """The merge queue: gate every tracked stack read-only through the repository adapter, run the check registry over each ready prefix, enqueue it once per set of heads in priority order, classify each ejection, verify by squash, route the restack above it, and send a landed merge-fast PR's release to its release owner."""
 
@@ -6344,14 +6375,30 @@ class Landing:
         return [kept for tree in trees if (kept := [tip for tip in tree if tip not in waiting])]
 
     def gate_trees(self, rows: dict[str, dict], held: list[str], trees: list[list[str]]) -> None:
-        """Hand each tree of `trees` that `landable_trees` keeps to a stack worker that outlives the pass and runs its check, its settling and the enqueue of what it accepts, so no stack's checks or enqueue wait on another's (landing-desk-3 #185922, owner 9524276). A tree whose worker still runs or waits from an earlier pass is skipped, the drive runs `GATE_WORKERS` at once with the lanes taking turns in its queue, and the pass waits for its workers no longer than its `GATE_BUDGET`. One wave per priority value, the lowest first, so a higher-priority stack reaches the queue first. Each enqueue still runs its stack's chains bottom-up."""
+        """Hand each tree of `trees` that `landable_trees` keeps to a stack worker that outlives the pass and runs its check, its settling and the enqueue of what it accepts, so no stack's settling or enqueue waits on another's (landing-desk-3 #185922, owner 9524276). A tree whose worker still runs or waits from an earlier pass is skipped, the drive runs `GATE_WORKERS` at once with the lanes taking turns in its queue, and the pass waits for its workers no longer than its `GATE_BUDGET`. One wave per priority value, the lowest first, so a higher-priority stack reaches the queue first. Each enqueue still runs its stack's chains bottom-up. Under the `trunk-stack-enqueue` adapter each `EACH_TREES` trees of a wave share their first checks as one `CheckBatch`, sealed once it is full, so those trees read GitHub, Trunk and `git ls-remote` once instead of once per tree. Each run carries the per-PR git work of its trees four at a time, so a batch the size of a whole wave outran the 300 s check bound under load (16 trees in 409 s at load 40, Nov 2); `EACH_CHECK_SECONDS` bounds a batch at two single-check rounds, the Trunk slots run two batches at once, and a batch that still times out sends only its own trees to their single checks."""
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
         self.settlement.saw({pr for tree in trees for tip in tree for pr in downstack(open_rows, tip)}, "the gate's status read")
         waves: dict[int, list[list[str]]] = {}
         for tree in self.landable_trees(rows, trees):
             waves.setdefault(min(self.priority(open_rows, pr) for tip in tree for pr in downstack(open_rows, tip)), []).append(tree)
         for priority in sorted(waves):
-            self.await_workers([future for tree in lane_turns(waves[priority], open_rows) if (future := self.dispatch(",".join(tree), {pr for tip in tree for pr in downstack(open_rows, tip)}, lambda tree=tree: self.land_tree(rows, held, tree)))])
+            batches = [CheckBatch(self)] if self.adapter.kind == merge_queue.TrunkStackEnqueue.kind else []
+            futures = []
+            try:
+                for tree in lane_turns(waves[priority], open_rows):
+                    if batches and len(batches[-1].targets) == EACH_TREES:
+                        batches[-1].sealed.set()
+                        batches.append(CheckBatch(self))
+                    batch = batches[-1] if batches else None
+                    members = {pr for tip in tree for pr in downstack(open_rows, tip)}
+                    if future := self.dispatch(",".join(tree), members, lambda tree=tree, batch=batch: self.land_tree(rows, held, tree, batch)):
+                        futures.append(future)
+                        if batch:
+                            batch.add(self.first_check(tree), [head for pr in sorted(members) if (head := open_rows[pr].get("head"))])
+            finally:
+                for batch in batches:
+                    batch.sealed.set()
+            self.await_workers(futures)
 
     def resubmit_graphite_base(self, rows: dict[str, dict]) -> None:
         """Resubmit the lowest open drive PR whose base is a `graphite-base/` branch, where a landed parent leaves it reading conflicted or stuck, on a stack worker beside the landing work: one at a time, once per head."""
@@ -6460,16 +6507,17 @@ class Landing:
             future.result()
         self.keep_builds()
 
-    def land_tree(self, rows: dict[str, dict], held: list[str], tree: list[str]) -> None:
+    def land_tree(self, rows: dict[str, dict], held: list[str], tree: list[str], batch: CheckBatch | None = None) -> None:
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
         key = ",".join(tree)
         try:
             self.runner.checkpoint()
             members = {pr for tip in tree for pr in downstack(open_rows, tip)}
-            self.track(key, tree, open_rows, "fetch")
-            self.fetch_heads([head for pr in sorted(members) if (head := open_rows[pr].get("head"))])
+            if batch is None:
+                self.track(key, tree, open_rows, "fetch")
+                self.fetch_heads([head for pr in sorted(members) if (head := open_rows[pr].get("head"))])
             self.track(key, tree, open_rows, "check")
-            gated = self.proven_stacks(tree, open_rows)
+            gated = self.proven_stacks(tree, open_rows, batch)
             self.track(key, tree, open_rows, "settle")
             self.settle_tree(rows, held, gated)
             if accepted := [action for action in self.book.actions(LANDING, kind="enqueue", status="accepted") if set(action.target.split(",")) <= members]:
@@ -6707,17 +6755,22 @@ class Landing:
         statuses = self.head_statuses(pr, sha)
         return statuses is None or not any(status["state"] in RED_STATES and status["context"] not in GATE_STATUSES for status in statuses)
 
-    def proven_stacks(self, tips: list[str], open_rows: dict[str, dict]) -> list[tuple[list[str], Done]]:
+    def first_check(self, tips: list[str]) -> list[str]:
+        """The tips `proven_stacks` checks first: every tip at once when the last pass's check of the first named every other, else the first alone."""
+        first, *rest = tips
+        return tips if rest and set(rest) <= self.stacks.get(first, set()) else [first]
+
+    def proven_stacks(self, tips: list[str], open_rows: dict[str, dict], batch: CheckBatch | None = None) -> list[tuple[list[str], Done]]:
         """Each tip's gate, joined with every other tip its own check names as one stack. When the last pass's check of the first tip named every other tip, one joined check over every tip gates the tree, and the solo checks run only when stack-enqueue refuses it. A tip whose native stack starts above an open parent gets that parent checked as a tip of its own, since no other check covers it (root #297121), and so does the admitted PR just below the lowest PR the pass did not admit, when the tip's check reads no verdict (root #300098)."""
         gated = []
         while tips:
             self.runner.checkpoint()
             first, *rest = tips
-            tried = self.checked(tips) if rest and set(rest) <= self.stacks.get(first, set()) else None
+            tried = self.checked(tips, batch) if self.first_check(tips) == tips and rest else None
             if tried and not verdictless(tried):
                 self.stacks[first] = set(tried.verdicts)
                 return [*gated, (tips, tried)]
-            alone = self.checked([first])
+            alone = self.checked([first], batch)
             members = self.stacks[first] = set(alone.verdicts)
             shared = [first, *(tip for tip in rest if tip in members)]
             joined = alone if len(shared) == 1 else tried if tried and shared == tips else self.checked(shared)
@@ -6730,8 +6783,8 @@ class Landing:
                 tips.append(parent)
         return gated
 
-    def checked(self, tips: list[str]) -> merge_queue.Gate:
-        gate = self.adapter.check(tips, self.whole(), self.row_heads, False)
+    def checked(self, tips: list[str], batch: CheckBatch | None = None) -> merge_queue.Gate:
+        gate = (batch and batch.gate(tips)) or self.adapter.check(tips, self.whole(), self.row_heads, False)
         if verdictless(gate) and UNLINKED_STACK in gate.err + gate.out and not self.read_only and self.link_chains(tips):
             gate = self.adapter.check(tips, self.whole(), self.row_heads, False)
         return self.proven(gate)
