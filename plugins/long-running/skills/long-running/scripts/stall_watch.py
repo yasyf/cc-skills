@@ -100,9 +100,9 @@ green or failing-first proof, or do not merge, never merges, so it draws no stal
               `CI-only, no non-test code`, or a root record about the PR that says
               `no row`, ends the stall: such a head lands on a root go with no board row)
     carry     the owner's board tap or a root go names an earlier head, no go or carry names this
-              one, and the board holds no row for it at this head; a head that adds no new behavior,
-              such as a review, CI or conflict fix, keeps his tap (rule 399b5fa) and waits on root's
-              go, and only new behavior, or records that do not say, re-asks; a head the desk runner's
+              one, and the board holds no row for it at this head; his tap carries to every later
+              head (owner, Oct 31 2:48 AM), so the only step is the carried go from root or a live
+              go lane, never a re-ask or a carry grade; a head the desk runner's
               TAP-KEPT, TAP-CARRIED or TAP-NOT-CARRIED note names draws none, since that note already
               settles the carry and names the lane that acts on it (root #224826)
 
@@ -287,7 +287,6 @@ PER_PR = frozenset({"REFUSED by"})
 PR_KINDS = frozenset({"go", "refusal", "red", "unclassed", "unfixed", "tap", "ungraded", "finder", "fidelity", "missing", "regrade", "board", "carry", "stale"})
 BOARD_KINDS = frozenset({"tap", "board", "carry"})
 REVIEW_HELD = frozenset({"neutral", "failure"})
-HEAD_RECORDS = 4
 LISTED = 5
 QUOTE = 160
 RECORD_CHARS = 1200
@@ -381,8 +380,6 @@ SCHEMA = json.dumps(
                     "type": "object",
                     "properties": {
                         "id": {"type": "string"},
-                        "restack": {"type": "boolean"},
-                        "fix": {"type": "boolean"},
                         "pr": {"type": "boolean"},
                         "why": {"type": "string"},
                     },
@@ -394,8 +391,6 @@ SCHEMA = json.dumps(
     }
 )
 PROMPT = """You read coordination records from a multi-agent software drive and answer each question below. It is {now} UTC ({pacific} Pacific).
-
-A question of kind "restack": the owner approved a pull request at tapped_head, and it now sits at head. The records are the lane's own `head` announcements for that PR, oldest first. Answer restack true only when they say head replays the tapped change unchanged: a rebase or restack onto a newer base that adds no commit, fix, or test of its own. Answer fix true when every commit head adds beyond the tapped change adds no new behavior of its own: a fix for a finding a reviewer, a reviewer bot, the finder, or a red CI build raised, a conflict resolution, or their tests; the owner's rule keeps his approval over any change that adds no new behavior. Answer both false when head adds new behavior, or the records do not say what it adds.
 
 A question of kind "order": root relayed the owner's order in a decide record. Answer pr true only when the order tells a lane to make a change that ships as a new pull request, such as a revert, a fix, a port, or new code. Answer pr false when it orders only a merge, a release, a hold, a reply, a rule, or a question, or names no action.
 
@@ -1087,7 +1082,7 @@ class Pass:
             if tapped or (older := state.older):
                 if not board.shows(pr, head) and self.now - head_at >= self.watch.age("carry") and not any(named == pr and grades.names_head(sha, head) for named, sha in carried):
                     if tapped:
-                        questions.append(self.carry(pr, head, head_at, (tapped, "his board tap"), about, announced[-1], fidelity_lanes))
+                        stalls.append(Stall(f"carry:{pr}:{short(head)}", "carry", head_at, subject, f"his board tap names {short(tapped)}, and no go names this head, first named {pacific(head_at, self.now)}", tuple(go_owners), f"post `go #{pr} at {short(head)}`: his tap at {short(tapped)} carries to every later head of this PR (owner, Oct 31 2:48 AM); it never goes back to his board", pr))
                     else:
                         stalls.append(Stall(f"carry:{pr}:{short(head)}", "carry", head_at, subject, f"go #{older['seq']} by {older['lane']} at {grades.clock(older['at'])} names {short(grades.go_heads(older)[pr])}, the owner never tapped it, and no go names this head, first named {pacific(head_at, self.now)}", (lane,), f"ask root for a TAP-REQUIRED `go #{pr} at {short(head)}`; no owner re-ask is owed", pr))
                 continue
@@ -1357,28 +1352,6 @@ class Pass:
     def review_title(self, head: str) -> str:
         done = self.shell.run(ghread.read("api", f"repos/{self.watch.landing['repo']}/commits/{head}/check-runs?check_name={grades.REVIEW_BOT_CHECK}", "--jq", ".check_runs | max_by(.started_at) | .output.title // \"\""))
         return done.out.strip() if done.code == 0 else ""
-
-    def carry(self, pr: str, head: str, head_at: datetime, tap: tuple[str, str], about: list[dict], newest: dict, fidelity_lanes: list[str]) -> Question:
-        tapped, how = tap
-        subject = f"#{pr} at {short(head)}"
-        heads = [{"seq": record["seq"], "at": record["at"], "lane": record["lane"], "text": clip(grades.full_text(record), RECORD_CHARS)} for record in about if record["kind"] == "head" and record["seq"] <= newest["seq"]][-HEAD_RECORDS:]
-        what = f"{how} names {short(tapped)}, and no go or carry names this head, first named {pacific(head_at, self.now)}"
-        key = f"carry:{pr}:{short(head)}"
-        carry_line = f"`fidelity: ok {short(head)} carried from {short(tapped)}`"
-
-        go_line = f"`go #{pr} at {short(head)}` naming the fix once fidelity grades it, and the row lists the fix"
-        reask = f"re-ask the owner at {short(head)} unless a record shows it adds no new behavior"
-
-        def settle(verdict: dict | None) -> Stall:
-            if verdict is None:
-                return Stall(key, "carry", head_at, subject, what, (*fidelity_lanes, ROOT), f"post {carry_line} if it is a patch-identical restack; if it adds no new behavior, his tap keeps (rule 399b5fa) and root posts {go_line}; else root re-asks the owner at {short(head)}", pr)
-            if verdict.get("restack"):
-                return Stall(key, "carry", head_at, subject, what, tuple(fidelity_lanes), f"post {carry_line}: {clip(verdict['why'])}", pr)
-            if verdict.get("fix"):
-                return Stall(key, "carry", head_at, subject, what, (ROOT,), f"his tap at {short(tapped)} keeps over a fix with no new behavior (rule 399b5fa): root posts {go_line}: {clip(verdict['why'])}", pr)
-            return Stall(key, "carry", head_at, subject, what, (ROOT,), f"{reask}: {clip(verdict['why'])}", pr)
-
-        return Question(f"tap-keeps:{pr}:{short(tapped)}:{short(head)}", {"kind": "restack", "pr": pr, "tapped_head": tapped, "head": head, "records": heads}, settle)
 
     def orders(self, records: list[dict]) -> list[Question]:
         """A question for each root decide record relaying an owner order, `stall.minutes.order` to `ORDER_WINDOW` old, unclosed, that no lane it names, or a numbered successor, has answered since with a record citing a PR: one Sonnet verdict says whether the order names a change that ships as a new PR, and a yes is root's urgent stall."""
