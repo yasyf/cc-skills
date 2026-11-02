@@ -1368,7 +1368,10 @@ def cmd_ask(args: argparse.Namespace, shell: Shell) -> int:
         cmd_progress(args, shell)
         print(f"{held} already holds this ask; the repeat is a progress entry on it, not a new row", file=sys.stderr)
         return 0
-    if why := cci.dead_owner(shell.run, args.drive, args.lane):
+    from . import drive
+
+    entry = registered_drive(args.ledger, args.drive or "")
+    if why := cci.dead_owner(shell.run, drive.cci_drive(entry) if entry else args.drive, args.lane):
         raise SystemExit(f"ask refused: {why}")
     key = next_key(ASK_PREFIX, asks)
     fields = {"text": args.text, "lane": args.lane, "accept": args.accept, "due": args.due, "asked_at": utc_stamp()} | ({"standing_hours": str(args.standing)} if args.standing else {})
@@ -2586,7 +2589,7 @@ def build_parser() -> argparse.ArgumentParser:
     report.set_defaults(handler=cmd_report)
 
     ask = subparsers.add_parser("ask", help="record an owner ask verbatim with its live owner lane, acceptance check and due time, or mark an ask's state with --state; a repeat of an open ask's text becomes a progress entry on it")
-    add_ledger(ask, drive=True)
+    add_ledger(ask)
     ask.add_argument("--text")
     ask.add_argument("--lane", help="the live lane that delivers it; root, or a lane silent for two hours, is refused")
     ask.add_argument("--accept", metavar="CHECK")
