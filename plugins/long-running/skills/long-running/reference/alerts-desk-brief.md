@@ -95,6 +95,15 @@ On each printed line, in the same turn:
      Then read the last 24 hours of the production-operations log (R24), before
      you name any mechanism:
      `ccn log show "$(ccn log list --label prod-ops | cut -f1)"`
+     A monitor whose `created` or `modified` time is in the last hour is the
+     first suspect on its own page: the release that applied it, finished or
+     failed, may have shipped a query that misreads a healthy path. Name that
+     release, quote its `applied before it failed` line when it failed
+     (`tools/ci release watch <release>`), and put both in the report and the
+     incident line's `what fired`, so the fix lane tests the monitor before the
+     product. On Nov 1 release 11804 replaced the seven run-queue monitors at
+     4:36 to 4:41 PM before failing; two misread a pre-admission snapshot and
+     paged at 4:46 PM while every team's runs completed.
   2. On a move into Alert or Warn, decide whether an incident lane is necessary.
      Launch one when the first read shows production impact the drive's work
      can cause or fix: a customer-facing error rate, failing runs, a stalled

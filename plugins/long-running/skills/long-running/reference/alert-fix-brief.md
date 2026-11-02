@@ -106,6 +106,11 @@ Do:
      `ccn -R {repo} log show "$(ccn -R {repo} log list --label prod-ops | cut -f1)"`
      An entry on the alert's target inside the onset window is the first mechanism
      to test; quote it with its authorizing answer in the mechanism line below.
+     Read the paging monitor too (`pup --no-agent --read-only monitors get <id>`):
+     one created or modified in the last hour is the first suspect, ahead of the
+     product, and so is the release that applied it, finished or failed; a failed
+     release's `applied before it failed` line in `tools/ci release watch` names
+     what it created and replaced.
      The orca desk's clock runs from your launch. It reads the cci records you
      post as `{lane}`. Post each line with `cci post --drive <drive>
      --lane {lane} --kind <kind> --to <deploy lane> --topic {slug} --text "<line>"`,
