@@ -5798,7 +5798,7 @@ def heads_query(repo: str, shas: list[str], prs: list[str]) -> str:
     owner, name = repo.split("/")
     review = f'checkSuites(last: 10, filterBy: {{checkName: "{REVIEW_BOT_CHECK}"}}) {{ nodes {{ checkRuns(last: 1, filterBy: {{checkName: "{REVIEW_BOT_CHECK}"}}) {{ nodes {{ title startedAt }} }} }} }}'
     fields = " ".join(f'h{index}: object(expression: "{sha}") {{ ... on Commit {{ status {{ contexts {{ context state description targetUrl }} }} {review} }} }}' for index, sha in enumerate(shas))
-    decisions = " ".join(f"r{pr}: pullRequest(number: {pr}) {{ headRefOid reviewDecision }}" for pr in prs)
+    decisions = " ".join(f"r{pr}: pullRequest(number: {pr}) {{ headRefOid reviewDecision mergeable mergeStateStatus }}" for pr in prs)
     return f'query {{ repository(owner: "{owner}", name: "{name}") {{ {fields} {decisions} }} }}'
 
 
@@ -6171,6 +6171,7 @@ class Landing:
         self.below_blocking: set[str] = set()
         self.unchanged: dict[str, tuple[str, str, float, dict[str, tuple[str, Outcome]]]] = {}
         self.reviews_read: dict[str, list[str]] = {}
+        self.merge_states: dict[str, tuple[str, str, str]] = {}
         self.about: dict[str, int] = {}
         self.about_read: int | None = None
         self.started = self.book.stamp()
@@ -6770,6 +6771,8 @@ class Landing:
             if down and verdict == QUEUED_STATE:
                 return True
             causes = set(verdict.removeprefix("blocked:").split(",")) - {"queue-unknown"} if verdict.startswith("blocked:") else set() if verdict == LANDABLE else {verdict}
+            if "mergeable-unknown" in causes and self.github_mergeable(pr, open_rows.get(pr, {}).get("head", "")):
+                causes.discard("mergeable-unknown")
             if causes == {"ci-unproven"} and not (why := self.unproven(pr, open_rows.get(pr, {}).get("head", ""))):
                 causes.discard("ci-unproven")
             elif causes == {"ci-unproven"}:
@@ -6798,6 +6801,11 @@ class Landing:
                 elif blocked := sorted((below for below in downstack(open_rows, pr) - {pr} if not landable(below) and statuses.get(below, {}).get("verdict") not in STATUS_SETTLED), key=lambda below: len(downstack(open_rows, below))):
                     self.settle({pr: open_rows[pr].get("head", "")}, BelowBlocked(f"#{blocked[0]}", f"stacked on {said(blocked[0])} in the status read, so the pass checked none of its stack"))
         return kept
+
+    def github_mergeable(self, pr: str, head: str) -> bool:
+        """Whether GitHub's own pull request fields, from the pass's batched head read, find `pr` mergeable at `head`, for a PR `ccx vcs pr status` reads `mergeable-unknown`, as it does in a native stack whose registration is incomplete (root #328516)."""
+        sha, mergeable, state = self.merge_states.get(pr, ("", "", ""))
+        return bool(head) and names_head(sha, head) and mergeable == "MERGEABLE" and state != "DIRTY"
 
     def untested(self, head: str) -> str:
         """Why `head` waits out of the queue, or empty: until its own `landing.trunk_check` build passes on that exact head, since a head enqueued before its own CI runs is evicted when that build fails, and each eviction costs a queue slot and a Trunk run (root #254954, #255451)."""
@@ -7493,8 +7501,10 @@ class Landing:
                 for pr in prs:
                     if node := commits.get(f"r{pr}"):
                         self.reviews_read[pr] = [node["headRefOid"], node["reviewDecision"]]
+                        self.merge_states[pr] = (node["headRefOid"], node["mergeable"], node["mergeStateStatus"])
                     else:
                         self.reviews_read.pop(pr, None)
+                        self.merge_states.pop(pr, None)
             for index, sha in enumerate(batch):
                 if (commit := commits.get(f"h{index}")) is None:
                     why = f"GitHub refused the statuses: {last[0]}" if done.code else f"GitHub knows no such commit in {self.repo}"

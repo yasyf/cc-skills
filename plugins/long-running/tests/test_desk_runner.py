@@ -124,6 +124,7 @@ class FakeShell(runner_module.Shell):
         self.statuses = ""
         self.combined_statuses: dict[str, list[dict]] = {}
         self.review_runs: dict[str, list[str]] = {}
+        self.github_merge: dict[str, dict[str, str]] = {}
         self.status_read_error = ""
         self.advance_error = ""
         self.mirror: str | None = "1a2b3c4"
@@ -787,7 +788,8 @@ class FakeShell(runner_module.Shell):
             }
             for alias, sha in heads
         }
-        return runner_module.Done(0, json.dumps({"data": {"repository": commits}}), "")
+        pulls = {f"r{pr}": self.github_merge[pr] | {"reviewDecision": "APPROVED"} for pr in re.findall(r"r(\d+): pullRequest\(number: \1\) \{ headRefOid reviewDecision mergeable mergeStateStatus \}", query) if pr in self.github_merge}
+        return runner_module.Done(0, json.dumps({"data": {"repository": commits | pulls}}), "")
 
     def board_write(self, write: dict[str, str], as_json=False) -> runner_module.Done:
         if write["op"] == "ask":
@@ -6041,12 +6043,24 @@ def test_a_checkout_git_lost_or_left_unborn_is_rebuilt_at_the_trunk_head_and_the
     assert len(shell.enqueues()) == 1
 
 
+@pytest.mark.parametrize(("mergeable", "enqueued"), [("MERGEABLE", True), ("UNKNOWN", False)])
+def test_a_status_read_of_mergeable_unknown_falls_back_to_githubs_mergeable_field_at_the_head(shell, config, tmp_path, mergeable, enqueued):
+    """Root #328516: the runner refused #47225 at 2a163c6 and #47058 as 'status read keeps its stack unchecked: queue-unknown, mergeable-unknown' while GitHub read them mergeable."""
+    merge_mode(config, "every")
+    gone_green(shell, "#33001 GREEN aaaa111111 graphite READY")
+    shell.pr_status["33001"] = {"queue": "unknown", "verdict": "blocked:queue-unknown,mergeable-unknown"}
+    shell.github_merge["33001"] = {"headRefOid": "aaaa111111", "mergeable": mergeable, "mergeStateStatus": "BLOCKED" if mergeable == "MERGEABLE" else "UNKNOWN"}
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert bool(shell.enqueues()) == enqueued
+
+
 def test_a_pass_reads_every_tracked_head_in_one_graphql_query(shell, config, tmp_path):
     lone_green_pr(shell)
     grade(shell, "29020", "ok F307 at cccc333.")
     landing_pass(shell, config)
     [read] = graphql_reads(shell)
-    assert "cccc333333" in read[4] and "r29020: pullRequest(number: 29020) { headRefOid reviewDecision }" in read[4]
+    assert "cccc333333" in read[4] and "r29020: pullRequest(number: 29020) { headRefOid reviewDecision mergeable mergeStateStatus }" in read[4]
     assert not [call for call in shell.calls if call[:2] == ["gh", "api"] and "/commits/" in call[2]]
     assert len(shell.enqueues()) == 1
 
