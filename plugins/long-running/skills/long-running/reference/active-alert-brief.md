@@ -340,6 +340,9 @@ Do:
      `ci oncall say <page id> --state <your worktree>/oncall.json --kind request --text "MUTE <ids> until <RFC3339, fix-live estimate plus an hour, at most 24 hours>: <the proof>. The fix is ours; page nobody on these monitors."`.
      The incident stays open until `FIX-LIVE`. A release smoke team, a release check, or
      dev red is never false.
+     No credential is read from any store, file, SSM parameter or environment unless the
+     owner's words in this brief name it; a mute, an ack or a monitor change goes through
+     ai-oncall's verb or an ask in the page thread, never a key you fetched.
      A no to either ends incident mode: no release, no break-glass
      apply, no new lane. Post `STOPPED <fix lane name>: out of scope, <the answer that
      is no, and why>` and leave any candidate as an ordinary PR. A fix that
