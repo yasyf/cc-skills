@@ -8032,11 +8032,12 @@ class Landing:
                 self.runner.escalate(f"go-tap-missing:{go['seq']}:{pr}", "GO-TAP-MISSING", f"#{pr}", f"root go cci #{go['seq']} says the owner tapped #{pr} at {head[:10]}, but no approval on the root's board names {head[:10]} or a head the go names; the board holds {board}. Withdraw the go, or post it again citing the board verdict at this head or the carry to it", "", self.go_audience([pr], rows))
 
     def go_carried_tap(self, pr: str, head: str, tapped: str, rows: dict[str, dict], to: str) -> None:
-        """Post the runner's own `go` for `pr` at `head`, where the owner's tap carried from `tapped`, unless a go names that head or this go was posted, so no root hop stands between a patch-identical restack and the queue (owner, Oct 29 2:06 PM); a post that failed is posted again next pass."""
+        """Post the runner's own `go` for `pr` at `head`, where the owner's tap carried from `tapped`, unless a go names that head or this go was posted, so no root hop stands between a patch-identical restack and the queue (owner, Oct 29 2:06 PM); a post that failed is posted again next pass. A posted go drops the pass's gos, so the dequeue that follows in the same pass reads it, never only the older go it carried from (root #306708: #47437 was dequeued at its carried head)."""
         key = f"tap-go:{pr}:{head}"
         if self.head_gos(pr, head) or ((posted := self.book.known(LANDING, key)) and posted.status == "completed"):
             return
-        self.post_record("go", key, self.landing_audience([pr], rows, to), f"go #{pr} at {head[:7]} TAP-CARRIED: the owner's tap at {tapped[:10]} carries to {head[:10]}, since his tap carries to every later head of a PR he tapped (owner 2:48 AM Oct 31); the runner posts this go itself, so no root hop (owner, Oct 29 2:06 PM)", pr)
+        if self.post_record("go", key, self.landing_audience([pr], rows, to), f"go #{pr} at {head[:7]} TAP-CARRIED: the owner's tap at {tapped[:10]} carries to {head[:10]}, since his tap carries to every later head of a PR he tapped (owner 2:48 AM Oct 31); the runner posts this go itself, so no root hop (owner, Oct 29 2:06 PM)", pr):
+            self.reread()
 
     def carry_tap(self, session: str, block: str, pr: str, tapped: str, head: str, why: str, to: str, label: str = "TAP-CARRIED") -> bool:
         """Carry the owner's tap on `pr` from `tapped` to `head` with one `board-write` record, which stands as his tap at `head` the moment it posts and which the watch of the board that holds the tap applies with `cc-present verdict carry`, then post `label`, `TAP-CARRIED` by default, once; whether the record posted. A block the board's newest snapshot no longer holds has nothing to carry (root #151003)."""
