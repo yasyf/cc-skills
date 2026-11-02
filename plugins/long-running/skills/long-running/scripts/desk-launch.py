@@ -148,8 +148,9 @@ def filled(template: str, lane: str, alert: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", ALERT_LINE.sub(lambda _: f"Alert: {alert}", text, count=1))
 
 
-def unfilled(text: str) -> str:
-    return next((line.strip() for line in text.splitlines() if ROOT_PLACEHOLDER.search(line) or (line.startswith("Alert:") and re.search(r"<[^>]+>", line))), "")
+def unfilled(text: str, alert: str) -> str:
+    """The first line of `text` still holding a placeholder root fills, never the Alert line `--alert` wrote, whose words are root's own (root #305172)."""
+    return next((line.strip() for line in text.splitlines() if line != f"Alert: {alert}" and (ROOT_PLACEHOLDER.search(line) or (line.startswith("Alert:") and re.search(r"<[^>]+>", line)))), "")
 
 
 def written(entry: dict, lane: str, template: Path, alert: str) -> Path:
@@ -262,7 +263,7 @@ def main(argv: list[str] | None = None) -> int:
         planned = [(lane, model, effort, now, role, written(entry, lane, brief, args.alert)) for lane, model, effort, now, role, brief in planned]
     if args.verb == "incident":
         for lane, *_, brief in planned:
-            if line := unfilled(brief.read_text()):
+            if line := unfilled(brief.read_text(), args.alert):
                 parser.error(f"brief {brief} for {lane} still holds a placeholder root fills, so nothing is posted: {line}")
     topic = args.name if args.verb == "incident" else args.target
     with keyed():
