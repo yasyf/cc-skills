@@ -41,21 +41,16 @@ jobs:
       # TODO: drop once isal, thinc, and ast-grep-py ship CPython 3.15 wheels; uv 0.13.0 defaults to 3.15 and their source builds fail.
       UV_PYTHON: "3.14"
       LR_TEST_SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
-      LOAD_SENSITIVE_TESTS: plugins/long-running/tests/test_board_text_gate.py plugins/long-running/tests/test_fifteenth_check_pr_owned.py
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v8.2.0
       - name: pytest
-        run: |
-          status=0
-          uv run --locked --project plugins/long-running pytest plugins/long-running/tests $(printf -- '--ignore=%s ' $LOAD_SENSITIVE_TESTS) -q -n auto --dist worksteal --durations=10 --junitxml="$RUNNER_TEMP/pytest.xml" -o junit_family=xunit1 || status=$?
-          uv run --locked --project plugins/long-running pytest $LOAD_SENSITIVE_TESTS -q --durations=5 --junitxml="$RUNNER_TEMP/pytest-serial.xml" -o junit_family=xunit1 || status=$?
-          exit "$status"
+        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests -q -n auto --dist worksteal --durations=10 --junitxml="$RUNNER_TEMP/pytest.xml" -o junit_family=xunit1
       - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: pytest-${{ matrix.shard }}
-          path: ${{ runner.temp }}/pytest*.xml
+          path: ${{ runner.temp }}/pytest.xml
           if-no-files-found: error
 
   controls:
