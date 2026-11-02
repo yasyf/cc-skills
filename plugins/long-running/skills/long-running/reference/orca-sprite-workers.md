@@ -34,6 +34,16 @@ copies the complete brief to the VM and records its hash, length, and actual
 checkout HEAD. The first task is a pointer telling the worker to read and
 verify that file.
 
+Before `worker-start`, the script installs cci on the Sprite from
+`WORKER_CCI_URL` and checks it against `WORKER_CCI_SHA256`. A failed install
+leaves the prepared worker idle. With `WORKER_RELAY_SPONSOR` set to a Sprite
+that holds an enrolled cci service key, the script then joins the new Sprite to
+this Mac's default relay mesh for the mesh's routed drives, with a 24-hour
+delegation and this Mac's node as owner. The key travels from the sponsor to
+the new Sprite over stdin and is never written to the Mac. Without the join, a
+worker's cci records stay on its Sprite. A failed join prints a warning, sets
+`relay` to `failed` in the launch line, and still starts the worker.
+
 Prepare starts the Sprite's Orca runtime through its `orca` CLI, and Orca
 1.4.224 serves it on its managed server, `orcad`. The prepared task records that
 server's build as `managedServer`, read from the ready event `orca serve --json`

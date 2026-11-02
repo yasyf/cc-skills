@@ -118,6 +118,15 @@ start_worker() {
     die "orca orchestration worker-start exited 0 without a ready receipt for Run $run; kept terminal $terminal, worktree $wt, and the receipt in $attempt"
 }
 
+join_relay() {
+  local mesh owner
+  mesh=$(cci relay status --json | jq -ce 'first(.[] | select(.mesh == "default" and (.routes | length) > 0))') || return 1
+  owner=$(cci node --json | jq -er .public_key) || return 1
+  sprite exec -s "$WORKER_RELAY_SPONSOR" --no-stdin -- cat /home/sprite/.cc-inbox/node/key.pem |
+    sprite exec -s "$1" -- sh -c 'CCI_SERVICE_KEY=$(cat); export CCI_SERVICE_KEY; ~/.local/bin/cci relay join --instance --drive "$1" --url "$2" --ttl 24h --owner "$3"' \
+      sh "$(jq -r '.routes | join(",")' <<<"$mesh")" "$(jq -r .url <<<"$mesh")" "$owner"
+}
+
 if [ "$route" = sprite ]; then
   prepare=(orca prepare "$lane" --warm --provider sprites --profile agents --agent "$kind" --model "$model_id" --effort "$effort" --brief-file "$brief")
   [ -z "$ref" ] || prepare+=(--ref "$ref")
@@ -152,13 +161,28 @@ if [ "$route" = sprite ]; then
   [ -z "$expect" ] || [ "$base" = "$expect" ] ||
     die "the Sprite checked out $base, not WORKER_EXPECT_BASE $expect, so the prepared worker stays idle and unattached, and nothing is prepared again"
 
+  workspace=$(jq -r .workspace "$attempt/allocation.json")
+  sprite exec -s "$workspace" --no-stdin -- sh -c 'curl -fsSL "$1" -o /tmp/cci.tgz && echo "$2  /tmp/cci.tgz" | sha256sum -c - && mkdir -p ~/.local/bin && tar -xzf /tmp/cci.tgz -C ~/.local/bin cci' \
+    sh "$cci_url" "$cci_sha" >"$attempt/cci-install.log" 2>&1 ||
+    die "installing cci from $cci_url on Sprite $workspace failed; $attempt/cci-install.log keeps its output, and the prepared worker stays idle and unattached"
+  relay=
+  if [ -n "${WORKER_RELAY_SPONSOR:-}" ]; then
+    if join_relay "$workspace" >"$attempt/relay-join.log" 2>&1; then
+      relay=joined
+    else
+      relay=failed
+      echo "Sprite $workspace did not join the cci relay with $WORKER_RELAY_SPONSOR's service key, so its records stay on the Sprite; $attempt/relay-join.log keeps the output, and the worker starts anyway" >&2
+    fi
+  fi
+
   terminal=$(jq -r .terminal "$attempt/prepared.json")
   wt=$(jq -r .projectRoot "$attempt/prepared.json")
-  start_worker "Lane $lane: first install cci: curl -fsSL $cci_url -o /tmp/cci.tgz && echo '$cci_sha  /tmp/cci.tgz' | sha256sum -c - && mkdir -p ~/.local/bin && tar -xzf /tmp/cci.tgz -C ~/.local/bin cci. Then read the whole brief at $(jq -r .brief.path "$attempt/prepared.json"), verify its SHA-256 is $sha and its size is $bytes bytes, then follow it exactly." \
+  start_worker "Lane $lane: read the whole brief at $(jq -r .brief.path "$attempt/prepared.json"), verify its SHA-256 is $sha and its size is $bytes bytes, then follow it exactly." \
     --on "$(jq -r .environment "$attempt/prepared.json")" --worktree "id:$(jq -r .worktreeId "$attempt/prepared.json")" --terminal "$terminal"
-  jq -c --arg terminal "$terminal" --arg worktree "$wt" --slurpfile allocation "$attempt/allocation.json" \
+  jq -c --arg terminal "$terminal" --arg worktree "$wt" --arg relay "$relay" --slurpfile allocation "$attempt/allocation.json" \
     '{state: .result.state, task: .result.taskId, dispatch: .result.dispatchId, $terminal, $worktree,
-      lane: $allocation[0].lane, workspace: $allocation[0].workspace, allocation: $allocation[0].allocation}' "$attempt/worker-start.json"
+      lane: $allocation[0].lane, workspace: $allocation[0].workspace, allocation: $allocation[0].allocation,
+      relay: (if $relay == "" then null else $relay end)}' "$attempt/worker-start.json"
   exit 0
 fi
 
