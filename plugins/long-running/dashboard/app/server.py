@@ -75,7 +75,16 @@ MILESTONE_TTL = 60
 PICK_GRACE = dt.timedelta(minutes=1)
 ANSWER_EVENTS = ("choice.selected", "decision.created", "input.submitted")
 UNSETTLED = ("open", "routed")
-RECORD_PAGE = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="dark"><title>{title}</title><link rel="stylesheet" href="/app.css"><link rel="stylesheet" href="/pages.css"></head><body><main class="wrap pg"><a class="pg-back" href="/">‹ The drive dashboard</a><header class="pg-h"><div><h1>{title}</h1></div><span class="pg-at">{byline}</span></header>{lead}<section class="pg-lead">{body}</section><p class="pg-at"><a href="/record/{seq}?raw=1">The raw record</a></p></main></body></html>'
+RECORD_PAGE = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="dark"><title>{title}</title><link rel="stylesheet" href="/app.css"><link rel="stylesheet" href="/pages.css"></head><body><main class="wrap pg"><a class="pg-back" href="/">‹ The drive dashboard</a><header class="pg-h"><div><h1>{title}</h1></div><span class="pg-at">{byline}</span></header><dl class="mr-f rec">{rows}</dl><details class="rec-raw"><summary>The record as written</summary><pre>{raw}</pre><a href="/record/{seq}?raw=1">With its bus header</a></details></main></body></html>'
+KIND_TAG = re.compile(r"(?:[A-Z][A-Z-]{2,}\s+)*[A-Z][A-Z-]{2,}\b[:,]?\s*")
+KIND_LABEL = {"owner": "Note", "go": "Go to land", "landed": "Landed", "mechanism": "Cause found", "fix-live": "Fix live", "opened": "Opened", "report": "Report", "hold": "Hold", "lift": "Hold lifted", "blocker": "Blocker", "defect": "Tool problem", "decide": "Decision", "ask": "Question", "answer": "Answer", "head": "New version", "contract": "Contract", "state": "Status", "evidence": "Evidence"}
+URL = re.compile(r"https?://[^\s)<>\"'\]]*[^\s)<>\"'\].,;:!?]")
+REPO_PR = re.compile(r"\b([\w.-]+/[\w.-]+)#(\d+)\b")
+PR_AT_HEAD = re.compile(r"(?<![\w/])#(4\d{4})\b[^#.;\n]{0,24}?\b(?:at|as|head)\s+([0-9a-f]{7,40})\b")
+SHA = re.compile(r"\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b")
+RECORD_SEQ = re.compile(r"(?<![\w/])#(\d{6})\b")
+DIRECTIVE = re.compile(r"(?:^|(?<=[.;!?]\s))([a-z][a-z0-9]*(?:-[a-z0-9]+)*):\s")
+SENTENCE = re.compile(r"(?<=[.!?])(?<!\be\.g\.)(?<!\bi\.e\.)(?<!\bvs\.)(?<!\betc\.)\s+")
 SOURCE_PAGE = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="dark"><title>{title}</title><link rel="stylesheet" href="/app.css"><link rel="stylesheet" href="/pages.css"></head><body><main class="wrap pg"><a class="pg-back" href="/">‹ The drive dashboard</a><header class="pg-h"><div><h1>{title}</h1></div></header><pre class="src-text">{text}</pre></main></body></html>'
 STORY_ROUTE = re.compile(r"/api/story/([a-z0-9-]+)")
 TRANSCRIPT_ROUTE = re.compile(r"/api/transcript/([a-z0-9-]+)")
@@ -337,20 +346,6 @@ def without_finished_prs(pages, prs, runner):
     return {**pages, "work": {**work, "pull_requests": [row for row in work["pull_requests"] if still_open(row["number"], prs, runner)]}}
 
 
-def prose(text):
-    """`text` as the paragraphs a reader follows: each opening clock label, `pr:` tag and file path dropped, and a paragraph of `- ` lines kept as a list."""
-    blocks = []
-    for part in re.split(r"\n\s*\n", FILE_PATH.sub("", PR_TAG.sub("", text))):
-        lines = [CLOCK_OPENING.sub("", line).strip() for line in part.strip().splitlines()]
-        if not any(lines):
-            continue
-        if all(line.startswith(("- ", "* ")) for line in lines if line):
-            blocks.append("<ul>" + "".join(f"<li>{html.escape(line[2:])}</li>" for line in lines if line) + "</ul>")
-        else:
-            blocks.append(f"<p>{html.escape(' '.join(line for line in lines if line))}</p>")
-    return blocks
-
-
 def record_body(record):
     """The whole body `record` carries: its text, then the file it names, or the file alone when the text is that file's opening cut short."""
     text, path = record["text"], Path(record.get("refs", {}).get("path") or "/nonexistent")
@@ -360,17 +355,109 @@ def record_body(record):
     return file if file.startswith(text.rstrip("…").rstrip()) or file.splitlines()[:1] == [text] else f"{text}\n\n{file}"
 
 
-def record_page(record, asked, said):
-    """The record a dashboard link opens, as prose: the owner's question in his words when `record` answers one, the body as paragraphs, who said it and when on one small line, and the raw record behind a link (root #203757)."""
+def lead_trimmed(text, lane):
+    """`text` without the header a lane writes before what it says: a clock, a kind in capitals, its own name, and the label those end in."""
+    text = CLOCK_OPENING.sub("", text.strip())
+    tagged, named = KIND_TAG.match(text), re.match(rf"{re.escape(lane)}\b[:,]?\s*", text)
+    if not (tagged or named):
+        return text
+    text = CLOCK_OPENING.sub("", text[(tagged or named).end():])
+    if named and (tagged := KIND_TAG.match(text)):
+        text = text[tagged.end():]
+    label = re.match(r"[^:.\n]{0,48}:\s+", text)
+    return text[label.end():] if label else text
+
+
+def unparsed(body, text):
+    """Why `body` is no message a reader can take line by line, or None when it is one."""
+    if body.lstrip().startswith(("{", "[")):
+        try:
+            json.loads(body)
+            return "It is JSON data, not sentences."
+        except ValueError:
+            pass
+    if not text.strip():
+        return "It carries no words beyond its header."
+    opening = text.strip()[:600]
+    if len(opening) == 600 and not re.search(r"[.!?:;](\s|$)", opening):
+        return f"Its first 600 of {len(text):,} characters hold no sentence break, so it is a log or a dump, not a message."
+    return None
+
+
+def parse_record(record, chain):
+    """What a reader takes from `record`: who sent it to whom and when, the owner's question it answers up `chain`, what it says, what it asks each lane, the pull requests, commits and evidence it names; or why its body is no message."""
+    body = record_body(record)
+    own = record.get("refs", {}).get("path")
+    urls = list(dict.fromkeys(URL.findall(body)))
+    heads = {int(n): sha for n, sha in PR_AT_HEAD.findall(body)}
+    parsed = {
+        "question": None,
+        "lines": [("Who", record["lane"] + (f", to {', '.join(record['to'])}" if record.get("to") else "")), ("When", at(record["at"]).astimezone(PACIFIC).strftime("%-I:%M %p, %b %-d"))],
+        "details": [],
+        "prs": list(dict.fromkeys([*map(int, record.get("refs", {}).get("prs") or []), *map(int, PR_MENTION.findall(body)), *heads])),
+        "heads": heads,
+        "elsewhere": list(dict.fromkeys(f"{repo}#{n}" for repo, n in REPO_PR.findall(body))),
+        "commits": [sha for sha in dict.fromkeys(SHA.findall(body)) if sha not in heads.values() and not any(sha in url for url in urls)],
+        "records": [int(n) for n in dict.fromkeys(RECORD_SEQ.findall(body)) if int(n) not in (record["seq"], chain[0]["seq"] if chain else None)],
+        "urls": urls,
+        "files": [path for path in dict.fromkeys(found.strip().rstrip(".") for found in FILE_PATH.findall(body)) if path != own],
+    }
+    if owner := next((link for link in chain if link["lane"] in OWNER_LANES or link["kind"] == "owner"), None):
+        parsed["question"] = " ".join(FILE_PATH.sub("", PR_TAG.sub("", CLOCK_OPENING.sub("", record_body(owner)))).removeprefix(ASKED_PREFIX).split())
+        on = f" on #{owner['refs']['prs'][0]}" if owner.get("refs", {}).get("prs") else ""
+        via = f", routed through {', '.join(f'#{link["seq"]}' for link in chain[: chain.index(owner)])}" if chain.index(owner) else ""
+        parsed["lines"].append(("Answers", f"Your question{on} at {at(owner['at']).astimezone(PACIFIC).strftime('%-I:%M %p')}: “{parsed['question']}”{via}"))
+    elif chain:
+        parent = chain[0]
+        opening = SENTENCE.split(lead_trimmed(PR_TAG.sub("", FILE_PATH.sub("", parent["text"])), parent["lane"]), maxsplit=1)[0]
+        parsed["lines"].append(("Answers", f"{parent['lane']}'s {KIND_LABEL.get(parent['kind'], parent['kind']).lower()} #{parent['seq']}: {opening[:200]}"))
+    text = lead_trimmed(FILE_PATH.sub(lambda path: f" {path[0].strip().rsplit('/', 1)[-1] if path[0].count('/') > 2 else path[0].strip()}", PR_TAG.sub("", URL.sub("", body))), record["lane"])
+    if why := unparsed(body, text):
+        parsed["lines"].append(("Not parsed", why))
+        return parsed
+    prose, bullets, table = [], [], 0
+    for line in map(str.strip, text.splitlines()):
+        if line.startswith("|"):
+            table += 1
+        elif line.startswith(("- ", "* ")):
+            bullets.append(line[2:].strip())
+        elif line.startswith("#"):
+            prose.append(f"{line.lstrip('#').strip()}:")
+        elif line:
+            prose.append(line)
+    joined = " ".join(prose)
+    if parsed["question"]:
+        joined = re.sub(rf"[\"“]?{re.escape(parsed['question'])}[\"”]?", "\0", joined)
+    cuts = [m for m in DIRECTIVE.finditer(joined) if m[1] in (record.get("to") or []) or m[1] == "root" or re.search(r"-\d+$", m[1])]
+    sentences = [s.strip() for s in SENTENCE.split(joined[: cuts[0].start()] if cuts else joined) if s.strip() and "\0" not in s]
+    if sentences:
+        parsed["lines"].append(("Says", sentences[0]))
+    parsed["lines"] += [(f"Asks {m[1]}", joined[m.end() : cuts[i + 1].start() if i + 1 < len(cuts) else len(joined)].strip().replace("\0", "your question")) for i, m in enumerate(cuts)]
+    parsed["details"] = [*sentences[1:], *bullets, *([f"A table of {max(table - 2, 1)} rows, in the raw record below."] if table else [])]
+    return parsed
+
+
+def record_page(record, chain, said, titles):
+    """The record a dashboard link opens as labelled lines, never a block of text (owner 12:03 AM Nov 2): the owner's question as the title when it answers one, and the raw body behind a disclosure."""
     who = "You" if record["kind"] == "owner" or record["lane"] in OWNER_LANES else record["lane"]
-    when = at(record["at"]).astimezone(PACIFIC).strftime("%-I:%M %p")
-    question = asked and " ".join(FILE_PATH.sub("", PR_TAG.sub("", CLOCK_OPENING.sub("", record_body(asked)))).removeprefix(ASKED_PREFIX).split())
-    title = question or f"What {who} said"
-    text = record_body(record)
-    body = prose(text)
-    lead = f'<p class="pg-rel">{html.escape(said)}</p>' if said and (len(body) > 3 or len(text) > 600) else ""
-    byline = f"{who} {'answered' if asked else 'wrote this'} at {when}"
-    return RECORD_PAGE.format(title=html.escape(title), byline=html.escape(byline), lead=lead, body="".join(body), seq=record["seq"])
+    parsed = parse_record(record, chain)
+    title = parsed["question"] or f"{KIND_LABEL.get(record['kind'], record['kind'].capitalize())} from {who}"
+    rows = "".join(f"<dt>{html.escape(label)}</dt><dd>{html.escape(value)}</dd>" for label, value in [*parsed["lines"], *([("In short", said)] if said else [])])
+    if parsed["details"]:
+        rows += "<dt>Details</dt><dd><ul>" + "".join(f"<li>{html.escape(line)}</li>" for line in parsed["details"]) + "</ul></dd>"
+    if parsed["prs"]:
+        rows += "<dt>Pull requests</dt><dd><ul>" + "".join(
+            f'<li><a href="/#/review/{n}">#{n}</a>{f" at <code>{parsed["heads"][n][:9]}</code>" if n in parsed["heads"] else ""}{f" {html.escape(titles[str(n)])}" if str(n) in titles else ""}</li>' for n in parsed["prs"]
+        ) + "</ul></dd>"
+    if parsed["elsewhere"]:
+        rows += "<dt>Other repos</dt><dd>" + ", ".join(f'<a href="https://github.com/{ref.replace("#", "/pull/")}" target="_blank" rel="noopener">{html.escape(ref)}</a>' for ref in parsed["elsewhere"]) + "</dd>"
+    if parsed["commits"]:
+        rows += "<dt>Commits</dt><dd>" + ", ".join(f"<code>{sha[:9]}</code>" for sha in parsed["commits"]) + "</dd>"
+    evidence = [*(f'<a href="/record/{n}">record #{n}</a>' for n in parsed["records"]), *(f'<a href="{html.escape(url)}" target="_blank" rel="noopener">{html.escape(url)}</a>' for url in parsed["urls"]), *(f"<code>{html.escape(path)}</code>" for path in parsed["files"])]
+    if evidence:
+        rows += "<dt>Evidence</dt><dd><ul>" + "".join(f"<li>{item}</li>" for item in evidence) + "</ul></dd>"
+    byline = f"{who} {'answered' if chain else 'wrote this'} at {at(record['at']).astimezone(PACIFIC).strftime('%-I:%M %p')}"
+    return RECORD_PAGE.format(title=html.escape(title), byline=html.escape(byline), rows=rows, raw=html.escape(record_body(record)), seq=record["seq"])
 
 
 def answer_line(text, who=None, since=None, next=None, href=None, label=None):
@@ -1360,9 +1447,12 @@ def handler(drive):
                     if "raw=1" in self.path.partition("?")[2].split("&"):
                         return self.source("The record this links to", run(["cci", "show", found[1]]))
                     record = json.loads(run(["cci", "show", found[1], "--json"]))
-                    asked = json.loads(run(["cci", "show", str(record["re"]), "--json"])) if record.get("re") else None
+                    chain = []
+                    while len(chain) < 4 and (parent := (chain[-1] if chain else record).get("re")) and not (chain and chain[-1]["lane"] in OWNER_LANES):
+                        chain.append(json.loads(run(["cci", "show", str(parent), "--json"])))
                     said = json.loads(Path(drive.config["steps"]).read_text()).get("said", {}).get(found[1])
-                    return self.send(200, "text/html; charset=utf-8", record_page(record, asked, said).encode())
+                    titles = {n: pr["title"] for n, pr in ((drive.served or {}).get("view") or {}).get("prs", {}).items() if pr.get("title")}
+                    return self.send(200, "text/html; charset=utf-8", record_page(record, chain, said, titles).encode())
                 except subprocess.CalledProcessError as error:
                     return self.send(502, "text/plain; charset=utf-8", error.stderr.encode())
             if found := PR_ROUTE.fullmatch(path):

@@ -264,3 +264,10 @@ body #pal .it.on { background: color-mix(in srgb, var(--ok) 9%, transparent); bo
 .st-worker:hover { color: var(--ok); }
 .st-story { color: var(--ok); font-size: .9em; border-bottom: 0; }
 .st-table td a, .st-prs a { display: inline-block; max-width: 100%; }
+.rec { max-width: 900px; margin: 0 0 18px; font-size: 14.5px; }
+.rec dd ul { margin: 0; padding-left: 18px; }
+.rec dd li { margin: 0 0 4px; }
+.rec code { font: 12.5px var(--mono); color: var(--ink-2); }
+.rec-raw { max-width: 900px; margin: 0 0 22px; color: var(--ink-3); font-size: 13px; }
+.rec-raw summary { cursor: pointer; }
+.rec-raw pre { white-space: pre-wrap; overflow-wrap: anywhere; font: 12.5px/1.5 var(--mono); color: var(--ink-2); background: var(--surface-2); padding: 10px 12px; border-radius: 6px; }
