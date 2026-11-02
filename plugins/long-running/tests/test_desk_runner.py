@@ -16677,7 +16677,11 @@ def test_orca_historical_lane_read_connection_cost(shell, config, tmp_path, monk
                 costs["closes"] += 1
                 costs["sidecar_metadata_transitions"] += sidecar(self.observed_path) != before
 
+    owner_thread = threading.get_ident()
+
     def opened(database, *args, **kwargs):
+        if threading.get_ident() != owner_thread:
+            return connect(database, *args, **kwargs)
         connection = connect(database, *args, factory=ObservedConnection, **kwargs)
         connection.observed_path = Path(database.removeprefix("file:").partition("?")[0])
         paths.add(connection.observed_path.name)
