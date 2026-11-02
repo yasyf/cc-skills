@@ -15909,6 +15909,25 @@ def test_each_pass_goes_to_the_listed_sprite_running_the_fewest_of_its_desks_pas
     assert shell.sprite_jobs == [("sprite-a", "finder.py"), ("sprite-b", "finder.py"), ("sprite-a", "finder.py"), ("sprite-b", "fidelity.py"), ("sprite-b", "finder.py")]
 
 
+
+def test_a_sprite_whose_pass_just_ended_with_no_result_takes_no_pass_while_another_listed_sprite_is_sound(shell, config):
+    """root #331960: dar-fleet-26 restarted mid-pass, finished nothing so it ran the fewest passes, and drew three retries of #48349 in a minute."""
+    finder_config(config, concurrent=2, sprite=["sprite-a", "sprite-b"])
+    orca_pass(shell, config)
+    head_record(shell, "43439", FINDER_HEAD)
+    head_record(shell, "43299", FINDER_OLD)
+    orca_pass(shell, config)
+    assert [job["sprite"] for job in finder_jobs(shell)] == ["sprite-a", "sprite-b"]
+    (shell.finder_jobs[0] / "result.json").write_text(json.dumps({"error": "the job on Sprite sprite-a ended with status 0 and no result, as when the Sprite restarts mid-pass or cannot be reached", "no_result": True}))
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert [job["sprite"] for job in finder_jobs(shell)][2:] == ["sprite-b"]
+    shell.clock += runner_module.SPRITE_FAILING_FOR + timedelta(minutes=1)
+    (shell.finder_jobs[2] / "result.json").write_text(json.dumps({"verdict": "ok", "record": f"finder: ok {FINDER_HEAD}", "posted": "#150001"}))
+    head_record(shell, "42784", hashlib.sha1(b"42784").hexdigest())
+    orca_pass(shell, config)
+    assert [job["sprite"] for job in finder_jobs(shell)][3:] == ["sprite-a"]
+
 def test_no_pass_starts_on_a_sprite_already_running_its_cap_of_finder_and_fidelity_passes_together(shell, config):
     """tooling-misc-3 #231706, 7:10 PM Oct 30: the finder's 20 passes and fidelity's 16 were each spread over the Sprites alone, so one 8 GB Sprite ran 9 or more at once at load 20 with its RAM full, and its passes timed out."""
     finder_config(config, concurrent=8, sprite=["sprite-a", "sprite-b"])
