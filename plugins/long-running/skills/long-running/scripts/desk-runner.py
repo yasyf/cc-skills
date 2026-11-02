@@ -132,7 +132,8 @@ lane and leaves its clock running, and `show` prints each clocked lane's minutes
 incident reached, a clocked fix lane sharing the lane's incident name, its name less `-opus`, `-case<n>`, and its last
 `-<part>` such as `-fix`, `-fix-2`, or `-cred`, or its `incident=` slug, or the executor's Opus backup
 for one of them, counts as the lane's mechanism, so no mechanism fallback launches; the PR and ready thresholds stay the
-lane's own. A lane the root withdrew, or sent `stand-down` or `stopped`, ends its clock as `withdrawn by <who>` and logs
+lane's own. A sibling's `fix-live`, a cci record or a Run status, stops the lane's clock too, so one `fix-live` stops
+every clock of the incident. A lane the root withdrew, or sent `stand-down` or `stopped`, ends its clock as `withdrawn by <who>` and logs
 nothing. A lane's own stop that scopes a release gate out, a `stopped` or a text `STOPPED` naming a release smoke
 team, a release check, or dev red beside `active no`, no or zero customer, or false alarm, is refused, settled
 dispatch or not: a failing release gate is active always and no customer impact is only its scope. The runner
@@ -1105,7 +1106,8 @@ LANE_HEARTBEAT = "lane-heartbeat"
 HEARTBEAT_GRACE = timedelta(minutes=30)
 MILESTONE_SUBJECTS = ("fix-live:", "mechanism:", "ready:")
 CLOCK_MILESTONES = {"mechanism": "mechanism", "opened": "PR", "ready": "ready"}
-CLOCK_ENDS = ("fix-live", "not-ours", "stopped", "stand-down")
+FIX_LIVE = "fix-live"
+CLOCK_ENDS = (FIX_LIVE, "not-ours", "stopped", "stand-down")
 STAND_DOWN = "stand-down"
 INCIDENT_ENDS = ("not-ours", STAND_DOWN)
 STOPPED = "stopped"
@@ -1482,6 +1484,11 @@ def clock_mark(record: dict) -> str:
     if record["kind"] in TEXT_MARK_KINDS and (mark := TEXT_MARK.match(record["text"])):
         return mark["mark"].lower()
     return "mechanism" if SAYS_MECHANISM.search(record.get("text") or "") else ""
+
+
+def sibling_mark(mark: str) -> str:
+    """What a sibling lane's milestone counts as on a lane's clock: a `fix-live` ends it, and any other milestone is its mechanism."""
+    return FIX_LIVE if mark == FIX_LIVE else "mechanism"
 
 
 def class_keys(record: dict) -> set[str]:
@@ -4180,10 +4187,10 @@ class Runner:
                 self.book.edit(container, lambda incident, clock=clock: incident.facts.update({CLOCK: clock}))
 
     def reached(self, container: str, lane: str, launched: datetime) -> dict[str, str]:
-        """Each milestone a lane reached since `launched`, at its earliest stamp: the lane's own cci records by kind, and its milestone statuses from the Run. Any milestone a sibling lane on the same incident reached counts as this lane's mechanism, so the PR and ready thresholds stay the lane's own."""
+        """Each milestone a lane reached since `launched`, at its earliest stamp: the lane's own cci records by kind, and its milestone statuses from the Run. Any milestone a sibling lane on the same incident reached counts as this lane's mechanism, so the PR and ready thresholds stay the lane's own, and a sibling's `fix-live` stops this lane's clock."""
         marks = [(mark, record["at"]) for record in self.lane_records(lane) if (mark := clock_mark(record))]
         marks += [(status["name"], status["at"]) for status in (self.book.fact(container, MILESTONE_STATUSES, None) or {}).values()]
-        marks += [("mechanism", at) for at in self.sibling_milestones(lane)]
+        marks += self.sibling_milestones(lane)
         reached: dict[str, str] = {}
         for name, at in sorted(marks, key=lambda mark: actions.parse_stamp(mark[1])):
             if actions.parse_stamp(at) >= launched:
@@ -4239,18 +4246,18 @@ class Runner:
                 family.add(backup.target)
         return family - {lane}
 
-    def sibling_milestones(self, lane: str) -> list[str]:
-        """The stamps of every mechanism, PR, or ready milestone the lane's siblings reached, from their cci records and their milestone statuses."""
+    def sibling_milestones(self, lane: str) -> list[tuple[str, str]]:
+        """Every milestone the lane's siblings reached, from their cci records and their milestone statuses, with its stamp: a `fix-live` as itself, and a mechanism, PR, or ready as a mechanism."""
         siblings = self.siblings(lane)
         if not siblings:
             return []
         names = {name for sibling in siblings for name in self.names(sibling)}
         posted = cci.records(self.cci_tail, self.config.drive, *(arg for name in sorted(names) for arg in ("--lane", name)))
-        stamps = [record["at"] for record in posted if record["drive"] == self.config.drive and record["lane"] in names and clock_mark(record) in CLOCK_MILESTONES]
+        marks = [(sibling_mark(mark), record["at"]) for record in posted if record["drive"] == self.config.drive and record["lane"] in names and (mark := clock_mark(record)) in (*CLOCK_MILESTONES, FIX_LIVE)]
         for sibling in siblings:
             if self.book.exists(lane_container(sibling)):
-                stamps += [status["at"] for status in (self.book.fact(lane_container(sibling), MILESTONE_STATUSES, None) or {}).values()]
-        return stamps
+                marks += [(sibling_mark(status["name"]), status["at"]) for status in (self.book.fact(lane_container(sibling), MILESTONE_STATUSES, None) or {}).values()]
+        return marks
 
     def live_clocks(self) -> list[str]:
         """The incident fix lanes whose clock is running."""
