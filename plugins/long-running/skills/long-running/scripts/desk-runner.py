@@ -1183,7 +1183,7 @@ LAUNCHER = SCRIPTS.parents[2] / "bin" / "orca-launch.sh"
 HOLD_SPEC = re.compile(r"^ (?P<slug>[a-z0-9][a-z0-9.-]*) owner=(?P<owner>[\w.-]+) :: (?P<what>\S.*)$")
 UNHOLD_SPEC = re.compile(r"^ (?P<slug>[a-z0-9][a-z0-9.-]*)$")
 WITHDRAW_SPEC = re.compile(r"^ (?P<target>[\w.:-]+)$")
-LAUNCH_KEY = re.compile(rf"R\d+|unfixed:[\w-]+:\d+|inbox@\S+|{CLOCK}:ctx_\w+")
+LAUNCH_KEY = re.compile(rf"R\d+|unfixed:[\w-]+:\d+|inbox@\S+|{CLOCK}:ctx_[\w-]+")
 WITHDRAWN = "withdrawn"
 WITHDRAW_PENDING = "withdraw-pending"
 FENCED = "dispatch_inactive"
@@ -4171,7 +4171,11 @@ class Runner:
 
     def incident_clock(self) -> None:
         """Hold each live incident fix lane the runner launched to its budget from the verified launch: past a threshold without its milestone, launch the Opus fallback and log INCIDENT-CLOCK, once per launch; `ready`, a closing record, or a settled dispatch stops the clock, and a root close of the lane's incident also withdraws its Opus fallback (root 311353)."""
-        closes = [record for record in incidents.incident_records(self.cci_tail.run, self.config.drive) if incidents.closes(record)]
+        try:
+            closes = [record for record in incidents.incident_records(self.cci_tail.run, self.config.drive) if incidents.closes(record)]
+        except CciTailFailed as failure:
+            self.tail_failed(failure)
+            return
         for container in self.book.containers(LANE_PREFIX):
             lane = container.removeprefix(LANE_PREFIX)
             launch = self.fix_launch(container)
