@@ -885,6 +885,7 @@ DEQUEUE_READ = "dequeue-read"
 OVERRIDE_READ = "override-read"
 SETTLED = "settled"
 ROWED_READ = "rowed-read"
+CURSOR_NODE = "cursor-node"
 QUOTA_OFF = "GitHub's read quota is under ccx's floor"
 IN_QUEUE_SAID = "the merge queue holds it"
 MERGEABILITY_PENDING = frozenset({"GitHub merge state UNKNOWN", "GitHub still computing mergeability"})
@@ -2382,6 +2383,29 @@ class Runner:
     def beat(self, desk: str) -> None:
         self.passes[desk] += 1
         self.post_alive(desk)
+
+    def adopt_cursors(self) -> None:
+        """Renumber each sequence cursor the store keeps into this machine's numbering when another machine numbered it, through the record that machine numbers it, so a store moved to another machine resumes after the same record and never compares a seq across machines; a cursor no record here matches is dropped, so its next read starts at the newest record (root #333826: the landing desk moved to dar-desk-1 kept `rowed-read` at the Mac's 309100, past every seq there, and rowed no PR for seven hours)."""
+        here = self.shell.run(["cci", "node"]).out.split()[1]
+        cursors = {RUNNER: [f"cci:{self.config.drive}:{ORCA_DESK}", RELEASE_CURSOR, CUT_CURSOR], FINDER: [FINDER_CURSOR], FIDELITY: [FINDER_CURSOR], LANDING: [ROWED_READ]}
+        for container, keys in cursors.items():
+            if not self.book.exists(container) or (numbered := self.book.fact(container, CURSOR_NODE, None)) == here:
+                continue
+            moved: dict[str, int | None] = {}
+            for key in keys if numbered else []:
+                if seq := self.book.fact(container, key, None):
+                    shown = self.shell.run(["cci", "show", f"{seq}@{numbered}", "--json"])
+                    moved[key] = json.loads(shown.out)["seq"] if shown.code == 0 else None
+
+            def adopt(incident: actions.Incident, moved: dict[str, int | None] = moved) -> None:
+                for key, seq in moved.items():
+                    if seq is None:
+                        incident.facts.pop(key)
+                    else:
+                        incident.facts[key] = seq
+                incident.facts[CURSOR_NODE] = here
+
+            self.book.edit(container, adopt)
 
     def pinned(self) -> str:
         """The version `runner.json` pins, read fresh, so a pin `handoff --version` moves reaches a runner without a restart; empty while it pins none."""
@@ -9470,26 +9494,34 @@ class Landing:
         return why
 
     def row_records(self, rows: dict[str, dict]) -> None:
-        """Register under its lane each PR a `head` or `opened` record of this drive posted since the last pass names that has no ledger row, so the gate finds the row a go names (root #221244); a register that fails logs `UNROWED`, and a root go posted since then naming a PR no row holds and no such record names logs `GO-UNROWED`, once each."""
+        """Register under its lane each PR a `head` or `opened` record of this drive posted since the last pass names that has no ledger row, and each PR a root go posted since then names that has none, under the lane of the newest such record naming it, so the gate finds the row a go names however the ledger reached this machine (root #221244, #333826); a register that fails logs `UNROWED`, and a go naming a PR no such record ever named logs `GO-UNROWED`, once each."""
         cursor = self.book.fact(LANDING, ROWED_READ, None)
         if cursor is None:
             newest = cci.records(self.cci_tail, self.runner.config.drive, "--limit", "1")
             self.book.edit(LANDING, lambda incident: incident.facts.update({ROWED_READ: max((record["seq"] for record in newest), default=0)}))
             return
-        read = cci.records(self.cci_tail, self.runner.config.drive, "--kind=head", "--kind=opened", since=cursor)
+        drive = self.runner.config.drive
+        read = cci.records(self.cci_tail, drive, "--kind=head", "--kind=opened", since=cursor)
         gos = [go for go in self.root_gos() if go["seq"] > cursor]
         named = set()
-        for record, pr, head in self.runner.named_heads(self.repo, read):
-            if pr in rows or pr in named:
-                continue
+
+        def register(record: dict, pr: str, head: str) -> None:
             named.add(pr)
             done = self.ledger_py("register", "--ledger", self.ledger, "--repo", self.repo, "--lane", record["lane"], "--pr", pr)
             if done.code:
                 last = ((done.err or done.out).strip().splitlines() or [f"exit {done.code}"])[-1]
                 self.runner.escalate(f"unrowed:{pr}", "UNROWED", f"#{pr}", f"{record['lane']}'s {record['kind']} record cci #{record['seq']} names #{pr} at {head[:10]}, which has no ledger row, and ledger.py register refused it: {last}")
+
+        for record, pr, head in self.runner.named_heads(self.repo, read):
+            if pr not in rows and pr not in named:
+                register(record, pr, head)
         for go in gos:
             for pr, sha in go_heads(go).items():
-                if pr not in rows and pr not in named:
+                if pr in rows or pr in named:
+                    continue
+                if claimed := [record for record in cci.records(self.cci_tail, drive, "--kind=head", "--kind=opened", "--pr", f"{self.repo}#{pr}") if record["drive"] == drive]:
+                    register(claimed[-1], pr, sha)
+                else:
                     self.runner.escalate(f"go-unrowed:{pr}@{sha}", "GO-UNROWED", f"#{pr}", f"root go #{go['seq']} names #{pr} at {sha}, which has no ledger row and no head or opened record names, so the landing runner never gates it; its lane registers it with `ledger.py register --pr {pr}`")
         if seqs := [record["seq"] for record in read] + [go["seq"] for go in gos]:
             self.book.edit(LANDING, lambda incident: incident.facts.update({ROWED_READ: max(seqs)}))
@@ -10914,6 +10946,7 @@ def main(argv: list[str] | None = None, shell: Shell | None = None) -> int:
             with runner.desk_lock(args.desk) as holder:
                 if holder is None:
                     runner.shell.adopt(dict.fromkeys(LANE_IDENTITY, "") | config.desk_env[args.desk])
+                    runner.adopt_cursors()
                     with runner.book.store.reading():
                         return (run_orca if args.desk == "orca" else run_landing)(runner, args.once)
             if not runner.stop_marker(holder).exists() or runner.now() >= deadline:
