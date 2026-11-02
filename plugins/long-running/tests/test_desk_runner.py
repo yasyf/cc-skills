@@ -166,6 +166,7 @@ class FakeShell(runner_module.Shell):
         self.environ = {"ORCA_TERMINAL_HANDLE": "term_root", "ORCA_PANE_KEY": "pane_root"}
         self.coordinator = "term_root"
         self.dead: set[str] = set()
+        self.concise = False
         self.gone: set[str] = set()
         self.seen: dict[str, str] = {}
         self.seen_as: dict[str, tuple[str, str]] = {}
@@ -411,7 +412,10 @@ class FakeShell(runner_module.Shell):
             self.sender = (env or {}).get("ORCA_TERMINAL_HANDLE") or self.environ.get("ORCA_TERMINAL_HANDLE", "")
             if self.orca_down and argv[2] not in ("run-current", "run-show"):
                 return self.orca_down
-            return self.orca(argv[1:-1])
+            done = self.orca(argv[1:-1])
+            if argv[1] != "orchestration" or self.concise or not done.out.startswith("{"):
+                return done
+            return runner_module.Done(done.code, json.dumps({**json.loads(done.out), "_meta": {"runtimeId": "rt_1"}}), done.err)
         if argv[:3] == ["ccn", "-R", str(self.root / "checkout")]:
             return self.ccn(argv[3:])
         if name == "orca-check.sh":
@@ -10325,6 +10329,18 @@ def test_a_runner_outside_orca_with_no_live_coordinator_refuses_to_start_and_pri
     assert binding["bound"] is False and binding["why"] == why
     assert cli(shell, config, "run", "--desk", "orca", "--once") == 3
     assert len(escalations(shell)) == 1
+
+
+def test_a_runner_given_orcas_concise_view_refuses_it_instead_of_reading_the_run_as_unbound(shell, config, tmp_path):
+    """cci 308657: Orca 1.4.246 printed run-show without its `run` record unless asked for --full, and the runner read that as a Run bound to no terminal."""
+    shell.environ = {}
+    shell.concise = True
+    accept_launch(shell, config, tmp_path)
+    assert cli(shell, config, "run", "--desk", "orca", "--once") == 3
+    binding = incident(tmp_path, "desk-runner").facts["binding"]
+    assert binding["bound"] is False
+    assert binding["why"] == "orca orchestration run-show failed: unparseable: orca orchestration run-show printed its concise view, not the full record"
+    assert orca_calls(shell, "inbox") == []
 
 
 @pytest.mark.parametrize("coordinator", ["term_dead", ""])

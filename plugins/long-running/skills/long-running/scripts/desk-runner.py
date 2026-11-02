@@ -1860,11 +1860,16 @@ class Orca:
         self.sender: dict[str, str] = {}
 
     def call(self, *argv: str) -> dict:
-        done = self.shell.run(["orca", *argv, *(["--full"] if argv[0] == "orchestration" else []), "--json"], env=self.sender or None)
+        """One Orca CLI call's JSON. An orchestration reply without `_meta` is Orca's concise view, which drops the record's fields, so it is refused as unparseable rather than read as an empty record."""
+        orchestration = argv[0] == "orchestration"
+        done = self.shell.run(["orca", *argv, *(["--full"] if orchestration else []), "--json"], env=self.sender or None)
         try:
-            return json.loads(done.out)
+            reply = json.loads(done.out)
         except json.JSONDecodeError:
             return {"ok": False, "error": {"code": UNPARSEABLE, "message": (done.out or done.err).strip()[:300]}}
+        if orchestration and reply.get("ok") and "_meta" not in reply:
+            return {"ok": False, "error": {"code": UNPARSEABLE, "message": f"orca {' '.join(argv[:2])} printed its concise view, not the full record"}}
+        return reply
 
     def ask(self, *argv: str) -> dict:
         """`call`, raising OrcaUnreachable when Orca gave no answer: a runtime or connection error, a timeout, or output that is not its JSON."""
