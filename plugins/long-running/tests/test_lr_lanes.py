@@ -350,6 +350,27 @@ def test_a_lane_whose_process_row_cci_marks_stood_down_retires_without_a_success
     assert out.relaunched == [] and fake.launches == [] and store.lane("conflicts-2").state == "retired"
 
 
+@pytest.mark.parametrize(
+    ("then", "relaunched"),
+    [
+        ([record(2, "root", "incident", T0 - timedelta(minutes=25), "tenant-api: FIX-LIVE; conflicts-2 not needed, exit", ("conflicts-2",))], []),
+        ([record(2, "root", "incident", T0 - timedelta(minutes=25), "tenant-api: FIX-LIVE", ("tenant-api-fix",)), record(3, "conflicts-2", "state", T0 - timedelta(minutes=24), "STOPPED conflicts-2: stood down per root #2") | {"re": 2}], []),
+        ([record(2, "root", "decide", T0 - timedelta(minutes=25), "keep going", ("conflicts-2",)), record(3, "conflicts-2", "state", T0 - timedelta(minutes=24), "conflicts-2: rebased #46001")], ["conflicts-2"]),
+    ],
+)
+def test_a_lane_that_stopped_on_a_root_order_of_any_kind_stands_down_and_is_never_relaunched(tmp_path, brief, then, relaunched):
+    """Root #311668: tenant-api-fix-opus stopped at 2:16 PM Nov 1 answering root's INCIDENT #295016, which was no stand-down, and the supervisor relaunched it 12 hours later."""
+    store = Store.memory()
+    fake = adopted(tmp_path, brief, store)
+    fake.feed += then
+    fake.peers = [who("conflicts-2", False, T0 - timedelta(minutes=20))]
+
+    out = lanes.tick(store, fake.deps, T0, 1)
+
+    assert [old for old, *_ in out.relaunched] == relaunched
+    assert store.lane("conflicts-2").retired_by == ("conflicts-3" if relaunched else "stand-down")
+
+
 def test_a_desk_whose_last_record_is_a_blocker_to_another_lane_is_not_waiting(tmp_path, brief):
     store = Store.memory()
     fake = adopted(tmp_path, brief, store)
