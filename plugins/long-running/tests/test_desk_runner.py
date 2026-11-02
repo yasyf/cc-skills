@@ -56,13 +56,6 @@ def judged(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str, str]]:
 
 
 
-def full_orca(argv: list[str]) -> list[str]:
-    """Orca 1.4.246 prints a concise orchestration record that drops `sequence`, `from_handle` and `dispatchStatus` unless asked for `--full` (cci 308175), so every orchestration read must ask for it."""
-    if argv[:2] != ["orca", "orchestration"]:
-        return argv
-    assert argv[-2:] == ["--full", "--json"], argv
-    return [*argv[:-2], "--json"]
-
 class Reexeced(Exception):
     pass
 
@@ -387,7 +380,9 @@ class FakeShell(runner_module.Shell):
 
     def run(self, argv, stdin=None, env=None, cwd=None):
         self.raw.append(list(argv))
-        argv = full_orca(gateway(argv))
+        argv = gateway(argv)
+        concise = argv[:2] == ["orca", "orchestration"] and "--full" not in argv
+        argv = [token for token in argv if token != "--full"]
         self.calls.append(argv)
         name = Path(argv[0]).name
         if argv[:3] == ["security", "find-generic-password", "-s"]:
@@ -413,7 +408,7 @@ class FakeShell(runner_module.Shell):
             if self.orca_down and argv[2] not in ("run-current", "run-show"):
                 return self.orca_down
             done = self.orca(argv[1:-1])
-            if argv[1] != "orchestration" or self.concise or not done.out.startswith("{"):
+            if argv[1] != "orchestration" or concise or self.concise or not done.out.startswith("{"):
                 return done
             return runner_module.Done(done.code, json.dumps({**json.loads(done.out), "_meta": {"runtimeId": "rt_1"}}), done.err)
         if argv[:3] == ["ccn", "-R", str(self.root / "checkout")]:
