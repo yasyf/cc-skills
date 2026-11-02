@@ -6051,6 +6051,18 @@ def test_a_checkout_that_cannot_fast_forward_gates_nothing_until_it_can(shell, c
     assert names[:4] == ["status", "fetch", "worktree", "merge"] and "stack-enqueue" in names[4:]
 
 
+@pytest.mark.parametrize(("left", "removed"), [(datetime(2026, 9, 1, tzinfo=timezone.utc), True), (datetime(2026, 12, 1, tzinfo=timezone.utc), False)])
+def test_an_index_lock_a_stopped_runner_left_is_removed_before_the_fast_forward_and_a_live_one_is_kept(shell, config, left, removed):
+    """Root #335369: dar-desk-1's runner was replaced mid-merge at 1:36 PM, and the index.lock it left failed every fast-forward until 2:25 PM."""
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    lock = shell.root / "checkout/.git/index.lock"
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    lock.touch()
+    os.utime(lock, (left.timestamp(), left.timestamp()))
+    landing_pass(shell, config)
+    assert lock.exists() is not removed
+
 @pytest.mark.parametrize(("mirror", "found"), [(None, "was not a registered worktree of its repository"), ("0" * 40, "was on a branch with no commit")])
 def test_a_checkout_git_lost_or_left_unborn_is_rebuilt_at_the_trunk_head_and_the_pass_goes_on(shell, config, mirror, found):
     lone_green_pr(shell)

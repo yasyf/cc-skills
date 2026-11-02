@@ -10445,6 +10445,7 @@ class Landing:
             if tree is None or not tree.get("HEAD", "").strip("0"):
                 done = self.rebuild(registered=tree is not None)
             else:
+                self.clear_dead_lock()
                 done = self.shell.run([*git, "merge", "-q", "--ff-only", "FETCH_HEAD"])
         if done.code:
             self.runner.escalate(
@@ -10452,6 +10453,14 @@ class Landing:
                 f"{self.checkout} did not fast-forward to origin/{TRUNK}, so this pass gated and enqueued nothing: {done.err.strip()}",
             )
         return not done.code
+
+    def clear_dead_lock(self) -> None:
+        """Remove the checkout's `index.lock` when it predates this runner, which holds the desk lock and so is the only writer of its checkout: a runner stopped mid-merge leaves the lock, and every later fast-forward fails on it (root #335369: a lock from the 1:36 PM restart on dar-desk-1 refused each landing pass until 2:25 PM)."""
+        dotgit = self.checkout / ".git"
+        gitdir = dotgit if dotgit.is_dir() else Path(dotgit.read_text().removeprefix("gitdir:").strip()) if dotgit.is_file() else None
+        if gitdir and (lock := gitdir / "index.lock").exists() and datetime.fromtimestamp(lock.stat().st_mtime, timezone.utc) < actions.parse_stamp(self.started):
+            lock.unlink()
+            print(f"REMOVED {lock}, which a runner stopped before this one left", file=sys.stderr, flush=True)
 
     def rebuild(self, registered: bool) -> Done:
         """Reset the checkout to the fetched trunk head with a clean tree, first registering it afresh through `git worktree add --no-checkout` and `git worktree repair` when its repository lists it no more, carrying its old index over so the reset removes files the trunk no longer tracks, and log `MIRROR-REBUILT` to root naming what it found."""
