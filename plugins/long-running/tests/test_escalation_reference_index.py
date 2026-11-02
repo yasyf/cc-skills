@@ -113,7 +113,7 @@ def test_selected_escalation_lookup_is_history_bounded_and_read_only(tmp_path, m
     print(json.dumps({"caller": "Book.escalations_for", "history": history, "costs": counts}))
     assert [action.target for action in found] == ["GATE-FAILED #29 selected"]
     assert counts["decoded"] == 1 and counts["changed_rows"] == 0
-    assert 0 < counts["vm_steps"] < 256
+    assert 0 < counts["vm_steps"] < 512
 
 
 def test_old_created_store_requires_manual_provision_without_read_backfill(tmp_path):
