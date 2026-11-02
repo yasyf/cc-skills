@@ -5840,6 +5840,85 @@ def landing_of(shell: FakeShell, config: Path, tmp_path: Path) -> runner_module.
     return runner_module.Landing(runner, runner.config.landing)
 
 
+def test_an_unchanged_refused_tree_reuses_its_check_until_its_print_trunk_or_interval_moves(shell, config, tmp_path, monkeypatch):
+    landing = landing_of(shell, config, tmp_path)
+    rows = {"29020": {"head": "cccc333333", "branch": "a"}, "29031": {"head": "dddd444444", "base": "a", "branch": "b"}}
+    landing.trunk_read = ("eeee555555", shell.now(), True, {})
+    tapped = runner_module.Refused("the merge-mode check reads FAIL: TAP-REQUIRED #29031 waits on the owner's tap")
+    below = runner_module.BelowBlocked("#29031", "stacked on #29031, which a check refused, so the prefix is cut below it")
+    landing.settlement = runner_module.Settlement({"29020": "cccc333333", "29031": "dddd444444"}, {})
+    landing.settlement.settle("29031", "dddd444444", tapped)
+    landing.settlement.settle("29020", "cccc333333", below)
+    landing.remember("29031", "print-1", {"29020", "29031"}, [])
+    landing.settlement = runner_module.Settlement({"29020": "cccc333333", "29031": "dddd444444"}, {})
+    assert landing.reuse(["29031"], "print-1", rows)
+    assert landing.settlement.outcomes == {"29031": tapped, "29020": below}
+    landing.trunk_read = ("ffff666666", shell.now(), True, {})
+    assert not landing.reuse(["29031"], "print-1", rows) and "29031" not in landing.unchanged
+    landing.remember("29031", "print-1", {"29020", "29031"}, [])
+    assert not landing.reuse(["29031"], "print-2", rows) and "29031" not in landing.unchanged
+    landing.remember("29031", "print-1", {"29020", "29031"}, [])
+    monkeypatch.setattr(runner_module.time, "monotonic", lambda: landing.unchanged["29031"][2] + runner_module.UNCHANGED_FOR.total_seconds())
+    assert not landing.reuse(["29031"], "print-1", rows)
+
+
+@pytest.mark.parametrize("outcome", [runner_module.Refused("GATE-TIMEOUT its trunk-stack-enqueue check ran past 300s on both tries and was killed, so the next pass checks it again"), runner_module.Refused("the PR status read failed, so the pass checked none of its stack"), runner_module.InFlight("enqueue", "2026-11-02T00:00:00Z"), runner_module.Queued("the merge queue holds it")])
+def test_a_tree_settled_by_a_read_failure_or_into_the_queue_is_checked_again(shell, config, tmp_path, outcome):
+    landing = landing_of(shell, config, tmp_path)
+    landing.trunk_read = ("eeee555555", shell.now(), True, {})
+    landing.settlement = runner_module.Settlement({"29020": "cccc333333"}, {})
+    landing.settlement.settle("29020", "cccc333333", outcome)
+    landing.remember("29020", "print-1", {"29020"}, [])
+    assert landing.unchanged == {}
+    assert not landing.reuse(["29020"], "print-1", {"29020": {"head": "cccc333333"}})
+
+
+def test_a_tree_whose_check_read_no_verdict_is_checked_again(shell, config, tmp_path):
+    landing = landing_of(shell, config, tmp_path)
+    landing.settlement = runner_module.Settlement({}, {})
+    timed_out = runner_module.merge_queue.Gate(runner_module.TIMED_OUT, "", "timed out", {}, None, "")
+    landing.remember("29020", "print-1", {"29020"}, [(["29020"], timed_out)])
+    assert landing.unchanged == {}
+    landing.remember("29020", "print-1", {"29020"}, [])
+    assert landing.reuse(["29020"], "print-1", {"29020": {"head": "cccc333333"}})
+
+
+def test_a_tree_print_moves_with_an_approval_a_record_naming_it_or_a_tap_and_not_with_a_refresh(shell, config, tmp_path, monkeypatch):
+    landing = landing_of(shell, config, tmp_path)
+    rows = {"29020": {"head": "cccc333333", "test_state": "success", "last_refresh": "2026-11-02T00:00:00Z"}}
+    reviews = landing.reviews_read = {"29020": ["cccc333333", "REVIEW_REQUIRED"]}
+    tapped: set[str] = set()
+    monkeypatch.setattr(landing, "read_about", lambda: None)
+    monkeypatch.setattr(landing, "pr_statuses", lambda: {"29020": {"verdict": "landable", "queue": "not queued"}})
+    monkeypatch.setattr(landing, "owner_tapped", lambda: tapped)
+    monkeypatch.setattr(landing, "root_gos", lambda: [])
+    first = landing.tree_prints([["29020"]], rows)["29020"]
+    rows["29020"]["last_refresh"] = "2026-11-02T00:02:00Z"
+    assert landing.tree_prints([["29020"]], rows)["29020"] == first
+    reviews["29020"] = ["cccc333333", "APPROVED"]
+    approved = landing.tree_prints([["29020"]], rows)["29020"]
+    assert approved != first
+    landing.about["29020"] = 309200
+    named = landing.tree_prints([["29020"]], rows)["29020"]
+    assert named != approved
+    tapped.add("29020")
+    assert landing.tree_prints([["29020"]], rows)["29020"] != named
+    reviews.clear()
+    assert landing.tree_prints([["29020"]], rows)["29020"] == ""
+
+
+def test_the_about_read_starts_at_the_drives_newest_record_and_skips_the_runners_own(shell, config, tmp_path, monkeypatch):
+    landing = landing_of(shell, config, tmp_path)
+    posted = [{"seq": 10, "drive": "d1", "lane": "root", "kind": "go", "text": "go #29020", "refs": {}}]
+    calls: list[list[str]] = []
+    monkeypatch.setattr(landing.cci_tail, "run", fake_cci(posted, calls))
+    landing.read_about()
+    assert (landing.about_read, landing.about) == (10, {})
+    posted += [{"seq": 11, "drive": "d1", "lane": "fidelity-desk", "kind": "review", "text": "ok", "refs": {"prs": ["Forge-AI/monorepo#29031"]}}, {"seq": 12, "drive": "d1", "lane": runner_module.RUNNER, "kind": "report", "text": "REFUSED #29020", "refs": {}}]
+    landing.read_about()
+    assert (landing.about_read, landing.about) == (12, {"29031": 11})
+
+
 def test_a_tree_a_worker_holds_in_part_runs_once_that_worker_ends_and_one_it_holds_whole_is_left_to_it(shell, config, tmp_path):
     """Root #303609, trace #307066: the pass skipped #47306 and #47326 because `overflow:47305` held their bottom, and nothing ever decided them."""
     landing = landing_of(shell, config, tmp_path)
@@ -5932,7 +6011,7 @@ def test_a_pass_reads_every_tracked_head_in_one_graphql_query(shell, config, tmp
     grade(shell, "29020", "ok F307 at cccc333.")
     landing_pass(shell, config)
     [read] = graphql_reads(shell)
-    assert "cccc333333" in read[4]
+    assert "cccc333333" in read[4] and "r29020: pullRequest(number: 29020) { headRefOid reviewDecision }" in read[4]
     assert not [call for call in shell.calls if call[:2] == ["gh", "api"] and "/commits/" in call[2]]
     assert len(shell.enqueues()) == 1
 

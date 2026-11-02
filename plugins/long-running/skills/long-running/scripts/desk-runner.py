@@ -962,6 +962,9 @@ CHECK_PR_SECONDS = 180
 GATE_CHECK_SECONDS = ENQUEUE_SECONDS
 EACH_TREES = 8
 EACH_CHECK_SECONDS = 2 * GATE_CHECK_SECONDS
+UNCHANGED_FOR = timedelta(minutes=15)
+PRINTED_ROW = ("head", "base", "branch", "state", "test_state", "mergeable_state", "failing_checks", "ai_review", "labels", "green_at")
+REUSED_REFUSAL = re.compile(r"^the (?:gate read [0-9a-f]+ (?:BLOCKED|WAITING)|[\w-]+ check reads) ")
 QUEUE_STATUS_SECONDS = 300
 LANDABLE = "landable"
 CHECK_PR_TIMEOUT = "CHECK-PR-TIMEOUT"
@@ -5711,11 +5714,17 @@ def unheld(target: str) -> str:
     return json.dumps({key: value for key, value in json.loads(target).items() if key not in ("retry_after", "failed_on")})
 
 
-def heads_query(repo: str, shas: list[str]) -> str:
+def reusable(outcome: Outcome) -> bool:
+    """Whether a pass may settle a PR as `outcome` again without checking its tree while the tree's inputs have not changed: a below-blocked outcome, or a refusal a gate verdict or an accept check gave, never one the pass's own failure to read or check gave."""
+    return isinstance(outcome, BelowBlocked) or isinstance(outcome, Refused) and REUSED_REFUSAL.match(outcome.why) is not None and "next pass" not in outcome.why
+
+
+def heads_query(repo: str, shas: list[str], prs: list[str]) -> str:
     owner, name = repo.split("/")
     review = f'checkSuites(last: 10, filterBy: {{checkName: "{REVIEW_BOT_CHECK}"}}) {{ nodes {{ checkRuns(last: 1, filterBy: {{checkName: "{REVIEW_BOT_CHECK}"}}) {{ nodes {{ title startedAt }} }} }} }}'
     fields = " ".join(f'h{index}: object(expression: "{sha}") {{ ... on Commit {{ status {{ contexts {{ context state description targetUrl }} }} {review} }} }}' for index, sha in enumerate(shas))
-    return f'query {{ repository(owner: "{owner}", name: "{name}") {{ {fields} }} }}'
+    decisions = " ".join(f"r{pr}: pullRequest(number: {pr}) {{ headRefOid reviewDecision }}" for pr in prs)
+    return f'query {{ repository(owner: "{owner}", name: "{name}") {{ {fields} {decisions} }} }}'
 
 
 @dataclass(frozen=True)
@@ -6085,6 +6094,10 @@ class Landing:
         self.stacks: dict[str, set[str]] = {}
         self.no_go: set[str] = set()
         self.below_blocking: set[str] = set()
+        self.unchanged: dict[str, tuple[str, str, float, dict[str, tuple[str, Outcome]]]] = {}
+        self.reviews_read: dict[str, list[str]] = {}
+        self.about: dict[str, int] = {}
+        self.about_read: int | None = None
         self.started = self.book.stamp()
         self.adapter = merge_queue.adapter(self.shell, self.checkout, config["adapter"], self.ledger_py, self.repo, self.ledger, self.runner.config.drive, self.runner.config.source.parent / MERGE_TASKS)
         self.book.ensure(LANDING, LANDING)
@@ -6421,11 +6434,15 @@ class Landing:
         return [kept for tree in trees if (kept := [tip for tip in tree if tip not in waiting])]
 
     def gate_trees(self, rows: dict[str, dict], held: list[str], trees: list[list[str]]) -> None:
-        """Hand each tree of `trees` that `landable_trees` keeps to a stack worker that outlives the pass and runs its check, its settling and the enqueue of what it accepts, so no stack's settling or enqueue waits on another's (landing-desk-3 #185922, owner 9524276). A tree whose worker still runs or waits from an earlier pass is skipped, the drive runs `GATE_WORKERS` at once with the lanes taking turns in its queue, and the pass waits for its workers no longer than its `GATE_BUDGET`. One wave per priority value, the lowest first, so a higher-priority stack reaches the queue first. Each enqueue still runs its stack's chains bottom-up. Under the `trunk-stack-enqueue` adapter each `EACH_TREES` trees of a wave share their first checks as one `CheckBatch`, sealed once it is full, so those trees read GitHub, Trunk and `git ls-remote` once instead of once per tree. Each run carries the per-PR git work of its trees four at a time, so a batch the size of a whole wave outran the 300 s check bound under load (16 trees in 409 s at load 40, Nov 2); `EACH_CHECK_SECONDS` bounds a batch at two single-check rounds, the Trunk slots run two batches at once, and a batch that still times out sends only its own trees to their single checks."""
+        """Hand each tree of `trees` that `landable_trees` keeps to a stack worker that outlives the pass and runs its check, its settling and the enqueue of what it accepts, so no stack's settling or enqueue waits on another's (landing-desk-3 #185922, owner 9524276). A tree whose worker still runs or waits from an earlier pass is skipped, the drive runs `GATE_WORKERS` at once with the lanes taking turns in its queue, and the pass waits for its workers no longer than its `GATE_BUDGET`. One wave per priority value, the lowest first, so a higher-priority stack reaches the queue first. Each enqueue still runs its stack's chains bottom-up. Under the `trunk-stack-enqueue` adapter each `EACH_TREES` trees of a wave share their first checks as one `CheckBatch`, sealed once it is full, so those trees read GitHub, Trunk and `git ls-remote` once instead of once per tree. Each run carries the per-PR git work of its trees four at a time, so a batch the size of a whole wave outran the 300 s check bound under load (16 trees in 409 s at load 40, Nov 2); `EACH_CHECK_SECONDS` bounds a batch at two single-check rounds, the Trunk slots run two batches at once, and a batch that still times out sends only its own trees to their single checks. A tree whose `tree_prints` print is the one its last check read, which settled every admitted PR of it as a refusal, is settled that way again and gets no worker, since the same inputs give the same refusal (landing-desk-efficiency, Nov 2: 39 of 67 settled PRs passed the gate only to wait on a tap)."""
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
         self.settlement.saw({pr for tree in trees for tip in tree for pr in downstack(open_rows, tip)}, "the gate's status read")
         waves: dict[int, list[list[str]]] = {}
-        for tree in self.landable_trees(rows, trees):
+        landable = self.landable_trees(rows, trees)
+        prints = self.tree_prints(landable, open_rows)
+        for tree in landable:
+            if self.reuse(tree, prints[",".join(tree)], open_rows):
+                continue
             waves.setdefault(min(self.priority(open_rows, pr) for tip in tree for pr in downstack(open_rows, tip)), []).append(tree)
         for priority in sorted(waves):
             batches = [CheckBatch(self)] if self.adapter.kind == merge_queue.TrunkStackEnqueue.kind else []
@@ -6437,7 +6454,7 @@ class Landing:
                         batches.append(CheckBatch(self))
                     batch = batches[-1] if batches else None
                     members = {pr for tip in tree for pr in downstack(open_rows, tip)}
-                    if future := self.dispatch(",".join(tree), members, lambda tree=tree, batch=batch: self.land_tree(rows, held, tree, batch)):
+                    if future := self.dispatch(",".join(tree), members, lambda tree=tree, batch=batch: self.land_tree(rows, held, tree, batch, prints[",".join(tree)])):
                         futures.append(future)
                         if batch:
                             batch.add(self.first_check(tree), [head for pr in sorted(members) if (head := open_rows[pr].get("head"))])
@@ -6553,7 +6570,7 @@ class Landing:
             future.result()
         self.keep_builds()
 
-    def land_tree(self, rows: dict[str, dict], held: list[str], tree: list[str], batch: CheckBatch | None = None) -> None:
+    def land_tree(self, rows: dict[str, dict], held: list[str], tree: list[str], batch: CheckBatch | None = None, printed: str = "") -> None:
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
         key = ",".join(tree)
         try:
@@ -6572,8 +6589,76 @@ class Landing:
                 for action in accepted:
                     self.track(key, tree, open_rows, "enqueue")
                     self.enqueue_one(action)
+            elif printed:
+                self.remember(key, printed, members, gated)
         finally:
             self.track(key, tree, open_rows, "")
+
+    def tree_prints(self, trees: list[list[str]], open_rows: dict[str, dict]) -> dict[str, str]:
+        """Each tree's inputs to its check and its accept checks, hashed by its key: the policy and the rulings source, and for each PR of it its ledger row without its refresh stamp, GitHub's review decision and head, its queue status, the statuses on its head, the newest record another lane posted naming it, its board tap and the root gos at its head. GitHub's review decision rides the pass's one heads query, so an approval moves the print in the pass it lands; a tree with a PR that query missed prints empty, which no check is reused for."""
+        self.read_about()
+        reviews, statuses, tapped, gos = dict(self.reviews_read), self.pr_statuses() or {}, self.owner_tapped(), self.root_gos()
+        shared = [self.whole(), self.merge_mode, self.checks, rulings_digest()]
+        prints = {}
+        for tree in trees:
+            members = sorted({pr for tip in tree for pr in downstack(open_rows, tip)}, key=int)
+            if any(pr not in reviews for pr in members):
+                prints[",".join(tree)] = ""
+                continue
+            parts = [shared]
+            for pr in members:
+                row, entry = open_rows[pr], statuses.get(pr) or {}
+                head = row.get("head", "")
+                parts.append([pr, *(row.get(field) for field in PRINTED_ROW), reviews[pr], entry.get("verdict"), entry.get("queue"), sorted((status["context"], status["state"]) for status in (self.read.get(head) or (None, []))[1]), self.about.get(pr, 0), pr in tapped, sorted(go["seq"] for go in gone_at(gos, pr, head))])
+            prints[",".join(tree)] = hashlib.sha1(json.dumps(parts, default=str).encode()).hexdigest()
+        return prints
+
+    def read_about(self) -> None:
+        """Advance `about`, the seq of the newest record from a lane other than this runner that names each PR, through the records posted since the last read. The runner's first read starts at the drive's newest seq, since a tree's first check reads everything posted before it."""
+        drive = self.runner.config.drive
+        if self.about_read is None:
+            out = self.cci_tail.run(["cci", "tail", "--drive", drive, "--since-seq", "0", "--json", "--limit", "1"])
+            self.about_read = max((json.loads(line)["seq"] for line in out.splitlines() if line.strip()), default=0)
+            return
+        for record in cci.records(self.cci_tail.run, drive, since=self.about_read):
+            self.about_read = max(self.about_read, record["seq"])
+            if record["lane"] != RUNNER:
+                for pr in {*about_prs(record, self.repo), *(hashed or pulled for hashed, pulled in PR_NAMED.findall(record.get("text") or ""))}:
+                    self.about[pr] = record["seq"]
+
+    def trunk_sha(self) -> str:
+        return self.trunk_read[0] if self.trunk_read else ""
+
+    def remember(self, key: str, printed: str, members: set[str], gated: list[tuple[list[str], merge_queue.Gate]]) -> None:
+        """Keep the outcomes a stack worker settled its tree's admitted PRs as, under the tree's print, when every check of the tree read a verdict and every outcome is `reusable`; one that a gate verdict gave holds only at the trunk head it was read against."""
+        if any(not done.verdicts or done.unparsed for _, done in gated):
+            self.unchanged.pop(key, None)
+            return
+        with self.settlement.lock:
+            outcomes = {pr: (self.settlement.heads[pr], outcome) for pr in members if (outcome := self.settlement.outcomes.get(pr)) is not None}
+            admitted = members & self.settlement.heads.keys()
+        if outcomes.keys() != admitted or not all(reusable(outcome) for _, outcome in outcomes.values()):
+            self.unchanged.pop(key, None)
+            return
+        bound = any(isinstance(outcome, BelowBlocked) or outcome.why.startswith("the gate read") for _, outcome in outcomes.values())
+        if bound and not self.trunk_sha():
+            self.unchanged.pop(key, None)
+            return
+        self.unchanged[key] = (printed, self.trunk_sha() if bound else "", time.monotonic(), outcomes)
+
+    def reuse(self, tree: list[str], printed: str, open_rows: dict[str, dict]) -> bool:
+        """Settle `tree` as its last check did, without checking it, while its print is the one that check read, the trunk head is the one a gate verdict of it was read against, and `UNCHANGED_FOR` has not passed since (owner, Nov 2: review state in the print, the interval only a backstop)."""
+        key = ",".join(tree)
+        if (kept := self.unchanged.pop(key, None)) is None or not printed:
+            return False
+        was, trunk, at, outcomes = kept
+        if was != printed or trunk and trunk != self.trunk_sha() or time.monotonic() - at >= UNCHANGED_FOR.total_seconds():
+            return False
+        self.unchanged[key] = kept
+        for pr, (head, outcome) in outcomes.items():
+            self.settlement.settle(pr, head, outcome)
+        self.settlement.saw({pr for tip in tree for pr in downstack(open_rows, tip)}, f"the unchanged-tree reuse of its check {int((time.monotonic() - at) // 60)} min ago")
+        return True
 
     def track(self, key: str, tree: list[str], open_rows: dict[str, dict], step: str) -> None:
         """Record the step a stack worker is on, or that it ended, and rewrite `landing-stacks.json` beside the config, which stall_watch reads to name a stack stuck past its step's budget."""
@@ -7319,15 +7404,22 @@ class Landing:
             return next((statuses for head, (at, statuses) in self.read.items() if same_head(head, sha) and now - at < HEAD_FLOOR), None)
 
     def read_heads(self, heads: dict[str, str]) -> dict[str, list[dict] | None]:
-        """The commit statuses of each head in `heads`, a sha to the PR it heads, and into `review_titles` the title of the review bot's newest `ai-review` run on it: one GraphQL query per `HEADS_PER_QUERY` heads not read in the last `HEAD_FLOOR`. A head GitHub refuses or does not know reads None and joins `unread` under its cause, which `report_unread` logs at the end of the pass."""
+        """The commit statuses of each head in `heads`, a sha to the PR it heads, into `review_titles` the title of the review bot's newest `ai-review` run on it, and into `reviews` GitHub's head and review decision of the PR: one GraphQL query per `HEADS_PER_QUERY` heads not read in the last `HEAD_FLOOR`. A head GitHub refuses or does not know reads None and joins `unread` under its cause, which `report_unread` logs at the end of the pass, and its PR leaves `reviews`."""
         found = {sha: statuses for sha in heads if (statuses := self.cached(sha)) is not None}
         due = sorted(set(heads) - set(found))
         for start in range(0, len(due), HEADS_PER_QUERY):
             batch = due[start : start + HEADS_PER_QUERY]
-            done = self.shell.run(ghread.read("api", "graphql", "-f", f"query={heads_query(self.repo, batch)}"), env={"GH_REPO": self.repo})
+            prs = sorted({heads[sha] for sha in batch}, key=int)
+            done = self.shell.run(ghread.read("api", "graphql", "-f", f"query={heads_query(self.repo, batch, prs)}"), env={"GH_REPO": self.repo})
             last = (done.err or done.out).strip().splitlines()[-1:] or [f"exit {done.code}"]
             commits = json.loads(done.out)["data"]["repository"] if done.code == 0 else {}
             now = self.runner.now()
+            with self.reading:
+                for pr in prs:
+                    if node := commits.get(f"r{pr}"):
+                        self.reviews_read[pr] = [node["headRefOid"], node["reviewDecision"]]
+                    else:
+                        self.reviews_read.pop(pr, None)
             for index, sha in enumerate(batch):
                 if (commit := commits.get(f"h{index}")) is None:
                     why = f"GitHub refused the statuses: {last[0]}" if done.code else f"GitHub knows no such commit in {self.repo}"
