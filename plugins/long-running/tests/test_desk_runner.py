@@ -11155,6 +11155,21 @@ def test_handoff_to_a_version_whose_install_is_not_its_release_stops_no_runner_a
     assert pinned(config) == runner_module.RUNNING_VERSION
 
 
+def test_handoff_to_a_version_whose_main_ci_has_not_passed_stops_no_runner_unless_told_why(shell, config, tmp_path, monkeypatch, capsys):
+    """Root #327196, Nov 2: 0.7.901 crashed the orca runner every 60 s on a defect its own main CI run had already failed on."""
+    version = newer(runner_module.RUNNING_VERSION)
+    pin(config, runner_module.RUNNING_VERSION)
+    red = "the long-running CI run on 7ae7b77939, the commit long-running--v0.7.905 was bumped from, ended failure: https://github.com/yasyf/cc-skills/actions/runs/1"
+    monkeypatch.setattr(runner_module.drive, "release_faults", lambda target: [])
+    monkeypatch.setattr(runner_module.drive, "ci_fault", lambda target: red)
+    runner, held = live_runner(shell, config, tmp_path, "orca")
+    with held:
+        assert cli(shell, config, "handoff", "--desk", "orca", "--version", version) == 1
+    assert f"no runner was stopped, since {red}; hand off once it passes, or pass --ci-red-ok" in capsys.readouterr().err
+    assert not runner.stop_marker().exists() and shell.successors == []
+    assert pinned(config) == runner_module.RUNNING_VERSION
+
+
 def test_handoff_to_a_version_whose_own_preflight_refuses_stops_no_runner_and_keeps_the_pin(shell, config, tmp_path, monkeypatch, capsys):
     version = newer(runner_module.RUNNING_VERSION)
     pin(config, runner_module.RUNNING_VERSION)

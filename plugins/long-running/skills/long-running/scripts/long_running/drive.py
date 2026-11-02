@@ -142,6 +142,7 @@ from . import cci
 from . import lanes
 from . import ledger
 from . import overview
+from . import ghread
 from . import judge
 from . import release
 from .release import config_dir, version_key
@@ -163,6 +164,8 @@ LANE_RECORDS = timedelta(days=1)
 PR_OWED_WINDOW = timedelta(hours=12)
 OUTSIDE_REPO = 3
 LAUNCH_RECEIPTS = Path(".vcache") / "scratch" / "orca-launch"
+CI_WORKFLOW = "long-running CI"
+GITHUB_REPO = re.compile(r"^https://github\.com/(?P<repo>[\w.-]+/[\w.-]+?)(?:\.git)?/?$")
 PLUGIN = Path(__file__).resolve().parents[4]
 DESKS = ("orca", "landing")
 DESK_RUNNER = "desk-runner"
@@ -212,6 +215,34 @@ def release_faults(version: str) -> list[str]:
     marketplace = PLUGIN.parents[3] / "marketplaces" / PLUGIN.parents[1].name / ".claude-plugin" / "marketplace.json"
     source = next(entry["source"] for entry in load(marketplace)["plugins"] if entry["name"] == PLUGIN.parent.name)
     return tree_faults(copy, source["url"], f"{PLUGIN.parent.name}--v{version}", source["path"], config_dir() / "long-running" / "releases.git")
+
+
+def ci_fault(version: str) -> str:
+    """Why `version` may not run a desk yet: the `CI_WORKFLOW` run on main for the commit its release tag was bumped from has not passed, read from GitHub. Merges skip CI (owner, Nov 2), so the install is where a red main stops (root #327196); empty once that run passed, or for an install outside the plugin cache or from a repository off GitHub."""
+    if PLUGIN.parents[2].name != "cache":
+        return ""
+    marketplace = PLUGIN.parents[3] / "marketplaces" / PLUGIN.parents[1].name / ".claude-plugin" / "marketplace.json"
+    source = next(entry["source"] for entry in load(marketplace)["plugins"] if entry["name"] == PLUGIN.parent.name)
+    if not (found := GITHUB_REPO.match(source["url"])):
+        return ""
+    repo, tag = found["repo"], f"{PLUGIN.parent.name}--v{version}"
+
+    def api(path: str) -> dict:
+        done = subprocess.run(ghread.read("api", path, max_age=ghread.FRESH), capture_output=True, text=True)
+        if done.returncode:
+            raise RuntimeError(f"gh api {path} exited {done.returncode}: {(done.stderr or done.stdout).strip()[:200]}")
+        return json.loads(done.stdout)
+
+    merged = api(f"repos/{repo}/commits/{tag}")["parents"][0]["sha"]
+    runs = [run for run in api(f"repos/{repo}/actions/runs?head_sha={merged}&per_page=100")["workflow_runs"] if run["name"] == CI_WORKFLOW]
+    if not runs:
+        return f"no {CI_WORKFLOW} run on main has started for {merged[:10]}, the commit {tag} was bumped from"
+    run = max(runs, key=lambda run: run["run_attempt"])
+    if run["status"] != "completed":
+        return f"the {CI_WORKFLOW} run on {merged[:10]}, the commit {tag} was bumped from, is {run['status']}: {run['html_url']}"
+    if run["conclusion"] != "success":
+        return f"the {CI_WORKFLOW} run on {merged[:10]}, the commit {tag} was bumped from, ended {run['conclusion']}: {run['html_url']}"
+    return ""
 
 
 def tree_faults(copy: Path, url: str, tag: str, source: str, releases: Path) -> list[str]:
