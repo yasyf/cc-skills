@@ -4257,16 +4257,22 @@ class Runner:
             )
 
     def mute_pushback(self) -> None:
-        """Post one MUTE-PUSHBACK to root for each incident, mechanism, report, answer, stopped, or not-ours record of the last hour that proposes to mute a failing group, calls it a false alarm, or skips or scopes out the failing teams: a mute never closes an unfixed mechanism. A typed `MUTE <lane>: monitors <ids> until fix-live: <proof>` line on a page proved false is the window, never a close, and passes unless it names a release gate. The word inside a name such as `open-mute/first-week`, or a clause that deletes, lifts or expires a mute, proposes nothing (root #298621)."""
+        """Post one MUTE-PUSHBACK to root for each incident, mechanism, report, answer, stopped, or not-ours record of the last hour that proposes to mute a failing group, calls it a false alarm, or skips or scopes out the failing teams: a mute never closes an unfixed mechanism. A typed `MUTE <lane>: monitors <ids> until fix-live: <proof>` line on a page proved false is the window, never a close, and passes unless it names a release gate. The word inside a name such as `open-mute/first-week`, or a clause that deletes, lifts or expires a mute, proposes nothing (root #298621). A mute by a lane a root incident order names, posted after that lane's fix landed, is the order's window, not a close (root #300304)."""
         try:
-            records = cci.records(self.cci_tail, self.config.drive, *(f"--kind={kind}" for kind in MUTE_KINDS), since=actions.stamp(self.now() - PR_SILENT_HORIZON))
+            records = cci.records(self.cci_tail, self.config.drive, *(f"--kind={kind}" for kind in (*MUTE_KINDS, "landed")), since=actions.stamp(self.now() - PR_SILENT_HORIZON))
         except CciTailFailed as failure:
             self.tail_failed(failure)
             return
+        orders = [record for record in records if record["lane"] == ROOT and record["kind"] == "incident"]
+        ordered = {lane for order in orders for lane in order.get("to") or []} | {record["lane"] for record in records if record.get("re") in {order["seq"] for order in orders}}
+        fixed: dict[str, int] = {}
+        for record in records:
+            if record["kind"] == "landed":
+                fixed.setdefault(record["lane"], record["seq"])
         for record in records:
             text = record.get("text") or ""
             said = next((found for found in MUTE.finditer(text) if not UNMUTE.search(text[max(0, found.start() - 40) : found.end()])), None)
-            if record["drive"] != self.config.drive or record["lane"] == ROOT or text.startswith("MUTE-PUSHBACK") or not said:
+            if record["drive"] != self.config.drive or record["kind"] not in MUTE_KINDS or record["lane"] == ROOT or record["lane"] in ordered and fixed.get(record["lane"], record["seq"]) < record["seq"] or text.startswith("MUTE-PUSHBACK") or not said:
                 continue
             if MUTE_WINDOW.match(text) and not RELEASE_GATE.search(text):
                 continue
