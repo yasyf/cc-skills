@@ -47,7 +47,7 @@ ASK = re.compile(
 LANE_TASK = {"id": "1", "subject": "Land the stack", "status": "in_progress", "owner": "stack-lander"}
 SYSTEM_PREFIXES = ("<", "/", "This session is being continued", "[Request interrupted")
 CLOSING = ("completed", "deleted")
-MAINTENANCE_VERBS = {"ledger.py": frozenset({"drop", "answer", "unregister", "unadmit", "gone"}), "drive_supervisor.py": frozenset({"retire"})}
+MAINTENANCE_VERBS = {"ledger.py": frozenset({"drop", "answer", "unregister", "unadmit", "gone"}), "drive_supervisor.py": frozenset({"request"})}
 RECORD_TIMEOUT_SECONDS = 10
 
 

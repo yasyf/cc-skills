@@ -251,11 +251,11 @@ def test_a_maintenance_lane_records_each_ledger_row_and_registry_lane_it_closes(
     drive.lane("janitor", prompt="Role: maintenance")
 
     assert maintain(drive, "Bash", {"command": "cd ~/x && python3 ledger.py drop --pr 4511   --why superseded"}) == []
-    assert maintain(drive, "Bash", {"command": "drive_supervisor.py retire --config lr.json --lane old-1 --by janitor"}) == []
+    assert maintain(drive, "Bash", {"command": "drive_supervisor.py request done old-1 --config lr.json --by janitor"}) == []
     assert maintain(drive, "Bash", {"command": "python3 ledger.py list"}) == []
     assert [argv[-1] for argv in posts] == [
         "MAINTENANCE janitor ran `ledger.py drop --pr 4511 --why superseded`",
-        "MAINTENANCE janitor ran `drive_supervisor.py retire --config lr.json --lane old-1 --by janitor`",
+        "MAINTENANCE janitor ran `drive_supervisor.py request done old-1 --config lr.json --by janitor`",
     ]
 
 
