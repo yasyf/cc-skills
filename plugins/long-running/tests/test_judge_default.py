@@ -29,7 +29,7 @@ def test_default_judgments_confirm_only_flagged_jev_answers(tmp_path, monkeypatc
     called = []
     monkeypatch.setattr(judge, "state_dir", lambda drive, env=None: tmp_path)
 
-    def run(argv, *, input=None, timeout, env=None):
+    def run(argv, *, input=None, timeout, env=None, cwd=None):
         called.append(argv[0])
         if argv[0] == "uv":
             return json.dumps({"p_yes": probability, "tokens": 2})
@@ -58,7 +58,7 @@ def test_default_model_errors_keep_fail_open_status_and_do_not_start_another_mod
     called = []
     monkeypatch.setattr(judge, "state_dir", lambda drive, env=None: tmp_path)
 
-    def run(argv, *, input=None, timeout, env=None):
+    def run(argv, *, input=None, timeout, env=None, cwd=None):
         called.append(argv[0])
         if argv[0] == leaf:
             raise failure
@@ -78,7 +78,7 @@ def test_default_unexpected_model_errors_retain_their_identity(leaf):
     failure = RuntimeError("unexpected model error")
     called = []
 
-    def run(argv, *, input=None, timeout, env=None):
+    def run(argv, *, input=None, timeout, env=None, cwd=None):
         called.append(argv[0])
         if argv[0] == leaf:
             raise failure
