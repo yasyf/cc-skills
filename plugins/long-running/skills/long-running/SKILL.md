@@ -1966,8 +1966,12 @@ and cites the owner's answer as `# owner: <answer id>`. A go's `[exempt: <class>
 checked the same way: a test, CI or port class holds only when every changed file fits it;
 otherwise the head waits on the owner's tap, and one `TEST-ONLY-MISMATCH` or `PORT-MISMATCH`
 blocker names the file to the PR's lane, the root and each `landing.board_lane`. Any other
-class is the root's to claim. `desk-runner.py go <pr>` prints the class the files give, so a
-lane writing an exempt go reads it from the files, never from a grade's words (root #232354).
+class is the root's to claim. A class is a test or CI class when it names a test, CI, harness or
+fixture word, so `ci-tooling` is one. `desk-runner.py class <pr>` prints, for the PR at its ledger
+head, whether `[exempt: test-only]` and `[exempt: port]` admit it and which file refuses each,
+and `desk-runner.py go <pr>` adds the same lines to its go state. A lane writing an exempt go
+runs it first and reads the class from the files, never from a grade's words or a guess
+(root #232354, #306404).
 The runner posts one `TAP-REQUIRED` blocker per head,
 naming the row, to the PR's lane, the root, and each `landing.board_lane`. When the changed
 files, the register, or the board do not read, it never guesses a merge: the head stays

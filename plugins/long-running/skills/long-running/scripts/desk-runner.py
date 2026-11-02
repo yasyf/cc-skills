@@ -7768,16 +7768,16 @@ class Landing:
             return False, f"PORT-MISMATCH {offender} is outside {','.join(PORT_PREFIXES)} and no Rulings comment clears its interaction, so the port claim does not hold; "
         return True, ""
 
-    def file_class(self, pr: str, sha: str) -> str:
-        """What the files `pr` changes against its base at `sha` make it, read as `claim_holds` reads them, so a lane posting an exempt go reads the class from the files and never from a grade's words."""
+    def file_classes(self, pr: str, sha: str) -> list[str]:
+        """Whether a go's `[exempt: test-only]` and `[exempt: port]` brackets admit `pr` at `sha`, each read by `claim_holds` from every file the PR changes, so the go writer reads the class from the rule and never guesses it (root #306404). A bracket whose class names no test, CI, harness, fixture or port word is the root's claim alone, which no file rule checks."""
         files, _ = self.changed_files(pr, sha)
         if files is None:
-            return "its changed files did not read"
-        if offender := test_only_offender(self.patches[(pr, sha)]):
-            return f"its files make it code: {offender} is neither a test nor CI configuration"
-        if unclassed := unclassed_files(self.patches[(pr, sha)]):
-            return f"its files make it test-only or CI-only, with {', '.join(unclassed)} read by no class rule"
-        return "its files make it test-only or CI-only"
+            return ["its changed files did not read, so no exempt bracket admits it"]
+        verdicts = []
+        for claim in ("test-only", "port"):
+            holds, said = self.claim_holds(pr, sha, claim)
+            verdicts.append(f"[exempt: {claim}] admits it{said}" if holds else f"[exempt: {claim}] is refused: {said.removesuffix('; ')}")
+        return verdicts
 
     def interaction_cleared(self, pr: str) -> bool:
         """Whether a comment on `pr` under a `Rulings` heading has a line that names the change's interaction and cites the owner's answer as `# owner: <answer id>`."""
@@ -9318,7 +9318,7 @@ class Landing:
             if running["commit"] not in contains:
                 contains[running["commit"]] = self.shell.run(["git", "-C", str(self.checkout), "merge-base", "--is-ancestor", sha, running["commit"]]).code == 0
             if contains[running["commit"]]:
-                return f"{running['target']} on {running['env']} runs {running['commit'][:10]} ({running.get('release') or 'outside a release'})"
+                return f"{running['target']} on {running['env']} runs {running['commit'][:10]} ({running.get('release') or 'release unknown'})"
         return ""
 
     def press_release(self, action: actions.Action) -> None:
@@ -10477,11 +10477,13 @@ def build_parser() -> argparse.ArgumentParser:
     gc.add_argument("--dry-run", action="store_true")
     go = verbs.add_parser("go", help="each PR's ledger head and the newest go naming it, else the newest go at an older head, read as the landing runner reads them")
     go.add_argument("prs", nargs="+")
+    classes = verbs.add_parser("class", help="whether a go's [exempt: test-only] or [exempt: port] bracket admits each PR at its ledger head, read from its changed files as the landing runner reads them")
+    classes.add_argument("prs", nargs="+")
     edit = verbs.add_parser("config", help="set or unset one member of runner.json, written only when the landing desk would start on the result")
     edit.add_argument("action", choices=("set", "unset"))
     edit.add_argument("key", help="the member's dotted path, such as landing.fidelity_lane")
     edit.add_argument("value", nargs="?", default="null", help="the member's JSON value, for set")
-    for sub in (relay, launch, policy, loop, rebind, handoff, supervise, preflight, quiesce, show, gc, go, edit):
+    for sub in (relay, launch, policy, loop, rebind, handoff, supervise, preflight, quiesce, show, gc, go, classes, edit):
         sub.add_argument("--config", type=Path, required=True)
     return parser
 
@@ -10542,7 +10544,16 @@ def main(argv: list[str] | None = None, shell: Shell | None = None) -> int:
         gos = landing.root_gos()
         for pr in (pr.lstrip("#") for pr in args.prs):
             head = rows.get(pr, {}).get("head", "")
-            print(f"#{pr} at {head[:10]}: {go_state(gos, pr, head).said()}; {landing.file_class(pr, head)}" if head else f"#{pr}: no ledger row with a head")
+            print(f"#{pr} at {head[:10]}: {go_state(gos, pr, head).said()}; {'; '.join(landing.file_classes(pr, head))}" if head else f"#{pr}: no ledger row with a head")
+        return 0
+    if args.verb == "class":
+        landing = Landing(runner, config.landing)
+        if (rows := landing.rows()) is None:
+            print("desk-runner class: the drive's ledger did not list", file=sys.stderr)
+            return 1
+        for pr in (pr.lstrip("#") for pr in args.prs):
+            head = rows.get(pr, {}).get("head", "")
+            print("\n".join(f"#{pr} at {head[:10]}: {verdict}" for verdict in landing.file_classes(pr, head)) if head else f"#{pr}: no ledger row with a head")
         return 0
     if args.verb == "rebind":
         return runner.rebind()

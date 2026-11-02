@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 
-CUSTOMERS = re.compile(r"\b(?:tenants?|customers?|SoFi|AIG|HSBC|GSK|(?:tenant|their|customer|end|real) users|users (?:on|of|in) (?:the |those |these |three |\d+ )?(?:tenant|customer|cluster))\b", re.IGNORECASE)
+CUSTOMERS = re.compile(r"\b(?:tenants?|customers?(?!-break)|SoFi|AIG|HSBC|GSK|(?:tenant|their|customer|end|real) users|users (?:on|of|in) (?:the |those |these |three |\d+ )?(?:tenant|customer|cluster))\b", re.IGNORECASE)
 HARM = re.compile(
     r"\b(?:breaks|breaking|broke|broken|crash(?:es|ed|ing)?|crash-?loop\w*|fail(?:s|ed|ing)? (?:for|to (?:open|load|start|send|sign))|cannot (?:open|load|send|start|sign)|can'?t (?:open|load|send|start)|unavailable|outage|down for|HTTP [45]\d\d|[45]\d\ds)\b"
     r"|\b(?:sees?|shows?)\s+(?:an?\s+|its\s+|the\s+)?['\"‘“]",
