@@ -92,7 +92,7 @@ ship() {
       if [ -d "$next" ]; then
         cat >/dev/null
       else
-        rm -rf "$next.part" && mkdir -p "$next.part" && tar -xz -m -C "$next.part" && mv "$next.part" "$next" || exit 1
+        rm -rf "$1.part" && mkdir -p "$1.part" && tar -xz -m -C "$1.part" && mv "$1.part" "$next" || exit 1
       fi
       [ -L "$1" ] || rm -rf "$1"
       rm -f "$1.link" && ln -s "$next" "$1.link" && python3 -c "import os, sys; os.replace(sys.argv[1], sys.argv[2])" "$1.link" "$1" && printf %s "$2" >"$1.digest" || exit 1
