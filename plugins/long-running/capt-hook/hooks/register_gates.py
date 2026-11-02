@@ -178,7 +178,7 @@ def live_successor(evt: BaseHookEvent, lane: str) -> str | None:
     """`lane` while `cci who` lists it live, else its newest live numbered successor (`register-seed-5` to `register-seed-6`), else None."""
     if not (entry := drive_entry(evt)):
         return None
-    argv = ["cci", "who", "--drive", bus_name(entry), "--json"]
+    argv = ["cci", "who", "--drive", bus_name(entry), "--json", "--fields", "lane,live,announced_at"]
     try:
         done = subprocess.run(argv, capture_output=True, text=True, timeout=CCN_TIMEOUT_SECONDS, env=dict(reqenv.env_map()))
     except (OSError, subprocess.TimeoutExpired):

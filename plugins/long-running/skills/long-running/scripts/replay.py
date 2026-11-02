@@ -80,6 +80,7 @@ READ_TEXT = (
 KEPT_FIELDS = ("seq", "at", "lane", "kind", "to", "re", "resolves", "also_resolves", "topic")
 KEPT_ATTRS = ("brief", "model", "effort", "role", "successor", "verb", "lane", "last-read", "placement", "successor-of")
 KEPT_ROW = ("lane", "live", "seen_at", "announced_at", "stood_down", "roster")
+WHO_FIELDS = ("lane", "live", "seen_at", "announced_at", "stood_down")
 
 
 def at_of(text: str) -> datetime:
@@ -98,7 +99,7 @@ def shell(argv: list[str]) -> str:
 
 
 def who_rows(drive_name: str) -> list[dict]:
-    return [json.loads(line) for line in shell(["cci", "who", "--drive", drive_name, "--all", "--json"]).splitlines() if line.strip()]
+    return [json.loads(line) for line in shell(["cci", "who", "--drive", drive_name, "--all", "--json", "--fields", ",".join(WHO_FIELDS)]).splitlines() if line.strip()]
 
 
 def changed_files(repo: str, pr: int) -> dict[str, str | None]:

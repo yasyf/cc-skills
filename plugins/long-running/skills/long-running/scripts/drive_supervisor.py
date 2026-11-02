@@ -68,6 +68,7 @@ AUTOCOMPACT_BUFFER = 13_000
 ROTATE_PERCENT = 70
 THROTTLE_SECONDS = 60
 OPEN_FILES = 65536
+WHO_FIELDS = "session,agent,lane,live,seen_at,stood_down"
 
 
 def run(argv: list[str]) -> str:
@@ -271,7 +272,7 @@ def lanes_deps(config: lr_config.Config, state: Path) -> lanes.Deps:
     receipts = RECEIPTS / config.orca_run
 
     def who(names: set[str] | None) -> list[dict]:
-        rows = rostered([json.loads(line) for line in run(["cci", "who", "--drive", config.drive, "--all", "--json"]).splitlines() if line.strip()], TEAMS)
+        rows = rostered([json.loads(line) for line in run(["cci", "who", "--drive", config.drive, "--all", "--json", "--fields", WHO_FIELDS]).splitlines() if line.strip()], TEAMS)
         return rows + (orca_rows(config.orca_run, receipts, names, clock()) if config.orca_run else [])
 
     briefs = state / "lanes"
