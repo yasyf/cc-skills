@@ -23,7 +23,11 @@ SHA = hashlib.sha256(BRIEF.encode()).hexdigest()
 BYTES = len(BRIEF.encode())
 LOCAL_WORKTREE = "/w/lane-a"
 LOCAL_TERMINAL = "term_local_1"
-TOOLS = ("orca", "cc-remote")
+TOOLS = ("orca", "cc-remote", "sprite", "cci")
+SPONSOR = "sponsor-1"
+RELAY_URL = "https://relay.example.test/"
+OWNER_KEY = "BOwner=="
+KEY_PATH = "/home/sprite/.cc-inbox/node/key.pem"
 PIN = "9.8.7"
 
 VERSION = ["cc-remote", "version"]
@@ -54,7 +58,7 @@ RECEIPT = {"ok": True, "result": {"runId": RUN, "taskId": "task_a", "dispatchId"
 ALLOCATION_KEPT = ["allocation.json", "prepare.err", "prepare.status", "request.json"]
 PREPARE_KEPT = sorted([*ALLOCATION_KEPT, "prepared.json"])
 START_KEPT = ["worker-start.err", "worker-start.json", "worker-start.status"]
-SPRITE_KEPT = sorted([*PREPARE_KEPT, *START_KEPT])
+SPRITE_KEPT = sorted([*PREPARE_KEPT, "cci-install.log", *START_KEPT])
 LOCAL_KEPT = sorted(["request.json", *START_KEPT])
 UNREADY = "orca orchestration worker-start exited 0 without a ready receipt for Run {run}; kept terminal {terminal}, worktree {worktree}, and the receipt in {attempt}"
 
@@ -142,6 +146,12 @@ class Launch:
         response = allocated if allocated is not None else prepared if isinstance(prepared, str) else allocation(prepared)
         self.reply("cc-remote orca prepare", {"out": response if isinstance(response, str) else json.dumps(response), "err": "prepared on sprites\n"})
         self.reply("orca orchestration worker-start", started or {"out": RECEIPT})
+        self.reply("sprite exec", {"rc": 0}, {"rc": 0}, {"rc": 0})
+
+    def relay(self) -> None:
+        self.reply("cci relay status", {"out": [{"mesh": "other", "url": "https://elsewhere.test/", "routes": ["x"]}, {"mesh": "default", "url": RELAY_URL, "routes": ["drive-a", "drive-b"]}]})
+        self.reply("cci node", {"out": {"id": "n1", "public_key": OWNER_KEY}})
+        self.reply("sprite exec", {"rc": 0}, {"rc": 0}, {"rc": 0})
 
     def local(self, wait: dict | None = None, started: dict | None = None) -> None:
         self.reply("orca orchestration run-current", BOUND)
@@ -175,10 +185,23 @@ class Launch:
     def prepare(self, *extra: str, model: str = "claude-opus-5-5", kind: str = "claude", effort: str = "xhigh", lane: str = LANE) -> list[str]:
         return ["cc-remote", "orca", "prepare", lane, "--warm", "--provider", "sprites", "--profile", "agents", "--agent", kind, "--model", model, "--effort", effort, "--brief-file", str(self.brief), *extra]
 
-    def start(self, prepared: dict = PREPARED) -> list[str]:
-        spec = f"Lane {LANE}: first install cci: curl -fsSL {CCI_URL} -o /tmp/cci.tgz && echo '{CCI_SHA}  /tmp/cci.tgz' | sha256sum -c - && mkdir -p ~/.local/bin && tar -xzf /tmp/cci.tgz -C ~/.local/bin cci. Then read the whole brief at {prepared['brief']['path']}, verify its SHA-256 is {SHA} and its size is {BYTES} bytes, then follow it exactly."
+    def install(self, workspace: str = WORKSPACE) -> list[str]:
+        script = 'curl -fsSL "$1" -o /tmp/cci.tgz && echo "$2  /tmp/cci.tgz" | sha256sum -c - && mkdir -p ~/.local/bin && tar -xzf /tmp/cci.tgz -C ~/.local/bin cci'
+        return ["sprite", "exec", "-s", workspace, "--no-stdin", "--", "sh", "-c", script, "sh", CCI_URL, CCI_SHA]
+
+    def join(self) -> list[list[str]]:
+        script = 'CCI_SERVICE_KEY=$(cat); export CCI_SERVICE_KEY; ~/.local/bin/cci relay join --instance --drive "$1" --url "$2" --ttl 24h --owner "$3"'
+        return [
+            ["cci", "relay", "status", "--json"],
+            ["cci", "node", "--json"],
+            ["sprite", "exec", "-s", SPONSOR, "--no-stdin", "--", "cat", KEY_PATH],
+            ["sprite", "exec", "-s", WORKSPACE, "--", "sh", "-c", script, "sh", "drive-a,drive-b", RELAY_URL, OWNER_KEY],
+        ]
+
+    def start(self, prepared: dict = PREPARED) -> list[list[str]]:
+        spec = f"Lane {LANE}: read the whole brief at {prepared['brief']['path']}, verify its SHA-256 is {SHA} and its size is {BYTES} bytes, then follow it exactly."
         placement = ["--on", prepared["environment"], "--worktree", f"id:{prepared['worktreeId']}", "--terminal", prepared["terminal"]]
-        return ["orca", "orchestration", "worker-start", "--run", RUN, "--spec", spec, "--task-title", LANE, *placement, "--timeout-ms", "600000", "--full", "--json"]
+        return [self.install(prepared["environment"]), ["orca", "orchestration", "worker-start", "--run", RUN, "--spec", spec, "--task-title", LANE, *placement, "--timeout-ms", "600000", "--full", "--json"]]
 
     def local_calls(self, model: str = "claude-fable-5-1", effort: str = "xhigh", repo: str = REPO) -> list[list[str]]:
         claude = f"claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions --disallowedTools AskUserQuestion,EnterPlanMode,ExitPlanMode --strict-mcp-config --model {model} --effort {effort}"
@@ -326,7 +349,7 @@ class PreAllocationTest(LaunchTest):
                 launch.sprite(version=version)
                 result = launch.run()
                 self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertEqual(launch.calls(), [VERSION, CURRENT, launch.prepare(), launch.start()])
+                self.assertEqual(launch.calls(), [VERSION, CURRENT, launch.prepare(), *launch.start()])
 
     def test_a_missing_or_different_run_owner_refuses_before_prepare(self):
         cases = (
@@ -410,9 +433,43 @@ class SpriteTest(LaunchTest):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stderr, "")
         self.assertEqual(result.stdout.count("\n"), 1)
-        self.assertEqual(json.loads(result.stdout), {"state": "ready", "task": "task_a", "dispatch": "ctx_a", "terminal": TERMINAL, "worktree": ROOT, "lane": LANE, "workspace": WORKSPACE, "allocation": "warm"})
-        self.assertEqual(self.launch.calls(), [VERSION, CURRENT, self.launch.prepare(), self.launch.start()])
+        self.assertEqual(json.loads(result.stdout), {"state": "ready", "task": "task_a", "dispatch": "ctx_a", "terminal": TERMINAL, "worktree": ROOT, "lane": LANE, "workspace": WORKSPACE, "allocation": "warm", "relay": None})
+        self.assertEqual(self.launch.calls(), [VERSION, CURRENT, self.launch.prepare(), *self.launch.start()])
         self.assertEqual(self.launch.kept(), SPRITE_KEPT)
+
+    def test_a_relay_sponsor_joins_the_sprite_to_the_macs_default_mesh_before_the_worker_starts(self):
+        self.launch.sprite()
+        self.launch.relay()
+        result = self.launch.run(WORKER_RELAY_SPONSOR=SPONSOR)
+        self.assertEqual((result.returncode, result.stderr), (0, ""))
+        self.assertEqual(json.loads(result.stdout)["relay"], "joined")
+        install, start = self.launch.start()
+        status, node, *pipeline = self.launch.join()
+        calls = self.launch.calls()
+        self.assertEqual(calls[:6], [VERSION, CURRENT, self.launch.prepare(), install, status, node])
+        self.assertCountEqual(calls[6:8], pipeline)
+        self.assertEqual(calls[8:], [start])
+        self.assertEqual(self.launch.kept(), sorted([*SPRITE_KEPT, "relay-join.log"]))
+
+    def test_a_failed_relay_join_warns_and_still_starts_the_worker(self):
+        self.launch.sprite()
+        self.launch.relay()
+        self.launch.reply("cci node", {"rc": 1})
+        result = self.launch.run(WORKER_RELAY_SPONSOR=SPONSOR)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stderr, f"Sprite {WORKSPACE} did not join the cci relay with {SPONSOR}'s service key, so its records stay on the Sprite; {self.launch.attempt}/relay-join.log keeps the output, and the worker starts anyway\n")
+        self.assertEqual(json.loads(result.stdout)["relay"], "failed")
+        install, start = self.launch.start()
+        status, node, *_ = self.launch.join()
+        self.assertEqual(self.launch.calls(), [VERSION, CURRENT, self.launch.prepare(), install, status, node, start])
+
+    def test_a_failed_cci_install_leaves_the_prepared_worker_unattached(self):
+        self.launch.sprite()
+        self.launch.reply("sprite exec", {"rc": 1})
+        install, _ = self.launch.start()
+        line = f"installing cci from {CCI_URL} on Sprite {WORKSPACE} failed; {self.launch.attempt}/cci-install.log keeps its output, and the prepared worker stays idle and unattached"
+        self.assert_failed(self.launch, self.launch.run(), line, [VERSION, CURRENT, self.launch.prepare(), install])
+        self.assertEqual(self.launch.kept(), sorted([*PREPARE_KEPT, "cci-install.log"]))
 
     def test_the_attempt_keeps_every_raw_output_and_the_request(self):
         self.launch.sprite()
@@ -446,7 +503,7 @@ class SpriteTest(LaunchTest):
         self.launch.sprite()
         self.assertEqual(self.launch.run().returncode, 0)
         self.assertEqual(self.launch.cc_remote(), {(str(self.launch.cli), str(self.launch.config))})
-        self.assertEqual(self.launch.calls(), [VERSION, CURRENT, self.launch.prepare(), self.launch.start()])
+        self.assertEqual(self.launch.calls(), [VERSION, CURRENT, self.launch.prepare(), *self.launch.start()])
         self.assertFalse(any("--config" in argv for argv in self.launch.calls()))
 
     def test_the_checkout_is_the_one_worker_checkout_names_and_not_the_callers(self):
@@ -463,7 +520,7 @@ class SpriteTest(LaunchTest):
         result = self.launch.run(WORKER_CC_REMOTE=str(selected))
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.launch.cc_remote(), {(str(selected), str(self.launch.config))})
-        self.assertEqual(self.launch.calls(), [VERSION, CURRENT, self.launch.prepare(), self.launch.start()])
+        self.assertEqual(self.launch.calls(), [VERSION, CURRENT, self.launch.prepare(), *self.launch.start()])
 
     def test_an_explicit_cli_off_the_helper_pin_refuses_before_allocation(self):
         for route in ("unset", "path", "link"):
@@ -490,7 +547,7 @@ class SpriteTest(LaunchTest):
                 result = launch.run(cwd=cwd, CC_REMOTE_CONFIG=relative)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(launch.cc_remote(), {(str(launch.cli), str(config))})
-                self.assertEqual(launch.calls(), [*([VERSION] if own else []), CURRENT, launch.prepare(), launch.start()])
+                self.assertEqual(launch.calls(), [*([VERSION] if own else []), CURRENT, launch.prepare(), *launch.start()])
 
     def test_an_explicit_config_of_another_checkout_leaves_the_version_to_cc_remote(self):
         other = self.launch.root / "other" / "config.yaml"
@@ -500,7 +557,7 @@ class SpriteTest(LaunchTest):
         result = self.launch.run(CC_REMOTE_CONFIG=str(other))
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.launch.cc_remote(), {(str(self.launch.cli), str(other))})
-        self.assertEqual(self.launch.calls(), [CURRENT, self.launch.prepare(), self.launch.start()])
+        self.assertEqual(self.launch.calls(), [CURRENT, self.launch.prepare(), *self.launch.start()])
 
     def test_aliases_and_full_claude_ids_reach_prepare_unchanged(self):
         for model, model_id in (("opus", "claude-opus-5-5"), ("sonnet", "claude-sonnet-5-5"), ("claude-opus-5-5", "claude-opus-5-5"), ("claude-haiku-4-5-20251001", "claude-haiku-4-5-20251001")):
@@ -509,7 +566,7 @@ class SpriteTest(LaunchTest):
                 launch.sprite(prepared={**PREPARED, "agent": {**AGENT, "model": model_id, "effort": "max"}})
                 result = launch.run(model=model, effort="max")
                 self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertEqual(launch.calls(), [VERSION, CURRENT, launch.prepare(model=model_id, effort="max"), launch.start()])
+                self.assertEqual(launch.calls(), [VERSION, CURRENT, launch.prepare(model=model_id, effort="max"), *launch.start()])
 
     def test_a_codex_model_keeps_its_effort_tier_ref_and_mcp(self):
         agent = {"kind": "codex", "model": "gpt-6.1-sol", "effort": "xhigh", "serviceTier": "fast", "mcp": ["{}"]}
@@ -517,7 +574,7 @@ class SpriteTest(LaunchTest):
         result = self.launch.run(model="gpt-6.1-sol", WORKER_SERVICE_TIER="fast", WORKER_INCIDENT="1", WORKER_REF="release/2026.10", WORKER_MCP_CONFIG="{}")
         self.assertEqual(result.returncode, 0, result.stderr)
         expected = self.launch.prepare("--ref", "release/2026.10", "--service-tier", "fast", "--mcp-config", "{}", model="gpt-6.1-sol", kind="codex")
-        self.assertEqual(self.launch.calls(), [VERSION, CURRENT, expected, self.launch.start()])
+        self.assertEqual(self.launch.calls(), [VERSION, CURRENT, expected, *self.launch.start()])
         request = json.loads(self.launch.receipt("request.json"))
         self.assertEqual((request["agent"], request["ref"]), ({"kind": "codex", "model": "gpt-6.1-sol", "effort": "xhigh", "serviceTier": "fast"}, "release/2026.10"))
 
@@ -525,21 +582,21 @@ class SpriteTest(LaunchTest):
         self.launch.sprite(allocated=allocation(ref="deadbeef"))
         result = self.launch.run(WORKER_REF="deadbeef")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.launch.calls(), [VERSION, CURRENT, self.launch.prepare("--ref", "deadbeef"), self.launch.start()])
+        self.assertEqual(self.launch.calls(), [VERSION, CURRENT, self.launch.prepare("--ref", "deadbeef"), *self.launch.start()])
 
     def test_a_moved_branch_attaches_on_its_actual_base(self):
         moved = "2" * 40
         self.launch.sprite(prepared={**PREPARED, "baseCommit": moved})
         result = self.launch.run(WORKER_REF="dev")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.launch.calls(), [VERSION, CURRENT, self.launch.prepare("--ref", "dev"), self.launch.start()])
+        self.assertEqual(self.launch.calls(), [VERSION, CURRENT, self.launch.prepare("--ref", "dev"), *self.launch.start()])
         self.assertEqual(json.loads(self.launch.receipt("prepared.json"))["baseCommit"], moved)
 
     def test_an_expected_base_that_matches_attaches(self):
         self.launch.sprite()
         result = self.launch.run(WORKER_EXPECT_BASE=BASE)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.launch.calls(), [VERSION, CURRENT, self.launch.prepare(), self.launch.start()])
+        self.assertEqual(self.launch.calls(), [VERSION, CURRENT, self.launch.prepare(), *self.launch.start()])
         self.assertEqual(json.loads(self.launch.receipt("request.json"))["expectBase"], BASE)
 
     def test_an_expected_base_mismatch_leaves_the_prepared_worker_idle(self):
@@ -603,7 +660,7 @@ class SpriteTest(LaunchTest):
         self.assertEqual(json.loads(result.stdout)["workspace"], LANE)
         self.assertEqual(json.loads(result.stdout)["allocation"], "created")
         self.assertEqual(json.loads(self.launch.receipt("prepared.json")), prepared)
-        self.assertEqual(self.launch.calls(), [VERSION, CURRENT, self.launch.prepare(), self.launch.start(prepared)])
+        self.assertEqual(self.launch.calls(), [VERSION, CURRENT, self.launch.prepare(), *self.launch.start(prepared)])
 
     def test_an_allocation_must_bind_the_requested_lane_and_actual_task(self):
         cases = (
@@ -632,13 +689,13 @@ class SpriteTest(LaunchTest):
         result = self.launch.run()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(self.launch.receipt("allocation.json"))["replenish"], refill)
-        self.assertEqual(self.launch.calls(), [VERSION, CURRENT, self.launch.prepare(), self.launch.start()])
+        self.assertEqual(self.launch.calls(), [VERSION, CURRENT, self.launch.prepare(), *self.launch.start()])
 
     def test_a_failed_sprite_start_keeps_its_prepared_worker_and_receipts(self):
         refused = {"rc": 1, "out": {"ok": False, "error": {"code": "consumer_fenced", "message": "fenced"}, "result": {"taskId": "task_a", "dispatchId": "ctx_a"}}}
         self.launch.sprite(started=refused)
         result = self.launch.run()
-        self.assert_failed(self.launch, result, f"orca orchestration worker-start exited 1: consumer_fenced: fenced; kept terminal {TERMINAL}, worktree {ROOT}, and the receipt in {self.launch.attempt}", [VERSION, CURRENT, self.launch.prepare(), self.launch.start()])
+        self.assert_failed(self.launch, result, f"orca orchestration worker-start exited 1: consumer_fenced: fenced; kept terminal {TERMINAL}, worktree {ROOT}, and the receipt in {self.launch.attempt}", [VERSION, CURRENT, self.launch.prepare(), *self.launch.start()])
         self.assertEqual(self.launch.receipt("worker-start.status"), "1\n")
         self.assertEqual(self.launch.kept(), SPRITE_KEPT)
 
@@ -660,7 +717,7 @@ class SpriteTest(LaunchTest):
                 launch = self.fresh()
                 launch.sprite(started={"out": receipt})
                 line = UNREADY.format(run=RUN, terminal=TERMINAL, worktree=ROOT, attempt=launch.attempt)
-                self.assert_failed(launch, launch.run(), line, [VERSION, CURRENT, launch.prepare(), launch.start()])
+                self.assert_failed(launch, launch.run(), line, [VERSION, CURRENT, launch.prepare(), *launch.start()])
                 self.assertEqual(launch.kept(), SPRITE_KEPT)
 
 
