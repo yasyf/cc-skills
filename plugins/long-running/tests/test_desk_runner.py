@@ -6381,15 +6381,25 @@ def test_stale_blocker_current_closure_keeps_original_receipt_without_reposting(
     assert len(shell.posts) == before and len(calls) == 1
 
 
-@pytest.mark.parametrize("wrong", [None, {"status": "imported"}, {"kind": "note"}, {"lane": "foreign"}])
+@pytest.mark.parametrize("gone", [None, {"status": "superseded"}], ids=["missing", "superseded"])
+def test_a_blocker_whose_record_is_gone_or_superseded_reads_as_cleared(shell, config, tmp_path, monkeypatch, gone):
+    """Root 321165: a superseded blocker record raised ValueError and the runner skipped its whole landing pass."""
+    landing = landing_of(shell, config, tmp_path)
+    assert landing.post_record("blocker", "gone", LANE, "#29020 cccc333333: pending", "29020")
+    seq = runner_module.cci.receipt_seq(landing.book.action(runner_module.LANDING, "gone").response["posted"])
+    records = [] if gone is None else [{"seq": seq, "lane": runner_module.RUNNER, "kind": "blocker", **gone}]
+    monkeypatch.setattr(landing.runner, "cci_read", lambda argv: "\n".join(map(json.dumps, records)))
+    landing.resolve_stale_blockers({"29020": {"state": "open", "head": "cccc333333"}})
+    assert landing.book.action(runner_module.LANDING, "gone").status == "verified"
+
+
+@pytest.mark.parametrize("wrong", [{"kind": "note"}, {"lane": "foreign"}])
 def test_stale_blocker_validates_complete_selected_batch_before_verification(shell, config, tmp_path, monkeypatch, wrong):
     landing = landing_of(shell, config, tmp_path)
     for key in ("first", "second"):
         assert landing.post_record("blocker", key, LANE, "#29020 cccc333333: pending", "29020")
     first, second = [runner_module.cci.receipt_seq(landing.book.action(runner_module.LANDING, key).response["posted"]) for key in ("first", "second")]
-    records = [{"seq": first, "lane": runner_module.RUNNER, "kind": "blocker", "status": "closed"}]
-    if wrong is not None:
-        records.append({"seq": second, "lane": runner_module.RUNNER, "kind": "blocker", "status": "open", **wrong})
+    records = [{"seq": first, "lane": runner_module.RUNNER, "kind": "blocker", "status": "closed"}, {"seq": second, "lane": runner_module.RUNNER, "kind": "blocker", "status": "open", **wrong}]
     monkeypatch.setattr(landing.runner, "cci_read", lambda argv: "\n".join(map(json.dumps, records)))
     before = len(shell.posts)
     with pytest.raises(ValueError, match="has no current blocker record"):
