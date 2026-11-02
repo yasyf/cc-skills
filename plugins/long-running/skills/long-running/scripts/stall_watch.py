@@ -227,6 +227,7 @@ from long_running import drive
 from long_running import ghread
 from long_running import grades
 from long_running import incidents
+from long_running.registry import Registry
 import owner_waits
 
 SCRIPTS = Path(__file__).resolve().parent
@@ -353,7 +354,6 @@ SPAWNED = re.compile(r"^SPAWNED (?P<lane>[\w.-]+) (?P<brief>\S+)")
 NEEDS_LANE = "needs-lane:"
 BOARD_WATCH = board_rows.OWNER_LANE
 TAP_NOTE = re.compile(r"^TAP-(?:KEPT|NOT-CARRIED|CARRIED(?:-BY-PATCH)?) #(\d+): .*?\b(?:keeps at|does not carry to|now stands at) ([0-9a-f]{7,40})\b")
-LANE_NUMBER = re.compile(r"-\d+$")
 SCHEMA = json.dumps(
     {
         "type": "object",
@@ -673,10 +673,6 @@ def ended(record: dict) -> bool:
     return record["kind"] in ENDED and not (record["kind"] == "handoff" and record.get("re"))
 
 
-def successor_of(lane: str) -> re.Pattern[str]:
-    return re.compile(rf"{re.escape(grades.SUCCESSOR_NUMBER.sub('', lane))}(?:-\d{{1,2}})*")
-
-
 class Pass:
     def __init__(self, shell: Shell, watch: Watch):
         self.shell = shell
@@ -695,6 +691,7 @@ class Pass:
         self.probe_day = ""
         self.customer_seq: int | None = None
         self.spawned: dict[str, str] = {}
+        self.lanes: Registry | None = None
 
     def tail(self, argv: list[str]) -> str:
         done = self.shell.run(argv)
@@ -702,9 +699,19 @@ class Pass:
             raise ReadFailed(f"{' '.join(argv[:2])} exited {done.code}: {(done.err or done.out).strip()[:300]}")
         return done.out
 
+    def registry(self) -> Registry:
+        """The lane supervisor's registry, `drive_supervisor.py lanes --json` over the `landing.supervisor` config, read once a pass: which names are one worker's lineage and where each lane's mail goes."""
+        if self.lanes is None:
+            done = self.shell.run([sys.executable, str(SCRIPTS / "drive_supervisor.py"), "lanes", "--config", str(Path(self.watch.landing["supervisor"]).expanduser()), "--json"])
+            if done.code:
+                raise ReadFailed(f"drive_supervisor.py lanes exited {done.code}: {(done.err or done.out).strip()[:300]}")
+            self.lanes = Registry.parse(done.out)
+        return self.lanes
+
     def live_lane(self, lane: str) -> str | None:
-        """`lane` or its numbered successor, whichever posted the newest record in the window, when that record is no end of the lane."""
-        last = max((record for name, record in self.lane_newest.items() if successor_of(lane).fullmatch(name)), key=lambda record: record["seq"], default=None)
+        """`lane` or a worker of its lineage, whichever posted the newest record in the window, when that record is no end of the lane."""
+        lineage = self.registry().lineage(lane)
+        last = max((record for name, record in self.lane_newest.items() if name in lineage), key=lambda record: record["seq"], default=None)
         return last["lane"] if last is not None and not ended(last) else None
 
     def warn(self, kinds: frozenset[str] | set[str], why: str) -> None:
@@ -712,7 +719,9 @@ class Pass:
         print(f"WARN {why}; the {', '.join(sorted(kinds))} stalls it would clear stay open", file=sys.stderr)
 
     def handed_to(self, lane: str) -> str:
-        """The successor `lane`'s own handoff record names, such as `successor api-lane-6`, else `lane`: a PR follows a handoff its lane wrote, never a successor guessed from a lane's name (cci #234379, root #259013)."""
+        """Where the registry routes `lane`, when that is a successor; else the successor `lane`'s own handoff record names, such as `successor api-lane-6`, else `lane`: a PR follows its lane's successor, never one guessed from a lane's name (cci #234379, root #259013)."""
+        if (routed := self.registry().route(lane)) not in (lane, ROOT):
+            return routed
         handoff = self.lane_newest.get(f"{lane}-handoff")
         return named[1] if handoff is not None and (named := HANDED_TO.search(handoff["text"])) else lane
 
@@ -860,11 +869,11 @@ class Pass:
 
     def handled(self, records: list[dict], pr: str) -> bool:
         """Whether a `stall.quiet_lanes` lane, such as the go sweep or the board refresher, posted about `pr` in the last ten minutes, so its STALE or board line spares root."""
-        families = [successor_of(lane) for lane in self.watch.quiet_lanes]
+        quiet = {name for lane in self.watch.quiet_lanes for name in self.registry().lineage(lane)}
         for record in reversed(records):
             if self.now - at(record) >= QUIET:
                 return False
-            if any(family.fullmatch(record["lane"]) for family in families) and grades.about_pr(record, self.watch.landing["repo"], pr):
+            if record["lane"] in quiet and grades.about_pr(record, self.watch.landing["repo"], pr):
                 return True
         return False
 
@@ -910,14 +919,14 @@ class Pass:
         return stalls
 
     def answered(self, records: list[dict], refusal: dict, pr: str, head: str, named: set[str], owner: str) -> bool:
-        """Whether a record after `refusal` queued `pr` at `head`, or came from `owner` or any numbered lane of its family answering it by `--re` or as a `head` record naming a PR it names."""
-        family, repo = successor_of(re.sub(r"-\d{1,2}$", "", owner)), self.watch.landing["repo"]
+        """Whether a record after `refusal` queued `pr` at `head`, or came from `owner` or a worker in its registry lineage answering it by `--re` or as a `head` record naming a PR it names."""
+        family, repo = self.registry().lineage(owner), self.watch.landing["repo"]
         for record in records:
             if record["seq"] <= refusal["seq"]:
                 continue
             if (record["lane"] == RUNNER or record["lane"].startswith(LANDING_DESK)) and record["kind"] == "report" and QUEUED.match(record["text"]) and any(named_pr == pr and grades.names_head(sha, head) for named_pr, sha in grades.GO_HEAD.findall(record["text"])):
                 return True
-            if family.fullmatch(record["lane"]) and (record.get("re") == refusal["seq"] or record["kind"] == "head" and any(grades.about_pr(record, repo, other) for other in named)):
+            if record["lane"] in family and (record.get("re") == refusal["seq"] or record["kind"] == "head" and any(grades.about_pr(record, repo, other) for other in named)):
                 return True
         return False
 
@@ -1202,7 +1211,8 @@ class Pass:
                 since = head_at or self.now
             since = min(since, tap_at) if tap_at and found["state"] == TAP_WAIT else since
             self.states[pr] = {"signature": signature, "since": actions.stamp(since)}
-            last = max((record for name, record in newest.items() if successor_of(found["owner"]).fullmatch(name)), key=lambda record: record["seq"], default=None)
+            lineage = self.registry().lineage(found["owner"])
+            last = max((record for name, record in newest.items() if name in lineage), key=lambda record: record["seq"], default=None)
             live = last is not None and not ended(last)
             stale = self.now - since >= self.watch.age("stale")
             self.stack.append(found | {"since": actions.stamp(since), "live": live, "stale": stale})
@@ -1358,7 +1368,8 @@ class Pass:
             if not self.watch.age("order") <= self.now - at(order) < ORDER_WINDOW:
                 continue
             lanes = [lane for lane in order.get("to") or [] if lane not in NOT_LANES]
-            if any(record["seq"] > order["seq"] and cites_pr(record) and any(successor_of(lane).fullmatch(record["lane"]) for lane in lanes) for record in records):
+            named = {name for lane in lanes for name in self.registry().lineage(lane)}
+            if any(record["seq"] > order["seq"] and cites_pr(record) and record["lane"] in named for record in records):
                 continue
             questions.append(self.order(order, text, lanes))
         return questions
@@ -1436,8 +1447,8 @@ class Pass:
             if not (gate := landed.get(pr)) or said["seq"] in resolved:
                 continue
             since = max(at(said), at(gate))
-            family = re.compile(rf"{re.escape(LANE_NUMBER.sub('', lane))}(?:-\d+)?")
-            if self.now - since < self.watch.age("gate") or any(family.fullmatch(record["lane"]) and record["seq"] > said["seq"] and (record["kind"] in ("opened", "head") and at(record) >= since or record["kind"] in ("state", "report") and pr not in {found[1] or found[2] for found in WAITS_ON.finditer(record["text"])}) for record in records):
+            family = self.registry().lineage(lane)
+            if self.now - since < self.watch.age("gate") or any(record["lane"] in family and record["seq"] > said["seq"] and (record["kind"] in ("opened", "head") and at(record) >= since or record["kind"] in ("state", "report") and pr not in {found[1] or found[2] for found in WAITS_ON.finditer(record["text"])}) for record in records):
                 continue
             hour = (self.now - since - self.watch.age("gate")) // GATE_REPEAT
             stalls.append(Stall(
