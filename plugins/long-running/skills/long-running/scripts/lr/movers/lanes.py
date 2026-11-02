@@ -72,6 +72,7 @@ STRIKE_WINDOW = 2 * STALE_AFTER
 PAGE_ANSWER = 2 * STALE_AFTER
 LIVE_WITHIN = 4 * STALE_AFTER
 OWNER = re.compile(r"\bowner=([\w.-]+)")
+RETIRED = re.compile(r"\b(?P<lane>[\w.-]+) (?:retired|is done)\b")
 OWNER_CLAUSE = re.compile(r"#(?P<pr>\d+)\b[^.;#]*?\b(?:moves to (?P<to>[\w.-]+)|with (?P<named>[\w.-]+) as owner)")
 LAST_READ = re.compile(r"\blast-read=#?(?P<seq>\d+)\b")
 UNREAD = " down or hand its PRs on, but it "
@@ -332,6 +333,10 @@ def fold(store: Store, records: Iterable[dict], live: set[str] | None, briefs: P
             continue
         if lane in (ROOT, "main") and kind == REQUEST and SELF in addressed(record) and not request(record) and live is None:
             out.untyped.append(record["seq"])
+        if lane == ROOT and kind == REQUEST:
+            for found in RETIRED.finditer(text):
+                if (gone := store.lane(found["lane"])) and gone.state != "retired":
+                    retire(store, gone.name, ROOT, at)
         if asked := request(record):
             granted(store, record, asked, live, at, out)
         elif lane == RUNNER and (done := WORKER_DONE.match(text)) and (ended := store.lane(done["lane"])) and ended.state != "retired":
