@@ -9205,7 +9205,7 @@ class Landing:
                 found += [(actions.parse_stamp(action.accepted_at), member, f"the blocker routed at {pacific(actions.parse_stamp(action.accepted_at))}: {json.loads(action.target)['text']}") for action in routes if action.action_id in current]
                 found += [
                     (when, member, f"{action.target.split()[0]} at {pacific(when)}: {action.target}")
-                    for action in self.book.actions(RUNNER, kind="escalation")
+                    for action in self.book.escalations_for(RUNNER, member)
                     if action.target.split()[0] in LANDING_REFUSALS and re.search(rf"#{member}\b", action.target) and (when := actions.parse_stamp(action.accepted_at)) >= since
                 ]
         with self.runner.pass_io.phase("overflow-cci-blockers"):
