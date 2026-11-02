@@ -2013,3 +2013,27 @@ def test_acknowledgements_spread_past_two_hours_raise_nothing(config):
     watch(shell, config)
 
     assert not [topic for topic in shell.topics() if topic.startswith("acked:")] and shell.launches == []
+
+
+def test_a_root_route_naming_an_owner_or_a_fix_lane_is_no_acknowledgement_and_per_pr_evictions_are_never_one_class(config):
+    """Root #311841: #311694 paged 'REFUSED by' as acknowledged three times with no fix PR, from root's owner= routes #308578 and #311146 and its eviction summary #308647."""
+    registered_state(config)
+    records = [
+        record(308429, "hand-enqueue-2", "blocker", "REFUSED by Trunk: #46512 and #46779 read pendingFailure on my hand submits.", 100),
+        record(308501, "hand-enqueue-2", "blocker", "REFUSED by Trunk: #46779 at 89ca721 failed Lint (fmt, clippy) in Trunk build 101217.", 98),
+        record(308578, "root", "decide", "owner=devbox-explore-7 for #46779 (replace the four tokio::time::sleep in signal/tests.rs with event waits).", 95, re=308501),
+        record(308647, "root", "decide", "answered by events: #46512 and #46779 were evicted with their own causes and are with their owners.", 90, re=308429),
+        record(310628, "hand-enqueue-2", "blocker", "REFUSED by Trunk: #46778 at 903bccd was removed because it failed tests in a previous identical test run.", 30),
+        record(311146, "root", "decide", "owner=pod-volume-3 for #46778 (and #46777 below it): read the Trunk run and class it.", 14, re=310628),
+        unowned(311500, 12),
+        answer(311501, "GO fix lane desk-hooks-1 for this class.", 11, re=311500),
+        unowned(311502, 10),
+        answer(311503, "GO fix lane desk-hooks-1 again.", 9, re=311502),
+        unowned(311504, 8),
+        answer(311505, "Owner said wait; no fix lane yet.", 7, re=311504),
+    ]
+    shell = FakeShell(records, [])
+
+    watch(shell, config)
+
+    assert not [topic for topic in shell.topics() if topic.startswith("acked:")] and shell.launches == []
