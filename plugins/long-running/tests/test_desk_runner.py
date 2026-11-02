@@ -3956,23 +3956,32 @@ def test_a_tap_wait_with_no_board_lane_never_reaches_the_root(shell, config):
     assert [post for post in shell.posts if "root" in post["to"].split(",") and "TAP-REQUIRED" in post_body(post) and post["kind"] in ("blocker", "state")] == []
 
 
-@pytest.mark.parametrize("tapped", [False, True], ids=["untapped", "tapped"])
-def test_a_go_whose_bracket_says_tap_required_anywhere_lands_only_on_the_owners_tap_whatever_files_it_changes(shell, config, tapped):
-    """Root #274478: go #274104 said `[TAP-REQUIRED; signal stack restacked onto dev 0c3c10b, ...]`, and the runner landed untapped #46752 at 9:10 PM."""
+@pytest.mark.parametrize(
+    ("verdict", "lands"),
+    [
+        ({}, False),
+        ({"verdict": "approved", "head": "bbbb222222"}, False),
+        ({"verdict": "approved", "head": "cccc333333", "carriedFrom": "bbbb222222"}, False),
+        ({"verdict": "approved", "head": "cccc333333"}, True),
+    ],
+    ids=["untapped", "older-head", "carried", "own-tap-at-head"],
+)
+def test_a_go_whose_bracket_says_tap_required_lands_only_on_the_owners_own_tap_at_that_head(shell, config, verdict, lands):
+    """Root #274478: go #274104 said `[TAP-REQUIRED; ...]`, and the runner landed untapped #46752 at 9:10 PM. Root 321574: #46071 and #46720 landed at 5:03 AM Nov 2 on taps carried from older heads under TAP-REQUIRED gos."""
     merge_mode(config, "every")
     lone_green_pr(shell)
     grade(shell, "29020", "ok F307 at cccc333.")
-    shell.board["merge-rows"] = {"29020": {"verdict": "approved", "head": "bbbb222222", "at": "2026-10-01T17:40:00Z"}} if tapped else {}
+    shell.board["merge-rows"] = {"29020": verdict | {"at": "2026-10-01T17:40:00Z"}} if verdict else {}
     merge_go(shell, "29020", "9:09 PM go #29020 at cccc333 on green [TAP-REQUIRED; signal stack restacked onto dev 0c3c10b, green and approved at every head]")
     landing_pass(shell, config)
     landing_pass(shell, config)
     refusals = [post_body(post) for post in tap_waits(shell)]
-    if tapped:
+    if lands:
         assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and refusals == []
         return
     assert shell.enqueues() == []
     [refusal] = refusals
-    assert f"; TAP-REQUIRED go cci #{shell.records[-1]['seq']}: it lands only once the owner has tapped some head of it, and a root go is no tap; " in refusal
+    assert f"; TAP-REQUIRED go cci #{shell.records[-1]['seq']}: it lands only once the owner's own tap at cccc333, since a TAP-REQUIRED go takes no tap carried from an older head (root 321574), and a root go is no tap; " in refusal
 
 
 @pytest.mark.parametrize(("bracket", "lands"), [("[direct tap at head]", False), ("[TAP-KEPT: his tap at bbbb222; a review fix]", True), ("[TAP-CARRIED from bbbb222, conflict-only rebase]", True), ("[exempt: CI-only, the delete-list check]", True)])

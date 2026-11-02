@@ -5721,6 +5721,12 @@ def status_blocker(entry: dict, red: bool = True) -> str:
     return "; ".join(said)
 
 
+def own_tap_at(verdicts: dict[str, dict[str, dict]], pr: str, head: str) -> bool:
+    """Whether the owner's newest verdict on `pr` approves `head` itself, never through a carry from an older head (root 321574: #46071 and #46720 landed at 5:03 AM Nov 2 on carried taps under TAP-REQUIRED gos)."""
+    entry = board_rows.newest_by_pr(verdicts).get(pr) or {}
+    return entry.get("verdict") == "approved" and not entry.get("carriedFrom") and names_head(entry.get("head") or "-", head)
+
+
 def approved_prs(verdicts: dict[str, dict[str, dict]]) -> set[str]:
     """The PRs whose newest verdict on the board, on any block and at any head, approves them: a rejection after an approval stands, so the PR is no longer tapped (#46446, rejected at 6ac5c56 at 2:32 AM Oct 31)."""
     return {pr for pr, entry in board_rows.newest_by_pr(verdicts).items() if entry["verdict"] == "approved"}
@@ -8016,10 +8022,11 @@ class Landing:
             if register is None and pr in touching or verdicts is None:
                 unread[pr] = f"TAP-UNREAD #{pr}: {'the register' if register is None else 'the root board'} did not read, so the runner leaves it unqueued for the landing desk"
                 continue
-            if pr in approved_prs(verdicts):
+            if pr in held and own_tap_at(verdicts, pr, heads[pr]) or pr not in held and pr in approved_prs(verdicts):
                 continue
             board = board or self.owner_board()
-            waits[pr] = f"{mismatched.get(pr, '')}TAP-REQUIRED {','.join(found)}: it lands only once the owner has tapped some head of it, and a root go is no tap; {self.owner_state(pr, board)}"
+            needs = f"the owner's own tap at {heads[pr][:7]}, since a TAP-REQUIRED go takes no tap carried from an older head (root 321574)" if pr in held else "the owner has tapped some head of it"
+            waits[pr] = f"{mismatched.get(pr, '')}TAP-REQUIRED {','.join(found)}: it lands only once {needs}, and a root go is no tap; {self.owner_state(pr, board)}"
         return unparsed, waits, unread, exempt
 
     def exempt_admitted(self, pr: str, sha: str) -> tuple[str, str]:
