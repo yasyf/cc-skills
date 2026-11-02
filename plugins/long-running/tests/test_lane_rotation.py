@@ -2,15 +2,13 @@ from __future__ import annotations
 
 import hashlib
 import json
-import subprocess
 import uuid
-from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 from cc_transcript import Session
-from captain_hook.events import PostToolUseEvent, PreToolUseEvent, StopEvent
+from captain_hook.events import PreToolUseEvent
 from captain_hook.testing.helpers import build_context
 from fire import fire
 from hooks import lane_rotation
@@ -108,155 +106,59 @@ def tree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Tree:
     return built
 
 
-@dataclass
-class Stop:
-    tree: Tree
-    tasks: list[dict]
-
-    def evt(self) -> StopEvent:
-        raw = {"session_id": "0123456789abcdef", "transcript_path": str(self.tree.root), "cwd": str(self.tree.claude.parent)}
-        ctx = build_context(transcript=Session.from_path(self.tree.root), session_dir=self.tree.claude / "session")
-        return StopEvent(_raw=raw | {"background_tasks": self.tasks}, ctx=ctx)
-
-
-def tool_use(tree: Tree, event: type[PreToolUseEvent | PostToolUseEvent], tool: str, tool_input: dict, agent_id: str | None = None) -> list:
+def tool_use(tree: Tree, tool: str, tool_input: dict, agent_id: str | None = None) -> list:
     raw = {"session_id": "0123456789abcdef", "transcript_path": str(tree.root), "cwd": str(tree.claude.parent)}
     ctx = build_context(transcript=Session.from_path(tree.root), session_dir=tree.claude / "session")
     raw |= {"tool_name": tool, "tool_input": tool_input} | ({"agent_id": agent_id} if agent_id else {})
-    return fire(lane_rotation, event(_raw=raw, ctx=ctx))
+    return fire(lane_rotation, PreToolUseEvent(_raw=raw, ctx=ctx))
 
 
-def spawn(tree: Tree, name: str) -> None:
-    tree.lane(name, 80_000)
-    assert tool_use(tree, PostToolUseEvent, "Agent", {"name": name, "prompt": "go"}) == []
+def registry(monkeypatch: pytest.MonkeyPatch, routes: dict[str, str]) -> list[str]:
+    asked: list[str] = []
+
+    def routed(evt, lane: str) -> dict:
+        asked.append(lane)
+        return {"lane": lane, "route": routes.get(lane, lane), "state": "retired" if lane in routes else "desired"}
+
+    monkeypatch.setattr(lane_rotation, "routed", routed)
+    return asked
 
 
-def send(tree: Tree, to: str, message: str = "status?", sender: str | None = "aoncall-dedupe-fix-2") -> tuple[str, str] | None:
-    [result] = tool_use(tree, PreToolUseEvent, "SendMessage", {"to": to, "message": message}, sender) or [None]
-    return result and (result.action, result.message)
+def send(tree: Tree, to: str, message: str = "status?", sender: str | None = "aoncall-dedupe-fix-2"):
+    [result] = tool_use(tree, "SendMessage", {"to": to, "message": message}, sender) or [None]
+    return result
 
 
-def verdict(tree: Tree, to: str, message: str = "status?", sender: str | None = "aoncall-dedupe-fix-2") -> str | None:
-    return (sent := send(tree, to, message, sender)) and sent[0]
+def test_a_send_to_a_lane_the_registry_routes_on_goes_to_the_successor_its_row_names_whatever_its_name(tree: Tree, monkeypatch: pytest.MonkeyPatch) -> None:
+    """cc-skills#1311 and #1335: a message to a stood-down lane reaches the lane that took its work, read from the supervisor's registry row, never from this session's spawns or a numbered name."""
+    registry(monkeypatch, {"oncall-connect": "restack-desk"})
+
+    result = send(tree, "oncall-connect", sender=None)
+
+    assert (result.action, result.updated_input["to"]) == ("rewrite", "restack-desk")
+    assert result.note == "`oncall-connect` is stood down in the lane supervisor's registry, so this message went to its successor `restack-desk`, which owns its work. `TaskStop` `oncall-connect` if it still runs."
 
 
-def rotate(tree: Tree, old: str, successor: str) -> None:
-    tree.lane(old, 450_000)
-    tree.lane(f"{old}-handoff", 80_000, team=None, status=None)
-    assert tool_use(tree, PostToolUseEvent, "TaskStop", {"task_id": old}) == []
-    spawn(tree, successor)
+def test_a_lanes_send_to_a_lane_retired_with_no_successor_goes_to_main(tree: Tree, monkeypatch: pytest.MonkeyPatch) -> None:
+    """cc-skills#1311: a worker's report to a lane stood down with no successor goes to main instead of resuming it on its stale brief."""
+    registry(monkeypatch, {"desk": "root"})
 
+    result = send(tree, "desk", "done: #12 merged")
 
-def redirected(tree: Tree, to: str, sender: str | None) -> tuple[dict, str]:
-    [result] = tool_use(tree, PreToolUseEvent, "SendMessage", {"to": to, "message": "status?"}, sender)
-    assert result.action == "rewrite"
-    return result.updated_input, result.note
-
-
-def test_a_roots_send_to_a_rotated_lane_goes_to_its_successor_and_names_task_stop(tree: Tree) -> None:
-    rotate(tree, "oncall-connect", "oncall-connect-2")
-
-    assert redirected(tree, "oncall-connect", None) == (
-        {"to": "oncall-connect-2", "message": "status?"},
-        "`oncall-connect` is stood down, so this message went to its successor `oncall-connect-2`, which owns its work. "
-        "`TaskStop` `oncall-connect` if it still runs.",
-    )
-    assert send(tree, "oncall-connect-2", sender=None) is None
-
-
-def test_a_lanes_send_to_a_rotated_lane_goes_to_its_successor_without_naming_task_stop(tree: Tree) -> None:
-    rotate(tree, "oncall-connect", "oncall-connect-2")
-
-    updated, note = redirected(tree, "oncall-connect", "aoncall-dedupe-fix-2")
-
-    assert (updated["to"], "TaskStop" in note) == ("oncall-connect-2", False)
+    assert (result.action, result.updated_input["to"]) == ("rewrite", "main")
 
 
 @pytest.mark.parametrize("message", ["rulings-hygiene-2 reported; stand down and send nothing further.", "STAND-DOWN: rulings-hygiene-2 owns it."])
-def test_a_stand_down_to_a_rotated_lane_is_warned_and_never_forwarded_to_its_successor(tree: Tree, message: str) -> None:
-    rotate(tree, "rulings-hygiene", "rulings-hygiene-2")
+def test_a_stand_down_to_a_retired_lane_is_warned_and_never_forwarded_to_its_successor(tree: Tree, monkeypatch: pytest.MonkeyPatch, message: str) -> None:
+    registry(monkeypatch, {"rulings-hygiene": "rulings-hygiene-2"})
 
-    assert verdict(tree, "rulings-hygiene", message, sender=None) == "warn"
-
-
-def test_a_successor_brief_naming_its_predecessor_rotates_it_without_a_handoff(tree: Tree) -> None:
-    tree.lane("creds-5", 450_000)
-    tree.lane("creds-6", 80_000)
-    prompt = "Replaces: creds-5\nRun `drive.py lane-status creds-5` before any write."
-    assert tool_use(tree, PostToolUseEvent, "Agent", {"name": "creds-6", "prompt": prompt}) == []
-
-    assert lane_rotation.RotationState.load(Stop(tree, []).evt()).retired == {"creds-5": "creds-6"}
-    assert redirected(tree, "creds-5", None)[0]["to"] == "creds-6"
+    assert send(tree, "rulings-hygiene", message, sender=None).action == "warn"
 
 
-def test_a_rotation_records_the_successor_in_cci_so_every_senders_records_reach_it(tree: Tree, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Drive watchdog #235092: 62 records from desks and scripts went to board-refresher-2 after it rotated, because only this session's SendMessage calls followed the rotation."""
-    posted: list[list[str]] = []
-
-    def run(argv: list[str], **_: object) -> subprocess.CompletedProcess:
-        posted.extend([argv] if argv[:2] == ["cci", "post"] else [])
-        return subprocess.CompletedProcess(argv, 0, "#9\n", "")
-
-    monkeypatch.setattr(lane_rotation, "drive_entry", lambda evt: {"drive": "d1", "state_dir": "/state/d1"})
-    monkeypatch.setattr(lane_rotation.subprocess, "run", run)
-    tree.lane("creds-5", 450_000)
-    tree.lane("creds-6", 80_000)
-
-    tool_use(tree, PostToolUseEvent, "Agent", {"name": "creds-6", "prompt": "Replaces: creds-5\ngo"})
-
-    assert [argv[argv.index("--to") + 1 : argv.index("--successor") + 2] for argv in posted] == [["creds-5", "--successor", "creds-6"]]
-    assert all(argv[argv.index("--kind") + 1] == "stand-down" and argv[argv.index("--drive") + 1] == "d1" for argv in posted)
-
-
-def test_a_respawn_under_a_rotated_name_clears_its_redirect(tree: Tree) -> None:
-    rotate(tree, "desk-3", "desk-4")
-    assert verdict(tree, "desk-3", sender=None) == "rewrite"
-    spawn(tree, "desk-3")
-    assert send(tree, "desk-3", sender=None) is None
-
-    spawn(tree, "desk-4")
-
-    assert verdict(tree, "desk-3", sender=None) == "rewrite"
-
-
-def test_second_rotation_redirects_to_the_newest_successor(tree: Tree) -> None:
+def test_a_numbered_spawn_reroutes_nothing_the_registry_does_not_link(tree: Tree, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The name-matching successor lookup is gone: `desk-4` existing says nothing about where `desk-3`'s mail goes."""
+    asked = registry(monkeypatch, {})
     tree.lane("desk-3", 450_000)
-    tree.lane("desk-3-handoff", 80_000, team=None, status=None)
-    spawn(tree, "desk-4")
-    tree.lane("desk-4-handoff", 80_000, team=None, status=None)
-    spawn(tree, "desk-5")
+    tree.lane("desk-4", 80_000)
 
-    assert redirected(tree, "desk-3", "aoncall-dedupe-fix-2")[0]["to"] == "desk-5"
-
-
-def test_a_workers_report_to_a_lane_stopped_with_no_successor_goes_to_main_and_the_roots_resume_passes(tree: Tree) -> None:
-    reviewer = tree.lane("reviewer", 120_000, team=None)
-    assert tool_use(tree, PostToolUseEvent, "TaskStop", {"task_id": reviewer["id"]}) == []
-
-    assert redirected(tree, "reviewer", "aoncall-dedupe-fix-2") == (
-        {"to": "main", "message": "status?"},
-        "`reviewer` is stood down with no successor, so this message went to `main` instead of resuming it on its stale brief.",
-    )
-    assert send(tree, "reviewer", sender=None) is None
-
-
-def test_stand_down_without_a_handoff_retires_the_lane(tree: Tree) -> None:
-    tree.lane("alerts-watch", 450_000)
-    assert tool_use(tree, PostToolUseEvent, "SendMessage", {"to": "alerts-watch", "message": "STAND-DOWN: done."}) == []
-
-    assert redirected(tree, "alerts-watch", "aoncall-dedupe-fix-2")[0]["to"] == "main"
-
-
-def test_numbered_sibling_without_a_handoff_retires_nothing(tree: Tree) -> None:
-    tree.lane("memdoc-disposition-1", 450_000)
-    spawn(tree, "memdoc-disposition-2")
-
-    assert send(tree, "memdoc-disposition-1") is None
-
-
-def test_respawn_under_a_retired_name_clears_it(tree: Tree) -> None:
-    tree.lane("oncall-watch", 450_000)
-    assert tool_use(tree, PostToolUseEvent, "TaskStop", {"task_id": "oncall-watch@session-rot"}) == []
-    spawn(tree, "oncall-watch")
-
-    assert send(tree, "oncall-watch") is None
+    assert send(tree, "desk-3", sender=None) is None and asked == ["desk-3"]

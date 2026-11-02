@@ -72,6 +72,7 @@ class FakeShell(stall_watch.Shell):
         self.peers: list[dict] = []
         self.launches: list[list[str]] = []
         self.registry_rows: list[dict] = []
+        self.successions: dict[str, str] = {}
         self.clock = NOW
 
     def run(self, argv, stdin=None, env=None, timeout=stall_watch.COMMAND_SECONDS):
@@ -117,8 +118,17 @@ class FakeShell(stall_watch.Shell):
         return {"verdicts": [{"id": question["id"], "why": "the record says so"} | self.answer(question) for question in questions]}
 
     def registry(self) -> list[dict]:
-        posted = sorted({name for found in self.records for name in (found["lane"], *(found.get("to") or []))})
-        return self.registry_rows or [{"lane": name, "live": True, "state": "desired", "heard": None, "route": name} for name in posted]
+        posted = sorted({name for found in self.records for name in (found["lane"], *(found.get("to") or []))} | set(self.successions) | set(self.successions.values()))
+        before = {new: old for old, new in self.successions.items()}
+        return self.registry_rows or [
+            {"lane": name, "live": True, "state": "retired" if name in self.successions else "desired", "heard": None, "route": self.chain_end(name), "retired_by": self.successions.get(name), "predecessor": before.get(name)}
+            for name in posted
+        ]
+
+    def chain_end(self, lane: str) -> str:
+        while lane in self.successions:
+            lane = self.successions[lane]
+        return lane
 
     def board_records(self) -> list[dict]:
         found = [record(800000, "board-watch", "note", "board", 1, topic="board-rows", fields={"attrs": {"session": SESSION, "board": json.dumps(board_rows.snapshot(self.doc))}})]
@@ -196,6 +206,7 @@ def test_a_stall_reaches_the_live_successor_of_the_lane_that_posted_the_prs_newe
     """Root #215820: stalls went to n-enumeration-1 and port-memory-1, dead since their successors took over."""
     rotated = record(1, "port-memory-1", "head", f"HEAD #101 {HEAD}", 40, "101")
     shell = FakeShell([rotated, fidelity(2, "101", HEAD, 35), record(3, "port-memory-3", "state", "took over port-memory-1's PRs", 5)], [row("101", test_state="pending")])
+    shell.successions = {"port-memory-1": "port-memory-3"}
 
     watch(shell, config)
 
@@ -1476,6 +1487,7 @@ def test_unopened_work_that_waits_on_a_landed_pr_stalls_to_its_live_lane_hourly(
     said = record(1, "p8a-step7-2", "state", "p8a-step7-2: parts 2 and 3 wait only on #43736; I open both when #43736 lands", 120)
     landed = record(2, "desk-runner", "landed", "LANDED #43736 as 70ad7da45d: merged into dev", landed_ago, "43736")
     shell = FakeShell([said, landed, *after], [])
+    shell.successions = {"p8a-step7-2": "p8a-step7-3"}
     watch(shell, config)
     assert [topic for topic in shell.topics() if topic.startswith("gate:")] == topics
     if topics:

@@ -8,14 +8,9 @@ from pathlib import Path
 import pytest
 from lr.movers import lanes
 from lr.store import Store
-from test_lr_lanes import T0, Fake, adopted, record, spawned, who
+from test_lr_lanes import T0, Fake, adopted, ask, record, spawned, who
 
 PLACEMENTS = ("orca", "sprite", "teammate")
-
-
-def ask(seq: int, verb: str, lane: str, at=T0, prs: tuple[int, ...] = (), by: str = "root", **attrs) -> dict:
-    typed = {"verb": verb, "lane": lane} | {key.replace("_", "-"): value for key, value in attrs.items()}
-    return record(seq, by, "decide", at, f"registry request: {verb} {lane}", ("supervisor",), {"prs": [f"o/r#{n}" for n in prs]}, typed)
 
 
 def spawn(seq: int, lane: str, brief: Path, at=T0, **attrs) -> dict:

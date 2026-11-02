@@ -1210,7 +1210,7 @@
      ]
     },
     "seq": 280788,
-    "text": "Both replaces are",
+    "text": "",
     "to": [
      "root",
      "release-5"
@@ -1270,7 +1270,7 @@
     },
     "resolves": 280793,
     "seq": 280800,
-    "text": "0 replaces exactly; card-incident-takeover",
+    "text": "card-incident-takeover",
     "to": [
      "takeover-500-tooling-fix",
      "desk-runner",
@@ -1398,7 +1398,7 @@
      "prs": []
     },
     "seq": 280836,
-    "text": "stand down takeover-500-tooling-fix-2 before it duplicates live incident work; #280832",
+    "text": "#280832",
     "to": [
      "root",
      "tooling-misc-5",
@@ -1408,21 +1408,20 @@
    {
     "at": "2026-11-01T11:07:15.756Z",
     "fields": {
-     "attrs": {}
+     "attrs": {
+      "lane": "takeover-500-tooling-fix-2",
+      "verb": "stand-down"
+     }
     },
-    "kind": "stand-down",
+    "kind": "decide",
     "lane": "root",
     "refs": {
      "prs": []
     },
-    "resolves": 280836,
     "seq": 280837,
-    "text": "stand-down takeover-500-tooling-fix-2; it replaces is",
+    "text": "",
     "to": [
-     "takeover-500-tooling-fix-2",
-     "supervisor",
-     "tooling-misc-5",
-     "drive-watchdog-2"
+     "supervisor"
     ]
    },
    {
@@ -1441,6 +1440,25 @@
      "root"
     ],
     "topic": "msg_585d13326c58"
+   },
+   {
+    "at": "2026-11-01T11:07:45.729Z",
+    "fields": {
+     "attrs": {
+      "lane": "takeover-500-tooling-fix",
+      "verb": "done"
+     }
+    },
+    "kind": "decide",
+    "lane": "desk-runner",
+    "refs": {
+     "prs": []
+    },
+    "seq": 280853,
+    "text": "",
+    "to": [
+     "supervisor"
+    ]
    },
    {
     "at": "2026-11-01T11:07:45.752Z",
@@ -1527,19 +1545,19 @@
    {
     "at": "2026-11-01T11:09:27.287Z",
     "fields": {
-     "attrs": {}
+     "attrs": {
+      "lane": "takeover-500-tooling-fix-2",
+      "verb": "stand-down"
+     }
     },
-    "kind": "stand-down",
+    "kind": "decide",
     "lane": "root",
     "refs": {
      "prs": []
     },
-    "resolves": 280875,
     "seq": 280876,
-    "text": "stand-down takeover-500-tooling-fix-2 ; told replaces is; #280837; #47195",
+    "text": "",
     "to": [
-     "takeover-500-tooling-fix-2",
-     "desk-runner",
      "supervisor"
     ]
    },

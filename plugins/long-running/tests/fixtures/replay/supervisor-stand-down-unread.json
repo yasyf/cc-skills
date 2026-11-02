@@ -98,23 +98,30 @@
    {
     "at": "2026-11-02T04:02:42.708Z",
     "fields": {
-     "attrs": {}
+     "attrs": {
+      "lane": "n-enumeration-13",
+      "verb": "owner"
+     }
     },
     "kind": "decide",
     "lane": "root",
-    "re": 304299,
     "refs": {
-     "prs": []
+     "prs": [
+      45492,
+      45493,
+      45494,
+      45638,
+      46062,
+      46068,
+      46071,
+      46077,
+      46720
+     ]
     },
-    "resolves": 304299,
     "seq": 304315,
-    "text": "owner=n-enumeration-13; #45492; #45493; #45494; #45638; #46062; #46068; #46071; #46077; #46720",
+    "text": "",
     "to": [
-     "supervisor",
-     "stall-watch",
-     "drive-watchdog-2",
-     "board-refresher-6",
-     "n-enumeration-12"
+     "supervisor"
     ]
    },
    {

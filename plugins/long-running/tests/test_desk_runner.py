@@ -242,6 +242,7 @@ class FakeShell(runner_module.Shell):
         self.registered: list[list[str]] = []
         self.spawned_rows: list[list[str]] = []
         self.routes: dict[str, str] = {}
+        self.successions: dict[str, str] = {}
         self.root_drives: list[str] = ["d1"]
         self.builds: dict[str, dict] = {}
         self.slack_history: dict[str, list[dict]] = {}
@@ -722,7 +723,24 @@ class FakeShell(runner_module.Shell):
         posted = [lane for record in self.records for lane in (record["lane"], *(record.get("to") or []))]
         lanes = {LANE, *named, *(row.get("lane") or "" for row in self.rows), *posted, *self.seen, *(lane for lane, _ in self.seen_as.values())} - self.gone - {""}
         heard = {lane: self.seen.get(lane, actions.stamp(self.clock)) for lane in lanes}
-        return [{"lane": lane, "live": lane not in self.retired and self.clock - actions.parse_stamp(at) < timedelta(hours=1), "heard": at, "state": "retired" if lane in self.routes else "desired", "route": self.routes.get(lane, lane)} for lane, at in heard.items()]
+        before = {new: old for old, new in self.successions.items()}
+        return [
+            {
+                "lane": lane,
+                "live": lane not in self.retired and self.clock - actions.parse_stamp(at) < timedelta(hours=1),
+                "heard": at,
+                "state": "retired" if lane in self.routes or lane in self.successions else "desired",
+                "route": self.routes.get(lane) or self.chain_end(lane),
+                "retired_by": self.successions.get(lane),
+                "predecessor": before.get(lane),
+            }
+            for lane, at in heard.items()
+        ]
+
+    def chain_end(self, lane: str) -> str:
+        while lane in self.successions:
+            lane = self.successions[lane]
+        return lane
 
     def rulings(self, argv: list[str]) -> runner_module.Done:
         verb, flags = argv[0], argv[1:]
@@ -4766,6 +4784,7 @@ def test_a_successor_fidelity_desk_grade_counts_with_no_config_edit(shell, confi
     merge_mode(config, "every")
     raw = json.loads(config.read_text())
     raw["landing"]["fidelity_lane"] = ["fidelity-desk", "fidelity-desk-12"]
+    shell.successions = {"fidelity-desk-12": "fidelity-desk-13"}
     config.write_text(json.dumps(raw))
     lone_green_pr(shell)
     merge_go(shell, "29020", "go #29020 at cccc333")
@@ -4885,6 +4904,7 @@ def test_a_go_lane_the_registry_reads_dead_hands_its_go_asks_to_its_live_success
         shell.seen["go-carry-sweep-3"] = shell.seen["go-sweep-5"] = actions.stamp(shell.clock - timedelta(minutes=61))
     else:
         shell.retired = {"go-carry-sweep-3", "go-sweep-5"}
+    shell.successions = {"go-sweep-5": "go-sweep-8"}
     shell.seen["go-sweep-8"] = actions.stamp(shell.clock)
     lone_green_pr(shell)
     merge_go(shell, "29020", "go #29020 at cccc333333: owner tapped cccc333333 on the board.")
@@ -8105,7 +8125,8 @@ def test_an_old_app_warning_reaches_its_lane_and_the_fidelity_lanes_and_never_th
 def test_an_old_app_warning_for_a_rotated_lane_reaches_its_live_successor_and_the_fidelity_lanes(shell, config, tmp_path):
     old_app_checked(config)
     lone_green_pr(shell)
-    shell.gone = {LANE}
+    shell.retired = {LANE}
+    shell.successions = {LANE: f"{LANE}-2"}
     shell.seen[f"{LANE}-2"] = actions.stamp(shell.clock)
     grade(shell, "29020", "ok F307 at cccc333.")
     landing_pass(shell, config)
