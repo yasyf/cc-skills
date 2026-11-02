@@ -474,7 +474,11 @@ launch on the Mac. Fable, incident, an incident clock fallback, and a `role=desk
 
 Set `CC_REMOTE_CONFIG` in `orca.sprite.env`: without it cc-remote reads
 `~/.config/cc-remote/config.yaml`. The runner reads its config only at start.
-Missing `orca.sprite`, a lane name a Sprite refuses, and a Sprite launch whose
+Point `WORKER_CC_REMOTE` and `CC_REMOTE_CONFIG` at a worktree that moves only
+with a cc-remote pin PR, never at a session's checkout. Each launch reads the
+branch of their checkout and refuses one that is neither `dev` nor a branch
+named `cc-remote-<version>`. Missing `orca.sprite`, a lane name a Sprite refuses,
+that checkout refusal, and a Sprite launch whose
 receipts prove worker-start never ran each fail with `LAUNCH-FAILED`; nothing
 starts locally in its place. A Sprite launch with no ready line and no such proof
 logs `SPRITE-UNVERIFIABLE` and launches nothing locally.

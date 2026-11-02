@@ -148,6 +148,7 @@ class FakeShell(runner_module.Shell):
         self.ledger_code = 0
         self.launch_line = ""
         self.cpu_load = 1.0
+        self.cc_remote_branch = "dev"
         self.attachments: dict[str, Path] = {}
         self.entries: list[str] = []
         self.attach_error = ""
@@ -439,6 +440,8 @@ class FakeShell(runner_module.Shell):
             return runner_module.Done(0, f"{self.merge_bases[argv[5]]}\n", "") if argv[5] in self.merge_bases else runner_module.Done(1, "", "")
         if argv[:5] == ["git", "-C", str(self.root / "checkout"), "merge-base", "--is-ancestor"]:
             return runner_module.Done(0 if tuple(argv[5:]) in self.ancestors else 1, "", "")
+        if argv[:2] == ["git", "-C"] and argv[3:] == ["branch", "--show-current"] and argv[2].startswith("/repo/"):
+            return runner_module.Done(0, f"{self.cc_remote_branch}\n", "")
         if argv[:2] == ["git", "-C"] and argv[2] in self.worktrees:
             assert argv[3:] in (["status", "--short", "--branch"], ["log", "-1", "--format=%ct %h %s"], ["rev-list", "--count", "origin/dev..HEAD"], ["rev-parse", "--path-format=absolute", "--git-common-dir", "HEAD"]) or argv[3] == "ls-remote"
             found = self.worktrees[argv[2]].get(argv[3])
@@ -13742,6 +13745,30 @@ def test_a_lane_name_a_sprite_refuses_fails_and_never_launches_locally(shell, co
         "nothing was launched, and the root submits it again under a new key once that is fixed"
     ]
     assert incident(tmp_path, f"desk-lane-{lane}").actions["R638"].status == "failed"
+
+
+@pytest.mark.parametrize("branch", ["incident-session-index-fix", ""])
+def test_a_sprite_launch_through_a_cc_remote_checkout_off_dev_and_off_a_pin_branch_fails_and_never_launches(shell, config, tmp_path, branch):
+    with_sprites(config)
+    brief = lane_brief(tmp_path, "ccx: role=build")
+    shell.cc_remote_branch = branch
+    cli(shell, config, "launch", "--key", "R638", "--lane", LANE, "--model", "opus", "--effort", "xhigh", "--brief", str(brief))
+    orca_pass(shell, config)
+    assert sprite_launches(shell) == [] and launches(shell) == []
+    assert escalations(shell) == [
+        f"LAUNCH-FAILED desk-lane-{LANE}/R638 {LANE}: R638 refused on WORKER_CC_REMOTE /repo/tools/cc-remote/bin/cc-remote, whose checkout is on {f'branch {branch}' if branch else 'no branch'}, not dev or a cc-remote pin branch; "
+        "point it at a worktree that moves only with a pin PR; nothing was launched, and the root submits it again under a new key once that is fixed"
+    ]
+
+
+def test_a_sprite_launch_through_a_cc_remote_pin_branch_launches(shell, config, tmp_path):
+    with_sprites(config)
+    brief = lane_brief(tmp_path, "ccx: role=build")
+    shell.cc_remote_branch = "mq-health-9/cc-remote-0.26.20"
+    shell.sprite_line = SPRITE_READY
+    cli(shell, config, "launch", "--key", "R638", "--lane", LANE, "--model", "opus", "--effort", "xhigh", "--brief", str(brief))
+    orca_pass(shell, config)
+    assert sprite_launches(shell) == [[LAUNCHER, LANE, "claude-opus-5-5", "xhigh", str(brief)]]
 
 
 @pytest.mark.parametrize("flags", [(), ("--owner-directed",)])
