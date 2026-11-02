@@ -770,6 +770,15 @@ def test_label_refuses_a_neutral_ai_review_because_it_is_a_held_blocking_finding
     assert "REFUSED ai-review is neutral" in capsys.readouterr().out
 
 
+def test_report_refuses_clean_while_ai_review_holds_a_blocking_finding():
+    """Root #336613: #47708 read READY from a clean report while forge-pr-reviewer held a blocking finding (336161)."""
+    shell = admitted(desk_shell())
+    shell.routes[f"checks:{HEAD}"] = "check-runs-neutral-ai-review.json"
+
+    with pytest.raises(SystemExit, match=r"is not clean: ai-review holds a blocking finding; report it held"):
+        report(shell)
+    assert report(shell, verdict="held") == 0
+
 def test_label_refuses_an_absent_ai_review(capsys):
     shell = admitted(desk_shell())
     shell.routes[f"checks:{HEAD}"] = "check-runs-no-ai-review.json"
