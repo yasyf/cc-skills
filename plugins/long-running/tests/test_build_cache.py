@@ -292,7 +292,7 @@ def test_actual_landing_changed_and_unchanged_persistence_is_bounded(shell, conf
     shell.builds[number] = newest
     resumed = None
     try:
-        assert landing.build(url) == newest
+        assert landing.build(url) == runner_module.kept_fields(newest)
         landing.keep_builds()
         first = dict(costs)
         landing.keep_builds()
@@ -320,7 +320,7 @@ def test_actual_refresh_bypasses_persistent_passed_summary(shell, config, tmp_pa
     try:
         assert landing.build(url) == lean(kept)
         assert build_reads(shell, number) == []
-        assert landing.build(url, refresh=True) == shell.builds[number]
+        assert landing.build(url, refresh=True) == runner_module.kept_fields(shell.builds[number])
         assert len(build_reads(shell, number)) == 1
     finally:
         landing.close()
