@@ -71,6 +71,7 @@ class FakeShell(stall_watch.Shell):
         self.shapes: list[dict] = []
         self.peers: list[dict] = []
         self.launches: list[list[str]] = []
+        self.registry_rows: list[dict] = []
         self.clock = NOW
 
     def run(self, argv, stdin=None, env=None, timeout=stall_watch.COMMAND_SECONDS):
@@ -97,6 +98,9 @@ class FakeShell(stall_watch.Shell):
         if Path(argv[1]).name == "desk-launch.py":
             self.launches.append(argv)
             return stall_watch.Done(0, f"{argv[3]} R1 LAUNCHED", "")
+        if Path(argv[1]).name == "drive_supervisor.py":
+            assert argv[2] == "lanes"
+            return stall_watch.Done(0, "".join(json.dumps(found) + "\n" for found in self.registry()), "")
         if Path(argv[1]).name == "rulings.py":
             assert argv[2:] == ["shapes", "--untested", "--json", "--drive", "durable"]
             return stall_watch.Done(0, json.dumps(self.shapes), "")
@@ -111,6 +115,10 @@ class FakeShell(stall_watch.Shell):
             return None
         questions = json.loads(prompt.split("Questions:\n", 1)[1])
         return {"verdicts": [{"id": question["id"], "why": "the record says so"} | self.answer(question) for question in questions]}
+
+    def registry(self) -> list[dict]:
+        posted = sorted({name for found in self.records for name in (found["lane"], *(found.get("to") or []))})
+        return self.registry_rows or [{"lane": name, "live": True, "state": "desired", "heard": None, "route": name} for name in posted]
 
     def board_records(self) -> list[dict]:
         found = [record(800000, "board-watch", "note", "board", 1, topic="board-rows", fields={"attrs": {"session": SESSION, "board": json.dumps(board_rows.snapshot(self.doc))}})]
@@ -149,7 +157,7 @@ def config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
                 "store": str(tmp_path / "store"),
                 "drive": DRIVE,
                 "orca": {"desk_inbox": str(tmp_path / "inbox/orca-desk.md")},
-                "landing": {"repo": REPO, "ledger": "abc", "checkout": str(tmp_path / "checkout"), "fidelity_lane": "fidelity-desk", "merge_mode": "every", "trunk_check": "buildkite/test"},
+                "landing": {"repo": REPO, "ledger": "abc", "checkout": str(tmp_path / "checkout"), "fidelity_lane": "fidelity-desk", "merge_mode": "every", "trunk_check": "buildkite/test", "supervisor": str(tmp_path / "lr.json")},
                 "stall": {},
             }
         )
@@ -1618,6 +1626,34 @@ def test_a_red_of_a_lane_that_handed_off_goes_to_its_successor(config):
 
     assert shell.post("unclassed:201:abc1234")["to"] == "root,api-lane-6@d1"
     assert "| owner api-lane-6 |" in shell.post("unclassed:201:abc1234")["text"]
+
+
+def test_a_red_of_a_lane_the_registry_routes_to_a_successor_goes_to_that_successor_whatever_its_name(config):
+    """cc-skills#1332: a red PR's owner follows its lane to the successor, read from the registry row, never from a handoff's prose or a numbered name."""
+    working = record(3, "restack-desk", "note", "picked up the chain", 30)
+    shell = FakeShell([working], [row("201", lane="api-lane-5", test_state="failure", red_at=stamp(25), failing_checks=json.dumps([{"name": "buildkite/lint", "url": "u"}]))])
+    shell.registry_rows = [
+        {"lane": "api-lane-5", "live": True, "state": "retired", "retired_by": "restack-desk", "predecessor": None, "route": "restack-desk", "heard": None},
+        {"lane": "restack-desk", "live": True, "state": "desired", "retired_by": None, "predecessor": None, "route": "restack-desk", "heard": None},
+    ]
+
+    watch(shell, config)
+
+    assert shell.post("unclassed:201:abc1234")["to"] == "root,restack-desk@d1"
+
+
+def test_a_stall_reaches_the_successor_the_registry_links_whatever_its_name(config):
+    """Root #215820 by the registry: a stall reaches the worker that took over the lane that posted the PR's newest head."""
+    rotated = record(1, "port-memory-1", "head", f"HEAD #101 {HEAD}", 40, "101")
+    shell = FakeShell([rotated, fidelity(2, "101", HEAD, 35), record(3, "memory-port", "state", "took over port-memory-1's PRs", 5)], [row("101", test_state="pending")])
+    shell.registry_rows = [
+        {"lane": "port-memory-1", "live": True, "state": "retired", "retired_by": "memory-port", "predecessor": None, "route": "memory-port", "heard": None},
+        {"lane": "memory-port", "live": True, "state": "desired", "retired_by": None, "predecessor": "port-memory-1", "route": "memory-port", "heard": None},
+    ]
+
+    watch(shell, config)
+
+    assert shell.post("finder:101:abc1234")["to"] == "memory-port@d1"
 
 
 def test_reds_with_no_live_red_sweep_lane_post_one_blocker_to_root_until_a_red_sweep_lane_posts(config):

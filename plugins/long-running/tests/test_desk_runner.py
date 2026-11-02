@@ -241,6 +241,7 @@ class FakeShell(runner_module.Shell):
         self.claim_error = ""
         self.registered: list[list[str]] = []
         self.spawned_rows: list[list[str]] = []
+        self.routes: dict[str, str] = {}
         self.root_drives: list[str] = ["d1"]
         self.builds: dict[str, dict] = {}
         self.slack_history: dict[str, list[dict]] = {}
@@ -721,7 +722,7 @@ class FakeShell(runner_module.Shell):
         posted = [lane for record in self.records for lane in (record["lane"], *(record.get("to") or []))]
         lanes = {LANE, *named, *(row.get("lane") or "" for row in self.rows), *posted, *self.seen, *(lane for lane, _ in self.seen_as.values())} - self.gone - {""}
         heard = {lane: self.seen.get(lane, actions.stamp(self.clock)) for lane in lanes}
-        return [{"lane": lane, "live": lane not in self.retired and self.clock - actions.parse_stamp(at) < timedelta(hours=1), "heard": at} for lane, at in heard.items()]
+        return [{"lane": lane, "live": lane not in self.retired and self.clock - actions.parse_stamp(at) < timedelta(hours=1), "heard": at, "state": "retired" if lane in self.routes else "desired", "route": self.routes.get(lane, lane)} for lane, at in heard.items()]
 
     def rulings(self, argv: list[str]) -> runner_module.Done:
         verb, flags = argv[0], argv[1:]
@@ -1744,6 +1745,7 @@ def test_a_relayed_question_carries_its_whole_body_by_path(shell, config, tmp_pa
 
 
 def test_a_worker_done_report_carries_its_body_by_path(shell, config, tmp_path):
+    """cc-skills#1606: a finished Orca worker is terminal, so the runner asks the supervisor to retire it with a typed done request as well as reporting it."""
     orca_pass(shell, config)
     shell.launch(LANE, "ctx_a")
     shell.receive({"id": "msg_d1", "type": "worker_done", "subject": "shipped", "body": "PR #12 open; " + "y" * 1_000, "payload": json.dumps({"dispatchId": "ctx_a", "outcome": "succeeded"})})
@@ -1751,6 +1753,8 @@ def test_a_worker_done_report_carries_its_body_by_path(shell, config, tmp_path):
     [post] = [post for post in shell.posts if post["to"] == "root"]
     assert post["text"] == f"OUTCOME msg_d1 {LANE}: worker_done succeeded dispatch=ctx_a: shipped"
     assert Path(post["path"]).read_text().endswith("shipped\n\nPR #12 open; " + "y" * 1_000 + "\n")
+    [done] = [post for post in shell.posts if post["to"] == "supervisor"]
+    assert (done["kind"], done["attr"], done["id"]) == ("decide", f"lane={LANE}", "done:msg_d1")
 
 
 def test_a_launch_runs_detached_once_and_its_relays_wait_for_the_dispatch(shell, config, tmp_path):
@@ -8109,6 +8113,19 @@ def test_an_old_app_warning_for_a_rotated_lane_reaches_its_live_successor_and_th
     assert pending["to"] == f"{LANE}-2,fidelity-desk"
 
 
+def test_an_old_app_warning_for_a_lane_the_registry_routes_to_a_successor_reaches_that_successor_whatever_its_name(shell, config, tmp_path):
+    """cc-skills#1311: mail for a stood-down lane goes to the successor its registry row names, never to a guess from a numbered name."""
+    old_app_checked(config)
+    lone_green_pr(shell)
+    shell.retired = {LANE}
+    shell.routes = {LANE: "restack-desk"}
+    shell.seen["restack-desk"] = actions.stamp(shell.clock)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    landing_pass(shell, config)
+    [pending] = [note for note in notes(shell) if "OLD-APP-PENDING #29020" in post_body(note)]
+    assert pending["to"] == "restack-desk,fidelity-desk"
+
+
 def fast_row(shell: FakeShell, labels: str = "merge-fast,externally-merged", lane: str = LANE) -> dict:
     return {"pr": "36642", "lane": lane, "branch": "f/1", "base": "dev", "head": "eeee555555", "state": "landed", "reported_head": "eeee555555", "labels": labels, "landed_sha": FAST_SQUASH, "landed_at": actions.stamp(shell.now())}
 
@@ -9860,11 +9877,12 @@ def test_an_accepted_relay_with_no_dispatch_to_reach_fails_at_once_not_at_its_de
     assert shell.sends() == [] and replies(shell) == []
 
 
-def test_a_relay_to_a_lane_the_root_stood_down_fails_quietly_and_a_relaunch_takes_relays_again(shell, config, tmp_path):
-    """Root #267130: runnerdb-fix stood down at 2:53 PM Oct 31, and at 3:23 PM the runner still escalated RELAY-FAILED for its blocker and RELEASE-CLAIM-FAILED for its finished builds."""
+@pytest.mark.parametrize("poster", ["root", "supervisor"])
+def test_a_relay_to_a_lane_the_root_stood_down_fails_quietly_and_a_relaunch_takes_relays_again(shell, config, tmp_path, poster):
+    """Root #267130 and cc-skills#1489: runnerdb-fix stood down at 2:53 PM Oct 31, and at 3:23 PM the runner still escalated RELAY-FAILED for its blocker and RELEASE-CLAIM-FAILED for its finished builds. The registry's stand-down, which the lane supervisor posts for a root request, stops relays the same way."""
     shell.launch(LANE, "ctx_a", status="completed")
     cli(shell, config, "relay", "--key", "R633", "--lane", LANE, "--text", "use evidence.md")
-    cci_record(shell, kind="stand-down", to=[LANE], at=actions.stamp(shell.clock), text="stand down; no successor")
+    cci_record(shell, lane=poster, kind="stand-down", to=[LANE], at=actions.stamp(shell.clock), text="stand down; no successor")
     orca_pass(shell, config)
     assert [line for line in escalations(shell) if not line.startswith("RECLAIM")] == []
     assert incident(tmp_path, f"desk-lane-{LANE}").actions["R633"].status == "failed"

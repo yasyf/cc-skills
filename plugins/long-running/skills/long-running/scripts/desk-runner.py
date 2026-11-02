@@ -701,7 +701,8 @@ import prompt_watch
 import stall_watch
 from long_running import testfiles
 from long_running.grades import FIDELITY_MISSING, FIDELITY_OK, FIDELITY_OVERRIDE, FINDER_PASS, GO_BRACKET, OLD_APP_PASSES, SHORT_SHA, about_pr, about_prs, carried_go, closes, fidelity_carries, fidelity_grades_in, finder_records, finder_reviews_in, carried_gos, go_batch, go_heads, gone_at, goes, full_text, graded_head, head_moves, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, newest_naming, old_app_grades_in, overridden, overrides, precondition_sentences, repo_prs, root_settles_finder, standing, unread_old_apps_in
-from long_running.grades import carry_of, delegated, with_successors
+from long_running.grades import carry_of, delegated
+from long_running.registry import Registry
 from long_running.grades import carries as carry_grade
 from long_running.grades import PORT_PHRASE, QUOTED_BLOCK, QUOTED_SPAN, TEST_ONLY_PHRASE, TEST_ONLY_PHRASES
 from long_running.grades import WITHDRAWN as WITHDRAWN_OPENING
@@ -743,6 +744,8 @@ OWNER_CITE = re.compile(r"#\s*owner:\s*[0-9a-f]{7,40}\b")
 MERGE_CARD_FIELDS = "title,author,additions,deletions,reviewDecision"
 RULING_ROUNDS = "cards/rounds"
 RUNNER = "desk-runner"
+SUPERVISOR = "supervisor"
+REGISTRY_REQUEST = "decide"
 ORCA_DESK = "orca-desk"
 RUNNER_LANES = frozenset({RUNNER, ORCA_DESK, finder.LANE, fidelity.LANE, stall_watch.LANE, prompt_watch.LANE, judge_watch.LANE})
 LANE_KEYS = ("fidelity_lane", "go_lanes", "desk_lane", "board_lane", "restack_lane", "flake_lane")
@@ -1043,7 +1046,6 @@ FLAKE_DUE = timedelta(hours=24)
 FAILED_TEST = re.compile(r"--- FAIL: (?P<go>[\w.-]+)|^test (?P<cargo>\S+) \.\.\. FAILED|^\s*FAIL \[\s*[\d.]+s\] \S+ (?P<nextest>\S+)", re.MULTILINE)
 LOG_CONTROL = re.compile(r"\x1b(?:_[^\x07]*\x07|\[[0-9;]*[A-Za-z])|\r")
 UNREACHABLE_WAIT = timedelta(minutes=2)
-SUCCESSOR_NUMBER = re.compile(r"(?:-\d{1,2})+$")
 HANDOFF_WAIT = timedelta(minutes=20)
 HANDOFF_FAULTS = 12
 LAUNCHD_THROTTLE_SECONDS = 60
@@ -1492,11 +1494,6 @@ def lane_aliases(lane: str) -> tuple[str, str]:
     """The names one incident lane posts under: the desk launches `<name>-fix`, and its lane may post as `<name>`."""
     base = lane.removesuffix(FIX_ALIAS)
     return base, f"{base}{FIX_ALIAS}"
-
-
-def successors(lane: str) -> re.Pattern[str]:
-    """The names a lane and its numbered successors take after rotations: `fidelity-desk`, `fidelity-desk-3`, `register-seed-5-5`."""
-    return re.compile(rf"{re.escape(SUCCESSOR_NUMBER.sub('', lane))}(?:-\d{{1,2}})*")
 
 
 def names_resolved(sentence: str, resolved: set[int]) -> bool:
@@ -3827,6 +3824,8 @@ class Runner:
         elif message["type"] == "worker_done":
             self.keep(message)
             self.escalate(message["id"], "OUTCOME", lane, f"worker_done {payload.get('outcome', '?')} dispatch={sender}: {message.get('subject', '')}")
+            if payload.get("outcome") == "succeeded":
+                self.cci_post(REGISTRY_REQUEST, f"registry request: done {lane}, its Orca worker finished", SUPERVISOR, f"done:{lane}", f"done:{message['id']}", record_id=f"done:{message['id']}", flags=["--attr", "verb=done", "--attr", f"lane={lane}"])
         elif message["type"] == "status" and subject.lower().startswith(MILESTONE_SUBJECTS):
             kind = subject.split(":", 1)[0].upper()
             self.keep(message)
@@ -4179,10 +4178,10 @@ class Runner:
         return reached
 
     def stood_down(self, lane: str, launched: datetime) -> str:
-        """The root's `stand-down` or `stopped` addressed to the lane since its launch, as `#<seq>`, or empty."""
+        """The root's `stopped`, or the lane supervisor's `stand-down`, the one record a registry retirement posts, addressed to the lane since its launch, as `#<seq>`, or empty."""
         names = set(self.names(lane))
-        posted = cci.records(self.cci_tail, self.config.drive, "--lane", ROOT, f"--kind={STAND_DOWN}", f"--kind={STOPPED}")
-        return next((f"#{record['seq']}" for record in posted if record["drive"] == self.config.drive and record["lane"] == ROOT and names & set(record.get("to") or []) and actions.parse_stamp(record["at"]) >= launched), "")
+        posted = cci.records(self.cci_tail, self.config.drive, f"--kind={STAND_DOWN}", f"--kind={STOPPED}")
+        return next((f"#{record['seq']}" for record in posted if record["drive"] == self.config.drive and record["lane"] in (ROOT, SUPERVISOR) and names & set(record.get("to") or []) and actions.parse_stamp(record["at"]) >= launched), "")
 
     def gate_stop(self, lane: str, launched: datetime) -> dict | None:
         """The lane's own stop since `launched` that scopes a failing release gate out for want of customer impact: a `stopped`, or an `incident` starting STOPPED, naming a release smoke team, a release check, or dev red beside `active no`, no or zero customer, or false alarm."""
@@ -5984,7 +5983,7 @@ class Landing:
         self.settlement = Settlement({}, {})
         self.unproven_why: dict[str, str] = {}
         self.untested_why: dict[str, str] = {}
-        self.live: list[dict] | None = None
+        self.live: Registry | None = None
         self.statuses: dict[str, dict] | None = None
         self.queues_read = False
         self.statuses_floor = datetime.min.replace(tzinfo=timezone.utc)
@@ -5998,7 +5997,6 @@ class Landing:
         self.body_preconditions: dict[tuple[str, str], list[str]] = {}
         self.said_preconditions: dict[str, list[tuple[str, str]]] = {}
         self.resolved_preconditions: dict[str, set[int]] = {}
-        self.successor_lanes: tuple[tuple[int, tuple[str, ...]], list[str]] = ((-1, ()), [])
         self.gos: list[dict] | None = None
         self.owner_taps: tuple[set[str] | None] | None = None
         self.cleared: dict[str, int] = {}
@@ -7147,10 +7145,8 @@ class Landing:
         """The configured fidelity lanes plus every successor of one, such as `fidelity-desk-13` for `fidelity-desk-12`, that has posted a review, so a desk's successor counts with no config edit (root #197631)."""
         configured = json.loads(self.runner.config.source.read_text())["landing"]["fidelity_lane"]
         lanes = [configured] if isinstance(configured, str) else list(configured)
-        reviews = self.scanned_reviews()
-        if self.successor_lanes[0] != (key := (len(reviews), tuple(lanes))):
-            self.successor_lanes = (key, with_successors(lanes, reviews))
-        return self.successor_lanes[1]
+        registry = self.registry()
+        return list(dict.fromkeys([*lanes, *sorted(name for lane in lanes for name in registry.lineage(lane))]))
 
     @property
     def fidelity_to(self) -> list[str]:
@@ -9846,25 +9842,25 @@ class Landing:
         """The live successors of the lanes `landing.restack_lane` names, or the root while none is named."""
         return [*map(self.successor, self.runner.landing_lanes("restack_lane"))] or [ROOT]
 
-    def registry(self) -> list[dict]:
-        """The live lanes of the lane supervisor's registry, `drive_supervisor.py lanes --json` over the `landing.supervisor` config, read once a pass: the drive's one liveness answer, where `cci who` is only a process fact (root #270077)."""
+    def registry(self) -> Registry:
+        """The lane supervisor's registry, `drive_supervisor.py lanes --json` over the `landing.supervisor` config, read once a pass: the drive's one answer to who is live and where a lane's mail goes, where `cci who` is only a process fact (root #270077)."""
         if self.live is None:
             done = self.shell.run([sys.executable, str(SCRIPTS / "drive_supervisor.py"), "lanes", "--config", str(Path(self.landing_config["supervisor"]).expanduser()), "--json"])
             if done.code != 0:
                 raise CciTailFailed(f"drive_supervisor.py lanes exited {done.code}: {(done.err or done.out).strip()[:300]}")
-            self.live = [row for line in done.out.splitlines() if line.strip() and (row := json.loads(line))["live"]]
+            self.live = Registry.parse(done.out)
         return self.live
 
     def session_live(self, lane: str) -> bool:
-        return any(row["lane"] == lane for row in self.registry())
+        return self.registry().live(lane)
 
     def successor(self, lane: str) -> str:
-        """`lane` while the registry reads it live, else the live lane of its `successors` heard from last, so mail for a rotated lane reaches the one holding its work; `lane` when none is live."""
-        if self.session_live(lane):
-            return lane
-        family = successors(lane)
-        found = [row for row in self.registry() if family.fullmatch(row["lane"])]
-        return max(found, key=lambda row: row["heard"])["lane"] if found else lane
+        """Where the registry routes `lane`'s mail, while that lane is live or is root; else the live lane of its lineage heard from last, so mail for a rotated lane reaches the one holding its work; the routed lane when none is live."""
+        registry = self.registry()
+        if registry.live(routed := registry.route(lane)) or routed == ROOT:
+            return routed
+        found = [registry.rows[name] for name in registry.lineage(lane) if registry.live(name) and not registry.retired(name)]
+        return max(found, key=lambda row: row.get("heard") or "")["lane"] if found else routed
 
     def has_landed(self, pr: str) -> bool:
         """A PR the merge queue already landed keeps its ledger row open until the branch is pruned, and the gate still reads its stale branch as conflicted; it gets no blocker."""
