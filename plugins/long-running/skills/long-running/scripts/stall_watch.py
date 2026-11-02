@@ -200,7 +200,8 @@ for a stale PR. A stall every owner of which is a desk, a lane named `<x>-desk` 
 its owners and not to root, except an `ungraded` one, which root always hears; one the desk runner owns goes
 to `landing.desk_lane` when the config names one.
 A `red` stall a live lane owns posts again every `REPEAT` while it stands. An id that no longer stands clears, and posts again if it stalls again, but never sooner than `REPEAT` after
-its last post; a source that does not read keeps the stalls it would have cleared. `stall.board_lane`, else the first `landing.board_lane`, else root, owns missing board rows. State lives in
+its last post; a source that does not read keeps the stalls it would have cleared. `stall.board_lane`, else the first `landing.board_lane`, else root, owns every tap, board and carry stall, with root in copy
+(root #313384); a board row the board lane posted about in the last ten minutes goes to it alone. State lives in
 `stall-watch.json` beside `orca.desk_inbox`, under a lock a second pass meets by exiting. Each pass also
 writes `stack.json` there: one row per open PR with its head, base, the PR below it, its state and next
 step in words, its owning lane and whether that lane is live, and since when the state stood, and for a
@@ -485,9 +486,9 @@ class Stall:
         return f"{word} {self.subject}, {int((now - self.since).total_seconds() // 60)} min: {self.what} | owner {', '.join(self.owner)} | {self.step}"
 
     def to(self, drive_name: str, desk_lanes: list[str], live: Callable[[str], str | None]) -> str:
-        """The lanes the stall names, each as its live successor when a rotation replaced it (root #215820), with the root too unless desks own it or every lane it names is live and its step is not the root's, so root hears only what it must do or no live lane will act on (root, Oct 29 2:10 PM)."""
+        """The lanes the stall names, each as its live successor when a rotation replaced it (root #215820), with the root too unless desks own it or every lane it names is live and its step is not the root's, and always on a tap, board or carry stall the board lane has not answered in ten minutes (root #313384), so root hears only what it must do or no live lane will act on (root, Oct 29 2:10 PM)."""
         lanes = [live(named) or named for lane in self.owner for named in (desk_lanes if lane == RUNNER else [lane]) if named not in ROOT_NAMES]
-        desks = lanes and self.kind not in ROOT_KINDS and (self.quiet or self.kind in DESK_KINDS or all(lane == RUNNER or DESK.fullmatch(lane) for lane in self.owner) or (all(map(live, lanes)) and not self.step.startswith(f"{ROOT} ")))
+        desks = lanes and self.kind not in ROOT_KINDS and (self.quiet or self.kind not in BOARD_KINDS and (self.kind in DESK_KINDS or all(lane == RUNNER or DESK.fullmatch(lane) for lane in self.owner) or (all(map(live, lanes)) and not self.step.startswith(f"{ROOT} "))))
         return ",".join(dict.fromkeys([*([] if desks else [ROOT]), *(f"{lane}@{drive_name}" for lane in lanes)]))
 
 
@@ -1045,7 +1046,7 @@ class Pass:
             if tapped and grades.names_head(tapped, head):
                 tapped_at = actions.parse_stamp(tap["at"])
                 if self.now - tapped_at >= self.watch.age("tap"):
-                    stalls.append(Stall(f"tap:{pr}:{short(head)}", "tap", tapped_at, subject, f"the owner approved it on the board at {pacific(tapped_at, self.now)}, and {state.said()}", tuple(go_owners), f"post `go #{pr} at {short(head)}`", pr))
+                    stalls.append(Stall(f"tap:{pr}:{short(head)}", "tap", tapped_at, subject, f"the owner approved it on the board at {pacific(tapped_at, self.now)}, and {state.said()}", tuple(dict.fromkeys((self.watch.board_lane, *go_owners))), f"post `go #{pr} at {short(head)}`", pr))
                 continue
             if head_at is None:
                 continue
@@ -1084,9 +1085,9 @@ class Pass:
             if tapped or (older := state.older):
                 if not board.shows(pr, head) and self.now - head_at >= self.watch.age("carry") and not any(named == pr and grades.names_head(sha, head) for named, sha in carried):
                     if tapped:
-                        stalls.append(Stall(f"carry:{pr}:{short(head)}", "carry", head_at, subject, f"his board tap names {short(tapped)}, and no go names this head, first named {pacific(head_at, self.now)}", tuple(go_owners), f"post `go #{pr} at {short(head)}`: his tap at {short(tapped)} carries to every later head of this PR (owner, Oct 31 2:48 AM); it never goes back to his board", pr))
+                        stalls.append(Stall(f"carry:{pr}:{short(head)}", "carry", head_at, subject, f"his board tap names {short(tapped)}, and no go names this head, first named {pacific(head_at, self.now)}", tuple(dict.fromkeys((self.watch.board_lane, *go_owners))), f"post `go #{pr} at {short(head)}`: his tap at {short(tapped)} carries to every later head of this PR (owner, Oct 31 2:48 AM); it never goes back to his board", pr))
                     else:
-                        stalls.append(Stall(f"carry:{pr}:{short(head)}", "carry", head_at, subject, f"go #{older['seq']} by {older['lane']} at {grades.clock(older['at'])} names {short(grades.go_heads(older)[pr])}, the owner never tapped it, and no go names this head, first named {pacific(head_at, self.now)}", (lane,), f"ask root for a TAP-REQUIRED `go #{pr} at {short(head)}`; no owner re-ask is owed", pr))
+                        stalls.append(Stall(f"carry:{pr}:{short(head)}", "carry", head_at, subject, f"go #{older['seq']} by {older['lane']} at {grades.clock(older['at'])} names {short(grades.go_heads(older)[pr])}, the owner never tapped it, and no go names this head, first named {pacific(head_at, self.now)}", tuple(dict.fromkeys((self.watch.board_lane, lane))), f"ask root for a TAP-REQUIRED `go #{pr} at {short(head)}`; no owner re-ask is owed", pr))
                 continue
             if not row.get("green_at") or not (landing.get("merge_mode") == "every" or waits.get(pr) == f"merge:{pr}:{short(head)}"):
                 continue

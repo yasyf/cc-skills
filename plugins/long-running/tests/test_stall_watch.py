@@ -636,6 +636,23 @@ def test_a_tap_stall_goes_to_root_and_the_live_registry_lanes_its_go_lanes_route
     assert shell.post("tap:102:fedcba9")["to"] == "root,go-sweep-8@d1"
 
 
+def test_every_board_class_stall_goes_to_the_board_lane_with_root_in_copy(config):
+    """Root #313384: board:47614 at 5dcaafc went to root alone, a hop that added minutes before board-refresher-6 put the row up."""
+    raw = json.loads(config.read_text())
+    raw["stall"] = {**raw.get("stall", {}), "board_lane": "board-refresher-6"}
+    config.write_text(json.dumps(raw))
+    records = [head(1, "101", HEAD, 40), finder(2, "101", HEAD, 20), fidelity(3, "101", HEAD, 20), head(4, "102", OTHER, 40), finder(5, "102", OTHER, 30), fidelity(6, "102", OTHER, 30)]
+    shell = FakeShell(records, [row("101"), row("102", OTHER)])
+    shell.doc = {"blocks": [{"id": "merge-prs", "type": "pr-groups", "groups": [{"id": "g", "prs": [{"number": 102, "head": OTHER[:7]}]}]}]}
+    shell.triage = {"merge-prs": {"102": {"verdict": "approved", "head": OTHER[:7], "at": stamp(30)}}}
+
+    watch(shell, config)
+
+    assert shell.post("board:101:abc1234")["to"] == "root,board-refresher-6@d1"
+    assert shell.post("tap:102:fedcba9")["to"] == "root,board-refresher-6@d1"
+    assert "| owner board-refresher-6, root | post `go #102 at fedcba9`" in shell.post("tap:102:fedcba9")["text"]
+
+
 def test_a_tap_at_an_earlier_head_carries_and_the_stall_asks_only_for_the_carried_go(config):
     """Root #312798: carry #312437 told root to re-ask the owner at #47276's moved head, against the owner's Oct 31 2:48 AM ruling that a tap carries to every later head."""
     fixed = f"HEAD #101 {HEAD} (was {OLD}): one added commit, NEW BEHAVIOR: the startup pass runs as its own task"
@@ -1756,7 +1773,7 @@ def test_a_head_move_on_a_pr_the_owner_never_tapped_asks_its_lane_for_roots_go_a
     watch(shell, config)
 
     assert shell.prompts == []
-    assert shell.post("carry:101:abc1234")["to"] == "api-lane@d1"
+    assert shell.post("carry:101:abc1234")["to"] == "root,api-lane@d1"
     assert "ask root for a TAP-REQUIRED `go #101 at abc1234`; no owner re-ask is owed" in shell.post("carry:101:abc1234")["text"]
 
 
