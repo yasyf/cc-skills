@@ -22,6 +22,11 @@ on:
   schedule:
     - cron: "41 10 * * *"
   workflow_dispatch:
+    inputs:
+      landing_discover:
+        description: Run every landing-pass test of test_desk_runner.py on the Go desk and upload the ids that pass
+        type: boolean
+        default: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -191,10 +196,24 @@ jobs:
           uv run --locked --project plugins/long-running python plugins/long-running/desk/testdata/dump_patterns.py
           git diff --exit-code -- plugins/long-running/desk/testdata/patterns.json
       - name: allowlisted landing tests on the Go desk
+        if: ${{ !inputs.landing_discover }}
         working-directory: .
         env:
           LONG_RUNNING_LANDING: go
         run: LONG_RUNNING_LANDING_BIN="$RUNNER_TEMP/landing-desk" uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_desk_runner.py -q
+      - name: discover the landing tests the Go desk passes
+        if: ${{ inputs.landing_discover }}
+        working-directory: .
+        env:
+          LONG_RUNNING_LANDING: go
+          LONG_RUNNING_LANDING_DISCOVER: ${{ runner.temp }}/landing-go-tests.txt
+        run: LONG_RUNNING_LANDING_BIN="$RUNNER_TEMP/landing-desk" uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_desk_runner.py -q || true
+      - name: upload the discovered allowlist
+        if: ${{ inputs.landing_discover }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: landing-go-tests
+          path: ${{ runner.temp }}/landing-go-tests.txt
 
   replay-fixture:
     if: github.event_name == 'pull_request'

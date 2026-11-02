@@ -8,7 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 
@@ -36,6 +38,20 @@ func DefaultRoot() (string, error) {
 		return "", err
 	}
 	return joinPath(joinPath(joinPath(pyPath(home), ".claude"), "long-running"), "incidents"), nil
+}
+
+// IDs is Store.ids: the incident every database under the root holds, sorted.
+func (s *Store) IDs() ([]string, error) {
+	paths, err := filepath.Glob(filepath.Join(s.root, "*.sqlite3"))
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, len(paths))
+	for i, path := range paths {
+		ids[i] = strings.TrimSuffix(filepath.Base(path), ".sqlite3")
+	}
+	sort.Strings(ids)
+	return ids, nil
 }
 
 // Root is the directory holding one database per incident.

@@ -106,6 +106,14 @@ def pytest_ignore_collect(collection_path: Path, config: pytest.Config) -> bool 
     return None
 
 
+def pytest_runtest_logreport(report: pytest.TestReport) -> None:
+    landing_bridge.logreport(report)
+
+
+def pytest_sessionfinish(session: pytest.Session) -> None:
+    landing_bridge.write_discovered()
+
+
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     """Narrow test_desk_runner.py to the Go landing allowlist under LONG_RUNNING_LANDING=go, mark the scale tests, record them in the junit report for lr_durations.py, and keep only this shard's tests."""
     landing_bridge.narrow(config, items)

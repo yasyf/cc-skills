@@ -2,6 +2,7 @@
 package runner
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -15,7 +16,9 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/desk/pyjson"
 	"github.com/yasyf/cc-skills/plugins/long-running/desk/shell"
+	"github.com/yasyf/cc-skills/plugins/long-running/desk/store"
 )
 
 const (
@@ -46,7 +49,7 @@ type Config struct {
 	DeskInbox string
 	Receipts  string
 	Landing   map[string]any
-	DeskEnv   map[string]map[string]string
+	DeskEnv   map[string][][2]string
 }
 
 // LoadConfig is Config.load.
@@ -58,14 +61,15 @@ func LoadConfig(path string, sh shell.Shell) Config {
 	if resolved, err := filepath.EvalSymlinks(source); err == nil {
 		source = resolved
 	}
-	raw := readJSON(source)
+	ordered := readJSON(source)
+	raw := plain(ordered).(map[string]any)
 	orca := raw["orca"].(map[string]any)
 	config := Config{
 		Source:    source,
 		Drive:     raw["drive"].(string),
 		DeskInbox: expand(orca["desk_inbox"].(string), sh),
 		Receipts:  filepath.Join(sh.Getenv("HOME"), ".claude", "scratch", "orca-launch", orca["run"].(string)),
-		DeskEnv:   map[string]map[string]string{},
+		DeskEnv:   map[string][][2]string{},
 	}
 	if store, ok := raw["store"].(string); ok && store != "" {
 		config.Store = expand(store, sh)
@@ -74,17 +78,50 @@ func LoadConfig(path string, sh shell.Shell) Config {
 		config.Landing = landing
 	}
 	for _, desk := range []string{"orca", "landing"} {
-		env := map[string]string{}
-		if section, ok := raw[desk].(map[string]any); ok {
-			if values, ok := section["env"].(map[string]any); ok {
-				for name, value := range values {
-					env[name] = value.(string)
+		var env [][2]string
+		if section, ok := member(ordered, desk).(*pyjson.Object); ok {
+			if values, ok := member(section, "env").(*pyjson.Object); ok {
+				for _, name := range values.Keys() {
+					env = append(env, [2]string{name, member(values, name).(string)})
 				}
 			}
 		}
 		config.DeskEnv[desk] = env
 	}
 	return config
+}
+
+func member(object *pyjson.Object, key string) any {
+	value, _ := object.Get(key)
+	return value
+}
+
+func plain(value any) any {
+	switch value := value.(type) {
+	case *pyjson.Object:
+		mapped := make(map[string]any, value.Len())
+		for _, key := range value.Keys() {
+			mapped[key] = plain(member(value, key))
+		}
+		return mapped
+	case []any:
+		items := make([]any, len(value))
+		for i, item := range value {
+			items[i] = plain(item)
+		}
+		return items
+	}
+	return value
+}
+
+func number(value any) (float64, bool) {
+	switch value := value.(type) {
+	case int64:
+		return float64(value), true
+	case float64:
+		return value, true
+	}
+	return 0, false
 }
 
 func expand(path string, sh shell.Shell) string {
@@ -94,16 +131,12 @@ func expand(path string, sh shell.Shell) string {
 	return path
 }
 
-func readJSON(path string) map[string]any {
+func readJSON(path string) *pyjson.Object {
 	text, err := os.ReadFile(path)
 	if err != nil {
 		panic(err)
 	}
-	var raw map[string]any
-	if err := json.Unmarshal(text, &raw); err != nil {
-		panic(err)
-	}
-	return raw
+	return must(pyjson.Loads(string(text))).(*pyjson.Object)
 }
 
 // Runner is the landing loop's share of desk-runner.py's Runner.
@@ -111,6 +144,10 @@ type Runner struct {
 	Shell       shell.Shell
 	Config      Config
 	Version     string
+	Book        *store.Book
+	ctx         context.Context
+	refused     []time.Time
+	unreachablePasses int
 	PassIO      *OnePassIO
 	Passes      map[string]int
 	Passing     map[string]bool
@@ -123,10 +160,16 @@ type raisedAt struct {
 	pass int
 }
 
-// New returns the Runner for `config`, running plugin version `version`.
+// New returns the Runner for `config`, running plugin version `version`, on the store config.Store names.
 func New(sh shell.Shell, config Config, version string) *Runner {
 	trace, _ := config.Landing["trace_pass_io"].(bool)
-	return &Runner{Shell: sh, Config: config, Version: version, PassIO: &OnePassIO{enabled: trace, seen: map[string]bool{}}, Passes: map[string]int{}, Passing: map[string]bool{}, raised: map[string]raisedAt{}, alivePosted: map[string]time.Time{}}
+	root := config.Store
+	if root == "" {
+		root = must(store.DefaultRoot())
+	}
+	r := &Runner{Shell: sh, Config: config, Version: version, Book: store.NewBook(store.New(root), sh), ctx: context.Background(), PassIO: &OnePassIO{enabled: trace, seen: map[string]bool{}}, Passes: map[string]int{}, Passing: map[string]bool{}, raised: map[string]raisedAt{}, alivePosted: map[string]time.Time{}}
+	check(r.Book.Ensure(r.ctx, RunnerLane, RunnerLane))
+	return r
 }
 
 func (r *Runner) Now() time.Time { return r.Shell.Now() }
@@ -140,9 +183,8 @@ func (r *Runner) runnerLog(desk string) string {
 
 func (r *Runner) restartCommand(desk string) string {
 	var env strings.Builder
-	// TODO: keep runner.json's member order, as Python's dict does, once the order-preserving JSON decoder lands.
-	for _, name := range sortedKeys(r.Config.DeskEnv[desk]) {
-		env.WriteString(name + "=" + Quote(r.Config.DeskEnv[desk][name]) + " ")
+	for _, pair := range r.Config.DeskEnv[desk] {
+		env.WriteString(pair[0] + "=" + Quote(pair[1]) + " ")
 	}
 	prefix := ""
 	if env.Len() > 0 {
@@ -271,7 +313,7 @@ func (r *Runner) Beat(desk string) {
 
 // Pinned is Runner.pinned: the version runner.json pins, read fresh.
 func (r *Runner) Pinned() string {
-	pinned, _ := readJSON(r.Config.Source)["version"].(string)
+	pinned, _ := member(readJSON(r.Config.Source), "version").(string)
 	return pinned
 }
 
@@ -349,16 +391,3 @@ func describe(failure any) string {
 }
 
 func stack() []byte { return debug.Stack() }
-
-func sortedKeys[V any](values map[string]V) []string {
-	keys := make([]string, 0, len(values))
-	for key := range values {
-		keys = append(keys, key)
-	}
-	for i := 1; i < len(keys); i++ {
-		for j := i; j > 0 && keys[j] < keys[j-1]; j-- {
-			keys[j], keys[j-1] = keys[j-1], keys[j]
-		}
-	}
-	return keys
-}

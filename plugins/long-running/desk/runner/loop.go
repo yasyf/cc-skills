@@ -45,7 +45,7 @@ func RunLanding(r *Runner, once bool) int {
 		landing.KeepOverflowing()
 	}
 	interval := float64(DefaultSeconds)
-	if seconds, ok := r.Config.Landing["interval_seconds"].(float64); ok {
+	if seconds, ok := number(r.Config.Landing["interval_seconds"]); ok {
 		interval = seconds
 	}
 	alive := r.KeepAlive("landing")

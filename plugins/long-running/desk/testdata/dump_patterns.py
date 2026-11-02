@@ -12,7 +12,7 @@ from pathlib import Path
 from types import ModuleType
 
 SCRIPTS = Path(__file__).resolve().parents[2] / "skills/long-running/scripts"
-SOURCES = ("desk-runner.py", "merge_queue.py", "long_running/cci.py")
+SOURCES = ("desk-runner.py", "merge_queue.py", "long_running/cci.py", "long_running/grades.py")
 GOLDEN = Path(__file__).resolve().parent / "patterns.json"
 
 

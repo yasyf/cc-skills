@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import inspect
 import json
 import os
 import shutil
@@ -19,20 +20,45 @@ ALLOWLIST = Path(__file__).resolve().parents[1] / "desk" / "testdata" / "landing
 MODULE = "test_desk_runner.py"
 BRIDGE = "LONG_RUNNING_BRIDGE"
 PLUGIN_ROOT = "LONG_RUNNING_PLUGIN_ROOT"
+PYTHON = "LONG_RUNNING_PYTHON"
+DISCOVER = "LONG_RUNNING_LANDING_DISCOVER"
 EXIT_RAISED = 86
+RAN: set[str] = set()
+PASSED: set[str] = set()
 
 
 def enabled() -> bool:
     return os.environ.get("LONG_RUNNING_LANDING") == "go"
 
 
+def discovering() -> str:
+    """The file a discovery run writes the ids of the tests that ran the Go desk and passed to, or empty."""
+    return os.environ.get(DISCOVER, "") if enabled() else ""
+
+
 def key(item: pytest.Item) -> str:
     return f"{item.path.name}::{item.nodeid.partition('::')[2]}"
 
 
+def nodeid_key(nodeid: str) -> str:
+    path, _, name = nodeid.partition("::")
+    return f"{Path(path).name}::{name}"
+
+
+def landing_driven(item: pytest.Item) -> bool:
+    function = getattr(item, "function", None)
+    source = inspect.getsource(function) if function else ""
+    return "landing_pass(" in source or "run_landing(" in source
+
+
 def narrow(config: pytest.Config, items: list[pytest.Item]) -> None:
-    """Deselect every test of `MODULE` the allowlist does not name, refusing an allowlist that is empty or names a test the module does not have."""
+    """Deselect every test of `MODULE` the allowlist does not name, refusing an allowlist that is empty or names a test the module does not have; a discovery run keeps every test of `MODULE` that runs a landing pass instead."""
     if not enabled() or not any(item.path.name == MODULE for item in items):
+        return
+    if discovering():
+        kept = [item for item in items if item.path.name != MODULE or landing_driven(item)]
+        config.hook.pytest_deselected(items=[item for item in items if item not in kept])
+        items[:] = kept
         return
     named = [line.strip() for line in ALLOWLIST.read_text().splitlines() if line.strip()]
     if not named:
@@ -128,7 +154,7 @@ class Bridge:
             stream.write(request["text"])
             stream.flush()
             return None
-        if op == "judge":
+        if op == "judgment":
             verdict = self.module.judge.judge(request["kind"], request["evidence"], request["artifact"], backend=self.module.judge.backend_from(os.environ), drive=request["drive"])
             return None if verdict is None else dataclasses.asdict(verdict)
         raise ValueError(f"the landing bridge serves no op {op}")
@@ -146,9 +172,10 @@ def run_landing(module, binary: str):
     """`module.run_landing` as the Go binary at `binary`, its Shell the runner's own; its output reaches sys.stdout and sys.stderr, its exit code is the return, and an exception the Shell raised that the desk did not handle is raised here."""
 
     def run(runner, once: bool) -> int:
+        RAN.add(nodeid_key(os.environ["PYTEST_CURRENT_TEST"].rpartition(" ")[0]))
         bridge = Bridge(runner.shell, module)
         try:
-            child = subprocess.run([binary, "loop", "--config", str(runner.config.source), *(["--once"] if once else [])], env={**os.environ, BRIDGE: bridge.path, PLUGIN_ROOT: str(module.SCRIPTS.parents[2])}, capture_output=True, text=True)
+            child = subprocess.run([binary, "loop", "--config", str(runner.config.source), *(["--once"] if once else [])], env={**os.environ, BRIDGE: bridge.path, PLUGIN_ROOT: str(module.SCRIPTS.parents[2]), PYTHON: sys.executable}, capture_output=True, text=True)
         finally:
             bridge.close()
         sys.stdout.write(child.stdout)
@@ -158,3 +185,19 @@ def run_landing(module, binary: str):
         return child.returncode
 
     return run
+
+
+def logreport(report: pytest.TestReport) -> None:
+    """Keep each discovered test whose call ran the Go desk and passed, dropping it again when its teardown fails."""
+    if not discovering():
+        return
+    name = nodeid_key(report.nodeid)
+    if report.when == "call" and report.passed and name in RAN:
+        PASSED.add(name)
+    elif report.failed:
+        PASSED.discard(name)
+
+
+def write_discovered() -> None:
+    if path := discovering():
+        Path(path).write_text("".join(f"{name}\n" for name in sorted(PASSED)))

@@ -43,6 +43,10 @@
   "flags": 32,
   "pattern": "\\bcarried from #(\\d+)"
  },
+ "desk-runner.py:CITED_RECORD": {
+  "flags": 32,
+  "pattern": "#(\\d{6,})\\b"
+ },
  "desk-runner.py:CLAIMED_PR": {
   "flags": 32,
   "pattern": "(?:(?P<repo>[\\w.-]+/[\\w.-]+))?#(?P<pr>\\d+)\\b"
@@ -101,7 +105,7 @@
  },
  "desk-runner.py:FAILED_TEST": {
   "flags": 40,
-  "pattern": "--- FAIL: (?P<go>[\\w.-]+)|^test (?P<cargo>\\S+) \\.\\.\\. FAILED|^\\s*FAIL \\[\\s*[\\d.]+s\\] \\S+ (?P<nextest>\\S+)"
+  "pattern": "--- FAIL: (?P<go>[\\w.-]+)|^test (?P<cargo>\\S+) \\.\\.\\. FAILED|^\\s*FAIL \\[\\s*[\\d.]+s\\] \\S+ (?P<nextest>\\S+)|^\\s*● .+ › (?P<jest>.+?)\\s*$"
  },
  "desk-runner.py:FAILURE_LINE": {
   "flags": 40,
@@ -189,7 +193,7 @@
  },
  "desk-runner.py:LAUNCH_KEY": {
   "flags": 32,
-  "pattern": "R\\d+|unfixed:[\\w-]+:\\d+|inbox@\\S+"
+  "pattern": "R\\d+|unfixed:[\\w-]+:\\d+|inbox@\\S+|incident-clock:ctx_[\\w-]+"
  },
  "desk-runner.py:LAUNCH_SPEC": {
   "flags": 32,
@@ -466,6 +470,138 @@
  "long_running/cci.py:TRUNK_STATE": {
   "flags": 32,
   "pattern": "^(?P<state>DEV-RED|POST-MERGE-RED|DEV-GREEN)\\b(?: since (?P<since>\\d{1,2}:\\d{2} [AP]M))?"
+ },
+ "long_running/grades.py:ADDS_BEHAVIOR": {
+  "flags": 34,
+  "pattern": "(?<!\\bno )(?<!\\bwithout )\\bnew behaviou?r\\b"
+ },
+ "long_running/grades.py:CARRY_FORM": {
+  "flags": 34,
+  "pattern": "\\bcarried\\b|(?<!\\bnot )\\bpatch-identical\\b|\\btap carries\\b|\\bno new behaviou?r\\b(?! since (?:the |his |the owner['’]s )?tap at)|\\btest-only\\b|\\bpure replay\\b"
+ },
+ "long_running/grades.py:CARRY_SAYS": {
+  "flags": 34,
+  "pattern": "(?<!\\bnot )\\bpatch-identical\\b|\\btap carries\\b|\\bno new behaviou?r\\b(?! since (?:the |his |the owner['’]s )?tap at)|\\btest-only\\b|\\bpure replay\\b"
+ },
+ "long_running/grades.py:CLAUSE_START": {
+  "flags": 40,
+  "pattern": "(?:^|[.!?]\\s+)(?:\\d{1,2}:\\d{2} [AP]M\\s+)?$"
+ },
+ "long_running/grades.py:FINDER_CLEAN": {
+  "flags": 34,
+  "pattern": "\\bno (?:majors?|findings)\\b|\\b0 majors?\\b|\\bok\\b"
+ },
+ "long_running/grades.py:FINDER_CLEARED": {
+  "flags": 34,
+  "pattern": "(?<!not )(?<!never )\\bclear(?:s|ed)?\\b|\\brebuttal accepted\\b|\\bland it\\b"
+ },
+ "long_running/grades.py:FINDER_MAJOR": {
+  "flags": 34,
+  "pattern": "\\b[1-9]\\d* majors?\\b"
+ },
+ "long_running/grades.py:FINDER_NAMED": {
+  "flags": 34,
+  "pattern": "\\bfinder\\b"
+ },
+ "long_running/grades.py:FINDER_SAYS": {
+  "flags": 34,
+  "pattern": "\\bfinder(?:\\s*\\[\\d+\\])?:?\\s+(ok|lgtm|major|issues)\\b"
+ },
+ "long_running/grades.py:GO_BRACKET": {
+  "flags": 32,
+  "pattern": "\\[[^\\]]*\\]"
+ },
+ "long_running/grades.py:GO_CLAUSE": {
+  "flags": 34,
+  "pattern": "(?:^\\s*(?:\\d{1,2}:\\d{2}\\s*[AP]M\\s+)?|[.:;!?]\\s+)(?:go(?:\\s+(?:port|test-only|ci-only))?|merge)\\s+(#\\d+\\s+at\\s+[0-9a-f]{7,40}\\b(?:(?:\\s*,\\s*|\\s*,?\\s+and\\s+)#\\d+\\s+at\\s+[0-9a-f]{7,40}\\b)*)(?:\\s+with\\s+(#\\d+(?:(?:\\s*,\\s*|\\s*,?\\s+and\\s+|\\s+)#\\d+)*))?"
+ },
+ "long_running/grades.py:GO_EXEMPT": {
+  "flags": 34,
+  "pattern": "\\bgo\\s+(port|test-only|ci-only)\\b|\\bpure (port)\\b|\\b((?:test|ci)-only)\\b"
+ },
+ "long_running/grades.py:GO_HEAD": {
+  "flags": 34,
+  "pattern": "#(\\d+)\\s+at\\s+([0-9a-f]{7,40})\\b"
+ },
+ "long_running/grades.py:GROUND_KEY": {
+  "flags": 32,
+  "pattern": "(?:plan(?::(?:[\\w./-]+\\.md:)?\\d+(?:-\\d+)?)?|F\\d+|(?!design/)[a-z]+/[\\w./-]+)"
+ },
+ "long_running/grades.py:HEAD_MOVE": {
+  "flags": 34,
+  "pattern": "\\b([0-9a-f]{7,40})\\s*\\(was ([0-9a-f]{7,40})\\)"
+ },
+ "long_running/grades.py:LANE_NUMBER": {
+  "flags": 32,
+  "pattern": "(.+?)(?:-(\\d+))?"
+ },
+ "long_running/grades.py:OLD_APP": {
+  "flags": 42,
+  "pattern": "^old-app:\\s*(unchanged|bug fix|changes)\\b"
+ },
+ "long_running/grades.py:OLD_APP_ANY": {
+  "flags": 42,
+  "pattern": "^old-app:.*$"
+ },
+ "long_running/grades.py:OVERRIDE": {
+  "flags": 34,
+  "pattern": "(finder|fidelity)-override\\s+#?(\\d+)\\s+(?:at\\s+)?([0-9a-f]{7,40})\\b"
+ },
+ "long_running/grades.py:OVERRIDE_NAMED": {
+  "flags": 34,
+  "pattern": "\\b(?:finder|fidelity)-override\\b[^.;\\n]*"
+ },
+ "long_running/grades.py:PATCH_IDENTICAL": {
+  "flags": 34,
+  "pattern": "(?<!\\bnot )\\bpatch-identical\\b"
+ },
+ "long_running/grades.py:PRECONDITION": {
+  "flags": 34,
+  "pattern": "\\b(?:lands?|merges?) only after\\b|\\bbefore it (?:lands|merges)\\b|\\bdo not (?:land|merge) until\\b|\\bnot for landing\\b"
+ },
+ "long_running/grades.py:PR_NAMED": {
+  "flags": 32,
+  "pattern": "#(\\d+)\\b|\\[(\\d+)\\]"
+ },
+ "long_running/grades.py:QUOTED_BLOCK": {
+  "flags": 56,
+  "pattern": "```.*?(?:```|\\Z)|^[ \\t]*>[^\\n]*"
+ },
+ "long_running/grades.py:QUOTED_SPAN": {
+  "flags": 32,
+  "pattern": "(`+)[^\\n]*?\\1|\\\"[^\\\"\\n]*\\\"|“[^”]*”"
+ },
+ "long_running/grades.py:REVIEW_BOT_HELD": {
+  "flags": 32,
+  "pattern": "\\bHeld — (?:(\\d+) blocking open\\b)?"
+ },
+ "long_running/grades.py:SENTENCE_BREAK": {
+  "flags": 32,
+  "pattern": "(?<=[.!?])\\s+|\\n+"
+ },
+ "long_running/grades.py:SHORT_SHA": {
+  "flags": 32,
+  "pattern": "\\b[0-9a-f]{7,40}\\b"
+ },
+ "long_running/grades.py:SUCCESSOR_NUMBER": {
+  "flags": 32,
+  "pattern": "(?:-\\d{1,2})+$"
+ },
+ "long_running/grades.py:WITHDRAWN": {
+  "flags": 34,
+  "pattern": "^\\s*withdrawn\\b"
+ },
+ "long_running/grades.py:WITHDRAWN_NAMED": {
+  "flags": 34,
+  "pattern": "#(\\d+)\\b(?=(?:(?!\\bnot\\b)[^.;:\\n])*\\bwithdrawn\\b)"
+ },
+ "long_running/grades.py:WITHDRAWS": {
+  "flags": 34,
+  "pattern": "\\bwithdraws?\\b[^.;:\\n#]*#(\\d+)"
+ },
+ "long_running/grades.py:WITHDRAW_NAMES": {
+  "flags": 34,
+  "pattern": "(?<!not )(?<!never )\\bwithdr(?:aw|aws|awing|awn|ew)\\b[^.;:\\n#]*#(\\d+)"
  },
  "merge_queue.py:APPROVAL_BLOCKER": {
   "flags": 32,
