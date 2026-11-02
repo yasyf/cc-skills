@@ -18,7 +18,7 @@ from holds import Entry
 from pages import stamp
 from review_assistant import ReviewAssistant
 import server
-from server import QUEUED_NEXT, Drive, dated_preventions, drive_prs, drive_workers, journeys, needs, open_findings, parse_plan, plan_prs, step_rows, release_path, paths_current, hold_reasons, verdict_state, with_conflicts
+from server import QUEUED_NEXT, Drive, changed_since, dated_preventions, drive_prs, drive_workers, journeys, needs, open_findings, parse_plan, plan_prs, step_rows, release_path, paths_current, hold_reasons, verdict_state, with_conflicts
 
 NOW = dt.datetime(2026, 10, 27, 8, 0, tzinfo=dt.timezone.utc)
 TREES = ["New tree", "Old tree", "Shared"]
@@ -1078,3 +1078,10 @@ def test_a_prevention_due_that_is_not_a_time_is_blanked_and_named_while_real_tim
     dated, problems = dated_preventions(rows)
     assert [row["due"] for row in dated] == [None, "2026-10-30T03:15:00+00:00", None]
     assert problems == ["mq-health-5 wrote the due time 'Oct 31 morning', which is not a time"]
+
+
+def test_a_refresh_carries_only_the_parts_that_changed_since_the_version_the_browser_holds():
+    served = {"version": 8, "view": {"version": 8, "prs": {"1": "big"}, "brief": "new"}, "digests": {"version": b"8", "prs": b"p", "brief": b"n"}}
+    assert changed_since(served, {"version": b"7", "prs": b"p", "brief": b"o"}) == {"version": 8, "changed": {"version": 8, "brief": "new"}}
+    assert changed_since(served, None) is None
+    assert changed_since(served, {"version": b"7", "prs": b"p"}) is None

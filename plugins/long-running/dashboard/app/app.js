@@ -494,10 +494,13 @@ function load() {
   });
 }
 async function fetchModel() {
-  const model = await (window.firstModel ?? fetch('/api/model', { cache: 'no-store' }).then((res) => res.json()));
+  const answer = await (window.firstModel ?? fetch(`/api/model${state.served ? `?since=${state.served.version}` : ''}`, { cache: 'no-store' }).then((res) => res.json()));
   window.firstModel = null;
-  state.fetched = model.version;
-  if (!model.prs) return setTimeout(load, 1000);
+  const served = answer.changed ? { ...state.served, ...answer.changed } : answer;
+  state.fetched = served.version;
+  if (!served.prs) return setTimeout(load, 1000);
+  state.served = served;
+  const model = { ...served, ...structuredClone({ board: served.board, needs: served.needs, brief: served.brief, pages: served.pages }) };
   if ((model.board.seq ?? 0) < (state.model?.board.seq ?? 0)) return;
   settle(model);
   unask(model);

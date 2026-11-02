@@ -43,6 +43,7 @@ LEDGER_KINDS = {"landed", "go", "opened", "head", "hold", "lift"}
 LIVE_SOURCES = ["cc-present store: taps and questions", "cci bus: records and workers", "drive ledger in cc-notes: pull request states, re-read on every landing, go, head, opened, hold or lift record", "progress-desk steps.json: the step rows", "findings ledger in cc-notes: open sweep findings and owner picks, re-read every 5 minutes"]
 REBUILD_AFTER = 2.0
 LIVE_REFRESH = 5.0
+DELTAS_KEPT = 30
 WORD_BYSTANDERS = ("dashboard", "register", "cc-present", "desk-runner")
 PR_NAMED = re.compile(r"#(\d{5})(?!\d)")
 SLOW_REFRESH = 300
@@ -238,6 +239,12 @@ def lean(records):
 
 def browser_view(model):
     return {**{k: v for k, v in model.items() if k != "words"}, "words_at": max((w["at"] for w in model["words"]), default=None), "records": lean(model["records"]), "lanes": lean(model["lanes"])}
+
+
+def changed_since(served, past):
+    if not past or past.keys() != served["digests"].keys():
+        return None
+    return {"version": served["version"], "changed": {key: served["view"][key] for key, digest in served["digests"].items() if past[key] != digest}}
 
 
 def part_of(title, parts):
@@ -709,6 +716,7 @@ class Drive:
         self.serving = threading.Condition()
         self.served = None
         self.live_model = None
+        self.digests = deque(maxlen=DELTAS_KEPT)
         self.slow = {}
         self.slow_at = 0.0
         self.dirty_at = time.monotonic()
@@ -1005,14 +1013,25 @@ class Drive:
                 continue
             version = (self.served["version"] if self.served else 0) + 1
             live = {**live, "version": version}
-            full, lean = json.dumps(live).encode(), json.dumps(browser_view(live)).encode()
+            view = browser_view(live)
+            full, lean = json.dumps(live).encode(), json.dumps(view).encode()
             zipped = gzip.compress(lean, 5)
+            digests = {key: hashlib.sha1(json.dumps(value).encode()).digest() for key, value in view.items()}
             with self.serving:
                 self.live_model = live
-                self.served = {"version": version, "sig": sig, "full": (full, gzip.compress(full, 5)), "lean": (lean, zipped)}
+                self.served = {"version": version, "sig": sig, "full": (full, gzip.compress(full, 5)), "lean": (lean, zipped), "view": view, "digests": digests}
+                self.digests.append((version, digests))
                 self.serving.notify_all()
             snapshot.with_suffix(".tmp").write_bytes(zipped)
             snapshot.with_suffix(".tmp").replace(snapshot)
+
+    def delta(self, since):
+        with self.serving:
+            answer = changed_since(self.served, dict(self.digests).get(since))
+        if answer is None:
+            return None
+        body = json.dumps(answer).encode()
+        return body, gzip.compress(body, 5)
 
     def live_or_report(self, model):
         try:
@@ -1308,7 +1327,8 @@ def handler(drive):
                     served = drive.served and drive.served[kind]
                 if not served:
                     return self.send(503, "text/plain", b"The dashboard is building its first view.")
-                return self.send_built(*served)
+                since = re.search(r"since=(\d+)", self.path)
+                return self.send_built(*(since and drive.delta(int(since[1])) or served))
             if path == "/api/words":
                 with drive.lock:
                     words = drive.model.get("words", [])
