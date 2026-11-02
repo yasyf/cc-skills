@@ -50,9 +50,6 @@ func ParseStamp(value string) (time.Time, error) {
 		for end < len(rest) && rest[end] >= '0' && rest[end] <= '9' {
 			end++
 		}
-		if end == 1 {
-			return time.Time{}, invalid
-		}
 		fraction := (rest[1:end] + "000000")[:6]
 		microsecond, _ = digits(fraction)
 		rest = rest[end:]
