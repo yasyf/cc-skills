@@ -4280,7 +4280,7 @@ class Runner:
         for record in records:
             text = record.get("text") or ""
             said = next((found for found in MUTE.finditer(text) if not UNMUTE.search(text[max(0, found.start() - 40) : found.end()]) and WATCHED.search(sentence(text, found))), None)
-            if record["drive"] != self.config.drive or record["kind"] not in MUTE_KINDS or record["lane"] in (ROOT, RUNNER) or record["lane"] in ordered and fixed.get(record["lane"], record["seq"]) < record["seq"] or text.startswith("MUTE-PUSHBACK") or not said:
+            if record["drive"] != self.config.drive or record["kind"] not in MUTE_KINDS or record["lane"] == ROOT or record["lane"] in ordered and fixed.get(record["lane"], record["seq"]) < record["seq"] or text.startswith("MUTE-PUSHBACK") or not said:
                 continue
             if MUTE_WINDOW.match(text) and not RELEASE_GATE.search(text):
                 continue
