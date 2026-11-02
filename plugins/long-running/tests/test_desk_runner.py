@@ -16283,6 +16283,21 @@ def test_a_pass_hands_codex_the_plan_grounds_root_accepted_outside_the_package_f
     )
 
 
+def test_a_pass_hands_codex_the_root_defects_decides_and_answers_its_pr_body_cites(shell, config):
+    fidelity_config(config, sources={})
+    for seq, lane, kind, text in ((149914, "root", "defect", "orca-gc applied more than it planned"), (149915, "root", "answer", "the tally under-reported its own list"), (149916, "p8a-step9", "defect", "a lane's own defect"), (149917, "root", "state", "root alive")):
+        shell.records.append({"seq": seq, "drive": "d1", "lane": lane, "kind": kind, "to": ["all"], "text": text, "at": actions.stamp(shell.clock)})
+    shell.pr_heads["43439"] = ("OPEN", FINDER_HEAD, "", "Fixes root's defect #149914 per #149915; see #149916, #149917 and PR #43000.")
+    orca_pass(shell, config)
+    head_record(shell, "43439", FINDER_HEAD)
+    orca_pass(shell, config)
+    [job] = fidelity_jobs(shell)
+    assert Path(job["sources"]).read_text() == (
+        "## cci #149914, defect from root\n\norca-gc applied more than it planned"
+        "\n\n## cci #149915, answer from root\n\nthe tally under-reported its own list"
+    )
+
+
 def test_a_pass_on_an_options_branch_hands_codex_the_board_card_it_builds_an_option_of(shell, config, monkeypatch):
     fidelity_config(config, sources={"records": {"*": [149913]}})
     monkeypatch.setattr(runner_module.drive, "root_session", lambda drive: f"root-of-{drive}")
