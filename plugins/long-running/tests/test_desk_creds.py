@@ -95,7 +95,6 @@ def test_run_keeps_the_user_token_out_of_the_environment_and_exports_the_rest(tm
     config = tmp_path / "runner.json"
     config.write_text(json.dumps({
         "drive": "d",
-        "landing": {"env": {"AWS_PROFILE": "release-operator"}},
         "host": {"aws_profiles": ["core-auto"], "region": "us-west-2", "github_app": {"name": "app", "client_id": "Iv1", "private_key_command": ["aws", "ssm", "get-parameter"]}, "gh_user": "yasyf", "tz": "America/Los_Angeles", "secrets": {"GH_TOKEN": ["gh", "auth", "token"]}, "ssm_profile": "core-auto", "ssm": {"BUILDKITE_TOKEN": "/ci/tools/buildkite-read-token"}},
     }))
     monkeypatch.setenv("HOME", str(tmp_path))
@@ -111,7 +110,7 @@ def test_run_keeps_the_user_token_out_of_the_environment_and_exports_the_rest(tm
     assert "GH_TOKEN" not in desk_creds.os.environ
     assert "oauth_token: gho_user" in (tmp_path / "shm/d-gh/hosts.yml").read_text()
     assert desk_creds.os.environ["GH_CONFIG_DIR"] == str(tmp_path / "shm/d-gh")
-    assert desk_creds.os.environ["BUILDKITE_TOKEN"] == "bk-read" and desk_creds.os.environ["AWS_PROFILE"] == "release-operator"
+    assert desk_creds.os.environ["BUILDKITE_TOKEN"] == "bk-read"
     assert reads == [["aws", "ssm", "get-parameter", "--profile", "core-auto", "--region", "us-west-2", "--name", "/ci/tools/buildkite-read-token", "--with-decryption", "--query", "Parameter.Value", "--output", "text"]]
     assert "credential_process = " in (tmp_path / ".aws/config").read_text() and " get core-auto\n" in (tmp_path / ".aws/config").read_text()
     assert 'private_key_command = ["aws", "ssm", "get-parameter"]' in (tmp_path / ".config/ccx/github-app.toml").read_text()
