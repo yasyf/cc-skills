@@ -712,45 +712,6 @@ jobs:
           name: ci-reader-owner
           path: ${{ runner.temp }}/ci-reader-owner.xml
           if-no-files-found: error
-      - uses: actions/checkout@v7
-        with:
-          ref: 1af779ed338cf93945678ad33c396f1546d0fda3
-          path: .ci-incident-number-baseline
-      - name: Immutable mixed-origin incident citation negative control
-        run: |
-          test "$(git -C .ci-incident-number-baseline rev-parse HEAD)" = 1af779ed338cf93945678ad33c396f1546d0fda3
-          python - <<'PYCODE'
-          import ast
-          from pathlib import Path
-          name = "test_an_open_incident_naming_the_pr_refuses_its_enqueue_naming_the_incident"
-          current = Path("plugins/long-running/tests/test_desk_runner.py").read_text()
-          baseline = Path(".ci-incident-number-baseline/plugins/long-running/tests/test_desk_runner.py")
-          original = baseline.read_text()
-          selected = next(node for node in ast.parse(current).body if isinstance(node, ast.FunctionDef) and node.name == name)
-          prior = next(node for node in ast.parse(original).body if isinstance(node, ast.FunctionDef) and node.name == name)
-          start = lambda node: min([node.lineno, *(decorator.lineno for decorator in node.decorator_list)]) - 1
-          lines = original.splitlines(keepends=True)
-          for node in ast.walk(selected):
-              if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "said":
-                  node.func.id = "escalations"
-          lines[start(prior):prior.end_lineno] = [ast.unparse(selected) + "\n"]
-          baseline.write_text("".join(lines))
-          PYCODE
-          for number in '#7' '#100@bbbbbbbb'; do
-            negative="$RUNNER_TEMP/incident-number-negative-$number.log"
-            if uv run --locked --project plugins/long-running pytest -c .ci-incident-number-baseline/plugins/long-running/pyproject.toml ".ci-incident-number-baseline/plugins/long-running/tests/test_desk_runner.py::test_an_open_incident_naming_the_pr_refuses_its_enqueue_naming_the_incident[$number]" -q -s > "$negative" 2>&1; then
-              cat "$negative"
-              exit 1
-            fi
-            cat "$negative"
-            grep -F "origin-qualified incident citation expected $number:" "$negative"
-            grep -F '1 failed' "$negative"
-          done
-      - name: Binary attachment actual mq read costs
-        run: |
-          git fetch --no-tags --depth=1 origin 74d5367232c1636b21615b38946751852f532dfa
-          git show 74d5367232c1636b21615b38946751852f532dfa:plugins/long-running/skills/long-running/scripts/grades.py > "$RUNNER_TEMP/grades-whole-body.py"
-          LR_BINARY_BODY_LEGACY_SOURCE="$RUNNER_TEMP/grades-whole-body.py" uv run --locked --project plugins/long-running pytest plugins/long-running/tests/binary_body_integration.py plugins/long-running/tests/test_grades.py -q -s
       - name: bounded controller operation counts
         run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_desk_runner.py -q -s -k 'test_flake_watch_reads_only_remembered_red_builds or test_release_and_cut_polls_decode_only_active_fact_entries'
       - name: historical lane read costs
@@ -853,41 +814,6 @@ jobs:
         with:
           name: native-cci-caller
           path: ${{ runner.temp }}/native-cci.xml
-
-  incident-index-caller:
-    runs-on: ubuntu-latest
-    env:
-      UV_PYTHON: "3.14"
-      GOMAXPROCS: "2"
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/checkout@v7
-        with:
-          repository: yasyf/cc-inbox
-          ref: 67a9ba0415a718dd7ed61773695da93a8061e7ef
-          path: .ci-incident-index
-          persist-credentials: false
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: .ci-incident-index/go.mod
-          cache-dependency-path: .ci-incident-index/go.sum
-      - uses: astral-sh/setup-uv@v8.2.0
-      - name: Build actual indexed incident handler fixture
-        run: |
-          test "$(git -C .ci-incident-index rev-parse HEAD)" = 67a9ba0415a718dd7ed61773695da93a8061e7ef
-          mkdir -p .ci-incident-index/cmd/landing-incident-fixture
-          cp plugins/long-running/tests/fixtures/incident_index/main.go .ci-incident-index/cmd/landing-incident-fixture/main.go
-          go -C .ci-incident-index build -p 2 -o "$RUNNER_TEMP/incident-index-fixture" ./cmd/landing-incident-fixture
-      - name: Actual Landing indexed incident selection and mutable-file freshness
-        env:
-          CCI_INCIDENT_FIXTURE: ${{ runner.temp }}/incident-index-fixture
-          CCI_INCIDENT_PROVIDER_SOURCE: 67a9ba0415a718dd7ed61773695da93a8061e7ef
-        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/incident_index_integration.py -q -s --junitxml="$RUNNER_TEMP/incident-index.xml"
-      - uses: actions/upload-artifact@v7
-        if: ${{ always() }}
-        with:
-          name: incident-index-caller
-          path: ${{ runner.temp }}/incident-index.xml
 
   machine-cci-post:
     runs-on: ubuntu-latest

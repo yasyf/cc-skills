@@ -1248,10 +1248,6 @@ class Shell:
     def cci_query(self, argv: list[str], env: dict[str, str] | None = None, cwd: str | None = None) -> Done:
         return self._repeat(argv, lambda: self._cci_query_once(argv, env, cwd))
 
-    def incident_holds(self, home: str, drive: str, prs: list[str]) -> dict[str, dict]:
-        with self._measuring(["cci", "incident-holds", "--drive", drive]) as timeout:
-            return cci.incident_holds(home, drive, prs, timeout)
-
     def _repeat(self, argv: list[str], operation: Callable[[], Done]) -> Done:
         done = operation()
         for wait in MISSING_BACKOFF:
@@ -2026,9 +2022,6 @@ class Runner:
         self.finding = threading.Lock()
         self.taps: tuple[datetime, set[str]] = (datetime.min.replace(tzinfo=timezone.utc), set())
         self.cci_tail = cci.Tail(self.cci_read)
-        self.incident_home = ""
-        self.incident_native: bool | None = None
-        self.incident_admission = threading.Lock()
         self.read_failed_at = float("-inf")
         self.passing: set[str] = set()
         self.bus_misses: list[datetime] = []
@@ -2637,25 +2630,6 @@ class Runner:
             self.read_failed_at = time.monotonic()
             raise CciTailFailed(f"cci tail exited {done.code}: {(done.err or done.out).strip()[:300]}")
         return done.out
-
-    def incident_holds(self, prs: list[str]) -> dict[str, dict] | None:
-        if not prs:
-            return {}
-        try:
-            with self.incident_admission:
-                if self.incident_native is None:
-                    self.incident_home = cci.native_home()
-                    self.incident_native = True
-                    try:
-                        self.shell.incident_holds(self.incident_home, self.config.drive, [])
-                    except cci.IncidentQueryFailed as error:
-                        if (error.status, error.code) not in {(409, "home_mismatch"), (503, "scope_not_admitted")}:
-                            raise
-                        self.incident_native = False
-            return self.shell.incident_holds(self.incident_home, self.config.drive, prs) if self.incident_native else None
-        except cci.IncidentQueryFailed as error:
-            self.read_failed_at = time.monotonic()
-            raise CciTailFailed(f"cci incident query failed ({error.code}): {error}") from error
 
     def cci_line(self, record: dict) -> None:
         seq, line = record["seq"], record["text"].strip()
@@ -7142,7 +7116,7 @@ class Landing:
         return {"hold": self.check_hold, "precondition": self.check_precondition, "rulings": self.check_rulings, "fidelity": self.check_fidelity, "finder": self.check_finder, "old-app": self.check_old_app, "build-failed": self.check_build_failed, "merge-mode": self.check_merge_mode}[name](graded)
 
     def check_hold(self, graded: Graded) -> dict[str, merge_queue.State]:
-        return {pr: merge_queue.State(merge_queue.FAIL, reason) for pr, reason in self.holding(list(graded.heads), graded.rows, graded.accepted_at).items()}
+        return {pr: merge_queue.State(merge_queue.FAIL, reason) for pr, reason in self.holding(list(graded.heads), graded.accepted_at).items()}
 
     def read_reports(self, heads: dict[str, str]) -> None:
         """Run `check-pr` for every head of `heads` this pass has not read yet, `CHECK_PR_WORKERS` at a time: each one diffs on this machine."""
@@ -8066,7 +8040,7 @@ class Landing:
         outcome, out, last = self.merge_chains(tops, heads, rows) if down else self.enqueue_chains(tops, heads, self.whole())
         if outcome in BELIEVED_QUEUED:
             self.moved_in_queue(heads)
-        if outcome in BELIEVED_QUEUED and (late := self.holding(prefix, rows, accepted_at)):
+        if outcome in BELIEVED_QUEUED and (late := self.holding(prefix, accepted_at)):
             outcome, out = self.dequeue(key, prefix, rows, late)
         self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": outcome, "out": out, "why": last, "drive": self.runner.config.drive, "version": RUNNING_VERSION, "at": self.book.stamp()}))
         if outcome in BELIEVED_QUEUED:
@@ -8436,23 +8410,9 @@ class Landing:
         self.book.edit(LANDING, lambda incident: incident.facts.update({GRAPHITE_DOWN: actions.stamp(since)}))
         self.runner.cci_post("state", f"GRAPHITE-DOWN since {pacific(since)}: {why}, so the landing runner squash-merges each admitted stack directly, rebased onto {TRUNK} first, until a batch starts again (owner {DIRECT_RULING})", to, GRAPHITE_DOWN, f"graphite-down:{actions.stamp(since)}", record_id=f"graphite-down:{actions.stamp(since)}")
 
-    def holding(self, prefix: list[str], rows: dict[str, dict], accepted_at: datetime) -> dict[str, str]:
-        """Why each PR of `prefix` may not be in the queue right now, read fresh: an open cci `incident` record that names it, whose lane squash-merges the fix directly (ef905a6), the `hold` label on GitHub, an open cci `hold` record, a `hold` record posted after this enqueue was accepted, or a `hold` record newer than the PR's newest `ready` record. A label read GitHub refuses holds the PR too."""
-        drive = self.runner.config.drive
-        indexed = self.runner.incident_holds(prefix)
-        incidents = [record for record in cci.records(self.cci_tail.run, drive, "--kind=incident") if (record["kind"], record["drive"], record.get("status")) == ("incident", drive, "open")] if indexed is None else []
-        why = {}
-        for pr in prefix:
-            if indexed is None:
-                named = [record for record in incidents if names_pr({**record, "text": full_text(record)}, pr)]
-                incident = named[-1] if named else None
-            else:
-                incident = indexed.get(pr)
-            if incident and incident.get("topic") != cci.TRUNK_TOPIC:
-                why[pr] = f"open INCIDENT {incident['num']}, whose lane squash-merges it directly, never through the queue"
-            elif reason := self.label_hold(pr) or self.record_hold(pr, accepted_at):
-                why[pr] = reason
-        return why
+    def holding(self, prefix: list[str], accepted_at: datetime) -> dict[str, str]:
+        """Why each PR of `prefix` may not be in the queue right now, read fresh: the `hold` label on GitHub, an open cci `hold` record, a `hold` record posted after this enqueue was accepted, or a `hold` record newer than the PR's newest `ready` record. A label read GitHub refuses holds the PR too. An incident fix never reaches here: `stack_trees` keeps each `is_incident` row out of the queue for `squash_incidents`, and an incident record that only mentions a PR holds nothing."""
+        return {pr: reason for pr in prefix if (reason := self.label_hold(pr) or self.record_hold(pr, accepted_at))}
 
     def label_hold(self, pr: str) -> str:
         done = self.shell.run(ghread.read("pr", "view", pr, "--repo", self.repo, "--json", "labels"))

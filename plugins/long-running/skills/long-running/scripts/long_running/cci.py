@@ -216,27 +216,6 @@ def native_tail(argv: list[str], timeout: float, env: dict[str, str] | None = No
         return 1, "", f"cci: native tail: {error}\n"
 
 
-class IncidentQueryFailed(RuntimeError):
-    def __init__(self, status: int, code: str, message: str):
-        super().__init__(message)
-        self.status, self.code = status, code
-
-
-def incident_holds(home: str, drive: str, prs: list[str], timeout: float) -> dict[str, dict]:
-    """Read the newest open incident naming each selected PR from the native projection."""
-    try:
-        status, result = _native_json("/v1/incident-holds", {"home": home, "drive": drive, "prs": prs}, monotonic() + timeout)
-    except (json.JSONDecodeError, UnicodeDecodeError) as error:
-        raise IncidentQueryFailed(0, "invalid_response", str(error)) from error
-    except (OSError, http.client.HTTPException) as error:
-        raise IncidentQueryFailed(0, "transport_failed", str(error)) from error
-    if status != 200:
-        raise IncidentQueryFailed(status, result["code"], result["error"])
-    if not isinstance(result, dict) or any(pr not in prs or not isinstance(record, dict) for pr, record in result.items()):
-        raise IncidentQueryFailed(0, "invalid_response", "native incident query returned an invalid selected-record map")
-    return result
-
-
 def _tail_output(encoded: str) -> str:
     with io.TextIOWrapper(io.BytesIO(base64.b64decode(encoded, validate=True)), errors="replace") as output:
         return output.read()
