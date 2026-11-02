@@ -137,6 +137,10 @@ class JobFailed(RuntimeError):
     pass
 
 
+class Superseded(Exception):
+    pass
+
+
 class Shell:
     def run(self, argv: list[str], cwd: Path | None = None, timeout: int = READ_SECONDS) -> str:
         started = time.monotonic()
@@ -317,7 +321,12 @@ def rulings(job: dict, verb: str, *argv: str) -> list[str]:
 
 def ask(shell: Shell, job: dict, directory: Path, question: Path, attempt: int) -> str:
     def asked(model: str, lane: str) -> str:
-        return rate_limited(lambda retry: shell.run(["codex-ask", "-m", model, *(["--incident"] if job["fast"] else []), "--schema", "findings", "-s", str(directory / (f"{lane}-r{retry}" if retry else lane)), str(question)], cwd=Path(job["checkout"]), timeout=FINDER_SECONDS))
+        def attempt(retry: int) -> str:
+            if (cancelled := directory / CANCELLED).is_file():
+                raise Superseded(f"{job['repo']}#{job['pr']} at {job['head'][:12]} was superseded by {cancelled.read_text().strip()[:12]} while codex retried")
+            return shell.run(["codex-ask", "-m", model, *(["--incident"] if job["fast"] else []), "--schema", "findings", "-s", str(directory / (f"{lane}-r{retry}" if retry else lane)), str(question)], cwd=Path(job["checkout"]), timeout=FINDER_SECONDS)
+
+        return rate_limited(attempt)
 
     try:
         out = asked(job["model"], f"codex-{attempt}")
@@ -670,6 +679,8 @@ def main(argv: list[str] | None = None, shell: Shell | None = None) -> int:
     directory = parser.parse_args(argv).dir
     try:
         outcome = run(directory, shell or Shell())
+    except Superseded as superseded:
+        outcome = {"skipped": str(superseded)}
     except Exception as error:
         write_result(directory, {"error": failure(error)})
         raise
