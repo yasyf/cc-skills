@@ -93,7 +93,7 @@ def pool(shell: FakeShell, side: str, resource: str) -> dict:
 class FakeShell(runner_module.Shell):
     def __init__(self, root: Path):
         self.root = root
-        self.receipts = root / ".claude/scratch/orca-launch/run_1"
+        self.receipts = root / ".vcache/scratch/orca-launch/run_1"
         self.clock = datetime(2026, 10, 1, 18, 0, tzinfo=timezone.utc)
         self.calls: list[list[str]] = []
         self.dispatches: dict[str, dict] = {}
@@ -368,7 +368,7 @@ class FakeShell(runner_module.Shell):
                 (attempt / name).write_text(text)
             return self.sprite_process()
         if Path(argv[0]).name == "orca-launch.sh" and (ready := runner_module.LAUNCHED.search(self.launch_line)):
-            state = Path(env.get("ORCA_LAUNCH_STATE") or self.root / ".claude/scratch/orca-launch" / env.get("ORCA_LAUNCH_RUN", "run_1"))
+            state = Path(env.get("ORCA_LAUNCH_STATE") or self.root / ".vcache/scratch/orca-launch" / env.get("ORCA_LAUNCH_RUN", "run_1"))
             state.mkdir(parents=True, exist_ok=True)
             (state / f"{argv[1]}.json").write_text(json.dumps({"result": {"taskId": "task_1", "dispatchId": ready["dispatch"]}}))
             (state / f"{argv[1]}.terminal").write_text(f"{ready['terminal']}\n")
@@ -11814,7 +11814,7 @@ def test_a_verified_launch_records_the_lanes_dispatch_and_terminal_and_relays_re
 
 
 def test_a_lane_launched_by_hand_with_orca_launch_defaults_receives_relays(shell, config, tmp_path):
-    state = Path.home() / ".claude/scratch/orca-launch/run_1"
+    state = Path.home() / ".vcache/scratch/orca-launch/run_1"
     state.mkdir(parents=True)
     (state / f"{LANE}.json").write_text(json.dumps({"result": {"taskId": "task_h", "dispatchId": "ctx_h"}}))
     (state / f"{LANE}.terminal").write_text("term_h\n")

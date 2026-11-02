@@ -174,7 +174,7 @@ class Orca:
         return match.groupdict()
 
     def state(self) -> Path:
-        return Path(os.environ.get("ORCA_LAUNCH_STATE") or Path.home() / ".claude" / "scratch" / "orca-launch" / str(self.run_id))
+        return Path(os.environ.get("ORCA_LAUNCH_STATE") or Path.home() / ".vcache" / "scratch" / "orca-launch" / str(self.run_id))
 
     def receipt(self, lane: str) -> dict | None:
         state = self.state()

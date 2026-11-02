@@ -152,7 +152,7 @@ IDLE_MS = 1000
 SUBMIT_SECONDS = 5
 DOWN_AFTER = timedelta(minutes=2)
 CCI_TEXT = 400
-RECEIPTS = Path(".claude/scratch/orca-launch")
+RECEIPTS = Path(".vcache/scratch/orca-launch")
 WATCH_DIR = Path("prompt-watch")
 STATE_FILE = "state.json"
 SCREENS = "screens"
