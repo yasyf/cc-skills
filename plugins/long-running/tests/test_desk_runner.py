@@ -11577,6 +11577,7 @@ def test_a_class_record_root_closed_on_scope_raises_no_class_unowned(shell, conf
         ("report", "SAND-5A uploads fail on retry", "", 11, False),
         ("incident", "[SAND-5A] uploads fail on retry", "", 11, True),
         ("incident", "STEP1+2: sand/latest.json is 5273 bytes, SHA256 3588023a49a1516e, and SAND-5A logs match", "", 11, False),
+        ("blocker", "CLASS-UNOWNED [SAND-5A] stall-watch: #305144 at 20:45, 10 min with no fix-lane GO naming tag:SAND5A", "", 11, False),
     ],
 )
 def test_a_class_record_with_no_fix_lane_go_in_ten_minutes_raises_one_blocker(shell, config, tmp_path, kind, text, go, minutes, unowned):
@@ -13952,6 +13953,26 @@ def test_a_blocker_a_sibling_pr_or_an_end_of_the_lane_stops_the_pr_silent_clock(
         lane_record(shell, SILENT_LANE, "incident", text=f"8:49 PM STOPPED {SILENT_LANE}: out of scope, active no")
     else:
         lane_record(shell, SILENT_LANE, ending)
+    shell.sleep(20 * 60)
+    orca_pass(shell, config)
+    assert silent_lines(shell) == []
+
+
+def test_a_lane_stopped_before_its_mechanism_gets_no_pr_silent(shell, config, tmp_path):
+    """Root #306141: rsw-k8s-reads-fix posted STOPPED (305971) a record before its MECHANISM (305972), and PR-SILENT still fired ten minutes later."""
+    orca_pass(shell, config)
+    lane_record(shell, SILENT_LANE, "stopped", text=f"9:34 PM STOPPED {SILENT_LANE}: out of scope for incident mutation, active no")
+    cci_record(shell, lane=SILENT_LANE, kind="mechanism", text="both bursts are EKS API socket resets", at=actions.stamp(shell.clock))
+    shell.sleep(20 * 60)
+    orca_pass(shell, config)
+    assert silent_lines(shell) == []
+
+
+def test_a_root_record_closing_the_mechanism_stops_the_pr_silent_clock(shell, config, tmp_path):
+    """Root #306141: root's incident record 305973, posted --re the mechanism 305972, closed the incident on it, and PR-SILENT still fired."""
+    orca_pass(shell, config)
+    seq = cci_record(shell, lane=SILENT_LANE, kind="mechanism", text="both bursts are EKS API socket resets", at=actions.stamp(shell.clock))
+    cci_record(shell, lane="root", kind="incident", re=seq, text="incident rsw-k8s-reads closed on the mechanism", at=actions.stamp(shell.clock))
     shell.sleep(20 * 60)
     orca_pass(shell, config)
     assert silent_lines(shell) == []

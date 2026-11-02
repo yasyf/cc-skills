@@ -159,12 +159,13 @@ saved cursor, the last hour on a first read. A `mechanism` record, or a `report`
 `ready`, `blocker`, `blocked`, or closing record, or such a text record starting `OPENED`, `BLOCKER`,
 `READY`, or `NOT-OURS`, from the lane or the other of its `<name>` and `<name>-opus` pair, under
 either `-fix` alias, stops it, as do a root `stand-down` or `stopped` addressed to the lane and a
-root `--re` or `--resolves` naming one of its PR-SILENT records. So does any lane's `opened`, `head`,
+root `--re` or `--resolves` naming the mechanism or one of its PR-SILENT records. So does any lane's `opened`, `head`,
 `ready`, or `fix-live`, or a root `go` or `decision`, that answers the mechanism: one that names its
 seq with `--re`, shares its topic, or names one of its incident tags, where `SAND-5A`, `[SAND-5A]`, and
 `SAND5A` are one tag. An answer posted before the mechanism counts, so that mechanism starts no clock.
-A root `decide` or `decision` addressed to the lane, and the lane's own `done`, or a text record
-starting `DONE` or `STOPPED`, settle it too. At
+A root `decide` or `decision` addressed to the lane, and the lane's own `stopped` or `done`, or a text
+record starting `DONE` or `STOPPED` after any `--stamp` clock, settle it too, and once the lane has
+ended so, a later mechanism of its own starts no clock. At
 `deadlines.pr_silent_minutes` (default 10) after the mechanism, and every
 `deadlines.pr_silent_every_minutes` (default 5) after that, the runner logs
 `PR-SILENT <lane> #<seq>: MECHANISM at <time>, <n> min with no OPENED or BLOCKER record; <lane status> | <lane>: …`,
@@ -1096,7 +1097,8 @@ TEXT_MARK_KINDS = ("report", "incident")
 SAYS_MECHANISM = re.compile(r"\bmechanism\b", re.IGNORECASE)
 RELEASE_GATE = re.compile(r"\b(?:smoke[- ]?(?:teams?|tests?|runs?|checks?)|release[- ](?:checks?|smokes?|gates?)|dev[- ]red|dev is red)\b", re.IGNORECASE)
 SCOPED_OUT = re.compile(r"\bactive no\b|\b(?:no|zero) customer\b|\bfalse alarm\b", re.IGNORECASE)
-STOPPED_TEXT = re.compile(r"^STOPPED\b")
+STOPPED_TEXT = re.compile(r"^(?:\d{1,2}:\d{2} [AP]M )?STOPPED\b")
+LANE_ENDED_TEXT = re.compile(r"^(?:\d{1,2}:\d{2} [AP]M )?(?:STOPPED|DONE)\b")
 MUTE = re.compile(r"(?<![\w/-])mut(?:e|ed|es|ing)(?![\w/-])[^.;\n]{0,40}?\b(?:smoke|teams?|monitors?|alerts?|pages?|runs?|failures?|checks?)\b|\bfalse alarm\b|\b(?:skips?|leaves? out|stops? counting|excludes?|scopes? out)\b[^.\n]{0,60}\b(?:smoke|release[- ]check|teams?)\b", re.IGNORECASE)
 WATCHED = re.compile(r"\b(?:mut\w*|monitors?|alerts?|pages?|false alarm)\b", re.IGNORECASE)
 UNMUTE = re.compile(r"\b(?:delet|remov|lift|expir|unmut|drop|clear)\w*", re.IGNORECASE)
@@ -1112,8 +1114,8 @@ INCIDENT_PART = re.compile(r"-[^-]+(?:-\d+)?$")
 CLAUDE_ARGS = "ORCA_LAUNCH_CLAUDE_ARGS"
 PR_SILENT = "pr-silent"
 CLASS_UNOWNED = "class-unowned"
-CLASS_TEXT = re.compile(r"^(?:NEW )?CLASS\b")
-CLASS_HEADER = re.compile(r"^(?:(?:NEW )?CLASS\b[^\n]*|\[[^\]\n]+\])")
+CLASS_TEXT = re.compile(r"^(?:NEW )?CLASS(?![\w-])")
+CLASS_HEADER = re.compile(r"^(?:(?:NEW )?CLASS(?![\w-])[^\n]*|\[[^\]\n]+\])")
 FIX_GO = re.compile(r"\bfix\b", re.IGNORECASE)
 UNPUSHED = frozenset({"not pushed", "no origin branch"})
 PR_NAMED = re.compile(r"(?<![\w/])#(\d{3,})\b|/pull/(\d+)\b")
@@ -4343,14 +4345,16 @@ class Runner:
                 if answers & set(mechanism.get("keys") or [f"seq:{mechanism['seq']}"]):
                     pending.pop(silent)
         if lane == ROOT:
-            names, answered = set(record.get("to") or []), (cci.resolved(record) | {record.get("re")}) - {None}
+            names, named = set(record.get("to") or []), (cci.resolved(record) | {record.get("re")}) - {None}
             for silent, mechanism in list(pending.items()):
-                if (record["kind"] in (STAND_DOWN, STOPPED) and names & set(self.names(silent))) or answered & self.pr_silent_posts(silent, mechanism["seq"]):
+                if (record["kind"] in (STAND_DOWN, STOPPED) and names & set(self.names(silent))) or mechanism["seq"] in named or named & self.pr_silent_posts(silent, mechanism["seq"]):
                     pending.pop(silent)
             return
+        if record["kind"] in (STOPPED, "done") or (record["kind"] in cci.TEXT_KINDS and LANE_ENDED_TEXT.match(record.get("text") or "")):
+            answered[f"ended:{lane}"] = record["seq"]
         if (mark := cci.mechanism_mark(record)) and self.pr_silent_lane(lane):
             keys = cci.incident_keys(record)
-            if lane not in pending and not keys & set(answered):
+            if lane not in pending and f"ended:{lane}" not in answered and not keys & set(answered):
                 pending[lane] = {"seq": record["seq"], "at": record["at"], "mark": mark, "keys": sorted({*keys, f"seq:{record['seq']}", *(f"lane:{alias}" for alias in self.names(lane))})}
         elif cci.settles_mechanism(record):
             for silent in [silent for silent in pending if pr_family(silent) == pr_family(lane)]:
