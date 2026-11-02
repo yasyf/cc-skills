@@ -60,7 +60,7 @@ TIMEOUT=${ORCA_CHECK_TIMEOUT_MS:-60000}
 RETRY=${ORCA_CHECK_RETRY_SECONDS:-30}
 
 orca_json() {
-  OUT=$(orca "$@" --json 2>/dev/null) || true
+  OUT=$(orca "$@" --full --json 2>/dev/null) || true
   printf '%s' "$OUT" | jq -e '.ok' >/dev/null 2>&1 && return
   printf '%s' "$OUT" | jq -r '"error \(.error.code): \(.error.message)"' 2>/dev/null || echo "error $1 $2: $OUT"
   exit 1
@@ -104,7 +104,7 @@ fi
 attempt=0
 while :; do
   attempt=$((attempt + 1))
-  OUT=$(orca orchestration check "$@" --json 2>/dev/null) || true
+  OUT=$(orca orchestration check "$@" --full --json 2>/dev/null) || true
   if printf '%s' "$OUT" | jq -e '.ok == false and .error.code != "runtime_unavailable"' >/dev/null 2>&1; then
     printf '%s' "$OUT" | jq -r '"error \(.error.code): \(.error.message)"'
     exit 1

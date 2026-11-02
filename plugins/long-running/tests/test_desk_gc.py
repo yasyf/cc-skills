@@ -46,7 +46,8 @@ class FakeShell(runner_module.Shell):
     def run(self, argv, stdin=None, env=None):
         self.calls.append(argv)
         assert argv[0] == "orca" and argv[-1] == "--json"
-        return runner_module.Done(0, json.dumps(self.orca(argv[1:-1])), "")
+        reply = self.orca(argv[1:-1])
+        return runner_module.Done(0, json.dumps({**reply, "_meta": {"runtimeId": "rt_1"}} if argv[1] == "orchestration" else reply), "")
 
     def orca(self, argv: list[str]) -> dict:
         if argv[:2] == ["orchestration", "worker-list"]:

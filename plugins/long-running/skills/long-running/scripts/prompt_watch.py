@@ -293,7 +293,7 @@ class Watch:
         self.receipts: dict[tuple[Path, int, int, int, int, int], dict[str, str]] = {}
 
     def orca(self, *argv: str, environment: str = "", env: dict[str, str] | None = None) -> dict:
-        done = self.shell.run(["orca", *argv, *(["--environment", environment] if environment else []), "--json"], env)
+        done = self.shell.run(["orca", *argv, *(["--full"] if argv[0] == "orchestration" else []), *(["--environment", environment] if environment else []), "--json"], env)
         try:
             return json.loads(done.out)
         except json.JSONDecodeError:

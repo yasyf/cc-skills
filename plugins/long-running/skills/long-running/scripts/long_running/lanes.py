@@ -314,7 +314,7 @@ def lane_dispatches(lane: str, tasks: list[dict], workers: list[dict]) -> list[s
 
 def orca(run: Run, *argv: str) -> dict | None:
     """The `result` of one `orca orchestration` call, or None when it fails."""
-    reply = json.loads(output(run, ["orca", "orchestration", *argv, "--json"]) or "{}")
+    reply = json.loads(output(run, ["orca", "orchestration", *argv, "--full", "--json"]) or "{}")
     return reply.get("result") if reply.get("ok") else None
 
 

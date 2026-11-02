@@ -107,7 +107,7 @@ def orca_rows(run_id: str, receipts: Path, names: set[str] | None, now: datetime
     statuses: dict[str, str] = {}
     cursor: list[str] = []
     while True:
-        page = json.loads(run(["orca", "orchestration", "worker-list", "--run", run_id, "--include-remote", "--limit", "100", *cursor, "--json"]))
+        page = json.loads(run(["orca", "orchestration", "worker-list", "--run", run_id, "--include-remote", "--limit", "100", *cursor, "--full", "--json"]))
         if not page.get("ok"):
             raise lanes.Unread(f"orca worker-list: {page.get('error')}")
         statuses |= {row["dispatchId"]: row["dispatchStatus"] for row in page["result"]["workers"]}

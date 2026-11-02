@@ -68,6 +68,9 @@ class FakeShell(prompt_watch.Shell):
         self.mail: list[dict] = []
 
     def run(self, argv, env=None):
+        if argv[:2] == ["orca", "orchestration"]:
+            assert argv[-2:] == ["--full", "--json"] or argv[-4] == "--full", argv
+            argv = [token for token in argv if token != "--full"]
         self.calls.append(list(argv))
         if argv[:3] == ["orca", "terminal", "send"] and "--enter" not in argv:
             assert argv[-1] == "--json", argv
