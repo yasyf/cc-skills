@@ -1095,6 +1095,7 @@ RELEASE_GATE = re.compile(r"\b(?:smoke[- ]?(?:teams?|tests?|runs?|checks?)|relea
 SCOPED_OUT = re.compile(r"\bactive no\b|\b(?:no|zero) customer\b|\bfalse alarm\b", re.IGNORECASE)
 STOPPED_TEXT = re.compile(r"^STOPPED\b")
 MUTE = re.compile(r"(?<![\w/-])mut(?:e|ed|es|ing)(?![\w/-])[^.;\n]{0,40}?\b(?:smoke|teams?|monitors?|alerts?|pages?|runs?|failures?|checks?)\b|\bfalse alarm\b|\b(?:skips?|leaves? out|stops? counting|excludes?|scopes? out)\b[^.\n]{0,60}\b(?:smoke|release[- ]check|teams?)\b", re.IGNORECASE)
+WATCHED = re.compile(r"\b(?:mut\w*|monitors?|alerts?|pages?|false alarm)\b", re.IGNORECASE)
 UNMUTE = re.compile(r"\b(?:delet|remov|lift|expir|unmut|drop|clear)\w*", re.IGNORECASE)
 REFUSED_STOP = "refused-stop"
 MUTE_KINDS = ("incident", "mechanism", "report", "answer", STOPPED, "not-ours")
@@ -2031,6 +2032,12 @@ def refused_members(routes: Iterable[actions.Action], members: set[str], open_ro
             yield pr
             if found == members:
                 return
+
+
+def sentence(text: str, found: re.Match) -> str:
+    start = max(text.rfind(". ", 0, found.start()), text.rfind("\n", 0, found.start())) + 1
+    ends = [end for end in (text.find(". ", found.end()), text.find("\n", found.end())) if end != -1]
+    return text[start : min(ends, default=len(text))]
 
 
 class Runner:
@@ -4239,7 +4246,7 @@ class Runner:
         after = timedelta(minutes=self.config.pr_silent_minutes)
         gos = [record for record in records if record["lane"] == ROOT and record["kind"] in GO_KINDS and FIX_GO.search(record.get("text") or "")]
         for record in records:
-            if record["lane"] in (ROOT, RUNNER) or not (record["kind"] == "incident" or CLASS_TEXT.match(record.get("text") or "")):
+            if record["lane"] == ROOT or not (record["kind"] == "incident" or CLASS_TEXT.match(record.get("text") or "")):
                 continue
             if not (keys := class_keys(record)):
                 continue
@@ -4271,8 +4278,8 @@ class Runner:
                 fixed.setdefault(record["lane"], record["seq"])
         for record in records:
             text = record.get("text") or ""
-            said = next((found for found in MUTE.finditer(text) if not UNMUTE.search(text[max(0, found.start() - 40) : found.end()])), None)
-            if record["drive"] != self.config.drive or record["kind"] not in MUTE_KINDS or record["lane"] == ROOT or record["lane"] in ordered and fixed.get(record["lane"], record["seq"]) < record["seq"] or text.startswith("MUTE-PUSHBACK") or not said:
+            said = next((found for found in MUTE.finditer(text) if not UNMUTE.search(text[max(0, found.start() - 40) : found.end()]) and WATCHED.search(sentence(text, found))), None)
+            if record["drive"] != self.config.drive or record["kind"] not in MUTE_KINDS or record["lane"] in (ROOT, RUNNER) or record["lane"] in ordered and fixed.get(record["lane"], record["seq"]) < record["seq"] or text.startswith("MUTE-PUSHBACK") or not said:
                 continue
             if MUTE_WINDOW.match(text) and not RELEASE_GATE.search(text):
                 continue

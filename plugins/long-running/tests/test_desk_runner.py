@@ -12825,6 +12825,7 @@ def test_a_lane_stopping_a_failing_release_gate_for_no_customer_impact_is_refuse
     ("run-queue-fix", "MUTE run-queue-fix: monitors 339598935 339599887 until fix-live: every team's runs complete since 4:46 PM; rsw-cp logs backlog_not_draining from a pre-admission snapshot", False),
     ("run-history-fix", "MUTE run-history-fix: monitors 339000001 until fix-live: the smoke teams' journal refusals are a monitor defect", True),
     ("run-queue-fix", "mute monitors 339598935 and 339599887, they are noise", True),
+    ("desk-runner", "SCALE-MISSED scale:R84898 hsbc-sso-hop: The failing health check runs on its own schedule per saved login session, not once per customer run, so counting only HSBC runs leaves out the sessions (and any other teams' sessions) that go through the same blocked connection.", False),
 ])
 def test_a_mute_or_monitor_skip_on_an_unfixed_mechanism_gets_one_pushback_to_root(shell, config, lane, text, pushed):
     """Nov 1, 2:17-2:59 PM: ai-oncall called the smoke-team journal refusals a false alarm, muted them and opened a monitor skip, and customer runs failed the same way at 2:56 PM. Nov 1, 4:52-5:01 PM: run-queue-fix proved two new run-queue monitors false and nobody muted them, so page 13321 reached the on-call; its typed MUTE window passes."""
