@@ -164,7 +164,8 @@ NOT_LANES = frozenset({"root", "main", "desk-runner"})
 FINISHED = re.compile(r"\bFINAL\b|\bverdict: done\b")
 BRIEF_DEPTH = 3
 SOURCE_TREE = frozenset({".git", ".claude-plugin", "node_modules", "package.json", "go.mod", "pyproject.toml", "Cargo.toml"})
-PATH_TOKEN = re.compile(r"\S*/\S*")
+PATH_TOKEN = re.compile(r"\S*(?:/|::)\S*")
+IMPORT_LINE = re.compile(r"^\s*(?:(?:pub(?:\([^)]*\))?\s+)?use\s|import\s|from\s+\S+\s+import\s|extern\s+crate\s|#\s*include\b)")
 ASK_QUOTE = 120
 ROUND_PICKS = [{"id": "right", "label": "Right", "recommended": True}, {"id": "some-wrong", "label": "Some wrong", "hint": "add a note naming the lines"}]
 CARD_REPLIES = frozenset({"slack-action", "slack-reply", "board"})
@@ -270,7 +271,7 @@ RUST_TEST = re.compile(r"^\s*#\[(?:\w+::)?test\b")
 RUST_TEST_FILE = re.compile(r"(?:^|/)tests/[^/]+\.rs$|_test\.rs$")
 IDENTIFIER = re.compile(r"\w+")
 WORD_RUN = re.compile(r"[\w-]+")
-FACTS_VERSION = 3
+FACTS_VERSION = 4
 PROSE_SUFFIXES = frozenset({".md", ".mdx", ".txt", ".rst"})
 MERGE_CARD = re.compile(r"merge:(?P<pr>\d+):(?P<head>[0-9a-f]{7,40})")
 TEST_DEFINITION = re.compile(
@@ -706,7 +707,7 @@ class Sweeper:
         return [Hit(hit_status(text, name, self.authorizers, removed), key, file, number, name) for key, file, number, name, text, removed in found]
 
     def named_lines(self, diff: Diff) -> list[list]:
-        """Each `[key, file, line, name, text, removed]` where a wanted name is on a changed line. Added lines are read through an index from each word to the names it can start, so a line checks only the names its own words can match."""
+        """Each `[key, file, line, name, text, removed]` where a wanted name is on a changed line other than an import. Added lines are read through an index from each word to the names it can start, so a line checks only the names its own words can match; a path such as `std::sync::Arc` or `src/sync.rs` names nothing (root #298792)."""
         wanted = [(key, name) for key, name in self.wanted if not absent(name, diff)]
         starts: dict[str, list[int]] = {}
         for index, (_, name) in enumerate(wanted):
@@ -714,6 +715,8 @@ class Sweeper:
                 starts.setdefault(form, []).append(index)
         found = []
         for file, number, text in diff.added:
+            if imports(file, text):
+                continue
             words = PATH_TOKEN.sub(" ", text)
             for index in sorted({index for run in WORD_RUN.findall(words.lower()) for index in starts.get(run, ())}):
                 key, name = wanted[index]
@@ -721,9 +724,13 @@ class Sweeper:
                     found.append([key, file, number, name, text, False])
         if self.anything:
             for file, number, text in diff.removed:
-                if self.anything.search(words := PATH_TOKEN.sub(" ", text)):
+                if not imports(file, text) and self.anything.search(words := PATH_TOKEN.sub(" ", text)):
                     found += [[key, file, number, name, text, True] for key, name in self.wanted if named(words, name)]
         return found
+
+
+def imports(file: str, text: str) -> bool:
+    return Path(file).suffix not in PROSE_SUFFIXES and bool(IMPORT_LINE.match(text))
 
 
 def name_starts(name: str) -> list[str]:
