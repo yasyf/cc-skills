@@ -96,10 +96,11 @@ reading every desk text that says a PR has, lacks, or lost a go comes from.
 ``state`` record ``WORKTREE <lane> <path> <branch>`` with a ``worktree`` attr, keyed
 ``worktree:<lane>:<path>`` so it posts once. A path outside the drive's repository posts nothing and exits 3.
 
-``spawned`` is the pack's entry point at each drive-lane spawn, the Agent hook's and ``orca-launch.sh``'s: it posts
-one ``state`` record ``SPAWNED <lane> <brief>`` as ``--by`` (default root), with the brief, ``--model``, ``--effort`` and
-the brief's ``ccx: role=`` as attrs, which the lanes mover reads to add the lane to the drive's registry of lanes it
-keeps alive, and which a relaunched successor inherits.
+``spawned`` is the pack's entry point at each worker launch, the Agent hook's, ``orca-launch.sh``'s and the desk
+runner's for a Sprite: it posts one ``state`` record ``SPAWNED <lane> <brief>`` as ``--by`` (default root), with the
+brief, ``--model``, ``--effort``, ``--placement``, the role (``--role``, else the brief's ``ccx: role=``) and the
+worker it succeeds (``--successor-of``, else the brief's ``Replaces:`` line) as attrs. The lanes mover writes the
+worker's one registry row from it, and a successor takes over the worker it names.
 
 ``release`` is the desk runner's entry point when a lane's ``release --build`` record names a build: it records
 the build under ``releases`` in the registry entry of the drive whose cci drive is ``--cci-drive``, with its owner
@@ -172,6 +173,7 @@ JUDGE_WINDOW = timedelta(hours=24)
 STACK = "stack.json"
 ADMITTED = "landing-admitted.json"
 ROLE = re.compile(r"^ccx:(?:.* )?role=([\w-]+)", re.MULTILINE)
+REPLACES = re.compile(r"^Replaces: `?([\w.-]+)`?\s*$", re.MULTILINE)
 NUMBERED = re.compile(r"(?<![\w&])#\d+\b")
 SLUG_WORDS = 6
 INSTALL_MARKERS = frozenset({"__pycache__", ".in_use", ".orphaned_at"})
@@ -754,8 +756,9 @@ def cmd_spawned(args: argparse.Namespace, shell: ledger.Shell) -> int:
         print("this launch belongs to no drive", file=sys.stderr)
         return 1
     brief = Path(args.brief)
-    role = ROLE.search(brief.read_text()) if brief.is_file() else None
-    attrs = {"brief": args.brief, "model": args.model, "effort": args.effort, "role": role[1] if role else None}
+    text = brief.read_text() if brief.is_file() else ""
+    role, replaces = ROLE.search(text), REPLACES.search(text)
+    attrs = {"brief": args.brief, "model": args.model, "effort": args.effort, "role": args.role or (role[1] if role else None), "placement": args.placement, "successor-of": args.successor_of or (replaces[1] if replaces else None)}
     shell.run(["cci", "post", "--drive", cci_drive(entry), "--lane", args.by, "--kind", "state", "--topic", f"spawn:{args.lane}", "--lane-ref", args.lane, *[arg for key, value in attrs.items() if value for arg in ("--attr", f"{key}={value}")], "--text", f"SPAWNED {args.lane} {args.brief}"])
     return 0
 
@@ -905,6 +908,9 @@ def build_parser() -> argparse.ArgumentParser:
     spawned.add_argument("--by", default="root", help="the lane that spawned it")
     spawned.add_argument("--model", help="the model the lane runs, which its successor inherits")
     spawned.add_argument("--effort", help="the effort the lane runs at, which its successor inherits")
+    spawned.add_argument("--placement", choices=("orca", "sprite", "teammate"), help="where the worker runs, which the launching path knows")
+    spawned.add_argument("--role", help="the launch's role, such as fix or evidence for an incident, over the brief's ccx: role=")
+    spawned.add_argument("--successor-of", help="the worker this one takes over, else the brief's Replaces: line")
     spawned.add_argument("--session")
     spawned.add_argument("--drive")
     spawned.set_defaults(handler=cmd_spawned)

@@ -238,6 +238,7 @@ class FakeShell(runner_module.Shell):
         self.claims: list[list[str]] = []
         self.claim_error = ""
         self.registered: list[list[str]] = []
+        self.spawned_rows: list[list[str]] = []
         self.root_drives: list[str] = ["d1"]
         self.builds: dict[str, dict] = {}
         self.slack_history: dict[str, list[dict]] = {}
@@ -635,6 +636,9 @@ class FakeShell(runner_module.Shell):
         if argv[:3] == [sys.executable, str(runner_module.SCRIPTS / "drive.py"), "release"]:
             self.registered.append(argv[3:])
             return runner_module.Done(0, "recorded\n", "")
+        if argv[:3] == [sys.executable, str(runner_module.SCRIPTS / "drive.py"), "spawned"]:
+            self.spawned_rows.append(argv[3:])
+            return runner_module.Done(0, "", "")
         if argv == ["cci", "who", "--role", "root", "--json"]:
             return runner_module.Done(0, "".join(json.dumps({"lane": "root", "drive": drive}) + "\n" for drive in self.root_drives), "")
         if argv[:5] == [str(self.root / "checkout/tools/ci"), "bk", "api", "-X", "POST"]:
@@ -13681,6 +13685,7 @@ def test_an_ordinary_lane_launches_on_a_sprite_whatever_the_mac_load(shell, conf
     assert incident(tmp_path, f"desk-lane-{LANE}").actions["R638"].status == "verified"
     assert json.loads((shell.receipts / f"{LANE}.json").read_text())["result"]["dispatchId"] == "ctx_s"
     assert (shell.receipts / f"{LANE}.terminal").read_text() == "term_s\n"
+    assert shell.spawned_rows == [["--lane", LANE, "--brief", str(brief), "--model", "opus", "--effort", "xhigh", "--placement", "sprite", "--by", "desk-runner"]]
 
 
 

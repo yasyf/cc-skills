@@ -27,6 +27,7 @@ LANE_AGENTS = frozenset({"long-running:lane", "long-running:lane-ship"})
 SPAWNED = f"{sys.executable} {script('drive.py')} spawned"
 SPAWNED_TIMEOUT_SECONDS = 20
 INLINE_BRIEF = "inline-prompt"
+REPLACES = re.compile(r"^Replaces: `?([\w.-]+)`?\s*$", re.MULTILINE)
 LANE_ENV = "CLAUDE_LONG_RUNNING_LANE"
 REGISTERED = "registered at its first command"
 ROOT_THREAD = "root"
@@ -317,7 +318,8 @@ def record_spawn(evt: BaseHookEvent) -> HookResult | None:
         return None
     if not found or not (found.incident or SLICE_HEADER.search(found.text) or call.agent_type in LANE_AGENTS):
         return None
-    argv = [sys.executable, str(script("drive.py")), "spawned", "--lane", found.lane, "--brief", str(found.brief or INLINE_BRIEF), "--by", drive_lane(evt) or "root", "--session", evt.session_id]
+    argv = [sys.executable, str(script("drive.py")), "spawned", "--lane", found.lane, "--brief", str(found.brief or INLINE_BRIEF), "--placement", "teammate", "--by", drive_lane(evt) or "root", "--session", evt.session_id]
+    argv += ["--successor-of", replaced[1]] if (replaced := REPLACES.search(found.text)) else []
     argv += ["--model", model] if (model := call.raw.get("model")) else []
     argv += ["--drive", drive] if (drive := reqenv.getenv(DRIVE_ENV)) else []
     subprocess.run(argv, capture_output=True, text=True, timeout=SPAWNED_TIMEOUT_SECONDS)

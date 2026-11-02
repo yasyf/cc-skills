@@ -542,6 +542,6 @@ until [ "$AGENT" != claude ] || orca terminal read --terminal "$TERMINAL" --scre
   pause "terminal $TERMINAL does not show bypass permissions on yet"
 done
 
-[ -z "$DRIVE" ] || python3 "$(dirname "$0")/drive.py" spawned --drive "$DRIVE" --lane "$LANE" --brief "$BRIEF" --model "$MODEL" --effort "$EFFORT" --by "${CLAUDE_LONG_RUNNING_LANE:-root}" >&2 ||
+[ -z "$DRIVE" ] || python3 "$(dirname "$0")/drive.py" spawned --drive "$DRIVE" --lane "$LANE" --brief "$BRIEF" --model "$MODEL" --effort "$EFFORT" --placement orca ${LAUNCH_ROLE:+--role "$LAUNCH_ROLE"} --by "${CLAUDE_LONG_RUNNING_LANE:-root}" >&2 ||
   echo "$LANE: the SPAWNED record did not post, so the lane supervisor will not keep this lane alive" >&2
 echo "$LANE ready task=$(jq -r '.result.taskId' "$RECEIPT") dispatch=$(jq -r '.result.dispatchId' "$RECEIPT") terminal=$TERMINAL worktree=$WT"

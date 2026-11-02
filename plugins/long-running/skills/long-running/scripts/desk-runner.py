@@ -3594,7 +3594,7 @@ class Runner:
     def launch_local(self, container: str, lane: str, action: actions.Action) -> None:
         spec = json.loads(action.target)
         argv = [str(LAUNCHER), lane, spec["model"], spec["effort"], spec["brief"]]
-        env = {**self.config.launch_env, **self.orca.sender, "ORCA_LAUNCH_STATE": str(self.config.receipts)}
+        env = {**self.config.launch_env, **self.orca.sender, "ORCA_LAUNCH_STATE": str(self.config.receipts), "LAUNCH_ROLE": spec.get("role") or ""}
         if spec.get("fast"):
             env[CLAUDE_ARGS] = " ".join(filter(None, [env.get(CLAUDE_ARGS, self.shell.env(CLAUDE_ARGS)), CLAUDE_FAST_MODE]))
         self.launching[f"{container}/{action.action_id}"] = self.shell.spawn(argv, self.launch_log(container, action.action_id), env)
@@ -3705,6 +3705,10 @@ class Runner:
         (self.config.receipts / f"{lane}.json").write_text(receipt)
         (self.config.receipts / f"{lane}.terminal").write_text(f"{ready['terminal']}\n")
         self.launch_log(container, key).write_text(f"{line}\n")
+        spec = json.loads(action.target)
+        done = self.shell.run([sys.executable, str(SCRIPTS / "drive.py"), "spawned", "--lane", lane, "--brief", spec["brief"], "--model", spec["model"], "--effort", spec["effort"], "--placement", "sprite", *(["--role", spec["role"]] if spec.get("role") else []), "--by", RUNNER], env=self.config.launch_env)
+        if done.code:
+            self.escalate(f"{container}/{key}:spawned", "SPAWN-UNRECORDED", lane, f"{key} runs on a Sprite with no registry row, so the lane supervisor does not keep it alive: drive.py spawned exited {done.code}: {(done.err or done.out).strip()[:300]}")
         self.settle_launch(container, lane, action)
 
     def settle_launch(self, container: str, lane: str, action: actions.Action) -> None:
