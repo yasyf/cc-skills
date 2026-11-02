@@ -42,6 +42,7 @@ ACTIVE = [CompactionState(active=True)]
 DRIVE_ACTIVE = [CompactionState(active=True, slug="brook")]
 REPLY_WINDOW = 256
 CLAUDE = "claude -p"
+JEV = "uv run --no-project --quiet"
 PACIFIC = ZoneInfo("America/Los_Angeles")
 MINUTES_A_DAY = 24 * 60
 LABEL_SLACK_MINUTES = 1
@@ -149,7 +150,7 @@ UNSOURCED_NUMBER = (
 
 
 def judge_answer(verdict: dict) -> dict[str, str | tuple[int, str]]:
-    return {CLAUDE: json.dumps({"structured_output": verdict, "total_cost_usd": 0.01, "usage": {"input_tokens": 1000, "output_tokens": 50}})}
+    return {JEV: json.dumps({"p_yes": 0.9 if verdict["verdict"] == "yes" else 0.1, "tokens": 2}), CLAUDE: json.dumps({"structured_output": verdict, "total_cost_usd": 0.01, "usage": {"input_tokens": 1000, "output_tokens": 50}})}
 
 
 def owner_text(event: object) -> str:

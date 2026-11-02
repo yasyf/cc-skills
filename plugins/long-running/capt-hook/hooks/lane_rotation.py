@@ -99,4 +99,4 @@ def stands_down_another(evt: BaseHookEvent) -> str | None:
 def stand_downs_go_through_the_registry(evt: BaseHookEvent) -> HookResult | None:
     if not (lane := stands_down_another(evt)):
         return None
-    return evt.block(f"Only the lane supervisor stands a lane down, so its registry and cci's mail routing agree. Ask it for `{lane}`: `drive_supervisor.py request stand-down <lane> --config <state dir>/lr.json --last-read <seq> [--successor <lane>]`. A lane ending its own work posts `--kind done`.")
+    return evt.block(f"Only the lane supervisor stands a lane down, so its registry and cci's mail routing agree. Ask it for `{lane}` with `drive_supervisor.py request stand-down <lane> --config <state dir>/lr.json --last-read <seq> [--successor <lane>]`, or post `--kind done` to end your own work.")
