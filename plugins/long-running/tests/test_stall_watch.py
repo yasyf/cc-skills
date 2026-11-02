@@ -100,7 +100,7 @@ class FakeShell(stall_watch.Shell):
         if argv[:3] == ["ccx", "vcs", "gh"] and argv[argv.index("--") + 1 : argv.index("--") + 3] == ["pr", "view"]:
             return stall_watch.Done(0, json.dumps({"comments": self.comments.get(argv[argv.index("--") + 3], [])}), "")
         if argv[:3] == ["ccx", "vcs", "gh"] and argv[argv.index("--") + 1 : argv.index("--") + 3] == ["api", "graphql"]:
-            heads = {found["pr"]: found["head"] for found in self.rows}
+            heads = {found["pr"]: found.get("head") for found in self.rows}
             asked = re.findall(r"p(\d+): pullRequest", argv[-1])
             return stall_watch.Done(0, json.dumps({"data": {"repository": {f"p{pr}": {"headRefOid": self.live.get(pr, heads.get(pr))} for pr in asked}}}), "")
         if argv[:3] == ["ccx", "vcs", "gh"]:
@@ -441,7 +441,9 @@ def test_a_desk_runner_tap_note_about_another_head_leaves_the_carry_stall_standi
 @pytest.mark.parametrize(("live", "stalls"), [(HEAD, ["go:101:abc1234"]), (OTHER, [])])
 def test_a_go_at_a_ledger_head_the_pr_has_moved_past_draws_no_go_stall(config, live, stalls):
     """root #326064: stall 326044 called go 325468 at 54c36ff a silent skip; #48166 had moved to 543ad64 and landed there on the owner's tap."""
-    shell = FakeShell(gone("101", HEAD), [row("101")])
+    records = gone("101", HEAD)
+    records.append(record(5, "desk-runner", "blocker", f"#101 {HEAD[:10]}: nothing in #101 was enqueued; GO-UNQUEUED #101: the merge queue refused it at this head", 9, to=["api-lane"], topic="101", status="open"))
+    shell = FakeShell(records, [row("101")])
     shell.live = {"101": live}
 
     watch(shell, config)
