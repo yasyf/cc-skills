@@ -854,3 +854,33 @@ jobs:
         with:
           name: machine-cci-post
           path: machine-cci-post.xml
+
+  replay-fixture:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: A defect fix to the lanes mover or the class check carries its replay fixture
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          TITLE: ${{ github.event.pull_request.title }}
+          BODY: ${{ github.event.pull_request.body }}
+        run: |
+          gh pr diff "$PR" --repo "$GITHUB_REPOSITORY" > "$RUNNER_TEMP/pr.diff"
+          python3 - "$RUNNER_TEMP/pr.diff" <<'PY'
+          import os
+          import re
+          import sys
+
+          diff = open(sys.argv[1]).read()
+          if "🐛" not in os.environ["TITLE"] or not re.search(r"\b(?:root|cci) #\d{6}\b", os.environ.get("BODY") or ""):
+              sys.exit(0)
+          scripts = "plugins/long-running/skills/long-running/scripts/"
+          files = set(re.findall(r"^diff --git a/(\S+)", diff, re.MULTILINE))
+          checked = {f"{scripts}lr/movers/lanes.py", f"{scripts}long_running/testfiles.py"} & files or re.search(r"^@@ .* @@ def (?:test_only_offender|unclassed_files|file_kinds|dev_only|is_test_or_ci_file)\(", diff, re.MULTILINE)
+          if checked and not any(name.startswith("plugins/long-running/tests/fixtures/replay/") for name in files):
+              sys.exit("This fix cites the cci record that reported its defect but adds no replay fixture: write one with `replay.py capture` from that record into plugins/long-running/tests/fixtures/replay/, so CI replays the reporting case.")
+          PY

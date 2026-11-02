@@ -1,0 +1,28 @@
+{
+ "class": "class-check-unclassed-file",
+ "defect": 293707,
+ "expect": {
+  "refused": []
+ },
+ "fix": "yasyf/cc-skills#1630",
+ "input": {
+  "prs": [
+   {
+    "patches": {
+     "biome.json": null,
+     "infra/ci/src/cache/units.ts": null,
+     "infra/ci/test/quality-reads.test.ts": null,
+     "tools/biome-plugins/noTestClockPoll.grit": null,
+     "tools/biome-plugins/noTestSleepPromise.grit": null
+    },
+    "pr": 47425
+   }
+  ]
+ },
+ "recurs": {
+  "kinds": [
+   "defect"
+  ],
+  "text": "TEST-ONLY|test-only (file )?rule|class check"
+ }
+}

@@ -1,10 +1,12 @@
 """The lanes mover: every lane the drive needs stays alive without the root.
 
 Each tick folds the bus records after the mover's cursor into the `lanes` registry, reads
-once which lanes `cci who` lists live, and acts on each desired lane. A lane with no live
-process and no record within `STALE_AFTER` has its successor launched from the lane's brief
-and newest handoff, and is stood down by one record naming that successor and the PRs it
-takes over once the successor is up; a lane whose newest record is an unanswered ask to root
+once which lanes `cci who` lists live, and acts on each desired lane. A lane whose process
+row reads not live, with no record within `STALE_AFTER` and no stand-down on that row, has its
+successor launched from the lane's brief and newest handoff, and is stood down by one record
+naming that successor and the PRs it takes over once the successor is up; a lane with no
+process row in `cci who` or Orca is held and named to root instead, since nothing proves it
+died, and a row cci marks stood down retires it; a lane whose newest record is an unanswered ask to root
 is waiting, and its clock restarts at the answer. A lane past its context line is asked to
 rotate and flushes in place: its handoff becomes the newest one and it keeps working. Each
 live lane beats in the store's worker table, and a lane it relaunches, holds or retires
@@ -365,7 +367,7 @@ def alive(peer: Peer | None, heard: datetime | None, now: datetime) -> bool:
 
 
 def classify_lane(lane: Lane, peer: Peer | None, now: datetime, tokens: int | None = None, rotate_at: int = 0) -> Verdict:
-    """One registry row against what `cci who` shows now: `ok`, `came-up`, `no-show`, `dead` or `ask-rotate`; a flushed lane keeps working in place."""
+    """One registry row against what `cci who` shows now: `ok`, `came-up`, `no-show`, `dead`, `unproven`, `stood-down` or `ask-rotate`; only a process row that reads not live proves a death, and a flushed lane keeps working in place."""
     heard = max([t for t in (peer.seen if peer else None, lane.heard) if t], default=None)
     alive_now = alive(peer, heard, now)
     if lane.state == "launching":
@@ -373,10 +375,12 @@ def classify_lane(lane: Lane, peer: Peer | None, now: datetime, tokens: int | No
             return Verdict("came-up")
         return Verdict("no-show", f"not live {STALE_AFTER.seconds // 60} minutes after its launch") if now - lane.since >= STALE_AFTER else Verdict("ok")
     if not alive_now:
-        if peer is not None and (lane.waiting is not None or (lane.answered and now - lane.answered < STALE_AFTER)):
+        if peer is None:
+            return Verdict("unproven", f"has no process row in cci who or Orca and was last heard {f'at {pacific(heard)}' if heard else 'never'}, so nothing proves it died")
+        if peer.row.get("stood_down"):
+            return Verdict("stood-down")
+        if lane.waiting is not None or (lane.answered and now - lane.answered < STALE_AFTER):
             return Verdict("ok")
-        if heard is None:
-            return Verdict("dead", "never registered")
         return Verdict("dead", f"stopped at {pacific(heard)}")
     if tokens is not None and rotate_at and tokens >= rotate_at:
         return Verdict("ask-rotate", f"{tokens:,} tokens")
@@ -499,6 +503,12 @@ def tick(store: Store, deps: Deps, now: datetime, generation: int) -> Outcome:
             hold(store, lane.name, verdict.why, now)
             escalate(store, deps, f"lane:{lane.name}", f"{verdict.why}; brief {deps.briefs / f'{lane.name}.brief.md'}", now)
             out.held.append(lane.name)
+        elif verdict.kind == "unproven":
+            hold(store, lane.name, verdict.why, now)
+            escalate(store, deps, f"lane:{lane.name}", f"held, not relaunched: it {verdict.why}; brief {lane.brief}", now)
+            out.held.append(lane.name)
+        elif verdict.kind == "stood-down":
+            retire(store, lane.name, "stand-down", now)
         elif verdict.kind == "dead" and lane.last == LANDED:
             retire(store, lane.name, LANDED, now)
         elif verdict.kind == "dead":

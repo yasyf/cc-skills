@@ -1,0 +1,30 @@
+{
+ "class": "class-check-ci-tooling",
+ "defect": 288692,
+ "expect": {
+  "refused": []
+ },
+ "fix": "yasyf/cc-skills#1599",
+ "input": {
+  "prs": [
+   {
+    "patches": {
+     ".agents/skills/buildkite-cli/SKILL.md": null,
+     "go/ci/bkverb.go": null,
+     "go/ci/bkverb_test.go": null,
+     "go/ci/internal/cache/cold.go": null,
+     "go/ci/internal/cache/wrapper.go": null,
+     "go/ci/internal/cache/wrapper_test.go": null,
+     "go/ci/prune.go": null
+    },
+    "pr": 47254
+   }
+  ]
+ },
+ "recurs": {
+  "kinds": [
+   "defect"
+  ],
+  "text": "TEST-ONLY|test-only (file )?rule|class check"
+ }
+}

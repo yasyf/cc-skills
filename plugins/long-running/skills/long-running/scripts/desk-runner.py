@@ -724,6 +724,7 @@ TOOLING_GLOBS = (".agents/skills/*/scripts/*", ".agents/skills/*/tests/*", ".age
 LINT_CONFIGS = frozenset({"clippy.toml", ".clippy.toml", "deny.toml", "rustfmt.toml", ".rustfmt.toml", ".golangci.yml", ".golangci.yaml", "ruff.toml", ".ruff.toml", "biome.json", ".eslintrc.json", "eslint.config.js", "eslint.config.mjs"})
 MANIFESTS = frozenset({"Cargo.toml", "package.json"})
 LOCKFILES = frozenset({"Cargo.lock", "yarn.lock", "package-lock.json", "pnpm-lock.yaml"})
+SOURCE_SUFFIXES = frozenset({".go", ".rs", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".py", ".swift", ".kt", ".java", ".c", ".cc", ".cpp", ".h", ".hpp", ".m", ".mm", ".sql", ".proto", ".sand", ".sh", ".css", ".scss", ".html"})
 TOML_SECTION = re.compile(r"\s*\[+([^\]]+)\]+\s*$")
 JSON_SECTION = re.compile(r'\s*"([^"]+)":\s*\{\s*$')
 JSON_CLOSE = re.compile(r"\s*\},?\s*$")
@@ -990,6 +991,7 @@ TOP_CALLERS = 5
 ROTATE_EVERY = timedelta(hours=1)
 STALL_WATCH = SCRIPTS / "stall_watch.py"
 JUDGE_WATCH = SCRIPTS / "judge_watch.py"
+REPLAY = SCRIPTS / "replay.py"
 REMOTE_RESTACK = SCRIPTS / "remote-restack.py"
 STALL_EVERY_MINUTES = 5
 WATCHDOG = drive.WATCHDOG
@@ -1493,17 +1495,31 @@ def is_test_or_ci_file(name: str) -> bool:
 
 
 def test_only_offender(patches: dict[str, str | None]) -> str:
-    """The first changed file that keeps a change from being test-only or CI-only: a test or CI file, a lint config, a manifest whose patch changes only dev-dependency or lint sections, and a lockfile that removes nothing beside manifests that all do, count; a production dependency never rides a test-only claim (root #290406)."""
+    """The first changed file that makes a change code, so a test-only or CI-only claim does not hold: source in a language `SOURCE_SUFFIXES` names, a manifest that changes more than its dev-dependency or lint sections, or a lockfile beside one; a production dependency never rides a test-only claim (root #290406)."""
+    return next((name for name, kind in file_kinds(patches).items() if kind == "code"), "")
+
+
+def unclassed_files(patches: dict[str, str | None]) -> list[str]:
+    """The changed files no rule reads as test configuration or as code, which the class check warns about and lets the claim stand on, since an unread file is a gap in the rules and never proof of code (retro C8, Nov 1)."""
+    return [name for name, kind in file_kinds(patches).items() if kind == "unclassed"]
+
+
+def file_kinds(patches: dict[str, str | None]) -> dict[str, str]:
+    """Each changed file as `test`, `code` or `unclassed`: a test or CI file, a lint config, a manifest whose patch changes only dev-dependency or lint sections, and a lockfile that removes nothing beside manifests that all do, are test configuration; source, any other manifest and any other lockfile are code; the rest are unclassed."""
     manifests = [name for name in patches if PurePosixPath(name).name in MANIFESTS and not is_test_or_ci_file(name)]
     dev_manifests = bool(manifests) and all(dev_only(name, patches[name]) for name in manifests)
+    kinds = {}
     for name, patch in patches.items():
-        base = PurePosixPath(name).name
-        if is_test_or_ci_file(name) or base in LINT_CONFIGS or name in manifests and dev_only(name, patch):
-            continue
-        if base in LOCKFILES and dev_manifests and patch is not None and not any(line.startswith("-") for line in patch.splitlines()):
-            continue
-        return name
-    return ""
+        path = PurePosixPath(name)
+        if is_test_or_ci_file(name) or path.name in LINT_CONFIGS or name in manifests and dev_only(name, patch):
+            kinds[name] = "test"
+        elif path.name in LOCKFILES and dev_manifests and patch is not None and not any(line.startswith("-") for line in patch.splitlines()):
+            kinds[name] = "test"
+        elif path.name in MANIFESTS or path.name in LOCKFILES or path.suffix in SOURCE_SUFFIXES:
+            kinds[name] = "code"
+        else:
+            kinds[name] = "unclassed"
+    return kinds
 
 
 def dev_only(name: str, patch: str | None) -> bool:
@@ -2034,6 +2050,7 @@ class Runner:
         self.stall_pass: subprocess.Popen | None = None
         self.judge_pass: subprocess.Popen | None = None
         self.judge_started = datetime.min.replace(tzinfo=timezone.utc)
+        self.recur_pass: subprocess.Popen | None = None
         self.stall_started = datetime.min.replace(tzinfo=timezone.utc)
         self.finding = threading.Lock()
         self.taps: tuple[datetime, set[str]] = (datetime.min.replace(tzinfo=timezone.utc), set())
@@ -2246,6 +2263,16 @@ class Runner:
         self.judge_started = self.now()
         self.judge_pass = self.shell.spawn([sys.executable, str(JUDGE_WATCH), "--config", str(self.config.source)], log, {})
 
+    def recur_watch(self) -> None:
+        """Start `replay.py recur`, the count of each fixed defect's recurrences in the 24 hours after its install, with the hourly inbox rotation, once the last pass has exited; a pass that failed is escalated once per error."""
+        if self.recur_pass and self.recur_pass.poll() is None:
+            return
+        log = self.config.desk_inbox.with_name("recur-watch.log")
+        if self.recur_pass and (code := self.recur_pass.poll()):
+            error = next((line.strip() for line in reversed(log.read_text(errors="replace").splitlines()) if line.strip()), f"exit {code}")
+            self.escalate(f"recur-watch-failed:{error[:200]}", "RECUR-WATCH-FAILED", "replay.py", f"the last recurrence pass exited {code}, so no recurrence count posts until it passes again: {error}; log {log}", "recur-watch-failed", ROOT)
+        self.recur_pass = self.shell.spawn([sys.executable, str(REPLAY), "recur", "--drive", self.config.drive], log, {})
+
     def keep_alive(self, desk: str) -> threading.Event:
         """Post the alive record now, then every minute from a daemon thread, whatever the pass is doing, until the returned event is set, so a long first pass never leaves a predecessor's pid as the desk's newest record."""
         stop = threading.Event()
@@ -2348,7 +2375,8 @@ class Runner:
 
     def handoff(self, desk: str, version: str = "") -> int:
         """Move `desk` onto `version`, or onto the pinned version without one. Refuse before stopping anything when that version's install is not its release (`drive.release_faults`: a file missing, added past its tag, or edited in place) or that version's own preflight for the desk refuses (Oct 30 9:47 PM); then pin it, stop the runner holding `desk`'s lock at its next step boundary, wait until it has exited, then start its successor, or under launchd supervision wait for launchd's restart instead, so a handoff killed mid-wait never leaves the desk empty (Oct 30 7:46 PM). A runner whose newest alive record, posted after the stop was asked, shows it re-executed into the pinned version under the same pid has handed over in place, so its stop is withdrawn and no successor starts (root, Oct 29 11:46 AM), unless it already ran that version when the stop was asked, since only a restart then reloads runner.json (cci #215987); refuse, naming its pid, when neither happens within HANDOFF_WAIT (#140225)."""
-        target = version or self.pinned() or RUNNING_VERSION
+        current = self.pinned() or RUNNING_VERSION
+        target = version or current
         if faults := drive.release_faults(target):
             shown = "; ".join(faults[:HANDOFF_FAULTS]) + (f"; and {len(faults) - HANDOFF_FAULTS} more" if len(faults) > HANDOFF_FAULTS else "")
             print(f"desk-runner handoff: no runner was stopped, since the {target} install is not its release: {shown}; reinstall it with `claude plugin update long-running@skills` and hand off again", file=sys.stderr)
@@ -2356,6 +2384,9 @@ class Runner:
         supervised = self.supervised(desk)
         if fault := self.successor_fault(desk, target, supervised):
             print(f"desk-runner handoff: no runner was stopped, since its successor on {target} would refuse: {fault}", file=sys.stderr)
+            return 3
+        if target != current and (refused := self.replay_refusal(current, target)):
+            print(f"desk-runner handoff: no runner was stopped, since {refused}", file=sys.stderr)
             return 3
         self.pin(target)
         pid = self.desk_holder(desk)
@@ -2476,6 +2507,17 @@ class Runner:
     def on_version(self, desk: str, pid: int, since: datetime, version: str) -> bool:
         beat = drive.heartbeat(self.cci_tail, self.config.drive, desk)
         return beat is not None and beat.get("pid") == str(pid) and beat.get("version") == version and actions.parse_stamp(beat["at"]) >= since
+
+    def replay_refusal(self, current: str, version: str) -> str:
+        """Why `version` may not take a desk from `current`, the version the desk's pin runs: the drive's last 24 hours, replayed through both by `replay.py gate`, show it relaunching a lane or refusing a PR `current` did not; empty when it passes or the gate did not finish, which proves nothing and only warns."""
+        done = self.shell.run([sys.executable, str(REPLAY), "gate", "--drive", self.config.drive, *(["--repo", self.config.landing["repo"]] if self.config.landing else []), "--old", current, "--new", version])
+        if done.code == 0:
+            return ""
+        last = ((done.out if done.code == 3 else done.err or done.out).strip().splitlines() or [f"exit {done.code}"])[-1][:600]
+        if done.code == 3:
+            return last
+        print(f"desk-runner handoff: {version} takes the desk unreplayed, since its replay gate exited {done.code}: {last}", file=sys.stderr)
+        return ""
 
     def successor_fault(self, desk: str, version: str, keychain: bool) -> str:
         """Why `desk`'s runner on `version` would refuse to start, as that version's own `preflight` reads it, or this runner's own checks when it runs that version; empty when it would start."""
@@ -7597,7 +7639,7 @@ class Landing:
         return unparsed | waits, unread, exempt
 
     def exempt_admitted(self, pr: str, sha: str) -> tuple[str, str]:
-        """The `EXEMPT-ADMITTED` note for `pr` at `sha` when its change is exempt and goes straight to Graphite's queue with no go and no board tap, and why its whole diff breaks the class its grade claims, read once per pass (root #194387, 06288326, owner Oct 28 8:45 PM). The head grades ok by `fidelity`'s rule and `exempt_class` finds one of `landing.exempt_grades` (default `pure port, no interaction`, `test-only or CI-only, no non-test code`, `test-only, no non-test code` and `CI-only, no non-test code`; the legacy `landing.port_phrase` replaces the first) in its grades. Both classes are checked against every file the PR changes against its base, never the grade's words alone (root #182391): a test-only or CI-only class fails on a file outside the test, CI, skill-script and docs set, and a port class on a file outside `PORT_PREFIXES` unless a `Rulings` comment clears its interaction; changed files that do not read admit nothing that pass."""
+        """The `EXEMPT-ADMITTED` note for `pr` at `sha` when its change is exempt and goes straight to Graphite's queue with no go and no board tap, and why its whole diff breaks the class its grade claims, read once per pass (root #194387, 06288326, owner Oct 28 8:45 PM). The head grades ok by `fidelity`'s rule and `exempt_class` finds one of `landing.exempt_grades` (default `pure port, no interaction`, `test-only or CI-only, no non-test code`, `test-only, no non-test code` and `CI-only, no non-test code`; the legacy `landing.port_phrase` replaces the first) in its grades. Both classes are checked against every file the PR changes against its base, never the grade's words alone (root #182391): a test-only or CI-only class fails on a file `test_only_offender` reads as code and carries an `UNCLASSED` warning for each file no class rule reads, and a port class on a file outside `PORT_PREFIXES` unless a `Rulings` comment clears its interaction; changed files that do not read admit nothing that pass."""
         if (pr, sha) not in self.exempts:
             self.exempts[(pr, sha)] = self.exemption(pr, sha)
         return self.exempts[(pr, sha)]
@@ -7605,16 +7647,16 @@ class Landing:
     def exemption(self, pr: str, sha: str) -> tuple[str, str]:
         if marked := next(((go, bracket) for go in self.head_gos(pr, sha) if (bracket := EXEMPT_BRACKET.search(full_text(go)))), None):
             go, bracket = marked
-            holds, mismatch = self.claim_holds(pr, sha, bracket["claim"])
-            return (f"EXEMPT-ADMITTED #{pr} at {sha[:10]}: go cci #{go['seq']} marks it {bracket[0]}, so no board row or tap holds it (root #253923)", "") if holds else ("", mismatch)
+            holds, said = self.claim_holds(pr, sha, bracket["claim"])
+            return (f"EXEMPT-ADMITTED #{pr} at {sha[:10]}: go cci #{go['seq']} marks it {bracket[0]}, so no board row or tap holds it (root #253923){said}", "") if holds else ("", said)
         if not (found := self.exempt_class(pr, sha)) or (standing := self.fidelity(pr, sha)).record and not standing.ok:
             return "", ""
-        grade, said = found
-        holds, mismatch = self.claim_holds(pr, sha, said)
-        return (f"EXEMPT-ADMITTED #{pr} at {sha[:10]}: fidelity grade cci #{grade['seq']} says \"{said}\", so it goes straight to the merge queue with no go or board tap (root #194387)", "") if holds else ("", mismatch)
+        grade, phrase = found
+        holds, said = self.claim_holds(pr, sha, phrase)
+        return (f"EXEMPT-ADMITTED #{pr} at {sha[:10]}: fidelity grade cci #{grade['seq']} says \"{phrase}\", so it goes straight to the merge queue with no go or board tap (root #194387){said}", "") if holds else ("", said)
 
     def claim_holds(self, pr: str, sha: str, claim: str) -> tuple[bool, str]:
-        """Whether every file `pr` changes against its base at `sha` fits the exempt class `claim` names, a go's `[exempt: <class>]` bracket or a grade's phrase, and why not, so no words decide the class alone (root #182391, #232354): a test or CI class fails on a file outside the test, CI, skill-script and docs set, a port class on a file outside `PORT_PREFIXES` unless a `Rulings` comment clears its interaction, and changed files that do not read fit neither. Any other class is the root's to claim."""
+        """Whether every file `pr` changes against its base at `sha` fits the exempt class `claim` names, a go's `[exempt: <class>]` bracket or a grade's phrase, and why not, so no words decide the class alone (root #182391, #232354): a test or CI class fails on a file `test_only_offender` reads as code and stands with an `UNCLASSED` warning naming each file no class rule reads, a port class on a file outside `PORT_PREFIXES` unless a `Rulings` comment clears its interaction, and changed files that do not read fit neither. Any other class is the root's to claim."""
         test, port = TEST_ONLY_CLAIM.search(claim), PORT_CLAIM.search(claim)
         if not (test or port):
             return True, ""
@@ -7624,6 +7666,8 @@ class Landing:
         if test:
             if offender := test_only_offender(self.patches[(pr, sha)]):
                 return False, f"TEST-ONLY-MISMATCH {offender} is neither a test nor CI configuration, so the {claim.split(',')[0].strip()} claim does not hold; "
+            if unclassed := unclassed_files(self.patches[(pr, sha)]):
+                return True, f"; UNCLASSED {', '.join(unclassed)}: no class rule reads {'it' if len(unclassed) == 1 else 'them'}, so the check warns and the {claim.split(',')[0].strip()} claim stands"
             return True, ""
         if (offender := next((name for name in files if not name.startswith(PORT_PREFIXES)), "")) and not self.interaction_cleared(pr):
             return False, f"PORT-MISMATCH {offender} is outside {','.join(PORT_PREFIXES)} and no Rulings comment clears its interaction, so the port claim does not hold; "
@@ -7636,6 +7680,8 @@ class Landing:
             return "its changed files did not read"
         if offender := test_only_offender(self.patches[(pr, sha)]):
             return f"its files make it code: {offender} is neither a test nor CI configuration"
+        if unclassed := unclassed_files(self.patches[(pr, sha)]):
+            return f"its files make it test-only or CI-only, with {', '.join(unclassed)} read by no class rule"
         return "its files make it test-only or CI-only"
 
     def interaction_cleared(self, pr: str) -> bool:
@@ -10065,6 +10111,7 @@ def run_orca(runner: Runner, once: bool) -> int:
         while True:
             if runner.now() - rotated >= ROTATE_EVERY:
                 runner.rotate_inboxes()
+                runner.recur_watch()
                 rotated = runner.now()
             runner.follow_coordinator()
             try:
