@@ -90,6 +90,13 @@ def test_the_reader_first_breaks_replay_as_fixtures_pinned_to_their_merges_that_
         assert f"diff {merged}^ {merged}`" in source and grade == "`missing`" and row == "`rule/7ab71e2`", fixture
 
 
+def test_every_grader_treats_shared_infra_the_old_tree_runs_on_as_old_tree_surface():
+    for name in ("finder-brief.md", "finder-desk-brief.md", "fidelity-desk-brief.md", "fidelity-job-brief.md"):
+        brief = " ".join((SKILL / "reference" / name).read_text().split())
+        assert "Shared infrastructure is old-tree surface." in brief, name
+        assert "renders the change on every cluster config" in brief and "old-tree infra:" in brief, name
+
+
 @pytest.mark.parametrize(
     ("text", "grade"),
     [

@@ -56,6 +56,19 @@ The reply follows the `findings` schema, so the codex plugin needs nothing new:
   call older clients make. A removal of an accepted shape stays a major until every
   installed client is past it, which the PR body shows by the release that carried the new
   shape to them. The dual-shape reader the rule asks for is never a compat layer.
+- Shared infrastructure is old-tree surface. A head changes it when it edits a row, manifest
+  or policy the old tree's production workloads run under or reach through, or points one of
+  them at another service, fleet or endpoint: in Forge-AI/monorepo, anything under
+  `infra/rows/` that renders a NetworkPolicy, a Namespace or its labels, an Istio
+  AuthorizationPolicy or PeerAuthentication, a ServiceAccount, a Service, DNS or a route the
+  executors, the api deployments, the restate workers or sanddb use, and any api or runner
+  change that moves an old-tree call onto another fleet, as #46834 moved run journals onto
+  the system SandSQL fleet. Such a head must name, in its PR body, the old-tree workloads it
+  affects, and carry a test that renders the change on every cluster config, plat, staging
+  and each tenant, such as `infra/rows/k8s/old-tree-reach.test.ts` and its snapshot. A head
+  that changes it without both is graded major, its `defect` starting `old-tree infra:`, and
+  a test that renders one cluster where the row differs per cluster asserts less than it
+  claims.
 - A major cites at least one `path:line` inside a hunk the diff adds or changes
   (`git diff --unified=0 origin/<base>...<sha>`). A finding that rests only on lines
   the diff leaves as they were is a census finding, its defect starting `census:`: the
@@ -132,6 +145,19 @@ Do three things and report all three in the findings schema.
    (rule 7ab71e2): a writer that sends a shape the released reader rejects, or a reader
    that stops accepting a shape a released writer still sends, is a major, and a removal
    of an accepted shape stays one until every installed client is past it.
+   Shared infrastructure is old-tree surface. A head changes it when it edits a row,
+   manifest or policy the old tree's production workloads run under or reach through, or
+   points one of them at another service, fleet or endpoint: in Forge-AI/monorepo, anything
+   under `infra/rows/` that renders a NetworkPolicy, a Namespace or its labels, an Istio
+   AuthorizationPolicy or PeerAuthentication, a ServiceAccount, a Service, DNS or a route
+   the executors, the api deployments, the restate workers or sanddb use, and any api or
+   runner change that moves an old-tree call onto another fleet, as #46834 moved run
+   journals onto the system SandSQL fleet. Such a head must name, in its PR body, the
+   old-tree workloads it affects, and carry a test that renders the change on every cluster
+   config, plat, staging and each tenant, such as `infra/rows/k8s/old-tree-reach.test.ts`
+   and its snapshot. A head that changes it without both is a major, its defect starting
+   "old-tree infra:", and a test that renders one cluster where the row differs per cluster
+   asserts less than it claims.
    A major cites at least one `path:line` inside a hunk the diff adds or changes; a
    finding on lines the diff leaves as they were starts its defect with "census:".
 

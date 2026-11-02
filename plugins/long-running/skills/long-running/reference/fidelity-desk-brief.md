@@ -104,6 +104,22 @@ whether the code, as it runs after the change, does what the words say.
   fix the same defect in the old world. Read the source pinned by sha and grade
   the head line for line against it; only what differs or goes past it is graded
   against the plan.
+- Shared infrastructure is old-tree surface. A head changes it when it edits a
+  row, manifest or policy the old tree's production workloads run under or reach
+  through, or points one of them at another service, fleet or endpoint: in
+  Forge-AI/monorepo, anything under `infra/rows/` that renders a NetworkPolicy, a
+  Namespace or its labels, an Istio AuthorizationPolicy or PeerAuthentication, a
+  ServiceAccount, a Service, DNS or a route the executors, the api deployments,
+  the restate workers or sanddb use, and any api or runner change that moves an
+  old-tree call onto another fleet, as #46834 moved run journals onto the system
+  SandSQL fleet. Such a head must name, in its PR body, the old-tree workloads it
+  affects, and carry a test that renders the change on every cluster config, plat,
+  staging and each tenant, such as `infra/rows/k8s/old-tree-reach.test.ts` and its
+  snapshot. A head that changes it without both reads `missing` against the plan
+  line that keeps the old tree's production path working until cutover, with the
+  line `old-tree infra: <what is unnamed or untested>`, and its old-app grade is
+  never `unchanged`. A test that renders one cluster where the row differs per
+  cluster is no such test.
 - The `## Risk profile` states Load and Data in prose. It has no Census or
   Backout field, and no field's absence is a refusal by itself.
 - A grade that lists any problem is a refusal. There is no "ok with notes":
