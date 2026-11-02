@@ -24,6 +24,7 @@ from urllib.parse import unquote_plus
 from long_running import ghread
 from long_running import ledger
 from long_running import release
+import landing_bridge
 import pytest
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
@@ -106,7 +107,8 @@ def pytest_ignore_collect(collection_path: Path, config: pytest.Config) -> bool 
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    """Mark the scale tests, record them in the junit report for lr_durations.py, and keep only this shard's tests."""
+    """Narrow test_desk_runner.py to the Go landing allowlist under LONG_RUNNING_LANDING=go, mark the scale tests, record them in the junit report for lr_durations.py, and keep only this shard's tests."""
+    landing_bridge.narrow(config, items)
     shard = config.stash.get(SHARD, None)
     skip = os.environ.get("LR_TEST_SCALE") == "skip"
     kept, dropped = [], []
@@ -542,3 +544,11 @@ def red_routes() -> dict[str, str]:
 @pytest.fixture(autouse=True)
 def default_config_dir(monkeypatch):
     monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+
+
+@pytest.fixture(autouse=True)
+def landing_go(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """With LONG_RUNNING_LANDING=go, a test of test_desk_runner.py runs its landing passes on the Go port at LONG_RUNNING_LANDING_BIN."""
+    if landing_bridge.enabled() and request.path.name == landing_bridge.MODULE:
+        module = request.module.runner_module
+        monkeypatch.setattr(module, "run_landing", landing_bridge.run_landing(module, os.environ["LONG_RUNNING_LANDING_BIN"]))

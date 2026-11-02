@@ -165,6 +165,37 @@ jobs:
           name: machine-cci-post
           path: machine-cci-post.xml
 
+  landing-go:
+    runs-on: ubuntu-latest
+    env:
+      UV_PYTHON: "3.14"
+    defaults:
+      run:
+        working-directory: plugins/long-running/desk
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: plugins/long-running/desk/go.mod
+          cache-dependency-path: plugins/long-running/desk/go.sum
+      - uses: astral-sh/setup-uv@v8.2.0
+      - name: go vet
+        run: go vet ./...
+      - name: Go unit tests, store round-trips with Python and the regex golden
+        run: go test ./...
+      - name: build the landing desk
+        run: go build -o "$RUNNER_TEMP/landing-desk" ./cmd/landing-desk
+      - name: regex golden matches the Python patterns
+        working-directory: .
+        run: |
+          uv run --locked --project plugins/long-running python plugins/long-running/desk/testdata/dump_patterns.py
+          git diff --exit-code -- plugins/long-running/desk/testdata/patterns.json
+      - name: allowlisted landing tests on the Go desk
+        working-directory: .
+        env:
+          LONG_RUNNING_LANDING: go
+        run: LONG_RUNNING_LANDING_BIN="$RUNNER_TEMP/landing-desk" uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_desk_runner.py -q
+
   replay-fixture:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
