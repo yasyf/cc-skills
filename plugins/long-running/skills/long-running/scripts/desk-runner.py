@@ -6485,6 +6485,9 @@ class Landing:
                         continue
                     if blocker := self.adapter.blocker(match, stack, gated_red):
                         self.route_blocker(pr, match["sha"], blocker, rows[pr], tips, stack, gated_red, self.adapter.failing_required(match))
+            undecided = {pr: open_rows[pr].get("head", "") for tip in tips for pr in downstack(open_rows, tip) if not self.settlement.settled(pr)}
+            read = ", ".join(f"#{pr} {match['verdict']}" for pr, match in verdicts.items())
+            self.settle(undecided, Refused(f"the {self.adapter.kind} check read {read} and ended `{done.last}` (exit {done.code}), which no rule of the pass settles, so the next pass checks it again"))
 
     def direct_would(self, done: merge_queue.Gate) -> list[str] | None:
         """The PRs a gate's prefix offers for landing: what the check would enqueue, and, while Graphite is down, every PR it reads queued in Graphite's dead queue or reads blocked only by that queue's eviction too, bottom first, since nothing else merges them (root #202044, #208430)."""

@@ -8744,6 +8744,18 @@ def test_a_child_whose_native_stack_starts_above_its_open_parent_waits_on_it_and
     assert any(line.startswith("REFUSED #33000") and line.endswith("the gate read aaaa000000 WAITING: CI running") for line in settled(shell, "REFUSED"))
 
 
+def test_a_check_that_dies_after_its_preflight_lines_settles_every_admitted_head_it_read(shell, config, tmp_path):
+    """Root #300098, 7:19 PM Nov 1 on 0.7.838: #47496, #47498 and #47499 read `unsettled: the stack worker's settle step`, since a check that printed only its `CHECK` preflight lines before it failed reads as a verdict no rule of the pass settles."""
+    shell.rows = [{"pr": "33000", "lane": LANE, "branch": "g/0", "base": "dev", "head": "aaaa000000", "state": "open", "reported_head": "aaaa000000", "test_state": "success"}]
+    shell.gates["33000"] = [(5, "#33000 CHECK aaaa000000 merge preflight aaaa000000 with dev 1234567890\n", "stack-enqueue failed: required checks for #33000: HTTP 502\n")]
+    shell.queue |= {"33000": "not queued"}
+    grade(shell, "33000", "ok F307 at aaaa000.")
+    merge_go(shell, "33000", "merge #33000 at aaaa000")
+    landing_pass(shell, config)
+    assert not [line for line in said(shell) if "unsettled" in line]
+    assert any(line.startswith("REFUSED #33000") and "check read #33000 CHECK and ended `stack-enqueue failed: required checks for #33000: HTTP 502` (exit 5)" in line for line in settled(shell, "REFUSED"))
+
+
 def test_an_admitted_bottom_under_an_unadmitted_middle_is_checked_alone_when_the_tip_check_reads_no_verdict(shell, config, tmp_path):
     """Root #300098: #47432 to #47455 of the test-sleep stack read `unsettled: the stack worker's settle step` at 5:01 PM Nov 1, since the tip's check read no verdict and the runner settled only the admitted PRs above unadmitted #47457, never the admitted bottom below it."""
     shell.rows = [
