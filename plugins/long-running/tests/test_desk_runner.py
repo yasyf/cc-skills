@@ -6735,10 +6735,10 @@ def test_a_slow_stack_check_holds_no_other_stack_out_of_the_queue(shell, config,
     waited: list[bool] = []
     stacks, chains = runner_module.Landing.proven_stacks, runner_module.Landing.enqueue_chains
 
-    def slow(self, tips, open_rows):
+    def slow(self, tips, open_rows, batch=None):
         if tips == ["29020"]:
             waited.append(other_queued.wait(5))
-        return stacks(self, tips, open_rows)
+        return stacks(self, tips, open_rows, batch)
 
     def chained(self, tops, heads, whole):
         done = chains(self, tops, heads, whole)
@@ -6857,10 +6857,10 @@ def test_a_stack_worker_past_the_gate_budget_runs_on_after_the_pass_while_the_ot
     release = threading.Event()
     stacks = runner_module.Landing.proven_stacks
 
-    def stuck(self, tips, open_rows):
+    def stuck(self, tips, open_rows, batch=None):
         if tips == ["29020"]:
             release.wait(10)
-        return stacks(self, tips, open_rows)
+        return stacks(self, tips, open_rows, batch)
 
     monkeypatch.setattr(runner_module.Landing, "proven_stacks", stuck)
     landing = landing_of(shell, config, tmp_path)
