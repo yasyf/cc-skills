@@ -93,41 +93,47 @@ def refusal(
     return None
 
 
-def reached(end: End, shell: Shell, moment: datetime, checkout: Path) -> str | None:
-    match end.kind:
-        case "at":
-            return (
-                f"its time {end.value} passed" if end.value <= stamp(moment) else None
-            )
-        case "pr":
-            repo, number = end.value.split("#")
-            state = json.loads(
-                shell.run(
-                    ["gh", "pr", "view", number, "--repo", repo, "--json", "state"]
-                )
-            )["state"]
-            return None if state == "OPEN" else f"{end.value} is {state.lower()}"
-        case "release":
-            return released(RELEASE.fullmatch(end.value), shell, checkout)
-        case "record":
-            shown = shell.run(["cci", "show", end.value])
-            return (
-                f"record #{end.value} is closed"
-                if RESOLVED.search(shown.splitlines()[0] if shown else "")
-                else None
-            )
-    raise AssertionError(end)
+@dataclass(frozen=True)
+class Facts:
+    shell: Shell
+    checkout: Path
+    prs: dict[str, str]
+    live: list[str]
 
+    @classmethod
+    def read(cls, waiting: list[End], shell: Shell, checkout: Path) -> Facts:
+        repos: dict[str, list[str]] = {}
+        for end in waiting:
+            if end.kind == "pr":
+                repo, number = end.value.split("#")
+                repos.setdefault(repo, []).append(number)
+        prs = {
+            f"{repo}#{row['number']}": row["state"]
+            for repo, numbers in repos.items()
+            for row in json.loads(shell.run(["ccx", "vcs", "pr", "status", "--json", "-R", repo, *numbers], cwd=checkout))
+        }
+        live = shell.run(["tools/ci", "release", "live"], cwd=checkout).splitlines() if any(end.kind == "release" for end in waiting) else []
+        return cls(shell, checkout, prs, live)
 
-def released(want: re.Match[str], shell: Shell, checkout: Path) -> str | None:
-    for line in shell.run(["tools/ci", "release", "live"], cwd=checkout).splitlines():
-        if (
-            (live := LIVE.match(line))
-            and (live["stack"], live["env"]) == (want["stack"], want["env"])
-            and carries(shell, checkout, want["commit"], live["commit"])
-        ):
-            return f"{want['stack']} on {want['env']} runs {live['commit']}, which carries {want['commit']}"
-    return None
+    def reached(self, end: End, moment: datetime) -> str | None:
+        match end.kind:
+            case "at":
+                return f"its time {end.value} passed" if end.value <= stamp(moment) else None
+            case "pr":
+                state = self.prs[end.value]
+                return None if state == "OPEN" else f"{end.value} is {state.lower()}"
+            case "release":
+                return self.released(RELEASE.fullmatch(end.value))
+            case "record":
+                shown = self.shell.run(["cci", "show", end.value])
+                return f"record #{end.value} is closed" if RESOLVED.search(shown.splitlines()[0] if shown else "") else None
+        raise AssertionError(end)
+
+    def released(self, want: re.Match[str]) -> str | None:
+        for line in self.live:
+            if (live := LIVE.match(line)) and (live["stack"], live["env"]) == (want["stack"], want["env"]) and carries(self.shell, self.checkout, want["commit"], live["commit"]):
+                return f"{want['stack']} on {want['env']} runs {live['commit']}, which carries {want['commit']}"
+        return None
 
 
 def carries(shell: Shell, checkout: Path, commit: str, live: str) -> bool:

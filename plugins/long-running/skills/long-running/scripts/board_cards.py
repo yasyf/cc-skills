@@ -125,14 +125,14 @@ def main(argv: list[str] | None = None, shell: ledger.Shell | None = None) -> in
 def withdraw(board: Board, lane: str) -> None:
     known = board.ends()
     moment = ledger.now()
-    for card in board.cards():
+    cards = board.cards()
+    for card in cards:
         if card not in known:
-            print(
-                f"PROBLEM {card}: no end condition; record one with board_cards.py until {card} --until COND"
-            )
-            continue
-        end = ends.parse(known[card]["until"], moment)
-        if not (outcome := ends.reached(end, board.shell, moment, board.checkout)):
+            print(f"PROBLEM {card}: no end condition; record one with board_cards.py until {card} --until COND")
+    waiting = {card: ends.parse(known[card]["until"], moment) for card in cards if card in known}
+    facts = ends.Facts.read(list(waiting.values()), board.shell, board.checkout)
+    for card, end in waiting.items():
+        if not (outcome := facts.reached(end, moment)):
             continue
         board.present("remove-block", card)
         board.shell.run(
