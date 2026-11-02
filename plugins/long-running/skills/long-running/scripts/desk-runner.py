@@ -1137,6 +1137,7 @@ CCX_KEY = r"^ccx:(?:.*[ \t])?{}(?:\s|$)"
 PLACE = re.compile(CCX_KEY.format("place=(remote|local)"), re.MULTILINE)
 STANDING_DESK = re.compile(CCX_KEY.format("role=(?:desk|watch)"), re.MULTILINE)
 SPRITE_LANE = re.compile(r"[a-z0-9][a-z0-9-]{0,54}")
+PIN_BRANCH = re.compile(r"dev|(?:[\w.-]+/)*cc-remote-\d+\.\d+\.\d+")
 SPRITE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
 SPRITE_IDS = {"task": "taskId", "dispatch": "dispatchId"}
 SPRITE_PREPARED = "prepare.status"
@@ -3561,6 +3562,9 @@ class Runner:
             return "a runner config with no orca.sprite"
         if not SPRITE_LANE.fullmatch(lane):
             return f"lane {lane}, not a Sprite name of up to 55 lowercase letters, digits, and dashes"
+        for name in ("WORKER_CC_REMOTE", "CC_REMOTE_CONFIG"):
+            if (path := self.config.sprite.get("env", {}).get(name)) and not PIN_BRANCH.fullmatch(branch := self.shell.run(["git", "-C", str(Path(path).parent), "branch", "--show-current"]).out.strip()):
+                return f"{name} {path}, whose checkout is on {f'branch {branch}' if branch else 'no branch'}, not dev or a cc-remote pin branch; point it at a worktree that moves only with a pin PR"
         return None
 
     def load_refusal(self) -> str:
