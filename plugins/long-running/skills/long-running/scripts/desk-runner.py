@@ -498,7 +498,7 @@ fidelity lane, `fidelity-pipeline` included, already graded or sent to a reader 
 `<config dir>/fidelity-pipeline/<pr>-<head12>-<seq>/job.json` and starts `fidelity.py` on it detached, which carries
 an earlier head's ok with no model call when its own commits are patch-identical, else runs `codex-ask -m
 <fidelity.model, default sol> --incident`, at the fast tier unless `fidelity.fast` is false, over the head's own diff, its required register rows, the plan, the lane's newest
-contract and the PR body, and posts the fidelity line and the `old-app:` line against `fidelity.baseline` under lane
+contract, the PR body, and the plan grounds root accepted outside the plan package that `fidelity.sources` names, each cc-notes doc in `docs` and each cci record `records` lists under the head's lane, written in full to the pass's `sources.md`, and posts the fidelity line and the `old-app:` line against `fidelity.baseline` under lane
 `fidelity-pipeline` to the head's lane, root, the runner and each `fidelity.to` address; a head it cannot settle goes to
 the other `landing.fidelity_lane` lanes as `fidelity: reader`. A pass whose job wrote an error, or no result within
 `fidelity.timeout_minutes` (default 60), fails at once and logs `FIDELITY-FAILED` to those lanes; the next `head`
@@ -5261,6 +5261,12 @@ class Runner:
             if not self.waiting_on_fix(action):
                 running += self.start_fidelity(spec, repo, action, rows)
 
+    def fidelity_sources(self, spec: dict, drive_id: str, lane: str) -> str:
+        """The plan grounds root accepted outside the plan package that `fidelity.sources` names for a head of `lane`, in full: each cc-notes doc in `docs`, then each cci record `records` lists under `lane`."""
+        docs = [json.loads(self.briefs("doc", "show", ident, "--json").out) for ident in spec.get("docs", [])]
+        records = cci.selected_records(self.cci_tail, drive_id, spec.get("records", {}).get(lane, []))
+        return "\n\n".join([*(f"## cc-notes doc {doc['id'][:7]}: {doc['title']}\n\n{doc['body'].strip()}" for doc in docs), *(f"## cci #{record['seq']}, {record['kind']} from {record['lane']}\n\n{full_text(record)}" for record in records)])
+
     def incident_fix_row(self, row: dict) -> bool:
         lane = row.get("lane", "")
         return bool(INCIDENT_NAME.match(lane) or (self.book.exists(lane_container(lane)) and self.fix_launch(lane_container(lane))))
@@ -5280,6 +5286,8 @@ class Runner:
         contract = max((record for record in contracts if about_pr(record, repo, job["pr"])), key=lambda record: record["seq"], default=None) or max(contracts, key=lambda record: record["seq"], default=None)
         directory = self.config.source.parent / fidelity.LANE / (f"{job['pr']}-{job['head'][:12]}-{job['seq']}" + (f"-{attempt}" if (attempt := action.action_id.partition("#")[2]) else ""))
         directory.mkdir(parents=True, exist_ok=True)
+        if sources := self.fidelity_sources(spec.get("sources", {}), drive_id, job["lane"]):
+            (directory / fidelity.SOURCES).write_text(sources)
         sprite = self.least_busy_sprite(spec)
         drive.write_atomic(
             directory / fidelity.JOB,
@@ -5298,6 +5306,7 @@ class Runner:
                 "rulings": [{"seq": record["seq"], "text": full_text(record)} for record in cci.records(self.cci_tail, drive_id, "--kind=decide", "--kind=answer", "--lane", ROOT, "--pr", f"{repo}#{job['pr']}") if record["kind"] in ("decide", "answer") and record["lane"] == ROOT],
                 "corrected": [record["re"] for record in cci.records(self.cci_tail, drive_id, "--kind=decide", "--lane", ROOT, "--pr", f"{repo}#{job['pr']}") if (record["kind"], record["lane"]) == ("decide", ROOT) and record.get("re") and CLASS_WRONG.match(record["text"])],
                 "contract": full_text(contract) if contract else "",
+                "sources": str(directory / fidelity.SOURCES) if sources else "",
                 "exempt": {"port": landing.get("port_phrase", PORT_PHRASE), "test-only": TEST_ONLY_PHRASE},
                 "exempt_grades": landing.get("exempt_grades", [landing.get("port_phrase", PORT_PHRASE), TEST_ONLY_PHRASE]),
                 "baseline": spec.get("baseline", ""),

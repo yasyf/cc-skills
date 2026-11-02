@@ -156,6 +156,7 @@ class FakeShell(runner_module.Shell):
         self.attach_error = ""
         self.attach_code = 1
         self.logs: dict[str, str] = {"briefs1": "briefs: d1"}
+        self.docs: dict[str, dict] = {}
         self.sequence = 0
         self.environ = {"ORCA_TERMINAL_HANDLE": "term_root", "ORCA_PANE_KEY": "pane_root"}
         self.coordinator = "term_root"
@@ -854,6 +855,8 @@ class FakeShell(runner_module.Shell):
             return runner_module.Done(0, f"{path}\n", "") if path else runner_module.Done(1, "", f"no attachment {argv[3]}")
         if argv[:2] == ["log", "append"] and argv[2] in self.logs:
             return self.append(argv[3:])
+        if argv[:2] == ["doc", "show"] and argv[3:] == ["--json"]:
+            return runner_module.Done(0, json.dumps(self.docs[argv[2]]), "")
         if argv[:2] == ["log", "show"]:
             return runner_module.Done(0, f"id: {argv[2]}\n", "") if argv[2] in self.logs else runner_module.Done(1, "", f'not-found: entity not found: no log matches "{argv[2]}"')
         if argv == ["log", "list", "--json"]:
@@ -16048,6 +16051,7 @@ def test_each_head_starts_one_fidelity_pass_carrying_the_prs_grades_old_app_line
         "settled": {str(graded): 149901},
         "rulings": [{"seq": 149901, "text": f"re #{graded}: class wrong, not a pure port."}, {"seq": 149902, "text": f"re #{graded}: go after the restack."}],
         "contract": "contract: builds the resubscribe; deletes nothing",
+        "sources": "",
         "exempt": {"port": runner_module.PORT_PHRASE, "test-only": runner_module.TEST_ONLY_PHRASE},
         "exempt_grades": [runner_module.PORT_PHRASE, runner_module.TEST_ONLY_PHRASE],
         "baseline": BASELINE,
@@ -16056,6 +16060,22 @@ def test_each_head_starts_one_fidelity_pass_carrying_the_prs_grades_old_app_line
         "fast": True,
         "sprite": "",
     }
+
+
+def test_a_pass_hands_codex_the_plan_grounds_root_accepted_outside_the_package_for_its_lane(shell, config):
+    fidelity_config(config, sources={"docs": ["4baeb30"], "records": {"p8a-step9": [149910, 149911], "other-lane": [149912]}})
+    shell.docs["4baeb30"] = {"id": "4baeb304cbf8", "title": "Class-fix inventory", "body": "S2: one implementation in the shared server for both trees.\n"}
+    for seq, lane, kind, text in ((149910, "p8a-step9", "contract", "S2 design: the park record holds the txid."), (149911, "root", "decide", "contract 149910 accepted."), (149912, "other-lane", "contract", "another lane's design")):
+        shell.records.append({"seq": seq, "drive": "d1", "lane": lane, "kind": kind, "to": ["root"], "text": text, "at": actions.stamp(shell.clock)})
+    orca_pass(shell, config)
+    head_record(shell, "43439", FINDER_HEAD)
+    orca_pass(shell, config)
+    [job] = fidelity_jobs(shell)
+    assert Path(job["sources"]).read_text() == (
+        "## cc-notes doc 4baeb30: Class-fix inventory\n\nS2: one implementation in the shared server for both trees."
+        "\n\n## cci #149910, contract from p8a-step9\n\nS2 design: the park record holds the txid."
+        "\n\n## cci #149911, decide from root\n\ncontract 149910 accepted."
+    )
 
 
 @pytest.mark.parametrize(
