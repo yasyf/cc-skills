@@ -348,27 +348,41 @@ def test_the_feed_shows_the_focused_work_first_and_other_works_latest_line_only_
     assert rest.locator(".ev").is_visible()
 
 
-def test_the_prevention_table_lists_open_ones_first_red_only_without_a_prevention_and_folds_live_ones(page):
+def test_the_prevention_table_lists_broken_rows_first_then_open_ones_and_folds_live_ones(page):
+    """Owner 10:21 PM Nov 1: tens of rows read UNDEFINED; a row with no state is a broken row that says what it lacks, never undefined."""
     now(page)
-    model = json.loads(MODEL.read_text())
     rows = page.locator(".nw-prevent > .pt .pt-row")
-    order = ["none", "building", "open", "merged", "live"]
-    in_flight = sorted((p for p in model["preventions"] if p["state"] != "live"), key=lambda p: order.index(p["state"]))
-    assert [t.split("\n")[0] for t in rows.all_inner_texts()] == [p["failure"] for p in in_flight]
-    assert [r.get_attribute("class").split() for r in rows.all()] == [["pt-row", p["state"]] for p in in_flight]
-    assert page.locator(".nw-prevent .pt-row.none .chip").all_text_contents() == ["No prevention yet"] * sum(p["state"] == "none" for p in model["preventions"])
+    assert [t.split("\n")[0] for t in rows.all_inner_texts()] == ["One message failed to send on the test Mac at 4:37 AM.", "Graphite's merge queue stopped merging for an hour.", "The 1:14 PM publish failed on a stale signing list."]
+    assert [r.get_attribute("class").split() for r in rows.all()] == [["pt-row", "broken"], ["pt-row", "building"], ["pt-row", "open"]]
+    assert page.locator(".nw-prevent .pt-row.broken .chip").all_text_contents() == ["Broken row"]
+    assert page.locator(".nw-prevent .pt-row.broken .pv-why").inner_text() == "no mechanism; no state"
+    assert "undefined" not in page.locator(".nw-prevent").inner_text().lower()
+    assert page.locator(".nw-prevent .nw-h .pg-n").inner_text() == "3 not live"
+    assert page.locator(".nw-notlive").inner_text() == "3 failures with no live fix yet, listed under What failed."
     assert not page.locator(".nw-prevent details .pt-row").first.is_visible()
+
+
+def test_a_retro_table_that_does_not_read_says_so_above_the_table(page):
+    model = json.loads(MODEL.read_text())
+    model["errors"] = {"preventions": "the retro table did not read, so this section is incomplete (CalledProcessError: ccn down)"}
+    server = ThreadingHTTPServer(("127.0.0.1", 0), type("Unread", (Handler,), {"model": json.dumps(model).encode()}))
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    unread = page.context.browser.new_page(viewport=LAPTOP)
+    unread.goto(f"http://127.0.0.1:{server.server_port}/#/")
+    assert "the retro table did not read" in unread.wait_for_selector(".nw-prevent .pg-fail", timeout=5000).inner_text()
+    unread.close()
+    server.shutdown()
 
 
 def test_a_screen_that_cannot_be_drawn_shows_why_in_the_panel_instead_of_skeletons(page):
     model = json.loads(MODEL.read_text())
-    model["preventions"][0]["due"] = "Oct 31 morning"
+    model["preventions"] = None
     server = ThreadingHTTPServer(("127.0.0.1", 0), type("Broken", (Handler,), {"model": json.dumps(model).encode()}))
     threading.Thread(target=server.serve_forever, daemon=True).start()
     broken = page.context.browser.new_page(viewport=LAPTOP)
     broken.goto(f"http://127.0.0.1:{server.server_port}/#/")
     failure = broken.wait_for_selector("#main .pg-fail", timeout=5000)
-    assert "Invalid time value" in failure.inner_text()
+    assert "null" in failure.inner_text()
     assert broken.locator("#main .sk").count() == 0
     broken.close()
     server.shutdown()

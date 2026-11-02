@@ -31,6 +31,7 @@ from review_assistant import ReviewAssistant
 from story import Stories
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "skills" / "long-running" / "scripts"))
+import drive
 import holds
 import milestones
 
@@ -40,7 +41,7 @@ CCI = "http://127.0.0.1:7377/v1"
 TIMELINE_KINDS = ["state", "head", "review", "owner", "go", "landed", "release", "incident", "mechanism", "fix-live", "opened", "report", "hold", "lift", "blocker", "defect", "correction", "decide", "decision", "ask", "answer", "done", "stopped", "stand-down", "handoff", "evidence"]
 TIMELINE_WINDOW = dt.timedelta(hours=24)
 LEDGER_KINDS = {"landed", "go", "opened", "head", "hold", "lift"}
-LIVE_SOURCES = ["cc-present store: taps and questions", "cci bus: records and workers", "drive ledger in cc-notes: pull request states, re-read on every landing, go, head, opened, hold or lift record", "progress-desk steps.json: the step rows", "findings ledger in cc-notes: open sweep findings and owner picks, re-read every 5 minutes"]
+LIVE_SOURCES = ["cc-present store: taps and questions", "cci bus: records and workers", "drive ledger in cc-notes: pull request states, re-read on every landing, go, head, opened, hold or lift record", "progress-desk steps.json: the step rows", "findings ledger in cc-notes: open sweep findings and owner picks, re-read every 5 minutes", "retro table in cc-notes through retro.py: what failed and what stops it, re-read every 5 minutes"]
 REBUILD_AFTER = 2.0
 LIVE_REFRESH = 5.0
 DELTAS_KEPT = 30
@@ -184,17 +185,6 @@ def trees(paths, config):
 
 def at(iso):
     return dt.datetime.fromisoformat(iso.replace("Z", "+00:00"))
-
-
-def dated_preventions(rows):
-    dated, problems = [], []
-    for row in rows:
-        try:
-            dated.append({**row, "due": row.get("due") and at(row["due"]).isoformat()})
-        except ValueError:
-            dated.append({**row, "due": None})
-            problems.append(f"{row.get('owner') or 'the progress desk'} wrote the due time '{row['due']}', which is not a time")
-    return dated, problems
 
 
 def verdict_state(row):
@@ -1296,7 +1286,6 @@ class Drive:
         milestone_rows = self.milestone_state(drive["prs"], now, board["answered"])
         self.flag_stale(milestone_rows, progress["steps"], board["answered"], now)
         need_items = needs(board["rows"], board["cards"], model["story"].get("asks", []), board["url"], {entry["number"] for entry in drive["prs"] if entry["state"] == "landed"})
-        preventions, undated = dated_preventions(progress.get("preventions", []))
         return {
             **model,
             "board": board,
@@ -1309,8 +1298,6 @@ class Drive:
             "steps_at": progress["updated"],
             "history": with_releases(progress.get("history", {}), self.milestone_cache[2]),
             "pr_state": progress.get("pr_state", {}),
-            "preventions": preventions,
-            "errors": {**model["errors"], **({"preventions": "; ".join(undated)} if undated else {})},
             "live": LIVE_SOURCES,
             "needs": need_items,
             "journeys": journeys(drive, steps, releases, need_items, model["records"], model["prs"], progress.get("now", {}), model["tree_names"], now),
@@ -1386,6 +1373,7 @@ class Drive:
             "plan_at": plan_at,
             "story": story,
             "findings": self.read_findings(),
+            "preventions": self.read_preventions(),
             "words": list({a["id"]: {"id": a["id"][:7], "at": a["updated_at"], "title": a["title"], "text": a["body"]} for label in ("program", "drive") for a in json.loads(self.ccn("answer", "list", "--label", f"{label}:{self.config['drive']}", "--json"))}.values()),
         }
 
@@ -1398,6 +1386,16 @@ class Drive:
             return []
         self.errors.pop("findings", None)
         return open_findings(rows)
+
+    def read_preventions(self):
+        try:
+            retro = Path(drive.newest_install()["installPath"]) / "bin" / "retro.py"
+            rows = [json.loads(line) for line in run([str(retro), "--drive", self.config["drive"], "rows", "--json"]).splitlines() if line.strip()]
+        except (OSError, TypeError, ValueError, subprocess.SubprocessError) as error:
+            self.errors["preventions"] = f"the retro table did not read, so this section is incomplete ({type(error).__name__}: {getattr(error, 'stderr', '') or error})"[:300]
+            return []
+        self.errors.pop("preventions", None)
+        return [row for row in rows if not row.get("dup_of")]
 
     def record(self, seq):
         found = json.loads(run(["cci", "show", str(seq), "--json"]))

@@ -48,6 +48,7 @@ function nowScreen() {
     <h1 class="nw-head">${esc(b.headline)}</h1>
     <p class="nw-sub">Written from the drive's records at ${clock(b.at)}. <button class="linkish" data-toggle="nw-why">Why this sentence ›</button></p>
     ${state.open.has('nw-why') ? `<ul class="nw-why">${b.because.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
+    ${notLive().length ? `<p class="nw-sub nw-notlive">${notLive().length} failure${notLive().length === 1 ? '' : 's'} with no live fix yet, listed under What failed.</p>` : ''}
     ${diagramSlot()}
     <section><h2 class="nw-h">Overall progress</h2>${view('progress') === 'compact' ? compact(b) : journey(b)}</section>
     ${liveFeed(b)}
@@ -104,18 +105,26 @@ function liveFeed(b) {
   const rows = [...b.work].sort((x, y) => (y.item === lead) - (x.item === lead)).map((w) => workRow(w, w.item === lead));
   return `<section class="nw-live"><h2 class="nw-h">Being worked on now</h2>${rows.length ? `<div class="nw-work">${rows.join('')}</div>` : '<div class="nw-calm">No work is running right now.</div>'}</section>`;
 }
-const PREVENT_WORD = { none: 'No prevention yet', building: 'Being built', open: 'Fix open', merged: 'Merged', live: 'Live' };
+const PREVENT_WORD = { building: 'Being built', open: 'Fix open', merged: 'Merged', live: 'Live' };
+function preventionChip(p) {
+  if (!p.problems.length) return `<span class="chip pv-${p.state}">${PREVENT_WORD[p.state]}</span>`;
+  return `<span class="chip pv-broken">${p.problems.every((x) => x.startsWith('past due')) ? 'Past due' : 'Broken row'}</span>`;
+}
+function notLive() {
+  return state.model.preventions.filter((p) => p.state !== 'live' || p.problems.length);
+}
 function preventions() {
   const list = state.model.preventions;
   const findings = state.model.findings ?? [];
-  if (!list.length && !findings.length) return '';
+  const failed = state.model.errors?.preventions;
+  if (!list.length && !findings.length && !failed) return '';
   const order = Object.keys(PREVENT_WORD);
-  const table = (rows) => `<div class="pt"><div class="pt-head"><span>What failed</span><span>What stops it happening again</span><span>State</span><span>Owner</span><span>Due</span></div>${rows.map((p) => `<div class="pt-row ${p.state}"><b>${esc(p.failure)}</b><span>${esc(p.prevention ?? '')}${p.pr ? ` <span class="pr">${esc(p.pr)}</span>` : ''}</span><span><span class="chip pv-${p.state}">${PREVENT_WORD[p.state]}</span></span><span>${p.owner ? esc(workerName(p.owner)) : ''}</span><span>${p.due ? esc(clock(p.due)) : ''}</span></div>`).join('')}</div>`;
-  const open = list.filter((p) => p.state !== 'live').sort((a, b) => order.indexOf(a.state) - order.indexOf(b.state));
-  const live = list.filter((p) => p.state === 'live');
-  const undated = state.model.errors?.preventions;
-  return `<section class="nw-prevent"><h2 class="nw-h">What failed, and what stops it happening again</h2>
-    ${undated ? `<p class="pg-fail">Some due times are left blank: ${esc(undated)}.</p>` : ''}
+  const rank = (p) => (p.problems.length ? -1 : order.indexOf(p.state));
+  const table = (rows) => `<div class="pt"><div class="pt-head"><span>What failed</span><span>What stops it happening again</span><span>State</span><span>Owner</span><span>Due</span></div>${rows.map((p) => `<div class="pt-row ${p.problems.length ? 'broken' : p.state}"><b>${esc(p.failure ?? '')}</b><span>${esc(p.mechanism ?? '')}${p.pr ? ` <span class="pr">${esc(p.pr)}</span>` : ''}${p.problems.length ? `<span class="pv-why">${esc(p.problems.join('; '))}</span>` : ''}</span><span>${preventionChip(p)}</span><span>${p.owner ? esc(workerName(p.owner)) : ''}</span><span>${p.problems.length ? '' : esc(clock(p.due))}</span></div>`).join('')}</div>`;
+  const open = notLive().sort((a, b) => rank(a) - rank(b));
+  const live = list.filter((p) => p.state === 'live' && !p.problems.length);
+  return `<section class="nw-prevent"><h2 class="nw-h">What failed, and what stops it happening again <span class="pg-n">${open.length} not live</span></h2>
+    ${failed ? `<p class="pg-fail">${esc(failed)}</p>` : ''}
     ${open.length ? table(open) : ''}
     ${live.length ? fold('pv-live', `Prevention live <span class="pg-n">${live.length}</span>`, table(live)) : ''}
     ${findings.map(findingTable).join('')}</section>`;

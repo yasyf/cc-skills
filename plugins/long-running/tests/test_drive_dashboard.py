@@ -18,7 +18,7 @@ from holds import Entry
 from pages import stamp
 from review_assistant import ReviewAssistant
 import server
-from server import QUEUED_NEXT, Drive, changed_since, dated_preventions, drive_prs, drive_workers, journeys, needs, open_findings, parse_plan, plan_prs, step_rows, release_path, paths_current, hold_reasons, verdict_state, with_conflicts
+from server import QUEUED_NEXT, Drive, changed_since, drive_prs, drive_workers, journeys, needs, open_findings, parse_plan, plan_prs, step_rows, release_path, paths_current, hold_reasons, verdict_state, with_conflicts
 
 NOW = dt.datetime(2026, 10, 27, 8, 0, tzinfo=dt.timezone.utc)
 TREES = ["New tree", "Old tree", "Shared"]
@@ -1100,15 +1100,21 @@ def test_a_change_request_the_record_tool_cannot_post_answers_with_the_reason(mo
         httpd.shutdown()
 
 
-def test_a_prevention_due_that_is_not_a_time_is_blanked_and_named_while_real_times_pass_through():
-    rows = [
-        {"failure": "a", "owner": "mq-health-5", "due": "Oct 31 morning"},
-        {"failure": "b", "owner": "tooling-misc-1", "due": "2026-10-30T03:15:00Z"},
-        {"failure": "c", "owner": None, "due": None},
-    ]
-    dated, problems = dated_preventions(rows)
-    assert [row["due"] for row in dated] == [None, "2026-10-30T03:15:00+00:00", None]
-    assert problems == ["mq-health-5 wrote the due time 'Oct 31 morning', which is not a time"]
+def test_the_retro_table_reads_through_the_installed_retro_py_drops_duplicates_and_names_a_failed_read(tmp_path, monkeypatch):
+    """Owner 10:26 PM Nov 1: the dashboard fails loudly on a row it cannot show, and shows each row's real state."""
+    reader = Drive({"drive": "durable-agents-rebuild"}, None)
+    rows = [{"key": "retro/000001", "failure": "a", "state": "open", "problems": []}, {"key": "retro/000002", "failure": "a", "dup_of": "retro/000001", "problems": []}]
+    asked = []
+    monkeypatch.setattr(server.drive, "newest_install", lambda: {"installPath": str(tmp_path)})
+    monkeypatch.setattr(server, "run", lambda argv: asked.append(argv) or "".join(json.dumps(row) + "\n" for row in rows))
+
+    assert [row["key"] for row in reader.read_preventions()] == ["retro/000001"]
+    assert asked == [[str(tmp_path / "bin" / "retro.py"), "--drive", "durable-agents-rebuild", "rows", "--json"]]
+    assert "preventions" not in reader.errors
+
+    monkeypatch.setattr(server, "run", lambda argv: (_ for _ in ()).throw(subprocess.CalledProcessError(1, argv, stderr="ccn down")))
+    assert reader.read_preventions() == []
+    assert reader.errors["preventions"].startswith("the retro table did not read") and "ccn down" in reader.errors["preventions"]
 
 
 def test_a_refresh_carries_only_the_parts_that_changed_since_the_version_the_browser_holds():
