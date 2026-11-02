@@ -878,6 +878,9 @@ class Drive:
         self.files = {}
         self.merged_history = None
         self.plans = {}
+        self.fetching = threading.Lock()
+        self.fetched = {}
+        self.lanes_due = True
         self.digests = deque(maxlen=DELTAS_KEPT)
         self.slow = {}
         self.slow_at = 0.0
@@ -1013,7 +1016,18 @@ class Drive:
         return milestones.compute(self.config["milestones"], drive_prs, self.milestone_cache[1], self.milestone_cache[2], answered)
 
     def fetch(self, kinds, since):
-        found, after = [], 0
+        since = since.replace(microsecond=0)
+        with self.fetching:
+            start, after, kept = self.fetched.get(frozenset(kinds), (since, 0, []))
+            if since < start:
+                after, kept = 0, []
+            fresh = self.read_records(kinds, since, after)
+            kept = [record for record in [*kept, *fresh] if at(record["at"]) >= since]
+            self.fetched[frozenset(kinds)] = (since, fresh[-1]["seq"] if fresh else after, kept)
+        return kept
+
+    def read_records(self, kinds, since, after=0):
+        found = []
         while True:
             query = {"drive": self.config["drive"], "kind": sorted(kinds), "limit": 500}
             query.update({"since": after} if after else {"since_time": since.astimezone(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")})
@@ -1048,7 +1062,7 @@ class Drive:
             return dict(self.evidence)
 
     def load_records(self):
-        self.records.extend(self.fetch(TIMELINE_KINDS, dt.datetime.now(dt.timezone.utc) - TIMELINE_WINDOW))
+        self.records.extend(self.read_records(TIMELINE_KINDS, dt.datetime.now(dt.timezone.utc) - TIMELINE_WINDOW))
         for record in self.records:
             self.note_word(record)
             self.note_evidence(record)
@@ -1069,6 +1083,7 @@ class Drive:
                             self.note_evidence(record)
                             with self.lock:
                                 self.records.append(record)
+                            self.lanes_due = True
                             self.touch(slow=record["kind"] in LEDGER_KINDS)
                             for curator in self.curators:
                                 curator.poke(record["kind"])
@@ -1411,12 +1426,15 @@ class Drive:
             self.slow_at = time.monotonic()
         with self.lock:
             records = list(self.records)
-        try:
-            lanes = cci("lanes", drive=self.config["drive"])
-            self.errors.pop("lanes", None)
-        except OSError as error:
-            lanes = self.model.get("lanes", [])
-            self.errors["lanes"] = f"the cci daemon at {CCI} did not answer ({error}); workers are as of the last answer"
+        lanes = self.model.get("lanes", [])
+        if self.lanes_due or refresh_slow or "lanes" not in self.model:
+            self.lanes_due = False
+            try:
+                lanes = cci("lanes", drive=self.config["drive"])
+                self.errors.pop("lanes", None)
+            except OSError as error:
+                self.lanes_due = True
+                self.errors["lanes"] = f"the cci daemon at {CCI} did not answer ({error}); workers are as of the last answer"
         return {
             **self.slow,
             "title": self.config["title"],

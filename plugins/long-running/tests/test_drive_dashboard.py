@@ -1148,6 +1148,29 @@ def test_nothing_builds_the_view_while_no_page_curator_or_request_reads_it(monke
         drive.refresh_loop(None)
 
 
+def test_a_repeated_fetch_reads_only_the_records_after_the_newest_it_holds(monkeypatch):
+    drive = Drive({"drive": "d", "board_url": "http://board/p/x"}, None)
+    now = dt.datetime(2026, 11, 2, 12, tzinfo=dt.timezone.utc)
+    queries = []
+    pages = iter([[{"seq": 1, "at": "2026-11-02T11:00:00Z"}, {"seq": 2, "at": "2026-11-02T11:30:00Z"}], [{"seq": 3, "at": "2026-11-02T12:05:00Z"}]])
+    monkeypatch.setattr(server, "cci", lambda path, **query: (queries.append(query), next(pages))[1])
+    assert [r["seq"] for r in drive.fetch({"blocker"}, now - dt.timedelta(hours=2))] == [1, 2]
+    assert [r["seq"] for r in drive.fetch({"blocker"}, now - dt.timedelta(minutes=45))] == [2, 3]
+    assert queries == [{"drive": "d", "kind": ["blocker"], "limit": 500, "since_time": "2026-11-02T10:00:00Z"}, {"drive": "d", "kind": ["blocker"], "limit": 500, "since": 2}]
+
+
+def test_the_lanes_are_read_again_only_after_a_record_arrives(monkeypatch):
+    drive = Drive({"drive": "d", "board_url": "http://board/p/x", "title": "T", "repo": "r", "trees": []}, None)
+    drive.slow = {"prs": {}}
+    calls = []
+    monkeypatch.setattr(server, "cci", lambda path, **query: calls.append(path) or [{"lane": "w-1"}])
+    for _ in range(2):
+        drive.model = drive.build(refresh_slow=False)
+    drive.lanes_due = True
+    drive.model = drive.build(refresh_slow=False)
+    assert calls == ["lanes", "lanes"] and drive.model["lanes"] == [{"lane": "w-1"}]
+
+
 def test_a_curator_waits_for_a_view_built_after_it_asked(monkeypatch, tmp_path):
     drive = Drive({"board_url": "http://board/p/x"}, None)
     drive.live_model, drive.live_at = {"built_at": "old"}, 1.0
