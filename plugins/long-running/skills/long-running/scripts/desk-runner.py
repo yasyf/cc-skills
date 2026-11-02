@@ -8601,13 +8601,6 @@ class Landing:
             self.runner.escalate(f"prefix:{enqueue_key(would, fresh.verdicts)}", "PREFIX", numbered(tops), f"{text}, so nothing was enqueued; the enqueue lands every PR the check lists, never only the PR it names")
             self.settle(heads, Refused(f"its enqueue would also land {numbered(list(blocking))}: " + "; ".join(blocking.values())))
             return
-        if would and any((carried := self.carries({pr: fresh.verdicts[pr]["sha"] for pr in would if rows.get(pr, {}).get("base") == TRUNK}, rows))):
-            text = "; ".join(f"#{pr}: {why}" for part in carried for pr, why in part.items())
-            self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": "blocked", "out": text, "at": self.book.stamp()}))
-            if carried[0]:
-                self.runner.escalate(f"carries:{enqueue_key(would, fresh.verdicts)}", "CARRIES", numbered(tops), f"stack-enqueue --check would land {numbered(would)}, and " + "; ".join(f"#{pr}, based on {TRUNK}: {why}" for pr, why in carried[0].items()) + ", so nothing was enqueued")
-            self.settle(heads, Refused(f"its enqueue would land a branch that carries open PRs or did not read: {text}"))
-            return
         current = enqueue_key(would, fresh.verdicts) if would is not None else ""
         if current != key.split("#")[0]:
             self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": "superseded", "out": fresh.out[-800:], "at": self.book.stamp()}))
@@ -9456,20 +9449,16 @@ class Landing:
 
     def carrying(self, rows: dict[str, dict]) -> dict[str, str]:
         """Why each admitted PR based on trunk stays out of the queue when its branch carries another open PR's head, since a squash of it would land that PR too, whatever GitHub's base field says (root #239479): GitHub's commits of each, read in one GraphQL query per `HEADS_PER_QUERY` PRs and kept per head, since a head's commits never change. A read GitHub refuses keeps its PRs out until a later pass reads them."""
-        carried, unread = self.carries({pr: head for pr, head in self.settlement.heads.items() if rows.get(pr, {}).get("state", "open") == "open" and rows.get(pr, {}).get("base") == TRUNK}, rows)
-        for pr, why in carried.items():
-            self.runner.escalate(f"carries:{pr}:{self.settlement.heads[pr]}", "CARRIES", f"#{pr}", f"#{pr} at {self.settlement.heads[pr][:10]} is based on {TRUNK}, and {why}, so the runner queues nothing of it")
-        return carried | unread
-
-    def carries(self, heads: dict[str, str], rows: dict[str, dict]) -> tuple[dict[str, str], dict[str, str]]:
-        """Each PR of `heads`, a trunk-based PR to its head, whose branch carries another open PR's head, with the PRs it carries, and each whose commits GitHub refused to read, with GitHub's last line."""
-        others = {row["head"]: pr for pr, row in rows.items() if row.get("state", "open") == "open" and row.get("head")}
-        _, refused = self.read_branch_commits(heads)
-        carried = {}
-        for pr, head in heads.items():
-            if pr not in refused and (named := sorted({other for sha, other in others.items() if other != pr and any(oid.startswith(sha) for oid in self.branch_commits[(pr, head)])}, key=int)):
-                carried[pr] = f"its branch carries {numbered(named)}, which a squash would land with it; restack it onto {TRUNK}"
-        return carried, {pr: f"GitHub refused the read of its branch's commits: {line}" for pr, line in refused.items()}
+        open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open" and row.get("head")}
+        heads = {row["head"]: pr for pr, row in open_rows.items()}
+        admitted = {pr: head for pr, head in self.settlement.heads.items() if open_rows.get(pr, {}).get("base") == TRUNK}
+        _, refused = self.read_branch_commits(admitted)
+        why = {pr: f"GitHub refused the read of its branch's commits: {line}" for pr, line in refused.items()}
+        for pr, head in admitted.items():
+            if pr not in why and (carried := sorted({other for sha, other in heads.items() if other != pr and any(oid.startswith(sha) for oid in self.branch_commits[(pr, head)])}, key=int)):
+                why[pr] = f"its branch carries {numbered(carried)}, which a squash would land with it; restack it onto {TRUNK}"
+                self.runner.escalate(f"carries:{pr}:{head}", "CARRIES", f"#{pr}", f"#{pr} at {head[:10]} is based on {TRUNK}, and {why[pr]}, so the runner queues nothing of it")
+        return why
 
     def row_records(self, rows: dict[str, dict]) -> None:
         """Register under its lane each PR a `head` or `opened` record of this drive posted since the last pass names that has no ledger row, so the gate finds the row a go names (root #221244); a register that fails logs `UNROWED`, and a root go posted since then naming a PR no row holds and no such record names logs `GO-UNROWED`, once each."""
