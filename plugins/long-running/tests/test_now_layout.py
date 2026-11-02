@@ -18,6 +18,8 @@ STORY = {"type": "saved", "status": None, "draft": None, "lines": [{"type": "lin
 
 
 class Handler(SimpleHTTPRequestHandler):
+    model = MODEL.read_bytes()
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(APP), **kwargs)
 
@@ -26,7 +28,7 @@ class Handler(SimpleHTTPRequestHandler):
         if path == "/":
             return self.reply((APP / "index.html").read_text().replace("</body>", ASSIST.read_text() + "</body>").encode(), "text/html")
         if path == "/api/model":
-            return self.reply(MODEL.read_bytes(), "application/json")
+            return self.reply(self.model, "application/json")
         if path.startswith("/api/story/"):
             return self.reply(f"data: {json.dumps(STORY)}\n\n".encode(), "text/event-stream")
         if path.startswith("/api/"):
@@ -356,6 +358,22 @@ def test_the_prevention_table_lists_open_ones_first_red_only_without_a_preventio
     assert [r.get_attribute("class").split() for r in rows.all()] == [["pt-row", p["state"]] for p in in_flight]
     assert page.locator(".nw-prevent .pt-row.none .chip").all_text_contents() == ["No prevention yet"] * sum(p["state"] == "none" for p in model["preventions"])
     assert not page.locator(".nw-prevent details .pt-row").first.is_visible()
+
+
+def test_a_screen_that_cannot_be_drawn_shows_why_in_the_panel_instead_of_skeletons():
+    model = json.loads(MODEL.read_text())
+    model["preventions"][0]["due"] = "Oct 31 morning"
+    server = ThreadingHTTPServer(("127.0.0.1", 0), type("Broken", (Handler,), {"model": json.dumps(model).encode()}))
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="chrome")
+        page = browser.new_page(viewport=LAPTOP)
+        page.goto(f"http://127.0.0.1:{server.server_port}/#/")
+        failure = page.wait_for_selector("#main .pg-fail", timeout=5000)
+        assert "Invalid time value" in failure.inner_text()
+        assert page.locator("#main .sk").count() == 0
+        browser.close()
+    server.shutdown()
 
 
 def spine_widths(page):

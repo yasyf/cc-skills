@@ -113,7 +113,9 @@ function preventions() {
   const table = (rows) => `<div class="pt"><div class="pt-head"><span>What failed</span><span>What stops it happening again</span><span>State</span><span>Owner</span><span>Due</span></div>${rows.map((p) => `<div class="pt-row ${p.state}"><b>${esc(p.failure)}</b><span>${esc(p.prevention ?? '')}${p.pr ? ` <span class="pr">${esc(p.pr)}</span>` : ''}</span><span><span class="chip pv-${p.state}">${PREVENT_WORD[p.state]}</span></span><span>${p.owner ? esc(workerName(p.owner)) : ''}</span><span>${p.due ? esc(clock(p.due)) : ''}</span></div>`).join('')}</div>`;
   const open = list.filter((p) => p.state !== 'live').sort((a, b) => order.indexOf(a.state) - order.indexOf(b.state));
   const live = list.filter((p) => p.state === 'live');
+  const undated = state.model.errors?.preventions;
   return `<section class="nw-prevent"><h2 class="nw-h">What failed, and what stops it happening again</h2>
+    ${undated ? `<p class="pg-fail">Some due times are left blank: ${esc(undated)}.</p>` : ''}
     ${open.length ? table(open) : ''}
     ${live.length ? fold('pv-live', `Prevention live <span class="pg-n">${live.length}</span>`, table(live)) : ''}
     ${findings.map(findingTable).join('')}</section>`;
