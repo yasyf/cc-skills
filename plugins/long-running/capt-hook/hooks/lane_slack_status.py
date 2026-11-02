@@ -1,0 +1,87 @@
+from __future__ import annotations
+
+import re
+import subprocess
+
+from captain_hook import Allow, BaseHookEvent, Block, CommandSchema, Event, HookResult, Input, Operand, Option, Tool, on
+from captain_hook.util import reqenv
+
+from .compaction_handoff import CompactionState
+
+CC_SLACK = "mcp__plugin_cc-slack_cc-slack__"
+WRITE_TOOLS = (f"{CC_SLACK}slack_send", f"{CC_SLACK}slack_reply", f"{CC_SLACK}slack_edit", f"{CC_SLACK}slack_dm_status", "mcp__slack__slack_send_message")
+WRITE_VERBS = ("send", "reply", "edit", "dm-status")
+CLI = CommandSchema(
+    "cc-slack",
+    operands=(Operand("words", count="*"),),
+    options=tuple(Option(name, (f"--{name}",)) for name in ("agent", "blocks", "card", "channel", "cwd", "file", "session", "text", "thread", "ts", "url", "user")),
+)
+STATUS_TOPIC = re.compile(r"\b(?:releas(?:e[sd]?|ing)|smoke|flak(?:e[sy]?|iness)|progress)\b", re.IGNORECASE)
+CITED = re.compile(r"#(\d{5,})\b")
+READ_SECONDS = 10
+ACTIVE = [CompactionState(active=True)]
+LANE = {"CLAUDE_LONG_RUNNING_LANE": "release-5"}
+STATUS_REFUSED = (
+    "A drive lane writes nothing to Slack about a release, smoke run, flake or progress unless the owner asked for that write, cited by his record's seq."
+    " Report it to root on cci instead, or cite the owner record that asks for this post."
+)
+
+
+def drive_lane(evt: BaseHookEvent) -> bool:
+    return bool(reqenv.getenv("CLAUDE_LONG_RUNNING_LANE")) or bool(evt.agent_id) and CompactionState.load(evt).active
+
+
+def written(evt: BaseHookEvent) -> str:
+    if evt.tool_name != "Bash":
+        given = evt._tool_input
+        card = given.get("card") or {}
+        return "\n".join(str(part) for part in (given.get("text"), card.get("title"), card.get("body")) if part)
+    texts = []
+    for call in evt.command.calls("cc-slack"):
+        values = CLI.bind(call).values
+        if values.get("words", ())[:1] and values["words"][0] in WRITE_VERBS:
+            texts += [str(text) for text in values.get("text", ())]
+    return "\n".join(texts)
+
+
+def owner_asked(text: str) -> bool:
+    for seq in dict.fromkeys(CITED.findall(text)):
+        try:
+            done = subprocess.run(["cci", "grep", f"^#{seq} ", "--kind", "owner", "--json", "-n", "1"], capture_output=True, text=True, timeout=READ_SECONDS)
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        if done.returncode == 0 and done.stdout.strip():
+            return True
+    return False
+
+
+@on(
+    Event.PreToolUse,
+    only_if=[Tool("Bash", *WRITE_TOOLS)],
+    tests={
+        Input(tool=f"{CC_SLACK}slack_send", tool_input={"channel_id": "C0RELEASES1", "text": "Release 11927 converged on every cluster"}, env=LANE): Block(pattern=r"^A drive lane writes nothing to Slack about a release"),
+        Input(tool=f"{CC_SLACK}slack_reply", tool_input={"channel_id": "C0RELEASES1", "thread_ts": "1.2", "text": "smoke passed on staging"}, agent_id="a1b2c3", state=ACTIVE): Block(pattern=r"cite the owner record"),
+        Input(tool=f"{CC_SLACK}slack_dm_status", tool_input={"card": {"title": "Progress: 4 of 9 PRs landed", "body": "on track"}}, env=LANE): Block(),
+        Input(command="cc-slack send --channel C0RELEASES1 --text 'flaky test quarantined'", env=LANE): Block(),
+        Input(tool=f"{CC_SLACK}slack_send", tool_input={"channel_id": "C0RELEASES1", "text": "Release 11927 converged on every cluster"}, state=ACTIVE): Allow(),
+        Input(tool=f"{CC_SLACK}slack_send", tool_input={"channel_id": "C0RELEASES1", "text": "Release 11927 converged on every cluster"}, agent_id="a1b2c3"): Allow(),
+        Input(tool=f"{CC_SLACK}slack_reply", tool_input={"channel_id": "C0X", "thread_ts": "1.2", "text": "Thanks Dana, the viewer fix is in"}, env=LANE): Allow(),
+        Input(
+            tool=f"{CC_SLACK}slack_send",
+            tool_input={"channel_id": "C0RELEASES1", "text": "Release 11927 is live, as you asked (#318299)"},
+            env=LANE,
+            commands={"cci grep": '{"seq": 318299, "kind": "owner"}\n'},
+        ): Allow(),
+        Input(
+            tool=f"{CC_SLACK}slack_send",
+            tool_input={"channel_id": "C0RELEASES1", "text": "Release 11927 is live (#318300)"},
+            env=LANE,
+            commands={"cci grep": ""},
+        ): Block(),
+        Input(command="cc-slack thread C0RELEASES1/p1 --text release", env=LANE): Allow(),
+    },
+)
+def lanes_post_no_release_status(evt: BaseHookEvent) -> HookResult | None:
+    if not drive_lane(evt) or not STATUS_TOPIC.search(text := written(evt)) or owner_asked(text):
+        return None
+    return evt.block(STATUS_REFUSED)
