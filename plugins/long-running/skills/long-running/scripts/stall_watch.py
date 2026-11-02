@@ -113,6 +113,13 @@ and, across the drive:
               lane is bound to it: no record resolves it or answers it by `--re`, no `claim`, no record of a
               lane other than root, a watcher or a desk runner, and no `SPAWNED` record or the brief it
               names, names the block or the ask's `#<seq>`; it goes to root alone, once per pick
+    unfinished
+              a row on the drive's retro table, owner ask ledger or findings ledger (sweep findings
+              and owner picks) that is not done and has not changed for a day, or a retro row past
+              its due; done is a retro row closed live or as a duplicate, an ask live, dropped or
+              answered, a finding or pick fixed or closed; it reads the ledgers themselves, not the
+              record window, so an old row is never forgotten, and goes to root as a `blocker` once
+              each Pacific day per row (owner, 10:21 PM Nov 1: "its been stalled for 79 hiours??")
     order     a root `decide` record relays an owner order ("owner ... verbatim"), Sonnet reads it as
               naming a change that ships as a new PR, no record from a lane it names or a numbered
               successor cites a PR after it (an `opened` record, or any record with a PR reference),
@@ -229,6 +236,7 @@ from long_running import ghread
 from long_running import grades
 from long_running import incidents
 from long_running.registry import Registry
+from long_running import ledger
 import owner_waits
 
 SCRIPTS = Path(__file__).resolve().parent
@@ -243,9 +251,9 @@ PACIFIC = ZoneInfo("America/Los_Angeles")
 WINDOW_HOURS = 24
 MINUTES = {"go": 10, "silent": 15, "refusal": 10, "red": 2, "unclassed": 20, "unfixed": 60, "sweep": 20, "order": 3, "tap": 10, "ungraded": 10, "finder": 10, "fidelity": 10, "missing": 20, "regrade": 15, "running": 25, "board": 15, "carry": 20, "ask": 15, "pick": 15, "gate": 10, "stale": 120, "desk": 10, "shape": 10}
 DESK_KINDS = frozenset({"finder", "fidelity"})
-ROOT_KINDS = frozenset({"missing", "unclassed", "unfixed", "customer", "acked"})
+ROOT_KINDS = frozenset({"missing", "unclassed", "unfixed", "customer", "acked", "unfinished"})
 REPOSTED = frozenset({"red"})
-POST_KINDS = {"red": "blocker", "unclassed": "blocker", "unfixed": "blocker", "sweep": "blocker", "probe": "report", "customer": "incident"}
+POST_KINDS = {"unfinished": "blocker", "red": "blocker", "unclassed": "blocker", "unfixed": "blocker", "sweep": "blocker", "probe": "report", "customer": "incident"}
 INCIDENT_KINDS = frozenset({"incident", "fix-live", "mechanism"})
 SAYS_KINDS = frozenset({"urgent", "decide", "decision", "answer", "report", "note", "evidence", "blocker", "ask", "correction", "defect", "owner", "state"})
 CUSTOMER_STEP = "R16 this turn: `incident.py open` and `incident.py run`, whose fix lane holds the pre-authorized fix apply; post the two scope answers, and a no to either closes it"
@@ -348,6 +356,9 @@ BLOCK_WORD = re.compile(r"[\w-]+")
 ENDED = frozenset({"done", "handoff", "stand-down", "stopped", "not-ours"})
 DESK = re.compile(r"(?:.+-)?desk(?:-\d{1,2})?")
 REPEAT = timedelta(minutes=30)
+UNMOVED = timedelta(days=1)
+ASK_DONE = frozenset({"LIVE", "dropped", "answered"})
+FINDING_LIVE = frozenset({"open", "routed"})
 STACKS_FILE = "landing-stacks.json"
 GATE_REPEAT = timedelta(hours=1)
 WAITS_ON = re.compile(r"\b(?:waits?\s+(?:only\s+)?on|blocked\s+on)\s+#(\d+)|\bwhen\s+#(\d+)\s+lands\b", re.IGNORECASE)
@@ -739,7 +750,7 @@ class Pass:
         self.lane_newest = {record["lane"]: record for record in records}
         stalls, questions, entries = self.prs(records)
         acked = self.acked(records)
-        stalls += self.asks(records) + self.picks(records) + self.gates(records) + self.desks(records) + self.shapes() + self.customers(records, saved.get("customer_seq")) + [stall for stall, _ in acked.values()]
+        stalls += self.asks(records) + self.picks(records) + self.unfinished() + self.gates(records) + self.desks(records) + self.shapes() + self.customers(records, saved.get("customer_seq")) + [stall for stall, _ in acked.values()]
         self.spawned = {name: when for name, when in saved.get("spawned", {}).items() if self.now - actions.parse_stamp(when) < SPAWN_REPEAT}
         if not dry_run:
             self.spawn_fix_lanes(acked)
@@ -1425,6 +1436,46 @@ class Pass:
             and not any(record["seq"] > asked["seq"] and binds(record, asked) for record in records)
         ]
 
+
+    def ledger_rows(self, ledger_id: str) -> list[dict]:
+        return json.loads(self.tail(["ccn", "-R", self.entry["checkout"], "ledger", "show", ledger_id, "--json"]))["rows"]
+
+    def unfinished(self) -> list[Stall]:
+        """Every retro row, owner ask, sweep finding and owner pick still not done a day after it last changed, and every retro row past its due, read from the ledgers so no row ages out of the record window (owner, 10:21 PM Nov 1)."""
+        if self.entry is None:
+            return []
+        state = Path(self.entry["state_dir"])
+        day = f"{self.now.astimezone(PACIFIC):%Y-%m-%d}"
+        found: list[tuple[str, datetime, str, str]] = []
+        try:
+            if (retro := state / "retro.json").is_file():
+                for row in self.ledger_rows(json.loads(retro.read_text())["ledger"]):
+                    fields = row["fields"]
+                    if fields.get("state") == "live" or fields.get("dup_of"):
+                        continue
+                    moved, due = actions.parse_stamp(row["updated_at"]), fields.get("due")
+                    late = bool(due) and actions.parse_stamp(due) < self.now
+                    if late or self.now - moved >= UNMOVED:
+                        found.append((row["key"], moved, f"retro row, state {fields.get('state') or 'none'}, owner {fields.get('owner') or 'none'}, {'past due since ' + pacific(actions.parse_stamp(due), self.now) if late else 'unchanged since ' + pacific(moved, self.now)}: {clip(fields.get('failure', ''))}", f"name a live owner and a new due with `retro.py set {row['key']}`, or close it with `retro.py live {row['key']} --record <FIX-LIVE seq>`"))
+            asks = {row["key"]: row["fields"] for row in self.ledger_rows(self.entry["ledger"])}
+            prs = ledger.pull_rows(asks)
+            for key, fields in asks.items():
+                if not key.startswith(ledger.ASK_PREFIX) or ledger.ask_state(fields, prs, self.now, ledger.live_since(asks)) in ASK_DONE:
+                    continue
+                moved = actions.parse_stamp((ledger.latest_progress(fields) or {}).get("at") or fields["asked_at"])
+                late = bool(due := fields.get("due")) and actions.parse_stamp(due) < self.now
+                if late or self.now - moved >= UNMOVED:
+                    found.append((key, moved, f"owner ask, worker {fields.get('lane') or 'none'}, {'past due since ' + pacific(actions.parse_stamp(due), self.now) if late else 'no progress since ' + pacific(moved, self.now)}: {clip(fields.get('text', ''))}", f"deliver it, log progress with `ledger.py progress --ask {key}`, or settle it with `ledger.py answer` or `drop`"))
+            if (findings := state / "findings.json").is_file():
+                for row in self.ledger_rows(json.loads(findings.read_text())["ledger"]):
+                    fields = row["fields"]
+                    moved = actions.parse_stamp(row["updated_at"])
+                    if fields.get("state") in FINDING_LIVE and self.now - moved >= UNMOVED:
+                        found.append((row["key"], moved, f"{'owner pick' if fields.get('kind') == 'pick' else 'finding from ' + fields.get('sweep', '?')}, owner {fields.get('owner') or 'none'}, {fields['state']} since {pacific(moved, self.now)}: {clip(fields.get('text', ''))}", f"build it and name #{fields.get('seq')} in the HEAD record, or close it with `findings.py close --why <reason> {fields.get('seq')}`"))
+        except (ReadFailed, ValueError) as failed:
+            self.warn({"unfinished"}, f"the retro, ask and findings ledgers did not read: {failed}")
+            return []
+        return [Stall(f"unfinished:{key}:{day}", "unfinished", moved, key, what, (ROOT,), step) for key, moved, what, step in found]
 
     def desks(self, records: list[dict]) -> list[Stall]:
         stalls = []

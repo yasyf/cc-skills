@@ -10,7 +10,7 @@
     findings.py track [--drive ID] SEQ...
     findings.py close [--drive ID] --why TEXT SEQ...
 
-`post` writes a finding as a cci `defect` that opens `[finding:<sweep>] #<pr> <path:line> <verdict> owner <lane>: <text>`, addressed to the owner lane. `sync` adds each new finding and each owner pick (`picked` or `wrote` on a board card) after its cursor as a ledger row, then moves each open or routed row to `fixed` when a later `head` or `landed` record names its PR or seq (or a pick's card), to `routed` when a record answers or resolves it without one, so a finding stays live until fixed and never waits on a card (retro C4, owner 3:03 PM Nov 1), and to `routed` under the opening lane as its owner when an `opened` record names it. `open` syncs, then prints the open and routed rows by sweep. `track` adds the records it names, such as a pick from before the ledger began, and `close` closes rows no HEAD will ever name, such as a one-shot pick already carried out, with the reason. A lane that builds a pick names its seq or card in its HEAD record.
+`post` writes a finding as a cci `defect` that opens `[finding:<sweep>] #<pr> <path:line> <verdict> owner <lane>: <text>`, addressed to the owner lane. `sync` adds each new finding and each owner pick (`picked` or `wrote` on a board card) after its cursor as a ledger row, a later pick on a card whose row is still open replacing that row's answer rather than adding a second row, then moves each open or routed row to `fixed` when a later `head` or `landed` record names its PR or seq (or a pick's card), to `routed` when a record answers or resolves it without one, so a finding stays live until fixed and never waits on a card (retro C4, owner 3:03 PM Nov 1), and to `routed` under the opening lane as its owner when an `opened` record names it. `open` syncs, then prints the open and routed rows by sweep. `track` adds the records it names, such as a pick from before the ledger began, and `close` closes rows no HEAD will ever name, such as a one-shot pick already carried out, with the reason. A lane that builds a pick names its seq or card in its HEAD record.
 """
 
 from __future__ import annotations
@@ -101,7 +101,9 @@ class Findings:
         for record in cci.records(self.shell.run, self.cci, "--kind", "defect", "--kind", "owner", since=start):
             newest = max(newest, record["seq"])
             if (made := row_of(record)) and made[0] not in rows:
-                added[made[0]] = made[1]
+                known = {**rows, **added}
+                held = next((key for key, row in known.items() if made[1]["kind"] == "pick" and row.get("card") == made[1]["card"] and row.get("state") in LIVE), made[0])
+                added[held] = {**known.get(held, {}), **made[1]}
         changed = dict(added)
         for key, row in {**rows, **added}.items():
             if row.get("state") in LIVE and (settled := self.settle(row)) != row:

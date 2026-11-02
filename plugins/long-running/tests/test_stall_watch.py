@@ -73,6 +73,7 @@ class FakeShell(stall_watch.Shell):
         self.launches: list[list[str]] = []
         self.registry_rows: list[dict] = []
         self.successions: dict[str, str] = {}
+        self.ledgers: dict[str, list[dict]] = {}
         self.clock = NOW
 
     def run(self, argv, stdin=None, env=None, timeout=stall_watch.COMMAND_SECONDS):
@@ -84,6 +85,8 @@ class FakeShell(stall_watch.Shell):
             pool = [*self.records, *self.board_records()] if lane else self.records
             page = [found for found in pool if (found["seq"] > int(since) if since.isdigit() else "at" not in found or found["at"] >= since) and (not kinds or found["kind"] in kinds) and (not topics or found.get("topic") in topics) and (lane is None or found["lane"] == lane)]
             return stall_watch.Done(0, "".join(json.dumps(found) + "\n" for found in page), "")
+        if argv[:1] == ["ccn"] and argv[3:5] == ["ledger", "show"]:
+            return stall_watch.Done(0, json.dumps({"rows": self.ledgers.get(argv[5], [])}), "")
         if argv[:2] == ["cci", "who"]:
             assert argv[2:] == ["--drive", DRIVE, "--all", "--json"]
             return stall_watch.Done(0, "".join(json.dumps(peer) + "\n" for peer in self.peers), "")
@@ -158,7 +161,8 @@ def config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(home))
     registry = home / "long-running/drives/durable.json"
     registry.parent.mkdir(parents=True)
-    registry.write_text(json.dumps({"drive": "durable", "cci_drive": DRIVE, "sessions": ["s-old", SESSION]}))
+    registry.write_text(json.dumps({"drive": "durable", "cci_drive": DRIVE, "sessions": ["s-old", SESSION], "state_dir": str(tmp_path / "state"), "ledger": "asks", "checkout": str(tmp_path / "checkout")}))
+    (tmp_path / "state").mkdir()
     (home / "tasks" / SESSION).mkdir(parents=True)
     path = tmp_path / "runner.json"
     path.write_text(
@@ -707,6 +711,49 @@ def test_an_owner_pick_no_lane_binds_stalls_to_root_once_at_fifteen_minutes_and_
     watch(shell, config)
     assert "pick:1" not in opened(config)
     assert "pick:11" in opened(config)
+
+
+def ledger_row(key: str, minutes_ago: float, **fields) -> dict:
+    return {"key": key, "updated_at": stamp(minutes_ago), "fields": fields}
+
+
+def test_a_retro_row_ask_or_pick_unchanged_for_a_day_or_past_due_reaches_root_once_a_day_from_the_ledgers(config, tmp_path):
+    """Owner 10:21 PM Nov 1: eight owner picks sat 79 hours and nothing told root; the ledgers, not the record window, raise every row a day old or past due."""
+    (tmp_path / "state/retro.json").write_text(json.dumps({"ledger": "retro"}))
+    (tmp_path / "state/findings.json").write_text(json.dumps({"ledger": "findings"}))
+    shell = FakeShell([], [])
+    shell.ledgers = {
+        "retro": [
+            ledger_row("retro/000001", 30, failure="UNDEFINED rows on the table", owner="fix-lane", state="open", pr="#1", due=stamp(10)),
+            ledger_row("retro/000002", 30, failure="fresh and due later", owner="fix-lane", state="building", due=stamp(-60)),
+            ledger_row("retro/000003", 3000, failure="closed long ago", owner="fix-lane", state="live", record="7", due=stamp(2000)),
+            ledger_row("retro/000004", 3000, failure="a repeat", owner="fix-lane", state="building", due=stamp(2000), dup_of="retro/000001"),
+        ],
+        "asks": [
+            ledger_row("ask/000001", 0, text="revive the dashboard", lane="dash-lane", accept="it renders", asked_at=stamp(1500)),
+            ledger_row("ask/000002", 0, text="withdrawn", lane="dash-lane", accept="-", asked_at=stamp(5000), dropped_at=stamp(4000)),
+            ledger_row("ask/000003", 0, text="moving", lane="dash-lane", accept="-", asked_at=stamp(5000), progress_000001=json.dumps({"at": stamp(60), "note": "on it", "artifacts": []})),
+        ],
+        "findings": [
+            ledger_row("pick/189864", 4740, kind="pick", sweep="owner", owner="root", state="open", seq="189864", text="Tooling fixes, 9. Release rows read the release itself: Build"),
+            ledger_row("pick/189865", 4740, kind="pick", sweep="owner", owner="root", state="fixed", seq="189865", text="built"),
+            ledger_row("finding/5", 60, kind="finding", sweep="merge-audit-1", owner="api-lane", state="open", seq="5", text="fresh finding"),
+        ],
+    }
+
+    watch(shell, config)
+    watch(shell, config)
+
+    day = f"{NOW.astimezone(stall_watch.PACIFIC):%Y-%m-%d}"
+    assert sorted(shell.topics()) == sorted(f"unfinished:{key}:{day}" for key in ("retro/000001", "ask/000001", "pick/189864"))
+    assert {shell.post(topic)["to"] for topic in shell.topics()} == {"root"}
+    assert {shell.post(topic)["kind"] for topic in shell.topics()} == {"blocker"}
+    assert "past due since" in shell.post(f"unfinished:retro/000001:{day}")["text"]
+    assert "9. Release rows read the release itself" in shell.post(f"unfinished:pick/189864:{day}")["text"]
+    shell.clock = NOW + timedelta(days=1)
+    watch(shell, config)
+    later = f"{shell.clock.astimezone(stall_watch.PACIFIC):%Y-%m-%d}"
+    assert {f"unfinished:{key}:{later}" for key in ("retro/000001", "ask/000001", "pick/189864")} <= set(shell.topics())
 
 
 def alive(seq: int, desk: str, minutes_ago: float) -> dict:

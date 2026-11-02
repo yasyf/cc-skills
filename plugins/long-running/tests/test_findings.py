@@ -138,3 +138,13 @@ def test_close_settles_a_one_shot_pick_with_its_reason(entry):
     findings.main(["close", "--why", "release 10950 started at 6:13 PM", "30"], shell)
 
     assert states(shell) == {"pick/30": ("closed", "release 10950 started at 6:13 PM")}
+
+
+def test_a_second_pick_on_an_open_card_replaces_its_answer_instead_of_adding_a_row(entry):
+    """Owner 10:21 PM Nov 1: duplicate rows on his ask table; one card is one row."""
+    again = PICK.replace("One table keyed by lane", "Two tables")
+    shell = FakeShell([record(10, "owner", PICK, lane="board-watch"), record(11, "owner", again, lane="board-watch")])
+
+    assert findings.main(["sync"], shell) == 0
+
+    assert [(key, row["text"], row["seq"]) for key, row in shell.rows.items()] == [("pick/10", "Where do agent worktrees live?: Two tables", "11")]

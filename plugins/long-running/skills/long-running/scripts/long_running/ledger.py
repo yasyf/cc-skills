@@ -2,7 +2,7 @@
 
     ledger.py [-C DIR] VERB ...
     ledger.py init    --title TEXT
-    ledger.py ask     --ledger ID --text VERBATIM --lane NAME --accept CHECK
+    ledger.py ask     --ledger ID --text VERBATIM --lane NAME --accept CHECK --due TIME
     ledger.py drop    --ledger ID --ask ID --reason ...
     ledger.py answer  --ledger ID --ask ID --text ...
     ledger.py live    --ledger ID --at ISO [--text ...]
@@ -144,6 +144,8 @@ LOCK_WAIT_SECONDS = 120
 LOCK_POLL_SECONDS = 0.2
 LANE_PREFIX = "lane/"
 ASK_PREFIX = "ask/"
+DUE_SPAN = re.compile(r"(\d+)([mhd])")
+DUE_UNITS = {"m": "minutes", "h": "hours", "d": "days"}
 OWNER_PRIORITY = 0
 DEFAULT_PRIORITY = 100
 ASK_KEY = re.compile(rf"(?:{ASK_PREFIX})?(?P<seq>\d+)")
@@ -1357,11 +1359,19 @@ def cmd_ask(args: argparse.Namespace, shell: Shell) -> int:
         return cmd_ask_state(args, shell)
     if args.ask and args.standing:
         return cmd_ask_standing(args, shell)
-    if not (args.text and args.lane and args.accept):
-        raise SystemExit("ask needs --text, --lane and --accept to record an ask, --state with --ask to mark one, or --standing with --ask to make one standing")
+    if not (args.text and args.lane and args.accept and args.due):
+        raise SystemExit("ask needs --text, --lane, --accept and --due to record an ask, --state with --ask to mark one, or --standing with --ask to make one standing")
     notes = Notes(shell, args.ledger)
-    key = next_key(ASK_PREFIX, notes.asks())
-    fields = {"text": args.text, "lane": args.lane, "accept": args.accept, "asked_at": utc_stamp()} | ({"standing_hours": str(args.standing)} if args.standing else {})
+    asks = notes.asks()
+    if held := next((key for key, fields in asks.items() if not fields.get("dropped_at") and not fields.get("answered_at") and " ".join(fields.get("text", "").lower().split()) == " ".join(args.text.lower().split())), None):
+        args.ask, args.note, args.artifact = held, f"asked again for {args.lane}", []
+        cmd_progress(args, shell)
+        print(f"{held} already holds this ask; the repeat is a progress entry on it, not a new row", file=sys.stderr)
+        return 0
+    if why := cci.dead_owner(shell.run, args.drive, args.lane):
+        raise SystemExit(f"ask refused: {why}")
+    key = next_key(ASK_PREFIX, asks)
+    fields = {"text": args.text, "lane": args.lane, "accept": args.accept, "due": args.due, "asked_at": utc_stamp()} | ({"standing_hours": str(args.standing)} if args.standing else {})
     notes.set_fields(key, fields)
     print(ask_line(key, fields))
     return 0
@@ -2521,6 +2531,19 @@ def add_ledger(parser: argparse.ArgumentParser, repo: bool = False, drive: bool 
     parser.set_defaults(bus=drive)
 
 
+def due_time(value: str) -> str:
+    """`value` as a UTC stamp: an ISO 8601 time with its zone, or a span from now such as `90m`, `4h` or `1d`."""
+    if span := DUE_SPAN.fullmatch(value.strip()):
+        return stamp(now() + timedelta(**{DUE_UNITS[span[2]]: int(span[1])}))
+    try:
+        parsed = parse_iso(value.strip())
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{value!r} is neither an ISO 8601 time nor a span such as 4h") from None
+    if parsed.tzinfo is None:
+        raise argparse.ArgumentTypeError(f"{value!r} has no time zone")
+    return stamp(parsed.astimezone(timezone.utc))
+
+
 def ask_key(value: str) -> str:
     if not (match := ASK_KEY.fullmatch(value)):
         raise argparse.ArgumentTypeError("an ask id as ledger.py ask printed it, like ask/000104, or its number, like 000104")
@@ -2562,11 +2585,12 @@ def build_parser() -> argparse.ArgumentParser:
     report.add_argument("--ask", type=ask_key, metavar="ID", help="link this PR to the owner ask it delivers")
     report.set_defaults(handler=cmd_report)
 
-    ask = subparsers.add_parser("ask", help="record an owner ask verbatim with its lane and acceptance check, or mark an ask's state with --state")
-    add_ledger(ask)
+    ask = subparsers.add_parser("ask", help="record an owner ask verbatim with its live owner lane, acceptance check and due time, or mark an ask's state with --state; a repeat of an open ask's text becomes a progress entry on it")
+    add_ledger(ask, drive=True)
     ask.add_argument("--text")
-    ask.add_argument("--lane")
+    ask.add_argument("--lane", help="the live lane that delivers it; root, or a lane silent for two hours, is refused")
     ask.add_argument("--accept", metavar="CHECK")
+    ask.add_argument("--due", type=due_time, metavar="TIME", help="when it is due: an ISO 8601 time or a span such as 4h")
     ask.add_argument("--state", choices=ASK_STATES, help="override the computed state of --ask; open restores it")
     ask.add_argument("--ask", type=ask_key, metavar="ID")
     ask.add_argument("--note", default="")
