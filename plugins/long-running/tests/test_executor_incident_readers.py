@@ -1,5 +1,6 @@
 import json
 import sqlite3
+import threading
 
 import pytest
 
@@ -30,26 +31,54 @@ def selected(connections, store):
     return [connection for connection in connections if connection.database.startswith(prefix)]
 
 
+def reader_phase(connections, store, phase):
+    opened = selected(tuple(connections), store)
+    origins = {}
+    for connection in opened:
+        key = connection.owner, connection.thread_name, connection.origin
+        counts = origins.setdefault(key, {"opened": 0, "closed": 0, "first_opened_at": connection.opened_at, "last_observed_close_at": None})
+        counts["opened"] += 1
+        counts["closed"] += connection.closed
+        if connection.closed:
+            counts["last_observed_close_at"] = connection.closed_at
+    threads = threading.enumerate()
+    return {
+        "phase": phase,
+        "opened": len(opened),
+        "closed": sum(connection.closed for connection in opened),
+        "origins": [{"thread_id": owner, "thread_name": name, "frames": frames, **counts} for (owner, name, frames), counts in list(origins.items())[:16]],
+        "omitted_origins": max(0, len(origins) - 16),
+        "threads": [{"id": thread.ident, "name": thread.name} for thread in threads[:32]],
+        "omitted_threads": max(0, len(threads) - 32),
+    }
+
+
 @pytest.mark.parametrize("history", [32, 256])
 def test_executor_scan_reuses_each_incident_reader(shell, config, tmp_path, monkeypatch, readonly_connections, history):
     landing = landing_of(shell, config, tmp_path)
     store = global_store(tmp_path, monkeypatch)
     assert landing.book.store.root != store.root
+    phases = [reader_phase(readonly_connections, store, "before-population")]
     for number in range(history):
         executor(store, shell, f"settled-{number:04}", status="closed", repair_pr=99999)
+    phases.append(reader_phase(readonly_connections, store, "before-first-read"))
     cleared = []
     monkeypatch.setattr(landing, "incident_cleared", lambda pr: cleared.append(pr))
     try:
         assert landing.is_incident("33001", {"lane": "ordinary-fix"}) is False
         first = len(selected(readonly_connections, store))
+        phases.append(reader_phase(readonly_connections, store, "after-first-read"))
         assert landing.is_incident("33001", {"lane": "ordinary-fix"}) is False
         opened = selected(readonly_connections, store)
+        phases.append(reader_phase(readonly_connections, store, "after-second-read"))
         print(json.dumps({"history": history, "first_readers": first, "two_pr_reads": len(opened), "closed": sum(connection.closed for connection in opened), "scope": "actual is_incident/private default Store; corpus scan remains linear"}))
         assert first == history, f"executor scan opened {first} readers for {history} incidents"
         assert len(opened) == 2 * history and all(connection.closed for connection in opened)
         assert cleared == []
     finally:
         landing.close()
+        phases.append(reader_phase(readonly_connections, store, "after-close"))
+        print(json.dumps({"history": history, "reader_diagnostic": phases}))
 
 
 @pytest.mark.parametrize(("status", "adopted", "not_ours", "repair_pr", "cleared", "expected"), [

@@ -658,7 +658,7 @@ import threading
 import time
 import traceback
 from collections import Counter
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from concurrent.futures import Future, ThreadPoolExecutor
 from concurrent.futures import wait as finished_by
@@ -5852,6 +5852,7 @@ class Landing:
         self.told: dict[str, tuple[str, datetime]] = {}
         self.refresher: threading.Thread | None = None
         self.overflowing: threading.Thread | None = None
+        self.keepers_stopped = threading.Event()
         self.overflowed_at = time.monotonic()
         self.overflower: Landing | None = None
         self.held_now: list[str] = []
@@ -6308,7 +6309,13 @@ class Landing:
         self.surface()
 
     def close(self) -> None:
-        """Let every running stack worker, the side work and the worktree removal finish and start nothing queued, so no worker of this runner acts after it hands off."""
+        """Stop and join this Landing's keepers, then finish its running work without starting anything queued."""
+        self.keepers_stopped.set()
+        for keeper in (self.refresher, self.overflowing):
+            if keeper is not None:
+                keeper.join()
+        if self.overflower is not None:
+            self.overflower.close()
         self.workers.shutdown(cancel_futures=True)
         self.side.shutdown(cancel_futures=True)
         self.release_action_proof = None
@@ -9039,7 +9046,7 @@ class Landing:
 
         def loop() -> None:
             with self.book.store.reading():
-                while True:
+                while not self.keepers_stopped.is_set():
                     started = time.monotonic()
                     try:
                         if self.down_since():
@@ -9049,10 +9056,11 @@ class Landing:
                                 mine.overflow(self)
                     except Exception:
                         traceback.print_exc()
-                    time.sleep(max(0.0, OVERFLOW_EVERY.total_seconds() - (time.monotonic() - started)))
+                    self.keepers_stopped.wait(max(0.0, OVERFLOW_EVERY.total_seconds() - (time.monotonic() - started)))
 
-        self.overflowing = threading.Thread(target=loop, name="landing-overflow", daemon=True)
-        self.overflowing.start()
+        thread = threading.Thread(target=loop, name="landing-overflow", daemon=True)
+        thread.start()
+        self.overflowing = thread
 
     def post_state(self, took: float) -> None:
         """Post the pass's one `state` record to root on topic `landing-state`, which cci delivers newest-only, so root never asks what the runner is doing (owner 9524276): the open rows the queue holds, the green ones a root go names at their heads that are out of it and neither held nor refused, with the oldest stack step in flight, the held, the refused at their heads, the stack workers running, and the pass's seconds. It logs `OVERFLOW-STALLED` once an hour while the overflow thread has finished no run in `OVERFLOW_STALLED`."""
@@ -9927,13 +9935,14 @@ class Landing:
         """Refresh and reconcile the ledger every `REFRESH_EVERY` from a daemon thread, so a pass reads the rows the last refresh wrote instead of waiting on ccx's GitHub reads; a pass refreshes itself while no such thread runs."""
 
         def loop() -> None:
-            while True:
+            while not self.keepers_stopped.is_set():
                 started = time.monotonic()
                 self.refresh()
-                time.sleep(max(0.0, REFRESH_EVERY.total_seconds() - (time.monotonic() - started)))
+                self.keepers_stopped.wait(max(0.0, REFRESH_EVERY.total_seconds() - (time.monotonic() - started)))
 
-        self.refresher = threading.Thread(target=loop, name="landing-refresh", daemon=True)
-        self.refresher.start()
+        thread = threading.Thread(target=loop, name="landing-refresh", daemon=True)
+        thread.start()
+        self.refresher = thread
 
     def advance(self) -> bool:
         """Fast-forward the checkout to the remote trunk without writing a shared ref, so the pass gates with the trunk's adapter script; a checkout its repository no longer lists as a worktree, or one on a branch with no commit, is rebuilt at the fetched trunk head in the same pass, and one that still cannot advance is escalated once per error."""
@@ -10287,55 +10296,56 @@ def preflight_faults(runner: Runner, keychain: bool = False) -> list[str]:
 
 def run_landing(runner: Runner, once: bool) -> int:
     seed_policy(runner)
-    landing = Landing(runner, runner.config.landing)
-    if not once:
-        landing.keep_fresh()
-        landing.keep_overflowing()
-    interval = runner.config.landing.get("interval_seconds", 180)
-    alive = runner.keep_alive("landing")
-    try:
-        while True:
-            started = runner.now()
-            runner.passing.add("landing")
-            try:
-                landing.run()
-                if once:
-                    landing.drain()
-            except StopRequested:
+    with closing(Landing(runner, runner.config.landing)) as landing:
+        if not once:
+            landing.keep_fresh()
+            landing.keep_overflowing()
+        interval = runner.config.landing.get("interval_seconds", 180)
+        alive = runner.keep_alive("landing")
+        try:
+            while True:
+                started = runner.now()
+                runner.passing.add("landing")
+                try:
+                    landing.run()
+                    if once:
+                        landing.drain()
+                except StopRequested:
+                    runner.pass_io.finish()
+                    landing.close()
+                    runner.flush()
+                    runner.stop_marker().unlink()
+                    return 0
+                except CciTailFailed as failure:
+                    runner.tail_failed(failure)
+                except OrcaUnreachable as down:
+                    runner.orca_down(down)
+                except Exception as error:
+                    if runner.pass_raised("landing", error):
+                        runner.shell.sleep(RAISED_BACKOFF.total_seconds())
+                        landing.close()
+                        runner.reexec("landing")
+                runner.passing.discard("landing")
+                behind = runner.moved()
+                took = (runner.now() - started).total_seconds()
+                with runner.pass_io.phase("post-state"):
+                    landing.post_state(took)
+                with runner.pass_io.phase("flush-and-beat"):
+                    runner.flush()
+                    print(f"PASS landing {runner.passes['landing'] + 1} on {RUNNING_VERSION} took {took:.0f}s: {runner.shell.pass_cost()}", file=sys.stderr, flush=True)
+                    runner.beat("landing")
                 runner.pass_io.finish()
-                landing.close()
-                runner.flush()
-                runner.stop_marker().unlink()
-                return 0
-            except CciTailFailed as failure:
-                runner.tail_failed(failure)
-            except OrcaUnreachable as down:
-                runner.orca_down(down)
-            except Exception as error:
-                if runner.pass_raised("landing", error):
-                    runner.shell.sleep(RAISED_BACKOFF.total_seconds())
+                if once:
+                    return 0
+                if runner.rest(max(0.0, interval - (runner.now() - started).total_seconds())):
+                    landing.close()
+                    runner.stop_marker().unlink()
+                    return 0
+                if behind:
+                    landing.close()
                     runner.reexec("landing")
-            runner.passing.discard("landing")
-            behind = runner.moved()
-            took = (runner.now() - started).total_seconds()
-            with runner.pass_io.phase("post-state"):
-                landing.post_state(took)
-            with runner.pass_io.phase("flush-and-beat"):
-                runner.flush()
-                print(f"PASS landing {runner.passes['landing'] + 1} on {RUNNING_VERSION} took {took:.0f}s: {runner.shell.pass_cost()}", file=sys.stderr, flush=True)
-                runner.beat("landing")
-            runner.pass_io.finish()
-            if once:
-                return 0
-            if runner.rest(max(0.0, interval - (runner.now() - started).total_seconds())):
-                landing.close()
-                runner.stop_marker().unlink()
-                return 0
-            if behind:
-                landing.close()
-                runner.reexec("landing")
-    finally:
-        alive.set()
+        finally:
+            alive.set()
 
 
 def launch_model(model: str) -> str:
