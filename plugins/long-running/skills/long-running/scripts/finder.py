@@ -42,6 +42,14 @@ the PR's own diff adds or changes; it and every finding the reply marks `census:
 `<config dir>/finder-desk/census-<date>.md` instead, with one `finder census:` note per head to the lane that posted the head and every `finder.to` address. `DIR/result.json` is written last, `{"error": …}` when the job
 raised, and the runner settles the dispatch from it. A job whose `DIR/cancelled` the runner wrote, as a newer head of the
 PR queued, asks codex nothing; the runner cancels a codex run already reading it.
+
+A bug-fix PR, one whose title carries 🐛, 🚑 or 🩹, is keyed by its area: the directories its own diff touches outside
+its tests. Every pass reads each bug-fix PR the drive's PR ledger records as landed in the same repository, keyed by the
+area its squash commit touches in the checkout, so every PR the drive landed counts from the first pass. When this PR's
+area holds or sits inside a landed fix's, the pass adds one major, `second fix in this area: the owner's rule needs a
+class fix, name the invariant and the single owner`, naming up to three earlier fixes, unless the PR body or a Rulings
+comment has a line naming the class and why this fix removes it, or says the area is deleted at cutover (owner, 9:45 PM
+Nov 1).
 """
 
 from __future__ import annotations
@@ -61,6 +69,7 @@ from pathlib import Path
 
 from long_running import drive
 from long_running import ghread
+from long_running import testfiles
 from long_running.grades import FINDER_DESK, FINDER_PASS, finder_grade, head_entries, names_head, repo_prs
 
 SCRIPTS = Path(__file__).resolve().parent
@@ -114,6 +123,11 @@ RETRY_BACKOFF = (2, 5, 10)
 SLICE_SECONDS = 900
 FINDER_SECONDS = 5400
 STAGE_WORDS = 4
+FIX_GLYPHS = ("🐛", "🚑", "🩹")
+CLASS_NAMED = re.compile(r"^.*\bclass\b.*\b(?:remov\w*|impossible|eliminat\w*|cannot recur|can no longer)\b|\bdeleted at cutover\b", re.IGNORECASE | re.MULTILINE)
+SECOND_FIX = "second fix in this area: the owner's rule needs a class fix, name the invariant and the single owner"
+AREA_SHOWN = 3
+LANDED_COMMIT = re.compile(r"^@([0-9a-f]{40})$")
 
 
 class JobFailed(RuntimeError):
@@ -335,7 +349,7 @@ def retried[T](attempt: Callable[[], T], transient: Callable[[subprocess.CalledP
 
 
 def view_pr(shell: Shell, job: dict) -> dict:
-    argv = ghread.read("pr", "view", job["pr"], "--repo", job["repo"], "--json", "state,baseRefName,headRefOid,body,comments,author", max_age=ghread.FRESH)
+    argv = ghread.read("pr", "view", job["pr"], "--repo", job["repo"], "--json", "state,title,baseRefName,headRefOid,body,comments,author", max_age=ghread.FRESH)
     return json.loads(retried(lambda: shell.run(argv)))
 
 
@@ -542,11 +556,69 @@ def run(directory: Path, shell: Shell) -> dict:
     if (now := view_pr(shell, job)["headRefOid"]) != head:
         return {"skipped": f"{pr} moved to {now[:12]} while codex read {head[:12]}"}
     findings, census = triage(json.loads(reply)["findings"], touched)
+    if repeat := second_fix(shell, job, view, touched):
+        findings.append(repeat)
     text = record_text(job, own, last, findings)
     body = directory / "record.md"
     body.write_text(f"{text}\n\n{reply.strip()}\n")
     outcome = {"verdict": text.split()[1], "record": text, "posted": post(shell, job, text, body)}
     return outcome | ({"census": record_census(shell, job, directory, census)} if census else {})
+
+
+def is_fix(title: str) -> bool:
+    return any(glyph in title for glyph in FIX_GLYPHS)
+
+
+def area(paths: object) -> frozenset[str]:
+    """The directories a change touches outside its tests: the key a bug-fix PR's area is compared by."""
+    return frozenset(str(Path(path).parent) for path in paths if not testfiles.test_file(path))
+
+
+def ledger_pr(key: str, default: str) -> tuple[str, str]:
+    return (default, key) if key.isdigit() else tuple(key.split("#", 1))
+
+
+def landed_fixes(shell: Shell, job: dict) -> list[tuple[str, str, frozenset[str]]]:
+    """Every bug-fix PR of `job`'s repository the drive's PR ledger records as landed, with its title and the area its squash commit on the trunk touches, read from the checkout, so every PR the drive landed is keyed from the first pass."""
+    entry = next(entry for entry in drive.drives() if drive.cci_drive(entry) == job["drive"])
+    rows = json.loads(retried(lambda: shell.run(["ccn", "-R", entry["checkout"], "ledger", "show", entry["ledger"], "--json"])))["rows"]
+    fixes = {
+        fields["landed_sha"]: (number, fields["title"])
+        for row in rows
+        if "#" in row["key"] or row["key"].isdigit()
+        for repo, number in [ledger_pr(row["key"], entry["repo"])]
+        if repo == job["repo"] and number != job["pr"] and (fields := row["fields"]).get("landed_sha") and is_fix(fields.get("title", ""))
+    }
+    if not fixes:
+        return []
+    listed = git(shell, job, "log", "--ignore-missing", "--no-walk=unsorted", "--no-renames", "--name-only", "--format=@%H", *fixes)
+    touched: dict[str, list[str]] = {}
+    sha = ""
+    for line in listed.splitlines():
+        if found := LANDED_COMMIT.match(line):
+            sha = found[1]
+            touched[sha] = []
+        elif line.strip() and sha:
+            touched[sha].append(line.strip())
+    return [(*fixes[sha], area(paths)) for sha, paths in touched.items() if sha in fixes]
+
+
+def second_fix(shell: Shell, job: dict, view: dict, touched: dict[str, list[tuple[int, int]]]) -> dict | None:
+    """A blocking review point on a bug-fix PR whose area, the directories it touches outside its tests, holds or sits inside the area of a bug-fix PR the drive already landed, unless its body or a Rulings comment names the class and why this fix removes it, or says the area is deleted at cutover (owner, 9:45 PM Nov 1)."""
+    if not is_fix(view.get("title") or "") or CLASS_NAMED.search(f"{view['body']}\n{rulings_comments(view)}") or not (mine := area(touched)):
+        return None
+    earlier = [(number, title, dirs) for number, title, dirs in landed_fixes(shell, job) if dirs and (dirs <= mine or mine <= dirs)]
+    if not earlier:
+        return None
+    path, spans = next((path, spans) for path, spans in touched.items() if spans and not testfiles.test_file(path))
+    named = "; ".join(f"#{number} ({title}) fixed {', '.join(sorted(dirs))}" for number, title, dirs in earlier[-AREA_SHOWN:])
+    return {
+        "severity": "major",
+        "cite": f"{path}:{spans[0][0]}",
+        "defect": f"{SECOND_FIX}. {named}",
+        "fix": "Name the class and why this fix removes it in the PR body or a Rulings comment, or that the area is deleted at cutover, then ask the finder desk to re-grade.",
+        "unverified": None,
+    }
 
 
 def settled_by(job: dict, record: dict | None) -> int | None:
