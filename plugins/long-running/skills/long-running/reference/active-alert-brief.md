@@ -331,7 +331,15 @@ Do:
      no. An on-call bot's false alarm, a mute, or a monitor change that stops
      counting the failing teams is neither the mechanism nor the fix: post it
      to root as `PUSHBACK <fix lane name>: <who proposed what, and the unfixed mechanism>`
-     and keep fixing.
+     and keep fixing. A page your mechanism proves false is muted the minute it is proven, as
+     the window until your fix is live, never the close: post
+     `MUTE <fix lane name>: monitors <ids> until fix-live: <the proof, one line>`, kind
+     `incident`, to root, then ask ai-oncall with its verb, never a prose Slack post:
+     `ci oncall connect <page id> --state <your worktree>/oncall.json --label <fix lane name>`
+     under a persistent Monitor (`ci aioncall open-incidents` names the page id), and
+     `ci oncall say <page id> --state <your worktree>/oncall.json --kind request --text "MUTE <ids> until <RFC3339, fix-live estimate plus an hour, at most 24 hours>: <the proof>. The fix is ours; page nobody on these monitors."`.
+     The incident stays open until `FIX-LIVE`. A release smoke team, a release check, or
+     dev red is never false.
      A no to either ends incident mode: no release, no break-glass
      apply, no new lane. Post `STOPPED <fix lane name>: out of scope, <the answer that
      is no, and why>` and leave any candidate as an ordinary PR. A fix that

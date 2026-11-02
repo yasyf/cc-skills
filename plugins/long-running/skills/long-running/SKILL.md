@@ -906,6 +906,13 @@ cci post --lane root --drive <drive> --kind incident --topic <slug> --to <fix la
   fix owner in that turn. The desk runner refuses a fix lane's stop that scopes a release
   gate out (`REFUSED-STOP`, with the lane's Opus fallback launched at once) and flags every
   proposed mute (`MUTE-PUSHBACK`).
+- A page the fix lane's mechanism proves false, every team the monitor names completing
+  runs, is muted the minute it is proven: the lane posts `MUTE <lane>: monitors <ids> until
+  fix-live: <proof>` and asks ai-oncall through `ci oncall connect` and `ci oncall say --kind
+  request`, never a prose Slack post. The mute is the window, the incident stays open until
+  `FIX-LIVE`, and a release smoke team, a release check, or dev red is never false. On Nov 1
+  run-queue-fix proved two new run-queue monitors false at 4:51 PM, root asked in prose
+  at 4:52 PM, nobody muted, and page 13321 reached the on-call at 5:01 PM.
 - The plan keeps the path when no step of the drive's plan deletes or replaces it before
   its next milestone. A path the plan deletes at cutover is a no, however far off the
   cutover is.

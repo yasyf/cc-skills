@@ -53,7 +53,7 @@ Do:
      no. An on-call bot's false alarm, a mute, or a monitor change that stops
      counting the failing teams is neither the mechanism nor the fix: post it
      to root as `PUSHBACK {lane}: <who proposed what, and the unfixed mechanism>`
-     and keep fixing.
+     and keep fixing. A page your mechanism proves false is step 0b, never this.
      A no to either ends incident mode: no release, no break-glass
      apply, no new lane. Post `STOPPED {lane}: out of scope, <the answer that
      is no, and why>` and leave any candidate as an ordinary PR. A fix that
@@ -65,6 +65,24 @@ Do:
      No brief, lane, or exception grants a rollback or a revert. One runs only when
      the owner's own word names that act, after your diagnosis has found the issue
      (owner answer 36a298d); never offer one before that.
+  0b. A PAGE PROVEN FALSE IS MUTED THE MINUTE IT IS PROVEN. When your
+     `MECHANISM` shows the paging monitor misreads a healthy path, every team it
+     names completing runs and the defect in the signal itself, mute it at
+     once, as the window until your fix is live, never as the close:
+     - Post `MUTE {lane}: monitors <ids> until fix-live: <the proof, one line>`,
+       kind `incident`, to root. The runner never pushes back on this line
+       unless it names a release smoke team, a release check, or dev red,
+       which are never false.
+     - Ask ai-oncall for the mute with its own verb, never a prose Slack post:
+       `ci aioncall open-incidents` names the page id; run
+       `ci oncall connect <page id> --state <your worktree>/oncall.json --label {lane}`
+       under a persistent Monitor, then
+       `ci oncall say <page id> --state <your worktree>/oncall.json --kind request --text "MUTE <ids> until <RFC3339: your fix-live estimate plus an hour, at most 24 hours>: <the proof>. The fix is {lane}'s <PR>; page nobody on these monitors."`
+       Wadsworth mutes them, posts the mute in the page thread, and answers
+       on your stream; quote its answer to root as `MUTED {lane}: <answer>`.
+     - Your incident stays open and its clock runs: the fix still ships, and
+       `FIX-LIVE` ends it. The mute lapses at its time and the monitor pages
+       again if it still alerts.
   1. Start at the code path the alert names while evidence is still arriving.
      Never wait for a diagnosis verdict. Your first deliverable, before any fix, is
      the whole failing path: every stage from the user's action to the error that
