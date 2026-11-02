@@ -142,6 +142,8 @@ from . import lanes
 from . import ledger
 from . import overview
 from . import judge
+from . import release
+from .release import config_dir, version_key
 
 SESSION_ENV = "CLAUDE_CODE_SESSION_ID"
 DRIVE_ENV = ledger.DRIVE_ENV
@@ -169,15 +171,10 @@ QUIET_BEAT = timedelta(minutes=2)
 JUDGE_WINDOW = timedelta(hours=24)
 STACK = "stack.json"
 ADMITTED = "landing-admitted.json"
-VERSION_PART = re.compile(r"\d+")
 ROLE = re.compile(r"^ccx:(?:.* )?role=([\w-]+)", re.MULTILINE)
 NUMBERED = re.compile(r"(?<![\w&])#\d+\b")
 SLUG_WORDS = 6
 INSTALL_MARKERS = frozenset({"__pycache__", ".in_use", ".orphaned_at"})
-
-
-def config_dir() -> Path:
-    return Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
 
 
 def drives_dir() -> Path:
@@ -248,10 +245,6 @@ def tree_faults(copy: Path, url: str, tag: str, source: str, releases: Path) -> 
     ]
 
 
-def version_key(version: str) -> tuple[int, ...]:
-    return tuple(int(part) for part in VERSION_PART.findall(version.partition("-")[0]))
-
-
 def behind(running: str, installed: str) -> bool:
     """Whether a runner reporting ``running``, empty for one that reports none, runs older code than the installed version."""
     return bool(installed) and (not running or version_key(running) < version_key(installed))
@@ -260,6 +253,7 @@ def behind(running: str, installed: str) -> bool:
 def run_installed(script: str, *, before_exec: Callable[[], None] = lambda: None) -> None:
     """Re-execute `script` from the installed plugin version, as the `bin/` shim does, when it is a copy of an older version, the installed copy's own manifest is newer, no process of its own version started it, and `LONG_RUNNING_PIN` does not pin its version, so a path that names an old version still runs current code and never writes a line the current runner cannot read; a process that passes marks its children with its version, so a runner started before an update keeps its own scripts until it re-executes, and a runner on its pinned version keeps them for its life. Every GitHub read the script makes through ccx is charged to the script's name, every command it starts ends with it (`end_commands_with_script`), and an image that replaced an earlier one passively reaps inherited exits (`adopt_children`). Callers close explicitly owned resources through `before_exec` only when an update will actually replace the image."""
     os.environ["CCX_CALLER"] = Path(script).stem
+    release.promote(PLUGIN)
     running = plugin_manifest()["version"]
     if running not in (os.environ.get(CALLER_VERSION_ENV), os.environ.get(PIN_ENV)) and (install := newest_install()) and behind(running, install["version"]):
         manifest = Path(install["installPath"]) / ".claude-plugin" / "plugin.json"

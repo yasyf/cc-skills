@@ -18,6 +18,7 @@ from urllib.parse import unquote_plus
 
 from long_running import ghread
 from long_running import ledger
+from long_running import release
 import pytest
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
@@ -420,6 +421,11 @@ class FakeShell(ledger.Shell):
 
     def endpoints(self) -> list[str]:
         return [argv[2] for argv in self.calls if argv[0] == "gh"]
+
+
+@pytest.fixture(autouse=True)
+def no_release_promotion(monkeypatch) -> None:
+    monkeypatch.setattr(release, "promote", lambda own: None)
 
 
 @pytest.fixture(autouse=True)
