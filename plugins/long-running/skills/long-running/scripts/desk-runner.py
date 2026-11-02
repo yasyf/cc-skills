@@ -5358,8 +5358,9 @@ class Runner:
         return bool(INCIDENT_NAME.match(lane) or (self.book.exists(lane_container(lane)) and self.fix_launch(lane_container(lane))))
 
     def start_fidelity(self, spec: dict, repo: str, action: actions.Action, rows: dict[str, dict], live: dict) -> bool:
-        """Settle a head a fidelity lane already graded or sent to a reader, or write the pass's job, with every fidelity grade and `old-app:` line on the PR, the grades a root `class wrong` decision answers, and the lane's newest contract, and start fidelity.py on it detached."""
+        """Settle a head a fidelity lane already graded or sent to a reader, or write the pass's job, with every fidelity grade and `old-app:` line on the PR, the grades a root `class wrong` decision answers, and the lane's newest contract and sources, the lane being the PR's ledger row's owner before the lane that posted the head, such as a desk asking for a regrade (#48335, root #331359), and start fidelity.py on it detached."""
         job = json.loads(action.target)
+        lane = rows.get(job["pr"], {}).get("lane") or job["lane"]
         drive_id, landing = self.config.drive, self.config.landing or {}
         lanes = list(dict.fromkeys([*self.landing_lanes("fidelity_lane"), fidelity.LANE]))
         records = cci.records(self.cci_tail, drive_id, "--kind=review", "--kind=head", "--pr", f"{repo}#{job['pr']}")
@@ -5368,11 +5369,11 @@ class Runner:
         if answered := newest_naming(grades, job["head"]) or newest_naming(sent, job["head"]):
             self.settle(FIDELITY, action.action_id, {"answered": f"cci #{answered['seq']} from {answered['lane']}"})
             return False
-        contracts = [record for record in cci.records(self.cci_tail, drive_id, "--kind=contract", "--lane", job["lane"]) if (record["kind"], record["lane"]) == ("contract", job["lane"])]
+        contracts = [record for record in cci.records(self.cci_tail, drive_id, "--kind=contract", "--lane", lane) if (record["kind"], record["lane"]) == ("contract", lane)]
         contract = max((record for record in contracts if about_pr(record, repo, job["pr"])), key=lambda record: record["seq"], default=None) or max(contracts, key=lambda record: record["seq"], default=None)
         directory = self.config.source.parent / fidelity.LANE / (f"{job['pr']}-{job['head'][:12]}-{job['seq']}" + (f"-{attempt}" if (attempt := action.action_id.partition("#")[2]) else ""))
         directory.mkdir(parents=True, exist_ok=True)
-        if sources := self.fidelity_sources(spec.get("sources", {}), drive_id, job["lane"], live):
+        if sources := self.fidelity_sources(spec.get("sources", {}), drive_id, lane, live):
             (directory / fidelity.SOURCES).write_text(sources)
         sprite = self.least_busy_sprite(spec)
         drive.write_atomic(
@@ -5382,7 +5383,7 @@ class Runner:
                 "repo": repo,
                 "pr": job["pr"],
                 "head": job["head"],
-                "lane": job["lane"],
+                "lane": lane,
                 "to": [RUNNER, *filter(None, [rows.get(job["pr"], {}).get("lane")]), *spec.get("to", [])],
                 "readers": [lane for lane in lanes if lane != fidelity.LANE],
                 "lanes": lanes,
