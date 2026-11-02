@@ -825,6 +825,24 @@ def test_a_second_fix_whose_body_names_the_class_it_removes_or_the_cutover_delet
     assert post["--text"].startswith(f"finder: ok {HEAD} ")
 
 
+class StalledLedger(AreaFake):
+    def run(self, argv: list[str], cwd: Path | None = None, timeout: int = finder.READ_SECONDS) -> str:
+        if argv[0] == "ccn":
+            raise subprocess.TimeoutExpired(argv, timeout)
+        return super().run(argv, cwd, timeout)
+
+
+def test_a_drive_ledger_that_does_not_read_skips_the_second_fix_check_instead_of_failing_the_pass(tmp_path, registry):
+    """Root 321395: #48013's finder pass died 3 of 3 on a 120 s `ccn ledger show` timeout after codex had already answered."""
+    directory = job(tmp_path)
+    shell = StalledLedger(tmp_path, "sand: 🐛 the replica resubscribes from its fetched position")
+
+    assert finder.main([str(directory)], shell) == 0
+
+    [post] = shell.posted
+    assert post["--text"].startswith(f"finder: ok {HEAD} ")
+
+
 def test_a_fix_beside_an_earlier_fix_in_one_flat_directory_is_no_second_fix(tmp_path, registry):
     """Root #318757: #48005 drew SECOND_FIX majors against #46899, #47601 and #47759, unrelated fixes that only shared api/src/modules."""
     directory = job(tmp_path)

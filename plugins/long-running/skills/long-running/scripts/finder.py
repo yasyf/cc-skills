@@ -611,7 +611,12 @@ def second_fix(shell: Shell, job: dict, view: dict, touched: dict[str, list[tupl
     """A blocking review point on a bug-fix PR whose area, the files it touches outside its tests, holds or sits inside the area of a bug-fix PR the drive already landed, unless its body or a Rulings comment names the class and why this fix removes it, or says the area is deleted at cutover (owner, 9:45 PM Nov 1)."""
     if not is_fix(view.get("title") or "") or CLASS_NAMED.search(f"{view['body']}\n{rulings_comments(view)}") or not (mine := area(touched)):
         return None
-    earlier = [(number, title, files) for number, title, files in landed_fixes(shell, job) if files and (files <= mine or mine <= files)]
+    try:
+        landed = landed_fixes(shell, job)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as failure:
+        print(f"finder: the second-fix check is skipped, since the drive ledger did not read: {failure}", file=sys.stderr, flush=True)
+        return None
+    earlier = [(number, title, files) for number, title, files in landed if files and (files <= mine or mine <= files)]
     if not earlier:
         return None
     path, spans = next((path, spans) for path, spans in touched.items() if spans and not testfiles.test_file(path))
