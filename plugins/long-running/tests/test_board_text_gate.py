@@ -101,7 +101,7 @@ def test_a_reply_the_judge_reads_as_drive_words_is_refused_with_its_sentence(roo
 def test_a_judge_that_fails_adds_nothing(root: Root) -> None:
     name = "clean-card.json"
     reviewed = json.dumps({"seq": 1, "lane": "fidelity-desk", "kind": "review", "text": f"fidelity: ok text {sha12(name)}"}) + "\n"
-    with stubbed_commands(root.reads(reviewed=reviewed) | {"claude -p": (1, "claude: overloaded")}):
+    with stubbed_commands(root.reads(reviewed=reviewed, phrase="slice") | {"claude -p": (1, "claude: overloaded")}):
         assert gate.board_text_gate(root.event(PreToolUseEvent, f"cc-present update-block {board(name)}")) is None
 
 
