@@ -11,8 +11,13 @@ on the files it copies, the script, and the shared inputs below, so on a pull
 request it runs only when one of those changed, and on every other event it
 always runs.
 
+Shards split the selected scripts longest first by the seconds each took in
+the last full run, from .github/lr-controls/seconds.json; a script missing
+there weighs the median. Each run writes its own seconds to seconds.json in
+its lr-controls artifact, which .github/scripts/lr_durations.py folds back.
+
 Env contract:
-  LR_CONTROLS_SHARD  "i/n" keeps the selected scripts whose path hashes to shard i
+  LR_CONTROLS_SHARD  "i/n" keeps shard i of the selected scripts
   GITHUB_EVENT_NAME  "pull_request" narrows the negative controls to the diff
   GITHUB_WORKSPACE   the checkout, a merge commit on a pull request
   RUNNER_TEMP        where each control's log lands, under lr-controls/
@@ -20,16 +25,18 @@ Env contract:
 
 from __future__ import annotations
 
+import json
 import os
 import re
+import statistics
 import subprocess
 import sys
 import time
-import zlib
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 CONTROLS = Path(".github/lr-controls")
+SECONDS = CONTROLS / "seconds.json"
 SHARED = {
     ".github/lr-controls/lib.sh",
     ".github/scripts/lr_controls.py",
@@ -56,8 +63,17 @@ def selected(diff: set[str] | None) -> list[Path]:
     for script in sorted((CONTROLS / "negative").glob("*.sh")):
         if diff is None or diff & (SHARED | {str(script), *COPIED.findall(script.read_text())}):
             scripts.append(script)
+    recorded = json.loads(SECONDS.read_text())
+    median = statistics.median(recorded.values())
+    weight = {script: recorded.get(str(script), median) for script in scripts}
     index, count = map(int, os.environ["LR_CONTROLS_SHARD"].split("/"))
-    return [script for script in scripts if zlib.crc32(str(script).encode()) % count == index - 1]
+    loads, mine = [0.0] * count, []
+    for script in sorted(scripts, key=lambda script: (-weight[script], str(script))):
+        shard = loads.index(min(loads))
+        loads[shard] += weight[script]
+        if shard == index - 1:
+            mine.append(script)
+    return mine
 
 
 def run(script: Path, logs: Path) -> tuple[Path, int, float, Path]:
@@ -79,6 +95,7 @@ def main() -> int:
     logs.mkdir(parents=True, exist_ok=True)
     with ThreadPoolExecutor(os.cpu_count()) as pool:
         results = list(pool.map(lambda script: run(script, logs), scripts))
+    (logs / "seconds.json").write_text(json.dumps({str(script): round(seconds, 1) for script, _, seconds, _ in results}))
     for script, code, seconds, log in results:
         print(f"::group::{'PASS' if code == 0 else 'FAIL'} {script} ({seconds:.0f}s)")
         print(log.read_text(), end="")
