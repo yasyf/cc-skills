@@ -333,7 +333,7 @@ class GcTest(unittest.TestCase):
     def test_finished_lanes_removal_stops_its_idle_terminal(self):
         orca = FakeOrca([row("ctx_a")], terminals={WT: [orca_gc.Terminal("term_ctx_a", "claude", "✳ lane", 0), shell("term_sh")]})
         tally, out = run_gc(orca, FakeGit({WT: checkout()}))
-        self.assertEqual((tally, orca.calls), ({"removed": 1}, [("remove", WT)]))
+        self.assertEqual((tally, orca.calls), ({"removed": 1, "stopping": 1}, [("remove", WT)]))
         self.assertIn(f"removed {WT} stopping term_ctx_a", out)
 
     def test_a_tab_close_timeout_no_longer_strands_a_removable_tree(self):
@@ -344,7 +344,7 @@ class GcTest(unittest.TestCase):
 
         orca = Wedged([row("ctx_a", status="failed")], terminals={WT: [orca_gc.Terminal("term_ctx_a", "claude", "✳ lane", 0)]})
         tally, _ = run_gc(orca, FakeGit({WT: checkout()}))
-        self.assertEqual((tally, orca.calls), ({"removed": 1}, [("remove", WT)]))
+        self.assertEqual((tally, orca.calls), ({"removed": 1, "stopping": 1}, [("remove", WT)]))
 
     def test_a_kept_trees_terminal_is_still_closed(self):
         orca = FakeOrca([row("ctx_a")], terminals={WT: [orca_gc.Terminal("term_ctx_a", "claude", "✳ lane", 0)]})
@@ -367,7 +367,7 @@ class GcTest(unittest.TestCase):
     def test_a_terminal_that_wakes_before_the_removal_keeps_the_tree(self):
         orca = FakeOrca([row("ctx_a")], idle={"term_ctx_a": [True, False]}, terminals={WT: [orca_gc.Terminal("term_ctx_a", "claude", "✳ lane", 0)]})
         tally, out = run_gc(orca, FakeGit({WT: checkout()}))
-        self.assertEqual((tally, orca.calls), ({"keep": 2}, []))
+        self.assertEqual((tally, orca.calls), ({"keep": 1}, []))
         self.assertIn(f"keep {WT} changed since the first read", out)
 
     def test_a_busy_settled_terminal_keeps_the_tree(self):
@@ -380,7 +380,7 @@ class GcTest(unittest.TestCase):
         orca = FakeOrca([row("ctx_a")], terminals={WT: [orca_gc.Terminal("term_ctx_a", "claude", "✳ lane", 0)]})
         git = FakeGit({WT: checkout()})
         tally, out = run_gc(orca, git, dry_run=True)
-        self.assertEqual(tally, {"remove": 1})
+        self.assertEqual(tally, {"remove": 1, "stopping": 1})
         self.assertEqual(orca.calls, [])
         self.assertIn(f"would remove {WT} stopping term_ctx_a", out)
 
@@ -537,7 +537,7 @@ class GcTest(unittest.TestCase):
             runner.mkdir()
             (runner / "runner.zsh").write_text(f"cd {tree.name} && stack-enqueue\n")
             orca = orca_gc.Orca()
-            lsof = {("lsof", "-t", "+D", str(tree)): "", ("lsof", "-a", "-d", "cwd", "-Fn"): f"p1\nfcwd\nn{runner}\n"}
+            lsof = {("lsof", "-n", "-P", "-Fpn"): "", ("lsof", "-a", "-d", "cwd", "-Fn"): f"p1\nfcwd\nn{runner}\n"}
 
             def run(argv, **_):
                 return type("Done", (), {"stdout": lsof.get(tuple(argv), "zsh ./runner.zsh\n")})()
@@ -553,7 +553,7 @@ class GcTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             tree, scanned = Path(root) / "v3-idle-base", Path(root) / "desk"
             protected = Path.home() / "Library" / "Containers" / "com.apple.mail" / "Data"
-            lsof = {("lsof", "-t", "+D", str(tree)): "", ("lsof", "-a", "-d", "cwd", "-Fn"): f"p1\nfcwd\nn{protected}\np2\nfcwd\nn{scanned}\n"}
+            lsof = {("lsof", "-n", "-P", "-Fpn"): "", ("lsof", "-a", "-d", "cwd", "-Fn"): f"p1\nfcwd\nn{protected}\np2\nfcwd\nn{scanned}\n"}
 
             def run(argv, **_):
                 return type("Done", (), {"stdout": lsof.get(tuple(argv), "")})()
@@ -566,7 +566,7 @@ class GcTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             tree, scanned = Path(root) / "v3-idle-base", Path(root) / "desk"
             protected = Path("/private/var/folders/ab/cd/T/session")
-            lsof = {("lsof", "-t", "+D", str(tree)): "", ("lsof", "-a", "-d", "cwd", "-Fn"): f"p1\nfcwd\nn{protected}\np2\nfcwd\nn{scanned}\n"}
+            lsof = {("lsof", "-n", "-P", "-Fpn"): "", ("lsof", "-a", "-d", "cwd", "-Fn"): f"p1\nfcwd\nn{protected}\np2\nfcwd\nn{scanned}\n"}
 
             def run(argv, **_):
                 return type("Done", (), {"stdout": lsof.get(tuple(argv), "")})()
@@ -574,6 +574,27 @@ class GcTest(unittest.TestCase):
             with mock.patch.object(orca_gc.subprocess, "run", run), mock.patch.object(orca_gc.Path, "glob", autospec=True, return_value=()) as glob:
                 self.assertIsNone(orca_gc.Orca().holder(str(tree), frozenset()))
             self.assertEqual({call.args[0] for call in glob.call_args_list}, {scanned})
+
+    def test_only_a_file_under_the_trees_resolved_path_holds_it(self):
+        with tempfile.TemporaryDirectory() as root:
+            tree = Path(root) / "v3-idle-base"
+            tree.mkdir()
+            listing = f"p7\nf3\nn{tree.resolve() / 'go.mod'}\np8\nf4\nn{Path(root).resolve() / 'v3-idle-base-2' / 'go.mod'}\n"
+            with mock.patch.object(orca_gc.subprocess, "run", return_value=type("Done", (), {"stdout": listing})()):
+                self.assertEqual(orca_gc.open_inside(str(tree)), {"7"})
+
+    def test_a_removal_a_live_process_refuses_leaves_its_agent_terminal_open(self):
+        orca = FakeOrca([row("ctx_a")], terminals={WT: [orca_gc.Terminal("term_ctx_a", "claude", "✳ lane", 0)]})
+        orca.holders[WT] = "a live process has a file or its cwd open inside"
+        tally, out = run_gc(orca, FakeGit({WT: checkout()}))
+        self.assertEqual((tally, orca.calls), ({"keep": 1}, []))
+        self.assertNotIn("closed term_ctx_a", out)
+
+    def test_an_apply_whose_plan_moved_is_refused_with_the_difference(self):
+        planned = "would remove /w/a stopping term_a\nwould close term_b dispatch ctx_b\nkeep /w/c unpushed commits on c\nclose=1 remove=1 stopping=1\n"
+        replanned = "would remove /w/a stopping term_a\nwould remove /w/d stopping term_d\nkeep /w/c unpushed commits on c\nremove=2 stopping=2\n"
+        self.assertEqual(orca_gc.drift(planned, replanned), ["- would close term_b dispatch ctx_b", "+ would remove /w/d stopping term_d"])
+        self.assertEqual(orca_gc.drift(planned, planned), [])
 
     def test_a_removal_orca_drops_the_connection_on_keeps_a_tree_still_on_disk_and_names_it(self):
         with tempfile.TemporaryDirectory() as tree:
@@ -618,7 +639,7 @@ class GcTest(unittest.TestCase):
         }
         orca = FakeOrca([unplaced, row("ctx_b")], terminals={WT: [orca_gc.Terminal("term_ctx_b", "claude", "✳ lane", 0), shell("term_sh")]})
         tally, out = run_gc(orca, FakeGit({WT: checkout()}))
-        self.assertEqual((tally, orca.calls), ({"keep": 1, "removed": 1}, [("remove", WT)]))
+        self.assertEqual((tally, orca.calls), ({"keep": 1, "removed": 1, "stopping": 1}, [("remove", WT)]))
         self.assertIn("keep ctx_a Orca records no workspace for it", out)
 
     def test_missing_worktree_is_skipped(self):
@@ -751,9 +772,10 @@ class HolderTest(unittest.TestCase):
 
     def holder(self, ps: str, hooks: str = "", env: str = "", panes: frozenset[str] = frozenset()) -> str | None:
         replies = {
-            ("lsof", "-t", "+D", self.TREE): "84516\n",
+            ("lsof", "-n", "-P", "-Fpn"): f"p84516\nfcwd\nn{self.TREE}\np1\nftxt\nn/usr/lib/dyld\n",
             ("ps", "-axo", "pid=,ppid=,pgid=,tpgid=,comm="): ps,
             ("ps", "-axo", "pid=,ppid=,command="): hooks,
+            ("ps", "-axo", "pid=,ppid=,sess="): "84516 84510 7\n",
             ("ps", "-E", "-ww", "-o", "pid=,tty=,command=", "-p", "84516"): env,
             ("lsof", "-a", "-d", "cwd", "-Fn"): f"p84516\nfcwd\nn{self.TREE}\n",
         }
@@ -797,6 +819,26 @@ class HolderTest(unittest.TestCase):
         env = "84516 ??       node server.js ORCA_PANE_KEY=tab_1:leaf_1\n"
         self.assertEqual(self.holder("84516     1 84516     0 node\n", env=env, panes=frozenset({"tab_1:leaf_1"})), "a live process has a file or its cwd open inside")
 
+    def child_holder(self, session: str) -> str | None:
+        replies = {
+            ("lsof", "-n", "-P", "-Fpn"): f"p84516\nfcwd\nn{self.TREE}\np90001\nfcwd\nn{self.TREE}/web\n",
+            ("ps", "-axo", "pid=,ppid=,pgid=,tpgid=,comm="): "84516 84510 84516 84516 claude\n90001 84516 84516 84516 node\n",
+            ("ps", "-E", "-ww", "-o", "pid=,tty=,command=", "-p", "84516,90001"): "84516 ttys064  claude ORCA_PANE_KEY=tab_1:leaf_1\n90001 ??       node mcp.js\n",
+            ("ps", "-axo", "pid=,ppid=,sess="): f"84516 84510 7\n90001 84516 {session}\n",
+        }
+
+        def run(argv, **_):
+            return type("Done", (), {"stdout": replies.get(tuple(argv), "")})()
+
+        with mock.patch.object(orca_gc.subprocess, "run", run):
+            return orca_gc.Orca().holder(self.TREE, frozenset({"tab_1:leaf_1"}))
+
+    def test_a_child_in_the_session_of_the_agent_a_removal_stops_does_not_hold_the_tree(self):
+        self.assertIsNone(self.child_holder("7"))
+
+    def test_a_child_that_left_the_session_of_the_agent_a_removal_stops_holds_the_tree(self):
+        self.assertEqual(self.child_holder("9"), "a live process has a file or its cwd open inside")
+
     def test_a_process_of_a_terminal_the_removal_keeps_holds_the_tree(self):
         env = "84516 ttys070  claude ORCA_PANE_KEY=tab_2:leaf_2\n"
         self.assertEqual(self.holder("84516 84510 84516 84516 claude\n", env=env, panes=frozenset({"tab_1:leaf_1"})), "a live process has a file or its cwd open inside")
@@ -823,7 +865,7 @@ class PairedServerTest(unittest.TestCase):
         orca.paired = {BOX_WT: checkout(BOX_WT, environment=BOX)}
         orca.holders = {BOX_WT: "a Mac process scan must not apply"}
         tally, out = run_gc(orca, FakeGit({}))
-        self.assertEqual((tally, orca.calls), ({"removed": 1}, [("remove", BOX_WT, BOX)]))
+        self.assertEqual((tally, orca.calls), ({"removed": 1, "stopping": 1}, [("remove", BOX_WT, BOX)]))
         self.assertIn(f"removed {BOX_WT} stopping term_box", out)
 
     def test_a_box_tree_with_unpushed_commits_is_kept_and_its_idle_terminal_closed(self):
@@ -844,7 +886,7 @@ class PairedServerTest(unittest.TestCase):
         orca = FakeOrca([box_row("ctx_a", worktree=WT), row("ctx_b", status="dispatched", terminal="term_mac")], terminals={WT: [orca_gc.Terminal("term_box", "claude", "✳ lane", 0)]})
         orca.paired = {WT: checkout(WT, environment=BOX)}
         tally, _ = run_gc(orca, FakeGit({WT: checkout()}))
-        self.assertEqual((tally, orca.calls), ({"removed": 1}, [("remove", WT, BOX)]))
+        self.assertEqual((tally, orca.calls), ({"removed": 1, "stopping": 1}, [("remove", WT, BOX)]))
 
     def test_orca_reads_a_box_trees_head_and_branch_from_its_server(self):
         tree = {"head": "b" * 40, "branch": "refs/heads/yasyf/box-lane"}
