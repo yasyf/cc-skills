@@ -328,7 +328,7 @@ class GcTest(unittest.TestCase):
         orca = SlowOrca([row(f"ctx_{n}", worktree=tree) for n, tree in enumerate(trees)])
         with tempfile.TemporaryDirectory() as state, mock.patch.object(orca_gc, "REMOVING", Path(state) / "remove.lock"):
             tally, _ = run_gc(orca, FakeGit({tree: checkout(tree) for tree in trees}))
-        self.assertEqual((tally, orca.most), ({"removed": 3}, 1))
+        self.assertEqual((tally, orca.most), ({"closed": 3, "removed": 3}, 1))
 
     def test_finished_lanes_removal_stops_its_idle_terminal(self):
         orca = FakeOrca([row("ctx_a")], terminals={WT: [orca_gc.Terminal("term_ctx_a", "claude", "✳ lane", 0), shell("term_sh")]})
