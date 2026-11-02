@@ -12834,6 +12834,7 @@ def test_a_lane_stopping_a_failing_release_gate_for_no_customer_impact_is_refuse
     ("run-queue-fix", "MUTE run-queue-fix: monitors 339598935 339599887 until fix-live: every team's runs complete since 4:46 PM; rsw-cp logs backlog_not_draining from a pre-admission snapshot", False),
     ("run-history-fix", "MUTE run-history-fix: monitors 339000001 until fix-live: the smoke teams' journal refusals are a monitor defect", True),
     ("run-queue-fix", "mute monitors 339598935 and 339599887, they are noise", True),
+    ("desk-runner", "SCALE-MISSED scale:R84898 hsbc-sso-hop: The failing health check runs on its own schedule per saved login session, not once per customer run, so counting only HSBC runs leaves out the sessions (and any other teams' sessions) that go through the same blocked connection.", False),
 ])
 def test_a_mute_or_monitor_skip_on_an_unfixed_mechanism_gets_one_pushback_to_root(shell, config, lane, text, pushed):
     """Nov 1, 2:17-2:59 PM: ai-oncall called the smoke-team journal refusals a false alarm, muted them and opened a monitor skip, and customer runs failed the same way at 2:56 PM. Nov 1, 4:52-5:01 PM: run-queue-fix proved two new run-queue monitors false and nobody muted them, so page 13321 reached the on-call; its typed MUTE window passes."""
@@ -12844,6 +12845,22 @@ def test_a_mute_or_monitor_skip_on_an_unfixed_mechanism_gets_one_pushback_to_roo
     assert len(pushes) == pushed
     if pushed:
         assert f" {lane}: #" in pushes[0] and "is never a close, and smoke teams are the canary" in pushes[0]
+
+
+@pytest.mark.parametrize(("order_kind", "answers", "landed", "pushed"), [
+    ("incident", False, True, False),
+    ("incident", True, True, False),
+    ("incident", False, False, True),
+    ("go", False, True, True),
+])
+def test_a_mute_by_a_root_ordered_fix_lane_after_its_fix_landed_gets_no_pushback(shell, config, order_kind, answers, landed, pushed):
+    """Root #300304: MUTE-PUSHBACK fired eight times from 5:06 PM Nov 1 on run-queue-fix's mutes of page 13321, posted with no --re after its fix #47601 landed at 5:04 PM under root's incident order 299804."""
+    order = cci_record(shell, lane="root", kind=order_kind, to=["run-queue-fix"], text="INCIDENT run-queue-backlog: fix lane run-queue-fix with incident apply authority", at=actions.stamp(shell.clock))
+    if landed:
+        cci_record(shell, lane="run-queue-fix", kind="landed", to=["root"], text="MERGED #47601 as 3975fbea5ec, verified on fresh dev", at=actions.stamp(shell.clock))
+    cci_record(shell, lane="run-queue-fix", kind="incident", to=["root"], **({"re": order} if answers else {}), text="Step 2 muting monitor 339599887 with the ai-oncall mute verb until fix-live", at=actions.stamp(shell.clock))
+    orca_pass(shell, config)
+    assert len([line for line in escalations(shell) if line.startswith("MUTE-PUSHBACK ")]) == pushed
 
 
 @pytest.mark.parametrize(("model", "header", "clocked"), [
