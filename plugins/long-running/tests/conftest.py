@@ -11,7 +11,9 @@ as the plain ``gh`` command it runs.
 from __future__ import annotations
 
 import json
+import math
 import os
+import statistics
 import subprocess
 import zlib
 from copy import deepcopy
@@ -34,24 +36,64 @@ DRIVE = "d1"
 FLOOR_REFUSAL = "ccx: GitHub rate limit floor: app graphql has 812 of 10000 left, under the floor of 1000, until 7:13AM (2026-09-21T07:13:20-07:00); top callers: desk-runner.py 412"
 
 
-def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    """Keep only shard `i` of `n` when LR_TEST_SHARD is `i/n`, by a stable hash of each node id, so CI's matrix jobs split one collection without overlap or gaps."""
+SCALES = frozenset({"144", "256", "1000", "10000", "100000"})
+SHARD = pytest.StashKey[dict[str, tuple[int, set[int]]]]()
+
+
+def scaled(item: pytest.Item) -> bool:
+    """A test parametrized at fleet or history scale: one dash-separated part of its id is 144, 256, 1000, 10000 or 100000."""
+    callspec = getattr(item, "callspec", None)
+    return callspec is not None and not SCALES.isdisjoint(callspec.id.split("-"))
+
+
+def shard_plan(weights: dict[str, float], count: int) -> list[dict[str, tuple[int, set[int]]]]:
+    """Every file's `(parts, the parts this shard runs)` per shard, by longest-first assignment of recorded seconds; a file heavier than one shard's share splits into parts by a hash of node id."""
+    share = sum(weights.values()) / count
+    pieces = []
+    for name, weight in weights.items():
+        split = max(1, math.ceil(weight / share))
+        pieces += [(weight / split, name, part, split) for part in range(split)]
+    loads = [0.0] * count
+    plan = [{name: (split, set()) for _, name, _, split in pieces} for _ in range(count)]
+    for weight, name, part, _ in sorted(pieces, key=lambda piece: (-piece[0], piece[1], piece[2])):
+        shard = loads.index(min(loads))
+        loads[shard] += weight
+        plan[shard][name][1].add(part)
+    return plan
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """Under LR_TEST_SHARD `i/n`, plan shard `i` from the seconds per file in LR_TEST_DURATIONS, so each CI matrix job collects only its own files; LR_TEST_SCALE=skip leaves the scale tests out of the plan and the run."""
+    config.addinivalue_line("markers", "scale: parametrized at fleet or history scale; pull requests skip it, main and nightly run it")
     if not (shard := os.environ.get("LR_TEST_SHARD")):
         return
     index, count = map(int, shard.split("/"))
+    recorded = json.loads(Path(os.environ["LR_TEST_DURATIONS"]).read_text())
+    files = sorted({path.name for pattern in config.getini("python_files") for path in FIXTURES.parent.glob(pattern)})
+    known = {name: plain + (0 if os.environ.get("LR_TEST_SCALE") == "skip" else scale) for name, (plain, scale) in recorded.items() if name in files}
+    median = statistics.median(known.values())
+    config.stash[SHARD] = shard_plan({name: known.get(name, median) for name in files}, count)[index - 1]
+
+
+def pytest_ignore_collect(collection_path: Path, config: pytest.Config) -> bool | None:
+    if collection_path.parent == FIXTURES.parent and (planned := config.stash.get(SHARD, {}).get(collection_path.name)):
+        return not planned[1] or None
+    return None
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """Mark the scale tests, record them in the junit report for lr_durations.py, and keep only this shard's part of each split file."""
+    shard = config.stash.get(SHARD, {})
+    skip = os.environ.get("LR_TEST_SCALE") == "skip"
     kept, dropped = [], []
     for item in items:
-        (kept if zlib.crc32(item.nodeid.encode()) % count == index - 1 else dropped).append(item)
+        if scale := scaled(item):
+            item.add_marker(pytest.mark.scale)
+            item.user_properties.append(("scale", "1"))
+        split, parts = shard.get(item.path.name, (1, {0}))
+        (dropped if (scale and skip) or zlib.crc32(item.nodeid.encode()) % split not in parts else kept).append(item)
     config.hook.pytest_deselected(items=dropped)
     items[:] = kept
-
-def gateway(argv: list[str]) -> list[str]:
-    """The plain `gh` command behind `argv`, failing the test on a GitHub read outside ccx's gateway or a write through it, which ccx refuses."""
-    through = argv[:3] == ghread.GATEWAY
-    plain = ghread.gh_args(argv)
-    if plain[0] == "gh":
-        assert through != ("-X" in plain or "--method" in plain or plain[1:3] == ["pr", "merge"] or plain[1] == "stack"), f"a GitHub {'write through' if through else 'read outside'} ccx's gateway: {argv}"
-    return plain
 
 
 def fixture(name: str) -> str:

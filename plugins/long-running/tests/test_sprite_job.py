@@ -383,26 +383,45 @@ def test_a_job_outlives_a_dropped_connection_since_only_the_short_key_exec_forwa
     assert not Path(f"{sprite}{directory}.keys").exists()
 
 
-FLAKY_SPRITE = """#!/usr/bin/env python3
-import os, pathlib, re, subprocess, sys
-args = sys.argv[4:]
-way, mac, sprite = os.environ["WAY"], os.environ["MAC_ROOT"], os.environ["SPRITE_ROOT"]
-if way == "unreachable":
-    print("Error: failed to start sprite command: failed to connect: read: operation timed out", file=sys.stderr)
-    sys.exit(255)
-stdin = None
-if args[0] == "--no-stdin":
-    args, stdin = args[1:], subprocess.DEVNULL
-dirs = [match[0] for arg in args if (match := re.search(r".*/finder-desk/job-[0-9]+", arg))]
-dropped = pathlib.Path(dirs[0] + ".dropped") if way == "dropped" and dirs else None
-if dropped and dropped.exists():
-    print("Error: failed to connect", file=sys.stderr)
-    sys.exit(255)
-code = subprocess.run([sprite + arg if arg.startswith(mac) else arg for arg in args[1:]], stdin=stdin).returncode
-if dropped and any("exec flock -s" in arg for arg in args):
-    dropped.touch()
-    sys.exit(255)
-sys.exit(code)
+FLAKY_SPRITE = """#!/bin/sh
+if [ "$WAY" = unreachable ]; then
+  echo "Error: failed to start sprite command: failed to connect: read: operation timed out" >&2
+  exit 255
+fi
+shift 3
+if [ "$1" = --no-stdin ]; then
+  exec </dev/null
+  shift
+fi
+dropped= flock=
+for arg do
+  case $arg in *"exec flock -s"*) flock=1 ;; esac
+  [ "$WAY" = dropped ] && [ -z "$dropped" ] || continue
+  case $arg in
+    */finder-desk/job-[0-9]*)
+      rest=${arg##*/finder-desk/job-}
+      dropped=${arg%"/finder-desk/job-$rest"}/finder-desk/job-${rest%%[!0-9]*}.dropped ;;
+  esac
+done
+if [ -n "$dropped" ] && [ -e "$dropped" ]; then
+  echo "Error: failed to connect" >&2
+  exit 255
+fi
+shift
+for arg do
+  shift
+  case $arg in
+    "$MAC_ROOT"*) set -- "$@" "$SPRITE_ROOT$arg" ;;
+    *) set -- "$@" "$arg" ;;
+  esac
+done
+"$@"
+code=$?
+if [ -n "$dropped" ] && [ -n "$flock" ]; then
+  touch "$dropped"
+  exit 255
+fi
+exit "$code"
 """
 
 JOBS = {
