@@ -7,7 +7,8 @@
     pr-prose.py [--base REF] [--brief PATH] [--notes PATH]... [--out DIR]
 
 STDLIB ONLY. Run from the lane's worktree once its change is committed. It runs
-`claude -p --model claude-opus-5-5` in that worktree with read-only tools, so the writer
+`claude -p --model claude-opus-5-5` in that worktree with read-only tools and the judge's
+private plugin cache, so the writer
 loads the repository's own CLAUDE.md and AGENTS.md and reads the PR body spec they name,
 the diff and log against `--base` (default `origin/HEAD`), the lane's brief, and each
 notes file of findings the PR must carry. It writes `pr-title.txt`, `pr-body.md`, and
@@ -22,6 +23,8 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+
+from long_running import judge
 
 MODEL = "claude-opus-5-5"
 SCHEMA = json.dumps(
@@ -63,6 +66,7 @@ def main(argv: list[str] | None = None) -> int:
         input=PROMPT.format(base=base, brief=brief, notes=notes),
         capture_output=True,
         text=True,
+        env=judge.headless(None)[0],
     )
     if done.returncode != 0:
         sys.exit(f"claude -p exited {done.returncode}: {(done.stderr or done.stdout).strip()[-500:]}")
