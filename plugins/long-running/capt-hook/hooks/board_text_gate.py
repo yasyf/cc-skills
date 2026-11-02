@@ -56,6 +56,11 @@ FIDELITY_TEXT = re.compile(r"^fidelity: (?P<verdict>ok|missing) text (?P<sha>[0-
 SUBSTITUTED = re.compile(r'^"?\$\((?P<inner>.*)\)"?$', re.DOTALL)
 OK = "ok"
 REVIEW_BUDGET = 200_000
+PLAN_CITE = re.compile(r"\bplan(?: line)? (\d{1,4})\b", re.IGNORECASE)
+AMENDED = re.compile(r"\[AMENDED [^\]]*\]?")
+RULING_TEXT = re.compile(r"\bAMENDED markers?\b")
+RECHECK_TOPIC = "card-recheck"
+RECHECK_DUE = timedelta(hours=1)
 SWEEP_CADENCE = timedelta(hours=1)
 TEXT = "text"
 REFUSAL = "Warning, nothing was blocked: Owner-facing text passes every check before the owner sees it. Fix each problem below, then run the same command again."
@@ -322,6 +327,7 @@ def graded(reads: Reads, item: Published) -> list[str]:
         *titles(found),
         *strikes(item, found, reads),
         *unended(reads, item, found),
+        *amended(reads, found),
     ]
     if register:
         problems += verify_reports(item, reads, register)
@@ -330,6 +336,42 @@ def graded(reads: Reads, item: Published) -> list[str]:
     if register:
         problems += text_grade(item, reads, register)
     return problems
+
+
+def amended(reads: Reads, found: list[tuple[dict, dict | None]]) -> list[str]:
+    """Each block citing a plan line that now carries an AMENDED marker: a card bound to that line dies with it (root #316045)."""
+    plan = CompactionState.load(reads.evt).plan_path
+    if not plan or not (path := Path(plan).expanduser()).is_file():
+        return []
+    lines = path.read_text().splitlines()
+    return [
+        f"{block['id']}: cites plan line {line}, which is amended ({marker[0][:160]}); a card bound to an amended line is withdrawn with his words, never drawn"
+        for block, _ in found
+        for line in dict.fromkeys(int(cite) for text in own_text(block) for cite in PLAN_CITE.findall(text))
+        if 0 < line <= len(lines) and (marker := AMENDED.search(lines[line - 1]))
+    ]
+
+
+def unrechecked(reads: Reads) -> list[str]:
+    """The oldest owner pick or plan amendment over an hour old that no `--topic card-recheck` record follows (root #316045)."""
+
+    def load() -> list[dict]:
+        argv = ["cci", "grep", *reads.which, "--json", "--since", "6h", "-n", "200", "--", f"OWNER board-watch|AMENDED marker|{RECHECK_TOPIC}"]
+        return [json.loads(line) for line in ran(argv).splitlines() if line.strip()]
+
+    records = [record for record in reads.read("the owner's rulings and card re-checks", load) or [] if record.get("at")]
+    checked = max((datetime.fromisoformat(record["at"]) for record in records if record.get("topic") == RECHECK_TOPIC), default=None)
+    due = [
+        record
+        for record in records
+        if (record.get("kind") == "owner" and record.get("lane") == "board-watch" or RULING_TEXT.search(record.get("text") or ""))
+        and (checked is None or datetime.fromisoformat(record["at"]) > checked)
+        and datetime.now(UTC) - datetime.fromisoformat(record["at"]) >= RECHECK_DUE
+    ]
+    if not due:
+        return []
+    oldest = min(due, key=lambda record: record["seq"])
+    return [f"recheck: #{oldest['seq']} by {oldest['lane']} landed over an hour ago and no `cci post --topic {RECHECK_TOPIC}` follows it; re-check every open card against it and the amended plan lines, withdraw each one it answers with his words, then post the re-check"]
 
 
 def posting(command: str | None = None, *, sweep_out: str = "", reviewed: tuple[str, ...] = (), minutes: int = 5, revised: tuple[str, ...] = (), **extra: object) -> Input:
@@ -354,6 +396,16 @@ def posting(command: str | None = None, *, sweep_out: str = "", reviewed: tuple[
         commands={**commands, **extra.pop("commands", {})},
         **extra,
     )
+
+
+def ruled(minutes: int) -> str:
+    at = (datetime.now(UTC) - timedelta(minutes=minutes)).isoformat()
+    return json.dumps({"seq": 7, "lane": "board-watch", "kind": "owner", "at": at, "text": "Owner on board, Restart the cleanup daemon? (cleanup-daemon-restart): picked “Restart it now”"}) + "\n"
+
+
+def rechecked(minutes: int) -> str:
+    at = (datetime.now(UTC) - timedelta(minutes=minutes)).isoformat()
+    return json.dumps({"seq": 9, "lane": "board-refresher-6", "kind": "state", "topic": RECHECK_TOPIC, "at": at, "text": "Card re-check: nothing open answers #7"}) + "\n"
 
 
 def update(name: str, **extra: object) -> Input:
@@ -412,6 +464,15 @@ def exits(name: str, **extra: object) -> Input:
         posting(f"cat <<'EOF' > /tmp/clean.json\n{HEREDOC}EOF\ncc-present update-block - <<'EOF'\n{board('title-not-question.json').read_text()}EOF", reviewed=(HEREDOC_SHA,)): Warn(
             pattern=r"share-open: the title does not end"
         ),
+        update("plan-cite-card.json", state=[CompactionState(active=True, slug="brook", plan_path=str(board("amended-plan.md")))]): Warn(
+            pattern=r"share-open: cites plan line 2, which is amended \(\[AMENDED Nov 2 3:16 AM: uploads are the replicator's\]\)"
+        ),
+        update("plan-cite-card.json", state=[CompactionState(active=True, slug="brook", plan_path=str(board("plan.md")))]): Allow(),
+        update("clean-card.json", commands={"cci grep": fidelity(sha12("clean-card.json")) + ruled(90)}): Warn(
+            pattern=r"recheck: #7 by board-watch landed over an hour ago and no `cci post --topic card-recheck` follows it"
+        ),
+        update("clean-card.json", commands={"cci grep": fidelity(sha12("clean-card.json")) + ruled(90) + rechecked(30)}): Allow(),
+        update("clean-card.json", commands={"cci grep": fidelity(sha12("clean-card.json")) + ruled(40)}): Allow(),
         posting("ls -la"): Allow(),
         posting(f"echo '{PIPED_SECTION}' | cc-present update-block -", reviewed=(hashlib.sha256(f"{PIPED_SECTION}\n".encode()).hexdigest()[:12],)): Allow(),
         posting(f"echo '{PIPED_SECTION}' | cc-present update-block -"): Warn(pattern=r"no fidelity desk review names -"),
@@ -432,7 +493,7 @@ def board_text_gate(evt: BaseHookEvent) -> HookResult | None:
     reads = Reads(evt, which)
     skipped: list[str] = []
     items = published(evt, reads, skipped)
-    problems = [problem for item in items for problem in graded(reads, item)]
+    problems = [problem for item in items for problem in graded(reads, item)] + (unrechecked(reads) if any(item.verb != "plan" for item in items) else [])
     reads.report("board_text_gate")
     if problems and not reads.failures:
         return evt.context(fenced(REFUSAL, problems))
