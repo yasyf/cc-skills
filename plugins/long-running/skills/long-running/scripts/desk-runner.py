@@ -469,7 +469,9 @@ container, so a head two records name queues once; a first read starts at the ne
 and queues the green head of every open drive row whose PR has no pass waiting or running, so a restack that posted no `head`
 record is graded with no hand requeue. A stall-watch `finder:<pr>:<head>` stall, which stall-watch sends to `finder-desk`,
 queues that head while the PR's ledger row is still at it. At most `finder.concurrent`
-passes (default 8) run at once and the rest wait queued; each PR's newest queued head starts, a lower ledger `priority` first, then longest waiting, and an older
+passes (default 8) run at once and the rest wait queued; each PR's newest queued head starts, a PR a root `decide` of the last three hours puts first
+("#<pr> ... first") ahead of all, then a lower ledger `priority`, then longest waiting, and only such a PR may take the `finder.reserved` slots
+(default 0) of `finder.concurrent` (root #325189); an older
 queued head of the same PR settles as superseded, and so does a running pass of it: the runner writes its job's `cancelled`
 mark and runs `codex-ask --cancel` on each codex run the pass started. Before it starts any, one fresh GraphQL read of every
 queued PR settles a head whose PR is closed, or no longer at that head, as skipped. A head a `finder:` record of `finder-desk` already names starts nothing. An
@@ -493,7 +495,8 @@ running pass's age. `show` lists each queued and running pass.
 With a `fidelity` object in runner.json, each orca pass and the finder's 15-second thread also dispatch one fidelity grade
 per drive head the same way: each `head` or `opened` record queues one `fidelity:<pr>:<head>:<seq>` action in the `desk-fidelity` container, and
 the green head of each open drive row with no pass waiting or running queues one `fidelity:<pr>:<head>:ledger`,
-the newest queued head of each PR starts, a lower ledger `priority` first, while fewer than `fidelity.concurrent` (default 8) run, and a head any
+the newest queued head of each PR starts, a PR a root `decide` puts first ahead of all, then a lower ledger `priority`, while fewer than
+`fidelity.concurrent` (default 8) run, less `fidelity.reserved` (default 0) for any other PR, and a head any
 fidelity lane, `fidelity-pipeline` included, already graded or sent to a reader starts nothing. A pass writes
 `<config dir>/fidelity-pipeline/<pr>-<head12>-<seq>/job.json` and starts `fidelity.py` on it detached, which carries
 an earlier head's ok with no model call when its own commits are patch-identical, else runs `codex-ask -m
@@ -862,6 +865,8 @@ ENQUEUE_CHECKS = ("precondition", "rulings", "fidelity", "finder", "old-app", "b
 KNOWN_CHECKS = merge_queue.CHECKS + merge_queue.OPT_IN_CHECKS
 CHECK_STAGES = {"hold": "enqueue", "precondition": "accept, enqueue", "rulings": "accept, enqueue", "fidelity": "accept, enqueue", "finder": "accept, enqueue", "old-app": "accept, enqueue", "build-failed": "accept, enqueue", "merge-mode": "accept, enqueue", "approvals": "adapter check", "required-ci": "adapter check"}
 DEFAULT_PRIORITY = 100
+ROOT_FIRST = re.compile(r"#(\d+)\b(?=[^.\n]{0,160}?\bfirst\b)", re.IGNORECASE)
+ROOT_FIRST_HORIZON = timedelta(hours=3)
 HIGH_RISK_STARTER = ("*migrations/*", "*.sql", "*backfill*", "*secret*", "*credential*", "*creds*")
 PULLED = "pulled"
 VOLATILE = re.compile(r"\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b|\d+")
@@ -5005,11 +5010,17 @@ class Runner:
             history.setdefault(json.loads(action.target)["pr"], []).append(action)
         graded = {pr for pr, passes in history.items() if any({"verdict", "answered"} & set(action.response or {}) for action in passes)}
         ranks = {pr: int(row.get("priority", DEFAULT_PRIORITY)) for pr, row in rows.items()}
-        for action in sorted(newest.values(), key=lambda action: (ranks.get(pr := json.loads(action.target)["pr"], DEFAULT_PRIORITY), not full_pass(action), pr not in going, pr not in graded, queued_since(history[pr], action))):
-            if running >= spec.get("concurrent", FINDER_CONCURRENT) or self.least_busy_sprite(spec) is None:
+        first = self.root_firsts()
+        for action in sorted(newest.values(), key=lambda action: ((pr := json.loads(action.target)["pr"]) not in first, ranks.get(pr, DEFAULT_PRIORITY), not full_pass(action), pr not in going, pr not in graded, queued_since(history[pr], action))):
+            if running >= spec.get("concurrent", FINDER_CONCURRENT) - (json.loads(action.target)["pr"] not in first) * spec.get("reserved", 0) or self.least_busy_sprite(spec) is None:
                 return
             if not self.waiting_on_fix(action):
                 running += self.start_finder(spec, repo, action, rows)
+
+    def root_firsts(self) -> set[str]:
+        """The PRs a root `decide` of the last `ROOT_FIRST_HORIZON` puts first, such as root #324665's "#48141 at a04386d ... is first in every grading queue": they start ahead of every other head, and only they may take the `reserved` slots of `finder.concurrent` and `fidelity.concurrent` (root #325189)."""
+        decides = cci.records(self.cci_tail, self.config.drive, "--lane", ROOT, "--kind=decide", since=actions.stamp(self.now() - ROOT_FIRST_HORIZON))
+        return {pr for record in decides if record["lane"] == ROOT for pr in ROOT_FIRST.findall(full_text(record))}
 
     def cancel_finder(self, action: actions.Action, queued: actions.Action | None) -> bool:
         """Settle a running pass as superseded when a newer head of its PR is queued, write its job's `cancelled` mark so it asks codex nothing, and cancel each codex run it started, since a head that moves while codex reads it posts nothing."""
@@ -5287,8 +5298,9 @@ class Runner:
                 self.settle(FIDELITY, action.action_id, {"skipped": skipped})
                 del newest[pr]
         ranks = {pr: (not self.incident_fix_row(row), int(row.get("priority", DEFAULT_PRIORITY))) for pr, row in rows.items()}
-        for action in sorted(newest.values(), key=lambda action: ranks.get(json.loads(action.target)["pr"], (True, DEFAULT_PRIORITY))):
-            if running >= spec.get("concurrent", FIDELITY_CONCURRENT) or self.least_busy_sprite(spec) is None:
+        first = self.root_firsts()
+        for action in sorted(newest.values(), key=lambda action: ((pr := json.loads(action.target)["pr"]) not in first, *ranks.get(pr, (True, DEFAULT_PRIORITY)))):
+            if running >= spec.get("concurrent", FIDELITY_CONCURRENT) - (json.loads(action.target)["pr"] not in first) * spec.get("reserved", 0) or self.least_busy_sprite(spec) is None:
                 return
             if not self.waiting_on_fix(action):
                 running += self.start_fidelity(spec, repo, action, rows, live.get(json.loads(action.target)["pr"], {}))
