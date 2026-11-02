@@ -16,11 +16,6 @@ Drive facts:
 {facts}
 
 Standing orders, fixed in this template:
-  - No credential is read from any store, file, SSM parameter or environment
-    unless the owner's words in this brief name that credential. A mute, an ack
-    or a monitor change goes through ai-oncall's verb (step 0b) or an ask in the
-    page thread, never through a Datadog or other key you fetched (Nov 1: a lane
-    read ai-oncall's Datadog keys from SSM after root withdrew that path).
   - Reported {reported} PT. The bar is fixed and live within 20 minutes of the
     report, by {due} PT; the desk's limits below run from your launch, inside it.
   - "stop asking people for things you can collect yourself": never ask a reporter
@@ -30,6 +25,11 @@ Standing orders, fixed in this template:
     this Mac.
   - A tooling failure gets a same-turn tooling lane plus the hand path; it never
     stops the fix.
+  - No credential is read from any store, file, SSM parameter or environment
+    unless the owner's words in this brief name that credential. A mute, an ack
+    or a monitor change goes through ai-oncall's verb (step 0b) or an ask in the
+    page thread, never through a Datadog or other key you fetched (Nov 1: a lane
+    read ai-oncall's Datadog keys from SSM after root withdrew that path).
   - When an on-call bot post, a peer session, or the alert already names the
     mechanism, confirm it with one query and build on it; never derive it again.
 
