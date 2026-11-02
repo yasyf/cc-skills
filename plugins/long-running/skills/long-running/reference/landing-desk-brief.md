@@ -1,116 +1,8 @@
 # The landing-desk lane
 
-Spawn one `landing-desk` lane as `long-running:lane`, model opus, before the first lane
-that opens a PR. It is the message queue and the landing coordinator for the whole drive:
-lanes never enqueue under D1, it and its runner enqueue and reconcile, and the root receives P0 lines immediately
-and a summary every 30 minutes. `desk-runner.py run --desk landing` is the drive's
-merge queue and owns ready-prefix enqueue through the repository adapter
-`landing.adapter` names, per-head gate blockers, and post-landing restacks (D3, D14, D16). The landing desk never
-enqueues or duplicates those routes beside the runner. The runner also sends the
-release of a landed `merge-fast` PR to the release owner under D20, and the desk
-never repeats those records.
+Spawn one `landing-desk` lane as `long-running:lane`, model opus, before the first lane that opens a PR. It is the message queue and landing coordinator for the drive, while `desk-runner.py run --desk landing` is the drive's merge queue and owns D3, D14, D16, and D20. Every landing rule (D1 to D22), check registry detail, merge mode rule, `ledger.py` and `mq.py` verb, and message contract lives in `reference/landing.md`. For desk inbox rules (I1 to I7) see `reference/bus-contracts.md` and `SKILL.md`; for standing rules (I6) see `reference/owner-rulings.md`.
+
 The brief below is ready to paste; fill the angle brackets.
-
-## Root discipline
-
-The root owns rulings, dispatch, holds, and one summary to the owner.
-A hold is a root cci `hold` record, posted with `mq.py hold <n> --reason "<why>"` or
-`cci post --kind hold`: it holds the one PR its text leads with as `hold #<n>`, else every
-PR its refs name, and a later `#<n>` in the text is prose. A record that resolves it, such
-as the `lift` record `mq.py lift <n>` posts, lifts it. No hold lives in a file.
-
-The owner's merge mode, `landing.merge_mode` in `runner.json`, decides which PRs
-wait for the owner before they enqueue: `every` PR, only `high-risk` ones, or none
-under `auto`. The root asks it once at execution start and records the answer. For each
-waiting PR and head the runner asks the merge card through `cc-present ask` in the drive
-root's session, so it lands on the root's board and in the root's Slack status thread,
-with `Merge (Recommended)`, `Hold`, `Other`, and `Explain more`
-(93037c3), and logs one `MERGE-ASK` naming it; nobody hand-writes a merge card, and no
-merge question goes out as an `AskUserQuestion`. An `Explain more` tap resolves nothing. The text the owner types
-in `Other`'s modal reaches the root as the card's capture and merges nothing.
-A repository the runner's own GitHub account owns lands once green with no card
-(de6c88c). A `Merge` tap becomes a root `go`
-record naming the PR and its head, which the runner enqueues on; a `Hold` tap becomes
-a root `hold` record. The desk never answers a `MERGE-ASK` and never enqueues a PR that
-waits on one.
-
-Lanes never enqueue under D1; the pack's `lane_landing` hook warns a lane that does. A hold is
-an open cci `hold` record or GitHub's `hold` label. The runner
-never enqueues a held PR or a PR above it, and no adapter takes a hold flag
-or reads holds. The desk never
-enqueues above a held PR; the lane reports `held` on the tip, names the held
-PR, and leaves release to the root.
-
-For priority PRs flagged by the owner or blocking a release or a user, the root reads
-`mq.py --config <runner config> why <n>` for each and runs `mq.py priority <n> 0` in
-the same turn under D3, so the queue gates and enqueues them first. Approval covers
-only the named head.
-It never relays a lane's ETA for a green PR. The desk records an outside label
-on its next refresh as `in the queue, labelled outside the desk`.
-
-A PR the root enqueues with `stack-enqueue <PR> --fast` carries the `merge-fast`
-label. When it lands with a `Release-With:` line in its body, the landing runner
-posts one cci `release` record to the release owner and the root in that pass. Every
-`deadlines.release_start_minutes` after the landing, 10 by default, it posts a
-`blocker` to both under D20. The blockers end when a `release` record on this drive
-from the release owner or the root names one of the line's components with `--target`
-or the PR with `--pr`, or when the root replies to one of them with `--re <seq>`. A
-`release` record the release owner posts on its own drive does not count, so it posts
-with `--drive <drive>`, as the runner's record tells it to.
-
-Incident fixes land by plain squash the pass they are approved and green (ef905a6).
-The landing runner never enqueues an incident fix PR on the trunk: in the pass its
-head reads approved with every required check passing, it runs
-`gh pr merge <n> --squash --match-head-commit <head>` once per head and posts
-`landed`. Neither the root nor this desk enqueues one with `--fast`. Its landing owes
-a release under D20 whatever its label, every `deadlines.incident_release_minutes`
-while an incident clock runs, and settles only on a `release` record with `--build`.
-
-The queue's `hold` and `fidelity` checks alone read holds and grades, and the
-fidelity grade carries the review of each head against the owner's rulings and the
-repository's AGENTS.md, so a hand `gt merge` or a web-UI enqueue bypasses both;
-`mq.py why <n>` names each first. The hand enqueue in a
-drive is `mq.py enqueue <n>... [--partial]`, which runs the runner's checks, the owner's
-board tap included, and enqueues only when every head passes. A hand `stack-enqueue`
-in a drive runs `mq.py gate <n>...` first and warns with each hold or enqueue check
-that fails a head it would queue, the finder at that exact head included, and is refused
-outright when the gate names `TAP-REQUIRED`; clear them first. Never wrap `stack-enqueue`
-in a script of your own: the hook never sees the call inside it, and a root go is no tap.
-
-Before a D3 priority call, read `mq.py why <n>` and leave every PR whose
-`fidelity` line fails held.
-
-Follow [Desk inboxes](../SKILL.md#desk-inboxes). The root never `SendMessage`s a
-running desk. If reports show a cursor more than one iteration behind the root's
-last addressed record, the root posts one
-`cci post --drive <drive> --lane root --kind go --to <desk> --text "Read unread range #<first>-#<last>."`
-and records the stall in its progress record. The desk reads it at the top of its
-next iteration. Forward a priority desk's lane traffic with `cci post --to <desk>`.
-A standing owner rule gets a `scope:durable` cc-notes answer first, then its own
-`cci post --drive <drive> --lane root --kind go --to <desk> --ccn <answer id> --topic standing --text "<rule>"`.
-A successor brief lists live standing answer ids, never a sequence range,
-under [I6](../SKILL.md#desk-inboxes).
-
-The root records every owner ask with `ledger.py ask` in the turn it arrives, before
-or with dispatch to its own lane. An ask is done only at `LIVE`. Before then, the root
-says "in #N, not live yet: `<blocker>`", never that the ask is handled. Before claiming
-work is assigned, it reads the summary's `LOST` lines and dispatches each one in that
-turn. It advances each `LANDED-NOT-LIVE` or `IN-PR` ask the summary escalates.
-It closes asks outside that lifecycle with `ledger.py drop` when the owner withdraws
-them, or `ledger.py answer` for questions rather than shipped work. When the pipeline
-that ships our lanes' PRs runs, the root records it with `ledger.py live`.
-
-Beside the desk's summary the root reads `cci digest --drive <drive>`: open asks,
-blockers, holds, incidents, and the latest record per lane. The default window is
-24 hours; widen it with `--since` to inspect older open items. An ask older than its
-lane's cadence is dispatched under R6; a blocker on a finished lane's PR gets a
-fresh fix lane. Read `cci state --drive <drive>` before asking for a head or contract.
-
-Other PR questions go to the desk as a scoped resume and come back as at most five
-lines. The root acts on each `P0` line in the same turn, like a `RULING NEEDED` line.
-The root answers a `RULING NEEDED` line with a letter and nothing else, and
-it never replies to an idle notice. When the desk's 30-minute summary arrives the
-root reads it, updates its task list, and sends nothing back.
 
 ## Spawn brief
 
@@ -335,11 +227,7 @@ Do, in this order, forever:
      route, hold, lift, or `RULING NEEDED`.
      Include `cursor #<seq>` beside the unchanged summary.
      Immediately: every `P0` line and each `RULING NEEDED` line, with your cursor.
-  7. Shard at 15 lanes or 25 active rows, whichever comes first. Split earlier
-     rather than later. Spawn one
-     `long-running:lane` sub-lane per set of lanes with this same brief plus
-     `Shard: <lane,lane>`. Each sub-lane passes `--shard <lane,lane>` to refresh,
-     landed, route, and stale. The runner owns D3, D14, D16, and D20 across all shards.
+  7. Shard under D12 in landing.md. The runner owns D3, D14, D16, and D20 across all shards.
      Use a 3-minute cadence, staggered by a minute across desks and shards
      (:00/:01/:02), with one batched PR status read and the Buildkite build list.
      It never types messages in and never sends

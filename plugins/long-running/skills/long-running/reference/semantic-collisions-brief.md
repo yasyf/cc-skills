@@ -1,22 +1,16 @@
 # The semantic-collisions lane
 
-Spawn one `semantic-collisions` lane as `long-running:lane`, model opus at `xhigh`,
-once three or more lanes work in the same area. Textual conflicts show up at rebase; semantic ones
-do not. One lane adds an option to a function another lane deletes, one lane's test
-seeds a record another lane stops writing, one lane adds a guard the owner just
-retired, and every PR goes green on its own. This lane holds the whole picture and
-tells each side which way to build before either lands.
+Spawn one standing `semantic-collisions` lane as `long-running:lane` with model `opus` at `xhigh` once three or more lanes work in the same area. Textual conflicts appear at rebase, but semantic collisions do not. One lane adds an option to a function another lane deletes, or one lane's test seeds a record another lane stops writing. Another lane adds a guard the owner just retired while a peer builds on a mechanism being deleted, and every PR goes green on its own. This lane holds the bird's-eye view of every open PR and worktree and resolves semantic collisions before either side lands.
 
-The brief below is ready to paste; fill the angle brackets.
+The lane keeps a map file at `map.md` with one row per collision listing the lanes, the PRs, the contradiction, the verdict, and who was told. Head snapshots beside the map let each sweep re-read only the heads that moved. Per collision, the lane messages the owning lanes directly with a 20-minute deadline. Only a collision that no settled ruling decides goes to the root as `RULING NEEDED`. An owner ruling that retires a mechanism triggers a full sweep of every open PR and worktree. That sweep gives one verdict per PR, stating whether the PR builds on the mechanism, mentions it, or carries the same guard under another name.
 
 ## Root discipline
 
-The root pings the lane on every 30-minute tick with `SWEEP` plus any new owner
-ruling, since an in-process teammate cannot schedule itself. It answers the lane's
-`RULING NEEDED` lines with a letter and nothing else. A new owner ruling that retires
-a mechanism goes to the lane in the same turn as `FULL SWEEP <ruling>`.
+The root pings the lane on every 30-minute tick with `SWEEP` plus any new owner ruling, because an in-process teammate cannot schedule itself. The root answers the lane's `RULING NEEDED` lines with a letter and nothing else. The root sends a new owner ruling that retires a mechanism to the lane in the same turn as `FULL SWEEP <ruling>`.
 
 ## Spawn brief
+
+Paste the brief below and fill the angle brackets.
 
 ```
 ccx: role=review

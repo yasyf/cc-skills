@@ -1,9 +1,8 @@
 # The dashboard keeper lane
 
-Spawn `dashboard-keeper` as `long-running:lane`, model sonnet, effort low, when the root
-starts the drive dashboard app, and name it as the config's `keeper_lane`. The app
-renders everything a record states by itself; the keeper keeps the few sentences no
-record states, and keeps the app running.
+Spawn `dashboard-keeper` as `long-running:lane`, model sonnet, effort low, when the root starts the drive dashboard app, and name it as the config's `keeper_lane`. The app renders everything a record states by itself per [drive-dashboard.md](drive-dashboard.md). `dashboard-keeper` keeps the few sentences in the story file true, answers each build `defect` the app posts, keeps the app running, and takes the place of `/live-dashboard`'s `dashboard-curator`.
+
+## Spawn brief
 
 Fill the angle brackets and paste the brief.
 

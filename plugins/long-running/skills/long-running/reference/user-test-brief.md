@@ -1,11 +1,8 @@
 # The user-test lane
 
-Any page, board layout, or dashboard screen the owner will use gets a `user-test` lane
-before he sees a revision of it. Spawn `user-test-<surface>` as `long-running:lane-ship`,
-model sonnet, effort low, beside the lane that builds the surface. It owns no code: it
-plays the owner against the live page through codex and hands every miss to the builder.
-The card that shows him the revision waits for at least three rounds and a round with no
-glance misses, and it carries the rounds' findings and the five-second result.
+Any page, board layout, or dashboard screen the owner uses gets a `user-test` lane before he sees a revision of it. Spawn `user-test-<surface>` as `long-running:lane-ship`, model sonnet, effort low, beside the lane that builds the surface. The test lane owns no code and plays the owner against the live page through codex, handing every miss to the builder. The card that shows him the revision waits for at least three rounds and a round with no glance misses, and it carries the rounds' findings and the five-second result.
+
+## Spawn brief
 
 Fill the angle brackets and paste the brief.
 
@@ -37,7 +34,3 @@ Stop after at least three rounds, the last with zero glance misses, and the buil
 word that the revision is ready for his card; report the round history to root. Nothing runs on this Mac beyond
 agent-browser and codex. No Slack, GitHub, or Buildkite calls.
 ```
-
-*Prevents Oct 27 12:23 AM: a dashboard revision reached the owner untested, and he sent
-it back as evolutionary rather than revolutionary, asking for user testing with codex in
-his shoes and many more iterations.*

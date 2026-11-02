@@ -1,134 +1,64 @@
 # The finder brief
 
-Every drive head gets one finder pass: one `gpt-6.1-sol` reader at xhigh on the
-standard tier, run through `Skill(codex)` with its finder recipe
-(`codex-ask --schema findings`). The finder looks for defects in the diff, the way
-any finder does, and it also reads the head against the same rows the
-[fidelity desks](fidelity-desk-brief.md) read, returning one verdict per row. A
-row it finds `missing` is a major. With a `finder` object in `runner.json`, the orca
-desk runner runs the pass on every `head` record and posts its record under lane
-`finder-desk`, from [finder-desk-brief.md](finder-desk-brief.md). The lane fixes or rebuts
-each major in the PR; the landing desk reads only `finder-desk`'s own `finder:` records,
-never a lane's.
+Every drive head gets one finder pass from one `gpt-6.1-sol` reader at xhigh on the standard tier, run through `Skill(codex)` with its finder recipe (`codex-ask --schema findings`). The finder looks for defects in the diff and reads the head against the same rows the [fidelity desks](fidelity-desk-brief.md) read, returning one verdict per row. A row it finds `missing` is a major.
+
+With a `finder` object in `runner.json`, the orca desk runner runs the pass on every `head` record and posts its record under lane `finder-desk`, from [finder-desk-brief.md](finder-desk-brief.md). The lane fixes or rebuts each major in the PR. The landing desk reads only `finder-desk`'s own `finder:` records, never a lane's.
 
 ## What the finder receives
 
-Codex reads neither the hooks nor the register, so the prompt carries everything by value:
+Codex does not read the hooks or the register, so the prompt carries everything by value:
 
-- The head: repository, PR number, full head sha, base branch, and the command
-  that prints its diff.
-- Every row `rulings.py slice --pr <owner/name>#<n> --head <sha> --base <base> --repo <checkout> --required`
-  prints (every global, pending, and matched row), each with its key, the owner's
-  words verbatim, its implications with their `removes`, `requires` or `permits` mark and
-  status, and its names. Paste them as the register holds them, never summarized.
-- The PR body and its author's comments, the `## Rulings` and `## Regression tests`
-  comments included, as claims to check.
-- The plan's path and the paths of the sub-plans the slice names, so the finder can
-  cite the line each added or changed test rests on.
+- The head: repository, PR number, full head sha, base branch, and the command that prints its diff.
+- Every row `rulings.py slice --pr <owner/name>#<n> --head <sha> --base <base> --repo <checkout> --required` prints (every global, pending, and matched row). Each row includes its key, the owner's words verbatim, its implications with their `removes`, `requires`, or `permits` mark and status, and its names. Paste them as the register holds them, never summarized.
+- The PR body and its author's comments, including the `## Rulings` and `## Regression tests` comments, as claims to check.
+- The plan's path and the paths of the sub-plans the slice names, so the finder can cite the line each added or changed test rests on.
 
-## What it returns
+## What the finder returns
 
-The reply follows the `findings` schema, so the codex plugin needs nothing new:
+The reply follows the `findings` schema, so the codex plugin needs nothing new. Each row with verdict `missing` is one finding of severity `major`. Its `cite` is the file and line. Its `defect` starts `row <key> missing:` and states what the code keeps, offers, recommends, budgets, or tests that the words ban.
 
-- Each row with verdict `missing` is one finding of severity `major`, its `cite` the
-  file and line, its `defect` starting `row <key> missing:` and then what the code
-  keeps, offers, recommends, budgets, or tests that the words ban.
-- `swept` names every other row: `rows met: <key>,<key>...; n/a: <key>,<key>...;
-  pending: <key>,<key>...`, then the files it read. `met` means the head does what
-  the words say; `n/a` means the head touches nothing the row covers; `pending` lists
-  each `pending-owner` row, which gets no verdict of its own. A head that needs a
-  pending row in force is read against the rows it would have excepted.
-- Defect findings keep the schema's severities. A `blocker` counts as a major and a
-  `nit` as a minor.
-- Slow code is a defect. The finder asks what the change runs per chat, team, session,
-  or run at 1,000 of them, and grades major, its `defect` starting `slow at N:`, a loop
-  that awaits I/O per item, a concurrency cap standing in for a batch, a process, timer,
-  or poll per item, a lock or wait wider than the one resource it protects, a poll where
-  a stream or signal exists, a cache, cap, timer, retry, or idle wait whose PR body names
-  no fundamental fix it stands in for, local state in a JSON file, or a branch on whether
-  required configuration is set.
-- A change to a request or response shape between two separately released components
-  (GraphQL inputs and fields, REST bodies, the SandSQL wire, signal payloads) must work against the old and the new peer: the reader ships first and
-  accepts both shapes, and the writer switches a release later (the owner's Oct 29 pick on
-  card-wire-order, rule 7ab71e2). A writer that sends a shape the released reader rejects,
-  such as a new input field sent on every call, is a major, and so is a reader that stops
-  accepting a shape a released writer still sends, such as a resolver that now refuses a
-  call older clients make. A removal of an accepted shape stays a major until every
-  installed client is past it, which the PR body shows by the release that carried the new
-  shape to them. The dual-shape reader the rule asks for is never a compat layer.
-- Shared infrastructure is old-tree surface. A head changes it when it edits a row, manifest
-  or policy the old tree's production workloads run under or reach through, or points one of
-  them at another service, fleet or endpoint: in Forge-AI/monorepo, anything under
-  `infra/rows/` that renders a NetworkPolicy, a Namespace or its labels, an Istio
-  AuthorizationPolicy or PeerAuthentication, a ServiceAccount, a Service, DNS or a route the
-  executors, the api deployments, the restate workers or sanddb use, and any api or runner
-  change that moves an old-tree call onto another fleet, as #46834 moved run journals onto
-  the system SandSQL fleet. Such a head must name, in its PR body, the old-tree workloads it
-  affects, and carry a test that renders the change on every cluster config, plat, staging
-  and each tenant, such as `infra/rows/k8s/old-tree-reach.test.ts` and its snapshot. A head
-  that changes it without both is graded major, its `defect` starting `old-tree infra:`, and
-  a test that renders one cluster where the row differs per cluster asserts less than it
-  claims.
-- A major cites at least one `path:line` inside a hunk the diff adds or changes
-  (`git diff --unified=0 origin/<base>...<sha>`). A finding that rests only on lines
-  the diff leaves as they were is a census finding, its defect starting `census:`: the
-  lane appends it to `<drive scratch>/finder-desk/census-<YYYY-MM-DD>.md` with the PR,
-  head, cite, and claim, and posts one `finder census:` note to root, never a major.
-- Every assertion the diff adds or changes in a test asserts only behavior a plan
-  line, sub-plan line, or owner ruling names (e20e623). `swept` cites that line for
-  each such test as `tests: <test> <- <plan cite>; ...`. An assertion that pins
-  drive-era behavior the plan removes, or behavior nothing names, is one finding of
-  severity `major`, its `defect` starting `test <name> pins unplanned behavior:`. A
-  test whose only change is a renamed fixture, constructor, argument or import is
-  graded on those lines alone: its untouched assertions are dev's, so a finding on
-  them is a census finding, never a major on the PR (root #208116). A port is a head whose PR
-  body, or fidelity grade, says it ports an old-tree PR by number. On a port, a test
-  that asserts what a test of that old-tree PR asserts is graded against the old-tree PR,
-  the contract (plan 0.4; rule 784f1ab: a port keeps its regression tests), cited in
-  `swept` as `tests: <test> <- old-tree #<n>`, and raises no such finding. A test with no
-  counterpart there, or asserting more than its counterpart, is graded against the plan.
-  The same holds for a test the PR body or a PR comment under a `Rulings` heading ties to
-  the finder or review-bot finding it pins, or to the old-world twin PR it mirrors: it is
-  cited as `tests: <test> <- <finding or twin>` and checked only against what that source
-  fixed.
+`swept` names every other row as `rows met: <key>,<key>...; n/a: <key>,<key>...; pending: <key>,<key>...`, followed by the files it read. `met` means the head does what the words say. `n/a` means the head touches nothing the row covers.
 
-Every key the slice printed appears exactly once, as `met`, `n/a`, `pending`, or a
-`missing` finding. A reply that drops a key is no verdict: run the pass again.
+`pending` lists each `pending-owner` row, which gets no verdict of its own. Read a head that needs a pending row in force against the rows it would have excepted. Every key the slice printed appears once as `met`, `n/a`, `pending`, or a `missing` finding. A reply that drops a key is no verdict, so run the pass again.
 
-## The record
+Defect findings keep the schema's severities. A `blocker` counts as a major and a `nit` as a minor.
 
-The finder desk posts the verdict as the pass returned it, exactly as cci #110240 item 3
-fixed it; only these records grade a head (root #202594):
+For slow code, ask what the change runs per chat, team, session, or run at 1,000 of them. Grade any of the following as a `major` with `defect` starting `slow at N:`. A loop that awaits I/O per item is slow code, and so is a concurrency cap standing in for a batch, or a process, timer, or poll per item. A lock or wait wider than the one resource it protects, or a poll where a stream or signal exists, is also slow code. Grade the same way a cache, cap, timer, retry, or idle wait whose PR body names no root fix it stands in for, local state in a JSON file, or a branch on whether required configuration is set.
+
+Under wire compatibility (rule 7ab71e2), a change to a request or response shape between two separately released components, including GraphQL inputs and fields, REST bodies, the `SandSQL` wire, and signal payloads, must work against the old and the new peer. The reader ships first and accepts both shapes, and the writer switches a release later. Grade as a `major` a writer that sends a shape the released reader rejects, such as a new input field sent on every call, or a reader that stops accepting a shape a released writer still sends, such as a resolver that refuses a call older clients make. Removing an accepted shape stays a major until every installed client is past it, which the PR body shows by naming the release that carried the new shape to them. The dual-shape reader this rule requires is never a compat layer.
+
+Shared infrastructure is old-tree surface. A head changes it when it edits a row, manifest, or policy the old tree's production workloads run under or reach through, or points one of them at another service, fleet, or endpoint. In `Forge-AI/monorepo`, this includes anything under `infra/rows/` that renders a `NetworkPolicy`, a Namespace or its labels, an Istio `AuthorizationPolicy` or `PeerAuthentication`, a `ServiceAccount`, a Service, DNS, or a route that the executors, api deployments, restate workers, or sanddb use. It also includes any api, or runner change that moves an old-tree call onto another fleet.
+
+Such a head must name the affected old-tree workloads in its PR body and carry a test that renders the change on every cluster config, including plat, staging, and each tenant, such as `infra/rows/k8s/old-tree-reach.test.ts` and its snapshot. A head that changes shared infrastructure without both is a `major` with `defect` starting `old-tree infra:`. A test that renders one cluster where the row differs per cluster asserts less than it claims.
+
+For hunk citations and census findings, a major cites at least one `path:line` inside a hunk the diff adds or changes (`git diff --unified=0 origin/<base>...<sha>`). A finding that rests only on lines the diff leaves as they were is a census finding with `defect` starting `census:`. The lane appends census findings to `<drive scratch>/finder-desk/census-<YYYY-MM-DD>.md` with the PR, head, cite, and claim, and posts one `finder census:` note to root, never a major.
+
+For test grounding, every assertion the diff adds or changes in a test asserts only behavior that a plan line, sub-plan line, or owner ruling names. `swept` cites that line for each such test as `tests: <test> <- <plan cite>; ...`. An assertion that pins drive-era behavior the plan removes, or behavior nothing names, is a `major` with `defect` starting `test <name> pins unplanned behavior:`. A test whose only change is a renamed fixture, constructor, argument, or import is graded on those lines alone; its untouched assertions are dev's, so a finding on them is a census finding, never a major on the PR.
+
+A port is a head whose PR body or fidelity grade says it ports an old-tree PR by number. Plan 0.4 and rule 784f1ab state that a port keeps its regression tests, so on a port, grade a test that asserts what a test of that old-tree PR asserts against the old-tree PR. Cite it in `swept` as `tests: <test> <- old-tree #<n>` and raise no unplanned-behavior finding. Grade a test with no counterpart there, or asserting more than its counterpart, against the plan. The same holds for a test the PR body or a PR comment under a `Rulings` heading ties to the finder or review-bot finding it pins, or to the old-world twin PR it mirrors. Cite that test as `tests: <test> <- <finding or twin>` and check only that it asserts what that source fixed.
+
+## Post the finder record
+
+The finder desk posts the verdict as the pass returned it. Only these records grade a head:
 
 ```bash
 cci post --drive <drive> --lane finder-desk --kind review --pr <owner/repo>#<n> --text "finder: ok <head7> <one line>"
 cci post --drive <drive> --lane finder-desk --kind review --pr <owner/repo>#<n> --text "finder: major <head7> <count> open: <one line per major>"
 ```
 
-`<count>` is the number of open majors, row `missing` findings included. The one
-line per major names its cite and defect, and `; ` separates majors so the record
-stays one line. Minors go in the PR body, never in the record.
+`<count>` is the number of open majors, including row `missing` findings. Each major's segment names its cite and defect, separated by `; ` so the record stays on one line. Put minors in the PR body, never in the record.
 
-The newest finder record that names the head decides. Two things answer a major:
-a new head, which gets its own pass, or a later
-`finder: ok <head7> answered: <how>` that a finder pass posts after it reads the
-fix or the rebuttal in the PR. A lane never posts `answered` on its own word.
+The newest finder record that names the head decides. Two things answer a major. One is a new head, which gets its own pass, and the other is a later `finder: ok <head7> answered: <how>` that a finder pass posts after reading the fix or rebuttal in the PR. A lane never posts `answered` on its own word.
 
-## What the landing desk does with it
+## How the landing desk uses the grade
 
-The landing desk refuses a head with no finder record, or whose newest record is
-`finder: major`, with `FINDER-PENDING`, and `rulings.py check-pr` reports the open
-major as `FINDER-MAJOR <head7>`. An incident fix never waits for the finder: the
-pass runs within 30 minutes after it merges (d968e1d, option (a)), and the runner escalates a merged head with no
-finder record at 30 minutes as `UNGRADED-30`.
+The landing desk refuses a head with no finder record, or whose newest record is `finder: major`, with `FINDER-PENDING`. `rulings.py check-pr` reports the open major as `FINDER-MAJOR <head7>`. An incident fix never waits for the finder, so the pass runs within 30 minutes after it merges, and the runner escalates a merged head with no finder record at 30 minutes as `UNGRADED-30`.
 
 ## Prompt
 
-Fill the angle brackets, paste the slice rows whole, and pass the prompt to
-`codex-ask --schema findings` through `Skill(codex)`.
+A lane never runs its own pass. It posts an `ask` to `finder-desk` naming the PR and head, and the desk starts that pass ahead of every other head.
 
-A lane never runs its own pass. It posts an `ask` to `finder-desk` naming the PR and
-head, and the desk starts that whole pass ahead of every other head.
+Fill the angle brackets, paste the slice rows whole, and pass the prompt to `codex-ask --schema findings` through `Skill(codex)`.
 
 ```text
 You are the finder for <owner/name>#<n> at head <full sha> on base <base>.

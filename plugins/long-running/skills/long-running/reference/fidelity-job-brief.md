@@ -50,14 +50,14 @@ are the finder's.
 
 A change to a request or response shape between two separately released components
 (GraphQL inputs and fields, REST bodies, the SandSQL wire, signal payloads) must work against the old and the new peer: the
-reader ships first and accepts both shapes, and the writer switches a release later (the
-owner's Oct 29 pick on card-wire-order, rule 7ab71e2). A writer that sends a shape the
-released reader rejects, or a reader that stops accepting a shape a released writer still
-sends, is `missing`, and a removal of an accepted shape stays `missing` until every installed
-client is past it, which the PR body shows by the release that carried the new shape to them.
-Key it `rule/7ab71e2` when the rows file carries that row, otherwise by the plan line of the
-step the hunk carries out, its line quoting this rule. The dual-shape reader the rule asks for
-is never the compat layer an AGENTS.md line forbids.
+reader ships first and accepts both shapes, and the writer switches a release later (rule
+7ab71e2). A writer that sends a shape the released reader rejects, or a reader that stops
+accepting a shape a released writer still sends, is `missing`, and a removal of an accepted
+shape stays `missing` until every installed client is past it, which the PR body shows by the
+release that carried the new shape to them. Key it `rule/7ab71e2` when the rows file carries
+that row, otherwise by the plan line of the step the hunk carries out, its line quoting this
+rule. The dual-shape reader the rule asks for is never the compat layer an AGENTS.md line
+forbids.
 
 Answer in the schema:
 
@@ -79,7 +79,7 @@ Answer in the schema:
 - A mechanism or test is grounded, and never `missing` as "plan names no <thing>" or as a
   test that pins unplanned behavior, when the PR body or a comment under a `Rulings` heading
   names its source: (a) the old-tree commit it ports, under the owner's order to lose
-  nothing from dev or the old tree (answer 06288326); (b) the finder or review-bot finding it
+  nothing from dev or the old tree; (b) the finder or review-bot finding it
   fixes or pins; (c) the old-world twin PR it mirrors, under the owner's order to fix the
   same defect in the old world too. Read the named source pinned by sha (an old-tree PR's
   head from `git ls-remote origin refs/pull/<n>/head`, then `git fetch --no-write-fetch-head
@@ -92,14 +92,13 @@ Answer in the schema:
   `infra/rows/` that renders a NetworkPolicy, a Namespace or its labels, an Istio
   AuthorizationPolicy or PeerAuthentication, a ServiceAccount, a Service, DNS or a route the
   executors, the api deployments, the restate workers or sanddb use, and any api or runner
-  change that moves an old-tree call onto another fleet, as #46834 moved run journals onto
-  the system SandSQL fleet. Such a head must name, in its PR body, the old-tree workloads it
-  affects, and carry a test that renders the change on every cluster config, plat, staging
-  and each tenant, such as `infra/rows/k8s/old-tree-reach.test.ts` and its snapshot. A head
-  that changes it without both is `missing` keyed by the plan line that keeps the old tree's
-  production path working until cutover, with a line starting "old-tree infra:" that names
-  what is unnamed or untested. A test that renders one cluster where the row differs per
-  cluster is no such test.
+  change that moves an old-tree call onto another fleet. Such a head must name, in its PR
+  body, the old-tree workloads it affects, and carry a test that renders the change on every
+  cluster config, plat, staging and each tenant, such as `infra/rows/k8s/old-tree-reach.test.ts`
+  and its snapshot. A head that changes it without both is `missing` keyed by the plan line
+  that keeps the old tree's production path working until cutover, with a line starting
+  "old-tree infra:" that names what is unnamed or untested. A test that renders one cluster
+  where the row differs per cluster is no such test.
 - `touches`: the key of every reserved row the head touches, whatever the verdict.
 - `exempt`: `port` only when the PR ports an old-tree PR its body names by number, line for
   line, and touches no code or behavior the plan's steps changed or own ("{port}");

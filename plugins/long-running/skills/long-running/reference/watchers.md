@@ -1,0 +1,186 @@
+# Watchers and lane supervision
+
+## Contents
+
+- [Run the stall watch](#run-the-stall-watch)
+- [Run the prompt watch](#run-the-prompt-watch)
+- [Answer a terminal dialog](#answer-a-terminal-dialog)
+- [Run the label watch](#run-the-label-watch)
+- [Respect shared API budgets](#respect-shared-api-budgets)
+- [Supervise and rotate lanes](#supervise-and-rotate-lanes)
+
+## Run the stall watch
+
+**`scripts/stall_watch.py` finds work that stopped moving.** Add a `stall` object to `runner.json`, such as `"stall": {"every_minutes": 5}`, and the orca desk runner (`desk-runner.py`) starts one detached pass every `every_minutes` once the last pass has exited. The runner reads the `stall` object on every pass, so adding or editing it needs no restart. Each pass logs to `stall-watch.log` beside `orca.desk_inbox`.
+
+**S1. Each stall reaches root once, with its owner and next step.** A pass reads the drive's cci records, the landing ledger, the holds, the landing desk's store, the root's board, and the root's task list. For each stall, `stall_watch.py` posts one `urgent` record from lane `stall-watch` to `root` and the owning lane:
+`STALL <kind> <subject>, <age> min: <what stopped> | owner <lane> | <next step>`. A stall posts again only after it clears and comes back, and never sooner than 30 minutes after its last post.
+
+**Route red stalls to the PR's live owning lane.** A `red` stall posts as a `blocker` to the PR's live owning lane alone, and repeats every 30 minutes while it stands. The owner is the lane named by the newest root record that reassigns the PR, else the ledger row's lane. A red that no live lane owns reaches `root` once per head. A `red` record classing the head `inherited`, `flake`, or `stale` silences its `red` stall until the head moves. A head classed `inherited` with a PR below it waits on that PR, so the base's `stale` stall carries it. Reds whose failed job logged only Buildkite's benign 404 probe fold into one `report` line to `root` per day.
+
+**Filter desk, grader, and quiet-lane stalls.** A stall whose owners are all desks, named `<x>-desk` or `<x>-desk-<n>`, goes to those desks, and not to `root`. A stall owned by the landing desk goes to `landing.desk_lane` when `runner.json` names one, else to `root`. Finder and fidelity stalls never reach `root`. A `stale` or `board` stall spares `root` while a lane in `stall.quiet_lanes` posted about the PR in the last 10 minutes; `stall.quiet_lanes` defaults to `landing.go_lanes` and `landing.board_lane`, each matching its numbered successors. Board stalls in one stack post as one record on the stack's lowest PR.
+
+| Kind | Fires when | Minutes | Owner |
+|---|---|---|---|
+| `go` | a root go names a PR's head, no `QUEUED` record does, no hold covers a PR below it, and no standing refusal names a PR of its stack | 10 | the first PR in the stack, from the bottom, with no go or with a red, conflicting, or unfinished build, else the landing desk; for a PR with no go, the owner is root once it is graded and its next step is root's go, or none while it is ungraded or waits on the owner's tap, which its own row's stall names; for a bad or unfinished build, the owner is its lane; one record per blocking PR |
+| `refusal` | the desk runner or a landing desk lane refused to queue a PR a go or tap names, due to a needed restack, a conflict, an untracked or closed parent, a lost Graphite parent, mergeability GitHub is still computing, or `FOREIGN`, `TAP-REQUIRED`, `CONTRACT-MISSING`, `PARKED`, `UNOWNED`, `NOT-QUEUEABLE`, `ENQUEUE-*`; no `head` or `--re` answer from the owning lane, no `QUEUED`, no closing record, and the PR still sits at the refused head | 10 | root and the lane the refusal names as `owner lane <lane>` or `<lane>: #<pr>`, else the PR's lane; root for `FOREIGN` and `TAP-REQUIRED`; the landing desk for mergeability. The record names the refusal's command |
+| `successor` | the same refusal still stands | 20 | root, asked to spawn the owning lane's successor to run that command |
+| `red` | the head's `landing.trunk_check` check has read failed since the ledger row's `red_at`, held or not; the record names the failed Buildkite job, its first error line, and the build | 2 | the PR's live lane, from the newest root reassignment or the ledger row; root once per head when no live lane owns it |
+| `unclassed` | the head's build has read red since the ledger row's `red_at`, and no `red` record whose `head=` names the head classes it | 20 | root and the PR's lane, once per PR and head; the record quotes the `cci post --kind red` command |
+| `unfixed` | the newest `red` record at the head classes it `real`, and the PR has kept that head since | 60 | root and the class's owner, once per PR and head |
+| `sweep` | a red head has stood 20 minutes, and no `red-sweep` or `red-sweep-<n>` lane is live | 20 | root, naming every red PR and its class |
+| `tap` | the owner approved a head on the board, and no go names it | 10 | root and `landing.go_lanes` |
+| `ungraded` | a `head` record names the head, its build has read green since the ledger row's `green_at`, and either the finder review or the fidelity grade is missing for that head | 10 | the graders, or the landing desk when the finder desk runs, naming how long its queue has held the pass; root hears every head a pass newly finds ungraded in one `urgent` line |
+| `finder` | a `head` record names the head, no finder review does, and the finder desk holds no queued pass on it or one running past 25 minutes | 30 | the landing desk when the finder desk runs and queued nothing, or its pass ran past 25 minutes; else the PR's lane |
+| `fidelity` | a `head` record names the head, no fidelity grade does, and the fidelity desk holds no queued grade on it nor one running past 25 minutes | 30 | the landing desk for a grade past 25 minutes, else `landing.fidelity_lane` |
+| `missing` | the newest fidelity grade naming the head reads `fidelity: missing`, and no lane record answers its seq by `--re` or `#<seq>`, nor a PR comment no bot wrote follows it; the record names the grader and the missing text | 20 | root and the PR's lane, as for a red build |
+| `regrade` | such a record or comment answered that grade, and no grade has followed | 15 | the lane that posted the grade, or the landing desk when the fidelity pipeline did |
+| `board` | finder ok, fidelity ok, a green build, a wait on the owner's tap, and no board row or `merge:<pr>:<sha7>` card at the head, counted from the latest of the two grades and the ledger row's `green_at` | 15 | `stall.board_lane`, root by default |
+| `carry` | a tap or go names an earlier head, nothing carries it to this head, the board shows no row at it, and no desk runner `TAP-KEPT`, `TAP-CARRIED`, or `TAP-NOT-CARRIED` note names the head, since that note settles the carry | 15 | the fidelity lane when Sonnet reads a patch-identical restack, else root, to ask the owner again |
+| `lane` | a lane with an in-progress task on root's task list stays silent past the time its last record promised, or past 30 minutes | 30 | the lane, or root when the lane posted nothing in the window |
+| `ask` | a lane's ask to root is open, and no root record answers it | 15 | root |
+| `pick` | board-watch's `needs-lane:<block>` ask for an owner pick or written answer is open, and no record resolves or answers it, and no claim, lane record, spawn record, or spawned brief names the block or the ask's number | 15 | root, once per pick |
+| `customer` | a record the pass reads for the first time says customers or tenants are failing now, or will fail from a change already moving, and no incident record, incident lane, or break it answers covers it; it posts as an `incident` record `--re` that record, and the board text gate refuses a card that says the same | 0 | root, under R16 in `SKILL.md` |
+| `order` | a root `decide` record relays an owner order, Sonnet reads it as naming a change that ships as a new PR, and no lane it names, or a numbered successor, posts a record citing a PR after it, such as `opened`, `done`, or a `state` with a PR reference; it stops at two hours or when a root record closes it | 3 | root, as `urgent` |
+
+**S2. Python checks the facts, and one Sonnet call answers the judgment.** Sonnet judges whether a new head replays the tapped one unchanged. It also judges whether a quiet lane's last record explains its silence or promises a time, and whether a relayed owner order ships as a new PR. One call per pass through the judge library's `batch` (`reference/owner-rulings.md`), running Sonnet at low effort with Claude Code's own system prompt replaced, answers every open question and logs to `judge/calls.jsonl` as kind `stall`. A verdict is cached against the records it read, so no question is asked twice. When the call fails, each question takes its mechanical answer.
+
+**Configure stall thresholds and dry runs.** `stall.minutes` overrides any row's minutes, and `stall.window_hours` (default 24) bounds the records a pass reads. `stall_watch.py --config <runner.json> --dry-run` prints the stalls a pass finds, and posts and saves nothing.
+
+## Run the prompt watch
+
+**`prompt_watch.py` detects terminals stopped at interactive prompts.** A terminal stopped at a prompt reports nothing in its transcript and its lane looks busy, so the prompt watch reads Orca directly. `drive.py start` and root `SessionStart` run `prompt_watch.py start --drive <id>`, which detaches one `run` process per drive. The watch is its own process, so a stuck session does not stop it. It polls every 30 seconds, holds `<state dir>/prompt-watch/lock` so a second instance exits, and ends when `drive.py end` removes the registry file.
+
+**Hand over cleanly across plugin updates.** A plugin update signals nothing. The next `prompt_watch.py start` from the new version locks `<state dir>/prompt-watch/successor` and waits on `<state dir>/prompt-watch/lock`. The running watch exits after the poll that finds `successor` locked, and the new watch takes over. One watch waits at a time, and one that dies while waiting leaves no lock behind. A watch older than 0.7.43 never checks `successor`; stop it once by hand so the waiting watch takes over.
+
+**Poll every terminal in the drive registry.** The coordinator's terminal is `root_terminal`, which `drive.py start` and the hook record from `ORCA_TERMINAL_HANDLE`, and a prompt raised by an in-process lane appears here. Each standing desk is recorded with `drive.py desk --name <lane> --terminal <handle>`, plus `--environment <name>` for a desk on a remote host. The workers are every in-progress dispatch of the drive's Run, local or remote, from `orca orchestration worker-list --include-remote`. With no `orca_run` in the registry, the watch uses the Run bound to `root_terminal`, or none when that terminal is unbound. While `worker-list` fails, no worker's prompt is closed; each worker keeps its record and reads `unknown` or `unreachable` until the list answers again.
+
+**Classify each terminal from its rendered screen.** Orca's `agentWait` only indicates where to look; it stays set after a prompt is answered, so it never raises a record and never authorizes an answer. The watch reads the screen with `orca terminal read --screen` and puts each terminal in one state:
+
+| State | The screen shows | Record |
+|---|---|---|
+| `approval` | an approval dialog, such as a hook's ask, a tool permission, or a trust check | one, on the first poll that sees it |
+| `question` | a question picker | one, on the first poll that sees it; none on the coordinator's terminal |
+| `stale` | the agent's own input box, with `agentWait` still set | none; it resolves the prompt's record |
+| `unknown` | nothing the watch can read, or a wait whose screen matches no dialog or input box it knows | one `report` to `desk-runner` after three polls |
+| `unreachable` | nothing, because the remote host does not answer | one `report` to `desk-runner` after three polls |
+| `clear` | a working or idle agent with `agentWait` unset | none |
+
+**Report unreadable terminals and runtime outages to `desk-runner`.** After an `unknown` or `unreachable` report, the watch posts one `READABLE` report to `desk-runner` once three polls in a row read the terminal again. Neither reaches `root`. A shorter read posts nothing, so a flapping terminal or `worker-list` raises no second record for the same unread state. When every watched terminal reads `runtime_unavailable` or `timeout`, the Orca app itself is down and no terminal reports alone. The watch posts one `orca (runtime)` report after three polls only when the last answered `worker-list` held a worker in progress, and posts `READABLE` only after that report. A drive with no worker in progress hears nothing about the outage.
+
+**Read remote worker screens on every poll.** `unknown` and `unreachable` mean the prompt state is unknown; never treat either as working or stuck. A host running Orca's managed server installs no agent hook, so `agentWait` stays unset there. The watch reads every remote worker's screen on every poll through the `--environment` that `worker-show` names.
+
+**Store dialog text on disk only.** A dialog's text can hold a command or a secret, so the watch saves the screen of each prompt and each unclassified screen owner-only under `<state dir>/prompt-watch/screens/`. A record, a wake, and `prompt_watch.py show` name that file, the dialog's class, and the command that reads the live screen, never the dialog's text.
+
+**Post one cci record per prompt.** Each prompt raises one cci record from lane `prompt-watch` on topic `prompt:<name>`, never one per poll. The terminal, the dialog's class, and every row of text in the dialog identify a prompt, so a second command behind the same warning is a second prompt. Orca rewrites `agentWait.since` every few seconds while one dialog stays open, so it identifies nothing.
+- A worker's or desk's prompt posts as a `blocker` to `root`. The root reads the screen with the command in the record and decides. An approval record also carries the `prompt_watch.py answer` command that settles it.
+- A question dialog on `root_terminal` already waits on the owner there, so it raises no record, while `prompt_watch.py show` still lists it. During execution, an owner question goes on the board, never in that dialog (R8 in `SKILL.md`).
+- The coordinator's own approval cannot wake the coordinator. Register one independent agent as its supervisor with `drive.py desk --name <lane> --terminal <handle> --supervisor`. The coordinator's approval then posts as a `blocker` to that lane, and the watch types the record's line into the supervisor's terminal with `orca terminal send --enter`.
+- When started with `prompt_watch.py start --slack-cards`, the watch sends a `needs_you` card in the direct-message status thread of the drive's newest root session by using `cc-slack dm-status` whenever no supervisor can take the prompt. That covers a drive with no supervisor, a supervisor at a prompt, `unknown`, or `unreachable`, a wake Orca refuses, or a prompt still open five minutes after the supervisor's record. Without `--slack-cards`, the owner gets no Slack message for a dialog.
+
+**Wake an idle supervisor once per prompt.** Orca must read the supervisor terminal `tui-idle`, and the screen must read `idle`:
+
+| Supervisor's screen | Claude Code | Codex | The watch |
+|---|---|---|---|
+| `idle` | the plain empty `❯` box, nothing running | the `›` line with no draft, nothing running | types the line |
+| `busy` | a turn running, a draft, or a list under the box | a turn running or a draft | types nothing and looks again next poll |
+| `waiting` | a dialog | a dialog | types nothing; the owner gets the `ask` |
+
+The row records what Orca reported for the line, where `turn_started` means Orca saw the turn start, and `input_accepted` means Orca took the line without seeing a turn start. The watch never types a line twice.
+
+**Wait with `cci watch` in the supervisor.** A supervisor holding a foreground wait reads `busy` while waiting, so it runs `cci watch --drive <cci drive> --to <lane> --for 0` (printed by `drive.py desk --supervisor`) so the record ends the wait. The supervisor reads the live screen and answers only within what the owner already authorized. For anything else, it answers nothing, and the owner card follows five minutes after the supervisor heard.
+
+**Resolve records when the prompt clears.** When the prompt leaves the screen or its terminal leaves the watch, the watch posts an `unblock` record resolving each record it raised. It also posts an `info` card under the owner's card stating that the prompt cleared. The watch answers no prompt, types into no terminal waiting on a prompt, and never stops, restarts, releases, closes, or signals anything.
+
+## Answer a terminal dialog
+
+**Use `prompt_watch.py answer` to settle an approval dialog.** Orca refuses `orca terminal send --enter` and `--retry-request` into an agent showing an approval dialog with `agent_prompt_blocked`. Answer the dialog with the command the record names:
+
+```bash
+prompt_watch.py answer --dispatch <ctx_id> --episode <key> --by root yes
+prompt_watch.py answer --dispatch <ctx_id> --episode <key> --by root no --instead "<what to do instead>"
+```
+
+`--terminal <handle>`, with `--environment <server>` for a remote terminal, replaces `--dispatch` for a desk, the coordinator, or a worker known only by its terminal. `prompt_watch.py answer` reads the live screen and types only when an approval dialog is open there and matches `--episode` when given; otherwise, it refuses. It types the number of the first option in the dialog's closing list that reads Yes or Allow, or No or Deny, as raw keys, then reads the screen until the dialog closes. Numbered lines in the command preceding the closing list are ignored. A denied agent ends its turn, and Orca refuses new prompts until one is typed.
+
+Passing `no` requires `--instead`, which `answer` types and submits as raw keys once the screen shows the agent's empty input box. It posts one `status` message to the Run mailbox of the worker that owns the terminal, or of the Run the terminal coordinates, naming who chose which option, the dialog's title, and its episode, which names the watch's saved screen. The dialog's text stays out of the mail. With no Run to hold that line, `answer` refuses before typing. A dialog whose options carry no numbers, such as a folder trust check, is refused; answer it in the terminal.
+
+**Check prompt watch health with `show`.** `prompt_watch.py show --drive <id>` prints the last poll as a count line, then one line per terminal that is not `clear`. `ledger.py summary` prints the same lines after its counts. `PROMPT-WATCH-DOWN` leads them when the last poll is over two minutes old; run the `start` command it names.
+
+## Run the label watch
+
+**`scripts/label-watch.sh` enqueues stacks the root holds outside a ledger.** Use it for priority PRs under D1 in `reference/landing.md` and every PR on a drive too small for a desk; the desk uses `ledger.py`. Each PR must pass a seven-part gate before its stack enters the queue. First, `ccx vcs pr status` must read `not queued`, and a queued or landed PR prints `SKIP`. Second, the PR has no `hold` label. Third, its head merges cleanly into the freshly fetched trunk under `git merge-tree`; otherwise, it prints `CONFLICT` with the files. Fourth, its head merges cleanly into the trunk merged with each queued PR's admitted commit, apart from PRs in its own downstack. A conflict prints `NOT-READY <sha> conflicts-with #N <files>`, and the PR waits on the list until `#N` lands, when the trunk check takes over.
+
+Fifth, it is mergeable, its base is not `graphite-base/*`, and its state is `clean` when its base is the trunk. Sixth, every commit status and check run on its head sha passed or was skipped, apart from Graphite's `mergeability_check`. A red check prints `NOT-READY <sha> red <names>`, and an unfinished one prints `NOT-READY <sha> pending <names>`. GitHub reads a red optional check as `unstable` instead of blocked, so mergeability alone lets a red PR through. Seventh, every required approver approved its current head sha.
+
+**Never bypass a gate with a label.** Putting an override or skip-checks label on a PR to clear a red the diff did not cause is banned. When an untouched shard reds falsely, trigger one rebuild so it re-grades on a fresh build. If it reds again, report the shard, its time, and its p99 to the root instead of labeling around it.
+
+**Walk each stack bottom-up.** A listed PR brings in every open PR below it down to the trunk by using `pulls?head=`, and every open PR stacked above it by using `pulls?base=`. A PR already carrying the label prints `SKIP labelled` and passes the gate for PRs above it. A PR already in the queue prints `SKIP queued`, and every PR above it waits as `NOT-READY <sha> downstack #N` until it lands. The first PR to fail stops the walk, and every PR above it prints `NOT-READY <sha> downstack #N` without reading its checks. A stack that forks never enters the queue; every passing PR prints `NOT-READY <sha> fork at #N` until the stack is linearized.
+
+**Enqueue through the repository's queue.** `LABEL_WATCH_QUEUE` defaults to the repository's ccx queue. When the queue is `trunk`, `label-watch.sh` delegates only `once` mode to the gated native `stack-enqueue` helper; its legacy mutable-file `watch` and hold-file modes refuse visibly for Trunk and direct callers to `mq.py` with `trunk-stack-enqueue`. On the legacy Graphite path, a stack's largest passing bottom prefix enters the queue in one `POST /v1/graphite/merge` call (the call `gt merge` makes), sending the prefix's PR numbers bottom first so Graphite queues them as one batch. A REST label can go unseen by Graphite, while the API call is answered. The call reads `gt`'s token from `LABEL_WATCH_GRAPHITE_AUTH` (default `~/.config/graphite/auth`) on curl's stdin, never on the command line, and prints `API-FAIL enqueue` on failure.
+
+**Route remaining upstack PRs after a prefix enqueues.** When open PRs remain above a passing prefix, the prefix top prints `<top> ENQUEUED <sha> prefix`, PRs below it print `SKIP covered-by #<top>`, and each PR above keeps its `NOT-READY` reason with `restack-after #<top>` appended. When the prefix reaches the stack's top, that PR prints `ENQUEUED <sha>` without `prefix`. After the prefix lands, route the first PR above it to its owning lane to restack the rest on a Sprite with `remote-restack.py`; Orca routes use `desk-runner.py relay --config C --key R<n> --lane L --text T`. Where the landing runner owns D16 in `reference/landing.md`, it sends this route and the desk never duplicates it.
+
+**Configure dry-run, hold-file, and watch modes.** `LABEL_WATCH_DRY_RUN=1` appends `dry-run` to `ENQUEUED` and enqueues nothing. `LABEL_WATCH_HOLD=<file>` names PRs, one per line, that fail the gate as `NOT-READY <sha> held`. The watch re-reads the file every sweep, never enqueues or appends a held PR, and holds that PR and every PR above it while allowing a passing prefix below it to land.
+
+```sh
+export LABEL_WATCH_APPROVERS='forge-pr-reviewer[bot],poetic-svc' LABEL_WATCH_CHECKOUT=~/Code/monorepo
+label-watch.sh once 25742
+printf "%s\n" 25763 25780 >> "$LIST"
+label-watch.sh watch "$LIST"
+```
+
+`LABEL_WATCH_REPO`, `LABEL_WATCH_TRUNK`, `LABEL_WATCH_LABEL`, and `LABEL_WATCH_INTERVAL` default to the checkout's origin, its `origin/HEAD`, `merge`, and `300` seconds. Run `watch` in the background.
+
+**Sweep the list file and track evictions.** Add a PR by appending its number to the list file; duplicates are read once. Each sweep reads Graphite once for the whole list and GitHub only for unqueued PRs. A PR whose squash commit subject ending `(#N)` is on the fetched trunk prints `SKIP landed` without any API read, and a closed PR prints `SKIP closed` and leaves the list. Checks and reviews run only after earlier gates pass. `watch` deletes `ENQUEUED` and `SKIP` entries, keeps `CONFLICT`, `HELD`, `NOT-READY`, and `API-FAIL` entries, appends stack PRs still waiting on the gate, and prints a line only when a PR's result changes. It exits once the list is empty and every PR it saw queued or enqueued has closed.
+
+**Re-gate evicted PRs and fetch trunk into a dedicated ref.** `ccx vcs pr status` reads evictions from the queue's Merge activity comment. The watch prints `EVICTED <sha> <reason> <time>` once per eviction for any listed or previously queued/enqueued PR, then runs the PR through the gate in that same sweep and returns it to the list. The trunk is fetched into `refs/label-watch/<trunk>`, never `refs/remotes/origin/<trunk>`, so other fetches in a shared clone cannot lock its ref; three failed fetch tries print `API-FAIL trunk-fetch` for every PR that sweep and enqueue nothing. Queued PRs are those `ccx vcs pr status` reads `queued` on the list, plus in `watch` every PR seen queued or enqueued until it closes; a stack enqueued earlier in a sweep becomes a conflict base for the rest of that sweep.
+
+**Route conflicts, reds, and rework PRs to their lanes.** A `CONFLICT` or `red` line goes to the PR's owning lane to rebase or fix; never answer it with a label or re-queue an evicted PR before its lane pushes a fixed head. A PR sent back for rework gets the `hold` label and leaves the list in the same turn; taking the label off or converting the PR to draft does not dequeue it.
+
+## Respect shared API budgets
+
+**Share Buildkite and GitHub rate limits across the machine.** Every lane, desk, watcher, and daemon on the machine shares the `gh` account's GraphQL and REST limits, the GitHub App installation's limits, and the Buildkite REST limit. Read a job's log once and keep it on disk; never loop a log read over a build's plan shards, and never scan more than the handful of shards a failure names. Size any scan of more than a few hundred logs and send the count to the root before running it. Prefer an artifact or annotation over scraping a log.
+
+**Run one poller per PR or build (R3 in `SKILL.md`).** Resuming a poller after a wake preserves its backoff, while starting a second poller or restarting from scratch resets it. A 429 or 403 mid-poll gets a fixed wait and a retry, never an immediate retry or a fresh loop.
+
+**Read GitHub only through `ccx`.** Drive tools read GitHub with `ccx vcs pr status`, `vcs pr state`, `vcs pr watch`, or `ccx vcs gh -- <gh args>`, setting `GH_REPO` on GraphQL reads. Writes such as a merge, label, or comment stay plain `gh`, since `ccx` refuses them. `ccx` charges each read to `CCX_CALLER`, and `ccx vcs auth status --json` lists every quota and the callers that spent it.
+
+**Enforce the five-minute cache floor and quota floors.** No loop reads faster than every five minutes, and every `ccx vcs gh` read in a loop passes `--max-age 5m` so repeats within five minutes hit `ccx`'s machine-wide cache. A read that decides a merge passes `--max-age 0s`. With under 1,000 calls left in a quota, `ccx` refuses the read with one stderr line starting `ccx: GitHub rate limit floor:` naming the quota and its reset; the caller stops reading until that reset. The desk runner checks every quota each pass and posts one `urgent` `GITHUB-QUOTA-LOW` record to `root`, once per reset, for any quota under 1,500, naming the five callers that spent the most. Both lane brief templates carry this rule.
+
+**Batch and cache every GitHub read.** A desk or tool that needs one fact for many PRs reads it in one batched query per pass, never one call per PR. A surface showing a PR caches it by head, revalidates on a floor of one minute or more, and re-reads its files only when its head or base moves. The secondary limit fires on bursts of writes, such as a dozen PR creates in a quarter hour, so a ship storm spaces its creates to avoid the GitHub secondary rate limit. Fix any per-PR loop in the tool itself instead of adding a second reader beside it.
+
+## Supervise and rotate lanes
+
+**`scripts/drive_supervisor.py` runs under launchd and keeps required lanes alive without root action.** Each tick reads the bus once and `cci who` once. A fresh store adopts only the lanes live at that moment, and a tick whose sources do not all answer acts on nothing. The supervisor never signals a process; a lane leaves only through the record that stands it down.
+
+**Track lane ownership and retirement in the `lanes` table.** A lane enters the `lanes` table of the drive store from the `SPAWNED` state record that `drive.py spawned` posts at each Orca launch and drive-lane spawn, with its brief, model, effort, and role. Helper roles and `<lane>-handoff` writers stay out.
+- A lane's `head` and `opened` records move their PRs to it, `landed` records drop them, and a root `decide ... owner=<lane>` moves them.
+- A lane is retired only by structured records, never prose: its own `done`, `stopped`, or `stand-down` record, a root `stand-down` record, the `SPAWNED` record of a numbered successor (`desk-4` for `desk-3`), a root `<new> replaces <old>`, or another lane's records taking its last PR. A lane told in prose to stand down after a task remains active until it posts `cci post --kind done`.
+- A `<lane>-handoff` writer's `handoff <lane>: doc <id>` becomes the newest handoff of the lane holding that work.
+- A root `stand-down`, `replaces`, or `owner=` decide that takes a live lane's place or PRs cites `last-read=<seq>`, the newest record of that lane the root read with `cci tail --lane <lane> --since <its wake seq> --oldest`. The supervisor refuses one that cites none, or one older than the lane's newest record. It holds the lane with its PRs and posts a `defect` to root and the lane. A held lane is never relaunched or retired, and its next record makes it live again.
+
+**Check liveness and wake idle roster lanes.** A lane is dead only when it lacks both a live process and a record within `STALE_AFTER` (15 minutes). Silence and activity are measured from the lane's own cci records, never from `cci who`. A `cci who` row is a process fact only, because every in-process teammate of a live root session reads live there, however long ago it stopped. A live process is a live `cci who` row, a live Orca dispatch, or an in-process teammate on a live lead session's team roster. The supervisor wakes a roster lane and never relaunches it.
+- Once per interval, a roster lane with no record in the window, not waiting on root, whose root task is `in_progress`, gets one `WAKE` message in its teammate inbox telling it to read its mail and continue. A lane whose task is completed, or that posted `done`, is idle on purpose and never woken. A lane whose newest record is `handoff`, `done`, `stand-down`, or `stopped` is also never woken.
+- A `blocker` addressed to a lane about one of its open PRs after its last record, or a root `ask` naming one of its PRs by using `--pr` or `#<n>`, wakes it once per blocker `topic` with the blocker's text and seq.
+- The page drops when a record resolves the blocker by using `--resolves` or `also_resolves`, or when the PR lands, moves to another lane, or gets a new head. A fresh store pages no lane from re-read records.
+- If a paged lane posts nothing within 30 minutes of its wake, the supervisor asks `root` once to reassign the PR.
+
+**Ask quiet PR owners before escalating to root.** Quiet is never dead. A lane that posted nothing for one hour and owns an open PR that is conflicting, red, or unapproved gets one direct `ask` naming those PRs, whatever its task says, plus a roster wake when applicable. A green, approved, conflict-free PR waits only on the owner's tap and needs no live owner. PR states come from one GraphQL read per 50 PRs, reread every 10 minutes.
+
+Any record from the lane answers the ask. Only an ask left unanswered for 15 minutes (the stale window) raises a `blocker` to `root`, once, naming the lane, its PRs, and its live successor. A lane whose newest record is an `ask`, `blocked`, or `blocker` to `root` is waiting, not dead, until 15 minutes after a record answers it with `--re` or `--resolves`. A live lane beats in the `workers` table each tick.
+
+**Query lane liveness and PR ownership through `drive_supervisor.py lanes`.** Every desk checking whether a lane is at work runs `drive_supervisor.py lanes --config lr.json --json`, never `cci who` or its own script. Every lane that has posted has a row, marked `unregistered` when no `SPAWNED` record named it, and a lane reads `live` unless it left the supervisor's direct ask unanswered. Each PR has one owner, the row that lists it. That owner is the last lane to post a `head` or `opened` record for the PR that is not addressed to its current owner, so a desk relaying a rebase leaves ownership in place. The owner also updates to the lane root names with `--kind decide --pr <n> --text 'owner=<lane>'` while ignoring prose namings, or to the successor of a `stand-down` or `X replaces Y`. When a root `decide` names an owner that left the supervisor's ask unanswered, the supervisor posts one `blocker` to `root` naming the lane, the ask's time, and its live successor; a quiet owner root names is asked first.
+
+**Relaunch dead lanes as `<lane>-<n+1>`.** A lane that stopped or went silent with no live numbered successor in `cci who` gets a successor `<lane>-<n+1>`. The supervisor builds its brief with four parts.
+- A `ccx: place=local` line for running the lane on the Mac beside its inputs.
+- A `Register slice:` line for the new name.
+- The newest handoff doc, or the order to spawn `<lane>-handoff` from [reference/handoff-subagent-brief.md](handoff-subagent-brief.md) when none exists.
+- The `drive.py lane-status` live-process check before any write, followed by the old brief.
+The supervisor launches the successor with `desk-launch.py lane` and posts one `RELAUNCHED` report. Once the successor appears in `cci who`, one `stand-down --successor` record carrying the PRs moves the old name's mail to it. A `SPAWNED` record for that name from another brief, such as a lane the root spawned by hand, withdraws the supervisor's launch.
+
+**Rotate lanes in place with `ROTATE`.** A live lane that posted within the window and passed its context line gets one `ROTATE` ask on cci. An idle lane or a lane whose newest record is `handoff`, `done`, `stand-down`, or `stopped` is never asked. The asked lane flushes in place, so its `handoff --ccn <doc>` reply becomes its newest handoff and the lane keeps working. The supervisor never relaunches a lane for size; the handoff seeds a successor only if the lane later dies.
+
+**Hold failing launches and report hourly.** The supervisor holds a lane and posts one `blocker` to `root` when a launch is not live 15 minutes later. It does the same when successors die within 30 minutes of launch twice in a row, or when the lane's brief is missing. Retired lanes are never relaunched. Once an hour, the supervisor posts one owner-facing report to `root` naming each lane it restarted and why.
+
+**Rewrite `SendMessage` to a rotated or retired lane.** Sending a `SendMessage` to a rotated or stood-down lane resumes it on its stale brief. The hook pack therefore rewrites every message to the end of the lane's successor chain, derived from the session's spawns and stops and `cci who --successor-of <lane>`, when `cci who` lists that successor live; otherwise, the message goes as addressed with a warning. A message mentioning a stand-down is only warned, never forwarded. A `TaskStop` or root `STAND-DOWN` with no successor routes a lane's or worker's message addressed to that lane to `main`. Respawning under the name clears both. No case blocks.
