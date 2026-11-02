@@ -115,6 +115,32 @@ def test_a_build_that_is_not_red_clears_red_at(lock):
     assert shell.fields("21052")["red_at"] == ""
 
 
+def test_a_pass_over_unchanged_pr_states_writes_no_row_and_stamps_the_pass(lock):
+    shell = FakeShell()
+    refresh(shell, lock, pr=["21052"])
+    graded = dict(shell.fields("21052"))
+    shell.calls.clear()
+
+    refresh(shell, lock)
+
+    assert not [argv for argv in shell.calls if argv[:3] in (["ccn", "ledger", "sync"], ["ccn", "ledger", "row"])]
+    assert shell.fields("21052") == graded
+    assert ledger.parse_iso(ledger.refresh_stamp(lock, None).read_text()) >= ledger.parse_iso(graded["last_refresh"])
+
+
+def test_a_pass_rewrites_and_restamps_only_the_row_whose_graded_fields_changed(lock, red_routes):
+    shell = FakeShell(routes=red_routes)
+    refresh(shell, lock, pr=["20961", "21052"])
+    shell.fields("20961")["last_refresh"] = "2020-01-01T00:00:00Z"
+    shell.fields("21052").update(head="stale", last_refresh="2020-01-01T00:00:00Z")
+
+    refresh(shell, lock)
+
+    assert shell.fields("20961")["last_refresh"] == "2020-01-01T00:00:00Z"
+    assert shell.fields("21052")["head"] == MOVED_HEAD
+    assert shell.fields("21052")["last_refresh"] != "2020-01-01T00:00:00Z"
+
+
 def test_the_first_error_line_skips_the_buildkite_timestamp_escape_around_section_markers():
     log = "\x1b_bk;t=1793326269774\x07~~~ Running commands\n\x1b_bk;t=1793326269775\x07error: used `expect()` on a `Result` value\n"
 
