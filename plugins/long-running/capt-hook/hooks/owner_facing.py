@@ -431,12 +431,14 @@ def latest_plan_word(evt: BaseHookEvent) -> str | None:
 
 
 def last_reply(evt: BaseHookEvent) -> str:
-    replies = (
-        event.text
-        for event in reversed(evt.ctx.t.events)
-        if isinstance(event, AssistantEvent) and not event.meta.is_sidechain and event.text
-    )
-    return next(replies, "")
+    for event in reversed(evt.ctx.t.events):
+        if not isinstance(event, AssistantEvent | UserEvent) or event.meta.is_sidechain:
+            continue
+        if isinstance(event, UserEvent):
+            return ""
+        if event.text:
+            return event.text
+    return ""
 
 
 @on(
