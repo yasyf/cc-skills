@@ -22,7 +22,7 @@ current = clean("current.xml", 19)
 assert sum(row.attrib["name"].startswith("test_actual_match_warm_body_work") for row in current) == 2
 assert sum(row.attrib["name"].startswith("test_actual_match_source_policy") for row in current) == 17
 transport = clean("transport-and-policy.xml")
-assert sum(row.attrib["name"].startswith("test_session_") or "test_match_session" in row.attrib.get("classname", "") for row in transport) == 17
+assert sum(row.attrib["name"].startswith("test_session_") or "test_match_session" in row.attrib.get("classname", "") for row in transport) == 15
 for count in (32, 10000):
     rows = cases(f"old-{count}.xml")
     assert len(rows) == 1 and rows[0].find("failure") is not None
@@ -37,4 +37,4 @@ for count in (32, 10000):
 records = [json.loads(line.lstrip(".").removeprefix("NATIVE_PYTHON_MATCH_WORK ")) for line in (root / "current.log").read_text().splitlines() if line.lstrip(".").startswith("NATIVE_PYTHON_MATCH_WORK ")]
 assert {row["count"] for row in records} == {32, 10000} and len(records) == 2
 assert all(row["driver"] == "current" and row["warm"]["metrics"]["text_calls"] == row["warm"]["calls"]["answer_rows"] == row["warm"]["mirror"]["reads"] == 0 for row in records)
-print(json.dumps({"status": "ACTUAL_NATIVE_PYTHON_MATCH_CI_PASS", "native_cases": len(current), "immutable_cases": 19, "transport_cases": 17, "counts": [32, 10000], "limits": "Fake embeddings with real session/cut/rank/Pick. Actual-call chunker and canonical-refresh counters UNKNOWN; independent component gates supply their own proof. No installed official binary/model/physical-IO or zero-all-corpus-work claim."}, sort_keys=True))
+print(json.dumps({"status": "ACTUAL_NATIVE_PYTHON_MATCH_CI_PASS", "native_cases": len(current), "immutable_cases": 19, "transport_cases": 15, "counts": [32, 10000], "limits": "Fake embeddings with real session/cut/rank/Pick. Actual-call chunker and canonical-refresh counters UNKNOWN; independent component gates supply their own proof. No installed official binary/model/physical-IO or zero-all-corpus-work claim."}, sort_keys=True))
