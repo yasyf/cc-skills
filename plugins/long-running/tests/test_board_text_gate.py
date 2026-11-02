@@ -188,7 +188,7 @@ def test_a_worker_recorder_names_its_drive(root: Root, monkeypatch: pytest.Monke
 
 
 def test_the_text_grade_reads_only_the_reviews_naming_the_board_in_one_call(root: Root) -> None:
-    """Root #234837 and #235862: each board push paged every fidelity review since the drive began, one cci tail per page, and held the cc-inbox daemon near a full core. The gate now asks cci once for the reviews that name this board's hash."""
+    """Root #234837 and #235862: each board push paged every fidelity review since the drive began, one cci tail per page, and held the cc-inbox daemon near a full core. The gate now asks cci once for the reviews that name this board's hash, and once for the last six hours of owner picks and card re-checks (root #316045)."""
     name = "clean-card.json"
     reviewed = json.dumps({"seq": 1, "lane": "fidelity-desk", "kind": "review", "text": f"fidelity: ok text {sha12(name)}"}) + "\n"
     calls: list[list[str]] = []
@@ -204,4 +204,5 @@ def test_the_text_grade_reads_only_the_reviews_naming_the_board_in_one_call(root
             result = gate.board_text_gate(root.event(PreToolUseEvent, f"cc-present update-block {board(name)}"))
 
     assert result is None
-    assert [call[:3] for call in calls] == [["cci", "grep", f"fidelity: (ok|missing) text {sha12(name)}"]]
+    assert [call[:3] for call in calls] == [["cci", "grep", f"fidelity: (ok|missing) text {sha12(name)}"], ["cci", "grep", "--drive"]]
+    assert calls[1][-1] == "OWNER board-watch|AMENDED marker|card-recheck"
