@@ -33,7 +33,7 @@ TRUNK_RUNNER = "desk-runner"
 TRUNK_STATE = re.compile(r"^(?P<state>DEV-RED|POST-MERGE-RED|DEV-GREEN)\b(?: since (?P<since>\d{1,2}:\d{2} [AP]M))?")
 NAMED_PR = re.compile(r"#(\d+)\b")
 NOT_OWNERS = frozenset({"root", "main", "all", ""})
-ENDED_KINDS = frozenset({"stand-down", "handoff", "stopped"})
+ENDED_KINDS = frozenset({"stand-down", "handoff", "stopped", "done"})
 OWNER_WINDOW = "2h"
 LEADING_HOLD = re.compile(r"^\W*hold\s+#(\d+)\b", re.IGNORECASE)
 
