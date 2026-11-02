@@ -361,6 +361,16 @@ the root to find it at 4:10 PM, 57 minutes late. Open `AskUserQuestion` calls at
 3:07-3:32 PM and 4:11-4:31 PM held every Monitor event and teammate message;
 "Run assignment starved" sent at 4:26 PM reached the root at 4:32 PM.*
 
+The root asks the owner without parking. While any lane runs, it posts the question
+with `cc-present ask` or as a chat line that names a default, proceeds on that default,
+and applies the answer when it arrives. The pack's `blocking_asks` hook refuses the
+root's `AskUserQuestion` while a lane runs, unless the question carries a
+`ccx: ask=blocking` line because a lane truly cannot proceed without the answer.
+
+*Prevents the dagger-spike root parking seven times on asks nothing waited on: 8 h on
+2026-10-29, 5 h 15 m on 2026-10-31, and about 21 h on 2026-11-01, while lane reports,
+spawn asks and pushes queued unread.*
+
 **R9a. An urgent hold gets a decision owner and a clock.** A lane holding a release
 the plan marks urgent, or a blocked catch-up of a coupled control-plane set,
 posts `orca-desk: hold <slug> owner=<lane> :: <what is held, and on what>` with
