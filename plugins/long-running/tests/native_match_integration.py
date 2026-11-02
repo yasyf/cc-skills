@@ -17,6 +17,7 @@ def private_environment(home: Path) -> dict[str, str]:
     return {
         "PATH": os.environ["PATH"],
         "HOME": str(home),
+        "TMPDIR": str(home),
         "XDG_CACHE_HOME": str(home / "cache"),
         "GIT_CONFIG_NOSYSTEM": "1",
         "GIT_CONFIG_GLOBAL": os.devnull,
