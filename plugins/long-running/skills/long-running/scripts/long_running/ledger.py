@@ -104,6 +104,7 @@ from statistics import median
 from urllib.parse import urlencode
 
 from . import cci
+from . import ends
 from . import release
 from . import ghread
 from . import match_session
@@ -144,8 +145,6 @@ LOCK_WAIT_SECONDS = 120
 LOCK_POLL_SECONDS = 0.2
 LANE_PREFIX = "lane/"
 ASK_PREFIX = "ask/"
-DUE_SPAN = re.compile(r"(\d+)([mhd])")
-DUE_UNITS = {"m": "minutes", "h": "hours", "d": "days"}
 OWNER_PRIORITY = 0
 DEFAULT_PRIORITY = 100
 ASK_KEY = re.compile(rf"(?:{ASK_PREFIX})?(?P<seq>\d+)")
@@ -2535,16 +2534,11 @@ def add_ledger(parser: argparse.ArgumentParser, repo: bool = False, drive: bool 
 
 
 def due_time(value: str) -> str:
-    """`value` as a UTC stamp: an ISO 8601 time with its zone, or a span from now such as `90m`, `4h` or `1d`."""
-    if span := DUE_SPAN.fullmatch(value.strip()):
-        return stamp(now() + timedelta(**{DUE_UNITS[span[2]]: int(span[1])}))
+    """`value` as a UTC stamp: an ISO 8601 time with its zone, or a span from now such as `90m`, `4h` or `1d`, read by the one end-condition check board cards share."""
     try:
-        parsed = parse_iso(value.strip())
-    except ValueError:
-        raise argparse.ArgumentTypeError(f"{value!r} is neither an ISO 8601 time nor a span such as 4h") from None
-    if parsed.tzinfo is None:
-        raise argparse.ArgumentTypeError(f"{value!r} has no time zone")
-    return stamp(parsed.astimezone(timezone.utc))
+        return ends.parse(f"at:{value.strip()}", now()).value
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(str(error)) from None
 
 
 def ask_key(value: str) -> str:

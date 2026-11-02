@@ -45,11 +45,14 @@ def at_time(text: str, moment: datetime) -> str:
     if span := SPAN.fullmatch(text):
         return stamp(moment + timedelta(**{UNITS[span["unit"]]: int(span["count"])}))
     try:
-        return stamp(datetime.fromisoformat(text).astimezone(UTC))
+        parsed = datetime.fromisoformat(text)
     except ValueError:
         raise ValueError(
             f"{text!r} is neither an ISO 8601 time nor a span such as 90m, 4h or 1d"
         ) from None
+    if parsed.tzinfo is None:
+        raise ValueError(f"{text!r} has no time zone")
+    return stamp(parsed.astimezone(UTC))
 
 
 def stamp(moment: datetime) -> str:
