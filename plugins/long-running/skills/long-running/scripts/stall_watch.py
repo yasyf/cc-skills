@@ -156,6 +156,16 @@ and, across the drive:
               R16 with the executor's fix authority in that same pass, never a card or a flag; a
               conditional, a negation, a question or a recovery says no break (retro C4, owner 3:03 PM
               Nov 1, root #296632)
+    acked     root answered or resolved a desk's tagged `defect` or `blocker` record, never the
+              watch's own, by `--re`, `--resolves` or naming its seq (`see 305535`), with an `answer`, `note`, `decide`, `decision`,
+              `defect`, `state`, `report` or `correction` that names no fix PR (`<repo>#<n>`), at least
+              `stall.acks.urgent` (default 3) times in the last two hours for one defect class: the
+              record's leading tag, such as `CLASS-UNOWNED`, with its first lowercase word or, for
+              `REFUSED`, the reason after the PR list, such as `REFUSED unsettled`; an urgent to root and
+              the drive watchdog names the class and every acknowledgement and orders one fix lane for
+              it; at `stall.acks.spawn` (default 4) the pass writes that lane's brief from the records to
+              `<state dir>/class-fix-<class>/brief.md` and launches it with `desk-launch.py lane`, once a
+              day per class (owner 9:55 PM Nov 1, cc-notes answer 1f77471)
 
 A lane's own liveness, whether it stopped, went silent or outgrew its context, is the lane supervisor's
 (`lr/movers/lanes.py`), which relaunches it with no root action; no stall names a lane for its silence.
@@ -231,13 +241,26 @@ PACIFIC = ZoneInfo("America/Los_Angeles")
 WINDOW_HOURS = 24
 MINUTES = {"go": 10, "silent": 15, "refusal": 10, "red": 2, "unclassed": 20, "unfixed": 60, "sweep": 20, "order": 3, "tap": 10, "ungraded": 10, "finder": 10, "fidelity": 10, "missing": 20, "regrade": 15, "running": 25, "board": 15, "carry": 20, "ask": 15, "pick": 15, "gate": 10, "stale": 120, "desk": 10, "shape": 10}
 DESK_KINDS = frozenset({"finder", "fidelity"})
-ROOT_KINDS = frozenset({"missing", "unclassed", "unfixed", "customer"})
+ROOT_KINDS = frozenset({"missing", "unclassed", "unfixed", "customer", "acked"})
 REPOSTED = frozenset({"red"})
 POST_KINDS = {"red": "blocker", "unclassed": "blocker", "unfixed": "blocker", "sweep": "blocker", "probe": "report", "customer": "incident"}
 INCIDENT_KINDS = frozenset({"incident", "fix-live", "mechanism"})
 SAYS_KINDS = frozenset({"urgent", "decide", "decision", "answer", "report", "note", "evidence", "blocker", "ask", "correction", "defect", "owner", "state"})
 CUSTOMER_STEP = "R16 this turn: `incident.py open` and `incident.py run`, whose fix lane holds the pre-authorized fix apply; post the two scope answers, and a no to either closes it"
 RED_CLASSES = ("inherited", "flake", "real", "stale")
+ACKS = {"urgent": 3, "spawn": 4}
+ACK_WINDOW = timedelta(hours=2)
+ACK_TARGETS = frozenset({"defect", "blocker"})
+ACK_KINDS = frozenset({"answer", "note", "decide", "decision", "defect", "state", "report", "correction"})
+SPAWN_REPEAT = timedelta(hours=24)
+WATCHDOG = "drive-watchdog"
+FIX_PR = re.compile(r"\b(?!cci#)[A-Za-z][\w.-]*(?:/[\w.-]+)?#\d+\b")
+DEFECT_TAG = re.compile(r"^(?:\d{1,2}:\d{2}\s*[AP]M\s+)?(?P<tag>[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+|[A-Z]{4,})(?:\s+(?P<word>[a-z]+)(?=[\s,.]))?")
+REFUSAL_REASON = re.compile(r"\):\s+(?P<reason>[a-z][a-z' -]{2,40}?):")
+CLASS_SLUG = re.compile(r"[^a-z0-9]+")
+SEQ_NAMED = re.compile(r"(?<![\w.#/])#?(\d{4,})\b")
+FIX_MODEL = ("opus", "xhigh")
+LAUNCH_SECONDS = 60
 RED_FIELD = re.compile(r"\b(class|head|owner)=(\S+)")
 HANDED_TO = re.compile(r"\bsuccessor ([a-z][a-z0-9]*(?:-[a-z0-9]+)+)\b")
 RED_SWEEP = "red-sweep"
@@ -398,6 +421,7 @@ class Watch:
     store: Path | None
     landing: dict | None
     minutes: dict[str, int]
+    acks: dict[str, int]
     window: timedelta
     board_lane: str
     quiet_lanes: list[str]
@@ -414,6 +438,7 @@ class Watch:
             store=Path(raw["store"]).expanduser() if raw.get("store") else None,
             landing=raw.get("landing"),
             minutes=MINUTES | stall.get("minutes", {}),
+            acks=ACKS | stall.get("acks", {}),
             window=timedelta(hours=stall.get("window_hours", WINDOW_HOURS)),
             board_lane=stall.get("board_lane") or next(iter(lanes_of(landing.get("board_lane", []))), ROOT),
             quiet_lanes=stall.get("quiet_lanes", [*landing.get("go_lanes", []), *lanes_of(landing.get("board_lane", []))]),
@@ -669,6 +694,7 @@ class Pass:
         self.queues: dict[str, list[actions.Action]] = {}
         self.probe_day = ""
         self.customer_seq: int | None = None
+        self.spawned: dict[str, str] = {}
 
     def tail(self, argv: list[str]) -> str:
         done = self.shell.run(argv)
@@ -696,7 +722,11 @@ class Pass:
         records = [record for record in cci.records(self.tail, self.watch.drive, since=actions.stamp(self.now - self.watch.window)) if record["drive"] == self.watch.drive]
         self.lane_newest = {record["lane"]: record for record in records}
         stalls, questions, entries = self.prs(records)
-        stalls += self.asks(records) + self.picks(records) + self.gates(records) + self.desks(records) + self.shapes() + self.customers(records, saved.get("customer_seq"))
+        acked = self.acked(records)
+        stalls += self.asks(records) + self.picks(records) + self.gates(records) + self.desks(records) + self.shapes() + self.customers(records, saved.get("customer_seq")) + [stall for stall, _ in acked.values()]
+        self.spawned = {name: when for name, when in saved.get("spawned", {}).items() if self.now - actions.parse_stamp(when) < SPAWN_REPEAT}
+        if not dry_run:
+            self.spawn_fix_lanes(acked)
         questions += self.orders(records)
         cached = saved.get("verdicts", {})
         fresh = self.judge([question.ask | {"id": question.key} for question in questions if question.key not in cached])
@@ -756,7 +786,7 @@ class Pass:
                 told |= dict.fromkeys(fresh, actions.stamp(self.now))
         if not dry_run:
             staged = self.watch.state.with_name(f".{STATE}")
-            staged.write_text(json.dumps({"open": kept, "last": last, "verdicts": verdicts, "states": self.states, "told": told, "probe_day": self.probe_day, "customer_seq": self.customer_seq}, indent=1) + "\n")
+            staged.write_text(json.dumps({"open": kept, "last": last, "verdicts": verdicts, "states": self.states, "told": told, "probe_day": self.probe_day, "customer_seq": self.customer_seq, "spawned": self.spawned}, indent=1) + "\n")
             staged.replace(self.watch.state)
             if self.stack is not None:
                 stack = self.watch.state.with_name(drive.STACK)
@@ -1434,6 +1464,41 @@ class Pass:
             stalls.append(Stall(f"customer:{record['seq']}", "customer", at(record), f"#{record['seq']} from {record['lane']}", f"its {record['kind']} at {pacific(at(record), self.now)} says “{clip(said, RECORD_CHARS)}”", (ROOT,), CUSTOMER_STEP, re=str(record["seq"])))
         return stalls
 
+    def acked(self, records: list[dict]) -> dict[str, tuple[Stall, list[tuple[dict, dict]]]]:
+        """Each defect class root acknowledged `ACKS["urgent"]` or more times in the last `ACK_WINDOW` with no fix PR, as its stall and its (defect, acknowledgement) pairs, oldest first."""
+        targets = {record["seq"]: record for record in records if record["kind"] in ACK_TARGETS and record["lane"] not in NOT_LANES - {RUNNER} and DEFECT_TAG.match(record.get("text") or "")}
+        pairs: dict[str, list[tuple[dict, dict]]] = {}
+        for ack in records:
+            if ack["lane"] not in ROOT_NAMES or ack["kind"] not in ACK_KINDS or self.now - at(ack) > ACK_WINDOW or FIX_PR.search(grades.full_text(ack)):
+                continue
+            named = {ack.get("re"), *cci.resolved(ack), *(int(seq) for seq in SEQ_NAMED.findall(ack.get("text") or ""))}
+            for seq in sorted(named & targets.keys()):
+                pairs.setdefault(defect_class(targets[seq]), []).append((targets[seq], ack))
+        stalls = {}
+        for name, found in pairs.items():
+            acks = list({ack["seq"]: ack for _, ack in found}.values())
+            if len(acks) < self.watch.acks["urgent"]:
+                continue
+            listed = ", ".join(f"#{ack['seq']} at {pacific(at(ack), self.now)}" for ack in acks)
+            what = f"root acknowledged it {len(acks)} times in {int(ACK_WINDOW.total_seconds() // 3600)} h with no fix PR ({listed}); the newest defect is #{found[-1][0]['seq']}: {clip(found[-1][0].get('text') or '')}"
+            step = f"{ROOT} launches one fix lane for the class now: `desk-launch.py lane {fix_lane(name)} {' '.join(FIX_MODEL)} <brief>`; at {self.watch.acks['spawn']} the watch launches it"
+            stalls[name] = (Stall(f"acked:{CLASS_SLUG.sub('-', name.lower()).strip('-')}", "acked", at(acks[self.watch.acks["urgent"] - 1]), f"defect class {name}", what, (ROOT, WATCHDOG), step), found)
+        return stalls
+
+    def spawn_fix_lanes(self, acked: dict[str, tuple[Stall, list[tuple[dict, dict]]]]) -> None:
+        """Launch one fix lane per class acknowledged `ACKS["spawn"]` times, with a brief written from its records, at most once a day per class: a launch the runner refuses or never settles is the root's from the class's urgent, never a second launch."""
+        for name, (_, found) in acked.items():
+            lane = fix_lane(name)
+            if len({ack["seq"] for _, ack in found}) < self.watch.acks["spawn"] or lane in self.spawned or not self.entry:
+                continue
+            brief = Path(self.entry["state_dir"]).expanduser() / lane / "brief.md"
+            brief.parent.mkdir(parents=True, exist_ok=True)
+            brief.write_text(fix_brief(self.watch.drive, lane, name, found, self.now))
+            self.spawned[lane] = actions.stamp(self.now)
+            done = self.shell.run([sys.executable, str(SCRIPTS / "desk-launch.py"), "lane", lane, *FIX_MODEL, str(brief), "--drive", self.watch.drive, "--lane", LANE, "--timeout-seconds", str(LAUNCH_SECONDS)])
+            if done.code:
+                print(f"desk-launch.py lane {lane} exited {done.code}: {(done.err or done.out).strip()[:300]}", file=sys.stderr)
+
     def shapes(self) -> list[Stall]:
         if not self.entry:
             return []
@@ -1466,6 +1531,40 @@ def dev_health_break(text: str) -> str | None:
 
 def squashed(name: str) -> str:
     return re.sub(r"[^a-z0-9]", "", name.lower())
+
+
+def defect_class(record: dict) -> str:
+    """A desk defect's class: its leading tag with the first lowercase word after it, or for a refusal the reason after its PR list."""
+    found = DEFECT_TAG.match(text := record.get("text") or "")
+    reason = REFUSAL_REASON.search(text) if found["tag"] == "REFUSED" else None
+    return " ".join(part for part in (found["tag"], reason["reason"] if reason else found["word"]) if part)
+
+
+def fix_lane(name: str) -> str:
+    return f"class-fix-{CLASS_SLUG.sub('-', name.lower()).strip('-')}-1"
+
+
+def fix_brief(drive_name: str, lane: str, name: str, found: list[tuple[dict, dict]], now: datetime) -> str:
+    defects = list({defect["seq"]: defect for defect, _ in found}.values())
+    acks = list({ack["seq"]: ack for _, ack in found}.values())
+    return "\n".join([
+        f"# Lane {lane}: remove the desk defect class {name}",
+        "",
+        f"Drive {drive_name}. Post records with `cci post --lane {lane} --drive {drive_name} --stamp`. The stall watch launched this lane at {pacific(now, now)}:",
+        f"root acknowledged the class {len(acks)} times in {int(ACK_WINDOW.total_seconds() // 3600)} h and no fix PR followed (owner 9:55 PM Nov 1, cc-notes answer 1f77471).",
+        "",
+        "## Deliverable",
+        "Find the mechanism every record below shares, in the code of the desk that posts them, and ship one PR that makes the class impossible,",
+        "with a regression test that fails on today's code. It merges on green in its yasyf/* repository and is installed; post `--kind fix-live`",
+        "to root naming the PR and the installed version, then stand down. Nothing runs on this Mac beyond the pack's daemons restarting; CI grades.",
+        "",
+        "## Defect records",
+        *(f"- #{defect['seq']} {defect['lane']} {defect['kind']} at {pacific(at(defect), now)}: {clip(defect.get('text') or '', RECORD_CHARS)}" for defect in defects),
+        "",
+        "## Root's acknowledgements",
+        *(f"- #{ack['seq']} {ack['kind']} at {pacific(at(ack), now)}: {clip(ack.get('text') or '', RECORD_CHARS)}" for ack in acks),
+        "",
+    ])
 
 
 def main(argv: list[str] | None = None, shell: Shell | None = None) -> int:

@@ -70,6 +70,7 @@ class FakeShell(stall_watch.Shell):
         self.comments: dict[str, list[dict]] = {}
         self.shapes: list[dict] = []
         self.peers: list[dict] = []
+        self.launches: list[list[str]] = []
         self.clock = NOW
 
     def run(self, argv, stdin=None, env=None, timeout=stall_watch.COMMAND_SECONDS):
@@ -93,6 +94,9 @@ class FakeShell(stall_watch.Shell):
             endpoint = argv[argv.index("--") + 2]
             assert endpoint.endswith("/check-runs?check_name=ai-review")
             return stall_watch.Done(0, self.review_titles[endpoint.split("/")[4]] + "\n", "")
+        if Path(argv[1]).name == "desk-launch.py":
+            self.launches.append(argv)
+            return stall_watch.Done(0, f"{argv[3]} R1 LAUNCHED", "")
         if Path(argv[1]).name == "rulings.py":
             assert argv[2:] == ["shapes", "--untested", "--json", "--drive", "durable"]
             return stall_watch.Done(0, json.dumps(self.shapes), "")
@@ -1784,3 +1788,83 @@ def test_a_dev_health_line_opens_a_customer_break_only_on_crashes_apm_errors_or_
     shell.records.append(record(5, "dev-health-desk-1", "state", line, 1))
     watch(shell, config)
     assert (shell.topics() == ["customer:5"]) == opens
+
+
+def unowned(seq: int, minutes_ago: float) -> dict:
+    return record(seq, "desk-runner", "blocker", f"CLASS-UNOWNED topic:customer:{seq - 1} stall-watch: #{seq - 2} at 20:43, 10 min with no fix-lane GO | root: GO a fix lane for this class", minutes_ago, topic=f"topic:customer:{seq - 1}")
+
+
+def answer(seq: int, text: str, minutes_ago: float, **link) -> dict:
+    return record(seq, "root", "answer", text, minutes_ago, **link)
+
+
+def registered_state(config: Path) -> Path:
+    registry = config.parent / "claude/long-running/drives/durable.json"
+    state = config.parent / "state"
+    registry.write_text(json.dumps(json.loads(registry.read_text()) | {"state_dir": str(state)}))
+    return state
+
+
+def test_a_third_no_fix_acknowledgement_of_one_defect_class_in_two_hours_orders_root_a_fix_lane_and_launches_nothing(config):
+    registered_state(config)
+    records = [
+        unowned(305298, 100),
+        answer(305308, "No fix lane: incident 305112 was closed on scope in 305119.", 99, resolves=305298),
+        unowned(305353, 90),
+        answer(305358, "No fix lane: folded into runtime-milestones. Same CLASS-UNOWNED defect as 305308.", 89, re=305353),
+        unowned(305723, 40),
+        answer(305737, "See 305723: closed on scope; no fix lane.", 39),
+        record(305740, "desk-runner", "defect", "DIRECTIVE-FAILED cci#306113 inbox: it opens `Owner on board`", 30),
+        answer(305741, "Owner tap record, not a directive.", 29, resolves=305740),
+    ]
+    shell = FakeShell(records, [])
+
+    watch(shell, config)
+
+    posted = shell.post("acked:class-unowned")
+    assert posted["kind"] == "urgent" and posted["to"] == "root,drive-watchdog@d1"
+    assert posted["text"].startswith("STALL acked defect class CLASS-UNOWNED, ")
+    assert "root acknowledged it 3 times in 2 h with no fix PR (#305308 at " in posted["text"]
+    assert "`desk-launch.py lane class-fix-class-unowned-1 opus xhigh <brief>`" in posted["text"]
+    assert not [topic for topic in shell.topics() if topic.startswith("acked:directive")]
+    assert shell.launches == []
+
+
+def test_the_fourth_acknowledgement_launches_one_fix_lane_with_a_brief_written_from_the_records_once(config):
+    state = registered_state(config)
+    records = [
+        record(296010, "desk-runner", "defect", "REFUSED #47306 at fa9f938174 (go #292083): unsettled: the gate's status read, and no step of the pass decided it", 110),
+        answer(296026, "mq-health-8: the runner refuses #47306 as unsettled on every pass; known defect.", 108, re=296010),
+        record(298821, "desk-runner", "defect", "REFUSED #47576 at 496e18c91b (go #298448): unsettled: the gate's status read", 80),
+        answer(298857, "Same unsettled hole, no action from root.", 79, re=298821),
+        record(303636, "desk-runner", "defect", "REFUSED #47194 at 89abc5168d (go #301124): unsettled: the gate's status read", 50),
+        record(303643, "root", "note", "Hole 4 data point for the race: 303636 refuses the whole stack.", 49, re=303636),
+        record(303700, "desk-runner", "defect", "REFUSED #47200 at 4331ada000 (go #301130): unsettled: the gate's status read", 20),
+        answer(303701, "See 303636; the unsettled refusal again.", 19, resolves=303700),
+        record(303702, "desk-runner", "defect", "REFUSED #47201 at 1234567000 (go #301131): needs a restack: run ccx vcs stack submit", 18),
+        answer(303703, "Restack is the lane's.", 17, re=303702),
+        answer(303704, "Fix is yasyf/cc-skills#1651 for 303700.", 16),
+    ]
+    shell = FakeShell(records, [])
+
+    watch(shell, config)
+    watch(shell, config)
+
+    [launch] = shell.launches
+    assert launch[2:7] == ["lane", "class-fix-refused-unsettled-1", "opus", "xhigh", str(state / "class-fix-refused-unsettled-1" / "brief.md")]
+    brief = (state / "class-fix-refused-unsettled-1" / "brief.md").read_text()
+    assert brief.startswith("# Lane class-fix-refused-unsettled-1: remove the desk defect class REFUSED unsettled\n")
+    assert "- #303700 desk-runner defect at " in brief and "- #303701 answer at " in brief
+    assert "needs a restack" not in brief and "#303704" not in brief
+    assert "acked:refused-unsettled" in shell.topics()
+    assert not [topic for topic in shell.topics() if topic.startswith("acked:refused-needs")]
+
+
+def test_acknowledgements_spread_past_two_hours_raise_nothing(config):
+    registered_state(config)
+    records = [unowned(1000, 300), answer(1001, "no fix lane", 299, re=1000), unowned(1002, 200), answer(1003, "no fix lane", 199, re=1002), unowned(1004, 20), answer(1005, "no fix lane", 19, re=1004)]
+    shell = FakeShell(records, [])
+
+    watch(shell, config)
+
+    assert not [topic for topic in shell.topics() if topic.startswith("acked:")] and shell.launches == []
