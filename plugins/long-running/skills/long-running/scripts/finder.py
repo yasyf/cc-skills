@@ -570,8 +570,8 @@ def is_fix(title: str) -> bool:
 
 
 def area(paths: object) -> frozenset[str]:
-    """The directories a change touches outside its tests: the key a bug-fix PR's area is compared by."""
-    return frozenset(str(Path(path).parent) for path in paths if not testfiles.test_file(path))
+    """The files a change touches outside its tests: the key a bug-fix PR's area is compared by, so two fixes in one flat directory are no second fix (root #318757)."""
+    return frozenset(str(path) for path in paths if not testfiles.test_file(path))
 
 
 def ledger_pr(key: str, default: str) -> tuple[str, str]:
@@ -604,14 +604,14 @@ def landed_fixes(shell: Shell, job: dict) -> list[tuple[str, str, frozenset[str]
 
 
 def second_fix(shell: Shell, job: dict, view: dict, touched: dict[str, list[tuple[int, int]]]) -> dict | None:
-    """A blocking review point on a bug-fix PR whose area, the directories it touches outside its tests, holds or sits inside the area of a bug-fix PR the drive already landed, unless its body or a Rulings comment names the class and why this fix removes it, or says the area is deleted at cutover (owner, 9:45 PM Nov 1)."""
+    """A blocking review point on a bug-fix PR whose area, the files it touches outside its tests, holds or sits inside the area of a bug-fix PR the drive already landed, unless its body or a Rulings comment names the class and why this fix removes it, or says the area is deleted at cutover (owner, 9:45 PM Nov 1)."""
     if not is_fix(view.get("title") or "") or CLASS_NAMED.search(f"{view['body']}\n{rulings_comments(view)}") or not (mine := area(touched)):
         return None
-    earlier = [(number, title, dirs) for number, title, dirs in landed_fixes(shell, job) if dirs and (dirs <= mine or mine <= dirs)]
+    earlier = [(number, title, files) for number, title, files in landed_fixes(shell, job) if files and (files <= mine or mine <= files)]
     if not earlier:
         return None
     path, spans = next((path, spans) for path, spans in touched.items() if spans and not testfiles.test_file(path))
-    named = "; ".join(f"#{number} ({title}) fixed {', '.join(sorted(dirs))}" for number, title, dirs in earlier[-AREA_SHOWN:])
+    named = "; ".join(f"#{number} ({title}) fixed {', '.join(sorted(files))}" for number, title, files in earlier[-AREA_SHOWN:])
     return {
         "severity": "major",
         "cite": f"{path}:{spans[0][0]}",
