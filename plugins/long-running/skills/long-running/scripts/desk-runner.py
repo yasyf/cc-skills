@@ -2401,13 +2401,16 @@ class Runner:
             raise StopRequested
 
     def steps(self, *steps: Callable[[], object]) -> None:
-        """Run `steps` in order. Each boundary first ends the pass on a stop request, then settles any launch that has exited and posts its LAUNCHED to root, so a launch reaches root between steps, not only after the whole pass (cci 310384)."""
         for step in steps:
             self.checkpoint()
-            if self.launching:
-                self.reap()
-                self.flush()
             step()
+
+    def prompt(self) -> None:
+        """Between an orca pass's slow steps, settle exited launches, act on new desk orders, deliver them, and post what that recorded, so an order, a launch or a refusal reaches root within one step rather than one pass (cci 310384, 311079)."""
+        self.reap()
+        self.read_cci()
+        self.deliver()
+        self.flush()
 
     @contextmanager
     def desk_lock(self, desk: str) -> Iterator[int | None]:
@@ -10356,12 +10359,14 @@ def run_orca(runner: Runner, once: bool) -> int:
                 rotated = runner.now()
             runner.follow_coordinator()
             try:
-                if runner.check():
+                ready = runner.check()
+                if ready:
                     runner.steps(runner.reap, runner.read_cci, runner.deliver)
                     if runner.now() - swept >= SWEEP_EVERY:
                         runner.steps(runner.sweep)
                         swept = runner.now()
-                runner.steps(runner.deadlines_orca, runner.incident_clock, runner.pr_silent, runner.class_unowned, runner.mute_pushback, runner.in_process, runner.cut_clock, runner.release_coupling, runner.finders, runner.fidelities, runner.sprite_beats)
+                slow = (runner.deadlines_orca, runner.incident_clock, runner.pr_silent, runner.class_unowned, runner.mute_pushback, runner.in_process, runner.cut_clock, runner.release_coupling, runner.finders, runner.fidelities, runner.sprite_beats)
+                runner.steps(*(step for each in slow for step in (each, runner.prompt)) if ready else slow)
             except StopRequested:
                 runner.flush()
                 runner.stop_marker().unlink()
