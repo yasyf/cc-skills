@@ -73,8 +73,8 @@ green or failing-first proof, or do not merge, never merges, so it draws no stal
     sweep     a red head has stood `stall.minutes.sweep` and no lane named `red-sweep` or `red-sweep-<n>`
               is live; one blocker to root naming every red PR, until a red-sweep lane posts
     tap       the owner's board tap approves the head, and no go names it; this stall and `carry`
-              judge only the head the ledger row and the PR's newest `head` record agree on, never a
-              row head the PR has moved past (root #324772)
+              judge only a ledger head GitHub still reads as the PR's head, never one the PR has
+              moved past (root #324772, #326064)
     ungraded  a `head` record names the head, its build has read green for `stall.minutes.ungraded`, counted
               from its ledger row's `green_at`, and no finder review or no fidelity grade names it, whatever
               the desks hold queued, read from the PR's whole history when the window holds none; it is the finder or fidelity stall of a green head, posted to the
@@ -1009,6 +1009,7 @@ class Pass:
         boards: dict[str, list[Stall]] = {}
         probes: list[Stall] = []
         reassigned = self.reassignments(records)
+        live = self.live_heads(sorted(pr for pr in rows if (board and (board.taps.get(pr) or {}).get("verdict") == "approved") or any(pr in grades.go_heads(go) for go in gos)))
         carried = {(found[1], found[2]) for record in records if record["lane"] == RUNNER and (found := TAP_NOTE.match(record["text"]))}
         classes = [record for record in records if record["kind"] == "red"]
 
@@ -1064,8 +1065,7 @@ class Pass:
             state = grades.go_state(gos, pr, head)
             tap = (board.taps.get(pr) if board else None) or {}
             tapped = tap["head"] if tap.get("verdict") == "approved" and tap.get("head") and tap.get("at") else ""
-            moved = next((named for record in reversed(records) if record["kind"] == "head" and grades.about_pr(record, repo, pr) and (named := grades.head_of(record, repo, pr))), "")
-            behind = bool(moved) and not grades.names_head(moved, head)
+            behind = pr in live and not grades.names_head(live[pr], head)
             if tapped and grades.names_head(tapped, head):
                 tapped_at = actions.parse_stamp(tap["at"])
                 if not behind and self.now - tapped_at >= self.watch.age("tap"):
@@ -1174,6 +1174,19 @@ class Pass:
         if red["class"] != "real" or self.now - (classed := actions.parse_stamp(red["classed_at"])) < self.watch.age("unfixed"):
             return None
         return Stall(f"unfixed:{pr}:{sha}", "unfixed", classed, subject, f"{red['owner']} classed {red['checks']} a real failure at {pacific(classed, self.now)} and has pushed no new head: {clip(red['action'])}", (red["owner"],), f"root gives the fix of {subject} to a live lane unless {red['owner']} pushes it now", pr)
+
+    def live_heads(self, prs: list[str]) -> dict[str, str]:
+        """Each of `prs` to the head GitHub reads for it, in one GraphQL query, so a tap or carry stall never judges a ledger head the PR moved past when no lane posted a `head` record for the move (#48166 at 54c36ff, root #326064); a read that fails answers none."""
+        if not prs:
+            return {}
+        owner, name = self.watch.landing["repo"].split("/")
+        fields = " ".join(f"p{pr}: pullRequest(number: {pr}) {{ headRefOid }}" for pr in prs)
+        done = self.shell.run(ghread.read("api", "graphql", "-f", f'query=query {{ repository(owner: "{owner}", name: "{name}") {{ {fields} }} }}'))
+        if done.code:
+            self.warn({"tap", "carry"}, f"the live heads of {len(prs)} PRs did not read: {(done.err or done.out).strip()[:200]}")
+            return {}
+        answered = (json.loads(done.out).get("data") or {}).get("repository") or {}
+        return {alias.removeprefix("p"): found["headRefOid"] for alias, found in answered.items() if found}
 
     def comments(self, pr: str) -> list[dict]:
         done = self.shell.run(ghread.read("pr", "view", pr, "--repo", self.watch.landing["repo"], "--json", "comments"))
