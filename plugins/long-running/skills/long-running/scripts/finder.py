@@ -57,6 +57,7 @@ from __future__ import annotations
 import argparse
 from long_running import cci
 from long_running import desk_result
+from long_running import release
 import json
 import re
 import shlex
@@ -137,7 +138,7 @@ class Shell:
     def run(self, argv: list[str], cwd: Path | None = None, timeout: int = READ_SECONDS) -> str:
         started = time.monotonic()
         try:
-            return cci.installed(argv, lambda: subprocess.run(argv, cwd=cwd, capture_output=True, text=True, errors="replace", check=True, timeout=timeout)).stdout
+            return subprocess.run(release.command(argv), cwd=cwd, capture_output=True, text=True, errors="replace", check=True, timeout=timeout).stdout
         finally:
             stage = " ".join(Path(word).name if "/" in word else word for word in argv[:STAGE_WORDS])
             print(f"finder: {stage} took {time.monotonic() - started:.1f}s", file=sys.stderr, flush=True)

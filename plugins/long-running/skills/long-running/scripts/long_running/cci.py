@@ -8,15 +8,12 @@ import io
 import json
 import os
 import re
-import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from time import monotonic
 
 PAGE_BYTES = 4_000_000
-INSTALL_WINDOW_SECONDS = 120
-INSTALL_RETRY_SECONDS = 2
 PAGE_ROWS = 500
 CLAIM_KINDS = ("opened", "head")
 INCIDENT_LANE = re.compile(r"^(?:inc|incident|outage)-")
@@ -353,15 +350,3 @@ def trunk(records: list[dict]) -> Trunk:
 def named_pr(record: dict) -> str:
     refs = [str(ref).rsplit("#", 1)[-1] for ref in record["refs"].get("prs", [])]
     return next(iter([*refs, *NAMED_PR.findall(record.get("text") or "")]), "")
-
-
-def installed[T](argv: list[str], start: Callable[[], T]) -> T:
-    """`start()`, the launch of `argv`, tried again every `INSTALL_RETRY_SECONDS` for up to `INSTALL_WINDOW_SECONDS` while `argv[0]` is missing or not executable, as a binary is for seconds while a Homebrew upgrade relinks it, so no pass dies in an install window (root #233635)."""
-    deadline = time.monotonic() + INSTALL_WINDOW_SECONDS
-    while True:
-        try:
-            return start()
-        except (FileNotFoundError, PermissionError) as error:
-            if error.filename != argv[0] or time.monotonic() >= deadline:
-                raise
-            time.sleep(INSTALL_RETRY_SECONDS)

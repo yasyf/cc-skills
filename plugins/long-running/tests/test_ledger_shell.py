@@ -6,13 +6,12 @@ import os
 import signal
 import subprocess
 import sys
-import threading
 import time
 from pathlib import Path
 
-from long_running import cci
 from long_running import drive
 from long_running import ledger
+from long_running import release
 import pytest
 
 HUNG = "import os, signal, sys, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); open(sys.argv[1], 'w').write(str(os.getpid())); time.sleep(60)"
@@ -276,30 +275,7 @@ def test_a_verb_outside_any_drive_refuses_and_names_the_flags(checkout):
         ledger.main(["reassign", "--pr", "12", "--lane", "quiet"], StopAtCcn())
 
 
-def test_a_binary_missing_for_seconds_while_it_reinstalls_runs_once_it_is_back(tmp_path, monkeypatch):
-    """Root #233454, #233635: a cci cask reinstall left /opt/homebrew/bin/cci missing for seconds, stall_watch.py died on FileNotFoundError, and no stall alarm posted."""
-    monkeypatch.setattr(cci, "INSTALL_RETRY_SECONDS", 0.1)
-    tool = tmp_path / "cci"
-    linked = threading.Timer(0.5, lambda: (tool.write_text("#!/bin/sh\necho back\n"), tool.chmod(0o755)))
-    linked.start()
-
-    assert ledger.Shell().run([str(tool)]) == "back\n"
-    linked.join()
-
-
-def test_a_binary_that_stays_missing_past_the_install_window_still_fails(tmp_path, monkeypatch):
-    monkeypatch.setattr(cci, "INSTALL_RETRY_SECONDS", 0.05)
-    monkeypatch.setattr(cci, "INSTALL_WINDOW_SECONDS", 0.3)
-    started = time.monotonic()
-
-    with pytest.raises(FileNotFoundError):
-        ledger.Shell().run([str(tmp_path / "gone")])
-    assert 0.3 <= time.monotonic() - started < 2
-
-
-def test_a_missing_working_directory_fails_at_once_rather_than_waiting_out_the_install_window(tmp_path):
-    started = time.monotonic()
-
-    with pytest.raises(FileNotFoundError):
-        ledger.Shell().run(["true"], cwd=tmp_path / "gone")
-    assert time.monotonic() - started < 1
+def test_a_command_with_no_plugin_shim_runs_by_its_own_name(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    assert release.command(["cci", "who"]) == ["cci", "who"]
+    assert release.command(["git", "status"]) == ["git", "status"]

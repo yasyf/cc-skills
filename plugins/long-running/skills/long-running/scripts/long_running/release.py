@@ -15,6 +15,7 @@ from pathlib import Path
 
 VERSION = re.compile(r"\d+(?:\.\d+)*")
 VERSION_PART = re.compile(r"\d+")
+SHIMS = {"cci": "cc-inbox", "ccx": "cc-context"}
 
 
 def config_dir() -> Path:
@@ -53,3 +54,9 @@ def promote(own: Path) -> None:
     staged.parent.mkdir(parents=True, exist_ok=True)
     staged.symlink_to(own)
     os.replace(staged, link())
+
+
+def command(argv: list[str]) -> list[str]:
+    """`argv` with cci and ccx replaced by their plugin's shim, which execs a content-addressed binary, so a Homebrew relink of the command on PATH never reaches a call; any other command, and one whose plugin is not installed, keeps its name."""
+    shim = config_dir() / "plugins" / "marketplaces" / SHIMS.get(argv[0], "") / "plugin" / "bin" / argv[0]
+    return [str(shim), *argv[1:]] if argv[0] in SHIMS and shim.exists() else argv

@@ -40,6 +40,7 @@ from zoneinfo import ZoneInfo
 
 from long_running import board_rows
 from long_running import cci
+from long_running import release
 from long_running import drive
 from long_running import ghread
 from long_running import grades
@@ -267,7 +268,7 @@ class ReadFailed(RuntimeError):
 
 
 def run(argv: list[str], env: dict[str, str] | None = None) -> subprocess.CompletedProcess:
-    return cci.installed(argv, lambda: subprocess.run(argv, capture_output=True, text=True, env=env))
+    return subprocess.run(release.command(argv), capture_output=True, text=True, env=env)
 
 
 def read_board(drive_name: str, session: str, runner: Callable[..., subprocess.CompletedProcess] = run) -> Board:

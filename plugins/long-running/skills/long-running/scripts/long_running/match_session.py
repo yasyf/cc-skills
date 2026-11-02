@@ -10,7 +10,7 @@ import time
 from collections.abc import Callable, Mapping
 from pathlib import Path
 
-from . import cci
+from . import release
 
 
 def run(argv: list[str], prepare: Callable[[], dict], *, cwd: Path, env: Mapping[str, str], checkpoint: Callable[[], None], timeout: float) -> list[dict]:
@@ -18,11 +18,8 @@ def run(argv: list[str], prepare: Callable[[], dict], *, cwd: Path, env: Mapping
     output = bytearray()
     pending = bytearray()
     with tempfile.TemporaryFile() as errors:
-        def start():
-            checkpoint()
-            return subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=errors, cwd=cwd, env=env)
-
-        child = cci.installed(argv, start)
+        checkpoint()
+        child = subprocess.Popen(release.command(argv), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=errors, cwd=cwd, env=env)
 
         def remaining() -> float:
             checkpoint()
