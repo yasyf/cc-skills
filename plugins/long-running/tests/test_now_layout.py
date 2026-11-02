@@ -360,19 +360,17 @@ def test_the_prevention_table_lists_open_ones_first_red_only_without_a_preventio
     assert not page.locator(".nw-prevent details .pt-row").first.is_visible()
 
 
-def test_a_screen_that_cannot_be_drawn_shows_why_in_the_panel_instead_of_skeletons():
+def test_a_screen_that_cannot_be_drawn_shows_why_in_the_panel_instead_of_skeletons(page):
     model = json.loads(MODEL.read_text())
     model["preventions"][0]["due"] = "Oct 31 morning"
     server = ThreadingHTTPServer(("127.0.0.1", 0), type("Broken", (Handler,), {"model": json.dumps(model).encode()}))
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    with sync_playwright() as p:
-        browser = p.chromium.launch(channel="chrome")
-        page = browser.new_page(viewport=LAPTOP)
-        page.goto(f"http://127.0.0.1:{server.server_port}/#/")
-        failure = page.wait_for_selector("#main .pg-fail", timeout=5000)
-        assert "Invalid time value" in failure.inner_text()
-        assert page.locator("#main .sk").count() == 0
-        browser.close()
+    broken = page.context.browser.new_page(viewport=LAPTOP)
+    broken.goto(f"http://127.0.0.1:{server.server_port}/#/")
+    failure = broken.wait_for_selector("#main .pg-fail", timeout=5000)
+    assert "Invalid time value" in failure.inner_text()
+    assert broken.locator("#main .sk").count() == 0
+    broken.close()
     server.shutdown()
 
 
