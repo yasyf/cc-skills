@@ -280,6 +280,8 @@ class FakeShell(runner_module.Shell):
         self.register: dict[str, dict] = {}
         self.board_error = ""
         self.pr_heads: dict[str, tuple[str, str]] = {}
+        self.pr_branches: dict[str, str] = {}
+        self.board_blocks: dict[str, str] = {}
         self.missing_prs: set[str] = set()
         self.launchd: dict[str, int] = {}
         self.launchctl_calls: list[list[str]] = []
@@ -391,6 +393,8 @@ class FakeShell(runner_module.Shell):
         argv = [token for token in argv if token != "--full"]
         self.calls.append(argv)
         name = Path(argv[0]).name
+        if argv[:3] == ["cc-present", "block", "show"]:
+            return runner_module.Done(0, self.board_blocks[argv[3]], "")
         if argv[:3] == ["security", "find-generic-password", "-s"]:
             return runner_module.Done(0 if argv[3] in self.keychain else 44, "", "")
         if argv[:2] == ["codex-ask", "--cancel"]:
@@ -762,10 +766,10 @@ class FakeShell(runner_module.Shell):
         assert query.startswith('query { repository(owner: "Forge-AI", name: "monorepo") { ')
         if self.status_read_error:
             return runner_module.Done(1, "", self.status_read_error)
-        if pulls := re.findall(r"p(\d+): pullRequest\(number: \1\) \{ state headRefOid title body \}", query):
+        if pulls := re.findall(r"p(\d+): pullRequest\(number: \1\) \{ state headRefOid headRefName title body \}", query):
             missing = [pr for pr in pulls if pr in self.missing_prs]
             errors = [{"type": "NOT_FOUND", "path": ["repository", f"p{pr}"], "message": f"Could not resolve to a PullRequest with the number of {pr}."} for pr in missing]
-            data = {"data": {"repository": {f"p{pr}": {"title": "", "body": ""} | dict(zip(("state", "headRefOid", "title", "body"), self.pr_heads[pr])) if pr in self.pr_heads else None for pr in pulls}}}
+            data = {"data": {"repository": {f"p{pr}": {"title": "", "body": "", "headRefName": self.pr_branches.get(pr, f"lane-{pr}")} | dict(zip(("state", "headRefOid", "title", "body"), self.pr_heads[pr])) if pr in self.pr_heads else None for pr in pulls}}}
             return runner_module.Done(int(bool(missing)), json.dumps(data | ({"errors": errors} if errors else {})), "".join(f"gh: {error['message']}\n" for error in errors))
         if carried := re.findall(r"c(\d+): pullRequest\(number: \1\) \{ commits\(last: 100\)", query):
             return runner_module.Done(0, json.dumps({"data": {"repository": {f"c{pr}": {"commits": {"nodes": [{"commit": {"oid": oid}} for oid in self.pr_commits.get(pr, [])]}} for pr in carried}}}), "")
@@ -16277,6 +16281,24 @@ def test_a_pass_hands_codex_the_plan_grounds_root_accepted_outside_the_package_f
         "\n\n## cci #149910, contract from p8a-step9\n\nS2 design: the park record holds the txid."
         "\n\n## cci #149911, decide from root\n\ncontract 149910 accepted."
     )
+
+
+def test_a_pass_on_an_options_branch_hands_codex_the_board_card_it_builds_an_option_of(shell, config, monkeypatch):
+    fidelity_config(config, sources={"records": {"*": [149913]}})
+    monkeypatch.setattr(runner_module.drive, "root_session", lambda drive: f"root-of-{drive}")
+    shell.board_blocks["P6"] = "P6: Should a release refuse to start?\n  - P6a: Refuse the release (recommended)\n  - P6b: Wait\n"
+    shell.records.append({"seq": 149913, "drive": "d1", "lane": "root", "kind": "decide", "to": ["all"], "text": "an options PR is graded against its card's option text", "at": actions.stamp(shell.clock)})
+    shell.pr_heads["43439"] = ("OPEN", FINDER_HEAD)
+    shell.pr_branches["43439"] = "options/P6-P6a"
+    orca_pass(shell, config)
+    head_record(shell, "43439", FINDER_HEAD)
+    orca_pass(shell, config)
+    [job] = fidelity_jobs(shell)
+    assert Path(job["sources"]).read_text() == (
+        "## cci #149913, decide from root\n\nan options PR is graded against its card's option text"
+        "\n\n## Board card P6, whose option P6a this branch builds\n\nP6: Should a release refuse to start?\n  - P6a: Refuse the release (recommended)\n  - P6b: Wait"
+    )
+    assert ["cc-present", "block", "show", "P6", "--session", "root-of-d1"] in shell.calls
 
 
 @pytest.mark.parametrize(
