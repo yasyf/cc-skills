@@ -15378,7 +15378,7 @@ def test_a_trunk_commit_red_then_green_on_a_retry_posts_one_flake_finding_naming
     red = {"state": "failed", "commit": "b" * 10, "finished_at": "2026-10-01T17:58:00Z", "jobs": [{"id": "job-1", "type": "script", "name": "sand-tests", "state": "failed"}]}
     shell.builds["29019"] = red
     shell.job_logs["job-1"] = FLAKY_LOG
-    shell.test_files["TestADrainedSidecarEndsItsLagSeriesAtZero"] = "go/sand/next/internal/vm/lag_test.go\n"
+    shell.test_files["TestADrainedSidecarEndsItsLagSeriesAtZero"] = "go/sand/.test-timings.json\ndocs/flakes.md\ngo/sand/next/internal/vm/lag_test.go\n"
     shell.subjects["go/sand/next/internal/vm/lag_test.go"] = "vm: 🐛 drain the sidecar's lag series (#29011)"
     rows = OPEN_ROWS | {"29011": {"state": "landed", "lane": "lag-lane"}}
     shell.seen["lag-lane"] = actions.stamp(shell.clock)
