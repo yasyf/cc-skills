@@ -64,7 +64,6 @@ SCHEMA = SCRIPTS / "fidelity.schema.json"
 LANE = "fidelity-pipeline"
 CARRIED_SEQ = re.compile(r"\bcarried from [0-9a-f]{7,40} \(cci #(\d+)\)")
 JOB = "job.json"
-RESULT = "result.json"
 LOG = "job.log"
 READER = "fidelity: reader"
 FINDING_CHARS = 160

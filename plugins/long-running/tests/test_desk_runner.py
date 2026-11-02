@@ -15828,7 +15828,7 @@ def test_a_pass_whose_process_exited_with_no_result_frees_its_slot_and_retries_a
     shell.exited.add(int((crashed / "pid").read_text()))
     orca_pass(shell, config)
     passes = incident(tmp_path, "desk-finder").actions
-    assert passes[f"finder:43439:{FINDER_HEAD}"].reason == "finder.py exited 0 min after it started and wrote no result"
+    assert passes[f"finder:43439:{FINDER_HEAD}"].reason == "the job exited and wrote no result"
     assert passes[f"finder:43439:{FINDER_HEAD}#2"].status == "started"
     assert shell.finder_jobs == [crashed, crashed.with_name(f"{crashed.name}-2")]
     assert not finder_failures(shell)
@@ -15857,7 +15857,7 @@ def test_a_pass_whose_pid_now_names_another_process_settles_as_exited(shell, con
     shell.recycled.add(int((ghost / "pid").read_text()))
     orca_pass(shell, config)
     passes = incident(tmp_path, "desk-finder").actions
-    assert passes[f"finder:43439:{FINDER_HEAD}"].reason == "finder.py exited 0 min after it started and wrote no result"
+    assert passes[f"finder:43439:{FINDER_HEAD}"].reason == "the job exited and wrote no result"
     assert passes[f"finder:43439:{FINDER_HEAD}#2"].status == "started"
 
 
@@ -15870,7 +15870,7 @@ def test_a_pass_whose_pid_file_is_empty_settles_as_exited(shell, config, tmp_pat
     [emptied] = shell.finder_jobs
     (emptied / "pid").write_text("")
     orca_pass(shell, config)
-    assert incident(tmp_path, "desk-finder").actions[f"finder:43439:{FINDER_HEAD}"].reason == "finder.py exited 0 min after it started and wrote no result"
+    assert incident(tmp_path, "desk-finder").actions[f"finder:43439:{FINDER_HEAD}"].reason == "the job exited and wrote no result"
 
 
 def finder_desk_stalls(shell: FakeShell) -> list[str]:
@@ -16093,7 +16093,7 @@ def test_a_fidelity_pass_whose_wrapper_is_gone_with_no_result_fails_at_once_and_
     getattr(shell, gone).add(int((ghost / "pid").read_text()))
     orca_pass(shell, config)
     passes = incident(tmp_path, "desk-fidelity").actions
-    assert passes[f"fidelity:43439:{FINDER_HEAD}:{seq}"].reason == "fidelity.py exited 0 min after it started and wrote no result"
+    assert passes[f"fidelity:43439:{FINDER_HEAD}:{seq}"].reason == "the job exited and wrote no result"
     assert [action.status for action in passes.values()] == ["failed", "started"]
 
 
@@ -16108,9 +16108,69 @@ def test_an_empty_desk_result_fails_its_pass_instead_of_raising_every_orca_pass(
     for directory in (*shell.finder_jobs, *shell.fidelity_jobs):
         (directory / "result.json").write_text("")
     orca_pass(shell, config)
-    why = "its result.json is empty or does not parse, as when its Sprite hibernates before the write reaches its disk"
+    why = "its result.json is empty or does not parse"
     assert incident(tmp_path, "desk-finder").actions[f"finder:43439:{FINDER_HEAD}"].reason == why
     assert incident(tmp_path, "desk-fidelity").actions[f"fidelity:43439:{FINDER_HEAD}:{seq}"].reason == why
+
+PASS_ENDINGS = ["normal", "tooling-error", "wrapper-lost", "empty", "cut", "wrapper-gone"]
+
+
+def end_pass(shell: FakeShell, directory: Path, ending: str) -> None:
+    if ending == "normal":
+        (directory / "result.json").write_text(json.dumps({"verdict": "ok"}))
+    elif ending == "tooling-error":
+        (directory / "result.json").write_text(json.dumps({"error": "codex-ask exited 1: quota exhausted"}))
+    elif ending == "wrapper-lost":
+        from long_running import desk_result
+
+        desk_result.lost(directory, "the job on Sprite dar-fleet-4 ended with status 255 and no result")
+    elif ending == "empty":
+        (directory / "result.json").write_text("")
+    elif ending == "cut":
+        (directory / "result.json").write_text('{"verdict": ')
+    else:
+        shell.exited.add(int((directory / "pid").read_text()))
+
+
+@pytest.mark.parametrize("passes", [1, 144])
+def test_every_pass_settles_in_the_pass_that_sees_its_job_end_however_the_job_ended(shell, config, tmp_path, passes):
+    """T5: Sprite jobs that died, dropped, wrote an empty result or lost their wrapper left the runner raising or waiting out the deadline, fixed one case at a time in #1352, #1371, #1406, #1428, #1470 and #1477."""
+    finder_config(config, concurrent=passes)
+    fidelity_config(config, concurrent=passes)
+    orca_pass(shell, config)
+    heads = {str(50000 + n): hashlib.sha1(str(n).encode()).hexdigest() for n in range(passes)}
+    first = next(iter(heads))
+    shell.pr_heads = {pr: ("OPEN", head) for pr, head in heads.items()}
+    seq = head_record(
+        shell,
+        first,
+        heads[first],
+        refs={"prs": [f"Forge-AI/monorepo#{pr}" for pr in heads]},
+        fields={"attrs": {f"head:Forge-AI/monorepo#{pr}": f"{FINDER_OLD}..{head} restack, range-diff patch-identical (1 commit)" for pr, head in heads.items()}},
+        text="HEAD: " + ", ".join(f"#{pr} {head[:7]}" for pr, head in heads.items()),
+    )
+    orca_pass(shell, config)
+    assert len(shell.finder_jobs) == len(shell.fidelity_jobs) == passes
+    ended = {}
+    for desk, jobs in (("finder", shell.finder_jobs), ("fidelity", shell.fidelity_jobs)):
+        for n, directory in enumerate(jobs):
+            ending = PASS_ENDINGS[n % len(PASS_ENDINGS)]
+            end_pass(shell, directory, ending)
+            pr = json.loads((directory / "job.json").read_text())["pr"]
+            ended[f"finder:{pr}:{heads[pr]}" if desk == "finder" else f"fidelity:{pr}:{heads[pr]}:{seq}"] = ending
+
+    orca_pass(shell, config)
+
+    settled = {**incident(tmp_path, "desk-finder").actions, **incident(tmp_path, "desk-fidelity").actions}
+    for key, ending in ended.items():
+        again = settled.get(f"{key}#2")
+        if ending == "normal":
+            assert settled[key].status != "failed" and again is None, key
+        elif ending == "tooling-error":
+            assert settled[key].status == "failed" and again.status == "accepted", key
+        else:
+            assert settled[key].status == "failed" and again.status == "started", key
+
 
 def test_a_failed_fidelity_pass_settles_when_a_reader_lane_in_runner_json_has_not_started(shell, config):
     """cci #219230: runner.json named fidelity-desk-14 and -15, which never started, so cci refused every FIDELITY-FAILED post and eight failed passes held every fidelity slot for twelve hours while 168 heads queued."""

@@ -170,7 +170,7 @@ def finding(severity: str, cite: str = "go/sand/internal/replica/follow.go:42", 
 
 
 def result(directory: Path) -> dict:
-    return json.loads((directory / finder.RESULT).read_text())
+    return json.loads((directory / "result.json").read_text())
 
 
 @pytest.mark.parametrize("state", ["OPEN", "MERGED"])

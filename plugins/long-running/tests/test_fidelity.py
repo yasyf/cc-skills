@@ -147,7 +147,7 @@ def reply(verdict: str = "ok", missing: tuple[dict, ...] = (), checked: list[str
 
 
 def result(directory: Path) -> dict:
-    return json.loads((directory / fidelity.RESULT).read_text())
+    return json.loads((directory / "result.json").read_text())
 
 
 def test_a_restack_patch_identical_to_a_graded_ok_head_carries_its_port_phrase_and_old_app_line_with_no_model_call(tmp_path):
