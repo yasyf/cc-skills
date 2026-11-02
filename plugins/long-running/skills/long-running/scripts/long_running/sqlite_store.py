@@ -200,7 +200,7 @@ CREATE INDEX action_status ON action(status, ordinal);
 CREATE INDEX action_kind_status ON action(kind, status, ordinal);
 CREATE INDEX action_blocker_candidates ON action(ordinal) WHERE {_BLOCKER_CANDIDATES};
 CREATE INDEX action_direct_merge_candidates ON action(ordinal) WHERE {_DIRECT_MERGE_CANDIDATES};
-CREATE INDEX action_refusal_pr ON action(({_REFUSAL_PR_KEY}), ordinal) WHERE kind = 'bus';
+CREATE INDEX action_refusal_pr ON action((coalesce(({_REFUSAL_PR_KEY}), X'00')), ordinal) WHERE kind = 'bus';
 CREATE TRIGGER action_added AFTER INSERT ON action BEGIN
     UPDATE incident SET action_count = action_count + 1 WHERE singleton = 1;
 END;
@@ -952,10 +952,9 @@ ORDER BY ordinal"""
         selected = json.dumps(sorted(members))
         with self._read(incident_id) as connection:
             query = f"""SELECT action.record FROM (
-    SELECT ordinal FROM action WHERE kind = 'bus' AND ({_REFUSAL_PR_KEY}) IN (SELECT value FROM json_each(?))
-    UNION ALL
-    SELECT ordinal FROM action WHERE kind = 'bus' AND ({_REFUSAL_PR_KEY}) IS NULL
-) AS candidate CROSS JOIN action ON action.ordinal = candidate.ordinal
+    SELECT value AS pr FROM json_each(?) UNION ALL SELECT X'00'
+) AS selected CROSS JOIN action
+WHERE action.kind = 'bus' AND coalesce(({_REFUSAL_PR_KEY}), X'00') = selected.pr
 ORDER BY action.ordinal"""
             return [Action.load(json.loads(row[0])) for row in connection.execute(query, (selected,))]
 
