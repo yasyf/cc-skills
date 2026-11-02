@@ -487,17 +487,17 @@ def test_backfill_exits_1_naming_each_verdict_the_records_still_lack(tmp_path: P
     assert capsys.readouterr().out.splitlines() == ["UNRECORDED merge-prs 202 approved at 413b38e", "UNRECORDED merge-prs 303 approved at 9999999", "UNRECORDED merge-prs 404 rejected at 7777777", "UNRECORDED eviction-route-choice pick"]
 
 
-def test_blanket_approves_each_row_written_by_the_owners_word_and_leaves_later_rows_for_his_tap(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    doc = {"blocks": [{"id": "merge-prs", "type": "pr-groups", "groups": [{"id": "g", "prs": [
-        {"number": 202, "head": "413b38e", "textAt": "2026-10-30T06:00:00Z"},
-        {"number": 505, "head": "5050505", "textAt": "2026-10-30T07:30:00Z"},
-    ]}]}]}
-    shell = BoardShell(doc)
+def test_blanket_approves_the_rows_the_board_showed_at_the_owners_word_and_leaves_later_rows_for_his_tap(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    shell = BoardShell(SNAPSHOT_DOC)
+    def shown(seq: int, at: str, rows: list[list[str]]) -> dict:
+        board = json.dumps({"blocks": ["merge-prs"], "rows": rows, "merges": [], "cards": []})
+        return {"seq": seq, "drive": "brook", "lane": "board-watch", "kind": "note", "topic": "board-rows", "at": at, "text": "snapshot", "refs": {}, "fields": {"attrs": {"session": SESSION, "board": board}}}
+    shell.records += [shown(1, "2026-10-30T06:00:00Z", [["202", "413b38e", ""]]), shown(2, "2026-10-30T07:30:00Z", [["202", "413b38e", ""], ["505", "5050505", ""]])]
 
-    assert board_watch.main(["blanket", "--session", SESSION, "--word", "312144", "--at", "2026-10-30T07:00:00Z", "--program", "brook"], shell) == 0
-    assert board_watch.main(["blanket", "--session", SESSION, "--word", "312144", "--at", "2026-10-30T07:00:00Z", "--program", "brook"], shell) == 0
+    for _ in range(2):
+        assert board_watch.main(["blanket", "--session", SESSION, "--word", "312144", "--at", "2026-10-30T07:00:00Z", "--program", "brook"], shell) == 0
 
     verdicts = board_watch.board_rows.verdicts_of_records(shell.records)["merge-prs"]
     assert {row: (entry["verdict"], entry["head"], entry["at"]) for row, entry in verdicts.items()} == {"202": ("approved", "413b38e", "2026-10-30T07:00:00Z")}
-    assert len(shell.posts) == 1 and attrs(shell.posts[0])["word"] == "312144"
-    assert capsys.readouterr().out.splitlines() == ["LEFT #505 at 5050505: its row was written 2026-10-30T07:30:00Z, not by the owner's word 312144 at 2026-10-30T07:00:00Z"] * 2
+    assert [attrs(post)["word"] for post in shell.posts] == ["312144"]
+    assert capsys.readouterr().out.splitlines() == ["blanket 312144: approved #202 at 413b38e, the rows board board-1 showed by 2026-10-30T07:00:00Z"] * 2
