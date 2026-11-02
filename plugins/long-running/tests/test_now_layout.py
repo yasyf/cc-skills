@@ -448,3 +448,19 @@ def test_after_a_tap_the_queue_moves_to_the_next_new_or_answered_row_never_one_a
       return [nextForYou(rows[0]).number, nextForYou(rows[2]).number, nextForYou(rows[3]).number];
     }""")
     assert order == [3, 4, 1]
+
+
+def test_the_first_load_asks_for_the_now_slice_and_another_tab_fetches_the_whole_model_on_demand(page):
+    """Root #306148: every tab's data was parsed on the first load; Now draws from its slice and the other tabs load theirs when opened."""
+    model = json.loads(MODEL.read_text())
+    cut = {**model, "cut": True}
+    fresh = page.context.browser.new_page(viewport=LAPTOP)
+    asked = []
+    fresh.route(re.compile(r"/api/model"), lambda route: (asked.append(route.request.url.split("/api/model")[1]), route.fulfill(json=cut if "tab=now" in route.request.url else model)))
+    fresh.goto(page.url.split("#")[0] + "#/")
+    fresh.wait_for_selector(".nw-spine")
+    assert asked == ["?tab=now"] and fresh.evaluate("state.model.cut") is True
+    fresh.goto(page.url.split("#")[0] + "#/work")
+    fresh.wait_for_function("state.model && !state.model.cut")
+    assert asked[-1] == ""
+    fresh.close()
