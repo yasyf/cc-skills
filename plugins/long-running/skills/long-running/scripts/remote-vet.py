@@ -23,8 +23,9 @@ compile jobs at once, since a Sprite has 8 GB and no swap and restarts when a wi
 even after one fails; each prints a `PASS` or `FAIL` line with its seconds, and the script exits 1 when any failed.
 The formatting the Sprite applied to the changed files comes back as a patch applied to the lane's worktree, so the
 lane commits formatted code with no `gofmt` or `cargo fmt` on the Mac.
-Each stage prints a `START` line as it begins, streamed as it happens, and a run with no result after `--timeout`
-seconds (default 1800) stops and names the stage it was in. One run per lane holds the worktree at a time. The GitHub
+Each stage prints a `START` line as it begins, streamed as it happens, and the Sprite's script ends with one `VERDICT`
+line holding its exit status. A run that ends without it, as when the connection drops or no result comes within
+`--timeout` seconds (default 1800), names the stage it was in and exits 3 like a vet it never ran. One run per lane holds the worktree at a time. The GitHub
 token reaches the Sprite on standard input only, and every git command there, the partial clone's lazy object fetches
 included, authenticates with it.
 
@@ -46,6 +47,7 @@ from pathlib import Path, PurePosixPath
 
 SPRITE_SCRIPT = r"""
 set -eu
+trap 'echo "VERDICT $?"' EXIT
 IFS= read -r GH_TOKEN
 export GH_TOKEN GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=credential.helper GIT_CONFIG_VALUE_0= GIT_CONFIG_KEY_1=credential.helper
 export GIT_CONFIG_VALUE_1='!f() { echo username=x-access-token; echo "password=$GH_TOKEN"; }; f'
@@ -240,9 +242,10 @@ def main(argv: list[str] | None = None) -> int:
     work = f"{root}/vet-{args.lane}"
     sprited = subprocess.Popen(["sprite", "exec", "-s", sprite, "--", "sh", "-c", SPRITE_SCRIPT, "sh", clone, work, base, config.get("vet", {}).get("prepare", ""), "\n".join(lines), "\n".join(formatted)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     stage = ["connect"]
+    verdict: list[int] = []
     errors: list[str] = []
     formatting: list[str] = []
-    readers = [threading.Thread(target=relay, args=(sprited.stdout, stage, formatting), daemon=True), threading.Thread(target=errors.extend, args=(sprited.stderr,), daemon=True)]
+    readers = [threading.Thread(target=relay, args=(sprited.stdout, stage, formatting, verdict), daemon=True), threading.Thread(target=errors.extend, args=(sprited.stderr,), daemon=True)]
     for reader in readers:
         reader.start()
     sprited.stdin.write(f"{token}\n{patch}")
@@ -251,20 +254,23 @@ def main(argv: list[str] | None = None) -> int:
         sprited.wait(args.timeout)
     except subprocess.TimeoutExpired:
         sprited.kill()
-        print(f"remote-vet: {args.lane} at {base[:10]} on {sprite} gave no result within {args.timeout:.0f}s, still in stage {stage[0]}", file=sys.stderr)
-        return 1
-    for reader in readers:
-        reader.join()
+        errors.append(f"no result within {args.timeout:.0f}s")
+    else:
+        for reader in readers:
+            reader.join()
+    if not verdict:
+        print(f"remote-vet: {args.lane} at {base[:10]} on {sprite} left no verdict in stage {stage[0]}: {''.join(errors).strip()[-400:] or 'the Sprite ended early'}; push and let CI grade {args.lane}", file=sys.stderr)
+        return 3
     if patch := "".join(formatting):
         subprocess.run(["git", "apply", "--binary", "--whitespace=nowarn"], cwd=worktree, input=patch, text=True, check=True)
         print(f"remote-vet: formatted {sum(line.startswith('diff --git ') for line in formatting)} files in {worktree}; commit them before you push")
-    if sprited.returncode:
+    if verdict[0]:
         print(f"remote-vet: {args.lane} at {base[:10]} on {sprite} failed in stage {stage[0]}: {''.join(errors).strip()[-400:] or 'see the FAIL lines above'}", file=sys.stderr)
         return 1
     return 0
 
 
-def relay(stream, stage: list[str], formatting: list[str]) -> None:
+def relay(stream, stage: list[str], formatting: list[str], verdict: list[int]) -> None:
     inside = False
     for line in stream:
         if line.rstrip("\n") == "FORMAT-BEGIN":
@@ -273,6 +279,8 @@ def relay(stream, stage: list[str], formatting: list[str]) -> None:
             inside = False
         elif inside:
             formatting.append(line)
+        elif line.startswith("VERDICT "):
+            verdict.append(int(line.removeprefix("VERDICT ")))
         else:
             print(line, end="", flush=True)
             if line.startswith("START "):
