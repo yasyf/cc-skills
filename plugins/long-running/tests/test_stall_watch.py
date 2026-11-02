@@ -1698,6 +1698,23 @@ def test_a_red_no_record_classes_alarms_root_once_at_twenty_minutes_a_real_class
     ]
 
 
+def test_a_red_record_naming_the_pr_closes_the_unclassed_stall_it_cleared_with_no_resolves_from_anyone(config):
+    """Root #313433: signal-valkey-2's red #313096 classed #46475 at 9bbd4b0 and the watch dropped the stall, but its blocker #312427 stayed open until root resolved it."""
+    shell = FakeShell([], [row("201", test_state="failure", red_at=stamp(25), failing_checks=json.dumps([{"name": "buildkite/lint", "url": "u"}]))])
+
+    watch(shell, config)
+    assert shell.topics() == ["unclassed:201:abc1234"]
+
+    shell.records.append(record(5, "api-lane", "red", f"class=real head={HEAD[:7]} owner=api-lane fixed in the restack", 1, "201"))
+    watch(shell, config)
+
+    [closing] = [post for post in shell.posts if post[post.index("--topic") + 1].startswith("cleared:")]
+    assert closing[closing.index("--resolves") + 1] == "#9001"
+    assert shell.post(closing[closing.index("--topic") + 1])["text"] == "CLEARED unclassed:201:abc1234: no longer standing this pass"
+    watch(shell, config)
+    assert len([post for post in shell.posts if post[post.index("--topic") + 1].startswith("cleared:")]) == 1
+
+
 def test_a_red_of_a_lane_that_handed_off_goes_to_its_successor(config):
     """Drive watchdog #234379: #45894 read red after its lane handed off to a successor, and the alarm still named the stopped lane."""
     handed = record(2, "api-lane-5-handoff", "handoff", "7:13 PM handoff api-lane-5: doc 364b0df; successor api-lane-6", 40)
