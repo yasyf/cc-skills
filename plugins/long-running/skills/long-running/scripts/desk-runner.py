@@ -6541,6 +6541,12 @@ class Landing:
         if failed:
             self.runner.escalate(f"gate:{','.join(failed)}:{hashlib.sha1(done.last.encode()).hexdigest()[:8]}", "GATE-FAILED", numbered(failed), f"the {self.adapter.kind} check {said}")
 
+    def admitted_below(self, tip: str, open_rows: dict[str, dict]) -> str:
+        if not (below := self.unadmitted_base(tip, open_rows)):
+            return ""
+        base = below[0].removeprefix("#")
+        return max((member for member in downstack(open_rows, base) - {base} if member in self.settlement.heads), key=lambda member: len(downstack(open_rows, member)), default="")
+
     def unadmitted_base(self, tip: str, open_rows: dict[str, dict]) -> tuple[str, set[str]] | None:
         """The lowest open PR below `tip` the pass did not admit, with the PRs of the stack above it, or None."""
         stack = downstack(open_rows, tip)
@@ -6571,7 +6577,7 @@ class Landing:
         return statuses is None or not any(status["state"] in RED_STATES and status["context"] not in GATE_STATUSES for status in statuses)
 
     def proven_stacks(self, tips: list[str], open_rows: dict[str, dict]) -> list[tuple[list[str], Done]]:
-        """Each tip's gate, joined with every other tip its own check names as one stack. When the last pass's check of the first tip named every other tip, one joined check over every tip gates the tree, and the solo checks run only when stack-enqueue refuses it. A tip whose native stack starts above an open parent gets that parent checked as a tip of its own, since no other check covers it (root #297121)."""
+        """Each tip's gate, joined with every other tip its own check names as one stack. When the last pass's check of the first tip named every other tip, one joined check over every tip gates the tree, and the solo checks run only when stack-enqueue refuses it. A tip whose native stack starts above an open parent gets that parent checked as a tip of its own, since no other check covers it (root #297121), and so does the admitted PR just below the lowest PR the pass did not admit, when the tip's check reads no verdict (root #300098)."""
         gated = []
         while tips:
             self.runner.checkpoint()
@@ -6589,7 +6595,7 @@ class Landing:
             else:
                 gated.append((shared, joined))
             tips = [tip for tip in rest if tip not in members]
-            if verdictless(alone) and (parent := native_parent(first, alone, open_rows)) and parent not in tips and all(parent not in checked for checked, _ in gated):
+            if verdictless(alone) and (parent := native_parent(first, alone, open_rows) or self.admitted_below(first, open_rows)) and parent not in tips and all(parent not in checked for checked, _ in gated):
                 tips.append(parent)
         return gated
 

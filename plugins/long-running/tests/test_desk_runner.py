@@ -8682,6 +8682,26 @@ def test_a_child_whose_native_stack_starts_above_its_open_parent_waits_on_it_and
     assert any(line.startswith("REFUSED #33000") and line.endswith("the gate read aaaa000000 WAITING: CI running") for line in settled(shell, "REFUSED"))
 
 
+def test_an_admitted_bottom_under_an_unadmitted_middle_is_checked_alone_when_the_tip_check_reads_no_verdict(shell, config, tmp_path):
+    """Root #300098: #47432 to #47455 of the test-sleep stack read `unsettled: the stack worker's settle step` at 5:01 PM Nov 1, since the tip's check read no verdict and the runner settled only the admitted PRs above unadmitted #47457, never the admitted bottom below it."""
+    shell.rows = [
+        {"pr": "33000", "lane": LANE, "branch": "g/0", "base": "dev", "head": "aaaa000000", "state": "open", "reported_head": "aaaa000000", "test_state": "success"},
+        {"pr": "33001", "lane": LANE, "branch": "g/1", "base": "g/0", "head": "aaaa111111", "state": "open", "reported_head": "aaaa111111", "test_state": "success"},
+        {"pr": "33002", "lane": LANE, "branch": "g/2", "base": "g/1", "head": "aaaa222222", "state": "open", "reported_head": "aaaa222222", "test_state": "success"},
+    ]
+    shell.gates["33002"] = [(1, "", "stack-enqueue: error: #33002's native stack contains an unavailable pull request\n")]
+    shell.gates["33000"] = [gate("#33000 WAITING aaaa000000 CI running")]
+    shell.queue |= {"33000": "not queued", "33001": "not queued", "33002": "not queued"}
+    for pr, sha in (("33000", "aaaa000"), ("33002", "aaaa222")):
+        grade(shell, pr, f"ok F307 at {sha}.")
+        merge_go(shell, pr, f"merge #{pr} at {sha}")
+    landing_pass(shell, config)
+    assert not [line for line in said(shell) if line.startswith("GATE-FAILED") or "unsettled" in line]
+    [line] = settled(shell, "BELOW-BLOCKED")
+    assert line.startswith("BELOW-BLOCKED above #33001: root gos name #33002 at aaaa222222")
+    assert any(line.startswith("REFUSED #33000") and line.endswith("the gate read aaaa000000 WAITING: CI running") for line in settled(shell, "REFUSED"))
+
+
 @pytest.mark.parametrize("admitted_by", ["exemption", "go-while-conflicting"])
 def test_an_admitted_head_on_a_parent_no_go_names_settles_below_blocked_never_unsettled(shell, config, tmp_path, admitted_by):
     """Oct 30 7:18 PM: #45719, #45802 and #45893, admitted as exempt ports or test-only changes, and #45400, go'd while conflicting, each sat on a parent no go named and settled `unsettled: the admission read`."""
