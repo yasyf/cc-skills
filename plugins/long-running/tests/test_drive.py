@@ -664,6 +664,34 @@ def test_tree_faults_names_every_file_of_a_directory_the_install_lacks(tmp_path)
     ]
 
 
+@pytest.mark.parametrize(
+    ("runs", "fault"),
+    [
+        ([{"name": "long-running CI", "run_attempt": 1, "status": "completed", "conclusion": "success", "html_url": "u1"}], ""),
+        ([{"name": "long-running CI", "run_attempt": 1, "status": "completed", "conclusion": "failure", "html_url": "u1"}, {"name": "long-running CI", "run_attempt": 2, "status": "completed", "conclusion": "success", "html_url": "u2"}], ""),
+        ([{"name": "long-running CI", "run_attempt": 1, "status": "completed", "conclusion": "failure", "html_url": "u1"}], "the long-running CI run on 7ae7b77939, the commit long-running--v1.2.4 was bumped from, ended failure: u1"),
+        ([{"name": "long-running CI", "run_attempt": 1, "status": "in_progress", "conclusion": None, "html_url": "u1"}], "the long-running CI run on 7ae7b77939, the commit long-running--v1.2.4 was bumped from, is in_progress: u1"),
+        ([{"name": "Guides", "run_attempt": 1, "status": "completed", "conclusion": "success", "html_url": "u0"}], "no long-running CI run on main has started for 7ae7b77939, the commit long-running--v1.2.4 was bumped from"),
+    ],
+    ids=["passed", "passed-on-rerun", "failed", "running", "none"],
+)
+def test_ci_fault_reads_the_ci_run_on_the_commit_a_release_was_bumped_from(tmp_path, monkeypatch, runs, fault):
+    plugins = tmp_path / ".claude" / "plugins"
+    (plugins / "marketplaces" / "skills" / ".claude-plugin").mkdir(parents=True)
+    (plugins / "marketplaces" / "skills" / ".claude-plugin" / "marketplace.json").write_text(json.dumps({"plugins": [
+        {"name": "long-running", "source": {"source": "git-subdir", "url": "https://github.com/yasyf/cc-skills.git", "path": "plugins/long-running", "ref": "long-running--v1.2.4"}, "version": "1.2.4"},
+    ]}))
+    monkeypatch.setattr(drive, "PLUGIN", plugins / "cache" / "skills" / "long-running" / "1.2.4")
+    merged = "7ae7b7793" + "0" * 31
+    answers = {
+        "repos/yasyf/cc-skills/commits/long-running--v1.2.4": {"sha": "d3b27ea6f" + "0" * 31, "parents": [{"sha": merged}]},
+        f"repos/yasyf/cc-skills/actions/runs?head_sha={merged}&per_page=100": {"workflow_runs": runs},
+    }
+    monkeypatch.setattr(drive.subprocess, "run", lambda argv, **_: subprocess.CompletedProcess(argv, 0, json.dumps(answers[argv[-1]]), ""))
+
+    assert drive.ci_fault("1.2.4") == fault
+
+
 def test_release_faults_reads_the_release_the_marketplace_entry_pins(tmp_path, monkeypatch):
     origin = tmp_path / "origin"
     plugins = tmp_path / ".claude" / "plugins"

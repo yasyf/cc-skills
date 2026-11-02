@@ -2441,13 +2441,16 @@ class Runner:
         with self.desk_lock(desk) as holder:
             return holder
 
-    def handoff(self, desk: str, version: str = "") -> int:
+    def handoff(self, desk: str, version: str = "", ci_red_ok: str = "") -> int:
         """Move `desk` onto `version`, or onto the pinned version without one. Refuse before stopping anything when that version's install is not its release (`drive.release_faults`: a file missing, added past its tag, or edited in place) or that version's own preflight for the desk refuses (Oct 30 9:47 PM); then pin it, stop the runner holding `desk`'s lock at its next step boundary, wait until it has exited, then start its successor, or under launchd supervision wait for launchd's restart instead, so a handoff killed mid-wait never leaves the desk empty (Oct 30 7:46 PM). A runner whose newest alive record, posted after the stop was asked, shows it re-executed into the pinned version under the same pid has handed over in place, so its stop is withdrawn and no successor starts (root, Oct 29 11:46 AM), unless it already ran that version when the stop was asked, since only a restart then reloads runner.json (cci #215987); refuse, naming its pid, when neither happens within HANDOFF_WAIT (#140225)."""
         current = self.pinned() or RUNNING_VERSION
         target = version or current
         if faults := drive.release_faults(target):
             shown = "; ".join(faults[:HANDOFF_FAULTS]) + (f"; and {len(faults) - HANDOFF_FAULTS} more" if len(faults) > HANDOFF_FAULTS else "")
             print(f"desk-runner handoff: no runner was stopped, since the {target} install is not its release: {shown}; reinstall it with `claude plugin update long-running@skills` and hand off again", file=sys.stderr)
+            return 1
+        if not ci_red_ok and (red := drive.ci_fault(target)):
+            print(f"desk-runner handoff: no runner was stopped, since {red}; hand off once it passes, or pass --ci-red-ok with the reason this version must run now", file=sys.stderr)
             return 1
         supervised = self.supervised(desk)
         if fault := self.successor_fault(desk, target, supervised):
@@ -2486,13 +2489,16 @@ class Runner:
         print(f"desk-runner handoff: {f'runner {pid} exited' if pid is not None else f'no live {desk} runner'}; started runner {started.pid}, logging to {self.runner_log(desk)}")
         return 0
 
-    def handoff_pair(self, version: str = "") -> int:
+    def handoff_pair(self, version: str = "", ci_red_ok: str = "") -> int:
         current = self.pinned() or RUNNING_VERSION
         target = version or current
         desks = sorted(DESKS)
         if faults := drive.release_faults(target):
             shown = "; ".join(faults[:HANDOFF_FAULTS]) + (f"; and {len(faults) - HANDOFF_FAULTS} more" if len(faults) > HANDOFF_FAULTS else "")
             print(f"desk-runner handoff: no runner was stopped, since the {target} install is not its release: {shown}", file=sys.stderr)
+            return 1
+        if not ci_red_ok and (red := drive.ci_fault(target)):
+            print(f"desk-runner handoff: no runner was stopped, since {red}; hand off once it passes, or pass --ci-red-ok with the reason this version must run now", file=sys.stderr)
             return 1
         supervised = {desk: self.supervised(desk) for desk in desks}
         for desk in desks:
@@ -10789,7 +10795,8 @@ def build_parser() -> argparse.ArgumentParser:
     handoff_scope = handoff.add_mutually_exclusive_group(required=True)
     handoff_scope.add_argument("--desk", choices=DESKS)
     handoff_scope.add_argument("--paired", action="store_true", help="gracefully exit both desks before changing their shared version pin once")
-    handoff.add_argument("--version", default="", help="the installed plugin version to pin and move the desk onto, after its release check and its own preflight pass; the pinned version when omitted")
+    handoff.add_argument("--version", default="", help="the installed plugin version to pin and move the desk onto, after its release check, its main CI run and its own preflight pass; the pinned version when omitted")
+    handoff.add_argument("--ci-red-ok", default="", metavar="REASON", help="hand off although the version's main CI run has not passed, such as a forward fix for a crashing runner, saying why")
     supervise = verbs.add_parser("supervise", help="install, uninstall, or report the launchd user agent com.long-running.<drive>.<desk> that keeps the desk's runner alive; status exits 0 while launchd has it loaded")
     supervise.add_argument("action", choices=("install", "uninstall", "status"))
     supervise.add_argument("--desk", choices=DESKS, required=True)
@@ -10885,7 +10892,7 @@ def main(argv: list[str] | None = None, shell: Shell | None = None) -> int:
     if args.verb == "rebind":
         return runner.rebind()
     if args.verb == "handoff":
-        return runner.handoff_pair(args.version) if args.paired else runner.handoff(args.desk, args.version)
+        return runner.handoff_pair(args.version, args.ci_red_ok) if args.paired else runner.handoff(args.desk, args.version, args.ci_red_ok)
     if args.verb == "supervise":
         return runner.supervise(args.action, args.desk)
     if args.verb == "preflight":
