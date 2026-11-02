@@ -11554,6 +11554,17 @@ def test_a_cli_launch_on_a_live_lanes_incident_is_refused_unless_owner_directed(
     assert cli(shell, config, "launch", "--key", "launch-three", "--lane", "inc-sand-fix-2", "--model", "opus", "--effort", "xhigh", "--brief", str(brief), "--owner-directed") == 0
 
 
+def test_a_class_record_root_closed_on_scope_raises_no_class_unowned(shell, config):
+    """Root #305535: CLASS-UNOWNED fired three times on customer-break incidents root had already closed on scope (305119, 305246, 305361)."""
+    orca_pass(shell, config)
+    seq = cci_record(shell, lane="stall-watch", kind="incident", topic="customer:305039", text="INCIDENT customer-break #305039 from dev-health-desk-1, 3 min", at=actions.stamp(shell.clock))
+    cci_record(shell, lane="root", kind="incident", resolves=seq, text="8:43 PM Not an incident, closed on scope", at=actions.stamp(shell.clock))
+    shell.sleep(11 * 60)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert [line for line in escalations(shell) if line.startswith("CLASS-UNOWNED")] == []
+
+
 @pytest.mark.parametrize(
     ("kind", "text", "go", "minutes", "unowned"),
     [

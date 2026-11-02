@@ -1759,3 +1759,28 @@ def test_the_first_pass_reads_no_history_and_a_failed_incident_post_is_read_agai
     watch(shell, config)
 
     assert shell.topics() == ["customer:5"]
+
+
+DEV_HEALTH_LINE = """dev-health-desk-1 hourly: 4 open findings: rel:lag:sand; rel:lag:sand-next; prod:hsbcsso
+
+dev: latest finished dev test #100844 1eb90d31e passed, 0 bad job names
+prod: run crashes 1h none; HSBC SSO errors 15m 98; runtime-v2 err 42/2; runtime-v2 apm 0/3301 (24h ago 0); sandsql apm 0/28446 (24h ago 0)
+release: 70 release builds in 6h, 1 failing steps"""
+
+
+@pytest.mark.parametrize(
+    ("line", "opens"),
+    [
+        (DEV_HEALTH_LINE, False),
+        (DEV_HEALTH_LINE.replace("run crashes 1h none", "run crashes 1h 3"), True),
+        (DEV_HEALTH_LINE.replace("runtime-v2 apm 0/3301", "runtime-v2 apm 4/3301"), True),
+        (DEV_HEALTH_LINE.replace("prod:hsbcsso", "prod:sofisso"), True),
+    ],
+)
+def test_a_dev_health_line_opens_a_customer_break_only_on_crashes_apm_errors_or_a_customer_count_no_open_finding_covers(config, line, opens):
+    """Root #305535: three dev-health state lines in 17 minutes opened customer-breaks that root closed on scope (305119, 305171, 305361), since `HSBC` and the zero-crash clause `run crashes 1h none` shared one sentence."""
+    shell = FakeShell([], [])
+    watch(shell, config)
+    shell.records.append(record(5, "dev-health-desk-1", "state", line, 1))
+    watch(shell, config)
+    assert (shell.topics() == ["customer:5"]) == opens

@@ -260,6 +260,12 @@ JUDGE_KIND = "stall"
 LANDING = "desk-landing"
 FINDER_DESK = "desk-finder"
 FINDER_LANE = "finder-desk"
+DEV_HEALTH = re.compile(r"dev-health-desk(?:-\d{1,2})*")
+PROD_COUNTS = re.compile(r"^prod: (?P<counts>.+)$", re.MULTILINE)
+OPEN_FINDINGS = re.compile(r"\bopen findings: (?P<keys>[^\n]+)")
+RUN_CRASHES = re.compile(r"\brun crashes \S+ (?P<count>\d+)\b")
+APM_ERRORS = re.compile(r"\bapm (?P<count>\d+)/\d+")
+TRAILING_COUNT = re.compile(r"(?P<count>\d+)$")
 FIDELITY_DESK = "desk-fidelity"
 QUEUE_LIVE = frozenset({"accepted", "started"})
 FINDER_PENDING = "FINDER-PENDING"
@@ -1421,7 +1427,8 @@ class Pass:
             if record["kind"] in INCIDENT_KINDS or record["seq"] in answered or {record.get("re"), *cci.resolved(record)} & covered or any(breakage.INCIDENT_LANE.fullmatch(lane) for lane in [record["lane"], *(record.get("to") or [])]):
                 covered.add(record["seq"])
                 continue
-            if after is None or record["seq"] <= after or record["kind"] not in SAYS_KINDS or record["lane"] == LANE or not (said := breakage.customer_break(grades.full_text(record))):
+            text = grades.full_text(record)
+            if after is None or record["seq"] <= after or record["kind"] not in SAYS_KINDS or record["lane"] == LANE or not (said := dev_health_break(text) if DEV_HEALTH.fullmatch(record["lane"]) and PROD_COUNTS.search(text) else breakage.customer_break(text)):
                 continue
             covered.add(record["seq"])
             stalls.append(Stall(f"customer:{record['seq']}", "customer", at(record), f"#{record['seq']} from {record['lane']}", f"its {record['kind']} at {pacific(at(record), self.now)} says “{clip(said, RECORD_CHARS)}”", (ROOT,), CUSTOMER_STEP, re=str(record["seq"])))
@@ -1443,6 +1450,22 @@ class Pass:
             f"no CI test is recorded for {', '.join(keys)}, each a ruling about how many processes, primaries or replicas run or what shares one",
             (ROOT,), f"{ROOT} orders a test that fails on today's code for each from the lane that builds it, recorded with `rulings.py shape <key> --test <repo>#<pr> <path>::<test>`, or `--not-shape <why>` for a row that names no shape",
         )]
+
+
+def dev_health_break(text: str) -> str | None:
+    """The clause of a dev-health line's `prod:` counts that is a customer break: nonzero run crashes, a nonzero APM error count, or a nonzero count naming customers that no open finding the line lists covers, as `prod:hsbcsso` covers `HSBC SSO errors 15m 98` (root #305535)."""
+    findings = OPEN_FINDINGS.search(text)
+    covered = {squashed(key.split(":", 1)[-1]) for key in findings["keys"].split(";")} if findings else set()
+    for clause in (part.strip() for part in PROD_COUNTS.search(text)["counts"].split(";")):
+        if any((count := pattern.search(clause)) and int(count["count"]) for pattern in (RUN_CRASHES, APM_ERRORS)):
+            return clause
+        if breakage.CUSTOMERS.search(clause) and (count := TRAILING_COUNT.search(clause)) and int(count["count"]) and squashed(clause.split(" errors", 1)[0]) not in covered:
+            return clause
+    return None
+
+
+def squashed(name: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", name.lower())
 
 
 def main(argv: list[str] | None = None, shell: Shell | None = None) -> int:

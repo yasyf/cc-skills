@@ -4244,7 +4244,7 @@ class Runner:
         return bool(self.orca.receipt(lane) and (shown := self.orca.show(lane)) and shown.status not in INACTIVE)
 
     def class_unowned(self) -> None:
-        """Log one `CLASS-UNOWNED` for each class record that names an incident key and, `deadlines.pr_silent_minutes` after it, has no later root GO, decide, or decision naming one of its keys."""
+        """Log one `CLASS-UNOWNED` for each class record that names an incident key and, `deadlines.pr_silent_minutes` after it, has no later root GO, decide, or decision naming one of its keys, unless a record resolved it, as root's close on scope does (root #305535)."""
         try:
             records = [record for record in cci.records(self.cci_tail, self.config.drive, since=actions.stamp(self.now() - PR_SILENT_HORIZON)) if record["drive"] == self.config.drive]
         except CciTailFailed as failure:
@@ -4252,8 +4252,9 @@ class Runner:
             return
         after = timedelta(minutes=self.config.pr_silent_minutes)
         gos = [record for record in records if record["lane"] == ROOT and record["kind"] in GO_KINDS and FIX_GO.search(record.get("text") or "")]
+        closed = {seq for record in records for seq in cci.resolved(record)}
         for record in records:
-            if record["lane"] == ROOT or not (record["kind"] == "incident" or CLASS_TEXT.match(record.get("text") or "")):
+            if record["lane"] == ROOT or record["seq"] in closed or not (record["kind"] == "incident" or CLASS_TEXT.match(record.get("text") or "")):
                 continue
             if not (keys := class_keys(record)):
                 continue
