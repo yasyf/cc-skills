@@ -396,7 +396,7 @@ class FakeShell(runner_module.Shell):
         self.calls.append(argv)
         name = Path(argv[0]).name
         if argv[:3] == ["cc-present", "block", "show"]:
-            return runner_module.Done(0, self.board_blocks[argv[3]], "")
+            return runner_module.Done(0, self.board_blocks[argv[3]], "") if argv[3] in self.board_blocks else runner_module.Done(1, "", f'cc-present: no block "{argv[3]}" on this board or in its history')
         if argv[:3] == ["security", "find-generic-password", "-s"]:
             return runner_module.Done(0 if argv[3] in self.keychain else 44, "", "")
         if argv[:2] == ["codex-ask", "--cancel"]:
@@ -16362,6 +16362,20 @@ def test_a_pass_on_an_options_branch_hands_codex_the_board_card_it_builds_an_opt
         "\n\n## Board card P6, whose option P6a this branch builds\n\nP6: Should a release refuse to start?\n  - P6a: Refuse the release (recommended)\n  - P6b: Wait"
     )
     assert ["cc-present", "block", "show", "P6", "--session", "root-of-d1"] in shell.calls
+
+
+def test_an_options_branch_whose_card_left_the_board_grades_without_it(shell, config, monkeypatch):
+    """Root 322775: a retired card id made `cc-present block show` fail, and the raise restarted the orca runner every pass."""
+    fidelity_config(config, sources={"records": {"*": [149913]}})
+    monkeypatch.setattr(runner_module.drive, "root_session", lambda drive: f"root-of-{drive}")
+    shell.records.append({"seq": 149913, "drive": "d1", "lane": "root", "kind": "decide", "to": ["all"], "text": "an options PR is graded against its card's option text", "at": actions.stamp(shell.clock)})
+    shell.pr_heads["43439"] = ("OPEN", FINDER_HEAD)
+    shell.pr_branches["43439"] = "options/P6-P6a"
+    orca_pass(shell, config)
+    head_record(shell, "43439", FINDER_HEAD, seq=149920)
+    orca_pass(shell, config)
+    [job] = fidelity_jobs(shell)
+    assert Path(job["sources"]).read_text() == "## cci #149913, decide from root\n\nan options PR is graded against its card's option text"
 
 
 @pytest.mark.parametrize(
