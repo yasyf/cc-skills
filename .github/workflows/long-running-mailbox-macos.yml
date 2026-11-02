@@ -30,6 +30,7 @@ on:
       - "plugins/long-running/tests/test_open_cut_clock_noop.py"
       - "plugins/long-running/tests/test_cut_release_read_proof.py"
       - "plugins/long-running/tests/landing_release_history_characterization.py"
+      - "plugins/long-running/tests/match_corpus_characterization.py"
       - "plugins/long-running/tests/test_landing_release_generations.py"
       - "plugins/long-running/tests/test_release_action_versions.py"
       - "plugins/long-running/tests/release_generation_old_writer_integration.py"
@@ -71,6 +72,26 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v8.2.0
+      - uses: actions/checkout@v7
+        with:
+          ref: 0c422ce358746df22168df8e02e8a42ee3b139e8
+          path: .ci-match-corpus-baseline
+          persist-credentials: false
+      - name: Immutable818 matching corpus characterization
+        shell: bash
+        run: |
+          set -o pipefail
+          baseline=.ci-match-corpus-baseline/plugins/long-running
+          test "$(git -C .ci-match-corpus-baseline rev-parse HEAD)" = 0c422ce358746df22168df8e02e8a42ee3b139e8
+          cp plugins/long-running/tests/match_corpus_characterization.py "$baseline/tests/match_corpus_characterization.py"
+          uv run --locked --project "$baseline" pytest -c "$baseline/pyproject.toml" "$baseline/tests/match_corpus_characterization.py" -q -s --junitxml="$RUNNER_TEMP/match-corpus-characterization.xml" | tee "$RUNNER_TEMP/match-corpus-characterization.log"
+          grep -F '19 passed' "$RUNNER_TEMP/match-corpus-characterization.log"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: match-corpus-characterization-${{ runner.os }}
+          path: ${{ runner.temp }}/match-corpus-characterization.*
+          if-no-files-found: error
       - uses: actions/checkout@v7
         with:
           ref: 14e26e2b070d27c28d49530cc08ae0a6a4a42d7a
