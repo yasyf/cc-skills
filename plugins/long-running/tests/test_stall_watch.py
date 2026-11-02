@@ -2003,3 +2003,21 @@ def test_a_root_route_naming_an_owner_or_a_fix_lane_is_no_acknowledgement_and_pe
     watch(shell, config)
 
     assert not [topic for topic in shell.topics() if topic.startswith("acked:")] and shell.launches == []
+
+
+def test_a_refusal_at_a_head_its_lane_already_replaced_is_stale_and_never_an_acknowledged_class(config):
+    """Root #312758 and #313273: #47595's REFUSED at 0fa31d4 (#312089) came after its lane had restacked to e419c1e, and REFUSED counted as an acknowledged class with no defect behind it."""
+    registered_state(config)
+    records = []
+    for n, (pr, old, new) in enumerate([("47595", "0fa31d4ab", "e419c1eab"), ("47596", "1ab2c3d4e", "2bc3d4e5f"), ("47597", "3cd4e5f6a", "4de5f6a7b")]):
+        base = 312000 + n * 10
+        records += [
+            record(base, "hand-enqueue-2", "blocker", f"REFUSED #{pr} at {old} by stack-enqueue: it conflicts with dev; restack and post HEAD.", 60 - n * 10),
+            record(base + 1, "api-lane", "head", f"HEAD #{pr} {new} (was {old}): restack onto dev", 58 - n * 10, pr),
+            answer(base + 2, f"REFUSED for #{pr} closed: the refusal was at {old[:7]}, the head the lane had already replaced.", 57 - n * 10, resolves=base),
+        ]
+    shell = FakeShell(records, [])
+
+    watch(shell, config)
+
+    assert not [topic for topic in shell.topics() if topic.startswith("acked:")] and shell.launches == []
