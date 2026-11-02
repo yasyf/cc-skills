@@ -327,7 +327,7 @@ class FakeShell(runner_module.Shell):
             return Process()
         if argv[1:2] == [str(runner_module.STALL_WATCH)]:
             return self.stall_pass
-        if argv[1:2] == [str(runner_module.REPLAY)]:
+        if len(argv) > 1 and Path(argv[1]).name == "replay.py":
             self.recur_passes.append(argv[2:])
             return Process()
         if argv[1:2] == [str(runner_module.SCRIPTS / "finder.py")]:
@@ -391,7 +391,7 @@ class FakeShell(runner_module.Shell):
         if name == "remote-restack.py":
             self.restacks.append(argv[1:])
             return runner_module.Done(*self.restack_done)
-        if argv[1:2] == [str(runner_module.REPLAY)]:
+        if len(argv) > 1 and Path(argv[1]).name == "replay.py":
             self.replays.append(argv[2:])
             return runner_module.Done(*self.replay_done)
         if argv[:3] == ["gh", "pr", "view"] and argv[-1] == runner_module.MERGE_CARD_FIELDS:
