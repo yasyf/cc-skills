@@ -116,3 +116,34 @@ def test_run_keeps_the_user_token_out_of_the_environment_and_exports_the_rest(tm
     assert 'private_key_command = ["aws", "ssm", "get-parameter"]' in (tmp_path / ".config/ccx/github-app.toml").read_text()
     assert (tmp_path / "landing-runner.log").exists()
     assert execs[0][-4:] == ["--config", str(config), "--desk", "landing"]
+
+
+def test_roll_refuses_a_version_whose_main_ci_is_red_and_moves_nothing(tmp_path, monkeypatch, capsys):
+    config = tmp_path / "runner.json"
+    config.write_text(json.dumps({"version": "0.7.927", "host": {"sprite": "dar-desk-1"}, "landing": {}}))
+    calls = []
+    monkeypatch.setattr(desk_creds.drive, "release_faults", lambda version: [])
+    monkeypatch.setattr(desk_creds.drive, "ci_fault", lambda version: "the long-running CI run on abc1234 ended failure")
+    monkeypatch.setattr(desk_creds.subprocess, "run", lambda argv, **_: calls.append(argv))
+    assert desk_creds.roll(config, "landing", "") == 1
+    assert calls == []
+    assert "ended failure" in capsys.readouterr().err
+
+
+def test_roll_copies_the_pinned_version_then_stops_the_desk_runner_at_the_end_of_its_pass(tmp_path, monkeypatch):
+    config = tmp_path / "runner.json"
+    config.write_text(json.dumps({"version": "0.7.927", "host": {"sprite": "dar-desk-1"}, "landing": {}}))
+    calls = []
+
+    def fake(argv, input=None, **_):
+        calls.append(argv)
+        return subprocess.CompletedProcess(argv, 0, b"", b"")
+
+    monkeypatch.setattr(desk_creds.drive, "release_faults", lambda version: [])
+    monkeypatch.setattr(desk_creds.drive, "ci_fault", lambda version: "")
+    monkeypatch.setattr(desk_creds.subprocess, "run", fake)
+    assert desk_creds.roll(config, "landing", "") == 0
+    stop = calls[-1]
+    assert stop[:5] == ["sprite", "exec", "-s", "dar-desk-1", "--no-stdin"]
+    assert stop[-5:] == ["/home/sprite/.claude/plugins/cache/skills/long-running/0.7.927", "/home/sprite/.claude/long-running/current", str(config), "landing", "1200"]
+    assert ".stop.$pid" in stop[stop.index("-c") + 1]
