@@ -105,6 +105,7 @@ from urllib.parse import urlencode
 
 from . import cci
 from . import ghread
+from . import match_session
 
 AI_REVIEW_CHECK = "ai-review"
 AI_REVIEW_ABSENT = "absent"
@@ -285,13 +286,18 @@ class Shell:
     reads retry with a short backoff; writes never do, because a retried write can land twice.
     A `git fetch` that loses a ref lock to a concurrent fetch retries the same way, since a
     forced refspec lands once however many times it runs.
-    Input reaches the child from a file, never a pipe this process writes while the child's
+    `run` feeds the child from a file, never a pipe this process writes while the child's
     output fills. A command still running after COMMAND_TIMEOUT_SECONDS, or when anything else
     ends this call, dies with everything under it in this process's group. A command that is
     itself one of the plugin's scripts is told so through `drive.deadline_env`, and kills its own
     commands before dying at that deadline, which reads as the same timeout. Commands stay in this
-    process's group, so a signal sent to the group still reaches them.
+    process's group, so a signal sent to the group still reaches them. `session` pumps the
+    native answer-cut protocol through pipes, checks the request deadline, and reaps its child.
     """
+
+    @staticmethod
+    def session(argv, prepare, **kwargs) -> list[dict]:
+        return match_session.run(argv, prepare, **kwargs)
 
     def run(self, argv: list[str], stdin: str | None = None, cwd: Path | None = None) -> str:
         for attempt in range(CCN_READ_ATTEMPTS - 1 if is_ccn_read(argv) else 0):

@@ -41,6 +41,7 @@ from captain_hook import (
     workflow_state,
 )
 from captain_hook.conditions import skill_name_matches
+from captain_hook.dispatch_metrics import measured_call
 from captain_hook.util import reqenv
 
 from .nudges import queue_nudge
@@ -372,6 +373,14 @@ def rulings(cwd: str, *args: str, evt: BaseHookEvent, stdin: str = "", timeout: 
             @staticmethod
             def once(command: list[str], stdin: str | None, cwd: Path | None = None) -> str:
                 return module.cci.installed(command, lambda: run(command, input=stdin, cwd=cwd, env=env, timeout=read.remaining()))
+
+            @staticmethod
+            def session(argv, prepare, **kwargs):
+                read.remaining()
+                kwargs["timeout"] = min(kwargs["timeout"], read.remaining())
+                result = measured_call("cli", "", module.ledger.Shell.session, argv, prepare, **kwargs)
+                read.remaining()
+                return result
 
         runtime = module.Runtime(io.StringIO(stdin), output, errors, drives, home / ".claude" / "scratch", lambda: module.drive.current_drive(env, drives), read.lock, read.held, read.remaining, run=run, env=env)
         code = module.dispatch([*args, "--repo", cwd], Shell(), runtime)
