@@ -1020,6 +1020,13 @@ A revert runs only when the owner's own word names it (owner answer 36a298d).
 
 Only a question nothing settles goes to the owner. Each card names which authorities were checked.
 
+Every card names, before it is pushed, the event after which it is moot:
+`board_cards.py until <card> --until <at:TIME|pr:N|release:STACK@ENV:COMMIT|record:SEQ>`
+refuses a missing or past condition, and `board_text_gate` warns on a card pushed with none.
+The board lane runs `board_cards.py sweep --lane <lane>` every cycle; it removes each card
+whose event happened and posts a withdraw record naming the outcome (owner, 12:03 AM Nov 2:
+a card about a release that happened 12 hours earlier was still on his board).
+
 When the fork is about a check, gate or grader, the question names every existing
 mechanism that grades the same signal and includes "delete it and let <that
 mechanism> own the signal" as an option. Each option lists its added lines and

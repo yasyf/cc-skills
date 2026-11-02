@@ -61,6 +61,7 @@ TEXT = "text"
 REFUSAL = "Warning, nothing was blocked: Owner-facing text passes every check before the owner sees it. Fix each problem below, then run the same command again."
 SKIPPED = "Warning, nothing was blocked: board_text_gate skipped text it could not read."
 BREAKAGE = script_module("long_running.breakage")
+BOARD_CARDS = f"{sys.executable} {script('board_cards.py')}"
 PIPED_SECTION = '{"id":"sec-merge-taps","type":"section","title":"Release plan and merges"}'
 
 
@@ -214,6 +215,14 @@ def titles(found: list[tuple[dict, dict | None]]) -> list[str]:
     ]
 
 
+def unended(reads: Reads, item: Published, found: list[tuple[dict, dict | None]]) -> list[str]:
+    cards = [block["id"] for block, card in found if block["type"] == "card" and card is None]
+    if not cards:
+        return []
+    missing = reads.read("the cards' end conditions", lambda: ran([sys.executable, str(script("board_cards.py")), *reads.which, "--session", item.session, "missing", *cards]).split())
+    return [f"{card}: no end condition, so nothing takes it down once its event passes; first run `board_cards.py until {card} --until <at:TIME|pr:N|release:STACK@ENV:COMMIT|record:SEQ>`" for card in missing or []]
+
+
 def sweep(reads: Reads, *artifacts: Path) -> list[re.Match[str]] | None:
     flags = [arg for artifact in artifacts for arg in ("--artifact", str(artifact))]
     lines = reads.read(f"rulings.py sweep {' '.join(map(str, artifacts)) or 'default'}", lambda: rulings(reads.repo, "sweep", *reads.which, *flags, evt=reads.evt))
@@ -312,6 +321,7 @@ def graded(reads: Reads, item: Published) -> list[str]:
         *breaks(found),
         *titles(found),
         *strikes(item, found, reads),
+        *unended(reads, item, found),
     ]
     if register:
         problems += verify_reports(item, reads, register)
@@ -333,6 +343,7 @@ def posting(command: str | None = None, *, sweep_out: str = "", reviewed: tuple[
         f"ccn -R {REPO} log show": sweeps(minutes),
         f"ccn -R {REPO} answer list": "[]",
         "cc-present outcomes": json.dumps({"revising": {"blockIds": list(revised)}}),
+        BOARD_CARDS: "",
         **judged(),
     }
     return Input(
@@ -376,6 +387,7 @@ def exits(name: str, **extra: object) -> Input:
         update("strike-update.json", revised=("share-open",)): Warn(pattern=r"share-open: an update after a strike names no sweep hit count"),
         update("strike-update.redraft.json", revised=("share-open",)): Allow(),
         update("strike-update.json"): Allow(),
+        update("clean-card.json", commands={BOARD_CARDS: "share-open\n"}): Warn(pattern=r"share-open: no end condition, so nothing takes it down"),
         update("only-these.json", sweep_out=held_copy_hit("plan.md")): Warn(pattern=r"says these changes only while the sweep has 1 open hits"),
         update("only-these.json"): Allow(),
         posting(f"cc-present update-block - <<'EOF'\n{HEREDOC}EOF", reviewed=(HEREDOC_SHA,)): Allow(),
