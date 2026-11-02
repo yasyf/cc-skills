@@ -71,6 +71,8 @@ class FakeShell(stall_watch.Shell):
         self.shapes: list[dict] = []
         self.peers: list[dict] = []
         self.launches: list[list[str]] = []
+        self.slices: list[list[str]] = []
+        self.slice_code = 0
         self.registry_rows: list[dict] = []
         self.successions: dict[str, str] = {}
         self.ledgers: dict[str, list[dict]] = {}
@@ -105,6 +107,9 @@ class FakeShell(stall_watch.Shell):
         if Path(argv[1]).name == "drive_supervisor.py":
             assert argv[2] == "lanes"
             return stall_watch.Done(0, "".join(json.dumps(found) + "\n" for found in self.registry()), "")
+        if Path(argv[1]).name == "rulings.py" and argv[2] == "slice":
+            self.slices.append(argv)
+            return stall_watch.Done(self.slice_code, "", "no register" if self.slice_code else "")
         if Path(argv[1]).name == "rulings.py":
             assert argv[2:] == ["shapes", "--untested", "--json", "--drive", "durable"]
             return stall_watch.Done(0, json.dumps(self.shapes), "")
@@ -1941,9 +1946,8 @@ def test_a_third_no_fix_acknowledgement_of_one_defect_class_in_two_hours_orders_
     assert shell.launches == []
 
 
-def test_the_fourth_acknowledgement_launches_one_fix_lane_with_a_brief_written_from_the_records_once(config):
-    state = registered_state(config)
-    records = [
+def unsettled_refusals() -> list[dict]:
+    return [
         record(296010, "desk-runner", "defect", "REFUSED #47306 at fa9f938174 (go #292083): unsettled: the gate's status read, and no step of the pass decided it", 110),
         answer(296026, "mq-health-8: the runner refuses #47306 as unsettled on every pass; known defect.", 108, re=296010),
         record(298821, "desk-runner", "defect", "REFUSED #47576 at 496e18c91b (go #298448): unsettled: the gate's status read", 80),
@@ -1956,6 +1960,11 @@ def test_the_fourth_acknowledgement_launches_one_fix_lane_with_a_brief_written_f
         answer(303703, "Restack is the lane's.", 17, re=303702),
         answer(303704, "Fix is yasyf/cc-skills#1651 for 303700.", 16),
     ]
+
+
+def test_the_fourth_acknowledgement_launches_one_fix_lane_with_a_brief_written_from_the_records_once(config):
+    state = registered_state(config)
+    records = unsettled_refusals()
     shell = FakeShell(records, [])
 
     watch(shell, config)
@@ -1967,9 +1976,27 @@ def test_the_fourth_acknowledgement_launches_one_fix_lane_with_a_brief_written_f
     assert brief.startswith("# Lane class-fix-refused-unsettled-1: remove the desk defect class REFUSED unsettled\n")
     assert "- #303700 desk-runner defect at " in brief and "- #303701 answer at " in brief
     assert "needs a restack" not in brief and "#303704" not in brief
+    assert brief.endswith("\nScale: no N\nccx: incident=none\nRegister slice: lane=class-fix-refused-unsettled-1 step=all\n")
+    assert [argv[2:5] for argv in shell.slices] == [["slice", "--refresh", str(state / "class-fix-refused-unsettled-1" / "brief.md")]]
     assert "acked:refused-unsettled" in shell.topics()
     assert not [topic for topic in shell.topics() if topic.startswith("acked:refused-needs")]
 
+
+
+def test_a_fix_lane_whose_register_slice_does_not_refresh_launches_on_the_next_pass(config):
+    """Root #313385: class-fix-refused-1 and class-fix-incident-clock-1 failed their launches on a brief with no slice."""
+    state = registered_state(config)
+    shell = FakeShell(unsettled_refusals(), [])
+    shell.slice_code = 1
+
+    watch(shell, config)
+
+    assert shell.launches == [] and len(shell.slices) == 1
+    shell.slice_code = 0
+    watch(shell, config)
+
+    [launch] = shell.launches
+    assert launch[6] == str(state / "class-fix-refused-unsettled-1" / "brief.md") and len(shell.slices) == 2
 
 def test_acknowledgements_spread_past_two_hours_raise_nothing(config):
     registered_state(config)
