@@ -28,7 +28,11 @@ drive registry. Generation removes each inbox cursor file written before the dri
 a line past it stays. ``## Incident lanes`` lists each `inc-`, `incident-`, or `outage-` lane that
 posted on the drive in the last six hours with its newest record's kind and age, waiting
 mechanisms first: a MECHANISM or CANDIDATE with no OPENED or BLOCKER since. ``## Open tasks`` ends with one line per plan from :func:`plans.read`: its done
-and blocked counts over the drive's cc-notes tasks and each step still open. Generation
+and blocked counts over the drive's cc-notes tasks and each step still open.
+``## Delivered since the last progress record`` lists each open task, from ``--session``,
+whose owning lane posted a ``report``, ``head``, ``handoff``, ``done`` or ``fix-live`` record
+since the newest progress record's last edit, with that record, so nothing a lane
+delivered drops out across a compaction. Generation
 writes a progress doc under ``progress:<program>`` and the same markdown at
 ``<plan-stem>-progress/<UTC>-generated.md``.
 
@@ -86,6 +90,7 @@ from long_running import cci
 from long_running import drive
 import inboxes
 from long_running import ledger
+import owner_update
 import plans
 import progress
 from long_running import rulings
@@ -102,6 +107,7 @@ OVERSIZED = 5
 SHOWN = 10
 NARRATIVE = "## Root narrative"
 FINDINGS = "## Lint findings"
+DELIVERED = "## Delivered since the last progress record"
 GENERATED_MARK = "(generated)"
 GENERATED_LINE = "Generated from sources by the long-running compaction hook at "
 GENERATED_STEM = "-generated"
@@ -154,6 +160,7 @@ class Handoff:
     plan_progress: list[str] = field(default_factory=list)
     lanes: list[dict] = field(default_factory=list)
     incident_lanes: list[str] = field(default_factory=list)
+    delivered: list[str] = field(default_factory=list)
     monitors: list[dict] = field(default_factory=list)
     inboxes: list[Inbox] = field(default_factory=list)
     inbox_dir: Path | None = None
@@ -253,6 +260,16 @@ def read_incident_lanes(handoff: Handoff, shell: ledger.Shell) -> None:
     since = (handoff.at - INCIDENT_WINDOW).strftime("%Y-%m-%dT%H:%M:%SZ")
     records = [record for record in cci.records(shell.run, handoff.program, since=since) if record["drive"] == handoff.program]
     handoff.incident_lanes = incident_lines(records, handoff.at)
+
+
+def read_deliveries(handoff: Handoff, shell: ledger.Shell, since: str) -> None:
+    """Each open task whose lane posted a report, head, handoff, done or fix-live record since `since`, the newest progress record's last edit."""
+    lanes = sorted({task["owner"] for task in handoff.tasks if task.get("owner") and task["status"] in owner_update.OPEN_TASKS})
+    if not lanes:
+        return
+    records = [record for record in cci.records(shell.run, handoff.program, *(f"--lane={lane}" for lane in lanes), since=since) if record["drive"] == handoff.program]
+    found = owner_update.delivered(handoff.tasks, records, datetime.fromisoformat(since.replace("Z", "+00:00")), owner_update.REPORTED_KINDS)
+    handoff.delivered = [item["line"].removeprefix("delivered ") for item in found]
 
 
 def read_standing(handoff: Handoff, shell: ledger.Shell) -> None:
@@ -406,6 +423,7 @@ def render(handoff: Handoff) -> str:
     if pending := len(handoff.tasks) - len(active):
         out.append(f"- {pending} pending in `TaskList`")
     out += handoff.plan_progress
+    out += ["", DELIVERED] + ([f"- {line}" for line in handoff.delivered] or ["- none"])
     out += ["", "## Lanes and monitors"]
     running = [task for task in handoff.monitors + handoff.lanes[::-1] if task["status"] == "running"]
     out += shown([f"- {task['type']}: {clip(task['description'], TASK_CHARS)}" for task in running], "running lanes")
@@ -533,6 +551,8 @@ def build(args: argparse.Namespace, shell: ledger.Shell) -> tuple[Handoff, str |
         handoff.asks = open_asks(shell, ledger_id)
     handoff.plan_progress = plans.summary_lines(plans.read(lambda *argv: shell.run(["ccn", "-R", args.repo, *argv]), args.program))
     progress_docs = progress_records(shell, args.repo, args.program)
+    if since := max((doc["updated_at"] for doc in progress_docs), default=None):
+        read_deliveries(handoff, shell, since)
     docs = [doc for doc in progress_docs if not doc.get("superseded_by")]
     shown = lineage(progress_docs, docs)
     records = sorted((doc for doc in shown if not generated(doc["body"])), key=lambda doc: doc["created_at"])
