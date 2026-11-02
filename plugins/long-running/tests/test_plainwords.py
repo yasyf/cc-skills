@@ -34,6 +34,7 @@ LANES = ("p8f-replica-4", "landing-desk-3")
         "J3 fails on the dashboard",
         "P8f.3 lands after the rework",
         "Re-trigger the runs of team_01HX4ABCD2",
+        "Open wf_01jbzv3kq8x9m2n4p6r7s5t0wy in the console",
         "The handover txid moved",
         "Agent machines keep the old protocol",
         "The Mac harness fails to start",
@@ -56,6 +57,7 @@ def test_walk_strings_fail(text):
         "Chats saved through Litestream to S3 survive a lost Mac",
         "AIG Reinsurance and seven other teams get their failed-run lists",
         "Cloud chats show up as read-only followers until the cutover",
+        "Every run-journal write lands again",
     ],
 )
 def test_rewrites_pass(text):

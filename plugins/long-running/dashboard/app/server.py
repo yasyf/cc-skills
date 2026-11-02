@@ -714,6 +714,7 @@ class Drive:
         self.board_raw = None
         self.curator = Curator(config, self.curator_model, self.bump)
         self.status_now = None
+        self.status_rejected = None
         self.pages = {page.name: Curator(config, self.curator_model, self.bump, page) for page in PAGES}
         self.curators = (self.curator, *self.pages.values())
         self.stories = Stories(config, self.lane_names, self.worker_reports)
@@ -924,10 +925,14 @@ class Drive:
                 seen = stamp
                 fresh = json.loads(status.read_text()) if stamp else None
                 lanes = self.lane_names()
-                if fresh is None or not any(plainwords.violations(p["text"], "sentence", lanes) for p in fresh["paragraphs"]):
-                    self.status_now = fresh
-                    self.bump()
+                problems = [f"{p['label']} has {', '.join(found)}" for p in (fresh or {}).get("paragraphs", []) if (found := plainwords.violations(p["text"], "sentence", lanes))]
+                if problems:
+                    self.status_rejected = {"at": dt.datetime.now(dt.timezone.utc).isoformat(), "reason": "; ".join(problems)}
+                    print(f"status-now rejected: {self.status_rejected['reason']}", file=sys.stderr, flush=True)
+                else:
+                    self.status_now, self.status_rejected = fresh, None
                     self.curator.poke()
+                self.bump()
             time.sleep(1)
 
     def follow_code(self):
@@ -1130,6 +1135,7 @@ class Drive:
             "brief": self.curator.brief,
             "brief_error": self.curator.error,
             "status_now": self.status_now,
+            "status_rejected": self.status_rejected,
             "stack": json.loads(Path(self.config["stack"]).read_text())["prs"],
             "status_table": Path(self.config["status_table"]).read_text(),
             "register_log": "register" in self.config,
