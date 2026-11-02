@@ -892,6 +892,7 @@ BUILD_LINK = re.compile(r"https://buildkite\.com/[\w.-]+/[\w.-]+/builds/\d+")
 PAGES_SEEN = "pages-seen"
 PAGE_TAIL = timedelta(minutes=30)
 PAGE_READ = 20
+LIVE_PAGE = re.compile(r"^:(?:rotating_light|mag|eyes|hammer_and_wrench|hourglass_flowing_sand|chart_with_upwards_trend): \*")
 SLACK_LINK = re.compile(r"<[^|>]+\|([^>]+)>")
 LIST_ITEM = re.compile(r"<li>(.*?)</li>", re.DOTALL)
 HTML_TAG = re.compile(r"<[^>]+>")
@@ -4434,7 +4435,7 @@ class Runner:
                 self.book.edit(RUNNER, lambda incident, build=build, finished=finished: incident.facts[RELEASE_BUILDS][build].update({"done": True, "finished": finished}))
 
     def watch_pages(self) -> None:
-        """While a release build a lane's record names runs, and for `PAGE_TAIL` after it finishes, post each new top-level message of each `landing.pages.channels` channel to root as one `incident` record, so the drive treats every page during its releases as its incident on sight (owner ruling, Nov 1 2026 2:31 PM)."""
+        """While a release build a lane's record names runs, and for `PAGE_TAIL` after it finishes, post each new top-level message a person wrote, and each ai-oncall page card still open, in each `landing.pages.channels` channel to root as one `incident` record, never a retro, merged or resolved card, so the drive treats every page during its releases as its incident on sight (owner ruling, Nov 1 2026 2:31 PM)."""
         pages = self.config.landing.get("pages")
         if not pages:
             return
@@ -4454,7 +4455,7 @@ class Runner:
                 self.escalate(f"pages-unread:{channel}:{now:%Y%m%d%H}", "PAGES-UNREAD", "runner", f"`cc-slack history --channel {channel}` exited {done.code}: {' '.join((done.err or done.out).split())[:200]}; no page in it reaches root until it reads, and the next pass reads it again")
                 continue
             after = max(since, float(seen.get(channel, "0")))
-            for message in sorted((m for m in json.loads(done.out)["messages"] if float(m["ts"]) > after), key=lambda m: float(m["ts"])):
+            for message in sorted((m for m in json.loads(done.out)["messages"] if float(m["ts"]) > after and (m["user"] or LIVE_PAGE.match(m["text"]))), key=lambda m: float(m["ts"])):
                 key = f"page:{channel}:{message['ts']}"
                 headline = " ".join(SLACK_LINK.sub(r"\1", message["text"].split("\n", 1)[0]).split())[:160]
                 at = pacific(datetime.fromtimestamp(float(message["ts"]), timezone.utc))
