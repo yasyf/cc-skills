@@ -20,11 +20,19 @@ with those profiles, writes the gh user `host.gh_user`'s token, the pushed secre
 `host.ssm_profile` reads it and `host.tz`, and execs the desk runner, logging to the
 `<desk>-runner.log` beside runner.json.
 
+`roll` moves a running host desk onto runner.json's pinned `version` without stopping it mid-pass, the remote
+`desk-runner.py handoff --desk`, whose release check needs the marketplace a Sprite never holds. Here it refuses
+when that version's install is not its release or its main CI run has not passed, unless `--ci-red-ok` says why it
+must run now, then copies the version and the host's runner.json over, points the host's `current` link at it, and
+writes the desk runner's stop marker; the runner exits at the end of its pass, and the Sprite service restarts it
+on that version within `ROLL_WAIT`.
+
 usage:
   desk-creds.py serve [--port N]
   desk-creds.py get <profile> [<field>]
   desk-creds.py push --config <runner.json> [--port N]
   desk-creds.py install --config <runner.json> --desk <desk>
+  desk-creds.py roll --config <runner.json> --desk <desk> [--ci-red-ok REASON]
   desk-creds.py run --config <runner.json> --desk <desk>
 """
 
@@ -45,6 +53,8 @@ from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from long_running import drive
+
 PORT = 9181
 HOME = "/home/sprite"
 PLUGINS = Path.home() / ".claude/plugins/cache/skills/long-running"
@@ -57,6 +67,14 @@ FIELDS = ("Version", "AccessKeyId", "SecretAccessKey", "SessionToken", "Expirati
 SECRET_FIELDS = ("Value", "Expiration")
 AWAKE_TASK = "desk-creds"
 AWAKE_SECONDS = 60
+ROLL_WAIT = timedelta(minutes=20)
+ROLL = """ln -sfn "$1" "$2"
+for pid in $(pgrep -f "desk-runner[.]py run --config .* --desk $4\\$"); do echo "$pid" >"$3.stop.$pid"; done
+deadline=$(($(date +%s) + $5))
+until pgrep -f "$1/.*desk-runner[.]py run --config .* --desk $4\\$" >/dev/null; do
+  [ "$(date +%s)" -lt "$deadline" ] || { echo "the $4 desk runner did not restart on $1 within $5 s" >&2; exit 1; }
+  sleep 5
+done"""
 
 
 def expired(credentials: dict) -> bool:
@@ -227,6 +245,23 @@ def install(config: Path, desk: str) -> int:
     return failed
 
 
+def roll(config: Path, desk: str, ci_red_ok: str) -> int:
+    raw = json.loads(config.read_text())
+    sprite, version = raw["host"]["sprite"], raw["version"]
+    if faults := drive.release_faults(version):
+        print(f"desk-creds roll: nothing moved, since the {version} install is not its release: {'; '.join(faults[:3])}", file=sys.stderr)
+        return 1
+    if not ci_red_ok and (red := drive.ci_fault(version)):
+        print(f"desk-creds roll: nothing moved, since {red}; roll once it passes, or pass --ci-red-ok with the reason it must run now", file=sys.stderr)
+        return 1
+    plugins = f"{HOME}/.claude/plugins/cache/skills/long-running"
+    sprite_sh(sprite, 'mkdir -p "$1" && tar -xzf - -m -C "$1"', plugins, stdin=tar(PLUGINS, version))
+    sprite_sh(sprite, 'cat >"$1"', str(config), stdin=(json.dumps(host_config(raw), indent=2) + "\n").encode())
+    sprite_sh(sprite, ROLL, f"{plugins}/{version}", f"{HOME}/.claude/long-running/current", str(config), desk, str(int(ROLL_WAIT.total_seconds())))
+    print(f"desk-creds roll: the {desk} desk on {sprite} runs {version}")
+    return 0
+
+
 def run(config: Path, desk: str) -> None:
     raw = json.loads(config.read_text())
     host = raw["host"]
@@ -266,10 +301,12 @@ def main() -> int:
     pushing = verbs.add_parser("push")
     pushing.add_argument("--config", type=Path, required=True)
     pushing.add_argument("--port", type=int, default=PORT)
-    for verb in ("install", "run"):
+    for verb in ("install", "run", "roll"):
         desk = verbs.add_parser(verb)
         desk.add_argument("--config", type=Path, required=True)
         desk.add_argument("--desk", required=True)
+        if verb == "roll":
+            desk.add_argument("--ci-red-ok", default="", metavar="REASON")
     args = parser.parse_args()
     if args.verb == "serve":
         threading.Thread(target=hold_awake, daemon=True).start()
@@ -279,6 +316,8 @@ def main() -> int:
         return get(args.profile, args.field, args.port)
     if args.verb == "install":
         return install(args.config, args.desk)
+    if args.verb == "roll":
+        return roll(args.config, args.desk, args.ci_red_ok)
     if args.verb == "run":
         run(args.config, args.desk)
     return push(args.config, args.port)
