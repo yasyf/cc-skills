@@ -12663,6 +12663,41 @@ def test_a_root_decide_handing_the_lane_its_mechanism_leaves_the_clock_running(s
 
 
 @pytest.mark.parametrize(
+    "text",
+    [
+        "INCIDENT CLOSED rsw-go-panics (provider rate-limit retries logged as panics; no customer failure)",
+        f"{LANE} is a closed incident (310946, 1:47 AM: provider rate-limit retries logged as panics); its clock stops and no Opus fallback launches",
+    ],
+)
+def test_a_root_decide_that_closes_the_lanes_incident_ends_its_clock(shell, config, tmp_path, text):
+    """Root 311353 and 313077 closed incidents by decide at 1:57 and 2:35 AM, and the clock still launched an Opus fallback on each."""
+    clocked_lane(shell, config, tmp_path)
+    shell.sleep(4 * 60)
+    cci_record(shell, lane="root", kind="decide", to=[LANE, "desk-runner"], text=text, at=actions.stamp(shell.clock))
+    orca_pass(shell, config)
+    shell.sleep(20 * 60)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert clock_lines(shell) == [] and len(launches(shell)) == 1
+
+
+def test_a_root_decide_that_closes_the_incident_withdraws_the_opus_fallback_it_launched(shell, config, tmp_path):
+    clocked_lane(shell, config, tmp_path)
+    shell.sleep(10 * 60)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    backup = f"{LANE}-opus"
+    shell.launch(backup, "ctx_opus")
+    orca_pass(shell, config)
+    cci_record(shell, lane="root", kind="decide", to=[LANE], text="INCIDENT CLOSED rsw-go-panics: cancel the Opus fallback now", at=actions.stamp(shell.clock))
+    orca_pass(shell, config)
+    shell.sleep(10 * 60)
+    orca_pass(shell, config)
+    assert [line.split(":")[0] for line in clock_lines(shell)] == [f"INCIDENT-CLOCK {LANE} mechanism"]
+    assert [line for line in escalations(shell) if line.startswith(f"WITHDRAWN incident-clock:ctx_{LANE} {backup}: by #")]
+
+
+@pytest.mark.parametrize(
     ("kind", "to", "text"),
     [("decision", [LANE, "landing-desk"], "Register classify, 1 rows"), ("decide", ["landing-desk"], f"{LANE}.v2 owns the release incident")],
 )

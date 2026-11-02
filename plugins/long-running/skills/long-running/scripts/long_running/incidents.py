@@ -8,11 +8,11 @@ from collections.abc import Callable
 from . import cci, grades
 
 INCIDENT = "incident"
-CLOSED = re.compile(r"\bINCIDENT \S+ CLOSED\b")
+CLOSED = re.compile(r"\bINCIDENT (?:\S+ CLOSED|CLOSED \S+)\b|\bis a closed incident\b")
 
 
 def closes(record: dict) -> bool:
-    """Whether `record` is the root's `INCIDENT <slug> CLOSED` record, which ends incident mode for every lane it is addressed to."""
+    """Whether `record` is the root's close, `INCIDENT <slug> CLOSED` or `INCIDENT CLOSED <slug>` or `<lane> is a closed incident`, in an incident or a decide record, which ends incident mode for every lane it is addressed to."""
     return record["lane"] == "root" and CLOSED.search(record.get("text") or "") is not None
 
 
@@ -22,8 +22,9 @@ def ended(records: list[dict]) -> dict[str, int]:
 
 
 def incident_records(run: Callable[[list[str]], str], drive: str) -> list[dict]:
-    """Every incident record on `drive` with its current status, read once per pass by the caller."""
-    return [record for record in cci.current_records(run, drive, f"--kind={INCIDENT}") if (record["kind"], record["drive"]) == (INCIDENT, drive)]
+    """Every incident record on `drive` with its current status, and every root decide that closes one (root 311353), read once per pass by the caller."""
+    opened = [record for record in cci.current_records(run, drive, f"--kind={INCIDENT}") if (record["kind"], record["drive"]) == (INCIDENT, drive)]
+    return opened + [record for record in cci.current_records(run, drive, "--kind=decide", "--lane", "root") if record["drive"] == drive and closes(record)]
 
 
 def open_incidents(records: list[dict]) -> list[dict]:
@@ -32,7 +33,7 @@ def open_incidents(records: list[dict]) -> list[dict]:
     return [
         record
         for record in records
-        if record.get("status") == "open" and not closes(record) and not ((lanes := {record["lane"], *(record.get("to") or [])} - {"root"}) and all(closed.get(lane, 0) > record["seq"] for lane in lanes))
+        if record["kind"] == INCIDENT and record.get("status") == "open" and not closes(record) and not ((lanes := {record["lane"], *(record.get("to") or [])} - {"root"}) and all(closed.get(lane, 0) > record["seq"] for lane in lanes))
     ]
 
 
