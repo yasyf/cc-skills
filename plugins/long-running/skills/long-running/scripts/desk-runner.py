@@ -9945,7 +9945,6 @@ class Landing:
             self.surface()
             earlier = self.settlement
             self.statuses, self.queues_read, self.reviews, self.claims_read, self.gos, self.owner_taps, self.unchecked, self.unproven_why, self.untested_why, self.cleared, self.exempts = None, False, None, None, None, None, set(), {}, {}, {}, {}
-            self.settlement = Settlement({}, {})
             if self.quota_low():
                 if rows := self.rows():
                     self.settlement = self.admission(rows, self.held(rows), None)
