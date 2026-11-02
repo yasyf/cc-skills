@@ -1,6 +1,6 @@
 # Orca Sprite workers
 
-This guide moved here from monorepo's `.agents/skills/orca` under the owner's 3:02 AM Nov 2 ruling "no drive tooling allowed in monorepo." Its scripts are this skill's `scripts/worker-launch.sh`, `scripts/orca-gc` and `scripts/coordinator-waiter.sh`, and `worker-launch.sh` and `coordinator-waiter.sh` are on PATH through the plugin's `bin/`.
+This guide is the drive's copy of monorepo's `.agents/skills/orca`, which stays in monorepo. Drive changes land here, since the owner ruled at 3:02 AM Nov 2 that no drive tooling is added to monorepo. Its scripts are this skill's `scripts/worker-launch.sh`, `scripts/orca-gc` and `scripts/coordinator-waiter.sh`, and `worker-launch.sh` and `coordinator-waiter.sh` are on PATH through the plugin's `bin/`.
 
 Load the version-matched guides first: `orca skills get orca-cli` and
 `orca skills get orchestration`. This skill defines the repository's worker
