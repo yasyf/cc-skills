@@ -2,9 +2,7 @@
  "class": "supervisor-unread-stand-down-stopped",
  "defect": 307233,
  "expect": {
-  "held": [
-   "exec-crash-2-fix-2"
-  ],
+  "held": [],
   "relaunched": []
  },
  "fix": "yasyf/cc-skills#1678",
