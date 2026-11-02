@@ -16396,6 +16396,21 @@ def fidelity_failures(shell: FakeShell) -> list[tuple[str, str]]:
     return [(post["to"], Path(post["path"]).read_text().splitlines()[0] if "path" in post else post["text"]) for post in shell.posts if post.get("text", "").startswith("FIDELITY-FAILED")]
 
 
+
+def test_a_fidelity_regrade_another_lane_posted_reads_the_contract_and_sources_of_the_prs_ledger_lane(shell, config):
+    """#331359: remote-desks-5 re-posted #48335's head for a regrade against the owner's words keyed to old-chat-migrate-1, and the job read remote-desks-5's sources and contract instead."""
+    owner = 149000 + len(shell.records)
+    fidelity_config(config, sources={"records": {"p8a-step7": [owner]}})
+    orca_pass(shell, config)
+    shell.records.append({"seq": owner, "drive": "d1", "lane": "root", "kind": "decide", "to": ["p8a-step7"], "text": "OWNER 10:47 AM, verbatim: show it in place of the old one", "at": actions.stamp(shell.clock)})
+    shell.records.append({"seq": 149000 + len(shell.records), "drive": "d1", "lane": "p8a-step7", "kind": "contract", "to": ["fidelity-pipeline"], "refs": {"prs": ["Forge-AI/monorepo#45309"]}, "text": "contract: the converted chat opens in place", "at": actions.stamp(shell.clock)})
+    shell.rows = [{"pr": "45309", "lane": "p8a-step7"}]
+    head_record(shell, "45309", FINDER_HEAD, lane="remote-desks-5")
+    orca_pass(shell, config)
+    [job] = fidelity_jobs(shell)
+    assert (job["lane"], job["contract"]) == ("p8a-step7", "contract: the converted chat opens in place")
+    assert "show it in place of the old one" in (shell.fidelity_jobs[0] / "sources.md").read_text()
+
 def test_each_head_starts_one_fidelity_pass_carrying_the_prs_grades_old_app_lines_and_the_lanes_contract(shell, config):
     fidelity_config(config, to=["board-refresher-2"], baseline=BASELINE)
     orca_pass(shell, config)
