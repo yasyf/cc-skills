@@ -2401,8 +2401,12 @@ class Runner:
             raise StopRequested
 
     def steps(self, *steps: Callable[[], object]) -> None:
+        """Run `steps` in order. Each boundary first ends the pass on a stop request, then settles any launch that has exited and posts its LAUNCHED to root, so a launch reaches root between steps, not only after the whole pass (cci 310384)."""
         for step in steps:
             self.checkpoint()
+            if self.launching:
+                self.reap()
+                self.flush()
             step()
 
     @contextmanager
