@@ -9486,9 +9486,9 @@ class Landing:
         """The newest refusal any PR of `members` stands under, with the lane that owns that PR: a blocker this runner routed for its current head or base, a refusal it escalated since `since`, or a `blocker` record a `landing.desk_lane` lane posted naming it since then (root, Oct 29 2:37 AM)."""
         found: list[tuple[datetime, str, str]] = []
         keys = {key for member in members for key in (f"blocker:{member}:{open_rows[member].get('head', '')[:10]}", f"bot-held:{member}:{open_rows[member].get('head', '')[:10]}", f"conflict:{member}:{open_rows[member].get('base', '')}")}
-        containers = [(LANDING, "bus"), *((name, "relay") for name in self.book.containers(LANE_PREFIX) if keys & self.book.action_keys(name, "relay"))]
         with self.runner.pass_io.phase("overflow-routes"):
             with self.book.store.reading():
+                containers = [(LANDING, "bus"), *((name, "relay") for name in self.book.containers(LANE_PREFIX) if keys & self.book.action_keys(name, "relay"))]
                 routes = [action for container, kind in containers for key in keys if (action := self.book.store.find_action(container, key)) is not None and action.kind == kind]
         with self.runner.pass_io.phase("overflow-members-and-escalations"):
             for member in members:
