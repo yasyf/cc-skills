@@ -873,3 +873,15 @@ def test_a_model_rate_limit_is_asked_again_after_the_delay_it_names_never_failin
     finder.main([str(directory)], shell)
     assert [ask[ask.index("-s") + 1] for ask, _ in shell.asks()] == [str(directory / "codex-1"), str(directory / "codex-1-r1"), str(directory / "codex-1-r2")]
     assert slept == [5, 10] and len(shell.posted) == 1
+
+
+def test_a_cancel_during_a_rate_limit_pause_starts_no_further_codex_run(tmp_path, monkeypatch):
+    """#48172 at c1029d7, Nov 2: cancelled at 5:56 AM, its pass kept starting codex runs after each rate limit until 6:15 AM."""
+    directory = job(tmp_path)
+    monkeypatch.setattr(finder.time, "sleep", lambda _: (directory / finder.CANCELLED).write_text(f"{NEWER}\n"))
+    limited = subprocess.CalledProcessError(1, ["codex-ask"], output="Rate limit reached for gpt-6.1-sol. Please try again in 86ms.")
+    shell = Fake(tmp_path, [limited, reply()])
+    assert finder.main([str(directory)], shell) == 0
+    assert [ask[ask.index("-s") + 1] for ask, _ in shell.asks()] == [str(directory / "codex-1")]
+    assert not shell.posted
+    assert result(directory) == {"skipped": f"{REPO}#43299 at {HEAD[:12]} was superseded by {NEWER[:12]} while codex retried"}
