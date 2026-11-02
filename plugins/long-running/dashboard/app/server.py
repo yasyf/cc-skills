@@ -877,6 +877,7 @@ class Drive:
         self.pieces = {}
         self.files = {}
         self.merged_history = None
+        self.plans = {}
         self.digests = deque(maxlen=DELTAS_KEPT)
         self.slow = {}
         self.slow_at = 0.0
@@ -1482,8 +1483,11 @@ class Drive:
         return {**pr, "review": review, **bot_words(comments)}
 
     def read_plan(self):
-        for line in self.ccn("doc", "list", "--label", self.config["progress_label"]).splitlines()[:6]:
-            if plan := parse_plan(self.ccn("doc", "show", line.split("\t")[0])):
+        for doc in json.loads(self.ccn("doc", "list", "--label", self.config["progress_label"], "--json"))[:6]:
+            key = (doc["id"], doc["updated_at"])
+            if key not in self.plans:
+                self.plans[key] = parse_plan(self.ccn("doc", "show", doc["id"]))
+            if plan := self.plans[key]:
                 return plan
         return None, []
 
