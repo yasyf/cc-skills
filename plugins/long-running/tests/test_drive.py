@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from long_running import drive
+from long_running import release
 import pytest
 from conftest import DRIVE, LEDGER, FakeShell
 
@@ -435,11 +436,7 @@ def test_digest_reads_a_runner_off_its_pin_as_stale_and_a_newer_install_alone_as
     """Oct 30: every autobump moved the live runner onto the newest install, so a fix patched into one copy was gone at the next bump; a runner now runs the version runner.json pins, and only a handoff moves the pin."""
     started(repo, "--cci-drive", DRIVE)
     shell = FakeShell()
-    plugins = drive.drives_dir().parents[1] / "plugins"
-    plugins.mkdir(parents=True)
-    (plugins / "installed_plugins.json").write_text(
-        json.dumps({"version": 2, "plugins": {"long-running@skills": [{"version": "0.7.186"}, {"version": "0.7.187"}], "long-running-extras@skills": [{"version": "9.0.0"}]}})
-    )
+    installed("0.7.186", "0.7.187")
     config = tmp_path / "runner.json"
     config.write_text(json.dumps({"version": "0.7.186"}))
     orca = heartbeat(shell, "orca", 73091, "0.7.186", config=str(config))
@@ -513,13 +510,13 @@ def test_go_reads_the_go_state_through_the_landing_runner_on_the_runner_json_bes
     assert execs == [[drive.sys.executable, str(Path(__file__).resolve().parents[1] / "skills" / "long-running" / "scripts" / "desk-runner.py"), "go", "--config", str(Path(entry["state_dir"]) / "runner.json"), "45001", "#45002"]]
 
 
-def installed(*versions: str, manifest: str | None = None) -> Path:
-    plugins = drive.drives_dir().parents[1] / "plugins"
+def installed(*versions: str, named: str | None = None) -> Path:
+    cache = drive.config_dir() / "plugins" / "cache" / "skills" / "long-running"
     for version in versions:
-        (plugins / "cache" / version / ".claude-plugin").mkdir(parents=True, exist_ok=True)
-        (plugins / "cache" / version / ".claude-plugin" / "plugin.json").write_text(json.dumps({"name": "long-running", "version": manifest or version}))
-    (plugins / "installed_plugins.json").write_text(json.dumps({"version": 2, "plugins": {"long-running@skills": [{"version": version, "installPath": str(plugins / "cache" / version)} for version in versions]}}))
-    return plugins / "cache"
+        (cache / version).mkdir(parents=True, exist_ok=True)
+    release.link().parent.mkdir(parents=True, exist_ok=True)
+    release.link().symlink_to(cache / (named or versions[-1]))
+    return cache
 
 
 @pytest.mark.parametrize(("caller", "reexecs"), [(None, True), ("0.7.99", False), ("0.7.320", True)])
@@ -540,9 +537,9 @@ def test_a_script_behind_the_installed_plugin_reexecutes_the_installed_copy_unle
     assert execs == ([[drive.sys.executable, str(cache / "0.7.320" / "skills" / "long-running" / "scripts" / "holds.py"), "add", "#1"]] if reexecs else [])
 
 
-def test_an_installed_copy_whose_own_manifest_is_no_newer_runs_in_place_instead_of_re_executing_forever(repo, monkeypatch):
+def test_a_script_no_older_than_the_install_link_runs_in_place_instead_of_re_executing_forever(repo, monkeypatch):
     monkeypatch.setattr(drive, "plugin_manifest", lambda: {"name": "long-running", "version": "0.7.99"})
-    installed("0.7.320", manifest="0.7.99")
+    installed("0.7.50", "0.7.99", named="0.7.50")
     monkeypatch.delenv(drive.CALLER_VERSION_ENV, raising=False)
     execs: list[list[str]] = []
     monkeypatch.setattr(drive, "reexec", execs.append)

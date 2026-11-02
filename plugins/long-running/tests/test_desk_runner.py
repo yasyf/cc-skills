@@ -10533,9 +10533,12 @@ def test_the_orca_heartbeat_is_a_cci_alive_record_naming_the_runner_and_writes_n
 
 
 def installed(tmp_path: Path, *versions: str) -> None:
-    plugins = tmp_path / ".claude" / "plugins"
-    plugins.mkdir(parents=True, exist_ok=True)
-    (plugins / "installed_plugins.json").write_text(json.dumps({"version": 2, "plugins": {"long-running@skills": [{"scope": "user", "version": version} for version in versions], "other@skills": [{"scope": "user", "version": "999.0.0"}]}}))
+    named = tmp_path / ".claude" / "plugins" / "cache" / versions[-1]
+    named.mkdir(parents=True, exist_ok=True)
+    link = tmp_path / ".claude" / "long-running" / "current"
+    link.parent.mkdir(parents=True, exist_ok=True)
+    link.unlink(missing_ok=True)
+    link.symlink_to(named)
 
 
 def newer(version: str, step: int = 1) -> str:
