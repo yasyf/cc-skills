@@ -310,6 +310,7 @@ def drive_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Root:
 
 
 def judge_prompts(monkeypatch: pytest.MonkeyPatch, phrase: str = "") -> list[str]:
+    monkeypatch.setenv("LONG_RUNNING_JUDGE", "sonnet+jev")
     prompts: list[str] = []
     run = subprocess.run
 

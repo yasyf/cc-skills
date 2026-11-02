@@ -98,4 +98,4 @@ def sweeps(minutes_ago: int) -> str:
 
 def judged(phrase: str = "", sentence: str = "Say it in plain words.") -> dict[str, str]:
     answer = {"verdict": "yes" if phrase else "no", "artifact_phrase": phrase, "evidence_phrase": "", "sentence": sentence if phrase else "It reads in plain words."}
-    return {JUDGE: json.dumps({"structured_output": answer, "total_cost_usd": 0.01, "usage": {"input_tokens": 1000, "output_tokens": 50}})}
+    return {"uv run --no-project --quiet": json.dumps({"p_yes": 0.9 if phrase else 0.1, "tokens": 2}), JUDGE: json.dumps({"structured_output": answer, "total_cost_usd": 0.01, "usage": {"input_tokens": 1000, "output_tokens": 50}})}
