@@ -123,7 +123,7 @@ join_relay() {
   mesh=$(cci relay status --json | jq -ce 'first(.[] | select(.mesh == "default" and (.routes | length) > 0))') || return 1
   owner=$(cci node --json | jq -er .public_key) || return 1
   sprite exec -s "$WORKER_RELAY_SPONSOR" --no-stdin -- cat /home/sprite/.cc-inbox/node/key.pem |
-    sprite exec -s "$1" -- sh -c 'CCI_SERVICE_KEY=$(cat); export CCI_SERVICE_KEY; ~/.local/bin/cci relay join --instance --drive "$1" --url "$2" --ttl 24h --owner "$3"' \
+    sprite exec -s "$1" -- sh -c 'CCI_SERVICE_KEY=$(cat); export CCI_SERVICE_KEY; ~/.local/bin/cci relay join --instance --drive "$1" --url "$2" --ttl 24h --owner "$3" && sprite-env services create cci --cmd "$HOME/.local/bin/cci" --args supervise --no-stream' \
       sh "$(jq -r '.routes | join(",")' <<<"$mesh")" "$(jq -r .url <<<"$mesh")" "$owner"
 }
 

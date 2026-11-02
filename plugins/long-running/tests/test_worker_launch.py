@@ -190,7 +190,7 @@ class Launch:
         return ["sprite", "exec", "-s", workspace, "--no-stdin", "--", "sh", "-c", script, "sh", CCI_URL, CCI_SHA]
 
     def join(self) -> list[list[str]]:
-        script = 'CCI_SERVICE_KEY=$(cat); export CCI_SERVICE_KEY; ~/.local/bin/cci relay join --instance --drive "$1" --url "$2" --ttl 24h --owner "$3"'
+        script = 'CCI_SERVICE_KEY=$(cat); export CCI_SERVICE_KEY; ~/.local/bin/cci relay join --instance --drive "$1" --url "$2" --ttl 24h --owner "$3" && sprite-env services create cci --cmd "$HOME/.local/bin/cci" --args supervise --no-stream'
         return [
             ["cci", "relay", "status", "--json"],
             ["cci", "node", "--json"],
