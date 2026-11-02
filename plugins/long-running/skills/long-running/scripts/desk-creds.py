@@ -42,6 +42,7 @@ import argparse
 import json
 import os
 import plistlib
+import re
 import shlex
 import subprocess
 import sys
@@ -63,6 +64,7 @@ USER_TOKEN = "GH_TOKEN"
 PUSH_SECONDS = 900
 SECRET = "secret/"
 SHM = Path("/dev/shm")
+OAUTH_TOKEN = re.compile(r"^(\s*oauth_token: ).*$", re.MULTILINE)
 FIELDS = ("Version", "AccessKeyId", "SecretAccessKey", "SessionToken", "Expiration")
 SECRET_FIELDS = ("Value", "Expiration")
 AWAKE_TASK = "desk-creds"
@@ -108,6 +110,8 @@ def server(port: int) -> ThreadingHTTPServer:
                 return
             with holding:
                 held[key] = {name: credentials[name] for name in fields}
+                if key == f"{SECRET}{USER_TOKEN}":
+                    keep_gh_token(credentials["Value"])
             self.send_response(204)
             self.end_headers()
 
@@ -116,6 +120,15 @@ def server(port: int) -> ThreadingHTTPServer:
 
     return ThreadingHTTPServer(("127.0.0.1", port), Handler)
 
+
+def keep_gh_token(token: str) -> None:
+    """Write `token` into the gh config of each desk `run` started, so a desk runner older than the token it started with reads GitHub with the newest pushed one; gh and git's `gh auth git-credential` read that file at every call (root #335369: a runner's frozen token lapsed and each landing pass failed its fetch of the trunk)."""
+    for hosts in SHM.glob("*-gh/hosts.yml"):
+        staged = hosts.with_name(f".{hosts.name}.new")
+        staged.unlink(missing_ok=True)
+        staged.touch(mode=0o600)
+        staged.write_text(OAUTH_TOKEN.sub(lambda found: found[1] + token, hosts.read_text()))
+        staged.replace(hosts)
 
 def hold_awake() -> None:
     """Keep this Sprite running while `serve` does: a Sprite pauses whenever no exec session is open, whatever its services do, unless a task holds it, so refresh one every `AWAKE_SECONDS` with five minutes to spare."""

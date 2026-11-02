@@ -68,6 +68,21 @@ def test_a_pushed_secret_reads_back_until_it_expires(port):
         desk_creds.fetch("secret/BUILDKITE_TOKEN", port)
 
 
+def test_a_pushed_user_token_replaces_the_one_each_running_desk_reads_gh_with(port, tmp_path, monkeypatch):
+    """Root #335369: the landing runner on dar-desk-1 kept the GH_TOKEN it started with, which lapsed, so every pass failed its fetch of origin/dev."""
+    monkeypatch.setattr(desk_creds, "SHM", tmp_path)
+    gh = tmp_path / "d-gh"
+    gh.mkdir()
+    hosts = gh / "hosts.yml"
+    hosts.touch(mode=0o600)
+    hosts.write_text("github.com:\n    users:\n        yasyf:\n            oauth_token: gho_old\n    git_protocol: https\n    oauth_token: gho_old\n    user: yasyf\n")
+    ahead = (datetime.now(timezone.utc) + timedelta(minutes=45)).isoformat()
+    assert put(port, "secret/BUILDKITE_TOKEN", {"Value": "bk", "Expiration": ahead}) == 204
+    assert "gho_old" in hosts.read_text()
+    assert put(port, "secret/GH_TOKEN", {"Value": "gho_new", "Expiration": ahead}) == 204
+    assert hosts.read_text() == "github.com:\n    users:\n        yasyf:\n            oauth_token: gho_new\n    git_protocol: https\n    oauth_token: gho_new\n    user: yasyf\n"
+    assert hosts.stat().st_mode & 0o777 == 0o600 and [path.name for path in gh.iterdir()] == ["hosts.yml"]
+
 def test_push_hands_each_secret_over_standard_input_with_an_expiry_three_pushes_out(tmp_path, monkeypatch):
     config = tmp_path / "runner.json"
     config.write_text(json.dumps({"host": {"sprite": "dar-desk-1", "aws_profiles": ["core-auto"], "secrets": {"GH_TOKEN": ["gh", "auth", "token"]}}}))
