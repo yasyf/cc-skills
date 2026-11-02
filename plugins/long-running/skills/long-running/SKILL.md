@@ -4704,7 +4704,11 @@ alive, with no root action. Each tick reads the bus once and `cci who` once:
   by the `SPAWNED` record of a numbered successor (`desk-4` for `desk-3`), by a root
   `<new> replaces <old>`, and, while it has never come up, by another lane's records
   taking its last PR. A `<lane>-handoff` writer's `handoff <lane>: doc <id>` is the
-  newest handoff of the lane now holding that work.
+  newest handoff of the lane now holding that work. A root `stand-down`, `replaces`, or
+  `owner=` decide that takes a live lane's place or PRs cites `last-read=<seq>`, the
+  newest record of that lane root read with `cci tail --lane <lane> --since <its wake seq>
+  --oldest`. The supervisor refuses one that cites none, or one older than the lane's
+  newest record, and posts a `defect` to root and the lane, which keeps working.
 - **Liveness.** A lane is dead only when it has no live process and no record within
   `STALE_AFTER`, 15 minutes. A live process is a `cci who` row that reads live, a live
   Orca dispatch, or an in-process teammate on a live lead session's team roster, since

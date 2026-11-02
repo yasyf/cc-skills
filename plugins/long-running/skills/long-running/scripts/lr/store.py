@@ -21,7 +21,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 STALE_AFTER = timedelta(minutes=15)
-ADDED_COLUMNS = (("lanes", "waiting", "INTEGER"), ("lanes", "answered", "TEXT"), ("lanes", "page", "TEXT"), ("lanes", "awaits", "TEXT"), ("heard", "kind", "TEXT"))
+ADDED_COLUMNS = (("lanes", "waiting", "INTEGER"), ("lanes", "answered", "TEXT"), ("lanes", "page", "TEXT"), ("lanes", "awaits", "TEXT"), ("heard", "kind", "TEXT"), ("heard", "seq", "INTEGER"))
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS prs (
@@ -65,7 +65,7 @@ CREATE TABLE IF NOT EXISTS lanes (
   since TEXT NOT NULL, handoff TEXT,
   predecessor TEXT, reason TEXT, strikes INTEGER NOT NULL DEFAULT 0, asked TEXT, flushed TEXT, retired_by TEXT, waiting INTEGER, answered TEXT, page TEXT, awaits TEXT
 );
-CREATE TABLE IF NOT EXISTS heard (lane TEXT PRIMARY KEY, at TEXT NOT NULL, kind TEXT);
+CREATE TABLE IF NOT EXISTS heard (lane TEXT PRIMARY KEY, at TEXT NOT NULL, kind TEXT, seq INTEGER);
 CREATE TABLE IF NOT EXISTS owners (pr INTEGER PRIMARY KEY, lane TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS probes (lane TEXT PRIMARY KEY, asked TEXT NOT NULL, dead TEXT);
 """
@@ -325,8 +325,15 @@ class Store:
     def lane_state(self, name: str, state: str, at: datetime, retired_by: str | None = None, reason: str | None = None) -> None:
         self.db.execute("UPDATE lanes SET state = ?, since = ?, retired_by = coalesce(?, retired_by), reason = coalesce(?, reason) WHERE name = ?", (state, stamp(at), retired_by, reason, name))
 
-    def lane_heard(self, name: str, at: datetime, kind: str) -> None:
-        self.db.execute("INSERT INTO heard (lane, at, kind) VALUES (?, ?, ?) ON CONFLICT (lane) DO UPDATE SET kind = CASE WHEN excluded.at >= heard.at THEN excluded.kind ELSE heard.kind END, at = max(heard.at, excluded.at)", (name, stamp(at), kind))
+    def lane_heard(self, name: str, at: datetime, kind: str, seq: int | None = None) -> None:
+        self.db.execute(
+            "INSERT INTO heard (lane, at, kind, seq) VALUES (?, ?, ?, ?) ON CONFLICT (lane) DO UPDATE SET kind = CASE WHEN excluded.at >= heard.at THEN excluded.kind ELSE heard.kind END, at = max(heard.at, excluded.at), seq = max(coalesce(heard.seq, excluded.seq), coalesce(excluded.seq, heard.seq))",
+            (name, stamp(at), kind, seq),
+        )
+
+    def newest_seq(self, name: str) -> int | None:
+        row = self.db.execute("SELECT seq FROM heard WHERE lane = ?", (name,)).fetchone()
+        return row["seq"] if row else None
 
     def lane_handoff(self, name: str, doc: str, flushed: datetime | None) -> None:
         self.db.execute("UPDATE lanes SET handoff = ?, flushed = coalesce(?, flushed) WHERE name = ?", (doc, stamp(flushed) if flushed else None, name))

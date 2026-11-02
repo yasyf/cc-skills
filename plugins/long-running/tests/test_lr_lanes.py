@@ -385,7 +385,7 @@ def test_a_numbered_successors_spawn_retires_the_older_lane_instead_of_relaunchi
 def test_a_handoff_writers_record_is_the_newest_handoff_of_the_lane_holding_the_work(tmp_path, brief):
     store = Store.memory()
     fake = adopted(tmp_path, brief, store)
-    fake.feed += [record(2, "root", "stand-down", to=("conflicts-2",), attrs={"successor": "conflicts-3"}), record(3, "conflicts-2-handoff", "state", text="11:08 AM handoff conflicts-2: doc 7d102a9", to=("root",))]
+    fake.feed += [record(2, "root", "stand-down", text="last-read=1", to=("conflicts-2",), attrs={"successor": "conflicts-3"}), record(3, "conflicts-2-handoff", "state", text="11:08 AM handoff conflicts-2: doc 7d102a9", to=("root",))]
     fake.peers = [who("conflicts-3", True, T0)]
 
     lanes.tick(store, fake.deps, T0, 1)
@@ -396,7 +396,7 @@ def test_a_handoff_writers_record_is_the_newest_handoff_of_the_lane_holding_the_
 def test_a_root_record_naming_a_replacement_retires_the_old_lane_and_hands_over_its_prs(tmp_path, brief):
     store = Store.memory()
     fake = adopted(tmp_path, brief, store, prs=(46738,))
-    fake.feed += [spawned(2, "pod-volume-4", brief, at=T0), record(3, "root", "state", text="8:59 AM pod-volume-4 replaces conflicts-2 (handoff doc 96f1cc8). Same PRs.")]
+    fake.feed += [spawned(2, "pod-volume-4", brief, at=T0), record(3, "root", "state", text="8:59 AM pod-volume-4 replaces conflicts-2 (handoff doc 96f1cc8). Same PRs. last-read=2")]
     fake.peers = [who("conflicts-2", False, T0 - timedelta(hours=3)), who("pod-volume-4", True, T0)]
 
     out = lanes.tick(store, fake.deps, T0, 1)
@@ -421,7 +421,7 @@ def test_a_lane_whose_heads_take_every_pr_of_a_successor_that_never_launched_ret
     fake = adopted(tmp_path, brief, store, prs=(46612, 46615))
     fake.feed += [
         spawned(2, "n-enum11-restack", brief, at=T0),
-        record(3, "root", "stand-down", to=("conflicts-2",), attrs={"successor": "conflicts-3"}),
+        record(3, "root", "stand-down", text="last-read=2", to=("conflicts-2",), attrs={"successor": "conflicts-3"}),
         record(4, "n-enum11-restack", "head", refs={"prs": [46612]}),
         record(5, "n-enum11-restack", "head", refs={"prs": ["Forge-AI/monorepo#46615"]}),
     ]
@@ -484,7 +484,7 @@ def test_a_successor_that_dies_within_an_interval_twice_is_held(tmp_path, brief)
 def test_done_and_a_root_stand_down_retire_a_lane(tmp_path, brief):
     store = Store.memory()
     fake = adopted(tmp_path, brief, store)
-    fake.feed += [spawned(2, "red-sweep-3", brief), record(3, "conflicts-2", "done", text="all five stacks restacked", to=("root",)), record(4, "root", "stand-down", to=("red-sweep-3",))]
+    fake.feed += [spawned(2, "red-sweep-3", brief), record(3, "conflicts-2", "done", text="all five stacks restacked", to=("root",)), record(4, "root", "stand-down", text="last-read=3", to=("red-sweep-3",))]
     fake.peers = [who("conflicts-2", False, T0), who("red-sweep-3", False, T0)]
 
     lanes.tick(store, fake.deps, T0 + timedelta(minutes=30), 1)
@@ -549,12 +549,44 @@ def test_prose_never_retires_a_lane_so_one_that_dies_mid_task_gets_a_successor(t
 def test_a_root_decide_moves_pr_ownership(tmp_path, brief):
     store = Store.memory()
     fake = adopted(tmp_path, brief, store, prs=(46001,))
-    fake.feed += [spawned(2, "restack-children-2", brief), record(3, "root", "decide", text="#46001 owner=restack-children-2", refs={"prs": ["Forge-AI/monorepo#46001"]})]
+    fake.feed += [spawned(2, "restack-children-2", brief), record(3, "root", "decide", text="#46001 owner=restack-children-2 last-read=2", refs={"prs": ["Forge-AI/monorepo#46001"]})]
     fake.peers.append(who("restack-children-2", True, T0))
 
     lanes.tick(store, fake.deps, T0, 1)
 
     assert store.lane("conflicts-2").prs == () and store.lane("restack-children-2").prs == (46001,)
+
+
+@pytest.mark.parametrize(
+    ("stand_down", "cited"),
+    [
+        (record(4, "root", "stand-down", text="8:02 PM stand-down conflicts-2: silent since 4:45 PM", to=("conflicts-2",)), "cites no last-read=<seq>"),
+        (record(4, "root", "stand-down", text="8:02 PM stand-down conflicts-2: silent since 4:45 PM last-read=2", to=("conflicts-2",)), "cites last-read=2, older than conflicts-2's newest record #3"),
+        (record(4, "root", "decide", text="8:02 PM owner=conflicts-3 for #46001; conflicts-2 stands down", to=("conflicts-2",)), "cites no last-read=<seq>"),
+        (record(4, "root", "state", text="8:02 PM conflicts-3 replaces conflicts-2 last-read=2"), "cites last-read=2, older than conflicts-2's newest record #3"),
+    ],
+)
+def test_a_root_record_standing_down_a_lane_it_has_not_read_since_its_newest_record_is_refused_and_the_lane_stays(tmp_path, brief, stand_down, cited):
+    store = Store.memory()
+    fake = adopted(tmp_path, brief, store, prs=(46001,))
+    fake.feed += [spawned(2, "conflicts-3", brief), record(3, "conflicts-2", "head", text="#46001 e590637", refs={"prs": ["Forge-AI/monorepo#46001"]}), stand_down]
+    fake.peers.append(who("conflicts-3", True, T0))
+
+    lanes.tick(store, fake.deps, T0, 1)
+
+    assert store.lane("conflicts-2").state == "desired" and store.lane("conflicts-2").prs == (46001,)
+    assert [(argv[argv.index("--kind") + 1], [argv[i + 1] for i, flag in enumerate(argv) if flag == "--to"]) for argv in fake.posts] == [("defect", ["root", "conflicts-2"])]
+    assert f"root's {stand_down['kind']} #4 would stand conflicts-2 down or hand its PRs on, but it {cited}, so the supervisor refused it and conflicts-2 stays live" in fake.posts[0][-1]
+
+
+def test_a_root_stand_down_citing_a_read_as_new_as_the_lanes_newest_record_retires_it(tmp_path, brief):
+    store = Store.memory()
+    fake = adopted(tmp_path, brief, store)
+    fake.feed += [record(2, "conflicts-2", "state", text="restacked"), record(3, "root", "stand-down", text="8:02 PM stand-down conflicts-2: done last-read=2", to=("conflicts-2",))]
+
+    lanes.tick(store, fake.deps, T0, 1)
+
+    assert store.lane("conflicts-2").state == "retired" and fake.kinds() == []
 
 
 def test_the_owner_hears_one_line_an_hour_and_only_when_a_lane_restarted(tmp_path, brief):
@@ -678,7 +710,7 @@ def test_a_root_stand_down_retires_the_lanes_its_text_names_but_not_the_successo
     fake = adopted(tmp_path, brief, store)
     store.want_lane("conflicts-8", str(brief), "opus", "xhigh", "lane", "desired", T0 - timedelta(hours=1))
     store.want_lane("test-fold-6", str(brief), "opus", "xhigh", "lane", "desired", T0 - timedelta(hours=3))
-    fake.feed.append(record(2, "root", "stand-down", T0 - timedelta(minutes=5), "4:48 PM stand-down conflicts-2 and test-fold-6 (both silent since 2:39 PM). conflicts-8 spawned 4:48 PM owns the restack", ("supervisor", "desk-runner")))
+    fake.feed.append(record(2, "root", "stand-down", T0 - timedelta(minutes=5), "4:48 PM stand-down conflicts-2 and test-fold-6 (both silent since 2:39 PM). conflicts-8 spawned 4:48 PM owns the restack last-read=1", ("supervisor", "desk-runner")))
     fake.peers = [who(name, True, T0 - timedelta(hours=2), roster="/teams/session-d50e80e8") for name in ("conflicts-2", "test-fold-6", "conflicts-8")]
 
     out = lanes.tick(store, fake.deps, T0, 1)
@@ -849,7 +881,7 @@ def test_a_root_stand_down_retires_only_the_lanes_it_names_never_the_lanes_it_co
     fake = adopted(tmp_path, brief, store)
     for name in ("conflicts-3", "lane-supervisor-2"):
         store.want_lane(name, str(brief), "opus", "xhigh", "lane", "desired", T0 - timedelta(hours=1))
-    fake.feed.append(record(2, "root", "stand-down", T0 - timedelta(minutes=5), "11:14 PM stand-down conflicts-2: conflicts-3 owns the stack from 11:13 PM", ("conflicts-2", "conflicts-3", "lane-supervisor-2")))
+    fake.feed.append(record(2, "root", "stand-down", T0 - timedelta(minutes=5), "11:14 PM stand-down conflicts-2: conflicts-3 owns the stack from 11:13 PM last-read=1", ("conflicts-2", "conflicts-3", "lane-supervisor-2")))
     fake.peers = [who(name, True, T0) for name in ("conflicts-2", "conflicts-3", "lane-supervisor-2")]
 
     lanes.tick(store, fake.deps, T0, 1)
@@ -897,7 +929,7 @@ def test_a_root_stand_down_naming_no_successor_unowns_the_lanes_prs_and_names_to
     """#279797 stood down n-enumeration-11 with no successor, and the supervisor still asked it about #45492 an hour later (#280505)."""
     store = Store.memory()
     fake = adopted(tmp_path, brief, store, prs=(45492, 46512))
-    fake.feed.append(record(2, "root", "stand-down", T0 - timedelta(minutes=5), "1:44 AM stand-down conflicts-2: done (handoff bc5175a). No successor.", ("conflicts-2", "supervisor")))
+    fake.feed.append(record(2, "root", "stand-down", T0 - timedelta(minutes=5), "1:44 AM stand-down conflicts-2: done (handoff bc5175a). No successor. last-read=1", ("conflicts-2", "supervisor")))
     fake.states = {45492: "needs-work", 46512: "waiting"}
 
     lanes.tick(store, fake.deps, T0 + timedelta(hours=1), 1)
@@ -916,7 +948,7 @@ def test_a_root_stand_down_after_the_lanes_own_done_still_hands_its_prs_to_root(
     fake = adopted(tmp_path, brief, store, prs=(45492, 46512))
     fake.feed += [
         record(2, "conflicts-2", "done", T0 - timedelta(minutes=6), "done: all PRs restacked"),
-        record(3, "root", "stand-down", T0 - timedelta(minutes=5), "4:07 AM stand-down conflicts-2: done. No successor.", ("conflicts-2", "supervisor")),
+        record(3, "root", "stand-down", T0 - timedelta(minutes=5), "4:07 AM stand-down conflicts-2: done. No successor. last-read=2", ("conflicts-2", "supervisor")),
     ]
     fake.states = {45492: "needs-work", 46512: "waiting"}
 

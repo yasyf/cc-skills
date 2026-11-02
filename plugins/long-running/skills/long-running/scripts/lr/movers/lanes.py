@@ -15,7 +15,10 @@ rule, and a tick whose sources do not all answer acts on nothing. A numbered suc
 `SPAWNED`, a root `<new> replaces <old>`, a root record telling a lane to stand down, the
 lane's own stand-down, and a `head` or `opened` record that takes a never-launched lane's
 last PR each retire a lane, and so does a lane that stops with nothing posted after its last owned
-PR landed, since its deliverable is merged (root #283488); a `<lane>-handoff` writer's `handoff <lane>: doc <id>` is the
+PR landed, since its deliverable is merged (root #283488). A root stand-down, `replaces`, or
+`owner=` decide that takes a live lane's place or PRs counts only when it cites
+`last-read=<seq>` no older than that lane's newest record; otherwise it is refused to root
+and the lane as a defect (root #304721). A `<lane>-handoff` writer's `handoff <lane>: doc <id>` is the
 lane's newest handoff. It signals no process: a live lane leaves only
 through the record that stands it down.
 """
@@ -58,6 +61,7 @@ STRIKE_WINDOW = 2 * STALE_AFTER
 PAGE_ANSWER = 2 * STALE_AFTER
 LIVE_WITHIN = 4 * STALE_AFTER
 OWNER = re.compile(r"\bowner=([\w.-]+)")
+LAST_READ = re.compile(r"\blast-read=#?(?P<seq>\d+)\b")
 PACIFIC = ZoneInfo("America/Los_Angeles")
 HANDOFF_BRIEF = Path(__file__).parents[3] / "reference" / "handoff-subagent-brief.md"
 
@@ -168,8 +172,8 @@ def hold(store: Store, name: str, why: str, at: datetime) -> None:
 
 
 def fold(store: Store, records: Iterable[dict], live: set[str] | None, briefs: Path) -> tuple[list[str], list[str], list[str]]:
-    """Apply bus records to the registry; with `live` set, the store is fresh and registers only the spawned lanes in it. Returns the lanes adopted, the lanes this supervisor is launching that someone else spawned from another brief, and one line per PR owner root named that the registry reads dead."""
-    adopted, hand, dead = [], [], []
+    """Apply bus records to the registry; with `live` set, the store is fresh and registers only the spawned lanes in it. Returns the lanes adopted, the lanes this supervisor is launching that someone else spawned from another brief, one line per PR owner root named that the registry reads dead, and each live lane a root record left in place because it cites no `last-read=<seq>` as new as that lane's newest record."""
+    adopted, hand, dead, unread = [], [], [], []
     for record in records:
         lane, at = record["lane"], at_of(record)
         if found := spawned(record):
@@ -187,7 +191,7 @@ def fold(store: Store, records: Iterable[dict], live: set[str] | None, briefs: P
             continue
         row = store.lane(lane)
         kind, text = record["kind"], record.get("text") or ""
-        store.lane_heard(lane, at, kind)
+        store.lane_heard(lane, at, kind, record["seq"])
         if row and row.state == "held" and at > row.since:
             store.lane_state(lane, "desired", at)
             row = store.lane(lane)
@@ -248,6 +252,9 @@ def fold(store: Store, records: Iterable[dict], live: set[str] | None, briefs: P
             for old in sorted((named or set(record.get("to") or [])) - {successor}):
                 if not (gone := store.lane(old)):
                     continue
+                if live is None and gone.state in LIVE and (why := unread_by(store, record, old)):
+                    unread.append((old, why))
+                    continue
                 if gone.state != "retired":
                     retire(store, old, successor or ROOT, at)
                     if successor:
@@ -256,13 +263,31 @@ def fold(store: Store, records: Iterable[dict], live: set[str] | None, briefs: P
                 if not successor:
                     store.own(ROOT, gone.prs)
         elif kind == "decide" and lane == ROOT and (owner := OWNER.search(text)):
+            named = set(prs_of(record)) | {int(n) for n in PR_MENTION.findall(text)}
+            running = {other.name for other in store.lanes(*LIVE)}
+            taken = {held for held in store.owner_of(named).values() if held and held != owner[1] and held in running}
+            if live is None and (refused := [(held, why) for held in sorted(taken) if (why := unread_by(store, record, held))]):
+                unread += refused
+                continue
             store.own(owner[1], numbers := prs_of(record))
             if live is None and numbers and (probe := store.probes().get(owner[1])) and probe["dead"]:
                 dead.append(f"{owner[1]} for {' '.join(f'#{n}' for n in numbers)}: root named it owner at {pacific(at)}, but it left the supervisor's {pacific(probe['asked'])} ask unanswered; {successor_note(store, owner[1])}")
         elif lane == ROOT and (moved := REPLACES.search(text)) and (old := store.lane(moved["old"])) and old.state in LIVE and (taker := store.lane(moved["new"])):
+            if live is None and (why := unread_by(store, record, old.name)):
+                unread.append((old.name, why))
+                continue
             retire(store, old.name, taker.name, at)
             store.own(taker.name, old.prs)
-    return adopted, hand, dead
+    return adopted, hand, dead, unread
+
+
+def unread_by(store: Store, record: dict, name: str) -> str:
+    """Why root's `record` may not stand `name` down or hand its PRs on: it cites no `last-read=<seq>`, or one older than the newest record `name` posted (root #304721)."""
+    newest, cited = store.newest_seq(name), LAST_READ.search(record.get("text") or "")
+    if cited and (newest is None or int(cited["seq"]) >= newest):
+        return ""
+    read = f"cites last-read={cited['seq']}, older than {name}'s newest record #{newest}" if cited else "cites no last-read=<seq>"
+    return f"root's {record['kind']} #{record['seq']} would stand {name} down or hand its PRs on, but it {read}"
 
 
 def successor_note(store: Store, name: str) -> str:
@@ -479,9 +504,11 @@ def tick(store: Store, deps: Deps, now: datetime, generation: int) -> Outcome:
         records = deps.records(store.cursor(CURSOR))
     except Unread:
         return out
-    out.adopted, hand, dead = fold(store, records, {lane for lane, peer in found.items() if alive(peer, peer.seen, now)} if fresh else None, deps.briefs)
+    out.adopted, hand, dead, unread = fold(store, records, {lane for lane, peer in found.items() if alive(peer, peer.seen, now)} if fresh else None, deps.briefs)
     for line in dead:
         escalate(store, deps, f"lane:{line.split(' ', 1)[0]}", line, now)
+    for name, why in unread:
+        post(deps, "defect", ROOT, f"{pacific(now)} {why}, so the supervisor refused it and {name} stays live; {name}, keep working. Root: read {name} with `cci tail --lane {name} --since <its wake seq> --oldest` and the registry's heard time, then post it again citing last-read=<seq>.", "--to", name, "--lane-ref", name)
     probe_owners(store, deps, found, now)
     for name in hand:
         deps.withdraw(name)
