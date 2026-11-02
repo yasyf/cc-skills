@@ -15126,6 +15126,35 @@ def test_a_trunk_build_green_only_after_an_automatic_job_retry_posts_one_flake_t
     assert flake["text"].startswith("[finding:desk-runner] - go/sand/next/internal/vm/lag_test.go flake owner flake-census-1: FLAKE TestADrainedSidecarEndsItsLagSeriesAtZero failed on https://buildkite.com/forge/test/builds/29020 at cccccccccc and passed on retry")
 
 
+def platy_notice(shell: FakeShell, minutes_ago: int, why: str, tests: str = "`sandsql-server::handoff_e2e tests::a_promotion_moves_the_writer`") -> dict:
+    at = (shell.now() - timedelta(minutes=minutes_ago)).timestamp()
+    message = {"ts": f"{at:.6f}", "user": "U0PLATY", "user_name": "Platy", "text": f"\u201cTest (nextest)\u201d failed on build #95663, and nobody was told.\n:warning: <https://buildkite.com/forge/test/builds/95663#job|\u201cTest (nextest)\u201d> failed {tests} on <https://buildkite.com/forge/test/builds/95663|build #95663> at <https://github.com/Forge-AI/monorepo/commit/27c70bc49559dae39003cd45f4f0a96cadc4b99e|27c70bc>, {why}.", "permalink": f"https://poetic-technology.slack.com/archives/C0RELEASES/p{int(at * 1e6)}"}
+    shell.slack_history.setdefault("C0RELEASES", []).append(message)
+    return message
+
+
+def test_each_flaky_test_report_in_the_release_channel_posts_one_flake_to_its_fixer(shell, config, tmp_path):
+    """retro/000057: four of Platy's flaky-test reports in #releases went unfixed until the owner forwarded them at 10:40 PM Oct 30."""
+    raw = json.loads(config.read_text())
+    raw["landing"] |= {"flaky_channel": "C0RELEASES", "flake_lane": "flake-census-1"}
+    config.write_text(json.dumps(raw))
+    landing = trunk_watch(shell, config, tmp_path)
+    shell.trunk = [trunk_commit("a", "SUCCESS", "29018", "2026-10-01T17:40:00Z")]
+    platy_notice(shell, 25 * 60, "and no pull request since <https://github.com/Forge-AI/monorepo/commit/4891386|4891386> touches what it reads, so nobody was told")
+    untouched = platy_notice(shell, 30, "and no pull request since <https://github.com/Forge-AI/monorepo/commit/4891386|4891386> touches what it reads, so nobody was told")
+    platy_notice(shell, 20, "and 3 pull requests since <https://github.com/Forge-AI/monorepo/commit/4891386|4891386> could have caused it, so nobody was told")
+    flaky = platy_notice(shell, 10, "then passed on <https://buildkite.com/forge/test/builds/95670|build #95670> at <https://github.com/Forge-AI/monorepo/commit/aaaa|aaaa> with nothing changed in what failed, so it looks flaky and nobody was told", tests="`C77: a failed session index never disconnects`")
+
+    landing.watch_trunk(OPEN_ROWS)
+    landing.watch_trunk(OPEN_ROWS)
+
+    flakes = [post for post in shell.posts if "FLAKE" in post["text"]]
+    assert [post["id"] for post in flakes] == [f"flake-notice:{untouched['ts']}", f"flake-notice:{flaky['ts']}"]
+    assert all(post["kind"] == "defect" and post["to"] == "flake-census-1,root,drive-watchdog@d1" for post in flakes)
+    assert flakes[0]["text"].startswith(f"[finding:desk-runner] - - flake owner flake-census-1: FLAKE tests::a_promotion_moves_the_writer failed on https://buildkite.com/forge/test/builds/95663 at 27c70bc495 while nothing it reads changed, per {untouched['permalink']}. Fix due")
+    assert flakes[1]["text"].startswith("[finding:desk-runner] - - flake owner flake-census-1: FLAKE a test failed on")
+
+
 def test_a_trunk_build_green_only_because_a_job_soft_fails_posts_post_merge_red_once_naming_the_prs_landed_since_the_last_build(shell, config, tmp_path):
     with_ci_build(config)
     desk_lane(config)
