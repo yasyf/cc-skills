@@ -6,6 +6,7 @@
 
     board_watch.py start --session ID (--program SLUG | --drive ID) [--state-dir DIR]
     board_watch.py backfill --session ID (--program SLUG | --drive ID)
+    board_watch.py blanket --session ID --word SEQ --at TIME (--program SLUG | --drive ID)
 
 STDLIB ONLY. `start` runs `cc-present watch --session ID` in the foreground until the board
 closes; the `start_board_watch` hook launches it detached, once per board session. Each event
@@ -64,6 +65,12 @@ its `card` attribute holds on the board with `cc-present ask`. Each write is ans
 outcomes --all` holds for the session that no record carries the same way, at the time the
 owner made it, then reads the records again and exits 1, naming each, while any verdict or pick
 still differs: the landing runner reads taps only from records once this prints `verified`.
+
+`blanket` records an owner word that approves the whole board, such as "every pending PR on the
+board is approved", as one approved `owner` record per row whose text was written at or before
+the word's `--at` time, at the row's head and that time. A row written after the word gets no
+record and prints `LEFT`, so it waits on his tap at its own row: every landing path reads the
+verdict records, never the word (root 313672, 314327).
 """
 
 from __future__ import annotations
@@ -585,6 +592,26 @@ def cmd_backfill(args: argparse.Namespace, shell: Shell) -> int:
     return 0
 
 
+def cmd_blanket(args: argparse.Namespace, shell: Shell) -> int:
+    drive_name = bus_drive(args)
+    if (outcomes := shell.outcomes(args.session)) is None:
+        print(f"board-watch blanket: cc-present outcomes did not read for {args.session}", file=sys.stderr)
+        return 1
+    word = datetime.fromisoformat(args.at)
+    standing = board_rows.verdicts_of_records(board_records(shell, drive_name))
+    for row in board_rows.rows_of(outcomes.get("doc") or {}):
+        written = board_rows.parsed(row.text_at)
+        if not (row.head and written and written <= word):
+            print(f"LEFT #{row.pr} at {row.head[:7] or 'no head'}: its row was written {row.text_at or 'at an unknown time'}, not by the owner's word {args.word} at {args.at}")
+            continue
+        if same(standing.get(row.block, {}).get(row.id), {"verdict": "approved", "head": row.head}):
+            continue
+        text = f"The owner's word {args.word} at {args.at} approved board {args.session[:8]}: {row.id} ({row.block}) at {row.head}, written {row.text_at}"
+        fields = {"event": "blanket", "word": args.word, "session": args.session, "block": row.block, "row": row.id, "verdict": "approved", "head": row.head, "at": args.at}
+        backfilled(shell, drive_name, f"blanket:{args.word}:{row.block}:{row.id}:{row.head}", text, [row.pr], fields)
+    return 0
+
+
 def backfilled(shell: Shell, drive_name: str, key: str, text: str, prs: list[str], fields: dict[str, str]) -> None:
     done = shell.cci(["post", "--drive", drive_name, "--lane", BUS_LANE, "--kind", "owner", "--to", RUNNER, "--id", key, "--text", text, *(["--topic", fields["block"]] if fields["block"] else []), *(f"--pr={pr}" for pr in prs), *attr_args(fields)])
     if done.returncode:
@@ -607,6 +634,14 @@ def build_parser() -> argparse.ArgumentParser:
     which.add_argument("--program", metavar="SLUG")
     which.add_argument("--drive", metavar="ID")
     backfill.set_defaults(handler=cmd_backfill)
+    blanket = verbs.add_parser("blanket", help="record an owner word approving the whole board as one approved verdict per row written by the word's time")
+    blanket.add_argument("--session", required=True, metavar="ID")
+    blanket.add_argument("--word", required=True, metavar="SEQ")
+    blanket.add_argument("--at", required=True, metavar="TIME")
+    which = blanket.add_mutually_exclusive_group(required=True)
+    which.add_argument("--program", metavar="SLUG")
+    which.add_argument("--drive", metavar="ID")
+    blanket.set_defaults(handler=cmd_blanket)
     return parser
 
 
