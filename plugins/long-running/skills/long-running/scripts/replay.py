@@ -74,10 +74,11 @@ READ_TEXT = (
     re.compile(r"\bowner=[\w.-]+"),
     re.compile(r"\bcard-[\w.-]*\w"),
     re.compile(r"#\d+\b"),
+    re.compile(r"\bPARKED [\w.-]+:"),
 )
 KEPT_FIELDS = ("seq", "at", "lane", "kind", "to", "re", "resolves", "also_resolves", "topic")
 KEPT_ATTRS = ("brief", "model", "effort", "role", "successor")
-KEPT_ROW = ("lane", "live", "seen_at", "announced_at", "stood_down")
+KEPT_ROW = ("lane", "live", "seen_at", "announced_at", "stood_down", "roster")
 
 
 def at_of(text: str) -> datetime:
@@ -167,10 +168,10 @@ def who_at(rows: list[dict], orca: list[tuple[str, datetime, datetime | None]], 
 
 
 def replay_lanes(pack, records: list[dict], rows: list[dict], since: str | None) -> dict[str, list[str]]:
-    """The lanes the mover relaunched and held, ticking from `since`, or the first record, to the last record; records before `since` fold in at the first tick, so lanes spawned earlier are registered when the compared window opens."""
+    """The lanes the mover relaunched, held and tried to wake, ticking from `since`, or the first record, to the last record; records before `since` fold in at the first tick, so lanes spawned earlier are registered when the compared window opens."""
     loop, lanes, Store, _ = pack
     if not records:
-        return {"relaunched": [], "held": []}
+        return {"relaunched": [], "held": [], "woken": []}
     with tempfile.TemporaryDirectory() as scratch:
         briefs = Path(scratch)
         feed = sorted(stubbed(records, briefs), key=lambda record: record["seq"])
@@ -180,6 +181,7 @@ def replay_lanes(pack, records: list[dict], rows: list[dict], since: str | None)
                 for to in record.get("to") or []:
                     stood_down.setdefault(to.split("@", 1)[0], at_of(record["at"]))
         orca = dispatches(feed)
+        woken: set[str] = set()
         clock = {"now": max(at_of(feed[0]["at"]), at_of(since or feed[0]["at"])), "shown": 0}
 
         def visible(since: int) -> list[dict]:
@@ -199,7 +201,7 @@ def replay_lanes(pack, records: list[dict], rows: list[dict], since: str | None)
             "cci": lambda argv: "",
             "launch": lambda name, model, effort, brief: None,
             "withdraw": lambda name: None,
-            "wake": lambda name, row, page: False,
+            "wake": lambda name, row, page: woken.add(name) or False,
             "pr_states": lambda prs: {},
             "rotate_at": 0,
         }
@@ -215,7 +217,7 @@ def replay_lanes(pack, records: list[dict], rows: list[dict], since: str | None)
             if clock["now"] >= end:
                 break
             clock["now"] = min(clock["now"] + loop.TICK, end)
-        return {"relaunched": sorted(relaunched), "held": sorted(held)}
+        return {"relaunched": sorted(relaunched), "held": sorted(held), "woken": sorted(woken)}
 
 
 def replay_class_check(pack, prs: list[dict]) -> list[int]:

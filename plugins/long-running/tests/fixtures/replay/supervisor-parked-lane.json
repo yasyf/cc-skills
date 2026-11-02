@@ -1,0 +1,104 @@
+{
+  "class": "supervisor-parked-lane",
+  "defect": 303962,
+  "fix": "yasyf/cc-skills#1653",
+  "recurs": {
+    "kinds": [
+      "defect"
+    ],
+    "text": "wak\\w* .*PARKED|PARKED .*wak"
+  },
+  "input": {
+    "records": [
+      {
+        "seq": 290654,
+        "at": "2026-11-01T20:03:16.602Z",
+        "lane": "root",
+        "kind": "state",
+        "topic": "spawn:test-fix-ssql-supervisor-2",
+        "text": "SPAWNED test-fix-ssql-supervisor-2 /scratch/test-fix-ssql-supervisor-2/brief.md",
+        "refs": {
+          "prs": []
+        },
+        "fields": {
+          "attrs": {
+            "brief": "/scratch/test-fix-ssql-supervisor-2/brief.md",
+            "model": "opus"
+          }
+        }
+      },
+      {
+        "seq": 303432,
+        "at": "2026-11-02T03:14:42.118Z",
+        "lane": "test-fix-ssql-supervisor-2",
+        "kind": "state",
+        "to": [
+          "root",
+          "long-running"
+        ],
+        "text": "#47394",
+        "refs": {
+          "prs": []
+        },
+        "fields": {
+          "attrs": {}
+        }
+      },
+      {
+        "seq": 303447,
+        "at": "2026-11-02T03:15:28.853Z",
+        "lane": "root",
+        "kind": "state",
+        "to": [
+          "test-fix-ssql-supervisor-2",
+          "stall-watch",
+          "drive-watchdog-2",
+          "supervisor"
+        ],
+        "re": 303432,
+        "resolves": 303432,
+        "text": "#47394; #47458; #47488; PARKED test-fix-ssql-supervisor-2:",
+        "refs": {
+          "prs": []
+        },
+        "fields": {
+          "attrs": {}
+        }
+      },
+      {
+        "seq": 303962,
+        "at": "2026-11-02T03:46:32.639Z",
+        "lane": "root",
+        "kind": "defect",
+        "to": [
+          "mq-health-9",
+          "test-fix-ssql-supervisor-2"
+        ],
+        "re": 303957,
+        "resolves": 303957,
+        "text": "",
+        "refs": {
+          "prs": []
+        },
+        "fields": {
+          "attrs": {}
+        }
+      }
+    ],
+    "since": "2026-11-02T03:14:42.118Z",
+    "who": [
+      {
+        "lane": "test-fix-ssql-supervisor-2",
+        "live": true,
+        "seen_at": "2026-11-02T03:46:00.000Z",
+        "announced_at": "2026-11-01T20:03:20.000Z",
+        "stood_down": false,
+        "roster": "/teams/session-d50e80e8"
+      }
+    ]
+  },
+  "expect": {
+    "woken": [],
+    "relaunched": []
+  }
+}

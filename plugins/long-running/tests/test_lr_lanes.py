@@ -208,6 +208,22 @@ def test_only_a_silent_roster_lane_not_waiting_on_root_is_woken(tmp_path, brief,
     assert fake.wakes == woken and out.woken == woken and out.relaunched == [] and fake.launches == []
 
 
+@pytest.mark.parametrize(("lift", "woken"), [(None, []), ("resolve", ["conflicts-2"])], ids=["parked", "park-lifted"])
+def test_a_lane_root_parked_is_never_woken_until_root_lifts_the_park(tmp_path, brief, lift, woken):
+    """Root #303962: the supervisor woke test-fix-ssql-supervisor-2 every 15 minutes after root's 7:15 PM Nov 1 `PARKED test-fix-ssql-supervisor-2: idle by root's order` record 303447."""
+    store = Store.memory()
+    fake = adopted(tmp_path, brief, store)
+    fake.feed.append(record(2, "conflicts-2", "state", T0 - timedelta(hours=3), "restacking"))
+    fake.feed.append(record(3, "root", "state", T0 - timedelta(hours=2), "7:15 PM PARKED conflicts-2: idle by root's order until #47394 lands; no 15-minute wakes", ("conflicts-2",)))
+    if lift:
+        fake.feed.append(record(4, "root", "state", T0 - timedelta(hours=1), "conflicts-2 park lifted", ("conflicts-2",)) | {"resolves": 3})
+    fake.peers = [who("conflicts-2", True, T0, roster="/teams/session-d50e80e8")]
+
+    out = lanes.tick(store, fake.deps, T0, 1)
+
+    assert fake.wakes == woken and out.woken == woken
+
+
 def test_a_blocker_on_an_idle_roster_lanes_pr_wakes_it_once_then_asks_root_to_reassign(tmp_path, brief):
     store = Store.memory()
     fake = adopted(tmp_path, brief, store, prs=(46475,))
