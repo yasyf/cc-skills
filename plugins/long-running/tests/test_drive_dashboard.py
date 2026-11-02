@@ -961,7 +961,7 @@ def test_every_board_row_waiting_on_the_owner_stays_on_the_deck_whatever_the_led
 
     out = server.with_conflicts(rows, prs)
 
-    assert [need["prs"][0]["number"] for need in server.merge_needs(out, "u")] == [45411, 45412, 45413]
+    assert [row["number"] for need in server.merge_needs(out, "u") for row in need["prs"]] == [45411, 45412, 45413]
 
 
 def test_evidence_written_before_the_live_head_was_pushed_never_reaches_the_owner():
