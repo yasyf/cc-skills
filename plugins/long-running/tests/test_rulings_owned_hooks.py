@@ -25,6 +25,11 @@ from test_register_reads import alive, owned_query, stop_owned_query
 from test_rulings import REPO, RegisterShell, gateway, home, registered, state
 
 class HookShell(RegisterShell):
+    def session(self, argv, prepare, **kwargs):
+        self.calls.append(argv)
+        prepare()
+        return []
+
     def run(self, argv: list[str], stdin: str | None = None, cwd: Path | None = None) -> str:
         argv = gateway(argv)
         if argv == ["git", "-C", REPO, "rev-parse", "--abbrev-ref", "HEAD"]:
@@ -57,9 +62,11 @@ def caller_expressions():
 
 
 @pytest.mark.parametrize("module,node", caller_expressions())
-def test_all_current_hook_call_expressions_reach_real_dispatch_without_a_python_intermediary(module, node, home: Path, registered: Path, state: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]):
+def test_all_current_hook_call_expressions_reach_real_dispatch_without_a_python_intermediary(module, node, home: Path, registered: Path, state: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch):
     traces = []
     backend = HookShell({}, records=[{"seq": 8, "kind": "state", "text": "not a contract"}])
+    transport = handoff.rulings_module(handoff.script("long_running/__init__.py")).ledger.match_session
+    monkeypatch.setattr(transport, "run", backend.session)
 
     def call_cli(argv, *, input=None, cwd=None, env=None, timeout=None):
         assert timeout > 0

@@ -37,11 +37,12 @@
 The standing-rules doc is the newest cc-notes doc labelled ``standing-rules:<program>``.
 ``register`` prints it as JSON ``{id, body}``, or ``null`` when none exists.
 
-``match`` mirrors the drive's ``scope:durable`` answers into ``<state dir>/rulings/<id7>.md``:
-answers labelled ``program:<program>`` plus answers anchored to the repo's current branch.
-It reads an action from stdin, searches the mirror with ``ccx code search --semantic``,
-drops answers the standing-rules doc cites and each ``--exclude`` id, and prints each
-match as ``- <id7> <title>`` with its body quoted under ``  >``, within ``--budget`` bytes.
+``match`` opens a native cut of the drive's ``scope:durable`` answers labelled
+``program:<program>`` plus answers anchored to the repo's current branch. The cut
+stays open through ranking and canonical answer reads. ``<state dir>/rulings`` is
+derived cache storage; cc-notes supplies the owner's words. Python reads the action
+and standing-rules citations, then prints uncited, unexcluded ranked matches as
+``- <id7> <title>`` with bodies quoted under ``  >``, within ``--budget`` bytes.
 
 The register is the cc-notes ledger labelled ``register`` and ``program:<program>``: one row
 per owner ruling, board answer, design rule and design exception, holding the owner's words
@@ -136,7 +137,6 @@ MATCHES = 8
 BUDGET = 8000
 QUERY_CHARS = 2000
 QUOTE = "  >"
-HIT = re.compile(r"^([0-9a-f]{7})\.md:", re.MULTILINE)
 CITED = re.compile(r"\b[0-9a-f]{7,40}\b")
 
 PACIFIC = ZoneInfo("America/Los_Angeles")
@@ -364,26 +364,8 @@ def drive_answers(shell: ledger.Shell, repo: str, program: str) -> list[dict]:
     return list({answer["id"]: answer for answer in scoped}.values())
 
 
-def mirror(answers: list[dict], directory: Path) -> None:
-    directory.mkdir(parents=True, exist_ok=True)
-    wanted = {f"{answer['id'][:SHORT]}.md": f"# {answer['title']}\n\n{answer.get('body') or ''}\n" for answer in answers}
-    for path in directory.glob("*.md"):
-        if path.name not in wanted:
-            path.unlink(missing_ok=True)
-    for name, text in wanted.items():
-        path = directory / name
-        if not path.is_file() or path.read_text() != text:
-            write_atomic(path, text)
-
-
 def active_register(shell: ledger.Shell, repo: str, kept: Path) -> dict | None:
     return register_reads.active_register(shell.run, repo, kept)
-
-
-def search(shell: ledger.Shell, query: str, directory: Path, k: int) -> list[str]:
-    argv = ["ccx", "code", "search", "--semantic", "--content", "docs", "-k", str(k), "--max-snippet-lines", "1", query, str(directory)]
-    hits = HIT.findall(shell.run(argv))
-    return list(dict.fromkeys(hits))
 
 
 def rendered(answer: dict) -> str:
@@ -1063,14 +1045,19 @@ def cmd_register(args: argparse.Namespace, shell: ledger.Shell) -> int:
 
 def cmd_match(args: argparse.Namespace, shell: ledger.Shell) -> int:
     program = program_of(args)
-    durable = drive_answers(shell, args.repo, program)
-    directory = state_dir(args, args.runtime.drives, args.runtime.scratch) / "rulings"
-    mirror(durable, directory)
-    cited = {token[:SHORT] for token in CITED.findall((register(shell, args.repo, program) or {}).get("body", ""))}
-    answers = {key: answer for answer in durable if (key := answer["id"][:SHORT]) not in cited and key not in args.exclude}
-    query = args.stdin.read()[:QUERY_CHARS]
-    hits = [hit for hit in search(shell, query, directory, args.k) if hit in answers] if answers else []
-    args.stdout.write(within([rendered(answers[hit]) for hit in hits], args.budget))
+    repo = Path(args.repo).resolve()
+    directory = (state_dir(args, args.runtime.drives, args.runtime.scratch) / "rulings").resolve()
+    argv = ["ccx", "code", "match-answers", "--repo", str(repo), "--program", program, "--corpus-dir", str(directory), "-k", str(args.k), "--json-session"]
+    if branch := branch_of(shell, args.repo):
+        argv.extend(["--branch", branch])
+
+    def prepare() -> dict:
+        cited = {token[:SHORT] for token in CITED.findall((register(shell, args.repo, program) or {}).get("body", ""))}
+        return {"type": "query", "query": args.stdin.read()[:QUERY_CHARS], "exclude": [*cited, *args.exclude]}
+
+    env = dict(os.environ) | drive.deadline_env(ledger.COMMAND_TIMEOUT_SECONDS - drive.REAP_SECONDS) if args.runtime.env is None else dict(args.runtime.env)
+    answers = shell.session(argv, prepare, cwd=repo, env=env, checkpoint=args.runtime.checkpoint, timeout=ledger.COMMAND_TIMEOUT_SECONDS)
+    args.stdout.write(within([rendered(answer) for answer in answers], args.budget))
     return 0
 
 

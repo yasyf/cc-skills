@@ -88,15 +88,30 @@ class FakeShell(ledger.Shell):
         self.branch = branch
         self.program = [FLAGS, TRUTH] if program is None else program
         self.queries: list[tuple[str, str]] = []
+        self.cuts: list[tuple[str, str, str | None]] = []
+        self.requests: list[dict] = []
+
+    def session(self, argv, prepare, **kwargs):
+        assert argv[:3] == ["ccx", "code", "match-answers"]
+        assert argv[argv.index("--repo") + 1] == REPO
+        program = argv[argv.index("--program") + 1]
+        root = argv[argv.index("--corpus-dir") + 1]
+        branch = argv[argv.index("--branch") + 1] if "--branch" in argv else None
+        self.cuts.append((program, root, branch))
+        durable = self.program + ([TRUTH, SEED] if branch else [])
+        answers = {answer["id"][:7]: answer for answer in durable}
+        request = prepare()
+        self.requests.append(request)
+        excluded = set(request["exclude"])
+        if not answers.keys() - excluded:
+            return []
+        self.queries.append((request["query"], root))
+        return [answers[hit] for hit in dict.fromkeys(self.hits) if hit in answers and hit not in excluded]
 
     def run(self, argv: list[str], stdin: str | None = None) -> str:
         if argv[0] == "git":
             assert argv[1:] == ["-C", REPO, "rev-parse", "--abbrev-ref", "HEAD"]
             return f"{self.branch}\n"
-        if argv[0] == "ccx":
-            assert argv[1:7] == ["code", "search", "--semantic", "--content", "docs", "-k"]
-            self.queries.append((argv[-2], argv[-1]))
-            return "# semantic (native)\n" + "".join(f"{hit}.md:1-3#abcd (score=0.016)\n# title\n" for hit in self.hits)
         assert argv[:3] == ["ccn", "-R", REPO], argv
         match argv[3:5]:
             case ["answer", "list"]:
@@ -135,7 +150,7 @@ def test_register_prints_the_newest_register_doc_or_null(home: Path, capsys: pyt
     assert json.loads(capsys.readouterr().out) is None
 
 
-def test_match_mirrors_the_corpus_and_quotes_uncited_hits_in_rank_order(
+def test_match_uses_owned_corpus_and_quotes_uncited_hits_in_rank_order(
     home: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     corpus = home / ".claude" / "scratch" / "brook" / "rulings"
@@ -147,8 +162,8 @@ def test_match_mirrors_the_corpus_and_quotes_uncited_hits_in_rank_order(
 
     assert out.startswith("- 1984bf6 May a migration ship behind a flag?\n  > No.\n  > Delete or replace.\n- 8075b46 How does a seed converge?\n")
     assert "ec2881e" not in out
-    assert sorted(path.name for path in corpus.iterdir()) == ["1984bf6.md", "8075b46.md", "ec2881e.md"]
-    assert (corpus / "1984bf6.md").read_text() == "# May a migration ship behind a flag?\n\nNo.\nDelete or replace.\n"
+    assert sorted(path.name for path in corpus.iterdir()) == ["dead000.md"]
+    assert shell.cuts == [("brook", str(corpus), "yasyf/brook")]
     assert shell.queries == [("Lane brief: add a --skip-tenant flag.", str(corpus))]
 
 
@@ -157,6 +172,23 @@ def test_match_drops_excluded_answers(home: Path, monkeypatch: pytest.MonkeyPatc
 
     assert out.startswith("- 8075b46 How does a seed converge?\n")
     assert "1984bf6" not in out
+
+
+@pytest.mark.parametrize(("body", "shown"), [("éec2881eé", True), (" ec2881e ", False), ("ec2881e" + "0" * 33, False)])
+def test_match_keeps_python_citation_boundaries(home, monkeypatch, capsys, body, shown):
+    shell = FakeShell(["ec2881e"], [{"id": REGISTER_ID, "body": body, "updated_at": "2026-10-05T00:00:00Z"}])
+    out = match(shell, "brief", monkeypatch, capsys)
+    assert ("- ec2881e " in out) is shown
+    assert ("ec2881e" in shell.requests[0]["exclude"]) is not shown
+
+
+def test_match_keeps_literal_exclusions_and_python_query_slice(home, monkeypatch, capsys):
+    shell = FakeShell(["ec2881e"], [])
+    query = "a" * 1999 + "😀" + "discarded"
+    out = match(shell, query, monkeypatch, capsys, "--exclude", TRUTH["id"])
+    assert out.startswith("- ec2881e ")
+    assert shell.requests == [{"type": "query", "query": query[:2000], "exclude": [TRUTH["id"]]}]
+    assert shell.queries[0][0].endswith("😀")
 
 
 def test_match_stops_at_the_budget(home: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
@@ -243,12 +275,15 @@ def test_match_reads_only_the_drives_program_and_branch_answers(
 ) -> None:
     corpus = home / ".claude" / "scratch" / "brook" / "rulings"
 
-    match(FakeShell(["1984bf6"], []), "brief", monkeypatch, capsys)
-    assert sorted(path.name for path in corpus.iterdir()) == ["1984bf6.md", "8075b46.md", "ec2881e.md"]
+    shell = FakeShell(["1984bf6"], [])
+    match(shell, "brief", monkeypatch, capsys)
+    assert shell.cuts == [("brook", str(corpus), "yasyf/brook")]
 
-    out = match(FakeShell(["8075b46", "1984bf6"], [], branch="HEAD"), "brief", monkeypatch, capsys)
+    shell = FakeShell(["8075b46", "1984bf6"], [], branch="HEAD")
+    out = match(shell, "brief", monkeypatch, capsys)
     assert out == "- 1984bf6 May a migration ship behind a flag?\n  > No.\n  > Delete or replace.\n"
-    assert sorted(path.name for path in corpus.iterdir()) == ["1984bf6.md", "ec2881e.md"]
+    assert shell.cuts == [("brook", str(corpus), None)]
+    assert not corpus.exists()
 
 
 def implied(items: list[tuple[str, str]]) -> str:
@@ -2652,3 +2687,36 @@ def test_a_row_whose_symbol_only_a_doc_and_a_test_name_is_untouched() -> None:
     diff = rulings.parse_diff(SYMBOL_DIFF)
     assert not rulings.touched({"symbols": '["retire"]', "paths": '["rust/crates/server/src/admin.rs:3931 @ 19dd3ce34ce"]'}, diff)
     assert rulings.touched({"symbols": '["retire"]'}, rulings.parse_diff(SYMBOL_DIFF.replace("func (d *Driver) Retire(", "func retire(")))
+
+
+def test_match_resolves_relative_source_and_drive_cache_before_child_cwd(home, monkeypatch):
+    monkeypatch.chdir(home)
+    repo = home / "repo"
+    repo.mkdir()
+    (repo / "owner.txt").write_text("canonical words")
+    drives = home / ".claude" / "long-running" / "drives"
+    drives.mkdir(parents=True)
+    (drives / "d1.json").write_text(json.dumps({"drive": "d1", "program": "brook", "state_dir": "state"}))
+    marker = home / "opened"
+    expected = [str(repo), str(home / "state" / "rulings"), str(marker)]
+    script = 'import json,sys\nfrom pathlib import Path\nrepo,cache,marker=map(Path,json.loads(sys.argv[1]))\nassert Path.cwd()==repo\nassert Path(sys.argv[sys.argv.index("--repo")+1])==repo\nassert Path(sys.argv[sys.argv.index("--corpus-dir")+1])==cache\nassert (repo/"owner.txt").read_text()=="canonical words"\nPath(marker).write_text("opened")\nprint(json.dumps({"type":"ready","protocol":1}),flush=True)\nassert json.loads(sys.stdin.readline())["query"]=="brief"\nprint(json.dumps({"type":"result","answers":[]}),flush=True)\n'
+    registered = []
+
+    def register(shell, selected_repo, program):
+        assert marker.read_text() == "opened"
+        registered.append((selected_repo, program))
+        return {}
+
+    class PathShell(ledger.Shell):
+        def run(self, argv, stdin=None):
+            assert argv == ["git", "-C", "repo", "rev-parse", "--abbrev-ref", "HEAD"]
+            return "main\n"
+
+        def session(self, argv, prepare, **kwargs):
+            return ledger.Shell.session([sys.executable, "-I", "-B", "-c", script, json.dumps(expected), *argv[3:]], prepare, **kwargs)
+
+    monkeypatch.setattr(rulings, "register", register)
+    output = io.StringIO()
+    assert rulings.main(["match", "--drive", "d1", "--repo", "repo"], PathShell(), stdin=io.StringIO("brief"), stdout=output) == 0
+    assert output.getvalue() == ""
+    assert registered == [("repo", "brook")]
