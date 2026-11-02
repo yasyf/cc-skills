@@ -9,7 +9,7 @@ VAGUE_FIX = re.compile(r"\b(?:names?|answers?|address(?:es)?|fix(?:es)?|clears?|
 CHECKS = (
     ("a release or plan code", re.compile(r"\b(?:R\d{1,2}|P\d{1,2}[a-z]?(?:\.\d+)?|[Ss]tep \d+[a-z]?)\b")),
     ("a test or item code", re.compile(r"\b(?!S3\b)[A-Z]\d{1,3}\b")),
-    ("an id", re.compile(r"\b(?:team|org|user|run|wf|txid)[_:-][A-Za-z0-9]{6,}|\btxid\b|\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b|\b[0-9A-HJKMNP-TV-Z]{26}\b")),
+    ("an id", re.compile(r"\b(?:team|org|user|run|wf|txid)[_:-](?:[0-9a-hjkmnp-tv-z]{26}\b|(?=[A-Za-z0-9]*\d)[A-Za-z0-9]{6,})|\btxid\b|\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b|\b[0-9A-HJKMNP-TV-Z]{26}\b")),
     ("a record number", re.compile(r"#1\d{5}\b|\brecords? \d{3,}|\bseq\b", re.I)),
     ("a hash", re.compile(r"\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b")),
     ("a pull request number", re.compile(r"#\d{4,5}\b")),

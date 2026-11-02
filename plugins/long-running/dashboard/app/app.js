@@ -472,8 +472,11 @@ function tickFresh() {
   if (!m?.built_at) return;
   const age = Date.now() - new Date(m.built_at);
   const el = $('#fresh');
-  el.classList.toggle('late', age > LATE_MS);
-  el.textContent = age > LATE_MS ? `Not updated since ${clock(m.built_at)}` : `Updated ${Math.max(0, Math.round(age / 1000))} s ago · Pacific time`;
+  const rejected = m.status_rejected;
+  el.classList.toggle('late', age > LATE_MS || !!rejected);
+  el.textContent = (age > LATE_MS ? `Not updated since ${clock(m.built_at)}` : `Updated ${Math.max(0, Math.round(age / 1000))} s ago · Pacific time`)
+    + (rejected ? ` · Now summary held since ${clock(rejected.at)}: ${rejected.reason}` : '');
+  el.title = rejected ? rejected.reason : '';
 }
 
 let loading = null;
