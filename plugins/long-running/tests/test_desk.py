@@ -1000,7 +1000,7 @@ def test_reconcile_settles_a_closed_board_in_one_trunk_search_one_object_check_a
     assert not [argv for argv in shell.calls if argv[3:4] == ["fetch"] and "refs/pull/" in argv[-1]]
     assert not [argv for argv in shell.calls if argv[:3] == ["ccn", "ledger", "row"]]
     assert len([argv for argv in shell.calls if argv[:3] == ["ccn", "ledger", "sync"]]) == 1
-    assert not [endpoint for endpoint in shell.endpoints() if endpoint.split("?")[0].count("/") == 4 and "/pulls/" in endpoint]
+    assert [endpoint for endpoint in shell.endpoints() if endpoint.split("?")[0].count("/") == 4 and "/pulls/" in endpoint] == [f"repos/{REPO}/pulls/{pr}" for pr in range(28401, 28440)]
 
 
 def test_settle_fetches_only_the_heads_the_clone_lacks():

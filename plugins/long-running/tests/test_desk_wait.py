@@ -237,10 +237,14 @@ def test_marking_read_waits_for_the_harness_lock_and_keeps_entries_written_meanw
     mailbox.write_text(json.dumps([{**message(read=False), "msg_id": "m-1"}]))
     lock.mkdir()
     with subprocess.Popen([str(SCRIPT), "1", f"{mailbox}={cursor}"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) as process:
-        time.sleep(0.5)
+        first = process.stdout.readline()
+        time.sleep(0.2)
+        assert process.poll() is None
         mailbox.write_text(json.dumps([*json.loads(mailbox.read_text()), {**message(read=False, text="arrived under lock"), "msg_id": "m-2"}]))
         lock.rmdir()
-        stdout, stderr = process.communicate(timeout=5)
+        stdout = first + process.stdout.read()
+        stderr = process.stderr.read()
+        process.wait(timeout=5)
 
     assert process.returncode == 0, stderr
     assert stdout == "MAILBOX 1 unread\n" + PRINTED
