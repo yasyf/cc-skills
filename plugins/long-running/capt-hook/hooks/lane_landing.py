@@ -21,6 +21,7 @@ LABEL_FIELDS = frozenset({"labels[]", "labels"})
 LABELS_ENDPOINT = re.compile(r"(?:^|/)repos/[^/]+/[^/]+/issues/\d+/labels(?:\?|$)")
 READ_ONLY_ENQUEUE = frozenset({"--check", "--status", "-h", "--help"})
 ENQUEUERS = frozenset({"stack-enqueue", "mq.py enqueue", "ci trunk submit", "gh stack merge"})
+MERGERS = frozenset({"gh pr merge", "ccx vcs merge"})
 NOT_AN_ENQUEUE = frozenset({"--dequeue"})
 QUEUE_STEERING = frozenset({"dequeue", "requeue", "priority", "recover", "hold", "lift"})
 MQ_VALUE_OPTIONS = frozenset({"--config"})
@@ -79,8 +80,8 @@ HAND_ENQUEUE_TAP_REFUSAL = (
 )
 TAP_REFUSAL = "TAP-REQUIRED"
 ADMIN_MERGE_REFUSAL = (
-    "Warning, nothing was blocked: Incident fixes merge by plain squash once approved and green, never past review, so lane `{lane}` may not run `gh pr merge --admin`. "
-    "Wait for the approval and the required checks, then run `gh pr merge <N> --squash`."
+    "Warning, nothing was blocked: Incident fixes merge by plain squash once approved and green, never past review, so lane `{lane}` may not run `{verb} --admin`. "
+    "Wait for the approval and the required checks, then run `{verb} <N> --squash`."
 )
 INCIDENT_REFUSAL = (
     "Warning, nothing was blocked: Incident fixes land by plain squash the pass they are approved and green, never through the queue (the owner ruled it on Oct 20), so lane `{lane}` may not run `stack-enqueue`. "
@@ -242,6 +243,8 @@ def landing_verb(call: Call) -> str | None:
         return "gt merge"
     if argv[:3] == ("gh", "pr", "merge"):
         return "gh pr merge"
+    if argv[:3] == ("ccx", "vcs", "merge"):
+        return "ccx vcs merge"
     if argv[:3] in {("gh", "pr", "edit"), ("gh", "issue", "edit")} and label_args(argv[3:]) & QUEUE_LABELS:
         return f"{' '.join(argv[:3])} --add-label"
     if argv[:2] == ("gh", "api") and any(LABELS_ENDPOINT.search(arg) for arg in argv[2:]) and labelled_fields(argv[2:]) & QUEUE_LABELS:
@@ -262,6 +265,7 @@ def landing_verb(call: Call) -> str | None:
         Input(command="gh stack merge 36023", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`gh stack merge`"),
         Input(command="cd ~/wt && gt merge", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`gt merge`"),
         Input(command="gh pr merge 36023 --squash", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`gh pr merge`"),
+        Input(command="ccx vcs merge 36023", agent_id=LANE, state=ACTIVE): Warn(pattern=r"lane `lane-a` may not run `ccx vcs merge`"),
         Input(command="gh -R Forge-AI/monorepo pr merge 36023 --squash", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`gh pr merge`"),
         Input(command="python3 .agents/skills/submit-pr/scripts/stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`stack-enqueue`"),
         Input(command="bash .agents/skills/submit-pr/scripts/stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`stack-enqueue`"),
@@ -307,6 +311,8 @@ def landing_verb(call: Call) -> str | None:
         Input(command="stack-enqueue 36050 --fast", agent_id="asand-5a-fix-0123456789abcdef", state=ACTIVE): Warn(pattern=r"lane `sand-5a-fix` may not run `stack-enqueue`"),
         Input(command="gh pr edit 36050 --add-label merge-fast", agent_id="asand-5a-fix-0123456789abcdef", state=ACTIVE): Warn(pattern=r"lane `sand-5a-fix` may not run `gh pr edit --add-label`"),
         Input(command="gh pr merge 36050 --squash", agent_id="aincident-api-500s-0123456789abcdef", state=ACTIVE): Allow(),
+        Input(command="ccx vcs merge 36050", agent_id="aincident-api-500s-0123456789abcdef", state=ACTIVE): Allow(),
+        Input(command="ccx vcs merge 36050 --admin", agent_id="aincident-api-500s-0123456789abcdef", state=ACTIVE): Warn(pattern=r"may not run `ccx vcs merge --admin`"),
         Input(command=PINNED_MERGE, agent_id=LANE, state=ACTIVE, transcript=INCIDENT_BRIEF): Allow(),
         Input(command=PINNED_MERGE, agent_id=LANE, state=ACTIVE, transcript=NON_INCIDENT_BRIEF): Warn(pattern=r"lane `lane-a` may not run `gh pr merge`"),
         Input(command="stack-enqueue 44717", agent_id=LANE, state=ACTIVE, transcript=INCIDENT_BRIEF): Warn(pattern=r"^Warning, nothing was blocked: Incident fixes land by plain squash"),
@@ -329,6 +335,7 @@ def landing_verb(call: Call) -> str | None:
         Input(command="gh pr merge 36023 -R o/r --squash", agent_id=LANE, env=DRIVE_ENV, state=ACTIVE): Warn(pattern=r"`gh pr merge`"),
         Input(command="gh api repos/O/R/issues/36023/labels -f 'labels[]=merge'", agent_id=LANE, env=DRIVE_ENV, state=ACTIVE): Warn(),
         Input(command="gh pr merge 81 -R yasyf/cc-inbox --squash", agent_id=LANE, env=DRIVE_ENV, state=ACTIVE): Allow(),
+        Input(command="ccx vcs merge 81 -R yasyf/cc-inbox", agent_id=LANE, env=DRIVE_ENV, state=ACTIVE): Allow(),
         Input(command="gh pr merge https://github.com/yasyf/cc-skills/pull/403 --squash", agent_id=LANE, env=DRIVE_ENV, state=ACTIVE): Allow(),
         Input(command="gh api repos/yasyf/cc-skills/issues/403/labels -f 'labels[]=merge'", agent_id=LANE, env=DRIVE_ENV, state=ACTIVE): Allow(),
     },
@@ -344,8 +351,8 @@ def lanes_never_enqueue(evt: BaseHookEvent) -> HookResult | None:
         return None
     verbs = [verb for _, verb in landings]
     incident = incident_lane(evt, lane)
-    if incident and any(verb == "gh pr merge" and "--admin" in call.args for call, verb in landings):
-        return evt.context(ADMIN_MERGE_REFUSAL.format(lane=lane))
+    if incident and (admin := next((verb for call, verb in landings if verb in MERGERS and "--admin" in call.args), None)):
+        return evt.context(ADMIN_MERGE_REFUSAL.format(lane=lane, verb=admin))
     verb = next((verb for verb in verbs if verb in ENQUEUERS or not incident), None)
     if verb and incident:
         return evt.context(INCIDENT_REFUSAL.format(lane=lane))
@@ -383,7 +390,7 @@ def hand_enqueue_meets_the_runner_checks(evt: BaseHookEvent) -> HookResult | Non
 
 
 def merge_target(call: Call) -> tuple[str, str]:
-    """The selector a `gh pr merge` names, a number, URL, or branch, empty for the current branch's PR, and the head its `--match-head-commit` pins, or empty."""
+    """The selector a `gh pr merge` or `ccx vcs merge` names, a number, URL, or branch, empty for the current branch's PR, and the head its `--match-head-commit` pins, or empty."""
     rest = without_repo((call.name, *call.args))[3:]
     target, head, index = "", "", 0
     while index < len(rest):
@@ -401,7 +408,7 @@ def merge_target(call: Call) -> tuple[str, str]:
 
 
 def merged_pr(call: Call, repo: str, cwd: str) -> tuple[str, str] | None:
-    """The number and head of the PR a `gh pr merge` call merges: a number or URL with a pinned head reads nothing, and any other selector asks `gh pr view`; None when that does not read."""
+    """The number and head of the PR a `gh pr merge` or `ccx vcs merge` call merges: a number or URL with a pinned head reads nothing, and any other selector asks `gh pr view`; None when that does not read."""
     target, head = merge_target(call)
     if (found := PULL.fullmatch(target)) and head:
         return found["pr"], head
@@ -420,7 +427,7 @@ def run_quietly(argv: list[str], cwd: str) -> subprocess.CompletedProcess[str] |
 
 
 def merge_causes(call: Call, entry: dict, cwd: str, incident: bool, *, evt: BaseHookEvent) -> tuple[str, str, str] | None:
-    """The PR, head and joined refusals `rulings.py check-pr` prints for one `gh pr merge` call; None when it prints none or anything does not read."""
+    """The PR, head and joined refusals `rulings.py check-pr` prints for one `gh pr merge` or `ccx vcs merge` call; None when it prints none or anything does not read."""
     repo = named_repo(call) or entry["repo"]
     if (merged := merged_pr(call, repo, cwd)) is None:
         return None
@@ -449,13 +456,14 @@ def merge_causes(call: Call, entry: dict, cwd: str, incident: bool, *, evt: Base
     tests={
         Input(command="gh pr merge 36023 --squash"): Allow(),
         Input(command="gh pr merge 81 -R yasyf/cc-inbox --squash", env=DRIVE_ENV): Allow(),
+        Input(command="ccx vcs merge 81 -R yasyf/cc-inbox", env=DRIVE_ENV): Allow(),
         Input(command="gh pr view 36023 -R o/r --json mergedAt", env=DRIVE_ENV): Allow(),
     },
 )
 def rulings_at_merge(evt: BaseHookEvent) -> HookResult | None:
     if (entry := drive_entry(evt)) is None:
         return None
-    merges = [call for call in evt.cmd.calls() if landing_verb(call) == "gh pr merge" and not outside_drive_repo(evt, call, entry)]
+    merges = [call for call in evt.cmd.calls() if landing_verb(call) in MERGERS and not outside_drive_repo(evt, call, entry)]
     if not merges:
         return None
     lane = lane_name(evt) or ""
