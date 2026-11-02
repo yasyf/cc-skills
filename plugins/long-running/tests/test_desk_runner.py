@@ -10152,6 +10152,25 @@ def test_an_enqueue_whose_heads_moved_before_it_ran_enqueues_nothing(shell, conf
     assert action.response["outcome"] == "superseded"
 
 
+def test_an_enqueue_whose_check_finds_the_prefix_already_in_trunk_settles_queued_never_refused(shell, config, tmp_path, monkeypatch):
+    """Root #313470: desk-runner #312979 posted REFUSED for #46779, #47276 and #47595 because Trunk already held the green bottom prefix, and the stall watch paged a go with no QUEUED record."""
+    shell.rows = stack_rows()
+    shell.gates["29020"] = [gate("#28997 GREEN aaaa111111 graphite READY", would="#28997")]
+    grade_gated_heads_ok(shell)
+    store = actions.Store(tmp_path / "store")
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), store)
+    runner_module.seed_policy(runner)
+    landing = runner_module.Landing(runner, runner.config.landing)
+    landing.accept("29020", ["28997"], {"28997": {"sha": "aaaa111111"}}, {"28997": {"ours": True}}, [])
+    shell.gates["28997"] = ["#28997 GREEN aaaa111111 Trunk not queued\nnothing to enqueue: Trunk already holds the green bottom prefix\n"]
+    outcomes = []
+    monkeypatch.setattr(landing, "settle", lambda heads, outcome: outcomes.append((heads, outcome)))
+    landing.enqueue()
+    landing.drain()
+    assert shell.enqueues() == []
+    assert [(list(heads), outcome) for heads, outcome in outcomes] == [(["28997"], runner_module.Queued(runner_module.IN_QUEUE_SAID))]
+
+
 def test_a_lost_enqueue_graphite_does_not_hold_stays_unverifiable(shell, config, tmp_path):
     shell.rows = stack_rows()
     shell.gates["29020"] = [gate("#28997 GREEN aaaa111111 graphite READY", would="#28997")]
