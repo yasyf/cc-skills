@@ -4458,8 +4458,8 @@ class Runner:
                 key = f"page:{channel}:{message['ts']}"
                 headline = " ".join(SLACK_LINK.sub(r"\1", message["text"].split("\n", 1)[0]).split())[:160]
                 at = pacific(datetime.fromtimestamp(float(message["ts"]), timezone.utc))
-                text = f"PAGE {at} {message.get('user_name') or 'someone'}: {headline} {message['permalink']} | a release of this drive is live: open the incident, launch its fix lane and reply in the page thread now, with no owner round-trip"
-                posted = self.cci_post("incident", text, ROOT, key, key, record_id=key, flags=["--url", message["permalink"]])
+                text = f"PAGE {at} {message['permalink']} | a drive release is live: open the incident, launch its fix lane and reply in the page thread now, no owner round-trip | {message.get('user_name') or 'someone'}:"
+                posted = self.cci_post("incident", text, ROOT, key, key, record_id=key, flags=["--url", message["permalink"], "--quoted", headline])
                 if posted.code != 0:
                     self.escalate(f"page-post:{key}", "PAGE-POST-FAILED", "runner", f"the page {message['permalink']} did not post: {' '.join((posted.err or posted.out).split())[:200]}; the next pass posts it again")
                     break

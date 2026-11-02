@@ -13988,7 +13988,8 @@ def test_each_page_during_a_release_and_its_tail_reaches_root_once_as_an_inciden
     orca_pass(shell, config)
     [post] = page_posts(shell)
     assert post["to"] == "root" and post["url"] == first["permalink"] and post["id"] == f"page:C0ONCALL:{first['ts']}"
-    assert post["text"].startswith("PAGE 11:02 Wadsworth: :rotating_light: *Iris chat list broken* monitor https://")
+    assert post["text"].startswith(f"PAGE 11:02 {first['permalink']} | ") and post["text"].endswith("| Wadsworth:")
+    assert post["quoted"] == ":rotating_light: *Iris chat list broken* monitor"
     shell.builds["8748"]["finished_at"] = actions.stamp(shell.now())
     orca_pass(shell, config)
     shell.sleep(29 * 60)
@@ -13997,7 +13998,7 @@ def test_each_page_during_a_release_and_its_tail_reaches_root_once_as_an_inciden
     shell.sleep(2 * 60)
     page(shell, "After the tail")
     orca_pass(shell, config)
-    assert [post["text"].split("*")[1] for post in page_posts(shell)] == ["Iris chat list broken", "Team Run Failure Rate"]
+    assert [post["quoted"].split("*")[1] for post in page_posts(shell)] == ["Iris chat list broken", "Team Run Failure Rate"]
 
 
 def test_a_release_build_named_only_in_its_record_text_opens_the_page_watch(shell, config, tmp_path):
