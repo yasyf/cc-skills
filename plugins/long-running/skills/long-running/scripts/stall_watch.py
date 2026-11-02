@@ -1009,7 +1009,7 @@ class Pass:
         boards: dict[str, list[Stall]] = {}
         probes: list[Stall] = []
         reassigned = self.reassignments(records)
-        live = self.live_heads(sorted(pr for pr in rows if (board and (board.taps.get(pr) or {}).get("verdict") == "approved") or any(pr in grades.go_heads(go) for go in gos)))
+        github_heads = self.live_heads(sorted(pr for pr in rows if (board and (board.taps.get(pr) or {}).get("verdict") == "approved") or any(pr in grades.go_heads(go) for go in gos)))
         carried = {(found[1], found[2]) for record in records if record["lane"] == RUNNER and (found := TAP_NOTE.match(record["text"]))}
         classes = [record for record in records if record["kind"] == "red"]
 
@@ -1055,7 +1055,7 @@ class Pass:
                 continue
             subject = f"#{pr} at {short(head)}"
             about = [record for record in reviews if grades.about_pr(record, repo, pr)]
-            behind = pr in live and not grades.names_head(live[pr], head)
+            behind = pr in github_heads and not grades.names_head(github_heads[pr], head)
             if going:
                 below = downstack(rows, row)
                 ready = min(max(at(go), actions.parse_stamp(go.get("graded_at") or go["at"])) for go in going)
