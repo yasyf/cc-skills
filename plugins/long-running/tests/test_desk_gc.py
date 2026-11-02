@@ -26,7 +26,7 @@ BUSY = ["⏺ Running the build… (12s · esc to interrupt)", "─" * 80, "❯",
 class FakeShell(runner_module.Shell):
     def __init__(self, root: Path):
         self.root = root
-        self.receipts = root / ".vcache/scratch/orca-launch/run_1"
+        self.receipts = root / ".local/state/long-running/orca-launch/run_1"
         self.receipts.mkdir(parents=True)
         self.clock = datetime(2026, 10, 22, 18, 0, tzinfo=timezone.utc)
         self.calls: list[list[str]] = []
@@ -91,6 +91,7 @@ class FakeShell(runner_module.Shell):
 @pytest.fixture
 def shell(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> FakeShell:
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("XDG_STATE_HOME", raising=False)
     return FakeShell(tmp_path)
 
 

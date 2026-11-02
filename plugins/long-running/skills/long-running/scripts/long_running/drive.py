@@ -163,7 +163,6 @@ PR_SPEC = re.compile(r"^(?:(?P<repo>[\w.-]+/[\w.-]+)#)?(?P<pr>\d+)(?:=(?P<head>[
 LANE_RECORDS = timedelta(days=1)
 PR_OWED_WINDOW = timedelta(hours=12)
 OUTSIDE_REPO = 3
-LAUNCH_RECEIPTS = Path(".vcache") / "scratch" / "orca-launch"
 CI_WORKFLOW = "long-running CI"
 GITHUB_REPO = re.compile(r"^https://github\.com/(?P<repo>[\w.-]+/[\w.-]+?)(?:\.git)?/?$")
 PLUGIN = Path(__file__).resolve().parents[4]
@@ -632,8 +631,13 @@ def resolve(args: argparse.Namespace) -> dict | None:
     return entry
 
 
+def launch_receipts(run: str) -> Path:
+    """The directory orca-launch.sh writes a Run's receipts in by default."""
+    return Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state") / "long-running" / "orca-launch" / run
+
+
 def receipt_dirs(entry: dict) -> list[Path]:
-    dirs = [Path.home() / LAUNCH_RECEIPTS / entry["orca_run"]] if entry.get("orca_run") else []
+    dirs = [launch_receipts(entry["orca_run"])] if entry.get("orca_run") else []
     return dirs + sorted(Path(entry["state_dir"]).glob("receipts*")) if entry.get("state_dir") else dirs
 
 

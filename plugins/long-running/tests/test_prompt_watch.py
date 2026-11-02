@@ -126,6 +126,7 @@ class FakeShell(prompt_watch.Shell):
 def home(tmp_path, monkeypatch) -> Path:
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.delenv("XDG_STATE_HOME", raising=False)
     return tmp_path
 
 
@@ -612,7 +613,7 @@ def workers(home: Path, shell: FakeShell, local: str = "clear") -> None:
     shell.orca[worker_show(REMOTE)] = fixture("worker-show.remote")
     shell.orca[read(REMOTE_TERMINAL, ENVIRONMENT)] = fixture("screen.managed-server.working")
     shell.orca[worker_show(GONE)] = fixture("error.remote-runtime-unavailable")
-    receipts = Path.home() / prompt_watch.RECEIPTS / RUN
+    receipts = drive.launch_receipts(RUN)
     receipts.mkdir(parents=True)
     (receipts / "bake.json").write_text(json.dumps({"ok": True, "result": {"taskId": "task_8c1d2e3f4a5b", "dispatchId": LOCAL}}))
 
@@ -767,7 +768,7 @@ def worker_start(dispatch: str) -> str:
 
 
 def launched(name: str, dispatch: str) -> Path:
-    path = Path.home() / prompt_watch.RECEIPTS / RUN / f"{name}.json"
+    path = drive.launch_receipts(RUN) / f"{name}.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(worker_start(dispatch))
     return path
@@ -866,7 +867,7 @@ def test_a_symlinked_receipt_is_read_again_when_its_target_is_replaced(home, she
     target = home / "launches" / "bake.json"
     target.parent.mkdir()
     target.write_text(worker_start(LOCAL))
-    link = Path.home() / prompt_watch.RECEIPTS / RUN / "bake.json"
+    link = drive.launch_receipts(RUN) / "bake.json"
     link.parent.mkdir(parents=True)
     link.symlink_to(target)
 
@@ -902,7 +903,7 @@ def test_a_receipt_rewritten_in_place_at_the_same_size_with_its_mtime_restored_i
 def test_a_valid_json_side_artifact_names_no_lane_and_is_opened_once_across_polls(home, shell, opened, artifact):
     watch = prompt_watch.Watch(shell, DRIVE)
     launched("bake", LOCAL)
-    (Path.home() / prompt_watch.RECEIPTS / RUN / "lint.json").write_text(artifact)
+    (drive.launch_receipts(RUN) / "lint.json").write_text(artifact)
 
     first, second = watch.lanes(RUN), watch.lanes(RUN)
     reads = list(opened)
@@ -922,7 +923,7 @@ def test_a_valid_json_side_artifact_names_no_lane_and_is_opened_once_across_poll
 def test_a_receipt_that_is_not_valid_json_names_no_lane_and_is_opened_on_every_poll_and_a_partly_written_one_is_named_once_it_is_whole(home, shell, opened, malformed):
     watch = prompt_watch.Watch(shell, DRIVE)
     launched("bake", LOCAL)
-    partial = Path.home() / prompt_watch.RECEIPTS / RUN / "ship.json"
+    partial = drive.launch_receipts(RUN) / "ship.json"
     written = worker_start(REMOTE)
     partial.write_text(written[: len(written) // 2])
     (partial.parent / "lint.json").write_text(malformed)
@@ -941,7 +942,7 @@ def test_a_receipt_that_is_not_valid_json_names_no_lane_and_is_opened_on_every_p
 def test_a_side_artifact_rewritten_in_place_into_a_receipt_with_only_its_ctime_changed_is_read_again_and_named(home, shell, opened):
     watch = prompt_watch.Watch(shell, DRIVE)
     receipt = worker_start(LOCAL)
-    bake = Path.home() / prompt_watch.RECEIPTS / RUN / "bake.json"
+    bake = drive.launch_receipts(RUN) / "bake.json"
     bake.parent.mkdir(parents=True)
     bake.write_text(json.dumps({"ok": True, "result": {"taskId": "task_8c1d2e3f4a5b"}}).ljust(len(receipt)))
 

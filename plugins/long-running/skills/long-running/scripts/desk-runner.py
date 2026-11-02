@@ -87,7 +87,7 @@ line with `rulings.py slice --refresh`, first writing `Register slice: lane=<lan
 brief that has none, and writes the slice into every brief it attaches itself; a slice that does not read logs
 `SLICE-UNREAD` and the launch goes ahead. Every verified
 launch logs `LAUNCHED` with its dispatch and terminal. The runner reads each lane's
-dispatch and terminal from the Run's receipt directory, `~/.vcache/scratch/orca-launch/<run>`,
+dispatch and terminal from the Run's receipt directory, `$XDG_STATE_HOME/long-running/orca-launch/<run>`,
 where orca-launch.sh writes by default, so a lane launched by hand is seen like one the
 runner launched. An `orca-desk: alert <slug> <link> :: <what fired>`
 line, which monitor-watch writes, records the transition and launches nothing. An
@@ -785,7 +785,6 @@ SPRITE_BEATS = "sprite_beats"
 SPRITE_BEAT_EVERY = timedelta(minutes=10)
 SPRITE_STALLED_AFTER = timedelta(minutes=30)
 FINDER_TAPS_EVERY = timedelta(minutes=5)
-LAUNCH_STATE = Path(".vcache/scratch/orca-launch")
 CCI_TEXT = 400
 ESCALATION_KINDS = {"PREFIX": "blocker", "CARRIES": "blocker", "DECIDE": "decide", "INCIDENT": "incident", "INCIDENT-OWNED": "state", "UNBOUND": "blocker", "UNOWNED": "blocker", "CLASS-UNOWNED": "blocker", "UNACKED": "blocker", "INCIDENT-CLOCK": "blocker", "LOAD-HIGH": "blocker", "CUT-SILENT": "blocker", "PR-SILENT": "blocker", "RELEASE-HELD-AFTER-LANDING": "blocker", "LAUNCH-STALLED": "blocker", "LAUNCH-DUPLICATE": "blocker", "UNGRADED-30": "blocker", "SLICE-UNREAD": "blocker", "GITHUB-QUOTA-LOW": "urgent", "FINDER-DESK-STALLED": "blocker", "GO-TAP-MISSING": "blocker", "OVERRIDE-REFUSED": "blocker", "REFUSED-STOP": "incident", "MUTE-PUSHBACK": "incident"}
 UNLAUNCHED = "unlaunched"
@@ -1818,7 +1817,7 @@ class Config:
             drive=raw["drive"],
             desk_inbox=Path(orca["desk_inbox"]).expanduser(),
             run=orca["run"],
-            receipts=Path.home() / LAUNCH_STATE / orca["run"],
+            receipts=drive.launch_receipts(orca["run"]),
             briefs_repo=str(Path(orca["briefs"]["repo"]).expanduser()),
             briefs_log=orca["briefs"].get("log", ""),
             launch_env=orca.get("launch_env", {}),

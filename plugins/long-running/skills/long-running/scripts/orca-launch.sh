@@ -11,27 +11,47 @@ Launches one Orca worker for <lane> and prints one line:
 
 Anything else is a failure, printed as one line naming the step, exit 1.
 
-A relaunch whose receipt names a worktree that is still a checkout resumes in it.
-Every other launch adds a worktree under a name no launch has used, by git
-worktree add from the repo's main checkout: <root>/<prefix><lane>-<run>-<n> on
-branch <user>/<prefix><lane>-<run>-<n>, where <run> is the first 8 characters of
-the Run id after run_, <n> counts up past every name the lane's <lane>.names
-receipt records and every path or branch that already exists, '/' in the name
-becomes '-', and <user> is the gitUsername Orca records for the repo. The owner
-ruled that a name is never cut twice, and a branch <user>/<prefix><lane> would
-also make git refuse every branch under the lane's <user>/<prefix><lane>/ prefix.
-The branch starts at the base, fetched from its remote first as Orca does, and
-tracks nothing. A checkout whose HEAD tracks more
+A relaunch whose receipt names a worktree that is still a checkout resumes in it
+once Orca lists it. Every other launch makes a worktree under a name no launch has
+used: <prefix><lane>-<run>-<n> on branch <user>/<prefix><lane>-<run>-<n>, where
+<run> is the first 8 characters of the Run id after run_, <n> counts up past every
+name the lane's <lane>.names receipt records and every <root>/<name> path or
+branch that already exists, '/' in the name becomes '-', and <user> is the
+gitUsername Orca records for the repo. The owner ruled that a name is never cut
+twice, and a branch <user>/<prefix><lane> would also make git refuse every branch
+under the lane's <user>/<prefix><lane>/ prefix.
+
+By default orca worktree create makes it, a full checkout and a child of the
+coordinator's worktree, wherever Orca puts worktrees; <root> is where the script
+expects that, ORCA_LAUNCH_ROOT or the parent's directory. A create that fails
+may still have created the worktree, so the script polls orca worktree show for
+up to ORCA_LAUNCH_WORKTREE_SECONDS and creates again only when none registers. It
+looks the worktree up by its name, since Orca chooses where it puts it. Orca
+registers a worktree at git worktree add --no-checkout and fills its index with a
+reset --hard that can run past a minute under load, so a worktree found that way
+waits, for the same ceiling, until its index matches HEAD; one that never gets
+there is never adopted. orca worktree create also opens a first terminal, a login
+shell, and returns no handle for it. When Orca reports no setup terminal or
+default tabs for the worktree it made, the script closes every terminal Orca
+lists there with no agent, before creating its own. Release v3 kept 279 of these
+idle shells, one per lane.
+
+ORCA_LAUNCH_SPARSE=1 adds the worktree by git worktree add from the repo's main
+checkout instead, at <root>/<name>, since orca worktree create cannot make a
+sparse checkout and git copies sparse config only from the checkout that runs
+worktree add. <root> is then ORCA_LAUNCH_ROOT, else <ccx.worktreeRoot>/<main
+checkout's name> when the main checkout's git config sets ccx.worktreeRoot, else
+the parent's directory. The branch starts at the base, fetched from its remote
+first as Orca does, and tracks nothing. A checkout whose HEAD tracks more
 than ORCA_LAUNCH_SPARSE_FILES files is sparse in cone mode: the root's files,
 .agents, .claude, tools, infra/ci/hooks/lib, which the monorepo's tools/ci
 sources, and each directory a paths=<dir>,<dir> key on the brief's ccx: header
 line names. A smaller repo keeps a full checkout. The script prints
 the cone and the widen command, git -C <wt> sparse-checkout add <dir>, on stderr,
-and the spec tells the worker to widen before reading outside it. orca worktree
-create cannot make a sparse checkout, and git copies sparse config only from the
-checkout that runs worktree add. Orca lists the worktree a few seconds after it
-reads git's registry; the script waits up to ORCA_LAUNCH_WORKTREE_SECONDS for
-that, then gives it its name as Orca's display name and tags it as a child of
+and the spec tells the worker to widen before reading outside it. Orca lists the
+worktree a few seconds after it reads git's registry; the script waits up to
+ORCA_LAUNCH_WORKTREE_SECONDS for that, then gives it its name as Orca's display
+name and tags it as a child of
 the coordinator's worktree with orca worktree set. Like Orca's own create, it links
 the repo's symlinkPaths from the main checkout and copies each existing,
 gitignored path .worktreeinclude names. It runs no Orca setup hook; a repo that
@@ -59,7 +79,7 @@ says role=desk or role=watch is a standing desk, and its pointer adds the desk
 contract: loop until rotation, and send worker_done only at rotation, naming the
 handoff doc, since Orca's preamble otherwise reads setup or one quiet cycle as
 the finished task. A brief path that pushes the pointer over 500 characters is
-replaced by a shorter symlink ~/.vcache/scratch/orca-launch/<8 hex of the path's sha> to the brief; the
+replaced by a shorter symlink $XDG_STATE_HOME/long-running/orca-launch/<8 hex of the path's sha> to the brief; the
 lane and worktree path go in as they are, since Orca truncates only near 3 KB. Before
 worker-start, which refuses a terminal with agent_unconfigured until Orca sees the
 agent's own UI (an agent title or ready prompt), the script blocks on orca terminal
@@ -161,13 +181,16 @@ A launch that fails before worker-start, or that worker-start refuses before it
 dispatches anything (consumer_fenced, invalid_argument, task_not_found,
 worker_prompt_too_large, runtime_unavailable, agent_unconfigured), rolls back what it made: it
 deletes the lane's <lane>.worktree receipt, closes the tab of the terminal whose
-handle its own terminal create returned, hands the worktree its own git worktree
-add made to ccx vcs worktree rm --path --force, the throttled deletion queue, and
-deletes the branch that add created. Its failure line ends
-"; rolled back terminal=... worktree=... branch=..." and "; rollback left ..."
-names what it kept: a terminal it adopted from a listing, which a concurrent
-launch of the same lane may own, whatever Orca or ccx refused, a branch git still
-holds because the queue has not yet released its worktree, and, after any other
+handle its own terminal create returned, and removes the worktree it made. A
+worktree its own orca worktree create made, whether or not that create answered,
+goes with orca worktree rm --force once Orca lists it, and a directory left at the
+path with no checkout, which a timed-out git add leaves behind, with rm -rf. A
+worktree its own git worktree add made goes to ccx vcs worktree rm --path --force,
+the throttled deletion queue, and the branch that add created is deleted. Its
+failure line ends "; rolled back terminal=... worktree=... branch=..." and
+"; rollback left ..." names what it kept: a terminal it adopted from a listing,
+which a concurrent launch of the same lane may own, whatever Orca or ccx refused,
+a branch git still holds because the queue has not yet released its worktree, and, after any other
 worker-start failure, the terminal and worktree a dispatch may own. A worktree
 and branch that existed before the launch stay. Every failure line is one line, and an Orca error in it reads
 "<code>: <message>".
@@ -178,17 +201,18 @@ and branch that existed before the launch stay. Every failure line is one line, 
   ORCA_LAUNCH_PARENT         coordinator worktree path, default $PWD
   ORCA_LAUNCH_NO_PARENT      1 creates a top-level worktree, as incident always does, default unset
   ORCA_LAUNCH_PREFIX         worktree name prefix, default none
-  ORCA_LAUNCH_ROOT           directory worktrees are added in, default <git config ccx.worktreeRoot, else ~/repos/claude/worktrees>/<main checkout's name>
+  ORCA_LAUNCH_ROOT           directory a new worktree goes in, default the parent's directory, or <ccx.worktreeRoot>/<main checkout's name> for a sparse lane whose main checkout's git config sets ccx.worktreeRoot
   ORCA_LAUNCH_BASE           base branch, default the parent checkout's origin/HEAD
-  ORCA_LAUNCH_STATE          receipt directory, default ~/.vcache/scratch/orca-launch/<run>
+  ORCA_LAUNCH_STATE          receipt directory, default $XDG_STATE_HOME/long-running/orca-launch/<run>, $XDG_STATE_HOME defaulting to ~/.local/state
   ORCA_LAUNCH_CLAUDE_ARGS    further claude args from Orca's agent default args, default none
   ORCA_LAUNCH_MCP_CONFIG     space-separated --mcp-config files or JSON strings for a claude worker, default none
   ORCA_LAUNCH_CODEX_MCP      inline TOML table, without spaces or single quotes, for an incident worker's mcp_servers beside datadog and sentry, default {}
   ORCA_LAUNCH_BOOT_SECONDS   ceiling on the poll for a terminal whose create named no handle, on the wait for the terminal's agent to reach its idle prompt, and on the wait for an outcome_unknown worker's first turn, default 180
-  ORCA_LAUNCH_WORKTREE_SECONDS  ceiling on the wait for Orca to list a worktree this launch added, default 180
+  ORCA_LAUNCH_WORKTREE_SECONDS  ceiling on the wait for a worktree whose create failed to register, then for its checkout, and on the wait for Orca to list a worktree this launch added or resumes, default 180
   ORCA_LAUNCH_PREPARE        shell command run in each worktree this launch creates, before its worker starts, default none
   ORCA_LAUNCH_PREPARE_SECONDS  ceiling on that command, default 120
-  ORCA_LAUNCH_SPARSE_FILES   tracked-file count above which a new worktree is sparse, default 5000
+  ORCA_LAUNCH_SPARSE         1 adds each new worktree by git worktree add, sparse in a large repo, instead of orca worktree create, default unset
+  ORCA_LAUNCH_SPARSE_FILES   tracked-file count above which a worktree ORCA_LAUNCH_SPARSE adds is sparse, default 5000
 EOF
   exit 2
 }
@@ -201,11 +225,19 @@ BOOT=${ORCA_LAUNCH_BOOT_SECONDS:-180}
 WORKTREE_WAIT=${ORCA_LAUNCH_WORKTREE_SECONDS:-180}
 PREPARE=${ORCA_LAUNCH_PREPARE:-}
 PREPARE_WAIT=${ORCA_LAUNCH_PREPARE_SECONDS:-120}
+SPARSE_LANES=${ORCA_LAUNCH_SPARSE:-}
 SPARSE_FILES=${ORCA_LAUNCH_SPARSE_FILES:-5000}
 POLL=4
 STALL=${ORCA_LAUNCH_STALL_SECONDS:-180}
 
-ROLLBACK='' MADE='' BRANCHED='' OWNED='' TERMINAL='' UNDONE='' KEPT=''
+ROLLBACK='' CREATED='' MADE='' LOST='' STARTUP='' BRANCHED='' OWNED='' TERMINAL='' UNDONE='' KEPT=''
+removed() {
+  if [ "$SPARSE_LANES" = 1 ]; then
+    (cd "$MAIN" && exec ccx vcs worktree rm --path "$WT" --force) >"$STATE/$LANE.rm.log" 2>&1
+  else
+    orca worktree rm --worktree "path:$WT" --force --json >"$STATE/$LANE.rm.log" 2>&1
+  fi
+}
 rollback() {
   [ -n "$ROLLBACK" ] || return 0
   ROLLBACK=''
@@ -215,11 +247,15 @@ rollback() {
   elif [ -n "$TERMINAL" ]; then
     KEPT="$KEPT terminal=$TERMINAL"
   fi
-  if [ -n "$MADE" ] && (cd "$MAIN" && exec ccx vcs worktree rm --path "$WT" --force) >"$STATE/$LANE.rm.log" 2>&1; then
-    rm -f "$STATE/$LANE.worktree"
-    UNDONE="$UNDONE worktree=$WT"
-  elif [ -n "$MADE" ]; then
-    KEPT="$KEPT worktree=$WT"
+  if [ -n "$MADE" ] || { [ -n "$LOST" ] && registered; }; then
+    if removed; then
+      rm -f "$STATE/$LANE.worktree"
+      UNDONE="$UNDONE worktree=$WT"
+    else
+      KEPT="$KEPT worktree=$WT"
+    fi
+  elif [ -n "$LOST" ] && [ -d "$WT" ] && ! is_checkout; then
+    rm -rf "$WT" && UNDONE="$UNDONE worktree=$WT" || KEPT="$KEPT worktree=$WT"
   fi
   if [ -n "$BRANCHED" ] && git -C "$MAIN" show-ref --verify --quiet "refs/heads/$BRANCH"; then
     if git -C "$MAIN" branch -D "$BRANCH" >/dev/null 2>&1; then
@@ -258,7 +294,8 @@ orca_error() {
 
 RUN=${ORCA_LAUNCH_RUN:-$(python3 "$(dirname "$0")/drive.py" orca-run)} ||
   fail "run: this session's drive binds no Orca run; set ORCA_LAUNCH_RUN or run drive.py start --orca-run <id>"
-STATE=${ORCA_LAUNCH_STATE:-$HOME/.vcache/scratch/orca-launch/$RUN}
+RECEIPTS=${XDG_STATE_HOME:-$HOME/.local/state}/long-running/orca-launch
+STATE=${ORCA_LAUNCH_STATE:-$RECEIPTS/$RUN}
 RECEIPT=$STATE/$LANE.json
 mkdir -p "$STATE"
 
@@ -290,8 +327,11 @@ fi
 orca repo show --repo "$REPO" --json >"$STATE/$LANE.repo.json" 2>&1 || :
 MAIN=$(jq -er '.result.repo.path' "$STATE/$LANE.repo.json" 2>/dev/null) ||
   fail "repo: orca repo show finds no repo at $REPO ($(orca_error "$STATE/$LANE.repo.json")); set ORCA_LAUNCH_REPO, or register the main checkout with orca repo add --path"
-POOL=$(git -C "$MAIN" config ccx.worktreeRoot) || POOL=$HOME/repos/claude/worktrees
-ROOT=${ORCA_LAUNCH_ROOT:-$POOL/$(basename "$MAIN")}
+ROOT=${ORCA_LAUNCH_ROOT:-}
+if [ -z "$ROOT" ] && [ "$SPARSE_LANES" = 1 ] && POOL=$(git -C "$MAIN" config ccx.worktreeRoot); then
+  ROOT=$POOL/$(basename "$MAIN")
+fi
+ROOT=${ROOT:-$(dirname "$PARENT")}
 GIT_USER=$(jq -r '.result.repo.gitUsername // empty' "$STATE/$LANE.repo.json")
 RUN_ID=$(printf '%s' "${RUN#run_}" | cut -c1-8)
 WT=$(cat "$STATE/$LANE.worktree" 2>/dev/null) || WT=
@@ -334,11 +374,11 @@ if [ "$AGENT" != claude ]; then
 fi
 spec() {
   SPEC=$(pointer "$LANE_BRIEF")
-  LINK=$HOME/.vcache/scratch/orca-launch/$(printf '%s' "$LANE_BRIEF" | shasum | cut -c1-8)
+  LINK=$RECEIPTS/$(printf '%s' "$LANE_BRIEF" | shasum | cut -c1-8)
   if [ "${#SPEC}" -le 500 ] || [ "${#LINK}" -ge "${#LANE_BRIEF}" ]; then
     return 0
   fi
-  mkdir -p "$HOME/.vcache/scratch/orca-launch"
+  mkdir -p "$RECEIPTS"
   ln -sfn "$LANE_BRIEF" "$LINK"
   SPEC=$(pointer "$LINK")
 }
@@ -353,6 +393,22 @@ set -- --parent-worktree "path:$PARENT"
 
 is_checkout() {
   TOP=$(git -C "$WT" rev-parse --show-toplevel 2>/dev/null) && [ "$TOP" = "$(cd "$WT" && pwd -P)" ]
+}
+registered() {
+  FOUND=$(orca worktree show --worktree "name:$WORKTREE_NAME" --json | jq -er '.result.worktree.path') || return 1
+  WT=$FOUND
+}
+checked_out() {
+  is_checkout && git -C "$WT" diff-index --cached --quiet HEAD --
+}
+listed_worktree() {
+  waited=0
+  until orca worktree show --worktree "path:$WT" --json >"$STATE/$LANE.worktree.json" 2>&1; do
+    [ "$waited" -lt "$WORKTREE_WAIT" ] ||
+      fail "worktree register: Orca does not list $WT after ${WORKTREE_WAIT}s ($(orca_error "$STATE/$LANE.worktree.json"))"
+    pause "Orca does not list worktree $WT yet"
+    waited=$((waited + POLL))
+  done
 }
 fresh() {
   n=0
@@ -389,8 +445,11 @@ checked() {
 }
 
 ROLLBACK=1
-if [ -z "$WT" ] || ! is_checkout; then
+if [ -n "$WT" ] && is_checkout; then
+  listed_worktree
+elif [ "$SPARSE_LANES" = 1 ]; then
   fresh
+  CREATED=1
   added >"$STATE/$LANE.worktree.log" 2>&1 || fail "worktree add $WT: $(tail -n 3 "$STATE/$LANE.worktree.log")"
   MADE=1
   CONE=$(printf '%s\n' .agents .claude tools infra/ci/hooks/lib; sed -En 's/^ccx:(.* )?paths=([^[:space:]]+).*/\2/p' "$BRIEF" | tr , '\n')
@@ -398,21 +457,42 @@ if [ -z "$WT" ] || ! is_checkout; then
   [ $((FILES)) -gt "$SPARSE_FILES" ] || CONE=''
   checked >>"$STATE/$LANE.worktree.log" 2>&1 || fail "worktree checkout $WT: $(tail -n 3 "$STATE/$LANE.worktree.log")"
   [ -z "$CONE" ] || printf '%s sparse: %s; widen with git -C %s sparse-checkout add <dir>\n' "$LANE" "$(printf '%s' "$CONE" | tr '\n' ' ')" "$WT" >&2
+  listed_worktree
+  orca worktree set --worktree "path:$WT" --display-name "$WORKTREE_NAME" "$@" --json >"$STATE/$LANE.worktree.json" 2>&1 ||
+    fail "worktree set $WT: $(orca_error "$STATE/$LANE.worktree.json")"
+else
+  fresh
+  CREATED=1 STARTUP=1
+  attempt=0
+  while ! registered; do
+    attempt=$((attempt + 1))
+    [ "$attempt" -le 4 ] || fail "worktree create: $(orca_error "$STATE/$LANE.worktree.json")"
+    if orca worktree create --name "$WORKTREE_NAME" --repo "$REPO" --base-branch "$BASE" \
+      "$@" --setup run --json >"$STATE/$LANE.worktree.json" 2>&1 &&
+      FOUND=$(jq -er '.result.worktree.path' "$STATE/$LANE.worktree.json"); then
+      MADE=1 WT=$FOUND
+      break
+    fi
+    jq -e '.error.code == "worktree_exists"' "$STATE/$LANE.worktree.json" >/dev/null 2>&1 || LOST=1
+    waited=0
+    until registered || [ "$waited" -ge "$WORKTREE_WAIT" ]; do
+      pause "Orca has not registered worktree $WORKTREE_NAME"
+      waited=$((waited + POLL))
+    done
+  done
+  waited=0
+  until [ -n "$MADE" ] || checked_out; do
+    [ "$waited" -lt "$WORKTREE_WAIT" ] ||
+      fail "worktree checkout: $WT registered, but its index still differs from HEAD after ${WORKTREE_WAIT}s"
+    pause "worktree $WT is registered, and its index still differs from HEAD"
+    waited=$((waited + POLL))
+  done
 fi
-waited=0
-until orca worktree show --worktree "path:$WT" --json >"$STATE/$LANE.worktree.json" 2>&1; do
-  [ "$waited" -lt "$WORKTREE_WAIT" ] ||
-    fail "worktree register: Orca does not list $WT after ${WORKTREE_WAIT}s ($(orca_error "$STATE/$LANE.worktree.json"))"
-  pause "Orca does not list worktree $WT yet"
-  waited=$((waited + POLL))
-done
-[ -z "$MADE" ] || orca worktree set --worktree "path:$WT" --display-name "$WORKTREE_NAME" "$@" --json >"$STATE/$LANE.worktree.json" 2>&1 ||
-  fail "worktree set $WT: $(orca_error "$STATE/$LANE.worktree.json")"
 printf '%s\n' "$WT" >"$STATE/$LANE.worktree"
 prepared() {
   (cd "$WT" && exec perl -e 'alarm shift; exec @ARGV' "$PREPARE_WAIT" sh -c "$PREPARE") >"$STATE/$LANE.prepare.log" 2>&1
 }
-if [ -n "$MADE" ] && [ -n "$PREPARE" ] && ! prepared; then
+if [ -n "$CREATED" ] && [ -n "$PREPARE" ] && ! prepared; then
   [ "$LANE_BRIEF" != "$BRIEF" ] || cp "$BRIEF" "$STATE/$LANE.brief.md"
   LANE_BRIEF=$STATE/$LANE.brief.md
   printf '\n\n## Worktree preparation\n\n%s\n' "The launch ran \`$PREPARE\` in this worktree and it failed; its output is in $STATE/$LANE.prepare.log. Run it yourself before you build." >>"$LANE_BRIEF"
@@ -444,8 +524,16 @@ adopt() {
   done
 }
 
+close_startup_shells() {
+  jq -e '.result | .worktree and (.setup or .defaultTabs or .setupReceipt.terminalHandle | not)' "$STATE/$LANE.worktree.json" >/dev/null 2>&1 || return 0
+  for shell in $(jq -r '.result.terminals[] | select((.agentIdentity // "") == "") | .handle' "$STATE/$LANE.terminals.json"); do
+    orca terminal close --terminal "$shell" --tab --json >>"$STATE/$LANE.startup.json" 2>&1 || :
+  done
+}
+
 attempt=0 TERMINAL=''
-[ "$AGENT" = codex ] || { listed && BEFORE=$LISTED; }
+[ "$AGENT" = codex ] && [ -z "$STARTUP" ] || { listed && BEFORE=$LISTED; }
+[ -z "$STARTUP" ] || close_startup_shells
 until [ "$AGENT" = codex ] || [ -n "$TERMINAL" ]; do
   attempt=$((attempt + 1))
   [ "$attempt" -le 3 ] || fail "terminal create: $(orca_error "$STATE/$LANE.terminal.json" "$STATE/$LANE.terminal.err")"
@@ -523,7 +611,7 @@ elif [ "$STARTED" != 0 ]; then
     consumer_fenced | invalid_argument | task_not_found | worker_prompt_too_large | runtime_unavailable | agent_unconfigured) ROLLBACK=1 ;;
     *)
       KEPT=${TERMINAL:+ terminal=$TERMINAL}
-      [ -z "$MADE" ] || KEPT="$KEPT worktree=$WT"
+      [ -z "$MADE$LOST" ] || KEPT="$KEPT worktree=$WT"
       ;;
   esac
   REBIND=

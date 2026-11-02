@@ -20,6 +20,7 @@ TIMED_OUT = {"rc": 1, "out": {"ok": False, "error": {"code": "runtime_error", "m
 IDLE = {"rc": 0, "out": {"ok": True, "result": {"wait": {"handle": "term_a", "condition": "tui-idle", "satisfied": True, "status": "running", "exitCode": None}}}}
 MISSING = {"rc": 1, "out": ""}
 NOT_IDLE = {"rc": 1, "out": {"ok": False, "error": {"code": "timeout", "message": "timeout"}}}
+STARTUP = {"rc": 0, "out": {"ok": True, "result": {"terminals": [{"handle": "term_shell", "agentIdentity": None}, {"handle": "term_other", "agentIdentity": "claude"}]}}}
 BRANCH = "yasyf/v3-lane-a-1-1"
 NODE = " node_modules is a shared symlink farm; never run yarn install, ask warm-lane to rebuild for a changed lockfile."
 SPARSE = " This lane is sparse: widen with `git sparse-checkout add <dir>` before reading outside it."
@@ -51,6 +52,8 @@ if reply.get("mkdir"):
     if not os.path.exists(os.path.join(reply["mkdir"], ".git")):
         subprocess.run(["git", "init", "-q", reply["mkdir"]], check=True)
         subprocess.run(["git", "-C", reply["mkdir"], "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "base"], check=True)
+if reply.get("sh"):
+    subprocess.run(reply["sh"], shell=True, check=True)
 sys.stdout.write(reply["out"] if isinstance(reply["out"], str) else json.dumps(reply["out"]))
 sys.exit(reply["rc"])
 """
@@ -105,6 +108,7 @@ class Orca:
             "ORCA_LAUNCH_PARENT": str(self.parent),
             "ORCA_LAUNCH_PREFIX": "v3-",
             "ORCA_LAUNCH_ROOT": str(self.parent.parent),
+            "ORCA_LAUNCH_SPARSE": "1",
             "ORCA_LAUNCH_SPARSE_FILES": "1",
             "ORCA_LAUNCH_BASE": "origin/dev",
             "ORCA_LAUNCH_STATE": str(self.receipts),
@@ -115,6 +119,7 @@ class Orca:
             "CODEX_HOME": str(root / "codex"),
         }
         self.env.pop("CLAUDE_LONG_RUNNING_DRIVE", None)
+        self.env.pop("XDG_STATE_HOME", None)
         self.reply("repo show", self.repo())
 
     def repo(self, **fields: object) -> dict:
@@ -142,6 +147,8 @@ class Orca:
     def healthy(self, state: str = "ready", screen: str = "⏵⏵ bypass permissions on (shift+tab to cycle)", agent: str = "claude") -> None:
         self.reply("orchestration run-current", BOUND)
         self.reply("worktree set", SENT)
+        self.reply("worktree create", {"rc": 0, "out": {"ok": True, "result": {"worktree": {"path": str(self.worktree)}}}, "mkdir": str(self.worktree)})
+        self.reply("worktree rm", SENT)
         self.reply("terminal create", {"rc": 0, "out": {"ok": True, "result": {"terminal": {"handle": "term_a"}}}})
         self.reply("orchestration worker-start", {"rc": 0, "out": {"ok": True, "result": {"state": state, "taskId": "task_a", "dispatchId": "ctx_a"}}})
         self.reply("terminal read", {"rc": 0, "out": {"ok": True, "result": {"terminal": {"tail": ["❯", screen]}}}})
@@ -157,6 +164,11 @@ class Orca:
         git(self.worktree, "commit", "-qm", "base")
         self.receipts.mkdir(exist_ok=True)
         (self.receipts / "lane-a.worktree").write_text(f"{self.worktree}\n")
+
+    def made(self, index: str = "full") -> str:
+        commit = f"git -C {self.worktree} -c user.name=t -c user.email=t@t"
+        steps = [f"git init -q {self.worktree}", f"echo x > {self.worktree}/file", f"{commit} add file", f"{commit} commit -qm base"]
+        return " && ".join(steps + [f"git -C {self.worktree} read-tree --empty"] * (index == "empty"))
 
     def launch(self, *args: str) -> subprocess.CompletedProcess[str]:
         return self.run("orca-launch.sh", *(args or ("lane-a", "opus", "high", str(self.brief))))
@@ -187,6 +199,12 @@ def bare() -> dict:
 def orca() -> Iterator[Orca]:
     with tempfile.TemporaryDirectory(dir="/tmp") as root:
         yield Orca(Path(root))
+
+
+@pytest.fixture
+def full(orca: Orca) -> Orca:
+    del orca.env["ORCA_LAUNCH_SPARSE"]
+    return orca
 
 
 def flag(argv: list[str], name: str) -> str:
@@ -359,17 +377,17 @@ def test_a_new_worktree_checks_out_only_the_root_files_the_agent_dirs_and_the_br
 
 
 @pytest.mark.parametrize("pool", [None, "pool"])
-def test_a_launch_without_a_root_adds_the_worktree_to_the_ccx_worktree_pool(orca, pool):
+def test_a_sparse_launch_without_a_root_adds_the_worktree_to_the_ccx_pool_else_beside_its_parent(orca, pool):
     orca.healthy()
     del orca.env["ORCA_LAUNCH_ROOT"]
-    root = Path(orca.env["HOME"]) / "repos" / "claude" / "worktrees"
+    root = orca.parent.parent
     if pool:
-        root = orca.root / pool
-        git(orca.main, "config", "ccx.worktreeRoot", str(root))
+        git(orca.main, "config", "ccx.worktreeRoot", str(orca.root / pool))
+        root = orca.root / pool / "main"
     result = orca.launch()
     assert result.returncode == 0, result.stdout + result.stderr
-    assert result.stdout.strip().endswith(f"worktree={root}/main/v3-lane-a-1-1")
-    assert (root / "main" / "v3-lane-a-1-1" / ".agents").is_dir()
+    assert result.stdout.strip().endswith(f"worktree={root}/v3-lane-a-1-1")
+    assert (root / "v3-lane-a-1-1" / ".agents").is_dir()
 
 
 def test_a_repo_with_no_more_tracked_files_than_the_sparse_floor_keeps_a_full_checkout(orca):
@@ -813,7 +831,7 @@ def test_launch_links_a_brief_whose_pointer_passes_500_characters(orca):
     spec = flag(orca.calls("orchestration worker-start")[0], "--spec")
     link = Path(spec.split("read ")[1].split(" in full")[0])
     assert len(spec) <= 500
-    assert link.parent == Path(orca.env["HOME"]) / ".vcache" / "scratch" / "orca-launch"
+    assert link.parent == Path(orca.env["HOME"]) / ".local" / "state" / "long-running" / "orca-launch"
     assert len(link.name) == 8
     assert link.is_symlink()
     assert link.resolve() == brief.resolve()
@@ -822,7 +840,7 @@ def test_launch_links_a_brief_whose_pointer_passes_500_characters(orca):
 def test_launch_leaves_a_short_pointer_unlinked(orca):
     orca.healthy()
     assert orca.launch().returncode == 0
-    assert not (Path(orca.env["HOME"]) / ".vcache").exists()
+    assert not (Path(orca.env["HOME"]) / ".local").exists()
 
 
 def test_launch_starts_a_lane_whose_worktree_path_alone_passes_500_characters(orca):
@@ -1123,6 +1141,251 @@ def test_relaunch_reuses_the_worktree_the_first_launch_added(orca):
     assert orca.launch().returncode == 0
     assert len(orca.calls("worktree set")) == 1
     assert [flag(call, "--worktree") for call in orca.calls("terminal create")] == [f"path:{orca.worktree}"] * 2
+
+
+def test_a_default_launch_creates_a_full_child_worktree_with_orca(full):
+    full.healthy()
+    result = full.launch()
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout.strip() == f"lane-a ready task=task_a dispatch=ctx_a terminal=term_a worktree={full.worktree}"
+    [worktree] = full.calls("worktree create")
+    assert flag(worktree, "--name") == "v3-lane-a-1-1"
+    assert flag(worktree, "--repo") == "id:repo-1"
+    assert flag(worktree, "--parent-worktree") == f"path:{full.parent}"
+    assert flag(worktree, "--base-branch") == "origin/dev"
+    assert full.calls("worktree set") == [] and git(full.main, "branch", "--list", BRANCH) == ""
+    assert (full.receipts / "lane-a.names").read_text() == "v3-lane-a-1-1\n"
+    assert flag(full.calls("orchestration worker-start")[0], "--spec").endswith("its Escalate rules hold.")
+
+
+def test_a_default_launch_expects_its_worktree_beside_its_parent_whatever_the_ccx_pool(full):
+    full.healthy()
+    del full.env["ORCA_LAUNCH_ROOT"]
+    git(full.main, "config", "ccx.worktreeRoot", str(full.root / "pool"))
+    full.worktree.mkdir()
+    fresh = full.parent.parent / "v3-lane-a-1-2"
+    full.reply("worktree create", {"rc": 0, "out": {"ok": True, "result": {"worktree": {"path": str(fresh)}}}, "mkdir": str(fresh)})
+    result = full.launch()
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert [flag(call, "--name") for call in full.calls("worktree create")] == ["v3-lane-a-1-2"]
+    assert not (full.root / "pool").exists()
+
+
+@pytest.mark.parametrize("taken", ["branch", "path", "receipt"])
+def test_a_name_orca_already_created_is_never_created_again(full, taken):
+    full.healthy()
+    fresh = full.parent.parent / "v3-lane-a-1-2"
+    full.reply("worktree create", {"rc": 0, "out": {"ok": True, "result": {"worktree": {"path": str(fresh)}}}, "mkdir": str(fresh)})
+    if taken == "branch":
+        git(full.main, "branch", BRANCH)
+    elif taken == "path":
+        full.worktree.mkdir()
+    else:
+        full.receipts.mkdir()
+        (full.receipts / "lane-a.names").write_text("v3-lane-a-1-1\n")
+    result = full.launch()
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert [flag(call, "--name") for call in full.calls("worktree create")] == ["v3-lane-a-1-2"]
+    assert result.stdout.strip().endswith(f"worktree={fresh}")
+
+
+def test_a_created_worktrees_startup_shell_is_closed_before_the_agent_terminal_opens(full):
+    full.healthy()
+    full.reply("terminal list", STARTUP, listing("claude"))
+    result = full.launch()
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert full.calls("terminal close") == [["terminal", "close", "--terminal", "term_shell", "--tab", "--json"]]
+    calls = [" ".join(call[:2]) for call in full.calls()]
+    assert calls.index("terminal close") < calls.index("terminal create")
+
+
+def test_a_codex_lanes_created_worktree_has_its_startup_shell_closed(full):
+    full.healthy()
+    full.reply("terminal list", STARTUP)
+    full.reply("orchestration worker-start", {"rc": 0, "out": {"ok": True, "result": {"state": "ready", "taskId": "task_a", "dispatchId": "ctx_a", "effects": []}}})
+    assert full.launch("lane-a", "codex", "xhigh", str(full.brief)).returncode == 0
+    assert [flag(call, "--terminal") for call in full.calls("terminal close")] == ["term_shell"]
+
+
+def test_a_failed_startup_shell_close_still_launches(full):
+    full.healthy()
+    full.reply("terminal list", STARTUP, listing("claude"))
+    full.reply("terminal close", {"rc": 1, "out": {"ok": False, "error": {"code": "not_found"}}})
+    result = full.launch()
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "not_found" in (full.receipts / "lane-a.startup.json").read_text()
+
+
+def test_a_worktree_with_a_setup_terminal_keeps_every_terminal(full):
+    full.healthy()
+    created = {"worktree": {"path": str(full.worktree)}, "setupReceipt": {"state": "running", "terminalHandle": "term_shell"}}
+    full.reply("worktree create", {"rc": 0, "out": {"ok": True, "result": created}, "mkdir": str(full.worktree)})
+    full.reply("terminal list", STARTUP, listing("claude"))
+    assert full.launch().returncode == 0
+    assert full.calls("terminal close") == []
+
+
+def test_a_relaunch_into_an_existing_worktree_closes_nothing(full):
+    full.healthy()
+    full.check_out()
+    full.reply("terminal list", STARTUP, listing("claude", "term_shell", "term_a"))
+    assert full.launch().returncode == 0
+    assert full.calls("worktree create") == []
+    assert full.calls("terminal close") == []
+
+
+def test_a_create_whose_response_was_lost_closes_nothing(full):
+    full.healthy()
+    full.reply("worktree show", MISSING, registered(full))
+    full.reply("worktree create", {"rc": 1, "out": "Error: socket hang up", "sh": full.made()})
+    full.reply("terminal list", STARTUP, listing("claude"))
+    assert full.launch().returncode == 0
+    assert full.calls("terminal close") == []
+
+
+def test_a_create_whose_wait_outlasts_the_stall_limit_fails_with_launch_failed_naming_the_wait(full):
+    full.healthy()
+    full.env["ORCA_LAUNCH_STALL_SECONDS"] = "0"
+    full.reply("worktree create", {"rc": 1, "out": "connection lost"})
+    result = full.launch()
+    assert result.returncode == 1
+    assert result.stdout.startswith("lane-a failed LAUNCH-FAILED: Orca has not registered worktree v3-lane-a-1-1 for 0s"), result.stdout
+    assert full.calls("terminal create") == []
+
+
+def test_a_dropped_worktree_create_that_never_registers_is_created_again_after_the_wait(full):
+    full.healthy()
+    full.env["ORCA_LAUNCH_WORKTREE_SECONDS"] = "8"
+    full.reply(
+        "worktree create",
+        {"rc": 1, "out": "connection lost"},
+        {"rc": 0, "out": {"ok": True, "result": {"worktree": {"path": str(full.worktree)}}}, "mkdir": str(full.worktree)},
+    )
+    result = full.launch()
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert [flag(call, "--name") for call in full.calls("worktree create")] == ["v3-lane-a-1-1"] * 2
+    assert full.sleeps()[:2] == ["4", "4"]
+
+
+@pytest.mark.parametrize(
+    "lost",
+    [
+        {"rc": 1, "out": {"ok": False, "error": {"code": "runtime_unavailable", "message": "The Orca runtime closed the connection before responding."}}},
+        {"rc": 0, "out": "Error: socket hang up"},
+    ],
+)
+def test_a_worktree_create_that_lost_its_response_is_awaited_not_repeated(full, lost):
+    full.healthy()
+    full.reply("worktree create", {**lost, "mkdir": str(full.worktree)})
+    full.reply("worktree show", MISSING, MISSING, MISSING, registered(full))
+    result = full.launch()
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert len(full.calls("worktree create")) == 1
+    assert full.sleeps()[:2] == ["4", "4"]
+    assert result.stdout.strip().endswith(f"worktree={full.worktree}")
+
+
+def test_a_worktree_orca_made_elsewhere_after_its_create_timed_out_is_found_by_its_name(full):
+    """Root #291085: exec-crash-fix-2's create timed out, Orca made dar-exec-crash-fix-2-base under its own workspace root at 12:07:54 PM, and the launch looked for it beside the parent until it failed at 184 s."""
+    full.healthy()
+    elsewhere = full.root / "orca-workspaces" / "monorepo" / "v3-lane-a-1-1"
+    full.reply("worktree create", {"rc": 1, "out": {"ok": False, "error": {"code": "runtime_timeout", "message": "Timed out waiting for the Orca runtime to respond."}}, "mkdir": str(elsewhere)})
+    result = full.launch()
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert len(full.calls("worktree create")) == 1
+    assert flag(full.calls("terminal create")[0], "--worktree") == f"path:{elsewhere}"
+    assert result.stdout.strip().endswith(f"worktree={elsewhere}")
+
+
+def test_a_worktree_whose_create_lost_its_response_waits_for_orca_to_fill_its_index(full):
+    full.healthy()
+    full.reply("worktree show", MISSING, registered(full))
+    full.reply("worktree create", {"rc": 1, "out": {"ok": False, "error": {"code": "runtime_unavailable", "message": "closed"}}, "sh": full.made("empty")})
+    (full.state / "on_sleep").write_text(f"git -C {full.worktree} read-tree HEAD\n")
+    result = full.launch()
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert full.sleeps()[:1] == ["4"]
+    assert len(full.calls("terminal create")) == 1
+
+
+def test_a_worktree_whose_index_never_fills_fails_before_any_terminal_opens(full):
+    full.healthy()
+    full.env["ORCA_LAUNCH_WORKTREE_SECONDS"] = "4"
+    full.reply("worktree show", MISSING, registered(full))
+    full.reply("worktree create", {"rc": 1, "out": {"ok": False, "error": {"code": "runtime_unavailable", "message": "closed"}}, "sh": full.made("empty")})
+    result = full.launch()
+    assert result.returncode == 1
+    assert result.stdout.strip() == f"lane-a failed worktree checkout: {full.worktree} registered, but its index still differs from HEAD after 4s; rolled back worktree={full.worktree}"
+    assert full.calls("terminal create") == []
+
+
+def test_a_lost_create_whose_git_add_was_undone_removes_the_directory_it_left(full):
+    full.healthy()
+    full.env["ORCA_LAUNCH_WORKTREE_SECONDS"] = "4"
+    full.reply("worktree show", MISSING, registered(full), registered(full), MISSING)
+    full.reply("worktree create", {"rc": 1, "out": {"ok": False, "error": {"code": "runtime_unavailable", "message": "closed"}}, "sh": full.made("empty")})
+    (full.state / "on_sleep").write_text(f"rm -rf {full.worktree}/.git\n")
+    result = full.launch()
+    assert result.returncode == 1
+    assert result.stdout.strip().endswith(f"; rolled back worktree={full.worktree}")
+    assert full.calls("worktree rm") == []
+    assert not full.worktree.exists()
+    assert not (full.receipts / "lane-a.worktree").exists()
+
+
+def test_a_worktree_that_never_registers_fails_the_launch_after_four_creates(full):
+    full.healthy()
+    full.env["ORCA_LAUNCH_WORKTREE_SECONDS"] = "4"
+    full.reply("worktree create", {"rc": 1, "out": "runtime_unavailable"})
+    result = full.launch()
+    assert result.returncode == 1
+    assert result.stdout.strip() == "lane-a failed worktree create: runtime_unavailable"
+    assert len(full.calls("worktree create")) == 4
+    assert full.calls("terminal create") == []
+
+
+def test_relaunch_reuses_the_worktree_orca_created(full):
+    elsewhere = full.root / "elsewhere" / "lane-a"
+    full.healthy()
+    full.reply("worktree create", {"rc": 0, "out": {"ok": True, "result": {"worktree": {"path": str(elsewhere)}}}, "mkdir": str(elsewhere)})
+    first = full.launch()
+    assert first.stdout.strip().endswith(f"worktree={elsewhere}")
+    assert f"Worktree {elsewhere}," in flag(full.calls("orchestration worker-start")[0], "--spec")
+    full.healthy()
+    assert full.launch().returncode == 0
+    assert len(full.calls("worktree create")) == 1
+    assert flag(full.calls("terminal create")[1], "--worktree") == f"path:{elsewhere}"
+
+
+def test_a_default_launch_that_fails_before_worker_start_removes_its_worktree_with_orca(full):
+    full.healthy(agent=None)
+    full.env["ORCA_LAUNCH_BOOT_SECONDS"] = "4"
+    assert full.launch().returncode == 1
+    assert full.calls("terminal close")[-1] == ["terminal", "close", "--terminal", "term_a", "--tab", "--json"]
+    assert full.calls("worktree rm") == [["worktree", "rm", "--worktree", f"path:{full.worktree}", "--force", "--json"]]
+    assert full.calls("ccx vcs") == []
+    assert not (full.receipts / "lane-a.worktree").exists()
+    assert [" ".join(call[:2]) for call in full.calls()][-2:] == ["terminal close", "worktree rm"]
+
+
+def test_a_rollback_orca_refuses_is_named_in_the_failure(full):
+    full.healthy(agent=None)
+    full.env["ORCA_LAUNCH_BOOT_SECONDS"] = "4"
+    full.reply("worktree rm", {"rc": 1, "out": {"ok": False, "error": {"code": "worktree_locked"}}})
+    result = full.launch()
+    assert result.stdout.strip().endswith(f"; rolled back terminal=term_a; rollback left worktree={full.worktree}")
+    assert (full.receipts / "lane-a.worktree").read_text().strip() == str(full.worktree)
+
+
+def test_a_worktree_that_was_only_briefly_unregistered_is_never_removed(full):
+    full.healthy(agent=None)
+    full.env["ORCA_LAUNCH_BOOT_SECONDS"] = "4"
+    full.env["ORCA_LAUNCH_WORKTREE_SECONDS"] = "8"
+    full.reply("worktree show", MISSING, registered(full))
+    full.reply("worktree create", {"rc": 1, "out": {"ok": False, "error": {"code": "worktree_exists"}}, "sh": full.made()})
+    result = full.launch()
+    assert result.stdout.strip().endswith("; rolled back terminal=term_a")
+    assert full.calls("worktree rm") == []
 
 
 def test_launch_points_at_the_absolute_brief(orca):

@@ -152,7 +152,6 @@ IDLE_MS = 1000
 SUBMIT_SECONDS = 5
 DOWN_AFTER = timedelta(minutes=2)
 CCI_TEXT = 400
-RECEIPTS = Path(".vcache/scratch/orca-launch")
 WATCH_DIR = Path("prompt-watch")
 STATE_FILE = "state.json"
 SCREENS = "screens"
@@ -301,7 +300,7 @@ class Watch:
 
     def lanes(self, run: str) -> dict[str, str]:
         found = {}
-        for receipt in sorted((Path.home() / RECEIPTS / run).glob("*.json")):
+        for receipt in sorted(drive.launch_receipts(run).glob("*.json")):
             info = receipt.stat()
             key = (receipt, info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
             named = self.receipts[key] if key in self.receipts else receipt_lane(receipt)

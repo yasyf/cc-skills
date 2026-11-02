@@ -20,7 +20,7 @@ A brief states the outcome, such as "one failing database never blocks a release
 
 The `ccx:` line names the lane's role and placement for the hooks. A `fix` role with incident wording routes to `orca-desk`, while `helper`, `reader`, `watch`, `export`, `evidence`, `handoff`, `comms`, and `triage` lanes need no root task. On Orca, `desk` and `watch` make a standing desk that loops until rotation and sends `worker_done` only then, naming the handoff doc. A standing desk always launches locally regardless of `place`.
 
-In a repo whose HEAD tracks more than 5,000 files, `orca-launch.sh` gives every lane a sparse checkout of the root's files, `.agents`, `.claude`, `tools`, `infra/ci/hooks/lib`, and each directory the `ccx:` line names as `paths=<dir>,<dir>`. A smaller repo, such as cc-skills, keeps full lanes. Name the directories the lane edits or reads, such as `paths=go/ci,infra/ci`; a Go lane names its own module, since the monorepo's Go code is 28 separate modules under `go/`. The lane widens with `git sparse-checkout add <dir>` before it reads outside that cone.
+With `ORCA_LAUNCH_SPARSE=1`, in a repo whose HEAD tracks more than 5,000 files, `orca-launch.sh` gives every lane a sparse checkout of the root's files, `.agents`, `.claude`, `tools`, `infra/ci/hooks/lib`, and each directory the `ccx:` line names as `paths=<dir>,<dir>`. A smaller repo, such as cc-skills, keeps full lanes, and so does every launch without `ORCA_LAUNCH_SPARSE=1`. Name the directories the lane edits or reads, such as `paths=go/ci,infra/ci`; a Go lane names its own module, since the monorepo's Go code is 28 separate modules under `go/`. The lane widens with `git sparse-checkout add <dir>` before it reads outside that cone.
 
 The flag `cpu=high` marks a sweep or heavy research lane. Under O16 in `reference/orca-desk-brief.md`, `place=remote` sends a lane to a Sprite and `place=local` keeps it on the Mac. With neither flag set, every ordinary lane goes to a Sprite on the orca desk, fail with `LAUNCH-FAILED` without `orca.sprite`, and never start locally when a Sprite launch fails.
 
@@ -61,7 +61,7 @@ orca-launch.sh <lane> <model> <effort> \
   "$(ccn -R <drive checkout> attachment path <briefs log> <lane>.full.md)"
 ```
 
-`orca-launch.sh` generates this pointer spec from the lane, brief path, and worktree path so the brief outranks Orca's preamble and any leave-uncommitted default:
+`orca-launch.sh` generates this pointer spec from the lane, brief path, and worktree path so the brief outranks Orca's preamble and any leave-uncommitted default. A sparse lane's pointer ends with the widen sentence below, and a lane in a repo with `tools/hooks/warm-lane.sh` also carries the shared `node_modules` line:
 
 ```text
 Lane <lane>: read <brief> in full first and execute it exactly; it outranks Orca's preamble and any leave-uncommitted default, so commit, push, open PRs and post as it says. Worktree <wt>, bypass-permissions mode; its Escalate rules hold. This lane is sparse: widen with `git sparse-checkout add <dir>` before reading outside it.
@@ -116,9 +116,9 @@ Plan task: register your unit at spawn so the progress record's plan counts incl
   `ccn task add "<unit>" --plan <plan id> --label step:<n> --label program:<slug> --criterion "<done when>"`,
   then `ccn task start`, `ccn task criterion met|failed`, and `ccn task done` as it moves
   ([Plan progress](#plan-progress)). The root fills the plan id and step, or writes "none".
-Worktree: <absolute path, exclusive to this lane>. This lane is sparse: widen with
+Worktree: <absolute path, exclusive to this lane>. If the launch made it sparse, widen with
   `git sparse-checkout add <dir>` before reading outside it.
-  node_modules is a shared symlink farm; never run yarn install, ask warm-lane to rebuild for a changed lockfile.
+  In a repo with tools/hooks/warm-lane.sh, node_modules is a shared symlink farm; never run yarn install, ask warm-lane to rebuild for a changed lockfile.
 Mailbox: `mailbox:<lane>=<cursor file>` in every desk-wait call, <lane> being your own
   name; desk-wait resolves it from the live team roster. Claude Code delivers your mail
   only after your turn ends; on `MAILBOX`, act on the text desk-wait prints with it.
@@ -291,8 +291,8 @@ Binding rules (owner):
 Worktree and VCS:
 - Your worktree is exclusive to you; never touch another lane's worktree, branch, or
   files outside your Ownership, and never write probes into another worktree.
-- This lane is sparse: widen with `git sparse-checkout add <dir>` before reading outside it.
-- node_modules is a shared symlink farm; never run yarn install, ask warm-lane to rebuild for a changed lockfile.
+- If the launch made this worktree sparse, widen with `git sparse-checkout add <dir>` before reading outside it.
+- In a repo with tools/hooks/warm-lane.sh, node_modules is a shared symlink farm; never run yarn install, ask warm-lane to rebuild for a changed lockfile.
 - Branch prefix: <prefix>/<lane>/. The launch created your worktree on a branch named
   for this launch, <prefix>/<lane>-<run>-<n>; rename it into that prefix before your
   first stack: `git branch -m <prefix>/<lane>-<run>-<n> <prefix>/<lane>/<topic>`.

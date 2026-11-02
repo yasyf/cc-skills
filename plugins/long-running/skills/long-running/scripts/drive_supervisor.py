@@ -53,7 +53,6 @@ TEAMS = Path.home() / ".claude" / "teams"
 TASKS = Path.home() / ".claude" / "tasks"
 UNSAFE_NAME = re.compile(r"[^a-zA-Z0-9_-]")
 SENDER = "long-running"
-RECEIPTS = Path.home() / ".vcache" / "scratch" / "orca-launch"
 SETTINGS = Path.home() / ".claude" / "settings.json"
 TIMEOUT = 60
 PAGE_BYTES = 4_000_000
@@ -270,7 +269,7 @@ def clock() -> datetime:
 
 
 def lanes_deps(config: lr_config.Config, state: Path) -> lanes.Deps:
-    receipts = RECEIPTS / config.orca_run
+    receipts = lr_drive.launch_receipts(config.orca_run)
 
     def who(names: set[str] | None) -> list[dict]:
         rows = rostered([json.loads(line) for line in run(["cci", "who", "--drive", config.drive, "--all", "--json", "--fields", WHO_FIELDS]).splitlines() if line.strip()], TEAMS)
