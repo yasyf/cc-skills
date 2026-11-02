@@ -12705,6 +12705,15 @@ def test_a_mute_or_monitor_skip_on_an_unfixed_mechanism_gets_one_pushback_to_roo
         assert f" {lane}: #" in pushes[0] and "is never a close, and smoke teams are the canary" in pushes[0]
 
 
+@pytest.mark.parametrize(("order_kind", "pushed"), [("incident", False), ("go", True)])
+def test_a_mute_that_answers_a_root_incident_order_gets_no_pushback(shell, config, order_kind, pushed):
+    """Root #300304: MUTE-PUSHBACK fired twice in two minutes at 5:06 PM Nov 1 on run-queue-fix's mute of page 13321, the window root's incident order authorized with the fix merged and releasing."""
+    order = cci_record(shell, lane="root", kind=order_kind, to=["run-queue-fix"], text="INCIDENT run-queue-fix: mute monitor 339599887 as the window until fix-live", at=actions.stamp(shell.clock))
+    cci_record(shell, lane="run-queue-fix", kind="incident", to=["root"], re=order, text="Step 2 muting monitor 339599887 with the ai-oncall mute verb until fix-live", at=actions.stamp(shell.clock))
+    orca_pass(shell, config)
+    assert len([line for line in escalations(shell) if line.startswith("MUTE-PUSHBACK ")]) == pushed
+
+
 @pytest.mark.parametrize(("model", "header", "clocked"), [
     ("opus", "ccx: place=local\n", False),
     ("opus", "ccx: incident=none role=fix place=local\n", False),
