@@ -41,6 +41,7 @@ from captain_hook.util import reqenv
 from pydantic import BaseModel
 
 from .compaction_handoff import CompactionState, ccn, progress_folder
+from .nudges import queue_nudge
 from .tests.root_fixtures import ACTIVE, LONG
 
 READ_LINES = 150
@@ -777,19 +778,19 @@ def record_ruling(evt: BaseHookEvent) -> str:
     Event.UserPromptSubmit,
     only_if=[DriveActive(), OwnerPrompt()],
     skip_if=[FromSubagent()],
+    async_=True,
     tests={
         Input(
             prompt="from now on, release everything as it merges",
             state=ACTIVE,
             commands={"ccn": '[{"id": "4ffc9a5e0d"}]'},
-        ): Warn(pattern=r"^Recorded this standing rule as cc-notes answer `4ffc9a5`"),
+        ): Allow(),
         Input(prompt="from now on, release everything as it merges", state=ACTIVE, commands={"ccn": "[]"}): Allow(),
         Input(prompt="what is the status of l17?", state=ACTIVE): Allow(),
     },
 )
-def capture_standing_rule(evt: BaseHookEvent) -> HookResult | None:
-    if not evt.ctx.nlp(evt.user_prompt, STANDING):
-        return None
-    if not (answer_id := record_ruling(evt)):
-        return None
-    return evt.context(f"Recorded this standing rule as cc-notes answer `{answer_id[:7]}`; never record it again by hand.")
+def capture_standing_rule(evt: BaseHookEvent) -> None:
+    if evt.ctx.nlp(evt.user_prompt, STANDING) and (answer_id := record_ruling(evt)):
+        queue_nudge(
+            evt, f"Recorded this standing rule as cc-notes answer `{answer_id[:7]}`; never record it again by hand."
+        )
