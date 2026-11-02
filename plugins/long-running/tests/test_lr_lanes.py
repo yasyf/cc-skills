@@ -356,10 +356,13 @@ def test_a_lane_whose_process_row_cci_marks_stood_down_retires_without_a_success
         ([record(2, "root", "incident", T0 - timedelta(minutes=25), "tenant-api: FIX-LIVE; conflicts-2 not needed, exit", ("conflicts-2",))], []),
         ([record(2, "root", "incident", T0 - timedelta(minutes=25), "tenant-api: FIX-LIVE", ("tenant-api-fix",)), record(3, "conflicts-2", "state", T0 - timedelta(minutes=24), "STOPPED conflicts-2: stood down per root #2") | {"re": 2}], []),
         ([record(2, "root", "decide", T0 - timedelta(minutes=25), "keep going", ("conflicts-2",)), record(3, "conflicts-2", "state", T0 - timedelta(minutes=24), "conflicts-2: rebased #46001")], ["conflicts-2"]),
+        ([record(2, "root", "decide", T0 - timedelta(minutes=25), "conflicts-2 died mid-cancel. Successors, no relaunch.", ("release-5",)), record(3, "conflicts-2", "handoff", T0 - timedelta(minutes=24), "conflicts-2: cancel settled; standing down per 2.", ("root",))], []),
+        ([record(2, "conflicts-2", "handoff", T0 - timedelta(minutes=24), "flushed 9a1b2c3", ("root",)) | {"re": 1}], ["conflicts-2"]),
     ],
+    ids=["root-incident-to-it", "answered-root", "worked-on", "handoff-naming-nothing", "rotation-flush"],
 )
 def test_a_lane_that_stopped_on_a_root_order_of_any_kind_stands_down_and_is_never_relaunched(tmp_path, brief, then, relaunched):
-    """Root #311668: tenant-api-fix-opus stopped at 2:16 PM Nov 1 answering root's INCIDENT #295016, which was no stand-down, and the supervisor relaunched it 12 hours later."""
+    """Root #311668: tenant-api-fix-opus stopped at 2:16 PM Nov 1 answering root's INCIDENT #295016, which was no stand-down, and the supervisor relaunched it 12 hours later. drive-watchdog-2 #315527: user-creds-mint-fix's last record was a handoff that named no doc and answered nothing, and the supervisor relaunched it."""
     store = Store.memory()
     fake = adopted(tmp_path, brief, store)
     fake.feed += then
