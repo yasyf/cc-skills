@@ -6,10 +6,7 @@ PROMPT = """Judge only the message in <assistant_message>, which the assistant j
 Fire when it reports something that went wrong (a failure, a defect, a miss, a refused or broken tool, a repeated owner ruling, a worker or lane that did not deliver) and does not also say what is being done so it does not recur: the mechanism, the tooling or process change, and its PR, install or owner.
 Do not fire when the message reports nothing wrong, or when it names the change that stops the problem recurring and who carries it."""
 
-MESSAGE = """Your last message reports a failure without the change that stops it recurring. Before your next message, add one line naming the mechanism, the tooling or process change, and its PR, install or owner.
-~~~~~~~~~~~~
-The owner, verbatim: "if it looks like calude is just reporting someting wrong without lso saying what its doing to improve in the future/fix the toolg, then a warning gets injected"
-~~~~~~~~~~~~"""
+MESSAGE = "This report names a failure but not what stops it recurring. Add one line: the mechanism, the tooling or process change, and its PR or owner."
 
 REPORTED = [
     T.user("ship it"),
@@ -37,7 +34,7 @@ llm_nudge(
     backend="jev",
     events=Event.PostToolUse | Event.Stop | Event.SubagentStop,
     tests={
-        Input(tool_use_id="call-report", transcript=REPORTED): Warn(pattern=r"^Your last message reports a failure"),
+        Input(tool_use_id="call-report", transcript=REPORTED): Warn(pattern=r"^This report names a failure but not what stops it recurring"),
         Input(tool_use_id="call-fixed", transcript=FIXED, llm={"fire": False}): Allow(),
     },
 )
