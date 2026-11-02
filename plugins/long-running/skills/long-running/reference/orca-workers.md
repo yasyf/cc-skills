@@ -137,7 +137,7 @@ usage: orca-launch.sh <lane> <model> <effort> <brief-file>
 | `ORCA_LAUNCH_CLAUDE_ARGS` | Extra arguments from Orca's agent defaults (excluding plan mode); defaults to none. |
 | `ORCA_LAUNCH_BOOT_SECONDS` | Ceiling in seconds waiting for Orca to detect the terminal's idle agent; defaults to `180`. |
 | `ORCA_LAUNCH_WORKTREE_SECONDS` | Ceiling in seconds waiting for Orca to list a worktree the launch added; defaults to `180`. |
-| `ORCA_LAUNCH_PREPARE` | Optional shell command run in the new worktree before worker start, such as code generators. |
+| `ORCA_LAUNCH_PREPARE` | Optional shell command run in the new worktree before worker start, such as code generators or `tools/hooks/warm-lane.sh`; never a JavaScript dependency install. |
 | `ORCA_LAUNCH_PREPARE_SECONDS` | Timeout in seconds for `ORCA_LAUNCH_PREPARE`; defaults to `120`. |
 | `ORCA_LAUNCH_SPARSE_FILES` | Tracked-file count above which a new worktree is sparse; defaults to `5000`. |
 
