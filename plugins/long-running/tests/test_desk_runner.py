@@ -14070,6 +14070,20 @@ def test_a_selected_remote_lane_clears_only_the_local_route_override(shell, conf
     assert spawned == [""]
 
 
+def test_a_running_orca_desk_launches_with_the_sprite_config_on_disk_at_launch_time(shell, config, tmp_path):
+    """Nov 2 6:10 AM: `config set orca.sprite.env.WORKER_RELAY_SPONSOR` never reached noop-launch-4, since the live desk held the config it loaded at 5:42 AM."""
+    with_sprites(config)
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    raw = json.loads(config.read_text())
+    raw["orca"]["sprite"]["env"]["WORKER_RELAY_SPONSOR"] = "sponsor-1"
+    config.write_text(json.dumps(raw))
+    brief = lane_brief(tmp_path, "ccx: role=build")
+    cli(shell, config, "launch", "--key", "R638", "--lane", LANE, "--model", "opus", "--effort", "xhigh", "--brief", str(brief))
+    assert runner_module.run_orca(runner, True) == 0
+    assert sprite_launches(shell) == [[LAUNCHER, LANE, "claude-opus-5-5", "xhigh", str(brief)]]
+    assert shell.spawned_env["worker-launch.sh"]["WORKER_RELAY_SPONSOR"] == "sponsor-1"
+
+
 def sprite_passes(shell: FakeShell, config: Path, tmp_path: Path, restarted: bool) -> None:
     runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
     if restarted:
