@@ -40,11 +40,11 @@ empty loose refs a Sprite restart leaves, which every fetch reads as the zero
 object, and fetches every remote unless a fetch that began after this job asked for one already
 did, and the job runs there. <dir> is then copied
 back, job.json and pid left as this machine wrote them and result.json last,
-swapped in whole and only when it parses, read a second time after the first
-read wakes the Sprite, since a Sprite that hibernates before a write reaches
-its disk keeps an empty file, so the runner settles the pass from this process and its files as it does
-a local one; a job that ends with no result, as when the Sprite restarts
-mid-pass or a copy to it fails to connect, leaves one naming the error and marked `no_result`, so the runner fails and requeues the
+adopted through long_running/desk_result.py only when it parses, so the runner
+settles the pass from this process and its files as it does a local one. Every
+exit of this script leaves exactly one whole result.json: a job that ends with none, as
+when the Sprite restarts mid-pass or cannot be reached, gets one from
+desk_result.py naming the error and marked `no_result`, so the runner fails and requeues the
 pass at once, without the retry hold a tooling error gets, instead of waiting out its deadline. The Sprite then pushes the records the job posted to the drive's
 cci relay, retried five times over about 40 seconds; a push that still fails
 loses nothing, since the runner reposts the job's records when it settles the
@@ -58,8 +58,10 @@ EOF2
 [ $# -eq 3 ] || usage
 export COPYFILE_DISABLE=1
 sprite=$1 script=$2 dir=$3
+here=$(cd "$(dirname "$0")" && pwd)
+results=$here/long_running/desk_result.py
 no_result() {
-  [ -e "$dir/result.json" ] || printf '{"error": "the job on Sprite %s ended with status %s and no result, as when the Sprite restarts mid-pass or cannot be reached", "no_result": true}\n' "$sprite" "$1" >"$dir/result.json"
+  python3 "$results" lost "$dir" "the job on Sprite $sprite ended with status $1 and no result, as when the Sprite restarts mid-pass or cannot be reached"
 }
 trap 'no_result $?' EXIT
 plugin=$(cd "$(dirname "$script")/../../.." && pwd)
@@ -129,13 +131,15 @@ fi
 keys=$(python3 -c '
 import json, os, subprocess, sys
 from pathlib import Path
+sys.path.insert(0, sys.argv[2])
+import desk_result
 for name, argv in json.loads(os.environ.get("SPRITE_JOB_KEYS") or "{}").items():
     if not (value := subprocess.run(argv, capture_output=True, text=True, check=True).stdout.strip()):
         error = f"the {name} command printed nothing, so the job would run without {name}"
-        (Path(sys.argv[1]) / "result.json").write_text(json.dumps({"error": error}) + "\n")
+        desk_result.write(Path(sys.argv[1]), json.dumps({"error": error}) + "\n")
         sys.exit(f"sprite-job: {error}")
     print(f"{name}={value}")
-' "$dir") || exit 1
+' "$dir" "$here/long_running") || exit 1
 sprite exec -s "$sprite" --no-stdin -- sh -c '
   rm -f "$2.keys" && mkfifo -m 600 "$2.keys"
   vars=$(timeout 120 cat "$2.keys") || exit 1
@@ -179,14 +183,7 @@ done
 status=0
 wait "$job" || status=$?
 sprite exec -s "$sprite" --no-stdin -- sh -c 'cd "$1" && find . -mindepth 1 ! -path ./job.json ! -path ./pid ! -path ./result.json | tar -cz --no-recursion -T -' sh "$dir" | tar -xz -m -C "$dir" || true
-fetch_result() {
-  sprite exec -s "$sprite" --no-stdin -- cat "$dir/result.json" >"$dir/.result.json" &&
-    python3 -c 'import json, sys; json.load(open(sys.argv[1]))' "$dir/.result.json" 2>/dev/null
-}
-if fetch_result || fetch_result; then
-  mv "$dir/.result.json" "$dir/result.json"
-fi
-rm -f "$dir/.result.json"
+sprite exec -s "$sprite" --no-stdin -- cat "$dir/result.json" | python3 "$results" adopt "$dir"
 no_result "$status"
 for pause in 2 5 10 20 ""; do
   if sprite exec -s "$sprite" --no-stdin -- cci relay push >/dev/null; then
