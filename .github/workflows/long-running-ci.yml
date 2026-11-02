@@ -9,6 +9,7 @@ on:
       - "plugins/live-dashboard/skills/live-dashboard/scripts/**"
       - ".github/lr-controls/**"
       - ".github/scripts/lr_controls.py"
+      - ".github/lr-test-durations.json"
       - ".github/workflows/long-running-ci.yml"
   pull_request:
     paths:
@@ -16,6 +17,7 @@ on:
       - "plugins/live-dashboard/skills/live-dashboard/scripts/**"
       - ".github/lr-controls/**"
       - ".github/scripts/lr_controls.py"
+      - ".github/lr-test-durations.json"
       - ".github/workflows/long-running-ci.yml"
   schedule:
     - cron: "41 10 * * *"
@@ -36,18 +38,20 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
     env:
       # TODO: drop once isal, thinc, and ast-grep-py ship CPython 3.15 wheels; uv 0.13.0 defaults to 3.15 and their source builds fail.
       UV_PYTHON: "3.14"
       LR_TEST_SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
+      LR_TEST_DURATIONS: ${{ github.workspace }}/.github/lr-test-durations.json
+      LR_TEST_SCALE: ${{ github.event_name == 'pull_request' && 'skip' || 'run' }}
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v8.2.0
       - name: pytest
         run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests -q -n auto --dist worksteal --durations=10 --junitxml="$RUNNER_TEMP/pytest.xml" -o junit_family=xunit1
       - uses: actions/upload-artifact@v7
-        if: always()
+        if: always() && github.event_name != 'pull_request'
         with:
           name: pytest-${{ matrix.shard }}
           path: ${{ runner.temp }}/pytest.xml
