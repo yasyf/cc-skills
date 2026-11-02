@@ -1,16 +1,23 @@
 name: long-running native MATCH
 
 on:
-  pull_request:
-    paths:
-      - "plugins/long-running/**"
-      - ".github/workflows/long-running-native-match.yml"
   push:
     branches: [main]
     tags: ["long-running--v*"]
     paths:
-      - "plugins/long-running/**"
+      - "plugins/long-running/skills/long-running/scripts/long_running/match_session.py"
+      - "plugins/long-running/skills/long-running/scripts/long_running/ruling_documents.py"
+      - "plugins/long-running/skills/long-running/scripts/long_running/rulings.py"
+      - "plugins/long-running/skills/long-running/scripts/rulings.py"
+      - "plugins/long-running/tests/match_corpus_immutable818_characterization.py"
+      - "plugins/long-running/tests/native_match_ci_grade.py"
+      - "plugins/long-running/tests/native_match_integration.py"
+      - "plugins/long-running/tests/test_match_session.py"
+      - "plugins/long-running/tests/test_rulings.py"
+      - "plugins/long-running/tests/test_rulings_owned_hooks.py"
       - ".github/workflows/long-running-native-match.yml"
+  schedule:
+    - cron: "31 11 * * *"
   workflow_dispatch:
 
 permissions:
