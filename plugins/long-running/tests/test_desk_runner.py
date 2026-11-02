@@ -15313,6 +15313,22 @@ def test_each_flaky_test_report_in_the_release_channel_posts_one_flake_to_its_fi
     assert flakes[1]["text"].startswith("[finding:desk-runner] - - flake owner flake-census-1: FLAKE a test failed on")
 
 
+def test_a_jest_flake_names_its_test_by_title_and_finds_its_file(shell, config, tmp_path):
+    """Dev build 102130's Run common tests passed on an automatic retry, and its FLAKE (#317878) named no test, so no file or owner."""
+    with_ci_build(config)
+    landing = trunk_watch(shell, config, tmp_path)
+    built(shell, "aaaa", "29018", script_build("common-tests"))
+    built(shell, "cccc", "29020", {"state": "passed", "commit": "c" * 10, "finished_at": "2026-10-01T17:58:00Z", "jobs": [{"id": "job-2", "type": "script", "name": "common-tests", "state": "passed", "retry_source": {"job_id": "job-1", "retry_type": "automatic"}}]})
+    shell.job_logs["job-1"] = "\x1b_bk;t=1793619381866\x07  \u25cf Console\r\n\r\n    console.log\r\n  \u25cf LLMCodeSandboxImpl result spill \u203a rejects an uploaded result that expands past the limit\r\n\r\n    thrown: \"Exceeded timeout of 5000 ms for a test.\r\n"
+    shell.test_files["rejects an uploaded result that expands past the limit"] = "common/src/llm/codegen/llmCodeSandbox.test.ts\n"
+    shell.trunk = [trunk_commit("c", "SUCCESS", "29020", "2026-10-01T17:55:00Z"), trunk_commit("a", "SUCCESS", "29018", "2026-10-01T17:40:00Z")]
+
+    landing.watch_trunk(OPEN_ROWS)
+
+    [flake] = [post for post in shell.posts if "FLAKE" in post["text"]]
+    assert flake["text"].startswith("[finding:desk-runner] - common/src/llm/codegen/llmCodeSandbox.test.ts flake owner root: FLAKE rejects an uploaded result that expands past the limit failed on")
+
+
 def test_a_trunk_build_green_only_because_a_job_soft_fails_posts_post_merge_red_once_naming_the_prs_landed_since_the_last_build(shell, config, tmp_path):
     with_ci_build(config)
     desk_lane(config)

@@ -1062,7 +1062,7 @@ FLAKY_SEEN_FACT = "flaky-notices-seen"
 FLAKY_NOTICE = re.compile(r"> failed (?:`([^`]+)`.*? )?on <(https://buildkite\.com/[^|>]+)\|[^>]*> at <[^|>]*/commit/([0-9a-f]+)\|.*?(?:it looks flaky and|touches what it reads, so) nobody was told")
 DATA_SUFFIXES = (".json", ".md", ".txt", ".yaml", ".yml")
 TEST_NAME = re.compile(r"(?:Test\w+|\w+(?:::\w+)+)")
-FAILED_TEST = re.compile(r"--- FAIL: (?P<go>[\w.-]+)|^test (?P<cargo>\S+) \.\.\. FAILED|^\s*FAIL \[\s*[\d.]+s\] \S+ (?P<nextest>\S+)", re.MULTILINE)
+FAILED_TEST = re.compile(r"--- FAIL: (?P<go>[\w.-]+)|^test (?P<cargo>\S+) \.\.\. FAILED|^\s*FAIL \[\s*[\d.]+s\] \S+ (?P<nextest>\S+)|^\s*● .+ › (?P<jest>.+?)\s*$", re.MULTILINE)
 LOG_CONTROL = re.compile(r"\x1b(?:_[^\x07]*\x07|\[[0-9;]*[A-Za-z])|\r")
 UNREACHABLE_WAIT = timedelta(minutes=2)
 HANDOFF_WAIT = timedelta(minutes=20)
@@ -7173,7 +7173,7 @@ class Landing:
         return self.runner.cci_post("defect", text, ",".join(dict.fromkeys([owner, ROOT, self.runner.watchdog])), cci.TRUNK_TOPIC, key, record_id=key).code == 0
 
     def failed_test(self, build: str, job: str) -> str:
-        """The first failing test the log of `job` in `build` names, Go or Rust; empty when the log does not read or names none."""
+        """The first failing test the log of `job` in `build` names, Go, Rust, or a Jest test by its own title under its `describe`; empty when the log does not read or names none."""
         found = FAILED_TEST.search(self.job_log(build, job))
         return next(filter(None, found.groups())) if found else ""
 
