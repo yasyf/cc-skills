@@ -8,6 +8,8 @@ import io
 import json
 import os
 import re
+import sys
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -15,6 +17,7 @@ from time import monotonic
 
 PAGE_BYTES = 4_000_000
 PAGE_ROWS = 500
+INTERNED = ("drive", "lane", "kind", "to", "topic", "source", "status")
 CLAIM_KINDS = ("opened", "head")
 INCIDENT_LANE = re.compile(r"^(?:inc|incident|outage)-")
 FIX_LANE = re.compile(r"-(?:fix(?:-\d+)?|opus|case\d+)$")
@@ -61,13 +64,15 @@ class Kept:
 
 
 class Tail:
-    """A `cci tail` runner whose `records` answers repeat a query, between `remember` and `stop`, from what it read since the last `forget`, so a pass reads each query once. A query from a sequence keeps what it read for the runner's life, since a record's text, kind, lane and closures never change after it is posted: it reads its history once, and after that every query that differs only in `--pr` shares one read of the records after the newest it kept, matched to each PR here as cci matches them. So a pass runs one cci call per query shape, never one per PR, and each reads only the records posted since the last."""
+    """A `cci tail` runner whose `records` answers repeat a query, between `remember` and `stop`, from what it read since the last `forget`, so a pass reads each query once. A query from a sequence keeps what it read for the runner's life, since a record's text, kind, lane and closures never change after it is posted: it reads its history once, and after that every query that differs only in `--pr` shares one read of the records after the newest it kept, matched to each PR here as cci matches them. So a pass runs one cci call per query shape, never one per PR, and each reads only the records posted since the last. A record two queries read the same is held once, and a Tail made `sharing` another keeps that one's history under its lock, so a runner's two Landings hold the drive's history once while each keeps its own pass reads."""
 
-    def __init__(self, run: Callable[[list[str]], str]):
+    def __init__(self, run: Callable[[list[str]], str], sharing: Tail | None = None):
         self.run = run
         self.read: dict[tuple[str, tuple[str, ...], str, bool], list[dict]] | None = None
-        self.kept: dict[tuple[str, tuple[str, ...], str], Kept] = {}
-        self.marks: dict[tuple[str, tuple[str, ...]], int] = {}
+        self.kept: dict[tuple[str, tuple[str, ...], str], Kept] = sharing.kept if sharing else {}
+        self.marks: dict[tuple[str, tuple[str, ...]], int] = sharing.marks if sharing else {}
+        self.by_seq: dict[int, dict] = sharing.by_seq if sharing else {}
+        self.keeping = sharing.keeping if sharing else threading.RLock()
         self.topped: set[tuple[str, tuple[str, ...]]] = set()
 
     def __call__(self, argv: list[str]) -> str:
@@ -87,25 +92,36 @@ class Tail:
 
     def follow(self, drive: str, filters: tuple[str, ...], since: int) -> list[dict]:
         shape, pr = without_pr(filters)
-        kept = self.kept.get((drive, shape, pr))
-        if kept is None or since < kept.floor:
-            mark = self.mark(drive, shape) if pr else since
-            found = paged(self, drive, filters, since)
-            kept = self.kept[(drive, shape, pr)] = Kept(since, max([since, mark, *(record["seq"] for record in found)]), found)
-        elif self.read is None or (drive, shape) not in self.topped:
-            self.top_up(drive, shape)
-        now = datetime.now(timezone.utc)
-        return [record for record in kept.records if record["seq"] > since and not expired(record, now)]
+        with self.keeping:
+            kept = self.kept.get((drive, shape, pr))
+            if kept is None or since < kept.floor:
+                mark = self.mark(drive, shape) if pr else since
+                found = self.once(paged(self, drive, filters, since))
+                kept = self.kept[(drive, shape, pr)] = Kept(since, max([since, mark, *(record["seq"] for record in found)]), found)
+            elif self.read is None or (drive, shape) not in self.topped:
+                self.top_up(drive, shape)
+            now = datetime.now(timezone.utc)
+            return [record for record in kept.records if record["seq"] > since and not expired(record, now)]
 
     def top_up(self, drive: str, shape: tuple[str, ...]) -> None:
         """Read once the records of `shape` after the oldest seq any of its queries has read through, and add each to every query it matches."""
         queries = {pr: kept for (on, of, pr), kept in self.kept.items() if (on, of) == (drive, shape)}
-        found = paged(self, drive, shape, min(kept.upto for kept in queries.values()))
+        found = self.once(paged(self, drive, shape, min(kept.upto for kept in queries.values())))
         for pr, kept in queries.items():
             kept.records += [record for record in found if record["seq"] > kept.upto and (not pr or names_pr(record, pr))]
             kept.upto = max([kept.upto, *(record["seq"] for record in found)])
         self.marks[(drive, shape)] = max([self.marks.get((drive, shape), 0), *(kept.upto for kept in queries.values())])
         self.topped.add((drive, shape))
+
+    def once(self, found: list[dict]) -> list[dict]:
+        """`found` with each record equal to one already held replaced by that one, so two queries that read the same record keep one copy of it."""
+        by_seq = self.by_seq
+        for index, record in enumerate(found):
+            if (kept := by_seq.get(record["seq"])) == record:
+                found[index] = kept
+            else:
+                by_seq[record["seq"]] = record
+        return found
 
     def mark(self, drive: str, shape: tuple[str, ...]) -> int:
         """The newest seq `shape` matches, read once with `--limit 1` and kept current by each top-up, so a `--pr` query read from its start never makes the next top-up read again what the shape's other queries already hold; a query naming no PR reads every record of its shape, so its own newest seq is that mark."""
@@ -274,11 +290,19 @@ def paged(run: Callable[[list[str]], str], drive: str, filters: tuple[str, ...],
     found: list[dict] = []
     while True:
         out = run(["cci", "tail", "--drive", drive, *since_args(since), "--json", "--budget", str(PAGE_BYTES), *filters])
-        page = [json.loads(line) for line in out.splitlines() if line.strip()]
+        page = [interned(json.loads(line)) for line in out.splitlines() if line.strip()]
         found += page
         if len(page) < PAGE_ROWS and len(out.encode()) < PAGE_BYTES // 2:
             return found
         since = page[-1]["seq"]
+
+
+def interned(record: dict) -> dict:
+    """`record` with its keys and its few-valued fields interned, so a hundred thousand records share one copy of each lane, kind and drive name."""
+    for key in INTERNED:
+        if (value := record.get(key)).__class__ is str:
+            record[key] = sys.intern(value)
+    return {sys.intern(key): value for key, value in record.items()}
 
 
 def resolved(record: dict) -> set[int]:

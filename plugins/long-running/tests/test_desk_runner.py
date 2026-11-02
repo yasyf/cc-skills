@@ -14819,6 +14819,30 @@ def test_a_pr_query_reads_only_the_records_after_the_newest_it_kept_and_drops_on
     assert [(argv[argv.index("--since-seq") + 1], "--pr" in argv) for argv in calls] == [("0", False), ("0", True), ("8", False), ("12", False)]
 
 
+def test_a_kept_build_holds_only_the_fields_the_runner_reads():
+    build = {"state": "failed", "commit": "abc", "finished_at": "2026-11-02T08:00:00Z", "web_url": "https://buildkite.com/forge/test/builds/7", "env": {"A": "1"}, "jobs": [{"id": "j1", "type": "script", "name": "test", "step_key": "test", "state": "failed", "soft_failed": False, "retry_source": {"job_id": "j0"}, "command": "make test", "agent": {"name": "a1"}}]}
+    assert runner_module.kept_fields(build) == {"state": "failed", "commit": "abc", "finished_at": "2026-11-02T08:00:00Z", "jobs": [{"id": "j1", "type": "script", "name": "test", "step_key": "test", "state": "failed", "soft_failed": False, "retry_source": {"job_id": "j0"}}]}
+
+
+def test_a_tail_sharing_another_holds_each_record_once_across_queries_and_tails():
+    posted = [{"seq": 4, "kind": "review", "lane": "fidelity-desk", "text": "a", "refs": {}}, {"seq": 6, "kind": "head", "lane": "p1", "text": "b", "refs": {}}]
+    calls: list[list[str]] = []
+    passes = runner_module.cci.Tail(fake_cci(posted, calls))
+    overflow = runner_module.cci.Tail(fake_cci(posted, calls), sharing=passes)
+    passes.remember()
+    overflow.remember()
+    reviews = runner_module.cci.records(passes, "d1", "--kind=review", "--kind=head")
+    grades = runner_module.cci.records(overflow, "d1", "--kind=review")
+    assert grades[0] is reviews[0]
+    assert overflow.kept is passes.kept and overflow.read is not passes.read
+    posted.append({"seq": 9, "kind": "review", "lane": "fidelity-desk", "text": "c", "refs": {}})
+    overflow.forget()
+    assert [record["seq"] for record in runner_module.cci.records(overflow, "d1", "--kind=review", "--kind=head")] == [4, 6, 9]
+    assert [record["seq"] for record in runner_module.cci.records(passes, "d1", "--kind=review", "--kind=head")] == [4, 6]
+    passes.forget()
+    assert runner_module.cci.records(passes, "d1", "--kind=review", "--kind=head")[2] is overflow.by_seq[9]
+
+
 @pytest.mark.parametrize("history_first", [False, True])
 def test_current_annotations_do_not_reuse_an_immutable_history_projection(history_first):
     posted = [{"seq": 4, "kind": "hold", "drive": "d1", "text": "hold #29020", "refs": {}, "status": "open"}]

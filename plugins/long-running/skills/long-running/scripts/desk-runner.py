@@ -980,6 +980,8 @@ GATE_BUDGET = timedelta(seconds=120)
 STEP_BUDGETS = {"fetch": FETCH_SECONDS, "check": 2 * GATE_CHECK_SECONDS + 60, "settle": 300, "enqueue": 300}
 STACKS_FILE = "landing-stacks.json"
 BUILDS_KEPT = timedelta(days=3)
+BUILD_FIELDS = ("state", "commit", "finished_at")
+JOB_FIELDS = ("id", "type", "name", "step_key", "state", "soft_failed", "retry_source")
 CHECK_PR_WORKERS = 8
 TELL_BUDGET = timedelta(seconds=60)
 REFRESH_EVERY = timedelta(minutes=2)
@@ -5736,6 +5738,11 @@ def import_path(package: str, directory: str, other: str) -> str | None:
     return module if relative == "." else "/".join(filter(None, (module, relative)))
 
 
+def kept_fields(build: dict) -> dict:
+    """The fields of a Buildkite build the runner reads, without the job commands, environments and agents that make a build a quarter megabyte."""
+    return {key: build[key] for key in BUILD_FIELDS if key in build} | {"jobs": [{key: job[key] for key in JOB_FIELDS if key in job} for job in build.get("jobs", [])]}
+
+
 def failed_steps(build: dict) -> list[str]:
     return sorted({job.get("step_key") or job["name"] for job in build.get("jobs", []) if job.get("type") == "script" and job.get("state") == "failed" and not job.get("soft_failed")})
 
@@ -7077,7 +7084,7 @@ class Landing:
         done = self.shell.run(release_build_argv(self.checkout, self.landing_config["ci_build"], url))
         if done.code != 0:
             return None
-        build = json.loads(done.out)
+        build = kept_fields(json.loads(done.out))
         if build.get("finished_at") is None and build.get("state") not in ("passed", "failed", "canceled"):
             return build
         with self.building:
@@ -9206,8 +9213,8 @@ class Landing:
             self.book.edit(LANDING, lambda incident: incident.facts.update({ROWED_READ: max(seqs)}))
 
     def keep_overflowing(self) -> None:
-        """Run `overflow` every `OVERFLOW_EVERY` from a daemon thread, on a Landing of its own that reads cci afresh, so no pass, however slow, holds a landable stack out of the queue (owner 9524276). An overflow that raises prints its traceback and the next one runs."""
-        mine = self.overflower = Landing(self.runner, self.runner.config.landing, cci.Tail(self.runner.cci_read))
+        """Run `overflow` every `OVERFLOW_EVERY` from a daemon thread, on a Landing of its own that reads cci afresh, so no pass, however slow, holds a landable stack out of the queue (owner 9524276); its Tail shares the passes' kept history, so the drive's records are held once. An overflow that raises prints its traceback and the next one runs."""
+        mine = self.overflower = Landing(self.runner, self.runner.config.landing, cci.Tail(self.runner.cci_read, sharing=self.cci_tail))
 
         def loop() -> None:
             with self.book.store.reading():
