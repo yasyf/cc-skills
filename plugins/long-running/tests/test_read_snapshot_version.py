@@ -1,4 +1,5 @@
 import sqlite3
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 
@@ -36,10 +37,11 @@ def test_version_labels_the_same_read_snapshot_across_concurrent_commit(tmp_path
         connection = connect(database, *args, **kwargs, factory=FencedConnection)
         connection.readonly = str(database).endswith("?mode=ro")
         connection.statements = []
-        if connection.readonly:
+        if connection.readonly and threading.get_ident() == owner:
             readers.append(connection)
         return connection
 
+    owner = threading.get_ident()
     monkeypatch.setattr(sqlite3, "connect", opened)
     with store.reading():
         value, old = store.read_facts_with_version("snapshot", lambda facts: facts["value"])
