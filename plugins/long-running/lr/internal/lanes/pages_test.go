@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bkread"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
@@ -39,11 +40,14 @@ func newPageWatch(t *testing.T) *pageFixture {
 				return shell.Result{Stdout: f.history}, nil
 			case "/co/tools/ci":
 				return shell.Result{Stdout: f.finished}, nil
+			case tokenTool:
+				return shell.Result{Stdout: "read-token\n"}, nil
 			}
 			return shell.Result{}, nil
 		})},
 		Store: memory(t), Channels: []string{pageChannel}, BuildCLI: "tools/ci bk api /pipelines/{pipeline}/builds/{number}",
-		Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Token: bkread.Token{Command: []string{tokenTool}},
+		Log:   slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
 	return f
 }

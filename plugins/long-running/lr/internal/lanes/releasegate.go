@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bkread"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
 
@@ -32,6 +33,7 @@ type releaseOrder struct {
 type ReleaseGates struct {
 	Env        Env
 	ReleaseCLI []string
+	Token      bkread.Token
 	Log        *slog.Logger
 	read       time.Time
 	after      int64
@@ -203,7 +205,7 @@ func (g *ReleaseGates) raise(ctx context.Context, key, text string) error {
 
 func (g *ReleaseGates) status(ctx context.Context, release string) (gateStatus, error) {
 	argv := append(slices.Clone(g.ReleaseCLI), "status", release, "--json")
-	result, err := g.Env.Runner.Run(ctx, shell.Command{Argv: argv, Dir: g.Env.Config.Checkout, Timeout: readTimeout})
+	result, err := g.Token.Run(ctx, g.Env.Runner, shell.Command{Argv: argv, Dir: g.Env.Config.Checkout, Timeout: readTimeout})
 	if err != nil {
 		return gateStatus{}, err
 	}

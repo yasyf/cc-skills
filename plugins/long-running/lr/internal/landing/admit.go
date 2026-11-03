@@ -17,6 +17,7 @@ import (
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bkread"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/board"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
@@ -60,6 +61,7 @@ type Gates struct {
 	Rulings  string
 	Session  func() (string, error)
 	Build    BuildFailures
+	Token    bkread.Token
 	Now      func() time.Time
 	Log      *slog.Logger
 
@@ -72,7 +74,8 @@ func NewGates(a *app.App, s *store.Store, cfg config.Config, runnerPath string) 
 		return nil, err
 	}
 	var landing struct {
-		Build BuildFailures `json:"build_failures"`
+		Build        BuildFailures `json:"build_failures"`
+		TokenCommand []string      `json:"ci_token_command"`
 	}
 	if err := json.Unmarshal(runner.Sections["landing"], &landing); err != nil {
 		return nil, fmt.Errorf("%s: landing: %w", runnerPath, err)
@@ -91,7 +94,7 @@ func NewGates(a *app.App, s *store.Store, cfg config.Config, runnerPath string) 
 			}
 			return entry.Root(), nil
 		},
-		Build: landing.Build, Now: a.Now, Log: a.Log,
+		Build: landing.Build, Token: bkread.Token{Command: landing.TokenCommand}, Now: a.Now, Log: a.Log,
 	}, nil
 }
 
@@ -345,7 +348,7 @@ func (g *Gates) annotated(ctx context.Context, url string) (map[string]string, e
 	found := buildURL.FindStringSubmatch(url)
 	words := strings.Fields(strings.NewReplacer("{pipeline}", found[1], "{number}", found[2]).Replace(g.Build.Annotations))
 	words[0] = filepath.Join(g.Checkout, words[0])
-	result, err := g.Runner.Run(ctx, shell.Command{Argv: words, Dir: g.Checkout, Timeout: trunkReadLimit})
+	result, err := g.Token.Run(ctx, g.Runner, shell.Command{Argv: words, Dir: g.Checkout, Timeout: trunkReadLimit})
 	if err != nil {
 		return nil, err
 	}

@@ -10,12 +10,16 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bkread"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
-const promotionURL = "https://buildkite.com/org/release/builds/12272"
+const (
+	promotionURL = "https://buildkite.com/org/release/builds/12272"
+	tokenTool    = "print-read-token"
+)
 
 var promotionStarted = time.Date(2026, 11, 2, 23, 30, 0, 0, pacificZone)
 
@@ -42,10 +46,13 @@ func releaseBuildsIn(t *testing.T, s *store.Store, feed *string, rows ...client.
 	t.Helper()
 	bus := &fakeBus{tail: rows}
 	env := Env{Bus: bus, Config: config.Config{Drive: testDrive, Checkout: "/checkout"}, Runner: scripted(func(argv []string) (shell.Result, error) {
+		if argv[0] == tokenTool {
+			return shell.Result{Stdout: "read-token\n"}, nil
+		}
 		contains(t, strings.Join(argv, " "), "tools/ci bk api /organizations/org/pipelines/release/builds?per_page=20")
 		return shell.Result{Stdout: *feed}, nil
 	})}
-	return &ReleaseBuilds{Env: env, Store: s, Pipelines: []string{"org/release"}, CLI: []string{"tools/ci", "bk"}, Log: slog.Default()}, bus
+	return &ReleaseBuilds{Env: env, Store: s, Pipelines: []string{"org/release"}, CLI: []string{"tools/ci", "bk"}, Token: bkread.Token{Command: []string{tokenTool}}, Log: slog.Default()}, bus
 }
 
 func watchBuilds(t *testing.T, check *ReleaseBuilds, at time.Time) {

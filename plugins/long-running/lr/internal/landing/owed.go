@@ -13,6 +13,7 @@ import (
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bkread"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
@@ -46,6 +47,7 @@ type ReleaseOwed struct {
 	Repo       string
 	Owner      string
 	CLI        []string
+	Token      bkread.Token
 	Checkout   string
 	Every      time.Duration
 	Urgent     time.Duration
@@ -86,14 +88,15 @@ func NewReleaseOwed(a *app.App, s *store.Store, cfg config.Config, runnerPath st
 		return nil, err
 	}
 	var landing struct {
-		Owner string `json:"release_owner"`
-		CLI   string `json:"release_cli"`
+		Owner        string   `json:"release_owner"`
+		CLI          string   `json:"release_cli"`
+		TokenCommand []string `json:"ci_token_command"`
 	}
 	if err := json.Unmarshal(runner.Sections["landing"], &landing); err != nil {
 		return nil, fmt.Errorf("%s: landing: %w", runnerPath, err)
 	}
 	return &ReleaseOwed{
-		Runner: a.Runner, CCX: a.CCX, Store: s, Squash: squash, Drive: cfg.Drive, Repo: cfg.Repo, Owner: landing.Owner, CLI: strings.Fields(landing.CLI), Checkout: cfg.Checkout,
+		Runner: a.Runner, CCX: a.CCX, Store: s, Squash: squash, Drive: cfg.Drive, Repo: cfg.Repo, Owner: landing.Owner, CLI: strings.Fields(landing.CLI), Token: bkread.Token{Command: landing.TokenCommand}, Checkout: cfg.Checkout,
 		Every:      time.Duration(runner.Deadlines.ReleaseStartMinutes) * time.Minute,
 		Urgent:     time.Duration(runner.Deadlines.IncidentReleaseMinutes) * time.Minute,
 		Cut:        time.Duration(runner.Deadlines.CutMinutes) * time.Minute,
@@ -251,7 +254,7 @@ func (r *ReleaseOwed) incident(ctx context.Context, pr store.PR) (bool, error) {
 }
 
 func (r *ReleaseOwed) shipped(ctx context.Context, sha string, components []string) (bool, error) {
-	result, err := r.Runner.Run(ctx, shell.Command{Argv: append(slices.Clone(r.CLI), "live", "--json"), Dir: r.Checkout, Timeout: trunkReadLimit})
+	result, err := r.Token.Run(ctx, r.Runner, shell.Command{Argv: append(slices.Clone(r.CLI), "live", "--json"), Dir: r.Checkout, Timeout: trunkReadLimit})
 	if err != nil {
 		r.Log.Warn("what is live did not read", "err", err)
 		return false, nil
@@ -548,7 +551,7 @@ func (r *ReleaseOwed) publish(ctx context.Context, landing owedLanding) error {
 		}
 		release = found[1]
 	}
-	result, err := r.Runner.Run(ctx, shell.Command{Argv: append(slices.Clone(r.CLI), "live", release, "--json"), Dir: r.Checkout, Timeout: trunkReadLimit})
+	result, err := r.Token.Run(ctx, r.Runner, shell.Command{Argv: append(slices.Clone(r.CLI), "live", release, "--json"), Dir: r.Checkout, Timeout: trunkReadLimit})
 	if err != nil {
 		r.Log.Warn("a release's live state did not read", "release", release, "err", err)
 		return nil

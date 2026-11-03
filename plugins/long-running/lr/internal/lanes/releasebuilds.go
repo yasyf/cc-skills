@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bkread"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -36,6 +37,7 @@ type ReleaseBuilds struct {
 	Store     *store.Store
 	Pipelines []string
 	CLI       []string
+	Token     bkread.Token
 	Log       *slog.Logger
 	read      time.Time
 	after     int64
@@ -136,7 +138,7 @@ func (r *ReleaseBuilds) builds(ctx context.Context) ([]releaseBuild, error) {
 	for _, slug := range r.Pipelines {
 		org, pipeline, _ := strings.Cut(slug, "/")
 		path := fmt.Sprintf("/organizations/%s/pipelines/%s/builds?per_page=%d", org, pipeline, buildsRead)
-		result, err := r.Env.Runner.Run(ctx, shell.Command{Argv: append(slices.Clone(r.CLI), "api", path), Dir: r.Env.Config.Checkout, Timeout: readTimeout})
+		result, err := r.Token.Run(ctx, r.Env.Runner, shell.Command{Argv: append(slices.Clone(r.CLI), "api", path), Dir: r.Env.Config.Checkout, Timeout: readTimeout})
 		if err != nil {
 			return nil, err
 		}

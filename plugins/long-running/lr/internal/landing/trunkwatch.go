@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bkread"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
@@ -38,7 +39,6 @@ const (
 
 var (
 	squashedPR  = regexp.MustCompile(`\(#(\d+)\)$`)
-	refused401  = regexp.MustCompile(`failed: 401\b`)
 	buildURL    = regexp.MustCompile(`/([\w.-]+)/builds/(\d+)/?$`)
 	trunkRed    = regexp.MustCompile(`^(?:DEV-RED|POST-MERGE-RED) (?:for|since) `)
 	failedTest  = regexp.MustCompile(`(?m)--- FAIL: ([\w.-]+)|^test (\S+) \.\.\. FAILED|^\s*FAIL \[\s*[\d.]+s\] \S+ (\S+)|^\s*● .+ › (.+?)\s*$`)
@@ -69,7 +69,7 @@ type TrunkWatch struct {
 	Now      func() time.Time
 
 	builds  map[string]*trunkBuild
-	token   string
+	token   bkread.Token
 	redSaid string
 	calm    bool
 }
@@ -142,7 +142,7 @@ func (j trunkJob) retriedGreen() bool {
 }
 
 func (w *TrunkWatch) Pass(ctx context.Context) error {
-	w.builds, w.token = map[string]*trunkBuild{}, ""
+	w.builds, w.token = map[string]*trunkBuild{}, bkread.Token{Command: w.Config.TokenCommand}
 	history, err := w.history(ctx)
 	if err != nil {
 		return err
@@ -188,36 +188,11 @@ func (w *TrunkWatch) bk(ctx context.Context, url, suffix string) (string, error)
 }
 
 func (w *TrunkWatch) readBuildkite(ctx context.Context, argv []string) (string, error) {
-	if w.token == "" {
-		token, err := w.readToken(ctx)
-		if err != nil {
-			return "", err
-		}
-		w.token = token
+	result, err := w.token.Run(ctx, w.Runner, shell.Command{Argv: argv, Dir: w.Checkout, Timeout: trunkReadLimit})
+	if errors.Is(err, bkread.ErrRefused) {
+		return "", fmt.Errorf("not a red build: DEV-RED still posts from GitHub's statuses; job comparisons and flake reports wait for a pass that can read the build: %w", err)
 	}
-	result, err := w.Runner.Run(ctx, shell.Command{Argv: argv, Dir: w.Checkout, Env: []string{"BUILDKITE_TOKEN=" + w.token}, Timeout: trunkReadLimit})
-	if err == nil {
-		return result.Stdout, nil
-	}
-	if refused401.MatchString(err.Error()) {
-		return "", fmt.Errorf("auth failure, not a red build: Buildkite refused the token landing.ci_token_command printed. DEV-RED still posts from GitHub's statuses; job comparisons and flake reports wait for a pass that can read the build: %w", err)
-	}
-	return "", err
-}
-
-func (w *TrunkWatch) readToken(ctx context.Context) (string, error) {
-	if len(w.Config.TokenCommand) == 0 {
-		return "", errors.New("landing.ci_build needs landing.ci_token_command, the command that prints this host's read-only Buildkite token")
-	}
-	printed, err := w.Runner.Run(ctx, shell.Command{Argv: w.Config.TokenCommand, Timeout: trunkReadLimit})
-	if err != nil {
-		return "", fmt.Errorf("landing.ci_token_command failed: %w", err)
-	}
-	token := strings.TrimSpace(printed.Stdout)
-	if token == "" {
-		return "", errors.New("landing.ci_token_command printed nothing")
-	}
-	return token, nil
+	return result.Stdout, err
 }
 
 func (w *TrunkWatch) build(ctx context.Context, url string) (*trunkBuild, error) {

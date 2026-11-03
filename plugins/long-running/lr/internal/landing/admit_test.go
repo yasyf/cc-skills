@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bkread"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/landing"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
@@ -232,6 +233,8 @@ func buildGates(t *testing.T, files, atHead, atBase string) *gateFixture {
 	t.Helper()
 	f := newGates(t)
 	f.gates.Build = landing.BuildFailures{Tree: "go/sand/next/", Context: "go-build-failed-sand-next-tests", Annotations: "tools/ci bk api /pipelines/{pipeline}/builds/{number}/annotations"}
+	f.gates.Token = bkread.Token{Command: []string{tokenTool}}
+	f.fake.Reply("read-token\n", tokenTool)
 	gh := []string{"ccx", "vcs", "gh", "--max-age", "5m", "--", "api"}
 	f.fake.Reply(files, append(slices.Clone(gh), "--paginate")...)
 	f.fake.Reply(statusOf(gateBuild), append(slices.Clone(gh), "repos/"+monorepo+"/commits/"+gateHead(1)+"/status")...)
@@ -251,6 +254,25 @@ func TestABuildBreakInTheSoftFailedTreeStaysOutOfTheQueue(t *testing.T) {
 	got := gateRecords(t, "blocker")
 	if len(got) != 1 || !strings.HasPrefix(got[0].Text, "BUILD-FAILED #1: go/sand/next/run fails to build at e718a7434f on "+gateBuild+": undefined: Foo") || !slices.Equal(got[0].To, []string{"lane-7", "root"}) {
 		t.Fatalf("blockers = %+v", got)
+	}
+}
+
+func TestTheBuildGateReadsAnnotationsWithTheReadToken(t *testing.T) {
+	f := buildGates(t, "go/sand/next/run.go\n", buildAnnotation("go/sand/next/run undefined: Foo"), `[]`)
+
+	f.admit(t, []pass.Act{enqueueAct(1, "one", "dev")})
+
+	read := 0
+	for _, call := range f.fake.Calls() {
+		if call.Argv[0] == ciTool {
+			read++
+			if !slices.Equal(call.Env, []string{"BUILDKITE_TOKEN=read-token"}) {
+				t.Fatalf("%v ran with env %v, want the read token", call.Argv, call.Env)
+			}
+		}
+	}
+	if read == 0 {
+		t.Fatal("the gate read no annotations")
 	}
 }
 

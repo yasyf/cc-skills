@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bkread"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -41,6 +42,7 @@ type PageWatch struct {
 	Store    *store.Store
 	Channels []string
 	BuildCLI string
+	Token    bkread.Token
 	Log      *slog.Logger
 
 	after  int64
@@ -152,7 +154,7 @@ func (w *PageWatch) readFinished(ctx context.Context) error {
 		}
 		words := strings.Fields(strings.NewReplacer("{pipeline}", found[1], "{number}", found[2]).Replace(w.BuildCLI))
 		words[0] = filepath.Join(w.Env.Config.Checkout, words[0])
-		done, err := w.Env.Runner.Run(ctx, shell.Command{Argv: words, Dir: w.Env.Config.Checkout, Timeout: readTimeout})
+		done, err := w.Token.Run(ctx, w.Env.Runner, shell.Command{Argv: words, Dir: w.Env.Config.Checkout, Timeout: readTimeout})
 		if err != nil {
 			w.Log.Warn("a release build did not read", "build", build, "err", err)
 			continue
