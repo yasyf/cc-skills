@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -82,7 +83,7 @@ def test_a_prompt_on_the_communicator_adds_a_row_with_its_full_text(communicator
 
     [row] = communicator.rows()
     assert re.fullmatch(r"\| m1 \| \w{3} \d{1,2} \d{1,2}:\d{2} [AP]M \| keep the report \\\| the nightly one<br>and the weekly \|  \| open \|", row)
-    assert "`lr owner mark m1 responded --drive brook`" in result.message
+    assert f"`{owner_ledger.LR} owner mark m1 responded|addressed [--routed <seq>] --drive brook`" in result.message
 
 
 def test_rows_continue_the_hand_ledger_and_keep_it(communicator: Window) -> None:
@@ -121,8 +122,20 @@ def test_stop_with_an_open_row_refuses_naming_the_row_and_the_verb(communicator:
     [result] = communicator.stop()
 
     assert result.action == Action.block
-    assert "`lr owner mark <row> responded|addressed [--routed <seq>] --drive brook`" in result.message
+    assert f"`{owner_ledger.LR} owner mark <row> responded|addressed [--routed <seq>] --drive brook`" in result.message
     assert "m1 Nov 2 8:05 PM: keep the nightly report" in result.message
+
+
+def test_the_marks_the_hooks_name_run_the_packs_own_lr() -> None:
+    assert owner_ledger.LR == Path(__file__).parents[1] / "bin" / "lr"
+    assert owner_ledger.LR.exists()
+
+
+def test_the_lr_this_pack_pins_has_the_verb_and_flags_the_hooks_name() -> None:
+    done = subprocess.run([str(owner_ledger.LR), "owner", "mark", "--help"], capture_output=True, text=True, timeout=120, check=True)
+
+    assert "lr owner mark ROW responded|addressed" in done.stdout
+    assert "--routed" in done.stdout and "--drive" in done.stdout
 
 
 def test_marked_rows_allow_stop(communicator: Window) -> None:
