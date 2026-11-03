@@ -21,7 +21,10 @@ func TestEachAnswerClassifiesByWhetherItCarriesTheOwnersWords(t *testing.T) {
 		{`{"type":"triage.decided","verdicts":{"202":{"verdict":"rejected","note":"split it"}}}`, answerNoted},
 		{`{"type":"input.submitted","text":"also check the share menu"}`, answerFreeText},
 		{`{"type":"feedback.created","text":"say who can open it"}`, answerFreeText},
-		{`{"type":"pack.interaction","payload":{"row":"a"}}`, answerFreeText},
+		{`{"type":"pack.interaction","payload":{"fork":"b"}}`, answerStructured},
+		{`{"type":"pack.interaction","payload":{}}`, answerNone},
+		{`{"type":"pack.interaction"}`, answerNone},
+		{`{"type":"reply.unmatched","text":"which one?"}`, answerFreeText},
 		{`{"type":"submit","revision":3}`, answerNone},
 	} {
 		got, err := ClassifyAnswer([]byte(test.event))

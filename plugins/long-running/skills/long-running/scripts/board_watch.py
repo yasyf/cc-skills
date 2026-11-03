@@ -32,11 +32,11 @@ triage.decided and submit also reaches the drive's bus the moment it arrives, so
 tap: one `cci post --kind owner` from lane `board-watch` names the card title and block
 id, the verdict, picked option labels or the owner's text verbatim, each merge row's head, and the
 time. `lr board classify` routes it, and its `answer` attribute says which way: `structured` (an
-option tap, an approval or rejection, a merge-row verdict) and `noted` (a verdict with a note) go to
-all and to `owner-relay`, and resolve every open `ask`, `blocker` or `hold` whose text names the
-block, its card, or the merge row (`merge-row-<pr>` or `merge:<pr>`); `free-text` (a write-in, a
-note, an input, a pack reply) goes to `owner-relay` alone and resolves nothing, since the
-communicator routes it; `none` (a submit, an emptied choice) goes to all. Each answer also adds a row
+option tap, a pack pick, an approval or rejection, a merge-row verdict) and `noted` (a verdict with a
+note) go to all and to `owner-relay`, and resolve every open `ask`, `blocker` or `hold` whose text
+names the block, its card, or the merge row (`merge-row-<pr>` or `merge:<pr>`); `free-text` (a
+write-in, a note, an input, any other reply) goes to `owner-relay` alone and resolves nothing, since
+the communicator routes it; `none` (a submit, an emptied choice) goes to all. Each answer also adds a row
 to the communicator's owner ledger with `lr owner add`: `addressed` at its record for `structured`,
 `open` for `noted` and `free-text`. Its idempotency key is the event's line number
 in the events file plus a hash of the line, so a restart that resumes from the watch's cursor
@@ -58,7 +58,7 @@ owner record is posted again as an `ask` to all on topic `uncited:<block>`, and 
 `blocker` to root, each once, keyed `uncited:<seq>` and `uncited-blocker:<seq>`.
 
 Each structured pick on the drive root's newest board, a choice.selected with option ids and no
-`other`, also asks root for a lane at once, unless it answers an
+`other` or a pack pick, also asks root for a lane at once, unless it answers an
 open ask a lane other than root posted, since that lane already waits on it: one `ccn task add`
 on the backlog of the drive's checkout, labelled `program:<program>` and `needs-lane`, and one
 `cci post --kind ask --to root` from `board-watch` on topic `needs-lane:<block>`, keyed by the
@@ -152,6 +152,7 @@ STRUCTURED = "structured"
 NOTED = "noted"
 FREE_TEXT = "free-text"
 NO_ANSWER = "none"
+LANE_PICKS = frozenset({"choice.selected", "pack.interaction"})
 ANSWER_TO = {STRUCTURED: f"all,{RELAY_LANE}", NOTED: f"all,{RELAY_LANE}", FREE_TEXT: RELAY_LANE, NO_ANSWER: "all"}
 WORDS_CHARS = 300
 CCN_SECONDS = 60
@@ -421,7 +422,7 @@ def announce(event: dict, line: str, session: str, doc: dict | None, shell: Shel
     answer = answer_of(event, session, shell)
     answered = post_owner(shell, bus, key, announced(event, session, doc), block, named(event, doc), [], fields, answer)
     register(event, key, session, doc, shell, bus.drive)
-    if answer == STRUCTURED and event["type"] == "choice.selected" and shell.root_session(bus.drive) in (None, session) and all(record["lane"] in ROOT_LANES for record in answered):
+    if answer == STRUCTURED and event["type"] in LANE_PICKS and shell.root_session(bus.drive) in (None, session) and all(record["lane"] in ROOT_LANES for record in answered):
         ask_lane(event, key, session, doc, shell, bus)
 
 

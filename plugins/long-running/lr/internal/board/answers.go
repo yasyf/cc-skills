@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"slices"
 
 	"github.com/spf13/cobra"
 )
@@ -15,11 +16,14 @@ const (
 	answerNone       = "none"
 )
 
+var emptyPayloads = []string{"", "null", "{}", "[]", `""`}
+
 type answerEvent struct {
-	Type      string   `json:"type"`
-	OptionIDs []string `json:"optionIds"`
-	Other     string   `json:"other"`
-	Note      string   `json:"note"`
+	Type      string          `json:"type"`
+	OptionIDs []string        `json:"optionIds"`
+	Other     string          `json:"other"`
+	Note      string          `json:"note"`
+	Payload   json.RawMessage `json:"payload"`
 	Verdicts  map[string]struct {
 		Note string `json:"note"`
 	} `json:"verdicts"`
@@ -49,6 +53,11 @@ func ClassifyAnswer(event []byte) (string, error) {
 			if verdict.Note != "" {
 				return answerNoted, nil
 			}
+		}
+		return answerStructured, nil
+	case "pack.interaction":
+		if slices.Contains(emptyPayloads, string(answer.Payload)) {
+			return answerNone, nil
 		}
 		return answerStructured, nil
 	case "submit":

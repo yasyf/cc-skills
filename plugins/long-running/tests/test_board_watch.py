@@ -27,6 +27,8 @@ def answer_kind(event: dict) -> str:
             return "noted" if event.get("note") else "structured"
         case "triage.decided":
             return "noted" if any(row.get("note") for row in event["verdicts"].values()) else "structured"
+        case "pack.interaction":
+            return "structured" if event.get("payload") else "none"
         case "submit":
             return "none"
     return "free-text"
