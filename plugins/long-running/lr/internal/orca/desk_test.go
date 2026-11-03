@@ -1840,6 +1840,67 @@ func TestAQuestionFromALaneAnotherLaneLaunchedGoesToThatLane(t *testing.T) {
 	}
 }
 
+func stopNotice(id string, sequence int64) orcaMessage {
+	message := runMessage(id, typeEscalation, testTerminal, sequence)
+	message.Subject = "Worker stopped without reporting"
+	return message
+}
+
+func (w *deskWorld) launchedBy(by string) {
+	w.t.Helper()
+	w.live(testLane, testDispatch, testTerminal)
+	brief := w.brief(testLane, testBrief)
+	if _, _, err := w.desk.acceptLaunch("R1", testLane, launchTarget{Model: "opus", Effort: "xhigh", Brief: brief, By: by}); err != nil {
+		w.t.Fatal(err)
+	}
+}
+
+func TestAStopOfALaneTheCommunicatorLaunchedGoesToRootAndItsQuestionToTheCommunicator(t *testing.T) {
+	w := newDeskWorld(t)
+	w.launchedBy(lanes.OwnerRelay)
+	w.checked(stopNotice("msg_s", 1))
+	if last := w.posts[len(w.posts)-1]; !slices.Equal(last.To, []string{coordinatorLane}) || last.Kind != "decide" {
+		t.Fatal(last)
+	}
+	w.checked(runMessage("msg_q", typeQuestion, testTerminal, 2))
+	if last := w.posts[len(w.posts)-1]; !slices.Equal(last.To, []string{lanes.OwnerRelay}) || last.Kind != "decide" {
+		t.Fatal(last)
+	}
+}
+
+func TestAStopOfALaneAnotherDeskLaunchedStillGoesToThatDesk(t *testing.T) {
+	w := newDeskWorld(t)
+	w.launchedBy("meta-desk-1")
+	w.checked(stopNotice("msg_s", 1))
+	if last := w.posts[len(w.posts)-1]; !slices.Equal(last.To, []string{"meta-desk-1"}) {
+		t.Fatal(last)
+	}
+}
+
+func TestARepeatStopOnOneTerminalCollapsesIntoItsOpenRecordUntilThatCloses(t *testing.T) {
+	w := newDeskWorld(t)
+	w.launchedBy("meta-desk-1")
+	w.checked(stopNotice("msg_s1", 1))
+	stop := len(w.records) - 1
+	w.records[stop].Status = recordOpen
+	w.checked(stopNotice("msg_s2", 2))
+	w.wantEscalation("DECIDE msg_s1 lane-a: ")
+	w.noEscalation("DECIDE msg_s2 ")
+	w.records[stop].Status = "closed"
+	w.checked(stopNotice("msg_s3", 3))
+	w.wantEscalation("DECIDE msg_s3 lane-a: ")
+}
+
+func TestARepeatOfAnEscalationThatIsNoStopIsNotCollapsed(t *testing.T) {
+	w := newDeskWorld(t)
+	w.launchedBy("meta-desk-1")
+	w.checked(runMessage("msg_e1", typeEscalation, testTerminal, 1))
+	w.records[len(w.records)-1].Status = recordOpen
+	w.checked(runMessage("msg_e2", typeEscalation, testTerminal, 2))
+	w.wantEscalation("DECIDE msg_e1 lane-a: ")
+	w.wantEscalation("DECIDE msg_e2 lane-a: ")
+}
+
 func (w *deskWorld) pooledLane(name, role string, prs ...int) {
 	w.t.Helper()
 	w.live(name, "ctx_"+name, "term_"+name)
