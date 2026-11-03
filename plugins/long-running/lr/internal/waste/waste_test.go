@@ -91,6 +91,7 @@ type world struct {
 
 func newWorld(t *testing.T) *world {
 	t.Helper()
+	t.Setenv("CCI_HOME", t.TempDir())
 	cfg := defaults()
 	cfg.HookLogs = t.TempDir()
 	return &world{bus: &fakeBus{}, runner: &fakeRunner{files: map[string]string{}}, cfg: cfg}
@@ -660,6 +661,20 @@ func TestAQuietWindowPostsNothing(t *testing.T) {
 	w := newWorld(t)
 	w.session("lane-1", "s-1", assistant(inside, "r", 10, bash("ls")))
 	w.bus.records = deliveries(1, "dead-1")
+	p, posts := poster(t, w)
+
+	pass(t, p)
+
+	equal(t, len(*posts), 0)
+}
+
+func TestDeliveriesToAStemWhoseLaneStillPostsAreNeverDead(t *testing.T) {
+	w := newWorld(t)
+	w.cfg.Lane = "meta-desk"
+	if _, err := client.Post(context.Background(), client.Draft{Drive: testDrive.Drive, Lane: "desk-3", Kind: "state", Text: "desk-3 up"}); err != nil {
+		t.Fatal(err)
+	}
+	w.bus.records = append(deliveries(30, "desk"), rec(inside, "desk-3", "working"))
 	p, posts := poster(t, w)
 
 	pass(t, p)
