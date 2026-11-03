@@ -45,7 +45,6 @@ from .tests.brief_fixtures import INCIDENT_ADJACENT, INCIDENT_TURN, NOT_AN_INCID
 from .tests.handoff_fixtures import reply_transcript
 from .tests.register_fixtures import DRIVE_CONFIG
 from .tests.incident_fixtures import (
-    BARE_INCIDENT,
     CLOSED_0820,
     OUTAGE_0820,
     OUTAGE_TWO,
@@ -131,8 +130,6 @@ PLAN_MODE_IN_INCIDENT = (
     "Warning, nothing was blocked: plan mode is forbidden while a customer-visible outage is open; the forward fix ships from the lane that holds it;"
     " replan after fix-live"
 )
-RECORD_SEQ = re.compile(r"#\d")
-OFF_INCIDENT_ASK = "Warning, nothing was blocked: the alert is active: no owner question on other work; the incident's own ask names {names}"
 ROOT_PROBE = "Warning, nothing was blocked: during an incident the root only spawns, routes, and acks: send this to a lane (desk-launch.py lane ...)"
 PROBES = ("kubectl", "pup", "curl")
 PLAN_TALK = re.compile(r"\bplan[ -]?mode\b|\breplan\b", re.IGNORECASE)
@@ -476,34 +473,6 @@ def read_release_live(evt: BaseHookEvent) -> bool:
     )
 
 
-def question_text(evt: BaseHookEvent) -> str:
-    questions = evt._tool_input.get("questions") or []
-    options = [option for question in questions for option in question.get("options") or []]
-    return "\n".join(
-        [question.get("question", "") for question in questions]
-        + [f"{option.get('label', '')} {option.get('description', '')} {option.get('preview', '')}" for option in options]
-    )
-
-
-def ask(question: str, *, incidents: tuple[dict, ...] = (), posted: tuple[dict, ...] = (), **option: str) -> Input:
-    questions = [{"question": question, "header": "Ask", "options": [{"label": "Go", **option}, {"label": "Hold"}], "multiSelect": False}]
-    return Input(
-        tool="AskUserQuestion",
-        tool_input={"questions": questions},
-        state=ACTIVE,
-        commands=incident_sources(*incidents, posted=posted),
-    )
-
-
-def incident_label(incidents: list[tuple[str, ...]]) -> str:
-    readable = [next((name for name in names if not RECORD_SEQ.search(name)), "") for names in incidents]
-    return ", ".join(name for name in readable if name) or "its target, topic, or record number"
-
-
-def names_an_incident(text: str, names: tuple[str, ...]) -> bool:
-    return any(re.search(rf"(?<!\w){re.escape(name)}(?!\w)", text, re.IGNORECASE) for name in names)
-
-
 def shown(value: object, where: str = "document", key: str = "") -> Iterator[tuple[str, str]]:
     match value:
         case str() if key in SHOWN:
@@ -723,44 +692,11 @@ def status_card(phrase: str = "", **card: object) -> Input:
     return Input(tool=SLACK_CARD, tool_input={"card": card}, state=PROGRAM_ACTIVE, env=DRIVE_CONFIG, commands={**PLAIN_READS, **judged(phrase)})
 
 
-def drive_ask(question: str, phrase: str = "", **option: str) -> Input:
-    asked = ask(question, **option)
-    return Input(tool="AskUserQuestion", tool_input=asked.tool_input, state=PROGRAM_ACTIVE, env=DRIVE_CONFIG, commands={**asked.commands, **PLAIN_READS, **judged(phrase)})
-
-
-def off_incident_question(evt: BaseHookEvent) -> HookResult | None:
-    if (incidents := open_incidents(evt)) and not any(names_an_incident(question_text(evt), names) for names in incidents):
-        return evt.context(OFF_INCIDENT_ASK.format(names=incident_label(incidents)))
-    return None
-
-
 @on(
     Event.PreToolUse,
-    only_if=[Communicator(), Tool("AskUserQuestion", "Bash", SLACK_CARD)],
+    only_if=[Communicator(), Tool("Bash", SLACK_CARD)],
     skip_if=[FromSubagent()],
     tests=separate("owner_facing.plain_words_in_owner_questions", communicator_tests({
-        drive_ask("D gate: the plan said dry-run before enqueue. Which gate?", "D gate"): Warn(pattern=r'^Warning, nothing was blocked: Owner-facing text must read in plain words[\s\S]*plain words, "D gate"'),
-        drive_ask("Lift the hold?", "G304", description="walker walks the reverted HEAD after G304 lifts"): Warn(pattern=r'plain words, "G304"'),
-        drive_ask('Proposed reply to Andrew in #platform-squad: "No design conflict." OK to post?', "Proposed reply to Andrew"): Warn(pattern=r'plain words, "Proposed reply to Andrew"'),
-        drive_ask("Post the Slack lane's reply to Andrew?", preview="Thanks, no design conflict with anything in flight."): Allow(),
-        Input(
-            tool="AskUserQuestion",
-            tool_input=ask("Lift the hold?").tool_input,
-            state=PROGRAM_ACTIVE,
-            env=DRIVE_CONFIG,
-            commands={**ask("Lift the hold?").commands, **PLAIN_READS, JUDGE: (1, "claude: overloaded")},
-        ): Allow(),
-        ask("D gate: the plan said dry-run before enqueue. Which gate?"): Allow(),
-        Input(tool="AskUserQuestion", tool_input={"questions": [{"question": "D gate?", "options": []}]}, agent_id="a1b2c3", state=ACTIVE): Allow(),
-        ask("Should I extend the backlog deadline to 11:30?", incidents=(SAND_NOT_MIGRATED,)): Warn(pattern=r"the alert is active[\s\S]*sand-not-migrated"),
-        ask("sand-not-migrated: approve the 0-delete apply on plat?", incidents=(SAND_NOT_MIGRATED,)): Allow(),
-        ask("Approve the 0-delete sand apply on plat?", incidents=(SAND_NOT_MIGRATED,)): Allow(),
-        ask("Should I extend the backlog deadline to 11:30?", incidents=(SAND_NOT_MIGRATED | {"status": "closed"},)): Allow(),
-        ask("Should I extend the backlog deadline to 11:30?", posted=(OUTAGE_TWO,)): Warn(pattern=r"the alert is active[\s\S]*outage-two"),
-        ask("Roll the executor back for outage two (#102819)?", posted=(OUTAGE_TWO,)): Allow(),
-        ask("Should I extend the thousand-row backlog?", incidents=(SAND_NOT_MIGRATED,)): Warn(pattern=r"the alert is active"),
-        ask("Should I extend the backlog deadline to noon?", posted=(BARE_INCIDENT,)): Warn(pattern=r"names its target, topic, or record number"),
-        ask("Hand-publish sand for #103958?", posted=(BARE_INCIDENT,)): Allow(),
         status_card("slice", title="Merge the slice for lane p1a?", body="Its checks passed.", options=["Merge", "Hold"]): Warn(pattern=r'plain words, "slice"'),
         status_card(title="Merge the chat-list fix?", body="Its checks passed.", options=["Merge #42301", "Hold"]): Allow(),
         Input(
@@ -795,15 +731,10 @@ def off_incident_question(evt: BaseHookEvent) -> HookResult | None:
     })),
 )
 def plain_words_in_owner_questions(evt: BaseHookEvent) -> HookResult | None:
-    if not CompactionState.load(evt).active:
-        return None
-    if evt.tool_name == "AskUserQuestion" and (warned := off_incident_question(evt)):
-        return warned
-    if not (which := drive_args(evt)):
+    if not CompactionState.load(evt).active or not (which := drive_args(evt)):
         return None
     reads = Reads(evt, which)
-    texts = [question_text(evt)] if evt.tool_name == "AskUserQuestion" else [text for _, text in owner_strings(evt, reads)]
-    problems = plain_words(texts, reads)
+    problems = plain_words([text for _, text in owner_strings(evt, reads)], reads)
     reads.report("plain_words_in_owner_questions")
     if reads.failures or not (problems := unsaid(evt, problems)):
         return None
@@ -975,20 +906,13 @@ def board_text(evt: BaseHookEvent, use) -> str:
 
 
 def asked_subjects(evt: BaseHookEvent) -> set[str]:
-    questions = evt.ctx.t.tool_calls.named("AskUserQuestion").items
     boards = evt.ctx.turn.tool_calls.named("Bash").items
-    texts = [json.dumps(use.call.raw, ensure_ascii=False) for use in questions if use.result is None]
-    texts += [board_text(evt, use) for use in boards if posts_board(use)]
-    return set().union(*map(subjects, texts))
+    return set().union(*(subjects(board_text(evt, use)) for use in boards if posts_board(use)))
 
 
 DRIVE_INBOX = "/home/u/.claude/scratch/drive/inbox/deploy-go.md"
-ROUTING_QUESTION = T.assistant(
-    T.tool("AskUserQuestion", questions=[{"question": "Switch acme routing to cluster-b now?", "options": [{"label": "Switch"}, {"label": "Hold"}]}])
-)
-MERGE_QUESTION = T.assistant(
-    T.tool("AskUserQuestion", questions=[{"question": "Merge #30502 now?", "options": [{"label": "Merge"}, {"label": "Hold"}]}])
-)
+ROUTING_QUESTION = T.assistant(T.tool("Bash", command="cc-present push - <<'EOF'\n{\"title\": \"Switch acme routing to cluster-b now?\"}\nEOF"))
+MERGE_QUESTION = T.assistant(T.tool("Bash", command="cc-present push - <<'EOF'\n{\"title\": \"Merge #30502 now?\"}\nEOF"))
 ROUTING_GO = f'echo "GO root (11:02 PM) acme-routing: switch acme routing to cluster-b now" >> {DRIVE_INBOX}'
 
 
@@ -1024,14 +948,6 @@ def authorize(*transcript: object, **call: object) -> Input:
         authorize(command=ROUTING_GO): Allow(),
         authorize(ROUTING_QUESTION, command=f'echo "STATE census (11:02 PM) acme routing question is open" >> {DRIVE_INBOX}'): Allow(),
         authorize(ROUTING_QUESTION, command=f'echo "GO root (11:02 PM) release-simplify-2: take over #30409" >> {DRIVE_INBOX}'): Allow(),
-        authorize(
-            T.tool_turn(
-                "AskUserQuestion",
-                result="Switch",
-                questions=[{"question": "Switch acme routing to cluster-b now?", "options": [{"label": "Switch"}, {"label": "Hold"}]}],
-            ),
-            command=ROUTING_GO,
-        ): Allow(),
         Input(
             transcript=[
                 T.user("ask the owner"),

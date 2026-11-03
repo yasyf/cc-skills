@@ -1,0 +1,120 @@
+package owner
+
+import (
+	"encoding/json"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+)
+
+func read(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
+}
+
+func staged(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "owner-ledger.md")
+	if err := os.WriteFile(path, []byte(read(t, filepath.Join("testdata", "ledger.md"))), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestMarkClosesOnlyTheNamedRow(t *testing.T) {
+	path := staged(t)
+	if err := Mark(path, "m2", responded, 346705); err != nil {
+		t.Fatal(err)
+	}
+	if err := Mark(path, "m1", addressed, 0); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := read(t, path), read(t, filepath.Join("testdata", "marked.md")); got != want {
+		t.Fatalf("got:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestARemarkKeepsTheRoutedRecord(t *testing.T) {
+	path := staged(t)
+	if err := Mark(path, "m1", addressed, 346705); err != nil {
+		t.Fatal(err)
+	}
+	if err := Mark(path, "m1", responded, 0); err != nil {
+		t.Fatal(err)
+	}
+	if want := "| m1 | Nov 2 8:05 PM | keep the nightly report | 346705 | responded |\n"; !strings.Contains(read(t, path), want) {
+		t.Fatalf("no %q in:\n%s", want, read(t, path))
+	}
+}
+
+func TestAnUnknownRowIsRefusedAndTheLedgerStaysWhole(t *testing.T) {
+	path := staged(t)
+	before := read(t, path)
+	for _, row := range []string{"m3", "m", "7:32 PM"} {
+		if err := Mark(path, row, responded, 0); err == nil || !strings.Contains(err.Error(), row) {
+			t.Fatalf("row %q: got %v, want a refusal naming it", row, err)
+		}
+	}
+	if got := read(t, path); got != before {
+		t.Fatalf("the ledger changed:\n%s", got)
+	}
+}
+
+func run(t *testing.T, args ...string) (string, error) {
+	t.Helper()
+	config := t.TempDir()
+	drives := filepath.Join(config, "long-running", "drives")
+	if err := os.MkdirAll(drives, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	state := filepath.Join(t.TempDir(), "brook")
+	entry, err := json.Marshal(map[string]any{"drive": "d1", "cci_drive": "brook", "state_dir": state, "sessions": []string{"s1"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(drives, "d1.json"), entry, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CLAUDE_CONFIG_DIR", config)
+	ledger := filepath.Join(state, "owner-relay", "owner-ledger.md")
+	if err := os.MkdirAll(filepath.Dir(ledger), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(ledger, []byte(read(t, filepath.Join("testdata", "ledger.md"))), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cmd := Command(&app.App{})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs(append(args, "--drive", "brook"))
+	err = cmd.Execute()
+	return read(t, ledger), err
+}
+
+func TestTheVerbMarksTheNamedDrivesLedger(t *testing.T) {
+	got, err := run(t, "mark", "m12", "responded", "--routed", "346705")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "| m12 | Nov 2 8:07 PM | release everything | 346705 | responded |\n"; !strings.Contains(got, want) {
+		t.Fatalf("no %q in:\n%s", want, got)
+	}
+}
+
+func TestTheVerbRefusesAnyOtherState(t *testing.T) {
+	got, err := run(t, "mark", "m1", "done")
+	if err == nil || !strings.Contains(err.Error(), "responded or addressed") {
+		t.Fatalf("got %v, want a refusal naming the two states", err)
+	}
+	if !strings.Contains(got, "| m1 | Nov 2 8:05 PM | keep the nightly report |  | open |\n") {
+		t.Fatalf("m1 changed:\n%s", got)
+	}
+}
