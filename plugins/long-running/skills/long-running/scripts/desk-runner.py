@@ -251,10 +251,10 @@ binding first. Mac load queues and refuses no launch. While the 1-minute load is
 core count, each ten minutes of it logs one `LOAD-HIGH` blocker telling the drive watchdog to
 move the load, a `role=desk` or `role=watch` launch starts on a Sprite at once, its `LAUNCHED`
 line naming the box, and a launch that may run only on the Mac starts there anyway: a brief
-whose `ccx:` line says `place=local`, a Fable or incident launch, an incident clock fallback,
-and a brief naming a file under this home outside the drive directory, which logs `MAC-FILES`
-to the lane that launched it. An incident launch also logs one `LOAD-INCIDENT` report naming
-the load. With no usable Sprite route a desk starts on the Mac too. Every other launch runs
+whose `ccx:` line says `place=local`, a Fable or incident launch, and an incident clock fallback.
+An incident launch also logs one `LOAD-INCIDENT` report naming the load. A desk with no usable
+Sprite route, or whose brief names a file under this home outside the drive directory, which no
+box receives, starts on the Mac too. Every other launch runs
 `orca.sprite.launcher`, the repository's worker-launch.sh, on a Sprite and never reads Mac
 load; the files a brief names under the drive directory, the directory holding this config,
 reach the box beside the brief at the same relative path. The runner counts no Sprites
@@ -3670,7 +3670,7 @@ class Runner:
         remote = refusal is None
         if not remote and (held := self.mac_over_load()):
             self.move_load(held)
-            remote = not self.pinned(spec) and self.sprite_fault(lane) is None
+            remote = not mac_pinned(spec) and not self.brief_files(spec)[1] and self.sprite_fault(lane) is None
             if spec["model"] == INCIDENT_MODEL:
                 self.escalate(f"{container}/{action.action_id}:load", "LOAD-INCIDENT", lane, f"{action.action_id} launches on {held}: an incident fix lane is never held for load", to=self.watchdog)
         if not self.book.attempt(container, lambda incident: incident.start(action.action_id, self.now(), deadline=actions.parse_stamp(action.deadline))):
@@ -3678,8 +3678,6 @@ class Runner:
         if remote:
             self.launch_sprite(container, lane, action)
             return
-        if not mac_pinned(spec) and (stranded := self.brief_files(spec)[1]):
-            self.escalate(f"{container}/{action.action_id}:mac-files", "MAC-FILES", lane, f"{action.action_id} stays on the Mac: its brief names {', '.join(stranded)}, which no remote box receives; only files under {self.config.source.parent} travel", to=self.launched_by(lane))
         self.launch_local(container, lane, action)
 
     def launch_local(self, container: str, lane: str, action: actions.Action) -> None:
@@ -3707,11 +3705,8 @@ class Runner:
     def brief_files(self, spec: dict) -> tuple[list[str], list[str]]:
         return lane_brief.named_files(brief_text(Path(spec["brief"])), self.config.source.parent)
 
-    def pinned(self, spec: dict) -> bool:
-        return mac_pinned(spec) or bool(self.brief_files(spec)[1])
-
     def launched_by(self, lane: str) -> str:
-        """The lane that posted `lane`'s newest launch line, or empty when root or a drive process did, so its questions and placement reach whoever launched it and otherwise the root."""
+        """The lane that posted `lane`'s newest launch line, or empty when root or a drive process did, so its questions reach whoever launched it and otherwise the root."""
         container = lane_container(lane)
         launches = self.book.actions(container, kind="launch") if self.book.exists(container) else []
         by = json.loads(launches[-1].target).get("by", ROOT) if launches else ROOT
@@ -3719,7 +3714,7 @@ class Runner:
 
     def sprite_refusal(self, lane: str, spec: dict) -> str | None:
         """Empty when the launch takes the Mac route for now, None when it takes a Sprite, or why the Sprite route it must take cannot start it."""
-        if self.pinned(spec) or STANDING_DESK.search(brief_text(Path(spec["brief"]))):
+        if mac_pinned(spec) or STANDING_DESK.search(brief_text(Path(spec["brief"]))):
             return ""
         return self.sprite_fault(lane)
 

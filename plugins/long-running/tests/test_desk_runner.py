@@ -14707,16 +14707,15 @@ def test_a_brief_naming_nothing_on_this_machine_sends_no_drive_files(shell, conf
     assert "WORKER_BRIEF_INPUTS" not in shell.spawned_env["worker-launch.sh"]
 
 
-def test_a_brief_naming_a_home_file_outside_the_drive_stays_on_the_mac_and_tells_the_lane_that_launched_it(shell, config, tmp_path, monkeypatch):
+def test_a_desk_over_load_whose_brief_names_a_home_file_no_box_receives_stays_on_the_mac(shell, config, tmp_path, monkeypatch):
     with_sprites(config)
     monkeypatch.setattr(runner_module.lane_brief, "named_files", lambda text, drive_dir: ([], ["/home/me/.claude/plans/x.md"]))
-    brief = lane_brief(tmp_path, f"ccx: role=build\nScale: no N\n\nRegister slice: lane={LANE} step=1")
-    orca_pass(shell, config)
-    cci_record(shell, lane="meta-desk-1", to=["orca-desk"], at=actions.stamp(shell.clock), text=f"R50 (11:49 PM) orca-desk: launch {LANE} opus xhigh brief={brief}")
+    brief = lane_brief(tmp_path, "ccx: role=watch")
+    shell.cpu_load = 140
+    cli(shell, config, "launch", "--key", "R638", "--lane", LANE, "--model", "opus", "--effort", "xhigh", "--brief", str(brief))
     orca_pass(shell, config)
     assert launches(shell) == [[str(runner_module.LAUNCHER), LANE, "opus", "xhigh", str(brief)]]
-    [post] = [post for post in shell.posts if post["text"].startswith("MAC-FILES")]
-    assert post["to"] == "meta-desk-1" and "/home/me/.claude/plans/x.md" in post["text"]
+    assert sprite_launches(shell) == []
 
 
 def verdict_pass(shell: FakeShell, runner: runner_module.Runner, tmp_path: Path, lane: str, key: str) -> list[list[str]]:
