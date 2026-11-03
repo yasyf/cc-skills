@@ -110,7 +110,8 @@ number, and ``--since`` only the rows that moved after a time, ``90m``, ``2h``, 
 refresher pushes to: the title is the question, the lede its summary, and one single-select choice holds the 2 to 4
 options with ``--recommend`` (1-based) marked recommended. It then posts one ``ask`` record naming the card to each
 ``--for`` lane, the coordinator by default, which the board recorder resolves when he taps. Text naming a change or record
-number is refused before anything is pushed.
+number is refused before anything is pushed. Each pull request the text names by its link, ``OWNER/NAME#N`` or ``PR N``
+rides on the card as a PR block, so the card cc-present posts to his Slack shows that PR with its live state.
 """
 
 from __future__ import annotations
@@ -172,6 +173,7 @@ ADMITTED = "landing-admitted.json"
 ROLE = re.compile(r"^ccx:(?:.* )?role=([\w-]+)", re.MULTILINE)
 REPLACES = re.compile(r"^Replaces: `?([\w.-]+)`?\s*$", re.MULTILINE)
 NUMBERED = re.compile(r"(?<![\w&])#\d+\b")
+PR_NAMED = re.compile(r"github\.com/(?P<linked>[\w.-]+/[\w.-]+)/pull/(?P<link>\d+)|(?P<repo>[\w.-]+/[\w.-]+)#(?P<number>\d+)|\bPR (?P<bare>\d+)\b")
 SLUG_WORDS = 6
 INSTALL_MARKERS = frozenset({"__pycache__", ".in_use", ".orphaned_at"})
 
@@ -799,9 +801,11 @@ def cmd_overview(args: argparse.Namespace, shell: ledger.Shell) -> int:
     return code
 
 
-def card(slug: str, title: str, lede: str, options: list[str], recommend: int) -> dict:
+def card(slug: str, title: str, lede: str, options: list[str], recommend: int, repo: str) -> dict:
     choices = [{"id": f"{slug}-{n}", "label": label, **({"recommended": True} if n == recommend else {})} for n, label in enumerate(options, 1)]
-    return {"id": f"card-{slug}", "type": "card", "title": title, "summary": lede, "children": [{"id": f"{slug}-choice", "type": "choice", "options": choices}]}
+    named = dict.fromkeys((found["linked"] or found["repo"] or repo, int(found["link"] or found["number"] or found["bare"])) for text in (title, lede, *options) for found in PR_NAMED.finditer(text))
+    prs = [{"id": f"{slug}-pr-{number}", "type": "pr", "repo": owner, "number": number} for owner, number in named]
+    return {"id": f"card-{slug}", "type": "card", "title": title, "summary": lede, "children": [{"id": f"{slug}-choice", "type": "choice", "options": choices}, *prs]}
 
 
 def cmd_ask_owner(args: argparse.Namespace, shell: ledger.Shell) -> int:
@@ -814,7 +818,7 @@ def cmd_ask_owner(args: argparse.Namespace, shell: ledger.Shell) -> int:
     if (entry := resolve(args)) is None:
         return 1
     slug = args.id or "-".join(re.findall(r"[a-z0-9]+", args.title.lower())[:SLUG_WORDS])
-    block = card(slug, args.title, args.lede, args.option, args.recommend)
+    block = card(slug, args.title, args.lede, args.option, args.recommend, entry["repo"])
     try:
         shell.run(["cc-present", "update-block", "-", "--session", args.session or entry["sessions"][-1], "--round", "current"], stdin=json.dumps(block), cwd=Path(entry["checkout"]))
     except subprocess.CalledProcessError as failure:

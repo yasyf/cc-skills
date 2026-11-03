@@ -203,6 +203,17 @@ def test_ask_owner_puts_the_card_on_the_root_sessions_board_and_opens_an_ask_for
     assert capsys.readouterr().out == f"card card-ship-the-chat-list-fix-tonight is on the owner's board; ask {number} stays open until his tap\n"
 
 
+def test_ask_owner_carries_each_pull_request_it_names_on_the_card(registered):
+    shell = BoardShell()
+    lede = "It is https://github.com/yasyf/cc-skills/pull/2196 rebased, and yasyf/cc-skills#2196 is the same change."
+    assert drive.main(["ask-owner", "--drive", DRIVE, "--title", "Land PR 2190 tonight?", "--lede", lede, "--option", "Land", "--option", "Hold", "--recommend", "1"], shell) == 0
+    [(_, block, _)] = shell.pushed
+    assert block["children"][1:] == [
+        {"id": "land-pr-2190-tonight-pr-2190", "type": "pr", "repo": "Forge-AI/monorepo", "number": 2190},
+        {"id": "land-pr-2190-tonight-pr-2196", "type": "pr", "repo": "yasyf/cc-skills", "number": 2196},
+    ]
+
+
 @pytest.mark.parametrize(
     ("extra", "said"),
     [

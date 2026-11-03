@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 import time
 from itertools import pairwise
@@ -8,9 +9,10 @@ from pathlib import Path
 
 from spawnllm import Binary, BinaryAnswer, Refused
 
-from captain_hook import Allow, AssistantMessage, BaseHookEvent, Block, Event, FromSubagent, HookResult, Input, T, Warn, WorkflowState, on, workflow_state
+from captain_hook import Allow, AssistantMessage, BaseHookEvent, Block, Event, FromSubagent, HookResult, Input, T, Tool, Warn, WorkflowState, on, workflow_state
 
 from .compaction_handoff import Communicator, communicator_tests, CompactionState, drive_entry
+from .lane_slack_status import CC_SLACK, CLI, WRITE_TOOLS
 from .register_capture import slack_dms
 from .root_context import OwnerPrompt
 from .root_replies import SYSTEM_PREFIXES, owner_text
@@ -26,11 +28,18 @@ NO_LINK = "the dashboard link on its first line"
 NO_TABLE = "the owner table under a feature heading"
 UPDATE = "http://dash.brook.ts.net:8840/\n\n## Durable agents, step Rebuild\n| Row | What it delivers | State | Who is on it right now | What blocks it | What we are doing to unblock it, and by when | What went wrong or slowed it |\n|---|---|---|---|---|---|---|\n| Step 2 | Agents resume | open | fix-3 | nothing recorded | fix-3 lands it | None recorded |"
 LETTERED = re.compile(r"^[ \t>*-]*\(?([A-H])[).:]\**\s|(?<![\w(])\(([A-H])\)\s|(?<![\w(])([A-H])\)\**\s", re.MULTILINE)
-CHOICE = re.compile(r"\b(?i:option) \(?[A-H1-9]\b|(?i:\bpick one\b|\bwhich (?:do you want|would you like|do you prefer|one do you)\b)")
-SLACK_TOOLS = frozenset({"slack_send", "slack_reply", "slack_send_message"})
-SLACK_TS = re.compile(r"\bts\W{1,4}\d{10}\.\d{6}")
-BOARD_VERBS = frozenset({"push", "update-block", "ask"})
-INLINE_PICK = "A pick for the owner never sits inline in this window. Post the options at his Slack DM root with `slack_send`, or draw them as a board card with `cc-present push` or `cc-present update-block`, then stop again."
+CHOICE = re.compile(
+    r"\b(?i:option) \(?[A-H1-9]\b|(?i:\bpick one\b|\bwhich (?:do you want|would you like|do you prefer|one do you)\b)"
+    r"|(?i:\b(?:reply|respond|answer)) with (?:(?i:the |a )?(?i:letter|number)|[A-H1-9]\b)"
+)
+DM_CARD = "slack_dm_status"
+SLACK_POSTED = re.compile(r"\bts\W{1,4}\d{10}\.\d{6}|/archives/\w+/p\d{16}")
+BOARD_VERBS = frozenset({"push", "update-block", "ask", "send"})
+INLINE_PICK = "A pick for the owner never sits inline or in plain Slack text; he answers with a button. Post it as a `slack_dm_status` card whose `options` are the answers, or as a `cc-present ask` card, then stop again."
+PLAIN_PICK = "A pick for the owner is never plain text in his Slack DM; he taps a button, and a thread reply is for notes. Send a `slack_dm_status` card whose `options` are the answers, or a `cc-present ask` card."
+ASKS = re.compile(r"\?(?=\s|$)")
+PR_NAMED = re.compile(r"github\.com/[\w.-]+/[\w.-]+/pull/\d+|[\w.-]+/[\w.-]+#\d+|\b(?i:PR|pull request) #?\d+\b")
+PR_CARD = "An ask to the owner about a pull request carries its PR card, never only the link. List each PR in the card's `refs` as `{\"url\", \"label\"}`, or ask with `drive.py ask-owner`, which attaches it."
 PICK = "Two ways to fix the relay:\n\nA) Keep one shared replica\nB) Give each chat its own\n\nWhich do you want?"
 REMINDER = Binary(
     "The owner's words this turn are below; his typos are his, so read through them."
@@ -73,6 +82,10 @@ FORWARDED = "cci post --lane owner-relay --kind ask --to meta-desk-1 --text '1:3
 MCP_POST_SUFFIX = "cc-inbox_cci__post"
 MCP_POST = f"mcp__plugin_{MCP_POST_SUFFIX}"
 SENT = '{"ok": true, "channel": "D0B6Z", "ts": "1793635190.051179"}'
+CARDED = '{"channel_id": "D0B6Z", "thread_ts": "1793635190.051179", "ts": "1793635190.051179"}'
+RELAY_CARD = {"title": "How do we fix the relay?", "body": "Each chat keeps its own replica, or they share one.", "options": ["Keep one shared replica", "Give each chat its own"], "recommended": "Give each chat its own"}
+RELAY_PR = "https://github.com/yasyf/cc-skills/pull/2196"
+LAND_CARD = {"title": "Land the relay fix tonight?", "body": f"Its checks passed: {RELAY_PR}", "options": ["Land", "Hold"], "recommended": "Land"}
 
 
 @workflow_state("long_running_owner_returns")
@@ -134,9 +147,14 @@ def asked(reply: str, *calls: dict, words: str = HOW_FAR, decide: dict = ASKED) 
     skip_if=[FromSubagent()],
     tests=communicator_tests({
         picked(): Block(pattern=r"^A pick for the owner never sits inline"),
-        picked(*T.tool_turn("mcp__plugin_cc-slack_cc-slack__slack_send", result=SENT, channel_id="D0B6Z", text=PICK)): Allow(),
-        picked(*T.tool_turn("mcp__plugin_cc-slack_cc-slack__slack_send", result="channel_not_found", is_error=True, channel_id="D0B6Z", text=PICK)): Block(pattern=r"never sits inline"),
-        picked(*T.tool_turn("Bash", result="updated relay-card", command="cc-present update-block relay-card --session s --block -")): Allow(),
+        picked(*T.tool_turn("mcp__plugin_cc-slack_cc-slack__slack_send", result=SENT, channel_id="D0B6Z", text=PICK)): Block(pattern=r"never sits inline.*`slack_dm_status` card whose `options`"),
+        picked(*T.tool_turn("Bash", result=SENT, command=f"cc-slack send --channel D0B6Z --text '{PICK}'")): Block(pattern=r"never sits inline"),
+        picked(*T.tool_turn(f"{CC_SLACK}{DM_CARD}", result=CARDED, card=RELAY_CARD)): Allow(),
+        picked(*T.tool_turn("Bash", result=CARDED, command=f"cc-slack dm-status --card '{json.dumps(RELAY_CARD)}'")): Allow(),
+        picked(*T.tool_turn(f"{CC_SLACK}{DM_CARD}", result="card refused: recommended is not an option", is_error=True, card=RELAY_CARD)): Block(pattern=r"never sits inline"),
+        picked(*T.tool_turn(f"{CC_SLACK}{DM_CARD}", result=CARDED, text=PICK)): Block(pattern=r"never sits inline"),
+        picked(*T.tool_turn("Bash", result="updated relay-card\nsent: relay-card ts=1793635190.051179 https://brook.slack.com/archives/D0B6Z/p1793635190051179", command="cc-present update-block relay-card --session s --block -")): Allow(),
+        picked(*T.tool_turn("Bash", result="updated relay-card", command="cc-present update-block relay-card --block -")): Block(pattern=r"never sits inline"),
         Input(transcript=[T.user("where are we"), T.assistant("Three things landed:\n\n1. The relay fix merged.\n2. The dashboard shows step 2.\n3. CI is green on main.")], state=[CompactionState(active=True)], decide=CALM): Allow(),
         back("Since you were away, three PRs merged.\n\n" + UPDATE): Block(pattern=r"lacks the dashboard link on its first line\."),
         back("http://dash.brook.ts.net:8840/\n\nThree PRs merged while you were away."): Block(pattern=r"lacks the owner table under a feature heading\."),
@@ -176,6 +194,62 @@ def communicator_reply_follows_the_owner_rules(evt: BaseHookEvent) -> HookResult
     return evt.block(" ".join(problems)) if problems else None
 
 
+def dm(tool: str = DM_CARD, **given: object) -> Input:
+    return Input(tool=f"{CC_SLACK}{tool}", tool_input=given, state=[CompactionState(active=True)])
+
+
+@on(
+    Event.PreToolUse,
+    only_if=[Communicator(), Tool("Bash", *WRITE_TOOLS)],
+    skip_if=[FromSubagent()],
+    tests=communicator_tests({
+        dm("slack_send", channel_id="D0B6Z", text=PICK): Block(pattern=r"^A pick for the owner is never plain text in his Slack DM.*`slack_dm_status` card whose `options`"),
+        dm(text=PICK): Block(pattern=r"never plain text"),
+        dm("slack_reply", channel_id="D0B6Z", thread_ts="1793635190.051179", text="Reply with a number: 1 keeps one replica, 2 gives each chat its own."): Block(pattern=r"never plain text"),
+        dm(card={"title": "How do we fix the relay?", "body": PICK}): Block(pattern=r"never plain text"),
+        dm(card=RELAY_CARD): Allow(),
+        dm(text="A) keeps one replica for every chat. B) gives each chat its own, so one slow chat stalls nobody.", about="pick-buttons:relay"): Allow(),
+        dm("slack_send", channel_id="D0B6Z", text="The relay fix merged at 3:10 AM, and the dashboard shows it."): Allow(),
+        dm("slack_send", channel_id="C0RELEASES1", text=PICK): Allow(),
+        Input(command="cc-slack dm-status 'Reply with A or B: A) one shared replica, B) one per chat'", state=[CompactionState(active=True)]): Block(pattern=r"never plain text"),
+        Input(command=f"cc-slack send --channel D0B6Z --text '{PICK}'", state=[CompactionState(active=True)]): Block(pattern=r"never plain text"),
+        Input(command=f"cc-slack dm-status --card '{json.dumps(RELAY_CARD)}'", state=[CompactionState(active=True)]): Allow(),
+        Input(command="cc-slack dm-status 'The relay fix merged at 3:10 AM.'", state=[CompactionState(active=True)]): Allow(),
+        Input(command="ls", state=[CompactionState(active=True)]): Allow(),
+        dm(card=LAND_CARD): Block(pattern=r"^An ask to the owner about a pull request carries its PR card.*`refs`"),
+        dm(card=LAND_CARD | {"refs": [{"url": RELAY_PR, "label": "relay fix"}]}): Allow(),
+        dm(text=f"Should I land {RELAY_PR} tonight?"): Block(pattern=r"carries its PR card"),
+        dm(text=f"{RELAY_PR} merged at 3:10 AM, so the relay keeps one replica per chat."): Allow(),
+        Input(command="cc-slack dm-status 'Land PR 2196 tonight, or hold it for the morning build?'", state=[CompactionState(active=True)]): Block(pattern=r"carries its PR card"),
+    }),
+)
+def owner_asks_post_as_cards(evt: BaseHookEvent) -> HookResult | None:
+    problems = dict.fromkeys(problem for words, posted in dm_posts(evt) for problem, found in (
+        (PLAIN_PICK, offers_pick(words) and not posted.get("options")),
+        (PR_CARD, (offers_pick(words) or ASKS.search(words)) and PR_NAMED.search(words) and not posted.get("refs")),
+    ) if found)
+    return evt.block(" ".join(problems)) if problems else None
+
+
+def dm_posts(evt: BaseHookEvent) -> list[tuple[str, dict]]:
+    if evt.tool_name != "Bash":
+        given = evt._tool_input
+        to_dm = evt.tool_name.endswith(DM_CARD) or str(given.get("channel_id", "")).startswith("D")
+        return [dm_words(str(given.get("text") or ""), given.get("card") or {})] if to_dm and not given.get("about") else []
+    posts = []
+    for call in evt.command.calls("cc-slack"):
+        values = CLI.bind(call).values
+        verb, *words = values.get("words") or ("",)
+        to_dm = verb == "dm-status" or (verb in ("send", "reply", "edit") and any(str(channel).startswith("D") for channel in values.get("channel", ())))
+        if to_dm and not values.get("about"):
+            posts.append(dm_words("\n".join([*map(str, values.get("text", ())), *words]), card(next(iter(values.get("card", ())), ""))))
+    return posts
+
+
+def dm_words(text: str, posted: dict) -> tuple[str, dict]:
+    return "\n".join([text, str(posted.get("title") or ""), str(posted.get("body") or ""), *map(str, posted.get("options") or [])]), posted
+
+
 def missing_update(evt: BaseHookEvent, reply: str) -> str | None:
     if not OwnerReturns.load(evt).returned:
         return None
@@ -184,27 +258,34 @@ def missing_update(evt: BaseHookEvent, reply: str) -> str | None:
 
 
 def inline_pick(evt: BaseHookEvent, reply: str) -> str | None:
-    offers = CHOICE.search(reply) or {"A", "B"} <= {letter for found in LETTERED.findall(reply) for letter in found if letter}
-    return INLINE_PICK if offers and not any(shown_outside(use) for use in evt.ctx.turn.tool_calls.items) else None
+    return INLINE_PICK if offers_pick(reply) and not any(shown_outside(use) for use in evt.ctx.turn.tool_calls.items) else None
 
 
 def shown_outside(use: object) -> bool:
-    if use.result is None or use.result.is_error:
+    if use.result is None or use.result.is_error or not SLACK_POSTED.search(use.result.content):
         return False
-    if use.call.name.rsplit("__", 1)[-1] in SLACK_TOOLS:
-        return bool(SLACK_TS.search(use.result.content))
-    return use.call.name == "Bash" and any(drawn(cmd.argv, use.result.content) for cmd in use.call.command_line if len(cmd.argv) > 1)
+    if use.call.name.rsplit("__", 1)[-1] == DM_CARD:
+        return bool((use.call.raw.get("card") or {}).get("options"))
+    return use.call.name == "Bash" and any(drawn(cmd.argv) for cmd in use.call.command_line if len(cmd.argv) > 1)
 
 
-def drawn(argv: list[str], result: str) -> bool:
+def drawn(argv: list[str]) -> bool:
     match Path(argv[0]).name, argv[1]:
-        case "cc-slack", "send" | "reply":
-            return bool(SLACK_TS.search(result))
+        case "cc-slack", "dm-status":
+            return bool(card(next(iter(values(argv, "--card")), "")).get("options"))
         case "cc-present", verb:
             return verb in BOARD_VERBS and "--dry-run" not in argv
-        case "cci", "post":
-            return any(flag == "--attr" and value.startswith("card=") and value != "card=" for flag, value in pairwise(argv))
     return False
+
+
+def card(given: str) -> dict:
+    if not given:
+        return {}
+    return json.loads(Path(given[1:]).expanduser().read_text() if given.startswith("@") else given)
+
+
+def offers_pick(text: str) -> bool:
+    return bool(CHOICE.search(text)) or {"A", "B"} <= {letter for found in LETTERED.findall(text) for letter in found if letter}
 
 
 def unrouted_reminder(evt: BaseHookEvent) -> str | None:
