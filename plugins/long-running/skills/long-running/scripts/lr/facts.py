@@ -18,18 +18,19 @@ from lr.store import Store
 
 Run = Callable[[list[str]], str]
 BUS_CURSOR = "bus"
+OPEN_LIMIT = 5000
 GATEWAY = ["ccx", "vcs", "gh", "--max-age", "0s", "--"]
 CI = {"green": "success", "red": "failure", "pending": "pending", "none": "pending"}
 QUEUE = {"not queued": "none", "queued": "queued", "evicted": "evicted", "landed": "none", "unknown": "none"}
 
 
 def open_prs(run: Run, repo: str, author: str, label: str) -> list[int]:
-    rows = json.loads(run([*GATEWAY, "pr", "list", "--repo", repo, "--state", "open", "--limit", "500", "--json", "number,author,labels"]))
+    rows = json.loads(run([*GATEWAY, "pr", "list", "--repo", repo, "--state", "open", "--limit", str(OPEN_LIMIT), "--json", "number,author,labels"]))
     return sorted(row["number"] for row in rows if row["author"]["login"] == author or any(found["name"] == label for found in row["labels"]))
 
 
-def statuses(run: Run, numbers: list[int]) -> list[dict]:
-    return json.loads(run(["ccx", "vcs", "pr", "status", "--json", *map(str, numbers)])) if numbers else []
+def statuses(run: Run, repo: str, numbers: list[int]) -> list[dict]:
+    return json.loads(run(["ccx", "vcs", "pr", "status", "--repo", repo, "--json", *map(str, numbers)])) if numbers else []
 
 
 def carried(run: Run, repo: str, numbers: list[int]) -> dict[int, tuple[int, ...]]:
@@ -123,4 +124,4 @@ def snapshot(store: Store, bus: Bus, run: Run, repo: str, drive: str, author: st
     ingest(store, repo, records)
     legacy.ingest(store, repo, legacy.read(run, drive, store.cursor(legacy.CURSOR)), go_lanes)
     numbers = open_prs(run, repo, author, label)
-    return assemble(store, repo, statuses(run, numbers), carried(run, repo, numbers), holds(run, drive))
+    return assemble(store, repo, statuses(run, repo, numbers), carried(run, repo, numbers), holds(run, drive))
