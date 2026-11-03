@@ -92,6 +92,11 @@ func (t *Tx) Above(repo, branch string) ([]PRFacts, error) {
 	return collect(rows, err, func(rows *sql.Rows) (PRFacts, error) { return scanPRFacts(rows) })
 }
 
+func (t *Tx) OpenPRs(repo string) ([]PRFacts, error) {
+	rows, err := t.tx.Query("SELECT "+prFactColumns+" FROM pr_facts WHERE repo = ? AND open = 1 ORDER BY number", repo)
+	return collect(rows, err, func(rows *sql.Rows) (PRFacts, error) { return scanPRFacts(rows) })
+}
+
 func (t *Tx) AtHead(repo, sha string) ([]PRFacts, error) {
 	rows, err := t.tx.Query("SELECT "+prFactColumns+" FROM pr_facts WHERE repo = ? AND head = ? ORDER BY number", repo, sha)
 	return collect(rows, err, func(rows *sql.Rows) (PRFacts, error) { return scanPRFacts(rows) })

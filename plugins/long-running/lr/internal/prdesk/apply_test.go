@@ -55,7 +55,7 @@ func clean(c *clock, minute, number int, branch, base, head string) []Event {
 func apply(t *testing.T, d Desk, events ...Event) {
 	t.Helper()
 	for _, e := range events {
-		if err := d.Apply(e); err != nil {
+		if _, err := d.Apply(e); err != nil {
 			t.Fatal(err)
 		}
 	}

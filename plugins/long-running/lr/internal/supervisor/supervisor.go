@@ -27,13 +27,12 @@ const (
 	checkStopWait = 30 * time.Second
 	passedName    = "pass"
 	moverLanes    = "lanes"
-	moverShadow   = "shadow"
 
 	unreadSubject = "STATUS-READ-FAILED"
 )
 
 var (
-	prMovers = []string{moverShadow, "landing", "grading", "items"}
+	prMovers = []string{"landing", "grading", "items"}
 	digits   = regexp.MustCompile(`\d+`)
 )
 
@@ -50,7 +49,6 @@ type Deps struct {
 	Trunk     string
 	Admit     func(ctx context.Context, acts []pass.Act, snapshot []machine.Facts) []pass.Act
 	Pool      grading.Pool
-	Shadow    *store.Store
 	Stale     func(ctx context.Context) (bool, error)
 	Log       *slog.Logger
 }
@@ -98,34 +96,25 @@ func Tick(ctx context.Context, s *store.Store, drive string, generation int64, d
 }
 
 func runPass(ctx context.Context, s *store.Store, drive string, generation int64, d Deps, now time.Time, report Report) (Report, error) {
-	passing := s
-	shadow := slices.Contains(d.Movers, moverShadow)
-	if shadow {
-		passing = d.Shadow
-	}
-	last, err := passing.Cursor(passedName)
+	last, err := s.Cursor(passedName)
 	if err != nil {
 		return report, err
 	}
 	if now.Unix()-last < int64(PassEvery.Seconds()) {
 		return report, nil
 	}
-	if err := passing.Advance(passedName, now.Unix()); err != nil {
+	if err := s.Advance(passedName, now.Unix()); err != nil {
 		return report, err
 	}
 	snapshot, err := d.Snapshot(ctx)
 	if err != nil {
 		d.Log.Warn("pass skipped", "err", err)
-		if err := tellUnread(passing, d.Post, err, now); err != nil {
+		if err := tellUnread(s, d.Post, err, now); err != nil {
 			d.Log.Warn("a skipped pass could not say so", "err", err)
 		}
 		return report, nil
 	}
 	report.PRs = len(snapshot)
-	if shadow {
-		_, err := pass.Shadow(passing, snapshot, now, d.Post)
-		return report, err
-	}
 	route, err := watch.Desks(s)
 	if err != nil {
 		return report, err

@@ -375,29 +375,6 @@ func TestARefusedPassPostNeverStopsTheSupervisor(t *testing.T) {
 	equal(t, lease.Generation, int64(1))
 }
 
-func TestAShadowPassActsOnNothingAndUsesItsOwnStore(t *testing.T) {
-	s, shadow, c, q := memory(t), memory(t), &clock{t0}, &queue{}
-	d := deps(c, q, &pool{}, prFacts(1, nil))
-	d.Movers, d.Shadow = []string{"lanes", "shadow"}, shadow
-	d.Lanes = func(time.Time, int64) (lanes.Outcome, error) { return lanes.Outcome{}, nil }
-
-	reports, _ := runLoop(t, s, "0.8.0", 1, d, 1)
-
-	equal(t, reports[0].PRs, 1)
-	equal(t, reports[0].Enqueued, 0)
-	equal(t, len(q.enqueued), 0)
-	position, err := s.Cursor(passedName)
-	if err != nil {
-		t.Fatal(err)
-	}
-	equal(t, position, int64(0))
-	position, err = shadow.Cursor(passedName)
-	if err != nil {
-		t.Fatal(err)
-	}
-	equal(t, position, t0.Unix())
-}
-
 type scripted func(argv []string) (shell.Result, error)
 
 func (s scripted) Run(_ context.Context, c shell.Command) (shell.Result, error) { return s(c.Argv) }

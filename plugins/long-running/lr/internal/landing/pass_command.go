@@ -21,35 +21,27 @@ import (
 const (
 	self       = "supervisor"
 	storeFile  = "lr.sqlite"
-	shadowFile = "lr-shadow.sqlite"
 	runnerFile = "runner.json"
 )
 
 func passCommand(a *app.App) *cobra.Command {
-	var shadow bool
-	cmd := &cobra.Command{
+	return &cobra.Command{
 		Use:   "pass",
 		Short: "Read every open PR's facts once, open the one item each needs, and act on what the supervisor does itself",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runPass(cmd.Context(), a, shadow, cmd.OutOrStdout())
+			return runPass(cmd.Context(), a, cmd.OutOrStdout())
 		},
 	}
-	cmd.Flags().BoolVar(&shadow, "shadow", false, "run over lr-shadow.sqlite, post one note per disagreement with the live runner, and act on nothing")
-	return cmd
 }
 
-func runPass(ctx context.Context, a *app.App, shadow bool, stdout io.Writer) error {
+func runPass(ctx context.Context, a *app.App, stdout io.Writer) error {
 	cfg, err := a.Config()
 	if err != nil {
 		return err
 	}
 	dir := filepath.Dir(a.ConfigPath)
-	name := storeFile
-	if shadow {
-		name = shadowFile
-	}
-	s, err := store.Open(filepath.Join(dir, name))
+	s, err := store.Open(filepath.Join(dir, storeFile))
 	if err != nil {
 		return err
 	}
@@ -62,11 +54,6 @@ func runPass(ctx context.Context, a *app.App, shadow bool, stdout io.Writer) err
 	b := bus.Bus{Drive: cfg.Drive, Lane: self}
 	post := func(to []string, body bus.Body) error {
 		_, err := b.Post(ctx, to, body)
-		return err
-	}
-	if shadow {
-		diffs, err := pass.Shadow(s, snapshot, now, post)
-		fmt.Fprintf(stdout, "%s shadow prs=%d disagreements=%d\n", store.Stamp(now), len(snapshot), len(diffs))
 		return err
 	}
 	route, err := watch.Desks(s)

@@ -34,34 +34,42 @@ type Desk struct {
 	Repos map[string]Repo
 }
 
-func (d Desk) Apply(e Event) error {
+type Moved struct {
+	Before store.PRState
+	After  store.PRState
+}
+
+func (d Desk) Apply(e Event) ([]Moved, error) {
 	m := e.meta()
 	repo, found := d.Repos[m.Repo]
 	if !found {
-		return fmt.Errorf("%s %s: %s is not one of this desk's repos", m.Source, m.Key, m.Repo)
+		return nil, fmt.Errorf("%s %s: %s is not one of this desk's repos", m.Source, m.Key, m.Repo)
 	}
-	return d.Store.Update(func(tx *store.Tx) error {
+	var moved []Moved
+	err := d.Store.Update(func(tx *store.Tx) error {
+		moved = nil
 		touched, err := e.record(tx)
 		if err != nil {
 			return fmt.Errorf("%s %s: %w", m.Source, m.Key, err)
 		}
 		placed := map[string]bool{}
 		for _, number := range touched {
-			if err := place(tx, repo, number, m.At, placed); err != nil {
+			if err := place(tx, repo, number, m.At, placed, &moved); err != nil {
 				return fmt.Errorf("%s %s: #%d: %w", m.Source, m.Key, number, err)
 			}
 		}
 		return tx.Advance(m.Source, m.Seq)
 	})
+	return moved, err
 }
 
-func place(tx *store.Tx, repo Repo, number int, at time.Time, placed map[string]bool) error {
+func place(tx *store.Tx, repo Repo, number int, at time.Time, placed map[string]bool, moved *[]Moved) error {
 	f, found, err := tx.PRFacts(repo.Name, number)
 	if err != nil || !found {
 		return err
 	}
 	if !f.Open {
-		if err := placeStack(tx, repo, f, nil, at); err != nil {
+		if err := placeStack(tx, repo, f, nil, at, moved); err != nil {
 			return err
 		}
 		above, err := tx.Above(repo.Name, f.Branch)
@@ -69,7 +77,7 @@ func place(tx *store.Tx, repo Repo, number int, at time.Time, placed map[string]
 			return err
 		}
 		for _, child := range above {
-			if err := place(tx, repo, child.Number, at, placed); err != nil {
+			if err := place(tx, repo, child.Number, at, placed, moved); err != nil {
 				return err
 			}
 		}
@@ -96,16 +104,16 @@ func place(tx *store.Tx, repo Repo, number int, at time.Time, placed map[string]
 		return nil
 	}
 	placed[bottom.Branch] = true
-	return placeStack(tx, repo, bottom, beneath, at)
+	return placeStack(tx, repo, bottom, beneath, at, moved)
 }
 
-func placeStack(tx *store.Tx, repo Repo, bottom store.PRFacts, beneath *machine.Place, at time.Time) error {
+func placeStack(tx *store.Tx, repo Repo, bottom store.PRFacts, beneath *machine.Place, at time.Time, moved *[]Moved) error {
 	if err := tx.Raise(repo.Name, bottom.Branch); err != nil {
 		return err
 	}
 	var climb func(f store.PRFacts, beneath *machine.Place) error
 	climb = func(f store.PRFacts, beneath *machine.Place) error {
-		here, err := placeOne(tx, repo, f, beneath, bottom.Branch, at)
+		here, err := placeOne(tx, repo, f, beneath, bottom.Branch, at, moved)
 		if err != nil || !f.Open {
 			return err
 		}
@@ -131,7 +139,7 @@ func stored(tx *store.Tx, f store.PRFacts) (*machine.Place, error) {
 	return &machine.Place{State: row.State, Mover: row.Mover, Reason: row.Reason}, nil
 }
 
-func placeOne(tx *store.Tx, repo Repo, f store.PRFacts, beneath *machine.Place, stack string, at time.Time) (machine.Place, error) {
+func placeOne(tx *store.Tx, repo Repo, f store.PRFacts, beneath *machine.Place, stack string, at time.Time, moved *[]Moved) (machine.Place, error) {
 	seen, err := read(tx, repo, f)
 	if err != nil {
 		return machine.Place{}, err
@@ -155,12 +163,14 @@ func placeOne(tx *store.Tx, repo Repo, f store.PRFacts, beneath *machine.Place, 
 			deadline = at.Add(here.Deadline)
 		}
 	}
-	if err := tx.PutState(store.PRState{
+	row := store.PRState{
 		Repo: repo.Name, Number: f.Number, Branch: f.Branch, Base: f.Base, Head: f.Head, Change: change, Stack: stack,
 		State: here.State, Reason: here.Reason, Mover: here.Mover, Deadline: deadline,
-	}); err != nil {
+	}
+	if err := tx.PutState(row); err != nil {
 		return here, err
 	}
+	*moved = append(*moved, Moved{prev, row})
 	if had && (!waiting || prev.Change != change) {
 		if err := tx.CloseAsk(repo.Name, f.Number, prev.Change, at); err != nil {
 			return here, err
