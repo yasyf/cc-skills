@@ -188,30 +188,30 @@ func (c Checkout) git(ctx context.Context, dir string, args ...string) (string, 
 	return result.Stdout, err
 }
 
-func (c Checkout) Write(ctx context.Context, topic, slug string, body []byte) error {
+func (c Checkout) Write(ctx context.Context, topic, slug string, body []byte) (bool, error) {
 	if _, err := os.Stat(c.Dir); errors.Is(err, fs.ErrNotExist) {
 		if err := c.add(ctx); err != nil {
-			return err
+			return false, err
 		}
 	} else if err != nil {
-		return err
+		return false, err
 	}
 	path := filepath.Join(c.Dir, "one-pagers", slug, "index.html")
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-		return err
+		return false, err
 	}
 	if err := os.WriteFile(path, body, 0o600); err != nil {
-		return err
+		return false, err
 	}
 	changed, err := c.git(ctx, c.Dir, "status", "--porcelain", "--", path)
 	if err != nil || changed == "" {
-		return err
+		return false, err
 	}
 	if _, err := c.git(ctx, c.Dir, "add", "--", path); err != nil {
-		return err
+		return false, err
 	}
 	_, err = c.git(ctx, c.Dir, "commit", "--quiet", "--no-verify", "-m", "one-pagers: explain "+topic, "--", path)
-	return err
+	return true, err
 }
 
 func (c Checkout) add(ctx context.Context) error {
@@ -317,27 +317,35 @@ func (o Owner) dm(ctx context.Context, n Notice) error {
 }
 
 func Explain(ctx context.Context, checkout Checkout, host Host, owner Announcer, topic string, source []byte, now time.Time) (string, error) {
+	notice, _, err := publish(ctx, checkout, host, topic, source, now)
+	if err != nil {
+		return "", err
+	}
+	return notice.Link, owner.Announce(ctx, notice)
+}
+
+func publish(ctx context.Context, checkout Checkout, host Host, topic string, source []byte, now time.Time) (Notice, bool, error) {
 	slug := Slug(topic)
 	if slug == "" {
-		return "", fmt.Errorf("topic %q has no letter or digit to name its page", topic)
+		return Notice{}, false, fmt.Errorf("topic %q has no letter or digit to name its page", topic)
 	}
 	p, err := parse(topic, source, now)
 	if err != nil {
-		return "", err
+		return Notice{}, false, err
 	}
 	body, err := p.HTML()
 	if err != nil {
-		return "", err
+		return Notice{}, false, err
 	}
-	if err := checkout.Write(ctx, topic, slug, body); err != nil {
-		return "", err
+	changed, err := checkout.Write(ctx, topic, slug, body)
+	if err != nil {
+		return Notice{}, false, err
 	}
 	base, err := host.Serve(ctx, checkout.Dir)
 	if err != nil {
-		return "", err
+		return Notice{}, false, err
 	}
-	link := base + "one-pagers/" + slug + "/"
-	return link, owner.Announce(ctx, Notice{Title: p.Title, Lede: p.Lede, Link: link})
+	return Notice{Title: p.Title, Lede: p.Lede, Link: base + "one-pagers/" + slug + "/"}, changed, nil
 }
 
 func read(ctx context.Context, runner shell.Runner, from string) ([]byte, error) {
@@ -381,6 +389,22 @@ func answers(url string) bool {
 	return response.StatusCode == http.StatusOK
 }
 
+func publisher(cmd *cobra.Command, a *app.App, cfg config.Config) (Checkout, Tailnet, Owner, error) {
+	claude, err := drive.ConfigDir()
+	if err != nil {
+		return Checkout{}, Tailnet{}, Owner{}, err
+	}
+	agents, err := launchd.New(a.Runner, cmd.ErrOrStderr())
+	if err != nil {
+		return Checkout{}, Tailnet{}, Owner{}, err
+	}
+	home := filepath.Join(claude, "long-running")
+	return Checkout{Runner: a.Runner, Root: designDocs(cfg), Dir: filepath.Join(home, Branch)},
+		Tailnet{Runner: a.Runner, Agents: agents, Binary: filepath.Join(home, "current", "bin", "lr"), Log: filepath.Join(home, "explain.log"), Answers: answers},
+		Owner{Runner: a.Runner, Post: client.Post, Drive: cfg.Drive, Lane: os.Getenv(lanes.LaneEnv)},
+		nil
+}
+
 func Command(a *app.App) *cobra.Command {
 	var from string
 	cmd := &cobra.Command{
@@ -396,18 +420,11 @@ func Command(a *app.App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			claude, err := drive.ConfigDir()
+			checkout, host, owner, err := publisher(cmd, a, cfg)
 			if err != nil {
 				return err
 			}
-			agents, err := launchd.New(a.Runner, cmd.ErrOrStderr())
-			if err != nil {
-				return err
-			}
-			home := filepath.Join(claude, "long-running")
-			host := Tailnet{Runner: a.Runner, Agents: agents, Binary: filepath.Join(home, "current", "bin", "lr"), Log: filepath.Join(home, "explain.log"), Answers: answers}
-			owner := Owner{Runner: a.Runner, Post: client.Post, Drive: cfg.Drive, Lane: os.Getenv(lanes.LaneEnv)}
-			link, err := Explain(cmd.Context(), Checkout{Runner: a.Runner, Root: designDocs(cfg), Dir: filepath.Join(home, Branch)}, host, owner, args[0], source, a.Now())
+			link, err := Explain(cmd.Context(), checkout, host, owner, args[0], source, a.Now())
 			if link != "" {
 				fmt.Fprintln(cmd.OutOrStdout(), link)
 			}
@@ -416,6 +433,7 @@ func Command(a *app.App) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&from, "from", "", "a markdown file, or a cci record such as #359589 whose text or body is markdown")
 	_ = cmd.MarkFlagRequired("from")
+	cmd.AddCommand(redesignCommand(a))
 	var dir, addr string
 	serve := &cobra.Command{Use: "serve", Hidden: true, Short: "Serve the explainers worktree, as the launchd agent lr explain installs", Args: cobra.NoArgs, RunE: func(*cobra.Command, []string) error {
 		server := http.Server{Addr: addr, Handler: http.FileServer(http.Dir(dir)), ReadHeaderTimeout: 10 * time.Second}

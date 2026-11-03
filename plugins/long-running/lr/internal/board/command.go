@@ -97,28 +97,32 @@ func Command(a *app.App) *cobra.Command {
 		if err != nil {
 			return Cards{}, nil, err
 		}
-		program := entry.Program
-		if program == "" {
-			program = filepath.Base(entry.StateDir)
-		}
-		return Cards{
-			Runner: a.Runner, Ledger: ledger.CLI{Runner: a.Runner, Repo: entry.Checkout}, CCX: a.CCX,
-			Bus: entry.Bus(), Checkout: entry.Checkout, Session: board, StateDir: entry.StateDir, Program: program, Store: s, Now: a.Now,
-			Closed: func(ctx context.Context, seqs []string) (map[string]bool, error) {
-				return closedRecords(ctx, entry.Bus(), seqs)
-			},
-			Withdraw: func(ctx context.Context, lane, card, text string) error {
-				_, err := client.Post(ctx, client.Draft{Drive: entry.Bus(), Lane: lane, Kind: "withdraw", Topic: card, To: []string{"root"}, Text: text})
-				return err
-			},
-			Report: func(ctx context.Context, lane string, to []string, topic, text string) error {
-				_, err := client.Post(ctx, client.Draft{Drive: entry.Bus(), Lane: lane, Kind: "report", Topic: topic, To: to, Text: text})
-				return err
-			},
-		}, func() { _ = s.Close() }, nil
+		return CardsOf(a, entry, board, s), func() { _ = s.Close() }, nil
 	}
 	cmd.AddCommand(waitsCommand(a, opened), cardsCommand(cards, packJudge(a.Runner)), passCommand(a, opened), classifyCommand())
 	return cmd
+}
+
+func CardsOf(a *app.App, entry drive.Entry, session string, s *store.Store) Cards {
+	program := entry.Program
+	if program == "" {
+		program = filepath.Base(entry.StateDir)
+	}
+	return Cards{
+		Runner: a.Runner, Ledger: ledger.CLI{Runner: a.Runner, Repo: entry.Checkout}, CCX: a.CCX,
+		Bus: entry.Bus(), Checkout: entry.Checkout, Session: session, StateDir: entry.StateDir, Program: program, Store: s, Now: a.Now,
+		Closed: func(ctx context.Context, seqs []string) (map[string]bool, error) {
+			return closedRecords(ctx, entry.Bus(), seqs)
+		},
+		Withdraw: func(ctx context.Context, lane, card, text string) error {
+			_, err := client.Post(ctx, client.Draft{Drive: entry.Bus(), Lane: lane, Kind: "withdraw", Topic: card, To: []string{"root"}, Text: text})
+			return err
+		},
+		Report: func(ctx context.Context, lane string, to []string, topic, text string) error {
+			_, err := client.Post(ctx, client.Draft{Drive: entry.Bus(), Lane: lane, Kind: "report", Topic: topic, To: to, Text: text})
+			return err
+		},
+	}
 }
 
 func snapshotOf(ctx context.Context, a *app.App, entry drive.Entry, s *store.Store, warn io.Writer) (string, map[int]machine.Facts, error) {
