@@ -21,7 +21,7 @@ const auditLedger = `| id | time | message | routed | state |
 `
 
 func ids(rows []Row) []string {
-	out := []string{}
+	out := make([]string, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, row.ID)
 	}

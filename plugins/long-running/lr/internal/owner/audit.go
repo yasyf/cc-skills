@@ -38,8 +38,9 @@ type Lane struct {
 }
 
 func Parse(ledger []byte) []Row {
-	var rows []Row
-	for _, found := range ledgerRow.FindAllSubmatch(ledger, -1) {
+	matches := ledgerRow.FindAllSubmatch(ledger, -1)
+	rows := make([]Row, 0, len(matches))
+	for _, found := range matches {
 		rows = append(rows, Row{ID: string(found[1]), At: strings.TrimSpace(string(found[2])), Text: plainCell.Replace(string(found[3])), State: string(found[4])})
 	}
 	return rows
