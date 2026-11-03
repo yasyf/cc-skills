@@ -384,7 +384,10 @@ an existing artifact sets its `design`, carrying a screenshot of the live artifa
 the change rendered inside it, and a cite of its design record; cc-present refuses
 the card without them ("A design lane's part" in
 [orca-lane-brief.md](reference/orca-lane-brief.md)). `board_watch.py` records every
-tap as an `owner` record and a cc-notes answer. What waits on him is what
+tap as an `owner` record and a cc-notes answer. Every `gh` write posts under his
+GitHub login, so an approval or a tap verdict a drive posts cites
+`board verdict #<seq>`, the `owner` record of his verdict on that PR's row at its
+current head, or the `owner_login_verdicts` hook refuses it. What waits on him is what
 `cci owner-waits` prints, never a runner note. The drive writes one automated Slack
 message, the merge card, posted at the root of his DM with its own thread; everything else is a
 post he named. Every update he gets is `lr update render`, sent by the communicator
