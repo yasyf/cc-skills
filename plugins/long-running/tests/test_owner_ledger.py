@@ -73,7 +73,7 @@ def communicator(drive: Path) -> Window:
 
 
 def slack_dm(**fields) -> str:
-    payload = {"type": "slack.message", "kind": "dm", "channel_id": "D0DIRECT001", "ts": "1793159602.693499", "user": "U05FTPXU8PP", "from_claude": False, "text": "Meant to approve 43807"} | fields
+    payload = {"type": "slack.message", "kind": "dm", "channel_id": "D0DIRECT001", "thread_ts": "1792842193.708029", "ts": "1793159602.693499", "user": "U05FTPXU8PP", "from_claude": False, "text": "Meant to approve 43807"} | fields
     return f'<channel source="plugin:cc-slack:cc-slack" subject_id="50c3b930" type="slack.message">\n{json.dumps(payload)}\n</channel>'
 
 
