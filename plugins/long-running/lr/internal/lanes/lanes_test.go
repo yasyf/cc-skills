@@ -534,6 +534,37 @@ func TestTheRegistrySurvivesARootCompaction(t *testing.T) {
 	equal(t, row(t, rebuilt, lane2), lane)
 }
 
+func TestABuildLanesBlockedOrReadyRecordClaimsOnlyAPRNoLaneOwns(t *testing.T) {
+	for _, kind := range []string{"blocked", "ready"} {
+		t.Run(kind, func(t *testing.T) {
+			s, brief := memory(t), writeBrief(t)
+			build := map[string]string{"role": "build"}
+			f := newFake(t, []Record{
+				spawned(1, lane2, brief, t0.Add(-time.Hour), build),
+				spawned(2, "replicator-1", brief, t0.Add(-time.Hour), build),
+				rec(3, "replicator-1", "opened", t0, "").withRefs(prs(46002)),
+				rec(4, lane2, kind, t0, "").withRefs(prs(46001, 46002)),
+			}, []Row{who(lane2, true, t0), who("replicator-1", true, t0)})
+
+			tick(t, s, f, t0)
+
+			equal(t, owners(t, s, 46001, 46002), map[int]string{46001: lane2, 46002: "replicator-1"})
+		})
+	}
+}
+
+func TestADeskNamingAPRNoLaneOwnsLeavesItUnowned(t *testing.T) {
+	s, brief := memory(t), writeBrief(t)
+	f := newFake(t, []Record{
+		spawned(1, "go-sweep-9", brief, t0.Add(-time.Hour), map[string]string{"role": "desk"}),
+		rec(2, "go-sweep-9", "blocked", t0, "").withRefs(prs(46001)),
+	}, []Row{who("go-sweep-9", true, t0)})
+
+	tick(t, s, f, t0)
+
+	equal(t, owners(t, s, 46001), map[int]string{46001: ""})
+}
+
 func TestAnOpenedRecordNamingItsPRByBareNumberOrByRepoAddsBoth(t *testing.T) {
 	s := memory(t)
 	opened := Record{}

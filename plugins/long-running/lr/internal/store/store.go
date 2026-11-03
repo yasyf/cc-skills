@@ -295,6 +295,34 @@ func (s *Store) Facts(repo string, number int, head string) (map[string]string, 
 	return facts, nil
 }
 
+type FactKey struct {
+	Number int
+	Head   string
+}
+
+func (s *Store) FactsOfKind(repo, kind string) (map[FactKey]time.Time, error) {
+	rows, err := s.db.Query("SELECT number, head, posted FROM facts WHERE repo = ? AND kind = ?", repo, kind)
+	type row struct {
+		key    FactKey
+		posted string
+	}
+	found, err := collect(rows, err, func(rows *sql.Rows) (row, error) {
+		var r row
+		err := rows.Scan(&r.key.Number, &r.key.Head, &r.posted)
+		return r, err
+	})
+	if err != nil {
+		return nil, err
+	}
+	stamps := make(map[FactKey]time.Time, len(found))
+	for _, r := range found {
+		if stamps[r.key], err = Parse(r.posted); err != nil {
+			return nil, err
+		}
+	}
+	return stamps, nil
+}
+
 func (s *Store) Escalate(subject, cause, toMover string, at time.Time) (bool, error) {
 	result, err := s.db.Exec("INSERT OR IGNORE INTO escalations (subject, cause, to_mover, raised) VALUES (?, ?, ?, ?)", subject, cause, toMover, Stamp(at))
 	return changed(result, err)
