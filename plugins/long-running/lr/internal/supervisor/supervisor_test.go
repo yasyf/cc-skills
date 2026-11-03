@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -437,7 +438,7 @@ func TestTheSupervisorMovesToANewerInstallUnlessItsReplayGateRefusesIt(t *testin
 	codes := map[string]int{"0.7.821": 3, "0.7.822": 0, "0.7.823": 1}
 	var gates []string
 	b := &recordingBus{}
-	env := lanes.Env{Bus: b, Claude: claude, Config: config.Config{Drive: "d1", Repo: "org/repo"}, Runner: scripted(func(argv []string) (shell.Result, error) {
+	env := lanes.Env{Bus: b, Claude: claude, State: configs(t), Config: config.Config{Drive: "d1", Repo: "org/repo"}, Runner: scripted(func(argv []string) (shell.Result, error) {
 		version := argv[len(argv)-1]
 		gates = append(gates, strings.Join(argv[1:], " "))
 		code := codes[version]
@@ -446,7 +447,7 @@ func TestTheSupervisorMovesToANewerInstallUnlessItsReplayGateRefusesIt(t *testin
 		}
 		return shell.Result{Code: code, Stderr: "Traceback: boom"}, &shell.ExitError{Argv: argv, Code: code}
 	})}
-	upgrade := &Upgrade{Env: env, Running: "0.7.820"}
+	upgrade := &Upgrade{Env: env, Running: "0.7.820", Read: time.Now()}
 	versions := []string{"0.7.820", "0.7.821", "0.7.821", "0.7.822", "0.7.823"}
 	got := make([]bool, 0, len(versions))
 	for _, version := range versions {
@@ -469,6 +470,66 @@ func TestTheSupervisorMovesToANewerInstallUnlessItsReplayGateRefusesIt(t *testin
 	if !strings.HasSuffix(b.posted[0].Text, "the supervisor moves from 0.7.820 to 0.7.823 unreplayed: its replay gate exited 1: Traceback: boom") {
 		t.Fatal(b.posted[0].Text)
 	}
+}
+
+func configs(t *testing.T) string {
+	t.Helper()
+	state := t.TempDir()
+	for _, name := range []string{configFile, runnerFile} {
+		if err := os.WriteFile(filepath.Join(state, name), []byte("{}"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return state
+}
+
+func TestAConfigWrittenAfterTheSupervisorReadItRestartsItAndTellsRoot(t *testing.T) {
+	b := &recordingBus{}
+	state := configs(t)
+	read := time.Now()
+	upgrade := &Upgrade{Env: lanes.Env{Bus: b, Claude: t.TempDir(), State: state, Config: config.Config{Drive: "d1"}}, Running: "0.7.820", Read: read}
+
+	stale, err := upgrade.Stale(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	equal(t, stale, false)
+
+	later := read.Add(time.Minute)
+	if err := os.Chtimes(filepath.Join(state, runnerFile), later, later); err != nil {
+		t.Fatal(err)
+	}
+	stale, err = upgrade.Stale(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	equal(t, stale, true)
+	equal(t, len(b.posted), 1)
+	equal(t, b.posted[0].To, []string{lanes.Root})
+	equal(t, b.posted[0].Text, "CONFIG-CHANGED runner.json changed after the supervisor read it, so the supervisor restarts to read it fresh")
+}
+
+func TestTheSupervisorNamesEveryToolAndKeyItStartsWithout(t *testing.T) {
+	cfg := config.Config{OrcaRun: "run_1", Movers: []string{config.MoverLanding}, QueueKey: "security find-generic-password -w -s trunk"}
+	keys := map[string]string{"gh auth token": "token\n", cfg.QueueKey: ""}
+	runner := scripted(func(argv []string) (shell.Result, error) {
+		return shell.Result{Stdout: keys[argv[len(argv)-1]]}, nil
+	})
+	absent := map[string]bool{"orca": true}
+	look := func(tool string) (string, error) {
+		if absent[tool] {
+			return "", exec.ErrNotFound
+		}
+		return "/usr/bin/" + tool, nil
+	}
+
+	equal(t, missing(context.Background(), runner, look, cfg), []string{
+		"orca is not on PATH",
+		"the queue key is unreadable: `security find-generic-password -w -s trunk` printed nothing",
+	})
+
+	absent, keys[cfg.QueueKey] = map[string]bool{}, "key\n"
+	equal(t, len(missing(context.Background(), runner, look, cfg)), 0)
 }
 
 func TestBehindComparesVersionsNumerically(t *testing.T) {
