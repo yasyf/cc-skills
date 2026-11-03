@@ -1,6 +1,6 @@
 # The red-sweep lane
 
-Spawn `red-sweep` as `long-running:lane-ship`, model opus, effort high, beside the landing desk once the drive has open PRs, and keep one running until the drive ends. It owns every red drive PR as a set, so each one goes green or carries a named reason.
+The coordinator starts `red-sweep` remote with `lr desks start`, model opus, effort high, beside the landing desk, and keeps one running until the drive ends. It owns every red drive PR as a set, so each one goes green or carries a named reason.
 
 ## Red register
 

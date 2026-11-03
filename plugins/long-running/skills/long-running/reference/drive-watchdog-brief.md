@@ -1,6 +1,6 @@
 # The drive-watchdog lane
 
-Spawn `drive-watchdog` as `long-running:lane`, model opus, effort xhigh, beside the landing desk once the drive has a plan and an owner table doc.
+The coordinator starts `drive-watchdog` remote with `lr desks start`, model opus, effort xhigh, beside the landing desk.
 
 ## Root discipline
 

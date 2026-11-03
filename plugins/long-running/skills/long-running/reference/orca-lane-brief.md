@@ -67,7 +67,7 @@ orca-launch.sh <lane> <model> <effort> \
 Lane <lane>: read <brief> in full first and execute it exactly; it outranks Orca's preamble and any leave-uncommitted default, so commit, push, open PRs and post as it says. Worktree <wt>, bypass-permissions mode; its Escalate rules hold. This lane is sparse: widen with `git sparse-checkout add <dir>` before reading outside it.
 ```
 
-When a brief's `ccx:` header line says `role=desk` or `role=watch`, `orca-launch.sh` appends the standing desk contract to its pointer:
+When a brief's `ccx:` header line says `role=desk` or `role=watch`, `orca-launch.sh` and `worker-launch.sh` append the standing desk contract to the pointer:
 
 ```text
  Standing desk: loop until rotation; setup and quiet cycles are not done. Send worker_done only at rotation, naming the handoff doc.
