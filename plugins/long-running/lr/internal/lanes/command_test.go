@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
@@ -144,6 +145,7 @@ func TestTheRouteVerbPrintsOneObjectTheHooksRead(t *testing.T) {
 
 func TestTheRequestVerbPostsOneTypedRecordAndRefusesAStandingLaneAlone(t *testing.T) {
 	t.Setenv("CCI_HOME", t.TempDir())
+	t.Setenv(LaneEnv, Root)
 	a, s := driveState(t)
 	standing := storeLane(refresher)
 	standing.Brief = standingBrief(t, refresher)
@@ -176,6 +178,7 @@ func TestTheRequestVerbPostsOneTypedRecordAndRefusesAStandingLaneAlone(t *testin
 
 func TestTheRequestVerbPostsNothingUntilTheCallerHasReadTheLaneItWouldStandDown(t *testing.T) {
 	t.Setenv("CCI_HOME", t.TempDir())
+	t.Setenv(LaneEnv, Root)
 	a, s := driveState(t)
 	for _, lane := range []store.Lane{storeLane(lane2), storeLane("conflicts-3")} {
 		if _, err := s.WantLane(lane, t0); err != nil {
@@ -203,9 +206,9 @@ func TestTheRequestVerbPostsNothingUntilTheCallerHasReadTheLaneItWouldStandDown(
 		shown, hidden []string
 		rerun         string
 	}{
-		{[]string{"stand-down", lane2}, []string{"restacked #46001", "pushed #46001 e590637"}, nil, "lr request stand-down conflicts-2 --last-read " + seqs[1]},
-		{[]string{"stand-down", lane2, "--last-read", seqs[0]}, []string{"pushed #46001 e590637"}, []string{"restacked #46001"}, "lr request stand-down conflicts-2 --last-read " + seqs[1]},
-		{[]string{"owner", "conflicts-3", "--pr", "46001", "--pr", "46002"}, []string{"restacked #46001", "pushed #46001 e590637"}, nil, "lr request owner conflicts-3 --pr 46001 --pr 46002 --last-read " + seqs[1]},
+		{[]string{"stand-down", lane2}, []string{"restacked #46001", "pushed #46001 e590637"}, nil, "lr request stand-down conflicts-2 --last-read " + seqs[1] + " --by root"},
+		{[]string{"stand-down", lane2, "--last-read", seqs[0]}, []string{"pushed #46001 e590637"}, []string{"restacked #46001"}, "lr request stand-down conflicts-2 --last-read " + seqs[1] + " --by root"},
+		{[]string{"owner", "conflicts-3", "--pr", "46001", "--pr", "46002"}, []string{"restacked #46001", "pushed #46001 e590637"}, nil, "lr request owner conflicts-3 --pr 46001 --pr 46002 --last-read " + seqs[1] + " --by root"},
 	} {
 		_, err := execute(t, RequestCommand(a), c.args...)
 		if err == nil {
@@ -237,8 +240,36 @@ func TestTheRequestVerbPostsNothingUntilTheCallerHasReadTheLaneItWouldStandDown(
 	equal(t, verbs, []string{"stand-down", "owner"})
 }
 
+func TestTheRequestVerbPostsUnderTheSessionsLaneAndRefusesASessionBoundToNone(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	t.Setenv(LaneEnv, "")
+	a, _ := driveState(t)
+	me := "window lane drive=" + testDrive + " lane=meta-desk-3 branch=b\n"
+	a.Runner = scripted(func(argv []string) (shell.Result, error) {
+		equal(t, argv, []string{"cci", "me"})
+		return shell.Result{Stdout: me}, nil
+	})
+
+	if _, err := execute(t, RequestCommand(a), "owner", "conflicts-3", "--pr", "46001"); err != nil {
+		t.Fatal(err)
+	}
+	me = "window lane drive=" + testDrive + " branch=b\n"
+	if _, err := execute(t, RequestCommand(a), "owner", "conflicts-3", "--pr", "46002"); err == nil || !strings.Contains(err.Error(), "no lane is bound to this session") {
+		t.Fatalf("err %v", err)
+	}
+
+	records, err := client.Tail(context.Background(), client.Query{Drive: testDrive})
+	if err != nil {
+		t.Fatal(err)
+	}
+	equal(t, len(records), 1)
+	r := recordOf(records[0])
+	equal(t, []any{r.Lane, r.PRs()}, []any{"meta-desk-3", []int{46001}})
+}
+
 func TestTheStrandedPRBlockersCommandRunAsWrittenHandsThePRsToTheLaneItNames(t *testing.T) {
 	t.Setenv("CCI_HOME", t.TempDir())
+	t.Setenv(LaneEnv, Root)
 	s := memory(t)
 	f := adopted(t, s, writeBrief(t), "", 45492, 46512)
 	f.feed = append(f.feed, ask(2, "stand-down", lane2, t0.Add(-mins(5)), nil, "", map[string]string{"last-read": "1"}))

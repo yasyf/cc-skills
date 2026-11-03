@@ -1,6 +1,7 @@
 package lanes
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/deletions"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
@@ -58,6 +60,22 @@ func Identity(lane string) []string {
 		env = append(env, name+"=")
 	}
 	return env
+}
+
+func BoundLane(ctx context.Context, runner shell.Runner) (string, error) {
+	if lane := os.Getenv(LaneEnv); lane != "" {
+		return lane, nil
+	}
+	me, err := runner.Run(ctx, shell.Command{Argv: []string{"cci", "me"}})
+	if err != nil {
+		return "", err
+	}
+	for word := range strings.FieldsSeq(me.Stdout) {
+		if lane, found := strings.CutPrefix(word, "lane="); found {
+			return lane, nil
+		}
+	}
+	return "", nil
 }
 
 func Adopt(lane string) error {

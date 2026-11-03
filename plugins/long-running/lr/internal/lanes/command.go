@@ -203,7 +203,7 @@ func RouteCommand(a *app.App) *cobra.Command {
 }
 
 func RequestCommand(a *app.App) *cobra.Command {
-	request := Request{By: Root}
+	var request Request
 	cmd := &cobra.Command{
 		Use:   fmt.Sprintf("request {%s} LANE", strings.Join(Verbs, "|")),
 		Short: "Post the one typed record that asks the supervisor to change a registry row",
@@ -218,7 +218,15 @@ func RequestCommand(a *app.App) *cobra.Command {
 				return err
 			}
 			defer func() { _ = s.Close() }()
-			request.Lane, request.Successor = Canonical(cfg.Drive, request.Lane), Canonical(cfg.Drive, request.Successor)
+			if request.By == "" {
+				if request.By, err = BoundLane(cmd.Context(), a.Runner); err != nil {
+					return err
+				}
+			}
+			if request.By == "" {
+				return errors.New("no lane is bound to this session, so the request would post under no name; pass --by <your lane>")
+			}
+			request.Lane, request.Successor, request.By = Canonical(cfg.Drive, request.Lane), Canonical(cfg.Drive, request.Successor), Canonical(cfg.Drive, request.By)
 			refusal, err := StandingRefusal(s, request)
 			if err == nil && refusal == "" {
 				refusal, err = UnreadRefusal(cmd.Context(), s, cfg.Drive, request)
@@ -244,6 +252,6 @@ func RequestCommand(a *app.App) *cobra.Command {
 	cmd.Flags().StringVar(&request.Successor, "successor", "", "the lane that takes over")
 	cmd.Flags().StringVar(&request.LastRead, "last-read", "", "the lane's newest record you have read")
 	cmd.Flags().IntSliceVar(&request.PRs, "pr", nil, "a PR the request moves; repeatable")
-	cmd.Flags().StringVar(&request.By, "by", Root, "the lane asking")
+	cmd.Flags().StringVar(&request.By, "by", "", "the lane asking; defaults to the lane bound to this session")
 	return cmd
 }

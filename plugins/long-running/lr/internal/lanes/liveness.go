@@ -201,7 +201,7 @@ func (r Request) Command() string {
 	if r.LastRead != "" {
 		words = append(words, "--last-read", r.LastRead)
 	}
-	if r.By != "" && r.By != Root {
+	if r.By != "" {
 		words = append(words, "--by", r.By)
 	}
 	return strings.Join(words, " ")

@@ -11,7 +11,6 @@ import (
 	"regexp"
 	"slices"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -25,7 +24,6 @@ import (
 
 const (
 	communicator = "owner-relay"
-	laneEnv      = "CLAUDE_LONG_RUNNING_LANE"
 	watchdog     = "drive-watchdog"
 )
 
@@ -70,7 +68,7 @@ func Command(a *app.App) *cobra.Command {
 }
 
 func start(ctx context.Context, a *app.App, out io.Writer) error {
-	lane, err := boundLane(ctx, a.Runner)
+	lane, err := lanes.BoundLane(ctx, a.Runner)
 	if err != nil {
 		return err
 	}
@@ -94,22 +92,6 @@ func start(ctx context.Context, a *app.App, out io.Writer) error {
 func loaded(a *app.App) (drive, error) {
 	cfg, state, err := lanes.Loaded(a)
 	return drive{app: a, config: cfg, state: state}, err
-}
-
-func boundLane(ctx context.Context, runner shell.Runner) (string, error) {
-	if lane := os.Getenv(laneEnv); lane != "" {
-		return lane, nil
-	}
-	me, err := runner.Run(ctx, shell.Command{Argv: []string{"cci", "me"}})
-	if err != nil {
-		return "", err
-	}
-	for word := range strings.FieldsSeq(me.Stdout) {
-		if lane, found := strings.CutPrefix(word, "lane="); found {
-			return lane, nil
-		}
-	}
-	return "", nil
 }
 
 func (d drive) run(ctx context.Context, argv ...string) (string, error) {
