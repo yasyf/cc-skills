@@ -201,7 +201,10 @@ func Classify(f Facts) Verdict {
 		return Verdict{StateQueued, MoverSupervisor, ActionWatchQueue, QueueClock}
 	}
 	if f.Restackable() {
-		return Verdict{StateNeedsRestack, MoverSupervisor, ActionRestack, SupervisorClock}
+		if f.Tapped() && f.Hold == "" {
+			return Verdict{StateNeedsRestack, MoverSupervisor, ActionRestack, SupervisorClock}
+		}
+		return Verdict{StateNeedsRestack, MoverLane, ActionRestack, LaneClock}
 	}
 	if !f.Graded() {
 		state := StateGrading

@@ -370,6 +370,26 @@ func TestAnOverdueRedOrRestackGoesToThePRsLaneNeverRoot(t *testing.T) {
 	}
 }
 
+func TestAHeldOrUntappedConflictIsNeitherActedOnNorEscalatedWhileLandingIsLive(t *testing.T) {
+	for name, given := range map[string]func(*machine.Facts){
+		"held":     func(f *machine.Facts) { f.Mergeable, f.Hold = machine.MergeableConflict, machine.MoverRoot },
+		"untapped": func(f *machine.Facts) { f.Mergeable, f.Tap = machine.MergeableConflict, "" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			s, r := newStore(t), &recorder{}
+			pr := facts(45470, given)
+			live := []machine.Mover{machine.MoverSupervisor}
+
+			first := run(t, s, r, t0, live, pr)
+			run(t, s, r, t0.Add(machine.LaneClock), live, pr)
+
+			if len(first.Acts) != 0 || len(r.of("escalation")) != 0 {
+				t.Fatalf("acts = %+v, escalations = %+v", first.Acts, r.of("escalation"))
+			}
+		})
+	}
+}
+
 func TestAHoldOverdueReachesTheLandingDeskOnceLandingIsLive(t *testing.T) {
 	s, r := newStore(t), &recorder{}
 	held := facts(48401, func(f *machine.Facts) { f.Hold = machine.MoverRoot })

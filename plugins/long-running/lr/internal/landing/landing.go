@@ -113,7 +113,7 @@ func enqueue(ctx context.Context, s *store.Store, queue Queue, f machine.Facts, 
 }
 
 func restack(ctx context.Context, s *store.Store, restacker Restacker, f machine.Facts, now time.Time, done *Done) error {
-	if !f.Tapped() || len(done.Restacked)+len(done.Conflicts) >= restacksPerPass {
+	if len(done.Restacked)+len(done.Conflicts) >= restacksPerPass {
 		return nil
 	}
 	facts, err := s.Facts(f.Repo, f.Number, f.Head)
