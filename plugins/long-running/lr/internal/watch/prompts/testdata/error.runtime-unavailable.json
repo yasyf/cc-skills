@@ -1,0 +1,11 @@
+{
+  "id": "local",
+  "ok": false,
+  "error": {
+    "code": "runtime_unavailable",
+    "message": "The Orca runtime closed the connection before responding."
+  },
+  "_meta": {
+    "runtimeId": null
+  }
+}

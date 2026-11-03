@@ -1,0 +1,29 @@
+{
+  "id": "7d34dd9c-2755-4e10-8700-f64aa57b0233",
+  "ok": true,
+  "result": {
+    "terminal": {
+      "handle": "term_26c4ee5e-61f3-4fac-86aa-40bbdbc87c4e",
+      "status": "running",
+      "truncated": true,
+      "limited": false,
+      "oldestCursor": "53524",
+      "nextCursor": "55524",
+      "latestCursor": "55524",
+      "returnedLineCount": 7,
+      "source": "screen",
+      "tail": [
+        "⏺ Two lanes report in; the third is still measuring.",
+        "  ⎿  3 in progress, 6 pending, 23 completed",
+        "",
+        " Resume Session",
+        "",
+        "   Loading conversations…",
+        ""
+      ]
+    }
+  },
+  "_meta": {
+    "runtimeId": "c05185ed-5f91-4a22-ade0-5317625bb4fd"
+  }
+}

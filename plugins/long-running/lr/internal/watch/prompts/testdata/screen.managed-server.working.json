@@ -1,0 +1,30 @@
+{
+  "id": "e0428a24-a82b-4555-bb44-488c218f8bc2",
+  "ok": true,
+  "result": {
+    "terminal": {
+      "handle": "term_5cfcad9a-6928-47d6-88e3-f04749533661",
+      "status": "running",
+      "truncated": true,
+      "limited": false,
+      "oldestCursor": "0",
+      "nextCursor": "1",
+      "latestCursor": "1",
+      "returnedLineCount": 8,
+      "source": "screen",
+      "tail": [
+        "• Completed and reported success through Orca. Created the facts file, source patch, and hash-verified report; HEAD and",
+        "  the real index remain unchanged.",
+        "• Hook failed",
+        "  └ hook exited with code 1",
+        "  Worked for 4m 35s • 10:10 AM",
+        "› Ask Codex to do anything",
+        "  GPT-6.1-Sol xhigh · ~/app · Report task_39708dfe4834 outcome",
+        "  ? for shortcuts"
+      ]
+    }
+  },
+  "_meta": {
+    "runtimeId": "f18dbbcf-4cec-4040-b08e-130cf3c7fd54"
+  }
+}

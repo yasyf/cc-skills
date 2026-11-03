@@ -1,0 +1,32 @@
+{
+  "id": "87cd135d-a286-46a2-ab67-735ed480cba9",
+  "ok": true,
+  "result": {
+    "send": {
+      "handle": "term_5cfcad9a-6928-47d6-88e3-f04749533661",
+      "accepted": true,
+      "bytesWritten": 193,
+      "prompt": {
+        "requestId": "82f8014f-c164-4856-b77b-bac9e2338ae4",
+        "stages": [
+          "input_accepted",
+          "turn_started"
+        ],
+        "provider": "codex",
+        "observation": "supported",
+        "processIncarnation": "bd53de06-6abd-4a94-aa80-6edc592bb28e",
+        "generation": 1,
+        "baselineWorkingSequence": 1,
+        "baselineExplicitWorkingStartedAt": null,
+        "baselinePermissionSequence": 2
+      }
+    },
+    "mutation": {
+      "requestId": "82f8014f-c164-4856-b77b-bac9e2338ae4",
+      "replayed": false
+    }
+  },
+  "_meta": {
+    "runtimeId": "f18dbbcf-4cec-4040-b08e-130cf3c7fd54"
+  }
+}
