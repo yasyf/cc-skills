@@ -42,7 +42,7 @@ Slack or the board, and run no test, build or GitHub call.
 
 Loop, one foreground Bash call each, timeout 570000 ms:
 
-  desk-wait.sh 560 cci:<drive>:update-desk mailbox:update-desk=<state dir>/update-desk.cursor
+  lr wait 560 cci:<drive>:update-desk mailbox:update-desk=<state dir>/update-desk.cursor
 
 - MAILBOX `render` from the communicator: run
     owner_update.py --drive <drive> --render --sent > <state dir>/progress-desk/update-<HHMM>.md 2> <state dir>/progress-desk/update-<HHMM>.gaps

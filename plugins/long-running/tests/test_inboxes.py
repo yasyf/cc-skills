@@ -5,6 +5,8 @@ import os
 import subprocess
 from pathlib import Path
 
+import pytest
+
 import inboxes
 from long_running.roster_service import retire
 
@@ -31,6 +33,20 @@ def digest(*args: str) -> str:
     result = subprocess.run([str(PLUGIN / "bin/inbox-digest.py"), *args], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
     return result.stdout
+
+
+def test_a_lane_on_an_older_plugin_copy_asking_for_wait_runs_lr_wait(monkeypatch):
+    execs = []
+
+    def execv(path, argv):
+        execs.append((path, argv))
+        raise SystemExit
+
+    monkeypatch.setattr(inboxes.os, "execv", execv)
+    with pytest.raises(SystemExit):
+        inboxes.main(["wait", "540", "mailbox:lane=/c", "--", "bk", "build"])
+    lr = Path(inboxes.__file__).resolve().parents[3] / "bin" / "lr"
+    assert execs == [(lr, [str(lr), "wait", "540", "mailbox:lane=/c", "--", "bk", "build"])]
 
 
 def test_clip_keeps_a_short_line_and_cuts_a_long_one_to_the_cap():

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,7 @@ from long_running.release import promote
 @pytest.fixture
 def cache(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
     versions = tmp_path / "cache"
     for version in ("0.7.9", "0.7.44", "0.7.57"):
         (versions / version).mkdir(parents=True)
@@ -25,6 +27,26 @@ def named() -> str:
 def test_the_first_process_of_a_version_names_it(cache: Path):
     promote(cache / "0.7.44")
     assert named() == str(cache / "0.7.44")
+
+
+def test_a_session_whose_path_predates_lr_reaches_the_installed_lr_through_local_bin(cache: Path, tmp_path: Path):
+    tool = cache / "0.7.57" / "bin" / "lr"
+    tool.parent.mkdir()
+    tool.write_text('#!/bin/sh\necho "installed $*"\n')
+    tool.chmod(0o755)
+    promote(cache / "0.7.57")
+
+    ran = subprocess.run([tmp_path / "home" / ".local" / "bin" / "lr", "wait", "2"], capture_output=True, text=True, check=True)
+
+    assert ran.stdout == "installed wait 2\n"
+
+
+def test_a_published_lr_is_left_alone(cache: Path, tmp_path: Path):
+    other = tmp_path / "home" / ".local" / "bin" / "lr"
+    other.parent.mkdir(parents=True)
+    other.write_text("someone else's lr")
+    promote(cache / "0.7.44")
+    assert other.read_text() == "someone else's lr"
 
 
 def test_a_higher_version_replaces_the_link_and_a_lower_one_does_not(cache: Path):

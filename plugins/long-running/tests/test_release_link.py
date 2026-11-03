@@ -67,6 +67,7 @@ def hook_reader(started_on: Path) -> str:
 @pytest.mark.parametrize("installs", [1, 144])
 def test_a_reader_that_starts_during_an_install_runs_one_whole_version(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, installs: int):
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
     cache = tmp_path / "cache"
     installed(cache, "0.7.1")
     started_on = cache / "0.7.1"

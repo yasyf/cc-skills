@@ -25,8 +25,9 @@ MAIL_WAIT = "desk-wait.sh"
 
 
 def wakes_on_mail(call: Call) -> bool:
+    waits = call.name == MAIL_WAIT or (call.name == "lr" and call.args[:1] == ("wait",))
     sources = call.args[: call.args.index("--")] if "--" in call.args else call.args
-    return call.name == MAIL_WAIT and any("=" in source or source.startswith("cci:") for source in sources[1:])
+    return waits and any("=" in source or source.startswith("cci:") for source in sources[1:])
 
 
 class InProcessTeammate(CustomCondition):
@@ -123,6 +124,24 @@ hook(
             transcript=TEAMMATE,
             tool_input={"command": "cd /w && desk-wait.sh 560 cci:drive:mate -- stack-enqueue 33185 --watch --fast", "timeout": 570000},
         ): Allow(),
+        Input(
+            command="lr wait 540 mailbox:mate=/h/mate.cursor -- bk build watch 4292",
+            agent_id=MATE,
+            transcript=TEAMMATE,
+            tool_input={"command": "lr wait 540 mailbox:mate=/h/mate.cursor -- bk build watch 4292", "timeout": 570000},
+        ): Allow(),
+        Input(
+            command="/h/.claude/long-running/current/bin/lr wait 540 cci:drive:mate",
+            agent_id=MATE,
+            transcript=TEAMMATE,
+            tool_input={"command": "/h/.claude/long-running/current/bin/lr wait 540 cci:drive:mate", "timeout": 570000},
+        ): Allow(),
+        Input(
+            command="lr wait 540 -- bk build watch 4292",
+            agent_id=MATE,
+            transcript=TEAMMATE,
+            tool_input={"command": "lr wait 540 -- bk build watch 4292", "timeout": 570000},
+        ): Warn(pattern="parent's messages"),
         Input(
             command="desk-wait.sh 540 -- bk build watch 4292",
             agent_id=MATE,
