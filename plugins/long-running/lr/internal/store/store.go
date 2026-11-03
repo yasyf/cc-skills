@@ -420,7 +420,11 @@ func (s *Store) Cursor(source string) (int64, error) {
 }
 
 func (s *Store) Advance(source string, position int64) error {
-	_, err := s.db.Exec("INSERT INTO cursors (source, position) VALUES (?, ?) ON CONFLICT (source) DO UPDATE SET position = max(cursors.position, excluded.position)", source, position)
+	return advance(s.db, source, position)
+}
+
+func advance(db execer, source string, position int64) error {
+	_, err := db.Exec("INSERT INTO cursors (source, position) VALUES (?, ?) ON CONFLICT (source) DO UPDATE SET position = max(cursors.position, excluded.position)", source, position)
 	return err
 }
 
