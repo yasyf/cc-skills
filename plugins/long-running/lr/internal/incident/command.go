@@ -260,6 +260,8 @@ func own(cmd *cobra.Command, a *app.App, id, owner string, interval time.Duratio
 	if err != nil {
 		return err
 	}
+	s, release := s.Held()
+	defer release()
 	if err := os.MkdirAll(s.Root, 0o750); err != nil {
 		return err
 	}

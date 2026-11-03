@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -31,6 +32,53 @@ const (
 
 type Store struct {
 	Root string
+	held *handles
+}
+
+type handles struct {
+	mu  sync.Mutex
+	dbs map[string]*sql.DB
+}
+
+func (h *handles) get(path, query string) (*sql.DB, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	key := query + "\x00" + path
+	if db, found := h.dbs[key]; found {
+		return db, nil
+	}
+	db, err := openDB(path, query)
+	if err != nil {
+		return nil, err
+	}
+	h.dbs[key] = db
+	return db, nil
+}
+
+func (h *handles) close() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, db := range h.dbs {
+		_ = db.Close()
+	}
+}
+
+func (s Store) Held() (Store, func()) {
+	held := &handles{dbs: map[string]*sql.DB{}}
+	s.held = held
+	return s, held.close
+}
+
+func (s Store) connect(path, query string) (*sql.DB, func(), error) {
+	if s.held != nil {
+		db, err := s.held.get(path, query)
+		return db, func() {}, err
+	}
+	db, err := openDB(path, query)
+	if err != nil {
+		return nil, nil, err
+	}
+	return db, func() { _ = db.Close() }, nil
 }
 
 func DefaultRoot() (string, error) {
@@ -105,11 +153,11 @@ func (s Store) read(id string, fn func(*sql.Tx) error) error {
 	if err := s.exists(path, id); err != nil {
 		return err
 	}
-	db, err := openDB(path, readSource)
+	db, release, err := s.connect(path, readSource)
 	if err != nil {
 		return err
 	}
-	defer db.Close()
+	defer release()
 	tx, err := db.Begin()
 	if err != nil {
 		return err
@@ -414,11 +462,11 @@ func (s Store) transact(id string, fn func(*Tx) error) error {
 		if err := s.exists(path, id); err != nil {
 			return err
 		}
-		db, err := openDB(path, writeSource)
+		db, release, err := s.connect(path, writeSource)
 		if err != nil {
 			return err
 		}
-		defer db.Close()
+		defer release()
 		sqlTx, err := db.Begin()
 		if err != nil {
 			return err
