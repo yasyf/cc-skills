@@ -55,6 +55,7 @@ KEPT_REFUSALS = KEPT | {
     "owner_ledger.The communicator never calls `AskUserQuest": PARKS,
     "owner_ledger.The `owner_ledger` hook records every owne": "the write to the rulings file lands before a warning does",
     "owner_quotes.pr_text_paraphrases_the_owner": "a quote in a public repo is published the moment it posts",
+    "owner_replies_carry_news.owner_replies_carry_news": "his notification fires the moment the reply posts, so a warning comes too late",
     "owner_returns.communicator_reply_follows_the_owner_rules": STOP.format(what="the owner would read the reply as sent"),
     "owner_slack_links.owner_slack_links_get_routed": STOP.format(what="a thread the owner linked would go unanswered"),
     "register_gates.hook_edit_guard": "trust: hook-file edits",

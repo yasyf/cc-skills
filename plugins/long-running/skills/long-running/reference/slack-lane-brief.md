@@ -21,6 +21,8 @@
 
 **Brief readers for action, never for relevance.** A reader or Slack-lane brief asks "who asks, what they ask, and what fixes it," never "what, if anything, it asks of the coordinator."
 
+**A line from the owner that needs nothing back gets a 👍, not a reply.** `slack_react` with `name` `+1` on his message. A reply goes out only when it carries a condition, correction, time, answer or consequence he lacks, and `owner_replies_carry_news.py` refuses a short one with no number, link or question mark.
+
 **Close the loop in the thread.** When the doing lane produces its result (cause, PR, ETA), the Slack lane posts the in-thread report and swaps `eyes` for `white_check_mark` once the ask is complete.
 
 **Treat action requests as R3 chains without polling.** A post that asks a person for a grant, a permission, an approval, or an answer opens an R3 wait-then-do chain (`SKILL.md`). Any fence, hold, or `until <person>` line it gates must name the thread as `until reply in <channel>/<thread_ts>`. No hook enrolls a posted thread or pasted Slack link for watching, and no lane watches or polls a Slack thread or channel.
