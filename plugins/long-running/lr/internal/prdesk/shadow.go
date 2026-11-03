@@ -295,7 +295,14 @@ func (s Shadow) disagree(ctx context.Context, moved []Moved) error {
 		case m.After.State == machine.StateReady && !m.After.Deadline.IsZero() && !now.Before(m.After.Deadline):
 			cause, why = "unqueued", "the desk would have queued it by now and nothing has"
 		case m.Before.State != "" && !slices.Contains(readied, m.Before.State) && (m.After.State == machine.StateQueued || m.After.State == machine.StateLanded):
+			queued, err := s.queuedAt(m.After)
+			if err != nil {
+				return err
+			}
 			cause, why = "landed-early", fmt.Sprintf("it reached the queue while the desk had it %s: %s", m.Before.State, m.Before.Reason)
+			if !queued {
+				cause, why = "merged-outside-queue", fmt.Sprintf("it was merged outside the queue while the desk had it %s: %s", m.Before.State, m.Before.Reason)
+			}
 		default:
 			continue
 		}
@@ -309,4 +316,14 @@ func (s Shadow) disagree(ctx context.Context, moved []Moved) error {
 		}
 	}
 	return nil
+}
+
+func (s Shadow) queuedAt(row store.PRState) (bool, error) {
+	var entry store.Entry
+	var found bool
+	err := s.Desk.Store.Update(func(tx *store.Tx) (err error) {
+		entry, found, err = tx.Entry(row.Repo, row.Number)
+		return err
+	})
+	return found && entry.Head == row.Head, err
 }
