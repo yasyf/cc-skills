@@ -41,6 +41,7 @@ const (
 const (
 	retiredWorkerDone = "worker-done"
 	retiredSilent     = "silent"
+	unheardDone       = "reported worker_done, but none of its records ever reached the bus"
 	workerSucceeded   = "succeeded"
 	agentLive         = "live"
 	agentExited       = "exited"
@@ -90,6 +91,7 @@ var (
 
 	settledDispatch = []string{"completed", "failed"}
 	agentVerdicts   = []string{agentLive, agentExited, agentUnverifiable}
+	standingRoles   = []string{"desk", RoleMeta, "release"}
 
 	numbered      = regexp.MustCompile(`^(.+)-(\d{1,2})$`)
 	handedOff     = regexp.MustCompile(`\bhandoff ([\w.-]+): doc ([0-9a-f]{7,40})\b`)

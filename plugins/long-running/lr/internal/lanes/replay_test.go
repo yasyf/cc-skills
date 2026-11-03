@@ -171,12 +171,13 @@ func decided(t *testing.T, fixture replayFixture) map[string][]any {
 	woken, relaunched, held := map[string]bool{}, map[string]bool{}, map[string]bool{}
 	deps := Deps{
 		Drive: "replay", Checkout: dir, Briefs: filepath.Join(dir, "lanes"),
-		Desks:       func() (map[string]string, error) { return nil, nil },
-		RetireAfter: config.RetireSilent,
-		OpenWork:    func() ([]Record, error) { return nil, nil },
-		Owed:        func() ([]deletions.Owed, error) { return nil, nil },
-		Present:     func(rows []deletions.Owed) ([]deletions.Owed, error) { return rows, nil },
-		Gaps:        func() ([]string, error) { return nil, nil },
+		Desks:        func() (map[string]string, error) { return nil, nil },
+		RetireAfter:  config.RetireSilent,
+		OpenBranches: func() (map[string][]int, error) { return nil, nil },
+		OpenWork:     func() ([]Record, error) { return nil, nil },
+		Owed:         func() ([]deletions.Owed, error) { return nil, nil },
+		Present:      func(rows []deletions.Owed) ([]deletions.Owed, error) { return rows, nil },
+		Gaps:         func() ([]string, error) { return nil, nil },
 		Records: func(since int64) ([]Record, error) {
 			start := shown
 			for shown < len(feed) && !feed[shown].At.After(now) {
