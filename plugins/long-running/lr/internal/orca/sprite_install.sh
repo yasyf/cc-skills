@@ -72,10 +72,19 @@ while [ "$1" != -- ]; do
     if ! jq -e --arg id "$name" '.plugins | has($id)' "$plugins/installed_plugins.json" > /dev/null; then
       plugin=${name%@*} marketplace=${name#*@}
       tree="$HOME/.local/share/cc-remote/marketplaces/$marketplace"
+      if [ -L "$tree" ]; then
+        baked=$(readlink "$tree")
+        rm "$tree"
+        cp -R "$baked" "$tree"
+        chmod -R u+w "$tree"
+      fi
       mkdir -p "$tree/.claude-plugin"
       rm -rf "${tree:?}/$plugin"
       cp -R "$dir" "$tree/$plugin"
-      jq -n --arg marketplace "$marketplace" --arg plugin "$plugin" '{name: $marketplace, owner: {name: $marketplace}, plugins: [{name: $plugin, source: ("./" + $plugin)}]}' > "$tree/.claude-plugin/marketplace.json"
+      listing="$tree/.claude-plugin/marketplace.json"
+      [ -f "$listing" ] || jq -n --arg marketplace "$marketplace" '{name: $marketplace, owner: {name: $marketplace}, plugins: []}' > "$listing"
+      jq --arg plugin "$plugin" '.plugins = [.plugins[] | select(.name != $plugin)] + [{name: $plugin, source: ("./" + $plugin)}]' "$listing" > "$listing.new"
+      mv "$listing.new" "$listing"
       jq --arg marketplace "$marketplace" --arg tree "$tree" --arg now "$now" '.[$marketplace] = {source: {source: "directory", path: $tree}, installLocation: $tree, lastUpdated: $now}' "$plugins/known_marketplaces.json" > "$plugins/known_marketplaces.json.new"
       mv "$plugins/known_marketplaces.json.new" "$plugins/known_marketplaces.json"
       jq --arg id "$name" '.enabledPlugins[$id] = true' "$HOME/.claude/settings.json" > "$HOME/.claude/settings.json.new"

@@ -77,7 +77,10 @@ on each `long-running--v<version>` tag. A `plugin` pin for a plugin the payload
 lacks, such as `cc-inbox@cc-inbox` from its `cc-inbox_<version>.tar.gz` asset,
 also adds its entry, a directory marketplace under
 `~/.local/share/cc-remote/marketplaces/`, the one location the Sprites' managed
-settings allow, and its `enabledPlugins` key. A pin off its digest or version fails `prepare`, and no worker starts. A malformed pin refuses before
+settings allow, and its `enabledPlugins` key. A marketplace the payload holds,
+such as `skills`, is read-only, so the install replaces its link with a writable
+copy first; a link will not do, since Claude refuses a plugin source that leaves
+its marketplace directory. A pin off its digest or version fails `prepare`, and no worker starts. A malformed pin refuses before
 prepare.
 
 The script prints one `installed <name> <version>` line per tool, cci and lr
