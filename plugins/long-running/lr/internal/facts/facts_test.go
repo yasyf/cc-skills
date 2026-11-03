@@ -374,6 +374,26 @@ func TestQueueCIAndMergeabilityComeFromTheOneStatusRead(t *testing.T) {
 	}
 }
 
+func TestTrunkRefusingAPRThatAStackEntryAboveItCarriesReadsAsQueued(t *testing.T) {
+	h := newHarness(t, []recordedPR{{number: 48964, head: head, login: "drive-bot"}}, status(48964))
+	at := time.Date(2026, 11, 3, 19, 0, 0, 0, time.UTC)
+	for kind, value := range map[string]string{
+		"lane":     "lane-a",
+		"tap":      "tapped",
+		"enqueued": "exit 5: submission not confirmed: ci trunk: Trunk POST /v2/merge-queues/d5e509f9-5b88-46fe-8276-5914bd90f234/pull-requests answered HTTP 422 (PR_NOT_ENQUEUEABLE): PR #49006, above this one in the same stack, is already in the merge queue as a stack that includes this pull request and will merge it. Wait for it to finish, or cancel #49006 first.; request dc5575a0-2486-93be-8441-446e84a16647; inspect Trunk before retrying",
+	} {
+		if _, err := h.store.PutFact(repo, 48964, head, kind, value, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	row := h.snapshot(t)[48964]
+
+	if !row.Queued() || machine.Classify(row).Action != machine.ActionWatchQueue {
+		t.Fatalf("row = %+v, verdict = %+v", row, machine.Classify(row))
+	}
+}
+
 func TestAQueueStateCcxCouldNotReadIsNeverLandable(t *testing.T) {
 	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}},
 		status(1, func(r *statusRow) { r.Queue, r.Verdict = "unknown", "blocked:queue-unknown" }))

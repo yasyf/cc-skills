@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -49,6 +50,8 @@ const (
   }
 }`
 )
+
+var carriedAbove = regexp.MustCompile(`\(PR_NOT_ENQUEUEABLE\): PR #\d+, above this one in the same stack, is already in the merge queue`)
 
 var trunkQueued = []string{"trunk-queued", "trunk-not-ready", "trunk-testing", "trunk-tests-passed", "trunk-queued (bisection)", "trunk-testing (bisection)", "trunk-tests-passed (bisection)"}
 
@@ -574,6 +577,9 @@ func (s Source) factsOf(row statusRow, pr pullRequest, required []string, stored
 	queue, err := queueOf(row, pr, ci)
 	if err != nil {
 		return machine.Facts{}, err
+	}
+	if queue == machine.QueueNone && carriedAbove.MatchString(stored["enqueued"]) {
+		queue = machine.QueueQueued
 	}
 	lane := stored["lane"]
 	if lane == "" {
