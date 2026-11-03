@@ -12,7 +12,6 @@ const HISTORY_FILTERS = [
 ];
 const ROW_FIELDS = ['title', 'change', 'plan', 'risk', 'review', 'blocker'];
 const SETTLED = /^(nothing\b.*|your (approval|tap)\.?)$/i;
-const RUNNING_AT_REST = 3;
 const EVENTS_AT_REST = 6;
 const KEY_EVENTS = new Set(['decision', 'release', 'incident', 'fixed', 'blocked', 'unblocked']);
 
@@ -149,14 +148,19 @@ function planScreen() {
   const milestones = state.model.milestones.map((name, i) => {
     const s = milestoneOf(p, i);
     const waits = s.state === 'not' ? cellText('', 'After the milestone above') : cellText(s.waits, s.state === 'live' ? 'Live' : 'Nothing open', s.since);
-    return tableRow(`m${i}`, [`<b>${esc(name)}</b>`, dotted(s.label, STOP_TONE[s.state]), waits]);
+    return { state: s.state, row: tableRow(`m${i}`, [`<b>${esc(name)}</b>`, dotted(s.label, STOP_TONE[s.state]), waits]) };
   });
-  const partRow = (part) => tableRow(part.id, [`<b>${esc(part.name)}</b>`, dotted(part.label, PART_TONE[part.state]), cellText(part.blocks, 'Nothing', part.since), cellText(part.doing, part.state === 'later' ? 'Not started' : '')]);
+  const foldedStops = (id, stateName, label, tone, say) => {
+    const stops = milestones.filter((s) => s.state === stateName);
+    return stops.length ? rowFold(id, [`<b>${esc(say(stops.length))}</b>`, dotted(label, tone), '<span></span>'], stops.map((s) => s.row)) : '';
+  };
+  const clipped = (text, since) => (text ? `<span>${esc(firstClause(text))}${sinceClock(since) ? `<small class="pg-for">${spanFor(sinceClock(since))}</small>` : ''}</span>` : '<span></span>');
+  const partRow = (part) => tableRow(part.id, [`<b>${esc(part.name)}</b>`, dotted(part.label, PART_TONE[part.state]), clipped(part.blocks, part.since), clipped(part.doing)]);
   const open = p.parts.filter((part) => part.state !== 'done' && part.state !== 'later');
   const later = p.parts.filter((part) => part.state === 'later');
   const done = p.parts.filter((part) => part.state === 'done');
   return `<div class="pg">${pageHead('Plan', p, ring(p.parts.filter((x) => x.state === 'done').length, p.parts.length, 'parts done'))}<p class="pg-lead">${esc(p.summary)}</p>
-    <section class="pg-sec"><h2>${esc(state.model.milestones_label)}</h2><div class="pg-table pl-ms">${tableHead('Milestone', 'State', 'What it waits on')}${milestones.join('')}</div></section>
+    <section class="pg-sec"><h2>${esc(state.model.milestones_label)}</h2><div class="pg-table pl-ms">${tableHead('Milestone', 'State', 'What it waits on')}${foldedStops('pl-live', 'live', 'Live', 'ok', (n) => `${n} milestones live`)}${milestones.filter((s) => s.state !== 'live' && s.state !== 'not').map((s) => s.row).join('')}${foldedStops('pl-later', 'not', 'Later', '', (n) => `${n} milestones later`)}</div></section>
     <section class="pg-sec"><h2>Parts of the plan still open</h2><div class="pg-table pl-parts">${tableHead('Part', 'State', 'What blocks it', 'What we are doing to unblock it')}${open.map(partRow).join('') || '<p class="pg-none">Every part of the plan is done.</p>'}</div>
     ${later.length ? fold('pl-later', `Not started <span class="pg-n">${later.length}</span>`, `<div class="pg-table pl-parts">${later.map(partRow).join('')}</div>`) : ''}
     ${done.length ? fold('pl-done', `Done <span class="pg-n">${done.length}</span>`, `<div class="pg-table pl-parts">${done.map(partRow).join('')}</div>`) : ''}</section></div>`;
@@ -216,22 +220,63 @@ function workerLinks(html) {
     return `<a class="st-worker" href="#/worker/${encodeURIComponent(lane)}">${said}</a>${item ? ` <a class="st-worker st-story" href="#/work/${encodeURIComponent(item)}">live story ›</a>` : ''}`;
   });
 }
-function stepLight(cell) {
-  return /^done\b/i.test(cell) ? 'ok' : /\b(red|fail|broken|stuck|conflict)/i.test(cell) ? 'bad' : /^not started|^later/i.test(cell) ? '' : 'acc';
-}
 function statusStep(row) {
   const { head } = statusRows();
   return `<div class="pg pg-page"><div class="kick muted">Plan step</div><h1 class="pg-title">${esc(words(row[0]))}</h1><dl class="pg-facts">${row.slice(1).map((c, i) => `<dt>${esc(head[i + 1] ?? '')}</dt><dd>${workerLinks(inline(c))}</dd>`).join('')}</dl></div>`;
 }
-function statusScreen() {
+const STATUS_STATES = [['', 'Every state'], ['you', 'Needs you'], ['bad', 'Stuck'], ['acc', 'Moving'], ['ok', 'Done']];
+const OWNER_HEAD = ['Step', 'What it delivers', 'State', 'What blocks it', 'What we are doing to unblock it', 'What went wrong so far'];
+function rowTone(row) {
+  if (/^(done|live|landed)\b/i.test(row.state)) return 'ok';
+  if (/\b(your|you)\b/i.test(row.blocks) || /^waits on your?\b/i.test(row.state)) return 'you';
+  if (/\b(nobody|no one|stuck|fails?|failing|broken)\b/i.test(`${row.step} ${row.state} ${row.blocks}`)) return 'bad';
+  return 'acc';
+}
+function statusTables() {
+  const plan = curated('plan');
+  const tone = { done: 'ok', doing: 'acc', you: 'you', stuck: 'bad', waiting: 'acc', later: '' };
+  const parts = (plan?.parts ?? []).map((part) => {
+    const said = state.model.step_records?.[part.id] ?? {};
+    return { step: part.name, delivers: part.delivers, state: part.label, blocks: part.blocks, doing: part.doing, wrong: said.wrong, prs: said.prs, lanes: said.lanes, tone: tone[part.state] };
+  });
+  return [{ id: 'plan', title: 'The plan', as_of: plan ? clock(plan.at) : '', short: plan?.summary, rows: parts }, ...(state.model.status_tables ?? []).map((table) => ({ ...table, rows: table.rows.map((row) => ({ ...row, tone: rowTone(row) })) }))];
+}
+function ownerRow(tableId, row, i) {
+  const id = `st-${tableId}-${i}`;
+  const said = (text) => (/^(nothing|none needed|not needed)\b/i.test(text ?? '') ? '' : firstClause(text));
+  const cell = (text) => `<span class="st-clip">${esc(said(text))}</span>`;
+  const facts = OWNER_HEAD.slice(1).map((label, j) => [label, [row.delivers, row.state, row.blocks, row.doing, row.wrong][j]]).filter(([, text]) => text);
+  const records = [...(row.prs ?? []).map((n) => `<a href="#/review/${n}">${esc(plainTitle(n))}</a>`), ...(row.lanes ?? []).map((lane) => {
+    const word = state.model.records.findLast((r) => sameWorker(r.lane, lane));
+    return word ? wordLine(word) : esc(workerName(lane));
+  })];
+  return `<details class="pg-rows" data-id="${esc(id)}"${state.open.has(id) ? ' open' : ''}><summary class="pg-row"><span class="pg-cells"><b>${esc(row.step)}</b>${cell(row.delivers)}<span class="st-clip">${dotted(said(row.state).replace(/^(.{44}\S*)\s.+$/, '$1…'), row.tone)}</span>${cell(row.blocks)}${cell(row.doing)}${cell(row.wrong)}</span></summary><dl class="pg-facts st-full">${facts.map(([label, text]) => `<dt>${esc(label)}</dt><dd>${inline(text)}</dd>`).join('')}${records.length ? `<dt>Records</dt><dd>${records.join('<br>')}</dd>` : ''}</dl></details>`;
+}
+function ownerTable(table, tone) {
+  const rows = table.rows.map((row, i) => ({ row, i })).filter(({ row }) => !tone || row.tone === tone);
+  if (!rows.length) return '';
+  const done = tone ? [] : rows.filter(({ row }) => row.tone === 'ok');
+  const open = rows.filter((x) => !done.includes(x));
+  const draw = ({ row, i }) => ownerRow(table.id, row, i);
+  const empty = OWNER_HEAD.slice(2).map(() => '<span></span>').join('');
+  return `<section class="pg-sec" id="status-${esc(table.id)}"><h2><a href="#/status/${esc(table.id)}">${esc(table.title)}</a> <span class="pg-n">${table.rows.length}</span></h2>${table.short ? `<p class="pg-rel">${esc(table.short)}${table.as_of ? ` <span class="pg-at">As of ${esc(table.as_of)}.</span>` : ''}</p>` : ''}<div class="pg-table st-six">${tableHead(...OWNER_HEAD)}${open.map(draw).join('')}${done.length ? rowFold(`st-done-${table.id}`, [`<b>${done.length} done</b>`, `<span></span>${empty}`], done.map(draw)) : ''}</div></section>`;
+}
+function statusScreen(feature = 'all', tone = '') {
   const m = state.model;
-  const steps = statusRows();
+  const tables = statusTables();
+  const shown = tables.filter((table) => feature === 'all' || table.id === feature);
+  const count = (table) => (tone ? table.rows.filter((row) => row.tone === tone).length : table.rows.length);
+  const features = `<nav class="pg-filters">${[{ id: 'all', title: 'Everything', rows: tables.flatMap((table) => table.rows) }, ...tables].map((table) => `<a href="#/status/${esc(table.id)}${tone ? `/${tone}` : ''}" class="${table.id === feature ? 'on' : ''}">${esc(table.title)} <b>${count(table)}</b></a>`).join('')}</nav>`;
+  const states = `<nav class="pg-filters st-states">${STATUS_STATES.map(([id, label]) => `<a href="#/status/${esc(feature)}${id ? `/${id}` : ''}" class="${id === tone ? 'on' : ''}">${label}</a>`).join('')}</nav>`;
   const red = Object.entries(m.prs).filter(([, pr]) => pr.state === 'open' && (pr.test_state === 'failure' || pr.mergeable_state === 'dirty')).map(([n, pr]) => ({ n, pr, t: prTruth(n) }));
   const problem = (pr) => [pr.mergeable_state === 'dirty' ? 'Merge conflict with its base' : '', pr.test_state === 'failure' ? (pr.failing_checks ?? []).some((c) => /release-pr-check/.test(c.name)) ? 'Tests and the release check fail' : 'Tests fail' : ''].filter(Boolean).join('; ');
-  const prRow = ({ n, pr, t }) => `<div class="pg-row"><span class="pg-cells"><b><a href="#/review/${n}">${esc(prTitle(n))}</a></b><span>${dotted(problem(pr), 'bad')}</span><span>${esc(t.blocks || 'Not known')}</span><span class="st-for">${t.since ? blockedFor(t.since) : '<span class="pg-none">Not known</span>'}</span><span>${esc(t.next || 'No step named yet')}${pr.lane ? ` · <a href="#/worker/${encodeURIComponent(pr.lane)}">${esc(workerName(pr.lane))}</a>` : ''}</span></span></div>`;
-  return `<div class="pg">${pageHead('Status')}<p class="pg-lead">Each step of the plan, exactly what blocks it, for how long, and what is being done to unblock it, from the owner table; then every open pull request whose tests fail or that conflicts with its base.</p>
-    <section class="pg-sec"><h2>Every step of the plan</h2><div class="md prose st-table"><div class="tablewrap"><table><thead><tr>${steps.head.map((c) => `<th>${inline(c)}</th>`).join('')}</tr></thead><tbody>${steps.rows.map((row, i) => `<tr data-step="${i}">${row.map((c, j) => `<td data-h="${esc(steps.head[j] ?? '')}">${j === 1 ? `<span class="st-light ${stepLight(c)}"></span>${inline(c)}` : j ? workerLinks(inline(c)) : `<a class="st-step" href="#/status/s${i}">${esc(words(c))}</a>`}</td>`).join('')}</tr>`).join('')}</tbody></table></div></div></section>
-    <section class="pg-sec"><h2>Failing tests and merge conflicts <span class="pg-n">${red.length}</span></h2>${red.length ? `<div class="pg-table st-prs">${tableHead('Change', 'Problem', 'Where it stands', 'For', 'What is being done')}${red.map(prRow).join('')}</div>` : '<p class="pg-none">No open pull request has failing tests or a merge conflict.</p>'}</section></div>`;
+  const prRow = ({ n, pr, t }) => `<a class="pg-row" href="#/review/${n}"><span class="pg-cells"><b>${esc(plainTitle(n))}</b><span>${dotted(problem(pr), 'bad')}</span><span>${esc(firstClause(t.blocks))}</span><span class="st-for">${t.since ? spanFor(t.since) : ''}</span><span>${esc(firstClause(t.next))}</span></span></a>`;
+  const unowned = red.filter(({ t }) => /no live worker/i.test(t.next));
+  const held = red.filter((x) => !unowned.includes(x) && /\b(hold|holds|held)\b/i.test(`${x.t.blocks} ${x.t.next}`));
+  const fixing = red.filter((x) => !unowned.includes(x) && !held.includes(x));
+  const redFold = (id, list, say, tint, word) => (list.length ? rowFold(id, [`<b>${esc(say(list.length))}</b>`, `<span>${dotted(word, tint)}</span>`, '<span></span>', '<span></span>', '<span></span>'], list.map(prRow)) : '');
+  const reds = feature === 'all' && !tone && red.length ? `<section class="pg-sec"><h2>Failing tests and merge conflicts <span class="pg-n">${red.length}</span></h2><div class="pg-table st-prs">${tableHead('Change', 'Problem', 'Where it stands', 'For', 'What is being done')}${unowned.map(prRow).join('')}${redFold('st-fixing', fixing, (n) => `${n} being fixed by their workers`, 'acc', 'Being fixed')}${redFold('st-held', held, (n) => `${n} held until what they depend on is live`, '', 'Held')}</div></section>` : '';
+  return `<div class="pg">${pageHead('Status')}${features}${states}${shown.map((table) => ownerTable(table, tone)).join('')}${reds}</div>`;
 }
 function sameWorker(a, b) {
   return Boolean(a && b) && a.replace(/-\d+$/, '') === b.replace(/-\d+$/, '');
@@ -260,24 +305,41 @@ function workerScreen(lane) {
     ['What it posted lately', !posted ? 'Reading its records…' : posted.length ? `<ul class="pg-changes">${posted.map((r) => `<li><a href="/record/${r.seq}" target="_blank" rel="noopener">${esc(SAID[r.kind] ?? KIND_WORD[r.kind] ?? r.kind)} ↗</a><span>${clock(r.at)}</span></li>`).join('')}</ul>` : 'Nothing in the last day'],
   ]);
 }
+const PR_GROUPS = [
+  [/^held/, 'held by the coordinator', 'Held', ''],
+  [/^waits on #/, 'wait for the change below them', 'Waiting', ''],
+  [/^red on /, 'have failing tests', 'Tests fail', 'bad'],
+  [/^conflicts/, 'conflict with their base', 'Conflict', 'bad'],
+  [/^green, and no go/, 'pass but this version is not approved', 'Not approved', 'warn'],
+  [/^green with a go/, 'approved and passing, not in the queue', 'Not queued', 'warn'],
+  [/owner's tap/, 'wait on your approval', 'Needs you', 'you'],
+];
+function prGroup(text) {
+  const hit = PR_GROUPS.find(([pattern]) => pattern.test(text));
+  return hit ? hit.slice(1) : [ledgerWords(text), 'Moving', 'acc'];
+}
 function workScreen() {
   const p = curated('work');
   if (!p) return writing('Work');
   const lead = focusLane();
   const row = (w, line, side) => `<a class="wk-row${w.item === lead ? ' lead' : ''}" href="#/work/${encodeURIComponent(w.item)}"><span class="wk-body"><b>${esc(w.title)}</b><span class="wk-line">${line}</span></span><span class="wk-side">${side}</span></a>`;
-  const running = [...p.running].sort((x, y) => (y.item === lead) - (x.item === lead)).map((w) => row(w, `${dotted(w.status, WORK_TONE[w.status] ?? 'acc')} <span class="wk-latest">${esc(w.latest)}</span>`, [sinceClock(w.blocked_since) ? `Waiting ${blockedFor(sinceClock(w.blocked_since))}` : sinceClock(w.started) ? `Started ${esc(w.started)}` : '', wordAt(workWord(w.item)).replace(/^l/, 'L')].filter(Boolean).join('<br>')));
-  const rest = running.slice(RUNNING_AT_REST);
+  const open = state.model.stack.filter((x) => (state.model.prs[x.pr]?.state ?? 'open') === 'open');
+  const running = p.running.filter((w) => w.item === lead).map((w) => row(w, `${dotted(w.status, WORK_TONE[w.status] ?? 'acc')} <span class="wk-latest">${esc(w.latest)}</span>`, [sinceClock(w.blocked_since) ? `Waiting ${blockedFor(sinceClock(w.blocked_since))}` : sinceClock(w.started) ? `Started ${esc(w.started)}` : '', wordAt(workWord(w.item)).replace(/^l/, 'L')].filter(Boolean).join('<br>')));
+  const byStatus = groupBy(p.running.filter((w) => w.item !== lead), (w) => w.status).map(([status, list]) => {
+    const latest = list.map((w) => ({ w, word: workWord(w.item) })).sort((x, y) => new Date(y.word?.at ?? 0) - new Date(x.word?.at ?? 0))[0];
+    return { id: `wk-${status}`, iso: latest.word?.at ?? 0, at: latest.word ? clock(latest.word.at) : '', word: status, tone: WORK_TONE[status] ?? 'acc', title: list.length === 1 ? list[0].title : `${list.length} ${status.toLowerCase()}`, why: list.length === 1 ? '' : `latest: ${latest.w.title}`, side: list.length === 1 ? '' : countPill(list.length), more: `<div class="pg-list">${list.map((w) => row(w, `${dotted(w.status, WORK_TONE[w.status] ?? 'acc')} <span class="wk-latest">${esc(w.latest)}</span>`, wordAt(workWord(w.item)).replace(/^l/, 'L'))).join('')}</div>` };
+  });
+  const prRows = groupBy(open, (x) => prGroup(x.state)[0]).map(([label, list]) => {
+    const [, word, tone] = prGroup(list[0].state);
+    const dated = [...list].sort((x, y) => new Date(y.since) - new Date(x.since));
+    return { id: `wk-pr-${label}`, iso: dated[0].since, at: clock(dated[0].since), word, tone, title: list.length === 1 ? plainTitle(list[0].pr) : `${list.length} ${label}`, side: list.length === 1 ? '' : `oldest ${spanFor(dated.at(-1).since).replace(/^for /, '')} ${countPill(list.length)}`, more: `<div class="pg-list">${list.map(stackLine).join('')}</div>` };
+  });
   const finished = p.finished.map((w) => row(w, `${w.outcome === 'stopped' ? `${dotted('Stopped', 'warn')} ` : ''}${esc(w.result)}`, `${w.outcome === 'stopped' ? 'Stopped' : 'Done'} ${esc(w.at)}`));
   const m = state.model;
-  const open = m.stack.filter((row) => (m.prs[row.pr]?.state ?? 'open') === 'open');
-  const stuck = open.filter((row) => row.stale);
-  const moving = open.filter((row) => !row.stale);
   const helpers = p.helpers.map((h) => `<li>${h.workers.length ? `<a href="#/worker/${encodeURIComponent(h.workers[0])}"><b>${esc(h.name)}</b></a>` : `<b>${esc(h.name)}</b>`}<span>${esc(h.latest)}</span></li>`).join('');
   return `<div class="pg">${pageHead('Work', p)}
-    <section class="pg-sec"><h2>Active work <span class="pg-n">${p.running.length}</span></h2><div class="pg-list wk-active">${running.slice(0, RUNNING_AT_REST).join('') || '<p class="pg-none">No work is running right now.</p>'}</div>
-    ${rest.length ? fold('wk-more', `More active work <span class="pg-n">${rest.length}</span>`, `<div class="pg-list">${rest.join('')}</div>`) : ''}</section>
-    <section class="pg-sec"><h2>Open pull requests <span class="pg-n">${open.length}</span></h2>${stuck.length ? `<p class="wk-caption">${dotted('Stuck', 'bad')} These have sat in one state for two hours or more.</p><div class="pg-list wk-stuck">${stuck.map(stackLine).join('')}</div>` : '<p class="pg-none">None has sat in one state for two hours.</p>'}
-    ${moving.length ? fold('wk-prs', `Moving <span class="pg-n">${moving.length}</span>`, `<div class="pg-list">${moving.map(stackLine).join('')}</div>`) : ''}</section>
+    ${p.running.length ? `<section class="pg-sec"><h2>Active work <span class="pg-n">${p.running.length}</span></h2>${running.length ? `<div class="pg-list wk-active">${running.join('')}</div>` : ''}${eventList(newestFirst(byStatus))}</section>` : ''}
+    ${open.length ? `<section class="pg-sec"><h2>Open pull requests <span class="pg-n">${open.length}</span></h2>${eventList(newestFirst(prRows))}</section>` : ''}
     ${finished.length ? `<section class="pg-sec">${fold('wk-finished', `Finished today <span class="pg-n">${finished.length}</span>`, `<div class="pg-list">${finished.join('')}</div>`)}</section>` : ''}
     ${helpers ? `<section class="pg-sec">${fold('wk-helpers', `Keeping the drive running <span class="pg-n">${p.helpers.length}</span>`, `<ul class="wk-helpers">${helpers}</ul>`)}</section>` : ''}</div>`;
 }
@@ -355,13 +417,43 @@ function reviewScreen(list) {
     ${needsTotal() ? '' : '<p class="pg-lead">Nothing waits on you. When a change or a question needs you, it shows here and in the band on Now.</p>'}
     ${needsTotal() && !merges ? '<p class="pg-rel">No change waits on your approval right now.</p>' : ''}
     ${merges}
-    ${cards.length ? `<section class="pg-sec" id="review-questions"><h2>Questions</h2><div class="mr-list">${cards.map(boardCard).join('')}</div></section>` : ''}
+    ${cards.length ? `<section class="pg-sec" id="review-questions"><h2>Questions <span class="pg-n">${cards.length}</span></h2>${eventList(cards.map((item) => ({ id: `q-${item.card.id}`, at: '', word: 'Question', tone: 'you', title: rewritten('cards', item.card.key)?.question ?? words(item.card.title), more: boardCard(item) })))}</section>` : ''}
     ${notes.length ? `<section class="pg-sec" id="review-notes"><h2>For your information</h2><div class="mr-list">${notes.map(noteCard).join('')}</div></section>` : ''}</div>`;
 }
 function noteCard(c) {
   return `<article class="mr bq note" id="card-${esc(c.id)}"><header><span class="mr-t">${esc(words(c.title))}</span><span class="mr-acts"><a class="btn ghost" href="${esc(state.model.board.url)}?block=${encodeURIComponent(c.id)}" target="_blank" rel="noopener">Open on your board</a></span></header>${c.summary ? `<p class="mr-why">${esc(words(c.summary))}</p>` : ''}</article>`;
 }
 
+function firstClause(text) {
+  const t = String(text ?? '').trim();
+  return /^(.{14,}?)(?:[.;:](?:\s|$)|,\s)/.exec(t)?.[1] ?? t;
+}
+function plainTitle(n) {
+  return prTitle(n).replace(/^[\w./-]+:\s*(?:\p{Extended_Pictographic}\S*\s*)?/u, '').replace(/^./, (c) => c.toUpperCase());
+}
+function countPill(n) {
+  return `<span class="pg-n">${n}</span>`;
+}
+function eventRow(e) {
+  const line = `<time>${esc(e.at)}</time>${dotted(e.word, e.tone)}<b>${esc(e.title)}${e.why ? `<span class="ev-why">${esc(e.why)}</span>` : ''}</b><span class="ev-side">${e.side ?? ''}</span>`;
+  return e.more
+    ? `<li><details data-id="${esc(e.id)}"${state.open.has(e.id) ? ' open' : ''}><summary>${line}</summary><div class="ev-more">${e.more}</div></details></li>`
+    : `<li><div class="hs-line">${line}</div></li>`;
+}
+function eventList(rows) {
+  return `<ol class="hs ev-rows">${rows.map(eventRow).join('')}</ol>`;
+}
+function newestFirst(rows) {
+  return rows.sort((a, b) => new Date(b.iso) - new Date(a.iso));
+}
+function groupBy(list, key) {
+  const groups = new Map();
+  for (const item of list) groups.set(key(item), [...(groups.get(key(item)) ?? []), item]);
+  return [...groups];
+}
+function rowFold(id, cells, rows) {
+  return `<details class="pg-rows" data-id="${esc(id)}"${state.open.has(id) ? ' open' : ''}><summary class="pg-row"><span class="pg-cells">${cells.join('')}</span></summary>${rows.join('')}</details>`;
+}
 function historyEntry(e) {
   const id = `hs-${e.at}-${e.title}`;
   const line = `<time>${esc(e.at)}</time>${dotted(HISTORY_WORD[e.kind], HISTORY_TONE[e.kind])}<b>${esc(e.title)}</b>`;
