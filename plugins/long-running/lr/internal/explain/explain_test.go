@@ -24,14 +24,22 @@ type host struct{ dirs []string }
 
 func (h *host) Serve(_ context.Context, dir string) (string, error) {
 	h.dirs = append(h.dirs, dir)
-	return "https://mac.tail1.ts.net:8643/", nil
+	return "https://mac.tail1.ts.net:8665/", nil
 }
 
-type told struct{ notices []Notice }
+type told struct {
+	notices  []Notice
+	failures []error
+}
 
 func (t *told) Announce(_ context.Context, n Notice) error {
 	t.notices = append(t.notices, n)
 	return nil
+}
+
+func (t *told) Failed(_ context.Context, _ string, cause error) error {
+	t.failures = append(t.failures, cause)
+	return cause
 }
 
 type posts struct{ drafts []client.Draft }
@@ -48,19 +56,19 @@ func ran(calls []shell.Command, prefix ...string) bool {
 }
 
 func TestExplainCommitsAKitOnePagerWithItsDiagramOnTheExplainersBranchAndAnnouncesItsTailnetLink(t *testing.T) {
-	root, dir := t.TempDir(), filepath.Join(t.TempDir(), "explainers")
+	dir := filepath.Join(t.TempDir(), "explainers")
+	const remote = "https://github.com/acme/design-docs.git"
 	git := &shelltest.Fake{}
-	git.Fail(1, "", "git", "-C", root, "rev-parse")
 	git.Reply("?? one-pagers/lane-resume/index.html\n", "git", "-C", dir, "status")
 	git.Reply("", "git")
 	served, owner := &host{}, &told{}
 
-	link, err := Explain(context.Background(), Checkout{Runner: git, Root: root, Dir: dir}, served, owner, "Lane resume", []byte(sample), time.Date(2026, 11, 3, 11, 10, 0, 0, time.UTC))
+	link, err := Explain(context.Background(), Checkout{Runner: git, Remote: remote, Dir: dir}, served, owner, "Lane resume", []byte(sample), time.Date(2026, 11, 3, 11, 10, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if link != "https://mac.tail1.ts.net:8643/one-pagers/lane-resume/" {
+	if link != "https://mac.tail1.ts.net:8665/one-pagers/lane-resume/" {
 		t.Fatalf("link %q", link)
 	}
 	if !slices.Equal(served.dirs, []string{dir}) {
@@ -89,8 +97,108 @@ func TestExplainCommitsAKitOnePagerWithItsDiagramOnTheExplainersBranchAndAnnounc
 		}
 	}
 	calls := git.Calls()
-	if !ran(calls, "git", "-C", root, "worktree", "add", "-b", Branch, dir, "origin/main") || !ran(calls, "git", "-C", dir, "commit") {
+	if !ran(calls, "git", "clone", "--quiet", "--depth", "1", "--branch", "main", remote, dir) || !ran(calls, "git", "-C", dir, "switch", "--quiet", "-c", Branch) || !ran(calls, "git", "-C", dir, "commit") {
 		t.Fatalf("calls %v", calls)
+	}
+}
+
+func TestTheCheckoutLivesUnderTheConfiguredWorktreeRootAndOtherwiseUnderClaudesOwn(t *testing.T) {
+	const want = "https://github.com/acme/design-docs.git"
+	for _, tc := range []struct {
+		name string
+		git  func(*shelltest.Fake)
+		dir  string
+	}{
+		{"configured", func(f *shelltest.Fake) { f.Reply("/pool/worktrees\n", "git", "config", "ccx.worktreeRoot") }, "/pool/worktrees/design-docs/explainers"},
+		{"unset", func(f *shelltest.Fake) { f.Fail(1, "", "git", "config", "ccx.worktreeRoot") }, "/claude/worktrees/design-docs/explainers"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			git := &shelltest.Fake{}
+			tc.git(git)
+
+			checkout, err := locate(context.Background(), git, "acme/monorepo", "/claude")
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if checkout.Dir != tc.dir || checkout.Remote != want {
+				t.Fatalf("checkout %+v", checkout)
+			}
+		})
+	}
+
+	git := &shelltest.Fake{}
+	git.Fail(128, "fatal: bad config", "git", "config", "ccx.worktreeRoot")
+	if _, err := locate(context.Background(), git, "acme/monorepo", "/claude"); err == nil {
+		t.Fatal("a broken git config located a checkout")
+	}
+}
+
+func TestFirstUseClonesTheExplainersCheckoutItselfAndCommitsThePageOnItsBranch(t *testing.T) {
+	for key, value := range map[string]string{"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t", "GIT_CONFIG_GLOBAL": os.DevNull, "GIT_CONFIG_NOSYSTEM": "1"} {
+		t.Setenv(key, value)
+	}
+	origin := t.TempDir()
+	runner := shell.Exec{}
+	in := func(dir string, args ...string) string {
+		t.Helper()
+		result, err := runner.Run(context.Background(), shell.Command{Argv: append([]string{"git", "-C", dir}, args...)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.TrimSpace(result.Stdout)
+	}
+	in(origin, "init", "--quiet", "-b", "main")
+	kit := filepath.Join(origin, "one-pagers", "kit", "one-pager.css")
+	if err := os.MkdirAll(filepath.Dir(kit), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(kit, []byte("body{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	in(origin, "add", ".")
+	in(origin, "commit", "--quiet", "-m", "kit")
+	dir := filepath.Join(t.TempDir(), "pool", "design-docs", "explainers")
+	checkout := Checkout{Runner: runner, Remote: "file://" + origin, Dir: dir}
+
+	changed, err := checkout.Write(context.Background(), "Lane resume", "lane-resume", []byte("<html>"))
+	if err != nil || !changed {
+		t.Fatalf("changed %v, err %v", changed, err)
+	}
+
+	if branch := in(dir, "branch", "--show-current"); branch != Branch {
+		t.Fatalf("branch %q", branch)
+	}
+	if committed := in(dir, "ls-files", "one-pagers"); committed != "one-pagers/kit/one-pager.css\none-pagers/lane-resume/index.html" {
+		t.Fatalf("committed %q", committed)
+	}
+	if status := in(dir, "status", "--porcelain"); status != "" {
+		t.Fatalf("status %q", status)
+	}
+	if changed, err := checkout.Write(context.Background(), "Lane resume", "lane-resume", []byte("<html>")); err != nil || changed {
+		t.Fatalf("second write changed %v, err %v", changed, err)
+	}
+}
+
+func TestAPageThatCannotBeHostedFilesADefectToTheMetaDeskAndFailsTheVerb(t *testing.T) {
+	git := &shelltest.Fake{}
+	git.Fail(128, "fatal: repository not found", "git", "clone")
+	sent := &posts{}
+	owner := Owner{Post: sent.Post, Desk: func() (string, error) { return "meta-desk-2", nil }, Drive: "d1", Lane: "owner-relay"}
+	checkout := Checkout{Runner: git, Remote: "https://github.com/acme/design-docs.git", Dir: filepath.Join(t.TempDir(), "explainers")}
+
+	link, err := Explain(context.Background(), checkout, &host{}, owner, "Lane resume", []byte(sample), time.Now())
+
+	var exit *shell.ExitError
+	if link != "" || !errors.As(err, &exit) {
+		t.Fatalf("link %q, err %v", link, err)
+	}
+	if len(sent.drafts) != 1 {
+		t.Fatalf("posted %+v", sent.drafts)
+	}
+	filed := sent.drafts[0]
+	if filed.Kind != "defect" || filed.Topic != Topic || !slices.Equal(filed.To, []string{"meta-desk-2"}) || !strings.Contains(filed.Text, "repository not found") {
+		t.Fatalf("filed %+v", filed)
 	}
 }
 
@@ -115,23 +223,23 @@ func TestTailnetServesTheWorktreeOnLoopbackBehindTailscaleServeAndReturnsItsHTTP
 		t.Fatal(err)
 	}
 
-	if url != "https://mac.tail1.ts.net:8643/" || len(asked) != 2 {
+	if url != "https://mac.tail1.ts.net:8665/" || len(asked) != 2 {
 		t.Fatalf("url %q asked %v", url, asked)
 	}
-	if !ran(run.Calls(), "tailscale", "serve", "--bg", "--https=8643", "http://127.0.0.1:8642") {
+	if !ran(run.Calls(), "tailscale", "serve", "--bg", "--https=8665", "http://127.0.0.1:8664") {
 		t.Fatalf("calls %v", run.Calls())
 	}
 	plist, err := os.ReadFile(filepath.Join(home, "Library", "LaunchAgents", Label+".plist"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(plist), "<string>/claude/long-running/current/bin/lr</string>\n\t\t<string>explain</string>\n\t\t<string>serve</string>\n\t\t<string>--dir</string>\n\t\t<string>/claude/long-running/explainers</string>\n\t\t<string>--addr</string>\n\t\t<string>127.0.0.1:8642</string>") {
+	if !strings.Contains(string(plist), "<string>/claude/long-running/current/bin/lr</string>\n\t\t<string>explain</string>\n\t\t<string>serve</string>\n\t\t<string>--dir</string>\n\t\t<string>/claude/long-running/explainers</string>\n\t\t<string>--addr</string>\n\t\t<string>127.0.0.1:8664</string>") {
 		t.Fatalf("plist:\n%s", plist)
 	}
 }
 
 func TestAnnouncingAPageTellsOwnerRelayAndCardsTheOwnersDMAndAFailedCardRaisesABlocker(t *testing.T) {
-	notice := Notice{Title: "How a lane resumes", Lede: "A lane picks up from its newest handoff.", Link: "https://mac.tail1.ts.net:8643/one-pagers/lane-resume/"}
+	notice := Notice{Title: "How a lane resumes", Lede: "A lane picks up from its newest handoff.", Link: "https://mac.tail1.ts.net:8665/one-pagers/lane-resume/"}
 	slack := &shelltest.Fake{}
 	slack.Reply(`{"ok": true}`, "cc-slack", "dm-status")
 	sent := &posts{}
@@ -144,7 +252,7 @@ func TestAnnouncingAPageTellsOwnerRelayAndCardsTheOwnersDMAndAFailedCardRaisesAB
 		t.Fatalf("posted %+v", sent.drafts)
 	}
 	card := slack.Calls()[0].Argv
-	if len(card) != 4 || card[2] != "--card" || card[3] != `{"body":"A lane picks up from its newest handoff.","links":[{"label":"Open the one-pager","url":"https://mac.tail1.ts.net:8643/one-pagers/lane-resume/"}],"title":"How a lane resumes"}` {
+	if len(card) != 4 || card[2] != "--card" || card[3] != `{"body":"A lane picks up from its newest handoff.","links":[{"label":"Open the one-pager","url":"https://mac.tail1.ts.net:8665/one-pagers/lane-resume/"}],"title":"How a lane resumes"}` {
 		t.Fatalf("card %v", card)
 	}
 

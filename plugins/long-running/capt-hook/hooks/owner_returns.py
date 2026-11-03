@@ -90,6 +90,7 @@ HOLDER = "900424b6-0000"
 OWED_REPLY = {"thread_ts": "1793684147.131059", "ts": "1793705742.180139", "text": "A, but as buttons", "permalink": "https://acme.slack.com/archives/D0B6Z/p1793705742180139"}
 EXPLAINER = re.compile(r"https?://[^\s/]+/(?:one-pagers|design-docs)/[\w.-]+/")
 TITLE = re.compile(r"<title>(.*?)</title>", re.DOTALL)
+EXPLAIN_TOPIC = "lr-explain"
 SYSTEM_RAISED = Binary(
     "The owner's words this turn are below, then the titles of the one-pagers already hosted for him; his typos are his, so read through them."
     " Yes when his words raise a system, a worry about how something works, or how something is meant to work, and no listed page already explains it."
@@ -104,12 +105,13 @@ MECHANISM = Binary(
 UNEXPLAINED = (
     "A reply that explains a mechanism, incident or design change to the owner carries a hosted one-pager, unasked."
     " Run `lr explain <topic> --from <markdown file or cci record>` and put the tailnet link it prints in this reply."
+    " When the verb itself fails it files a defect, and the reply passes without a link: say in plain words that the page is not up yet."
 )
 NO = BinaryAnswer(p_yes=0.02, confidence=0.95)
 YES = BinaryAnswer(p_yes=0.97, confidence=0.94)
 SIGNAL = "how does the signal server decide which replica a chat talks to"
 WHY = "The relay dropped your message because both chats shared one replica, so the second chat's write replaced the first."
-PAGE = "https://mac.tail1.ts.net:8643/one-pagers/relay-replicas/"
+PAGE = "https://mac.tail1.ts.net:8665/one-pagers/relay-replicas/"
 CALM = {"reminder": NO, "status_question": NO, "mechanism": NO}
 REMINDED = CALM | {"reminder": BinaryAnswer(p_yes=0.97, confidence=0.94)}
 ASKED = CALM | {"status_question": BinaryAnswer(p_yes=0.96, confidence=0.93)}
@@ -121,6 +123,9 @@ HIS_1_34_AM = (
     " uou did tjay for the ildate after being away a long tome, so good job, but make sure thay is durable behavior not just this session."
 )
 ASKS = "cci tail --drive brook-drive --lane owner-relay --lane root"
+EXPLAIN_DEFECTS = "cci tail --drive brook-drive --lane owner-relay --kind defect --topic lr-explain"
+FILED_DEFECT = json.dumps({"seq": 366200, "lane": "owner-relay", "kind": "defect", "topic": "lr-explain", "text": "lr explain could not host its page on relay"})
+TRIED_EXPLAIN = T.tool_turn("Bash", result="fatal: repository not found", command="lr explain relay --from /notes/relay.md")
 SENT = '{"ok": true, "channel": "D0B6Z", "ts": "1793635190.051179"}'
 CARDED = '{"channel_id": "D0B6Z", "thread_ts": "1793635190.051179", "ts": "1793635190.051179"}'
 RELAY_CARD = {"title": "How do we fix the relay?", "body": "Each chat keeps its own replica, or they share one.", "options": ["Keep one shared replica", "Give each chat its own"], "recommended": "Give each chat its own"}
@@ -212,12 +217,18 @@ def system_raised(evt: BaseHookEvent) -> bool:
 
 
 def hosted_titles() -> list[str]:
-    pages = Path(reqenv.getenv("CLAUDE_CONFIG_DIR") or Path.home() / ".claude") / "long-running" / "explainers" / "one-pagers"
+    root = read(["git", "config", "ccx.worktreeRoot"])
+    worktrees = Path(root.strip()) if root else Path(reqenv.getenv("CLAUDE_CONFIG_DIR") or Path.home() / ".claude") / "worktrees"
+    pages = worktrees / "design-docs" / "explainers" / "one-pagers"
     return sorted(html.unescape(found.group(1).strip()) for page in pages.glob("*/index.html") if (found := TITLE.search(page.read_text())))
 
 
 def explained(reply: str, mechanism: object = YES, due: bool = False) -> Input:
     return Input(transcript=[T.user("why did my message vanish"), T.assistant(reply)], state=[CompactionState(active=True), OwnerReturns(explain_due=due)], decide=CALM | {"mechanism": mechanism})
+
+
+def explain_defect(*calls: dict, defects: str | tuple) -> Input:
+    return Input(transcript=[T.user("why did my message vanish"), *calls, T.assistant(WHY)], state=[CompactionState(active=True), OwnerReturns(explain_due=True)], env=DRIVE_CONFIG, commands={EXPLAIN_DEFECTS: defects}, decide=CALM | {"mechanism": YES})
 
 
 def picked(*calls: dict) -> Input:
@@ -296,6 +307,10 @@ def asked(reply: str, *calls: dict, words: str = HOW_FAR, decide: dict = ASKED) 
         explained(WHY, mechanism=Refused()): Allow(),
         explained("Looking into the signal server now.", mechanism=NO, due=True): Block(pattern=r"carries a hosted one-pager"),
         explained(f"The signal server picks the replica by chat id: {PAGE}", mechanism=NO, due=True): Allow(),
+        explain_defect(*TRIED_EXPLAIN, defects=FILED_DEFECT): Allow(),
+        explain_defect(*TRIED_EXPLAIN, defects=(1, "bus down")): Allow(),
+        explain_defect(*TRIED_EXPLAIN, defects=""): Block(pattern=r"carries a hosted one-pager"),
+        explain_defect(defects=FILED_DEFECT): Block(pattern=r"carries a hosted one-pager"),
         stated("yasyf/cc-skills#2196 merged, so the relay keeps one replica per chat."): Block(pattern=r"^A reply that calls a PR stale, merged, queued, red or green.*Read PR 2196 with `ccx vcs pr status <n>`"),
         stated(f"{RELAY_PR} is queued.", *TAILED): Block(pattern=r"Read PR 2196 with"),
         stated("PR 2196 is green.", *T.tool_turn("Bash", result="#2196 MERGED at 3:10 AM", command="ccx vcs pr status 2196")): Allow(),
@@ -478,7 +493,7 @@ def file_path(evt: BaseHookEvent, reply: str) -> str | None:
 
 
 def unexplained(evt: BaseHookEvent, reply: str) -> str | None:
-    if not reply or EXPLAINER.search(reply):
+    if not reply or EXPLAINER.search(reply) or explain_failed(evt):
         return None
     if OwnerReturns.load(evt).explain_due:
         return UNEXPLAINED
@@ -486,6 +501,14 @@ def unexplained(evt: BaseHookEvent, reply: str) -> str | None:
         case BinaryAnswer(p_yes=p_yes) if p_yes > 0.5:
             return UNEXPLAINED
     return None
+
+
+def explain_failed(evt: BaseHookEvent) -> bool:
+    if not any(use.call.name == "Bash" and any(cmd.argv[:1] and Path(cmd.argv[0]).name == "lr" and cmd.argv[1:2] == ["explain"] for cmd in use.call.command_line) for use in evt.ctx.turn.tool_calls.items):
+        return False
+    since = next(iter(evt.ctx.turn.events)).meta.timestamp.isoformat()
+    out = read(["cci", "tail", "--drive", bus_name(drive_entry(evt)), "--lane", COMMUNICATOR_LANE, "--kind", "defect", "--topic", EXPLAIN_TOPIC, "--since", since, "--budget", str(RECORD_BYTES), "--json"])
+    return out is None or bool(out.strip())
 
 
 def owner_words(evt: BaseHookEvent) -> str:

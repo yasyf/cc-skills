@@ -103,7 +103,8 @@ feeds both from the same rows, run by its one standing helper `update-desk`
 owner. Every reply that explains a mechanism, an incident or a design change to him
 carries a hosted one-pager, unasked, and so does the turn after he asks how a system
 works. `lr explain <topic> --from <markdown or record>` hosts it and sends him its
-link, and the communicator's hooks prompt for it and refuse a reply without one.
+link, and the communicator's hooks prompt for it and refuse a reply without one,
+unless the verb ran and failed, in which case it has filed a defect to the meta desk.
 When the owner writes after an hour or more away, its reply opens with the
 full update: the dashboard link, then the owner table grouped by feature. A question
 about how far a lane has got is answered from that lane's newest record,

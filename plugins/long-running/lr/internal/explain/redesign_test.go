@@ -73,14 +73,13 @@ type redesignFixture struct {
 	lanes     *designLanes
 	owner     *told
 	withdrawn []string
-	root, dir string
+	dir       string
 	state     string
 }
 
 func (f *redesignFixture) run(t *testing.T, pageStatus string, prs ...string) string {
 	t.Helper()
 	git := &shelltest.Fake{}
-	git.Fail(1, "", "git", "-C", f.root, "rev-parse")
 	git.Reply(pageStatus, "git", "-C", f.dir, "status")
 	git.Reply("", "git")
 	cards := board.Cards{
@@ -93,7 +92,7 @@ func (f *redesignFixture) run(t *testing.T, pageStatus string, prs ...string) st
 	}
 	var out bytes.Buffer
 	err := Redesign{
-		Board: cards, Checkout: Checkout{Runner: git, Root: f.root, Dir: f.dir}, Host: &host{}, Owner: f.owner, Lanes: f.lanes,
+		Board: cards, Checkout: Checkout{Runner: git, Remote: "https://github.com/acme/design-docs.git", Dir: f.dir}, Host: &host{}, Owner: f.owner, Lanes: f.lanes,
 		Drive: redesignDrive, Lane: "owner-relay", StateDir: f.state, Out: &out,
 	}.Run(context.Background(), "Landing queue", []string{"queue-batching", "queue-retries"}, prs, []byte(correction), time.Date(2026, 11, 3, 5, 0, 0, 0, time.UTC))
 	if err != nil {
@@ -125,7 +124,7 @@ func TestRedesignWithdrawsTheSubsystemsCardsHoldsItsPRsHostsThePageAndOpensItsDe
 	f := &redesignFixture{
 		board: &ownersBoard{cards: []string{"queue-batching", "queue-retries", "dashboard-colors"}},
 		lanes: &designLanes{registered: map[string]bool{}}, owner: &told{},
-		root: t.TempDir(), dir: filepath.Join(t.TempDir(), "explainers"), state: t.TempDir(),
+		dir: filepath.Join(t.TempDir(), "explainers"), state: t.TempDir(),
 	}
 
 	first := f.run(t, "?? one-pagers/landing-queue-redesign/index.html\n", repo+"#41", repo+"#42")
@@ -182,7 +181,7 @@ func TestARedesignHoldStopsALandingUntilALiftNamesItAndARerunNeverHoldsItAgain(t
 	t.Setenv("CCI_HOME", t.TempDir())
 	f := &redesignFixture{
 		board: &ownersBoard{}, lanes: &designLanes{registered: map[string]bool{}}, owner: &told{},
-		root: t.TempDir(), dir: filepath.Join(t.TempDir(), "explainers"), state: t.TempDir(),
+		dir: filepath.Join(t.TempDir(), "explainers"), state: t.TempDir(),
 	}
 	f.run(t, "?? one-pagers/landing-queue-redesign/index.html\n", repo+"#41")
 	open, err := client.Open(context.Background(), redesignDrive, "hold")
