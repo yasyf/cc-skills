@@ -651,7 +651,7 @@ func (w *workerLaunch) startSprite() (string, error) {
 		return "", err
 	}
 	if code != 0 {
-		return "", refuse("installing cci from %s on Sprite %s failed; %s keeps its output, %s", w.ccURL, workspace, filepath.Join(w.attempt, "cci-install.log"), idleWarning)
+		return "", refuse("installing cci from %s on Sprite %s failed; %s keeps its output, and the prepared worker stays idle and unattached", w.ccURL, workspace, filepath.Join(w.attempt, "cci-install.log"))
 	}
 	var relay *string
 	if sponsor := w.Env("WORKER_RELAY_SPONSOR"); sponsor != "" {
