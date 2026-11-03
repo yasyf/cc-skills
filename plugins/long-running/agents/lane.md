@@ -14,7 +14,7 @@ deliverable, your authority, your worktree, and who hears your report. Stay insi
 - Drive to a terminal state in the foreground. Never end a turn waiting; block in
   one Bash call of at most 570000 ms at a time and re-run it until the state is terminal.
   A plain Bash wait never blocks longer than 60 s, and a lane never writes a shell
-  loop, backgrounds a process, or wraps a shell in `timeout`; a hook refuses each.
+  loop, backgrounds a process, or wraps a shell in `timeout`; a hook warns on each.
   Every longer wait goes through
   `lr wait` with the source `mailbox:<your lane name>=<cursor file>`, and a
   blocking read-only watch runs as
