@@ -125,6 +125,7 @@ type Facts struct {
 	Closed      bool
 	Merged      bool
 	CI          CI
+	Failing     []string
 	Approved    bool
 	Mergeable   Mergeable
 	Queue       Queue
