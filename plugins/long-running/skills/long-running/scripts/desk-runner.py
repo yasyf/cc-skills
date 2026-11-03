@@ -1125,9 +1125,13 @@ class StopRequested(Exception):
 
 
 def stopped_lanes(record: dict) -> set[str]:
-    """The lanes `record` stops: a `stand-down` its first `--to` lane alone, as cci reads it, so a successor it copies stays live (root #365892); a `stopped` every lane it names."""
+    """The lanes `record` stops: a `stand-down` its first `--to` lane alone, as cci reads it, so a lane it copies stays live; a `stopped` every lane it names."""
     to = record.get("to") or []
     return set(to[:1] if record["kind"] == STAND_DOWN else to)
+
+
+def successor_of(record: dict) -> str:
+    return ((record.get("fields") or {}).get("attrs") or {}).get("successor", "")
 
 def quick(argv: list[str]) -> bool:
     return Path(argv[0]).name in QUICK_PROGRAMS
@@ -4279,10 +4283,10 @@ class Runner:
         return reached
 
     def stood_down(self, lane: str, launched: datetime) -> str:
-        """The coordinator's `stopped`, or the lane supervisor's `stand-down`, the one record a registry retirement posts, addressed to the lane since its launch, as `#<seq>`, or empty. Only the lane's own names count, never a name its brief quotes, so a successor whose brief quotes its predecessor's commands is not stood down with it (root #365892)."""
-        names = set(lane_aliases(lane))
+        """The coordinator's `stopped`, or the lane supervisor's `stand-down`, the one record a registry retirement posts, addressed to the lane since its launch, as `#<seq>`, or empty. A stand-down that names the lane its successor hands over to it and never stands it down, even when its brief quotes the stood-down lane's commands (root #365892)."""
+        names = set(self.names(lane))
         posted = cci.records(self.cci_tail, self.config.drive, f"--kind={STAND_DOWN}", f"--kind={STOPPED}")
-        return next((f"#{record['seq']}" for record in posted if record["drive"] == self.config.drive and record["lane"] in (ROOT, SUPERVISOR) and names & stopped_lanes(record) and actions.parse_stamp(record["at"]) >= launched), "")
+        return next((f"#{record['seq']}" for record in posted if record["drive"] == self.config.drive and record["lane"] in (ROOT, SUPERVISOR) and names & stopped_lanes(record) and successor_of(record) not in names and actions.parse_stamp(record["at"]) >= launched), "")
 
     def gate_stop(self, lane: str, launched: datetime) -> dict | None:
         """The lane's own stop since `launched` that scopes a failing release gate out for want of customer impact: a `stopped`, or an `incident` starting STOPPED, naming a release smoke team, a release check, or dev red beside `active no`, no or zero customer, or false alarm."""

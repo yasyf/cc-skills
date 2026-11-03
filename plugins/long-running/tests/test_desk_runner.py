@@ -10394,10 +10394,11 @@ def test_a_relay_to_a_lane_the_root_stood_down_fails_quietly_and_a_relaunch_take
     assert shell.sends() == []
 
 
+@pytest.mark.parametrize("poster", ["root", "supervisor"])
 def test_a_relay_to_a_successor_whose_brief_quotes_its_stood_down_predecessor_is_sent(shell, config, tmp_path, poster):
     """Root #365892: the runner refused a relay to the live replicator-spacing-5 as stood down by the stand-down of replicator-spacing-3, a name its brief quotes in a `cci post --lane` command."""
     clocked_lane(shell, config, tmp_path, header="Read where your predecessor left off: `cci post --lane replicator-spacing-3 --kind note --text read` is how it posted.\n")
-    cci_record(shell, lane=poster, kind="stand-down", to=["replicator-spacing-3"], at=actions.stamp(shell.clock), text=f"replicator-spacing-3 stood down for {LANE}")
+    cci_record(shell, lane=poster, kind="stand-down", to=["replicator-spacing-3"], fields={"attrs": {"successor": LANE}}, at=actions.stamp(shell.clock), text=f"replicator-spacing-3 stood down for {LANE}")
     sent = len(shell.sends())
     cli(shell, config, "relay", "--key", "R634", "--lane", LANE, "--text", "use evidence.md")
     orca_pass(shell, config)
@@ -10405,6 +10406,7 @@ def test_a_relay_to_a_successor_whose_brief_quotes_its_stood_down_predecessor_is
     assert len(shell.sends()) == sent + 1
 
 
+@pytest.mark.parametrize("poster", ["root", "supervisor"])
 def test_a_relay_to_a_live_lane_a_stand_down_copies_is_sent(shell, config, tmp_path, poster):
     """A stand-down stands down its first --to lane only, as cci reads it; a lane it copies stays live."""
     shell.launch(LANE, "ctx_a")
