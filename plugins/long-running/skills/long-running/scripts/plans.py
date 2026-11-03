@@ -1,7 +1,7 @@
 """Roll the cc-notes tasks registered with a drive up into its plans' steps.
 
 A plan is registered when it carries ``program:<program>`` or is named in ``pinned``. A task is registered when it
-carries ``program:<program>`` or hangs off a registered plan. A plan's steps are its ``### <n>. <title>`` headings; a
+carries ``program:<program>`` or hangs off a registered plan. A plan's steps are its ``### <n>. <title>`` or ``### Step <n>. <title>`` headings; a
 task joins step ``<n>`` of its own plan through a ``step:<n>`` label, its plan's unmapped step without one, and the
 unassigned step with no plan. Done tasks count as done, cancelled ones count nowhere, an open or in-progress task with
 an unfinished blocker or a failed criterion is blocked. The drive dashboard's ``lr.plan-progress`` card and
@@ -16,7 +16,7 @@ from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
-STEP_HEADING = re.compile(r"^### (?P<number>\d+(?:\.\d+)*)\.\s+(?P<title>.+?)\s*$", re.MULTILINE)
+STEP_HEADING = re.compile(r"^### (?:Step )?(?P<number>\d+(?:\.\d+)*)\.\s+(?P<title>.+?)\s*$", re.MULTILINE)
 STEP_LABEL = "step:"
 STATES = ("done", "in_progress", "blocked", "open")
 ORDER = ("blocked", "in_progress", "open", "done")

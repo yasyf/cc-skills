@@ -90,3 +90,7 @@ def test_summary_lines_name_each_plan_and_its_open_steps():
     ccn = CcnPlans([task("a", "Ship the reader", plan=PLAN_ID, labels=("step:1",), status="done"), task("b", "Backfill", plan=PLAN_ID, labels=("step:2",)), task("d", "Loose end")], [plan()])
 
     assert plans.summary_lines(plans.read(ccn, PROGRAM)) == ["- Plan `fc8714e` Migration: 1 of 2 tasks done, 0 blocked; steps open: 2 0/1", "- 0 of 1 drive tasks outside any plan done"]
+
+
+def test_a_step_heading_may_lead_with_the_word_step():
+    assert [(step.number, step.title) for step in plans.steps_of("### Step 11. Releases: R1a cloud\n### Streaming: no number\n### 2. Data\n")] == [("11", "11. Releases: R1a cloud"), ("2", "2. Data")]

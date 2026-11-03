@@ -870,6 +870,26 @@ def test_the_handoff_lists_each_incident_lane_with_its_last_record_and_age(drive
     assert "enum-local-client" not in body and "inc-old-fix" not in body
 
 
+def test_the_handoff_carries_the_lane_registry_and_the_owner_update_rendered_from_sources(drive_home: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch) -> None:
+    registry = json.loads((drive_home / ".claude/long-running/drives/d1.json").read_text())
+    state = Path(registry["state_dir"])
+    state.mkdir(parents=True, exist_ok=True)
+    (state / "lr.json").write_text("{}")
+    rows = [
+        {"lane": "tooling-codify-1", "state": "desired", "heard": None, "step": "tooling", "standing": "", "brief": "/b/codify.md", "prs": [1904]},
+        {"lane": "board-refresher-7", "state": "retired", "heard": None, "step": "all", "standing": "refresh the board", "brief": "/b/board.md", "prs": []},
+        {"lane": "old-lane-1", "state": "retired", "heard": None, "step": "", "standing": "", "brief": "/b/old.md", "prs": []},
+    ]
+    monkeypatch.setattr(handoff.owner_update, "registry", lambda runner, entry: rows)
+    monkeypatch.setattr(handoff.owner_update, "report", lambda drive, runner: ("# Owner update: d1, 6:00 PM\n\n## Standing duties\n- refresh the board: NO LIVE OWNER\n", []))
+    shell = shell_with()
+
+    body = shell.docs[generate(drive_home, shell, capsys=capsys)["id"]]
+
+    assert "## Lane registry\n- tooling-codify-1 desired, heard an unrecorded time, step tooling, PRs #1904, brief /b/codify.md\n- board-refresher-7 retired, heard an unrecorded time, step -, standing: refresh the board, brief /b/board.md\n" in body
+    assert "## Owner update\n\n### Standing duties\n- refresh the board: NO LIVE OWNER\n" in body and "old-lane-1" not in body
+
+
 def test_each_open_task_whose_lane_delivered_since_the_last_progress_record_is_listed_with_that_record(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
     session = json.loads((drive_home / "session.json").read_text())
     session["tasks"] = [

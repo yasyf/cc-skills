@@ -557,7 +557,7 @@ def cmd_lanes(config: lr_config.Config, path: Path, as_json: bool, names: list[s
 def cmd_route(config: lr_config.Config, path: Path, name: str) -> int:
     store = Store.open(path.parent / "lr.sqlite")
     lane = store.lane(name)
-    print(json.dumps({"lane": name, "route": lanes.route(store, name), "state": lane.state if lane else "unregistered"}))
+    print(json.dumps({"lane": name, "route": lanes.route(store, name), "state": lane.state if lane else "unregistered", "standing": lanes.brief_of(lane.brief).standing if lane else ""}))
     return 0
 
 

@@ -125,3 +125,82 @@ def test_a_board_row_names_its_pr_head_and_the_owner_verdict_at_that_head(tasks)
     board = found(Runner([], board={"doc": doc, "interactions": interactions}))["board"]
 
     assert [item["line"] for item in board] == ["board #47321 at 632c4a5: approved"]
+
+
+def test_a_written_update_misses_each_lane_ask_and_pr_it_does_not_name_whole():
+    names = ["tooling-codify-1", "release-5", "ask:abc123", "#48401", "tooling-codify-1"]
+    assert owner_update.missing("tooling-codify-1 landed #48401; release-5-2 still runs", names) == ["release-5", "ask:abc123"]
+
+
+def test_a_lane_sits_under_the_plan_step_its_brief_names_by_number_and_its_sub_steps():
+    step = owner_update.plans.Step("7", "7. B3: the reader and writer")
+    assert owner_update.on_step({"step": "7"}, step) and owner_update.on_step({"step": "7.7"}, step)
+    assert not owner_update.on_step({"step": "17"}, step) and not owner_update.on_step({"step": "reader"}, step) and not owner_update.on_step({"step": "all"}, step)
+
+
+def lane(name: str, state: str, minutes_ago: float | None, **fields) -> dict:
+    return {"lane": name, "state": state, "heard": stamp(minutes_ago) if minutes_ago is not None else None, "prs": [], "step": "", "standing": "", "brief": f"/b/{name}.md", "retired_by": None} | fields
+
+
+def test_the_update_names_every_lane_posting_within_a_day_registered_or_not_and_every_standing_one():
+    rows = [
+        lane("memory-siblings-2", "desired", 60, step="memory"),
+        lane("red-sweep-3", "unregistered", 30),
+        lane("root", "unregistered", 1),
+        lane("cohort-flag-1", "desired", 30 * 60),
+        lane("devbox-perf-1", "launching", None, standing="devbox perf and bug hunting"),
+        lane("devbox-explore-7", "retired", 600, standing="devbox perf and bug hunting"),
+        lane("old-lane-1", "retired", 5),
+    ]
+
+    assert [row["lane"] for row in owner_update.working(rows, NOW)] == ["memory-siblings-2", "red-sweep-3", "devbox-perf-1"]
+
+
+def test_a_standing_duty_reads_the_end_of_its_successor_chain_and_no_live_owner_once_that_end_retired_alone():
+    rows = [
+        lane("devbox-explore-7", "retired", 600, standing="devbox perf and bug hunting", retired_by="done"),
+        lane("board-refresher-6", "retired", 90, standing="refresh the board", retired_by="board-refresher-7"),
+        lane("board-refresher-7", "desired", 2, standing="refresh the board"),
+    ]
+
+    lines = owner_update.duty_lines(rows)
+
+    assert lines[0].startswith("- devbox perf and bug hunting: NO LIVE OWNER: devbox-explore-7 retired by done, last heard ") and lines[0].endswith("; brief /b/devbox-explore-7.md")
+    assert lines[1].startswith("- refresh the board: board-refresher-7 desired, last heard ") and len(lines) == 2
+
+
+def test_an_owner_table_row_held_only_by_root_or_a_quiet_lane_reads_nobody_and_comes_first():
+    body = "\n".join([
+        "## Ordered plan",
+        "",
+        "| Step | Left | Who, next step |",
+        "|---|---|---|",
+        "| 0. The base and the copy | ports | The [port workers](worker:root) |",
+        "| 7. The reader | release | Its [worker](worker:release-5) and [desk](worker:old-desk-1) |",
+        "| 12. Cutover | everything | nobody yet |",
+    ])
+    docs = [{"id": "57967b6", "title": "durable-agents-rebuild: owner report table"}]
+
+    def runner(argv: list[str], env: dict | None = None) -> subprocess.CompletedProcess:
+        return done(json.dumps(docs) if argv[3:5] == ["doc", "list"] else json.dumps({"body": body}))
+
+    entry = {"checkout": "/c", "program": "durable-agents-rebuild"}
+    rows = [lane("release-5", "desired", 10), lane("old-desk-1", "desired", 300), lane("root", "unregistered", 1)]
+
+    assert [line.split(" (heard")[0] for line in owner_update.owner_table_rows(runner, entry, rows, NOW)] == [
+        "- **nobody**: Step 0. The base and the copy (names root)",
+        "- **nobody**: Step 12. Cutover",
+        "- release-5",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("lane_name", "text", "to", "named"),
+    [
+        ("root", "6:11 PM root INCIDENT OPEN ssql-cred-rotation: prod errors", ["dev-health-desk-1"], "ssql-cred-rotation"),
+        ("root", "6:25 AM root: user-creds closed", ["drive-watchdog-2@d1"], "drive-watchdog-2"),
+        ("run-creds-fix-2", "PR up", ["root"], "run-creds-fix-2"),
+    ],
+)
+def test_an_incident_record_is_filed_under_the_slug_it_opens_else_its_lane_else_the_lane_a_coordinator_addresses(lane_name, text, to, named):
+    assert owner_update.incident_name({"lane": lane_name, "text": text, "to": to}) == named
