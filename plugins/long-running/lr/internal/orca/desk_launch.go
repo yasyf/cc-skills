@@ -542,7 +542,7 @@ func (d *Desk) settleSprite(ctx context.Context, container, lane string, action 
 	}
 	installed, err := os.ReadFile(filepath.Join(attempt, "install.log"))
 	if errors.Is(err, os.ErrNotExist) {
-		return d.raiseHookDrift(lane, attempt)
+		return d.raiseDrift(lane, attempt)
 	}
 	if err != nil {
 		return err
@@ -550,10 +550,10 @@ func (d *Desk) settleSprite(ctx context.Context, container, lane string, action 
 	if err := d.Registry.RecordSpriteTools(ready.Workspace, installedTools(string(installed)), d.Now()); err != nil {
 		return err
 	}
-	return d.raiseHookDrift(lane, attempt)
+	return d.raiseDrift(lane, attempt)
 }
 
-func (d *Desk) raiseHookDrift(lane, attempt string) error {
+func (d *Desk) raiseDrift(lane, attempt string) error {
 	raw, err := os.ReadFile(filepath.Join(attempt, spriteMade))
 	if err != nil {
 		return err
@@ -576,8 +576,38 @@ func (d *Desk) raiseHookDrift(lane, attempt string) error {
 				return err
 			}
 		}
-		return nil
+		key, differs, err := baseDrift(attempt)
+		if err != nil || key == "" {
+			return err
+		}
+		text := "a Sprite's packages differ from the base its payload captured, so they installed online once and the launch took longer; rebuild the payload on this base: " + clipRunes(differs, 250)
+		_, _, err = tx.AcceptDue(escalationPref+key, kindEscalation, escalationLine("BASE-DRIFT", key, lane, text), deskRunner, d.Now(), time.Time{})
+		return err
 	})
+}
+
+func baseDrift(attempt string) (key, differs string, err error) {
+	said, err := os.ReadFile(filepath.Join(attempt, "prepare.err"))
+	if errors.Is(err, os.ErrNotExist) {
+		return "", "", nil
+	}
+	if err != nil {
+		return "", "", err
+	}
+	_, after, found := strings.Cut(string(said), "so they install online once")
+	if !found {
+		return "", "", nil
+	}
+	var lines []string
+	for _, line := range strings.Split(after, "\n")[1:] {
+		if !strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "-") {
+			break
+		}
+		lines = append(lines, line)
+	}
+	differs = strings.Join(lines, " ")
+	sum := sha256.Sum256([]byte(differs))
+	return "base-drift:" + hex.EncodeToString(sum[:8]), differs, nil
 }
 
 func (d *Desk) unsettledSprite(ctx context.Context, container, lane string, action incident.Action, spec launchTarget, attempt string, exited bool, out string) error {
