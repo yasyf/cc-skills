@@ -111,7 +111,7 @@ def bus(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Bus:
 
 
 def owner_record(row: str, text: str) -> dict:
-    return {"argv": ["post", "--drive", "brook", "--lane", "owner-relay", "--kind", "owner", "--id", f"owner:{row}", "--attr", f"row={row}", "--text", text], "stdin": ""}
+    return {"argv": ["post", "--drive", "brook", "--lane", "owner-relay", "--kind", "owner", "--id", f"owner:{row}", "--attr", f"row={row}", "--quoted", text], "stdin": ""}
 
 
 def slack_dm(**fields) -> str:

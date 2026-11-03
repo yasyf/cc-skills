@@ -61,7 +61,7 @@ def add_row(path: Path, at: datetime, text: str) -> str | None:
 
 
 def post_owner_row(entry: dict, row: str, text: str) -> None:
-    argv = ["cci", "post", "--drive", bus_name(entry), "--lane", COMMUNICATOR_LANE, "--kind", "owner", "--id", f"owner:{row}", "--attr", f"row={row}", "--text", CREDENTIAL.sub(REDACTED, text)]
+    argv = ["cci", "post", "--drive", bus_name(entry), "--lane", COMMUNICATOR_LANE, "--kind", "owner", "--id", f"owner:{row}", "--attr", f"row={row}", "--quoted", CREDENTIAL.sub(REDACTED, text)]
     subprocess.run(argv, capture_output=True, text=True, timeout=CCN_TIMEOUT_SECONDS, env=dict(reqenv.env_map()))
 
 
