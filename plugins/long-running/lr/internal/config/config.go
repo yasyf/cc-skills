@@ -21,23 +21,24 @@ const RetireSilent = time.Hour
 var Movers = []string{"lanes", MoverLanding, "grading", "items"}
 
 type Config struct {
-	Repo             string
-	Drive            string
-	Checkout         string
-	Author           string
-	Label            string
-	Movers           []string
-	OrcaRun          string
-	RemoteBox        string
-	GoLanes          string
-	Trunk            string
-	QueueScript      string
-	QueueKey         string
-	AlertChannels    string
-	ReleasePipelines string
-	BuildkiteCLI     string
-	Parent           string
-	RetireSilent     time.Duration
+	Repo                  string
+	Drive                 string
+	Checkout              string
+	Author                string
+	Label                 string
+	Movers                []string
+	OrcaRun               string
+	RemoteBox             string
+	GoLanes               string
+	Trunk                 string
+	QueueScript           string
+	QueueKey              string
+	AlertChannels         string
+	ReleasePipelines      string
+	BuildkiteCLI          string
+	Parent                string
+	BuildRecommendedOrder string
+	RetireSilent          time.Duration
 }
 
 func (c Config) GoLaneNames() []string { return listed(c.GoLanes) }
@@ -72,7 +73,7 @@ func Load(path string, warn io.Writer) (Config, error) {
 		"orca_run": &loaded.OrcaRun, "remote_box": &loaded.RemoteBox, "go_lanes": &loaded.GoLanes,
 		"trunk": &loaded.Trunk, "queue_script": &loaded.QueueScript, "queue_key": &loaded.QueueKey,
 		"alert_channels": &loaded.AlertChannels, "release_pipelines": &loaded.ReleasePipelines,
-		"buildkite_cli": &loaded.BuildkiteCLI, "parent": &loaded.Parent,
+		"buildkite_cli": &loaded.BuildkiteCLI, "parent": &loaded.Parent, "build_recommended_order": &loaded.BuildRecommendedOrder,
 	}
 	var unknown []string
 	for _, name := range slices.Sorted(maps.Keys(raw)) {

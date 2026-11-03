@@ -1293,6 +1293,79 @@ func TestALaneParkedOnAnOwnerCardWaitsThroughRootsReplyAndWakesOnceWithTheOwners
 	}
 }
 
+func TestAnOwnerRulingNamingAnyCardALaneWaitsOnWakesIt(t *testing.T) {
+	s := memory(t)
+	f := adopted(t, s, writeBrief(t), "")
+	f.peers = []Row{onRoster(who(lane2, true, t0.Add(-2*time.Hour)))}
+	f.feed = append(f.feed, rec(2, lane2, "blocked", t0.Add(-2*time.Hour), "parked on two picks: card-phone-app-platform and card-phone-app-mesh", Root))
+
+	tick(t, s, f, t0)
+	equal(t, row(t, s, lane2).Awaits, "card-phone-app-platform card-phone-app-mesh")
+	f.feed = append(f.feed, rec(3, "owner-relay", "owner", t0.Add(mins(1)), "go with the recommended option on card-phone-app-mesh", "all"))
+	ruled := tick(t, s, f, t0.Add(mins(2)))
+
+	equal(t, ruled.Woken, []string{lane2})
+	equal(t, row(t, s, lane2).Awaits, "")
+	if why := pageText(f.pages[0], "why"); !strings.HasPrefix(why, "the owner answered card-phone-app-mesh, the card you wait on: go with the recommended option") {
+		t.Fatal(why)
+	}
+}
+
+func recommendedDrive(t *testing.T, parked string) (*store.Store, *fake, time.Time) {
+	t.Helper()
+	s := memory(t)
+	f := adopted(t, s, writeBrief(t), "")
+	if _, err := s.WantLane(store.Lane{Name: "meta-desk-3", Brief: "/briefs/meta-desk-3.md", Model: "opus", Effort: "xhigh", Role: RoleMeta, State: store.LaneDesired}, t0); err != nil {
+		t.Fatal(err)
+	}
+	at := t0.Add(mins(61))
+	f.peers = []Row{who(lane2, true, at), who("meta-desk-3", true, at)}
+	f.feed = append(f.feed, rec(2, lane2, "blocked", t0.Add(mins(30)), parked, Root))
+	return s, f, at
+}
+
+func reportsTo(f *fake, lane string) []string {
+	var texts []string
+	for _, p := range f.posts {
+		if p.Kind == "report" && slices.Contains(p.To, lane) {
+			texts = append(texts, p.Text)
+		}
+	}
+	return texts
+}
+
+func TestWhileTheBuildRecommendedOrderStandsTheHourlyPassWakesEveryLaneParkedOnAPick(t *testing.T) {
+	s, f, at := recommendedDrive(t, "parked on the owner's pick on card-phone-app-platform")
+	f.deps.BuildRecommendedOrder = "owner:m104"
+
+	tick(t, s, f, at)
+
+	equal(t, row(t, s, lane2).Awaits, "")
+	equal(t, reportsTo(f, "meta-desk-3"), []string{"owner:m104: woke these lanes from a pick to build its recommended option: conflicts-2 (card-phone-app-platform)."})
+	if why := pageText(must(s.Pages())[lane2], "why"); !strings.HasPrefix(why, "owner:m104 stands, so no lane parks on a pick that recommends an option: build the recommended option of card-phone-app-platform as a branch, never a PR") {
+		t.Fatal(why)
+	}
+}
+
+func TestACardWithNoRecommendationOrNoStandingOrderLeavesTheLaneParked(t *testing.T) {
+	for name, c := range map[string]struct{ parked, order string }{
+		"no recommendation": {"card-phone-app-platform recommends none: no-recommendation", "owner:m104"},
+		"no order":          {"parked on the owner's pick on card-phone-app-platform", ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s, f, at := recommendedDrive(t, c.parked)
+			f.deps.BuildRecommendedOrder = c.order
+
+			tick(t, s, f, at)
+
+			if !strings.HasPrefix(row(t, s, lane2).Awaits, "card-phone-app-platform") {
+				t.Fatal(row(t, s, lane2).Awaits)
+			}
+			equal(t, len(reportsTo(f, "meta-desk-3")), 0)
+		})
+	}
+}
+
 func TestAHeadRelayedToThePRsOwnerLeavesTheOwnerInPlace(t *testing.T) {
 	s := memory(t)
 	f := adopted(t, s, writeBrief(t), "", 46888)

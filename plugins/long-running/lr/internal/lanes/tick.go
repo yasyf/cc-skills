@@ -31,32 +31,33 @@ type Post struct {
 }
 
 type Deps struct {
-	Drive        string
-	Parent       string
-	Checkout     string
-	State        string
-	Briefs       string
-	HandoffBrief string
-	Records      func(since int64) ([]Record, error)
-	Who          func(names []string) ([]Row, error)
-	Tokens       func(Row) int
-	Transcript   func(Row) string
-	Post         func(Post) error
-	Launch       func(name, model, effort, brief string) error
-	Withdraw     func(name string) error
-	Wake         func(name string, row Row, page map[string]any) (bool, error)
-	PRStates     func(prs []int) (map[int]string, error)
-	Held         func() (map[int]bool, error)
-	Desks        func() (map[string]string, error)
-	OpenWork     func() ([]Record, error)
-	Owed         func() ([]deletions.Owed, error)
-	Present      func(rows []deletions.Owed) ([]deletions.Owed, error)
-	Gaps         func() ([]string, error)
-	Orders       func(s *store.Store) ([]owner.Row, error)
-	RotateAt     int
-	RetireAfter  time.Duration
-	OpenBranches func() (map[string][]int, error)
-	Hosts        func(lanes []string) map[string]Host
+	Drive                 string
+	Parent                string
+	Checkout              string
+	State                 string
+	Briefs                string
+	HandoffBrief          string
+	Records               func(since int64) ([]Record, error)
+	Who                   func(names []string) ([]Row, error)
+	Tokens                func(Row) int
+	Transcript            func(Row) string
+	Post                  func(Post) error
+	Launch                func(name, model, effort, brief string) error
+	Withdraw              func(name string) error
+	Wake                  func(name string, row Row, page map[string]any) (bool, error)
+	PRStates              func(prs []int) (map[int]string, error)
+	Held                  func() (map[int]bool, error)
+	Desks                 func() (map[string]string, error)
+	OpenWork              func() ([]Record, error)
+	Owed                  func() ([]deletions.Owed, error)
+	Present               func(rows []deletions.Owed) ([]deletions.Owed, error)
+	Gaps                  func() ([]string, error)
+	Orders                func(s *store.Store) ([]owner.Row, error)
+	RotateAt              int
+	RetireAfter           time.Duration
+	OpenBranches          func() (map[string][]int, error)
+	Hosts                 func(lanes []string) map[string]Host
+	BuildRecommendedOrder string
 }
 
 type Relaunch struct {
@@ -845,6 +846,7 @@ func hourly(s *store.Store, d Deps, now time.Time) {
 		}
 	}
 	overdue(s, d, now)
+	recommendedSweep(s, d, now)
 	start := time.Unix((hour-1)*3600, 0).UTC()
 	end := start.Add(time.Hour)
 	var words []string
@@ -873,6 +875,26 @@ func hourly(s *store.Store, d Deps, now time.Time) {
 	do(err)
 	if depth := queueDepth(records); depth != "" {
 		do(d.Post(Post{Kind: "report", To: []string{Root}, Text: fmt.Sprintf("Open work by lane, so no queue grows unseen (retro row 133): %s.", depth)}))
+	}
+}
+
+func recommendedSweep(s *store.Store, d Deps, now time.Time) {
+	if d.BuildRecommendedOrder == "" {
+		return
+	}
+	var woken []string
+	for _, lane := range must(s.Lanes(live...)) {
+		cards := card.FindAllString(lane.Awaits, -1)
+		if len(cards) == 0 || slices.Contains(strings.Fields(lane.Awaits), noRecommendation) {
+			continue
+		}
+		why := fmt.Sprintf("%s stands, so no lane parks on a pick that recommends an option: build the recommended option of %s as a branch, never a PR, and carry on. If the card recommends none, re-post blocked naming it with %s.", d.BuildRecommendedOrder, strings.Join(cards, ", "), noRecommendation)
+		do(s.SetLaneWaiting(lane.Name, 0, now, ""))
+		do(s.SetLanePage(lane.Name, map[string]any{"topic": d.BuildRecommendedOrder, "why": why, "text": why, "prs": append([]int{}, lane.PRs...)}))
+		woken = append(woken, fmt.Sprintf("%s (%s)", lane.Name, strings.Join(cards, ", ")))
+	}
+	if meta := must(MetaDesk(s)); len(woken) > 0 && meta != Root {
+		do(d.Post(Post{Kind: "report", To: []string{meta}, Text: fmt.Sprintf("%s: woke these lanes from a pick to build its recommended option: %s.", d.BuildRecommendedOrder, strings.Join(woken, "; "))}))
 	}
 }
 
