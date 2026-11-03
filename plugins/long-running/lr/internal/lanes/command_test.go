@@ -68,7 +68,7 @@ func TestTheLanesVerbPrintsTheRegistryAndOneJSONObjectPerLane(t *testing.T) {
 	if err := json.Unmarshal([]byte(text), &row); err != nil {
 		t.Fatal(err)
 	}
-	for _, key := range []string{"lane", "state", "live", "heard", "prs", "handoff", "retired_by", "placement", "predecessor", "route", "brief", "step", "standing", "deliverable"} {
+	for _, key := range []string{"lane", "state", "live", "heard", "prs", "handoff", "retired_by", "placement", "predecessor", "route", "brief", "step", "standing", "deliverable", "woke"} {
 		if _, found := row[key]; !found {
 			t.Fatalf("%q missing from %v", key, row)
 		}

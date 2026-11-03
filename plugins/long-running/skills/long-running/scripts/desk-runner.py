@@ -208,7 +208,10 @@ and `WITHDRAW-UNCONFIRMED` with the dispatch and terminal otherwise, as when wor
 answers `stop_unknown`. The
 lane is marked withdrawn: its `UNFIXED` lines launch no case lane, and an Orca question it
 leaves, such as the offer to dispatch it again, logs `WITHDRAWN` instead of `DECIDE`; a
-case lane whose dispatch the coordinator stopped by hand is marked the same way. A settled launch with no dispatch, a key or lane the runner holds nothing under,
+case lane whose dispatch the coordinator stopped by hand is marked the same way. A lane whose newest record is `blocked` and newer than
+the lane supervisor's last wake of it is parked: an Orca escalation it leaves, such as the notice that its worker stopped
+without reporting, raises no `DECIDE`, and a coordinator reply relays to it only when it answers that `blocked` record or a `DECIDE`
+raised after it, else it logs one `PARKED` line, so only what the record names wakes it (coordinator #356336). A settled launch with no dispatch, a key or lane the runner holds nothing under,
 or a worker-stop Orca refuses logs `WITHDRAW-FAILED`. Each coordinator cci record carrying `--re`, or `--resolves` naming the runner's `DECIDE`, read in sequence
 order with the records addressed to `orca-desk`, is a reply: one to the runner's `DECIDE` on a worker question replies to that
 question, one to a lane's own record replies to that lane's open Orca question, which the cci
@@ -2709,11 +2712,15 @@ class Runner:
                 return True
             return False
         if closed["lane"] == RUNNER and (decide := DECIDE_LINE.match(closed["text"])):
-            if text := self.whole_text(at, at, decide["lane"], record):
+            if not self.parked_reply(at, decide["lane"], closed) and (text := self.whole_text(at, at, decide["lane"], record)):
                 self.relay_to(at, at, decide["lane"], text, self.unclaimed(at, decide["lane"], [decide["msg"]]))
             return True
         dispatch = self.orca.show(closed["lane"])
-        if dispatch and dispatch.status not in INACTIVE and (questions := self.open_questions(dispatch)) and (text := self.whole_text(at, at, closed["lane"], record)):
+        if dispatch and dispatch.status not in INACTIVE and (questions := self.open_questions(dispatch)):
+            if self.parked_reply(at, closed["lane"], closed):
+                return True
+            if not (text := self.whole_text(at, at, closed["lane"], record)):
+                return False
             self.relay_to(at, at, closed["lane"], f"The coordinator answered on cci #{record['seq']} (re #{closed['seq']}), which supersedes this question: {text}", self.unclaimed(at, closed["lane"], questions))
             return True
         return False
@@ -3820,7 +3827,7 @@ class Runner:
             self.acknowledge(container, key, sender, acked["verb"], result or (message.get("body") or "").strip(), message["id"])
         elif message["type"] in ("question", "escalation"):
             self.keep(message)
-            if not self.withdrawn_ask(lane, message):
+            if not self.withdrawn_ask(lane, message) and not (message["type"] == "escalation" and self.parked_on(lane)):
                 self.escalate(message["id"], "DECIDE", lane, f"{message.get('subject', '')}: {(message.get('body') or '')[:300]}", to=self.launched_by(lane))
         elif message["type"] == "worker_done":
             self.keep(message)
@@ -3866,6 +3873,30 @@ class Runner:
             if send.authority_ref == key and send.status in ("started", "unverifiable"):
                 self.book.attempt(container, lambda incident, settled=send.action_id: incident.complete(settled, receipt))
         self.acknowledge(container, key, sender, verb, text, message)
+
+    def parked_on(self, lane: str) -> int:
+        """The lane's newest record when it is a `blocked` record newer than the lane supervisor's last wake of the lane, else 0. Such a lane parked on purpose, so Orca's stop notice for it is the park and asks no one, and only what the record names wakes it, which the supervisor matches (coordinator #356336)."""
+        newest = cci.records(self.cci_tail, self.config.drive, "--lane", lane, "--limit", "1")
+        if not newest or newest[-1]["kind"] != "blocked":
+            return 0
+        woke = self.registry().rows.get(lane, {}).get("woke")
+        return newest[-1]["seq"] if not woke or actions.parse_stamp(woke) < actions.parse_stamp(newest[-1]["at"]) else 0
+
+    def parked_reply(self, at: str, lane: str, closed: dict) -> bool:
+        """Whether a coordinator reply to `closed` is one `lane` is parked past, so it relays nothing and the coordinator gets one line."""
+        if closed["seq"] >= (parked := self.parked_on(lane)):
+            return False
+        self.record(f"escalation:parked:{at}", f"PARKED {at} {lane}: parked on #{parked}, so the reply to #{closed['seq']} relays nothing; the lane wakes when what #{parked} names happens")
+        return True
+
+    def registry(self) -> Registry:
+        """The lane supervisor's registry, `drive_supervisor.py lanes --json` over the `landing.supervisor` config: the drive's one answer to who is live and where a lane's mail goes, where `cci who` is only a process fact (coordinator #270077); empty on a runner with no landing desk, which names no supervisor."""
+        if not (landing := json.loads(self.config.source.read_text()).get("landing")):
+            return Registry({})
+        done = self.shell.run([sys.executable, str(SCRIPTS / "drive_supervisor.py"), "lanes", "--config", str(Path(landing["supervisor"]).expanduser()), "--json"])
+        if done.code != 0:
+            raise CciTailFailed(f"drive_supervisor.py lanes exited {done.code}: {(done.err or done.out).strip()[:300]}")
+        return Registry.parse(done.out)
 
     def withdrawn_ask(self, lane: str, message: dict) -> bool:
         """Take a lane's question as moot when the coordinator withdrew its dispatch, or fenced a case lane's dispatch by hand: the lane is marked withdrawn, never offered to be dispatched again, and the coordinator gets one line in place of a `DECIDE`."""
@@ -9557,12 +9588,9 @@ class Landing:
         return [*map(self.successor, self.runner.landing_lanes("restack_lane"))] or [ROOT]
 
     def registry(self) -> Registry:
-        """The lane supervisor's registry, `drive_supervisor.py lanes --json` over the `landing.supervisor` config, read once a pass: the drive's one answer to who is live and where a lane's mail goes, where `cci who` is only a process fact (coordinator #270077)."""
+        """The runner's `registry`, read once a pass."""
         if self.live is None:
-            done = self.shell.run([sys.executable, str(SCRIPTS / "drive_supervisor.py"), "lanes", "--config", str(Path(self.landing_config["supervisor"]).expanduser()), "--json"])
-            if done.code != 0:
-                raise CciTailFailed(f"drive_supervisor.py lanes exited {done.code}: {(done.err or done.out).strip()[:300]}")
-            self.live = Registry.parse(done.out)
+            self.live = self.runner.registry()
         return self.live
 
     def session_live(self, lane: str) -> bool:

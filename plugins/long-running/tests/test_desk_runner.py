@@ -166,6 +166,7 @@ class FakeShell(runner_module.Shell):
         self.seen: dict[str, str] = {}
         self.seen_as: dict[str, tuple[str, str]] = {}
         self.retired: set[str] = set()
+        self.woke: dict[str, str] = {}
         self.announced: dict[str, str] = {}
         self.sender = ""
         self.generation = 3
@@ -730,6 +731,7 @@ class FakeShell(runner_module.Shell):
                 "route": self.routes.get(lane) or self.chain_end(lane),
                 "retired_by": self.successions.get(lane),
                 "predecessor": before.get(lane),
+                "woke": self.woke.get(lane),
             }
             for lane, at in heard.items()
         ]
@@ -1797,6 +1799,20 @@ def test_a_worker_escalation_escalates_to_root_as_a_decide(shell, config, tmp_pa
     orca_pass(shell, config)
     assert escalations(shell) == [f"DECIDE msg_q2 {LANE}: apply?: A) wait B) apply now"]
     assert not [call for call in shell.calls if call[:3] == ["orca", "orchestration", "reply"]]
+
+
+@pytest.mark.parametrize(("woke", "decides"), [(None, False), (-60, False), (60, True)])
+def test_a_stop_right_after_a_blocked_record_is_the_park_until_the_supervisor_wakes_the_lane(shell, config, tmp_path, woke, decides):
+    """signal-valkey-3, cci 356287: each stop after its blocked record drew a DECIDE, whose reply woke the lane to stop again, eight times in 15 minutes."""
+    orca_pass(shell, config)
+    shell.launch(LANE, "ctx_a")
+    cci_record(shell, lane=LANE, kind="blocked", to=["meta-desk-1"], at=actions.stamp(shell.clock), text="lands after #48099")
+    if woke is not None:
+        shell.woke[LANE] = actions.stamp(shell.clock + timedelta(seconds=woke))
+    shell.sleep(120)
+    stop = shell.receive({"type": "escalation", "subject": "Worker stopped without reporting", "body": "The task is ready to be dispatched again.", "payload": json.dumps({"dispatchId": "ctx_a"})})
+    orca_pass(shell, config)
+    assert [post["text"] for post in shell.posts if post["text"].startswith("DECIDE ")] == ([f"DECIDE {stop['id']} {LANE}: Worker stopped without reporting: The task is ready to be dispatched again."] if decides else [])
 
 
 def test_a_relayed_question_carries_its_whole_body_by_path(shell, config, tmp_path):
@@ -12587,6 +12603,26 @@ def test_a_runner_started_from_another_lanes_session_launches_as_the_lane_that_p
     assert launches(shell) == [[str(runner_module.LAUNCHER), LANE, "sol", "xhigh", str(brief)]]
     assert shell.spawned_env["orca-launch.sh"]["CLAUDE_LONG_RUNNING_LANE"] == poster
     assert (shell.environ["CLAUDE_LONG_RUNNING_LANE"], shell.environ["CCI_AGENT_ID"], shell.environ["CLAUDE_CODE_SESSION_ID"]) == ("desk-runner", "", "")
+
+
+@pytest.mark.parametrize("asked_after_parking", [False, True])
+def test_a_coordinator_reply_reaches_a_parked_lane_only_for_a_decide_raised_after_it_parked(shell, config, tmp_path, asked_after_parking):
+    shell.launch(LANE, "ctx_a")
+    shell.questions = [{"id": "msg_q9", "from_handle": "dispatch:ctx_a", "created_at": "2026-10-01T17:50:00Z"}]
+    orca_pass(shell, config)
+    blocked = {"lane": LANE, "kind": "blocked", "to": ["meta-desk-1"], "at": actions.stamp(shell.clock), "text": "lands after #48099"}
+    question = {"lane": "desk-runner", "kind": "decide", "to": ["root"], "topic": "msg_q9", "text": f"DECIDE msg_q9 {LANE}: Question: 300s or 30s? | options"}
+    first, second = (cci_record(shell, **fields) for fields in ([blocked, question] if asked_after_parking else [question, blocked]))
+    parked, decide = (first, second) if asked_after_parking else (second, first)
+    answer = cci_record(shell, kind="answer", to=[LANE], re=decide, text="Known")
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    if asked_after_parking:
+        [reply] = replies(shell)
+        assert reply[reply.index("--id") + 1] == "msg_q9"
+        return
+    assert replies(shell) == [] and shell.sends() == []
+    assert escalations(shell) == [f"PARKED cci#{answer} {LANE}: parked on #{parked}, so the reply to #{decide} relays nothing; the lane wakes when what #{parked} names happens"]
 
 
 def test_a_root_reply_to_a_decide_answers_that_worker_question(shell, config, tmp_path):
