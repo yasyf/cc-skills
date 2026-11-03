@@ -12193,7 +12193,7 @@ def test_an_inbox_launch_for_a_lane_with_a_live_dispatch_fails_visibly(shell, co
     assert line == f"LAUNCH-FAILED R10 {LANE}: dispatch ctx_a is dispatched; relay to it instead; nothing was launched"
 
 
-def holding(monkeypatch, tmp_path: Path, holder: str = LANE, pr: str = "#1201", ahead: int = 2, pushed: str = "pushed", source: str = runner_module.lanes.RECEIPT) -> None:
+def holding(monkeypatch, tmp_path: Path, holder: str = LANE, pr: str = "#1201", ahead: int = 2, pushed: str = "pushed", source: str = "launch receipt") -> None:
     worktree = runner_module.lanes.Worktree(path=tmp_path / holder, sources=[source], branch=holder, ahead=ahead, pushed=pushed, pr=pr)
     monkeypatch.setattr(runner_module.Runner, "lane_worktrees", lambda self, lane: [worktree] if lane == holder else [])
 
