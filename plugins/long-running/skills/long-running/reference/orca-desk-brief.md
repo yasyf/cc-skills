@@ -4,6 +4,7 @@
 
 - [Run the desk processes](#run-the-desk-processes)
 - [Configure and start the relay](#configure-and-start-the-relay)
+- [Reach the Orca server on the service host](#reach-the-orca-server-on-the-service-host)
 - [Subscribe the coordinator and issue commands](#subscribe-the-coordinator-and-issue-commands)
 - [Relay, launch, and withdraw lines](#relay-launch-and-withdraw-lines)
 - [Track actions and acknowledgements](#track-actions-and-acknowledgements)
@@ -144,6 +145,18 @@ A Bash append to `orca-desk.md` in a drive session draws `UNREAD` and the `cci p
 **A fix reaches the relay through the `lr` pin.** A fix reaches a running relay only as a merged PR and a release that moves `bin/lr.binrun`; nothing edits an installed copy. The supervisor upgrades itself on the new pin and restarts the relay on it.
 
 **Keep the Run bound to the coordinator terminal.** Only the terminal bound to the Run may call `worker-start`. Every pass, the relay reads the Run's coordinator from Orca and calls Orca and starts launchers as that terminal. If the coordinator disappears while the relay runs, it posts one `UNBOUND` line and fails every launch at once with `LAUNCH-FAILED`, which no incident clock defers, so the coordinator launches by hand with `lr launch start`. When the coordinator moves to a new terminal, run `lr relay rebind --config <drive>/runner.json` there; the running relay follows on its next pass without a restart.
+
+## Reach the Orca server on the service host
+
+The cloud service host runs Orca's own server as systemd unit `orca-serve`. It takes no inbound connection, so this Mac reaches it over an SSM port forward:
+
+```sh
+lr run-host install --host <Name tag> --profile desk-host-reach --region us-west-2 --port 6768 --environment desk-host
+```
+
+The command first reads the unit's `orca_server_ready` event over `aws ssm send-command`. It refuses an Electron fallback, a server bound to another port, and a server that offers no pairing. Next it installs the launchd job `com.long-running.<drive>.run-host`. That job runs `lr run-host forward`, which resolves the one running instance with that Name tag and becomes `aws ssm start-session --document-name AWS-StartPortForwardingSession`. launchd restarts it whenever the session ends, so a replaced box is found again. Last, it pairs this Mac's Orca with the server as `--environment`, unless that environment already exists. The pairing code goes from memory into argv and is never printed.
+
+Two things must already be on this Mac. One is the AWS Session Manager plugin. The other is a `desk-host-reach` profile in `~/.aws/config`, with `source_profile = devbox-machine`, the `role_arn` of this machine's CI-account desk-host reach role, and the machine's operator as `role_session_name`. That role may start the port forward and read the ready event only on instances named `*-desk-host`. Set `orca.launches` to `mac` on this Mac's relay, and to `sprite` on the relay that serves the host's Run.
 
 ## Subscribe the coordinator and issue commands
 
