@@ -455,7 +455,8 @@ func scanLane(rows *sql.Rows) (Lane, error) {
 	if err != nil || page == "" {
 		return lane, err
 	}
-	return lane, json.Unmarshal([]byte(page), &lane.Page)
+	err = json.Unmarshal([]byte(page), &lane.Page)
+	return lane, err
 }
 
 func (s *Store) Heard() (map[string]time.Time, error) {
