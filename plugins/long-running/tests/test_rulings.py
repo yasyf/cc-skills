@@ -2863,6 +2863,27 @@ def test_amend_add_refuses_a_requirement_proof_naming_no_root_record_and_writes_
     assert shell.rows["rule/aaaaaaa"] == before
 
 
+def test_amend_links_owner_answers_to_an_exception_with_no_tap_and_refuses_any_other_answer(home: Path, package: Path, state: Path, capsys) -> None:
+    slack = dict(ROUND_TWO, id="51ac0de" + "0" * 33, tags=["slack:owner-words", "program:brook"])
+    coordinator = dict(ROUND_TWO, id="c00d1e5" + "0" * 33, tags=["program:brook"])
+    shell = RegisterShell(seeded(package), answers=[ROUND_TWO, slack, coordinator])
+
+    assert ran(capsys, shell, "amend", "exception/E1", "--answer", "5eed0c0", "--answer", "51ac0de")[0] == 0
+
+    row = shell.rows["exception/E1"]
+    assert json.loads(row["answer"]) == [ROUND_TWO["id"], slack["id"]]
+    assert [edit["answer"] for edit in json.loads(row["amends"])] == [[ROUND_TWO["id"], slack["id"]]]
+    assert ran(capsys, shell, "amend", "exception/E1", "--answer", "51ac0de") == (0, "exception/E1 already carries every answer named\n")
+
+    before = dict(row)
+    with pytest.raises(SystemExit, match=r"^NOT-OWNER c00d1e5: "):
+        ran(capsys, shell, "amend", "rule/aaaaaaa", "--answer", "5eed0c0", "--answer", "c00d1e5")
+    with pytest.raises(SystemExit, match=r"^NOT-OWNER c00d1e5: "):
+        ran(capsys, shell, "amend", "exception/E1", "--add", "--text", "The pass may run nightly.", "--direction", "permits", "--proof", "c00d1e5")
+    assert shell.rows["exception/E1"] == before
+    assert "amends" not in shell.rows["rule/aaaaaaa"]
+
+
 def test_amend_refuses_to_rewrite_a_ticked_lines_text_unless_told_and_points_at_add(home: Path, package: Path, state: Path, capsys) -> None:
     rows = seeded(package)
     rows["rule/aaaaaaa"]["implications"] = json.dumps([{"n": 1, "text": "Every PR matches the plan exactly.", "direction": "permits", "state": "ticked", "proof": "requirement:root-209337"}])
