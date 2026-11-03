@@ -176,9 +176,17 @@ func (c *Check) prose(ctx context.Context, now time.Time) []Finding {
 	}
 	var found []Finding
 	for _, record := range recent {
+		var side []string
+		if string(record.Kind) != kindBlocked && !deskLane.MatchString(record.Lane) {
+			side = c.sideBoards(ctx, record.Text)
+		}
 		switch {
 		case record.Lane == communicator && repeatWords.MatchString(record.Text):
 			found = append(found, c.repeated(ctx, record))
+		case len(side) > 0:
+			if finding, routed := c.offBoard(record, "board "+strings.Join(side, ", ")+" is not his main board"); routed {
+				found = append(found, finding)
+			}
 		case untyped(record):
 			found = append(found, Finding{
 				ID:   fmt.Sprintf("choice-untyped:%s:%s", record.Lane, record.At.Format(time.DateOnly)),
@@ -265,7 +273,7 @@ func (c *Check) offBoard(record client.Record, unseen string) (Finding, bool) {
 		Kind: kindNote,
 		To:   owners,
 		Re:   record.Seq,
-		Line: fmt.Sprintf("OFF-BOARD #%d from %s is a defect, not a wait: %s, so he never sees it. %s draws each card on the main board with `lr board draw` and sends its Slack copy, then re-posts blocked naming the card-<slug> ids: %s", record.Seq, record.Lane, unseen, record.Lane, excerpt(record.Text)),
+		Line: fmt.Sprintf("OFF-BOARD #%d from %s is a defect, never a wait: %s, so he never sees it. %s draws each card on the main board with `lr board draw` and sends its Slack copy, then names the card-<slug> ids: %s", record.Seq, record.Lane, unseen, record.Lane, excerpt(record.Text)),
 	}, true
 }
 

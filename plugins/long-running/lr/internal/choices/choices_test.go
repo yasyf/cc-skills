@@ -206,6 +206,20 @@ func TestAParkOnASideBoardOrAnUnsentCardIsADefectToItsLauncherAndMetaDeskOnceADa
 	}
 }
 
+func TestACardOnASideBoardOutsideAParkIsTheSameDefect(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	shown := post(t, client.Draft{Lane: "dashboard-content-1", Kind: "report", To: []string{metaDesk}, Text: "13 cards are up for his taps: http://yasyf-forge-studio:61118/p/dashboard-mockups-for-your-tap--7b8a71f4 ."})
+	post(t, client.Draft{Lane: "owner-relay", Kind: "note", To: []string{"root"}, Text: "Linked him http://yasyf-forge-studio:61118/p/dashboard-mockups-for-your-tap--7b8a71f4 ."})
+	post(t, client.Draft{Lane: "lane-b", Kind: "report", Text: "card-sent is on http://127.0.0.1:57524/p/" + mainSlug + " ."})
+
+	passTwice(t, newCheck(time.Now()))
+
+	records := said(t)
+	if len(records) != 1 || records[0].Re != shown || !strings.Contains(records[0].Text, "OFF-BOARD") || records[0].To[1] != metaDesk {
+		t.Fatalf("said %+v", records)
+	}
+}
+
 func TestAParkNamingABoardIsNoDefectWhenTheMainBoardIsUnread(t *testing.T) {
 	t.Setenv("CCI_HOME", t.TempDir())
 	post(t, client.Draft{Lane: "dashboard-content-1", Kind: "blocked", To: []string{metaDesk}, Text: "Parked on the owner's taps on the dashboard mockups board, 13 cards, none tapped when last checked: http://yasyf-forge-studio:61118/p/dashboard-mockups-for-your-tap--7b8a71f4 ."})
