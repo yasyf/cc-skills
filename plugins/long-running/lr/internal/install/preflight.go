@@ -21,8 +21,6 @@ const (
 	ciWorkflow    = "long-running CI"
 	pluginName    = "long-running"
 	pinEnv        = "LONG_RUNNING_PIN"
-	gateRefused   = 3
-	gateTimeout   = 30 * time.Minute
 	probeTimeout  = 2 * time.Minute
 	readTimeout   = time.Minute
 	shownFaults   = 5
@@ -302,31 +300,6 @@ func (c Checks) TargetFault(ctx context.Context, version, config string) string 
 		return fmt.Sprintf("the %s binary refuses this drive: %s", version, lastLine(err))
 	}
 	return ""
-}
-
-func (c Checks) GateFault(ctx context.Context, drive, repo, serving, version string) (fault, warning string) {
-	if serving == "" || serving == version {
-		return "", ""
-	}
-	result, err := c.Runner.Run(ctx, shell.Command{
-		Argv:    []string{c.tool(version, "replay.py"), "gate", "--drive", drive, "--repo", repo, "--old", serving, "--new", version},
-		Env:     []string{pinEnv + "=" + version},
-		Timeout: gateTimeout,
-	})
-	if err == nil {
-		return "", ""
-	}
-	if result.Code == gateRefused {
-		return lastOf(result.Stdout, err), ""
-	}
-	return "", fmt.Sprintf("%s takes the drive unreplayed, since its replay gate failed: %s", version, lastLine(err))
-}
-
-func lastOf(text string, err error) string {
-	if lines := strings.Split(strings.TrimSpace(text), "\n"); lines[len(lines)-1] != "" {
-		return lines[len(lines)-1]
-	}
-	return lastLine(err)
 }
 
 func lastLine(err error) string {
