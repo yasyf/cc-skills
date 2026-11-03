@@ -218,6 +218,9 @@ Peers: put your `cci me` line in every handoff. `cci who --pr <n>` names the ses
 Codex: call `Skill(codex)` or `codex:codex-wrapper`; a one-off question goes to `codex-ask`.
 `# ccx:raw` at the end of a Bash command runs it past the hooks as written. Use it only
   where a hook misreads the command, and name that hook in your report.
+Shell text: Claude Code holds any Bash command holding `$$(`, `$${` or `$$[` on a
+  "Dangerous rm operation not ruled out" dialog, even inside a quoted heredoc. Write such a
+  file with the Write tool and run it with a Bash command free of them.
 Run subagents and codex in the foreground (blocking), or poll the reply file in a foreground loop to a terminal state; never background-and-end-turn.
 Record each sub-dispatch with `ledger.py ask` before dispatch and `ledger.py answer` when its reply lands.
 Verification: no local test runs, builds, typechecks or lint; CI grades; a red CI step is read from its log, fixed, and pushed.
