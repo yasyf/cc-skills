@@ -48,6 +48,8 @@ HIS_1_34_AM = (
     " uou did tjay for the ildate after being away a long tome, so good job, but make sure thay is durable behavior not just this session."
 )
 FORWARDED = "cci post --lane owner-relay --kind ask --to meta-desk-1 --text '1:34 AM, verbatim: every tjme i need to remknd you'"
+MCP_POST_SUFFIX = "cc-inbox_cci__post"
+MCP_POST = f"mcp__plugin_{MCP_POST_SUFFIX}"
 SENT = '{"ok": true, "channel": "D0B6Z", "ts": "1793635190.051179"}'
 
 
@@ -114,6 +116,11 @@ def reminded(*calls: dict, decide: dict = REMINDED) -> Input:
         reminded(*T.tool_turn("Bash", result="#1", command="cci post --lane owner-relay --kind go --to meta-desk-1 --text x")): Block(pattern=r"meta tooling lane"),
         reminded(*T.tool_turn("Bash", result="#1", command=FORWARDED)): Allow(),
         reminded(*T.tool_turn("Bash", result="#1", command="cci post --lane owner-relay --kind=ask --to=root,meta --text x")): Allow(),
+        reminded(*T.tool_turn("Bash", result="#1", command="cci post --lane owner-relay --kind ask --to meta,meta-desk-1 --text x")): Allow(),
+        reminded(*T.tool_turn(MCP_POST, result="#359589", lane="owner-relay", kind="ask", to=["meta", "meta-desk-1", "root"], text="3:08 AM, verbatim: x")): Allow(),
+        reminded(*T.tool_turn(MCP_POST, result="#1", lane="owner-relay", kind="ask", to=["meta-desk-2"], text="x")): Allow(),
+        reminded(*T.tool_turn(MCP_POST, result="#1", lane="owner-relay", kind="ask", to=["root"], text="x")): Block(pattern=r"meta tooling lane"),
+        reminded(*T.tool_turn(MCP_POST, result="#1", lane="owner-relay", kind="report", to=["meta-desk-1"], text="x")): Block(pattern=r"meta tooling lane"),
         reminded(*T.tool_turn("Bash", result="R1", command="lr launch meta /drive/meta/brief.md")): Allow(),
         reminded(*T.tool_turn("Bash", result="R1", command="bash ~/.claude/long-running/current/bin/orca-launch.sh /drive/fix-3 brief.md")): Allow(),
         reminded(decide=CALM): Allow(),
@@ -158,7 +165,7 @@ def drawn(argv: list[str], result: str) -> bool:
 
 
 def unrouted_reminder(evt: BaseHookEvent) -> str | None:
-    if any(routes_to_meta(cmd.argv) for use in evt.ctx.turn.tool_calls.named("Bash").items for cmd in use.call.command_line if cmd.argv) or not (words := owner_words(evt)):
+    if any(forwarded(use) for use in evt.ctx.turn.tool_calls.items) or not (words := owner_words(evt)):
         return None
     match (decision := evt.decide(words, {"reminder": REMINDER})) and decision.answers["reminder"]:
         case BinaryAnswer(p_yes=p_yes) if p_yes > 0.5:
@@ -170,6 +177,13 @@ def owner_words(evt: BaseHookEvent) -> str:
     events = list(evt.ctx.turn.events)
     typed = [text for event in events if (text := owner_text(event)) and not text.lstrip().startswith(SYSTEM_PREFIXES)]
     return "\n\n".join([*typed, *(dm["text"] for dm in slack_dms(evt, events))])
+
+
+def forwarded(use: object) -> bool:
+    if use.call.name.endswith(MCP_POST_SUFFIX):
+        raw = use.call.raw
+        return raw.get("lane") == "owner-relay" and raw.get("kind") == "ask" and any(to.startswith("meta") for to in raw.get("to") or ())
+    return use.call.name == "Bash" and any(routes_to_meta(cmd.argv) for cmd in use.call.command_line if cmd.argv)
 
 
 def routes_to_meta(argv: Sequence[str]) -> bool:
