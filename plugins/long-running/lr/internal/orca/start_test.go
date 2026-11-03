@@ -956,7 +956,7 @@ func TestACodexLaneReadsABriefCopyThatHandsItsPRProseToOpus(t *testing.T) {
 		t.Fatal(h.spec())
 	}
 	text := h.readReceipt("lane-a.brief.md")
-	for _, want := range []string{"## PR prose", "`'" + pluginBin + "/pr-prose.py' --brief '" + h.brief + "'`", "ship with them verbatim", "Never ask the coordinator"} {
+	for _, want := range []string{"## PR prose", "You write your own PR title", "Never ask the coordinator"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("copy lacks %q", want)
 		}
@@ -972,12 +972,12 @@ func TestAnIncidentLanePushesItsCandidateWithoutWaitingForItsPRProse(t *testing.
 	h.reply("orchestration worker-start", effectStart("term_a"))
 	h.launchedAs(agentIncident, "xhigh")
 	text := h.readReceipt("lane-a.brief.md")
-	for _, want := range []string{"start `'" + pluginBin + "/pr-prose.py' --brief '" + h.brief + "'` in the background", "open the PR within 10 minutes of the candidate", "Never wait for the writer"} {
+	for _, want := range []string{"open the PR within 10 minutes of the candidate", "a short body you write yourself"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("copy lacks %q", want)
 		}
 	}
-	if strings.Contains(text, "ship with them verbatim") {
+	if strings.Contains(text, "pr-prose") {
 		t.Fatal(text)
 	}
 }
