@@ -233,8 +233,9 @@ func landedPRs(records []client.Record) map[string]client.Record {
 }
 
 func waitedPRs(text string) []string {
-	var prs []string
-	for _, found := range waitsOnPR.FindAllStringSubmatch(text, -1) {
+	matches := waitsOnPR.FindAllStringSubmatch(text, -1)
+	prs := make([]string, 0, len(matches))
+	for _, found := range matches {
 		prs = append(prs, found[1]+found[2])
 	}
 	return prs
