@@ -40,6 +40,12 @@ func RelayCommand(a *app.App) *cobra.Command {
 	return lineCommand(a, "relay LANE[,LANE...] TEXT", "Relay text to each named lane's live dispatch", 2, relayLine)
 }
 
+func RelayRootCommand(a *app.App) *cobra.Command {
+	cmd := RelayCommand(a)
+	cmd.AddCommand(relayRunCommand(a), relayRebindCommand(a))
+	return cmd
+}
+
 type posterFlags struct {
 	drive, lane string
 }

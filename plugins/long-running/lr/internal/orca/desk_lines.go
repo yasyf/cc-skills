@@ -1,0 +1,971 @@
+package orca
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"regexp"
+	"slices"
+	"strings"
+	"time"
+
+	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/incident"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
+)
+
+const (
+	relayGrammar    = "orca-desk: relay to <lane>[, <lane>…][ and <lane>]: <text>"
+	launchGrammar   = "orca-desk: launch <lane> [NOW] <model> <effort> [role=<role>] brief=<absolute path>"
+	alertGrammar    = "orca-desk: alert <slug> <link> :: <what fired>"
+	incidentGrammar = "orca-desk: incident <slug> <link> reported=<HH:MM | H:MM AM/PM, Pacific> :: <what fired>"
+	holdGrammar     = "orca-desk: hold <slug> owner=<lane> :: <what is held, and on what>"
+	unholdGrammar   = "orca-desk: unhold <slug>"
+	withdrawGrammar = "orca-desk: withdraw <R<n> | unfixed:<msg>:<n> | incident-clock:<dispatch> | lane>"
+	withdrawnFact   = "withdrawn"
+	withdrawPending = "withdraw-pending"
+	launchValid     = 15 * time.Minute
+	passesTimed     = 10
+	stopConfirm     = 30 * time.Second
+	stopPoll        = 2 * time.Second
+	verbLaunch      = "launch"
+	verbRelay       = "relay"
+	verbIncident    = "incident"
+	verbWithdraw    = "withdraw"
+	spawnedFix      = "-fix"
+	lookbackFirst   = 24 * time.Hour
+	statusNames     = `(relay|launch|alert|incident|hold|unhold|withdraw)`
+)
+
+var (
+	inboxDirective = regexp.MustCompile(`(?s)^(?:-\s+)?(?:(?:1[0-2]|0?[1-9]):[0-5]\d\s?[AP]M\s+)?(?:(R\d+)\s+(?:\([^)]*\)\s+)?)?orca-desk: ` + statusNames + `\b(.*)$`)
+	relayTo        = regexp.MustCompile(`(?s)^ to ([\w.-]+(?:(?:, (?:and )?| and )[\w.-]+)*):\s+(\S.*)$`)
+	laneList       = regexp.MustCompile(`, (?:and )?| and `)
+	launchSpec     = regexp.MustCompile(`^ ([\w.-]+)( NOW)? (\S+) (\S+)(?: role=([\w-]+))? brief=(/\S+)$`)
+	alertSpec      = regexp.MustCompile(`(?s)^ ([a-z0-9][a-z0-9.-]*) (\S+) :: (\S.*)$`)
+	incidentSpec   = regexp.MustCompile(`(?s)^ ([a-z0-9][a-z0-9_.-]*) (\S+) reported=((?:[01]?\d|2[0-3]):[0-5]\d|(?:1[0-2]|0?[1-9]):[0-5]\d [AP]M) :: (\S.*)$`)
+	holdSpec       = regexp.MustCompile(`(?s)^ ([a-z0-9][a-z0-9.-]*) owner=([\w.-]+) :: (\S.*)$`)
+	unholdSpec     = regexp.MustCompile(`^ ([a-z0-9][a-z0-9.-]*)$`)
+	withdrawSpec   = regexp.MustCompile(`^ ([\w.:@-]+)$`)
+	launchKey      = regexp.MustCompile(`^(?:R\d+(?:@\w+)?|unfixed:[\w-]+:\d+|inbox@\S+|incident-clock:ctx_[\w-]+)$`)
+	decideLine     = regexp.MustCompile(`^DECIDE (msg_\S+) ([\w.-]+): `)
+	monitorID      = regexp.MustCompile(`(?:monitors/|\bmonitor |\bDatadog )(\d{4,})`)
+)
+
+type directive struct {
+	Key, Verb, Rest string
+}
+
+func parseDirective(line string) *directive {
+	found := inboxDirective.FindStringSubmatch(line)
+	if found == nil {
+		return nil
+	}
+	return &directive{Key: found[1], Verb: found[2], Rest: found[3]}
+}
+
+func expires(verb string) bool {
+	return verb == verbLaunch || verb == verbIncident
+}
+
+func lineKey(parsed *directive, record client.Record) string {
+	if expires(parsed.Verb) {
+		return "R" + strings.TrimPrefix(record.Name(), "#")
+	}
+	if parsed.Key != "" {
+		return parsed.Key
+	}
+	return fmt.Sprintf("inbox@cci#%d", record.Seq)
+}
+
+func base(address string) string {
+	name, _, _ := strings.Cut(address, "@")
+	return name
+}
+
+func toDesk(record client.Record) bool {
+	return slices.ContainsFunc(record.To, func(to string) bool { return base(to) == deskLane })
+}
+
+func resolvedSeqs(record client.Record) []int64 {
+	seqs := slices.Clone(record.AlsoResolves)
+	if record.Resolves != 0 {
+		seqs = append(seqs, record.Resolves)
+	}
+	slices.Sort(seqs)
+	return seqs
+}
+
+type tailFailure struct{ cause error }
+
+func (t *tailFailure) Error() string { return t.cause.Error() }
+
+func (d *Desk) tail(ctx context.Context, query client.Query) ([]client.Record, error) {
+	query.Drive = d.Config.Drive
+	records, err := d.Bus.Tail(ctx, query)
+	if err != nil {
+		return nil, &tailFailure{cause: err}
+	}
+	return records, nil
+}
+
+func (d *Desk) noteTailFailure(err error) error {
+	var failure *tailFailure
+	if !errors.As(err, &failure) {
+		return err
+	}
+	return d.escalate("cci-tail:"+store.Stamp(d.Now())[:15], "CCI-TAIL-FAILED", "runner", fmt.Sprintf("cci tail: %.300s", failure.Error()))
+}
+
+func (d *Desk) cursorFact() string {
+	return "cci:" + d.Config.Drive + ":" + deskLane
+}
+
+func factInt(value any) int64 {
+	number, _ := value.(float64)
+	return int64(number)
+}
+
+func (d *Desk) readLines(ctx context.Context) error {
+	fact := d.cursorFact()
+	value, found, err := d.factOf(deskRunner, fact)
+	if err != nil {
+		return err
+	}
+	if !found {
+		records, err := d.tail(ctx, client.Query{Since: d.Now().Add(-lookbackFirst)})
+		if err != nil {
+			return d.noteTailFailure(err)
+		}
+		var newest int64
+		if len(records) > 0 {
+			newest = records[len(records)-1].Seq
+		}
+		return d.setFact(deskRunner, fact, newest)
+	}
+	records, err := d.tail(ctx, client.Query{After: factInt(value)})
+	if err != nil {
+		return d.noteTailFailure(err)
+	}
+	for _, record := range records {
+		if err := d.readLine(ctx, record); err != nil {
+			return err
+		}
+		if err := d.setFact(deskRunner, fact, record.Seq); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (d *Desk) readLine(ctx context.Context, record client.Record) error {
+	desk := toDesk(record)
+	rootReply := record.Lane == coordinatorLane && (record.Re != 0 || len(resolvedSeqs(record)) > 0)
+	if !desk && !rootReply {
+		return nil
+	}
+	replyTo := record.Re
+	if replyTo == 0 {
+		seq, err := d.resolvedDecide(ctx, record)
+		if err != nil {
+			return err
+		}
+		replyTo = seq
+	}
+	isLine := parseDirective(strings.TrimSpace(record.Text)) != nil
+	if replyTo == 0 || (desk && isLine) {
+		if desk {
+			return d.cciLine(ctx, record)
+		}
+		return nil
+	}
+	answered := false
+	if record.Lane == coordinatorLane {
+		closed, err := d.cciRecord(ctx, replyTo)
+		if err != nil {
+			return err
+		}
+		if answered, err = d.rootReply(ctx, record, closed); err != nil {
+			return err
+		}
+	}
+	if desk && !answered {
+		return d.refuseLine(record)
+	}
+	return nil
+}
+
+func (d *Desk) resolvedDecide(ctx context.Context, record client.Record) (int64, error) {
+	if record.Lane != coordinatorLane {
+		return 0, nil
+	}
+	for _, seq := range resolvedSeqs(record) {
+		closed, err := d.cciRecord(ctx, seq)
+		if err != nil {
+			return 0, err
+		}
+		if closed != nil && closed.Lane == deskRunner && decideLine.MatchString(closed.Text) {
+			return seq, nil
+		}
+	}
+	return 0, nil
+}
+
+func (d *Desk) cciRecord(ctx context.Context, seq int64) (*client.Record, error) {
+	records, err := d.Bus.Among(ctx, d.Config.Drive, []int64{seq})
+	if err != nil {
+		return nil, d.noteTailFailure(&tailFailure{cause: err})
+	}
+	if len(records) == 0 {
+		return nil, nil
+	}
+	return &records[0], nil
+}
+
+func (d *Desk) rootReply(ctx context.Context, record client.Record, closed *client.Record) (bool, error) {
+	at := fmt.Sprintf("cci#%d", record.Seq)
+	if closed == nil {
+		return false, nil
+	}
+	if string(record.Kind) == verbWithdraw {
+		parsed := parseDirective(strings.TrimSpace(closed.Text))
+		if !slices.Contains(closed.To, deskLane) || parsed == nil || parsed.Verb != verbLaunch {
+			return false, nil
+		}
+		return true, d.withdraw(ctx, at, at, lineKey(parsed, *closed))
+	}
+	if closed.Lane == deskRunner {
+		if decide := decideLine.FindStringSubmatch(closed.Text); decide != nil {
+			text, err := d.wholeText(at, at, decide[2], record)
+			if err != nil || text == "" {
+				return true, err
+			}
+			question, err := d.unclaimed(at, decide[2], []string{decide[1]})
+			if err != nil {
+				return true, err
+			}
+			return true, d.relayToLane(ctx, at, at, decide[2], text, &question)
+		}
+	}
+	dispatch, err := d.show(ctx, closed.Lane, "")
+	if err != nil || !dispatch.active() {
+		return false, err
+	}
+	questions, err := d.openQuestions(ctx, dispatch)
+	if err != nil || len(questions) == 0 {
+		return false, err
+	}
+	text, err := d.wholeText(at, at, closed.Lane, record)
+	if err != nil || text == "" {
+		return false, err
+	}
+	question, err := d.unclaimed(at, closed.Lane, questions)
+	if err != nil {
+		return false, err
+	}
+	relayed := fmt.Sprintf("The root answered on cci #%d (re #%d), which supersedes this question: %s", record.Seq, closed.Seq, text)
+	return true, d.relayToLane(ctx, at, at, closed.Lane, relayed, &question)
+}
+
+func clippedByCCI(kept, written string) bool {
+	stem, ellipsis := strings.CutSuffix(kept, "…")
+	if !ellipsis {
+		return false
+	}
+	return len([]rune(kept)) == textLimit || strings.HasPrefix(collapsed(written), strings.TrimRight(stem, " \t\n"))
+}
+
+func keptByCCI(text string) string {
+	for line := range strings.SplitSeq(text, "\n") {
+		if trimmed := strings.TrimSpace(line); trimmed != "" {
+			return clipped(trimmed, textLimit)
+		}
+	}
+	return ""
+}
+
+func (d *Desk) wholeText(at, key, about string, record client.Record) (string, error) {
+	kept := strings.TrimSpace(record.Text)
+	if record.Refs.Path == "" {
+		return kept, nil
+	}
+	raw, err := os.ReadFile(record.Refs.Path)
+	if err != nil {
+		return "", d.record("escalation:relay:"+at, fmt.Sprintf("RELAY-FAILED %s %s: the record's full text at %s is not readable here; nothing was relayed; post it again on the machine this runner runs on", key, about, record.Refs.Path))
+	}
+	written := strings.TrimSpace(strings.ToValidUTF8(string(raw), "�"))
+	if clippedByCCI(kept, written) || keptByCCI(written) == kept {
+		return written, nil
+	}
+	return kept, nil
+}
+
+func (d *Desk) launchWindow() time.Duration {
+	window := launchValid
+	for _, took := range d.passTook {
+		window = max(window, took)
+	}
+	return max(window, d.Now().Sub(d.passSince))
+}
+
+func (d *Desk) cciLine(ctx context.Context, record client.Record) error {
+	at := fmt.Sprintf("cci#%d", record.Seq)
+	line := strings.TrimSpace(record.Text)
+	parsed := parseDirective(line)
+	if parsed == nil {
+		return d.refuseLine(record)
+	}
+	key := lineKey(parsed, record)
+	if parsed.Verb == verbRelay {
+		text, err := d.wholeText(at, key, "inbox", record)
+		if err != nil || text == "" {
+			return err
+		}
+		if parsed = parseDirective(text); parsed == nil {
+			return d.refuseLine(record)
+		}
+	}
+	if expired, err := d.expiredLine(parsed, record, key); expired || err != nil {
+		return err
+	}
+	switch parsed.Verb {
+	case verbLaunch:
+		return d.launchLine(ctx, at, key, parsed.Rest, record.Lane)
+	case verbRelay:
+		return d.relayLine(ctx, at, key, parsed.Rest)
+	case "alert":
+		return d.alertLine(ctx, at, key, parsed.Rest)
+	case verbIncident:
+		return d.incidentLine(ctx, at, key, parsed.Rest)
+	case kindHold:
+		return d.holdLine(at, key, parsed.Rest)
+	case "unhold":
+		return d.unholdLine(at, key, parsed.Rest)
+	}
+	return d.withdrawLine(ctx, at, key, parsed.Rest)
+}
+
+func (d *Desk) expiredLine(parsed *directive, record client.Record, key string) (bool, error) {
+	if !expires(parsed.Verb) {
+		return false, nil
+	}
+	spec := launchSpec
+	if parsed.Verb == verbIncident {
+		spec = incidentSpec
+	}
+	found := spec.FindStringSubmatch(parsed.Rest)
+	if found == nil {
+		return false, nil
+	}
+	age, window := d.Now().Sub(record.At), d.launchWindow()
+	if age <= window {
+		return false, nil
+	}
+	lane := found[1]
+	if parsed.Verb == verbIncident {
+		lane += spawnedFix
+	}
+	var longest time.Duration
+	for _, took := range d.passTook {
+		longest = max(longest, took)
+	}
+	line := fmt.Sprintf("LAUNCH-EXPIRED %s %s: cci #%d was posted at %s, %d minutes before this read; this runner's longest recent pass took %d minutes, and a launch line is valid for %d; nothing was launched",
+		key, lane, record.Seq, pacificClock(record.At), int(age.Minutes()), int(longest.Minutes()), int(window.Minutes()))
+	return true, d.record(fmt.Sprintf("escalation:launch:cci#%d", record.Seq), line)
+}
+
+func (d *Desk) refuseLine(record client.Record) error {
+	line := collapsed(record.Text)
+	if len([]rune(line)) > 80 {
+		line = string([]rune(line)[:80]) + "…"
+	}
+	return d.record(fmt.Sprintf("escalation:cci:%d", record.Seq), fmt.Sprintf("DIRECTIVE-FAILED cci#%d inbox: it opens `%s`, and a record addressed to %s is one `[<H:MM AM|PM>] [R<n> (<clock>)] orca-desk: <relay|launch|alert|incident|hold|unhold|withdraw> …` line, with or without --re, or a root reply this desk acts on: a withdraw of a launch line or an answer to an open question; nothing was done", record.Seq, line, deskLane))
+}
+
+func (d *Desk) relayLine(ctx context.Context, at, key, rest string) error {
+	found := relayTo.FindStringSubmatch(rest)
+	if found != nil {
+		first, _, _ := strings.Cut(found[2], "\n")
+		if strings.Contains(first, "; relay ") {
+			found = nil
+		}
+	}
+	if found == nil {
+		return d.record("escalation:relay:"+at, fmt.Sprintf("RELAY-FAILED %s inbox: one relay per line, in the form `%s`; nothing was relayed", key, relayGrammar))
+	}
+	for _, lane := range laneList.Split(found[1], -1) {
+		if err := d.relayToLane(ctx, at, key, lane, found[2], nil); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (d *Desk) lane(lane string) (string, error) {
+	container := laneBook(lane)
+	exists, err := d.store.Exists(container)
+	if err != nil || exists {
+		return container, err
+	}
+	return container, d.ensure(container, or(d.receipt(lane), unlaunched))
+}
+
+func or(text, fallback string) string {
+	if text == "" {
+		return fallback
+	}
+	return text
+}
+
+type relayTarget struct {
+	Text    string `json:"text"`
+	ReplyTo string `json:"reply_to"`
+	PR      string `json:"pr,omitempty"`
+}
+
+func relayOf(action incident.Action) (relayTarget, error) {
+	var target relayTarget
+	return target, json.Unmarshal([]byte(action.Target), &target)
+}
+
+func (d *Desk) acceptRelay(key, lane, text, replyTo string, minutes int) (incident.Action, bool, error) {
+	container, err := d.lane(lane)
+	if err != nil {
+		return incident.Action{}, false, err
+	}
+	target, err := compactJSON(relayTarget{Text: text, ReplyTo: replyTo})
+	if err != nil {
+		return incident.Action{}, false, err
+	}
+	kind := kindRelay
+	if replyTo != "" {
+		kind = kindReply
+	}
+	return d.accept(container, key, kind, target, key, d.Now().Add(time.Duration(minutes)*time.Minute))
+}
+
+func (d *Desk) relayToLane(ctx context.Context, at, key, lane, text string, question *string) error {
+	log := "escalation:relay:" + at + ":" + lane
+	dispatch, err := d.show(ctx, lane, "")
+	if err != nil {
+		return err
+	}
+	replyTo := ""
+	if question != nil {
+		replyTo = *question
+	} else if dispatch.active() {
+		questions, err := d.openQuestions(ctx, dispatch)
+		if err != nil {
+			return err
+		}
+		if replyTo, err = d.unclaimed(key, lane, questions); err != nil {
+			return err
+		}
+	}
+	action, created, err := d.acceptRelay(key, lane, text, replyTo, d.Config.StartMinutes)
+	if err != nil {
+		return err
+	}
+	if !created {
+		held, err := relayOf(action)
+		if err != nil {
+			return err
+		}
+		if held.Text != text {
+			return d.record(log, fmt.Sprintf("RELAY-FAILED %s %s: %s already holds a different relay to %s (%s)", key, lane, key, lane, action.Status))
+		}
+	}
+	if !dispatch.active() {
+		return nil
+	}
+	shape := "relay to"
+	if replyTo != "" {
+		shape = "reply to question " + replyTo + " of"
+	}
+	return d.record(log, fmt.Sprintf("RELAYED %s %s: %s dispatch %s", key, lane, shape, dispatch.ID))
+}
+
+func (d *Desk) openQuestions(ctx context.Context, dispatch *laneDispatch) ([]string, error) {
+	asked := messagesOf(d.call(ctx, orchestration, "check", "--terminal", "run:"+d.Config.Run, "--all", "--types", "question"))
+	mine := make([]orcaMessage, 0, len(asked))
+	for _, message := range asked {
+		if message.FromHandle == "dispatch:"+dispatch.ID || message.FromHandle == dispatch.Terminal {
+			mine = append(mine, message)
+		}
+	}
+	if len(mine) == 0 {
+		return nil, nil
+	}
+	answered := map[string]bool{}
+	for _, message := range messagesOf(d.call(ctx, orchestration, "check", "--terminal", dispatch.Terminal, "--all")) {
+		answered[message.ThreadID] = true
+	}
+	slices.SortStableFunc(mine, func(a, b orcaMessage) int { return strings.Compare(b.CreatedAt, a.CreatedAt) })
+	open := make([]string, 0, len(mine))
+	for _, message := range mine {
+		if !answered[message.ID] {
+			open = append(open, message.ID)
+		}
+	}
+	return open, nil
+}
+
+func (d *Desk) unclaimed(key, lane string, questions []string) (string, error) {
+	container, err := d.lane(lane)
+	if err != nil {
+		return "", err
+	}
+	replies, err := d.store.Actions(container, kindReply)
+	if err != nil {
+		return "", err
+	}
+	claimed := map[string]bool{}
+	for _, reply := range replies {
+		if reply.ActionID == key || reply.Status == incident.ActionFailed {
+			continue
+		}
+		target, err := relayOf(reply)
+		if err != nil {
+			return "", err
+		}
+		claimed[target.ReplyTo] = true
+	}
+	for _, question := range questions {
+		if !claimed[question] {
+			return question, nil
+		}
+	}
+	return "", nil
+}
+
+type launchTarget struct {
+	Model    string `json:"model"`
+	Effort   string `json:"effort"`
+	Brief    string `json:"brief"`
+	Prior    string `json:"prior"`
+	Role     string `json:"role"`
+	Incident string `json:"incident"`
+	By       string `json:"by"`
+}
+
+func launchOf(action incident.Action) (launchTarget, error) {
+	var target launchTarget
+	return target, json.Unmarshal([]byte(action.Target), &target)
+}
+
+func (d *Desk) launchLine(ctx context.Context, at, key, rest, by string) error {
+	log := "escalation:launch:" + at
+	spec := launchSpec.FindStringSubmatch(rest)
+	if spec == nil {
+		return d.record(log, fmt.Sprintf("LAUNCH-FAILED %s inbox: one launch per line, in the form `%s`; nothing was launched", key, launchGrammar))
+	}
+	order := Order{Lane: spec[1], Now: spec[2] != "", Model: spec[3], Effort: spec[4], Role: spec[5], Brief: resolved(spec[6])}
+	failed := func(why string) error {
+		return d.record(log, fmt.Sprintf("LAUNCH-FAILED %s %s: %s; nothing was launched", key, order.Lane, why))
+	}
+	if wrong := order.wrongLaneFault(); wrong != "" {
+		return failed(wrong)
+	}
+	refusal, err := d.launchRefusal(ctx, key, order)
+	if err != nil {
+		return err
+	}
+	if refusal != "" {
+		return failed(refusal)
+	}
+	raw, readErr := os.ReadFile(order.Brief)
+	text := string(raw)
+	if !order.Now {
+		holder, err := d.duplicateHolder(ctx, order.Lane, text)
+		if err != nil {
+			return err
+		}
+		if holder != "" {
+			return d.record(log, fmt.Sprintf("LAUNCH-DUPLICATE %s %s: %s already holds this work; relay to it, or launch with NOW or --owner-directed when the owner directs a second lane; nothing was launched", key, order.Lane, holder))
+		}
+	}
+	if readErr == nil {
+		info, err := os.Stat(order.Brief)
+		if err != nil {
+			return err
+		}
+		if scale := order.scaleFault(text, info.ModTime()); scale != "" {
+			if err := d.escalate("scale:"+key, "SCALE-MISSING", order.Lane, scale+"; "+order.Lane+" launches anyway"); err != nil {
+				return err
+			}
+		}
+	}
+	if err := d.refreshSlice(ctx, key, order.Lane, order.Brief); err != nil {
+		return err
+	}
+	_, _, err = d.acceptLaunch(key, order.Lane, launchTarget{Model: order.Model, Effort: order.Effort, Brief: order.Brief, Role: order.Role, By: by})
+	return err
+}
+
+func (d *Desk) acceptLaunch(key, lane string, spec launchTarget) (incident.Action, bool, error) {
+	container, err := d.lane(lane)
+	if err != nil {
+		return incident.Action{}, false, err
+	}
+	spec.Prior = d.receipt(lane)
+	target, err := compactJSON(spec)
+	if err != nil {
+		return incident.Action{}, false, err
+	}
+	return d.accept(container, key, kindLaunch, target, key, d.Now().Add(time.Duration(d.Config.LaunchMinutes)*time.Minute))
+}
+
+func (d *Desk) launchRefusal(ctx context.Context, key string, order Order) (string, error) {
+	raw, err := os.ReadFile(order.Brief)
+	if faults := order.launchFaults(string(raw), err == nil); len(faults) > 0 {
+		return strings.Join(faults, "; "), nil
+	}
+	container := laneBook(order.Lane)
+	held, err := d.known(container, key)
+	if err != nil {
+		return "", err
+	}
+	if held != nil {
+		return fmt.Sprintf("%s already holds a %s for %s (%s)", key, held.Kind, order.Lane, held.Status), nil
+	}
+	launches, err := d.laneActions(container, kindLaunch, incident.ActionAccepted, incident.ActionStarted)
+	if err != nil {
+		return "", err
+	}
+	if len(launches) > 0 {
+		return fmt.Sprintf("launch %s for %s is %s", launches[0].ActionID, order.Lane, launches[0].Status), nil
+	}
+	dispatch, err := d.show(ctx, order.Lane, "")
+	if err != nil {
+		return "", err
+	}
+	if dispatch.active() {
+		return fmt.Sprintf("dispatch %s is %s; relay to it instead", dispatch.ID, dispatch.Status), nil
+	}
+	return "", nil
+}
+
+func (d *Desk) refreshSlice(ctx context.Context, key, lane, brief string) error {
+	raw, err := os.ReadFile(brief)
+	if err != nil {
+		return err
+	}
+	if !briefSlice.Match(raw) {
+		text := strings.TrimRight(string(raw), " \t\r\n") + "\n\n" + sliceLine + " lane=" + lane + " step=incident\n"
+		if err := os.WriteFile(brief, []byte(text), 0o600); err != nil {
+			return err
+		}
+	}
+	output, code, err := d.capture(ctx, nil, d.tool("rulings.py"), "slice", "--repo", d.Config.BriefsRepo, "--drive", d.Config.Drive, "--refresh", brief)
+	if err != nil {
+		return err
+	}
+	if code == 0 {
+		return nil
+	}
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	return d.escalate("slice:"+key, "SLICE-UNREAD", lane, fmt.Sprintf("`rulings.py slice --refresh` exited %d: %s; %s launches on its brief without a fresh register slice", code, or(lines[len(lines)-1], "no output"), lane))
+}
+
+func (d *Desk) withdrawLine(ctx context.Context, at, key, rest string) error {
+	spec := withdrawSpec.FindStringSubmatch(rest)
+	if spec == nil {
+		return d.record("escalation:withdraw:"+at, fmt.Sprintf("WITHDRAW-FAILED %s inbox: one withdrawal per line, in the form `%s`; nothing was withdrawn", key, withdrawGrammar))
+	}
+	return d.withdraw(ctx, at, key, spec[1])
+}
+
+type heldLaunches struct {
+	lane     string
+	launches []incident.Action
+}
+
+func (d *Desk) launchesUnder(target string, keyed bool) ([]heldLaunches, error) {
+	if !keyed {
+		launches, err := d.laneActions(laneBook(target), kindLaunch)
+		if err != nil {
+			return nil, err
+		}
+		exists, err := d.store.Exists(laneBook(target))
+		if err != nil {
+			return nil, err
+		}
+		if !exists && d.receipt(target) == "" {
+			return nil, nil
+		}
+		return []heldLaunches{{lane: target, launches: launches}}, nil
+	}
+	books, err := d.containers(lanePrefix)
+	if err != nil {
+		return nil, err
+	}
+	var held []heldLaunches
+	for _, container := range books {
+		action, err := d.known(container, target)
+		if err != nil {
+			return nil, err
+		}
+		if action != nil && action.Kind == kindLaunch {
+			held = append(held, heldLaunches{lane: strings.TrimPrefix(container, lanePrefix), launches: []incident.Action{*action}})
+		}
+	}
+	return held, nil
+}
+
+func (d *Desk) withdraw(ctx context.Context, at, key, target string) error {
+	log := "escalation:withdraw:" + at
+	keyed := launchKey.MatchString(target)
+	held, err := d.launchesUnder(target, keyed)
+	if err != nil {
+		return err
+	}
+	if len(held) == 0 {
+		return d.record(log, fmt.Sprintf("WITHDRAW-FAILED %s %s: the runner holds no launch or lane under %s; nothing was withdrawn", key, target, target))
+	}
+	for _, entry := range held {
+		if err := d.withdrawLane(ctx, log, key, target, keyed, entry); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (d *Desk) withdrawLane(ctx context.Context, log, key, target string, keyed bool, entry heldLaunches) error {
+	lane := entry.lane
+	container, err := d.lane(lane)
+	if err != nil {
+		return err
+	}
+	for _, action := range entry.launches {
+		note := log + ":" + lane + ":" + action.ActionID
+		switch action.Status {
+		case incident.ActionAccepted:
+			if err := d.store.Edit(container, func(tx *incident.Tx) error {
+				_, err := tx.Fail(action.ActionID, "withdrawn by "+key)
+				return err
+			}); err != nil {
+				return err
+			}
+			if err := d.record(note, fmt.Sprintf("WITHDRAWN %s %s: by %s; nothing was launched", action.ActionID, lane, key)); err != nil {
+				return err
+			}
+		case incident.ActionStarted:
+			if err := d.setFact(container, withdrawPending, map[string]any{kindLaunch: action.ActionID, "by": key}); err != nil {
+				return err
+			}
+			if err := d.record(note, fmt.Sprintf("WITHDRAW-PENDING %s %s: by %s; it is still starting, and the runner stops it once it logs LAUNCHED", action.ActionID, lane, key)); err != nil {
+				return err
+			}
+		}
+	}
+	dispatch := d.receipt(lane)
+	if keyed {
+		dispatch = ""
+		if entry.launches[0].Status == incident.ActionVerified {
+			dispatch = string(entry.launches[0].DispatchID)
+		}
+	}
+	if dispatch != "" {
+		return d.stopWithdrawn(ctx, log+":"+lane, key, target, lane, dispatch)
+	}
+	status := incident.ActionAccepted
+	if len(entry.launches) > 0 {
+		status = entry.launches[0].Status
+	}
+	if keyed && status != incident.ActionAccepted && status != incident.ActionStarted {
+		return d.record(log+":"+lane, fmt.Sprintf("WITHDRAW-FAILED %s %s: launch %s is %s; nothing was withdrawn", key, lane, target, status))
+	}
+	return nil
+}
+
+func (d *Desk) stopWithdrawn(ctx context.Context, log, key, target, lane, dispatch string) error {
+	container, err := d.lane(lane)
+	if err != nil {
+		return err
+	}
+	if err := d.setFact(container, withdrawnFact, map[string]any{"dispatch": dispatch, "by": key}); err != nil {
+		return err
+	}
+	shown, err := d.show(ctx, lane, dispatch)
+	if err != nil {
+		return err
+	}
+	if shown != nil && inactive(shown.Status) {
+		return d.record(log, fmt.Sprintf("WITHDRAWN %s %s: by %s; dispatch %s was already %s, and no report of it launches a case lane", target, lane, key, dispatch, shown.Status))
+	}
+	state, failure := d.fence(ctx, dispatch)
+	if state == "" {
+		return d.record(log, fmt.Sprintf("WITHDRAW-FAILED %s %s: worker-stop of dispatch %s failed: %s; it is marked withdrawn, so no report of it launches a case lane; stop it with lr gc --done", key, lane, dispatch, failure))
+	}
+	seen, err := d.unconfirmedStop(ctx, lane, dispatch)
+	if err != nil {
+		return err
+	}
+	if seen != "" {
+		return d.record(log, fmt.Sprintf("WITHDRAW-UNCONFIRMED %s %s: worker-stop of dispatch %s answered %s, but after %ds Orca shows %s; it is marked withdrawn, so no report of it launches a case lane; stop it with lr gc --done", key, lane, dispatch, state, int(stopConfirm.Seconds()), seen))
+	}
+	return d.record(log, fmt.Sprintf("WITHDRAWN %s %s: by %s; dispatch %s stopped (%s), and no report of it launches a case lane", target, lane, key, dispatch, state))
+}
+
+func (d *Desk) unconfirmedStop(ctx context.Context, lane, dispatch string) (string, error) {
+	deadline := d.Now().Add(stopConfirm)
+	for {
+		shown, err := d.show(ctx, lane, dispatch)
+		if err != nil {
+			return "", err
+		}
+		var seen string
+		switch {
+		case shown == nil:
+			seen = fmt.Sprintf("no dispatch %s, and terminal %s unchecked", dispatch, or(d.terminal(lane), "unknown"))
+		case !inactive(shown.Status):
+			seen = fmt.Sprintf("dispatch %s still %s on terminal %s", dispatch, shown.Status, shown.Terminal)
+		case shown.Live && !d.atRest(ctx, shown.Terminal):
+			seen = fmt.Sprintf("dispatch %s %s, but terminal %s still at work", dispatch, shown.Status, shown.Terminal)
+		default:
+			return "", nil
+		}
+		if !d.Now().Before(deadline) {
+			return seen, nil
+		}
+		d.Sleep(stopPoll)
+	}
+}
+
+func (d *Desk) withdrawnBy(lane string) (string, error) {
+	value, found, err := d.factOf(laneBook(lane), withdrawnFact)
+	if err != nil || !found {
+		return "", err
+	}
+	mark, _ := value.(map[string]any)
+	if mark["dispatch"] != d.receipt(lane) {
+		return "", nil
+	}
+	by, _ := mark["by"].(string)
+	return by, nil
+}
+
+func (d *Desk) alertLine(ctx context.Context, at, key, rest string) error {
+	log := "escalation:alert:" + at
+	spec := alertSpec.FindStringSubmatch(rest)
+	if spec == nil {
+		return d.record(log, fmt.Sprintf("ALERT-FAILED %s inbox: one alert per line, in the form `%s`; nothing was recorded", key, alertGrammar))
+	}
+	slug, link, what := spec[1], spec[2], spec[3]
+	lane := slug + spawnedFix
+	dispatch, err := d.show(ctx, lane, "")
+	if err != nil {
+		return err
+	}
+	if dispatch.active() {
+		return d.relayToLane(ctx, at, key+":again", lane, fmt.Sprintf("The alert fired again at %s: %s %s", pacificClock(d.Now()), what, link), nil)
+	}
+	return d.record(log, fmt.Sprintf("ALERT %s %s: %s %s | no lane launched; the alerts desk writes `%s` when it judges one necessary", slug, pacificClock(d.Now()), what, link, incidentGrammar))
+}
+
+func (d *Desk) incidentLine(ctx context.Context, at, key, rest string) error {
+	log := "escalation:incident:" + at
+	spec := incidentSpec.FindStringSubmatch(rest)
+	if spec == nil {
+		return d.record(log, fmt.Sprintf("INCIDENT-FAILED %s inbox: one incident per line, in the form `%s`; nothing was launched", key, incidentGrammar))
+	}
+	slug, link, what := spec[1], spec[2], spec[4]
+	lane := slug + spawnedFix
+	dispatch, err := d.show(ctx, lane, "")
+	if err != nil {
+		return err
+	}
+	if dispatch.active() {
+		return d.relayToLane(ctx, at, key+":again", lane, fmt.Sprintf("The alert fired again at %s: %s %s", pacificClock(d.Now()), what, link), nil)
+	}
+	monitors := map[string]bool{}
+	for _, found := range monitorID.FindAllStringSubmatch(link+" "+what, -1) {
+		monitors[found[1]] = true
+	}
+	if len(monitors) > 0 {
+		peer, err := d.incidentLane(ctx, monitors, lane)
+		if err != nil {
+			return err
+		}
+		if peer != "" {
+			return d.record(log, fmt.Sprintf("LAUNCH-SKIPPED %s %s: duplicate of %s, already on monitor %s", key, lane, peer, strings.Join(sortedKeys(monitors), ", ")))
+		}
+	}
+	owner, err := d.incidentOwner(ctx, slug, lane)
+	if err != nil {
+		if err := d.noteTailFailure(err); err != nil {
+			return err
+		}
+		owner = ""
+	}
+	if owner != "" {
+		return d.escalate(key, "INCIDENT-OWNED", lane, fmt.Sprintf("incident %s owned by %s; no launch", slug, owner))
+	}
+	fired := lanes.Fired{Slug: slug, What: what, Link: link, At: d.Now()}
+	d.background.Go(func() {
+		if err := d.FireIncident(ctx, fired); err != nil {
+			fmt.Fprintf(d.Stderr, "incident %s launch: %v\n", slug, err)
+			if err := d.record(log+":failed", fmt.Sprintf("INCIDENT %s %s: %s %s | %s not launched: %v", slug, pacificClock(d.Now()), what, link, lane, err)); err != nil {
+				fmt.Fprintf(d.Stderr, "incident %s record: %v\n", slug, err)
+			}
+		}
+	})
+	return d.record(log, fmt.Sprintf("INCIDENT %s %s: %s %s | fix lane %s launching on incident xhigh; root: ratify, spawn the evidence and incident-doc lanes, fence the target, start comms in the affected account channels and #outage", slug, pacificClock(d.Now()), what, link, lane))
+}
+
+type holdTarget struct {
+	Slug  string `json:"slug"`
+	Owner string `json:"owner"`
+	What  string `json:"what"`
+}
+
+func (d *Desk) holds(slug string) ([]incident.Action, error) {
+	held, err := d.store.Actions(deskRunner, kindHold, incident.ActionAccepted)
+	if err != nil {
+		return nil, err
+	}
+	return slices.DeleteFunc(held, func(action incident.Action) bool {
+		var target holdTarget
+		return json.Unmarshal([]byte(action.Target), &target) != nil || target.Slug != slug
+	}), nil
+}
+
+func (d *Desk) holdLine(at, key, rest string) error {
+	spec := holdSpec.FindStringSubmatch(rest)
+	if spec == nil {
+		return d.record("escalation:hold:"+at, fmt.Sprintf("HOLD-FAILED %s inbox: one hold per line, in the form `%s`; no clock started", key, holdGrammar))
+	}
+	held, err := d.holds(spec[1])
+	if err != nil || len(held) > 0 {
+		return err
+	}
+	target, err := compactJSON(holdTarget{Slug: spec[1], Owner: spec[2], What: spec[3]})
+	if err != nil {
+		return err
+	}
+	_, _, err = d.accept(deskRunner, "hold:"+spec[1]+"@"+d.stamp(), kindHold, target, key, d.Now().Add(time.Duration(d.Config.HoldMinutes)*time.Minute))
+	return err
+}
+
+func (d *Desk) unholdLine(at, key, rest string) error {
+	spec := unholdSpec.FindStringSubmatch(rest)
+	if spec == nil {
+		return d.record("escalation:unhold:"+at, fmt.Sprintf("HOLD-FAILED %s inbox: lift a hold in the form `%s`", key, unholdGrammar))
+	}
+	held, err := d.holds(spec[1])
+	if err != nil {
+		return err
+	}
+	for _, action := range held {
+		if err := d.store.Edit(deskRunner, func(tx *incident.Tx) error {
+			_, err := tx.Verify(action.ActionID, map[string]any{"at": d.stamp(), "by": key})
+			return err
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}

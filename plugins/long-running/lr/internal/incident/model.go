@@ -38,6 +38,10 @@ var (
 	ErrUnknownAction   = errors.New("unknown action")
 )
 
+type TransitionError struct{ Text string }
+
+func (e *TransitionError) Error() string { return e.Text }
+
 type nullable string
 
 func (n nullable) MarshalJSON() ([]byte, error) {

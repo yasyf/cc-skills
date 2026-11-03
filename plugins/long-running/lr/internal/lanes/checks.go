@@ -98,7 +98,7 @@ func (e Env) incidentBrief(lane, template string, fired Fired) (string, error) {
 	return path, os.WriteFile(path, []byte(rendered), 0o600)
 }
 
-func (e Env) incidentLaunch(ctx context.Context, fired Fired) (string, error) {
+func (e Env) IncidentLaunch(ctx context.Context, fired Fired) (string, error) {
 	fix, err := e.incidentBrief(fired.Slug+"-fix", "alert-fix-brief.md", fired)
 	if err != nil {
 		return "", err
@@ -610,7 +610,7 @@ func (e Env) Checks(s *store.Store, log *slog.Logger) ([]Check, error) {
 		}
 	}
 	if len(channels) > 0 {
-		checks = append(checks, Alerts{Env: e, Store: s, Channels: channels, Log: log, Launch: e.incidentLaunch}.Check)
+		checks = append(checks, Alerts{Env: e, Store: s, Channels: channels, Log: log, Launch: e.IncidentLaunch}.Check)
 	}
 	if pipelines := e.Config.ReleasePipelineSlugs(); len(pipelines) > 0 {
 		checks = append(checks, (&ReleaseBuilds{Env: e, Pipelines: pipelines, CLI: strings.Fields(e.Config.BuildkiteCLI), Log: log}).Check)
