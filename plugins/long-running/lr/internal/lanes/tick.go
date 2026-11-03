@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"log/slog"
 	"maps"
 	"os"
 	"path/filepath"
@@ -158,6 +159,11 @@ func Tick(s *store.Store, d Deps, now time.Time, generation int64) (out Outcome,
 	claimBranches(s, d, now)
 	unownedDuties(s, d, found, now)
 	hourly(s, d, now)
+	woken, err := chaseUnread(s, d, found, now)
+	if err != nil {
+		slog.Warn("unread orders not chased this tick", "err", err)
+	}
+	out.Woken = append(out.Woken, woken...)
 	return out, nil
 }
 
@@ -345,7 +351,11 @@ func claimBranches(s *store.Store, d Deps, now time.Time) {
 }
 
 func holdsNothing(lane store.Lane) bool {
-	return lane.Name != Root && len(lane.PRs) == 0 && !slices.Contains(standingRoles, lane.Role) && must(BriefOf(lane.Brief)).Standing == ""
+	return lane.Name != Root && len(lane.PRs) == 0 && !isStanding(lane)
+}
+
+func isStanding(lane store.Lane) bool {
+	return slices.Contains(standingRoles, lane.Role) || must(BriefOf(lane.Brief)).Standing != ""
 }
 
 func retireSilent(s *store.Store, d Deps, lane store.Lane, why string, now time.Time, out *Outcome) {
@@ -557,6 +567,61 @@ func wake(s *store.Store, d Deps, lane store.Lane, peer Peer, found map[string]P
 	}
 	do(s.SetLanePage(lane.Name, nil))
 	relaunch(s, d, lane, found, fmt.Sprintf("has made no tool call in the %d min since it was woken because %s", int(now.Sub(wokeAt).Minutes()), truncated(pageText(page, "why"), 240)), taken, now, out)
+}
+
+func chaseUnread(s *store.Store, d Deps, found map[string]Peer, now time.Time) (woken []string, err error) {
+	defer recovered(&err)
+	do(s.KeepUnread(live...))
+	held := map[string][]store.Unread{}
+	for _, order := range must(s.Unread()) {
+		held[order.Lane] = append(held[order.Lane], order)
+	}
+	late, raised := map[string][]string{}, map[string][]string{}
+	for _, lane := range must(s.Lanes(live...)) {
+		if len(held[lane.Name]) == 0 {
+			continue
+		}
+		peer := found[lane.Name]
+		read := newer(peer.LastCall, lane.Heard)
+		do(s.ReadUnread(lane.Name, read))
+		orders := slices.DeleteFunc(held[lane.Name], func(order store.Unread) bool { return order.At.Before(read.Truncate(time.Second)) })
+		if wakeOnOrders(s, d, lane, peer, orders, now) {
+			woken = append(woken, lane.Name)
+		}
+		pastDue := slices.DeleteFunc(slices.Clone(orders), func(order store.Unread) bool { return order.Raised || now.Sub(order.At) < unreadAfter })
+		if len(pastDue) > 0 {
+			to := noticeTo(s, lane.Name)
+			late[to] = append(late[to], fmt.Sprintf("%s holds %s, the oldest for %d min", lane.Name, orderWords(pastDue), int(now.Sub(pastDue[0].At).Minutes())))
+			raised[to] = append(raised[to], lane.Name)
+		}
+	}
+	for _, to := range slices.Sorted(maps.Keys(late)) {
+		do(d.Post(Post{Kind: "blocker", To: []string{to}, Text: fmt.Sprintf("Addressed orders unread for %d minutes or more, with no tool call or record from the lane since: %s. Relay to the lane through orca-desk, or relaunch it.", int(unreadAfter.Minutes()), strings.Join(late[to], "; "))}))
+		for _, name := range raised[to] {
+			do(s.MarkUnreadRaised(name))
+		}
+	}
+	return woken, nil
+}
+
+func wakeOnOrders(s *store.Store, d Deps, lane store.Lane, peer Peer, orders []store.Unread, now time.Time) bool {
+	if !peer.Live || (peer.Row.Roster == "" && peer.Row.Dispatch == "") || slices.Contains(settled, lane.Last) {
+		return false
+	}
+	due := slices.DeleteFunc(slices.Clone(orders), func(order store.Unread) bool { return order.Woke || now.Sub(order.At) < wakeAfter })
+	if len(due) == 0 || !isStanding(lane) || !must(d.Wake(lane.Name, peer.Row, map[string]any{"why": fmt.Sprintf("orders addressed to you are unread: %s.", orderWords(due))})) {
+		return false
+	}
+	do(s.MarkUnreadWoken(lane.Name))
+	return true
+}
+
+func orderWords(orders []store.Unread) string {
+	words := make([]string, 0, len(orders))
+	for _, order := range orders {
+		words = append(words, fmt.Sprintf("%s's %s #%d", order.Author, order.Kind, order.Seq))
+	}
+	return strings.Join(words, ", ")
 }
 
 func with(page map[string]any, key, value string) map[string]any {

@@ -72,6 +72,8 @@ func Adopt(lane string) error {
 const (
 	StaleAfter   = store.StaleAfter
 	unownedAfter = 10 * time.Minute
+	unreadAfter  = 10 * time.Minute
+	wakeAfter    = 30 * time.Second
 	strikeWindow = 2 * StaleAfter
 	PageAnswer   = 2 * StaleAfter
 	liveWithin   = 4 * StaleAfter
@@ -415,10 +417,11 @@ type Row struct {
 }
 
 type Peer struct {
-	Lane string
-	Live bool
-	Seen time.Time
-	Row  Row
+	Lane     string
+	Live     bool
+	Seen     time.Time
+	Row      Row
+	LastCall time.Time
 }
 
 func Peers(rows []Row) map[string]Peer {
@@ -428,9 +431,15 @@ func Peers(rows []Row) map[string]Peer {
 			continue
 		}
 		have, known := found[row.Lane]
-		if !known || (row.Live && !have.Live) || (row.Live == have.Live && row.SeenAt.After(have.Seen)) {
-			found[row.Lane] = Peer{row.Lane, row.Live, row.SeenAt.UTC(), row}
+		lastCall := have.LastCall
+		if row.Dispatch == "" {
+			lastCall = newer(lastCall, row.SeenAt.UTC())
 		}
+		if !known || (row.Live && !have.Live) || (row.Live == have.Live && row.SeenAt.After(have.Seen)) {
+			have = Peer{Lane: row.Lane, Live: row.Live, Seen: row.SeenAt.UTC(), Row: row}
+		}
+		have.LastCall = lastCall
+		found[row.Lane] = have
 	}
 	return found
 }

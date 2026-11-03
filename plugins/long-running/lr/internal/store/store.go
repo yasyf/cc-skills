@@ -718,6 +718,63 @@ func (s *Store) SetLaneWaiting(name string, ask int64, answered time.Time, await
 	return err
 }
 
+type Unread struct {
+	Lane   string
+	Seq    int64
+	At     time.Time
+	Author string
+	Kind   string
+	Woke   bool
+	Raised bool
+}
+
+func (s *Store) AddUnread(order Unread) error {
+	_, err := s.db.Exec("INSERT INTO unread (lane, seq, at, author, kind) VALUES (?, ?, ?, ?, ?) ON CONFLICT (lane, seq) DO NOTHING", order.Lane, order.Seq, Stamp(order.At), order.Author, order.Kind)
+	return err
+}
+
+func (s *Store) Unread() ([]Unread, error) {
+	rows, err := s.db.Query("SELECT lane, seq, at, author, kind, woke, raised FROM unread ORDER BY lane, seq")
+	return collect(rows, err, func(rows *sql.Rows) (Unread, error) {
+		var order Unread
+		err := rows.Scan(&order.Lane, &order.Seq, moment{&order.At}, &order.Author, &order.Kind, &order.Woke, &order.Raised)
+		return order, err
+	})
+}
+
+func (s *Store) ReadUnread(lane string, before time.Time) error {
+	_, err := s.db.Exec("DELETE FROM unread WHERE lane = ? AND at < ?", lane, Stamp(before))
+	return err
+}
+
+func (s *Store) ResolveUnread(seqs []int64) error {
+	args := make([]any, len(seqs))
+	for i, seq := range seqs {
+		args[i] = seq
+	}
+	_, err := s.db.Exec("DELETE FROM unread WHERE seq IN ("+placeholders(len(seqs))+")", args...)
+	return err
+}
+
+func (s *Store) KeepUnread(states ...LaneState) error {
+	args := make([]any, len(states))
+	for i, state := range states {
+		args[i] = string(state)
+	}
+	_, err := s.db.Exec("DELETE FROM unread WHERE lane NOT IN (SELECT name FROM lanes WHERE state IN ("+placeholders(len(states))+"))", args...)
+	return err
+}
+
+func (s *Store) MarkUnreadWoken(lane string) error {
+	_, err := s.db.Exec("UPDATE unread SET woke = 1 WHERE lane = ?", lane)
+	return err
+}
+
+func (s *Store) MarkUnreadRaised(lane string) error {
+	_, err := s.db.Exec("UPDATE unread SET raised = 1 WHERE lane = ?", lane)
+	return err
+}
+
 func (s *Store) Order(seq int64) error {
 	_, err := s.db.Exec("INSERT INTO orders (seq) VALUES (?) ON CONFLICT (seq) DO NOTHING", seq)
 	return err
