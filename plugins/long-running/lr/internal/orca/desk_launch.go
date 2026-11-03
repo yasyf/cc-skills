@@ -102,14 +102,14 @@ func (d *Desk) launch(ctx context.Context, container, lane string, action incide
 		return err
 	}
 	if !bound.Bound {
-		return d.refuseLaunch(container, lane, action, "an unbound runner: "+bound.Why, "the root launches it by hand with lr launch start, or runs `"+d.rebindCommand()+"` from its own terminal and submits it again under a new key")
+		return d.refuseLaunch(ctx, container, lane, action, "an unbound runner: "+bound.Why, "post the go again under a new key once the coordinator's Orca terminal has run `"+d.rebindCommand()+"`")
 	}
 	route, err := d.spriteRefusal(ctx, lane, spec)
 	if err != nil {
 		return err
 	}
 	if route.refusal != "" {
-		return d.refuseLaunch(container, lane, action, route.refusal, "the root submits it again under a new key once that is fixed")
+		return d.refuseLaunch(ctx, container, lane, action, route.refusal, "post the go again under a new key once that is fixed")
 	}
 	if !route.remote {
 		if err := d.loadCheck(ctx, container, lane, action, spec); err != nil {
@@ -207,10 +207,17 @@ func (d *Desk) laneBy(lane string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if slices.Contains([]string{"", coordinatorLane, deskRunner, supervisorLane, "stall-watch"}, spec.By) {
+	if spec.By == coordinatorLane {
 		return "", nil
 	}
-	return spec.By, nil
+	return verdictTo(spec.By), nil
+}
+
+func verdictTo(by string) string {
+	if slices.Contains([]string{"", deskRunner, supervisorLane, "stall-watch"}, by) {
+		return ""
+	}
+	return by
 }
 
 type launchRoute struct {
@@ -312,8 +319,12 @@ func (d *Desk) loadCheck(ctx context.Context, container, lane string, action inc
 	return d.escalateTo(ctx, container+"/"+action.ActionID+":load", "LOAD-INCIDENT", lane, action.ActionID+" launches at "+held+": an incident fix lane is never held for load", watchdog)
 }
 
-func (d *Desk) refuseLaunch(container, lane string, action incident.Action, held, remedy string) error {
-	text := fmt.Sprintf("%s refused on %s; nothing was launched, and %s", action.ActionID, held, remedy)
+func (d *Desk) refuseLaunch(ctx context.Context, container, lane string, action incident.Action, held, remedy string) error {
+	spec, err := launchOf(action)
+	if err != nil {
+		return err
+	}
+	text := fmt.Sprintf("%s refused on %s; nothing was launched; %s", action.ActionID, held, remedy)
 	failed, err := d.attempt(container, func(tx *incident.Tx) error {
 		_, err := tx.Fail(action.ActionID, text)
 		return err
@@ -321,7 +332,7 @@ func (d *Desk) refuseLaunch(container, lane string, action incident.Action, held
 	if err != nil || !failed {
 		return err
 	}
-	return d.escalate(container+"/"+action.ActionID, "LAUNCH-FAILED", lane, text)
+	return d.escalateTo(ctx, container+"/"+action.ActionID, "LAUNCH-FAILED", lane, text, verdictTo(spec.By))
 }
 
 func (d *Desk) stalledLaunches(ctx context.Context) error {
@@ -480,7 +491,7 @@ func (d *Desk) settleSprite(ctx context.Context, container, lane string, action 
 	decoded := json.Unmarshal([]byte(lines[len(lines)-1]), &ready)
 	receipt, readErr := os.ReadFile(filepath.Join(attempt, spriteReceipt))
 	if decoded != nil || readErr != nil || !ready.whole() {
-		return d.unsettledSprite(container, lane, action, attempt, exited, out)
+		return d.unsettledSprite(ctx, container, lane, action, spec, attempt, exited, out)
 	}
 	if err := os.MkdirAll(d.Config.Receipts, 0o750); err != nil {
 		return err
@@ -554,10 +565,10 @@ func (d *Desk) raiseHookDrift(lane, attempt string) error {
 	})
 }
 
-func (d *Desk) unsettledSprite(container, lane string, action incident.Action, attempt string, exited bool, out string) error {
+func (d *Desk) unsettledSprite(ctx context.Context, container, lane string, action incident.Action, spec launchTarget, attempt string, exited bool, out string) error {
 	reason := clipRunes(collapsed(out), 300)
 	if neverStarted(attempt, exited) {
-		return d.refuseLaunch(container, lane, action, "a Sprite that never started a worker: "+reason, "its receipts are in "+attempt+"; the root submits it again under a new key")
+		return d.refuseLaunch(ctx, container, lane, action, "a Sprite that never started a worker: "+reason, "its receipts are in "+attempt+"; post the go again under a new key")
 	}
 	if _, err := d.attempt(container, func(tx *incident.Tx) error {
 		_, err := tx.Lose(action.ActionID)
@@ -566,7 +577,7 @@ func (d *Desk) unsettledSprite(container, lane string, action incident.Action, a
 		return err
 	}
 	started := spriteStartedAs(filepath.Join(attempt, spriteReceipt))
-	return d.escalate(container+"/"+action.ActionID+":sprite", "SPRITE-UNVERIFIABLE", lane, fmt.Sprintf("%s does not launch locally: its Sprite launch is unverified and a remote worker may be running%s; receipts in %s, nothing retried or cleaned up: %s", action.ActionID, started, attempt, reason))
+	return d.escalateTo(ctx, container+"/"+action.ActionID+":sprite", "SPRITE-UNVERIFIABLE", lane, fmt.Sprintf("%s does not launch locally: its Sprite launch is unverified and a remote worker may be running%s; receipts in %s, nothing retried or cleaned up: %s", action.ActionID, started, attempt, reason), verdictTo(spec.By))
 }
 
 func (d *Desk) settleLaunch(ctx context.Context, container, lane string, action incident.Action, box string) error {
@@ -589,7 +600,7 @@ func (d *Desk) settleLaunch(ctx context.Context, container, lane string, action 
 	case out == "" && receipt != "" && receipt != spec.Prior:
 		proofLine, dispatch, terminal = "receipt dispatch "+receipt, receipt, d.terminal(lane)
 	case out != "":
-		return d.failedLaunch(container, lane, key, out)
+		return d.failedLaunch(ctx, container, lane, key, out, verdictTo(spec.By))
 	default:
 		if _, err := d.attempt(container, func(tx *incident.Tx) error {
 			_, err := tx.Lose(key)
@@ -597,7 +608,7 @@ func (d *Desk) settleLaunch(ctx context.Context, container, lane string, action 
 		}); err != nil {
 			return err
 		}
-		return d.escalate(container+"/"+key, "UNVERIFIABLE", lane, "launch outcome unknown: no launch line and no new receipt; it was not relaunched")
+		return d.escalateTo(ctx, container+"/"+key, "UNVERIFIABLE", lane, "launch outcome unknown: no launch line and no new receipt; it was not relaunched", verdictTo(spec.By))
 	}
 	proof := map[string]any{"line": proofLine, "dispatch": dispatch, "at": d.stamp()}
 	if _, err := d.attempt(container, func(tx *incident.Tx) error {
@@ -613,7 +624,7 @@ func (d *Desk) settleLaunch(ctx context.Context, container, lane string, action 
 	if box != "" {
 		on = " on Sprite " + box
 	}
-	if err := d.record(escalationPref+container+"/"+key+":launched", fmt.Sprintf("LAUNCHED %s %s: dispatch %s terminal %s%s", key, lane, dispatch, terminal, on)); err != nil {
+	if err := d.recordTo(ctx, escalationPref+container+"/"+key+":launched", fmt.Sprintf("LAUNCHED %s %s: dispatch %s terminal %s%s", key, lane, dispatch, terminal, on), verdictTo(spec.By)); err != nil {
 		return err
 	}
 	if err := d.transfer(lane); err != nil {
@@ -627,7 +638,7 @@ func (d *Desk) settleLaunch(ctx context.Context, container, lane string, action 
 	return d.stopPendingWithdraw(ctx, container, lane, key, dispatch)
 }
 
-func (d *Desk) failedLaunch(container, lane, key, out string) error {
+func (d *Desk) failedLaunch(ctx context.Context, container, lane, key, out, to string) error {
 	reason := clipRunes(collapsed(out), 300)
 	lines := strings.Split(out, "\n")
 	for _, line := range slices.Backward(lines) {
@@ -642,7 +653,7 @@ func (d *Desk) failedLaunch(container, lane, key, out string) error {
 	}); err != nil {
 		return err
 	}
-	return d.escalate(container+"/"+key, "LAUNCH-FAILED", lane, reason)
+	return d.escalateTo(ctx, container+"/"+key, "LAUNCH-FAILED", lane, reason, to)
 }
 
 func (d *Desk) stopPendingWithdraw(ctx context.Context, container, lane, key, dispatch string) error {

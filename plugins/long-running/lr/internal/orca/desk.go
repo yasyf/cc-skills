@@ -347,18 +347,20 @@ func (d *Desk) escalate(key, kind, about, text string) error {
 }
 
 func (d *Desk) escalateTo(ctx context.Context, key, kind, about, text, to string) error {
+	return d.recordTo(ctx, escalationPref+key, escalationLine(kind, key, about, text), to)
+}
+
+func (d *Desk) recordTo(ctx context.Context, action, line, to string) error {
 	if to == "" {
-		return d.escalate(key, kind, about, text)
+		return d.record(action, line)
 	}
-	action := escalationPref + key
 	held, err := d.known(deskRunner, action)
 	if err != nil || held != nil {
 		return err
 	}
-	line := escalationLine(kind, key, about, text)
 	posted, err := d.postEscalation(ctx, line, to, action)
 	if err != nil {
-		fmt.Fprintf(d.Stderr, "escalation %s to %s goes to its notice lane on the flush; cci post: %v\n", key, to, err)
+		fmt.Fprintf(d.Stderr, "escalation %s to %s goes to its notice lane on the flush; cci post: %v\n", strings.TrimPrefix(action, escalationPref), to, err)
 		if err := d.countRefusal(to, err); err != nil {
 			return err
 		}

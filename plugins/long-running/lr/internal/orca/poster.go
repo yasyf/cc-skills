@@ -24,13 +24,14 @@ const (
 	runnerLookback  = 24 * time.Hour
 	verdictPoll     = 2 * time.Second
 	verdictLaunched = "LAUNCHED"
+	verdictPosted   = "POSTED"
 	kindGo          = "go"
 	kindState       = "state"
 	nothingPosted   = "nothing was posted"
 )
 
 var (
-	launchVerdict = regexp.MustCompile(`^(LAUNCHED|LAUNCH-FAILED|LAUNCH-EXPIRED|LAUNCH-HELD|UNVERIFIABLE|SPRITE-UNVERIFIABLE) (?:desk-lane-[\w.-]+/)?(R\d+(?:@\w+)?) ([\w.-]+): `)
+	launchVerdict = regexp.MustCompile(`^(LAUNCHED|LAUNCH-FAILED|LAUNCH-DUPLICATE|LAUNCH-EXPIRED|LAUNCH-HELD|UNVERIFIABLE|SPRITE-UNVERIFIABLE) (?:desk-lane-[\w.-]+/)?(R\d+(?:@\w+)?) ([\w.-]+): `)
 	pacificTime   = mustLocation("America/Los_Angeles")
 )
 
@@ -83,22 +84,28 @@ func (p Poster) Entry() (*drive.Entry, error) {
 	return nil, fmt.Errorf("no drive in the registry is cci drive %s, so its orca desk runner is unknown and nothing is posted", p.Drive)
 }
 
-func (p Poster) requireRunner(ctx context.Context, bus, fallback string) error {
+func (p Poster) staleRunner(ctx context.Context, bus string) (string, error) {
 	now := p.Now()
 	records, err := p.Bus.Tail(ctx, client.Query{Drive: bus, Since: now.Add(-runnerLookback), Kinds: []string{kindState}, Lanes: []string{deskRunner}})
 	if err != nil {
-		return err
+		return "", err
 	}
-	last := "never"
 	for _, record := range slices.Backward(records) {
 		if record.Lane != deskRunner || record.Topic != runnerTopic || !strings.HasPrefix(record.Text, runnerAlive) {
 			continue
 		}
 		if now.Sub(record.At) < runnerStale {
-			return nil
+			return "", nil
 		}
-		last = "last at " + record.At.In(pacificTime).Format("3:04 PM")
-		break
+		return "last at " + record.At.In(pacificTime).Format("3:04 PM"), nil
+	}
+	return "never", nil
+}
+
+func (p Poster) requireRunner(ctx context.Context, bus, fallback string) error {
+	last, err := p.staleRunner(ctx, bus)
+	if err != nil || last == "" {
+		return err
 	}
 	return fmt.Errorf("refused: no orca desk runner has posted an orca alive record on cci drive %s in the last five minutes (%s), so nothing reads %s lines; %s", bus, last, deskLane, fallback)
 }
@@ -159,13 +166,19 @@ func (p Poster) Launch(ctx context.Context, order Order, timeout time.Duration) 
 	}
 	key := "R" + strings.TrimPrefix(stored.Name(), "#")
 	label, err := p.settle(ctx, bus, stored.Seq-1, key, order.Lane, timeout)
+	if err != nil || label != "" {
+		return label, err
+	}
+	last, err := p.staleRunner(ctx, bus)
 	if err != nil {
 		return "", err
 	}
-	if label == "" {
-		fmt.Fprintf(p.Out, "%s %s unsettled after %.0fs: no runner verdict; check the orca runner's newest alive record with `cci tail --drive %s --lane %s --kind state --topic %s -n 1`\n", order.Lane, key, timeout.Seconds(), bus, deskRunner, runnerTopic)
+	if last == "" {
+		fmt.Fprintf(p.Out, "%s %s posted with no verdict after %.0fs; the orca runner is alive, so its verdict arrives as a %s record\n", order.Lane, key, timeout.Seconds(), deskRunner)
+		return verdictPosted, nil
 	}
-	return label, nil
+	fmt.Fprintf(p.Out, "%s %s unsettled after %.0fs: the orca runner has posted no orca alive record in five minutes (%s); check it with `cci tail --drive %s --lane %s --kind state --topic %s -n 1`\n", order.Lane, key, timeout.Seconds(), last, bus, deskRunner, runnerTopic)
+	return "", nil
 }
 
 func (p Poster) settle(ctx context.Context, bus string, since int64, key, lane string, timeout time.Duration) (string, error) {

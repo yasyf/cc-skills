@@ -458,13 +458,30 @@ func TestALaunchTheRunnerRefusesFailsWithItsLine(t *testing.T) {
 	}
 }
 
-func TestAnUnsettledLaunchFailsAtTheTimeout(t *testing.T) {
+func TestALaunchWithNoVerdictFromALiveRunnerIsPostedAndSucceeds(t *testing.T) {
 	desk, _, dir, out := deskFixture(t)
 	desk.Name, desk.FixBrief, desk.Timeout = "slow", briefFile(t, dir, "fix.md", "fix"), 0
+	if err := desk.Run(context.Background()); err != nil {
+		t.Fatalf("got %v", err)
+	}
+	if !strings.Contains(out.String(), "slow-fix R102 posted with no verdict after 0s; the orca runner is alive, so its verdict arrives as a desk-runner record") {
+		t.Fatalf("output:\n%s", out)
+	}
+}
+
+func TestALaunchWithNoVerdictFromAStaleRunnerIsUnsettled(t *testing.T) {
+	desk, bus, dir, out := deskFixture(t)
+	desk.Name, desk.FixBrief, desk.Timeout = "slow", briefFile(t, dir, "fix.md", "fix"), 0
+	desk.Now = func() time.Time {
+		if len(bus.drafts) == 0 {
+			return bus.at
+		}
+		return bus.at.Add(6 * time.Minute)
+	}
 	if err := desk.Run(context.Background()); !errors.Is(err, ErrUnsettled) {
 		t.Fatalf("got %v", err)
 	}
-	if !strings.Contains(out.String(), "slow-fix R102 unsettled after 0s") {
+	if !strings.Contains(out.String(), "slow-fix R102 unsettled after 0s: the orca runner has posted no orca alive record in five minutes") {
 		t.Fatalf("output:\n%s", out)
 	}
 }

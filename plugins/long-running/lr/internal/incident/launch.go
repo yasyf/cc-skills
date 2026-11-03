@@ -36,7 +36,7 @@ const (
 var (
 	ErrUnsettled = errors.New("a launch has no runner verdict")
 
-	verdictLine     = regexp.MustCompile(`^(LAUNCHED|LAUNCH-FAILED|LAUNCH-EXPIRED|LAUNCH-HELD|UNVERIFIABLE|SPRITE-UNVERIFIABLE) (?:desk-lane-[\w.-]+/)?(R\d+(?:@\w+)?) ([\w.-]+): `)
+	verdictLine     = regexp.MustCompile(`^(LAUNCHED|LAUNCH-FAILED|LAUNCH-DUPLICATE|LAUNCH-EXPIRED|LAUNCH-HELD|UNVERIFIABLE|SPRITE-UNVERIFIABLE) (?:desk-lane-[\w.-]+/)?(R\d+(?:@\w+)?) ([\w.-]+): `)
 	rootLines       = regexp.MustCompile(`(?m)^Root:.*\n`)
 	alertLine       = regexp.MustCompile(`(?m)^Alert:.*$`)
 	rootPlaceholder = regexp.MustCompile(`<(?:lane|state|\.\.\.)>`)
@@ -162,22 +162,28 @@ func (d DeskLaunch) fallback(planned []plannedLane) string {
 	return text + " instead"
 }
 
-func (d DeskLaunch) requireRunner(ctx context.Context, drive string, planned []plannedLane) error {
+func (d DeskLaunch) staleRunner(ctx context.Context, drive string) (string, error) {
 	now := d.Now()
 	records, err := d.Bus.Tail(ctx, client.Query{Drive: drive, Since: now.Add(-aliveLookback), Kinds: []string{kindState}})
 	if err != nil {
-		return err
+		return "", err
 	}
-	last := "never"
 	for _, record := range slices.Backward(records) {
 		if record.Lane != deskRunner || record.Topic != topicOrca {
 			continue
 		}
 		if now.Sub(record.At) < aliveWindow {
-			return nil
+			return "", nil
 		}
-		last = "last at " + record.At.In(pacificZone).Format("3:04 PM")
-		break
+		return "last at " + record.At.In(pacificZone).Format("3:04 PM"), nil
+	}
+	return "never", nil
+}
+
+func (d DeskLaunch) requireRunner(ctx context.Context, drive string, planned []plannedLane) error {
+	last, err := d.staleRunner(ctx, drive)
+	if err != nil || last == "" {
+		return err
 	}
 	return fmt.Errorf("refused: no orca desk runner has posted an orca alive record on cci drive %s in the last five minutes (%s), so nothing reads %s lines; %s", drive, last, deskLane, d.fallback(planned))
 }
@@ -282,21 +288,33 @@ func (d DeskLaunch) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return d.outcome(drive, keys, settled)
+	return d.outcome(ctx, drive, keys, settled)
 }
 
-func (d DeskLaunch) outcome(drive string, keys map[string]string, settled map[string]settledLaunch) error {
-	for _, key := range slices.Sorted(maps.Keys(keys)) {
-		if _, done := settled[key]; !done {
-			fmt.Fprintf(d.Out, "%s %s unsettled after %.0fs: no runner verdict; check the orca runner's newest alive record with `cci tail --drive %s --lane %s --kind state --topic orca -n 1`\n", keys[key], key, d.Timeout.Seconds(), drive, deskRunner)
+func (d DeskLaunch) outcome(ctx context.Context, drive string, keys map[string]string, settled map[string]settledLaunch) error {
+	last := ""
+	if len(settled) < len(keys) {
+		var err error
+		if last, err = d.staleRunner(ctx, drive); err != nil {
+			return err
 		}
 	}
-	if len(settled) < len(keys) {
+	for _, key := range slices.Sorted(maps.Keys(keys)) {
+		if _, done := settled[key]; done {
+			continue
+		}
+		if last == "" {
+			fmt.Fprintf(d.Out, "%s %s posted with no verdict after %.0fs; the orca runner is alive, so its verdict arrives as a %s record\n", keys[key], key, d.Timeout.Seconds(), deskRunner)
+			continue
+		}
+		fmt.Fprintf(d.Out, "%s %s unsettled after %.0fs: the orca runner has posted no orca alive record in five minutes (%s); check it with `cci tail --drive %s --lane %s --kind state --topic orca -n 1`\n", keys[key], key, d.Timeout.Seconds(), last, drive, deskRunner)
+	}
+	if last != "" {
 		return ErrUnsettled
 	}
 	for _, key := range slices.Sorted(maps.Keys(keys)) {
-		if settled[key].label != verdictLaunched {
-			return fmt.Errorf("%s did not launch: %s", keys[key], settled[key].text)
+		if verdict, done := settled[key]; done && verdict.label != verdictLaunched {
+			return fmt.Errorf("%s did not launch: %s", keys[key], verdict.text)
 		}
 	}
 	return nil

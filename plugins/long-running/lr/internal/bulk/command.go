@@ -47,7 +47,7 @@ func readCommand(a *app.App) *cobra.Command {
 		Short: "Launch a Sonnet reader over the corpus, and print only the findings path and the lane names",
 		Long: `Write the reader's and the triage's briefs and launch the reader through the orca runner. The reader writes the findings file and starts the triage with lr bulk triage; the triage writes fix-lane briefs and a one-pager and files the list with lr bulk file. Nothing but the findings path and the lane names comes back to the caller, and the launcher gets one done record with the list to launch.
 
-Exit 0 when the reader launched, 1 when the runner or a check refused it, and 2 when no verdict came in time.`,
+Exit 0 when the reader launched or the runner is alive and still settling it, 1 when the runner or a check refused it, and 2 when no verdict came in time and the runner has posted no orca alive record in five minutes.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			caller := os.Getenv(lanes.LaneEnv)
