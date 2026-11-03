@@ -287,7 +287,7 @@ Each prefix passes the check registry, `landing.checks` in order, every built-in
 `(priority, root PR)` order, a tree's priority the lowest ledger `priority` among its PRs, and accepted enqueues run one parallel
 wave per priority, lower first. A check that reads no verdict first settles its tips through `ledger.py landed`, which
 reads each tip's squash on the freshly fetched trunk, and drops every tip whose row then reads landed; only the tips left
-log `GATE-FAILED`. A check killed at its cap, the enqueue's 300 seconds since both run the merge preflight, on both tries has no verdict yet, runs again next pass, and refuses its heads for `GATE-TIMEOUT` meanwhile; a check that still fails on a network error after the adapter's tries has no verdict either, runs again next pass, and refuses its heads for `GATE-UNREACHED`, never `GATE-FAILED` (root #281769). `mq.py` reads and steers the same queue. Each landing pass first fast-forwards the landing checkout to the remote trunk, so every
+log `GATE-FAILED`. A check killed at its cap, the enqueue's 300 seconds since both run the merge preflight, on both tries has no verdict yet, runs again next pass, and refuses its heads for `GATE-TIMEOUT` meanwhile; a check that still fails on a network error after the adapter's tries has no verdict either, runs again next pass, and refuses its heads for `GATE-UNREACHED`, never `GATE-FAILED` (root #281769); a check whose fetch found no branch a stack-mate merged from during the check runs again next pass, which reads that PR merged and leaves it out, and refuses its heads for `GATE-MOVED` meanwhile, never `GATE-FAILED` (root #340289). `mq.py` reads and steers the same queue. Each landing pass first fast-forwards the landing checkout to the remote trunk, so every
 adapter call runs the trunk's script; a checkout its repository no longer lists as a worktree, or one on a branch with no commit, is rebuilt at the fetched trunk head with a clean tree,
 re-registered through `git worktree add --no-checkout` and `git worktree repair` when git lost it, logs `MIRROR-REBUILT` to root, and the pass goes on;
 a checkout that still cannot fast-forward logs `CHECKOUT-STALE` to root and gates nothing that pass.
@@ -1116,6 +1116,7 @@ HANDED_BACK = re.compile(r"^(?:[\w-]+:\s*)?(?:NOT-OURS|stood down|stopped)\b", r
 MONITOR_ID = re.compile(r"(?:monitors/|\bmonitor |\bDatadog )(\d{4,})")
 INCIDENT_ANNOTATION = re.compile(r"^ccx:.*\bincident=([\w.-]+)", re.MULTILINE)
 NATIVE_BASE = re.compile(r"#(\d+)'s native stack targets (\S+), not ")
+GONE_BRANCH = re.compile(r"couldn't find remote ref refs/heads/(\S+)")
 POSTER = re.compile(r"\bcci post\b[^`\n]*?--lane[= ]['\"]?([\w.-]+)")
 NAMES_NOTHING = "none"
 ROLE = re.compile(r"^ccx:(?:.*[ \t])?role=([\w-]+)", re.MULTILINE)
@@ -6865,6 +6866,8 @@ class Landing:
                     self.settle({pr: open_rows[pr].get("head", "") for tip in tips for pr in downstack(open_rows, tip)}, Refused(f"GATE-TIMEOUT its {self.adapter.kind} check ran past {GATE_CHECK_SECONDS}s on both tries and was killed, so the next pass checks it again"))
                 elif merge_queue.network_failure(done):
                     self.settle({pr: open_rows[pr].get("head", "") for tip in tips for pr in downstack(open_rows, tip)}, Refused(f"GATE-UNREACHED its {self.adapter.kind} check failed on a network error on each of its {merge_queue.TRANSIENT_ATTEMPTS} tries, so the next pass checks it again: {done.last}"))
+                elif (gone := GONE_BRANCH.search(done.last)) and (merged := self.merged_from(gone[1])):
+                    self.settle({pr: open_rows[pr].get("head", "") for tip in tips for pr in downstack(open_rows, tip)}, Refused(f"GATE-MOVED its {self.adapter.kind} check fetched {gone[1]}, which #{merged} deleted when it merged during the check, so the next pass checks the stack without it"))
                 else:
                     self.gate_failed(tips, done, open_rows)
                 continue
@@ -6972,6 +6975,9 @@ class Landing:
             self.settle({pr: open_rows[pr].get("head", "") for pr in stack}, Refused(f"the {self.adapter.kind} check {said}"))
         if failed:
             self.runner.escalate(f"gate:{','.join(failed)}:{hashlib.sha1(done.last.encode()).hexdigest()[:8]}", "GATE-FAILED", numbered(failed), f"the {self.adapter.kind} check {said}")
+
+    def merged_from(self, branch: str) -> str:
+        return self.shell.run(ghread.read("pr", "list", "--repo", self.repo, "--head", branch, "--state", "merged", "--json", "number", "--jq", ".[0].number // empty", max_age=ghread.FRESH)).out.strip()
 
     def admitted_below(self, tip: str, open_rows: dict[str, dict]) -> str:
         if not (below := self.unadmitted_base(tip, open_rows)):
