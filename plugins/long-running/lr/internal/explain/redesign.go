@@ -70,6 +70,9 @@ func (r Redesign) Run(ctx context.Context, subsystem string, cards, prs []string
 	if slug == "" {
 		return fmt.Errorf("subsystem %q has no letter or digit to name its design lane", subsystem)
 	}
+	if claims := Uncited(source); len(claims) > 0 {
+		return refuse(claims)
+	}
 	designLane := slug + "-design-1"
 	if err := r.Board.Retire(ctx, r.Lane, "the owner sent "+subsystem+" back for a redesign from scratch", cards, r.Out); err != nil {
 		return err
@@ -183,7 +186,7 @@ It holds these PRs, and none lands until a lift or the coordinator's go names it
 %[5]s
 
 1. Design %[2]s from scratch. Read the held PRs as evidence, never as the starting point.
-2. Write the new design as a one-pager and host it with lr explain, which serves it on the tailnet and sends its link to the owner as a Slack card and to the communicator, whose reply carries it to his window.
+2. Write the new design as a one-pager and host it with lr explain, which serves it on the tailnet and sends its link to the owner as a Slack card and to the communicator, whose reply carries it to his window. Each sentence saying why something happened cites the record, PR, build, file:line, monitor, notebook or ccn id that proves it, in it or the sentence before, or opens with Unproven:; lr explain refuses the page otherwise.
 3. Put each question only the owner can settle on his board as a card with an end.
 4. Build each recommended option as a pushed branch, never a PR, until he approves the design.
 5. Report each step to the coordinator.
