@@ -30,6 +30,7 @@ SEED = {"id": "8075b46" + "0" * 33, "title": "How does a seed converge?", "body"
 
 DURABLE = ["answer", "list", "--label", "scope:durable", "--limit", "0"]
 REGISTER_LEDGER = "f" * 40
+VOCABULARY_LEDGER = "a" * 40
 DRIVE_LEDGER = "d" * 40
 STAMP = "2026-10-23T12:00:00Z"
 AT = "2026-10-23T12:30:00Z"
@@ -414,6 +415,7 @@ class RegisterShell(ledger.Shell):
         self.records = records or []
         self.calls: list[list[str]] = []
         self.status = "active"
+        self.vocabulary: dict[str, dict[str, str]] | None = None
 
     def writes(self) -> list[list[str]]:
         return [argv for argv in self.calls if argv[3:6] == ["ledger", "row", "set"]]
@@ -442,7 +444,22 @@ class RegisterShell(ledger.Shell):
                 wanted = set(labels[1::2])
                 return json.dumps([answer for answer in self.answers if wanted <= set(answer["tags"])])
             case ["ccn", "-R", "/repo", "answer", "search", topic, "--limit", "0", "--json"]:
-                return json.dumps([answer for answer in self.answers if any(tag.startswith(topic) for tag in answer["tags"])])
+                return json.dumps([answer for answer in self.answers if any(part.startswith(topic) for tag in answer["tags"] for part in tag.split(":"))])
+            case ["ccn", "-R", "/repo", "ledger", "list", "--label", "answer-topics", "--label", "program:brook", "--json"]:
+                return json.dumps([] if self.vocabulary is None else [{"id": VOCABULARY_LEDGER, "updated_at": STAMP}])
+            case ["ccn", "-R", "/repo", "ledger", "add", "answer topics: brook", "--label", "answer-topics", "--label", "program:brook", "--json"]:
+                self.vocabulary = {}
+                return json.dumps({"id": VOCABULARY_LEDGER})
+            case ["ccn", "-R", "/repo", "ledger", "row", "set", identity, "--key", key, "--field", words, "--field", dirs] if identity == VOCABULARY_LEDGER:
+                self.vocabulary[key] = dict(field.partition("=")[::2] for field in (words, dirs))
+                return ""
+            case ["ccn", "-R", "/repo", "ledger", "show", identity, "--json"] if identity == VOCABULARY_LEDGER:
+                return json.dumps({"id": VOCABULARY_LEDGER, "rows": [{"key": key, "fields": fields} for key, fields in self.vocabulary.items()]})
+            case ["ccn", "-R", "/repo", "answer", "edit", identity, "--add-label", label, *dirs] if dirs:
+                edited = next(answer for answer in self.answers if answer["id"] == identity)
+                edited["tags"].append(label)
+                edited["dirs"] = [*edited.get("dirs", []), *dirs[1::2]]
+                return ""
             case ["ccn", "-R", "/repo", "relevant", root, "--attached", "--limit", "0", "--base", "main", "--json"]:
                 return json.dumps([{"kind": "answer", "answer": answer, "score": 60, "reasons": ["dir"]} for answer in self.answers if any(root == anchor or root.startswith(anchor + "/") for anchor in answer.get("dirs", []))])
             case ["git", "-C", "/repo", "rev-parse", "--abbrev-ref", "HEAD"]:
@@ -1834,6 +1851,24 @@ def test_answers_prints_the_same_hits_a_launch_slice_carries_for_a_card_draw(hom
 
     assert code == 0
     assert [answer["id"][:7] for answer in json.loads(out)] == ["35a4385", "9d440bb", "e34cc77"]
+
+
+def test_a_topic_labels_each_answer_it_names_once_and_a_lane_touching_its_dirs_then_searches_it(home: Path, package: Path, state: Path, capsys) -> None:
+    unlabelled = [dict(answer, tags=[tag for tag in answer["tags"] if tag != "old-chats-import"], dirs=[]) for answer in OLD_CHAT_ANSWERS]
+    shell = RegisterShell(seeded(package), answers=unlabelled)
+
+    assert ran(capsys, shell, "topic", "old-chats", "--words", r"\bold(-format)? chats?\b", "--dirs", "go/sand/next/internal/convert") == (0, "topic old-chats: labelled 2 answers topic:old-chats\n")
+    assert ran(capsys, shell, "topic", "old-chats", "--words", r"\bold(-format)? chats?\b", "--dirs", "go/sand/next/internal/convert") == (0, "topic old-chats: labelled 0 answers topic:old-chats\n")
+    assert {answer["id"][:7]: answer["dirs"] for answer in shell.answers if "topic:old-chats" in answer["tags"]} == {"9d440bb": ["go/sand/next/internal/convert"], "35a4385": ["go/sand/next/internal/convert"]}
+
+    _, out = ran(capsys, shell, "slice", "--lane", "lane-d", "--step", "2", "--paths", "go/sand/next/*")
+    lines = out.splitlines()
+
+    assert "`ccn answer search old-chats`" in lines
+    assert [line for line in lines if line.startswith("- ")] == [
+        "- 35a4385 Old chats on the next build: attempt a one-time migration?",
+        "- 9d440bb Old-format chats in the new build: convert how?",
+    ]
 
 
 def required(out: str) -> list[str]:

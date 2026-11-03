@@ -41,7 +41,7 @@ from captain_hook.command_schema import Scalar
 from captain_hook.util import reqenv
 from pydantic import BaseModel
 
-from .compaction_handoff import ccn, Communicator, communicator_tests, CompactionState, progress_folder, shared_tests
+from .compaction_handoff import ccn, Communicator, communicator_tests, CompactionState, progress_folder, script_module, shared_tests
 from .nudges import queue_nudge
 from .tests.root_fixtures import ACTIVE, LONG
 
@@ -854,9 +854,11 @@ def record_ruling(evt: BaseHookEvent) -> str:
     if existing:
         ccn(str(evt.cwd), "answer", "edit", existing[0]["id"], f"--title={title}", *(f"--add-label={name}" for name in RULING_LABELS)).check_returncode()
         return existing[0]["id"]
-    program = f"program:{CompactionState.load(evt).slug}"
-    flags = [arg for name in (*RULING_LABELS, program, label) for arg in ("--label", name)]
-    return answers(evt, "add", *flags, f"--body={ruling_body(evt)}", "--", title)["id"]
+    program = CompactionState.load(evt).slug
+    search = script_module("long_running/answer_search")
+    topics = search.vocabulary(lambda argv: ccn(str(evt.cwd), *argv).stdout, program)
+    flags = [arg for name in (*RULING_LABELS, f"program:{program}", label) for arg in ("--label", name)]
+    return answers(evt, "add", *flags, *search.anchors(topics, f"{title}\n{evt.user_prompt}"), f"--body={ruling_body(evt)}", "--", title)["id"]
 
 
 @on(

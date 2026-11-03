@@ -940,8 +940,9 @@ def lane_slice(loaded: Register, want: Want, plan: Path | None) -> str:
     ])
     tail = []
     out.add(["", "## Step one: his answers on this lane's topics and paths"])
-    if searches := answer_search.commands(want.topics, want.paths):
-        found = answer_search.hits(partial(ccn_text, loaded.shell, loaded.repo), want.topics, want.paths, branch_of(loaded.shell, loaded.repo) if want.paths else "")
+    topics = lane_topics(partial(ccn_text, loaded.shell, loaded.repo), loaded.program, want.topics, want.paths)
+    if searches := answer_search.commands(topics, want.paths):
+        found = answer_search.hits(partial(ccn_text, loaded.shell, loaded.repo), topics, want.paths, branch_of(loaded.shell, loaded.repo) if want.paths else "")
         blocks = [rendered(answer) for answer in found]
         kept = sum(size <= ANSWERS_CAP for size in accumulate(len(block.encode()) for block in blocks))
         out.add([f"Run these again before any ask, decide with options, or PR, and build to what they return. At launch they found {len(found)}:", *(f"`{command}`" for command in searches), *(line for block in blocks[:kept] for line in block.splitlines())])
@@ -1131,9 +1132,29 @@ def refresh(loaded: Register, brief: Path, plan: Path | None) -> str:
     return f"refreshed {brief} slice-hash {old or 'none'} -> {new}"
 
 
+def lane_topics(ccn: answer_search.Run, program: str, topics: list[str], paths: list[str]) -> list[str]:
+    covering = [topic.slug for topic in answer_search.named(answer_search.vocabulary(ccn, program), paths=answer_search.roots(paths))] if paths else []
+    return list(dict.fromkeys([*topics, *covering]))
+
+
 def cmd_answers(args: argparse.Namespace, shell: ledger.Shell) -> int:
-    found = answer_search.hits(partial(ccn_text, shell, register_repo(args)), args.topics, args.paths, args.base or "")
+    ccn = partial(ccn_text, shell, register_repo(args))
+    found = answer_search.hits(ccn, lane_topics(ccn, program_of(args), args.topics, args.paths), args.paths, args.base or "")
     args.stdout.write(json.dumps(found) + "\n" if args.json else "".join(map(rendered, found)))
+    return 0
+
+
+def cmd_topic(args: argparse.Namespace, shell: ledger.Shell) -> int:
+    ccn, program = partial(ccn_text, shell, register_repo(args)), program_of(args)
+    topic = answer_search.Topic(args.slug, re.compile(args.words).pattern, tuple(args.dirs))
+    if not (vocabulary := answer_search.vocabulary_ledger(ccn, program)):
+        vocabulary = json.loads(ccn(["ledger", "add", f"answer topics: {program}", "--label", answer_search.TOPICS, "--label", f"program:{program}", "--json"]))["id"]
+    ccn(["ledger", "row", "set", vocabulary, "--key", topic.slug, "--field", f"words={topic.words}", "--field", f"dirs={json.dumps(list(topic.dirs))}"])
+    label = f"topic:{topic.slug}"
+    fresh = [answer for answer in json.loads(ccn(["answer", "list", "--limit", "0", "--json"]) or "[]") if label not in answer["tags"] and topic.names(f"{answer['title']}\n{answer['body']}")]
+    for answer in fresh:
+        ccn(["answer", "edit", answer["id"], *topic.flags("add-")])
+    print(f"topic {topic.slug}: labelled {len(fresh)} answers {label}", file=args.stdout)
     return 0
 
 
@@ -3070,6 +3091,10 @@ def build_parser(parser_type=argparse.ArgumentParser) -> argparse.ArgumentParser
     answers.add_argument("--paths", action="append", default=[], metavar="GLOB")
     answers.add_argument("--base", metavar="REF", help="the branch `ccn relevant` measures against")
     answers.add_argument("--json", action="store_true")
+    topic = verb("topic", cmd_topic, "set a topic in the program's answer vocabulary and label every answer on file whose question or answer it names")
+    topic.add_argument("slug", help="the topic, searched as the label topic:<slug>")
+    topic.add_argument("--words", required=True, metavar="REGEX", help="the phrasings that name it, matched case-insensitively against each answer's question and answer")
+    topic.add_argument("--dirs", action="append", default=[], metavar="DIR", help="a repo directory it covers: labelled answers carry it as a dir anchor, and a lane or PR touching it searches the topic")
     swept_verb = verb("sweep", cmd_sweep, "grep every scope row's names, or one row's, and print each hit as open, deleted or authorized")
     swept_verb.add_argument("key", nargs="?")
     swept_verb.add_argument("--artifact", action="append", default=[], metavar="PATH")

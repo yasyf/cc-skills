@@ -82,9 +82,14 @@ class Notes:
         self.answers: list[dict] = []
         self.adds: list[list[str]] = []
         self.edits: list[tuple[str, ...]] = []
+        self.topics: dict[str, dict[str, str]] = {}
 
     def __call__(self, cwd: str, *args: str) -> subprocess.CompletedProcess[str]:
         match args:
+            case ("ledger", "list", "--label", "answer-topics", "--label", _, "--json"):
+                return subprocess.CompletedProcess(args, 0, json.dumps([{"id": "vocabulary", "updated_at": "2026-11-03T12:00:00Z"}] if self.topics else []), "")
+            case ("ledger", "show", "vocabulary", "--json"):
+                return subprocess.CompletedProcess(args, 0, json.dumps({"rows": [{"key": key, "fields": fields} for key, fields in self.topics.items()]}), "")
             case ("answer", "list", "--json", "--label", label, "--limit", "1"):
                 found = [answer for answer in self.answers if label in answer["tags"]][:1]
                 return subprocess.CompletedProcess(args, 0, json.dumps(found), "")
@@ -267,6 +272,18 @@ def test_oversized_mcp_response_warns_on_its_next_call(root: Root) -> None:
 
 def recorded(answer: dict) -> str:
     return f"Recorded this standing rule as cc-notes answer `{answer['id'][:7]}`; never record it again by hand."
+
+
+def test_a_standing_rule_carries_the_label_and_dirs_of_each_topic_it_names(root: Root, notes: Notes) -> None:
+    notes.topics = {"releases": {"words": r"\breleas(e|es|ed|ing)\b", "dirs": '["infra/release"]'}, "old-chats": {"words": r"\bold chats?\b", "dirs": "[]"}}
+    root.verdict["title"] = "When does a merged PR get released?"
+
+    assert root.say("From now on, release everything as it merges.") is None
+
+    [add] = notes.adds
+    at = add.index("topic:releases")
+    assert add[at - 1 : at + 3] == ["--label", "topic:releases", "--dir", "infra/release"]
+    assert "topic:old-chats" not in add
 
 
 def test_a_titled_standing_rule_records_itself(root: Root, notes: Notes) -> None:

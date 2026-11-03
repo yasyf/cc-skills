@@ -44,6 +44,7 @@ class RecordedShell(board_watch.Shell):
         self.posts: list[list[str]] = []
         self.tasks: list[tuple[str, list[str]]] = []
         self.rows: list[dict] = []
+        self.topics: dict[str, dict[str, str]] = {}
         self.answers: dict[str, list[dict]] = {}
         self.root = SESSION
         self.seq = ""
@@ -92,11 +93,15 @@ class RecordedShell(board_watch.Shell):
         return {"drive": drive_name, "program": drive_name, "checkout": "/checkouts/brook", "sessions": [SESSION]}
 
     def ccn(self, checkout: str, argv: list[str]) -> subprocess.CompletedProcess:
+        if argv[:2] == ["ledger", "list"]:
+            return subprocess.CompletedProcess(argv, 0, json.dumps([{"id": "vocabulary", "updated_at": "2026-11-03T12:00:00Z"}] if self.topics else []), "")
+        if argv[:2] == ["ledger", "show"]:
+            return subprocess.CompletedProcess(argv, 0, json.dumps({"rows": [{"key": key, "fields": fields} for key, fields in self.topics.items()]}), "")
         if argv[:2] == ["answer", "list"]:
             wanted = {value for flag, value in zip(argv, argv[1:]) if flag == "--label"}
             return subprocess.CompletedProcess(argv, 0, json.dumps([row for row in self.rows if wanted <= set(row["tags"])]), "")
         if argv[:2] == ["answer", "add"]:
-            self.rows.append({"checkout": checkout, "title": argv[2], "body": argv[argv.index("--body") + 1], "tags": [value for flag, value in zip(argv, argv[1:]) if flag == "--label"]})
+            self.rows.append({"checkout": checkout, "title": argv[2], "body": argv[argv.index("--body") + 1], "tags": [value for flag, value in zip(argv, argv[1:]) if flag == "--label"], "dirs": [value for flag, value in zip(argv, argv[1:]) if flag == "--dir"]})
             return subprocess.CompletedProcess(argv, 0, "{}", "")
         self.tasks.append((checkout, argv))
         return subprocess.CompletedProcess(argv, 0, json.dumps({"id": f"task{len(self.tasks)}abcdef", "title": argv[2]}), "")
@@ -677,6 +682,15 @@ def test_each_owner_answer_gets_a_ccn_answer_row_with_his_words_card_and_time(tm
     assert first["body"].splitlines()[-1].endswith(f"block share-open-pick, board {SESSION}, Jan 1 7:04 PM PT.")
     assert {"from:owner", "board-answer", "program:brook", f"board-session:{SESSION}"} <= set(first["tags"])
     assert len({row["tags"][-1] for row in shell.rows}) == 7
+
+
+def test_an_answer_row_carries_the_label_and_dirs_of_each_topic_his_words_or_the_card_name(tmp_path: Path) -> None:
+    shell = RecordedShell()
+    shell.topics = {"share-links": {"words": r"\bshare (menu|links?)\b", "dirs": '["dashboard/src/iris/share"]'}, "old-chats": {"words": r"\bold chats?\b", "dirs": "[]"}}
+    board_watch.register({"type": "feedback.created", "blockId": "board-notes", "text": "also check the share menu"}, "board:board-1:9:abcd1234", SESSION, shell.doc, shell, "brook")
+
+    assert [(row["tags"][0], row["dirs"]) for row in shell.rows] == [("topic:share-links", ["dashboard/src/iris/share"])]
+    assert "old-chats" not in " ".join(shell.rows[0]["tags"])
 
 
 def test_an_answer_row_is_written_once_per_owner_record(tmp_path: Path) -> None:
