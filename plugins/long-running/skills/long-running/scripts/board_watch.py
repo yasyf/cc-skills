@@ -55,8 +55,8 @@ Pacific time, labelled `from:owner`, `board-answer`, `program:<program>`, `board
 per record. A card whose answer has no row stays on the board: the long-running hooks refuse a
 remove-block, push or update-block that takes it off, and `board_cards.py sweep` leaves it up.
 
-A pick, write-in or pack pick that no `decide` or `claim` names by block id 30 minutes after its
-owner record is posted again as an `ask` to all on topic `uncited:<block>`, and at 60 minutes as a
+A pick, write-in or pack pick that no `decide` or `claim` names by block id or by its owner record's
+seq 30 minutes after that record is posted again as an `ask` to the coordinator on topic `uncited:<block>`, and at 60 minutes as a
 `blocker` to the coordinator, each once, keyed `uncited:<seq>` and `uncited-blocker:<seq>`.
 
 Each structured pick on the drive coordinator's newest board, a choice.selected with option ids and no
@@ -580,13 +580,13 @@ def repost_uncited(shell: Shell, bus: Bus, session: str, reposted: set[str]) -> 
             continue
         if fields["event"] == "choice.selected" and not (fields.get("picked") or fields.get("other")):
             continue
-        kind, to, tag = ("blocker", "root", f"{UNCITED}-blocker") if age >= ESCALATE_AFTER else ("ask", "all", UNCITED)
+        kind, tag = ("blocker", f"{UNCITED}-blocker") if age >= ESCALATE_AFTER else ("ask", UNCITED)
         key = f"{tag}:{record['seq']}"
         if key in reposted or cited(shell, bus, fields["block"], record["seq"]):
             continue
         minutes = int(age.total_seconds() // 60)
         text = f"UNCITED owner pick #{record['seq']} on board {session[:8]}: no decide or claim names {fields['block']} {minutes} minutes after it. {record['text']}"
-        argv = ["post", "--drive", bus.drive, "--lane", BUS_LANE, "--kind", kind, "--to", to, "--id", key, "--topic", f"{UNCITED}:{fields['block']}", "--re-seq", str(record["seq"]), *attr_args({"session": session, "block": fields["block"]}), "--text", CREDENTIAL.sub(REDACTED, text)]
+        argv = ["post", "--drive", bus.drive, "--lane", BUS_LANE, "--kind", kind, "--to", "root", "--id", key, "--topic", f"{UNCITED}:{fields['block']}", "--re-seq", str(record["seq"]), *attr_args({"session": session, "block": fields["block"]}), "--text", CREDENTIAL.sub(REDACTED, text)]
         if (done := shell.cci(argv)).returncode:
             print(f"board-watch {session}: the uncited re-post of #{record['seq']} did not post: {done.stderr.strip()}", flush=True)
             continue
@@ -594,12 +594,14 @@ def repost_uncited(shell: Shell, bus: Bus, session: str, reposted: set[str]) -> 
 
 
 def cited(shell: Shell, bus: Bus, block: str, after: int) -> bool:
-    pattern = re.compile(rf"(?<![\w-]){re.escape(block)}(?![\w-])", re.IGNORECASE)
-    done = shell.cci(["grep", block, "--fixed-strings", "--drive", bus.drive, "--json", "--budget", str(GREP_BYTES), *(f"--kind={kind}" for kind in CITING)])
-    if done.returncode:
-        return True
-    found = [json.loads(line) for line in done.stdout.splitlines() if line.strip()]
-    return any(record["seq"] > after and record["kind"] in CITING and record["drive"] == bus.drive and pattern.search(record["text"]) for record in found)
+    names = re.compile(rf"(?<![\w-]){re.escape(block)}(?![\w-])|(?<![\w-])#?{after}(?!\d)", re.IGNORECASE)
+    found = []
+    for needle in (block, str(after)):
+        done = shell.cci(["grep", needle, "--fixed-strings", "--drive", bus.drive, "--json", "--budget", str(GREP_BYTES), *(f"--kind={kind}" for kind in CITING)])
+        if done.returncode:
+            return True
+        found += [json.loads(line) for line in done.stdout.splitlines() if line.strip()]
+    return any(record["seq"] > after and record["kind"] in CITING and record["drive"] == bus.drive and names.search(record["text"]) for record in found)
 
 
 def reopened(shell: Shell, session: str, block: str) -> bool:

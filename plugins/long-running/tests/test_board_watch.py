@@ -685,17 +685,21 @@ def pick(seq: int, block: str, minutes: int, event: str = "choice.selected", ses
 
 def test_an_owner_pick_no_decide_or_claim_cites_is_reposted_at_30_minutes_and_escalated_at_60() -> None:
     """Coordinator 2:42 PM Nov 2 (board-audit-1): a pick no lane picks up is re-posted at 30 minutes and goes to the coordinator as a blocker at 60."""
-    owners = [pick(5, "q-thirty", 35), pick(6, "q-sixty", 65), pick(7, "q-cited", 65), pick(8, "q-fresh", 10), pick(9, "q-other", 65, session="other-board"), pick(10, "q-pack", 40, event="pack.interaction")]
-    cites = [{"seq": 12, "drive": "brook", "kind": "decide", "lane": "root", "text": "api-lane: build q-cited as picked"}, {"seq": 3, "drive": "brook", "kind": "claim", "lane": "api-lane", "text": "claim q-thirty"}]
+    owners = [pick(5, "q-thirty", 35), pick(6, "q-sixty", 65), pick(7, "q-cited", 65), pick(8, "q-fresh", 10), pick(9, "q-other", 65, session="other-board"), pick(10, "q-pack", 40, event="pack.interaction"), pick(11, "q-seq", 40)]
+    cites = [
+        {"seq": 12, "drive": "brook", "kind": "decide", "lane": "root", "text": "api-lane: build q-cited as picked"},
+        {"seq": 3, "drive": "brook", "kind": "claim", "lane": "api-lane", "text": "claim q-thirty"},
+        {"seq": 14, "drive": "brook", "kind": "decide", "lane": "root", "text": "api-lane: build what the owner tapped in #11"},
+    ]
     shell, reposted = CiteShell(owners, cites), set()
     bus = board_watch.Bus("brook", 0)
     board_watch.repost_uncited(shell, bus, SESSION, reposted)
     board_watch.repost_uncited(shell, bus, SESSION, reposted)
 
     assert [(post[post.index("--kind") + 1], post[post.index("--to") + 1], post[post.index("--id") + 1], post[post.index("--re-seq") + 1]) for post in shell.posts] == [
-        ("ask", "all", "uncited:5", "5"),
+        ("ask", "root", "uncited:5", "5"),
         ("blocker", "root", "uncited-blocker:6", "6"),
-        ("ask", "all", "uncited:10", "10"),
+        ("ask", "root", "uncited:10", "10"),
     ]
     assert shell.posts[1][shell.posts[1].index("--text") + 1].startswith("UNCITED owner pick #6 on board board-1: no decide or claim names q-sixty 65 minutes after it.")
 

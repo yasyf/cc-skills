@@ -53,6 +53,21 @@ def test_runs_its_own_script_with_python_or_directly(tmp_path: Path):
     assert run(cache, "0.7.44", "tool.sh") == "0.7.44 sh a b c"
 
 
+def test_a_script_imports_its_sibling_package_when_python_drops_the_script_directory(tmp_path: Path):
+    cache = plugin_cache(tmp_path, "0.7.44")
+    scripts = cache / "0.7.44" / "skills" / "long-running" / "scripts"
+    (scripts / "sibling.py").write_text('NAME = "sibling"\n')
+    (scripts / "tool.py").write_text("import sibling\nprint(sibling.NAME)\n")
+    out = subprocess.run(
+        [str(cache / "0.7.44" / "bin" / "tool.py")],
+        capture_output=True,
+        text=True,
+        check=True,
+        env={"PATH": os.environ["PATH"], "CLAUDE_CONFIG_DIR": str(cache.parent / "config"), "PYTHONSAFEPATH": "1"},
+    )
+    assert out.stdout.strip() == "sibling"
+
+
 def test_hops_to_the_version_the_install_link_names(tmp_path: Path):
     cache = plugin_cache(tmp_path, "0.7.44", "0.7.9", "0.7.57", "0.8.0")
     name(cache, "0.7.57")
