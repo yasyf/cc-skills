@@ -10,6 +10,7 @@ from cc_transcript import Session
 from captain_hook.events import PostToolUseEvent, PreToolUseEvent, SessionStartEvent, SubagentStartEvent
 from captain_hook.testing.helpers import build_context
 
+from fire import fire
 from hooks import compaction_handoff as handoff
 from hooks import register_injection as injection
 
@@ -230,6 +231,22 @@ def test_a_drive_lane_spawn_posts_one_spawned_record_naming_the_lane_its_slice_n
     injection.record_spawn(spawned(session, "Agent", {"prompt": "Lane lane-b: build the relay.", "subagent_type": "general-purpose"}))
 
     assert [argv[2:] for argv in calls] == [["spawned", "--lane", "lane-a", "--brief", str(brief), "--placement", "teammate", "--by", "root", "--session", SESSION]]
+
+
+def test_a_refused_spawn_posts_no_record_because_the_record_waits_for_the_tool_to_run(tools: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    session = activated(tools / "session")
+    brief = tools / "lane-a.md"
+    brief.write_text("Lane lane-a.\nScale: no N\nRegister slice: lane=lane-a step=1.9\nslice-hash: 0123456789ab\n")
+    calls: list[list[str]] = []
+    monkeypatch.setattr(injection.subprocess, "run", lambda argv, **_: calls.append(argv))
+    tool_input = {"prompt": f"Your brief is {brief}; read it.", "subagent_type": "general-purpose"}
+
+    fire(injection, spawned(session, "Agent", tool_input))
+    assert [argv for argv in calls if "spawned" in argv] == []
+
+    before = spawned(session, "Agent", tool_input)
+    fire(injection, PostToolUseEvent(_raw=before._raw | {"hook_event_name": "PostToolUse"}, ctx=before.ctx))
+    assert [argv[2:4] for argv in calls if "spawned" in argv] == [["spawned", "--lane"]]
 
 
 def subagent(session: Path, agent_id: str, prompt: str, **meta: str) -> Path:

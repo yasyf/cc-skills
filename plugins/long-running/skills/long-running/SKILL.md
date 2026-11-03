@@ -40,7 +40,7 @@ it replaces kept only until each verb goes live
 | cci records and the lane bus | [reference/bus-contracts.md](reference/bus-contracts.md) |
 | Incidents, releases, Slack | [reference/active-alert-brief.md](reference/active-alert-brief.md), [reference/release-lanes.md](reference/release-lanes.md), [reference/slack-lane-brief.md](reference/slack-lane-brief.md) |
 | Owner rulings, the register, judges | [reference/owner-rulings.md](reference/owner-rulings.md) |
-| The lane supervisor and the watches | [reference/watchers.md](reference/watchers.md) |
+| The lane supervisor and the watches; why a lane cannot go quiet | [reference/watchers.md](reference/watchers.md), [reference/supervisor.md](reference/supervisor.md) |
 | Compaction and the owner update | [reference/compaction.md](reference/compaction.md), [reference/owner-report-table.md](reference/owner-report-table.md) |
 | What went wrong before, by date | [reference/lessons.md](reference/lessons.md) |
 

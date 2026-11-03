@@ -48,7 +48,7 @@ func TestARunnerFileLoadsWithDefaultsForWhatItOmits(t *testing.T) {
 	if !reflect.DeepEqual(got.Orca, wantOrca) {
 		t.Fatalf("orca %+v", got.Orca)
 	}
-	if got.Deadlines.StartMinutes != 99 || got.Deadlines.LaunchMinutes != 15 || got.Deadlines.IncidentReleaseMinutes != 3 || got.Deadlines.PRSilentEveryMinutes != 5 {
+	if got.Deadlines.StartMinutes != 99 || got.Deadlines.LaunchMinutes != 15 || got.Deadlines.IncidentReleaseMinutes != 3 {
 		t.Fatalf("deadlines %+v", got.Deadlines)
 	}
 }

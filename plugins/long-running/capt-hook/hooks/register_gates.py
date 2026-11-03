@@ -26,7 +26,6 @@ from captain_hook import (
 from captain_hook.util import reqenv
 
 from .compaction_handoff import bus_name, ccn, CCN_TIMEOUT_SECONDS, Communicator, communicator_tests, CompactionState, Coordinator, coordinator_tests, drive_entry, post_blocker, REGISTER_FENCE, ROOT_LANE, rulings, script
-from .incident_lane_pr import FIX_LANE, INCIDENT_LANE
 from .lane_landing import GH_REPO_FLAGS, lane_name, program
 from .lane_rotation import DriveActive
 from .nudges import once_per_hour
@@ -55,6 +54,8 @@ from .tests.register_fixtures import (
 )
 from .tests.rulings_consumers import separate
 
+INCIDENT_LANE = re.compile(r"^(?:inc|incident|outage)-")
+FIX_LANE = re.compile(r"-(?:fix(?:-\d+)?|opus|case\d+)$")
 SHORT = 7
 ANSWER_ID = re.compile(r"\b[0-9a-f]{7,40}\b")
 CITING_LINE = re.compile(r"(?:^|(?<=[\"']))[ \t]*(?:GO|DECIDE) root \(.*", re.MULTILINE)

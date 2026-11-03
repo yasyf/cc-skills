@@ -299,7 +299,7 @@ def warn_incident_brief_without_403_stand_down(evt: BaseHookEvent) -> HookResult
 
 
 @on(
-    Event.PreToolUse,
+    Event.PostToolUse,
     only_if=[Tool("Agent")],
     skip_if=[Annotated("raw")],
     tests=separate("register_injection.record_spawn", {
