@@ -82,7 +82,7 @@ func (s *squashFixture) admit(facts ...machine.Facts) []int {
 	for _, f := range facts {
 		acts = append(acts, pass.Act{Facts: f, Verdict: machine.Verdict{Action: machine.ActionEnqueue}})
 	}
-	kept := []int{}
+	kept := make([]int, 0, len(facts))
 	for _, act := range s.squash.Admit(context.Background(), acts, facts) {
 		kept = append(kept, act.Facts.Number)
 	}
