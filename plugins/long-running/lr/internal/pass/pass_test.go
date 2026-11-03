@@ -1,0 +1,354 @@
+package pass_test
+
+import (
+	"reflect"
+	"slices"
+	"sort"
+	"testing"
+	"time"
+
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/pass"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
+)
+
+const (
+	head    = "e718a7434fa01ee9835f992a9a647a825350732c"
+	newHead = "aa11bb22cc33dd44ee55ff6677889900aabbccdd"
+	repo    = "org/repo"
+)
+
+var (
+	t0  = time.Date(2026, 10, 30, 21, 0, 0, 0, time.UTC)
+	all = []machine.Mover{machine.MoverSupervisor, machine.MoverPool, machine.MoverLane, machine.MoverOwner, machine.MoverRoot}
+)
+
+func facts(number int, change func(*machine.Facts)) machine.Facts {
+	f := machine.Facts{
+		Repo: repo, Number: number, Head: head, Base: "dev", Lane: "lane-7",
+		CI: machine.CISuccess, Mergeable: machine.MergeableClean, Approved: true,
+		Finder: machine.FinderClear, Fidelity: machine.FidelityPass, Tap: machine.TapTapped,
+	}
+	if change != nil {
+		change(&f)
+	}
+	return f
+}
+
+func newStore(t *testing.T) *store.Store {
+	t.Helper()
+	s, err := store.Memory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	return s
+}
+
+func beat(t *testing.T, s *store.Store, name string, at time.Time, item int64) {
+	t.Helper()
+	if err := s.Heartbeat(store.Worker{Name: name, Generation: 1, Heartbeat: at, Item: item}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func finderAsks(f *machine.Facts) { f.Finder = machine.FinderAsk }
+func noTap(f *machine.Facts)      { f.Tap = "" }
+
+type posted struct {
+	kind string
+	to   []string
+	body map[string]any
+}
+
+type recorder struct{ posts []posted }
+
+func (r *recorder) post(kind string, to []string, body map[string]any) error {
+	r.posts = append(r.posts, posted{kind, to, body})
+	return nil
+}
+
+func (r *recorder) of(kind string) []posted {
+	kept := make([]posted, 0, len(r.posts))
+	for _, p := range r.posts {
+		if p.kind == kind {
+			kept = append(kept, p)
+		}
+	}
+	return kept
+}
+
+func run(t *testing.T, s *store.Store, r *recorder, now time.Time, live []machine.Mover, snapshot ...machine.Facts) pass.Outcome {
+	t.Helper()
+	out, err := pass.Run(s, snapshot, now, r.post, live)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+func openOne(t *testing.T, s *store.Store, number int) store.Item {
+	t.Helper()
+	open, err := s.OpenItems(repo, number)
+	if err != nil || len(open) != 1 {
+		t.Fatalf("open items of #%d = %v, %v; want one", number, open, err)
+	}
+	return open[0]
+}
+
+func TestALandablePRGetsOneEnqueueItemTheSupervisorActsOnItself(t *testing.T) {
+	s, r := newStore(t), &recorder{}
+
+	out := run(t, s, r, t0, all, facts(45583, nil))
+
+	item := openOne(t, s, 45583)
+	if item.Kind != "enqueue" || item.Mover != "supervisor" || !item.Deadline.Equal(t0.Add(10*time.Minute)) {
+		t.Fatalf("item = %+v", item)
+	}
+	if len(out.Acts) != 1 || out.Acts[0].Facts.Number != 45583 || out.Acts[0].Verdict.Action != machine.ActionEnqueue {
+		t.Fatalf("acts = %+v", out.Acts)
+	}
+	if len(r.posts) != 0 {
+		t.Fatalf("posts = %+v", r.posts)
+	}
+}
+
+func TestAFindingWithoutAVerdictIsPostedToTheOwningLaneWithItsDeadline(t *testing.T) {
+	s, r := newStore(t), &recorder{}
+
+	run(t, s, r, t0, all, facts(45470, finderAsks))
+
+	item := openOne(t, s, 45470)
+	want := []posted{{"item", []string{"lane-7"}, map[string]any{
+		"item": item.ID, "action": "verdict", "pr": 45470, "head": head, "mover": "lane", "deadline": "2026-10-30T21:20:00Z",
+	}}}
+	if !reflect.DeepEqual(r.posts, want) {
+		t.Fatalf("posts = %+v", r.posts)
+	}
+}
+
+func TestAMissingTapIsTheOwnersItem(t *testing.T) {
+	s, r := newStore(t), &recorder{}
+
+	run(t, s, r, t0, all, facts(45583, noTap))
+
+	if len(r.posts) != 1 || r.posts[0].kind != "item" || r.posts[0].to[0] != "owner" || r.posts[0].body["action"] != "tap" {
+		t.Fatalf("posts = %+v", r.posts)
+	}
+}
+
+func TestTheSameFactsTwiceOpenNothingAndPostNothing(t *testing.T) {
+	s, r := newStore(t), &recorder{}
+
+	run(t, s, r, t0, all, facts(45470, finderAsks))
+	second := run(t, s, r, t0.Add(5*time.Minute), all, facts(45470, finderAsks))
+
+	if len(second.Opened) != 0 || len(r.posts) != 1 {
+		t.Fatalf("opened = %+v, posts = %+v", second.Opened, r.posts)
+	}
+	openOne(t, s, 45470)
+}
+
+func TestAStateChangeClosesTheOldItemAndOpensTheNewOne(t *testing.T) {
+	s, r := newStore(t), &recorder{}
+
+	run(t, s, r, t0, all, facts(45583, func(f *machine.Facts) { f.Fidelity = "" }))
+	run(t, s, r, t0.Add(4*time.Minute), all, facts(45583, nil))
+
+	if item := openOne(t, s, 45583); item.Kind != "enqueue" {
+		t.Fatalf("item = %+v", item)
+	}
+}
+
+func TestLandedClosesEveryOpenItem(t *testing.T) {
+	s, r := newStore(t), &recorder{}
+
+	run(t, s, r, t0, all, facts(45583, noTap))
+	run(t, s, r, t0.Add(time.Hour), all, facts(45583, func(f *machine.Facts) { f.Merged, f.Closed = true, true }))
+
+	if open, _ := s.OpenItems(repo, 45583); len(open) != 0 {
+		t.Fatalf("open = %+v", open)
+	}
+	prs, err := s.PRs(repo)
+	if err != nil || len(prs) != 1 || prs[0].State != machine.StateLanded {
+		t.Fatalf("prs = %+v, %v", prs, err)
+	}
+}
+
+func TestAnOverdueLaneItemEscalatesToRootOnce(t *testing.T) {
+	s, r := newStore(t), &recorder{}
+	given := facts(45470, finderAsks)
+
+	run(t, s, r, t0, all, given)
+	late := run(t, s, r, t0.Add(20*time.Minute), all, given)
+	later := run(t, s, r, t0.Add(40*time.Minute), all, given)
+
+	want := []pass.Escalated{{Subject: "org/repo#45470", Cause: "verdict overdue", To: machine.MoverRoot}}
+	if !reflect.DeepEqual(late.Escalated, want) || len(later.Escalated) != 0 {
+		t.Fatalf("late = %+v, later = %+v", late.Escalated, later.Escalated)
+	}
+	body := map[string]any{"subject": "org/repo#45470", "cause": "verdict overdue"}
+	if !reflect.DeepEqual(r.of("escalation"), []posted{{"escalation", []string{"root"}, body}}) {
+		t.Fatalf("posts = %+v", r.of("escalation"))
+	}
+}
+
+func TestAnOverdueGradeEscalatesToTheSupervisorAndAnOverdueTapToTheOwner(t *testing.T) {
+	s, r := newStore(t), &recorder{}
+	given := []machine.Facts{facts(1, func(f *machine.Facts) { f.Fidelity = "" }), facts(2, noTap)}
+
+	run(t, s, r, t0, all, given...)
+	out := run(t, s, r, t0.Add(12*time.Hour), all, given...)
+
+	got := out.Escalated
+	sort.Slice(got, func(a, b int) bool { return got[a].Subject < got[b].Subject })
+	want := []pass.Escalated{
+		{Subject: "org/repo#1", Cause: "grade overdue", To: machine.MoverSupervisor},
+		{Subject: "org/repo#2", Cause: "tap overdue", To: machine.MoverOwner},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("escalated = %+v", got)
+	}
+}
+
+func TestAWorkerSilentFifteenMinutesLosesItsItemsAndRootHearsOnce(t *testing.T) {
+	s, r := newStore(t), &recorder{}
+	given := facts(45651, func(f *machine.Facts) { f.CI = machine.CIFailure })
+
+	run(t, s, r, t0, all, given)
+	item := openOne(t, s, 45651)
+	beat(t, s, "lane-7", t0.Add(time.Minute), item.ID)
+
+	quiet := run(t, s, r, t0.Add(10*time.Minute), all, given)
+	silent := run(t, s, r, t0.Add(16*time.Minute), all, given)
+	again := run(t, s, r, t0.Add(18*time.Minute), all, given)
+
+	if len(quiet.Released) != 0 {
+		t.Fatalf("quiet = %+v", quiet.Released)
+	}
+	if held := silent.Released["lane-7"]; len(held) != 1 || held[0].ID != item.ID {
+		t.Fatalf("silent = %+v", silent.Released)
+	}
+	if openOne(t, s, 45651).Worker != "" {
+		t.Fatal("the item still names the silent worker")
+	}
+	if len(again.Released) != 0 {
+		t.Fatalf("again = %+v", again.Released)
+	}
+	body := map[string]any{"subject": "worker:lane-7", "cause": "silent 15 minutes"}
+	if !reflect.DeepEqual(r.of("escalation"), []posted{{"escalation", []string{"root"}, body}}) {
+		t.Fatalf("posts = %+v", r.of("escalation"))
+	}
+}
+
+func TestAGradingJobWhoseWrapperDiedFreesItsItemForTheNextDispatch(t *testing.T) {
+	s, r := newStore(t), &recorder{}
+	given := facts(46052, func(f *machine.Facts) { f.Finder = "" })
+
+	run(t, s, r, t0, all, given)
+	grade := openOne(t, s, 46052)
+	beat(t, s, "sprite-3/finder/46052", t0, grade.ID)
+
+	out := run(t, s, r, t0.Add(15*time.Minute), all, given)
+
+	if held := out.Released["sprite-3/finder/46052"]; len(held) != 1 || held[0].Kind != "grade" {
+		t.Fatalf("released = %+v", out.Released)
+	}
+	workers, err := s.Workers()
+	if err != nil || len(workers) != 0 || openOne(t, s, 46052).Worker != "" {
+		t.Fatalf("workers = %+v, %v; the dead wrapper still holds the item", workers, err)
+	}
+}
+
+func TestAFreshStoreActsOnEveryLandableHeadInItsFirstPass(t *testing.T) {
+	s, r := newStore(t), &recorder{}
+	snapshot := make([]machine.Facts, 0, 10)
+	for number := 1; number <= 10; number++ {
+		snapshot = append(snapshot, facts(number, nil))
+	}
+
+	out := run(t, s, r, t0, all, snapshot...)
+
+	numbers := make([]int, 0, len(out.Acts))
+	for _, act := range out.Acts {
+		if act.Verdict.Action == machine.ActionEnqueue {
+			numbers = append(numbers, act.Facts.Number)
+		}
+	}
+	if !slices.Equal(numbers, []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}) {
+		t.Fatalf("enqueued = %v", numbers)
+	}
+}
+
+func TestAMoverNotYetCutOverKeepsItsItemsInTheStoreAndSilent(t *testing.T) {
+	s, r := newStore(t), &recorder{}
+	supervisorOnly := []machine.Mover{machine.MoverSupervisor}
+	given := []machine.Facts{facts(45470, finderAsks), facts(45471, noTap)}
+
+	run(t, s, r, t0, supervisorOnly, given...)
+	run(t, s, r, t0.Add(24*time.Hour), supervisorOnly, given...)
+
+	if openOne(t, s, 45470).Kind != "verdict" || openOne(t, s, 45471).Kind != "tap" {
+		t.Fatal("the items were not kept")
+	}
+	escalations, err := s.Escalations("")
+	if err != nil || len(r.posts) != 0 || len(escalations) != 0 {
+		t.Fatalf("posts = %+v, escalations = %+v, %v", r.posts, escalations, err)
+	}
+}
+
+func TestALaneItemForAPRNoLaneOwnsWaitsForItsDeadlineToReachRoot(t *testing.T) {
+	s, r := newStore(t), &recorder{}
+	given := facts(45470, func(f *machine.Facts) { f.Finder, f.Lane = machine.FinderAsk, "" })
+
+	run(t, s, r, t0, all, given)
+	run(t, s, r, t0.Add(20*time.Minute), all, given)
+
+	want := []posted{{"escalation", []string{"root"}, map[string]any{"subject": "org/repo#45470", "cause": "verdict overdue"}}}
+	if !reflect.DeepEqual(r.posts, want) {
+		t.Fatalf("posts = %+v", r.posts)
+	}
+}
+
+func TestAnOverdueEnqueueNamesWhatTheQueueSaid(t *testing.T) {
+	s, r := newStore(t), &recorder{}
+
+	run(t, s, r, t0, all, facts(45583, nil))
+	if _, err := s.PutFact(repo, 45583, head, "enqueued", "exit 1: #45583 BLOCKED required check pending", t0); err != nil {
+		t.Fatal(err)
+	}
+	run(t, s, r, t0.Add(10*time.Minute), all, facts(45583, nil))
+
+	want := []posted{{"escalation", []string{"root"}, map[string]any{
+		"subject": "org/repo#45583", "cause": "enqueue overdue; the queue said exit 1: #45583 BLOCKED required check pending",
+	}}}
+	if !reflect.DeepEqual(r.posts, want) {
+		t.Fatalf("posts = %+v", r.posts)
+	}
+}
+
+func TestAPushClosesTheOldHeadsItemSoItsDeadlineNeverEscalatesTheNewHead(t *testing.T) {
+	s, r := newStore(t), &recorder{}
+	red := func(f *machine.Facts) { f.CI = machine.CIFailure }
+
+	run(t, s, r, t0, all, facts(45651, red))
+	pushed := facts(45651, red)
+	pushed.Head = newHead
+	run(t, s, r, t0.Add(19*time.Minute), all, pushed)
+	out := run(t, s, r, t0.Add(20*time.Minute), all, pushed)
+
+	if item := openOne(t, s, 45651); item.Head != newHead {
+		t.Fatalf("item = %+v", item)
+	}
+	if len(out.Escalated) != 0 {
+		t.Fatalf("escalated = %+v", out.Escalated)
+	}
+}
+
+func TestLiveNamesTheMoverEachConfiguredMoverPutsOnTheBus(t *testing.T) {
+	got := pass.Live([]string{"lanes", "shadow", "landing", "grading", "items"})
+
+	if !slices.Equal(got, []machine.Mover{machine.MoverSupervisor, machine.MoverPool, machine.MoverLane}) {
+		t.Fatalf("live = %v", got)
+	}
+}
