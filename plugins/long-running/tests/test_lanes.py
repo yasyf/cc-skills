@@ -98,6 +98,24 @@ def test_a_detached_worktree_named_for_the_lane_reports_its_dirty_files_and_that
     assert out.rstrip().endswith("dev: start, not pushed, no PR")
 
 
+def test_a_worktree_a_lane_only_names_is_found_but_not_owned(home):
+    """Nov 2: root and the shepherd lanes name other lanes' trees and PRs, and the desk refused four launches as their duplicates (#347883, #347614, #347609, #348497)."""
+    own = worktree(home, "scratch-1", "-b", "scratch-1")
+    mentioned = worktree(home, "ssql-replicator-1-step4", "-b", "ssql-replicator-1-step4")
+    watched = worktree(home, "send-cred-decouple-fix-1", "-b", "send-cred-decouple-fix-1")
+    shell = LaneShell()
+    shell.heads["48182"] = "send-cred-decouple-fix-1"
+    records = [
+        {"seq": 1, "drive": "d1", "lane": "root", "kind": "state", "text": f"WORKTREE root {own} scratch-1", "fields": {"attrs": {"worktree": str(own)}}},
+        {"seq": 2, "drive": "d1", "lane": "root", "kind": "go", "text": f"pin-delete-diag-2: read {mentioned} first"},
+        {"seq": 3, "drive": "d1", "lane": "root", "kind": "go", "text": "shepherd #48182", "refs": {"prs": ["Forge-AI/monorepo#48182"]}},
+    ]
+
+    found = lanes.lane_worktrees("root", records, [], Path.cwd(), "Forge-AI/monorepo", shell.run)
+
+    assert {tree.path: (tree.sources, tree.owned) for tree in found} == {own: (["WORKTREE record"], True), mentioned: (["cci record"], False), watched: (["PR #48182 head"], False)}
+
+
 def test_a_worktree_named_for_its_branch_is_found_from_the_lanes_worktree_record_and_its_pr(home, capsys):
     path = worktree(home, "inc-liam-fork-parent-grant", "-b", "inc-liam-fork-parent-grant")
     commit(path, "sandsql-server: 🐛 copy through the parent grant")
@@ -113,7 +131,7 @@ def test_a_worktree_named_for_its_branch_is_found_from_the_lanes_worktree_record
     code, out = lane_status(shell, LANE, capsys)
 
     assert code == 0
-    assert out.startswith(f"- monorepo: {path} (cci record, PR #41461 head): inc-liam-fork-parent-grant...origin/inc-liam-fork-parent-grant, 0 dirty files, 1 ahead of trunk, ")
+    assert out.startswith(f"- monorepo: {path} (WORKTREE record, PR #41461 head): inc-liam-fork-parent-grant...origin/inc-liam-fork-parent-grant, 0 dirty files, 1 ahead of trunk, ")
     assert out.rstrip().endswith("sandsql-server: 🐛 copy through the parent grant, pushed, PR #41461 open CI red")
 
 

@@ -12206,8 +12206,8 @@ def test_an_inbox_launch_for_a_lane_with_a_live_dispatch_fails_visibly(shell, co
     assert line == f"LAUNCH-FAILED R10 {LANE}: dispatch ctx_a is dispatched; relay to it instead; nothing was launched"
 
 
-def holding(monkeypatch, tmp_path: Path, holder: str = LANE, pr: str = "#1201", ahead: int = 2, pushed: str = "pushed") -> None:
-    worktree = runner_module.lanes.Worktree(path=tmp_path / holder, branch=holder, ahead=ahead, pushed=pushed, pr=pr)
+def holding(monkeypatch, tmp_path: Path, holder: str = LANE, pr: str = "#1201", ahead: int = 2, pushed: str = "pushed", source: str = "launch receipt") -> None:
+    worktree = runner_module.lanes.Worktree(path=tmp_path / holder, sources=[source], branch=holder, ahead=ahead, pushed=pushed, pr=pr)
     monkeypatch.setattr(runner_module.Runner, "lane_worktrees", lambda self, lane: [worktree] if lane == holder else [])
 
 
@@ -12228,6 +12228,20 @@ def test_an_inbox_launch_naming_a_pr_a_live_lane_holds_is_refused_as_a_duplicate
     if duplicate:
         assert refused == [runner_module.duplicate_line("R11", "api-cache", f"{LANE}: {runner_module.lanes.summary(LANE, runner_module.Runner.lane_worktrees(None, LANE))}")]
     assert len(launches(shell)) == (1 if duplicate else 2)
+
+
+@pytest.mark.parametrize("source", ["cci record", "PR #1201 head"])
+def test_an_inbox_launch_naming_a_pr_a_live_lane_only_names_is_launched(shell, config, tmp_path, monkeypatch, source):
+    """Nov 2: root and the shepherd lanes name other lanes' trees and PRs, and the desk refused four launches as their duplicates (#347883, #347614, #347609, #348497)."""
+    clocked_lane(shell, config, tmp_path)
+    holding(monkeypatch, tmp_path, source=source)
+    brief = tmp_path / "cache.md"
+    brief.write_text("ccx: place=local\nFinish the cache half of #1201.\nScale: no N\n\nRegister slice: lane=api-cache step=1.9\n")
+    desk_orders(shell, f"R11 orca-desk: launch api-cache sol xhigh brief={brief}")
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert [line for line in escalations(shell) if line.startswith("LAUNCH-DUPLICATE")] == []
+    assert len(launches(shell)) == 2
 
 
 def test_a_cli_launch_on_a_live_lanes_incident_is_refused_unless_owner_directed(shell, config, tmp_path, monkeypatch, capsys):
@@ -14816,7 +14830,7 @@ def test_a_dirty_worktree_names_its_branch_and_files_and_a_missing_one_says_so(s
     shell.sleep(10 * 60)
     orca_pass(shell, config)
     [line] = silent_lines(shell)
-    assert f"; monorepo: {worktree} (cci record): inc-liam-fork-parent-grant, 2 dirty files: rust/crates/sandsql-server/src/chain.rs, rust/crates/sandsql-server/src/grant.rs, 1 ahead of trunk, last commit 13 min ago 1a2b3c4 dev: bump the sidecar, no origin branch, no PR |" in line
+    assert f"; monorepo: {worktree} (WORKTREE record): inc-liam-fork-parent-grant, 2 dirty files: rust/crates/sandsql-server/src/chain.rs, rust/crates/sandsql-server/src/grant.rs, 1 ahead of trunk, last commit 13 min ago 1a2b3c4 dev: bump the sidecar, no origin branch, no PR |" in line
     assert line.startswith(f"PR-SILENT {SILENT_LANE} #") and ": CANDIDATE at 11:00, 10 min" in line
     [ghost] = silent_lines(shell, "inc-ghost-fix")
     assert "; no worktree found for lane inc-ghost-fix |" in ghost
