@@ -48,6 +48,31 @@ func TestMarkClosesOnlyTheNamedRow(t *testing.T) {
 	}
 }
 
+func TestRowsHidesAddressedRowsUnlessAskedForAll(t *testing.T) {
+	path := staged(t)
+	if err := Mark(path, "m1", addressed, 346705); err != nil {
+		t.Fatal(err)
+	}
+	waiting, err := Rows(path, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	every, err := Rows(path, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(every) != len(waiting)+1 || !strings.HasPrefix(every[0], "| m1 |") || slices.ContainsFunc(waiting, func(row string) bool { return strings.HasPrefix(row, "| m1 |") }) {
+		t.Fatalf("waiting %q, every %q", waiting, every)
+	}
+}
+
+func TestRowsOfALedgerNotYetWrittenAreEmpty(t *testing.T) {
+	rows, err := Rows(filepath.Join(t.TempDir(), "owner-ledger.md"), true)
+	if err != nil || rows != nil {
+		t.Fatalf("rows %q, err %v", rows, err)
+	}
+}
+
 func TestARemarkKeepsTheRoutedRecord(t *testing.T) {
 	path := staged(t)
 	if err := Mark(path, "m1", addressed, 346705); err != nil {

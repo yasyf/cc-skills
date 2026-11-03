@@ -45,6 +45,7 @@ var batchedKinds = []string{"report", "note", "answer", "done", "head", "state",
 
 var (
 	rowID     = regexp.MustCompile(`(?m)^\| m(\d+) \|`)
+	rowState  = regexp.MustCompile(`(?m)^\| m\d+ \| .* \| (open|responded|addressed) \|$`)
 	cellBreak = strings.NewReplacer("|", `\|`, "\r\n", "<br>", "\n", "<br>", "\r", "<br>")
 	pacific   = mustZone("America/Los_Angeles")
 )
@@ -134,6 +135,23 @@ func Mark(path, row, state string, routed int) error {
 	})
 }
 
+func Rows(path string, all bool) ([]string, error) {
+	ledger, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var rows []string
+	for _, found := range rowState.FindAllSubmatch(ledger, -1) {
+		if all || string(found[1]) != addressed {
+			rows = append(rows, string(found[0]))
+		}
+	}
+	return rows, nil
+}
+
 func lowerCompactWindow(project string) error {
 	path := filepath.Join(project, localSettings)
 	settings := map[string]any{}
@@ -160,6 +178,7 @@ func lowerCompactWindow(project string) error {
 func Command(a *app.App) *cobra.Command {
 	var driveName, addState, project string
 	var routed, addRouted int
+	var listAll bool
 	owner := &cobra.Command{Use: "owner", Short: "The communicator's ledger of every owner message"}
 	owner.PersistentFlags().StringVar(&driveName, "drive", os.Getenv("LR_DRIVE"), "the drive's bus name")
 	mark := &cobra.Command{
@@ -209,6 +228,26 @@ func Command(a *app.App) *cobra.Command {
 	}
 	add.Flags().StringVar(&addState, "state", opened, "the row's state: open or addressed")
 	add.Flags().IntVar(&addRouted, "routed", 0, "the seq of the cci record that routed the message")
+	list := &cobra.Command{
+		Use:   "list",
+		Short: "Print the ledger's rows not yet addressed, oldest first, or every row with --all",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			entry, err := drive.Named(driveName)
+			if err != nil {
+				return err
+			}
+			rows, err := Rows(Ledger(entry), listAll)
+			if err != nil {
+				return err
+			}
+			for _, row := range rows {
+				fmt.Fprintln(cmd.OutOrStdout(), row)
+			}
+			return nil
+		},
+	}
+	list.Flags().BoolVar(&listAll, "all", false, "print addressed rows too")
 	start := &cobra.Command{
 		Use:   "start",
 		Short: "Subscribe this window as the communicator, with routine records batched, and lower its compaction ceiling",
@@ -230,6 +269,6 @@ func Command(a *app.App) *cobra.Command {
 	}
 	start.Flags().StringVar(&project, "project", "", "the communicator's own worktree, where its settings live")
 	_ = start.MarkFlagRequired("project")
-	owner.AddCommand(mark, add, start)
+	owner.AddCommand(mark, add, list, start)
 	return owner
 }
