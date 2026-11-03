@@ -500,8 +500,15 @@ func (s Source) holds(ctx context.Context) (map[int]machine.Mover, error) {
 		return nil, err
 	}
 	gos := bus.RootGos(later)
+	lifts, err := bus.HoldLifts(records, func(seqs []int64) ([]client.Record, error) { return client.Among(ctx, s.Drive, seqs) })
+	if err != nil {
+		s.Log.Warn("could not read what holds resolve, so each counts as a lift", "error", err)
+	}
 	held := make(map[int]machine.Mover)
 	for _, record := range records {
+		if lifts[record.Seq] {
+			continue
+		}
 		byOwner := record.Lane == string(machine.MoverOwner)
 		for _, pr := range bus.HeldBy(record, s.Repo) {
 			lifted := slices.ContainsFunc(gos, func(g client.Record) bool { return g.Seq > record.Seq && bus.GoNames(g, pr) })

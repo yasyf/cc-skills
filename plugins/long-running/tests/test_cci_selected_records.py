@@ -5,6 +5,16 @@ import pytest
 from long_running import cci
 
 
+def test_a_hold_that_resolves_an_earlier_hold_is_a_lift_and_one_that_answers_an_ask_still_holds():
+    rows = [
+        {"seq": 4, "kind": "hold", "drive": "d1", "text": "hold #29020", "refs": {}, "status": "closed"},
+        {"seq": 5, "kind": "hold", "drive": "d1", "text": "hold #29020 lift: done", "refs": {}, "resolves": 4, "status": "open"},
+        {"seq": 7, "kind": "hold", "drive": "d1", "text": "hold #29021", "refs": {}, "resolves": 6, "status": "open"},
+    ]
+
+    assert cci.held_prs(lambda _: "\n".join(map(json.dumps, rows)), "d1") == {"29021": 7}
+
+
 def test_selected_records_complete_statuses_missing_and_order():
     calls = []
     rows = [{"seq": seq, "status": status, "kind": kind} for seq, status, kind in [(41, "closed", "blocker"), (43, "imported", "note"), (44, "open", "blocker")]]
