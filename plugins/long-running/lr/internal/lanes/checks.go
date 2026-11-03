@@ -368,7 +368,7 @@ func (c *SpriteStops) Check(ctx context.Context, now time.Time) error {
 	var running map[string]bool
 	var unlisted error
 	if slices.ContainsFunc(stopped, func(err error) bool { return err != nil }) {
-		running, unlisted = c.runningSprites(ctx)
+		running, unlisted = c.Env.sprites(ctx)
 	}
 	for i, lane := range ended {
 		if stopped[i] == nil {
@@ -404,8 +404,8 @@ func (c *SpriteStops) Check(ctx context.Context, now time.Time) error {
 	return nil
 }
 
-func (c *SpriteStops) runningSprites(ctx context.Context) (map[string]bool, error) {
-	result, err := c.Env.Runner.Run(ctx, shell.Command{Argv: []string{"sprite", "list"}, Timeout: readTimeout})
+func (e Env) sprites(ctx context.Context) (map[string]bool, error) {
+	result, err := e.Runner.Run(ctx, shell.Command{Argv: []string{"sprite", "list"}, Timeout: readTimeout})
 	if err != nil {
 		return nil, err
 	}
