@@ -92,13 +92,50 @@ func TestAMuteByARootOrderedFixLaneAfterItsFixLandedGetsNoPushback(t *testing.T)
 			if c.landed {
 				rows = append(rows, client.Record{Seq: 2, Lane: lane, Kind: landedKind, At: t0, To: []string{Root}, Text: "MERGED #47601 as 3975fbea5ec, verified on fresh dev"})
 			}
-			mute := client.Record{Seq: 3, Lane: lane, Kind: muteKind, At: t0, To: []string{Root}, Text: muted}
+			mute := client.Record{Seq: 3, Lane: lane, Kind: muteKind, Status: "open", At: t0, To: []string{Root}, Text: muted}
 			if c.answers {
 				mute.Re = 1
 			}
 			watch, bus := muteWatch(append(rows, mute)...)
 
 			if err := watch.Check(context.Background(), t0.Add(time.Minute)); err != nil {
+				t.Fatal(err)
+			}
+
+			equal(t, len(bus.posted) == 1, c.pushed)
+		})
+	}
+}
+
+func TestAFalseAlarmVerdictGetsAPushbackOnlyWhenItsRecordIsTiedToAnIncidentOrMonitor(t *testing.T) {
+	const verdict = "this LANDED-NOT-LIVE is a false alarm: api has run #48377 since release 12291"
+	blocker := client.Record{Seq: 1, Lane: Self, Kind: blockerKind, Status: "open", At: t0, To: []string{Root}, Text: "LANDED-NOT-LIVE llm-gateway: #48377 landed, the oldest 90 minutes ago, and llm-gateway runs none of them"}
+	incident := client.Record{Seq: 1, Lane: "alerts-desk", Kind: muteKind, Status: "open", At: t0, To: []string{Root}, Text: "dd-339598935 run failures on the smoke teams"}
+	cases := []struct {
+		name   string
+		open   []client.Record
+		tail   []client.Record
+		re     int64
+		attrs  map[string]string
+		url    string
+		pushed bool
+	}{
+		{"an answer on a supervisor blocker", nil, []client.Record{blocker}, 1, nil, "", false},
+		{"an answer on nothing", nil, nil, 0, nil, "", false},
+		{"an answer on an ask on an open incident", nil, []client.Record{incident, {Seq: 2, Lane: Root, Kind: "ask", At: t0, Re: 1, Text: "is the smoke-team failure real?"}}, 2, nil, "", true},
+		{"an answer on an open incident older than the window", []client.Record{incident}, nil, 1, nil, "", true},
+		{"an answer on a resolved incident", nil, []client.Record{{Seq: 1, Lane: "alerts-desk", Kind: muteKind, Status: "resolved", At: t0, Text: "dd-339598935 run failures on the smoke teams"}}, 1, nil, "", false},
+		{"an answer naming a monitor", nil, nil, 0, map[string]string{"monitor": "339598935"}, "", true},
+		{"an answer linking a monitor", nil, nil, 0, nil, "https://app.datadoghq.com/monitors/339598935", true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			answer := client.Record{Seq: 3, Lane: "release-6", Kind: "answer", At: t0, To: []string{Root}, Re: c.re, Text: verdict}
+			answer.Fields.Attrs, answer.Refs.URL = c.attrs, c.url
+			bus := &fakeBus{open: c.open, tail: append(c.tail, answer)}
+			watch := &MutePushback{Env: Env{Bus: bus, Config: config.Config{Drive: testDrive}}, Log: slog.Default()}
+
+			if err := watch.Check(context.Background(), t0); err != nil {
 				t.Fatal(err)
 			}
 

@@ -50,7 +50,6 @@ const (
 var (
 	alertURL       = regexp.MustCompile(`app\.datadoghq\.com/monitors/(\d+)|sentry\.io/\S*?issues/(\d+)`)
 	recoveredAlert = regexp.MustCompile(`(?i)^\W*(?:Recovered|Resolved)\b`)
-	titleScope     = regexp.MustCompile(`^\s*([\w./-]+):`)
 )
 
 type Check func(ctx context.Context, now time.Time) error
@@ -401,15 +400,14 @@ func endedBecause(lane store.Lane, dispatch string, statuses map[string]dispatch
 type ledgerRow struct {
 	PR        json.Number `json:"pr"`
 	State     string      `json:"state"`
-	Title     string      `json:"title"`
 	LandedSHA string      `json:"landed_sha"`
 	LandedAt  string      `json:"landed_at"`
 }
 
 type landing struct {
-	target string
-	sha    string
-	at     time.Time
+	targets []string
+	sha     string
+	at      time.Time
 }
 
 type LandedNotLive struct {
@@ -418,6 +416,7 @@ type LandedNotLive struct {
 	Log        *slog.Logger
 	read       time.Time
 	holds      map[[2]string]bool
+	touched    map[string][]string
 	said       string
 	owed       map[string]int64
 }
@@ -463,6 +462,7 @@ func (n *LandedNotLive) landings(ctx context.Context, now time.Time) (map[int]la
 		return nil, fmt.Errorf("%w: ledger list: %w", ErrUnread, err)
 	}
 	found := map[int]landing{}
+	touched := map[string][]string{}
 	for _, row := range rows {
 		if row.State != kindLanded || row.LandedSHA == "" || row.LandedAt == "" {
 			continue
@@ -471,17 +471,49 @@ func (n *LandedNotLive) landings(ctx context.Context, now time.Time) (map[int]la
 		if err != nil {
 			return nil, fmt.Errorf("ledger row %s landed_at: %w", row.PR, err)
 		}
-		scope := titleScope.FindStringSubmatch(row.Title)
-		if age := now.Sub(at); scope == nil || age < notLiveOwed || age >= notLiveSpan {
+		if age := now.Sub(at); age < notLiveOwed || age >= notLiveSpan {
 			continue
 		}
 		number, err := row.PR.Int64()
 		if err != nil {
 			return nil, fmt.Errorf("ledger row pr %q: %w", row.PR, err)
 		}
-		found[int(number)] = landing{strings.ToLower(scope[1]), row.LandedSHA, at}
+		targets, err := n.targetsOf(ctx, row.LandedSHA)
+		if err != nil {
+			return nil, err
+		}
+		touched[row.LandedSHA] = targets
+		found[int(number)] = landing{targets, row.LandedSHA, at}
 	}
+	n.touched = touched
 	return found, nil
+}
+
+func (n *LandedNotLive) targetsOf(ctx context.Context, sha string) ([]string, error) {
+	if targets, known := n.touched[sha]; known {
+		return targets, nil
+	}
+	checkout := n.Env.Config.Checkout
+	diff, err := n.Env.Runner.Run(ctx, shell.Command{Argv: []string{"git", "-C", checkout, "diff-tree", "--no-commit-id", "--name-only", "-r", sha}, Timeout: readTimeout})
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrUnread, err)
+	}
+	request, err := json.Marshal(map[string]any{"body": "", "paths": strings.FieldsFunc(diff.Stdout, func(r rune) bool { return r == '\n' })})
+	if err != nil {
+		return nil, err
+	}
+	argv := append(slices.Clone(n.ReleaseCLI), "select", "--pr")
+	selected, err := n.Env.Runner.Run(ctx, shell.Command{Argv: argv, Stdin: string(request), Dir: checkout, Timeout: readTimeout})
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrUnread, err)
+	}
+	var answer struct {
+		Touched []string `json:"touched"`
+	}
+	if err := json.Unmarshal([]byte(selected.Stdout), &answer); err != nil {
+		return nil, fmt.Errorf("%w: release select --pr: %w", ErrUnread, err)
+	}
+	return answer.Touched, nil
 }
 
 func (n *LandedNotLive) running(ctx context.Context) (map[string][]string, error) {
@@ -539,11 +571,13 @@ func (n *LandedNotLive) Check(ctx context.Context, now time.Time) error {
 		}
 		for _, number := range slices.Sorted(maps.Keys(landed)) {
 			entry := landed[number]
-			commits, known := running[entry.target]
-			if !known || slices.ContainsFunc(commits, func(commit string) bool { return n.holdsSHA(ctx, commit, entry.sha) }) {
-				continue
+			for _, target := range entry.targets {
+				commits, known := running[target]
+				if !known || slices.ContainsFunc(commits, func(commit string) bool { return n.holdsSHA(ctx, commit, entry.sha) }) {
+					continue
+				}
+				owed[target] = append(owed[target], number)
 			}
-			owed[entry.target] = append(owed[entry.target], number)
 		}
 	}
 	return n.announce(ctx, landed, owed, now)

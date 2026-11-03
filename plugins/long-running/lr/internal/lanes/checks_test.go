@@ -217,18 +217,44 @@ func TestAnOrcaFixLaneIdleThirtyMinutesPastFixLiveIsReclaimedWithOneReportToRoot
 	}
 }
 
-func notLive(t *testing.T, ledger string, live string, ancestor bool) (*LandedNotLive, *fakeBus) {
+type commanded func(c shell.Command) (shell.Result, error)
+
+func (f commanded) Run(_ context.Context, c shell.Command) (shell.Result, error) {
+	return f(c)
+}
+
+var releaseComponents = map[string]string{"api/": "api", "common/": "api", "go/sand/": "sand", "go/llm-gateway/": "llm-gateway"}
+
+func notLive(t *testing.T, ledger string, files map[string]string, live string, ancestor bool) (*LandedNotLive, *fakeBus) {
 	t.Helper()
 	bus := &fakeBus{}
-	env := Env{Bus: bus, Config: config.Config{Drive: testDrive, Checkout: "/checkout"}, Claude: t.TempDir(), Runner: scripted(func(argv []string) (shell.Result, error) {
+	env := Env{Bus: bus, Config: config.Config{Drive: testDrive, Checkout: "/checkout"}, Claude: t.TempDir(), Runner: commanded(func(c shell.Command) (shell.Result, error) {
+		argv := c.Argv
 		switch {
 		case strings.HasSuffix(argv[0], "ledger.py"):
 			return shell.Result{Stdout: ledger}, nil
+		case argv[0] == "git" && argv[3] == "diff-tree":
+			return shell.Result{Stdout: files[argv[len(argv)-1]]}, nil
 		case argv[0] == "git":
 			if ancestor {
 				return shell.Result{}, nil
 			}
 			return shell.Result{Code: 1}, &shell.ExitError{Argv: argv, Code: 1}
+		case slices.Equal(argv[len(argv)-2:], []string{"select", "--pr"}):
+			var request struct {
+				Paths []string `json:"paths"`
+			}
+			if err := json.Unmarshal([]byte(c.Stdin), &request); err != nil {
+				t.Fatal(err)
+			}
+			touched := []string{}
+			for prefix, component := range releaseComponents {
+				if !slices.Contains(touched, component) && slices.ContainsFunc(request.Paths, func(path string) bool { return strings.HasPrefix(path, prefix) }) {
+					touched = append(touched, component)
+				}
+			}
+			answer, err := json.Marshal(map[string][]string{"touched": touched})
+			return shell.Result{Stdout: string(answer)}, err
 		default:
 			return shell.Result{Stdout: live}, nil
 		}
@@ -238,7 +264,7 @@ func notLive(t *testing.T, ledger string, live string, ancestor bool) (*LandedNo
 
 func TestALandingATargetDoesNotRunAfterAnHourDrawsOneBlockerNamingItsRelease(t *testing.T) {
 	ledger := fmt.Sprintf(`[{"pr":"47799","state":"landed","title":"Sand: fix it","landed_sha":"abc","landed_at":%q},{"pr":"47800","state":"landed","title":"sand: too new","landed_sha":"def","landed_at":%q},{"pr":"47801","state":"open","title":"sand: open"}]`, t0.Add(-2*time.Hour).Format(time.RFC3339), t0.Add(-mins(10)).Format(time.RFC3339))
-	check, bus := notLive(t, ledger, `[{"target":"sand","commit":"c1"}]`, false)
+	check, bus := notLive(t, ledger, map[string]string{"abc": "go/sand/internal/vm/vm.go\n"}, `[{"target":"sand","commit":"c1"}]`, false)
 
 	if err := check.Check(context.Background(), t0); err != nil {
 		t.Fatal(err)
@@ -256,7 +282,7 @@ func TestALandingATargetDoesNotRunAfterAnHourDrawsOneBlockerNamingItsRelease(t *
 
 func TestALandingItsTargetRunsOwesNoRelease(t *testing.T) {
 	ledger := fmt.Sprintf(`[{"pr":"47799","state":"landed","title":"sand: fix it","landed_sha":"abc","landed_at":%q}]`, t0.Add(-2*time.Hour).Format(time.RFC3339))
-	check, bus := notLive(t, ledger, `[{"target":"sand","commit":"c1"}]`, true)
+	check, bus := notLive(t, ledger, map[string]string{"abc": "go/sand/internal/vm/vm.go\n"}, `[{"target":"sand","commit":"c1"}]`, true)
 
 	if err := check.Check(context.Background(), t0); err != nil {
 		t.Fatal(err)
@@ -265,20 +291,33 @@ func TestALandingItsTargetRunsOwesNoRelease(t *testing.T) {
 	equal(t, len(bus.posted), 0)
 }
 
-func TestATargetTheReleaseDoesNotListOwesNoRelease(t *testing.T) {
-	ledger := fmt.Sprintf(`[{"pr":"47799","state":"landed","title":"docs: words","landed_sha":"abc","landed_at":%q}]`, t0.Add(-2*time.Hour).Format(time.RFC3339))
-	check, bus := notLive(t, ledger, `[{"target":"sand","commit":"c1"}]`, false)
+func TestALandingWhoseFilesReachNoReleaseTargetOwesNoRelease(t *testing.T) {
+	ledger := fmt.Sprintf(`[{"pr":"47799","state":"landed","title":"sand: words","landed_sha":"abc","landed_at":%q}]`, t0.Add(-2*time.Hour).Format(time.RFC3339))
+	check, bus := notLive(t, ledger, map[string]string{"abc": "docs/slack.md\n"}, `[{"target":"sand","commit":"c1"}]`, false)
 
 	if err := check.Check(context.Background(), t0); err != nil {
 		t.Fatal(err)
 	}
 
 	equal(t, len(bus.posted), 0)
+}
+
+func TestALandingOwesTheTargetsItsFilesReachNeverItsTitleScope(t *testing.T) {
+	ledger := fmt.Sprintf(`[{"pr":"48377","state":"landed","title":"llm-gateway: route the judge through the gateway","landed_sha":"abc","landed_at":%q}]`, t0.Add(-2*time.Hour).Format(time.RFC3339))
+	check, bus := notLive(t, ledger, map[string]string{"abc": "api/src/modules/llmGateway.ts\ncommon/src/core/llm/client.ts\n"}, `[{"target":"api","commit":"c1"},{"target":"llm-gateway","commit":"c2"}]`, false)
+
+	if err := check.Check(context.Background(), t0); err != nil {
+		t.Fatal(err)
+	}
+
+	equal(t, len(bus.posted), 2)
+	equal(t, bus.posted[0].Text, "LANDED-NOT-LIVE api: #48377 (8:00 AM)")
+	equal(t, bus.posted[1].Text, "LANDED-NOT-LIVE api: #48377 landed, the oldest 120 minutes ago, and api runs none of them; start its release: `tools/ci release start --only api --manual`")
 }
 
 func TestAReleaseThatShipsALandingResolvesItsBlocker(t *testing.T) {
 	ledger := fmt.Sprintf(`[{"pr":"47799","state":"landed","title":"sand: fix it","landed_sha":"abc","landed_at":%q}]`, t0.Add(-2*time.Hour).Format(time.RFC3339))
-	check, bus := notLive(t, ledger, `[{"target":"sand","commit":"c1"}]`, false)
+	check, bus := notLive(t, ledger, map[string]string{"abc": "go/sand/internal/vm/vm.go\n"}, `[{"target":"sand","commit":"c1"}]`, false)
 	if err := check.Check(context.Background(), t0); err != nil {
 		t.Fatal(err)
 	}
