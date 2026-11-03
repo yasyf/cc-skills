@@ -56,6 +56,7 @@ const (
 var (
 	sourceForm  = regexp.MustCompile(`(?s)\Acci:([^:=]+):([^:=]+)\z|\A([^=]+)=(.+)\z`)
 	taggedChain = regexp.MustCompile(`(?:^|\s)` + boundedTag + `=(\S+)`)
+	recordHead  = regexp.MustCompile(`^(?:#?(\d+(?:@\w+)?)\s|(@.*)$)`)
 	pacific     = must(time.LoadLocation("America/Los_Angeles"))
 )
 
@@ -108,6 +109,8 @@ type waiter struct {
 	sources      []source
 	cciMissingAt time.Time
 	wake         chan struct{}
+	printed      map[string]bool
+	repeat       bool
 }
 
 type child struct {
@@ -121,7 +124,7 @@ type child struct {
 // Run blocks until a source wakes it, its guarded command exits, or the
 // deadline passes, printing what woke it, and returns the exit code.
 func Run(ctx context.Context, o Options) int {
-	w := &waiter{Options: o, wake: make(chan struct{}, 1)}
+	w := &waiter{Options: o, wake: make(chan struct{}, 1), printed: map[string]bool{}}
 	if w.Now == nil {
 		w.Now = time.Now
 	}
@@ -479,7 +482,7 @@ func markRead(path string, keys []string, now func() time.Time) error {
 }
 
 func (s cciSource) check(ctx context.Context, w *waiter) (bool, error) {
-	argv := []string{"cci", "tail", "--drive", s.drive, "--cursor", s.lane + "-wake", "--seed", s.lane, "--to", s.lane}
+	argv := []string{"cci", "tail", "--drive", s.drive, "--cursor", s.lane + "-wake", "--seed", s.lane, "--to", s.lane, "--mail"}
 	result, err := w.Runner.Run(ctx, shell.Command{Argv: argv, Timeout: readTimeout})
 	if err != nil {
 		if result.Code == shell.CodeMissingBinary {
@@ -493,12 +496,25 @@ func (s cciSource) check(ctx context.Context, w *waiter) (bool, error) {
 	w.cciMissingAt = time.Time{}
 	changed := false
 	for _, line := range strings.Split(strings.TrimRight(result.Stdout, "\n"), "\n") {
-		if line != "" {
+		if line != "" && w.fresh(line) {
 			fmt.Fprintln(w.Stdout, clip(line))
 			changed = true
 		}
 	}
 	return changed, nil
+}
+
+// fresh reports whether line belongs to a record no other source of this wait
+// printed, since a record addressed to two waited lanes reaches both.
+func (w *waiter) fresh(line string) bool {
+	head := recordHead.FindStringSubmatch(line)
+	if head == nil {
+		return !w.repeat
+	}
+	key := head[1] + head[2]
+	w.repeat = w.printed[key]
+	w.printed[key] = true
+	return !w.repeat
 }
 
 func (w *waiter) follow(ctx context.Context) <-chan error {

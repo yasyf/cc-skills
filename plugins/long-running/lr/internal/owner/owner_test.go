@@ -1,15 +1,18 @@
 package owner
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
 
 var addedAt = time.Date(2026, 11, 3, 5, 10, 0, 0, time.UTC)
@@ -220,5 +223,49 @@ func TestTheAddVerbWritesTheNamedDrivesLedger(t *testing.T) {
 func TestTheAddVerbRefusesAResponseItCannotHaveMade(t *testing.T) {
 	if _, err := run(t, "add", "--state", "responded"); err == nil || !strings.Contains(err.Error(), "open or addressed") {
 		t.Fatalf("got %v, want a refusal naming the two states", err)
+	}
+}
+
+type subscribeRunner struct{ argv []string }
+
+func (r *subscribeRunner) Run(_ context.Context, c shell.Command) (shell.Result, error) {
+	r.argv = c.Argv
+	return shell.Result{Stdout: "subscribed\n"}, nil
+}
+
+func TestStartBatchesRoutineRecordsAndNeverWhatTheOwnerSentOrTapped(t *testing.T) {
+	project := t.TempDir()
+	settings := filepath.Join(project, ".claude", "settings.local.json")
+	if err := os.MkdirAll(filepath.Dir(settings), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(settings, []byte(`{"permissions":{"allow":["Bash"]}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runner := &subscribeRunner{}
+	cmd := Command(&app.App{Runner: runner})
+	cmd.SetOut(io.Discard)
+	cmd.SetArgs([]string{"start", "--drive", "dar", "--project", project})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := strings.Join(runner.argv[:6], " "), "cci subscribe --drive dar --reader owner-relay"; got != want {
+		t.Fatalf("subscribe = %q, want %q", got, want)
+	}
+	if !slices.Contains(runner.argv, "incident") {
+		t.Fatalf("subscribe %q does not hear incident broadcasts", runner.argv)
+	}
+	batched := strings.Split(runner.argv[slices.Index(runner.argv, "--batch-kinds")+1], ",")
+	for _, urgent := range []string{"owner", "ask", "decide", "blocked", "blocker", "urgent", "incident", "mechanism", "fix-live", "correction", "defect", "lr.escalation"} {
+		if slices.Contains(batched, urgent) {
+			t.Errorf("%s is batched, so it could wait five minutes", urgent)
+		}
+	}
+	var written map[string]any
+	if err := json.Unmarshal([]byte(read(t, settings)), &written); err != nil {
+		t.Fatal(err)
+	}
+	if written["autoCompactWindow"] != float64(280000) || written["permissions"] == nil {
+		t.Fatalf("settings = %v, want the window set and the rest kept", written)
 	}
 }

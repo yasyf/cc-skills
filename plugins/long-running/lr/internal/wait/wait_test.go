@@ -384,7 +384,7 @@ func TestACciSourceFollowsTheDaemonStreamAndReadsThroughCciTail(t *testing.T) {
 	if len(calls) != 2 {
 		t.Fatalf("cci tail ran %d times", len(calls))
 	}
-	want := []string{"cci", "tail", "--drive", "dar", "--cursor", "landing-desk-wake", "--seed", "landing-desk", "--to", "landing-desk"}
+	want := []string{"cci", "tail", "--drive", "dar", "--cursor", "landing-desk-wake", "--seed", "landing-desk", "--to", "landing-desk", "--mail"}
 	if strings.Join(calls[1].Argv, " ") != strings.Join(want, " ") {
 		t.Fatalf("got %q", calls[1].Argv)
 	}
@@ -392,6 +392,23 @@ func TestACciSourceFollowsTheDaemonStreamAndReadsThroughCciTail(t *testing.T) {
 	defer s.mu.Unlock()
 	if len(s.requests) != 1 || s.requests[0] != "drive=dar&to=landing-desk" {
 		t.Fatalf("stream requests %q", s.requests)
+	}
+}
+
+func TestARecordAddressedToTwoSourcesPrintsOnce(t *testing.T) {
+	s := &stream{emit: make(chan struct{}, 1)}
+	server := httptest.NewServer(s)
+	t.Cleanup(server.Close)
+	runner := &tailRunner{}
+	r := start(t, Options{Seconds: 10, Sources: []string{"cci:dar:meta", "cci:dar:meta-desk-2"}, Runner: runner, Stream: server.URL})
+	time.Sleep(armed)
+
+	runner.deliver("@9:00 PM\n5 ask root go\n  its body\n#6@ab12 9:00 PM NOTE root seen\n")
+	s.emit <- struct{}{}
+	r.wait(t)
+
+	if want := "@9:00 PM\n5 ask root go\n  its body\n#6@ab12 9:00 PM NOTE root seen\n"; r.code != 0 || r.out.String() != want {
+		t.Fatalf("got %d %q, want each record once", r.code, r.out.String())
 	}
 }
 

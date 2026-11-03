@@ -2,6 +2,7 @@ package owner
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -18,6 +19,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
 
 const (
@@ -27,7 +29,19 @@ const (
 	lockFile  = ".owner-ledger.lock"
 	header    = "| id | time | message | routed | state |\n|---|---|---|---|---|\n"
 	rowTime   = "Jan 2 3:04 PM"
+
+	compactWindow   = 280000
+	subscribeWait   = time.Minute
+	communicator    = "owner-relay"
+	settingsWindow  = "autoCompactWindow"
+	localSettings   = ".claude/settings.local.json"
+	broadcastsHeard = "incident"
 )
+
+// batchedKinds reach the communicator together, at most every five minutes.
+// A kind off this list, the owner's taps and every ask among them, wakes it on
+// arrival, so a kind nobody listed never waits.
+var batchedKinds = []string{"report", "note", "answer", "done", "head", "state", "serving", "release", "evidence", "decision"}
 
 var (
 	rowID     = regexp.MustCompile(`(?m)^\| m(\d+) \|`)
@@ -120,8 +134,31 @@ func Mark(path, row, state string, routed int) error {
 	})
 }
 
+func lowerCompactWindow(project string) error {
+	path := filepath.Join(project, localSettings)
+	settings := map[string]any{}
+	data, err := os.ReadFile(path)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	if err == nil {
+		if err := json.Unmarshal(data, &settings); err != nil {
+			return fmt.Errorf("%s: %w", path, err)
+		}
+	}
+	settings[settingsWindow] = compactWindow
+	written, err := json.MarshalIndent(settings, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		return err
+	}
+	return os.WriteFile(path, append(written, '\n'), 0o600)
+}
+
 func Command(a *app.App) *cobra.Command {
-	var driveName, addState string
+	var driveName, addState, project string
 	var routed, addRouted int
 	owner := &cobra.Command{Use: "owner", Short: "The communicator's ledger of every owner message"}
 	owner.PersistentFlags().StringVar(&driveName, "drive", os.Getenv("LR_DRIVE"), "the drive's bus name")
@@ -172,6 +209,27 @@ func Command(a *app.App) *cobra.Command {
 	}
 	add.Flags().StringVar(&addState, "state", opened, "the row's state: open or addressed")
 	add.Flags().IntVar(&addRouted, "routed", 0, "the seq of the cci record that routed the message")
-	owner.AddCommand(mark, add)
+	start := &cobra.Command{
+		Use:   "start",
+		Short: "Subscribe this window as the communicator, with routine records batched, and lower its compaction ceiling",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if err := lowerCompactWindow(project); err != nil {
+				return err
+			}
+			result, err := a.Runner.Run(cmd.Context(), shell.Command{
+				Argv:    []string{"cci", "subscribe", "--drive", driveName, "--reader", communicator, "--kind", broadcastsHeard, "--batch-kinds", strings.Join(batchedKinds, ",")},
+				Timeout: subscribeWait,
+			})
+			if err != nil {
+				return err
+			}
+			_, err = io.WriteString(cmd.OutOrStdout(), result.Stdout)
+			return err
+		},
+	}
+	start.Flags().StringVar(&project, "project", "", "the communicator's own worktree, where its settings live")
+	_ = start.MarkFlagRequired("project")
+	owner.AddCommand(mark, add, start)
 	return owner
 }
