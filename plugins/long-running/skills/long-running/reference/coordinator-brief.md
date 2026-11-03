@@ -68,3 +68,15 @@ he set them, and nothing lands without his tap or a go in an exempt class.
 Open items you inherit: <from the newest progress doc's registry dump and owner
 update, never from memory>.
 ```
+
+## A sub-drive's coordinator
+
+`lr drive sub start` writes this brief itself, to
+`<parent state dir>/sub/<name>/root/brief.md`, from the objective, reason and facts it
+was given ([the template](../../../lr/internal/subdrive/brief.md.tmpl)); nobody fills it
+by hand. It differs from the template above in four ways. The coordinator's drive is
+`<parent>--<name>`, set in its window by `CLAUDE_LONG_RUNNING_DRIVE`, and it joins that
+registry entry with `drive.py start`. Wherever this file says `owner-relay`, it reads
+`root@<parent>`, the only address it reports to. The parent's coordinator stands where
+the owner stands here: its answers and the rulings it carries down bind the sub-drive.
+It ends when the parent runs `lr drive sub end`, on the stand-down that verb posts.

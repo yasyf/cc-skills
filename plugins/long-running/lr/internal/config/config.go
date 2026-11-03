@@ -28,6 +28,7 @@ type Config struct {
 	QueueScript   string
 	QueueKey      string
 	AlertChannels string
+	Parent        string
 }
 
 func (c Config) GoLaneNames() []string {
@@ -57,7 +58,7 @@ func Load(path string, warn io.Writer) (Config, error) {
 	optional := map[string]*string{
 		"orca_run": &loaded.OrcaRun, "remote_box": &loaded.RemoteBox, "go_lanes": &loaded.GoLanes,
 		"trunk": &loaded.Trunk, "queue_script": &loaded.QueueScript, "queue_key": &loaded.QueueKey,
-		"alert_channels": &loaded.AlertChannels,
+		"alert_channels": &loaded.AlertChannels, "parent": &loaded.Parent,
 	}
 	var unknown []string
 	for _, name := range slices.Sorted(maps.Keys(raw)) {

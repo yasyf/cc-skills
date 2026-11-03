@@ -66,6 +66,21 @@ func TestKeysAndMoversANewerReleaseWroteLoadWithAWarningAndConfigureNothing(t *t
 	}
 }
 
+func TestASubDrivesConfigNamesItsParentWithNoWarning(t *testing.T) {
+	raw := good()
+	raw["parent"] = "brook"
+	var warned bytes.Buffer
+
+	loaded, err := Load(write(t, raw), &warned)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if loaded.Parent != "brook" || warned.Len() != 0 {
+		t.Fatalf("parent %q, warnings %q", loaded.Parent, warned.String())
+	}
+}
+
 func TestARefusedFileNamesWhatIsWrong(t *testing.T) {
 	withoutMovers := good()
 	delete(withoutMovers, "movers")
