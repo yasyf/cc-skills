@@ -12,7 +12,10 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
-const Unregistered = "unregistered"
+const (
+	Unregistered = "unregistered"
+	nodeChars    = 8
+)
 
 type Liveness struct {
 	Lane        string  `json:"lane"`
@@ -30,6 +33,8 @@ type Liveness struct {
 	Standing    string  `json:"standing"`
 	Deliverable string  `json:"deliverable"`
 	Woke        *string `json:"woke"`
+	Node        *string `json:"node"`
+	LateMinutes int     `json:"late_minutes"`
 }
 
 func nullable(value string) *string {
@@ -69,6 +74,7 @@ func LivenessRows(s *store.Store) (rows []Liveness, err error) {
 			if !lane.Answered.IsZero() {
 				row.Woke = nullable(store.Stamp(lane.Answered))
 			}
+			row.Node, row.LateMinutes = nullable(lane.Node), int(lane.Late.Minutes())
 		}
 		rows = append(rows, row)
 	}
@@ -88,12 +94,17 @@ func RegistryLines(s *store.Store, names []string, now time.Time) (lines []strin
 			state = "live"
 		case now.Sub(lane.Heard) < StaleAfter:
 			state = "posting"
+		case now.Sub(lane.Heard) <= lane.Late:
+			state = "lagging"
 		}
 		heard := "never"
 		if !lane.Heard.IsZero() {
 			heard = pacific(lane.Heard)
 		}
 		fmt.Fprintf(&line, "%s %s %s heard %s", lane.Name, lane.State, state, heard)
+		if lane.Node != "" {
+			fmt.Fprintf(&line, " on %s, arrived %d min late", lane.Node[:nodeChars], int(lane.Late.Minutes()))
+		}
 		if lane.Last != "" {
 			fmt.Fprintf(&line, " %s", lane.Last)
 		}

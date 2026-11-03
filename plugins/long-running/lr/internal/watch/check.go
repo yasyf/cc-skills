@@ -136,7 +136,7 @@ func deadlinesCommand(a *app.App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			sender := bus.Bus{Drive: entry.Bus(), Lane: Lane}
+			sender := bus.Bus{Drive: entry.Bus(), Lane: Lane, Bodies: filepath.Join(state, bus.BodiesDir)}
 			post := func(to []string, body bus.Body) error {
 				if dryRun {
 					return nil

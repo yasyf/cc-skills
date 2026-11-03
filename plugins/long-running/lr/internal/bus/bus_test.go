@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"regexp"
 	"slices"
 	"testing"
@@ -129,6 +130,42 @@ func TestAnItemReachesALaneByName(t *testing.T) {
 	}
 	_, err = b.Post(context.Background(), []string{"root"}, item)
 	wantRefused(t, err, `never reaches root`)
+}
+
+func TestAClassOfOverdueWaitsKeepsItsBodyInAFileTheRecordNames(t *testing.T) {
+	b := bound(t, "supervisor")
+	b.Bodies = t.TempDir()
+	detail := "pick/1\nunfinished: cut at 6:30 AM?\n\npick/2\nunfinished: second\n"
+
+	if _, err := b.Post(context.Background(), []string{"root"}, bus.OverdueClass("root", "unfinished/2/ab12", "2 overdue at once", detail)); err != nil {
+		t.Fatal(err)
+	}
+
+	rows, err := client.Tail(context.Background(), client.Query{Drive: "d", Kinds: []string{"lr.escalation"}})
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("Tail = %+v, %v", rows, err)
+	}
+	if rows[0].Text != "escalation unfinished/2/ab12 2 overdue at once" {
+		t.Errorf("text = %q", rows[0].Text)
+	}
+	body, err := os.ReadFile(rows[0].Refs.Path)
+	if err != nil || string(body) != detail {
+		t.Fatalf("body = %q, %v", body, err)
+	}
+	var stored map[string]string
+	if err := json.Unmarshal(rows[0].Body, &stored); err != nil {
+		t.Fatal(err)
+	}
+	if len(stored) != 2 || stored["subject"] != "unfinished/2/ab12" {
+		t.Errorf("stored = %v", stored)
+	}
+}
+
+func TestAnOverdueClassToALaneIsOneNoteCarryingItsLines(t *testing.T) {
+	got := bus.OverdueClass("lane-a", "gate/2/ab12", "2 overdue at once", "org/repo#1\nlate\n")
+	if got != bus.Body(bus.Note{Text: "gate/2/ab12 2 overdue at once\n\norg/repo#1\nlate\n"}) {
+		t.Fatalf("got = %+v", got)
+	}
 }
 
 func TestAnOverdueReachesARoleAsAnEscalationAndALaneAsANote(t *testing.T) {

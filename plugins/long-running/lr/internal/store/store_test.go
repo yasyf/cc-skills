@@ -186,6 +186,34 @@ func TestAFactKeyedByAShortShaCountsForTheFullHeadAndTheNewestValueWins(t *testi
 	}
 }
 
+func TestANewerRecordOwnsTheHeardNodeAndAnOlderOneLeavesIt(t *testing.T) {
+	s := memory(t)
+	_, err := s.WantLane(Lane{Name: "l", Brief: "b", Model: "m", Effort: "e", Role: "r", State: LaneDesired}, t0)
+	ok(t, err)
+	ok(t, s.LaneHeard("l", t0.Add(time.Minute), "state", 1))
+	ok(t, s.LaneDelivered("l", t0.Add(time.Minute), "110f10f5abcdef01", 55*time.Minute))
+
+	ok(t, s.LaneHeard("l", t0, "note", 2))
+	ok(t, s.LaneDelivered("l", t0, "ffffffffffffffff", time.Hour))
+	lanes, err := s.AllLanes()
+	ok(t, err)
+	if lanes[0].Node != "110f10f5abcdef01" || lanes[0].Late != 55*time.Minute {
+		t.Fatalf("older record moved the node: %+v", lanes[0])
+	}
+
+	ok(t, s.LaneHeard("l", t0.Add(2*time.Minute), "landed", 0))
+	lanes, err = s.AllLanes()
+	ok(t, err)
+	if lanes[0].Node != "" || lanes[0].Late != 0 {
+		t.Fatalf("a newer local record kept the node: %+v", lanes[0])
+	}
+	newest, err := s.NewestHeard()
+	ok(t, err)
+	if !newest.Equal(t0.Add(2 * time.Minute)) {
+		t.Fatalf("newest = %v", newest)
+	}
+}
+
 func TestOneEscalationPerSubjectAndCause(t *testing.T) {
 	s := memory(t)
 	if !must[bool](t)(s.Escalate("org/repo#45470", "verdict overdue", "root", t0)) {

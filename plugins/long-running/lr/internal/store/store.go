@@ -93,6 +93,8 @@ type Lane struct {
 	State       LaneState
 	Since       time.Time
 	Heard       time.Time
+	Node        string
+	Late        time.Duration
 	Handoff     string
 	PRs         []int
 	Predecessor string
@@ -472,14 +474,15 @@ func (s *Store) registered(where string, args ...any) ([]Lane, error) {
 	if err != nil {
 		return nil, err
 	}
-	rows, err = s.db.Query("SELECT lane, at, kind FROM heard")
+	rows, err = s.db.Query("SELECT lane, at, kind, node, late_seconds FROM heard")
 	type heardRow struct {
-		lane, kind string
-		at         time.Time
+		lane, kind, node string
+		at               time.Time
+		late             int64
 	}
 	heard, err := collect(rows, err, func(rows *sql.Rows) (heardRow, error) {
 		var row heardRow
-		err := rows.Scan(&row.lane, moment{&row.at}, nullable[string]{&row.kind})
+		err := rows.Scan(&row.lane, moment{&row.at}, nullable[string]{&row.kind}, nullable[string]{&row.node}, nullable[int64]{&row.late})
 		return row, err
 	})
 	if err != nil {
@@ -496,6 +499,7 @@ func (s *Store) registered(where string, args ...any) ([]Lane, error) {
 	for i := range lanes {
 		row := byLane[lanes[i].Name]
 		lanes[i].Heard, lanes[i].Last, lanes[i].PRs = row.at, row.kind, owned[lanes[i].Name]
+		lanes[i].Node, lanes[i].Late = row.node, time.Duration(row.late)*time.Second
 	}
 	return lanes, nil
 }
@@ -673,10 +677,21 @@ func (s *Store) SetLaneState(name string, state LaneState, at time.Time, retired
 
 func (s *Store) LaneHeard(name string, at time.Time, kind string, seq int64) error {
 	_, err := s.db.Exec(
-		"INSERT INTO heard (lane, at, kind, seq) VALUES (?, ?, ?, ?) ON CONFLICT (lane) DO UPDATE SET kind = CASE WHEN excluded.at >= heard.at THEN excluded.kind ELSE heard.kind END, at = max(heard.at, excluded.at), seq = max(coalesce(heard.seq, excluded.seq), coalesce(excluded.seq, heard.seq))",
+		"INSERT INTO heard (lane, at, kind, seq) VALUES (?, ?, ?, ?) ON CONFLICT (lane) DO UPDATE SET kind = CASE WHEN excluded.at >= heard.at THEN excluded.kind ELSE heard.kind END, node = CASE WHEN excluded.at > heard.at THEN NULL ELSE heard.node END, late_seconds = CASE WHEN excluded.at > heard.at THEN NULL ELSE heard.late_seconds END, at = max(heard.at, excluded.at), seq = max(coalesce(heard.seq, excluded.seq), coalesce(excluded.seq, heard.seq))",
 		name, Stamp(at), kind, whole(seq),
 	)
 	return err
+}
+
+func (s *Store) LaneDelivered(name string, at time.Time, node string, late time.Duration) error {
+	_, err := s.db.Exec("UPDATE heard SET node = ?, late_seconds = ? WHERE lane = ? AND at = ?", node, int64(late.Seconds()), name, Stamp(at))
+	return err
+}
+
+func (s *Store) NewestHeard() (time.Time, error) {
+	var newest time.Time
+	err := s.db.QueryRow("SELECT max(at) FROM heard").Scan(moment{&newest})
+	return newest, err
 }
 
 func (s *Store) NewestSeq(name string) (int64, error) {

@@ -118,13 +118,18 @@ func grant(s *store.Store, r Record, fresh bool, at time.Time, out *folded) {
 func fold(s *store.Store, records []Record, adoptable map[string]bool, briefs string, d Deps) folded {
 	out := folded{deps: d}
 	fresh := adoptable != nil
+	newest := must(s.NewestHeard())
 	for _, r := range records {
 		at := r.At.UTC()
+		late := max(newest.Sub(at), 0)
+		if at.After(newest) {
+			newest = at
+		}
 		if spawn, ok := spawnedBy(r); ok {
 			foldSpawn(s, r, spawn, adoptable, fresh, at, briefs, &out)
 			continue
 		}
-		foldRecord(s, r, fresh, at, &out)
+		foldRecord(s, r, late, fresh, at, &out)
 	}
 	return out
 }
@@ -214,10 +219,13 @@ func intersect[T comparable](a, b []T) bool {
 	return false
 }
 
-func foldRecord(s *store.Store, r Record, fresh bool, at time.Time, out *folded) {
+func foldRecord(s *store.Store, r Record, late time.Duration, fresh bool, at time.Time, out *folded) {
 	name, kind, text := r.Lane, r.Kind, r.Text
 	row, known := laneOf(s, name)
 	do(s.LaneHeard(name, at, kind, r.Seq))
+	if r.Origin != "" {
+		do(s.LaneDelivered(name, at, r.Origin, late))
+	}
 	addressed := r.Addressed()
 	if name == Root || name == mainLane {
 		do(s.Order(r.Seq))

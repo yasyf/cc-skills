@@ -3,8 +3,12 @@ package bus
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -83,6 +87,7 @@ type Done struct {
 type Escalation struct {
 	Subject string `json:"subject"`
 	Cause   string `json:"cause"`
+	Detail  string `json:"-"`
 }
 
 type Decision struct {
@@ -182,6 +187,8 @@ func Check(kind string, raw json.RawMessage, to []string) error {
 	return nil
 }
 
+const BodiesDir = "bodies"
+
 var escalationRoles = []string{"supervisor", "root", "owner", "owner-relay"}
 
 func Overdue(to, subject, cause string) Body {
@@ -191,9 +198,17 @@ func Overdue(to, subject, cause string) Body {
 	return Note{Text: subject + " " + cause}
 }
 
+func OverdueClass(to, subject, cause, detail string) Body {
+	if slices.Contains(escalationRoles, to) {
+		return Escalation{Subject: subject, Cause: cause, Detail: detail}
+	}
+	return Note{Text: subject + " " + cause + "\n\n" + detail}
+}
+
 type Bus struct {
-	Drive string
-	Lane  string
+	Drive  string
+	Lane   string
+	Bodies string
 }
 
 func (b Bus) Post(ctx context.Context, to []string, body Body) (Record, error) {
@@ -201,7 +216,24 @@ func (b Bus) Post(ctx context.Context, to []string, body Body) (Record, error) {
 	if err != nil {
 		return Record{}, err
 	}
-	return b.postRaw(ctx, body.Kind(), raw, to)
+	escalation, isEscalation := body.(Escalation)
+	if !isEscalation || escalation.Detail == "" {
+		return b.postRaw(ctx, body.Kind(), raw, to, "")
+	}
+	path, err := b.keep(escalation.Detail)
+	if err != nil {
+		return Record{}, err
+	}
+	return b.postRaw(ctx, body.Kind(), raw, to, path)
+}
+
+func (b Bus) keep(detail string) (string, error) {
+	if err := os.MkdirAll(b.Bodies, 0o750); err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256([]byte(detail))
+	path := filepath.Join(b.Bodies, hex.EncodeToString(sum[:])[:16]+".txt")
+	return path, os.WriteFile(path, []byte(detail), 0o600)
 }
 
 func (b Bus) PostFields(ctx context.Context, kind string, fields map[string]any, to []string) (Record, error) {
@@ -209,10 +241,10 @@ func (b Bus) PostFields(ctx context.Context, kind string, fields map[string]any,
 	if err != nil {
 		return Record{}, err
 	}
-	return b.postRaw(ctx, kind, raw, to)
+	return b.postRaw(ctx, kind, raw, to, "")
 }
 
-func (b Bus) postRaw(ctx context.Context, kind string, raw json.RawMessage, to []string) (Record, error) {
+func (b Bus) postRaw(ctx context.Context, kind string, raw json.RawMessage, to []string, path string) (Record, error) {
 	if err := Check(kind, raw, to); err != nil {
 		return Record{}, err
 	}
@@ -222,7 +254,7 @@ func (b Bus) postRaw(ctx context.Context, kind string, raw json.RawMessage, to [
 		return Record{}, err
 	}
 	schema, _ := client.TypedSchema(kind)
-	draft := client.Draft{Drive: b.Drive, Lane: b.Lane, Kind: namespace + "." + kind, Text: summary(kind, schema.Names(), fields), To: to, Body: raw}
+	draft := client.Draft{Drive: b.Drive, Lane: b.Lane, Kind: namespace + "." + kind, Text: summary(kind, schema.Names(), fields), To: to, Body: raw, Path: path}
 	if len(schema.Identity) > 0 {
 		draft.ID = identity(kind, schema.Identity, fields)
 	}

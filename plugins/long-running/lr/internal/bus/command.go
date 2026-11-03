@@ -27,7 +27,7 @@ func Command(*app.App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			record, err := Bus{post.drive, post.lane}.PostFields(cmd.Context(), post.kind, post.fields, post.to)
+			record, err := Bus{Drive: post.drive, Lane: post.lane}.PostFields(cmd.Context(), post.kind, post.fields, post.to)
 			if err != nil {
 				return err
 			}

@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS lanes (
   since TEXT NOT NULL, handoff TEXT,
   predecessor TEXT, reason TEXT, strikes INTEGER NOT NULL DEFAULT 0, asked TEXT, flushed TEXT, retired_by TEXT, waiting INTEGER, answered TEXT, page TEXT, awaits TEXT, placement TEXT
 );
-CREATE TABLE IF NOT EXISTS heard (lane TEXT PRIMARY KEY, at TEXT NOT NULL, kind TEXT, seq INTEGER);
+CREATE TABLE IF NOT EXISTS heard (lane TEXT PRIMARY KEY, at TEXT NOT NULL, kind TEXT, seq INTEGER, node TEXT, late_seconds INTEGER);
 CREATE TABLE IF NOT EXISTS owners (pr INTEGER PRIMARY KEY, lane TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS probes (lane TEXT PRIMARY KEY, asked TEXT NOT NULL, dead TEXT);
 CREATE TABLE IF NOT EXISTS orders (seq INTEGER PRIMARY KEY);
@@ -68,6 +68,8 @@ var addedColumns = []struct{ table, column, kind string }{
 	{"lanes", "awaits", "TEXT"},
 	{"heard", "kind", "TEXT"},
 	{"heard", "seq", "INTEGER"},
+	{"heard", "node", "TEXT"},
+	{"heard", "late_seconds", "INTEGER"},
 	{"lanes", "placement", "TEXT"},
 	{"lanes", "stopped_on", "INTEGER"},
 	{"lanes", "launcher", "TEXT"},
