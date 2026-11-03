@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -57,8 +58,8 @@ func Run(ctx context.Context, s *store.Store, drive, version string, steps Steps
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return 0, err
 		}
-		if err == nil && lease.Version == version {
-			return lease.Generation, steps.announce(ctx, fmt.Sprintf("serving %s on generation %d", version, lease.Generation))
+		if err == nil && slices.Compare(versionKey(lease.Version), versionKey(version)) >= 0 {
+			return lease.Generation, steps.announce(ctx, fmt.Sprintf("serving %s on generation %d", lease.Version, lease.Generation))
 		}
 		serving = lease.Generation
 		steps.Sleep(poll)
