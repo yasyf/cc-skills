@@ -419,7 +419,8 @@ brief=<path> model=<model>'`. The meta lane launches its own implementers with
 few reads of transcripts, records or logs goes through `lr bulk read` (the `bulk-read`
 skill), so no window reads the corpus itself. A lane reads its records
 before it merges (B2 in [bus-contracts.md](reference/bus-contracts.md)): its merge is
-refused while one addressed to it sits unread, and the refusal prints them.
+refused while one another lane addressed to it sits unread and unanswered, and the
+one refusal prints all of them.
 
 | Desk or lane | Does | Brief |
 |---|---|---|

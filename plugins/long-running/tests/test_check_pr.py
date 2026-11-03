@@ -487,6 +487,28 @@ def test_a_scope_name_in_an_import_line_or_a_std_path_is_no_hit(package: Path, s
     assert check(capsys, CheckShell(rows, diff=DIFF.replace("+    self.drain();", line))) == (1 if refusals else 0, refusals)
 
 
+SEALING_ROW = EDGE_CASES | {"words": "get rid of sealing", "answer": '["4e4e4e4"]', "names": '["sealing", "sealed", "seal"]'}
+SEALED_HIT = "NAME-HIT rule/4e4e4e4 src/relay/pool.rs:2 sealed"
+SEALING_HIT = "NAME-HIT rule/4e4e4e4 src/relay/pool.rs:2 sealing"
+
+
+@pytest.mark.parametrize(
+    ("line", "refusals"),
+    [
+        ('+\tif _, err := service.Push(ctx, mesh, []Envelope{sealed(t, service.Key, mesh, "page:p1", 1, Service, "oncall.fix.status")}); err != nil {', []),
+        ('+\tinScope := sealed(t, instanceKey, mesh, "page:p1", 1, Service, "oncall.fix.status")', []),
+        ("+\tinScope, _ = Seal(instanceKey, inScope)", []),
+        ("+func sealed(t *testing.T, payload []byte) Message {", []),
+        ("+    run.sealed = true;", [SEALED_HIT]),
+        ("+    self.sealed(chat);", [SEALED_HIT]),
+        ("+    // sealing the chat on close", [SEALING_HIT]),
+    ],
+)
+def test_a_seal_name_on_a_cryptographic_line_is_no_hit_and_on_a_durable_one_is(package: Path, state: Path, registered: Path, capsys, line: str, refusals: list[str]) -> None:
+    rows = pinned(package) | {"rule/4e4e4e4": dict(SEALING_ROW)}
+    assert check(capsys, CheckShell(rows, diff=DIFF.replace("+    self.drain();", line))) == (1 if refusals else 0, refusals)
+
+
 SHORT_ROW = EDGE_CASES | {"words": "Yes (my pick)", "answer": '["6b6b6b6"]', "names": '["writable"]'}
 WRITABLE_HIT = "NAME-HIT rule/6b6b6b6 src/relay/pool.rs:2 writable"
 

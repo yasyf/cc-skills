@@ -26,9 +26,11 @@ it: a stack number, or a stacked PR merged together with every open PR below
 it, and with none the whole stack of the current branch's PR.
 
 With --lane, the merge first reads that lane's records on --drive, as the lane
-reads them, through its own cursor: one UNREAD line for each record addressed to
-it that no reply has closed, and one MAIL line for each other record the read
-delivered.`,
+reads them, through its own cursor, whole and in one read. It prints one UNREAD
+line for each record another lane addressed to it that no reply has closed, that
+no record resolved and that the lane has not answered, and one MAIL line for
+each other record from another lane, the oldest and the newest 20 when more
+arrived, with a line naming how to read the rest.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			m := Merge{Repo: repo, Mode: One, Drive: drive, Lane: lane}

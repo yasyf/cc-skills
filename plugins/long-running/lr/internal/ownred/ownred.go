@@ -21,6 +21,9 @@ const (
 	UnreadLine    = "UNREAD"
 	MailLine      = "MAIL"
 	closed        = "closed"
+	wholeBudget   = "2147483647"
+	mailShown     = 20
+	mailCut       = "%s %d more after %s not shown; read them with cci tail --drive %s --reader %s --since %s --oldest"
 	readTimeout   = 60 * time.Second
 	workflowPath  = ".github"
 	actionsApp    = "github-actions"
@@ -114,12 +117,20 @@ type pull struct {
 }
 
 type record struct {
-	Seq    int64    `json:"seq"`
-	Lane   string   `json:"lane"`
-	Kind   string   `json:"kind"`
-	Text   string   `json:"text"`
-	To     []string `json:"to"`
-	Status string   `json:"status"`
+	Seq          int64    `json:"seq"`
+	Num          string   `json:"num"`
+	Lane         string   `json:"lane"`
+	Kind         string   `json:"kind"`
+	Text         string   `json:"text"`
+	To           []string `json:"to"`
+	Status       string   `json:"status"`
+	Re           int64    `json:"re"`
+	Resolves     int64    `json:"resolves"`
+	AlsoResolves []int64  `json:"also_resolves"`
+}
+
+func (r record) line(kind string) string {
+	return fmt.Sprintf("%s #%d %s %s: %s", kind, r.Seq, r.Lane, r.Kind, strings.ReplaceAll(r.Text, "\n", " "))
 }
 
 type finding struct {
@@ -186,24 +197,63 @@ func (g Guard) mail(ctx context.Context, m Merge) ([]string, error) {
 	if m.Lane == "" {
 		return nil, nil
 	}
-	done, err := g.Runner.Run(ctx, shell.Command{Argv: []string{"cci", "tail", "--drive", m.Drive, "--cursor", m.Lane, "--reader", m.Lane, "--json"}, Timeout: readTimeout})
+	delivered, err := g.records(ctx, "--drive", m.Drive, "--cursor", m.Lane, "--reader", m.Lane)
 	if err != nil {
 		return nil, err
 	}
+	others := slices.DeleteFunc(slices.Clone(delivered), func(r record) bool { return r.Lane == m.Lane })
+	if len(others) == 0 {
+		return nil, nil
+	}
+	own, err := g.records(ctx, "--drive", m.Drive, "--lane", m.Lane, "--since", others[0].Num)
+	if err != nil {
+		return nil, err
+	}
+	settled := map[int64]bool{}
+	for _, r := range own {
+		settled[r.Re] = true
+	}
+	for _, r := range slices.Concat(delivered, own) {
+		settled[r.Resolves] = true
+		for _, seq := range r.AlsoResolves {
+			settled[seq] = true
+		}
+	}
 	var lines []string
+	var mail []record
+	for _, r := range others {
+		if slices.Contains(r.To, m.Lane) && r.Status != closed && !settled[r.Seq] {
+			lines = append(lines, r.line(UnreadLine))
+			continue
+		}
+		mail = append(mail, r)
+	}
+	if len(mail) > mailShown+1 {
+		oldest := mail[0]
+		lines = append(lines, oldest.line(MailLine), fmt.Sprintf(mailCut, MailLine, len(mail)-mailShown-1, oldest.Num, m.Drive, m.Lane, oldest.Num))
+		mail = mail[len(mail)-mailShown:]
+	}
+	for _, r := range mail {
+		lines = append(lines, r.line(MailLine))
+	}
+	return lines, nil
+}
+
+func (g Guard) records(ctx context.Context, read ...string) ([]record, error) {
+	done, err := g.Runner.Run(ctx, shell.Command{Argv: slices.Concat([]string{"cci", "tail"}, read, []string{"--json", "--budget", wholeBudget}), Timeout: readTimeout})
+	if err != nil {
+		return nil, err
+	}
+	var records []record
 	decoder := json.NewDecoder(strings.NewReader(done.Stdout))
 	for decoder.More() {
 		var r record
 		if err := decoder.Decode(&r); err != nil {
 			return nil, err
 		}
-		kind := MailLine
-		if slices.Contains(r.To, m.Lane) && r.Status != closed {
-			kind = UnreadLine
-		}
-		lines = append(lines, fmt.Sprintf("%s #%d %s %s: %s", kind, r.Seq, r.Lane, r.Kind, strings.ReplaceAll(r.Text, "\n", " ")))
+		records = append(records, r)
 	}
-	return lines, nil
+	return records, nil
 }
 
 func (g Guard) merged(ctx context.Context, m Merge) (string, []int, error) {
