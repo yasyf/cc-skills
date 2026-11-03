@@ -910,6 +910,25 @@ class SpriteTest(unittest.TestCase):
         self.assertEqual(cc_remote.destroyed, [])
         self.assertNotIn("destroyed", tally)
 
+    def test_an_earlier_dispatch_on_a_live_sprite_never_reaches_worktree_rm_on_its_checkout(self):
+        remote_row = {**sprite_row("ctx_s"), "projection": {"host": {"kind": "remote", "id": SPRITE.environment}, "workspace": {"id": SPRITE_WT}}}
+        orca, cc_remote = FakeOrca([remote_row]), FakeCcRemote({(SPRITE_WT, "term_other"): SPRITE})
+        orca.paired[SPRITE.root] = checkout(SPRITE.root, environment=SPRITE.environment)
+        tally, out = run_gc(orca, FakeGit({}), cc_remote=cc_remote)
+        self.assertEqual((orca.calls, cc_remote.destroyed), ([("close", "term_sprite", SPRITE.environment)], []))
+        self.assertNotIn(SPRITE.root, out)
+
+    def test_a_sprite_task_saved_before_its_worker_terminal_is_skipped(self):
+        saved = {"schemaVersion": 1, "provider": "sprites", "workspace": "pool-new", "projectRoot": SPRITE.root, "environmentId": "env_new", "forward": {"host": "pool-new", "config": "/s/ssh/pool-new.ssh"}}
+        attached = {**saved, "workspace": "pool-abc", "environmentId": "env_abc", "forward": {"host": "pool-abc", "config": "/s/ssh/pool-abc.ssh"}, "worktreeId": SPRITE_WT, "terminal": "term_sprite"}
+        with tempfile.TemporaryDirectory() as state:
+            for task in (saved, attached):
+                for kind in ("orca", "workspaces"):
+                    path = Path(state) / kind / f"{task['workspace']}.json"
+                    path.parent.mkdir(exist_ok=True)
+                    path.write_text(json.dumps(task))
+            self.assertEqual(orca_gc.CcRemote(Path(state)).sprites(), self.hosted)
+
     def test_uncommitted_work_keeps_the_sprite(self):
         cc_remote = FakeCcRemote(self.hosted, {"pool-abc": checkout(SPRITE.root, dirty=True)})
         _, out = run_gc(FakeOrca([sprite_row("ctx_s")]), FakeGit({}), cc_remote=cc_remote)
