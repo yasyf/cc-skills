@@ -30,6 +30,7 @@ from brief import COORDINATORS, ROOT, Curator
 from owed import kept, order_replies, overdue_rows, owner_ask_rows, told_asks, trimmed
 from pages import PAGES, source_key, stamp
 from review_assistant import ReviewAssistant
+from screens import SCREENS, changed_screens, screen_view
 from story import Stories
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "skills" / "long-running" / "scripts"))
@@ -75,12 +76,14 @@ PR_REF = re.compile(r"#(\d{4,6})\b")
 PR_RANGE = re.compile(r"#(\d{4,6})-#(\d{4,6})")
 ALERTS_SENT = 20
 CERT_CHECK = 24 * 60 * 60
+SCREEN_ROUTE = re.compile(r"/api/view/([a-z]+)")
 REVIEW_ROUTE = re.compile(r"/api/review/(\d+)")
 MODEL_ROUTE = "/ai/chat/completions"
 MODEL_URL = "https://api.cerebras.ai/v1/chat/completions"
 MODEL_NAME = "gpt-oss-120b"
 MODEL_FIELDS = ("messages", "tools", "tool_choice", "parallel_tool_calls", "reasoning_effort", "reasoning_format", "max_completion_tokens", "temperature", "response_format", "prompt_cache_key", "stream", "stream_options")
 ASSIST =HERE.parents[1] / "skills" / "long-running" / "templates" / "drive-assist.html"
+OWNER_LEDGER = "owner-relay/owner-ledger.md"
 BUILD = hashlib.sha1(b"".join(path.read_bytes() for path in sorted([*HERE.iterdir(), ASSIST]) if path.suffix in (".js", ".css", ".html", ".py"))).hexdigest()[:12]
 CLIENT_RECORD = ("seq", "lane", "kind", "at", "text", "refs", "re")
 PR_ROUTE = re.compile(r"/api/pr/(\d+)")
@@ -1319,6 +1322,9 @@ class Drive:
         live = {**live, "version": version}
         lean = {**lean, "version": encoded(version)}
         views = {"lean": lean, "now": self.encode("now", now_view({**view, "version": version}), lean)}
+        ledger = self.owner_ledger()
+        for name in SCREENS:
+            views[name] = self.encode(name, screen_view(name, view, ledger, version))
         served = {"version": version, "sig": sig, "live": live, "views": views, "bodies": {}}
         with self.serving:
             self.live_model = live
@@ -1344,9 +1350,9 @@ class Drive:
         with self.serving:
             if not self.watchers:
                 self.asked_at = time.monotonic()
-            self.serving.wait_for(lambda: self.served and (kind != "full" or self.served["live"]), timeout=60)
+            self.serving.wait_for(lambda: self.served and (kind in ("lean", "now") or self.served["live"]), timeout=60)
             served = self.served
-            if not served or (kind == "full" and not served["live"]):
+            if not served or (kind not in ("lean", "now") and not served["live"]):
                 return None
             past = dict(self.digests).get(since)
             if past and (delta := self.built(served, (kind, since), lambda: changed_since(served["version"], served["views"][kind], past[kind]))):
@@ -1463,6 +1469,16 @@ class Drive:
         read = self.read_board(self.board_doc)
         answered = {card: {"picked": answer["picked"], "at": max(self.board_times[ask] for ask in answer["asks"])} for card, answer in read["answered"].items()}
         return {**read, "answered": answered, "seq": seq}
+
+    def owner_ledger(self):
+        if "steps" not in self.config:
+            return ""
+        ledger = Path(self.config["steps"]).parents[1] / OWNER_LEDGER
+        return ledger.read_text() if ledger.is_file() else ""
+
+    def screens_changed(self, seen):
+        history = dict(self.digests)
+        return changed_screens(history.get(seen), history[self.served["version"]])
 
     def live(self, model):
         board = self.board()
@@ -1726,6 +1742,13 @@ def handler(drive, tailnet_owner, names):
                 if not (body := drive.body(kind, int(since[1]) if since else None)):
                     return self.send(503, "text/plain", b"The dashboard is building its first view.")
                 return self.send_built(*body)
+            if found := SCREEN_ROUTE.fullmatch(path):
+                if found[1] not in SCREENS:
+                    return self.send(404, "text/plain", b"no such screen")
+                since = re.search(r"since=(\d+)", self.path)
+                if not (body := drive.body(found[1], int(since[1]) if since else None)):
+                    return self.send(503, "text/plain", b"The dashboard is building its first view.")
+                return self.send_built(*body)
             if path == "/api/words":
                 with drive.lock:
                     words = drive.model.get("words", [])
@@ -1924,10 +1947,13 @@ def handler(drive, tailnet_owner, names):
                     with drive.serving:
                         drive.serving.wait_for(lambda: drive.served and drive.served["version"] != seen, timeout=15)
                         version = drive.served and drive.served["version"]
+                        screens = drive.screens_changed(seen) if version not in (None, seen) and drive.served["live"] else []
                     if version in (None, seen):
                         self.wfile.write(b": keep-alive\n\n")
                     else:
                         self.wfile.write(f"event: version\ndata: {version}\n\n".encode())
+                        if screens:
+                            self.wfile.write(f"event: screens\ndata: {json.dumps({'version': version, 'screens': screens})}\n\n".encode())
                         seen = version
                     self.wfile.flush()
             except OSError:
