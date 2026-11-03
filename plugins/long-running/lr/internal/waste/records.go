@@ -11,13 +11,14 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 )
 
 const shapeWords = 4
 
 var (
 	quotedWords  = regexp.MustCompile(`"([^"]{24,})"|“([^”]{24,})”`)
-	raceWords    = regexp.MustCompile(`(?i)(?:^|[^\w-])(?:clobber\w*|rac(?:e|es|ed|ing))\b`)
+	raceWords    = regexp.MustCompile(`(?i)(?:^|[^\w-])(?:clobber\w*|rac(?:e|es|ed|ing))(?:[^\w-]|$)`)
 	warningKinds = []string{"report", "note", "state", "blocker", "blocked", "defect", "evidence", "mechanism"}
 )
 
@@ -146,9 +147,9 @@ func raceWarnings(cfg Config, records []client.Record) []Finding {
 	return findings
 }
 
-func uninstalled(ctx context.Context, src Sources, cfg Config, drive string, now time.Time) ([]Finding, error) {
+func uninstalled(ctx context.Context, src Sources, cfg Config, drive config.Config, now time.Time) ([]Finding, error) {
 	lookback := time.Duration(cfg.MergeLookbackHours) * time.Hour
-	records, err := src.Bus.Tail(ctx, client.Query{Drive: drive, Since: now.Add(-lookback), Kinds: []string{"landed", "done"}})
+	records, err := src.Bus.Tail(ctx, client.Query{Drive: drive.Drive, Since: now.Add(-lookback), Kinds: []string{"landed", "done"}})
 	if err != nil {
 		return nil, err
 	}
@@ -165,26 +166,15 @@ func uninstalled(ctx context.Context, src Sources, cfg Config, drive string, now
 				installed[ref.String()] = true
 				continue
 			}
-			if _, seen := merges[ref.String()]; !seen {
+			if _, seen := merges[ref.String()]; !seen && ref.Repo != "" && ref.Repo != drive.Repo {
 				merges[ref.String()] = merge{record.Lane, record.At, ref.Number}
 			}
 		}
 	}
-	meta := map[string]bool{}
 	var findings []Finding
 	for pr, merged := range merges {
 		age := int64(now.Sub(merged.at).Minutes())
-		if installed[pr] || installed[strconv.Itoa(merged.number)] || age < cfg.Floors.Uninstalled {
-			continue
-		}
-		isMeta, asked := meta[merged.lane]
-		if !asked {
-			if isMeta, err = src.Meta(merged.lane); err != nil {
-				return nil, err
-			}
-			meta[merged.lane] = isMeta
-		}
-		if isMeta {
+		if !installed[pr] && !installed[strconv.Itoa(merged.number)] && age >= cfg.Floors.Uninstalled {
 			findings = append(findings, Finding{signalUninstalled, signalUninstalled + "/" + pr, age, "minutes", merged.lane, pr + " merged, and no done record names its installed version and proof", cfg.Floors.Uninstalled})
 		}
 	}

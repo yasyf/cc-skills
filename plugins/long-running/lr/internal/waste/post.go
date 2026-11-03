@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
@@ -14,7 +15,7 @@ type Poster struct {
 	Sources Sources
 	Config  Config
 	Store   *store.Store
-	Drive   string
+	Drive   config.Config
 	Now     func() time.Time
 	Post    func(to []string, body bus.Body) error
 }

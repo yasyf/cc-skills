@@ -121,7 +121,7 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 		if err != nil {
 			return Deps{}, err
 		}
-		report := waste.Poster{Sources: waste.Live(env.Bus, a.Runner, s), Config: wasteConfig, Store: s, Drive: env.Config.Drive, Now: a.Now, Post: post}
+		report := waste.Poster{Sources: waste.Live(env.Bus, a.Runner, s), Config: wasteConfig, Store: s, Drive: env.Config, Now: a.Now, Post: post}
 		checks = append(checks,
 			(&background{name: "waste-report", every: wasteEvery, run: report.Pass, store: s, post: post, log: a.Log, to: wasteConfig.Lane}).Check,
 			(&watch.Stalls{Store: s, Drive: env.Config.Drive, Runner: a.Runner, Post: post, Log: a.Log}).Check,
