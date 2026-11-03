@@ -166,14 +166,13 @@ A failed launch prints `<lane> failed <step and reason>` and exits 1; invalid us
 
 ## Run `orca-check.sh`
 
-**Check worker mailboxes or sweep stale mail.**
+**Check worker mailboxes.**
 
 ```text
 usage: orca-check.sh [--peek] [-- <orca check args>...]
-       orca-check.sh --stale [--inbox <inbox file>]
 ```
 
-- Blocking or peek check for worker terminals only: Do not start a blocking Run check beside `desk-runner.py`. Workers pass `-- --terminal <handle>`. Without `--peek` or `--stale`, the script calls `orca orchestration check --wait --types worker_done,escalation,question`, prints each non-heartbeat message and the batch delivery id, or prints `timeout`:
+- Blocking or peek check for worker terminals only: Do not start a blocking Run check beside `desk-runner.py`. Workers pass `-- --terminal <handle>`. Without `--peek`, the script calls `orca orchestration check --wait --types worker_done,escalation,question`, prints each non-heartbeat message and the batch delivery id, or prints `timeout`:
 
 ```text
 <msg id> <type> <lane> <subject>: <body on one line>
@@ -181,15 +180,9 @@ delivery <delivery id> heartbeats=<n>
 ```
 
 The lane comes from the launch receipt's terminal handle; a sender with no matching receipt prints as its handle. Acknowledge the previous batch by passing `-- --ack <delivery-id>`, using `result.deliveryId` and never a message id. `--peek` prints unread messages without waiting or marking them read.
-- Stale sweep (`--stale`): Used by the runner's 5-minute sweep. Reads each receipt's dispatch with `worker-show` and peeks its terminal's unread messages. The output is similar to the following:
-  - `STALE <lane> <age>m unread <msg id>` for an in-progress dispatch with messages unread for at least `ORCA_CHECK_STALE_MINUTES` (default `10`),
-  - `STALE <lane> <age>m <completed|failed> <msg id>` for unread messages on a completed or failed dispatch, and
-  - `STALE <lane> <age>m <completed|failed> R<n>` for a line in `--inbox` past `<inbox file>.cursor` addressed to that lane.
-  Message age starts at creation; inbox line age starts at dispatch completion.
 
 | Variable | Meaning and default |
 |---|---|
-| `ORCA_CHECK_STALE_MINUTES` | Unread age in minutes that flags an in-progress dispatch; defaults to `10`. |
 | `ORCA_CHECK_TIMEOUT_MS` | Maximum mailbox wait in milliseconds; defaults to `60000` (keep at most `60000`). |
 | `ORCA_CHECK_STATE` | Launch receipt directory; defaults to `$XDG_STATE_HOME/long-running/orca-launch/<run>`, with `$XDG_STATE_HOME` defaulting to `~/.local/state`. |
 | `ORCA_CHECK_RETRY_SECONDS` | Wait in seconds before a connection retry; defaults to `30`. |

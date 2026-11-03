@@ -78,7 +78,8 @@ while that poll is over two minutes old. It also reads the drive's cci records a
 its only source of orders, and turns each new `orca-desk: relay to <lane>[, <lane>…][ and <lane>]: <text>` line into one relay
 per lane, a reply to the lane's latest open question no other reply claims, logged once as
 `RELAYED` or `RELAY-FAILED`; to a lane with no live dispatch it is a plain relay delivered as above. Each new `orca-desk: launch <lane> [NOW] <model> <effort> [role=<role>] brief=<absolute path>`
-line is the `launch` command under its key, `NOW` meaning `--owner-directed` and `role=` meaning `--role`, valid for
+line is the `launch` command under the key `R<n>`, `<n>` being the number every cci node names its record by, whatever
+`R<n>` the line opens with, so two posters never share a key, `NOW` meaning `--owner-directed` and `role=` meaning `--role`, valid for
 fifteen minutes from its record's time, or for the longest of the runner's last ten passes when that is longer: a `launch`
 or `incident` line read later launches nothing and logs `LAUNCH-EXPIRED` naming both, so a backlog replayed after an
 outage starts no stale lane (root #267159). Desk lines are read at each pass's start, between its slow steps, and from a
@@ -226,8 +227,9 @@ binding lost mid-run escalates UNBOUND once and fails every launch at once with
 `accepted_at` logs one `LAUNCH-STALLED` blocker naming the `orca-desk: withdraw` line and the `orca-launch.sh` command
 that launches it by hand, whatever held it; no incident clock defers it. `rebind` runs
 `orca orchestration run-use` from the current terminal and records it; `show` prints the
-binding first. Mac load queues and refuses no launch. While the cores busy, the sum of every
-process's `ps` CPU share, are above the core count, each ten minutes of it logs one `LOAD-HIGH` blocker telling the drive watchdog to
+binding first. Mac load queues and refuses no launch. While the Mac's CPU is at least 90% busy over
+the last minute, read from the kernel's tick counters once a pass and never from the load average, which
+counts every sleeping shell, each ten minutes of it logs one `LOAD-HIGH` blocker telling the drive watchdog to
 move the load, and a launch that may run only on the Mac starts there anyway: a brief
 whose `ccx:` line says `place=local`, a Fable or incident launch, and an incident clock fallback.
 An incident launch also logs one `LOAD-INCIDENT` report naming the load. A desk with no usable
@@ -645,6 +647,7 @@ round, foundational rows first.
 from __future__ import annotations
 
 import argparse
+import ctypes
 import hashlib
 import html
 import itertools
@@ -660,7 +663,7 @@ import tempfile
 import threading
 import time
 import traceback
-from collections import Counter
+from collections import Counter, deque
 from contextlib import ExitStack, closing, contextmanager
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -668,6 +671,7 @@ from concurrent.futures import wait as finished_by
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from fnmatch import fnmatch, fnmatchcase
+from functools import cache
 from pathlib import Path, PurePosixPath
 from zoneinfo import ZoneInfo
 
@@ -975,7 +979,10 @@ RAISED_BACKOFF = timedelta(minutes=1)
 WAKE_SECONDS = 0.25
 STOP_CONFIRM = timedelta(seconds=30)
 STOP_POLL_SECONDS = 2
-SHOW_WORKERS = 8
+STALE_MAIL = timedelta(minutes=10)
+CPU_WINDOW = timedelta(minutes=1)
+CPU_BUSY_LIMIT = 0.9
+HOST_CPU_LOAD_INFO = 3
 GATE_WORKERS = 16
 JUDGE_WORKERS = 2
 JUDGED_RECORDS = 12
@@ -1177,7 +1184,7 @@ LAUNCHER = SCRIPTS.parents[2] / "bin" / "orca-launch.sh"
 HOLD_SPEC = re.compile(r"^ (?P<slug>[a-z0-9][a-z0-9.-]*) owner=(?P<owner>[\w.-]+) :: (?P<what>\S.*)$")
 UNHOLD_SPEC = re.compile(r"^ (?P<slug>[a-z0-9][a-z0-9.-]*)$")
 WITHDRAW_SPEC = re.compile(r"^ (?P<target>[\w.:-]+)$")
-LAUNCH_KEY = re.compile(rf"R\d+|unfixed:[\w-]+:\d+|inbox@\S+|{CLOCK}:ctx_[\w-]+")
+LAUNCH_KEY = re.compile(rf"R\d+(?:@\w+)?|unfixed:[\w-]+:\d+|inbox@\S+|{CLOCK}:ctx_[\w-]+")
 WITHDRAWN = "withdrawn"
 WITHDRAW_PENDING = "withdraw-pending"
 FENCED = "dispatch_inactive"
@@ -1280,7 +1287,7 @@ def command_name(argv: list[str]) -> str:
 
 
 class Shell:
-    """The single side-effect boundary: every subprocess, the clock, and the load average pass through here.
+    """The single side-effect boundary: every subprocess, the clock, and the kernel's CPU counters pass through here.
 
     Input reaches a child from a file, never a pipe the runner writes while the child's output
     fills, and a child still running after COMMAND_TIMEOUT_SECONDS is killed and fails its pass; a child that is one of the
@@ -1412,15 +1419,50 @@ class Shell:
     def sleep(self, seconds: float) -> None:
         time.sleep(seconds)
 
-    def load(self) -> float:
-        """Cores' worth of CPU in use, the sum of every process's `ps` share: the load average also counts the thousands of idle watcher shells a drive leaves, which held the 1-minute load at 36 to 66 while the CPU was a third busy (meta-desk-1, Nov 2 8:43 PM)."""
-        return sum(float(share) for share in subprocess.run(["ps", "-A", "-o", "%cpu="], capture_output=True, text=True, timeout=QUICK_SECONDS).stdout.split()) / 100
+    cpu_readings: deque[tuple[float, tuple[int, int]]] = deque()
 
-    def cores(self) -> int:
-        return os.cpu_count() or 1
+    def read_cpu(self) -> None:
+        """Keep a reading of the kernel's CPU tick counters, dropping each one older than the newest reading at least `CPU_WINDOW` old; `run --desk orca` reads once a pass."""
+        now = time.monotonic()
+        self.cpu_readings.append((now, cpu_ticks()))
+        while len(self.cpu_readings) > 2 and now - self.cpu_readings[1][0] >= CPU_WINDOW.total_seconds():
+            self.cpu_readings.popleft()
+
+    def cpu_busy(self) -> float:
+        """The share of CPU time spent busy since the oldest reading kept, about the last minute, or over the next second when none is kept."""
+        if not self.cpu_readings:
+            self.read_cpu()
+            time.sleep(1)
+        self.read_cpu()
+        return busy_share(self.cpu_readings[0][1], self.cpu_readings[-1][1])
 
     def env(self, name: str) -> str:
         return os.environ.get(name, "")
+
+
+@cache
+def mach_host() -> tuple[ctypes.CDLL, int]:
+    """libSystem and the host port, taken once: each `mach_host_self` call adds a reference to the port, and they run out at 65,534."""
+    system = ctypes.CDLL("/usr/lib/libSystem.dylib")
+    return system, system.mach_host_self()
+
+
+def cpu_ticks() -> tuple[int, int]:
+    """The busy and idle CPU ticks summed over every CPU since boot: /proc/stat on Linux, host_statistics on macOS, whose counters wrap at 2**32."""
+    if sys.platform == "darwin":
+        system, host = mach_host()
+        ticks = (ctypes.c_uint32 * 4)()
+        if code := system.host_statistics(host, HOST_CPU_LOAD_INFO, ticks, ctypes.byref(ctypes.c_uint32(len(ticks)))):
+            raise OSError(f"host_statistics returned {code}")
+        user, kernel, idle, nice = ticks
+        return user + kernel + nice, idle
+    user, nice, kernel, idle, iowait, irq, softirq, steal = map(int, Path("/proc/stat").read_text().split(maxsplit=9)[1:9])
+    return user + nice + kernel + irq + softirq + steal, idle + iowait
+
+
+def busy_share(then: tuple[int, int], now: tuple[int, int]) -> float:
+    busy, idle = ((later - earlier) % 2**32 for earlier, later in zip(then, now))
+    return busy / max(busy + idle, 1)
 
 
 LANE_IDENTITY = ("CCI_AGENT_ID", "CCI_LANE", "CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID")
@@ -1930,6 +1972,20 @@ class Orca:
         listed = self.call("orchestration", "check", "--terminal", terminal, "--all")
         return (listed.get("result") or {}).get("messages") or [] if listed.get("ok") else None
 
+    def unread(self, terminal: str) -> set[str] | None:
+        peeked = self.call("orchestration", "check", "--terminal", terminal, "--peek")
+        return {message["id"] for message in (peeked.get("result") or {}).get("messages") or []} if peeked.get("ok") else None
+
+    def mail(self, limit: int) -> list[dict]:
+        """The newest `limit` messages Orca holds for every recipient, newest first."""
+        return self.ask("orchestration", "inbox", "--limit", str(limit))["result"]["messages"]
+
+    def mail_since(self, cursor: int, page: int) -> list[dict]:
+        """Every message past sequence `cursor`, oldest first, read newest first in pages from `page` that double until one reaches the cursor."""
+        while len(messages := self.mail(page)) == page and messages[-1]["sequence"] > cursor + 1:
+            page *= 2
+        return [message for message in reversed(messages) if message["sequence"] > cursor]
+
     def request_state(self, request: str) -> str:
         shown = self.call("orchestration", "request-show", "--request", request)
         return (shown.get("result") or {}).get("state", "absent") if shown.get("ok") else UNREAD
@@ -1992,6 +2048,11 @@ class Orca:
         shared = any(row.get("tabId") == tab and row["handle"] != terminal for row in listed)
         closed = self.ask("terminal", "close", "--terminal", terminal, *(() if shared else ("--tab",)))
         return "" if closed.get("ok") else closed["error"]["code"]
+
+
+def line_key(directive: re.Match, record: dict) -> str:
+    """The key of the `orca-desk:` line `record` carries: a launch or incident line's is `R` and the number every cci node names the record by, `#<seq>` or `#<seq>@<node>`, which the bus allocates once, so two posters on any session or machine never share one; any other line keeps the `R<n>` it opens with."""
+    return f"R{record['num'].removeprefix('#')}" if directive["verb"] in EXPIRING else directive["key"] or f"inbox@cci#{record['seq']}"
 
 
 def drop_receipt(receipt: Path, read: str) -> None:
@@ -2794,7 +2855,7 @@ class Runner:
         if record["kind"] == "withdraw":
             directive = INBOX_DIRECTIVE.match(closed["text"].strip())
             if ORCA_DESK in (closed.get("to") or []) and directive and directive["verb"] == "launch":
-                self.withdraw(at, at, directive["key"] or f"inbox@cci#{closed['seq']}")
+                self.withdraw(at, at, line_key(directive, closed))
                 return True
             return False
         if closed["lane"] == RUNNER and (decide := DECIDE_LINE.match(closed["text"])):
@@ -2829,13 +2890,13 @@ class Runner:
     def cci_line(self, record: dict) -> None:
         seq, line = record["seq"], record["text"].strip()
         directive = INBOX_DIRECTIVE.match(line)
-        if directive and directive["verb"] == "relay" and not (line := self.whole_text(f"cci#{seq}", directive["key"] or f"inbox@cci#{seq}", "inbox", record)):
+        if directive and directive["verb"] == "relay" and not (line := self.whole_text(f"cci#{seq}", line_key(directive, record), "inbox", record)):
             return
         if directive and directive["verb"] in EXPIRING and (spec := EXPIRING[directive["verb"]].match(directive["rest"])) and (age := self.now() - actions.parse_stamp(record["at"])) > (window := self.launch_window()):
             lane = spec["lane"] if directive["verb"] == "launch" else f"{spec['slug']}-fix"
-            self.record(f"escalation:launch:cci#{seq}", f"LAUNCH-EXPIRED {directive['key'] or f'inbox@cci#{seq}'} {lane}: cci #{seq} was posted at {pacific(actions.parse_stamp(record['at']))}, {int(age.total_seconds() // 60)} minutes before this read; this runner's longest recent pass took {int(max(self.pass_took, default=timedelta()).total_seconds() // 60)} minutes, and a launch line is valid for {int(window.total_seconds() // 60)}; nothing was launched")
+            self.record(f"escalation:launch:cci#{seq}", f"LAUNCH-EXPIRED {line_key(directive, record)} {lane}: cci #{seq} was posted at {pacific(actions.parse_stamp(record['at']))}, {int(age.total_seconds() // 60)} minutes before this read; this runner's longest recent pass took {int(max(self.pass_took, default=timedelta()).total_seconds() // 60)} minutes, and a launch line is valid for {int(window.total_seconds() // 60)}; nothing was launched")
             return
-        if not self.inbox_line(f"cci#{seq}", line, record["lane"]):
+        if not self.inbox_line(record, line):
             self.refuse_line(record)
 
     def launch_window(self) -> timedelta:
@@ -2851,11 +2912,11 @@ class Runner:
         opening = f"{line[:80]}…" if len(line) > 80 else line
         self.record(f"escalation:cci:{seq}", f"DIRECTIVE-FAILED cci#{seq} inbox: it opens `{opening}`, and a record addressed to {ORCA_DESK} is one `[<H:MM AM|PM>] [R<n> (<clock>)] orca-desk: <relay|launch|alert|incident|hold|unhold|withdraw> …` line, with or without --re, or a root reply this desk acts on: a withdraw of a launch line or an answer to an open question; nothing was done")
 
-    def inbox_line(self, at: str, line: str, by: str) -> bool:
+    def inbox_line(self, record: dict, line: str) -> bool:
         directive = INBOX_DIRECTIVE.match(line)
         if not directive:
             return False
-        key = directive["key"] or f"inbox@{at}"
+        at, key, by = f"cci#{record['seq']}", line_key(directive, record), record["lane"]
         if directive["verb"] == "launch":
             self.launch_line(at, key, directive["rest"], by)
             return True
@@ -3662,7 +3723,7 @@ class Runner:
         if not remote and (held := self.mac_over_load()):
             self.move_load(held)
             if spec["model"] == INCIDENT_MODEL:
-                self.escalate(f"{container}/{action.action_id}:load", "LOAD-INCIDENT", lane, f"{action.action_id} launches on {held}: an incident fix lane is never held for load", to=self.watchdog)
+                self.escalate(f"{container}/{action.action_id}:load", "LOAD-INCIDENT", lane, f"{action.action_id} launches at {held}: an incident fix lane is never held for load", to=self.watchdog)
         if not self.book.attempt(container, lambda incident: incident.start(action.action_id, self.now(), deadline=actions.parse_stamp(action.deadline))):
             return
         if remote:
@@ -3722,11 +3783,9 @@ class Runner:
         return None
 
     def mac_over_load(self) -> str:
-        """The Mac's CPU load when it is over what a worktree checkout survives, or empty while the cores busy are at or below the core count."""
-        load, cores = self.shell.load(), self.shell.cores()
-        if load <= cores:
-            return ""
-        return f"load {load:.0f} above {cores} cores"
+        """The Mac's CPU busy share when it is over what a worktree checkout survives, or empty below `CPU_BUSY_LIMIT`; the load average, which counts every sleeping shell, is never read."""
+        busy = self.shell.cpu_busy()
+        return f"CPU {busy:.0%} busy over the last minute" if busy >= CPU_BUSY_LIMIT else ""
 
     def move_load(self, held: str) -> None:
         """Tell the drive watchdog, once per ten minutes, that the load has to move."""
@@ -3750,7 +3809,7 @@ class Runner:
                     f"stalled:{container}/{action.action_id}",
                     "LAUNCH-STALLED",
                     lane,
-                    f"{action.action_id} accepted at {pacific(since)} has no dispatch {int((self.now() - since).total_seconds())} s on, with {self.shell.load():.0f} of {self.shell.cores()} cores busy;"
+                    f"{action.action_id} accepted at {pacific(since)} has no dispatch {int((self.now() - since).total_seconds())} s on, with the CPU {self.shell.cpu_busy():.0%} busy over the last minute;"
                     f" withdraw it with `orca-desk: withdraw {action.action_id}`, then launch it by hand: `orca-launch.sh {lane} {spec['model']} {spec['effort']} {spec['brief']}`",
                 )
 
@@ -4053,39 +4112,59 @@ class Runner:
             inboxes.Inbox(path).rotate(self.now().timestamp())
 
     def sweep(self) -> None:
-        """Unread mail on a live dispatch gets one wake, typed only at its idle prompt; mail a settled dispatch never read, a dispatch that is not live, or a prompt watch that stopped polling escalates once."""
-        done = self.shell.run([str(SCRIPTS / "orca-check.sh"), "--stale"], env={"ORCA_CHECK_STATE": str(self.config.receipts), "ORCA_LAUNCH_RUN": self.config.run})
-        for line in done.out.splitlines():
-            parts = line.split()
-            if len(parts) < 5 or parts[0] != "STALE":
-                continue
-            lane, status, item = parts[1], parts[3], parts[4]
-            if status != "unread":
+        """Mail a lane's terminal has held unread `STALE_MAIL` gets one wake while its dispatch is live, typed only at its idle prompt, and escalates once when the dispatch settled; a settled dispatch that still holds its terminal is named once for reclaim; a prompt watch that stopped polling escalates once. One worker list and one read of new mail cover every dispatch, so its Orca calls stay flat in the dispatch count."""
+        rows = {row["dispatchId"]: row for row in self.orca.workers("--include-remote")}
+        receipts = {lane: self.orca.receipt(lane) for lane in self.orca.lanes()}
+        statuses = {lane: rows[dispatch]["dispatchStatus"] for lane, dispatch in receipts.items() if dispatch in rows}
+        for lane, item in self.stale_mail(receipts, statuses):
+            if (status := statuses.get(lane)) in INACTIVE:
                 self.escalate(f"stale:{item}", "STALE-MAIL", lane, f"{item} unread by a {status} dispatch")
-                continue
-            if (
-                not self.book.known(RUNNER, f"wake:{item}")
-                and (terminal := self.orca.terminal(lane))
-                and self.orca.wake(terminal, f"unread Orca message {item}; read it now")
-            ):
+            elif not self.book.known(RUNNER, f"wake:{item}") and self.orca.wake(self.orca.terminal(lane), f"unread Orca message {item}; read it now"):
                 self.book.accept(RUNNER, f"wake:{item}", "wake", item, lane, None)
         hour = actions.stamp(self.now())[:13]
         named = {action.action_id for action in self.book.actions(RUNNER, kind="reclaim")}
-        settled: list[Dispatch] = []
-        lanes = [lane for lane in self.orca.lanes() if f"reclaim:{self.orca.receipt(lane)}" not in named]
-        with ThreadPoolExecutor(SHOW_WORKERS) as pool:
-            shown = list(pool.map(self.orca.show, lanes))
-        for lane, dispatch in zip(lanes, shown):
-            if not dispatch:
-                continue
-            if dispatch.status in INACTIVE:
-                settled.append(dispatch)
+        settled = [
+            Dispatch(lane=lane, id=dispatch, terminal=rows[dispatch].get("agentTerminalHandle") or self.orca.terminal(lane), status=rows[dispatch]["dispatchStatus"], live=False)
+            for lane, dispatch in receipts.items()
+            if statuses.get(lane) in INACTIVE and f"reclaim:{dispatch}" not in named
+        ]
         if settled:
             self.reclaim(settled)
         watch = json.loads(self.shell.run([sys.executable, str(SCRIPTS / "prompt_watch.py"), "show", "--cci-drive", self.config.drive, "--json"]).out or "{}")
         for row in watch.get("rows") or []:
             if row["state"] == "down":
                 self.escalate(f"prompt-watch:{hour}", "PROMPT-WATCH-DOWN", "runner", row["detail"])
+
+    def stale_mail(self, receipts: dict[str, str], statuses: dict[str, str]) -> list[tuple[str, str]]:
+        """Each message a lane's terminal holds unread `STALE_MAIL` after it was sent, or holds at all once its dispatch settled, as (lane, message id). Orca's mail is read once past a saved sequence, each unread message to a lane's terminal is kept until that terminal reads it, and only a terminal holding one that is due is peeked; the first read only saves the newest sequence."""
+        fact = f"mail:{self.config.run}"
+        if (kept := self.book.fact(RUNNER, fact, None)) is None:
+            newest = max((message["sequence"] for message in self.orca.mail(1)), default=0)
+            self.book.edit(RUNNER, lambda incident: incident.facts.update({fact: {"cursor": newest, "page": INBOX_PAGE_SIZE, "unread": {}}}))
+            return []
+        terminals = {self.orca.terminal(lane): lane for lane in receipts}
+        new = self.orca.mail_since(kept["cursor"], kept["page"])
+        unread = kept["unread"] | {message["id"]: {"terminal": message["to_handle"], "at": message["created_at"]} for message in new if message["to_handle"] in terminals and not message["read"]}
+        due = {
+            entry["terminal"]
+            for entry in unread.values()
+            if (lane := terminals.get(entry["terminal"])) is None or self.now() - actions.parse_stamp(entry["at"]) >= STALE_MAIL or statuses.get(lane) in INACTIVE
+        }
+        stale: list[tuple[str, str]] = []
+        for terminal in sorted(due):
+            lane = terminals.get(terminal)
+            if (held := self.orca.unread(terminal) if lane else set()) is None:
+                continue
+            settled = statuses.get(lane) in INACTIVE
+            for message in [message for message, entry in unread.items() if entry["terminal"] == terminal]:
+                if message in held:
+                    stale.append((lane, message))
+                if message not in held or settled:
+                    del unread[message]
+        cursor = max((message["sequence"] for message in new), default=kept["cursor"])
+        page = max(INBOX_PAGE_SIZE, 2 * len(new))
+        self.book.edit(RUNNER, lambda incident: incident.facts.update({fact: {"cursor": cursor, "page": page, "unread": unread}}))
+        return stale
 
     def reclaim(self, settled: list[Dispatch]) -> None:
         named = " ".join(f"{dispatch.lane}={dispatch.id}:{dispatch.terminal}" for dispatch in settled[:RECLAIM_NAMED])
@@ -10693,6 +10772,7 @@ def run_orca(runner: Runner, once: bool) -> int:
             runner.flush()
             runner.timed_pass()
             runner.beat("orca")
+            runner.shell.read_cpu()
             if once:
                 return 0
             runner.idle(runner.pass_wait())
