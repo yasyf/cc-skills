@@ -81,7 +81,6 @@ from long_running import incidents as incident_log
 from long_running import ledger
 import owner_waits
 import plans
-from lr.store import STALE_AFTER
 
 DELIVERED_KINDS = frozenset({"report", "done", "fix-live", "handoff"})
 REPORTED_KINDS = DELIVERED_KINDS | {"head"}
@@ -95,6 +94,7 @@ LIVE_LANES = frozenset({"launching", "desired", "held"})
 POSTING = LIVE_LANES | {"unregistered"}
 LANE_NAME = re.compile(r"[a-z][\w.-]*")
 QUIET_AFTER = timedelta(hours=24)
+STALE_AFTER = timedelta(minutes=15)
 WAITS_ON_ROOT = frozenset({"ask", "blocker", "blocked"})
 INCIDENT_ROLE = re.compile(r"-(?:fix|evidence|ship|monitor|backup|diag)(?:-\d+)?$")
 ROOT = "root"

@@ -228,7 +228,7 @@ supervisor and registry entry, and names the `orca-gc` line to run once they sto
 
 | To know | Run |
 |---|---|
-| Is a lane alive, and what did it last say | `lr lanes <lane>` (today `drive_supervisor.py lanes <lane> --config <lr.json>`) |
+| Is a lane alive, and what did it last say | `lr lanes <lane> --config <lr.json>` |
 | Every lane, its state, PRs and standing duty | `lr lanes` |
 | What happened since it last looked | `cci digest --drive <drive>`, then `cci tail --drive <drive> --cursor root` |
 | What waits on the owner | `cci owner-waits --drive <drive>` |
@@ -443,7 +443,7 @@ reconciles the list against the registry at every handoff.
 LEDGER=$(ledger.py init --title "desk: $DRIVE")
 drive.py start --ledger "$LEDGER" --orca-run <run> [--state-dir ~/.claude/scratch/<slug>] [--program <plan slug>]
 cci subscribe --drive <drive> --reader owner-relay --kind report,ask
-drive_supervisor.py install --config <state dir>/lr.json
+lr supervisor install --config <state dir>/lr.json
 export LR_CONFIG=<state dir>/lr.json
 lr launch coordinator <state dir>/root/brief.md
 lr launch meta <state dir>/meta/brief.md
