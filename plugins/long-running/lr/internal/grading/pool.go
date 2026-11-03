@@ -1,0 +1,552 @@
+package grading
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io/fs"
+	"log/slog"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
+	"syscall"
+	"time"
+
+	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/capacity"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/grading/grader"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
+)
+
+const (
+	localBox          = "local"
+	logFile           = "job.log"
+	pidFile           = "pid"
+	sourcesFile       = "sources.md"
+	capacityFile      = "grader-capacity.json"
+	failuresDir       = "sprite-failures"
+	defaultConcurrent = 8
+	maxAttempts       = 3
+	headChars         = 12
+	readTimeout       = 120 * time.Second
+	failedHold        = 10 * time.Minute
+	spriteFailingFor  = 10 * time.Minute
+)
+
+var (
+	ErrNoCapacity = errors.New("no grader capacity")
+	ErrAnswered   = errors.New("no pass to run")
+
+	proofTitle = regexp.MustCompile(`(?i)\bproof:|\b(?:red|green) proof\b|\bproof, do not merge\b`)
+	proofBody  = regexp.MustCompile(`(?im)^proof PR\b`)
+)
+
+type names []string
+
+func (n *names) UnmarshalJSON(data []byte) error {
+	var one string
+	if err := json.Unmarshal(data, &one); err == nil {
+		*n = names{one}
+		return nil
+	}
+	return json.Unmarshal(data, (*[]string)(n))
+}
+
+type Spec struct {
+	Sprite     names               `json:"sprite"`
+	SpriteKeys map[string][]string `json:"sprite_keys"`
+	Checkout   string              `json:"checkout"`
+	Model      string              `json:"model"`
+	Fast       *bool               `json:"fast"`
+	To         []string            `json:"to"`
+	Concurrent int                 `json:"concurrent"`
+	Baseline   string              `json:"baseline"`
+	Sources    Sources             `json:"sources"`
+}
+
+type Sources struct {
+	Docs    map[string][]string `json:"docs"`
+	Records map[string][]int64  `json:"records"`
+}
+
+type landing struct {
+	Checkout     string   `json:"checkout"`
+	FidelityLane names    `json:"fidelity_lane"`
+	PortPhrase   string   `json:"port_phrase"`
+	ExemptGrades []string `json:"exempt_grades"`
+}
+
+type desk struct {
+	spec Spec
+	lane string
+}
+
+type PoolDeps struct {
+	Runner  shell.Runner
+	Spawn   Spawn
+	Workers func() ([]store.Worker, error)
+	Now     func() time.Time
+	Log     *slog.Logger
+	Self    string
+	Scripts string
+	Config  string
+}
+
+type JobPool struct {
+	PoolDeps
+	drive     string
+	root      string
+	briefs    string
+	landing   landing
+	spriteCap *int
+	desks     map[string]desk
+	executors int
+}
+
+type Spawn func(ctx context.Context, argv []string, env map[string]string, log string) (int, error)
+
+func Detached(ctx context.Context, argv []string, env map[string]string, log string) (int, error) {
+	out, err := os.OpenFile(log, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	if err != nil {
+		return 0, err
+	}
+	defer out.Close()
+	cmd := exec.CommandContext(context.WithoutCancel(ctx), argv[0], argv[1:]...)
+	cmd.Stdout, cmd.Stderr = out, out
+	cmd.Env = os.Environ()
+	for name, value := range env {
+		cmd.Env = append(cmd.Env, name+"="+value)
+	}
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if err := cmd.Start(); err != nil {
+		return 0, err
+	}
+	go func() { _ = cmd.Wait() }()
+	return cmd.Process.Pid, nil
+}
+
+func NewJobPool(runner config.Runner, deps PoolDeps) (*JobPool, error) {
+	p := &JobPool{PoolDeps: deps, drive: runner.Drive, root: filepath.Dir(runner.Source), briefs: runner.Orca.Briefs.Repo, desks: map[string]desk{}}
+	if raw, on := runner.Sections["landing"]; on {
+		if err := json.Unmarshal(raw, &p.landing); err != nil {
+			return nil, fmt.Errorf("landing: %w", err)
+		}
+	}
+	if raw, on := runner.Sections["sprite_cap"]; on {
+		if err := json.Unmarshal(raw, &p.spriteCap); err != nil {
+			return nil, fmt.Errorf("sprite_cap: %w", err)
+		}
+	}
+	for grading, lane := range map[string]string{GraderFinder: grader.FinderLane, GraderFidelity: grader.FidelityLane} {
+		raw, on := runner.Sections[grading]
+		if !on {
+			continue
+		}
+		spec := Spec{Concurrent: defaultConcurrent}
+		if err := json.Unmarshal(raw, &spec); err != nil {
+			return nil, fmt.Errorf("%s: %w", grading, err)
+		}
+		p.desks[grading] = desk{spec, lane}
+	}
+	return p, nil
+}
+
+func (p *JobPool) Scale(queued int, now time.Time) error {
+	limit := 0
+	for _, d := range p.desks {
+		limit = max(limit, len(d.spec.Sprite))
+	}
+	if limit == 0 {
+		return nil
+	}
+	path := filepath.Join(p.root, capacityFile)
+	pool := capacity.Pool{}
+	data, err := os.ReadFile(path)
+	switch {
+	case err == nil:
+		if err := json.Unmarshal(data, &pool); err != nil {
+			return fmt.Errorf("%s: %w", path, err)
+		}
+	case !errors.Is(err, fs.ErrNotExist):
+		return err
+	}
+	pool.Limit, pool.Concurrency = limit, defaultConcurrent
+	if p.spriteCap != nil {
+		pool.Concurrency = *p.spriteCap
+	}
+	planned := capacity.Plan(pool, float64(queued)*machine.GradeClock.Minutes(), now)
+	p.executors = planned.Executors
+	return writeAtomic(path, planned)
+}
+
+func (p *JobPool) Dispatch(ctx context.Context, grading string, facts machine.Facts) (string, error) {
+	d, on := p.desks[grading]
+	if !on {
+		return "", ErrNoCapacity
+	}
+	pr := strconv.Itoa(facts.Number)
+	workers, err := p.Workers()
+	if err != nil {
+		return "", err
+	}
+	if grading == GraderFinder {
+		if err := p.cancelSuperseded(ctx, workers, pr, facts.Head); err != nil {
+			return "", err
+		}
+	}
+	attempt, running, err := p.nextAttempt(ctx, d, pr, facts.Head)
+	if err != nil || running != "" {
+		return running, err
+	}
+	sprite, err := p.place(d, workers)
+	if err != nil {
+		return "", err
+	}
+	live := p.readPR(ctx, facts.Repo, pr)
+	if proofTitle.MatchString(live.Title) || proofBody.MatchString(live.Body) {
+		p.Log.Info("a proof PR gets no grade", "pr", pr, "grader", grading)
+		return "", ErrAnswered
+	}
+	directory := filepath.Join(p.root, d.lane, jobBase(pr, facts.Head, attempt))
+	var built job
+	switch grading {
+	case GraderFinder:
+		built, err = p.finderJob(ctx, d, facts, sprite)
+	case GraderFidelity:
+		built, err = p.fidelityJob(ctx, d, facts, sprite, directory, live)
+	}
+	if err != nil {
+		return "", err
+	}
+	return p.start(ctx, grading, d, sprite, directory, built)
+}
+
+func (p *JobPool) start(ctx context.Context, grading string, d desk, sprite, directory string, built job) (string, error) {
+	if err := os.MkdirAll(directory, 0o750); err != nil {
+		return "", err
+	}
+	if built.sources != "" {
+		if err := os.WriteFile(filepath.Join(directory, sourcesFile), []byte(built.sources), 0o600); err != nil {
+			return "", err
+		}
+	}
+	if err := writeAtomic(filepath.Join(directory, grader.JobFile), built.spec); err != nil {
+		return "", err
+	}
+	argv, env, err := p.command(d, grading, sprite, directory)
+	if err != nil {
+		return "", err
+	}
+	pid, err := p.Spawn(ctx, argv, env, filepath.Join(directory, logFile))
+	if err != nil {
+		return "", err
+	}
+	if err := writeAtomic(filepath.Join(directory, pidFile), pid); err != nil {
+		return "", err
+	}
+	return workerName(sprite, d.lane, filepath.Base(directory)), nil
+}
+
+func (p *JobPool) command(d desk, grading, sprite, directory string) ([]string, map[string]string, error) {
+	if sprite == "" {
+		return []string{p.Self, "grade", grading, directory}, nil, nil
+	}
+	secrets := d.spec.SpriteKeys
+	if secrets == nil {
+		secrets = map[string][]string{}
+	}
+	keys, err := json.Marshal(secrets)
+	if err != nil {
+		return nil, nil, err
+	}
+	argv := []string{filepath.Join(p.Scripts, "sprite-job.sh"), sprite, filepath.Join(p.Scripts, grading+".py"), directory}
+	return argv, map[string]string{"SPRITE_JOB_KEYS": string(keys)}, nil
+}
+
+func (p *JobPool) Settle(ctx context.Context, workers []string) (map[string]bool, error) {
+	live := make(map[string]bool, len(workers))
+	if len(workers) == 0 {
+		return live, nil
+	}
+	commands, err := p.commands(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, name := range workers {
+		ref := refOf(name)
+		directory := filepath.Join(p.root, ref.lane, ref.base)
+		state := stateOf(directory, commands)
+		if state == jobRunning {
+			live[name] = true
+			continue
+		}
+		if state == jobLost && ref.box != localBox {
+			if err := p.stampFailure(ref.box); err != nil {
+				return nil, err
+			}
+		}
+		if err := grader.Repost(ctx, directory, client.Post); err != nil {
+			p.Log.Warn("reposting a desk record failed", "job", directory, "error", err)
+		}
+	}
+	return live, nil
+}
+
+type jobState int
+
+const (
+	jobRunning jobState = iota
+	jobSettled
+	jobFailed
+	jobLost
+)
+
+func stateOf(directory string, commands map[int]string) jobState {
+	gone := !runsJob(directory, commands)
+	data, err := os.ReadFile(filepath.Join(directory, grader.ResultFile))
+	if err != nil {
+		if gone {
+			return jobLost
+		}
+		return jobRunning
+	}
+	var outcome struct {
+		Error *string `json:"error"`
+		Lost  bool    `json:"no_result"`
+	}
+	if err := json.Unmarshal(data, &outcome); err != nil || outcome.Lost {
+		return jobLost
+	}
+	if outcome.Error != nil {
+		return jobFailed
+	}
+	return jobSettled
+}
+
+func runsJob(directory string, commands map[int]string) bool {
+	said, err := os.ReadFile(filepath.Join(directory, pidFile))
+	if err != nil {
+		return false
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(said)))
+	return err == nil && strings.Contains(commands[pid], directory)
+}
+
+func (p *JobPool) commands(ctx context.Context) (map[int]string, error) {
+	result, err := p.Runner.Run(ctx, shell.Command{Argv: []string{"ps", "-A", "-ww", "-o", "pid=", "-o", "command="}, Timeout: readTimeout})
+	if err != nil {
+		return nil, err
+	}
+	commands := map[int]string{}
+	for line := range strings.Lines(result.Stdout) {
+		pid, command, found := strings.Cut(strings.TrimSpace(line), " ")
+		number, err := strconv.Atoi(pid)
+		if found && err == nil {
+			commands[number] = command
+		}
+	}
+	return commands, nil
+}
+
+func (p *JobPool) nextAttempt(ctx context.Context, d desk, pr, head string) (int, string, error) {
+	tried := 0
+	for tried < maxAttempts && exists(filepath.Join(p.root, d.lane, jobBase(pr, head, tried+1))) {
+		tried++
+	}
+	if tried == 0 {
+		return 1, "", nil
+	}
+	directory := filepath.Join(p.root, d.lane, jobBase(pr, head, tried))
+	commands, err := p.commands(ctx)
+	if err != nil {
+		return 0, "", err
+	}
+	switch stateOf(directory, commands) {
+	case jobRunning:
+		sprite, err := jobSprite(directory)
+		return 0, workerName(sprite, d.lane, filepath.Base(directory)), err
+	case jobSettled:
+		return 0, "", ErrAnswered
+	case jobFailed:
+		info, err := os.Stat(filepath.Join(directory, grader.ResultFile))
+		if err != nil {
+			return 0, "", err
+		}
+		if p.Now().Sub(info.ModTime()) < failedHold {
+			return 0, "", ErrAnswered
+		}
+	case jobLost:
+	}
+	if tried >= maxAttempts {
+		p.Log.Warn("a grader pass failed on its last attempt", "job", directory, "attempts", tried)
+		return 0, "", ErrAnswered
+	}
+	return tried + 1, "", nil
+}
+
+func (p *JobPool) place(d desk, workers []store.Worker) (string, error) {
+	running := map[string]int{}
+	lanePasses := 0
+	for _, worker := range workers {
+		ref := refOf(worker.Name)
+		running[ref.box]++
+		if ref.lane == d.lane {
+			lanePasses++
+		}
+	}
+	if lanePasses >= d.spec.Concurrent {
+		return "", ErrNoCapacity
+	}
+	if len(d.spec.Sprite) == 0 {
+		return "", nil
+	}
+	taking, err := p.taking(d.spec.Sprite)
+	if err != nil {
+		return "", err
+	}
+	best := taking[0]
+	for _, sprite := range taking[1:] {
+		if running[sprite] < running[best] {
+			best = sprite
+		}
+	}
+	if p.spriteCap != nil && running[best] >= *p.spriteCap {
+		return "", ErrNoCapacity
+	}
+	return best, nil
+}
+
+func (p *JobPool) taking(listed []string) ([]string, error) {
+	healthy := make([]string, 0, len(listed))
+	for _, sprite := range listed {
+		failing, err := p.failing(sprite)
+		if err != nil {
+			return nil, err
+		}
+		if !failing {
+			healthy = append(healthy, sprite)
+		}
+	}
+	if len(healthy) == 0 {
+		healthy = listed
+	}
+	return healthy[:min(len(healthy), max(p.executors, 1))], nil
+}
+
+func (p *JobPool) stampFailure(sprite string) error {
+	directory := filepath.Join(p.root, failuresDir)
+	if err := os.MkdirAll(directory, 0o750); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(directory, sprite), []byte(p.Now().UTC().Format(time.RFC3339)), 0o600)
+}
+
+func (p *JobPool) failing(sprite string) (bool, error) {
+	data, err := os.ReadFile(filepath.Join(p.root, failuresDir, sprite))
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	at, err := time.Parse(time.RFC3339, string(data))
+	if err != nil {
+		return false, err
+	}
+	return p.Now().Sub(at) < spriteFailingFor, nil
+}
+
+func (p *JobPool) cancelSuperseded(ctx context.Context, workers []store.Worker, pr, head string) error {
+	prefix := pr + "-"
+	current := prefix + short(head)
+	for _, worker := range workers {
+		ref := refOf(worker.Name)
+		if ref.lane != grader.FinderLane || !strings.HasPrefix(ref.base, prefix) || strings.HasPrefix(ref.base, current) {
+			continue
+		}
+		directory := filepath.Join(p.root, ref.lane, ref.base)
+		if err := os.WriteFile(filepath.Join(directory, grader.CancelledFile), []byte(head+"\n"), 0o600); err != nil {
+			return err
+		}
+		runs, err := filepath.Glob(filepath.Join(directory, "codex-*"))
+		if err != nil {
+			return err
+		}
+		for _, run := range runs {
+			if _, err := p.Runner.Run(ctx, shell.Command{Argv: []string{"codex-ask", "--cancel", run}, Timeout: readTimeout}); err != nil {
+				p.Log.Warn("cancelling a codex run failed", "run", run, "error", err)
+			}
+		}
+	}
+	return nil
+}
+
+func jobSprite(directory string) (string, error) {
+	data, err := os.ReadFile(filepath.Join(directory, grader.JobFile))
+	if err != nil {
+		return "", err
+	}
+	var spec struct {
+		Sprite string `json:"sprite"`
+	}
+	err = json.Unmarshal(data, &spec)
+	return spec.Sprite, err
+}
+
+func jobBase(pr, head string, attempt int) string {
+	base := pr + "-" + short(head)
+	if attempt > 1 {
+		return base + "-" + strconv.Itoa(attempt)
+	}
+	return base
+}
+
+func workerName(sprite, lane, base string) string {
+	box := sprite
+	if box == "" {
+		box = localBox
+	}
+	return box + "/" + lane + "/" + base
+}
+
+type workerRef struct {
+	box  string
+	lane string
+	base string
+}
+
+func refOf(name string) workerRef {
+	parts := strings.SplitN(name, "/", 3)
+	if len(parts) != 3 {
+		return workerRef{}
+	}
+	return workerRef{parts[0], parts[1], parts[2]}
+}
+
+func short(head string) string {
+	return head[:min(headChars, len(head))]
+}
+
+func exists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+func writeAtomic(path string, value any) error {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	staged := fmt.Sprintf("%s.%d", path, os.Getpid())
+	if err := os.WriteFile(staged, data, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(staged, path)
+}

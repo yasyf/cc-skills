@@ -53,13 +53,21 @@ func (restacker) Restack(context.Context, int, string, string) (string, error) {
 
 type pool struct{ jobs []string }
 
-func (p *pool) Dispatch(grader, _ string, number int, _ string) (string, error) {
-	job := fmt.Sprintf("job/%s/%d", grader, number)
+func (p *pool) Dispatch(_ context.Context, grader string, facts machine.Facts) (string, error) {
+	job := fmt.Sprintf("job/%s/%d", grader, facts.Number)
 	p.jobs = append(p.jobs, job)
 	return job, nil
 }
 
-func (*pool) Alive(string) bool { return true }
+func (*pool) Scale(int, time.Time) error { return nil }
+
+func (*pool) Settle(_ context.Context, workers []string) (map[string]bool, error) {
+	live := make(map[string]bool, len(workers))
+	for _, worker := range workers {
+		live[worker] = true
+	}
+	return live, nil
+}
 
 func memory(t *testing.T) *store.Store {
 	t.Helper()

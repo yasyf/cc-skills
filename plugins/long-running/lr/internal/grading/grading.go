@@ -1,6 +1,9 @@
 package grading
 
 import (
+	"context"
+	"errors"
+	"slices"
 	"time"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
@@ -16,8 +19,9 @@ const (
 var carriedKinds = []string{GraderFidelity, GraderFinder, "verdict"}
 
 type Pool interface {
-	Dispatch(grader, repo string, number int, head string) (string, error)
-	Alive(worker string) bool
+	Scale(queued int, now time.Time) error
+	Settle(ctx context.Context, workers []string) (map[string]bool, error)
+	Dispatch(ctx context.Context, grader string, facts machine.Facts) (string, error)
 }
 
 type Dispatched struct {
@@ -37,33 +41,45 @@ func Missing(facts machine.Facts) []string {
 	return graders
 }
 
-func Act(s *store.Store, pool Pool, items []store.Item, snapshot map[int]machine.Facts, now time.Time, generation int64) ([]Dispatched, error) {
-	workers, err := s.Workers()
-	if err != nil {
-		return nil, err
-	}
-	held := make(map[int64][]string, len(workers))
-	for _, worker := range workers {
-		held[worker.Item] = append(held[worker.Item], worker.Name)
-	}
-	var dispatched []Dispatched
+func Act(ctx context.Context, s *store.Store, pool Pool, items []store.Item, snapshot map[int]machine.Facts, now time.Time, generation int64) ([]Dispatched, error) {
+	graded := make(map[int64]bool, len(items))
+	queued := 0
 	for _, item := range items {
 		facts, known := snapshot[item.Number]
 		if item.Kind != ItemKind || !known {
 			continue
 		}
-		gone, err := releaseGone(s, pool, held[item.ID])
-		if err != nil {
-			return dispatched, err
+		graded[item.ID] = true
+		if facts.Head == item.Head {
+			queued += len(Missing(facts))
 		}
-		if !gone && item.Worker != "" && item.Deadline.After(now) {
-			continue
-		}
-		if facts.Head != item.Head {
+	}
+	gone, err := settleWorkers(ctx, s, pool, graded, now, generation)
+	if err != nil {
+		return nil, err
+	}
+	if err := pool.Scale(queued, now); err != nil {
+		return nil, err
+	}
+	full := map[string]bool{}
+	var dispatched []Dispatched
+	for _, item := range items {
+		facts := snapshot[item.Number]
+		if !graded[item.ID] || facts.Head != item.Head || (!gone[item.ID] && item.Worker != "" && item.Deadline.After(now)) {
 			continue
 		}
 		for _, grader := range Missing(facts) {
-			name, err := pool.Dispatch(grader, facts.Repo, facts.Number, facts.Head)
+			if full[grader] {
+				continue
+			}
+			name, err := pool.Dispatch(ctx, grader, facts)
+			if errors.Is(err, ErrNoCapacity) {
+				full[grader] = true
+				continue
+			}
+			if errors.Is(err, ErrAnswered) {
+				continue
+			}
 			if err != nil {
 				return dispatched, err
 			}
@@ -76,16 +92,33 @@ func Act(s *store.Store, pool Pool, items []store.Item, snapshot map[int]machine
 	return dispatched, nil
 }
 
-func releaseGone(s *store.Store, pool Pool, workers []string) (bool, error) {
-	gone := false
-	for _, name := range workers {
-		if pool.Alive(name) {
+func settleWorkers(ctx context.Context, s *store.Store, pool Pool, graded map[int64]bool, now time.Time, generation int64) (map[int64]bool, error) {
+	workers, err := s.Workers()
+	if err != nil {
+		return nil, err
+	}
+	workers = slices.DeleteFunc(workers, func(worker store.Worker) bool { return !graded[worker.Item] })
+	names := make([]string, 0, len(workers))
+	for _, worker := range workers {
+		names = append(names, worker.Name)
+	}
+	live, err := pool.Settle(ctx, names)
+	if err != nil {
+		return nil, err
+	}
+	gone := map[int64]bool{}
+	for _, worker := range workers {
+		if live[worker.Name] {
+			worker.Generation, worker.Heartbeat = generation, now
+			if err := s.Heartbeat(worker); err != nil {
+				return nil, err
+			}
 			continue
 		}
-		if _, err := s.ReleaseWorker(name); err != nil {
-			return gone, err
+		if _, err := s.ReleaseWorker(worker.Name); err != nil {
+			return nil, err
 		}
-		gone = true
+		gone[worker.Item] = true
 	}
 	return gone, nil
 }
