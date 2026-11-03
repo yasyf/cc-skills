@@ -1,0 +1,251 @@
+package board
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"reflect"
+	"slices"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ledger/ledgertest"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
+)
+
+const liveText = "api (platform) on plat-usw2-prod: outside a release at 0dfbd44e165e, applied 3h0m ago\n"
+
+var cardsNow = time.Date(2026, 11, 2, 8, 0, 0, 0, time.UTC)
+
+type cardShell struct {
+	cards     []string
+	ancestors map[string]bool
+	answers   map[string]bool
+	rowed     map[string]bool
+	removed   []string
+}
+
+func (f *cardShell) Run(_ context.Context, c shell.Command) (shell.Result, error) {
+	argv := strings.Join(c.Argv, " ")
+	switch {
+	case strings.Contains(argv, "ledger add"):
+		return shell.Result{Stdout: `{"id":"c4rd5"}`}, nil
+	case strings.Contains(argv, "outcomes --block"):
+		card := c.Argv[3]
+		if !f.answers[card] {
+			return shell.Result{Stdout: `{"answers":[]}`}, nil
+		}
+		return shell.Result{Stdout: fmt.Sprintf(`{"answers":[{"origin":"human","payload":{"blockId":"%s-choice","optionIds":["x"]}}]}`, card)}, nil
+	case strings.Contains(argv, "outcomes --all"):
+		blocks := []map[string]string{{"id": "sec", "type": "markdown"}, {"id": mergeTriage, "type": "card"}}
+		for _, card := range f.cards {
+			blocks = append(blocks, map[string]string{"id": card, "type": "card"})
+		}
+		encoded, err := json.Marshal(map[string]any{"doc": map[string]any{"blocks": blocks}})
+		return shell.Result{Stdout: string(encoded)}, err
+	case strings.Contains(argv, "remove-block"):
+		f.removed = append(f.removed, c.Argv[2])
+		return shell.Result{}, nil
+	case strings.Contains(argv, "answer list"):
+		card := ""
+		for _, arg := range c.Argv {
+			if strings.HasPrefix(arg, "board-card:") {
+				card = strings.TrimPrefix(arg, "board-card:")
+			}
+		}
+		if f.rowed[card] {
+			return shell.Result{Stdout: fmt.Sprintf(`[{"tags":["board-block:%s-choice"]}]`, card)}, nil
+		}
+		return shell.Result{Stdout: "[]"}, nil
+	case strings.HasPrefix(argv, "tools/ci release live"):
+		return shell.Result{Stdout: liveText}, nil
+	case strings.Contains(argv, "merge-base"):
+		if f.ancestors[c.Argv[5]+" "+c.Argv[6]] {
+			return shell.Result{}, nil
+		}
+		return shell.Result{Code: 1}, &shell.ExitError{Argv: c.Argv, Code: 1}
+	}
+	return shell.Result{}, fmt.Errorf("unexpected call %s", argv)
+}
+
+type prStatus struct {
+	ccx.Client
+	states map[int]string
+	reads  int
+}
+
+func (p *prStatus) PRStatus(_ context.Context, _ string, numbers []int) ([]ccx.PRStatus, error) {
+	p.reads++
+	out := make([]ccx.PRStatus, len(numbers))
+	for i, number := range numbers {
+		state := p.states[number]
+		if state == "" {
+			state = "OPEN"
+		}
+		out[i] = ccx.PRStatus{Number: number, State: state}
+	}
+	return out, nil
+}
+
+type cardsFixture struct {
+	Cards
+	shell  *cardShell
+	status *prStatus
+	posted []string
+	clock  time.Time
+}
+
+func newCards(t *testing.T, on *cardShell, states map[int]string, closed ...string) *cardsFixture {
+	t.Helper()
+	f := &cardsFixture{shell: on, status: &prStatus{states: states}, clock: cardsNow}
+	f.Cards = Cards{
+		Runner: on, Ledger: &ledgertest.Fake{}, CCX: f.status, Bus: "brook-cci", Checkout: "/co", Session: "s1", StateDir: t.TempDir(),
+		Now: func() time.Time { return f.clock },
+		Closed: func(_ context.Context, seqs []string) (map[string]bool, error) {
+			out := map[string]bool{}
+			for _, seq := range seqs {
+				out[seq] = slices.Contains(closed, seq)
+			}
+			return out, nil
+		},
+		Withdraw: func(_ context.Context, _, _, text string) error {
+			f.posted = append(f.posted, text)
+			return nil
+		},
+	}
+	return f
+}
+
+func TestUntilRecordsTheEventThatEndsACard(t *testing.T) {
+	for given, stored := range map[string]string{
+		"at:4h":                               "at:2026-11-02T12:00:00Z",
+		"pr:47440":                            "pr:Forge-AI/monorepo#47440",
+		"pr:yasyf/cc-skills#1691":             "pr:yasyf/cc-skills#1691",
+		"release:api@plat-usw2-prod:0dfbd44e": "release:api@plat-usw2-prod:0dfbd44e",
+		"record:#308624":                      "record:308624",
+	} {
+		f := newCards(t, &cardShell{}, nil)
+		end, err := f.Until(context.Background(), "card-a", given)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if end.String() != stored {
+			t.Errorf("%s = %s, want %s", given, end, stored)
+		}
+		known, err := f.ends(context.Background())
+		if err != nil || known["card-a"]["until"] != stored {
+			t.Errorf("%s stored %v, %v", given, known, err)
+		}
+	}
+}
+
+func TestUntilRefusesACardWithNoCheckableEnd(t *testing.T) {
+	for given, said := range map[string]string{
+		"soon":                           "names no end condition",
+		"when Anubhav's release is done": "names no end condition",
+		"pr:abc":                         "is not an end condition",
+		"at:2026-11-02T07:00:00Z":        "has already passed",
+	} {
+		f := newCards(t, &cardShell{}, nil)
+		_, err := f.Until(context.Background(), "card-a", given)
+		if err == nil || !strings.Contains(err.Error(), said) {
+			t.Errorf("%s: err = %v", given, err)
+		}
+		if known, err := f.ends(context.Background()); err != nil || len(known) != 0 {
+			t.Errorf("%s recorded %v, %v", given, known, err)
+		}
+	}
+}
+
+func TestMissingListsBoardCardsWithNoEndAndSkipsTheMergeList(t *testing.T) {
+	f := newCards(t, &cardShell{cards: []string{"card-a", "card-b"}}, nil)
+	if _, err := f.Until(context.Background(), "card-a", "pr:1"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := f.Missing(context.Background(), nil)
+	if err != nil || !reflect.DeepEqual(got, []string{"card-b"}) {
+		t.Fatalf("missing = %v, %v", got, err)
+	}
+}
+
+func TestSweepWithdrawsEachCardWhoseEventHappenedAndNamesTheOutcome(t *testing.T) {
+	on := &cardShell{cards: []string{"merged-pr", "open-pr", "past-time", "future-time", "closed-record", "shipped", "unshipped", "no-end"}, ancestors: map[string]bool{"0dfbd44e 0dfbd44e165e": true}}
+	f := newCards(t, on, map[int]string{1: "MERGED"}, "7")
+	ctx := context.Background()
+	for _, pair := range [][2]string{{"merged-pr", "pr:1"}, {"open-pr", "pr:2"}, {"past-time", "at:1h"}, {"future-time", "at:3h"}, {"closed-record", "record:7"}, {"shipped", "release:api@plat-usw2-prod:0dfbd44e"}, {"unshipped", "release:api@plat-usw2-prod:1234567"}} {
+		if _, err := f.Until(ctx, pair[0], pair[1]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f.clock = cardsNow.Add(2 * time.Hour)
+	var out bytes.Buffer
+	if err := f.Sweep(ctx, "board-lane", &out); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"merged-pr", "past-time", "closed-record", "shipped"}; !reflect.DeepEqual(on.removed, want) {
+		t.Fatalf("removed = %v", on.removed)
+	}
+	if f.status.reads != 1 {
+		t.Fatalf("status reads = %d", f.status.reads)
+	}
+	if !strings.Contains(f.posted[0], "Withdrew merged-pr from the owner's board: Forge-AI/monorepo#1 is merged") {
+		t.Fatalf("posted = %q", f.posted[0])
+	}
+	if !strings.Contains(out.String(), "PROBLEM no-end: no end condition") {
+		t.Fatalf("out = %s", out.String())
+	}
+	if known, err := f.ends(ctx); err != nil || known["merged-pr"] != nil {
+		t.Fatalf("a withdrawn card stays known: %v, %v", known, err)
+	}
+}
+
+func TestAWithdrawnCardPushedAgainNeedsANewEnd(t *testing.T) {
+	f := newCards(t, &cardShell{cards: []string{"merged-pr"}}, map[int]string{1: "MERGED"})
+	ctx := context.Background()
+	if _, err := f.Until(ctx, "merged-pr", "pr:1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Sweep(ctx, "board-lane", &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := f.Missing(ctx, []string{"merged-pr"})
+	if err != nil || !reflect.DeepEqual(got, []string{"merged-pr"}) {
+		t.Fatalf("missing = %v, %v", got, err)
+	}
+}
+
+func TestRetroDueTimesReadThroughTheSameCheck(t *testing.T) {
+	if why := Refusal("at:90m", cardsNow, KindAt); why != "" {
+		t.Fatalf("at:90m refused: %s", why)
+	}
+	if why := Refusal("pr:1", cardsNow, KindAt); !strings.Contains(why, "is a pr condition") {
+		t.Fatalf("pr:1 = %q", why)
+	}
+	if why := Refusal("", cardsNow); !strings.Contains(why, "no end condition") {
+		t.Fatalf("empty = %q", why)
+	}
+}
+
+func TestSweepKeepsAnAnsweredCardWhoseAnswerHasNoCcnRow(t *testing.T) {
+	on := &cardShell{cards: []string{"card-rowed", "card-unrowed"}, answers: map[string]bool{"card-rowed": true, "card-unrowed": true}, rowed: map[string]bool{"card-rowed": true}}
+	f := newCards(t, on, map[int]string{1: "MERGED"})
+	ctx := context.Background()
+	for _, card := range on.cards {
+		if _, err := f.Until(ctx, card, "pr:1"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var out bytes.Buffer
+	if err := f.Sweep(ctx, "board-lane", &out); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(on.removed, []string{"card-rowed"}) {
+		t.Fatalf("removed = %v", on.removed)
+	}
+	if !strings.Contains(out.String(), "PROBLEM card-unrowed: the owner's answer on card-unrowed-choice has no ccn answer row") {
+		t.Fatalf("out = %s", out.String())
+	}
+}
