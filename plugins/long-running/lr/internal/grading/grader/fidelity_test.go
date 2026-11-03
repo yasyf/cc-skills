@@ -50,6 +50,7 @@ type fidelityRepo struct {
 	known     []string
 	rangeDiff string
 	shows     map[string]string
+	diff      string
 }
 
 func (r *fidelityRepo) git(full []string) (string, error) {
@@ -90,7 +91,7 @@ func (r *fidelityRepo) git(full []string) (string, error) {
 		}
 		return "", &ExitError{Argv: full, Code: 1}
 	case "diff":
-		return fidelityDiff, nil
+		return r.diff, nil
 	}
 	return "", fmt.Errorf("unexpected git %v", argv)
 }
@@ -101,6 +102,7 @@ func newFidelityFake(t *testing.T, patches map[string]string, replies ...any) (*
 		patches:   patches,
 		known:     []string{shaOld},
 		rangeDiff: fmt.Sprintf("1:  %s ! 1:  %s resubscribe\n", shaOldOwn[:7], shaOwn[:7]),
+		diff:      fidelityDiff,
 		shows: map[string]string{
 			shaOldOwn[:7]: "diff --git a/f.go b/f.go\n+old\n",
 			shaOwn[:7]:    "diff --git a/f.go b/f.go\n+new\n",
@@ -801,4 +803,59 @@ func TestTheGraderReadsThePlanGroundsRootAcceptedOutsideThePackageFromTheJobsSou
 	shell, _ := newFidelityFake(t, otherPatch, fidelityReplyOf(nil))
 	mustFidelity(t, directory, shell)
 	holdsAll(t, readText(t, directory, "question-1.md"), "Plan grounds the coordinator accepted outside the package, such as a class-fix inventory or a lane's\naccepted design contract: "+sources+".")
+}
+
+const (
+	signalAdded = `\b(?:Iris)?SignalGrant\b|\bSignalStream\b|\b(?:Lane|Team)Signals?\b|/v1/signal/`
+	pr44080Test = "diff --git a/dashboard/src/iris/durable/replica.test.ts b/dashboard/src/iris/durable/replica.test.ts\n--- a/dashboard/src/iris/durable/replica.test.ts\n+++ b/dashboard/src/iris/durable/replica.test.ts\n@@ -1182,0 +1218,1 @@\n+async function signalledLane(signal: LaneSignal) {\n"
+	pr44080Diff = pr44080Test +
+		"diff --git a/dashboard/src/iris/durable/replica.ts b/dashboard/src/iris/durable/replica.ts\n--- a/dashboard/src/iris/durable/replica.ts\n+++ b/dashboard/src/iris/durable/replica.ts\n@@ -1094 +1172,2 @@\n-  async open(\n+  async mount(\n+    signalled: Signalled,\n@@ -1110,0 +1198,2 @@\n+    const signal = new LaneSignal(chat.db, prepared.bucket, prepared.store, signalled)\n+    const lane = await signal.greet(async (marker) => {\n" +
+		"diff --git a/dashboard/src/iris/journal/grant.ts b/dashboard/src/iris/journal/grant.ts\n--- a/dashboard/src/iris/journal/grant.ts\n+++ b/dashboard/src/iris/journal/grant.ts\n@@ -15 +15,3 @@\n-export type SessionGrant = AgentContract.IrisSessionStorageCreds\n+export type SessionGrant = AgentContract.IrisSessionStorageCreds & {\n+  signal?: AgentContract.IrisSignalGrant\n+}\n"
+	nextSignalDiff = "diff --git a/go/sand/next/cmd/iris_serve_user_creds.go b/go/sand/next/cmd/iris_serve_user_creds.go\n--- a/go/sand/next/cmd/iris_serve_user_creds.go\n+++ b/go/sand/next/cmd/iris_serve_user_creds.go\n@@ -156,0 +157,1 @@\n+func (u *userCreds) signalGrant(ctx context.Context, team string) (platformapi.IrisSignalGrant, error) {\n"
+)
+
+var signalTouches = []map[string]string{
+	{"service": "signal", "path": "go/sand/internal", "added": signalAdded},
+	{"service": "signal", "path": "dashboard/src", "added": signalAdded},
+}
+
+func TestAHeadThatAddsANamedServiceTouchOnAnOldTreePathGradesOldAppChangesWhateverTheReadSaid(t *testing.T) {
+	directory := fidelityDir(t, map[string]any{"grades": []any{}, "service_touches": signalTouches})
+	shell, repo := newFidelityFake(t, samePatch, fidelityReplyOf(map[string]any{
+		"old_app": map[string]string{"grade": "unchanged", "why": "the open reads the same rows"},
+	}))
+	repo.diff = pr44080Diff
+	mustFidelity(t, directory, shell)
+	texts := shell.texts()
+	equal(t, texts[len(texts)-1], "old-app: CHANGES "+shaHead[:7]+" baseline "+baselineName+"; dashboard/src/iris/durable/replica.ts:1198 touches signal; dashboard/src/iris/journal/grant.ts:16 touches signal")
+}
+
+func TestARestackThatCarriesAnUnchangedOldAppGradesChangesWhenItAddsANamedServiceTouch(t *testing.T) {
+	directory := fidelityDir(t, map[string]any{"service_touches": signalTouches})
+	shell, repo := newFidelityFake(t, samePatch)
+	repo.diff = pr44080Diff
+	mustFidelity(t, directory, shell)
+	equal(t, len(shell.asks()), 0)
+	equal(t, shell.texts()[1], "old-app: CHANGES "+shaHead[:7]+" baseline "+baselineName+"; dashboard/src/iris/durable/replica.ts:1198 touches signal; dashboard/src/iris/journal/grant.ts:16 touches signal")
+}
+
+func TestAServiceTouchOnlyOnTheNewTreeOrInATestLeavesTheReadsOldAppGrade(t *testing.T) {
+	directory := fidelityDir(t, map[string]any{"grades": []any{}, "service_touches": signalTouches})
+	shell, repo := newFidelityFake(t, samePatch, fidelityReplyOf(nil))
+	repo.diff = nextSignalDiff + pr44080Test
+	mustFidelity(t, directory, shell)
+	texts := shell.texts()
+	equal(t, texts[len(texts)-1], "old-app: unchanged "+shaHead[:7]+" baseline "+baselineName+"; go/sand/next only")
+}
+
+func TestAServiceTouchEntryThatDoesNotCompileGradesAsBefore(t *testing.T) {
+	directory := fidelityDir(t, map[string]any{"grades": []any{}, "service_touches": []map[string]string{
+		{"service": "signal", "path": "dashboard/src", "added": "LaneSignal("},
+		{"service": "signal", "path": "dashboard/[src", "added": signalAdded},
+	}})
+	shell, repo := newFidelityFake(t, samePatch, fidelityReplyOf(nil))
+	repo.diff = pr44080Diff
+	mustFidelity(t, directory, shell)
+	texts := shell.texts()
+	equal(t, texts[len(texts)-1], "old-app: unchanged "+shaHead[:7]+" baseline "+baselineName+"; go/sand/next only")
 }
