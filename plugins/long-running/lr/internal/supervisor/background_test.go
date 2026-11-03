@@ -39,6 +39,23 @@ func TestAFailedBackgroundPassReachesRootOncePerError(t *testing.T) {
 	equal(t, len(told), 2)
 }
 
+func TestAPassTheSupervisorsShutdownCancelledReachesNobody(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	b := &background{
+		name:  "pr-ledger",
+		run:   func(ctx context.Context) error { return ctx.Err() },
+		store: memory(t),
+		post: func([]string, bus.Body) error {
+			t.Fatal("a cancelled pass told a lane it failed")
+			return nil
+		},
+		log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+
+	b.pass(ctx, t0)
+}
+
 func TestAFailedPassWithItsOwnLaneTellsThatLaneNotRoot(t *testing.T) {
 	var to []string
 	var told bus.Body
