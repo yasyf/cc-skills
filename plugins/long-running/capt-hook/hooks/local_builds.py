@@ -41,6 +41,7 @@ ROOT = [CompactionState(active=True, coordinator=True)]
 REFUSAL = (
     "No local compile, test, vet, typecheck or lint runs in a drive, and a Go golden's single `go test -update` is the one exception."
     " Commit and run `ccx vcs ship`, then read the failing step's log, since CI grades."
+    " `tools/ci release plan` compiles the stacks' tools too, so ask the release lane to run it: `cci post --kind ask --to release`."
 )
 
 
