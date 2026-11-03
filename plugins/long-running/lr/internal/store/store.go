@@ -245,6 +245,15 @@ func (s *Store) ClearExempt(repo string, number int, through time.Time) error {
 	return err
 }
 
+func (s *Store) StandingTap(repo string, number int) (string, error) {
+	var head, value string
+	err := s.db.QueryRow("SELECT head, value FROM facts WHERE repo = ? AND number = ? AND kind = 'tap' ORDER BY posted DESC, rowid DESC LIMIT 1", repo, number).Scan(&head, &value)
+	if errors.Is(err, sql.ErrNoRows) || err == nil && value != "tapped" {
+		return "", nil
+	}
+	return head, err
+}
+
 func (s *Store) Facts(repo string, number int, head string) (map[string]string, error) {
 	rows, err := s.db.Query("SELECT kind, value FROM facts WHERE repo = ?1 AND number = ?2 AND length(head) >= 7 AND substr(?3, 1, length(head)) = head ORDER BY posted, length(head)", repo, number, head)
 	found, err := collect(rows, err, func(rows *sql.Rows) ([2]string, error) {

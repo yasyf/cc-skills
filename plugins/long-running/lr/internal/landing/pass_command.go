@@ -83,6 +83,9 @@ func runPass(ctx context.Context, a *app.App, shadow bool, stdout io.Writer) err
 	if err := Announce(ctx, cfg.Drive, cfg.Trunk, out.Landed, route); err != nil {
 		return fmt.Errorf("a landed record went unposted: %w", err)
 	}
+	if err := CarryTaps(ctx, s, cfg.Drive, out.Carried, now); err != nil {
+		return fmt.Errorf("a tap did not carry: %w", err)
+	}
 	remote, err := NewRemote(a, filepath.Join(dir, runnerFile), self, "")
 	if err != nil {
 		return err

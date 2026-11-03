@@ -133,6 +133,9 @@ func runPass(ctx context.Context, s *store.Store, drive string, generation int64
 		if err := landing.Announce(ctx, drive, d.Trunk, out.Landed, route); err != nil {
 			d.Log.Warn("a landed record went unposted", "err", err)
 		}
+		if err := landing.CarryTaps(ctx, s, drive, out.Carried, now); err != nil {
+			d.Log.Warn("a tap did not carry", "err", err)
+		}
 		landed, err := landing.Act(ctx, s, d.Queue, d.Restacker, landing.Clear(out.Acts, snapshot, d.Trunk), now)
 		if err != nil {
 			d.Log.Warn("landing stopped mid-pass", "err", err)
