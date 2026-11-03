@@ -162,7 +162,7 @@ func TestDesksRouteToTheNewestLiveMemberOfTheFamilyAndRootWhenNoDeskOwnsIt(t *te
 		t.Fatal(err)
 	}
 
-	want(t, route(pass.LandingDesk), "landing-desk-2")
+	want(t, route("landing-desk"), "landing-desk-2")
 	want(t, route(pass.BoardDesk), "root")
 }
 

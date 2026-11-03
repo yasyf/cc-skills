@@ -412,7 +412,7 @@ func TestAnOverdueEnqueueNamesWhatTheQueueSaid(t *testing.T) {
 	}
 	run(t, s, r, t0.Add(10*time.Minute), all, facts(45583, nil))
 
-	want := []posted{{[]string{"landing-desk-3"}, bus.Note{
+	want := []posted{{[]string{"root"}, bus.Note{
 		Text: "org/repo#45583 enqueue overdue; the queue said exit 1: #45583 BLOCKED required check pending",
 	}}}
 	if !reflect.DeepEqual(r.posts, want) {
@@ -497,14 +497,14 @@ func TestAHeldOrUntappedConflictIsNeitherActedOnNorEscalatedWhileLandingIsLive(t
 	}
 }
 
-func TestAHoldOverdueReachesTheLandingDeskOnceLandingIsLive(t *testing.T) {
+func TestAHoldOverdueReachesRootOnceLandingIsLive(t *testing.T) {
 	s, r := newStore(t), &recorder{}
 	held := facts(48401, func(f *machine.Facts) { f.Hold = machine.MoverRoot })
 
 	run(t, s, r, t0, []machine.Mover{machine.MoverSupervisor}, held)
 	run(t, s, r, t0.Add(machine.OwnerClock), []machine.Mover{machine.MoverSupervisor}, held)
 
-	want := []posted{{[]string{"landing-desk-3"}, bus.Note{Text: "org/repo#48401 lift overdue"}}}
+	want := []posted{{[]string{"root"}, bus.Note{Text: "org/repo#48401 lift overdue"}}}
 	if !reflect.DeepEqual(r.of("note"), want) {
 		t.Fatalf("posts = %+v", r.of("note"))
 	}
