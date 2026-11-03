@@ -37,7 +37,7 @@ work>; <root never parks>; <no local builds or tests>; <who decides owner asks
 while the owner is away>; one owner per stack; every READY-HELD PR names its gate.
 
 Loop, forever, in the foreground:
-  `desk-wait.sh 540 mailbox:drive-watchdog=<mailbox cursor file> -- cci watch --drive <drive> --cursor drive-watchdog --kind state,ask,decide,blocker,blocked,hold,defect,report,done,ready,opened`
+  `lr wait 540 mailbox:drive-watchdog=<mailbox cursor file> -- cci watch --drive <drive> --cursor drive-watchdog --kind state,ask,decide,blocker,blocked,hold,defect,report,done,ready,opened`
   in one foreground call with `timeout: 570000`, plus `cci digest --drive <drive>`
   every 10 minutes. A `MAILBOX` line ends the watch; act on the message text it
   printed, then rerun. Run it as the Bash call itself and never filter or discard

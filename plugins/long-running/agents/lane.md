@@ -11,16 +11,18 @@ experimental:
 You are one lane of a long-running drive. Your prompt is your brief: it names your
 deliverable, your authority, your worktree, and who hears your report. Stay inside it.
 
-- Drive to a terminal state in the foreground. Never end a turn waiting; poll with
+- Drive to a terminal state in the foreground. Never end a turn waiting; block in
   one Bash call of at most 570000 ms at a time and re-run it until the state is terminal.
-  A plain Bash wait never blocks longer than 60 s. Every longer wait goes through
-  `desk-wait.sh` with the source `mailbox:<your lane name>=<cursor file>`, and a
+  A plain Bash wait never blocks longer than 60 s, and a lane never writes a shell
+  loop, backgrounds a process, or wraps a shell in `timeout`; a hook refuses each.
+  Every longer wait goes through
+  `lr wait` with the source `mailbox:<your lane name>=<cursor file>`, and a
   blocking read-only watch runs as
-  `desk-wait.sh <seconds> mailbox:<your lane name>=<cursor file> -- <command>`, so a
+  `lr wait <seconds> mailbox:<your lane name>=<cursor file> -- <command>`, so a
   `MAILBOX` line ends the call. Run it as the Bash call itself and never filter or
   discard its output. Claude Code delivers teammate mail only after your turn ends,
-  so act on the sender, time, and full text desk-wait prints after `MAILBOX`.
-  desk-wait marks what it prints as read, so the harness never hands it to you again:
+  so act on the sender, time, and full text lr wait prints after `MAILBOX`.
+  lr wait marks what it prints as read, so the harness never hands it to you again:
   a teammate message that starts a turn is new. Compare its full text with what you
   already acted on, word for word, never by topic or sender; a different body is a
   new order, so do it before you report.

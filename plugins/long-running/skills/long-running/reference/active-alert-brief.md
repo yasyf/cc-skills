@@ -156,7 +156,7 @@ A later report launches nothing and reaches the root as `UNFIXED <lane> …: <ca
 **Watch another drive's incident fix and take it over the moment it stalls.** Another drive owns an incident's fix when the runner posts an `INCIDENT-OWNED` state record or another drive's lane opens a fix PR. In that turn, the root spawns `incident-<slug>-watch` as `long-running:lane` on sonnet, effort low. It runs one foreground watch on the owning drive:
 
 ```sh
-cci watch --drive <owning drive> --lane <its fix lane> --lane desk-runner --kind stopped --kind blocker --kind decide
+lr wait 540 mailbox:incident-<slug>-watch=<cursor file> -- cci watch --drive <owning drive> --lane <its fix lane> --lane desk-runner --kind stopped --kind blocker --kind decide
 ```
 
 The trigger is the fix lane's `stopped` or `blocker` at once, or a `decide` from that drive's runner naming the fix lane once five minutes pass with no `answer` from that drive's root. On the trigger, the watch lane posts the `TAKEOVER` blocker and finishes:

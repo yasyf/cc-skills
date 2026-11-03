@@ -43,11 +43,11 @@ Verified facts, do not re-derive:
   repo <owner/name>; base branch <dev>; checkout <absolute path, read-only for you>
   ledger <id from `ledger.py init --title "desk: <drive>"`>
   cci drive <drive>; desk <desk>; cci cursor <desk>
-  team mailbox source `mailbox:<desk>`, resolved by desk-wait; mailbox cursor <path>
+  team mailbox source `mailbox:<desk>`, resolved by lr wait; mailbox cursor <path>
   runner config <absolute JSON path>; the orca runner alone consumes the Run mailbox
   standing rules <live scope:durable answer ids, plus the plan's Decisions;
     an id list, never a sequence range>
-  tools: cci, ledger.py, mq.py, desk-runner.py, and desk-wait.sh, on PATH by name
+  tools: cci, ledger.py, mq.py, desk-runner.py, and lr wait, on PATH by name
   PRs already ours at spawn: <#n lane head verdict, one per line, or "none">
   stack: <bottom -> top PR list, or "none">
 
@@ -59,7 +59,7 @@ After your own compaction, resume in place. `cci` holds your addressed records, 
 At spawn:
   - In-process desk (every Agent-spawned desk): run one foreground Bash call with
     `timeout: 60000`, running
-    `desk-wait.sh 50 cci:<drive>:<desk> mailbox:<desk>=<mailbox cursor> [<other file>=<cursor file>...]`.
+    `lr wait 50 cci:<drive>:<desk> mailbox:<desk>=<mailbox cursor> [<other file>=<cursor file>...]`.
     It waits at most 50 seconds and returns on new addressed records, a new line
     in another watched file, or a `MAILBOX <n> unread` line followed by each new
     message's sender, time, and full text. Claude Code delivers mail only after
@@ -67,11 +67,8 @@ At spawn:
     and never filter or discard its output: the `MAILBOX` text is your only copy
     of that mail. Run step 0 on the output, then
     rerun the call in a loop.
-    Top-level session: arm one Monitor on
-    `cci watch --drive <drive> --cursor <desk> --to <desk>`
-    at timeout 1800000. Re-arm on every exit and after your own compaction.
-    The watch exits by itself after 29 minutes. Run step 0 on its printed records
-    at every wake.
+    Top-level session: run the same call with `540` at `timeout: 570000`, never a
+    `cci watch` Monitor, and rerun it on every return and after your own compaction.
   - In-process desk: run
     `ledger.py watch --repo <repo> --ledger <id> --drive <drive> --checkout <path> [--priority <n>]... --once`
     as a foreground step between waits. Top-level session: arm the same command
@@ -88,13 +85,12 @@ At spawn:
 In-process desk: loop over the foreground wait, act on its output, and run the
   periodic watch with `--once` between waits. Run the 3-minute reconciliation
   pass and the 30-minute summary when due in that same foreground loop, never
-  as background Bash or Monitor. Top-level session: block on the cci Monitor
-  and run the scheduled pass and summary in the background.
+  as background Bash or Monitor. Top-level session: the same, with the longer wait.
 
 Do, in this order, forever:
   0. At the TOP of every iteration, before any other work, act on the records and
-     file lines printed by `desk-wait.sh`, or the records printed by the Monitor.
-     `desk-wait.sh` reads its own <desk>-wake cursor, so the read below prints
+     file lines printed by `lr wait`, or the records printed by the Monitor.
+     `lr wait` reads its own <desk>-wake cursor, so the read below prints
      those records again; act once per seq. Then run
      `cci tail --drive <drive> --cursor <desk> --to <desk>` and act on each new
      record and any delivered message.

@@ -6,10 +6,9 @@
 
     inbox-digest.py (--state FILE | --all) [--line-cap 200] [--budget 6144] FILE...
     inbox-rotate.py [--hours 6] FILE...
-    desk-wait.sh <seconds> (<file>=<cursor-file> | mailbox:<lane>=<cursor-file> | cci:<drive>:<lane>)... [-- <command> [<arg>...]]
     inboxes.py mailbox <lane>
 
-STDLIB ONLY. The shims call this module's digest, rotate, and wait commands.
+STDLIB ONLY. The shims call this module's digest and rotate commands; `lr wait` reads inboxes.
 An inbox's sorted <file>.archive/YYYY-MM-DD.md files, oldest first, followed by
 the live file form one byte stream. Byte offsets and line counts survive rotation.
 Readers hold a shared flock on the inbox's directory; rotation holds it exclusively.
@@ -27,37 +26,6 @@ and atomically renames it over the inbox. tail -F reopens by name; bytes appende
 to the old file during the rename are copied into the new one. With the default
 six-hour window, archival starts about six hours after the first mark.
 
-wait advances line-count cursors over the same stream and prints new nonblank
-lines clipped to 400 characters, ending clipped lines with an ellipsis. It returns
-when lines arrive or prints QUIET with the Pacific time at the deadline. Display
-clipping never cuts lines stored in the inbox. A .json file in an inboxes directory
-is a team mailbox whose cursor lists the keys of entries already printed: the
-entry's msg_id, or a hash of its sender, timestamp, and text when it has none. A
-read=false entry whose key is not in the cursor ends the call with MAILBOX <n>
-unread (n counts those entries), followed by each as a `== <from> <timestamp>`
-header and its full text. Claude Code delivers an in-process teammate's mail only
-once its turn ends, so a busy lane reads the message here. After printing, wait
-marks those entries read=true under the harness's own `<mailbox>.lock` directory
-lock, so Claude Code never delivers them a second time at turn end. The stat check runs every
-0.2 s, so a wake lands within about 2 s; read=true entries and a missing mailbox
-never wake it. A mailbox:<lane> source watches the team mailbox `mailbox` resolves
-for <lane>, and the call exits 1 when no roster lists it. A <file> source must be an
-absolute path; a relative one exits 2. A cci:<drive>:<lane> source prints the cci
-records addressed to <lane> past the cursor named <lane>-wake, through `cci tail`, which
-advances it. It never moves the cursor named <lane>, so the lane's own read still
-finds the broadcasts the wake skipped. A cci binary missing from PATH, as during a
-reinstall, reads as no new records; once missing for 30 s, or at the deadline,
-wait ends the command and exits 127 naming cci.
-
-wait ... -- <command> runs the command in its own session, with its output passing
-through, and returns with its exit status when it exits first. When a source wakes
-the call or the deadline passes, wait prints what it prints without a command
-(MAILBOX, lines, or QUIET), ends the command's whole tree with SIGTERM, then SIGKILL
-after 5 s, and exits 0. The tree includes descendants in other process groups or
-reparented to launchd, and a SIGTERM, SIGHUP or SIGINT to wait ends it too. A command
-already running in wait's own ancestry exits 3 instead of stacking another copy. Use it for read-only watches such as `bk build watch`
-or `ccx vcs pr watch`, never for a command that writes.
-
 mailbox prints the absolute team mailbox of the newest teammate named <lane> on any
 team roster under $CLAUDE_CONFIG_DIR/teams (default ~/.claude), and exits 1 when no
 roster lists it. The team is the live session's, never one derived from a drive id.
@@ -67,11 +35,8 @@ from __future__ import annotations
 
 import argparse
 import fcntl
-import hashlib
 import json
 import os
-import re
-import subprocess
 import sys
 import time
 from collections.abc import Iterator
@@ -81,7 +46,6 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from long_running import proctree
 from long_running.roster_service import mailbox_of
 
 PACIFIC = ZoneInfo("America/Los_Angeles")
@@ -89,17 +53,6 @@ DISPLAY_CHARS = 400
 DIGEST_CHARS = 200
 DIGEST_BYTES = 6144
 ROTATE_HOURS = 6.0
-WAIT_USAGE = "usage: desk-wait.sh <seconds> (<file>=<cursor-file> | mailbox:<lane>=<cursor-file> | cci:<drive>:<lane>)... [-- <command> [<arg>...]]"
-MAILBOX_SOURCE = "mailbox:"
-WAIT_SOURCE = re.compile(r"cci:(?P<drive>[^:=]+):(?P<lane>[^:=]+)|(?P<file>[^=]+)=(?P<cursor>.+)", re.DOTALL)
-WAIT_SLICE = 2.0
-MAILBOX_POLL = 0.2
-MAILBOX_LOCK_POLL = 0.01
-HARNESS_LOCK_STALE = 10.0
-SEEN_KEYS = 1000
-CCI_GRACE = 30.0
-CCI_MISSING = 127
-RECURSIVE = 3
 
 
 def clip(text: str, cap: int = DISPLAY_CHARS) -> str:
@@ -190,77 +143,6 @@ class Inbox:
             return cut
 
 
-class Mailbox:
-    def __init__(self, path: Path):
-        self.path = path
-
-    @staticmethod
-    def holds(path: Path) -> bool:
-        return path.suffix == ".json" and path.parent.name == "inboxes"
-
-    def mark(self) -> tuple[int, int] | None:
-        try:
-            stat = self.path.stat()
-        except FileNotFoundError:
-            return None
-        return stat.st_mtime_ns, stat.st_size
-
-    def poll(self, seen: set[str]) -> list[dict] | None:
-        try:
-            entries = json.loads(self.path.read_text())
-        except FileNotFoundError:
-            return []
-        except ValueError:
-            return None
-        return [entry for entry in entries if not entry["read"] and message_key(entry) not in seen]
-
-    @contextmanager
-    def harness_lock(self) -> Iterator[None]:
-        lock = self.path.with_name(f"{self.path.name}.lock")
-        while True:
-            try:
-                lock.mkdir()
-                break
-            except FileExistsError:
-                try:
-                    if time.time() - lock.stat().st_mtime > HARNESS_LOCK_STALE:
-                        lock.rmdir()
-                        continue
-                except FileNotFoundError:
-                    continue
-                time.sleep(MAILBOX_LOCK_POLL)
-        try:
-            yield
-        finally:
-            lock.rmdir()
-
-    def mark_read(self, keys: set[str]) -> None:
-        with self.harness_lock():
-            try:
-                entries = json.loads(self.path.read_text())
-            except FileNotFoundError:
-                return
-            for entry in entries:
-                if message_key(entry) in keys:
-                    entry["read"] = True
-            staged = self.path.with_name(f"{self.path.name}.desk-wait.{os.getpid()}")
-            staged.write_text(json.dumps(entries, indent=2))
-            os.replace(staged, self.path)
-
-
-def message_key(entry: dict) -> str:
-    return entry.get("msg_id") or hashlib.sha256(f"{entry['from']}|{entry['timestamp']}|{entry['text']}".encode()).hexdigest()[:32]
-
-
-def pause(seconds: float, mailboxes: list[Mailbox], child: subprocess.Popen | None) -> None:
-    marks = [mailbox.mark() for mailbox in mailboxes]
-    until = time.monotonic() + seconds
-    while (left := until - time.monotonic()) > 0:
-        time.sleep(min(MAILBOX_POLL, left))
-        if [mailbox.mark() for mailbox in mailboxes] != marks or (child and child.poll() is not None):
-            return
-
-
 def cost(texts: list[str]) -> int:
     return sum(len(text.encode()) + 1 for text in texts)
 
@@ -311,113 +193,8 @@ def digest(paths: list[Path], state: Path | None, cap: int, budget: int) -> str:
     return "\n".join(out or ["no new inbox lines"]) + "\n"
 
 
-def tail_cci(drive: str, lane: str) -> str | None:
-    try:
-        return subprocess.run(["cci", "tail", "--drive", drive, "--cursor", f"{lane}-wake", "--to", lane], capture_output=True, text=True, check=True).stdout
-    except FileNotFoundError:
-        return None
-
-
-def seen_count(cursor: Path) -> int:
-    """The line count a file cursor holds on its first line; the mailbox keys an older desk-wait.sh wrote under it are not counts (cci #233982)."""
-    tokens = cursor.read_text().split() if cursor.is_file() else []
-    return int(tokens[0]) if tokens and tokens[0].isdigit() else 0
-
-
-def seen_keys(cursor: Path) -> list[str]:
-    """The mailbox keys a cursor lists, without the line count an older desk-wait.sh wrote first."""
-    return [token for token in cursor.read_text().split() if not token.isdigit()] if cursor.is_file() else []
-
-
-def wait(argv: list[str]) -> int:
-    guarded = "--" in argv
-    split = argv.index("--") if guarded else len(argv)
-    argv, command = argv[:split], argv[split + 1 :]
-    sources = [WAIT_SOURCE.fullmatch(source) for source in argv[1:]]
-    if len(argv) < 2 or not re.fullmatch(r"[0-9]+", argv[0]) or not all(sources) or (guarded and not command):
-        print(WAIT_USAGE, file=sys.stderr)
-        return 2
-    paths = [(source["file"], source_path(source["file"]), Path(source["cursor"])) for source in sources if source["file"]]
-    for named, path, _ in paths:
-        if path is None:
-            print(f"no team roster lists {named.removeprefix(MAILBOX_SOURCE)}", file=sys.stderr)
-            return 1
-        if not path.is_absolute():
-            print(f"desk-wait.sh: {named} is not an absolute path; name a team mailbox as {MAILBOX_SOURCE}<lane>", file=sys.stderr)
-            return 2
-    deadline = time.monotonic() + int(argv[0])
-    feeds = [(source["drive"], source["lane"]) for source in sources if source["drive"]]
-    files = [(path, cursor) for _, path, cursor in paths if not Mailbox.holds(path)]
-    mailboxes = [(Mailbox(path), cursor) for _, path, cursor in paths if Mailbox.holds(path)]
-    try:
-        run = proctree.spawn(command) if command else None
-    except proctree.RecursivePoll as already:
-        print(f"desk-wait.sh: refusing to start {already}: it already runs above this process, so each pass would stack another copy", file=sys.stderr)
-        return RECURSIVE
-    child = run.child if run else None
-    if run:
-        proctree.end_on_signals(run)
-    cci_missing_since: float | None = None
-    while True:
-        changed = False
-        for drive, lane in feeds:
-            unread = tail_cci(drive, lane)
-            if unread is None:
-                cci_missing_since = cci_missing_since or time.monotonic()
-                continue
-            cci_missing_since = None
-            for line in unread.splitlines():
-                print(clip(line), flush=True)
-                changed = True
-        for mailbox, cursor in mailboxes:
-            seen = seen_keys(cursor)
-            fresh = mailbox.poll(set(seen))
-            if not fresh:
-                continue
-            print(f"MAILBOX {len(fresh)} unread", flush=True)
-            for entry in fresh:
-                print(f"== {entry['from']} {entry['timestamp']}\n{entry['text']}", flush=True)
-            keys = [message_key(entry) for entry in fresh]
-            cursor.write_text("".join(f"{key}\n" for key in [*seen, *keys][-SEEN_KEYS:]))
-            mailbox.mark_read(set(keys))
-            changed = True
-        for watched, cursor in files:
-            seen = seen_count(cursor)
-            lines = Inbox(watched).lines() if watched.is_file() else []
-            if len(lines) > seen:
-                for line in lines[seen:]:
-                    if line.text.split():
-                        print(clip(line.text), flush=True)
-                cursor.write_text(f"{len(lines)}\n")
-                changed = True
-        if not changed and child and child.poll() is not None:
-            proctree.end(run)
-            return child.returncode if child.returncode >= 0 else 128 - child.returncode
-        remaining = deadline - time.monotonic()
-        if not changed and cci_missing_since is not None and (remaining <= 0 or time.monotonic() - cci_missing_since >= CCI_GRACE):
-            print(f"desk-wait.sh: cci not found on PATH for {time.monotonic() - cci_missing_since:.0f} s", file=sys.stderr)
-            if child:
-                proctree.end(run)
-            return CCI_MISSING
-        if not changed and remaining <= 0:
-            print(f"QUIET {datetime.now(PACIFIC):%-I:%M %p}")
-            changed = True
-        if changed:
-            if child:
-                proctree.end(run)
-            return 0
-        pause(min(WAIT_SLICE, remaining), [mailbox for mailbox, _ in mailboxes], child)
-
-
-def source_path(file: str) -> Path | None:
-    lane = file.removeprefix(MAILBOX_SOURCE)
-    return mailbox_of(lane) if lane != file else Path(file)
-
-
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
-    if argv[:1] == ["wait"]:
-        return wait(argv[1:])
     parser = argparse.ArgumentParser(prog="inboxes.py", description=__doc__)
     verbs = parser.add_subparsers(dest="verb", required=True)
     summary = verbs.add_parser("digest")
