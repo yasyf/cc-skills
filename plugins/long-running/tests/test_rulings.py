@@ -441,6 +441,12 @@ class RegisterShell(ledger.Shell):
             case ["ccn", "-R", "/repo", "answer", "list", *labels, "--limit", "0", "--json"]:
                 wanted = set(labels[1::2])
                 return json.dumps([answer for answer in self.answers if wanted <= set(answer["tags"])])
+            case ["ccn", "-R", "/repo", "answer", "search", topic, "--limit", "0", "--json"]:
+                return json.dumps([answer for answer in self.answers if any(tag.startswith(topic) for tag in answer["tags"])])
+            case ["ccn", "-R", "/repo", "relevant", root, "--attached", "--limit", "0", "--base", "main", "--json"]:
+                return json.dumps([{"kind": "answer", "answer": answer, "score": 60, "reasons": ["dir"]} for answer in self.answers if any(root == anchor or root.startswith(anchor + "/") for anchor in answer.get("dirs", []))])
+            case ["git", "-C", "/repo", "rev-parse", "--abbrev-ref", "HEAD"]:
+                return "main\n"
             case ["ccn", "-R", "/repo", "answer", "show", identity, "--json"]:
                 return json.dumps(next(answer for answer in self.answers if answer["id"].startswith(identity)))
             case ["ccn", "-R", "/repo", "answer", "edit", identity, "--add-label", label]:
@@ -1648,6 +1654,7 @@ def test_a_lane_slice_carries_the_rows_its_step_names_or_mentions_verbatim_and_p
     assert "10. Next item." not in lines
     for left_out in ("rule/bbbbbbb", "rule/ddddddd", "rule/eeeeeee", "exception/E1"):
         assert left_out not in out
+    assert "This brief names no `topics=` or `paths=`, so the launch searched nothing. Run `ccn answer search <topic>` for each subject you decide on before any ask, decide with options, or PR." in lines
     assert f"The register's other 4 rows match nothing of this lane or pass the 40 KB cap; read them with `ccn ledger show {REGISTER_LEDGER[:12]}`." in lines
 
 
@@ -1668,7 +1675,7 @@ def test_a_lane_slice_of_a_register_larger_than_the_cap_stays_under_it_with_ever
     assert len(out.encode()) < rulings.SLICE_CAP
     assert hashed_correctly(out)
     assert set(required(out)) == {"rule/aaaaaaa", "rule/ccccccc"}
-    assert f"The register's other {len(rulings.register_reads.live_rows(rows)) - 2} rows match nothing of this lane or pass the 40 KB cap; read them with `ccn doc show c3230a2`." in out.splitlines()
+    assert f"The register's other {len(rulings.register_reads.live_rows(rows)) - 2} rows match nothing of this lane or pass the 40 KB cap; read them with `ccn ledger show {REGISTER_LEDGER[:12]}`." in out.splitlines()
 
     named = seeded(package) | {f"rule/{index:07x}": filler | {"lanes": '["lane-a"]'} for index in range(400)}
     _, out = ran(capsys, StandingShell(named), "slice", "--lane", "lane-a", "--step", "1.9")
@@ -1787,6 +1794,46 @@ def test_refresh_fills_a_bare_slice_line_and_rewrites_only_a_stale_slice(home: P
     assert second.count("Register slice:") == 1
     assert second.count("slice-hash:") == 1
     assert "> Cards quote the words they ask about, verbatim." in second.splitlines()
+
+
+OLD_CHAT_ANSWERS = [
+    {"id": "9d440bb" + "0" * 33, "title": "Old-format chats in the new build: convert how?", "body": "Convert in background on startup.\nFall back to read only with fork.", "tags": ["from:owner", "old-chats-import"], "updated_at": "2026-11-03T18:55:02Z"},
+    {"id": "35a4385" + "0" * 33, "title": "Old chats on the next build: attempt a one-time migration?", "body": "Fork can be the fallback.", "tags": ["from:owner", "old-chats-import"], "updated_at": "2026-11-03T19:09:06Z"},
+    {"id": "e34cc77" + "0" * 33, "title": "How does an old build handle a new-format chat?", "body": "It refuses it.", "tags": ["from:owner"], "dirs": ["go/sand/next"], "updated_at": "2026-11-02T22:17:00Z"},
+    {"id": "1984bf6" + "0" * 33, "title": "May a migration ship behind a flag?", "body": "No.", "tags": ["from:owner"], "updated_at": "2026-11-03T20:00:00Z"},
+]
+
+
+def test_a_launch_refresh_opens_the_brief_with_the_answers_its_topics_and_paths_find_newest_first(home: Path, package: Path, state: Path, capsys) -> None:
+    brief = state / "briefs" / "lane-c.md"
+    brief.parent.mkdir()
+    brief.write_text("Brief for lane-c.\nRegister slice: lane=lane-c step=2 topics=old-chats paths=go/sand/next/*\n\nDo the work.\n")
+
+    code, _ = ran(capsys, RegisterShell(seeded(package), answers=OLD_CHAT_ANSWERS), "slice", "--refresh", str(brief))
+    lines = brief.read_text().splitlines()
+    step_one = lines.index("## Step one: his answers on this lane's topics and paths")
+
+    assert code == 0
+    assert lines[1] == "Register slice: lane=lane-c step=2 topics=old-chats paths=go/sand/next/*"
+    assert lines[step_one + 1 : step_one + 4] == [
+        "Run these again before any ask, decide with options, or PR, and build to what they return. At launch they found 3:",
+        "`ccn answer search old-chats`",
+        "`ccn relevant go/sand/next`",
+    ]
+    assert [line for line in lines if line.startswith("- ")] == [
+        "- 35a4385 Old chats on the next build: attempt a one-time migration?",
+        "- 9d440bb Old-format chats in the new build: convert how?",
+        "- e34cc77 How does an old build handle a new-format chat?",
+    ]
+    assert "  > Fall back to read only with fork." in lines
+    assert step_one < lines.index("## Rows matched for lane lane-c and step 2")
+
+
+def test_answers_prints_the_same_hits_a_launch_slice_carries_for_a_card_draw(home: Path, package: Path, state: Path, capsys) -> None:
+    code, out = ran(capsys, RegisterShell(seeded(package), answers=OLD_CHAT_ANSWERS), "answers", "--topics", "old-chats", "--paths", "go/sand/next/cmd/*", "--base", "main", "--json")
+
+    assert code == 0
+    assert [answer["id"][:7] for answer in json.loads(out)] == ["35a4385", "9d440bb", "e34cc77"]
 
 
 def required(out: str) -> list[str]:

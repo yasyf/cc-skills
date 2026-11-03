@@ -39,7 +39,7 @@ any read: `cci subscribe --drive <drive> --reader meta`.
 2. Give each item one implementer, the turn it arrives. A defect reported for meta by the
    coordinator or any lane becomes a lane with a deliverable and a due time that same turn,
    never an ask; send back an ask that carries a defect and no lane. Write its brief to
-   `<state dir>/<lane>/brief.md` with its `Register slice:`, `Scale:` and `ccx:` lines,
+   `<state dir>/<lane>/brief.md` with its `Register slice:` line naming `topics=` for the subjects the lane decides on, and its `Scale:` and `ccx:` lines,
    each owner order it delivers as its `owner:m<row>` token, the owner's words verbatim
    and the contract below, and launch it with
    `lr launch lane <lane> opus xhigh <brief> --drive <drive> --lane meta`. A

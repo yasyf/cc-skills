@@ -203,7 +203,7 @@ cci post --drive <drive> --lane root --kind go --to orca-desk --text 'orca-desk:
 - the line says `orca-desk: launch` outside the exact form, which logs as `LAUNCH-FAILED <key> inbox`, or
 - a non-incident-fix brief lacks a `Register slice: lane=<lane> step=<n>` line.
 
-If a judge reads a non-incident brief's `Scale:` line as missing the N its paths run at, the relay launches anyway and posts `SCALE-MISSED <key> <lane>` to the coordinator. Before launching, the relay refreshes the slice with `rulings.py slice --refresh <brief>`. That refresh writes `Register slice: lane=<lane> step=incident` into an incident brief that lacks one, and into every alert, case, fallback, and manual release brief it attaches. An unreadable slice logs `SLICE-UNREAD` and the launch proceeds. A verified launch logs `LAUNCHED <key> <lane>: dispatch <ctx> terminal <handle>`.
+If a judge reads a non-incident brief's `Scale:` line as missing the N its paths run at, the relay launches anyway and posts `SCALE-MISSED <key> <lane>` to the coordinator. Before launching, the relay refreshes the slice with `rulings.py slice --refresh <brief>`. The refreshed slice opens with step one: `ccn answer search <topic>` for each `topics=` entry on the slice line and `ccn relevant <dir>` for each `paths=` glob, each run once, with every answer they found beneath them. That refresh writes `Register slice: lane=<lane> step=incident` into an incident brief that lacks one, and into every alert, case, fallback, and manual release brief it attaches. An unreadable slice logs `SLICE-UNREAD` and the launch proceeds. A verified launch logs `LAUNCHED <key> <lane>: dispatch <ctx> terminal <handle>`.
 
 **Withdraw a launch or lane with `withdraw`.** `lr launch withdraw` posts one of:
 
