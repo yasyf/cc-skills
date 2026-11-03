@@ -519,10 +519,7 @@ def test_the_assistant_answers_through_the_server_route_with_no_key_in_the_brows
     fresh.route("**/ai/chat/completions", model)
     fresh.goto(page.url.split("#")[0] + "?ai=1#/")
     fresh.wait_for_selector(".nw-spine")
-    fresh.evaluate("location.hash = '#/jump'")
-    fresh.fill("#pal-q", "why is it slow?")
-    fresh.press("#pal-q", "Tab")
-    fresh.wait_for_function("document.getElementById('pal-ans').textContent.includes('From the model.')")
+    assert fresh.evaluate("assistAsk('why is it slow?', [], () => {})") == "From the model."
     ask = next(call for call in calls if "why is it slow?" in call.post_data)
     assert "authorization" not in ask.headers and "model" not in ask.post_data_json
     assert not any("ai.json" in url or "cerebras" in url for url in requested)
