@@ -994,14 +994,16 @@ def pr_diff(args: argparse.Namespace, shell: ledger.Shell, repo: str, base: str,
     tip = base if FULL_SHA.fullmatch(base) else shell.run([*git, "ls-remote", "--exit-code", "origin", base if base.startswith("refs/") else f"refs/heads/{base}"]).split()[0]
     if absent := missing_commits(shell, git, (tip, head)):
         shell.run([*git, "fetch", "-q", "--no-tags", "--no-write-fetch-head", "origin", *absent])
-    kept = state_dir(args, args.runtime.drives, args.runtime.scratch) / "check-pr" / f"{shell.run([*git, 'merge-base', tip, head]).strip()}-{head}.diff"
+    fork = shell.run([*git, "merge-base", tip, head]).strip()
+    kept = state_dir(args, args.runtime.drives, args.runtime.scratch) / "check-pr" / f"{fork}-{head}.diff"
     if not kept.is_file():
         kept.parent.mkdir(parents=True, exist_ok=True)
         with kept.with_suffix(".lock").open("a") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
             if not kept.is_file():
                 staged = kept.with_suffix(f".{os.getpid()}")
-                shell.run([*git, "diff", "--no-color", "--no-ext-diff", "--no-textconv", "--find-copies-harder", "-l0", f"-U{LOOKBACK}", "--src-prefix=a/", "--dst-prefix=b/", f"--output={staged}", f"{tip}...{head}"])
+                copies = ["--find-copies-harder", "-l0"] if shell.run([*git, "diff-tree", "-r", "--no-renames", "--diff-filter=A", "--name-only", fork, head]).strip() else []
+                shell.run([*git, "diff", "--no-color", "--no-ext-diff", "--no-textconv", *copies, f"-U{LOOKBACK}", "--src-prefix=a/", "--dst-prefix=b/", f"--output={staged}", f"{tip}...{head}"])
                 staged.replace(kept)
     return parse_diff(kept.read_text(errors="replace"))
 
