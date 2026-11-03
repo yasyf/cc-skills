@@ -401,10 +401,10 @@ out while a known fix for the last failure is still open.
 
 Incidents are the exception: a release whose purpose is landing an incident fix is pre-authorized end to end across its
 start, every approval step and its migrations, starts real at once with no dry run, and
-is the smallest release that carries the fix. A release the owner ordered is pre-authorized the
-same way: its lane approves every approval step itself and counts the deletes and replaces it
-approved in its done line, and only a delete or replace that neither the plan nor the order names
-goes to the owner. Release lanes are in [reference/release-lanes.md](reference/release-lanes.md).
+is the smallest release that carries the fix. Its apply stays bounded by zero deletes and zero
+replaces with counts reported; a delete or replace goes to the owner. A release the owner ordered
+is pre-authorized end to end: its lane approves every approval step itself, the deletes and
+replaces the plan names included, and counts them in its done line. Release lanes are in [reference/release-lanes.md](reference/release-lanes.md).
 
 **R12. Route every red at once.** Every `STALLED-RED` line goes to its owning lane in the
 same turn with a 15-minute deadline. A red with no live owner gets a new lane at once,

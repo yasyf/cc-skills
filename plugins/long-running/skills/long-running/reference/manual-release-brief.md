@@ -28,9 +28,10 @@ Do, in order:
    post `--kind fix-live --target {component} --build <url>` with
    `RELEASED {component} <version> (<build>)` as its text.
 
-Approve every approval step of this release yourself: its deletes, replaces and
-migrations the plan names are no second ask, and the `fix-live` text counts each
-delete and replace you approved. Never cancel it mid-apply. Never ask the owner
+Approve every approval step of this release yourself; its migrations are no second
+ask. When the owner ordered this release, approve the deletes and replaces its plan
+names too and count each in the `fix-live` text; otherwise a delete or replace goes
+to root as a `blocker`. Never cancel it mid-apply. Never ask the owner
 anything; a refusal you cannot get past goes to root as a `blocker` with the
 command and its output.
 
