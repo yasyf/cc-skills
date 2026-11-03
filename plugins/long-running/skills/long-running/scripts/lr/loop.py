@@ -4,7 +4,8 @@ Every tick renews the lease under the generation it was started with, beats as a
 runs the lanes mover, and, every three minutes, reads the facts, runs the pass, hands the
 pass's actions to the landing mover and its grade items to the grading mover; then it sleeps.
 The shadow mover runs the same pass over its own store and acts on nothing. Only the movers the
-config names run, so each one cuts over on its own. A renewal that finds a newer generation ends the
+config names run, so each one cuts over on its own: a pass opens every item, and only the
+items of a mover that runs reach the bus or escalate (`items` puts the lanes' items live). A renewal that finds a newer generation ends the
 loop on that tick, so two supervisors never act at once and an install that starts the
 successor is all it takes to retire the predecessor. A tick that ends with a newer release
 installed ends the loop too, so the process can re-execute into that release.
@@ -17,14 +18,15 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from lr import shadow, supervisor
-from lr.machine import Facts
+from lr.machine import Facts, Mover
 from lr.movers import grading, landing, lanes
 from lr.store import StaleGeneration, Store, stamp
 
 TICK = timedelta(seconds=30)
 PASS_EVERY = timedelta(minutes=3)
 PASSED = "pass"
-PR_MOVERS = frozenset({"shadow", "landing", "grading"})
+PR_MOVERS = frozenset({"shadow", "landing", "grading", "items"})
+LIVE = {"landing": (Mover.SUPERVISOR,), "grading": (Mover.POOL,), "items": (Mover.LANE,)}
 SELF = "supervisor"
 
 
@@ -75,9 +77,15 @@ def tick(store: Store, drive: str, generation: int, deps: Deps) -> Tick:
         for subject, cause in shadow.diffs(passing, snapshot, out.verdicts, now):
             deps.post("note", to=["supervisor"], text=f"shadow {subject}: {cause}")
         return Tick(now, len(snapshot), 0, 0, 0, relaunched)
-    out = supervisor.run_pass(store, snapshot, now, deps.post)
-    landed = landing.act(store, deps.queue, deps.restacker, out.acts, now) if "landing" in deps.movers else landing.Done()
-    graded = grading.act(store, deps.pool, store.open_items(), {f.number: f for f in snapshot}, now, generation) if "grading" in deps.movers else grading.Done()
+    out = supervisor.run_pass(store, snapshot, now, deps.post, frozenset(mover for name in deps.movers for mover in LIVE.get(name, ())))
+    try:
+        landed = landing.act(store, deps.queue, deps.restacker, out.acts, now) if "landing" in deps.movers else landing.Done()
+        graded = grading.act(store, deps.pool, store.open_items(), {f.number: f for f in snapshot}, now, generation) if "grading" in deps.movers else grading.Done()
+    except lanes.Unread as unread:
+        print(f"{stamp(now)} movers stopped mid-pass: {unread}", flush=True)
+        return Tick(now, len(snapshot), 0, 0, len(out.escalated), relaunched)
+    if acted := "; ".join(f"{name} {', '.join(map(str, values))}" for name, values in vars(landed).items() if values):
+        print(f"{stamp(now)} landing {acted}", flush=True)
     return Tick(now, len(snapshot), len(landed.enqueued) + len(landed.resubmitted), len(graded.dispatched), len(out.escalated), relaunched)
 
 

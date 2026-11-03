@@ -1,8 +1,10 @@
 """The landing mover: `ready` and `evicted` heads into the queue, moved heads out of it, conflicts restacked.
 
 One action per PR per pass, each a call on a queue or restack adapter a test replaces. The
-mover writes what it did as facts (a resubmission count, a restack attempt) so the next
-pass's classification sees it; it never narrates. A head that stops being landable between
+mover writes what it did as facts (a resubmission count, a restack attempt, what the queue
+said) so the next pass's classification sees it; it never narrates. A head is restacked once,
+only after a tap or an exempt class admits it, and at most two per pass, so a rebase never
+lands on a branch its lane is still shaping and a pass stays short. A head that stops being landable between
 the facts read and the action is still acted on from the facts the pass read: the next
 pass reads the truth and corrects.
 """
@@ -18,10 +20,15 @@ from lr.store import Store
 
 RESUBMITTED = "resubmitted"
 RESTACKED = "restacked"
+ENQUEUED = "enqueued"
+RESTACKS_PER_PASS = 2
 
 
 class Queue(Protocol):
-    def enqueue(self, number: int, head: str) -> None: ...
+    def enqueue(self, number: int, head: str) -> str | None:
+        """Submit the head; return what the queue said, written as the head's `enqueued` fact."""
+        ...
+
     def dequeue(self, number: int) -> None: ...
 
 
@@ -44,17 +51,17 @@ def act(store: Store, queue: Queue, restacker: Restacker, acts: list[tuple[Facts
     done = Done()
     for facts, verdict in acts:
         if verdict.action is Action.ENQUEUE and facts.queue == "evicted":
-            queue.enqueue(facts.number, facts.head)
+            said(store, facts, queue.enqueue(facts.number, facts.head), now)
             store.put_fact(facts.repo, facts.number, facts.head, RESUBMITTED, str(facts.resubmitted + 1), now)
             done.resubmitted.append((facts.number, facts.head))
         elif verdict.action is Action.ENQUEUE:
-            queue.enqueue(facts.number, facts.head)
+            said(store, facts, queue.enqueue(facts.number, facts.head), now)
             done.enqueued.append((facts.number, facts.head))
         elif verdict.action is Action.DEQUEUE:
             queue.dequeue(facts.number)
             done.dequeued.append(facts.number)
         elif verdict.action is Action.RESTACK:
-            if store.facts(facts.repo, facts.number, facts.head).get(RESTACKED) == "conflict":
+            if not facts.tapped or RESTACKED in store.facts(facts.repo, facts.number, facts.head) or len(done.restacked) + len(done.conflicts) >= RESTACKS_PER_PASS:
                 continue
             new_head = restacker.restack(facts.number, facts.head, facts.base)
             store.put_fact(facts.repo, facts.number, facts.head, RESTACKED, new_head or "conflict", now)
@@ -63,3 +70,8 @@ def act(store: Store, queue: Queue, restacker: Restacker, acts: list[tuple[Facts
             else:
                 done.conflicts.append(facts.number)
     return done
+
+
+def said(store: Store, facts: Facts, outcome: str | None, now: datetime) -> None:
+    if outcome:
+        store.put_fact(facts.repo, facts.number, facts.head, ENQUEUED, outcome, now)

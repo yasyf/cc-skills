@@ -30,6 +30,7 @@ import json
 import os
 import plistlib
 import re
+import shlex
 import subprocess
 import sys
 import time
@@ -50,6 +51,7 @@ from lr.store import Store
 
 SCRIPTS = Path(__file__).resolve().parent
 DESK_LAUNCH = SCRIPTS / "desk-launch.py"
+REMOTE_RESTACK = SCRIPTS / "remote-restack.py"
 REPLAY = SCRIPTS / "replay.py"
 PROJECTS = Path.home() / ".claude" / "projects"
 TEAMS = Path.home() / ".claude" / "teams"
@@ -328,22 +330,64 @@ def label(config: lr_config.Config) -> str:
     return f"com.long-running.{config.drive}.supervisor"
 
 
-def pass_deps(config: lr_config.Config, state: Path) -> dict:
-    """The PR pass's sources and bus: one read of each per pass, over the shadow's own store while the shadow runs."""
+class Trunk:
+    """The repository's own queue script, run from the checkout at fresh trunk with the queue key `queue_key` prints at call time; the script's last line is what the queue said."""
+
+    def __init__(self, config: lr_config.Config):
+        self.config, self.checkout = config, Path(config.checkout)
+
+    def call(self, *argv: str) -> str:
+        run(["git", "-C", str(self.checkout), "fetch", "-q", "origin", self.config.trunk])
+        run(["git", "-C", str(self.checkout), "checkout", "-q", "--detach", "FETCH_HEAD"])
+        key = run(shlex.split(self.config.queue_key)).strip() if self.config.queue_key else ""
+        try:
+            done = subprocess.run([str(self.checkout / self.config.queue_script), *argv], cwd=self.checkout, env=os.environ | ({"TRUNK_MERGE_API_KEY": key} if key else {}), capture_output=True, text=True, timeout=PASS_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            return f"timed out after {PASS_TIMEOUT}s"
+        last = (done.stdout or done.stderr).strip().splitlines()
+        return f"exit {done.returncode}: {last[-1] if last else ''}".strip()
+
+    def enqueue(self, number: int, head: str) -> str:
+        return self.call(str(number))
+
+    def dequeue(self, number: int) -> None:
+        self.call(str(number), "--dequeue")
+
+
+class RemoteRestack:
+    """`remote-restack.py` on a Sprite: the moved stack's new heads, or an empty string when only a lane can resolve the conflict."""
+
+    def __init__(self, state: Path):
+        self.runner_json = state / "runner.json"
+
+    def restack(self, number: int, head: str, base: str) -> str:
+        try:
+            done = subprocess.run([sys.executable, str(REMOTE_RESTACK), "--config", str(self.runner_json), "--lane", loop.SELF, str(number)], capture_output=True, text=True, timeout=PASS_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            return f"timed out after {PASS_TIMEOUT}s"
+        if done.returncode == 1:
+            return ""
+        last = (done.stdout or done.stderr).strip().splitlines()
+        return "moved" if done.returncode == 0 else f"exit {done.returncode}: {last[-1] if last else ''}"
+
+
+def pass_deps(config: lr_config.Config, state: Path, store: Store) -> dict:
+    """The PR pass's sources, bus and, for the landing mover, its queue and restacker: one read of each source per pass, over the shadow's own store while the shadow runs."""
     shadow = Store.open(state / "lr-shadow.sqlite") if "shadow" in config.movers else None
-    passing = shadow or Store.open(state / "lr.sqlite")
+    passing = shadow or store
 
     def reads(argv: list[str]) -> str:
         return run(argv, timeout=PASS_TIMEOUT)
 
     bus = Bus(config.drive, loop.SELF, reads)
-    return {"shadow": shadow, "post": bus.post, "snapshot": lambda: lr_facts.snapshot(passing, bus, reads, config.repo, config.drive, config.author, config.label, config.go_lane_names)}
+    landing = {"queue": Trunk(config), "restacker": RemoteRestack(state)} if "landing" in config.movers else {}
+    return landing | {"shadow": shadow, "post": bus.post, "snapshot": lambda: lr_facts.snapshot(passing, bus, reads, config.repo, config.drive, config.author, config.label, config.go_lane_names)}
 
 
 def cmd_run(config: lr_config.Config, path: Path) -> int:
     store = Store.open(path.parent / "lr.sqlite")
     running = lr_drive.plugin_manifest()["version"]
-    passes = pass_deps(config, path.parent) if set(config.movers) & loop.PR_MOVERS else {}
+    passes = pass_deps(config, path.parent, store) if set(config.movers) & loop.PR_MOVERS else {}
     deps = loop.Deps(movers=frozenset(config.movers), clock=clock, sleep=time.sleep, lane_deps=lanes_deps(config, path.parent) if "lanes" in config.movers else None, stale=Upgrade(config, running), **passes)
     ticks = loop.run(store, config.drive, SCRIPTS.parents[2].name, os.getpid(), deps)
     if not deps.stale():

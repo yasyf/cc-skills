@@ -139,3 +139,13 @@ def test_a_tap_carries_its_condition_as_a_typed_field():
 def test_a_blank_condition_is_refused():
     with pytest.raises(Refused, match="tap.condition must be non-empty text"):
         Bus("d", "owner-board", FakeCci()).post("tap", to=["supervisor"], pr=45470, head=HEAD, by="owner", value="tapped", condition="  ")
+
+
+def test_an_item_reaches_a_lane_by_name_but_never_root():
+    item = dict(item=3, action="verdict", pr=45470, head=HEAD, mover="lane", deadline="2026-10-31T06:20:00Z")
+
+    assert Bus("d", "supervisor", FakeCci()).post("item", to=["lane-7"], **item).to == ("lane-7",)
+    with pytest.raises(Refused, match="never reaches root"):
+        Bus("d", "supervisor", FakeCci()).post("item", to=["root"], **item)
+    with pytest.raises(Refused, match="never reaches lane-7"):
+        Bus("d", "supervisor", FakeCci()).post("state", to=["lane-7"], lane="lane-7")

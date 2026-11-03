@@ -76,6 +76,7 @@ def ingest(store: Store, repo: str, records: list[Record]) -> None:
 
 def assemble(store: Store, repo: str, rows: list[dict], carries: dict[int, tuple[int, ...]], held: dict[int, str]) -> list[Facts]:
     out = []
+    owners = store.owner_of(row["number"] for row in rows) if rows else {}
     for row in rows:
         facts = store.facts(repo, row["number"], row["head"])
         out.append(
@@ -84,7 +85,7 @@ def assemble(store: Store, repo: str, rows: list[dict], carries: dict[int, tuple
                 number=row["number"],
                 head=row["head"],
                 base=row["base"],
-                lane=facts.get("lane", ""),
+                lane=facts.get("lane") or owners.get(row["number"]) or "",
                 open=row["state"] == "OPEN",
                 merged=row["state"] == "MERGED" or row["queue"] == "landed",
                 ci=CI[row.get("ci", {}).get("state", "none")],

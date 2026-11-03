@@ -2,7 +2,8 @@
 
 A record is refused at write time when its kind is unknown, a field is missing, extra or
 of the wrong shape, it names more than one PR, or it is addressed to an audience the kind
-does not reach; the refusal prints the corrected command. Posting the same record twice
+does not reach, where a kind that reaches `lane` reaches any lane by name but never a role
+such as root; the refusal prints the corrected command. Posting the same record twice
 is one record: the identity fields become cci's idempotency key. Readers get typed
 :class:`Record` values from a cursor and never parse free text.
 """
@@ -23,6 +24,7 @@ KINDS: dict[str, dict] = json.loads((Path(__file__).parent / "kinds.json").read_
 SHA = re.compile(r"^[0-9a-f]{40}$")
 TIME = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 PAGE_ROWS = 500
+ROLES = frozenset({"supervisor", "lane", "pool", "owner", "root"})
 PAGE_BYTES = 4_000_000
 
 
@@ -73,7 +75,7 @@ def check(kind: str, body: dict, to: tuple[str, ...]) -> None:
     audience = spec["audience"]
     if audience != "any":
         for lane in to:
-            if lane not in audience:
+            if lane not in audience and not ("lane" in audience and lane not in ROLES):
                 raise Refused(f"a {kind} record never reaches {lane}; it goes to {', '.join(audience)}" + (f"; to tell {lane}, post an escalation, an ask or a decision" if lane == "root" else ""))
 
 

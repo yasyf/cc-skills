@@ -43,7 +43,7 @@ def test_the_remote_box_is_optional_until_the_pool_runs_remotely(tmp_path):
 
 @pytest.mark.parametrize("movers", [[], ["lanes", "board"], "lanes"])
 def test_movers_name_only_known_movers_and_have_no_default(tmp_path, movers):
-    with pytest.raises(config.BadConfig, match="movers must be a non-empty list drawn from lanes, shadow, landing, grading"):
+    with pytest.raises(config.BadConfig, match="movers must be a non-empty list drawn from lanes, shadow, landing, grading, items"):
         config.load(write(tmp_path, {**GOOD, "movers": movers}))
 
 

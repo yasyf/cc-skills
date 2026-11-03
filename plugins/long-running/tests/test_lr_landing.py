@@ -26,6 +26,7 @@ class FakeQueue:
 
     def enqueue(self, number, head):
         self.enqueued.append((number, head))
+        return f"exit 0: #{number} QUEUED"
 
     def dequeue(self, number):
         self.dequeued.append(number)
@@ -117,3 +118,31 @@ def test_one_action_per_pr_per_pass_and_nothing_twice_while_the_facts_hold():
 
     assert queue.enqueued == [(45583, HEAD)]
     assert queue.dequeued == []
+
+
+def test_what_the_queue_said_is_the_heads_enqueued_fact():
+    store = Store.memory()
+
+    landing.act(store, FakeQueue(), FakeRestacker(), acts_for(store, [facts()]), T0)
+
+    assert store.facts(REPO, 45583, HEAD)[landing.ENQUEUED] == "exit 0: #45583 QUEUED"
+
+
+def test_an_untapped_conflict_is_left_to_its_lane_and_never_rebased_under_it():
+    store, restacker = Store.memory(), FakeRestacker(NEW)
+
+    done = landing.act(store, FakeQueue(), restacker, acts_for(store, [facts(number=45410, mergeable="conflict", tap=None)]), T0)
+
+    assert restacker.calls == [] and done.restacked == []
+
+
+def test_a_restacked_head_is_not_restacked_again_and_a_pass_restacks_at_most_two():
+    store, restacker = Store.memory(), FakeRestacker("moved")
+    snapshot = [facts(number=n, mergeable="behind") for n in (1, 2, 3)]
+
+    first = landing.act(store, FakeQueue(), restacker, acts_for(store, snapshot), T0)
+    second = landing.act(store, FakeQueue(), restacker, acts_for(store, snapshot, T0 + timedelta(minutes=3)), T0 + timedelta(minutes=3))
+
+    assert [n for n, _, _ in first.restacked] == [1, 2]
+    assert [n for n, _, _ in second.restacked] == [3]
+    assert [n for n, _, _ in restacker.calls] == [1, 2, 3]
