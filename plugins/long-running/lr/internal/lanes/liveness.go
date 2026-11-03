@@ -171,6 +171,27 @@ func StandingRefusal(s *store.Store, r Request) (refusal string, err error) {
 	return "", nil
 }
 
+func DoneRefusal(s *store.Store, lane string, states func(prs []int) (map[int]string, error)) (refusal string, err error) {
+	defer recovered(&err)
+	owned := must(s.Owners())[lane]
+	if lane == Root || len(owned) == 0 {
+		return "", nil
+	}
+	found := must(states(owned))
+	var open []int
+	var flags strings.Builder
+	for _, n := range owned {
+		if found[n] != Closed {
+			open = append(open, n)
+			fmt.Fprintf(&flags, " --pr %d", n)
+		}
+	}
+	if len(open) == 0 {
+		return "", nil
+	}
+	return fmt.Sprintf("%s still owns open %s, and done retires a lane for good with no wake route back to them. Post `cci post --lane %s --kind blocked%s --to <your desk> --text '<what lands it>'` and wait; post done once none is open.", lane, numberList(open), lane, flags.String()), nil
+}
+
 func (p Post) Draft(drive string) client.Draft {
 	draft := client.Draft{Drive: drive, Lane: Self, Kind: p.Kind, To: p.To, Text: p.Text, Re: p.Re, Successor: p.Successor, Attrs: p.Attrs, Stamp: true, Force: true}
 	if p.LaneRef != "" {

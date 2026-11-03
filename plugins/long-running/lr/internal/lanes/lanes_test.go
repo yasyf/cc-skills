@@ -1638,6 +1638,31 @@ func TestAStandDownOfAStandingLaneWithNoSuccessorIsRefused(t *testing.T) {
 	}
 }
 
+func TestADoneWhileTheLaneOwnsAnOpenPRIsRefusedNamingItAndTheBlockedForm(t *testing.T) {
+	s := memory(t)
+	if err := s.Own(lane2, []int{12, 13}); err != nil {
+		t.Fatal(err)
+	}
+	states := func(states map[int]string) func([]int) (map[int]string, error) {
+		return func([]int) (map[int]string, error) { return states, nil }
+	}
+
+	refusal, err := DoneRefusal(s, lane2, states(map[int]string{12: Closed, 13: NeedsWork}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	contains(t, refusal, "conflicts-2 still owns open #13,")
+	contains(t, refusal, "`cci post --lane conflicts-2 --kind blocked --pr 13 --to <your desk>")
+
+	for lane, found := range map[string]map[int]string{lane2: {12: Closed, 13: Closed}, "never-1": {}} {
+		refusal, err := DoneRefusal(s, lane, states(found))
+		if err != nil {
+			t.Fatal(err)
+		}
+		equal(t, refusal, "")
+	}
+}
+
 func TestARequestPostsOneTypedDecideToTheSupervisor(t *testing.T) {
 	draft := Request{Verb: "stand-down", Lane: lane2, Successor: "conflicts-3", LastRead: "7", PRs: []int{1, 2}, By: Root}.Draft(testDrive)
 
