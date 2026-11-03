@@ -12,7 +12,6 @@ import (
 type RunnerDeadlines struct {
 	StartMinutes             int `json:"start_minutes"`
 	LaunchMinutes            int `json:"launch_minutes"`
-	LoadHoldMinutes          int `json:"load_hold_minutes"`
 	EnqueueMinutes           int `json:"enqueue_minutes"`
 	HoldMinutes              int `json:"hold_minutes"`
 	ReleaseStartMinutes      int `json:"release_start_minutes"`
@@ -66,7 +65,7 @@ func LoadRunner(path string) (Runner, error) {
 			Facts string `json:"facts"`
 		} `json:"alert"`
 	}{Deadlines: RunnerDeadlines{
-		StartMinutes: 10, LaunchMinutes: 15, LoadHoldMinutes: 5, EnqueueMinutes: 15, HoldMinutes: 15, ReleaseStartMinutes: 10,
+		StartMinutes: 10, LaunchMinutes: 15, EnqueueMinutes: 15, HoldMinutes: 15, ReleaseStartMinutes: 10,
 		IncidentReleaseMinutes: 3, CutMinutes: 4, IncidentMechanismMinutes: 10, IncidentPRMinutes: 15, IncidentReadyMinutes: 20,
 		PRSilentMinutes: 10, PRSilentEveryMinutes: 5,
 	}}

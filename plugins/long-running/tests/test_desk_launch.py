@@ -89,10 +89,13 @@ def posted(drive: Drive) -> list[str]:
     return [flag(call, "--text") for call in drive.calls if call[1] == "post"]
 
 
+BRIEF_LINES = "Scale: no N\n\nRegister slice: lane=x step=1\n"
+
+
 def briefs(tmp_path: Path) -> tuple[Path, Path]:
     fix, evidence = tmp_path / "fix-brief.md", tmp_path / "evidence-brief.md"
-    fix.write_text("fix")
-    evidence.write_text("evidence")
+    fix.write_text(f"fix\n{BRIEF_LINES}")
+    evidence.write_text(f"evidence\n{BRIEF_LINES}")
     return fix, evidence
 
 
@@ -213,51 +216,39 @@ def test_a_lanes_own_placeholders_pass_once_root_filled_its_own(drive, tmp_path)
     assert desk_launch.main(["incident", "run-queue", str(brief)]) == 0
 
 
-LOAD_HIGH = "LOAD-HIGH load:2026-10-14T03:0 runner: load 42 above 32 cores: Orca launches are refused while it lasts"
-ON_LOAD = "LAUNCH-FAILED desk-lane-inc-x-fix/R474 inc-x-fix: R474 refused on load 42 above 32 cores; nothing was launched, and the root launches it in-process or once the load is moved"
+def test_a_brief_missing_both_lines_is_refused_before_any_post_naming_both(drive, tmp_path):
+    """Nov 2: R84952 to R84958 and R84964 each lost a five-minute runner round trip to one missing brief line at a time."""
+    brief = tmp_path / "plain-brief.md"
+    brief.write_text("Do the thing.\n")
+    with pytest.raises(SystemExit) as refused:
+        desk_launch.main(["lane", "new-lane", "opus", "xhigh", str(brief)])
+    assert "`Register slice: lane=<name> step=<n>`" in str(refused.value) and "`Scale:`" in str(refused.value)
+    assert drive.calls == []
 
 
-def runner(drive: Drive, *texts: str) -> None:
-    for text in texts:
-        drive.records.append({"seq": drive.records[-1]["seq"] + 1, "lane": "desk-runner", "kind": "defect", "text": text})
+def test_every_fault_of_a_launch_is_named_at_once_before_any_post(drive, tmp_path):
+    brief = tmp_path / "other-lane" / "brief.md"
+    brief.parent.mkdir()
+    brief.write_text("Do the thing.\n")
+    with pytest.raises(SystemExit) as refused:
+        desk_launch.main(["lane", "new-lane", "gemini", "hard", str(brief)])
+    for fault in ("gemini is not a model", "hard is not an effort", "is lane other-lane's", "`Register slice:", "`Scale:`"):
+        assert fault in str(refused.value)
+    assert drive.calls == []
 
 
-@pytest.mark.parametrize("lane", ["inc-x", "inc-x-fix"])
-def test_a_load_refusal_of_the_fix_lane_clears_an_in_process_launch(drive, capsys, lane):
-    runner(drive, LOAD_HIGH, ON_LOAD)
-    assert desk_launch.main(["refused", lane, "--drive", "d"]) == 0
-    assert capsys.readouterr().out == f"{ON_LOAD}\n"
-    [grep] = [call for call in drive.calls if call[1] == "grep"]
-    assert flag(grep, "--lane") == "desk-runner" and flag(grep, "--since") == "30m" and grep[0] == "d"
+def test_an_incident_brief_owes_neither_line(drive, tmp_path):
+    brief = tmp_path / "plain-brief.md"
+    brief.write_text("Fix the outage.\n")
+    drive.verdicts = {"R2026": "LAUNCHED R2026 {lane}: dispatch ctx_fix terminal term_fix"}
+    assert desk_launch.main(["incident", "inc-x", str(brief)]) == 0
 
 
-def test_load_high_clears_a_lane_the_runner_has_no_verdict_for(drive, capsys):
-    runner(drive, LOAD_HIGH, "LAUNCHED R12 other-fix: dispatch ctx_o terminal term_o")
-    assert desk_launch.main(["refused", "inc-x-fix", "--drive", "d"]) == 0
-    assert capsys.readouterr().out == f"{LOAD_HIGH}\n"
-
-
-@pytest.mark.parametrize(
-    "texts",
-    [
-        (),
-        (ON_LOAD, "LAUNCHED R475 inc-x-fix: dispatch ctx_fix terminal term_fix"),
-        (LOAD_HIGH, "LAUNCH-FAILED desk-lane-inc-x-fix/R475 inc-x-fix: orca-launch.sh exited 1"),
-    ],
-)
-def test_no_load_refusal_as_the_lanes_newest_verdict_exits_one(drive, capsys, texts):
-    runner(drive, *texts)
-    assert desk_launch.main(["refused", "inc-x", "--drive", "d"]) == 1
-    assert capsys.readouterr().out == ""
-
-
-def test_a_session_reads_its_drive_from_the_registry(drive, monkeypatch):
-    monkeypatch.setattr(desk_launch.registry, "find", lambda name, session: {"state_dir": "/s/prog"} if session == "s1" else None)
-    runner(drive, ON_LOAD)
-    assert desk_launch.main(["refused", "inc-x", "--session", "s1"]) == 0
-    assert [call[0] for call in drive.calls if call[1] == "grep"] == ["prog"]
-    with pytest.raises(SystemExit, match="no drive in the registry claims session s2"):
-        desk_launch.main(["refused", "inc-x", "--session", "s2"])
+def test_a_brief_carrying_both_lines_posts(drive, tmp_path):
+    fix, _ = briefs(tmp_path)
+    drive.verdicts = {"R2026": "LAUNCHED R2026 {lane}: dispatch ctx_l terminal term_l"}
+    assert desk_launch.main(["lane", "new-lane", "opus", "xhigh", str(fix)]) == 0
+    assert len(posted(drive)) == 1
 
 
 def test_the_next_key_reads_only_cci_and_never_the_desk_inbox_file(drive, state, tmp_path):

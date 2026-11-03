@@ -95,14 +95,7 @@ class Root:
 
 
 @pytest.fixture
-def refused(monkeypatch: pytest.MonkeyPatch) -> list[str]:
-    lanes: list[str] = []
-    monkeypatch.setattr(owner_facing, "refused_on_load", lambda evt, lane: lane in lanes)
-    return lanes
-
-
-@pytest.fixture
-def root(tmp_path: Path, refused: list[str]) -> Root:
+def root(tmp_path: Path) -> Root:
     return Root(tmp_path)
 
 
@@ -174,14 +167,6 @@ def test_declared_support_and_non_incident_fix_lanes_pass(root: Root, name: str,
     assert root.spawn(name, prompt) is None
 
 
-def test_a_fix_lane_the_desk_refused_on_load_spawns_in_process(root: Root, refused: list[str]) -> None:
-    prompt = "ccx: role=fix\nYou are api-1n80-fix, fixing the outage behind API-1N80.\nAuthority: Incident Turn."
-    refused.append("api-1n80-fix")
-
-    assert root.spawn("api-1n80-fix", prompt) is None
-    assert root.spawn("api-1n81-fix", prompt) == owner_facing.INCIDENT_ROUTE
-
-
 @pytest.mark.parametrize("tool", ["EnterPlanMode", "ExitPlanMode"])
 def test_plan_mode_warns_while_a_drive_incident_is_open(root: Root, incidents: Path, tool: str) -> None:
     incident(incidents, "0820", "fix-pending", target="executor")
@@ -200,7 +185,7 @@ def test_plan_mode_passes_once_the_incident_closes_or_ages_out(root: Root, incid
     assert root.tool("EnterPlanMode", {}) == []
 
 
-def test_plan_mode_outside_a_drive_passes(tmp_path: Path, incidents: Path, refused: list[str]) -> None:
+def test_plan_mode_outside_a_drive_passes(tmp_path: Path, incidents: Path) -> None:
     incident(incidents, "0820", "fix-pending", target="executor")
 
     assert Root(tmp_path, active=False).tool("EnterPlanMode", {}) == []
