@@ -27,13 +27,16 @@ must run now, then copies the version and the host's runner.json over, points th
 writes the desk runner's stop marker; the runner exits at the end of its pass, and the Sprite service restarts it
 on that version within `ROLL_WAIT`.
 
+`run --preflight` reads the same credentials and asks the desk runner's own `preflight` whether it would start on the
+config, printing its verdict and exit code; `lr install roll` calls it on the host before it stops a desk.
+
 usage:
   desk-creds.py serve [--port N]
   desk-creds.py get <profile> [<field>]
   desk-creds.py push --config <runner.json> [--port N]
   desk-creds.py install --config <runner.json> --desk <desk>
   desk-creds.py roll --config <runner.json> --desk <desk> [--ci-red-ok REASON]
-  desk-creds.py run --config <runner.json> --desk <desk>
+  desk-creds.py run --config <runner.json> --desk <desk> [--preflight]
 """
 
 from __future__ import annotations
@@ -275,7 +278,7 @@ def roll(config: Path, desk: str, ci_red_ok: str) -> int:
     return 0
 
 
-def run(config: Path, desk: str) -> None:
+def run(config: Path, desk: str, preflight: bool = False) -> None:
     raw = json.loads(config.read_text())
     host = raw["host"]
     home = Path.home()
@@ -296,6 +299,8 @@ def run(config: Path, desk: str) -> None:
     hosts.touch(mode=0o600)
     hosts.write_text(f"github.com:\n    users:\n        {host['gh_user']}:\n            oauth_token: {token}\n    git_protocol: https\n    oauth_token: {token}\n    user: {host['gh_user']}\n")
     os.environ |= {**secrets, **ssm, "GH_CONFIG_DIR": str(gh), "TZ": host["tz"], "CCX_CALLER": "desk-runner"}
+    if preflight:
+        os.execv(sys.executable, [sys.executable, str(SCRIPTS / "desk-runner.py"), "preflight", "--config", str(config), "--desk", desk, "--json"])
     log = os.open(config.parent / f"{desk}-runner.log", os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
     os.dup2(log, 1)
     os.dup2(log, 2)
@@ -320,6 +325,8 @@ def main() -> int:
         desk.add_argument("--desk", required=True)
         if verb == "roll":
             desk.add_argument("--ci-red-ok", default="", metavar="REASON")
+        if verb == "run":
+            desk.add_argument("--preflight", action="store_true")
     args = parser.parse_args()
     if args.verb == "serve":
         threading.Thread(target=hold_awake, daemon=True).start()
@@ -332,7 +339,7 @@ def main() -> int:
     if args.verb == "roll":
         return roll(args.config, args.desk, args.ci_red_ok)
     if args.verb == "run":
-        run(args.config, args.desk)
+        run(args.config, args.desk, args.preflight)
     return push(args.config, args.port)
 
 

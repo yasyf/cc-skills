@@ -56,7 +56,7 @@ func Command(a *app.App) *cobra.Command {
 	cmd.Flags().StringVar(&opts.runner, "runner", "", "the runner.json the desks read")
 	cmd.Flags().StringVar(&opts.ciRedOK, "ci-red-ok", "", "why this version must run though main's CI has not passed on it")
 	cmd.MarkFlagsRequiredTogether("desk", "runner")
-	cmd.AddCommand(&cobra.Command{
+	cmd.AddCommand(rollCommand(a), &cobra.Command{
 		Use:   "check",
 		Short: "Refuse when this binary could not run this drive: its config, its lanes, its credentials and every shim's verb",
 		Args:  cobra.NoArgs,
@@ -243,6 +243,9 @@ func registered(ctx context.Context, runner shell.Runner, driveName, name string
 }
 
 func checkoutFault(ctx context.Context, runner shell.Runner, cfg config.Config) string {
+	if !slices.Contains(cfg.Movers, config.MoverLanding) {
+		return ""
+	}
 	status, err := runner.Run(ctx, shell.Command{Argv: []string{"git", "-C", cfg.Checkout, "status", "--porcelain", "--untracked-files=no"}, Timeout: readTimeout})
 	if err != nil {
 		return ""
