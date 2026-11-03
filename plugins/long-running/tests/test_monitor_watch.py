@@ -49,6 +49,10 @@ class Watch:
         return [line.split(" ", 1)[1] for line in result.stdout.splitlines()]
 
 
+def alerts(posts: Path) -> list[str]:
+    return [line for line in posts.read_text().splitlines() if "--kind note" in line] if posts.exists() else []
+
+
 @pytest.fixture
 def watch(tmp_path: Path) -> Watch:
     return Watch(tmp_path)
@@ -101,9 +105,34 @@ def test_a_move_into_alert_or_warn_posts_one_alert_record_to_the_desk_on_cci(wat
     posts = watch.root / "cci.log"
     args = ("--tag", "release-target:*", "--alert-drive", "d1")
     watch.once(monitor(1, "OK"), monitor(2, "OK"), monitor(3, "OK"), monitor(4, "Alert"), args=args)
-    assert not posts.exists()
+    assert alerts(posts) == []
     watch.once(monitor(1, "Alert"), monitor(2, "Warn"), monitor(3, "No Data"), monitor(4, "OK"), args=args)
-    assert posts.read_text().splitlines() == [
+    assert alerts(posts) == [
         "post --drive d1 --lane monitor-watch --kind note --to orca-desk --text orca-desk: alert dd-1 https://app.datadoghq.com/monitors/1 :: Datadog OK -> Alert: monitor 1",
         "post --drive d1 --lane monitor-watch --kind note --to orca-desk --text orca-desk: alert dd-2 https://app.datadoghq.com/monitors/2 :: Datadog OK -> Warn: monitor 2",
     ]
+
+
+def test_a_read_posts_one_state_record_at_most_every_fifteen_minutes_across_runs(watch):
+    posts = watch.root / "cci.log"
+    args = ("--tag", "release-target:*", "--alert-drive", "d1")
+    watch.once(monitor(1, "OK"), monitor(2, "OK"), args=args)
+    watch.once(monitor(1, "OK"), monitor(2, "OK"), args=args)
+    state = "post --drive d1 --lane monitor-watch --kind state --text monitor-watch: watching 2 monitors"
+    assert posts.read_text().splitlines() == [state]
+    marker = Path(str(watch.state) + ".alive")
+    aged = marker.stat().st_mtime - 15 * 60
+    os.utime(marker, (aged, aged))
+    watch.once(monitor(1, "OK"), monitor(2, "OK"), args=args)
+    assert posts.read_text().splitlines() == [state, state]
+
+
+def test_a_failed_read_posts_no_state_record_so_a_blind_watcher_goes_quiet(watch):
+    (watch.root / "monitors.json").write_text("rate limited")
+    subprocess.run(
+        [str(SCRIPT), "once", "--state", str(watch.state), "--tag", "release-target:*", "--alert-drive", "d1"],
+        env=watch.env,
+        capture_output=True,
+        text=True,
+    )
+    assert not (watch.root / "cci.log").exists()
