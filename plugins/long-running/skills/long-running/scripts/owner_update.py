@@ -120,6 +120,10 @@ FYI_TOPIC = "fyi"
 FEED_WINDOW = timedelta(hours=24)
 GROUP_CHARS = 40
 PINNED = "Pinned for you"
+INCIDENTS = "Incidents today"
+LANES_ON_NO_STEP = "Lanes on no plan step"
+UPDATE_BYTES = 40_000
+TITLE_CHARS = 60
 
 Runner = Callable[..., subprocess.CompletedProcess]
 
@@ -466,7 +470,7 @@ def owner_words(records: list[dict]) -> tuple[list[str], list[str]]:
     for record in records:
         if record["lane"] != BRIDGE or record["kind"] != "ask":
             continue
-        carried = next((other for other in records if other["seq"] > record["seq"] and (other.get("re") == record["seq"] or record["seq"] in (other.get("resolves") or []) or re.search(rf"#{record['seq']}\b", other.get("text") or ""))), None)
+        carried = next((other for other in records if other["seq"] > record["seq"] and (other.get("re") == record["seq"] or record["seq"] in cci.resolved(other) or re.search(rf"#{record['seq']}\b", other.get("text") or ""))), None)
         lines.append(f"- {when(record)}: \"{owner_waits.clip(record.get('text') or '')}\" | " + (f"carried by {carried['lane']} #{carried['seq']}" if carried else "**no record carries this yet**"))
         if not carried:
             loose.append(f"owner words no record carries: #{record['seq']}")
@@ -553,6 +557,36 @@ def pinned_rows(entry: dict, lanes: list[dict], sources: Sources) -> list[tuple[
     return out
 
 
+
+def lane_table(title: str) -> bool:
+    return title == LANES_ON_NO_STEP or title.startswith("Workstream ")
+
+
+def rendered(title: str, found: list[Row]) -> list[str]:
+    """A section's rows as the owner reads them: a full row for work someone is on or that is open, one line naming the quiet lanes and the closed incidents, and one line per state naming its PRs, so every name is there and the detail goes where it matters."""
+    if title == OPEN_PRS:
+        groups: dict[str, list[Row]] = {}
+        for row in found:
+            groups.setdefault(row.state, []).append(row)
+        return [f"- {state} ({len(rows)}): " + "; ".join(f"{row.name} {owner_waits.clip(row.delivers)[:TITLE_CHARS]}" + (f" [{row.who}]" if row.who != NOBODY else "") for row in rows) for state, rows in groups.items()] or [NOTHING]
+    quiet = [row for row in found if lane_table(title) and row.who == NOBODY or title == INCIDENTS and row.done]
+    full = [row for row in found if row not in quiet]
+    lines = table(full) if full else []
+    if quiet:
+        lines += ["", ("Closed today: " if title == INCIDENTS else "Quiet over 2 h, nobody on them now: ") + "; ".join(f"{row.name} ({owner_waits.clip(row.state)[:TITLE_CHARS]})" for row in quiet)]
+    return lines or [NOTHING]
+
+
+def unowned_lines(tables: list[tuple[str, list[Row]]]) -> list[str]:
+    """Every open row with nobody on it, one line per section naming each, since each also sits in its own section."""
+    out = []
+    for title, found in tables:
+        names = [row.name for row in found if row.unowned]
+        if names:
+            out.append(f"- {title} ({len(names)}): {', '.join(names)}")
+    return out
+
+
 def report(drive_name: str, runner: Runner, now: datetime | None = None) -> tuple[str, list[str], dict]:
     """The owner update as markdown from sources only, every row in the owner report table's columns and unowned rows first; every name it must mention: each section, working lane, open ask key and open PR; and the model `publish` writes: the dashboard's steps from the same rows, the snapshot, and the update's gaps."""
     now = now or datetime.now(timezone.utc)
@@ -592,9 +626,9 @@ def report(drive_name: str, runner: Runner, now: datetime | None = None) -> tupl
     rest = [lane for lane in lanes if lane["lane"] not in placed]
     tables += [(f"Workstream {step}", [lane_row(lane, sources) for lane in rest if step_of(lane) == step]) for step in sorted({step_of(lane) for lane in rest} - {""})]
     tables += [
-        ("Lanes on no plan step", [lane_row(lane, sources) for lane in rest if not step_of(lane)]),
+        (LANES_ON_NO_STEP, [lane_row(lane, sources) for lane in rest if not step_of(lane)]),
         ("Owner asks", [ask_row(item, sources) for item in sorted(asks, key=lambda item: item["state"] != ledger.ASK_LANDED_NOT_LIVE)]),
-        ("Incidents today", incident_rows(runner, drive_name, midnight, sources)),
+        (INCIDENTS, incident_rows(runner, drive_name, midnight, sources)),
         ("Releases today", release_rows(runner, drive_name, midnight, sources)),
         (OPEN_PRS, pr_rows(runner, entry, drive_name, sources)),
     ]
@@ -606,20 +640,23 @@ def report(drive_name: str, runner: Runner, now: datetime | None = None) -> tupl
         ("Board picks", [f"- {item['line']}" for item in board]),
         (f"Delivered in the last {DEFAULT_SINCE.seconds // 3600} h", [f"- {record['lane']} {record['kind']} #{record['seq']} {when(record)}: {owner_waits.clip(record.get('text') or '')}" for record in newest_by_lane([record for record in records if record["kind"] in DELIVERED_KINDS and now - owner_waits.at(record) < DEFAULT_SINCE]).values()]),
     ]
-    head = [f"{len(unowned)} rows have nobody on them; each also sits in its own section below.", "", *table(unowned)] if unowned else []
+    head = [f"{len(unowned)} open rows have nobody on them; each also sits in its own section below.", *unowned_lines(tables)] if unowned else []
     words, gaps = owner_words(cci.records(owner_waits.tail(runner), drive_name, since=before["at"]))
     current = snapshot_of(tables)
     feed = fyi_entries(cci.records(owner_waits.tail(runner), drive_name, f"--lane={BRIDGE}", "--kind=note", since=(now - FEED_WINDOW).isoformat()))
     fresh = [item for item in feed if owner_waits.at(item) > datetime.fromisoformat(before["at"])]
-    opening = [(f"{SINCE} ({owner_waits.pacific_text(before['at'])})", since_lines(current, before["rows"])), (FYI, fyi_lines(fresh)), (WORDS, words)]
+    moved = since_lines(current, before["rows"]) if before["rows"] else ["- The first update from this generator: every row below is new."]
+    opening = [(f"{SINCE} ({owner_waits.pacific_text(before['at'])})", moved), (FYI, fyi_lines(fresh)), (WORDS, words)]
     out = [
         f"# Owner update: {drive_name}, {owner_waits.pacific(now)}",
         *(text for title, found in opening for text in section(title, found)),
         *section(UNOWNED, head),
-        *(text for title, found in tables for text in section(title, table(found))),
+        *(text for title, found in tables for text in section(title, rendered(title, found))),
         *(text for title, found in lists for text in section(title, found)),
-        *(section("Gaps in this update", [f"- {gap}" for gap in gaps]) if gaps else []),
     ]
+    if (size := len("\n".join(out).encode())) > UPDATE_BYTES:
+        gaps.append(f"this update is {size // 1000} KB, over the {UPDATE_BYTES // 1000} KB an update may run")
+    out += section("Gaps in this update", [f"- {gap}" for gap in gaps]) if gaps else []
     titles = [SINCE, FYI, WORDS, UNOWNED, *(title for title, _ in tables), *(title for title, _ in lists)]
     prs = next(found for title, found in tables if title == OPEN_PRS)
     releases = [{"name": row.name, "state": row.state} for row in next(found for title, found in tables if title == "Releases today")]
