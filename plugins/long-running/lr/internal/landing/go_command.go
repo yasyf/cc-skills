@@ -124,6 +124,7 @@ func runGo(ctx context.Context, a *app.App, numbers []int, flags goFlags, stdout
 
 type landingConfig struct {
 	ExemptGrades []string            `json:"exempt_grades"`
+	GoClasses    []string            `json:"go_classes"`
 	PortPhrase   string              `json:"port_phrase"`
 	TapRules     map[string][]string `json:"tap_rules"`
 }
@@ -143,6 +144,7 @@ func landingSection(path string) (landingConfig, error) {
 			section.ExemptGrades[0] = section.PortPhrase
 		}
 	}
+	section.ExemptGrades = append(section.ExemptGrades, section.GoClasses...)
 	return section, nil
 }
 
