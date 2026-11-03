@@ -207,3 +207,25 @@ jobs:
           if checked and not any(name.startswith("plugins/long-running/tests/fixtures/replay/") for name in files):
               sys.exit("This fix cites the cci record that reported its defect but adds no replay fixture: write one with `replay.py capture` from that record into plugins/long-running/tests/fixtures/replay/, so CI replays the reporting case.")
           PY
+
+  lr-go:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: plugins/long-running/lr
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: plugins/long-running/lr/go.mod
+          cache-dependency-path: plugins/long-running/lr/go.sum
+      - name: build, vet, test (race)
+        run: go build -o /dev/null ./cmd/lr && go vet ./... && go test -race ./...
+      - name: release build parity (CGO_ENABLED=0, linux and darwin)
+        run: |
+          CGO_ENABLED=0 go build -o /dev/null ./cmd/lr
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o /dev/null ./cmd/lr
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: latest
+          working-directory: plugins/long-running/lr

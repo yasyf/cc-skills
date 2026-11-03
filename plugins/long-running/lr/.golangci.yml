@@ -1,0 +1,33 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: none
+  enable:
+    - contextcheck
+    - durationcheck
+    - errcheck
+    - errorlint
+    - gosec
+    - govet
+    - ineffassign
+    - prealloc
+    - revive
+    - staticcheck
+    - unused
+  settings:
+    gosec:
+      excludes:
+        - G204
+        - G304
+  exclusions:
+    presets:
+      - comments
+      - std-error-handling
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
