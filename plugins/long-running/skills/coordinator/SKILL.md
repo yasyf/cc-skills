@@ -26,6 +26,9 @@ Post that `cci me` line to the bridge as a `report` to `owner-relay`. A claim re
 a second binder of `root` means another live window still holds the lane; report it to
 `owner-relay` and stop.
 
+A sub-drive's coordinator, whose brief names its parent drive, claims `root` on its own
+child drive and reads `root@<parent>` wherever this skill says `owner-relay`.
+
 You own and spawn the drive's desk runner, its launch runner and every standing desk,
 each remote, as the owner ruled at 6:57 PM on Nov 2 2026: "the remote desk runner/lunch
 runner, all of that stuff, which should be owned and spawned by the root and should be
