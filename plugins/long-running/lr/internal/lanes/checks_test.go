@@ -338,6 +338,8 @@ type spriteRun struct {
 	statuses map[string]string
 	fail     map[string]string
 	stopped  []string
+	sprites  []string
+	listFail string
 }
 
 func (r *spriteRun) Run(_ context.Context, c shell.Command) (shell.Result, error) {
@@ -350,6 +352,12 @@ func (r *spriteRun) Run(_ context.Context, c shell.Command) (shell.Result, error
 		}
 		page, err := json.Marshal(map[string]any{"ok": true, "result": map[string]any{"workers": workers, "page": map[string]string{}}})
 		return shell.Result{Stdout: string(page)}, err
+	}
+	if c.Argv[0] == "sprite" {
+		if r.listFail != "" {
+			return shell.Result{Code: 1, Stderr: r.listFail}, &shell.ExitError{Argv: c.Argv, Code: 1, Stderr: r.listFail}
+		}
+		return shell.Result{Stdout: strings.Join(r.sprites, "\n") + "\n"}, nil
 	}
 	if c.Argv[1] == "version" {
 		return shell.Result{Stderr: r.version + "\n"}, nil
@@ -424,7 +432,7 @@ func TestAnEndedLanesSpriteIsStoppedOnceAndALiveOrUnsettledLanesIsNot(t *testing
 
 func TestASpriteStopThatKeepsFailingPostsOneBlockerAfterItsLastTry(t *testing.T) {
 	why := "cc-remote: suspending sprite stuck: its services stopped, but it still runs 2m0s later, so a session, request, or connection holds it"
-	run := &spriteRun{version: "0.27.4", statuses: map[string]string{"ctx_stuck": "completed"}, fail: map[string]string{"stuck": why}}
+	run := &spriteRun{version: "0.27.4", statuses: map[string]string{"ctx_stuck": "completed"}, fail: map[string]string{"stuck": why}, sprites: []string{"stuck"}}
 	c, bus := spriteStops(t, run)
 	c.lane(t, "stuck", "sprite", store.LaneRetired, "done", "ctx_stuck")
 
@@ -445,10 +453,68 @@ func TestASpriteStopThatKeepsFailingPostsOneBlockerAfterItsLastTry(t *testing.T)
 	equal(t, []any{string(posted.Kind), posted.To, posted.ID}, []any{blockerKind, []string{Root}, "sprite-stop:stuck"})
 	contains(t, posted.Text, "SPRITE-STOP-FAILED stuck: its dispatch ctx_stuck is completed")
 	contains(t, posted.Text, why)
+	contains(t, posted.Text, "`sprite list` shows its Sprite stuck still there")
+}
+
+func (c *SpriteStops) claimed(t *testing.T, lane, sprite, dispatch string) {
+	t.Helper()
+	c.lane(t, lane, "sprite", store.LaneRetired, "done", "")
+	writeJSON(t, filepath.Join(c.Env.receipts(), lane+".json"), map[string]any{"result": map[string]any{"dispatchId": dispatch, "server": map[string]string{"name": sprite}}})
+}
+
+func TestAFailedStopOfASpriteSpriteListNoLongerShowsClosesWithNoBlockerAndNoRetry(t *testing.T) {
+	why := "cc-remote: no Orca task is recorded for pool-gone"
+	run := &spriteRun{version: "0.27.4", statuses: map[string]string{"ctx_gone": "completed"}, fail: map[string]string{"gone": why}, sprites: []string{"gone", "pool-other"}}
+	c, bus := spriteStops(t, run)
+	c.claimed(t, "gone", "pool-gone", "ctx_gone")
+
+	for _, at := range []time.Time{t0, t0.Add(mins(10)), t0.Add(mins(20)), t0.Add(mins(30))} {
+		if err := c.Check(context.Background(), at); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	equal(t, run.stopped, stops("gone"))
+	equal(t, len(bus.posted), 0)
+}
+
+func TestAFailedStopFindsAClaimedSpriteByItsLaunchReceiptNotItsLaneName(t *testing.T) {
+	why := "cc-remote: suspending sprite stuck: a connection holds it"
+	run := &spriteRun{version: "0.27.4", statuses: map[string]string{"ctx_stuck": "completed"}, fail: map[string]string{"stuck": why}, sprites: []string{"pool-stuck"}}
+	c, bus := spriteStops(t, run)
+	c.claimed(t, "stuck", "pool-stuck", "ctx_stuck")
+
+	for _, at := range []time.Time{t0, t0.Add(mins(10)), t0.Add(mins(20))} {
+		if err := c.Check(context.Background(), at); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	equal(t, run.stopped, stops("stuck", "stuck", "stuck"))
+	equal(t, len(bus.posted), 1)
+	contains(t, bus.posted[0].Text, "`sprite list` shows its Sprite pool-stuck still there")
+}
+
+func TestAFailedStopWhenSpriteListAlsoFailsNeverClaimsTheSpriteIsGoneOrRunning(t *testing.T) {
+	why := "cc-remote: sprites api: 500"
+	run := &spriteRun{version: "0.27.4", statuses: map[string]string{"ctx_down": "completed"}, fail: map[string]string{"down": why}, listFail: "sprite: not logged in"}
+	c, bus := spriteStops(t, run)
+	c.claimed(t, "down", "pool-down", "ctx_down")
+
+	for _, at := range []time.Time{t0, t0.Add(mins(10)), t0.Add(mins(20))} {
+		if err := c.Check(context.Background(), at); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	equal(t, run.stopped, stops("down", "down", "down"))
+	equal(t, len(bus.posted), 1)
+	contains(t, bus.posted[0].Text, "`sprite list` failed too, so its Sprite pool-down may still run")
+	contains(t, bus.posted[0].Text, "sprite: not logged in")
 }
 
 func TestASpriteStopThatFailsOnceIsTriedAgainOnTheNextPassAndPostsNothing(t *testing.T) {
-	run := &spriteRun{version: "0.27.4", statuses: map[string]string{"ctx_flaky": "completed"}, fail: map[string]string{"flaky": "curl: (35) Recv failure: Operation timed out"}}
+	run := &spriteRun{version: "0.27.4", statuses: map[string]string{"ctx_flaky": "completed"}, fail: map[string]string{"flaky": "curl: (35) Recv failure: Operation timed out"}, sprites: []string{"flaky"}}
 	c, bus := spriteStops(t, run)
 	c.lane(t, "flaky", "sprite", store.LaneRetired, "done", "ctx_flaky")
 

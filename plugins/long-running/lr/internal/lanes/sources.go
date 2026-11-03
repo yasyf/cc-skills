@@ -206,20 +206,33 @@ func Rostered(rows []Row, teams string) []Row {
 	return out
 }
 
-func dispatchOf(receipts, lane string) string {
+type launchReceipt struct {
+	Result struct {
+		DispatchID string `json:"dispatchId"`
+		Server     struct {
+			Name string `json:"name"`
+		} `json:"server"`
+	} `json:"result"`
+}
+
+func receiptOf(receipts, lane string) launchReceipt {
 	data, err := os.ReadFile(filepath.Join(receipts, lane+".json"))
 	if err != nil {
-		return ""
+		return launchReceipt{}
 	}
-	var receipt struct {
-		Result struct {
-			DispatchID string `json:"dispatchId"`
-		} `json:"result"`
-	}
+	var receipt launchReceipt
 	if json.Unmarshal(data, &receipt) != nil {
-		return ""
+		return launchReceipt{}
 	}
-	return receipt.Result.DispatchID
+	return receipt
+}
+
+func dispatchOf(receipts, lane string) string {
+	return receiptOf(receipts, lane).Result.DispatchID
+}
+
+func spriteOf(receipts, lane string) string {
+	return or(receiptOf(receipts, lane).Result.Server.Name, lane)
 }
 
 func (e Env) orcaRows(ctx context.Context, names []string) ([]Row, error) {

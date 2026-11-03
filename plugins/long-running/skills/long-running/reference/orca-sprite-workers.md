@@ -466,9 +466,12 @@ For each ended lane, lr runs `cc-remote orca stop <lane>` with the
 `WORKER_CC_REMOTE` and `CC_REMOTE_CONFIG` of `runner.json`'s `orca.sprite.env`.
 That stop closes the forward and stops every service, so the Sprite goes cold
 with its disk kept, and it refuses a warm pool workspace's own name. The gc pause
-below does not hold it. A stop that fails is tried again on the next pass, up to
-three tries. The third failure posts one `SPRITE-STOP-FAILED` blocker to the coordinator with
-the error, and lr never runs that lane's stop again.
+below does not hold it. When a stop fails, lr runs `sprite list` once for the pass
+and looks for the Sprite named in the lane's launch receipt. A Sprite the list no
+longer shows closes the stop with a log line and no blocker. Any other failed stop is
+tried again on the next pass, up to three tries. The third failure posts one
+`SPRITE-STOP-FAILED` blocker to the coordinator with the error and what the list said,
+and lr never runs that lane's stop again.
 
 Before any stop, lr asks that CLI its `version`. A release older than 0.27.4,
 the first whose `orca stop` works on a finished lane's Sprite, skips the pass with one warning in the supervisor log.
