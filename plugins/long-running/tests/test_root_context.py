@@ -81,6 +81,7 @@ class Notes:
     def __init__(self) -> None:
         self.answers: list[dict] = []
         self.adds: list[list[str]] = []
+        self.edits: list[tuple[str, ...]] = []
 
     def __call__(self, cwd: str, *args: str) -> subprocess.CompletedProcess[str]:
         match args:
@@ -94,6 +95,9 @@ class Notes:
                 answer = {"id": f"{len(self.answers) + 1:07x}" * 2, "title": title, "body": body, "tags": labels}
                 self.answers.append(answer)
                 return subprocess.CompletedProcess(args, 0, json.dumps(answer), "")
+            case ("answer", "edit", *_):
+                self.edits.append(args)
+                return subprocess.CompletedProcess(args, 0, "", "")
         raise AssertionError(f"unexpected ccn call: {args}")
 
 
@@ -291,6 +295,19 @@ def test_a_rerun_of_one_message_records_one_answer(root: Root, notes: Notes) -> 
     assert len(notes.adds) == 2
     first, second = notes.answers
     assert root.stop() == [recorded(first), recorded(first), recorded(second)]
+
+
+def test_a_standing_rule_the_owner_ledger_registered_gains_the_durable_labels_on_its_one_answer(root: Root, notes: Notes) -> None:
+    root.verdict["title"] = "When does a merged PR get released?"
+    prompt = "from now on, release everything as it merges"
+    label = root_context.message_label(root.event(UserPromptSubmitEvent, prompt=prompt))
+    notes.answers.append({"id": "a" * 14, "title": "What did the owner say at Nov 3 2:45 AM?", "body": prompt, "tags": ["from:owner", "program:brook", label]})
+
+    assert root.say(prompt) is None
+
+    assert notes.adds == []
+    assert notes.edits == [("answer", "edit", "a" * 14, "--title=When does a merged PR get released?", "--add-label=scope:durable", "--add-label=owner-ruling")]
+    assert root.stop() == [recorded(notes.answers[0])]
 
 
 @pytest.mark.parametrize(

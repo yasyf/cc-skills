@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -11,7 +13,7 @@ from captain_hook.events import PostToolUseEvent, PreToolUseEvent, StopEvent, Us
 from captain_hook.testing.helpers import build_context
 
 from fire import fire
-from hooks import owner_ledger, owner_returns
+from hooks import owner_ledger, owner_returns, root_context
 from hooks.compaction_handoff import CompactionState
 
 SESSION = "0123456789abcdef"
@@ -28,7 +30,7 @@ class Window:
         self.transcript = home / "root.jsonl"
         self.transcript.write_text("")
         self.session_dir = home / "session"
-        CompactionState(active=active, coordinator=coordinator).save(self.event(PostToolUseEvent, tool_name="Bash"))
+        CompactionState(active=active, coordinator=coordinator, slug="brook").save(self.event(PostToolUseEvent, tool_name="Bash"))
 
     def event(self, cls, **raw):
         payload = {"session_id": SESSION, "transcript_path": str(self.transcript), "cwd": str(self.transcript.parent)}
@@ -70,6 +72,46 @@ def drive(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 @pytest.fixture
 def communicator(drive: Path) -> Window:
     return Window(drive)
+
+
+class Notes:
+    def __init__(self) -> None:
+        self.added: list[tuple[str, ...]] = []
+
+    def __call__(self, cwd: str, *args: str) -> subprocess.CompletedProcess[str]:
+        assert args[:3] == ("answer", "add", "--json")
+        self.added.append(args[3:])
+        return subprocess.CompletedProcess(args, 0, json.dumps({"id": "4ffc9a5e0d" * 4}), "")
+
+
+@pytest.fixture(autouse=True)
+def notes(monkeypatch: pytest.MonkeyPatch) -> Notes:
+    fake = Notes()
+    monkeypatch.setattr(root_context, "ccn", fake)
+    return fake
+
+
+class Bus:
+    def __init__(self, home: Path) -> None:
+        self.log = home / "cci.jsonl"
+
+    def posts(self) -> list[dict]:
+        return [json.loads(line) for line in self.log.read_text().splitlines()] if self.log.exists() else []
+
+
+@pytest.fixture(autouse=True)
+def bus(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Bus:
+    fake = Bus(tmp_path)
+    cci = tmp_path / "bin" / "cci"
+    cci.parent.mkdir()
+    cci.write_text(f"#!{sys.executable}\nimport json, sys\nwith open({str(fake.log)!r}, 'a') as log:\n    log.write(json.dumps({{'argv': sys.argv[1:], 'stdin': sys.stdin.read()}}) + '\\n')\nprint('#1')\n")
+    cci.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{cci.parent}:{Path(sys.executable).parent}:/usr/bin:/bin")
+    return fake
+
+
+def owner_record(row: str, text: str) -> dict:
+    return {"argv": ["post", "--drive", "brook", "--lane", "owner-relay", "--kind", "owner", "--id", f"owner:{row}", "--attr", f"row={row}", "--quoted", text], "stdin": ""}
 
 
 def slack_dm(**fields) -> str:
@@ -211,3 +253,52 @@ def test_ask_user_question_is_refused_on_the_communicator_with_both_routes(commu
 def test_ask_user_question_passes_outside_the_communicator(drive: Path) -> None:
     assert Window(drive, coordinator=True).fire(PreToolUseEvent, tool_name="AskUserQuestion", tool_input=ASKED) == []
     assert Window(drive, active=False).fire(PreToolUseEvent, tool_name="AskUserQuestion", tool_input=ASKED) == []
+
+
+def test_an_owner_prompt_posts_its_row_as_one_owner_record_and_registers_one_answer(communicator: Window, bus: Bus, notes: Notes) -> None:
+    communicator.prompt("hook should just do it for you")
+
+    [row] = communicator.rows()
+    at = row.split(" | ")[1]
+    assert bus.posts() == [owner_record("m1", "hook should just do it for you")]
+    [answer] = notes.added
+    assert {"--label=from:owner", "--label=program:brook"} <= set(answer)
+    assert answer[-2:] == ("--", f"What did the owner say at {at}?")
+    assert next(flag for flag in answer if flag.startswith("--body=")).startswith("--body=hook should just do it for you\n\nOwner, ")
+
+
+def test_a_repeat_delivery_of_one_prompt_records_nothing(communicator: Window, bus: Bus, notes: Notes) -> None:
+    communicator.prompt("hook should just do it for you")
+
+    assert communicator.prompt("hook should just do it for you") == []
+
+    assert len(communicator.rows()) == len(bus.posts()) == len(notes.added) == 1
+
+
+def test_the_same_words_after_their_row_is_marked_are_a_new_message(communicator: Window, bus: Bus, notes: Notes) -> None:
+    communicator.prompt("go")
+    communicator.ledger.write_text(communicator.ledger.read_text().replace("|  | open |", "| 346705 | responded |"))
+
+    communicator.prompt("go")
+
+    assert [post["argv"][8] for post in bus.posts()] == ["owner:m1", "owner:m2"] and len(notes.added) == 2
+
+
+def test_a_credential_reaches_neither_the_owner_record_nor_the_answer(communicator: Window, bus: Bus, notes: Notes) -> None:
+    communicator.prompt("use ghp_abcdefghijklmnopqrstuvwxyz0123 for this")
+
+    assert not any("ghp_" in word for word in bus.posts()[0]["argv"]) and not any("ghp_" in flag for flag in notes.added[0])
+
+
+def test_a_coordinator_window_posts_and_registers_nothing(drive: Path, bus: Bus, notes: Notes) -> None:
+    assert Window(drive, coordinator=True).prompt("hook should just do it for you") == []
+
+    assert bus.posts() == [] and notes.added == []
+
+
+def test_an_owner_slack_dm_row_posts_its_owner_record(communicator: Window, bus: Bus, notes: Notes) -> None:
+    communicator.queued(slack_dm())
+
+    communicator.fire(PostToolUseEvent, tool_name="Bash", tool_input={"command": "ls"})
+
+    assert bus.posts() == [owner_record("m1", "Meant to approve 43807")] and notes.added == []

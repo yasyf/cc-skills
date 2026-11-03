@@ -765,10 +765,14 @@ def ruling_body(evt: BaseHookEvent) -> str:
 
 def record_ruling(evt: BaseHookEvent) -> str:
     label = message_label(evt)
-    if existing := answers(evt, "list", "--label", label, "--limit", "1"):
+    existing = answers(evt, "list", "--label", label, "--limit", "1")
+    if existing and RULING_LABELS[0] in existing[0]["tags"]:
         return existing[0]["id"]
     if not (title := ruling_title(evt)):
         return ""
+    if existing:
+        ccn(str(evt.cwd), "answer", "edit", existing[0]["id"], f"--title={title}", *(f"--add-label={name}" for name in RULING_LABELS)).check_returncode()
+        return existing[0]["id"]
     program = f"program:{CompactionState.load(evt).slug}"
     flags = [arg for name in (*RULING_LABELS, program, label) for arg in ("--label", name)]
     return answers(evt, "add", *flags, f"--body={ruling_body(evt)}", "--", title)["id"]
@@ -783,7 +787,7 @@ def record_ruling(evt: BaseHookEvent) -> str:
         Input(
             prompt="from now on, release everything as it merges",
             state=ACTIVE,
-            commands={"ccn": '[{"id": "4ffc9a5e0d"}]'},
+            commands={"ccn": '[{"id": "4ffc9a5e0d", "tags": ["scope:durable"]}]'},
         ): Allow(),
         Input(prompt="from now on, release everything as it merges", state=ACTIVE, commands={"ccn": "[]"}): Allow(),
         Input(prompt="what is the status of l17?", state=ACTIVE): Allow(),
