@@ -185,7 +185,7 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 			Repo:     env.Config.Repo,
 			Trunk:    env.Config.Trunk,
 			Checkout: env.Config.Checkout,
-			Config:   landing.TrunkConfig{Check: runner.TrunkCheck, CIBuild: runner.CIBuild, FlakeLane: runner.FlakeLane, Channel: runner.FlakyChannel},
+			Config:   landing.TrunkConfig{Check: runner.TrunkCheck, CIBuild: runner.CIBuild, TokenCommand: runner.CITokenCommand, FlakeLane: runner.FlakeLane, Channel: runner.FlakyChannel},
 			Now:      a.Now,
 		}
 		deps.Checks = append(deps.Checks, (&background{name: "trunk-watch", every: PassEvery, run: trunk.Pass, store: s, post: post, log: a.Log}).Check)
