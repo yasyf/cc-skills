@@ -57,7 +57,7 @@ def caller_expressions():
         for node in ast.walk(ast.parse(path.read_text())):
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in {"rulings", "register_of"}:
                 result.append(pytest.param(module, node, id=f"{module}:{node.lineno}"))
-    assert len(result) == 14
+    assert len(result) == 13
     return result
 
 
@@ -91,7 +91,7 @@ def test_all_current_hook_call_expressions_reach_real_dispatch_without_a_python_
         "lane": "lane-a", "copy": brief, "worker": "brook-drive",
         "CANDIDATES": 3, "CANDIDATE_BYTES": 1024, "excluded": [],
         "MOMENT_CHARS": 1024, "MATCH_TIMEOUT_SECONDS": 2, "reqenv": reqenv,
-        "ROWS_PER_ARTIFACT": 2, "MATCH_BYTES": 6000, "MATCH_CHARS": 2000,
+        "spec": "acme/app#12", "head": "cafef00d",
     }
     expression = compile(ast.Expression(copy.deepcopy(node)), str(HOOKS / f"{module}.py"), "eval")
     cwd, args, kwargs = eval(expression, scope)

@@ -2181,6 +2181,43 @@ def test_a_contract_with_no_slice_reads_only_the_rows_it_cites_and_one_citing_no
     assert contract_words(capsys, tmp_path, seeded(package), "lane-z", "Builds the pass.") == (0, "")
 
 
+TOOLING_DIFF = """diff --git a/tools/hooks/misread.py b/tools/hooks/misread.py
+index 1111111..2222222 100644
+--- a/tools/hooks/misread.py
++++ b/tools/hooks/misread.py
+@@ -1,1 +1,1 @@
+-rows = matched(text)
++rows = sliced(pr)
+"""
+
+
+def test_a_tooling_prs_worded_rows_carry_the_rows_its_diff_touches_and_never_a_row_on_another_subject_it_does_not_reach(home: Path, package: Path, state: Path, capsys) -> None:
+    rows = seeded(package) | {"rule/0c720aa": REPLAN, "rule/0d1102b": FORWARD | {"paths": '["tools/hooks/*"]'}}
+
+    code, out = ran(capsys, RegisterShell(rows, diff=TOOLING_DIFF), "slice", "--required", "--words", "--pr", "acme/app#12", "--head", "cafef00d", "--base", "main")
+
+    assert code == 0
+    assert required(out) == ["exception/E1", "rule/0d1102b", "rule/aaaaaaa"]
+    assert f'- Nov 02 3:12 PM PT: "{FORWARD["words"]}"' in out.splitlines()
+    assert "revert back to clean build" not in out
+
+
+def test_a_pr_citing_a_superseded_row_reads_the_row_superseding_it_and_never_the_old_words(home: Path, package: Path, state: Path, capsys) -> None:
+    rows = seeded(package)
+    rows["rule/bbbbbbb"] = rows["rule/bbbbbbb"] | {"supersedes": '["rule/ddddddd"]'}
+    pr = {"body": "## Rulings\n\n- rule/ddddddd: the hook retries every failed upload forever.\n"}
+
+    code, out = ran(capsys, RegisterShell(rows, diff=TOOLING_DIFF, pr=pr), "slice", "--required", "--words", "--pr", "acme/app#12", "--head", "cafef00d", "--base", "main")
+    lines = out.splitlines()
+
+    assert code == 0
+    assert required(out) == ["exception/E1", "rule/aaaaaaa", "rule/bbbbbbb"]
+    assert "## Rows the PR cites by id (1)" in lines
+    assert "This row supersedes rule/ddddddd, which no longer binds." in lines
+    assert "Retry every failed upload forever." not in out
+    assert "unknown to the register" not in out
+
+
 def test_pr_block_quotes_the_owners_sentence_for_each_matched_row(home: Path, package: Path, state: Path, capsys) -> None:
     code, out = ran(capsys, RegisterShell(seeded(package), diff=DIFF), "pr-block", "--pr", "12", "--head", "cafef00d", "--lane", "lane-b")
 

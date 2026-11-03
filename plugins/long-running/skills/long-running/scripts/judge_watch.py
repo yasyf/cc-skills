@@ -58,7 +58,6 @@ ROWS_PER_ARTIFACT = 2
 PLAN_LINES = 40
 PLAN_WORD = re.compile(r"[a-z][a-z_.-]{5,}")
 ROW_KEY = re.compile(r"\b(?:rule|prompt|exception|design|reserved)/[\w-]+")
-ROW_HEADING = re.compile(r"^### (\S+) \|", re.MULTILINE)
 CLASSIFIED = re.compile(r"^Register classify, \d+ rows?: ")
 EXTENDED = re.compile(r"\bextended ((?:rule|prompt|exception|design|reserved)/[\w-]+)")
 PICKED = re.compile(r"\(judge-dispute-(?P<flag>\d+)\): picked “(?P<label>[^”]+)”")
@@ -158,7 +157,7 @@ class Pass:
         verdict = judge.judge(kind, evidence, text, backend=self.backend, drive=self.watch.drive, subject=subject)
         if verdict is None or not verdict.flagged:
             return
-        key = key or quoted_row(evidence, verdict.evidence_phrase)
+        key = key or judge.quoted_row(evidence, verdict.evidence_phrase)
         said = self.said(key)
         missed = recheck is not None and before != "yes"
         if missed:
@@ -242,12 +241,6 @@ class Pass:
 def body(record: dict) -> str:
     attached = (record.get("refs") or {}).get("path")
     return "\n".join([record.get("text", ""), Path(attached).read_text() if attached and Path(attached).is_file() else ""]).strip()
-
-
-def quoted_row(evidence: str, phrase: str) -> str:
-    piece = judge.plain_text(phrase).split("...")[0].strip(judge.QUOTE_EDGES)
-    starts = [*ROW_HEADING.finditer(evidence)]
-    return next(start[1] for start, end in zip(starts, [*starts[1:], None]) if piece in judge.plain_text(evidence[start.start() : end.start() if end else None]))
 
 
 def earlier(state: Path, subject: str) -> str | None:
