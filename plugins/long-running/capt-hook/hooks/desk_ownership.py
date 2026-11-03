@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import re
 
-from captain_hook import Allow, BaseHookEvent, Block, Event, Input, Or, Runs, Tool, hook
+from captain_hook import Allow, BaseHookEvent, Block, Event, Input, Tool, hook
 
 from .window_lane import RELAY_LANE, bound, window_lane
 
 STANDING = re.compile(r"(?:landing-desk|fidelity-desk|red-sweep|alerts-desk|drive-watchdog|board-refresher)(?:-\d+)?")
+STARTS = {"desk-runner.py": (("run",), ("handoff",), ("supervise", "install")), "desk-creds.py": (("install",), ("roll",))}
 
 
 class CommunicatorWindow:
@@ -16,30 +17,21 @@ class CommunicatorWindow:
         return window_lane(evt) == RELAY_LANE
 
 
-class LaunchesStandingDesk:
+class StartsRunnerOrDesk:
     def check(self, evt: BaseHookEvent) -> bool:
-        return any(call.args[:1] == ("lane",) and STANDING.fullmatch("".join(call.args[1:2])) for call in evt.command.calls("desk-launch.py"))
+        starts_runner = any(call.args[: len(verb)] == verb for call in evt.command.calls() for verb in STARTS.get(call.name, ()))
+        return starts_runner or any(call.args[:1] == ("lane",) and STANDING.fullmatch("".join(call.args[1:2])) for call in evt.command.calls("desk-launch.py"))
 
 
 hook(  # capt-hook: no-escape the coordinator is the one owner of every runner and desk, and the message names the record that reaches it
     Event.PreToolUse,
     block=True,
-    only_if=[
-        Tool("Bash"),
-        CommunicatorWindow(),
-        Or(
-            Runs("desk-runner.py", "run"),
-            Runs("desk-runner.py", "handoff"),
-            Runs("desk-runner.py", "supervise", "install"),
-            Runs("desk-creds.py", "install"),
-            Runs("desk-creds.py", "roll"),
-            LaunchesStandingDesk(),
-        ),
-    ],
+    only_if=[Tool("Bash"), CommunicatorWindow(), StartsRunnerOrDesk()],
     message="The coordinator owns desk-runner, the launch runner and every desk, so the communicator starts none of them. Post it to the coordinator: `cci post --lane owner-relay --kind ask --to root --text 'start <desk>'`.",
     tests={
         bound(Input(command="desk-runner.py run --config r.json --desk orca"), RELAY_LANE): Block(pattern=r"^The coordinator owns desk-runner, .*--to root"),
         bound(Input(command="nohup desk-runner.py run --config r.json --desk landing >> l.log 2>&1 < /dev/null &"), RELAY_LANE): Block(),
+        bound(Input(command="/plugin/bin/desk-runner.py run --config r.json --desk orca"), RELAY_LANE): Block(),
         bound(Input(command="desk-runner.py handoff --config r.json --desk orca"), RELAY_LANE): Block(),
         bound(Input(command="desk-runner.py supervise install --config r.json --desk landing"), RELAY_LANE): Block(),
         bound(Input(command="desk-creds.py install --config r.json --desk landing"), RELAY_LANE): Block(),
