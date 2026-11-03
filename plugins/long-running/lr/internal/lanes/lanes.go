@@ -314,7 +314,7 @@ func overdue(s *store.Store, d Deps, now time.Time) {
 	}
 	if err != nil {
 		if must(s.Escalate(lateSubject, err.Error(), Root, now)) {
-			do(d.Post(Post{Kind: "blocker", To: []string{Root}, Text: fmt.Sprintf("%s the past-due owed-deletion check did not run: %v", pacific(now), err)}))
+			do(d.Post(Post{Kind: "blocker", To: []string{Root}, Text: fmt.Sprintf("The past-due owed-deletion check did not run: %v", err)}))
 		}
 		return
 	}
@@ -324,7 +324,7 @@ func overdue(s *store.Store, d Deps, now time.Time) {
 			to = head.Name
 		}
 		if must(s.Escalate(lateSubject, row.ID, to, now)) {
-			do(d.Post(Post{Kind: "blocker", To: []string{to}, LaneRef: row.Owner, Text: fmt.Sprintf("%s %s is past due with its code still on trunk. Delete the code, or change its due: label with `ccn task edit` and name the decision that moves the date.", pacific(now), row)}))
+			do(d.Post(Post{Kind: "blocker", To: []string{to}, LaneRef: row.Owner, Text: fmt.Sprintf("%s is past due with its code still on trunk. Delete the code, or change its due: label with `ccn task edit` and name the decision that moves the date.", row)}))
 		}
 	}
 }
@@ -345,7 +345,7 @@ func refusedOwing(s *store.Store, d Deps, name string, now time.Time) bool {
 	one, owes := owingOf(s, d, name)
 	if owes {
 		hold(s, name, one.owes(), now)
-		one.post(s, d, now)
+		one.post(s, d)
 	}
 	return owes
 }
@@ -361,8 +361,8 @@ func (o owing) owes() string {
 	return fmt.Sprintf("it owes %d deletions whose code is still on trunk: %s", len(o.rows), strings.Join(rows, "; "))
 }
 
-func (o owing) post(s *store.Store, d Deps, now time.Time) {
-	do(d.Post(Post{Kind: "defect", To: []string{noticeTo(s, o.name), o.name}, LaneRef: o.name, Text: fmt.Sprintf("%s %s would retire, but %s. The supervisor holds %s, never relaunched or retired, until it posts again. %s: delete the code, or hand each task to a live lane with `ccn task edit <id> --assignee <lane>`; coordinator: relaunch it or reassign its tasks.", pacific(now), o.name, o.owes(), o.name, o.name)}))
+func (o owing) post(s *store.Store, d Deps) {
+	do(d.Post(Post{Kind: "defect", To: []string{noticeTo(s, o.name), o.name}, LaneRef: o.name, Text: fmt.Sprintf("%s would retire, but %s. The supervisor holds %s, never relaunched or retired, until it posts again. %s: delete the code, or hand each task to a live lane with `ccn task edit <id> --assignee <lane>`; coordinator: relaunch it or reassign its tasks.", o.name, o.owes(), o.name, o.name)}))
 }
 
 func unreadBy(s *store.Store, r Record, name, cited string) string {
@@ -472,11 +472,11 @@ func Classify(lane store.Lane, peer *Peer, now time.Time, tokens, rotateAt int) 
 			return Verdict{Kind: Ok}
 		}
 		if peer == nil {
-			last := "never"
+			heardFor := "was never heard"
 			if !heard.IsZero() {
-				last = "at " + pacificFrom(heard, now)
+				heardFor = fmt.Sprintf("has been quiet for %d min", int(now.Sub(heard).Minutes()))
 			}
-			return Verdict{Unproven, "has no process row in cci who or Orca and was last heard " + last + ", so nothing proves it died"}
+			return Verdict{Unproven, "has no process row in cci who or Orca and " + heardFor + ", so nothing proves it died"}
 		}
 		if peer.Row.StoodDown {
 			return Verdict{Kind: StoodDown}
@@ -484,7 +484,7 @@ func Classify(lane store.Lane, peer *Peer, now time.Time, tokens, rotateAt int) 
 		if !lane.Answered.IsZero() && now.Sub(lane.Answered) < StaleAfter {
 			return Verdict{Kind: Ok}
 		}
-		return Verdict{Dead, "stopped at " + pacificFrom(heard, now)}
+		return Verdict{Dead, fmt.Sprintf("stopped, quiet for %d min", int(now.Sub(heard).Minutes()))}
 	}
 	if tokens > 0 && rotateAt > 0 && tokens >= rotateAt {
 		return Verdict{AskRotate, commas(tokens) + " tokens"}

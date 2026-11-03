@@ -232,7 +232,7 @@ func (w *PageWatch) raise(ctx context.Context, channel string, messages []pageMe
 			who = "someone"
 		}
 		key := "page:" + channel + ":" + page.TS
-		text := fmt.Sprintf("PAGE %s %s | a drive release is live: open the incident, launch its fix lane and reply in the page thread now, no owner round-trip | %s: %s", pacific(page.at), page.Permalink, who, headline)
+		text := fmt.Sprintf("PAGE %s | a drive release is live: open the incident, launch its fix lane and reply in the page thread now, no owner round-trip | %s: %s", page.Permalink, who, headline)
 		if _, err := w.Env.Bus.Post(ctx, client.Draft{Drive: w.Env.Config.Drive, Lane: Self, Kind: incidentKind, To: []string{Root}, ID: key, Topic: key, URL: page.Permalink, Text: text}); err != nil {
 			return fmt.Errorf("%w: cci post: %w", ErrUnread, err)
 		}

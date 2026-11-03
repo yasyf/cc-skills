@@ -99,11 +99,7 @@ func (d *Desk) orcaDown(down *orcaUnreachable) error {
 	}); err != nil {
 		return err
 	}
-	since, err := store.Parse(streak.Since)
-	if err != nil {
-		return err
-	}
-	return d.escalate("orca:"+streak.Since, "ORCA-UNREACHABLE", "runner", fmt.Sprintf("%s; since %s the runner reads no dispatch as gone and fails no relay, and retries each pass with backoff up to %ds; ORCA-BACK follows when Orca answers", streak.Error, pacificClock(since), int(unreachableWait.Seconds())))
+	return d.escalate("orca:"+streak.Since, "ORCA-UNREACHABLE", "runner", fmt.Sprintf("%s; the runner reads no dispatch as gone and fails no relay, and retries each pass with backoff up to %ds; ORCA-BACK follows when Orca answers", streak.Error, int(unreachableWait.Seconds())))
 }
 
 func (d *Desk) orcaBack() error {
@@ -121,7 +117,7 @@ func (d *Desk) orcaBack() error {
 	if err := d.store.Edit(deskRunner, func(tx *incident.Tx) error { return tx.DropFact(unreachableFact) }); err != nil {
 		return err
 	}
-	return d.escalate("orca-back:"+stamp, "ORCA-BACK", "runner", fmt.Sprintf("Orca answers again; it gave no answer from %s for %d min (%v)", pacificClock(since), int(d.Now().Sub(since).Minutes()), streak["error"]))
+	return d.escalate("orca-back:"+stamp, "ORCA-BACK", "runner", fmt.Sprintf("Orca answers again; it gave no answer for %d min (%v)", int(d.Now().Sub(since).Minutes()), streak["error"]))
 }
 
 func (d *Desk) passWait() time.Duration {
@@ -160,7 +156,7 @@ func (d *Desk) postAlive(ctx context.Context) {
 		return
 	}
 	d.alive = d.Now()
-	text := fmt.Sprintf("%s %s pass %d", runnerAlive, d.Now().In(pacificTime).Format("3:04 PM"), d.passes)
+	text := fmt.Sprintf("%s pass %d", runnerAlive, d.passes)
 	attrs := map[string]string{"pid": fmt.Sprint(os.Getpid()), "config": d.Config.Source, "terminal": d.Env("ORCA_TERMINAL_HANDLE")}
 	if _, err := d.Bus.Post(ctx, client.Draft{Drive: d.Config.Drive, Lane: deskRunner, Kind: kindState, Topic: runnerTopic, Text: text, To: []string{watchdogLane + "@" + d.Config.Drive}, Attrs: attrs}); err != nil {
 		fmt.Fprintf(d.Stderr, "relay alive left for the next pass: %v\n", err)

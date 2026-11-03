@@ -1,6 +1,7 @@
 package pass_test
 
 import (
+	"fmt"
 	"reflect"
 	"testing"
 	"time"
@@ -28,7 +29,7 @@ func TestAHeadReadyForAWholeRunnerPassAndStillUnqueuedIsNamedOnce(t *testing.T) 
 	due := shadow(t, s, r, t0.Add(5*time.Minute), facts(1, nil))
 	later := shadow(t, s, r, t0.Add(10*time.Minute), facts(1, nil))
 
-	want := []pass.Diff{{Subject: "#1 at " + head[:12], Cause: "v2 would have queued it at 21:00Z; the runner has not"}}
+	want := []pass.Diff{{Subject: "#1 at " + head[:12], Cause: fmt.Sprintf("v2 would have queued it as item %d; the runner has not", openOne(t, s, 1).ID)}}
 	if len(first) != 0 || len(early) != 0 || !reflect.DeepEqual(due, want) || len(later) != 0 {
 		t.Fatalf("first = %+v, early = %+v, due = %+v, later = %+v", first, early, due, later)
 	}

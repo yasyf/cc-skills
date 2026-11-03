@@ -21,7 +21,7 @@ const (
 	relayGrammar    = "orca-desk: relay to <lane>[, <lane>…][ and <lane>]: <text>"
 	launchGrammar   = "orca-desk: launch <lane> [NOW] <model> <effort> [role=<role>] brief=<absolute path>"
 	alertGrammar    = "orca-desk: alert <slug> <link> :: <what fired>"
-	incidentGrammar = "orca-desk: incident <slug> <link> reported=<HH:MM | H:MM AM/PM, Pacific> :: <what fired>"
+	incidentGrammar = "orca-desk: incident <slug> <link> :: <what fired>"
 	holdGrammar     = "orca-desk: hold <slug> owner=<lane> :: <what is held, and on what>"
 	unholdGrammar   = "orca-desk: unhold <slug>"
 	withdrawGrammar = "orca-desk: withdraw <R<n> | unfixed:<msg>:<n> | incident-clock:<dispatch> | lane>"
@@ -46,7 +46,7 @@ var (
 	laneList       = regexp.MustCompile(`, (?:and )?| and `)
 	launchSpec     = regexp.MustCompile(`^ ([\w.-]+)( NOW)? (\S+) (\S+)(?: role=([\w-]+))? brief=(/\S+)$`)
 	alertSpec      = regexp.MustCompile(`(?s)^ ([a-z0-9][a-z0-9.-]*) (\S+) :: (\S.*)$`)
-	incidentSpec   = regexp.MustCompile(`(?s)^ ([a-z0-9][a-z0-9_.-]*) (\S+) reported=((?:[01]?\d|2[0-3]):[0-5]\d|(?:1[0-2]|0?[1-9]):[0-5]\d [AP]M) :: (\S.*)$`)
+	incidentSpec   = regexp.MustCompile(`(?s)^ ([a-z0-9][a-z0-9_.-]*) (\S+)(?: reported=(?:(?:[01]?\d|2[0-3]):[0-5]\d|(?:1[0-2]|0?[1-9]):[0-5]\d [AP]M))? :: (\S.*)$`)
 	holdSpec       = regexp.MustCompile(`(?s)^ ([a-z0-9][a-z0-9.-]*) owner=([\w.-]+) :: (\S.*)$`)
 	unholdSpec     = regexp.MustCompile(`^ ([a-z0-9][a-z0-9.-]*)$`)
 	withdrawSpec   = regexp.MustCompile(`^ ([\w.:@-]+)$`)
@@ -372,8 +372,8 @@ func (d *Desk) expiredLine(parsed *directive, record client.Record, key string) 
 	for _, took := range d.passTook {
 		longest = max(longest, took)
 	}
-	line := fmt.Sprintf("LAUNCH-EXPIRED %s %s: cci #%d was posted at %s, %d minutes before this read; this runner's longest recent pass took %d minutes, and a launch line is valid for %d; nothing was launched",
-		key, lane, record.Seq, pacificClock(record.At), int(age.Minutes()), int(longest.Minutes()), int(window.Minutes()))
+	line := fmt.Sprintf("LAUNCH-EXPIRED %s %s: cci #%d was posted %d minutes before this read; this runner's longest recent pass took %d minutes, and a launch line is valid for %d; nothing was launched",
+		key, lane, record.Seq, int(age.Minutes()), int(longest.Minutes()), int(window.Minutes()))
 	return true, d.record(fmt.Sprintf("escalation:launch:cci#%d", record.Seq), line)
 }
 
@@ -382,7 +382,7 @@ func (d *Desk) refuseLine(record client.Record) error {
 	if len([]rune(line)) > 80 {
 		line = string([]rune(line)[:80]) + "…"
 	}
-	return d.record(fmt.Sprintf("escalation:cci:%d", record.Seq), fmt.Sprintf("DIRECTIVE-FAILED cci#%d inbox: it opens `%s`, and a record addressed to %s is one `[<H:MM AM|PM>] [R<n> (<clock>)] orca-desk: <relay|launch|alert|incident|hold|unhold|withdraw> …` line, with or without --re, or a root reply this desk acts on: a withdraw of a launch line or an answer to an open question; nothing was done", record.Seq, line, deskLane))
+	return d.record(fmt.Sprintf("escalation:cci:%d", record.Seq), fmt.Sprintf("DIRECTIVE-FAILED cci#%d inbox: it opens `%s`, and a record addressed to %s is one `orca-desk: <relay|launch|alert|incident|hold|unhold|withdraw> …` line, with or without --re, or a root reply this desk acts on: a withdraw of a launch line or an answer to an open question; nothing was done", record.Seq, line, deskLane))
 }
 
 func (d *Desk) relayLine(ctx context.Context, at, key, rest string) error {
@@ -868,9 +868,9 @@ func (d *Desk) alertLine(ctx context.Context, at, key, rest string) error {
 		return err
 	}
 	if dispatch.active() {
-		return d.relayToLane(ctx, at, key+":again", lane, fmt.Sprintf("The alert fired again at %s: %s %s", pacificClock(d.Now()), what, link), nil)
+		return d.relayToLane(ctx, at, key+":again", lane, fmt.Sprintf("The alert fired again: %s %s", what, link), nil)
 	}
-	return d.record(log, fmt.Sprintf("ALERT %s %s: %s %s | no lane launched; the alerts desk writes `%s` when it judges one necessary", slug, pacificClock(d.Now()), what, link, incidentGrammar))
+	return d.record(log, fmt.Sprintf("ALERT %s: %s %s | no lane launched; the alerts desk writes `%s` when it judges one necessary", slug, what, link, incidentGrammar))
 }
 
 func (d *Desk) incidentLine(ctx context.Context, at, key, rest string) error {
@@ -879,14 +879,14 @@ func (d *Desk) incidentLine(ctx context.Context, at, key, rest string) error {
 	if spec == nil {
 		return d.record(log, fmt.Sprintf("INCIDENT-FAILED %s inbox: one incident per line, in the form `%s`; nothing was launched", key, incidentGrammar))
 	}
-	slug, link, what := spec[1], spec[2], spec[4]
+	slug, link, what := spec[1], spec[2], spec[3]
 	lane := slug + spawnedFix
 	dispatch, err := d.show(ctx, lane, "")
 	if err != nil {
 		return err
 	}
 	if dispatch.active() {
-		return d.relayToLane(ctx, at, key+":again", lane, fmt.Sprintf("The alert fired again at %s: %s %s", pacificClock(d.Now()), what, link), nil)
+		return d.relayToLane(ctx, at, key+":again", lane, fmt.Sprintf("The alert fired again: %s %s", what, link), nil)
 	}
 	monitors := map[string]bool{}
 	for _, found := range monitorID.FindAllStringSubmatch(link+" "+what, -1) {
@@ -915,12 +915,12 @@ func (d *Desk) incidentLine(ctx context.Context, at, key, rest string) error {
 	d.background.Go(func() {
 		if err := d.FireIncident(ctx, fired); err != nil {
 			fmt.Fprintf(d.Stderr, "incident %s launch: %v\n", slug, err)
-			if err := d.record(log+":failed", fmt.Sprintf("INCIDENT %s %s: %s %s | %s not launched: %v", slug, pacificClock(d.Now()), what, link, lane, err)); err != nil {
+			if err := d.record(log+":failed", fmt.Sprintf("INCIDENT %s: %s %s | %s not launched: %v", slug, what, link, lane, err)); err != nil {
 				fmt.Fprintf(d.Stderr, "incident %s record: %v\n", slug, err)
 			}
 		}
 	})
-	return d.record(log, fmt.Sprintf("INCIDENT %s %s: %s %s | fix lane %s launching on incident xhigh; root: ratify, spawn the evidence and incident-doc lanes, fence the target, start comms in the affected account channels and #outage", slug, pacificClock(d.Now()), what, link, lane))
+	return d.record(log, fmt.Sprintf("INCIDENT %s: %s %s | fix lane %s launching on incident xhigh; root: ratify, spawn the evidence and incident-doc lanes, fence the target, start comms in the affected account channels and #outage", slug, what, link, lane))
 }
 
 type holdTarget struct {

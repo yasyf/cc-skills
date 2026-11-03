@@ -135,7 +135,7 @@ def test_an_unclassified_owner_capture_posts_one_blocker_to_a_running_register_l
     assert option(blocker, "--drive") == DRIVE
     assert option(blocker, "--lane") == ("supervisor" if to == "root" else "root")
     assert option(blocker, "--to") == to
-    assert option(blocker, "--text").startswith(f'Owner capture {UNCLASSIFIED} (Oct 23 4:20 AM) has no row in register brook: "keep the nightly report".')
+    assert option(blocker, "--text").startswith(f'Owner capture {UNCLASSIFIED} has no row in register brook: "keep the nightly report".')
     assert option(blocker, "--text").endswith(f"before the next key moment.{note}")
 
 
@@ -172,8 +172,8 @@ def test_unclassified_owner_captures_of_one_pass_post_one_blocker_listing_each(r
     [blocker] = root.blockers()
     assert option(blocker, "--to") == to
     assert option(blocker, "--text") == (
-        f'2 owner captures have no row in register brook: {UNCLASSIFIED} (Oct 23 4:20 AM) "keep the nightly report"; '
-        f'1f2e3d4c5b6a7980 (Oct 23 4:21 AM) "{long[:80]}". '
+        f'2 owner captures have no row in register brook: {UNCLASSIFIED} "keep the nightly report"; '
+        f'1f2e3d4c5b6a7980 "{long[:80]}". '
         f"Classify them with `rulings.py classify` before the next key moment.{note}"
     )
 
@@ -182,7 +182,7 @@ def test_unclassified_owner_captures_of_one_pass_post_one_blocker_listing_each(r
     assert root.bash(PreToolUseEvent, go) == []
 
     [_, single] = root.blockers()
-    assert option(single, "--text").startswith('Owner capture 0a9b8c7d6e5f4321 (Oct 23 4:30 AM) has no row in register brook: "drop the beta flag".')
+    assert option(single, "--text").startswith('Owner capture 0a9b8c7d6e5f4321 has no row in register brook: "drop the beta flag".')
 
 
 def test_a_drive_whose_plan_stem_differs_from_its_program_reads_the_program_register(root):

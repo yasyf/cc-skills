@@ -1140,6 +1140,14 @@ func TestTheRecordLivesInCCNotesAndBriefsCarryItsIDs(t *testing.T) {
 	if !reflect.DeepEqual(logged, milestoneNames(incident)) {
 		t.Fatalf("logged %v, milestones %v", logged, milestoneNames(incident))
 	}
+	reported := make([]string, 0, len(fake.reports))
+	for _, report := range fake.reports {
+		name, _, _ := strings.Cut(strings.TrimPrefix(report, h.id+" "), ": ")
+		reported = append(reported, name)
+	}
+	if !reflect.DeepEqual(reported, logged) {
+		t.Fatalf("reports %q name no milestone %v before their text", fake.reports, logged)
+	}
 	if len(fake.verdicts) != 2 || fake.verdicts[0].verb != "root-cause" || fake.verdicts[0].commit != "" || fake.verdicts[1].verb != "fix" || fake.verdicts[1].commit != fake.data.Repair.SHA {
 		t.Fatalf("verdicts %v", fake.verdicts)
 	}

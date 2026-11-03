@@ -432,7 +432,7 @@ func TestAnIncidentPairPostsAddressedLaunchLinesKeyedByTheirRecordsSeq(t *testin
 				"orca-desk: launch inc-app-origin-evidence NOW incident xhigh role=evidence brief=" + desk.EvidenceBrief,
 			} {
 				draft := bus.drafts[i]
-				if !reflect.DeepEqual(draft.To, []string{deskLane}) || draft.Kind != "go" || draft.Lane != "root" || draft.Topic != "inc-app-origin" || !draft.Stamp {
+				if !reflect.DeepEqual(draft.To, []string{deskLane}) || draft.Kind != "go" || draft.Lane != "root" || draft.Topic != "inc-app-origin" || draft.Stamp {
 					t.Fatalf("draft %+v", draft)
 				}
 				if draft.Text != want {

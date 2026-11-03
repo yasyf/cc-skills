@@ -13,7 +13,6 @@ from pathlib import Path
 from long_running import actions
 from long_running import board_rows
 from long_running import drive
-from long_running import grades
 import pytest
 import stall_watch
 
@@ -302,8 +301,8 @@ def test_a_green_head_with_no_fidelity_grade_for_ten_minutes_alarms_the_graders_
     assert [topic for topic in shell.topics() if not topic.startswith("ungraded:")] == stalls
     for topic in stalls:
         assert shell.post(topic)["to"] == "fidelity-desk@d1"
-        assert shell.post(topic)["text"].startswith(f"STALL ungraded #101 at abc1234, {green} min: its build has read green since")
-        assert shell.post(f"ungraded:{actions.stamp(NOW)}") == {"to": "root", "kind": "urgent", "text": "STALL ungraded, 1 green head past 10 min with no grade: #101 at abc1234 has no fidelity grade, green since 12:49 PM, owner fidelity-desk | each owner heard its own line"}
+        assert shell.post(topic)["text"].startswith(f"STALL ungraded #101 at abc1234, {green} min: its build has read green for")
+        assert shell.post(f"ungraded:{actions.stamp(NOW)}") == {"to": "root", "kind": "urgent", "text": "STALL ungraded, 1 green head past 10 min with no grade: #101 at abc1234 has no fidelity grade, green for 11 min, owner fidelity-desk | each owner heard its own line"}
 
 
 @pytest.mark.parametrize(
@@ -344,7 +343,7 @@ def test_a_new_head_counts_from_the_first_record_naming_it_never_from_an_older_r
 
     assert shell.topics() == stalls
     if stalls:
-        assert "no finder review names this head, first named 12:20 PM in #2" in shell.post("finder:101:abc1234")["text"]
+        assert "no finder review names this head, first named in #2" in shell.post("finder:101:abc1234")["text"]
 
 
 def test_a_source_that_does_not_read_keeps_its_stall_open_so_nothing_posts_twice(config):
@@ -409,7 +408,7 @@ def test_gos_stacked_on_one_parent_post_once_naming_the_parent_and_a_held_parent
 
     assert shell.topics() == ["go:201:abc1234"]
     assert shell.post("go:201:abc1234")["to"] == "root"
-    said = f"coordinator gos name #202, #203 in the stack from #201 (#202: go #1 by root at {grades.clock(records[0]['at'])}), and no QUEUED record does | owner root | #201 at abc1234: no go names this head, and a stack enqueues from the bottom"
+    said = "coordinator gos name #202, #203 in the stack from #201 (#202: go #1 by root), and no QUEUED record does | owner root | #201 at abc1234: no go names this head, and a stack enqueues from the bottom"
     assert said in shell.post("go:201:abc1234")["text"]
 
 
@@ -762,7 +761,7 @@ def test_a_tap_at_an_earlier_head_carries_and_the_stall_asks_only_for_the_carrie
 
     post = shell.post("carry:101:abc1234")
     assert post["to"] == "root" and shell.prompts == []
-    assert post["text"].endswith("| owner root | post `go #101 at abc1234`: his tap at 0123456 carries to every later head of this PR (owner, Oct 31 2:48 AM); it never goes back to his board")
+    assert post["text"].endswith("| owner root | post `go #101 at abc1234`: his tap at 0123456 carries to every later head of this PR (owner, Oct 31); it never goes back to his board")
     assert "re-ask" not in post["text"]
 
 
@@ -825,7 +824,7 @@ def test_an_owner_pick_no_lane_binds_stalls_to_root_once_at_fifteen_minutes_and_
     assert shell.topics() == ["pick:1", "pick:11"]
     assert shell.post("pick:1")["to"] == "root"
     assert shell.post("pick:1")["kind"] == "urgent"
-    assert shell.post("pick:1")["text"].startswith("STALL pick owner pick share-pick, 20 min: board-watch asked the coordinator for a lane at ")
+    assert shell.post("pick:1")["text"].startswith("STALL pick owner pick share-pick, 20 min: board-watch asked the coordinator for a lane in ")
     assert shell.post("pick:1")["text"].endswith("| owner root | spawn a lane whose brief names share-pick or #1, or have a lane post a `claim` naming it; close it with `cci post --resolves '#1'`")
     shell.records.append(record(13, "share-lane", "state", "working share-pick", 0))
     watch(shell, config)
@@ -868,7 +867,7 @@ def test_a_retro_row_ask_or_pick_unchanged_for_a_day_or_past_due_reaches_root_on
     assert sorted(shell.topics()) == sorted(f"unfinished:{key}:{day}" for key in ("retro/000001", "ask/000001", "pick/189864"))
     assert {shell.post(topic)["to"] for topic in shell.topics()} == {"root"}
     assert {shell.post(topic)["kind"] for topic in shell.topics()} == {"blocker"}
-    assert "past due since" in shell.post(f"unfinished:retro/000001:{day}")["text"]
+    assert "past due for" in shell.post(f"unfinished:retro/000001:{day}")["text"]
     assert "9. Release rows read the release itself" in shell.post(f"unfinished:pick/189864:{day}")["text"]
     shell.clock = NOW + timedelta(days=1)
     watch(shell, config)
@@ -965,7 +964,7 @@ def test_a_red_head_goes_to_its_live_lane_every_half_hour_to_root_once_when_no_l
     assert shell.post("red:101:abc1234") == {
         "to": "api-lane@d1",
         "kind": "blocker",
-        "text": "STALL red #101 at abc1234, 3 min: buildkite/test has read failed in job Lint (fmt, clippy) since 12:59 PM: error: used `expect()` on a `Result` value (https://buildkite.com/forge/test/builds/9) | owner api-lane | fix the red build of #101 at abc1234 and push",
+        "text": "STALL red #101 at abc1234, 3 min: buildkite/test has read failed in job Lint (fmt, clippy) for 3 min: error: used `expect()` on a `Result` value (https://buildkite.com/forge/test/builds/9) | owner api-lane | fix the red build of #101 at abc1234 and push",
     }
     assert shell.post("red:105:abc1234")["to"] == "api-lane@d1"
     assert shell.post("red:103:0123456:root")["to"] == "root"
@@ -1198,7 +1197,7 @@ def test_a_green_head_with_a_go_left_unqueued_stalls_to_root_and_the_landing_des
     assert shell.topics() == ["go:101:abc1234"]
     post = shell.post("go:101:abc1234")
     assert post["to"] == "root,landing-desk-3@d1"
-    assert post["text"].startswith(f"STALL go #101 at abc1234, 150 min: coordinator go names #101 (#101: go #4 by root at {grades.clock(go['at'])}), and no QUEUED record does | owner root, desk-runner | the coordinator routes the tooling lane: the landing runner wrote no QUEUED, MERGED or blocker record for #101 at abc1234")
+    assert post["text"].startswith("STALL go #101 at abc1234, 150 min: coordinator go names #101 (#101: go #4 by root), and no QUEUED record does | owner root, desk-runner | the coordinator routes the tooling lane: the landing runner wrote no QUEUED, MERGED or blocker record for #101 at abc1234")
 
 
 def test_a_graphite_base_under_an_open_parent_reads_as_a_drifted_base_never_a_landed_parent(config):
@@ -1244,7 +1243,7 @@ def merge_mode(config: Path, mode: str) -> None:
 @pytest.mark.parametrize(
     ("board", "verdict", "topic", "post"),
     [
-        (True, "", "tap-wait:101:abc1234", {"to": "root", "kind": "state", "text": "#101 at abc1234 waits on the owner's tap since 10:30 AM"}),
+        (True, "", "tap-wait:101:abc1234", {"to": "root", "kind": "state", "text": "#101 at abc1234 waits on the owner's tap for 150 min"}),
         (True, "rejected", "stale:101:abc1234", {"to": "root,api-lane@d1", "kind": "urgent", "text": "STALE #101 at abc1234, 150 min: green, and no go names this head | owner api-lane | the coordinator posts `go #101 at abc1234` or puts its merge row on the owner's board"}),
         (False, "", "stale:101:abc1234", {"to": "root,api-lane@d1", "kind": "urgent", "text": "STALE #101 at abc1234, 150 min: green, and no go names this head | owner api-lane | the coordinator posts `go #101 at abc1234` or puts its merge row on the owner's board"}),
     ],
@@ -1283,7 +1282,7 @@ def test_a_held_batch_whose_hold_record_names_prs_on_or_stacked_above_the_tap_li
     assert sorted(topic for topic in shell.topics() if topic.startswith("stale:")) == stales
     if not stales:
         assert [topic for topic in shell.topics() if topic.startswith("tap-wait:")] == ["tap-wait:digest"]
-        assert shell.post("tap-wait:digest")["text"].startswith("4 heads wait on the owner's tap: #201 at abc1234 is held on #301, #303, each waiting on the owner's tap, his board answer, or the merge queue, since 10:30 AM; #202 at abc1234 is held on #301, #303")
+        assert shell.post("tap-wait:digest")["text"].startswith("4 heads wait on the owner's tap: #201 at abc1234 is held on #301, #303, each waiting on the owner's tap, his board answer, or the merge queue, for 150 min; #202 at abc1234 is held on #301, #303")
 
 
 @pytest.mark.parametrize(("tap", "stales"), [(None, []), ("approved", [])], ids=["parent-untapped", "parent-tapped"])
@@ -1320,7 +1319,7 @@ def test_a_hold_on_an_owner_card_waits_while_the_card_is_unanswered_and_draws_no
 
     assert shell.topics() == [topic] * bool(topic)
     if topic.startswith("tap-wait:"):
-        assert shell.post(topic)["text"] == "#401 at abc1234 is held on eviction-route-choice, each waiting on the owner's tap, his board answer, or the merge queue, since 10:30 AM"
+        assert shell.post(topic)["text"] == "#401 at abc1234 is held on eviction-route-choice, each waiting on the owner's tap, his board answer, or the merge queue, for 150 min"
 
 
 @pytest.mark.parametrize(("ready", "stalls"), [(False, []), (True, ["board:101:abc1234"])], ids=["row-pulled", "row-due-after-ready"])
@@ -1394,7 +1393,7 @@ def tap_board(*rows: dict) -> dict:
     return {"blocks": [{"id": "merge-prs", "type": "pr-groups", "groups": [{"id": "g", "prs": list(rows)}]}]}
 
 
-@pytest.mark.parametrize(("written", "ready", "since"), [(140, None, "10:40 AM"), (None, 130, "10:50 AM"), (140, 145, "10:35 AM")], ids=["row-write", "ready-record", "earlier-of-both"])
+@pytest.mark.parametrize(("written", "ready", "since"), [(140, None, 140), (None, 130, 130), (140, 145, 145)], ids=["row-write", "ready-record", "earlier-of-both"])
 def test_a_tap_row_counts_from_its_board_write_or_its_ready_record_not_from_the_pass_that_first_read_it(config, written, ready, since):
     merge_mode(config, "ask")
     state = config.parent / "inbox/stall-watch.json"
@@ -1408,7 +1407,7 @@ def test_a_tap_row_counts_from_its_board_write_or_its_ready_record_not_from_the_
     watch(shell, config)
 
     assert shell.topics() == ["tap-wait:101:abc1234"]
-    assert shell.post("tap-wait:101:abc1234")["text"] == f"#101 at abc1234 waits on the owner's tap since {since}"
+    assert shell.post("tap-wait:101:abc1234")["text"] == f"#101 at abc1234 waits on the owner's tap for {since} min"
 
 
 def test_a_tap_wait_posts_once_per_head_across_passes_even_when_its_state_flaps(config):
@@ -1434,7 +1433,7 @@ def test_heads_that_become_tap_waits_in_one_pass_post_one_digest_record(config):
     watch(shell, config)
 
     assert shell.topics() == ["tap-wait:digest"]
-    assert shell.post("tap-wait:digest") == {"to": "root", "kind": "state", "text": "2 heads wait on the owner's tap: #101 at abc1234 waits on the owner's tap since 10:30 AM; #102 at fedcba9 waits on the owner's tap since 10:30 AM"}
+    assert shell.post("tap-wait:digest") == {"to": "root", "kind": "state", "text": "2 heads wait on the owner's tap: #101 at abc1234 waits on the owner's tap for 150 min; #102 at fedcba9 waits on the owner's tap for 150 min"}
 
 
 def test_a_pr_that_moved_less_than_two_hours_ago_is_not_stale_and_a_new_state_on_the_same_head_counts_from_the_pass_that_saw_it(config):
@@ -1575,7 +1574,7 @@ def test_a_landing_refusal_no_lane_answers_escalates_to_root_and_its_lane_at_10_
     assert refusal_topics(shell) == ["refusal:44141:09c1863:parent"]
     post = shell.post("refusal:44141:09c1863:parent")
     assert (post["kind"], post["to"]) == ("urgent", "root,p8a-step7@d1")
-    assert post["text"].startswith("STALL refusal #44141 at 09c1863, 10 min: landing-desk-3 refused to queue it at ")
+    assert post["text"].startswith("STALL refusal #44141 at 09c1863, 10 min: landing-desk-3 refused to queue it in ")
     assert "| owner p8a-step7 | p8a-step7: run ccx vcs stack submit from #44141's worktree to put it on #44139, post HEAD, then post HEAD or `cci post --re '#173678'`" in post["text"]
 
     shell.clock = NOW + timedelta(minutes=15)
@@ -1664,10 +1663,10 @@ def test_green_heads_the_finder_desk_holds_queued_go_to_the_finder_desk_and_root
     assert [topic for topic in shell.topics() if topic.startswith("finder:")] == ["finder:101:abc1234", "finder:102:fedcba9"]
     for topic in ("finder:101:abc1234", "finder:102:fedcba9"):
         assert shell.post(topic)["to"] == "finder-desk@d1"
-        assert "queued since 12:00 PM" in shell.post(topic)["text"]
+        assert "queued for 60 min" in shell.post(topic)["text"]
     digests = [topic for topic in shell.topics() if topic.startswith("ungraded:")]
     assert len(digests) == 1 and shell.post(digests[0])["to"] == "root"
-    assert shell.post(digests[0])["text"].startswith("STALL ungraded, 2 green heads past 10 min with no grade: #101 at abc1234 has no finder grade, green since 12:47 PM, owner finder-desk; #102 at fedcba9")
+    assert shell.post(digests[0])["text"].startswith("STALL ungraded, 2 green heads past 10 min with no grade: #101 at abc1234 has no finder grade, green for 13 min, owner finder-desk; #102 at fedcba9")
 
 
 @pytest.mark.parametrize(("started", "stalls"), [(None, []), (30, ["fidelity:101:abc1234"])])
@@ -1775,7 +1774,7 @@ def test_a_go_named_head_no_runner_record_or_worker_names_stalls_to_root_as_a_ru
     if stalls:
         post = shell.post(go_stalls[0])
         assert post["to"].split(",")[0] == "root"
-        assert f"the landing runner wrote no QUEUED, MERGED or blocker record for #200 at {HEAD[:7]} since the go at" in post["text"]
+        assert f"the landing runner wrote no QUEUED, MERGED or blocker record for #200 at {HEAD[:7]} in the " in post["text"] and " min since its go, and no worker holds" in post["text"]
 
 
 @pytest.mark.parametrize(("on_step", "stalls"), [(4, False), (8, True)], ids=["inside-its-budget", "past-its-budget"])
@@ -1805,7 +1804,7 @@ def test_a_missing_grade_nobody_answers_for_twenty_minutes_alarms_root_and_the_p
     assert shell.topics() == stalls
     for topic in stalls:
         assert shell.post(topic)["to"] == "root,api-lane@d1"
-        assert shell.post(topic)["text"].startswith(f"STALL missing #101 at abc1234, {graded} min: fidelity grade cci #3 by fidelity-desk reads missing since 12:35 PM: fidelity: missing abc1234 exception/E12")
+        assert shell.post(topic)["text"].startswith(f"STALL missing #101 at abc1234, {graded} min: fidelity grade cci #3 by fidelity-desk reads missing: fidelity: missing abc1234 exception/E12")
         assert "nobody has answered it" in shell.post(topic)["text"]
 
 
@@ -1819,7 +1818,7 @@ def test_a_missing_grade_a_lane_answered_with_no_regrade_for_fifteen_minutes_goe
     assert shell.topics() == stalls
     for topic in stalls:
         assert shell.post(topic)["to"] == "api-lane@d1,fidelity-desk@d1"
-        assert "api-lane in cci #4 answered it at" in shell.post(topic)["text"]
+        assert re.search(r"api-lane in cci #4 answered it \d+ min ago, and no grade has followed", shell.post(topic)["text"])
 
 
 def test_an_answered_pipeline_grade_with_no_regrade_goes_to_the_prs_lane_and_the_live_fidelity_desk_never_the_landing_desk(config):
@@ -1848,7 +1847,7 @@ def test_a_pr_comment_answers_a_missing_grade_and_a_bot_comment_does_not(config)
     shell.comments["101"].append({"author": {"login": "yasyf"}, "createdAt": stamp(30), "body": "The plan holds: the cap lives in the relay."})
     watch(shell, config)
     assert shell.topics() == ["missing:101:3", "regrade:101:3"]
-    assert "a PR comment by yasyf answered it at 12:30 PM, and no grade has followed" in shell.post("regrade:101:3")["text"]
+    assert "a PR comment by yasyf answered it 30 min ago, and no grade has followed" in shell.post("regrade:101:3")["text"]
 
     shell.records.append(fidelity(5, "101", HEAD, 1))
     watch(shell, config)
@@ -1866,7 +1865,7 @@ def test_a_red_no_record_classes_alarms_root_once_at_twenty_minutes_a_real_class
     assert shell.post("unclassed:201:abc1234") == {
         "to": "root,api-lane@d1",
         "kind": "blocker",
-        "text": 'STALL unclassed #201 at abc1234, 25 min: buildkite/lint red since 12:35 PM, and no `red` record classifies it | owner api-lane | classify it: `cci post --kind red --pr 201 --text "class=<inherited|flake|real|stale> head=abc1234 owner=<lane> <what was done>"`',
+        "text": 'STALL unclassed #201 at abc1234, 25 min: buildkite/lint red for 25 min, and no `red` record classifies it | owner api-lane | classify it: `cci post --kind red --pr 201 --text "class=<inherited|flake|real|stale> head=abc1234 owner=<lane> <what was done>"`',
     }
 
     shell.clock = NOW + timedelta(minutes=5)
@@ -1879,7 +1878,7 @@ def test_a_red_no_record_classes_alarms_root_once_at_twenty_minutes_a_real_class
     assert shell.post("unfixed:202:fedcba9") == {
         "to": "root,web-lane@d1",
         "kind": "blocker",
-        "text": "STALL unfixed #202 at fedcba9, 61 min: web-lane classed buildkite/lint a real failure at 12:50 PM and has pushed no new head: 12:50 PM needs a schema fix; blocker sent | owner web-lane | the coordinator gives the fix of #202 at fedcba9 to a live lane unless web-lane pushes it now",
+        "text": "STALL unfixed #202 at fedcba9, 61 min: web-lane classed buildkite/lint a real failure 61 min ago and has pushed no new head: 12:50 PM needs a schema fix; blocker sent | owner web-lane | the coordinator gives the fix of #202 at fedcba9 to a live lane unless web-lane pushes it now",
     }
 
     shell.clock = NOW + timedelta(minutes=56)
@@ -2029,14 +2028,25 @@ def test_a_head_whose_newest_go_is_tap_required_is_no_go_for_the_landing_desk_th
     assert "| owner board-refresher-6 | put the merge row for #101 at abc1234 on the owner's board" in shell.post(stale[0])["text"]
 
 
-def test_a_stall_first_named_on_an_earlier_day_names_that_date_so_cci_never_reads_its_clock_as_ahead(config):
+def test_a_stall_first_named_on_an_earlier_day_cites_its_record_so_cci_never_reads_a_clock_as_ahead(config):
     """Coordinator #290304: carry:45861 said `first named 12:53 PM` of Oct 31 at 11:54 AM Nov 1, cci refused it as 59 minutes ahead, and the pass exited 1."""
     ready = record(2, "api-lane", "report", f"[101] clean READY #101 at {HEAD[:10]}", 23 * 60 + 30, "101")
     shell = FakeShell([ready, fidelity(3, "101", HEAD, 1)], [row("101", test_state="pending")])
 
     watch(shell, config)
 
-    assert "no finder review names this head, first named 1:30 PM Oct 26 in #2" in shell.post("finder:101:abc1234")["text"]
+    text = shell.post("finder:101:abc1234")["text"]
+    assert "no finder review names this head, first named in #2" in text and not re.search(r"\d:\d\d", text)
+
+
+def test_a_stall_counts_from_the_record_time_and_never_from_a_clock_an_old_record_typed(config):
+    ready = record(2, "api-lane", "report", f"11:58 AM api-lane: [101] clean READY #101 at {HEAD[:10]}", 40, "101")
+    shell = FakeShell([ready, fidelity(3, "101", HEAD, 1)], [row("101", test_state="pending")])
+
+    watch(shell, config)
+
+    text = shell.post("finder:101:abc1234")["text"]
+    assert text.startswith("STALL finder #101 at abc1234, 40 min: no finder review names this head, first named in #2") and not re.search(r"\d:\d\d", text)
 
 
 def test_a_pass_whose_post_cci_refuses_ends_its_output_on_that_refusal(config, capsys):
@@ -2177,7 +2187,7 @@ def test_a_third_no_fix_acknowledgement_of_one_defect_class_in_two_hours_orders_
     posted = shell.post("acked:class-unowned")
     assert posted["kind"] == "urgent" and posted["to"] == "root,drive-watchdog@d1"
     assert posted["text"].startswith("STALL acked defect class CLASS-UNOWNED, ")
-    assert "the coordinator acknowledged it 3 times in 2 h with no fix PR (#305308 at " in posted["text"]
+    assert "the coordinator acknowledged it 3 times in 2 h with no fix PR (#305308, #" in posted["text"]
     assert "`desk-launch.py lane class-fix-class-unowned-1 opus xhigh <brief>`" in posted["text"]
     assert not [topic for topic in shell.topics() if topic.startswith("acked:directive")]
     assert shell.launches == []
@@ -2211,7 +2221,7 @@ def test_the_fourth_acknowledgement_launches_one_fix_lane_with_a_brief_written_f
     assert launch[1:6] == ["lane", "class-fix-refused-unsettled-1", "opus", "xhigh", str(state / "class-fix-refused-unsettled-1" / "brief.md")]
     brief = (state / "class-fix-refused-unsettled-1" / "brief.md").read_text()
     assert brief.startswith("# Lane class-fix-refused-unsettled-1: remove the desk defect class REFUSED unsettled\n")
-    assert "- #303700 desk-runner defect at " in brief and "- #303701 answer at " in brief
+    assert "- #303700 desk-runner defect: " in brief and "- #303701 answer: " in brief and not re.search(r"\d{1,2}:\d{2} [AP]M", brief)
     assert "needs a restack" not in brief and "#303704" not in brief
     assert brief.endswith("\nScale: no N\nccx: incident=none\nRegister slice: lane=class-fix-refused-unsettled-1 step=all\n")
     assert [argv[2:5] for argv in shell.slices] == [["slice", "--refresh", str(state / "class-fix-refused-unsettled-1" / "brief.md")]]

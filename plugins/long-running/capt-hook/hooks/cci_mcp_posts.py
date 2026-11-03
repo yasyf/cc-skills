@@ -9,7 +9,7 @@ from .tests.root_fixtures import ACTIVE
 
 POST_TOOL = "mcp__plugin_cc-inbox_cci__post"
 CARRIED = frozenset({"words", "attr", "drive", "kind", "lane", "path", "pr", "re", "resolves", "stamp", "text", "to", "topic"})
-POST = "cci post --drive d --lane root --kind report --to owner-relay --stamp --text 'merged #9'"
+POST = "cci post --drive d --lane root --kind report --to owner-relay --text 'merged #9'"
 LISTED = [{"type": "attachment", "timestamp": "2026-11-03T09:00:00Z", "attachment": {"type": "deferred_tools_delta", "addedNames": [POST_TOOL], "addedLines": [POST_TOOL], "removedNames": []}}]
 DROPPED = [*LISTED, {"type": "attachment", "timestamp": "2026-11-03T09:05:00Z", "attachment": {"type": "deferred_tools_delta", "addedNames": [], "addedLines": [], "removedNames": [POST_TOOL]}}]
 

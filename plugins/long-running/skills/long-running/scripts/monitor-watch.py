@@ -83,7 +83,7 @@ def poll(args: argparse.Namespace, failing: bool) -> bool:
                 flush=True,
             )
             if args.alert_drive and before is not None and after in PAGING:
-                line = f"orca-desk: alert dd-{key} https://app.datadoghq.com/monitors/{key} :: Datadog {before} -> {after} at {monitor.get('overall_state_modified')}: {monitor['name']}"
+                line = f"orca-desk: alert dd-{key} https://app.datadoghq.com/monitors/{key} :: Datadog {before} -> {after}: {monitor['name']}"
                 posted = subprocess.run(["cci", "post", "--drive", args.alert_drive, "--lane", "monitor-watch", "--kind", "note", "--to", "orca-desk", "--text", line], capture_output=True, text=True)
                 if posted.returncode:
                     print(f"{utc()} ALERT-POST-FAIL {(posted.stderr or posted.stdout).strip()[:200]} | {line}", flush=True)

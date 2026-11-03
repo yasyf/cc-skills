@@ -106,7 +106,7 @@ func Tick(s *store.Store, d Deps, now time.Time, generation int64) (out Outcome,
 	}
 	said := fold(s, records, adoptable, d.Briefs, d)
 	out.Adopted = append(said.adopted, adoptStanding(s, d, found, now)...)
-	announce(s, d, said, now)
+	announce(s, d, said)
 	ownedWork(s, d, now)
 	for _, name := range said.hand {
 		do(d.Withdraw(name))
@@ -149,23 +149,23 @@ func adoptStanding(s *store.Store, d Deps, found map[string]Peer, now time.Time)
 	return adopted
 }
 
-func announce(s *store.Store, d Deps, said folded, now time.Time) {
+func announce(s *store.Store, d Deps, said folded) {
 	for _, one := range said.stood {
 		how := ", its PRs to the coordinator"
 		if one.successor != "" {
 			how = " for " + one.successor
 		}
-		do(d.Post(Post{Kind: "stand-down", To: []string{one.name}, Text: fmt.Sprintf("%s %s stood down%s by record #%d.", pacific(now), one.name, how, one.seq), Successor: one.successor, Re: one.seq, PRs: one.prs}))
+		do(d.Post(Post{Kind: "stand-down", To: []string{one.name}, Text: fmt.Sprintf("%s stood down%s by record #%d.", one.name, how, one.seq), Successor: one.successor, Re: one.seq, PRs: one.prs}))
 	}
 	verbs := slices.Sorted(slices.Values(Verbs))
 	for _, seq := range said.untyped {
-		do(d.Post(Post{Kind: "defect", To: []string{Root}, Text: fmt.Sprintf("%s the coordinator's decide #%d carries a verb but is no registry request, so the registry is unchanged; post `%s` instead.", pacific(now), seq, Request{Verb: "<" + strings.Join(verbs, "|") + ">", Lane: "<lane>"}.Command()), Re: seq}))
+		do(d.Post(Post{Kind: "defect", To: []string{Root}, Text: fmt.Sprintf("The coordinator's decide #%d carries a verb but is no registry request, so the registry is unchanged; post `%s` instead.", seq, Request{Verb: "<" + strings.Join(verbs, "|") + ">", Lane: "<lane>"}.Command()), Re: seq}))
 	}
 	for _, one := range said.unread {
-		do(d.Post(Post{Kind: "defect", To: []string{noticeTo(s, one.name), one.name}, LaneRef: one.name, Text: fmt.Sprintf("%s %s, so the supervisor refused it and holds %s with its PRs, never relaunched or retired, until %s posts again; %s, keep working. Coordinator: read %s with `cci tail --lane %s --since <its wake seq> --oldest` and the registry's heard time, then post it again citing last-read=<seq>.", pacific(now), one.why, one.name, one.name, one.name, one.name, one.name)}))
+		do(d.Post(Post{Kind: "defect", To: []string{noticeTo(s, one.name), one.name}, LaneRef: one.name, Text: fmt.Sprintf("%s, so the supervisor refused it and holds %s with its PRs, never relaunched or retired, until %s posts again; %s, keep working. Coordinator: read %s with `cci tail --lane %s --since <its wake seq> --oldest` and the registry's heard time, then post it again citing last-read=<seq>.", one.why, one.name, one.name, one.name, one.name, one.name)}))
 	}
 	for _, one := range said.owing {
-		one.post(s, d, now)
+		one.post(s, d)
 	}
 }
 
@@ -195,7 +195,7 @@ func act(s *store.Store, d Deps, lane store.Lane, found map[string]Peer, taken m
 		do(s.SetLaneState(lane.Name, store.LaneDesired, now, "", ""))
 		if lane.Predecessor != "" && lane.Reason != "" {
 			if old, ok := laneOf(s, lane.Predecessor); ok && old.RetiredBy == lane.Name {
-				do(d.Post(Post{Kind: "stand-down", To: []string{old.Name}, Text: fmt.Sprintf("%s %s stood down for %s, now up; %s %s.", pacific(now), old.Name, lane.Name, old.Name, lane.Reason), Successor: lane.Name, PRs: lane.PRs}))
+				do(d.Post(Post{Kind: "stand-down", To: []string{old.Name}, Text: fmt.Sprintf("%s stood down for %s, now up; %s %s.", old.Name, lane.Name, old.Name, lane.Reason), Successor: lane.Name, PRs: lane.PRs}))
 			}
 		}
 	case NoShow:
@@ -245,7 +245,7 @@ func escalate(s *store.Store, d Deps, subject, cause string, now time.Time) {
 		to = d.coordinatorReportsTo()
 	}
 	if must(s.Escalate(subject, cause, to, now)) {
-		do(d.Post(Post{Kind: "blocker", To: []string{to}, Text: fmt.Sprintf("%s %s: %s", pacific(now), subject, cause), LaneRef: lane}))
+		do(d.Post(Post{Kind: "blocker", To: []string{to}, Text: fmt.Sprintf("%s: %s", subject, cause), LaneRef: lane}))
 	}
 }
 
@@ -286,7 +286,7 @@ func relaunchCoordinator(s *store.Store, d Deps, old store.Lane, found map[strin
 	do(s.SetLaneState(Root, store.LaneLaunching, now, "", why))
 	must(s.ReleaseWorker(Root))
 	do(d.Launch(Root, old.Model, old.Effort, path))
-	do(d.Post(Post{Kind: "report", To: []string{d.coordinatorReportsTo()}, LaneRef: Root, Text: fmt.Sprintf("%s RELAUNCHED the coordinator: it %s; handoff %s; brief %s", pacific(now), why, or(old.Handoff, "none, the new session writes it"), path)}))
+	do(d.Post(Post{Kind: "report", To: []string{d.coordinatorReportsTo()}, LaneRef: Root, Text: fmt.Sprintf("RELAUNCHED the coordinator: it %s; handoff %s; brief %s", why, or(old.Handoff, "none, the new session writes it"), path)}))
 	out.Relaunched = append(out.Relaunched, Relaunch{Root, Root, why})
 }
 
@@ -356,7 +356,7 @@ func relaunch(s *store.Store, d Deps, old store.Lane, found map[string]Peer, why
 	retire(s, old.Name, name, now)
 	must(s.WantLane(store.Lane{Name: name, Brief: old.Brief, Model: old.Model, Effort: old.Effort, Role: old.Role, State: store.LaneLaunching, Handoff: old.Handoff, PRs: old.PRs, Predecessor: old.Name, Reason: why, Strikes: strikes, Launcher: old.Launcher}, now))
 	do(d.Launch(name, old.Model, old.Effort, path))
-	do(d.Post(Post{Kind: "report", To: []string{owningDesk(s, d, old.Name)}, LaneRef: name, Text: fmt.Sprintf("%s RELAUNCHED %s as %s: it %s; handoff %s; PRs %s; brief %s", pacific(now), old.Name, name, why, or(old.Handoff, "none, the successor writes it"), or(numberList(old.PRs), "none"), path)}))
+	do(d.Post(Post{Kind: "report", To: []string{owningDesk(s, d, old.Name)}, LaneRef: name, Text: fmt.Sprintf("RELAUNCHED %s as %s: it %s; handoff %s; PRs %s; brief %s", old.Name, name, why, or(old.Handoff, "none, the successor writes it"), or(numberList(old.PRs), "none"), path)}))
 	out.Relaunched = append(out.Relaunched, Relaunch{old.Name, name, why})
 }
 
@@ -429,7 +429,7 @@ func wake(s *store.Store, d Deps, lane store.Lane, peer Peer, found map[string]P
 		return
 	}
 	do(s.SetLanePage(lane.Name, nil))
-	relaunch(s, d, lane, found, fmt.Sprintf("has made no tool call since it was woken at %s because %s", pacific(wokeAt), truncated(pageText(page, "why"), 240)), taken, now, out)
+	relaunch(s, d, lane, found, fmt.Sprintf("has made no tool call in the %d min since it was woken because %s", int(now.Sub(wokeAt).Minutes()), truncated(pageText(page, "why"), 240)), taken, now, out)
 }
 
 func with(page map[string]any, key, value string) map[string]any {
@@ -507,7 +507,7 @@ func ownedWork(s *store.Store, d Deps, now time.Time) {
 		if len(strandedFresh) == 1 {
 			verb, pronoun = "needs", "it"
 		}
-		do(d.Post(Post{Kind: "blocker", To: []string{Root}, Text: fmt.Sprintf("%s %s %s work and no lane owns %s: the lane that did ended, naming no successor. Name one with `%s`.", pacific(now), numberList(strandedFresh), verb, pronoun, Request{Verb: "owner", Lane: "<lane>", PRs: strandedFresh}.Command())}))
+		do(d.Post(Post{Kind: "blocker", To: []string{Root}, Text: fmt.Sprintf("%s %s work and no lane owns %s: the lane that did ended, naming no successor. Name one with `%s`.", numberList(strandedFresh), verb, pronoun, Request{Verb: "owner", Lane: "<lane>", PRs: strandedFresh}.Command())}))
 		for _, n := range strandedFresh {
 			do(s.Probe(fmt.Sprintf("%s:%d", Root, n), now))
 		}
@@ -602,16 +602,19 @@ func unownedDuties(s *store.Store, d Deps, found map[string]Peer, now time.Time)
 			}
 			since, why = head.Since, "is neither live nor heard since its launch"
 			if !last.IsZero() {
-				since, why = last, "is neither live nor heard since "+pacific(last)
+				since, why = last, "is neither live nor heard"
+				if seq := must(s.NewestSeq(name)); seq != 0 {
+					why = fmt.Sprintf("is neither live nor heard since its record #%d", seq)
+				}
 			}
 		default:
 			if at, ok := heard[head.RetiredBy]; ok && succeeds(head.RetiredBy, name) && now.Sub(at) < StaleAfter {
 				continue
 			}
-			since, why = head.Since, fmt.Sprintf("was retired by %s at %s with no successor", or(head.RetiredBy, "nobody"), pacific(head.Since))
+			since, why = head.Since, fmt.Sprintf("was retired by %s with no successor", or(head.RetiredBy, "nobody"))
 		}
 		if now.Sub(since) >= unownedAfter {
-			escalate(s, d, "lane:"+name, fmt.Sprintf("standing lane %s (%s) has had no live owner since %s: it %s. Launch its successor from %s, or post `lr request stand-down %s --successor <lane>`; deleting the brief's `Standing:` line ends the duty.", name, must(BriefOf(head.Brief)).Standing, pacific(since), why, head.Brief, name), now)
+			escalate(s, d, "lane:"+name, fmt.Sprintf("standing lane %s (%s) has had no live owner for over %d min: it %s. Launch its successor from %s, or post `lr request stand-down %s --successor <lane>`; deleting the brief's `Standing:` line ends the duty.", name, must(BriefOf(head.Brief)).Standing, int(unownedAfter.Minutes()), why, head.Brief, name), now)
 		}
 	}
 }
@@ -627,12 +630,12 @@ func hourly(s *store.Store, d Deps, now time.Time) {
 	switch {
 	case err != nil:
 		if must(s.Escalate(owedSubject, err.Error(), Root, now)) {
-			do(d.Post(Post{Kind: "blocker", To: []string{Root}, Text: fmt.Sprintf("%s the owed-deletions check did not run: %v", pacific(now), err)}))
+			do(d.Post(Post{Kind: "blocker", To: []string{Root}, Text: fmt.Sprintf("The owed-deletions check did not run: %v", err)}))
 		}
 	case len(gaps) > 0:
 		digest := fmt.Sprintf("owed-deletions-%x", sha256.Sum256([]byte(strings.Join(gaps, "\n"))))[:27]
 		if must(s.Escalate(owedSubject, digest, Root, now)) {
-			do(d.Post(Post{Kind: "blocker", To: []string{Root}, Attrs: map[string]string{"digest": digest}, Text: fmt.Sprintf("%s %s: %d removes targets have no open owed-deletion task and no exception row: %s. Open one owed-deletion task per target, or anchor an exception row to it with `rulings.py anchor`; `lr deletions check` exits 0 once every target is covered, and this digest is reposted only when the set changes.", pacific(now), digest, len(gaps), strings.Join(gaps, "; "))}))
+			do(d.Post(Post{Kind: "blocker", To: []string{Root}, Attrs: map[string]string{"digest": digest}, Text: fmt.Sprintf("%s: %d removes targets have no open owed-deletion task and no exception row: %s. Open one owed-deletion task per target, or anchor an exception row to it with `rulings.py anchor`; `lr deletions check` exits 0 once every target is covered, and this digest is reposted only when the set changes.", digest, len(gaps), strings.Join(gaps, "; "))}))
 		}
 	}
 	overdue(s, d, now)
@@ -649,19 +652,19 @@ func hourly(s *store.Store, d Deps, now time.Time) {
 		if len(words) > 1 {
 			noun = "lanes"
 		}
-		do(d.Post(Post{Kind: "report", To: []string{Root}, Attrs: map[string]string{"audience": "owner"}, Text: fmt.Sprintf("Between %s and %s the lane supervisor restarted %d %s with no coordinator action: %s.", pacific(start), pacific(end), len(words), noun, strings.Join(words, "; "))}))
+		do(d.Post(Post{Kind: "report", To: []string{Root}, Attrs: map[string]string{"audience": "owner"}, Text: fmt.Sprintf("In the past hour the lane supervisor restarted %d %s with no coordinator action: %s.", len(words), noun, strings.Join(words, "; "))}))
 	}
 	records, err := d.OpenWork()
 	if errors.Is(err, ErrUnread) {
 		return
 	}
 	do(err)
-	if depth := queueDepth(records, now); depth != "" {
-		do(d.Post(Post{Kind: "report", To: []string{Root}, Text: fmt.Sprintf("%s open work by lane, so no queue grows unseen (retro row 133): %s.", pacific(now), depth)}))
+	if depth := queueDepth(records); depth != "" {
+		do(d.Post(Post{Kind: "report", To: []string{Root}, Text: fmt.Sprintf("Open work by lane, so no queue grows unseen (retro row 133): %s.", depth)}))
 	}
 }
 
-func queueDepth(records []Record, now time.Time) string {
+func queueDepth(records []Record) string {
 	queues := map[string][]Record{}
 	for _, r := range records {
 		for lane := range r.Addressed() {
@@ -676,12 +679,12 @@ func queueDepth(records []Record, now time.Time) string {
 	workKinds := []string{"defect", "ask", "blocker"}
 	lines := make([]string, 0, len(names))
 	for _, lane := range names {
-		oldest := queues[lane][0].At
+		oldest := queues[lane][0]
 		tally := map[string]int{}
 		for _, r := range queues[lane] {
 			tally[r.Kind]++
-			if r.At.Before(oldest) {
-				oldest = r.At
+			if r.At.Before(oldest.At) {
+				oldest = r
 			}
 		}
 		counts := make([]string, 0, len(workKinds))
@@ -694,7 +697,7 @@ func queueDepth(records []Record, now time.Time) string {
 				counts = append(counts, fmt.Sprintf("%d %ss", tally[kind], kind))
 			}
 		}
-		lines = append(lines, fmt.Sprintf("%s %s (oldest %s)", lane, strings.Join(counts, ", "), pacificFrom(oldest, now)))
+		lines = append(lines, fmt.Sprintf("%s %s (oldest #%d)", lane, strings.Join(counts, ", "), oldest.Seq))
 	}
 	return strings.Join(lines, "; ")
 }

@@ -355,8 +355,8 @@ func (d *Desk) stalledLaunch(ctx context.Context, container, lane string, action
 	if err != nil {
 		return err
 	}
-	return d.escalate(key, "LAUNCH-STALLED", lane, fmt.Sprintf("%s accepted at %s has no dispatch %d s on, with the CPU %.0f%% busy over the last minute; withdraw it with `orca-desk: withdraw %s`, then launch it by hand: `lr launch start %s %s %s %s`",
-		action.ActionID, pacificClock(since), int(age.Seconds()), busy*100, action.ActionID, lane, spec.Model, spec.Effort, spec.Brief))
+	return d.escalate(key, "LAUNCH-STALLED", lane, fmt.Sprintf("%s has no dispatch %d s after it was accepted, with the CPU %.0f%% busy over the last minute; withdraw it with `orca-desk: withdraw %s`, then launch it by hand: `lr launch start %s %s %s %s`",
+		action.ActionID, int(age.Seconds()), busy*100, action.ActionID, lane, spec.Model, spec.Effort, spec.Brief))
 }
 
 func (d *Desk) reap(ctx context.Context) error {

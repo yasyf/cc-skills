@@ -61,7 +61,7 @@ func (e Env) WriteHandoff(ctx context.Context, s *store.Store, lane, cwd, transc
 	if toErr != nil {
 		return "", errors.Join(err, toErr)
 	}
-	_, postErr := e.Bus.Post(ctx, client.Draft{Drive: e.Config.Drive, Lane: lane, Kind: "blocker", To: []string{to}, Stamp: true, Text: fmt.Sprintf("%s compacted with no handoff: %v. Its brief and records still hold the work.", lane, err)})
+	_, postErr := e.Bus.Post(ctx, client.Draft{Drive: e.Config.Drive, Lane: lane, Kind: "blocker", To: []string{to}, Text: fmt.Sprintf("%s compacted with no handoff: %v. Its brief and records still hold the work.", lane, err)})
 	if postErr != nil {
 		return "", fmt.Errorf("%w; its blocker: %w", err, postErr)
 	}
@@ -88,7 +88,7 @@ func (e Env) writeHandoff(ctx context.Context, s *store.Store, lane, cwd, transc
 	if err := json.Unmarshal([]byte(result.Stdout), &added); err != nil {
 		return "", fmt.Errorf("ccn doc add answered %q: %w", result.Stdout, err)
 	}
-	if _, err := e.Run(ctx, "cci", "post", "--drive", e.Config.Drive, "--lane", lane, "--kind", "handoff", "--ccn", added.ID, "--stamp", "--text", fmt.Sprintf("%s wrote its handoff before compacting: doc %s", lane, added.ID)); err != nil {
+	if _, err := e.Run(ctx, "cci", "post", "--drive", e.Config.Drive, "--lane", lane, "--kind", "handoff", "--ccn", added.ID, "--text", fmt.Sprintf("%s wrote its handoff before compacting: doc %s", lane, added.ID)); err != nil {
 		return "", fmt.Errorf("cci post: %w", err)
 	}
 	return added.ID, nil

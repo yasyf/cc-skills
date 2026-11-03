@@ -26,7 +26,7 @@ Why it is separate, in the parent coordinator's words: {{.Reason}}
 
 Everything that must leave this sub-drive goes to the parent's coordinator and nobody else:
 
-    cci post --lane root --drive {{.Child}} --stamp --kind report --to root@{{.Parent}}
+    cci post --lane root --drive {{.Child}} --kind report --to root@{{.Parent}}
 
 Wherever the `long-running` skill says `owner-relay`, you read `root@{{.Parent}}`. You never address `owner-relay` or `owner`, and you never post to Slack or the board; the pack refuses a `cci post` to either from any session of this sub-drive. A decision only the owner can make, a PR that waits on his tap included, goes up as `--kind ask --to root@{{.Parent}}`, and the answer comes back to you with `--re`. Report each milestone, each blocker you cannot settle, and what is left.
 

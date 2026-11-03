@@ -303,6 +303,7 @@ def test_replay_reaches_the_final_reply_with_no_root_turn(store, clock, fake):
     assert final["live_at"].endswith(("am", "pm")) and "Z" not in final["live_at"]
     names = [entry["name"] for entry in record.milestones]
     assert names == ["opened", "mechanism", "pr", "landed", "activated", "live", "recovered", "closed"]
+    assert [report.partition(": ")[0] for report in fake.reports] == [f"{incident_id} {name}" for name in names]
 
 
 def test_merge_without_a_sync_grant_stays_activation_pending_and_rekicks_nothing(store, clock, fake):

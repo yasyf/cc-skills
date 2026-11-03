@@ -934,7 +934,7 @@ func TestAnAlertLaunchesNothingAndARepeatGoesToTheFixLane(t *testing.T) {
 	w.lines()
 	w.line("R3 (5:02 PM) orca-desk: alert api-500 https://dd/1 :: errors")
 	w.lines()
-	wantContains(t, w.wantEscalation("ALERT api-500"), "no lane launched")
+	w.wantEscalation("ALERT api-500: errors https://dd/1 | no lane launched")
 	w.live("api-500-fix", "ctx_fix", "term_fix")
 	w.line("R4 (5:03 PM) orca-desk: alert api-500 https://dd/1 :: errors")
 	w.lines()
@@ -942,7 +942,7 @@ func TestAnAlertLaunchesNothingAndARepeatGoesToTheFixLane(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantContains(t, held.Text, "The alert fired again at")
+	wantContains(t, held.Text, "The alert fired again: errors https://dd/1")
 }
 
 func TestAnIncidentLineCallsTheIncidentOwner(t *testing.T) {
@@ -955,6 +955,27 @@ func TestAnIncidentLineCallsTheIncidentOwner(t *testing.T) {
 		t.Fatal(w.fired)
 	}
 	w.wantEscalation("INCIDENT api-500")
+}
+
+func TestAnIncidentLineNamingNoReportTimeLaunchesAndPostsItsIncidentWithNoClock(t *testing.T) {
+	w := newDeskWorld(t)
+	w.lines()
+	w.line("orca-desk: incident api-500 https://dd/1 :: errors")
+	w.lines()
+	w.desk.background.Wait()
+	if len(w.fired) != 1 || w.fired[0].Slug != "api-500" || w.fired[0].Link != "https://dd/1" || w.fired[0].What != "errors" {
+		t.Fatal(w.fired)
+	}
+	w.step(w.desk.flush)
+	var posted []client.Draft
+	for _, post := range w.posts {
+		if post.Kind == "incident" {
+			posted = append(posted, post)
+		}
+	}
+	if len(posted) != 1 || posted[0].Topic != "api-500" || !strings.HasPrefix(posted[0].Text, "INCIDENT api-500: errors https://dd/1 | fix lane api-500-fix launching") {
+		t.Fatal(w.posts)
+	}
 }
 
 func TestAnIncidentLaunchThatFailsIsReported(t *testing.T) {
@@ -2166,7 +2187,7 @@ func TestAnOverdueRelayIsADeadlineUnlessTheLaneIsAliveOrMoved(t *testing.T) {
 	w.acceptedRelay("R2")
 	w.now = w.now.Add(11 * time.Minute)
 	w.step(w.desk.deadlines)
-	wantContains(t, w.wantEscalation("DEADLINE deadline:desk-lane-lane-a/R2:accepted lane-a"), "R2 relay: never delivered: no live dispatch")
+	wantContains(t, w.wantEscalation("DEADLINE deadline:desk-lane-lane-a/R2:accepted lane-a"), "R2 relay: never delivered: no live dispatch; accepted 11 min ago")
 }
 
 func TestAHeartbeatAfterTheRelayExcusesItsDeadline(t *testing.T) {

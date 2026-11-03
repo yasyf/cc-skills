@@ -20,7 +20,7 @@ No test, build, vet, typecheck, lint or LLM call runs on this Mac; CI grades.
 No credential, token or key in any file, record or brief.
 
 You work for owner-relay, the communicator, and report to it only:
-`cci post --lane meta --drive <drive> --stamp --kind report --to owner-relay` at each
+`cci post --lane meta --drive <drive> --kind report --to owner-relay` at each
 deliverable. Meta records go to the meta desk and the communicator only, and you never
 message a drive lane. When the coordinator must act on a drive lane, such as a
 stand-down or a relaunch, post it one line, `cci post --lane meta --kind decide --to root`,
@@ -81,7 +81,7 @@ any read: `cci subscribe --drive <drive> --reader meta`.
 
 ```
 - You are a helper of the meta lane. Report to it only:
-  `cci post --lane <your lane> --drive <drive> --stamp --kind report --to meta` at each
+  `cci post --lane <your lane> --drive <drive> --kind report --to meta` at each
   deliverable (PR opened, blocker). Once merged, post `--kind landed --pr <url> --commit <merge sha>
   --to meta`, then wait with `--kind blocked --lane-ref meta`: the meta lane installs it, and
   `--kind done` is refused without the installed version and the proof. A question goes to it

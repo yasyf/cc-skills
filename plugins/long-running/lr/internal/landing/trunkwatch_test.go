@@ -92,7 +92,7 @@ func TestATrunkRetryThatPassesPostsOneFlakeNamingTheBuildCommitAndTest(t *testin
 		bkReply(fake, buildPath+"105354", failedRead)
 		bkReply(fake, "/pipelines/test/builds?per_page=30", `[]`)
 	})
-	if got := trunkRecords(t, "incident"); len(got) != 1 || !strings.HasPrefix(got[0].Text, "DEV-RED since ") || !strings.Contains(got[0].Text, "fails go-test on "+redBuild) || !strings.Contains(got[0].Text, "landed by #48001") {
+	if got := trunkRecords(t, "incident"); len(got) != 1 || !strings.HasPrefix(got[0].Text, "DEV-RED for 60 min: ") || !strings.Contains(got[0].Text, "fails go-test on "+redBuild) || !strings.Contains(got[0].Text, "landed by #48001") {
 		t.Fatalf("incidents = %+v", got)
 	}
 
@@ -115,8 +115,23 @@ func TestATrunkRetryThatPassesPostsOneFlakeNamingTheBuildCommitAndTest(t *testin
 		}
 	}
 	reports := trunkRecords(t, "report")
-	if len(reports) != 1 || !strings.HasPrefix(reports[0].Text, "DEV-GREEN dev's buildkite/test passes again") {
-		t.Fatalf("reports = %+v, want one DEV-GREEN", reports)
+	if want := fmt.Sprintf("DEV-GREEN dev's buildkite/test passes again; it was red from #%d.", trunkRecords(t, "incident")[0].Seq); len(reports) != 1 || reports[0].Text != want {
+		t.Fatalf("reports = %+v, want %q", reports, want)
+	}
+}
+
+func TestDevGreenAfterAnOldRedRecordCitesThatRecordNotTheClockItsTextCarries(t *testing.T) {
+	f := newTrunkWatch(t)
+	old, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "supervisor", Kind: "incident", To: []string{"root"}, Topic: "dev-red", Text: "DEV-RED since 1:00 PM: dev's buildkite/test is red on " + redBuild + ", first red at efe25ce04d."})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	f.pass(t, trunkHistory(trunkCommit(trunkOID, "SUCCESS", greenBuild)), nil)
+
+	reports := trunkRecords(t, "report")
+	if want := fmt.Sprintf("DEV-GREEN dev's buildkite/test passes again; it was red from #%d.", old.Seq); len(reports) != 1 || reports[0].Text != want {
+		t.Fatalf("reports = %+v, want %q", reports, want)
 	}
 }
 
@@ -148,7 +163,7 @@ func TestARedOnlyPostMergeJobsReadIsAReportAndLandingContinues(t *testing.T) {
 		t.Fatalf("incidents = %+v, want none", got)
 	}
 	got := trunkRecords(t, "report")
-	if len(got) != 1 || !strings.HasPrefix(got[0].Text, "POST-MERGE-RED since ") || got[0].Topic != "dev-red" {
+	if len(got) != 1 || !strings.HasPrefix(got[0].Text, "POST-MERGE-RED for 60 min: ") || got[0].Topic != "dev-red" {
 		t.Fatalf("reports = %+v", got)
 	}
 }

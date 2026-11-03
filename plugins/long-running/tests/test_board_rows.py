@@ -89,15 +89,15 @@ class FakeShell(board_rows.Shell):
     def pull(self, pr: str, head: str = HEAD, state: str = "OPEN", committed: str = COMMITTED, base: str = "dev") -> None:
         self.pulls[pr] = {"state": state, "headRefOid": head, "baseRefName": base, "headRefName": f"b/{pr}", "commits": {"nodes": [{"commit": {"committedDate": committed}}]}}
 
-    def post(self, kind: str, lane: str, text: str, pr: str | None = None, path: str | None = None, drive: str = DRIVE, topic: str = "") -> int:
+    def post(self, kind: str, lane: str, text: str, pr: str | None = None, path: str | None = None, drive: str = DRIVE, topic: str = "", at: str | None = None) -> int:
         seq = len(self.records) + 1
         refs = {"prs": [f"{REPO}#{pr}"]} if pr else {}
-        self.records.append({"seq": seq, "drive": drive, "kind": kind, "lane": lane, "text": text, "topic": topic, "refs": refs | ({"path": path} if path else {})})
+        self.records.append({"seq": seq, "drive": drive, "kind": kind, "lane": lane, "text": text, "topic": topic, "refs": refs | ({"path": path} if path else {}), **({"at": at} if at else {})})
         return seq
 
     def trunk(self, *texts: str) -> None:
         for text in texts:
-            self.post("incident" if text.startswith("DEV-RED") else "report", "desk-runner", text, topic="dev-red")
+            self.post("incident" if text.startswith("DEV-RED") else "report", "desk-runner", text, topic="dev-red", at=RED_AT)
 
     def graded(self, pr: str, head: str = HEAD) -> None:
         self.post("review", "fidelity-desk", f"fidelity: ok {head[:7]} checked rule/1", pr)
@@ -880,13 +880,16 @@ def test_a_row_root_go_d_at_its_head_passes_when_its_carried_list_names_his_appr
     assert gate(tmp_path, shell, groups(pr_row("42590") | {"carried": carried}), "--check") == failing
 
 
-RED = "DEV-RED since 12:03 AM: dev's buildkite/test fails lint on build 1. No PR can land until this is fixed."
+RED_AT = "2026-10-27T07:03:00Z"
+RED = "DEV-RED for 15 min: dev's buildkite/test fails lint on build 1. No PR can land until this is fixed."
+OLD_RED = "DEV-RED since 9:41 PM: dev's buildkite/test fails lint on build 1. No PR can land until this is fixed."
 
 
-def test_a_red_dev_banners_the_card_and_keeps_every_row_on_it(tmp_path: Path, shell: FakeShell, capsys: pytest.CaptureFixture[str]) -> None:
+@pytest.mark.parametrize("red", [RED, OLD_RED])
+def test_a_red_dev_banners_the_card_with_its_record_time_and_keeps_every_row_on_it(tmp_path: Path, shell: FakeShell, capsys: pytest.CaptureFixture[str], red: str) -> None:
     shell.pull("42591")
     shell.graded("42591")
-    shell.trunk(RED)
+    shell.trunk(red)
     shell.post("opened", "fix-dev", "opened #42591", pr="42591", topic="dev-red")
 
     assert gate(tmp_path, shell, groups(pr_row("42590"), pr_row("42591")), "--", "cc-present", "update-block") == 0
@@ -906,7 +909,7 @@ def test_a_red_dev_still_fails_a_row_missing_a_field(tmp_path: Path, shell: Fake
     assert shell.pushed == []
 
 
-@pytest.mark.parametrize("posted", [[RED, "DEV-GREEN dev's buildkite/test passes again; it was red since 12:03 AM."], ["POST-MERGE-RED since 12:03 AM: dev's buildkite/test fails publish on build 1. Landing continues."]])
+@pytest.mark.parametrize("posted", [[RED, "DEV-GREEN dev's buildkite/test passes again; it was red from #1."], [OLD_RED, "DEV-GREEN dev's buildkite/test passes again; it was red since 9:41 PM."], ["POST-MERGE-RED for 15 min: dev's buildkite/test fails publish on build 1. Landing continues."]])
 def test_a_green_or_post_merge_red_dev_carries_no_banner(tmp_path: Path, shell: FakeShell, posted: list[str]) -> None:
     shell.trunk(*posted)
 

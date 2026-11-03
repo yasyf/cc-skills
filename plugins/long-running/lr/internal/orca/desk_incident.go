@@ -826,7 +826,7 @@ func (d *Desk) unfixed(ctx context.Context, lane string, message orcaMessage) er
 		written[i] = cases[name]
 	}
 	key := unfixedKey + message.ID
-	unlaunched := fmt.Sprintf("UNFIXED %s %s: %s | no case lane launched", lane, pacificClock(d.Now()), strings.Join(written, "; "))
+	unlaunched := fmt.Sprintf("UNFIXED %s: %s | no case lane launched", lane, strings.Join(written, "; "))
 	by, err := d.withdrawnBy(lane)
 	if err != nil {
 		return err
@@ -1032,7 +1032,7 @@ func (d *Desk) caseBrief(ctx context.Context, key, lane, parent string, launch i
 
 func (d *Desk) caseLane(ctx context.Context, lane, parent string, launch incident.Action, written, key string) (bool, error) {
 	log := escalationPref + key
-	line := fmt.Sprintf("INCIDENT %s %s: its fix does not cover: %s", parent, pacificClock(d.Now()), written)
+	line := fmt.Sprintf("INCIDENT %s: its fix does not cover: %s", parent, written)
 	refusal, err := d.launchRefusal(ctx, key, Order{Lane: lane, Model: agentIncident, Effort: "xhigh", Brief: d.reference("unfixed-case-brief.md")})
 	if err != nil {
 		return false, err

@@ -249,8 +249,9 @@ func TestADeadLaneRelaunchesWithItsHandoffAndStandsDownOnceItsSuccessorIsUp(t *t
 
 	out := tick(t, s, f, t0)
 
-	equal(t, out.Relaunched, []Relaunch{{lane2, "conflicts-4", "stopped at 9:40 AM"}})
+	equal(t, out.Relaunched, []Relaunch{{lane2, "conflicts-4", "stopped, quiet for 20 min"}})
 	equal(t, f.launches, []string{"conflicts-4"})
+	contains(t, f.posts[0].Text, "RELAUNCHED conflicts-2 as conflicts-4: it stopped, quiet for 20 min; handoff 9f3c2e1; PRs #46001 #46002; brief ")
 	text := f.briefs["conflicts-4"]
 	if !strings.HasPrefix(text, "Replaces: conflicts-2\n") {
 		t.Fatal(text)
@@ -278,6 +279,7 @@ func TestADeadLaneRelaunchesWithItsHandoffAndStandsDownOnceItsSuccessorIsUp(t *t
 	equal(t, len(f.posts), 1)
 	standDown := f.posts[0]
 	equal(t, []any{standDown.Kind, standDown.To, standDown.Successor, standDown.PRs}, []any{"stand-down", []string{lane2}, "conflicts-4", []int{46001, 46002}})
+	equal(t, standDown.Text, "conflicts-2 stood down for conflicts-4, now up; conflicts-2 stopped, quiet for 20 min.")
 	equal(t, row(t, s, "conflicts-4").State, store.LaneDesired)
 }
 
@@ -423,7 +425,7 @@ func TestABlockerOnAnIdleLanesPRWakesItOnceThenItGetsASuccessorWithoutAnyoneAske
 	equal(t, f.wakes, []string{lane2})
 	equal(t, len(f.ofKind("ask")), 0)
 	equal(t, replaced.Relaunched[0].Old, lane2)
-	contains(t, replaced.Relaunched[0].Why, "has made no tool call since it was woken")
+	contains(t, replaced.Relaunched[0].Why, "has made no tool call in the 30 min since it was woken because blocker #2")
 	equal(t, f.launches, []string{"conflicts-3"})
 	equal(t, owners(t, s, 46475)[46475], "conflicts-3")
 }
@@ -848,7 +850,7 @@ func TestAnOwedDeletionCheckThatCannotReadTellsRoot(t *testing.T) {
 
 	blockers := f.ofKind("blocker")
 	equal(t, len(blockers), 1)
-	contains(t, blockers[0].Text, "the owed-deletions check did not run: rulings.py rows exited 1: no register")
+	equal(t, blockers[0].Text, "The owed-deletions check did not run: rulings.py rows exited 1: no register")
 }
 
 func TestALaneThatStopsAfterItsLastPRLandedIsRetiredNotRelaunched(t *testing.T) {
@@ -1018,7 +1020,7 @@ func TestTheOwnerHearsOneLineAnHourAndOnlyWhenALaneRestarted(t *testing.T) {
 
 	equal(t, len(f.posts), 1)
 	equal(t, f.posts[0].Attrs, map[string]string{"audience": "owner"})
-	equal(t, f.posts[0].Text, "Between 10:00 AM and 11:00 AM the lane supervisor restarted 1 lane with no coordinator action: conflicts-2 stopped at 10:00 AM, so conflicts-3 took over.")
+	equal(t, f.posts[0].Text, "In the past hour the lane supervisor restarted 1 lane with no coordinator action: conflicts-2 stopped, quiet for 16 min, so conflicts-3 took over.")
 }
 
 func TestClassify(t *testing.T) {
@@ -1415,10 +1417,10 @@ func TestAStandDownForALaneThatNeverBoundIsAddressedAsWritten(t *testing.T) {
 	equal(t, draft.Force, true)
 }
 
-func TestEverySupervisorPostLetsCCIStampItsTimeSoASlowTickIsNeverRefused(t *testing.T) {
+func TestEverySupervisorPostIsForcedAndLeavesItsTimeToTheRecord(t *testing.T) {
 	draft := Post{Kind: "report", To: []string{Root}, Text: "x", LaneRef: "l", PRs: []int{9}, Re: 4, Successor: "s"}.Draft(testDrive)
 
-	equal(t, draft, client.Draft{Drive: testDrive, Lane: Self, Kind: "report", To: []string{Root}, Text: "x", Re: 4, Successor: "s", Force: true, LaneRefs: []string{"l"}, PRs: []string{"9"}, Stamp: true})
+	equal(t, draft, client.Draft{Drive: testDrive, Lane: Self, Kind: "report", To: []string{Root}, Text: "x", Re: 4, Successor: "s", Force: true, LaneRefs: []string{"l"}, PRs: []string{"9"}})
 }
 
 func TestARootStandDownNamingNoSuccessorUnownsTheLanesPRsAndNamesToRootOnceOnlyThoseNeedingWork(t *testing.T) {
@@ -1550,12 +1552,12 @@ func TestALaneWhoseOrcaWorkerSucceededByItsOutcomeLineIsRetired(t *testing.T) {
 	equal(t, row(t, s, lane2).RetiredBy, "worker-done")
 }
 
-func TestALaneThatStoppedOnAnEarlierDayNamesTheDateSoCciNeverReadsTheClockAsAhead(t *testing.T) {
+func TestALaneThatStoppedOnAnEarlierDayNamesHowLongItWasQuietAndNoClock(t *testing.T) {
 	at := t0.Add(-30 * time.Hour)
 
 	verdict := Classify(store.Lane{Name: lane2, State: store.LaneDesired}, &Peer{Lane: lane2, Seen: at}, t0, 0, 0)
 
-	equal(t, verdict.Why, "stopped at "+at.In(pacificZone).Format("3:04 PM Jan 2"))
+	equal(t, verdict.Why, "stopped, quiet for 1800 min")
 }
 
 func TestAnOrcaWorkerThatSucceededIsRetiredBeforeItsOutcomeLineArrives(t *testing.T) {
@@ -1617,7 +1619,7 @@ func TestAStandingLaneDoneWithNoSuccessorReachesRootOnceAfterTenMinutes(t *testi
 
 	blockers := f.ofKind("blocker")
 	equal(t, len(blockers), 1)
-	contains(t, blockers[0].Text, "standing lane board-refresher-6 (refresh the owner's board every pass) has had no live owner since 10:00 AM")
+	contains(t, blockers[0].Text, "standing lane board-refresher-6 (refresh the owner's board every pass) has had no live owner for over 10 min")
 	contains(t, blockers[0].Text, "retired by done")
 	contains(t, blockers[0].Text, path)
 }
@@ -1757,7 +1759,7 @@ func TestAStandingLaneDeadWhileItWaitsOnRootReachesRootWithItsBrief(t *testing.T
 
 	blockers := f.ofKind("blocker")
 	equal(t, len(blockers), 1)
-	contains(t, blockers[0].Text, "is neither live nor heard since 9:30 AM")
+	contains(t, blockers[0].Text, "has had no live owner for over 10 min: it is neither live nor heard since its record #2.")
 	equal(t, len(f.launches), 0)
 }
 
@@ -1889,7 +1891,7 @@ func TestADoneWhileTheLaneOwnsAnOpenPRIsRefusedNamingItAndTheBlockedForm(t *test
 func TestARequestPostsOneTypedDecideToTheSupervisor(t *testing.T) {
 	draft := Request{Verb: "stand-down", Lane: lane2, Successor: "conflicts-3", LastRead: "7", PRs: []int{1, 2}, By: Root}.Draft(testDrive)
 
-	equal(t, draft, client.Draft{Drive: testDrive, Lane: Root, Kind: "decide", To: []string{Self}, Attrs: map[string]string{"verb": "stand-down", "lane": lane2, "successor": "conflicts-3", "last-read": "7"}, PRs: []string{"1", "2"}, Stamp: true, Text: "registry request: stand-down conflicts-2 for conflicts-3 last-read=7 #1 #2"})
+	equal(t, draft, client.Draft{Drive: testDrive, Lane: Root, Kind: "decide", To: []string{Self}, Attrs: map[string]string{"verb": "stand-down", "lane": lane2, "successor": "conflicts-3", "last-read": "7"}, PRs: []string{"1", "2"}, Text: "registry request: stand-down conflicts-2 for conflicts-3 last-read=7 #1 #2"})
 }
 
 func TestBriefParsing(t *testing.T) {
@@ -1914,7 +1916,7 @@ func TestADeadCoordinatorRelaunchesFromItsBriefUnderItsOwnNameAndTellsTheBridge(
 	out := tick(t, s, f, t0)
 
 	equal(t, f.launches, []string{Root})
-	equal(t, out.Relaunched, []Relaunch{{Root, Root, "stopped at 9:40 AM"}})
+	equal(t, out.Relaunched, []Relaunch{{Root, Root, "stopped, quiet for 20 min"}})
 	equal(t, f.kinds(), []string{"report:" + OwnerRelay})
 	equal(t, row(t, s, Root).State, store.LaneLaunching)
 	if _, found, _ := s.Lane("root-2"); found {
@@ -2252,7 +2254,7 @@ func TestTheHourlyReportNamesEachLanesOpenWorkDeepestFirst(t *testing.T) {
 	tick(t, s, f, at)
 
 	equal(t, f.kinds(), []string{"report:root"})
-	equal(t, f.posts[0].Text, fmt.Sprintf("%s open work by lane, so no queue grows unseen (retro row 133): tooling-1 2 defects, 1 ask (oldest %s); desk-3 1 blocker (oldest %s).", pacific(at), pacific(t0.Add(-3*time.Hour)), pacific(t0.Add(-2*time.Hour))))
+	equal(t, f.posts[0].Text, "Open work by lane, so no queue grows unseen (retro row 133): tooling-1 2 defects, 1 ask (oldest #10); desk-3 1 blocker (oldest #13).")
 }
 
 func TestAnUnreadOpenWorkQueryLeavesTheHourlyTickRunning(t *testing.T) {
@@ -2267,8 +2269,7 @@ func TestAnUnreadOpenWorkQueryLeavesTheHourlyTickRunning(t *testing.T) {
 	equal(t, len(f.posts), 0)
 }
 
-func TestAnOpenRecordFromAnEarlierDayCarriesItsDate(t *testing.T) {
-	old := t0.Add(-22 * time.Hour)
-	got := queueDepth([]Record{rec(10, Root, "defect", old, "fix the gate", "tooling-1")}, t0)
-	equal(t, got, fmt.Sprintf("tooling-1 1 defect (oldest %s)", old.In(pacificZone).Format("3:04 PM Jan 2")))
+func TestAQueueCitesItsOldestRecordBySeq(t *testing.T) {
+	got := queueDepth([]Record{rec(11, Root, "ask", t0, "and this", "tooling-1"), rec(10, Root, "defect", t0.Add(-22*time.Hour), "fix the gate", "tooling-1")})
+	equal(t, got, "tooling-1 1 defect, 1 ask (oldest #10)")
 }

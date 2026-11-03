@@ -228,7 +228,7 @@ def route_incident_fix_lanes_to_sol(evt: BaseHookEvent) -> HookResult | None:
 
 OUTAGE_READ = "ccx: role=reader\nRead the outage thread the owner linked into a file."
 FIX_LAUNCH = "python3 /drive/scripts/desk-launch.py incident api-outage-fix /drive/briefs/api-outage-fix.md"
-ORCA_GO = "cci post --drive d1 --lane root --kind go --to orca-desk --text 'R1 (10:31 AM) orca-desk: launch api-outage-fix NOW incident xhigh role=fix brief=/b.md'"
+ORCA_GO = "cci post --drive d1 --lane root --kind go --to orca-desk --text 'orca-desk: launch api-outage-fix NOW incident xhigh role=fix brief=/b.md'"
 
 
 def read_beside(name: str, prompt: str, *siblings: object, earlier: tuple[object, ...] = (), **extra: object) -> Input:

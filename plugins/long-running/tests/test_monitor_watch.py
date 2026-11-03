@@ -104,6 +104,6 @@ def test_a_move_into_alert_or_warn_posts_one_alert_record_to_the_desk_on_cci(wat
     assert not posts.exists()
     watch.once(monitor(1, "Alert"), monitor(2, "Warn"), monitor(3, "No Data"), monitor(4, "OK"), args=args)
     assert posts.read_text().splitlines() == [
-        "post --drive d1 --lane monitor-watch --kind note --to orca-desk --text orca-desk: alert dd-1 https://app.datadoghq.com/monitors/1 :: Datadog OK -> Alert at 2026-09-30T19:00:00+00:00: monitor 1",
-        "post --drive d1 --lane monitor-watch --kind note --to orca-desk --text orca-desk: alert dd-2 https://app.datadoghq.com/monitors/2 :: Datadog OK -> Warn at 2026-09-30T19:00:00+00:00: monitor 2",
+        "post --drive d1 --lane monitor-watch --kind note --to orca-desk --text orca-desk: alert dd-1 https://app.datadoghq.com/monitors/1 :: Datadog OK -> Alert: monitor 1",
+        "post --drive d1 --lane monitor-watch --kind note --to orca-desk --text orca-desk: alert dd-2 https://app.datadoghq.com/monitors/2 :: Datadog OK -> Warn: monitor 2",
     ]

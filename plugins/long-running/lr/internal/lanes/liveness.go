@@ -162,7 +162,7 @@ func (r Request) Draft(drive string) client.Draft {
 		refs = append(refs, strconv.Itoa(pr))
 		words = append(words, fmt.Sprintf("#%d", pr))
 	}
-	return client.Draft{Drive: drive, Lane: r.By, Kind: kindRequest, To: []string{Self}, Attrs: attrs, PRs: refs, Stamp: true, Text: "registry request: " + strings.Join(words, " ")}
+	return client.Draft{Drive: drive, Lane: r.By, Kind: kindRequest, To: []string{Self}, Attrs: attrs, PRs: refs, Text: "registry request: " + strings.Join(words, " ")}
 }
 
 func (r Request) Command() string {
@@ -211,7 +211,7 @@ func DoneRefusal(s *store.Store, lane string, states func(prs []int) (map[int]st
 }
 
 func (p Post) Draft(drive string) client.Draft {
-	draft := client.Draft{Drive: drive, Lane: Self, Kind: p.Kind, To: p.To, Text: p.Text, Re: p.Re, Successor: p.Successor, Attrs: p.Attrs, Stamp: true, Force: true}
+	draft := client.Draft{Drive: drive, Lane: Self, Kind: p.Kind, To: p.To, Text: p.Text, Re: p.Re, Successor: p.Successor, Attrs: p.Attrs, Force: true}
 	if p.LaneRef != "" {
 		draft.LaneRefs = []string{p.LaneRef}
 	}

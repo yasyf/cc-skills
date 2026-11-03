@@ -113,7 +113,7 @@ func runGo(ctx context.Context, a *app.App, numbers []int, flags goFlags, stdout
 			fmt.Fprintf(stdout, "GO #%d at %s (dry): %s\n", number, head[:7], text)
 			continue
 		}
-		posted, err := client.Post(ctx, client.Draft{Drive: cfg.Drive, Lane: flags.lane, Kind: kindGo, To: []string{goReader}, PRs: []string{strconv.Itoa(number)}, Text: text, Stamp: true})
+		posted, err := client.Post(ctx, client.Draft{Drive: cfg.Drive, Lane: flags.lane, Kind: kindGo, To: []string{goReader}, PRs: []string{strconv.Itoa(number)}, Text: text})
 		if err != nil {
 			return err
 		}

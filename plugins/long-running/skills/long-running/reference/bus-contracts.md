@@ -61,8 +61,8 @@ Every lane waits with `lr wait 540 cci:<drive>:<lane>` as its foreground Bash ca
 
 These I-rules apply to the landing desk, priority desks, and shards. The coordinator never `SendMessage`s a desk.
 
-The orca desk reads its launch, relay, and hold lines only from cci records addressed to `orca-desk` in the `R<n>` form from the owner's CLAUDE.md Incident Turn. The coordinator posts each one with `lr launch`, which mints the `R<n>` and the clock. By hand, the coordinator launches an incident fix lane with:
-`cci post --drive <drive> --lane root --kind go --to orca-desk --text 'R<n> (<h:mm AM|PM>) orca-desk: launch <dir> NOW incident xhigh role=fix brief=<state>/<dir>/brief.md'`.
+The orca desk reads its launch, relay, and hold lines only from cci records addressed to `orca-desk`. The coordinator posts each one with `lr launch`, and the record's seq is its key. By hand, the coordinator launches an incident fix lane with:
+`cci post --drive <drive> --lane root --kind go --to orca-desk --text 'orca-desk: launch <dir> NOW incident xhigh role=fix brief=<state>/<dir>/brief.md'`.
 A lane launched from a `brief.md` takes its directory's name and keeps that name from launch on. The runner refuses any other name with `LAUNCH-FAILED` and prints the order that launches the lane under its directory's name.
 
 **I1. A desk's inbox is the set of cci records addressed to it.** The coordinator posts each ruling with `cci post --drive <drive> --lane root --kind go --to <desk> --text "<ruling>"`. Keep text under 400 characters, attach a longer body from a file with `--path <file>`, and link durable records with `--ccn <id>`.

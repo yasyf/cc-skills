@@ -205,7 +205,7 @@ func differences(oldDecided, newDecided Decided) []string {
 
 func (d Deps) post(ctx context.Context, drive, kind, key, text string, flags ...string) error {
 	argv := append([]string{"cci", "post", "--drive", drive, "--lane", lane, "--kind", kind, "--to", "root", "--id", key}, flags...)
-	_, err := d.run(ctx, readLimit, append(argv, "--stamp", "--text", text)...)
+	_, err := d.run(ctx, readLimit, append(argv, "--text", text)...)
 	return err
 }
 
