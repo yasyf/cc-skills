@@ -20,23 +20,24 @@ const (
 )
 
 type Liveness struct {
-	Lane        string  `json:"lane"`
-	State       string  `json:"state"`
-	Live        bool    `json:"live"`
-	Heard       *string `json:"heard"`
-	PRs         []int   `json:"prs"`
-	Handoff     *string `json:"handoff"`
-	RetiredBy   *string `json:"retired_by"`
-	Placement   *string `json:"placement"`
-	Predecessor *string `json:"predecessor"`
-	Route       string  `json:"route"`
-	Brief       *string `json:"brief"`
-	Step        string  `json:"step"`
-	Standing    string  `json:"standing"`
-	Deliverable string  `json:"deliverable"`
-	Woke        *string `json:"woke"`
-	Node        *string `json:"node"`
-	LateMinutes int     `json:"late_minutes"`
+	Lane        string   `json:"lane"`
+	State       string   `json:"state"`
+	Live        bool     `json:"live"`
+	Heard       *string  `json:"heard"`
+	PRs         []int    `json:"prs"`
+	Handoff     *string  `json:"handoff"`
+	RetiredBy   *string  `json:"retired_by"`
+	Placement   *string  `json:"placement"`
+	Predecessor *string  `json:"predecessor"`
+	Route       string   `json:"route"`
+	Brief       *string  `json:"brief"`
+	Step        string   `json:"step"`
+	Standing    string   `json:"standing"`
+	Deliverable string   `json:"deliverable"`
+	Orders      []string `json:"orders"`
+	Woke        *string  `json:"woke"`
+	Node        *string  `json:"node"`
+	LateMinutes int      `json:"late_minutes"`
 }
 
 func nullable(value string) *string {
@@ -71,7 +72,7 @@ func LivenessRows(s *store.Store) (rows []Liveness, err error) {
 		if lane, ok := registered[name]; ok {
 			said := must(BriefOf(lane.Brief))
 			row.Live = isLive(lane.State)
-			row.State, row.Step, row.Standing, row.Deliverable = string(lane.State), said.Step, said.Standing, said.Deliverable
+			row.State, row.Step, row.Standing, row.Deliverable, row.Orders = string(lane.State), said.Step, said.Standing, said.Deliverable, said.Orders
 			row.Handoff, row.RetiredBy, row.Placement, row.Predecessor, row.Brief = nullable(lane.Handoff), nullable(lane.RetiredBy), nullable(lane.Placement), nullable(lane.Predecessor), nullable(lane.Brief)
 			if !lane.Answered.IsZero() {
 				row.Woke = nullable(store.Stamp(lane.Answered))

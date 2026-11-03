@@ -294,3 +294,24 @@ func TestStartBatchesRoutineRecordsAndNeverWhatTheOwnerSentOrTapped(t *testing.T
 		t.Fatalf("settings = %v, want the window set and the rest kept", written)
 	}
 }
+
+func TestANoOrderRowLeavesTheWaitingListAndStillCountsTowardTheNextID(t *testing.T) {
+	path := staged(t)
+	if err := Mark(path, "m2", noOrder, 0); err != nil {
+		t.Fatal(err)
+	}
+	waiting, err := Rows(path, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.ContainsFunc(waiting, func(row string) bool { return strings.HasPrefix(row, "| m2 |") }) {
+		t.Fatalf("waiting %q", waiting)
+	}
+	if err := Mark(path, "m2", responded, 0); err != nil {
+		t.Fatal(err)
+	}
+	row, err := Add(path, addedAt, "next", opened, 0)
+	if err != nil || row != "m13" {
+		t.Fatalf("row %s, err %v", row, err)
+	}
+}

@@ -479,6 +479,7 @@ type fakeBus struct {
 	peers  []client.Peer
 	posted []client.Draft
 	query  client.Query
+	tails  int
 }
 
 func (b *fakeBus) Post(_ context.Context, d client.Draft) (client.Record, error) {
@@ -488,6 +489,7 @@ func (b *fakeBus) Post(_ context.Context, d client.Draft) (client.Record, error)
 
 func (b *fakeBus) Tail(_ context.Context, q client.Query) ([]client.Record, error) {
 	b.query = q
+	b.tails++
 	return b.tail, nil
 }
 

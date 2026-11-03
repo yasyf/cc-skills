@@ -13,6 +13,8 @@ import (
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/deletions"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/owner"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
 const replayTick = 30 * time.Second
@@ -178,6 +180,7 @@ func decided(t *testing.T, fixture replayFixture) map[string][]any {
 		Owed:         func() ([]deletions.Owed, error) { return nil, nil },
 		Present:      func(rows []deletions.Owed) ([]deletions.Owed, error) { return rows, nil },
 		Gaps:         func() ([]string, error) { return nil, nil },
+		Orders:       func(*store.Store) ([]owner.Row, error) { return nil, nil },
 		Records: func(since int64) ([]Record, error) {
 			start := shown
 			for shown < len(feed) && !feed[shown].At.After(now) {

@@ -15,6 +15,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/board"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/deletions"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/owner"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/plans"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -42,6 +43,7 @@ func src(lanes []Lane, records []Record, tasks []ClaudeTask, boardErr error) Sou
 		Programs: func() ([]Program, error) { return nil, nil },
 		Rulings:  func(context.Context) ([]PlanRuling, error) { return nil, nil },
 		Overdue:  func(time.Time) ([]store.Item, error) { return nil, nil },
+		Orders:   func(context.Context) ([]owner.Row, error) { return nil, nil },
 	}
 }
 
@@ -150,6 +152,24 @@ func TestTheCoordinatorsOverdueItemsOpenTheUpdateOldestFirstWithOneDueThisMoment
 	want := []string{"", "2 overdue:", "- ask #12, due " + pacific(ago(44)), "- unfinished ask/000001, due " + pacific(now), ""}
 	if !strings.HasPrefix(lines[0], "# Owner update: ") || !reflect.DeepEqual(lines[1:6], want) || !strings.HasPrefix(lines[6], "## "+sinceTitle) {
 		t.Fatalf("the update opens:\n%s", strings.Join(lines[:7], "\n"))
+	}
+}
+
+func TestUndeliveredOwnerOrdersFollowTheOverdueItemsAtTheTop(t *testing.T) {
+	sources := src(nil, nil, nil, nil)
+	sources.Orders = func(context.Context) ([]owner.Row, error) {
+		return []owner.Row{{ID: "m85", At: "Nov 3 4:50 AM", Text: "build the phone app for approvals"}}, nil
+	}
+	in, err := Collect(context.Background(), sources, testDrive, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	lines := strings.Split(Render(in).Text, "\n")
+
+	want := []string{"", "Owner orders with no live lane, open PR or landed or done record (1):", "- m85 Nov 3 4:50 AM: build the phone app for approvals", ""}
+	if !reflect.DeepEqual(lines[1:5], want) || !strings.HasPrefix(lines[5], "## "+sinceTitle) {
+		t.Fatalf("the update opens:\n%s", strings.Join(lines[:6], "\n"))
 	}
 }
 

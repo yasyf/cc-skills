@@ -11,6 +11,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/asks"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/deletions"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/owner"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/plans"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -67,6 +68,7 @@ type Inputs struct {
 	Programs  []Program
 	Rulings   []PlanRuling
 	Overdue   []store.Item
+	Orders    []owner.Row
 }
 
 type Need struct {
@@ -348,6 +350,7 @@ func (v view) laneRows(lanes []Lane) []Row {
 type draft struct {
 	header     string
 	overdue    []string
+	orders     []string
 	sinceTitle string
 	since      string
 	fyi        []FYI
@@ -403,6 +406,7 @@ func Render(in Inputs) Report {
 	found := draft{
 		header:     fmt.Sprintf("# Owner update: %s, %s", in.Drive, pacific(in.Now)),
 		overdue:    overdueLines(in.Overdue),
+		orders:     orderLines(in.Orders),
 		sinceTitle: fmt.Sprintf("%s (%s)", sinceTitle, pacificText(in.Before.At)),
 		since:      pacificText(in.Before.At),
 		fyi:        fresh,
@@ -458,6 +462,17 @@ func overdueLines(items []store.Item) []string {
 			subject = fmt.Sprintf("#%d", item.Number)
 		}
 		lines = append(lines, fmt.Sprintf("- %s %s, due %s", item.Kind, subject, pacific(item.Deadline)))
+	}
+	return lines
+}
+
+func orderLines(rows []owner.Row) []string {
+	if len(rows) == 0 {
+		return nil
+	}
+	lines := []string{"", fmt.Sprintf("Owner orders with no live lane, open PR or landed or done record (%d):", len(rows))}
+	for _, row := range rows {
+		lines = append(lines, "- "+row.Line())
 	}
 	return lines
 }

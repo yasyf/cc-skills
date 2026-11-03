@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/deletions"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/owner"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
@@ -51,6 +52,7 @@ type Deps struct {
 	Owed         func() ([]deletions.Owed, error)
 	Present      func(rows []deletions.Owed) ([]deletions.Owed, error)
 	Gaps         func() ([]string, error)
+	Orders       func(s *store.Store) ([]owner.Row, error)
 	RotateAt     int
 	RetireAfter  time.Duration
 	OpenBranches func() (map[string][]int, error)
@@ -857,6 +859,12 @@ func hourly(s *store.Store, d Deps, now time.Time) {
 			noun = "lanes"
 		}
 		do(d.Post(Post{Kind: "report", To: []string{Root}, Attrs: map[string]string{"audience": "owner"}, Text: fmt.Sprintf("In the past hour the lane supervisor restarted %d %s with no coordinator action: %s.", len(words), noun, strings.Join(words, "; "))}))
+	}
+	if orders, err := d.Orders(s); !errors.Is(err, ErrUnread) {
+		do(err)
+		if len(orders) > 0 {
+			do(d.Post(Post{Kind: "report", To: []string{OwnerRelay}, Text: fmt.Sprintf("%d owner orders have no live lane, no open PR and no landed or done record: %s. Restart each one, or run `lr owner mark <row> no-order` on a row that orders nothing; a lane delivering an order names its owner:<row> token in its brief.", len(orders), owner.Tokens(orders))}))
+		}
 	}
 	records, err := d.OpenWork()
 	if errors.Is(err, ErrUnread) {

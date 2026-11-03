@@ -13,6 +13,7 @@ import (
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/deletions"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/owner"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
@@ -93,6 +94,7 @@ type fake struct {
 	work        []Record
 	owed        []deletions.Owed
 	gaps        []string
+	orders      []owner.Row
 	branches    map[string][]int
 	branchReads int
 	hosts       map[string]Host
@@ -148,6 +150,7 @@ func newFake(t *testing.T, records []Record, peers []Row) *fake {
 		Owed:         func() ([]deletions.Owed, error) { return slices.Clone(f.owed), nil },
 		Present:      func(rows []deletions.Owed) ([]deletions.Owed, error) { return rows, nil },
 		Gaps:         func() ([]string, error) { return f.gaps, nil },
+		Orders:       func(*store.Store) ([]owner.Row, error) { return f.orders, nil },
 		RotateAt:     600_000,
 		RetireAfter:  time.Hour,
 		OpenBranches: func() (map[string][]int, error) { f.branchReads++; return f.branches, nil },
@@ -2512,6 +2515,19 @@ func TestTheHourlyReportNamesEachLanesOpenWorkDeepestFirst(t *testing.T) {
 
 	equal(t, f.kinds(), []string{"report:root"})
 	equal(t, f.posts[0].Text, "Open work by lane, so no queue grows unseen (retro row 133): tooling-1 2 defects, 1 ask (oldest #10); desk-3 1 blocker (oldest #13).")
+}
+
+func TestTheHourlyTickNamesEveryUndeliveredOwnerOrderToTheCommunicator(t *testing.T) {
+	s := memory(t)
+	f := adopted(t, s, writeBrief(t), "")
+	f.orders = []owner.Row{{ID: "m2"}, {ID: "m85"}}
+	at := t0.Add(mins(61))
+	f.peers = []Row{who(lane2, true, at)}
+
+	tick(t, s, f, at)
+
+	equal(t, f.kinds(), []string{"report:" + OwnerRelay})
+	equal(t, f.posts[0].Text, "2 owner orders have no live lane, no open PR and no landed or done record: owner:m2, owner:m85. Restart each one, or run `lr owner mark <row> no-order` on a row that orders nothing; a lane delivering an order names its owner:<row> token in its brief.")
 }
 
 func TestAnUnreadOpenWorkQueryLeavesTheHourlyTickRunning(t *testing.T) {
