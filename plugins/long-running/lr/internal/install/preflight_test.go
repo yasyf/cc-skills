@@ -178,20 +178,6 @@ func TestATargetBinaryThatRefusesCarriesItsOwnWords(t *testing.T) {
 	}
 }
 
-func TestADeskThatWouldRefuseCarriesItsWhy(t *testing.T) {
-	var argv []string
-	checks := Checks{Runner: exited(3, `{"why":"runner.json names go-sweep, which never registered on drive d"}`, &argv), Installs: "/i"}
-
-	fault := checks.DeskFault(context.Background(), "1.2.3", "/s/runner.json", "landing")
-
-	if fault != "the landing desk on 1.2.3 would refuse: runner.json names go-sweep, which never registered on drive d" {
-		t.Fatalf("fault %q", fault)
-	}
-	if !slices.Equal(argv, []string{"/i/1.2.3/bin/desk-runner.py", "preflight", "--config", "/s/runner.json", "--desk", "landing", "--json"}) {
-		t.Fatalf("argv %v", argv)
-	}
-}
-
 func TestTheGateRefusesOnThreeWarnsOnAnythingElseAndSkipsWithNoServingVersion(t *testing.T) {
 	var argv []string
 	refusing := exited(3, "1.2.3 replayed 900 records against 1.2.2 and relaunches a, which 1.2.2 did not\n", &argv)

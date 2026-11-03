@@ -248,8 +248,7 @@ func (d *Desk) reclaim(settled []laneDispatch) error {
 	if d.Config.GC != "" {
 		worktrees = d.Config.GC + " --run " + d.Config.Run + scope
 	}
-	step := "run " + d.tool("desk-runner.py") + " gc --config " + d.Config.Source + ", then " + worktrees
-	if err := d.escalate("reclaim:"+settled[0].ID, "RECLAIM", "runner", fmt.Sprintf("%d settled dispatch(es) still hold their terminal: %s%s; %s", len(settled), strings.Join(named, " "), more, step)); err != nil {
+	if err := d.escalate("reclaim:"+settled[0].ID, "RECLAIM", "runner", fmt.Sprintf("%d settled dispatch(es) still hold their terminal: %s%s; %s", len(settled), strings.Join(named, " "), more, worktrees)); err != nil {
 		return err
 	}
 	for _, dispatch := range settled {

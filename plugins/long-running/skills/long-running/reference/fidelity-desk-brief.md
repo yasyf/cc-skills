@@ -2,7 +2,7 @@
 
 This brief covers [Coordinator discipline](#coordinator-discipline), [What a desk reads](#what-a-desk-reads), [How a desk grades](#how-a-desk-grades), [Head mode](#head-mode), [The pipeline](#the-pipeline), [Text mode](#text-mode), [Sweep mode](#sweep-mode), [Grade lines](#grade-lines), [Fixtures](#fixtures), and [Spawn brief](#spawn-brief).
 
-The coordinator starts `fidelity-desk` remote with `lr desks start`, model opus, effort xhigh, right after the register seed, and a second as `lr launch lane fidelity-desk-2 opus xhigh <brief>`. Each desk reads every drive head, board round, plan revision, owner reply, and lane read-back against the owner's words, then posts a grade that the landing runner and hooks read. One of them, the sweep desk, also re-reads the whole plan every hour. A `missing` from either desk, or from the sol finder ([finder-brief.md](finder-brief.md)), blocks landing. Fill the angle brackets and paste the spawn brief at the end.
+The coordinator starts `fidelity-desk` remote with `lr desks start`, model opus, effort xhigh, right after the register seed, and a second as `lr launch lane fidelity-desk-2 opus xhigh <brief>`. Each desk reads every drive head, board round, plan revision, owner reply, and lane read-back against the owner's words, then posts a grade that the landing pass and hooks read. One of them, the sweep desk, also re-reads the whole plan every hour. A `missing` from either desk, or from the sol finder ([finder-brief.md](finder-brief.md)), blocks landing. Fill the angle brackets and paste the spawn brief at the end.
 
 ## Coordinator discipline
 
@@ -67,7 +67,7 @@ Finally, post each line of the file. An ok is `fidelity: ok <head7> checked <key
 
 ## The pipeline
 
-When `runner.json` carries a `fidelity` object, the orca desk runner grades heads itself under lane `fidelity-pipeline` (`scripts/fidelity.py`). A patch-identical restack of a head graded ok carries that grade with no model call. Any other head gets one codex read against [fidelity-job-brief.md](fidelity-job-brief.md) and this brief. That read takes each row as the owner's words with the board card each tap answered (`rulings.py slice --required --words`), with no implications, and grades the head against the repository's `AGENTS.md` rules as well. A desk then grades a head only when the pipeline posts `fidelity: reader <head> <why>` to it, or when `FIDELITY-FAILED` names it. Read-backs, text grades, and the sweep stay with the desks.
+When `runner.json` carries a `fidelity` object, the relay grades heads itself under lane `fidelity-pipeline` (`scripts/fidelity.py`). A patch-identical restack of a head graded ok carries that grade with no model call. Any other head gets one codex read against [fidelity-job-brief.md](fidelity-job-brief.md) and this brief. That read takes each row as the owner's words with the board card each tap answered (`rulings.py slice --required --words`), with no implications, and grades the head against the repository's `AGENTS.md` rules as well. A desk then grades a head only when the pipeline posts `fidelity: reader <head> <why>` to it, or when `FIDELITY-FAILED` names it. Read-backs, text grades, and the sweep stay with the desks.
 
 ## Text mode
 

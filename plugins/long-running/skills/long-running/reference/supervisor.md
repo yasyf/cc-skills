@@ -97,7 +97,6 @@ A `worker_done` from a lane none of whose records reached the bus, whether Orca'
 | The runner's `PR-SILENT` clock and its `show` line, `incident_lane_pr.py`, `drive.py pr-owed`, and `deadlines.pr_silent_every_minutes` | Row 5 |
 | `lane_reports_are_records` | Row 1: a SendMessage report no longer ends a turn |
 
-The live Python mover and `stall_watch.py` are deleted by lr-go-lanes-1's cutover PR, which flips `lr.json` to the Go loop. Until that lands, the Go half of rows 8, 10, 11 to 14 and 16 has no effect on a running drive. The cci half of rows 1 to 5, 8 and 15 takes effect when cci is installed.
 
 ## What remains possible
 

@@ -20,15 +20,13 @@ type posted struct {
 }
 
 type world struct {
-	t        *testing.T
-	store    *store.Store
-	faults   []string
-	now      time.Time
-	swapped  []string
-	started  []string
-	posts    []posted
-	takes    bool
-	startErr error
+	t       *testing.T
+	store   *store.Store
+	faults  []string
+	now     time.Time
+	swapped []string
+	posts   []posted
+	takes   bool
 }
 
 func newWorld(t *testing.T) *world {
@@ -51,10 +49,6 @@ func (w *world) steps() Steps {
 			w.swapped = append(w.swapped, version)
 			return nil
 		},
-		Start: func(_ context.Context, version string) error {
-			w.started = append(w.started, version)
-			return w.startErr
-		},
 		Post: func(_ context.Context, to []string, body bus.Body) error {
 			w.posts = append(w.posts, posted{to, body})
 			return nil
@@ -62,8 +56,8 @@ func (w *world) steps() Steps {
 		Now: func() time.Time { return w.now },
 		Sleep: func(d time.Duration) {
 			w.now = w.now.Add(d)
-			if w.takes && len(w.started) > 0 {
-				if _, err := w.store.AcquireLease("d", w.started[len(w.started)-1], 4242, w.now); err != nil {
+			if w.takes && len(w.swapped) > 0 {
+				if _, err := w.store.AcquireLease("d", w.swapped[len(w.swapped)-1], 4242, w.now); err != nil {
 					w.t.Fatal(err)
 				}
 			}
@@ -81,8 +75,8 @@ func TestAFailedPreflightRefusesBeforeAnythingIsSwapped(t *testing.T) {
 	if !errors.As(err, &refused) || err.Error() != "install 0.8.1 refused before the swap: GitHub token missing; sprite credentials expired" {
 		t.Fatalf("got %v", err)
 	}
-	if len(w.swapped)+len(w.started)+len(w.posts) != 0 {
-		t.Fatalf("a refusal acted: %v %v %v", w.swapped, w.started, w.posts)
+	if len(w.swapped)+len(w.posts) != 0 {
+		t.Fatalf("a refusal acted: %v %v", w.swapped, w.posts)
 	}
 	lease, err := w.store.Lease("d")
 	if err != nil || lease.Generation != 1 {
@@ -101,8 +95,8 @@ func TestInstallAnnouncesBeforeAndAfterAndReturnsTheNewGeneration(t *testing.T) 
 	if generation != 2 {
 		t.Fatalf("generation %d", generation)
 	}
-	if !reflect.DeepEqual(w.swapped, []string{"0.8.1"}) || !reflect.DeepEqual(w.started, []string{"0.8.1"}) {
-		t.Fatalf("swapped %v started %v", w.swapped, w.started)
+	if !reflect.DeepEqual(w.swapped, []string{"0.8.1"}) {
+		t.Fatalf("swapped %v", w.swapped)
 	}
 	want := []posted{
 		{[]string{"supervisor"}, bus.State{Lane: "install", Text: "installing 0.8.1"}},
@@ -161,23 +155,5 @@ func TestAnotherInstallThatGotPastThisVersionEndsTheWait(t *testing.T) {
 	last := w.posts[len(w.posts)-1]
 	if !reflect.DeepEqual(last, posted{[]string{"supervisor"}, bus.State{Lane: "install", Text: "serving 0.8.10 on generation 2"}}) {
 		t.Fatalf("last post %+v", last)
-	}
-}
-
-func TestADeskThatWillNotHandOffEscalatesAfterTheSwap(t *testing.T) {
-	w := newWorld(t)
-	w.startErr = errors.New("the landing desk did not hand off onto 0.8.1: stalled")
-
-	_, err := Run(context.Background(), w.store, "d", "0.8.1", w.steps())
-
-	if err == nil || !strings.Contains(err.Error(), "stalled") {
-		t.Fatalf("got %v", err)
-	}
-	if !reflect.DeepEqual(w.swapped, []string{"0.8.1"}) {
-		t.Fatalf("swapped %v", w.swapped)
-	}
-	rows, err := w.store.Escalations("install:0.8.1")
-	if err != nil || len(rows) != 1 {
-		t.Fatalf("escalations %+v %v", rows, err)
 	}
 }

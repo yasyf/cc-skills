@@ -67,14 +67,14 @@ For every record, judge nine things:
       shows each desk runner's newest `<desk> alive pass <n>` record. One
       older than 10 minutes, or a `blocker` from desk-runner saying a pass raised,
       goes to the coordinator at once with the `restart` attr of the desk's newest alive record.
-  (g) RED TRUNK: the landing runner's newest `dev-red` record (`cci tail --drive
+  (g) RED TRUNK: the landing pass's newest `dev-red` record (`cci tail --drive
       <drive> --topic dev-red -n 5`) reads DEV-RED and no record there names a
       fix PR within 15 minutes, or any record calls a red trunk or a failing job
       "known", "red by design", or "green except" it: that red blocks landing and
       is an incident until its fix lands, never a label.
-  (h) RED PRS: `drive.py reds --drive <drive>` lists an open PR whose build reads red,
+  (h) RED PRS: `lr board reds --drive <drive>` lists an open PR whose build reads red,
       and `cci who` shows no live `red-sweep` or `red-sweep-<n>` lane: The coordinator spawns one
-      from reference/red-sweep-brief.md. The stall watch's `sweep` blocker says the same.
+      from reference/red-sweep-brief.md.
   (i) MISCITE: a record calls a rule the owner's ("his rule", "owner rule") without
       quoting his timed words, or quotes words no capture in the drive's
       `owner-prompts.jsonl` holds. Every other rule is cited as "coordinator rule".

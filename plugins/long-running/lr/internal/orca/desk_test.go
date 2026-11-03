@@ -77,7 +77,6 @@ type deskWorld struct {
 	sentID     int
 	busy       string
 	ccnFails   bool
-	parent     int
 	release    string
 	refuseTime bool
 }
@@ -101,7 +100,7 @@ func newDeskWorld(t *testing.T) *deskWorld {
 	}
 	t.Cleanup(func() { _ = registry.Close() })
 	w.desk = &Desk{
-		Config: config, Bus: w, Runner: w, Env: func(string) string { return "" }, Now: func() time.Time { return w.now }, Sleep: func(d time.Duration) { w.now = w.now.Add(d) }, Parent: func() int { return w.parent }, Release: func() string { return w.release },
+		Config: config, Bus: w, Runner: w, Env: func(string) string { return "" }, Now: func() time.Time { return w.now }, Sleep: func(d time.Duration) { w.now = w.now.Add(d) }, Release: func() string { return w.release },
 		Plugin: filepath.Join(home, "plugin"), Stderr: io.Discard,
 		Spawn: func(argv []string, log string, env []string) (Process, error) {
 			w.mu.Lock()
@@ -2629,18 +2628,6 @@ func TestASecondRelayOnOneStateDirLeavesTheFirstRunning(t *testing.T) {
 	}
 	if len(w.posts) != 0 || len(w.calls) != 0 {
 		t.Fatal(w.posts, w.calls)
-	}
-}
-
-func TestARelayOrphanedByItsParentStops(t *testing.T) {
-	w := newDeskWorld(t)
-	w.parent = 7
-	w.desk.Sleep = func(time.Duration) { w.parent = 1 }
-	if err := w.desk.Run(context.Background(), false); err != nil {
-		t.Fatal(err)
-	}
-	if w.desk.passes != 1 {
-		t.Fatal(w.desk.passes)
 	}
 }
 

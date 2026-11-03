@@ -21,7 +21,7 @@ WATCHDOG = "drive-watchdog"
 STALE = timedelta(minutes=5)
 PACIFIC = ZoneInfo("America/Los_Angeles")
 FENCE = "~" * 12
-START = "nohup desk-runner.py run --config <drive>/runner.json --desk orca >> <drive>/orca-runner.log 2>&1 < /dev/null &"
+READ_WHY = "tail <drive>/supervisor.log <drive>/lr-relay.log"
 APPEND = "STATE=/state/release-v3; echo 'R1 orca-desk: launch inc-fix NOW incident xhigh brief=/b.md' >> \"$STATE/inbox/orca-desk.md\""
 POST = "cci post --lane root --kind go --to orca-desk --text 'orca-desk: launch inc-fix NOW incident xhigh brief=/b.md'"
 SILENT_CCI = DRIVE_ENV | {"PATH": f"{FIXTURES / 'bin'}:/usr/bin:/bin"}
@@ -49,7 +49,7 @@ def posts_to_desk(evt: BaseHookEvent) -> bool:
 
 
 def alive_records(entry: dict) -> list[dict] | None:
-    """The newest `orca alive` record the orca desk runner posted on the drive, read from cci wherever the runner runs, as a list of at most one; None when cci does not answer."""
+    """The newest `orca alive` record the relay posted on the drive, read from cci wherever the runner runs, as a list of at most one; None when cci does not answer."""
     drive = bus_name(entry)
     argv = ["cci", "tail", "--drive", drive, "--since", "0", "--json", "--lane", RUNNER, "--kind=state", "--topic=orca", "--to", f"{WATCHDOG}@{drive}", "--limit", "1"]
     try:
@@ -67,8 +67,8 @@ def pacific(at: str) -> str:
     Event.PostToolUse,
     only_if=[Tool("Bash")],
     tests={
-        Input(command=APPEND, env=SILENT_CCI): Warn(pattern=r"^UNREAD: the orca desk runner reads only cci records addressed to `orca-desk`[\s\S]*cci post --lane <your lane> --kind go --to orca-desk --text"),
-        Input(command=POST, env=SILENT_CCI): Warn(pattern=r"^LAUNCH-FAILED: no orca alive record from the orca desk runner in the last five minutes \(last never\)[\s\S]*--config <drive>/runner\.json"),
+        Input(command=APPEND, env=SILENT_CCI): Warn(pattern=r"^UNREAD: the relay reads only cci records addressed to `orca-desk`[\s\S]*cci post --lane <your lane> --kind go --to orca-desk --text"),
+        Input(command=POST, env=SILENT_CCI): Warn(pattern=r"^LAUNCH-FAILED: no orca alive record from the relay in the last five minutes \(last never\)[\s\S]*supervisor\.log"),
         Input(command=APPEND, env=UNBOUND_ENV): Allow(),
         Input(command="cci post --lane root --kind go --to landing-desk --text 'go #1'", env=SILENT_CCI): Allow(),
         Input(command="echo '- G12 (the coordinator) GO walker' >> /state/release-v3/inbox/deploy-go.md", env=SILENT_CCI): Allow(),
@@ -79,7 +79,7 @@ def desk_runner_down(evt: BaseHookEvent) -> HookResult | None:
         return None
     if appends_to_desk(evt):
         return evt.context(
-            f"UNREAD: the orca desk runner reads only cci records addressed to `{DESK}`, never `{DESK_INBOX}`, so this line launches, relays and alerts nothing. Post it instead:",
+            f"UNREAD: the relay reads only cci records addressed to `{DESK}`, never `{DESK_INBOX}`, so this line launches, relays and alerts nothing. Post it instead:",
             f"{FENCE}\ncci post --lane <your lane> --kind go --to {DESK} --text '<the {DESK}: line>'\n{FENCE}",
         )
     if (found := alive_records(entry)) is None:
@@ -87,9 +87,8 @@ def desk_runner_down(evt: BaseHookEvent) -> HookResult | None:
     record = found[-1] if found else None
     if record is not None and datetime.now(timezone.utc) - datetime.fromisoformat(record["at"]) < STALE:
         return None
-    attrs = record["fields"].get("attrs", {}) if record else {}
     return evt.context(
-        f"LAUNCH-FAILED: no orca alive record from the orca desk runner in the last five minutes (last {pacific(record['at']) if record else 'never'}), so nothing reads `{DESK}` lines. "
-        "Restart it from the Run's bound terminal; it reads the line from its saved cursor.",
-        f"{FENCE}\n{attrs.get('restart', START)}\n{FENCE}",
+        f"LAUNCH-FAILED: no orca alive record from the relay in the last five minutes (last {pacific(record['at']) if record else 'never'}), so nothing reads `{DESK}` lines. "
+        "The supervisor restarts it within a minute and it reads the line from its saved cursor; if it stays down, read why.",
+        f"{FENCE}\n{READ_WHY}\n{FENCE}",
     )

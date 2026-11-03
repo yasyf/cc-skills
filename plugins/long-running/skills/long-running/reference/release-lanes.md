@@ -1,6 +1,6 @@
 # Release lanes in a drive
 
-The release tooling records nothing about drives; its freezes name only the setter, its watch posts no cci record when an apply starts, and a start claims nothing on cci. The orca desk runner couples the drive to its releases from the records its lanes post. In `runner.json`, `landing.release_owner` names the release owner (`reference/landing.md` D20) and `landing.release_cli` names the release command line.
+The release tooling records nothing about drives; its freezes name only the setter, its watch posts no cci record when an apply starts, and a start claims nothing on cci. The relay couples the drive to its releases from the records its lanes post. In `runner.json`, `landing.release_owner` names the release owner (`reference/landing.md` D20) and `landing.release_cli` names the release command line.
 
 ## Post each release you start
 

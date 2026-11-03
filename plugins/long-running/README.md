@@ -11,7 +11,7 @@
 
 - The `captain-hook` plugin, version 12.94.0 or later, from the `captain-hook` marketplace, and the `live-dashboard` plugin, version 0.5.0 or later, from this marketplace.
 - `ccx` for PR state, `cci` for the lane bus, and `ccn` for cc-notes, where drive state and the ledger live.
-- Orca, when the drive launches worker lanes through `lr launch start` and the orca desk runner.
+- Orca, when the drive launches worker lanes through `lr launch start` and `lr relay run`.
 - Optional: `CEREBRAS_API_KEY` for the drive dashboard's in-browser assistant, whose controls stay hidden without it.
 
 ## Use it
@@ -24,7 +24,7 @@ Three or more lanes in flight flood the coordinator's context if every PR report
 Drive this migration across all 40 packages as a long-running drive, one lane per package
 ```
 
-The coordinator initializes a `cc-notes` ledger with `ledger.py init --title "desk: $DRIVE"` and starts the drive with `drive.py start --ledger "$LEDGER"`. It spawns one lane per unit from the skill's lane brief template and boots standing desks from `reference/` briefs. It follows the skill's twenty-four hard rules, among them R1 "Take ground truth from the owning lane." and R2 "Delegate anything with a body." Lanes post decisions, heads, contracts, blockers, and asks once to `cci` and read from their own cursors. Two detached processes, `desk-runner.py run --desk orca` and `run --desk landing`, manage worker launches, inbox traffic, and the merge queue. The coordinator checks status through `ledger.py summary --drive <drive>` or `ledger.py show --asks`.
+The coordinator initializes a `cc-notes` ledger with `ledger.py init --title "desk: $DRIVE"` and starts the drive with `drive.py start --ledger "$LEDGER"`. It spawns one lane per unit from the skill's lane brief template and boots standing desks from `reference/` briefs. It follows the skill's twenty-four hard rules, among them R1 "Take ground truth from the owning lane." and R2 "Delegate anything with a body." Lanes post decisions, heads, contracts, blockers, and asks once to `cci` and read from their own cursors. The supervisor, `lr supervisor run` under launchd, and its relay, `lr relay run`, manage worker launches, inbox traffic, and the merge queue. The coordinator checks status through `ledger.py summary --drive <drive>` or `ledger.py show --asks`.
 
 ### Land a pile of open PRs through the merge queue
 
@@ -34,7 +34,7 @@ Tracking more than ten open PRs at once turns the orchestrator into a human poll
 Land these 15 open PRs through the merge queue and tell me when they're all in
 ```
 
-The `landing-desk` lane takes lane PR reports into the ledger so reports don't land in the coordinator's window. The ledger holds one row per PR the drive's lanes shipped, and owner asks sit beside them as rows. Lanes never enqueue themselves; the landing process is the drive's merge queue, enqueuing each ready stack's largest green bottom prefix as one batch and reconciling landings from the base branch. The coordinator owns holds, which are cci `hold` records it posts and lifts with `mq.py hold` and `mq.py lift`, while inspecting queue state with `mq.py status` or `mq.py --config <runner config> why <n>`.
+The `landing-desk` lane takes lane PR reports into the ledger so reports don't land in the coordinator's window. The ledger holds one row per PR the drive's lanes shipped, and owner asks sit beside them as rows. Lanes never enqueue themselves; the landing process is the drive's merge queue, enqueuing each ready stack's largest green bottom prefix as one batch and reconciling landings from the base branch. The coordinator owns holds, which are cci `hold` records it posts and resolves, and reads what a PR waits on with `lr board waits --pr <n>`.
 
 ### Rejoin an active drive in a fresh session
 
@@ -55,8 +55,8 @@ The resumed the coordinator runs `drive.py start --drive <id> --ledger <id>` to 
 | `long-running:lane-ship` | agent | `lane` plus the `Skill` tool, for an implementation lane that ships a PR or calls a skill such as `submit-pr`, `open-pr`, or `codex` |
 | `capt-hook/hooks/` | hook pack | About 30 captain-hook hooks, among them `root_context`, `task_list`, `lane_landing`, and `settled_questions`. They warn by default and block only on trust: an unapproved merge, revert, or rollback, hook-file edits, and session-protection guards. A judgment reminder re-injects the rules every 30 minutes; `judgment_reminder_minutes` changes it. |
 | `drive.py`, `handoff.py`, `standing.py`, `compact_job.py` | CLI | Drive lifecycle and compaction handoff scripts on `PATH` through `bin/` |
-| `ledger.py`, `mq.py`, `rulings.py`, `label-watch.sh`, `red-sweep.sh` | CLI | Landing desk and merge queue tools over `cc-notes` for queueing reports, grading heads, guarding the merge label, managing holds, and inspecting queue state |
-| `desk-runner.py`, `lr launch`, `sprite-job.sh`, `lr launch start`, `orca-check.sh`, `prompt_watch.py`, `inboxes.py`, `inbox-digest.py`, `inbox-rotate.py` | CLI | Detached desk runners through `desk-runner.py run --desk orca` and `run --desk landing`, finder and fidelity passes on a remote Sprite box, Orca worker launchers, and inbox management tools |
+| `ledger.py`, `rulings.py` | CLI | Landing desk and merge queue tools over `cc-notes` for queueing reports, grading heads, guarding the merge label, managing holds, and inspecting queue state |
+| `lr supervisor`, `lr relay run`, `lr launch`, `sprite-job.sh`, `lr launch start`, `orca-check.sh`, `prompt_watch.py`, `inboxes.py`, `inbox-digest.py`, `inbox-rotate.py` | CLI | The supervisor and its relay, finder and fidelity passes on a remote Sprite box, Orca worker launchers, and inbox management tools |
 | `incident.py`, `actions.py`, `bus.py`, `monitor-watch.py` | CLI | Production incident lifecycle, lane bus helpers, and monitor transition watchers |
 | `board_rows.py`, `board_watch.py`, `plan-table.py`, `dashboard/app/server.py` | CLI | Owner board helpers and the drive web dashboard app |
 | `pr-prose.py`, `sprite-cargo.sh`, `remote-restack.py`, `remote-vet.py` | CLI | Lane helpers that write a branch's PR title, body, and commit message with a headless Claude Opus, build a ref on a remote Sprite box, restack a PR and the open PRs below it on a Sprite, or build and vet a lane's uncommitted change on a Sprite |

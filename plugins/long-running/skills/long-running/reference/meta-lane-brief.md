@@ -51,8 +51,7 @@ any read: `cci subscribe --drive <drive> --reader meta`.
 3. End each item in a merged PR with tests, installed where it runs and seen working once;
    merged, released or built is still in progress. Your own `--kind done` is refused unless it
    carries `--attr installed=<version> --attr proof=<what you saw working>`. You hold its install: install the pack
-   yourself at the drive's quiet point, `drive.py digest --quiet-point`, and send no
-   install to the coordinator. Report the PR URL, merge sha and install to the
+   yourself, and send no install to the coordinator. Report the PR URL, merge sha and install to the
    communicator; the item reads `installed` once you have installed it.
 4. Keep every item in `<state dir>/meta/items.md`, one table row per item with these
    columns: item, owner's words with time, lane, state, PR, blocks or next, Due. Due is the

@@ -212,7 +212,7 @@ func (d *Desk) Run(ctx context.Context, once bool) error {
 		return err
 	}
 	defer func() { _ = lock.Close() }()
-	parent, release := d.Parent(), d.Release()
+	release := d.Release()
 	d.open()
 	if err := d.ensure(deskRunner, deskRunner); err != nil {
 		return err
@@ -259,7 +259,7 @@ func (d *Desk) Run(ctx context.Context, once bool) error {
 			return nil
 		}
 		d.idle(ctx, d.passWait())
-		if d.Parent() != parent || d.Release() != release {
+		if d.Release() != release {
 			d.background.Wait()
 			return nil
 		}
@@ -320,7 +320,7 @@ func newDesk(a *app.App) (*Desk, error) {
 		return nil, err
 	}
 	return &Desk{
-		Config: config, Bus: deskCCI{}, Runner: a.Runner, Spawn: SpawnDetached, Env: os.Getenv, Now: a.Now, Sleep: time.Sleep, Parent: os.Getppid,
+		Config: config, Bus: deskCCI{}, Runner: a.Runner, Spawn: SpawnDetached, Env: os.Getenv, Now: a.Now, Sleep: time.Sleep,
 		Release: func() string {
 			lease, err := registry.Lease(cfg.Drive)
 			if err != nil {

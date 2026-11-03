@@ -163,10 +163,9 @@ it needs is one bounded read or one post, else a subagent.
 `lr coordinator next` loop for the life of the drive, one turn per batch of
 records, and holds lanes, gos, holds, incidents, the task
 list, progress docs and the register. It launches lanes through the supervisor and
-Orca (`lr launch`), never with `Agent`. It owns and starts desk-runner, the launch
-runner and every desk (`lr desks start`), each remote as an Orca session except the
-launch runner, which it starts from its own Orca binding on the Mac because it
-drives the Mac's Orca app and cuts Mac worktrees; the verbs that start a runner or
+Orca (`lr launch`), never with `Agent`. It binds the Run and starts every desk
+(`lr desks start`), each remote as an Orca session; the relay runs under launchd
+on the Mac because it drives the Mac's Orca app and cuts Mac worktrees; the verbs that start a runner or
 desk refuse the communicator. It never posts to Slack or the board and never
 speaks to the owner; everything he must see is a `report` to `owner-relay`. Its
 records are for machines and the communicator: terse, ids and lane names included,
@@ -182,7 +181,7 @@ and the work proceeds on the hand path. It decides five things and nothing else:
    (R6, R8). A lane holding more than two unstarted items is split.
 2. **An owner ruling is applied** to every live lane and artifact the turn it
    is read (R17, R18, R19b); a settled question is never re-asked (R19).
-3. **An escalation gets one answer.** The supervisor, the landing runner, the
+3. **An escalation gets one answer.** The supervisor, the landing pass, the
    stall watch and the update generator reach it only with a `decide`, `ask`,
    `blocker` or `incident` record; it answers each with one record naming the
    lane that acts. A resolution naming no fixer, no `FIX-LIVE` and no reason is
@@ -265,7 +264,6 @@ its own; `lr drive sub start` refuses without each fact
 | The owner update, complete and from sources | `lr update render`, run by the communicator's `update-desk` |
 | What an incident is doing | `lr incident status <slug>` |
 | Where a lane's mail goes | `lr route <lane>` |
-| Whether an install may run now | `drive.py digest --quiet-point` |
 
 A read the table lacks belongs to a lane: a PR, a diff, a CI log, a Slack thread,
 a plan artifact, a long file, a cloud listing, a build page. The coordinator spawns
@@ -365,8 +363,8 @@ deadline; a red with no live owner gets a lane.
 **R14.** A process fix is a PR the turn it is adopted, driven to merge, release
 and install by its lane, proven on the record that reported the defect. A tooling
 defect, refusal or repeated chore goes to the meta lane that turn, which gives it
-an implementer; the coordinator never spawns one. One lane installs per night, at
-`drive.py digest --quiet-point`. No new Python enters the pack; a fix to a Python
+an implementer; the coordinator never spawns one. One lane installs per night. An install
+interrupts nothing: the supervisor takes a release between ticks and the relay between passes. No new Python enters the pack; a fix to a Python
 script is a Go verb.
 
 **R15.** CI is the verifier. No lane runs tests, builds, typechecks or lint locally;
@@ -440,8 +438,8 @@ one refusal prints all of them.
 | Coordinator | Everything in [Phase 0](#phase-0-the-standing-sessions), every former coordinator role, and every runner and desk in this table but `update-desk`, which it starts with `lr desks start` | [coordinator-brief.md](reference/coordinator-brief.md) |
 | Meta lane, the communicator's | Every skill, tooling, prompt, hook and process improvement, and every meta order the owner sends; `items.md`; one implementer per item | [meta-lane-brief.md](reference/meta-lane-brief.md) |
 | Signal lane, the communicator's | Tails the coordinator's feed and posts the communicator pointers, never summaries | [signal-lane-brief.md](reference/signal-lane-brief.md) |
-| Landing runner and `landing-desk` | The merge queue, lane reports, the ledger; both remote | [landing.md](reference/landing.md), [landing-desk-brief.md](reference/landing-desk-brief.md) |
-| Orca runner, the launch runner | Launches and relays to Orca workers, starts grading jobs; on the Mac, the one desk that is not remote | [orca-desk-brief.md](reference/orca-desk-brief.md) |
+| Landing pass and `landing-desk` | The merge queue, lane reports, the ledger; both remote | [landing.md](reference/landing.md), [landing-desk-brief.md](reference/landing-desk-brief.md) |
+| Orca runner, the relay | Launches and relays to Orca workers, starts grading jobs; on the Mac, the one desk that is not remote | [orca-desk-brief.md](reference/orca-desk-brief.md) |
 | Lane supervisor | Liveness, relaunch, rotation, standing duties, alert launch, landed-not-live, Sprite stops | [watchers.md](reference/watchers.md) |
 | Incident executor, `alerts-desk` | One incident from intake to final reply; monitor transitions as records | [active-alert-brief.md](reference/active-alert-brief.md), [alerts-desk-brief.md](reference/alerts-desk-brief.md) |
 | `update-desk`, the communicator's one helper | Renders the owner update the communicator sends, writes the dashboard's rows from it, keeps the dashboard app up | [communicator-brief.md](reference/communicator-brief.md), [owner-report-table.md](reference/owner-report-table.md) |
@@ -531,8 +529,7 @@ The communicator fills each brief, then launches the four as sibling Orca sessio
 each bound to its own lane. `lr launch` posts to the orca runner when one is up and
 otherwise launches from the communicator's terminal, which coordinates the Run,
 since the coordinator has not started a runner yet. The coordinator runs its own
-subscribe line (R9), then `lr desks start` before any lane: the launch runner, the
-landing runner and every standing desk its [brief](reference/coordinator-brief.md)
+subscribe line (R9), then `lr desks start` before any lane: the Run binding and every standing desk its [brief](reference/coordinator-brief.md)
 names, each desk with a `Standing:` line. The communicator's lines above start no
 runner and no desk. Every lane registers its branch prefix at spawn with
 `ledger.py register`.

@@ -2,7 +2,7 @@ ccx: lane={lane} role=release place=local incident=none effort=xhigh
 
 # {lane}: cut and publish {component} now, by hand if the standard start refuses
 
-The orca desk runner launched you because `{release_lane}` posted no CUT and no
+The relay launched you because `{release_lane}` posted no CUT and no
 refusal within the cut deadline after {trigger}. This brief is the `{lane}.full.md`
 attachment on the drive's briefs log `{log}`. Work from a fresh checkout of `{repo}`
 under `~/.claude/worktrees/<repo>/{lane}`.

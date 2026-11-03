@@ -304,26 +304,6 @@ func (c Checks) TargetFault(ctx context.Context, version, config string) string 
 	return ""
 }
 
-func (c Checks) DeskFault(ctx context.Context, version, runner, desk string) string {
-	result, err := c.Runner.Run(ctx, shell.Command{
-		Argv:    []string{c.tool(version, "desk-runner.py"), "preflight", "--config", runner, "--desk", desk, "--json"},
-		Env:     []string{pinEnv + "=" + version},
-		Timeout: probeTimeout,
-	})
-	if err == nil {
-		return ""
-	}
-	if result.Code == gateRefused {
-		var said struct {
-			Why string `json:"why"`
-		}
-		if json.Unmarshal([]byte(result.Stdout), &said) == nil && said.Why != "" {
-			return fmt.Sprintf("the %s desk on %s would refuse: %s", desk, version, said.Why)
-		}
-	}
-	return fmt.Sprintf("the %s desk's preflight on %s failed: %s", desk, version, lastLine(err))
-}
-
 func (c Checks) GateFault(ctx context.Context, drive, repo, serving, version string) (fault, warning string) {
 	if serving == "" || serving == version {
 		return "", ""

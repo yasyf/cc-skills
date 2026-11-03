@@ -60,7 +60,7 @@ with no fidelity grade at its head fails with `ungraded`, and one whose words sa
 `unsettled` (root #138512, #138550): a sentence naming an older commit describes that commit, so a
 newer graded head clears it. A row with no finder review at its head
 gets a `WARN` line and fails nothing. Grades and finder reviews are read from one
-scan of the drive's `review` and `head` records, as desk-runner.py reads them, whatever verdict a
+scan of the drive's `review` and `head` records, whatever verdict a
 finder posted; a codex finder reply saved as `<finders dir>/<pr>-<sha7>.md` counts as a finder
 review too. `--finders` names that directory, `finders/` beside the config by default. Two rows whose first sentences of five words or more, the label when there is none, share
 a token Jaccard above 0.8 or their first 60 characters are flagged together as `FLAG` lines for the
