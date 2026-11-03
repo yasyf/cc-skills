@@ -212,13 +212,13 @@ func TestAPRAnotherPersonWroteReadsWithTheirLoginWhetherALabelOrAnOpenItemKeepsI
 
 func TestTheOpenListReadNamesTheWaitEachDrivePRsBodyLeavesUnsafeOnDev(t *testing.T) {
 	h := newHarness(t, []recordedPR{
-		{number: 1, head: head, login: "drive-bot", body: "## Risk\n\nThis lands only after #46014 is live on every cluster.\n"},
-		{number: 2, head: head2, login: "drive-bot", body: "Nothing calls this yet. It lands only after #46014 is live.\n"},
+		{number: 1, head: head, login: "drive-bot", body: "## Risk\n\nThis goes live only after #46014 is live on every cluster.\n"},
+		{number: 2, head: head2, login: "drive-bot", body: "Nothing calls this yet. It goes live only after #46014 is live.\n"},
 	}, status(1), status(2))
 
 	got := h.snapshot(t)
 
-	if got[1].UnsafeWait != "This lands only after #46014 is live on every cluster" || got[2].UnsafeWait != "" {
+	if got[1].UnsafeWait != "This goes live only after #46014 is live on every cluster" || got[2].UnsafeWait != "" {
 		t.Fatalf("waits = %q, %q", got[1].UnsafeWait, got[2].UnsafeWait)
 	}
 }

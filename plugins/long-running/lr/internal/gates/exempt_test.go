@@ -175,9 +175,9 @@ func TestAnOpenTapRowOnHisBoardHoldsTheHead(t *testing.T) {
 }
 
 func TestAnExemptGoIsRefusedForABodyThatWaitsToGoLiveWithNoWayItIsSafeOnDev(t *testing.T) {
-	read := Read{Records: recordsBefore(t, "48375", 356113), GoLanes: goLanes, Exempt: driveClasses, TapRules: driveTaps, Files: []string{"dashboard/src/iris/x.ts"}, Body: pr46018}
+	read := Read{Records: recordsBefore(t, "48375", 356113), GoLanes: goLanes, Exempt: driveClasses, TapRules: driveTaps, Files: []string{"dashboard/src/iris/x.ts"}, Body: pr46018 + "\nHold this PR until that release is live.\n"}
 	text, refusals := ExemptGo(Claim{Repo: monorepo, PR: 48375, Head: "71bd0ab1c2dc27453798cbc7fb75db730f59bf84"}, read)
-	if want := UnsafeOnDev("this lands only after #46014 is live on every cluster"); text != "" || !slices.Equal(refusals, []string{want}) {
+	if want := UnsafeOnDev("Hold this PR until that release is live"); text != "" || !slices.Equal(refusals, []string{want}) {
 		t.Fatalf("got go %q and refusals %q, want only %q", text, refusals, want)
 	}
 }

@@ -156,7 +156,7 @@ const (
 
 func TestABodyThatWaitsToGoLiveAndNamesNoWayItIsSafeOnDevDoesNotLand(t *testing.T) {
 	for name, c := range map[string]struct{ body, wait string }{
-		"#46018 as merged":          {pr46018, "this lands only after #46014 is live on every cluster"},
+		"a wait to go live":         {"## Risk\n\nThis change goes live only after his pick on the card.\n", "This change goes live only after his pick on the card"},
 		"#48995 waiting on a card":  {pr48995 + "\nThis PR waits on the owner's card before it goes live.\n", "This PR waits on the owner's card before it goes live"},
 		"a hold until a release":    {"## Risk\n\n**Hold this PR until that release is live.**\n", "Hold this PR until that release is live"},
 		"a stack held by the owner": {"> Held by the owner until Dec 2, 2026; needs evidence that old clients upgraded\n", "Held by the owner until Dec 2, 2026; needs evidence that old clients upgraded"},
@@ -174,6 +174,8 @@ func TestABodyThatWaitsToGoLiveAndNamesNoWayItIsSafeOnDevDoesNotLand(t *testing.
 
 func TestABodyThatNamesHowItIsSafeOnDevOrWaitsOnNothingLands(t *testing.T) {
 	for name, body := range map[string]string{
+		"#46018 as merged":            pr46018,
+		"#48034 reader-first order":   "- This lands one release after #48176 deploys, so every api and dashboard that meets a txid-only position already reads it.\n",
 		"#48995 as merged":            pr48995,
 		"#2436 as merged":             pr2436,
 		"#2436 waiting on his tap":    pr2436 + "\nIt waits for his tap before it goes live.\n",

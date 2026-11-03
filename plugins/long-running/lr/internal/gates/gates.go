@@ -32,7 +32,7 @@ var (
 		`(?:hold (?:this|it)\b[^.\n]*?\buntil\b` +
 		`|held by (?:the owner|root|him)\b` +
 		`|(?:` + waiter + ` )?(?:do not|don't|must not|never) (?:merge|land|ship)\b[^.\n]*?\b(?:until|before)\b` +
-		`|` + waiter + `(?: is [^.;\n]{0,40}? and)? (?:lands|merges|ships|goes live) (?:only )?(?:(?:one |a )?release after|in a release after|after|once|until)\b` +
+		`|` + waiter + `(?: is [^.;\n]{0,40}? and)? goes live (?:only )?(?:(?:one |a )?release after|in a release after|after|once|until)\b` +
 		`|` + waiter + ` waits (?:on|for) (?:a |an |the |his |that |its |the owner's )?(?:[\w-]+ )?(?:card|tap|pick|release|hold|go|ruling|decision|cutover)\b` +
 		`)[^.\n]*)`)
 	safeOnDev = regexp.MustCompile(`(?i)\b(?:feature flag|flag(?:ged)? (?:off|behind)|behind a (?:flag|gate)|code gate|gated (?:by|behind|on)|inert|nothing (?:calls|runs|reads|uses)\b[^.\n]*\b(?:yet|until #\d+))`)
