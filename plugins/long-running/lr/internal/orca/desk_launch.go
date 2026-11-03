@@ -253,7 +253,8 @@ func (d *Desk) spriteFault(ctx context.Context, lane string) (string, error) {
 		if path == "" {
 			continue
 		}
-		said, _, err := d.capture(ctx, nil, "git", "-C", filepath.Dir(path), "branch", "--show-current")
+		dir := filepath.Dir(path)
+		said, _, err := d.capture(ctx, nil, "git", "-C", dir, "branch", "--show-current")
 		if err != nil {
 			return "", err
 		}
@@ -261,11 +262,20 @@ func (d *Desk) spriteFault(ctx context.Context, lane string) (string, error) {
 		if pinBranch.MatchString(branch) {
 			continue
 		}
+		if branch == "" {
+			_, code, err := d.capture(ctx, nil, "git", "-C", dir, "merge-base", "--is-ancestor", "HEAD", "origin/dev")
+			if err != nil {
+				return "", err
+			}
+			if code == 0 {
+				continue
+			}
+		}
 		on := "no branch"
 		if branch != "" {
 			on = "branch " + branch
 		}
-		return fmt.Sprintf("%s %s, whose checkout is on %s, not dev or a cc-remote pin branch; point it at a worktree that moves only with a pin PR", name, path, on), nil
+		return fmt.Sprintf("%s %s, whose checkout is on %s, not dev, a cc-remote pin branch or a commit origin/dev holds; point it at a worktree that moves only with a pin PR", name, path, on), nil
 	}
 	return "", nil
 }
