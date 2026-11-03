@@ -11,7 +11,6 @@ import (
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
-	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/facts"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell/shelltest"
@@ -25,12 +24,13 @@ func lrFacts(t *testing.T, args ...string) []machine.Facts {
 	if err := os.WriteFile(cfg, []byte(`{"repo":"org/repo","drive":"d","checkout":"/checkouts/repo","author":"drive-bot","label":"drive","movers":["lanes"]}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	statuses, err := json.Marshal([]ccx.PRStatus{status(1)})
+	statuses, err := json.Marshal([]statusRow{status(1)})
 	if err != nil {
 		t.Fatal(err)
 	}
 	runner := &shelltest.Fake{}
-	runner.Reply(graphQLPages([]recordedPR{{number: 1, head: head, login: "drive-bot"}}), "ccx", "vcs", "gh")
+	runner.Reply(graphQLPages([]recordedPR{{number: 1, head: head, login: "drive-bot"}}), "ccx", "vcs", "gh", "--max-age", "0s")
+	runner.Reply(branchRules, "ccx", "vcs", "gh", "--max-age", "5m")
 	runner.Reply(string(statuses), "ccx", "vcs", "pr", "status")
 	a := app.New(io.Discard)
 	a.Runner, a.ConfigPath = runner, cfg
