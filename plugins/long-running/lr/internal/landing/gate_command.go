@@ -95,7 +95,10 @@ func (g *Gates) refusalLines(ctx context.Context, f machine.Facts) []string {
 	}
 	var lines []string
 	if kept[rulingsClear] == "" {
-		rows, _ := g.checkPR(ctx, f)
+		rows, _, err := g.reservedRows(ctx, f)
+		if err != nil {
+			g.Log.Warn("the rulings gate did not read, so it passes this head this pass", "pr", f.Number, "err", err)
+		}
 		for _, row := range rows {
 			lines = append(lines, fmt.Sprintf("#%d %s RESERVED %s: %s", f.Number, shortHead(f.Head), row.Key, row.Sentence))
 		}

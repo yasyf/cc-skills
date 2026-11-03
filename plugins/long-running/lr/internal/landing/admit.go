@@ -21,6 +21,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/pass"
@@ -62,12 +63,7 @@ type Gates struct {
 	Now      func() time.Time
 	Log      *slog.Logger
 
-	held map[string]heldHead
-}
-
-type heldHead struct {
-	read time.Time
-	rows []board.ReservedRow
+	held map[string]time.Time
 }
 
 func NewGates(a *app.App, s *store.Store, cfg config.Config, runnerPath string) (*Gates, error) {
@@ -128,12 +124,11 @@ func downstackMeets(f machine.Facts, byBranch map[string]machine.Facts, branches
 }
 
 func (g *Gates) refuses(ctx context.Context, f machine.Facts) bool {
-	reserved := g.reservedRows(ctx, f)
-	failure := g.buildFailure(ctx, f)
-	if failure != "" {
-		g.tell(ctx, f, "blocker", "build-failed:"+strconv.Itoa(f.Number)+":"+f.Head, fmt.Sprintf("BUILD-FAILED #%d: %s", f.Number, failure))
+	declared := []gates.Gate{{Name: "rulings", Kind: "report", Clear: rulingsClear, Check: g.reserved}}
+	if g.Build.Tree != "" {
+		declared = append(declared, gates.Gate{Name: "build", Kind: "blocker", Clear: buildClear, Check: g.buildFailure})
 	}
-	return len(reserved) > 0 || failure != ""
+	return gates.Keeper{Store: g.Store, Now: g.Now, Log: g.Log, Tell: g.tell}.Refuses(ctx, f, declared...)
 }
 
 func (g *Gates) tell(ctx context.Context, f machine.Facts, kind, id, text string) {
@@ -166,57 +161,50 @@ func pullRef(f machine.Facts) string {
 	return f.Repo + "#" + strconv.Itoa(f.Number)
 }
 
-func (g *Gates) reservedRows(ctx context.Context, f machine.Facts) []board.ReservedRow {
-	facts, err := g.Store.Facts(f.Repo, f.Number, f.Head)
-	if err != nil {
-		g.Log.Warn("the rulings gate did not read its fact", "pr", f.Number, "err", err)
-		return nil
-	}
-	if facts[rulingsClear] != "" {
-		return nil
-	}
-	if kept, known := g.held[f.Head]; known && g.Now().Sub(kept.read) < checkPRReread {
-		return kept.rows
-	}
-	rows, unread := g.checkPR(ctx, f)
-	if len(rows) > 0 && g.authorize(ctx, f, rows) {
-		rows, unread = g.checkPR(ctx, f)
-	}
-	if len(rows) > 0 {
-		if g.held == nil {
-			g.held = map[string]heldHead{}
-		}
-		g.held[f.Head] = heldHead{g.Now(), rows}
-		g.ask(ctx, f, rows)
-		return rows
+func (g *Gates) reserved(ctx context.Context, f machine.Facts) (gates.Verdict, error) {
+	if read, known := g.held[f.Head]; known && g.Now().Sub(read) < checkPRReread {
+		return gates.Verdict{Held: true}, nil
 	}
 	delete(g.held, f.Head)
-	if !unread {
-		if _, err := g.Store.PutFact(f.Repo, f.Number, f.Head, rulingsClear, "1", g.Now()); err != nil {
-			g.Log.Warn("the rulings gate did not keep its clear", "pr", f.Number, "err", err)
-		}
+	rows, unread, err := g.reservedRows(ctx, f)
+	if err == nil && len(rows) > 0 && g.authorize(ctx, f, rows) {
+		rows, unread, err = g.reservedRows(ctx, f)
 	}
-	return nil
+	if err != nil || len(rows) == 0 {
+		return gates.Verdict{Reread: unread}, err
+	}
+	if g.held == nil {
+		g.held = map[string]time.Time{}
+	}
+	g.held[f.Head] = g.Now()
+	return g.ask(ctx, f, rows), nil
 }
 
-func (g *Gates) checkPR(ctx context.Context, f machine.Facts) (rows []board.ReservedRow, unread bool) {
-	result, err := g.Runner.Run(ctx, shell.Command{
-		Argv:    []string{g.Rulings, "check-pr", "--repo", g.Checkout, "--drive", g.Drive, "--pr", pullRef(f), "--head", f.Head, "--reserved-only"},
-		Timeout: checkPRLimit,
-	})
-	var exit *shell.ExitError
-	if err != nil && (!errors.As(err, &exit) || exit.Code != 1) {
-		g.Log.Warn("the rulings gate did not read, so it passes this head this pass", "pr", f.Number, "err", err)
-		return nil, true
+func (g *Gates) reservedRows(ctx context.Context, f machine.Facts) (rows []board.ReservedRow, unread bool, err error) {
+	out, err := checkPR(ctx, g.Runner, g.Rulings, g.Checkout, g.Drive, f, "--reserved-only")
+	if err != nil {
+		return nil, true, err
 	}
-	for _, line := range strings.Split(result.Stdout, "\n") {
+	for _, line := range strings.Split(out, "\n") {
 		unread = unread || strings.HasPrefix(line, unreadPrefix)
 		if row, found := strings.CutPrefix(line, reservedPrefix); found {
 			key, sentence, _ := strings.Cut(row, "\t")
 			rows = append(rows, board.ReservedRow{Key: key, Sentence: sentence})
 		}
 	}
-	return rows, unread
+	return rows, unread, nil
+}
+
+func checkPR(ctx context.Context, runner shell.Runner, rulings, checkout, drive string, f machine.Facts, scope string) (string, error) {
+	result, err := runner.Run(ctx, shell.Command{
+		Argv:    []string{rulings, "check-pr", "--repo", checkout, "--drive", drive, "--pr", pullRef(f), "--head", f.Head, scope},
+		Timeout: checkPRLimit,
+	})
+	var exit *shell.ExitError
+	if err != nil && (!errors.As(err, &exit) || exit.Code != 1) {
+		return "", err
+	}
+	return result.Stdout, nil
 }
 
 func (g *Gates) authorize(ctx context.Context, f machine.Facts, rows []board.ReservedRow) bool {
@@ -232,20 +220,20 @@ func (g *Gates) authorize(ctx context.Context, f machine.Facts, rows []board.Res
 	return granted
 }
 
-func (g *Gates) ask(ctx context.Context, f machine.Facts, rows []board.ReservedRow) {
+func (g *Gates) ask(ctx context.Context, f machine.Facts, rows []board.ReservedRow) gates.Verdict {
 	waits := board.MergeWaits(f.Number, f.Head)
 	touched := make([]string, 0, len(rows))
 	for _, row := range rows {
 		touched = append(touched, fmt.Sprintf("%s (%q)", row.Key, row.Sentence))
 	}
-	id := "reserved:" + strconv.Itoa(f.Number) + ":" + f.Head
+	cause := "reserved"
 	next := "Merge on card " + waits + " on his board is the answer that authorizes it, and this gate then admits the head; Hold keeps it out."
 	if err := g.drawCard(ctx, f, rows); err != nil {
 		g.Log.Warn("a reserved row's card did not draw", "pr", f.Number, "err", err)
-		id = "reserved-undrawn:" + strconv.Itoa(f.Number) + ":" + f.Head
+		cause = "reserved-undrawn"
 		next = fmt.Sprintf("Card %s did not draw (%v), so no answer can authorize it yet; the gate draws again every %s.", waits, err, checkPRReread)
 	}
-	g.tell(ctx, f, "report", id, fmt.Sprintf("RESERVED #%d at %s stays out of the queue: it touches %s, which no owner answer authorizes. %s", f.Number, shortHead(f.Head), strings.Join(touched, ", "), next))
+	return gates.Verdict{Cause: cause, Refusal: fmt.Sprintf("RESERVED #%d at %s stays out of the queue: it touches %s, which no owner answer authorizes. %s", f.Number, shortHead(f.Head), strings.Join(touched, ", "), next)}
 }
 
 func (g *Gates) drawCard(ctx context.Context, f machine.Facts, rows []board.ReservedRow) error {
@@ -283,25 +271,15 @@ func (g *Gates) drawCard(ctx context.Context, f machine.Facts, rows []board.Rese
 	return err
 }
 
-func (g *Gates) buildFailure(ctx context.Context, f machine.Facts) string {
-	if g.Build.Tree == "" {
-		return ""
-	}
-	facts, err := g.Store.Facts(f.Repo, f.Number, f.Head)
-	if err != nil || facts[buildClear] != "" {
-		return ""
-	}
+func (g *Gates) buildFailure(ctx context.Context, f machine.Facts) (gates.Verdict, error) {
 	failure, settled, err := g.readBuildFailure(ctx, f)
 	if err != nil {
-		g.Log.Warn("the build gate did not read, so it passes this head this pass", "pr", f.Number, "err", err)
-		return ""
+		return gates.Verdict{}, err
 	}
-	if settled && failure == "" {
-		if _, err := g.Store.PutFact(f.Repo, f.Number, f.Head, buildClear, "1", g.Now()); err != nil {
-			g.Log.Warn("the build gate did not keep its clear", "pr", f.Number, "err", err)
-		}
+	if failure != "" {
+		return gates.Verdict{Cause: "build-failed", Refusal: fmt.Sprintf("BUILD-FAILED #%d: %s", f.Number, failure)}, nil
 	}
-	return failure
+	return gates.Verdict{Reread: !settled}, nil
 }
 
 func (g *Gates) readBuildFailure(ctx context.Context, f machine.Facts) (failure string, settled bool, err error) {
