@@ -10,4 +10,5 @@ func init() {
 	register(lanes.StopSpritesCommand)
 	register(lanes.NscCommand)
 	register(lanes.ApprovedCommand)
+	register(lanes.WhereCommand)
 }
