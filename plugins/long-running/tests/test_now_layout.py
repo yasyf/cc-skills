@@ -66,11 +66,6 @@ def now(page):
     page.wait_for_selector(".nw-spine")
 
 
-def test_the_finished_product_picture_sits_above_the_milestones(page):
-    now(page)
-    assert page.locator(".nw-diagram").bounding_box()["y"] < page.locator(".nw-spine").bounding_box()["y"]
-
-
 def test_every_open_blocker_and_the_focused_work_say_how_long_they_have_waited(page):
     now(page)
     rows = page.locator(".nw-slot .pan.focus :is(.chain .hc, .feed .lead)").all_inner_texts()
@@ -191,9 +186,9 @@ def test_a_question_opens_in_a_panel_with_its_answers(page):
     assert page.locator(".pr-drawer.front [data-choose]").count() == len(card["options"])
 
 
-def test_the_milestones_sit_between_the_picture_and_the_live_feed(page):
+def test_now_reads_milestones_then_the_live_feed_then_the_merge_map(page):
     now(page)
-    assert page.locator(".nw-diagram").bounding_box()["y"] < page.locator(".nw-spine").bounding_box()["y"] < page.locator(".nw-live").bounding_box()["y"]
+    assert page.locator(".nw-spine").bounding_box()["y"] < page.locator(".nw-live").bounding_box()["y"] < page.locator(".nw-diagram").bounding_box()["y"]
 
 
 def test_tapping_a_worker_swaps_the_live_feed_to_its_story_and_back(page):

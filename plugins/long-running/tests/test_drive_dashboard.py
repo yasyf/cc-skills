@@ -36,7 +36,7 @@ WRITES = {
     "/api/asked": {"text": "why?"},
     "/api/change": {"number": 7, "head": "abc", "text": "no lock"},
 }
-REFUSED_CALLERS = [json.dumps(TAGGED_WHOIS), json.dumps(TAGGED_AS_OWNER_WHOIS), json.dumps(OTHER_WHOIS), "not json", subprocess.CalledProcessError(1, "tailscale", stderr="no match for IP"), subprocess.TimeoutExpired("tailscale", 60), FileNotFoundError(2, "No such file or directory", "tailscale")]
+REFUSED_CALLERS = [json.dumps(TAGGED_WHOIS), json.dumps(TAGGED_AS_OWNER_WHOIS), json.dumps(OTHER_WHOIS), "not json", "null", json.dumps({"Node": {}}), json.dumps({"Node": {}, "UserProfile": None}), json.dumps({"Node": None, "UserProfile": {"LoginName": TAILNET_OWNER}}), subprocess.CalledProcessError(1, "tailscale", stderr="no match for IP"), subprocess.TimeoutExpired("tailscale", 60), FileNotFoundError(2, "No such file or directory", "tailscale")]
 NOW = dt.datetime(2026, 10, 27, 8, 0, tzinfo=dt.timezone.utc)
 TREES =["New tree", "Old tree", "Shared"]
 PARTS = [{"key": "agent", "scopes": ["sand"]}, {"key": "api", "scopes": ["api"]}, {"key": "tools", "scopes": []}]

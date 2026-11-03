@@ -1538,9 +1538,9 @@ def handler(drive, tailnet_owner):
         def owner_calling(self):
             try:
                 who = json.loads(run(["tailscale", "whois", "--json", self.client_address[0]]))
-            except (OSError, subprocess.SubprocessError, ValueError):
+                return not who["Node"].get("Tags") and who["UserProfile"]["LoginName"] == tailnet_owner
+            except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError, AttributeError):
                 return False
-            return not who["Node"].get("Tags") and who["UserProfile"]["LoginName"] == tailnet_owner
 
         def refuse(self):
             return self.send(403, "application/json", json.dumps({"error": "only the drive's owner can do this, and this device is not signed in as them"}).encode())
