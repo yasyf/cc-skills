@@ -108,7 +108,7 @@ The root never ends a turn waiting for the owner to say "ask" and never leaves P
 
 Each anchor then needs an open cc-notes task labeled `owed-deletion`, one per deletion, in the drive's checkout. Its assignee is the owner lane, and none means the coordinator still has to assign it. Its `--path` and `--dir` anchors name what goes, a `symbol:<name>` label names each symbol in them, and a `due:YYYY-MM-DD` label names the date. The body's first sentence names the decision. An `exception` row anchored to the same target records why nothing is owed instead.
 
-The approver runs `lr deletions check`, which exits 1 naming each removes target with neither, the turn the design or ruling is approved. The supervisor runs the same check hourly and posts one blocker per gap to the coordinator.
+The supervisor checks every in-force `removes` row hourly and posts one blocker to the coordinator for each target with neither.
 
 **A ruling travels by its verbatim words and its implications.** Briefs, handoffs, progress docs, and compaction narratives must carry the owner's words and implications. Carrying only an answer id or a short gist drops the ruling.
 

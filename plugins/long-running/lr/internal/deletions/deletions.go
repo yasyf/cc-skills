@@ -101,7 +101,8 @@ func Of(runner shell.Runner, cfg config.Config) Trunk {
 }
 
 func (t Trunk) List(ctx context.Context, labels ...string) ([]Owed, error) {
-	args := []string{"task", "list", "--all-branches", "--json", "--label", Label}
+	args := make([]string, 0, 6+2*len(labels))
+	args = append(args, "task", "list", "--all-branches", "--json", "--label", Label)
 	for _, label := range labels {
 		args = append(args, "--label", label)
 	}
