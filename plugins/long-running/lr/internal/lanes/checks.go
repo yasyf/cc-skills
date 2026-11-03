@@ -204,6 +204,8 @@ func (a Alerts) raise(ctx context.Context, channel string, message slackMessage,
 	return nil
 }
 
+var fixLiveLine = regexp.MustCompile(`^(\d{1,2}:\d{2} [AP]M )?FIX-LIVE\b`)
+
 type FixLiveGC struct {
 	Env       Env
 	Log       *slog.Logger
@@ -226,7 +228,7 @@ func (g *FixLiveGC) Check(ctx context.Context, now time.Time) error {
 		heard[row.Lane] = newer(row.At.UTC(), heard[row.Lane])
 	}
 	for _, row := range rows {
-		if !strings.Contains(row.Text, "FIX-LIVE") || now.Sub(row.At) < fixLiveIdle {
+		if !announcesFixLive(row) || now.Sub(row.At) < fixLiveIdle {
 			continue
 		}
 		seen := map[string]bool{}
@@ -241,6 +243,10 @@ func (g *FixLiveGC) Check(ctx context.Context, now time.Time) error {
 		}
 	}
 	return nil
+}
+
+func announcesFixLive(row client.Record) bool {
+	return row.Kind == "fix-live" || fixLiveLine.MatchString(row.Text)
 }
 
 func (g *FixLiveGC) reclaim(ctx context.Context, lane string, seq int64, heard, now time.Time) error {
