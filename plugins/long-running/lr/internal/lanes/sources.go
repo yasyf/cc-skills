@@ -680,6 +680,25 @@ func (r *deskReader) desk(lane string) (string, error) {
 	return r.desks[lane], nil
 }
 
+func (e Env) sendDispatch(ctx context.Context, dispatch, subject, body string) error {
+	stdout, err := e.Run(ctx, "orca", "orchestration", "run-show", "--id", e.Config.OrcaRun, "--json", "--full")
+	if err != nil {
+		return err
+	}
+	var shown struct {
+		Result struct {
+			Run struct {
+				Coordinator string `json:"coordinator_handle"`
+			} `json:"run"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &shown); err != nil {
+		return fmt.Errorf("%w: orca run-show: %w", ErrUnread, err)
+	}
+	_, err = e.Run(ctx, "orca", "orchestration", "send", "--from", shown.Result.Run.Coordinator, "--to", "dispatch:"+dispatch, "--run", e.Config.OrcaRun, "--type", "dispatch", "--subject", subject, "--body", body, "--json")
+	return err
+}
+
 func (e Env) Deps(ctx context.Context) (Deps, error) {
 	briefs := filepath.Join(e.State, "lanes")
 	if err := os.MkdirAll(briefs, 0o750); err != nil {
@@ -694,8 +713,7 @@ func (e Env) Deps(ctx context.Context) (Deps, error) {
 	states := &prReader{env: e, ctx: ctx, read: map[int]prRead{}}
 	desks := &deskReader{env: e, ctx: ctx, desks: map[string]string{}}
 	waker := &Waker{Drive: e.Config.Drive, Clock: e.Now, Send: func(dispatch, subject, body string) error {
-		_, err := e.Run(ctx, "orca", "orchestration", "send", "--to", "dispatch:"+dispatch, "--run", e.Config.OrcaRun, "--type", "dispatch", "--subject", subject, "--body", body, "--json")
-		return err
+		return e.sendDispatch(ctx, dispatch, subject, body)
 	}}
 	launcher := e.tool("desk-launch.py")
 	return Deps{

@@ -139,6 +139,23 @@ func TestAWakeReachesARosterLanesInboxAndAnOrcaLanesDispatch(t *testing.T) {
 	}
 }
 
+func TestAnOrcaWakeFromLaunchdSendsAsTheRunsCoordinator(t *testing.T) {
+	var sent string
+	env := Env{Config: config.Config{OrcaRun: "run_1"}, Now: func() time.Time { return t0 }, Runner: scripted(func(argv []string) (shell.Result, error) {
+		if slices.Contains(argv, "run-show") {
+			return shell.Result{Stdout: `{"ok":true,"result":{"run":{"id":"run_1","coordinator_handle":"term_coordinator"}}}`}, nil
+		}
+		sent = strings.Join(argv, " ")
+		return shell.Result{Stdout: `{"ok":true}`}, nil
+	})}
+
+	if err := env.sendDispatch(context.Background(), "ctx_1", "WAKE a", "continue"); err != nil {
+		t.Fatal(err)
+	}
+
+	contains(t, sent, "--from term_coordinator --to dispatch:ctx_1 --run run_1 --type dispatch")
+}
+
 func TestAnEndedOrcaDispatchIsAProcessRowThatReadsNotLiveSinceItsLaunch(t *testing.T) {
 	local := t.TempDir()
 	env := Env{Config: config.Config{OrcaRun: "run_1"}, Local: local, Now: func() time.Time { return t0 }}
