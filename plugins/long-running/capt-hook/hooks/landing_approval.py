@@ -1,17 +1,17 @@
 from __future__ import annotations
 
-from captain_hook import CONFIRMED, UNCONFIRMED, Allow, And, Block, Confirm, Content, Event, FilePath, FromSubagent, Input, Or, Runs, Tool, ToolInput, hook
+from captain_hook import CONFIRMED, UNCONFIRMED, Allow, And, Block, Confirm, Content, Event, FromSubagent, Input, Or, Runs, Tool, ToolInput, hook
 
 from .lane_rotation import DriveActive
 from .tests.root_fixtures import ACTIVE
 
 APPROVAL = r"(?i)\bmerge[- ]mode\b|\bauto[- ]?(?:land|merge)|\bland(?:s|ing)? (?:on (?:green|root'?s? go)|without (?:a |the |his |the owner'?s )?tap)|\b(?:skip|drop)s? (?:the )?(?:owner'?s )?tap\b|\bno (?:owner )?tap (?:needed|required)\b"
-BRIEFS = "**/*brief*.md"
+BRIEFS = r"brief[^/]*\.md$"
 
 hook(
     Event.PreToolUse,
     block=True,
-    only_if=[DriveActive(), Or(And(Runs("cci", "post"), ToolInput(command=APPROVAL)), And(Tool("Write|Edit"), FilePath(BRIEFS), Content(APPROVAL)))],
+    only_if=[DriveActive(), Or(And(Runs("cci", "post"), ToolInput(command=APPROVAL)), And(Tool("Write|Edit"), ToolInput(file_path=BRIEFS), Content(APPROVAL)))],
     skip_if=[FromSubagent()],
     confirm=Confirm(rule="Only the owner changes who approves landings: every PR lands on his tap, and only the classes he exempted land on a go."),
     message="Only the owner changes who approves landings. Put the proposed change to him as an ask on the board, and leave the merge mode as it is.",
