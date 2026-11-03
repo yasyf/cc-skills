@@ -1305,7 +1305,7 @@ func TestABriefNamingWhatNoSpriteCanReceiveRefusesNamingItAndPreparesNothing(t *
 func TestASpriteThatCannotFetchTheCCNotesRefsStillStartsItsWorkerAndKeepsTheLog(t *testing.T) {
 	f := newWorkerFixture(t)
 	f.sprite()
-	f.reply("sprite exec", workerReply{code: 1, err: "fatal: could not read Username for 'https://github.com'"})
+	f.reply("sprite exec", workerReply{code: 1, err: "fatal: could not read Username for 'https://github.com'"}, workerReply{}, workerReply{})
 	_, failed, err := f.launch(workerLane, "opus", "xhigh")
 	if err != nil {
 		t.Fatal(err)
