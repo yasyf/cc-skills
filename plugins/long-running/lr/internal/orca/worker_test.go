@@ -25,6 +25,7 @@ const (
 	workerRun       = "run_1"
 	workerLane      = "lane-a"
 	workerWorkspace = "pool-spare"
+	notesToken      = "a-github-token\n"
 	remoteTerminal  = "term_remote_1"
 	remoteRoot      = "/home/sprite/monorepo"
 	remoteBase      = "1111111111111111111111111111111111111111"
@@ -234,6 +235,7 @@ func (f *workerFixture) spriteWith(task any) {
 }
 
 func (f *workerFixture) spriteAllocated(response any) {
+	f.reply("gh auth token", workerReply{out: notesToken})
 	f.reply("cc-remote version", workerReply{err: workerPin + "\n"})
 	f.reply("orca orchestration run-current", boundWorker)
 	f.reply("cc-remote orca prepare", workerReply{out: response, err: "prepared on sprites\n"})
@@ -381,7 +383,7 @@ func (f *workerFixture) prepareCallFor(lane, kind, model, effort string, extra .
 }
 
 func notesCall(workspace string) []string {
-	return []string{"sprite", "exec", "-s", workspace, "--", "git", "-C", remoteRoot, "fetch", "--quiet", "origin", notesRefs}
+	return []string{"sprite", "exec", "-s", workspace, "--", "sh", "-c", fetchNotesScript, "sh", remoteRoot, notesRefs}
 }
 
 func joinCall(workspace string) []string {
@@ -395,7 +397,7 @@ func relayCalls(workspace string) [][]string {
 func (f *workerFixture) startCalls(task object) [][]string {
 	brief := task["brief"].(object)
 	spec := fmt.Sprintf("Lane %s: read the whole brief at %s, verify its SHA-256 is %s and its size is %d bytes, then follow it exactly.%s", workerLane, brief["path"], brief["sha256"], brief["bytes"], spriteBuildkite)
-	return slices.Concat([][]string{notesCall(task["environment"].(string))}, relayCalls(task["environment"].(string)), [][]string{
+	return slices.Concat([][]string{{"gh", "auth", "token"}, notesCall(task["environment"].(string))}, relayCalls(task["environment"].(string)), [][]string{
 		slices.Concat([]string{"orca", "orchestration", "worker-start", "--run", workerRun, "--spec", spec, "--task-title", workerLane, "--on", task["environment"].(string), "--worktree", "id:" + task["worktreeId"].(string), "--terminal", task["terminal"].(string)}, []string{"--timeout-ms", "600000", "--full", "--json"}),
 	})
 }
@@ -866,7 +868,7 @@ func TestALaunchCarriesEachToolPinIntoTheInstallAndRefusesAMalformedPinBeforeAny
 	} {
 		f = newWorkerFixture(t)
 		f.env["WORKER_TOOLS"] = "[" + pin + "]"
-		f.refusedWith(fmt.Sprintf("WORKER_TOOLS pins %q, not a binary, package or plugin with a name, url, lowercase SHA-256 and version; nothing was prepared", name))
+		f.refusedWith(fmt.Sprintf("WORKER_TOOLS pins %q, not a binary, raw, package or plugin with a name, url, lowercase SHA-256 and version; nothing was prepared", name))
 		f.wantNoAttempt()
 	}
 }
@@ -1318,6 +1320,104 @@ func TestASpriteThatCannotFetchTheCCNotesRefsStillStartsItsWorkerAndKeepsTheLog(
 	}
 	if !exists(filepath.Join(f.attempt, "worker-start.json")) {
 		t.Fatal("the worker did not start")
+	}
+}
+
+func TestTheNotesFetchTakesTheMacsTokenOnStdinAndWritesItNowhere(t *testing.T) {
+	f := newWorkerFixture(t)
+	f.sprite()
+	_, failed, err := f.launch(workerLane, "opus", "xhigh")
+	if err != nil || failed != "" {
+		t.Fatal(failed, err)
+	}
+	if got := f.stdins[strings.Join(notesCall(workerWorkspace), " ")]; got != notesToken {
+		t.Fatalf("the fetch read %q on stdin", got)
+	}
+	for _, call := range f.calls {
+		if strings.Contains(strings.Join(call, " "), notesToken) {
+			t.Fatal("a command line holds the token:", call)
+		}
+	}
+	if got := f.receiptText(notesReceipt); got != "" {
+		t.Fatal(got)
+	}
+}
+
+func TestTheNotesFetchHandsGitTheTokenThroughACredentialHelperItsArgumentsDoNotHold(t *testing.T) {
+	dir := t.TempDir()
+	logged := filepath.Join(dir, "logged")
+	fake := "#!/bin/sh\nprintf '%s\\n' \"$@\" > " + logged + "\nprintf 'env=%s\\n' \"$NOTES_TOKEN\" >> " + logged + "\n"
+	newWorkerFixture(t).write(filepath.Join(dir, "git"), fake, 0o700)
+	run := exec.Command("sh", "-c", fetchNotesScript, "sh", "/box/root", notesRefs)
+	run.Stdin = strings.NewReader(notesToken)
+	run.Env = append(os.Environ(), "PATH="+dir+":"+os.Getenv("PATH"))
+	if out, err := run.CombinedOutput(); err != nil {
+		t.Fatal(string(out), err)
+	}
+	raw, err := os.ReadFile(logged)
+	if err != nil {
+		t.Fatal(err)
+	}
+	args, env, _ := strings.Cut(string(raw), "env=")
+	if strings.Contains(args, strings.TrimSpace(notesToken)) {
+		t.Fatal("git's arguments hold the token:", args)
+	}
+	if strings.TrimSpace(env) != strings.TrimSpace(notesToken) {
+		t.Fatalf("git's environment holds %q", env)
+	}
+	for _, want := range []string{"credential.helper=\n", "password=$NOTES_TOKEN", "/box/root\nfetch\n--quiet\norigin\n" + notesRefs} {
+		if !strings.Contains(args, want) {
+			t.Fatalf("git ran with\n%s\nwant %q", args, want)
+		}
+	}
+}
+
+func TestAMacWithNoGitHubTokenStillStartsItsWorkerAndKeepsTheLog(t *testing.T) {
+	f := newWorkerFixture(t)
+	f.sprite()
+	f.reply("gh auth token", workerReply{code: 1, err: "You are not logged into any GitHub hosts"})
+	_, failed, err := f.launch(workerLane, "opus", "xhigh")
+	if err != nil || failed != "" {
+		t.Fatal(failed, err)
+	}
+	if !strings.Contains(f.receiptText(notesReceipt), "not logged into") {
+		t.Fatal(f.receiptText(notesReceipt))
+	}
+	if !exists(filepath.Join(f.attempt, "worker-start.json")) {
+		t.Fatal("the worker did not start")
+	}
+}
+
+func TestARawPinInstallsTheDownloadedFileWithItsDigestAndVersion(t *testing.T) {
+	dir := t.TempDir()
+	cciURL, cciSHA := tarball(t, dir, "cci.tgz", map[string]string{"cci": "#!/bin/sh\necho 0.49.36\n"})
+	lrURL, lrSHA := tarball(t, dir, "lr.tgz", map[string]string{"lr": "#!/bin/sh\necho lr version 9.9.9\n"})
+	asset := filepath.Join(dir, "cc-notes_linux_amd64")
+	body := []byte("#!/bin/sh\necho 'v0.74.48 (f77f0fd192d0eee5)'\n")
+	if err := os.WriteFile(asset, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(body)
+	digest := hex.EncodeToString(sum[:])
+	install := func(version string) (string, error) {
+		home := t.TempDir()
+		run := exec.Command("sh", "-c", installTools, "sh", cciURL, cciSHA, lrURL, lrSHA, "lr", "raw", "ccn", "file://"+asset, digest, version, "--")
+		run.Env = append(os.Environ(), "HOME="+home)
+		out, err := run.CombinedOutput()
+		if err != nil {
+			return filepath.Join(home, ".local", "bin", "ccn"), fmt.Errorf("%s: %w", out, err)
+		}
+		return filepath.Join(home, ".local", "bin", "ccn"), nil
+	}
+	ccn, err := install("0.74.48")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command(ccn, "--version").Output(); err != nil || !strings.HasPrefix(string(out), "v0.74.48 ") {
+		t.Fatal(string(out), err)
+	}
+	if ccn, err := install("0.74.47"); err == nil || present(ccn) {
+		t.Fatal("a file printing another version installed", err)
 	}
 }
 

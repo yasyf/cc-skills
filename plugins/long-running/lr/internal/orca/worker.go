@@ -42,6 +42,7 @@ const (
 	beforeWorker      = "before-worker.sh"
 	notesRefs         = "+refs/cc-notes/*:refs/cc-notes/*"
 	notesReceipt      = "notes.log"
+	fetchNotesScript  = `IFS= read -r NOTES_TOKEN; export NOTES_TOKEN; exec git -c credential.helper= -c 'credential.helper=!f() { echo username=x-access-token; echo "password=$NOTES_TOKEN"; }; f' -C "$1" fetch --quiet origin "$2"`
 	unpackCarried     = `mkdir -p "$1" && tar -xzf - -C "$1"`
 	joinRelay         = `CCI_SERVICE_KEY=$(cat); export CCI_SERVICE_KEY; ~/.local/bin/cci relay join --instance --drive "$1" --url "$2" --ttl 24h --owner "$3" && sprite-env services create cci --cmd "$HOME/.local/bin/cci" --args supervise --no-stream`
 )
@@ -633,8 +634,12 @@ func (w *workerLaunch) copyCarried(workspace string) error {
 }
 
 func (w *workerLaunch) fetchNotes(workspace string) error {
-	fetched, err := w.Runner.Run(w.ctx, shell.Command{Argv: []string{"sprite", "exec", "-s", workspace, "--", "git", "-C", w.worktree, "fetch", "--quiet", "origin", notesRefs}})
-	said := fetched.Stdout + fetched.Stderr
+	token, said, code := w.capture("gh", "auth", "token")
+	if code != 0 {
+		return w.receipt(notesReceipt, said)
+	}
+	fetched, err := w.Runner.Run(w.ctx, shell.Command{Argv: []string{"sprite", "exec", "-s", workspace, "--", "sh", "-c", fetchNotesScript, "sh", w.worktree, notesRefs}, Stdin: token})
+	said = fetched.Stdout + fetched.Stderr
 	if err != nil {
 		said += err.Error() + "\n"
 	}
