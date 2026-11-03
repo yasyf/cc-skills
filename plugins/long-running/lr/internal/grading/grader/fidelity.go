@@ -27,6 +27,7 @@ const (
 	findingChars    = 160
 	fidelityTimeout = 3600 * time.Second
 	deletionKey     = "owner/deletion"
+	answerKey       = "answer/"
 	findingsState   = "findings.json"
 	rubricFile      = "fidelity-desk-brief.md"
 	schemaFile      = "fidelity.schema.json"
@@ -988,7 +989,11 @@ func (s *fidelityPassState) gradedLines(reply fidelityReply) []gradeLine {
 			if !slices.Contains(keys, entry.Key) {
 				keys = append(keys, entry.Key)
 			}
-			broken = append(broken, squeezed(entry.Line))
+			line := squeezed(entry.Line)
+			if ruling, ok := strings.CutPrefix(entry.Key, answerKey); ok {
+				line = fmt.Sprintf("departs from ruling %s: %s", ruling, line)
+			}
+			broken = append(broken, line)
 		}
 		if reply.picks != "" {
 			broken = append(broken, reply.picks)

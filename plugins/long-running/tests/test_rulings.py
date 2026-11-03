@@ -1891,6 +1891,26 @@ def test_the_required_slice_prints_every_global_pending_and_touched_row_with_its
     assert "> Log every retry." in lines
 
 
+def test_the_required_slice_carries_his_answers_on_every_topic_the_pr_text_names_or_its_files_touch_as_graded_rows(home: Path, package: Path, state: Path, capsys) -> None:
+    relay = {"id": "7e61322" + "0" * 33, "title": "What if a relay drain fails?", "body": "Keep the old relay open read-only.", "tags": ["from:owner", "topic:relay-drain"], "updated_at": "2026-11-02T19:42:00Z"}
+    signal = {"id": "c165429" + "0" * 33, "title": "Where does the signal service keep its data?", "body": "In SandSQL.", "tags": ["from:owner", "topic:signal-home"], "updated_at": "2026-11-02T18:00:00Z"}
+    unrelated = {"id": "1984bf6" + "0" * 33, "title": "May a migration ship behind a flag?", "body": "No.", "tags": ["from:owner", "topic:flags"], "updated_at": "2026-11-03T20:00:00Z"}
+    shell = RegisterShell(seeded(package), answers=[relay, signal, unrelated], diff=DIFF, pr={"body": "Moves the signal store."})
+    shell.vocabulary = {
+        "relay-drain": {"words": r"\bdrain\b", "dirs": '["src/relay"]'},
+        "signal-home": {"words": r"\bsignal (store|service)\b", "dirs": '["src/signal"]'},
+        "flags": {"words": r"\bflags?\b", "dirs": '["src/flags"]'},
+    }
+
+    code, out = ran(capsys, shell, "slice", "--required", "--pr", "acme/app#12", "--head", "cafef00d", "--base", "main")
+    lines = out.splitlines()
+
+    assert code == 0
+    assert hashed_correctly(out)
+    assert [key for key in required(out) if key.startswith("answer/")] == ["answer/7e61322", "answer/c165429"]
+    assert lines[lines.index("### answer/7e61322 | answer | 2026-11-02") + 1 : lines.index("### answer/7e61322 | answer | 2026-11-02") + 3] == ["Asked: What if a relay drain fails?", "> Keep the old relay open read-only."]
+
+
 def test_the_worded_required_slice_carries_his_words_and_the_card_a_tap_answered_and_never_an_implication(home: Path, package: Path, state: Path, capsys, monkeypatch) -> None:
     card = "card-relay: Where does relay code live?\n  - relay-journal: In relay-journal (recommended)\n  - relay-server: In relay-server"
     taps = {"Relay code lives in relay-journal. Never in relay-server.": card}

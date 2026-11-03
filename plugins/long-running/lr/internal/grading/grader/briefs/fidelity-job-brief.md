@@ -33,6 +33,11 @@ typed. Read his words for what he meant, given what they answered, never word fo
   exception or a smaller count his words lack ("per X", "same X"), or too literally,
   applying his words to cases his purpose does not cover so that it adds the very cost his
   words removed.
+- A row keyed `answer/<id>` is one of his answers in cc-notes on a topic this PR's text names
+  or its files touch. A head that builds what the answer rules out, or drops what it asks for,
+  breaks it even where the plan says nothing: that is `missing` keyed `answer/<id>`, and the
+  grade line reads "departs from ruling <id>". Only a newer answer of his changes a ruling, and
+  it supersedes the old one in cc-notes, so an answer row in this file still binds.
 A design row or exception holds the plan's text, the coordinator's words his answers approve.
 Where a row names where it bears (names, surfaces, tests), that is the coordinator's reading, a
 pointer and never the standard. The rows file leaves out the register's implications on
