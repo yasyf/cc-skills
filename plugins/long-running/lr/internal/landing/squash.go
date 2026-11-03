@@ -192,11 +192,20 @@ func openIncident(f machine.Facts, incidents []client.Record, ended map[string]i
 		if record.Kind != incidentKind || record.Status != statusOpen || closesIncident(record) || supersededIncident(record, ended) {
 			continue
 		}
-		if slices.Contains(record.Refs.PRs, pullRef(f)) || number.MatchString(record.Text) || record.Lane == f.Lane || slices.Contains(record.To, f.Lane) {
+		if namesPull(record, f) || number.MatchString(record.Text) || record.Lane == f.Lane || slices.Contains(record.To, f.Lane) {
 			newest = &incidents[i]
 		}
 	}
 	return newest
+}
+
+func namesPull(record client.Record, f machine.Facts) bool {
+	for _, pr := range record.Refs.PRs {
+		if pr.Number == f.Number && pr.Repo == f.Repo {
+			return true
+		}
+	}
+	return false
 }
 
 func supersededIncident(record client.Record, ended map[string]int64) bool {

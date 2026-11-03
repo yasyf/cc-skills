@@ -323,6 +323,18 @@ func newDesk(a *app.App) (*Desk, error) {
 	}, nil
 }
 
+func FixLanes(a *app.App) (func(lane string) (bool, error), error) {
+	desk, err := newDesk(a)
+	if err != nil {
+		return nil, err
+	}
+	desk.open()
+	return func(lane string) (bool, error) {
+		launch, err := desk.fixLaunch(lanePrefix + lane)
+		return launch != nil, err
+	}, nil
+}
+
 func relayRunCommand(a *app.App) *cobra.Command {
 	var once bool
 	cmd := &cobra.Command{
