@@ -300,7 +300,7 @@ Fix-lane milestones: send `mechanism: <evidence>` as a status Run message when
 known. The brief names the exact live-check command and expected live output;
 the root uses that command too. Run it every two minutes and post its output as a
 status Run message until it flips, then send status subject
-`fix-live: <h:mm PM PT> <evidence>`. Carry the preamble's Run addressing.
+`fix-live: <evidence>`. Carry the preamble's Run addressing.
 
 Binding rules (owner):
 - <one rule per bullet, each as the owner stated it>

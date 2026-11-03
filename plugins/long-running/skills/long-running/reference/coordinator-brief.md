@@ -53,7 +53,11 @@ update. A `blocker` from `owner-relay` naming update gaps lists his messages no
 record carries; answer each with `--re <seq>` naming the lane that acts. You never
 post to Slack, the board or the owner directly.
 
-Times come only from `date` or a cci record. A go reads the finder and fidelity
+Write your records and thinking however serves you: terse, jargon, ids and lane
+names are all fine. The bridge reads them and does all the presentation, so you owe
+no format, no plain words and no explanation.
+
+A go reads the finder and fidelity
 grades at that exact head first. Merge mode is the owner's: every non-exempt PR
 goes to him on the board, the dashboard and the Slack card, exempt classes only as
 he set them, and nothing lands without his tap or a go in an exempt class.

@@ -223,7 +223,7 @@ def main(argv: list[str] | None = None) -> int:
     incident.add_argument("name", type=incident_name, help="the incident's name; a trailing -fix is dropped, so takeover-500-fix launches takeover-500-fix, never takeover-500-fix-fix")
     incident.add_argument("fix_brief", type=Path, help="the fix lane's brief, <state>/<name>-fix/brief.md; the runner refuses a brief.md in a directory named for another lane")
     incident.add_argument("evidence_brief", type=Path, nargs="?")
-    incident.add_argument("--alert", default="", help="the Alert line: the monitor or Slack link, times Pacific, what fails where, and the owner's words; each brief is then a template this fills")
+    incident.add_argument("--alert", default="", help="the Alert line: the monitor or Slack link, what fails where, and the owner's words; each brief is then a template this fills")
     lane = verbs.add_parser("lane", parents=[common], help="launch one lane")
     lane.add_argument("target", metavar="lane")
     lane.add_argument("model")

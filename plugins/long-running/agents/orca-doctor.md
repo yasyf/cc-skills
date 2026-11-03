@@ -21,12 +21,7 @@ the coordinator's waiter owns, so read mail with `inbox` only. Never signal
 any process.
 
 Every Bash call starts a fresh shell, so carry each value you resolve into the
-next command by hand. Report every time in Pacific as `HH:MM PT`. Orca emits
-UTC ISO strings and epoch milliseconds; convert with:
-
-```sh
-python3 -c 'import sys,datetime,zoneinfo as z; v=sys.argv[1]; t=datetime.datetime.fromtimestamp(int(v)/1000,datetime.timezone.utc) if v.isdigit() else datetime.datetime.fromisoformat(v.replace(" ","T").rstrip("Z")+"+00:00"); print(t.astimezone(z.ZoneInfo("America/Los_Angeles")).strftime("%H:%M PT"))' <value>
-```
+next command by hand.
 
 ## 0. Resolve the lane
 
@@ -135,8 +130,8 @@ parenthetical under 100 characters and `next step` to one sentence of at most
 lane: <lane>
 terminal: <handle, plus any idle-shell siblings> | none
 state: never-launched | launch-failed(<error>) | idle-shell | waiting-for-input(<prompt text>) | running-command(<cmd>, <age>) | agent-working(<last line>) | errored(<first error line>) | done
-last activity: <HH:MM PT from the newest lastOutputAt or message>
-dispatch: <ctx> <status>; last message <HH:MM PT> <type> "<subject>"; last alive <HH:MM PT>; unanswered: <question or escalation subject | none>
+last activity: <newest lastOutputAt or message time, as Orca prints it>
+dispatch: <ctx> <status>; last message <time> <type> "<subject>"; last alive <time>; unanswered: <question or escalation subject | none>
 worktree: <path> <branch> <clean | N dirty> | none
 load: <1-min> on <cores> cores; top: <process using the most CPU>
 next step: <one sentence for the orchestrator>
