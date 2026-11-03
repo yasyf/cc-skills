@@ -35,7 +35,7 @@ const (
 	allocationWarm    = "warm"
 	allocationCreated = "created"
 	idleWarning       = "so the prepared worker stays idle and unattached"
-	installTools      = `mkdir -p ~/.local/bin && curl -fsSL "$1" -o /tmp/cci.tgz && echo "$2  /tmp/cci.tgz" | sha256sum -c - && tar -xzf /tmp/cci.tgz -C ~/.local/bin cci && curl -fsSL "$3" -o /tmp/lr.tgz && echo "$4  /tmp/lr.tgz" | sha256sum -c - && tar -xzOf /tmp/lr.tgz "$5" > ~/.local/bin/lr && chmod 755 ~/.local/bin/lr`
+	installTools      = `mkdir -p ~/.local/bin && curl -fsSL "$1" -o /tmp/cci.tgz && echo "$2  /tmp/cci.tgz" | sha256sum -c - && tar -xzf /tmp/cci.tgz -C ~/.local/bin cci && curl -fsSL "$3" -o /tmp/lr.tgz && echo "$4  /tmp/lr.tgz" | sha256sum -c - && tar -xzOf /tmp/lr.tgz "$5" > ~/.local/bin/lr && chmod 755 ~/.local/bin/lr && { [ -z "$6" ] || { mkdir -p ~/.config/lr && printf '%s\n' "$6" > ~/.config/lr/bk.url; }; }`
 	lrPlatform        = "linux-x86_64"
 	unpackCarried     = `mkdir -p "$1" && tar -xzf - -C "$1"`
 	joinRelay         = `CCI_SERVICE_KEY=$(cat); export CCI_SERVICE_KEY; ~/.local/bin/cci relay join --instance --drive "$1" --url "$2" --ttl 24h --owner "$3" && sprite-env services create cci --cmd "$HOME/.local/bin/cci" --args supervise --no-stream`
@@ -686,7 +686,7 @@ func (w *workerLaunch) startSprite() (string, error) {
 	if err := w.copyCarried(workspace); err != nil {
 		return "", err
 	}
-	stdout, stderr, code := w.capture("sprite", "exec", "-s", workspace, "--no-stdin", "--", "sh", "-c", installTools, "sh", w.ccURL, w.ccSHA, w.lrURL, w.lrSHA, w.lrMember)
+	stdout, stderr, code := w.capture("sprite", "exec", "-s", workspace, "--no-stdin", "--", "sh", "-c", installTools, "sh", w.ccURL, w.ccSHA, w.lrURL, w.lrSHA, w.lrMember, w.Env("WORKER_BK_URL"))
 	if err := w.receipt("install.log", stdout+stderr); err != nil {
 		return "", err
 	}
