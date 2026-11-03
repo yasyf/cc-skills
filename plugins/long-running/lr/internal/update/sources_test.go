@@ -195,7 +195,7 @@ func TestCollectSplitsOneDayOfRecordsIntoEachSectionAndReadsHoldsOfAnyAge(t *tes
 	closing := record(6, "root", "decide", "INCIDENT api CLOSED", 5)
 	release := record(7, "rel-1", "release", "started", 5)
 	hold := record(8, "root", "hold", "hold #48401 until the fix", 72*60)
-	hold.Status = "open"
+	hold.Status, hold.PRs = "open", []string{"48401"}
 	in, err := Collect(context.Background(), src([]Lane{heard("ship-2", "desired", 5)}, []Record{ask, answered, toPeer, incident, yesterday, closing, release, hold}, nil, nil), testDrive, now)
 	if err != nil {
 		t.Fatal(err)
@@ -225,12 +225,12 @@ func seqs(records []Record) []int64 {
 	return out
 }
 
-func TestAHoldHoldsTheOnePRItsTextLeadsWithElseEveryPRItsRefsName(t *testing.T) {
-	lead := Record{Seq: 1, Kind: "hold", Status: "open", Text: "HOLD #7 because of #8", PRs: []string{"9"}}
+func TestAHoldHoldsEveryPRItWasPostedWithAndNoneItsTextCites(t *testing.T) {
+	cites := Record{Seq: 1, Kind: "hold", Status: "open", Text: "HOLD #7 because of #8", PRs: []string{"9"}}
 	refs := Record{Seq: 2, Kind: "hold", Status: "open", Text: "stop these", PRs: []string{"org/x#10", "11"}}
-	closed := Record{Seq: 3, Kind: "hold", Status: "resolved", Text: "hold #12"}
-	want := map[string]int64{"7": 1, "10": 2, "11": 2}
-	if got := heldPRs([]Record{lead, refs, closed}); !reflect.DeepEqual(got, want) {
+	closed := Record{Seq: 3, Kind: "hold", Status: "resolved", Text: "hold #12", PRs: []string{"12"}}
+	want := map[string]int64{"9": 1, "10": 2, "11": 2}
+	if got := heldPRs([]Record{cites, refs, closed}); !reflect.DeepEqual(got, want) {
 		t.Fatalf("held = %v", got)
 	}
 }

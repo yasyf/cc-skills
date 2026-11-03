@@ -40,7 +40,6 @@ NOT_OWNERS = frozenset({"root", "main", "all", ""})
 ENDED_KINDS = frozenset({"stand-down", "handoff", "stopped", "done"})
 OWNER_WINDOW = "2h"
 PACIFIC = ZoneInfo("America/Los_Angeles")
-LEADING_HOLD = re.compile(r"^\W*hold\s+#(\d+)\b", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -383,8 +382,8 @@ def held_prs(run: Callable[[list[str]], str], drive: str) -> dict[str, int]:
 
 
 def held_by(record: dict) -> list[str]:
-    """The PR numbers a hold record holds: the one its text leads with as `hold #<n>`, every later `#<n>` being prose, else every PR its refs name."""
-    return [found[1]] if (found := LEADING_HOLD.match(record["text"])) else [str(pr).rsplit("#", 1)[-1] for pr in record["refs"].get("prs", [])]
+    """The PR numbers a hold record holds: the ones it was posted with as `--pr`, its text being prose."""
+    return [str(pr).rsplit("#", 1)[-1] for pr in record["refs"].get("prs", [])]
 
 
 def mechanism_mark(record: dict) -> str:

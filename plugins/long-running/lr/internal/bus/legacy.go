@@ -41,7 +41,6 @@ var (
 	goHead         = regexp.MustCompile(`(?i)#(\d+)\s+at\s+([0-9a-f]{7,40})\b`)
 	withdrawnGo    = regexp.MustCompile(`(?i)^\s*withdrawn\b`)
 	withdrawsNamed = regexp.MustCompile(`(?i)\bwithdraws?\b[^.;:\n#]*#(\d+)`)
-	leadingHold    = regexp.MustCompile(`(?i)^\W*hold\s+#(\d+)\b`)
 	finderVerdicts = map[string]string{"ok": "clear", "major": "ask"}
 )
 
@@ -360,14 +359,6 @@ func HeldBy(record client.Record, repo string) []int {
 	for _, pr := range record.Refs.PRs {
 		if pr.Repo == "" || strings.EqualFold(pr.Repo, repo) {
 			prs = append(prs, pr.Number)
-		}
-	}
-	if len(record.Refs.PRs) > 0 && len(prs) == 0 {
-		return nil
-	}
-	if leading := leadingHold.FindStringSubmatch(record.Text); leading != nil {
-		if pr, err := strconv.Atoi(leading[1]); err == nil {
-			return []int{pr}
 		}
 	}
 	return prs

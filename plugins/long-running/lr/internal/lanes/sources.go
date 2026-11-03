@@ -15,7 +15,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -42,7 +41,6 @@ const (
 
 var (
 	unsafeName  = regexp.MustCompile(`[^a-zA-Z0-9_-]`)
-	leadingHold = regexp.MustCompile(`(?i)^\W*hold\s+#(\d+)\b`)
 	launchOrder = regexp.MustCompile(`\borca-desk: launch (\S+)`)
 )
 
@@ -621,17 +619,6 @@ func (p *prReader) states(numbers []int) (map[int]string, error) {
 	return out, nil
 }
 
-func heldBy(r Record) []int {
-	if found := leadingHold.FindStringSubmatch(r.Text); found != nil {
-		number, err := strconv.Atoi(found[1])
-		if err != nil {
-			return nil
-		}
-		return []int{number}
-	}
-	return r.PRs()
-}
-
 func namesHead(named, sha string) bool {
 	return sha != "" && (strings.HasPrefix(sha, named) || strings.HasPrefix(named, sha))
 }
@@ -657,7 +644,7 @@ func (e Env) held(ctx context.Context) (map[int]bool, error) {
 	}
 	holds := map[int]bool{}
 	for _, record := range records {
-		for _, n := range heldBy(recordOf(record)) {
+		for _, n := range recordOf(record).PRs() {
 			holds[n] = true
 		}
 	}

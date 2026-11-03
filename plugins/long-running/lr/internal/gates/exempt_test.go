@@ -81,8 +81,27 @@ func TestTonightsWrongExemptGosAreRefusedFromTheRecordsTheirPostersRead(t *testi
 	}
 }
 
+func holdRecord(t *testing.T, raw string) client.Record {
+	t.Helper()
+	var record client.Record
+	if err := json.Unmarshal([]byte(raw), &record); err != nil {
+		t.Fatal(err)
+	}
+	return record
+}
+
+func TestAHoldHoldsThePRsItWasPostedWithAndItsTextIsProse(t *testing.T) {
+	hold := holdRecord(t, `{"seq":2948,"lane":"root","kind":"hold","text":"hold #2 until the cutover, behind the test PR #2","refs":{"prs":["Forge-AI/monorepo#1"]}}`)
+
+	for pr, want := range map[int]int{1: 1, 2: 0} {
+		if open := openHolds(Claim{Repo: monorepo, PR: pr}, []client.Record{hold}, nil); len(open) != want {
+			t.Fatalf("#%d: open holds %q", pr, open)
+		}
+	}
+}
+
 func TestAHoldThatLiftsAnEarlierHoldIsNotOpen(t *testing.T) {
-	lift := client.Record{Seq: 364345, Lane: "root", Kind: "hold", Text: "hold #48889 lift: the rework is done", Resolves: 362361}
+	lift := holdRecord(t, `{"seq":364345,"lane":"root","kind":"hold","text":"hold #48889 lift: the rework is done","resolves":362361,"refs":{"prs":["Forge-AI/monorepo#48889"]}}`)
 	claim := Claim{Repo: monorepo, PR: 48889}
 
 	if open := openHolds(claim, []client.Record{lift}, map[int64]bool{lift.Seq: true}); len(open) != 0 {

@@ -783,7 +783,7 @@ func TestAHoldThatLiftsAnEarlierHoldHoldsNothingAndOneThatAnswersAnAskStillHolds
 	}
 }
 
-func TestAHoldLeadingWithItsNumberHoldsOnlyThatPR(t *testing.T) {
+func TestAHoldHoldsEveryPRItWasPostedWithWhateverItsTextLeadsWith(t *testing.T) {
 	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}, {number: 2, head: head2, login: "drive-bot"}},
 		status(1), status(2, func(r *statusRow) { r.Head = head2 }))
 	if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "root", Kind: "hold", Text: "hold #1 because #2 landed badly", PRs: []string{repo + "#1", repo + "#2"}}); err != nil {
@@ -792,7 +792,7 @@ func TestAHoldLeadingWithItsNumberHoldsOnlyThatPR(t *testing.T) {
 
 	by := h.snapshot(t)
 
-	if by[1].Hold != machine.MoverRoot || by[2].Hold != "" {
+	if by[1].Hold != machine.MoverRoot || by[2].Hold != machine.MoverRoot {
 		t.Fatalf("holds = %q, %q", by[1].Hold, by[2].Hold)
 	}
 }

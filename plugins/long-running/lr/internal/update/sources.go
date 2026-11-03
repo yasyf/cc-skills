@@ -34,7 +34,6 @@ const (
 var (
 	waitsOnRoot = []string{"ask", "blocker", "blocked"}
 	rootNames   = []string{root, "main"}
-	leadingHold = regexp.MustCompile(`(?i)^\W*hold\s+#(\d+)\b`)
 	namedPR     = regexp.MustCompile(`#(\d+)\b`)
 	openTasks   = []string{"in_progress", "pending"}
 )
@@ -82,10 +81,6 @@ func heldPRs(records []Record) map[string]int64 {
 	held := map[string]int64{}
 	for _, record := range records {
 		if record.Kind != kindHold || record.Status != statusOpen {
-			continue
-		}
-		if found := leadingHold.FindStringSubmatch(record.Text); found != nil {
-			held[found[1]] = record.Seq
 			continue
 		}
 		for _, pr := range record.PRs {

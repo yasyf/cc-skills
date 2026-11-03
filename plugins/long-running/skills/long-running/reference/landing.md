@@ -108,7 +108,7 @@ Every prefix passes the check registry before it enqueues. `landing.checks` list
 
 | Check | Behavior |
 | --- | --- |
-| `hold` | Reads the `hold` label and the PR's cci `hold` and `ready` records fresh just before the enqueue call. Runs first on every enqueue path, including the landing pass and `lr landing gate`. An incident record that only mentions a PR as context holds nothing. |
+| `hold` | Reads the `hold` label and the PR's cci `hold` and `ready` records fresh just before the enqueue call. Runs first on every enqueue path, including the landing pass and `lr landing gate`. An incident record that only mentions a PR as context holds nothing. A `hold` holds exactly the PRs it was posted with as `--pr`; every `#<n>` in its text is prose, the leading one included. |
 | `precondition` | Scans the PR body and cci records outside quotes, code, and block quotes for `lands only after`, `merge only after`, `before it lands`, `do not land until`, or `not for landing`. Never refuses a head; sends the coordinator one `note` warning per head quoting the sentence, including on incident squashes, so the coordinator can post a `hold` if it is a real dependency. |
 | `rulings` | Runs `rulings.py check-pr` at the head, as detailed in the next section. |
 | `fidelity` | Reads the fidelity lane's cci `review` grade at the head, as detailed in the next section. |
