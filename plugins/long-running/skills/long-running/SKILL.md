@@ -447,6 +447,7 @@ export LR_CONFIG=<state dir>/lr.json
 lr launch coordinator <state dir>/root/brief.md
 lr launch meta <state dir>/meta/brief.md
 lr launch signal <state dir>/signal/brief.md
+lr launch chores <state dir>/chores/brief.md
 ```
 
 | Session | Lane | Model and effort | Brief |
@@ -454,8 +455,9 @@ lr launch signal <state dir>/signal/brief.md
 | `coordinator` | `root` | `opus xhigh` | [coordinator-brief.md](reference/coordinator-brief.md) |
 | `meta` | `meta` | `opus xhigh` | [meta-lane-brief.md](reference/meta-lane-brief.md) |
 | `signal` | `signal` | `sonnet low` | [signal-lane-brief.md](reference/signal-lane-brief.md) |
+| `chores` | `chores` | `sonnet low` | [chores-lane-brief.md](reference/chores-lane-brief.md) |
 
-The communicator fills each brief, then launches the three as sibling Orca sessions, each
+The communicator fills each brief, then launches the four as sibling Orca sessions, each
 bound to its own lane. `lr launch` posts to the orca runner when one is up and otherwise
 launches from the communicator's terminal, which coordinates the Run, since the coordinator
 has not started a runner yet. The coordinator runs its own subscribe line (R9), then

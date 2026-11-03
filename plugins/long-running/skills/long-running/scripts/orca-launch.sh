@@ -68,7 +68,9 @@ CLAUDE_LONG_RUNNING_LANE=<lane> and, when drive.py places this session in a driv
 CLAUDE_LONG_RUNNING_DRIVE=<drive>, so the pack's PR hook records every PR the worker
 opens in the drive's ledger under the lane's name, drive.py finds the drive with no
 Claude session id, and a ready launch posts the drive's
-SPAWNED record (drive.py spawned) that adds the lane to the supervisor's registry. The spec is a
+SPAWNED record (drive.py spawned) that adds the lane to the supervisor's registry. Lane root, the
+coordinator, also gets the 1-hour prompt cache, since its one wait can pass the 5-minute one, and a
+compaction window of 280k, so it compacts near 250k and every call re-reads less. The spec is a
 pointer to <brief-file>, because Orca truncates a pasted spec near 3 KB. It names
 the brief as the authority over Orca's preamble, which forbids GitHub posts, and
 over any standing leave-uncommitted default. A sparse worktree's pointer adds
@@ -229,6 +231,7 @@ PREPARE_WAIT=${ORCA_LAUNCH_PREPARE_SECONDS:-120}
 SPARSE_LANES=${ORCA_LAUNCH_SPARSE:-}
 SPARSE_FILES=${ORCA_LAUNCH_SPARSE_FILES:-5000}
 POLL=4
+COORDINATOR_COMPACT_WINDOW=280000
 STALL=${ORCA_LAUNCH_STALL_SECONDS:-180}
 
 ROLLBACK='' CREATED='' MADE='' LOST='' STARTUP='' BRANCHED='' OWNED='' TERMINAL='' UNDONE='' KEPT=''
@@ -339,7 +342,9 @@ WT=$(cat "$STATE/$LANE.worktree" 2>/dev/null) || WT=
 
 BASE=${ORCA_LAUNCH_BASE:-$(git -C "$PARENT" symbolic-ref --short refs/remotes/origin/HEAD)}
 DRIVE=$(python3 "$(dirname "$0")/drive.py" current) || DRIVE=
-COMMAND="env CLAUDE_LONG_RUNNING_LANE=$LANE${DRIVE:+ CLAUDE_LONG_RUNNING_DRIVE=$DRIVE} claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions --disallowedTools AskUserQuestion,EnterPlanMode,ExitPlanMode --strict-mcp-config${ORCA_LAUNCH_MCP_CONFIG:+ --mcp-config $ORCA_LAUNCH_MCP_CONFIG}${ORCA_LAUNCH_CLAUDE_ARGS:+ $ORCA_LAUNCH_CLAUDE_ARGS} --model $MODEL_ID --effort $EFFORT"
+COORDINATOR_ENV=
+[ "$LANE" != root ] || COORDINATOR_ENV=" CLAUDE_CODE_PROMPT_CACHE_TTL=1h CLAUDE_CODE_AUTO_COMPACT_WINDOW=$COORDINATOR_COMPACT_WINDOW"
+COMMAND="env CLAUDE_LONG_RUNNING_LANE=$LANE${DRIVE:+ CLAUDE_LONG_RUNNING_DRIVE=$DRIVE}$COORDINATOR_ENV claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions --disallowedTools AskUserQuestion,EnterPlanMode,ExitPlanMode --strict-mcp-config${ORCA_LAUNCH_MCP_CONFIG:+ --mcp-config $ORCA_LAUNCH_MCP_CONFIG}${ORCA_LAUNCH_CLAUDE_ARGS:+ $ORCA_LAUNCH_CLAUDE_ARGS} --model $MODEL_ID --effort $EFFORT"
 BIN=$(cd "$(dirname "$0")/../../../bin" && pwd)
 CODEX_MCP=${ORCA_LAUNCH_CODEX_MCP:-'{}'}
 CODEX_OFF=

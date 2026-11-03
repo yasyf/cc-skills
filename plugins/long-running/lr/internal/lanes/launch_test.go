@@ -18,6 +18,7 @@ var startSequence = []struct {
 	{"coordinator", "root", "opus", "xhigh"},
 	{"meta", "meta", "opus", "xhigh"},
 	{"signal", "signal", "sonnet", "low"},
+	{"chores", "chores", "sonnet", "low"},
 }
 
 func startEnv(bus *fakeBus, ran *[]string) Env {

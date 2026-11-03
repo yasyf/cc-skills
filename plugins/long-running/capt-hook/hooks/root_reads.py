@@ -6,7 +6,7 @@ from .root_context import root_warning
 from .tests.root_fixtures import ACTIVE
 
 READ_TOOLS = "Read|Grep|WebFetch|mcp__plugin_cc-slack_cc-slack__slack_thread|mcp__slack__slack_get_thread"
-READ_COMMANDS = (("cci", "tail"), ("cci", "show"), ("gh", "pr", "view"), ("gh", "pr", "checks"), ("ccx", "vcs", "reviews"), ("cat",), ("head",), ("sed",))
+READ_COMMANDS = (("cci", "tail"), ("cci", "show"), ("cci", "grep"), ("gh", "pr", "view"), ("gh", "pr", "checks"), ("ccx", "vcs", "reviews"), ("cat",), ("head",), ("sed",))
 LIVENESS_FILTERS = frozenset({"tail", "head", "grep", "rg"})
 STATUS = "/drive/progress/owner/update-1733.md"
 
@@ -28,6 +28,7 @@ root_warning(
     tests={
         Input(tool="Read", tool_input={"file_path": STATUS}, state=ACTIVE, transcript=earlier(T.tool("Bash", command="cci tail --drive d --since 342000"))): Warn(pattern=r"one source per owner ask"),
         Input(command="gh pr view 48401", state=ACTIVE, transcript=earlier(T.tool("Read", file_path=STATUS))): Warn(),
+        Input(command="cci grep --drive d d456d35", state=ACTIVE, transcript=earlier(T.tool("Read", file_path=STATUS))): Warn(),
         Input(tool="Read", tool_input={"file_path": STATUS}, state=ACTIVE, transcript=earlier()): Allow(),
         Input(command="gh pr view 48401", state=ACTIVE, transcript=earlier(T.tool("Agent", name="pr-reader", prompt="Read PR 48401."))): Allow(),
         Input(command="gh pr view 48401", transcript=earlier(T.tool("Read", file_path=STATUS))): Allow(),

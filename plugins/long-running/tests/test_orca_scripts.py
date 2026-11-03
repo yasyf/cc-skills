@@ -220,6 +220,15 @@ def test_a_worker_launched_inside_a_drive_carries_the_drive_to_claude(orca):
     assert flag(terminal, "--command").startswith("env CLAUDE_LONG_RUNNING_LANE=lane-a CLAUDE_LONG_RUNNING_DRIVE=900424b6 claude ")
 
 
+def test_only_the_coordinator_launches_on_the_long_cache_under_a_low_compaction_ceiling(orca):
+    orca.healthy()
+    orca.launch("root", "opus", "xhigh", str(orca.brief))
+    orca.launch()
+    coordinator, lane = [flag(terminal, "--command") for terminal in orca.calls("terminal create")]
+    assert coordinator.startswith("env CLAUDE_LONG_RUNNING_LANE=root CLAUDE_CODE_PROMPT_CACHE_TTL=1h CLAUDE_CODE_AUTO_COMPACT_WINDOW=280000 claude ")
+    assert lane.startswith("env CLAUDE_LONG_RUNNING_LANE=lane-a claude ")
+
+
 def test_an_incident_lane_launched_inside_a_drive_carries_the_drive_to_codex(orca):
     """Retro row 144: alert-c0822-fix-2 sat 12 minutes on its takeover check, since drive.py lane-status found no drive without CLAUDE_CODE_SESSION_ID, which an Orca codex lane never has."""
     orca.healthy(agent="codex")
