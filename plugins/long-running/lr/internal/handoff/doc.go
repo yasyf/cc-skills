@@ -345,7 +345,7 @@ func (d *progressDoc) render() string {
 		for _, id := range d.registry.Sessions {
 			sessions = append(sessions, cut(id, 8))
 		}
-		out = append(out, fmt.Sprintf("- Drive `%s`: ledger `%s`, Orca run `%s`, checkout `%s`, root sessions %s",
+		out = append(out, fmt.Sprintf("- Drive `%s`: ledger `%s`, Orca run `%s`, checkout `%s`, coordinator sessions %s",
 			d.registry.Drive, cut(d.registry.Ledger, shortID), dash(d.registry.OrcaRun), d.registry.Checkout, strings.Join(sessions, ", ")))
 	}
 	out = append(out, "", "## Open owner asks")
@@ -368,7 +368,7 @@ func (d *progressDoc) render() string {
 	out = append(out, noneIfEmpty(bullets(slices.Concat(d.findings, d.planFindings)))...)
 	out = append(out, "", narrativeHeading, "")
 	if d.narrative == "" {
-		out = append(out, "_The root has written no narrative yet._")
+		out = append(out, "_The coordinator has written no narrative yet._")
 	} else {
 		out = append(out, fmt.Sprintf("_From %s._\n\n%s", d.narrativeFrom, d.narrative))
 	}

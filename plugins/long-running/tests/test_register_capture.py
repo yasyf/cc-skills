@@ -211,7 +211,7 @@ def test_a_slack_message_that_is_not_the_owners_dm_lands_nothing(root, fields):
 OWNER_WORDS = "we shoudknt need a pin PR bc we shoildnt be deleting thr old stuff jntil cutover"
 RELAY = (
     '<cross-session-message from="uds:/tmp/cc-socks/37625.sock" from-name="ai-oncall-improvement-plan" from-mode="bypass">\n'
-    f'From the ai-oncall-improvement-plan root, relaying the owner\'s words verbatim about #43182: "{OWNER_WORDS}". Please answer him.\n'
+    f'From the ai-oncall-improvement-plan the coordinator, relaying the owner\'s words verbatim about #43182: "{OWNER_WORDS}". Please answer him.\n'
     "</cross-session-message>"
 )
 

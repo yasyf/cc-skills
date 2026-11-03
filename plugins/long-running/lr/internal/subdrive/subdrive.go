@@ -86,10 +86,10 @@ type Manager struct {
 func (m Manager) refusal(r Request) error {
 	parent := m.Env.Config
 	if parent.Parent != "" {
-		return fmt.Errorf("%s is itself a sub-drive of %s, and only a root coordinator starts one: report the project to root@%s", parent.Drive, parent.Parent, parent.Parent)
+		return fmt.Errorf("%s is itself a sub-drive of %s, and only the coordinator of a top-level drive starts one: report the project to root@%s", parent.Drive, parent.Parent, parent.Parent)
 	}
 	if lane := os.Getenv(laneEnv); lane != "" && lane != lanes.Root {
-		return fmt.Errorf("this window is bound %s, and the coordinator alone decides on a sub-drive: ask root", lane)
+		return fmt.Errorf("this window is bound %s, and the coordinator alone decides on a sub-drive: ask the coordinator", lane)
 	}
 	if missing := r.missing(); len(missing) > 0 {
 		return fmt.Errorf("a sub-drive is never the default, only a big project plainly unrelated to this drive; name %s, or give the work a lane here", strings.Join(missing, ", "))
@@ -203,7 +203,7 @@ func (m Manager) Start(ctx context.Context, r Request) (string, error) {
 	}
 	if _, err := m.Env.Bus.Post(ctx, client.Draft{
 		Drive: parent.Drive, Lane: lanes.Root, Kind: "report", To: []string{lanes.OwnerRelay}, ID: "sub-drive-start:" + name, Stamp: true,
-		Text: fmt.Sprintf("Started sub-drive %s: %s. Why it is separate: %s. Its small coordinator reports only to root, on cci drive %s.", r.Name, r.Objective, r.Reason, name),
+		Text: fmt.Sprintf("Started sub-drive %s: %s. Why it is separate: %s. Its small coordinator reports only to the coordinator, on cci drive %s.", r.Name, r.Objective, r.Reason, name),
 	}); err != nil {
 		return "", err
 	}

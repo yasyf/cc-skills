@@ -16,7 +16,7 @@ REFUSAL = (
 )
 
 
-@on(  # capt-hook: no-escape root spawns every sub-worker, root #235843; the submit-pr skill's ship-pr agent is one ship call, root #336914
+@on(  # capt-hook: no-escape the coordinator spawns every sub-worker, coordinator #235843; the submit-pr skill's ship-pr agent is one ship call, coordinator #336914
     Event.PreToolUse,
     only_if=[Tool("Agent"), DriveActive()],
     tests={

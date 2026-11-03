@@ -643,7 +643,7 @@ func TestAHoldStandsAgainstEveryGoThatIsNotALaterLiveRootGo(t *testing.T) {
 			setup(t)
 
 			if row := h.snapshot(t)[1]; row.Hold != machine.MoverRoot {
-				t.Fatalf("hold = %q, want root", row.Hold)
+				t.Fatalf("hold = %q, want the coordinator", row.Hold)
 			}
 		})
 	}

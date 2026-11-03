@@ -448,7 +448,7 @@ def test_a_stacked_child_lands_the_parents_payload_under_another_number(capsys, 
 
 
 def test_a_closed_unmerged_pr_whose_files_match_the_trunk_is_not_a_landing(capsys, tmp_path):
-    """Root #283091: proof #47211 closed unmerged, its diff restored dev's mint.rs, and the ledger read it landed."""
+    """Coordinator #283091: proof #47211 closed unmerged, its diff restored dev's mint.rs, and the ledger read it landed."""
     shell = desk_shell(state="closed")
     shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE}})
     shell.pr_files[PR] = ["rust/crates/sandsql-journal/src/mint.rs"]
@@ -705,7 +705,7 @@ def test_show_renders_pr_rows_only(capsys):
 
 @pytest.mark.parametrize("synced", [True, False])
 def test_a_ledger_command_syncs_only_its_ledger_ref_before_a_read_and_after_a_write(capsys, monkeypatch, synced):
-    """Root #339762: the landing desk on dar-desk-1 wrote its own ledger copy while the Mac read another, so stall-watch paged on PRs already landed."""
+    """Coordinator #339762: the landing desk on dar-desk-1 wrote its own ledger copy while the Mac read another, so stall-watch paged on PRs already landed."""
     if synced:
         monkeypatch.setenv(ledger.LEDGER_SYNC, "1")
     shell = desk_shell()
@@ -823,7 +823,7 @@ def test_label_refuses_a_neutral_ai_review_because_it_is_a_held_blocking_finding
 
 
 def test_report_refuses_clean_while_ai_review_holds_a_blocking_finding():
-    """Root #336613: #47708 read READY from a clean report while forge-pr-reviewer held a blocking finding (336161)."""
+    """Coordinator #336613: #47708 read READY from a clean report while forge-pr-reviewer held a blocking finding (336161)."""
     shell = admitted(desk_shell())
     shell.routes[f"checks:{HEAD}"] = "check-runs-neutral-ai-review.json"
 
@@ -2176,7 +2176,7 @@ def test_a_refusal_on_a_gone_lanes_head_is_never_sent_to_it(capsys, lock):
     all_clean(shell)
 
     printed = capsys.readouterr().out
-    assert f"#24071 {LANE} is gone; its refusal goes to the root, not the lane" in printed
+    assert f"#24071 {LANE} is gone; its refusal goes to the coordinator, not the lane" in printed
     assert f"to {LANE}:" not in printed
     assert "routed_head" not in shell.fields("24071")
 

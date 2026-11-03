@@ -49,11 +49,11 @@ hook(  # capt-hook: no-escape the message names the token that settles the resol
     skip_if=[FromSubagent()],
     block=True,
     message=(
-        "A root resolution of a blocker, incident or urgent record names who fixes it: spawn the fix lane and name it with `lane=<name>`, or land the fix."
+        "A coordinator resolution of a blocker, incident or urgent record names who fixes it: spawn the fix lane and name it with `lane=<name>`, or land the fix."
         " A failure that already stopped resolves with `FIX-LIVE`, `not-ours:<who>` or `closed:<why it stopped>`."
     ),
     tests=coordinator_tests({
-        resolve("blocked until #48401 lands"): Block(pattern=r"^A root resolution of a blocker"),
+        resolve("blocked until #48401 lands"): Block(pattern=r"^A coordinator resolution of a blocker"),
         resolve("noted, tracked in the teardown stack"): Block(),
         resolve("closed: a known flake, blocked until Monday"): Block(),
         resolve("lane=hsbc-pr2-ci-1 lands #48401 by 4:40 PM"): Allow(),

@@ -353,7 +353,7 @@ func (s *finderPassState) replayed(view pullRequest, last string, gone []string)
 	grade := FinderGrade(earlier.Text)
 	text := fmt.Sprintf("finder: %s %s carried from #%d", grade, short(head, 7), earlier.Seq)
 	if root := s.settledBy(earlier); grade != finderPass && root != 0 {
-		text = fmt.Sprintf("finder: %s %s carried from #%d, settled by root #%d", finderPass, short(head, 7), earlier.Seq, root)
+		text = fmt.Sprintf("finder: %s %s carried from #%d, settled by coordinator #%d", finderPass, short(head, 7), earlier.Seq, root)
 	}
 	if len(gone) > 0 {
 		text = fmt.Sprintf("finder: %s %s carried from #%d, whose findings cite only files gone at this head: %s", finderPass, short(head, 7), earlier.Seq, strings.Join(gone, ", "))
@@ -497,7 +497,7 @@ func (s *finderPassState) priorText() string {
 			"out; never raise a closed finding again. Raise one only when a hunk this pass reads reintroduces it.\n\n"
 	}
 	if len(s.job.Ruled) > 0 {
-		text += "The root's rulings on this PR, oldest first:\n" + listed(s.job.Ruled) +
+		text += "The coordinator's rulings on this PR, oldest first:\n" + listed(s.job.Ruled) +
 			"A point a ruling settles is closed: never raise it again, and never grade against the ruling what it decided.\n\n"
 	}
 	if text != "" {

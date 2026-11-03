@@ -254,7 +254,7 @@ def test_a_landing_desk_hand_enqueue_is_warned_only_when_the_runners_gate_names_
     assert call[2:] == ["--config", str(tmp_path / "drive-state" / "runner.json"), "gate", "43246", "43243", "--partial"]
 
 
-TAP_REQUIRED = "#44705 cbc3f005e3 merge-mode pending TAP-REQUIRED rule/82317b0: it lands only on the owner's tap at this head, and a root go is no tap; no approval on the root's board names cbc3f005e3"
+TAP_REQUIRED = "#44705 cbc3f005e3 merge-mode pending TAP-REQUIRED rule/82317b0: it lands only on the owner's tap at this head, and a coordinator go is no tap; no approval on the coordinator's board names cbc3f005e3"
 
 
 def test_a_hand_enqueue_of_a_head_the_runner_refuses_for_the_owners_tap_is_refused_with_the_runners_reason(tmp_path, monkeypatch):

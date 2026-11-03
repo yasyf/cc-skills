@@ -26,7 +26,7 @@ hook(
     only_if=[Coordinator(), DriveActive(), Or(Tool("Monitor"), Runs("cci", "watch"), Runs("sleep"), TailsRoot())],
     skip_if=[FromSubagent(), Annotated("raw")],
     tests=coordinator_tests({
-        Input(tool="Monitor", tool_input={"description": "root's records", "timeout_ms": 1800000, "command": "cci watch --drive d --reader root"}, state=ACTIVE): Warn(pattern=r"lr coordinator next"),
+        Input(tool="Monitor", tool_input={"description": "the coordinator's records", "timeout_ms": 1800000, "command": "cci watch --drive d --reader root"}, state=ACTIVE): Warn(pattern=r"lr coordinator next"),
         Input(command="cci watch --drive d --reader root --cursor c", state=ACTIVE): Warn(),
         Input(command="cci tail --drive d --reader root --since 9", state=ACTIVE): Warn(),
         Input(command="until test -e /drive/done; do sleep 5; done", state=ACTIVE): Warn(),

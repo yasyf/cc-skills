@@ -629,7 +629,7 @@ def test_concurrent_readers_of_a_stale_register_copy_scan_the_ledger_once(home: 
 
 @pytest.mark.parametrize("verb", [["slice", "--lane", "lane-a", "--step", "1.9"], ["plan"]], ids=["slice", "plan"])
 def test_a_read_takes_the_last_register_copy_while_another_process_rebuilds_it(home: Path, package: Path, state: Path, capsys, monkeypatch: pytest.MonkeyPatch, verb: list[str]) -> None:
-    """p8a-step7 #220209: fidelity passes failed after 120 s waiting on the register rebuild a classify held; a slice reads the last copy instead (root #220219)."""
+    """p8a-step7 #220209: fidelity passes failed after 120 s waiting on the register rebuild a classify held; a slice reads the last copy instead (coordinator #220219)."""
     monkeypatch.setattr(ledger, "LOCK_WAIT_SECONDS", 2)
     shell = RegisterShell(seeded(package))
     assert ran(capsys, shell, "rows", "--json")[0] == 0
@@ -658,7 +658,7 @@ def test_plan_reads_any_kept_register_copy_without_rebuilding_it(home: Path, pac
 
 
 def test_a_sprite_reads_the_shipped_register_snapshot_however_its_ledger_refs_moved(home: Path, package: Path, state: Path, capsys) -> None:
-    """Owner 5:19 PM Oct 30 through root #228532: every Sprite finder pass failed waiting 120 s on a cold register rebuild; sprite-job.sh ships this machine's copy as a snapshot, and no read on the Sprite rebuilds it."""
+    """Owner 5:19 PM Oct 30 through coordinator #228532: every Sprite finder pass failed waiting 120 s on a cold register rebuild; sprite-job.sh ships this machine's copy as a snapshot, and no read on the Sprite rebuilds it."""
     shell = RegisterShell(seeded(package))
     assert ran(capsys, shell, "rows", "--json")[0] == 0
     kept = state / "register-brook.json"
@@ -1596,7 +1596,7 @@ class StandingShell(RegisterShell):
 
 
 def test_a_lane_slice_of_a_register_larger_than_the_cap_stays_under_it_with_every_matching_row_and_a_pointer_at_the_standing_rules(home: Path, package: Path, state: Path, capsys) -> None:
-    """Root #256265: `slice --refresh` appended every global row, about 800 KB, to each brief, so a lane spent about 200k tokens reading its own brief."""
+    """Coordinator #256265: `slice --refresh` appended every global row, about 800 KB, to each brief, so a lane spent about 200k tokens reading its own brief."""
     filler = {"kind": "scope", "status": "in-force", "global": "yes", "words": "Every lane keeps this rule. " * 40, "steps": '["all"]', "lanes": '["all"]', "paths": "none", "names": '["unrelated surface"]'}
     rows = seeded(package) | {f"rule/{index:07x}": dict(filler) for index in range(400)}
 
@@ -1616,7 +1616,7 @@ def test_a_lane_slice_of_a_register_larger_than_the_cap_stays_under_it_with_ever
 
 
 def test_a_slice_row_says_what_it_protects_and_when_it_does_not_apply(home: Path, package: Path, state: Path, capsys) -> None:
-    """Root #204765: the 5:41 PM idle rule was applied to work that shares nothing with a request, because the row carried his words alone."""
+    """Coordinator #204765: the 5:41 PM idle rule was applied to work that shares nothing with a request, because the row carried his words alone."""
     rows = seeded(package)
     rows["rule/aaaaaaa"] |= {"protects": "the relay hot path from code it does not need", "not_when": "a test fixture names relay-server"}
 
@@ -1635,7 +1635,7 @@ def test_a_lane_slice_matches_anchored_rows_by_the_lanes_paths(home: Path, packa
 
 
 def test_a_lane_slice_carries_the_rows_naming_a_pr_its_lane_or_a_lane_it_succeeds_owns(home: Path, package: Path, state: Path, registered: Path, capsys) -> None:
-    """Root #261029: a row naming a PR reached no lane, since a lane's PRs were not in its slice header."""
+    """Coordinator #261029: a row naming a PR reached no lane, since a lane's PRs were not in its slice header."""
     rows = seeded(package) | {
         "rule/4635800": {"kind": "order", "status": "in-force", "words": "Keep #46358 to the follower restart.", "steps": '["all"]', "lanes": '["all"]', "paths": "none"},
         "rule/4636000": {"kind": "order", "status": "in-force", "words": "Land #46360 last.", "steps": '["all"]', "lanes": '["all"]', "paths": "none"},
@@ -1760,7 +1760,7 @@ def test_the_worded_required_slice_carries_his_words_and_the_card_a_tap_answered
     assert '- Oct 21 9:15 PM PT: "Relay code lives in relay-journal. Never in relay-server."' in lines
     assert "    card-relay: Where does relay code live?" in lines
     assert '- Oct 20 3:00 PM PT: "Drain the pool when a run closes."' in lines
-    assert lines[lines.index("> The pass hands out work.") - 1] == "The plan's text for this row, the root's words his answers approve, not his own:"
+    assert lines[lines.index("> The pass hands out work.") - 1] == "The plan's text for this row, the coordinator's words his answers approve, not his own:"
     assert "Names: relay-server, parked worker" in lines
     assert "No relay code lands in relay-server" not in out
     assert "This also means:" not in out
@@ -2021,7 +2021,7 @@ def test_a_read_back_with_no_slice_line_names_the_roots_command_then_takes_the_s
     assert ran(capsys, RegisterShell(seeded(package), records=records), "readback", "--lane", "lane-a", "--contract", "500") == (
         1,
         f"READBACK-NO-SLICE #500: neither the read-back nor {brief} names a `Register slice: lane=lane-a step=<n>` line; "
-        "the root runs `rulings.py readback --program brook --lane lane-a --contract 500 --step <the lane's plan step>`\n",
+        "the coordinator runs `rulings.py readback --program brook --lane lane-a --contract 500 --step <the lane's plan step>`\n",
     )
     code, out = ran(capsys, RegisterShell(seeded(package), records=records), "readback", "--lane", "lane-a", "--contract", "500", "--step", "1.9")
     assert code == 0
@@ -2499,7 +2499,7 @@ def test_pr_block_says_what_a_protecting_row_protects_and_how_the_change_serves_
 
 
 def test_pr_block_names_a_deletion_of_a_protected_symbol_and_never_calls_it_left_alone(home: Path, package: Path, state: Path, capsys) -> None:
-    """plan-group-b-1 #238453, root #238470: pr-block wrote 'serves it by leaving SessionThreadFollower alone' for a diff that deleted SessionThreadFollower."""
+    """plan-group-b-1 #238453, coordinator #238470: pr-block wrote 'serves it by leaving SessionThreadFollower alone' for a diff that deleted SessionThreadFollower."""
     diff = DIFF.replace("-    retry_forever(relay-server);\n+    self.drain();", "-    self.drain();\n+    retry_forever(relay-server);")
     rows = seeded(package)
     rows["rule/bbbbbbb"] |= {"protects": "runs from holding a closed pool's connections"}
@@ -2634,7 +2634,7 @@ def test_amend_links_an_answer_and_rewrites_one_implication_and_records_both_on_
 
 
 def test_an_owner_requirement_binds_when_recorded_and_amend_moves_a_permits_line_to_requires(home: Path, package: Path, state: Path, capsys) -> None:
-    """perf-prevention-1 (ccn fa32987, root #209337): his speed and one-process requirements sat as permits lines waiting for a tick for a day."""
+    """perf-prevention-1 (ccn fa32987, coordinator #209337): his speed and one-process requirements sat as permits lines waiting for a tick for a day."""
     rows = seeded(package)
     rows["rule/aaaaaaa"]["implications"] = implied([("The chat list answers within half a second.", "permits"), ("The Mac runs one replication process.", "requires")])
     shell = RegisterShell(rows)

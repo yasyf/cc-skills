@@ -169,7 +169,7 @@ def test_a_standing_duty_reads_the_end_of_its_successor_chain_and_no_successor_o
 
     devbox, board = owner_update.duty_rows(found)
 
-    assert (devbox.who, devbox.blocks, devbox.unblock, devbox.unowned) == ("**nobody**", "devbox-explore-7 retired by done with no successor", "root launches its successor from /b/devbox-explore-7.md this turn", True)
+    assert (devbox.who, devbox.blocks, devbox.unblock, devbox.unowned) == ("**nobody**", "devbox-explore-7 retired by done with no successor", "the coordinator launches its successor from /b/devbox-explore-7.md this turn", True)
     assert (board.name, board.who, board.unowned) == ("refresh the board", "board-refresher-7", False)
 
 
@@ -185,10 +185,10 @@ def test_work_is_held_only_by_lanes_heard_within_two_hours_with_their_next_recor
     who, blocks, unblock, wrong = found.work(["release-5", "old-desk-1", "root"])
     nobody = found.work(["old-desk-1", "root"])
 
-    assert who == "release-5" and blocks.startswith("release-5 waits on root's answer to blocker #8 since ")
+    assert who == "release-5" and blocks.startswith("release-5 waits on the coordinator's answer to blocker #8 since ")
     assert unblock.startswith("release-5: head ") and "; next record due by " in unblock
     assert wrong.startswith("old-desk-1 quiet since ")
-    assert nobody[0] == "**nobody**" and nobody[2] == "nobody is on it, so root starts a lane on it this turn"
+    assert nobody[0] == "**nobody**" and nobody[2] == "nobody is on it, so the coordinator starts a lane on it this turn"
 
 
 def test_a_plan_with_no_numbered_steps_rows_each_piece_its_title_lists_and_a_lane_joins_a_piece_by_its_word():
@@ -272,7 +272,7 @@ def test_since_you_last_looked_names_new_rows_and_what_moved_and_nothing_that_st
 
 
 def test_a_dashboard_step_says_its_blocker_next_step_and_failures_in_plain_words_and_keeps_the_rows_cells_for_the_drill_in():
-    row = owner_update.Row("Step 3", "3. Switch the chat writer", "1 of 2 tasks done, 1 in progress, 0 blocked", "chat-1, chat-2", "chat-1 waits on root's answer to ask #9", "chat-1: head 6:01 PM: pushed; next record due by 6:31 PM", "None recorded")
+    row = owner_update.Row("Step 3", "3. Switch the chat writer", "1 of 2 tasks done, 1 in progress, 0 blocked", "chat-1, chat-2", "chat-1 waits on the coordinator's answer to ask #9", "chat-1: head 6:01 PM: pushed; next record due by 6:31 PM", "None recorded")
     lanes = [lane("chat-1", "desired", 5, prs=[48700, 48701]), lane("chat-2", "desired", 15, prs=[48701])]
     wait = record(9, "chat-1", "ask", "which writer?", 20)
     found = owner_update.Sources({item["lane"]: item for item in lanes}, {}, {"chat-1": wait}, NOW, ({"owner": "chat-2", "failure": "The writer shipped a layout no reader knew.", "mechanism": "readers first", "state": "building"},))
@@ -392,7 +392,7 @@ def test_a_pinned_row_is_held_by_every_working_lane_its_words_name_and_by_nobody
 
 
 def test_a_full_row_only_where_a_blocker_or_a_failure_lives_and_one_line_naming_the_rest():
-    blocked = owner_update.Row("red-sweep-3", "reds", "desired", "red-sweep-3", "red-sweep-3 waits on root's answer to ask #9", "red-sweep-3: state 6:01 PM", "None recorded")
+    blocked = owner_update.Row("red-sweep-3", "reds", "desired", "red-sweep-3", "red-sweep-3 waits on the coordinator's answer to ask #9", "red-sweep-3: state 6:01 PM", "None recorded")
     plain = owner_update.Row("flake-1", "flakes", "desired", "flake-1", "nothing recorded", "flake-1: state 6:05 PM: fixed", "None recorded")
     quiet = owner_update.Row("old-lane-1", "x", "desired, last report 2:38 PM", "**nobody**", "nothing recorded", "nobody is on it", "old-lane-1 quiet since 2:38 PM")
     step = owner_update.Row("Step 3", "3. The writer", "0 of 2 tasks done", "flake-1, red-sweep-3", "nothing recorded", "-", "None recorded")

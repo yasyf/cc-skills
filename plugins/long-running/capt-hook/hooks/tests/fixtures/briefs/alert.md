@@ -2,7 +2,7 @@
 
 Alert: Datadog monitor 100000001 fired on POST /api/sessions.
 
-1. Classify the failing requests and post the classification to root.
+1. Classify the failing requests and post the classification to the coordinator.
 2. Fix it with the smallest diff and a failing-first regression test.
 
 Register slice: lane=api-sessions-fix step=incident

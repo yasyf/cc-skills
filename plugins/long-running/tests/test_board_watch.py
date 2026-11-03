@@ -315,7 +315,7 @@ def test_a_tap_resolves_open_asks_naming_its_block_or_card_but_not_a_longer_id(t
 
 
 def test_each_structured_pick_on_the_roots_board_asks_root_for_a_lane_and_files_a_task(tmp_path: Path) -> None:
-    """Root #225532: three owner picks sat two hours with no lane, so each pick asks root for one the moment it lands; a write-in goes to the communicator first."""
+    """Coordinator #225532: three owner picks sat two hours with no lane, so each pick asks the coordinator for one the moment it lands; a write-in goes to the communicator first."""
     shell = RecordedShell()
     run(tmp_path, shell)
 
@@ -655,7 +655,7 @@ def pick(seq: int, block: str, minutes: int, event: str = "choice.selected", ses
 
 
 def test_an_owner_pick_no_decide_or_claim_cites_is_reposted_at_30_minutes_and_escalated_at_60() -> None:
-    """Root 2:42 PM Nov 2 (board-audit-1): a pick no lane picks up is re-posted at 30 minutes and goes to root as a blocker at 60."""
+    """Coordinator 2:42 PM Nov 2 (board-audit-1): a pick no lane picks up is re-posted at 30 minutes and goes to the coordinator as a blocker at 60."""
     owners = [pick(5, "q-thirty", 35), pick(6, "q-sixty", 65), pick(7, "q-cited", 65), pick(8, "q-fresh", 10), pick(9, "q-other", 65, session="other-board"), pick(10, "q-pack", 40, event="pack.interaction")]
     cites = [{"seq": 12, "drive": "brook", "kind": "decide", "lane": "root", "text": "api-lane: build q-cited as picked"}, {"seq": 3, "drive": "brook", "kind": "claim", "lane": "api-lane", "text": "claim q-thirty"}]
     shell, reposted = CiteShell(owners, cites), set()

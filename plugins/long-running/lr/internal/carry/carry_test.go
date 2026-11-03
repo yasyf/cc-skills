@@ -32,7 +32,7 @@ func landed(t *testing.T, c Carrier, onBox string) string {
 	t.Helper()
 	rel, ok := strings.CutPrefix(onBox, c.Box)
 	if !ok {
-		t.Fatalf("%s is not under the box root %s", onBox, c.Box)
+		t.Fatalf("%s is not under the box coordinator %s", onBox, c.Box)
 	}
 	data, err := os.ReadFile(filepath.Join(c.Into, rel))
 	if err != nil {
@@ -149,7 +149,7 @@ func TestTextNamingNothingOnThisMacPassesThroughUnchanged(t *testing.T) {
 	brief := strings.Join([]string{
 		"Any path in this brief under " + c.Home + "/ is the drive's Mac, so " + c.Home + "/... is unavailable.",
 		"Work from https://github.com/yasyf/cc-skills/pull/1990 and origin/main, and/or /v1/cluster.",
-		"The box root is /home/sprite/drive, and a lane worktree is ~/.claude/worktrees/<lane>.",
+		"The box the coordinator is /home/sprite/drive, and a lane worktree is ~/.claude/worktrees/<lane>.",
 		"A brief sits at <state dir>/meta/brief.md, " + c.Home + "/.claude/scratch/durable-agents-rebuil… was cut.",
 		"Render one with `ccn doc show <id>`.",
 		"",

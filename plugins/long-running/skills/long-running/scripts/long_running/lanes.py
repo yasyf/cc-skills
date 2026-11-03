@@ -10,8 +10,8 @@ apart from one a record's text or a watched PR only names.
 A lane with no worktree on this machine, such as an Orca worker on a paired remote server, is
 read from the drive's Orca Run instead: ``orca_status`` matches the lane to the Run's tasks by
 title, display name, or the lane its spec opens with, and reports each matching dispatch. A drive
-that recorded no Run reads the newest Run its root terminal coordinates. A lane that is an
-in-process teammate of the drive's root sessions also gets a line: ``teammate_status`` finds it in Claude
+that recorded no Run reads the newest Run its coordinator terminal coordinates. A lane that is an
+in-process teammate of the drive's coordinator sessions also gets a line: ``teammate_status`` finds it in Claude
 Code's team config ``teams/session-<id prefix>/config.json`` and reads its state from the tail of its
 transcript ``projects/*/<session>/subagents/agent-*.jsonl``.
 Every call goes through ``run``, which returns stdout and raises CalledProcessError on a
@@ -341,7 +341,7 @@ def orca_workers(run: Run, run_id: str) -> list[dict]:
 
 
 def coordinated_run(run: Run, terminal: str) -> str | None:
-    """The newest Orca Run the terminal coordinates, for a drive whose registry entry names its root terminal but no Run."""
+    """The newest Orca Run the terminal coordinates, for a drive whose registry entry names its coordinator terminal but no Run."""
     runs: list[dict] = []
     cursor: list[str] = []
     while page := orca(run, "run-list", "--limit", "100", *cursor):
@@ -474,7 +474,7 @@ def teammate_transcript(config_dir: Path, session: str, name: str) -> Path | Non
 
 
 def teammate_status(lane: str, sessions: Iterable[str], config_dir: Path, now: datetime) -> list[Teammate]:
-    """Each in-process teammate of the drive's root sessions the lane names, with its agent type, model, turn state, last activity, and when it joined."""
+    """Each in-process teammate of the drive's coordinator sessions the lane names, with its agent type, model, turn state, last activity, and when it joined."""
     found: list[Teammate] = []
     for session in sessions:
         config = config_dir / "teams" / f"session-{session[:8]}" / "config.json"

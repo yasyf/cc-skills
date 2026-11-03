@@ -13,7 +13,7 @@ loads the repository's own CLAUDE.md and AGENTS.md and reads the PR body spec th
 the diff and log against `--base` (default `origin/HEAD`), the lane's brief, and each
 notes file of findings the PR must carry. It writes `pr-title.txt`, `pr-body.md`, and
 `commit-message.txt` to `--out` (default `<git dir>/pr-prose`) and prints the three
-paths; the lane ships them verbatim and never asks another lane or the root for prose.
+paths; the lane ships them verbatim and never asks another lane or the coordinator for prose.
 """
 
 from __future__ import annotations

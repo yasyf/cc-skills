@@ -128,7 +128,7 @@ func firstCells(lines []string) []string {
 }
 
 func TestAFullRowOnlyWhereABlockerOrAFailureLivesAndOneLineNamingTheRest(t *testing.T) {
-	blocked := Row{"red-sweep-3", "reds", "desired", "red-sweep-3", "red-sweep-3 waits on root's answer to ask #9", "red-sweep-3: state 6:01 PM", noneRecorded, false}
+	blocked := Row{"red-sweep-3", "reds", "desired", "red-sweep-3", "red-sweep-3 waits on the coordinator's answer to ask #9", "red-sweep-3: state 6:01 PM", noneRecorded, false}
 	plain := Row{"flake-1", "flakes", "desired", "flake-1", nothingBlocks, "flake-1: state 6:05 PM: fixed", noneRecorded, false}
 	quiet := Row{"old-lane-1", "x", "desired, last report 2:38 PM", nobody, nothingBlocks, "nobody is on it", "old-lane-1 quiet since 2:38 PM", false}
 	step := Row{"Step 3", "3. The writer", "0 of 2 tasks done", "flake-1, red-sweep-3", nothingBlocks, "-", noneRecorded, false}
@@ -216,7 +216,7 @@ func TestTheRetroTableIsItsLedgersRetroRowsLessDuplicatesAndNoneBeforeItsFirstRo
 }
 
 func TestADashboardStepSaysItsBlockerNextStepAndFailuresInPlainWordsAndKeepsTheRowsCellsForTheDrillIn(t *testing.T) {
-	row := Row{"Step 3", "3. Switch the chat writer", "1 of 2 tasks done, 1 in progress, 0 blocked", "chat-1, chat-2", "chat-1 waits on root's answer to ask #9", "chat-1: head 6:01 PM: pushed; next record due by 6:31 PM", noneRecorded, false}
+	row := Row{"Step 3", "3. Switch the chat writer", "1 of 2 tasks done, 1 in progress, 0 blocked", "chat-1, chat-2", "chat-1 waits on the coordinator's answer to ask #9", "chat-1: head 6:01 PM: pushed; next record due by 6:31 PM", noneRecorded, false}
 	first := heard("chat-1", "desired", 5)
 	first.PRs = []int{48701, 48700}
 	second := heard("chat-2", "desired", 15)

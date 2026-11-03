@@ -1,4 +1,4 @@
-"""judge_watch.py over scripted bus records and a scripted judge: what it flags, to whom, what a recheck records as a miss, and how a dispute reaches root or closes on root's ruling."""
+"""judge_watch.py over scripted bus records and a scripted judge: what it flags, to whom, what a recheck records as a miss, and how a dispute reaches the coordinator or closes on the coordinator's ruling."""
 
 from __future__ import annotations
 
@@ -113,7 +113,7 @@ def test_new_owner_words_recheck_what_cites_the_row_and_a_new_yes_after_a_no_is_
 
 
 def test_a_writers_answer_on_a_flag_asks_root_alone_with_both_readings_and_an_owner_pick_becomes_an_eval_case(watch, run):
-    """Root #263609: judge-watch ordered board-refresher lanes to post owner cards for contract-reading disputes after four root rulings."""
+    """Coordinator #263609: judge-watch ordered board-refresher lanes to post owner cards for contract-reading disputes after four coordinator rulings."""
     first = run(Scripted(watch, [contract(100)], [MISREAD]))
     flag_seq = next(iter(first.saved.flags))
     reply = {"seq": 300, "lane": "lane-a", "kind": "answer", "re": int(flag_seq), "text": "He said one process per Mac; keys still share it.", "refs": {}}
@@ -141,5 +141,5 @@ def test_a_dispute_root_already_ruled_on_closes_with_that_ruling_and_asks_nobody
 
     [closed] = posted(second)
     assert (closed["kind"], closed["to"]) == ("answer", ["lane-a", "root"])
-    assert closed["text"] == f"JUDGE dispute on #{flag_seq} closed by root #290: the port keeps the source contract (ruling #262338)"
+    assert closed["text"] == f"JUDGE dispute on #{flag_seq} closed by coordinator #290: the port keeps the source contract (ruling #262338)"
     assert "--resolves" in second.posts[-1] and flag_seq not in second.saved.flags

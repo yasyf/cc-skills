@@ -115,7 +115,7 @@ Answer "yes" when he would stumble, quote the first term or line he would stumbl
 KINDS: dict[str, tuple[str, str]] = {
     "contract": ("a lane's contract: what it promises to build from his words", MISREAD),
     "relay": (
-        "the root's relay of his words or pick to the lanes that build it",
+        "the coordinator's relay of his words or pick to the lanes that build it",
         f"{MISREAD}\nA relay also misreads him when it adds a mechanism, state, field, timer or route that neither his words nor the plan lines shown name, unless it cites a ruling that names it.",
     ),
     "card": ("a card, or a lane's request for one, that asks the owner to decide", MISREAD),
@@ -186,7 +186,7 @@ When it does, answer "yes" if it drops, narrows or contradicts any part of his a
     ),
     "lane-gone": (
         "the landing runner's alarm that a lane is gone: it stopped answering and needs a ping or a successor",
-        "Is this lane gone, with work owed and nothing to wait on? It owes work when a record asks it to do something, in whatever words, and nothing it or anyone posted since did the work or answered. Answer \"no\" when the records show it is alive and working, finished with nothing owed, a worker or sub-task of another lane rather than a lane of its own, already replaced by a successor or another lane that took its work, or waiting on something its last records name that has not happened yet, such as a build, a review, a reply or another pull request. Answer \"yes\" when it went quiet with work owed and no such reason, so the root must hear the alarm.",
+        "Is this lane gone, with work owed and nothing to wait on? It owes work when a record asks it to do something, in whatever words, and nothing it or anyone posted since did the work or answered. Answer \"no\" when the records show it is alive and working, finished with nothing owed, a worker or sub-task of another lane rather than a lane of its own, already replaced by a successor or another lane that took its work, or waiting on something its last records name that has not happened yet, such as a build, a review, a reply or another pull request. Answer \"yes\" when it went quiet with work owed and no such reason, so the coordinator must hear the alarm.",
     ),
     "red": (
         "a pull request's failing CI build, with the failing jobs' log lines, that the landing runner sends to the pull request's own lane to fix",
@@ -402,7 +402,7 @@ def ask(kind: str, evidence: str, artifact: str, *, backend: Backend, timeout: f
 
 
 def grounded(verdict: Verdict, evidence: str) -> Verdict:
-    """`verdict`, or unsure with its quote dropped when it flags on a phrase of the evidence that the evidence does not hold, such as owner words no record carries (root #271041)."""
+    """`verdict`, or unsure with its quote dropped when it flags on a phrase of the evidence that the evidence does not hold, such as owner words no record carries (coordinator #271041)."""
     if not verdict.flagged or not verdict.evidence_phrase.strip():
         return verdict
     held = plain_text(evidence)

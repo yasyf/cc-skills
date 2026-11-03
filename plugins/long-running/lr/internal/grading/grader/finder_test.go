@@ -796,8 +796,8 @@ func TestACarriedMajorRootSettledCarriesAsOkCitingTheRootDecide(t *testing.T) {
 		settled map[string]int
 		want    string
 	}{
-		{"settled", "finder: major a269784 1 open: walk.go:9 skips the volume link", map[string]int{"149302": 149400}, "finder: ok %s carried from #149302, settled by root #149400"},
-		{"settled-upchain", "finder: major a269784 carried from #149100", map[string]int{"149100": 149150}, "finder: ok %s carried from #149302, settled by root #149150"},
+		{"settled", "finder: major a269784 1 open: walk.go:9 skips the volume link", map[string]int{"149302": 149400}, "finder: ok %s carried from #149302, settled by coordinator #149400"},
+		{"settled-upchain", "finder: major a269784 carried from #149100", map[string]int{"149100": 149150}, "finder: ok %s carried from #149302, settled by coordinator #149150"},
 		{"unsettled", "finder: major a269784 1 open: walk.go:9 skips the volume link", map[string]int{"149100": 149150}, "finder: major %s carried from #149302"},
 	}
 	for _, c := range cases {

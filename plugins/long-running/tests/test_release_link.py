@@ -83,7 +83,7 @@ def test_a_reader_that_starts_during_an_install_runs_one_whole_version(tmp_path:
 
 @pytest.mark.parametrize("relinks", [1, 144])
 def test_a_cci_call_made_while_its_path_entry_is_relinked_runs_the_plugin_shim(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, relinks: int):
-    """Root #233454, #233635: a cci cask reinstall left /opt/homebrew/bin/cci missing for seconds, stall_watch.py died on FileNotFoundError, and no stall alarm posted."""
+    """Coordinator #233454, #233635: a cci cask reinstall left /opt/homebrew/bin/cci missing for seconds, stall_watch.py died on FileNotFoundError, and no stall alarm posted."""
     monkeypatch.setenv("HOME", str(tmp_path))
     shim = tmp_path / ".claude" / "plugins" / "marketplaces" / "cc-inbox" / "plugin" / "bin" / "cci"
     shim.parent.mkdir(parents=True)

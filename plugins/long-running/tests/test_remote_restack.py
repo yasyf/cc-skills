@@ -72,7 +72,7 @@ def stacked(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, conflicting: bool, 
 
 @pytest.mark.parametrize("conflicting", [False, True], ids=["moves-the-chain", "conflict-pushes-nothing"])
 def test_a_remote_restack_replays_the_chain_onto_its_base_on_the_sprite_and_posts_each_new_head(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, conflicting: bool) -> None:
-    """Owner 1:27 PM Oct 30, through root #221702: restacks move off this machine; the lane names a PR or stack, a Sprite fetches, rebases, reports conflicts and pushes, and the lane gets the result record. p8a-step7 #227831: a conflict in the lower PR's commit was reported against the top PR with no conflict output."""
+    """Owner 1:27 PM Oct 30, through coordinator #221702: restacks move off this machine; the lane names a PR or stack, a Sprite fetches, rebases, reports conflicts and pushes, and the lane gets the result record. p8a-step7 #227831: a conflict in the lower PR's commit was reported against the top PR with no conflict output."""
     mac, sprite = tmp_path / "mac", tmp_path / "sprite"
     clone = mac / "clone"
     origin, heads = stacked(tmp_path, monkeypatch, conflicting, Path(f"{sprite}{clone}"))

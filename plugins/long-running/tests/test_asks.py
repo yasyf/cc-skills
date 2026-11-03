@@ -483,7 +483,7 @@ def test_a_repeat_of_an_open_ask_is_a_progress_entry_on_it_not_a_second_row(caps
     [("root", "is the coordinator"), ("silent-lane", "has posted nothing")],
 )
 def test_an_ask_needs_a_live_worker_as_its_owner(lane, said):
-    """Owner 10:26 PM Nov 1: no ask without a live owner lane; root owning it is no owner."""
+    """Owner 10:26 PM Nov 1: no ask without a live owner lane; coordinator owning it is no owner."""
     shell = desk_shell()
 
     with pytest.raises(SystemExit, match=said):

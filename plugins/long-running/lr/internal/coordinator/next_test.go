@@ -172,7 +172,7 @@ func TestNextPrintsOneBatchKillsItsWatchAndResumesAfterIt(t *testing.T) {
 		t.Fatalf("first run named a cursor it does not have: %q", lines[0])
 	}
 	if !strings.Contains(lines[1], "--since 12") || !strings.Contains(lines[1], "--reader root") || !strings.Contains(lines[1], "--drive d") {
-		t.Fatalf("second run did not resume as reader root after 12: %q", lines[1])
+		t.Fatalf("second run did not resume as reader the coordinator after 12: %q", lines[1])
 	}
 }
 

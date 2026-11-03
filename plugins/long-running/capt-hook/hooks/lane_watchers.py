@@ -49,7 +49,7 @@ def owned_by(agent_id: str, pids: list[int]) -> set[int]:
     },
 )
 def reap_orphaned_lane_watchers(evt: BaseHookEvent) -> HookResult | None:
-    """When a lane stops, SIGTERM every poll tree it left reparented to launchd: a `timeout`, `sleep`, `tail`, `cci watch` or `lr wait` root whose environment carries the lane's CCI_AGENT_ID, with all its descendants (owner, 8:45 PM Nov 2: "get rid of all those idle watchers now and fix it so they don't stick around in the future")."""
+    """When a lane stops, SIGTERM every poll tree it left reparented to launchd: a `timeout`, `sleep`, `tail`, `cci watch` or `lr wait` the coordinator whose environment carries the lane's CCI_AGENT_ID, with all its descendants (owner, 8:45 PM Nov 2: "get rid of all those idle watchers now and fix it so they don't stick around in the future")."""
     table = rows()
     roots = [pid for pid, ppid, process in table if ppid == 1 and POLL_ROOT.search(process)]
     if not roots or not (mine := owned_by(evt.agent_id or "", roots)):

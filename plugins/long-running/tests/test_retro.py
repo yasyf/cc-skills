@@ -112,7 +112,7 @@ def test_a_row_closes_only_live_with_its_record_or_as_a_duplicate():
 
 
 def test_check_lists_each_malformed_repeated_or_past_due_row_and_exits_one(capsys):
-    """The root's Stop hook and the stall watch read this one rule (owner 10:26 PM Nov 1)."""
+    """The coordinator's Stop hook and the stall watch read this one rule (owner 10:26 PM Nov 1)."""
     shell = FakeShell()
     shell.rows = {
         "retro/000001": {"failure": "no state written", "mechanism": "m", "owner": "fix-lane", "due": stamp(60)},

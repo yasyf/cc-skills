@@ -12,20 +12,20 @@ every record since its cursor and asks the drive's judge (`long_running/judge.py
     contract  a lane's `contract`: does it misread his words, narrower than he said or too literally, on the
               rows it acts on, which `rulings.py readback --words` prints: those its slice carries for its lane,
               step, PRs and paths, and those it cites, read together so his newest words on a subject govern
-    relay     a root `decide`: does it carry his pick on the rows it cites in full, and add nothing his words
+    relay     a coordinator `decide`: does it carry his pick on the rows it cites in full, and add nothing his words
               and the plan lines it shares words with never named?
-    recheck   a root `decision` announcing `Register classify` with `extended <key>`: he added words to a
+    recheck   a coordinator `decision` announcing `Register classify` with `extended <key>`: he added words to a
               row, so the ten newest contracts and relays of the last day that cite it are judged again under
               all his words, told to apply the reason behind his correction to items he did not name
 
-A yes posts one `review` record, `JUDGE <kind> #<seq> <key>: <sentence>`, to the writer and root, in reply to
+A yes posts one `review` record, `JUDGE <kind> #<seq> <key>: <sentence>`, to the writer and the coordinator, in reply to
 the artifact, naming the row whose words the judge quoted. A recheck yes whose earlier verdict on the same
 contract, or the same relay and row, was not a yes is a miss: it says so, and the case is written to
 `judge/misses/` in the drive's state folder for `judge-eval.py`.
-The writer disputes a flag by answering on it. A root `decide` or `decision` of the last day that replies to
+The writer disputes a flag by answering on it. A coordinator `decide` or `decision` of the last day that replies to
 or resolves the flag, the artifact or the answer, or names one of the artifact's PRs, closes the dispute with
-that ruling. Otherwise the pass asks root alone, never a board lane, with his words, the judge's reading and
-the writer's in `judge/disputes/<flag seq>.md`. An owner pick on a `judge-dispute-<flag seq>` card root puts
+that ruling. Otherwise the pass asks the coordinator alone, never a board lane, with his words, the judge's reading and
+the writer's in `judge/disputes/<flag seq>.md`. An owner pick on a `judge-dispute-<flag seq>` card the coordinator puts
 on his board writes the case to `judge/owner/` with the verdict he chose. A failed judge call posts nothing.
 State lives in `judge-watch.json` beside `orca.desk_inbox`, under a lock a second pass meets by exiting.
 """
@@ -200,7 +200,7 @@ class Pass:
     def dispute(self, reply: dict) -> None:
         flag = self.saved.flags[str(reply["re"])]
         if ruling := self.ruled(flag, reply):
-            self.post("answer", f"JUDGE dispute on #{reply['re']} closed by root #{ruling['seq']}: {ruling['text'][:RULING_CHARS]}", [flag["lane"], ROOT], re=reply["seq"], resolves=int(reply["re"]))
+            self.post("answer", f"JUDGE dispute on #{reply['re']} closed by coordinator #{ruling['seq']}: {ruling['text'][:RULING_CHARS]}", [flag["lane"], ROOT], re=reply["seq"], resolves=int(reply["re"]))
             del self.saved.flags[str(reply["re"])]
             return
         card = self.watch.drive_state / "judge" / "disputes" / f"{reply['re']}.md"

@@ -291,7 +291,7 @@ func (o owing) owes() string {
 }
 
 func (o owing) post(d Deps, now time.Time) {
-	do(d.Post(Post{Kind: "defect", To: []string{Root, o.name}, LaneRef: o.name, Text: fmt.Sprintf("%s %s would retire, but %s. The supervisor holds %s, never relaunched or retired, until it posts again. %s: delete the code, or hand each task to a live lane with `ccn task edit <id> --assignee <lane>`; root: relaunch it or reassign its tasks.", pacific(now), o.name, o.owes(), o.name, o.name)}))
+	do(d.Post(Post{Kind: "defect", To: []string{Root, o.name}, LaneRef: o.name, Text: fmt.Sprintf("%s %s would retire, but %s. The supervisor holds %s, never relaunched or retired, until it posts again. %s: delete the code, or hand each task to a live lane with `ccn task edit <id> --assignee <lane>`; coordinator: relaunch it or reassign its tasks.", pacific(now), o.name, o.owes(), o.name, o.name)}))
 }
 
 func unreadBy(s *store.Store, r Record, name, cited string) string {
@@ -306,7 +306,7 @@ func unreadBy(s *store.Store, r Record, name, cited string) string {
 	if cited != "" {
 		read = fmt.Sprintf("cites last-read=%s, older than %s's newest record #%d", cited, name, newestSeq)
 	}
-	return fmt.Sprintf("root's %s #%d would stand %s%s%s", r.Kind, r.Seq, name, unreadMark, read)
+	return fmt.Sprintf("the coordinator's %s #%d would stand %s%s%s", r.Kind, r.Seq, name, unreadMark, read)
 }
 
 type Row struct {
@@ -395,7 +395,7 @@ func Classify(lane store.Lane, peer *Peer, now time.Time, tokens, rotateAt int) 
 	}
 	if !aliveNow {
 		if lane.StoppedOn != 0 {
-			return Verdict{StoodDown, fmt.Sprintf("stopped on root's #%d", lane.StoppedOn)}
+			return Verdict{StoodDown, fmt.Sprintf("stopped on the coordinator's #%d", lane.StoppedOn)}
 		}
 		if lane.Waiting != 0 {
 			return Verdict{Kind: Ok}

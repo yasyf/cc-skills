@@ -339,7 +339,7 @@ def test_a_compaction_leaves_a_pointer_naming_the_active_doc_byte_identical(home
     session = home / "session"
     plan, text = breezy_plan(home, pointer)
     (docs / "docs.json").write_text(json.dumps([breezy_doc(PACKAGED_DOC, "2026-10-22T22:33:44Z")]))
-    (docs / f"{PACKAGED_DOC}.md").write_text("## Root's next actions\n1. hand off the package\n")
+    (docs / f"{PACKAGED_DOC}.md").write_text("## The coordinator's next actions\n1. hand off the package\n")
     handoff.CompactionState(active=True, coordinator=True, plan_path=str(plan)).save(bash(session))
 
     handoff.compaction_instructions(precompact(session))
@@ -359,7 +359,7 @@ def test_a_new_active_doc_rewrites_the_pointer_without_a_drive_label(home: Path,
     (docs / "docs.json").write_text(
         json.dumps([breezy_doc(PACKAGED_DOC, "2026-10-22T22:33:44Z"), breezy_doc(NEWER_DOC, "2026-10-23T04:00:00Z")])
     )
-    (docs / f"{NEWER_DOC}.md").write_text("## Root's next actions\n1. resume the rebuild\n")
+    (docs / f"{NEWER_DOC}.md").write_text("## The coordinator's next actions\n1. resume the rebuild\n")
     handoff.CompactionState(active=True, coordinator=True, plan_path=str(plan)).save(bash(session))
 
     handoff.compaction_instructions(precompact(session))
@@ -398,7 +398,7 @@ def test_the_roots_new_doc_gains_the_generated_sections_in_place_and_supersedes_
     assert plan.read_text() == "# brook\n"
 
     (docs / "docs.json").write_text(json.dumps([doc("a" * 40, "2026-09-30T04:00:00Z"), doc("b" * 40, "2026-09-30T05:44:08Z")]))
-    (docs / ("b" * 40 + ".md")).write_text("## Root's next actions\n1. land l11\n")
+    (docs / ("b" * 40 + ".md")).write_text("## The coordinator's next actions\n1. land l11\n")
     result = handoff.compact_when_idle(stop_event(session, background_tasks=[{"id": "t1", "type": "teammate", "status": "running", "description": "orca-desk-6"}]))
 
     assert result.system_message.startswith("The handoff is recorded")
@@ -406,7 +406,7 @@ def test_the_roots_new_doc_gains_the_generated_sections_in_place_and_supersedes_
     assert not any(call[:2] == ["doc", "add"] and "standing-rules:brook" not in call for call in ccn_calls(docs))
     assert active(docs) == ["b" * 40]
     augmented = (docs / ("b" * 40 + ".md")).read_text()
-    assert augmented.endswith("_From doc bbbbbbb._\n\n## Root's next actions\n1. land l11\n")
+    assert augmented.endswith("_From doc bbbbbbb._\n\n## The coordinator's next actions\n1. land l11\n")
     assert "- teammate: orca-desk-6" in augmented
     assert "read the progress doc `ccn doc show bbbbbbb`, then " in state(session).digest
     assert (state(session).active_doc, state(session).read_first, state(session).narrative) == ("b" * 40, [], "bbbbbbb")
@@ -417,13 +417,13 @@ def test_the_roots_new_doc_gains_the_generated_sections_in_place_and_supersedes_
     with handoff.CompactionState.mutate(bash(session)) as saved:
         saved.phase, saved.prior = "due", ["b" * 40]
     (docs / "docs.json").write_text(json.dumps([doc("b" * 40, "2026-09-30T06:00:00Z"), doc("c" * 40, "2026-09-30T07:00:00Z")]))
-    (docs / ("c" * 40 + ".md")).write_text("## Root's next actions\n1. land l12\n")
+    (docs / ("c" * 40 + ".md")).write_text("## The coordinator's next actions\n1. land l12\n")
     handoff.compact_when_idle(stop_event(session))
     [pointer] = [line for line in plan.read_text().splitlines() if line.startswith(handoff.POINTER_PREFIX)]
     assert "`ccn doc show cccccccc`" in pointer
     assert ["doc", "supersede", "b" * 40, "--by", "c" * 40] in ccn_calls(docs)
     assert not any(call[:2] == ["doc", "add"] and "standing-rules:brook" not in call for call in ccn_calls(docs))
-    assert (docs / ("c" * 40 + ".md")).read_text().endswith("_From doc ccccccc._\n\n## Root's next actions\n1. land l12\n")
+    assert (docs / ("c" * 40 + ".md")).read_text().endswith("_From doc ccccccc._\n\n## The coordinator's next actions\n1. land l12\n")
     assert plan.read_text().startswith("# brook\n\n")
 
 
@@ -746,7 +746,7 @@ def test_an_uncited_standing_rule_warns_at_the_stop_at_its_record_not_the_doc(ho
     rule = {"id": "4ffc9a5" + "0" * 33, "title": "When does a merged change get released?", "tags": ["scope:durable", "brook"]}
     (docs / "answers.json").write_text(json.dumps([rule]))
     (docs / "docs.json").write_text(json.dumps([doc("b" * 40, "2026-09-30T05:44:08Z")]))
-    (docs / ("b" * 40 + ".md")).write_text("## Root's next actions\n1. watch Acme\n")
+    (docs / ("b" * 40 + ".md")).write_text("## The coordinator's next actions\n1. watch Acme\n")
     standing_rule(docs, "go", "release on the owner's word")
     handoff.CompactionState(active=True, coordinator=True, plan_path=str(plan), slug="brook", phase="due").save(bash(session))
 
@@ -772,7 +772,7 @@ def test_every_compaction_generates_the_handoff_and_restores_its_digest(home: Pa
     inbox.mkdir(parents=True)
     standing_rule(docs, "go", "release every landing as it merges")
     (docs / "docs.json").write_text(json.dumps([doc("a" * 40, "2026-09-30T04:00:00Z")]))
-    (docs / ("a" * 40 + ".md")).write_text("## Root's next actions\n1. watch Acme\n")
+    (docs / ("a" * 40 + ".md")).write_text("## The coordinator's next actions\n1. watch Acme\n")
     add_register(docs, "# brook register\n\n1. Pulumi state is the only truth.\n")
     handoff.CompactionState(active=True, coordinator=True, plan_path=str(plan), slug="brook").save(bash(session))
 
@@ -780,7 +780,7 @@ def test_every_compaction_generates_the_handoff_and_restores_its_digest(home: Pa
 
     generated = (docs / ("a" * 40 + ".md")).read_text()
     assert "- #1 [cci #1]" in generated
-    assert generated.endswith("_From doc aaaaaaa._\n\n## Root's next actions\n1. watch Acme\n")
+    assert generated.endswith("_From doc aaaaaaa._\n\n## The coordinator's next actions\n1. watch Acme\n")
     assert not any(call[:2] in (["doc", "add"], ["doc", "supersede"]) and "standing-rules:brook" not in call for call in ccn_calls(docs))
 
     restored = handoff.reground(session_start(session, "compact")).message
@@ -839,8 +839,8 @@ def session_start(session: Path, source: str) -> SessionStartEvent:
 def test_a_resumed_drive_restores_its_newest_progress_doc_within_budget(home: Path, plan: Path, docs: Path) -> None:
     session = home / "session"
     (docs / "docs.json").write_text(json.dumps([doc("a" * 40, "2026-09-30T04:00:00Z"), doc("b" * 40, "2026-09-30T05:00:00Z")]))
-    (docs / ("a" * 40 + ".md")).write_text("## Root's next actions\n1. stale\n")
-    (docs / ("b" * 40 + ".md")).write_text("## Root's next actions\n1. watch Acme\n" + "- lane row\n" * 400)
+    (docs / ("a" * 40 + ".md")).write_text("## The coordinator's next actions\n1. stale\n")
+    (docs / ("b" * 40 + ".md")).write_text("## The coordinator's next actions\n1. watch Acme\n" + "- lane row\n" * 400)
     add_register(docs, "# brook register\n\n1. Pulumi state is the only truth.\n")
     handoff.CompactionState(active=True, coordinator=True, plan_path=str(plan), slug="brook").save(bash(session))
 
@@ -848,7 +848,7 @@ def test_a_resumed_drive_restores_its_newest_progress_doc_within_budget(home: Pa
     assert handoff.deliver_register(bash(session)) is None
 
     assert restored.startswith("Resumed long-running drive `brook`. Before acting, read the progress record `ccn doc show bbbbbbb`")
-    assert "\n## Root's next actions\n1. watch Acme\n- lane row\n" in restored
+    assert "\n## The coordinator's next actions\n1. watch Acme\n- lane row\n" in restored
     assert "stale" not in restored
     assert len(restored.encode()) <= handoff.RESTORE_BUDGET
 
@@ -985,7 +985,7 @@ def test_a_failed_root_slice_read_passes_and_posts_one_blocker(
     assert posts == [
         [
             "post", "--drive", "brook-drive", "--lane", "root", "--kind", "blocker", "--to", "root", "--text",
-            f"The root's register slice did not load at SessionStart {source}: {reason}. "
+            f"The coordinator's register slice did not load at SessionStart {source}: {reason}. "
             "Run `rulings.py slice --root --drive b7` and read it before the first plan or card edit.",
         ]
     ]
@@ -1015,7 +1015,7 @@ def test_a_hand_written_doc_gains_the_generated_sections_and_the_summary_names_i
     old_generated = doc("4" * 40, "2026-10-02T22:12:33Z") | {"title": "brook: progress 2026-10-02T2212Z (generated)"}
     record = doc("6" * 40, "2026-10-03T00:42:16Z")
     (docs / "docs.json").write_text(json.dumps([old_generated, record]))
-    (docs / ("6" * 40 + ".md")).write_text("## Root's next actions\n1. 12-item plan\n")
+    (docs / ("6" * 40 + ".md")).write_text("## The coordinator's next actions\n1. 12-item plan\n")
     handoff.CompactionState(active=True, coordinator=True, plan_path=str(plan), slug="brook").save(bash(session))
 
     instructions = handoff.compaction_instructions(precompact(session)).message
@@ -1025,7 +1025,7 @@ def test_a_hand_written_doc_gains_the_generated_sections_and_the_summary_names_i
     assert active(docs) == ["6" * 40]
     augmented = (docs / ("6" * 40 + ".md")).read_text()
     assert augmented.count("## Standing owner rules") == 1
-    assert augmented.endswith("_From doc 6666666._\n\n## Root's next actions\n1. 12-item plan\n")
+    assert augmented.endswith("_From doc 6666666._\n\n## The coordinator's next actions\n1. 12-item plan\n")
     assert instructions == (
         f"Resume from `{plan}`, then `ccn doc show 66666666`; keep only in-flight details they lack. "
         "Quote: active progress doc: 66666666; the id in this summary wins over any id captured earlier in the conversation."
@@ -1043,7 +1043,7 @@ def test_a_hand_written_doc_gains_the_generated_sections_and_the_summary_names_i
     assert state(session).active_doc == "6" * 40
     augmented = (docs / ("6" * 40 + ".md")).read_text()
     assert augmented.count("## Standing owner rules") == 1 and augmented.count("_From ") == 1
-    assert augmented.endswith("_From doc 6666666, carried forward._\n\n## Root's next actions\n1. 12-item plan\n")
+    assert augmented.endswith("_From doc 6666666, carried forward._\n\n## The coordinator's next actions\n1. 12-item plan\n")
 
 
 def test_a_second_active_doc_after_generation_warns_at_the_stop_and_names_the_failure_at_compaction(
@@ -1051,7 +1051,7 @@ def test_a_second_active_doc_after_generation_warns_at_the_stop_and_names_the_fa
 ) -> None:
     session = home / "session"
     (docs / "docs.json").write_text(json.dumps([doc("a" * 40, "2026-09-30T04:00:00Z"), doc("b" * 40, "2026-09-30T05:44:08Z")]))
-    (docs / ("b" * 40 + ".md")).write_text("## Root's next actions\n1. land l11\n")
+    (docs / ("b" * 40 + ".md")).write_text("## The coordinator's next actions\n1. land l11\n")
     monkeypatch.setenv("FAKE_CCN_SUPERSEDE", "fail")
     handoff.CompactionState(active=True, coordinator=True, plan_path=str(plan), slug="brook", phase="due", prior=["a" * 40]).save(bash(session))
 
@@ -1082,7 +1082,7 @@ def test_a_stop_generated_handoff_is_not_regenerated_at_compaction(home: Path, p
 def test_a_doc_written_after_the_stop_adoption_is_the_one_compaction_names(home: Path, plan: Path, docs: Path) -> None:
     session = home / "session"
     (docs / "docs.json").write_text(json.dumps([doc("a" * 40, "2026-10-07T16:03:15Z"), doc("b" * 40, "2026-10-07T16:06:13Z")]))
-    (docs / ("b" * 40 + ".md")).write_text("## Root's next actions\n1. dump 30\n")
+    (docs / ("b" * 40 + ".md")).write_text("## The coordinator's next actions\n1. dump 30\n")
     handoff.CompactionState(
         active=True,
         plan_path=str(plan),
@@ -1185,7 +1185,7 @@ ADDENDUM = (
     "# Addendum to progress doc bbbbbbb (everything after 22:10Z)\n\n"
     "## Owner rulings since bbbbbbb\n\n- **824f65f**: the version-qualified PC replace is routine.\n\n"
     "## Results since bbbbbbb\n\n- **Retro DONE**: ccn doc **8bcade3** supersedes 21961bb.\n\n"
-    "## Next actions for the root\n\n1. Keep the freeze until the owner lifts it.\n"
+    "## Next actions for the coordinator\n\n1. Keep the freeze until the owner lifts it.\n"
 )
 
 

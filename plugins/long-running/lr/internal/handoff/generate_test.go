@@ -26,7 +26,7 @@ const (
 	registerDoc  = "cccccccccccccccccccccccccccccccccccccccc"
 	registerBody = "# brook register\n\n1. Release as it merges, never on the owner's word (4ffc9a5).\n2. Pulumi state is the only truth (ec2881e).\n"
 	registerTag  = "standing-rules:brook"
-	preCompact   = "# ssql drive: pre-compact handoff 2026-10-10T2215Z (supersedes a3f05a3)\n\nRead first after the plan. Drive ssql-hacks, root session b577ef71.\n\n## Standing owner rules\n\n- Never cancel a release build (answer 4cd6a3d).\n- Dormant reads wake and migrate on every target (answer b70e998).\n\n## A. Every owner instruction, with receipts\n\n### This window (2026-10-10)\n1. \"are you waiting for anything from me?\" ANSWERED: no.\n\n## C. Other in-flight work\n\n| item | state | owner / next |\n|---|---|---|\n| Registry stack R2 | green | landing-desk |\n\n## G. Open owner-facing items\n- #23 reply to Andrew: the copy is drafted and unsent."
+	preCompact   = "# ssql drive: pre-compact handoff 2026-10-10T2215Z (supersedes a3f05a3)\n\nRead first after the plan. Drive ssql-hacks, coordinator session b577ef71.\n\n## Standing owner rules\n\n- Never cancel a release build (answer 4cd6a3d).\n- Dormant reads wake and migrate on every target (answer b70e998).\n\n## A. Every owner instruction, with receipts\n\n### This window (2026-10-10)\n1. \"are you waiting for anything from me?\" ANSWERED: no.\n\n## C. Other in-flight work\n\n| item | state | owner / next |\n|---|---|---|\n| Registry stack R2 | green | landing-desk |\n\n## G. Open owner-facing items\n- #23 reply to Andrew: the copy is drafted and unsent."
 )
 
 var (
@@ -80,7 +80,7 @@ func askRow(key string, fields map[string]string) ledger.Row {
 
 func newFake(narrative string, withRegister bool, rows ...ledger.Row) *fakeNotes {
 	if narrative == "" {
-		narrative = "## Root's next actions\n1. watch Acme"
+		narrative = "## The coordinator's next actions\n1. watch Acme"
 	}
 	if len(rows) == 0 {
 		rows = []ledger.Row{askRow("000001", nil), askRow("000002", map[string]string{"dropped_at": "2026-10-01T01:00:00Z"}), askRow("000003", map[string]string{"answered_at": "2026-10-01T01:00:00Z"})}
@@ -367,9 +367,9 @@ func newHome(t *testing.T) driveHome {
 	t.Setenv("HOME", root)
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	inbox := filepath.Join(root, ".claude", "scratch", "brook", "inbox")
-	writeFile(t, filepath.Join(inbox, "orca-desk.md"), "- R1 (root) → desk: launch l01\n- R3 (root) → desk: launch l02\n")
+	writeFile(t, filepath.Join(inbox, "orca-desk.md"), "- R1 (the coordinator) → desk: launch l01\n- R3 (the coordinator) → desk: launch l02\n")
 	writeFile(t, filepath.Join(inbox, "orca-desk.md.cursor"), "R2\n")
-	writeFile(t, filepath.Join(inbox, "landing-desk.md"), "- L1 (root) → desk: hold #1\n")
+	writeFile(t, filepath.Join(inbox, "landing-desk.md"), "- L1 (the coordinator) → desk: hold #1\n")
 	plan := filepath.Join(root, ".claude", "plans", "brook.md")
 	writeFile(t, plan, "# brook\n\n- Acme release on the owner's word\n- Acme releases as it merges (4ffc9a5), never on the owner's word\n")
 	home := driveHome{root: root, plan: plan, sess: filepath.Join(root, "session.json")}
@@ -473,15 +473,15 @@ func TestGenerateWritesEverySourceIntoTheActiveGeneratedDoc(t *testing.T) {
 		"## Open tasks\n- none in progress\n- 1 pending in `TaskList`\n",
 		"- teammate: orca-desk-6",
 		"- monitor: batches.jsonl grep",
-		"- orca-desk.md: head R3, cursor R2: - R3 (root) → desk: launch l02",
-		"- landing-desk.md: head L1, cursor -: - L1 (root) → desk: hold #1",
+		"- orca-desk.md: head R3, cursor R2: - R3 (the coordinator) → desk: launch l02",
+		"- landing-desk.md: head L1, cursor -: - L1 (the coordinator) → desk: hold #1",
 		"- plan owner-gate line cites no live answer: brook.md:3: - Acme release on the owner's word",
-		"- Drive `d1`: ledger `1a2b3c4`, Orca run `run_1`, checkout `/repo`, root sessions s-root\n\n## Open owner asks\n",
+		"- Drive `d1`: ledger `1a2b3c4`, Orca run `run_1`, checkout `/repo`, coordinator sessions s-root\n\n## Open owner asks\n",
 		fmt.Sprintf(catchUp, "brook"),
 	)
 	lacks(t, body, "Unrelated", "000002", "000003")
 	lacks(t, after(body, findingsHeading), "never on the owner's word")
-	equal(t, strings.TrimSpace(after(body, "## Root narrative\n")), "_From doc aaaaaaa, carried forward._\n\n## Root's next actions\n1. watch Acme")
+	equal(t, strings.TrimSpace(after(body, "## Root narrative\n")), "_From doc aaaaaaa, carried forward._\n\n## The coordinator's next actions\n1. watch Acme")
 }
 
 func TestGenerateReadsTheRegisterOfTheDrivesProgramNotThePlanStem(t *testing.T) {
@@ -505,7 +505,7 @@ func TestGenerateReadsTheRegisterOfTheDrivesProgramNotThePlanStem(t *testing.T) 
 func TestTheRootsDocGainsTheGeneratedSectionsInPlaceAndSupersedesTheRest(t *testing.T) {
 	home := newHome(t)
 	f := newFake("", true)
-	f.write(docB, "## Root's next actions\n1. land l11", "brook: progress")
+	f.write(docB, "## The coordinator's next actions\n1. land l11", "brook: progress")
 
 	out := runGenerate(t, depsFor(f), home.options())
 
@@ -519,7 +519,7 @@ func TestTheRootsDocGainsTheGeneratedSectionsInPlaceAndSupersedesTheRest(t *test
 	}
 	body := f.docs[docB]
 	equal(t, strings.Count(body, "## Standing owner rules"), 1)
-	if !strings.HasSuffix(body, "_From doc bbbbbbb._\n\n## Root's next actions\n1. land l11\n") {
+	if !strings.HasSuffix(body, "_From doc bbbbbbb._\n\n## The coordinator's next actions\n1. land l11\n") {
 		t.Fatalf("body:\n%s", body)
 	}
 	contains(t, out.Digest, "Then read the progress doc `ccn doc show bbbbbbb`")
@@ -528,7 +528,7 @@ func TestTheRootsDocGainsTheGeneratedSectionsInPlaceAndSupersedesTheRest(t *test
 func TestAHandWrittenDocIsAugmentedWhicheverSessionWroteItAndCarriedInPlaceAfter(t *testing.T) {
 	home := newHome(t)
 	f := newFake("", true)
-	f.write(docB, "## Root's next actions\n1. land l11", "brook: progress")
+	f.write(docB, "## The coordinator's next actions\n1. land l11", "brook: progress")
 	d := depsFor(f)
 
 	first := runGenerate(t, d, home.options())
@@ -542,7 +542,7 @@ func TestAHandWrittenDocIsAugmentedWhicheverSessionWroteItAndCarriedInPlaceAfter
 	body := f.docs[docB]
 	equal(t, strings.Count(body, "## Standing owner rules"), 1)
 	equal(t, strings.Count(body, "_From "), 1)
-	if !strings.HasSuffix(body, "_From doc bbbbbbb, carried forward._\n\n## Root's next actions\n1. land l11\n") {
+	if !strings.HasSuffix(body, "_From doc bbbbbbb, carried forward._\n\n## The coordinator's next actions\n1. land l11\n") {
 		t.Fatalf("body:\n%s", body)
 	}
 	equal(t, str(first.Narrative), "bbbbbbb")
@@ -565,13 +565,13 @@ func TestAHandWrittenPreCompactHandoffStaysVerbatimUnderTheGeneratedSectionsAtEv
 	equal(t, after(carriedBody, narrativeHeading+"\n"), "\n_From doc bbbbbbb, carried forward._\n\n"+preCompact+"\n")
 	lacks(t, carriedBody, "## Folded narrative", "## Carried binding sections")
 	lines, _ := section(carriedBody)
-	equal(t, lines[0], "- no `standing-rules` register doc; the root's own `## Standing owner rules` follows verbatim under `## Root narrative`")
+	equal(t, lines[0], "- no `standing-rules` register doc; the coordinator's own `## Standing owner rules` follows verbatim under `## Root narrative`")
 }
 
 func TestGenerateFailsLoudlyWhenAnotherProgressDocStaysActive(t *testing.T) {
 	home := newHome(t)
 	f := newFake("", true)
-	f.write(docB, "## Root's next actions\n1. land l11", "brook: progress")
+	f.write(docB, "## The coordinator's next actions\n1. land l11", "brook: progress")
 	f.stuck[docA] = true
 
 	printed := refused(t, depsFor(f), home.options(noSession), severalActive)
@@ -623,7 +623,7 @@ func TestWithNoActiveProgressDocGenerationAddsOne(t *testing.T) {
 		t.Fatalf("added %v", f.added)
 	}
 	equal(t, hasDocCall(f, "edit"), false)
-	if !strings.HasSuffix(f.docs[str(out.ID)], "## Root narrative\n\n_The root has written no narrative yet._\n") {
+	if !strings.HasSuffix(f.docs[str(out.ID)], "## Root narrative\n\n_The coordinator has written no narrative yet._\n") {
 		t.Fatalf("body:\n%s", f.docs[str(out.ID)])
 	}
 }
@@ -775,7 +775,7 @@ func TestLintReadsTheRegisterFromADocOrAFile(t *testing.T) {
 func TestStrictRefusesANarrativeWithAnUncitedOwnerGate(t *testing.T) {
 	home := newHome(t)
 	f := newFake("", true)
-	f.write(docB, "## Root's next actions\n1. ship sanddb on Acme on the owner's word", "brook: progress")
+	f.write(docB, "## The coordinator's next actions\n1. ship sanddb on Acme on the owner's word", "brook: progress")
 
 	printed := refused(t, depsFor(f), home.options(strictMode, noSession), violations)
 
@@ -816,7 +816,7 @@ func TestStrictNamesAnUncitedStandingRuleUntilACitedRecordReplacesIt(t *testing.
 		t.Run(name, func(t *testing.T) {
 			home := newHome(t)
 			f := newFake("", true)
-			f.write(docB, "## Root's next actions\n1. land l11", "brook: progress")
+			f.write(docB, "## The coordinator's next actions\n1. land l11", "brook: progress")
 			f.rule(goKind, "every release ships on the owner's word only once", 0, "")
 			d := depsFor(f)
 
@@ -841,7 +841,7 @@ func TestStrictNamesAnUncitedStandingRuleUntilACitedRecordReplacesIt(t *testing.
 func TestStrictNamesTheNarrativeLineAndItsEdit(t *testing.T) {
 	home := newHome(t)
 	f := newFake("", true)
-	f.write(docB, "## Root's next actions\n1. land l11\n2. ship sanddb on Acme on the owner's word", "brook: progress")
+	f.write(docB, "## The coordinator's next actions\n1. land l11\n2. ship sanddb on Acme on the owner's word", "brook: progress")
 
 	printed := refused(t, depsFor(f), home.options(strictMode, noSession), violations)
 
@@ -852,8 +852,8 @@ func TestStrictLintsOnlyTheNewestHandWrittenRecordNeverTheOnesItSupersedes(t *te
 	home := newHome(t)
 	f := newFake("", true)
 	docD := strings.Repeat("d", 40)
-	f.write(docB, "## Root's next actions\n1. ship sanddb on Acme on the owner's word", "brook: progress", docA)
-	f.write(docD, "## Root's next actions\n1. land l11", "brook: progress", docB)
+	f.write(docB, "## The coordinator's next actions\n1. ship sanddb on Acme on the owner's word", "brook: progress", docA)
+	f.write(docD, "## The coordinator's next actions\n1. land l11", "brook: progress", docB)
 
 	out := runGenerate(t, depsFor(f), home.options(strictMode))
 
@@ -934,7 +934,7 @@ func TestGenerateRefusesGeneratedSectionsOverTheCapAndWritesNothing(t *testing.T
 
 func TestTheHandWrittenHandoffAndItsAddendumSurviveARegeneratingCompaction(t *testing.T) {
 	fullHandoff := "# Drive brook: pre-compact handoff, 2026-10-10 ~22:10Z (3:10pm PT)\n\nThis supersedes progress doc aaaaaaa.\n\n## 2. Live lanes\n\n- oncall-ic-dual-3 (124)\n"
-	addendum := "# Addendum to progress doc bbbbbbb (everything after 22:10Z; updated ~22:20Z)\n\n## Next actions for the root\n\n1. Keep the freeze until the release-v3 drive or the owner lifts it.\n"
+	addendum := "# Addendum to progress doc bbbbbbb (everything after 22:10Z; updated ~22:20Z)\n\n## Next actions for the coordinator\n\n1. Keep the freeze until the release-v3 drive or the owner lifts it.\n"
 	doc9 := strings.Repeat("9", 40)
 	for name, supersedes := range map[string][]string{"read alongside": nil, "superseding": {docB}} {
 		t.Run(name, func(t *testing.T) {
@@ -974,7 +974,7 @@ func TestGenerateReadsTheWholeProgressLineageInOneListingWhateverItsLength(t *te
 		older := docA
 		for number := 1; number <= length; number++ {
 			doc := strings.Repeat(fmt.Sprint(number), 40)
-			f.write(doc, "## Root's next actions\n1. land "+doc[:7], "brook: progress", older)
+			f.write(doc, "## The coordinator's next actions\n1. land "+doc[:7], "brook: progress", older)
 			chain = append(chain, doc)
 			older = doc
 		}
@@ -1039,7 +1039,7 @@ func made(doc *storedDoc)                    { doc.made = true }
 func deleted(doc *storedDoc)                 { doc.deleted = true }
 
 func (s storedDoc) body() string {
-	narrative := "## Root's next actions\n1. " + s.id[:1]
+	narrative := "## The coordinator's next actions\n1. " + s.id[:1]
 	if s.made {
 		return generatedRecord(narrative)
 	}
@@ -1430,8 +1430,8 @@ func TestGenerateClearsACursorFromBeforeTheDriveThatNoLineSitsPastAndKeepsOneWit
 	}
 	equal(t, readFile(t, behind), "R2\n")
 	contains(t, body,
-		"- orca-desk.md: head R3, cursor R2: - R3 (root) → desk: launch l02",
-		"- landing-desk.md: head L1, cursor -: - L1 (root) → desk: hold #1",
+		"- orca-desk.md: head R3, cursor R2: - R3 (the coordinator) → desk: launch l02",
+		"- landing-desk.md: head L1, cursor -: - L1 (the coordinator) → desk: hold #1",
 		"- cleared stale cursor landing-desk.md.cursor at L1, written before the drive started at 2026-10-20T00:00:00Z",
 	)
 }
@@ -1439,7 +1439,7 @@ func TestGenerateClearsACursorFromBeforeTheDriveThatNoLineSitsPastAndKeepsOneWit
 func TestGenerateKeepsAnOldCursorAtTheNewestRulingWhenALineFollowsIt(t *testing.T) {
 	home := newHome(t)
 	home.writeDrive(t, map[string]any{"started_at": "2026-10-20T00:00:00Z"})
-	writeFile(t, home.inbox("landing-desk.md"), "- L1 (root) → desk: hold #1\nMONITOR alert fired: queue stalled\n")
+	writeFile(t, home.inbox("landing-desk.md"), "- L1 (the coordinator) → desk: hold #1\nMONITOR alert fired: queue stalled\n")
 	cursor := home.inbox("landing-desk.md.cursor")
 	writeFile(t, cursor, "L1\n")
 	age(t, cursor, time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC))
@@ -1467,8 +1467,8 @@ func TestGenerateKeepsAReadThroughCursorWrittenAfterTheDriveStarted(t *testing.T
 
 func TestAPartialInboxLineAndArchivedLinesCount(t *testing.T) {
 	home := newHome(t)
-	writeFile(t, home.inbox("landing-desk.md.archive/0001.md"), "- L0 (root) → desk: older\n")
-	writeFile(t, home.inbox("landing-desk.md"), "- L1 (root) → desk: hold #1\n- L2 half a line")
+	writeFile(t, home.inbox("landing-desk.md.archive/0001.md"), "- L0 (the coordinator) → desk: older\n")
+	writeFile(t, home.inbox("landing-desk.md"), "- L1 (the coordinator) → desk: hold #1\n- L2 half a line")
 	writeFile(t, home.inbox("landing-desk.md.cursor"), "2\n")
 	doc := &progressDoc{}
 

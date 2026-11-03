@@ -21,11 +21,11 @@
 
 STDLIB ONLY. One file per drive at ``$CLAUDE_CONFIG_DIR/long-running/drives/<drive>.json`` (default ``~/.claude``) names the
 drive's ledger, its repository, the git common dir every checkout of that repository shares,
-the checkout the drive started in, every root session that has run it, its Orca run, and its state
+the checkout the drive started in, every coordinator session that has run it, its Orca run, and its state
 directory, ``~/.claude/scratch/<drive>`` unless ``start --state-dir`` names another, and its ``program``:
 the plan slug every worker resolves the register by, set with ``start --program`` and otherwise the
 state directory's name when the entry is first written.
-``start`` is an upsert: the resumed root of a handoff runs it again and joins ``sessions``.
+``start`` is an upsert: the resumed the coordinator of a handoff runs it again and joins ``sessions``.
 Run inside an Orca terminal, it records that terminal as ``root_terminal``, the coordinator's.
 ``desk`` records a standing desk's Orca terminal under ``desks``, with ``--environment`` for one on a
 remote host. ``--supervisor`` marks the one desk that hears of the coordinator's own prompts, by
@@ -35,7 +35,7 @@ Every registry write also writes ``<state dir>/dashboard/context.json``, the fac
 live dashboard binds its cards from; ``context`` rewrites it from the registry alone.
 
 ``record`` is the capt-hook pack's entry point after a command opened or pushed pull requests.
-A session belongs to a drive when its id is one of the drive's root sessions, which covers every
+A session belongs to a drive when its id is one of the drive's coordinator sessions, which covers every
 in-process subagent and teammate, or when it carries ``CLAUDE_LONG_RUNNING_DRIVE``, which Orca workers
 inherit from ``orca-launch.sh``. ``current`` also resolves the drive whose Orca run is ``ORCA_LAUNCH_RUN``, so a
 desk runner that holds no session still launches workers into the drive. ``orca-run`` prints the Orca run
@@ -57,9 +57,9 @@ head branches in any repository, never the landing runner's own checkout from ``
 names the repository, then the path, the branch, dirty files,
 commits ahead of ``origin/<trunk>``, the last commit's age, whether the branch is pushed, and its open PR
 with CI state. A lane with no worktree here, such as an Orca worker on a paired remote server, falls back to
-``lanes.orca_status`` over ``--run``, the drive's Orca run, or else the newest Run its root terminal coordinates: one line per matching dispatch with its worktree,
+``lanes.orca_status`` over ``--run``, the drive's Orca run, or else the newest Run its coordinator terminal coordinates: one line per matching dispatch with its worktree,
 environment, branch, stage, outcome, liveness, last update and heartbeat, terminal, and last message to the Run.
-A ``ctx_`` lane names that dispatch directly. A lane that is an in-process teammate of the drive's root sessions
+A ``ctx_`` lane names that dispatch directly. A lane that is an in-process teammate of the drive's coordinator sessions
 also gets a line from ``lanes.teammate_status``: its agent type, model, whether it runs or sits idle, its last
 activity, and when it joined. With none found it prints ``no worktree found for lane <lane>``
 and exits 1.
@@ -91,7 +91,7 @@ reading every desk text that says a PR has, lacks, or lost a go comes from.
 ``worktree:<lane>:<path>`` so it posts once. A path outside the drive's repository posts nothing and exits 3.
 
 ``spawned`` is the pack's entry point at each worker launch, the Agent hook's, ``orca-launch.sh``'s and the desk
-runner's for a Sprite: it posts one ``state`` record ``SPAWNED <lane> <brief>`` as ``--by`` (default root), with the
+runner's for a Sprite: it posts one ``state`` record ``SPAWNED <lane> <brief>`` as ``--by`` (default the coordinator), with the
 brief, ``--model``, ``--effort``, ``--placement``, the role (``--role``, else the brief's ``ccx: role=``) and the
 worker it succeeds (``--successor-of``, else the brief's ``Replaces:`` line) as attrs. The lanes mover writes the
 worker's one registry row from it, and a successor takes over the worker it names.
@@ -106,10 +106,10 @@ what went wrong so far, then every step and milestone left until completion with
 words (``overview.py``). ``--json`` prints the same for tools, ``--step`` one row by id, label, title, or milestone
 number, and ``--since`` only the rows that moved after a time, ``90m``, ``2h``, ``7:05 PM`` or ISO, saying what moved.
 
-``ask-owner`` puts one question card on the owner's board, the root session's cc-present board that the board
+``ask-owner`` puts one question card on the owner's board, the coordinator session's cc-present board that the board
 refresher pushes to: the title is the question, the lede its summary, and one single-select choice holds the 2 to 4
 options with ``--recommend`` (1-based) marked recommended. It then posts one ``ask`` record naming the card to each
-``--for`` lane, the root by default, which the board recorder resolves when he taps. Text naming a change or record
+``--for`` lane, the coordinator by default, which the board recorder resolves when he taps. Text naming a change or record
 number is refused before anything is pushed.
 """
 
@@ -200,7 +200,7 @@ def install_bin(version: str, tool: str) -> Path:
 
 
 def installed_script(name: str) -> Path:
-    """The script `name` of the version the install link names, or this copy's own while the link names none, so a read of state every version shares, such as the supervisor's `lr.json`, runs the code that wrote it even from a process an older version started (root #343297: 0.7.952's supervisor refused the `go_lanes` key 0.7.957 wrote, and every stall-watch pass died)."""
+    """The script `name` of the version the install link names, or this copy's own while the link names none, so a read of state every version shares, such as the supervisor's `lr.json`, runs the code that wrote it even from a process an older version started (coordinator #343297: 0.7.952's supervisor refused the `go_lanes` key 0.7.957 wrote, and every stall-watch pass died)."""
     scripts = Path(__file__).resolve().parents[1]
     return named / scripts.relative_to(PLUGIN) / name if (named := release.held()) else scripts / name
 
@@ -218,7 +218,7 @@ def release_faults(version: str) -> list[str]:
 
 
 def ci_fault(version: str) -> str:
-    """Why `version` may not run a desk yet: the `CI_WORKFLOW` run on main for the commit its release tag was bumped from has not passed, read from GitHub. Merges skip CI (owner, Nov 2), so the install is where a red main stops (root #327196); empty once that run passed, or for an install outside the plugin cache or from a repository off GitHub."""
+    """Why `version` may not run a desk yet: the `CI_WORKFLOW` run on main for the commit its release tag was bumped from has not passed, read from GitHub. Merges skip CI (owner, Nov 2), so the install is where a red main stops (coordinator #327196); empty once that run passed, or for an install outside the plugin cache or from a repository off GitHub."""
     if PLUGIN.parents[2].name != "cache":
         return ""
     marketplace = PLUGIN.parents[3] / "marketplaces" / PLUGIN.parents[1].name / ".claude-plugin" / "marketplace.json"
@@ -414,7 +414,7 @@ def cci_drive(entry: dict) -> str:
 
 
 def root_session(drive_name: str) -> str | None:
-    """The newest session of the registry entry whose cci drive is `drive_name`: the drive root, whose board holds the rows the owner taps."""
+    """The newest session of the registry entry whose cci drive is `drive_name`: the drive coordinator, whose board holds the rows the owner taps."""
     return next((entry["sessions"][-1] for entry in drives() if cci_drive(entry) == drive_name and entry.get("sessions")), None)
 
 
@@ -459,7 +459,7 @@ def save(entry: dict) -> Path:
 
 def session_id() -> str:
     if not (session := os.environ.get(SESSION_ENV)):
-        raise SystemExit(f"{SESSION_ENV} is unset; run this from the drive's root Claude session")
+        raise SystemExit(f"{SESSION_ENV} is unset; run this from the drive's coordinator Claude session")
     return session
 
 
@@ -673,7 +673,7 @@ def cmd_lane_status(args: argparse.Namespace, shell: ledger.Shell) -> int:
     teammates = lanes.teammate_status(args.lane, (entry or {}).get("sessions") or [], config_dir(), now)
     found = [*(worktrees or lanes.orca_status(args.lane, run, now, shell.run)), *teammates]
     if not found:
-        print(f"no worktree found for lane {args.lane}" + (f", no Orca dispatch in run {run}" if run else "") + ", and no in-process teammate of the drive's root sessions")
+        print(f"no worktree found for lane {args.lane}" + (f", no Orca dispatch in run {run}" if run else "") + ", and no in-process teammate of the drive's coordinator sessions")
         return 1
     print("\n".join(worktree.line() for worktree in found))
     return 0
@@ -846,7 +846,7 @@ def build_parser() -> argparse.ArgumentParser:
     start.add_argument("--state-dir", type=Path, metavar="DIR", help="the drive's scratch directory; defaults to ~/.claude/scratch/<drive>")
     start.add_argument("--cci-drive", metavar="NAME", help="the cci drive the lanes post to; defaults to the state dir's name")
     start.add_argument("--program", metavar="SLUG", help="the plan slug workers resolve the register by; defaults to the state dir's name on a new entry")
-    start.add_argument("--register-lane", metavar="NAME", help="the lane that classifies owner captures; their blockers go to it instead of the root")
+    start.add_argument("--register-lane", metavar="NAME", help="the lane that classifies owner captures; their blockers go to it instead of the coordinator")
     start.set_defaults(handler=cmd_start)
 
     desk = subparsers.add_parser("desk", help="record a standing desk's Orca terminal for the prompt watch, or forget one")
@@ -952,10 +952,10 @@ def build_parser() -> argparse.ArgumentParser:
     ask_owner.add_argument("--option", required=True, action="append", metavar="LABEL", help="one answer; 2 to 4")
     ask_owner.add_argument("--recommend", required=True, type=int, metavar="N", help="the recommended option, counting from 1")
     ask_owner.add_argument("--id", metavar="SLUG", help="the card's id after card-; default the title's first words")
-    ask_owner.add_argument("--for", dest="waiting", action="append", metavar="LANE", help="a lane that stops until his tap; default root")
+    ask_owner.add_argument("--for", dest="waiting", action="append", metavar="LANE", help="a lane that stops until his tap; default the coordinator")
     ask_owner.add_argument("--lane", default="root", help="the lane that asks")
     ask_owner.add_argument("--drive")
-    ask_owner.add_argument("--session", metavar="ID", help="the board's root session; default the drive's newest")
+    ask_owner.add_argument("--session", metavar="ID", help="the board's coordinator session; default the drive's newest")
     ask_owner.set_defaults(handler=cmd_ask_owner)
 
     return parser

@@ -28,15 +28,15 @@ capture, so no option id or bare verdict stands in for the owner's words; its ev
 overrides it. A second watch of the same board exits at once.
 
 Each decision.created, choice.selected, input.submitted, feedback.created, pack.interaction,
-triage.decided and submit also reaches the drive's bus the moment it arrives, so no lane waits on a root to relay a
+triage.decided and submit also reaches the drive's bus the moment it arrives, so no lane waits on a coordinator to relay a
 tap: one `cci post --kind owner` from lane `board-watch` names the card title and block
 id, the verdict, picked option labels or the owner's text verbatim, each merge row's head, and the
 time. `lr board classify` routes it, and its `answer` attribute says which way: `structured` (an
 option tap, a pack pick, an approval or rejection, a merge-row verdict) and `noted` (a verdict with a
-note) go to root and to `owner-relay`, and resolve every open `ask`, `blocker` or `hold` whose text
+note) go to the coordinator and to `owner-relay`, and resolve every open `ask`, `blocker` or `hold` whose text
 names the block, its card, or the merge row (`merge-row-<pr>` or `merge:<pr>`); `free-text` (a
 write-in, a note, an input, any other reply) goes to `owner-relay` alone and resolves nothing, since
-the communicator routes it; `none` (a submit, an emptied choice) goes to root. Each answer also adds a row
+the communicator routes it; `none` (a submit, an emptied choice) goes to the coordinator. Each answer also adds a row
 to the communicator's owner ledger with `lr owner add`: `addressed` at its record for `structured`,
 `open` for `noted` and `free-text`. Its idempotency key is the event's line number
 in the events file plus a hash of the line, so a restart that resumes from the watch's cursor
@@ -55,17 +55,17 @@ remove-block, push or update-block that takes it off, and `board_cards.py sweep`
 
 A pick, write-in or pack pick that no `decide` or `claim` names by block id 30 minutes after its
 owner record is posted again as an `ask` to all on topic `uncited:<block>`, and at 60 minutes as a
-`blocker` to root, each once, keyed `uncited:<seq>` and `uncited-blocker:<seq>`.
+`blocker` to the coordinator, each once, keyed `uncited:<seq>` and `uncited-blocker:<seq>`.
 
-Each structured pick on the drive root's newest board, a choice.selected with option ids and no
-`other` or a pack pick, also asks root for a lane at once, unless it answers an
-open ask a lane other than root posted, since that lane already waits on it: one `ccn task add`
+Each structured pick on the drive coordinator's newest board, a choice.selected with option ids and no
+`other` or a pack pick, also asks the coordinator for a lane at once, unless it answers an
+open ask a lane other than the coordinator posted, since that lane already waits on it: one `ccn task add`
 on the backlog of the drive's checkout, labelled `program:<program>` and `needs-lane`, and one
 `cci post --kind ask --to root` from `board-watch` on topic `needs-lane:<block>`, keyed by the
 owner record's key, naming the card, the block, the owner's words and the task. The stall watch
 raises such an ask no spawn or claim names at 15 minutes.
 
-While the board is open, the watch of the drive root's newest session, read from the drive
+While the board is open, the watch of the drive coordinator's newest session, read from the drive
 registry, posts the board's document as one `note` record from `board-watch` on topic
 `board-rows`, attribute `board`: each PR row's PR, head and write time, each merge card's PR and
 head, and each card's choice blocks and PRs. It reads the document every minute and posts when it
@@ -77,7 +77,7 @@ from its persisted cursor, so no event is lost or recorded twice. It also applie
 `op=carry` runs `cc-present verdict carry` for its block, row, head and note, re-upserting a block
 that belongs to a closed round into the current round and carrying again; `op=ask` puts the card
 its `card` attribute holds on the board with `cc-present ask`. Each write is answered once, by an
-`applied` record, or a `defect` record to the runner and the root naming what cc-present said.
+`applied` record, or a `defect` record to the runner and the coordinator naming what cc-present said.
 
 `backfill` posts one `owner` record, to `desk-runner`, for each verdict and pick `cc-present
 outcomes --all` holds for the session that no record carries the same way, at the time the
@@ -90,7 +90,7 @@ writes the ccn answer row for each answered block that has none, from the newest
 board is approved", as one approved `owner` record per row of the newest `board-rows` snapshot
 posted for the session by the word's `--at` time, at that row's head and the word's time. A row
 put up after the word gets no record, so it waits on his tap at its own row: every landing path
-reads the verdict records, never the word (root 313672, 314327).
+reads the verdict records, never the word (coordinator 313672, 314327).
 """
 
 from __future__ import annotations

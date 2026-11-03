@@ -686,7 +686,7 @@ def main() -> int:
         "and the idle terminals gc would close, so only terminals in a worktree kept for its contents are closed tab by tab through the renderer; a worktree a live process holds, "
         "or one that changed since the first read, keeps its terminals for the next pass, and a process descended from a terminal the removal stops, in that terminal's own session, does not hold it, while one that left the session does. A settled dispatch's worktree "
         "whose directory is gone has its Orca registration dropped; one git cannot read is kept and named. A settled dispatch Orca records no "
-        "workspace for, such as one that failed before its worktree resolved, is kept and named. --done ends a lane the root has decided is done, settled or not: "
+        "workspace for, such as one that failed before its worktree resolved, is kept and named. --done ends a lane the coordinator has decided is done, settled or not: "
         "worker-stop fences the dispatch, or worker-abandon settles one Orca already fenced, whose worker-stop reads dispatch_inactive; its terminal is closed "
         "without the idle check before its worktree is reclaimed by the same rules. "
         "A settled dispatch on a paired Orca server, such as a dev box a launch script started it on, gets the same terminal close and worktree "

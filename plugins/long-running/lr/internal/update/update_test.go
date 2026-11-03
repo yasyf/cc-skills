@@ -65,7 +65,7 @@ func TestAStandingDutyReadsTheEndOfItsSuccessorChainAndNoSuccessorOnceThatEndRet
 		t.Fatalf("rows = %+v", rows)
 	}
 	first, second := rows[0], rows[1]
-	if first.Who != nobody || first.Blocks != "devbox-explore-7 retired by done with no successor" || first.Unblock != "root launches its successor from /b/devbox-explore-7.md this turn" || !first.unowned() {
+	if first.Who != nobody || first.Blocks != "devbox-explore-7 retired by done with no successor" || first.Unblock != "the coordinator launches its successor from /b/devbox-explore-7.md this turn" || !first.unowned() {
 		t.Fatalf("devbox row = %+v", first)
 	}
 	if second.Name != "refresh the board" || second.Who != "board-refresher-7" || second.unowned() {
@@ -80,7 +80,7 @@ func TestWorkIsHeldOnlyByLanesHeardWithinTwoHoursWithTheirNextRecordDueAndRootWa
 		[]Record{record(8, "release-5", "blocker", "needs the owner's word on deletes", 5)},
 	)
 	w := v.workOf([]string{"release-5", "old-desk-1", "root"})
-	if w.who != "release-5" || !strings.HasPrefix(w.blocks, "release-5 waits on root's answer to blocker #8 since ") {
+	if w.who != "release-5" || !strings.HasPrefix(w.blocks, "release-5 waits on the coordinator's answer to blocker #8 since ") {
 		t.Fatalf("work = %+v", w)
 	}
 	if !strings.HasPrefix(w.unblock, "release-5: head ") || !strings.Contains(w.unblock, "; next record due by ") {
@@ -90,7 +90,7 @@ func TestWorkIsHeldOnlyByLanesHeardWithinTwoHoursWithTheirNextRecordDueAndRootWa
 		t.Fatalf("wrong = %q", w.wrong)
 	}
 	idle := v.workOf([]string{"old-desk-1", "root"})
-	if idle.who != nobody || idle.unblock != "nobody is on it, so root starts a lane on it this turn" {
+	if idle.who != nobody || idle.unblock != "nobody is on it, so the coordinator starts a lane on it this turn" {
 		t.Fatalf("idle = %+v", idle)
 	}
 }

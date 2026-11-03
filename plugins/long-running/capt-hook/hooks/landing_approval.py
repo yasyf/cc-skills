@@ -6,7 +6,7 @@ from .compaction_handoff import Coordinator, coordinator_tests
 from .lane_rotation import DriveActive
 from .tests.root_fixtures import ACTIVE
 
-APPROVAL = r"(?i)\bmerge[- ]mode\b|\bauto[- ]?(?:land|merge)|\bland(?:s|ing)? (?:on (?:green|root'?s? go)|without (?:a |the |his |the owner'?s )?tap)|\b(?:skip|drop)s? (?:the )?(?:owner'?s )?tap\b|\bno (?:owner )?tap (?:needed|required)\b"
+APPROVAL = r"(?i)\bmerge[- ]mode\b|\bauto[- ]?(?:land|merge)|\bland(?:s|ing)? (?:on (?:green|(?:the )?coordinator'?s? go)|without (?:a |the |his |the owner'?s )?tap)|\b(?:skip|drop)s? (?:the )?(?:owner'?s )?tap\b|\bno (?:owner )?tap (?:needed|required)\b"
 BRIEFS = r"brief[^/]*\.md$"
 
 hook(

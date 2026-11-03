@@ -1,6 +1,6 @@
 # long-running
 
-**Delegating work doesn't save your context window if you still read the logs.** The orchestrator still drains its context reading logs, parsing JSON, and answering duplicate notifications itself. Here the root reads verdicts and holds decisions while standing desks and a lane bus carry the traffic.
+**Delegating work doesn't save your context window if you still read the logs.** The orchestrator still drains its context reading logs, parsing JSON, and answering duplicate notifications itself. Here the coordinator reads verdicts and holds decisions while standing desks and a lane bus carry the traffic.
 
 ## Install
 
@@ -18,23 +18,23 @@
 
 ### Run a multi-lane migration across dozens of units
 
-Three or more lanes in flight flood the root's context if every PR report, CI wait, and blocker comes back to the main window. With `long-running` installed, ask:
+Three or more lanes in flight flood the coordinator's context if every PR report, CI wait, and blocker comes back to the main window. With `long-running` installed, ask:
 
 ```text
 Drive this migration across all 40 packages as a long-running drive, one lane per package
 ```
 
-The root initializes a `cc-notes` ledger with `ledger.py init --title "desk: $DRIVE"` and starts the drive with `drive.py start --ledger "$LEDGER"`. It spawns one lane per unit from the skill's lane brief template and boots standing desks from `reference/` briefs. It follows the skill's twenty-four hard rules, among them R1 "Take ground truth from the owning lane." and R2 "Delegate anything with a body." Lanes post decisions, heads, contracts, blockers, and asks once to `cci` and read from their own cursors. Two detached processes, `desk-runner.py run --desk orca` and `run --desk landing`, manage worker launches, inbox traffic, and the merge queue. The root checks status through `ledger.py summary --drive <drive>` or `ledger.py show --asks`.
+The coordinator initializes a `cc-notes` ledger with `ledger.py init --title "desk: $DRIVE"` and starts the drive with `drive.py start --ledger "$LEDGER"`. It spawns one lane per unit from the skill's lane brief template and boots standing desks from `reference/` briefs. It follows the skill's twenty-four hard rules, among them R1 "Take ground truth from the owning lane." and R2 "Delegate anything with a body." Lanes post decisions, heads, contracts, blockers, and asks once to `cci` and read from their own cursors. Two detached processes, `desk-runner.py run --desk orca` and `run --desk landing`, manage worker launches, inbox traffic, and the merge queue. The coordinator checks status through `ledger.py summary --drive <drive>` or `ledger.py show --asks`.
 
 ### Land a pile of open PRs through the merge queue
 
-Tracking more than ten open PRs at once turns the orchestrator into a human polling loop if lanes enqueue themselves or report raw CI output back to the root. With `long-running` installed, ask:
+Tracking more than ten open PRs at once turns the orchestrator into a human polling loop if lanes enqueue themselves or report raw CI output back to the coordinator. With `long-running` installed, ask:
 
 ```text
 Land these 15 open PRs through the merge queue and tell me when they're all in
 ```
 
-The `landing-desk` lane takes lane PR reports into the ledger so reports don't land in the root's window. The ledger holds one row per PR the drive's lanes shipped, and owner asks sit beside them as rows. Lanes never enqueue themselves; the landing process is the drive's merge queue, enqueuing each ready stack's largest green bottom prefix as one batch and reconciling landings from the base branch. The root owns holds, which are cci `hold` records it posts and lifts with `mq.py hold` and `mq.py lift`, while inspecting queue state with `mq.py status` or `mq.py --config <runner config> why <n>`.
+The `landing-desk` lane takes lane PR reports into the ledger so reports don't land in the coordinator's window. The ledger holds one row per PR the drive's lanes shipped, and owner asks sit beside them as rows. Lanes never enqueue themselves; the landing process is the drive's merge queue, enqueuing each ready stack's largest green bottom prefix as one batch and reconciling landings from the base branch. The coordinator owns holds, which are cci `hold` records it posts and lifts with `mq.py hold` and `mq.py lift`, while inspecting queue state with `mq.py status` or `mq.py --config <runner config> why <n>`.
 
 ### Rejoin an active drive in a fresh session
 
@@ -44,7 +44,7 @@ A drive that outlasts one context window loses its thread if owner rulings and i
 Resume the drive
 ```
 
-The resumed root runs `drive.py start --drive <id> --ledger <id>` to join the existing drive in the new session. The compaction handoff carries owner rulings verbatim, what landed, what waits on the owner, and the root's next actions.
+The resumed the coordinator runs `drive.py start --drive <id> --ledger <id>` to join the existing drive in the new session. The compaction handoff carries owner rulings verbatim, what landed, what waits on the owner, and the coordinator's next actions.
 
 ## What's inside
 

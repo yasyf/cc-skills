@@ -89,7 +89,7 @@ func Command(a *app.App) *cobra.Command {
 func StopSpritesCommand(a *app.App) *cobra.Command {
 	return &cobra.Command{
 		Use:   "stop-sprites",
-		Short: "Stop the Sprite of each lane that ended with cc-remote orca stop, up to three tries; the last failure posts one blocker to root",
+		Short: "Stop the Sprite of each lane that ended with cc-remote orca stop, up to three tries; the last failure posts one blocker to the coordinator",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg, state, err := Loaded(a)
@@ -146,7 +146,7 @@ func DoneCheckCommand(a *app.App) *cobra.Command {
 func RouteCommand(a *app.App) *cobra.Command {
 	return &cobra.Command{
 		Use:   "route LANE",
-		Short: "Where mail for a lane goes: the live end of its successor chain, or root",
+		Short: "Where mail for a lane goes: the live end of its successor chain, or the coordinator",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			s, _, err := opened(a)

@@ -52,14 +52,14 @@ func TestWhatARecordAsksOfTheFinderDesk(t *testing.T) {
 		record client.Record
 		want   []string
 	}{
-		"an ask for a whole pass":   {client.Record{Kind: kindAsk, Lane: "lane-7", To: to, Text: "finder: whole on org/repo#45489 and org/repo#45490"}, []string{"45489", "45490"}},
-		"another repo's PR":         {client.Record{Kind: kindAsk, Lane: "lane-7", To: to, Text: "finder: whole on other/repo#45489"}, []string{}},
-		"a bare number":             {client.Record{Kind: kindAsk, Lane: "lane-7", To: to, Text: "Finder: Whole #45489, not #12"}, []string{"45489"}},
-		"an ask for anything else":  {client.Record{Kind: kindAsk, Lane: "lane-7", To: to, Text: "how is #45489 doing"}, nil},
-		"an ask to another lane":    {client.Record{Kind: kindAsk, Lane: "lane-7", To: []string{"root"}, Text: "finder: whole #45489"}, nil},
-		"a root regrade order":      {client.Record{Kind: kindDecide, Lane: rootLane, To: to, Text: "finder-desk: regrade #45489; leave #45490"}, []string{"45489"}},
-		"a lane's regrade order":    {client.Record{Kind: kindDecide, Lane: "lane-7", To: to, Text: "finder-desk: regrade #45489"}, nil},
-		"a root decide with no ask": {client.Record{Kind: kindDecide, Lane: rootLane, To: to, Text: "#45489 is settled"}, []string{}},
+		"an ask for a whole pass":          {client.Record{Kind: kindAsk, Lane: "lane-7", To: to, Text: "finder: whole on org/repo#45489 and org/repo#45490"}, []string{"45489", "45490"}},
+		"another repo's PR":                {client.Record{Kind: kindAsk, Lane: "lane-7", To: to, Text: "finder: whole on other/repo#45489"}, []string{}},
+		"a bare number":                    {client.Record{Kind: kindAsk, Lane: "lane-7", To: to, Text: "Finder: Whole #45489, not #12"}, []string{"45489"}},
+		"an ask for anything else":         {client.Record{Kind: kindAsk, Lane: "lane-7", To: to, Text: "how is #45489 doing"}, nil},
+		"an ask to another lane":           {client.Record{Kind: kindAsk, Lane: "lane-7", To: []string{"root"}, Text: "finder: whole #45489"}, nil},
+		"a root regrade order":             {client.Record{Kind: kindDecide, Lane: rootLane, To: to, Text: "finder-desk: regrade #45489; leave #45490"}, []string{"45489"}},
+		"a lane's regrade order":           {client.Record{Kind: kindDecide, Lane: "lane-7", To: to, Text: "finder-desk: regrade #45489"}, nil},
+		"a coordinator decide with no ask": {client.Record{Kind: kindDecide, Lane: rootLane, To: to, Text: "#45489 is settled"}, []string{}},
 	} {
 		got := requested(tt.record, repo)
 		if len(got) != len(tt.want) || (len(got) > 0 && !reflect.DeepEqual(got, tt.want)) {

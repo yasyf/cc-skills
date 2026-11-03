@@ -865,7 +865,7 @@ func TestALaneThatStopsAfterItsLastPRLandedIsRetiredNotRelaunched(t *testing.T) 
 }
 
 func TestALaneThatRecordsItsOwnStandDownIsRetiredNotRelaunched(t *testing.T) {
-	for kind, text := range map[string]string{"stand-down": "2:10 PM conflicts-2: standing down, root owns it", "stopped": "stopping at root's word"} {
+	for kind, text := range map[string]string{"stand-down": "2:10 PM conflicts-2: standing down, the coordinator owns it", "stopped": "stopping at root's word"} {
 		s := memory(t)
 		f := adopted(t, s, writeBrief(t), "")
 		f.feed = append(f.feed, rec(2, lane2, kind, t0, text, Root))
@@ -937,7 +937,7 @@ func TestARootRecordStandingDownALaneItHasNotReadSinceItsNewestRecordIsRefusedAn
 		equal(t, []any{lane.State, lane.PRs}, []any{store.LaneHeld, []int{46001}})
 		equal(t, len(f.posts), 1)
 		equal(t, []any{f.posts[0].Kind, f.posts[0].To}, []any{"defect", []string{Root, lane2}})
-		contains(t, f.posts[0].Text, "root's decide #4 would stand conflicts-2 down or hand its PRs on, but it "+c.cited+", so the supervisor refused it and holds conflicts-2 with its PRs")
+		contains(t, f.posts[0].Text, "the coordinator's decide #4 would stand conflicts-2 down or hand its PRs on, but it "+c.cited+", so the supervisor refused it and holds conflicts-2 with its PRs")
 	}
 }
 
@@ -994,7 +994,7 @@ func TestALaneAnUnreadStandDownLeftInPlaceIsNeverRelaunchedOnceItStops(t *testin
 		equal(t, len(f.launches)+len(out.Relaunched), 0)
 		told := 0
 		for _, p := range f.posts {
-			if strings.Contains(p.Text, "root's decide #3 would stand conflicts-2 down or hand its PRs on, but it cites no last-read=<seq>, so the supervisor refused it, and the lane has since stopped") {
+			if strings.Contains(p.Text, "the coordinator's decide #3 would stand conflicts-2 down or hand its PRs on, but it cites no last-read=<seq>, so the supervisor refused it, and the lane has since stopped") {
 				told++
 			}
 		}
@@ -1029,7 +1029,7 @@ func TestTheOwnerHearsOneLineAnHourAndOnlyWhenALaneRestarted(t *testing.T) {
 
 	equal(t, len(f.posts), 1)
 	equal(t, f.posts[0].Attrs, map[string]string{"audience": "owner"})
-	equal(t, f.posts[0].Text, "Between 10:00 AM and 11:00 AM the lane supervisor restarted 1 lane with no root action: conflicts-2 stopped at 10:00 AM, so conflicts-3 took over.")
+	equal(t, f.posts[0].Text, "Between 10:00 AM and 11:00 AM the lane supervisor restarted 1 lane with no coordinator action: conflicts-2 stopped at 10:00 AM, so conflicts-3 took over.")
 }
 
 func TestClassify(t *testing.T) {
@@ -1287,7 +1287,7 @@ func TestARootDecideToTheSupervisorWithNoRegistryRequestIsAnsweredWithTheRequest
 func TestARootDecideToTheSupervisorNamingNoRegistryVerbRaisesNoDefect(t *testing.T) {
 	s := memory(t)
 	f := adopted(t, s, writeBrief(t), "")
-	f.feed = append(f.feed, rec(2, Root, "decide", t0, "root: #48348 c0035cd: no answer to the 12:07 chase and fidelity still missing since 11:47. conflicts-2, post by 12:30 or root names a successor from your handoff c93936e.", Self, lane2))
+	f.feed = append(f.feed, rec(2, Root, "decide", t0, "root: #48348 c0035cd: no answer to the 12:07 chase and fidelity still missing since 11:47. conflicts-2, post by 12:30 or the coordinator names a successor from your handoff c93936e.", Self, lane2))
 
 	tick(t, s, f, t0)
 
@@ -1316,7 +1316,7 @@ func TestARootAskNamingASilentLanesPRPagesItOnce(t *testing.T) {
 
 	equal(t, out.Woken, []string{lane2})
 	equal(t, len(again.Woken), 0)
-	if why := pageText(f.pages[0], "why"); !strings.HasPrefix(why, "root ask #2 on your PR #46869") {
+	if why := pageText(f.pages[0], "why"); !strings.HasPrefix(why, "coordinator ask #2 on your PR #46869") {
 		t.Fatal(why)
 	}
 }
@@ -2081,7 +2081,7 @@ func TestTheHourlyReportNamesEachLanesOpenWorkDeepestFirst(t *testing.T) {
 		rec(11, Root, "ask", t0.Add(-time.Hour), "due time?", "tooling-1@drive"),
 		rec(12, Root, "defect", t0.Add(-mins(30)), "and this", "tooling-1", Root),
 		rec(13, "desk-runner", "blocker", t0.Add(-2*time.Hour), "stuck", "desk-3"),
-		rec(14, "lane-x", "ask", t0, "root only", Root),
+		rec(14, "lane-x", "ask", t0, "the coordinator only", Root),
 	}
 	at := t0.Add(mins(61))
 	f.peers = []Row{who(lane2, true, at)}

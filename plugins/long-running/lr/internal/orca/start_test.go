@@ -903,7 +903,7 @@ func TestACodexLaneReadsABriefCopyThatHandsItsPRProseToOpus(t *testing.T) {
 		t.Fatal(h.spec())
 	}
 	text := h.readReceipt("lane-a.brief.md")
-	for _, want := range []string{"## PR prose", "`'" + pluginBin + "/pr-prose.py' --brief '" + h.brief + "'`", "ship with them verbatim", "Never ask the root"} {
+	for _, want := range []string{"## PR prose", "`'" + pluginBin + "/pr-prose.py' --brief '" + h.brief + "'`", "ship with them verbatim", "Never ask the coordinator"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("copy lacks %q", want)
 		}

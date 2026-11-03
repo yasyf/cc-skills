@@ -2,13 +2,13 @@
 # /// script
 # requires-python = ">=3.13"
 # ///
-"""What waits on the owner on the drive root's board, and what a PR that is not there really waits on.
+"""What waits on the owner on the drive coordinator's board, and what a PR that is not there really waits on.
 
     owner_waits.py --drive D [--json]
     owner_waits.py --drive D --pr N [--pr N]... [--json]
     cci owner-waits --drive D [--pr N]... [--json]
 
-STDLIB ONLY. Reads the root's live board with `cc-present outcomes --all --session <root>`, the root
+STDLIB ONLY. Reads the coordinator's live board with `cc-present outcomes --all --session <root>`, the coordinator
 being the drive's newest session in the drive registry. With no `--pr` it prints one line per board
 row that awaits his tap at the head it names, and one per pick he has not answered:
 
@@ -18,7 +18,7 @@ row that awaits his tap at the head it names, and one per pick he has not answer
 or `Nothing waits on your tap or pick.` With `--pr` it reads the landing ledger's open rows, from the
 `runner.json` beside the drive's state, and the drive's cci records about each PR, and prints one line
 per PR. A PR's head is its newest `head` record's when that names another head than the ledger,
-which lags the lanes (root #328321), and the ledger's build and conflict state, which belong to the
+which lags the lanes (coordinator #328321), and the ledger's build and conflict state, which belong to the
 older head, then say nothing. It prints `#<pr> at <head>: waits on your tap on <block>, up since <time>` when a row at the PR's
 head awaits him, else `#<pr> at <head>: not waiting on you: <state>`, where the state says
 which board row it has or that it has none, a red build, a conflict, a `fidelity: missing` grade
@@ -182,7 +182,7 @@ def at(record: dict) -> datetime:
 
 
 def missing(standing: list[dict], records: list[dict], comments: Callable[[], list[dict]], fidelity_lanes: list[str], pr: str, head: str) -> Missing | None:
-    """The newest `fidelity: missing` grade among the lanes' `standing` grades of `pr` at `head` that still holds it, as the landing runner reads them: no root record closes it or reads `fidelity-override [#]<pr> [at] <head>`, and a desk's ok outranks the pipeline's missing; with its first answer after it, a record of a lane other than a grader or desk that answers its seq by `--re` or names `#<seq>`, or a PR comment no bot wrote. `comments` is read only when such a grade stands."""
+    """The newest `fidelity: missing` grade among the lanes' `standing` grades of `pr` at `head` that still holds it, as the landing runner reads them: no coordinator record closes it or reads `fidelity-override [#]<pr> [at] <head>`, and a desk's ok outranks the pipeline's missing; with its first answer after it, a record of a lane other than a grader or desk that answers its seq by `--re` or names `#<seq>`, or a PR comment no bot wrote. `comments` is read only when such a grade stands."""
     desk_ok = any(grade["lane"] != PIPELINE and grade["text"].startswith(grades.FIDELITY_OK) for grade in standing)
     if any(record["lane"] in ROOT_NAMES and grades.overridden(record, grades.FIDELITY_OVERRIDE, pr, head) for record in records):
         return None
@@ -313,7 +313,7 @@ def main(argv: list[str] | None = None, runner: Callable[..., subprocess.Complet
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
     if (session := drive.root_session(args.drive)) is None:
-        print(f"owner-waits: no drive registry entry for {args.drive} names a root session", file=sys.stderr)
+        print(f"owner-waits: no drive registry entry for {args.drive} names a coordinator session", file=sys.stderr)
         return 2
     try:
         board = read_board(args.drive, session, runner)

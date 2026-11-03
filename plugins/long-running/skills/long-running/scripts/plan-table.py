@@ -7,7 +7,7 @@
     plan-table.py --doc ID --out PATH [--retro-log ID] [--repo PATH]
 
 Reads the first markdown table under a ``Step`` header in the cc-notes doc ``--doc``,
-the owner table the root keeps current. ``--repo`` is the checkout both ``ccn`` and
+the owner table the coordinator keeps current. ``--repo`` is the checkout both ``ccn`` and
 ``ccx`` run in. Only PRs are written ``#N`` in that table; each is read in
 one ``ccx vcs pr status --json`` call. A ``live`` or ``done`` row keeps its state, a
 row whose PRs have all landed reads ``landed``, and every other row with PRs gets

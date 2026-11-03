@@ -537,7 +537,7 @@ func (s *fidelityPassState) carried(match *carryMatch, by, proof string) (Fideli
 	settled := ""
 	for _, seq := range s.chain(match.grade) {
 		if root, known := spec.Settled[strconv.FormatInt(seq, 10)]; known {
-			settled = fmt.Sprintf(", settled by root #%d", root)
+			settled = fmt.Sprintf(", settled by coordinator #%d", root)
 			break
 		}
 	}
@@ -612,11 +612,11 @@ func (s *fidelityPassState) prompt(view pullRequest, frame promptFrame) (string,
 	}
 	var settled strings.Builder
 	for _, point := range s.settledPoints() {
-		fmt.Fprintf(&settled, "- %s (root #%d)\n", point.text, point.root)
+		fmt.Fprintf(&settled, "- %s (coordinator #%d)\n", point.text, point.root)
 	}
 	var rulings strings.Builder
 	for _, r := range spec.Rulings {
-		fmt.Fprintf(&rulings, "- root #%d: %s\n", r.Seq, squeezed(r.Text))
+		fmt.Fprintf(&rulings, "- coordinator #%d: %s\n", r.Seq, squeezed(r.Text))
 	}
 	return fill(fidelityBrief, map[string]string{
 		"repo":         spec.Repo,
@@ -834,7 +834,7 @@ func (s *fidelityPassState) unsettled(reply fidelityReply) (fidelityReply, error
 		cited = append(cited, fmt.Sprintf("#%d", root))
 	}
 	reply.Verdict, reply.Missing = "ok", []missingEntry{}
-	reply.Summary = fmt.Sprintf("%s Every missing point is one root settled at %s.", reply.Summary, strings.Join(cited, ", "))
+	reply.Summary = fmt.Sprintf("%s Every missing point is one coordinator settled at %s.", reply.Summary, strings.Join(cited, ", "))
 	return reply, nil
 }
 

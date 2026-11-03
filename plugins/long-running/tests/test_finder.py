@@ -40,7 +40,7 @@ def test_a_head_record_without_pr_refs_takes_the_pr_its_text_names(refs, text, e
 
 
 def test_a_restack_posted_in_prose_names_each_prs_own_head():
-    """Root #304381: n-enumeration-12's 7:54 PM restack #304136 named nine heads in prose, every PR read dev's 1eb90d3 as its head, and #45638's pass at its old head ran on until 8:03 PM."""
+    """Coordinator #304381: n-enumeration-12's 7:54 PM restack #304136 named nine heads in prose, every PR read dev's 1eb90d3 as its head, and #45638's pass at its old head ran on until 8:03 PM."""
     record = {
         "refs": {"prs": [45492, 45493, 45638, 46720]},
         "fields": {},

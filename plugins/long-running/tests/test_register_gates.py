@@ -112,7 +112,7 @@ def option(call: tuple[str, ...], name: str) -> str:
             set(),
             "root",
             (
-                " `cci who` lists no live register lane `register-desk` nor a numbered successor of it, so this blocker goes to the root:"
+                " `cci who` lists no live register lane `register-desk` nor a numbered successor of it, so this blocker goes to the coordinator:"
                 " relaunch the register lane as its next numbered successor from its brief to classify this capture."
             ),
         ),
@@ -147,7 +147,7 @@ def test_an_unclassified_owner_capture_posts_one_blocker_to_a_running_register_l
             set(),
             "root",
             (
-                " `cci who` lists no live register lane `register-desk` nor a numbered successor of it, so this blocker goes to the root:"
+                " `cci who` lists no live register lane `register-desk` nor a numbered successor of it, so this blocker goes to the coordinator:"
                 " relaunch the register lane as its next numbered successor from its brief to classify these captures."
             ),
         ),

@@ -200,8 +200,8 @@ func TestAnOpenAskToRootReachesRootAfterFifteenMinutesOnceAndClosesWhenAnswered(
 	asked := at(t, "2026-11-03T02:00:00Z")
 	asks := []client.Record{
 		{Seq: 100, Lane: "lane-a", Kind: "ask", At: asked, To: []string{"root"}, Text: "which head?"},
-		{Seq: 101, Lane: "lane-b", Kind: "ask", At: asked, To: []string{"drive-think-1"}, Text: "not root's"},
-		{Seq: 102, Lane: "root", Kind: "ask", At: asked, To: []string{"root"}, Text: "root's own"},
+		{Seq: 101, Lane: "lane-b", Kind: "ask", At: asked, To: []string{"drive-think-1"}, Text: "not coordinator's"},
+		{Seq: 102, Lane: "root", Kind: "ask", At: asked, To: []string{"root"}, Text: "the coordinator's own"},
 		{Seq: 103, Lane: "lane-c", Kind: "ask", At: asked.Add(-25 * time.Hour), To: []string{"root"}, Text: "older than the window"},
 	}
 	sweep := func(now time.Time, records []client.Record) []pass.Escalated {

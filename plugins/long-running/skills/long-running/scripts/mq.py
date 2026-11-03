@@ -21,14 +21,14 @@ STDLIB ONLY. `--config` is the drive's desk-runner `runner.json`; any other file
 beside it, exits 3 naming the `drive`, `orca` or `landing` block it lacks; every verb reads the same ledger,
 cci hold records, action store, and repository adapter the landing desk runs on. `status` prints each enqueue
 this drive's store believes queued and each open tree in the order the desk gates it. `gos` prints each
-open PR a standing root go names that the queue does not hold, with the head the go names, the queue state
+open PR a standing coordinator go names that the queue does not hold, with the head the go names, the queue state
 and verdict from one batched status read, and any hold, never a GitHub read per PR. `why` prints the
 adapter's verdict on the PR's current head, then one `<check> pass|pending|fail <reason>` line per
 configured check, posting nothing. `gate` prints each hold or enqueue check that does not pass a head a hand
-`stack-enqueue` of the PRs puts in the queue, and exits 1 when it prints any; `--checks fidelity,finder` keeps only the named checks, the bar every hand enqueue path runs before it enqueues (root 318864). `enqueue` runs that gate and
+`stack-enqueue` of the PRs puts in the queue, and exits 1 when it prints any; `--checks fidelity,finder` keeps only the named checks, the bar every hand enqueue path runs before it enqueues (coordinator 318864). `enqueue` runs that gate and
 enqueues through the desk's adapter only when it prints nothing, then names the head the queue took
 for each PR, and posts a note for one that moved while the call ran; it is the hand enqueue a desk runs. `checks` prints the registry in order with the stage each runs at.
-`hold` posts a root cci `hold` record leading `hold #<n> <reason>`, and `lift` posts one `lift` record
+`hold` posts a coordinator cci `hold` record leading `hold #<n> <reason>`, and `lift` posts one `lift` record
 resolving every open hold record that holds the PR, naming any other PR such a record held, which lifts
 with it. `priority` sets the
 ledger `priority` the desk orders trees and enqueue waves by, lower first. `dequeue` refuses a PR this

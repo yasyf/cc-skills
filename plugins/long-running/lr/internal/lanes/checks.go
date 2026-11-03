@@ -192,7 +192,7 @@ func (a Alerts) raise(ctx context.Context, channel string, message slackMessage,
 	brief, launchErr := a.Launch(ctx, Fired{slug, headline, message.Permalink, fired})
 	if launchErr != nil {
 		draft.Kind, draft.ID = blockerKind, "alert-unopened:"+channel+":"+message.TS
-		draft.Text = fmt.Sprintf("ALERT-UNOPENED %s: no incident record names %s %d min after it fired, and the supervisor's launch of %s-fix failed: %s | root: open the incident on sight with `lr incident open --kind alert` and launch its fix lane this turn", headline, alert, minutes, slug, truncated(launchErr.Error(), 200))
+		draft.Text = fmt.Sprintf("ALERT-UNOPENED %s: no incident record names %s %d min after it fired, and the supervisor's launch of %s-fix failed: %s | coordinator: open the incident on sight with `lr incident open --kind alert` and launch its fix lane this turn", headline, alert, minutes, slug, truncated(launchErr.Error(), 200))
 	} else {
 		draft.Kind, draft.ID = kindSpawn, "alert-launched:"+channel+":"+message.TS
 		draft.LaneRefs = []string{slug + "-fix", slug + "-evidence"}

@@ -27,7 +27,7 @@ drive registry. Generation removes each inbox cursor file written before the dri
 ``started_at`` that no line sits past, and lists it under ``## Inboxes``; a cursor with
 a line past it stays. ``## Lane registry`` lists every lane the lane supervisor's registry holds that is not retired, and
 every standing one, and ``## Owner update`` carries the whole update ``owner_update.py --render``
-builds from sources, so the root after compaction inherits every lane, duty, ask and PR. ``## Incident lanes`` lists each `inc-`, `incident-`, or `outage-` lane that
+builds from sources, so the coordinator after compaction inherits every lane, duty, ask and PR. ``## Incident lanes`` lists each `inc-`, `incident-`, or `outage-` lane that
 posted on the drive in the last six hours with its newest record's kind and age, waiting
 mechanisms first: a MECHANISM or CANDIDATE with no OPENED or BLOCKER since. ``## Open tasks`` ends with one line per plan from :func:`plans.read`: its done
 and blocked counts over the drive's cc-notes tasks and each step still open.
@@ -38,14 +38,14 @@ delivered drops out across a compaction. Generation
 writes a progress doc under ``progress:<program>`` and the same markdown at
 ``<plan-stem>-progress/<UTC>-generated.md``.
 
-The root's hand-written records are every ``progress:<program>`` doc the hook did not
+The coordinator's hand-written records are every ``progress:<program>`` doc the hook did not
 write, found from the active docs back along their supersede edges up to the last
 generated record; a generated record's header carries :data:`GENERATED_LINE`. Generation
 augments the newest of them in place, else edits the newest active generated doc, else
 adds a doc, and the written doc supersedes every other active progress doc. Generation
 exits :data:`SEVERAL_ACTIVE` if another remains active.
 
-The root narrative comes last: the newest hand-written record's own text, verbatim, never
+The coordinator narrative comes last: the newest hand-written record's own text, verbatim, never
 folded or truncated. ``## Read first`` names each earlier hand-written record to read in
 full before it. With no new hand-written record, the previous generated record's
 narrative and read-first records carry forward unchanged. Generated sections over
@@ -65,11 +65,11 @@ With ``--strict``, register, carry, narrative, or standing-rule findings write n
 
 Output has fields ``{id, file, register, fresh, digest, read_first, narrative}``.
 ``register`` is the register doc id or null. ``id`` is the progress doc id. Both are null
-in folder mode. ``fresh`` says the root wrote the narrative since the last generation: a
+in folder mode. ``fresh`` says the coordinator wrote the narrative since the last generation: a
 new hand-written record, or the active generated doc's narrative edited in place, found
 by its ``Generated from sources`` stamp in ``ccn doc history``. ``read_first`` lists the
 earlier hand-written records, oldest first, as the command or path that shows each.
-``narrative`` is the short id or file name of the record whose text is the root narrative,
+``narrative`` is the short id or file name of the record whose text is the coordinator narrative,
 or null. The digest names the register first when one exists, then each read-first record,
 the progress record, and the plan. Its second line reads
 ``Register: N owner-approved rules, M live standing rules.``
@@ -437,7 +437,7 @@ def render(handoff: Handoff) -> str:
     if registry:
         out.append(
             f"- Drive `{registry['drive']}`: ledger `{registry['ledger'][:SHORT]}`, Orca run `{registry.get('orca_run') or '-'}`, "
-            f"checkout `{registry['checkout']}`, root sessions {', '.join(session[:8] for session in registry['sessions'])}"
+            f"checkout `{registry['checkout']}`, coordinator sessions {', '.join(session[:8] for session in registry['sessions'])}"
         )
     out += ["", "## Open owner asks"] + ([f"- {line}" for line in handoff.asks] or ["- none"])
     active = [task for task in handoff.tasks if task["status"] == "in_progress"]
@@ -469,7 +469,7 @@ def render(handoff: Handoff) -> str:
     out += ["", FINDINGS] + ([f"- {line}" for line in handoff.findings + handoff.plan_findings] or ["- none"])
     out += ["", NARRATIVE, ""]
     out.append(
-        f"_From {handoff.narrative_from}._\n\n{handoff.narrative}" if handoff.narrative else "_The root has written no narrative yet._"
+        f"_From {handoff.narrative_from}._\n\n{handoff.narrative}" if handoff.narrative else "_The coordinator has written no narrative yet._"
     )
     return "\n".join(out) + "\n"
 

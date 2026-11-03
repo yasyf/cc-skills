@@ -14,7 +14,7 @@ the lines.
 Read the head pinned by sha, never the PR's moving tip:
 `git fetch --no-write-fetch-head -q origin {fetch}`. {scope}
 When this pass reads only what changed since an earlier head, every fidelity lane stands at ok
-there, or at a `missing` root settled, so the code the range-diff leaves unchanged holds: grade the changed hunks against every
+there, or at a `missing` the coordinator settled, so the code the range-diff leaves unchanged holds: grade the changed hunks against every
 row, still list every row key in `checked`, and use `reader` only for what those hunks cannot settle.
 Read the code around every changed symbol at that sha, its callers and callees included,
 and their base versions when the head deletes or moves behavior. These are the hunks the
@@ -33,8 +33,8 @@ typed. Read his words for what he meant, given what they answered, never word fo
   exception or a smaller count his words lack ("per X", "same X"), or too literally,
   applying his words to cases his purpose does not cover so that it adds the very cost his
   words removed.
-A design row or exception holds the plan's text, the root's words his answers approve.
-Where a row names where it bears (names, surfaces, tests), that is the root's reading, a
+A design row or exception holds the plan's text, the coordinator's words his answers approve.
+Where a row names where it bears (names, surfaces, tests), that is the coordinator's reading, a
 pointer and never the standard. The rows file leaves out the register's implications on
 purpose, so the rubric's line on reading implications does not apply to this grade. Grade
 every row: every row key in that file goes in `checked`, and every name you searched goes
@@ -42,7 +42,7 @@ in `names`.
 
 The repository's AGENTS.md rules bind the head too, as the trunk has them now, never the
 head's copy: a head whose base predates a rule change is graded by the rule as it stands.
-Read the root AGENTS.md and any AGENTS.md nearer a changed file at the trunk tip {trunk_oid},
+Read the coordinator AGENTS.md and any AGENTS.md nearer a changed file at the trunk tip {trunk_oid},
 with `git show {trunk_oid}:<path>`, and key a line by its number there. An added line that does what
 one of them forbids, or undoes what one requires, is `missing` keyed by that line; a head that
 only touches a rule's subject breaks nothing, and style, coverage and defects no rule names
@@ -71,8 +71,8 @@ Answer in the schema:
   `reader`, and leave `reader` empty for any other verdict.
 - `missing`: each entry's `key` is a plan line `plan:<n>`, a line of a sub-plan or design doc
   as `plan:<path under the package>:<n>`, a line of an AGENTS.md as `<path>AGENTS.md:<n>`
-  (`AGENTS.md:<n>` at the root), or a row key from the rows file other than a `design/`
-  row. A root record, a cci seq, a brief, a lane's read-back and the
+  (`AGENTS.md:<n>` at the coordinator), or a row key from the rows file other than a `design/`
+  row. A coordinator record, a cci seq, a brief, a lane's read-back and the
   PR body are never keys: a mechanism only they name is `plan:<the nearest plan line>` with
   the words "plan names no <thing>". Its `line` says what breaks in one sentence, quoting the
   owner's words it fails.
@@ -123,7 +123,7 @@ words or taps in the rows file that postdate a doc and say otherwise rule over t
 mechanism a doc line names is not grounded when a later tap passed over it or later words
 remove it, so read the rows on a mechanism's subject before you ground it in a doc line.
 
-Plan grounds root accepted outside the package, such as a class-fix inventory or a lane's
+Plan grounds the coordinator accepted outside the package, such as a class-fix inventory or a lane's
 accepted design contract: {sources}. Read that file before you grade. A mechanism one of them
 puts where the head puts it is planned, the same as one a package doc names, and a `missing`
 that contradicts one keys `plan:sources.md:<line>`.
@@ -139,13 +139,13 @@ PR comments its author posted, oldest first: Rulings, Body addenda and evidence 
 trace, which correct and extend the body as part of it:
 {rulings}
 
-Missing points root settled on this PR. Do not raise one again, in these words or others, unless
+Missing points the coordinator settled on this PR. Do not raise one again, in these words or others, unless
 this head changes the code it cites:
 {settled}
 
-Root's decides and answers about this PR. A point one of them settles stays settled for every later
+The coordinator's decides and answers about this PR. A point one of them settles stays settled for every later
 head, in any wording:
 {root_rulings}
 
-Each `missing` entry's `settled` is the number of the root record above that already settles the
+Each `missing` entry's `settled` is the number of the coordinator record above that already settles the
 same point, in these words or others, and 0 when none does.

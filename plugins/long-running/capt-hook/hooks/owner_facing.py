@@ -130,7 +130,7 @@ PLAN_MODE_IN_INCIDENT = (
     "Warning, nothing was blocked: plan mode is forbidden while a customer-visible outage is open; the forward fix ships from the lane that holds it;"
     " replan after fix-live"
 )
-ROOT_PROBE = "Warning, nothing was blocked: during an incident the root only spawns, routes, and acks: send this to a lane (desk-launch.py lane ...)"
+ROOT_PROBE = "Warning, nothing was blocked: during an incident the coordinator only spawns, routes, and acks: send this to a lane (desk-launch.py lane ...)"
 PROBES = ("kubectl", "pup", "curl")
 PLAN_TALK = re.compile(r"\bplan[ -]?mode\b|\breplan\b", re.IGNORECASE)
 PLAN_CONDITIONAL = re.compile(
@@ -143,7 +143,7 @@ PLAN_FORBIDDEN = re.compile(
     re.IGNORECASE,
 )
 PLAN_ORDERED = re.compile(r"\b(?:enter|endter|go (?:in)?to|start|use|re-?enter|get into)\b[^.\n]{0,20}?\bplan[ -]?mode\b|\breplan\b", re.IGNORECASE)
-OUTAGE_STOP_WORDS = "on a second outage, stop patching, re-enter plan mode and find the root fix"
+OUTAGE_STOP_WORDS = "on a second outage, stop patching, re-enter plan mode and find the coordinator fix"
 CAUSE_RECORD = Path(__file__).parent / "tests" / "fixtures" / "root-cause" / "autoscaler.txt"
 NO_PLAN_BEFORE_FIX = "no plan mode until the incident is fixed"
 PLAN_WHEN_DONE = "confirm each incident item is finished, then go into plan mode only when all of it is done"
@@ -155,7 +155,7 @@ CAUSE = re.compile(r"\b(?:because|caus(?:e|ed|es|ing)|due to|mechanism|is why|wa
 CAUSE_KINDS = {"go", "decision", "decide", "note", "report", "state", "incident"}
 RECORD_REF = re.compile(r"#(\d{3,})\b")
 UNQUOTED_CAUSE = (
-    "Warning, nothing was blocked: this root record names a cause and quotes no lane record."
+    "Warning, nothing was blocked: this coordinator record names a cause and quotes no lane record."
     " Quote the lane `MECHANISM` record's `#<seq>`, or send the question to a lane with `desk-launch.py lane`."
 )
 RELEASE_PROBES = (("release", "start"), ("release", "status"), ("release", "watch"))
@@ -834,7 +834,7 @@ def cause(command: str, **extra: object) -> Input:
     max_fires=1,
     tests=separate("owner_facing.root_causes_quote_a_lane_mechanism", coordinator_tests({
         cause("cci post --drive release-v3 --lane root --kind go --to worker-fix --text 'the autoscaler caused the worker crashes; scale the pool'"): Warn(
-            pattern=r"^Warning, nothing was blocked: this root record names a cause and quotes no lane record\."
+            pattern=r"^Warning, nothing was blocked: this coordinator record names a cause and quotes no lane record\."
         ),
         cause("cci post --drive release-v3 --lane root --kind decision --to worker-fix --text 'a missing object is why uploads fail (#104717)'"): Allow(),
         cause("cci post --drive release-v3 --lane root --kind go --to worker-fix --text 'MECHANISM #104942: a missing object caused it; ship the fix'"): Allow(),

@@ -91,7 +91,7 @@ The batch closes every --every. Anything from the communicator, an incident, a m
 			return <-failure
 		},
 	}
-	cmd.Flags().StringVar(&driveName, "drive", "", "the drive whose reader root this session is")
+	cmd.Flags().StringVar(&driveName, "drive", "", "the drive whose reader coordinator this session is")
 	cmd.Flags().StringVar(&cursor, "cursor", "", "file holding the last seq printed; created on the first batch")
 	cmd.Flags().DurationVar(&every, "every", defaultEvery, "how long one batch stays open")
 	_ = cmd.MarkFlagRequired("drive")

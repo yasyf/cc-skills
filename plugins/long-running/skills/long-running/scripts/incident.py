@@ -35,16 +35,16 @@ whose premise is the alert and an ``incident <id>`` log, both labelled ``inciden
 milestone becomes a log entry, each lane brief is attached to the log, and the mechanism,
 landing, and not-ours verdicts land on the investigation. Briefs carry both ids, so lanes
 append evidence with ``ccn log append`` instead of writing scratch files. A refused cc-notes
-write reaches the root once and never blocks a launch.
+write reaches the coordinator once and never blocks a launch.
 
 A side effect needs its grant: ``thread`` and ``channel`` for comms posts, each a
 ``slack-grant:<channel id>`` cc-notes answer the Slack permission hook reads; ``sync`` for the apply; ``rebuild`` for the
 re-kick. A missing grant, a silent comms lane, an overdue action, and a failed canary are
-the only things that reach the root, each once, as a bus ask and an open decision.
+the only things that reach the coordinator, each once, as a bus ask and an open decision.
 ``grant`` adds the missing authority and the next pass proceeds.
 
 ``brief`` writes the fix and evidence briefs ``run`` would launch, at the same paths, and
-prints them, so the root can launch a lane inline when the desk refuses ``run``.
+prints them, so the coordinator can launch a lane inline when the desk refuses ``run``.
 
 Every subprocess goes through :class:`Shell`; the adapters it feeds are the seam the replay
 tests replace.
@@ -407,7 +407,7 @@ def write_brief(incident: Incident, role: str, briefs: Path) -> Path:
         "fix lane name": incident_lane(incident, "fix"),
         "evidence lane name": incident_lane(incident, "evidence"),
         "comms lane name": facts["comms_lane"],
-        "root agent name": sender(incident.incident_id),
+        "coordinator agent name": sender(incident.incident_id),
         "bus id": facts["bus"],
         "incident topic": topic(incident.incident_id),
         "incident id": incident.incident_id,
@@ -1125,7 +1125,7 @@ def build_parser() -> argparse.ArgumentParser:
     note.add_argument("--live", help="evidence the fix is live, for an incident with no pipeline to activate")
     note.add_argument("--not-ours", help="the evidence that the alert is not ours; the incident closes with no fix")
     note.add_argument("--design-check", help="the entry point the fix calls and how it meets each ruling, recorded before the PR opens")
-    note.add_argument("--design-ok", action="store_true", help="the root confirms the design check")
+    note.add_argument("--design-ok", action="store_true", help="the coordinator confirms the design check")
     note.set_defaults(handler=cmd_note)
 
     grant = subparsers.add_parser("grant", help="add the authority a decision asked for")

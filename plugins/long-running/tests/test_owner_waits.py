@@ -1,4 +1,4 @@
-"""owner_waits.py over a recorded board, board-watch snapshots, ledger rows and cci records: what it prints is what the root quotes to the owner."""
+"""owner_waits.py over a recorded board, board-watch snapshots, ledger rows and cci records: what it prints is what the coordinator quotes to the owner."""
 
 from __future__ import annotations
 
@@ -147,7 +147,7 @@ def test_a_row_at_its_head_is_the_only_tap_wait_and_one_at_an_older_head_is_not(
 
 
 def test_a_ledger_head_older_than_a_head_record_uses_the_head_record(registry, capsys):
-    """Root #328321: the ledger named #48063 at 9526ccf while the PR and its board row sat at 5023ef2, so owner-waits called a correct row wrong."""
+    """Coordinator #328321: the ledger named #48063 at 9526ccf while the PR and its board row sat at 5023ef2, so owner-waits called a correct row wrong."""
     rows = [ledger("45507", OLD, test_state="failure", red_at=stamp(90))]
     outcomes = {"doc": doc(("45507", HEAD)), "interactions": {}}
     records = [record(10, "next-red-tests-1", "head", f"HEAD #45507 {HEAD}", 30), record(11, "fidelity-desk", "review", f"fidelity: ok {HEAD}", 20)]
@@ -186,7 +186,7 @@ def test_a_missing_grade_root_closed_or_a_desk_ok_outranks_holds_nothing(registr
     ids=["bare-pr", "id-at-origin", "mid-text-drive-copy"],
 )
 def test_a_missing_grade_root_overrode_at_the_head_holds_nothing(registry, capsys, text):
-    """Root #286877 posted `fidelity-override #47225 at 1f99697: 174488`, and the stall watch kept raising the missing grade it overrode."""
+    """Coordinator #286877 posted `fidelity-override #47225 at 1f99697: 174488`, and the stall watch kept raising the missing grade it overrode."""
     pipeline = record(11, "fidelity-pipeline", "review", f"fidelity: missing {HEAD} plan:116 no caller trace", 98)
     overridden = record(14, "root", "decide", text, 70)
     stale = record(15, "root", "decide", "fidelity-override #45507 at ae16992: 11", 60)

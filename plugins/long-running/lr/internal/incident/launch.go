@@ -256,7 +256,7 @@ func (d DeskLaunch) Run(ctx context.Context) error {
 			return err
 		}
 		if line := unfilled(string(text), d.Alert); line != "" {
-			return fmt.Errorf("brief %s for %s still holds a placeholder root fills, so nothing is posted: %s", lane.brief, lane.lane, line)
+			return fmt.Errorf("brief %s for %s still holds a placeholder the coordinator fills, so nothing is posted: %s", lane.brief, lane.lane, line)
 		}
 	}
 	if err := d.requireRunner(ctx, drive, planned); err != nil {

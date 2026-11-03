@@ -483,7 +483,7 @@ def test_digest_reads_a_desk_runner_on_another_machine_from_its_alive_record_and
 
 
 def test_digest_quiet_point_holds_while_a_desk_runs_a_pass_or_a_merge_and_passes_once_every_desk_rests(repo, capsys):
-    """4:31 to 4:40 PM Oct 29 every cci call hung about nine minutes after the cci 0.39.0 cask installed under running desks (root #190549)."""
+    """4:31 to 4:40 PM Oct 29 every cci call hung about nine minutes after the cci 0.39.0 cask installed under running desks (coordinator #190549)."""
     started(repo, "--cci-drive", DRIVE)
     shell = FakeShell()
     heartbeat(shell, "orca", 73091, "0.7.186", flight="")
@@ -521,7 +521,7 @@ def installed(*versions: str, named: str | None = None) -> Path:
 
 @pytest.mark.parametrize(("caller", "reexecs"), [(None, True), ("0.7.99", False), ("0.7.320", True)])
 def test_a_script_behind_the_installed_plugin_reexecutes_the_installed_copy_unless_a_process_of_its_own_version_started_it(repo, monkeypatch, caller, reexecs):
-    """On Oct 26 root ran holds.py from 0.7.99 with 0.7.320 installed, and the runner could not read the holds line it left (#131579); a brief naming a versioned desk-wait.sh path then refused instead of running (#136583)."""
+    """On Oct 26 the coordinator ran holds.py from 0.7.99 with 0.7.320 installed, and the runner could not read the holds line it left (#131579); a brief naming a versioned desk-wait.sh path then refused instead of running (#136583)."""
     monkeypatch.setattr(drive, "plugin_manifest", lambda: {"name": "long-running", "version": "0.7.99"})
     cache = installed("0.7.99", "0.7.320")
     if caller:

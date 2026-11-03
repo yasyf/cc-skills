@@ -257,7 +257,7 @@ class GraphiteStackEnqueue:
         self.resume_at = None
 
     def run(self, argv: list[str]):
-        """Run the script, and while it reports GitHub still computing a PR's mergeability, alone or among its other blockers, read that PR once over REST, which starts GitHub's lazy computation that a GraphQL read alone never does, then run it again every `COMPUTE_POLL_SECONDS` for `COMPUTE_ROUNDS` rounds, so no refusal rests on a mergeability GitHub had not been asked to compute (root #192866, #45291)."""
+        """Run the script, and while it reports GitHub still computing a PR's mergeability, alone or among its other blockers, read that PR once over REST, which starts GitHub's lazy computation that a GraphQL read alone never does, then run it again every `COMPUTE_POLL_SECONDS` for `COMPUTE_ROUNDS` rounds, so no refusal rests on a mergeability GitHub had not been asked to compute (coordinator #192866, #45291)."""
         done = self.run_settled(argv)
         if not (computing := COMPUTING.findall(done.out)):
             return done

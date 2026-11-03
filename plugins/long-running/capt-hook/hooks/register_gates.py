@@ -82,7 +82,7 @@ UNCLASSIFIED_BATCH = (
 )
 BATCH_ENTRY = '{digest} ({at}) "{excerpt}"'
 BATCH_EXCERPT = 80
-REGISTER_LANE_GONE = " `cci who` lists no live register lane `{lane}` nor a numbered successor of it, so this blocker goes to the root: relaunch the register lane as its next numbered successor from its brief to classify {these}."
+REGISTER_LANE_GONE = " `cci who` lists no live register lane `{lane}` nor a numbered successor of it, so this blocker goes to the coordinator: relaunch the register lane as its next numbered successor from its brief to classify {these}."
 SUCCESSOR_NUMBER = re.compile(r"(?:-\d{1,2})+$")
 READ_FAILED = "{hook} could not read the register ({cause}) and passed the call; it passes every call it gates until the read works."
 UNQUOTED = (
@@ -110,10 +110,10 @@ SEATS = {
     "anchor": (False, ("anchor", SEED)),
 }
 SEAT_NAMES = {
-    "classify": "the root, the register-seed lane and the drive's register lane",
-    "names": "the root, the register-seed lane and the drive's register lane",
-    "authorize": "the root, the register-seed lane and the drive's register lane",
-    "supersede": "the root, the register-seed lane and the drive's register lane",
+    "classify": "the coordinator, the register-seed lane and the drive's register lane",
+    "names": "the coordinator, the register-seed lane and the drive's register lane",
+    "authorize": "the coordinator, the register-seed lane and the drive's register lane",
+    "supersede": "the coordinator, the register-seed lane and the drive's register lane",
     "status": "the grader lanes: fidelity desks, finder, walker, end-state and incident-closeout",
     "anchor": "the anchor and register-seed lanes",
 }
@@ -126,7 +126,7 @@ LEDGER_WRITE = (
 )
 SEAT_REFUSED = "Warning, nothing was blocked: `rulings.py {verb}` runs only in {seats}, and this session is {lane}. Hand the change to one of those lanes."
 AUTHORIZES_LABEL = (
-    "Warning, nothing was blocked: An `authorizes:` label is written only by `rulings.py authorize`. Run that verb from the root instead of labelling the answer by hand."
+    "Warning, nothing was blocked: An `authorizes:` label is written only by `rulings.py authorize`. Run that verb from the coordinator instead of labelling the answer by hand."
 )
 WIDENED_TO = "fleet"
 WIDENING = "widen"
@@ -586,7 +586,7 @@ def unseated_verbs(evt: BaseHookEvent) -> list[str]:
 
 
 def lane_label(lane: str | None) -> str:
-    return "the root" if lane is None else f"lane `{lane or 'unnamed'}`"
+    return "the coordinator" if lane is None else f"lane `{lane or 'unnamed'}`"
 
 
 def lane(name: str) -> dict[str, str]:
@@ -614,9 +614,9 @@ def lane(name: str) -> dict[str, str]:
         Input(command="python3 rulings.py classify 629293ae14388dc9", state=ACTIVE, cwd=CWD, env=lane("register-seed")): Allow(),
         Input(command="python3 rulings.py classify 629293ae14388dc9", state=ACTIVE, cwd=CWD, env=lane("capture-desk")): Allow(),
         Input(command="python3 rulings.py classify 629293ae14388dc9", state=ACTIVE, cwd=CWD, env=lane("p1-hooks")): Warn(
-            pattern=r"^Warning, nothing was blocked: `rulings\.py classify` runs only in the root, the register-seed lane and the drive's register lane, and this session is lane `p1-hooks`\."
+            pattern=r"^Warning, nothing was blocked: `rulings\.py classify` runs only in the coordinator, the register-seed lane and the drive's register lane, and this session is lane `p1-hooks`\."
         ),
-        Input(command="rulings.py status rule/0a1b2c3 met --evidence '#1'", state=ACTIVE, env=DRIVE_CONFIG, cwd=CWD): Warn(pattern=r"this session is the root\."),
+        Input(command="rulings.py status rule/0a1b2c3 met --evidence '#1'", state=ACTIVE, env=DRIVE_CONFIG, cwd=CWD): Warn(pattern=r"this session is the coordinator\."),
         Input(command="rulings.py status rule/0a1b2c3 met --evidence '#1'", state=ACTIVE, cwd=CWD, env=lane("fidelity-desk")): Allow(),
         Input(command="rulings.py anchor rule/0a1b2c3", state=ACTIVE, cwd=CWD, env=lane("anchor-lane")): Allow(),
         Input(command="rulings.py anchor rule/0a1b2c3", state=ACTIVE, cwd=CWD, env=lane("walker")): Warn(pattern=r"anchor and register-seed lanes"),

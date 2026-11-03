@@ -163,7 +163,7 @@ func TestTheCoordinatorStartsEveryDesk(t *testing.T) {
 		want := fmt.Sprintf("desk-launch.py lane %s ", name)
 		suffix := fmt.Sprintf("%s --drive %s --lane %s", filepath.Join(state, name, "brief.md"), testDrive, lanes.Root)
 		if !slices.ContainsFunc(launched, func(line string) bool { return strings.HasPrefix(line, want) && strings.HasSuffix(line, suffix) }) {
-			t.Fatalf("no launch of %s posted as root from its brief in %q", name, launched)
+			t.Fatalf("no launch of %s posted as the coordinator from its brief in %q", name, launched)
 		}
 	}
 	if !strings.Contains(out.String(), "orca runner started from this Orca terminal") {

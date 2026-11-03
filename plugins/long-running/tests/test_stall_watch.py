@@ -226,7 +226,7 @@ def test_a_command_is_handed_a_deadline_before_the_watch_kills_it_so_a_script_en
 
 
 def test_a_stall_reaches_the_live_successor_of_the_lane_that_posted_the_prs_newest_head(config):
-    """Root #215820: stalls went to n-enumeration-1 and port-memory-1, dead since their successors took over."""
+    """Coordinator #215820: stalls went to n-enumeration-1 and port-memory-1, dead since their successors took over."""
     rotated = record(1, "port-memory-1", "head", f"HEAD #101 {HEAD}", 40, "101")
     shell = FakeShell([rotated, fidelity(2, "101", HEAD, 35), record(3, "port-memory-3", "state", "took over port-memory-1's PRs", 5)], [row("101", test_state="pending")])
     shell.successions = {"port-memory-1": "port-memory-3"}
@@ -238,7 +238,7 @@ def test_a_stall_reaches_the_live_successor_of_the_lane_that_posted_the_prs_newe
 
 
 def test_a_failed_registry_read_runs_the_pass_on_the_last_good_read_with_one_defect_per_cause(config):
-    """Root #343297: 0.7.952's supervisor refused lr.json's go_lanes key, and every stall-watch pass died with no alarm."""
+    """Coordinator #343297: 0.7.952's supervisor refused lr.json's go_lanes key, and every stall-watch pass died with no alarm."""
     rotated = record(1, "port-memory-1", "head", f"HEAD #101 {HEAD}", 40, "101")
     shell = FakeShell([rotated, fidelity(2, "101", HEAD, 35), record(10, "port-memory-3", "state", "took over port-memory-1's PRs", 5)], [row("101", test_state="pending")])
     shell.successions = {"port-memory-1": "port-memory-3"}
@@ -409,12 +409,12 @@ def test_gos_stacked_on_one_parent_post_once_naming_the_parent_and_a_held_parent
 
     assert shell.topics() == ["go:201:abc1234"]
     assert shell.post("go:201:abc1234")["to"] == "root"
-    said = f"root gos name #202, #203 in the stack from #201 (#202: go #1 by root at {grades.clock(records[0]['at'])}), and no QUEUED record does | owner root | #201 at abc1234: no go names this head, and a stack enqueues from the bottom"
+    said = f"coordinator gos name #202, #203 in the stack from #201 (#202: go #1 by root at {grades.clock(records[0]['at'])}), and no QUEUED record does | owner root | #201 at abc1234: no go names this head, and a stack enqueues from the bottom"
     assert said in shell.post("go:201:abc1234")["text"]
 
 
 def test_a_root_decide_that_opens_with_a_go_at_the_head_counts_as_its_go(config):
-    """Root #202036 went to #44922 at 519ea97 as a decide opening `go ... TAP-KEPT`, and the watch still raised go and carry stalls on that head (#202033, #202103)."""
+    """Coordinator #202036 went to #44922 at 519ea97 as a decide opening `go ... TAP-KEPT`, and the watch still raised go and carry stalls on that head (#202033, #202103)."""
     records = [record(1, "root", "go", f"go #202 at {OTHER[:7]}", 30), record(2, "root", "decide", f"12:32 AM go #201 at {HEAD[:7]} TAP-KEPT: no new behavior since the tap at {OLD[:7]}", 30)]
     shell = FakeShell(records, [row("201"), row("202", OTHER, base="b201")])
 
@@ -426,7 +426,7 @@ def test_a_root_decide_that_opens_with_a_go_at_the_head_counts_as_its_go(config)
 
 
 def test_a_head_graded_before_the_window_draws_no_ungraded_stall(config):
-    """Root #273068: stall-watch flagged #46082 at f736bb4 ungraded at 8:04 PM Oct 31, though fidelity-desk-4 graded that head ok on Oct 30, outside the 24 h window."""
+    """Coordinator #273068: stall-watch flagged #46082 at f736bb4 ungraded at 8:04 PM Oct 31, though fidelity-desk-4 graded that head ok on Oct 30, outside the 24 h window."""
     days_ago = 26 * 60
     records = [head(1, "101", HEAD, 30), finder(2, "101", HEAD, days_ago), fidelity(3, "101", HEAD, days_ago)]
     shell = FakeShell(records, [row("101", green_at=stamp(20))])
@@ -437,7 +437,7 @@ def test_a_head_graded_before_the_window_draws_no_ungraded_stall(config):
 
 
 def test_a_pr_below_a_go_that_waits_only_on_the_owners_tap_is_no_go_stall(config):
-    """#200414 raised a go stall to root for #45334, whose merge row already waited on the owner's tap."""
+    """#200414 raised a go stall to the coordinator for #45334, whose merge row already waited on the owner's tap."""
     shell = FakeShell([record(1, "root", "go", f"go #202 at {OTHER[:7]}", 30)], [row("201"), row("202", OTHER, base="b201")])
     shell.doc = {"blocks": [{"id": f"merge:201:{HEAD[:7]}", "type": "card", "children": []}]}
 
@@ -452,7 +452,7 @@ def test_a_pr_below_a_go_that_waits_only_on_the_owners_tap_is_no_go_stall(config
     ids=["tap-row-under-merge-mode-every", "no-finder-review", "graded-and-waits-on-root"],
 )
 def test_a_pr_below_a_go_draws_a_go_stall_only_when_its_next_step_is_roots_go(config, mode, reviewed, stalls):
-    """Root #220563: a stack bottom with no grades waits on its grades, not on root; #224791 and #224880 raised go stalls to root for a bottom whose next step was its re-ask on the owner's board."""
+    """Coordinator #220563: a stack bottom with no grades waits on its grades, not on the coordinator; #224791 and #224880 raised go stalls to the coordinator for a bottom whose next step was its re-ask on the owner's board."""
     merge_mode(config, mode)
     below = [head(10, "201", HEAD, 40), record(11, "fidelity-desk", "review", f"fidelity: ok {HEAD[:7]} new-tree fix, stays a tap row", 39, "201"), *([finder(12, "201", HEAD, 39)] if reviewed else [])]
     shell = FakeShell([*below, record(1, "root", "go", f"go #202 at {OTHER[:7]}", 30)], [row("201"), row("202", OTHER, base="b201")])
@@ -472,7 +472,7 @@ def test_a_pr_below_a_go_draws_a_go_stall_only_when_its_next_step_is_roots_go(co
     ids=["not-carried", "kept", "carried"],
 )
 def test_a_carry_the_desk_runners_tap_note_settles_at_the_head_draws_no_carry_stall_and_asks_sonnet_nothing(config, note):
-    """#224789, #224790 and #224879 raised carry stalls to root on heads whose desk runner TAP-NOT-CARRIED or TAP-KEPT note already settled the carry (root #224826)."""
+    """#224789, #224790 and #224879 raised carry stalls to the coordinator on heads whose desk runner TAP-NOT-CARRIED or TAP-KEPT note already settled the carry (coordinator #224826)."""
     fixed = f"HEAD #101 {HEAD} (was {OLD}): one added commit, NEW BEHAVIOR: the startup pass runs as its own task"
     shell = FakeShell([head(1, "101", OLD, 90), head(2, "101", HEAD, 40, fixed), record(3, "desk-runner", "note", note, 30, "101", to=["root", "board-refresher-2"])], [row("101")])
     shell.triage = {"merge-prs": {"101": {"verdict": "approved", "head": OLD[:7], "at": stamp(60)}}}
@@ -495,7 +495,7 @@ def test_a_desk_runner_tap_note_about_another_head_leaves_the_carry_stall_standi
 
 @pytest.mark.parametrize(("live", "stalls"), [(HEAD, ["go:101:abc1234"]), (OTHER, [])])
 def test_a_go_at_a_ledger_head_the_pr_has_moved_past_draws_no_go_stall(config, live, stalls):
-    """root #326064: stall 326044 called go 325468 at 54c36ff a silent skip; #48166 had moved to 543ad64 and landed there on the owner's tap."""
+    """coordinator #326064: stall 326044 called go 325468 at 54c36ff a silent skip; #48166 had moved to 543ad64 and landed there on the owner's tap."""
     records = gone("101", HEAD)
     records.append(record(5, "desk-runner", "blocker", f"#101 {HEAD[:10]}: nothing in #101 was enqueued; GO-UNQUEUED #101: the merge queue refused it at this head", 9, to=["api-lane"], topic="101", status="open"))
     shell = FakeShell(records, [row("101")])
@@ -507,7 +507,7 @@ def test_a_go_at_a_ledger_head_the_pr_has_moved_past_draws_no_go_stall(config, l
 
 
 def test_no_carry_stall_asks_for_a_go_at_a_ledger_head_the_pr_has_moved_past(config):
-    """root #324772 and #326064: carry stalls asked for gos on ledger heads the PRs had left, #48166 at 54c36ff after it moved to the 543ad64 the owner tapped, with no head record for the move."""
+    """coordinator #324772 and #326064: carry stalls asked for gos on ledger heads the PRs had left, #48166 at 54c36ff after it moved to the 543ad64 the owner tapped, with no head record for the move."""
     fixed = f"HEAD #101 {HEAD} (was {OLD}): answers the reviewer bot's finding with a nil check and its test"
     shell = FakeShell([head(1, "101", OLD, 90), head(2, "101", HEAD, 40, fixed)], [row("101")])
     shell.triage = {"merge-prs": {"101": {"verdict": "approved", "head": OLD[:7], "at": stamp(60)}}}
@@ -573,7 +573,7 @@ def gone(pr: str, sha: str) -> list[dict]:
 
 
 def test_a_go_the_landing_desk_saw_trunk_evict_cites_the_eviction_and_goes_to_its_lanes_never_reads_as_a_silent_runner(config):
-    """Root #311014: #47206's go stall said the runner wrote no QUEUED, MERGED or blocker record, while landing-desk-3 had posted Trunk's eviction (#310614) 10 minutes before."""
+    """Coordinator #311014: #47206's go stall said the runner wrote no QUEUED, MERGED or blocker record, while landing-desk-3 had posted Trunk's eviction (#310614) 10 minutes before."""
     records = gone("101", HEAD)
     records.append(record(5, "landing-desk-3", "blocker", f"Trunk evicted #101 at {HEAD[:9]} (failed, no Trunk comment). admitted head unchanged, fix the failing build then resubmit.", 9, to=["root", "api-lane"]))
     shell = FakeShell(records, [row("101")])
@@ -603,7 +603,7 @@ def test_a_go_the_runner_refused_names_its_newest_open_blocker_for_that_head_and
 
 @pytest.mark.parametrize(("tapped", "stalls"), [(False, []), (True, ["go:101:abc1234"])], ids=["untapped", "tapped"])
 def test_a_tap_required_go_is_no_go_stall_until_the_owner_taps(config, tapped, stalls):
-    """Root #267724: go #267444 for #45724 was TAP-REQUIRED first-ask, and stall-watch raised a go stall 13 minutes later, before the owner's tap."""
+    """Coordinator #267724: go #267444 for #45724 was TAP-REQUIRED first-ask, and stall-watch raised a go stall 13 minutes later, before the owner's tap."""
     records = [*gone("101", HEAD)[:3], record(4, "root", "go", f"go #101 at {HEAD[:7]} on green [TAP-REQUIRED first-ask]", 12)]
     records.append(record(5, "desk-runner", "blocker", f"#101 {HEAD[:10]}: nothing in #101 was enqueued; GO-UNQUEUED #101: the merge queue refused it at this head", 9, to=["api-lane"], topic="101", status="open"))
     shell = FakeShell(records, [row("101")])
@@ -617,7 +617,7 @@ def test_a_tap_required_go_is_no_go_stall_until_the_owner_taps(config, tapped, s
 
 @pytest.mark.parametrize("withdrawn", [False, True])
 def test_a_root_correction_withdrawing_a_go_ends_its_go_stall(config, withdrawn):
-    """#243593: root withdrew go #237906 on #46228 with a correction, not a withdraw, and the stall watch still counted the go."""
+    """#243593: the coordinator withdrew go #237906 on #46228 with a correction, not a withdraw, and the stall watch still counted the go."""
     records = gone("101", HEAD)
     records.append(record(5, "desk-runner", "blocker", f"#101 {HEAD[:10]}: nothing in #101 was enqueued; GO-UNQUEUED #101: the merge queue refused it at this head", 9, to=["api-lane"], topic="101", status="open"))
     if withdrawn:
@@ -663,7 +663,7 @@ def test_a_graded_pr_missing_from_the_board_belongs_to_the_drives_board_lane_not
 
 
 def test_a_pr_after_one_on_the_board_is_still_judged_against_its_live_head(config):
-    """root #326463: on 0.7.901 the pass crashed with TypeError on the PR after a board row, since the board's `live` walrus rebound the live-head map."""
+    """coordinator #326463: on 0.7.901 the pass crashed with TypeError on the PR after a board row, since the board's `live` walrus rebound the live-head map."""
     records = [head(1, "101", HEAD, 40), finder(2, "101", HEAD, 20), fidelity(3, "101", HEAD, 20), head(4, "102", OTHER, 40), finder(5, "102", OTHER, 30), fidelity(6, "102", OTHER, 30), record(7, "root", "go", f"go #102 at {OTHER[:7]}", 30)]
     shell = FakeShell(records, [row("101"), row("102", OTHER)])
     shell.doc = {"blocks": [{"id": "merge-prs", "type": "pr-groups", "groups": [{"id": "g", "prs": [{"number": 101, "head": HEAD[:7]}]}]}]}
@@ -694,7 +694,7 @@ def test_a_graded_pr_missing_from_the_board_and_a_tap_no_go_follows_each_post_un
 
 @pytest.mark.parametrize(("below", "stalls"), [("pending", []), ("failure", []), ("success", ["board:101:abc1234"])])
 def test_a_graded_pr_whose_stacked_parent_is_not_green_draws_no_board_stall(config, below, stalls):
-    """Root #291241: stall-watch paged board-refresher-6 for #47188 and #47326, rows the board held on purpose while the change below each was not green."""
+    """Coordinator #291241: stall-watch paged board-refresher-6 for #47188 and #47326, rows the board held on purpose while the change below each was not green."""
     shell = FakeShell([head(1, "101", HEAD, 40), finder(2, "101", HEAD, 20), fidelity(3, "101", HEAD, 20)], [row("101", base="b100"), row("100", OTHER, test_state=below)])
 
     watch(shell, config)
@@ -717,7 +717,7 @@ def test_a_go_from_a_numbered_successor_of_a_go_lane_settles_the_tap(config):
 
 
 def test_a_tap_stall_goes_to_root_and_the_live_registry_lanes_its_go_lanes_route_to_never_a_dead_name(config):
-    """Root #310193: tap stalls went to go-carry-sweep and go-carry-sweep-3, dead lane names from the config's go lanes."""
+    """Coordinator #310193: tap stalls went to go-carry-sweep and go-carry-sweep-3, dead lane names from the config's go lanes."""
     raw = json.loads(config.read_text())
     raw["landing"]["go_lanes"] = ["go-carry-sweep", "go-carry-sweep-3", "go-sweep-7"]
     config.write_text(json.dumps(raw))
@@ -736,7 +736,7 @@ def test_a_tap_stall_goes_to_root_and_the_live_registry_lanes_its_go_lanes_route
 
 
 def test_every_board_class_stall_goes_to_the_board_lane_with_root_in_copy(config):
-    """Root #313384: board:47614 at 5dcaafc went to root alone, a hop that added minutes before board-refresher-6 put the row up."""
+    """Coordinator #313384: board:47614 at 5dcaafc went to the coordinator alone, a hop that added minutes before board-refresher-6 put the row up."""
     raw = json.loads(config.read_text())
     raw["stall"] = {**raw.get("stall", {}), "board_lane": "board-refresher-6"}
     config.write_text(json.dumps(raw))
@@ -753,7 +753,7 @@ def test_every_board_class_stall_goes_to_the_board_lane_with_root_in_copy(config
 
 
 def test_a_tap_at_an_earlier_head_carries_and_the_stall_asks_only_for_the_carried_go(config):
-    """Root #312798: carry #312437 told root to re-ask the owner at #47276's moved head, against the owner's Oct 31 2:48 AM ruling that a tap carries to every later head."""
+    """Coordinator #312798: carry #312437 told the coordinator to re-ask the owner at #47276's moved head, against the owner's Oct 31 2:48 AM ruling that a tap carries to every later head."""
     fixed = f"HEAD #101 {HEAD} (was {OLD}): one added commit, NEW BEHAVIOR: the startup pass runs as its own task"
     shell = FakeShell([head(1, "101", OLD, 90), head(2, "101", HEAD, 20, fixed)], [row("101")])
     shell.triage = {"merge-prs": {"101": {"verdict": "approved", "head": OLD[:7], "at": stamp(60)}}}
@@ -800,7 +800,7 @@ def needs_lane(seq: int, block: str, minutes_ago: float, status: str = "open") -
 
 
 def test_an_owner_pick_no_lane_binds_stalls_to_root_once_at_fifteen_minutes_and_clears_once_a_lane_claims_it(config, tmp_path):
-    """Root #225532: three owner picks sat two hours with no lane; a spawn whose brief names the pick, a claim, a lane's record or an answer binds it, and board-watch's own records never do."""
+    """Coordinator #225532: three owner picks sat two hours with no lane; a spawn whose brief names the pick, a claim, a lane's record or an answer binds it, and board-watch's own records never do."""
     brief = tmp_path / "pick-lane.md"
     brief.write_text("Route the owner's pick #4 to a fix.")
     records = [
@@ -825,7 +825,7 @@ def test_an_owner_pick_no_lane_binds_stalls_to_root_once_at_fifteen_minutes_and_
     assert shell.topics() == ["pick:1", "pick:11"]
     assert shell.post("pick:1")["to"] == "root"
     assert shell.post("pick:1")["kind"] == "urgent"
-    assert shell.post("pick:1")["text"].startswith("STALL pick owner pick share-pick, 20 min: board-watch asked root for a lane at ")
+    assert shell.post("pick:1")["text"].startswith("STALL pick owner pick share-pick, 20 min: board-watch asked the coordinator for a lane at ")
     assert shell.post("pick:1")["text"].endswith("| owner root | spawn a lane whose brief names share-pick or #1, or have a lane post a `claim` naming it; close it with `cci post --resolves '#1'`")
     shell.records.append(record(13, "share-lane", "state", "working share-pick", 0))
     watch(shell, config)
@@ -838,7 +838,7 @@ def ledger_row(key: str, minutes_ago: float, **fields) -> dict:
 
 
 def test_a_retro_row_ask_or_pick_unchanged_for_a_day_or_past_due_reaches_root_once_a_day_from_the_ledgers(config, tmp_path):
-    """Owner 10:21 PM Nov 1: eight owner picks sat 79 hours and nothing told root; the ledgers, not the record window, raise every row a day old or past due."""
+    """Owner 10:21 PM Nov 1: eight owner picks sat 79 hours and nothing told the coordinator; the ledgers, not the record window, raise every row a day old or past due."""
     (tmp_path / "state/retro.json").write_text(json.dumps({"ledger": "retro"}))
     (tmp_path / "state/findings.json").write_text(json.dumps({"ledger": "findings"}))
     shell = FakeShell([], [])
@@ -928,7 +928,7 @@ def test_a_held_pr_draws_no_stall(config, tmp_path):
 
 @pytest.mark.parametrize(("title", "stalls"), [("sandsql-signal: 🧪 proof: #47110's ping tests against the writer before the switch", []), ("sandsql-server: 🧪 race windows open on dev (proof, do not merge)", []), ("sandsql-follower: ✅ red proof for #46984, test alone", []), ("sand: 🔧 let the new-tree proof skip journal copy-up in its transport check", ["red:101:abc1234"])])
 def test_a_proof_pr_draws_no_stall_since_it_never_merges(config, title, stalls):
-    """Root #275597, #275660: #47112 is a failing-first proof PR whose red run is the evidence for #47005's test, and the stall watch paged its red build."""
+    """Coordinator #275597, #275660: #47112 is a failing-first proof PR whose red run is the evidence for #47005's test, and the stall watch paged its red build."""
     red = {"name": "buildkite/test", "url": "https://buildkite.com/forge/test/builds/9", "job": "Run sandsql tests", "error": "assertion failed: ping reached the writer", "probe": False}
     shell = FakeShell([record(1, "api-lane", "state", "working on #101", 5)], [row("101", title=title, test_state="failure", red_at=stamp(1), failing_checks=json.dumps([red]))])
     shell.clock = NOW + timedelta(minutes=2)
@@ -940,7 +940,7 @@ def test_a_red_head_goes_to_its_live_lane_every_half_hour_to_root_once_when_no_l
     red = {"name": "buildkite/test", "url": "https://buildkite.com/forge/test/builds/9", "job": "Lint (fmt, clippy)", "error": "error: used `expect()` on a `Result` value", "probe": False}
     probe = {"name": "buildkite/test", "url": "https://buildkite.com/forge/test/builds/8", "job": "Run api tests", "error": "buildkite-agent: fatal: failed to get step: 404 Not Found", "probe": True}
     bot = {"name": "ai-review", "url": "https://github.com/Forge-AI/monorepo/runs/7"}
-    records = [record(1, "api-lane", "state", "working on #101", 5), record(2, "root", "answer", "root reassigns #105 (gone-lane) to api-lane; #106 to other-lane", 4), record(3, "old-lane-2", "state", "took over #107", 3)]
+    records = [record(1, "api-lane", "state", "working on #101", 5), record(2, "root", "answer", "coordinator reassigns #105 (gone-lane) to api-lane; #106 to other-lane", 4), record(3, "old-lane-2", "state", "took over #107", 3)]
     raw = json.loads(config.read_text())
     config.write_text(json.dumps(raw | {"stall": {"minutes": {"unclassed": 600, "sweep": 600}}}))
     shell = FakeShell(
@@ -988,7 +988,7 @@ def test_a_red_head_goes_to_its_live_lane_every_half_hour_to_root_once_when_no_l
 
 
 def test_a_lane_whose_newest_record_is_a_rotate_flush_still_owns_its_red_head(config):
-    """Root #265966: signal-valkey-2 flushed on a ROTATE at 2:15 PM Oct 31 and kept working, and every red on its PRs read 'posted nothing live in 24 h' and went to root, since a handoff record read as the end of the lane."""
+    """Coordinator #265966: signal-valkey-2 flushed on a ROTATE at 2:15 PM Oct 31 and kept working, and every red on its PRs read 'posted nothing live in 24 h' and went to the coordinator, since a handoff record read as the end of the lane."""
     red = {"name": "buildkite/test", "url": "https://buildkite.com/forge/test/builds/9", "job": "Test the infra package", "error": "error: expect(received).toEqual(expected)", "probe": False}
     records = [record(1, "api-lane", "state", "working on #101", 5), record(2, "api-lane", "handoff", "flushed 92d97e5", 3, re=900), record(3, "gone-lane", "handoff", "gone-lane done; successor spawned", 3)]
     shell = FakeShell(records, [row("101", test_state="failure", red_at=stamp(1), failing_checks=json.dumps([red])), row("103", OLD, lane="gone-lane", test_state="failure", red_at=stamp(1), failing_checks=json.dumps([red]))])
@@ -999,7 +999,7 @@ def test_a_lane_whose_newest_record_is_a_rotate_flush_still_owns_its_red_head(co
     assert shell.post("red:103:0123456:root")["to"] == "root"
 
 def test_a_red_head_goes_to_the_lane_of_its_newest_head_record_never_to_a_live_successor_of_its_ledger_lane(config):
-    """Root #259013, fourth repeat: #46062 sat on n-enumeration-11's chain, every HEAD record on it was n-enumeration-11's, and its red still went to conflicts-7, a successor of the conflicts-5 its ledger row named."""
+    """Coordinator #259013, fourth repeat: #46062 sat on n-enumeration-11's chain, every HEAD record on it was n-enumeration-11's, and its red still went to conflicts-7, a successor of the conflicts-5 its ledger row named."""
     red = {"name": "buildkite/test", "url": "https://buildkite.com/forge/test/builds/9", "job": "Test (nextest)", "error": "FAILED", "probe": False}
     raw = json.loads(config.read_text())
     config.write_text(json.dumps(raw | {"stall": {"minutes": {"unclassed": 600, "sweep": 600}}}))
@@ -1021,7 +1021,7 @@ def red_shell(config: Path, *later: dict) -> FakeShell:
 
 @pytest.mark.parametrize(("moved", "stalls"), [(False, ["red:108:abc1234"]), (True, [])])
 def test_a_red_on_a_ledger_head_the_pr_left_draws_no_red_stall(config, moved, stalls):
-    """root #328647, #329080: stall-watch paged #48102 five times for 8c53f62 and #48138 for f1422b1 after each PR had moved on."""
+    """coordinator #328647, #329080: stall-watch paged #48102 five times for 8c53f62 and #48138 for f1422b1 after each PR had moved on."""
     shell = red_shell(config, *([record(2, "enum-lane-11", "head", f"HEAD #108 {OTHER}", 3, "108")] if moved else []))
     watch(shell, config)
     shell.clock = NOW + timedelta(minutes=2)
@@ -1031,7 +1031,7 @@ def test_a_red_on_a_ledger_head_the_pr_left_draws_no_red_stall(config, moved, st
 
 @pytest.mark.parametrize(("moved", "stales"), [(False, ["stale:201:abc1234"]), (True, [])])
 def test_a_ledger_head_the_pr_left_draws_no_stale_line(config, moved, stales):
-    """Root #329604, fidelity-desk-3 #329600: stall-watch posted STALE lines for #48067 at 2608172 and #47760 at 40ab93f after each PR had moved to a new head."""
+    """Coordinator #329604, fidelity-desk-3 #329600: stall-watch posted STALE lines for #48067 at 2608172 and #47760 at 40ab93f after each PR had moved to a new head."""
     records = [record(1, "gone-lane", "head", f"HEAD #201 {HEAD}", 200, "201"), *graded(1, "201", HEAD, 200)[1:], record(11, "gone-lane", "stand-down", "standing down", 150)]
     shell = FakeShell([*records, *([record(20, "gone-lane", "head", f"HEAD #201 {OTHER}", 100, "201")] if moved else [])], [row("201", mergeable_state="dirty", lane="gone-lane")])
     shell.doc = {"blocks": [{"id": f"merge:201:{HEAD[:7]}", "type": "card", "children": []}]}
@@ -1054,7 +1054,7 @@ def test_a_red_stall_whose_post_a_record_resolved_is_not_posted_again_at_that_he
 
 @pytest.mark.parametrize(("held", "stalls"), [(False, ["red:108:abc1234"]), (True, [])])
 def test_a_red_pr_under_an_open_typed_hold_draws_no_red_stall(config, held, stalls):
-    """root #329149: hold #328637 on #48047 was typed with --pr, yet stall-watch posted #329073 "STALL red #48047 at 5c5d017"."""
+    """coordinator #329149: hold #328637 on #48047 was typed with --pr, yet stall-watch posted #329073 "STALL red #48047 at 5c5d017"."""
     shell = red_shell(config, *([hold(2, "HOLD #108 to R2; typed with --pr so the stall watch reads it", "108")] if held else []))
     watch(shell, config)
     shell.clock = NOW + timedelta(minutes=2)
@@ -1119,7 +1119,7 @@ def test_an_owner_order_naming_a_pr_no_named_lane_cites_a_pr_for_three_minutes_p
 
 @pytest.mark.parametrize(("first_record", "minutes", "stalls"), [(False, 8, False), (True, 8, True), (False, 46, True)], ids=["unheard", "first-record", "past-wait"])
 def test_an_owner_order_to_a_lane_spawned_for_it_waits_for_its_first_record_or_forty_five_minutes(config, first_record, minutes, stalls):
-    """Root #314916: order:314180 paged root 7 minutes after it named log-verbosity-1, spawned at 2:57 AM and still reading its brief."""
+    """Coordinator #314916: order:314180 paged coordinator 7 minutes after it named log-verbosity-1, spawned at 2:57 AM and still reading its brief."""
     order = record(1, "root", "decide", "Owner 2:54 AM, verbatim: 'audit and make the logs less verbose'. log-verbosity-1 audits and ships the cut.", minutes, to=["log-verbosity-1", "all"])
     spawn = record(2, "root", "spawn", "SPAWNED log-verbosity-1", minutes - 1, refs={"lanes": ["log-verbosity-1"], "prs": []})
     heard = [record(3, "log-verbosity-1", "state", "auditing the executor's log lines", 1)] if first_record else []
@@ -1177,7 +1177,7 @@ def test_a_pr_in_one_state_for_two_hours_posts_one_stale_record_naming_its_owner
 
 @pytest.mark.parametrize("state", ["MERGED", "CLOSED"])
 def test_a_pr_github_reads_shut_draws_no_stall_whatever_the_ledger_copy_says(config, state):
-    """Root #339762: the Mac ledger still read #48152 open in the queue two hours after Trunk merged it, and stall-watch paged its landing desk."""
+    """Coordinator #339762: the Mac ledger still read #48152 open in the queue two hours after Trunk merged it, and stall-watch paged its landing desk."""
     go = record(4, "root", "go", f"go #101 at {HEAD[:7]}", 150)
     shell = FakeShell([*graded(1, "101", HEAD, 150), go], [row("101", ai_review="failure")])
     shell.states["101"] = state
@@ -1188,7 +1188,7 @@ def test_a_pr_github_reads_shut_draws_no_stall_whatever_the_ledger_copy_says(con
 
 
 def test_a_green_head_with_a_go_left_unqueued_stalls_to_root_and_the_landing_desk_as_the_runners_defect_not_its_lane(config):
-    """p8a-step7 #200851: #45381 sat green with its go for two hours, and the stale record went to p8a-step7, whose step it was not. Owner, 5:16 AM Oct 30 (root #208560): such a head is the runner's defect, raised fifteen minutes after its go."""
+    """p8a-step7 #200851: #45381 sat green with its go for two hours, and the stale record went to p8a-step7, whose step it was not. Owner, 5:16 AM Oct 30 (coordinator #208560): such a head is the runner's defect, raised fifteen minutes after its go."""
     desk_lane(config, "landing-desk-3")
     go = record(4, "root", "go", f"go #101 at {HEAD[:7]}", 150)
     shell = FakeShell([*graded(1, "101", HEAD, 150), go], [row("101")])
@@ -1198,7 +1198,7 @@ def test_a_green_head_with_a_go_left_unqueued_stalls_to_root_and_the_landing_des
     assert shell.topics() == ["go:101:abc1234"]
     post = shell.post("go:101:abc1234")
     assert post["to"] == "root,landing-desk-3@d1"
-    assert post["text"].startswith(f"STALL go #101 at abc1234, 150 min: root go names #101 (#101: go #4 by root at {grades.clock(go['at'])}), and no QUEUED record does | owner root, desk-runner | root routes the tooling lane: the landing runner wrote no QUEUED, MERGED or blocker record for #101 at abc1234")
+    assert post["text"].startswith(f"STALL go #101 at abc1234, 150 min: coordinator go names #101 (#101: go #4 by root at {grades.clock(go['at'])}), and no QUEUED record does | owner root, desk-runner | the coordinator routes the tooling lane: the landing runner wrote no QUEUED, MERGED or blocker record for #101 at abc1234")
 
 
 def test_a_graphite_base_under_an_open_parent_reads_as_a_drifted_base_never_a_landed_parent(config):
@@ -1245,8 +1245,8 @@ def merge_mode(config: Path, mode: str) -> None:
     ("board", "verdict", "topic", "post"),
     [
         (True, "", "tap-wait:101:abc1234", {"to": "root", "kind": "state", "text": "#101 at abc1234 waits on the owner's tap since 10:30 AM"}),
-        (True, "rejected", "stale:101:abc1234", {"to": "root,api-lane@d1", "kind": "urgent", "text": "STALE #101 at abc1234, 150 min: green, and no go names this head | owner api-lane | root posts `go #101 at abc1234` or puts its merge row on the owner's board"}),
-        (False, "", "stale:101:abc1234", {"to": "root,api-lane@d1", "kind": "urgent", "text": "STALE #101 at abc1234, 150 min: green, and no go names this head | owner api-lane | root posts `go #101 at abc1234` or puts its merge row on the owner's board"}),
+        (True, "rejected", "stale:101:abc1234", {"to": "root,api-lane@d1", "kind": "urgent", "text": "STALE #101 at abc1234, 150 min: green, and no go names this head | owner api-lane | the coordinator posts `go #101 at abc1234` or puts its merge row on the owner's board"}),
+        (False, "", "stale:101:abc1234", {"to": "root,api-lane@d1", "kind": "urgent", "text": "STALE #101 at abc1234, 150 min: green, and no go names this head | owner api-lane | the coordinator posts `go #101 at abc1234` or puts its merge row on the owner's board"}),
     ],
     ids=["live-tap-row", "rejected-tap-row", "no-tap-row"],
 )
@@ -1273,7 +1273,7 @@ def test_a_green_head_with_no_go_waits_on_a_live_tap_row_with_one_state_record_a
 )
 def test_a_held_batch_whose_hold_record_names_prs_on_or_stacked_above_the_tap_list_posts_one_state_record_per_head_and_a_red_gate_stales_only_itself(config, tmp_path, gate, stales):
     merge_mode(config, "ask")
-    records = [*graded(1, "201", HEAD, 150), *graded(4, "202", HEAD, 150), *graded(7, "301", HEAD, 150), *graded(10, "302", HEAD, 150), *graded(13, "303", HEAD, 150), hold(900, "hold #201 (root #159418): lands after #301 and #302", "201"), hold(901, "hold #202 (root #159418): same batch as #201", "202")]
+    records = [*graded(1, "201", HEAD, 150), *graded(4, "202", HEAD, 150), *graded(7, "301", HEAD, 150), *graded(10, "302", HEAD, 150), *graded(13, "303", HEAD, 150), hold(900, "hold #201 (coordinator #159418): lands after #301 and #302", "201"), hold(901, "hold #202 (coordinator #159418): same batch as #201", "202")]
     shell = FakeShell(records, [row("201"), row("202"), row("301"), row("302", base="b303"), row("303", **gate)])
     shell.doc = {"blocks": [{"id": "merge-prs", "type": "pr-groups", "groups": [{"id": "g", "prs": [{"number": number, "head": HEAD[:7]} for number in (301, 302, 303)]}]}]}
 
@@ -1289,7 +1289,7 @@ def test_a_held_batch_whose_hold_record_names_prs_on_or_stacked_above_the_tap_li
 @pytest.mark.parametrize(("tap", "stales"), [(None, []), ("approved", [])], ids=["parent-untapped", "parent-tapped"])
 def test_a_row_held_behind_an_open_untapped_parent_never_stales(config, tmp_path, tap, stales):
     merge_mode(config, "ask")
-    shell = FakeShell([*graded(1, "201", HEAD, 150), *graded(4, "301", HEAD, 150), hold(900, "hold #201 lands as the top of the cloud-runs batch above #301 (root 162279)", "201")], [row("201"), row("301", test_state="pending")])
+    shell = FakeShell([*graded(1, "201", HEAD, 150), *graded(4, "301", HEAD, 150), hold(900, "hold #201 lands as the top of the cloud-runs batch above #301 (coordinator 162279)", "201")], [row("201"), row("301", test_state="pending")])
     shell.doc = {"blocks": [{"id": "merge-prs", "type": "pr-groups", "groups": [{"id": "g", "prs": [{"number": 301, "head": HEAD[:7]}]}]}]}
     if tap:
         shell.triage = {"merge-prs": {"301": {"verdict": tap, "head": HEAD[:7], "at": stamp(140)}}}
@@ -1485,7 +1485,7 @@ def test_a_stale_stack_posts_once_from_its_lowest_stale_pr_a_held_pr_draws_none_
 
 
 def test_a_pr_under_an_open_typed_hold_draws_no_stale_line_however_long_it_waits(config):
-    """Root #328888, devbox-explore-7 #328884: stall-watch paged a retired lane as owner of #46107 under root's typed hold 322779, at 5:32, 6:46, 7:47 and 8:48 AM."""
+    """Coordinator #328888, devbox-explore-7 #328884: stall-watch paged a retired lane as owner of #46107 under the coordinator's typed hold 322779, at 5:32, 6:46, 7:47 and 8:48 AM."""
     records = [record(1, "gone-lane", "head", f"HEAD #301 {HEAD}", 600, "301"), *graded(1, "301", HEAD, 600)[1:], hold(900, "hold #301: no work owed by any lane", "301")]
     shell = FakeShell(records, [row("301", lane="gone-lane")])
 
@@ -1609,7 +1609,7 @@ def test_each_landing_refusal_cause_is_tracked_and_routed_to_the_lane_that_acts(
 
 @pytest.mark.parametrize(("board_head", "stalls"), [(HEAD, []), (OTHER, ["board:101:" + HEAD[:7]])], ids=["row-up", "no-row-at-head"])
 def test_a_tap_required_refusal_waits_on_the_owner_and_only_a_missing_row_pages_the_board_lane(config, board_head, stalls):
-    """Root #282689: stall-watch paged root every 10 minutes for #45714 and #47164, whose TAP-REQUIRED refusals waited on the owner's tap."""
+    """Coordinator #282689: stall-watch paged coordinator every 10 minutes for #45714 and #47164, whose TAP-REQUIRED refusals waited on the owner's tap."""
     raw = json.loads(config.read_text())
     raw["landing"]["board_lane"] = "board-refresher-2"
     config.write_text(json.dumps(raw))
@@ -1649,7 +1649,7 @@ def test_a_head_in_the_finder_queue_draws_no_finder_stall_until_its_pass_runs_pa
 
 
 def test_green_heads_the_finder_desk_holds_queued_go_to_the_finder_desk_and_root_hears_them_in_one_line(config, tmp_path):
-    """#224787, #224882 and #224883 sent root one line per green head the finder desk's queue held; root #304381 sends the finder desk its own stalls."""
+    """#224787, #224882 and #224883 sent coordinator one line per green head the finder desk's queue held; coordinator #304381 sends the finder desk its own stalls."""
     desk_lane(config, "landing-desk-3")
     store = actions.Store(tmp_path / "store")
     store.create(actions.Incident("desk-finder", "desk-finder", 0, stamp(60), {}))
@@ -1729,7 +1729,7 @@ def test_a_runner_warning_that_holds_nothing_is_no_refusal(config):
 
 
 def test_a_grader_desks_waiting_line_opens_no_gate(config):
-    """Root #218445: gate:fidelity-desk-11:45103 re-fired hourly, though a grader opens no work when a PR lands."""
+    """Coordinator #218445: gate:fidelity-desk-11:45103 re-fired hourly, though a grader opens no work when a PR lands."""
     said = record(1, "fidelity-desk-11", "state", "fidelity-desk-11: the grade waits on #43736", 120)
     landed = record(2, "desk-runner", "landed", "LANDED #43736 as 70ad7da45d: merged into dev", 31, "43736")
     shell = FakeShell([said, landed], [])
@@ -1751,7 +1751,7 @@ def test_a_grader_desks_waiting_line_opens_no_gate(config):
     ids=["landed-31-min-ago", "inside-10-min", "an-hour-later", "successor-opened", "head-before-the-landing", "resolved", "a-later-state-without-the-pr"],
 )
 def test_unopened_work_that_waits_on_a_landed_pr_stalls_to_its_live_lane_hourly(config, landed_ago, after, topics):
-    """Root #218445: a gate cleared only on an OPENED or HEAD, so a resolved or superseded line re-fired hourly."""
+    """Coordinator #218445: a gate cleared only on an OPENED or HEAD, so a resolved or superseded line re-fired hourly."""
     said = record(1, "p8a-step7-2", "state", "p8a-step7-2: parts 2 and 3 wait only on #43736; I open both when #43736 lands", 120)
     landed = record(2, "desk-runner", "landed", "LANDED #43736 as 70ad7da45d: merged into dev", landed_ago, "43736")
     shell = FakeShell([said, landed, *after], [])
@@ -1765,7 +1765,7 @@ def test_unopened_work_that_waits_on_a_landed_pr_stalls_to_its_live_lane_hourly(
 
 @pytest.mark.parametrize(("go_ago", "stalls"), [(12, False), (17, True)], ids=["inside-fifteen-minutes", "past-fifteen-minutes"])
 def test_a_go_named_head_no_runner_record_or_worker_names_stalls_to_root_as_a_runner_defect_fifteen_minutes_on(config, go_ago, stalls):
-    """Owner 5:16 AM Oct 30 on #45286, admitted and unqueued for two hours with no record: "make a durable fix for this not jsut a done-off". A stack no worker held was backlog that never stalled, so the watch stayed as silent as the runner (root #208560)."""
+    """Owner 5:16 AM Oct 30 on #45286, admitted and unqueued for two hours with no record: "make a durable fix for this not jsut a done-off". A stack no worker held was backlog that never stalled, so the watch stayed as silent as the runner (coordinator #208560)."""
     pr = "200"
     records = [head(1, pr, HEAD, 60), finder(2, pr, HEAD, 50), fidelity(3, pr, HEAD, 50), record(4, "root", "go", f"go #{pr} at {HEAD[:7]}", go_ago)]
     shell = FakeShell(records, [row(pr)])
@@ -1879,7 +1879,7 @@ def test_a_red_no_record_classes_alarms_root_once_at_twenty_minutes_a_real_class
     assert shell.post("unfixed:202:fedcba9") == {
         "to": "root,web-lane@d1",
         "kind": "blocker",
-        "text": "STALL unfixed #202 at fedcba9, 61 min: web-lane classed buildkite/lint a real failure at 12:50 PM and has pushed no new head: 12:50 PM needs a schema fix; blocker sent | owner web-lane | root gives the fix of #202 at fedcba9 to a live lane unless web-lane pushes it now",
+        "text": "STALL unfixed #202 at fedcba9, 61 min: web-lane classed buildkite/lint a real failure at 12:50 PM and has pushed no new head: 12:50 PM needs a schema fix; blocker sent | owner web-lane | the coordinator gives the fix of #202 at fedcba9 to a live lane unless web-lane pushes it now",
     }
 
     shell.clock = NOW + timedelta(minutes=56)
@@ -1898,7 +1898,7 @@ def test_a_red_no_record_classes_alarms_root_once_at_twenty_minutes_a_real_class
 
 
 def test_a_red_record_naming_the_pr_closes_the_unclassed_stall_it_cleared_with_no_resolves_from_anyone(config):
-    """Root #313433: signal-valkey-2's red #313096 classed #46475 at 9bbd4b0 and the watch dropped the stall, but its blocker #312427 stayed open until root resolved it."""
+    """Coordinator #313433: signal-valkey-2's red #313096 classed #46475 at 9bbd4b0 and the watch dropped the stall, but its blocker #312427 stayed open until the coordinator resolved it."""
     shell = FakeShell([], [row("201", test_state="failure", red_at=stamp(25), failing_checks=json.dumps([{"name": "buildkite/lint", "url": "u"}]))])
 
     watch(shell, config)
@@ -1941,7 +1941,7 @@ def test_a_red_of_a_lane_the_registry_routes_to_a_successor_goes_to_that_success
 
 
 def test_a_stall_reaches_the_successor_the_registry_links_whatever_its_name(config):
-    """Root #215820 by the registry: a stall reaches the worker that took over the lane that posted the PR's newest head."""
+    """Coordinator #215820 by the registry: a stall reaches the worker that took over the lane that posted the PR's newest head."""
     rotated = record(1, "port-memory-1", "head", f"HEAD #101 {HEAD}", 40, "101")
     shell = FakeShell([rotated, fidelity(2, "101", HEAD, 35), record(3, "memory-port", "state", "took over port-memory-1's PRs", 5)], [row("101", test_state="pending")])
     shell.registry_rows = [
@@ -1961,7 +1961,7 @@ def test_reds_with_no_live_red_sweep_lane_post_one_blocker_to_root_until_a_red_s
     assert shell.post("sweep:red-sweep") == {
         "to": "root",
         "kind": "blocker",
-        "text": "STALL sweep 1 red PR, 25 min: no live red-sweep lane holds them: #201 (unclassed) | owner root | root spawns red-sweep from the long-running skill's reference/red-sweep-brief.md",
+        "text": "STALL sweep 1 red PR, 25 min: no live red-sweep lane holds them: #201 (unclassed) | owner root | the coordinator spawns red-sweep from the long-running skill's reference/red-sweep-brief.md",
     }
 
     swept = f"#{9001 + shell.topics().index('sweep:red-sweep')}"
@@ -1984,7 +1984,7 @@ def test_a_finder_fidelity_or_gate_stall_posts_ten_minutes_on(config, tmp_path, 
 
 
 def test_a_head_move_on_a_pr_the_owner_never_tapped_asks_its_lane_for_roots_go_and_never_re_asks_the_owner(config):
-    """#280947: #47164 had only root's TAP-REQUIRED go at 433ef62, moved to 7c7628e, and the watch told root to re-ask the owner, who had never tapped it."""
+    """#280947: #47164 had only the coordinator's TAP-REQUIRED go at 433ef62, moved to 7c7628e, and the watch told the coordinator to re-ask the owner, who had never tapped it."""
     fixed = f"HEAD #101 {HEAD} (was {OLD}): answers the reviewer bot's finding with a nil check and its test"
     shell = FakeShell([record(1, "root", "go", f"go #101 at {OLD[:7]} on green", 90, "101"), head(2, "101", OLD, 95), head(3, "101", HEAD, 40, fixed)], [row("101")])
 
@@ -1992,11 +1992,11 @@ def test_a_head_move_on_a_pr_the_owner_never_tapped_asks_its_lane_for_roots_go_a
 
     assert shell.prompts == []
     assert shell.post("carry:101:abc1234")["to"] == "root,api-lane@d1"
-    assert "ask root for a TAP-REQUIRED `go #101 at abc1234`; no owner re-ask is owed" in shell.post("carry:101:abc1234")["text"]
+    assert "ask the coordinator for a TAP-REQUIRED `go #101 at abc1234`; no owner re-ask is owed" in shell.post("carry:101:abc1234")["text"]
 
 
 def test_a_green_head_with_roots_tap_required_go_and_no_board_row_pages_the_board_lane_never_root_for_a_go(config):
-    """#281189 paged root for a go on #46729 at 2e72eeb that root had posted eight minutes earlier as `go #46729 at 2e72eeb on green [TAP-REQUIRED first-ask row]` (#281030)."""
+    """#281189 paged the coordinator for a go on #46729 at 2e72eeb that coordinator had posted eight minutes earlier as `go #46729 at 2e72eeb on green [TAP-REQUIRED first-ask row]` (#281030)."""
     merge_mode(config, "ask")
     raw = json.loads(config.read_text())
     raw["landing"]["board_lane"] = "board-refresher-6"
@@ -2008,12 +2008,12 @@ def test_a_green_head_with_roots_tap_required_go_and_no_board_row_pages_the_boar
     watch(shell, config)
 
     stale = [topic for topic in shell.topics() if topic.startswith("stale:101")]
-    assert stale and "root posts `go #101" not in shell.post(stale[0])["text"]
+    assert stale and "the coordinator posts `go #101" not in shell.post(stale[0])["text"]
     assert "| owner board-refresher-6 | put the merge row for #101 at abc1234 on the owner's board" in shell.post(stale[0])["text"]
 
 
 def test_a_head_whose_newest_go_is_tap_required_is_no_go_for_the_landing_desk_though_an_older_go_names_it(config):
-    """Landing-desk-3 #300028, root #300034: #47284's newest go 294881 at 2593520 was TAP-REQUIRED, an older go named the same head, and the watch paged the landing desk STALE 'green with a go, not queued' though only the owner's tap could move it."""
+    """Landing-desk-3 #300028, coordinator #300034: #47284's newest go 294881 at 2593520 was TAP-REQUIRED, an older go named the same head, and the watch paged the landing desk STALE 'green with a go, not queued' though only the owner's tap could move it."""
     merge_mode(config, "ask")
     raw = json.loads(config.read_text())
     raw["landing"]["board_lane"] = "board-refresher-6"
@@ -2030,7 +2030,7 @@ def test_a_head_whose_newest_go_is_tap_required_is_no_go_for_the_landing_desk_th
 
 
 def test_a_stall_first_named_on_an_earlier_day_names_that_date_so_cci_never_reads_its_clock_as_ahead(config):
-    """Root #290304: carry:45861 said `first named 12:53 PM` of Oct 31 at 11:54 AM Nov 1, cci refused it as 59 minutes ahead, and the pass exited 1."""
+    """Coordinator #290304: carry:45861 said `first named 12:53 PM` of Oct 31 at 11:54 AM Nov 1, cci refused it as 59 minutes ahead, and the pass exited 1."""
     ready = record(2, "api-lane", "report", f"[101] clean READY #101 at {HEAD[:10]}", 23 * 60 + 30, "101")
     shell = FakeShell([ready, fidelity(3, "101", HEAD, 1)], [row("101", test_state="pending")])
 
@@ -2040,7 +2040,7 @@ def test_a_stall_first_named_on_an_earlier_day_names_that_date_so_cci_never_read
 
 
 def test_a_pass_whose_post_cci_refuses_ends_its_output_on_that_refusal(config, capsys):
-    """Root #295909: the 2:37 PM pass exited 1, and the runner's report quoted the pass's last line, a stall, so the refusal that failed it was lost."""
+    """Coordinator #295909: the 2:37 PM pass exited 1, and the runner's report quoted the pass's last line, a stall, so the refusal that failed it was lost."""
     shell = FakeShell([head(1, "101", HEAD, 40), fidelity(2, "101", HEAD, 35)], [row("101", test_state="pending")])
     run = shell.run
 
@@ -2058,7 +2058,7 @@ def test_a_pass_whose_post_cci_refuses_ends_its_output_on_that_refusal(config, c
 
 
 def test_a_replay_of_nov_1_opens_the_tenant_incident_at_290083_in_the_pass_that_first_reads_it(config):
-    """Retro C4: release-5 said at 11:45 AM (#290083) that Kennedy's release ships sand ahead of api, so tenant users see 'index unavailable'; root put it on a card (#290155), told the detector to hold its finding (#290003), and no incident opened until 1:54 PM (owner 3:03 PM Nov 1, root #296632)."""
+    """Retro C4: release-5 said at 11:45 AM (#290083) that Kennedy's release ships sand ahead of api, so tenant users see 'index unavailable'; the coordinator put it on a card (#290155), told the detector to hold its finding (#290003), and no incident opened until 1:54 PM (owner 3:03 PM Nov 1, coordinator #296632)."""
     replay = [{"drive": DRIVE, "num": f"#{found['seq']}", "refs": {}, "to": []} | found for found in map(json.loads, (Path(__file__).parent / "fixtures/customer_break/nov1.jsonl").read_text().splitlines())]
     shell = FakeShell([], [])
     opened: list[tuple[str, datetime]] = []
@@ -2093,7 +2093,7 @@ def test_a_replay_of_nov_1_opens_the_tenant_incident_at_290083_in_the_pass_that_
     ],
 )
 def test_a_board_lane_note_naming_a_customer_card_opens_no_customer_break(config, seq, kind, text):
-    """Root #310188: three board-curate-1 notes naming card-acme-crashed-runs, an Oct 31 card already settled, each opened an INCIDENT customer-break (309794, 309795, 309846)."""
+    """Coordinator #310188: three board-curate-1 notes naming card-acme-crashed-runs, an Oct 31 card already settled, each opened an INCIDENT customer-break (309794, 309795, 309846)."""
     shell = FakeShell([record(1, "root", "state", "seed", 30)], [])
     watch(shell, config)
     shell.records += [record(seq, "board-curate-1", kind, text, 1), record(seq + 1, "release-5", "urgent", "Release 11719 ships sand ahead of api, so tenant users see 'index unavailable' in the sidebar.", 1)]
@@ -2135,7 +2135,7 @@ release: 70 release builds in 6h, 1 failing steps"""
     ],
 )
 def test_a_dev_health_line_opens_a_customer_break_only_on_crashes_apm_errors_or_a_customer_count_no_open_finding_covers(config, line, opens):
-    """Root #305535: three dev-health state lines in 17 minutes opened customer-breaks that root closed on scope (305119, 305171, 305361), since `Zeta` and the zero-crash clause `run crashes 1h none` shared one sentence."""
+    """Coordinator #305535: three dev-health state lines in 17 minutes opened customer-breaks that coordinator closed on scope (305119, 305171, 305361), since `Zeta` and the zero-crash clause `run crashes 1h none` shared one sentence."""
     shell = FakeShell([record(4, "dev-health-desk-1", "note", "dev-health-desk-1 up", 30)], [])
     watch(shell, config)
     shell.records.append(record(5, "dev-health-desk-1", "state", line, 1))
@@ -2144,7 +2144,7 @@ def test_a_dev_health_line_opens_a_customer_break_only_on_crashes_apm_errors_or_
 
 
 def unowned(seq: int, minutes_ago: float) -> dict:
-    return record(seq, "desk-runner", "blocker", f"CLASS-UNOWNED topic:customer:{seq - 1} stall-watch: #{seq - 2} at 20:43, 10 min with no fix-lane GO | root: GO a fix lane for this class", minutes_ago, topic=f"topic:customer:{seq - 1}")
+    return record(seq, "desk-runner", "blocker", f"CLASS-UNOWNED topic:customer:{seq - 1} stall-watch: #{seq - 2} at 20:43, 10 min with no fix-lane GO | coordinator: GO a fix lane for this class", minutes_ago, topic=f"topic:customer:{seq - 1}")
 
 
 def answer(seq: int, text: str, minutes_ago: float, **link) -> dict:
@@ -2177,7 +2177,7 @@ def test_a_third_no_fix_acknowledgement_of_one_defect_class_in_two_hours_orders_
     posted = shell.post("acked:class-unowned")
     assert posted["kind"] == "urgent" and posted["to"] == "root,drive-watchdog@d1"
     assert posted["text"].startswith("STALL acked defect class CLASS-UNOWNED, ")
-    assert "root acknowledged it 3 times in 2 h with no fix PR (#305308 at " in posted["text"]
+    assert "the coordinator acknowledged it 3 times in 2 h with no fix PR (#305308 at " in posted["text"]
     assert "`desk-launch.py lane class-fix-class-unowned-1 opus xhigh <brief>`" in posted["text"]
     assert not [topic for topic in shell.topics() if topic.startswith("acked:directive")]
     assert shell.launches == []
@@ -2188,7 +2188,7 @@ def unsettled_refusals() -> list[dict]:
         record(296010, "desk-runner", "defect", "REFUSED #47306 at fa9f938174 (go #292083): unsettled: the gate's status read, and no step of the pass decided it", 110),
         answer(296026, "mq-health-8: the runner refuses #47306 as unsettled on every pass; known defect.", 108, re=296010),
         record(298821, "desk-runner", "defect", "REFUSED #47576 at 496e18c91b (go #298448): unsettled: the gate's status read", 80),
-        answer(298857, "Same unsettled hole, no action from root.", 79, re=298821),
+        answer(298857, "Same unsettled hole, no action from the coordinator.", 79, re=298821),
         record(303636, "desk-runner", "defect", "REFUSED #47194 at 89abc5168d (go #301124): unsettled: the gate's status read", 50),
         record(303643, "root", "note", "Hole 4 data point for the race: 303636 refuses the whole stack.", 49, re=303636),
         record(303700, "desk-runner", "defect", "REFUSED #47200 at 4331ada000 (go #301130): unsettled: the gate's status read", 20),
@@ -2221,7 +2221,7 @@ def test_the_fourth_acknowledgement_launches_one_fix_lane_with_a_brief_written_f
 
 
 def test_a_fix_lane_whose_register_slice_does_not_refresh_launches_on_the_next_pass(config):
-    """Root #313385: class-fix-refused-1 and class-fix-incident-clock-1 failed their launches on a brief with no slice."""
+    """Coordinator #313385: class-fix-refused-1 and class-fix-incident-clock-1 failed their launches on a brief with no slice."""
     state = registered_state(config)
     shell = FakeShell(unsettled_refusals(), [])
     shell.slice_code = 1
@@ -2246,7 +2246,7 @@ def test_acknowledgements_spread_past_two_hours_raise_nothing(config):
 
 
 def test_a_root_route_naming_an_owner_or_a_fix_lane_is_no_acknowledgement_and_per_pr_evictions_are_never_one_class(config):
-    """Root #311841: #311694 paged 'REFUSED by' as acknowledged three times with no fix PR, from root's owner= routes #308578 and #311146 and its eviction summary #308647."""
+    """Coordinator #311841: #311694 paged 'REFUSED by' as acknowledged three times with no fix PR, from the coordinator's owner= routes #308578 and #311146 and its eviction summary #308647."""
     registered_state(config)
     records = [
         record(308429, "hand-enqueue-2", "blocker", "REFUSED by Trunk: #46512 and #46779 read pendingFailure on my hand submits.", 100),
@@ -2270,7 +2270,7 @@ def test_a_root_route_naming_an_owner_or_a_fix_lane_is_no_acknowledgement_and_pe
 
 
 def test_a_refusal_at_a_head_its_lane_already_replaced_is_stale_and_never_an_acknowledged_class(config):
-    """Root #312758 and #313273: #47595's REFUSED at 0fa31d4 (#312089) came after its lane had restacked to e419c1e, and REFUSED counted as an acknowledged class with no defect behind it."""
+    """Coordinator #312758 and #313273: #47595's REFUSED at 0fa31d4 (#312089) came after its lane had restacked to e419c1e, and REFUSED counted as an acknowledged class with no defect behind it."""
     registered_state(config)
     records = []
     for n, (pr, old, new) in enumerate([("47595", "0fa31d4ab", "e419c1eab"), ("47596", "1ab2c3d4e", "2bc3d4e5f"), ("47597", "3cd4e5f6a", "4de5f6a7b")]):

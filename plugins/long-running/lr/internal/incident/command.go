@@ -177,7 +177,7 @@ func noteCommand() *cobra.Command {
 	flags.StringVar(&live, "live", "", "evidence the fix is live, for an incident with no pipeline to activate")
 	flags.StringVar(&notOurs, "not-ours", "", "the evidence that the alert is not ours; the incident closes with no fix")
 	flags.StringVar(&designCheck, "design-check", "", "the entry point the fix calls and how it meets each ruling, recorded before the PR opens")
-	flags.BoolVar(&designOK, "design-ok", false, "the root confirms the design check")
+	flags.BoolVar(&designOK, "design-ok", false, "the coordinator confirms the design check")
 	required(cmd, "incident")
 	return cmd
 }

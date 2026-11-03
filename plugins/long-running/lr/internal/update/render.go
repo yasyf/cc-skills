@@ -430,7 +430,7 @@ func (v view) listSections(in Inputs, lanes []Lane, doneLines []string) []listSe
 	}
 	return []listSection{
 		{fmt.Sprintf("Registry lanes quiet over %d h", int(quietAfter.Hours())), quietLines},
-		{"Waiting on root", waiting},
+		{"Waiting on the coordinator", waiting},
 		{"Owed deletions with no live owner", orphaned},
 		{"Owed deletions past due", late},
 		{"Board picks", board},

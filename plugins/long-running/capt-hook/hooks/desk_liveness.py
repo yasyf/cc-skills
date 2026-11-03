@@ -71,7 +71,7 @@ def pacific(at: str) -> str:
         Input(command=POST, env=SILENT_CCI): Warn(pattern=r"^LAUNCH-FAILED: no orca alive record from the orca desk runner in the last five minutes \(last never\)[\s\S]*--config <drive>/runner\.json"),
         Input(command=APPEND, env=UNBOUND_ENV): Allow(),
         Input(command="cci post --lane root --kind go --to landing-desk --text 'go #1'", env=SILENT_CCI): Allow(),
-        Input(command="echo '- G12 (root) GO walker' >> /state/release-v3/inbox/deploy-go.md", env=SILENT_CCI): Allow(),
+        Input(command="echo '- G12 (the coordinator) GO walker' >> /state/release-v3/inbox/deploy-go.md", env=SILENT_CCI): Allow(),
     },
 )
 def desk_runner_down(evt: BaseHookEvent) -> HookResult | None:

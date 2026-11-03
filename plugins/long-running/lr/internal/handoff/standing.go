@@ -550,7 +550,7 @@ func sectionOf(reg *register, lines []string, narrative string, rows *rowSet) st
 	case rows == nil || rows.failure != "":
 		own := ""
 		if ownRules.MatchString(narrative) {
-			own = fmt.Sprintf("; the root's own `%s` follows verbatim under `%s`", registerHeading, narrativeHeading)
+			own = fmt.Sprintf("; the coordinator's own `%s` follows verbatim under `%s`", registerHeading, narrativeHeading)
 		}
 		out = append(out, "- no `standing-rules` register doc"+own, "")
 	}

@@ -340,7 +340,7 @@ def own_prompt(evt: BaseHookEvent) -> tuple[Subagent, str]:
 
 
 def own_role(evt: BaseHookEvent) -> str | None:
-    """The role this subagent's spawn prompt or the brief file it names gives it, as `ccx: role=<role>` or a `Role: <role>` line; None for the root thread or an unread brief."""
+    """The role this subagent's spawn prompt or the brief file it names gives it, as `ccx: role=<role>` or a `Role: <role>` line; None for the coordinator thread or an unread brief."""
     if evt.agent_id is None or "transcript_path" not in evt._raw:
         return None
     try:

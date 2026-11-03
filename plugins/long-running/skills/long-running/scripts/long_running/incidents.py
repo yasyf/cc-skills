@@ -12,23 +12,23 @@ CLOSED = re.compile(r"\bINCIDENT (?:\S+ CLOSED|CLOSED \S+)\b|\bis a closed incid
 
 
 def closes(record: dict) -> bool:
-    """Whether `record` is the root's close, `INCIDENT <slug> CLOSED` or `INCIDENT CLOSED <slug>` or `<lane> is a closed incident`, in an incident or a decide record, which ends incident mode for every lane it is addressed to."""
+    """Whether `record` is the coordinator's close, `INCIDENT <slug> CLOSED` or `INCIDENT CLOSED <slug>` or `<lane> is a closed incident`, in an incident or a decide record, which ends incident mode for every lane it is addressed to."""
     return record["lane"] == "root" and CLOSED.search(record.get("text") or "") is not None
 
 
 def ended(records: list[dict]) -> dict[str, int]:
-    """Each lane a root close among `records` addresses, with the newest such close's seq."""
+    """Each lane a coordinator close among `records` addresses, with the newest such close's seq."""
     return {lane: record["seq"] for record in sorted(records, key=lambda record: record["seq"]) if closes(record) for lane in record.get("to") or []}
 
 
 def incident_records(run: Callable[[list[str]], str], drive: str) -> list[dict]:
-    """Every incident record on `drive` with its current status, and every root decide that closes one (root 311353), read once per pass by the caller."""
+    """Every incident record on `drive` with its current status, and every coordinator decide that closes one (coordinator 311353), read once per pass by the caller."""
     opened = [record for record in cci.current_records(run, drive, f"--kind={INCIDENT}") if (record["kind"], record["drive"]) == (INCIDENT, drive)]
     return opened + [record for record in cci.current_records(run, drive, "--kind=decide", "--lane", "root") if record["drive"] == drive and closes(record)]
 
 
 def open_incidents(records: list[dict]) -> list[dict]:
-    """The open records of `records`, but a root close and each record older than a close addressed to every lane it names besides root (#301886: #47627 squashed after 301284 closed its incident)."""
+    """The open records of `records`, but a coordinator close and each record older than a close addressed to every lane it names besides coordinator (#301886: #47627 squashed after 301284 closed its incident)."""
     closed = ended(records)
     return [
         record

@@ -2,7 +2,7 @@
 # /// script
 # requires-python = ">=3.13"
 # ///
-"""The stall watch: one pass over a drive that finds each piece of work that stopped moving, names the lane that owns its next step and that step, and posts one `urgent` cci record per stall to its owners, and to root unless desks own it, until it clears.
+"""The stall watch: one pass over a drive that finds each piece of work that stopped moving, names the lane that owns its next step and that step, and posts one `urgent` cci record per stall to its owners, and to coordinator unless desks own it, until it clears.
 
     stall_watch.py --config RUNNER_JSON [--dry-run]
 
@@ -10,14 +10,14 @@ STDLIB ONLY. `--config` is the desk runner's config, and its `stall` object turn
 desk runner reads that object every pass and starts one detached pass every `stall.every_minutes`
 (default 5) once the last has exited, logging to `stall-watch.log` beside `orca.desk_inbox`. A pass reads
 the drive's cci records over the last `stall.window_hours` (default 24), the landing ledger's open rows
-that GitHub still reads open, since a ledger copy lags the landings (root #339762), the open `hold` records, the landing desk's store, the board through
-board-watch's records, and the root session's task list. A proof PR, whose title says `proof:`, a red,
-green or failing-first proof, or do not merge, never merges, so it draws no stall of any kind (root
+that GitHub still reads open, since a ledger copy lags the landings (coordinator #339762), the open `hold` records, the landing desk's store, the board through
+board-watch's records, and the coordinator session's task list. A proof PR, whose title says `proof:`, a red,
+green or failing-first proof, or do not merge, never merges, so it draws no stall of any kind (coordinator
 #275597, #275660). For every other open PR no hold covers, at the head its ledger row names, it finds:
 
-    go        a root go names the head, no `QUEUED` record names the PR at it, no hold covers a PR
-              below it, and the go is older than `stall.minutes.go`; a root `decide` or `decision` whose
-              text opens with a go clause is a go, such as `go #44922 at 519ea97 TAP-KEPT` (root
+    go        a coordinator go names the head, no `QUEUED` record names the PR at it, no hold covers a PR
+              below it, and the go is older than `stall.minutes.go`; a coordinator `decide` or `decision` whose
+              text opens with a go clause is a go, such as `go #44922 at 519ea97 TAP-KEPT` (coordinator
               #202036), and so it also settles the carry stall at that head; the stall belongs to the first PR of its stack, from the bottom, with no go
               or with a red, conflicting or unfinished build, or whose newest ai-review run the review
               bot titles Held or Waiting for restack, else to the lanes the desk runner's newest open
@@ -25,59 +25,59 @@ green or failing-first proof, or do not merge, never merges, so it draws no stal
               TAP-REQUIRED, REFUSED, BELOW-BLOCKED or GO-UNQUEUED, else to the runner when the
               `landing-stacks.json` beside the config shows the stack's worker on one step past that step's
               budget, naming the step and the command in flight, else, once the go is older than
-              `stall.minutes.silent` (default 15), to the root and the landing desk as the runner's own
-              defect, since an admitted head no record names was skipped silently (root #208560),
+              `stall.minutes.silent` (default 15), to the coordinator and the landing desk as the runner's own
+              defect, since an admitted head no record names was skipped silently (coordinator #208560),
               and every go in one stack shares one stall naming the stack's bottom and that blocker;
-              a PR below a go with no go of its own draws none unless its next step is root's go: one
+              a PR below a go with no go of its own draws none unless its next step is the coordinator's go: one
               ungraded at its head, or one that waits on the owner's tap (merge mode `every`, a merge row
               up, or his tap at its head) waits on its own row's grade, board, carry or tap stall, never
-              on root (root #220563); a head whose newest blocker is the runner's MERGE-ASK draws none,
+              on coordinator (coordinator #220563); a head whose newest blocker is the runner's MERGE-ASK draws none,
               since the row's own tap wait reports it;
               a head whose blocker is FINDER-PENDING while the finder desk holds a pass on it queued
               or running draws none, since the desk's own FINDER-DESK-STALLED covers a stalled
               queue; a go a fidelity carry moved to a new head counts from the carry grade, not the go
               a go whose stack holds a PR a standing refusal names draws none, since that refusal's
               own stall names its lane and command; a go marked `TAP-REQUIRED` is no go until the owner
-              has tapped some head of the PR, since the runner lands it only then (root #267724)
-    refusal   the desk runner or a landing desk lane refused to queue a PR a root go or the owner's
+              has tapped some head of the PR, since the runner lands it only then (coordinator #267724)
+    refusal   the desk runner or a landing desk lane refused to queue a PR a coordinator go or the owner's
               tap names, at the head the refusal names: it needs a restack, conflicts with its base,
               sits on an untracked or closed parent or lost its Graphite parent, GitHub is still
               computing its mergeability, or the runner says FOREIGN, TAP-REQUIRED, GO-UNPARSED, CONTRACT-MISSING,
               PARKED, UNOWNED, NOT-QUEUEABLE or ENQUEUE-*; it is an open action naming the PR, its head,
               the reason, the lane that must act (the refusal's `owner <lane>` or `<lane>: #<pr>`
-              words, root for FOREIGN and GO-UNPARSED, the landing desk for mergeability, else the
+              words, the coordinator for FOREIGN and GO-UNPARSED, the landing desk for mergeability, else the
               PR's lane) and the command the refusal quotes; a TAP-REQUIRED refusal is never a stall,
               since it waits on the owner's tap, and a merge row still missing at that head past the
-              board window is the board lane's `board` stall (root #273794, #282689); it stands until that lane posts a
+              board window is the board lane's `board` stall (coordinator #273794, #282689); it stands until that lane posts a
               `head` record naming a PR the refusal names or answers it by `--re`, a record closes it,
               a QUEUED record names the PR, or the PR moves off that head or leaves the ledger; at
-              `stall.minutes.refusal` it posts to root and the lane, naming the command; a lane that
+              `stall.minutes.refusal` it posts to the coordinator and the lane, naming the command; a lane that
               died is the lane supervisor's to relaunch, never a stall
     red       the head's `landing.trunk_check` check, such as `buildkite/test`, has read failed for
               `stall.minutes.red`, counted from its ledger row's `red_at`, the refresh that first read
               the head's build red, held or not; it names the failed Buildkite job, its first error
               line and the build, and goes as a `blocker` to the PR's owner alone, posting again every
-              30 minutes while it stands; the owner is the lane the newest root record that reassigns
+              30 minutes while it stands; the owner is the lane the newest coordinator record that reassigns
               the PR names (`reassigns #1 and #2 to lane-a; #3 to lane-b`), else its ledger row's lane;
-              a red no live lane owns goes to root once per head and never again; a red whose failed
+              a red no live lane owns goes to the coordinator once per head and never again; a red whose failed
               job logged only Buildkite's benign step-export or meta-data 404 probe posts nothing
-              itself, and one `report` line a Pacific day names every such head to root; a `red`
+              itself, and one `report` line a Pacific day names every such head to the coordinator; a `red`
               record classing the head inherited, flake or stale silences it until the head moves; a
               red trunk is the desk runner's DEV-RED, never a stall
     unclassed the head's build has read red for `stall.minutes.unclassed`, counted from `red_at`, and no
               `red` record classifies it: `cci post --kind red --pr N --text "class=<class> head=<sha>
               owner=<lane> <what was done>"`, where class is inherited, flake, real or stale and `head=`
-              names the red head; a blocker to root and the PR's owner, once per PR and head
+              names the red head; a blocker to the coordinator and the PR's owner, once per PR and head
     unfixed   the newest `red` record at the head classes it real, and the PR has kept that head for
-              `stall.minutes.unfixed` since; a blocker to root and the class's owner, once per PR and head
+              `stall.minutes.unfixed` since; a blocker to the coordinator and the class's owner, once per PR and head
     sweep     a red head has stood `stall.minutes.sweep` and no lane named `red-sweep` or `red-sweep-<n>`
-              is live; one blocker to root naming every red PR, until a red-sweep lane posts
+              is live; one blocker to coordinator naming every red PR, until a red-sweep lane posts
     tap       the owner's board tap approves the head, and no go names it
     ungraded  a `head` record names the head, its build has read green for `stall.minutes.ungraded`, counted
               from its ledger row's `green_at`, and no finder review or no fidelity grade names it, whatever
               the desks hold queued, read from the PR's whole history when the window holds none; it is the finder or fidelity stall of a green head, posted to the
               graders, or the landing desk when the finder desk holds the pass, naming how long it has
-              waited there; root hears every head a pass newly finds ungraded in one urgent line per pass,
+              waited there; the coordinator hears every head a pass newly finds ungraded in one urgent line per pass,
               as it hears an unassigned failure, and never one line per head
     finder    a `head` record names the head, and no finder review does, and the finder desk holds
               no queued pass on the head, nor a running one younger than `stall.minutes.running`;
@@ -85,58 +85,58 @@ green or failing-first proof, or do not merge, never merges, so it draws no stal
     fidelity  a `head` record names the head, and no fidelity grade does, and the fidelity desk holds
               no queued grade on it, nor a running one younger than `stall.minutes.running`; a grade
               past that goes to the fidelity lane whose newest `claim` names the head, else to
-              fidelity-pipeline, never to the landing desk (root #324375)
+              fidelity-pipeline, never to the landing desk (coordinator #324375)
     missing   the newest fidelity grade naming the head reads `fidelity: missing`, and for
               `stall.minutes.missing` (default 20) no record of a lane other than a grader or desk answers
               its seq by `--re` or names `#<seq>`, and no PR comment a bot did not write follows it; it
-              goes to root and the PR's lane, naming the grader and the missing text, as a red build does
+              goes to the coordinator and the PR's lane, naming the grader and the missing text, as a red build does
     regrade   such a grade was answered, by that record or comment, and for `stall.minutes.regrade`
               (default 15) no grade has followed; it goes to the lane that graded it, or to the runner's
               desks when the fidelity pipeline did
     board     a finder ok and a fidelity ok name the head, its build is green, it waits on the owner's
               tap (merge mode every, or the landing desk records it waiting on `merge:<pr>:<sha7>`),
               the board holds no row or card for it at that head, no open `hold` record holds it, and no
-              root decide pulled its row with no READY record about the PR since
+              coordinator decide pulled its row with no READY record about the PR since
               (a fidelity grade that says one of `landing.exempt_grades`, default `pure port, no interaction`,
               `test-only or CI-only, no non-test code`, `test-only, no non-test code` and
-              `CI-only, no non-test code`, or a root record about the PR that says
-              `no row`, ends the stall: such a head lands on a root go with no board row)
-    carry     the owner's board tap or a root go names an earlier head, no go or carry names this
+              `CI-only, no non-test code`, or a coordinator record about the PR that says
+              `no row`, ends the stall: such a head lands on a coordinator go with no board row)
+    carry     the owner's board tap or a coordinator go names an earlier head, no go or carry names this
               one, and the board holds no row for it at this head; his tap carries to every later
-              head (owner, Oct 31 2:48 AM), so the only step is the carried go from root or a live
+              head (owner, Oct 31 2:48 AM), so the only step is the carried go from the coordinator or a live
               go lane, never a re-ask or a carry grade; a head the desk runner's
               TAP-KEPT, TAP-CARRIED or TAP-NOT-CARRIED note names draws none, since that note already
-              settles the carry and names the lane that acts on it (root #224826)
+              settles the carry and names the lane that acts on it (coordinator #224826)
 
 and, across the drive:
 
-    ask       a lane's `ask` to root is open, and no root record answers it
-    pick      board-watch's `needs-lane:<block>` ask to root for an owner pick or write-in is open, and no
+    ask       a lane's `ask` to the coordinator is open, and no coordinator record answers it
+    pick      board-watch's `needs-lane:<block>` ask to the coordinator for an owner pick or write-in is open, and no
               lane is bound to it: no record resolves it or answers it by `--re`, no `claim`, no record of a
-              lane other than root, a watcher or a desk runner, and no `SPAWNED` record or the brief it
-              names, names the block or the ask's `#<seq>`; it goes to root alone, once per pick
+              lane other than the coordinator, a watcher or a desk runner, and no `SPAWNED` record or the brief it
+              names, names the block or the ask's `#<seq>`; it goes to the coordinator alone, once per pick
     unfinished
               a row on the drive's retro table, owner ask ledger or findings ledger (sweep findings
               and owner picks) that is not done and has not changed for a day, or a retro row past
               its due; done is a retro row closed live or as a duplicate, an ask live, dropped or
               answered, a finding or pick fixed or closed; it reads the ledgers themselves, not the
-              record window, so an old row is never forgotten, and goes to root as a `blocker` once
+              record window, so an old row is never forgotten, and goes to the coordinator as a `blocker` once
               each Pacific day per row (owner, 10:21 PM Nov 1: "its been stalled for 79 hiours??")
-    order     a root `decide` record relays an owner order ("owner ... verbatim"), Sonnet reads it as
+    order     a coordinator `decide` record relays an owner order ("owner ... verbatim"), Sonnet reads it as
               naming a change that ships as a new PR, no record from a lane it names or a numbered
               successor cites a PR after it (an `opened` record, or any record with a PR reference),
-              and no root record closes it; it goes to root alone,
+              and no coordinator record closes it; it goes to the coordinator alone,
               from `stall.minutes.order` until the order is two hours old, and a named lane
-              spawned with no record since waits for its first record or `NEW_LANE_WAIT` (root #314916);
+              spawned with no record since waits for its first record or `NEW_LANE_WAIT` (coordinator #314916);
               an order to an incident fix lane, one named `-fix` or one an open incident names, waits
               `stall.minutes.incident_order` (default 25) from that lane's spawn, or from the order when
-              no spawn record names it, since a fix lane's first PR is due then (root #341549)
+              no spawn record names it, since a fix lane's first PR is due then (coordinator #341549)
     gate      a lane's `state` or `report` record says work waits on PR N (`waits on #N`, `waits only
               on #N`, `blocked on #N`, `when #N lands`), the desk runner or a landing desk lane posted
               N landed or QUEUED, and neither that lane nor a numbered successor of it has posted an
               `opened` or `head` record since the later of the two, a later `state` or `report` that no
               longer waits on N, or any record resolving the line; a grader desk's line opens none, since
-              a desk opens no work; it posts again every hour it stands (root #218445)
+              a desk opens no work; it posts again every hour it stands (coordinator #218445)
     stale     an open PR, held or not, has kept one head and one state for `stall.minutes.stale`: in the
               merge queue, held, on a drifted graphite-base, conflicting, red, waiting on the PR below it, building,
               held or not yet reviewed by the reviewer bot, green with a go, or green with none; no
@@ -144,52 +144,52 @@ and, across the drive:
               and a held PR whose open `hold` record names open PRs that each wait on that tap, sit in
               the merge queue, are held the same way, or are stacked on such a PR, or that names a
               board card or pick, by its block id or by a card holding the PR, the owner has not
-              answered, post one `state` record to root per head instead, once while the PR stays open
+              answered, post one `state` record to the coordinator per head instead, once while the PR stays open
               at that head, and one digest record when several post in one pass; a tap row counts from
               the earlier of its board row's write and the head's READY record; a PR that waits on the PR
               below it, a red one whose `red` record classes its head inherited included, posts nothing itself and is listed on the stale PR its stack waits on, a PR in
               the merge queue or green with a go goes to the landing desk lanes, whose step it is, and
-              any other PR whose owning lane has no live record in the window goes to root, unless root has
-              posted about the PR since its state began, since root then already answered it; a changed state on
+              any other PR whose owning lane has no live record in the window goes to the coordinator, unless the coordinator has
+              posted about the PR since its state began, since the coordinator then already answered it; a changed state on
               the same head counts from the pass that saw it change; a held PR whose open `hold` record
               names an open PR the owner has not tapped at its head is never stale, until that PR lands,
               is tapped, or the hold lifts
     shape     an in-force register row about system shape, one process, one primary and one replica,
               everything a client, N things sharing one X, has no CI test recorded through
               `rulings.py shape <key> --test`, `stall.minutes.shape` after the row was last written; one
-              stall to root names every such row and stands until each has a test or is marked no shape
+              stall to the coordinator names every such row and stands until each has a test or is marked no shape
     desk      a desk runner that posted a `<desk> alive` record in the window posted none for
               `stall.minutes.desk`; the record is its heartbeat wherever it runs, and the stall goes
-              to root with the restart command the runner's newest record carries
+              to the coordinator with the restart command the runner's newest record carries
     customer  a record from an alert lane (oncall-cci-bridge, dev-health-desk, a release lane; never a
-              board, desk or root note, root #310188) the pass reads for the first time says, in one sentence, that customers or
+              board, desk or coordinator note, coordinator #310188) the pass reads for the first time says, in one sentence, that customers or
               tenants are failing now or will fail from a change already moving (a release that ships
               sand before api, a crash-looping tenant pod, users who see an error), and no incident
               record, incident lane or earlier break it answers covers it: the pass posts an
-              `incident` record to root that answers it with `--re`, which opens the incident under
+              `incident` record to the coordinator that answers it with `--re`, which opens the incident under
               R16 with the executor's fix authority in that same pass, never a card or a flag; a
               conditional, a negation, a question or a recovery says no break (retro C4, owner 3:03 PM
-              Nov 1, root #296632)
-    acked     root answered or resolved a desk's tagged `defect` or `blocker` record, never the
+              Nov 1, coordinator #296632)
+    acked     the coordinator answered or resolved a desk's tagged `defect` or `blocker` record, never the
               watch's own, by `--re`, `--resolves` or naming its seq (`see 305535`), with an `answer`, `note`, `decide`, `decision`,
               `defect`, `state`, `report` or `correction` that names no fix PR (`<repo>#<n>`), at least
               `stall.acks.urgent` (default 3) times in the last two hours for one defect class: the
               record's leading tag, such as `CLASS-UNOWNED`, with its first lowercase word or, for
-              `REFUSED`, the reason after the PR list, such as `REFUSED unsettled`; an urgent to root and
+              `REFUSED`, the reason after the PR list, such as `REFUSED unsettled`; an urgent to the coordinator and
               the drive watchdog names the class and every acknowledgement and orders one fix lane for
               it; at `stall.acks.spawn` (default 4) the pass writes that lane's brief from the records to
               `<state dir>/class-fix-<class>/brief.md` with its `Scale:`, `ccx: incident=none` and
               `Register slice:` lines, refreshes the slice with `rulings.py slice --refresh` and only then
               launches it with `desk-launch.py lane`, once a day per class (owner 9:55 PM Nov 1, cc-notes
-              answer 1f77471; root #313385)
+              answer 1f77471; coordinator #313385)
 
 A lane's own liveness, whether it stopped, went silent or outgrew its context, is the lane supervisor's
-(`lr supervisor run`), which relaunches it with no root action; no stall names a lane for its silence.
+(`lr supervisor run`), which relaunches it with no coordinator action; no stall names a lane for its silence.
 
 Each kind counts once it is as old as `stall.minutes` says: go 10, refusal 10, red 2, unclassed 20, unfixed 60, sweep 20, order 3, tap 10, ungraded 10, finder 30,
 fidelity 30, running 25, board 15, carry 20 (one fidelity pass), ask 15, pick 15, gate 30, stale 120, desk 10, shape 30. A PR's stalls and reds
 judge only a ledger head that its newest `head` record and, for a tapped or go'd PR, GitHub still read as its head, never one the PR
-left (root #324772, #326064, #328647), and a stall whose post a record resolved is not posted again at that head (#329080). A PR's head is as old as the first record about the
+left (coordinator #324772, #326064, #328647), and a stall whose post a record resolved is not posted again at that head (#329080). A PR's head is as old as the first record about the
 PR whose whole text names its short sha: its `head` record, a ready report, or a finder or fidelity record. A board
 stall counts from the latest of its finder ok, its fidelity ok, and its ledger row's `green_at`, the refresh that
 first read the head's build green, since the board refresher puts a row up only once the build is green.
@@ -205,12 +205,12 @@ A stall's id names its kind and subject, such as `finder:43439:abc1234` or `ask:
 posts once while it stands: `cci post --lane stall-watch --kind urgent --to root,<owner>@<drive>` reading
 `STALL <kind> <subject>, <age> min: <what stopped> | owner <lane> | <next step>`, or `STALE <subject>, ...`
 for a stale PR. A stall every owner of which is a desk, a lane named `<x>-desk` or `<x>-desk-<n>`, goes to
-its owners and not to root, except an `ungraded` one, which root always hears; one the desk runner owns goes
+its owners and not to the coordinator, except an `ungraded` one, which coordinator always hears; one the desk runner owns goes
 to `landing.desk_lane` when the config names one.
 A `red` stall a live lane owns posts again every `REPEAT` while it stands. An id that no longer stands clears, and posts again if it stalls again, but never sooner than `REPEAT` after
 its last post; a cleared stall posted as a `blocker`, such as an `unclassed` one a `red` record with `--pr` classed, is resolved by one
-`CLEARED` note per pass, so no lane closes it by hand (root #313433); a source that does not read keeps the stalls it would have cleared. `stall.board_lane`, else the first `landing.board_lane`, else root, owns every tap, board and carry stall, with root in copy
-(root #313384); a board row the board lane posted about in the last ten minutes goes to it alone. State lives in
+`CLEARED` note per pass, so no lane closes it by hand (coordinator #313433); a source that does not read keeps the stalls it would have cleared. `stall.board_lane`, else the first `landing.board_lane`, else the coordinator, owns every tap, board and carry stall, with the coordinator in copy
+(coordinator #313384); a board row the board lane posted about in the last ten minutes goes to it alone. State lives in
 `stall-watch.json` beside `orca.desk_inbox`, under a lock a second pass meets by exiting. Each pass also
 writes `stack.json` there: one row per open PR with its head, base, the PR below it, its state and next
 step in words, its owning lane and whether that lane is live, and since when the state stood, and for a
@@ -350,7 +350,7 @@ CAUSE_COMMANDS = {
     "GO-UNPARSED": "post the go for #{pr} at {sha} again with a bracket the runner reads",
 }
 MERGE_ASK = "MERGE-ASK"
-SILENT_STEP = "root routes the tooling lane: "
+SILENT_STEP = "the coordinator routes the tooling lane: "
 HEAD_BLOCKERS = ("GO-UNQUEUED", "REFUSED", "BELOW-BLOCKED", "BELOW-HELD", MERGE_ASK, "AWAITS-GO")
 BLOCKER_LABEL = re.compile(r"\b[A-Z]+(?:-[A-Z]+)+\b")
 MERGE_WAITS = "merge_waits"
@@ -410,7 +410,7 @@ SCHEMA = json.dumps(
 )
 PROMPT = """You read coordination records from a multi-agent software drive and answer each question below. It is {now} UTC ({pacific} Pacific).
 
-A question of kind "order": root relayed the owner's order in a decide record. Answer pr true only when the order tells a lane to make a change that ships as a new pull request, such as a revert, a fix, a port, or new code. Answer pr false when it orders only a merge, a release, a hold, a reply, a rule, or a question, or names no action.
+A question of kind "order": the coordinator relayed the owner's order in a decide record. Answer pr true only when the order tells a lane to make a change that ships as a new pull request, such as a revert, a fix, a port, or new code. Answer pr false when it orders only a merge, a release, a hold, a reply, a rule, or a question, or names no action.
 
 Answer every question by its id, each with a one-sentence why.
 
@@ -501,9 +501,9 @@ class Stall:
         return f"{word} {self.subject}, {int((now - self.since).total_seconds() // 60)} min: {self.what} | owner {', '.join(self.owner)} | {self.step}"
 
     def to(self, drive_name: str, desk_lanes: list[str], live: Callable[[str], str | None]) -> str:
-        """The lanes the stall names, each as its live successor when a rotation replaced it (root #215820), with the root too unless desks own it or every lane it names is live and its step is not the root's, and always on a tap, board or carry stall the board lane has not answered in ten minutes (root #313384), so root hears only what it must do or no live lane will act on (root, Oct 29 2:10 PM)."""
+        """The lanes the stall names, each as its live successor when a rotation replaced it (coordinator #215820), with the coordinator too unless desks own it or every lane it names is live and its step is not the coordinator's, and always on a tap, board or carry stall the board lane has not answered in ten minutes (coordinator #313384), so the coordinator hears only what it must do or no live lane will act on (coordinator, Oct 29 2:10 PM)."""
         lanes = [live(named) or named for lane in self.owner for named in (desk_lanes if lane == RUNNER else [lane]) if named not in ROOT_NAMES]
-        desks = lanes and self.kind not in ROOT_KINDS and (self.quiet or self.kind not in BOARD_KINDS and (self.kind in DESK_KINDS or all(lane == RUNNER or DESK.fullmatch(lane) for lane in self.owner) or (all(map(live, lanes)) and not self.step.startswith(f"{ROOT} "))))
+        desks = lanes and self.kind not in ROOT_KINDS and (self.quiet or self.kind not in BOARD_KINDS and (self.kind in DESK_KINDS or all(lane == RUNNER or DESK.fullmatch(lane) for lane in self.owner) or (all(map(live, lanes)) and not self.step.startswith("the coordinator "))))
         return ",".join(dict.fromkeys([*([] if desks else [ROOT]), *(f"{lane}@{drive_name}" for lane in lanes)]))
 
 
@@ -606,9 +606,9 @@ def stack_row(pr: str, row: dict, rows: dict[str, dict], owner: str, held: bool,
     elif tapping:
         state, step = TAP_WAIT, f"the owner taps the merge row for {named} on his board"
     elif asked:
-        state, step, actor = "green with root's TAP-REQUIRED go, and the owner's board holds no merge row for this head", f"put the merge row for {named} on the owner's board", asked
+        state, step, actor = "green with the coordinator's TAP-REQUIRED go, and the owner's board holds no merge row for this head", f"put the merge row for {named} on the owner's board", asked
     else:
-        state, step = "green, and no go names this head", f"root posts `go #{pr} at {short(row['head'])}` or puts its merge row on the owner's board"
+        state, step = "green, and no go names this head", f"the coordinator posts `go #{pr} at {short(row['head'])}` or puts its merge row on the owner's board"
     return {"pr": pr, "title": row.get("title", ""), "head": row["head"], "base": row.get("base", ""), "below": below, "waits": waits, "state": state, "next": step, "owner": owner, "actor": actor}
 
 
@@ -734,7 +734,7 @@ class Pass:
         self.dry_run = False
 
     def registry_failed(self, why: str) -> None:
-        """Post one `defect` record to root per cause of a failed registry read, keyed by that cause, saying the pass runs on its last good read."""
+        """Post one `defect` record to the coordinator per cause of a failed registry read, keyed by that cause, saying the pass runs on its last good read."""
         text = f"DEFECT stall-watch: the lane registry did not read ({why}), so this pass and each one after it runs on the last good read until it does"
         if self.dry_run:
             print(text)
@@ -750,7 +750,7 @@ class Pass:
         return done.out
 
     def registry(self) -> Registry:
-        """The lane supervisor's registry, the installed version's `drive_supervisor.py lanes --json` over the `landing.supervisor` config, read once a pass: which names are one worker's lineage and where each lane's mail goes. A read that fails falls back to the pass's last good read, kept in the state file, with one `defect` record to root per cause, so a broken supervisor never stops the stall alarms (root #343297); with no good read kept, the pass fails."""
+        """The lane supervisor's registry, the installed version's `drive_supervisor.py lanes --json` over the `landing.supervisor` config, read once a pass: which names are one worker's lineage and where each lane's mail goes. A read that fails falls back to the pass's last good read, kept in the state file, with one `defect` record to the coordinator per cause, so a broken supervisor never stops the stall alarms (coordinator #343297); with no good read kept, the pass fails."""
         if self.lanes is None:
             done = self.shell.run([sys.executable, str(drive.installed_script("drive_supervisor.py")), "lanes", "--config", str(Path(self.watch.landing["supervisor"]).expanduser()), "--json"])
             if done.code == 0:
@@ -769,7 +769,7 @@ class Pass:
         return last["lane"] if last is not None and not ended(last) else None
 
     def red_sweep_live(self) -> bool:
-        """Whether a lane started from the red-sweep brief, which root names `red-sweep-<n>`, posted the newest of their records in the window and that record is no end of the lane: a role, not a successor."""
+        """Whether a lane started from the red-sweep brief, which coordinator names `red-sweep-<n>`, posted the newest of their records in the window and that record is no end of the lane: a role, not a successor."""
         last = max((record for name, record in self.lane_newest.items() if RED_SWEEPS.fullmatch(name)), key=lambda record: record["seq"], default=None)
         return last is not None and not ended(last)
 
@@ -778,7 +778,7 @@ class Pass:
         print(f"WARN {why}; the {', '.join(sorted(kinds))} stalls it would clear stay open", file=sys.stderr)
 
     def handed_to(self, lane: str) -> str:
-        """Where the registry routes `lane`, when that is a successor; else the successor `lane`'s own handoff record names, such as `successor api-lane-6`, else `lane`: a PR follows its lane's successor, never one guessed from a lane's name (cci #234379, root #259013)."""
+        """Where the registry routes `lane`, when that is a successor; else the successor `lane`'s own handoff record names, such as `successor api-lane-6`, else `lane`: a PR follows its lane's successor, never one guessed from a lane's name (cci #234379, coordinator #259013)."""
         if (routed := self.registry().route(lane)) not in (lane, ROOT):
             return routed
         handoff = self.lane_newest.get(f"{lane}-handoff")
@@ -935,7 +935,7 @@ class Pass:
         return {pr: row for pr, row in listed.items() if pr not in shut}
 
     def shut_on_github(self, prs: list[str]) -> set[str] | None:
-        """The PRs of `prs` GitHub reads merged or closed, `PRS_PER_QUERY` to a GraphQL query, so a PR that landed draws no stall whatever a ledger copy still says (root #339762); a read that fails answers None."""
+        """The PRs of `prs` GitHub reads merged or closed, `PRS_PER_QUERY` to a GraphQL query, so a PR that landed draws no stall whatever a ledger copy still says (coordinator #339762); a read that fails answers None."""
         owner, name = self.watch.landing["repo"].split("/")
         shut: set[str] = set()
         for start in range(0, len(prs), PRS_PER_QUERY):
@@ -963,7 +963,7 @@ class Pass:
         return actions.Store(self.watch.store).path(desk).is_file()
 
     def handled(self, records: list[dict], pr: str) -> bool:
-        """Whether a `stall.quiet_lanes` lane, such as the go sweep or the board refresher, posted about `pr` in the last ten minutes, so its STALE or board line spares root."""
+        """Whether a `stall.quiet_lanes` lane, such as the go sweep or the board refresher, posted about `pr` in the last ten minutes, so its STALE or board line spares the coordinator."""
         quiet = {name for lane in self.watch.quiet_lanes for name in self.registry().lineage(lane)}
         for record in reversed(records):
             if self.now - at(record) >= QUIET:
@@ -1171,7 +1171,7 @@ class Pass:
                     if tapped:
                         stalls.append(Stall(f"carry:{pr}:{short(head)}", "carry", head_at, subject, f"his board tap names {short(tapped)}, and no go names this head, first named {pacific(head_at, self.now)}", tuple(dict.fromkeys((self.watch.board_lane, *go_owners))), f"post `go #{pr} at {short(head)}`: his tap at {short(tapped)} carries to every later head of this PR (owner, Oct 31 2:48 AM); it never goes back to his board", pr))
                     else:
-                        stalls.append(Stall(f"carry:{pr}:{short(head)}", "carry", head_at, subject, f"go #{older['seq']} by {older['lane']} at {grades.clock(older['at'])} names {short(grades.go_heads(older)[pr])}, the owner never tapped it, and no go names this head, first named {pacific(head_at, self.now)}", tuple(dict.fromkeys((self.watch.board_lane, lane))), f"ask root for a TAP-REQUIRED `go #{pr} at {short(head)}`; no owner re-ask is owed", pr))
+                        stalls.append(Stall(f"carry:{pr}:{short(head)}", "carry", head_at, subject, f"go #{older['seq']} by {older['lane']} at {grades.clock(older['at'])} names {short(grades.go_heads(older)[pr])}, the owner never tapped it, and no go names this head, first named {pacific(head_at, self.now)}", tuple(dict.fromkeys((self.watch.board_lane, lane))), f"ask the coordinator for a TAP-REQUIRED `go #{pr} at {short(head)}`; no owner re-ask is owed", pr))
                 continue
             if not row.get("green_at") or not (landing.get("merge_mode") == "every" or waits.get(pr) == f"merge:{pr}:{short(head)}"):
                 continue
@@ -1214,12 +1214,12 @@ class Pass:
             sha = short(rows[blocker]["head"])
             first = group[0][0]
             cite = grades.go_state(gos, first, rows[first]["head"]).said()
-            stalls.append(Stall(f"go:{blocker}:{sha}", "go", min(since for _, since, *_ in group), f"#{blocker} at {sha}", f"root go{'s name' if len(named) > 1 else ' names'} {listed}{stack} (#{first}: {cite}), and no QUEUED record does", owner, step, blocker))
+            stalls.append(Stall(f"go:{blocker}:{sha}", "go", min(since for _, since, *_ in group), f"#{blocker} at {sha}", f"coordinator go{'s name' if len(named) > 1 else ' names'} {listed}{stack} (#{first}: {cite}), and no QUEUED record does", owner, step, blocker))
         reds = [found for found in entries if "red" in found]
         if reds and not self.red_sweep_live() and self.now - (oldest := min(actions.parse_stamp(found["red"]["since"]) for found in reds)) >= self.watch.age("sweep"):
             named = [f"#{found['pr']} ({found['red']['class']})" for found in reds]
             listed = ", ".join(named[:LISTED]) + (f" and {len(named) - LISTED} more" if len(named) > LISTED else "")
-            stalls.append(Stall(f"sweep:{RED_SWEEP}", "sweep", oldest, f"{len(reds)} red PR{'' if len(reds) == 1 else 's'}", f"no live {RED_SWEEP} lane holds them: {listed}", (ROOT,), f"root spawns {RED_SWEEP} from the long-running skill's reference/red-sweep-brief.md"))
+            stalls.append(Stall(f"sweep:{RED_SWEEP}", "sweep", oldest, f"{len(reds)} red PR{'' if len(reds) == 1 else 's'}", f"no live {RED_SWEEP} lane holds them: {listed}", (ROOT,), f"the coordinator spawns {RED_SWEEP} from the long-running skill's reference/red-sweep-brief.md"))
         return [stall for stall in stalls if not (stall.pr in in_incident and stall.kind in INCIDENT_EXEMPT)], questions, entries
 
     def red_alarm(self, pr: str, row: dict, red: dict) -> Stall | None:
@@ -1233,10 +1233,10 @@ class Pass:
             return Stall(f"unclassed:{pr}:{sha}", "unclassed", since, subject, f"{red['checks']} red since {pacific(since, self.now)}, and no `red` record classifies it", (red["owner"],), f'classify it: `cci post --kind red --pr {pr} --text "class=<inherited|flake|real|stale> head={sha} owner=<lane> <what was done>"`', pr)
         if red["class"] != "real" or self.now - (classed := actions.parse_stamp(red["classed_at"])) < self.watch.age("unfixed"):
             return None
-        return Stall(f"unfixed:{pr}:{sha}", "unfixed", classed, subject, f"{red['owner']} classed {red['checks']} a real failure at {pacific(classed, self.now)} and has pushed no new head: {clip(red['action'])}", (red["owner"],), f"root gives the fix of {subject} to a live lane unless {red['owner']} pushes it now", pr)
+        return Stall(f"unfixed:{pr}:{sha}", "unfixed", classed, subject, f"{red['owner']} classed {red['checks']} a real failure at {pacific(classed, self.now)} and has pushed no new head: {clip(red['action'])}", (red["owner"],), f"the coordinator gives the fix of {subject} to a live lane unless {red['owner']} pushes it now", pr)
 
     def live_heads(self, prs: list[str]) -> dict[str, str]:
-        """Each of `prs` to the head GitHub reads for it, in one GraphQL query, so a tap or carry stall never judges a ledger head the PR moved past when no lane posted a `head` record for the move (#48166 at 54c36ff, root #326064); a read that fails answers none."""
+        """Each of `prs` to the head GitHub reads for it, in one GraphQL query, so a tap or carry stall never judges a ledger head the PR moved past when no lane posted a `head` record for the move (#48166 at 54c36ff, coordinator #326064); a read that fails answers none."""
         if not prs:
             return {}
         owner, name = self.watch.landing["repo"].split("/")
@@ -1255,7 +1255,7 @@ class Pass:
         return json.loads(done.out)["comments"]
 
     def missing(self, pr: str, subject: str, lane: str, found: owner_waits.Missing, fidelity_lanes: list[str]) -> Stall | None:
-        """A `fidelity: missing` grade standing at the head: unanswered for `stall.minutes.missing`, a stall to root and the PR's lane like a red build; answered by a lane record or a PR comment with no grade since for `stall.minutes.regrade`, a stall to the PR's lane and the lane that graded it, or each live fidelity desk for the fidelity pipeline, never the landing desk (root #280150)."""
+        """A `fidelity: missing` grade standing at the head: unanswered for `stall.minutes.missing`, a stall to the coordinator and the PR's lane like a red build; answered by a lane record or a PR comment with no grade since for `stall.minutes.regrade`, a stall to the PR's lane and the lane that graded it, or each live fidelity desk for the fidelity pipeline, never the landing desk (coordinator #280150)."""
         grade = found.grade
         graded_at = at(grade)
         said = f"fidelity grade cci {grade['num']} by {grade['lane']} reads missing since {pacific(graded_at, self.now)}: {clip(grade['text'])}"
@@ -1269,7 +1269,7 @@ class Pass:
         return Stall(f"regrade:{pr}:{grade['seq']}", "regrade", found.answered_at, subject, f"{said}; {found.answer} answered it at {pacific(found.answered_at, self.now)}, and no grade has followed", (lane, *graders), f"grade {subject} again against that answer and post its `fidelity: ok` or `fidelity: missing` line", pr)
 
     def red(self, pr: str, row: dict, lane: str) -> Stall | None:
-        """The red stall of `pr`'s head: its live owning lane's alone, reposted every `REPEAT`, or root's once per head when no live lane owns it; a red whose failed job logged only Buildkite's benign 404 probe is a `probe` stall the pass folds into one daily line."""
+        """The red stall of `pr`'s head: its live owning lane's alone, reposted every `REPEAT`, or the coordinator's once per head when no live lane owns it; a red whose failed job logged only Buildkite's benign 404 probe is a `probe` stall the pass folds into one daily line."""
         required = self.watch.landing.get("trunk_check")
         failed = next((check for check in json.loads(row.get("failing_checks") or "[]") if check["name"] == required), None)
         if failed is None or not row.get("red_at") or self.now - (since := actions.parse_stamp(row["red_at"])) < self.watch.age("red"):
@@ -1284,7 +1284,7 @@ class Pass:
         return Stall(f"red:{pr}:{short(row['head'])}{'' if owned else ':root'}", "red", since, subject, what, (owned,) if owned else (ROOT,), f"fix the red build of {subject} and push" if owned else f"assign the red build of {subject} to a live lane", pr)
 
     def probe_line(self, probes: list[Stall], posted: str) -> list[Stall]:
-        """One line a day, to root, naming every red head whose failed job logged only Buildkite's benign 404 probe, so its owner reruns CI at that head."""
+        """One line a day, to the coordinator, naming every red head whose failed job logged only Buildkite's benign 404 probe, so its owner reruns CI at that head."""
         day = self.now.astimezone(PACIFIC).date().isoformat()
         if not probes or posted == day:
             return []
@@ -1293,7 +1293,7 @@ class Pass:
 
     @staticmethod
     def reassignments(records: list[dict]) -> dict[str, str]:
-        """Each PR a root record names an owner for, to the lane the newest such record names: a reassignment such as `root reassigns #1 and #2 to lane-a; #3 to lane-b`, or an `owner=<lane>` field, which names every PR the record cites."""
+        """Each PR a coordinator record names an owner for, to the lane the newest such record names: a reassignment such as `coordinator reassigns #1 and #2 to lane-a; #3 to lane-b`, or an `owner=<lane>` field, which names every PR the record cites."""
         owners: dict[str, str] = {}
         for record in records:
             if record["lane"] not in ROOT_NAMES:
@@ -1370,7 +1370,7 @@ class Pass:
         return stalls
 
     def root_spoke(self, records: list[dict], pr: str, since: datetime) -> bool:
-        """Whether root posted about `pr` since its state began, so a stale line to root would only repeat root's own answer (root #283203)."""
+        """Whether the coordinator posted about `pr` since its state began, so a stale line to the coordinator would only repeat the coordinator's own answer (coordinator #283203)."""
         repo = self.watch.landing["repo"]
         return any(record["lane"] in ROOT_NAMES and at(record) >= since and grades.about_pr(record, repo, pr) for record in records)
 
@@ -1398,7 +1398,7 @@ class Pass:
         return None
 
     def history(self, repo: str, pr: str) -> list[dict]:
-        """Every `review` and `head` record about `pr` on the drive, from its first, read only for a head the window shows without a grade, since a grade can be older than the window (root #273068)."""
+        """Every `review` and `head` record about `pr` on the drive, from its first, read only for a head the window shows without a grade, since a grade can be older than the window (coordinator #273068)."""
         return [record for record in cci.records(self.tail, self.watch.drive, "--kind=review", "--kind=head", "--pr", f"{repo}#{pr}") if record["drive"] == self.watch.drive]
 
     def unqueued(self, pr: str, row: dict, rows: dict[str, dict], below: list[str], gos: list[dict], since: datetime, queued: set[tuple[str, str]], lane: str, records: list[dict], own_row: Callable[[str, str], bool]) -> tuple[str, tuple[str, ...], str] | None:
@@ -1446,7 +1446,7 @@ class Pass:
         return pr, (RUNNER,), f"the landing runner's worker for the stack from #{entry['root']} has been on its {entry['step']} step for {int(ran.total_seconds() // 60)} min, past its {entry['budget'] // 60} min budget{command}"
 
     def silent(self, pr: str, head: str, since: datetime) -> tuple[str, tuple[str, ...], str] | None:
-        """A go'd head that no runner record names and no stack worker holds `stall.minutes.silent` after its go is the runner's own defect, raised to the root and the landing desk beside the runner's `REFUSED unsettled`, so one defect cannot hide itself (owner, 5:16 AM Oct 30; root #208560)."""
+        """A go'd head that no runner record names and no stack worker holds `stall.minutes.silent` after its go is the runner's own defect, raised to the coordinator and the landing desk beside the runner's `REFUSED unsettled`, so one defect cannot hide itself (owner, 5:16 AM Oct 30; coordinator #208560)."""
         if self.now - since < self.watch.age("silent"):
             return None
         return pr, (ROOT, RUNNER), f"{SILENT_STEP}the landing runner wrote no QUEUED, MERGED or blocker record for #{pr} at {short(head)} since the go at {pacific(since, self.now)}, and no worker holds its stack, so its loop skipped an admitted head silently"
@@ -1456,7 +1456,7 @@ class Pass:
         return done.out.strip() if done.code == 0 else ""
 
     def orders(self, records: list[dict]) -> list[Question]:
-        """A question for each root decide record relaying an owner order, `stall.minutes.order` to `ORDER_WINDOW` old, unclosed, that no lane it names, or a numbered successor, has answered since with a record citing a PR: one Sonnet verdict says whether the order names a change that ships as a new PR, and a yes is root's urgent stall."""
+        """A question for each coordinator decide record relaying an owner order, `stall.minutes.order` to `ORDER_WINDOW` old, unclosed, that no lane it names, or a numbered successor, has answered since with a record citing a PR: one Sonnet verdict says whether the order names a change that ships as a new PR, and a yes is the coordinator's urgent stall."""
         closed = {seq for record in records if record["lane"] in ROOT_NAMES for seq in grades.closes(record)}
         spawns = {lane: record for record in records if (lane := spawned_lane(record))}
         incident_records = incidents.open_incidents(incidents.incident_records(self.tail, self.watch.drive))
@@ -1485,7 +1485,7 @@ class Pass:
             if not verdict or not verdict.get("pr"):
                 return None
             named = ", ".join(lanes) or "no lane"
-            return Stall(f"order:{order['seq']}", "order", at(order), f"owner order #{order['seq']}", f"root relayed it at {pacific(at(order), self.now)} and it names a PR to open ({clip(verdict['why'])}), yet no record from {named} cites a PR since", (ROOT,), f"find why {named} has not opened the PR, and have it opened now")
+            return Stall(f"order:{order['seq']}", "order", at(order), f"owner order #{order['seq']}", f"the coordinator relayed it at {pacific(at(order), self.now)} and it names a PR to open ({clip(verdict['why'])}), yet no record from {named} cites a PR since", (ROOT,), f"find why {named} has not opened the PR, and have it opened now")
 
         return Question(f"order:{order['seq']}", {"kind": "order", "order": clip(text, RECORD_CHARS)}, settle)
 
@@ -1504,14 +1504,14 @@ class Pass:
         ]
 
     def picks(self, records: list[dict]) -> list[Stall]:
-        """An owner pick or write-in board-watch asked root to route, `stall.minutes.pick` old, still open, and bound to no lane by a spawn, claim, lane record or answer naming it (root #225532)."""
+        """An owner pick or write-in board-watch asked the coordinator to route, `stall.minutes.pick` old, still open, and bound to no lane by a spawn, claim, lane record or answer naming it (coordinator #225532)."""
         return [
             Stall(
                 f"pick:{asked['seq']}",
                 "pick",
                 at(asked),
                 f"owner pick {asked['topic'].removeprefix(NEEDS_LANE)}",
-                f"board-watch asked root for a lane at {pacific(at(asked), self.now)} ({asked['num']}), and no spawn or claim names it: {clip(asked['text'])}",
+                f"board-watch asked the coordinator for a lane at {pacific(at(asked), self.now)} ({asked['num']}), and no spawn or claim names it: {clip(asked['text'])}",
                 (ROOT,),
                 f"spawn a lane whose brief names {asked['topic'].removeprefix(NEEDS_LANE)} or {asked['num']}, or have a lane post a `claim` naming it; close it with `cci post --resolves {shlex.quote(asked['num'])}`",
             )
@@ -1605,7 +1605,7 @@ class Pass:
         return stalls
 
     def customers(self, records: list[dict], after: int | None) -> list[Stall]:
-        """An incident to root for each record after `after` from an alert lane (oncall-cci-bridge, dev-health-desk, a release lane) that says customers are failing or will fail, never a board, desk or root note that names a card (root #310188), unless an incident record answers it, an incident lane wrote or hears it, or it answers a break already covered; the first pass reads no history, only sets `after` to the newest record (retro C4, owner 3:03 PM Nov 1)."""
+        """An incident to the coordinator for each record after `after` from an alert lane (oncall-cci-bridge, dev-health-desk, a release lane) that says customers are failing or will fail, never a board, desk or coordinator note that names a card (coordinator #310188), unless an incident record answers it, an incident lane wrote or hears it, or it answers a break already covered; the first pass reads no history, only sets `after` to the newest record (retro C4, owner 3:03 PM Nov 1)."""
         self.customer_seq = max((record["seq"] for record in records), default=after)
         answered = {seq for record in records if record["kind"] in INCIDENT_KINDS for seq in {record.get("re"), *cci.resolved(record)}}
         covered: set[int] = set()
@@ -1622,7 +1622,7 @@ class Pass:
         return stalls
 
     def acked(self, records: list[dict]) -> dict[str, tuple[Stall, list[tuple[dict, dict]]]]:
-        """Each defect class root acknowledged `ACKS["urgent"]` or more times in the last `ACK_WINDOW` with no fix PR, as its stall and its (defect, acknowledgement) pairs, oldest first; a root record naming `owner=<lane>` or `GO fix lane` routes the defect and is no acknowledgement, and a per-PR queue eviction (`REFUSED by`) is never one class (root #311841)."""
+        """Each defect class the coordinator acknowledged `ACKS["urgent"]` or more times in the last `ACK_WINDOW` with no fix PR, as its stall and its (defect, acknowledgement) pairs, oldest first; a coordinator record naming `owner=<lane>` or `GO fix lane` routes the defect and is no acknowledgement, and a per-PR queue eviction (`REFUSED by`) is never one class (coordinator #311841)."""
         heads = [record for record in records if record["kind"] == "head"]
         targets = {record["seq"]: record for record in records if record["kind"] in ACK_TARGETS and record["lane"] not in NOT_LANES - {RUNNER} and DEFECT_TAG.match(record.get("text") or "") and defect_class(record) not in PER_PR and not superseded(record, heads, self.watch.landing["repo"] if self.watch.landing else "")}
         pairs: dict[str, list[tuple[dict, dict]]] = {}
@@ -1638,13 +1638,13 @@ class Pass:
             if len(acks) < self.watch.acks["urgent"]:
                 continue
             listed = ", ".join(f"#{ack['seq']} at {pacific(at(ack), self.now)}" for ack in acks)
-            what = f"root acknowledged it {len(acks)} times in {int(ACK_WINDOW.total_seconds() // 3600)} h with no fix PR ({listed}); the newest defect is #{found[-1][0]['seq']}: {clip(found[-1][0].get('text') or '')}"
-            step = f"{ROOT} launches one fix lane for the class now: `desk-launch.py lane {fix_lane(name)} {' '.join(FIX_MODEL)} <brief>`; at {self.watch.acks['spawn']} the watch launches it"
+            what = f"the coordinator acknowledged it {len(acks)} times in {int(ACK_WINDOW.total_seconds() // 3600)} h with no fix PR ({listed}); the newest defect is #{found[-1][0]['seq']}: {clip(found[-1][0].get('text') or '')}"
+            step = f"the coordinator launches one fix lane for the class now: `desk-launch.py lane {fix_lane(name)} {' '.join(FIX_MODEL)} <brief>`; at {self.watch.acks['spawn']} the watch launches it"
             stalls[name] = (Stall(f"acked:{CLASS_SLUG.sub('-', name.lower()).strip('-')}", "acked", at(acks[self.watch.acks["urgent"] - 1]), f"defect class {name}", what, (ROOT, WATCHDOG), step), found)
         return stalls
 
     def spawn_fix_lanes(self, acked: dict[str, tuple[Stall, list[tuple[dict, dict]]]]) -> None:
-        """Launch one fix lane per class acknowledged `ACKS["spawn"]` times, with a brief written from its records, at most once a day per class: a launch the runner refuses or never settles is the root's from the class's urgent, never a second launch."""
+        """Launch one fix lane per class acknowledged `ACKS["spawn"]` times, with a brief written from its records, at most once a day per class: a launch the runner refuses or never settles is the coordinator's from the class's urgent, never a second launch."""
         for name, (_, found) in acked.items():
             lane = fix_lane(name)
             if len({ack["seq"] for _, ack in found}) < self.watch.acks["spawn"] or lane in self.spawned or not self.entry:
@@ -1675,12 +1675,12 @@ class Pass:
         return [Stall(
             f"shape:{','.join(keys)}", "shape", min(actions.parse_stamp(row["updated_at"]) for row in rows), f"{len(keys)} shape rulings",
             f"no CI test is recorded for {', '.join(keys)}, each a ruling about how many processes, primaries or replicas run or what shares one",
-            (ROOT,), f"{ROOT} orders a test that fails on today's code for each from the lane that builds it, recorded with `rulings.py shape <key> --test <repo>#<pr> <path>::<test>`, or `--not-shape <why>` for a row that names no shape",
+            (ROOT,), f"the coordinator orders a test that fails on today's code for each from the lane that builds it, recorded with `rulings.py shape <key> --test <repo>#<pr> <path>::<test>`, or `--not-shape <why>` for a row that names no shape",
         )]
 
 
 def dev_health_break(text: str) -> str | None:
-    """The clause of a dev-health line's `prod:` counts that is a customer break: nonzero run crashes, a nonzero APM error count, or a nonzero count naming customers that no open finding the line lists covers, as `prod:zetasso` covers `Zeta SSO errors 15m 98` (root #305535)."""
+    """The clause of a dev-health line's `prod:` counts that is a customer break: nonzero run crashes, a nonzero APM error count, or a nonzero count naming customers that no open finding the line lists covers, as `prod:zetasso` covers `Zeta SSO errors 15m 98` (coordinator #305535)."""
     findings = OPEN_FINDINGS.search(text)
     covered = {squashed(key.split(":", 1)[-1]) for key in findings["keys"].split(";")} if findings else set()
     for clause in (part.strip() for part in PROD_COUNTS.search(text)["counts"].split(";")):
@@ -1703,7 +1703,7 @@ def defect_class(record: dict) -> str:
 
 
 def superseded(refusal: dict, heads: list[dict], repo: str) -> bool:
-    """Whether `refusal` is a REFUSED record whose every `#<pr> at <sha>` names a head a later `head` record about that PR moved past, so it refuses a head the lane already replaced and is no defect (root #312758)."""
+    """Whether `refusal` is a REFUSED record whose every `#<pr> at <sha>` names a head a later `head` record about that PR moved past, so it refuses a head the lane already replaced and is no defect (coordinator #312758)."""
     refused = grades.GO_HEAD.findall(refusal.get("text") or "") if DEFECT_TAG.match(refusal.get("text") or "")["tag"] == "REFUSED" else []
     return bool(refused) and all(any(head["seq"] > refusal["seq"] and grades.about_pr(head, repo, pr) and (moved := grades.graded_head(head.get("text") or "")) and not grades.names_head(moved, sha) for head in heads) for pr, sha in refused)
 
@@ -1719,17 +1719,17 @@ def fix_brief(drive_name: str, lane: str, name: str, found: list[tuple[dict, dic
         f"# Lane {lane}: remove the desk defect class {name}",
         "",
         f"Drive {drive_name}. Post records with `cci post --lane {lane} --drive {drive_name} --stamp`. The stall watch launched this lane at {pacific(now, now)}:",
-        f"root acknowledged the class {len(acks)} times in {int(ACK_WINDOW.total_seconds() // 3600)} h and no fix PR followed (owner 9:55 PM Nov 1, cc-notes answer 1f77471).",
+        f"the coordinator acknowledged the class {len(acks)} times in {int(ACK_WINDOW.total_seconds() // 3600)} h and no fix PR followed (owner 9:55 PM Nov 1, cc-notes answer 1f77471).",
         "",
         "## Deliverable",
         "Find the mechanism every record below shares, in the code of the desk that posts them, and ship one PR that makes the class impossible,",
         "with a regression test that fails on today's code. It merges on green in its yasyf/* repository and is installed; post `--kind fix-live`",
-        "to root naming the PR and the installed version, then stand down. Nothing runs on this Mac beyond the pack's daemons restarting; CI grades.",
+        "to coordinator naming the PR and the installed version, then stand down. Nothing runs on this Mac beyond the pack's daemons restarting; CI grades.",
         "",
         "## Defect records",
         *(f"- #{defect['seq']} {defect['lane']} {defect['kind']} at {pacific(at(defect), now)}: {clip(defect.get('text') or '', RECORD_CHARS)}" for defect in defects),
         "",
-        "## Root's acknowledgements",
+        "## The coordinator's acknowledgements",
         *(f"- #{ack['seq']} {ack['kind']} at {pacific(at(ack), now)}: {clip(ack.get('text') or '', RECORD_CHARS)}" for ack in acks),
         "",
         "Scale: no N",

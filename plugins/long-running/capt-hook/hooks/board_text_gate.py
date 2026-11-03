@@ -339,7 +339,7 @@ def graded(reads: Reads, item: Published) -> list[str]:
 
 
 def amended(reads: Reads, found: list[tuple[dict, dict | None]]) -> list[str]:
-    """Each block citing a plan line that now carries an AMENDED marker: a card bound to that line dies with it (root #316045)."""
+    """Each block citing a plan line that now carries an AMENDED marker: a card bound to that line dies with it (coordinator #316045)."""
     plan = CompactionState.load(reads.evt).plan_path
     if not plan or not (path := Path(plan).expanduser()).is_file():
         return []
@@ -353,7 +353,7 @@ def amended(reads: Reads, found: list[tuple[dict, dict | None]]) -> list[str]:
 
 
 def unrechecked(reads: Reads) -> list[str]:
-    """The oldest owner pick or plan amendment over an hour old that no `--topic card-recheck` record follows (root #316045)."""
+    """The oldest owner pick or plan amendment over an hour old that no `--topic card-recheck` record follows (coordinator #316045)."""
 
     def load() -> list[dict]:
         argv = ["cci", "grep", *reads.which, "--json", "--since", "6h", "-n", "200", "--", f"OWNER board-watch|AMENDED marker|{RECHECK_TOPIC}"]

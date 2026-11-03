@@ -111,7 +111,7 @@ func (p *JobPool) exhausted(ctx context.Context, d desk, directory string) error
 	head := short(spec.Head)
 	if d.lane == grader.FinderLane {
 		subject := "finder:" + spec.PR + ":" + spec.Head
-		text := fmt.Sprintf("FINDER-FAILED %s %s: #%s %s: the finder desk's pass failed on the last of its %d attempts: %s; its log is %s; root asks %s `finder: whole` on #%s to run it again, since only its records grade a head",
+		text := fmt.Sprintf("FINDER-FAILED %s %s: #%s %s: the finder desk's pass failed on the last of its %d attempts: %s; its log is %s; the coordinator asks %s `finder: whole` on #%s to run it again, since only its records grade a head",
 			subject, spec.Lane, spec.PR, head, maxAttempts, why, logPath, grader.FinderLane, spec.PR)
 		return p.notice(ctx, client.Draft{Lane: runnerLane, Kind: kindDefect, Text: text, To: []string{rootLane}, Topic: subject, ID: subject})
 	}

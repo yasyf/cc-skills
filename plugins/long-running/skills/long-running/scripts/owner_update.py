@@ -8,7 +8,7 @@
     owner_update.py --drive D --render [--publish | --sent]
     owner_update.py --drive D --check FILE|-
 
-STDLIB ONLY. The drive's root is its newest registry session; its task list is
+STDLIB ONLY. The drive's coordinator is its newest registry session; its task list is
 `$CLAUDE_CONFIG_DIR/tasks/session-<root8>/`. Prints one line per item, in five sections:
 
     ask <state> <key> <lane>: <words> | last <kind> <time>
@@ -23,19 +23,19 @@ In flight is every in-progress task whose owner is a lane. Delivered is every op
 whose lane posted a `report`, `done`, `fix-live` or `handoff` record after `--since`
 (default 2 h ago), the newest such record per lane; each `--kind` replaces those kinds,
 as the compaction nudge does with :data:`REPORTED_KINDS` to add `head`. The board is
-every PR row on the root's live board; a board that does not read prints
+every PR row on the coordinator's live board; a board that does not read prints
 `board unread: <why>` and the rest still prints.
 Incidents are the drive's open `incident` records. Times are Pacific.
 
 Each `--only` limits the reads to the sections it names, as the compaction nudge reads
 only `delivered`. `--json` prints `{since, asks, in_flight, delivered, board, incidents}`,
-each a list of objects carrying a `line`; the root's Stop hook reads it to refuse an
+each a list of objects carrying a `line`; the coordinator's Stop hook reads it to refuse an
 update to the owner that omits a delivered item or calls an in-flight one not started.
 
 `--render` prints the whole owner update as markdown from sources only, never the task
 list or memory. The lane supervisor's registry (`drive_supervisor.py lanes --json`) gives
 every lane, its brief's step, standing duty and deliverable, and the PRs it owns; cci gives
-each lane's newest record, the asks and blockers waiting on root, incidents and releases
+each lane's newest record, the asks and blockers waiting on the coordinator, incidents and releases
 since midnight Pacific; the ledger gives owner asks, LANDED-NOT-LIVE first, and every open
 PR with why it waits; the board gives open picks. Sections are derived, never listed by
 hand: standing duties, every row of the tables in the `<program>: owner report table`
@@ -50,17 +50,17 @@ and by when (each lane's newest record and its next record due by the supervisor
 line), and what went wrong with each open retro-table row's prevention; every open row with
 nobody on it also leads the update as unowned work. Before it come what moved since the
 last update the owner was sent (each row new, or whose owner, blocker or doneness changed)
-and his words the bridge queued since then, each with the record that carries it; between
-them, the bridge's FYIs (`note` records of owner-relay on topic `fyi`), grouped; after
+and his words the communicator queued since then, each with the record that carries it; between
+them, the communicator's FYIs (`note` records of owner-relay on topic `fyi`), grouped; after
 unowned work, one row per drive-entry `pinned_rows` piece. A section
 with nothing says so in one line. It exits 1 printing to stderr `missing: <count>` and then,
 one per line, each section, working lane, open ask and open PR the render left out, and each
 of his messages no record carries, which also print as the update's last section.
 `--publish` writes `<state dir>/progress-desk/steps.json`, the dashboard's step rows, from
 the same plan-step and piece rows; `--sent` publishes and saves the snapshot the next
-update diffs against. `--check` reads an update the root wrote and exits 1 naming each of those it
-leaves out, which the root's Stop hook turns into a nudge; the compaction hook adds the
-render to the progress record so the root after compaction inherits every lane.
+update diffs against. `--check` reads an update the coordinator wrote and exits 1 naming each of those it
+leaves out, which the coordinator's Stop hook turns into a nudge; the compaction hook adds the
+render to the progress record so the coordinator after compaction inherits every lane.
 """
 
 from __future__ import annotations
@@ -253,7 +253,7 @@ def heard_at(row: dict) -> datetime | None:
 
 
 def working(rows: list[dict], now: datetime) -> list[dict]:
-    """The lanes the update must name: each one not retired and heard within `QUIET_AFTER`, registered or not, besides root and the supervisor, and each the brief of which keeps a standing duty."""
+    """The lanes the update must name: each one not retired and heard within `QUIET_AFTER`, registered or not, besides the coordinator and the supervisor, and each the brief of which keeps a standing duty."""
     return [
         row
         for row in rows
@@ -284,7 +284,7 @@ def section(title: str, lines: list[str]) -> list[str]:
 
 
 def waiting_on_root(runner: Runner, drive_name: str) -> list[dict]:
-    """Every open ask or blocker addressed to root, from cci's open-record digest."""
+    """Every open ask or blocker addressed to the coordinator, from cci's open-record digest."""
     done = runner(["cci", "digest", "--drive", drive_name, "--json", "--since", RECORD_WINDOW, "--budget", str(cci.PAGE_BYTES)])
     if done.returncode:
         raise owner_waits.ReadFailed(f"cci digest exited {done.returncode}: {(done.stderr or done.stdout).strip()[:200]}")
@@ -294,7 +294,7 @@ def waiting_on_root(runner: Runner, drive_name: str) -> list[dict]:
 
 
 def incident_name(record: dict) -> str:
-    """The incident a record is about: the slug a root `INCIDENT [OPEN|REOPENED] <slug>` names, else its lane, else for a coordinator's record the lane it addresses."""
+    """The incident a record is about: the slug a coordinator `INCIDENT [OPEN|REOPENED] <slug>` names, else its lane, else for a coordinator's record the lane it addresses."""
     if slug := INCIDENT_SLUG.search(record.get("text") or ""):
         return slug["slug"]
     addressed = [to.split("@", 1)[0] for to in record.get("to") or []]
@@ -321,7 +321,7 @@ class Row:
 
 @dataclass(frozen=True)
 class Sources:
-    """What every row reads: the registry rows by lane, each lane's newest record, and each lane's open ask or blocker to root."""
+    """What every row reads: the registry rows by lane, each lane's newest record, and each lane's open ask or blocker to the coordinator."""
 
     by_lane: dict[str, dict]
     latest: dict[str, dict]
@@ -335,12 +335,12 @@ class Sources:
     def work(self, lanes: list[str]) -> tuple[str, str, str, str]:
         """Who is on a piece of work held by `lanes`, what blocks it, what they are doing about it and by when, and what slowed it: every lane heard within `DEFAULT_SINCE` is on it, and nobody else."""
         on = [lane for lane in dict.fromkeys(lanes) if self.live(lane)]
-        blocks = "; ".join(f"{lane} waits on root's answer to {wait['kind']} #{wait['seq']} since {when(wait)}: {owner_waits.clip(wait.get('text') or '')}" for lane in on if (wait := self.waits.get(lane))) or NOTHING_RECORDED
+        blocks = "; ".join(f"{lane} waits on the coordinator's answer to {wait['kind']} #{wait['seq']} since {when(wait)}: {owner_waits.clip(wait.get('text') or '')}" for lane in on if (wait := self.waits.get(lane))) or NOTHING_RECORDED
         unblock = "; ".join(
             f"{lane}: {last['kind']} {when(last)}: {owner_waits.clip(last.get('text') or '')}; next record due by {owner_waits.pacific(heard_at(self.by_lane[lane]) + STALE_AFTER)}"
             for lane in on
             if (last := self.latest.get(lane))
-        ) or ("nobody is on it, so root starts a lane on it this turn" if not on else "; ".join(f"{lane}: no record in a day" for lane in on))
+        ) or ("nobody is on it, so the coordinator starts a lane on it this turn" if not on else "; ".join(f"{lane}: no record in a day" for lane in on))
         quiet = [f"{lane} quiet since {owner_waits.pacific_text(self.by_lane[lane].get('heard') or '')}" for lane in dict.fromkeys(lanes) if lane in self.by_lane and lane not in SELVES and not self.live(lane)]
         took = [f"{lane} took over from {row['predecessor']}" for lane in on if (row := self.by_lane[lane]).get("predecessor")]
         failed = [
@@ -380,7 +380,7 @@ def duty_rows(sources: Sources) -> list[Row]:
     for duty, head in sorted(heads.values(), key=lambda pair: pair[0]):
         who, blocks, unblock, wrong = sources.work([head["lane"]])
         if head["state"] == "retired":
-            blocks, unblock = f"{head['lane']} retired by {head.get('retired_by') or 'nobody'} with no successor", f"root launches its successor from {head.get('brief') or 'its brief'} this turn"
+            blocks, unblock = f"{head['lane']} retired by {head.get('retired_by') or 'nobody'} with no successor", f"the coordinator launches its successor from {head.get('brief') or 'its brief'} this turn"
         out.append(Row(duty, duty, f"{head['lane']} {head['state']}, heard {owner_waits.pacific_text(head.get('heard') or '')}", who, blocks, unblock, wrong))
     return out
 
@@ -481,7 +481,7 @@ def retro_rows(runner: Runner, entry: dict) -> tuple[dict, ...]:
 
 
 def owner_words(records: list[dict]) -> tuple[list[str], list[str]]:
-    """Each owner message the bridge queued, quoted whole with the record that carries it, a later record that answers it with `--re` or resolves it, and the seqs nothing carries. A record that merely names a number is not carrying it, since `#<n>` is also a PR."""
+    """Each owner message the communicator queued, quoted whole with the record that carries it, a later record that answers it with `--re` or resolves it, and the seqs nothing carries. A record that merely names a number is not carrying it, since `#<n>` is also a PR."""
     lines, loose = [], []
     for record in records:
         if record["lane"] != BRIDGE or record["kind"] != "ask":
@@ -544,7 +544,7 @@ def publish(model: dict, sent: bool) -> None:
 
 
 def fyi_entries(records: list[dict]) -> list[dict]:
-    """The FYIs the bridge wrote, newest first: each `note` record of lane owner-relay on topic `fyi`, grouped by the words before its first colon. Coordinator records never become FYIs; the bridge writes each one as plain-words synthesis."""
+    """The FYIs the communicator wrote, newest first: each `note` record of lane owner-relay on topic `fyi`, grouped by the words before its first colon. Coordinator records never become FYIs; the communicator writes each one as plain-words synthesis."""
     out = []
     for record in records:
         if (record["lane"], record["kind"], record.get("topic")) != (BRIDGE, "note", FYI_TOPIC):
@@ -662,7 +662,7 @@ def report(drive_name: str, runner: Runner, now: datetime | None = None) -> tupl
     quiet = sorted(row["lane"] for row in rows if row["state"] in LIVE_LANES and row["lane"] not in set(names))
     lists = [
         (f"Registry lanes quiet over {QUIET_AFTER.days * 24} h", [f"- {', '.join(quiet)}"] if quiet else []),
-        ("Waiting on root", [f"- {record['kind']} #{record['seq']} {record['lane']} {when(record)}: {owner_waits.clip(record.get('text') or '')}" for record in waits.values()]),
+        ("Waiting on the coordinator", [f"- {record['kind']} #{record['seq']} {record['lane']} {when(record)}: {owner_waits.clip(record.get('text') or '')}" for record in waits.values()]),
         ("Board picks", [f"- {item['line']}" for item in board]),
         (f"Delivered in the last {DEFAULT_SINCE.seconds // 3600} h", [f"- {record['lane']} {record['kind']} #{record['seq']} {when(record)}: {owner_waits.clip(record.get('text') or '')}" for record in newest_by_lane([record for record in records if record["kind"] in DELIVERED_KINDS and now - owner_waits.at(record) < DEFAULT_SINCE]).values()]),
     ]

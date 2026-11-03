@@ -23,7 +23,7 @@ RULINGS_HEADING = re.compile(r"^#{1,6}\s*Rulings\b", re.IGNORECASE | re.MULTILIN
 
 
 def heads(record: dict, repo: str) -> list[tuple[str, str]]:
-    """Each `(pr, head)` a `head` record names: each `head:<pr>` attribute of a multi-head record in `repo`, else its `commit` field, else the sha its text pairs with each PR as `#<pr> <sha>`, as a restack posted in prose names one head per PR (root #304381), else the first full sha of its text that no `was` precedes, else the first abbreviated one, which the caller spells whole from the PR's live head (#220098), for each PR its refs name in `repo`, or with no PR refs the PR its text names, as a lane that posts a head without `--pr` still gets its finder pass (root #158365)."""
+    """Each `(pr, head)` a `head` record names: each `head:<pr>` attribute of a multi-head record in `repo`, else its `commit` field, else the sha its text pairs with each PR as `#<pr> <sha>`, as a restack posted in prose names one head per PR (coordinator #304381), else the first full sha of its text that no `was` precedes, else the first abbreviated one, which the caller spells whole from the PR's live head (#220098), for each PR its refs name in `repo`, or with no PR refs the PR its text names, as a lane that posts a head without `--pr` still gets its finder pass (coordinator #158365)."""
     if (entries := head_entries(record, repo)) is not None:
         return [(pr, entry["commit"]) for pr, entry in entries.items()]
     prs = [pr for pr, _ in repo_prs(record, repo)] if (record.get("refs") or {}).get("prs") else text_pr(record["text"], repo)

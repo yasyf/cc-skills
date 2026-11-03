@@ -95,10 +95,10 @@ def moment(evt: BaseHookEvent) -> tuple[str, str] | None:
             env=DRIVE_CONFIG,
             state=[ACTIVE, JudgedAnswers(injected=["main:1984bf6"])],
         ): Allow(),
-        Input(command="echo '- G901 (root) GO walker: release api' >> ~/scratch/brook/inbox/deploy-go.md", commands=answered(DROPPED), env=DRIVE_CONFIG, state=[ACTIVE]): Warn(
+        Input(command="echo '- G901 (the coordinator) GO walker: release api' >> ~/scratch/brook/inbox/deploy-go.md", commands=answered(DROPPED), env=DRIVE_CONFIG, state=[ACTIVE]): Warn(
             pattern=r"durable owner answer `1984bf6`"
         ),
-        Input(command="echo '- G902 (root) note' >> ~/scratch/brook/inbox/deploy-go.md", commands=answered(DROPPED), env=DRIVE_CONFIG, state=[ACTIVE]): Allow(),
+        Input(command="echo '- G902 (the coordinator) note' >> ~/scratch/brook/inbox/deploy-go.md", commands=answered(DROPPED), env=DRIVE_CONFIG, state=[ACTIVE]): Allow(),
         Input(command="cc-slack reply --url C0B/p1 --text 'Shipping the skip flag'", commands=answered(DROPPED), env=DRIVE_CONFIG, state=[ACTIVE]): Allow(),
         Input(command="ls", commands=answered(DROPPED), env=DRIVE_CONFIG, state=[ACTIVE]): Allow(),
         Input(tool="Agent", tool_input={"prompt": "Add a --skip-tenant flag."}, commands=answered(DROPPED)): Allow(),

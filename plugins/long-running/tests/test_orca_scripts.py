@@ -511,7 +511,7 @@ def test_a_codex_lane_reads_a_brief_copy_that_hands_its_pr_prose_to_opus(orca):
     assert Path(spec.split("read ")[1].split(" in full")[0]).resolve() == copy.resolve()
     text = copy.read_text()
     assert text.startswith(orca.brief.read_text())
-    assert "## PR prose" in text and f"`'{BIN}/pr-prose.py' --brief '{orca.brief}'`" in text and "ship with them verbatim" in text and "Never ask the root" in text
+    assert "## PR prose" in text and f"`'{BIN}/pr-prose.py' --brief '{orca.brief}'`" in text and "ship with them verbatim" in text and "Never ask the coordinator" in text
     assert "## PR record" not in text
 
 
@@ -822,7 +822,7 @@ def test_relaunch_after_the_recorded_task_completed_starts_a_fresh_task(orca):
 
 
 def test_a_launch_whose_one_wait_outlasts_the_stall_limit_fails_with_launch_failed_naming_the_wait(orca):
-    """Root #212009: orca-launch.sh sat 10 min in its worktree wait for rtapi-errors-fix with no terminal, no receipt and no stderr."""
+    """Coordinator #212009: orca-launch.sh sat 10 min in its worktree wait for rtapi-errors-fix with no terminal, no receipt and no stderr."""
     orca.healthy()
     orca.env["ORCA_LAUNCH_STALL_SECONDS"] = "0"
     orca.reply("worktree show", MISSING)
@@ -1332,7 +1332,7 @@ def test_a_worktree_create_that_lost_its_response_is_awaited_not_repeated(full, 
 
 
 def test_a_worktree_orca_made_elsewhere_after_its_create_timed_out_is_found_by_its_name(full):
-    """Root #291085: exec-crash-fix-2's create timed out, Orca made dar-exec-crash-fix-2-base under its own workspace root at 12:07:54 PM, and the launch looked for it beside the parent until it failed at 184 s."""
+    """Coordinator #291085: exec-crash-fix-2's create timed out, Orca made dar-exec-crash-fix-2-base under its own workspace root at 12:07:54 PM, and the launch looked for it beside the parent until it failed at 184 s."""
     full.healthy()
     elsewhere = full.root / "orca-workspaces" / "monorepo" / "v3-lane-a-1-1"
     full.reply("worktree create", {"rc": 1, "out": {"ok": False, "error": {"code": "runtime_timeout", "message": "Timed out waiting for the Orca runtime to respond."}}, "mkdir": str(elsewhere)})
