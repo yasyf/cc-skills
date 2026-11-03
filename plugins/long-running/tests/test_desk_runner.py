@@ -10700,7 +10700,7 @@ def test_the_cursor_survives_restart_and_pages_back_without_replay_or_skips(shel
     monkeypatch.setattr(runner, "message", record)
     runner_module.run_orca(runner, True)
     assert processed == [message["id"] for message in messages]
-    assert [call[call.index("--limit") + 1] for call in shell.calls if call[:3] == ["orca", "orchestration", "inbox"]] == ["2", "4", "8"]
+    assert [call[call.index("--limit") + 1] for call in shell.calls if call[:5] == ["orca", "orchestration", "inbox", "--terminal", "run:run_1"]] == ["2", "4", "8"]
     assert incident(tmp_path, "desk-runner").facts["inbox:run_1"] == messages[-1]["sequence"]
     runner.check()
     assert processed == [message["id"] for message in messages]
@@ -10769,7 +10769,7 @@ def test_first_read_starts_at_the_newest_sequence_without_replaying_history(shel
     orca_pass(shell, config)
     assert incident(tmp_path, "desk-runner").facts["inbox:run_1"] == newest["sequence"]
     assert escalations(shell) == []
-    assert len([call for call in shell.calls if call[:3] == ["orca", "orchestration", "inbox"]]) == 1
+    assert len([call for call in shell.calls if call[:5] == ["orca", "orchestration", "inbox", "--terminal", "run:run_1"]]) == 1
     fresh = shell.receive({"type": "worker_done", "subject": "fresh"})
     orca_pass(shell, config)
     assert [line.split()[1] for line in escalations(shell)] == [fresh["id"]]
@@ -12184,18 +12184,18 @@ def test_a_launch_line_gets_its_verdict_in_the_first_pass_and_orca_calls_stay_fl
     shell.launch("live-0", "ctx_live_0")
     orca_pass(shell, config)
 
-    def launch_pass(dispatch: str) -> tuple[list[str], Counter[str]]:
-        shell.launch_line = f"{LANE} ready task=task_1 dispatch={dispatch} terminal=term_{dispatch} worktree=/w\n"
-        seq = desk_orders(shell, f"orca-desk: launch {LANE} NOW opus xhigh brief={brief}")
+    def launch_pass(lane: str) -> tuple[list[str], Counter[str]]:
+        shell.launch_line = f"{lane} ready task=task_1 dispatch=ctx_{lane} terminal=term_{lane} worktree=/w\n"
+        seq = desk_orders(shell, f"orca-desk: launch {lane} NOW opus xhigh brief={brief}")
         before = len(shell.calls)
         orca_pass(shell, config)
-        verdicts = [line for line in escalations(shell) if line.startswith(f"LAUNCHED R{seq} {LANE}: ")]
+        verdicts = [line for line in escalations(shell) if line.startswith(f"LAUNCHED R{seq} {lane}: ")]
         return verdicts, Counter(" ".join(call[1:3]) for call in shell.calls[before:] if call[0] == "orca")
 
-    one = launch_pass("ctx_n")
+    one = launch_pass("flat-a")
     for n in range(1, 1000):
         shell.launch(f"live-{n}", f"ctx_live_{n}")
-    thousand = launch_pass("ctx_m")
+    thousand = launch_pass("flat-b")
     assert len(one[0]) == len(thousand[0]) == 1
     assert one[1] == thousand[1]
 
@@ -13034,7 +13034,7 @@ def test_a_repeat_alert_relays_to_the_live_fix_lane_and_keeps_its_brief(shell, c
     assert "The alert fired again at" in send[send.index("--body") + 1]
     assert brief.read_text() == "root-edited brief" and shell.attachments["alerts-runs-1704-fix.full.md"] == brief and shell.entries == []
     [line] = escalations(shell)
-    assert line == f"RELAYED R{seq}:again alerts-runs-1704-fix: relay to dispatch ctx_a"
+    assert line == f"RELAYED inbox@cci#{seq}:again alerts-runs-1704-fix: relay to dispatch ctx_a"
 
 
 def test_an_alert_outside_the_grammar_fails_visibly_and_launches_nothing(shell, config, tmp_path):
