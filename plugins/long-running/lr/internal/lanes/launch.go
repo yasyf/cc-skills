@@ -30,7 +30,7 @@ type standingSession struct {
 
 var standingSessions = map[string]standingSession{
 	"chores":      {"chores", "sonnet", "low"},
-	"coordinator": {Root, "opus", "xhigh"},
+	"coordinator": {Root, "fable", "xhigh"},
 	"meta":        {"meta", "opus", "xhigh"},
 	"signal":      {"signal", "sonnet", "low"},
 }

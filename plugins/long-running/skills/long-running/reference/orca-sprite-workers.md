@@ -165,8 +165,8 @@ for incident lanes only: `WORKER_SERVICE_TIER=fast` refuses unless
 `WORKER_INCIDENT=1`. Without a tier, the launcher passes no service-tier flag,
 and codex runs on the standard tier.
 
-Use `WORKER_LOCAL=1` for a local coordinator, which runs Opus, or for root-authorized
-extremely sensitive work, the one case for Fable:
+Use `WORKER_LOCAL=1` for a local coordinator, which runs Fable, or for root-authorized
+extremely sensitive work, the other case for Fable:
 
 ```sh
 WORKER_RUN="<owned-run-id>" WORKER_LOCAL=1 \
@@ -629,11 +629,11 @@ inherit a Mac lane's shipping obligations.
 
 ## Models
 
-Coordinators and Claude implementation workers run Opus; subdesks use
+The coordinator runs Fable on the Mac; Claude implementation workers run Opus; subdesks use
 Opus or Sonnet per the routing table. Codex review, diagnosis, sweeps and
 shell-heavy lanes run `gpt-6.1-sol` at `xhigh` on the standard tier; only an
-incident lane adds `WORKER_SERVICE_TIER=fast` with `WORKER_INCIDENT=1`. Fable is
-for exceptional cases only: local, for the most sensitive implementation, using
+incident lane adds `WORKER_SERVICE_TIER=fast` with `WORKER_INCIDENT=1`. Beyond the
+coordinator, Fable is for exceptional cases only: local, for the most sensitive implementation, using
 the Mac's existing interactive authentication. Auth, migrations, concurrency, or
 error-prone code alone does not qualify for Fable. Preserve explicitly requested
 models and effort within these roles. Never use Fable as a general fallback or
@@ -641,9 +641,9 @@ set `fallbackModel`.
 
 | Alias | Model ID | Placement |
 | --- | --- | --- |
-| `opus` | `claude-opus-5-5` | Coordinators and the Claude implementation default |
+| `opus` | `claude-opus-5-5` | The Claude implementation default |
 | `sonnet` | `claude-sonnet-5-5` | Explicitly selected Claude worker |
-| `fable` | `claude-fable-5-1` | Exceptional: explicit local, most sensitive implementation only |
+| `fable` | `claude-fable-5-1` | The coordinator, on the Mac; otherwise explicit local, most sensitive implementation only |
 | `gpt-6.1-sol` | `gpt-6.1-sol` | Codex review, diagnosis, sweeps and shell-heavy lanes on the standard tier; incident lanes add the fast tier |
 
 On the remote route, full `claude-*` and `gpt-*` model IDs pass through unchanged

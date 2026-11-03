@@ -1342,18 +1342,20 @@ func TestAStandingDeskFallsBackToTheMacWithNoSpriteRoute(t *testing.T) {
 }
 
 func TestTheCoordinatorLaunchesOnTheMacWhileALaneWithNoPlaceTakesASprite(t *testing.T) {
+	coordinatorBrief := "Register slice: lane=root step=all\nScale: no N\nccx: incident=none\n"
 	for _, tt := range []struct {
-		lane, brief, want string
+		lane, model, brief, want string
 	}{
-		{coordinatorLane, "Register slice: lane=root step=all\nScale: no N\nccx: incident=none\n", "start"},
-		{testLane, testBrief + "ccx: role=build\n", "sprite"},
+		{coordinatorLane, "fable", coordinatorBrief, "start"},
+		{coordinatorLane, "opus", coordinatorBrief, "start"},
+		{testLane, "opus", testBrief + "ccx: role=build\n", "sprite"},
 	} {
-		t.Run(tt.lane, func(t *testing.T) {
+		t.Run(tt.lane+"/"+tt.model, func(t *testing.T) {
 			w := newDeskWorld(t)
 			launcher := spriteConfig(w)
 			brief := w.brief(tt.lane, tt.brief)
 			w.lines()
-			w.line(launchText(tt.lane, brief))
+			w.line("orca-desk: launch " + tt.lane + " " + tt.model + " xhigh brief=" + brief)
 			w.lines()
 			w.step(w.desk.deliver)
 			if len(w.spawns) != 1 {
@@ -1363,7 +1365,7 @@ func TestTheCoordinatorLaunchesOnTheMacWhileALaneWithNoPlaceTakesASprite(t *test
 			if w.spawns[0].argv[0] != launcher {
 				got = w.spawns[0].argv[2]
 			}
-			if got != tt.want {
+			if got != tt.want || got == "start" && w.spawns[0].argv[4] != tt.model {
 				t.Fatal(w.spawns)
 			}
 		})
