@@ -2,8 +2,11 @@ package bk
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -25,9 +28,10 @@ const (
 var started = time.Date(2026, 11, 3, 12, 0, 0, 0, time.UTC)
 
 type fakeRunner struct {
-	calls []shell.Command
-	reply shell.Result
-	fail  error
+	calls   []shell.Command
+	reply   shell.Result
+	fail    error
+	replies map[string]string
 }
 
 func (f *fakeRunner) Run(_ context.Context, c shell.Command) (shell.Result, error) {
@@ -35,6 +39,9 @@ func (f *fakeRunner) Run(_ context.Context, c shell.Command) (shell.Result, erro
 		return shell.Result{Stdout: readToken + "\n"}, nil
 	}
 	f.calls = append(f.calls, c)
+	if said, found := f.replies[c.Argv[len(c.Argv)-1]]; found {
+		return shell.Result{Stdout: said}, nil
+	}
 	return f.reply, f.fail
 }
 
@@ -42,7 +49,7 @@ func newDesk(t *testing.T, runner *fakeRunner) (*Desk, *time.Time) {
 	t.Helper()
 	t.Setenv("CCI_HOME", t.TempDir())
 	now := started
-	desk, err := NewDesk(context.Background(), runner, Settings{CLI: "tools/ci bk", Checkout: checkout, TokenCommand: []string{"print-token"}}, drive, t.TempDir(), func() time.Time { return now })
+	desk, err := NewDesk(context.Background(), runner, Settings{CLI: "tools/ci bk", Checkout: checkout, TokenCommand: []string{"print-token"}}, drive, t.TempDir(), func() time.Time { return now }, io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,6 +156,28 @@ func TestALaterPassReadsOnlyNewAsks(t *testing.T) {
 
 	if len(runner.calls) != 2 {
 		t.Fatalf("reads = %d, want 2", len(runner.calls))
+	}
+}
+
+func TestAnAskWhoseAnswerFailsStaysOpenAndTheNextIsStillAnswered(t *testing.T) {
+	runner := &fakeRunner{replies: map[string]string{"/stuck": "stuck body", "/next": "next body"}}
+	desk, _ := newDesk(t, runner)
+	sum := sha256.Sum256([]byte("stuck body"))
+	if err := os.MkdirAll(filepath.Join(desk.Bodies, hex.EncodeToString(sum[:])[:16]+".txt"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	stuck := ask(t, "bk api /stuck")
+	ask(t, "bk api /next")
+
+	firstPass(t, desk)
+
+	found := answers(t)
+	if len(found) != 1 || bodyOf(t, found[0]) != "next body" {
+		t.Fatalf("answers = %+v, want only the next ask's", found)
+	}
+	still, err := client.Open(context.Background(), drive, askKind)
+	if err != nil || len(still) != 1 || still[0].Seq != stuck.Seq {
+		t.Fatalf("open asks = %+v, %v, want only #%d", still, err, stuck.Seq)
 	}
 }
 
@@ -359,7 +388,7 @@ func TestTheTokenReachesOnlyTheClientsEnvironment(t *testing.T) {
 }
 
 func TestADeskStartRefusesATokenCommandThatPrintsNothing(t *testing.T) {
-	_, err := NewDesk(context.Background(), emptyToken{}, Settings{CLI: "tools/ci bk", Checkout: checkout, TokenCommand: []string{"print-token"}}, drive, t.TempDir(), time.Now)
+	_, err := NewDesk(context.Background(), emptyToken{}, Settings{CLI: "tools/ci bk", Checkout: checkout, TokenCommand: []string{"print-token"}}, drive, t.TempDir(), time.Now, io.Discard)
 	if err == nil {
 		t.Fatal("a desk started with no token")
 	}

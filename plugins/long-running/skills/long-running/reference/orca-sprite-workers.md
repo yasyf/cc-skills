@@ -354,8 +354,8 @@ sprite exec -s <host> -- sprite-env services create bk-desk \
 ```
 
 The desk reads the token once at start, so restart the service after rotating it.
-A crash restarts it with the Sprite's own backoff, and it then answers any ask from
-the last hour that is still open. It needs the host joined to the
+An answer that fails is logged, its ask stays open, and the desk goes on to the next
+ask. A restart answers any ask from the last hour that is still open. It needs the host joined to the
 relay and nothing else: no tailnet route, no open port and no credential on a lane.
 
 A lane cannot reach the desk any other way. The tailnet policy admits only the

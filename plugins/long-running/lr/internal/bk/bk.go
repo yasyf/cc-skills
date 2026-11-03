@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"os"
 	"path/filepath"
@@ -72,12 +73,13 @@ type Desk struct {
 	Drive    string
 	Bodies   string
 	Now      func() time.Time
+	Log      io.Writer
 
 	token string
 	cache map[string]reply
 }
 
-func NewDesk(ctx context.Context, runner shell.Runner, settings Settings, drive, state string, now func() time.Time) (*Desk, error) {
+func NewDesk(ctx context.Context, runner shell.Runner, settings Settings, drive, state string, now func() time.Time, log io.Writer) (*Desk, error) {
 	printed, err := runner.Run(ctx, shell.Command{Argv: settings.TokenCommand, Timeout: tokenWait})
 	if err != nil {
 		return nil, fmt.Errorf("the Buildkite token command failed: %w", err)
@@ -88,7 +90,7 @@ func NewDesk(ctx context.Context, runner shell.Runner, settings Settings, drive,
 	}
 	return &Desk{
 		Runner: runner, CLI: strings.Fields(settings.CLI), Checkout: settings.Checkout, Drive: drive,
-		Bodies: filepath.Join(state, bodiesDir), Now: now, token: token, cache: map[string]reply{},
+		Bodies: filepath.Join(state, bodiesDir), Now: now, Log: log, token: token, cache: map[string]reply{},
 	}, nil
 }
 
@@ -119,7 +121,7 @@ func (d *Desk) pass(ctx context.Context, query client.Query) (client.Query, erro
 			continue
 		}
 		if err := d.answer(ctx, ask); err != nil {
-			return query, err
+			_, _ = fmt.Fprintf(d.Log, "bk-desk: ask #%d from %s stays open: %v\n", ask.Seq, ask.Lane, err)
 		}
 	}
 	return query, nil

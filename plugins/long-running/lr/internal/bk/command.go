@@ -23,7 +23,7 @@ func Command(a *app.App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			desk, err := NewDesk(cmd.Context(), a.Runner, settings, cfg.Drive, state, a.Now)
+			desk, err := NewDesk(cmd.Context(), a.Runner, settings, cfg.Drive, state, a.Now, cmd.ErrOrStderr())
 			if err != nil {
 				return err
 			}
