@@ -171,6 +171,10 @@ func finderGrade(text string) string {
 	return ""
 }
 
+func FullText(record client.Record) string {
+	return fullText(record)
+}
+
 func fullText(record client.Record) string {
 	if record.Refs.Path == "" {
 		return record.Text

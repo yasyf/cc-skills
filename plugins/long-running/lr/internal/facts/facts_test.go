@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -676,6 +678,37 @@ func TestAGoLanesExemptGoLeavesARootHoldStanding(t *testing.T) {
 
 	if row.Hold != machine.MoverRoot || !row.Exempt {
 		t.Fatalf("hold = %q, exempt = %v; want the coordinator's hold and the exempt class", row.Hold, row.Exempt)
+	}
+}
+
+func TestAnOverrideMisquotingTheOwnerLeavesTheGradeStanding(t *testing.T) {
+	for name, tc := range map[string]struct {
+		quote   string
+		verdict bool
+	}{
+		"his words":      {"Go look into it", true},
+		"words he never": {"orders this fix", false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
+			configDir := t.TempDir()
+			t.Setenv("CLAUDE_CONFIG_DIR", configDir)
+			if err := os.MkdirAll(filepath.Join(configDir, "long-running", "drives"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(configDir, "long-running", "drives", "d.json"), []byte(`{"drive":"d","checkout":"/checkouts/repo","program":"p","sessions":["s"]}`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			h.runner.Reply("Verbatim: Go look into it.\n", "ccn", "-R", "/checkouts/repo", "answer", "show", "79e14c4")
+			text := fmt.Sprintf(`finder-override #1 at %s: 9. answer 79e14c4, %q`, head, tc.quote)
+			if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "root", Kind: "decide", Text: text}); err != nil {
+				t.Fatal(err)
+			}
+
+			if got := h.snapshot(t)[1].Verdict; got != tc.verdict {
+				t.Fatalf("verdict = %v, want %v", got, tc.verdict)
+			}
+		})
 	}
 }
 

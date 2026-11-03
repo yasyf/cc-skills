@@ -41,13 +41,14 @@ type TapRow struct {
 }
 
 type Read struct {
-	Records  []client.Record
-	GoLanes  []string
-	Exempt   []string
-	TapRules map[string][]string
-	Files    []string
-	Cards    []Card
-	TapRows  []TapRow
+	Records   []client.Record
+	GoLanes   []string
+	Exempt    []string
+	TapRules  map[string][]string
+	Files     []string
+	Cards     []Card
+	TapRows   []TapRow
+	Misquoted map[int64][]string
 }
 
 type standingGrade struct {
@@ -56,13 +57,24 @@ type standingGrade struct {
 }
 
 func ExemptGo(c Claim, r Read) (string, []string) {
-	finder, finderRefusal := finderCite(c, r.Records)
-	class, fidelity, fidelityRefusals := fidelityCite(c, r.Records, r.Exempt)
-	refusals := slices.Concat(nonEmpty(finderRefusal), fidelityRefusals, openHolds(c, r.Records), ownerWaits(c, r), tapRules(r.TapRules, r.Files), standingGos(c, r))
+	counted := slices.DeleteFunc(slices.Clone(r.Records), func(record client.Record) bool { return len(r.Misquoted[record.Seq]) > 0 })
+	finder, finderRefusal := finderCite(c, counted)
+	class, fidelity, fidelityRefusals := fidelityCite(c, counted, r.Exempt)
+	refusals := slices.Concat(nonEmpty(finderRefusal), fidelityRefusals, misquotes(r), openHolds(c, r.Records), ownerWaits(c, r), tapRules(r.TapRules, r.Files), standingGos(c, r))
 	if len(refusals) > 0 {
 		return "", refusals
 	}
 	return fmt.Sprintf("go #%d at %s on green [exempt: %s]: %s, %s", c.PR, short(c.Head), class, fidelity, finder), nil
+}
+
+func misquotes(r Read) []string {
+	var out []string
+	for _, record := range r.Records {
+		for _, misquote := range r.Misquoted[record.Seq] {
+			out = append(out, fmt.Sprintf("override %s settles nothing: %s", record.Name(), misquote))
+		}
+	}
+	return out
 }
 
 func finderCite(c Claim, records []client.Record) (string, string) {
