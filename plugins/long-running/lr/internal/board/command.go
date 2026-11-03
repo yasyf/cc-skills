@@ -117,7 +117,7 @@ func Command(a *app.App) *cobra.Command {
 			},
 		}, func() { _ = s.Close() }, nil
 	}
-	cmd.AddCommand(waitsCommand(a, opened), cardsCommand(cards, packJudge(a.Runner)), passCommand(a, opened), classifyCommand())
+	cmd.AddCommand(waitsCommand(a, opened), cardsCommand(cards, packJudge(a.Runner)), passCommand(a, opened), classifyCommand(), slackCardCommand(a))
 	return cmd
 }
 
