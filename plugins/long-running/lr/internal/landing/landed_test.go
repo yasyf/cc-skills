@@ -179,6 +179,7 @@ func TestAnUntappedDequeueIsABlockerToItsLaneAndTheMetaDesk(t *testing.T) {
 		t.Fatalf("posted = %+v", posted)
 	}
 
+	answer.Text = "the queue said exit 0: #46927 DEQUEUED again"
 	if err := landing.Settle(ctx, s, "d", []landing.Said{answer}); err != nil {
 		t.Fatal(err)
 	}
