@@ -40,10 +40,9 @@ from captain_hook.command_schema import Scalar
 from captain_hook.util import reqenv
 from pydantic import BaseModel
 
-from .compaction_handoff import CompactionState, ccn, progress_folder
+from .compaction_handoff import ccn, Communicator, communicator_tests, CompactionState, progress_folder
 from .nudges import queue_nudge
 from .tests.root_fixtures import ACTIVE, LONG
-from .window_lane import Coordinator, OwnerBridge, bridge_tests, coordinator_tests
 
 READ_LINES = 150
 MCP_CHARS = 8000
@@ -468,9 +467,9 @@ def root_warning(*, message: str, only_if: Sequence[object], tests: dict, bypass
     hook(
         Event.PreToolUse,
         message=message,
-        only_if=[Coordinator(), DriveActive(), *only_if],
+        only_if=[DriveActive(), *only_if],
         skip_if=[FromSubagent(), *([Annotated("raw")] if bypass else [])],
-        tests=coordinator_tests(tests),
+        tests=tests,
     )
 
 
@@ -713,14 +712,14 @@ root_warning(
 
 @on(
     Event.PostToolUse,
-    only_if=[Coordinator(), DriveActive()],
+    only_if=[DriveActive()],
     skip_if=[FromSubagent()],
-    tests=coordinator_tests({
+    tests={
         Input(tool="mcp__linear__get_issue", output="x" * 9000, state=ACTIVE): Warn(pattern=r"overflowed the drive root"),
         Input(tool="mcp__linear__get_issue", output="small", state=ACTIVE): Allow(),
         Input(tool="mcp__plugin_cc-notes_cc-notes__doc_show", output="x" * 9000, state=ACTIVE): Allow(),
         Input(tool="mcp__linear__get_issue", output="x" * 9000): Allow(),
-    }),
+    },
 )
 def learn_oversized_mcp(evt: BaseHookEvent) -> HookResult | None:
     name = evt.tool_name or ""
@@ -777,10 +776,10 @@ def record_ruling(evt: BaseHookEvent) -> str:
 
 @on(
     Event.UserPromptSubmit,
-    only_if=[OwnerBridge(), DriveActive(), OwnerPrompt()],
+    only_if=[Communicator(), DriveActive(), OwnerPrompt()],
     skip_if=[FromSubagent()],
     async_=True,
-    tests=bridge_tests({
+    tests=communicator_tests({
         Input(
             prompt="from now on, release everything as it merges",
             state=ACTIVE,

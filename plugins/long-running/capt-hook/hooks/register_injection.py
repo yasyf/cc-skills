@@ -73,7 +73,7 @@ MISSED = {"verdict": "yes", "artifact_phrase": "chats on one Mac", "evidence_phr
 REGISTER = {"id": "c" * 40, "body": "# Register\n\n1. Pulumi state is the only truth.\n"}
 FOUND = {f"{sys.executable} {script('rulings.py')} register": json.dumps(REGISTER)}
 NONE_FOUND = {f"{sys.executable} {script('rulings.py')} register": "null"}
-ACTIVE = CompactionState(active=True, slug="brook")
+ACTIVE = CompactionState(active=True, coordinator=True, slug="brook")
 lane_brief = script_module("lane_brief")
 
 

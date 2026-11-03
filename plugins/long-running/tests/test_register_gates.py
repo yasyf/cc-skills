@@ -42,7 +42,7 @@ class Root:
         self.rows: str | tuple[int, str] = json.dumps(
             {"ledger": LEDGER, "program": "brook", "state_dir": str(self.state_dir), "rows": {}, "classified": [CLASSIFIED]}
         )
-        CompactionState(active=True, slug=PLAN_STEM).save(self.event(PostToolUseEvent, tool_name="Bash"))
+        CompactionState(active=True, coordinator=True, slug=PLAN_STEM).save(self.event(PostToolUseEvent, tool_name="Bash"))
 
     def event(self, cls, **raw):
         payload = {"session_id": SESSION, "cwd": str(self.home)}
@@ -221,6 +221,7 @@ def test_a_reply_on_a_block_closes_only_the_question_asked_on_it(root):
 def test_the_turn_end_closes_chat_questions_and_leaves_board_questions_open(root):
     loops = root.question("5f1d2c3b4a596877", "what is a relay slot? why is this here?", ["c7-timers"])
     chat = root.question("0123456789abcdef", "what is the merge card?", [])
+    CompactionState(active=True, slug=PLAN_STEM).save(root.event(PostToolUseEvent, tool_name="Bash"))
 
     root.fire(StopEvent)
 

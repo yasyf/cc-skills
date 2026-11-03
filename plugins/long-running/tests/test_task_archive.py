@@ -100,7 +100,7 @@ def test_drive_sweeps_on_session_start_and_at_most_every_half_hour_on_stop(
     tasks: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("CAPTAIN_HOOK_TASKS_DIR", str(tmp_path / "tasks"))
-    CompactionState(active=True).save(event(tmp_path, StopEvent))
+    CompactionState(active=True, coordinator=True).save(event(tmp_path, StopEvent))
     write_task(tasks, "4", "completed", OLD)
 
     fire(task_archive, event(tmp_path, SessionStartEvent, source="compact"))

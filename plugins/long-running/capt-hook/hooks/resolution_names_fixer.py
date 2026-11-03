@@ -6,12 +6,11 @@ import subprocess
 
 from captain_hook import Allow, BaseHookEvent, Block, Event, FromSubagent, Input, Tool, hook
 
-from .compaction_handoff import CompactionState
+from .compaction_handoff import CompactionState, Coordinator, coordinator_tests
 from .lane_rotation import DriveActive
 from .owner_facing import CCI_POST, posted_text
-from .window_lane import Coordinator, coordinator_tests
 
-ACTIVE = [CompactionState(active=True)]
+ACTIVE = [CompactionState(active=True, coordinator=True)]
 FAILURE_KINDS = frozenset({"blocker", "incident", "urgent"})
 NAMES_LANE = re.compile(r"\blane=[\w.-]+")
 SETTLED = re.compile(r"\bFIX-LIVE\b|\bnot-ours:\s*\S|\bclosed:\s*\S")

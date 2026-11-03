@@ -72,13 +72,16 @@ stop check, injection and cci delivery keys on that binding and nothing else. Th
 bridge's window is bound `owner-relay`. The coordinator's window is bound `root`,
 so every root hook (`root_context`, `root_reads`, `owner_facing`, `task_list`, the
 stop checks, the compaction handoff, the register injection) and every record
-addressed to `root` lands on the coordinator and none of it on the bridge. The pack
-reads a window's lane from the `CLAUDE_LONG_RUNNING_LANE` its launcher set, else
-from cci's binding of the window's root thread, reread at session start and after
-each `cci announce`, `subscribe` or `drive use`. The bridge keeps only its own
-set: the hooks that record the owner's words and picks and the ones that check
-what it asks and tells him. A window bound to no lane, a drive that never split, gets
-both sets. A lane's window, the meta and signal lanes' included, is bound to its lane name and gets the lane hooks. Hooks are window-scoped,
+addressed to `root` lands on the coordinator and none of it on the bridge. The pack's hooks
+come in three tiers on one switch, which `/long-running:coordinator` sets for the
+session that runs it. Shared hooks (context discipline: `root_context`, `root_reads`)
+act in both windows. Coordinator hooks (asks, retro rows, coverage, landing, launch,
+incident checks, the task list, the compaction handoff) act only in the session that
+ran `/long-running:coordinator`. Communicator hooks (plain words, owner words and picks,
+claims to the owner, confirm-back) act only in the window that ran `/long-running`
+alone. The coordinator skill also claims cci lane `root` with `cci announce --lane
+root`, so cci's stop check and injections follow it; the communicator claims
+`owner-relay` with its subscribe line. A lane's window, the meta and signal lanes' included, is bound to its lane name and gets the lane hooks. Hooks are window-scoped,
 so the coordinator is never an in-process subagent of the bridge: it is a sibling
 Orca session, launched by the bridge, that the bridge never `SendMessage`s and that
 never `SendMessage`s the bridge. The bus is the only channel between them, because

@@ -418,7 +418,7 @@ def reply(name: str, **extra: object) -> Input:
 
 
 def exits(name: str, **extra: object) -> Input:
-    state = [CompactionState(active=True, slug="brook", plan_path=str(board(name)))]
+    state = [CompactionState(active=True, coordinator=True, slug="brook", plan_path=str(board(name)))]
     return posting(tool="ExitPlanMode", tool_input={"plan": board(name).read_text()}, state=state, **extra)
 
 
@@ -464,10 +464,10 @@ def exits(name: str, **extra: object) -> Input:
         posting(f"cat <<'EOF' > /tmp/clean.json\n{HEREDOC}EOF\ncc-present update-block - <<'EOF'\n{board('title-not-question.json').read_text()}EOF", reviewed=(HEREDOC_SHA,)): Warn(
             pattern=r"share-open: the title does not end"
         ),
-        update("plan-cite-card.json", state=[CompactionState(active=True, slug="brook", plan_path=str(board("amended-plan.md")))]): Warn(
+        update("plan-cite-card.json", state=[CompactionState(active=True, coordinator=True, slug="brook", plan_path=str(board("amended-plan.md")))]): Warn(
             pattern=r"share-open: cites plan line 2, which is amended \(\[AMENDED Nov 2 3:16 AM: uploads are the replicator's\]\)"
         ),
-        update("plan-cite-card.json", state=[CompactionState(active=True, slug="brook", plan_path=str(board("plan.md")))]): Allow(),
+        update("plan-cite-card.json", state=[CompactionState(active=True, coordinator=True, slug="brook", plan_path=str(board("plan.md")))]): Allow(),
         update("clean-card.json", commands={"cci grep": fidelity(sha12("clean-card.json")) + ruled(90)}): Warn(
             pattern=r"recheck: #7 by board-watch landed over an hour ago and no `cci post --topic card-recheck` follows it"
         ),

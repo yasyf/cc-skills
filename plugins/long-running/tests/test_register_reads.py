@@ -68,7 +68,7 @@ def test_register_query_timeout_leaves_no_child(tmp_path: Path, monkeypatch: pyt
     query, database = owned_query(tmp_path, monkeypatch)
     pid_path = tmp_path / "query.pid"
     session = tmp_path / "session"
-    handoff.CompactionState(active=True, plan_path=str(tmp_path / "plan.md"), slug="durable-program").save(bash(session, cwd=str(tmp_path)))
+    handoff.CompactionState(active=True, coordinator=True, plan_path=str(tmp_path / "plan.md"), slug="durable-program").save(bash(session, cwd=str(tmp_path)))
     with sqlite3.connect(database) as writer:
         writer.execute("BEGIN IMMEDIATE")
         try:
@@ -196,7 +196,7 @@ def test_reground_shares_one_budget_across_both_register_reads(tmp_path: Path, m
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / ".claude"))
     monkeypatch.setenv("CLAUDE_LONG_RUNNING_DRIVE", "b7")
     session = tmp_path / "session"
-    handoff.CompactionState(active=True, plan_path=str(tmp_path / "plan.md"), slug="durable-program").save(bash(session))
+    handoff.CompactionState(active=True, coordinator=True, plan_path=str(tmp_path / "plan.md"), slug="durable-program").save(bash(session))
     clock = [0.0]
     readers, remaining, blockers = [], [], []
 

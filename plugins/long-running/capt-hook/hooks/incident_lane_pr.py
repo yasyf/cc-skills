@@ -22,7 +22,7 @@ LANE_STATUS = f"{sys.executable} {script('drive.py')} lane-status"
 PR_OWED = f"{sys.executable} {script('drive.py')} pr-owed"
 OWED = "owed: "
 CCI_TIMEOUT_SECONDS = 20
-ACTIVE = [CompactionState(active=True)]
+ACTIVE = [CompactionState(active=True, coordinator=True)]
 UNSHIPPED = (
     "Warning, nothing was blocked: An incident lane may not stop after posting its mechanism with no pushed branch. "
     "Run the commands below and post `opened` with the PR, or post `blocker` naming what stops the fix."

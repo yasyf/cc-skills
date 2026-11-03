@@ -25,7 +25,7 @@ from captain_hook import (
 )
 from captain_hook.util import reqenv
 
-from .compaction_handoff import CCN_TIMEOUT_SECONDS, REGISTER_FENCE, ROOT_LANE, CompactionState, bus_name, ccn, drive_entry, post_blocker, rulings, script
+from .compaction_handoff import bus_name, ccn, CCN_TIMEOUT_SECONDS, Communicator, communicator_tests, CompactionState, Coordinator, coordinator_tests, drive_entry, post_blocker, REGISTER_FENCE, ROOT_LANE, rulings, script
 from .incident_lane_pr import FIX_LANE, INCIDENT_LANE
 from .lane_landing import GH_REPO_FLAGS, lane_name, program
 from .lane_rotation import DriveActive
@@ -54,7 +54,6 @@ from .tests.register_fixtures import (
     shown,
 )
 from .tests.rulings_consumers import separate
-from .window_lane import Coordinator, coordinator_tests
 
 SHORT = 7
 ANSWER_ID = re.compile(r"\b[0-9a-f]{7,40}\b")
@@ -496,11 +495,11 @@ def close_replied_questions(evt: BaseHookEvent) -> HookResult | None:
 
 @on(
     Event.Stop,
-    only_if=[Coordinator(), DriveActive()],
+    only_if=[Communicator(), DriveActive()],
     skip_if=[FromSubagent()],
-    tests=separate("register_gates.close_chat_questions", coordinator_tests({
+    tests=separate("register_gates.close_chat_questions", communicator_tests({
         Input(state=ACTIVE, cwd=CWD, env=DRIVE_CONFIG, commands=readings("question-timers")): Allow(),
-        Input(state=[CompactionState(active=True)], cwd=CWD): Allow(),
+        Input(state=[CompactionState(active=True, coordinator=True)], cwd=CWD): Allow(),
     })),
 )
 def close_chat_questions(evt: BaseHookEvent) -> HookResult | None:

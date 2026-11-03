@@ -12,14 +12,13 @@ from pathlib import Path
 from cc_transcript import AttachmentEvent, UserEvent
 from captain_hook import Allow, BaseHookEvent, Event, FromSubagent, HookResult, Input, Tool, WorkflowState, on, workflow_state
 
-from .compaction_handoff import CCN_TIMEOUT_SECONDS, CompactionState, ccn, rulings
+from .compaction_handoff import ccn, CCN_TIMEOUT_SECONDS, Communicator, communicator_tests, CompactionState, rulings
 from .owner_facing import REPLY_WINDOW, last_reply
 from .register_gates import READ_ERRORS, captures, failed_open, folded, read_register
 from .register_injection import drive_args
 from .root_context import DriveActive, OwnerPrompt, message_label
 from .tests.register_fixtures import ACTIVE, CWD, DRIVE_CONFIG, ROWS, readings
 from .tests.rulings_consumers import separate
-from .window_lane import OwnerBridge, bridge_tests
 
 STAMP = "%Y-%m-%dT%H:%M:%SZ"
 TRIGGERS = (
@@ -80,9 +79,9 @@ def digest_of(evt: BaseHookEvent) -> str:
 
 @on(
     Event.UserPromptSubmit,
-    only_if=[OwnerBridge(), DriveActive(), OwnerPrompt()],
+    only_if=[Communicator(), DriveActive(), OwnerPrompt()],
     skip_if=[FromSubagent()],
-    tests=separate("register_capture.record_owner_prompt", bridge_tests({
+    tests=separate("register_capture.record_owner_prompt", communicator_tests({
         Input(prompt="keep the nightly report", env=DRIVE_CONFIG, state=ACTIVE): Allow(),
         Input(prompt="keep the nightly report"): Allow(),
     })),
@@ -97,9 +96,9 @@ def record_owner_prompt(evt: BaseHookEvent) -> HookResult | None:
 
 @on(
     Event.UserPromptSubmit,
-    only_if=[OwnerBridge(), DriveActive()],
+    only_if=[Communicator(), DriveActive()],
     skip_if=[FromSubagent()],
-    tests=separate("register_capture.record_relayed_quote", bridge_tests({
+    tests=separate("register_capture.record_relayed_quote", communicator_tests({
         Input(prompt=f'<cross-session-message from="uds:/tmp/s.sock" from-name="ai-oncall">{RELAYED}</cross-session-message>', env=DRIVE_CONFIG, state=ACTIVE): Allow(),
         Input(prompt='<cross-session-message from="uds:/tmp/s.sock">p3 DONE: note 635dab7</cross-session-message>', env=DRIVE_CONFIG, state=ACTIVE): Allow(),
     })),
@@ -139,9 +138,9 @@ def picked_text(question: str, picked: str, note: str) -> str:
 
 @on(
     Event.PostToolUse,
-    only_if=[OwnerBridge(), DriveActive(), Tool("AskUserQuestion")],
+    only_if=[Communicator(), DriveActive(), Tool("AskUserQuestion")],
     skip_if=[FromSubagent()],
-    tests=separate("register_capture.record_owner_picks", bridge_tests({
+    tests=separate("register_capture.record_owner_picks", communicator_tests({
         Input(tool="AskUserQuestion", tool_input=ASKED_KEEP, output=PICKED_KEEP, env=DRIVE_CONFIG, state=ACTIVE): Allow(),
         Input(tool="AskUserQuestion", tool_input=ASKED_KEEP, output=PICKED_KEEP): Allow(),
     })),
@@ -247,10 +246,10 @@ def capture(prompt: dict) -> dict:
 
 @on(
     Event.PostToolUse | Event.Stop,
-    only_if=[OwnerBridge(), DriveActive()],
+    only_if=[Communicator(), DriveActive()],
     skip_if=[FromSubagent()],
     transcript_events=REPLY_WINDOW,
-    tests=separate("register_capture.stamp_owner_prompts", bridge_tests({
+    tests=separate("register_capture.stamp_owner_prompts", communicator_tests({
         Input(command="ls", env=DRIVE_CONFIG, state=ACTIVE, cwd=CWD, commands=readings("quiet")): Allow(),
         Input(env=DRIVE_CONFIG, state=ACTIVE, cwd=CWD, commands=readings("quiet")): Allow(),
         Input(
@@ -384,13 +383,13 @@ def revise(evt: BaseHookEvent, blocks: list[str]) -> None:
 
 @on(
     Event.UserPromptSubmit,
-    only_if=[OwnerBridge(), DriveActive(), OwnerPrompt()],
+    only_if=[Communicator(), DriveActive(), OwnerPrompt()],
     skip_if=[FromSubagent()],
     transcript_events=REPLY_WINDOW,
-    tests=separate("register_capture.mark_owner_question", bridge_tests({
+    tests=separate("register_capture.mark_owner_question", communicator_tests({
         Input(prompt="that is fine, ship it", env=DRIVE_CONFIG, state=ACTIVE, cwd=CWD, commands=readings("quiet")): Allow(),
         Input(prompt="waht is a relay slot? why is this here?", env=DRIVE_CONFIG, state=ACTIVE, cwd=CWD, commands={ROWS: (1, "boom"), "cci post": "#1"}): Allow(),
-        Input(prompt="what is a relay slot?", state=[CompactionState(active=True)], cwd=CWD): Allow(),
+        Input(prompt="what is a relay slot?", state=[CompactionState(active=True, coordinator=True)], cwd=CWD): Allow(),
         Input(prompt="what is a relay slot?", cwd=CWD, commands=readings("quiet")): Allow(),
     })),
 )

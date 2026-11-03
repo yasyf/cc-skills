@@ -47,7 +47,7 @@ from .tests.refusal_fixtures import (
 )
 from .tests.rulings_consumers import separate
 
-ACTIVE = [CompactionState(active=True)]
+ACTIVE = [CompactionState(active=True, coordinator=True)]
 LANE = "alane-a-0123456789abcdef"
 READ_TIMEOUT_SECONDS = 20
 SHOWN = 12

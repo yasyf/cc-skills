@@ -36,7 +36,7 @@ class Root:
         self.home = home
         self.session_dir = home / "state"
         seed = PostToolUseEvent(_raw={"session_id": SESSION, "tool_name": "Bash"}, ctx=build_context(session_dir=self.session_dir))
-        CompactionState(active=True, slug="brook").save(seed)
+        CompactionState(active=True, coordinator=True, slug="brook").save(seed)
 
     def event(self, cls, command: str):
         raw = {"session_id": SESSION, "cwd": str(self.home), "tool_name": "Bash", "tool_input": {"command": command}}

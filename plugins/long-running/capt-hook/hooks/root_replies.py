@@ -31,16 +31,15 @@ from captain_hook import (
 from captain_hook.transcripts import TranscriptLoadError
 from captain_hook.util import reqenv
 
-from .compaction_handoff import CompactionState, bus_name, drive_entry, judged, script
+from .compaction_handoff import bus_name, Communicator, communicator_tests, CompactionState, Coordinator, coordinator_tests, drive_entry, judged, script
 from .nudges import NagClock, once_per_hour
 from .owner_facing import CCI_POST, incident_sources, last_reply, open_incidents, record_text
 from .tests.incident_fixtures import CLOSED_0820, SAND_NOT_MIGRATED
 from .tests.lane_pr_fixtures import DRIVE as LANE_DRIVE
 from .tests.register_fixtures import DRIVE_CONFIG
-from .window_lane import Coordinator, OwnerBridge, bridge_tests, coordinator_tests
 
-ACTIVE = [CompactionState(active=True)]
-DRIVE_ACTIVE = [CompactionState(active=True, slug="brook")]
+ACTIVE = [CompactionState(active=True, coordinator=True)]
+DRIVE_ACTIVE = [CompactionState(active=True, coordinator=True, slug="brook")]
 REPLY_WINDOW = 256
 CLAUDE = "claude -p"
 JEV = "uv run --no-project --quiet"
@@ -299,8 +298,8 @@ def relabeled(evt: BaseHookEvent, texts: Callable[[], list[str]]) -> str | None:
     Event.Stop,
     skip_if=[FromSubagent()],
     transcript_events=REPLY_WINDOW,
-    only_if=[OwnerBridge()],
-    tests=bridge_tests({
+    only_if=[Communicator()],
+    tests=communicator_tests({
         Input(
             transcript=replied(owner_said("stop all cuts now", "2026-01-15T00:11:00Z"), reply='Logged OWNER 7:58 PM "stop all cuts now" as a hold.'),
             state=ACTIVE,
@@ -334,9 +333,9 @@ def owner_labels_carry_the_turn_stamp(evt: BaseHookEvent) -> HookResult | None:
 
 @on(
     Event.PreToolUse,
-    only_if=[OwnerBridge(), Tool("Bash")],
+    only_if=[Communicator(), Tool("Bash")],
     skip_if=[FromSubagent()],
-    tests=bridge_tests({
+    tests=communicator_tests({
         Input(
             command="cci post --drive d --lane root --kind hold --text 'OWNER 7:58 PM: stop all cuts now'",
             transcript=[owner_said("stop all cuts now", "2026-01-15T00:11:00Z")],
@@ -380,8 +379,8 @@ def owner_records_carry_the_turn_stamp(evt: BaseHookEvent) -> HookResult | None:
     Event.Stop,
     skip_if=[FromSubagent()],
     transcript_events=REPLY_WINDOW,
-    only_if=[Coordinator()],
-    tests=coordinator_tests({
+    only_if=[Communicator()],
+    tests=communicator_tests({
         Input(transcript=[T.user("status?"), T.assistant("worker-fix-2 is idle with no code; relaunching it.")], state=ACTIVE): Allow(system_message=r"drive\.py lane-status <lane>"),
         Input(transcript=[T.user("status?"), T.assistant("worker-fix-2 is empty.")], state=ACTIVE): Allow(system_message=r"^Warning, nothing was blocked"),
         Input(transcript=[T.user("status?"), T.assistant("worker-fix-2: idle")], state=ACTIVE): Allow(system_message=r"^Warning, nothing was blocked"),
@@ -446,8 +445,8 @@ def read_this_turn(evt: BaseHookEvent) -> bool:
     Event.Stop,
     skip_if=[FromSubagent()],
     transcript_events=REPLY_WINDOW,
-    only_if=[Coordinator()],
-    tests=coordinator_tests({
+    only_if=[Communicator()],
+    tests=communicator_tests({
         Input(transcript=[T.user("what did review find?"), T.assistant("Codex found two races in the retire path.")], state=ACTIVE): Allow(system_message=r"same turn"),
         Input(transcript=[T.user("how does landing work?"), T.assistant("Landing means the journal is copied to a shared server.")], state=ACTIVE): Allow(system_message=r"^Warning, nothing was blocked"),
         Input(
@@ -567,8 +566,8 @@ def stand_downs_read_lane_status(evt: BaseHookEvent) -> HookResult | None:
     skip_if=[FromSubagent()],
     transcript_events=REPLY_WINDOW,
     max_fires=1,
-    only_if=[Coordinator()],
-    tests=coordinator_tests({
+    only_if=[Communicator()],
+    tests=communicator_tests({
         Input(
             transcript=[T.user("why is it slow"), T.assistant("My bad: the runner was broken and I missed the stalled launch.")],
             state=ACTIVE,
@@ -661,8 +660,8 @@ def owner_waits(drive: str, *args: str) -> list[dict]:
     Event.Stop,
     skip_if=[FromSubagent()],
     transcript_events=REPLY_WINDOW,
-    only_if=[OwnerBridge()],
-    tests=bridge_tests({
+    only_if=[Communicator()],
+    tests=communicator_tests({
         Input(transcript=[T.user("anything for me?"), T.assistant("#45507 waits on your tap, and #45524 waits on it below.")], state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={f"{CHECK_PR} 45507": FALSE_PR}): Block(
             pattern=r"#45507 at 632c4a5: not waiting on you: the board holds no row for it; its fidelity grade .* reads missing since 3:02 AM"
         ),
@@ -761,8 +760,8 @@ FLYING = {"task": "952", "lane": "next-build-tester-2", "subject": "tester round
     Event.Stop,
     skip_if=[FromSubagent()],
     transcript_events=REPLY_WINDOW,
-    only_if=[OwnerBridge()],
-    tests=bridge_tests({
+    only_if=[Coordinator()],
+    tests=coordinator_tests({
         Input(transcript=[T.user("status?"), T.assistant("The chat-list fix landed; nothing else moved.")], state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={UPDATE_DRIVE: update_found([DELIVERY])}): Block(
             pattern=r"delivered #1815 devbox-explore-7"
         ),

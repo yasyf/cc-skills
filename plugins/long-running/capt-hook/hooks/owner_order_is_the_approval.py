@@ -6,13 +6,12 @@ import subprocess
 
 from captain_hook import CONFIRMED, Allow, BaseHookEvent, Block, Confirm, Event, FromSubagent, Input, Tool, hook
 
-from .compaction_handoff import CompactionState
+from .compaction_handoff import Communicator, communicator_tests, CompactionState
 from .lane_rotation import DriveActive
 from .owner_facing import REPLY_WINDOW, SLACK_CARD, last_reply, question_text
 from .tests.handoff_fixtures import reply_transcript
-from .window_lane import Coordinator, OwnerBridge, bridge_tests, coordinator_tests
 
-ACTIVE = [CompactionState(active=True)]
+ACTIVE = [CompactionState(active=True, coordinator=True)]
 QUESTION = re.compile(r"[^.?!\n]*\?")
 APPROVAL = re.compile(r"\b(?:approve|approval|your word|go-ahead|sign[- ]off|ok to)\b", re.IGNORECASE)
 RELEASE_STEP = re.compile(r"\b(?:release|deletes?|replaces?|migrations?|apply)\b", re.IGNORECASE)
@@ -55,12 +54,12 @@ def ask(question: str, order: str = ORDER, **extra: object) -> Input:
 
 hook(
     Event.PreToolUse,
-    only_if=[OwnerBridge(), Tool("AskUserQuestion", SLACK_CARD), DriveActive(), AsksOrderedApproval()],
+    only_if=[Communicator(), Tool("AskUserQuestion", SLACK_CARD), DriveActive(), AsksOrderedApproval()],
     skip_if=[FromSubagent()],
     block=True,
     confirm=Confirm(rule="The owner already ordered this release, so nobody asks him to approve one of its steps."),
     message=MESSAGE,
-    tests=bridge_tests({
+    tests=communicator_tests({
         ask("Approve the 3 deletes on plat so release 12151 can apply?"): Block(pattern=r"^The owner's release order already carries"),
         Input(tool=SLACK_CARD, tool_input={"card": {"title": "Your word on the migrations for the plat release?", "options": ["Approve", "Hold"]}}, state=ACTIVE, commands={"cci grep": ORDER}, decide=CONFIRMED): Block(),
         ask("Approve the 3 deletes on plat so release 12151 can apply?", ""): Allow(),
@@ -72,12 +71,12 @@ hook(
 
 hook(  # capt-hook: no-escape a reply to the owner carries no tool call to confirm, and the order already answers the ask
     Event.Stop,
-    only_if=[Coordinator(), DriveActive(), RepliesOrderedApproval()],
+    only_if=[Communicator(), DriveActive(), RepliesOrderedApproval()],
     skip_if=[FromSubagent()],
     transcript_events=REPLY_WINDOW,
     block=True,
     message=MESSAGE,
-    tests=coordinator_tests({
+    tests=communicator_tests({
         Input(transcript=reply_transcript("Release 12151 shows 3 deletes on plat. Approve them so the apply can go on?"), state=ACTIVE, commands={"cci grep": ORDER}): Block(pattern=r"report deletes and replaces in its done line"),
         Input(transcript=reply_transcript("Release 12151 applied with 3 deletes, which the release lane approved under the owner's order."), state=ACTIVE, commands={"cci grep": ORDER}): Allow(),
         Input(transcript=reply_transcript("Approve the 3 deletes on plat?"), state=ACTIVE, commands={"cci grep": ""}): Allow(),

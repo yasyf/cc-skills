@@ -37,7 +37,7 @@ INFO_FLAGS = frozenset({"--version", "-v", "-V", "--help", "-h"})
 VERBOSE_V = frozenset({"pytest"})
 RELEASE_CLI = "tools/ci"
 LANE_ENV = {"CLAUDE_LONG_RUNNING_LANE": "lane-b", "CLAUDE_LONG_RUNNING_DRIVE": "leftovers-oct-18"}
-ROOT = [CompactionState(active=True)]
+ROOT = [CompactionState(active=True, coordinator=True)]
 REFUSAL = (
     "No local compile, test, vet, typecheck or lint runs in a drive, and a Go golden's single `go test -update` is the one exception."
     " Commit and run `ccx vcs ship`, then read the failing step's log, since CI grades."

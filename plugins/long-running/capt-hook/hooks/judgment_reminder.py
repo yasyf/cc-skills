@@ -15,8 +15,7 @@ from captain_hook import (
     workflow_state,
 )
 
-from .compaction_handoff import CompactionState, drive_entry
-from .window_lane import OwnerBridge, bridge_tests
+from .compaction_handoff import Communicator, communicator_tests, CompactionState, drive_entry
 
 DEFAULT_MINUTES = 30
 REMINDER = (
@@ -39,10 +38,10 @@ def interval_seconds(evt: BaseHookEvent) -> float:
 @on(
     Event.UserPromptSubmit,
     skip_if=[FromSubagent()],
-    only_if=[OwnerBridge()],
-    tests=bridge_tests({
-        Input(prompt="keep going", state=[CompactionState(active=True)]): Warn(pattern=r"^Judgment first: read the owner's message as a colleague would"),
-        Input(prompt="keep going", state=[CompactionState(active=True), ReminderClock(said_at=time.time())]): Allow(),
+    only_if=[Communicator()],
+    tests=communicator_tests({
+        Input(prompt="keep going", state=[CompactionState(active=True, coordinator=True)]): Warn(pattern=r"^Judgment first: read the owner's message as a colleague would"),
+        Input(prompt="keep going", state=[CompactionState(active=True, coordinator=True), ReminderClock(said_at=time.time())]): Allow(),
         Input(prompt="keep going", state=[CompactionState()]): Allow(),
     }),
 )

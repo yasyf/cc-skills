@@ -27,12 +27,11 @@ from captain_hook import (
 from captain_hook.util import reqenv
 
 from . import session_tree
-from .compaction_handoff import TURN_WINDOW, CompactionState, bus_name, drive_entry
+from .compaction_handoff import bus_name, CompactionState, Coordinator, coordinator_tests, drive_entry, TURN_WINDOW
 from .lane_rotation import DriveActive
 from .nudges import once_per_hour, queue_nudge
 from .register_injection import MAINTENANCE, own_prompt, own_role
 from .session_tree import TEAMMATE_MESSAGE, lane_of
-from .window_lane import Coordinator, coordinator_tests
 
 ASK_CALLS = 3
 ASK_LINE = "Every owner ask gets a task. Run `TaskCreate` for it."
@@ -141,21 +140,21 @@ def require_task_for_owner_ask(evt: BaseHookEvent) -> HookResult | None:
             agent_id="a1b2c3",
             tool_input={"taskId": "1", "status": "completed"},
             tasks=[LANE_TASK],
-            state=[CompactionState(active=True)],
+            state=[CompactionState(active=True, coordinator=True)],
         ): Warn(pattern="leave the task open"),
         Input(
             tool="TaskUpdate",
             agent_id="a1b2c3",
             tool_input={"taskId": "1", "status": "in_progress"},
             tasks=[LANE_TASK],
-            state=[CompactionState(active=True)],
+            state=[CompactionState(active=True, coordinator=True)],
         ): Allow(),
         Input(
             tool="TaskUpdate",
             agent_id="a1b2c3",
             tool_input={"taskId": "2", "status": "completed"},
             tasks=[LANE_TASK],
-            state=[CompactionState(active=True)],
+            state=[CompactionState(active=True, coordinator=True)],
         ): Allow(),
     },
 )
@@ -175,7 +174,7 @@ def lanes_leave_root_tasks_open(evt: BaseHookEvent) -> HookResult | None:
     Event.PreToolUse | Event.PostToolUse,
     only_if=[Tool("TaskUpdate", "Bash"), FromSubagent(), DriveActive()],
     tests={
-        Input(tool="TaskUpdate", agent_id="a1b2c3", tool_input={"taskId": "1", "status": "completed"}, tasks=[LANE_TASK], state=[CompactionState(active=True)]): Allow(),
+        Input(tool="TaskUpdate", agent_id="a1b2c3", tool_input={"taskId": "1", "status": "completed"}, tasks=[LANE_TASK], state=[CompactionState(active=True, coordinator=True)]): Allow(),
     },
 )
 def record_maintenance(evt: BaseHookEvent) -> HookResult | None:

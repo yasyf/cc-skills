@@ -62,10 +62,13 @@ class Root:
     def __init__(self, home: Path, *, active: bool = True) -> None:
         self.transcript = home / "root.jsonl"
         self.session_dir = home / "state"
+        self.window(CompactionState(active=active, coordinator=True))
+
+    def window(self, state: CompactionState) -> None:
         seed = PostToolUseEvent(
             _raw={"session_id": "0123456789abcdef", "tool_name": "Bash"}, ctx=build_context(session_dir=self.session_dir)
         )
-        CompactionState(active=active).save(seed)
+        state.save(seed)
 
     def event(self, cls, **raw):
         payload = {"session_id": "0123456789abcdef", "transcript_path": str(self.transcript), "cwd": str(self.transcript.parent)}
@@ -193,6 +196,7 @@ def test_plan_mode_outside_a_drive_passes(tmp_path: Path, incidents: Path) -> No
 
 def test_an_owner_question_on_other_work_warns_while_the_alert_is_active(root: Root, incidents: Path) -> None:
     incident(incidents, "sand-not-migrated", "open", target="sand")
+    root.window(CompactionState(active=True))
 
     [message] = root.tool("AskUserQuestion", question("Should I extend the backlog deadline to 11:30?"))
 

@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from captain_hook import CONFIRMED, UNCONFIRMED, Allow, And, Block, Confirm, Content, Event, FromSubagent, Input, Or, Runs, Tool, ToolInput, hook
 
+from .compaction_handoff import Coordinator, coordinator_tests
 from .lane_rotation import DriveActive
 from .tests.root_fixtures import ACTIVE
-from .window_lane import Coordinator, coordinator_tests
 
 APPROVAL = r"(?i)\bmerge[- ]mode\b|\bauto[- ]?(?:land|merge)|\bland(?:s|ing)? (?:on (?:green|root'?s? go)|without (?:a |the |his |the owner'?s )?tap)|\b(?:skip|drop)s? (?:the )?(?:owner'?s )?tap\b|\bno (?:owner )?tap (?:needed|required)\b"
 BRIEFS = r"brief[^/]*\.md$"

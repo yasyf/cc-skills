@@ -39,7 +39,7 @@ RULING_KINDS = frozenset({"ready", "go", "decide", "decision"})
 READY_TEXT = re.compile(r"^\W*READY\b")
 FIXTURES = Path(__file__).parent / "tests" / "fixtures"
 DRIVE_ENV = {"CLAUDE_LONG_RUNNING_DRIVE": "900424b6", "CLAUDE_CONFIG_DIR": str(FIXTURES / "claude-config")}
-ACTIVE = [CompactionState(active=True)]
+ACTIVE = [CompactionState(active=True, coordinator=True)]
 LANE = "alane-a-0123456789abcdef"
 DESK = "alanding-desk-0123456789abcdef"
 NOT_AN_INCIDENT = "none"

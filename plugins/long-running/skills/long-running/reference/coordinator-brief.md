@@ -39,9 +39,9 @@ on the hand path, and the communicator forwards it.
 Run forever in a foreground `cci watch --drive <drive> --reader root --cursor
 <coordinator>` loop; your turn never ends while the drive is open.
 
-Your first commands, before any read: `cci subscribe --drive <drive> --reader root`,
-then `cci me`, which prints `lane=root`; post that line to `owner-relay` as a
-`report`.
+Your first act, before any read, is `/long-running:coordinator`: it arms every drive
+hook for your session, claims cci lane `root` and reports your `cci me` line to
+`owner-relay`.
 
 Read in this order before acting: the plan <path>; the active progress doc
 `ccn doc show <id>`; the standing register `ccn doc show <id>`; the owner's words
