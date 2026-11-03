@@ -21,6 +21,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/install"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/landing"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/launchd"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/orca"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/pass"
@@ -184,14 +185,6 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 	return deps, err
 }
 
-func launchd(a *app.App, out *cobra.Command) (Launchd, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return Launchd{}, err
-	}
-	return Launchd{Runner: a.Runner, Home: home, UID: os.Getuid(), Sleep: time.Sleep, Out: out.OutOrStdout()}, nil
-}
-
 func Install(cmd *cobra.Command, a *app.App) error {
 	cfg, state, err := lanes.Loaded(a)
 	if err != nil {
@@ -201,7 +194,7 @@ func Install(cmd *cobra.Command, a *app.App) error {
 	if err != nil {
 		return err
 	}
-	agents, err := launchd(a, cmd)
+	agents, err := launchd.New(a.Runner, cmd.OutOrStdout())
 	if err != nil {
 		return err
 	}
@@ -215,7 +208,7 @@ func Install(cmd *cobra.Command, a *app.App) error {
 		Binary: filepath.Join(env.Claude, "long-running", "current", "bin", "lr"),
 		Path:   path,
 		Log:    filepath.Join(state, "supervisor.log"),
-	})
+	}.Job())
 }
 
 func Uninstall(cmd *cobra.Command, a *app.App) error {
@@ -223,9 +216,9 @@ func Uninstall(cmd *cobra.Command, a *app.App) error {
 	if err != nil {
 		return err
 	}
-	agents, err := launchd(a, cmd)
+	agents, err := launchd.New(a.Runner, cmd.OutOrStdout())
 	if err != nil {
 		return err
 	}
-	return agents.Uninstall(cmd.Context(), cfg.Drive)
+	return agents.Uninstall(cmd.Context(), Label(cfg.Drive))
 }
