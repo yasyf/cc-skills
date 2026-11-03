@@ -1,5 +1,5 @@
 {
- "name": "a hold nobody lifts is never silent: the landing desk hears at its deadline, once",
+ "name": "a hold nobody lifts is never silent: root hears at its deadline, once",
  "cites": [
   "#341738",
   "#341720"
@@ -53,7 +53,7 @@
     {
      "Subject": "org/repo#48401",
      "Cause": "lift overdue",
-     "To": "landing-desk-3"
+     "To": "root"
     }
    ]
   },
