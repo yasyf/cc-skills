@@ -185,8 +185,9 @@ func TestTheRequestVerbPostsNothingUntilTheCallerHasReadTheLaneItWouldStandDown(
 	if err := s.SetLanePRs(lane2, []int{46001, 46002}); err != nil {
 		t.Fatal(err)
 	}
-	var seqs []string
-	for _, text := range []string{"restacked #46001", "pushed #46001 e590637"} {
+	texts := []string{"restacked #46001", "pushed #46001 e590637"}
+	seqs := make([]string, 0, len(texts))
+	for _, text := range texts {
 		posted, err := client.Post(context.Background(), client.Draft{Drive: testDrive, Lane: lane2, Kind: "state", Text: text})
 		if err != nil {
 			t.Fatal(err)
