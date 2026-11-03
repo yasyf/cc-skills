@@ -1,6 +1,6 @@
 # Orca Sprite workers
 
-This guide is the drive's copy of monorepo's `.agents/skills/orca`, which stays in monorepo. Drive changes land here, since the owner ruled at 3:02 AM Nov 2 that no drive tooling is added to monorepo. Its scripts are this skill's `scripts/worker-launch.sh`, `scripts/orca-gc` and `scripts/coordinator-waiter.sh`, and `worker-launch.sh` and `coordinator-waiter.sh` are on PATH through the plugin's `bin/`.
+This guide is the drive's copy of monorepo's `.agents/skills/orca`, which stays in monorepo. Drive changes land here, since the owner ruled at 3:02 AM Nov 2 that no drive tooling is added to monorepo. Its tools are `lr launch worker`, `lr gc` and `scripts/coordinator-waiter.sh`, and `coordinator-waiter.sh` is on PATH through the plugin's `bin/`.
 
 Load the version-matched guides first: `orca skills get orca-cli` and
 `orca skills get orchestration`. This skill defines the repository's worker
@@ -23,7 +23,7 @@ starts with a letter or digit:
 ```sh
 WORKER_RUN="<owned-run-id>" WORKER_REF=dev WORKER_CHECKOUT="<monorepo checkout>" \
   WORKER_CCI_URL="<cci linux_amd64 archive URL>" WORKER_CCI_SHA256="<its SHA-256>" \
-  worker-launch.sh "<lane>" "<model>" "<effort>" "<brief.md>"
+  lr launch worker "<lane>" "<model>" "<effort>" "<brief.md>"
 ```
 
 Run this from the terminal that already owns the named native Run. The script
@@ -126,7 +126,7 @@ WORKER_CC_REMOTE=/absolute/path/to/cc-remote \
 CC_REMOTE_CONFIG=/absolute/path/to/config.yaml \
 WORKER_RUN="<owned-run-id>" WORKER_REF=dev WORKER_CHECKOUT="<monorepo checkout>" \
   WORKER_CCI_URL="<cci linux_amd64 archive URL>" WORKER_CCI_SHA256="<its SHA-256>" \
-  worker-launch.sh "<lane>" opus xhigh "<brief.md>"
+  lr launch worker "<lane>" opus xhigh "<brief.md>"
 ```
 
 The wrapper runs a preflight before `orca prepare`, with or without `--warm`:
@@ -161,7 +161,7 @@ extremely sensitive work, the one case for Fable:
 
 ```sh
 WORKER_RUN="<owned-run-id>" WORKER_LOCAL=1 \
-  worker-launch.sh "<lane>" opus xhigh "<brief.md>"
+  lr launch worker "<lane>" opus xhigh "<brief.md>"
 ```
 
 An unset or empty `WORKER_LOCAL` selects Sprite; any other nonempty value
@@ -358,7 +358,7 @@ on disk, the lane was stood down, or another lane superseded it. It does not
 message the lane to send `worker_done` first. One call ends it:
 
 ```sh
-scripts/orca-gc --run <run> --done <ctx>
+lr gc --run <run> --done <ctx>
 ```
 
 `--done` runs `orca orchestration worker-stop` on the Dispatch, which fences it
@@ -369,7 +369,7 @@ as failed. Any terminal still open is closed without waiting for an idle
 prompt, and then the worktree is removed when it is clean and its HEAD is on
 origin or landed. A worktree with uncommitted or unpushed work stays. Add `--dry-run` to print the plan first. A Dispatch that
 already settled through `worker_done` gets the same sweep without the stop:
-`orca-gc --run <run> --dispatch <ctx>` closes its idle terminal and reclaims
+`lr gc --run <run> --dispatch <ctx>` closes its idle terminal and reclaims
 its worktree.
 
 When `orca worktree rm` answers with an error such as `runtime_unavailable`
@@ -391,9 +391,9 @@ another Dispatch, and nobody uses `pkill`, signals, `run-stop`, or bulk
 terminal closes. The captain-hook sessions guard allows a bare
 `orca orchestration worker-stop --dispatch <ctx>` only from that root.
 
-A settled Sprite worker frees its Sprite through the same `orca-gc` call. The
+A settled Sprite worker frees its Sprite through the same `lr gc` call. The
 Sprite must be one whose cc-remote task record names the Dispatch's worktree
-and terminal, and whose workspace record still exists. `orca-gc` runs
+and terminal, and whose workspace record still exists. `lr gc` runs
 `cc-remote destroy` on it and removes its Orca environment. It does this only
 once no unsettled Dispatch shares the workspace, the terminal reads idle twice,
 and the checkout, read over ssh, is clean with its HEAD on origin or landed;

@@ -122,7 +122,7 @@ Legend: Judge = a small-model question replaces the regex verdict. Front = the m
 |---|---|---|---|---|
 | Scale line | `register_injection.py`, `orca` desk refusal | A `Scale:` line exists | Judge; the line's presence stays checked | Does the Scale line name the N the brief's paths actually run at? |
 | Register slice line | `register_injection.py` | Line present and fresh | Keep | State |
-| Incident lanes on sol, launch load, desk liveness | `owner_facing.py`, `desk-launch.py`, `desk_liveness.py` | Route and load checks | Keep | Routing and machine state |
+| Incident lanes on sol, launch load, desk liveness | `owner_facing.py`, `lr launch`, `desk_liveness.py` | Route and load checks | Keep | Routing and machine state |
 
 ### Process and protection
 

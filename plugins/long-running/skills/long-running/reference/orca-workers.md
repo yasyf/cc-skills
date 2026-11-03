@@ -7,22 +7,22 @@
 - [Launch fast-tier incident workers](#launch-fast-tier-incident-workers)
 - [Send and answer worker messages](#send-and-answer-worker-messages)
 - [Protect sessions and throttle on load](#protect-sessions-and-throttle-on-load)
-- [Run `orca-launch.sh`](#run-orca-launchsh)
+- [Run `lr launch start`](#run-lr-launch-start)
 - [Run `orca-check.sh`](#run-orca-checksh)
 
 ## Choose the remote or local worker route
 
-**Default ordinary implementation and test workers to a Sprite.** Under O16 in [reference/orca-desk-brief.md](orca-desk-brief.md), this skill's `scripts/worker-launch.sh`, described in [orca-sprite-workers.md](orca-sprite-workers.md), defaults to Sprite prepare+attach, with a local Mac route for the coordinator, Fable, incident lanes, incident clock fallbacks, and standing desks (`role=desk` or `role=watch`). Preserve the requested model, effort, and Codex service tier. Use the repository's complete VM brief and [source-return contract](orca-sprite-workers.md#return-source-for-root-review) so the remote worker returns a patch or report that the coordinator collects, reviews, and ships. Remote API keys stay in the worker process; local Fable uses the Mac's interactive authentication.
+**Default ordinary implementation and test workers to a Sprite.** Under O16 in [reference/orca-desk-brief.md](orca-desk-brief.md), `lr launch worker`, described in [orca-sprite-workers.md](orca-sprite-workers.md), defaults to Sprite prepare+attach, with a local Mac route for the coordinator, Fable, incident lanes, incident clock fallbacks, and standing desks (`role=desk` or `role=watch`). Preserve the requested model, effort, and Codex service tier. Use the repository's complete VM brief and [source-return contract](orca-sprite-workers.md#return-source-for-root-review) so the remote worker returns a patch or report that the coordinator collects, reviews, and ships. Remote API keys stay in the worker process; local Fable uses the Mac's interactive authentication.
 
-**Keep remote workers on their native Run and consumer.** Canonical remote workers use their own native Run, one home-inbox consumer, and home Dispatch IDs. Do not enroll remote workers in local `orca-launch.sh` or `orca-check.sh`, apply raw-TTY wakes or unsupervised retries to them, or add a second consumer. Namespace runs on regular Compute through an explicit opt-in configuration; the recipe picker is separate from this direct CLI route.
+**Keep remote workers on their native Run and consumer.** Canonical remote workers use their own native Run, one home-inbox consumer, and home Dispatch IDs. Do not enroll remote workers in local `lr launch start` or `orca-check.sh`, apply raw-TTY wakes or unsupervised retries to them, or add a second consumer. Namespace runs on regular Compute through an explicit opt-in configuration; the recipe picker is separate from this direct CLI route.
 
-**Drive local workers through `desk-runner.py`.** The rest of this file describes the local desktop adapters, `orca-launch.sh` and `orca-check.sh`, that `desk-runner.py run --config C --desk orca` calls. Only the orca runner consumes the Run mailbox, and the coordinator issues launches and relays through `desk-launch.py` or `desk-runner.py` as [reference/orca-desk-brief.md](orca-desk-brief.md) describes.
+**Drive local workers through `desk-runner.py`.** The rest of this file describes the local desktop adapters, `lr launch start` and `orca-check.sh`, that `desk-runner.py run --config C --desk orca` calls. Only the orca runner consumes the Run mailbox, and the coordinator issues launches and relays through `lr launch` or `desk-runner.py` as [reference/orca-desk-brief.md](orca-desk-brief.md) describes.
 
 ## Launch local Claude and Codex workers
 
 **Build explicit Claude terminal commands that disallow prompts.** Orca's default user settings launch `claude` with `--permission-mode plan`. Keep the interactive default in plan mode, and create every worker terminal with an explicit command that sets `bypassPermissions` and `--disallowedTools AskUserQuestion,EnterPlanMode,ExitPlanMode` so a worker never blocks on an unwatched terminal prompt. Pass any other default arguments through `ORCA_LAUNCH_CLAUDE_ARGS`; `--channels plugin:cc-review@cc-review` below stands for those arguments, not a fixed requirement.
 
-**`orca-launch.sh` creates the worktree, creates the terminal, and starts the worker.** By default `orca worktree create` makes a full checkout wherever Orca puts worktrees:
+**`lr launch start` creates the worktree, creates the terminal, and starts the worker.** By default `orca worktree create` makes a full checkout wherever Orca puts worktrees:
 
 ```sh
 orca worktree create --name "<lane>-<run>-<n>" --repo "id:<repo id>" --base-branch "origin/<base>" \
@@ -69,7 +69,7 @@ orca worktree set --worktree "path:<wt>" --parent-worktree "path:<coordinator wo
 | `incident-opus` | `claude-opus-5-5` in Claude fast mode, the incident fallback |
 | `astra` | `gpt-6-astra` on Orca's codex agent, exceptional cases only |
 
-**Launch standard Codex workers with `--agent codex`.** A lane routed to Codex launches on Orca's codex agent, never as a Claude worker calling the codex skill. `orca-launch.sh <lane> sol xhigh <brief>`, where `codex` is the same alias, creates the worktree, and runs:
+**Launch standard Codex workers with `--agent codex`.** A lane routed to Codex launches on Orca's codex agent, never as a Claude worker calling the codex skill. `lr launch start <lane> sol xhigh <brief>`, where `codex` is the same alias, creates the worktree, and runs:
 
 ```sh
 orca orchestration worker-start --run "<run>" --spec "<pointer>" --task-title "<prefix><lane>" \
@@ -80,7 +80,7 @@ orca orchestration worker-start --run "<run>" --spec "<pointer>" --task-title "<
 
 ## Launch fast-tier incident workers
 
-**Launch incident fix and evidence lanes with `orca-launch.sh <lane> incident xhigh <brief>`.** Because `worker-start` has no service-tier flag, the script creates a top-level (`--no-parent`) worktree and a custom terminal running Codex on the fast tier, then starts the worker on that terminal:
+**Launch incident fix and evidence lanes with `lr launch start <lane> incident xhigh <brief>`.** Because `worker-start` has no service-tier flag, the script creates a top-level (`--no-parent`) worktree and a custom terminal running Codex on the fast tier, then starts the worker on that terminal:
 
 ```sh
 orca terminal create --worktree "path:<wt>" --title "<name>" --json \
@@ -93,7 +93,7 @@ Codex 0.160 resolves `service_tier=fast` to the catalog id `priority`, labeled F
 
 **Launch the Opus incident backup on `incident-opus`.** The incident executor's backup and the runner's `<lane>-opus` fallback launch as `incident-opus xhigh`. The alias puts `--settings '{"fastMode":true}'` on the worker's own command line, so fast mode never depends on runtime config, and a session launched with it reports `fast_mode_state: on` even under a user-level `fastModePerSessionOptIn`. No other alias turns fast mode on.
 
-**Handle Codex readiness timeouts as `unsupervised` launches.** Orca's readiness check does not recognize Codex, so `worker-start` can end with `state=failed`, `failedStage=agent_readiness`, `lastError=timeout` while Codex sits idle at its prompt with the spec undelivered. On that timeout with a live `codex` or `incident` terminal, `orca-launch.sh` types the spec pointer into the terminal itself and prints `<lane> unsupervised task=... dispatch=... terminal=... worktree=...`. Count `unsupervised` as launched. The lane reports with `cci post --drive <drive> --lane <lane> --kind report --to root --text "<report>"` and reads deliveries with `cci tail --drive <drive> --cursor <lane> --reader <lane>`, without Orca `worker_done` or escalation plumbing.
+**Handle Codex readiness timeouts as `unsupervised` launches.** Orca's readiness check does not recognize Codex, so `worker-start` can end with `state=failed`, `failedStage=agent_readiness`, `lastError=timeout` while Codex sits idle at its prompt with the spec undelivered. On that timeout with a live `codex` or `incident` terminal, `lr launch start` types the spec pointer into the terminal itself and prints `<lane> unsupervised task=... dispatch=... terminal=... worktree=...`. Count `unsupervised` as launched. The lane reports with `cci post --drive <drive> --lane <lane> --kind report --to root --text "<report>"` and reads deliveries with `cci tail --drive <drive> --cursor <lane> --reader <lane>`, without Orca `worker_done` or escalation plumbing.
 
 ## Send and answer worker messages
 
@@ -112,24 +112,24 @@ A mailbox check from a worker terminal must pass `--terminal <its handle>`; a `-
 ## Protect sessions and throttle on load
 
 **R195. Sessions are protected.** Claude and Codex sessions, Orca, terminal hosts, pseudo-terminal daemons, and their supervisors are never stopped, signalled, suspended, restarted, released, or closed, singly or in bulk, for cleanup or load, except through the two root `gc` paths below:
-1. Settled idle terminals: Because `orca-launch.sh` creates every Claude terminal externally, `orca orchestration worker-release` returns `retained` (`external_terminal`) and never closes the tab. After a lane sends `worker_done` and the runner's sweep emits `RECLAIM`, the coordinator runs `desk-runner.py gc` and the `orca.gc` command, this skill's `scripts/orca-gc --run <run> [--dispatch <ctx>]`, from the drive checkout. `orca-gc` never touches a live or unsettled worker or a terminal outside the Run. It closes a settled dispatch's terminal with `orca terminal close --terminal <handle> --tab` only when the terminal is idle; right before closing, it verifies an empty prompt, nothing running, no unanswered question, and no output in 10 minutes. It removes the worktree with `orca worktree rm` only when clean, fully pushed or landed, with no open PR, and without another attached terminal in `orca terminal list`.
-2. Done lanes (`--done`): Once the coordinator decides a lane of its own Run is done because it is stood down, superseded, or deliverable on disk, the coordinator runs `scripts/orca-gc --run <run> --done <ctx>` or `desk-launch.py withdraw`. That call runs `worker-stop`, closes the terminal without waiting for the 10-minute idle read, and reclaims the worktree under the same cleanliness checks. Never message the lane to send `worker_done` first. The captain-hook sessions guard allows a bare `orca orchestration worker-stop --dispatch <ctx>` only from the coordinator coordinating that dispatch's Run.
+1. Settled idle terminals: Because `lr launch start` creates every Claude terminal externally, `orca orchestration worker-release` returns `retained` (`external_terminal`) and never closes the tab. After a lane sends `worker_done` and the runner's sweep emits `RECLAIM`, the coordinator runs `desk-runner.py gc` and the `orca.gc` command, this skill's `lr gc --run <run> [--dispatch <ctx>]`, from the drive checkout. `lr gc` never touches a live or unsettled worker or a terminal outside the Run. It closes a settled dispatch's terminal with `orca terminal close --terminal <handle> --tab` only when the terminal is idle; right before closing, it verifies an empty prompt, nothing running, no unanswered question, and no output in 10 minutes. It removes the worktree with `orca worktree rm` only when clean, fully pushed or landed, with no open PR, and without another attached terminal in `orca terminal list`.
+2. Done lanes (`--done`): Once the coordinator decides a lane of its own Run is done because it is stood down, superseded, or deliverable on disk, the coordinator runs `lr gc --run <run> --done <ctx>` or `lr launch withdraw`. That call runs `worker-stop`, closes the terminal without waiting for the 10-minute idle read, and reclaims the worktree under the same cleanliness checks. Never message the lane to send `worker_done` first. The captain-hook sessions guard allows a bare `orca orchestration worker-stop --dispatch <ctx>` only from the coordinator coordinating that dispatch's Run.
 
-A launch that fails before `worker-start` dispatches, such as `consumer_fenced` or a boot timeout, is not a session; `orca-launch.sh` closes the tab it opened and removes any worktree it created.
+A launch that fails before `worker-start` dispatches, such as `consumer_fenced` or a boot timeout, is not a session; `lr launch start` closes the tab it opened and removes any worktree it created.
 
 **R210. Load is the only launch throttle.** Working workers have no count cap. Before each Mac launch, read `uptime`. Mac load holds launches under O14 in [orca-desk-brief.md](orca-desk-brief.md). If the Orca runtime drops connections under load, retry after 30 seconds; never restart Orca to recover a connection. After an Orca restart, re-list workers and terminals and update recorded handles.
 
-## Run `orca-launch.sh`
+## Run `lr launch start`
 
-**Pass the lane, model, effort, and resolved brief attachment path.** `orca-launch.sh` makes `<brief-file>` absolute before it goes into the pointer.
+**Pass the lane, model, effort, and resolved brief attachment path.** `lr launch start` makes `<brief-file>` absolute before it goes into the pointer.
 
 ```sh
-orca-launch.sh <lane> <model> <effort> \
+lr launch start <lane> <model> <effort> \
   "$(ccn -R <drive checkout> attachment path <briefs log> <lane>.full.md)"
 ```
 
 ```text
-usage: orca-launch.sh <lane> <model> <effort> <brief-file>
+usage: lr launch start <lane> <model> <effort> <brief-file>
 ```
 
 | Variable | Meaning and default |

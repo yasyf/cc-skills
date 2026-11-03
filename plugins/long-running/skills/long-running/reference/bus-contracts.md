@@ -61,7 +61,7 @@ Every lane, top-level or in-process, waits with `lr wait 540 cci:<drive>:<lane> 
 
 These I-rules apply to the landing desk, priority desks, and shards. The coordinator never `SendMessage`s a desk.
 
-The orca desk reads its launch, relay, and hold lines only from cci records addressed to `orca-desk` in the `R<n>` form from the owner's CLAUDE.md Incident Turn. The coordinator posts each one with `desk-launch.py`, which mints the `R<n>` and the clock. By hand, the coordinator launches an incident fix lane with:
+The orca desk reads its launch, relay, and hold lines only from cci records addressed to `orca-desk` in the `R<n>` form from the owner's CLAUDE.md Incident Turn. The coordinator posts each one with `lr launch`, which mints the `R<n>` and the clock. By hand, the coordinator launches an incident fix lane with:
 `cci post --drive <drive> --lane root --kind go --to orca-desk --text 'R<n> (<h:mm AM|PM>) orca-desk: launch <dir> NOW incident xhigh role=fix brief=<state>/<dir>/brief.md'`.
 A lane launched from a `brief.md` takes its directory's name and keeps that name from launch on. The runner refuses any other name with `LAUNCH-FAILED` and prints the order that launches the lane under its directory's name.
 

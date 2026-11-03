@@ -52,7 +52,7 @@ For every record, judge nine things:
   (d) PARKED: a lane idle more than 20 minutes with an open deliverable, or a wait
       with no owner and no clock.
       An Orca fix lane idle past its incident's FIX-LIVE is no finding: the supervisor
-      ends it through `orca-gc --done` 30 minutes on and posts `GC <lane>` to root.
+      ends it through `lr gc --done` 30 minutes on and posts `GC <lane>` to root.
   (e) ROOT DRIFT: the coordinator answering acknowledgments, reading logs, or reopening
       decided items.
   (f) DEAD RUNNER: with each digest, `cci state --drive <drive> --lane desk-runner`

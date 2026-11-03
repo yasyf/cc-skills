@@ -23,7 +23,7 @@ go, hold, launch a lane, open a PR or post to anyone but root.
 Arm one Monitor on `cci watch --drive <drive> --cursor chores-watch --reader chores` at
 timeout 1800000, and re-arm it when it exits. For each ask:
 1. Run the read, count, table or cleanup it names: a file, PR, CI log or record lookup, a
-   Sprite or Orca count, `orca orchestration worker-release`, or `orca-gc --run <run>
+   Sprite or Orca count, `orca orchestration worker-release`, or `lr gc --run <run>
    --dispatch <ctx>` for a settled lane.
 2. Answer in at most three lines, with the fact it needs and a path for anything longer:
    `cci post --lane chores --drive <drive> --stamp --kind answer --re <seq> --to root --text '<answer>'`.
