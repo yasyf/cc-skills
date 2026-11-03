@@ -76,12 +76,18 @@ When a brief's `ccx:` header line says `role=desk` or `role=watch`, `lr launch s
 
 Every other role keeps the one-shot pointer. The role in the brief is the only switch, and the launch line carries none. When the pointer would pass 500 characters, `lr launch start` symlinks the brief at `~/.claude/<8 hex>` and points there instead. The Orca preamble above the task carries the worker's handle, dispatch capability, and exact `send`, `ask`, and `check` commands; the brief tells the worker to copy those commands verbatim without restating them.
 
+When the `ccx:` line says `pr=none`, as it does for work on a design the owner has not approved, `lr launch start` and `lr launch worker` append the no-PR line, which the monorepo's Stop hooks read so they never order a ship for that lane's branch:
+
+```text
+ This brief orders no PR: push the work as a branch and never open a PR for it.
+```
+
 ## In-process subagent brief template
 
 Paste and fill this template for an Agent-tool subagent:
 
 ```
-ccx: role=<role> [cpu=high] [place=remote|local] [paths=<dir>,<dir>] tooling-lane=<key, for a tooling lane only>
+ccx: role=<role> [cpu=high] [place=remote|local] [paths=<dir>,<dir>] [pr=none] tooling-lane=<key, for a tooling lane only>
 Standing: <the duty the drive keeps for good, such as "devbox perf and bug hunting"; only
   on a lane whose work never ends. The supervisor raises a blocker when a standing duty
   has no live owner for ten minutes, so a dead or stood-down standing lane is never

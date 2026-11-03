@@ -742,6 +742,18 @@ func TestADeskBriefAddsTheStandingDeskContractToTheSpec(t *testing.T) {
 	}
 }
 
+func TestABriefThatOrdersNoPRSaysSoInTheSpec(t *testing.T) {
+	for header, want := range map[string]bool{"ccx: role=build pr=none": true, "ccx: pr=none\r": true, "ccx: role=build": false, "pr=none": false} {
+		h := newHarness(t)
+		h.healthyClaude()
+		h.writeFile(h.brief, "# lane-a\n"+header+"\nPush the design as a branch.\n")
+		h.launched()
+		if spec := h.spec(); strings.HasSuffix(spec, "its Escalate rules hold."+sparseLine+" This brief orders no PR: push the work as a branch and never open a PR for it.") != want {
+			t.Fatal(header, spec)
+		}
+	}
+}
+
 func TestAOneShotBriefKeepsThePlainSpec(t *testing.T) {
 	for _, header := range []string{"ccx: role=fix", "ccx: role=desktop", "role=desk"} {
 		h := newHarness(t)

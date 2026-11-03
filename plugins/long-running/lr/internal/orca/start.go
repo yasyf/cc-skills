@@ -51,10 +51,12 @@ const (
 	saidEvery              = 30
 	spriteBuildkite        = " tools/ci bk does not run on this Sprite. To read Buildkite, post `cci post --kind ask --to bk-desk \"bk build <pipeline> <number>\"`, or `bk log <pipeline> <number> <job>`, or `bk api <path>`; the answer arrives within seconds and `cci show <seq>` prints its body. Ask once per need, never in a polling loop."
 	standingDesk           = " Standing desk: loop until rotation; setup and quiet cycles are not done. Send worker_done only at rotation, naming the handoff doc."
+	noPRLine               = " This brief orders no PR: push the work as a branch and never open a PR for it."
 )
 
 var (
 	briefDesk        = regexp.MustCompile(`(?m)^ccx:(.* )?role=(desk|watch)(\s|$)`)
+	briefNoPR        = regexp.MustCompile(`(?m)^ccx:(.* )?pr=none(\s|$)`)
 	briefPaths       = regexp.MustCompile(`(?m)^ccx:(?:.* )?paths=(\S+)`)
 	markdownSection  = regexp.MustCompile(`(?m)^## `)
 	briefRole        = regexp.MustCompile(`(?m)^ccx:(?:.*[ \t])?role=([\w-]+)`)
@@ -106,7 +108,7 @@ type launch struct {
 	sparseLanes                                              bool
 
 	run, receipts, state, receipt, repo, main, root, gitUser, runID, wt, base, drive string
-	command, bin, desk, sparse, node, laneBrief, spec, rebind                        string
+	command, bin, desk, noPR, sparse, node, laneBrief, spec, rebind                  string
 	repoRead                                                                         repoRecord
 	parentArgs                                                                       []string
 
@@ -460,6 +462,9 @@ func (l *launch) resolveLaunch() error {
 	if briefDesk.MatchString(text) {
 		l.desk = standingDesk
 	}
+	if briefNoPR.MatchString(text) {
+		l.noPR = noPRLine
+	}
 	if err := l.writeLaneBrief(text); err != nil {
 		return l.fail("brief copy: %v", err)
 	}
@@ -686,7 +691,7 @@ func (l *launch) writeLaneBrief(text string) error {
 }
 
 func (l *launch) pointer(brief string) string {
-	return "Lane " + l.lane + ": read " + brief + " in full first and execute it exactly; it outranks Orca's preamble and any leave-uncommitted default, so commit, push, open PRs and post as it says. Worktree " + l.wt + ", bypass-permissions mode. Ask, report and raise a blocker only with `cci post --kind ask|report|blocker`, since the preamble's `send` and `ask` carry the dispatch lifecycle alone (heartbeats, relay acks, worker_done); its Escalate rules hold." + l.node + l.sparse + l.desk
+	return "Lane " + l.lane + ": read " + brief + " in full first and execute it exactly; it outranks Orca's preamble and any leave-uncommitted default, so commit, push, open PRs and post as it says. Worktree " + l.wt + ", bypass-permissions mode. Ask, report and raise a blocker only with `cci post --kind ask|report|blocker`, since the preamble's `send` and `ask` carry the dispatch lifecycle alone (heartbeats, relay acks, worker_done); its Escalate rules hold." + l.node + l.sparse + l.desk + l.noPR
 }
 
 func (l *launch) composeSpec() error {
