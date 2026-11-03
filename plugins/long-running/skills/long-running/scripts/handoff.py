@@ -25,8 +25,9 @@ Retired rules follow. With neither a register doc nor a register ledger, the sec
 The record also carries open owner asks, tasks, lanes, monitors, inbox state, and the
 drive registry. Generation removes each inbox cursor file written before the drive's
 ``started_at`` that no line sits past, and lists it under ``## Inboxes``; a cursor with
-a line past it stays. ``## Live lanes by step`` lists every live lane in the lane supervisor's registry under the step its
-brief's ``Register slice`` names. ``## Incident lanes`` lists each `inc-`, `incident-`, or `outage-` lane that
+a line past it stays. ``## Lane registry`` lists every lane the lane supervisor's registry holds that is not retired, and
+every standing one, and ``## Owner update`` carries the whole update ``owner_update.py --render``
+builds from sources, so the root after compaction inherits every lane, duty, ask and PR. ``## Incident lanes`` lists each `inc-`, `incident-`, or `outage-` lane that
 posted on the drive in the last six hours with its newest record's kind and age, waiting
 mechanisms first: a MECHANISM or CANDIDATE with no OPENED or BLOCKER since. ``## Open tasks`` ends with one line per plan from :func:`plans.read`: its done
 and blocked counts over the drive's cc-notes tasks and each step still open.
@@ -162,7 +163,8 @@ class Handoff:
     plan_progress: list[str] = field(default_factory=list)
     lanes: list[dict] = field(default_factory=list)
     incident_lanes: list[str] = field(default_factory=list)
-    live_lanes: list[str] = field(default_factory=list)
+    lane_registry: list[str] = field(default_factory=list)
+    owner_update: str = ""
     delivered: list[str] = field(default_factory=list)
     monitors: list[dict] = field(default_factory=list)
     inboxes: list[Inbox] = field(default_factory=list)
@@ -265,17 +267,22 @@ def read_incident_lanes(handoff: Handoff, shell: ledger.Shell) -> None:
     handoff.incident_lanes = incident_lines(records, handoff.at)
 
 
-def read_live_lanes(handoff: Handoff, registry: dict) -> None:
-    """One line per plan step a live lane's brief names, with every live lane on it, from the lane supervisor's registry, so the root after compaction inherits every lane."""
+def read_owner_update(handoff: Handoff, registry: dict) -> None:
+    """The lane supervisor's registry, one line per lane not retired or standing, and the owner update rendered from sources."""
     try:
-        lanes = owner_update.live_lanes(owner_waits.run, registry)
+        rows = owner_update.registry(owner_waits.run, registry)
+        handoff.owner_update = owner_update.report(drive.cci_drive(registry), owner_waits.run)[0]
     except owner_waits.ReadFailed as failed:
-        handoff.live_lanes = [f"- registry unread: {failed}"]
+        handoff.lane_registry = [f"- registry unread: {failed}"]
         return
-    steps: dict[str, list[str]] = {}
-    for lane in lanes:
-        steps.setdefault(lane["step"] or "no step", []).append(lane["lane"])
-    handoff.live_lanes = [f"- {step}: {', '.join(sorted(names))}" for step, names in sorted(steps.items())]
+    handoff.lane_registry = [
+        f"- {row['lane']} {row['state']}, heard {owner_waits.pacific_text(row.get('heard') or '')}, step {owner_update.step_of(row) or '-'}"
+        + (f", PRs {' '.join(f'#{pr}' for pr in row['prs'])}" if row.get("prs") else "")
+        + (f", standing: {row['standing']}" if row.get("standing") else "")
+        + (f", brief {row['brief']}" if row.get("brief") else "")
+        for row in rows
+        if row["state"] != "retired" and row["state"] != "unregistered" or row.get("standing")
+    ]
 
 
 def read_deliveries(handoff: Handoff, shell: ledger.Shell, since: str) -> None:
@@ -445,7 +452,8 @@ def render(handoff: Handoff) -> str:
     out += shown([f"- {task['type']}: {clip(task['description'], TASK_CHARS)}" for task in running], "running lanes")
     if not running:
         out.append("- none running at the last stop")
-    out += ["", "## Live lanes by step"] + (handoff.live_lanes or ["- no lane registry"])
+    out += ["", "## Lane registry"] + (handoff.lane_registry or ["- no lane registry"])
+    out += ["", "## Owner update"] + ([f"#{line}" if line.startswith("## ") else line for line in handoff.owner_update.splitlines()[1:]] if handoff.owner_update else ["- no lane registry"])
     out += ["", "## Incident lanes"] + (handoff.incident_lanes or [f"- none posted in the last {int(INCIDENT_WINDOW.total_seconds() // 3600)} h"])
     out += ["", "## Inboxes", ""]
     if handoff.inbox_dir:
@@ -562,7 +570,7 @@ def build(args: argparse.Namespace, shell: ledger.Shell) -> tuple[Handoff, str |
     read_standing(handoff, shell)
     read_incident_lanes(handoff, shell)
     if registry and (Path(registry["state_dir"]) / "lr.json").is_file():
-        read_live_lanes(handoff, registry)
+        read_owner_update(handoff, registry)
     handoff.register = rulings.register(shell, args.repo, drive.program_of(registry) if registry else args.program)
     which = ["--drive", registry["drive"]] if registry else ["--program", args.program]
     handoff.rows = standing.register_rows(shell.run, args.repo, which, drive.cci_drive(registry) if registry else args.program)

@@ -25,8 +25,8 @@ class DriveActive:
         return CompactionState.load(evt).active
 
 
-def route(lane: str, to: str, state: str = "retired") -> dict:
-    return {ROUTE: json.dumps({"lane": lane, "route": to, "state": state})}
+def route(lane: str, to: str, state: str = "retired", standing: str = "") -> dict:
+    return {ROUTE: json.dumps({"lane": lane, "route": to, "state": state, "standing": standing})}
 
 
 def routed(evt: BaseHookEvent, lane: str) -> dict | None:
@@ -137,4 +137,48 @@ def urgent_posts_reach_live_lanes(evt: BaseHookEvent) -> HookResult | None:
         if (found := routed(evt, lane)) and found["route"] != lane:
             heir = f"its successor `{found['route']}`" if found["route"] != ROOT else "no successor"
             return evt.warn(f"Warning, nothing was blocked: `{lane}` is stood down in the lane supervisor's registry with {heir}, so this incident or decide sits unread. Post it to {heir if found['route'] != ROOT else 'a live lane'}, or spawn a successor this turn.")
+
+
+REQUEST_FLAGS = frozenset({"--config", "--successor", "--last-read", "--pr", "--by"})
+DUTY = "devbox perf and bug hunting"
+
+
+def lanes_stood_down_alone(evt: BaseHookEvent) -> list[str]:
+    """Each lane a registry request stands down with no successor: `drive_supervisor.py request stand-down <lane>` without `--successor`, or the typed `cci post --kind decide --attr verb=stand-down --attr lane=<lane>` it posts, without `--attr successor=`."""
+    lanes = []
+    for call in evt.command.calls():
+        argv = [call.name, *call.args]
+        if (at := next((i for i, word in enumerate(argv) if Path(word).name == "drive_supervisor.py"), None)) is not None and argv[at + 1 : at + 3] == ["request", "stand-down"]:
+            rest, words = argv[at + 3 :], []
+            for flag, value in itertools.pairwise(["", *rest]):
+                if flag not in REQUEST_FLAGS and not value.startswith("--"):
+                    words.append(value)
+            if words and not any(word.split("=", 1)[0] == "--successor" for word in rest):
+                lanes.append(words[0])
+        elif Path(call.name).name == "cci" and list(call.args[:1]) == ["post"]:
+            args = list(call.args)
+            flags = dict(itertools.pairwise(args)) | {arg.split("=", 1)[0]: arg.split("=", 1)[1] for arg in args if arg.startswith("--") and "=" in arg}
+            attrs = dict(value.split("=", 1) for flag, value in itertools.pairwise(args) if flag == "--attr" and "=" in value)
+            if flags.get("--kind") == "decide" and attrs.get("verb") == "stand-down" and attrs.get("lane") and not attrs.get("successor"):
+                lanes.append(attrs["lane"])
+    return lanes
+
+
+@on(
+    Event.PreToolUse,
+    only_if=[Tool("Bash")],
+    tests={
+        Input(tool="Bash", tool_input={"command": "drive_supervisor.py request stand-down devbox-explore-7 --config s/lr.json --last-read 5"}, env=DRIVE_CONFIG, commands=route("devbox-explore-7", "devbox-explore-7", "desired", DUTY)): Block(
+            pattern=r"^`devbox-explore-7` keeps a standing duty \(devbox perf and bug hunting\), so it stands down only for a successor"
+        ),
+        Input(tool="Bash", tool_input={"command": "cci post --lane root --kind decide --to supervisor --attr verb=stand-down --attr lane=devbox-explore-7 --text x"}, env=DRIVE_CONFIG, commands=route("devbox-explore-7", "devbox-explore-7", "desired", DUTY)): Block(pattern=r"--successor <lane>"),
+        Input(tool="Bash", tool_input={"command": "drive_supervisor.py request stand-down devbox-explore-7 --successor devbox-perf-1 --config s/lr.json"}, env=DRIVE_CONFIG, commands=route("devbox-explore-7", "devbox-explore-7", "desired", DUTY)): Allow(),
+        Input(tool="Bash", tool_input={"command": "cci post --lane root --kind decide --to supervisor --attr verb=stand-down --attr lane=devbox-explore-7 --attr successor=devbox-perf-1 --text x"}, env=DRIVE_CONFIG, commands=route("devbox-explore-7", "devbox-explore-7", "desired", DUTY)): Allow(),
+        Input(tool="Bash", tool_input={"command": "drive_supervisor.py request stand-down conflicts-2 --config s/lr.json"}, env=DRIVE_CONFIG, commands=route("conflicts-2", "conflicts-2", "desired")): Allow(),
+    },
+)
+def standing_lanes_stand_down_for_a_successor(evt: BaseHookEvent) -> HookResult | None:
+    for lane in lanes_stood_down_alone(evt):
+        if (found := routed(evt, lane)) and found.get("standing"):
+            return evt.block(f"`{lane}` keeps a standing duty ({found['standing']}), so it stands down only for a successor: add `--successor <lane>` to the request. If the duty itself ends, delete the `Standing:` line from its brief first.")
     return None
