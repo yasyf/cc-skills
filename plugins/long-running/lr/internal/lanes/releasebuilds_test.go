@@ -82,6 +82,40 @@ func TestARunningReleaseBuildNoRecordNamesPostsOneSeenToTheCoordinatorAtFiveMinu
 	equal(t, len(bus.posted), 1)
 }
 
+func sessionBuildFeed(state, session string) string {
+	return fmt.Sprintf(`[{"number":12272,"state":%q,"web_url":%q,"started_at":%q,"message":"release infra, started by someone via Claude session %s","jobs":[{"name":"apply","state":"failed"}]}]`, state, promotionURL, promotionStarted.Format(time.RFC3339), session)
+}
+
+func TestABuildAnotherSessionStartedAsksThisDriveNothing(t *testing.T) {
+	for _, state := range []string{"running", "failed"} {
+		feed := sessionBuildFeed(state, "164b13c4-19d2")
+		check, bus := releaseBuilds(t, &feed)
+		bus.peers = []client.Peer{{Lane: Root, Session: "d50e80e8-7"}}
+
+		watchBuilds(t, check, promotionStarted.Add(seenGrace))
+		equal(t, len(bus.posted), 0)
+	}
+}
+
+func TestABuildThisDrivesSessionStartedStillAsksForAClaim(t *testing.T) {
+	feed := sessionBuildFeed("running", "d50e80e8-7")
+	check, bus := releaseBuilds(t, &feed)
+	bus.peers = []client.Peer{{Lane: Root, Session: "d50e80e8-7"}}
+
+	watchBuilds(t, check, promotionStarted.Add(seenGrace))
+	equal(t, len(bus.posted), 1)
+	contains(t, bus.posted[0].Text, "RELEASE-SEEN 12272")
+}
+
+func TestABuildAnotherSessionStartedThatALaneNamedStillReportsItsFailure(t *testing.T) {
+	feed := sessionBuildFeed("failed", "164b13c4-19d2")
+	check, bus := releaseBuilds(t, &feed, namingRecord(t, 1, "release-5", "watching "+promotionURL))
+
+	watchBuilds(t, check, promotionStarted.Add(seenGrace))
+	equal(t, len(bus.posted), 1)
+	contains(t, bus.posted[0].Text, "RELEASE-FAILED 12272 apply")
+}
+
 func TestAReleaseBuildThatAlreadyPassedNeedsNoClaim(t *testing.T) {
 	feed := buildFeed("passed", "")
 	check, bus := releaseBuilds(t, &feed)
