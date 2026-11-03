@@ -125,11 +125,12 @@ type RouteAnswer struct {
 	Route    string `json:"route"`
 	State    string `json:"state"`
 	Standing string `json:"standing"`
+	Meta     bool   `json:"meta"`
 }
 
 func AnswerRoute(s *store.Store, name string) (answer RouteAnswer, err error) {
 	defer recovered(&err)
-	answer = RouteAnswer{Lane: name, Route: routeOf(s, name), State: Unregistered}
+	answer = RouteAnswer{Lane: name, Route: routeOf(s, name), State: Unregistered, Meta: isMeta(s, name)}
 	if lane, found := laneOf(s, name); found {
 		answer.State, answer.Standing = string(lane.State), must(BriefOf(lane.Brief)).Standing
 	}

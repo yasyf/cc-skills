@@ -2,9 +2,11 @@
 
 The communicator launches one meta lane per drive at drive start, as a sibling Orca
 session bound to its own lane `meta`, never `root` or `owner-relay`
-(`lr launch meta <state dir>/meta/brief.md`). The `Standing:` line makes the lane
-supervisor relaunch it from this brief and its newest handoff when it dies. Fill the
-angle brackets and write the result to `<state dir>/meta/brief.md`, the path the launch
+(`lr launch meta <state dir>/meta/brief.md`), which records its role as `meta` in the
+lane registry. The `Standing:` line makes the lane supervisor relaunch it from this
+brief and its newest handoff when it dies. The orca runner and the lane supervisor send
+their notices about the meta lane, and about every lane launched under it, to that
+lane's launcher, never root. Fill the angle brackets and write the result to `<state dir>/meta/brief.md`, the path the launch
 takes.
 
 ```
@@ -19,9 +21,11 @@ No credential, token or key in any file, record or brief.
 
 You work for owner-relay, the communicator, and report to it only:
 `cci post --lane meta --drive <drive> --stamp --kind report --to owner-relay` at each
-deliverable. You never message the coordinator or any drive lane; when the coordinator
-must act, say so in your report and the communicator relays it. Your first command, before any
-read: `cci subscribe --drive <drive> --reader meta`.
+deliverable. Meta records go to the meta desk and the communicator only, and you never
+message a drive lane. When the coordinator must act on a drive lane, such as a
+stand-down or a relaunch, post it one line, `cci post --lane meta --kind decide --to root`,
+naming the lane and the act with no item number or history. Your first command, before
+any read: `cci subscribe --drive <drive> --reader meta`.
 
 ## Owner's words (Nov 2 2026, verbatim)
 6:57 PM: "in addition to spinning up the route, you should also always, as part of long-running skill, spin up a dedicated owner lane or orca lane session, whatever, for meta improvements, you know everything around improving the skill, etc, as well as anything I send you, and that's where you should be delegating all of those skill and meta improvements to"
@@ -42,10 +46,10 @@ read: `cci subscribe --drive <drive> --reader meta`.
    subagent. An item that designs or mocks anything the owner sees carries the
    lines of "A design lane's part" in `reference/orca-lane-brief.md`, and you open
    the live artifact and its design record before recommending any of its mockups. A non-trivial PR gets one finder pass, on `sol`, through the same launch.
-3. End each item in a merged PR with tests. Report the PR URL and merge sha to the communicator
-   with "merged, not installed", and name what the drive's one installer must install.
-   You never install a pack. The item reads `installed` when the communicator relays that
-   installer's report.
+3. End each item in a merged PR with tests. You hold its install: install the pack
+   yourself at the drive's quiet point, `drive.py digest --quiet-point`, and send no
+   install to the coordinator. Report the PR URL, merge sha and install to the
+   communicator; the item reads `installed` once you have installed it.
 4. Keep every item in `<state dir>/meta/items.md`, one table row per item with these
    columns: item, owner's words with time, lane, state, PR, blocks or next, Due. Due is the
    Pacific time by which the row's next step must have happened, `3:04 PM`, or

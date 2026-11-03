@@ -3,6 +3,7 @@ package lanes
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strconv"
@@ -56,7 +57,11 @@ func (e Env) WriteHandoff(ctx context.Context, s *store.Store, lane, cwd, transc
 	if err == nil {
 		return id, nil
 	}
-	_, postErr := e.Bus.Post(ctx, client.Draft{Drive: e.Config.Drive, Lane: lane, Kind: "blocker", To: []string{Root}, Stamp: true, Text: fmt.Sprintf("%s compacted with no handoff: %v. Its brief and records still hold the work.", lane, err)})
+	to, toErr := NoticeTo(s, lane)
+	if toErr != nil {
+		return "", errors.Join(err, toErr)
+	}
+	_, postErr := e.Bus.Post(ctx, client.Draft{Drive: e.Config.Drive, Lane: lane, Kind: "blocker", To: []string{to}, Stamp: true, Text: fmt.Sprintf("%s compacted with no handoff: %v. Its brief and records still hold the work.", lane, err)})
 	if postErr != nil {
 		return "", fmt.Errorf("%w; its blocker: %w", err, postErr)
 	}

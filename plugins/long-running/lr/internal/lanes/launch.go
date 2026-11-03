@@ -25,17 +25,17 @@ const (
 )
 
 type standingSession struct {
-	lane, model, effort string
+	lane, model, effort, role string
 }
 
 var standingSessions = map[string]standingSession{
-	"chores":      {"chores", "sonnet", "low"},
-	"coordinator": {Root, "fable", "xhigh"},
-	"meta":        {"meta", "opus", "xhigh"},
-	"signal":      {"signal", "sonnet", "low"},
+	"chores":      {"chores", "sonnet", "low", ""},
+	"coordinator": {Root, "fable", "xhigh", ""},
+	"meta":        {"meta", "opus", "xhigh", RoleMeta},
+	"signal":      {"signal", "sonnet", "low", ""},
 }
 
-var subDriveCoordinator = standingSession{Root, "opus", "xhigh"}
+var subDriveCoordinator = standingSession{Root, "opus", "xhigh", ""}
 
 func sessionFor(name, parent string) standingSession {
 	if name == "coordinator" && parent != "" {
@@ -86,8 +86,14 @@ func (e Env) launchStanding(ctx context.Context, session standingSession, brief 
 		return "", err
 	}
 	argv := []string{e.tool("orca-launch.sh"), session.lane, session.model, session.effort, path}
+	if session.role != "" {
+		env = append(env, "LAUNCH_ROLE="+session.role)
+	}
 	if slices.ContainsFunc(states, runnerBeat) {
 		argv = []string{e.tool("desk-launch.py"), "lane", session.lane, session.model, session.effort, path, "--drive", e.Config.Drive, "--lane", communicator}
+		if session.role != "" {
+			argv = append(argv, "--role", session.role)
+		}
 	}
 	result, err := e.Runner.Run(ctx, shell.Command{Argv: argv, Env: env, Timeout: standingWait})
 	return result.Stdout, err

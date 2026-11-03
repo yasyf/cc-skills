@@ -181,6 +181,7 @@ type Desk struct {
 	Stderr       io.Writer
 	FireIncident func(ctx context.Context, fired lanes.Fired) error
 	Incidents    incident.Store
+	Registry     *store.Store
 
 	background  sync.WaitGroup
 	store       incident.Store
@@ -507,7 +508,14 @@ func (d *Desk) flush(ctx context.Context) error {
 	var failures []string
 	for _, action := range pending {
 		words := strings.Fields(action.Target)
-		if len(clocks) > 0 && slices.Contains(deferrable, words[0]) && !onIncident[strings.TrimSuffix(words[2], ":")] {
+		to, err := lanes.NoticeTo(d.Registry, strings.TrimSuffix(words[2], ":"))
+		if words[0] == "HOOK-DRIFT" {
+			to, err = lanes.MetaDesk(d.Registry)
+		}
+		if err != nil {
+			return err
+		}
+		if to == coordinatorLane && len(clocks) > 0 && slices.Contains(deferrable, words[0]) && !onIncident[strings.TrimSuffix(words[2], ":")] {
 			if !slices.Contains(held, action.ActionID) {
 				if err := d.deferEscalation(action.ActionID, clocks); err != nil {
 					return err
@@ -516,7 +524,7 @@ func (d *Desk) flush(ctx context.Context) error {
 			}
 			continue
 		}
-		posted, err := d.postEscalation(ctx, action.Target, coordinatorLane, action.ActionID)
+		posted, err := d.postEscalation(ctx, action.Target, to, action.ActionID)
 		if err != nil {
 			failures = append(failures, err.Error())
 			continue

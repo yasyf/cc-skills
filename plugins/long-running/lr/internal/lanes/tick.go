@@ -106,7 +106,7 @@ func Tick(s *store.Store, d Deps, now time.Time, generation int64) (out Outcome,
 	}
 	said := fold(s, records, adoptable, d.Briefs, d)
 	out.Adopted = append(said.adopted, adoptStanding(s, d, found, now)...)
-	announce(d, said, now)
+	announce(s, d, said, now)
 	ownedWork(s, d, now)
 	for _, name := range said.hand {
 		do(d.Withdraw(name))
@@ -143,13 +143,13 @@ func adoptStanding(s *store.Store, d Deps, found map[string]Peer, now time.Time)
 		if _, known := laneOf(s, session.lane); known || !listed || !alive(&peer, peer.Seen, now) || !briefExists(brief) {
 			continue
 		}
-		must(s.WantLane(store.Lane{Name: session.lane, Brief: brief, Model: session.model, Effort: session.effort, Role: "lane", State: store.LaneDesired}, now))
+		must(s.WantLane(store.Lane{Name: session.lane, Brief: brief, Model: session.model, Effort: session.effort, Role: or(session.role, "lane"), State: store.LaneDesired}, now))
 		adopted = append(adopted, session.lane)
 	}
 	return adopted
 }
 
-func announce(d Deps, said folded, now time.Time) {
+func announce(s *store.Store, d Deps, said folded, now time.Time) {
 	for _, one := range said.stood {
 		how := ", its PRs to the coordinator"
 		if one.successor != "" {
@@ -162,10 +162,10 @@ func announce(d Deps, said folded, now time.Time) {
 		do(d.Post(Post{Kind: "defect", To: []string{Root}, Text: fmt.Sprintf("%s the coordinator's decide #%d carries a verb but is no registry request, so the registry is unchanged; post `%s` instead.", pacific(now), seq, Request{Verb: "<" + strings.Join(verbs, "|") + ">", Lane: "<lane>"}.Command()), Re: seq}))
 	}
 	for _, one := range said.unread {
-		do(d.Post(Post{Kind: "defect", To: []string{Root, one.name}, LaneRef: one.name, Text: fmt.Sprintf("%s %s, so the supervisor refused it and holds %s with its PRs, never relaunched or retired, until %s posts again; %s, keep working. Coordinator: read %s with `cci tail --lane %s --since <its wake seq> --oldest` and the registry's heard time, then post it again citing last-read=<seq>.", pacific(now), one.why, one.name, one.name, one.name, one.name, one.name)}))
+		do(d.Post(Post{Kind: "defect", To: []string{noticeTo(s, one.name), one.name}, LaneRef: one.name, Text: fmt.Sprintf("%s %s, so the supervisor refused it and holds %s with its PRs, never relaunched or retired, until %s posts again; %s, keep working. Coordinator: read %s with `cci tail --lane %s --since <its wake seq> --oldest` and the registry's heard time, then post it again citing last-read=<seq>.", pacific(now), one.why, one.name, one.name, one.name, one.name, one.name)}))
 	}
 	for _, one := range said.owing {
-		one.post(d, now)
+		one.post(s, d, now)
 	}
 }
 
@@ -259,7 +259,7 @@ func owningDesk(s *store.Store, d Deps, lane string) string {
 	}
 	head, found := newest(s, desk)
 	if !found || head.Name == lane || !isLive(head.State) {
-		return Root
+		return noticeTo(s, lane)
 	}
 	return head.Name
 }
@@ -354,7 +354,7 @@ func relaunch(s *store.Store, d Deps, old store.Lane, found map[string]Peer, why
 	}
 	do(os.WriteFile(path, []byte(must(successorBrief(old, name, why, d, transcript))), 0o600))
 	retire(s, old.Name, name, now)
-	must(s.WantLane(store.Lane{Name: name, Brief: old.Brief, Model: old.Model, Effort: old.Effort, Role: old.Role, State: store.LaneLaunching, Handoff: old.Handoff, PRs: old.PRs, Predecessor: old.Name, Reason: why, Strikes: strikes}, now))
+	must(s.WantLane(store.Lane{Name: name, Brief: old.Brief, Model: old.Model, Effort: old.Effort, Role: old.Role, State: store.LaneLaunching, Handoff: old.Handoff, PRs: old.PRs, Predecessor: old.Name, Reason: why, Strikes: strikes, Launcher: old.Launcher}, now))
 	do(d.Launch(name, old.Model, old.Effort, path))
 	do(d.Post(Post{Kind: "report", To: []string{owningDesk(s, d, old.Name)}, LaneRef: name, Text: fmt.Sprintf("%s RELAUNCHED %s as %s: it %s; handoff %s; PRs %s; brief %s", pacific(now), old.Name, name, why, or(old.Handoff, "none, the successor writes it"), or(numberList(old.PRs), "none"), path)}))
 	out.Relaunched = append(out.Relaunched, Relaunch{old.Name, name, why})

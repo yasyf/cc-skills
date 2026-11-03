@@ -378,8 +378,12 @@ func (c *SpriteStops) Check(ctx context.Context, now time.Time) error {
 			c.Log.Warn("sprite stop failed, the next pass tries again", "lane", lane, "err", stopped[i])
 			continue
 		}
+		to, err := NoticeTo(c.Store, lane)
+		if err != nil {
+			return err
+		}
 		text := fmt.Sprintf("SPRITE-STOP-FAILED %s: %s, so the supervisor ran `cc-remote orca stop %s` %d times, and the last failed: %s | its Sprite still runs and the supervisor does not try again; stop it by hand with `%s orca stop %s --config %s`", lane, why[lane], lane, stopTries, truncated(stopped[i].Error(), 300), c.CcRemote.Binary, lane, c.CcRemote.Config)
-		if _, err := c.Env.Bus.Post(ctx, client.Draft{Drive: c.Env.Config.Drive, Lane: Self, Kind: blockerKind, To: []string{Root}, ID: "sprite-stop:" + lane, Stamp: true, Text: text}); err != nil {
+		if _, err := c.Env.Bus.Post(ctx, client.Draft{Drive: c.Env.Config.Drive, Lane: Self, Kind: blockerKind, To: []string{to}, ID: "sprite-stop:" + lane, Stamp: true, Text: text}); err != nil {
 			return fmt.Errorf("%w: cci post: %w", ErrUnread, err)
 		}
 	}

@@ -2043,6 +2043,11 @@ func TestTheOwningDeskIsTheNewestLiveLaneOfWhoeverLaunchedTheLane(t *testing.T) 
 		{"its launcher retired with no successor", []store.Lane{{Name: worker}, {Name: desk, State: store.LaneRetired, RetiredBy: "done"}}, launchedBy, Root},
 		{"its launcher is held", []store.Lane{{Name: worker}, {Name: desk, State: store.LaneHeld}}, launchedBy, Root},
 		{"a lane never owns itself", []store.Lane{{Name: worker}}, map[string]string{worker: worker}, Root},
+		{"the meta desk answers to the communicator", []store.Lane{{Name: desk, Role: RoleMeta}}, nil, OwnerRelay},
+		{"a lane the meta desk launched answers to it with no launch line", []store.Lane{{Name: worker, Launcher: desk}, {Name: desk, Role: RoleMeta}}, nil, desk},
+		{"a lane a meta lane's helper launched answers to that helper", []store.Lane{{Name: "board-mirror-1-finder", Launcher: worker}, {Name: worker, Launcher: desk}, {Name: desk, Role: RoleMeta}}, nil, worker},
+		{"a meta lane whose launcher retired answers to the communicator", []store.Lane{{Name: worker, Launcher: desk}, {Name: desk, Role: RoleMeta, State: store.LaneRetired, RetiredBy: "done"}}, nil, OwnerRelay},
+		{"a lane root launched answers to root", []store.Lane{{Name: worker, Launcher: Root}, {Name: Root}}, nil, Root},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -2055,6 +2060,65 @@ func TestTheOwningDeskIsTheNewestLiveLaneOfWhoeverLaunchedTheLane(t *testing.T) 
 			}
 			d := Deps{Desk: func(lane string) (string, error) { return c.desks[lane], nil }}
 			equal(t, owningDesk(s, d, c.lanes[0].Name), c.want)
+		})
+	}
+}
+
+func TestTheRegistryCountsTheMetaDeskAndEveryLaneLaunchedUnderItAsMeta(t *testing.T) {
+	s, brief := memory(t), writeBrief(t)
+	launch := func(seq int64, lane, by string, attrs map[string]string) Record {
+		r := spawned(seq, lane, brief, t0.Add(-time.Hour), attrs)
+		r.Lane = by
+		return r
+	}
+	f := newFake(t, []Record{
+		launch(1, "meta", OwnerRelay, map[string]string{"role": RoleMeta}),
+		launch(2, "hook-gate-1", "meta", nil),
+		launch(3, "hook-gate-1-finder", "hook-gate-1", nil),
+		launch(4, "conflicts-2", Root, nil),
+		launch(5, "meta", Self, map[string]string{"role": "desk"}),
+	}, []Row{who("meta", true, t0), who("hook-gate-1", true, t0), who("hook-gate-1-finder", true, t0), who("conflicts-2", true, t0)})
+
+	tick(t, s, f, t0)
+
+	for lane, meta := range map[string]bool{"meta": true, "hook-gate-1": true, "hook-gate-1-finder": true, "conflicts-2": false, "unknown": false} {
+		answer, err := AnswerRoute(s, lane)
+		if err != nil {
+			t.Fatal(err)
+		}
+		equal(t, answer.Meta, meta)
+	}
+	equal(t, row(t, s, "hook-gate-1").Launcher, "meta")
+}
+
+func TestAMetaLaneAdoptedBeforeItsSpawnRecordKeepsTheMetaRole(t *testing.T) {
+	s, state := memory(t), t.TempDir()
+	sessionBrief(t, state, "meta", "desk")
+	f := newFake(t, nil, []Row{who("meta", true, t0)})
+	f.deps.State = state
+
+	tick(t, s, f, t0)
+
+	equal(t, row(t, s, "meta").Role, RoleMeta)
+}
+
+func TestAMetaLanesDefectsReachItsLauncherAndADriveLanesReachRoot(t *testing.T) {
+	for _, tt := range []struct {
+		name, launcher, want string
+	}{
+		{"launched by the meta desk", "meta-desk-2", "meta-desk-2"},
+		{"launched by root", Root, Root},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			s := memory(t)
+			registered(t, s, store.Lane{Name: "meta-desk-2", Role: RoleMeta})
+			registered(t, s, store.Lane{Name: lane2, Launcher: tt.launcher})
+			f := newFake(t, nil, nil)
+			f.owed = []deletions.Owed{{ID: "a1b2c3d", Owner: lane2}}
+
+			equal(t, refusedOwing(s, f.deps, lane2, t0), true)
+
+			equal(t, f.posts[0].To, []string{tt.want, lane2})
 		})
 	}
 }

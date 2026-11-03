@@ -91,6 +91,11 @@ func newDeskWorld(t *testing.T) *deskWorld {
 		Receipts: filepath.Join(home, "receipts"), BriefsRepo: filepath.Join(home, "repo"), BriefsLog: "log_1", StartMinutes: 10, LaunchMinutes: 15, HoldMinutes: 15, CaseLanes: 2,
 	}
 	w.write(config.Source, `{"drive":"brook","orca":{"run":"run_1"}}`)
+	registry, err := store.Memory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = registry.Close() })
 	w.desk = &Desk{
 		Config: config, Bus: w, Runner: w, Env: func(string) string { return "" }, Now: func() time.Time { return w.now }, Sleep: func(d time.Duration) { w.now = w.now.Add(d) }, Parent: func() int { return w.parent },
 		Plugin: filepath.Join(home, "plugin"), Stderr: io.Discard,
@@ -109,6 +114,7 @@ func newDeskWorld(t *testing.T) *deskWorld {
 			w.fired = append(w.fired, fired)
 			return w.fireErr
 		},
+		Registry: registry,
 	}
 	w.desk.open()
 	w.desk.passSince = w.now
@@ -126,6 +132,25 @@ func (w *deskWorld) write(path, text string) {
 	if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
 		w.t.Fatal(err)
 	}
+}
+
+func (w *deskWorld) register(lane store.Lane) {
+	w.t.Helper()
+	lane.Brief, lane.Model, lane.Effort, lane.State = "/brief.md", "opus", "xhigh", store.LaneDesired
+	if _, err := w.desk.Registry.WantLane(lane, w.now); err != nil {
+		w.t.Fatal(err)
+	}
+}
+
+func (w *deskWorld) postOpening(prefix string) client.Draft {
+	w.t.Helper()
+	for _, post := range w.posts {
+		if strings.HasPrefix(post.Text, prefix) {
+			return post
+		}
+	}
+	w.t.Fatalf("no post opens %q", prefix)
+	return client.Draft{}
 }
 
 func (w *deskWorld) brief(lane, text string) string {
@@ -565,6 +590,34 @@ func launchText(lane, brief string) string {
 
 func (w *deskWorld) launched(lane, dispatch, terminal string) string {
 	return fmt.Sprintf("%s ready task=task_a dispatch=%s terminal=%s worktree=/w/%s\n", lane, dispatch, terminal, lane)
+}
+
+func TestALaunchVerdictReachesTheMetaLaneThatLaunchedTheLaneAndADriveLanesReachesRoot(t *testing.T) {
+	for _, tt := range []struct {
+		name, by, want string
+	}{
+		{"launched by the meta desk", "meta-desk-2", "meta-desk-2"},
+		{"launched by root", coordinatorLane, coordinatorLane},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			w := newDeskWorld(t)
+			w.register(store.Lane{Name: "meta-desk-2", Role: lanes.RoleMeta, Launcher: lanes.OwnerRelay})
+			w.register(store.Lane{Name: testLane, Role: "lane", Launcher: tt.by})
+			brief := w.brief(testLane, testBrief+"ccx: place=local\n")
+			w.lines()
+			line := w.add(object{"lane": tt.by, "text": launchText(testLane, brief), "to": []string{deskLane}})
+			key := "R" + strings.TrimPrefix(line.Name(), "#")
+			w.launchOut[testLane] = w.launched(testLane, testDispatch, testTerminal)
+			w.lines()
+			w.step(w.desk.deliver)
+			w.step(w.desk.reap)
+			w.step(w.desk.flush)
+
+			if launched := w.postOpening("LAUNCHED " + key + " " + testLane); !slices.Equal(launched.To, []string{tt.want}) {
+				t.Fatal(launched)
+			}
+		})
+	}
 }
 
 func TestALaunchIsStartedThroughLrLaunchStartAndSettlesFromItsLine(t *testing.T) {
@@ -1339,31 +1392,43 @@ func (w *deskWorld) driftBlockers() []client.Draft {
 	return found
 }
 
-func TestEachHookASpritesCaptainHookCannotLoadReachesRootAsOneBlockerAcrossLaunches(t *testing.T) {
-	w := newDeskWorld(t)
-	spriteConfig(w)
-	if action := w.action("lane-a", w.settleOnSprite("lane-a", twoDrifts)); action.Status != incident.ActionVerified {
-		t.Fatal(action)
-	}
-	w.step(w.desk.flush)
-	blockers := w.driftBlockers()
-	if len(blockers) != 2 || blockers[0].ID == blockers[1].ID {
-		t.Fatal(w.posts)
-	}
-	for i, want := range []string{"hooks.merge_guard", "hooks.slack_guard"} {
-		if blockers[i].Kind != kindBlocker || !slices.Equal(blockers[i].To, []string{coordinatorLane}) {
-			t.Fatal(blockers[i])
-		}
-		wantContains(t, blockers[i].Text, "hook "+want+" ")
-		wantContains(t, blockers[i].Text, "tools/cc-remote/inventory.yaml")
-	}
-	wantContains(t, blockers[0].Text, "ImportError: cannot import name 'gate'")
-	if action := w.action("lane-b", w.settleOnSprite("lane-b", twoDrifts)); action.Status != incident.ActionVerified {
-		t.Fatal(action)
-	}
-	w.step(w.desk.flush)
-	if again := w.driftBlockers(); len(again) != 2 {
-		t.Fatal(again)
+func TestEachHookASpritesCaptainHookCannotLoadReachesTheMetaDeskAsOneBlockerAcrossLaunches(t *testing.T) {
+	for _, tt := range []struct {
+		name, desk, want string
+	}{
+		{"the drive has a meta desk", "meta-desk-2", "meta-desk-2"},
+		{"the drive has none", "", coordinatorLane},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			w := newDeskWorld(t)
+			spriteConfig(w)
+			if tt.desk != "" {
+				w.register(store.Lane{Name: tt.desk, Role: lanes.RoleMeta})
+			}
+			if action := w.action("lane-a", w.settleOnSprite("lane-a", twoDrifts)); action.Status != incident.ActionVerified {
+				t.Fatal(action)
+			}
+			w.step(w.desk.flush)
+			blockers := w.driftBlockers()
+			if len(blockers) != 2 || blockers[0].ID == blockers[1].ID {
+				t.Fatal(w.posts)
+			}
+			for i, want := range []string{"hooks.merge_guard", "hooks.slack_guard"} {
+				if blockers[i].Kind != kindBlocker || !slices.Equal(blockers[i].To, []string{tt.want}) {
+					t.Fatal(blockers[i])
+				}
+				wantContains(t, blockers[i].Text, "hook "+want+" ")
+				wantContains(t, blockers[i].Text, "tools/cc-remote/inventory.yaml")
+			}
+			wantContains(t, blockers[0].Text, "ImportError: cannot import name 'gate'")
+			if action := w.action("lane-b", w.settleOnSprite("lane-b", twoDrifts)); action.Status != incident.ActionVerified {
+				t.Fatal(action)
+			}
+			w.step(w.desk.flush)
+			if again := w.driftBlockers(); len(again) != 2 {
+				t.Fatal(again)
+			}
+		})
 	}
 }
 

@@ -91,7 +91,7 @@ func TestTheRouteVerbPrintsOneObjectTheHooksRead(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	equal(t, strings.TrimSpace(text), `{"lane":"desk-1","route":"root","state":"retired","standing":""}`)
+	equal(t, strings.TrimSpace(text), `{"lane":"desk-1","route":"root","state":"retired","standing":"","meta":false}`)
 }
 
 func TestTheRequestVerbPostsOneTypedRecordAndRefusesAStandingLaneAlone(t *testing.T) {
