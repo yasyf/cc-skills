@@ -116,9 +116,13 @@ a structural fault, such as PRs queued behind one coordinator decision, it bring
 the split as an option, not only the symptom. It never calls `AskUserQuestion`: a pick
 goes on his board, and an urgent yes/no goes to his Slack as an ask card with buttons
 (`cc-present ask`).
-It is a root session for reads: each fact it needs is one bounded read, else a
-subagent, and the shared read hooks act on it as on the coordinator
-([owner-bridge-brief.md](reference/owner-bridge-brief.md)).
+Every message it sends is addressed to the owner in second person and carries only what
+changed for him or what he must decide. Ledger rows, hook mechanics, lane acks and
+"nothing new" never appear in chat, and a turn with nothing for him ends with no text;
+its Stop hook refuses any other closing message. It is a root session for reads: each
+fact it needs is one bounded read or one post, else a subagent. The shared read hooks act
+on it at the coordinator's thresholds, and a second Bash read with no `Agent` spawn
+since the first draws a nudge ([owner-bridge-brief.md](reference/owner-bridge-brief.md)).
 
 **The coordinator** reads reader `root`, posts as `root`, runs in a foreground
 `cci watch` loop for the life of the drive, and holds everything a root holds:
