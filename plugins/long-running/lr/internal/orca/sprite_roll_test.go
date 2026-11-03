@@ -7,6 +7,7 @@ import (
 	"maps"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -176,6 +177,48 @@ func TestAFailureBeforeAnyPinMarksNothingBad(t *testing.T) {
 		if why, err := w.store.BadTool(tool, map[string]string{"ccx": rollCCX, "long-running@skills": rollPack}[tool]); err != nil || why != "" {
 			t.Fatal(tool, why, err)
 		}
+	}
+}
+
+const unreachableSprite = "Error: failed to start sprite command: failed to connect: read tcp [::1]:49823->[::2]:443: i/o timeout\n"
+
+func TestABoxTheRollCannotReachIsPassedOverAndNamedAtTheEnd(t *testing.T) {
+	w := newRollWorld(t)
+	w.replies["pool-b"] = shell.Result{Code: 1, Stderr: unreachableSprite}
+	if refused := w.roll(""); refused != "" {
+		t.Fatal(refused)
+	}
+	if !slices.Equal(w.boxes, []string{"pool-a", "pool-b", "pool-c"}) {
+		t.Fatal(w.boxes)
+	}
+	if census := w.census(); len(census) != 2 || census["pool-c"]["ccx"] != rollCCX {
+		t.Fatal(census)
+	}
+	if !bytes.HasSuffix(w.out.Bytes(), []byte("lr sprites roll: never reached: pool-b\n")) {
+		t.Fatal(w.out.String())
+	}
+	if why, err := w.store.BadTool("ccx", rollCCX); err != nil || why != "" {
+		t.Fatal(why, err)
+	}
+}
+
+func TestABoxThatTimesOutWithNothingInstalledIsPassedOver(t *testing.T) {
+	w := newRollWorld(t)
+	w.replies["pool-a"] = shell.Result{Code: shell.CodeTimedOut}
+	if refused := w.roll(""); refused != "" || !slices.Equal(w.boxes, []string{"pool-a", "pool-b", "pool-c"}) {
+		t.Fatal(refused, w.boxes)
+	}
+}
+
+func TestAProbeTheRollCannotReachStopsItBeforeAnyOtherBox(t *testing.T) {
+	w := newRollWorld(t)
+	w.replies["pool-b"] = shell.Result{Code: 1, Stderr: unreachableSprite}
+	refused := w.roll("pool-b")
+	if want := "lr sprites roll: could not reach the probe pool-b, so 2 more Sprites keep what they run: " + strings.TrimSpace(unreachableSprite); refused != want {
+		t.Fatalf("refused\n%s\nwant\n%s", refused, want)
+	}
+	if !slices.Equal(w.boxes, []string{"pool-b"}) {
+		t.Fatal(w.boxes)
 	}
 }
 
