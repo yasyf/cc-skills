@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
-	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 )
 
 const namespace = "lr"
@@ -183,7 +182,7 @@ func Check(kind string, raw json.RawMessage, to []string) error {
 	return nil
 }
 
-var escalationRoles = []string{"supervisor", "root", "owner", lanes.OwnerRelay}
+var escalationRoles = []string{"supervisor", "root", "owner", "owner-relay"}
 
 func Overdue(to, subject, cause string) Body {
 	if slices.Contains(escalationRoles, to) {
