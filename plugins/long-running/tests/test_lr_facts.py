@@ -175,3 +175,19 @@ def test_a_pr_with_no_head_record_belongs_to_the_lane_the_registry_names():
     [row] = facts.assemble(store, REPO, [status(1)], {}, {})
 
     assert row.lane == "lane-9"
+
+
+def test_the_status_read_names_its_repository_so_it_runs_outside_a_checkout():
+    run = Recorded(statuses=[status(1)])
+
+    facts.statuses(run, REPO, [1])
+
+    [argv] = run.calls
+    assert argv[:6] == ["ccx", "vcs", "pr", "status", "--repo", REPO]
+
+
+def test_the_open_pr_list_reads_past_the_first_five_hundred():
+    run = Recorded(prs=[pr(n) for n in range(1, 701)])
+
+    assert len(facts.open_prs(run, REPO, "drive-bot", "drive")) == 700
+    assert run.calls[0][run.calls[0].index("--limit") + 1] == "5000"
