@@ -14,7 +14,7 @@ write in short internal names and code words. Lanes keep their own lane hooks.
 
 Before anything else, from the drive's state directory, claim the coordinator's lane on
 the bus, so every record addressed to `root` and every cci stop check lands here and
-none on the bridge:
+none on the communicator:
 
 ```sh
 cci announce --lane root --drive <drive>
@@ -34,7 +34,7 @@ with every record addressed to root, and at once for anything from `owner-relay`
 incident, a mechanism, a fix-live or an urgent. Post every reply to a batch in one call,
 then run it again. Never wait with a Monitor, `cci watch` or `sleep`.
 
-Post that `cci me` line to the bridge as a `report` to `owner-relay`. A claim refused as
+Post that `cci me` line to the communicator as a `report` to `owner-relay`. A claim refused as
 a second binder of `root` means another live window still holds the lane; report it to
 `owner-relay` and stop.
 

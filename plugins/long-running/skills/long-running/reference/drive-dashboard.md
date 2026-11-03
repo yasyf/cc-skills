@@ -13,7 +13,7 @@ Contents:
 
 ## Dashboard app startup
 
-From the drive's first plan, the root runs the app in `dashboard/app/` with `python3 dashboard/app/server.py --config <state dir>/dashboard.json`. The config names the drive, ledger, board session and URL, repo, progress-doc label, release doc, story file, host, port, and keeper lane `update-desk`, the bridge's helper briefed from [owner-bridge-brief.md](owner-bridge-brief.md).
+From the drive's first plan, the root runs the app in `dashboard/app/` with `python3 dashboard/app/server.py --config <state dir>/dashboard.json`. The config names the drive, ledger, board session and URL, repo, progress-doc label, release doc, story file, host, port, and keeper lane `update-desk`, the communicator's helper briefed from [communicator-brief.md](communicator-brief.md).
 
 `python3 dashboard/app/keep.py --config <state dir>/dashboard.json` starts the app detached when it is not answering, logs to `server.log` beside the config, and tells root. The root hands the owner its tailnet URL once, and never hands him a cc-present board in its place. A build failure posts one `defect` record to root.
 

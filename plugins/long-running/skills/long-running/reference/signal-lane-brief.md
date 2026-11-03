@@ -4,7 +4,7 @@ The communicator launches one signal lane per drive at drive start, on Sonnet, a
 sibling Orca session bound to its own lane `signal`
 (`lr launch signal <state dir>/signal/brief.md`). It
 spares the communicator from tailing the coordinator: it posts pointers, and the communicator reads
-what they point at and writes the FYIs ([owner-bridge-brief.md](owner-bridge-brief.md)).
+what they point at and writes the FYIs ([communicator-brief.md](communicator-brief.md)).
 Fill the angle brackets and write the result to `<state dir>/signal/brief.md`.
 
 ```
