@@ -93,7 +93,9 @@ name never a codename or id, the mechanism of the failure before the fix, the hu
 layer before the agent layer ([communicator-brief.md](reference/communicator-brief.md)).
 It owns the dashboard and the owner updates: one generator, `lr update render`,
 feeds both from the same rows, run by its one standing helper `update-desk`
-([owner-report-table.md](reference/owner-report-table.md)). It talks only to the
+([owner-report-table.md](reference/owner-report-table.md)). When the owner writes
+after an hour or more away, its reply opens with the full update: the dashboard
+link, then the owner table grouped by feature. It talks only to the
 coordinator, the meta and signal lanes and helpers it spawned for its own work,
 never to the coordinator's children, and beyond the launches at drive start it posts
 no `go`, `hold`, `decide` or `launch`. Every owner message lands in its message
