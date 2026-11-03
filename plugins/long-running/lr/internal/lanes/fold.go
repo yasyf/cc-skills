@@ -474,8 +474,6 @@ func foldRegistry(s *store.Store, r Record, row store.Lane, known, fresh bool, a
 	switch {
 	case kind == kindLanded:
 		foldLanded(s, r, at)
-	case kind == "done" && settles && len(row.PRs) > 0:
-		do(s.SetLaneWaiting(name, r.Seq, time.Time{}, doneParked))
 	case kind == "done" && settles:
 		retire(s, name, "done", at)
 	case settles && (kind == "stopped" || kind == "stand-down" || (kind == "state" && stoppedLine.MatchString(text))):
@@ -564,10 +562,6 @@ func foldWithdraw(s *store.Store, r Record, at time.Time) {
 func settleOwner(s *store.Store, owner string, at time.Time) {
 	owned, ok := laneOf(s, owner)
 	if !ok || !isLive(owned.State) || len(owned.PRs) > 0 {
-		return
-	}
-	if owned.Awaits == doneParked {
-		retire(s, owner, "done", at)
 		return
 	}
 	do(s.LaneHeard(owner, at, kindLanded, 0))
