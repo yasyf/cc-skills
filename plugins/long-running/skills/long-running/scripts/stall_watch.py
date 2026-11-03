@@ -184,7 +184,7 @@ and, across the drive:
               answer 1f77471; root #313385)
 
 A lane's own liveness, whether it stopped, went silent or outgrew its context, is the lane supervisor's
-(`lr/movers/lanes.py`), which relaunches it with no root action; no stall names a lane for its silence.
+(`lr supervisor run`), which relaunches it with no root action; no stall names a lane for its silence.
 
 Each kind counts once it is as old as `stall.minutes` says: go 10, refusal 10, red 2, unclassed 20, unfixed 60, sweep 20, order 3, tap 10, ungraded 10, finder 30,
 fidelity 30, running 25, board 15, carry 20 (one fidelity pass), ask 15, pick 15, gate 30, stale 120, desk 10, shape 30. A PR's stalls and reds
