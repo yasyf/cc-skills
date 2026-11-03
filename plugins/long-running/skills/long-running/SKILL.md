@@ -384,7 +384,9 @@ lane on that problem, the turn it arrives.
 
 **R18.** A ruling reaches a lane the way it reads: Orca lanes by `lr relay`, a desk
 by a record addressed to it, an Agent lane by a record it reads at its next tool
-call. A stand-down is confirmed on disk before it counts.
+call. A stand-down is confirmed on disk before it counts. A record names a lane
+by its stem, the name without a trailing `-<n>`: cci delivers it to the stem's
+newest live lane, so no poster tracks the number.
 
 **R19.** A settled question is applied, never asked: the plan, the register and
 `ccn answer search` are checked first, an absolute instruction stays absolute, a

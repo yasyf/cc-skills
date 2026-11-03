@@ -9,7 +9,7 @@ from .compaction_handoff import CompactionState, Communicator, communicator_test
 
 ACTIVE = [CompactionState(active=True)]
 LANE_ENV = "CLAUDE_LONG_RUNNING_LANE"
-STANDING = re.compile(r"(?:landing-desk|fidelity-desk|red-sweep|alerts-desk|drive-watchdog|board-refresher)(?:-\d+)?")
+STANDING = re.compile(r"(?:landing-desk|fidelity-desk|fidelity-sweep|red-sweep|alerts-desk|drive-watchdog|board-refresher)(?:-\d+)?")
 STARTS = {"lr": (("relay", "run"),)}
 
 

@@ -56,6 +56,11 @@ func (p *JobPool) baseJob(d desk, facts machine.Facts, sprite string, settled ma
 	if facts.Lane != "" {
 		to = append(to, facts.Lane)
 	}
+	for _, lane := range d.spec.To {
+		if stem := client.Stem(lane); !slices.Contains(to, stem) {
+			to = append(to, stem)
+		}
+	}
 	checkout := d.spec.Checkout
 	if checkout == "" {
 		checkout = p.landing.Checkout
@@ -70,7 +75,7 @@ func (p *JobPool) baseJob(d desk, facts machine.Facts, sprite string, settled ma
 		PR:       strconv.Itoa(facts.Number),
 		Head:     facts.Head,
 		Lane:     facts.Lane,
-		To:       append(to, d.spec.To...),
+		To:       to,
 		Checkout: checkout,
 		Model:    model,
 		Fast:     d.spec.Fast == nil || *d.spec.Fast,
