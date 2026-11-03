@@ -2161,7 +2161,7 @@ func TestOnePassReadsALineAndDeliversIt(t *testing.T) {
 	}
 	alive := false
 	for _, post := range w.posts {
-		alive = alive || (post.Topic == relayTopic && strings.HasPrefix(post.Text, relayAlive))
+		alive = alive || (post.Topic == runnerTopic && strings.HasPrefix(post.Text, runnerAlive))
 	}
 	if !alive {
 		t.Fatal(w.posts)
