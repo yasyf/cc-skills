@@ -621,13 +621,11 @@ func (w *workerLaunch) copyCarried(workspace string) error {
 
 func (w *workerLaunch) fetchNotes(workspace string) error {
 	fetched, err := w.Runner.Run(w.ctx, shell.Command{Argv: []string{"sprite", "exec", "-s", workspace, "--", "git", "-C", w.worktree, "fetch", "--quiet", "origin", notesRefs}})
-	if written := w.receipt(notesReceipt, fetched.Stdout+fetched.Stderr); written != nil {
-		return written
-	}
+	said := fetched.Stdout + fetched.Stderr
 	if err != nil {
-		return refuse("Sprite %s did not fetch the cc-notes refs into %s, so the lane's ccn would read none of his answers; %s keeps the output, %s", workspace, w.worktree, filepath.Join(w.attempt, notesReceipt), idleWarning)
+		said += err.Error() + "\n"
 	}
-	return nil
+	return w.receipt(notesReceipt, said)
 }
 
 func (w *workerLaunch) join(workspace, sponsor string) (string, error) {

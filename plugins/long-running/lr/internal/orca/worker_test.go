@@ -1302,23 +1302,22 @@ func TestABriefNamingWhatNoSpriteCanReceiveRefusesNamingItAndPreparesNothing(t *
 	f.refusedWith(fmt.Sprintf("brief %s names what no Sprite can receive: %s does not exist on this Mac; nothing was prepared", f.brief, gone), versionCall, currentRunCall)
 }
 
-func TestASpriteThatCannotFetchTheCCNotesRefsStartsNoWorkerAndNamesTheLog(t *testing.T) {
+func TestASpriteThatCannotFetchTheCCNotesRefsStillStartsItsWorkerAndKeepsTheLog(t *testing.T) {
 	f := newWorkerFixture(t)
 	f.sprite()
-	f.reply("sprite exec", workerReply{code: 1, err: "fatal: unable to access github.com"})
+	f.reply("sprite exec", workerReply{code: 1, err: "fatal: could not read Username for 'https://github.com'"})
 	_, failed, err := f.launch(workerLane, "opus", "xhigh")
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := fmt.Sprintf("Sprite %s did not fetch the cc-notes refs into %s, so the lane's ccn would read none of his answers; %s/%s keeps the output, %s", workerWorkspace, remoteRoot, f.attempt, notesReceipt, idleWarning)
-	if failed != want {
-		t.Fatalf("failed\n%s\nwant\n%s", failed, want)
+	if failed != "" {
+		t.Fatal(failed)
 	}
-	if !strings.Contains(f.receiptText(notesReceipt), "unable to access") {
+	if !strings.Contains(f.receiptText(notesReceipt), "could not read Username") {
 		t.Fatal(f.receiptText(notesReceipt))
 	}
-	if exists(filepath.Join(f.attempt, "worker-start.json")) {
-		t.Fatal("the worker started")
+	if !exists(filepath.Join(f.attempt, "worker-start.json")) {
+		t.Fatal("the worker did not start")
 	}
 }
 
