@@ -41,7 +41,7 @@ type SpriteRoll struct {
 	Out    io.Writer
 }
 
-func (r SpriteRoll) Run(ctx context.Context, run string, env func(string) string, probe string) error {
+func (r SpriteRoll) Run(ctx context.Context, run string, env func(string) string, probe string, probeOnly bool) error {
 	pins, err := readPins(env)
 	if err != nil {
 		return err
@@ -77,6 +77,9 @@ func (r SpriteRoll) Run(ctx context.Context, run string, env func(string) string
 			return refuse("nothing rolled: %s hosts no live worker of Run %s", probe, run)
 		}
 		boxes = slices.Concat([]string{probe}, slices.Delete(boxes, at, at+1))
+		if probeOnly {
+			boxes = boxes[:1]
+		}
 	}
 	for done, box := range boxes {
 		result, err := r.Runner.Run(ctx, shell.Command{Argv: pins.installArgv(box, nil), Timeout: spriteInstallTimeout})
@@ -190,6 +193,7 @@ func SpritesCommand(a *app.App) *cobra.Command {
 		},
 	}
 	var probe string
+	var probeOnly bool
 	roll := &cobra.Command{
 		Use:   "roll",
 		Short: "Install runner.json's Sprite pins on every Sprite with a live worker in the drive's Run, the probe Sprite first; a pin that fails is marked bad, stops the roll, and is never rolled again",
@@ -209,10 +213,14 @@ func SpritesCommand(a *app.App) *cobra.Command {
 				return err
 			}
 			roller := SpriteRoll{Runner: a.Runner, Orca: Client{Runner: a.Runner}, Fleet: CCRemote{Runner: a.Runner, State: filepath.Join(home, "cc-remote")}, Store: s, Now: a.Now, Out: cmd.OutOrStdout()}
-			return refusalExit(cmd, roller.Run(cmd.Context(), run, env, probe))
+			if probeOnly && probe == "" {
+				return errors.New("--probe-only needs --probe, so it names the one Sprite to install on")
+			}
+			return refusalExit(cmd, roller.Run(cmd.Context(), run, env, probe, probeOnly))
 		},
 	}
 	roll.Flags().StringVar(&probe, "probe", "", "the Sprite to install on first; default the first by name")
+	roll.Flags().BoolVar(&probeOnly, "probe-only", false, "install on the --probe Sprite and stop, so a person can check it before the rest")
 	pin := &cobra.Command{
 		Use:   "pin",
 		Short: "Move each orca.sprite.tools pin to the version this Mac's plugins run, once its release asset matches its release's checksum",

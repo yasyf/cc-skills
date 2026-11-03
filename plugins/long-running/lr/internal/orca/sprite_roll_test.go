@@ -31,6 +31,8 @@ type rollWorld struct {
 	replies map[string]shell.Result
 	boxes   []string
 	out     bytes.Buffer
+
+	probeOnly bool
 }
 
 func newRollWorld(t *testing.T) *rollWorld {
@@ -93,7 +95,7 @@ func (w *rollWorld) roll(probe string) string {
 	w.t.Helper()
 	w.out.Reset()
 	roller := SpriteRoll{Runner: w, Orca: w, Fleet: w, Store: w.store, Now: func() time.Time { return time.Date(2026, 11, 3, 13, 0, 0, 0, time.UTC) }, Out: &w.out}
-	err := roller.Run(context.Background(), rollRun, func(name string) string { return w.env[name] }, probe)
+	err := roller.Run(context.Background(), rollRun, func(name string) string { return w.env[name] }, probe, w.probeOnly)
 	var failed *Failed
 	if errors.As(err, &failed) {
 		return failed.Line
@@ -174,6 +176,20 @@ func TestAFailureBeforeAnyPinMarksNothingBad(t *testing.T) {
 		if why, err := w.store.BadTool(tool, map[string]string{"ccx": rollCCX, "long-running@skills": rollPack}[tool]); err != nil || why != "" {
 			t.Fatal(tool, why, err)
 		}
+	}
+}
+
+func TestAProbeOnlyRollStopsAfterTheProbeSoItCanBeCheckedBeforeTheRest(t *testing.T) {
+	w := newRollWorld(t)
+	w.probeOnly = true
+	if refused := w.roll("pool-b"); refused != "" {
+		t.Fatal(refused)
+	}
+	if !slices.Equal(w.boxes, []string{"pool-b"}) {
+		t.Fatal("a probe-only roll went past the probe", w.boxes)
+	}
+	if census := w.census(); len(census) != 1 || census["pool-b"]["ccx"] != rollCCX {
+		t.Fatal(census)
 	}
 }
 
