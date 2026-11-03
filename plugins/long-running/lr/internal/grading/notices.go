@@ -49,6 +49,9 @@ func (p *JobPool) finished(ctx context.Context, ref workerRef, directory string,
 			return p.stamp(settledDir, ref.box)
 		}
 	case jobFailed:
+		if exists(filepath.Join(directory, grader.CancelledFile)) {
+			return nil
+		}
 		return p.toolingFailed(ctx, ref.lane, directory)
 	case jobRunning:
 	}
