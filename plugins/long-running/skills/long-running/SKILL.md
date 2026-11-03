@@ -102,12 +102,15 @@ feeds both from the same rows, run by its one standing helper `update-desk`
 owner. When the owner writes after an hour or more away, its reply opens with the
 full update: the dashboard link, then the owner table grouped by feature. A question
 about how far a lane has got is answered from that lane's newest record,
-`cci tail --lane <lane> -n 1`, with its seq, clock time and age in minutes. A pick
-put to him in Slack is a card with one button per option, `slack_dm_status` with
-`card.options` or a cc-present card it posts there, never plain text asking him to
-reply with a letter or number; a thread reply is for notes. An ask about a pull
-request carries its PR card, the PR in the card's `refs`, never only the link;
-`drive.py ask-owner` attaches each PR its text names. `owner_returns.py` refuses a
+`cci tail --lane <lane> -n 1`, with its seq, clock time and age in minutes. Every
+message it sends him goes out through one call, the `reply` tool on the plugin's
+`lr` MCP server, which lands it in this window, a cci record and the dashboard's
+store, adds a board card that cc-present posts to his Slack with one button per pick
+when it carries `picks`, and a card at his Slack DM root when it carries links, PRs
+or a status; it hand-posts no Slack or board card
+([communicator-brief.md](reference/communicator-brief.md#replies)). A pick is never
+plain text asking him for a letter or number, and an ask about a pull request lists
+the PR in `prs`, so its card shows the PR's live state. `owner_returns.py` refuses a
 plain pick, a PR ask with no PR card, and a stop that leaves the pick inline. Its session
 holds the owner's DM: `owner_returns.py` arms a channel watch on the DM at session start
 and on each prompt, so his reply in any DM thread reaches it as well as the lane that
@@ -128,10 +131,9 @@ lane with a copy here and a closed row; a write-in or note comes here alone with
 open row, and the communicator routes it to the lane that asked. It also proposes:
 when what it relays shows a structural fault, such as PRs queued behind one
 coordinator decision, it brings him the split as an option, not only the symptom.
-It never calls `AskUserQuestion`: a pick goes on his board, and an urgent yes/no
-goes to his Slack as an ask card with buttons (`cc-present ask`). Options it offers
-him never sit only in this window: the same turn posts them at his Slack DM root
-or draws them as a board card, or its Stop refuses the reply. Every message it
+It never calls `AskUserQuestion`: a pick or an urgent yes/no is a `reply` with
+`picks`, which reaches his board and his Slack with buttons in the same turn, or its
+Stop refuses the reply. Every message it
 sends is addressed to him in second person and carries only what changed for him
 or what he must decide; ledger rows, hook mechanics, lane acks and "nothing new"
 never appear in chat, a turn with nothing for him ends with no text, and its Stop

@@ -38,13 +38,15 @@ CHOICE = re.compile(
     r"|(?i:\b(?:reply|respond|answer)) with (?:(?i:the |a )?(?i:letter|number)|[A-H1-9]\b)"
 )
 DM_CARD = "slack_dm_status"
+REPLY = "mcp__plugin_long-running_lr__reply"
+REPLIED = "Its checks passed.\n\n- Land it (recommended)\n- Hold it\n\nReply r1; pass this id to edit it on every surface.\n- board: card-r1\n- slack: https://brook.slack.com/archives/D0B6Z/p1793635190051179\n- record: #12@2479ec97"
 SLACK_POSTED = re.compile(r"\bts\W{1,4}\d{10}\.\d{6}|/archives/\w+/p\d{16}")
 BOARD_VERBS = frozenset({"push", "update-block", "ask", "send"})
-INLINE_PICK = "A pick for the owner never sits inline or in plain Slack text; he answers with a button. Post it as a `slack_dm_status` card whose `options` are the answers, or as a `cc-present ask` card, then stop again."
-PLAIN_PICK = "A pick for the owner is never plain text in his Slack DM; he taps a button, and a thread reply is for notes. Send a `slack_dm_status` card whose `options` are the answers, or a `cc-present ask` card."
+INLINE_PICK = "A pick for the owner never sits inline or in plain Slack text; he answers with a button. Send it with the `reply` tool, the answers as its `picks` and one of them as `recommended`, then stop again."
+PLAIN_PICK = "A pick for the owner is never plain text in his Slack DM; he taps a button, and a thread reply is for notes. Send it with the `reply` tool, the answers as its `picks` and one of them as `recommended`."
 QUESTION = re.compile(r"\?(?=\s|$)")
 PR_NAMED = re.compile(r"github\.com/[\w.-]+/[\w.-]+/pull/\d+|[\w.-]+/[\w.-]+#\d+|\b(?i:PR|pull request) #?\d+\b")
-PR_CARD = "An ask to the owner about a pull request carries its PR card, never only the link. List each PR in the card's `refs` as `{\"url\", \"label\"}`, or ask with `drive.py ask-owner`, which attaches it."
+PR_CARD = "An ask to the owner about a pull request carries its PR card, never only the link. Send the ask with the `reply` tool and list each PR's url in its `prs`."
 PICK = "Two ways to fix the relay:\n\nA) Keep one shared replica\nB) Give each chat its own\n\nWhich do you want?"
 REMINDER = Binary(
     "The owner's words this turn are below; his typos are his, so read through them."
@@ -180,7 +182,10 @@ def asked(reply: str, *calls: dict, words: str = HOW_FAR, decide: dict = ASKED) 
         owed(json.dumps({"replies": []})): Allow(),
         owed((1, "cc-slack can't reach the daemon")): Allow(),
         picked(): Block(pattern=r"^A pick for the owner never sits inline"),
-        picked(*T.tool_turn("mcp__plugin_cc-slack_cc-slack__slack_send", result=SENT, channel_id="D0B6Z", text=PICK)): Block(pattern=r"never sits inline.*`slack_dm_status` card whose `options`"),
+        picked(*T.tool_turn("mcp__plugin_cc-slack_cc-slack__slack_send", result=SENT, channel_id="D0B6Z", text=PICK)): Block(pattern=r"never sits inline.*the `reply` tool, the answers as its `picks`"),
+        picked(*T.tool_turn(REPLY, result=REPLIED, title="Land the relay fix tonight?", md="Its checks passed.", picks=["Land it", "Hold it"], recommended="Land it")): Allow(),
+        picked(*T.tool_turn(REPLY, result=REPLIED.replace("- slack: https://brook.slack.com/archives/D0B6Z/p1793635190051179", "- slack FAILED: cc-slack dm-status exited 1: channel_not_found"), title="Land the relay fix tonight?", md="Its checks passed.", picks=["Land it", "Hold it"], recommended="Land it")): Block(pattern=r"never sits inline"),
+        picked(*T.tool_turn(REPLY, result=REPLIED, title="Land the relay fix tonight?", md="Its checks passed.")): Block(pattern=r"never sits inline"),
         picked(*T.tool_turn("Bash", result=SENT, command=f"cc-slack send --channel D0B6Z --text '{PICK}'")): Block(pattern=r"never sits inline"),
         picked(*T.tool_turn(f"{CC_SLACK}{DM_CARD}", result=CARDED, card=RELAY_CARD)): Allow(),
         picked(*T.tool_turn("Bash", result=CARDED, command=f"cc-slack dm-status --card '{json.dumps(RELAY_CARD)}'")): Allow(),
@@ -230,7 +235,7 @@ def dm(tool: str = DM_CARD, **given: object) -> Input:
     only_if=[Communicator(), Tool("Bash", *WRITE_TOOLS)],
     skip_if=[FromSubagent()],
     tests=communicator_tests({
-        dm("slack_send", channel_id="D0B6Z", text=PICK): Block(pattern=r"^A pick for the owner is never plain text in his Slack DM.*`slack_dm_status` card whose `options`"),
+        dm("slack_send", channel_id="D0B6Z", text=PICK): Block(pattern=r"^A pick for the owner is never plain text in his Slack DM.*the `reply` tool, the answers as its `picks`"),
         dm(text=PICK): Block(pattern=r"never plain text"),
         dm("slack_reply", channel_id="D0B6Z", thread_ts="1793635190.051179", text="Reply with a number: 1 keeps one replica, 2 gives each chat its own."): Block(pattern=r"never plain text"),
         dm(card={"title": "How do we fix the relay?", "body": PICK}): Block(pattern=r"never plain text"),
@@ -243,7 +248,7 @@ def dm(tool: str = DM_CARD, **given: object) -> Input:
         Input(command=f"cc-slack dm-status --card '{json.dumps(RELAY_CARD)}'", state=[CompactionState(active=True)]): Allow(),
         Input(command="cc-slack dm-status 'The relay fix merged at 3:10 AM.'", state=[CompactionState(active=True)]): Allow(),
         Input(command="ls", state=[CompactionState(active=True)]): Allow(),
-        dm(card=LAND_CARD): Block(pattern=r"^An ask to the owner about a pull request carries its PR card.*`refs`"),
+        dm(card=LAND_CARD): Block(pattern=r"^An ask to the owner about a pull request carries its PR card.*the `reply` tool.*`prs`"),
         dm(card=LAND_CARD | {"refs": [{"url": RELAY_PR, "label": "relay fix"}]}): Allow(),
         dm(text=f"Should I land {RELAY_PR} tonight?"): Block(pattern=r"carries its PR card"),
         dm(text=f"{RELAY_PR} merged at 3:10 AM, so the relay keeps one replica per chat."): Allow(),
@@ -317,6 +322,8 @@ def inline_pick(evt: BaseHookEvent, reply: str) -> str | None:
 def shown_outside(use: object) -> bool:
     if use.result is None or use.result.is_error or not SLACK_POSTED.search(use.result.content):
         return False
+    if use.call.name == REPLY:
+        return bool(use.call.raw.get("picks"))
     if use.call.name.rsplit("__", 1)[-1] == DM_CARD:
         return bool((use.call.raw.get("card") or {}).get("options"))
     return use.call.name == "Bash" and any(drawn(cmd.argv) for cmd in use.call.command_line if len(cmd.argv) > 1)
