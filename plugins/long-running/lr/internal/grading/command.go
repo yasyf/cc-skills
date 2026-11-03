@@ -17,6 +17,7 @@ func Command(a *app.App) *cobra.Command {
 	cmd := &cobra.Command{Use: "grade", Short: "Grade one drive head, from the job a desk wrote to DIR"}
 	cmd.AddCommand(
 		gradeVerb(a, GraderFinder, "One codex finder pass over one drive head", grader.Finder),
+		gradeVerb(a, GraderFidelity, "One fidelity grade of one drive head", grader.Fidelity),
 	)
 	return cmd
 }
