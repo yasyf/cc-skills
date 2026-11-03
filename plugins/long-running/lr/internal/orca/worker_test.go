@@ -746,7 +746,7 @@ func TestASpriteLaunchWithNoSponsorRefusesBeforeAnyCall(t *testing.T) {
 	f := newWorkerFixture(t)
 	f.sprite()
 	delete(f.env, sponsorEnv)
-	f.refusedWith("set "+sponsorEnv+" to the Sprite holding the drive's enrolled cci service key, because a worker with no relay posts nothing anyone reads; nothing was prepared")
+	f.refusedWith("set " + sponsorEnv + " to the Sprite holding the drive's enrolled cci service key, because a worker with no relay posts nothing anyone reads; nothing was prepared")
 }
 
 func TestAFailedToolInstallLeavesThePreparedWorkerUnattached(t *testing.T) {
