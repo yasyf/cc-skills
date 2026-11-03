@@ -55,15 +55,9 @@ func graphQLPages(prs []recordedPR) string {
 			for _, oid := range pr.commits {
 				commits = append(commits, map[string]any{"commit": map[string]any{"oid": oid}})
 			}
-			var rollup any
-			if pr.rollup != "" {
-				rollup = map[string]any{"state": pr.rollup}
-			}
 			nodes = append(nodes, map[string]any{
 				"number": pr.number, "headRefOid": pr.head, "author": map[string]any{"login": pr.login},
 				"labels": map[string]any{"nodes": labels}, "commits": map[string]any{"nodes": commits},
-				"mergeable": pr.merge,
-				"tip":       map[string]any{"nodes": []map[string]any{{"commit": map[string]any{"statusCheckRollup": rollup}}}},
 			})
 		}
 		encoded, err := json.Marshal(map[string]any{"data": map[string]any{"repository": map[string]any{"pullRequests": map[string]any{"nodes": nodes}}}})
@@ -84,6 +78,25 @@ type ciRow struct {
 type statusRow struct {
 	ccx.PRStatus
 	CI ciRow `json:"ci"`
+}
+
+func settleReply(prs []recordedPR) string {
+	repository := make(map[string]any, len(prs))
+	for _, pr := range prs {
+		var rollup any
+		if pr.rollup != "" {
+			rollup = map[string]any{"state": pr.rollup}
+		}
+		repository[fmt.Sprintf("r%d", pr.number)] = map[string]any{
+			"number": pr.number, "headRefOid": pr.head, "mergeable": pr.merge,
+			"tip": map[string]any{"nodes": []map[string]any{{"commit": map[string]any{"statusCheckRollup": rollup}}}},
+		}
+	}
+	encoded, err := json.Marshal(map[string]any{"data": map[string]any{"repository": repository}})
+	if err != nil {
+		panic(err)
+	}
+	return string(encoded)
 }
 
 func status(number int, overrides ...func(*statusRow)) statusRow {
@@ -115,7 +128,8 @@ func newHarness(t *testing.T, prs []recordedPR, rows ...statusRow) harness {
 		t.Fatal(err)
 	}
 	runner := &shelltest.Fake{}
-	runner.Reply(graphQLPages(prs), "ccx", "vcs", "gh", "--max-age", "0s")
+	runner.Reply(graphQLPages(prs), "ccx", "vcs", "gh", "--max-age", "0s", "--", "api", "graphql", "--paginate")
+	runner.Reply(settleReply(prs), "ccx", "vcs", "gh", "--max-age", "0s", "--", "api", "graphql")
 	runner.Reply(branchRules, "ccx", "vcs", "gh", "--max-age", "5m")
 	runner.Reply(string(statuses), "ccx", "vcs", "pr", "status")
 	cfg := config.Config{Repo: repo, Drive: "d", Checkout: "/checkouts/repo", Author: "drive-bot", Label: "drive", Trunk: "dev"}
@@ -188,6 +202,68 @@ func TestAPassReadsEachSourceOnceWhateverThePRCount(t *testing.T) {
 	}
 	if calls[1] != 3 || calls[1000] != calls[1] {
 		t.Fatalf("command runs at 1 and 1,000 open PRs = %d, %d, want 3 each", calls[1], calls[1000])
+	}
+}
+
+func settleReads(calls []shell.Command) []string {
+	var queries []string
+	for _, call := range calls {
+		if !slices.Contains(call.Argv, "graphql") || slices.Contains(call.Argv, "--paginate") {
+			continue
+		}
+		queries = append(queries, call.Argv[len(call.Argv)-1])
+	}
+	return queries
+}
+
+func TestOnlyARowLeftUnsettledCostsASettleReadInBatchesGitHubAnswers(t *testing.T) {
+	const unsettled = 60
+	prs, rows := []recordedPR{{number: 1, head: head, login: "drive-bot"}}, []statusRow{status(1)}
+	for i := 2; i < 2+unsettled; i++ {
+		prs = append(prs, recordedPR{number: i, head: head, login: "drive-bot"})
+		rows = append(rows, status(i, func(r *statusRow) {
+			if i%2 == 0 {
+				r.CI.State = "pending"
+				return
+			}
+			r.Verdict = "blocked:mergeable-unknown"
+		}))
+	}
+	h := newHarness(t, prs, rows...)
+
+	h.snapshot(t)
+
+	queries := settleReads(h.runner.Calls())
+	if len(queries) != 3 {
+		t.Fatalf("%d settle reads for %d rows, want 3 batches", len(queries), unsettled)
+	}
+	asked := 0
+	for _, query := range queries {
+		named := strings.Count(query, "pullRequest(number:")
+		if named > 25 {
+			t.Errorf("a batch of %d is past what GitHub answers before it times out", named)
+		}
+		if strings.Contains(query, "r1: pullRequest") {
+			t.Errorf("a settled row was read: %s", query)
+		}
+		asked += named
+	}
+	if asked != unsettled {
+		t.Fatalf("asked %d rows, want %d", asked, unsettled)
+	}
+}
+
+func TestTheOpenListReadLeavesTheFieldsGitHubCannotComputeForAWholePage(t *testing.T) {
+	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
+
+	h.snapshot(t)
+
+	list := strings.Join(h.runner.Calls()[0].Argv, " ")
+	if !strings.Contains(list, "--paginate") || strings.Contains(list, "statusCheckRollup") || strings.Contains(list, "mergeable") {
+		t.Fatalf("open list read = %s", list)
+	}
+	if reads := settleReads(h.runner.Calls()); len(reads) != 0 {
+		t.Fatalf("a settled pass read %v", reads)
 	}
 }
 

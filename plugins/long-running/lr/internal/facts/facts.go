@@ -30,6 +30,8 @@ const (
 	trunkFailed    = "trunk-failed"
 	trunkCancelled = "trunk-cancelled"
 	trunkMerged    = "trunk-merged"
+	settleBatch    = 25
+	settleFields   = `number headRefOid mergeable mergeStateStatus tip: commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }`
 	openQuery      = `query($owner: String!, $name: String!, $endCursor: String) {
   repository(owner: $owner, name: $name) {
     pullRequests(states: OPEN, first: 100, after: $endCursor) {
@@ -39,10 +41,7 @@ const (
         headRefOid
         author { login }
         labels(first: 50) { nodes { name } }
-        mergeable
-        mergeStateStatus
         commits(first: 100) { nodes { commit { oid } } }
-        tip: commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
       }
     }
   }
@@ -115,6 +114,9 @@ func (s Source) Snapshot(ctx context.Context) ([]machine.Facts, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read queue and CI: %w", err)
 	}
+	if err := s.settle(ctx, rows, open.prs); err != nil {
+		return nil, fmt.Errorf("read the heads the status read left unsettled: %w", err)
+	}
 	required, err := s.requiredChecks(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("read required checks: %w", err)
@@ -151,6 +153,52 @@ func (s Source) statuses(ctx context.Context, numbers []int) ([]statusRow, error
 	}
 	var rows []statusRow
 	return rows, json.Unmarshal([]byte(result.Stdout), &rows)
+}
+
+func (s Source) settle(ctx context.Context, rows []statusRow, prs map[int]pullRequest) error {
+	unsettled := make([]int, 0, len(rows))
+	for _, row := range rows {
+		if row.State == "OPEN" && (row.CI.State == "pending" || strings.Contains(row.Verdict, "mergeable-unknown")) {
+			unsettled = append(unsettled, row.Number)
+		}
+	}
+	for batch := range slices.Chunk(unsettled, settleBatch) {
+		out, err := s.graphQL(ctx, settleQuery(batch))
+		if err != nil {
+			return err
+		}
+		var reply struct {
+			Data struct {
+				Repository map[string]pullRequest `json:"repository"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal([]byte(out), &reply); err != nil {
+			return err
+		}
+		for _, read := range reply.Data.Repository {
+			pr := prs[read.Number]
+			pr.HeadRefOid, pr.Mergeable, pr.MergeStateStatus, pr.Tip = read.HeadRefOid, read.Mergeable, read.MergeStateStatus, read.Tip
+			prs[read.Number] = pr
+		}
+	}
+	return nil
+}
+
+func settleQuery(numbers []int) string {
+	var aliases strings.Builder
+	for _, number := range numbers {
+		fmt.Fprintf(&aliases, "r%d: pullRequest(number: %d) { %s } ", number, number, settleFields)
+	}
+	return "query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { " + aliases.String() + "} }"
+}
+
+func (s Source) graphQL(ctx context.Context, query string, flags ...string) (string, error) {
+	owner, name, found := strings.Cut(s.Repo, "/")
+	if !found {
+		return "", fmt.Errorf("repo %q is not owner/name", s.Repo)
+	}
+	args := append(append([]string{"api", "graphql"}, flags...), "-f", "owner="+owner, "-f", "name="+name, "-f", "query="+query)
+	return s.CCX.GH(ctx, ccx.MaxAgeFresh, args...)
 }
 
 func (s Source) requiredChecks(ctx context.Context) ([]string, error) {
@@ -329,11 +377,7 @@ func (pr pullRequest) mergeableAt(head string) bool {
 }
 
 func (s Source) readOpen(ctx context.Context) (openRead, error) {
-	owner, name, found := strings.Cut(s.Repo, "/")
-	if !found {
-		return openRead{}, fmt.Errorf("repo %q is not owner/name", s.Repo)
-	}
-	out, err := s.CCX.GH(ctx, ccx.MaxAgeFresh, "api", "graphql", "--paginate", "-f", "owner="+owner, "-f", "name="+name, "-f", "query="+openQuery)
+	out, err := s.graphQL(ctx, openQuery, "--paginate")
 	if err != nil {
 		return openRead{}, err
 	}
