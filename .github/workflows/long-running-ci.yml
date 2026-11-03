@@ -188,7 +188,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: yasyf/cc-inbox
-          ref: fc9d07218ae846110f017ff7281679d5f2d4440e
+          ref: 7cfdb7a60721ee0a4462172714e8c20c5326c34a
           path: .ci-daemon-cci
           persist-credentials: false
       - uses: actions/setup-go@v6

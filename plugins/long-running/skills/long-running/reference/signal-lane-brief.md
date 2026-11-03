@@ -48,8 +48,7 @@ Post one record per pass that had anything, never more than one every 60 seconds
 never a summary:
 `cci post --lane signal --drive <drive> --kind note --to owner-relay --text "signal: look at <seq>[,<seq>...] (<one to four words naming the kind: decision | mechanism | release | incident | measurement | contradiction | owner | question | odd>)"`
 Keep the text under 300 characters and batch seqs by kind. A pass with nothing posts
-nothing. Once an hour post one `--kind state --to owner-relay` line with the last seq read
-and the count flagged.
+nothing.
 
 When the communicator tells you the path of the coordinator's session transcript, also flag byte
 offsets of chunks where it reasons about a decision, by the same rule: a pointer, never a

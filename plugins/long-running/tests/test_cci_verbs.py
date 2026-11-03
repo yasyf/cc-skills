@@ -94,7 +94,7 @@ def test_lr_names_cci_where_it_runs_it(text: str, words: list[tuple[str, ...]]) 
 def test_the_check_reads_lr_and_the_pack_text() -> None:
     read = {(path.relative_to(PACK).as_posix(), words) for path, words in named()}
 
-    assert ("lr/internal/wait/wait.go", ("tail", "--drive", "--cursor", "--seed", "--to")) in read
+    assert ("lr/internal/wait/wait.go", ("tail", "--drive", "--cursor", "--seed", "--to", "--mail")) in read
     assert ("lr/internal/orca/worker.go", ("relay", "join", "--instance", "--drive", "--url", "--ttl", "--owner")) in read
 
 
