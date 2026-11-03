@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/pass"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
@@ -56,22 +57,21 @@ func finderAsks(f *machine.Facts) { f.Finder = machine.FinderAsk }
 func noTap(f *machine.Facts)      { f.Tap = "" }
 
 type posted struct {
-	kind string
 	to   []string
-	body map[string]any
+	body bus.Body
 }
 
 type recorder struct{ posts []posted }
 
-func (r *recorder) post(kind string, to []string, body map[string]any) error {
-	r.posts = append(r.posts, posted{kind, to, body})
+func (r *recorder) post(to []string, body bus.Body) error {
+	r.posts = append(r.posts, posted{to, body})
 	return nil
 }
 
 func (r *recorder) of(kind string) []posted {
 	kept := make([]posted, 0, len(r.posts))
 	for _, p := range r.posts {
-		if p.kind == kind {
+		if p.body.Kind() == kind {
 			kept = append(kept, p)
 		}
 	}
@@ -119,8 +119,8 @@ func TestAFindingWithoutAVerdictIsPostedToTheOwningLaneWithItsDeadline(t *testin
 	run(t, s, r, t0, all, facts(45470, finderAsks))
 
 	item := openOne(t, s, 45470)
-	want := []posted{{"item", []string{"lane-7"}, map[string]any{
-		"item": item.ID, "action": "verdict", "pr": 45470, "head": head, "mover": "lane", "deadline": "2026-10-30T21:20:00Z",
+	want := []posted{{[]string{"lane-7"}, bus.Item{
+		Item: item.ID, Action: "verdict", PR: 45470, Head: head, Mover: "lane", Deadline: "2026-10-30T21:20:00Z",
 	}}}
 	if !reflect.DeepEqual(r.posts, want) {
 		t.Fatalf("posts = %+v", r.posts)
@@ -132,7 +132,8 @@ func TestAMissingTapIsTheOwnersItem(t *testing.T) {
 
 	run(t, s, r, t0, all, facts(45583, noTap))
 
-	if len(r.posts) != 1 || r.posts[0].kind != "item" || r.posts[0].to[0] != "owner" || r.posts[0].body["action"] != "tap" {
+	item, isItem := r.posts[0].body.(bus.Item)
+	if len(r.posts) != 1 || !isItem || r.posts[0].to[0] != "owner" || item.Action != "tap" {
 		t.Fatalf("posts = %+v", r.posts)
 	}
 }
@@ -187,8 +188,8 @@ func TestAnOverdueLaneItemEscalatesToRootOnce(t *testing.T) {
 	if !reflect.DeepEqual(late.Escalated, want) || len(later.Escalated) != 0 {
 		t.Fatalf("late = %+v, later = %+v", late.Escalated, later.Escalated)
 	}
-	body := map[string]any{"subject": "org/repo#45470", "cause": "verdict overdue"}
-	if !reflect.DeepEqual(r.of("escalation"), []posted{{"escalation", []string{"root"}, body}}) {
+	body := bus.Escalation{Subject: "org/repo#45470", Cause: "verdict overdue"}
+	if !reflect.DeepEqual(r.of("escalation"), []posted{{[]string{"root"}, body}}) {
 		t.Fatalf("posts = %+v", r.of("escalation"))
 	}
 }
@@ -239,8 +240,8 @@ func TestAWorkerSilentFifteenMinutesLosesItsItemsAndRootHearsOnce(t *testing.T) 
 	if len(again.Released) != 0 {
 		t.Fatalf("again = %+v", again.Released)
 	}
-	body := map[string]any{"subject": "worker:lane-7", "cause": "silent 15 minutes"}
-	if !reflect.DeepEqual(r.of("escalation"), []posted{{"escalation", []string{"root"}, body}}) {
+	body := bus.Escalation{Subject: "worker:lane-7", Cause: "silent 15 minutes"}
+	if !reflect.DeepEqual(r.of("escalation"), []posted{{[]string{"root"}, body}}) {
 		t.Fatalf("posts = %+v", r.of("escalation"))
 	}
 }
@@ -308,7 +309,7 @@ func TestALaneItemForAPRNoLaneOwnsWaitsForItsDeadlineToReachRoot(t *testing.T) {
 	run(t, s, r, t0, all, given)
 	run(t, s, r, t0.Add(20*time.Minute), all, given)
 
-	want := []posted{{"escalation", []string{"root"}, map[string]any{"subject": "org/repo#45470", "cause": "verdict overdue"}}}
+	want := []posted{{[]string{"root"}, bus.Escalation{Subject: "org/repo#45470", Cause: "verdict overdue"}}}
 	if !reflect.DeepEqual(r.posts, want) {
 		t.Fatalf("posts = %+v", r.posts)
 	}
@@ -323,8 +324,8 @@ func TestAnOverdueEnqueueNamesWhatTheQueueSaid(t *testing.T) {
 	}
 	run(t, s, r, t0.Add(10*time.Minute), all, facts(45583, nil))
 
-	want := []posted{{"escalation", []string{"root"}, map[string]any{
-		"subject": "org/repo#45583", "cause": "enqueue overdue; the queue said exit 1: #45583 BLOCKED required check pending",
+	want := []posted{{[]string{"root"}, bus.Escalation{
+		Subject: "org/repo#45583", Cause: "enqueue overdue; the queue said exit 1: #45583 BLOCKED required check pending",
 	}}}
 	if !reflect.DeepEqual(r.posts, want) {
 		t.Fatalf("posts = %+v", r.posts)

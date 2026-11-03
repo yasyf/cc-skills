@@ -5,11 +5,12 @@ import (
 	"slices"
 	"time"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
-type Post func(kind string, to []string, body map[string]any) error
+type Post func(to []string, body bus.Body) error
 
 type Act struct {
 	Facts   machine.Facts
@@ -99,8 +100,8 @@ func classifyOne(s *store.Store, f machine.Facts, now time.Time, post Post, live
 	if item.Created.Equal(now) {
 		out.Opened = append(out.Opened, item)
 		if to := audience(verdict, f); verdict.Mover != machine.MoverSupervisor && slices.Contains(live, verdict.Mover) && to != "" {
-			body := map[string]any{"item": item.ID, "action": string(verdict.Action), "pr": f.Number, "head": f.Head, "mover": string(verdict.Mover), "deadline": store.Stamp(item.Deadline)}
-			if err := post("item", []string{to}, body); err != nil {
+			body := bus.Item{Item: item.ID, Action: string(verdict.Action), PR: f.Number, Head: f.Head, Mover: string(verdict.Mover), Deadline: store.Stamp(item.Deadline)}
+			if err := post([]string{to}, body); err != nil {
 				return err
 			}
 		}
@@ -189,7 +190,7 @@ func escalate(s *store.Store, subject, cause string, to machine.Mover, now time.
 		return err
 	}
 	out.Escalated = append(out.Escalated, Escalated{subject, cause, to})
-	return post("escalation", []string{string(to)}, map[string]any{"subject": subject, "cause": cause})
+	return post([]string{string(to)}, bus.Escalation{Subject: subject, Cause: cause})
 }
 
 func audience(verdict machine.Verdict, f machine.Facts) string {

@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/pass"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
@@ -69,8 +70,8 @@ func TestTheShadowPostsOneNoteForEachNewDisagreementAndNothingElse(t *testing.T)
 	shadow(t, s, r, t0, held)
 	shadow(t, s, r, t0.Add(3*time.Minute), held)
 
-	want := []posted{{"note", []string{"supervisor"}, map[string]any{
-		"text": "shadow #2 at " + head[:12] + ": the runner queued it; v2 holds it: no tap",
+	want := []posted{{[]string{"supervisor"}, bus.Note{
+		Text: "shadow #2 at " + head[:12] + ": the runner queued it; v2 holds it: no tap",
 	}}}
 	if !reflect.DeepEqual(r.posts, want) {
 		t.Fatalf("posts = %+v", r.posts)
