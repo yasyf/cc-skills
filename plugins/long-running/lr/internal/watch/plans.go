@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
@@ -20,23 +21,24 @@ const (
 	deadlineAttr   = "deadline"
 	stepAttr       = "step:"
 	clockTime      = `\d{1,2}(?::\d{2})?\s*[AP]\.?M\.?|\d{1,2}:\d{2}`
+	planWindow     = time.Hour
 )
 
 var (
 	namedDeadline = regexp.MustCompile(`(?i)\b(?:by|before|until|due(?:\s+(?:by|at))?)\s+(` + clockTime + `)\b`)
 	leadingClock  = regexp.MustCompile(`(?i)^(?:` + clockTime + `)\b`)
-	machineLanes  = []string{Lane, "stall-watch", "desk-runner"}
+	machineLanes  = []string{Lane, "stall-watch", "desk-runner", lanes.Self}
 )
 
-func Unplanned(records []client.Record) []Wait {
+func Unplanned(records []client.Record, now time.Time) []Wait {
 	var waits []Wait
 	for _, record := range records {
 		deadline := deadlineOf(record)
-		if deadline == "" || record.Kind == "escalation" || record.Status == "closed" || slices.Contains(machineLanes, record.Lane) || planned(record.Fields.Attrs) || settled(records, record.Seq) {
+		if deadline == "" || record.Kind == "escalation" || record.Status == "closed" || now.Sub(record.At) > planWindow || slices.Contains(machineLanes, record.Lane) || planned(record.Fields.Attrs) || settled(records, record.Seq) {
 			continue
 		}
 		waits = append(waits, Wait{
-			Kind: planKind, Repo: PlanNamespace, Number: int(record.Seq), Mover: machine.MoverLane, Since: record.At, To: lanes.OwnerRelay,
+			Kind: planKind, Repo: PlanNamespace, Number: int(record.Seq), Mover: machine.MoverLane, Since: record.At, To: record.Lane,
 			Cause: fmt.Sprintf("%s: %s from %s names a deadline by %s and carries no owner, steps or times: %s; %s owes a reply carrying --attr %s=<lane> and one --attr %s<n>=<clock> <what> per step", unplannedClass, record.Name(), record.Lane, deadline, clip(record.Text), record.Lane, ownerAttr, stepAttr),
 		})
 	}
