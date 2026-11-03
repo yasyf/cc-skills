@@ -196,6 +196,17 @@ again only after the row changes, and never pages a row under `## Done`. Beside 
 every owner update carries it as its Drive tooling section. Each item ends in a merged PR with
 tests, installed by the drive's one installer (R14).
 
+The meta lane also finds waste itself; a person noticing it first is the failure.
+`lr waste` prints a ranked list under 4 KB for a window, last hour by default, with no
+LLM call, and the supervisor runs it hourly and sends the meta lane one note of what is new
+or has grown; a quiet hour sends nothing. The meta lane reads it each time it posts and
+opens an item for what it finds, naming the signal; a lane warning about clobbering or
+racing opens a fix, never a report. The `waste` section of `runner.json`
+holds `lane` (the meta lane's name, default `meta`), `ignore` (recipients that never post
+by design), `growth` (the factor a repeated finding must reach to post again, default 2),
+`fan_out_recipients`, `transcripts` (the most it reads an hour, largest first), `hook_logs`,
+and `floors` per signal.
+
 **The signal lane** is a standing Sonnet session the communicator launches at drive
 start from [signal-lane-brief.md](reference/signal-lane-brief.md), bound to lane
 `signal`. It tails the coordinator's whole cci feed and posts the communicator

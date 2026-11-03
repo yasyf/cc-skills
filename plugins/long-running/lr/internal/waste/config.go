@@ -19,6 +19,7 @@ type Floors struct {
 	Reads      int64 `json:"reads"`
 	Cost       int64 `json:"cost"`
 	Duplicates int64 `json:"duplicates"`
+	Races      int64 `json:"races"`
 }
 
 type Config struct {
@@ -46,6 +47,7 @@ func defaults() Config {
 			Reads:      5,
 			Cost:       20_000_000,
 			Duplicates: 2,
+			Races:      1,
 		},
 	}
 }

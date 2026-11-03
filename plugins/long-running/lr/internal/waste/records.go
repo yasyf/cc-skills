@@ -14,7 +14,11 @@ import (
 
 const shapeWords = 4
 
-var quotedWords = regexp.MustCompile(`"([^"]{24,})"|“([^”]{24,})”`)
+var (
+	quotedWords  = regexp.MustCompile(`"([^"]{24,})"|“([^”]{24,})”`)
+	raceWords    = regexp.MustCompile(`(?i)(?:^|[^\w-])(?:clobber\w*|rac(?:e|es|ed|ing))\b`)
+	warningKinds = []string{"report", "note", "state", "blocker", "blocked", "defect", "evidence", "mechanism"}
+)
 
 func deadRecipients(ctx context.Context, src Sources, cfg Config, drive string, records []client.Record) ([]Finding, error) {
 	posted := map[string]bool{}
@@ -112,6 +116,27 @@ func duplicateAsks(cfg Config, records []client.Record) []Finding {
 		}
 		if len(lanes) > 1 && size >= cfg.Floors.Duplicates {
 			findings = append(findings, Finding{signalDuplicate, fmt.Sprintf("%s/%.120s", signalDuplicate, words), size, "asks", ranked(lanes, 3), fmt.Sprintf("%.60q", words), cfg.Floors.Duplicates})
+		}
+	}
+	return findings
+}
+
+func raceWarnings(cfg Config, records []client.Record) []Finding {
+	type warning struct{ lane, words string }
+	counts := map[warning]int64{}
+	newest := map[warning]client.Record{}
+	for _, record := range records {
+		if record.Lane == cfg.Lane || !slices.Contains(warningKinds, string(record.Kind)) || !raceWords.MatchString(record.Text) {
+			continue
+		}
+		key := warning{record.Lane, shape(spoken(record.Text), shapeWords)}
+		counts[key]++
+		newest[key] = record
+	}
+	var findings []Finding
+	for key, size := range counts {
+		if size >= cfg.Floors.Races {
+			findings = append(findings, Finding{signalRace, signalRace + "/" + key.lane + "/" + key.words, size, "warnings", key.lane, fmt.Sprintf("open a fix, not a report: %s %.100q", newest[key].Name(), spoken(newest[key].Text)), cfg.Floors.Races})
 		}
 	}
 	return findings
