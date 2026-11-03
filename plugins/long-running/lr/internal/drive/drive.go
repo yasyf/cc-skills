@@ -95,12 +95,19 @@ func entries() ([]Entry, error) {
 	return found, nil
 }
 
-func Named(name string) (Entry, error) {
+func Live() ([]Entry, error) {
 	found, err := entries()
+	if err != nil {
+		return nil, err
+	}
+	return slices.DeleteFunc(found, func(entry Entry) bool { return len(entry.Sessions) == 0 }), nil
+}
+
+func Named(name string) (Entry, error) {
+	live, err := Live()
 	if err != nil {
 		return Entry{}, err
 	}
-	live := slices.DeleteFunc(found, func(entry Entry) bool { return len(entry.Sessions) == 0 })
 	for _, matches := range []func(Entry) bool{
 		func(entry Entry) bool { return entry.Drive == name },
 		func(entry Entry) bool { return entry.Bus() == name },
