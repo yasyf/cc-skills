@@ -1235,7 +1235,7 @@ class OrcaArgvTest(unittest.TestCase):
 PROBE = """
 import importlib.util, json, os, sys
 spec = importlib.util.spec_from_file_location("orca_gc", sys.argv[1])
-gc = importlib.util.module_from_spec(spec)
+gc = sys.modules["orca_gc"] = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(gc)
 print(json.dumps([gc.CC_REMOTE, os.environ.get("CC_REMOTE_CONFIG")]))
 """
