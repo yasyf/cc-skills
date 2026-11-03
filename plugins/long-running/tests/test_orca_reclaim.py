@@ -12,7 +12,7 @@ from importlib.machinery import SourceFileLoader
 from pathlib import Path
 from unittest import mock
 
-SCRIPT = Path(__file__).resolve().parents[1] / "skills/long-running/scripts/orca-reclaim"
+SCRIPT = Path(__file__).resolve().parents[1] / "skills/long-running/scripts/orca-reclaim.py"
 loader = SourceFileLoader("orca_gc", str(SCRIPT))
 orca_gc = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
 sys.modules[loader.name] = orca_gc
@@ -325,7 +325,8 @@ class GcTest(unittest.TestCase):
                 return super().remove(worktree, environment)
 
         trees = [f"{WT}-{n}" for n in range(3)]
-        orca = SlowOrca([row(f"ctx_{n}", worktree=tree) for n, tree in enumerate(trees)])
+        terminals = {tree: [orca_gc.Terminal(f"term_ctx_{n}", "claude", "✳ lane", 0)] for n, tree in enumerate(trees)}
+        orca = SlowOrca([row(f"ctx_{n}", worktree=tree) for n, tree in enumerate(trees)], terminals=terminals)
         with tempfile.TemporaryDirectory() as state, mock.patch.object(orca_gc, "REMOVING", Path(state) / "remove.lock"):
             tally, _ = run_gc(orca, FakeGit({tree: checkout(tree) for tree in trees}))
         self.assertEqual((tally, orca.most), ({"removed": 3}, 1))

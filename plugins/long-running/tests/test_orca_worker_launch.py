@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-SCRIPT = Path(__file__).resolve().parents[1] / "skills/long-running/scripts/orca-worker-launch"
+SCRIPT = Path(__file__).resolve().parents[1] / "skills/long-running/scripts/orca-worker-launch.sh"
 RUN = "run_1"
 LANE = "lane-a"
 WORKSPACE = "pool-spare"
