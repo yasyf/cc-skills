@@ -38,7 +38,13 @@ type Move struct {
 	To     string
 }
 
+type Said struct {
+	Facts machine.Facts
+	Text  string
+}
+
 type Done struct {
+	Said        []Said
 	Enqueued    []Head
 	Resubmitted []Head
 	Dequeued    []int
@@ -100,6 +106,7 @@ func enqueue(ctx context.Context, s *store.Store, queue Queue, f machine.Facts, 
 		if _, err := s.PutFact(f.Repo, f.Number, f.Head, pass.EnqueuedFact, said, now); err != nil {
 			return err
 		}
+		done.Said = append(done.Said, Said{f, said})
 	}
 	if f.Queue != machine.QueueEvicted {
 		done.Enqueued = append(done.Enqueued, Head{f.Number, f.Head})

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -79,5 +80,41 @@ func TestALandedRecordSkipsABoardDeskWithNoLiveLaneInsteadOfTellingRootEachTime(
 	}
 	if len(posted) != 1 || !reflect.DeepEqual(posted[0].To, []string{"lane-7"}) {
 		t.Fatalf("posted = %+v, want one record to lane-7", posted)
+	}
+}
+
+func TestEachHeadCarriesOneRecordOfWhatTheQueueSaid(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	ctx := context.Background()
+	queued := machine.Facts{Repo: monorepo, Number: 48897, Head: "1c40b68010aa", Lane: "ssql-3"}
+	refused := machine.Facts{Repo: monorepo, Number: 48476, Head: "9b837a86bbcc", Lane: "ssql-4"}
+	unowned := machine.Facts{Repo: monorepo, Number: 48165, Head: "dde89028ddee"}
+	answers := []landing.Said{
+		{Facts: queued, Text: "exit 0: #48897 QUEUED 1c40b68010 native stack covers #48897"},
+		{Facts: refused, Text: "exit 1: enqueued nothing: no approved green bottom prefix"},
+		{Facts: unowned, Text: "timed out after 300s"},
+	}
+
+	for range 2 {
+		if err := landing.Settle(ctx, "d", answers); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	posted, err := client.Tail(ctx, client.Query{Drive: "d", Kinds: []string{"report"}, Lanes: []string{"supervisor"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var said []string
+	for _, record := range posted {
+		said = append(said, record.To[0]+": "+record.Text)
+	}
+	want := []string{
+		"ssql-3: QUEUED #48897 at 1c40b68010: #48897 QUEUED 1c40b68010 native stack covers #48897",
+		"ssql-4: REFUSED #48476 at 9b837a86bb: exit 1: enqueued nothing: no approved green bottom prefix",
+		"root: REFUSED #48165 at dde89028dd: timed out after 300s",
+	}
+	if !slices.Equal(said, want) {
+		t.Fatalf("got %q, want %q", said, want)
 	}
 }
