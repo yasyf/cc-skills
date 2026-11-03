@@ -345,9 +345,8 @@ func Gaps(rulings []Ruling, owed []Owed) []Gap {
 			if symbolic {
 				gap = Gap{Target: tail(target), Symbol: true, Paths: ruling.Paths}
 			}
-			if seen, ok := found[gap.Target]; ok {
-				gap.Keys, gap.Paths = seen.Keys, union(seen.Paths, gap.Paths)
-			}
+			seen := found[gap.Target]
+			gap.Keys, gap.Paths = seen.Keys, union(seen.Paths, gap.Paths)
 			if !slices.Contains(gap.Keys, ruling.Key) {
 				gap.Keys = append(gap.Keys, ruling.Key)
 			}
