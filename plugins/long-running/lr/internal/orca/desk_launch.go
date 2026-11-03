@@ -31,7 +31,6 @@ const (
 
 var (
 	launchedLine = regexp.MustCompile(`(?m)^(\S+) (ready|unsupervised) task=\S+ dispatch=(\S+) terminal=(\S+) worktree=\S+$`)
-	spriteLane   = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,54}$`)
 	pinBranch    = regexp.MustCompile(`^(?:dev|(?:[\w.-]+/)*cc-remote-\d+\.\d+\.\d+)$`)
 	spriteID     = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
 	spriteModels = map[string]string{"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5", "sol": "gpt-6.1-sol", "codex": "gpt-6.1-sol", "astra": "gpt-6-astra"}
