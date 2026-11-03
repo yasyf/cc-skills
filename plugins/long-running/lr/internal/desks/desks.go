@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -35,6 +36,12 @@ const (
 )
 
 type desk struct{ name, model, effort string }
+
+type owing struct {
+	desk
+	lane, from string
+	text       []byte
+}
 
 var (
 	standing = []desk{
@@ -123,44 +130,72 @@ func (d drive) brief(lane string) string { return filepath.Join(d.state, lane, "
 
 func (d drive) runnerConfig() string { return filepath.Join(d.state, "runner.json") }
 
-func (d drive) owed(out io.Writer) ([]desk, error) {
+func (d drive) owed(out io.Writer) ([]owing, error) {
 	s, err := store.Open(filepath.Join(d.state, lanes.StoreFile))
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = s.Close() }()
-	rows, err := lanes.LivenessRows(s)
+	rows, err := s.AllLanes()
 	if err != nil {
 		return nil, err
 	}
-	var owed []desk
+	heard, err := s.Heard()
+	if err != nil {
+		return nil, err
+	}
+	taken := map[string]bool{}
+	for _, row := range rows {
+		taken[row.Name] = true
+	}
+	for name := range heard {
+		taken[name] = true
+	}
+	var owed []owing
 	var faults []error
 	for _, standingDesk := range standing {
-		if held := holder(rows, standingDesk.name); held != "" {
-			fmt.Fprintf(out, "%s is up as %s\n", standingDesk.name, held)
-			continue
+		next := owing{desk: standingDesk, lane: standingDesk.name, from: d.brief(standingDesk.name)}
+		if row, found, live := newest(rows, standingDesk.name); found {
+			if live {
+				fmt.Fprintf(out, "%s is up as %s\n", standingDesk.name, row.Name)
+				continue
+			}
+			next.lane, next.from = lanes.SuccessorName(row.Name, taken), row.Brief
+			taken[next.lane] = true
+			fmt.Fprintf(out, "%s is %s as %s, so %s launches from its brief %s\n", standingDesk.name, row.State, row.Name, next.lane, row.Brief)
 		}
-		text, err := os.ReadFile(d.brief(standingDesk.name))
+		text, err := os.ReadFile(next.from)
 		switch {
 		case err != nil:
 			faults = append(faults, fmt.Errorf("%s has no brief to launch: %w", standingDesk.name, err))
 		case placedLocal.Match(text):
-			faults = append(faults, fmt.Errorf("%s: %s says place=local, and every desk runs remote", standingDesk.name, d.brief(standingDesk.name)))
+			faults = append(faults, fmt.Errorf("%s: %s says place=local, and every desk runs remote", standingDesk.name, next.from))
 		default:
-			owed = append(owed, standingDesk)
+			next.text = text
+			owed = append(owed, next)
 		}
 	}
 	return owed, errors.Join(faults...)
 }
 
-func holder(rows []lanes.Liveness, name string) string {
-	successor := regexp.MustCompile(`^` + regexp.QuoteMeta(name) + `(-\d+)?$`)
-	for _, row := range rows {
-		if successor.MatchString(row.Lane) && row.Live && slices.Contains(up, store.LaneState(row.State)) {
-			return row.Lane
+func newest(rows []store.Lane, role string) (row store.Lane, found, live bool) {
+	numbered := regexp.MustCompile(`^` + regexp.QuoteMeta(role) + `(?:-(\d+))?$`)
+	newestNumber := 0
+	for _, lane := range rows {
+		match := numbered.FindStringSubmatch(lane.Name)
+		if match == nil {
+			continue
+		}
+		number := 1
+		if match[1] != "" {
+			number, _ = strconv.Atoi(match[1])
+		}
+		laneLive := slices.Contains(up, lane.State)
+		if !found || laneLive && !live || laneLive == live && number > newestNumber {
+			row, found, live, newestNumber = lane, true, laneLive, number
 		}
 	}
-	return ""
+	return row, found, live
 }
 
 func (d drive) beating(ctx context.Context, runner string) (bool, error) {
@@ -224,16 +259,16 @@ func (d drive) startLandingRunner(ctx context.Context, out io.Writer) error {
 	return err
 }
 
-func (d drive) launch(ctx context.Context, out io.Writer, owed []desk) error {
+func (d drive) launch(ctx context.Context, out io.Writer, owed []owing) error {
 	verdicts := make([]string, len(owed))
 	faults := make([]error, len(owed))
 	var launches sync.WaitGroup
-	for i, standingDesk := range owed {
+	for i, next := range owed {
 		launches.Go(func() {
-			verdict, err := d.run(ctx, "desk-launch.py", "lane", standingDesk.name, standingDesk.model, standingDesk.effort, d.brief(standingDesk.name), "--drive", d.config.Drive, "--lane", lanes.Root)
+			verdict, err := d.launchOne(ctx, next)
 			verdicts[i] = verdict
 			if err != nil {
-				faults[i] = fmt.Errorf("%s: %w", standingDesk.name, err)
+				faults[i] = fmt.Errorf("%s: %w", next.lane, err)
 			}
 		})
 	}
@@ -242,4 +277,17 @@ func (d drive) launch(ctx context.Context, out io.Writer, owed []desk) error {
 		fmt.Fprint(out, verdict)
 	}
 	return errors.Join(faults...)
+}
+
+func (d drive) launchOne(ctx context.Context, next owing) (string, error) {
+	brief := d.brief(next.lane)
+	if next.from != brief {
+		if err := os.MkdirAll(filepath.Dir(brief), 0o750); err != nil {
+			return "", err
+		}
+		if err := os.WriteFile(brief, next.text, 0o600); err != nil {
+			return "", err
+		}
+	}
+	return d.run(ctx, "desk-launch.py", "lane", next.lane, next.model, next.effort, brief, "--drive", d.config.Drive, "--lane", lanes.Root)
 }

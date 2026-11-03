@@ -725,7 +725,7 @@ func (e Env) Deps(ctx context.Context) (Deps, error) {
 	launcher := e.tool("desk-launch.py")
 	trunk := deletions.Of(e.Runner, e.Config)
 	return Deps{
-		Drive: e.Config.Drive, Parent: e.Config.Parent, Checkout: e.Config.Checkout, Briefs: briefs,
+		Drive: e.Config.Drive, Parent: e.Config.Parent, Checkout: e.Config.Checkout, State: e.State, Briefs: briefs,
 		HandoffBrief: filepath.Join(e.plugin(), "skills", "long-running", "reference", "handoff-subagent-brief.md"),
 		Records:      e.Records(ctx),
 		Who:          e.Who(ctx),

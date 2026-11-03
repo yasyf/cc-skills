@@ -121,7 +121,7 @@ func succeeds(name, old string) bool {
 	return other == base && later > n
 }
 
-func successorName(name string, taken map[string]bool) string {
+func SuccessorName(name string, taken map[string]bool) string {
 	base, n := family(name)
 	for taken[fmt.Sprintf("%s-%d", base, n+1)] {
 		n++

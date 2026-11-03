@@ -139,7 +139,7 @@ func spawnedBy(r Record) (Spawn, bool) {
 	default:
 		return Spawn{}, false
 	}
-	if !strings.HasPrefix(brief, "/") || slices.Contains(helperRoles, r.Attr("role")) || strings.HasSuffix(name, "-handoff") {
+	if !strings.HasPrefix(brief, "/") || strings.HasSuffix(name, "-handoff") || (slices.Contains(helperRoles, r.Attr("role")) && must(BriefOf(brief)).Standing == "") {
 		return Spawn{}, false
 	}
 	return Spawn{
