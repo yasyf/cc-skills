@@ -263,6 +263,15 @@ def test_two_picks_on_one_card_of_many_questions_each_name_their_own_question() 
     ]
 
 
+def test_a_pick_names_the_head_its_card_asked_about() -> None:
+    """A pick on a card whose PR moved names the head it was made on, so no reader counts it for the new head."""
+    event = {"type": "choice.selected", "blockId": "fix-rows", "optionIds": ["fix-rows-build"], "heads": {"org/repo#48855": "abc1234"}}
+
+    assert board_watch.announced(event, "board-1", GROUP_DOC) == (
+        "Owner on board board-1, Tooling fixes the watchers propose, 9. Release rows read the release itself (fix-rows): picked \u201cBuild\u201d at org/repo#48855 abc1234, at {at}"
+    )
+
+
 def test_a_restart_keys_events_after_the_lines_already_recorded(tmp_path: Path) -> None:
     first, second = RecordedShell(), RecordedShell()
     run(tmp_path, first)

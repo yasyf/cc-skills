@@ -189,7 +189,7 @@ func passCommand(a *app.App, opened func() (drive.Entry, string, error)) *cobra.
 				return err
 			}
 			hooks := postHooks(c.Context(), entry.Bus(), lane, repository)
-			block, err := Pass{s, repository, a.Runner, session, hooks, a.Now}.Run(c.Context(), snapshot)
+			block, err := Pass{s, repository, a.Runner, a.CCX, session, hooks, a.Now}.Run(c.Context(), snapshot)
 			if err != nil {
 				return err
 			}
