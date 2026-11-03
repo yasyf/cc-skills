@@ -323,7 +323,7 @@ LEDGER=$(ledger.py init --title "desk: $DRIVE")
 drive.py start --ledger "$LEDGER" [--orca-run <run>] [--state-dir ~/.claude/scratch/<slug>] [--program <plan slug>]
 cci subscribe --drive <drive> --reader owner-relay --kind report,ask
 drive_supervisor.py install --config <state dir>/lr.json
-lr coordinator start   # today: desk-launch.py lane root opus xhigh <coordinator brief>
+lr coordinator start   # today: desk-launch.py lane root opus xhigh <state dir>/root/brief.md
 ```
 
 The bridge launches the coordinator as a sibling Orca session bound as lane `root`

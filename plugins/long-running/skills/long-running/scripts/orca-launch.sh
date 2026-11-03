@@ -384,10 +384,11 @@ spec() {
   SPEC=$(pointer "$LINK")
 }
 
+REBIND="post the launch to the drive's orca runner, whose terminal coordinates the Run: desk-launch.py lane $LANE $MODEL $EFFORT $BRIEF; a drive with no runner rebinds from its coordinator's Orca terminal: orca orchestration run-use --id $RUN"
 orca orchestration run-current --full --json >"$STATE/$LANE.binding.json" 2>&1 || :
 BOUND=$(jq -r '.result.run.id // empty' "$STATE/$LANE.binding.json" 2>/dev/null) || BOUND=
 [ "$BOUND" = "$RUN" ] ||
-  fail "coordinator binding: terminal ${ORCA_TERMINAL_HANDLE:-unset} coordinates ${BOUND:-no Run}, not $RUN ($(orca_error "$STATE/$LANE.binding.json")); from the coordinator's Orca terminal run: orca orchestration run-use --id $RUN"
+  fail "coordinator binding: terminal ${ORCA_TERMINAL_HANDLE:-unset} coordinates ${BOUND:-no Run}, not $RUN ($(orca_error "$STATE/$LANE.binding.json")); $REBIND"
 
 set -- --parent-worktree "path:$PARENT"
 [ "$AGENT" != incident ] && [ "${ORCA_LAUNCH_NO_PARENT:-}" != 1 ] || set -- --no-parent
@@ -615,10 +616,10 @@ elif [ "$STARTED" != 0 ]; then
       [ -z "$MADE$LOST" ] || KEPT="$KEPT worktree=$WT"
       ;;
   esac
-  REBIND=
+  FENCED=
   [ "$REFUSED" != consumer_fenced ] ||
-    REBIND="; terminal ${ORCA_TERMINAL_HANDLE:-unset} is not the Run's coordinator: from the coordinator's Orca terminal run orca orchestration run-use --id $RUN"
-  fail "worker-start${TERMINAL:+ terminal=$TERMINAL}: $(orca_error "$RECEIPT.new" "$STATE/$LANE.worker.err")$REBIND"
+    FENCED="; terminal ${ORCA_TERMINAL_HANDLE:-unset} is not the Run's coordinator: $REBIND"
+  fail "worker-start${TERMINAL:+ terminal=$TERMINAL}: $(orca_error "$RECEIPT.new" "$STATE/$LANE.worker.err")$FENCED"
 fi
 if [ "$AGENT" != claude ] && [ -n "$TERMINAL" ] &&
   [ "$(jq -r '.result.failedStage // empty' "$RECEIPT")" = agent_readiness ]; then

@@ -362,8 +362,10 @@ def own_lane(evt: BaseHookEvent) -> str | None:
     return None if lane and lane != agent.name and lane == drive_lane(evt) else lane
 
 
-def registration(lane: str) -> str:
-    return f"cci post --lane {shlex.quote(lane)} --kind state --stamp {shlex.quote(f'{lane}: {REGISTERED}')} >/dev/null"
+def registration(lane: str, *, window: bool = False) -> str:
+    """The first command's registration post; a window's own lane, which its launcher named in `CLAUDE_LONG_RUNNING_LANE`, is claimed explicitly first, so a lane an earlier post bound it to never wins."""
+    claim = f"cci announce --lane {shlex.quote(lane)} >/dev/null && " if window else ""
+    return f"{claim}cci post --lane {shlex.quote(lane)} --kind state --stamp {shlex.quote(f'{lane}: {REGISTERED}')} >/dev/null"
 
 
 def registers(command: str, lane: str) -> bool:
@@ -378,7 +380,8 @@ ORCA_LANE = {DRIVE_ENV: "brook-drive", LANE_ENV: "lane-a"}
     only_if=[Tool("Bash")],
     skip_if=[Annotated("raw")],
     tests=separate("register_injection.register_lane_at_first_command", {
-        Input(command="git status", env=ORCA_LANE): Rewrite("cci post --lane lane-a --kind state --stamp 'lane-a: registered at its first command' >/dev/null\ngit status"),
+        Input(command="git status", env=ORCA_LANE): Rewrite("cci announce --lane lane-a >/dev/null && cci post --lane lane-a --kind state --stamp 'lane-a: registered at its first command' >/dev/null\ngit status"),
+        Input(command="git status", env={DRIVE_ENV: "brook-drive", LANE_ENV: "root"}): Rewrite("cci announce --lane root >/dev/null && cci post --lane root --kind state --stamp 'root: registered at its first command' >/dev/null\ngit status"),
         Input(command="cci post --lane lane-a --kind state 'lane-a: started'", env=ORCA_LANE): Allow(),
         Input(command="git status", env=ORCA_LANE, state=[LaneRegistrations(threads=[ROOT_THREAD])]): Allow(),
         Input(command="git status", env={DRIVE_ENV: "brook-drive"}): Allow(),
@@ -401,14 +404,14 @@ def register_lane_at_first_command(evt: BaseHookEvent) -> HookResult | None:
     command = evt._tool_input["command"]
     if not lane or registers(command, lane):
         return None
-    return evt.rewrite_command(f"{registration(lane)}\n{command}", note=f"This thread registered with cci as lane `{lane}` before its first command.")
+    return evt.rewrite_command(f"{registration(lane, window=evt.agent_id is None)}\n{command}", note=f"This thread registered with cci as lane `{lane}` before its first command.")
 
 
 @on(
     Event.PostToolUse,
     only_if=[Tool("Bash")],
     tests=separate("register_injection.settle_lane_registration", {
-        Input(command=f"{registration('lane-a')}\ngit status", env=ORCA_LANE, state=[LaneRegistrations(pending={ROOT_THREAD: "lane-a"})]): Allow(),
+        Input(command=f"{registration('lane-a', window=True)}\ngit status", env=ORCA_LANE, state=[LaneRegistrations(pending={ROOT_THREAD: "lane-a"})]): Allow(),
         Input(command="git status", env=ORCA_LANE): Allow(),
     }),
 )

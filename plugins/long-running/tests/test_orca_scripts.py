@@ -1669,6 +1669,13 @@ FENCED = {
 }
 
 
+def rebind(orca) -> str:
+    return (
+        f"post the launch to the drive's orca runner, whose terminal coordinates the Run: desk-launch.py lane lane-a opus high {orca.brief}; "
+        "a drive with no runner rebinds from its coordinator's Orca terminal: orca orchestration run-use --id run_1"
+    )
+
+
 @pytest.mark.parametrize("current", [{"run": None}, {"run": {"id": "run_other"}}])
 def test_a_terminal_that_does_not_coordinate_the_run_creates_nothing_and_names_the_rebind(orca, current):
     orca.healthy()
@@ -1676,7 +1683,7 @@ def test_a_terminal_that_does_not_coordinate_the_run_creates_nothing_and_names_t
     result = orca.launch()
     assert result.returncode == 1
     bound = (current["run"] or {}).get("id", "no Run")
-    assert result.stdout == f"lane-a failed coordinator binding: terminal term_root coordinates {bound}, not run_1 (" + json.dumps({"ok": True, "result": current}) + "); from the coordinator's Orca terminal run: orca orchestration run-use --id run_1\n"
+    assert result.stdout == f"lane-a failed coordinator binding: terminal term_root coordinates {bound}, not run_1 (" + json.dumps({"ok": True, "result": current}) + f"); {rebind(orca)}\n"
     assert [" ".join(call[:2]) for call in orca.calls()] == ["repo show", "orchestration run-current"]
     assert not orca.worktree.exists()
 
@@ -1688,8 +1695,8 @@ def test_a_fenced_worker_start_rolls_back_its_terminal_and_worktree_and_quotes_o
     assert result.returncode == 1
     assert result.stdout == (
         "lane-a failed worker-start terminal=term_a: consumer_fenced: worker-start requires the coordinator terminal currently bound to the Task Run. "
-        "Orchestration mutation request ID: req-1.; terminal term_root is not the Run's coordinator: from the coordinator's Orca terminal run "
-        f"orca orchestration run-use --id run_1; rolled back terminal=term_a worktree={orca.worktree} branch={BRANCH}\n"
+        f"Orchestration mutation request ID: req-1.; terminal term_root is not the Run's coordinator: {rebind(orca)}; "
+        f"rolled back terminal=term_a worktree={orca.worktree} branch={BRANCH}\n"
     )
     assert orca.calls("terminal close")[-1] == ["terminal", "close", "--terminal", "term_a", "--tab", "--json"]
     assert orca.calls("ccx vcs") == [["ccx", "vcs", "worktree", "rm", "--path", str(orca.worktree), "--force"]]
