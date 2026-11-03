@@ -190,6 +190,10 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 	}
 	queueFell := landing.QueueFell{Store: s, Drive: env.Config.Drive, Repo: env.Config.Repo}
 	deps.Checks = append(deps.Checks, (&background{name: "trunk-queue", every: PassEvery, run: queueFell.Pass, store: s, post: post, log: a.Log}).Check)
+	outlived := landing.Outlived{Store: s, Drive: env.Config.Drive, Repo: env.Config.Repo}
+	deps.Checks = append(deps.Checks, (&background{name: "outlived-blockers", every: PassEvery, run: outlived.Pass, store: s, post: post, log: a.Log}).Check)
+	quota := landing.Quota{Runner: a.Runner, Drive: env.Config.Drive, Repo: env.Config.Repo}
+	deps.Checks = append(deps.Checks, (&background{name: "github-quota", every: PassEvery, run: quota.Pass, store: s, post: post, log: a.Log}).Check)
 	deps.Admit = func(ctx context.Context, acts []pass.Act, snapshot []machine.Facts) []pass.Act {
 		return gates.Admit(ctx, squash.Admit(ctx, acts, snapshot), snapshot)
 	}
