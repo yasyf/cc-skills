@@ -64,6 +64,45 @@ CREATE TABLE IF NOT EXISTS card_deps (
   PRIMARY KEY (dep, session, card)
 );
 CREATE INDEX IF NOT EXISTS card_deps_card ON card_deps (session, card);
+CREATE TABLE IF NOT EXISTS pr_states (
+  repo TEXT NOT NULL, number INTEGER NOT NULL, branch TEXT NOT NULL, base TEXT NOT NULL, head TEXT NOT NULL,
+  change TEXT NOT NULL, stack TEXT NOT NULL, state TEXT NOT NULL, reason TEXT NOT NULL, mover TEXT NOT NULL, deadline TEXT,
+  PRIMARY KEY (repo, number)
+);
+CREATE TABLE IF NOT EXISTS asks (
+  repo TEXT NOT NULL, number INTEGER NOT NULL, change TEXT NOT NULL, head TEXT NOT NULL,
+  opened TEXT NOT NULL, closed TEXT,
+  PRIMARY KEY (repo, number, change)
+);
+CREATE TRIGGER IF NOT EXISTS pr_states_insert_needs_ask BEFORE INSERT ON pr_states
+WHEN (NEW.state = 'awaiting-tap' OR (NEW.state = 'held' AND NEW.mover = 'owner'))
+  AND NOT EXISTS (SELECT 1 FROM asks WHERE repo = NEW.repo AND number = NEW.number AND change = NEW.change AND closed IS NULL)
+BEGIN SELECT RAISE(ABORT, 'a PR waits on the owner only with an open ask for its change'); END;
+CREATE TRIGGER IF NOT EXISTS pr_states_update_needs_ask BEFORE UPDATE ON pr_states
+WHEN (NEW.state = 'awaiting-tap' OR (NEW.state = 'held' AND NEW.mover = 'owner'))
+  AND NOT EXISTS (SELECT 1 FROM asks WHERE repo = NEW.repo AND number = NEW.number AND change = NEW.change AND closed IS NULL)
+BEGIN SELECT RAISE(ABORT, 'a PR waits on the owner only with an open ask for its change'); END;
+CREATE TABLE IF NOT EXISTS carries (
+  repo TEXT NOT NULL, number INTEGER NOT NULL, from_number INTEGER NOT NULL, from_head TEXT NOT NULL, to_head TEXT NOT NULL,
+  proof TEXT NOT NULL CHECK (proof IN ('same-diff', 'fidelity')), grade TEXT, at TEXT NOT NULL,
+  CHECK ((proof = 'fidelity') = (grade IS NOT NULL)),
+  PRIMARY KEY (repo, number, to_head)
+);
+CREATE TABLE IF NOT EXISTS grades (
+  repo TEXT NOT NULL, number INTEGER NOT NULL, head TEXT NOT NULL, grader TEXT NOT NULL,
+  attempt INTEGER NOT NULL, verdict TEXT NOT NULL, record TEXT NOT NULL, posted TEXT NOT NULL,
+  PRIMARY KEY (repo, number, head, grader)
+);
+CREATE TABLE IF NOT EXISTS stacks (repo TEXT NOT NULL, stack TEXT NOT NULL, revision INTEGER NOT NULL, PRIMARY KEY (repo, stack));
+CREATE TABLE IF NOT EXISTS owed (
+  key TEXT PRIMARY KEY, repo TEXT NOT NULL, stack TEXT NOT NULL, revision INTEGER NOT NULL,
+  action TEXT NOT NULL, number INTEGER NOT NULL, head TEXT NOT NULL, created TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS owed_stack ON owed (repo, stack, revision);
+CREATE TABLE IF NOT EXISTS due (
+  key TEXT PRIMARY KEY, repo TEXT NOT NULL, number INTEGER NOT NULL, kind TEXT NOT NULL, at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS due_at ON due (at);
 `
 
 var addedColumns = []struct{ table, column, kind string }{
