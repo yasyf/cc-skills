@@ -323,7 +323,8 @@ cci post --kind ask --to bk-desk "bk build <pipeline> <number>"
 | `bk api <path>` | The first 16 KiB of a GET inside the organization |
 
 The answer is a record addressed to the lane that closes the ask, usually within
-seconds. Its line carries the state or size, and `cci show <seq>` prints the body.
+seconds and at worst in about two minutes, since the host's `tools/ci` refreshes
+its published `ci` about once an hour before it reads. Its line carries the state or size, and `cci show <seq>` prints the body.
 Any other text, a write included, gets a refusal and runs nothing. Ask once per
 need: `gh pr checks` follows a build's progress, and `bk-desk` is for reading a
 result. cci treats an identical ask from one lane within ten minutes as the same
