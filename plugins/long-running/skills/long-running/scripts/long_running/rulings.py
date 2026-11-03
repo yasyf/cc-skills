@@ -1546,11 +1546,17 @@ def cmd_classify(args: argparse.Namespace, shell: ledger.Shell) -> int:
                 repeats[result["key"]] = result["hits"]
             if "key" in result and (added := len(entry.get("implications") or [])):
                 fresh.setdefault(result["key"], []).extend(result["implications"][-added:])
-        if touched_rows and (drive_entry := entry_of(args)):
+        drive_entry = entry_of(args) if touched_rows else None
+        if drive_entry:
             cci = drive.cci_drive(drive_entry)
             announce(loaded, cci, live_lanes(loaded, cci), touched_rows, before, loaded.plan(args.plan))
             for key, hits in repeats.items():
                 post_repeat(loaded, cci, key, hits, args.stderr)
+    if drive_entry:
+        try:
+            print(loaded.shell.run(["lr", "board", "cards", "recheck", "--drive", cci, "--lane", "root", *touched_rows]), end="", file=args.stderr)
+        except subprocess.CalledProcessError as failed:
+            print(f"WARN the open cards resting on {', '.join(touched_rows)} were not re-checked ({(failed.stderr or '').strip() or failed}); run lr board cards recheck --lane root {' '.join(touched_rows)}", file=args.stderr)
     for key, items in fresh.items():
         misstated(args, loaded, key, items)
     return 0
