@@ -1454,6 +1454,36 @@ func TestARelayToALaneWithNoDispatchGoesOnCCI(t *testing.T) {
 	}
 }
 
+func postsToAsker(w *deskWorld) []client.Draft {
+	return slices.DeleteFunc(slices.Clone(w.posts), func(post client.Draft) bool { return !slices.Equal(post.To, []string{"asker"}) })
+}
+
+func TestARelayToALaneNothingHoldsTellsItsSender(t *testing.T) {
+	w := newDeskWorld(t)
+	w.lines()
+	w.add(object{"lane": "asker", "text": "R2 (5:01 PM) orca-desk: relay to lane-a: go", "to": []string{deskLane}})
+	w.lines()
+	told := postsToAsker(w)
+	if len(told) != 1 {
+		t.Fatal(w.posts)
+	}
+	wantContains(t, told[0].Text, "RELAY-UNHEARD")
+	wantContains(t, told[0].Text, "lane-a: no live dispatch and no live lane row")
+}
+
+func TestARelayToALaneWithALiveRowAndNoDispatchTellsItsSenderNothing(t *testing.T) {
+	w := newDeskWorld(t)
+	w.lines()
+	if _, err := w.desk.Registry.WantLane(store.Lane{Name: testLane, Brief: "/b", Model: "opus", Effort: "high", Role: "build", State: store.LaneDesired}, w.now); err != nil {
+		t.Fatal(err)
+	}
+	w.add(object{"lane": "asker", "text": "R2 (5:01 PM) orca-desk: relay to lane-a: go", "to": []string{deskLane}})
+	w.lines()
+	if told := postsToAsker(w); len(told) != 0 {
+		t.Fatal(told)
+	}
+}
+
 func TestARelayAboutAPRToALaneWithNoDispatchIsABlockerAndLogsNoRelayed(t *testing.T) {
 	w := newDeskWorld(t)
 	container, err := w.desk.lane(testLane)

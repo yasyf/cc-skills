@@ -384,6 +384,18 @@ func (d *Desk) expiredLine(ctx context.Context, parsed *directive, record client
 	return true, d.recordTo(ctx, fmt.Sprintf("escalation:launch:cci#%d", record.Seq), line, verdictTo(record.Lane))
 }
 
+func (d *Desk) warnUnheard(ctx context.Context, at, key, lane, sender string) error {
+	dispatch, err := d.show(ctx, lane, "")
+	if err != nil || dispatch.active() {
+		return err
+	}
+	row, found, err := d.Registry.Lane(lane)
+	if err != nil || (found && row.State != store.LaneRetired) {
+		return err
+	}
+	return d.recordTo(ctx, "escalation:relay-unheard:"+at+":"+lane, fmt.Sprintf("RELAY-UNHEARD %s %s: no live dispatch and no live lane row, so nothing reads it; relaunch %s or send it to the lane that took over", key, lane, lane), sender)
+}
+
 func (d *Desk) refuseLine(record client.Record) error {
 	line := collapsed(record.Text)
 	if len([]rune(line)) > 80 {
@@ -412,6 +424,9 @@ func (d *Desk) relayLine(ctx context.Context, at, key, rest, sender string) erro
 			continue
 		}
 		if err := d.relayToLane(ctx, at, key, target, found[2], nil); err != nil {
+			return err
+		}
+		if err := d.warnUnheard(ctx, at, key, target, sender); err != nil {
 			return err
 		}
 	}
