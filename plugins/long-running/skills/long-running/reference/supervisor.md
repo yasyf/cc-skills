@@ -10,7 +10,7 @@ This section maps to rev 7's supervisor section (Forge-AI/design-docs#265).
 
 | The lane's newest record | What it means | Who resumes the work |
 | --- | --- | --- |
-| `done`, `stopped`, `stand-down` | The lane ended on purpose | Nobody. The row retires, a retired row never gets a successor, and nothing the lane posts afterwards revives it. A PR it still owns goes to the coordinator if it breaks |
+| `done`, `stopped`, `stand-down` | The lane ended on purpose | Nobody. The row retires, a retired row never gets a successor, and nothing the lane posts afterwards revives it. A `done` is refused while the lane owns an open PR, so it posts `blocked --pr <n>` instead; a PR it still owns after a `stopped` or `stand-down` goes to the coordinator if it breaks |
 | `ask`, `blocker`, or `blocked` to a lane | It waits on that lane's answer | The answer, through the supervisor |
 | `blocked` naming a gate: `--pr`, `--target`, `--lane-ref`, or a `card-` id in the text | It waits on an event | That event, through the supervisor |
 | Anything else | The turn has open work | Stopping is refused, and the refusal prints the commands |

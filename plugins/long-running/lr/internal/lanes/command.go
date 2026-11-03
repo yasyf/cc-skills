@@ -114,6 +114,35 @@ func StopSpritesCommand(a *app.App) *cobra.Command {
 	}
 }
 
+func DoneCheckCommand(a *app.App) *cobra.Command {
+	return &cobra.Command{
+		Use:   "done-check LANE",
+		Short: "Print why a lane may not post done while it owns an open PR; print nothing when it may",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, state, err := Loaded(a)
+			if err != nil {
+				return err
+			}
+			s, err := store.Open(filepath.Join(state, StoreFile))
+			if err != nil {
+				return err
+			}
+			defer func() { _ = s.Close() }()
+			env, err := NewEnv(a.Runner, cfg, state, a.Now)
+			if err != nil {
+				return err
+			}
+			refusal, err := DoneRefusal(s, args[0], (&prReader{env: env, ctx: cmd.Context(), read: map[int]prRead{}}).states)
+			if err != nil || refusal == "" {
+				return err
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), refusal)
+			return nil
+		},
+	}
+}
+
 func RouteCommand(a *app.App) *cobra.Command {
 	return &cobra.Command{
 		Use:   "route LANE",

@@ -245,7 +245,7 @@ Finish: a lane with a PR finishes only once its squash `(#N)` is on the base bra
   A turn ends only on a typed record, and `cci hook stop` refuses every other stop:
   `done`, `stopped`, or an open `ask`, `blocker` or `blocked`. To wait on an event, post
   `cci post --kind blocked` with `--pr N`, `--target T`, `--lane-ref L`, or a `card-` id in
-  its text, and stop; that event wakes you, and a red PR you parked on wakes you. `done` retires you for good, so post it only when nothing is left. Handing work to
+  its text, and stop; that event wakes you, and a red PR you parked on wakes you. `done` retires you for good, so post it only when nothing is left: while you own an open PR it is refused, and you post `blocked --pr N` instead. Handing work to
   another lane is `blocked --lane-ref <it>`, not a sentence. Every push to a reported PR re-reports the new
   head with `ledger.py report --drive <drive>` in the same turn; the desk grades without waiting for it.
 ```
