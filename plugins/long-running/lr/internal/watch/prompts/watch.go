@@ -77,6 +77,8 @@ type Watch struct {
 	Post   func(context.Context, Notice) (int64, error)
 	Now    func() time.Time
 	Sleep  func(time.Duration)
+
+	successor *os.File
 }
 
 type orcaError struct {
@@ -891,11 +893,34 @@ func (w *Watch) Check(ctx context.Context, e Entry) error {
 	defer lock.Close()
 	if err := flock(lock); err != nil {
 		if errors.Is(err, syscall.EWOULDBLOCK) {
+			return w.succeed(e)
+		}
+		return err
+	}
+	if w.successor != nil {
+		_ = w.successor.Close()
+		w.successor = nil
+	}
+	return w.poll(ctx, e)
+}
+
+func (w *Watch) succeed(e Entry) error {
+	if w.successor != nil {
+		return ErrHeld
+	}
+	queue, err := os.OpenFile(filepath.Join(e.dir(), "successor"), os.O_CREATE|os.O_RDWR, ownerOnly)
+	if err != nil {
+		return err
+	}
+	if err := flock(queue); err != nil {
+		_ = queue.Close()
+		if errors.Is(err, syscall.EWOULDBLOCK) {
 			return ErrHeld
 		}
 		return err
 	}
-	return w.poll(ctx, e)
+	w.successor = queue
+	return ErrHeld
 }
 
 func flock(file *os.File) error {

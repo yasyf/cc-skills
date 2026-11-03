@@ -1347,6 +1347,45 @@ func TestACheckWhileAnotherWatchHoldsTheLockReadsNothing(t *testing.T) {
 	want(t, len(f.calls), 0)
 }
 
+func TestACheckQueuesAsSuccessorUntilTheHolderLetsGoThenPolls(t *testing.T) {
+	f := newFake(t)
+	e := register(t, nil)
+	if err := os.MkdirAll(e.dir(), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	held, err := os.OpenFile(filepath.Join(e.dir(), "lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := flock(held); err != nil {
+		t.Fatal(err)
+	}
+	queued := func() bool {
+		queue, err := os.OpenFile(filepath.Join(e.dir(), "successor"), os.O_CREATE|os.O_RDWR, 0o600)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer queue.Close()
+		return flock(queue) != nil
+	}
+	watch := f.watch()
+
+	for range 2 {
+		if err := watch.Check(context.Background(), e); !errors.Is(err, ErrHeld) {
+			t.Fatalf("err = %v", err)
+		}
+		want(t, queued(), true)
+	}
+	want(t, len(f.calls), 0)
+
+	held.Close()
+	if err := watch.Check(context.Background(), e); err != nil {
+		t.Fatal(err)
+	}
+	want(t, len(f.calls) > 0, true)
+	want(t, queued(), false)
+}
+
 func TestReceiptsAreReadOnlyForAWorkerStillWithoutALaneName(t *testing.T) {
 	f := newFake(t)
 	e := workersUp(t, f, "clear")
