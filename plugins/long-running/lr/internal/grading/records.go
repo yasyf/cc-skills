@@ -276,6 +276,16 @@ func previousHead(found []client.Record, repo, pr, head string) string {
 	return ""
 }
 
+func withSuccessors(lanes []string, found []client.Record) []string {
+	for _, r := range found {
+		succeeds := func(lane string) bool { return delegated(r.Lane, lane) }
+		if !slices.Contains(lanes, r.Lane) && slices.ContainsFunc(lanes, succeeds) {
+			lanes = append(lanes, r.Lane)
+		}
+	}
+	return lanes
+}
+
 func fidelityGrades(found []client.Record, lanes []string, repo, pr string) []client.Record {
 	grades := make([]client.Record, 0, len(found))
 	for _, r := range found {
