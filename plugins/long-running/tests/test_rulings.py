@@ -442,7 +442,7 @@ class RegisterShell(ledger.Shell):
                 return ""
             case ["ccn", "-R", "/repo", "doc", "list", "--label", "standing-rules:brook", "--full", "--json"]:
                 return "[]"
-            case ["ccn", "-R", "/repo", "answer", "list", *labels, "--limit", "0", "--json"]:
+            case ["ccn", "-R", "/repo", "answer", "list", *labels, "--limit", "0", "--full", "--json"] | ["ccn", "-R", "/repo", "answer", "list", *labels, "--limit", "0", "--json"]:
                 wanted = set(labels[1::2])
                 return json.dumps([answer for answer in self.answers if wanted <= set(answer["tags"])])
             case ["ccn", "-R", "/repo", "answer", "search", topic, "--limit", "0", "--json"]:

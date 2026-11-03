@@ -1163,7 +1163,7 @@ def cmd_topic(args: argparse.Namespace, shell: ledger.Shell) -> int:
         vocabulary = json.loads(ccn(["ledger", "add", f"answer topics: {program}", "--label", answer_search.TOPICS, "--label", f"program:{program}", "--json"]))["id"]
     ccn(["ledger", "row", "set", vocabulary, "--key", topic.slug, "--field", f"words={topic.words}", "--field", f"dirs={json.dumps(list(topic.dirs))}"])
     label = f"topic:{topic.slug}"
-    fresh = [answer for answer in json.loads(ccn(["answer", "list", "--limit", "0", "--json"]) or "[]") if label not in answer["tags"] and topic.names(f"{answer['title']}\n{answer['body']}")]
+    fresh = [answer for answer in json.loads(ccn(["answer", "list", "--limit", "0", "--full", "--json"]) or "[]") if label not in answer.get("tags", []) and topic.names(f"{answer['title']}\n{answer['body']}")]
     for answer in fresh:
         ccn(["answer", "edit", answer["id"], *topic.flags("add-")])
     print(f"topic {topic.slug}: labelled {len(fresh)} answers {label}", file=args.stdout)
