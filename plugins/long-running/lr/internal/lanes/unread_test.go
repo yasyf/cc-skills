@@ -46,6 +46,24 @@ func TestAnOrderNamingNoPROfItsOwnWakesAnIdleStandingLaneOnceWithinATick(t *test
 	contains(t, pageText(f.pages[0], "why"), "root's ask #2, relay-join-1's decide #3")
 }
 
+func TestAnIdleWorkerLaneIsWokenAtFiveMinutesAndNobodyIsAskedToRelay(t *testing.T) {
+	s, brief := memory(t), writeBrief(t)
+	f := adopted(t, s, brief, "")
+	idle := t0.Add(-mins(12))
+	f.feed = append(f.feed, rec(2, Root, "ask", t0, "first", lane2))
+
+	f.peers = orcaPeers(lane2, idle, t0.Add(mins(5)-time.Second))
+	before := tick(t, s, f, t0.Add(mins(5)-time.Second))
+	f.peers = orcaPeers(lane2, idle, t0.Add(mins(5)))
+	woken := tick(t, s, f, t0.Add(mins(5)))
+	f.peers = orcaPeers(lane2, t0.Add(mins(6)), t0.Add(mins(10)))
+	tick(t, s, f, t0.Add(mins(10)))
+
+	equal(t, len(before.Woken), 0)
+	equal(t, woken.Woken, []string{lane2})
+	equal(t, len(f.ofKind("blocker")), 0)
+}
+
 func TestAFailedWakeTriesAgainOnTheNextTick(t *testing.T) {
 	s := memory(t)
 	f, _ := standingLane(t, s)
