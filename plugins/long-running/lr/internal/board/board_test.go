@@ -183,33 +183,33 @@ func TestAnUnknownAnswerIsRefused(t *testing.T) {
 	}
 }
 
-func TestAPatchIdenticalRebaseCarriesTheTapAndAsksNothing(t *testing.T) {
+func TestACarriedTapAsksNothing(t *testing.T) {
 	s := withItem(t)
 	put(t, s, head, "tap", "tapped")
-	later := t0.Add(time.Hour)
-	openTap(t, s, moved, later)
-	if _, err := gates.CarryTap(s, repo, number, head, moved, map[string]string{head: "p1", moved: "p1"}, later); err != nil {
-		t.Fatal(err)
-	}
-	snapshot := facts(func(f *machine.Facts) { f.Head, f.Tap = moved, machine.TapTapped })
+	openTap(t, s, moved, t0.Add(time.Hour))
+	snapshot := facts(func(f *machine.Facts) {
+		f.Head, f.Tap, f.TapFrom, f.CarriedBy = moved, machine.TapTapped, head, gates.BySameDiff
+	})
 	if found := rows(t, s, snapshot); len(found) != 0 {
 		t.Fatalf("rows = %+v", found)
 	}
 }
 
-func TestARebaseThatChangedThePatchAsksAgainNamingNoCarry(t *testing.T) {
+func TestAHeadFidelityJudgedChangedAsksAgainSayingWhatChangedSinceTheTappedHead(t *testing.T) {
 	s := withItem(t)
 	put(t, s, head, "tap", "tapped")
 	openTap(t, s, moved, t0.Add(time.Hour))
-	found := rows(t, s, facts(func(f *machine.Facts) { f.Head = moved }))
-	if len(found) != 1 || found[0].Head != moved || found[0].CarriedFrom != "" {
+	for kind, value := range map[string]string{gates.BehaviorFact: gates.BehaviorChanged, gates.SinceFact: head, gates.ChangedFact: "the list now drops archived chats"} {
+		if _, err := s.PutFact(repo, number, moved, kind, value, t0.Add(time.Hour)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	found := rows(t, s, facts(func(f *machine.Facts) { f.Head, f.TapFrom = moved, head }))
+	if len(found) != 1 || found[0].Head != moved {
 		t.Fatalf("rows = %+v", found)
 	}
-}
-
-func TestACarriedRowSaysWhichHeadItCameFrom(t *testing.T) {
-	block := Render(repo, []Row{{PR: number, Head: moved, Lane: "l", Gates: []string{"no tap"}, CarriedFrom: head}}, nil)
-	if want := "every other gate is met; rebased from " + head[:12] + ", same patch"; block.Groups[0].PRs[0].Review != want {
+	block := Render(repo, found, nil)
+	if want := "every other gate is met; changed since the head he tapped, " + head[:12] + ": the list now drops archived chats"; block.Groups[0].PRs[0].Review != want {
 		t.Fatalf("review = %q", block.Groups[0].PRs[0].Review)
 	}
 }

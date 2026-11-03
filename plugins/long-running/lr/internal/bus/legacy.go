@@ -42,6 +42,7 @@ var (
 	withdrawnGo    = regexp.MustCompile(`(?i)^\s*withdrawn\b`)
 	withdrawsNamed = regexp.MustCompile(`(?i)\bwithdraws?\b[^.;:\n#]*#(\d+)`)
 	finderVerdicts = map[string]string{"ok": "clear", "major": "ask"}
+	behaviorSays   = regexp.MustCompile(`^behavior: (same|changed) ([0-9a-f]{7,40}) since ([0-9a-f]{7,40})(?:: (.+))?`)
 )
 
 var GoReadKinds = []string{"go", "decide", "decision", "withdraw", "correction"}
@@ -83,6 +84,8 @@ func LegacyFacts(record client.Record, repo string, goLanes []string) []Fact {
 			return nil
 		}
 		return factsPerPR(record, repo, head, "fidelity", grade)
+	case kind == "review" && delegated(record.Lane, fidelityLanes) && strings.HasPrefix(record.Text, "behavior:"):
+		return behaviorFacts(record, repo)
 	case kind == "owner":
 		return ownerTap(record)
 	case !delegated(record.Lane, append([]string{rootLane}, goLanes...)):
@@ -99,6 +102,18 @@ func LegacyFacts(record client.Record, repo string, goLanes []string) []Fact {
 	}
 	for _, pair := range goHeads(record.Text) {
 		out = append(out, Fact{pair.PR, pair.Head, "exempt", strings.ToLower(exempt[1])})
+	}
+	return out
+}
+
+func behaviorFacts(record client.Record, repo string) []Fact {
+	said := behaviorSays.FindStringSubmatch(record.Text)
+	if said == nil {
+		return nil
+	}
+	out := append(factsPerPR(record, repo, said[2], "behavior", said[1]), factsPerPR(record, repo, said[2], "behavior-since", said[3])...)
+	if said[4] != "" {
+		out = append(out, factsPerPR(record, repo, said[2], "what-changed", said[4])...)
 	}
 	return out
 }

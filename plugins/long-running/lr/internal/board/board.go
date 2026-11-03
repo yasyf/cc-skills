@@ -47,13 +47,12 @@ type Key struct {
 }
 
 type Row struct {
-	PR          int
-	Head        string
-	Kind        string
-	Lane        string
-	Gates       []string
-	CarriedFrom string
-	Words       map[string]string
+	PR    int
+	Head  string
+	Kind  string
+	Lane  string
+	Gates []string
+	Words map[string]string
 }
 
 func (r Row) Key() Key {
@@ -135,7 +134,7 @@ func Rows(s *store.Store, repo string, snapshot map[int]machine.Facts) ([]Row, e
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, Row{item.Number, item.Head, item.Kind, facts.Lane, gates.Missing(facts), stored[gates.CarriedFact], stored})
+		out = append(out, Row{item.Number, item.Head, item.Kind, facts.Lane, gates.Missing(facts), stored})
 	}
 	return out, nil
 }
@@ -178,8 +177,8 @@ func review(row Row) string {
 	if len(waits) > 0 {
 		words = strings.Join(waits, ", ")
 	}
-	if row.CarriedFrom != "" {
-		return fmt.Sprintf("%s; rebased from %s, same patch", words, short(row.CarriedFrom))
+	if row.Words[gates.BehaviorFact] == gates.BehaviorChanged {
+		return fmt.Sprintf("%s; changed since the head he tapped, %s: %s", words, short(row.Words[gates.SinceFact]), row.Words[gates.ChangedFact])
 	}
 	return words
 }

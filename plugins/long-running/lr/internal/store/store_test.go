@@ -174,6 +174,15 @@ func TestFactsArePerHead(t *testing.T) {
 	}
 }
 
+func TestAShortShaReadsTheFactsItsFullHeadCarries(t *testing.T) {
+	s := memory(t)
+	must[bool](t)(s.PutFact(repo, 46000, head, "diff", "h1", t0))
+	must[bool](t)(s.PutFact(repo, 46000, "aa11bb22cc33dd44ee55ff6677889900aabbccdd", "diff", "h2", t0))
+	if got := must[map[string]string](t)(s.Facts(repo, 46000, head[:12])); !reflect.DeepEqual(got, map[string]string{"diff": "h1"}) {
+		t.Fatalf("got %v", got)
+	}
+}
+
 func TestAFactKeyedByAShortShaCountsForTheFullHeadAndTheNewestValueWins(t *testing.T) {
 	s := memory(t)
 	must[bool](t)(s.PutFact(repo, 46000, head[:7], "finder", "ask", t0))

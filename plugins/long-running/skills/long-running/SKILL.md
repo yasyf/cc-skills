@@ -453,9 +453,9 @@ one refusal prints all of them.
 Every PR goes to the owner. A PR that is green, approved and graded at its head
 reaches his tap card within one runner pass and lands on his tap; only the classes
 he exempted land on a go, nothing new joins them without his word, and the
-`landing_approval` hook refuses a record or brief that changes it. A tapped PR
-never comes back: the tap carries to every later head, and a tapped PR takes no
-behavior change. A stale PR or a draft never reaches his board. Every other owner
+`landing_approval` hook refuses a record or brief that changes it. A tap carries
+to a later head only when its own diff is the same, or fidelity judges its behavior
+and scope unchanged since the head he tapped; any other head returns to his board saying what changed. A stale PR or a draft never reaches his board. Every other owner
 ask is a question card from `drive.py ask-owner` with two to four answers and one
 recommended. The recommended answer is built on a branch as soon as the question is
 asked, with no PR until he answers, so he tries the thing itself. Its option's

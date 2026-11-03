@@ -22,7 +22,7 @@ WITHDRAWN_NAMED = re.compile(r"#(\d+)\b(?=(?:(?!\bnot\b)[^.;:\n])*\bwithdrawn\b)
 FIDELITY_OK = "fidelity: ok"
 FIDELITY_MISSING = "fidelity: missing"
 FIDELITY_GRADES = (FIDELITY_OK, FIDELITY_MISSING)
-GRADER_LINES = ("fidelity:", "old-app:", "touches ")
+GRADER_LINES = ("fidelity:", "old-app:", "touches ", "behavior:")
 PORT_PHRASE = "pure port, no interaction"
 TEST_ONLY_PHRASE = "test-only or CI-only, no non-test code"
 TEST_ONLY_PHRASES = (TEST_ONLY_PHRASE, "test-only, no non-test code", "CI-only, no non-test code")

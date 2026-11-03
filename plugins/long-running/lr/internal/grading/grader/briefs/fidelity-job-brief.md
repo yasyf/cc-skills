@@ -109,6 +109,14 @@ Answer in the schema:
   in what the old app does, `changes` otherwise; `why` names the paths or behavior that
   decide it in a few words. A head that changes shared infrastructure the old tree runs on,
   as above, is never `unchanged`, and its `why` names the old-tree workloads it affects.
+- `behavior`: the owner tapped this PR at {since}. When that is `none`, answer `none`.
+  Otherwise fetch {since} pinned by sha and compare what the PR's own commits change there
+  with what they change at {head}: `same` when this head means what the tapped one meant, as
+  across a restack, a rebase, formatting, test-only edits or a review fix that changes no
+  behavior; `changed` when it changes any behavior or scope the tapped head did not. Judge
+  against {since} itself, never an earlier grade, so small changes cannot add up unseen.
+- `what_changed`: for `changed`, one plain sentence on what this head does that {since} did
+  not, or no longer does; empty otherwise.
 - `summary`: one plain sentence on what the head changes and why it holds or breaks.
 - `swept`: your reasoning, one sentence per group of related hunks: what the group changes,
   which rows it bears on, and why it holds or breaks.

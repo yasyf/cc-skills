@@ -30,8 +30,10 @@
       },
       "required": ["grade", "why"],
       "additionalProperties": false
-    }
+    },
+    "behavior": {"type": "string", "enum": ["none", "same", "changed"]},
+    "what_changed": {"type": "string"}
   },
-  "required": ["verdict", "summary", "swept", "checked", "names", "missing", "touches", "exempt", "reader", "old_app"],
+  "required": ["verdict", "summary", "swept", "checked", "names", "missing", "touches", "exempt", "reader", "old_app", "behavior", "what_changed"],
   "additionalProperties": false
 }

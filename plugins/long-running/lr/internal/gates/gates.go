@@ -1,7 +1,10 @@
 package gates
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -11,10 +14,41 @@ import (
 )
 
 const (
-	tapFact     = "tap"
-	exemptFact  = "exempt"
-	CarriedFact = "carried-from"
+	tapFact      = "tap"
+	exemptFact   = "exempt"
+	CarriedFact  = "carried-from"
+	DiffFact     = "diff"
+	BehaviorFact = "behavior"
+	SinceFact    = "behavior-since"
+	ChangedFact  = "what-changed"
+	fidelityFact = "fidelity"
+
+	BehaviorSame    = "same"
+	BehaviorChanged = "changed"
+
+	BySameDiff = "same-diff"
+	ByFidelity = "fidelity"
 )
+
+var (
+	hunkLines = regexp.MustCompile(`(?m)^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@`)
+	blobLine  = regexp.MustCompile(`(?m)^index [0-9a-f]+\.\.[0-9a-f]+(?: \d+)?\n`)
+)
+
+func DiffHash(diff string) string {
+	sum := sha256.Sum256([]byte(blobLine.ReplaceAllString(hunkLines.ReplaceAllString(diff, "@@"), "")))
+	return hex.EncodeToString(sum[:])
+}
+
+func CarriedBy(tapped string, atTap, atHead map[string]string) string {
+	if atTap[DiffFact] != "" && atTap[DiffFact] == atHead[DiffFact] {
+		return BySameDiff
+	}
+	if atHead[SinceFact] == tapped && atHead[BehaviorFact] == BehaviorSame && atHead[fidelityFact] == string(machine.FidelityPass) {
+		return ByFidelity
+	}
+	return ""
+}
 
 func CarryTap(s *store.Store, repo string, number int, oldHead, newHead string, patchIDs map[string]string, at time.Time) (bool, error) {
 	if oldHead == newHead || patchIDs[oldHead] == "" || patchIDs[oldHead] != patchIDs[newHead] {
