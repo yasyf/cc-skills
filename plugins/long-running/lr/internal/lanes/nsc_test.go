@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -39,10 +40,10 @@ func nscWatch(t *testing.T, listed string, recorded ...client.Record) (*NscDeadl
 	return &NscDeadlines{Env: env, Log: slog.Default()}, bus
 }
 
-func deadlineRecord(t *testing.T, seq int64, deadline time.Time) client.Record {
+func deadlineRecord(t *testing.T, seq int64, deadline time.Time, attrs ...string) client.Record {
 	t.Helper()
 	var record client.Record
-	line := fmt.Sprintf(`{"seq":%d,"lane":%q,"kind":"evidence","topic":"nsc:%s","fields":{"attrs":{"deadline":%q}}}`, seq, perfLane, perfBox, deadline.Format(time.RFC3339))
+	line := fmt.Sprintf(`{"seq":%d,"lane":%q,"kind":"evidence","topic":"nsc:%s","fields":{"attrs":{"deadline":%q%s}}}`, seq, perfLane, perfBox, deadline.Format(time.RFC3339), strings.Join(attrs, ""))
 	if err := json.Unmarshal([]byte(line), &record); err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +117,7 @@ func TestACreatedBoxCarriesItsLaneAndRecordsTheDeadlineNscReturns(t *testing.T) 
 	runner := scripted(func(argv []string) (shell.Result, error) {
 		ran = argv
 		path := argv[slices.Index(argv, "--output_json_to")+1]
-		return shell.Result{Stdout: `{"cluster_id":"sh4pma4mccmt4"}`}, os.WriteFile(path, []byte(`{"cluster_id":"sh4pma4mccmt4","deadline":"2026-11-04T02:00:00.123Z"}`), 0o600)
+		return shell.Result{Stdout: `{"cluster_id":"sh4pma4mccmt4"}`}, os.WriteFile(path, []byte(`{"cluster_id":"sh4pma4mccmt4","created":"2026-11-03T18:00:00.042Z","deadline":"2026-11-04T02:00:00.123Z"}`), 0o600)
 	})
 
 	printed, err := MakeNscBox(context.Background(), runner, bus, testDrive, perfLane, []string{"--duration", "8h", "--machine_type", "macos/arm64:6x14"})
@@ -127,7 +128,7 @@ func TestACreatedBoxCarriesItsLaneAndRecordsTheDeadlineNscReturns(t *testing.T) 
 	equal(t, ran[:8], []string{"nsc", "create", "--duration", "8h", "--machine_type", "macos/arm64:6x14", "--label", "lane=devbox-perf-1"})
 	equal(t, printed, `{"cluster_id":"sh4pma4mccmt4"}`)
 	equal(t, len(bus.posted), 1)
-	equal(t, []string{bus.posted[0].Kind, bus.posted[0].Lane, bus.posted[0].Topic, bus.posted[0].Attrs["deadline"]}, []string{nscKind, perfLane, "nsc:sh4pma4mccmt4", "2026-11-04T02:00:00Z"})
+	equal(t, []string{bus.posted[0].Kind, bus.posted[0].Lane, bus.posted[0].Topic, bus.posted[0].Attrs["deadline"], bus.posted[0].Attrs["duration"]}, []string{nscKind, perfLane, "nsc:sh4pma4mccmt4", "2026-11-04T02:00:00Z", "8h0m0s"})
 }
 
 func TestAnExtendedBoxRecordsTheNewDeadlineNscPrints(t *testing.T) {
@@ -143,4 +144,48 @@ func TestAnExtendedBoxRecordsTheNewDeadlineNscPrints(t *testing.T) {
 
 	equal(t, len(bus.posted), 1)
 	equal(t, []string{bus.posted[0].Topic, bus.posted[0].Attrs["deadline"]}, []string{"nsc:sh4pma4mccmt4", "2026-11-04T04:00:00Z"})
+}
+
+func renewing(t *testing.T, extend func(argv []string) (shell.Result, error)) (*NscDeadlines, *fakeBus) {
+	t.Helper()
+	bus := &fakeBus{tail: []client.Record{deadlineRecord(t, 1, t0.Add(mins(59)), `,"duration":"8h0m0s"`)}}
+	env := Env{Bus: cursorBus{bus}, Config: config.Config{Drive: testDrive}, Runner: scripted(func(argv []string) (shell.Result, error) {
+		if argv[1] == "list" {
+			return shell.Result{Stdout: labeledBox}, nil
+		}
+		return extend(argv)
+	})}
+	return &NscDeadlines{Env: env, Log: slog.Default()}, bus
+}
+
+func TestABoxWithACreateDurationIsExtendedByItAndItsLaneIsTold(t *testing.T) {
+	renewed := t0.Add(mins(59)).Add(8 * time.Hour)
+	var extended []string
+	watch, bus := renewing(t, func(argv []string) (shell.Result, error) {
+		extended = argv
+		return shell.Result{Stdout: "New deadline: " + renewed.Format(time.RFC3339) + "\n"}, nil
+	})
+
+	checkAt(t, watch, t0)
+	checkAt(t, watch, t0.Add(gcEvery))
+
+	equal(t, extended, []string{"nsc", "extend", perfBox, "--duration", "8h0m0s"})
+	equal(t, len(bus.posted), 2)
+	record, told := bus.posted[0], bus.posted[1]
+	equal(t, []string{record.Kind, record.Lane, record.Attrs["deadline"], record.Attrs["duration"]}, []string{nscKind, Self, renewed.Format(time.RFC3339), "8h0m0s"})
+	equal(t, []string{told.Kind, told.To[0]}, []string{nscRenewed, perfLane})
+	equal(t, told.Text, "NSC-EXTENDED sh4pma4mccmt4: this Namespace box was to die at 10:59 AM, so the supervisor extended it by its create duration, 8h0m0s; it now dies at 6:59 PM. Destroy it with `nsc destroy sh4pma4mccmt4` once its work is done.")
+}
+
+func TestABoxNscRefusesToExtendWarnsItsLaneToRecreateIt(t *testing.T) {
+	watch, bus := renewing(t, func(argv []string) (shell.Result, error) {
+		return shell.Result{Code: 1}, &shell.ExitError{Argv: argv, Code: 1, Stderr: "Failed: maximum duration reached"}
+	})
+
+	checkAt(t, watch, t0)
+
+	equal(t, len(bus.posted), 1)
+	equal(t, []string{bus.posted[0].Kind, bus.posted[0].To[0]}, []string{nscWarning, perfLane})
+	contains(t, bus.posted[0].Text, "nsc refused to extend it: ")
+	contains(t, bus.posted[0].Text, "Recreate it with `lr nsc create --drive d1 --lane devbox-perf-1 -- <nsc create flags>`")
 }

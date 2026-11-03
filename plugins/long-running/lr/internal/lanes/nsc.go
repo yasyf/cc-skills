@@ -20,6 +20,7 @@ const (
 	nscTopic   = "nsc:"
 	nscKind    = "evidence"
 	nscWarning = "urgent"
+	nscRenewed = "report"
 	nscLabel   = "lane"
 	nscWarnAt  = time.Hour
 	nscMake    = 15 * time.Minute
@@ -38,6 +39,7 @@ type NscDeadlines struct {
 	read  time.Time
 	after int64
 	due   map[string]time.Time
+	lasts map[string]time.Duration
 }
 
 func (n *NscDeadlines) Check(ctx context.Context, now time.Time) error {
@@ -64,12 +66,36 @@ func (n *NscDeadlines) Check(ctx context.Context, now time.Time) error {
 		if left := deadline.Sub(now); !known || left <= 0 || left > nscWarnAt {
 			continue
 		}
-		if _, err := n.Env.Bus.Post(ctx, n.warning(box, deadline, now)); err != nil {
+		delete(n.due, box.ID)
+		if err := n.renew(ctx, box, deadline, now); err != nil {
 			return fmt.Errorf("%w: cci post: %w", ErrUnread, err)
 		}
-		delete(n.due, box.ID)
 	}
 	return nil
+}
+
+func (n *NscDeadlines) renew(ctx context.Context, box nscBox, deadline, now time.Time) error {
+	lasts, known := n.lasts[box.ID]
+	if !known {
+		_, err := n.Env.Bus.Post(ctx, n.warning(box, deadline, now, ""))
+		return err
+	}
+	_, renewed, err := extendNsc(ctx, n.Env.Runner, box.ID, []string{"--duration", lasts.String()})
+	if err != nil {
+		n.Log.Warn("nsc refused to extend a box", "box", box.ID, "err", err)
+		_, err := n.Env.Bus.Post(ctx, n.warning(box, deadline, now, truncated(err.Error(), 300)))
+		return err
+	}
+	if err := recordNscDeadline(ctx, n.Env.Bus, n.Env.Config.Drive, Self, box.ID, renewed, lasts); err != nil {
+		return err
+	}
+	n.due[box.ID] = renewed
+	lane := or(box.Labels[nscLabel], Root)
+	_, err = n.Env.Bus.Post(ctx, client.Draft{
+		Drive: n.Env.Config.Drive, Lane: Self, Kind: nscRenewed, To: []string{lane}, ID: fmt.Sprintf("nsc-renewed:%s:%d", box.ID, renewed.Unix()), Stamp: true, Force: true,
+		Text: fmt.Sprintf("NSC-EXTENDED %s: this Namespace box was to die at %s, so the supervisor extended it by its create duration, %s; it now dies at %s. Destroy it with `nsc destroy %s` once its work is done.", box.ID, pacific(deadline), lasts, pacific(renewed), box.ID),
+	})
+	return err
 }
 
 func (n *NscDeadlines) recorded(ctx context.Context, now time.Time) error {
@@ -82,7 +108,7 @@ func (n *NscDeadlines) recorded(ctx context.Context, now time.Time) error {
 		return err
 	}
 	if n.due == nil {
-		n.due = map[string]time.Time{}
+		n.due, n.lasts = map[string]time.Time{}, map[string]time.Duration{}
 	}
 	for _, record := range records {
 		n.after = max(n.after, record.Seq)
@@ -95,18 +121,27 @@ func (n *NscDeadlines) recorded(ctx context.Context, now time.Time) error {
 			return fmt.Errorf("record #%d: %w", record.Seq, err)
 		}
 		n.due[box] = deadline
+		if lasts, given := record.Fields.Attrs["duration"]; given {
+			if n.lasts[box], err = time.ParseDuration(lasts); err != nil {
+				return fmt.Errorf("record #%d: %w", record.Seq, err)
+			}
+		}
 	}
 	return nil
 }
 
-func (n *NscDeadlines) warning(box nscBox, deadline, now time.Time) client.Draft {
+func (n *NscDeadlines) warning(box nscBox, deadline, now time.Time, refused string) client.Draft {
 	lane, unlabeled := box.Labels[nscLabel], ""
 	if lane == "" {
 		lane, unlabeled = Root, " It carries no lane label, so the warning goes to the coordinator."
 	}
+	next := fmt.Sprintf("Extend it with `lr nsc extend %s --drive %s --lane %s -- --duration <how much longer>`, or finish its work and destroy it.", box.ID, n.Env.Config.Drive, lane)
+	if refused != "" {
+		next = fmt.Sprintf("nsc refused to extend it: %s. Recreate it with `lr nsc create --drive %s --lane %s -- <nsc create flags>` and move its work there.", refused, n.Env.Config.Drive, lane)
+	}
 	return client.Draft{
 		Drive: n.Env.Config.Drive, Lane: Self, Kind: nscWarning, To: []string{lane}, ID: fmt.Sprintf("nsc-deadline:%s:%d", box.ID, deadline.Unix()), Stamp: true, Force: true,
-		Text: fmt.Sprintf("NSC-DEADLINE %s: this Namespace box dies at %s, in %d minutes.%s Extend it with `lr nsc extend %s --drive %s --lane %s -- --duration <how much longer>`, or finish its work and destroy it.", box.ID, pacific(deadline), int(deadline.Sub(now).Minutes()), unlabeled, box.ID, n.Env.Config.Drive, lane),
+		Text: fmt.Sprintf("NSC-DEADLINE %s: this Namespace box dies at %s, in %d minutes.%s %s", box.ID, pacific(deadline), int(deadline.Sub(now).Minutes()), unlabeled, next),
 	}
 }
 
@@ -127,36 +162,48 @@ func MakeNscBox(ctx context.Context, runner shell.Runner, bus Bus, drive, lane s
 		return "", err
 	}
 	var box struct {
-		ID       string `json:"cluster_id"`
-		Deadline string `json:"deadline"`
+		ID       string    `json:"cluster_id"`
+		Created  time.Time `json:"created"`
+		Deadline time.Time `json:"deadline"`
 	}
 	if err := json.Unmarshal(data, &box); err != nil {
 		return "", fmt.Errorf("nsc create --output_json_to: %w", err)
 	}
-	return result.Stdout, recordNscDeadline(ctx, bus, drive, lane, box.ID, box.Deadline)
+	return result.Stdout, recordNscDeadline(ctx, bus, drive, lane, box.ID, box.Deadline, box.Deadline.Sub(box.Created).Round(time.Minute))
 }
 
 func ExtendNscBox(ctx context.Context, runner shell.Runner, bus Bus, drive, lane, id string, flags []string) (string, error) {
-	result, err := runner.Run(ctx, shell.Command{Argv: append([]string{"nsc", "extend", id}, flags...), Timeout: readTimeout})
+	printed, deadline, err := extendNsc(ctx, runner, id, flags)
 	if err != nil {
 		return "", err
 	}
-	extended := nscExtended.FindStringSubmatch(result.Stdout)
-	if extended == nil {
-		return "", fmt.Errorf("nsc extend %s printed no new deadline: %q", id, result.Stdout)
-	}
-	return result.Stdout, recordNscDeadline(ctx, bus, drive, lane, id, extended[1])
+	return printed, recordNscDeadline(ctx, bus, drive, lane, id, deadline, 0)
 }
 
-func recordNscDeadline(ctx context.Context, bus Bus, drive, lane, id, printed string) error {
-	deadline, err := time.Parse(time.RFC3339, printed)
+func extendNsc(ctx context.Context, runner shell.Runner, id string, flags []string) (string, time.Time, error) {
+	result, err := runner.Run(ctx, shell.Command{Argv: append([]string{"nsc", "extend", id}, flags...), Timeout: readTimeout})
 	if err != nil {
-		return fmt.Errorf("nsc deadline of %s: %w", id, err)
+		return "", time.Time{}, err
 	}
-	_, err = bus.Post(ctx, client.Draft{
-		Drive: drive, Lane: lane, Kind: nscKind, Topic: nscTopic + id, ID: fmt.Sprintf("%s%s:%d", nscTopic, id, deadline.Unix()), Stamp: true,
-		Attrs: map[string]string{"deadline": deadline.UTC().Format(time.RFC3339)},
-		Text:  fmt.Sprintf("NSC %s: the Namespace box %s holds dies at %s", id, lane, pacific(deadline)),
+	extended := nscExtended.FindStringSubmatch(result.Stdout)
+	if extended == nil {
+		return "", time.Time{}, fmt.Errorf("nsc extend %s printed no new deadline: %q", id, result.Stdout)
+	}
+	deadline, err := time.Parse(time.RFC3339, extended[1])
+	if err != nil {
+		return "", time.Time{}, fmt.Errorf("nsc extend %s: %w", id, err)
+	}
+	return result.Stdout, deadline, nil
+}
+
+func recordNscDeadline(ctx context.Context, bus Bus, drive, lane, id string, deadline time.Time, lasts time.Duration) error {
+	attrs := map[string]string{"deadline": deadline.UTC().Format(time.RFC3339)}
+	if lasts > 0 {
+		attrs["duration"] = lasts.String()
+	}
+	_, err := bus.Post(ctx, client.Draft{
+		Drive: drive, Lane: lane, Kind: nscKind, Topic: nscTopic + id, ID: fmt.Sprintf("%s%s:%d", nscTopic, id, deadline.Unix()), Stamp: true, Attrs: attrs,
+		Text: fmt.Sprintf("NSC %s: the Namespace box %s holds dies at %s", id, lane, pacific(deadline)),
 	})
 	return err
 }
