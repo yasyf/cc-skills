@@ -81,11 +81,8 @@ record survives a compaction where a message does not.
 
 **The communicator** answers every owner message that turn, in his terms: the "why"
 with the mechanism of the drive's own failure, the pick on his board. The
-ledger hook records his words verbatim as they arrive (`lr owner`), posts each row
-as an `owner` record with id `owner:m<N>` and registers a terminal message as a
-`from:owner` cc-notes answer; nobody appends them to a rulings file by hand, a
-hook refuses a write under `root/rulings/`, and nobody pastes them into a forward
-(owner, Nov 3).
+ledger hook records his words verbatim as they arrive (`lr owner`); nobody appends
+them to a rulings file by hand or pastes them into a forward (owner, Nov 3).
 The communicator names each row to the coordinator as one `cci post --lane owner-relay
 --kind ask --to root --text 'owner:m47 <one-line order>'`, so the coordinator reads it
 at its next tool call. A
