@@ -38,6 +38,8 @@ type recordedPR struct {
 	login   string
 	labels  []string
 	commits []string
+	rollup  string
+	merge   string
 }
 
 func graphQLPages(prs []recordedPR) string {
@@ -53,9 +55,15 @@ func graphQLPages(prs []recordedPR) string {
 			for _, oid := range pr.commits {
 				commits = append(commits, map[string]any{"commit": map[string]any{"oid": oid}})
 			}
+			var rollup any
+			if pr.rollup != "" {
+				rollup = map[string]any{"state": pr.rollup}
+			}
 			nodes = append(nodes, map[string]any{
 				"number": pr.number, "headRefOid": pr.head, "author": map[string]any{"login": pr.login},
 				"labels": map[string]any{"nodes": labels}, "commits": map[string]any{"nodes": commits},
+				"mergeable": pr.merge,
+				"tip":       map[string]any{"nodes": []map[string]any{{"commit": map[string]any{"statusCheckRollup": rollup}}}},
 			})
 		}
 		encoded, err := json.Marshal(map[string]any{"data": map[string]any{"repository": map[string]any{"pullRequests": map[string]any{"nodes": nodes}}}})
@@ -67,8 +75,19 @@ func graphQLPages(prs []recordedPR) string {
 	return pages.String()
 }
 
-func status(number int, overrides ...func(*ccx.PRStatus)) ccx.PRStatus {
-	row := ccx.PRStatus{Number: number, Head: head, Base: "dev", State: "OPEN", Queue: "not queued", Mergeability: "notQueued", Verdict: "landable", CI: ccx.Check{State: "green"}, Approval: ccx.Check{State: "approved"}}
+type ciRow struct {
+	State   string   `json:"state"`
+	Failing []string `json:"failing,omitempty"`
+	Running int      `json:"running,omitempty"`
+}
+
+type statusRow struct {
+	ccx.PRStatus
+	CI ciRow `json:"ci"`
+}
+
+func status(number int, overrides ...func(*statusRow)) statusRow {
+	row := statusRow{ccx.PRStatus{Number: number, Head: head, Base: "dev", State: "OPEN", Queue: "not queued", Mergeability: "notQueued", Verdict: "landable", Approval: ccx.Check{State: "approved"}}, ciRow{State: "green"}}
 	for _, override := range overrides {
 		override(&row)
 	}
@@ -81,7 +100,9 @@ type harness struct {
 	runner *shelltest.Fake
 }
 
-func newHarness(t *testing.T, prs []recordedPR, rows ...ccx.PRStatus) harness {
+const branchRules = `[{"type":"pull_request"},{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"buildkite/test"},{"context":"lint"}]}}]`
+
+func newHarness(t *testing.T, prs []recordedPR, rows ...statusRow) harness {
 	t.Helper()
 	t.Setenv("CCI_HOME", t.TempDir())
 	s, err := store.Memory()
@@ -94,9 +115,10 @@ func newHarness(t *testing.T, prs []recordedPR, rows ...ccx.PRStatus) harness {
 		t.Fatal(err)
 	}
 	runner := &shelltest.Fake{}
-	runner.Reply(graphQLPages(prs), "ccx", "vcs", "gh")
+	runner.Reply(graphQLPages(prs), "ccx", "vcs", "gh", "--max-age", "0s")
+	runner.Reply(branchRules, "ccx", "vcs", "gh", "--max-age", "5m")
 	runner.Reply(string(statuses), "ccx", "vcs", "pr", "status")
-	cfg := config.Config{Repo: repo, Drive: "d", Checkout: "/checkouts/repo", Author: "drive-bot", Label: "drive"}
+	cfg := config.Config{Repo: repo, Drive: "d", Checkout: "/checkouts/repo", Author: "drive-bot", Label: "drive", Trunk: "dev"}
 	a := app.New(io.Discard)
 	a.Runner = runner
 	return harness{facts.New(a, cfg, s), s, runner}
@@ -150,11 +172,11 @@ func TestEveryOpenPRByTheDriveAuthorOrLabelIsAdmitted(t *testing.T) {
 func TestAPassReadsEachSourceOnceWhateverThePRCount(t *testing.T) {
 	calls := map[int]int{}
 	for _, n := range []int{1, 1000} {
-		prs, rows := make([]recordedPR, 0, n), make([]ccx.PRStatus, 0, n)
+		prs, rows := make([]recordedPR, 0, n), make([]statusRow, 0, n)
 		for i := 1; i <= n; i++ {
 			sha := fmt.Sprintf("%040x", i)
 			prs = append(prs, recordedPR{number: i, head: sha, login: "drive-bot", commits: []string{sha}})
-			rows = append(rows, status(i, func(row *ccx.PRStatus) { row.Head = sha }))
+			rows = append(rows, status(i, func(row *statusRow) { row.Head = sha }))
 		}
 		h := newHarness(t, prs, rows...)
 
@@ -164,8 +186,8 @@ func TestAPassReadsEachSourceOnceWhateverThePRCount(t *testing.T) {
 
 		calls[n] = len(h.runner.Calls())
 	}
-	if calls[1] != 2 || calls[1000] != calls[1] {
-		t.Fatalf("command runs at 1 and 1,000 open PRs = %d, %d, want 2 each", calls[1], calls[1000])
+	if calls[1] != 3 || calls[1000] != calls[1] {
+		t.Fatalf("command runs at 1 and 1,000 open PRs = %d, %d, want 3 each", calls[1], calls[1000])
 	}
 }
 
@@ -175,7 +197,7 @@ func TestEveryReadRunsFromTheCheckoutNamingItsRepositoryAndCaller(t *testing.T) 
 	h.snapshot(t)
 
 	calls := h.runner.Calls()
-	if len(calls) != 2 {
+	if len(calls) != 3 {
 		t.Fatalf("calls = %+v", calls)
 	}
 	for _, call := range calls {
@@ -218,15 +240,15 @@ func TestQueueCIAndMergeabilityComeFromTheOneStatusRead(t *testing.T) {
 		{number: 8, head: fmt.Sprintf("%040x", 8), login: "drive-bot"},
 		{number: 9, head: fmt.Sprintf("%040x", 9), login: "drive-bot"},
 	},
-		status(1, func(r *ccx.PRStatus) { r.Queue = "evicted" }),
-		status(2, func(r *ccx.PRStatus) { r.Queue = "queued" }),
-		status(3, func(r *ccx.PRStatus) { r.CI.State, r.Verdict = "red", "blocked:ci-red" }),
-		status(4, func(r *ccx.PRStatus) { r.Verdict = "blocked:conflict" }),
-		status(5, func(r *ccx.PRStatus) { r.Verdict = "blocked:mergeable-unknown" }),
-		status(6, func(r *ccx.PRStatus) { r.Verdict = "blocked:needs-restack (parent landed),unapproved" }),
-		status(7, func(r *ccx.PRStatus) { r.Queue, r.State, r.CI.State = "landed", "MERGED", "none" }),
-		status(8, func(r *ccx.PRStatus) { r.Mergeability = "failed" }),
-		status(9, func(r *ccx.PRStatus) { r.Mergeability = "cancelled" }),
+		status(1, func(r *statusRow) { r.Queue = "evicted" }),
+		status(2, func(r *statusRow) { r.Queue = "queued" }),
+		status(3, func(r *statusRow) { r.CI.State, r.Verdict = "red", "blocked:ci-red" }),
+		status(4, func(r *statusRow) { r.Verdict = "blocked:conflict" }),
+		status(5, func(r *statusRow) { r.Verdict = "blocked:mergeable-unknown" }),
+		status(6, func(r *statusRow) { r.Verdict = "blocked:needs-restack (parent landed),unapproved" }),
+		status(7, func(r *statusRow) { r.Queue, r.State, r.CI.State = "landed", "MERGED", "none" }),
+		status(8, func(r *statusRow) { r.Mergeability = "failed" }),
+		status(9, func(r *statusRow) { r.Mergeability = "cancelled" }),
 	)
 
 	by := h.snapshot(t)
@@ -262,7 +284,7 @@ func TestQueueCIAndMergeabilityComeFromTheOneStatusRead(t *testing.T) {
 
 func TestAQueueStateCcxCouldNotReadIsNeverLandable(t *testing.T) {
 	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}},
-		status(1, func(r *ccx.PRStatus) { r.Queue, r.Verdict = "unknown", "blocked:queue-unknown" }))
+		status(1, func(r *statusRow) { r.Queue, r.Verdict = "unknown", "blocked:queue-unknown" }))
 
 	row := h.snapshot(t)[1]
 
@@ -273,7 +295,7 @@ func TestAQueueStateCcxCouldNotReadIsNeverLandable(t *testing.T) {
 
 func TestARowCcxCouldNotReadIsSkippedThisPassAndNeverReadsAsClosed(t *testing.T) {
 	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}, {number: 2, head: head2, login: "drive-bot"}},
-		status(1), ccx.PRStatus{Number: 2, Queue: "unknown", Verdict: "unread"})
+		status(1), statusRow{PRStatus: ccx.PRStatus{Number: 2, Queue: "unknown", Verdict: "unread"}})
 
 	by := h.snapshot(t)
 
@@ -283,7 +305,7 @@ func TestARowCcxCouldNotReadIsSkippedThisPassAndNeverReadsAsClosed(t *testing.T)
 }
 
 func TestAnUnknownQueueStateIsAnUnreadPassNamingIt(t *testing.T) {
-	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1, func(r *ccx.PRStatus) { r.Queue = "parked" }))
+	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1, func(r *statusRow) { r.Queue = "parked" }))
 
 	_, err := h.source.Snapshot(context.Background())
 
@@ -297,7 +319,7 @@ func TestABranchCarryingASiblingsHeadIsMarkedWhateverGitHubSaysItsBaseIs(t *test
 		{number: 45799, head: head, login: "drive-bot", commits: []string{head2, head3, head}},
 		{number: 45501, head: head2, login: "drive-bot", commits: []string{head2}},
 		{number: 45583, head: head3, login: "drive-bot", commits: []string{head3}},
-	}, status(45501, func(r *ccx.PRStatus) { r.Head = head2 }), status(45583, func(r *ccx.PRStatus) { r.Head = head3 }), status(45799))
+	}, status(45501, func(r *statusRow) { r.Head = head2 }), status(45583, func(r *statusRow) { r.Head = head3 }), status(45799))
 
 	by := h.snapshot(t)
 
@@ -361,28 +383,219 @@ func TestAClearThatLandsAfterThePassReadTheBusAppliesNextPass(t *testing.T) {
 	}
 }
 
+func TestRedCountsOnlyARequiredCheck(t *testing.T) {
+	red := func(r *statusRow, failing ...string) {
+		r.CI.State, r.CI.Failing, r.Verdict = "red", failing, "blocked:ci-red"
+	}
+	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}, {number: 2, head: head, login: "drive-bot"}, {number: 3, head: head, login: "drive-bot"}},
+		status(1, func(r *statusRow) { red(r, "buildkite/test", "codecov") }),
+		status(2, func(r *statusRow) { red(r, "codecov") }),
+		status(3, func(r *statusRow) { red(r, "codecov"); r.CI.Running = 2 }),
+	)
+
+	by := h.snapshot(t)
+
+	if by[1].CI != machine.CIFailure || by[2].CI != machine.CISuccess || by[3].CI != machine.CIPending {
+		t.Fatalf("ci = %v, %v, %v", by[1].CI, by[2].CI, by[3].CI)
+	}
+}
+
+func TestARestackCancelInTheQueueIsNotRedButAFailedQueueRunIs(t *testing.T) {
+	queueRed := func(r *statusRow) {
+		r.CI.State, r.CI.Failing, r.Verdict = "red", []string{"Trunk Merge Queue (dev)"}, "blocked:ci-red"
+	}
+	h := newHarness(t, []recordedPR{
+		{number: 48317, head: head, login: "drive-bot", labels: []string{"trunk-cancelled"}},
+		{number: 2, head: head, login: "drive-bot", labels: []string{"trunk-failed"}},
+		{number: 3, head: head, login: "drive-bot", labels: []string{"trunk-cancelled", "trunk-failed"}},
+	}, status(48317, queueRed), status(2, queueRed), status(3, queueRed))
+
+	by := h.snapshot(t)
+
+	if by[48317].CI != machine.CISuccess {
+		t.Errorf("a restack's cancel read %v", by[48317].CI)
+	}
+	if by[2].CI != machine.CIFailure || by[3].CI != machine.CIFailure {
+		t.Errorf("a failed queue run read %v, %v", by[2].CI, by[3].CI)
+	}
+}
+
+func TestPendingSettlesWhenTheRollupAtTheHeadReadsSuccess(t *testing.T) {
+	pending := func(r *statusRow) { r.CI.State, r.Verdict = "pending", "blocked:ci-pending" }
+	h := newHarness(t, []recordedPR{
+		{number: 48252, head: head, login: "drive-bot", rollup: "SUCCESS"},
+		{number: 2, head: head2, login: "drive-bot", rollup: "SUCCESS"},
+		{number: 3, head: head, login: "drive-bot", rollup: "PENDING"},
+		{number: 4, head: head, login: "drive-bot"},
+	}, status(48252, pending), status(2, pending), status(3, pending), status(4, pending))
+
+	by := h.snapshot(t)
+
+	if by[48252].CI != machine.CISuccess {
+		t.Errorf("a green rollup at the head read %v", by[48252].CI)
+	}
+	if by[2].CI != machine.CIPending {
+		t.Errorf("a green rollup on a newer head settled an older status: %v", by[2].CI)
+	}
+	if by[3].CI != machine.CIPending || by[4].CI != machine.CIPending {
+		t.Errorf("no green rollup read %v, %v", by[3].CI, by[4].CI)
+	}
+}
+
+func TestGitHubSettlesAMergeabilityTheStatusReadCouldNot(t *testing.T) {
+	unread := func(r *statusRow) { r.Verdict = "blocked:mergeable-unknown" }
+	h := newHarness(t, []recordedPR{
+		{number: 1, head: head, login: "drive-bot", merge: "MERGEABLE"},
+		{number: 2, head: head2, login: "drive-bot", merge: "MERGEABLE"},
+		{number: 3, head: head, login: "drive-bot", merge: "UNKNOWN"},
+	}, status(1, unread), status(2, unread), status(3, unread))
+
+	by := h.snapshot(t)
+
+	if by[1].Mergeable != machine.MergeableClean {
+		t.Errorf("mergeable at the head read %v", by[1].Mergeable)
+	}
+	if by[2].Mergeable != machine.MergeableUnknown || by[3].Mergeable != machine.MergeableUnknown {
+		t.Errorf("a newer head or an unread answer read %v, %v", by[2].Mergeable, by[3].Mergeable)
+	}
+}
+
+func TestTrunkLabelsAnswerWhereTheStatusReadCannot(t *testing.T) {
+	unknown := func(r *statusRow) { r.Queue = "unknown" }
+	notGreen := func(r *statusRow) { r.CI.State = "pending" }
+	h := newHarness(t, []recordedPR{
+		{number: 1, head: head, login: "drive-bot", labels: []string{"trunk-merged"}},
+		{number: 2, head: head, login: "drive-bot", labels: []string{"trunk-testing"}},
+		{number: 3, head: head, login: "drive-bot", labels: []string{"trunk-failed"}},
+		{number: 4, head: head, login: "drive-bot", labels: []string{"trunk-cancelled"}},
+		{number: 5, head: head, login: "drive-bot", labels: []string{"trunk-failed"}},
+	},
+		status(1, unknown), status(2, unknown), status(3, unknown, notGreen), status(4, notGreen), status(5))
+
+	by := h.snapshot(t)
+
+	if !by[1].Merged || machine.Classify(by[1]).State != machine.StateLanded {
+		t.Errorf("a trunk-merged label read %+v", by[1])
+	}
+	if by[2].Queue != machine.QueueQueued || by[2].QueuedHead != head {
+		t.Errorf("a trunk-testing label read %+v", by[2])
+	}
+	if by[3].Queue != machine.QueueEvicted || by[4].Queue != machine.QueueEvicted {
+		t.Errorf("a fell label under a head not green read %v, %v", by[3].Queue, by[4].Queue)
+	}
+	if by[5].Queue != machine.QueueNone {
+		t.Errorf("a fell label that outlived its head read %v on a green head", by[5].Queue)
+	}
+}
+
+func hold(t *testing.T, lane, text, pr string) client.Record {
+	t.Helper()
+	record, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: lane, Kind: "hold", Text: text, PRs: []string{pr}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return record
+}
+
+func goRecord(t *testing.T, lane, text string) client.Record {
+	t.Helper()
+	record, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: lane, Kind: "go", Text: text})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return record
+}
+
+func TestALaterRootGoLiftsARootHoldAtAnyHeadSoARestackDoesNotRestallThePR(t *testing.T) {
+	h := newHarness(t, []recordedPR{{number: 48401, head: head, login: "drive-bot"}, {number: 2, head: head, login: "drive-bot"}}, status(48401), status(2))
+	hold(t, "root", "hold #48401 until the audit", repo+"#48401")
+	goRecord(t, "root", "go #48401 at e718a74")
+	hold(t, "root", "hold #2 for now", repo+"#2")
+	goRecord(t, "root", "go #2 at aa11bb2")
+
+	by := h.snapshot(t)
+
+	if by[48401].Hold != "" || by[2].Hold != "" {
+		t.Fatalf("holds = %q, %q after a later go", by[48401].Hold, by[2].Hold)
+	}
+}
+
+func TestAHoldStandsAgainstEveryGoThatIsNotALaterLiveRootGo(t *testing.T) {
+	for name, setup := range map[string]func(t *testing.T){
+		"a go before the hold": func(t *testing.T) {
+			goRecord(t, "root", "go #1 at e718a74")
+			hold(t, "root", "hold #1 after all", repo+"#1")
+		},
+		"a go by a lane": func(t *testing.T) {
+			hold(t, "root", "hold #1 for now", repo+"#1")
+			goRecord(t, "lane-7", "go #1 at e718a74")
+		},
+		"the landing runner's go on a tap": func(t *testing.T) {
+			hold(t, "root", "hold #1 for now", repo+"#1")
+			goRecord(t, "desk-runner", "go #1 at e718a74")
+		},
+		"a go naming another PR": func(t *testing.T) {
+			hold(t, "root", "hold #1 for now", repo+"#1")
+			goRecord(t, "root", "go #2 at e718a74")
+		},
+		"a withdrawn go": func(t *testing.T) {
+			hold(t, "root", "hold #1 for now", repo+"#1")
+			g := goRecord(t, "root", "go #1 at e718a74")
+			if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "root", Kind: "withdraw", Text: "not yet", Re: g.Seq}); err != nil {
+				t.Fatal(err)
+			}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
+			setup(t)
+
+			if row := h.snapshot(t)[1]; row.Hold != machine.MoverRoot {
+				t.Fatalf("hold = %q, want root", row.Hold)
+			}
+		})
+	}
+}
+
+func TestARootGoNeverLiftsTheOwnersHold(t *testing.T) {
+	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
+	hold(t, "owner", "hold #1 for me", repo+"#1")
+	hold(t, "root", "hold #1 too", repo+"#1")
+	goRecord(t, "root", "go #1 at e718a74")
+
+	if row := h.snapshot(t)[1]; row.Hold != machine.MoverOwner {
+		t.Fatalf("hold = %q, want owner", row.Hold)
+	}
+}
+
+func TestAHoldLeadingWithItsNumberHoldsOnlyThatPR(t *testing.T) {
+	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}, {number: 2, head: head2, login: "drive-bot"}},
+		status(1), status(2, func(r *statusRow) { r.Head = head2 }))
+	if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "root", Kind: "hold", Text: "hold #1 because #2 landed badly", PRs: []string{repo + "#1", repo + "#2"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	by := h.snapshot(t)
+
+	if by[1].Hold != machine.MoverRoot || by[2].Hold != "" {
+		t.Fatalf("holds = %q, %q", by[1].Hold, by[2].Hold)
+	}
+}
+
 func TestAHoldNamesWhoLiftsItAndALiftedOneHoldsNothing(t *testing.T) {
 	h := newHarness(t, []recordedPR{
 		{number: 45821, head: head, login: "drive-bot"},
 		{number: 30388, head: head2, login: "drive-bot"},
 		{number: 46038, head: head3, login: "drive-bot"},
 		{number: 50000, head: fmt.Sprintf("%040x", 5), login: "drive-bot"},
-	}, status(45821), status(30388, func(r *ccx.PRStatus) { r.Head = head2 }), status(46038, func(r *ccx.PRStatus) { r.Head = head3 }), status(50000))
-	ctx := context.Background()
-	hold := func(lane, text, pr string) client.Record {
-		record, err := client.Post(ctx, client.Draft{Drive: "d", Lane: lane, Kind: "hold", Text: text, PRs: []string{pr}})
-		if err != nil {
-			t.Fatal(err)
-		}
-		return record
-	}
-	hold("root", "hold #45821 until the audit", repo+"#45821")
-	hold("owner", "hold #30388 for me", "30388")
-	lifted := hold("root", "hold #46038 for now", repo+"#46038")
-	if _, err := client.Post(ctx, client.Draft{Drive: "d", Lane: "root", Kind: "lift", Text: "lift #46038", Re: lifted.Seq, PRs: []string{repo + "#46038"}}); err != nil {
+	}, status(45821), status(30388, func(r *statusRow) { r.Head = head2 }), status(46038, func(r *statusRow) { r.Head = head3 }), status(50000))
+	hold(t, "root", "hold #45821 until the audit", repo+"#45821")
+	hold(t, "owner", "hold #30388 for me", "30388")
+	lifted := hold(t, "root", "hold #46038 for now", repo+"#46038")
+	if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "root", Kind: "lift", Text: "lift #46038", Re: lifted.Seq, PRs: []string{repo + "#46038"}}); err != nil {
 		t.Fatal(err)
 	}
-	hold("root", "hold #50000 in the other repository", "other/repo#50000")
+	hold(t, "root", "hold #50000 in the other repository", "other/repo#50000")
 
 	by := h.snapshot(t)
 
@@ -420,7 +633,7 @@ func TestAConditionalTapIsNotATapAndKeepsItsCondition(t *testing.T) {
 
 func TestTheApprovingReviewComesFromTheStatusRead(t *testing.T) {
 	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}, {number: 2, head: head2, login: "drive-bot"}},
-		status(1), status(2, func(r *ccx.PRStatus) { r.Approval.State = "none" }))
+		status(1), status(2, func(r *statusRow) { r.Approval.State = "none" }))
 
 	by := h.snapshot(t)
 
@@ -463,7 +676,7 @@ func TestAPRWithNoHeadRecordBelongsToTheLaneTheRegistryNames(t *testing.T) {
 
 func TestAPRThatLeftTheOpenListWithAnOpenItemGetsItsTerminalRow(t *testing.T) {
 	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}},
-		status(1), status(44, func(r *ccx.PRStatus) { r.State, r.Queue = "MERGED", "landed" }))
+		status(1), status(44, func(r *statusRow) { r.State, r.Queue = "MERGED", "landed" }))
 	if _, err := h.store.OpenItem(store.NewItem{Kind: "verdict", Repo: repo, Number: 44, Head: head, Mover: machine.MoverLane, Deadline: time.Hour}, time.Now()); err != nil {
 		t.Fatal(err)
 	}

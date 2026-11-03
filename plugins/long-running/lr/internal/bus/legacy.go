@@ -38,8 +38,12 @@ var (
 	goClause       = regexp.MustCompile(`(?i)(?:^\s*(?:\d{1,2}:\d{2}\s*[AP]M\s+)?|[.:;!?]\s+)(?:go(?:\s+(?:port|test-only|ci-only))?|merge)\s+(` + goPair + `(?:(?:\s*,\s*|\s*,?\s+and\s+)` + goPair + `)*)`)
 	goHead         = regexp.MustCompile(`(?i)#(\d+)\s+at\s+([0-9a-f]{7,40})\b`)
 	withdrawnGo    = regexp.MustCompile(`(?i)^\s*withdrawn\b`)
+	withdrawsNamed = regexp.MustCompile(`(?i)\bwithdraws?\b[^.;:\n#]*#(\d+)`)
+	leadingHold    = regexp.MustCompile(`(?i)^\W*hold\s+#(\d+)\b`)
 	finderVerdicts = map[string]string{"ok": "clear", "major": "ask"}
 )
+
+var GoReadKinds = []string{"go", "decide", "decision", "withdraw", "correction"}
 
 type Fact struct {
 	PR    int
@@ -224,4 +228,56 @@ func goHeads(text string) []headPair {
 		pairs = append(pairs, headPair{pr, strings.ToLower(named[2])})
 	}
 	return pairs
+}
+
+func LiveGos(records []client.Record, goLanes []string) []client.Record {
+	lanes := append([]string{rootLane}, goLanes...)
+	closed := make(map[int64]bool)
+	for _, record := range records {
+		if delegated(record.Lane, lanes) {
+			for _, seq := range closes(record) {
+				closed[seq] = true
+			}
+		}
+	}
+	return slices.DeleteFunc(slices.Clone(records), func(record client.Record) bool {
+		return !delegated(record.Lane, lanes) || !isGo(record) || closed[record.Seq]
+	})
+}
+
+func closes(record client.Record) []int64 {
+	seqs := append([]int64{record.Resolves}, record.AlsoResolves...)
+	kind := string(record.Kind)
+	if kind != "withdraw" && kind != "correction" {
+		return seqs
+	}
+	seqs = append(seqs, record.Re)
+	for _, named := range withdrawsNamed.FindAllStringSubmatch(record.Text, -1) {
+		if seq, err := strconv.ParseInt(named[1], 10, 64); err == nil {
+			seqs = append(seqs, seq)
+		}
+	}
+	return seqs
+}
+
+func GoNames(record client.Record, pr int) bool {
+	return slices.ContainsFunc(goHeads(record.Text), func(pair headPair) bool { return pair.PR == pr })
+}
+
+func HeldBy(record client.Record, repo string) []int {
+	var prs []int
+	for _, pr := range record.Refs.PRs {
+		if pr.Repo == "" || strings.EqualFold(pr.Repo, repo) {
+			prs = append(prs, pr.Number)
+		}
+	}
+	if len(record.Refs.PRs) > 0 && len(prs) == 0 {
+		return nil
+	}
+	if leading := leadingHold.FindStringSubmatch(record.Text); leading != nil {
+		if pr, err := strconv.Atoi(leading[1]); err == nil {
+			return []int{pr}
+		}
+	}
+	return prs
 }
