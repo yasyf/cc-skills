@@ -130,7 +130,7 @@ lanes, gos, holds, incidents, the task list, progress docs and the register. It
 launches lanes through the supervisor and Orca (`lr launch`), never with `Agent`. It
 owns and starts desk-runner, the launch runner and every desk (`lr desks start`), each
 remote as an Orca session, and the communicator starts none of them: the verbs that start a
-runner or desk refuse a window bound `owner-relay`. The launch runner is the one
+runner or desk refuse it. The launch runner is the one
 exception to remote: the coordinator starts it from its own Orca binding on the Mac,
 because it drives the Mac's Orca app and cuts Mac worktrees.
 It never posts to Slack or the board and never speaks to the owner; everything he

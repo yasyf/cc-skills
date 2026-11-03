@@ -137,7 +137,7 @@ A Bash append to `orca-desk.md` in a drive session draws `UNREAD` and the `cci p
 }
 ```
 
-**The coordinator starts both with `lr desks start`, which runs these lines.** `rebind` takes the Run for its terminal, the orca process starts from that terminal with `nohup` so it survives compaction, and `desk-creds.py install` moves the landing process to `host.sprite`. The orca process stays on the Mac because it drives the Mac's Orca app and cuts Mac worktrees; it is the one desk that is not remote. Every verb here refuses a window bound `owner-relay`. Start the landing desk after its first status card when `landing.status_card` is enabled.
+**The coordinator starts both with `lr desks start`, which runs these lines.** `rebind` takes the Run for its terminal, the orca process starts from that terminal with `nohup` so it survives compaction, and `desk-creds.py install` moves the landing process to `host.sprite`. The orca process stays on the Mac because it drives the Mac's Orca app and cuts Mac worktrees; it is the one desk that is not remote. Every verb here refuses the communicator. Start the landing desk after its first status card when `landing.status_card` is enabled.
 
 ```sh
 DRIVE='/absolute/drive'

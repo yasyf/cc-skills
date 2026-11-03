@@ -146,7 +146,8 @@ func TestTheCoordinatorStartsEveryDesk(t *testing.T) {
 	}
 	all := m.lines("")
 	rebind := slices.IndexFunc(all, func(line string) bool { return strings.HasPrefix(line, "desk-runner.py rebind") })
-	launcher := slices.IndexFunc(all, func(line string) bool { return strings.Contains(line, "desk-runner.py run --config "+runner+" --desk orca") })
+	start := "desk-runner.py run --config " + runner + " --desk orca"
+	launcher := slices.IndexFunc(all, func(line string) bool { return strings.Contains(line, start) })
 	if rebind < 0 || launcher < rebind {
 		t.Fatalf("the launch runner must start after this terminal takes the Run: %q", all)
 	}
