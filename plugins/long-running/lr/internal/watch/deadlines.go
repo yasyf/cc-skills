@@ -1,6 +1,7 @@
 package watch
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"time"
@@ -63,6 +64,7 @@ func Apply(s *store.Store, namespaces []string, standing []Wait, now time.Time, 
 		}
 	}
 	var escalated []pass.Escalated
+	var refused []error
 	for _, wait := range standing {
 		if !wait.overdue(now) {
 			continue
@@ -76,8 +78,8 @@ func Apply(s *store.Store, namespaces []string, standing []Wait, now time.Time, 
 		}
 		escalated = append(escalated, pass.Escalated{Subject: wait.subject(), Cause: wait.Cause, To: wait.To})
 		if err := post([]string{wait.To}, bus.Overdue(wait.To, wait.subject(), wait.Cause)); err != nil {
-			return escalated, err
+			refused = append(refused, fmt.Errorf("%s: %w", wait.subject(), err))
 		}
 	}
-	return escalated, nil
+	return escalated, errors.Join(refused...)
 }

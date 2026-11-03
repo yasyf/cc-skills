@@ -287,7 +287,7 @@ func (q *Squash) land(ctx context.Context, f machine.Facts, open *client.Record)
 }
 
 func (q *Squash) tell(ctx context.Context, f machine.Facts, kind, id, text string) {
-	if err := postToLane(ctx, q.Drive, f, kind, id, text); err != nil {
+	if err := postToLane(ctx, q.Store, q.Drive, f, kind, id, text); err != nil {
 		q.Log.Warn("the incident squash went unposted", "pr", f.Number, "err", err)
 	}
 }

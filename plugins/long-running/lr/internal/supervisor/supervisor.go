@@ -142,7 +142,7 @@ func runPass(ctx context.Context, s *store.Store, drive string, generation int64
 	}
 	report.Escalated = len(out.Escalated)
 	if slices.Contains(d.Movers, "landing") {
-		if err := landing.Announce(ctx, drive, d.Trunk, out.Landed, route); err != nil {
+		if err := landing.Announce(ctx, s, drive, d.Trunk, out.Landed, route); err != nil {
 			d.Log.Warn("a landed record went unposted", "err", err)
 		}
 		if err := landing.CarryTaps(ctx, s, drive, out.Carried, now); err != nil {

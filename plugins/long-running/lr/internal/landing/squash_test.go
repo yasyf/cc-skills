@@ -175,6 +175,25 @@ func TestAFailedRulingCheckBlocksTheMergeAndNeverOnlyWarns(t *testing.T) {
 	}
 }
 
+func TestAnIncidentFixFromARetiredLaneTellsTheLaneThatSucceededIt(t *testing.T) {
+	f := newSquash(t)
+	refusing := &shelltest.Fake{}
+	refusing.FailOut(1, "RESERVED-NO-ANSWER reserved/cloud-delete\tNo cloud deletion.\n", squashTool, "check-pr")
+	refusing.Reply("0\n", "ccx", "vcs", "gh")
+	f.squash.Runner, f.squash.CCX = refusing, ccx.CLI{Runner: refusing}
+	retire(t, f.squash.Store, "incident-api-fix", "incident-api-fix-2")
+
+	f.admit(fixFacts(nil))
+
+	blockers, err := client.Tail(context.Background(), client.Query{Drive: "d", Kinds: []string{"blocker"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(blockers) != 1 || !slices.Equal(blockers[0].To, []string{"incident-api-fix-2", "root"}) {
+		t.Fatalf("blockers = %+v", blockers)
+	}
+}
+
 func TestAHeldFixMergesOnlyWhileAnOpenIncidentNamesItAndSaysSo(t *testing.T) {
 	f := newSquash(t)
 	squashPost(t, "incident", "root", "api is down", []string{"incident-api-fix"})

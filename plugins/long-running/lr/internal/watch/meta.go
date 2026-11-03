@@ -49,6 +49,7 @@ func ReadMeta(stateDir string) (string, time.Time, error) {
 func Meta(s *store.Store, items string, written, now time.Time, post pass.Post) ([]pass.Escalated, error) {
 	to := []string{lanes.OwnerRelay, metaLane}
 	var escalated []pass.Escalated
+	var refused []error
 	for _, row := range openMetaRows(items) {
 		subject := metaKind + ":" + row.item
 		due, dated := dueAt(row.due, written)
@@ -70,10 +71,10 @@ func Meta(s *store.Store, items string, written, now time.Time, post pass.Post) 
 		}
 		escalated = append(escalated, pass.Escalated{Subject: subject, Cause: cause + late, To: strings.Join(to, ",")})
 		if err := post(to, bus.Escalation{Subject: subject, Cause: cause + late}); err != nil {
-			return escalated, err
+			refused = append(refused, fmt.Errorf("%s: %w", subject, err))
 		}
 	}
-	return escalated, nil
+	return escalated, errors.Join(refused...)
 }
 
 func dueAt(cell string, written time.Time) (time.Time, bool) {

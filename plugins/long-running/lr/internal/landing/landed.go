@@ -10,6 +10,7 @@ import (
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/pass"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/watch"
 )
 
@@ -19,7 +20,7 @@ const (
 	queueAccepted = "exit 0: "
 )
 
-func Announce(ctx context.Context, drive, trunk string, landings []pass.Landing, route pass.Route) error {
+func Announce(ctx context.Context, s *store.Store, drive, trunk string, landings []pass.Landing, route pass.Route) error {
 	if len(landings) == 0 {
 		return nil
 	}
@@ -41,11 +42,15 @@ func Announce(ctx context.Context, drive, trunk string, landings []pass.Landing,
 		if _, known := said[number]; known {
 			continue
 		}
-		_, err := client.Post(ctx, client.Draft{
+		owner, err := laneHolder(s, drive, f.Lane)
+		if err != nil {
+			return err
+		}
+		_, err = client.Post(ctx, client.Draft{
 			Drive: drive,
 			Lane:  self,
 			Kind:  landedKind,
-			To:    landedAudience(f.Lane, route),
+			To:    landedAudience(owner, route),
 			ID:    landedKind + ":" + number,
 			PRs:   []string{f.Repo + "#" + number},
 			Text:  fmt.Sprintf("LANDED #%d at %s: merged into %s", f.Number, f.Head[:min(10, len(f.Head))], trunk),
@@ -82,9 +87,6 @@ func Settle(ctx context.Context, drive string, answers []Said) error {
 }
 
 func landedAudience(owner string, route pass.Route) []string {
-	if owner == "" {
-		owner = rootLane
-	}
 	to := []string{owner}
 	if board := route(pass.BoardDesk); board != rootLane && !slices.Contains(to, board) {
 		to = append(to, board)

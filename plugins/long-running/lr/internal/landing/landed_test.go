@@ -13,6 +13,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/landing"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/pass"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
 const monorepo = "Forge-AI/monorepo"
@@ -43,7 +44,7 @@ func TestTheNov3LandingsReachEachOwnerOnceAndSkipOneAlreadySaid(t *testing.T) {
 		{Facts: machine.Facts{Repo: monorepo, Number: 48347, Head: "50db257", Lane: ""}, LastOpen: said.At.AddDate(0, 0, -1)},
 	}
 
-	if err := landing.Announce(ctx, "d", "dev", landings, route); err != nil {
+	if err := landing.Announce(ctx, newStore(t), "d", "dev", landings, route); err != nil {
 		t.Fatal(err)
 	}
 
@@ -70,7 +71,7 @@ func TestALandedRecordSkipsABoardDeskWithNoLiveLaneInsteadOfTellingRootEachTime(
 	ctx := context.Background()
 	landings := []pass.Landing{{Facts: machine.Facts{Repo: monorepo, Number: 7, Head: "e718a7434f", Lane: "lane-7"}, LastOpen: t0}}
 
-	if err := landing.Announce(ctx, "d", "dev", landings, func(string) string { return "root" }); err != nil {
+	if err := landing.Announce(ctx, newStore(t), "d", "dev", landings, func(string) string { return "root" }); err != nil {
 		t.Fatal(err)
 	}
 
@@ -80,6 +81,38 @@ func TestALandedRecordSkipsABoardDeskWithNoLiveLaneInsteadOfTellingRootEachTime(
 	}
 	if len(posted) != 1 || !reflect.DeepEqual(posted[0].To, []string{"lane-7"}) {
 		t.Fatalf("posted = %+v, want one record to lane-7", posted)
+	}
+}
+
+func TestALandedRecordForARetiredLaneReachesTheLaneThatSucceededIt(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	ctx := context.Background()
+	s := newStore(t)
+	retire(t, s, "release-5", "release-6")
+	landings := []pass.Landing{{Facts: machine.Facts{Repo: monorepo, Number: 48277, Head: "e718a7434f", Lane: "release-5"}, LastOpen: t0}}
+
+	if err := landing.Announce(ctx, s, "d", "dev", landings, func(string) string { return "root" }); err != nil {
+		t.Fatal(err)
+	}
+
+	posted, err := client.Tail(ctx, client.Query{Drive: "d", Kinds: []string{"landed"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(posted) != 1 || !reflect.DeepEqual(posted[0].To, []string{"release-6"}) {
+		t.Fatalf("posted = %+v, want one record to release-6", posted)
+	}
+}
+
+func retire(t *testing.T, s *store.Store, name, successor string) {
+	t.Helper()
+	for _, lane := range []string{name, successor} {
+		if _, err := s.WantLane(store.Lane{Name: lane, State: store.LaneDesired}, t0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.SetLaneState(name, store.LaneRetired, t0, successor, ""); err != nil {
+		t.Fatal(err)
 	}
 }
 

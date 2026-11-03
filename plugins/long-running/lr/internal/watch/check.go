@@ -2,6 +2,7 @@ package watch
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"path/filepath"
@@ -81,16 +82,13 @@ func Check(ctx context.Context, s *store.Store, entry drive.Entry, runner shell.
 	if err != nil {
 		return nil, err
 	}
-	escalated, err := Sweep(s, records, open, unfinished, now, post)
-	if err != nil {
-		return escalated, err
-	}
+	escalated, swept := Sweep(s, records, open, unfinished, now, post)
 	items, written, err := ReadMeta(entry.StateDir)
 	if err != nil {
-		return escalated, err
+		return escalated, errors.Join(swept, err)
 	}
 	paged, err := Meta(s, items, written, now, post)
-	return append(escalated, paged...), err
+	return append(escalated, paged...), errors.Join(swept, err)
 }
 
 type Stalls struct {
@@ -113,7 +111,7 @@ func (w *Stalls) Check(ctx context.Context, now time.Time) error {
 		return nil
 	}
 	if _, err := Check(ctx, w.Store, entry, w.Runner, now, w.Post); err != nil {
-		w.Log.Warn("stall watch stopped mid-pass", "err", err)
+		w.Log.Warn("stall watch pass left work undone", "err", err)
 	}
 	return nil
 }
