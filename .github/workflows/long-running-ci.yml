@@ -83,6 +83,15 @@ jobs:
           path: ${{ runner.temp }}/lr-controls
           if-no-files-found: ignore
 
+  capt-hook-pack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v8.2.0
+      - name: capt-hook pack test
+        run: uvx --isolated 'capt-hook>=12.74.0' pack test plugins/long-running
+
   native-cci-caller:
     runs-on: ubuntu-latest
     timeout-minutes: 5
