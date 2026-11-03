@@ -38,6 +38,24 @@ func TestADriveIsFoundByItsBusNameAndItsNewestSessionIsItsRoot(t *testing.T) {
 	}
 }
 
+func TestADriveIdOutranksAnotherEntrysBusName(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", home)
+	dir := filepath.Join(home, "long-running", "drives")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	write(t, dir, "aaa.json", `{"drive":"aaa","cci_drive":"brook","state_dir":"/other","sessions":["s1"]}`)
+	write(t, dir, "brook.json", `{"drive":"brook","state_dir":"/scratch/brook","sessions":["s2"]}`)
+	entry, err := Named("brook")
+	if err != nil || entry.StateDir != "/scratch/brook" {
+		t.Fatalf("entry = %+v, %v", entry, err)
+	}
+	if entry, err := Named("aaa"); err != nil || entry.StateDir != "/other" {
+		t.Fatalf("by id: %+v, %v", entry, err)
+	}
+}
+
 func TestASavedSubDriveReadsBackAsItsParentsChildUntilRemoved(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	child := Entry{Drive: "brook--billing", CCIDrive: "brook--billing", StateDir: "/s", Sessions: []string{}, Parent: "brook", Reason: "unrelated", Facts: map[string]string{"no-shared-prs": "none"}}

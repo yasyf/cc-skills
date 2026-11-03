@@ -42,7 +42,6 @@ hook(
         Input(command=POST, transcript=DROPPED, state=ACTIVE): Allow(),
         Input(command="cci tail --drive d --reader root --since 9", transcript=LISTED, state=ACTIVE): Allow(),
         Input(command="cci post --drive d --lane root --kind decide --owned-by desk-runner --to stall-watch --text 'desk-runner owns stall-watch'", transcript=LISTED, state=ACTIVE): Allow(),
-        Input(command="cci post --drive d --lane root --kind report --quiet --text 'merged #9'", transcript=LISTED, state=ACTIVE): Allow(),
         Input(command=POST, transcript=LISTED, state=ACTIVE, agent_id="a1b2c3"): Allow(),
         Input(command=POST, transcript=LISTED): Allow(),
     }),
