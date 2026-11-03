@@ -35,6 +35,7 @@ type Red struct {
 	Checks string
 	Class  string
 	Owner  string
+	Author string
 	Action string
 	Since  time.Time
 }
@@ -48,17 +49,21 @@ func (r Red) Line() string {
 	if action == "" {
 		action = "no action recorded"
 	}
-	return fmt.Sprintf("#%d %s | %s | %s | owner %s | red since %s | %s", r.Number, r.Head[:min(shortestHead, len(r.Head))], r.Checks, r.Class, r.Owner, since, action)
+	owner := "owner " + r.Owner
+	if r.Author != "" {
+		owner += ", by " + r.Author
+	}
+	return fmt.Sprintf("#%d %s | %s | %s | %s | red since %s | %s", r.Number, r.Head[:min(shortestHead, len(r.Head))], r.Checks, r.Class, owner, since, action)
 }
 
 func Reds(snapshot map[int]machine.Facts, classes []client.Record, since func(machine.Facts) time.Time) []Red {
 	var reds []Red
 	for _, number := range slices.Sorted(maps.Keys(snapshot)) {
 		f := snapshot[number]
-		if f.CI != machine.CIFailure {
+		if f.CI != machine.CIFailure || f.Foreign() {
 			continue
 		}
-		red := Red{Number: number, Head: f.Head, Checks: strings.Join(f.Failing, ", "), Class: unclassed, Owner: f.Lane, Since: since(f)}
+		red := Red{Number: number, Head: f.Head, Checks: strings.Join(f.Failing, ", "), Class: unclassed, Owner: f.Lane, Author: f.ForeignAuthor, Since: since(f)}
 		if red.Checks == "" {
 			red.Checks = "a required check"
 		}

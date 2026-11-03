@@ -127,7 +127,7 @@ func Rows(s *store.Store, repo string, snapshot map[int]machine.Facts) ([]Row, e
 	var out []Row
 	for _, item := range items {
 		facts, found := snapshot[item.Number]
-		if item.Mover != machine.MoverOwner || !found || facts.Head != item.Head || facts.Tapped() || facts.Hold != "" {
+		if item.Mover != machine.MoverOwner || !found || !facts.Ours() || facts.Head != item.Head || facts.Tapped() || facts.Hold != "" {
 			continue
 		}
 		stored, err := s.Facts(repo, item.Number, item.Head)

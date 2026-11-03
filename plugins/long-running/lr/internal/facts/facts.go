@@ -356,6 +356,7 @@ type openRead struct {
 	numbers []int
 	carries map[int][]int
 	prs     map[int]pullRequest
+	authors map[int]string
 }
 
 type label struct {
@@ -418,12 +419,16 @@ func (s Source) readOpen(ctx context.Context) (openRead, error) {
 	if err != nil {
 		return openRead{}, err
 	}
+	authors := make(map[int]string, len(prs))
+	for _, pr := range prs {
+		authors[pr.Number] = pr.Author.Login
+	}
 	admitted := slices.DeleteFunc(prs, func(pr pullRequest) bool { return !s.admits(pr) })
 	byNumber := make(map[int]pullRequest, len(admitted))
 	for _, pr := range admitted {
 		byNumber[pr.Number] = pr
 	}
-	return openRead{numbers(admitted), carried(admitted), byNumber}, nil
+	return openRead{numbers(admitted), carried(admitted), byNumber, authors}, nil
 }
 
 func decodePages(out string) ([]pullRequest, error) {
@@ -559,6 +564,9 @@ func (s Source) assemble(ctx context.Context, rows []statusRow, open openRead, r
 			return nil, err
 		}
 		f.Hold, f.HoldSeq, f.Carries = held[row.Number].by, held[row.Number].seq, open.carries[row.Number]
+		if author := open.authors[row.Number]; author != s.Author {
+			f.ForeignAuthor = author
+		}
 		if err := s.carryTap(ctx, &f, stored); err != nil {
 			return nil, fmt.Errorf("#%d tap: %w", row.Number, err)
 		}

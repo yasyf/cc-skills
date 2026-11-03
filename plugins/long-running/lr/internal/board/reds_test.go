@@ -37,3 +37,16 @@ func TestARedHeadReadsItsNewestClassAtThatHeadAndAPushReadsUnclassedAgain(t *tes
 		t.Fatalf("after a push got %+v", got)
 	}
 }
+
+func TestAnotherPersonsRedPRIsListedOnlyOnceTheOwnerTappedItAndThenNamesItsAuthor(t *testing.T) {
+	carried := machine.Facts{Number: 47613, Head: head, Lane: "lane-7", ForeignAuthor: "teammate", CI: machine.CIFailure, Failing: []string{"lr-go"}}
+	tapped := carried
+	tapped.Number, tapped.Tap = 47615, machine.TapTapped
+	at := func(machine.Facts) time.Time { return time.Time{} }
+
+	got := Reds(map[int]machine.Facts{carried.Number: carried, tapped.Number: tapped}, nil, at)
+
+	if len(got) != 1 || got[0].Line() != "#47615 e718a74 | lr-go | unclassed | owner lane-7, by teammate | red since an unread time | no action recorded" {
+		t.Fatalf("got %+v", got)
+	}
+}
