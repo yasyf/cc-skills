@@ -1751,7 +1751,7 @@ func TestAnOrderStaysWithItsLane(t *testing.T) {
 		{name: "a lane launched with no pool role has its own brief", role: "build", text: "drop item 2 of my last relay", started: true},
 		{name: "nor does a release lane stand in for one", role: "release", text: "go on", started: true},
 		{name: "a desk keeps its own orders", role: "desk", text: "go on", started: true},
-				{name: "a meta desk keeps its own orders", role: "meta", text: "go on", started: true},
+		{name: "a meta desk keeps its own orders", role: "meta", text: "go on", started: true},
 		{name: "an order about a PR it owns", role: "pool-triage", text: "fix #48 now", started: true, prs: []int{48}},
 	}
 	for _, c := range cases {
