@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 
@@ -7,6 +8,7 @@ from captain_hook import Allow, BaseHookEvent, Block, CommandSchema, Event, Hook
 from captain_hook.util import reqenv
 
 from .compaction_handoff import CompactionState
+from .gate5_release import OWNER_LANES
 
 CC_SLACK = "mcp__plugin_cc-slack_cc-slack__"
 WRITE_TOOLS = (f"{CC_SLACK}slack_send", f"{CC_SLACK}slack_reply", f"{CC_SLACK}slack_edit", f"{CC_SLACK}slack_dm_status", "mcp__slack__slack_send_message")
@@ -26,7 +28,7 @@ ACTIVE = [CompactionState(active=True, coordinator=True)]
 LANE = {"CLAUDE_LONG_RUNNING_LANE": "release-5"}
 STATUS_REFUSED = (
     "A drive lane writes nothing to Slack about a release, smoke run, flake or progress unless an owner record requests that post."
-    " Report it to the coordinator on cci instead, or cite that owner record's seq in the post."
+    " Report it to the coordinator on cci instead, or cite that owner record's seq as #<seq> in the post: a record of kind owner, or one from `owner` or `owner-relay`."
 )
 
 
@@ -50,12 +52,16 @@ def written(evt: BaseHookEvent) -> str:
 def owner_asked(text: str) -> bool:
     for seq in dict.fromkeys(CITED.findall(text)):
         try:
-            done = subprocess.run(["cci", "grep", f"^#{seq} ", "--kind", "owner", "--json", "-n", "1"], capture_output=True, text=True, timeout=READ_SECONDS)
+            done = subprocess.run(["cci", "grep", f"^#{seq} ", "--json", "-n", "1"], capture_output=True, text=True, timeout=READ_SECONDS)
         except (OSError, subprocess.TimeoutExpired):
             continue
-        if done.returncode == 0 and done.stdout.strip():
+        if done.returncode == 0 and any(owners(json.loads(line)) for line in done.stdout.splitlines() if line.strip()):
             return True
     return False
+
+
+def owners(record: dict) -> bool:
+    return record["kind"] == "owner" or record["lane"] in OWNER_LANES
 
 
 @on(
@@ -73,8 +79,20 @@ def owner_asked(text: str) -> bool:
             tool=f"{CC_SLACK}slack_send",
             tool_input={"channel_id": "C0RELEASES1", "text": "Release 11927 is live, as you asked (#318299)"},
             env=LANE,
-            commands={"cci grep": '{"seq": 318299, "kind": "owner"}\n'},
+            commands={"cci grep": '{"seq": 318299, "lane": "board-watch", "kind": "owner"}\n'},
         ): Allow(),
+        Input(
+            tool=f"{CC_SLACK}slack_dm_status",
+            tool_input={"card": {"title": "Release watch: pick again", "body": "Re-sent as buttons, as the owner asked (#360330)"}},
+            env=LANE,
+            commands={"cci grep": '{"seq": 360330, "lane": "owner-relay", "kind": "decide"}\n'},
+        ): Allow(),
+        Input(
+            tool=f"{CC_SLACK}slack_send",
+            tool_input={"channel_id": "C0RELEASES1", "text": "Release 11927 is live (#318301)"},
+            env=LANE,
+            commands={"cci grep": '{"seq": 318301, "lane": "desk-runner", "kind": "report"}\n'},
+        ): Block(),
         Input(
             tool=f"{CC_SLACK}slack_send",
             tool_input={"channel_id": "C0RELEASES1", "text": "Release 11927 is live (#318300)"},
