@@ -13,7 +13,6 @@ import (
 	"reflect"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -278,7 +277,7 @@ func TestAnUnreadLanesSourceAndAFailedCheckSkipOnlyThemselves(t *testing.T) {
 func TestAHungCheckHoldsNeitherTheOtherChecksNorTheTickAndEndsWithTheRun(t *testing.T) {
 	ran := make(chan struct{})
 	var first sync.Once
-	var ended atomic.Bool
+	ended := make(chan struct{})
 	d := Deps{
 		Clock: func() time.Time { return t0 }, Sleep: func(time.Duration) { <-ran }, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Checks: []lanes.Check{
@@ -287,7 +286,7 @@ func TestAHungCheckHoldsNeitherTheOtherChecksNorTheTickAndEndsWithTheRun(t *test
 					t.Error("a check runs with no deadline")
 				}
 				<-ctx.Done()
-				ended.Store(true)
+				close(ended)
 				return ctx.Err()
 			},
 			func(context.Context, time.Time) error {
@@ -300,7 +299,11 @@ func TestAHungCheckHoldsNeitherTheOtherChecksNorTheTickAndEndsWithTheRun(t *test
 	reports, _ := runLoop(t, memory(t), "0.8.0", 1, d, 1)
 
 	equal(t, len(reports), 1)
-	equal(t, ended.Load(), true)
+	select {
+	case <-ended:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the hung check did not end with the run")
+	}
 }
 
 func TestAStoreFailureInALanesTickEndsTheProcess(t *testing.T) {
