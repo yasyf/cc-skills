@@ -121,10 +121,6 @@ def incident(incidents: Path, name: str, status: str, *, hours_ago: float = 1, *
     actions.Store(incidents).create(actions.Incident.load(record))
 
 
-def question(text: str) -> dict:
-    return {"questions": [{"question": text, "header": "Ask", "options": [{"label": "Go"}, {"label": "Hold"}], "multiSelect": False}]}
-
-
 @pytest.mark.parametrize(
     ("status", "text", "warned"),
     [
@@ -192,27 +188,6 @@ def test_plan_mode_outside_a_drive_passes(tmp_path: Path, incidents: Path) -> No
     incident(incidents, "0820", "fix-pending", target="executor")
 
     assert Root(tmp_path, active=False).tool("EnterPlanMode", {}) == []
-
-
-def test_an_owner_question_on_other_work_warns_while_the_alert_is_active(root: Root, incidents: Path) -> None:
-    incident(incidents, "sand-not-migrated", "open", target="sand")
-    root.window(CompactionState(active=True))
-
-    [message] = root.tool("AskUserQuestion", question("Should I extend the backlog deadline to 11:30?"))
-
-    assert message.startswith("Warning, nothing was blocked: the alert is active") and "sand-not-migrated" in message
-
-
-def test_the_incident_own_question_passes(root: Root, incidents: Path) -> None:
-    incident(incidents, "sand-not-migrated", "open", target="sand")
-
-    assert root.tool("AskUserQuestion", question("sand-not-migrated: approve the 0-delete apply on plat?")) == []
-
-
-def test_an_owner_question_after_the_incident_closes_passes(root: Root, incidents: Path) -> None:
-    incident(incidents, "sand-not-migrated", "closed", target="sand")
-
-    assert root.tool("AskUserQuestion", question("Should I extend the backlog deadline to 11:30?")) == []
 
 
 def test_a_root_probe_warns_while_the_alert_is_active(root: Root, incidents: Path) -> None:
@@ -331,18 +306,6 @@ def test_a_failed_read_names_the_exception_a_traceback_ends_on() -> None:
 @pytest.mark.parametrize(
     ("fixture", "warned"),
     [
-        (owner_facing.authorize(owner_facing.ROUTING_QUESTION, command=owner_facing.ROUTING_GO), True),
-        (
-            owner_facing.authorize(
-                T.tool_turn("AskUserQuestion", result="Switch", questions=[{"question": "Switch acme routing to cluster-b now?"}]),
-                command=owner_facing.ROUTING_GO,
-            ),
-            False,
-        ),
-        (
-            owner_facing.authorize(owner_facing.ROUTING_QUESTION, T.user("Inspect the state meanwhile."), command=owner_facing.ROUTING_GO),
-            True,
-        ),
         (
             owner_facing.authorize(
                 T.assistant(T.tool("Bash", command='cc-present push - <<\'EOF\'\n{"title": "Switch acme routing?"}\nEOF')),
@@ -367,7 +330,7 @@ def test_a_failed_read_names_the_exception_a_traceback_ends_on() -> None:
             False,
         ),
     ],
-    ids=["pending", "answered", "pending-prior-turn", "inline-board", "file-board", "board-prior-turn"],
+    ids=["inline-board", "file-board", "board-prior-turn"],
 )
 def test_owner_question_guard_uses_named_remote_tool_call_projections(fixture, warned, monkeypatch):
     local = input_to_event("PreToolUse", fixture)
@@ -389,6 +352,5 @@ def test_owner_question_guard_uses_named_remote_tool_call_projections(fixture, w
     assert (actual is not None) == warned
     assert (actual.message if actual else None) == (expected.message if expected else None)
     projections = [(selectors, request) for selectors, request in queries if request["kind"] == "tool_calls"]
-    assert any(not selectors and request["name"] == "AskUserQuestion" for selectors, request in projections)
     assert any(selectors == ({"kind": "current_turn"},) and request["name"] == "Bash" for selectors, request in projections)
-    assert all(request["name"] in {"AskUserQuestion", "Bash", "Write"} and request["order"] == "forward" for _, request in projections)
+    assert all(request["name"] in {"Bash", "Write"} and request["order"] == "forward" for _, request in projections)

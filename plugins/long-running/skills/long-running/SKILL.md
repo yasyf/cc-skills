@@ -110,7 +110,7 @@ tracking and blockers set ([owner-report-table.md](reference/owner-report-table.
 the coordinator, the meta and signal lanes and helpers it spawned itself for its own work; it never addresses the coordinator's children or the meta lane's, and beyond
 the three launches at drive start it posts no `go`, `hold`, `decide` or `launch`. Every owner message lands in the bridge's message ledger as it
 arrives, and the bridge's turn cannot end while a row is not marked responded or
-addressed (`lr owner mark <id>`). The bridge also proposes: when what it relays shows
+addressed (`lr owner mark <id> responded|addressed`). The bridge also proposes: when what it relays shows
 a structural fault, such as PRs queued behind one coordinator decision, it brings him
 the split as an option, not only the symptom. It never calls `AskUserQuestion`: a pick
 goes on his board, and an urgent yes/no goes to his Slack as an ask card with buttons

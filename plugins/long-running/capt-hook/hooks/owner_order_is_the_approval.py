@@ -8,7 +8,7 @@ from captain_hook import CONFIRMED, Allow, BaseHookEvent, Block, Confirm, Event,
 
 from .compaction_handoff import Communicator, communicator_tests, CompactionState
 from .lane_rotation import DriveActive
-from .owner_facing import REPLY_WINDOW, SLACK_CARD, last_reply, question_text
+from .owner_facing import REPLY_WINDOW, SLACK_CARD, last_reply
 from .tests.handoff_fixtures import reply_transcript
 
 ACTIVE = [CompactionState(active=True, coordinator=True)]
@@ -40,7 +40,7 @@ def card_text(evt: BaseHookEvent) -> str:
 
 class AsksOrderedApproval:
     def check(self, evt: BaseHookEvent) -> bool:
-        return asks_release_approval(card_text(evt) if evt.tool_name == SLACK_CARD else question_text(evt)) and release_ordered()
+        return asks_release_approval(card_text(evt)) and release_ordered()
 
 
 class RepliesOrderedApproval:
@@ -49,12 +49,12 @@ class RepliesOrderedApproval:
 
 
 def ask(question: str, order: str = ORDER, **extra: object) -> Input:
-    return Input(tool="AskUserQuestion", tool_input={"questions": [{"question": question, "options": [{"label": "Approve"}, {"label": "Hold"}]}]}, state=ACTIVE, commands={"cci grep": order}, decide=CONFIRMED, **extra)
+    return Input(tool=SLACK_CARD, tool_input={"card": {"title": question, "options": ["Approve", "Hold"]}}, state=ACTIVE, commands={"cci grep": order}, decide=CONFIRMED, **extra)
 
 
 hook(
     Event.PreToolUse,
-    only_if=[Communicator(), Tool("AskUserQuestion", SLACK_CARD), DriveActive(), AsksOrderedApproval()],
+    only_if=[Communicator(), Tool(SLACK_CARD), DriveActive(), AsksOrderedApproval()],
     skip_if=[FromSubagent()],
     block=True,
     confirm=Confirm(rule="The owner already ordered this release, so nobody asks him to approve one of its steps."),
@@ -65,7 +65,7 @@ hook(
         ask("Approve the 3 deletes on plat so release 12151 can apply?", ""): Allow(),
         ask("Merge #48401 now?"): Allow(),
         ask("Approve the 3 deletes on plat so release 12151 can apply?", agent_id="a1b2c3"): Allow(),
-        Input(tool="AskUserQuestion", tool_input={"questions": [{"question": "Approve the deletes on plat?", "options": []}]}, commands={"cci grep": ORDER}): Allow(),
+        Input(tool=SLACK_CARD, tool_input={"card": {"title": "Approve the deletes on plat?"}}, commands={"cci grep": ORDER}): Allow(),
     }),
 )
 
