@@ -102,7 +102,7 @@ func (d *Desk) reclaimSettled(names []string, receipts, statuses map[string]stri
 }
 
 func (d *Desk) promptWatchDown(ctx context.Context) error {
-	said, code, err := d.capture(ctx, nil, d.tool("prompt_watch.py"), "show", "--cci-drive", d.Config.Drive, "--json")
+	said, code, err := d.capture(ctx, nil, d.tool("lr"), "watch", "prompts", "show", "--drive", d.Config.Drive, "--json")
 	if err != nil || code != 0 {
 		return err
 	}

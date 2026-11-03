@@ -259,7 +259,7 @@ Its first read saves the newest sequence without replaying history, and nothing 
 
 **O12. Pause ten seconds between Run reads.** The relay sleeps 10 seconds between passes. The landing process sleeps for `landing.interval_seconds` (default 180). Model desks retain the 60-second inbox-wait rule.
 
-**O13. A prompt is a bug, and the prompt watch finds it.** `prompt_watch.py` is the one reader of Orca's `agentWait`, as [reference/watchers.md](watchers.md) describes. The relay's 5-minute sweep reads the watch's last poll and emits `PROMPT-WATCH-DOWN` once an hour while that poll is over two minutes old. Stale unread mail gets one terminal wake per message, typed only when the lane's screen shows the plain empty prompt. Completed or failed dispatch mail emits `STALE-MAIL`. No sweep relaunches a worker or types a guessed answer to a prompt.
+**O13. A prompt is a bug, and the prompt watch finds it.** `lr watch prompts` is the one reader of Orca's `agentWait`, as [reference/watchers.md](watchers.md) describes. The relay's 5-minute sweep reads the watch's last poll and emits `PROMPT-WATCH-DOWN` once an hour while that poll is over two minutes old. Stale unread mail gets one terminal wake per message, typed only when the lane's screen shows the plain empty prompt. Completed or failed dispatch mail emits `STALE-MAIL`. No sweep relaunches a worker or types a guessed answer to a prompt.
 
 **O14. Mac load queues and refuses no launch.** Before each Mac launch, the relay reads how busy the CPU was over the last minute from the kernel's tick counters, never the load average, which counts every sleeping shell. At 90% busy or more, an Orca worktree checkout can time out, so every 10 minutes of it posts one `LOAD-HIGH` blocker to the drive watchdog, which moves the load to in-region compute under R15 in [SKILL.md](../SKILL.md). A `role=desk` or `role=watch` launch starts on a Sprite at once, and its `LAUNCHED` line names the box. A launch that may run only on the Mac starts there anyway: the coordinator, a `place=local` brief, which is the author overriding load, a Fable or incident launch, and an incident clock fallback. An incident launch also posts one `LOAD-INCIDENT` report.
 
@@ -373,7 +373,7 @@ Landing restack routes sent through cci use `--kind blocker --to <lane> --topic 
 | `HOOK-DRIFT` | Pin a `captainHook` build that loads the named hook in the monorepo's `tools/cc-remote/inventory.yaml`; until it ships, that hook's guard is off on every Sprite. |
 | `OUTCOME` | Consume the worker's `worker_done` result. |
 | `FIX-LIVE`, `MECHANISM`, `READY` | Read the lane's status milestone by message id; the line includes the subject and up to 300 body characters. |
-| `PROMPT-WATCH-DOWN` | Run the line's `prompt_watch.py start` command. |
+| `PROMPT-WATCH-DOWN` | The supervisor runs the watch, so read the supervisor's log, then run the line's `lr watch prompts` command. |
 | `LIVENESS` | Inspect the non-live dispatch and preserve its session. |
 | `STALE-MAIL` | Resolve unread work on a completed or failed dispatch. |
 | `RECLAIM` | Run the `orca.gc` command from the line under R195 in [reference/orca-workers.md](orca-workers.md). |

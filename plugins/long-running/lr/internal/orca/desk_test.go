@@ -290,7 +290,7 @@ func (w *deskWorld) Run(_ context.Context, c shell.Command) (shell.Result, error
 		return w.gitReply(argv)
 	case argv[0] == "git":
 		return shell.Result{Stdout: "dev\n"}, nil
-	case filepath.Base(argv[0]) == "prompt_watch.py":
+	case filepath.Base(argv[0]) == "lr" && argv[1] == "watch":
 		return shell.Result{Stdout: `{"rows":[]}`}, nil
 	}
 	return shell.Result{}, nil
@@ -2543,7 +2543,7 @@ func TestReclaimNamesEachSettledDispatchOnce(t *testing.T) {
 func TestAPromptWatchDownEscalates(t *testing.T) {
 	w := newDeskWorld(t)
 	w.desk.Runner = runnerFunc(func(ctx context.Context, c shell.Command) (shell.Result, error) {
-		if filepath.Base(c.Argv[0]) == "prompt_watch.py" {
+		if filepath.Base(c.Argv[0]) == "lr" && c.Argv[1] == "watch" {
 			return shell.Result{Stdout: `{"rows":[{"state":"down","detail":"no poll for 5 min"}]}`}, nil
 		}
 		return w.Run(ctx, c)
