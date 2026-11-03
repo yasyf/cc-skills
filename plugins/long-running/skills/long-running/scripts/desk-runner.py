@@ -303,7 +303,7 @@ them at most 120 s, skips a tree whose worker still runs or waits, and its relea
 on a side worker, never ahead of the gate, and its worktree removal on a worker of its own, so a slow removal holds back neither. Each worker writes its step and when it began to `<config>.landing-stacks.json`, which
 stall_watch reads to name a stack stuck past its step's budget. Every pass posts one `state` record to root on topic `landing-state`
 counting the queued, waiting, held and refused PRs and the workers running, with the pass's seconds.
-Each gate step admits every open drive PR green at its ledger head, under no hold, that a root `go` or an exemption names there, and
+Each gate step admits every open drive PR green at its ledger head, under no hold, that a root `go` or an exemption names there; a root go posted after an open cci `hold` record that names the same PR lifts that hold, since a go never sits behind a hold it followed (root #341762), and
 every branch of the pass that acts on or drops one settles it: queued, refused with the gate line or the check that refused it,
 below-blocked on the unlanded or unadmitted PR it sits on (never `GATE-FAILED` for that), or in flight on a stack worker. The pass
 ends, in a `finally`, by posting one `QUEUED`, `REFUSED` or `BELOW-BLOCKED` record for each set of heads whose outcome changed since
@@ -599,7 +599,9 @@ logs `MERGE-CARD-FAILED` once per head and cause and tries again next pass. With
 carries the owner's board taps: an approval on a `pr-groups` row of the root's board at an older head of an open PR, with no verdict at
 its ledger head, moves to that head through a `board-write` record, `op=carry`, whatever changed between the two, since a PR he tapped
 never returns to his board (owner 2:48 AM Oct 31), with one `TAP-CARRIED` note naming both heads to root and each lane `landing.board_lane`
-names, one lane or a list, and, when no go names the new head, one `go` record of the runner's own for it, which `go_lane` counts. A
+names, one lane or a list, and, when no go names the new head, one `go` record of the runner's own for it, which `go_lane` counts. A tap
+the owner makes at a PR's ledger head draws the same go when none names that head, so his tap, never a root go, is what lands it (root #342211);
+a go of the runner's own lifts no hold. A
 reserved-row tap gate, a merge question and a go's tap claim all count his approval at any head of the PR. The runner reads the board only from records: board-watch's `owner` records carrying a row and verdict, its newest `board-rows` snapshot of what the board shows, and the runner's own carries, each of which stands as the owner's tap at its new head the moment it posts. A carry onto a block the newest snapshot no longer holds has nothing to carry; records that do not read, or a carry that does not post, log `TAP-CARRY-FAILED` once per
 cause and try again next pass, and the board's watch answers a carry cc-present refuses with a `defect` record. An exempt change, one whose fidelity grade and whole diff
 make it a pure port, test-only or CI-only (`EXEMPT-ADMITTED`), needs no go and no tap in any mode: its tree gates with the go'd ones, it asks no
@@ -715,7 +717,7 @@ from long_running.registry import Registry
 from long_running.grades import carries as carry_grade
 from long_running.grades import PORT_PHRASE, QUOTED_BLOCK, QUOTED_SPAN, TEST_ONLY_PHRASE, TEST_ONLY_PHRASES
 from long_running.grades import WITHDRAWN as WITHDRAWN_OPENING
-from long_running.grades import GO_KIND_FLAGS, GO_KINDS, go_state, is_go
+from long_running.grades import GO_KIND_FLAGS, GO_KINDS, go_state, is_go, lifts_hold
 from long_running.grades import REVIEW_BOT_CHECK, REVIEW_BOT_HELD, VOIDING_KINDS, review_bot_wait, voids, withdrawn
 from incident import CLAUDE_FAST_MODE, CLOCK_FALLBACK
 
@@ -1013,7 +1015,9 @@ TRUNK_REREAD = timedelta(minutes=5)
 QUEUED_STATE = "queued"
 TRUNK_QUEUED_LABELS = frozenset({"trunk-queued", "trunk-not-ready", "trunk-testing", "trunk-tests-passed", "trunk-queued (bisection)", "trunk-testing (bisection)", "trunk-tests-passed (bisection)"})
 TRUNK_MERGED_LABEL = "trunk-merged"
-TRUNK_FELL_LABELS = ("trunk-failed", "trunk-cancelled")
+TRUNK_FAILED_LABEL = "trunk-failed"
+TRUNK_CANCELLED_LABEL = "trunk-cancelled"
+TRUNK_FELL_LABELS = (TRUNK_FAILED_LABEL, TRUNK_CANCELLED_LABEL)
 TRUNK_QUEUE_DRIVE = "trunk"
 TRUNK_QUEUE_FACT = "trunk-queue"
 TRUNK_FELL = frozenset({"failed", "canceled"})
@@ -5771,7 +5775,10 @@ def blocker_key(pr: str, head: str) -> str:
     return f"blocker:{pr}:{head[:10]}"
 
 
-def required_only(entry: dict, required: set[str]) -> dict:
+def required_only(entry: dict, required: set[str], labels: set[str]) -> dict:
+    """`entry` with red CI counted only from `required` checks, and Trunk's own queue check counted only when Trunk labelled the PR failed, never when it cancelled the run, as a restack does (root #337184: #48317 read red on a restack's cancel)."""
+    if TRUNK_CANCELLED_LABEL in labels and TRUNK_FAILED_LABEL not in labels:
+        required = required - {TRUNK_QUEUE_CHECK}
     causes = entry["verdict"].removeprefix("blocked:").split(",")
     ci = entry.get("ci") or {}
     if "ci-red" not in causes or not ci.get("failing") or required & set(ci["failing"]):
@@ -5833,7 +5840,7 @@ def heads_query(repo: str, shas: list[str], prs: list[str]) -> str:
     owner, name = repo.split("/")
     review = f'checkSuites(last: 10, filterBy: {{checkName: "{REVIEW_BOT_CHECK}"}}) {{ nodes {{ checkRuns(last: 1, filterBy: {{checkName: "{REVIEW_BOT_CHECK}"}}) {{ nodes {{ title startedAt }} }} }} }}'
     fields = " ".join(f'h{index}: object(expression: "{sha}") {{ ... on Commit {{ status {{ contexts {{ context state description targetUrl }} }} {review} }} }}' for index, sha in enumerate(shas))
-    decisions = " ".join(f"r{pr}: pullRequest(number: {pr}) {{ headRefOid reviewDecision mergeable mergeStateStatus }}" for pr in prs)
+    decisions = " ".join(f"r{pr}: pullRequest(number: {pr}) {{ headRefOid reviewDecision mergeable mergeStateStatus commits(last: 1) {{ nodes {{ commit {{ statusCheckRollup {{ state }} }} }} }} }}" for pr in prs)
     return f'query {{ repository(owner: "{owner}", name: "{name}") {{ {fields} {decisions} }} }}'
 
 
@@ -6206,6 +6213,7 @@ class Landing:
         self.unchanged: dict[str, tuple[str, str, float, dict[str, tuple[str, Outcome]]]] = {}
         self.reviews_read: dict[str, list[str]] = {}
         self.merge_states: dict[str, tuple[str, str, str]] = {}
+        self.rollups: dict[str, tuple[str, str]] = {}
         self.about: dict[str, int] = {}
         self.about_read: int | None = None
         self.started = self.book.stamp()
@@ -6228,15 +6236,35 @@ class Landing:
         self.ledger_rows = rows
         return rows
 
+    def at_live_heads(self, rows: dict[str, dict]) -> dict[str, dict]:
+        """`rows` with each open row a go names, at any head, whose PR GitHub reads at a newer head moved to that head, its build state GitHub's check rollup there, from one batched head read, so the pass gates the head it reads and never one a slow ledger refresh left behind (root #341720: #48053, #48064 and #48099 drew `head moved after the ledger read` every pass). Only go'd rows are read here, so the rest of the ledger's heads are read after the go'd trees enqueue."""
+        named = {pr for go in self.root_gos() for pr in go_heads(go)}
+        open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open" and pr in named}
+        self.read_heads({row["head"]: pr for pr, row in open_rows.items() if row.get("head")})
+        moved = {pr: open_rows[pr] | {"head": sha, "test_state": state.lower() or "pending", "green_at": ""} for pr, (sha, state) in self.rollups.items() if pr in open_rows and sha and not names_head(sha, open_rows[pr].get("head", ""))}
+        self.row_heads |= {pr: row["head"] for pr, row in moved.items()}
+        self.ledger_rows = rows | moved
+        return self.ledger_rows
+
     def held(self, rows: dict[str, dict]) -> list[str]:
-        """Every PR an open cci `hold` record or GitHub's `hold` label holds, so the gate routes no blocker for it or for the PRs stacked above it."""
+        """Every PR an open cci `hold` record or GitHub's `hold` label holds, so the gate routes no blocker for it or for the PRs stacked above it. Each open hold a later root go lifts draws one `HOLD-LIFTED` note to root, so no lift passes in silence (root #341762)."""
         numbers = {pr for pr, row in rows.items() if HOLD_LABEL in row.get("labels", "").split(",")}
-        numbers |= cci.held_prs(self.cci_tail, self.runner.config.drive).keys()
+        gos = self.root_gos()
+        for pr, seq in cci.held_prs(self.cci_tail, self.runner.config.drive).items():
+            if not (go := lifts_hold(gos, pr, seq)):
+                numbers.add(pr)
+            elif not self.book.known(LANDING, key := f"hold-lifted:{pr}:{seq}"):
+                self.post_record("note", key, ROOT, f"HOLD-LIFTED #{pr}: go cci #{go['seq']} posted after open hold cci #{seq} names it, so the go lifts the hold and #{pr} gates like any go'd PR; resolve #{seq}, or post a new hold to keep it out", pr)
         return sorted(numbers, key=int)
+
+    def standing_holds(self, read: Callable[[list[str]], str]) -> dict[str, int]:
+        """Each PR an open cci `hold` record `read` finds holds, to that record's seq, but a PR a root go names after the hold, since the later go lifts it (root #341762: #48401 sat held and silent for 50 minutes behind a hold its go followed)."""
+        gos = self.root_gos()
+        return {pr: seq for pr, seq in cci.held_prs(read, self.runner.config.drive).items() if not lifts_hold(gos, pr, seq)}
 
     def hold_sources(self, prs: list[str], rows: dict[str, dict]) -> str:
         """Each of `prs` with where its hold stands: an open cci `hold` record by seq or GitHub's `hold` label, so a reader finds the hold the runner obeys."""
-        posted = cci.held_prs(self.cci_tail, self.runner.config.drive)
+        posted = self.standing_holds(self.cci_tail)
 
         def where(pr: str) -> str:
             row = rows.get(pr, {})
@@ -6250,7 +6278,7 @@ class Landing:
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
         landed = [pr for pr, row in rows.items() if row.get("state") == "landed"]
         queued = sorted({pr for prs in self.believed_queued(rows).values() for pr in prs}, key=int)
-        held = set(cci.held_prs(self.cci_tail, self.runner.config.drive)) | {pr for pr, row in open_rows.items() if row.get("hold_reason") or HOLD_LABEL in row.get("labels", "").split(",")}
+        held = set(self.standing_holds(self.cci_tail)) | {pr for pr, row in open_rows.items() if row.get("hold_reason") or HOLD_LABEL in row.get("labels", "").split(",")}
 
         def url(pr: str) -> str:
             return f"https://github.com/{self.repo}/pull/{pr}"
@@ -6792,7 +6820,7 @@ class Landing:
             staged.replace(self.stacks_file)
 
     def landable_trees(self, rows: dict[str, dict], trees: list[list[str]]) -> list[list[str]]:
-        """The trees of `trees` the pass is about to enqueue from, by its one status read: those holding a landable PR on PRs below it that are landable, queued, or landed. `stack-enqueue --check`, and the `rulings.py check-pr` an accepted prefix runs, run for no other tree (root #146561, #147019). A verdict counts as landable once a `queue-unknown` cause is set aside, since a label queue's state is not Graphite's to read, and once a lone `ci-unproven` cause is set aside for a head `unproven` finds proven, since only the runner reads the full builds that prove a redundant skip; `unproven` also starts the full build a head still needs. While Graphite is down, a PR its dead queue still holds counts as landable, since only the direct merger can land it (root #202044). The PRs of each tree left out join `unchecked`, and `tell_unpassed` routes what each one's status entry asks of its lane. None are kept when the status read failed."""
+        """The trees of `trees` the pass is about to enqueue from, by its one status read: those holding a landable PR on PRs below it that are landable, queued, or landed. `stack-enqueue --check`, and the `rulings.py check-pr` an accepted prefix runs, run for no other tree (root #146561, #147019). A verdict counts as landable once a `queue-unknown` cause is set aside, since a label queue's state is not Graphite's to read, once a `ci-pending` cause is set aside for a head GitHub's check rollup reads passed, since the status read may answer from a poll older than the build's finish, and once a lone `ci-unproven` cause is set aside for a head `unproven` finds proven, since only the runner reads the full builds that prove a redundant skip; `unproven` also starts the full build a head still needs. While Graphite is down, a PR its dead queue still holds counts as landable, since only the direct merger can land it (root #202044). The PRs of each tree left out join `unchecked`, and `tell_unpassed` routes what each one's status entry asks of its lane. None are kept when the status read failed."""
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
         if (statuses := self.pr_statuses()) is None:
             self.settle({pr: open_rows[pr].get("head", "") for tree in trees for tip in tree for pr in downstack(open_rows, tip)}, Refused("the PR status read failed, so the pass checked none of its stack"))
@@ -6813,6 +6841,8 @@ class Landing:
             causes = set(verdict.removeprefix("blocked:").split(",")) - {"queue-unknown"} if verdict.startswith("blocked:") else set() if verdict == LANDABLE else {verdict}
             if "mergeable-unknown" in causes and self.github_mergeable(pr, open_rows.get(pr, {}).get("head", "")):
                 causes.discard("mergeable-unknown")
+            if "ci-pending" in causes and self.github_green(pr, open_rows.get(pr, {}).get("head", "")):
+                causes.discard("ci-pending")
             if causes == {"ci-unproven"} and not (why := self.unproven(pr, open_rows.get(pr, {}).get("head", ""))):
                 causes.discard("ci-unproven")
             elif causes == {"ci-unproven"}:
@@ -6846,6 +6876,11 @@ class Landing:
         """Whether GitHub's own pull request fields, from the pass's batched head read, find `pr` mergeable at `head`, for a PR `ccx vcs pr status` reads `mergeable-unknown`, as it does in a native stack whose registration is incomplete (root #328516)."""
         sha, mergeable, state = self.merge_states.get(pr, ("", "", ""))
         return bool(head) and names_head(sha, head) and mergeable == "MERGEABLE" and state != "DIRTY"
+
+    def github_green(self, pr: str, head: str) -> bool:
+        """Whether GitHub's check rollup, from the pass's batched head read, reads every check at `head` passed, for a PR `ccx vcs pr status` still reads `ci-pending` from a poll older than the build's finish (root #341720: #48252, #48274 and #48607 sat unchecked on `ci-pending` while GitHub read them green)."""
+        sha, state = self.rollups.get(pr, ("", ""))
+        return bool(head) and names_head(sha, head) and state == "SUCCESS"
 
     def untested(self, head: str) -> str:
         """Why `head` waits out of the queue, or empty: until its own `landing.trunk_check` build passes on that exact head, since a head enqueued before its own CI runs is evicted when that build fails, and each eviction costs a queue slot and a Trunk run (root #254954, #255451)."""
@@ -7547,9 +7582,11 @@ class Landing:
                     if node := commits.get(f"r{pr}"):
                         self.reviews_read[pr] = [node["headRefOid"], node["reviewDecision"]]
                         self.merge_states[pr] = (node["headRefOid"], node["mergeable"], node["mergeStateStatus"])
+                        self.rollups[pr] = (node["headRefOid"], (node["commits"]["nodes"][0]["commit"]["statusCheckRollup"] or {}).get("state", ""))
                     else:
                         self.reviews_read.pop(pr, None)
                         self.merge_states.pop(pr, None)
+                        self.rollups.pop(pr, None)
             for index, sha in enumerate(batch):
                 if (commit := commits.get(f"h{index}")) is None:
                     why = f"GitHub refused the statuses: {last[0]}" if done.code else f"GitHub knows no such commit in {self.repo}"
@@ -8416,7 +8453,7 @@ class Landing:
         return ",".join(dict.fromkeys(map(self.successor, [*desks, *self.board_lanes, *owners])))
 
     def carry_taps(self, rows: dict[str, dict]) -> None:
-        """With `landing.merge_ask_surface` set to `board`, carry each approval the owner tapped on a `pr-groups` row of the root's board at an older head of an open PR, which no verdict names at its ledger head, to that head whatever changed between the two, since a PR he tapped never returns to his board (owner 2:48 AM Oct 31), unless his newest verdict on the PR, on any block, rejects it: `cc-present verdict carry` records it, so the row shows his tap and asks nothing, one `TAP-CARRIED` note to root and each `landing.board_lane` lane names both heads, and the runner posts its own go at the new head. A carry onto a merge block the board no longer holds has nothing to carry, so it logs no `TAP-CARRY-FAILED` (root #151003, #151839)."""
+        """With `landing.merge_ask_surface` set to `board`, carry each approval the owner tapped on a `pr-groups` row of the root's board at an older head of an open PR, which no verdict names at its ledger head, to that head whatever changed between the two, since a PR he tapped never returns to his board (owner 2:48 AM Oct 31), unless his newest verdict on the PR, on any block, rejects it: `cc-present verdict carry` records it, so the row shows his tap and asks nothing, one `TAP-CARRIED` note to root and each `landing.board_lane` lane names both heads, and the runner posts its own go at the new head, as it does for a tap made at the ledger head itself. A carry onto a merge block the board no longer holds has nothing to carry, so it logs no `TAP-CARRY-FAILED` (root #151003, #151839)."""
         if self.landing_config.get("merge_ask_surface", "slack") != "board":
             return
         try:
@@ -8431,13 +8468,13 @@ class Landing:
         decided = {pr for _, pr, entry in entries if names_head(entry["head"], heads[pr])}
         to = ",".join([ROOT, *self.board_lanes])
         for _, pr, entry in entries:
-            if entry["verdict"] == "approved" and entry.get("carriedFrom") and names_head(entry["head"], heads[pr]):
-                self.go_carried_tap(pr, heads[pr], entry["carriedFrom"], rows, to)
+            if entry["verdict"] == "approved" and names_head(entry["head"], heads[pr]):
+                self.go_on_tap(pr, heads[pr], entry.get("carriedFrom") or heads[pr], rows, to)
         for block, pr, entry in entries:
             if entry["verdict"] == "approved" and pr not in decided:
                 tapped = entry.get("carriedFrom") or entry["head"]
                 if self.carry_tap(entry.get("session", ""), block, pr, tapped, heads[pr], "the owner's tap carries to every later head of a PR he tapped (owner 2:48 AM Oct 31)", self.landing_audience([pr], rows, to)):
-                    self.go_carried_tap(pr, heads[pr], tapped, rows, to)
+                    self.go_on_tap(pr, heads[pr], tapped, rows, to)
 
     def question_tap_claims(self, heads: dict[str, str], verdicts: dict[str, dict[str, dict]], rows: dict[str, dict]) -> None:
         """One `GO-TAP-MISSING` to root per root `go` and PR when the go claims the owner's tap in one of its explicit forms, `TAP-KEPT`, `TAP-CARRIED` or `owner tapped <sha>`, never a bare word such as tap row or approved (root 2:29 AM Oct 30, #204186), at an open PR's ledger head, claims no port, test-only or CI-only exemption, and no approval on the root's board names that head or a head the go names, saying what the board holds for the PR instead: a go rests on a board verdict, never on a lane's line that says tapped (rule/82317b0, root #172682)."""
@@ -8452,12 +8489,13 @@ class Landing:
                 board = "; ".join(f"{entry['verdict']} at {(entry.get('head') or '')[:10]} on block {block}" for block, entry in held) or f"no verdict for #{pr}"
                 self.runner.escalate(f"go-tap-missing:{go['seq']}:{pr}", "GO-TAP-MISSING", f"#{pr}", f"root go cci #{go['seq']} says the owner tapped #{pr} at {head[:10]}, but no approval on the root's board names {head[:10]} or a head the go names; the board holds {board}. Withdraw the go, or post it again citing the board verdict at this head or the carry to it", "", self.go_audience([pr], rows))
 
-    def go_carried_tap(self, pr: str, head: str, tapped: str, rows: dict[str, dict], to: str) -> None:
-        """Post the runner's own `go` for `pr` at `head`, where the owner's tap carried from `tapped`, unless a go names that head or this go was posted, so no root hop stands between a patch-identical restack and the queue (owner, Oct 29 2:06 PM); a post that failed is posted again next pass. A posted go drops the pass's gos, so the dequeue that follows in the same pass reads it, never only the older go it carried from (root #306708: #47437 was dequeued at its carried head)."""
+    def go_on_tap(self, pr: str, head: str, tapped: str, rows: dict[str, dict], to: str) -> None:
+        """Post the runner's own `go` for `pr` at `head`, where the owner's tap stands, tapped there or carried from `tapped`, unless a go names that head or this go was posted, so no root hop stands between his tap and the queue (owner, Oct 29 2:06 PM; root #342211: approved, green, graded PRs he tapped sat for hours on a root go nobody posted); a post that failed is posted again next pass. A posted go drops the pass's gos, so the gate and the dequeue that follow in the same pass read it, never only an older go (root #306708: #47437 was dequeued at its carried head)."""
         key = f"tap-go:{pr}:{head}"
         if self.head_gos(pr, head) or ((posted := self.book.known(LANDING, key)) and posted.status == "completed"):
             return
-        if self.post_record("go", key, self.landing_audience([pr], rows, to), f"go #{pr} at {head[:7]} TAP-CARRIED: the owner's tap at {tapped[:10]} carries to {head[:10]}, since his tap carries to every later head of a PR he tapped (owner 2:48 AM Oct 31); the runner posts this go itself, so no root hop (owner, Oct 29 2:06 PM)", pr):
+        said = f"owner tapped {head[:10]} on the root's board" if names_head(tapped, head) else f"TAP-CARRIED: the owner's tap at {tapped[:10]} carries to {head[:10]}, since his tap carries to every later head of a PR he tapped (owner 2:48 AM Oct 31)"
+        if self.post_record("go", key, self.landing_audience([pr], rows, to), f"go #{pr} at {head[:7]} {said}; the runner posts this go itself, so no root hop (owner, Oct 29 2:06 PM)", pr):
             self.reread()
 
     def carry_tap(self, session: str, block: str, pr: str, tapped: str, head: str, why: str, to: str, label: str = "TAP-CARRIED") -> bool:
@@ -9062,7 +9100,8 @@ class Landing:
             found = cci.records(self.cci_tail.run, drive, f"--kind={kind}", "--pr", f"{self.repo}#{pr}")
             return [record for record in found if (record["kind"], record["drive"]) == (kind, drive) and pr in dict(repo_prs(record, self.repo))]
 
-        if not (posted := [record for record in about_pr("hold") if pr in cci.held_by(record)]):
+        gos = self.root_gos()
+        if not (posted := [record for record in about_pr("hold") if pr in cci.held_by(record) and not lifts_hold(gos, pr, record["seq"])]):
             return ""
         newest = posted[-1]
         if opened := [record for record in posted if record["status"] == "open"]:
@@ -9307,7 +9346,7 @@ class Landing:
             return
         if self.check_fidelity(Graded({pr: view["headRefOid"]}, {pr: row}, self.runner.now(), act=True)):
             return
-        if (hold := cci.held_prs(self.cci_tail.run, self.runner.config.drive).get(pr)) and not (incident := self.in_incident(pr, row.get("lane", ""))):
+        if (hold := self.standing_holds(self.cci_tail.run).get(pr)) and not (incident := self.in_incident(pr, row.get("lane", ""))):
             return
         if hold:
             self.runner.escalate(f"incident-hold:{pr}:{view['headRefOid']}:{hold}", "INCIDENT-HOLD-WARNED", f"#{pr}", f"hold record #{hold} names the approved, green incident fix #{pr} at {view['headRefOid'][:10]}, and open incident #{incident['seq']} names it, so the hold warns and the runner merges it (owner, 2:21 PM Nov 1)")
@@ -9563,7 +9602,7 @@ class Landing:
         self.overflowing = thread
 
     def post_state(self, took: float) -> None:
-        """Post the pass's one `state` record to root on topic `landing-state`, which cci delivers newest-only, so root never asks what the runner is doing (owner 9524276): the open rows the queue holds, the green ones a root go names at their heads that are out of it and neither held nor refused, with the oldest stack step in flight, the held, the refused at their heads, the stack workers running, and the pass's seconds. It logs `OVERFLOW-STALLED` once an hour while the overflow thread has finished no run in `OVERFLOW_STALLED`."""
+        """Post the pass's one `state` record on topic `landing-state`, which cci delivers newest-only, so root never asks what the runner is doing (owner 9524276): the open rows the queue holds, the green ones a root go names at their heads that are out of it and neither held nor refused, with the oldest stack step in flight, the held, the refused at their heads, the stack workers running, and the pass's seconds. While any PR is ready but for a go, green, approved, graded ok with the finder clear, unheld and named by no go at its head, the record names each with whether the owner's board holds its row and goes to root as well, since it lands only on his tap or on a root go naming its exempt class, and none may wait in silence (root #342211). It logs `OVERFLOW-STALLED` once an hour while the overflow thread has finished no run in `OVERFLOW_STALLED`."""
         open_rows = {pr: row for pr, row in self.ledger_rows.items() if row.get("state", "open") == "open"}
         statuses, gos, held = self.statuses or {}, self.gos or [], set(self.held_now)
         refused = set(refused_members(self.book.refusal_candidates(LANDING, set(open_rows)), set(open_rows), open_rows)) if open_rows else set()
@@ -9574,8 +9613,12 @@ class Landing:
             oldest = min(self.steps.values(), key=lambda entry: entry["since"], default=None)
             running = sum(1 for _, future in self.inflight.values() if not future.done())
         step = f" (oldest #{oldest['root']} {oldest['step']} {whole_minutes(actions.parse_stamp(oldest['since']), now)}m)" if oldest else ""
-        text = f"LANDING queued {len(queued)}, waiting {len(waiting)}{step}, held {len(held)}, refused {len(refused)}, in flight {running}; pass {took:.0f}s"
-        self.runner.cci_post("state", text, self.runner.watchdog, "landing-state", f"landing-state:{self.book.stamp()}")
+        ready = [pr for pr in sorted(self.no_go & open_rows.keys() - queued - held - refused, key=int) if (head := open_rows[pr].get("head")) and open_rows[pr].get("test_state") == "success" and (review := self.reviews_read.get(pr, ["", ""]))[1] == "APPROVED" and names_head(review[0], head) and self.fidelity(pr, head).ok and self.finder_clear(pr, head)]
+        board = self.board_heads() if ready else None
+        rowed = [f"#{pr} ({'board unread' if board is None else 'board row up' if (pr, open_rows[pr]['head'][:7]) in board else 'no board row yet'})" for pr in ready]
+        told = f"; ready but no go: {', '.join(rowed)}, each landing on the owner's tap or a root go naming its exempt class" if ready else ""
+        text = f"LANDING queued {len(queued)}, waiting {len(waiting)}{step}, held {len(held)}, refused {len(refused)}, in flight {running}{told}; pass {took:.0f}s"
+        self.runner.cci_post("state", text, f"{ROOT},{self.runner.watchdog}" if ready else self.runner.watchdog, "landing-state", f"landing-state:{self.book.stamp()}")
         if self.overflower and (quiet := time.monotonic() - self.overflower.overflowed_at) > OVERFLOW_STALLED.total_seconds():
             alive = self.overflowing is not None and self.overflowing.is_alive()
             self.runner.escalate(f"overflow-stalled:{now:%Y%m%d%H}", "OVERFLOW-STALLED", "landing", f"the overflow thread has finished no run in {int(quiet // 60)} minutes{'' if alive else ' and is dead'}, so a stack the passes leave out waits on them alone; `desk-runner.py handoff` restarts the runner")
@@ -10223,7 +10266,7 @@ class Landing:
             rules = self.shell.run(ghread.read("api", f"repos/{self.repo}/rules/branches/{TRUNK}"))
             done = next((read for read in [*reads, rules] if read.code != 0), Done(0, "", ""))
             required = set() if done.code else {TRUNK_QUEUE_CHECK} | {check["context"] for rule in json.loads(rules.out) if rule["type"] == "required_status_checks" for check in rule["parameters"]["required_status_checks"]}
-            entries = [] if done.code else [required_only(entry, required) for read in reads for entry in json.loads(read.out)]
+            entries = [] if done.code else [required_only(entry, required, set(self.ledger_rows.get(str(entry["number"]), {}).get("labels", "").split(","))) for read in reads for entry in json.loads(read.out)]
             pulled = self.pulled_last() if not done.code else {}
             statuses = self.statuses = None if done.code else {str(entry["number"]): pulled_out(trunk_labelled(trunk_recorded(entry, self.trunk_states.get(str(entry["number"]))), self.ledger_rows.get(str(entry["number"]), {})) if self.adapter.kind == merge_queue.TrunkStackEnqueue.kind else entry, pulled.get(str(entry["number"]), "")) for entry in entries}
             self.queues_read = True
@@ -10563,6 +10606,7 @@ class Landing:
             read = self.watch_trunk(rows or {})
             if rows is None:
                 return
+            rows = self.at_live_heads(rows)
             if self.status_card:
                 self.draw_card(rows)
             if not rows:

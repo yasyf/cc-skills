@@ -125,6 +125,7 @@ class FakeShell(runner_module.Shell):
         self.combined_statuses: dict[str, list[dict]] = {}
         self.review_runs: dict[str, list[str]] = {}
         self.github_merge: dict[str, dict[str, str]] = {}
+        self.rollups: dict[str, str] = {}
         self.status_read_error = ""
         self.advance_error = ""
         self.mirror: str | None = "1a2b3c4"
@@ -798,7 +799,7 @@ class FakeShell(runner_module.Shell):
             }
             for alias, sha in heads
         }
-        pulls = {f"r{pr}": self.github_merge[pr] | {"reviewDecision": "APPROVED"} for pr in re.findall(r"r(\d+): pullRequest\(number: \1\) \{ headRefOid reviewDecision mergeable mergeStateStatus \}", query) if pr in self.github_merge}
+        pulls = {f"r{pr}": self.github_merge[pr] | {"reviewDecision": "APPROVED", "commits": {"nodes": [{"commit": {"statusCheckRollup": {"state": rollup} if (rollup := self.rollups.get(pr)) else None}}]}} for pr in re.findall(r"r(\d+): pullRequest\(number: \1\) \{ headRefOid reviewDecision mergeable mergeStateStatus commits\(last: 1\) \{ nodes \{ commit \{ statusCheckRollup \{ state \} \} \} \} \}", query) if pr in self.github_merge}
         return runner_module.Done(0, json.dumps({"data": {"repository": commits | pulls}}), "")
 
     def board_write(self, write: dict[str, str], as_json=False) -> runner_module.Done:
@@ -2642,6 +2643,34 @@ def test_an_open_cci_hold_holds_its_pr_and_a_closed_one_holds_nothing(shell, con
     landing_pass(shell, config)
     assert [call[1:] for call in shell.enqueues()] == [["28349", "--partial"]]
     assert shell.sends() == []
+
+
+def test_a_root_go_after_an_open_hold_lifts_it_and_the_pr_enqueues_that_pass(shell, config, tmp_path):
+    lone_green_pr(shell)
+    grade_gated_heads_ok(shell)
+    root_hold(shell, 29020, text="HOLD #29020 until the env teardown applies")
+    root_go(shell, "GO #29020 at cccc3333 standard", shell.now())
+    landing_pass(shell, config)
+    assert len(shell.enqueues()) == 1 and refused_escalations(shell) == []
+    [lifted] = [note for note in notes(shell) if post_body(note).startswith("HOLD-LIFTED")]
+    assert lifted["to"] == "root" and post_body(lifted).startswith("HOLD-LIFTED #29020: go cci #")
+
+
+def test_a_hold_posted_after_the_go_still_holds_the_pr(shell, config, tmp_path):
+    lone_green_pr(shell)
+    grade_gated_heads_ok(shell)
+    root_go(shell, "GO #29020 at cccc3333 standard", shell.now())
+    root_hold(shell, 29020, text="HOLD #29020 until the env teardown applies")
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+
+
+def test_a_review_whose_prose_cites_a_hold_holds_nothing(shell, config, tmp_path):
+    lone_green_pr(shell)
+    grade_gated_heads_ok(shell)
+    shell.records.append({"seq": 334985, "drive": "d1", "lane": "fidelity-desk", "kind": "review", "status": "open", "to": ["landing-desk"], "refs": {"prs": [29020]}, "text": "fidelity: ok cccc333 the env removal root HOLD #333568 waits on is applied", "at": actions.stamp(shell.clock)})
+    landing_pass(shell, config)
+    assert len(shell.enqueues()) == 1 and refused_escalations(shell) == []
 
 
 def fork_rows() -> list[dict]:
@@ -4860,6 +4889,68 @@ def test_a_queued_head_the_runner_carried_a_tap_to_stays_queued_in_the_pass_that
     assert dequeues(shell) == []
 
 
+
+def reading_own_gos(shell: FakeShell, pr: str) -> None:
+    run = shell.run
+
+    def posting(argv, *args, **kwargs):
+        done = run(argv, *args, **kwargs)
+        if argv[:2] == ["cci", "post"] and argv[argv.index("--kind") + 1] == "go":
+            merge_go(shell, pr, argv[argv.index("--text") + 1], lane="desk-runner")
+        return done
+
+    shell.run = posting
+
+
+def test_a_pr_the_owner_taps_at_its_head_lands_on_the_runners_own_go_in_that_pass(shell, config, tmp_path):
+    """Root #342211: approved, green, graded PRs he tapped sat for hours on a root go nobody posted."""
+    board_surface(config)
+    board_lane(config)
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    reading_own_gos(shell, "29020")
+    landing_pass(shell, config)
+    assert shell.enqueues() == [] and [post for post in shell.posts if post["kind"] == "go"] == []
+    tap(shell, "29020", "cccc333333")
+    landing_pass(shell, config)
+    [go] = [post for post in shell.posts if post["kind"] == "go"]
+    assert go["text"].startswith("go #29020 at cccc333 owner tapped cccc333333 on the root's board; the runner posts this go itself")
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
+    assert [line for line in escalations(shell) if line.startswith("GO-TAP-MISSING")] == []
+
+
+def test_the_runners_own_go_on_a_tap_lifts_no_hold(shell, config, tmp_path):
+    board_surface(config)
+    board_lane(config)
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    root_hold(shell, 29020, text="HOLD #29020 until the env teardown applies")
+    tap(shell, "29020", "cccc333333")
+    reading_own_gos(shell, "29020")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert len([post for post in shell.posts if post["kind"] == "go"]) == 1
+    assert shell.enqueues() == [] and [note for note in notes(shell) if post_body(note).startswith("HOLD-LIFTED")] == []
+
+
+def test_a_pr_ready_but_for_a_go_is_named_to_root_on_every_passs_landing_state(shell, config, tmp_path):
+    """Root #342211: a PR with every gate and no go is reported to root every pass, never skipped in silence."""
+    board_surface(config)
+    board_lane(config)
+    lone_green_pr(shell)
+    shell.rows[0]["test_state"] = "success"
+    shell.queue["29020"] = "not queued"
+    shell.pr_status["29020"] = {"verdict": "landable"}
+    shell.github_merge["29020"] = {"headRefOid": "cccc333333", "mergeable": "MERGEABLE", "mergeStateStatus": "CLEAN"}
+    grade(shell, "29020", "ok F307 at cccc333.")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert len(shell.states) == 2
+    for state in shell.states:
+        assert state["to"] == f"root,{runner_module.WATCHDOG}@d1"
+        assert "ready but no go: #29020 (no board row yet), each landing on the owner's tap or a root go naming its exempt class" in state["text"]
+    assert shell.enqueues() == []
+
 def test_a_successor_fidelity_desk_grade_counts_with_no_config_edit(shell, config, tmp_path):
     """Root #197631: fidelity-desk-13 succeeded fidelity-desk-12, and its ok on #45427 read as ungraded because the configured list stopped at -12."""
     merge_mode(config, "every")
@@ -6117,12 +6208,46 @@ def test_a_status_read_of_mergeable_unknown_falls_back_to_githubs_mergeable_fiel
     assert bool(shell.enqueues()) == enqueued
 
 
+def test_trunks_queue_check_cancelled_by_a_restack_is_no_red_build_and_no_eviction():
+    red = {"queue": "unknown", "verdict": "blocked:ci-red", "ci": {"state": "red", "failing": [runner_module.TRUNK_QUEUE_CHECK]}}
+    required = {runner_module.TRUNK_QUEUE_CHECK, "buildkite/test"}
+    cancelled = runner_module.required_only(red, required, {"trunk-cancelled"})
+    assert cancelled["verdict"] == runner_module.LANDABLE
+    assert runner_module.trunk_labelled(cancelled, {"labels": "trunk-cancelled"})["queue"] == "unknown"
+    assert runner_module.required_only(red, required, {"trunk-failed"}) == red
+    assert runner_module.required_only(red, required, {"trunk-cancelled", "trunk-failed"}) == red
+
+
+def test_a_pass_reset_while_a_worker_reads_preconditions_returns_the_read_and_never_raises(shell, config, tmp_path, monkeypatch):
+    lone_green_pr(shell)
+    where = said_on_the_bus(shell)
+    landing = landing_of(shell, config, tmp_path)
+    sentences = runner_module.precondition_sentences
+
+    def reset_mid_read(text: str) -> list[str]:
+        landing.said_preconditions = {}
+        return sentences(text)
+
+    monkeypatch.setattr(runner_module, "precondition_sentences", reset_mid_read)
+    assert (where, PRECONDITION) in landing.preconditions("29020", "cccc333333")
+
+@pytest.mark.parametrize(("rollup", "enqueued"), [("SUCCESS", True), ("PENDING", False)])
+def test_a_status_read_of_ci_pending_falls_back_to_githubs_check_rollup_at_the_head(shell, config, tmp_path, rollup, enqueued):
+    merge_mode(config, "every")
+    gone_green(shell, "#33001 GREEN aaaa111111 graphite READY")
+    shell.pr_status["33001"] = {"queue": "unknown", "verdict": "blocked:queue-unknown,ci-pending"}
+    shell.github_merge["33001"] = {"headRefOid": "aaaa111111", "mergeable": "MERGEABLE", "mergeStateStatus": "BLOCKED"}
+    shell.rollups["33001"] = rollup
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert bool(shell.enqueues()) == enqueued
+
 def test_a_pass_reads_every_tracked_head_in_one_graphql_query(shell, config, tmp_path):
     lone_green_pr(shell)
     grade(shell, "29020", "ok F307 at cccc333.")
     landing_pass(shell, config)
     [read] = graphql_reads(shell)
-    assert "cccc333333" in read[4] and "r29020: pullRequest(number: 29020) { headRefOid reviewDecision mergeable mergeStateStatus }" in read[4]
+    assert "cccc333333" in read[4] and "r29020: pullRequest(number: 29020) { headRefOid reviewDecision mergeable mergeStateStatus commits(last: 1)" in read[4]
     assert not [call for call in shell.calls if call[:2] == ["gh", "api"] and "/commits/" in call[2]]
     assert len(shell.enqueues()) == 1
 
@@ -8755,11 +8880,11 @@ def test_a_go_named_green_head_above_a_red_or_conflicting_parent_with_its_own_go
 def test_a_go_named_green_head_above_a_held_parent_draws_one_below_held_note_and_no_go_unqueued(shell, config, tmp_path, parent_go):
     board_surface(config)
     two_pr_stack(shell)
+    if parent_go:
+        merge_go(shell, "29020", "merge #29020 at cccc333")
     root_hold(shell, 29020, text="hold #29020 owner gate on the old app")
     shell.rows = [dict(row, test_state="success") for row in shell.rows]
     shell.queue["29031"] = "not queued"
-    if parent_go:
-        merge_go(shell, "29020", "merge #29020 at cccc333")
     merge_go(shell, "29031", "merge #29031 at dddd444")
     shell.sleep(6 * 60)
     landing_pass(shell, config)
@@ -9072,6 +9197,18 @@ def test_a_moved_head_or_a_waiting_verdict_settles_refused_with_its_reason_never
     [line] = settled(shell, "REFUSED")
     assert line.endswith(why)
 
+
+def test_a_head_github_reads_past_the_ledger_is_gated_at_that_head_in_the_same_pass(shell, config, tmp_path):
+    merge_mode(config, "every")
+    gone_green(shell, "#33001 GREEN eeee555555 graphite READY")
+    grade(shell, "33001", "ok F307 at eeee555.")
+    merge_go(shell, "33001", "merge #33001 at eeee555")
+    shell.github_merge["33001"] = {"headRefOid": "eeee555555", "mergeable": "MERGEABLE", "mergeStateStatus": "BLOCKED"}
+    shell.rollups["33001"] = "SUCCESS"
+    shell.queue["33001"] = "not queued"
+    landing_pass(shell, config)
+    assert settled(shell, "REFUSED") == []
+    assert [call[1] for call in shell.enqueues()] == ["33001"]
 
 def test_a_stack_worker_that_settles_in_one_pass_and_ends_in_the_next_leaves_its_heads_settled_never_unsettled(shell, config, tmp_path, monkeypatch):
     """Root #296026: #47306 and #47326 read `unsettled: the gate's status read` on every pass from 2:28 PM Nov 1, since their stack's worker settled them in one pass, the next pass skipped the stack while that worker still ran, and the worker ended before that pass closed."""

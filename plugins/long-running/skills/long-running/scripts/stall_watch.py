@@ -127,7 +127,10 @@ and, across the drive:
               successor cites a PR after it (an `opened` record, or any record with a PR reference),
               and no root record closes it; it goes to root alone,
               from `stall.minutes.order` until the order is two hours old, and a named lane
-              spawned with no record since waits for its first record or `NEW_LANE_WAIT` (root #314916)
+              spawned with no record since waits for its first record or `NEW_LANE_WAIT` (root #314916);
+              an order to an incident fix lane, one named `-fix` or one an open incident names, waits
+              `stall.minutes.incident_order` (default 25) from that lane's spawn, or from the order when
+              no spawn record names it, since a fix lane's first PR is due then (root #341549)
     gate      a lane's `state` or `report` record says work waits on PR N (`waits on #N`, `waits only
               on #N`, `blocked on #N`, `when #N lands`), the desk runner or a landing desk lane posted
               N landed or QUEUED, and neither that lane nor a numbered successor of it has posted an
@@ -259,7 +262,7 @@ NOT_LANES = frozenset({*ROOT_NAMES, "team-lead", LANE, RUNNER})
 INCIDENT_EXEMPT = frozenset({"tap", "board", "carry"})
 PACIFIC = ZoneInfo("America/Los_Angeles")
 WINDOW_HOURS = 24
-MINUTES = {"go": 10, "silent": 15, "refusal": 10, "red": 2, "unclassed": 20, "unfixed": 60, "sweep": 20, "order": 3, "tap": 10, "ungraded": 10, "finder": 10, "fidelity": 10, "missing": 20, "regrade": 15, "running": 25, "board": 15, "carry": 20, "ask": 15, "pick": 15, "gate": 10, "stale": 120, "desk": 10, "shape": 10}
+MINUTES = {"go": 10, "silent": 15, "refusal": 10, "red": 2, "unclassed": 20, "unfixed": 60, "sweep": 20, "order": 3, "incident_order": 25, "tap": 10, "ungraded": 10, "finder": 10, "fidelity": 10, "missing": 20, "regrade": 15, "running": 25, "board": 15, "carry": 20, "ask": 15, "pick": 15, "gate": 10, "stale": 120, "desk": 10, "shape": 10}
 DESK_KINDS = frozenset({"finder", "fidelity"})
 ROOT_KINDS = frozenset({"missing", "unclassed", "unfixed", "customer", "acked", "unfinished"})
 REPOSTED = frozenset({"red"})
@@ -289,6 +292,7 @@ RED_SWEEPS = re.compile(rf"{RED_SWEEP}(?:-\d{{1,2}})*")
 OWNER_ORDER = re.compile(r"\bowner\b.{0,80}\bverbatim\b", re.IGNORECASE | re.DOTALL)
 ORDER_WINDOW = timedelta(hours=2)
 NEW_LANE_WAIT = timedelta(minutes=45)
+FIX_LANE = re.compile(r"-fix(?:-\d{1,2})?$")
 REASSIGNS = re.compile(r"\breassign", re.IGNORECASE)
 CLAUSE = re.compile(r"[;\n]|\.\s")
 REASSIGNED_TO = re.compile(r"\bto\s+([a-z][a-z0-9]*(?:-[a-z0-9]+)+)\b")
@@ -1017,6 +1021,8 @@ class Pass:
         in_incident: set[str] = set()
         for record in cci.open_holds(self.tail, drive_name):
             for named in cci.held_by(record):
+                if grades.lifts_hold(gos, named, record["seq"]):
+                    continue
                 held.add(named)
                 self.hold_gates.setdefault(named, []).extend(gate for gate in PR_REF.findall(record["text"]) if gate != named)
                 if board:
@@ -1427,7 +1433,8 @@ class Pass:
     def orders(self, records: list[dict]) -> list[Question]:
         """A question for each root decide record relaying an owner order, `stall.minutes.order` to `ORDER_WINDOW` old, unclosed, that no lane it names, or a numbered successor, has answered since with a record citing a PR: one Sonnet verdict says whether the order names a change that ships as a new PR, and a yes is root's urgent stall."""
         closed = {seq for record in records if record["lane"] in ROOT_NAMES for seq in grades.closes(record)}
-        spawns = {lane: record["seq"] for record in records if (lane := spawned_lane(record))}
+        spawns = {lane: record for record in records if (lane := spawned_lane(record))}
+        incident_records = incidents.open_incidents(incidents.incident_records(self.tail, self.watch.drive))
         questions = []
         for order in records:
             text = grades.full_text(order)
@@ -1439,8 +1446,11 @@ class Pass:
             named = {name for lane in lanes for name in self.registry().lineage(lane)}
             if any(record["seq"] > order["seq"] and cites_pr(record) and record["lane"] in named for record in records):
                 continue
-            unheard = [lane for lane in named if lane in spawns and not any(record["lane"] == lane and record["seq"] > spawns[lane] for record in records)]
+            unheard = [lane for lane in named if lane in spawns and not any(record["lane"] == lane and record["seq"] > spawns[lane]["seq"] for record in records)]
             if unheard and self.now - at(order) < NEW_LANE_WAIT:
+                continue
+            fixing = [lane for lane in named if FIX_LANE.search(lane) or incidents.incident_scope(incident_records, self.watch.drive, "", None, lane)]
+            if fixing and self.now - min((at(spawns[lane]) for lane in fixing if lane in spawns), default=at(order)) < self.watch.age("incident_order"):
                 continue
             questions.append(self.order(order, text, lanes))
         return questions
