@@ -369,7 +369,7 @@ func (r Recheck) withdraw(ctx context.Context, cards Cards, ref store.CardRef, w
 	if len(owed) > 0 {
 		return &Moved{ref, "flagged", fmt.Sprintf("%s, but the owner's answer on %s has no ccn answer row yet, so it stays", why, strings.Join(owed, ", "))}, nil
 	}
-	if _, err := cards.present(ctx, "remove-block", ref.Card); err != nil {
+	if _, err := cards.present(ctx, "remove-block", ref.Card, "--reason", why); err != nil {
 		return refused(ref, err)
 	}
 	if err := cards.Withdraw(ctx, r.Lane, ref.Card, fmt.Sprintf("Withdrew %s from the owner's board: %s.", ref.Card, why)); err != nil {

@@ -26,6 +26,7 @@ type cardShell struct {
 	answers   map[string]bool
 	rowed     map[string]bool
 	removed   []string
+	reasons   []string
 }
 
 func (f *cardShell) Run(_ context.Context, c shell.Command) (shell.Result, error) {
@@ -48,6 +49,9 @@ func (f *cardShell) Run(_ context.Context, c shell.Command) (shell.Result, error
 		return shell.Result{Stdout: string(encoded)}, err
 	case strings.Contains(argv, "remove-block"):
 		f.removed = append(f.removed, c.Argv[2])
+		if i := slices.Index(c.Argv, "--reason"); i > 0 {
+			f.reasons = append(f.reasons, c.Argv[i+1])
+		}
 		return shell.Result{}, nil
 	case strings.Contains(argv, "answer list"):
 		card := ""
@@ -187,6 +191,9 @@ func TestSweepWithdrawsEachCardWhoseEventHappenedAndNamesTheOutcome(t *testing.T
 	}
 	if want := []string{"merged-pr", "past-time", "closed-record", "shipped"}; !reflect.DeepEqual(on.removed, want) {
 		t.Fatalf("removed = %v", on.removed)
+	}
+	if len(on.reasons) != len(on.removed) || slices.Contains(on.reasons, "") {
+		t.Fatalf("remove-block reasons = %q, want each card's outcome for its Slack card", on.reasons)
 	}
 	if f.status.reads != 1 {
 		t.Fatalf("status reads = %d", f.status.reads)
