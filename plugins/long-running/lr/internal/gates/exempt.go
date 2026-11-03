@@ -49,6 +49,7 @@ type Read struct {
 	Cards    []Card
 	TapRows  []TapRow
 	Lifts    map[int64]bool
+	Body     string
 }
 
 type standingGrade struct {
@@ -59,7 +60,7 @@ type standingGrade struct {
 func ExemptGo(c Claim, r Read) (string, []string) {
 	finder, finderRefusal := finderCite(c, r.Records)
 	class, fidelity, fidelityRefusals := fidelityCite(c, r.Records, r.Exempt)
-	refusals := slices.Concat(nonEmpty(finderRefusal), fidelityRefusals, openHolds(c, r.Records, r.Lifts), ownerWaits(c, r), tapRules(r.TapRules, r.Files), standingGos(c, r))
+	refusals := slices.Concat(nonEmpty(finderRefusal), fidelityRefusals, openHolds(c, r.Records, r.Lifts), ownerWaits(c, r), tapRules(r.TapRules, r.Files), standingGos(c, r), nonEmpty(UnsafeOnDev(UnsafeWait(r.Body))))
 	if len(refusals) > 0 {
 		return "", refusals
 	}

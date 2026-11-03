@@ -145,6 +145,7 @@ type Facts struct {
 	HoldSeq       int64
 	Carries       []int
 	Condition     string
+	UnsafeWait    string
 }
 
 func (f Facts) Green() bool {
@@ -188,7 +189,7 @@ func (f Facts) ClearsAbove() bool {
 }
 
 func (f Facts) Landable() bool {
-	return f.Green() && f.Mergeable == MergeableClean && len(f.Carries) == 0 && f.Cleared() && f.Approved && f.Tapped() && f.Hold == ""
+	return f.Green() && f.Mergeable == MergeableClean && len(f.Carries) == 0 && f.Cleared() && f.Approved && f.Tapped() && f.Hold == "" && f.UnsafeWait == ""
 }
 
 type Verdict struct {
