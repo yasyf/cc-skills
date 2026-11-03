@@ -65,17 +65,22 @@ func (c Checks) release() (release, error) {
 	}
 	var parsed struct {
 		Plugins []struct {
-			Name   string  `json:"name"`
-			Source release `json:"source"`
+			Name   string          `json:"name"`
+			Source json.RawMessage `json:"source"`
 		} `json:"plugins"`
 	}
 	if err := json.Unmarshal(data, &parsed); err != nil {
 		return release{}, fmt.Errorf("%s: %w", path, err)
 	}
 	for _, entry := range parsed.Plugins {
-		if entry.Name == pluginName {
-			return entry.Source, nil
+		if entry.Name != pluginName {
+			continue
 		}
+		var source release
+		if err := json.Unmarshal(entry.Source, &source); err != nil {
+			return release{}, fmt.Errorf("%s: %w", path, err)
+		}
+		return source, nil
 	}
 	return release{}, fmt.Errorf("%s has no %s entry", path, pluginName)
 }
