@@ -456,7 +456,12 @@ runner process started, first read after it, closes with no record when `<landin
 later commit running, for one of its components when it names any. Each record carries
 `--id release:<pr>:<step>`, so a repost after a crash returns the stored record and no step is posted twice. A record cci refuses,
 or a post that prints no `#<seq>`, is posted again on the next pass and escalated to root as `RELEASE-FAILED`, once per
-`deadlines.release_start_minutes` step. A worker's question escalates to root as `DECIDE`, and only a reply this
+`deadlines.release_start_minutes` step. Every landing owes a release of the target its title's scope names, among those
+`<landing.release_cli> live --json` lists: at most every five minutes the runner reads which of the last day's landings each
+target runs none of an hour after landing, posts that set as one `state` record on topic `landed-not-live`, which
+`ledger.py summary` prints, and raises one `LANDED-NOT-LIVE` blocker to root per target, naming the PRs and the
+`<landing.release_cli> start --only <target> --manual` line that ships them; a change in that set resolves the old blocker
+and raises a new one (root #342171). A worker's question escalates to root as `DECIDE`, and only a reply this
 drive's root posts with `--re` or `--resolves` on that `DECIDE`, or with `--re` on the lane's own record, answers it.
 With a `finder` object in runner.json, read again every pass, each orca pass, and a thread of the orca desk every 15 seconds
 between them, dispatches the finder (reference/finder-brief.md) on every drive head, beside the fidelity desks and never
@@ -879,6 +884,10 @@ RED_CONTRACT = re.compile(r"red[- ]by[- ]design|\bfail(?:s|ed|ing)? (?:in )?(?:r
 MERGE_FAST = "merge-fast"
 RELEASE_WITH = re.compile(r"^Release-With:[ \t]*(\S.*)$", re.MULTILINE)
 RELEASE_READ = "release-read"
+NOT_LIVE_WINDOW = timedelta(hours=24)
+NOT_LIVE_OWED = timedelta(minutes=60)
+NOT_LIVE_READ_EVERY = timedelta(minutes=5)
+TITLE_SCOPE = re.compile(r"^\s*([\w./-]+):")
 LANDED_READ = "landed-read"
 CARRIED_READ = "carried-read"
 LANDED_TIDIED = "landed-tidied"
@@ -6214,6 +6223,9 @@ class Landing:
         self.reviews_read: dict[str, list[str]] = {}
         self.merge_states: dict[str, tuple[str, str, str]] = {}
         self.rollups: dict[str, tuple[str, str]] = {}
+        self.live_read = datetime.min.replace(tzinfo=timezone.utc)
+        self.live_holds: dict[tuple[str, str], bool] = {}
+        self.not_live_owed: set[str] | None = None
         self.about: dict[str, int] = {}
         self.about_read: int | None = None
         self.started = self.book.stamp()
@@ -9753,6 +9765,37 @@ class Landing:
 
         self.release_action_proof = version, tuple(active)
 
+    def landed_not_live(self, rows: dict[str, dict]) -> None:
+        """Name each PR that landed between `NOT_LIVE_OWED` and `NOT_LIVE_WINDOW` ago whose release target runs no commit holding its squash, by `<release_cli> live --json` read at most every `NOT_LIVE_READ_EVERY`; a PR's target is the one its title's scope names. Whenever that set changes it posts as one `state` record on topic `landed-not-live`, which `ledger.py summary` prints, and each target in it draws one blocker to root naming its PRs and the release line that ships them, again whenever its set of PRs changes (root #342171: #48353 landed at 2:31 PM, and llm-gateway shipped nothing for three hours)."""
+        now = self.runner.now()
+        landed = {pr: (scope[1].lower(), row["landed_sha"], actions.parse_stamp(row["landed_at"])) for pr, row in rows.items() if row.get("state") == "landed" and row.get("landed_sha") and row.get("landed_at") and NOT_LIVE_OWED <= now - actions.parse_stamp(row["landed_at"]) < NOT_LIVE_WINDOW and (scope := TITLE_SCOPE.match(row.get("title", "")))}
+        if now - self.live_read < NOT_LIVE_READ_EVERY:
+            return
+        running: dict[str, set[str]] = {}
+        if landed:
+            if (done := self.shell.run([*self.release_cli, "live", "--json"])).code != 0:
+                return
+            for entry in json.loads(done.out):
+                running.setdefault(entry["target"], set()).add(entry["commit"])
+        self.live_read = now
+        owed: dict[str, list[str]] = {}
+        for pr, (target, sha, _) in sorted(landed.items(), key=lambda item: int(item[0])):
+            if target in running and not any(self.live_holds_sha(commit, sha) for commit in running[target]):
+                owed.setdefault(target, []).append(pr)
+        said = "; ".join(f"{target}: {', '.join(f'#{pr} ({landed[pr][2].astimezone(PACIFIC):%-I:%M %p})' for pr in prs)}" for target, prs in sorted(owed.items()))
+        if said != self.book.fact(LANDING, cci.NOT_LIVE_TOPIC, "") and self.runner.cci_post("state", f"LANDED-NOT-LIVE {said or 'none'}", self.runner.watchdog, cci.NOT_LIVE_TOPIC, f"landed-not-live:{hashlib.sha1(said.encode()).hexdigest()[:12]}").code == 0:
+            self.book.edit(LANDING, lambda incident: incident.facts.update({cci.NOT_LIVE_TOPIC: said}))
+        self.not_live_owed = {f"{cci.NOT_LIVE_TOPIC}:{target}:{','.join(prs)}" for target, prs in owed.items()}
+        for target, prs in owed.items():
+            if not self.book.known(LANDING, key := f"{cci.NOT_LIVE_TOPIC}:{target}:{','.join(prs)}"):
+                self.post_blocker(key, ROOT, f"LANDED-NOT-LIVE {target}: {numbered(prs)} landed, the oldest {whole_minutes(min(landed[pr][2] for pr in prs), now)} minutes ago, and {target} runs none of them; start its release: `{self.landing_config['release_cli']} start --only {target} --manual`", prs[0])
+
+    def live_holds_sha(self, commit: str, sha: str) -> bool:
+        """Whether the running `commit` holds the landed `sha`, kept once read; a commit the checkout does not know reads as holding it, so no unread commit raises a release blocker."""
+        if (commit, sha) not in self.live_holds:
+            self.live_holds[(commit, sha)] = self.shell.run(["git", "-C", str(self.checkout), "merge-base", "--is-ancestor", sha, commit]).code != 1
+        return self.live_holds[(commit, sha)]
+
     def squashed(self, pr: str) -> bool:
         """Whether this runner merged the PR by plain squash, so its landing owes a release however the PR's incident reads now, unless a root record clears its incident tag."""
         return any(action.action_id.startswith(f"land:{pr}@") and action.status == "completed" for action in self.book.actions(LANDING, kind="squash"))
@@ -10423,7 +10466,7 @@ class Landing:
         return done.code == 0
 
     def resolve_stale_blockers(self, rows: dict[str, dict]) -> None:
-        """Resolve, with one note a pass, every blocker this runner posted about a PR that has since landed, closed, or moved past the head the blocker names, so the bus holds no blocker the runner itself has outlived (root #253512)."""
+        """Resolve, with one note a pass, every blocker this runner posted about a PR that has since landed, closed, or moved past the head the blocker names, and every `LANDED-NOT-LIVE` blocker whose target's unshipped PRs the newest live read no longer finds as it named them, so the bus holds no blocker the runner itself has outlived (root #253512)."""
         stale: dict[str, tuple[int, str]] = {}
         pending: dict[str, int] = {}
         for action in self.book.blocker_candidates(LANDING):
@@ -10431,6 +10474,9 @@ class Landing:
             if target.get("kind") != "blocker" or not (seq := cci.receipt_seq(action.response.get("posted", ""))):
                 continue
             pending[action.action_id] = seq
+            if self.not_live_owed is not None and action.action_id.startswith(f"{cci.NOT_LIVE_TOPIC}:") and action.action_id not in self.not_live_owed:
+                stale[action.action_id] = (seq, target["lane"])
+                continue
             if not (row := rows.get(target["pr"])):
                 continue
             named = re.search(rf"#{target['pr']} ([0-9a-f]{{7,40}})\b", target["text"])
@@ -10453,7 +10499,7 @@ class Landing:
             return
         seqs = sorted(seq for seq, _ in stale.values())
         to = ",".join(dict.fromkeys(lane for _, lanes in stale.values() for lane in lanes.split(",") if lane))
-        done = self.runner.cci_post("note", f"RESOLVED {len(seqs)} landing-runner blockers whose PR has since landed, closed or moved past the head each names", to, "landing-hygiene", f"resolved:{seqs[0]}:{seqs[-1]}:{len(seqs)}", flags=["--resolves-seq", ",".join(map(str, seqs))])
+        done = self.runner.cci_post("note", f"RESOLVED {len(seqs)} landing-runner blockers whose PR has since landed, closed or moved past the head each names, or whose release has shipped", to, "landing-hygiene", f"resolved:{seqs[0]}:{seqs[-1]}:{len(seqs)}", flags=["--resolves-seq", ",".join(map(str, seqs))])
         if done.code == 0:
             for key in stale:
                 self.book.attempt(LANDING, lambda incident, key=key: incident.verify(key, {"resolved": cci.receipt(done.records[0].seq), "at": self.book.stamp()}))
@@ -10643,7 +10689,7 @@ class Landing:
         if not self.side_work:
             def side_steps():
                 with self.book.store.reading(), self.build_cache.book.store.reading():
-                    self.runner.steps(lambda: self.verify(rows), lambda: self.announce_landings(rows), lambda: self.announce_carried(rows), lambda: self.releases(rows), self.ungraded_after, lambda: self.verify_restacks(rows), lambda: self.resolve_stale_blockers(rows))
+                    self.runner.steps(lambda: self.verify(rows), lambda: self.announce_landings(rows), lambda: self.announce_carried(rows), lambda: self.releases(rows), lambda: self.landed_not_live(rows), self.ungraded_after, lambda: self.verify_restacks(rows), lambda: self.resolve_stale_blockers(rows))
 
             self.side_work = self.side.submit(side_steps)
         if not self.tidy_work:
