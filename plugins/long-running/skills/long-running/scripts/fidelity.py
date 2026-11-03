@@ -296,11 +296,13 @@ def ask(shell: finder.Shell, job: dict, directory: Path, question: Path, attempt
 
 def post(shell: finder.Shell, job: dict, lines: list[tuple[str, list[str]]], body: Path) -> list[cci.Posted]:
     pr = f"{job['repo']}#{job['pr']}"
+    earlier = [record for record in cci.records(shell.run, job["drive"], "--lane", LANE, "--kind=review", "--pr", pr) if record["lane"] == LANE and record["text"].startswith((FIDELITY_OK, FIDELITY_MISSING)) and names_head(graded_head(record["text"]), job["head"])]
+    supersedes = ["--attr", "class=supersedes", "--attr", f"supersedes={max(record['seq'] for record in earlier)}"] if earlier else []
     posted = []
     for index, (text, also) in enumerate(lines):
         to = ",".join(dict.fromkeys(filter(None, [job["lane"], *job["to"], *also])))
         clipped = text if len(text) <= finder.CCI_TEXT else text[: finder.CCI_TEXT - 1] + "…"
-        argv = ["cci", "post", "--drive", job["drive"], "--lane", LANE, "--kind", "review", "--pr", pr, "--id", f"fidelity:{pr}:{job['head']}:{index}", "--path", str(body)]
+        argv = ["cci", "post", "--drive", job["drive"], "--lane", LANE, "--kind", "review", "--pr", pr, "--id", f"fidelity:{pr}:{job['head']}:{index}", "--path", str(body), *supersedes]
         posted.append(cci.posted(shell.run(finder.logged(body.parent, [*argv, *(["--to", to] if to else []), "--text", clipped, "--json"])))[0])
     return posted
 
