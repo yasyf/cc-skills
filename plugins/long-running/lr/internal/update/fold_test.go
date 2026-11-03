@@ -13,6 +13,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/asks"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ledger"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/plans"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/wait"
 )
 
 const fivePieces = "SandSQL five pieces: ssql-server (two modes), ssql-replicator, ssql-follower, ssql-signal, ssql-journal; migration R0-R8"
@@ -298,6 +299,27 @@ func TestAMissingSectionIsNamedInTheExitLine(t *testing.T) {
 	err := missingError(Missing(strings.ReplaceAll(report.Text, "The writers", ""), report.Needs))
 	if err == nil || err.Error() != "missing: 1: The writers" {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestARenderWithOnlyGapsHasItsOwnExitCodeAndARealMissIsStillOne(t *testing.T) {
+	var stderr strings.Builder
+	if err := exitOf(Report{Text: "ship-2"}, &stderr); err != nil || stderr.Len() != 0 {
+		t.Fatalf("a complete render = %v, %q", err, stderr.String())
+	}
+	gaps := Report{Text: "ship-2", Needs: []Need{{"ship-2", ""}}, Gaps: []string{"owner words no record carries: #13"}}
+	err := exitOf(gaps, &stderr)
+	var exit *wait.ExitError
+	if !errors.As(err, &exit) || exit.Code != gapsExit {
+		t.Fatalf("err = %v", err)
+	}
+	if got := stderr.String(); got != "lr: gaps: 1: owner words no record carries: #13\n" {
+		t.Fatalf("stderr = %q", got)
+	}
+	gaps.Needs = append(gaps.Needs, Need{"release-5", ""})
+	err = exitOf(gaps, &stderr)
+	if errors.As(err, &exit) || err == nil || err.Error() != "missing: 2: release-5; owner words no record carries: #13" {
+		t.Fatalf("a real miss = %v", err)
 	}
 }
 

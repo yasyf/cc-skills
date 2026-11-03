@@ -12,15 +12,30 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/wait"
 )
 
-const defaultSince = 2 * time.Hour
+const (
+	defaultSince = 2 * time.Hour
+	gapsExit     = 3
+)
 
 func missingError(left []string) error {
 	if len(left) == 0 {
 		return nil
 	}
 	return fmt.Errorf("missing: %d: %s", len(left), strings.Join(left, "; "))
+}
+
+func exitOf(found Report, stderr io.Writer) error {
+	if left := Missing(found.Text, found.Needs); len(left) > 0 {
+		return missingError(append(left, found.Gaps...))
+	}
+	if len(found.Gaps) == 0 {
+		return nil
+	}
+	fmt.Fprintf(stderr, "lr: gaps: %d: %s\n", len(found.Gaps), strings.Join(found.Gaps, "; "))
+	return &wait.ExitError{Code: gapsExit}
 }
 
 type session struct {
@@ -61,7 +76,7 @@ func Command(a *app.App) *cobra.Command {
 	var checking string
 	render := &cobra.Command{
 		Use:   "render",
-		Short: "Print the whole owner update and exit 1 naming what it leaves out and each gap",
+		Short: "Print the whole owner update; exit 1 naming what it leaves out, or 3 naming only its gaps",
 		Args:  cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			found, stateDir, err := report(c)
@@ -74,7 +89,7 @@ func Command(a *app.App) *cobra.Command {
 					return err
 				}
 			}
-			return missingError(append(Missing(found.Text, found.Needs), found.Gaps...))
+			return exitOf(found, c.ErrOrStderr())
 		},
 	}
 	cmd.PersistentFlags().BoolVar(&publish, "publish", false, "with render: write the dashboard's steps.json from the same rows")
