@@ -80,7 +80,7 @@ func askRow(key string, fields map[string]string) ledger.Row {
 
 func newFake(narrative string, withRegister bool, rows ...ledger.Row) *fakeNotes {
 	if narrative == "" {
-		narrative = "## Root's next actions\n1. watch SoFi"
+		narrative = "## Root's next actions\n1. watch Acme"
 	}
 	if len(rows) == 0 {
 		rows = []ledger.Row{askRow("000001", nil), askRow("000002", map[string]string{"dropped_at": "2026-10-01T01:00:00Z"}), askRow("000003", map[string]string{"answered_at": "2026-10-01T01:00:00Z"})}
@@ -371,7 +371,7 @@ func newHome(t *testing.T) driveHome {
 	writeFile(t, filepath.Join(inbox, "orca-desk.md.cursor"), "R2\n")
 	writeFile(t, filepath.Join(inbox, "landing-desk.md"), "- L1 (root) → desk: hold #1\n")
 	plan := filepath.Join(root, ".claude", "plans", "brook.md")
-	writeFile(t, plan, "# brook\n\n- SoFi release on the owner's word\n- SoFi releases as it merges (4ffc9a5), never on the owner's word\n")
+	writeFile(t, plan, "# brook\n\n- Acme release on the owner's word\n- Acme releases as it merges (4ffc9a5), never on the owner's word\n")
 	home := driveHome{root: root, plan: plan, sess: filepath.Join(root, "session.json")}
 	home.writeDrive(t, map[string]any{})
 	home.writeSession(t, []sessionTask{{ID: "7", Status: "pending", Subject: "OWNER: release as merged"}}, []backgroundTask{
@@ -475,13 +475,13 @@ func TestGenerateWritesEverySourceIntoTheActiveGeneratedDoc(t *testing.T) {
 		"- monitor: batches.jsonl grep",
 		"- orca-desk.md: head R3, cursor R2: - R3 (root) → desk: launch l02",
 		"- landing-desk.md: head L1, cursor -: - L1 (root) → desk: hold #1",
-		"- plan owner-gate line cites no live answer: brook.md:3: - SoFi release on the owner's word",
+		"- plan owner-gate line cites no live answer: brook.md:3: - Acme release on the owner's word",
 		"- Drive `d1`: ledger `1a2b3c4`, Orca run `run_1`, checkout `/repo`, root sessions s-root\n\n## Open owner asks\n",
 		fmt.Sprintf(catchUp, "brook"),
 	)
 	lacks(t, body, "Unrelated", "000002", "000003")
 	lacks(t, after(body, findingsHeading), "never on the owner's word")
-	equal(t, strings.TrimSpace(after(body, "## Root narrative\n")), "_From doc aaaaaaa, carried forward._\n\n## Root's next actions\n1. watch SoFi")
+	equal(t, strings.TrimSpace(after(body, "## Root narrative\n")), "_From doc aaaaaaa, carried forward._\n\n## Root's next actions\n1. watch Acme")
 }
 
 func TestGenerateReadsTheRegisterOfTheDrivesProgramNotThePlanStem(t *testing.T) {
@@ -638,7 +638,7 @@ func TestACarriedNarrativeIsOnlyThePreviousNarrativeSection(t *testing.T) {
 
 	body := f.docs[str(second.ID)]
 	equal(t, strings.Count(body, "## Standing owner rules"), 1)
-	equal(t, strings.Count(body, "1. watch SoFi"), 1)
+	equal(t, strings.Count(body, "1. watch Acme"), 1)
 	equal(t, strings.Count(body, "_From "), 1)
 	contains(t, body, "_From doc aaaaaaa, carried forward._")
 	equal(t, str(first.ID), str(second.ID))
@@ -743,7 +743,7 @@ func TestLintFlagsThePlansUncitedOwnerGateLines(t *testing.T) {
 
 	equal(t, code, violations)
 	printed := f.stdout.String()
-	contains(t, printed, "plan owner-gate line cites no live answer: brook.md:3: - SoFi release on the owner's word")
+	contains(t, printed, "plan owner-gate line cites no live answer: brook.md:3: - Acme release on the owner's word")
 	lacks(t, printed, "missing durable rule")
 }
 
@@ -775,11 +775,11 @@ func TestLintReadsTheRegisterFromADocOrAFile(t *testing.T) {
 func TestStrictRefusesANarrativeWithAnUncitedOwnerGate(t *testing.T) {
 	home := newHome(t)
 	f := newFake("", true)
-	f.write(docB, "## Root's next actions\n1. ship sanddb on SoFi on the owner's word", "brook: progress")
+	f.write(docB, "## Root's next actions\n1. ship sanddb on Acme on the owner's word", "brook: progress")
 
 	printed := refused(t, depsFor(f), home.options(strictMode, noSession), violations)
 
-	contains(t, printed, "owner-gate line cites no live answer id: 1. ship sanddb on SoFi on the owner's word")
+	contains(t, printed, "owner-gate line cites no live answer id: 1. ship sanddb on Acme on the owner's word")
 	equal(t, hasDocCall(f, "add"), false)
 	if _, err := os.Stat(progressFolder(home.plan)); !os.IsNotExist(err) {
 		t.Fatalf("the progress folder exists: %v", err)
@@ -841,18 +841,18 @@ func TestStrictNamesAnUncitedStandingRuleUntilACitedRecordReplacesIt(t *testing.
 func TestStrictNamesTheNarrativeLineAndItsEdit(t *testing.T) {
 	home := newHome(t)
 	f := newFake("", true)
-	f.write(docB, "## Root's next actions\n1. land l11\n2. ship sanddb on SoFi on the owner's word", "brook: progress")
+	f.write(docB, "## Root's next actions\n1. land l11\n2. ship sanddb on Acme on the owner's word", "brook: progress")
 
 	printed := refused(t, depsFor(f), home.options(strictMode, noSession), violations)
 
-	equal(t, strings.TrimSpace(printed), "narrative (doc bbbbbbb) line 3: owner-gate line cites no live answer id: 2. ship sanddb on SoFi on the owner's word; end that line with `(answer <id>)` via `ccn doc edit bbbbbbbb --body -`")
+	equal(t, strings.TrimSpace(printed), "narrative (doc bbbbbbb) line 3: owner-gate line cites no live answer id: 2. ship sanddb on Acme on the owner's word; end that line with `(answer <id>)` via `ccn doc edit bbbbbbbb --body -`")
 }
 
 func TestStrictLintsOnlyTheNewestHandWrittenRecordNeverTheOnesItSupersedes(t *testing.T) {
 	home := newHome(t)
 	f := newFake("", true)
 	docD := strings.Repeat("d", 40)
-	f.write(docB, "## Root's next actions\n1. ship sanddb on SoFi on the owner's word", "brook: progress", docA)
+	f.write(docB, "## Root's next actions\n1. ship sanddb on Acme on the owner's word", "brook: progress", docA)
 	f.write(docD, "## Root's next actions\n1. land l11", "brook: progress", docB)
 
 	out := runGenerate(t, depsFor(f), home.options(strictMode))
