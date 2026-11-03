@@ -422,23 +422,36 @@ type LandedNotLive struct {
 	owed       map[string]int64
 }
 
-func ReleaseCLI(state string) ([]string, error) {
+type runnerLanding struct {
+	ReleaseCLI string `json:"release_cli"`
+	Ledger     string `json:"ledger"`
+}
+
+func readRunnerLanding(state string) (runnerLanding, error) {
 	data, err := os.ReadFile(filepath.Join(state, "runner.json"))
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
+		return runnerLanding{}, nil
 	}
 	if err != nil {
-		return nil, err
+		return runnerLanding{}, err
 	}
 	var runner struct {
-		Landing struct {
-			ReleaseCLI string `json:"release_cli"`
-		} `json:"landing"`
+		Landing runnerLanding `json:"landing"`
 	}
 	if err := json.Unmarshal(data, &runner); err != nil {
-		return nil, fmt.Errorf("runner.json: %w", err)
+		return runnerLanding{}, fmt.Errorf("runner.json: %w", err)
 	}
-	return strings.Fields(runner.Landing.ReleaseCLI), nil
+	return runner.Landing, nil
+}
+
+func ReleaseCLI(state string) ([]string, error) {
+	landing, err := readRunnerLanding(state)
+	return strings.Fields(landing.ReleaseCLI), err
+}
+
+func PRLedger(state string) (string, error) {
+	landing, err := readRunnerLanding(state)
+	return landing.Ledger, err
 }
 
 func (n *LandedNotLive) landings(ctx context.Context, now time.Time) (map[int]landing, error) {

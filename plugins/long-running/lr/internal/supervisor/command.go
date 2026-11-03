@@ -133,6 +133,13 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 	if err != nil {
 		return Deps{}, err
 	}
+	ledgerID, err := lanes.PRLedger(env.State)
+	if err != nil {
+		return Deps{}, err
+	}
+	if ledgerID != "" {
+		deps.Checks = append(deps.Checks, (&background{name: "pr-ledger", every: ledgerEvery, run: prLedger{env, s, ledgerID}.pass, store: s, post: post, log: a.Log}).Check)
+	}
 	deps.Snapshot = prfacts.New(a, env.Config, s).Snapshot
 	deps.Post = post
 	deps.Queue = landing.Trunk{Runner: a.Runner, Checkout: env.Config.Checkout, Branch: env.Config.Trunk, Script: env.Config.QueueScript, KeyCommand: env.Config.QueueKey}
