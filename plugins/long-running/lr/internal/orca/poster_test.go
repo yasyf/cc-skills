@@ -41,7 +41,7 @@ func (b *runnerBus) Post(_ context.Context, d client.Draft) (client.Record, erro
 	b.calls = append(b.calls, "post")
 	b.posts = append(b.posts, d)
 	seq := b.records[len(b.records)-1].Seq + 1
-	record := client.Record{Seq: seq, Num: fmt.Sprintf("#%d%s", seq, b.node), Lane: d.Lane, Kind: d.Kind, Text: d.Text}
+	record := client.Record{Seq: seq, Num: fmt.Sprintf("#%d%s", seq, b.node), Lane: d.Lane, Text: d.Text}
 	b.records = append(b.records, record)
 	key := "R" + strings.TrimPrefix(record.Num, "#")
 	_, after, launch := strings.Cut(d.Text, " launch ")
@@ -68,7 +68,7 @@ func (b *runnerBus) Tail(_ context.Context, q client.Query) ([]client.Record, er
 		if record.Seq <= q.After || (!q.Since.IsZero() && record.At.Before(q.Since)) {
 			continue
 		}
-		if (len(q.Lanes) == 0 || slices.Contains(q.Lanes, record.Lane)) && (len(q.Kinds) == 0 || slices.Contains(q.Kinds, record.Kind)) {
+		if (len(q.Lanes) == 0 || slices.Contains(q.Lanes, record.Lane)) && (len(q.Kinds) == 0 || slices.Contains(q.Kinds, string(record.Kind))) {
 			found = append(found, record)
 		}
 	}
