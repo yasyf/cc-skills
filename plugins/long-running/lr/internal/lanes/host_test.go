@@ -150,7 +150,7 @@ func TestASpriteReadsByWhatSpriteListAndItsWorkerProbeAnswer(t *testing.T) {
 		"parked": HostRunning, "ended": HostEmpty, "hung": HostUnreachable, "down": HostUnreachable, "deleted": HostUnreachable,
 	})
 
-	env.Runner = scripted(func(argv []string) (shell.Result, error) {
+	env.Runner = scripted(func([]string) (shell.Result, error) {
 		return shell.Result{}, errors.New("sprite: not logged in")
 	})
 	equal(t, len(env.hosts(context.Background(), []string{"parked"})), 0)
