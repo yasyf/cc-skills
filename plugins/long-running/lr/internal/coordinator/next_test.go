@@ -118,11 +118,16 @@ func stubWatch(t *testing.T, rs ...record) string {
 	}
 	argv := filepath.Join(dir, "argv")
 	script := "#!/bin/sh\necho \"$@\" >> " + argv + "\ncat " + records + "\nexec sleep 60\n"
-	if err := os.WriteFile(filepath.Join(dir, "cci"), []byte(script), 0o755); err != nil {
+	installCCI(t, dir, script)
+	return argv
+}
+
+func installCCI(t *testing.T, dir, script string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, "cci"), []byte(script), 0o700); err != nil { //nolint:gosec // the stub has to execute
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	return argv
 }
 
 func runNext(t *testing.T, cursor string) string {
@@ -173,10 +178,7 @@ func TestNextPrintsOneBatchKillsItsWatchAndResumesAfterIt(t *testing.T) {
 
 func TestAWatchThatFailsSurfacesInsteadOfWaiting(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "cci"), []byte("#!/bin/sh\necho no such drive >&2\nexit 3\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	installCCI(t, dir, "#!/bin/sh\necho no such drive >&2\nexit 3\n")
 	cmd := nextCommand()
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})

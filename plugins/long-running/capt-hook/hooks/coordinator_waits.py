@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from captain_hook import Allow, Annotated, Arguments, BaseHookEvent, CommandMatches, CommandSchema, Event, FromSubagent, Input, Operand, Option, Or, Runs, Tool, Warn, hook
+from captain_hook import Allow, Annotated, BaseHookEvent, Event, FromSubagent, Input, Or, Runs, Tool, Warn, hook
 
 from .compaction_handoff import Coordinator, coordinator_tests
 from .lane_rotation import DriveActive
@@ -8,11 +8,11 @@ from .tests.root_fixtures import ACTIVE
 
 NEXT = "lr coordinator next --drive d --cursor /drive/root/next.cursor"
 NEXT_TIMEOUT_MS = 590_000
-CCI = CommandSchema("cci", operands=(Operand("words", count="*"),), options=(Option("reader", ("--reader",)),))
 
 
-def tails_root(arguments: Arguments) -> bool:
-    return arguments.values.get("words", ())[:1] == ("tail",) and "root" in arguments.values.get("reader", ())
+class TailsRoot:
+    def check(self, evt: BaseHookEvent) -> bool:
+        return any(call.args[:1] == ("tail",) and ("--reader=root" in call.args or ("--reader", "root") in zip(call.args, call.args[1:])) for call in evt.command.calls("cci"))
 
 
 class WaitCutShort:
@@ -23,7 +23,7 @@ class WaitCutShort:
 hook(
     Event.PreToolUse,
     message="Warning, nothing was blocked: Every wake re-reads the coordinator's whole context, so it waits one way. Run `lr coordinator next`, which returns one batch of records.",
-    only_if=[Coordinator(), DriveActive(), Or(Tool("Monitor"), Runs("cci", "watch"), Runs("sleep"), CommandMatches(CCI, only_if=(tails_root,)))],
+    only_if=[Coordinator(), DriveActive(), Or(Tool("Monitor"), Runs("cci", "watch"), Runs("sleep"), TailsRoot())],
     skip_if=[FromSubagent(), Annotated("raw")],
     tests=coordinator_tests({
         Input(tool="Monitor", tool_input={"description": "root's records", "timeout_ms": 1800000, "command": "cci watch --drive d --reader root"}, state=ACTIVE): Warn(pattern=r"lr coordinator next"),
