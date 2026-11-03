@@ -149,7 +149,7 @@ func TestAClassOfEscalationAcrossThreeSubjectsInTwoHoursReachesRootOnce(t *testi
 func TestAClassOverdueAtOnceIsOneRecordNamingEveryIDAndAloneKeepsItsOwnRecord(t *testing.T) {
 	s, r := memory(t), &recorder{}
 	now := at(t, "2026-11-03T12:28:00Z")
-	var standing []Wait
+	standing := make([]Wait, 0, 36)
 	for i := range 35 {
 		key := "pick/" + strconv.Itoa(313000+i)
 		standing = append(standing, Wait{Kind: unfinishedKind, Repo: UnfinishedNamespace, Head: key, Mover: machine.MoverRoot, Since: now.Add(-time.Hour), To: root, Cause: "unfinished: " + key + " still standing"})
