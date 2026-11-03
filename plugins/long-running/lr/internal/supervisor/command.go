@@ -22,6 +22,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/landing"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/replay"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/watch"
 )
@@ -108,7 +109,11 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 		checks = append(checks,
 			(&watch.Stalls{Store: s, Drive: env.Config.Drive, Runner: a.Runner, Post: post, Log: a.Log}).Check,
 			(&lanes.MutePushback{Env: env, Log: a.Log}).Check,
-			(&recurrences{count: func(ctx context.Context) error { return counter.Recur(ctx, env.Config.Drive) }, store: s, post: post, log: a.Log}).Check,
+			(&background{name: "recurrence-count", every: recurEvery, run: func(ctx context.Context) error { return counter.Recur(ctx, env.Config.Drive) }, store: s, post: post, log: a.Log}).Check,
+			(&background{name: "judge-watch", every: judgeEvery, run: func(ctx context.Context) error {
+				_, err := a.Runner.Run(ctx, shell.Command{Argv: []string{filepath.Join(env.Claude, "long-running", "current", "bin", "judge_watch.py"), "--config", filepath.Join(env.State, runnerFile)}, Timeout: judgeLimit})
+				return err
+			}, store: s, post: post, log: a.Log}).Check,
 		)
 	}
 	deps := Deps{

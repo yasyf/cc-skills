@@ -143,3 +143,51 @@ def test_a_dispute_root_already_ruled_on_closes_with_that_ruling_and_asks_nobody
     assert (closed["kind"], closed["to"]) == ("answer", ["lane-a", "root"])
     assert closed["text"] == f"JUDGE dispute on #{flag_seq} closed by coordinator #290: the port keeps the source contract (ruling #262338)"
     assert "--resolves" in second.posts[-1] and flag_seq not in second.saved.flags
+
+
+def sprite_watch(tmp_path: Path) -> judge_watch.Watch:
+    return judge_watch.Watch("d", "d", tmp_path / "judge-watch.json", tmp_path, "/repo", ["sprite-1", "sprite-2"], {"ANTHROPIC_API_KEY": ["printf", "x"]})
+
+
+def test_a_judge_with_sprites_asks_through_a_sprite_job_and_logs_the_call_here(tmp_path, monkeypatch):
+    seen = {}
+    logged = []
+
+    def job(argv, **kwargs):
+        directory = Path(argv[3])
+        seen.update(argv=argv, env=kwargs["env"], job=json.loads((directory / "job.json").read_text()))
+        (directory / "result.json").write_text(json.dumps({"verdict": {"verdict": "yes", "artifact_phrase": "a", "evidence_phrase": "b", "sentence": "c"}, "summary": {"asks": 1}}))
+
+    monkeypatch.setattr(judge_watch.subprocess, "run", job)
+    monkeypatch.setattr(judge_watch.judge, "record", lambda *args: logged.append(args))
+    monkeypatch.setattr(judge_watch.judge, "judge", lambda *args, **kwargs: pytest.fail("a model call on the Mac"))
+
+    verdict = judge_watch.Pass(sprite_watch(tmp_path), dry_run=True).ask("contract", "his words", "the artifact", "cci:7")
+
+    assert verdict == judge.Verdict("yes", "a", "b", "c")
+    assert seen["argv"][0].endswith("sprite-job.sh") and seen["argv"][1] in ("sprite-1", "sprite-2") and seen["argv"][2].endswith("judge_job.py")
+    assert json.loads(seen["env"]["SPRITE_JOB_KEYS"]) == {"ANTHROPIC_API_KEY": ["printf", "x"]}
+    assert seen["job"]["drive"] == "d" and seen["job"]["checkout"] == "/repo" and seen["job"]["artifact"] == "the artifact"
+    assert logged[0][3] == "yes" and logged[0][5] == "cci:7"
+    assert list((tmp_path / "judge" / "jobs").iterdir()) == []
+
+
+def test_a_sprite_job_that_wrote_no_result_fails_open_and_logs_the_error(tmp_path, monkeypatch):
+    logged = []
+    monkeypatch.setattr(judge_watch.subprocess, "run", lambda argv, **kwargs: None)
+    monkeypatch.setattr(judge_watch.judge, "record", lambda *args: logged.append(args))
+
+    assert judge_watch.Pass(sprite_watch(tmp_path), dry_run=True).ask("contract", "his words", "the artifact", "cci:7") is None
+    assert logged[0][3] == "error" and "FileNotFoundError" in logged[0][4]["error"]
+
+
+def test_the_job_on_the_sprite_writes_the_verdict_and_summary(tmp_path, monkeypatch):
+    import judge_job
+
+    (tmp_path / "job.json").write_text(json.dumps({"kind": "contract", "evidence": "e", "artifact": "a", "backend": "sonnet"}))
+    monkeypatch.setattr(judge_job.judge, "ask", lambda *args, **kwargs: judge.Call(verdict=judge.Verdict("no", "", "", "fine")))
+
+    assert judge_job.main(tmp_path) == 0
+    written = json.loads((tmp_path / "result.json").read_text())
+    assert written["verdict"]["verdict"] == "no" and written["summary"]["asks"] == 0
+
