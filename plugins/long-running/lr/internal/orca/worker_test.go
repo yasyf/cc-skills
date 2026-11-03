@@ -745,7 +745,7 @@ func TestAPackWithoutALinuxLRPinRefusesBeforeAnyCall(t *testing.T) {
 func TestTheToolInstallPutsThePinnedLROnPathWithTheProxyURLAndRefusesAnotherDigest(t *testing.T) {
 	dir := t.TempDir()
 	archive := func(name, text string) (string, string) {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(text), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(text), 0o700); err != nil {
 			t.Fatal(err)
 		}
 		tgz := filepath.Join(dir, name+".tgz")
