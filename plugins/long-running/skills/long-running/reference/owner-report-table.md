@@ -13,14 +13,16 @@ Every update the owner gets, whether a status answer, a milestone report or the 
 ## Sections, in order
 
 1. **Since you last looked.** Each row that is new, or whose owner, blocker or doneness moved, since the last update he was sent.
-2. **Your words since the last update.** Each message the bridge queued, quoted, with the record that carries it: an answer, a resolution, or a later record naming its seq.
-3. **Unowned work.** Every open row with nobody on it, as a table. Each also sits in its own section.
-4. **Standing duties.** One row per duty at the newest lane of its successor chain.
-5. **The plan.** One table per plan step, its step row first and then its lanes. A plan with no numbered steps whose title lists pieces, such as the five services, gets one table per piece, so no piece can drop out.
-6. **Workstreams and lanes.** One table per other step a brief names, then the lanes on no step.
-7. **Owner asks, Incidents today, Releases today, Open PRs.** One row each; landed-but-not-live asks come first.
-8. Registry lanes quiet over a day, what waits on the coordinator, board picks, and what lanes delivered in the last two hours.
-9. **Gaps in this update.** Present only when a message of his has no record carrying it.
+2. **Decisions made for you (FYI).** The bridge's own FYIs since the last update, grouped. Each is a plain-words synthesis of something the coordinator decided or solved, or of what is going right or wrong. Each is a `note` record from `owner-relay` on topic `fyi`, and the group is the words before its first colon. The render never turns coordinator records into FYIs.
+3. **Your words since the last update.** Each message the bridge queued, quoted, with the record that carries it: an answer, a resolution, or a later record naming its seq.
+4. **Unowned work.** Every open row with nobody on it, as a table. Each also sits in its own section.
+5. **Pinned for you.** One row per entry of the drive entry's `pinned_rows`, each a `name`, a `delivers` line and the `words` that pick its lanes by name, step or deliverable. It is on every update, with **nobody** when no lane holds it. For durable-agents-rebuild that is devbox speed and bug hunting, and the next build.
+6. **Standing duties.** One row per duty at the newest lane of its successor chain.
+7. **The plan.** One table per plan step, its step row first and then its lanes. A plan with no numbered steps whose title lists pieces, such as the five services, gets one table per piece, so no piece can drop out.
+8. **Workstreams and lanes.** One table per other step a brief names, then the lanes on no step.
+9. **Owner asks, Incidents today, Releases today, Open PRs.** One row each; landed-but-not-live asks come first.
+10. Registry lanes quiet over a day, what waits on the coordinator, board picks, and what lanes delivered in the last two hours.
+11. **Gaps in this update.** Present only when a message of his has no record carrying it.
 
 ## The row
 
@@ -38,4 +40,4 @@ The render exits 1 and prints to stderr each section, working lane, open ask and
 
 ## The dashboard reads the same rows
 
-`--render --publish` writes `<state dir>/progress-desk/steps.json` from the plan-step and piece rows of the same render. Each step carries `title`, `section`, `state`, `tone`, `delivers`, `who`, `blocker`, `next`, `unblocking`, `went_wrong`, `prs` and `lanes`, and `now.release` and `now.releases[]` come from today's releases. `--render --sent` does the same for an update the owner is sent, and also saves the snapshot the next update's "Since you last looked" diffs against. The dashboard's Overview, its step sheets, and `drive.py overview` read that file, so the dashboard and the written update never disagree. Between updates, the dashboard follows PR and worker state live from the bus and the board ([drive-dashboard.md](drive-dashboard.md)).
+`--render --publish` writes `<state dir>/progress-desk/steps.json` from the pinned, plan-step and piece rows of the same render, and its `fyi` list holds the bridge's FYIs of the last day, newest first, for the dashboard's main view. Each step carries `title`, `section`, `state`, `tone`, `delivers`, `who`, `blocker`, `next`, `unblocking`, `went_wrong`, `prs` and `lanes`, and `now.release` and `now.releases[]` come from today's releases. `--render --sent` does the same for an update the owner is sent, and also saves the snapshot the next update's "Since you last looked" diffs against. The dashboard's Overview, its step sheets, and `drive.py overview` read that file, so the dashboard and the written update never disagree. Between updates, the dashboard follows PR and worker state live from the bus and the board ([drive-dashboard.md](drive-dashboard.md)).
