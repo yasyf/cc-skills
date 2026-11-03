@@ -24,7 +24,7 @@ Standing orders, fixed in this template:
   - Any repair pass or backfill runs on in-region EC2, never on
     this Mac.
   - A tooling failure goes to the meta lane the same turn, as one `defect` record to
-    root opening `for meta:` with any refusal verbatim, plus the hand path; it never
+    the coordinator opening `for meta:` with any refusal verbatim, plus the hand path; it never
     stops the fix.
   - No credential is read from any store, file, SSM parameter or environment
     unless the owner's words in this brief name that credential. A mute, an ack
@@ -63,7 +63,7 @@ Do:
      customer impact" goes on the SCOPE line as who is hit so far, never as a
      no. An on-call bot's false alarm, a mute, or a monitor change that stops
      counting the failing teams is neither the mechanism nor the fix: post it
-     to root as `PUSHBACK {lane}: <who proposed what, and the unfixed mechanism>`
+     to the coordinator as `PUSHBACK {lane}: <who proposed what, and the unfixed mechanism>`
      and keep fixing. A page your mechanism proves false is step 0b, never this.
      A no to either ends incident mode: no release, no break-glass
      apply, no new lane. Post `STOPPED {lane}: out of scope, <the answer that
@@ -81,7 +81,7 @@ Do:
      names completing runs and the defect in the signal itself, mute it at
      once, as the window until your fix is live, never as the close:
      - Post `MUTE {lane}: monitors <ids> until fix-live: <the proof, one line>`,
-       kind `incident`, to root. The runner never pushes back on this line
+       kind `incident`, to the coordinator. The runner never pushes back on this line
        unless it names a release smoke team, a release check, or dev red,
        which are never false.
      - Ask ai-oncall for the mute with its own verb, never a prose Slack post:
@@ -90,7 +90,7 @@ Do:
        under a persistent Monitor, then
        `ci oncall say <page id> --state <your worktree>/oncall.json --kind request --text "MUTE <ids> until <RFC3339: your fix-live estimate plus an hour, at most 24 hours>: <the proof>. The fix is {lane}'s <PR>; page nobody on these monitors."`
        Wadsworth mutes them, posts the mute in the page thread, and answers
-       on your stream; quote its answer to root as `MUTED {lane}: <answer>`.
+       on your stream; quote its answer to the coordinator as `MUTED {lane}: <answer>`.
      - Your incident stays open and its clock runs: the fix still ships, and
        `FIX-LIVE` ends it. The mute lapses at its time and the monitor pages
        again if it still alerts.

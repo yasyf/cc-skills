@@ -1,10 +1,10 @@
 # The fidelity desks
 
-This brief covers [Root discipline](#root-discipline), [What a desk reads](#what-a-desk-reads), [How a desk grades](#how-a-desk-grades), [Head mode](#head-mode), [The pipeline](#the-pipeline), [Text mode](#text-mode), [Sweep mode](#sweep-mode), [Grade lines](#grade-lines), [Fixtures](#fixtures), and [Spawn brief](#spawn-brief).
+This brief covers [Coordinator discipline](#coordinator-discipline), [What a desk reads](#what-a-desk-reads), [How a desk grades](#how-a-desk-grades), [Head mode](#head-mode), [The pipeline](#the-pipeline), [Text mode](#text-mode), [Sweep mode](#sweep-mode), [Grade lines](#grade-lines), [Fixtures](#fixtures), and [Spawn brief](#spawn-brief).
 
 The coordinator starts `fidelity-desk` remote with `lr desks start`, model opus, effort xhigh, right after the register seed, and a second as `lr launch lane fidelity-desk-2 opus xhigh <brief>`. Each desk reads every drive head, board round, plan revision, owner reply, and lane read-back against the owner's words, then posts a grade that the landing runner and hooks read. One of them, the sweep desk, also re-reads the whole plan every hour. A `missing` from either desk, or from the sol finder ([finder-brief.md](finder-brief.md)), blocks landing. Fill the angle brackets and paste the spawn brief at the end.
 
-## Root discipline
+## Coordinator discipline
 
 The coordinator lists both desks in `runner.json` under `landing.fidelity_lane` (which takes a list) at launch. Once the runner relays `SWEEP-DUE`, the coordinator names the sweep desk in `landing.sweep_lane`; until then, the sweep desk runs the hourly pass on its own 60-minute clock.
 
@@ -55,9 +55,9 @@ Then grade every required row and write the grade with `rulings.py grade --pr <o
 
 Finally, post each line of the file. An ok is `fidelity: ok <head7> checked <key>,<key>... names <name>|<name>...`, and a failure is one `fidelity: missing <head7> <key> <one line>` per failing row and ungrounded mechanism. The runner counts an ok as posted regardless of rows the register gains after it. Post one `touches <key>` per reserved row the head touches, whatever the grade.
 
-**Grounds must be plan text or owner words.** A plan line prints beside its mechanism so the grade shows what the plan says. An owner row is a `rule/` or `prompt/` row with the owner's words, an `exception/` row his answers approve, or a board pick. A cci seq, a coordinator note, a `design/` row, and a pending row are root rulings.
+**Grounds must be plan text or owner words.** A plan line prints beside its mechanism so the grade shows what the plan says. An owner row is a `rule/` or `prompt/` row with the owner's words, an `exception/` row his answers approve, or a board pick. A cci seq, a coordinator note, a `design/` row, and a pending row are coordinator rulings.
 
-`rulings.py grade` rejects them with "root rulings are not grounds; put it on the owner's board," and the desk posts the mechanism to the coordinator as a `finding` for a board card. Post only the lines `rulings.py grade` writes. When a `fidelity: missing` line has a bare word (such as `owner-words`), a cci seq, or a `design/` row as its key, the runner sends it to the coordinator and the graders, never to the lane. The lane changes no code until the mechanism rests on plan text or the owner's words.
+`rulings.py grade` rejects them with "coordinator rulings are not grounds; put it on the owner's board," and the desk posts the mechanism to the coordinator as a `finding` for a board card. Post only the lines `rulings.py grade` writes. When a `fidelity: missing` line has a bare word (such as `owner-words`), a cci seq, or a `design/` row as its key, the runner sends it to the coordinator and the graders, never to the lane. The lane changes no code until the mechanism rests on plan text or the owner's words.
 
 **Restacks.** A restack whose patch is identical to a head already graded ok gets the same line the minute it is asked, without re-reading the diff, per the restack grade carry in [landing.md](landing.md#fidelity-finder-and-rulings-checks). Rows the register gained since the earlier grade never hold it; the lane reads them back in its next PR.
 
@@ -114,7 +114,7 @@ A line over 400 characters keeps its first 400 in the record, and cci writes the
 
 ```text
 ccx: role=desk
-You are <desk>, one of two fidelity desks in drive <drive> (root <root session>);
+You are <desk>, one of two fidelity desks in drive <drive> (coordinator <coordinator session>);
 the other is <other desk>. <You run the hourly sweep. | <other desk> runs the hourly sweep.>
 Model opus, effort xhigh. You write no code, run no builds or tests, post nothing
 to Slack, never call AskUserQuestion, and never answer an owner question.

@@ -26,7 +26,7 @@ Do, in order:
    `{hand}`. Fill `--env` from the release skill's target table when it reads
    `<env>`. Never run `{release} claim`: the owner allows no claim he did not ask
    for. A start that refuses over another release's claim goes to
-   root as a `blocker` naming that claim's owner.
+   the coordinator as a `blocker` naming that claim's owner.
 4. Watch to the publish. `{release} live <id> --json` names the live version;
    post `--kind fix-live --target {component} --build <url>` with
    `RELEASED {component} <version> (<build>)` as its text.
@@ -37,7 +37,7 @@ ask. An owner's order to release is the approval of every gate: a start with
 in the `fix-live` text, and you never ask again. Only a delete or replace outside that
 plan stops, and it reaches the coordinator as a `blocker` (`--to root`). Without his
 order a delete or replace goes to the coordinator the same way. Never cancel it mid-apply. Never ask the owner
-anything; a refusal you cannot get past goes to root as a `blocker` with the
+anything; a refusal you cannot get past goes to the coordinator as a `blocker` with the
 command and its output.
 
 Scale: no N; this lane cuts a release and writes no code.

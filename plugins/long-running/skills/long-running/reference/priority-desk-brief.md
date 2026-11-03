@@ -1,8 +1,8 @@
 # The priority-desk lane
 
-This reference covers [root discipline](#root-discipline), [desk rules](#desk-rules), and the [spawn brief](#spawn-brief).
+This reference covers [coordinator discipline](#coordinator-discipline), [desk rules](#desk-rules), and the [spawn brief](#spawn-brief).
 
-## Root discipline
+## Coordinator discipline
 
 **P1. Give each owner-named #1 outcome its own desk.** While the outcome is open, the coordinator spawns `<outcome>-desk` as `long-running:lane`, model opus, with its own append-only inbox file. It owns only that outcome's lanes. The desk's inbox is the set of cci records addressed to `<outcome>-desk`. Every other desk forwards traffic from those lanes with `cci post --to <outcome>-desk` and stops handling them.
 

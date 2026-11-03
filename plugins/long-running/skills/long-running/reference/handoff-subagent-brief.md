@@ -6,7 +6,7 @@
 
 **Stop the old lane before spawning `<lane>-handoff`.** Call `TaskStop` with the lane's name as `task_id`, or for an Orca lane send the desk's `orca-desk: withdraw <lane>` line. Never `SendMessage` the old lane afterwards, including a stand-down, because any message resumes a stopped lane on its stale brief, and the hook pack forwards messages to the successor once it exists (`reference/watchers.md`).
 
-**Pass verified facts and read nothing of the old lane yourself.** Pass the drive checkout and the previous handoff's doc id (or `none`) in the spawn brief. Never read the old lane's transcript, receipts, cci deliveries, or runtime listings in the root session. The subagent's reply is at most two lines:
+**Pass verified facts and read nothing of the old lane yourself.** Pass the drive checkout and the previous handoff's doc id (or `none`) in the spawn brief. Never read the old lane's transcript, receipts, cci deliveries, or runtime listings in the coordinator session. The subagent's reply is at most two lines:
 `handoff <lane>: doc <id>; successor <lane>-<N+1>` and
 `unverified: <n> items (in the doc)`.
 The doc carries everything else. Then do only the swap.
@@ -46,7 +46,7 @@ Model sonnet, effort xhigh. Write only the cc-notes doc and its edit buffer.
 
 Verified facts, do not re-derive:
   lane <lane>, team <team>, model <model>, running since <UTC>
-  transcript <~/.claude/projects/<project>/<root session>/subagents/agent-<lane>-*.jsonl>
+  transcript <~/.claude/projects/<project>/<coordinator session>/subagents/agent-<lane>-*.jsonl>
   reference brief <path, or "first user message of the transcript">
   cci drive <drive>; cci cursor <lane>; last reported cursor #<seq>
   standing rules <scope:durable answer ids from the brief and previous handoff>

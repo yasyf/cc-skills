@@ -4,7 +4,7 @@ The communicator owns every owner update and the drive dashboard. It runs one st
 
 ## Reads
 
-The communicator is a root session, and its context is spent on the owner. Each fact it needs is one bounded read, such as `cci show <seq>` or one named file; anything more goes to a subagent, `Agent` with `Explore` and `model: sonnet`, which returns only the answer. The shared read hooks, `root_context` and `root_reads`, act in this window as in the coordinator's and warn on an unbounded search, a multi-file read or a `curl` investigation. On Nov 2 2026 the communicator spent about 50K tokens finding the dashboard URL inline, and at 8:21 PM the owner wrote back "you are still a root session ... delegating to subagents ... fix your prompting and tooling."
+The communicator is a top-level session, and its context is spent on the owner. Each fact it needs is one bounded read, such as `cci show <seq>` or one named file; anything more goes to a subagent, `Agent` with `Explore` and `model: sonnet`, which returns only the answer. The shared read hooks, `root_context` and `root_reads`, act in this window as in the coordinator's and warn on an unbounded search, a multi-file read or a `curl` investigation. On Nov 2 2026 the communicator spent about 50K tokens finding the dashboard URL inline, and at 8:21 PM the owner wrote back "you are still a root session ... delegating to subagents ... fix your prompting and tooling."
 
 ## The communicator, for each update
 

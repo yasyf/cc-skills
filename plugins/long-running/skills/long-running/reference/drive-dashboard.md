@@ -15,7 +15,7 @@ Contents:
 
 From the drive's first plan, the coordinator runs the app in `dashboard/app/` with `python3 dashboard/app/server.py --config <state dir>/dashboard.json`. The config names the drive, ledger, board session and URL, repo, progress-doc label, release doc, story file, host, port, and keeper lane `update-desk`, the communicator's helper briefed from [communicator-brief.md](communicator-brief.md).
 
-`python3 dashboard/app/keep.py --config <state dir>/dashboard.json` starts the app detached when it is not answering, logs to `server.log` beside the config, and tells root. The coordinator hands the owner its tailnet URL once, and never hands him a cc-present board in its place. A build failure posts one `defect` record to root.
+`python3 dashboard/app/keep.py --config <state dir>/dashboard.json` starts the app detached when it is not answering, logs to `server.log` beside the config, and tells the coordinator. The coordinator hands the owner its tailnet URL once, and never hands him a cc-present board in its place. A build failure posts one `defect` record to the coordinator.
 
 The app serves Overview, Needs you, Review, Releases, Workers, Timeline, and Ask from the cci daemon's record stream, `cc-present watch` on the board, the ledger, the drive's cc-notes answers, and the newest progress doc carrying `## Ordered plan of action`.
 
@@ -64,7 +64,7 @@ The server gives every PR exactly one state, first match wins; the client never 
 | `doing` | a worker wrote about it in the last 20 minutes, or checks are running |
 | `waiting` | open, unapproved, nothing running |
 
-A PR is `you` when the board holds no approval at its current or carried head and no root `go` names that head; either one makes it `queued`. Verdicts are read live from the cc-present store on every rebuild, and Approve or Note on the dashboard writes the board's own `triage.decided` event, so no board page opens.
+A PR is `you` when the board holds no approval at its current or carried head and no coordinator `go` names that head; either one makes it `queued`. Verdicts are read live from the cc-present store on every rebuild, and Approve or Note on the dashboard writes the board's own `triage.decided` event, so no board page opens.
 
 A step's tone takes the first match over its PRs, reading done when all landed, then any `you`, any `failing`, any `held`, moving for any `doing` or a live worker, queued when every PR is landed or queued, and otherwise waiting.
 

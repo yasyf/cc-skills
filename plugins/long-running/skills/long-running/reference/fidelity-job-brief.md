@@ -14,7 +14,7 @@ the lines.
 Read the head pinned by sha, never the PR's moving tip:
 `git fetch --no-write-fetch-head -q origin {fetch}`. {scope}
 When this pass reads only what changed since an earlier head, every fidelity lane stands at ok
-there, or at a `missing` root settled, so the code the range-diff leaves unchanged holds: grade the changed hunks against every
+there, or at a `missing` the coordinator settled, so the code the range-diff leaves unchanged holds: grade the changed hunks against every
 row, still list every row key in `checked`, and use `reader` only for what those hunks cannot settle.
 Read the code around every changed symbol at that sha, its callers and callees included,
 and their base versions when the head deletes or moves behavior. These are the hunks the
@@ -123,7 +123,7 @@ words or taps in the rows file that postdate a doc and say otherwise rule over t
 mechanism a doc line names is not grounded when a later tap passed over it or later words
 remove it, so read the rows on a mechanism's subject before you ground it in a doc line.
 
-Plan grounds root accepted outside the package, such as a class-fix inventory or a lane's
+Plan grounds the coordinator accepted outside the package, such as a class-fix inventory or a lane's
 accepted design contract: {sources}. Read that file before you grade. A mechanism one of them
 puts where the head puts it is planned, the same as one a package doc names, and a `missing`
 that contradicts one keys `plan:sources.md:<line>`.
@@ -139,7 +139,7 @@ PR comments its author posted, oldest first: Rulings, Body addenda and evidence 
 trace, which correct and extend the body as part of it:
 {rulings}
 
-Missing points root settled on this PR. Do not raise one again, in these words or others, unless
+Missing points the coordinator settled on this PR. Do not raise one again, in these words or others, unless
 this head changes the code it cites:
 {settled}
 
