@@ -400,6 +400,29 @@ func TestDuplicateForwardsNeedTheSameWordsFromTwoLanes(t *testing.T) {
 	equal(t, signal(report, signalDuplicate), []string{"meta-desk-2 1, owner-relay 1 2", "first 1, second 1 2"})
 }
 
+func TestALaneWarningAboutARaceOrAClobberAsksForAFix(t *testing.T) {
+	w := newWorld(t)
+	w.cfg.Lane = "meta-desk"
+	relay := rec(inside, "owner-relay", "a lane warning about clobbering opens a fix")
+	relay.Kind = "ask"
+	own := rec(inside, "supervisor", "race-warning 1 warnings lane-1")
+	own.Kind = "lr.note"
+	w.bus.records = []client.Record{
+		{Seq: 7, Lane: "lane-1", At: inside, Kind: "report", Text: "4:00 AM lane-1: two writers would clobber the board"},
+		{Seq: 9, Lane: "lane-1", At: inside, Kind: "report", Text: "4:10 AM lane-1: two writers would clobber the row"},
+		{Seq: 8, Lane: "lane-2", At: inside, Kind: "blocker", Text: "the poster is racing the desk"},
+		rec(inside, "lane-3", "go test -race passed and the trace is clean, no brace missing"),
+		rec(inside, "meta-desk", "I saw the clobber"),
+		relay,
+		own,
+	}
+
+	report := w.read(t, Window)
+
+	equal(t, signal(report, signalRace), []string{"lane-1 2", "lane-2 1"})
+	equal(t, report.Findings[0].Detail, `open a fix, not a report: #9 "two writers would clobber the row"`)
+}
+
 func TestSignalsRankTogetherByHowFarPastTheirFloor(t *testing.T) {
 	w := newWorld(t)
 	w.cfg.Floors.Dead = 10
@@ -422,7 +445,7 @@ func crowded(t *testing.T, lanes int) *world {
 	t.Helper()
 	w := newWorld(t)
 	w.cfg.Transcripts = 50
-	w.cfg.Floors = Floors{Dead: 1, FanOut: 1, Injected: 1, Skips: 1, Chores: 1, Reads: 1, Cost: 1, Duplicates: 2}
+	w.cfg.Floors = Floors{Dead: 1, FanOut: 1, Injected: 1, Skips: 1, Chores: 1, Reads: 1, Cost: 1, Duplicates: 2, Races: 1}
 	everyone := make([]string, lanes)
 	for i := range lanes {
 		lane := fmt.Sprintf("a-lane-with-a-fairly-long-name-%d", i)

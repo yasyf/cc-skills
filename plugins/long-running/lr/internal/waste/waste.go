@@ -28,6 +28,7 @@ const (
 	signalRepeatRead = "repeat-read"
 	signalCost       = "cost"
 	signalDuplicate  = "duplicate-ask"
+	signalRace       = "race-warning"
 )
 
 type Bus interface {
@@ -106,7 +107,7 @@ func Read(ctx context.Context, src Sources, cfg Config, drive string, now time.T
 	if err != nil {
 		return Report{}, err
 	}
-	findings := slices.Concat(dead, fanOut(cfg, records, window), duplicateAsks(cfg, records), used.findings(cfg, records, window), skips)
+	findings := slices.Concat(dead, fanOut(cfg, records, window), duplicateAsks(cfg, records), raceWarnings(cfg, records), used.findings(cfg, records, window), skips)
 	slices.SortFunc(findings, func(a, b Finding) int {
 		return cmp.Or(cmp.Compare(b.weight(), a.weight()), cmp.Compare(a.Key, b.Key))
 	})

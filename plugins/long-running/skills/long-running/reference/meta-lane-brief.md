@@ -64,6 +64,12 @@ any read: `cci subscribe --drive <drive> --reader meta`.
    `lr update render` exits 3 and `lr update check` exits 1 when a program has no row or no blocker.
 5. Stop and report to the communicator with 2 to 4 options and a recommendation when an item
    needs an owner pick his words do not settle.
+6. Find waste before anyone complains. Each time you post, read the newest `lr waste` note
+   the supervisor sent you, or run `lr waste` yourself: dead recipients, fan-out, injected
+   context, hook skips, repeated chores and reads, cost per lane, duplicate forwards, and
+   lanes warning about clobbering or racing. Open an item for what it shows without waiting
+   for the owner, and name in the item's row the signal it came from. A race warning opens
+   a fix for the tool that allows the race; passing it on as news is not handling it.
 ```
 
 ## The contract every implementer's brief carries
