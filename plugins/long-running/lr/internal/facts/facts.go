@@ -6,12 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
@@ -48,20 +50,22 @@ type Source struct {
 	CCX     ccx.Client
 	Bus     bus.Bus
 	Store   *store.Store
+	Log     *slog.Logger
 	Now     func() time.Time
 }
 
-func New(cfg config.Config, runner shell.Runner, s *store.Store, now func() time.Time) Source {
+func New(a *app.App, cfg config.Config, s *store.Store) Source {
 	return Source{
 		Repo:    cfg.Repo,
 		Drive:   cfg.Drive,
 		Author:  cfg.Author,
 		Label:   cfg.Label,
 		GoLanes: cfg.GoLaneNames(),
-		CCX:     ccx.CLI{Runner: fromCheckout{runner, cfg.Checkout, cfg.Repo}},
+		CCX:     ccx.CLI{Runner: fromCheckout{a.Runner, cfg.Checkout, cfg.Repo}},
 		Bus:     bus.Bus{Drive: cfg.Drive},
 		Store:   s,
-		Now:     now,
+		Log:     a.Log,
+		Now:     a.Now,
 	}
 }
 
@@ -214,7 +218,7 @@ func (s Source) readOpen(ctx context.Context) (openRead, error) {
 	if !found {
 		return openRead{}, fmt.Errorf("repo %q is not owner/name", s.Repo)
 	}
-	out, err := s.CCX.GH(ctx, ccx.MaxAgeFresh, "api", "graphql", "--paginate", "-F", "owner="+owner, "-F", "name="+name, "-f", "query="+openQuery)
+	out, err := s.CCX.GH(ctx, ccx.MaxAgeFresh, "api", "graphql", "--paginate", "-f", "owner="+owner, "-f", "name="+name, "-f", "query="+openQuery)
 	if err != nil {
 		return openRead{}, err
 	}
@@ -327,6 +331,10 @@ func (s Source) assemble(rows []ccx.PRStatus, carries map[int][]int, held map[in
 	}
 	out := make([]machine.Facts, 0, len(rows))
 	for _, row := range rows {
+		if row.State == "" {
+			s.Log.Warn("pull request unread this pass", "pr", row.Number, "verdict", row.Verdict)
+			continue
+		}
 		stored, err := s.Store.Facts(s.Repo, row.Number, row.Head)
 		if err != nil {
 			return nil, err
@@ -423,7 +431,7 @@ func mergeableOf(verdict string) machine.Mergeable {
 	switch {
 	case slices.Contains(causes, "conflict"):
 		return machine.MergeableConflict
-	case slices.Contains(causes, "mergeable-unknown"):
+	case slices.Contains(causes, "mergeable-unknown"), slices.Contains(causes, "queue-unknown"):
 		return machine.MergeableUnknown
 	case slices.ContainsFunc(causes, func(cause string) bool { return strings.HasPrefix(cause, "needs-restack") }):
 		return machine.MergeableBehind

@@ -25,7 +25,7 @@ func Command(a *app.App) *cobra.Command {
 				return err
 			}
 			defer func() { _ = s.Close() }()
-			rows, err := New(cfg, a.Runner, s, a.Now).Snapshot(cmd.Context())
+			rows, err := New(a, cfg, s).Snapshot(cmd.Context())
 			if err != nil {
 				return err
 			}

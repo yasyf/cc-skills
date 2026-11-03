@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"slices"
 	"strconv"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
@@ -93,7 +95,9 @@ func newHarness(t *testing.T, prs []recordedPR, rows ...ccx.PRStatus) harness {
 	runner.Reply(graphQLPages(prs), "ccx", "vcs", "gh")
 	runner.Reply(string(statuses), "ccx", "vcs", "pr", "status")
 	cfg := config.Config{Repo: repo, Drive: "d", Checkout: "/checkouts/repo", Author: "drive-bot", Label: "drive"}
-	return harness{facts.New(cfg, runner, s, time.Now), s, runner}
+	a := app.New(io.Discard)
+	a.Runner = runner
+	return harness{facts.New(a, cfg, s), s, runner}
 }
 
 func (h harness) snapshot(t *testing.T) map[int]machine.Facts {
@@ -181,7 +185,7 @@ func TestEveryReadRunsFromTheCheckoutNamingItsRepositoryAndCaller(t *testing.T) 
 		}
 	}
 	graphql := calls[0].Argv
-	if !slices.Equal(graphql[:10], []string{"ccx", "vcs", "gh", "--max-age", "0s", "--", "api", "graphql", "--paginate", "-F"}) || !slices.Contains(graphql, "owner=org") || !slices.Contains(graphql, "name=repo") {
+	if !slices.Equal(graphql[:10], []string{"ccx", "vcs", "gh", "--max-age", "0s", "--", "api", "graphql", "--paginate", "-f"}) || !slices.Contains(graphql, "owner=org") || !slices.Contains(graphql, "name=repo") {
 		t.Errorf("GraphQL read = %v", graphql)
 	}
 }
@@ -251,6 +255,28 @@ func TestQueueCIAndMergeabilityComeFromTheOneStatusRead(t *testing.T) {
 	}
 	if by[9].Queue != machine.QueueNone {
 		t.Errorf("a cancelled Trunk entry = %+v, want not queued", by[9])
+	}
+}
+
+func TestAQueueStateCcxCouldNotReadIsNeverLandable(t *testing.T) {
+	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}},
+		status(1, func(r *ccx.PRStatus) { r.Queue, r.Verdict = "unknown", "blocked:queue-unknown" }))
+
+	row := h.snapshot(t)[1]
+
+	if row.Mergeable != machine.MergeableUnknown || row.Landable() {
+		t.Fatalf("row = %+v", row)
+	}
+}
+
+func TestARowCcxCouldNotReadIsSkippedThisPassAndNeverReadsAsClosed(t *testing.T) {
+	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}, {number: 2, head: head2, login: "drive-bot"}},
+		status(1), ccx.PRStatus{Number: 2, Queue: "unknown", Verdict: "unread"})
+
+	by := h.snapshot(t)
+
+	if _, read := by[2]; read || len(by) != 1 {
+		t.Fatalf("rows = %+v, want #1 alone", by)
 	}
 }
 
@@ -443,7 +469,9 @@ func TestAFailedGitHubReadSkipsThePassAndLeavesNoRows(t *testing.T) {
 	t.Cleanup(func() { _ = s.Close() })
 	runner := &shelltest.Fake{}
 	runner.Fail(1, "ccx: GitHub rate limit floor: graphql", "ccx", "vcs", "gh")
-	source := facts.New(config.Config{Repo: repo, Drive: "d", Checkout: "/checkouts/repo", Author: "drive-bot", Label: "drive"}, runner, s, time.Now)
+	a := app.New(io.Discard)
+	a.Runner = runner
+	source := facts.New(a, config.Config{Repo: repo, Drive: "d", Checkout: "/checkouts/repo", Author: "drive-bot", Label: "drive"}, s)
 
 	rows, err := source.Snapshot(context.Background())
 
