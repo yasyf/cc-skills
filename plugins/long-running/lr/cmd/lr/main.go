@@ -24,6 +24,10 @@ func root(a *app.App) *cobra.Command {
 		Version:       appVersion,
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		Args:          cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return cmd.Help()
+		},
 	}
 	cmd.PersistentFlags().StringVar(&a.ConfigPath, "config", os.Getenv("LR_CONFIG"), "the drive's lr.json")
 	for _, verb := range verbs {
