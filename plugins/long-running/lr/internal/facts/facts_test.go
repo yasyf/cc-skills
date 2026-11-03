@@ -738,7 +738,7 @@ func TestRetroRow98ThreeNewHeadsWithNoVerdictAtTheirVersionWaitOnHimWhileTheSame
 	prs := []int{1, 2, 3, 4}
 	tapped := func(number int) string { return strings.Repeat(strconv.Itoa(number), 40) }
 	moved := func(number int) string { return strings.Repeat("a"+strconv.Itoa(number), 20) }
-	var before, after []recordedPR
+	before, after := make([]recordedPR, 0, len(prs)), make([]recordedPR, 0, len(prs))
 	for _, number := range prs {
 		putFact(t, s, number, tapped(number), "tap", "tapped", tappedAt)
 		before = append(before, recordedPR{number: number, head: tapped(number), login: "drive-bot", diff: ownDiff})
