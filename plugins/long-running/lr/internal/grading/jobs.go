@@ -174,18 +174,19 @@ func (p *JobPool) fidelityJob(ctx context.Context, d desk, facts machine.Facts, 
 		return job{}, err
 	}
 	spec := grader.FidelityJob{
-		Job:          p.baseJob(d, facts, sprite, settled),
-		Readers:      slices.DeleteFunc(slices.Clone(lanes), func(lane string) bool { return lane == grader.FidelityLane }),
-		Lanes:        lanes,
-		Grades:       gradeRecords(grades),
-		OldApps:      oldApps(found, lanes, facts.Repo, pr),
-		Corrected:    corrected(rulings),
-		Rulings:      jobRulings(rulings),
-		Contract:     contract,
-		Exempt:       p.classes(),
-		ExemptGrades: p.exemptGrades(),
-		Baseline:     d.spec.Baseline,
-		Claims:       claimedClasses(gos, facts),
+		Job:            p.baseJob(d, facts, sprite, settled),
+		Readers:        slices.DeleteFunc(slices.Clone(lanes), func(lane string) bool { return lane == grader.FidelityLane }),
+		Lanes:          lanes,
+		Grades:         gradeRecords(grades),
+		OldApps:        oldApps(found, lanes, facts.Repo, pr),
+		Corrected:      corrected(rulings),
+		Rulings:        jobRulings(rulings),
+		Contract:       contract,
+		Exempt:         p.classes(),
+		ExemptGrades:   p.exemptGrades(),
+		Baseline:       d.spec.Baseline,
+		Claims:         claimedClasses(gos, facts),
+		ServiceTouches: d.spec.ServiceTouches,
 	}
 	if !facts.Tapped() {
 		spec.Since = facts.TapFrom

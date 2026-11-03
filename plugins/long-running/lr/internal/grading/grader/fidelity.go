@@ -70,19 +70,20 @@ type Ruling struct {
 
 type FidelityJob struct {
 	Job
-	Readers      []string          `json:"readers"`
-	Lanes        []string          `json:"lanes"`
-	Grades       []Record          `json:"grades"`
-	OldApps      []OldApp          `json:"old_apps"`
-	Corrected    []int64           `json:"corrected"`
-	Rulings      []Ruling          `json:"rulings"`
-	Contract     string            `json:"contract"`
-	Sources      string            `json:"sources"`
-	Exempt       map[string]string `json:"exempt"`
-	ExemptGrades []string          `json:"exempt_grades"`
-	Baseline     string            `json:"baseline"`
-	Since        string            `json:"since,omitempty"`
-	Claims       []string          `json:"claims,omitempty"`
+	Readers        []string          `json:"readers"`
+	Lanes          []string          `json:"lanes"`
+	Grades         []Record          `json:"grades"`
+	OldApps        []OldApp          `json:"old_apps"`
+	Corrected      []int64           `json:"corrected"`
+	Rulings        []Ruling          `json:"rulings"`
+	Contract       string            `json:"contract"`
+	Sources        string            `json:"sources"`
+	Exempt         map[string]string `json:"exempt"`
+	ExemptGrades   []string          `json:"exempt_grades"`
+	Baseline       string            `json:"baseline"`
+	Since          string            `json:"since,omitempty"`
+	Claims         []string          `json:"claims,omitempty"`
+	ServiceTouches []ServiceTouch    `json:"service_touches,omitempty"`
 }
 
 type missingEntry struct {
@@ -126,7 +127,8 @@ type gradeLine struct {
 
 type fidelityPassState struct {
 	*pass
-	job *FidelityJob
+	job     *FidelityJob
+	touches []string
 }
 
 func Fidelity(ctx context.Context, dir string, deps Deps) error {
@@ -143,7 +145,7 @@ func runFidelity(ctx context.Context, dir string, deps Deps) (FidelityOutcome, e
 	if err := json.Unmarshal(data, &spec); err != nil {
 		return FidelityOutcome{}, err
 	}
-	state := &fidelityPassState{&pass{Deps: deps, ctx: ctx, dir: dir, job: &spec.Job}, &spec}
+	state := &fidelityPassState{pass: &pass{Deps: deps, ctx: ctx, dir: dir, job: &spec.Job}, job: &spec}
 	return state.grade()
 }
 
@@ -192,6 +194,7 @@ func (s *fidelityPassState) grade() (FidelityOutcome, error) {
 	if len(own) == 0 {
 		return FidelityOutcome{Skipped: fmt.Sprintf("%s at %s carries no commit %s lacks", pull, short(head, 12), view.BaseRefName)}, nil
 	}
+	s.touches = s.serviceTouches(own[0] + "^")
 	if len(heads) > 0 {
 		match, err := s.carry(own, heads)
 		if err != nil {
@@ -552,7 +555,9 @@ func (s *fidelityPassState) carried(match *carryMatch, by, proof string) (Fideli
 		}
 	}
 	lines := []gradeLine{{text: fmt.Sprintf("%s %s %scarried from %s (cci #%d), patch-identical by %s over its own commits%s.", fidelityOK, spec.Head, s.carriedClass(match.grade), short(match.head, 7), match.grade.Seq, by, settled)}}
-	if earlier := newestOldApp(spec.OldApps, match.head); earlier != nil {
+	if line, touched := s.touchedOldApp(); touched {
+		lines = append(lines, gradeLine{text: line})
+	} else if earlier := newestOldApp(spec.OldApps, match.head); earlier != nil {
 		if parts := oldAppLine.FindStringSubmatch(earlier.Line); parts != nil {
 			lines = append(lines, gradeLine{text: strings.TrimRight(fmt.Sprintf("old-app: %s %s %s", parts[1], short(spec.Head, 7), parts[2]), " \t\r\n")})
 		}
@@ -1014,6 +1019,9 @@ func (s *fidelityPassState) gradedLines(reply fidelityReply) []gradeLine {
 		lines = append(lines, gradeLine{text: fmt.Sprintf("%s same %s since %s", behaviorLine, head, spec.Since)})
 	default:
 		lines = append(lines, gradeLine{text: fmt.Sprintf("%s changed %s since %s: %s", behaviorLine, head, spec.Since, squeezed(reply.WhatChanged))})
+	}
+	if line, touched := s.touchedOldApp(); touched {
+		return append(lines, gradeLine{text: line})
 	}
 	grade := reply.OldApp.Grade
 	if grade == "changes" {

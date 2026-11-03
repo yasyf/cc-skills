@@ -61,18 +61,19 @@ func (n *names) UnmarshalJSON(data []byte) error {
 }
 
 type Spec struct {
-	Repo           string              `json:"repo"`
-	Sprite         names               `json:"sprite"`
-	SpriteKeys     map[string][]string `json:"sprite_keys"`
-	Checkout       string              `json:"checkout"`
-	Model          string              `json:"model"`
-	Fast           *bool               `json:"fast"`
-	To             []string            `json:"to"`
-	Concurrent     int                 `json:"concurrent"`
-	Reserved       int                 `json:"reserved"`
-	TimeoutMinutes int                 `json:"timeout_minutes"`
-	Baseline       string              `json:"baseline"`
-	Sources        Sources             `json:"sources"`
+	Repo           string                `json:"repo"`
+	Sprite         names                 `json:"sprite"`
+	SpriteKeys     map[string][]string   `json:"sprite_keys"`
+	Checkout       string                `json:"checkout"`
+	Model          string                `json:"model"`
+	Fast           *bool                 `json:"fast"`
+	To             []string              `json:"to"`
+	Concurrent     int                   `json:"concurrent"`
+	Reserved       int                   `json:"reserved"`
+	TimeoutMinutes int                   `json:"timeout_minutes"`
+	Baseline       string                `json:"baseline"`
+	Sources        Sources               `json:"sources"`
+	ServiceTouches []grader.ServiceTouch `json:"service_touches"`
 }
 
 type Sources struct {
