@@ -4,7 +4,7 @@ import dataclasses
 import json
 import subprocess
 
-from captain_hook import Allow, BaseHookEvent, Event, FromSubagent, HookResult, Input, Tool, WorkflowState, on
+from captain_hook import Allow, Ask, BaseHookEvent, Event, FromSubagent, HookResult, Input, Tool, WorkflowState, on
 from captain_hook.util import reqenv
 
 LANE_ENV = "CLAUDE_LONG_RUNNING_LANE"
@@ -45,11 +45,15 @@ def bound(case: Input, lane: str) -> Input:
     return dataclasses.replace(case, state=[*states, WindowLane(lane=lane)])
 
 
+def fired(expected: object) -> bool:
+    return not isinstance(expected, Ask) and (not isinstance(expected, Allow) or expected.system_message is not None)
+
+
 def lane_tests(tests: dict, fires: str, quiet: str) -> dict:
-    """`tests` plus its first root-thread case, the first that fires when one does, once in a window bound `fires`, with the same outcome, and once in a window bound `quiet`, allowed."""
+    """`tests` plus its first root-thread case, the first that fires when one does, once in a window bound `fires`, with the same outcome, and once in a window bound `quiet`, where the hook returns nothing."""
     cases = [(case, expected) for case, expected in tests.items() if isinstance(case, Input) and not case.agent_id]
-    case, expected = next(((case, expected) for case, expected in cases if not isinstance(expected, Allow)), cases[0])
-    return tests | {bound(case, fires): expected, bound(case, quiet): Allow()}
+    case, expected = next(((case, expected) for case, expected in cases if fired(expected)), cases[0])
+    return tests | {bound(case, fires): expected, bound(case, quiet): Ask()}
 
 
 def coordinator_tests(tests: dict) -> dict:

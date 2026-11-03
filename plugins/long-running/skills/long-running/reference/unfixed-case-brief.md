@@ -96,7 +96,7 @@ Do:
      messages whose subjects are `ready: <the READY line>` and
      `fix-live: <the FIX-LIVE line>`. The desk puts each new case to the root.
 
-Worktree: your own. Times Pacific. No Slack posts.
+Worktree: your own. No Slack posts.
 Finish: a `STOPPED {lane}: <why>` line, kind `stopped`, and `worker_done`.
 
 Register slice: lane={lane} step=incident

@@ -64,14 +64,14 @@ At intake, `incident.py` opens an investigation and an `incident <id>` log in cc
 
 It records each grant with `ccn answer add "<question>" --body "<owner's words>" --label slack-grant:<channel id>`. The Slack permission hook reads that label as a standing grant for top-level posts and replies in that channel and mints each write's ticket, so the comms lane passes no ticket or grant flag; see `reference/slack-lane-brief.md`. The root supplies grants for those channels and threads at launch, and each grant covers only its named surface. Consecutive replies under one-thread grant need no human message between them.
 
-A missing grant pauses only the step that needs it. After intake, the root answers the executor's bus asks about a missing grant, a silent comms lane, an overdue action, a failed canary, or a read-back that still drifts. The executor posts the target fence on the bus and reports `opened`, `pr`, `landed`, `activated`, `live`, `recovered`, and `closed` to the root lane. The root relays `opened`, `pr`, `landed`, `activated`, `live`, `recovered`, and `closed` to the owner as one line each in Pacific time and plain words (SKILL.md R21). The root never relays owner words to a lane as authority, never re-briefs the executor's lanes, and never posts or composes incident copy.
+A missing grant pauses only the step that needs it. After intake, the root answers the executor's bus asks about a missing grant, a silent comms lane, an overdue action, a failed canary, or a read-back that still drifts. The executor posts the target fence on the bus and reports `opened`, `pr`, `landed`, `activated`, `live`, `recovered`, and `closed` to the root lane. The root posts `opened`, `pr`, `landed`, `activated`, `live`, `recovered`, and `closed` to `owner-relay` as one `report` each. The root never relays owner words to a lane as authority, never re-briefs the executor's lanes, and never posts or composes incident copy.
 
 ## Launch incident lanes directly
 
 **The executor and the root launch incident lanes with `desk-launch.py incident`.** Both fix and evidence lanes run as Orca codex workers on `gpt-6.1-sol`, fast tier, `xhigh`. Only the `incident` alias runs fast, while plain `sol` is the standard tier and never an incident route. The executor refuses Claude for the fix and evidence roles and never uses fable or astra.
 
 ```sh
-desk-launch.py incident <name> <fix-brief> [<evidence-brief>] [--alert '<link, times PT, what fails, owner words>']
+desk-launch.py incident <name> <fix-brief> [<evidence-brief>] [--alert '<link, what fails, owner words>']
 ```
 
 With `--alert`, `desk-launch.py` fills each brief template itself. The script drops the template's `Root:` lines, writes the lane's name for every `<lane>` and the text for the `Alert:` line, and saves `<state dir>/<lane>/brief.md`, so the root never edits a template by hand. Any brief still holding `<lane>`, `<state>`, `<...>`, or a placeholder on its `Alert:` line is refused. `desk-launch.py` takes the next `R<n>` at one past every key on cci, and posts `<name>-fix` and `<name>-evidence` to `orca-desk` on cci as `NOW incident xhigh` launch lines with `role=fix` and `role=evidence` so the runner's incident clock holds only the fix lane.
@@ -105,9 +105,9 @@ Push back on false-alarm or mute closes while unfixed. A mute, a false-alarm ver
 
 Mute a proven false page as a window, never a close. When the fix lane's mechanism proves a page false because every team the monitor names is completing runs and the defect is in the signal, the lane mutes it the minute it is proven. It posts `MUTE <lane>: monitors <ids> until fix-live: <proof>` and requests the mute from ai-oncall through `ci oncall connect` and `ci oncall say --kind request`, never a prose Slack post. The incident stays open until `FIX-LIVE`. A release smoke team, a release check, or dev red is never false. The plan keeps the path when no step of the drive's plan deletes or replaces it before its next milestone. A path deleted at cutover is `no`, however far off cutover is.
 
-**Close incident mode on either `no`.** A `no` to either question ends incident mode that turn. The root posts `INCIDENT <slug> CLOSED: <the answer that is no, and why>`, stands incident lanes down with `desk-launch.py withdraw <lane>`, cancels any incident release not yet started, and stops any replay or pass box the incident started. Fixes already live stay live. Remaining work becomes an ordinary PR through the landing desk or a card for the owner's pick. The root tells the owner in one line which incident closed, which answer was no, and what happens to the open work.
+**Close incident mode on either `no`.** A `no` to either question ends incident mode that turn. The root posts `INCIDENT <slug> CLOSED: <the answer that is no, and why>`, stands incident lanes down with `desk-launch.py withdraw <lane>`, cancels any incident release not yet started, and stops any replay or pass box the incident started. Fixes already live stay live. Remaining work becomes an ordinary PR through the landing desk or a card for the owner's pick. The root reports to `owner-relay` which incident closed, which answer was no, and what happens to the open work.
 
-A fix that grows into a redesign of a path the plan deletes is a signal to stop, not to add a lane. Re-ask both questions before launching a second release on the same path, a fix touching code shared with the new path, or a proper-fix card for a deleted path. When two owner rules pull apart, such as "shipped code failing is an incident" and "this path is deleted at cutover," the root pushes back, and tells the owner in one line which rule it applies and why.
+A fix that grows into a redesign of a path the plan deletes is a signal to stop, not to add a lane. Re-ask both questions before launching a second release on the same path, a fix touching code shared with the new path, or a proper-fix card for a deleted path. When two owner rules pull apart, such as "shipped code failing is an incident" and "this path is deleted at cutover," the root pushes back, and reports to `owner-relay` which rule it applies and why.
 
 ## Incident mode on PRs and lanes
 
@@ -124,7 +124,7 @@ A fix that grows into a redesign of a path the plan deletes is a signal to stop,
 
 **Every incident fix lane aims to be fix-live within 20 minutes of launch.** The root treats a lane past 20 minutes as a miss to act on in that turn. The orca desk runner keeps two clocks on incident fix lanes: the milestone clock (mechanism, opened PR, `ready`) and the `PR-SILENT` clock from mechanism to PR. Their thresholds, the lanes they cover, what stops them, and the `<lane>-opus` fallback are in [orca-desk-brief.md](orca-desk-brief.md#handle-alerts-incident-clocks-and-case-lanes). The root's part:
 
-- **On `INCIDENT-CLOCK <lane> <mechanism|pr|ready>`**, the root reports the line to the owner in one plain line of its next reply, ahead of any other work in that turn and never as a Slack post, and ratifies the fallback the line names. Both lanes keep running, and the first PR wins.
+- **On `INCIDENT-CLOCK <lane> <mechanism|pr|ready>`**, the root posts the line as a `report` to `owner-relay`, ahead of any other work in that turn, and ratifies the fallback the line names. Both lanes keep running, and the first PR wins.
 - **On `INCIDENT-CLOCK <lane> in-process`**, which the runner posts after the Orca launch of `<lane>-opus` failed twice, the root starts `<lane>-opus` that turn in its own session as an `Agent` of type `long-running:lane-ship` on opus in fast mode with the brief the line names, and never retries Orca a third time.
 - **A root `decide` steers a clocked lane and never stops its clock**, so a handoff record cannot switch off the backup. A root `hold` naming the lane, or a `stand-down` or `stopped` to it, does stop it.
 - **On `PR-SILENT <lane> #<seq>`**, the root acts on the code state the line carries, below.
@@ -397,7 +397,7 @@ Do:
   9. Run <exact live-check command> every two minutes and post its output as a
      status Run message until it shows <expected live output>. Run the
      reporter's own case again on the released build. Once both pass, send a status
-     Run message with subject `fix-live: <h:mm PM PT> <evidence>`. The brief names
+     Run message with subject `fix-live: <evidence>`. The brief names
      that exact command; the root uses it too. For a static site, for example:
      `curl -fsS https://platform.poetic.com/ | grep -oE '/releases/[0-9a-f]{40}/' | head -1`.
   10. Record every artifact in cc-notes, never under ~/.claude/scratch:
@@ -419,7 +419,7 @@ Escalate: with no mechanism 15 minutes after launch, the executor launches an
   Codex one, `ready`, `fix-live`, `not-ours`, and `stopped`. Past
   10 or 15 minutes it launches <fix lane name>-opus in parallel, and the first
   PR wins. You get one Opus fallback, from whichever of the two fires first.
-  Each missed limit sends a blocker to the root, who tells the owner.
+  Each missed limit sends a blocker to the root, which reports it to `owner-relay`.
 
 Do NOT touch: unrelated targets, files, branches, or another lane's worktree.
 Worktree: <absolute path, exclusive to this lane>.

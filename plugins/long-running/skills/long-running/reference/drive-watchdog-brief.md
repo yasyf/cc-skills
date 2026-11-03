@@ -86,7 +86,7 @@ context only. This log feeds the owner table's "What went wrong or slowed it so 
 column.
 
 Every 30 minutes, post one cci state to root: findings opened, corrected, and
-  outstanding, and the top three things slowing the critical path, in plain words.
+  outstanding, and the top three things slowing the critical path.
 
 Start by reading the last two hours
 (`cci tail --drive <drive> --since <seq two hours back> --kind decide,ask,blocker,hold,defect,state -n 200`)

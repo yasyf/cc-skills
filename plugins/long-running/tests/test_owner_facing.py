@@ -13,7 +13,7 @@ from captain_hook.snapshots.client import RemoteSession, RemoteToolCalls
 from captain_hook.testing.helpers import StubbedContext, build_context, disk_fixture_session, input_to_event, stubbed_commands
 
 from fire import fire
-from hooks import nudges, owner_facing
+from hooks import owner_facing
 from rulings_fixture import rulings_command_fixture
 from hooks.compaction_handoff import CompactionState
 from hooks.tests.board_fixtures import ANSWERS, GLOSSARY, JUDGE, ROWS, judged
@@ -87,25 +87,6 @@ class Root:
         with stubbed_commands({" ".join(owner_facing.INCIDENT_DIGEST): json.dumps({"open_incidents": list(posted)})}):
             return [result.message for result in fire(owner_facing, evt)]
 
-    def reply(self, *entries: dict) -> list[str]:
-        self.transcript.write_text("".join(json.dumps(item) + "\n" for item in entries))
-        evt = self.event(StopEvent)
-        owner_facing.nudge_utc_in_owner_replies(evt)
-        with nudges.NudgeState.mutate(evt) as state:
-            pending, state.pending = state.pending, []
-        return pending
-
-    def plain_reply(self, text: str, phrase: str = "") -> list[str]:
-        self.transcript.write_text(json.dumps(entry("user", "status?")) + "\n" + json.dumps(entry("assistant", text)) + "\n")
-        payload = {"session_id": "0123456789abcdef", "transcript_path": str(self.transcript), "cwd": str(self.transcript.parent)}
-        context = build_context(transcript=Session.from_path(self.transcript), session_dir=self.session_dir)
-        evt = StopEvent(_raw=payload, ctx=StubbedContext.wrapping(context))
-        with stubbed_commands(PLAIN_READS | judged(phrase)):
-            assert owner_facing.plain_words_on_reply(evt) is None
-        with nudges.NudgeState.mutate(evt) as state:
-            pending, state.pending = state.pending, []
-        return pending
-
     def publish(self, text: str) -> str | None:
         self.transcript.write_text(json.dumps(entry("user", "status?")) + "\n" + json.dumps(entry("assistant", text)) + "\n")
         with stubbed_commands({" ".join(owner_facing.INCIDENT_DIGEST): json.dumps({"open_incidents": []})}):
@@ -149,21 +130,6 @@ def question(text: str) -> dict:
 
 
 @pytest.mark.parametrize(
-    "text",
-    ["Fix lane spawned at 17:35Z; mechanism by 17:45Z.", "Owner asks landed 17:3xZ.", "Red since 16:52 UTC."],
-)
-def test_utc_times_in_the_last_reply_nudge(root: Root, text: str) -> None:
-    assert root.reply(entry("user", "status?"), entry("assistant", text)) == [owner_facing.UTC_IN_REPLY]
-
-
-def test_the_utc_nudge_fires_at_most_once_an_hour(root: Root) -> None:
-    said = (entry("user", "status?"), entry("assistant", "Red since 16:52 UTC."))
-
-    assert root.reply(*said) == [owner_facing.UTC_IN_REPLY]
-    assert root.reply(*said) == []
-
-
-@pytest.mark.parametrize(
     ("status", "text", "warned"),
     [
         ("open", "sand 1437 is published", True),
@@ -176,19 +142,6 @@ def test_a_publish_line_during_an_open_incident_quotes_the_released_record(root:
     incident(incidents, "0820", status, target="sand")
 
     assert root.publish(text) == (owner_facing.PUBLISH_FROM_MEMORY if warned else None)
-
-
-@pytest.mark.parametrize("text", ["Fix lane spawned at 10:35am; mechanism by 10:45.", "Build 72755 is red."])
-def test_pacific_or_timeless_replies_are_quiet(root: Root, text: str) -> None:
-    assert root.reply(entry("assistant", text)) == []
-
-
-def test_only_the_root_reply_counts(root: Root) -> None:
-    assert root.reply(entry("assistant", "Pacific 10:35am."), entry("assistant", "lane at 17:35Z", sidechain=True)) == []
-
-
-def test_outside_a_drive_is_quiet(tmp_path: Path) -> None:
-    assert Root(tmp_path, active=False).reply(entry("assistant", "at 17:35Z")) == []
 
 
 @pytest.mark.parametrize("name", MISFIRES)
@@ -351,22 +304,6 @@ def test_the_judge_reads_the_card_with_the_ids_a_pattern_picked_and_the_ruled_na
     assert "- held copy, night copier: a note started on the phone" in prompt
     assert "Drop the held copy?" in prompt
     assert "download the update in the background" not in prompt
-
-
-def test_the_root_reply_the_judge_flags_is_nudged_never_blocked(drive_root: Root) -> None:
-    [nudge] = drive_root.plain_reply("The slice for lane p1a is done.", "slice")
-
-    assert nudge.startswith(owner_facing.REPLY_IN_PLAIN_WORDS)
-    assert 'plain words, "slice"' in nudge
-
-
-def test_a_term_already_flagged_this_hour_is_not_nudged_again(drive_root: Root) -> None:
-    assert len(drive_root.plain_reply("The slice for lane p1a is done.", "slice")) == 1
-    assert drive_root.plain_reply("The slice for lane p1a is done.", "slice") == []
-
-
-def test_a_reply_the_judge_clears_is_not_nudged(drive_root: Root) -> None:
-    assert drive_root.plain_reply("The chat-list fix is live for every team.") == []
 
 
 def test_a_ruling_card_quoting_the_owner_verbatim_hides_the_quote_from_the_judge_and_an_invented_quote_does_not(drive_root: Root, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

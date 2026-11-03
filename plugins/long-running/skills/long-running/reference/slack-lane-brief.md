@@ -102,7 +102,7 @@ Lanes and the root never post status updates, per-landing lines, ready-to-tap li
 
 ## Owner questions on the board
 
-Owner questions go on the root's cc-present board, never in Slack. The board, `drive.py ask-owner`, `Explain more` taps, `cci owner-waits` and the board recorder are in SKILL.md under "The owner's surfaces".
+Owner picks go on the cc-present board. An urgent yes/no goes to his Slack as an ask card with buttons (`cc-present ask`), synced with the board, and nobody calls `AskUserQuestion`. The board, `drive.py ask-owner`, `Explain more` taps, `cci owner-waits` and the board recorder are in SKILL.md under "The owner's surfaces".
 
 ## Slack lane spawn brief
 

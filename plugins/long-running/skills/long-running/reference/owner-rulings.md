@@ -108,7 +108,7 @@ The root never ends a turn waiting for the owner to say "ask" and never leaves P
 
 **The root sweeps every outbound artifact against every ruling's broadest reading.** Before presenting a board, brief, handoff, or plan, the root checks the entire text against all rulings. Any sentence that keeps, budgets, tests, or asks about something a ruling removed is a defect, even when it cites no ruling. The root drafts every board, card, or reply from the owner's rulings instead of from code on the base branch. A card that explains a term from base-branch code where a ruling covers it fails the sweep.
 
-**A repeated owner ruling is a defect report.** When the owner repeats a ruling, the root finds every place where an earlier narrow reading survived and fixes all of them that same turn. It then tells the owner what was missed and why.
+**A repeated owner ruling is a defect report.** When the owner repeats a ruling, the root finds every place where an earlier narrow reading survived and fixes all of them that same turn. It then reports to `owner-relay` what was missed and why.
 
 **The root never settles a plan gap by `DECIDE`.** A lane may encounter a new column, table, route, field, state, timer, or metric missing from both the plan and the owner rows. When that happens, the root puts a card on the owner's board, and the lane stops on that gap. Before relaying any lane report such as "a worker did X," the root checks what the lane did against the plan.
 

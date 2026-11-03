@@ -11,7 +11,7 @@ from .lane_rotation import DriveActive
 from .owner_facing import REPLY_WINDOW, last_reply
 from .tests.handoff_fixtures import reply_transcript
 from .tests.register_fixtures import ACTIVE, DRIVE_CONFIG
-from .window_lane import Coordinator, coordinator_tests
+from .window_lane import OwnerBridge, bridge_tests
 
 LONG_UPDATE = 40
 CHECK_SECONDS = 60
@@ -30,10 +30,10 @@ class LongReply:
 
 @on(
     Event.Stop,
-    only_if=[Coordinator(), DriveActive(), LongReply()],
+    only_if=[OwnerBridge(), DriveActive(), LongReply()],
     skip_if=[FromSubagent()],
     transcript_events=REPLY_WINDOW,
-    tests=coordinator_tests({
+    tests=bridge_tests({
         Input(transcript=reply_transcript(UPDATE), state=ACTIVE, env=DRIVE_CONFIG, commands={CHECK: (1, "missing: 2\ntooling-codify-1\n#48401\n")}): Warn(pattern=r"leaves out 2 sections, lanes, asks or PRs the sources hold, such as tooling-codify-1\. Relay"),
         Input(transcript=reply_transcript(UPDATE), state=ACTIVE, env=DRIVE_CONFIG, commands={CHECK: (1, "missing: 25\n" + "".join(f"lane-{n}\n" for n in range(25)))}): Warn(pattern=r"leaves out 25 [\s\S]*such as lane-0, lane-1, lane-2\. Relay"),
         Input(transcript=reply_transcript(UPDATE), state=ACTIVE, env=DRIVE_CONFIG, commands={CHECK: ""}): Allow(),

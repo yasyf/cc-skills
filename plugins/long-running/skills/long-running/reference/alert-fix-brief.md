@@ -165,7 +165,7 @@ Log: every apply, release, or other state-changing production command you run
   gets one line on that log in the same turn:
   `ccn -R {repo} log append "$(ccn -R {repo} log list --label prod-ops | cut -f1)" --entry "who | when, UTC and Pacific | cluster, team | exact command | authority | effect"`
 
-Worktree: your own, from a fresh trunk. Times Pacific. No Slack posts.
+Worktree: your own, from a fresh trunk. No Slack posts.
 Finish: a `STOPPED {lane}: <why>` line, kind `stopped`, and `worker_done`.
 
 Register slice: lane={lane} step=incident

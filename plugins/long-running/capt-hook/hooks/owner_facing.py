@@ -36,7 +36,7 @@ from captain_hook.util import reqenv
 
 from .compaction_handoff import CompactionState, ccn, drive_entry, post_blocker, rulings, script, script_module
 from .judge_metrics import judge_call
-from .nudges import once_per_hour, queue_nudge
+from .nudges import once_per_hour
 from .pr_ledger import lane_name
 from .register_injection import drive_args, incident_spawn, prose
 from .root_context import operand_targets, reads_stdin
@@ -76,8 +76,6 @@ REFUSED = " ".join(REFUSAL)
 LOAD_REFUSAL = "LAUNCH-FAILED desk-lane-api-1n80-fix/R474 api-1n80-fix: R474 refused on load 42 above 32 cores; nothing was launched"
 REFUSAL_TIMEOUT_SECONDS = 20
 REPLY_WINDOW = 256
-UTC_CLOCK = re.compile(r"\b\d{1,2}:\d[\dx](?::\d\d)?\s?(?:Z|UTC)\b")
-UTC_IN_REPLY = "Next reply to the owner: give times in Pacific with no zone label, never UTC."
 PUBLISH_CLAIM = re.compile(r"(?<!not )(?<!n't )\b(?:is|are|was|were|been|now|went|got)\s+(?:published|released|live|cut)\b", re.IGNORECASE)
 RELEASE_NUMBER = re.compile(r"\b\d{3,}\b|\bv?\d+\.\d+(?:\.\d+)?\b")
 PUBLISH_PROOF = re.compile(r"#\d{3,}\b|buildkite\.com/\S+/builds/\d+|```[^`]*\blive\b[^`]*```")
@@ -87,7 +85,6 @@ PLAIN_WORDS = (
     "Warning, nothing was blocked: Owner-facing text must read in plain words."
     " Replace each term below, or gloss it in the owner's own words, then post again."
 )
-REPLY_IN_PLAIN_WORDS = "Next reply to the owner: say each term below in plain words."
 QUOTED_TERM = re.compile(r'"([^"\n]+)"')
 SLACK_CARD = "mcp__plugin_cc-slack_cc-slack__slack_dm_status"
 READ_FAILURES = (OSError, subprocess.SubprocessError, ValueError, LookupError)
@@ -440,25 +437,6 @@ def last_reply(evt: BaseHookEvent) -> str:
         if event.text:
             return event.text
     return ""
-
-
-@on(
-    Event.Stop,
-    skip_if=[FromSubagent()],
-    transcript_events=REPLY_WINDOW,
-    only_if=[Coordinator()],
-    tests=separate("owner_facing.nudge_utc_in_owner_replies", coordinator_tests({
-        Input(transcript=reply_transcript("Fix lane spawned at 17:35Z."), state=ACTIVE): Allow(),
-        Input(transcript=reply_transcript("Fix lane spawned at 10:35am."), state=ACTIVE): Allow(),
-        Input(transcript=reply_transcript("Lane at 17:35Z.", sidechain=True), state=ACTIVE): Allow(),
-        Input(transcript=reply_transcript("Fix lane spawned at 17:35Z.")): Allow(),
-        Input(transcript=reply_transcript("Fix lane spawned at 17:35Z."), agent_id="a1b2c3", state=ACTIVE): Allow(),
-    })),
-)
-def nudge_utc_in_owner_replies(evt: BaseHookEvent) -> HookResult | None:
-    if CompactionState.load(evt).active and UTC_CLOCK.search(last_reply(evt)) and once_per_hour(evt, [UTC_IN_REPLY]):
-        queue_nudge(evt, UTC_IN_REPLY)
-    return None
 
 
 @on(
@@ -850,28 +828,6 @@ def plain_words_in_owner_questions(evt: BaseHookEvent) -> HookResult | None:
     if reads.failures or not (problems := unsaid(evt, problems)):
         return None
     return evt.context(fenced(PLAIN_WORDS, problems))
-
-
-@on(
-    Event.Stop,
-    skip_if=[FromSubagent()],
-    transcript_events=REPLY_WINDOW,
-    only_if=[Coordinator()],
-    tests=separate("owner_facing.plain_words_on_reply", coordinator_tests({
-        Input(transcript=reply_transcript("The slice for lane p1a is done."), state=PROGRAM_ACTIVE, env=DRIVE_CONFIG, commands={**PLAIN_READS, **judged("slice")}): Allow(),
-        Input(transcript=reply_transcript("The chat-list fix is live for every team."), state=PROGRAM_ACTIVE, env=DRIVE_CONFIG, commands=PLAIN_READS): Allow(),
-        Input(transcript=reply_transcript("The slice for lane p1a is done."), commands=PLAIN_READS): Allow(),
-        Input(transcript=reply_transcript("The slice for lane p1a is done."), agent_id="a1b2c3", state=PROGRAM_ACTIVE, commands=PLAIN_READS): Allow(),
-    })),
-)
-def plain_words_on_reply(evt: BaseHookEvent) -> HookResult | None:
-    if not CompactionState.load(evt).active or not (which := drive_args(evt)) or not (reply := last_reply(evt)):
-        return None
-    reads = Reads(evt, which)
-    if problems := unsaid(evt, plain_words([reply], reads)):
-        queue_nudge(evt, fenced(REPLY_IN_PLAIN_WORDS, problems))
-    reads.report("plain_words_on_reply")
-    return None
 
 
 def scratch(value: str) -> bool:

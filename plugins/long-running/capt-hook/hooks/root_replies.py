@@ -37,7 +37,7 @@ from .owner_facing import CCI_POST, incident_sources, last_reply, open_incidents
 from .tests.incident_fixtures import CLOSED_0820, SAND_NOT_MIGRATED
 from .tests.lane_pr_fixtures import DRIVE as LANE_DRIVE
 from .tests.register_fixtures import DRIVE_CONFIG
-from .window_lane import Coordinator, coordinator_tests
+from .window_lane import Coordinator, OwnerBridge, bridge_tests, coordinator_tests
 
 ACTIVE = [CompactionState(active=True)]
 DRIVE_ACTIVE = [CompactionState(active=True, slug="brook")]
@@ -50,8 +50,6 @@ LABEL_SLACK_MINUTES = 1
 NEAR_ANY_TURN_MINUTES = 15
 SHARED_RUN_WORDS = 6
 NEAREST_SHOWN = 2
-NUMBERS_SHOWN = 8
-NUMBER_TEXT_SHOWN = 160
 OWNER_LABEL = re.compile(r"\bowner(?:'s)?,?\s+(?:at\s+)?(\d{1,2}):(\d{2})(?::\d{2})?\s*([ap])\.?m\b\.?", re.IGNORECASE)
 QUOTED = re.compile(r"[\"“]([^\"”\n]+)[\"”]")
 WORD = re.compile(r"[\w']+")
@@ -119,7 +117,7 @@ READ_COMMANDS = (
 WORKER_ANSWER = ("<teammate-message", '<channel source="plugin:cc-inbox:cci"')
 UNREAD_CLAIM = (
     "Warning, nothing was blocked: A claim about what code does or what a review found follows a read of the file or record, or the owning worker's answer, in the same turn."
-    " Run `cci show <seq>` or `Read` the file, or ask the worker and tell the owner you are reading it and will answer in a few minutes."
+    " Run `cci show <seq>` or `Read` the file, or ask the worker."
 )
 DEFECT_ADMITTED = re.compile(
     r"\bmy (?:bad|doing|fault|mistake|miss|error|call was wrong)\b|\bI (?:missed|forgot|should have|didn'?t|was wrong|got \w+(?: \w+)? wrong)\b"
@@ -133,21 +131,12 @@ NARRATED_DEFECT = (
 )
 OVERCLAIMED = (
     "Warning, nothing was blocked: a judge reads this reply as claiming more about the code or a review than what this turn read shows."
-    " Read the part it rests on, or tell the owner what is still unread."
+    " Read the part it rests on, or say what is still unread."
 )
 ACTION_SHOWN = 300
 READ_SHOWN = 1500
 FLAGGED = {"verdict": "yes", "artifact_phrase": "the runner was broken", "evidence_phrase": "", "sentence": "It admits the runner broke, and nothing this turn starts the fix."}
 CLEARED = {"verdict": "no", "artifact_phrase": "", "evidence_phrase": "", "sentence": "Nothing to add."}
-MEASURED = re.compile(
-    r"\b\d[\d,]*(?:\.\d+)?\s*(?:%|percent\b|(?:users?|sessions?|runs?|errors?|crashes|failures?|requests?|events?|objects?|rows?|retires?|deletes?|refusals?|chats?|reports?)\b|(?:/|per\s+)(?:min(?:ute)?|hour|sec(?:ond)?|s)\b)",
-    re.IGNORECASE,
-)
-QUERY_CITED = re.compile(r"#\d{3,}\b|\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b|https?://\S+")
-UNSOURCED_NUMBER = (
-    "Warning, nothing was blocked: A count, rate, or percentage told to the owner names the query record it came from."
-    " Put that record's `#<seq>` or link beside each number below, or drop the number."
-)
 
 
 def judge_answer(verdict: dict) -> dict[str, str | tuple[int, str]]:
@@ -310,8 +299,8 @@ def relabeled(evt: BaseHookEvent, texts: Callable[[], list[str]]) -> str | None:
     Event.Stop,
     skip_if=[FromSubagent()],
     transcript_events=REPLY_WINDOW,
-    only_if=[Coordinator()],
-    tests=coordinator_tests({
+    only_if=[OwnerBridge()],
+    tests=bridge_tests({
         Input(
             transcript=replied(owner_said("stop all cuts now", "2026-01-15T00:11:00Z"), reply='Logged OWNER 7:58 PM "stop all cuts now" as a hold.'),
             state=ACTIVE,
@@ -345,9 +334,9 @@ def owner_labels_carry_the_turn_stamp(evt: BaseHookEvent) -> HookResult | None:
 
 @on(
     Event.PreToolUse,
-    only_if=[Coordinator(), Tool("Bash")],
+    only_if=[OwnerBridge(), Tool("Bash")],
     skip_if=[FromSubagent()],
-    tests=coordinator_tests({
+    tests=bridge_tests({
         Input(
             command="cci post --drive d --lane root --kind hold --text 'OWNER 7:58 PM: stop all cuts now'",
             transcript=[owner_said("stop all cuts now", "2026-01-15T00:11:00Z")],
@@ -628,27 +617,6 @@ def narrated_defects_ship_their_fix(evt: BaseHookEvent) -> HookResult | None:
     return evt.allow(system_message=f"{NARRATED_DEFECT}\n{found}") if found else None
 
 
-@on(
-    Event.Stop,
-    skip_if=[FromSubagent()],
-    transcript_events=REPLY_WINDOW,
-    max_fires=1,
-    only_if=[Coordinator()],
-    tests=coordinator_tests({
-        Input(transcript=[T.user("how bad?"), T.assistant("About 300 requests per minute fail, and 12 runs crashed.")], state=ACTIVE): Allow(system_message=r"300 requests per minute"),
-        Input(transcript=[T.user("how bad?"), T.assistant("15 runs crashed in the last hour (#104701).")], state=ACTIVE): Ask(),
-        Input(transcript=[T.user("how bad?"), T.assistant("15 runs crashed in the last hour.")], state=ACTIVE): Allow(system_message=r"^Warning, nothing was blocked"),
-        Input(transcript=[T.user("status?"), T.assistant("Three PRs are open and two lanes are working.")], state=ACTIVE): Ask(),
-        Input(transcript=[T.user("how bad?"), T.assistant("15 runs crashed.")]): Ask(),
-    }),
-)
-def owner_numbers_cite_their_query(evt: BaseHookEvent) -> HookResult | None:
-    if not CompactionState.load(evt).active:
-        return None
-    lines = [line.strip()[:NUMBER_TEXT_SHOWN] for line in last_reply(evt).splitlines() if MEASURED.search(line) and not QUERY_CITED.search(line)][:NUMBERS_SHOWN]
-    return evt.allow(system_message="\n".join([UNSOURCED_NUMBER, "", "```", *lines, "```"])) if lines else None
-
-
 TAP_CLAIM = re.compile(
     r"\b(?:wait(?:s|ing)?\s+(?:only\s+)?(?:on|for)|await(?:s|ing)?|needs?|needing|blocked\s+on|held\s+for)\s+(?:your|his|the\s+owner'?s?)\s+(?:board\s+)?(?:taps?|approvals?|picks?|go-ahead)\b"
     r"|\bon\s+your\s+board\b|\bfor\s+you\s+to\s+(?:tap|approve|pick)\b",
@@ -693,8 +661,8 @@ def owner_waits(drive: str, *args: str) -> list[dict]:
     Event.Stop,
     skip_if=[FromSubagent()],
     transcript_events=REPLY_WINDOW,
-    only_if=[Coordinator()],
-    tests=coordinator_tests({
+    only_if=[OwnerBridge()],
+    tests=bridge_tests({
         Input(transcript=[T.user("anything for me?"), T.assistant("#45507 waits on your tap, and #45524 waits on it below.")], state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={f"{CHECK_PR} 45507": FALSE_PR}): Block(
             pattern=r"#45507 at 632c4a5: not waiting on you: the board holds no row for it; its fidelity grade .* reads missing since 3:02 AM"
         ),
@@ -711,7 +679,7 @@ def owner_waits(drive: str, *args: str) -> list[dict]:
     }),
 )
 def tap_claims_match_the_board(evt: BaseHookEvent) -> HookResult | None:
-    """A root reply that says a PR or anything else waits on the owner's tap, approval or pick stands only when `cci owner-waits` finds a board row awaiting him at that PR's head, or anything awaiting him for a claim naming no PR; otherwise the reply goes back with the real state to say instead (owner, 4:40 AM Oct 30, #207532). A board that does not read blocks nothing."""
+    """A communicator reply that says a PR or anything else waits on the owner's tap, approval or pick stands only when `cci owner-waits` finds a board row awaiting him at that PR's head, or anything awaiting him for a claim naming no PR; otherwise the reply goes back with the real state to say instead (owner, 4:40 AM Oct 30, #207532). A board that does not read blocks nothing."""
     if not CompactionState.load(evt).active or not (entry := drive_entry(evt)):
         return None
     prs, bare = tap_claims(last_reply(evt))
@@ -793,8 +761,8 @@ FLYING = {"task": "952", "lane": "next-build-tester-2", "subject": "tester round
     Event.Stop,
     skip_if=[FromSubagent()],
     transcript_events=REPLY_WINDOW,
-    only_if=[Coordinator()],
-    tests=coordinator_tests({
+    only_if=[OwnerBridge()],
+    tests=bridge_tests({
         Input(transcript=[T.user("status?"), T.assistant("The chat-list fix landed; nothing else moved.")], state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={UPDATE_DRIVE: update_found([DELIVERY])}): Block(
             pattern=r"delivered #1815 devbox-explore-7"
         ),
@@ -812,7 +780,7 @@ FLYING = {"task": "952", "lane": "next-build-tester-2", "subject": "tester round
     }),
 )
 def owner_updates_cover_every_delivery(evt: BaseHookEvent) -> HookResult | None:
-    """A root reply to the owner's status or update ask covers every delivery `owner_update.py` lists since the last update that passed, and calls no in-flight task not started; else it goes back with the lines to add (owner, 9:55 PM Nov 1). A read that fails blocks nothing."""
+    """A communicator reply to the owner's status or update ask covers every delivery `owner_update.py` lists since the last update that passed, and calls no in-flight task not started; else it goes back with the lines to add (owner, 9:55 PM Nov 1). A read that fails blocks nothing."""
     if not CompactionState.load(evt).active or not (entry := drive_entry(evt)) or not update_ask(evt):
         return None
     now = time.time()
