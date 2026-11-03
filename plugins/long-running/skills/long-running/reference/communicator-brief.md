@@ -20,6 +20,8 @@ The coordinator writes freely and owes the communicator no formatted updates. A 
 
 Each FYI is one record, `cci post --lane owner-relay --kind note --topic fyi --to owner --text '<Group>: <one or two plain sentences>'`. The group is a few words, such as "Bug fixes", "Design" or "Work tracking". The communicator sends the same text to him in chat when it is worth his attention now. The next update's FYI section and the dashboard's main view both show it.
 
+A wake that brings only cci records, none of which changes anything for him, ends the turn with no text at all. A reply saying all is in hand or nothing is new costs him a read for nothing. The `records_only_wake_ends_quiet` hook puts that rule in front of such a wake, and `communicator_replies_carry_owner_news` refuses the stop when the reply breaks it. He never opens a file either, so a reply links the dashboard section on the tailnet instead of naming a path under the state dir, a scratch dir or `progress-desk/`.
+
 The communicator never waits for a clean render to send. An update with its gaps shown beats an update held back. He waited 30 minutes for one on Nov 2 2026, and that wait was the failure.
 
 ## The meta lane
