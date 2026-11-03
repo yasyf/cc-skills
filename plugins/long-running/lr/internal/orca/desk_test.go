@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -775,6 +776,97 @@ func TestALaunchStillRunningIsNotSettled(t *testing.T) {
 	w.step(w.desk.reap)
 	if action := w.action(testLane, key); action.Status != incident.ActionStarted {
 		t.Fatal(action)
+	}
+}
+
+const sparseNotice = testLane + " sparse: .agents tools; widen with git -C /wt sparse-checkout add <dir>\n"
+
+func (w *deskWorld) startedThenRestarted(notice string) (string, string) {
+	w.t.Helper()
+	brief := w.brief(testLane, testBrief+"ccx: place=local\n")
+	w.launchOut[testLane] = notice
+	w.lines()
+	line := w.line(launchText(testLane, brief))
+	key := "R" + strings.TrimPrefix(line.Name(), "#")
+	w.lines()
+	w.step(w.desk.deliver)
+	w.desk.open()
+	return key, w.desk.launchLog(laneBook(testLane), key)
+}
+
+func TestARestartedRunnerWaitsForALaunchStillWritingItsLog(t *testing.T) {
+	w := newDeskWorld(t)
+	key, log := w.startedThenRestarted(sparseNotice)
+	launcher, err := os.OpenFile(log, os.O_WRONLY|os.O_APPEND, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer launcher.Close()
+	if err := syscall.Flock(int(launcher.Fd()), syscall.LOCK_EX); err != nil {
+		t.Fatal(err)
+	}
+	w.step(w.desk.reap)
+	if action := w.action(testLane, key); action.Status != incident.ActionStarted {
+		t.Fatal(action)
+	}
+	w.noEscalation("LAUNCH-FAILED ")
+	if _, err := launcher.WriteString(w.launched(testLane, testDispatch, testTerminal)); err != nil {
+		t.Fatal(err)
+	}
+	if err := launcher.Close(); err != nil {
+		t.Fatal(err)
+	}
+	w.step(w.desk.reap)
+	if action := w.action(testLane, key); action.Status != incident.ActionVerified {
+		t.Fatal(action)
+	}
+	w.noEscalation("LAUNCH-FAILED ")
+	w.postOpening("LAUNCHED ")
+}
+
+func TestALaunchThatEndedOnANoticeIsUnsettledNotFailed(t *testing.T) {
+	w := newDeskWorld(t)
+	key, _ := w.startedThenRestarted(sparseNotice)
+	w.step(w.desk.reap)
+	if action := w.action(testLane, key); action.Status != incident.ActionUnverifiable {
+		t.Fatal(action)
+	}
+	w.noEscalation("LAUNCH-FAILED ")
+	wantContains(t, w.wantEscalation("UNVERIFIABLE "), "sparse-checkout add")
+}
+
+func TestALaunchThatEndedOnANoticeWithANewReceiptLaunched(t *testing.T) {
+	w := newDeskWorld(t)
+	key, _ := w.startedThenRestarted(sparseNotice)
+	w.live(testLane, testDispatch, testTerminal)
+	w.step(w.desk.reap)
+	if action := w.action(testLane, key); action.Status != incident.ActionVerified {
+		t.Fatal(action)
+	}
+	w.postOpening("LAUNCHED ")
+}
+
+func TestASpawnedLauncherHoldsItsLogUntilItExits(t *testing.T) {
+	dir := t.TempDir()
+	log, stop := filepath.Join(dir, "launch.out"), filepath.Join(dir, "stop")
+	process, err := SpawnDetached([]string{"/bin/sh", "-c", `echo notice; until [ -e "$1" ]; do sleep 0.05; done`, "launcher", stop}, log, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !launcherRunning(log) {
+		t.Fatal("a running launcher's log reads as free")
+	}
+	if err := os.WriteFile(stop, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for !process.Exited() {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if launcherRunning(log) {
+		t.Fatal("an exited launcher's log reads as held")
+	}
+	if launcherRunning(filepath.Join(dir, "missing")) {
+		t.Fatal("a missing log reads as held")
 	}
 }
 

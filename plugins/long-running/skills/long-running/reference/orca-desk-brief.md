@@ -235,7 +235,7 @@ Each pass settles detached launches, delivers accepted relays and launches, reco
 
 **O1. Launch through the relay.** The coordinator runs `lr launch lane <lane> <model> <effort> <brief> [--now]`, and the relay runs `launch` and starts `lr launch start` detached. No model desk runs lifecycle helpers.
 
-**O2. Settle a launch from its line or receipt.** A `ready` or `unsupervised` line counts as launched, as does a new dispatch receipt when the log is empty. Other output logs `LAUNCH-FAILED`. When a launch produces neither an output line nor a new receipt, the relay marks it `UNVERIFIABLE` and never triggers an automatic relaunch. `unsupervised` escalates separately as `UNSUPERVISED`.
+**O2. Settle a launch from its line or receipt.** A launcher holds a lock on its log until it exits, so a runner restarted mid-launch waits for it instead of reading a half-written log. A `ready` or `unsupervised` line counts as launched. A `<lane> failed` line logs `LAUNCH-FAILED`. A new dispatch receipt with neither line counts as launched. When a launcher ended with none of these, the relay marks it `UNVERIFIABLE`, quotes what the log said, and never triggers an automatic relaunch. `unsupervised` escalates separately as `UNSUPERVISED`.
 
 **O3. Keep one Run reader.** Only the relay consumes the Run. Each pass takes the Run's oldest unacknowledged Delivery with `orca orchestration check --run <run>` and reads `orca orchestration inbox --terminal run:<run> --limit N --json` past its saved cursor oldest first. It expands full pages until the cursor is covered, skips heartbeats, and saves each sequence in `desk-runner` `facts` under `inbox:<run>`. Once the read is relayed, it acknowledges that Delivery with `--ack <delivery id> --peek`.
 
