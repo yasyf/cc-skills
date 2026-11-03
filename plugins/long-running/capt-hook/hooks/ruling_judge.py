@@ -5,6 +5,7 @@ import re
 import subprocess
 import sys
 from dataclasses import asdict
+from itertools import pairwise
 from pathlib import Path
 
 from captain_hook import Allow, BaseHookEvent, Event, FromSubagent, HookResult, Input, Warn, WorkflowState, on, workflow_state
@@ -94,7 +95,7 @@ def bash_moment(evt: BaseHookEvent) -> tuple[str, str] | None:
                 return "a GO, HOLD or DECIDE line", text
         if name == "gh" and tuple(args[:2]) in PR_VERBS:
             return "a pull request", " ".join(args)
-        if name == "ccx" and tuple(args[:2]) in PR_VERBS and (prose := " ".join(value for flag, value in zip(args, args[1:]) if flag in CCX_PROSE_FLAGS)):
+        if name == "ccx" and tuple(args[:2]) in PR_VERBS and (prose := " ".join(value for flag, value in pairwise(args) if flag in CCX_PROSE_FLAGS)):
             return "a pull request", prose
         if start_operands(name, args) and Path(args[-1]).expanduser().is_file():
             return "a lane spawn", Path(args[-1]).expanduser().read_text()
