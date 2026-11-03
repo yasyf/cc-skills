@@ -55,7 +55,7 @@ The cursor is a cci cursor named for the lane. It survives session compaction an
 
 `--since <seq>` reads after that sequence without reading or advancing the cursor. `--since 0` replays retained records. Omit `--reader` for a drive-wide replay when another lane's thread matters.
 
-Every lane, top-level or in-process, waits with `lr wait 540 cci:<drive>:<lane> [mailbox:<lane>=<cursor file>]` as its foreground Bash call at `timeout: 570000`, and re-runs it when it returns. The call follows the cci daemon's stream and the mailbox file, so it polls nothing; its `<lane>-wake` cursor keeps a wake from advancing the lane's read cursor. No lane arms a `cci watch` Monitor: the hook refuses one, since each is a process that polls once a second for the life of the lane.
+Every lane, top-level or in-process, waits with `lr wait 540 cci:<drive>:<lane> [mailbox:<lane>=<cursor file>]` as its foreground Bash call at `timeout: 570000`, and re-runs it when it returns. The call follows the cci daemon's stream and the mailbox file, so it polls nothing; its `<lane>-wake` cursor keeps a wake from advancing the lane's read cursor. No lane arms a `cci watch` Monitor: the `lane_waits` hook warns on one, since each is a process that polls once a second for the life of the lane.
 
 ## Desk inbox rules (I1-I7)
 
@@ -132,7 +132,7 @@ cci tail --drive "$DRIVE" --reader root --since 0
 
 ## The polling loop
 
-Lanes wait in the foreground. The Bash tool caps `timeout` at `600000` ms, so a call budgets about nine minutes and the lane re-runs it until a terminal state. A plain Bash wait never blocks longer than 60 seconds, and a lane never writes a shell loop, backgrounds a process with `&`, `nohup` or `setsid`, wraps a shell in `timeout`, or sleeps a minute or more: the `lane_waits` hook refuses each, because on Nov 2 2026 one desk's nested `timeout zsh loop.sh` chains reached 513 copies and 3,286 processes and the launch gate refused every lane for an hour. Any longer wait goes through `lr wait` on the lane's own team mailbox so a `SendMessage` ends the call; `lr wait` is one process that follows its sources and exits.
+Lanes wait in the foreground. The Bash tool caps `timeout` at `600000` ms, so a call budgets about nine minutes and the lane re-runs it until a terminal state. A plain Bash wait never blocks longer than 60 seconds, and a lane never writes a shell loop, backgrounds a process with `&`, `nohup` or `setsid`, wraps a shell in `timeout`, or sleeps a minute or more: the `lane_waits` hook warns on each and `lr wait` ends whatever a guarded command leaves behind, because on Nov 2 2026 one desk's nested `timeout zsh loop.sh` chains reached 513 copies and 3,286 processes and the launch gate refused every lane for an hour. Any longer wait goes through `lr wait` on the lane's own team mailbox so a `SendMessage` ends the call; `lr wait` is one process that follows its sources and exits.
 
 A blocking watch runs after `--`, and the mailbox ends it the moment the message lands. Run it with `timeout: 570000`:
 

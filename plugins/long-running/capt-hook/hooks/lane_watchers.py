@@ -9,7 +9,7 @@ from captain_hook import Allow, BaseHookEvent, Event, FromSubagent, HookResult, 
 from .lane_reports import ACTIVE
 from .lane_rotation import DriveActive
 
-POLL_ROOT = re.compile(r"^(?:\S*/)?(?:g?timeout|sleep|tail|bounded\.py)\s|desk-wait\.sh|inboxes\.py wait|\bcci (?:watch|tail -f)")
+POLL_ROOT = re.compile(r"^(?:\S*/)?(?:g?timeout|sleep|tail|bounded\.py)\s|\blr wait\b|\bcci (?:watch|tail -f)")
 PS_SECONDS = 10
 LANE = "awatcher-lane-1-0123456789abcdef"
 TABLE = "ps -A -o pid=,ppid=,command="
@@ -18,7 +18,7 @@ ENVS = f"{ENV_PS} 4100"
 ROWS = "  4100     1 timeout 240 zsh /s/landing-desk-3/loop3.sh\n  4101  4100 zsh /s/landing-desk-3/loop3.sh\n  4102  4101 sleep 30\n   900     1 sh /s/remote-desks-5/sprite-desk.sh\n"
 REAPED = (
     "Reaped {count} orphaned watcher processes this lane left running: {roots}. A poll loop runs under "
-    "`bounded.py <seconds> -- <command>` (or desk-wait.sh `--`), which ends its whole tree; GNU `timeout` "
+    "`bounded.py <seconds> -- <command>` (or `lr wait -- <command>`), which ends its whole tree; GNU `timeout` "
     "leaves any nested `timeout` and its children behind."
 )
 
@@ -49,7 +49,7 @@ def owned_by(agent_id: str, pids: list[int]) -> set[int]:
     },
 )
 def reap_orphaned_lane_watchers(evt: BaseHookEvent) -> HookResult | None:
-    """When a lane stops, SIGTERM every poll tree it left reparented to launchd: a `timeout`, `sleep`, `tail`, `cci watch` or desk-wait root whose environment carries the lane's CCI_AGENT_ID, with all its descendants (owner, 8:45 PM Nov 2: "get rid of all those idle watchers now and fix it so they don't stick around in the future")."""
+    """When a lane stops, SIGTERM every poll tree it left reparented to launchd: a `timeout`, `sleep`, `tail`, `cci watch` or `lr wait` root whose environment carries the lane's CCI_AGENT_ID, with all its descendants (owner, 8:45 PM Nov 2: "get rid of all those idle watchers now and fix it so they don't stick around in the future")."""
     table = rows()
     roots = [pid for pid, ppid, process in table if ppid == 1 and POLL_ROOT.search(process)]
     if not roots or not (mine := owned_by(evt.agent_id or "", roots)):
