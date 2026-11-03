@@ -16,7 +16,7 @@ func TestRowsReadsTheShowPayload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []Row{{"123", map[string]string{"state": "open"}}}; !reflect.DeepEqual(rows, want) {
+	if want := []Row{{Key: "123", Fields: map[string]string{"state": "open"}}}; !reflect.DeepEqual(rows, want) {
 		t.Fatalf("rows %+v", rows)
 	}
 }
@@ -36,7 +36,7 @@ func TestSetRowNamesEveryFieldInOneStableOrder(t *testing.T) {
 func TestSyncSendsTheRowsOnStdin(t *testing.T) {
 	fake := &shelltest.Fake{}
 	fake.Reply("", "ccn", "ledger", "sync")
-	if err := (CLI{Runner: fake}).Sync(context.Background(), "abc", []Row{{"k", map[string]string{"a": "1"}}}); err != nil {
+	if err := (CLI{Runner: fake}).Sync(context.Background(), "abc", []Row{{Key: "k", Fields: map[string]string{"a": "1"}}}); err != nil {
 		t.Fatal(err)
 	}
 	if got := fake.Calls()[0].Stdin; got != `[{"key":"k","fields":{"a":"1"}}]` {

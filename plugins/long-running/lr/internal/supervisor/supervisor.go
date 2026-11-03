@@ -81,11 +81,8 @@ func Tick(ctx context.Context, s *store.Store, drive string, generation int64, d
 		}
 	}
 	for _, check := range d.Checks {
-		switch err := check(ctx, now); {
-		case errors.Is(err, lanes.ErrUnread):
+		if err := check(ctx, now); err != nil {
 			d.Log.Warn("check skipped", "err", err)
-		case err != nil:
-			return report, err
 		}
 	}
 	if !runsPass(d.Movers) {

@@ -544,7 +544,7 @@ func (n *LandedNotLive) announce(ctx context.Context, landed map[int]landing, ow
 		numbers := owed[target]
 		words := make([]string, 0, len(numbers))
 		for _, number := range numbers {
-			words = append(words, fmt.Sprintf("#%d (%s)", number, pacific(landed[number].at)))
+			words = append(words, fmt.Sprintf("#%d (%s)", number, pacificFrom(landed[number].at, now)))
 		}
 		parts = append(parts, target+": "+strings.Join(words, ", "))
 		keys[notLiveKey(target, numbers)] = true

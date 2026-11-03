@@ -20,6 +20,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/landing"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/watch"
 )
 
 const runnerFile = "runner.json"
@@ -90,6 +91,14 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 	if err != nil {
 		return Deps{}, err
 	}
+	sender := bus.Bus{Drive: env.Config.Drive, Lane: lanes.Self}
+	post := func(to []string, body bus.Body) error {
+		_, err := sender.Post(ctx, to, body)
+		return err
+	}
+	if slices.Contains(env.Config.Movers, moverLanes) {
+		checks = append(checks, (&watch.Stalls{Store: s, Drive: env.Config.Drive, Runner: a.Runner, Post: post, Log: a.Log}).Check)
+	}
 	deps := Deps{
 		Movers: env.Config.Movers,
 		Clock:  env.Now,
@@ -107,12 +116,8 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 	if err != nil {
 		return Deps{}, err
 	}
-	sender := bus.Bus{Drive: env.Config.Drive, Lane: lanes.Self}
 	deps.Snapshot = prfacts.New(a, env.Config, s).Snapshot
-	deps.Post = func(to []string, body bus.Body) error {
-		_, err := sender.Post(ctx, to, body)
-		return err
-	}
+	deps.Post = post
 	deps.Queue = landing.Trunk{Runner: a.Runner, Checkout: env.Config.Checkout, Branch: env.Config.Trunk, Script: env.Config.QueueScript, KeyCommand: env.Config.QueueKey}
 	deps.Restacker = restacker
 	deps.Trunk = env.Config.Trunk

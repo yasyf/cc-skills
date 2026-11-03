@@ -2110,3 +2110,9 @@ func TestAnUnreadOpenWorkQueryLeavesTheHourlyTickRunning(t *testing.T) {
 
 	equal(t, len(f.posts), 0)
 }
+
+func TestAnOpenRecordFromAnEarlierDayCarriesItsDate(t *testing.T) {
+	old := t0.Add(-22 * time.Hour)
+	got := queueDepth([]Record{rec(10, Root, "defect", old, "fix the gate", "tooling-1")}, t0)
+	equal(t, got, fmt.Sprintf("tooling-1 1 defect (oldest %s)", old.In(pacificZone).Format("3:04 PM Jan 2")))
+}

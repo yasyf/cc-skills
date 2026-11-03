@@ -68,7 +68,7 @@ func TestABox59MinutesFromItsDeadlineWarnsItsLaneOnce(t *testing.T) {
 	warning := bus.posted[0]
 	equal(t, []string{warning.Kind, warning.ID}, []string{nscWarning, fmt.Sprintf("nsc-deadline:%s:%d", perfBox, t0.Add(mins(59)).Unix())})
 	equal(t, warning.To, []string{perfLane})
-	equal(t, warning.Text, "NSC-DEADLINE sh4pma4mccmt4: this Namespace box dies at 10:59 AM, in 59 minutes. Extend it with `lr nsc extend sh4pma4mccmt4 --drive d1 --lane devbox-perf-1 -- --duration <how much longer>`, or finish its work and destroy it.")
+	equal(t, warning.Text, "NSC-DEADLINE sh4pma4mccmt4: this Namespace box dies by 10:59 AM, in 59 minutes. Extend it with `lr nsc extend sh4pma4mccmt4 --drive d1 --lane devbox-perf-1 -- --duration <how much longer>`, or finish its work and destroy it.")
 }
 
 func TestABox61MinutesFromItsDeadlineDoesNotWarn(t *testing.T) {
@@ -186,7 +186,7 @@ func TestABoxWithACreateDurationIsExtendedByItAndItsLaneIsTold(t *testing.T) {
 	record, told := bus.posted[0], bus.posted[1]
 	equal(t, []string{record.Kind, record.Lane, record.Attrs["deadline"], record.Attrs["duration"]}, []string{nscKind, Self, renewed.Format(time.RFC3339), "8h0m0s"})
 	equal(t, []string{told.Kind, told.To[0]}, []string{nscRenewed, perfLane})
-	equal(t, told.Text, "NSC-EXTENDED sh4pma4mccmt4: this Namespace box was to die at 10:59 AM, so the supervisor extended it by its create duration, 8h0m0s; it now dies at 6:59 PM. Destroy it with `nsc destroy sh4pma4mccmt4` once its work is done.")
+	equal(t, told.Text, "NSC-EXTENDED sh4pma4mccmt4: this Namespace box was to die by 10:59 AM, so the supervisor extended it by its create duration, 8h0m0s; it now dies by 6:59 PM. Destroy it with `nsc destroy sh4pma4mccmt4` once its work is done.")
 }
 
 func TestABoxNscRefusesToExtendWarnsItsLaneToRecreateIt(t *testing.T) {

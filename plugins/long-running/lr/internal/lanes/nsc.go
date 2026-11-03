@@ -89,7 +89,7 @@ func (n *NscDeadlines) renew(ctx context.Context, box nscBox, deadline, now time
 	if !found || lane.State == store.LaneRetired {
 		_, err := n.Env.Bus.Post(ctx, client.Draft{
 			Drive: n.Env.Config.Drive, Lane: Self, Kind: nscWarning, To: []string{Root}, ID: fmt.Sprintf("nsc-deadline:%s:%d", box.ID, deadline.Unix()), Stamp: true,
-			Text: fmt.Sprintf("NSC-DEADLINE %s: this Namespace box dies at %s, in %d minutes, and its lane %s has no live registry row, so the supervisor leaves it to expire. Destroy it now with `nsc destroy %s`, or keep it with `lr nsc extend %s --drive %s --lane %s -- --duration <how much longer>`.", box.ID, pacific(deadline), int(deadline.Sub(now).Minutes()), box.Labels[nscLabel], box.ID, box.ID, n.Env.Config.Drive, Root),
+			Text: fmt.Sprintf("NSC-DEADLINE %s: this Namespace box dies by %s, in %d minutes, and its lane %s has no live registry row, so the supervisor leaves it to expire. Destroy it now with `nsc destroy %s`, or keep it with `lr nsc extend %s --drive %s --lane %s -- --duration <how much longer>`.", box.ID, pacific(deadline), int(deadline.Sub(now).Minutes()), box.Labels[nscLabel], box.ID, box.ID, n.Env.Config.Drive, Root),
 		})
 		return err
 	}
@@ -105,7 +105,7 @@ func (n *NscDeadlines) renew(ctx context.Context, box nscBox, deadline, now time
 	n.due[box.ID] = renewed
 	_, err = n.Env.Bus.Post(ctx, client.Draft{
 		Drive: n.Env.Config.Drive, Lane: Self, Kind: nscRenewed, To: []string{lane.Name}, ID: fmt.Sprintf("nsc-renewed:%s:%d", box.ID, renewed.Unix()), Stamp: true, Force: true,
-		Text: fmt.Sprintf("NSC-EXTENDED %s: this Namespace box was to die at %s, so the supervisor extended it by its create duration, %s; it now dies at %s. Destroy it with `nsc destroy %s` once its work is done.", box.ID, pacific(deadline), lasts, pacific(renewed), box.ID),
+		Text: fmt.Sprintf("NSC-EXTENDED %s: this Namespace box was to die by %s, so the supervisor extended it by its create duration, %s; it now dies by %s. Destroy it with `nsc destroy %s` once its work is done.", box.ID, pacific(deadline), lasts, pacific(renewed), box.ID),
 	})
 	return err
 }
@@ -153,7 +153,7 @@ func (n *NscDeadlines) warning(box nscBox, deadline, now time.Time, refused stri
 	}
 	return client.Draft{
 		Drive: n.Env.Config.Drive, Lane: Self, Kind: nscWarning, To: []string{lane}, ID: fmt.Sprintf("nsc-deadline:%s:%d", box.ID, deadline.Unix()), Stamp: true, Force: true,
-		Text: fmt.Sprintf("NSC-DEADLINE %s: this Namespace box dies at %s, in %d minutes.%s %s", box.ID, pacific(deadline), int(deadline.Sub(now).Minutes()), unlabeled, next),
+		Text: fmt.Sprintf("NSC-DEADLINE %s: this Namespace box dies by %s, in %d minutes.%s %s", box.ID, pacific(deadline), int(deadline.Sub(now).Minutes()), unlabeled, next),
 	}
 }
 
@@ -215,7 +215,7 @@ func recordNscDeadline(ctx context.Context, bus Bus, drive, lane, id string, dea
 	}
 	_, err := bus.Post(ctx, client.Draft{
 		Drive: drive, Lane: lane, Kind: nscKind, Topic: nscTopic + id, ID: fmt.Sprintf("%s%s:%d", nscTopic, id, deadline.Unix()), Stamp: true, Attrs: attrs,
-		Text: fmt.Sprintf("NSC %s: the Namespace box %s holds dies at %s", id, lane, pacific(deadline)),
+		Text: fmt.Sprintf("NSC %s: the Namespace box %s holds dies by %s", id, lane, pacific(deadline)),
 	})
 	return err
 }

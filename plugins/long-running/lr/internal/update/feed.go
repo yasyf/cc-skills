@@ -3,11 +3,7 @@ package update
 import (
 	"cmp"
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
-	"io/fs"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -117,23 +113,7 @@ func (r Retro) line() string {
 }
 
 func ReadRetro(ctx context.Context, source ledger.Store, stateDir string) ([]Retro, error) {
-	data, err := os.ReadFile(filepath.Join(stateDir, retroFile))
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	var state struct {
-		Ledger string `json:"ledger"`
-	}
-	if err := json.Unmarshal(data, &state); err != nil {
-		return nil, fmt.Errorf("%s: %w", retroFile, err)
-	}
-	if state.Ledger == "" {
-		return nil, nil
-	}
-	rows, err := source.Rows(ctx, state.Ledger)
+	rows, err := ledger.FromState(ctx, source, filepath.Join(stateDir, retroFile))
 	if err != nil {
 		return nil, err
 	}

@@ -633,12 +633,12 @@ func hourly(s *store.Store, d Deps, now time.Time) {
 		return
 	}
 	do(err)
-	if depth := queueDepth(records); depth != "" {
+	if depth := queueDepth(records, now); depth != "" {
 		do(d.Post(Post{Kind: "report", To: []string{Root}, Text: fmt.Sprintf("%s open work by lane, so no queue grows unseen (retro row 133): %s.", pacific(now), depth)}))
 	}
 }
 
-func queueDepth(records []Record) string {
+func queueDepth(records []Record, now time.Time) string {
 	queues := map[string][]Record{}
 	for _, r := range records {
 		for lane := range r.Addressed() {
@@ -671,7 +671,7 @@ func queueDepth(records []Record) string {
 				counts = append(counts, fmt.Sprintf("%d %ss", tally[kind], kind))
 			}
 		}
-		lines = append(lines, fmt.Sprintf("%s %s (oldest %s)", lane, strings.Join(counts, ", "), pacific(oldest)))
+		lines = append(lines, fmt.Sprintf("%s %s (oldest %s)", lane, strings.Join(counts, ", "), pacificFrom(oldest, now)))
 	}
 	return strings.Join(lines, "; ")
 }

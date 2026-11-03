@@ -52,6 +52,7 @@ type Ask struct {
 	Lane          string
 	Text          string
 	AskedAt       time.Time
+	Due           time.Time
 	StandingHours int
 	Override      string
 	Answered      bool
@@ -199,6 +200,9 @@ func readAsk(key string, fields map[string]string) (Ask, error) {
 		Key: key, Lane: fields["lane"], Text: fields["text"], AskedAt: asked, Override: fields["state"],
 		Answered: fields["answered_at"] != "", Dropped: fields["dropped_at"] != "",
 		PRs: slices.DeleteFunc(strings.Split(fields["prs"], ","), func(pr string) bool { return pr == "" }),
+	}
+	if ask.Due, err = when(fields, "due"); err != nil {
+		return Ask{}, err
 	}
 	if hours := fields["standing_hours"]; hours != "" {
 		if ask.StandingHours, err = strconv.Atoi(hours); err != nil {

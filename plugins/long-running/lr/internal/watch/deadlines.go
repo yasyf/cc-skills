@@ -26,6 +26,9 @@ type Wait struct {
 }
 
 func (w Wait) subject() string {
+	if w.Repo == UnfinishedNamespace {
+		return w.Head
+	}
 	return fmt.Sprintf("%s#%d", w.Repo, w.Number)
 }
 
