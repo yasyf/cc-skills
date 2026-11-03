@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -13,8 +15,13 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
+	lrfacts "github.com/yasyf/cc-skills/plugins/long-running/lr/internal/facts"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ledger"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
 const (
@@ -22,6 +29,7 @@ const (
 	boardWatch     = "board-watch"
 	boardTopic     = "board-rows"
 	snapshotWindow = 24 * time.Hour
+	configFile     = "lr.json"
 )
 
 func Snapshots(ctx context.Context, bus string, since time.Time) ([]Snapshot, error) {
@@ -95,15 +103,117 @@ func Command(a *app.App) *cobra.Command {
 			},
 		}, nil
 	}
-	cmd.AddCommand(waitsCommand(a, opened), cardsCommand(cards))
+	cmd.AddCommand(waitsCommand(a, opened), cardsCommand(cards), passCommand(a, opened))
 	return cmd
+}
+
+func snapshotOf(ctx context.Context, a *app.App, entry drive.Entry, s *store.Store, warn io.Writer) (string, map[int]machine.Facts, error) {
+	cfg, err := config.Load(filepath.Join(entry.StateDir, configFile), warn)
+	if err != nil {
+		return "", nil, err
+	}
+	found, err := lrfacts.New(a, cfg, s).Snapshot(ctx)
+	if err != nil {
+		return "", nil, err
+	}
+	byNumber := make(map[int]machine.Facts, len(found))
+	for _, row := range found {
+		byNumber[row.Number] = row
+	}
+	return cfg.Repo, byNumber, nil
+}
+
+func explainPRs(c *cobra.Command, a *app.App, entry drive.Entry, live Live, prs []string, asJSON bool) error {
+	s, err := store.Open(entry.Store())
+	if err != nil {
+		return err
+	}
+	defer func() { _ = s.Close() }()
+	_, snapshot, err := snapshotOf(c.Context(), a, entry, s, c.ErrOrStderr())
+	if err != nil {
+		return err
+	}
+	found := make([]PRWait, len(prs))
+	for i, named := range prs {
+		pr, err := strconv.Atoi(strings.TrimPrefix(named, "#"))
+		if err != nil {
+			return fmt.Errorf("--pr %q: %w", named, err)
+		}
+		found[i] = live.Explain(pr, snapshot)
+	}
+	if asJSON {
+		return json.NewEncoder(c.OutOrStdout()).Encode(found)
+	}
+	for _, wait := range found {
+		fmt.Fprintln(c.OutOrStdout(), wait.Line)
+	}
+	return nil
+}
+
+func postHooks(ctx context.Context, busName, lane, repository string) Hooks {
+	posts := bus.Bus{Drive: busName, Lane: lane}
+	return Hooks{
+		Tap: func(tap TapRecord) error {
+			_, err := posts.Post(ctx, nil, bus.Tap{PR: tap.PR, Head: tap.Head, By: tap.By, Value: string(tap.Value)})
+			return err
+		},
+		Hold: func(pr int, sha string) error {
+			_, err := client.Post(ctx, client.Draft{Drive: busName, Lane: byOwner, Kind: "hold", PRs: []string{fmt.Sprintf("%s#%d", repository, pr)}, Text: fmt.Sprintf("hold #%d at %s: the owner rejected this head on the board", pr, short(sha))})
+			return err
+		},
+		Note: func(to, note string) error {
+			_, err := client.Post(ctx, client.Draft{Drive: busName, Lane: lane, Kind: "note", To: []string{to}, Text: note})
+			return err
+		},
+	}
+}
+
+func passCommand(a *app.App, opened func() (drive.Entry, string, error)) *cobra.Command {
+	var lane string
+	pass := &cobra.Command{
+		Use:   "pass",
+		Short: "Apply each answered merge row, redraw what still asks him and tell each lane that owes words",
+		Args:  cobra.NoArgs,
+		RunE: func(c *cobra.Command, _ []string) error {
+			entry, session, err := opened()
+			if err != nil {
+				return err
+			}
+			s, err := store.Open(entry.Store())
+			if err != nil {
+				return err
+			}
+			defer func() { _ = s.Close() }()
+			repository, snapshot, err := snapshotOf(c.Context(), a, entry, s, c.ErrOrStderr())
+			if err != nil {
+				return err
+			}
+			hooks := postHooks(c.Context(), entry.Bus(), lane, repository)
+			block, err := Pass{s, repository, a.Runner, session, hooks, a.Now}.Run(c.Context(), snapshot)
+			if err != nil {
+				return err
+			}
+			asked := 0
+			for _, group := range block.Groups {
+				asked += len(group.PRs)
+			}
+			fmt.Fprintf(c.OutOrStdout(), "%d rows ask the owner\n", asked)
+			return nil
+		},
+	}
+	pass.Flags().StringVar(&lane, "lane", "", "the lane the tap and note records post as")
+	if err := pass.MarkFlagRequired("lane"); err != nil {
+		panic(err)
+	}
+	return pass
 }
 
 func waitsCommand(a *app.App, opened func() (drive.Entry, string, error)) *cobra.Command {
 	var asJSON bool
+	var prs []string
 	waits := &cobra.Command{
 		Use:   "waits",
-		Short: "One line per board row awaiting his tap and each pick he has not answered",
+		Short: "One line per board row awaiting his tap and each pick he has not answered, or with --pr what each PR waits on",
 		Args:  cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			entry, session, err := opened()
@@ -121,6 +231,9 @@ func waitsCommand(a *app.App, opened func() (drive.Entry, string, error)) *cobra
 			live, err := LiveOf(outcomes, snapshots)
 			if err != nil {
 				return err
+			}
+			if len(prs) > 0 {
+				return explainPRs(c, a, entry, live, prs, asJSON)
 			}
 			found := live.Waits()
 			if asJSON {
@@ -145,6 +258,7 @@ func waitsCommand(a *app.App, opened func() (drive.Entry, string, error)) *cobra
 		},
 	}
 	waits.Flags().BoolVar(&asJSON, "json", false, "print a JSON list")
+	waits.Flags().StringArrayVar(&prs, "pr", nil, "say what this open PR waits on, repeatable")
 	return waits
 }
 
