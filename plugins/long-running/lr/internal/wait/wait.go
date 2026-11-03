@@ -502,15 +502,25 @@ func (s cciSource) check(ctx context.Context, w *waiter) (bool, error) {
 	w.cciMissingAt = time.Time{}
 	woke := false
 	var stamped time.Time
+	minute := ""
 	for _, line := range strings.Split(strings.TrimRight(result.Stdout, "\n"), "\n") {
 		if stamp := recordStamp.FindStringSubmatch(line); stamp != nil {
 			stamped = w.stampTime(stamp[1])
 		}
+		head := recordHead.FindStringSubmatch(line)
+		if head != nil && head[2] != "" {
+			minute = line
+			continue
+		}
 		if line == "" || !w.fresh(line) {
 			continue
 		}
+		if minute != "" {
+			w.held = append(w.held, minute)
+			minute = ""
+		}
 		w.held = append(w.held, clip(line))
-		if head := recordHead.FindStringSubmatch(line); head != nil && head[1] != "" && (stamped.IsZero() || !stamped.Before(w.started)) {
+		if head != nil && (stamped.IsZero() || !stamped.Before(w.started)) {
 			woke = true
 		}
 	}
@@ -543,9 +553,8 @@ func (w *waiter) fresh(line string) bool {
 	if head == nil {
 		return !w.repeat
 	}
-	key := head[1] + head[2]
-	w.repeat = w.printed[key]
-	w.printed[key] = true
+	w.repeat = w.printed[head[1]]
+	w.printed[head[1]] = true
 	return !w.repeat
 }
 

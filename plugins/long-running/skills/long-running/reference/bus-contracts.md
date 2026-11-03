@@ -40,7 +40,7 @@ Each record has a `seq`, `drive`, `lane`, `kind`, `at`, and `text`, with optiona
 
 `topic` names a PR, branch, contract, or area. Set `topic` and recipients explicitly on related posts and replies, because replies do not inherit them. Address an `answer` to the asker and a `withdraw` to the original recipients, or leave a `withdraw` broadcast if the original was broadcast. Use `--re <seq>` for the record being answered or withdrawn. Use `decide` for a decision request, and `decision` to announce a call already made.
 
-Text reads show `[ANSWERED #n]` on an answered ask and `[WITHDRAWN #n]` on a withdrawn record, where `n` is the reply's sequence number. JSON reads have no reply marks.
+A text read prints one line per record, `<seq> <kind> <lane>[><to>] [^<re>] [x<closed>] <text>`, under an `@<clock>` line each time the minute changes. Text reads show `[ANSWERED #n]` on an answered ask and `[WITHDRAWN #n]` on a withdrawn record, where `n` is the reply's sequence number. JSON reads have no reply marks.
 
 An `answer`, `go`, or `withdraw` closes an ask. A `withdraw`, `answer`, or `done` closes a blocker. Pair the later record with `--re` or the same `--topic` in the same drive. Publishing a new head alone does not close a blocker. The desk posts each `route` line in the pass that prints it so a red reaches an idle lane at its next wake:
 `cci post --drive <drive> --lane <desk> --kind blocker --topic <pr> --to <lane> --text "<route line>"`.
