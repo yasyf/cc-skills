@@ -1349,7 +1349,7 @@ func TestACheckWhileAnotherWatchHoldsTheLockReadsNothing(t *testing.T) {
 
 func TestACheckQueuesAsSuccessorUntilTheHolderLetsGoThenPolls(t *testing.T) {
 	f := newFake(t)
-	e := register(t, nil)
+	e := workersUp(t, f, "clear")
 	if err := os.MkdirAll(e.dir(), 0o750); err != nil {
 		t.Fatal(err)
 	}
