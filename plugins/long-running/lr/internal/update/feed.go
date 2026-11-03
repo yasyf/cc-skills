@@ -50,7 +50,7 @@ func fyiEntries(records []Record) []FYI {
 	return out
 }
 
-func fyiLines(entries []FYI) []string {
+func fyiLines(entries []FYI, perGroup int) []string {
 	var groups []string
 	byGroup := map[string][]FYI{}
 	for _, entry := range entries {
@@ -62,8 +62,15 @@ func fyiLines(entries []FYI) []string {
 	lines := make([]string, 0, len(groups)+len(entries))
 	for _, group := range groups {
 		lines = append(lines, "- **"+group+"**")
-		for _, entry := range byGroup[group] {
+		kept := byGroup[group]
+		if perGroup > 0 && len(kept) > perGroup {
+			kept = kept[:perGroup]
+		}
+		for _, entry := range kept {
 			lines = append(lines, fmt.Sprintf("  - %s: %s", pacific(entry.At), entry.Text))
+		}
+		if older := len(byGroup[group]) - len(kept); older > 0 {
+			lines = append(lines, fmt.Sprintf("  - and %d older", older))
 		}
 	}
 	return lines

@@ -20,7 +20,7 @@ func missingError(left []string) error {
 	if len(left) == 0 {
 		return nil
 	}
-	return fmt.Errorf("missing: %d\n%s", len(left), strings.Join(left, "\n"))
+	return fmt.Errorf("missing: %d: %s", len(left), strings.Join(left, "; "))
 }
 
 type session struct {

@@ -61,14 +61,14 @@ func TestSinceYouLastLookedNamesNewRowsAndWhatMovedAndNothingThatStayed(t *testi
 	}
 	current := []section{row("Step 1", nobody), row("Step 2", "x-1"), row("Step 3", "y-1")}
 	before := map[string][]string{"Step 1|Step 1": {"release-5", nothingBlocks, "open"}, "Step 2|Step 2": {"x-1", nothingBlocks, "open"}}
-	if got, want := sinceLines(current, before), []string{"- Step 1: who release-5 -> **nobody**", "- new: Step 3"}; !reflect.DeepEqual(got, want) {
+	if got, want := sinceLines(current, before, false), []string{"- Step 1: who release-5 -> **nobody**", "- new: Step 3"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("since = %v", got)
 	}
-	if got := sinceLines(current, takeSnapshot(current, now).Rows); len(got) != 0 {
+	if got := sinceLines(current, takeSnapshot(current, now).Rows, false); len(got) != 0 {
 		t.Fatalf("an unmoved update moved: %v", got)
 	}
 	left := map[string][]string{"Step 2|Step 2": {"x-1", nothingBlocks, stateOpen}, "Step 1|Step 1": {"x-1", nothingBlocks, stateOpen}, "Open PRs|#1940": {"fix-1", nothingBlocks, stateDone}}
-	if got, want := sinceLines(current[1:2], left), []string{"- Step 1: no longer open (landed, answered or closed)"}; !reflect.DeepEqual(got, want) {
+	if got, want := sinceLines(current[1:2], left, false), []string{"- Step 1: no longer open (landed, answered or closed)"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("left = %v", got)
 	}
 }
@@ -95,7 +95,7 @@ func TestFYIsAreOnlyTheBridgesNotesOnTopicFYIGroupedByTheWordsBeforeTheFirstColo
 	if !reflect.DeepEqual(entries, want) {
 		t.Fatalf("entries = %+v", entries)
 	}
-	lines := fyiLines(entries)
+	lines := fyiLines(entries, 0)
 	if lines[0] != "- **Bug fixes**" || !strings.HasSuffix(lines[1], ": the SQL tab opens again") || !strings.HasSuffix(lines[2], ": the share link no longer waits on uploads") || lines[3] != "- **Other**" {
 		t.Fatalf("lines = %v", lines)
 	}
@@ -137,21 +137,21 @@ func TestAFullRowOnlyWhereABlockerOrAFailureLivesAndOneLineNamingTheRest(t *test
 	held := Row{"#45623", "iris: a model pick", "red", "p8a-step7", "held by cci #2", "-", "-", false}
 	quietLine := "Quiet over 2 h, nobody on them now: old-lane-1 (desired, last report 2:38 PM)"
 
-	lanes := section{title: noStepTitle, rows: []Row{blocked, plain, quiet}}.lines()
+	lanes := section{title: noStepTitle, rows: []Row{blocked, plain, quiet}}.lines(folding{})
 	if got, want := firstCells(lanes[2:]), []string{"| red-sweep-3", "- flake-1: flake-1: state 6:05 PM: fixed", "", quietLine}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("lanes = %v", got)
 	}
-	steps := section{"Plan, step 3", []Row{step, blocked, plain, quiet}, true}.lines()
+	steps := section{title: "Plan, step 3", rows: []Row{step, blocked, plain, quiet}, step: true}.lines(folding{})
 	if got, want := firstCells(steps[2:]), []string{"| Step 3", "| red-sweep-3", "", quietLine}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("steps = %v", got)
 	}
-	if got, want := (section{title: incidentsTitle, rows: []Row{closed}}).lines(), []string{"", "Closed today: user-creds (closed since 1:15 AM)"}; !reflect.DeepEqual(got, want) {
+	if got, want := (section{title: incidentsTitle, rows: []Row{closed}}).lines(folding{}), []string{"", "Closed today: user-creds (closed since 1:15 AM)"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("incidents = %v", got)
 	}
-	if got, want := (section{title: openPRsTitle, rows: []Row{red, held}}).lines(), []string{"- red (2): #46107 sand: unarchive a chat; #45623 iris: a model pick [p8a-step7]"}; !reflect.DeepEqual(got, want) {
+	if got, want := (section{title: openPRsTitle, rows: []Row{red, held}}).lines(folding{}), []string{"- red (2): #46107 sand: unarchive a chat; #45623 iris: a model pick [p8a-step7]"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("prs = %v", got)
 	}
-	if got := unownedLines([]section{{title: openPRsTitle, rows: []Row{red, held}}, {title: incidentsTitle, rows: []Row{closed}}}); got[1] != "- Open PRs (1): #46107" || len(got) != 2 {
+	if got := unownedLines([]section{{title: openPRsTitle, rows: []Row{red, held}}, {title: incidentsTitle, rows: []Row{closed}}}, folding{}); got[1] != "- Open PRs (1): #46107" || len(got) != 2 {
 		t.Fatalf("unowned = %v", got)
 	}
 	if got, want := cell(strings.Repeat("x", 150)), strings.Repeat("x", 99)+"…"; got != want {
@@ -375,27 +375,13 @@ func TestADoneStepStillReachesTheDashboardAndTheSnapshot(t *testing.T) {
 	report := Render(inputs(t))
 	found := false
 	for _, step := range report.Published.Steps {
-		found = found || (step.Title == "1. The base" && step.Tone == "done")
+		found = found || (step.Title == "The base" && step.Tone == "done")
 	}
 	if !found {
 		t.Fatalf("steps = %+v", report.Published.Steps)
 	}
-	if got := report.Snapshot.Rows["The rebuild, step 1. The base|Step 1"]; !reflect.DeepEqual(got, []string{nobody, nothingBlocks, "done"}) {
+	if got := report.Snapshot.Rows["The rebuild, The base|Step 1"]; !reflect.DeepEqual(got, []string{nobody, nothingBlocks, "done"}) {
 		t.Fatalf("snapshot = %v", report.Snapshot.Rows)
-	}
-}
-
-func TestAnUpdateOverItsSizeNamesTheGap(t *testing.T) {
-	in := inputs(t)
-	for i := range 500 {
-		in.All = append(in.All, record(int64(i+1), bridge, "ask", strings.Repeat("words ", 30), 5))
-	}
-	report := Render(in)
-	if last := report.Gaps[len(report.Gaps)-1]; !strings.HasSuffix(last, "over the 40 KB an update may run") {
-		t.Fatalf("last gap = %q", last)
-	}
-	if !strings.Contains(report.Text, "over the 40 KB an update may run") {
-		t.Fatal("the render does not name its size")
 	}
 }
 

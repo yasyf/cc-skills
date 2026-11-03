@@ -79,7 +79,10 @@ func Wire(a *app.App, entry drive.Entry, s *store.Store) Sources {
 			return trunk.Present(ctx, listed)
 		},
 		Programs: func() ([]Program, error) { return ReadPrograms(filepath.Join(entry.StateDir, toolingList)) },
-		Pins:     entry.Pinned,
+		Rulings: func(ctx context.Context) ([]PlanRuling, error) {
+			return ReadRulings(ctx, ccn, mirror.Source, entry.Program)
+		},
+		Pins: entry.Pinned,
 	}
 }
 

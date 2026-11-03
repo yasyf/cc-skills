@@ -48,6 +48,7 @@ type Sources struct {
 	Retro    func(ctx context.Context) ([]Retro, error)
 	Owed     func(ctx context.Context) ([]deletions.Owed, error)
 	Programs func() ([]Program, error)
+	Rulings  func(ctx context.Context) ([]PlanRuling, error)
 	Pins     []drive.Pin
 }
 
@@ -137,7 +138,11 @@ func Collect(ctx context.Context, src Sources, bus string, now time.Time) (Input
 	if err != nil {
 		return Inputs{}, err
 	}
-	in := Inputs{Drive: bus, Now: now, Lanes: lanes, Plans: list, Book: book, Held: heldPRs(holds), Waits: waitingOnRoot(day), Board: boardLines(ctx, src, day), All: all, Before: before, Retro: retro, Owed: owed, Pins: src.Pins, Programs: programs}
+	rulings, err := src.Rulings(ctx)
+	if err != nil {
+		return Inputs{}, err
+	}
+	in := Inputs{Drive: bus, Now: now, Lanes: lanes, Plans: list, Book: book, Held: heldPRs(holds), Waits: waitingOnRoot(day), Board: boardLines(ctx, src, day), All: all, Before: before, Retro: retro, Owed: owed, Pins: src.Pins, Programs: programs, Rulings: rulings}
 	named := namesOf(working(lanes, now))
 	start := midnight(now)
 	for _, record := range day {
