@@ -49,11 +49,13 @@ finds the broadcasts the wake skipped. A cci binary missing from PATH, as during
 reinstall, reads as no new records; once missing for 30 s, or at the deadline,
 wait ends the command and exits 127 naming cci.
 
-wait ... -- <command> runs the command in its own process group, with its output
-passing through, and returns with its exit status when it exits first. When a source
-wakes the call or the deadline passes, wait prints what it prints without a command
-(MAILBOX, lines, or QUIET), ends the command's process group with SIGTERM, then
-SIGKILL after 5 s, and exits 0. Use it for read-only watches such as `bk build watch`
+wait ... -- <command> runs the command in its own session, with its output passing
+through, and returns with its exit status when it exits first. When a source wakes
+the call or the deadline passes, wait prints what it prints without a command
+(MAILBOX, lines, or QUIET), ends the command's whole tree with SIGTERM, then SIGKILL
+after 5 s, and exits 0. The tree includes descendants in other process groups or
+reparented to launchd, and a SIGTERM, SIGHUP or SIGINT to wait ends it too. A command
+already running in wait's own ancestry exits 3 instead of stacking another copy. Use it for read-only watches such as `bk build watch`
 or `ccx vcs pr watch`, never for a command that writes.
 
 mailbox prints the absolute team mailbox of the newest teammate named <lane> on any
@@ -69,7 +71,6 @@ import hashlib
 import json
 import os
 import re
-import signal
 import subprocess
 import sys
 import time
@@ -80,6 +81,7 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from long_running import proctree
 from long_running.roster_service import mailbox_of
 
 PACIFIC = ZoneInfo("America/Los_Angeles")
@@ -95,9 +97,9 @@ MAILBOX_POLL = 0.2
 MAILBOX_LOCK_POLL = 0.01
 HARNESS_LOCK_STALE = 10.0
 SEEN_KEYS = 1000
-CHILD_GRACE = 5.0
 CCI_GRACE = 30.0
 CCI_MISSING = 127
+RECURSIVE = 3
 
 
 def clip(text: str, cap: int = DISPLAY_CHARS) -> str:
@@ -259,24 +261,6 @@ def pause(seconds: float, mailboxes: list[Mailbox], child: subprocess.Popen | No
             return
 
 
-def signal_group(child: subprocess.Popen, signum: int) -> None:
-    try:
-        os.killpg(child.pid, signum)
-    except PermissionError:
-        if child.poll() is None:
-            raise
-
-
-def end(child: subprocess.Popen) -> None:
-    if child.poll() is None:
-        signal_group(child, signal.SIGTERM)
-        try:
-            child.wait(CHILD_GRACE)
-        except subprocess.TimeoutExpired:
-            signal_group(child, signal.SIGKILL)
-            child.wait()
-
-
 def cost(texts: list[str]) -> int:
     return sum(len(text.encode()) + 1 for text in texts)
 
@@ -365,7 +349,14 @@ def wait(argv: list[str]) -> int:
     feeds = [(source["drive"], source["lane"]) for source in sources if source["drive"]]
     files = [(path, cursor) for _, path, cursor in paths if not Mailbox.holds(path)]
     mailboxes = [(Mailbox(path), cursor) for _, path, cursor in paths if Mailbox.holds(path)]
-    child = subprocess.Popen(command, start_new_session=True) if command else None
+    try:
+        run = proctree.spawn(command) if command else None
+    except proctree.RecursivePoll as already:
+        print(f"desk-wait.sh: refusing to start {already}: it already runs above this process, so each pass would stack another copy", file=sys.stderr)
+        return RECURSIVE
+    child = run.child if run else None
+    if run:
+        proctree.end_on_signals(run)
     cci_missing_since: float | None = None
     while True:
         changed = False
@@ -400,19 +391,20 @@ def wait(argv: list[str]) -> int:
                 cursor.write_text(f"{len(lines)}\n")
                 changed = True
         if not changed and child and child.poll() is not None:
+            proctree.end(run)
             return child.returncode if child.returncode >= 0 else 128 - child.returncode
         remaining = deadline - time.monotonic()
         if not changed and cci_missing_since is not None and (remaining <= 0 or time.monotonic() - cci_missing_since >= CCI_GRACE):
             print(f"desk-wait.sh: cci not found on PATH for {time.monotonic() - cci_missing_since:.0f} s", file=sys.stderr)
             if child:
-                end(child)
+                proctree.end(run)
             return CCI_MISSING
         if not changed and remaining <= 0:
             print(f"QUIET {datetime.now(PACIFIC):%-I:%M %p}")
             changed = True
         if changed:
             if child:
-                end(child)
+                proctree.end(run)
             return 0
         pause(min(WAIT_SLICE, remaining), [mailbox for mailbox, _ in mailboxes], child)
 

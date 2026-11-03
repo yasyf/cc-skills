@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import errno
 import json
 import os
-import signal
 import subprocess
 from pathlib import Path
 
@@ -208,31 +206,6 @@ def test_mailbox_names_the_newest_roster_entry_for_the_lane(tmp_path, monkeypatc
         retire(tmp_path)
 
 
-def refused(*_: int) -> None:
-    raise PermissionError(errno.EPERM, os.strerror(errno.EPERM))
-
-
-def test_signalling_a_group_left_with_only_the_exited_child_reaps_it(monkeypatch):
-    child = subprocess.Popen(["true"], start_new_session=True)
-    os.waitid(os.P_PID, child.pid, os.WEXITED | os.WNOWAIT)
-    monkeypatch.setattr(os, "killpg", refused)
-
-    inboxes.signal_group(child, signal.SIGTERM)
-
-    assert child.returncode == 0
-
-
-def test_a_refused_signal_to_a_live_child_raises(monkeypatch):
-    child = subprocess.Popen(["sleep", "30"], start_new_session=True)
-    monkeypatch.setattr(os, "killpg", refused)
-    try:
-        with pytest.raises(PermissionError):
-            inboxes.signal_group(child, signal.SIGTERM)
-    finally:
-        child.kill()
-        child.wait()
-
-
 def test_a_cursor_holding_a_count_and_mailbox_keys_reads_as_either(tmp_path: Path):
     """p8a-step7 #233982: an older desk-wait.sh wrote a line count, a newer one appended mailbox keys under it, and the next wait died parsing the whole file as a count."""
     cursor = tmp_path / "mailbox.cursor"
@@ -242,4 +215,3 @@ def test_a_cursor_holding_a_count_and_mailbox_keys_reads_as_either(tmp_path: Pat
     assert inboxes.seen_keys(cursor) == ["0f2e6c1a-8b7d-4c3e-9a21-5d4b3c2a1f00", "9c8b7a6f-5e4d-4c3b-8a29-1f0e9d8c7b6a"]
     cursor.write_text("0f2e6c1a-8b7d-4c3e-9a21-5d4b3c2a1f00\n")
     assert inboxes.seen_count(cursor) == 0
-
