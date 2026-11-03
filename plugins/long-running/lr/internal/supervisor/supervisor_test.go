@@ -13,7 +13,6 @@ import (
 	"reflect"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
