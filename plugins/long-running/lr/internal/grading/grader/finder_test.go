@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
 
@@ -433,6 +434,25 @@ func TestARequestedFullPassReadsTheWholeChangeAtTheLiveHeadAndSaysSo(t *testing.
 	readText(t, directory, "rows.md")
 	equal(t, shell.posted[0]["--text"], "finder: ok "+shaHead+" sol finder "+wholeRecord+": no majors")
 	equal(t, shell.posted[0]["--id"], "finder:"+repoName+"#43299:"+shaHead+":whole")
+}
+
+func TestAPostTheStoreDidNotTakeSettlesThePassWithItsRecordLoggedForTheRunner(t *testing.T) {
+	directory := finderJobDir(t, nil)
+	shell, _ := newFinderFake(t, replyOf(findingOf("minor", "a.go:1", "minor")))
+	shell.postError = &client.BusDown{Cause: errors.New("the store did not answer within 15s"), Path: "/unsent/1.json"}
+	mustFinder(t, directory, shell)
+	holdsAll(t, readText(t, directory, ResultFile), `"verdict":"ok"`)
+	holdsAll(t, readText(t, directory, PostsFile), "finder:"+repoName+"#43299:"+shaHead)
+}
+
+func TestAPostTheStoreRefusedFailsThePass(t *testing.T) {
+	directory := finderJobDir(t, nil)
+	shell, _ := newFinderFake(t, replyOf(findingOf("minor", "a.go:1", "minor")))
+	shell.postError = errors.New("this lane may not post here")
+	if err := runFinderJob(t, directory, shell); err == nil {
+		t.Fatal("a refused post settled the pass")
+	}
+	holdsAll(t, readText(t, directory, ResultFile), "this lane may not post here")
 }
 
 func TestAHeadThatCarriesNoCommitTheBaseLacksRunsNoFinder(t *testing.T) {
