@@ -8,6 +8,7 @@ from captain_hook import Allow, BaseHookEvent, Block, Event, FromSubagent, HookR
 
 from .compaction_handoff import CompactionState
 from .root_replies import ACTIVE, PACIFIC, REPLY_WINDOW, SYSTEM_PREFIXES, owner_text
+from .window_lane import Coordinator, coordinator_tests
 
 PERMALINK = re.compile(r"https://[\w-]+\.slack\.com/archives/[A-Z0-9]+/p(?P<seconds>\d{10})(?P<micros>\d{6})(?:\?\S*?thread_ts=(?P<thread>\d{10}\.\d{6}))?")
 HANDOFF_TOOLS = frozenset({
@@ -50,7 +51,8 @@ def names(use: object, wanted: set[str]) -> bool:
     Event.Stop,
     skip_if=[FromSubagent()],
     transcript_events=REPLY_WINDOW,
-    tests={
+    only_if=[Coordinator()],
+    tests=coordinator_tests({
         Input(transcript=[ASKED, T.assistant("Looking into the bug reports.", timestamp="2026-11-02T18:34:00Z")], state=ACTIVE): Block(pattern=r"10:33 AM https://poetic-technology\.slack\.com"),
         Input(
             transcript=[ASKED, T.assistant(T.tool("mcp__plugin_cc-slack_cc-slack__slack_thread", channel_id="C0BQSADC7SS", thread_ts="1793632907.983749"), timestamp="2026-11-02T18:34:00Z")],
@@ -70,7 +72,7 @@ def names(use: object, wanted: set[str]) -> bool:
         ): Allow(),
         Input(transcript=[T.user(f"<teammate-message>{LINK}</teammate-message>", timestamp="2026-11-02T18:33:00Z"), T.assistant("Noted.")], state=ACTIVE): Allow(),
         Input(transcript=[ASKED, T.assistant("Looking into the bug reports.")]): Allow(),
-    },
+    }),
 )
 def owner_slack_links_get_routed(evt: BaseHookEvent) -> HookResult | None:
     """The drive root stops only once every Slack thread the owner linked has a reply posted there or a handoff that names the thread: an Agent prompt, a SendMessage, a status file write, a `cci post` or a `cc-slack reply`."""

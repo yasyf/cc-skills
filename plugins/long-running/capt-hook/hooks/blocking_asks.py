@@ -5,6 +5,7 @@ from captain_hook.annotations import dispatch_pairs
 
 from .compaction_handoff import CompactionState
 from .lane_rotation import DriveActive
+from .window_lane import Coordinator, coordinator_tests
 
 LANE_TASKS = frozenset({"subagent", "teammate", "workflow", "cloud session"})
 LANE = {"type": "subagent", "status": "running", "description": "spot-pool lane"}
@@ -37,9 +38,9 @@ def declared_blocking(evt: BaseHookEvent) -> bool:
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("AskUserQuestion"), DriveActive()],
+    only_if=[Coordinator(), Tool("AskUserQuestion"), DriveActive()],
     skip_if=[FromSubagent(), Annotated("raw")],
-    tests={
+    tests=coordinator_tests({
         question("Carry a fourth Dagger patch?", state=live(LANE, WATCH)): Block(pattern=r"^A drive root never parks on `AskUserQuestion` while lanes run\..*`cc-present ask <card>`"),
         question("Raise the spot quota?", state=live(), transcript=SPAWNED): Block(pattern="never parks"),
         question("Carry a fourth Dagger patch?", state=live(WATCH)): Allow(),
@@ -47,7 +48,7 @@ def declared_blocking(evt: BaseHookEvent) -> bool:
         question("Carry a fourth Dagger patch?", state=[CompactionState(background=[LANE])]): Allow(),
         question("Carry a fourth Dagger patch?", state=live(LANE), env={"CAPT_HOOK_CCX_RAW": "1"}): Allow(),
         question("Which spot pool takes the quota?\nccx: ask=blocking", state=live(LANE)): Allow(),
-    },
+    }),
 )
 def drive_roots_never_park_on_asks(evt: BaseHookEvent) -> HookResult | None:
     if not lanes_live(evt) or declared_blocking(evt):

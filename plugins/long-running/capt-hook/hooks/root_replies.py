@@ -37,6 +37,7 @@ from .owner_facing import CCI_POST, incident_sources, last_reply, open_incidents
 from .tests.incident_fixtures import CLOSED_0820, SAND_NOT_MIGRATED
 from .tests.lane_pr_fixtures import DRIVE as LANE_DRIVE
 from .tests.register_fixtures import DRIVE_CONFIG
+from .window_lane import Coordinator, coordinator_tests
 
 ACTIVE = [CompactionState(active=True)]
 DRIVE_ACTIVE = [CompactionState(active=True, slug="brook")]
@@ -309,7 +310,8 @@ def relabeled(evt: BaseHookEvent, texts: Callable[[], list[str]]) -> str | None:
     Event.Stop,
     skip_if=[FromSubagent()],
     transcript_events=REPLY_WINDOW,
-    tests={
+    only_if=[Coordinator()],
+    tests=coordinator_tests({
         Input(
             transcript=replied(owner_said("stop all cuts now", "2026-01-15T00:11:00Z"), reply='Logged OWNER 7:58 PM "stop all cuts now" as a hold.'),
             state=ACTIVE,
@@ -333,7 +335,7 @@ def relabeled(evt: BaseHookEvent, texts: Callable[[], list[str]]) -> str | None:
         Input(transcript=replied(*MID_TURN, reply='Recorded OWNER 12:21 PM "post the board once the fix lands".'), state=ACTIVE): Ask(),
         Input(transcript=replied(owner_said("ship it", "2026-01-15T00:11:00Z"), reply="The fix lane is building."), state=ACTIVE): Ask(),
         Input(transcript=replied(owner_said("ship it", "2026-01-15T00:11:00Z"), reply="Logged OWNER 7:58 PM as a hold.")): Ask(),
-    },
+    }),
 )
 def owner_labels_carry_the_turn_stamp(evt: BaseHookEvent) -> HookResult | None:
     if not CompactionState.load(evt).active or not (warning := relabeled(evt, lambda: [last_reply(evt)])):
@@ -343,9 +345,9 @@ def owner_labels_carry_the_turn_stamp(evt: BaseHookEvent) -> HookResult | None:
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("Bash")],
+    only_if=[Coordinator(), Tool("Bash")],
     skip_if=[FromSubagent()],
-    tests={
+    tests=coordinator_tests({
         Input(
             command="cci post --drive d --lane root --kind hold --text 'OWNER 7:58 PM: stop all cuts now'",
             transcript=[owner_said("stop all cuts now", "2026-01-15T00:11:00Z")],
@@ -376,7 +378,7 @@ def owner_labels_carry_the_turn_stamp(evt: BaseHookEvent) -> HookResult | None:
         Input(command="cci post --drive d --lane root --kind decide --text 'OWNER 12:51 PM: board is posted'", transcript=MID_TURN, state=ACTIVE): Warn(
             pattern=r"OWNER 12:51 PM -> OWNER 12:21 PM or 12:19 PM"
         ),
-    },
+    }),
 )
 def owner_records_carry_the_turn_stamp(evt: BaseHookEvent) -> HookResult | None:
     if not CompactionState.load(evt).active:
@@ -389,7 +391,8 @@ def owner_records_carry_the_turn_stamp(evt: BaseHookEvent) -> HookResult | None:
     Event.Stop,
     skip_if=[FromSubagent()],
     transcript_events=REPLY_WINDOW,
-    tests={
+    only_if=[Coordinator()],
+    tests=coordinator_tests({
         Input(transcript=[T.user("status?"), T.assistant("worker-fix-2 is idle with no code; relaunching it.")], state=ACTIVE): Allow(system_message=r"drive\.py lane-status <lane>"),
         Input(transcript=[T.user("status?"), T.assistant("worker-fix-2 is empty.")], state=ACTIVE): Allow(system_message=r"^Warning, nothing was blocked"),
         Input(transcript=[T.user("status?"), T.assistant("worker-fix-2: idle")], state=ACTIVE): Allow(system_message=r"^Warning, nothing was blocked"),
@@ -430,7 +433,7 @@ def owner_records_carry_the_turn_stamp(evt: BaseHookEvent) -> HookResult | None:
             state=[*ACTIVE, NagClock(said={"idle-claim:worker-fix-2": time.time()})],
         ): Ask(),
         Input(transcript=[T.user("status?"), T.assistant("worker-fix-2 is idle.")]): Ask(),
-    },
+    }),
 )
 def idle_claims_read_lane_status(evt: BaseHookEvent) -> HookResult | None:
     if not CompactionState.load(evt).active or lane_status_ran(evt):
@@ -454,7 +457,8 @@ def read_this_turn(evt: BaseHookEvent) -> bool:
     Event.Stop,
     skip_if=[FromSubagent()],
     transcript_events=REPLY_WINDOW,
-    tests={
+    only_if=[Coordinator()],
+    tests=coordinator_tests({
         Input(transcript=[T.user("what did review find?"), T.assistant("Codex found two races in the retire path.")], state=ACTIVE): Allow(system_message=r"same turn"),
         Input(transcript=[T.user("how does landing work?"), T.assistant("Landing means the journal is copied to a shared server.")], state=ACTIVE): Allow(system_message=r"^Warning, nothing was blocked"),
         Input(
@@ -514,7 +518,7 @@ def read_this_turn(evt: BaseHookEvent) -> bool:
         Input(transcript=[T.user("status?"), T.assistant("Three PRs are open and two lanes are working.")], state=ACTIVE): Ask(),
         Input(transcript=[T.user("status?"), T.assistant("The PR lands by means of the queue.")], state=ACTIVE): Ask(),
         Input(transcript=[T.user("what did review find?"), T.assistant("Codex found two races in the retire path.")]): Ask(),
-    },
+    }),
 )
 def code_claims_follow_a_read(evt: BaseHookEvent) -> HookResult | None:
     if not CompactionState.load(evt).active or not (claims := CODE_CLAIM.findall(reply := last_reply(evt))):
@@ -527,10 +531,10 @@ def code_claims_follow_a_read(evt: BaseHookEvent) -> HookResult | None:
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("Bash", "SendMessage")],
+    only_if=[Coordinator(), Tool("Bash", "SendMessage")],
     skip_if=[FromSubagent()],
     max_fires=1,
-    tests={
+    tests=coordinator_tests({
         Input(command="cci post --drive d --lane root --kind stand-down --to worker-fix-2 --text 'stand down'", state=ACTIVE): Warn(
             pattern=r"drive\.py lane-status <lane>"
         ),
@@ -553,7 +557,7 @@ def code_claims_follow_a_read(evt: BaseHookEvent) -> HookResult | None:
         ): Allow(),
         Input(command="cci post --drive d --lane root --kind go --to worker-fix-2 --text 'ship it'", state=ACTIVE): Allow(),
         Input(command="cci post --drive d --lane root --kind stand-down --to x --text 'stand down'"): Allow(),
-    },
+    }),
 )
 def stand_downs_read_lane_status(evt: BaseHookEvent) -> HookResult | None:
     if not CompactionState.load(evt).active:
@@ -574,7 +578,8 @@ def stand_downs_read_lane_status(evt: BaseHookEvent) -> HookResult | None:
     skip_if=[FromSubagent()],
     transcript_events=REPLY_WINDOW,
     max_fires=1,
-    tests={
+    only_if=[Coordinator()],
+    tests=coordinator_tests({
         Input(
             transcript=[T.user("why is it slow"), T.assistant("My bad: the runner was broken and I missed the stalled launch.")],
             state=ACTIVE,
@@ -613,7 +618,7 @@ def stand_downs_read_lane_status(evt: BaseHookEvent) -> HookResult | None:
             state=ACTIVE,
             commands=incident_sources(SAND_NOT_MIGRATED),
         ): Ask(),
-    },
+    }),
 )
 def narrated_defects_ship_their_fix(evt: BaseHookEvent) -> HookResult | None:
     reply = last_reply(evt)
@@ -628,13 +633,14 @@ def narrated_defects_ship_their_fix(evt: BaseHookEvent) -> HookResult | None:
     skip_if=[FromSubagent()],
     transcript_events=REPLY_WINDOW,
     max_fires=1,
-    tests={
+    only_if=[Coordinator()],
+    tests=coordinator_tests({
         Input(transcript=[T.user("how bad?"), T.assistant("About 300 requests per minute fail, and 12 runs crashed.")], state=ACTIVE): Allow(system_message=r"300 requests per minute"),
         Input(transcript=[T.user("how bad?"), T.assistant("15 runs crashed in the last hour (#104701).")], state=ACTIVE): Ask(),
         Input(transcript=[T.user("how bad?"), T.assistant("15 runs crashed in the last hour.")], state=ACTIVE): Allow(system_message=r"^Warning, nothing was blocked"),
         Input(transcript=[T.user("status?"), T.assistant("Three PRs are open and two lanes are working.")], state=ACTIVE): Ask(),
         Input(transcript=[T.user("how bad?"), T.assistant("15 runs crashed.")]): Ask(),
-    },
+    }),
 )
 def owner_numbers_cite_their_query(evt: BaseHookEvent) -> HookResult | None:
     if not CompactionState.load(evt).active:
@@ -687,7 +693,8 @@ def owner_waits(drive: str, *args: str) -> list[dict]:
     Event.Stop,
     skip_if=[FromSubagent()],
     transcript_events=REPLY_WINDOW,
-    tests={
+    only_if=[Coordinator()],
+    tests=coordinator_tests({
         Input(transcript=[T.user("anything for me?"), T.assistant("#45507 waits on your tap, and #45524 waits on it below.")], state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={f"{CHECK_PR} 45507": FALSE_PR}): Block(
             pattern=r"#45507 at 632c4a5: not waiting on you: the board holds no row for it; its fidelity grade .* reads missing since 3:02 AM"
         ),
@@ -701,7 +708,7 @@ def owner_waits(drive: str, *args: str) -> list[dict]:
         Input(transcript=[T.user("status?"), T.assistant("The durable-agents session owns it, and I've asked them to either put it on your board or merge it themselves."), T.user("release worker stood down")], state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={CHECK_BOARD: "[]"}): Allow(),
         Input(transcript=[T.user("status?"), T.assistant("Nothing is ready."), T.user("release worker stood down"), T.assistant("The merge card waits on your tap.")], state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={CHECK_BOARD: "[]"}): Block(pattern=NOTHING_WAITS),
         Input(transcript=[T.user("anything for me?"), T.assistant("#45507 waits on your tap.")], env=DRIVE_CONFIG): Allow(),
-    },
+    }),
 )
 def tap_claims_match_the_board(evt: BaseHookEvent) -> HookResult | None:
     """A root reply that says a PR or anything else waits on the owner's tap, approval or pick stands only when `cci owner-waits` finds a board row awaiting him at that PR's head, or anything awaiting him for a claim naming no PR; otherwise the reply goes back with the real state to say instead (owner, 4:40 AM Oct 30, #207532). A board that does not read blocks nothing."""
@@ -785,7 +792,8 @@ FLYING = {"task": "952", "lane": "next-build-tester-2", "subject": "tester round
     Event.Stop,
     skip_if=[FromSubagent()],
     transcript_events=REPLY_WINDOW,
-    tests={
+    only_if=[Coordinator()],
+    tests=coordinator_tests({
         Input(transcript=[T.user("status?"), T.assistant("The chat-list fix landed; nothing else moved.")], state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={UPDATE_DRIVE: update_found([DELIVERY])}): Block(
             pattern=r"delivered #1815 devbox-explore-7"
         ),
@@ -799,7 +807,7 @@ FLYING = {"task": "952", "lane": "next-build-tester-2", "subject": "tester round
         Input(transcript=[T.user("status?"), T.assistant("Nothing moved.")], state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={UPDATE_DRIVE: (1, "ccn down")}): Allow(),
         Input(transcript=[T.user("status?"), T.assistant("Nothing moved.")], state=DRIVE_ACTIVE, env=DRIVE_CONFIG, agent_id="a1b2c3", commands={UPDATE_DRIVE: update_found([DELIVERY])}): Allow(),
         Input(transcript=[T.user("status?"), T.assistant("Nothing moved.")], env=DRIVE_CONFIG, commands={UPDATE_DRIVE: update_found([DELIVERY])}): Allow(),
-    },
+    }),
 )
 def owner_updates_cover_every_delivery(evt: BaseHookEvent) -> HookResult | None:
     """A root reply to the owner's status or update ask covers every delivery `owner_update.py` lists since the last update that passed, and calls no in-flight task not started; else it goes back with the lines to add (owner, 9:55 PM Nov 1). A read that fails blocks nothing."""
@@ -833,7 +841,8 @@ RETRO_FAILED = "The Stop hook's `retro.py --drive {drive} check` failed, so the 
 @on(
     Event.Stop,
     skip_if=[FromSubagent()],
-    tests={
+    only_if=[Coordinator()],
+    tests=coordinator_tests({
         Input(state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={RETRO_CHECK: (1, "PROBLEM r12 owner coordinator: no due time | froze releases")}): Block(pattern=r"PROBLEM r12 owner coordinator"),
         Input(state=DRIVE_ACTIVE, env=LANE_DRIVE, commands={REGISTRY_RETRO_CHECK: (1, "PROBLEM r3 owner fix-lane: past due")}): Block(pattern=r"PROBLEM r3 owner fix-lane"),
         Input(state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={RETRO_CHECK: ""}): Allow(),
@@ -841,7 +850,7 @@ RETRO_FAILED = "The Stop hook's `retro.py --drive {drive} check` failed, so the 
         Input(state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={RETRO_CHECK: (2, "usage: retro.py")}): Allow(system_message=r"usage: retro.py"),
         Input(state=DRIVE_ACTIVE, env=DRIVE_CONFIG, agent_id="a1b2c3", commands={RETRO_CHECK: (1, "PROBLEM r12 owner coordinator: no due time")}): Allow(),
         Input(env=DRIVE_CONFIG, commands={RETRO_CHECK: (1, "PROBLEM r12 owner coordinator: no due time")}): Allow(),
-    },
+    }),
 )
 def retro_rows_hold(evt: BaseHookEvent) -> HookResult | None:
     """The root stops only while `retro.py check` finds every retro row whole: a live owner, a state from the closed set, a due time and a mechanism, no repeat of another row's failure, and none past due and not live; its lines go back to the root (owner 10:26 PM Nov 1, retro-close-1 contract #308142). The check names the drive by its registry entry, the one `drive.py current` resolves for the session; a check that fails without PROBLEM rows blocks nothing and is reported once an hour."""

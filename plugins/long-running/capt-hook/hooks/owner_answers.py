@@ -13,6 +13,7 @@ from .compaction_handoff import ROOT_LANE, CompactionState, bus_name, drive_entr
 from .owner_facing import CCI_POST, board_bytes, board_sources, posted_text
 from .root_replies import DRIVE_ACTIVE, OWNER_WAITS, PACIFIC, owner_waits
 from .tests.register_fixtures import DRIVE_CONFIG
+from .window_lane import Coordinator, coordinator_tests
 
 READ_SECONDS = 30
 RECORD_BYTES = 4_000_000
@@ -168,7 +169,8 @@ def answered(pr: str, since: datetime, roots: list[dict]) -> bool:
 @on(
     Event.Stop,
     skip_if=[FromSubagent()],
-    tests={
+    only_if=[Coordinator()],
+    tests=coordinator_tests({
         Input(state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={BOARD: board({"card-relay": [{"id": "f1", "text": NOTE}]}), NOTES: noted(30), ROOTS: ""}): Block(pattern=r"card-relay at \d{1,2}:\d{2} [AP]M: “why is the relay slot here at all\?”"),
         Input(state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={BOARD: board({"card-relay": [{"id": "f1", "text": NOTE, "replies": [{"id": "r1", "md": "It carries the session."}]}]}), NOTES: noted(30), ROOTS: ""}): Allow(),
         Input(state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={BOARD: board({"card-relay": [{"id": "f1", "text": NOTE}]}), NOTES: noted(5), ROOTS: ""}): Allow(),
@@ -178,7 +180,7 @@ def answered(pr: str, since: datetime, roots: list[dict]) -> bool:
         Input(state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={BOARD: board(triage=row_note(30), replies={"merge-prs": [{"id": "r2", "md": "#47326 is closed."}]}), NOTES: "", ROOTS: ""}): Allow(),
         Input(state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={BOARD: (1, "no board"), NOTES: noted(30), ROOTS: ""}): Allow(),
         Input(env=DRIVE_CONFIG, commands={BOARD: board({"card-relay": [{"id": "f1", "text": NOTE}]}), NOTES: noted(30), ROOTS: ""}): Allow(),
-    },
+    }),
 )
 def owner_notes_get_answers(evt: BaseHookEvent) -> HookResult | None:
     """The root stops only once every owner note on its board from the last day that is over 10 minutes old has an answer: a board note gets a reply in its thread, and a merge-row note a board reply or a root record naming its PR. A board or bus that does not read blocks nothing."""
@@ -196,15 +198,15 @@ def owner_notes_get_answers(evt: BaseHookEvent) -> HookResult | None:
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("Bash")],
+    only_if=[Coordinator(), Tool("Bash")],
     skip_if=[FromSubagent(), Annotated("raw")],
-    tests={
+    tests=coordinator_tests({
         Input(command="cci post --drive brook-drive --lane root --kind go --to board-refresher-6 --text 'put #47265 on his board'", state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={CHECK: waits("#47265 at 827dd7f: not waiting on you: you approved it at 827dd7f at 1:46 AM")}): Block(pattern=r"#47265 at 827dd7f: not waiting on you: you approved it"),
         Input(command="cci post --drive brook-drive --lane root --kind go --to board-refresher-6 --text 'board rows for #47265'", state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={CHECK: waits("#47265 at 827dd7f: not waiting on you: the board holds no row for it")}): Allow(),
         Input(command="cci post --drive brook-drive --lane root --kind go --to landing-desk-3 --text 'land #47265'", state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={CHECK: waits("#47265 at 827dd7f: not waiting on you: you approved it at 827dd7f")}): Allow(),
         Input(command="cci post --drive brook-drive --lane board-refresher-6 --kind state --text 'put #47265 on his board'", state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={CHECK: waits("#47265 at 827dd7f: not waiting on you: you approved it at 827dd7f")}): Allow(),
         Input(command="cci post --drive brook-drive --lane root --kind go --text 'put #47265 on his board'", env=DRIVE_CONFIG, commands={CHECK: waits("#47265 at 827dd7f: not waiting on you: you approved it at 827dd7f")}): Allow(),
-    },
+    }),
 )
 def board_rows_skip_approved_prs(evt: BaseHookEvent) -> HookResult | None:
     """A root order that asks for board rows on PRs the owner already approved at their current heads goes back with those PRs (owner, 2:48 AM Oct 31). A read that fails blocks nothing."""

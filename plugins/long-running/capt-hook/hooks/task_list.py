@@ -32,6 +32,7 @@ from .lane_rotation import DriveActive
 from .nudges import once_per_hour, queue_nudge
 from .register_injection import MAINTENANCE, own_prompt, own_role
 from .session_tree import TEAMMATE_MESSAGE, lane_of
+from .window_lane import Coordinator, coordinator_tests
 
 ASK_CALLS = 3
 ASK_LINE = "Every owner ask gets a task. Run `TaskCreate` for it."
@@ -98,13 +99,13 @@ def fresh_prompts(evt: BaseHookEvent, cursor: str | None) -> tuple[list[str], st
 
 @on(
     Event.PostToolUse | Event.Stop,
-    only_if=[DriveActive()],
+    only_if=[Coordinator(), DriveActive()],
     skip_if=[FromSubagent()],
     transcript_events=TURN_WINDOW,
-    tests={
+    tests=coordinator_tests({
         Input(tool="Bash", tool_input={"command": "ls"}): Allow(),
         Input(tool="TaskCreate", tool_input={"subject": "x", "description": "y"}): Allow(),
-    },
+    }),
 )
 def require_task_for_owner_ask(evt: BaseHookEvent) -> HookResult | None:
     now = time.time()

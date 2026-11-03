@@ -10,6 +10,7 @@ from .compaction_handoff import CompactionState
 from .lane_rotation import DriveActive
 from .owner_facing import REPLY_WINDOW, SLACK_CARD, last_reply, question_text
 from .tests.handoff_fixtures import reply_transcript
+from .window_lane import Coordinator, OwnerBridge, bridge_tests, coordinator_tests
 
 ACTIVE = [CompactionState(active=True)]
 QUESTION = re.compile(r"[^.?!\n]*\?")
@@ -54,31 +55,31 @@ def ask(question: str, order: str = ORDER, **extra: object) -> Input:
 
 hook(
     Event.PreToolUse,
-    only_if=[Tool("AskUserQuestion", SLACK_CARD), DriveActive(), AsksOrderedApproval()],
+    only_if=[OwnerBridge(), Tool("AskUserQuestion", SLACK_CARD), DriveActive(), AsksOrderedApproval()],
     skip_if=[FromSubagent()],
     block=True,
     confirm=Confirm(rule="The owner already ordered this release, so nobody asks him to approve one of its steps."),
     message=MESSAGE,
-    tests={
+    tests=bridge_tests({
         ask("Approve the 3 deletes on plat so release 12151 can apply?"): Block(pattern=r"^The owner's release order already carries"),
         Input(tool=SLACK_CARD, tool_input={"card": {"title": "Your word on the migrations for the plat release?", "options": ["Approve", "Hold"]}}, state=ACTIVE, commands={"cci grep": ORDER}, decide=CONFIRMED): Block(),
         ask("Approve the 3 deletes on plat so release 12151 can apply?", ""): Allow(),
         ask("Merge #48401 now?"): Allow(),
         ask("Approve the 3 deletes on plat so release 12151 can apply?", agent_id="a1b2c3"): Allow(),
         Input(tool="AskUserQuestion", tool_input={"questions": [{"question": "Approve the deletes on plat?", "options": []}]}, commands={"cci grep": ORDER}): Allow(),
-    },
+    }),
 )
 
 hook(  # capt-hook: no-escape a reply to the owner carries no tool call to confirm, and the order already answers the ask
     Event.Stop,
-    only_if=[DriveActive(), RepliesOrderedApproval()],
+    only_if=[Coordinator(), DriveActive(), RepliesOrderedApproval()],
     skip_if=[FromSubagent()],
     transcript_events=REPLY_WINDOW,
     block=True,
     message=MESSAGE,
-    tests={
+    tests=coordinator_tests({
         Input(transcript=reply_transcript("Release 12151 shows 3 deletes on plat. Approve them so the apply can go on?"), state=ACTIVE, commands={"cci grep": ORDER}): Block(pattern=r"report deletes and replaces in its done line"),
         Input(transcript=reply_transcript("Release 12151 applied with 3 deletes, which the release lane approved under the owner's order."), state=ACTIVE, commands={"cci grep": ORDER}): Allow(),
         Input(transcript=reply_transcript("Approve the 3 deletes on plat?"), state=ACTIVE, commands={"cci grep": ""}): Allow(),
-    },
+    }),
 )
