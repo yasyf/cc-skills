@@ -66,6 +66,10 @@ def now(page):
     page.wait_for_selector(".nw-spine")
 
 
+def open_work_row(page, item):
+    page.locator(f'.nw-live details[data-id="wr-{item}"] > summary').click()
+
+
 def test_every_open_blocker_and_the_focused_work_say_how_long_they_have_waited(page):
     now(page)
     rows = page.locator(".nw-slot .pan.focus :is(.chain .hc, .feed .lead)").all_inner_texts()
@@ -194,19 +198,19 @@ def test_now_reads_milestones_then_the_live_feed_then_the_merge_map(page):
 def test_tapping_a_worker_swaps_the_live_feed_to_its_story_and_back(page):
     now(page)
     item = json.loads(MODEL.read_text())["brief"]["work"][0]["item"]
-    page.locator(f'.nw-live .wr[data-feed="{item}"]').click()
+    open_work_row(page, item)
+    page.locator(f'.nw-live [data-feed="{item}"]').click()
     page.wait_for_selector(".nw-live .nw-storyhead .nw-sub")
     assert "Three files still use the deleted store" in page.locator(".nw-live .nw-storyhead .now").inner_text()
     page.locator(".nw-live [data-feed-all]").click()
-    page.wait_for_selector(".nw-live .nw-work")
+    page.wait_for_selector(".nw-live .ev-rows")
 
 
-def test_a_row_shows_its_newest_event_and_its_panel_the_whole_history(page):
+def test_a_works_panel_shows_the_whole_history(page):
     now(page)
     model = json.loads(MODEL.read_text())
     key, entry = next(iter(model["history"].items()))
     item = next(w["item"] for w in model["brief"]["work"] if key.removeprefix("lane:") in (w.get("workers") or []))
-    assert entry["events"][0]["text"] in page.locator(f'.nw-live .wr[data-feed="{item}"] .ev').text_content()
     page.goto(page.url.split("#")[0] + f"#/~work/{item}")
     page.wait_for_selector(".pr-drawer.front .hist")
     shown = page.locator(".pr-drawer.front .hist .evs li").all_inner_texts()
@@ -322,9 +326,9 @@ def test_a_work_row_reads_its_pull_requests_runner_state_over_the_summary(page):
         state.model.pr_state = { 42742: { state: 'Landed', since: new Date().toISOString(), line: 'Landed at 6:09 PM' } };
         render();
     }""", item)
-    row = page.locator(f'.nw-live .wr[data-feed="{item}"]')
-    assert row.locator(".chip").text_content() == "Landed"
-    assert "Landed at 6:09 PM" in row.inner_text()
+    row = page.locator(f'.nw-live details[data-id="wr-{item}"]')
+    assert "Landed" in row.locator("summary").inner_text()
+    assert "Landed at 6:09 PM" in row.text_content()
 
 
 def test_an_incident_never_hides_what_waits_on_him(page):
@@ -334,28 +338,45 @@ def test_an_incident_never_hides_what_waits_on_him(page):
     assert page.locator(".nw-band.nw-needs").is_visible()
 
 
-def test_the_feed_shows_the_focused_work_first_and_other_works_latest_line_only_on_hover(page):
+def test_the_feed_puts_stuck_work_first_and_each_line_opens_to_its_detail(page):
     now(page)
-    rows = page.locator(".nw-live .wr")
-    assert "lead" in rows.first.get_attribute("class")
-    rest = page.locator(".nw-live .wr.rest:not(.st-ready-for-you):has(.ev)").first
-    assert not rest.locator(".ev").is_visible()
-    rest.hover()
-    assert rest.locator(".ev").is_visible()
+    rows = page.locator(".nw-live .ev-rows > li")
+    assert "Stuck" in rows.first.locator("summary").inner_text()
+    assert not rows.first.locator(".ev-more").is_visible()
+    rows.first.locator("summary").click()
+    assert rows.first.locator(".ev-more").is_visible()
+    rows.first.locator("summary").click()
 
 
-def test_the_prevention_table_lists_broken_rows_first_then_open_ones_and_folds_live_ones(page):
-    """Owner 10:21 PM Nov 1: tens of rows read UNDEFINED; a row with no state is a broken row that says what it lacks, never undefined."""
+def test_what_failed_folds_to_lines_and_a_broken_row_says_what_it_lacks(page):
     now(page)
-    rows = page.locator(".nw-prevent > .pt .pt-row")
-    assert [t.split("\n")[0] for t in rows.all_inner_texts()] == ["One message failed to send on the test Mac at 4:37 AM.", "Graphite's merge queue stopped merging for an hour.", "The 1:14 PM publish failed on a stale signing list."]
-    assert [r.get_attribute("class").split() for r in rows.all()] == [["pt-row", "broken"], ["pt-row", "building"], ["pt-row", "open"]]
-    assert page.locator(".nw-prevent .pt-row.broken .chip").all_text_contents() == ["Broken row"]
-    assert page.locator(".nw-prevent .pt-row.broken .pv-why").inner_text() == "no mechanism; no state"
+    rows = page.locator(".nw-prevent .ev-rows > li")
+    assert rows.count() == 4
+    broken = rows.filter(has_text="Broken row")
+    assert "no mechanism; no state" in broken.text_content()
+    assert not broken.locator(".ev-more").is_visible()
     assert "undefined" not in page.locator(".nw-prevent").inner_text().lower()
     assert page.locator(".nw-prevent .nw-h .pg-n").text_content() == "3 not live"
-    assert page.locator(".nw-notlive").inner_text() == "3 failures with no live fix yet, listed under What failed."
-    assert not page.locator(".nw-prevent details .pt-row").first.is_visible()
+    assert page.locator(".nw-notlive").count() == 0
+
+
+def test_what_the_coordinator_owes_folds_by_kind_and_names_each_when_opened(page):
+    now(page)
+    page.evaluate("""() => {
+        state.model.coordinator_overdue = [
+            { id: 'ask-1', group: 'ask', seq: 1, due: '3:14 AM', text: 'Please lift the hold' },
+            { id: 'pick-2', group: 'pick', seq: 2, due: '4:20 AM', text: 'Start the release?' },
+            { id: 'pick-3', group: 'pick', seq: 3, due: '4:21 AM', text: 'Delete the leftovers?' },
+        ];
+        render();
+    }""")
+    band = page.locator(".nw-overdue")
+    assert "3 overdue items" in band.locator(".nw-h").text_content().lower()
+    rows = band.locator(".ev-rows > li")
+    assert [row.locator("summary").inner_text().split("\n")[-1] for row in rows.all()] == ["2 of your picks not carried out", "1 asks with no answer"]
+    assert "Delete the leftovers?" in rows.first.text_content()
+    page.evaluate("() => { state.model.coordinator_overdue = []; render(); }")
+    assert page.locator(".nw-overdue").count() == 0
 
 
 def test_a_retro_table_that_does_not_read_says_so_above_the_table(page):

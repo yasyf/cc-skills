@@ -135,8 +135,8 @@ function workEvent(w) {
   return { w, id: `wr-${w.item}`, iso: sinceClock(said), at: said, word: st.word, tone: WORK_TONE[st.word] ?? (st.word === 'Cleared to land' ? 'ok' : 'acc'), title: w.title, side: lasted(w.since), more: `<p>${esc(line)}</p>${stuck(w) ? `<p>${unblockLine(historyOf(rowKeys(w.item))?.unblocking)}</p>` : ''}<button class="linkish" data-feed="${esc(w.item)}">Live story ›</button>` };
 }
 const PREVENT_WORD = { building: 'Being built', open: 'Fix open', merged: 'Merged', live: 'Live' };
-const FAILED_VERB = { 'Past due': 'past due', Merged: 'merged, not live yet' };
-const FAILED_TONE = { 'Past due': 'bad', 'Fix open': 'warn', Merged: '' };
+const FAILED_VERB = { 'Past due': 'past due', 'Broken row': 'with fields missing', Merged: 'merged, not live yet' };
+const FAILED_TONE = { 'Past due': 'bad', 'Broken row': 'bad', 'Fix open': 'warn', Merged: '' };
 function notLive() {
   return state.model.preventions.filter((p) => p.state !== 'live' || p.problems.length);
 }
@@ -149,10 +149,10 @@ function preventions() {
     ${eventList(rows)}</section>`;
 }
 function fixItems(list) {
-  return `<ul>${list.map((p) => `<li><b>${esc(p.failure ?? '')}</b><span>${esc(p.mechanism ?? '')}${p.pr ? ` <span class="pr">${esc(p.pr)}</span>` : ''}</span></li>`).join('')}</ul>`;
+  return `<ul>${list.map((p) => `<li><b>${esc(p.failure ?? '')}</b><span>${esc(p.mechanism ?? '')}${p.pr ? ` <span class="pr">${esc(p.pr)}</span>` : ''}${p.problems.length ? ` <span class="pv-why">${esc(p.problems.join('; '))}</span>` : ''}</span></li>`).join('')}</ul>`;
 }
 function failureRows() {
-  const word = (p) => (p.problems.length ? 'Past due' : PREVENT_WORD[p.state]);
+  const word = (p) => (!p.problems.length ? PREVENT_WORD[p.state] : p.problems.every((x) => x.startsWith('past due')) ? 'Past due' : 'Broken row');
   return groupBy(notLive(), (p) => `${word(p)}/${p.owner}`).map(([key, list]) => {
     const said = word(list[0]);
     const iso = list.map((p) => (p.problems.length ? p.due : p.moved)).sort().at(-1);
@@ -169,7 +169,7 @@ function liveFixRows() {
     const iso = list.map((p) => p.moved).sort().at(-1);
     return { id, iso, at: clock(iso), word: 'Fix live', tone: 'ok', title, side: countPill(list.length), more: fixItems(list) };
   };
-  return [...(fresh.length ? [row('pv-live-new', fresh, `${fresh.length} fixes went live in the last 24 hours`)] : []), ...(old.length ? [row('pv-live-old', old, `${old.length} older fixes are live`)] : [])];
+  return [...(fresh.length ? [row('pv-live-new', fresh, `${fresh.length} ${fresh.length === 1 ? 'fix' : 'fixes'} went live in the last 24 hours`)] : []), ...(old.length ? [row('pv-live-old', old, `${old.length} older ${old.length === 1 ? 'fix is' : 'fixes are'} live`)] : [])];
 }
 function picksRow() {
   const rows = (state.model.findings ?? []).find((group) => group.sweep === 'owner')?.rows ?? [];
