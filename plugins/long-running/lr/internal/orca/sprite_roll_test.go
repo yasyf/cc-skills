@@ -1,0 +1,173 @@
+package orca
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"maps"
+	"path/filepath"
+	"slices"
+	"testing"
+	"time"
+
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
+)
+
+const (
+	rollRun   = "run_roll"
+	rollCCX   = "0.91.68"
+	rollPack  = "0.7.1199"
+	rollTools = `[{"kind":"binary","name":"ccx","url":"https://example.test/ccx.tgz","sha256":"` + testCCISHA + `","version":"` + rollCCX + `"},{"kind":"plugin","name":"long-running@skills","url":"https://example.test/pack.tgz","sha256":"` + testLRSHA + `","version":"` + rollPack + `"}]`
+	rollAll   = "installed cci 0.49.36\ninstalled lr 9.9.9\ninstalled ccx " + rollCCX + "\ninstalled long-running@skills " + rollPack + "\n"
+)
+
+type rollWorld struct {
+	t       *testing.T
+	store   *store.Store
+	env     map[string]string
+	workers []Worker
+	replies map[string]shell.Result
+	boxes   []string
+	out     bytes.Buffer
+}
+
+func newRollWorld(t *testing.T) *rollWorld {
+	root := t.TempDir()
+	s, err := store.Open(filepath.Join(root, "lr.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	w := &rollWorld{t: t, store: s, replies: map[string]shell.Result{}}
+	f := &workerFixture{t: t}
+	f.write(filepath.Join(root, "plugin", "bin", "lr.binrun"), lrPin("linux-x86_64"), 0o700)
+	w.env = map[string]string{"WORKER_CCI_URL": testCCIURL, "WORKER_CCI_SHA256": testCCISHA, "BINRUN_PLUGIN_ROOT": filepath.Join(root, "plugin"), "WORKER_TOOLS": rollTools}
+	w.workers = []Worker{
+		{Dispatch: "ctx_done", Status: statusCompleted, Workspace: "pool-done"},
+		{Dispatch: "ctx_c", Workspace: "pool-c"},
+		{Dispatch: "ctx_a", Workspace: "pool-a"},
+		{Dispatch: "ctx_a2", Workspace: "pool-a"},
+		{Dispatch: "ctx_local"},
+		{Dispatch: "ctx_b", Workspace: "pool-b"},
+	}
+	return w
+}
+
+func (w *rollWorld) Workers(_ context.Context, run string) ([]Worker, error) {
+	if run != rollRun {
+		w.t.Fatal(run)
+	}
+	return w.workers, nil
+}
+
+func (w *rollWorld) Run(_ context.Context, c shell.Command) (shell.Result, error) {
+	box := c.Argv[3]
+	w.boxes = append(w.boxes, box)
+	if want := (spritePins{}).installArgv(box, nil); !slices.Equal(c.Argv[:10], want[:10]) || c.Argv[len(c.Argv)-1] != "--" {
+		w.t.Fatal(c.Argv)
+	}
+	result, scripted := w.replies[box]
+	if !scripted {
+		return shell.Result{Stdout: rollAll}, nil
+	}
+	if result.Code != 0 {
+		return result, &shell.ExitError{Argv: c.Argv, Code: result.Code, Stderr: result.Stderr}
+	}
+	return result, nil
+}
+
+func (w *rollWorld) roll(probe string) string {
+	w.t.Helper()
+	w.out.Reset()
+	roller := SpriteRoll{Runner: w, Orca: w, Store: w.store, Now: func() time.Time { return time.Date(2026, 11, 3, 13, 0, 0, 0, time.UTC) }, Out: &w.out}
+	err := roller.Run(context.Background(), rollRun, func(name string) string { return w.env[name] }, probe)
+	var failed *Failed
+	if errors.As(err, &failed) {
+		return failed.Line
+	}
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	return ""
+}
+
+func (w *rollWorld) census() map[string]map[string]string {
+	w.t.Helper()
+	tools, err := w.store.SpriteTools()
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	by := map[string]map[string]string{}
+	for _, tool := range tools {
+		if by[tool.Sprite] == nil {
+			by[tool.Sprite] = map[string]string{}
+		}
+		by[tool.Sprite][tool.Name] = tool.Version
+	}
+	return by
+}
+
+func TestARollInstallsOnTheProbeSpriteFirstThenEachLiveSpriteOnceAndRecordsWhatEachRuns(t *testing.T) {
+	w := newRollWorld(t)
+	if refused := w.roll("pool-c"); refused != "" {
+		t.Fatal(refused)
+	}
+	if !slices.Equal(w.boxes, []string{"pool-c", "pool-a", "pool-b"}) {
+		t.Fatal("the roll did not start on the probe and visit each live Sprite once", w.boxes)
+	}
+	want := map[string]string{"cci": "0.49.36", "lr": "9.9.9", "ccx": rollCCX, "long-running@skills": rollPack}
+	census := w.census()
+	if len(census) != 3 || !maps.Equal(census["pool-a"], want) || !maps.Equal(census["pool-b"], want) || !maps.Equal(census["pool-c"], want) {
+		t.Fatal(census)
+	}
+	w.boxes = nil
+	if refused := w.roll(""); refused != "" || !slices.Equal(w.boxes, []string{"pool-a", "pool-b", "pool-c"}) {
+		t.Fatal("without a probe the roll did not start on the first Sprite by name", refused, w.boxes)
+	}
+}
+
+func TestAPinThatFailsOnTheProbeIsMarkedBadAndNeverRolledOnAgain(t *testing.T) {
+	w := newRollWorld(t)
+	w.replies["pool-b"] = shell.Result{Code: 1, Stdout: "installed cci 0.49.36\ninstalled lr 9.9.9\nrefused: https://example.test/ccx.tgz is not the archive with SHA-256 " + testCCISHA + "\n"}
+	refused := w.roll("pool-b")
+	if want := "lr sprites roll: ccx " + rollCCX + " failed on pool-b and is marked bad, so 2 more Sprites keep what they run: refused: https://example.test/ccx.tgz is not the archive with SHA-256 " + testCCISHA; refused != want {
+		t.Fatalf("refused\n%s\nwant\n%s", refused, want)
+	}
+	if !slices.Equal(w.boxes, []string{"pool-b"}) {
+		t.Fatal("the roll went past a failed probe", w.boxes)
+	}
+	if census := w.census(); len(census) != 1 || census["pool-b"]["ccx"] != "" || census["pool-b"]["lr"] != "9.9.9" {
+		t.Fatal(census)
+	}
+	delete(w.replies, "pool-b")
+	w.boxes = nil
+	refused = w.roll("pool-a")
+	if want := "nothing rolled: ccx " + rollCCX + " is marked bad, since its install failed on pool-b: refused: https://example.test/ccx.tgz is not the archive with SHA-256 " + testCCISHA + "; pin another version"; refused != want || len(w.boxes) != 0 {
+		t.Fatalf("a bad version rolled again: %v\n%s\nwant\n%s", w.boxes, refused, want)
+	}
+	w.env["WORKER_TOOLS"] = `[{"kind":"binary","name":"ccx","url":"https://example.test/ccx.tgz","sha256":"` + testCCISHA + `","version":"0.91.69"}]`
+	if refused := w.roll("pool-a"); refused != "" || len(w.boxes) != 3 {
+		t.Fatal("another version of a bad pin did not roll", refused, w.boxes)
+	}
+}
+
+func TestAFailureBeforeAnyPinMarksNothingBad(t *testing.T) {
+	w := newRollWorld(t)
+	w.replies["pool-a"] = shell.Result{Code: 1, Stdout: "installed cci 0.49.36\n", Stderr: "curl: (6) Could not resolve host: github.com\n"}
+	if refused := w.roll(""); refused != "lr sprites roll: the cci or lr install failed on pool-a, so 2 more Sprites keep what they run: curl: (6) Could not resolve host: github.com" {
+		t.Fatal(refused)
+	}
+	for _, tool := range []string{"ccx", "long-running@skills"} {
+		if why, err := w.store.BadTool(tool, map[string]string{"ccx": rollCCX, "long-running@skills": rollPack}[tool]); err != nil || why != "" {
+			t.Fatal(tool, why, err)
+		}
+	}
+}
+
+func TestAProbeWithNoLiveWorkerRollsNothing(t *testing.T) {
+	w := newRollWorld(t)
+	if refused := w.roll("pool-done"); refused != "nothing rolled: pool-done hosts no live worker of Run "+rollRun || len(w.boxes) != 0 {
+		t.Fatal(refused, w.boxes)
+	}
+}

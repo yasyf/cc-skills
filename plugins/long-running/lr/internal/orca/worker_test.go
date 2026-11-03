@@ -808,7 +808,7 @@ func TestALaunchCarriesEachToolPinIntoTheInstallAndRefusesAMalformedPinBeforeAny
 	} {
 		f = newWorkerFixture(t)
 		f.env["WORKER_TOOLS"] = "[" + pin + "]"
-		f.refusedWith(fmt.Sprintf("WORKER_TOOLS pins %q, not a binary or plugin with a name, url, lowercase SHA-256 and version; nothing was prepared", name))
+		f.refusedWith(fmt.Sprintf("WORKER_TOOLS pins %q, not a binary, package or plugin with a name, url, lowercase SHA-256 and version; nothing was prepared", name))
 		f.wantNoAttempt()
 	}
 }
@@ -902,6 +902,26 @@ func TestAToolPinInstallsOnlyTheArchiveWithItsDigestAndVersion(t *testing.T) {
 	}
 	if err := install("plugin", "long-running@skills", packURL, packSHA, "0.7.1200"); err == nil || recorded() != baked {
 		t.Fatal("a pack archive of another version moved the install", err, recorded())
+	}
+
+	host := `#!/bin/sh
+case $1 in
+version) echo '{"schema":1,"build":"BUILD"}' ;;
+package-install) cp "$0" "$HOME/.local/bin/capt-hookd" && touch "$HOME/installed" ;;
+esac
+`
+	hookdURL, hookdSHA := tarball(t, dir, "hookd.tgz", map[string]string{"capt-hookd": strings.ReplaceAll(host, "BUILD", "12.117.9")})
+	if err := install("package", "capt-hookd", hookdURL, hookdSHA, "12.117.9"); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command(filepath.Join(home, ".local", "bin", "capt-hookd"), "version").Output(); err != nil || !strings.Contains(string(out), `"build":"12.117.9"`) {
+		t.Fatal(string(out), err)
+	}
+	if err := install("package", "capt-hookd", hookdURL, hookdSHA, "12.117.10"); err == nil || present(filepath.Join(home, "installed")) {
+		t.Fatal("a package that reports another build ran its install", err)
+	}
+	if err := install("package", "capt-hookd", hookdURL, testCCISHA, "12.117.9"); err == nil || present(filepath.Join(home, "installed")) {
+		t.Fatal("a package archive off its pinned digest ran its install", err)
 	}
 }
 
