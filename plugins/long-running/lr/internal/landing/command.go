@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -38,7 +39,11 @@ func restackCommand(a *app.App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			remote, err := NewRemote(a, runner, lane, sprite)
+			path, err := restackRunner(runner, a.ConfigPath)
+			if err != nil {
+				return err
+			}
+			remote, err := NewRemote(a, path, lane, sprite)
 			if err != nil {
 				return err
 			}
@@ -47,15 +52,23 @@ func restackCommand(a *app.App) *cobra.Command {
 			return err
 		},
 	}
-	cmd.Flags().StringVar(&runner, "runner", "", "the drive's runner.json, naming the repository, the clone path and the Sprites")
+	cmd.Flags().StringVar(&runner, "runner", "", "the drive's runner.json, naming the repository, the clone path and the Sprites; default the runner.json beside --config")
 	cmd.Flags().StringVar(&lane, "lane", "", "the lane each moved PR's head record comes from")
 	cmd.Flags().StringVar(&sprite, "sprite", "", "the Sprite to run on, instead of the first one the runner names")
-	for _, name := range []string{"runner", "lane"} {
-		if err := cmd.MarkFlagRequired(name); err != nil {
-			panic(err)
-		}
+	if err := cmd.MarkFlagRequired("lane"); err != nil {
+		panic(err)
 	}
 	return cmd
+}
+
+func restackRunner(runner, configPath string) (string, error) {
+	if runner != "" {
+		return runner, nil
+	}
+	if configPath == "" {
+		return "", errors.New("lr landing restack: pass --runner, or --config so the runner.json beside it is read")
+	}
+	return filepath.Join(filepath.Dir(configPath), runnerFile), nil
 }
 
 func NewRemote(a *app.App, runnerPath, lane, sprite string) (Remote, error) {
