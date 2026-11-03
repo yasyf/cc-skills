@@ -190,7 +190,7 @@ func (d drive) startLaunchRunner(ctx context.Context, out io.Writer) error {
 		return nil
 	}
 	log := filepath.Join(d.state, launchRunner+"-runner.log")
-	if _, err := d.run(ctx, "sh", "-c", `nohup "$@" >>"$0" 2>&1 </dev/null &`, log, "desk-runner.py", "run", "--config", d.runnerConfig(), "--desk", launchRunner); err != nil {
+	if _, err := d.app.Runner.Run(ctx, shell.Command{Argv: []string{"sh", "-c", `nohup "$@" >>"$0" 2>&1 </dev/null &`, log, "desk-runner.py", "run", "--config", d.runnerConfig(), "--desk", launchRunner}, Env: lanes.Identity(runnerLane)}); err != nil {
 		return err
 	}
 	deadline := d.app.Now().Add(beatWait)

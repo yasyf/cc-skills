@@ -333,7 +333,7 @@ func liveWorld(a *app.App, header Header, facts Facts) (World, error) {
 		return World{}, err
 	}
 	return World{
-		Orca:      OrcaCLI{Runner: a.Runner, Run: facts.OrcaRun, Repo: facts.OrcaRepo, Launcher: filepath.Join(claude, "long-running", "current", "bin", "orca-launch.sh")},
+		Orca:      OrcaCLI{Runner: a.Runner, Lane: sender(header.ID), Run: facts.OrcaRun, Repo: facts.OrcaRepo, Launcher: filepath.Join(claude, "long-running", "current", "bin", "orca-launch.sh")},
 		GitHub:    GitHubCLI{Runner: a.Runner, Repo: facts.Repo, Trunk: facts.Trunk},
 		Buildkite: BuildkiteCLI{Runner: a.Runner, Pipeline: facts.Pipeline},
 		Activation: ActivationCLI{

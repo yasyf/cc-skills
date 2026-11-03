@@ -21,7 +21,7 @@ Three kinds of lane stop freely, because each one's wake already exists: the coo
 
 ## One row per mechanism
 
-The first ten come from the brief and coordinator record #348144. Rows 11 to 24 are the classes `quiet-lanes-cause-1` found across 57 lanes (#348622): one row per class, with each class's lanes named. Most ended on `end_turn` at a gate nobody held.
+The first ten come from the brief and coordinator record #348144. Row 25 is drive-watchdog-2's spawn audit. Rows 11 to 24 are the classes `quiet-lanes-cause-1` found across 57 lanes (#348622): one row per class, with each class's lanes named. Most ended on `end_turn` at a gate nobody held.
 
 | # | Mechanism | Structural fix: why the state is unreachable | Where | Test |
 | --- | --- | --- | --- | --- |
@@ -50,6 +50,7 @@ The first ten come from the brief and coordinator record #348144. Rows 11 to 24 
 | 22 | Idle by its own brief until the coordinator messages it (AUTH_IDLE, `mq-health-9`) | A `Standing:` brief stops freely. Without that line the lane posts an `ask` or `blocked` that says who wakes it | `cci hook stop` | Row 1's test |
 | 23 | Credential expired, with the case unrecovered (CREDENTIAL, `prod-sandsql-s3-errors-2`) | A `blocked` or `ask` record parks it, and the answer wakes it | `lanes.foldWait` | Row 11's test |
 | 24 | Not a turn end at all: a tool is running (ACTIVE, 4 lanes; WAIT_ERR_AUDIT, `release-5`), or no lane was ever launched (UNSPAWNED, `crate-rename-1`) | No supervisor change. A lane in a long tool call is alive and its row says so. A brief with no launch has no row, so nothing can call it quiet | none | none |
+| 25 | A drive process posts as the lane whose session started it, so 33 `SPAWNED` records from 7:20 PM on Nov 2, the supervisor's relaunches among them, named `pack-install-1`, and after a restart from the coordinator its spawn of `coordinator-tokens-3` named `root` (drive-watchdog-2, #350833) | Every drive process takes its own lane at start: `CLAUDE_LONG_RUNNING_LANE` and `LR_LANE` set to its name, and the session identity `CCI_AGENT_ID`, `CCI_LANE`, `CLAUDE_CODE_SESSION_ID` and `CODEX_THREAD_ID` cleared. Its launchd plist or launcher sets the same. The desk runner hands `orca-launch.sh` the lane that posted the launch line, so a `SPAWNED` record names the supervisor for its relaunches and the runner for its own launches | `lanes.Adopt` in `lr supervisor run`, `lanes.Identity` for `lr desks start` and the incident runner's launches, `drive.own_lane` in `desk-runner.py run`, `board_watch.py start` and `prompt_watch.py run` | `internal/lanes`: a supervisor started under another lane's identity launches as `supervisor`. `test_desk_runner`: a runner started from `pack-install-1` hands `orca-launch.sh` the posting lane |
 
 ## What the supervisor owns
 

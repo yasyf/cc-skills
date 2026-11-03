@@ -229,6 +229,19 @@ def test_a_hook_approval_on_the_coordinator_goes_once_to_the_supervisor_and_neve
     assert shell.sends == [] and shell.cards == [] and "wake" not in rows[ROOT]
 
 
+def test_a_watch_started_from_the_coordinators_session_runs_as_prompt_watch(home, shell, monkeypatch):
+    monkeypatch.setenv("CLAUDE_LONG_RUNNING_LANE", "root")
+    monkeypatch.setenv("CODEX_THREAD_ID", "01a13b89-codex")
+    supervised(home)
+    unbound(shell)
+    coordinator(shell, "waiting", "coordinator.approval")
+    supervisor(shell)
+
+    poll(shell)
+
+    assert (os.environ["CLAUDE_LONG_RUNNING_LANE"], os.environ["CODEX_THREAD_ID"]) == ("prompt-watch", "")
+
+
 def test_the_dialogs_text_stays_in_an_owner_only_file_under_the_drives_state_directory(home, shell, capsys):
     supervised(home)
     unbound(shell)

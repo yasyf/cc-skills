@@ -16,11 +16,13 @@ import os
 import statistics
 import subprocess
 import zlib
+from collections.abc import Iterator
 from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import unquote_plus
 
+from long_running import drive
 from long_running import ghdiff
 from long_running import ghread
 from long_running import ledger
@@ -528,6 +530,17 @@ def gh_has_the_escape_flag(monkeypatch) -> None:
 @pytest.fixture(autouse=True)
 def no_release_promotion(monkeypatch) -> None:
     monkeypatch.setattr(release, "promote", lambda own: None)
+
+
+@pytest.fixture(autouse=True)
+def lane_identity_kept() -> Iterator[None]:
+    kept = {name: os.environ.get(name) for name in drive.own_lane("")}
+    yield
+    for name, value in kept.items():
+        if value is None:
+            os.environ.pop(name, None)
+        else:
+            os.environ[name] = value
 
 
 @pytest.fixture(autouse=True)

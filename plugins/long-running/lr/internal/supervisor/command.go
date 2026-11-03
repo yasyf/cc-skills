@@ -40,6 +40,9 @@ func Command(a *app.App) *cobra.Command {
 }
 
 func run(ctx context.Context, a *app.App) error {
+	if err := lanes.Adopt(lanes.Self); err != nil {
+		return err
+	}
 	cfg, state, err := lanes.Loaded(a)
 	if err != nil {
 		return err

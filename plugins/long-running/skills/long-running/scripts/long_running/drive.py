@@ -142,6 +142,8 @@ from . import release
 from .release import config_dir, version_key
 
 SESSION_ENV = "CLAUDE_CODE_SESSION_ID"
+LANE_ENV = "CLAUDE_LONG_RUNNING_LANE"
+SESSION_IDENTITY = ("CCI_AGENT_ID", "CCI_LANE", SESSION_ENV, "CODEX_THREAD_ID")
 DRIVE_ENV = ledger.DRIVE_ENV
 ORCA_RUN_ENV = "ORCA_LAUNCH_RUN"
 TERMINAL_ENV = "ORCA_TERMINAL_HANDLE"
@@ -286,6 +288,10 @@ def run_installed(script: str, *, before_exec: Callable[[], None] = lambda: None
     os.environ[CALLER_VERSION_ENV] = running
     end_commands_with_script()
     adopt_children()
+
+
+def own_lane(lane: str) -> dict[str, str]:
+    return dict.fromkeys(SESSION_IDENTITY, "") | {LANE_ENV: lane, "LR_LANE": lane}
 
 
 def reexec(argv: list[str]) -> None:

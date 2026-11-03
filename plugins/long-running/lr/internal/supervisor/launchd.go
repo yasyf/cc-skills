@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
 
@@ -54,6 +55,8 @@ func (a Agent) Plist() []byte {
 	line(`	<dict>`)
 	line(`		<key>CLAUDE_LONG_RUNNING_DRIVE</key>`)
 	line(`		<string>%s</string>`, escaped(a.Drive))
+	line(`		<key>%s</key>`, lanes.LaneEnv)
+	line(`		<string>%s</string>`, lanes.Self)
 	line(`		<key>PATH</key>`)
 	line(`		<string>%s</string>`, escaped(a.Path))
 	line(`	</dict>`)

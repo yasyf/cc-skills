@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -167,6 +168,19 @@ func TestTheCoordinatorStartsEveryDesk(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "orca runner started from this Orca terminal") {
 		t.Fatalf("the output must say where the launch runner runs: %q", out.String())
+	}
+}
+
+func TestTheLaunchRunnerTheCoordinatorStartsRunsAsTheDeskRunner(t *testing.T) {
+	a, m, _ := newDrive(t, lanes.Root, everyDesk...)
+	if err := start(context.Background(), a, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	i := slices.IndexFunc(m.calls, func(c shell.Command) bool { return strings.Contains(strings.Join(c.Argv, " "), "desk-runner.py run") })
+	if i < 0 || !slices.Equal(m.calls[i].Env, lanes.Identity("desk-runner")) {
+		t.Fatalf("the launch runner must start as desk-runner, not the coordinator: %+v", m.calls)
 	}
 }
 

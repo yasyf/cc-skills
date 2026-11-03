@@ -2,6 +2,7 @@ package lanes
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -82,4 +83,45 @@ func TestAnUnknownSessionIsRefused(t *testing.T) {
 		t.Fatal("launched a session the communicator does not start")
 	}
 	contains(t, err.Error(), "coordinator|meta|signal")
+}
+
+func TestASupervisorStartedFromAnotherLanesSessionLaunchesUnderItsOwnName(t *testing.T) {
+	for _, name := range append([]string{LaneEnv, lrLaneEnv}, sessionIdentity...) {
+		t.Setenv(name, "pack-install-1")
+	}
+	claude, seen := t.TempDir(), filepath.Join(t.TempDir(), "seen")
+	launcher := filepath.Join(claude, "long-running", "current", "bin", "desk-launch.py")
+	if err := os.MkdirAll(filepath.Dir(launcher), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	script := `#!/bin/sh
+printf '%s|%s|%s|%s|%s|%s' "$CLAUDE_LONG_RUNNING_LANE" "$LR_LANE" "$CCI_AGENT_ID" "$CCI_LANE" "$CLAUDE_CODE_SESSION_ID" "$CODEX_THREAD_ID" > "` + seen + `.part" && mv "` + seen + `.part" "` + seen + `"
+`
+	if err := os.WriteFile(launcher, []byte(script), 0o700); err != nil { //nolint:gosec // the stub has to execute
+		t.Fatal(err)
+	}
+
+	if err := Adopt(Self); err != nil {
+		t.Fatal(err)
+	}
+	deps, err := Env{Bus: &fakeBus{}, Config: config.Config{Drive: testDrive}, State: t.TempDir(), Claude: claude, Now: func() time.Time { return t0 }}.Deps(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := deps.Launch("lane-a", "opus", "xhigh", "/briefs/lane-a.md"); err != nil {
+		t.Fatal(err)
+	}
+
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		got, err := os.ReadFile(seen)
+		if err == nil {
+			equal(t, string(got), "supervisor|supervisor||||")
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the launcher never ran: %v", err)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 }
