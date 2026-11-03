@@ -87,6 +87,7 @@ type Options struct {
 type source interface {
 	check(ctx context.Context, w *waiter) (bool, error)
 	dir() string
+	heard(name string) bool
 }
 
 type fileSource struct {
@@ -104,6 +105,10 @@ type cciSource struct {
 func (s fileSource) dir() string    { return filepath.Dir(s.path) }
 func (s mailboxSource) dir() string { return filepath.Dir(s.path) }
 func (cciSource) dir() string       { return "" }
+
+func (s fileSource) heard(name string) bool    { return strings.HasPrefix(name, s.path) }
+func (s mailboxSource) heard(name string) bool { return strings.HasPrefix(name, s.path) }
+func (cciSource) heard(string) bool            { return false }
 
 type waiter struct {
 	Options
@@ -168,8 +173,9 @@ func (w *waiter) run(ctx context.Context) (int, error) {
 	defer signal.Stop(signals)
 	deadline := time.NewTimer(time.Duration(w.Seconds) * time.Second)
 	defer deadline.Stop()
+	due := func(source) bool { return true }
 	for {
-		changed, err := w.check(ctx)
+		changed, err := w.check(ctx, due)
 		if err != nil {
 			guarded.end()
 			return CodeUsage, err
@@ -184,8 +190,13 @@ func (w *waiter) run(ctx context.Context) (int, error) {
 		}
 		select {
 		case <-w.wake:
-		case <-watcher.Events:
-			drain(watcher.Events)
+			due = func(s source) bool {
+				_, followed := s.(cciSource)
+				return followed
+			}
+		case event := <-watcher.Events:
+			names := drain(watcher.Events, event.Name)
+			due = func(s source) bool { return slices.ContainsFunc(names, s.heard) }
 		case err := <-watcher.Errors:
 			guarded.end()
 			return CodeUsage, err
@@ -216,12 +227,14 @@ func (w *waiter) run(ctx context.Context) (int, error) {
 	}
 }
 
-func drain(events chan fsnotify.Event) {
+func drain(events chan fsnotify.Event, first string) []string {
+	names := []string{first}
 	for {
 		select {
-		case <-events:
+		case event := <-events:
+			names = append(names, event.Name)
 		default:
-			return
+			return names
 		}
 	}
 }
@@ -290,9 +303,12 @@ func (w *waiter) watch(ctx context.Context) (*fsnotify.Watcher, error) {
 	return watcher, nil
 }
 
-func (w *waiter) check(ctx context.Context) (bool, error) {
+func (w *waiter) check(ctx context.Context, due func(source) bool) (bool, error) {
 	changed := false
 	for _, s := range w.sources {
+		if !due(s) {
+			continue
+		}
 		moved, err := s.check(ctx, w)
 		if err != nil {
 			return false, err
@@ -572,13 +588,15 @@ func (w *waiter) stream(ctx context.Context, s cciSource, errs chan<- error) {
 	query := url.Values{"drive": {s.drive}, "to": {s.lane}}
 	address := w.Stream + "?" + query.Encode()
 	lost := w.Now()
+	reconnecting := false
 	for {
-		connected, err := w.readStream(ctx, address)
+		connected, err := w.readStream(ctx, address, reconnecting)
 		if ctx.Err() != nil {
 			return
 		}
 		if connected {
 			lost = w.Now()
+			reconnecting = true
 		}
 		if w.Now().Sub(lost) >= cciGrace {
 			errs <- fmt.Errorf("the cci daemon at %s gave no stream for %.0f s: %w", w.Stream, cciGrace.Seconds(), err)
@@ -592,7 +610,7 @@ func (w *waiter) stream(ctx context.Context, s cciSource, errs chan<- error) {
 	}
 }
 
-func (w *waiter) readStream(ctx context.Context, address string) (bool, error) {
+func (w *waiter) readStream(ctx context.Context, address string, reconnecting bool) (bool, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, address, nil)
 	if err != nil {
 		return false, err
@@ -605,6 +623,12 @@ func (w *waiter) readStream(ctx context.Context, address string) (bool, error) {
 	if response.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(response.Body, 1024))
 		return false, fmt.Errorf("stream answered %d: %s", response.StatusCode, strings.TrimSpace(string(body)))
+	}
+	if reconnecting {
+		select {
+		case w.wake <- struct{}{}:
+		default:
+		}
 	}
 	scanner := bufio.NewScanner(response.Body)
 	scanner.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)

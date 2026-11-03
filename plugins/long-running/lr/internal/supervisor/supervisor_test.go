@@ -274,6 +274,32 @@ func TestAnUnreadLanesSourceAndAFailedCheckSkipOnlyThemselves(t *testing.T) {
 	equal(t, len(reports), 2)
 }
 
+func TestALaterCheckStartsItsStaggerAfterTheFirst(t *testing.T) {
+	const stagger = 20 * time.Millisecond
+	ran := make(chan struct{})
+	var first sync.Once
+	var waited time.Duration
+	began := time.Now()
+	noop := func(context.Context, time.Time) error { return nil }
+	d := Deps{
+		Clock: func() time.Time { return t0 }, Sleep: func(time.Duration) { <-ran }, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Stagger: stagger,
+		Checks: []lanes.Check{noop, noop, func(context.Context, time.Time) error {
+			first.Do(func() {
+				waited = time.Since(began)
+				close(ran)
+			})
+			return nil
+		}},
+	}
+
+	runLoop(t, memory(t), "0.8.0", 1, d, 1)
+
+	if waited < 2*stagger {
+		t.Fatalf("the third check started after %v", waited)
+	}
+}
+
 func TestAHungCheckHoldsNeitherTheOtherChecksNorTheTickAndEndsWithTheRun(t *testing.T) {
 	ran := make(chan struct{})
 	started := make(chan struct{})
