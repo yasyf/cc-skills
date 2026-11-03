@@ -59,6 +59,10 @@ A rollback writes a `rollback-<build>` freeze; the lane that ran the rollback ow
 
 When the owner orders a release, the lane that runs it approves every step the release needs: the deletes, replaces and migrations its plan names are applied, counted and reported in the lane's done line (`RELEASED <component> <version>: <n> deletes, <n> replaces, <n> migrations`). Nobody returns to him for a second word, and the root's `owner_order_is_the_approval` hook refuses an ask that does. A delete or replace the plan did not name, or one on a target his order did not cover, stops the lane and goes to root as a `blocker` with the plan line. An incident release keeps the zero-delete, zero-replace bound unless he ordered the release itself. No lane cancels a release once its apply has started; a hold goes before the start or not at all.
 
+## A regular release is the default
+
+An emergency release (`--emergency`, a hotfix) runs only when the regular path is too slow for a live customer impact, and never twice for one fix: on Nov 2 two emergency releases carried one PR minutes before a full release of everything was ordered. A release that sits at its approval gate five minutes after an owner order is a blocker to root, never a wait (owner, 7:04 PM).
+
 ## Tear a cluster down in order
 
 A cluster leaves the code before it leaves the cloud. The teardown lane first lands and releases the change that removes the cluster from every surface that names it: tenant config, release targets, monitors and their mutes, the router. Only when that release is live does the destroy run. A destroy ordered before the removal lands breaks every release that still names the cluster, and a mute written to hide those failures hides the other clusters' failures with them. A mute covers one cluster's own steps and never a whole release that names it.

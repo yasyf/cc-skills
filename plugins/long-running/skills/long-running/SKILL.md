@@ -94,7 +94,11 @@ standing helper `update-desk`, in the format the owner's words on updates, work
 tracking and blockers set ([owner-report-table.md](reference/owner-report-table.md),
 [owner-bridge-brief.md](reference/owner-bridge-brief.md)). The bridge talks only to
 the coordinator and to helpers it spawned itself for its own work; it never addresses the coordinator's children, and it posts no `go`, `hold`,
-`decide` or `launch`.
+`decide` or `launch`. Every owner message lands in the bridge's message ledger as it
+arrives, and the bridge's turn cannot end while a row is not marked responded or
+addressed (`lr owner mark <id>`). The bridge also proposes: when what it relays shows
+a structural fault, such as PRs queued behind one coordinator decision, it brings him
+the split as an option, not only the symptom.
 
 **The coordinator** reads reader `root`, posts as `root`, runs in a foreground
 `cci watch` loop for the life of the drive, and holds everything a root holds:
@@ -123,7 +127,9 @@ owner meanwhile. It decides five things and nothing else:
    lane that acts.
 
 Its own work on a deliverable, its own reads past one bounded window and its own
-waits are each a defect the hooks name. Every escalation target, brief, template,
+waits are each a defect the hooks name, and so is a queue of PRs waiting on one of
+its decisions: a decision the owner's picks already settle moves to a package that
+applies them by rule, and one they do not settle is his, on the board. Every escalation target, brief, template,
 handoff, task list, incident checklist and dashboard in the pack names the
 coordinator where it once named the root, and names `owner-relay` where the owner
 must see something.
@@ -220,7 +226,10 @@ orders one, the release lane applies and counts the deletes, replaces and
 migrations its plan names and never asks again; the `owner_order_is_the_approval`
 hook refuses a second word. An incident release starts at once, no dry run, and
 keeps the zero-delete bound unless he ordered it. No release is canceled once its
-apply has started. A cluster leaves the code and ships before it is destroyed.
+apply has started. A regular release is the default: an emergency release runs only
+when the regular path is too slow for a live customer impact, and never two for one
+fix. A release at its approval gate five minutes after an owner order is a blocker
+to root, never a wait. A cluster leaves the code and ships before it is destroyed.
 
 **R12.** Every red goes to its owning lane the same turn with a 15-minute
 deadline; a red with no live owner gets a lane.
