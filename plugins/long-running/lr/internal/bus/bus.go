@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -193,6 +194,7 @@ func (b Bus) postRaw(ctx context.Context, kind string, raw json.RawMessage, to [
 	if err := Check(kind, raw, to); err != nil {
 		return Record{}, err
 	}
+	to = slices.DeleteFunc(slices.Clone(to), func(lane string) bool { return lane == b.Lane })
 	fields, err := decodeFields(raw)
 	if err != nil {
 		return Record{}, err
@@ -235,7 +237,8 @@ func plain(value any) string {
 }
 
 func identity(kind string, names []string, fields map[string]any) string {
-	parts := []string{namespace + "." + kind}
+	parts := make([]string, 0, 1+len(names))
+	parts = append(parts, namespace+"."+kind)
 	for _, name := range names {
 		parts = append(parts, plain(fields[name]))
 	}
@@ -243,7 +246,8 @@ func identity(kind string, names []string, fields map[string]any) string {
 }
 
 func summary(kind string, names []string, fields map[string]any) string {
-	parts := []string{kind}
+	parts := make([]string, 0, 1+len(names))
+	parts = append(parts, kind)
 	for _, name := range names {
 		value, given := fields[name]
 		switch {

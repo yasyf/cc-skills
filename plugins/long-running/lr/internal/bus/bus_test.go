@@ -113,6 +113,20 @@ func TestAnItemReachesALaneByName(t *testing.T) {
 	wantRefused(t, err, `never reaches root`)
 }
 
+func TestASupervisorsOwnRecordIsStoredForItsReaders(t *testing.T) {
+	b := bound(t, "supervisor")
+	tap := bus.Tap{PR: 44989, Head: head, By: "rule", Value: "tapped", Rule: "test-only"}
+
+	if _, err := b.Post(context.Background(), []string{"supervisor"}, tap); err != nil {
+		t.Fatal(err)
+	}
+
+	records, rejected, err := b.Read(context.Background(), 0, "tap")
+	if err != nil || rejected != nil || len(records) != 1 || records[0].Body != bus.Body(tap) {
+		t.Fatalf("Read = %+v, %+v, %v", records, rejected, err)
+	}
+}
+
 func TestPostingTheSameRecordTwiceIsOneRecordButAWithdrawalIsAnother(t *testing.T) {
 	b := bound(t, "owner-board")
 	tapped := bus.Tap{PR: 1, Head: head, By: "owner", Value: "tapped"}
