@@ -15,6 +15,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
@@ -27,9 +28,14 @@ type runWorkers interface {
 	Workers(ctx context.Context, run string) ([]Worker, error)
 }
 
+type hostedTasks interface {
+	Sprites() (map[SpriteKey]Sprite, error)
+}
+
 type SpriteRoll struct {
 	Runner shell.Runner
 	Orca   runWorkers
+	Fleet  hostedTasks
 	Store  *store.Store
 	Now    func() time.Time
 	Out    io.Writer
@@ -53,10 +59,15 @@ func (r SpriteRoll) Run(ctx context.Context, run string, env func(string) string
 	if err != nil {
 		return err
 	}
+	hosted, err := r.Fleet.Sprites()
+	if err != nil {
+		return err
+	}
 	var boxes []string
 	for _, worker := range workers {
-		if !worker.Settled() && worker.Workspace != "" && !slices.Contains(boxes, worker.Workspace) {
-			boxes = append(boxes, worker.Workspace)
+		sprite, onSprite := hosted[SpriteKey{worker.Workspace, worker.Terminal}]
+		if !worker.Settled() && onSprite && !slices.Contains(boxes, sprite.Workspace) {
+			boxes = append(boxes, sprite.Workspace)
 		}
 	}
 	slices.Sort(boxes)
@@ -101,6 +112,31 @@ func censusOf(installed map[string]string) string {
 		words = append(words, name+"="+installed[name])
 	}
 	return strings.Join(words, " ")
+}
+
+func writeCensus(out io.Writer, tools []store.SpriteTool) {
+	if len(tools) == 0 {
+		fmt.Fprintln(out, "lr sprites: no launch or roll has recorded a Sprite's tools")
+	}
+	for i := 0; i < len(tools); {
+		box, installed, at := tools[i].Sprite, map[string]string{}, tools[i].At
+		for ; i < len(tools) && tools[i].Sprite == box; i++ {
+			installed[tools[i].Name] = tools[i].Version
+			if tools[i].At.After(at) {
+				at = tools[i].At
+			}
+		}
+		fmt.Fprintf(out, "%s %s at %s\n", box, censusOf(installed), store.Stamp(at))
+	}
+}
+
+func refusalExit(cmd *cobra.Command, err error) error {
+	var failed *Failed
+	if errors.As(err, &failed) {
+		fmt.Fprintln(cmd.ErrOrStderr(), failed.Line)
+		return &wait.ExitError{Code: failedExit}
+	}
+	return err
 }
 
 func runnerEnv(path string) (func(string) string, error) {
@@ -149,16 +185,7 @@ func SpritesCommand(a *app.App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			for i := 0; i < len(tools); {
-				box, installed, at := tools[i].Sprite, map[string]string{}, tools[i].At
-				for ; i < len(tools) && tools[i].Sprite == box; i++ {
-					installed[tools[i].Name] = tools[i].Version
-					if tools[i].At.After(at) {
-						at = tools[i].At
-					}
-				}
-				fmt.Fprintf(cmd.OutOrStdout(), "%s %s at %s\n", box, censusOf(installed), store.Stamp(at))
-			}
+			writeCensus(cmd.OutOrStdout(), tools)
 			return nil
 		},
 	}
@@ -177,17 +204,32 @@ func SpritesCommand(a *app.App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			roller := SpriteRoll{Runner: a.Runner, Orca: Client{Runner: a.Runner}, Store: s, Now: a.Now, Out: cmd.OutOrStdout()}
-			err = roller.Run(cmd.Context(), run, env, probe)
-			var failed *Failed
-			if errors.As(err, &failed) {
-				fmt.Fprintln(cmd.ErrOrStderr(), failed.Line)
-				return &wait.ExitError{Code: failedExit}
+			home, err := stateHome()
+			if err != nil {
+				return err
 			}
-			return err
+			roller := SpriteRoll{Runner: a.Runner, Orca: Client{Runner: a.Runner}, Fleet: CCRemote{Runner: a.Runner, State: filepath.Join(home, "cc-remote")}, Store: s, Now: a.Now, Out: cmd.OutOrStdout()}
+			return refusalExit(cmd, roller.Run(cmd.Context(), run, env, probe))
 		},
 	}
 	roll.Flags().StringVar(&probe, "probe", "", "the Sprite to install on first; default the first by name")
-	cmd.AddCommand(roll)
+	pin := &cobra.Command{
+		Use:   "pin",
+		Short: "Move each orca.sprite.tools pin to the version this Mac's plugins run, once its release asset matches its release's checksum",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			s, _, state, err := opened()
+			if err != nil {
+				return err
+			}
+			defer func() { _ = s.Close() }()
+			claude, err := drive.ConfigDir()
+			if err != nil {
+				return err
+			}
+			return refusalExit(cmd, MoveSpritePins(cmd.Context(), s, claude, filepath.Join(state, "runner.json"), cmd.OutOrStdout()))
+		},
+	}
+	cmd.AddCommand(roll, pin)
 	return cmd
 }
