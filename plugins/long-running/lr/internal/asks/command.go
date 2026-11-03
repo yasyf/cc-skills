@@ -61,7 +61,7 @@ func OpenMirror(a *app.App, entry drive.Entry) (Mirror, error) {
 }
 
 func (g Graded) Status(now time.Time) string {
-	line := fmt.Sprintf("%s %s", g.State, g.Ask.Line())
+	line := fmt.Sprintf("%s %s", g.State, g.Line())
 	if g.Newest != nil {
 		line += fmt.Sprintf(" | progress %dm: %s", int(now.Sub(g.Newest.At).Minutes()), g.Newest.Note)
 	}
