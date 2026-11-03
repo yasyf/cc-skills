@@ -48,7 +48,10 @@ func run(ctx context.Context, a *app.App) error {
 	if err != nil {
 		return err
 	}
-	if unwired := slices.DeleteFunc(slices.Clone(cfg.Movers), func(mover string) bool { return mover == moverLanes || mover == config.MoverLanding || mover == config.MoverGrading }); len(unwired) > 0 {
+	unwired := slices.DeleteFunc(slices.Clone(cfg.Movers), func(mover string) bool {
+		return mover == moverLanes || mover == config.MoverLanding || mover == config.MoverGrading
+	})
+	if len(unwired) > 0 {
 		return fmt.Errorf("lr supervisor run wires the lanes, landing and grading movers, not %s", strings.Join(unwired, ", "))
 	}
 	s, err := store.Open(filepath.Join(state, lanes.StoreFile))
