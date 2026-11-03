@@ -62,7 +62,9 @@ Next, before any lane, and again after any relaunch, run `lr desks start`. It ta
 Run for this terminal, starts only what is down, and starts nothing when a desk's brief
 is missing or says place=local. It starts the launch runner, the landing runner,
 `landing-desk`, `fidelity-desk`, `red-sweep`, `alerts-desk`, `drive-watchdog` and
-`board-refresher`. The landing runner and every desk run remote. The launch runner is the
+`board-refresher`. The landing runner and every desk run remote, each an lr-launched lane
+registered to you, on a Sprite unless its brief says place=local and names why it needs
+the Mac. You never spawn a desk with Agent: a subagent ends with your window. The launch runner is the
 one exception: it stays on the Mac, started from this terminal, because it drives the
 Mac's Orca app.
 
