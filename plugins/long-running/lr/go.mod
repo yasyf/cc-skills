@@ -8,8 +8,8 @@ require (
 	github.com/BurntSushi/toml v1.5.0
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/spf13/cobra v1.10.2
-	github.com/yasyf/cc-inbox v0.49.34-0.20261103081410-c4155d57794c
-	github.com/yasyf/cc-interact v0.39.0
+	github.com/yasyf/cc-inbox v0.49.39-0.20261103134851-5af74cb27691
+	github.com/yasyf/cc-interact v0.40.0
 	github.com/yuin/goldmark v1.8.7
 	golang.org/x/mod v0.41.0
 	modernc.org/sqlite v1.60.1
