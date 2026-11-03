@@ -43,6 +43,7 @@ from pydantic import BaseModel
 from .compaction_handoff import CompactionState, ccn, progress_folder
 from .nudges import queue_nudge
 from .tests.root_fixtures import ACTIVE, LONG
+from .window_lane import Coordinator, OwnerBridge, bridge_tests, coordinator_tests
 
 READ_LINES = 150
 MCP_CHARS = 8000
@@ -467,9 +468,9 @@ def root_warning(*, message: str, only_if: Sequence[object], tests: dict, bypass
     hook(
         Event.PreToolUse,
         message=message,
-        only_if=[DriveActive(), *only_if],
+        only_if=[Coordinator(), DriveActive(), *only_if],
         skip_if=[FromSubagent(), *([Annotated("raw")] if bypass else [])],
-        tests=tests,
+        tests=coordinator_tests(tests),
     )
 
 
@@ -712,14 +713,14 @@ root_warning(
 
 @on(
     Event.PostToolUse,
-    only_if=[DriveActive()],
+    only_if=[Coordinator(), DriveActive()],
     skip_if=[FromSubagent()],
-    tests={
+    tests=coordinator_tests({
         Input(tool="mcp__linear__get_issue", output="x" * 9000, state=ACTIVE): Warn(pattern=r"overflowed the drive root"),
         Input(tool="mcp__linear__get_issue", output="small", state=ACTIVE): Allow(),
         Input(tool="mcp__plugin_cc-notes_cc-notes__doc_show", output="x" * 9000, state=ACTIVE): Allow(),
         Input(tool="mcp__linear__get_issue", output="x" * 9000): Allow(),
-    },
+    }),
 )
 def learn_oversized_mcp(evt: BaseHookEvent) -> HookResult | None:
     name = evt.tool_name or ""
@@ -776,10 +777,10 @@ def record_ruling(evt: BaseHookEvent) -> str:
 
 @on(
     Event.UserPromptSubmit,
-    only_if=[DriveActive(), OwnerPrompt()],
+    only_if=[OwnerBridge(), DriveActive(), OwnerPrompt()],
     skip_if=[FromSubagent()],
     async_=True,
-    tests={
+    tests=bridge_tests({
         Input(
             prompt="from now on, release everything as it merges",
             state=ACTIVE,
@@ -787,7 +788,7 @@ def record_ruling(evt: BaseHookEvent) -> str:
         ): Allow(),
         Input(prompt="from now on, release everything as it merges", state=ACTIVE, commands={"ccn": "[]"}): Allow(),
         Input(prompt="what is the status of l17?", state=ACTIVE): Allow(),
-    },
+    }),
 )
 def capture_standing_rule(evt: BaseHookEvent) -> None:
     if evt.ctx.nlp(evt.user_prompt, STANDING) and (answer_id := record_ruling(evt)):

@@ -54,6 +54,7 @@ from .tests.register_fixtures import (
     shown,
 )
 from .tests.rulings_consumers import separate
+from .window_lane import Coordinator, coordinator_tests
 
 SHORT = 7
 ANSWER_ID = re.compile(r"\b[0-9a-f]{7,40}\b")
@@ -313,9 +314,9 @@ def spawn(name: str, prompt: str, state: str = "quiet", **extra: object) -> Inpu
 
 @on(
     Event.PreToolUse,
-    only_if=[DriveActive(), Tool("Bash", "Agent", "Edit", "Write")],
+    only_if=[Coordinator(), DriveActive(), Tool("Bash", "Agent", "Edit", "Write")],
     skip_if=[FromSubagent(), Annotated("raw")],
-    tests=separate("register_gates.register_gate", {
+    tests=separate("register_gates.register_gate", coordinator_tests({
         register_case(go(f"cut web under {ROWED[:7]}"), "quiet", (ROWED[:7], shown(ROWED))): Allow(),
         register_case(go(f"cut web under {UNROWED[:7]}"), "quiet", (UNROWED[:7], shown(UNROWED))): Warn(
             pattern=r"^Warning, nothing was blocked: this GO or DECIDE cites `1dfd09d`, and register `brook` has no row for it\."
@@ -345,7 +346,7 @@ def spawn(name: str, prompt: str, state: str = "quiet", **extra: object) -> Inpu
         Input(command=go("cut web"), state=ACTIVE, cwd=CWD, env=DRIVE_CONFIG, commands={ROWS: (1, "ccn: no ledger"), "cci post": "#1"}): Allow(),
         Input(command=go("cut web"), cwd=CWD, commands=readings("repeat")): Allow(),
         register_case(go("cut web"), "repeat", agent_id="a1b2c3"): Allow(),
-    }),
+    })),
 )
 def register_gate(evt: BaseHookEvent) -> HookResult | None:
     citing = citing_lines(evt)
@@ -495,12 +496,12 @@ def close_replied_questions(evt: BaseHookEvent) -> HookResult | None:
 
 @on(
     Event.Stop,
-    only_if=[DriveActive()],
+    only_if=[Coordinator(), DriveActive()],
     skip_if=[FromSubagent()],
-    tests=separate("register_gates.close_chat_questions", {
+    tests=separate("register_gates.close_chat_questions", coordinator_tests({
         Input(state=ACTIVE, cwd=CWD, env=DRIVE_CONFIG, commands=readings("question-timers")): Allow(),
         Input(state=[CompactionState(active=True)], cwd=CWD): Allow(),
-    }),
+    })),
 )
 def close_chat_questions(evt: BaseHookEvent) -> HookResult | None:
     close(evt, "close_chat_questions", lambda found: not found.get("blocks"), "turn end")

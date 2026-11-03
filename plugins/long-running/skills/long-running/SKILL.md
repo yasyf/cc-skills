@@ -69,8 +69,13 @@ stop check, injection and cci delivery keys on that binding and nothing else. Th
 bridge's window is bound `owner-relay`. The coordinator's window is bound `root`,
 so every root hook (`root_context`, `root_reads`, `owner_facing`, `task_list`, the
 stop checks, the compaction handoff, the register injection) and every record
-addressed to `root` lands on the coordinator and none of it on the bridge. A lane's
-window is bound to its lane name and gets the lane hooks. Hooks are window-scoped,
+addressed to `root` lands on the coordinator and none of it on the bridge. The pack
+reads a window's lane from the `CLAUDE_LONG_RUNNING_LANE` its launcher set, else
+from cci's binding of the window's root thread, reread at session start and after
+each `cci announce`, `subscribe` or `drive use`. The bridge keeps only its own
+set: the hooks that record the owner's words and picks and the ones that check
+its questions to him. A window bound to no lane, a drive that never split, gets
+both sets. A lane's window is bound to its lane name and gets the lane hooks. Hooks are window-scoped,
 so the coordinator is never an in-process subagent of the bridge: it is a sibling
 Orca session, launched by the bridge, that the bridge never `SendMessage`s and that
 never `SendMessage`s the bridge. The bus is the only channel between them, because

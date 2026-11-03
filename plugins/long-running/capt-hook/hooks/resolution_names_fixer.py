@@ -9,6 +9,7 @@ from captain_hook import Allow, BaseHookEvent, Block, Event, FromSubagent, Input
 from .compaction_handoff import CompactionState
 from .lane_rotation import DriveActive
 from .owner_facing import CCI_POST, posted_text
+from .window_lane import Coordinator, coordinator_tests
 
 ACTIVE = [CompactionState(active=True)]
 FAILURE_KINDS = frozenset({"blocker", "incident", "urgent"})
@@ -45,14 +46,14 @@ def resolve(text: str, shown: str = BLOCKER, **extra: object) -> Input:
 
 hook(  # capt-hook: no-escape the message names the token that settles the resolution
     Event.PreToolUse,
-    only_if=[Tool("Bash"), DriveActive(), UnfixedResolution()],
+    only_if=[Coordinator(), Tool("Bash"), DriveActive(), UnfixedResolution()],
     skip_if=[FromSubagent()],
     block=True,
     message=(
         "A root resolution of a blocker, incident or urgent record names who fixes it: spawn the fix lane and name it with `lane=<name>`, or land the fix."
         " A failure that already stopped resolves with `FIX-LIVE`, `not-ours:<who>` or `closed:<why it stopped>`."
     ),
-    tests={
+    tests=coordinator_tests({
         resolve("blocked until #48401 lands"): Block(pattern=r"^A root resolution of a blocker"),
         resolve("noted, tracked in the teardown stack"): Block(),
         resolve("closed: a known flake, blocked until Monday"): Block(),
@@ -63,5 +64,5 @@ hook(  # capt-hook: no-escape the message names the token that settles the resol
         resolve("blocked until #48401 lands", agent_id="a1b2c3"): Allow(),
         Input(command="cci post --drive d1 --lane root --kind decide --resolves 339405 --text 'blocked until #48401 lands'", commands={"cci show": BLOCKER}): Allow(),
         Input(command="cci post --drive d1 --lane root --kind go --to landing-desk --text 'go #48401 at b555140'", state=ACTIVE): Allow(),
-    },
+    }),
 )

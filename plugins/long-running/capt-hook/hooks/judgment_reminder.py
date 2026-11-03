@@ -16,6 +16,7 @@ from captain_hook import (
 )
 
 from .compaction_handoff import CompactionState, drive_entry
+from .window_lane import OwnerBridge, bridge_tests
 
 DEFAULT_MINUTES = 30
 REMINDER = (
@@ -38,11 +39,12 @@ def interval_seconds(evt: BaseHookEvent) -> float:
 @on(
     Event.UserPromptSubmit,
     skip_if=[FromSubagent()],
-    tests={
+    only_if=[OwnerBridge()],
+    tests=bridge_tests({
         Input(prompt="keep going", state=[CompactionState(active=True)]): Warn(pattern=r"^Judgment first: read the owner's message as a colleague would"),
         Input(prompt="keep going", state=[CompactionState(active=True), ReminderClock(said_at=time.time())]): Allow(),
         Input(prompt="keep going", state=[CompactionState()]): Allow(),
-    },
+    }),
 )
 def remind_judgment_first(evt: BaseHookEvent) -> HookResult | None:
     if not CompactionState.load(evt).active:

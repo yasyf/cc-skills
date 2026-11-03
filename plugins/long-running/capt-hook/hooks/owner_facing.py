@@ -54,6 +54,7 @@ from .tests.incident_fixtures import (
     STALE_0820,
 )
 from .tests.rulings_consumers import separate
+from .window_lane import Coordinator, OwnerBridge, bridge_tests, coordinator_tests
 
 ACTIVE = [CompactionState(active=True)]
 INCIDENT_AUTHORITY = re.compile(r"\bIncident Turn\b")
@@ -214,9 +215,9 @@ def spawn(name: str, prompt: str, **extra: object) -> Input:
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("Agent")],
+    only_if=[Coordinator(), Tool("Agent")],
     skip_if=[FromSubagent(), Annotated("incident", "none")],
-    tests=separate("owner_facing.route_incident_fix_lanes_to_sol", {
+    tests=separate("owner_facing.route_incident_fix_lanes_to_sol", coordinator_tests({
         spawn("pr-review-pipeline-fix", "CI incident, effort high.", commands={REFUSED: ""}): Warn(
             pattern=r"desk-launch\.py incident <name> <fix-brief>[\s\S]*desk-launch\.py refused <name>-fix"
         ),
@@ -235,7 +236,7 @@ def spawn(name: str, prompt: str, **extra: object) -> Input:
         spawn("slack-inline-why", "Owner correction.\nThe incident lane..."): Allow(),
         Input(tool="Agent", tool_input={"name": "incident-api-1n80-fix", "prompt": "Fix it."}): Allow(),
         spawn("incident-api-1n80-fix", "Fix it.", agent_id="a1b2c3"): Allow(),
-    }),
+    })),
 )
 def route_incident_fix_lanes_to_sol(evt: BaseHookEvent) -> HookResult | None:
     call = evt.as_input(TaskCall)
@@ -264,9 +265,9 @@ def read_beside(name: str, prompt: str, *siblings: object, earlier: tuple[object
 
 @on(
     Event.PostToolUse,
-    only_if=[Tool("Agent")],
+    only_if=[Coordinator(), Tool("Agent")],
     skip_if=[FromSubagent()],
-    tests=separate("owner_facing.launch_the_fix_beside_the_reader", {
+    tests=separate("owner_facing.launch_the_fix_beside_the_reader", coordinator_tests({
         read_beside("outage-reader", OUTAGE_READ): Warn(pattern=r"same turn\. Launch the fix now with `desk-launch\.py incident <name> <fix-brief>`"),
         read_beside("slack-read-outage-1", "Read the outage thread."): Warn(),
         read_beside("outage-reader", OUTAGE_READ, earlier=(T.tool("Bash", command=FIX_LAUNCH),)): Warn(),
@@ -279,7 +280,7 @@ def read_beside(name: str, prompt: str, *siblings: object, earlier: tuple[object
         read_beside("slack-read-1793163121", "Read the thread the owner linked."): Allow(),
         read_beside("outage-reader", OUTAGE_READ, state=[]): Allow(),
         read_beside("outage-reader", OUTAGE_READ, agent_id="a1b2c3"): Allow(),
-    }),
+    })),
 )
 def launch_the_fix_beside_the_reader(evt: BaseHookEvent) -> HookResult | None:
     call = evt.as_input(TaskCall)
@@ -367,9 +368,9 @@ def plan_mode(tool: str, *stored: dict, posted: tuple[dict, ...] = (), **extra: 
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("EnterPlanMode", "ExitPlanMode")],
+    only_if=[Coordinator(), Tool("EnterPlanMode", "ExitPlanMode")],
     skip_if=[FromSubagent()],
-    tests=separate("owner_facing.no_plan_mode_in_an_open_incident", {
+    tests=separate("owner_facing.no_plan_mode_in_an_open_incident", coordinator_tests({
         plan_mode("EnterPlanMode", OUTAGE_0820): Warn(pattern="forbidden while a customer-visible outage is open"),
         plan_mode("ExitPlanMode", OUTAGE_0820): Warn(pattern="forbidden while a customer-visible outage is open"),
         plan_mode("EnterPlanMode", posted=(OUTAGE_TWO,)): Warn(pattern="replan after fix-live"),
@@ -397,7 +398,7 @@ def plan_mode(tool: str, *stored: dict, posted: tuple[dict, ...] = (), **extra: 
         plan_mode("ExitPlanMode", OUTAGE_0820, transcript=[T.user("no plan mode today")]): Allow(),
         plan_mode("EnterPlanMode", OUTAGE_0820, transcript=[T.user("why did you enter plan mode?")]): Warn(pattern="replan after fix-live"),
         plan_mode("EnterPlanMode", OUTAGE_0820, transcript=[T.user("enter plan mode first"), T.user("why did you enter plan mode?")]): Allow(),
-    }),
+    })),
 )
 def no_plan_mode_in_an_open_incident(evt: BaseHookEvent) -> HookResult | None:
     if not CompactionState.load(evt).active:
@@ -445,13 +446,14 @@ def last_reply(evt: BaseHookEvent) -> str:
     Event.Stop,
     skip_if=[FromSubagent()],
     transcript_events=REPLY_WINDOW,
-    tests=separate("owner_facing.nudge_utc_in_owner_replies", {
+    only_if=[Coordinator()],
+    tests=separate("owner_facing.nudge_utc_in_owner_replies", coordinator_tests({
         Input(transcript=reply_transcript("Fix lane spawned at 17:35Z."), state=ACTIVE): Allow(),
         Input(transcript=reply_transcript("Fix lane spawned at 10:35am."), state=ACTIVE): Allow(),
         Input(transcript=reply_transcript("Lane at 17:35Z.", sidechain=True), state=ACTIVE): Allow(),
         Input(transcript=reply_transcript("Fix lane spawned at 17:35Z.")): Allow(),
         Input(transcript=reply_transcript("Fix lane spawned at 17:35Z."), agent_id="a1b2c3", state=ACTIVE): Allow(),
-    }),
+    })),
 )
 def nudge_utc_in_owner_replies(evt: BaseHookEvent) -> HookResult | None:
     if CompactionState.load(evt).active and UTC_CLOCK.search(last_reply(evt)) and once_per_hour(evt, [UTC_IN_REPLY]):
@@ -463,7 +465,8 @@ def nudge_utc_in_owner_replies(evt: BaseHookEvent) -> HookResult | None:
     Event.Stop,
     skip_if=[FromSubagent()],
     transcript_events=REPLY_WINDOW,
-    tests=separate("owner_facing.publish_lines_quote_the_released_record", {
+    only_if=[Coordinator()],
+    tests=separate("owner_facing.publish_lines_quote_the_released_record", coordinator_tests({
         Input(transcript=reply_transcript("sand 1437 is published."), state=ACTIVE, commands=incident_sources(OUTAGE_0820)): Warn(
             pattern=r"quote the RELEASED record"
         ),
@@ -494,7 +497,7 @@ def nudge_utc_in_owner_replies(evt: BaseHookEvent) -> HookResult | None:
         Input(transcript=reply_transcript("The release plan is rewritten and now live on the board."), state=ACTIVE, commands=incident_sources(OUTAGE_0820)): Allow(),
         Input(transcript=reply_transcript("sand has not been cut yet; I will cut it next."), state=ACTIVE, commands=incident_sources(OUTAGE_0820)): Allow(),
         Input(transcript=reply_transcript("sand 1437 is published."), commands=incident_sources(OUTAGE_0820)): Allow(),
-    }),
+    })),
 )
 def publish_lines_quote_the_released_record(evt: BaseHookEvent) -> HookResult | None:
     if not CompactionState.load(evt).active:
@@ -775,9 +778,9 @@ def off_incident_question(evt: BaseHookEvent) -> HookResult | None:
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("AskUserQuestion", "Bash", SLACK_CARD)],
+    only_if=[OwnerBridge(), Tool("AskUserQuestion", "Bash", SLACK_CARD)],
     skip_if=[FromSubagent()],
-    tests=separate("owner_facing.plain_words_in_owner_questions", {
+    tests=separate("owner_facing.plain_words_in_owner_questions", bridge_tests({
         drive_ask("D gate: the plan said dry-run before enqueue. Which gate?", "D gate"): Warn(pattern=r'^Warning, nothing was blocked: Owner-facing text must read in plain words[\s\S]*plain words, "D gate"'),
         drive_ask("Lift the hold?", "G304", description="walker walks the reverted HEAD after G304 lifts"): Warn(pattern=r'plain words, "G304"'),
         drive_ask('Proposed reply to Andrew in #platform-squad: "No design conflict." OK to post?', "Proposed reply to Andrew"): Warn(pattern=r'plain words, "Proposed reply to Andrew"'),
@@ -831,7 +834,7 @@ def off_incident_question(evt: BaseHookEvent) -> HookResult | None:
         Input(command="ls", state=PROGRAM_ACTIVE, env=DRIVE_CONFIG, commands=PLAIN_READS): Allow(),
         Input(tool=SLACK_CARD, tool_input={"card": {"title": "Merge the slice?"}}, commands={**PLAIN_READS, **judged("slice")}): Allow(),
         Input(tool=SLACK_CARD, tool_input={"card": {"title": "Merge the slice?"}}, agent_id="a1b2c3", state=PROGRAM_ACTIVE, commands={**PLAIN_READS, **judged("slice")}): Allow(),
-    }),
+    })),
 )
 def plain_words_in_owner_questions(evt: BaseHookEvent) -> HookResult | None:
     if not CompactionState.load(evt).active:
@@ -853,12 +856,13 @@ def plain_words_in_owner_questions(evt: BaseHookEvent) -> HookResult | None:
     Event.Stop,
     skip_if=[FromSubagent()],
     transcript_events=REPLY_WINDOW,
-    tests=separate("owner_facing.plain_words_on_reply", {
+    only_if=[Coordinator()],
+    tests=separate("owner_facing.plain_words_on_reply", coordinator_tests({
         Input(transcript=reply_transcript("The slice for lane p1a is done."), state=PROGRAM_ACTIVE, env=DRIVE_CONFIG, commands={**PLAIN_READS, **judged("slice")}): Allow(),
         Input(transcript=reply_transcript("The chat-list fix is live for every team."), state=PROGRAM_ACTIVE, env=DRIVE_CONFIG, commands=PLAIN_READS): Allow(),
         Input(transcript=reply_transcript("The slice for lane p1a is done."), commands=PLAIN_READS): Allow(),
         Input(transcript=reply_transcript("The slice for lane p1a is done."), agent_id="a1b2c3", state=PROGRAM_ACTIVE, commands=PLAIN_READS): Allow(),
-    }),
+    })),
 )
 def plain_words_on_reply(evt: BaseHookEvent) -> HookResult | None:
     if not CompactionState.load(evt).active or not (which := drive_args(evt)) or not (reply := last_reply(evt)):
@@ -900,9 +904,9 @@ def probe(command: str, *stored: dict, **extra: object) -> Input:
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("Bash")],
+    only_if=[Coordinator(), Tool("Bash")],
     skip_if=[FromSubagent()],
-    tests=separate("owner_facing.root_only_routes_during_an_incident", {
+    tests=separate("owner_facing.root_only_routes_during_an_incident", coordinator_tests({
         probe("kubectl -n plat get deploy api", SAND_NOT_MIGRATED): Warn(pattern="only spawns, routes, and acks"),
         probe("curl -s https://api.poetic.com/health", SAND_NOT_MIGRATED): Warn(pattern="only spawns, routes, and acks"),
         probe("pup monitors list", SAND_NOT_MIGRATED): Warn(),
@@ -930,7 +934,7 @@ def probe(command: str, *stored: dict, **extra: object) -> Input:
         probe("git show HEAD:service/store/open.go", CLOSED_0820): Allow(),
         probe("kubectl -n plat get deploy api", CLOSED_0820): Allow(),
         Input(command="kubectl -n plat get deploy api", commands=incident_sources(SAND_NOT_MIGRATED)): Allow(),
-    }),
+    })),
 )
 def root_only_routes_during_an_incident(evt: BaseHookEvent) -> HookResult | None:
     if root_probe(evt) and CompactionState.load(evt).active and open_incidents(evt):
@@ -958,10 +962,10 @@ def cause(command: str, **extra: object) -> Input:
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("Bash")],
+    only_if=[Coordinator(), Tool("Bash")],
     skip_if=[FromSubagent()],
     max_fires=1,
-    tests=separate("owner_facing.root_causes_quote_a_lane_mechanism", {
+    tests=separate("owner_facing.root_causes_quote_a_lane_mechanism", coordinator_tests({
         cause("cci post --drive release-v3 --lane root --kind go --to worker-fix --text 'the autoscaler caused the worker crashes; scale the pool'"): Warn(
             pattern=r"^Warning, nothing was blocked: this root record names a cause and quotes no lane record\."
         ),
@@ -975,7 +979,7 @@ def cause(command: str, **extra: object) -> Input:
         cause(f"cci post --drive release-v3 --lane root --kind go --to worker-fix --path {CAUSE_RECORD}"): Warn(),
         Input(command="cci post --drive release-v3 --lane root --kind go --text 'the autoscaler caused it'"): Allow(),
         cause("cci post --drive release-v3 --lane x --kind go --text 'the autoscaler caused it'", agent_id="a1b2c3"): Allow(),
-    }),
+    })),
 )
 def root_causes_quote_a_lane_mechanism(evt: BaseHookEvent) -> HookResult | None:
     if not CompactionState.load(evt).active:
@@ -1058,9 +1062,9 @@ def authorize(*transcript: object, **call: object) -> Input:
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("Bash", "Edit", "Write")],
+    only_if=[Coordinator(), Tool("Bash", "Edit", "Write")],
     skip_if=[FromSubagent()],
-    tests=separate("owner_facing.authorizing_lines_wait_for_the_owner_question", {
+    tests=separate("owner_facing.authorizing_lines_wait_for_the_owner_question", coordinator_tests({
         authorize(ROUTING_QUESTION, command=ROUTING_GO): Warn(pattern="later turn"),
         authorize(
             T.assistant(T.tool("Bash", command="cc-present push - <<'EOF'\n{\"blocks\": [{\"title\": \"Should acme routing switch?\"}]}\nEOF")),
@@ -1102,7 +1106,7 @@ def authorize(*transcript: object, **call: object) -> Input:
             state=ACTIVE,
         ): Allow(),
         Input(transcript=[T.user("keep going"), ROUTING_QUESTION], command=ROUTING_GO): Allow(),
-    }),
+    })),
 )
 def authorizing_lines_wait_for_the_owner_question(evt: BaseHookEvent) -> HookResult | None:
     lines = authorizing_lines(evt)

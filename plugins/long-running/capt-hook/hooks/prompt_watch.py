@@ -10,6 +10,7 @@ from captain_hook.util import reqenv
 
 from .compaction_handoff import CompactionState, script
 from .lane_rotation import DriveActive
+from .window_lane import Coordinator, coordinator_tests
 
 FIXTURES = Path(__file__).parent / "tests" / "fixtures"
 DRIVE_ENV = {"CLAUDE_LONG_RUNNING_DRIVE": "900424b6", "CLAUDE_CONFIG_DIR": str(FIXTURES / "claude-config")}
@@ -47,16 +48,16 @@ def starts_drive(evt: BaseHookEvent) -> bool:
 
 @on(
     Event.SessionStart,
-    only_if=[DriveActive()],
+    only_if=[Coordinator(), DriveActive()],
     skip_if=[FromSubagent()],
-    tests={
+    tests=coordinator_tests({
         Input(
             source="resume",
             session_id="900424b6-0000",
             state=[CompactionState(active=True)],
         ): Allow(),
         Input(source="startup"): Allow(),
-    },
+    }),
 )
 def watch_prompts_on_session_start(evt: BaseHookEvent) -> HookResult | None:
     if entry := entry_of(evt):
@@ -66,16 +67,16 @@ def watch_prompts_on_session_start(evt: BaseHookEvent) -> HookResult | None:
 
 @on(
     Event.PostToolUse,
-    only_if=[Tool("Bash")],
+    only_if=[Coordinator(), Tool("Bash")],
     skip_if=[FromSubagent()],
-    tests={
+    tests=coordinator_tests({
         Input(
             command="drive.py start --ledger 1a2b3c4d --orca-run run_1",
             output="drive 900424b6 on ledger 1a2b3c4d",
             session_id="900424b6-0000",
         ): Allow(),
         Input(command="drive.py list", output="900424b6 ledger=1a2b3c4d"): Allow(),
-    },
+    }),
 )
 def watch_prompts_on_drive_start(evt: BaseHookEvent) -> HookResult | None:
     if starts_drive(evt) and (entry := entry_of(evt)):

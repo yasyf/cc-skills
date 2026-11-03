@@ -47,6 +47,7 @@ from captain_hook.util import reqenv
 from .nudges import queue_nudge
 from .tests.handoff_fixtures import USAGE_262K_FABLE, USAGE_460K, USAGE_800K
 from .turns import threshold, turn_of
+from .window_lane import Coordinator, coordinator_tests
 
 SKILL_NAMES = ("long-running",)
 PLAN_ARG = re.compile(r"[^\s`'\"]*\.claude/plans/[^\s/`'\"]+\.md")
@@ -718,9 +719,9 @@ def unlabelled(title: str, labels: list[str], slug: str) -> bool:
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("Bash", DOC_ADD_TOOL)],
+    only_if=[Coordinator(), Tool("Bash", DOC_ADD_TOOL)],
     skip_if=[FromSubagent()],
-    tests={
+    tests=coordinator_tests({
         Input(
             command='ccn doc add "brook: progress 2026-10-10T2210Z (pre-compact handoff)" --label handoff --body -',
             state=[CompactionState(active=True, slug="brook")],
@@ -748,7 +749,7 @@ def unlabelled(title: str, labels: list[str], slug: str) -> bool:
         Input(
             command='ccn doc add "lane-a progress" --body -', agent_id="a1b2c3", state=[CompactionState(active=True, slug="brook")]
         ): Allow(),
-    },
+    }),
 )
 def label_progress_records(evt: BaseHookEvent) -> HookResult | None:
     state = CompactionState.load(evt)
@@ -767,7 +768,8 @@ def label_progress_records(evt: BaseHookEvent) -> HookResult | None:
     Event.PostToolUse,
     skip_if=[FromSubagent()],
     transcript_events=TURN_WINDOW,
-    tests={
+    only_if=[Coordinator()],
+    tests=coordinator_tests({
         Input(tool="Bash", tool_input={"command": "ls"}, transcript=USAGE_460K): Allow(),
         Input(
             tool="Bash",
@@ -794,7 +796,7 @@ def label_progress_records(evt: BaseHookEvent) -> HookResult | None:
             agent_id="a1b2c3",
             state=[CompactionState(active=True)],
         ): Allow(),
-    },
+    }),
 )
 def nudge_at_threshold(evt: BaseHookEvent) -> HookResult | None:
     since = None
@@ -926,7 +928,8 @@ def reground(evt: BaseHookEvent) -> HookResult | None:
 @on(
     Event.PostToolUse | Event.UserPromptSubmit,
     skip_if=[FromSubagent()],
-    tests={
+    only_if=[Coordinator()],
+    tests=coordinator_tests({
         Input(
             tool="Bash",
             tool_input={"command": "ls"},
@@ -949,7 +952,7 @@ def reground(evt: BaseHookEvent) -> HookResult | None:
             agent_id="a1b2c3",
             state=[CompactionState(active=True, register_doc="e" * 40, register_body="1. rule\n", root_slice="scope `1e9a64d`: rule")],
         ): Allow(),
-    },
+    }),
 )
 def deliver_register(evt: BaseHookEvent) -> HookResult | None:
     if not ((queued := CompactionState.load(evt)).register_body or queued.root_slice):
@@ -993,7 +996,8 @@ def compact_due(state: CompactionState, evt: BaseHookEvent) -> bool | str:
     Event.Stop,
     skip_if=[FromSubagent()],
     transcript_events=1,
-    tests={
+    only_if=[Coordinator()],
+    tests=coordinator_tests({
         Input(transcript=USAGE_800K, state=[CompactionState(active=True)]): Allow(),
         Input(state=[CompactionState(active=True, plan_path="/p/brook.md", slug="brook", phase="written")]): Allow(
             system_message=r"^The handoff is recorded, but the hook cannot type `/compact` here\. Run `/compact` now\.$"
@@ -1004,7 +1008,7 @@ def compact_due(state: CompactionState, evt: BaseHookEvent) -> bool | str:
         Input(
             agent_id="a1b2c3", state=[CompactionState(active=True, plan_path="/p/brook.md", phase="written")]
         ): Allow(),
-    },
+    }),
 )
 def compact_when_idle(evt: BaseHookEvent) -> HookResult | None:
     with CompactionState.mutate(evt) as state:
@@ -1027,7 +1031,8 @@ def compact_when_idle(evt: BaseHookEvent) -> HookResult | None:
 @on(
     Event.PreCompact,
     skip_if=[FromSubagent()],
-    tests={
+    only_if=[Coordinator()],
+    tests=coordinator_tests({
         Input(
             session_id="s1",
             file=FileFixture(home=True, name="brook.md", content="# brook\n"),
@@ -1049,7 +1054,7 @@ def compact_when_idle(evt: BaseHookEvent) -> HookResult | None:
             r"the ids in this summary win over any id captured earlier in the conversation\.$"
         ),
         Input(transcript=USAGE_460K, state=[CompactionState(plan_path="/p/brook.md")]): Allow(),
-    },
+    }),
 )
 def compaction_instructions(evt: BaseHookEvent) -> HookResult | None:
     with CompactionState.mutate(evt) as state:
