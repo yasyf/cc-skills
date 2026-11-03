@@ -108,8 +108,8 @@ func TestAnAskIsAnsweredToItsLaneAndClosed(t *testing.T) {
 	if len(found) != 1 {
 		t.Fatalf("answers = %d, want 1", len(found))
 	}
-	if !slices.Equal(found[0].To, []string{lane}) || found[0].Resolves != opened.Seq {
-		t.Fatalf("to %v resolves %d, want %s and %d", found[0].To, found[0].Resolves, lane, opened.Seq)
+	if !slices.Equal(found[0].To, []string{client.Stem(lane)}) || found[0].Resolves != opened.Seq {
+		t.Fatalf("to %v resolves %d, want %s, the stem the asking lane holds, and %d", found[0].To, found[0].Resolves, client.Stem(lane), opened.Seq)
 	}
 	if body := bodyOf(t, found[0]); body != `{"state":"failed"}` {
 		t.Fatalf("body = %q", body)
