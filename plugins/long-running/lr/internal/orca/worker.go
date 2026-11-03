@@ -35,8 +35,9 @@ const (
 	allocationWarm    = "warm"
 	allocationCreated = "created"
 	idleWarning       = "so the prepared worker stays idle and unattached"
-	installTools      = `mkdir -p ~/.local/bin && curl -fsSL "$1" -o /tmp/cci.tgz && echo "$2  /tmp/cci.tgz" | sha256sum -c - && tar -xzf /tmp/cci.tgz -C ~/.local/bin cci && curl -fsSL "$3" -o /tmp/lr.tgz && echo "$4  /tmp/lr.tgz" | sha256sum -c - && tar -xzOf /tmp/lr.tgz "$5" > ~/.local/bin/lr && chmod 755 ~/.local/bin/lr && { [ -z "$6" ] || { mkdir -p ~/.config/lr && printf '%s\n' "$6" > ~/.config/lr/bk.url; }; }`
+	installTools      = `mkdir -p ~/.local/bin && curl -fsSL "$1" -o /tmp/cci.tgz && echo "$2  /tmp/cci.tgz" | sha256sum -c - && tar -xzf /tmp/cci.tgz -C ~/.local/bin cci && curl -fsSL "$3" -o /tmp/lr.tgz && echo "$4  /tmp/lr.tgz" | sha256sum -c - && tar -xzOf /tmp/lr.tgz "$5" > ~/.local/bin/lr && chmod 755 ~/.local/bin/lr && { [ -z "$6" ] || { mkdir -p ~/.config/lr && printf '%s\n' "$6" > ~/.config/lr/bk.url; }; } && shift 6 && export PATH="$HOME/.local/bin:$PATH" && missing= && for tool; do command -v "$tool" >/dev/null || missing="$missing $tool"; done && if [ -n "$missing" ]; then echo "missing:$missing"; exit 3; fi`
 	lrPlatform        = "linux-x86_64"
+	toolsMissing      = 3
 	unpackCarried     = `mkdir -p "$1" && tar -xzf - -C "$1"`
 	joinRelay         = `CCI_SERVICE_KEY=$(cat); export CCI_SERVICE_KEY; ~/.local/bin/cci relay join --instance --drive "$1" --url "$2" --ttl 24h --owner "$3" && sprite-env services create cci --cmd "$HOME/.local/bin/cci" --args supervise --no-stream`
 )
@@ -45,6 +46,7 @@ var (
 	spriteLane   = regexp.MustCompile(`\A[a-z0-9][a-z0-9-]{0,54}\z`)
 	fullCommit   = regexp.MustCompile(`\A[0-9a-f]{40}([0-9a-f]{24})?\z`)
 	orcaIdent    = regexp.MustCompile(`\A[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\z`)
+	briefTool    = regexp.MustCompile("(?m)(?:^|[\\s`(])(ccn|cc-notes|cci|lr|gh|ccx) [a-z]")
 	modelAliases = map[string]string{"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5", "fable": "claude-fable-5-1"}
 )
 
@@ -686,9 +688,22 @@ func (w *workerLaunch) startSprite() (string, error) {
 	if err := w.copyCarried(workspace); err != nil {
 		return "", err
 	}
-	stdout, stderr, code := w.capture("sprite", "exec", "-s", workspace, "--no-stdin", "--", "sh", "-c", installTools, "sh", w.ccURL, w.ccSHA, w.lrURL, w.lrSHA, w.lrMember, w.Env("WORKER_BK_URL"))
+	raw, err := os.ReadFile(w.brief)
+	if err != nil {
+		return "", err
+	}
+	var needs []string
+	for _, match := range briefTool.FindAllSubmatch(raw, -1) {
+		needs = append(needs, string(match[1]))
+	}
+	slices.Sort(needs)
+	install := []string{"sprite", "exec", "-s", workspace, "--no-stdin", "--", "sh", "-c", installTools, "sh", w.ccURL, w.ccSHA, w.lrURL, w.lrSHA, w.lrMember, w.Env("WORKER_BK_URL")}
+	stdout, stderr, code := w.capture(append(install, slices.Compact(needs)...)...)
 	if err := w.receipt("install.log", stdout+stderr); err != nil {
 		return "", err
+	}
+	if _, missing, found := strings.Cut(stdout, "missing:"); code == toolsMissing && found {
+		return "", refuse("Sprite %s has no %s, which the brief runs, so nothing launched; %s keeps its output, and the prepared worker stays idle and unattached", workspace, strings.Join(strings.Fields(missing), ", "), filepath.Join(w.attempt, "install.log"))
 	}
 	if code != 0 {
 		return "", refuse("installing cci from %s and lr from %s on Sprite %s failed; %s keeps its output, and the prepared worker stays idle and unattached", w.ccURL, w.lrURL, workspace, filepath.Join(w.attempt, "install.log"))
@@ -708,10 +723,6 @@ func (w *workerLaunch) startSprite() (string, error) {
 	}
 	w.terminal, _ = textOf(task["terminal"])
 	w.worktree, _ = textOf(task["projectRoot"])
-	raw, err := os.ReadFile(w.brief)
-	if err != nil {
-		return "", err
-	}
 	desk := ""
 	if briefDesk.Match(raw) {
 		desk = standingDesk

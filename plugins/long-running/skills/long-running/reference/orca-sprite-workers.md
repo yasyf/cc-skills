@@ -36,7 +36,7 @@ verify that file.
 
 Before prepare, the script runs `lr carry` on the brief. Each file or
 directory under this Mac's home that the brief names, and each
-`ccn doc show <id>` or `ccn task show <id>` it names, rendered from the
+`ccn doc show <id>`, `ccn plan show <id>` or `ccn task show <id>` it names, rendered from the
 checkout `WORKER_NOTES_REPO` names or else `WORKER_CHECKOUT`, is copied to
 `<brief>.worker/carried`. The brief that prepare copies names those copies
 under `/home/sprite/drive/carried`, where they land before `worker-start`. A
@@ -55,6 +55,13 @@ release that this pack's `bin/lr.binrun` pins, checked against that file's
 SHA-256, so a Sprite lane runs the `lr` the launching drive runs. A pack whose
 `bin/lr.binrun` pins no sha256 tar.gz GitHub release for `linux-x86_64` refuses
 before prepare.
+
+The same step then checks, once, that the box runs every drive CLI the
+carried brief invokes: `ccn`, `cc-notes`, `cci`, `lr`, `gh` and `ccx`, each
+counted when the brief names it before a space and a lowercase verb. A box
+without one refuses the launch naming each missing CLI, keeps the output in
+`install.log`, and leaves the prepared worker idle and unattached, so no lane
+starts on a box that cannot run its brief.
 
 With `WORKER_BK_URL` set, the same step writes it to `~/.config/lr/bk.url` on
 the Sprite. There `lr bk api|log|graphql` sends each read to the drive host,

@@ -83,6 +83,20 @@ func TestAMacFileAndACcnDocTheBriefNamesAreReadableAtTheirRewrittenPaths(t *test
 	}
 }
 
+func TestTheCcnPlanABriefNamesTravelsWithIt(t *testing.T) {
+	c, fake := carrier(t)
+	fake.Reply("step 1: relaunch the watchdog\n", "ccn", "-R", c.Repo, "plan", "show", "p-7")
+
+	out := carried(t, c, "Plan p-7 (`ccn plan show p-7`).\n")
+
+	if out != "Plan p-7 (`"+box+"/ccn/plan-p-7.md`).\n" {
+		t.Fatalf("rewritten brief %q", out)
+	}
+	if got := landed(t, c, box+"/ccn/plan-p-7.md"); got != "step 1: relaunch the watchdog\n" {
+		t.Fatalf("plan copy holds %q", got)
+	}
+}
+
 func TestAMissingPathRefusesTheLaunchNamingEveryOne(t *testing.T) {
 	c, _ := carrier(t)
 	gone := filepath.Join(c.Home, ".claude/scratch/gone.md")
