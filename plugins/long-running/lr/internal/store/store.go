@@ -722,6 +722,16 @@ func (s *Store) Orders(seqs []int64) ([]int64, error) {
 	})
 }
 
+func (s *Store) SetLaneRole(name, role string) error {
+	_, err := s.db.Exec("UPDATE lanes SET role = ? WHERE name = ?", role, name)
+	return err
+}
+
+func (s *Store) SetLaneLauncher(name, launcher string) error {
+	_, err := s.db.Exec("UPDATE lanes SET launcher = ? WHERE name = ?", launcher, name)
+	return err
+}
+
 func (s *Store) SetLaneStoppedOn(name string, order int64) error {
 	_, err := s.db.Exec("UPDATE lanes SET stopped_on = ? WHERE name = ?", whole(order), name)
 	return err

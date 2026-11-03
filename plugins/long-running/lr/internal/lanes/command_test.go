@@ -40,6 +40,53 @@ func execute(t *testing.T, cmd *cobra.Command, args ...string) (string, error) {
 	return out.String(), err
 }
 
+func TestAdoptMetaMakesTheRouteAnswerMetaForTheDeskAndItsListedLanes(t *testing.T) {
+	a, s := driveState(t)
+	byRoot := storeLane("by-root")
+	byRoot.Launcher = Root
+	for _, lane := range []store.Lane{storeLane("meta-desk-2"), storeLane("helper-1"), byRoot, storeLane("drive-lane")} {
+		if _, err := s.WantLane(lane, t0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	listed := filepath.Join(t.TempDir(), "mylanes.txt")
+	if err := os.WriteFile(listed, []byte("helper-1\nold-name\nby-root\nmeta-desk-2\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	text, err := execute(t, adoptMetaCommand(a), "meta-desk-2", "--from", listed)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	equal(t, text, "meta-desk-2 is the meta lane; 1 lanes adopted; 1 have no row: old-name\n")
+	for lane, meta := range map[string]bool{"meta-desk-2": true, "helper-1": true, "by-root": false, "drive-lane": false} {
+		answer, err := AnswerRoute(s, lane)
+		if err != nil {
+			t.Fatal(err)
+		}
+		equal(t, answer.Meta, meta)
+	}
+	equal(t, row(t, s, "by-root").Launcher, Root)
+	desk, err := MetaDesk(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	equal(t, desk, "meta-desk-2")
+}
+
+func TestAdoptMetaRefusesADeskWithNoRow(t *testing.T) {
+	a, _ := driveState(t)
+	listed := filepath.Join(t.TempDir(), "mylanes.txt")
+	if err := os.WriteFile(listed, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := execute(t, adoptMetaCommand(a), "no-such-desk", "--from", listed); err == nil || !strings.Contains(err.Error(), "no-such-desk") {
+		t.Fatalf("err %v", err)
+	}
+}
+
 func TestTheLanesVerbPrintsTheRegistryAndOneJSONObjectPerLane(t *testing.T) {
 	a, s := driveState(t)
 	if _, err := s.WantLane(storeLane("desk-1"), t0); err != nil {

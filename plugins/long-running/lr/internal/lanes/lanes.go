@@ -261,6 +261,25 @@ func isMeta(s *store.Store, name string) bool {
 	return false
 }
 
+func AdoptMeta(s *store.Store, desk string, helpers []string) (adopted int, unknown []string, err error) {
+	defer recovered(&err)
+	if _, found := laneOf(s, desk); !found {
+		return 0, nil, fmt.Errorf("no lane named %s", desk)
+	}
+	do(s.SetLaneRole(desk, RoleMeta))
+	for _, name := range helpers {
+		lane, found := laneOf(s, name)
+		switch {
+		case !found:
+			unknown = append(unknown, name)
+		case name != desk && lane.Launcher == "":
+			do(s.SetLaneLauncher(name, desk))
+			adopted++
+		}
+	}
+	return adopted, unknown, nil
+}
+
 func MetaDesk(s *store.Store) (desk string, err error) {
 	defer recovered(&err)
 	for _, lane := range must(s.Lanes(live...)) {

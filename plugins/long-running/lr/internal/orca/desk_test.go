@@ -1726,6 +1726,7 @@ func TestAnOrderStaysWithItsLane(t *testing.T) {
 	}{
 		{name: "a delivered relay it has not started is not busy", role: "build", text: "go on"},
 		{name: "a desk keeps its own orders", role: "desk", text: "go on", started: true},
+		{name: "a meta desk keeps its own orders", role: "meta", text: "go on", started: true},
 		{name: "an order about a PR it owns", role: "build", text: "fix #48 now", started: true, prs: []int{48}},
 	}
 	for _, c := range cases {
