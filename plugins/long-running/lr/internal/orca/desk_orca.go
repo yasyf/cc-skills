@@ -54,7 +54,7 @@ type orcaMessage struct {
 	ThreadID   string `json:"thread_id"`
 	Payload    string `json:"payload"`
 	CreatedAt  string `json:"created_at"`
-	Read       bool   `json:"read"`
+	Read       int    `json:"read"`
 }
 
 func (d *Desk) client() Client {
@@ -198,14 +198,14 @@ func (d *Desk) fence(ctx context.Context, dispatch string) (string, string) {
 	return fenced.State, ""
 }
 
-func messagesOf(reply Reply) []orcaMessage {
+func messagesOf(reply Reply) ([]orcaMessage, error) {
 	var result struct {
 		Messages []orcaMessage `json:"messages"`
 	}
-	if json.Unmarshal(reply.Result, &result) != nil {
-		return nil
+	if err := json.Unmarshal(reply.Result, &result); err != nil {
+		return nil, fmt.Errorf("orca messages: %w", err)
 	}
-	return result.Messages
+	return result.Messages, nil
 }
 
 func (d *Desk) mailbox(ctx context.Context, terminal string) ([]orcaMessage, bool) {
@@ -213,7 +213,12 @@ func (d *Desk) mailbox(ctx context.Context, terminal string) ([]orcaMessage, boo
 	if !listed.OK {
 		return nil, false
 	}
-	return messagesOf(listed), true
+	messages, err := messagesOf(listed)
+	if err != nil {
+		fmt.Fprintln(d.Stderr, err)
+		return nil, false
+	}
+	return messages, true
 }
 
 func (d *Desk) unreadOn(ctx context.Context, terminal string) (map[string]bool, bool) {
@@ -221,8 +226,13 @@ func (d *Desk) unreadOn(ctx context.Context, terminal string) (map[string]bool, 
 	if !peeked.OK {
 		return nil, false
 	}
+	messages, err := messagesOf(peeked)
+	if err != nil {
+		fmt.Fprintln(d.Stderr, err)
+		return nil, false
+	}
 	held := map[string]bool{}
-	for _, message := range messagesOf(peeked) {
+	for _, message := range messages {
 		held[message.ID] = true
 	}
 	return held, true
@@ -233,7 +243,7 @@ func (d *Desk) mail(ctx context.Context, limit int) ([]orcaMessage, error) {
 	if err != nil {
 		return nil, err
 	}
-	return messagesOf(reply), nil
+	return messagesOf(reply)
 }
 
 func (d *Desk) mailSince(ctx context.Context, cursor int64, page int) ([]orcaMessage, error) {

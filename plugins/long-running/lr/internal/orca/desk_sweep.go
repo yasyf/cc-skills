@@ -175,7 +175,7 @@ func (d *Desk) staleMail(ctx context.Context, receipts, statuses map[string]stri
 		return nil, err
 	}
 	for _, message := range fresh {
-		if _, onLane := terminals[message.ToHandle]; onLane && !message.Read {
+		if _, onLane := terminals[message.ToHandle]; onLane && message.Read == 0 {
 			kept.Unread[message.ID] = unreadEntry{Terminal: message.ToHandle, At: message.CreatedAt}
 		}
 		kept.Cursor = max(kept.Cursor, message.Sequence)
