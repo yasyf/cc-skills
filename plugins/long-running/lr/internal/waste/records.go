@@ -25,10 +25,8 @@ var (
 func deadRecipients(ctx context.Context, src Sources, cfg Config, drive string, records []client.Record) ([]Finding, error) {
 	lastPost := map[string]time.Time{}
 	for _, record := range records {
-		for _, lane := range []string{record.Lane, client.Stem(record.Lane)} {
-			if record.At.After(lastPost[lane]) {
-				lastPost[lane] = record.At
-			}
+		if record.At.After(lastPost[record.Lane]) {
+			lastPost[record.Lane] = record.At
 		}
 	}
 	silent := map[string]bool{}
