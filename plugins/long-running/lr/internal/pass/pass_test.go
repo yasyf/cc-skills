@@ -370,6 +370,25 @@ func TestAnOverdueRedOrRestackGoesToThePRsLaneNeverRoot(t *testing.T) {
 	}
 }
 
+func TestAReadyPRBehindAnUntappedOneHasNoClockUntilTheOneBelowClears(t *testing.T) {
+	s, r := newStore(t), &recorder{}
+	below := facts(45469, func(f *machine.Facts) { f.Branch, f.Tap = "below", "" })
+	above := facts(45470, func(f *machine.Facts) { f.Branch, f.Base = "above", "below" })
+	live := []machine.Mover{machine.MoverSupervisor}
+
+	first := run(t, s, r, t0, live, below, above)
+	late := run(t, s, r, t0.Add(machine.SupervisorClock+time.Minute), live, below, above)
+	below.Tap = machine.TapTapped
+	cleared := run(t, s, r, t0.Add(machine.SupervisorClock+2*time.Minute), live, below, above)
+
+	if len(first.Acts) != 0 || len(late.Acts) != 0 || len(late.Escalated) != 0 {
+		t.Fatalf("first = %+v, late = %+v, escalated = %+v", first.Acts, late.Acts, late.Escalated)
+	}
+	if len(cleared.Acts) != 2 || len(cleared.Escalated) != 0 {
+		t.Fatalf("cleared = %+v, escalated = %+v", cleared.Acts, cleared.Escalated)
+	}
+}
+
 func TestAHeldOrUntappedConflictIsNeitherActedOnNorEscalatedWhileLandingIsLive(t *testing.T) {
 	for name, given := range map[string]func(*machine.Facts){
 		"held":     func(f *machine.Facts) { f.Mergeable, f.Hold = machine.MergeableConflict, machine.MoverRoot },

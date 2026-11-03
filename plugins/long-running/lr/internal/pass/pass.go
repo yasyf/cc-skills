@@ -77,8 +77,12 @@ func Live(movers []string) []machine.Mover {
 func Run(s *store.Store, snapshot []machine.Facts, now time.Time, post Post, live []machine.Mover, route Route) (Outcome, error) {
 	out := Outcome{Verdicts: map[int]machine.Verdict{}, Released: map[string][]store.Item{}}
 	now = now.UTC().Truncate(time.Second)
+	byBranch := make(map[string]machine.Facts, len(snapshot))
 	for _, f := range snapshot {
-		if err := classifyOne(s, f, now, post, live, &out); err != nil {
+		byBranch[f.Branch] = f
+	}
+	for _, f := range snapshot {
+		if err := classifyOne(s, f, byBranch, now, post, live, &out); err != nil {
 			return out, fmt.Errorf("#%d: %w", f.Number, err)
 		}
 	}
@@ -92,7 +96,7 @@ func Run(s *store.Store, snapshot []machine.Facts, now time.Time, post Post, liv
 	return out, err
 }
 
-func classifyOne(s *store.Store, f machine.Facts, now time.Time, post Post, live []machine.Mover, out *Outcome) error {
+func classifyOne(s *store.Store, f machine.Facts, byBranch map[string]machine.Facts, now time.Time, post Post, live []machine.Mover, out *Outcome) error {
 	verdict := machine.Classify(f)
 	out.Verdicts[f.Number] = verdict
 	if err := s.PutPR(store.PR{Repo: f.Repo, Number: f.Number, Head: f.Head, Base: f.Base, Lane: f.Lane, State: verdict.State, ReadAt: now}); err != nil {
@@ -101,6 +105,9 @@ func classifyOne(s *store.Store, f machine.Facts, now time.Time, post Post, live
 	if verdict.State.Terminal() {
 		_, err := s.CloseItems(f.Repo, f.Number, now, "")
 		return err
+	}
+	if verdict.Action == machine.ActionEnqueue && waitsBelow(f, byBranch) {
+		return closeOthers(s, f, "", now)
 	}
 	if err := closeOthers(s, f, verdict.Action, now); err != nil {
 		return err
@@ -122,6 +129,20 @@ func classifyOne(s *store.Store, f machine.Facts, now time.Time, post Post, live
 		out.Acts = append(out.Acts, Act{f, verdict})
 	}
 	return nil
+}
+
+func waitsBelow(f machine.Facts, byBranch map[string]machine.Facts) bool {
+	for range len(byBranch) + 1 {
+		below, open := byBranch[f.Base]
+		if !open {
+			return false
+		}
+		if !below.Landable() && !below.Queued() {
+			return true
+		}
+		f = below
+	}
+	return false
 }
 
 func closeOthers(s *store.Store, f machine.Facts, keep machine.Action, now time.Time) error {
