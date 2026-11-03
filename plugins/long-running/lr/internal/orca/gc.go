@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -18,6 +19,7 @@ import (
 
 const (
 	gcParallel  = 4
+	sweptBatch  = 10
 	changed     = "changed since the first read"
 	verbKeep    = "keep"
 	verbSkip    = "skip"
@@ -117,6 +119,7 @@ type GC struct {
 	Lock   string
 	Out    io.Writer
 	DryRun bool
+	Keep   map[string]bool
 
 	writing sync.Mutex
 }
@@ -675,6 +678,9 @@ func (g *GC) Run(ctx context.Context, run string, dispatches, ending []string) (
 		return nil, err
 	}
 	settled := func(worker Worker) bool {
+		if g.Keep[worker.Dispatch] {
+			return false
+		}
 		_, done := ended[worker.Dispatch]
 		return worker.Settled() || done
 	}
@@ -931,6 +937,69 @@ func (g *GC) reclaimTrees(ctx context.Context, candidates []tree, closing map[st
 	return result, stopped, nil
 }
 
+type Swept struct {
+	Path string
+}
+
+func (s Swept) read() (map[string]bool, error) {
+	raw, err := os.ReadFile(s.Path)
+	if errors.Is(err, os.ErrNotExist) {
+		return map[string]bool{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var dispatches []string
+	if err := json.Unmarshal(raw, &dispatches); err != nil {
+		return nil, fmt.Errorf("%s: %w", s.Path, err)
+	}
+	seen := make(map[string]bool, len(dispatches))
+	for _, dispatch := range dispatches {
+		seen[dispatch] = true
+	}
+	return seen, nil
+}
+
+func (s Swept) record(dispatches []string) error {
+	seen, err := s.read()
+	if err != nil {
+		return err
+	}
+	for _, dispatch := range dispatches {
+		seen[dispatch] = true
+	}
+	raw, err := json.Marshal(sortedKeys(seen))
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(s.Path), 0o750); err != nil {
+		return err
+	}
+	staged := s.Path + ".tmp"
+	if err := os.WriteFile(staged, raw, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(staged, s.Path)
+}
+
+func (g *GC) unswept(ctx context.Context, run string, ledger Swept) ([]string, error) {
+	seen, err := ledger.read()
+	if err != nil {
+		return nil, err
+	}
+	workers, err := g.Orca.Workers(ctx, run)
+	if err != nil {
+		return nil, err
+	}
+	var fresh []string
+	for _, worker := range workers {
+		if worker.Settled() && !seen[worker.Dispatch] && !g.Keep[worker.Dispatch] && len(fresh) < sweptBatch {
+			fresh = append(fresh, worker.Dispatch)
+		}
+	}
+	return fresh, nil
+}
+
 func Drift(planned, replanned string) []string {
 	would := func(text string) map[string]bool {
 		lines := map[string]bool{}
@@ -958,7 +1027,7 @@ func Drift(planned, replanned string) []string {
 
 func (g *GC) Replan(ctx context.Context, run string, dispatches, ending []string) (string, error) {
 	var out bytes.Buffer
-	dry := &GC{Orca: g.Orca, Git: g.Git, Fleet: g.Fleet, Pause: g.Pause, Lock: g.Lock, Out: &out, DryRun: true}
+	dry := &GC{Orca: g.Orca, Git: g.Git, Fleet: g.Fleet, Pause: g.Pause, Lock: g.Lock, Out: &out, DryRun: true, Keep: g.Keep}
 	if _, err := dry.Run(ctx, run, dispatches, ending); err != nil {
 		return "", err
 	}

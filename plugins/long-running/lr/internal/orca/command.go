@@ -26,8 +26,8 @@ func stateHome() (string, error) {
 
 func GCCommand(a *app.App) *cobra.Command {
 	var run, plan string
-	var dispatches, done []string
-	var dryRun bool
+	var dispatches, done, keep []string
+	var dryRun, fresh bool
 	cmd := &cobra.Command{
 		Use:   "gc",
 		Short: "Reclaim what an Orca Run's settled dispatches left behind",
@@ -40,6 +40,8 @@ A settled dispatch's worktree is removed with orca worktree rm when no unsettled
 --done ends a lane the coordinator decided is done, settled or not: worker-stop fences the dispatch, or worker-abandon settles one Orca already fenced, and its terminal closes without the idle check before its worktree is reclaimed by the same rules.
 
 A dispatch on a paired Orca server goes through that server's --environment. A dispatch whose worktree and terminal a cc-remote Sprite task records has its Sprite destroyed once no unsettled dispatch shares the workspace, its terminal reads idle twice (skipped under --done), and its checkout, read over ssh, is clean with its HEAD on origin or landed. A Sprite whose Orca runtime is down reads as unknown and is kept. A destroy runs WORKER_CC_REMOTE with CC_REMOTE_CONFIG when set, otherwise the bin/cc-remote and config.yaml under tools/cc-remote of the checkout gc runs from, otherwise cc-remote from PATH with its own config lookup.
+
+--new sweeps only settled dispatches no earlier --new pass swept, newest first and up to ten a pass, and records them under the state directory. The lane supervisor runs it every five minutes, with --keep for the dispatch of every lane the registry still wants, so a dispatch is reclaimed soon after it settles and its lane retires. Each dispatch gets one such pass; what it keeps waits for a whole-Run gc.
 
 --plan takes a dry run's output; gc plans again first and refuses, printing the difference, unless the two match. Cleanup is paused until $XDG_STATE_HOME/orca-gc/resumed exists. --dry-run reads through a pause and runs every read a removal runs, the live-process scan included, so its lines name what a real run would do. Prints one line per action, skipped action or kept resource, then the tally.`,
 		Args: cobra.NoArgs,
@@ -60,6 +62,10 @@ A dispatch on a paired Orca server goes through that server's --environment. A d
 				Lock:   filepath.Join(state, "orca-gc", "remove.lock"),
 				Out:    cmd.OutOrStdout(),
 				DryRun: dryRun,
+				Keep:   map[string]bool{},
+			}
+			for _, dispatch := range keep {
+				gc.Keep[dispatch] = true
 			}
 			if plan != "" {
 				planned, err := os.ReadFile(plan)
@@ -75,11 +81,24 @@ A dispatch on a paired Orca server goes through that server's --environment. A d
 					return &wait.ExitError{Code: planRefused}
 				}
 			}
+			ledger := Swept{Path: filepath.Join(state, "orca-gc", "swept-"+run+".json")}
+			if fresh {
+				if dispatches, err = gc.unswept(cmd.Context(), run, ledger); err != nil {
+					return err
+				}
+				if len(dispatches) == 0 {
+					fmt.Fprintln(cmd.OutOrStdout(), Tally{})
+					return nil
+				}
+			}
 			tally, err := gc.Run(cmd.Context(), run, dispatches, done)
 			if err != nil {
 				return err
 			}
 			fmt.Fprintln(cmd.OutOrStdout(), tally)
+			if fresh && !dryRun && !gc.Pause.Held() {
+				return ledger.record(dispatches)
+			}
 			return nil
 		},
 	}
@@ -88,6 +107,11 @@ A dispatch on a paired Orca server goes through that server's --environment. A d
 	cmd.Flags().StringArrayVar(&done, "done", nil, "worker-stop this dispatch, close its terminal, and reclaim its worktree; repeatable")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print what gc would do and change nothing")
 	cmd.Flags().StringVar(&plan, "plan", "", "a dry run's output; gc plans again first and refuses, printing the difference, unless the new plan prints the same lines")
+	cmd.Flags().StringArrayVar(&keep, "keep", nil, "treat this dispatch as live, so its terminal and worktree stay, whatever Orca says of it; repeatable")
+	cmd.Flags().BoolVar(&fresh, "new", false, "only settled dispatches no earlier --new pass swept, newest first, up to ten a pass")
+	cmd.MarkFlagsMutuallyExclusive("new", "dispatch")
+	cmd.MarkFlagsMutuallyExclusive("new", "done")
+	cmd.MarkFlagsMutuallyExclusive("new", "plan")
 	if err := cmd.MarkFlagRequired("run"); err != nil {
 		panic(err)
 	}

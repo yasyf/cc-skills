@@ -45,12 +45,15 @@ func opened(a *app.App) (*store.Store, config.Config, error) {
 }
 
 func Command(a *app.App) *cobra.Command {
-	var asJSON bool
+	var asJSON, idle bool
 	cmd := &cobra.Command{
 		Use:   "lanes [NAME...]",
 		Short: "The drive's one liveness answer: one line per lane in the registry",
 		Args:  cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, names []string) error {
+			if idle {
+				return idleCensus(cmd, a)
+			}
 			s, _, err := opened(a)
 			if err != nil {
 				return err
@@ -82,6 +85,7 @@ func Command(a *app.App) *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&asJSON, "json", false, "one JSON object per lane")
+	cmd.Flags().BoolVar(&idle, "idle", false, "the idle-session census: claude and codex processes, Orca worktrees and terminals, and what a whole-Run gc would close, remove, destroy and keep; changes nothing")
 	cmd.AddCommand(handoffCommand(a))
 	return cmd
 }

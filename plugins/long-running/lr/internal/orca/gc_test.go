@@ -1613,6 +1613,49 @@ func TestASpriteDestroyReadsTheConfigFromTheResolvedPath(t *testing.T) {
 	}
 }
 
+func TestAKeptDispatchIsTreatedAsLiveWhateverOrcaSaysOfIt(t *testing.T) {
+	orca := newOrca(row("ctx_kept"), row("ctx_done"))
+	orca.terminals[testWT] = []Terminal{agentTerminal("term_ctx_kept"), agentTerminal("term_ctx_done")}
+	tally, _ := runGC(t, orca, newGit(checkout(testWT)), gcOptions{keep: map[string]bool{"ctx_kept": true}})
+	wantTally(t, tally, Tally{verbClosed: 1})
+	wantCalls(t, orca, []string{"close", "term_ctx_done"})
+	gc := &GC{Orca: orca, Keep: map[string]bool{"ctx_kept": true}}
+	got, err := gc.unswept(context.Background(), "run_x", Swept{Path: filepath.Join(t.TempDir(), "swept.json")})
+	if err != nil || !slices.Equal(got, []string{"ctx_done"}) {
+		t.Fatalf("got %v, err %v", got, err)
+	}
+}
+
+func TestUnsweptNamesOnlySettledDispatchesNoPassSweptNewestFirstUpToABatch(t *testing.T) {
+	ledger := Swept{Path: filepath.Join(t.TempDir(), "orca-gc", "swept-run_x.json")}
+	if err := ledger.record([]string{"ctx_swept"}); err != nil {
+		t.Fatal(err)
+	}
+	gc := &GC{Orca: newOrca(row("ctx_new"), row("ctx_live", status("dispatched")), row("ctx_swept"), row("ctx_failed", status(statusFailed)))}
+	got, err := gc.unswept(context.Background(), "run_x", ledger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"ctx_new", "ctx_failed"}; !slices.Equal(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	if err := ledger.record(got); err != nil {
+		t.Fatal(err)
+	}
+	if got, err = gc.unswept(context.Background(), "run_x", ledger); err != nil || len(got) != 0 {
+		t.Fatalf("got %v, err %v", got, err)
+	}
+	many := make([]Worker, 0, sweptBatch+2)
+	for n := range sweptBatch + 2 {
+		many = append(many, row("ctx_"+strconv.Itoa(n)))
+	}
+	gc = &GC{Orca: newOrca(many...)}
+	got, err = gc.unswept(context.Background(), "run_x", ledger)
+	if err != nil || len(got) != sweptBatch || got[0] != "ctx_0" {
+		t.Fatalf("got %v, err %v", got, err)
+	}
+}
+
 func TestLandedSearchesClosedPRsForTheOneHeadItIsAskedAbout(t *testing.T) {
 	runner := &scripted{reply: func(argv []string) (string, string, int) {
 		switch argv[8] {
