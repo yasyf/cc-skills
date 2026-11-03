@@ -42,8 +42,9 @@ type recordedPR struct {
 func graphQLPages(prs []recordedPR) string {
 	var pages strings.Builder
 	for start := 0; start == 0 || start < len(prs); start += 100 {
-		nodes := []map[string]any{}
-		for _, pr := range prs[start:min(start+100, len(prs))] {
+		page := prs[start:min(start+100, len(prs))]
+		nodes := make([]map[string]any, 0, len(page))
+		for _, pr := range page {
 			labels, commits := []map[string]any{}, []map[string]any{}
 			for _, name := range pr.labels {
 				labels = append(labels, map[string]any{"name": name})
@@ -56,11 +57,11 @@ func graphQLPages(prs []recordedPR) string {
 				"labels": map[string]any{"nodes": labels}, "commits": map[string]any{"nodes": commits},
 			})
 		}
-		page, err := json.Marshal(map[string]any{"data": map[string]any{"repository": map[string]any{"pullRequests": map[string]any{"nodes": nodes}}}})
+		encoded, err := json.Marshal(map[string]any{"data": map[string]any{"repository": map[string]any{"pullRequests": map[string]any{"nodes": nodes}}}})
 		if err != nil {
 			panic(err)
 		}
-		pages.Write(page)
+		pages.Write(encoded)
 	}
 	return pages.String()
 }
