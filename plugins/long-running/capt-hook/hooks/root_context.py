@@ -15,6 +15,7 @@ from captain_hook import (
     Annotated,
     Arguments,
     BaseHookEvent,
+    Block,
     CommandMatches,
     CommandSchema,
     Event,
@@ -74,6 +75,13 @@ CCX_MCP_READS = tuple(
     f"mcp__plugin_cc-context_cc-context__ccx_{name}" for name in ("code_", "repo_", "web_", "vcs_diff", "exec")
 )
 CCX_MCP_CODE_READ = "mcp__plugin_cc-context_cc-context__ccx_code_read"
+CCX_MCP_SEARCHES = tuple(f"mcp__plugin_cc-context_cc-context__ccx_{name}" for name in ("code_search", "code_grep", "code_symbol", "repo_find"))
+SLACK_THREAD_TOOLS = ("mcp__slack__slack_get_thread", "mcp__plugin_cc-slack_cc-slack__slack_thread")
+ASK_LANE = (
+    "The communicator runs no search inline: ask a lane with `lr ask-lane '<question>'`, `--mac` for Slack or a transcript, "
+    "and its answer arrives as a record. "
+    "One bounded read stays yours: `cci show <seq>`, one named file, or your thread's newest message at limit 1."
+)
 SECTION_WINDOW = re.compile(r"(\d+)-(\d+)(?:#\w+)?")
 SED_WINDOW = re.compile(r"(\d+)(?:,(\d+))?p")
 WORKFLOW_NUDGE = "Warning, nothing was blocked: the owner wants no expensive workflow sweeps when the findings are in hand. Is a direct fix enough?"
@@ -132,7 +140,9 @@ GIT = CommandSchema(
 )
 GH = CommandSchema("gh", operands=WORDS, options=(REPO_OPTION,))
 CCX = CommandSchema("ccx", operands=WORDS, options=(Option("section", ("--section",)),))
-CC_SLACK = CommandSchema("cc-slack", operands=WORDS)
+CC_SLACK = CommandSchema("cc-slack", operands=WORDS, options=(Option("url", ("--url",)), Option("limit", ("--limit",))))
+CCI = CommandSchema("cci", operands=WORDS)
+CC_TRANSCRIPT = CommandSchema("cc-transcript", operands=WORDS)
 CCN = CommandSchema("ccn", operands=WORDS, options=(REPO_OPTION,))
 CC_NOTES = CommandSchema("cc-notes", operands=WORDS, options=(REPO_OPTION,))
 HEAD = CommandSchema(
@@ -680,6 +690,77 @@ root_warning(
         Input(command="cc-slack react --url C0B/p1 --name eyes", state=ACTIVE): Allow(),
     },
 )
+
+def searches_github(arguments: Arguments) -> bool:
+    words = arguments.values.get("words", ())
+    return words[:1] == ("search",) or words[:2] in (("pr", "list"), ("issue", "list"), ("run", "list")) or (
+        words[:1] == ("api",) and len(words) > 1 and str(words[1]).lstrip("/").startswith("search/")
+    )
+
+
+class ReadsNewestSlackMessage:
+    def check(self, evt: BaseHookEvent) -> bool:
+        if evt.tool_name in SLACK_THREAD_TOOLS:
+            return evt.input.raw.get("limit") == 1
+        threads = [arguments for call in evt.command.calls("cc-slack") if verb(("thread",))(arguments := CC_SLACK.bind(call))]
+        return bool(threads) and all(arguments.complete and arguments.values.get("limit") == ("1",) for arguments in threads)
+
+
+# TODO: refuse the find verb of the cci CLI here once a cc-inbox release carries it (yasyf/cc-inbox#346) and plugin.json requires that release.
+hook(  # capt-hook: no-escape the owner ruled wide searches off the communicator twice, and the message names the verb that replaces them
+    Event.PreToolUse,
+    block=True,
+    message=ASK_LANE,
+    only_if=[
+        Communicator(),
+        Or(
+            runs_verb(CCI, ("grep",)),
+            Tool("mcp__plugin_cc-inbox_cci__find"),
+            Tool(*SLACK_READ_TOOLS),
+            runs_verb(CC_SLACK, ("thread",), ("history",), ("search",)),
+            CommandMatches(GH, only_if=(searches_github,)),
+            runs_verb(CC_TRANSCRIPT, ("grep",), ("corpus",), ("tools",), ("commands",), ("mcp",), ("stats",)),
+            Tool("WebSearch", *CCX_MCP_SEARCHES),
+            runs_verb(CCX, ("code", "search"), ("code", "grep"), ("code", "symbol"), ("repo", "find")),
+            runs_verb(GIT, ("grep",)),
+            SearchesRepo(),
+        ),
+    ],
+    skip_if=[FromSubagent(), ReadsNewestSlackMessage()],
+    tests=communicator_tests({
+        Input(command="cci grep dashboard --drive durable-agents-rebuild", state=ACTIVE): Block(pattern=r"^The communicator runs no search inline: ask a lane with `lr ask-lane"),
+        Input(tool="mcp__plugin_cc-inbox_cci__find", tool_input={"query": "dashboard"}, state=ACTIVE): Block(),
+        Input(tool="mcp__slack__slack_search_messages", tool_input={"query": "dashboard"}, state=ACTIVE): Block(),
+        Input(tool="mcp__slack__slack_conversations_history", tool_input={"channel": "C1"}, state=ACTIVE): Block(),
+        Input(tool="mcp__plugin_cc-slack_cc-slack__slack_thread", tool_input={"channel_id": "D0B6Z", "thread_ts": "1.2"}, state=ACTIVE): Block(),
+        Input(tool="mcp__slack__slack_get_thread", tool_input={"channel": "C1", "ts": "1.2", "limit": 20}, state=ACTIVE): Block(),
+        Input(command="cc-slack thread --url C0B/p1 --limit 1000", state=ACTIVE): Block(),
+        Input(command="cc-slack history --channel C0B --limit 1", state=ACTIVE): Block(),
+        Input(command="gh pr list --search dashboard", state=ACTIVE): Block(),
+        Input(command="gh -R yasyf/cc-skills issue list", state=ACTIVE): Block(),
+        Input(command="gh search prs --owner yasyf stems", state=ACTIVE): Block(),
+        Input(command="gh run list --branch dev", state=ACTIVE): Block(),
+        Input(command="gh api 'search/issues?q=stems'", state=ACTIVE): Block(),
+        Input(command="cc-transcript grep dashboard --project monorepo", state=ACTIVE): Block(),
+        Input(command="cc-transcript corpus --project monorepo dashboard", state=ACTIVE): Block(),
+        Input(tool="WebSearch", tool_input={"query": "tailnet dashboard"}, state=ACTIVE): Block(),
+        Input(command="ccx code search 'who serves the dashboard'", state=ACTIVE): Block(),
+        Input(tool="mcp__plugin_cc-context_cc-context__ccx_code_grep", tool_input={"pattern": "dashboard"}, state=ACTIVE): Block(),
+        Input(command="git grep -n dashboard", state=ACTIVE): Block(),
+        Input(command="rg -n dashboard plugins", state=ACTIVE): Block(),
+        Input(tool="Grep", tool_input={"pattern": "dashboard", "path": "plugins"}, state=ACTIVE): Block(),
+        Input(command="cci grep dashboard # ccx:raw", state=ACTIVE): Block(),
+        Input(command="cci show '#374430'", state=ACTIVE): Allow(),
+        Input(command="cat /drive/state/meta/items.md", state=ACTIVE): Allow(),
+        Input(tool="mcp__plugin_cc-slack_cc-slack__slack_thread", tool_input={"channel_id": "D0B6Z", "thread_ts": "1.2", "limit": 1}, state=ACTIVE): Allow(),
+        Input(command="cc-slack thread --url D0B6Z/p1 --limit 1", state=ACTIVE): Allow(),
+        Input(command="lr ask-lane 'which PR moved the dashboard URL?'", state=ACTIVE): Allow(),
+        Input(command="gh pr checks 2360", state=ACTIVE): Allow(),
+        Input(command="cci grep dashboard"): Allow(),
+        Input(command="cci grep dashboard", agent_id="a1b2c3", state=ACTIVE): Allow(),
+    }),
+)
+
 
 root_warning(
     message="Warning, nothing was blocked: This fetch is too large for the drive coordinator. Delegate with `Agent` using `long-running:lane` and `model: sonnet`.",
