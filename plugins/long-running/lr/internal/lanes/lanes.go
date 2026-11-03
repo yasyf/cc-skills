@@ -403,7 +403,7 @@ func Classify(lane store.Lane, peer *Peer, now time.Time, tokens, rotateAt int) 
 		if peer == nil {
 			last := "never"
 			if !heard.IsZero() {
-				last = "at " + pacific(heard)
+				last = "at " + pacificFrom(heard, now)
 			}
 			return Verdict{Unproven, "has no process row in cci who or Orca and was last heard " + last + ", so nothing proves it died"}
 		}
@@ -413,7 +413,7 @@ func Classify(lane store.Lane, peer *Peer, now time.Time, tokens, rotateAt int) 
 		if !lane.Answered.IsZero() && now.Sub(lane.Answered) < StaleAfter {
 			return Verdict{Kind: Ok}
 		}
-		return Verdict{Dead, "stopped at " + pacific(heard)}
+		return Verdict{Dead, "stopped at " + pacificFrom(heard, now)}
 	}
 	if tokens > 0 && rotateAt > 0 && tokens >= rotateAt {
 		return Verdict{AskRotate, commas(tokens) + " tokens"}

@@ -318,6 +318,27 @@ func TestAQueueThatDoesNotAnswerStopsTheMoversAndNeverTheSupervisor(t *testing.T
 	equal(t, lease.Generation, int64(1))
 }
 
+func TestARefusedPassPostNeverStopsTheSupervisor(t *testing.T) {
+	s, c := memory(t), &clock{t0}
+	d := deps(c, &queue{}, &pool{}, prFacts(1, func(f *machine.Facts) { f.Finder, f.Fidelity = "", "" }))
+	refused := 0
+	d.Post = func([]string, bus.Body) error {
+		refused++
+		return &bus.Refused{Message: "an escalation record never reaches this lane"}
+	}
+
+	runLoop(t, s, "0.8.0", 1, d, 40)
+
+	if refused == 0 {
+		t.Fatal("no post was refused, so the test proves nothing")
+	}
+	lease, err := s.Lease("d")
+	if err != nil {
+		t.Fatal(err)
+	}
+	equal(t, lease.Generation, int64(1))
+}
+
 func TestAShadowPassActsOnNothingAndUsesItsOwnStore(t *testing.T) {
 	s, shadow, c, q := memory(t), memory(t), &clock{t0}, &queue{}
 	d := deps(c, q, &pool{}, prFacts(1, nil))
