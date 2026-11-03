@@ -563,11 +563,14 @@ def bus_name(entry: dict) -> str:
     return entry.get("cci_drive") or Path(entry["state_dir"]).name
 
 
+META_LANE = "meta"
+
+
 def post_blocker(evt: BaseHookEvent, text: str, *, lane: str = ROOT_LANE, key: str | None = None, to: str = ROOT_LANE) -> None:
     if not (entry := drive_entry(evt)):
         return
     drive = bus_name(entry)
-    argv = ["cci", "post", "--drive", drive, "--lane", lane, "--kind", "blocker", "--to", to, "--text", text]
+    argv = ["cci", "post", "--drive", drive, "--lane", lane, "--kind", "blocker", "--to", META_LANE if to == lane else to, "--text", text]
     argv += ["--id", key] if key else []
     try:
         subprocess.run(argv, capture_output=True, text=True, timeout=CCN_TIMEOUT_SECONDS, env=dict(reqenv.env_map()))

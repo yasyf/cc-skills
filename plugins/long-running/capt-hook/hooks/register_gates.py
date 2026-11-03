@@ -84,6 +84,7 @@ BATCH_ENTRY = '{digest} ({at}) "{excerpt}"'
 BATCH_EXCERPT = 80
 REGISTER_LANE_GONE = " `cci who` lists no live register lane `{lane}` nor a numbered successor of it, so this blocker goes to the coordinator: relaunch the register lane as its next numbered successor from its brief to classify {these}."
 SUCCESSOR_NUMBER = re.compile(r"(?:-\d{1,2})+$")
+READBACK_UNREAD = "readback_gate could not read the register ({cause}), so this call is refused. Run it once more; a second refusal is a defect, so post it to meta with this error."
 READ_FAILED = "{hook} could not read the register ({cause}) and passed the call; it passes every call it gates until the read works."
 UNQUOTED = (
     "An owner question is open and this reply or brief touches it without quoting it. Quote its words, sentence and rows below,"
@@ -162,12 +163,12 @@ def read_register(evt: BaseHookEvent, which: list[str]) -> dict:
 
 def cause(error: Exception) -> str:
     detail = getattr(error, "stderr", None) or str(error) or type(error).__name__
-    return " ".join(str(detail).split())[:200]
+    return " ".join(str(detail).split())[-200:]
 
 
 def blocker(evt: BaseHookEvent, key: str, text: str, to: str = ROOT_LANE) -> None:
     if evt.ctx.s.once(key, scope=BLOCKERS):
-        post_blocker(evt, text, to=to)
+        post_blocker(evt, text, lane=owning_lane(evt) or ROOT_LANE, to=to)
 
 
 def register_lane(evt: BaseHookEvent) -> str | None:
@@ -875,8 +876,8 @@ def gated(command: str, said: str = "accepted lane-a\n", env: dict[str, str] = L
         gated("ccx vcs ship -m x", "CONTRACT-MISSING inc-api-fix: none\n", env={"CLAUDE_LONG_RUNNING_LANE": "inc-api-fix"}): Allow(),
         gated("ccx vcs ship -m x", "CONTRACT-MISSING alerts-api-0305-fix: none\n", env={"CLAUDE_LONG_RUNNING_LANE": "alerts-api-0305-fix"}, incidents=OPEN_FIX): Allow(),
         gated("ccx vcs ship -m x", "CONTRACT-MISSING alerts-api-0305-fix: none\n", env={"CLAUDE_LONG_RUNNING_LANE": "alerts-api-0305-fix"}): Warn(pattern=r"`alerts-api-0305-fix`"),
-        gated("ccx vcs ship -m x", "CONTRACT-MISSING alerts-api-0305-fix: none\n", env={"CLAUDE_LONG_RUNNING_LANE": "alerts-api-0305-fix"}, incidents=(1, "store down")): Allow(),
-        gated("ccx vcs ship -m x", "CONTRACT-MISSING lane-a: none\n", prs=(1, "ccn down")): Allow(),
+        gated("ccx vcs ship -m x", "CONTRACT-MISSING alerts-api-0305-fix: none\n", env={"CLAUDE_LONG_RUNNING_LANE": "alerts-api-0305-fix"}, incidents=(1, "store down")): Block(pattern=r"could not read the register"),
+        gated("ccx vcs ship -m x", "CONTRACT-MISSING lane-a: none\n", prs=(1, "ccn down")): Block(pattern=r"^readback_gate could not read the register \(.*ccn down.*\), so this call is refused"),
         gated("ccx vcs ship -m x", "Traceback: boom\n"): Allow(),
     }),
 )
@@ -892,8 +893,7 @@ def readback_gate(evt: BaseHookEvent) -> HookResult | None:
             return None
         said = acceptance(evt, lane, entry["drive"])
     except READ_ERRORS as error:
-        failed_open(evt, "readback_gate", error)
-        return None
+        return evt.block(READBACK_UNREAD.format(cause=cause(error)))
     if not said.startswith(CONTRACT_MISSING) or not once_per_hour(evt, [f"readback:{lane}"]):
         return None
     return evt.context("\n".join([READBACK_MISSING.format(lane=lane), fenced(said.strip())]))
