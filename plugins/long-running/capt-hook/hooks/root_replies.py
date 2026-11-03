@@ -55,7 +55,7 @@ WORD = re.compile(r"[\w']+")
 SYSTEM_PREFIXES = ("<", "[Request interrupted", "This session is being continued")
 MISLABELED = (
     "Warning, nothing was blocked: an `OWNER h:mm` label below is off from the owner message it quotes, or, quoting none, more than 15 minutes"
-    " from every owner message. The nearest owner message times are beside each; use the right one in your next message or record."
+    " from every owner message. The nearest owner message times are beside each; name his ledger row instead of typing a time."
 )
 MID_TURN = [
     T.user("pause the batch until the scan lands", timestamp="2026-01-15T20:09:00Z"),

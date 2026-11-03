@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import json
 import re
 import time
 from itertools import pairwise
@@ -11,7 +12,8 @@ from spawnllm import Binary, BinaryAnswer, Refused
 
 from captain_hook import Allow, AssistantMessage, BaseHookEvent, Block, Event, FromSubagent, HookResult, Input, T, Tool, Warn, WorkflowState, on, workflow_state
 
-from .compaction_handoff import Communicator, communicator_tests, CompactionState, drive_entry
+from .compaction_handoff import bus_name, Communicator, communicator_tests, CompactionState, drive_entry
+from .owner_answers import read, RECORD_BYTES
 from .lane_slack_status import CC_SLACK, CLI, WRITE_TOOLS
 from .register_capture import slack_dms
 from .root_context import OwnerPrompt
@@ -48,7 +50,7 @@ REMINDER = Binary(
 )
 UNROUTED_REMINDER = (
     "Every owner reminder or correction spawns a meta tooling lane that makes the behaviour automatic."
-    " Before stopping, forward his words verbatim with their time through `mcp__plugin_cc-inbox_cci__post` or `cci post --lane owner-relay --kind ask --to meta`, or launch the lane with `lr launch`."
+    " Before stopping, post one ask to meta naming his ledger row, `owner:m47` plus your one-line order, or launch the lane with `lr launch`."
 )
 STATUS_QUESTION = Binary(
     "The owner's words this turn are below; his typos are his, so read through them."
@@ -78,9 +80,7 @@ HIS_1_34_AM = (
     "every tjme i need to remknd you to do skemtjjng, hou need to spawn a meta tooling lane foe thay (includkng tbis)."
     " uou did tjay for the ildate after being away a long tome, so good job, but make sure thay is durable behavior not just this session."
 )
-FORWARDED = "cci post --lane owner-relay --kind ask --to meta-desk-1 --text '1:34 AM, verbatim: every tjme i need to remknd you'"
-MCP_POST_SUFFIX = "cc-inbox_cci__post"
-MCP_POST = f"mcp__plugin_{MCP_POST_SUFFIX}"
+ASKS = "cci tail --drive brook-drive --lane owner-relay"
 SENT = '{"ok": true, "channel": "D0B6Z", "ts": "1793635190.051179"}'
 CARDED = '{"channel_id": "D0B6Z", "thread_ts": "1793635190.051179", "ts": "1793635190.051179"}'
 RELAY_CARD = {"title": "How do we fix the relay?", "body": "Each chat keeps its own replica, or they share one.", "options": ["Keep one shared replica", "Give each chat its own"], "recommended": "Give each chat its own"}
@@ -133,8 +133,12 @@ def pathed(reply: str) -> Input:
     return Input(transcript=[T.user("where are we"), T.assistant(reply)], state=[CompactionState(active=True)], env=DRIVE_CONFIG, decide=CALM)
 
 
-def reminded(*calls: dict, decide: dict = REMINDED) -> Input:
-    return Input(transcript=[T.user(HIS_1_34_AM), *calls, T.assistant("On it.")], state=[CompactionState(active=True)], decide=decide)
+def reminded(*calls: dict, decide: dict = REMINDED, asks: str | tuple = "") -> Input:
+    return Input(transcript=[T.user(HIS_1_34_AM), *calls, T.assistant("On it.")], state=[CompactionState(active=True)], env=DRIVE_CONFIG, commands={ASKS: asks}, decide=decide)
+
+
+def ask_to(*to: str) -> str:
+    return json.dumps({"seq": 361445, "lane": "owner-relay", "kind": "ask", "to": list(to), "text": "owner:m47 name the row"})
 
 
 def asked(reply: str, *calls: dict, words: str = HOW_FAR, decide: dict = ASKED) -> Input:
@@ -160,17 +164,11 @@ def asked(reply: str, *calls: dict, words: str = HOW_FAR, decide: dict = ASKED) 
         back("http://dash.brook.ts.net:8840/\n\nThree PRs merged while you were away."): Block(pattern=r"lacks the owner table under a feature heading\."),
         back(UPDATE): Allow(),
         back("Since you were away, three PRs merged.", returned=False): Allow(),
-        reminded(): Block(pattern=r"^Every owner reminder or correction spawns a meta tooling lane.*--to meta"),
-        reminded(*T.tool_turn("Bash", result="#1", command="cci post --lane owner-relay --kind go --to meta-desk-1 --text x")): Block(pattern=r"meta tooling lane"),
-        reminded(*T.tool_turn("Bash", result="#1", command=FORWARDED)): Allow(),
-        reminded(*T.tool_turn("Bash", result="#1", command="cci post --lane owner-relay --kind=ask --to=root,meta --text x")): Allow(),
-        reminded(*T.tool_turn("Bash", result="#1", command="cci post --lane owner-relay --kind ask --to meta,meta-desk-1 --text x")): Allow(),
-        reminded(*T.tool_turn(MCP_POST, result="#359589", lane="owner-relay", kind="ask", to=["meta", "meta-desk-1", "root"], text="3:08 AM, verbatim: x")): Allow(),
-        reminded(*T.tool_turn(MCP_POST, result="#1", lane="owner-relay", kind="ask", to=["meta-desk-2"], text="x")): Allow(),
-        reminded(*T.tool_turn(MCP_POST, result="#1", lane="owner-relay", kind="ask", to=["root"], text="x")): Block(pattern=r"meta tooling lane"),
-        reminded(*T.tool_turn(MCP_POST, result="#1", lane="owner-relay", kind="report", to=["meta-desk-1"], text="x")): Block(pattern=r"meta tooling lane"),
-        reminded(*T.tool_turn(MCP_POST, result="#1", lane="owner-relay", records=[{"kind": "note", "to": ["root"], "text": "x"}, {"kind": "ask", "to": ["meta-desk-2"], "text": "x"}])): Allow(),
-        reminded(*T.tool_turn(MCP_POST, result="cci: post: unknown lane", is_error=True, lane="owner-relay", kind="ask", to=["meta-desk-2"], text="x")): Block(pattern=r"meta tooling lane"),
+        reminded(): Block(pattern=r"^Every owner reminder or correction spawns a meta tooling lane.*owner:m47"),
+        reminded(asks=ask_to("meta", "meta-desk-2", "root")): Allow(),
+        reminded(asks=ask_to("meta-desk-2")): Allow(),
+        reminded(asks=ask_to("root")): Block(pattern=r"meta tooling lane"),
+        reminded(asks=(1, "bus down")): Allow(),
         reminded(*T.tool_turn("Bash", result="R1", command="lr launch meta /drive/meta/brief.md")): Allow(),
         reminded(*T.tool_turn("Bash", result="R1", command="bash ~/.claude/long-running/current/bin/orca-launch.sh /drive/fix-3 brief.md")): Allow(),
         reminded(decide=CALM): Allow(),
@@ -289,10 +287,10 @@ def offers_pick(text: str) -> bool:
 
 
 def unrouted_reminder(evt: BaseHookEvent) -> str | None:
-    if any(forwarded(use) for use in evt.ctx.turn.tool_calls.items) or not (words := owner_words(evt)):
+    if any(launched(use) for use in evt.ctx.turn.tool_calls.items) or not (words := owner_words(evt)):
         return None
     match (decision := evt.decide(words, {"reminder": REMINDER})) and decision.answers["reminder"]:
-        case BinaryAnswer(p_yes=p_yes) if p_yes > 0.5:
+        case BinaryAnswer(p_yes=p_yes) if p_yes > 0.5 and not forwarded(evt):
             return UNROUTED_REMINDER
     return None
 
@@ -327,18 +325,19 @@ def owner_words(evt: BaseHookEvent) -> str:
     return "\n\n".join([*typed, *(dm["text"] for dm in slack_dms(evt, events))])
 
 
-def forwarded(use: object) -> bool:
-    if use.call.name.endswith(MCP_POST_SUFFIX):
-        raw = use.call.raw
-        return raw.get("lane") == "owner-relay" and any(record.get("kind") == "ask" and any(to.startswith("meta") for to in record.get("to") or ()) for record in (raw, *raw.get("records", ())))
-    return use.call.name == "Bash" and any(routes_to_meta(cmd.argv) for cmd in use.call.command_line if cmd.argv)
+def forwarded(evt: BaseHookEvent) -> bool:
+    since = next(iter(evt.ctx.turn.events)).meta.timestamp.isoformat()
+    out = read(["cci", "tail", "--drive", bus_name(drive_entry(evt)), "--lane", "owner-relay", "--kind", "ask", "--since", since, "--budget", str(RECORD_BYTES), "--json"])
+    return out is None or any(to.startswith("meta") for line in out.splitlines() if line.strip() for to in json.loads(line).get("to") or ())
 
 
-def routes_to_meta(argv: Sequence[str]) -> bool:
+def launched(use: object) -> bool:
+    return use.call.name == "Bash" and any(launches(cmd.argv) for cmd in use.call.command_line if cmd.argv)
+
+
+def launches(argv: Sequence[str]) -> bool:
     names = [Path(word).name for word in argv]
-    if "orca-launch.sh" in names or ("lr" in names and names[names.index("lr") + 1 : names.index("lr") + 2] == ["launch"]):
-        return True
-    return names[0] == "cci" and "post" in argv and "ask" in values(argv, "--kind") and any(to.startswith("meta") for value in values(argv, "--to") for to in value.split(","))
+    return "orca-launch.sh" in names or ("lr" in names and names[names.index("lr") + 1 : names.index("lr") + 2] == ["launch"])
 
 
 def values(argv: Sequence[str], flag: str) -> list[str]:

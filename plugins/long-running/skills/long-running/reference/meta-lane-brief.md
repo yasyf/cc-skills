@@ -29,7 +29,7 @@ read: `cci subscribe --drive <drive> --reader meta`.
 
 ## Standing duties
 1. Own every skill, tooling, prompt, hook and process improvement of this drive, and
-   every meta order the owner sends. The communicator forwards his words verbatim as
+   every meta order the owner sends. The communicator names his ledger row as `owner:m47` in a
    `--kind ask --to meta`, and forwards each tooling defect the coordinator reports the
    same way. The coordinator owns drive work only and never takes any of this.
 2. Give each item one implementer, the turn it arrives. Write its brief to

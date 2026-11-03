@@ -79,12 +79,12 @@ the two never `SendMessage` each other, and the bus is their only channel, since
 record survives a compaction where a message does not.
 
 **The communicator** answers every owner message that turn, in his terms: the "why"
-with the mechanism of the drive's own failure, the pick on his board, the Pacific
-time from `date`. The ledger hook records his words verbatim as they arrive
-(`lr owner`); nobody appends them to a rulings file by hand (owner, Nov 3 2:45 AM).
-The communicator posts them to the coordinator as one `cci post --lane owner-relay
---kind ask --to root` per message or batch, so the coordinator reads them at its
-next tool call. A
+with the mechanism of the drive's own failure, the pick on his board. The
+ledger hook records his words verbatim as they arrive (`lr owner`); nobody appends
+them to a rulings file by hand or pastes them into a forward (owner, Nov 3).
+The communicator names each row to the coordinator as one `cci post --lane owner-relay
+--kind ask --to root --text 'owner:m47 <one-line order>'`, so the coordinator reads it
+at its next tool call. A
 message about the skill, its tooling, a prompt, a hook or the process goes to the
 meta lane instead, verbatim, as `--kind ask --to meta`, and so does a tooling defect
 the coordinator reports. It is the drive's presentation layer: it reads what the
