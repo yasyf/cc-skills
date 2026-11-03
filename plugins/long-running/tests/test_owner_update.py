@@ -245,14 +245,16 @@ def test_owner_words_name_the_record_that_carries_each_and_flag_the_ones_nothing
         record(12, "root", "go", "spawned five-fix-1", 20) | {"re": 11},
         record(13, "owner-relay", "ask", "and the devbox", 15),
         record(14, "owner-relay", "ask", "and the gateway", 10),
-        record(15, "root", "decide", "gateway-2 owns #14", 5),
+        record(15, "root", "decide", "gateway-2 owns it", 5) | {"resolves": 14},
         record(16, "owner-relay", "ask", "and #1 in the list", 4),
         record(17, "root", "go", "see #160 for the list", 3),
+        record(18, "owner-relay", "ask", "and the SQL tab", 2),
+        record(19, "root", "go", "sql-tab-fix-1 owns #18", 1),
     ]
 
     lines, gaps = owner_update.owner_words(records)
 
-    assert [line.split(" | ")[1] for line in lines] == ["carried by root #12", "**no record carries this yet**", "carried by root #15", "**no record carries this yet**"]
+    assert [line.split(" | ")[1] for line in lines] == ["carried by root #12", "**no record carries this yet**", "carried by root #15", "**no record carries this yet**", "carried by root #19"]
     assert lines[0].endswith('"fix the five services blockers" | carried by root #12')
     assert gaps == ["owner words no record carries: #13", "owner words no record carries: #16"]
 
@@ -334,7 +336,7 @@ def test_the_update_opens_with_what_moved_and_his_words_ends_with_its_gaps_and_p
     assert [entry["text"] for entry in model["steps"]["fyi"]] == ["the chat list fix ships in the next release"]
     assert model["steps"]["steps"][0]["title"] == "The next build" and model["steps"]["steps"][0]["tone"] == "later"
     assert titles[-1] == "## Gaps in this update" and "- owner words no record carries: #13" in text
-    assert '"fix the five services blockers" | carried by root #12' in text and "- new: ssql-replicator-1" in text
+    assert '"fix the five services blockers" | carried by root #12' in text and "- The first update from this generator: every row below is new." in text
     assert "The five services dropped from two updates, prevented by pieces rows from the plan (building, due " in text
     assert owner_update.missing(text, names) == [] and model["gaps"] == ["owner words no record carries: #13"]
     assert model["steps"]["now"]["release"]["name"] == "release-5"
@@ -372,3 +374,20 @@ def test_a_pinned_row_is_held_by_every_working_lane_its_words_name_and_by_nobody
 
     assert (devbox.name, devbox.who, [lane["lane"] for lane in mine]) == ("Devbox speed and bug hunting", "devbox-perf-1", ["devbox-perf-1"])
     assert (gateway.who, gateway.unowned, none) == ("**nobody**", True, [])
+
+
+def test_quiet_lanes_closed_incidents_and_prs_render_as_lines_naming_each_while_live_work_keeps_its_row():
+    live = owner_update.Row("red-sweep-3", "reds", "desired", "red-sweep-3", "nothing recorded", "red-sweep-3: state 6:01 PM", "None recorded")
+    quiet = owner_update.Row("old-lane-1", "x", "desired, last report 2:38 PM", "**nobody**", "nothing recorded", "nobody is on it", "None recorded")
+    closed = owner_update.Row("user-creds", "creds", "closed since 1:15 AM", "**nobody**", "nothing recorded", "-", "-", done=True)
+    red = owner_update.Row("#46107", "sand: unarchive a chat", "red", "**nobody**", "held by cci #1", "-", "its head is red")
+    held = owner_update.Row("#45623", "iris: a model pick", "red", "p8a-step7", "held by cci #2", "-", "-")
+
+    lanes = owner_update.rendered(owner_update.LANES_ON_NO_STEP, [live, quiet])
+    incidents = owner_update.rendered(owner_update.INCIDENTS, [closed])
+    prs = owner_update.rendered(owner_update.OPEN_PRS, [red, held])
+
+    assert lanes[2].startswith("| red-sweep-3 |") and lanes[-1] == "Quiet over 2 h, nobody on them now: old-lane-1 (desired, last report 2:38 PM)"
+    assert incidents == ["", "Closed today: user-creds (closed since 1:15 AM)"]
+    assert prs == ["- red (2): #46107 sand: unarchive a chat; #45623 iris: a model pick [p8a-step7]"]
+    assert owner_update.unowned_lines([(owner_update.OPEN_PRS, [red, held]), (owner_update.INCIDENTS, [closed])]) == ["- Open PRs (1): #46107"]
