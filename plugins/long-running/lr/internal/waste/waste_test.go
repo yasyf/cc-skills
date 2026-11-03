@@ -15,16 +15,16 @@ import (
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
-const testDrive = "drive-1"
-
 var (
-	t0      = time.Date(2026, 11, 3, 12, 0, 0, 0, time.UTC)
-	inside  = t0.Add(-10 * time.Minute)
-	earlier = t0.Add(-90 * time.Minute)
+	testDrive = config.Config{Drive: "drive-1", Repo: "org/drive"}
+	t0        = time.Date(2026, 11, 3, 12, 0, 0, 0, time.UTC)
+	inside    = t0.Add(-10 * time.Minute)
+	earlier   = t0.Add(-90 * time.Minute)
 )
 
 type fakeBus struct {
@@ -96,7 +96,6 @@ func (w *world) sources() Sources {
 		Bus:     w.bus,
 		Runner:  w.runner,
 		Retired: func() ([]store.Lane, error) { return w.retired, nil },
-		Meta:    func(lane string) (bool, error) { return strings.HasPrefix(lane, "meta-"), nil },
 	}
 }
 
@@ -460,6 +459,7 @@ func TestALaneWarningAboutARaceOrAClobberAsksForAFix(t *testing.T) {
 		{Seq: 9, Lane: "lane-1", At: inside, Kind: "report", Text: "4:10 AM lane-1: two writers would clobber the row"},
 		{Seq: 8, Lane: "lane-2", At: inside, Kind: "blocker", Text: "the poster is racing the desk"},
 		rec(inside, "lane-3", "go test -race passed and the trace is clean, no brace missing"),
+		rec(inside, "lane-4", "the race-warning signal shipped"),
 		rec(inside, "meta-desk", "I saw the clobber"),
 		relay,
 		own,
@@ -487,7 +487,7 @@ func merged(t *testing.T, at time.Time, lane, kind, pr string, attrs map[string]
 	return record
 }
 
-func TestAMergedMetaPRWithNoInstallIsFlaggedAfterHalfAnHour(t *testing.T) {
+func TestAMergedToolingPRWithNoInstallIsFlaggedAfterHalfAnHour(t *testing.T) {
 	w := newWorld(t)
 	old := t0.Add(-45 * time.Minute)
 	proof := map[string]string{"installed": "0.7.1198", "proof": "saw it run"}
@@ -501,6 +501,7 @@ func TestAMergedMetaPRWithNoInstallIsFlaggedAfterHalfAnHour(t *testing.T) {
 		merged(t, old, "meta-helper-6", "landed", "yasyf/cc-skills#6", nil),
 		merged(t, old.Add(time.Minute), "meta-desk", "done", "6", proof),
 		merged(t, old, "drive-lane-1", "landed", "48043", nil),
+		merged(t, old, "drive-lane-2", "landed", "org/drive#48044", nil),
 	}
 
 	report := w.read(t, Window)

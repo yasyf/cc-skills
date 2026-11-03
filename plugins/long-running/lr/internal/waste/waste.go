@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
-	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -42,7 +42,6 @@ type Sources struct {
 	Bus     Bus
 	Runner  shell.Runner
 	Retired func() ([]store.Lane, error)
-	Meta    func(lane string) (bool, error)
 }
 
 func Live(bus Bus, runner shell.Runner, s *store.Store) Sources {
@@ -50,7 +49,6 @@ func Live(bus Bus, runner shell.Runner, s *store.Store) Sources {
 		Bus:     bus,
 		Runner:  runner,
 		Retired: func() ([]store.Lane, error) { return s.Lanes(store.LaneRetired) },
-		Meta:    func(lane string) (bool, error) { return lanes.IsMeta(s, lane) },
 	}
 }
 
@@ -89,17 +87,17 @@ func (r Report) note() string {
 	return fmt.Sprintf("read the %d largest of %d changed transcripts", r.Read, r.Changed)
 }
 
-func Read(ctx context.Context, src Sources, cfg Config, drive string, now time.Time, window time.Duration) (Report, error) {
+func Read(ctx context.Context, src Sources, cfg Config, drive config.Config, now time.Time, window time.Duration) (Report, error) {
 	since := now.Add(-window)
-	records, err := src.Bus.Tail(ctx, client.Query{Drive: drive, Since: since})
+	records, err := src.Bus.Tail(ctx, client.Query{Drive: drive.Drive, Since: since})
 	if err != nil {
 		return Report{}, err
 	}
-	dead, err := deadRecipients(ctx, src, cfg, drive, records)
+	dead, err := deadRecipients(ctx, src, cfg, drive.Drive, records)
 	if err != nil {
 		return Report{}, err
 	}
-	peers, err := src.Bus.Who(ctx, drive)
+	peers, err := src.Bus.Who(ctx, drive.Drive)
 	if err != nil {
 		return Report{}, err
 	}
