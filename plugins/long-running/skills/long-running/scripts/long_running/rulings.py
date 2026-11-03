@@ -76,6 +76,8 @@ through the registry entry and uses ``--repo`` for the PR's own checkout. ``slic
 ``check-pr`` diff the PR with git in that checkout when its origin is the PR's repository, and
 through the GitHub compare API otherwise. ``--paths`` globs
 resolve under ``--root``, which defaults to ``--repo``; an absolute glob stands alone.
+``slice --required`` adds every live row the PR body or its author's comments cite by key or by an answer id the row
+carries, and names each cited id no live row carries as unknown to the register.
 ``slice --required --words`` prints each row as fidelity.py's grader reads it: the owner's words and repeats verbatim,
 oldest first, each board tap with the card it answered as ``cc-present block show`` prints it, a design row's or
 exception's plan text labelled as the root's, and none of the register's implications or summaries.
@@ -139,6 +141,7 @@ BUDGET = 8000
 QUERY_CHARS = 2000
 QUOTE = "  >"
 CITED = re.compile(r"\b[0-9a-f]{7,40}\b")
+KEY_TOKEN = re.compile(r"\b[a-z]+/[\w.-]*\w")
 
 PACIFIC = ZoneInfo("America/Los_Angeles")
 KINDS = ("order", "pick", "design", "exception", "scope", "reserved", "gate")
@@ -1001,25 +1004,47 @@ def required_rows(loaded: Register, diff: Diff) -> list[tuple[str, dict[str, str
     return [(key, fields) for key, fields in loaded.rulings().items() if is_global(fields) or touched(fields, diff)]
 
 
-def required_slice(loaded: Register, diff: Diff, pr: str, head: str) -> str:
+def cited_rows(loaded: Register, text: str, required: list[tuple[str, dict[str, str]]]) -> tuple[list[tuple[str, dict[str, str]]], list[str]]:
+    """The live rows outside `required` that `text` cites by key or by an answer id they carry, and the lines naming each cited id no live row carries as unknown."""
+    rows = loaded.rulings()
+    carriers: dict[str, list[str]] = {}
+    for key, fields in rows.items():
+        for answer in [*listed(fields.get("answer")), *(found for repeat in listed(fields.get("repeats")) for found in repeat_answers(repeat))]:
+            carriers.setdefault(str(answer)[:SHORT], []).append(key)
+    prefixes = {key.partition("/")[0] for key in loaded.rows}
+    tokens = [token for token in KEY_TOKEN.findall(text) if token.partition("/")[0] in prefixes]
+    tokens += [token[:SHORT] for token in CITED.findall(KEY_TOKEN.sub(" ", text))]
+    cited, unknown = {}, []
+    for token in dict.fromkeys(tokens):
+        if keys := ([token] if token in rows else carriers.get(token)):
+            cited |= dict.fromkeys(keys)
+        else:
+            unknown.append(token)
+    have = {key for key, _ in required}
+    return [(key, rows[key]) for key in cited if key not in have], ["", f"Cited by id in the PR, unknown to the register: {', '.join(unknown)}"] if unknown else []
+
+
+def required_slice(loaded: Register, diff: Diff, pr: str, head: str, text: str) -> str:
     rows = required_rows(loaded, diff)
+    cited, unknown = cited_rows(loaded, text, rows)
     lines = [f"Required rows for {pr} at {head}", f"Program {loaded.program}, register ledger {loaded.ledger[:12]}. Every row is the owner's words, verbatim."]
-    return hashed(lines + section("Every global, pending and touched row", rows))
+    return hashed(lines + section("Every global, pending and touched row", rows) + section("Rows the PR cites by id", cited) + unknown)
 
 
-def worded_slice(loaded: Register, diff: Diff, pr: str, head: str) -> str:
+def worded_slice(loaded: Register, diff: Diff, pr: str, head: str, text: str) -> str:
     rows = required_rows(loaded, diff)
+    cited, unknown = cited_rows(loaded, text, rows)
     with ThreadPoolExecutor(CARD_READERS) as pool:
-        worded = list(pool.map(lambda item: worded_row(*item, loaded.state), rows))
+        worded = list(pool.map(lambda item: worded_row(*item, loaded.state), [*rows, *cited]))
     lines = [
         f"Required rows for {pr} at {head}",
         f"Program {loaded.program}, register ledger {loaded.ledger[:12]}. Each row is the owner's words verbatim, oldest first, with the board card each tap answered; the register's implications and summaries are left out.",
-        "",
-        f"## Every global, pending and touched row ({len(rows)})",
     ]
-    for row in worded:
-        lines += ["", *row]
-    return hashed(lines)
+    for title, part in ((f"Every global, pending and touched row ({len(rows)})", worded[: len(rows)]), (f"Rows the PR cites by id ({len(cited)})", worded[len(rows) :])):
+        lines += ["", f"## {title}"]
+        for row in part:
+            lines += ["", *row]
+    return hashed(lines + unknown)
 
 
 def refresh(loaded: Register, brief: Path, plan: Path | None) -> str:
@@ -1641,8 +1666,10 @@ def cmd_slice(args: argparse.Namespace, shell: ledger.Shell) -> int:
         if not (args.pr and args.head):
             raise SystemExit("slice --required needs --pr and --head")
         repo, number = pull(args, shell)
-        base = args.base or json.loads(shell.run(ghread.read("pr", "view", number, "--repo", repo, "--json", "baseRefName")))["baseRefName"]
-        args.stdout.write((worded_slice if args.words else required_slice)(loaded, pr_diff(args, shell, repo, base, args.head), f"{repo}#{number}", args.head))
+        view = json.loads(shell.run(ghread.read("pr", "view", number, "--repo", repo, "--json", "author,baseRefName,body,comments", max_age=ghread.FRESH)))
+        text = "\n".join([view["body"], *(comment["body"] for comment in view["comments"] if comment["author"]["login"] == view["author"]["login"])])
+        diff = pr_diff(args, shell, repo, args.base or view["baseRefName"], args.head)
+        args.stdout.write((worded_slice if args.words else required_slice)(loaded, diff, f"{repo}#{number}", args.head, text))
     elif args.root:
         args.stdout.write(root_slice(loaded))
     elif args.refresh:

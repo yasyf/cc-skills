@@ -400,8 +400,10 @@ class RegisterShell(ledger.Shell):
         present: frozenset[str] = frozenset(),
         blocks: dict[str, str] | None = None,
         pulls: dict[str, dict[str, str]] | None = None,
+        pr: dict | None = None,
     ) -> None:
         self.pulls = pulls or {}
+        self.pr = {"author": {"login": "lane-a"}, "baseRefName": "main", "body": "", "comments": []} | (pr or {})
         self.board = board or {}
         self.blocks = blocks or {}
         self.rows = {key: dict(fields) for key, fields in rows.items()}
@@ -470,6 +472,8 @@ class RegisterShell(ledger.Shell):
                 return ""
             case ["gh", "pr", "view", "12", "--repo", "acme/app", "--json", "baseRefName"]:
                 return json.dumps({"baseRefName": "main"})
+            case ["gh", "pr", "view", "12", "--repo", "acme/app", "--json", "author,baseRefName,body,comments"]:
+                return json.dumps(self.pr)
             case ["gh", "api", "repos/acme/app"]:
                 return json.dumps({"default_branch": "main"})
             case ["git", "-C", "/repo", "remote", "get-url", "origin"]:
@@ -1765,8 +1769,8 @@ def test_the_worded_required_slice_carries_his_words_and_the_card_a_tap_answered
 class SiblingBase(RegisterShell):
     def run(self, argv: list[str], stdin: str | None = None, cwd: Path | None = None) -> str:
         match gateway(argv):
-            case ["gh", "pr", "view", "12", "--repo", "acme/app", "--json", "baseRefName"]:
-                return json.dumps({"baseRefName": "lane-b"})
+            case ["gh", "pr", "view", "12", "--repo", "acme/app", "--json", "author,baseRefName,body,comments"]:
+                return json.dumps(self.pr | {"baseRefName": "lane-b"})
             case ["gh", "api", "repos/acme/app/compare/lane-b...cafef00d", "-H", ghdiff.MEDIA, "--allow-escape-sequences"]:
                 return self.diff
             case ["gh", "api", "repos/acme/app/compare/main...cafef00d", "-H", ghdiff.MEDIA, "--allow-escape-sequences"]:
@@ -1857,6 +1861,26 @@ def test_the_required_slice_includes_a_row_whose_symbol_a_caller_elsewhere_adds(
     _, out = ran(capsys, RegisterShell(seeded(package), diff=caller), "slice", "--required", "--pr", "acme/app#12", "--head", "cafef00d", "--base", "main")
 
     assert "rule/bbbbbbb" in required(out)
+
+
+@pytest.mark.parametrize("words", [[], ["--words"]])
+def test_the_required_slice_adds_each_row_the_pr_cites_by_key_or_answer_id_and_names_each_unknown_id(home: Path, package: Path, state: Path, capsys, words: list[str]) -> None:
+    pr = {
+        "body": "## Rulings\n\n- rule/ccccccc: the card quotes the words.\n- The owner's answer eeeeeee orders the gate, and answer 7777777 approves it.\n",
+        "comments": [{"author": {"login": "lane-a"}, "body": "Also under rule/0000000."}, {"author": {"login": "review-bot"}, "body": "This breaks rule/9999999."}],
+    }
+
+    code, out = ran(capsys, RegisterShell(seeded(package), diff=DIFF, pr=pr), "slice", "--required", *words, "--pr", "acme/app#12", "--head", "cafef00d", "--base", "main")
+    lines = out.splitlines()
+
+    assert code == 0
+    assert hashed_correctly(out)
+    assert required(out) == ["exception/E1", "rule/aaaaaaa", "rule/bbbbbbb", "rule/ccccccc", "rule/eeeeeee"]
+    assert "## Rows the PR cites by id (2)" in lines
+    assert "Cards quote the words they ask about." in out
+    assert "Two outages stop the drive." in out
+    assert "Cited by id in the PR, unknown to the register: rule/0000000, 7777777" in lines
+    assert "rule/9999999" not in out
 
 
 def test_sweep_prints_each_hit_open_deleted_or_authorized(home: Path, package: Path, state: Path, tmp_path: Path, capsys) -> None:
