@@ -113,6 +113,53 @@ func TestALandableHeadIsEnqueuedTheSamePass(t *testing.T) {
 	}
 }
 
+func TestAPRIsEnqueuedOnlyWhenEveryPRBelowItWouldLandOrIsQueued(t *testing.T) {
+	stacked := func(number int, branch, base string, change func(*machine.Facts)) machine.Facts {
+		return facts(number, func(f *machine.Facts) {
+			f.Branch, f.Base = branch, base
+			if change != nil {
+				change(f)
+			}
+		})
+	}
+	queued := func(f *machine.Facts) { f.Queue, f.QueuedHead = machine.QueueQueued, f.Head }
+	untapped := func(f *machine.Facts) { f.Tap = "" }
+	held := func(f *machine.Facts) { f.Hold = machine.MoverRoot }
+	for name, c := range map[string]struct {
+		below []machine.Facts
+		base  string
+		want  bool
+	}{
+		"on trunk":                {nil, "dev", true},
+		"on a landable PR":        {[]machine.Facts{stacked(1, "lower", "dev", nil)}, "lower", true},
+		"on a queued PR":          {[]machine.Facts{stacked(1, "lower", "dev", queued)}, "lower", true},
+		"on an untapped PR":       {[]machine.Facts{stacked(1, "lower", "dev", untapped)}, "lower", false},
+		"on a held PR":            {[]machine.Facts{stacked(1, "lower", "dev", held)}, "lower", false},
+		"two above an untapped":   {[]machine.Facts{stacked(1, "lowest", "dev", untapped), stacked(3, "lower", "lowest", nil)}, "lower", false},
+		"on a branch nobody read": {nil, "unread", false},
+		"on a base cycle":         {[]machine.Facts{stacked(1, "lower", "upper", nil)}, "lower", false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			top := stacked(45583, "upper", c.base, nil)
+			act := pass.Act{Facts: top, Verdict: machine.Verdict{Action: machine.ActionEnqueue}}
+
+			kept := landing.Clear([]pass.Act{act}, append(c.below, top), "dev")
+
+			if got := len(kept) == 1; got != c.want {
+				t.Fatalf("kept = %v, want %v", kept, c.want)
+			}
+		})
+	}
+}
+
+func TestClearLeavesActsOtherThanEnqueueAlone(t *testing.T) {
+	act := pass.Act{Facts: facts(45583, func(f *machine.Facts) { f.Base = "unread" }), Verdict: machine.Verdict{Action: machine.ActionRestack}}
+
+	if kept := landing.Clear([]pass.Act{act}, nil, "dev"); len(kept) != 1 {
+		t.Fatalf("kept = %v, want the restack", kept)
+	}
+}
+
 func TestAnEvictedGreenHeadIsResubmittedAndCounted(t *testing.T) {
 	s, q := newStore(t), &queue{}
 

@@ -105,6 +105,7 @@ func deps(c *clock, q *queue, p *pool, snapshot ...machine.Facts) Deps {
 		},
 		Post:      func([]string, bus.Body) error { return nil },
 		Queue:     q,
+		Trunk:     "dev",
 		Restacker: restacker{},
 		Pool:      p,
 		Log:       slog.New(slog.NewTextHandler(io.Discard, nil)),
@@ -527,4 +528,14 @@ func TestThePlistEscapesItsValuesAndCarriesTheKeepAliveAndLimits(t *testing.T) {
 			t.Fatalf("%q not in\n%s", want, body)
 		}
 	}
+}
+
+func TestALandablePRAboveAnUntappedOneIsLeftOutOfTheQueue(t *testing.T) {
+	s, c, q := memory(t), &clock{t0}, &queue{}
+	lower := facts(1, func(f *machine.Facts) { f.Branch, f.Tap = "lower", "" })
+	upper := facts(2, func(f *machine.Facts) { f.Branch, f.Base = "upper", "lower" })
+
+	runLoop(t, s, "0.8.0", 1, deps(c, q, &pool{}, lower, upper), 1)
+
+	equal(t, len(q.enqueued), 0)
 }
