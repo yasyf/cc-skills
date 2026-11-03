@@ -213,7 +213,7 @@ func act(s *store.Store, d Deps, lane store.Lane, found map[string]Peer, taken m
 	}
 	silent := now.Sub(last)
 	tokens := 0
-	if lane.State == store.LaneDesired && lane.Asked.IsZero() && peer != nil && peer.Live && silent < StaleAfter && !slices.Contains(settled, lane.Last) {
+	if lane.State == store.LaneDesired && lane.Asked.IsZero() && peer != nil && peer.Live && silent < StaleAfter && !settledLane(lane) {
 		tokens = d.Tokens(peer.Row)
 	}
 	verdict := Classify(lane, peer, now, tokens, d.RotateAt)
@@ -349,6 +349,10 @@ func claimBranches(s *store.Store, d Deps, now time.Time) {
 
 func holdsNothing(lane store.Lane) bool {
 	return lane.Name != Root && len(lane.PRs) == 0 && !isStanding(lane)
+}
+
+func settledLane(lane store.Lane) bool {
+	return slices.Contains(settled, lane.Last) && (lane.Last != "done" || !isStanding(lane))
 }
 
 func isStanding(lane store.Lane) bool {
@@ -541,7 +545,7 @@ func truncated(text string, limit int) string {
 }
 
 func wake(s *store.Store, d Deps, lane store.Lane, peer Peer, found map[string]Peer, taken map[string]bool, now time.Time, out *Outcome) {
-	if slices.Contains(settled, lane.Last) {
+	if settledLane(lane) {
 		return
 	}
 	page := lane.Page
@@ -602,7 +606,7 @@ func chaseUnread(s *store.Store, d Deps, found map[string]Peer, now time.Time) (
 }
 
 func wakeOnOrders(s *store.Store, d Deps, lane store.Lane, peer Peer, orders []store.Unread, now time.Time) bool {
-	if !peer.Live || (peer.Row.Roster == "" && peer.Row.Dispatch == "") || slices.Contains(settled, lane.Last) {
+	if !peer.Live || (peer.Row.Roster == "" && peer.Row.Dispatch == "") || settledLane(lane) {
 		return false
 	}
 	due := slices.DeleteFunc(slices.Clone(orders), func(order store.Unread) bool { return order.Woke || now.Sub(order.At) < wakeAfter })
