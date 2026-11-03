@@ -81,6 +81,10 @@ Paste and fill this template for an Agent-tool subagent:
 
 ```
 ccx: role=<role> [cpu=high] [place=remote|local] [paths=<dir>,<dir>] tooling-lane=<key, for a tooling lane only>
+Standing: <the duty the drive keeps for good, such as "devbox perf and bug hunting"; only
+  on a lane whose work never ends. The supervisor raises a blocker when a standing duty
+  has no live owner for ten minutes, so a dead or stood-down standing lane is never
+  silent. Omit the line on a one-shot lane.>
 Authority: <what you do without asking; what stops for the owner>.
 Verified facts, do not re-derive: <ids, shas, URLs, state already confirmed>.
 Design rulings, verbatim: <each owner ruling on the subsystem this lane touches, quoted
@@ -101,6 +105,13 @@ Do:
      the release's Watch, open owner tasks and picks (`ccn task list`,
      `ccn answer search`). If one covers it, route through it or delete the
      duplicate. Building alongside it is a return-early-with-options case.
+  0a. For a bug fix, before any code: (a) name which tree ran the failing path, old
+     tree or next, from the run's own record (its build, binary version or pod image),
+     never from the report's wording, and fix that tree; (b) read the fix against
+     the register's rows on the subsystem it touches and quote the ones it meets,
+     such as the local-sync rows (rule/394dfd6, rule/b0fda44: a local action never
+     waits on a remote upload). A fix built against the wrong tree or against a row
+     is closed, not shipped (Nov 2, #48651).
   1. <step>
   2. <step>
 Compute: <for a pass, backfill, dry run, or bulk rewrite: the in-region box recipe,
@@ -437,6 +448,7 @@ A desk on Orca, whether on its first launch or as a successor after rotation, us
 ```
 # <lane>-<N>: <desk's job>, successor of <lane>-<N-1>
 ccx: role=desk
+Standing: <the duty this desk keeps>
 Read cc-notes doc <handoff or desk doc id> (ccn doc show <id>) and continue exactly as it says.
 <live standing rules by #<seq> id; anything this successor changes>.
 Report on cci as <lane>-<N>. Loop until rotation at <hours>h; setup and quiet cycles are not done.
