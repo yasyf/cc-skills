@@ -335,6 +335,15 @@ func FixLanes(a *app.App) (func(lane string) (bool, error), error) {
 	}, nil
 }
 
+func LiveClocks(a *app.App) (func() ([]string, error), error) {
+	desk, err := newDesk(a)
+	if err != nil {
+		return nil, err
+	}
+	desk.open()
+	return desk.liveClocks, nil
+}
+
 func relayRunCommand(a *app.App) *cobra.Command {
 	var once bool
 	cmd := &cobra.Command{
