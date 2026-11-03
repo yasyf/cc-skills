@@ -29,7 +29,7 @@ GH_REPO_FLAGS = frozenset({"-R", "--repo"})
 FIELD_FLAGS = ("--raw-field=", "--field=", "-f", "-F")
 REPO_FLAGS = frozenset({"-R", "--repo"})
 REPO_IN_ARG = re.compile(r"(?:^|/)repos/(?P<api>[\w.-]+/[\w.-]+)/|github\.com/(?P<url>[\w.-]+/[\w.-]+)/pull/")
-MERGE_VALUE_FLAGS = frozenset({"--match-head-commit", "--body", "-b", "--body-file", "-F", "--subject", "-t", "--author-email", "-A"})
+MERGE_VALUE_FLAGS = frozenset({"--match-head-commit", "--body", "-b", "--body-file", "-F", "--subject", "-t", "--author-email", "-A", "--merge-method"})
 PULL = re.compile(r"(?:https://github\.com/[\w.-]+/[\w.-]+/pull/)?(?P<pr>\d+)/?")
 CHECK_PR_CAUSES = frozenset({"RULINGS-UNCITED", "RESERVED-NO-ANSWER", "TEST-REMOVED", "SHAPE-UNTESTED", "FINDER-MAJOR", "MECHANISM-BANNED", "NAME-HIT", "LANE-DECIDED", "CONTRACT-MISSING", "TESTS-CORPUS"})
 INCIDENT_CAUSES = frozenset({"RULINGS-UNCITED", "RESERVED-NO-ANSWER", "TEST-REMOVED"})
@@ -164,12 +164,14 @@ def incident_fix_slice(evt: BaseHookEvent, lane: str) -> bool:
 
 
 def named_repo(call: Call) -> str | None:
+    return repo_flag(call) or next((found["api"] or found["url"] for arg in call.args if (found := REPO_IN_ARG.search(arg))), None)
+
+
+def repo_flag(call: Call) -> str | None:
     args = call.args
     if repo := next((value for flag, value in zip(args, args[1:], strict=False) if flag in REPO_FLAGS), None):
         return repo
-    if repo := next((arg.split("=", 1)[1] for arg in args if arg.startswith(("--repo=", "-R="))), None):
-        return repo
-    return next((found["api"] or found["url"] for arg in args if (found := REPO_IN_ARG.search(arg))), None)
+    return next((arg.split("=", 1)[1] for arg in args if arg.startswith(("--repo=", "-R="))), None)
 
 
 def outside_drive_repo(evt: BaseHookEvent, call: Call, entry: dict | None) -> bool:
@@ -390,7 +392,7 @@ def hand_enqueue_meets_the_runner_checks(evt: BaseHookEvent) -> HookResult | Non
 
 
 def merge_target(call: Call) -> tuple[str, str]:
-    """The selector a `gh pr merge` or `ccx vcs merge` names, a number, URL, or branch, empty for the current branch's PR, and the head its `--match-head-commit` pins, or empty."""
+    """The selector a `gh pr merge`, `gh stack merge` or `ccx vcs merge` names, a number, URL, or branch, empty for the current branch's PR, and the head its `--match-head-commit` pins, or empty."""
     rest = without_repo((call.name, *call.args))[3:]
     target, head, index = "", "", 0
     while index < len(rest):
