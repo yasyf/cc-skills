@@ -80,6 +80,9 @@ func run(ctx context.Context, a *app.App) error {
 	version := Installed(env.Claude)
 	upgrade := &Upgrade{Env: env, Running: version}
 	deps.Stale = upgrade.Stale
+	if deps.Relay != nil {
+		go deps.Relay.Keep(ctx, env.Now)
+	}
 	reports, ended, err := Run(ctx, s, cfg.Drive, version, os.Getpid(), deps, 0)
 	if err != nil {
 		return err
@@ -211,7 +214,6 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 	}
 	if orcaRunner.Orca.GoRelay {
 		deps.Relay = NewRelayKeeper(env.Claude, a.ConfigPath, env.State, orcaRunner.Orca.DeskInbox, s, post, a.Log)
-		deps.Checks = append(deps.Checks, deps.Relay.Check)
 	}
 	if !slices.Contains(env.Config.Movers, config.MoverGrading) {
 		return deps, nil

@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -20,12 +21,13 @@ import (
 )
 
 const (
-	relayRespawn  = time.Minute
-	relayStopWait = 30 * time.Second
-	relayLane     = "desk-runner"
-	relayLockFile = "relay.lock"
-	relayLogFile  = "lr-relay.log"
-	failureLimit  = 300
+	relayCheckEvery = 5 * time.Second
+	relayRespawn    = time.Minute
+	relayStopWait   = 30 * time.Second
+	relayLane       = "desk-runner"
+	relayLockFile   = "relay.lock"
+	relayLogFile    = "lr-relay.log"
+	failureLimit    = 300
 )
 
 type relayChild interface {
@@ -42,6 +44,8 @@ type RelayKeeper struct {
 	Logger *slog.Logger
 	Start  func(argv []string, log string) (relayChild, error)
 
+	mu      sync.Mutex
+	stopped bool
 	child   relayChild
 	started time.Time
 }
@@ -54,8 +58,22 @@ func NewRelayKeeper(claude, config, state, inbox string, s *store.Store, post pa
 	}
 }
 
-func (k *RelayKeeper) Check(_ context.Context, now time.Time) error {
-	if !k.started.IsZero() && now.Sub(k.started) < relayRespawn {
+func (k *RelayKeeper) Keep(ctx context.Context, clock func() time.Time) {
+	for ctx.Err() == nil {
+		if err := k.Check(clock()); err != nil {
+			k.Logger.Warn("relay check skipped", "err", err)
+		}
+		select {
+		case <-ctx.Done():
+		case <-time.After(relayCheckEvery):
+		}
+	}
+}
+
+func (k *RelayKeeper) Check(now time.Time) error {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if k.stopped || (!k.started.IsZero() && now.Sub(k.started) < relayRespawn) {
 		return nil
 	}
 	held, err := lockHeld(k.Lock)
@@ -77,6 +95,9 @@ func (k *RelayKeeper) Check(_ context.Context, now time.Time) error {
 }
 
 func (k *RelayKeeper) Stop() {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.stopped = true
 	if k.child != nil {
 		k.child.Stop(relayStopWait)
 	}
