@@ -5,6 +5,7 @@ go 1.26.5
 toolchain go1.26.10
 
 require (
+	github.com/BurntSushi/toml v1.5.0
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/spf13/cobra v1.10.2
 	github.com/yasyf/cc-inbox v0.49.34-0.20261103064630-6288a77ebc3c
