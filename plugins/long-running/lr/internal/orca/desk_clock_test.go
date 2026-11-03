@@ -1,6 +1,7 @@
 package orca
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -31,6 +32,13 @@ func (w *deskWorld) clock() incidentClockState {
 
 func (w *deskWorld) fallbacks() []incident.Action {
 	w.t.Helper()
+	books, err := w.desk.containers(lanePrefix)
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	if !slices.Contains(books, laneBook(clockLane+clockBackup)) {
+		return nil
+	}
 	launches, err := w.desk.store.Actions(laneBook(clockLane+clockBackup), kindLaunch)
 	if err != nil {
 		w.t.Fatal(err)
