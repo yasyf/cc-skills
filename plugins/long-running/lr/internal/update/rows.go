@@ -71,6 +71,8 @@ type Record struct {
 	At     time.Time
 	To     []string
 	PRs    []string
+	Topic  string
+	Board  string
 }
 
 func stepIsDone(step *plans.Step) bool {
