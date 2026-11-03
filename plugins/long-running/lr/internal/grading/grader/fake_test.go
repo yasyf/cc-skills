@@ -39,27 +39,28 @@ type Command = shell.Command
 var t0 = time.Date(2026, 11, 2, 21, 0, 0, 0, time.UTC)
 
 type fakeShell struct {
-	mu       sync.Mutex
-	dir      string
-	config   string
-	replies  []any
-	state    string
-	title    string
-	body     string
-	heads    []string
-	comments [][]map[string]any
-	rows     string
-	counting bool
-	failures int
-	ledger   []map[string]any
-	ledgerBy error
-	findings string
-	gitFn    func(argv []string) (string, error)
-	before   func(Command)
-	calls    []Command
-	posted   []map[string]string
-	slept    []time.Duration
-	timeouts map[string]time.Duration
+	postError error
+	mu        sync.Mutex
+	dir       string
+	config    string
+	replies   []any
+	state     string
+	title     string
+	body      string
+	heads     []string
+	comments  [][]map[string]any
+	rows      string
+	counting  bool
+	failures  int
+	ledger    []map[string]any
+	ledgerBy  error
+	findings  string
+	gitFn     func(argv []string) (string, error)
+	before    func(Command)
+	calls     []Command
+	posted    []map[string]string
+	slept     []time.Duration
+	timeouts  map[string]time.Duration
 }
 
 func (f *fakeShell) Run(_ context.Context, command Command) (shell.Result, error) {
@@ -168,6 +169,9 @@ func (f *fakeShell) post(_ context.Context, draft client.Draft) (client.Record, 
 		post["--path"] = draft.Path
 	}
 	f.posted = append(f.posted, post)
+	if f.postError != nil {
+		return client.Record{}, f.postError
+	}
 	seq := int64(150001)
 	if f.counting {
 		seq += int64(len(f.posted))

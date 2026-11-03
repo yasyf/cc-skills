@@ -559,6 +559,11 @@ func (p *pass) posted(argv []string) (string, error) {
 		return "", err
 	}
 	stored, err := p.Post(p.ctx, draft)
+	var down *client.BusDown
+	if errors.As(err, &down) {
+		p.Log.Warn("the store did not take a post; the runner reposts the pass's logged records when it settles", "id", draft.ID, "error", err)
+		return "", nil
+	}
 	if err != nil {
 		return "", err
 	}
