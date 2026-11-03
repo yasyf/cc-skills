@@ -337,7 +337,7 @@ A reply uses the original home relay question ID. Sending guidance does not
 answer an `ask`, and durable enqueue does not prove consumption. For questions
 and completion, match authoritative `from_handle` to `dispatch:<dispatch-id>`
 and cross-check the payload Task/Dispatch IDs. Workers use their live preamble
-for `ask`, status, heartbeat, checks, and `worker_done`; copied IDs or terminal
+for heartbeat, relay acks, checks, and `worker_done`, and `cci post` for every ask or report; copied IDs or terminal
 titles confer no authority. An ask timeout resumes the same message ID.
 
 An `orca terminal send --enter` that warns no turn start was observed, with the

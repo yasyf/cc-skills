@@ -277,7 +277,7 @@ Its first read saves the newest sequence without replaying history, and nothing 
 
 **O10. Never answer stale questions to a replacement.** Keep the original question id as the reply address. The runner has no stale-sender fence; never report this rule as an enforced runner guarantee.
 
-**O11. Treat a capacity fallback like an ask.** Workers whose `ask` returns `capacity reached` send `question` or `escalation`. Both escalate as `DECIDE`.
+**O11. Every ask or report in Run home reaches the bus.** A `question` or `escalation`, which `orca orchestration ask` writes as `question`, escalates as `DECIDE`; a `status` that is no milestone and names no relay escalates as `REPORT`. Both go to the desk that launched the lane, or its notice lane when none did or cci refuses the desk, once per message id. Once per Run, the relay replays Run home's mail behind its cursor that never reached the bus and posts the count as `REPLAYED` to the meta desk.
 
 **O12. Pause ten seconds between Run reads.** The orca runner sleeps 10 seconds between passes. The landing process sleeps for `landing.interval_seconds` (default 180). Model desks retain the 60-second inbox-wait rule.
 

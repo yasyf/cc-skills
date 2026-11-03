@@ -382,6 +382,7 @@ func successorBrief(old store.Lane, name, why string, d Deps, transcript string)
 		fmt.Sprintf("You are %s and take over %s's work. The lane supervisor launched you because %s %s; %s is stood down on cci, so never SendMessage it.", name, old.Name, old.Name, why, old.Name),
 		start,
 		fmt.Sprintf("PRs you now own: %s.", owned),
+		fmt.Sprintf("Ask, report and raise a blocker only with `cci post --drive %s --lane %s --kind ask|report|blocker`; Orca's `send` and `ask` carry the dispatch lifecycle alone.", drive, name),
 		fmt.Sprintf("If the handoff and %s's records show its deliverable is already complete, post `cci post --drive %s --lane %s --kind done --to root --text '<what it delivered>'` and stop.", old.Name, drive, name),
 		"",
 		"Before any write (an edit, commit, push, ship, PR comment, or a record that claims work):",

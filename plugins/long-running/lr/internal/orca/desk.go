@@ -356,8 +356,11 @@ func (d *Desk) escalateTo(ctx context.Context, key, kind, about, text, to string
 	line := escalationLine(kind, key, about, text)
 	posted, err := d.postEscalation(ctx, line, to, action)
 	if err != nil {
-		fmt.Fprintf(d.Stderr, "escalation %s to %s left for the next pass; cci post: %v\n", key, to, err)
-		return d.countRefusal(to, err)
+		fmt.Fprintf(d.Stderr, "escalation %s to %s goes to its notice lane on the flush; cci post: %v\n", key, to, err)
+		if err := d.countRefusal(to, err); err != nil {
+			return err
+		}
+		return d.record(action, line)
 	}
 	if err := d.record(action, line); err != nil {
 		return err
@@ -509,7 +512,7 @@ func (d *Desk) flush(ctx context.Context) error {
 	for _, action := range pending {
 		words := strings.Fields(action.Target)
 		to, err := lanes.NoticeTo(d.Registry, strings.TrimSuffix(words[2], ":"))
-		if words[0] == "HOOK-DRIFT" {
+		if words[0] == "HOOK-DRIFT" || words[0] == "REPLAYED" {
 			to, err = lanes.MetaDesk(d.Registry)
 		}
 		if err != nil {

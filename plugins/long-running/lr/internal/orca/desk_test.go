@@ -1721,6 +1721,114 @@ func TestAStatusNamingARelayAcknowledgesIt(t *testing.T) {
 	}
 }
 
+func (w *deskWorld) postsOn(topic string) []client.Draft {
+	var found []client.Draft
+	for _, post := range w.posts {
+		if post.Topic == topic {
+			found = append(found, post)
+		}
+	}
+	return found
+}
+
+func (w *deskWorld) passed() {
+	w.t.Helper()
+	w.step(func(ctx context.Context) error {
+		_, err := w.desk.check(ctx)
+		return err
+	})
+	w.step(w.desk.flush)
+}
+
+func TestAnAskAndAStatusNamingNoRelayEachReachTheBusOnce(t *testing.T) {
+	for _, c := range []struct{ kind, subject, posted string }{
+		{typeStatus, "merge_ready", "report"},
+		{typeQuestion, "Question", "decide"},
+	} {
+		t.Run(c.kind, func(t *testing.T) {
+			w := newDeskWorld(t)
+			w.live(testLane, testDispatch, testTerminal)
+			message := runMessage("msg_a", c.kind, testTerminal, 1)
+			message.Subject = c.subject
+			w.checked(message)
+			w.step(w.desk.flush)
+			w.passed()
+			posted := w.postsOn("msg_a")
+			if len(posted) != 1 || posted[0].Kind != c.posted || !slices.Equal(posted[0].To, []string{lanes.Root}) {
+				t.Fatal(posted)
+			}
+		})
+	}
+}
+
+func TestADeskPostCCIRefusesStillReachesTheBus(t *testing.T) {
+	w := newDeskWorld(t)
+	w.live(testLane, testDispatch, testTerminal)
+	brief := w.brief(testLane, testBrief)
+	if _, _, err := w.desk.acceptLaunch("R1", testLane, launchTarget{Model: "opus", Effort: "xhigh", Brief: brief, By: "meta-desk-1"}); err != nil {
+		t.Fatal(err)
+	}
+	w.postError = errors.New("no lane meta-desk-1")
+	w.checked(runMessage("msg_q", typeQuestion, testTerminal, 1))
+	w.postError = nil
+	w.passed()
+	if posted := w.postsOn("msg_q"); len(posted) != 1 || posted[0].Kind != "decide" || !slices.Equal(posted[0].To, []string{lanes.Root}) {
+		t.Fatal(posted)
+	}
+}
+
+func TestTheReplayRelaysDroppedMailOnceAndMailAlreadyRelayedNever(t *testing.T) {
+	w := newDeskWorld(t)
+	w.live(testLane, testDispatch, testTerminal)
+	asked := runMessage("msg_q", typeQuestion, testTerminal, 1)
+	w.checked(asked)
+	w.step(w.desk.flush)
+	dropped := runMessage("msg_s", typeStatus, testTerminal, 2)
+	dropped.Subject = "merge_ready"
+	unreplayed := func() {
+		if err := w.desk.store.Edit(deskRunner, func(tx *incident.Tx) error {
+			if err := tx.SetFact("inbox:"+testRun, 2); err != nil {
+				return err
+			}
+			if err := tx.SetFact("relayed:"+testRun, []string{"msg_q", "msg_s"}); err != nil {
+				return err
+			}
+			return tx.DropFact("replayed:" + testRun)
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	unreplayed()
+	w.runInbox = []orcaMessage{dropped, asked}
+	w.passed()
+	w.passed()
+	unreplayed()
+	w.passed()
+	if asks, reports := w.postsOn("msg_q"), w.postsOn("msg_s"); len(asks) != 1 || len(reports) != 1 || reports[0].Kind != "report" {
+		t.Fatal(asks, reports)
+	}
+	wantContains(t, w.wantEscalation("REPLAYED replayed:run_1"), "1 asks and reports")
+	if posted := w.postsOn("replayed:" + testRun); len(posted) != 1 {
+		t.Fatal(posted)
+	}
+}
+
+func TestTheRelayReadsRunHomeAsOftenAtAThousandLanesAsAtOne(t *testing.T) {
+	reads := func(count int) int {
+		w := newDeskWorld(t)
+		for i := range count {
+			w.live(fmt.Sprintf("lane-%d", i), fmt.Sprintf("ctx_%d", i), fmt.Sprintf("term_%d", i))
+		}
+		message := runMessage("msg_s", typeStatus, "term_0", 1)
+		message.Subject = "merge_ready"
+		w.checked(message)
+		return len(w.calls)
+	}
+	if one, thousand := reads(1), reads(1000); one != thousand {
+		t.Fatal(one, thousand)
+	}
+}
+
 func TestAHeartbeatIsKeptOnTheLaneAndRelaysNothing(t *testing.T) {
 	w := newDeskWorld(t)
 	w.live(testLane, testDispatch, testTerminal)

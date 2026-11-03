@@ -3,6 +3,7 @@ package orca
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -30,16 +31,21 @@ var (
 	runRef            = regexp.MustCompile(`R\d+|\d+`)
 	relayRef          = regexp.MustCompile(`(?:^|cci#)(R?\d+)$`)
 	milestoneSubjects = []string{"fix-live:", "mechanism:", "ready:"}
+	askTypes          = []string{typeQuestion, typeEscalation, typeStatus}
 )
 
 func (d *Desk) check(ctx context.Context) (bool, error) {
-	key, relayedKey := "inbox:"+d.Config.Run, "relayed:"+d.Config.Run
+	key, relayedKey, replayedKey := "inbox:"+d.Config.Run, "relayed:"+d.Config.Run, "replayed:"+d.Config.Run
 	value, hasCursor, err := d.factOf(deskRunner, key)
 	if err != nil {
 		return false, err
 	}
 	cursor := factInt(value)
 	relayedValue, _, err := d.factOf(deskRunner, relayedKey)
+	if err != nil {
+		return false, err
+	}
+	_, replayed, err := d.factOf(deskRunner, replayedKey)
 	if err != nil {
 		return false, err
 	}
@@ -55,9 +61,23 @@ func (d *Desk) check(ctx context.Context) (bool, error) {
 			unrelayed[message.ID] = true
 		}
 	}
-	messages, ready, err := d.runInbox(ctx, cursor, hasCursor, unrelayed, key)
+	messages, ready, err := d.runInbox(ctx, cursor, hasCursor, !replayed, unrelayed, key)
 	if err != nil || messages == nil {
 		return ready, err
+	}
+	replays := 0
+	for _, message := range messages {
+		if replayed || message.Sequence > cursor || unrelayed[message.ID] {
+			continue
+		}
+		dropped, err := d.dropped(message)
+		if err != nil {
+			return false, err
+		}
+		if dropped {
+			unrelayed[message.ID] = true
+			replays++
+		}
 	}
 	var beatAt int64
 	for _, message := range slices.Backward(messages) {
@@ -82,7 +102,9 @@ func (d *Desk) check(ctx context.Context) (bool, error) {
 		if err := d.relayRunMessage(ctx, message, behind, cursor); err != nil {
 			return false, err
 		}
-		relayed = append(relayed, message.ID)
+		if !slices.Contains(relayed, message.ID) {
+			relayed = append(relayed, message.ID)
+		}
 		if err := d.store.Edit(deskRunner, func(tx *incident.Tx) error {
 			if err := tx.SetFact(key, cursor); err != nil {
 				return err
@@ -98,13 +120,23 @@ func (d *Desk) check(ctx context.Context) (bool, error) {
 			return false, err
 		}
 	}
+	if replays > 0 {
+		if err := d.escalate(replayedKey, "REPLAYED", deskRunner, fmt.Sprintf("%d asks and reports in Run %s's mail that never reached the bus were relayed again", replays, d.Config.Run)); err != nil {
+			return false, err
+		}
+	}
+	if !replayed {
+		if err := d.setFact(deskRunner, replayedKey, replays); err != nil {
+			return false, err
+		}
+	}
 	if handed.Delivery != "" && len(unrelayed) == 0 {
 		d.call(ctx, orchestration, "check", "--run", d.Config.Run, "--ack", handed.Delivery, "--peek")
 	}
 	return true, nil
 }
 
-func (d *Desk) runInbox(ctx context.Context, cursor int64, hasCursor bool, unrelayed map[string]bool, key string) ([]orcaMessage, bool, error) {
+func (d *Desk) runInbox(ctx context.Context, cursor int64, hasCursor, whole bool, unrelayed map[string]bool, key string) ([]orcaMessage, bool, error) {
 	limit := inboxPage
 	for {
 		reply, err := d.ask(ctx, orchestration, "inbox", "--terminal", "run:"+d.Config.Run, "--limit", fmt.Sprint(limit))
@@ -126,7 +158,7 @@ func (d *Desk) runInbox(ctx context.Context, cursor int64, hasCursor bool, unrel
 			}
 			return nil, true, d.setFact(deskRunner, key, newest)
 		}
-		if len(messages) < limit || (messages[len(messages)-1].Sequence <= cursor+1 && holdsAll(messages, unrelayed)) {
+		if len(messages) < limit || (!whole && messages[len(messages)-1].Sequence <= cursor+1 && holdsAll(messages, unrelayed)) {
 			return append([]orcaMessage{}, messages...), true, nil
 		}
 		limit *= 2
@@ -140,6 +172,24 @@ func holdsAll(messages []orcaMessage, wanted map[string]bool) bool {
 		}
 	}
 	return true
+}
+
+func (d *Desk) dropped(message orcaMessage) (bool, error) {
+	if !slices.Contains(askTypes, message.Type) || (ackSubject.MatchString(message.Subject) && strings.Contains(message.ThreadID, "/")) {
+		return false, nil
+	}
+	held, err := d.known(deskRunner, escalationPref+message.ID)
+	if err != nil || held != nil {
+		return false, err
+	}
+	if message.Type != typeStatus {
+		return true, nil
+	}
+	_, err = os.Stat(d.messageFile(message.ID))
+	if errors.Is(err, os.ErrNotExist) {
+		return true, nil
+	}
+	return false, err
 }
 
 func (d *Desk) relayRunMessage(ctx context.Context, message orcaMessage, behind bool, cursor int64) error {
@@ -216,11 +266,11 @@ func (d *Desk) message(ctx context.Context, message orcaMessage, lane string) (b
 		if err != nil {
 			return false, err
 		}
-		if key == "" {
-			return false, nil
-		}
 		if err := d.keep(message); err != nil {
 			return false, err
+		}
+		if key == "" {
+			return true, d.relayToDesk(ctx, message, lane, "REPORT")
 		}
 		verb, result := "done", message.Subject
 		if acked != nil {
@@ -244,11 +294,15 @@ func (d *Desk) relayQuestion(ctx context.Context, message orcaMessage, lane stri
 	if err != nil || moot {
 		return err
 	}
+	return d.relayToDesk(ctx, message, lane, "DECIDE")
+}
+
+func (d *Desk) relayToDesk(ctx context.Context, message orcaMessage, lane, kind string) error {
 	by, err := d.laneBy(lane)
 	if err != nil {
 		return err
 	}
-	return d.escalateTo(ctx, message.ID, "DECIDE", lane, fmt.Sprintf("%s: %s", message.Subject, clipRunes(message.Body, 300)), by)
+	return d.escalateTo(ctx, message.ID, kind, lane, fmt.Sprintf("%s: %s", message.Subject, clipRunes(message.Body, 300)), by)
 }
 
 func (d *Desk) relayDone(ctx context.Context, message orcaMessage, lane, sender, outcome string) error {
