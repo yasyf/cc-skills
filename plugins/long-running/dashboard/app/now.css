@@ -202,6 +202,14 @@
 .nw.hist .evs { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 13.5px; }
 .nw.hist .evs li { display: grid; grid-template-columns: 64px minmax(0, 1fr); }
 .nw-live { margin: 0 0 22px; }
+.fy { display: grid; grid-template-columns: max-content 120px 1fr; border: 1px solid rgba(255,255,255,.09); border-radius: 10px; background: rgba(255,255,255,.02); overflow: hidden; }
+.fy-row, .fy-foot { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; gap: 14px; align-items: baseline; padding: 11px 16px; }
+.fy-row + .fy-row, .fy-foot { border-top: 1px solid rgba(255,255,255,.06); }
+.fy-row time { color: rgba(255,255,255,.45); white-space: nowrap; min-width: 50px; }
+.fy-tag { justify-self: start; padding: 2px 8px; border-radius: 4px; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; background: rgba(80,140,255,.14); color: #8fb6ff; white-space: nowrap; }
+.fy-text { font-size: 15px; line-height: 1.45; }
+.fy-none { display: block; color: var(--ink2); }
+.fy-foot { display: block; padding: 9px 16px; color: rgba(255,255,255,.45); font-size: 13px; }
 .nw-prevent { margin: 0 0 22px; }
 .nw-prevent .pt { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); margin-bottom: 8px; overflow: hidden; }
 .nw-prevent :is(.pt-head, .pt-row) { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1.7fr) 132px minmax(0, .7fr) 92px; gap: 14px; padding: 9px 14px; align-items: baseline; }
