@@ -14,10 +14,11 @@ import (
 )
 
 const (
-	recurEvery = time.Hour
-	wasteEvery = time.Hour
-	judgeEvery = time.Minute
-	judgeLimit = 15 * time.Minute
+	recurEvery  = time.Hour
+	rejoinEvery = 5 * time.Minute
+	wasteEvery  = time.Hour
+	judgeEvery  = time.Minute
+	judgeLimit  = 15 * time.Minute
 )
 
 type background struct {

@@ -7,4 +7,5 @@ func init() {
 	register(orca.LaunchCommand)
 	register(orca.RelayRootCommand)
 	register(orca.SpritesCommand)
+	register(orca.RejoinCommand)
 }

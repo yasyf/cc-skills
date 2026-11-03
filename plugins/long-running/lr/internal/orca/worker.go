@@ -35,6 +35,8 @@ const (
 	allocationWarm    = "warm"
 	allocationCreated = "created"
 	idleWarning       = "so the prepared worker stays idle and unattached"
+	sponsorEnv        = "WORKER_RELAY_SPONSOR"
+	joinReceipt       = "relay-join.log"
 	lrPlatform        = "linux-x86_64"
 	toolsMissing      = 3
 	unpackCarried     = `mkdir -p "$1" && tar -xzf - -C "$1"`
@@ -42,6 +44,7 @@ const (
 )
 
 var (
+	joinWaits    = []time.Duration{5 * time.Second, 15 * time.Second, 45 * time.Second}
 	spriteLane   = regexp.MustCompile(`\A[a-z0-9][a-z0-9-]{0,54}\z`)
 	fullCommit   = regexp.MustCompile(`\A[0-9a-f]{40}([0-9a-f]{24})?\z`)
 	orcaIdent    = regexp.MustCompile(`\A[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\z`)
@@ -99,10 +102,9 @@ type workerStarted struct {
 
 type spriteStarted struct {
 	workerStarted
-	Lane       string  `json:"lane"`
-	Workspace  string  `json:"workspace"`
-	Allocation string  `json:"allocation"`
-	Relay      *string `json:"relay"`
+	Lane       string `json:"lane"`
+	Workspace  string `json:"workspace"`
+	Allocation string `json:"allocation"`
 }
 
 func given(value string) *string {
@@ -119,6 +121,10 @@ func (s *WorkerStarter) Run(ctx context.Context, lane, model, effort, brief stri
 
 func refuse(format string, args ...any) error {
 	return &Failed{fmt.Sprintf(format, args...)}
+}
+
+func attemptOf(brief string) string {
+	return strings.TrimSuffix(brief, filepath.Ext(brief)) + ".worker"
 }
 
 func (w *workerLaunch) capture(argv ...string) (string, string, int) {
@@ -151,7 +157,7 @@ func (w *workerLaunch) start(model string) (string, error) {
 	}
 	name := filepath.Base(brief)
 	w.brief, w.dir, w.stem = brief, filepath.Dir(brief), strings.TrimSuffix(name, filepath.Ext(name))
-	w.attempt = filepath.Join(w.dir, w.stem+".worker")
+	w.attempt = attemptOf(brief)
 	if err := w.resolveRoute(model); err != nil {
 		return "", err
 	}
@@ -247,6 +253,9 @@ func (w *workerLaunch) checkSprite() error {
 	}
 	if w.expect != "" && !fullCommit.MatchString(w.expect) {
 		return refuse("WORKER_EXPECT_BASE is a full 40- or 64-character lowercase commit; nothing was prepared")
+	}
+	if w.Env(sponsorEnv) == "" {
+		return refuse("set %s to the Sprite holding the drive's enrolled cci service key, because a worker with no relay posts nothing anyone reads; nothing was prepared", sponsorEnv)
 	}
 	checkout, err := filepath.EvalSymlinks(w.Env("WORKER_CHECKOUT"))
 	if w.Env("WORKER_CHECKOUT") == "" || err != nil {
@@ -629,12 +638,21 @@ func (w *workerLaunch) join(workspace, sponsor string) (string, error) {
 	if code != 0 {
 		return log.String(), errors.New("the sponsor's service key did not read")
 	}
-	joined, err := w.Runner.Run(w.ctx, shell.Command{
-		Argv:  []string{"sprite", "exec", "-s", workspace, "--", "sh", "-c", joinRelay, "sh", strings.Join(meshes[mesh].Routes, ","), meshes[mesh].URL, owner.PublicKey},
-		Stdin: key,
-	})
-	log.WriteString(joined.Stdout + joined.Stderr)
-	return log.String(), err
+	for tries := 1; ; tries++ {
+		joined, err := w.Runner.Run(w.ctx, shell.Command{
+			Argv:  []string{"sprite", "exec", "-s", workspace, "--", "sh", "-c", joinRelay, "sh", strings.Join(meshes[mesh].Routes, ","), meshes[mesh].URL, owner.PublicKey},
+			Stdin: key,
+		})
+		log.WriteString(joined.Stdout + joined.Stderr)
+		if err == nil {
+			return log.String(), nil
+		}
+		if tries > len(joinWaits) {
+			said := strings.TrimSpace(joined.Stdout + joined.Stderr)
+			return log.String(), fmt.Errorf("%d tries, the last saying %s", tries, said[strings.LastIndex(said, "\n")+1:])
+		}
+		w.Sleep(joinWaits[tries-1])
+	}
 }
 
 func (w *workerLaunch) startSprite() (string, error) {
@@ -666,18 +684,13 @@ func (w *workerLaunch) startSprite() (string, error) {
 	if code != 0 {
 		return "", refuse("installing cci from %s, lr from %s and the %d WORKER_TOOLS pins on Sprite %s failed; %s keeps its output, and the prepared worker stays idle and unattached", w.pins.ccURL, w.pins.lrURL, len(w.pins.tools), workspace, filepath.Join(w.attempt, "install.log"))
 	}
-	var relay *string
-	if sponsor := w.Env("WORKER_RELAY_SPONSOR"); sponsor != "" {
-		log, joinErr := w.join(workspace, sponsor)
-		if err := w.receipt("relay-join.log", log); err != nil {
-			return "", err
-		}
-		state := "joined"
-		if joinErr != nil {
-			state = "failed"
-			fmt.Fprintf(w.Stderr, "Sprite %s did not join the cci relay with %s's service key, so its records stay on the Sprite; %s keeps the output, and the worker starts anyway\n", workspace, sponsor, filepath.Join(w.attempt, "relay-join.log"))
-		}
-		relay = &state
+	sponsor := w.Env(sponsorEnv)
+	log, joinErr := w.join(workspace, sponsor)
+	if err := w.receipt(joinReceipt, log); err != nil {
+		return "", err
+	}
+	if joinErr != nil {
+		return "", refuse("Sprite %s did not join the cci relay with %s's service key: %v; nothing started, because a worker with no relay posts nothing anyone reads; %s keeps the output, and the prepared worker stays idle and unattached", workspace, sponsor, joinErr, filepath.Join(w.attempt, joinReceipt))
 	}
 	w.terminal, _ = textOf(task["terminal"])
 	w.worktree, _ = textOf(task["projectRoot"])
@@ -694,7 +707,7 @@ func (w *workerLaunch) startSprite() (string, error) {
 		return "", err
 	}
 	made, _ := textOf(allocation["allocation"])
-	line, err := json.Marshal(spriteStarted{workerStarted{"ready", taskID, dispatch, w.terminal, w.worktree}, w.lane, workspace, made, relay})
+	line, err := json.Marshal(spriteStarted{workerStarted{"ready", taskID, dispatch, w.terminal, w.worktree}, w.lane, workspace, made})
 	return string(line), err
 }
 

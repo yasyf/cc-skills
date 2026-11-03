@@ -116,10 +116,12 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 			return Deps{}, err
 		}
 		report := waste.Poster{Sources: waste.Live(env.Bus, a.Runner, s), Config: wasteConfig, Store: s, Drive: env.Config, Now: a.Now, Post: post}
+		rejoin := orca.Rejoin{Runner: a.Runner, Store: s, Config: filepath.Join(env.State, runnerFile), Sleep: time.Sleep, Out: os.Stderr}
 		checks = append(checks,
 			(&background{name: "waste-report", every: wasteEvery, run: report.Pass, store: s, post: post, log: a.Log, to: wasteConfig.Lane}).Check,
 			(&watch.Stalls{Store: s, Drive: env.Config.Drive, Runner: a.Runner, Post: post, Log: a.Log}).Check,
 			(&lanes.MutePushback{Env: env, Log: a.Log}).Check,
+			(&background{name: "relay-rejoin", every: rejoinEvery, run: rejoin.Pass, store: s, post: post, log: a.Log}).Check,
 			(&background{name: "recurrence-count", every: recurEvery, run: func(ctx context.Context) error { return counter.Recur(ctx, env.Config.Drive) }, store: s, post: post, log: a.Log}).Check,
 			(&background{name: "judge-watch", every: judgeEvery, run: func(ctx context.Context) error {
 				_, err := a.Runner.Run(ctx, shell.Command{Argv: []string{filepath.Join(env.Claude, "long-running", "current", "bin", "judge_watch.py"), "--config", filepath.Join(env.State, runnerFile)}, Timeout: judgeLimit})
