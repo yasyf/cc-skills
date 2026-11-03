@@ -14,7 +14,10 @@ WRITE_VERBS = ("send", "reply", "edit", "dm-status")
 CLI = CommandSchema(
     "cc-slack",
     operands=(Operand("words", count="*"),),
-    options=tuple(Option(name, (f"--{name}",)) for name in ("agent", "blocks", "card", "channel", "cwd", "file", "session", "text", "thread", "ts", "url", "user")),
+    options=(
+        *(Option(name, (f"--{name}",)) for name in ("about", "agent", "blocks", "card", "channel", "cwd", "file", "session", "text", "text-file", "thread", "ts", "url", "user")),
+        *(Option(name, (f"--{name}",), bool) for name in ("broadcast", "mirrored", "root-only")),
+    ),
 )
 STATUS_TOPIC = re.compile(r"\b(?:releas(?:e[sd]?|ing)|smoke|flak(?:e[sy]?|y|iness)|progress)\b", re.IGNORECASE)
 CITED = re.compile(r"#(\d{5,})\b")

@@ -24,6 +24,10 @@ A wake that brings only cci records, none of which changes anything for him, end
 
 The communicator never waits for a clean render to send. An update with its gaps shown beats an update held back. He waited 30 minutes for one on Nov 2 2026, and that wait was the failure.
 
+## Picks
+
+Every pick put to him in Slack is a card he answers with one tap. It goes out as `slack_dm_status` with a `card` whose `options` are the answers, or as a cc-present card from `cc-present ask`, `push` or `update-block`, which cc-present posts to his Slack direct messages with its buttons. Plain text asking him to reply with a letter or a number never counts, and a card counts only once it posted. A thread reply is for notes and other conversation. An ask about a pull request carries that PR's card, never only its link. The card lists the PR in `refs`, so Slack shows its live checks, queue and landed state, and `drive.py ask-owner` attaches each PR its text names. `owner_returns.py` refuses a plain post of a pick, or a PR ask with no PR card, before it goes out, and refuses a stop that offers a pick with no card posted this turn.
+
 ## The meta lane
 
 Every skill, tooling, prompt, hook and process improvement goes to the meta lane ([meta-lane-brief.md](meta-lane-brief.md)), and so does every meta order of the owner's. The communicator forwards his words verbatim, with their time, as `cci post --lane owner-relay --kind ask --to meta`, instead of to the coordinator. Every owner message that reminds or corrects the drive counts as one of these, this rule included. Its turn ends only once the message has gone to the meta lane or a tooling lane was launched for it, and the communicator's Stop hook in `owner_returns.py` refuses the stop until then. A coordinator `report` that opens `for meta:` goes the same way, unchanged. When the meta lane's report says the coordinator must act, such as an install by the drive's one installer, the communicator relays that to the coordinator as an `ask`.

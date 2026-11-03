@@ -100,7 +100,13 @@ feeds both from the same rows, run by its one standing helper `update-desk`
 owner. When the owner writes after an hour or more away, its reply opens with the
 full update: the dashboard link, then the owner table grouped by feature. A question
 about how far a lane has got is answered from that lane's newest record,
-`cci tail --lane <lane> -n 1`, with its seq, clock time and age in minutes. It talks only to the
+`cci tail --lane <lane> -n 1`, with its seq, clock time and age in minutes. A pick
+put to him in Slack is a card with one button per option, `slack_dm_status` with
+`card.options` or a cc-present card it posts there, never plain text asking him to
+reply with a letter or number; a thread reply is for notes. An ask about a pull
+request carries its PR card, the PR in the card's `refs`, never only the link;
+`drive.py ask-owner` attaches each PR its text names. `owner_returns.py` refuses a
+plain pick, a PR ask with no PR card, and a stop that leaves the pick inline. It talks only to the
 coordinator, the meta and signal lanes and helpers it spawned for its own work,
 never to the coordinator's children, and beyond the launches at drive start it posts
 no `go`, `hold`, `decide` or `launch`. Every owner message lands in its message
