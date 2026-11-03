@@ -8,16 +8,14 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/wait"
 )
 
 const failedExit = 1
 
 func LaunchCommand(a *app.App) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "launch",
-		Short: "Start Orca workers for the drive's lanes",
-	}
+	cmd := lanes.LaunchCommand(a)
 	cmd.AddCommand(startCommand(a))
 	return cmd
 }
