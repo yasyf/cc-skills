@@ -3,6 +3,7 @@ package board
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"slices"
@@ -103,9 +104,10 @@ func (r Ruling) Line() string {
 	return fmt.Sprintf("%s %s %s %s: %q", r.Mark, r.ID[:min(len(r.ID), 12)], r.At[:min(len(r.At), 10)], r.Title, clip(r.Said))
 }
 
-func (c Cards) Ruled(ctx context.Context, title string) []Ruling {
+func (c Cards) Ruled(ctx context.Context, title string) ([]Ruling, error) {
 	var orders, answers []Ruling
-	for _, said := range c.spoken(ctx) {
+	spoken, unread := c.spoken(ctx)
+	for _, said := range spoken {
 		if said.Title == title {
 			continue
 		}
@@ -120,7 +122,7 @@ func (c Cards) Ruled(ctx context.Context, title string) []Ruling {
 	newestFirst := func(one, other Ruling) int { return strings.Compare(other.At, one.At) }
 	slices.SortStableFunc(orders, newestFirst)
 	slices.SortStableFunc(answers, newestFirst)
-	return append(answers, orders...)
+	return append(answers, orders...), unread
 }
 
 func orderOn(title string, said Ruling) (string, bool) {
@@ -153,32 +155,40 @@ func sameQuestion(card, asked string) bool {
 	return shared >= questionWords && shared*2 >= len(mine)
 }
 
-func (c Cards) spoken(ctx context.Context) []Ruling {
+func (c Cards) spoken(ctx context.Context) ([]Ruling, error) {
 	var said []Ruling
-	if listed, err := c.ccn(ctx, "answer", "list", "--json", "--full"); err == nil {
-		var answers []struct {
-			ID    string `json:"id"`
-			Title string `json:"title"`
-			Body  string `json:"body"`
-			At    string `json:"created_at"`
-		}
-		if json.Unmarshal([]byte(listed), &answers) == nil {
-			for _, answer := range answers {
-				said = append(said, Ruling{ID: answer.ID, Title: answer.Title, Said: answer.Body, At: answer.At})
-			}
-		}
+	var unread []error
+	var answers []struct {
+		ID    string `json:"id"`
+		Title string `json:"title"`
+		Body  string `json:"body"`
+		At    string `json:"created_at"`
 	}
-	if rows, err := ledger.Register(ctx, c.ccn, c.Ledger, c.Program); err == nil {
-		for _, row := range rows {
-			said = append(said, Ruling{ID: row.Key, Said: row.Fields["words"], At: row.Updated.Format(time.RFC3339)})
-		}
+	listed, err := c.ccn(ctx, "answer", "list", "--json", "--full")
+	if err == nil {
+		err = json.Unmarshal([]byte(listed), &answers)
 	}
-	if lines, err := client.Tail(ctx, client.Query{Drive: c.Bus, Lanes: []string{lanes.OwnerRelay}, Kinds: []string{kindOwner}}); err == nil {
-		for _, line := range lines {
-			said = append(said, Ruling{ID: fmt.Sprintf("#%d", line.Seq), Title: clip(line.Text), Said: line.Text, At: line.At.Format(time.RFC3339)})
-		}
+	if err != nil {
+		unread = append(unread, fmt.Errorf("his ccn answers were not read: %w", err))
 	}
-	return said
+	for _, answer := range answers {
+		said = append(said, Ruling{ID: answer.ID, Title: answer.Title, Said: answer.Body, At: answer.At})
+	}
+	rows, err := ledger.Register(ctx, c.ccn, c.Ledger, c.Program)
+	if err != nil {
+		unread = append(unread, fmt.Errorf("the register was not read: %w", err))
+	}
+	for _, row := range rows {
+		said = append(said, Ruling{ID: row.Key, Said: row.Fields["words"], At: row.Updated.Format(time.RFC3339)})
+	}
+	lines, err := client.Tail(ctx, client.Query{Drive: c.Bus, Lanes: []string{lanes.OwnerRelay}, Kinds: []string{kindOwner}})
+	if err != nil {
+		unread = append(unread, fmt.Errorf("his Slack lines were not read: %w", err))
+	}
+	for _, line := range lines {
+		said = append(said, Ruling{ID: fmt.Sprintf("#%d", line.Seq), Title: clip(line.Text), Said: line.Text, At: line.At.Format(time.RFC3339)})
+	}
+	return said, errors.Join(unread...)
 }
 
 func subjectWords(text string) []string {

@@ -51,7 +51,7 @@ func TestACardOnWhatHeOrderedDeletedNamesHisWordsNewestFirst(t *testing.T) {
 		spokenAnswer{"pool", "Which pool should Sonnet bill to?", "Just delete the pool.", "2026-11-03T01:00:00Z"},
 	)
 
-	rulings := cards.Ruled(context.Background(), versionCard)
+	rulings, _ := cards.Ruled(context.Background(), versionCard)
 
 	if got, want := rulingIDs(rulings), []string{"newer", "older"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("named %v, want %v", got, want)
@@ -64,7 +64,7 @@ func TestACardOnWhatHeOrderedDeletedNamesHisWordsNewestFirst(t *testing.T) {
 func TestAnOptionOfferedToHimIsNotAnOrderOfHis(t *testing.T) {
 	cards := ruledCards(t, spokenAnswer{"asked", "Old cloud agents?", "Options: just delete the cloud agent rows (Recommended) | keep them", "2026-10-22T05:00:00Z"})
 
-	if rulings := cards.Ruled(context.Background(), versionCard); len(rulings) != 0 {
+	if rulings, _ := cards.Ruled(context.Background(), versionCard); len(rulings) != 0 {
 		t.Fatalf("named %v", rulingIDs(rulings))
 	}
 }
@@ -72,7 +72,7 @@ func TestAnOptionOfferedToHimIsNotAnOrderOfHis(t *testing.T) {
 func TestACardsOwnAnswerDoesNotRefuseItsRedraw(t *testing.T) {
 	cards := ruledCards(t, spokenAnswer{"own", versionCard, "Just delete them.", "2026-11-03T18:07:00Z"})
 
-	if rulings := cards.Ruled(context.Background(), versionCard); len(rulings) != 0 {
+	if rulings, _ := cards.Ruled(context.Background(), versionCard); len(rulings) != 0 {
 		t.Fatalf("named %v", rulingIDs(rulings))
 	}
 }
@@ -85,7 +85,7 @@ func TestACardReAskingWhatHeAnsweredNamesTheAnswerBeforeAnyOrder(t *testing.T) {
 		spokenAnswer{"elsewhere", "How do old apps build?", "From source.", "2026-11-03T00:00:00Z"},
 	)
 
-	rulings := cards.Ruled(context.Background(), reAsked)
+	rulings, _ := cards.Ruled(context.Background(), reAsked)
 
 	if got, want := rulingIDs(rulings), []string{"same", "order"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("named %v, want %v", got, want)
@@ -105,7 +105,8 @@ func TestHisSlackLineCountsAsAnAnswer(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := rulingIDs(cards.Ruled(context.Background(), "An old chat will not open on the new build"))
+	rulings, _ := cards.Ruled(context.Background(), "An old chat will not open on the new build")
+	got := rulingIDs(rulings)
 
 	if want := []string{fmt.Sprintf("#%d", line.Seq)}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("named %v, want %v", got, want)
@@ -127,17 +128,26 @@ func TestARegisterRowCountsByHisWordsNotItsSummary(t *testing.T) {
 	fake.Reply(`[{"id":"reg","updated_at":"2026-11-03T00:00:00Z"}]`, "ccn", "-R", "/co", "ledger", "list")
 	cards := Cards{Runner: fake, Ledger: store, Bus: "d", Checkout: "/co", Session: "s1", Program: "p"}
 
-	if got, want := rulingIDs(cards.Ruled(ctx, versionCard)), []string{"rule/words"}; !reflect.DeepEqual(got, want) {
+	rulings, _ := cards.Ruled(ctx, versionCard)
+	if got, want := rulingIDs(rulings), []string{"rule/words"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("named %v, want %v", got, want)
 	}
 }
 
-func TestARulingsReadThatFailsRefusesNothing(t *testing.T) {
+func TestARulingsReadThatFailsRefusesNothingAndSaysWhichSourceWentUnread(t *testing.T) {
 	t.Setenv("CCI_HOME", t.TempDir())
-	cards := Cards{Runner: &shelltest.Fake{}, Ledger: &ledgertest.Fake{}, Bus: "d", Checkout: "/co", Session: "s1", Program: "p"}
+	fake := &shelltest.Fake{}
+	fake.Fail(1, "Error: unknown flag: --full", "ccn", "-R", "/co", "answer", "list")
+	fake.Reply("[]", "ccn", "-R", "/co", "ledger", "list")
+	cards := Cards{Runner: fake, Ledger: &ledgertest.Fake{}, Bus: "d", Checkout: "/co", Session: "s1", Program: "p"}
 
-	if rulings := cards.Ruled(context.Background(), versionCard); len(rulings) != 0 {
+	rulings, unread := cards.Ruled(context.Background(), versionCard)
+
+	if len(rulings) != 0 {
 		t.Fatalf("named %v", rulingIDs(rulings))
+	}
+	if unread == nil || !strings.Contains(unread.Error(), "his ccn answers were not read") || strings.Contains(unread.Error(), "register") {
+		t.Fatalf("unread = %v", unread)
 	}
 }
 

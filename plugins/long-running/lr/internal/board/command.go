@@ -397,7 +397,7 @@ func cardsCommand(cards func() (Cards, func(), error), judge Judge) *cobra.Comma
 		},
 	}, &cobra.Command{
 		Use:   "ruled CARD_FILE",
-		Short: "Print each answer or Slack line of his on this card's question, then each order of his that removes something and shares words with its title, newest first; nothing when a read fails",
+		Short: "Print each answer or Slack line of his on this card's question, then each order of his that removes something and shares words with its title, newest first, then a WARNING line for each source that was not read",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			board, done, err := cards()
@@ -415,9 +415,12 @@ func cardsCommand(cards func() (Cards, func(), error), judge Judge) *cobra.Comma
 			if json.Unmarshal(data, &card) != nil {
 				return nil
 			}
-			rulings := board.Ruled(c.Context(), card.Title)
+			rulings, unread := board.Ruled(c.Context(), card.Title)
 			for _, ruling := range rulings[:min(len(rulings), rulingsShown)] {
 				fmt.Fprintln(c.OutOrStdout(), ruling.Line())
+			}
+			if unread != nil {
+				fmt.Fprintf(c.OutOrStdout(), "WARNING %s; the card draws unchecked against it\n", strings.ReplaceAll(unread.Error(), "\n", "; "))
 			}
 			return nil
 		},
