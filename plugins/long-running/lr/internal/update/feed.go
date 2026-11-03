@@ -9,9 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -76,9 +74,8 @@ func fyiLines(entries []FYI) []string {
 }
 
 func carrierOf(ordered []Record, ask Record) (Record, bool) {
-	named := regexp.MustCompile(`#` + strconv.FormatInt(ask.Seq, 10) + `\b`)
 	at := slices.IndexFunc(ordered, func(other Record) bool {
-		return other.Seq > ask.Seq && (other.Re == ask.Seq || slices.Contains(other.Resolves, ask.Seq) || named.MatchString(other.Text))
+		return other.Seq > ask.Seq && (other.Re == ask.Seq || slices.Contains(other.Resolves, ask.Seq))
 	})
 	if at < 0 {
 		return Record{}, false
@@ -98,7 +95,7 @@ func ownerWords(records []Record) (lines, gaps []string) {
 		} else {
 			gaps = append(gaps, fmt.Sprintf("owner words no record carries: #%d", record.Seq))
 		}
-		lines = append(lines, fmt.Sprintf("- %s: \"%s\" | %s", pacific(record.At), clip(record.Text), status))
+		lines = append(lines, fmt.Sprintf("- %s: \"%s\" | %s", pacific(record.At), strings.Join(strings.Fields(record.Text), " "), status))
 	}
 	return lines, gaps
 }

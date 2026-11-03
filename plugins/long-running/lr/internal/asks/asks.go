@@ -114,7 +114,7 @@ func (p PR) WaitingReason() string {
 		return "held"
 	case p.TestState == testFailure || p.MergeableState == "dirty" || p.MergeableState == "blocked":
 		return "red"
-	case p.LabelRefusedHead == p.CurrentHead():
+	case p.LabelRefusedHead != "" && p.LabelRefusedHead == p.CurrentHead():
 		return "refused"
 	}
 	return "ungraded"

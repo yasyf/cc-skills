@@ -115,6 +115,7 @@ func TestAPRWaitsForTheFirstReasonItsRowHolds(t *testing.T) {
 		{"conflict", map[string]string{"registered": "1", "mergeable_state": "dirty"}, "red"},
 		{"refused", map[string]string{"reported_head": "a", "label_refused_head": "a"}, "refused"},
 		{"ungraded", map[string]string{"reported_head": "a"}, "ungraded"},
+		{"no head and no refusal", map[string]string{"registered": "1"}, "ungraded"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
