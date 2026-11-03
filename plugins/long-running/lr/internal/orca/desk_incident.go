@@ -383,11 +383,18 @@ func (d *Desk) laneStoodDown(ctx context.Context, lane string) (string, error) {
 		return "", err
 	}
 	for _, record := range posted {
-		if addressed(record, names) && !record.At.Before(launched) {
+		if standsDown(record, names) && !record.At.Before(launched) {
 			return seqReceipt(record.Seq), nil
 		}
 	}
 	return "", nil
+}
+
+func standsDown(record client.Record, names []string) bool {
+	if string(record.Kind) == kindStandDown && len(record.To) > 0 {
+		return slices.Contains(names, record.To[0])
+	}
+	return addressed(record, names)
 }
 
 func (d *Desk) holdsCaseLaunch(ctx context.Context, container, lane string, action incident.Action) (bool, error) {
