@@ -139,7 +139,11 @@ def screen_view(name, view, ledger, version):
     return {"screen": name, "version": version, **built, "filters": filters}
 
 
+def screen_kind(name):
+    return f"screen-{name}"
+
+
 def changed_screens(past, current):
     if past is None:
         return list(SCREENS)
-    return [name for name in SCREENS if {k: d for k, d in past.get(name, {}).items() if k != "version"} != {k: d for k, d in current[name].items() if k != "version"}]
+    return [name for name in SCREENS if {k: d for k, d in past.get(screen_kind(name), {}).items() if k != "version"} != {k: d for k, d in current[screen_kind(name)].items() if k != "version"}]

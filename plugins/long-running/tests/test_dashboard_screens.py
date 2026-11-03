@@ -4,7 +4,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "dashboard" / "app"))
 
-from screens import SCREENS, changed_screens, screen_view
+from screens import SCREENS, changed_screens, screen_kind, screen_view
 
 
 def view(steps=1, prs=0):
@@ -77,9 +77,9 @@ def test_status_bytes_grow_with_its_own_rows_and_one_fetch_serves_them_all():
 
 
 def test_the_stream_names_only_the_screens_that_changed():
-    past = {name: {"rows": b"a", "version": b"1"} for name in SCREENS}
-    current = {name: {"rows": b"a", "version": b"2"} for name in SCREENS}
+    past = {screen_kind(name): {"rows": b"a", "version": b"1"} for name in SCREENS}
+    current = {screen_kind(name): {"rows": b"a", "version": b"2"} for name in SCREENS}
     assert changed_screens(past, current) == []
-    current["asks"] = {"rows": b"b", "version": b"2"}
+    current[screen_kind("asks")] = {"rows": b"b", "version": b"2"}
     assert changed_screens(past, current) == ["asks"]
     assert changed_screens(None, current) == list(SCREENS)

@@ -19,6 +19,7 @@ import pytest
 from holds import Entry
 from pages import stamp
 from review_assistant import ReviewAssistant
+from screens import screen_kind
 import server
 from server import QUEUED_NEXT, Drive, changed_since, drive_prs, drive_workers, journeys, needs, open_findings, parse_plan, plan_prs, step_rows, release_path, paths_current, hold_reasons, verdict_state, with_conflicts
 
@@ -1514,12 +1515,23 @@ def test_the_lanes_are_read_again_only_after_a_record_arrives(monkeypatch):
     assert calls == ["lanes", "lanes"] and drive.model["lanes"] == [{"lane": "w-1"}]
 
 
+def publishable_model(**fields):
+    return {"words": [], "records": [], "lanes": [], "prs": {}, "pr_state": {}, "history": {}, "drive": {"prs": []}, **{key: {} for key in server.NOW_DRAWS}, "steps": [], "board": {"rows": [], "cards": []}, **fields}
+
+
+def test_the_now_tab_keeps_its_slice_beside_the_now_screen(tmp_path):
+    drive = Drive({"board_url": "http://board/p/x"}, None)
+    drive.publish(publishable_model(), tmp_path / "served.json.gz")
+    assert json.loads(drive.body("now")[0])["cut"] is True
+    assert json.loads(drive.body(screen_kind("now"))[0])["screen"] == "now"
+
+
 def test_a_curator_waits_for_a_view_built_after_it_asked(monkeypatch, tmp_path):
     drive = Drive({"board_url": "http://board/p/x"}, None)
     drive.live_model, drive.live_at = {"built_at": "old"}, 1.0
     drive.model = {"prs": {}}
     drive.rebuild = lambda: None
-    drive.live = lambda model: {"built_at": "fresh", "words": [], "records": [], "lanes": [], "prs": {}, "pr_state": {}, "history": {}, "drive": {"prs": []}, **{key: {} for key in server.NOW_DRAWS}}
+    drive.live = lambda model: publishable_model(built_at="fresh")
     got = []
 
     class Served(Exception):
@@ -1530,7 +1542,7 @@ def test_a_curator_waits_for_a_view_built_after_it_asked(monkeypatch, tmp_path):
             raise Served
 
     monkeypatch.setattr(server.time, "sleep", nap)
-    curator = threading.Thread(target=lambda: got.append(drive.curator_model()))
+    curator = threading.Thread(target=lambda: got.append(drive.curator_model()), daemon=True)
     curator.start()
     with pytest.raises(Served):
         drive.refresh_loop(tmp_path / "served.json.gz")

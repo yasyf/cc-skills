@@ -30,7 +30,7 @@ from brief import COORDINATORS, ROOT, Curator
 from owed import kept, order_replies, overdue_rows, owner_ask_rows, told_asks, trimmed
 from pages import PAGES, source_key, stamp
 from review_assistant import ReviewAssistant
-from screens import SCREENS, changed_screens, screen_view
+from screens import SCREENS, changed_screens, screen_kind, screen_view
 from story import Stories
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "skills" / "long-running" / "scripts"))
@@ -1324,7 +1324,7 @@ class Drive:
         views = {"lean": lean, "now": self.encode("now", now_view({**view, "version": version}), lean)}
         ledger = self.owner_ledger()
         for name in SCREENS:
-            views[name] = self.encode(name, screen_view(name, view, ledger, version))
+            views[screen_kind(name)] = self.encode(screen_kind(name), screen_view(name, view, ledger, version))
         served = {"version": version, "sig": sig, "live": live, "views": views, "bodies": {}}
         with self.serving:
             self.live_model = live
@@ -1746,7 +1746,7 @@ def handler(drive, tailnet_owner, names):
                 if found[1] not in SCREENS:
                     return self.send(404, "text/plain", b"no such screen")
                 since = re.search(r"since=(\d+)", self.path)
-                if not (body := drive.body(found[1], int(since[1]) if since else None)):
+                if not (body := drive.body(screen_kind(found[1]), int(since[1]) if since else None)):
                     return self.send(503, "text/plain", b"The dashboard is building its first view.")
                 return self.send_built(*body)
             if path == "/api/words":
