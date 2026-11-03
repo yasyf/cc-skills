@@ -510,7 +510,7 @@ func foldRegistry(s *store.Store, r Record, row store.Lane, known, fresh bool, a
 	switch {
 	case kind == kindLanded:
 		foldLanded(s, r, at)
-	case kind == "done" && settles:
+	case kind == "done" && settles && !isStanding(row):
 		if out.owesNothing(s, name, fresh, at) {
 			retire(s, name, "done", at)
 		}

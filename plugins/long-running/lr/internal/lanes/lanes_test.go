@@ -1641,10 +1641,10 @@ func standingLane(t *testing.T, s *store.Store) (*fake, string) {
 	return f, path
 }
 
-func TestAStandingLaneDoneWithNoSuccessorReachesRootOnceAfterTenMinutes(t *testing.T) {
+func TestAStandingLaneStoppedWithNoSuccessorReachesRootOnceAfterTenMinutes(t *testing.T) {
 	s := memory(t)
 	f, path := standingLane(t, s)
-	f.feed = append(f.feed, rec(2, refresher, "done", t0, "retired"))
+	f.feed = append(f.feed, rec(2, refresher, "stopped", t0, "retired"))
 	f.peers = nil
 
 	early := tick(t, s, f, t0.Add(mins(9)))
@@ -1656,8 +1656,27 @@ func TestAStandingLaneDoneWithNoSuccessorReachesRootOnceAfterTenMinutes(t *testi
 	blockers := f.ofKind("blocker")
 	equal(t, len(blockers), 1)
 	contains(t, blockers[0].Text, "standing lane board-refresher-6 (refresh the owner's board every pass) has had no live owner for over 10 min")
-	contains(t, blockers[0].Text, "retired by done")
+	contains(t, blockers[0].Text, "retired by stand-down")
 	contains(t, blockers[0].Text, path)
+}
+
+func TestAStandingLanesDoneClosesAnItemAndNeverTheLane(t *testing.T) {
+	s := memory(t)
+	f, _ := standingLane(t, s)
+	f.feed = append(f.feed, rec(2, refresher, "done", t0, "item 157 proven"))
+	f.peers = []Row{who(refresher, true, t0)}
+
+	tick(t, s, f, t0.Add(mins(11)))
+
+	equal(t, row(t, s, refresher).State, store.LaneDesired)
+	equal(t, len(f.ofKind("blocker")), 0)
+}
+
+func TestOnlyAStandingLaneStaysUnsettledOnItsOwnDone(t *testing.T) {
+	brief := standingBrief(t, refresher)
+	equal(t, settledLane(store.Lane{Name: refresher, Brief: brief, Last: "done"}), false)
+	equal(t, settledLane(store.Lane{Name: refresher, Brief: brief, Last: "stopped"}), true)
+	equal(t, settledLane(store.Lane{Name: lane2, Last: "done"}), true)
 }
 
 func TestAStandingLaneStoodDownForALiveSuccessorRaisesNothing(t *testing.T) {
