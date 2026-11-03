@@ -29,10 +29,10 @@ UNANSWERED = (
     "Answer each with `cc-present reply --block <block> --body '<answer>'`, then stop again.\n```\n{lines}\n```"
 )
 UNROWED = (
-    "These cards carry the owner's answer with no ccn answer row, so they stay on the board until each answer has one. "
-    "board-watch writes the row as it posts the OWNER record; run `board_watch.py backfill --session {session} --program {drive}` to write any it missed, then run this again.\n```\n{lines}\n```"
+    "Warning, nothing was blocked: these cards carry the owner's answer with no ccn answer row, and this call takes them off the board. "
+    "board-watch writes the row as it posts the OWNER record; run `board_watch.py backfill --session {session} --program {drive}` to write any it missed, so the answer stays on record.\n```\n{lines}\n```"
 )
-APPROVED = "The owner already approved these PRs at their current heads, so they get no new board row. Drop them from the order and post it again.\n```\n{lines}\n```"
+APPROVED = "Warning, nothing was blocked: the owner already approved these PRs at their current heads, so they need no new board row. Withdraw them from this order.\n```\n{lines}\n```"
 
 ANSWER_ROWS = script_module("long_running.answer_rows")
 CARD_SHOWN = "cc-present outcomes --block card-a --session s"
@@ -200,7 +200,7 @@ def owner_notes_get_answers(evt: BaseHookEvent) -> HookResult | None:
     only_if=[Coordinator(), Tool("Bash")],
     skip_if=[FromSubagent(), Annotated("raw")],
     tests=coordinator_tests({
-        Input(command="cci post --drive brook-drive --lane root --kind go --to board-refresher-6 --text 'put #47265 on his board'", state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={CHECK: waits("#47265 at 827dd7f: not waiting on you: you approved it at 827dd7f at 1:46 AM")}): Block(pattern=r"#47265 at 827dd7f: not waiting on you: you approved it"),
+        Input(command="cci post --drive brook-drive --lane root --kind go --to board-refresher-6 --text 'put #47265 on his board'", state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={CHECK: waits("#47265 at 827dd7f: not waiting on you: you approved it at 827dd7f at 1:46 AM")}): Warn(pattern=r"#47265 at 827dd7f: not waiting on you: you approved it"),
         Input(command="cci post --drive brook-drive --lane root --kind go --to board-refresher-6 --text 'board rows for #47265'", state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={CHECK: waits("#47265 at 827dd7f: not waiting on you: the board holds no row for it")}): Allow(),
         Input(command="cci post --drive brook-drive --lane root --kind go --to landing-desk-3 --text 'land #47265'", state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={CHECK: waits("#47265 at 827dd7f: not waiting on you: you approved it at 827dd7f")}): Allow(),
         Input(command="cci post --drive brook-drive --lane board-refresher-6 --kind state --text 'put #47265 on his board'", state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={CHECK: waits("#47265 at 827dd7f: not waiting on you: you approved it at 827dd7f")}): Allow(),
@@ -208,7 +208,7 @@ def owner_notes_get_answers(evt: BaseHookEvent) -> HookResult | None:
     }),
 )
 def board_rows_skip_approved_prs(evt: BaseHookEvent) -> HookResult | None:
-    """A coordinator order that asks for board rows on PRs the owner already approved at their current heads goes back with those PRs (owner, 2:48 AM Oct 31). A read that fails blocks nothing."""
+    """A coordinator order that asks for board rows on PRs the owner already approved at their current heads warns with those PRs (owner, 2:48 AM Oct 31). A read that fails blocks nothing."""
     if not CompactionState.load(evt).active or not (entry := drive_entry(evt)):
         return None
     texts = [posted_text(values) for call in evt.command.calls("cci") if (values := CCI_POST.bind(call).values).get("words", ())[:1] == ("post",) and (values.get("lane") or (ROOT_LANE,))[0] in (ROOT_LANE, "main")]
@@ -219,7 +219,7 @@ def board_rows_skip_approved_prs(evt: BaseHookEvent) -> HookResult | None:
     except (OSError, subprocess.SubprocessError, ValueError):
         return None
     lines = [item["line"] for item in found if item.get("head") and f"approved it at {item['head'][:7]}" in item["line"]]
-    return evt.block(APPROVED.format(lines="\n".join(lines))) if lines else None
+    return evt.context(APPROVED.format(lines="\n".join(lines))) if lines else None
 
 
 @on(
@@ -227,7 +227,7 @@ def board_rows_skip_approved_prs(evt: BaseHookEvent) -> HookResult | None:
     only_if=[Tool("Bash")],
     skip_if=[Annotated("raw")],
     tests={
-        Input(command="cc-present remove-block card-a --session s", env=DRIVE_CONFIG, commands={CARD_SHOWN: shown_card([WRITE_IN]), ROW_LIST: "[]"}): Block(pattern=r"card-a: q1 answered .*flush them at startup"),
+        Input(command="cc-present remove-block card-a --session s", env=DRIVE_CONFIG, commands={CARD_SHOWN: shown_card([WRITE_IN]), ROW_LIST: "[]"}): Warn(pattern=r"card-a: q1 answered .*flush them at startup"),
         Input(command="cc-present remove-block card-a --session s", env=DRIVE_CONFIG, commands={CARD_SHOWN: shown_card([WRITE_IN]), ROW_LIST: json.dumps([{"tags": ["board-answer", "board-block:q1"]}])}): Allow(),
         Input(command="cc-present remove-block card-a --session s", env=DRIVE_CONFIG, commands={CARD_SHOWN: shown_card([])}): Allow(),
         Input(command="cc-present remove-block card-a --session s", env=DRIVE_CONFIG, commands={CARD_SHOWN: (1, "cc-present: daemon down")}): Allow(),
@@ -235,12 +235,12 @@ def board_rows_skip_approved_prs(evt: BaseHookEvent) -> HookResult | None:
             command="""echo '{"version":1,"title":"T","blocks":[{"id":"m1","type":"markdown","md":"next"}]}' | cc-present push - --session s""",
             env=DRIVE_CONFIG,
             commands={LIVE: json.dumps({"rounds": {"blockRounds": {"card-a": 3, "m1": 3}}}), CARD_SHOWN: shown_card([WRITE_IN]), ROW_LIST: "[]"},
-        ): Block(pattern=r"card-a: q1 answered"),
+        ): Warn(pattern=r"card-a: q1 answered"),
         Input(
             command="""echo '{"id":"card-a","type":"card","title":"Cache?","children":[]}' | cc-present update-block - --session s""",
             env=DRIVE_CONFIG,
             commands={CARD_SHOWN: shown_card([WRITE_IN]), ROW_LIST: "[]"},
-        ): Block(pattern=r"card-a: q1 answered"),
+        ): Warn(pattern=r"card-a: q1 answered"),
         Input(
             command="""echo '{"id":"card-a","type":"card","title":"Cache?","children":[{"id":"q1","type":"choice"}]}' | cc-present update-block - --session s""",
             env=DRIVE_CONFIG,
@@ -266,4 +266,4 @@ def answered_cards_keep_their_rows(evt: BaseHookEvent) -> HookResult | None:
                 sessions += [session] if owed else []
     except (Unread, OSError, ValueError, KeyError, subprocess.SubprocessError):
         return None
-    return evt.block(UNROWED.format(session=sessions[0], drive=bus_name(entry), lines="\n".join(lines))) if lines else None
+    return evt.context(UNROWED.format(session=sessions[0], drive=bus_name(entry), lines="\n".join(lines))) if lines else None

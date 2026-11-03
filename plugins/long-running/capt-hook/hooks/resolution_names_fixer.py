@@ -4,7 +4,7 @@ import json
 import re
 import subprocess
 
-from captain_hook import Allow, BaseHookEvent, Block, Event, FromSubagent, Input, Tool, hook
+from captain_hook import Allow, BaseHookEvent, Event, FromSubagent, HookResult, Input, Tool, Warn, on
 
 from .compaction_handoff import CompactionState, Coordinator, coordinator_tests
 from .lane_rotation import DriveActive
@@ -43,19 +43,20 @@ def resolve(text: str, shown: str = BLOCKER, **extra: object) -> Input:
     return Input(command=f"cci post --drive d1 --lane root --kind decide --resolves 339405 --text '{text}'", state=ACTIVE, commands={"cci show": shown}, **extra)
 
 
-hook(  # capt-hook: no-escape the message names the token that settles the resolution
+UNNAMED_FIXER = (
+    "Warning, nothing was blocked: A coordinator resolution of a blocker, incident or urgent record names who fixes it: spawn the fix lane and name it with `lane=<name>`, or land the fix."
+    " A failure that already stopped resolves with `FIX-LIVE`, `not-ours:<who>` or `closed:<why it stopped>`."
+)
+
+
+@on(
     Event.PreToolUse,
     only_if=[Coordinator(), Tool("Bash"), DriveActive(), UnfixedResolution()],
     skip_if=[FromSubagent()],
-    block=True,
-    message=(
-        "A coordinator resolution of a blocker, incident or urgent record names who fixes it: spawn the fix lane and name it with `lane=<name>`, or land the fix."
-        " A failure that already stopped resolves with `FIX-LIVE`, `not-ours:<who>` or `closed:<why it stopped>`."
-    ),
     tests=coordinator_tests({
-        resolve("blocked until #48401 lands"): Block(pattern=r"^A coordinator resolution of a blocker"),
-        resolve("noted, tracked in the teardown stack"): Block(),
-        resolve("closed: a known flake, blocked until Monday"): Block(),
+        resolve("blocked until #48401 lands"): Warn(pattern=r"^Warning, nothing was blocked: A coordinator resolution of a blocker"),
+        resolve("noted, tracked in the teardown stack"): Warn(),
+        resolve("closed: a known flake, blocked until Monday"): Warn(),
         resolve("lane=hsbc-pr2-ci-1 lands #48401 by 4:40 PM"): Allow(),
         resolve("FIX-LIVE #48401 landed as 4821788"): Allow(),
         resolve("closed: previews pass since #48401 landed"): Allow(),
@@ -65,3 +66,5 @@ hook(  # capt-hook: no-escape the message names the token that settles the resol
         Input(command="cci post --drive d1 --lane root --kind go --to landing-desk --text 'go #48401 at b555140'", state=ACTIVE): Allow(),
     }),
 )
+def resolutions_name_their_fixer(evt: BaseHookEvent) -> HookResult:
+    return evt.context(UNNAMED_FIXER)

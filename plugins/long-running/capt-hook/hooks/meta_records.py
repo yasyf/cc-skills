@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from collections.abc import Iterator
 
-from captain_hook import Allow, BaseHookEvent, Block, Event, Input, Tool, hook
+from captain_hook import Allow, BaseHookEvent, Event, HookResult, Input, Tool, Warn, on
 
 from .cci_mcp_posts import POST_TOOL
 from .lane_rotation import ROOT, route, routed
@@ -64,22 +64,23 @@ def mcp(lane: str, kind: str, text: str, to: list[str]) -> Input:
     return Input(tool=POST_TOOL, tool_input={"lane": lane, "kind": kind, "to": to, "text": text}, env=DRIVE_CONFIG, commands=IS_META)
 
 
-hook(  # capt-hook: no-escape the owner ruled that meta records reach root only as the one decide line the message names
+META_TO_ROOT = (
+    "Warning, nothing was blocked: A meta lane's record never reaches root, which reads drive work alone."
+    " Send it to `owner-relay` or your meta desk, or, when root must act on a drive lane, post that act alone as one `--kind decide` line to root naming the lane, with no item number or history."
+)
+
+
+@on(
     Event.PreToolUse,
     only_if=[Tool("Bash", POST_TOOL), MetaRecordToRoot()],
-    block=True,
-    message=(
-        "A meta lane's record never reaches root, which reads drive work alone."
-        " Send it to `owner-relay` or your meta desk, or, when root must act on a drive lane, post that act alone as one `--kind decide` line to root naming the lane, with no item number or history."
-    ),
     tests={
-        Input(command=REPORT, env=DRIVE_CONFIG, commands=IS_META): Block(pattern=r"^A meta lane's record never reaches root[\s\S]*`owner-relay`[\s\S]*one `--kind decide` line"),
-        Input(command=REPORT.replace("--to root", "--to owner-relay,root@brook-drive"), env=DRIVE_CONFIG, commands=IS_META): Block(),
-        Input(command=REPORT.replace(f"--lane {META} ", ""), env=DRIVE_CONFIG | {"CLAUDE_LONG_RUNNING_LANE": META}, commands=IS_META): Block(),
-        Input(command=DECIDE.replace("stand down", "M35: stand down"), env=DRIVE_CONFIG, commands=IS_META): Block(),
-        Input(command=f"cci post --drive d --lane {META} --kind decide --to root --text - <<'EOF'\nstand down conflicts-2\nwhy: M35\nEOF", env=DRIVE_CONFIG, commands=IS_META): Block(),
-        mcp(META, "report", "hook-gate-1 merged #2201", ["root"]): Block(),
-        Input(tool=POST_TOOL, tool_input={"lane": META, "records": [{"kind": "report", "to": ["owner-relay"], "text": "x"}, {"kind": "report", "to": ["root"], "text": "y"}]}, env=DRIVE_CONFIG, commands=IS_META): Block(),
+        Input(command=REPORT, env=DRIVE_CONFIG, commands=IS_META): Warn(pattern=r"^Warning, nothing was blocked: A meta lane's record never reaches root[\s\S]*`owner-relay`[\s\S]*one `--kind decide` line"),
+        Input(command=REPORT.replace("--to root", "--to owner-relay,root@brook-drive"), env=DRIVE_CONFIG, commands=IS_META): Warn(),
+        Input(command=REPORT.replace(f"--lane {META} ", ""), env=DRIVE_CONFIG | {"CLAUDE_LONG_RUNNING_LANE": META}, commands=IS_META): Warn(),
+        Input(command=DECIDE.replace("stand down", "M35: stand down"), env=DRIVE_CONFIG, commands=IS_META): Warn(),
+        Input(command=f"cci post --drive d --lane {META} --kind decide --to root --text - <<'EOF'\nstand down conflicts-2\nwhy: M35\nEOF", env=DRIVE_CONFIG, commands=IS_META): Warn(),
+        mcp(META, "report", "hook-gate-1 merged #2201", ["root"]): Warn(),
+        Input(tool=POST_TOOL, tool_input={"lane": META, "records": [{"kind": "report", "to": ["owner-relay"], "text": "x"}, {"kind": "report", "to": ["root"], "text": "y"}]}, env=DRIVE_CONFIG, commands=IS_META): Warn(),
         Input(command=DECIDE, env=DRIVE_CONFIG, commands=IS_META): Allow(),
         mcp(META, "decide", "relaunch conflicts-2 from its handoff", ["root"]): Allow(),
         Input(command=REPORT.replace("--to root", "--to owner-relay"), env=DRIVE_CONFIG, commands=IS_META): Allow(),
@@ -87,22 +88,25 @@ hook(  # capt-hook: no-escape the owner ruled that meta records reach root only 
         Input(command=REPORT): Allow(),
     },
 )
+def meta_records_skip_root(evt: BaseHookEvent) -> HookResult:
+    return evt.context(META_TO_ROOT)
 
 
-hook(  # capt-hook: no-escape a meta task is done only once it is installed and seen working, so its done record names both
+META_DONE = (
+    "Warning, nothing was blocked: A meta lane's `--kind done` names what is running: add `--attr installed=<version> --attr proof=<what you saw working>`."
+    " A lane that merged with no install posts `--kind landed --pr <n>` instead, then `--kind blocked --lane-ref <its meta desk>`."
+)
+
+
+@on(
     Event.PreToolUse,
     only_if=[Tool("Bash", POST_TOOL), MetaDoneOwesItsInstall()],
-    block=True,
-    message=(
-        "A meta lane's `--kind done` names what is running: add `--attr installed=<version> --attr proof=<what you saw working>`."
-        " A lane that merged with no install posts `--kind landed --pr <n>` instead, then `--kind blocked --lane-ref <its meta desk>`."
-    ),
     tests={
-        Input(command=DONE, env=DRIVE_CONFIG, commands=IS_META): Block(pattern=r"^A meta lane's `--kind done`[\s\S]*`--attr installed=[\s\S]*`--kind landed --pr <n>`"),
-        Input(command=f"{DONE} --attr installed=0.7.1198", env=DRIVE_CONFIG, commands=IS_META): Block(),
-        Input(command=f"{DONE} --attr proof=saw-it", env=DRIVE_CONFIG, commands=IS_META): Block(),
-        Input(command=DONE.replace(f"--lane {META} ", ""), env=DRIVE_CONFIG | {"CLAUDE_LONG_RUNNING_LANE": META}, commands=IS_META): Block(),
-        mcp(META, "done", "hook-gate-1 is finished", ["owner-relay"]): Block(),
+        Input(command=DONE, env=DRIVE_CONFIG, commands=IS_META): Warn(pattern=r"^Warning, nothing was blocked: A meta lane's `--kind done`[\s\S]*`--attr installed=[\s\S]*`--kind landed --pr <n>`"),
+        Input(command=f"{DONE} --attr installed=0.7.1198", env=DRIVE_CONFIG, commands=IS_META): Warn(),
+        Input(command=f"{DONE} --attr proof=saw-it", env=DRIVE_CONFIG, commands=IS_META): Warn(),
+        Input(command=DONE.replace(f"--lane {META} ", ""), env=DRIVE_CONFIG | {"CLAUDE_LONG_RUNNING_LANE": META}, commands=IS_META): Warn(),
+        mcp(META, "done", "hook-gate-1 is finished", ["owner-relay"]): Warn(),
         Input(command=f"{DONE} {INSTALLED}", env=DRIVE_CONFIG, commands=IS_META): Allow(),
         Input(tool=POST_TOOL, tool_input={"lane": META, "kind": "done", "to": ["owner-relay"], "text": "x", "attrs": {"installed": "0.7.1198", "proof": "saw it"}}, env=DRIVE_CONFIG, commands=IS_META): Allow(),
         Input(command=f"cci post --drive d --lane {META} --kind landed --pr yasyf/cc-skills#2201 --to owner-relay --text 'merged'", env=DRIVE_CONFIG, commands=IS_META): Allow(),
@@ -110,3 +114,5 @@ hook(  # capt-hook: no-escape a meta task is done only once it is installed and 
         Input(command=DONE): Allow(),
     },
 )
+def meta_done_names_its_install(evt: BaseHookEvent) -> HookResult:
+    return evt.context(META_DONE)

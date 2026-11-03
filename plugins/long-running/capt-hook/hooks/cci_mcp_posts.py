@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from cc_transcript import AttachmentEvent, DeferredToolsDelta
-from captain_hook import Allow, BaseHookEvent, Block, Event, Input, Or, hook
+from captain_hook import Allow, BaseHookEvent, Event, HookResult, Input, Or, Warn, on
 
 from .compaction_handoff import Communicator, Coordinator, shared_tests
 from .owner_facing import CCI_POST
@@ -29,15 +29,16 @@ class ListsThePostTool:
         return listed
 
 
-hook(
+POST_THROUGH_THE_TOOL = f"Warning, nothing was blocked: This session lists the cci post tool, so post through `{POST_TOOL}`, never a Bash `cci post`. Pass the same fields as arguments; a post that needs a flag the tool lacks, such as --owned-by, still runs in Bash."
+
+
+@on(
     Event.PreToolUse,
-    block=True,
     only_if=[Or(Coordinator(), Communicator()), PostTheToolCarries(), ListsThePostTool()],
-    message=f"This session lists the cci post tool, so post through `{POST_TOOL}`, never a Bash `cci post`. Pass the same fields as arguments; a post that needs a flag the tool lacks, such as --owned-by, still runs in Bash.",
     tests=shared_tests({
-        Input(command=POST, transcript=LISTED, state=ACTIVE): Block(pattern=r"^This session lists the cci post tool, so post through `mcp__plugin_cc-inbox_cci__post`"),
-        Input(command=f"cci tail --drive d --reader root --since 9 && {POST}", transcript=LISTED, state=ACTIVE): Block(),
-        Input(command="cci post --drive d --lane root --kind report --to owner-relay --path - <<'EOF'\nmerged #9\nEOF", transcript=LISTED, state=ACTIVE): Block(),
+        Input(command=POST, transcript=LISTED, state=ACTIVE): Warn(pattern=r"^Warning, nothing was blocked: This session lists the cci post tool, so post through `mcp__plugin_cc-inbox_cci__post`"),
+        Input(command=f"cci tail --drive d --reader root --since 9 && {POST}", transcript=LISTED, state=ACTIVE): Warn(),
+        Input(command="cci post --drive d --lane root --kind report --to owner-relay --path - <<'EOF'\nmerged #9\nEOF", transcript=LISTED, state=ACTIVE): Warn(),
         Input(command=POST, state=ACTIVE): Allow(),
         Input(command=POST, transcript=DROPPED, state=ACTIVE): Allow(),
         Input(command="cci tail --drive d --reader root --since 9", transcript=LISTED, state=ACTIVE): Allow(),
@@ -46,3 +47,5 @@ hook(
         Input(command=POST, transcript=LISTED): Allow(),
     }),
 )
+def posts_go_through_the_tool(evt: BaseHookEvent) -> HookResult:
+    return evt.context(POST_THROUGH_THE_TOOL)

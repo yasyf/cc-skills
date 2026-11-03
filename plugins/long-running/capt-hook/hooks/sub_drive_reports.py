@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from captain_hook import Allow, Annotated, BaseHookEvent, Block, Event, Input, Tool, hook
+from captain_hook import Allow, Annotated, BaseHookEvent, Event, HookResult, Input, Tool, Warn, on
 
 from .compaction_handoff import drive_entry
 from .lane_landing import DRIVE_ENV, FIXTURES
@@ -20,16 +20,17 @@ class OverTheParentsHead:
         return bool(addressed(evt) & OVER_THE_PARENTS_HEAD) and bool((drive_entry(evt) or {}).get("parent"))
 
 
-hook(
+PARENT_ONLY = "Warning, nothing was blocked: A sub-drive reports only to its parent's coordinator. Post with `--to root@<parent drive>`, the address in your brief, and the parent relays what the owner must see."
+
+
+@on(
     Event.PreToolUse,
     only_if=[Tool("Bash"), OverTheParentsHead()],
     skip_if=[Annotated("raw")],
-    block=True,
-    message="A sub-drive reports only to its parent's coordinator. Post with `--to root@<parent drive>`, the address in your brief, and the parent relays what the owner must see.",
     tests={
-        Input(command="cci post --lane root --drive brook--billing --kind report --to owner-relay 'billing is up'", env=SUB_DRIVE): Block(pattern=r"^A sub-drive reports only"),
-        Input(command="cci post --lane root --kind ask --to owner-relay@brook 'tap this PR'", env=SUB_DRIVE): Block(),
-        Input(command="cci post --lane invoices --kind ask --to root,owner 'tap this PR'", env=SUB_DRIVE, agent_id="a1b2c3"): Block(),
+        Input(command="cci post --lane root --drive brook--billing --kind report --to owner-relay 'billing is up'", env=SUB_DRIVE): Warn(pattern=r"^Warning, nothing was blocked: A sub-drive reports only"),
+        Input(command="cci post --lane root --kind ask --to owner-relay@brook 'tap this PR'", env=SUB_DRIVE): Warn(),
+        Input(command="cci post --lane invoices --kind ask --to root,owner 'tap this PR'", env=SUB_DRIVE, agent_id="a1b2c3"): Warn(),
         Input(command="cci post --lane root --kind report --to owner-relay 'billing is up'  # ccx:raw", env=SUB_DRIVE): Allow(),
         Input(command="cci post --lane root --kind report --to root@brook 'billing is up'", env=SUB_DRIVE): Allow(),
         Input(command="cci tail --drive brook --to owner-relay", env=SUB_DRIVE): Allow(),
@@ -37,3 +38,5 @@ hook(
         Input(command="cci post --lane root --kind report --to owner-relay 'no drive'"): Allow(),
     },
 )
+def sub_drives_report_to_their_parent(evt: BaseHookEvent) -> HookResult:
+    return evt.context(PARENT_ONLY)

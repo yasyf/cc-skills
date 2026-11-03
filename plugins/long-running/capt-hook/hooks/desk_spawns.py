@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 
-from captain_hook import Allow, BaseHookEvent, Block, Event, Input, Or, Tool, hook
+from captain_hook import Allow, BaseHookEvent, Event, HookResult, Input, Or, Tool, Warn, on
 
 from .compaction_handoff import CompactionState, Communicator, Coordinator
 
@@ -28,18 +28,19 @@ class SpawnsDesk:
         return bool(NAMED.fullmatch(call.get("name") or "") or OPENS_AS_DESK.match(prompt) or STANDING_LINE.search(prompt))
 
 
-hook(  # capt-hook: no-escape a standing desk spawned with Agent dies with the window that spawned it, and lr launch is the one placement that survives it
+DESK_PLACEMENT = "Warning, nothing was blocked: A standing desk is an lr-launched lane the coordinator owns, never an Agent subagent, which ends with this window. Start it with `lr desks start`, or `lr launch lane <name> <model> <effort> <brief>` on a Sprite."
+
+
+@on(
     Event.PreToolUse,
-    block=True,
     only_if=[Tool("Agent"), Or(Communicator(), Coordinator()), SpawnsDesk()],
-    message="A standing desk is an lr-launched lane the coordinator owns, never an Agent subagent, which ends with this window. Start it with `lr desks start`, or `lr launch lane <name> <model> <effort> <brief>` on a Sprite.",
     tests={
-        spawn(COMMUNICATING, "queue-shard", STANDING_BRIEF): Block(pattern=r"^A standing desk is an lr-launched lane .*`lr desks start`.*`lr launch lane "),
-        spawn(COMMUNICATING, "landing-desk-4", "Run the landing desk."): Block(),
-        spawn(COMMUNICATING, "meta-desk-1", "Run the meta lane."): Block(),
-        spawn(COMMUNICATING, "watchdog", WATCHDOG_BRIEF): Block(),
-        spawn(COORDINATING, "landing-desk-4", "Run the landing desk."): Block(),
-        spawn(COORDINATING, "queue-shard", STANDING_BRIEF): Block(),
+        spawn(COMMUNICATING, "queue-shard", STANDING_BRIEF): Warn(pattern=r"^Warning, nothing was blocked: A standing desk is an lr-launched lane .*`lr desks start`.*`lr launch lane "),
+        spawn(COMMUNICATING, "landing-desk-4", "Run the landing desk."): Warn(),
+        spawn(COMMUNICATING, "meta-desk-1", "Run the meta lane."): Warn(),
+        spawn(COMMUNICATING, "watchdog", WATCHDOG_BRIEF): Warn(),
+        spawn(COORDINATING, "landing-desk-4", "Run the landing desk."): Warn(),
+        spawn(COORDINATING, "queue-shard", STANDING_BRIEF): Warn(),
         Input(tool="Agent", tool_input={"name": "desk-reader", "prompt": READ, "subagent_type": "Explore"}, state=COMMUNICATING): Allow(),
         Input(tool="Agent", tool_input={"prompt": "Summarize the standing owner rules.\n\n## Standing owner rules\n- R1", "subagent_type": "general-purpose"}, state=COMMUNICATING): Allow(),
         spawn(COMMUNICATING, "landing-desk-fix", "Fix the landing desk's ledger read."): Allow(),
@@ -47,3 +48,5 @@ hook(  # capt-hook: no-escape a standing desk spawned with Agent dies with the w
         spawn(COMMUNICATING, "landing-desk-4", STANDING_BRIEF, agent_id="a1b2c3"): Allow(),
     },
 )
+def standing_desks_launch_through_lr(evt: BaseHookEvent) -> HookResult:
+    return evt.context(DESK_PLACEMENT)
