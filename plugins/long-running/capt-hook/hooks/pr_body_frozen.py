@@ -10,7 +10,7 @@ from captain_hook.util import reqenv
 from .register_injection import drive_args
 
 DRIVE = {"CLAUDE_LONG_RUNNING_DRIVE": "900424b6"}
-EDITED = ("body", "body-file", "title")
+BODY = ("body", "body-file")
 PULL = re.compile(r"^/?repos/[^/]+/[^/]+/pulls/\d+/?$")
 PR_EDIT = CommandSchema(
     "gh",
@@ -54,7 +54,10 @@ SHIP = CommandSchema(
     ),
 )
 OPEN = {"git rev-parse --abbrev-ref HEAD": "lane/fix\n", "gh pr view": "OPEN\n"}
-FROZEN = "A PR's title and body stay as opened. Post the change as a PR comment with `gh pr comment <n> --body-file <file>` instead."
+OWN = {"git rev-parse --abbrev-ref HEAD": "lane/fix\n", "gh pr view": "OPEN lane/fix\n"}
+OTHERS = {"git rev-parse --abbrev-ref HEAD": "lane/fix\n", "gh pr view": "OPEN lane/other\n"}
+LANDED = {"git rev-parse --abbrev-ref HEAD": "lane/fix\n", "gh pr view": "MERGED lane/fix\n"}
+FROZEN = "A PR's title stays as opened, and so does its body unless the PR is open on this worktree's branch. Post the change as a PR comment with `gh pr comment <n> --body-file <file>` instead."
 
 
 class InDrive:
@@ -65,21 +68,26 @@ class InDrive:
 def edits_pr_text(evt: BaseHookEvent) -> bool:
     for call in evt.command.calls("gh"):
         edit = PR_EDIT.bind(call).values
-        if edit.get("words", ())[:2] == ("pr", "edit") and any(edit.get(name) for name in EDITED):
+        words = edit.get("words", ())
+        if words[:2] == ("pr", "edit") and (edit.get("title") or any(edit.get(name) for name in BODY) and not own_open(evt, next(iter(words[2:]), ""))):
             return True
         api = GH_API.bind(call).values
         endpoint = next((word for word in api.get("words", ())[1:] if word), "")
         fields = {field.split("=", 1)[0] for field in api.get("field", ()) if field}
-        if api.get("words", ())[:1] == ("api",) and "PATCH" in {method.upper() for method in api.get("method", ()) if method} and PULL.match(endpoint) and (fields & {"body", "title"} or api.get("input")):
+        if api.get("words", ())[:1] == ("api",) and "PATCH" in {method.upper() for method in api.get("method", ()) if method} and PULL.match(endpoint) and ("title" in fields or ("body" in fields or api.get("input")) and not own_open(evt, endpoint.rstrip("/").rsplit("/", 1)[1])):
             return True
-    return any(is_open(evt, branch) for call in evt.command.calls("ccx") for branch in restated_branches(evt, call))
+    return any(is_open(evt, branch) for call in evt.command.calls("ccx") for branch in retitled_branches(evt, call))
 
 
-def restated_branches(evt: BaseHookEvent, call: Call) -> set[str]:
+def own_open(evt: BaseHookEvent, pr: str) -> bool:
+    return ran(evt, "gh", "pr", "view", *filter(None, [pr]), "--json", "state,headRefName", "--jq", '.state+" "+.headRefName') == f"OPEN {ran(evt, 'git', 'rev-parse', '--abbrev-ref', 'HEAD')}"
+
+
+def retitled_branches(evt: BaseHookEvent, call: Call) -> set[str]:
     ship = SHIP.bind(call).values
     if ship.get("words", ())[:2] != ("vcs", "ship") or ship.get("new-branch"):
         return set()
-    scoped = [value for name in ("pr-title", "pr-body-file") for value in ship.get(name, ()) if value]
+    scoped = [value for value in ship.get("pr-title", ()) if value]
     tip = next((value for value in ship.get("branch", ()) if value), None)
     return {value.partition("=")[0] if "=" in value.partition(" ")[0] else tip or ran(evt, "git", "rev-parse", "--abbrev-ref", "HEAD") for value in scoped}
 
@@ -96,22 +104,26 @@ def ran(evt: BaseHookEvent, *argv: str) -> str:
     Event.PreToolUse,
     only_if=[Tool("Bash"), Or(Runs("gh"), Runs("ccx", "vcs", "ship")), InDrive()],
     tests={
-        Input(command="gh pr edit 42758 --body-file body.md", env=DRIVE): Warn(pattern=r"gh pr comment"),
-        Input(command="gh pr edit 42758 --title 'x: y'", env=DRIVE): Warn(pattern=r"stay as opened"),
-        Input(command="gh api -X PATCH repos/acme/app/pulls/42758 -f body=new", env=DRIVE): Warn(pattern=r"stay as opened"),
-        Input(command="gh -R acme/app pr edit 42758 --add-label hold --title 'x: y'", env=DRIVE): Warn(pattern=r"stay as opened"),
-        Input(command="gh api --hostname github.com --method PATCH repos/acme/app/pulls/42758 -f body=x", env=DRIVE): Warn(pattern=r"stay as opened"),
+        Input(command="gh pr edit 42758 --body-file body.md", env=DRIVE, commands=OTHERS): Warn(pattern=r"gh pr comment"),
+        Input(command="gh pr edit 42758 --body-file body.md", env=DRIVE, commands=OWN): Allow(),
+        Input(command="gh pr edit --body-file body.md", env=DRIVE, commands=OWN): Allow(),
+        Input(command="gh pr edit 42758 --body-file body.md", env=DRIVE, commands=LANDED): Warn(pattern=r"stays as opened"),
+        Input(command="gh pr edit 42758 --title 'x: y'", env=DRIVE, commands=OWN): Warn(pattern=r"stays as opened"),
+        Input(command="gh api -X PATCH repos/acme/app/pulls/42758 -f body=new", env=DRIVE, commands=OTHERS): Warn(pattern=r"stays as opened"),
+        Input(command="gh api -X PATCH repos/acme/app/pulls/42758 -f body=new", env=DRIVE, commands=OWN): Allow(),
+        Input(command="gh -R acme/app pr edit 42758 --add-label hold --title 'x: y'", env=DRIVE, commands=OWN): Warn(pattern=r"stays as opened"),
+        Input(command="gh api --hostname github.com --method PATCH repos/acme/app/pulls/42758 -f body=x", env=DRIVE, commands=OTHERS): Warn(pattern=r"stays as opened"),
         Input(command="gh pr edit 42758 --add-label hold", env=DRIVE): Allow(),
         Input(command="gh api repos/acme/app/pulls/42758 -X PATCH -f base=main", env=DRIVE): Allow(),
-        Input(command="gh api repos/acme/app/pulls/42758 -X PATCH -F title=x", env=DRIVE): Warn(pattern=r"stay as opened"),
-        Input(command="gh api repos/acme/app/pulls/42758 -X PATCH --input payload.json", env=DRIVE): Warn(pattern=r"stay as opened"),
+        Input(command="gh api repos/acme/app/pulls/42758 -X PATCH -F title=x", env=DRIVE, commands=OWN): Warn(pattern=r"stays as opened"),
+        Input(command="gh api repos/acme/app/pulls/42758 -X PATCH --input payload.json", env=DRIVE, commands=OTHERS): Warn(pattern=r"stays as opened"),
         Input(command="gh api -X PATCH repos/acme/pulls/issues/comments/9 -f body=x", env=DRIVE): Allow(),
         Input(command="gh api repos/acme/app/pulls/42758", env=DRIVE): Allow(),
         Input(command="gh api -X PATCH repos/acme/app/issues/comments/9 -f body=x", env=DRIVE): Allow(),
         Input(command="gh pr edit 42758 --body-file body.md"): Allow(),
-        Input(command="ccx vcs ship --tip-only --pr-body-file body.md", env=DRIVE, commands=OPEN): Warn(pattern=r"stay as opened"),
-        Input(command="ccx vcs ship --pr-title 'lane/fix=api: 🐛 fix the timer'", env=DRIVE, commands=OPEN): Warn(pattern=r"stay as opened"),
-        Input(command="ccx vcs ship --pr-body-file body.md", env=DRIVE, commands={**OPEN, "gh pr view": ""}): Allow(),
+        Input(command="ccx vcs ship --tip-only --pr-body-file body.md", env=DRIVE, commands=OPEN): Allow(),
+        Input(command="ccx vcs ship --pr-title 'lane/fix=api: 🐛 fix the timer'", env=DRIVE, commands=OPEN): Warn(pattern=r"stays as opened"),
+        Input(command="ccx vcs ship --pr-title 'api: 🐛 fix the timer'", env=DRIVE, commands={**OPEN, "gh pr view": ""}): Allow(),
         Input(command="ccx vcs ship --new-branch lane/next --pr-body-file body.md", env=DRIVE, commands=OPEN): Allow(),
         Input(command="ccx vcs ship -m 'api: 🐛 fix the timer'", env=DRIVE, commands=OPEN): Allow(),
     },
