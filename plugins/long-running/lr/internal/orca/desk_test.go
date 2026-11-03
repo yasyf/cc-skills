@@ -1100,6 +1100,70 @@ func TestARootResolveOfTheRunnersDecideAnswersThatQuestion(t *testing.T) {
 	}
 }
 
+func TestAParkedLanesStopNoticeRaisesNoDecide(t *testing.T) {
+	w := newDeskWorld(t)
+	w.live(testLane, testDispatch, testTerminal)
+	w.add(object{"lane": testLane, "kind": kindBlocked, "text": "waits on #1"})
+	w.checked(runMessage("msg_s", typeEscalation, testTerminal, 1))
+	w.noEscalation("DECIDE ")
+}
+
+func TestAParkedLanesQuestionStillRaisesADecide(t *testing.T) {
+	w := newDeskWorld(t)
+	w.live(testLane, testDispatch, testTerminal)
+	w.add(object{"lane": testLane, "kind": kindBlocked, "text": "waits on #1"})
+	w.checked(runMessage("msg_q", typeQuestion, testTerminal, 1))
+	w.wantEscalation("DECIDE msg_q lane-a: ")
+}
+
+func TestAStopNoticeAfterTheSupervisorWokeTheLaneRaisesADecide(t *testing.T) {
+	w := newDeskWorld(t)
+	w.live(testLane, testDispatch, testTerminal)
+	w.register(store.Lane{Name: testLane})
+	w.add(object{"lane": testLane, "kind": kindBlocked, "text": "waits on #1"})
+	w.now = w.now.Add(time.Minute)
+	if err := w.desk.Registry.SetLaneWaiting(testLane, 0, w.now, ""); err != nil {
+		t.Fatal(err)
+	}
+	w.checked(runMessage("msg_s", typeEscalation, testTerminal, 1))
+	w.wantEscalation("DECIDE msg_s lane-a: ")
+}
+
+func TestAReplyToADecideBeforeTheLaneParkedRelaysNothing(t *testing.T) {
+	w := newDeskWorld(t)
+	w.live(testLane, testDispatch, testTerminal)
+	decide := w.add(object{"lane": deskRunner, "kind": "decide", "text": "DECIDE msg_q lane-a: which way"})
+	w.lines()
+	parked := w.add(object{"lane": testLane, "kind": kindBlocked, "text": "waits on #1"})
+	w.lines()
+	reply := w.add(object{"kind": "answer", "text": "left", "resolves": decide.Seq})
+	w.lines()
+	w.wantEscalation(fmt.Sprintf("PARKED cci#%d lane-a: parked on #%d", reply.Seq, parked.Seq))
+	if exists, err := w.desk.store.Exists(laneBook(testLane)); err != nil {
+		t.Fatal(err)
+	} else if exists {
+		if _, err := w.desk.store.Action(laneBook(testLane), fmt.Sprintf("cci#%d", reply.Seq)); err == nil {
+			t.Fatal("the reply relayed to a parked lane")
+		}
+	}
+}
+
+func TestAReplyToTheBlockedRecordReachesTheParkedLane(t *testing.T) {
+	w := newDeskWorld(t)
+	w.live(testLane, testDispatch, testTerminal)
+	w.runInbox = []orcaMessage{question("msg_q", testTerminal)}
+	parked := w.add(object{"lane": testLane, "kind": kindBlocked, "text": "waits on your word"})
+	w.lines()
+	reply := w.add(object{"kind": "answer", "text": "go", "re": parked.Seq})
+	w.lines()
+	held, err := relayOf(w.action(testLane, fmt.Sprintf("cci#%d", reply.Seq)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantContains(t, held.Text, "go")
+	w.noEscalation("PARKED ")
+}
+
 func TestARootWithdrawOfALaunchRecordWithdrawsIt(t *testing.T) {
 	w := newDeskWorld(t)
 	brief := w.brief(testLane, testBrief+"ccx: place=local\n")

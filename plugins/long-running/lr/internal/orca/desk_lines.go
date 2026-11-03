@@ -239,6 +239,9 @@ func (d *Desk) rootReply(ctx context.Context, record client.Record, closed *clie
 	}
 	if closed.Lane == deskRunner {
 		if decide := decideLine.FindStringSubmatch(closed.Text); decide != nil {
+			if parked, err := d.parkedReply(ctx, at, decide[2], closed.Seq); err != nil || parked {
+				return true, err
+			}
 			text, err := d.wholeText(at, at, decide[2], record)
 			if err != nil || text == "" {
 				return true, err
@@ -257,6 +260,9 @@ func (d *Desk) rootReply(ctx context.Context, record client.Record, closed *clie
 	questions, err := d.openQuestions(ctx, dispatch)
 	if err != nil || len(questions) == 0 {
 		return false, err
+	}
+	if parked, err := d.parkedReply(ctx, at, closed.Lane, closed.Seq); err != nil || parked {
+		return true, err
 	}
 	text, err := d.wholeText(at, at, closed.Lane, record)
 	if err != nil || text == "" {

@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/incident"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -19,6 +20,7 @@ const (
 	typeHeartbeat       = "heartbeat"
 	typeQuestion        = "question"
 	typeEscalation      = "escalation"
+	kindBlocked         = "blocked"
 	typeWorkerDone      = "worker_done"
 	typeStatus          = "status"
 	heartbeatFact       = "lane-heartbeat"
@@ -301,7 +303,40 @@ func (d *Desk) relayQuestion(ctx context.Context, message orcaMessage, lane stri
 	if err != nil || moot {
 		return err
 	}
+	if message.Type == typeEscalation {
+		parked, err := d.parkedOn(ctx, lane)
+		if err != nil || parked != 0 {
+			return err
+		}
+	}
 	return d.relayToDesk(ctx, message, lane, "DECIDE")
+}
+
+func (d *Desk) parkedOn(ctx context.Context, lane string) (int64, error) {
+	row, _, err := d.Registry.Lane(lane)
+	if err != nil {
+		return 0, err
+	}
+	records, err := d.Bus.Tail(ctx, client.Query{Drive: d.Config.Drive, Lanes: []string{lane}, Since: row.Answered})
+	if err != nil {
+		return 0, d.noteTailFailure(&tailFailure{cause: err})
+	}
+	if len(records) == 0 {
+		return 0, nil
+	}
+	newest := records[len(records)-1]
+	if string(newest.Kind) != kindBlocked || !newest.At.After(row.Answered) {
+		return 0, nil
+	}
+	return newest.Seq, nil
+}
+
+func (d *Desk) parkedReply(ctx context.Context, at, lane string, closed int64) (bool, error) {
+	parked, err := d.parkedOn(ctx, lane)
+	if err != nil || closed >= parked {
+		return false, err
+	}
+	return true, d.record("escalation:parked:"+at, fmt.Sprintf("PARKED %s %s: parked on #%d, so the reply to #%d relays nothing; the lane wakes when what #%d names happens", at, lane, parked, closed, parked))
 }
 
 func (d *Desk) relayToDesk(ctx context.Context, message orcaMessage, lane, kind string) error {
