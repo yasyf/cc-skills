@@ -128,3 +128,16 @@ func TestATapOnACardForAHeadSincePushedCountsWhenTheChangeIsTheSame(t *testing.T
 		t.Fatalf("#1 is %s (%s)", got.State, got.Reason)
 	}
 }
+
+func TestAGradingPRSaysWhichGradeItWaitsOn(t *testing.T) {
+	d, c := memory(t), &clock{}
+	apply(t, d, PullRequest{c.at(0), 1, "lane/a", landing, h1, true, false, "c1"})
+	if got := state(t, d, 1).Reason; got != "this head waits on its finder grade and its fidelity grade" {
+		t.Fatalf("an ungraded head says %q", got)
+	}
+	apply(t, d, append(green(c, 0, 1, "lane/a", landing, h1, "c1"), tapped(c, 1, 1, h1, machine.TapTapped))...)
+	apply(t, d, green(c, 2, 1, "lane/a", landing, h2, "c2")...)
+	if got := state(t, d, 1); got.State != machine.StateGrading || got.Reason != "this head waits on the fidelity judgment of its behavior since the tapped change" {
+		t.Fatalf("a graded new diff after a tap is %s, %q", got.State, got.Reason)
+	}
+}
