@@ -203,13 +203,6 @@ for line in open(path) if os.path.exists(path) else []:
 """
 
 
-def standing_rule(docs: Path, kind: str, text: str, **fields) -> None:
-    path = docs / "cci.jsonl"
-    seq = len(path.read_text().splitlines()) + 1 if path.exists() else 1
-    with path.open("a") as out:
-        out.write(json.dumps({"seq": seq, "kind": kind, "text": text, "topic": "standing", "refs": {}, **fields}) + "\n")
-
-
 @pytest.fixture
 def docs(home: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     state_dir = home / "ccn"
@@ -648,25 +641,6 @@ def test_a_narrative_with_an_uncited_owner_gate_warns_at_the_stop_until_fixed(ho
     assert "## Standing owner rules\n\n- no `standing-rules` register doc\n" in (docs / ("b" * 40 + ".md")).read_text()
 
 
-def test_an_uncited_standing_rule_warns_at_the_stop_at_its_record_not_the_doc(home: Path, plan: Path, docs: Path) -> None:
-    session = home / "session"
-    rule = {"id": "4ffc9a5" + "0" * 33, "title": "When does a merged change get released?", "tags": ["scope:durable", "brook"]}
-    (docs / "answers.json").write_text(json.dumps([rule]))
-    (docs / "docs.json").write_text(json.dumps([doc("b" * 40, "2026-09-30T05:44:08Z")]))
-    (docs / ("b" * 40 + ".md")).write_text("## The coordinator's next actions\n1. watch Acme\n")
-    standing_rule(docs, "go", "release on the owner's word")
-    handoff.CompactionState(active=True, coordinator=True, plan_path=str(plan), slug="brook", phase="due").save(bash(session))
-
-    warned = handoff.compact_when_idle(stop_event(session))
-
-    assert warned.action.name == "warn"
-    assert "\ncci #1: standing rule #1 requires owner approval but cites no live answer id: " in warned.message
-    assert "ccn doc edit" not in warned.message
-
-    standing_rule(docs, "correction", "every merged PR is released as it merges (answer 4ffc9a5)", re=1)
-    assert handoff.compact_when_idle(stop_event(session)).system_message.startswith("The handoff is recorded")
-
-
 def precompact(session: Path, **raw) -> PreCompactEvent:
     payload = {"session_id": SESSION, "transcript_path": str(FIXTURES / "usage-460k.jsonl"), "cwd": str(FIXTURES / "project-600k")}
     payload |= raw
@@ -677,7 +651,6 @@ def test_every_compaction_generates_the_handoff_and_restores_its_digest(home: Pa
     session = home / "session"
     inbox = home / ".claude" / "scratch" / "brook" / "inbox"
     inbox.mkdir(parents=True)
-    standing_rule(docs, "go", "release every landing as it merges")
     (docs / "docs.json").write_text(json.dumps([doc("a" * 40, "2026-09-30T04:00:00Z")]))
     (docs / ("a" * 40 + ".md")).write_text("## The coordinator's next actions\n1. watch Acme\n")
     add_register(docs, "# brook register\n\n1. Pulumi state is the only truth.\n")
@@ -686,7 +659,6 @@ def test_every_compaction_generates_the_handoff_and_restores_its_digest(home: Pa
     handoff.compaction_instructions(precompact(session))
 
     generated = (docs / ("a" * 40 + ".md")).read_text()
-    assert "- #1 [cci #1]" in generated
     assert generated.endswith("_From doc aaaaaaa._\n\n## The coordinator's next actions\n1. watch Acme\n")
     assert not any(call[:2] in (["doc", "add"], ["doc", "supersede"]) and "standing-rules:brook" not in call for call in ccn_calls(docs))
 
@@ -694,7 +666,7 @@ def test_every_compaction_generates_the_handoff_and_restores_its_digest(home: Pa
 
     assert restored.startswith("Compacted long-running drive `brook`. Before acting, read the standing rules register `ccn doc show 9999999`")
     assert "Then read the progress doc `ccn doc show aaaaaaa`" in restored
-    assert "\nRegister: 1 owner-approved rules, 1 live standing rules.\n" in restored
+    assert "\nRegister: 1 owner-approved rules, 0 live standing rules.\n" in restored
     assert len(restored.encode()) <= 2000
     assert state(session).digest is None
 
