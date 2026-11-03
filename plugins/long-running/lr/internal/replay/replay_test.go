@@ -119,7 +119,7 @@ func TestScrubbingKeepsTheLinesTheMoverReadsAndDropsTheProse(t *testing.T) {
 		"SPAWNED takeover-500-tooling-fix /Users/x/.claude/scratch/drive/takeover-500-tooling/brief.md":                                      "SPAWNED takeover-500-tooling-fix /scratch/takeover-500-tooling/brief.md",
 		"OUTCOME msg_585d takeover-500-tooling-fix: worker_done succeeded dispatch=ctx_ea33b9fa3728: Source fix merged; deploy /Users/x/run": "OUTCOME msg_585d takeover-500-tooling-fix: worker_done succeeded dispatch=ctx_ea33b9fa3728",
 		"3:07 AM stand-down conflicts-2: false relaunch of a customer's lane":                                                                "stand-down conflicts-2",
-		"the customer cluster's api is down for SoFi":                                                                                        "",
+		"the customer cluster's api is down for Acme":                                                                                        "",
 		"retired, stand-down, ok?": "retired; stand-down?",
 	}
 	for text, want := range cases {

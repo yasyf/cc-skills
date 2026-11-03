@@ -38,6 +38,8 @@ case "$TOOL" in
     exec "$ROOT/scripts/binrun.sh" "$ROOT/bin/lr.binrun" "$@"
     ;;
   incident.py) exec "$ROOT/bin/lr" incident "$@" ;;
+  replay.py) exec "$ROOT/bin/lr" replay "$@" ;;
+  desk-creds.py) exec "$ROOT/bin/lr" desk-creds "$@" ;;
   *.py)
     for python in python3.15 python3.14 python3.13 /opt/homebrew/bin/python3.14 /opt/homebrew/bin/python3.13 python3; do
       command -v "$python" >/dev/null 2>&1 && break
