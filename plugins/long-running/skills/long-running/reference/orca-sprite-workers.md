@@ -115,8 +115,8 @@ The launcher passes no `--config`. It exports `CC_REMOTE_CONFIG` to cc-remote
 as an absolute path. An unset variable becomes the checkout's config, and a
 relative value resolves from the caller's directory. The selected config names
 the repository the Sprite checks out. `WORKER_REPO`
-selects only a local Orca repository; setting it on the Sprite route refuses
-before an attempt or allocation. The launcher does not map a local repo ID to
+selects a local Orca repository and the local route requires it; setting it on
+the Sprite route refuses before an attempt or allocation. The launcher does not map a local repo ID to
 a remote repository.
 
 Supply an explicit binary/config pair like this:

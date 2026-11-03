@@ -159,7 +159,7 @@ class Orca:
     shell: Shell
     run_id: str | None
     repo_id: str | None
-    launcher: Path = SCRIPTS / "orca-launch.sh"
+    launcher: Path = SCRIPTS.parents[2] / "bin" / "orca-launch.sh"
 
     def launch(self, lane: str, model: str, effort: str, brief: Path) -> dict:
         if not (self.run_id and self.repo_id):

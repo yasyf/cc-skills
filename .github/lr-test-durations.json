@@ -21,7 +21,6 @@
     "test_desk.py": [3.2, 0.0],
     "test_desk_creds.py": [1.2, 0.0],
     "test_desk_gc.py": [1.4, 0.0],
-    "test_desk_launch.py": [1.2, 0.0],
     "test_desk_liveness.py": [0.1, 0.0],
     "test_desk_result.py": [0.8, 1.0],
     "test_desk_runner.py": [351.2, 12.1],
@@ -79,7 +78,6 @@
     "test_merge_wait_fact_cost.py": [7.8, 0.0],
     "test_monitor_watch.py": [1.9, 0.0],
     "test_open_cut_clock_noop.py": [3.5, 10.7],
-    "test_orca_gc.py": [0.6, 0.0],
     "test_orca_scripts.py": [80.2, 0.0],
     "test_overview.py": [0.1, 0.0],
     "test_owned_reexec.py": [0.7, 0.0],
@@ -142,8 +140,7 @@
     "test_train.py": [0.1, 0.0],
     "test_trunk_merge_queue.py": [0.1, 0.0],
     "test_turns.py": [0.0, 0.0],
-    "test_watch.py": [0.1, 0.0],
-    "test_worker_launch.py": [8.3, 0.0]
+    "test_watch.py": [0.1, 0.0]
   },
   "slow": {
     "tests/test_board_provider.py::test_retained845_population_parity_and_fixture_call_counts[100000]": 17.3,
