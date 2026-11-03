@@ -69,6 +69,7 @@ UNREAD_STATUS = (
 )
 CCI_TOOLS = "mcp__plugin_cc-inbox_cci__"
 SEQ = re.compile(r"#(\d+)\b")
+READ_SEQ = re.compile(r"#(\d+)\b|^(\d+)(?:@\w+)? ", re.MULTILINE)
 CLOCK = re.compile(r"\b(?:1[0-2]|0?[1-9]):[0-5]\d\s?[AP]M\b", re.IGNORECASE)
 FILE_PATH = (
     "The owner never opens a file, so a reply to him names no path under the drive's state dir, a scratch dir or progress-desk."
@@ -116,6 +117,7 @@ ASKED = CALM | {"status_question": BinaryAnswer(p_yes=0.96, confidence=0.93)}
 HOW_FAR = "you told me what the relay fix lane is for already, I asked how far along it is"
 NEWEST = "#359771 3:02 AM REPORT relay-fix-2 opened yasyf/cc-skills#2190, CI running"
 TAILED = T.tool_turn("Bash", result=NEWEST, command="cci tail --lane relay-fix-2 -n 1")
+COMPACT_TAILED = T.tool_turn("Bash", result="@3:02 AM\n359771 report relay-fix-2 opened yasyf/cc-skills#2190, CI running", command="cci tail --lane relay-fix-2 -n 1")
 HIS_1_34_AM = (
     "every tjme i need to remknd you to do skemtjjng, hou need to spawn a meta tooling lane foe thay (includkng tbis)."
     " uou did tjay for the ildate after being away a long tome, so good job, but make sure thay is durable behavior not just this session."
@@ -296,6 +298,8 @@ def asked(reply: str, *calls: dict, words: str = HOW_FAR, decide: dict = ASKED) 
         reminded(decide=CALM): Allow(),
         reminded(decide=CALM | {"reminder": Refused()}): Allow(),
         asked("relay-fix-2 opened its PR and CI is running (#359771, 3:02 AM, 8 minutes ago).", *TAILED): Allow(),
+        asked("relay-fix-2 opened its PR and CI is running (#359771, 3:02 AM, 8 minutes ago).", *COMPACT_TAILED): Allow(),
+        asked("relay-fix-2 opened its PR and CI is running (#359772, 3:02 AM, 8 minutes ago).", *COMPACT_TAILED): Block(pattern=r"never from what the lane is for"),
         asked("relay-fix-2 opened its PR and CI is running (#359771, 3:02 AM, 8 minutes ago)."): Block(pattern=r"^A status question is answered from the lane's newest record.*`cci tail --lane <lane> -n 1`"),
         asked("relay-fix-2 rebuilds the relay so each chat keeps its own replica.", *TAILED): Block(pattern=r"never from what the lane is for"),
         asked("relay-fix-2 rebuilds the relay so each chat keeps its own replica.", decide=CALM | {"status_question": BinaryAnswer(p_yes=0.9, confidence=0.3)}): Allow(),
@@ -490,7 +494,7 @@ def unrouted_reminder(evt: BaseHookEvent) -> str | None:
 
 
 def unread_status(evt: BaseHookEvent, reply: str) -> str | None:
-    read = {seq for use in evt.ctx.turn.tool_calls.items if reads_records(use) for seq in SEQ.findall(use.result.content)}
+    read = {tagged or head for use in evt.ctx.turn.tool_calls.items if reads_records(use) for tagged, head in READ_SEQ.findall(use.result.content)}
     if (CLOCK.search(reply) and read & set(SEQ.findall(reply))) or not (words := owner_words(evt)):
         return None
     match (decision := evt.decide(words, {"status_question": STATUS_QUESTION})) and decision.answers["status_question"]:

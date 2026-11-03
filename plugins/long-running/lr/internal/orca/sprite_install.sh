@@ -3,7 +3,7 @@ bin="$HOME/.local/bin"
 plugins="$HOME/.claude/plugins"
 mkdir -p "$bin"
 said() {
-  "$1" --version 2>&1 | awk 'END { word = $NF; sub(/^v/, "", word); print word }'
+  "$1" --version 2>&1 | awk 'END { for (i = 1; i <= NF; i++) if ($i ~ /^v?[0-9]+\.[0-9]/) word = $i; sub(/^v/, "", word); print word }'
 }
 fetch() {
   curl -fsSL "$1" -o "$3"
@@ -26,13 +26,17 @@ while [ "$1" != -- ]; do
   fetch "$3" "$4" /tmp/tool.tgz
   shift 5
   case $kind in
-  binary)
-    tar -xzOf /tmp/tool.tgz "$name" > "$bin/$name.new"
+  binary | raw)
+    if [ "$kind" = raw ]; then
+      cp /tmp/tool.tgz "$bin/$name.new"
+    else
+      tar -xzOf /tmp/tool.tgz "$name" > "$bin/$name.new"
+    fi
     chmod 755 "$bin/$name.new"
     printed=$(said "$bin/$name.new")
     if [ "$printed" != "$version" ]; then
       rm -f "$bin/$name.new"
-      echo "refused: $name from that archive prints $printed for --version, not $version"
+      echo "refused: $name from that download prints $printed for --version, not $version"
       exit 1
     fi
     mv "$bin/$name.new" "$bin/$name"

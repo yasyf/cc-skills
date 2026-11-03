@@ -243,12 +243,15 @@ func (s Shadow) said(r client.Record, meta Meta, fromBoard bool) []Event {
 func (s Shadow) reads(ctx context.Context, apply func(Event) error) error {
 	tick := time.NewTicker(ReadEvery)
 	defer tick.Stop()
+	var seen map[Event]bool
 	for {
 		events, err := s.Read(ctx, s.Now().UTC().Truncate(time.Second))
 		if err != nil {
 			s.Log.Warn("the minute's GitHub read failed and changed nothing", "err", err)
 		}
-		for _, e := range events {
+		var fresh []Event
+		fresh, seen = unseen(seen, events)
+		for _, e := range fresh {
 			if err := apply(e); err != nil {
 				return err
 			}
@@ -259,6 +262,21 @@ func (s Shadow) reads(ctx context.Context, apply func(Event) error) error {
 		case <-tick.C:
 		}
 	}
+}
+
+func unseen(seen map[Event]bool, events []Event) ([]Event, map[Event]bool) {
+	if len(events) == 0 {
+		return nil, seen
+	}
+	read := make(map[Event]bool, len(events))
+	var fresh []Event
+	for _, e := range events {
+		read[e] = true
+		if !seen[e] {
+			fresh = append(fresh, e)
+		}
+	}
+	return fresh, read
 }
 
 func (s Shadow) timers(ctx context.Context, wake <-chan struct{}, apply func(Event) error) error {
@@ -295,7 +313,14 @@ func (s Shadow) disagree(ctx context.Context, moved []Moved) error {
 		case m.After.State == machine.StateReady && !m.After.Deadline.IsZero() && !now.Before(m.After.Deadline):
 			cause, why = "unqueued", "the desk would have queued it by now and nothing has"
 		case m.Before.State != "" && !slices.Contains(readied, m.Before.State) && (m.After.State == machine.StateQueued || m.After.State == machine.StateLanded):
+			queued, err := s.queuedAt(m.After)
+			if err != nil {
+				return err
+			}
 			cause, why = "landed-early", fmt.Sprintf("it reached the queue while the desk had it %s: %s", m.Before.State, m.Before.Reason)
+			if !queued {
+				cause, why = "merged-outside-queue", fmt.Sprintf("it was merged outside the queue while the desk had it %s: %s", m.Before.State, m.Before.Reason)
+			}
 		default:
 			continue
 		}
@@ -309,4 +334,14 @@ func (s Shadow) disagree(ctx context.Context, moved []Moved) error {
 		}
 	}
 	return nil
+}
+
+func (s Shadow) queuedAt(row store.PRState) (bool, error) {
+	var entry store.Entry
+	var found bool
+	err := s.Desk.Store.Update(func(tx *store.Tx) (err error) {
+		entry, found, err = tx.Entry(row.Repo, row.Number)
+		return err
+	})
+	return found && entry.Head == row.Head, err
 }

@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -361,6 +362,23 @@ func (r *tailRunner) deliver(record string) {
 	r.record = record
 }
 
+type laneRunner struct {
+	mu      sync.Mutex
+	records map[string]string
+}
+
+func (r *laneRunner) Run(_ context.Context, c shell.Command) (shell.Result, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return shell.Result{Stdout: r.records[c.Argv[slices.Index(c.Argv, "--to")+1]]}, nil
+}
+
+func (r *laneRunner) deliver(records map[string]string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.records = records
+}
+
 func (r *tailRunner) seen() []shell.Command {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -411,6 +429,26 @@ func TestARecordAddressedToTwoSourcesPrintsOnce(t *testing.T) {
 
 	if want := "@9:00 PM\n5 ask root go\n  its body\n#6@ab12 9:00 PM NOTE root seen\n"; r.code != 0 || r.out.String() != want {
 		t.Fatalf("got %d %q, want each record once", r.code, r.out.String())
+	}
+}
+
+func TestARecordAfterARepeatPrintsUnderItsOwnMinute(t *testing.T) {
+	s := &stream{emit: make(chan struct{}, 1)}
+	server := httptest.NewServer(s)
+	t.Cleanup(server.Close)
+	runner := &laneRunner{}
+	r := start(t, Options{Seconds: 10, Sources: []string{"cci:dar:meta", "cci:dar:desk"}, Runner: runner, Stream: server.URL, Now: ninePM})
+	time.Sleep(armed)
+
+	runner.deliver(map[string]string{
+		"meta": "@9:00 PM\n5 ask root go\n",
+		"desk": "@8:59 PM\n4 note api early\n@9:00 PM\n5 ask root go\n6 note api later\n",
+	})
+	s.emit <- struct{}{}
+	r.wait(t)
+
+	if want := "@9:00 PM\n5 ask root go\n@8:59 PM\n4 note api early\n@9:00 PM\n6 note api later\n"; r.code != 0 || r.out.String() != want {
+		t.Fatalf("got %d %q, want each record under its own minute", r.code, r.out.String())
 	}
 }
 

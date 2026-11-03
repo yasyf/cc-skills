@@ -127,7 +127,7 @@ func downstackMeets(f machine.Facts, byBranch map[string]machine.Facts, branches
 }
 
 func (g *Gates) refuses(ctx context.Context, f machine.Facts) bool {
-	declared := []gates.Gate{{Name: "rulings", Kind: "report", Clear: rulingsClear, Check: g.reserved}}
+	declared := []gates.Gate{{Name: "safe on dev", Kind: "blocker", Check: safeOnDev}, {Name: "rulings", Kind: "report", Clear: rulingsClear, Check: g.reserved}}
 	if g.Build.Tree != "" {
 		declared = append(declared, gates.Gate{Name: "build", Kind: "blocker", Clear: buildClear, Check: g.buildFailure})
 	}
@@ -166,6 +166,13 @@ func laneHolder(s *store.Store, drive, lane string) (string, error) {
 
 func pullRef(f machine.Facts) string {
 	return f.Repo + "#" + strconv.Itoa(f.Number)
+}
+
+func safeOnDev(_ context.Context, f machine.Facts) (gates.Verdict, error) {
+	if f.UnsafeWait == "" {
+		return gates.Verdict{}, nil
+	}
+	return gates.Verdict{Cause: "unsafe-on-dev", Refusal: fmt.Sprintf("UNSAFE-ON-DEV #%d at %s stays out of the queue: %s. Name that gate in the body, or drop a wait that no longer holds, and this gate admits it.", f.Number, shortHead(f.Head), gates.UnsafeOnDev(f.UnsafeWait))}, nil
 }
 
 func (g *Gates) reserved(ctx context.Context, f machine.Facts) (gates.Verdict, error) {

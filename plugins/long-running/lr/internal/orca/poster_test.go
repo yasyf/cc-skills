@@ -190,7 +190,7 @@ func TestALaunchPostsAnAddressedLineWithNoClockAndPrintsItsVerdict(t *testing.T)
 		t.Fatal(label, err)
 	}
 	post := f.bus.posts[0]
-	if post.Text != "orca-desk: launch new-lane NOW opus xhigh brief="+brief || !slices.Equal(post.To, []string{deskLane}) || post.Stamp || post.Kind != kindGo || post.Topic != "new-lane" || post.Drive != "prog" || post.Lane != coordinatorLane {
+	if post.Text != "orca-desk: launch new-lane NOW opus xhigh brief="+brief || !slices.Equal(post.To, []string{deskLane}) || post.Kind != kindGo || post.Topic != "new-lane" || post.Drive != "prog" || post.Lane != coordinatorLane {
 		t.Fatalf("%+v", post)
 	}
 	if !strings.Contains(f.out.String(), "new-lane R102 LAUNCHED R102 new-lane: dispatch ctx_l terminal term_l\n") {
@@ -418,7 +418,7 @@ func TestEachLinePostsWithNoKeyOfItsOwnAfterReadingTheRunnerAndPrintsItsRecord(t
 		if err := f.poster.Line(context.Background(), topic, text); err != nil {
 			t.Fatal(err)
 		}
-		if !slices.Equal(f.texts(), []string{c.want}) || !slices.Equal(f.bus.calls, []string{"tail", "post"}) || f.bus.posts[0].Stamp {
+		if !slices.Equal(f.texts(), []string{c.want}) || !slices.Equal(f.bus.calls, []string{"tail", "post"}) {
 			t.Fatal(f.bus.posts, f.bus.calls)
 		}
 		if f.out.String() != "posted cci #102: "+c.want+"\n" {

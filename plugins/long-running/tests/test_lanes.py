@@ -119,6 +119,21 @@ def test_a_worktree_a_lane_only_names_is_found_but_not_owned(home):
     assert {tree.path: (tree.sources, tree.owned) for tree in found} == {own: (["WORKTREE record"], True), mentioned: (["cci record"], False), watched: (["PR #48182 head"], False)}
 
 
+def test_a_lane_that_names_many_worktrees_inspects_its_own_and_only_the_newest_it_names(home):
+    """Nov 3: `lane-status fidelity-desk-22` ran 83 `git status` sweeps over trees its records only named, the top `git status` reader on the Mac."""
+    own = worktree(home, LANE, "-b", LANE)
+    named = [worktree(home, f"named-{index}", "-b", f"named-{index}") for index in range(lanes.NAMED_INSPECTED + 2)]
+    records = [{"seq": 1, "drive": "d1", "lane": LANE, "kind": "state", "text": f"WORKTREE {LANE} {own} {LANE}", "fields": {"attrs": {"worktree": str(own)}}}]
+    records += [{"seq": index + 2, "drive": "d1", "lane": LANE, "kind": "go", "text": f"read {path} first"} for index, path in enumerate(named)]
+
+    found = {tree.path: tree for tree in lanes.lane_status(LANE, records, [], Path.cwd(), "", "dev", datetime.now(timezone.utc), LaneShell().run)}
+
+    assert found[own].branch.startswith(LANE)
+    assert all(found[path].error == lanes.NOT_INSPECTED and not found[path].branch for path in named[:2])
+    assert all(found[path].branch.startswith(path.name) for path in named[2:])
+    assert found[named[0]].line().endswith(lanes.NOT_INSPECTED)
+
+
 def test_a_worktree_named_for_its_branch_is_found_from_the_lanes_worktree_record_and_its_pr(home, capsys):
     path = worktree(home, "inc-liam-fork-parent-grant", "-b", "inc-liam-fork-parent-grant")
     commit(path, "sandsql-server: 🐛 copy through the parent grant")

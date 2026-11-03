@@ -91,14 +91,19 @@ func run(ctx context.Context, a *app.App) error {
 	if err != nil {
 		return err
 	}
+	if stop, err := serveProfiles(filepath.Join(state, profileFile), a.Log); err != nil {
+		a.Log.Warn("the supervisor serves no profiles", "err", err)
+	} else {
+		defer stop()
+	}
 	version := Installed(env.Claude)
 	upgrade := &Upgrade{Env: env, Running: version, Read: read}
 	deps.Stale = upgrade.Stale
-	reports, ended, err := Run(ctx, s, cfg.Drive, version, os.Getpid(), deps, 0)
+	_, ended, err := Run(ctx, s, cfg.Drive, version, os.Getpid(), deps, 0)
 	if err != nil {
 		return err
 	}
-	a.Log.Info("supervisor ended", "how", string(ended), "ticks", len(reports))
+	a.Log.Info("supervisor ended", "how", string(ended))
 	if ended == EndedRelease {
 		return Reexec(env.Claude, syscall.Exec)
 	}
@@ -234,6 +239,8 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 	}
 	queueFell := landing.QueueFell{Store: s, Drive: env.Config.Drive, Repo: env.Config.Repo}
 	deps.Checks = append(deps.Checks, (&background{name: "trunk-queue", every: PassEvery, run: queueFell.Pass, store: s, post: post, log: a.Log}).Check)
+	clobbers := &landing.Clobbers{Runner: a.Runner, Store: s, Drive: env.Config.Drive, Repo: env.Config.Repo, Trunk: env.Config.Trunk, Checkout: env.Config.Checkout, Now: a.Now, Log: a.Log}
+	deps.Checks = append(deps.Checks, (&background{name: "trunk-clobbers", every: PassEvery, run: clobbers.Pass, store: s, post: post, log: a.Log}).Check)
 	outlived := landing.Outlived{Store: s, Drive: env.Config.Drive, Repo: env.Config.Repo}
 	deps.Checks = append(deps.Checks, (&background{name: "outlived-blockers", every: PassEvery, run: outlived.Pass, store: s, post: post, log: a.Log}).Check)
 	quota := landing.Quota{Runner: a.Runner, Drive: env.Config.Drive, Repo: env.Config.Repo}

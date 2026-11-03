@@ -2,7 +2,6 @@ package supervisor
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,13 +13,6 @@ import (
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
-	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
-)
-
-const (
-	gateRefused = 3
-	gateTimeout = 30 * time.Minute
-	whyLimit    = 300
 )
 
 var versionPart = regexp.MustCompile(`\d+`)
@@ -54,49 +46,13 @@ type Upgrade struct {
 	Env     lanes.Env
 	Running string
 	Read    time.Time
-	passed  map[string]bool
 }
 
 func (u *Upgrade) Stale(ctx context.Context) (bool, error) {
 	if changed, err := u.configChanged(ctx); changed || err != nil {
 		return changed, err
 	}
-	installed := Installed(u.Env.Claude)
-	if !Behind(u.Running, installed) {
-		return false, nil
-	}
-	if ok, known := u.passed[installed]; known {
-		return ok, nil
-	}
-	if u.passed == nil {
-		u.passed = map[string]bool{}
-	}
-	drive, repo := u.Env.Config.Drive, u.Env.Config.Repo
-	gate := filepath.Join(u.Env.Claude, "long-running", "current", "bin", "replay.py")
-	result, err := u.Env.Runner.Run(ctx, shell.Command{Argv: []string{gate, "gate", "--drive", drive, "--repo", repo, "--old", u.Running, "--new", installed}, Timeout: gateTimeout})
-	var exit *shell.ExitError
-	if err != nil && !errors.As(err, &exit) {
-		result.Code, result.Stderr = 1, err.Error()
-	}
-	u.passed[installed] = result.Code != gateRefused
-	if result.Code == 0 || result.Code == gateRefused {
-		return u.passed[installed], nil
-	}
-	why := fmt.Sprintf("exit %d", result.Code)
-	said := strings.TrimSpace(result.Stderr)
-	if said == "" {
-		said = strings.TrimSpace(result.Stdout)
-	}
-	if said != "" {
-		lines := strings.Split(said, "\n")
-		why = lines[len(lines)-1]
-		why = why[:min(whyLimit, len(why))]
-	}
-	_, err = u.Env.Bus.Post(ctx, client.Draft{Drive: drive, Lane: lanes.Self, Kind: "report", To: []string{lanes.Root}, ID: "replay-failed:" + installed, Text: fmt.Sprintf("the supervisor moves from %s to %s unreplayed: its replay gate exited %d: %s", u.Running, installed, result.Code, why)})
-	if err != nil {
-		return false, fmt.Errorf("%w: cci post: %w", lanes.ErrUnread, err)
-	}
-	return true, nil
+	return Behind(u.Running, Installed(u.Env.Claude)), nil
 }
 
 func (u *Upgrade) configChanged(ctx context.Context) (bool, error) {

@@ -62,7 +62,9 @@ Mac runs without a payload rebuild. A pin is `{kind, name, url, sha256,
 version}`. Each archive is checked against its SHA-256 before anything moves.
 A `binary` pin extracts the member `name` to `~/.local/bin/<name>.new`, runs
 it with `--version`, and moves it over `~/.local/bin/<name>` only when the
-last word printed, less a leading `v`, is the pinned version. A `package` pin,
+last version-shaped word printed, less a leading `v`, is the pinned version. A
+`raw` pin, such as `ccn`, treats the download itself as that executable, for a
+tool whose release ships a bare binary. A `package` pin,
 such as `capt-hookd`, stages the member, checks that `version` reports the
 pinned `build`, runs its `package-install`, which upgrades a live daemon under
 its own install lock, and checks the installed `version` again. A `plugin` pin,
@@ -130,6 +132,12 @@ carried brief invokes: `ccn`, `cc-notes`, `cci`, `lr`, `gh` and `ccx`, each
 counted when the brief names it before a space and a lowercase verb. A box
 without one refuses the launch naming each missing CLI and keeps the output in
 `prepare.err`, so no lane starts on a box that cannot run its brief.
+
+The launch then fetches `refs/cc-notes/*` into the Sprite's checkout, so the lane's
+`ccn` reads the owner's answers. A Sprite holds no GitHub credential, so the Mac's
+`gh auth token` goes over stdin into that one `git` process and is written nowhere.
+A failed fetch keeps its output in `notes.log` and the worker still starts; a clean
+fetch leaves that file empty.
 
 `WORKER_RELAY_SPONSOR` names a Sprite
 that holds an enrolled cci service key, and the script then joins the new Sprite to

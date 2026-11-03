@@ -227,6 +227,12 @@ func TestAStaleItemForAnOlderHeadRendersNothing(t *testing.T) {
 	}
 }
 
+func TestAnOwnerItemOnAnotherPersonsPRALaneCarriesDrawsNoRow(t *testing.T) {
+	if found := rows(t, withItem(t), facts(func(f *machine.Facts) { f.ForeignAuthor = "teammate" })); len(found) != 0 {
+		t.Fatalf("rows = %+v", found)
+	}
+}
+
 func TestAConditionalTapKeepsTheRowAndShowsTheCondition(t *testing.T) {
 	s := withItem(t)
 	put(t, s, head, "tap", "conditional")

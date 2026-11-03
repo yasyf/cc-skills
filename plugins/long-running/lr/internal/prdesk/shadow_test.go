@@ -79,8 +79,17 @@ func TestTheShadowPostsOnceWhereItDisagreesWithTheRunner(t *testing.T) {
 	for _, d := range posted {
 		causes = append(causes, d.ID[strings.LastIndex(d.ID, ":")+1:])
 	}
-	if strings.Join(causes, ",") != "unqueued,landed-early" {
-		t.Fatalf("posted %v, want one unqueued note for the overdue ready PR and one landed-early note for the held PR", causes)
+	if strings.Join(causes, ",") != "unqueued,merged-outside-queue" {
+		t.Fatalf("posted %v, want one unqueued note for the overdue ready PR and one merged-outside-queue note for the held PR Trunk never held", causes)
+	}
+	if err := s.Desk.Store.Update(func(tx *store.Tx) error {
+		return tx.PutEntry(store.Entry{Repo: repo, Number: 7, ID: "e1", Head: h1, Attempt: 1, Outcome: QueueIn})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	posted = nil
+	if err := s.disagree(context.Background(), moved[2:3]); err != nil || len(posted) != 1 || !strings.HasSuffix(posted[0].ID, ":landed-early") {
+		t.Fatalf("a held PR Trunk took posted %+v, %v, want landed-early", posted, err)
 	}
 }
 
@@ -115,6 +124,39 @@ func TestTheMinuteReadMakesOneGitHubCallAtAnyNumberOfOpenPRs(t *testing.T) {
 		if gh.calls != 1 || len(events) != open {
 			t.Fatalf("%d open PRs took %d GitHub calls for %d events, want 1 call and %d events", open, gh.calls, len(events), open)
 		}
+	}
+}
+
+func TestAReadOfTheSameFactsAppliesNothingAndAMovedFactAppliesOnce(t *testing.T) {
+	read := GitHubRead{CCX: &pages{open: 3}, Store: memory(t).Store, Repo: repo, Author: "yasyf"}
+	first, err := read.Read(context.Background(), t0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fresh, seen := unseen(nil, first)
+	if len(fresh) != 3 {
+		t.Fatalf("the first read applied %d events, want all 3", len(fresh))
+	}
+	second, err := read.Read(context.Background(), t0.Add(ReadEvery))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fresh, seen = unseen(seen, second)
+	if len(fresh) != 0 {
+		t.Fatalf("a read of the same facts a minute later applied %v, want nothing", fresh)
+	}
+	pushed := second[0].(PullRequest)
+	pushed.Head = h2
+	second[0] = pushed
+	fresh, seen = unseen(seen, second)
+	if len(fresh) != 1 || fresh[0] != Event(pushed) {
+		t.Fatalf("a moved head applied %v, want only the moved pull request", fresh)
+	}
+	if fresh, _ = unseen(seen, nil); len(fresh) != 0 {
+		t.Fatalf("a failed read applied %v, want nothing", fresh)
+	}
+	if fresh, _ = unseen(seen, second); len(fresh) != 0 {
+		t.Fatalf("a failed read forgot what the last read saw and applied %v", fresh)
 	}
 }
 

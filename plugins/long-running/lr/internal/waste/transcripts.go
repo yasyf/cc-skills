@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"maps"
 	"path/filepath"
 	"regexp"
@@ -149,29 +150,41 @@ func readTranscripts(ctx context.Context, runner shell.Runner, files []transcrip
 		repeats:    map[string]map[string]int64{},
 	}
 	for _, file := range files {
-		shown, err := runner.Run(ctx, shell.Command{Argv: []string{transcriptTool, "show", file.Path, "--json", "--all", "--kind", "assistant", "--kind", "attachment"}, Timeout: readLimit})
-		if err != nil {
-			return used, err
-		}
 		if used.sessions[file.lane] == nil {
 			used.sessions[file.lane] = map[string]bool{}
 		}
 		used.sessions[file.lane][file.session()] = true
-		if err := used.add(file.lane, shown.Stdout, since, since.Add(-window)); err != nil {
-			return used, fmt.Errorf("%s: %w", file.Path, err)
+		if err := used.show(ctx, runner, file, since, since.Add(-window)); err != nil {
+			return used, err
 		}
 	}
 	return used, nil
 }
 
-func (u transcriptUse) add(lane, stdout string, since, priorSince time.Time) error {
+func (u transcriptUse) show(ctx context.Context, runner shell.Runner, file transcript, since, priorSince time.Time) error {
+	shown, written := io.Pipe()
+	decoded := make(chan error, 1)
+	go func() {
+		err := u.add(file.lane, shown, since, priorSince)
+		_ = shown.CloseWithError(err)
+		decoded <- err
+	}()
+	_, ran := runner.Run(ctx, shell.Command{Argv: []string{transcriptTool, "show", file.Path, "--json", "--all", "--kind", "assistant", "--kind", "attachment"}, Timeout: readLimit, Stdout: written})
+	_ = written.CloseWithError(ran)
+	if err := <-decoded; err != nil {
+		return fmt.Errorf("%s: %w", file.Path, err)
+	}
+	return ran
+}
+
+func (u transcriptUse) add(lane string, stdout io.Reader, since, priorSince time.Time) error {
 	type request struct {
 		at     time.Time
 		tokens int64
 	}
 	requests := map[string]request{}
 	seen := map[string]map[string]bool{}
-	decoder := json.NewDecoder(strings.NewReader(stdout))
+	decoder := json.NewDecoder(stdout)
 	for decoder.More() {
 		var e event
 		if err := decoder.Decode(&e); err != nil {

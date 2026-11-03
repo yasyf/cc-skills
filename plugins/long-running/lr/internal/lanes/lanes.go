@@ -1,6 +1,7 @@
 package lanes
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/deletions"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
@@ -142,6 +144,21 @@ func Canonical(drive, lane string) string {
 		}
 	}
 	return strings.TrimPrefix(lane, initials.String()+"-")
+}
+
+func Resolve(ctx context.Context, drive, name string) (string, error) {
+	name = Canonical(drive, name)
+	if client.Stem(name) != name {
+		return name, nil
+	}
+	switch reach, err := client.Resolve(ctx, drive, name); {
+	case errors.Is(err, client.ErrNoLaneRegistry):
+		return name, nil
+	case err != nil:
+		return "", err
+	default:
+		return cmp.Or(reach.Lane, name), nil
+	}
 }
 
 func Stem(name string) string {
@@ -461,17 +478,15 @@ type Row struct {
 	Idle       bool      `json:"idle,omitempty"`
 	Dispatch   string    `json:"dispatch,omitempty"`
 	Succeeded  bool      `json:"succeeded,omitempty"`
-	Settled    bool      `json:"settled,omitempty"`
 	Unverified string    `json:"unverified,omitempty"`
 }
 
 type Peer struct {
-	Lane      string
-	Live      bool
-	Seen      time.Time
-	Row       Row
-	LastCall  time.Time
-	Unsettled string
+	Lane     string
+	Live     bool
+	Seen     time.Time
+	Row      Row
+	LastCall time.Time
 }
 
 func Peers(rows []Row) map[string]Peer {
@@ -481,16 +496,14 @@ func Peers(rows []Row) map[string]Peer {
 			continue
 		}
 		have, known := found[row.Lane]
-		lastCall, unsettled := have.LastCall, have.Unsettled
+		lastCall := have.LastCall
 		if row.Dispatch == "" {
 			lastCall = newer(lastCall, row.SeenAt.UTC())
-		} else if !row.Settled {
-			unsettled = row.Dispatch
 		}
 		if !known || (row.Live && !have.Live) || (row.Live == have.Live && row.SeenAt.After(have.Seen)) {
 			have = Peer{Lane: row.Lane, Live: row.Live, Seen: row.SeenAt.UTC(), Row: row}
 		}
-		have.LastCall, have.Unsettled = lastCall, unsettled
+		have.LastCall = lastCall
 		found[row.Lane] = have
 	}
 	return found
@@ -508,6 +521,7 @@ const (
 	NoShow    VerdictKind = "no-show"
 	Dead      VerdictKind = "dead"
 	Unproven  VerdictKind = "unproven"
+	Lost      VerdictKind = "lost"
 	StoodDown VerdictKind = "stood-down"
 	AskRotate VerdictKind = "ask-rotate"
 )

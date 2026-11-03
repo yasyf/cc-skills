@@ -12,6 +12,7 @@ import (
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 )
 
 const shapeWords = 4
@@ -29,11 +30,19 @@ func deadRecipients(ctx context.Context, src Sources, cfg Config, drive string, 
 			lastPost[record.Lane] = record.At
 		}
 	}
+	reads := map[string]string{}
 	silent := map[string]bool{}
 	for _, record := range records {
 		for _, to := range record.To {
-			if _, posted := lastPost[to]; !posted && !slices.Contains(cfg.Ignore, to) {
-				silent[to] = true
+			if _, resolved := reads[to]; !resolved {
+				lane, err := lanes.Resolve(ctx, drive, to)
+				if err != nil {
+					return nil, err
+				}
+				reads[to] = lane
+			}
+			if _, posted := lastPost[reads[to]]; !posted && !slices.Contains(cfg.Ignore, to) {
+				silent[reads[to]] = true
 			}
 		}
 	}
@@ -57,9 +66,9 @@ func deadRecipients(ctx context.Context, src Sources, cfg Config, drive string, 
 	deliveries := map[string]map[string]int64{}
 	for _, record := range records {
 		for _, to := range record.To {
-			at, gone := retired[to]
-			stoodDown := gone && !record.At.Before(at) && !lastPost[to].After(at)
-			if to == record.Lane || slices.Contains(cfg.Ignore, to) || !silent[to] && !stoodDown {
+			at, gone := retired[reads[to]]
+			stoodDown := gone && !record.At.Before(at) && !lastPost[reads[to]].After(at)
+			if reads[to] == record.Lane || slices.Contains(cfg.Ignore, to) || !silent[reads[to]] && !stoodDown {
 				continue
 			}
 			if deliveries[to] == nil {

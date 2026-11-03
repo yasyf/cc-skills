@@ -4,6 +4,7 @@
 
 - [Run the desk processes](#run-the-desk-processes)
 - [Configure and start the relay](#configure-and-start-the-relay)
+- [Reach the Orca server on the service host](#reach-the-orca-server-on-the-service-host)
 - [Subscribe the coordinator and issue commands](#subscribe-the-coordinator-and-issue-commands)
 - [Relay, launch, and withdraw lines](#relay-launch-and-withdraw-lines)
 - [Track actions and acknowledgements](#track-actions-and-acknowledgements)
@@ -145,6 +146,18 @@ A Bash append to `orca-desk.md` in a drive session draws `UNREAD` and the `cci p
 
 **Keep the Run bound to the coordinator terminal.** Only the terminal bound to the Run may call `worker-start`. Every pass, the relay reads the Run's coordinator from Orca and calls Orca and starts launchers as that terminal. If the coordinator disappears while the relay runs, it posts one `UNBOUND` line and fails every launch at once with `LAUNCH-FAILED`, which no incident clock defers, so the coordinator launches by hand with `lr launch start`. When the coordinator moves to a new terminal, run `lr relay rebind --config <drive>/runner.json` there; the running relay follows on its next pass without a restart.
 
+## Reach the Orca server on the service host
+
+The cloud service host runs Orca's own server as systemd unit `orca-serve`. It takes no inbound connection, so this Mac reaches it over an SSM port forward:
+
+```sh
+lr run-host install --host <Name tag> --profile desk-host-reach --region us-west-2 --port 6768 --environment desk-host
+```
+
+The command first reads the unit's `orca_server_ready` event over `aws ssm send-command`. It refuses an Electron fallback, a server bound to another port, and a server that offers no pairing. Next it installs the launchd job `com.long-running.<drive>.run-host`. That job runs `lr run-host forward`, which resolves the one running instance with that Name tag and becomes `aws ssm start-session --document-name AWS-StartPortForwardingSession`. launchd restarts it whenever the session ends, so a replaced box is found again. Last, it pairs this Mac's Orca with the server as `--environment`, unless that environment already exists. The pairing code goes from memory into argv and is never printed.
+
+Two things must already be on this Mac. One is the AWS Session Manager plugin. The other is a `desk-host-reach` profile in `~/.aws/config`, with `source_profile = devbox-machine`, the `role_arn` of this machine's CI-account desk-host reach role, and the machine's operator as `role_session_name`. That role may start the port forward and read the ready event only on instances named `*-desk-host`. Set `orca.launches` to `mac` on this Mac's relay, and to `sprite` on the relay that serves the host's Run.
+
 ## Subscribe the coordinator and issue commands
 
 **Subscribe the coordinator to the `cci` channel at drive start.** Under R9 in [SKILL.md](../SKILL.md), launch the coordinator with `--channels plugin:cc-inbox@cc-inbox`, which `allowedChannelPlugins` lists in managed settings, and run once:
@@ -180,7 +193,7 @@ lr launch withdraw <R<n> | unfixed:<msg>:<n> | lane>
 orca-desk: relay to <lane>[, <lane>…][ and <lane>]: <text>
 ```
 
-In a cci record, the first line is the directive and the relay text runs to the end of the record, keeping all paragraphs and lists. One record is one relay. For each named lane with a live dispatch, the relay runs `relay --key R<n>`. When the dispatch's newest question to the Run has no answer on its terminal, the relay replies to that question and releases `orca orchestration ask`; otherwise, it sends a plain relay that wakes the terminal. Each lane logs `RELAYED <key> <lane>` or `RELAY-FAILED <key> <lane>: <reason>` to the coordinator on cci.
+In a cci record, the first line is the directive and the relay text runs to the end of the record, keeping all paragraphs and lists. One record is one relay. A lane named by its stem, with no `-<n>`, is the lane cci routes that stem to, its newest live lane. For each named lane with a live dispatch, the relay runs `relay --key R<n>`. When the dispatch's newest question to the Run has no answer on its terminal, the relay replies to that question and releases `orca orchestration ask`; otherwise, it sends a plain relay that wakes the terminal. Each lane logs `RELAYED <key> <lane>` or `RELAY-FAILED <key> <lane>: <reason>` to the coordinator on cci.
 
 **A second order to a busy lane of a pool goes to a free lane of that pool.** A pool is a role named at launch with `role=pool-<name>`, for lanes that can stand in for each other; a lane with any other role has a brief of its own and always keeps its orders. A lane is busy once it has answered `started` on a relay and not yet `done`; a delivered relay it has not started does not make it busy. A plain relay to a busy lane moves to a live lane of the same pool with no started relay, no open item and no open ask or `blocked` record, and a `ROUTED <key> <lane> -> <free lane>: <lane> is busy with <its key>` record names both. With no free lane, the order waits behind nobody: the relay posts root one ask, `spawn <role> lane for <key>`, with the order as the brief body, and tells the sender `POOL-NONE` with that ask's number. A reply to an open question and a relay naming a PR the busy lane owns also stay.
 

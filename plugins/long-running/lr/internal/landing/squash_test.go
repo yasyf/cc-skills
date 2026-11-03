@@ -126,6 +126,16 @@ func TestAFixLaneTheRunnerLaunchedSquashesLikeAnIncidentNamedLane(t *testing.T) 
 	}
 }
 
+func TestAnotherPersonsFixAnIncidentLaneCarriesIsNeverSquashed(t *testing.T) {
+	f := newSquash(t)
+
+	f.admit(fixFacts(func(row *machine.Facts) { row.ForeignAuthor = "teammate" }))
+
+	if len(f.merges()) != 0 {
+		t.Fatalf("merges = %v", f.merges())
+	}
+}
+
 func TestAnIncidentFixThatIsNotReadyStaysOutOfBothThePathAndTheQueue(t *testing.T) {
 	for name, mutate := range map[string]func(*machine.Facts){
 		"not approved":  func(row *machine.Facts) { row.Approved = false },

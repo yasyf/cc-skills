@@ -422,7 +422,11 @@ func (d *Desk) relayLine(ctx context.Context, at, key, rest, sender string) erro
 	if found == nil {
 		return d.record("escalation:relay:"+at, fmt.Sprintf("RELAY-FAILED %s inbox: one relay per line, in the form `%s`; nothing was relayed", key, relayGrammar))
 	}
-	for _, lane := range laneList.Split(found[1], -1) {
+	for _, named := range laneList.Split(found[1], -1) {
+		lane, err := lanes.Resolve(ctx, d.Config.Drive, named)
+		if err != nil {
+			return err
+		}
 		target, err := d.pooled(ctx, key, lane, found[2], sender)
 		if err != nil {
 			return err

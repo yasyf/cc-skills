@@ -178,7 +178,7 @@ func TestAnIncidentBriefFillsEveryPlaceholderAndFallsBackToTheDrivesCopy(t *test
 	if err := os.MkdirAll(filepath.Dir(template), 0o750); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(template, []byte("{lane} {incident} {slug} {link} {what} {onset} {reported} {due} {repo} {log} {facts} {{literal}}\n"), 0o600); err != nil {
+	if err := os.WriteFile(template, []byte("{lane} {incident} {slug} {link} {what} {onset} {reported} {due} {repo} {drive} {facts} {{literal}}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(state, "alert-evidence-brief.md"), []byte("evidence {lane}\n"), 0o600); err != nil {
@@ -202,7 +202,7 @@ func TestAnIncidentBriefFillsEveryPlaceholderAndFallsBackToTheDrivesCopy(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	equal(t, string(text), "dd-1-fix dd-1 dd-1 https://slack/p1 it broke 9:56 AM 10:00 10:20 /checkout incident-dd-1 drive d1 {literal}\n")
+	equal(t, string(text), "dd-1-fix dd-1 dd-1 https://slack/p1 it broke 9:56 AM 10:00 10:20 /checkout d1 drive d1 {literal}\n")
 	said, err := os.ReadFile(evidence)
 	if err != nil {
 		t.Fatal(err)

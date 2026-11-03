@@ -238,6 +238,21 @@ func TestTailnetServesTheWorktreeOnLoopbackBehindTailscaleServeAndReturnsItsHTTP
 	}
 }
 
+func TestAnnouncingFromASessionWithNoLaneCardsTheOwnerAndPostsNothing(t *testing.T) {
+	slack := &shelltest.Fake{}
+	slack.Reply(`{"ok": true}`, "cc-slack", "dm-status")
+	sent := &posts{}
+
+	notice := Notice{Title: "How a lane resumes", Lede: "A lane picks up from its newest handoff.", Link: "https://mac.tail1.ts.net:8665/one-pagers/lane-resume/"}
+	if err := (Owner{Runner: slack, Post: sent.Post, Drive: "d1"}).Announce(context.Background(), notice); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(sent.drafts) != 0 || len(slack.Calls()) != 1 {
+		t.Fatalf("posted %+v, calls %v", sent.drafts, slack.Calls())
+	}
+}
+
 func TestAnnouncingAPageTellsOwnerRelayAndCardsTheOwnersDMAndAFailedCardRaisesABlocker(t *testing.T) {
 	notice := Notice{Title: "How a lane resumes", Lede: "A lane picks up from its newest handoff.", Link: "https://mac.tail1.ts.net:8665/one-pagers/lane-resume/"}
 	slack := &shelltest.Fake{}

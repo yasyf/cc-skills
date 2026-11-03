@@ -79,29 +79,30 @@ func onRoster(row Row) Row {
 }
 
 type fake struct {
-	feed         []Record
-	peers        []Row
-	tokens       map[string]int
-	posts        []Post
-	launches     []string
-	briefs       map[string]string
-	withdrawn    []string
-	wakes        []string
-	pages        []map[string]any
-	states       map[int]string
-	holds        map[int]bool
-	desks        map[string]string
-	work         []Record
-	owed         []deletions.Owed
-	gaps         []string
-	orders       []owner.Row
-	branches     map[string][]int
-	branchReads  int
-	hosts        map[string]Host
-	hostReads    int
-	stopped      map[string]Sprite
-	stoppedReads int
-	deps         Deps
+	feed        []Record
+	peers       []Row
+	tokens      map[string]int
+	posts       []Post
+	launches    []string
+	briefs      map[string]string
+	withdrawn   []string
+	wakes       []string
+	pages       []map[string]any
+	states      map[int]string
+	holds       map[int]bool
+	desks       map[string]string
+	work        []Record
+	owed        []deletions.Owed
+	gaps        []string
+	orders      []owner.Row
+	branches    map[string][]int
+	branchReads int
+	hosts       map[string]Host
+	hostReads   int
+	sprites     map[string]Sprite
+	spriteReads int
+	spritesFail error
+	deps        Deps
 }
 
 func newFake(t *testing.T, records []Record, peers []Row) *fake {
@@ -156,22 +157,22 @@ func newFake(t *testing.T, records []Record, peers []Row) *fake {
 		RotateAt:     600_000,
 		RetireAfter:  time.Hour,
 		OpenBranches: func() (map[string][]int, error) { f.branchReads++; return f.branches, nil },
-		Hosts: func(names []string) map[string]Host {
+		Sprites: func(names []string) (map[string]Sprite, error) {
+			f.spriteReads++
+			out := map[string]Sprite{}
+			for _, name := range names {
+				if sprite, ok := f.sprites[name]; ok {
+					out[name] = sprite
+				}
+			}
+			return out, f.spritesFail
+		},
+		Hosts: func(names []string, _ map[string]Sprite) map[string]Host {
 			f.hostReads++
 			out := map[string]Host{}
 			for _, name := range names {
 				if host, ok := f.hosts[name]; ok {
 					out[name] = host
-				}
-			}
-			return out
-		},
-		Stopped: func(names []string) map[string]Sprite {
-			f.stoppedReads++
-			out := map[string]Sprite{}
-			for _, name := range names {
-				if sprite, ok := f.stopped[name]; ok {
-					out[name] = sprite
 				}
 			}
 			return out

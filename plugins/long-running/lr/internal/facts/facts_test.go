@@ -43,6 +43,7 @@ type recordedPR struct {
 	merge   string
 	draft   bool
 	diff    string
+	body    string
 }
 
 func graphQLPages(prs []recordedPR) string {
@@ -59,7 +60,7 @@ func graphQLPages(prs []recordedPR) string {
 				commits = append(commits, map[string]any{"commit": map[string]any{"oid": oid}})
 			}
 			nodes = append(nodes, map[string]any{
-				"number": pr.number, "isDraft": pr.draft, "headRefOid": pr.head, "author": map[string]any{"login": pr.login},
+				"number": pr.number, "isDraft": pr.draft, "headRefOid": pr.head, "body": pr.body, "author": map[string]any{"login": pr.login},
 				"labels": map[string]any{"nodes": labels}, "commits": map[string]any{"nodes": commits},
 			})
 		}
@@ -187,6 +188,38 @@ func TestEveryOpenPRByTheDriveAuthorOrLabelIsAdmitted(t *testing.T) {
 
 	if got := h.statusNumbers(t); !slices.Equal(got, []string{"1", "45757"}) {
 		t.Fatalf("status read = %v", got)
+	}
+}
+
+func TestAPRAnotherPersonWroteReadsWithTheirLoginWhetherALabelOrAnOpenItemKeepsItAndTheDrivesOwnWithNone(t *testing.T) {
+	h := newHarness(t, []recordedPR{
+		{number: 47613, head: head, login: "teammate"},
+		{number: 47615, head: head, login: "teammate", labels: []string{"drive"}},
+		{number: 1, head: head2, login: "drive-bot"},
+	}, status(1), status(47613), status(47615))
+	if _, err := h.store.OpenItem(store.NewItem{Kind: "tap", Repo: repo, Number: 47613, Head: head, Mover: machine.MoverOwner, Deadline: time.Hour}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+
+	authors := map[int]string{}
+	for _, f := range h.snapshot(t) {
+		authors[f.Number] = f.ForeignAuthor
+	}
+	if want := map[int]string{1: "", 47613: "teammate", 47615: "teammate"}; !maps.Equal(authors, want) {
+		t.Fatalf("foreign authors = %v, want %v", authors, want)
+	}
+}
+
+func TestTheOpenListReadNamesTheWaitEachDrivePRsBodyLeavesUnsafeOnDev(t *testing.T) {
+	h := newHarness(t, []recordedPR{
+		{number: 1, head: head, login: "drive-bot", body: "## Risk\n\nThis goes live only after #46014 is live on every cluster.\n"},
+		{number: 2, head: head2, login: "drive-bot", body: "Nothing calls this yet. It goes live only after #46014 is live.\n"},
+	}, status(1), status(2))
+
+	got := h.snapshot(t)
+
+	if got[1].UnsafeWait != "This goes live only after #46014 is live on every cluster" || got[2].UnsafeWait != "" {
+		t.Fatalf("waits = %q, %q", got[1].UnsafeWait, got[2].UnsafeWait)
 	}
 }
 
@@ -438,6 +471,9 @@ func TestABranchCarryingASiblingsHeadIsMarkedWhateverGitHubSaysItsBaseIs(t *test
 		{number: 45501, head: head2, login: "drive-bot", commits: []string{head2}},
 		{number: 45583, head: head3, login: "drive-bot", commits: []string{head3}},
 	}, status(45501, func(r *statusRow) { r.Head = head2 }), status(45583, func(r *statusRow) { r.Head = head3 }), status(45799))
+	if err := h.store.Own("lane-9", []int{45799}); err != nil {
+		t.Fatal(err)
+	}
 
 	by := h.snapshot(t)
 

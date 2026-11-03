@@ -153,7 +153,7 @@ func (q *Squash) tagged(snapshot []machine.Facts) ([]machine.Facts, map[int]bool
 	}
 	var named []machine.Facts
 	for _, f := range snapshot {
-		if f.Base != q.Trunk || f.Closed || f.Merged || f.Draft {
+		if f.Base != q.Trunk || f.Closed || f.Merged || f.Draft || f.Foreign() {
 			continue
 		}
 		fix := incidentLane.MatchString(f.Lane) || repairs[f.Number]
@@ -343,7 +343,7 @@ func (q *Squash) trunkTouches(ctx context.Context, head string) (bool, error) {
 		result, err := q.Runner.Run(ctx, shell.Command{Argv: append([]string{"git", "-C", q.Checkout}, args...), Timeout: limit})
 		return strings.TrimSpace(result.Stdout), err
 	}
-	listed, err := git(gitLimit, "ls-remote", "origin", "refs/heads/"+q.Trunk)
+	listed, err := git(gitLimit, "ls-remote", "--heads", "origin", "refs/heads/"+q.Trunk)
 	if err != nil {
 		return false, err
 	}

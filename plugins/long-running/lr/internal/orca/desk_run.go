@@ -283,6 +283,13 @@ func (d *Desk) Run(ctx context.Context, once bool) error {
 	defer func() { _ = lock.Close() }()
 	release := d.Release()
 	d.open()
+	originalStore := d.store
+	var closeStore func()
+	d.store, closeStore = d.store.Held()
+	defer func() {
+		closeStore()
+		d.store = originalStore
+	}()
 	if err := d.ensure(deskRunner, deskRunner); err != nil {
 		return err
 	}

@@ -193,6 +193,8 @@ func (g Guard) Lines(ctx context.Context, m Merge) ([]string, error) {
 	return lines, nil
 }
 
+var statusKinds = []string{"evidence", "peer", "state"}
+
 func (g Guard) mail(ctx context.Context, m Merge) ([]string, error) {
 	if m.Lane == "" {
 		return nil, nil
@@ -226,7 +228,9 @@ func (g Guard) mail(ctx context.Context, m Merge) ([]string, error) {
 			lines = append(lines, r.line(UnreadLine))
 			continue
 		}
-		mail = append(mail, r)
+		if !slices.Contains(statusKinds, r.Kind) {
+			mail = append(mail, r)
+		}
 	}
 	if len(mail) > mailShown+1 {
 		oldest := mail[0]

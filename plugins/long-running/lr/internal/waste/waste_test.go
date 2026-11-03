@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -79,7 +80,8 @@ func (r *fakeRunner) Run(_ context.Context, c shell.Command) (shell.Result, erro
 		return shell.Result{Stdout: listed.String()}, nil
 	}
 	r.shows++
-	return shell.Result{Stdout: r.files[c.Argv[2]]}, nil
+	_, err := io.WriteString(c.Stdout, r.files[c.Argv[2]])
+	return shell.Result{}, err
 }
 
 type world struct {
@@ -91,6 +93,7 @@ type world struct {
 
 func newWorld(t *testing.T) *world {
 	t.Helper()
+	t.Setenv("CCI_HOME", t.TempDir())
 	cfg := defaults()
 	cfg.HookLogs = t.TempDir()
 	return &world{bus: &fakeBus{}, runner: &fakeRunner{files: map[string]string{}}, cfg: cfg}
@@ -667,6 +670,20 @@ func TestAQuietWindowPostsNothing(t *testing.T) {
 	equal(t, len(*posts), 0)
 }
 
+func TestDeliveriesToAStemWhoseLaneStillPostsAreNeverDead(t *testing.T) {
+	w := newWorld(t)
+	w.cfg.Lane = "meta-desk"
+	if _, err := client.Post(context.Background(), client.Draft{Drive: testDrive.Drive, Lane: "desk-3", Kind: "state", Text: "desk-3 up"}); err != nil {
+		t.Fatal(err)
+	}
+	w.bus.records = append(deliveries(30, "desk"), rec(inside, "desk-3", "working"))
+	p, posts := poster(t, w)
+
+	pass(t, p)
+
+	equal(t, len(*posts), 0)
+}
+
 func TestAFindingPostsOnceToTheMetaLaneThenWaitsUntilItGrows(t *testing.T) {
 	w := newWorld(t)
 	w.cfg.Lane = "meta-desk"
@@ -779,4 +796,14 @@ func TestConfigOverridesTheFloorsItNamesAndKeepsTheRest(t *testing.T) {
 		t.Fatal(err)
 	}
 	equal(t, cfg.HookLogs, "/env-logs")
+}
+
+func TestATranscriptThatDoesNotParseNamesItsFile(t *testing.T) {
+	runner := &fakeRunner{files: map[string]string{"/t.jsonl": "{not json\n" + strings.Repeat("x", 1<<20)}}
+
+	_, err := readTranscripts(context.Background(), runner, []transcript{{Path: "/t.jsonl", lane: "l"}}, t0, time.Hour)
+
+	if err == nil || !strings.Contains(err.Error(), "/t.jsonl") {
+		t.Fatalf("err %v", err)
+	}
 }

@@ -121,7 +121,8 @@ A fix that grows into a redesign of a path the plan deletes is a signal to stop,
 - Running `drive.py` reads a drive named by `--drive` with no Claude session id, so a codex lane passes identity checks (`reference/watchers.md`).
 - Every incident fix brief orders the lane to build, ship by using submit-pr, and post `ready`. Codex cannot run commit mechanics, so `codex-wrapper` hands its branch to a Claude `lane-ship` lane named `incident-<slug>` that ships it; the pack's `lane_landing` hook warns on `stack-enqueue` from that lane and names the plain squash.
 - Incident fixes land by plain squash (`gh pr merge <n> --squash`, never through the merge queue) in the pass they are approved and green (`reference/landing.md`). Green means only the checks required by branch rules; a red non-required check is read for its content and never waited on.
-- The plan check still holds. The finder and fidelity desks still grade the PR, and `rulings.py check-pr` refuses as it does for any PR (`reference/owner-rulings.md`). The remaining gates are an approving review, green required checks, a plain squash, and zero deletes and zero replaces on apply.
+- The plan check still holds. The finder and fidelity desks still grade the PR, and `rulings.py check-pr --incident` refuses only uncited rulings, a reserved change with no answer, and removed tests (`reference/owner-rulings.md`).
+- A reviewer-bot finding on an incident fix is accepted with `scripts/pr-reviews accept <slug> --why "incident: <why the fix is still right>"`, never fixed by a push that restarts CI, unless it says the fix itself is wrong, in which case the push ends with `# fix-is-wrong: <slug>`. The remaining gates are an approving review, green required checks, a plain squash, and zero deletes and zero replaces on apply.
 - The record that resolves the incident ends incident mode.
 
 ## Incident clocks

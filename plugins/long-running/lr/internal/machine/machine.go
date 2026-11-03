@@ -117,33 +117,35 @@ const (
 )
 
 type Facts struct {
-	Repo        string
-	Number      int
-	Head        string
-	Branch      string
-	Base        string
-	Lane        string
-	Draft       bool
-	Closed      bool
-	Merged      bool
-	CI          CI
-	Failing     []string
-	Approved    bool
-	Mergeable   Mergeable
-	Queue       Queue
-	QueuedHead  string
-	Resubmitted int
-	Finder      Finder
-	Fidelity    Fidelity
-	Verdict     bool
-	Tap         Tap
-	TapFrom     string
-	CarriedBy   string
-	Exempt      bool
-	Hold        Mover
-	HoldSeq     int64
-	Carries     []int
-	Condition   string
+	Repo          string
+	Number        int
+	Head          string
+	Branch        string
+	Base          string
+	Lane          string
+	ForeignAuthor string
+	Draft         bool
+	Closed        bool
+	Merged        bool
+	CI            CI
+	Failing       []string
+	Approved      bool
+	Mergeable     Mergeable
+	Queue         Queue
+	QueuedHead    string
+	Resubmitted   int
+	Finder        Finder
+	Fidelity      Fidelity
+	Verdict       bool
+	Tap           Tap
+	TapFrom       string
+	CarriedBy     string
+	Exempt        bool
+	Hold          Mover
+	HoldSeq       int64
+	Carries       []int
+	Condition     string
+	UnsafeWait    string
 }
 
 func (f Facts) Green() bool {
@@ -158,8 +160,16 @@ func (f Facts) Cleared() bool {
 	return f.Graded() && ((f.Finder == FinderClear && f.Fidelity == FidelityPass) || f.Verdict)
 }
 
+func (f Facts) Ours() bool {
+	return f.Tapped() || f.Lane != "" && f.ForeignAuthor == ""
+}
+
+func (f Facts) Foreign() bool {
+	return f.ForeignAuthor != "" && !f.Ours()
+}
+
 func (f Facts) Undriven() bool {
-	return f.Draft || (f.Lane == "" && !f.Tapped())
+	return f.Draft || !f.Ours()
 }
 
 func (f Facts) Tapped() bool {
@@ -179,7 +189,7 @@ func (f Facts) ClearsAbove() bool {
 }
 
 func (f Facts) Landable() bool {
-	return f.Green() && f.Mergeable == MergeableClean && len(f.Carries) == 0 && f.Cleared() && f.Approved && f.Tapped() && f.Hold == ""
+	return f.Green() && f.Mergeable == MergeableClean && len(f.Carries) == 0 && f.Cleared() && f.Approved && f.Tapped() && f.Hold == "" && f.UnsafeWait == ""
 }
 
 type Verdict struct {
@@ -199,6 +209,9 @@ func Classify(f Facts) Verdict {
 	}
 	if f.Closed {
 		return Verdict{StateClosed, MoverNobody, ActionNone, 0}
+	}
+	if !f.Ours() {
+		return Verdict{StatePushed, MoverNobody, ActionNone, 0}
 	}
 	if f.CI == CIFailure {
 		return Verdict{StateRed, MoverLane, ActionFixRed, LaneClock}

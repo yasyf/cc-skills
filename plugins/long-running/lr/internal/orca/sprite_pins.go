@@ -16,7 +16,7 @@ var installTools string
 
 var (
 	binaryName  = regexp.MustCompile(`\A[a-z0-9][a-z0-9._-]*\z`)
-	toolName    = map[string]*regexp.Regexp{"binary": binaryName, "package": binaryName, "plugin": regexp.MustCompile(`\A[a-z0-9][a-z0-9-]*@[a-z0-9][a-z0-9-]*\z`)}
+	toolName    = map[string]*regexp.Regexp{"binary": binaryName, "raw": binaryName, "package": binaryName, "plugin": regexp.MustCompile(`\A[a-z0-9][a-z0-9-]*@[a-z0-9][a-z0-9-]*\z`)}
 	toolVersion = regexp.MustCompile(`\A[0-9][0-9A-Za-z.+-]*\z`)
 	sha256Hex   = regexp.MustCompile(`\A[0-9a-f]{64}\z`)
 )
@@ -92,7 +92,7 @@ func (p *spritePins) pinTools(raw string) error {
 	for _, tool := range p.tools {
 		name, known := toolName[tool.Kind]
 		if !known || !name.MatchString(tool.Name) || tool.URL == "" || !sha256Hex.MatchString(tool.SHA256) || !toolVersion.MatchString(tool.Version) {
-			return refuse("WORKER_TOOLS pins %q, not a binary, package or plugin with a name, url, lowercase SHA-256 and version; nothing was prepared", tool.Name)
+			return refuse("WORKER_TOOLS pins %q, not a binary, raw, package or plugin with a name, url, lowercase SHA-256 and version; nothing was prepared", tool.Name)
 		}
 	}
 	return nil
