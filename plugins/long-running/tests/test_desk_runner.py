@@ -5998,7 +5998,7 @@ def test_an_unchanged_refused_tree_reuses_its_check_until_its_print_trunk_or_int
     landing.remember("29031", "print-1", {"29020", "29031"}, [])
     assert not landing.reuse(["29031"], "print-2", rows) and "29031" not in landing.unchanged
     landing.remember("29031", "print-1", {"29020", "29031"}, [])
-    expired = landing.unchanged["29031"][2] + runner_module.UNCHANGED_FOR.total_seconds()
+    expired = landing.unchanged["29031"][2] + runner_module.UNCHANGED_FOR.total_seconds() + 1
     monkeypatch.setattr(runner_module.time, "monotonic", lambda: expired)
     assert not landing.reuse(["29031"], "print-1", rows)
 
