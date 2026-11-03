@@ -11,7 +11,7 @@ BRIEFS = r"brief[^/]*\.md$"
 hook(
     Event.PreToolUse,
     block=True,
-    only_if=[DriveActive(), Or(And(Runs("cci", "post"), ToolInput(command=APPROVAL)), And(Tool("Write|Edit"), ToolInput(file_path=BRIEFS), Content(APPROVAL)))],
+    only_if=[DriveActive(), Or(And(Runs("cci", "post"), ToolInput(command=APPROVAL)), And(Tool("Write|Edit"), ToolInput(file_path=BRIEFS), Content(APPROVAL, project_only=False)))],
     skip_if=[FromSubagent()],
     confirm=Confirm(rule="Only the owner changes who approves landings: every PR lands on his tap, and only the classes he exempted land on a go."),
     message="Only the owner changes who approves landings. Put the proposed change to him as an ask on the board, and leave the merge mode as it is.",
