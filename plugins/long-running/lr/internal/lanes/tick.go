@@ -65,8 +65,9 @@ func Tick(s *store.Store, d Deps, now time.Time, generation int64) (out Outcome,
 	fresh := cursor == 0
 	var named []string
 	if !fresh {
-		named = []string{}
-		for _, lane := range must(s.Lanes(live...)) {
+		desired := must(s.Lanes(live...))
+		named = make([]string, 0, len(desired))
+		for _, lane := range desired {
 			named = append(named, lane.Name)
 		}
 	}
@@ -228,12 +229,12 @@ func relaunch(s *store.Store, d Deps, old store.Lane, found map[string]Peer, why
 	name := successorName(old.Name, taken)
 	taken[name] = true
 	path := filepath.Join(d.Briefs, name+".brief.md")
-	do(os.MkdirAll(d.Briefs, 0o755))
+	do(os.MkdirAll(d.Briefs, 0o750))
 	transcript := ""
 	if peer, ok := found[old.Name]; ok {
 		transcript = d.Transcript(peer.Row)
 	}
-	do(os.WriteFile(path, []byte(must(successorBrief(old, name, why, d, transcript))), 0o644))
+	do(os.WriteFile(path, []byte(must(successorBrief(old, name, why, d, transcript))), 0o600))
 	retire(s, old.Name, name, now)
 	must(s.WantLane(store.Lane{Name: name, Brief: old.Brief, Model: old.Model, Effort: old.Effort, Role: old.Role, State: store.LaneLaunching, Handoff: old.Handoff, PRs: old.PRs, Predecessor: old.Name, Reason: why, Strikes: strikes}, now))
 	do(d.Launch(name, old.Model, old.Effort, path))

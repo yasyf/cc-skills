@@ -29,7 +29,7 @@ func mins(n int) time.Duration { return time.Duration(n) * time.Minute }
 func writeBrief(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "brief-conflicts-2.md")
-	if err := os.WriteFile(path, []byte("# conflicts-2: restack the five approved stacks\nRegister slice: lane=conflicts-2 step=tooling\n"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("# conflicts-2: restack the five approved stacks\nRegister slice: lane=conflicts-2 step=tooling\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	return path
@@ -140,7 +140,7 @@ func newFake(t *testing.T, records []Record, peers []Row) *fake {
 }
 
 func (f *fake) kinds() []string {
-	out := []string{}
+	out := make([]string, 0, len(f.posts))
 	for _, p := range f.posts {
 		out = append(out, p.Kind+":"+p.To[0])
 	}
@@ -1523,7 +1523,7 @@ func standingBrief(t *testing.T, name string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), name+".brief.md")
 	text := fmt.Sprintf("# %s\nRegister slice: lane=%s step=tooling\nStanding: refresh the owner's board every pass\n\nDeliverable: every board row current at its head\n", name, name)
-	if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	return path

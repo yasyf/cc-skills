@@ -67,10 +67,10 @@ func stubBriefs(t *testing.T, records []Record, dir string) []Record {
 				written = words[2]
 			}
 			stub := filepath.Join(dir, "spawned", filepath.Base(filepath.Dir(written)), filepath.Base(written))
-			if err := os.MkdirAll(filepath.Dir(stub), 0o755); err != nil {
+			if err := os.MkdirAll(filepath.Dir(stub), 0o750); err != nil {
 				t.Fatal(err)
 			}
-			if err := os.WriteFile(stub, []byte(fmt.Sprintf("# %s\nRegister slice: lane=%s step=all\n", name, name)), 0o644); err != nil {
+			if err := os.WriteFile(stub, []byte(fmt.Sprintf("# %s\nRegister slice: lane=%s step=all\n", name, name)), 0o600); err != nil {
 				t.Fatal(err)
 			}
 			if !spawn {

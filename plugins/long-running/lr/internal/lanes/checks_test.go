@@ -122,13 +122,13 @@ func TestAnIncidentBriefFillsEveryPlaceholderAndFallsBackToTheDrivesCopy(t *test
 	claude, state := t.TempDir(), t.TempDir()
 	env := Env{Config: config.Config{Drive: testDrive, Checkout: "/checkout"}, Claude: claude, State: state, Now: func() time.Time { return t0 }}
 	template := filepath.Join(env.plugin(), "skills", "long-running", "reference", "alert-fix-brief.md")
-	if err := os.MkdirAll(filepath.Dir(template), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(template), 0o750); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(template, []byte("{lane} {incident} {slug} {link} {what} {onset} {reported} {due} {repo} {log} {facts} {{literal}}\n"), 0o644); err != nil {
+	if err := os.WriteFile(template, []byte("{lane} {incident} {slug} {link} {what} {onset} {reported} {due} {repo} {log} {facts} {{literal}}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(state, "alert-evidence-brief.md"), []byte("evidence {lane}\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(state, "alert-evidence-brief.md"), []byte("evidence {lane}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	fired := Fired{"dd-1", "it broke", "https://slack/p1", t0.Add(-mins(4))}

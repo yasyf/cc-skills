@@ -322,11 +322,11 @@ func taskOpen(tasks, lane string) bool {
 }
 
 func appendInbox(inbox string, message map[string]any) (bool, error) {
-	if err := os.MkdirAll(filepath.Dir(inbox), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(inbox), 0o750); err != nil {
 		return false, err
 	}
 	lock := inbox + ".lock"
-	if err := os.Mkdir(lock, 0o755); err != nil {
+	if err := os.Mkdir(lock, 0o750); err != nil {
 		if errors.Is(err, fs.ErrExist) {
 			return false, nil
 		}
@@ -358,7 +358,7 @@ func appendInbox(inbox string, message map[string]any) (bool, error) {
 		return false, err
 	}
 	staged := fmt.Sprintf("%s.tmp.%s", inbox, randomHex(4))
-	if err := os.WriteFile(staged, out.Bytes(), 0o644); err != nil {
+	if err := os.WriteFile(staged, out.Bytes(), 0o600); err != nil {
 		return false, err
 	}
 	return true, os.Rename(staged, inbox)
@@ -648,7 +648,7 @@ func rotateAt(settings string) (int, error) {
 }
 
 func detach(log string, argv ...string) error {
-	output, err := os.OpenFile(log, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	output, err := os.OpenFile(log, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return err
 	}
@@ -664,7 +664,7 @@ func detach(log string, argv ...string) error {
 
 func (e Env) Deps(ctx context.Context) (Deps, error) {
 	briefs := filepath.Join(e.State, "lanes")
-	if err := os.MkdirAll(briefs, 0o755); err != nil {
+	if err := os.MkdirAll(briefs, 0o750); err != nil {
 		return Deps{}, err
 	}
 	at, err := rotateAt(filepath.Join(e.Claude, "settings.json"))

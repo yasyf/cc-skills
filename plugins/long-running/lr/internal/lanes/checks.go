@@ -84,11 +84,11 @@ func (e Env) incidentBrief(lane, template string, fired Fired) (string, error) {
 		"{repo}", e.Config.Checkout, "{log}", "incident-"+fired.Slug, "{facts}", "drive "+e.Config.Drive,
 	).Replace(string(text))
 	dir := filepath.Join(e.State, "lanes")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return "", err
 	}
 	path := filepath.Join(dir, lane+".brief.md")
-	return path, os.WriteFile(path, []byte(rendered), 0o644)
+	return path, os.WriteFile(path, []byte(rendered), 0o600)
 }
 
 func (e Env) incidentLaunch(ctx context.Context, fired Fired) (string, error) {
@@ -364,7 +364,8 @@ func (n *LandedNotLive) holdsSHA(ctx context.Context, commit, sha string) bool {
 	}
 	_, err := n.Env.Runner.Run(ctx, shell.Command{Argv: []string{"git", "-C", n.Env.Config.Checkout, "merge-base", "--is-ancestor", sha, commit}, Timeout: readTimeout})
 	var exit *shell.ExitError
-	held := !(errors.As(err, &exit) && exit.Code == 1)
+	notAncestor := errors.As(err, &exit) && exit.Code == 1
+	held := !notAncestor
 	if n.holds == nil {
 		n.holds = map[[2]string]bool{}
 	}
@@ -402,7 +403,7 @@ func (n *LandedNotLive) Check(ctx context.Context, now time.Time) error {
 }
 
 func (n *LandedNotLive) announce(ctx context.Context, landed map[int]landing, owed map[string][]int, now time.Time) error {
-	var parts []string
+	parts := make([]string, 0, len(owed))
 	keys := map[string]bool{}
 	for _, target := range slices.Sorted(maps.Keys(owed)) {
 		numbers := owed[target]

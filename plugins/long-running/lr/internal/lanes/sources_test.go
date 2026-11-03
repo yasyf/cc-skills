@@ -25,14 +25,14 @@ func (s scripted) Run(_ context.Context, c shell.Command) (shell.Result, error) 
 
 func writeJSON(t *testing.T, path string, value any) {
 	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		t.Fatal(err)
 	}
 	data, err := json.Marshal(value)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
+	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -44,7 +44,7 @@ func assistant(tokens int) string {
 func TestContextSizeIsTheNewestAssistantTurn(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "agent.jsonl")
 	text := strings.Join([]string{assistant(200_000), `{"type":"user","message":{"content":"go"}}`, assistant(640_000), `{"type":"user","message":{"content":"ok"}}`}, "\n") + "\n"
-	if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -57,7 +57,7 @@ func TestContextSizeIsTheNewestAssistantTurn(t *testing.T) {
 
 func TestACompactionAfterTheLastTurnMeansNoReading(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "agent.jsonl")
-	if err := os.WriteFile(path, []byte(assistant(900_000)+"\n"+`{"type":"system","subtype":"compact_boundary"}`+"\n"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(assistant(900_000)+"\n"+`{"type":"system","subtype":"compact_boundary"}`+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -82,8 +82,8 @@ func TestEveryTeammateOfALiveLeadSessionReadsLiveAndCarriesItsTeam(t *testing.T)
 	out := Rostered(rows, teams)
 
 	team := filepath.Join(teams, "session-d50e80e8")
-	var live []bool
-	var rosters []string
+	live := make([]bool, 0, len(out))
+	rosters := make([]string, 0, len(out))
 	for _, row := range out {
 		live = append(live, row.Live)
 		rosters = append(rosters, row.Roster)
@@ -135,7 +135,7 @@ func TestAWakeMailsAnIdleLaneItsPageOrOncePerIntervalWhileItsRootTaskIsInProgres
 		t.Fatal("lock left behind")
 	}
 
-	if err := os.Mkdir(filepath.Join(team, "inboxes", "held-lane.json.lock"), 0o755); err != nil {
+	if err := os.Mkdir(filepath.Join(team, "inboxes", "held-lane.json.lock"), 0o750); err != nil {
 		t.Fatal(err)
 	}
 	equal(t, wake("held-lane", map[string]any{"why": "this blocker arrived"}), false)
@@ -152,7 +152,7 @@ func TestAnEndedOrcaDispatchIsAProcessRowThatReadsNotLiveSinceItsLaunch(t *testi
 	for lane, dispatch := range map[string]string{"sol-fix": "ctx_1", "sol-done": "ctx_2", "sol-gone": "ctx_3"} {
 		path := filepath.Join(receipts, lane+".json")
 		writeJSON(t, path, map[string]any{"result": map[string]string{"dispatchId": dispatch}})
-		if err := os.WriteFile(filepath.Join(receipts, lane+".terminal"), []byte("term_1\n"), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(receipts, lane+".terminal"), []byte("term_1\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 		if err := os.Chtimes(path, launched, launched); err != nil {
@@ -364,7 +364,7 @@ func TestWhoRowsCarryTheRosterOfALiveLeadsTeam(t *testing.T) {
 
 func TestAnInboxKeepsItsEarlierMessagesVerbatim(t *testing.T) {
 	inbox := filepath.Join(t.TempDir(), "inbox.json")
-	if err := os.WriteFile(inbox, []byte(`[{"from":"lead","extra":{"keep":[1,2]},"text":"<hello>"}]`), 0o644); err != nil {
+	if err := os.WriteFile(inbox, []byte(`[{"from":"lead","extra":{"keep":[1,2]},"text":"<hello>"}]`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
