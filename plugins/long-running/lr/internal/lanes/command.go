@@ -89,7 +89,39 @@ func Command(a *app.App) *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&asJSON, "json", false, "one JSON object per lane")
 	cmd.Flags().BoolVar(&idle, "idle", false, "the idle-session census: claude and codex processes, Orca worktrees and terminals, and what a whole-Run gc would close, remove, destroy and keep; changes nothing")
-	cmd.AddCommand(handoffCommand(a))
+	cmd.AddCommand(handoffCommand(a), adoptMetaCommand(a))
+	return cmd
+}
+
+func adoptMetaCommand(a *app.App) *cobra.Command {
+	var from string
+	cmd := &cobra.Command{
+		Use:   "adopt-meta DESK --from FILE",
+		Short: "Make DESK the drive's meta lane and record it as the launcher of the lanes FILE names, for a desk that did not start through lr launch meta",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			listed, err := os.ReadFile(from)
+			if err != nil {
+				return err
+			}
+			s, cfg, err := opened(a)
+			if err != nil {
+				return err
+			}
+			defer func() { _ = s.Close() }()
+			desk := Canonical(cfg.Drive, args[0])
+			adopted, unknown, err := AdoptMeta(s, desk, strings.Fields(string(listed)))
+			if err != nil {
+				return err
+			}
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s is the meta lane; %d lanes adopted; %d have no row: %s\n", desk, adopted, len(unknown), strings.Join(unknown, " "))
+			return err
+		},
+	}
+	cmd.Flags().StringVar(&from, "from", "", "a file of lane names the desk launched")
+	if err := cmd.MarkFlagRequired("from"); err != nil {
+		panic(err)
+	}
 	return cmd
 }
 
