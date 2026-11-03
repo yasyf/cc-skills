@@ -371,7 +371,7 @@ class PreAllocationTest(LaunchTest):
 
 
 class AttemptTest(LaunchTest):
-    def test_an_earlier_attempt_refuses_replay_before_prepare(self):
+    def test_an_attempt_that_never_started_a_worker_leaves_the_brief_free_and_keeps_its_receipts(self):
         for shape in ("empty", "failed", "link"):
             with self.subTest(shape=shape):
                 launch = self.fresh()
@@ -382,8 +382,20 @@ class AttemptTest(LaunchTest):
                     launch.attempt.mkdir()
                 if shape == "failed":
                     (launch.attempt / "prepare.status").write_text("1\n")
-                self.assert_failed(launch, launch.run(), f"{launch.attempt} holds an earlier attempt of this brief, and a brief gets one attempt; inspect it instead", [VERSION, CURRENT])
-                self.assertEqual(launch.kept(), ["prepare.status"] if shape == "failed" else [])
+                result = launch.run()
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(launch.calls(), [VERSION, CURRENT, launch.prepare(), *launch.start()])
+                self.assertEqual(launch.kept(), SPRITE_KEPT)
+                [moved] = launch.briefs.glob(f"{LANE}.worker.*")
+                if shape == "failed":
+                    self.assertEqual((moved / "prepare.status").read_text(), "1\n")
+
+    def test_an_attempt_that_reached_worker_start_refuses_replay_before_prepare(self):
+        self.launch.sprite()
+        self.launch.attempt.mkdir()
+        (self.launch.attempt / "worker-start.json").write_text("{}")
+        self.assert_failed(self.launch, self.launch.run(), f"{self.launch.attempt} holds an earlier attempt of this brief, and a brief gets one attempt; inspect it instead", [VERSION, CURRENT])
+        self.assertEqual(self.launch.kept(), ["worker-start.json"])
 
     def test_a_legacy_dispatch_receipt_refuses_instead_of_retrying(self):
         for local in (False, True):
@@ -407,16 +419,17 @@ class AttemptTest(LaunchTest):
                     else:
                         self.assertEqual(os.readlink(legacy), str(gone))
 
-    def test_a_second_launch_after_a_failed_prepare_prepares_nothing(self):
+    def test_a_launch_refused_before_any_worker_started_relaunches_on_the_same_brief(self):
+        """Nov 2: coordinator-desks-1's prepare timed out under R84964, and R84978 was refused because a brief gets one attempt, though no worker had started."""
         self.launch.sprite()
         self.launch.reply("cc-remote orca prepare", {"rc": 1, "out": ""})
         first = self.launch.run()
         self.launch.sprite()
         second = self.launch.run()
         self.assertEqual(first.returncode, 1)
-        self.assertEqual((second.returncode, second.stdout, second.stderr), (1, "", f"{self.launch.attempt} holds an earlier attempt of this brief, and a brief gets one attempt; inspect it instead\n"))
-        self.assertEqual(self.launch.calls(), [VERSION, CURRENT, self.launch.prepare(), VERSION, CURRENT])
-        self.assertEqual(self.launch.kept(), ALLOCATION_KEPT)
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertEqual(self.launch.calls(), [VERSION, CURRENT, self.launch.prepare(), VERSION, CURRENT, self.launch.prepare(), *self.launch.start()])
+        self.assertEqual(self.launch.kept(), SPRITE_KEPT)
 
     def test_an_earlier_local_attempt_refuses_instead_of_retrying(self):
         self.launch.local()
@@ -424,6 +437,65 @@ class AttemptTest(LaunchTest):
         (self.launch.attempt / "worker-start.json").write_text(json.dumps({"ok": True, "result": {"taskId": "task_l", "dispatchId": "ctx_l"}}))
         self.assert_failed(self.launch, self.launch.run(model="fable", WORKER_LOCAL="1"), f"{self.launch.attempt} holds an earlier attempt of this brief, and a brief gets one attempt; inspect it instead", [CURRENT])
         self.assertEqual(self.launch.kept(), ["worker-start.json"])
+
+
+UNPACKING_SPRITE = """#!/usr/bin/env python3
+import json, os, subprocess, sys
+args = sys.argv[1:]
+with open(os.path.join(os.environ["FAKE_STATE"], "calls"), "a") as calls:
+    calls.write(json.dumps({"argv": ["sprite", *args], "real": os.path.realpath(sys.argv[0]), "env": {"CC_REMOTE_CONFIG": None}}) + "\\n")
+if "--no-stdin" not in args:
+    script, root = args[args.index("-c") + 1], args[-1].replace("/home/sprite", os.environ["FAKE_BOX"])
+    sys.exit(subprocess.run(["sh", "-c", script, "sh", root], stdin=sys.stdin).returncode)
+"""
+
+
+class BriefInputsTest(LaunchTest):
+    def launched(self, drive: Path, named: str) -> subprocess.CompletedProcess[str]:
+        contract = drive / "meta" / "contract.md"
+        contract.parent.mkdir(parents=True)
+        contract.write_text("the contract\n")
+        self.launch.brief.write_text(f"# Lane A\n\nRead {named} first.\n")
+        prepared = {**PREPARED, "brief": {**PREPARED["brief"], "sha256": hashlib.sha256(self.SENT.encode()).hexdigest(), "bytes": len(self.SENT.encode())}}
+        self.launch.sprite(prepared)
+        (self.launch.bin / "sprite").write_text(UNPACKING_SPRITE)
+        return self.launch.run(WORKER_DRIVE_DIR=str(drive), WORKER_BRIEF_INPUTS="meta/contract.md", FAKE_BOX=str(self.launch.root / "box"))
+
+    SENT = "# Lane A\n\nRead /home/sprite/drive/meta/contract.md first.\n"
+
+    def assert_delivered(self, result: subprocess.CompletedProcess[str]) -> None:
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.launch.root / "box" / "drive" / "meta" / "contract.md").read_text(), "the contract\n")
+        self.assertEqual((self.launch.attempt / "brief.md").read_text(), self.SENT)
+        calls = self.launch.calls()
+        prepare = next(call for call in calls if call[:3] == ["cc-remote", "orca", "prepare"])
+        self.assertEqual(prepare[prepare.index("--brief-file") + 1], str(self.launch.attempt / "brief.md"))
+        copied = next(index for index, call in enumerate(calls) if call[0] == "sprite" and "--no-stdin" not in call)
+        started = next(index for index, call in enumerate(calls) if call[:3] == ["orca", "orchestration", "worker-start"])
+        self.assertLess(copied, started)
+        self.assertIn(hashlib.sha256(self.SENT.encode()).hexdigest(), calls[started][calls[started].index("--spec") + 1])
+
+    def test_a_drive_file_the_brief_names_reaches_the_box_at_the_same_relative_path_before_the_worker_starts(self):
+        drive = self.launch.root / "drive"
+        self.assert_delivered(self.launched(drive, f"{drive}/meta/contract.md"))
+
+    def test_a_home_relative_path_to_a_drive_file_is_rewritten_too(self):
+        drive = self.launch.home / "scratch" / "program"
+        self.assert_delivered(self.launched(drive, "~/scratch/program/meta/contract.md"))
+
+    def test_a_failed_copy_leaves_the_worker_idle(self):
+        drive = self.launch.root / "drive"
+        contract = drive / "meta" / "contract.md"
+        contract.parent.mkdir(parents=True)
+        contract.write_text("the contract\n")
+        self.launch.brief.write_text(f"Read {contract} first.\n")
+        sent = "Read /home/sprite/drive/meta/contract.md first.\n"
+        self.launch.sprite({**PREPARED, "brief": {**PREPARED["brief"], "sha256": hashlib.sha256(sent.encode()).hexdigest(), "bytes": len(sent.encode())}})
+        (self.launch.bin / "sprite").write_text("#!/bin/sh\ncat >/dev/null\nexit 1\n")
+        result = self.launch.run(WORKER_DRIVE_DIR=str(drive), WORKER_BRIEF_INPUTS="meta/contract.md")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("copying the brief's drive files", result.stderr)
+        self.assertFalse((self.launch.attempt / "worker-start.json").exists())
 
 
 class SpriteTest(LaunchTest):

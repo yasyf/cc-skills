@@ -208,7 +208,9 @@ with no release in an hour reads `LANDED-NOT-LIVE` and reaches the coordinator a
 a blocker.
 
 **R9.** Orca worker traffic runs through the runner (`lr launch`, `lr relay`),
-never a check-and-ack loop. The coordinator receives records over the cc-inbox
+never a check-and-ack loop. Mac load queues and refuses no launch: one that may leave
+the Mac starts on a box at once, a worker's question goes to the lane that launched it,
+and a launch gets its verdict ahead of the dispatch sweep, which is one batched list. The coordinator receives records over the cc-inbox
 channel after one `cci subscribe --drive <drive> --reader root --kind incident,decide,ask,defect,blocker --follow oncall=incident`;
 the bridge subscribes as `owner-relay`. A seq already handled is skipped.
 

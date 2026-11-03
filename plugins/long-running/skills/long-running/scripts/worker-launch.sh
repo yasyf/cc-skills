@@ -88,9 +88,19 @@ bound=$(orca orchestration run-current --full --json |
 legacy=$dir/${name%.*}.dispatch.json
 [ ! -e "$legacy" ] && [ ! -L "$legacy" ] ||
   die "$legacy holds an earlier launch of this brief, and a brief gets one attempt; inspect it instead"
-[ ! -e "$attempt" ] && [ ! -L "$attempt" ] ||
+[ ! -e "$attempt/worker-start.json" ] ||
   die "$attempt holds an earlier attempt of this brief, and a brief gets one attempt; inspect it instead"
+if [ -e "$attempt" ] || [ -L "$attempt" ]; then
+  mv "$attempt" "$attempt.$(date +%s)"
+fi
 mkdir "$attempt"
+inputs=${WORKER_BRIEF_INPUTS:-}
+box_drive=/home/sprite/drive
+if [ -n "$inputs" ]; then
+  drive_dir=${WORKER_DRIVE_DIR:?set WORKER_DRIVE_DIR to the directory WORKER_BRIEF_INPUTS is relative to}
+  jq -Rsj --arg drive "$drive_dir/" --arg tilde "~${drive_dir#"$HOME"}/" --arg box "$box_drive/" 'split($drive) | join($box) | split($tilde) | join($box)' "$brief" >"$attempt/brief.md"
+  brief=$attempt/brief.md
+fi
 sha=$(shasum -a 256 "$brief" | cut -d' ' -f1)
 bytes=$(wc -c <"$brief" | tr -d ' ')
 jq -n --arg lane "$lane" --arg run "$run" --arg route "$route" --arg kind "$kind" --arg model "$model_id" --arg effort "$effort" \
@@ -162,6 +172,11 @@ if [ "$route" = sprite ]; then
     die "the Sprite checked out $base, not WORKER_EXPECT_BASE $expect, so the prepared worker stays idle and unattached, and nothing is prepared again"
 
   workspace=$(jq -r .workspace "$attempt/allocation.json")
+  if [ -n "$inputs" ]; then
+    COPYFILE_DISABLE=1 tar -C "$drive_dir" -czf - -T - <<<"$inputs" |
+      sprite exec -s "$workspace" -- sh -c 'mkdir -p "$1" && tar -xzf - -C "$1"' sh "$box_drive" >"$attempt/brief-inputs.log" 2>&1 ||
+      die "copying the brief's drive files to Sprite $workspace failed; $attempt/brief-inputs.log keeps its output, and the prepared worker stays idle and unattached"
+  fi
   sprite exec -s "$workspace" --no-stdin -- sh -c 'curl -fsSL "$1" -o /tmp/cci.tgz && echo "$2  /tmp/cci.tgz" | sha256sum -c - && mkdir -p ~/.local/bin && tar -xzf /tmp/cci.tgz -C ~/.local/bin cci' \
     sh "$cci_url" "$cci_sha" >"$attempt/cci-install.log" 2>&1 ||
     die "installing cci from $cci_url on Sprite $workspace failed; $attempt/cci-install.log keeps its output, and the prepared worker stays idle and unattached"

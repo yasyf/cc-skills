@@ -112,7 +112,7 @@ class FakeShell(runner_module.Shell):
         self.mailbox_down = False
         self.garble_sends = 0
         self.requests: dict[str, str] = {}
-        self.stale_out = ""
+        self.unread: list[dict] = []
         self.prompt_watch: dict = {}
         self.screens: dict[str, list[str]] = {}
         self.stop_answers: dict[str, tuple[str, int | None]] = {}
@@ -431,9 +431,6 @@ class FakeShell(runner_module.Shell):
             return runner_module.Done(done.code, json.dumps({**json.loads(done.out), "_meta": {"runtimeId": "rt_1"}}), done.err)
         if argv[:3] == ["ccn", "-R", str(self.root / "checkout")]:
             return self.ccn(argv[3:])
-        if name == "orca-check.sh":
-            assert argv[1:] == ["--stale"]
-            return runner_module.Done(0, self.stale_out, "")
         if argv[:2] == [sys.executable, str(runner_module.SCRIPTS / "prompt_watch.py")]:
             assert argv[2:] == ["show", "--cci-drive", "d1", "--json"]
             return runner_module.Done(0, json.dumps(self.prompt_watch), "")
@@ -943,8 +940,10 @@ class FakeShell(runner_module.Shell):
                 return self.ok({"dispatch": {"status": dispatch["status"], **fence}, "observation": {"status": "missing", "exactWorker": False}, "terminal": None})
             return self.ok({"dispatch": {"status": dispatch["status"], **fence}, "observation": {"status": "live", "agentWait": None}, "terminal": {"handle": dispatch["terminal"]}})
         if verb == ["orchestration", "worker-list"]:
-            assert argv[2:] == ["--run", "run_1", "--include-remote", "--limit", "100"]
-            return self.ok({"workers": [{"dispatchId": dispatch, "dispatchStatus": entry["status"], "agentTerminalHandle": entry["terminal"]} for dispatch, entry in self.dispatches.items()], "page": {"nextCursor": None}})
+            assert argv[2:4] == ["--run", "run_1"]
+            start, limit = int(argv[argv.index("--cursor") + 1]) if "--cursor" in argv else 0, int(argv[argv.index("--limit") + 1])
+            rows = [{"dispatchId": dispatch, "dispatchStatus": entry["status"], "agentTerminalHandle": entry["terminal"]} for dispatch, entry in self.dispatches.items()]
+            return self.ok({"workers": rows[start : start + limit], "page": {"nextCursor": str(start + limit) if start + limit < len(rows) else None}})
         if verb in (["orchestration", "worker-stop"], ["orchestration", "worker-abandon"]):
             assert argv[2] == "--dispatch"
             dispatch = self.dispatches[argv[3]]
@@ -1000,6 +999,8 @@ class FakeShell(runner_module.Shell):
             if self.mailbox_down:
                 return runner_module.Done(1, json.dumps({"ok": False, "error": {"code": "runtime_unavailable"}}), "")
             return self.ok({"messages": self.inboxes.get(argv[3], [])})
+        if verb == ["orchestration", "inbox"] and argv[2] == "--limit":
+            return self.ok({"messages": self.unread, "count": len(self.unread)})
         if verb == ["orchestration", "inbox"]:
             assert argv[2:4] == ["--terminal", "run:run_1"]
             if self.inbox_error:
@@ -1719,9 +1720,27 @@ def test_a_polling_prompt_watch_keeps_the_sweep_quiet_about_prompts(shell, confi
     assert escalations(shell) == []
 
 
+def unread_mail(message: str, to: str, at: datetime) -> dict:
+    return {"id": message, "run_id": "run_1", "to_handle": to, "read": 0, "created_at": actions.stamp(at)}
+
+
+def test_young_mail_wakes_nobody_and_mail_a_settled_dispatch_never_read_escalates_once(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    shell.launch("done-lane", "ctx_b", status="completed")
+    shell.unread = [
+        unread_mail("msg_young", "dispatch:ctx_a", shell.clock - timedelta(minutes=2)),
+        unread_mail("msg_late", "term_ctx_b", shell.clock),
+        {**unread_mail("msg_other_run", "term_ctx_a", shell.clock - timedelta(hours=1)), "run_id": "run_2"},
+    ]
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert wakes(shell) == []
+    assert [line for line in escalations(shell) if line.startswith("STALE-MAIL")] == ["STALE-MAIL stale:msg_late done-lane: msg_late unread by a completed dispatch"]
+
+
 def test_stale_mail_wakes_a_lane_once_and_only_at_its_idle_prompt(shell, config, tmp_path):
     shell.launch(LANE, "ctx_a")
-    shell.stale_out = f"STALE {LANE} 12m unread msg_7\n"
+    shell.unread = [unread_mail("msg_7", "term_ctx_a", shell.clock - timedelta(minutes=12))]
     shell.screens["term_ctx_a"] = PICKER
     orca_pass(shell, config)
     orca_pass(shell, config)
@@ -1876,7 +1895,7 @@ def launches(shell: FakeShell) -> list[list[str]]:
     return [call for call in shell.calls if Path(call[0]).name == "orca-launch.sh"]
 
 
-def test_an_incident_launch_on_load_starts_anyway_while_a_normal_launch_beside_it_is_held(shell, config, tmp_path):
+def test_mac_load_holds_neither_an_incident_launch_nor_a_place_local_launch_beside_it(shell, config, tmp_path):
     """drive-watchdog-2, cci #157631: the load gate refused incident fix lanes R84845 and R84846 at load 45 and 71."""
     brief = tmp_path / "fix.md"
     brief.write_text("ccx: place=local\nbrief")
@@ -1885,67 +1904,26 @@ def test_an_incident_launch_on_load_starts_anyway_while_a_normal_launch_beside_i
     cli(shell, config, "launch", "--key", "R639", "--lane", "other-lane", "--model", "opus", "--effort", "xhigh", "--brief", str(brief))
     shell.launch(LANE, "ctx_n")
     orca_pass(shell, config)
-    orca_pass(shell, config)
-    assert launches(shell) == [[str(runner_module.LAUNCHER), LANE, "incident", "xhigh", str(brief)]]
+    assert sorted(launches(shell)) == sorted([[str(runner_module.LAUNCHER), LANE, "incident", "xhigh", str(brief)], [str(runner_module.LAUNCHER), "other-lane", "opus", "xhigh", str(brief)]])
     assert incident(tmp_path, f"desk-lane-{LANE}").actions["R638"].status == "verified"
-    assert incident(tmp_path, "desk-lane-other-lane").actions["R639"].status == "accepted"
-    assert [line.split()[0] for line in escalations(shell)] == ["LAUNCHED"]
     assert watchdog_lines(shell) == [
-        "LOAD-HIGH load:2026-10-01T18:0 runner: load 140 above 8 cores: Orca launches are refused while it lasts, because a worktree checkout times out under it. drive-watchdog: move the load off this Mac now; a pass, backfill, dry run, or bulk rewrite runs on in-region compute",
+        "LOAD-HIGH load:2026-10-01T18:0 runner: load 140 above 8 cores: while it lasts a desk launch starts on a Sprite and a lane pinned to the Mac starts here anyway, where a worktree checkout can time out. drive-watchdog: move the load off this Mac now; a pass, backfill, dry run, or bulk rewrite runs on in-region compute",
         f"LOAD-INCIDENT desk-lane-{LANE}/R638:load {LANE}: R638 launches on load 140 above 8 cores: an incident fix lane is never held for load",
     ]
 
 
-def test_an_owner_directed_launch_on_load_fails_at_once_and_tells_the_root_to_move_the_load(shell, config, tmp_path):
+def test_an_owner_directed_place_local_launch_on_load_starts_on_the_mac(shell, config, tmp_path):
     brief = tmp_path / "fix.md"
     brief.write_text("ccx: place=local\nbrief")
     shell.cpu_load = 140
+    shell.launch_line = f"{LANE} ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
     cli(shell, config, "launch", "--key", "R638", "--lane", LANE, "--model", "opus", "--effort", "xhigh", "--brief", str(brief), "--owner-directed")
+    shell.launch(LANE, "ctx_n")
     orca_pass(shell, config)
-    orca_pass(shell, config)
-    assert launches(shell) == []
-    action = incident(tmp_path, f"desk-lane-{LANE}").actions["R638"]
-    assert action.status == "failed" and action.reason == "R638 refused on load 140 above 8 cores; nothing was launched, and the root launches it in-process or once the load is moved"
-    assert watchdog_lines(shell) == ["LOAD-HIGH load:2026-10-01T18:0 runner: load 140 above 8 cores: Orca launches are refused while it lasts, because a worktree checkout times out under it. drive-watchdog: move the load off this Mac now; a pass, backfill, dry run, or bulk rewrite runs on in-region compute"]
-    assert escalations(shell) == [f"LAUNCH-FAILED desk-lane-{LANE}/R638 {LANE}: {action.reason}"]
-    assert [post["kind"] for post in shell.posts] == ["blocker", "defect"]
-
-
-def test_a_launch_held_by_load_starts_nothing_then_fails_loudly_at_the_hold_deadline(shell, config, tmp_path):
-    brief = tmp_path / "fix.md"
-    brief.write_text("ccx: place=local\nbrief")
-    shell.cpu_load = 40
-    cli(shell, config, "launch", "--key", "R638", "--lane", LANE, "--model", "opus", "--effort", "xhigh", "--brief", str(brief))
-    for _ in range(4):
-        orca_pass(shell, config)
-        shell.sleep(60)
-    assert launches(shell) == [] and [line.split()[0] for line in escalations(shell)] == ["LAUNCH-STALLED"] and [line.split()[0] for line in watchdog_lines(shell)] == ["LOAD-HIGH"]
-    assert incident(tmp_path, f"desk-lane-{LANE}").actions["R638"].status == "accepted"
-    for _ in range(3):
-        shell.sleep(60)
-        orca_pass(shell, config)
-    assert launches(shell) == []
-    action = incident(tmp_path, f"desk-lane-{LANE}").actions["R638"]
-    assert action.status == "failed" and "load 40 above 8 cores" in action.reason
-    [_, line] = escalations(shell)
-    [load] = watchdog_lines(shell)
-    assert load.startswith("LOAD-HIGH load:") and "LAUNCH-HELD" in line and "R638 launch failed after 5m held" in line
-    [mail] = [call for call in shell.sends() if call[call.index("--to") + 1] == "run:run_1"]
-    assert mail[mail.index("--subject") + 1] == f"LAUNCH-HELD {LANE}"
-
-
-def test_show_marks_a_load_held_launch_held_with_its_reason_and_age(shell, config, tmp_path, capsys):
-    brief = tmp_path / "fix.md"
-    brief.write_text("brief")
-    shell.cpu_load = 40
-    cli(shell, config, "launch", "--key", "R638", "--lane", LANE, "--model", "opus", "--effort", "xhigh", "--brief", str(brief))
-    shell.sleep(180)
-    capsys.readouterr()
-    cli(shell, config, "show")
-    assert "- R638 launch [HELD load 40 above 8 cores for 3m] accepted 11:00" in capsys.readouterr().out
-    shell.cpu_load = 1.0
-    cli(shell, config, "show")
-    assert "- R638 launch [accepted] accepted 11:00" in capsys.readouterr().out
+    assert launches(shell) == [[str(runner_module.LAUNCHER), LANE, "opus", "xhigh", str(brief)]]
+    assert incident(tmp_path, f"desk-lane-{LANE}").actions["R638"].status == "verified"
+    assert escalations(shell) == [f"LAUNCHED R638 {LANE}: dispatch ctx_n terminal term_ctx_n"]
+    assert watchdog_lines(shell) == ["LOAD-HIGH load:2026-10-01T18:0 runner: load 140 above 8 cores: while it lasts a desk launch starts on a Sprite and a lane pinned to the Mac starts here anyway, where a worktree checkout can time out. drive-watchdog: move the load off this Mac now; a pass, backfill, dry run, or bulk rewrite runs on in-region compute"]
 
 
 def stalled(shell: FakeShell) -> list[str]:
@@ -10849,7 +10827,7 @@ def test_a_settled_dispatch_is_named_once_for_the_roots_gc_and_never_closed(shel
     orca_pass(shell, config)
     reclaims = [line for line in escalations(shell) if line.startswith("RECLAIM ")]
     assert len(reclaims) == 1
-    assert len([call for call in shell.calls if call[:5] == ["orca", "orchestration", "worker-show", "--dispatch", "ctx_a"]]) == 1
+    assert [call for call in shell.calls if call[:5] == ["orca", "orchestration", "worker-show", "--dispatch", "ctx_a"]] == []
     assert reclaims[0].endswith(f"1 settled dispatch(es) still hold their terminal: {LANE}=ctx_a:term_ctx_a; run {runner_module.SCRIPTS / 'desk-runner.py'} gc --config {config.resolve()}, then .agents/skills/orca/scripts/orca-gc --run run_1 --dispatch ctx_a")
     assert [call for call in shell.calls if FORBIDDEN & {Path(token).name for token in call}] == []
 
@@ -12119,7 +12097,7 @@ def test_an_inbox_launch_line_launches_once_and_now_marks_it_urgent(shell, confi
     orca_pass(shell, config)
     assert launches(shell) == [[str(runner_module.LAUNCHER), LANE, "opus", "xhigh", str(brief)]]
     action = incident(tmp_path, f"desk-lane-{LANE}").actions["R1907"]
-    assert (action.status, json.loads(action.target)["urgent"]) == ("verified", True)
+    assert action.status == "verified"
     assert [line for line in escalations(shell)] == [f"LAUNCHED R1907 {LANE}: dispatch ctx_n terminal term_ctx_n"]
     assert [(post["kind"], post["topic"]) for post in shell.posts] == [("report", "R1907")]
 
@@ -12375,19 +12353,14 @@ def cci_record(shell: FakeShell, **fields) -> int:
     return seq
 
 
-def test_a_withdraw_line_stops_a_held_launch_before_it_starts(shell, config, tmp_path):
+def test_a_withdraw_line_read_with_its_launch_stops_it_before_it_starts(shell, config, tmp_path):
     brief = launch_brief(tmp_path)
-    shell.cpu_load = 140
     orca_pass(shell, config)
-    desk_orders(shell, f"R20 orca-desk: launch {LANE} sol xhigh brief={brief}")
-    orca_pass(shell, config)
-    desk_orders(shell, "R21 (11:52 PM) orca-desk: withdraw R20")
-    orca_pass(shell, config)
-    shell.cpu_load = 1.0
+    desk_orders(shell, f"R20 orca-desk: launch {LANE} sol xhigh brief={brief}", "R21 (11:52 PM) orca-desk: withdraw R20")
     orca_pass(shell, config)
     assert launches(shell) == []
     assert incident(tmp_path, f"desk-lane-{LANE}").actions["R20"].status == "failed"
-    assert [line for line in escalations(shell) if not line.startswith("LOAD-HIGH ")] == [f"WITHDRAWN R20 {LANE}: by R21; nothing was launched"]
+    assert escalations(shell) == [f"WITHDRAWN R20 {LANE}: by R21; nothing was launched"]
 
 
 def stops(shell: FakeShell) -> list[list[str]]:
@@ -12460,16 +12433,27 @@ def test_a_withdraw_whose_stop_orca_settles_within_the_wait_is_withdrawn(shell, 
 
 def test_a_root_cci_withdraw_of_a_launch_record_withdraws_it_and_is_no_directive(shell, config, tmp_path):
     brief = launch_brief(tmp_path)
-    shell.cpu_load = 140
     orca_pass(shell, config)
     launch = cci_record(shell, to=["orca-desk"], at=actions.stamp(shell.clock), text=f"R30 (11:49 PM) orca-desk: launch {LANE} sol xhigh brief={brief}")
-    orca_pass(shell, config)
     cci_record(shell, kind="withdraw", to=["orca-desk"], re=launch, text="withdraw R30; relaunching under R32")
     cci_record(shell, to=["orca-desk"], at=actions.stamp(shell.clock), text=f"R32 (11:51 PM) orca-desk: launch {LANE} NOW incident xhigh brief={brief}")
-    shell.cpu_load = 1.0
     orca_pass(shell, config)
     assert launches(shell) == [[str(runner_module.LAUNCHER), LANE, "incident", "xhigh", str(brief)]]
-    assert [line for line in escalations(shell) if not line.startswith("LOAD-HIGH ")][0] == f"WITHDRAWN R30 {LANE}: by cci#34767; nothing was launched"
+    assert escalations(shell)[0] == f"WITHDRAWN R30 {LANE}: by cci#34767; nothing was launched"
+
+
+@pytest.mark.parametrize(("poster", "asked"), [("meta-desk-1", "meta-desk-1"), ("root", "root"), ("supervisor", "root"), ("stall-watch", "root")])
+def test_a_workers_question_goes_to_the_lane_that_posted_its_launch(shell, config, tmp_path, poster, asked):
+    """Nov 2: DECIDE records 345903, 345904 and 345905 went to root though meta-desk-1 launched those lanes."""
+    brief = launch_brief(tmp_path)
+    orca_pass(shell, config)
+    cci_record(shell, lane=poster, to=["orca-desk"], at=actions.stamp(shell.clock), text=f"R50 (11:49 PM) orca-desk: launch {LANE} sol xhigh brief={brief}")
+    shell.launch_line = f"{LANE} ready task=task_1 dispatch=ctx_a terminal=term_ctx_a worktree=/w\n"
+    orca_pass(shell, config)
+    shell.launch(LANE, "ctx_a")
+    shell.receive({"id": "msg_q1", "type": "question", "subject": "rebase?", "body": "may I rebase onto dev", "payload": json.dumps({"dispatchId": "ctx_a"}), "from_handle": "term_ctx_a"})
+    orca_pass(shell, config)
+    assert [post["to"] for post in shell.posts if post["text"].startswith("DECIDE msg_q1")] == [asked]
 
 
 def test_a_root_reply_to_a_decide_answers_that_worker_question(shell, config, tmp_path):
@@ -12994,7 +12978,7 @@ def test_a_silent_incident_lane_gets_one_opus_fallback_and_one_blocker_per_thres
     assert launches(shell) == [[str(runner_module.LAUNCHER), LANE, "incident", "xhigh", str(brief)], [str(runner_module.LAUNCHER), backup, "opus", "xhigh", str(fallback)]]
     assert shell.spawned_env["orca-launch.sh"]["ORCA_LAUNCH_CLAUDE_ARGS"] == runner_module.CLAUDE_FAST_MODE
     launch = json.loads(incident(tmp_path, f"desk-lane-{backup}").actions[f"incident-clock:ctx_{LANE}"].target)
-    assert (launch["urgent"], launch["fast"]) == (True, True)
+    assert launch["fast"] is True
     text = fallback.read_text()
     assert text.startswith(f"ccx: lane={backup} role=incident effort=xhigh\n") and text.endswith(f"{brief.read_text().rstrip()}\n\nRegister slice: lane={backup} step=incident\n")
     assert f"You are the Opus fallback for `{LANE}`" in text and f"10 minutes after `{LANE}` launched" in text
@@ -13790,25 +13774,35 @@ def test_an_opus_fallback_whose_orca_launch_fails_once_is_launched_once_more(she
     assert [line for line in clock_lines(shell) if " in-process: " in line] == []
 
 
-def test_an_opus_fallback_refused_on_load_twice_goes_to_the_root_in_process(shell, config, tmp_path):
+def test_an_opus_fallback_whose_orca_launch_fails_twice_goes_to_the_root_in_process(shell, config, tmp_path):
     clocked_lane(shell, config, tmp_path)
+    backup = f"{LANE}-opus"
+    failure = f"{backup} failed worktree checkout: index still differs from HEAD after 180s"
+    shell.launch_process = Running()
+    shell.launch_line = f"{failure}\n"
     shell.sleep(10 * 60)
-    shell.cpu_load = 40
     for _ in range(4):
         orca_pass(shell, config)
-    backup = f"{LANE}-opus"
     fallback = written(tmp_path, f"{backup}")
-    assert len(launches(shell)) == 1
     tries = incident(tmp_path, f"desk-lane-{backup}").actions
     assert [(key, action.status) for key, action in tries.items()] == [(f"incident-clock:ctx_{LANE}", "failed"), (f"incident-clock:ctx_{LANE}:retry", "failed")]
-    refused = "refused on load 40 above 8 cores; nothing was launched, and the root launches it in-process or once the load is moved"
     assert [line for line in clock_lines(shell) if " in-process: " in line] == [
-        f"INCIDENT-CLOCK {LANE} in-process: the Orca launch of the Opus fallback {backup} failed twice: incident-clock:ctx_{LANE} {refused} | incident-clock:ctx_{LANE}:retry {refused} | root: start {backup} in-process now, an Agent of type long-running:lane-ship named {backup} on opus in fast mode with the brief {fallback}"
+        f"INCIDENT-CLOCK {LANE} in-process: the Orca launch of the Opus fallback {backup} failed twice: {failure} | {failure} | root: start {backup} in-process now, an Agent of type long-running:lane-ship named {backup} on opus in fast mode with the brief {fallback}"
     ]
-    assert [line.split()[0] for line in watchdog_lines(shell)].count("LOAD-HIGH") == 1
     for _ in range(2):
         orca_pass(shell, config)
     assert len([line for line in clock_lines(shell) if " in-process: " in line]) == 1
+
+
+def test_an_opus_fallback_on_load_starts_on_the_mac_at_once(shell, config, tmp_path):
+    clocked_lane(shell, config, tmp_path)
+    backup = f"{LANE}-opus"
+    shell.sleep(10 * 60)
+    shell.cpu_load = 40
+    shell.launch_line = f"{backup} ready task=task_1 dispatch=ctx_opus terminal=term_ctx_opus worktree=/w\n"
+    orca_pass(shell, config)
+    assert [call[1] for call in launches(shell)][-1] == backup
+    assert [line for line in clock_lines(shell) if " in-process: " in line] == []
 
 
 def test_no_retry_or_in_process_fallback_while_the_executors_backup_is_live(shell, config, tmp_path):
@@ -14632,15 +14626,144 @@ def test_a_lane_placed_or_forced_local_never_leaves_the_mac(shell, config, tmp_p
     assert not [call for call in shell.calls if call[0] == "sprite"]
 
 
-@pytest.mark.parametrize("header", ["ccx: role=build place=local", "ccx: role=build cpu=high place=local"])
-def test_a_local_launch_beside_a_sprite_config_still_waits_on_load(shell, config, tmp_path, header):
-    with_sprites(config)
-    brief = lane_brief(tmp_path, header)
-    shell.cpu_load = 40
+def spilled_launch(shell: FakeShell, config: Path, brief: Path) -> None:
+    shell.sprite_line = SPRITE_READY
+    shell.sprite_receipts = {**PREPARED, **STARTED, "worker-start.json": SPRITE_STARTED}
+    shell.dispatches["ctx_s"] = {"status": "dispatched", "terminal": "term_s"}
     cli(shell, config, "launch", "--key", "R638", "--lane", LANE, "--model", "opus", "--effort", "xhigh", "--brief", str(brief))
     orca_pass(shell, config)
-    assert launches(shell) == [] and sprite_launches(shell) == []
-    assert incident(tmp_path, f"desk-lane-{LANE}").actions["R638"].status == "accepted"
+    orca_pass(shell, config)
+
+
+@pytest.mark.parametrize("header", ["ccx: role=watch", "ccx: role=desk cpu=high", "ccx: role=watch place=remote"])
+def test_a_desk_launch_the_mac_cannot_take_starts_on_a_sprite_at_once_and_its_record_names_the_box(shell, config, tmp_path, header):
+    """Owner, Nov 2 7:27 PM: "Workers that are refused and enqueues should instead spill to being started remotely automatically"; R84974, `role=watch place=remote`, was refused on load 37."""
+    with_sprites(config)
+    brief = lane_brief(tmp_path, header)
+    shell.cpu_load = 140
+    spilled_launch(shell, config, brief)
+    assert sprite_launches(shell) == [[LAUNCHER, LANE, "claude-opus-5-5", "xhigh", str(brief)]]
+    assert launches(shell) == []
+    assert escalations(shell) == [f"LAUNCHED R638 {LANE}: dispatch ctx_s terminal term_s on Sprite {LANE}"]
+    assert incident(tmp_path, f"desk-lane-{LANE}").actions["R638"].status == "verified"
+    assert shell.spawned_rows == [["--lane", LANE, "--brief", str(brief), "--model", "opus", "--effort", "xhigh", "--placement", "sprite", "--by", "desk-runner"]]
+
+
+def test_a_desk_launch_under_load_starts_on_the_mac(shell, config, tmp_path):
+    with_sprites(config)
+    brief = lane_brief(tmp_path, "ccx: role=watch")
+    cli(shell, config, "launch", "--key", "R638", "--lane", LANE, "--model", "opus", "--effort", "xhigh", "--brief", str(brief))
+    orca_pass(shell, config)
+    assert launches(shell) == [[str(runner_module.LAUNCHER), LANE, "opus", "xhigh", str(brief)]]
+    assert sprite_launches(shell) == []
+
+
+@pytest.mark.parametrize(
+    ("header", "model"),
+    [
+        ("ccx: role=build place=local", "opus"),
+        ("ccx: role=watch place=local", "opus"),
+        ("ccx: role=build cpu=high place=local", "sol"),
+        ("ccx: role=build", "fable"),
+    ],
+)
+def test_a_launch_pinned_to_the_mac_starts_there_over_load_with_no_hold(shell, config, tmp_path, header, model):
+    with_sprites(config)
+    brief = lane_brief(tmp_path, header)
+    shell.cpu_load = 140
+    cli(shell, config, "launch", "--key", "R638", "--lane", LANE, "--model", model, "--effort", "xhigh", "--brief", str(brief))
+    orca_pass(shell, config)
+    assert launches(shell) == [[str(runner_module.LAUNCHER), LANE, model, "xhigh", str(brief)]]
+    assert sprite_launches(shell) == []
+    assert not [line for line in escalations(shell) if line.split()[0] in ("LAUNCH-HELD", "LAUNCH-STALLED")]
+    assert incident(tmp_path, f"desk-lane-{LANE}").actions["R638"].status != "accepted"
+
+
+def test_a_desk_launch_over_load_with_no_sprite_route_starts_on_the_mac(shell, config, tmp_path):
+    brief = lane_brief(tmp_path, "ccx: role=watch")
+    shell.cpu_load = 140
+    cli(shell, config, "launch", "--key", "R638", "--lane", LANE, "--model", "opus", "--effort", "xhigh", "--brief", str(brief))
+    orca_pass(shell, config)
+    assert launches(shell) == [[str(runner_module.LAUNCHER), LANE, "opus", "xhigh", str(brief)]]
+    assert not [line for line in escalations(shell) if line.startswith("LAUNCH-FAILED")]
+
+
+def test_a_sprite_launch_carries_the_drive_files_its_brief_names(shell, config, tmp_path):
+    """Nov 2: five lanes launched on Sprites stopped because their briefs named Mac paths, among them 345904 and 345905 on meta-desk-1/helper-contract.md."""
+    with_sprites(config)
+    contract = config.resolve().parent / "meta-desk-1" / "helper-contract.md"
+    contract.parent.mkdir()
+    contract.write_text("the contract\n")
+    brief = lane_brief(tmp_path, f"ccx: role=build\nRead {contract} first.")
+    spilled_launch(shell, config, brief)
+    env = shell.spawned_env["worker-launch.sh"]
+    assert (env["WORKER_DRIVE_DIR"], env["WORKER_BRIEF_INPUTS"]) == (str(config.resolve().parent), "meta-desk-1/helper-contract.md")
+
+
+def test_a_brief_naming_nothing_on_this_machine_sends_no_drive_files(shell, config, tmp_path):
+    with_sprites(config)
+    brief = lane_brief(tmp_path, f"ccx: role=build\nRead {tmp_path}/missing.md first.")
+    spilled_launch(shell, config, brief)
+    assert "WORKER_BRIEF_INPUTS" not in shell.spawned_env["worker-launch.sh"]
+
+
+def test_a_brief_naming_a_home_file_outside_the_drive_stays_on_the_mac_and_tells_the_lane_that_launched_it(shell, config, tmp_path, monkeypatch):
+    with_sprites(config)
+    monkeypatch.setattr(runner_module.lane_brief, "named_files", lambda text, drive_dir: ([], ["/home/me/.claude/plans/x.md"]))
+    brief = lane_brief(tmp_path, f"ccx: role=build\nScale: no N\n\nRegister slice: lane={LANE} step=1")
+    orca_pass(shell, config)
+    cci_record(shell, lane="meta-desk-1", to=["orca-desk"], at=actions.stamp(shell.clock), text=f"R50 (11:49 PM) orca-desk: launch {LANE} opus xhigh brief={brief}")
+    orca_pass(shell, config)
+    assert launches(shell) == [[str(runner_module.LAUNCHER), LANE, "opus", "xhigh", str(brief)]]
+    [post] = [post for post in shell.posts if post["text"].startswith("MAC-FILES")]
+    assert post["to"] == "meta-desk-1" and "/home/me/.claude/plans/x.md" in post["text"]
+
+
+def verdict_pass(shell: FakeShell, runner: runner_module.Runner, tmp_path: Path, lane: str, key: str) -> list[list[str]]:
+    brief = launch_brief(tmp_path)
+    shell.launch_line = f"{lane} ready task=task_1 dispatch=ctx_{key} terminal=term_{key} worktree=/w\n"
+    desk_orders(shell, f"{key} orca-desk: launch {lane} sol xhigh brief={brief}")
+    before = len(shell.calls)
+    assert runner_module.run_orca(runner, True) == 0
+    assert f"LAUNCHED {key} {lane}: dispatch ctx_{key} terminal term_{key}" in escalations(shell)
+    return sorted(call[:3] for call in shell.calls[before:] if call[0] == "orca")
+
+
+def test_a_launch_gets_its_verdict_in_one_pass_whose_orca_calls_do_not_grow_with_live_dispatches(shell, config, tmp_path):
+    """Nov 2, 7:27 PM to at least 7:39 PM: about ten launches waited with no verdict while each pass ran worker-show one dispatch at a time."""
+    shell.launch("live-0", "ctx_live_0")
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    assert runner_module.run_orca(runner, True) == 0
+    at_one = verdict_pass(shell, runner, tmp_path, "lane-one", "R61")
+    for number in range(1, 1000):
+        shell.launch(f"live-{number}", f"ctx_live_{number}")
+    assert verdict_pass(shell, runner, tmp_path, "lane-thousand", "R62") == at_one
+
+
+def test_a_sweep_of_a_thousand_dispatches_reads_the_run_in_one_list_and_one_inbox_read(shell, config, tmp_path):
+    for number in range(1000):
+        shell.launch(f"live-{number}", f"ctx_live_{number}")
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    before = len(shell.calls)
+    orca_pass(shell, config)
+    calls = [call[:4] for call in shell.calls[before:] if call[0] == "orca"]
+    assert [call for call in calls if call[2] == "worker-show" or call[2:4] == ["check", "--terminal"]] == []
+    assert len([call for call in calls if call[2] == "worker-list"]) == 10
+    assert len([call for call in calls if call[2:4] == ["inbox", "--limit"]]) == 1
+
+
+def test_a_launch_verdict_posts_before_the_sweep_lists_the_run(shell, config, tmp_path):
+    brief = tmp_path / "fix-brief.md"
+    brief.write_text("brief")
+    orca_pass(shell, config)
+    desk_orders(shell, f"R40 orca-desk: launch {LANE} sol xhigh brief={brief}")
+    before = len(shell.calls)
+    orca_pass(shell, config)
+    calls = shell.calls[before:]
+    posted = next(index for index, call in enumerate(calls) if call[:2] == ["cci", "post"] and any("LAUNCH-FAILED R40" in token for token in call))
+    listed = next(index for index, call in enumerate(calls) if call[:3] == ["orca", "orchestration", "worker-list"])
+    assert posted < listed
 
 
 SILENT_LANE = "inc-liam-load-opus"

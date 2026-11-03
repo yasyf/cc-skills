@@ -28,9 +28,9 @@ For implementation lanes, prefer the repository's canonical remote entrypoint wh
 
 Canonical remote workers use home Dispatch messages and the repository skill's source-return workflow. Namespace runs on regular Compute through an explicit config and stays opt-in, so the desk never launches there. Native recipe-picker enablement is a separate surface.
 
-A Sprite holds only the brief and a shallow checkout of the ref its config names (`dev` in `Forge-AI/monorepo`). It has no Mac path, scratch file, local worktree, unpushed commit, Keychain, Mac-only credential, or `cci`. Write `place=remote` when the lane can work inside those limits with every fact in the brief by value and everything it builds on already pushed. A remote lane's brief never tells it to read or post the drive's `cci` bus; it reports through native Orca status, `ask`, and `worker_done` on its Dispatch. A Sprite lane commits, pushes its branch, and opens its PR from the VM like any lane, and the root pulls the branch when it needs the source locally. A remote worker keeps its runtime and workspace after completion.
+A Sprite holds the brief, the files the brief names under the drive directory, at `/home/sprite/drive/<same relative path>` with the brief's paths rewritten to match, and a shallow checkout of the ref its config names (`dev` in `Forge-AI/monorepo`). It has no other Mac path, local worktree, unpushed commit, Keychain, Mac-only credential, or `cci`. Write `place=remote` when the lane can work inside those limits with every fact in the brief by value and everything it builds on already pushed. A remote lane's brief never tells it to read or post the drive's `cci` bus; it reports through native Orca status, `ask`, and `worker_done` on its Dispatch. A Sprite lane commits, pushes its branch, and opens its PR from the VM like any lane, and the root pulls the branch when it needs the source locally. A remote worker keeps its runtime and workspace after completion.
 
-Write `place=local` when the lane reads a file, worktree, or branch only the Mac has, needs a Mac-only credential, or drives something on the Mac itself. A local lane the root has decided is done ends under R195's `--done` route. Dedicated remote API keys belong only to the worker process; local Fable keeps existing Mac interactive authentication.
+Write `place=local` when the lane reads a worktree or branch only the Mac has, needs a Mac-only credential, or drives something on the Mac itself; it then starts on the Mac at any load. A drive-directory file is no reason for it, and a brief naming a file elsewhere under the home stays on the Mac without the line and tells the launching lane. A local lane the root has decided is done ends under R195's `--done` route. Dedicated remote API keys belong only to the worker process; local Fable keeps existing Mac interactive authentication.
 
 A local lane that sends a build to a shared Sprite runs it with `sprite-cargo.sh <sprite> <lane> <repo> <ref> <command> <path>...`, never a hand-rolled `sprite exec`. Each lane builds into its own `target-<lane>` so two lanes never clobber each other's build-script output, and every call removes targets and source trees idle for more than six hours.
 
@@ -156,7 +156,8 @@ Scale: <the N each path this lane changes runs at: chats, teams, sessions, or ru
   in for a fundamental fix, is a defect the finder grades major; a diff that adds one
   names in the PR body the fix it stands in for and the owner pick that deferred it, or
   builds the fix. The spawn hook and the orca desk runner warn on a new non-incident
-  lane brief with no `Scale:` line and never refuse it; a `<lane>-handoff` writer, a
+  lane brief with no `Scale:` line, and `desk-launch.py` refuses it before posting, naming
+  every missing line together; a `<lane>-handoff` writer, a
   successor (`<lane>-<n>` or a `Replaces:` line), and a brief written before the rule pass
   quietly. Both also warn when a judge reads a brief's `Scale:` line as missing the N its
   paths run at.

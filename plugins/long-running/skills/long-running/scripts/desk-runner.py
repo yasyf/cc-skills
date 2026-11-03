@@ -119,8 +119,8 @@ fallback header it attaches to the briefs log as `<lane>-opus.full.md` and write
 the last naming the missing milestones and the minutes each phase took. A later milestone counts
 for the earlier ones, and each threshold logs once per launch. A `-opus` lane is clocked
 and gets no fallback of its own; a lane whose `<lane>-opus` already has a live dispatch or
-a launch in flight gets no second. When the Orca launch of `<lane>-opus` fails, on load or
-otherwise, the runner launches it once more under `<key>:retry`; when that fails too while
+a launch in flight gets no second. When the Orca launch of `<lane>-opus` fails, for any reason,
+the runner launches it once more under `<key>:retry`; when that fails too while
 the lane's clock runs, it logs `INCIDENT-CLOCK <lane> in-process`, naming both failures and
 the fallback brief, for the root to start `<lane>-opus` in its own session as a
 `long-running:lane-ship` Agent. A fix lane gets one Opus fallback: a lane an incident
@@ -247,16 +247,17 @@ binding lost mid-run escalates UNBOUND once and fails every launch at once with
 `accepted_at` logs one `LAUNCH-STALLED` blocker naming the `orca-desk: withdraw` line and the `orca-launch.sh` command
 that launches it by hand, whatever held it; no incident clock defers it. `rebind` runs
 `orca orchestration run-use` from the current terminal and records it; `show` prints the
-binding first. No Mac launch starts while the 1-minute load
-is above the core count, because an Orca worktree checkout times out under that load, and
-each ten minutes of it logs one `LOAD-HIGH` blocker telling the root to move the load. An
-incident launch is never held: it starts anyway and logs one `LOAD-INCIDENT` report naming
-the load. An `--owner-directed` launch fails at once with `LAUNCH-FAILED`; any other launch
-waits for at most `deadlines.load_hold_minutes`, then reports the failure to root through
-cci and the Run mailbox. Those Mac launches are only a brief whose `ccx:` line says
-`place=local`, `role=desk`, or `role=watch`, a Fable or incident launch, and an incident
-clock fallback. Every other launch runs `orca.sprite.launcher`, the repository's
-worker-launch.sh, on a Sprite and never waits on Mac load. The runner counts no Sprites
+binding first. Mac load queues and refuses no launch. While the 1-minute load is above the
+core count, each ten minutes of it logs one `LOAD-HIGH` blocker telling the drive watchdog to
+move the load, a `role=desk` or `role=watch` launch starts on a Sprite at once, its `LAUNCHED`
+line naming the box, and a launch that may run only on the Mac starts there anyway: a brief
+whose `ccx:` line says `place=local`, a Fable or incident launch, an incident clock fallback,
+and a brief naming a file under this home outside the drive directory, which logs `MAC-FILES`
+to the lane that launched it. An incident launch also logs one `LOAD-INCIDENT` report naming
+the load. With no usable Sprite route a desk starts on the Mac too. Every other launch runs
+`orca.sprite.launcher`, the repository's worker-launch.sh, on a Sprite and never reads Mac
+load; the files a brief names under the drive directory, the directory holding this config,
+reach the box beside the brief at the same relative path. The runner counts no Sprites
 and sets no limit: the provider admits or refuses each one. A Sprite launch fails at once
 with `LAUNCH-FAILED` when no `orca.sprite` is configured, when a Sprite refuses its lane
 name, or when its receipts prove worker-start never ran, a provider refusal among them;
@@ -707,6 +708,8 @@ from long_running import ghread
 import incident
 import inboxes
 import lane_brief
+from launch_checks import EFFORTS, INCIDENT_MODEL, MODELS, NAMES_NOTHING, SLICE_HEADER, SLICE_LINE, brief_incidents, incident_fix, not_a_model
+import launch_checks
 from long_running import incidents, lanes
 from long_running.pass_io import OnePassIO
 import merge_queue
@@ -806,12 +809,9 @@ IDLE_PROBE_MS = 1500
 QUIET = timedelta(minutes=10)
 DONE_MARKER = re.compile(r"^✻ .* · done ")
 NOT_IDLE = "not idle: busy, prompt typed or asking, or output in the last 10 minutes"
-MODELS = re.compile(r"opus|sonnet|fable|astra|codex|sol|incident|claude-[\w.-]+|gpt-[\w.-]+")
-INCIDENT_MODEL = "incident"
 OPTIONS_BRANCH = "options/"
 CITED_RECORD = re.compile(r"#(\d{6,})\b")
 CITED_ROOT_KINDS = ("defect", "decide", "answer")
-EFFORTS = ("low", "medium", "high", "xhigh", "max")
 GO_UNQUEUED_OUTCOMES = frozenset({"blocked", "failed", "stranded", "unsettled"})
 RETRYABLE = frozenset({"blocked", "superseded", "foreign", "dropped", "refused", "dequeued", merge_queue.RATE_LIMITED})
 FAILED_RETRY = timedelta(minutes=10)
@@ -996,7 +996,8 @@ RAISED_BACKOFF = timedelta(minutes=1)
 WAKE_SECONDS = 0.25
 STOP_CONFIRM = timedelta(seconds=30)
 STOP_POLL_SECONDS = 2
-SHOW_WORKERS = 8
+STALE_MAIL = timedelta(minutes=10)
+UNREAD_WINDOW = 5000
 GATE_WORKERS = 16
 JUDGE_WORKERS = 2
 JUDGED_RECORDS = 12
@@ -1117,8 +1118,6 @@ EXPIRING = {"launch": LAUNCH_SPEC, "incident": INCIDENT_SPEC}
 INCIDENT_BAR = timedelta(minutes=20)
 ALERT_TEMPLATE = SCRIPTS.parent / "reference" / "alert-fix-brief.md"
 UNFIXED_TEMPLATE = SCRIPTS.parent / "reference" / "unfixed-case-brief.md"
-SLICE_LINE = "Register slice:"
-SLICE_HEADER = re.compile(rf"^{SLICE_LINE}", re.MULTILINE)
 SCALE_LINES = re.compile(r"^[ \t>*_-]*Scale:.*$", re.MULTILINE)
 INCIDENT_STEP = "incident"
 UNFIXED = re.compile(r"^[ \t>*-]*(?P<tick>`?)UNFIXED (?P<lane>[\w.-]+):[ \t]*(?P<case>\S.*?)(?P=tick)[ \t]*$", re.MULTILINE)
@@ -1127,13 +1126,9 @@ UNFIXED_KEY = "unfixed:"
 UNKNOWN_CAUSE = re.compile(r"\bUNKNOWN\b")
 HANDED_BACK = re.compile(r"^(?:[\w-]+:\s*)?(?:NOT-OURS|stood down|stopped)\b", re.IGNORECASE)
 MONITOR_ID = re.compile(r"(?:monitors/|\bmonitor |\bDatadog )(\d{4,})")
-INCIDENT_ANNOTATION = re.compile(r"^ccx:.*\bincident=([\w.-]+)", re.MULTILINE)
 NATIVE_BASE = re.compile(r"#(\d+)'s native stack targets (\S+), not ")
 GONE_BRANCH = re.compile(r"couldn't find remote ref refs/heads/(\S+)")
 POSTER = re.compile(r"\bcci post\b[^`\n]*?--lane[= ]['\"]?([\w.-]+)")
-NAMES_NOTHING = "none"
-ROLE = re.compile(r"^ccx:(?:.*[ \t])?role=([\w-]+)", re.MULTILINE)
-FIX_ROLES = frozenset({"fix", INCIDENT_MODEL})
 CLOCK = "incident-clock"
 MILESTONE_STATUSES = "milestone-statuses"
 LANE_HEARTBEAT = "lane-heartbeat"
@@ -1454,18 +1449,8 @@ class Shell:
 LANE_IDENTITY = ("CCI_AGENT_ID", "CCI_LANE", "CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID")
 
 
-def brief_incidents(brief: Path) -> set[str]:
-    return set(INCIDENT_ANNOTATION.findall(brief.read_text())) if brief.is_file() else set()
-
-
 def brief_posters(brief: Path) -> set[str]:
     return set(POSTER.findall(brief.read_text())) - {ROOT} if brief.is_file() else set()
-
-
-def incident_fix(lane: str, model: str, brief: Path, role: str) -> bool:
-    """Whether a launch is an incident fix lane's: the incident alias, or a brief whose `ccx:` line says `role=incident` or names an `incident=`, and in either case a launch and brief naming no role but fix or incident, for a lane whose name names no evidence, proof, closeout, desk, or audit role."""
-    roles = (set(ROLE.findall(brief.read_text())) if brief.is_file() else set()) | ({role} if role else set())
-    return roles <= FIX_ROLES and not lanes.NOT_FIX_ROLES & set(lane.split("-")) and (model == INCIDENT_MODEL or INCIDENT_MODEL in roles or bool(brief_incidents(brief) - {NAMES_NOTHING}))
 
 
 def fix_launch(container: str, launches: list[actions.Action]) -> actions.Action | None:
@@ -1664,12 +1649,14 @@ def clock_phases(launched: datetime, reached: dict[str, str], now: datetime) -> 
     return ", ".join(f"{start} to {end} {whole_minutes(at, until)} min" for (at, start), (until, end) in itertools.pairwise(points))
 
 
-def sprite_placed(brief: Path) -> bool:
-    text = brief.read_text() if brief.is_file() else ""
-    if STANDING_DESK.search(text):
-        return False
-    placed = PLACE.search(text)
-    return not placed or placed[1] == "remote"
+def brief_text(brief: Path) -> str:
+    return brief.read_text() if brief.is_file() else ""
+
+
+def mac_pinned(spec: dict) -> bool:
+    """Whether a launch runs only on the Mac at any load: Fable and the fast and incident routes, which no Sprite starts, and a brief whose author wrote `place=local`."""
+    placed = PLACE.search(brief_text(Path(spec["brief"])))
+    return bool(FABLE_MODEL.search(spec["model"]) or spec["model"] == INCIDENT_MODEL or spec.get("fast") or (placed and placed[1] == "local"))
 
 
 def sprite_model(model: str) -> str:
@@ -1805,7 +1792,6 @@ class Config:
     gc: str | None
     start_minutes: int
     launch_minutes: int
-    load_hold_minutes: int
     enqueue_minutes: int
     hold_minutes: int
     release_start_minutes: int
@@ -1840,7 +1826,6 @@ class Config:
             gc=orca.get("gc"),
             start_minutes=deadlines.get("start_minutes", 10),
             launch_minutes=deadlines.get("launch_minutes", 15),
-            load_hold_minutes=deadlines.get("load_hold_minutes", 5),
             enqueue_minutes=deadlines.get("enqueue_minutes", 15),
             hold_minutes=deadlines.get("hold_minutes", 15),
             release_start_minutes=deadlines.get("release_start_minutes", 10),
@@ -1990,6 +1975,14 @@ class Orca:
         self.shell.run(["orca", "terminal", "send", "--terminal", terminal, "--text", text, "--enter", "--json"])
         return True
 
+    def statuses(self) -> dict[str, str]:
+        """Every dispatch's status in the Run from one batched list, read from Orca's own record, so no worker's remote runtime can hold it up."""
+        return {row["dispatchId"]: row["dispatchStatus"] for row in self.workers()}
+
+    def unread(self) -> list[dict]:
+        """The Run's unread messages across recipients, from one inbox read."""
+        return [message for message in self.ask("orchestration", "inbox", "--limit", str(UNREAD_WINDOW))["result"]["messages"] if not message["read"] and message["run_id"] == self.config.run]
+
     def workers(self, *scope: str) -> list[dict]:
         rows: list[dict] = []
         cursor: list[str] = []
@@ -2138,6 +2131,7 @@ class Runner:
         self.bus_misses: list[datetime] = []
         self.judge_backend = judge.backend_from(os.environ)
         self.judges = ThreadPoolExecutor(JUDGE_WORKERS)
+        self.swept = datetime.min.replace(tzinfo=timezone.utc)
         self.judgments: dict[str, Future] = {}
         self.judging = threading.Lock()
         self.book.ensure(RUNNER, RUNNER)
@@ -2854,7 +2848,7 @@ class Runner:
             lane = spec["lane"] if directive["verb"] == "launch" else f"{spec['slug']}-fix"
             self.record(f"escalation:launch:cci#{seq}", f"LAUNCH-EXPIRED {directive['key'] or f'inbox@cci#{seq}'} {lane}: cci #{seq} was posted at {pacific(actions.parse_stamp(record['at']))}, {int(age.total_seconds() // 60)} minutes before this read, and a launch line is valid for {int(LAUNCH_VALID.total_seconds() // 60)}; nothing was launched")
             return
-        if not self.inbox_line(f"cci#{seq}", line):
+        if not self.inbox_line(f"cci#{seq}", line, record["lane"]):
             self.refuse_line(record)
 
     def refuse_line(self, record: dict) -> None:
@@ -2863,12 +2857,15 @@ class Runner:
         opening = f"{line[:80]}…" if len(line) > 80 else line
         self.record(f"escalation:cci:{seq}", f"DIRECTIVE-FAILED cci#{seq} inbox: it opens `{opening}`, and a record addressed to {ORCA_DESK} is one `[<H:MM AM|PM>] [R<n> (<clock>)] orca-desk: <relay|launch|alert|incident|hold|unhold|withdraw> …` line, with or without --re, or a root reply this desk acts on: a withdraw of a launch line or an answer to an open question; nothing was done")
 
-    def inbox_line(self, at: str, line: str) -> bool:
+    def inbox_line(self, at: str, line: str, by: str) -> bool:
         directive = INBOX_DIRECTIVE.match(line)
         if not directive:
             return False
         key = directive["key"] or f"inbox@{at}"
-        verbs = {"relay": self.relay_line, "launch": self.launch_line, "alert": self.alert_line, "incident": self.incident_line, "hold": self.hold_line, "unhold": self.unhold_line, "withdraw": self.withdraw_line}
+        if directive["verb"] == "launch":
+            self.launch_line(at, key, directive["rest"], by)
+            return True
+        verbs = {"relay": self.relay_line, "alert": self.alert_line, "incident": self.incident_line, "hold": self.hold_line, "unhold": self.unhold_line, "withdraw": self.withdraw_line}
         verbs[directive["verb"]](at, key, directive["rest"])
         return True
 
@@ -2894,17 +2891,16 @@ class Runner:
             return
         self.record(log, f"RELAYED {key} {lane}: {f'reply to question {question} of' if question else 'relay to'} dispatch {dispatch.id}")
 
-    def launch_line(self, at: str, key: str, rest: str) -> None:
-        """Accept what `launch` accepts, `NOW` meaning `--owner-directed`, once per key and only for a lane with no live dispatch and no launch in flight."""
+    def launch_line(self, at: str, key: str, rest: str, by: str) -> None:
+        """Accept what `launch` accepts, `NOW` meaning `--owner-directed`, once per key and only for a lane with no live dispatch and no launch in flight, remembering `by`, the lane that posted the line, as the one the lane's questions go to."""
         log = f"escalation:launch:{at}"
         spec = LAUNCH_SPEC.match(rest)
         if not spec:
             self.record(log, f"LAUNCH-FAILED {key} inbox: one launch per line, in the form `{LAUNCH_GRAMMAR}`; nothing was launched")
             return
         lane, brief = spec["lane"], Path(spec["brief"]).resolve()
-        if brief.name == "brief.md" and brief.parent.name != lane:
-            order = f"launch {brief.parent.name}{spec['now'] or ''} {spec['model']} {spec['effort']}{f' role={spec['role']}' if spec['role'] else ''} brief={brief}"
-            self.record(log, f"LAUNCH-FAILED {key} {lane}: brief {brief} is lane {brief.parent.name}'s, and a lane keeps one name from launch on; post `orca-desk: {order}`; nothing was launched")
+        if wrong := launch_checks.wrong_lane_fault(lane, spec["model"], spec["effort"], bool(spec["now"]), spec["role"] or "", brief):
+            self.record(log, f"LAUNCH-FAILED {key} {lane}: {wrong}; nothing was launched")
             return
         if refusal := self.launch_refusal(key, lane, spec["model"], spec["effort"], brief, spec["role"] or ""):
             self.record(log, f"LAUNCH-FAILED {key} {lane}: {refusal}; nothing was launched")
@@ -2912,10 +2908,10 @@ class Runner:
         if not spec["now"] and (holder := self.duplicate_holder(lane, brief)):
             self.record(log, duplicate_line(key, lane, holder))
             return
-        if lane_brief.owes_scale(lane, brief.read_text(), brief) and INCIDENT_MODEL not in (spec["model"], spec["role"]) and not incident_fix(lane, spec["model"], brief, spec["role"] or ""):
-            self.escalate(f"scale:{key}", "SCALE-MISSING", lane, f"{lane_brief.no_scale(brief)}; {lane} launches anyway")
+        if scale := launch_checks.scale_fault(lane, spec["model"], brief, spec["role"] or ""):
+            self.escalate(f"scale:{key}", "SCALE-MISSING", lane, f"{scale}; {lane} launches anyway")
         self.refresh_slice(key, lane, brief)
-        self.accept_launch(key, lane, spec["model"], spec["effort"], str(brief), bool(spec["now"]), role=spec["role"] or "")
+        self.accept_launch(key, lane, spec["model"], spec["effort"], str(brief), role=spec["role"] or "", by=by)
         if INCIDENT_MODEL not in (spec["model"], spec["role"]) and not incident_fix(lane, spec["model"], brief, spec["role"] or ""):
             self.judge_scale(key, lane, brief)
 
@@ -3060,7 +3056,7 @@ class Runner:
         if brief is None:
             self.record(log, f"INCIDENT {slug} {pacific(self.now())}: {what} {link} | {lane} not launched: {failure}")
             return
-        self.accept_launch(key, lane, INCIDENT_MODEL, "xhigh", str(brief), True, incident=slug)
+        self.accept_launch(key, lane, INCIDENT_MODEL, "xhigh", str(brief), incident=slug)
         self.record(log, f"INCIDENT {slug} {pacific(self.now())}: {what} {link} | fix lane {lane} launching on incident xhigh, brief {brief}; root: ratify, spawn the evidence and incident-doc lanes, fence the target, start comms in the affected account channels and #outage")
 
     def drive_facts(self) -> str:
@@ -3191,7 +3187,7 @@ class Runner:
         if brief is None:
             self.record(log, f"{line} | case lane {lane} not launched: {failure}")
             return False
-        self.accept_launch(key, lane, INCIDENT_MODEL, "xhigh", str(brief), True)
+        self.accept_launch(key, lane, INCIDENT_MODEL, "xhigh", str(brief))
         self.record(log, f"{line} | case lane {lane} launching on incident xhigh, brief {brief}; root: ratify, and keep the reporter told that this case is still open")
         return True
 
@@ -3279,17 +3275,8 @@ class Runner:
         return None
 
     def launch_refusal(self, key: str, lane: str, model: str, effort: str, brief: Path, role: str = "") -> str:
-        try:
-            launch_model(model)
-        except argparse.ArgumentTypeError as error:
-            return str(error)
-        if effort not in EFFORTS:
-            return f"{effort} is not an effort: {', '.join(EFFORTS)}"
-        if not brief.is_file():
-            return f"brief {brief} is not a file"
-        text = brief.read_text()
-        if not SLICE_HEADER.search(text) and not (model == INCIDENT_MODEL or incident_fix(lane, model, brief, role)):
-            return f"brief {brief} has no `{SLICE_LINE} lane=<name> step=<n>` line; add one and run `rulings.py slice --refresh {brief}`"
+        if faults := launch_checks.launch_faults(lane, model, effort, brief, role):
+            return "; ".join(faults)
         container = lane_container(lane)
         if self.book.exists(container):
             if held := self.book.known(container, key):
@@ -3321,6 +3308,7 @@ class Runner:
         keys = brief_incidents(brief) - {NAMES_NOTHING}
         text = brief.read_text(errors="replace") if brief.is_file() else ""
         prs = {number for found in PR_NAMED.finditer(text) for number in found.groups() if number}
+        statuses: dict[str, str] | None = None
         for container in self.book.containers(LANE_PREFIX):
             other = container.removeprefix(LANE_PREFIX)
             launched = self.book.actions(container, kind="launch")
@@ -3328,7 +3316,10 @@ class Runner:
                 continue
             ours = keys | ({incident_name(lane)} if self.fix_launch(container) else set())
             shared = ours & self.incident_keys(other, launched[-1])
-            if not (shared or prs) or not ((dispatch := self.orca.show(other)) and dispatch.status not in INACTIVE):
+            if not (shared or prs):
+                continue
+            statuses = self.orca.statuses() if statuses is None else statuses
+            if not (status := statuses.get(self.orca.receipt(other))) or status in INACTIVE:
                 continue
             try:
                 held = [tree for tree in self.lane_worktrees(other) if tree.ahead or tree.pushed not in UNPUSHED]
@@ -3360,9 +3351,8 @@ class Runner:
             self.refresh_slice(key, lane, brief)
             return brief.read_text()
 
-    def accept_launch(self, key: str, lane: str, model: str, effort: str, brief: str, owner_directed: bool, fast: bool = False, role: str = "", incident: str = "") -> tuple[actions.Action, bool]:
-        urgent = owner_directed or model == INCIDENT_MODEL
-        target = json.dumps({"model": model, "effort": effort, "brief": brief, "prior": self.orca.receipt(lane), "urgent": urgent, "fast": fast, "role": role, "incident": incident})
+    def accept_launch(self, key: str, lane: str, model: str, effort: str, brief: str, fast: bool = False, role: str = "", incident: str = "", by: str = ROOT) -> tuple[actions.Action, bool]:
+        target = json.dumps({"model": model, "effort": effort, "brief": brief, "prior": self.orca.receipt(lane), "fast": fast, "role": role, "incident": incident, "by": by})
         return self.book.accept(self.lane(lane), key, "launch", target, key, self.now() + timedelta(minutes=self.config.launch_minutes))
 
     def landing_policy(self) -> actions.Action | None:
@@ -3668,7 +3658,7 @@ class Runner:
         return self.launch_log(container, key).with_suffix(".sprite.out")
 
     def launch(self, container: str, lane: str, action: actions.Action) -> None:
-        """Start orca-launch.sh, or worker-launch.sh for a Sprite, detached, so a readiness wait never holds a relay; `reap` records its printed line."""
+        """Start orca-launch.sh, or worker-launch.sh for a Sprite, detached, so a readiness wait never holds a relay; `reap` records its printed line. Mac load queues and refuses nothing: over load a launch that may leave the Mac starts on a Sprite at once, and one pinned here starts here."""
         spec = json.loads(action.target)
         if not self.bound_for_launch():
             self.refuse_launch(container, lane, action, f"an unbound runner: {self.pass_binding['why']}", f"the root launches it by hand with orca-launch.sh, or runs `{self.rebind_command()}` from its own terminal and submits it again under a new key")
@@ -3677,20 +3667,19 @@ class Runner:
         if refusal:
             self.refuse_launch(container, lane, action, refusal, "the root submits it again under a new key once that is fixed")
             return
-        if refusal is not None and (held := self.load_refusal()):
+        remote = refusal is None
+        if not remote and (held := self.mac_over_load()):
             self.move_load(held)
-            if spec["model"] != INCIDENT_MODEL:
-                if spec["urgent"]:
-                    self.refuse_launch(container, lane, action, held, "the root launches it in-process or once the load is moved")
-                elif self.now() - actions.parse_stamp(action.accepted_at) >= timedelta(minutes=self.config.load_hold_minutes):
-                    self.expire_launch(container, lane, action, held)
-                return
-            self.escalate(f"{container}/{action.action_id}:load", "LOAD-INCIDENT", lane, f"{action.action_id} launches on {held}: an incident fix lane is never held for load", to=self.watchdog)
+            remote = not self.pinned(spec) and self.sprite_fault(lane) is None
+            if spec["model"] == INCIDENT_MODEL:
+                self.escalate(f"{container}/{action.action_id}:load", "LOAD-INCIDENT", lane, f"{action.action_id} launches on {held}: an incident fix lane is never held for load", to=self.watchdog)
         if not self.book.attempt(container, lambda incident: incident.start(action.action_id, self.now(), deadline=actions.parse_stamp(action.deadline))):
             return
-        if refusal is None:
+        if remote:
             self.launch_sprite(container, lane, action)
             return
+        if not mac_pinned(spec) and (stranded := self.brief_files(spec)[1]):
+            self.escalate(f"{container}/{action.action_id}:mac-files", "MAC-FILES", lane, f"{action.action_id} stays on the Mac: its brief names {', '.join(stranded)}, which no remote box receives; only files under {self.config.source.parent} travel", to=self.launched_by(lane))
         self.launch_local(container, lane, action)
 
     def launch_local(self, container: str, lane: str, action: actions.Action) -> None:
@@ -3709,14 +3698,32 @@ class Runner:
         spec = json.loads(action.target)
         sprite = self.sprite() or {}
         argv = [sprite["launcher"], lane, sprite_model(spec["model"]), spec["effort"], spec["brief"]]
-        env = {**self.config.launch_env, **self.orca.sender, "WORKER_RUN": self.config.run, **sprite.get("env", {}), "WORKER_LOCAL": ""}
+        inputs = self.brief_files(spec)[0]
+        env = {**self.config.launch_env, **self.orca.sender, "WORKER_RUN": self.config.run, **sprite.get("env", {}), "WORKER_LOCAL": "", **({"WORKER_DRIVE_DIR": str(self.config.source.parent), "WORKER_BRIEF_INPUTS": "\n".join(inputs)} if inputs else {})}
         key = f"{container}/{action.action_id}"
         self.launching[key] = self.shell.spawn(argv, self.sprite_log(container, action.action_id), env)
         self.sprites.add(key)
 
+    def brief_files(self, spec: dict) -> tuple[list[str], list[str]]:
+        return lane_brief.named_files(brief_text(Path(spec["brief"])), self.config.source.parent)
+
+    def pinned(self, spec: dict) -> bool:
+        return mac_pinned(spec) or bool(self.brief_files(spec)[1])
+
+    def launched_by(self, lane: str) -> str:
+        """The lane that posted `lane`'s newest launch line, or empty when root or a drive process did, so its questions and placement reach whoever launched it and otherwise the root."""
+        container = lane_container(lane)
+        launches = self.book.actions(container, kind="launch") if self.book.exists(container) else []
+        by = json.loads(launches[-1].target).get("by", ROOT) if launches else ROOT
+        return "" if by in (ROOT, SUPERVISOR, stall_watch.LANE) else by
+
     def sprite_refusal(self, lane: str, spec: dict) -> str | None:
-        if FABLE_MODEL.search(spec["model"]) or spec["model"] == INCIDENT_MODEL or spec.get("fast") or not sprite_placed(Path(spec["brief"])):
+        """Empty when the launch takes the Mac route for now, None when it takes a Sprite, or why the Sprite route it must take cannot start it."""
+        if self.pinned(spec) or STANDING_DESK.search(brief_text(Path(spec["brief"]))):
             return ""
+        return self.sprite_fault(lane)
+
+    def sprite_fault(self, lane: str) -> str | None:
         if not (sprite := self.sprite()):
             return "a runner config with no orca.sprite"
         if not SPRITE_LANE.fullmatch(lane):
@@ -3726,16 +3733,16 @@ class Runner:
                 return f"{name} {path}, whose checkout is on {f'branch {branch}' if branch else 'no branch'}, not dev or a cc-remote pin branch; point it at a worktree that moves only with a pin PR"
         return None
 
-    def load_refusal(self) -> str:
-        """Why no launch may start on the Mac now, or empty while the 1-minute load is at or below the core count."""
+    def mac_over_load(self) -> str:
+        """The Mac's load when it is over what a worktree checkout survives, or empty while the 1-minute load is at or below the core count."""
         load, cores = self.shell.load(), self.shell.cores()
         if load <= cores:
             return ""
         return f"load {load:.0f} above {cores} cores"
 
     def move_load(self, held: str) -> None:
-        """Tell the drive watchdog, once per ten minutes, that launches are refused on load and that the load has to move."""
-        self.escalate(f"load:{actions.stamp(self.now())[:15]}", "LOAD-HIGH", "runner", f"{held}: Orca launches are refused while it lasts, because a worktree checkout times out under it. drive-watchdog: move the load off this Mac now; a pass, backfill, dry run, or bulk rewrite runs on in-region compute", to=self.watchdog)
+        """Tell the drive watchdog, once per ten minutes, that the load has to move."""
+        self.escalate(f"load:{actions.stamp(self.now())[:15]}", "LOAD-HIGH", "runner", f"{held}: while it lasts a desk launch starts on a Sprite and a lane pinned to the Mac starts here anyway, where a worktree checkout can time out. drive-watchdog: move the load off this Mac now; a pass, backfill, dry run, or bulk rewrite runs on in-region compute", to=self.watchdog)
 
     def refuse_launch(self, container: str, lane: str, action: actions.Action, held: str, remedy: str) -> None:
         key = action.action_id
@@ -3758,14 +3765,6 @@ class Runner:
                     f"{action.action_id} accepted at {pacific(since)} has no dispatch {int((self.now() - since).total_seconds())} s on, with the 1-minute load {self.shell.load():.0f} of {self.shell.cores()} cores;"
                     f" withdraw it with `orca-desk: withdraw {action.action_id}`, then launch it by hand: `orca-launch.sh {lane} {spec['model']} {spec['effort']} {spec['brief']}`",
                 )
-
-    def expire_launch(self, container: str, lane: str, action: actions.Action, held: str) -> None:
-        key = action.action_id
-        text = f"{key} launch failed after {self.config.load_hold_minutes}m held, {held}; move the load off this Mac, then submit it under a new key"
-        if not self.book.attempt(container, lambda incident: incident.fail(key, text)):
-            return
-        self.escalate(f"{container}/{key}", "LAUNCH-HELD", lane, text)
-        self.orca.call("orchestration", "send", "--to", f"run:{self.config.run}", "--run", self.config.run, "--type", "status", "--subject", f"LAUNCH-HELD {lane}", "--body", text)
 
     def reap(self) -> None:
         """Settle each started launch from its printed line; a launch with neither a line nor a new receipt is unverifiable, never relaunched."""
@@ -3792,6 +3791,7 @@ class Runner:
         try:
             ready = json.loads(out.splitlines()[-1])
             line = f"{lane} ready task={ready['task']} dispatch={ready['dispatch']} terminal={ready['terminal']} worktree={ready['worktree']}"
+            box = ready["workspace"]
             receipt = (attempt / SPRITE_RECEIPT).read_text()
         except (json.JSONDecodeError, KeyError, TypeError, FileNotFoundError):
             reason = " ".join(out.split())[:300]
@@ -3815,9 +3815,9 @@ class Runner:
         done = self.shell.run([sys.executable, str(SCRIPTS / "drive.py"), "spawned", "--lane", lane, "--brief", spec["brief"], "--model", spec["model"], "--effort", spec["effort"], "--placement", "sprite", *(["--role", spec["role"]] if spec.get("role") else []), "--by", RUNNER], env=self.config.launch_env)
         if done.code:
             self.escalate(f"{container}/{key}:spawned", "SPAWN-UNRECORDED", lane, f"{key} runs on a Sprite with no registry row, so the lane supervisor does not keep it alive: drive.py spawned exited {done.code}: {(done.err or done.out).strip()[:300]}")
-        self.settle_launch(container, lane, action)
+        self.settle_launch(container, lane, action, box)
 
-    def settle_launch(self, container: str, lane: str, action: actions.Action) -> None:
+    def settle_launch(self, container: str, lane: str, action: actions.Action, box: str = "") -> None:
         log = self.launch_log(container, action.action_id)
         out = log.read_text().strip() if log.is_file() else ""
         launched = LAUNCHED.search(out)
@@ -3838,7 +3838,7 @@ class Runner:
             self.escalate(f"{container}/{key}", "UNVERIFIABLE", lane, "launch outcome unknown: no launch line and no new receipt; it was not relaunched")
             return
         self.book.attempt(container, lambda incident: (incident.complete(key, proof, dispatch_id=proof["dispatch"]), incident.verify(key, proof)))
-        self.record(f"escalation:{container}/{key}:launched", f"LAUNCHED {key} {lane}: dispatch {proof['dispatch']} terminal {launched['terminal'] if launched else self.orca.terminal(lane)}")
+        self.record(f"escalation:{container}/{key}:launched", f"LAUNCHED {key} {lane}: dispatch {proof['dispatch']} terminal {launched['terminal'] if launched else self.orca.terminal(lane)}{f' on Sprite {box}' if box else ''}")
         self.transfer(lane)
         if launched and launched["how"] == "unsupervised":
             self.escalate(f"{container}/{key}", "UNSUPERVISED", lane, f"launched without Orca supervision: {proof['line']}")
@@ -3924,7 +3924,7 @@ class Runner:
         elif message["type"] in ("question", "escalation"):
             self.keep(message)
             if not self.withdrawn_ask(lane, message):
-                self.escalate(message["id"], "DECIDE", lane, f"{message.get('subject', '')}: {(message.get('body') or '')[:300]}")
+                self.escalate(message["id"], "DECIDE", lane, f"{message.get('subject', '')}: {(message.get('body') or '')[:300]}", to=self.launched_by(lane))
         elif message["type"] == "worker_done":
             self.keep(message)
             self.escalate(message["id"], "OUTCOME", lane, f"worker_done {payload.get('outcome', '?')} dispatch={sender}: {message.get('subject', '')}")
@@ -4065,33 +4065,26 @@ class Runner:
             inboxes.Inbox(path).rotate(self.now().timestamp())
 
     def sweep(self) -> None:
-        """Unread mail on a live dispatch gets one wake, typed only at its idle prompt; mail a settled dispatch never read, a dispatch that is not live, or a prompt watch that stopped polling escalates once."""
-        done = self.shell.run([str(SCRIPTS / "orca-check.sh"), "--stale"], env={"ORCA_CHECK_STATE": str(self.config.receipts), "ORCA_LAUNCH_RUN": self.config.run})
-        for line in done.out.splitlines():
-            parts = line.split()
-            if len(parts) < 5 or parts[0] != "STALE":
+        """Read the Run once, one batched worker list and one inbox read across recipients, never a call per dispatch. Unread mail on a live dispatch gets one wake, typed only at its idle prompt; mail a settled dispatch never read, a dispatch that is not live, or a prompt watch that stopped polling escalates once."""
+        statuses = self.orca.statuses()
+        receipts = {lane: dispatch for lane in self.orca.lanes() if (dispatch := self.orca.receipt(lane))}
+        owners = {handle: lane for lane, dispatch in receipts.items() for handle in (self.orca.terminal(lane), f"dispatch:{dispatch}")}
+        for message in self.orca.unread():
+            if not (lane := owners.get(message["to_handle"])):
                 continue
-            lane, status, item = parts[1], parts[3], parts[4]
-            if status != "unread":
+            item, status = message["id"], statuses.get(receipts[lane])
+            if status in INACTIVE:
                 self.escalate(f"stale:{item}", "STALE-MAIL", lane, f"{item} unread by a {status} dispatch")
-                continue
-            if (
-                not self.book.known(RUNNER, f"wake:{item}")
+            elif (
+                self.now() - actions.parse_stamp(message["created_at"]) >= STALE_MAIL
+                and not self.book.known(RUNNER, f"wake:{item}")
                 and (terminal := self.orca.terminal(lane))
                 and self.orca.wake(terminal, f"unread Orca message {item}; read it now")
             ):
                 self.book.accept(RUNNER, f"wake:{item}", "wake", item, lane, None)
         hour = actions.stamp(self.now())[:13]
         named = {action.action_id for action in self.book.actions(RUNNER, kind="reclaim")}
-        settled: list[Dispatch] = []
-        lanes = [lane for lane in self.orca.lanes() if f"reclaim:{self.orca.receipt(lane)}" not in named]
-        with ThreadPoolExecutor(SHOW_WORKERS) as pool:
-            shown = list(pool.map(self.orca.show, lanes))
-        for lane, dispatch in zip(lanes, shown):
-            if not dispatch:
-                continue
-            if dispatch.status in INACTIVE:
-                settled.append(dispatch)
+        settled = [Dispatch(lane, dispatch, self.orca.terminal(lane), statuses[dispatch], False) for lane, dispatch in receipts.items() if f"reclaim:{dispatch}" not in named and statuses.get(dispatch) in INACTIVE]
         if settled:
             self.reclaim(settled)
         watch = json.loads(self.shell.run([sys.executable, str(SCRIPTS / "prompt_watch.py"), "show", "--cci-drive", self.config.drive, "--json"]).out or "{}")
@@ -4401,7 +4394,7 @@ class Runner:
         attached, failure = self.attach_brief(backup, lambda _: text, f"INCIDENT-CLOCK {lane}: Opus fallback brief for {backup}, no {missing} at +{minutes} min")
         if attached is None:
             return f"no fallback launched for {backup}: {failure}"
-        self.accept_launch(key, backup, "opus", "xhigh", str(attached), True, fast=True)
+        self.accept_launch(key, backup, "opus", "xhigh", str(attached), fast=True)
         return f"the Opus fallback {backup} is launching on opus xhigh in fast mode, brief {attached}"
 
     def pr_silent(self) -> None:
@@ -4575,7 +4568,7 @@ class Runner:
             brief = json.loads(tries[0].target)["brief"]
             if len(tries) == 1:
                 if not self.launch_refusal(f"{key}{RETRY}", backup, "opus", "xhigh", Path(brief), INCIDENT_MODEL):
-                    self.accept_launch(f"{key}{RETRY}", backup, "opus", "xhigh", brief, True, fast=True)
+                    self.accept_launch(f"{key}{RETRY}", backup, "opus", "xhigh", brief, fast=True)
                 continue
             reasons = " | ".join(action.reason or "" for action in tries)
             self.record(
@@ -4929,7 +4922,7 @@ class Runner:
         )
         if brief is None:
             return f"{lane} not launched: {failure}"
-        self.accept_launch(f"{CUT_LAUNCH}{key}", lane, "opus", "xhigh", str(brief), True)
+        self.accept_launch(f"{CUT_LAUNCH}{key}", lane, "opus", "xhigh", str(brief))
         return f"{lane} launching on opus xhigh, brief {brief}"
 
     def executor_backup(self, lane: str) -> str:
@@ -5572,8 +5565,6 @@ class Runner:
                 at += [f"started {pacific(actions.parse_stamp(action.started_at))}"] if action.started_at else []
                 at += [f"{action.status} {pacific(actions.parse_stamp(receipt['at']))}"] if (receipt := action.verification_receipt or action.response) and "at" in receipt else []
                 status = action.status
-                if action.kind == "launch" and status == "accepted" and (held := self.load_refusal()):
-                    status = f"HELD {held} for {int((self.now() - actions.parse_stamp(action.accepted_at)).total_seconds() // 60)}m"
                 lines.append(f"- {action.action_id} {action.kind} [{status}] {' '.join(at)}")
         return "\n".join(lines) + "\n"
 
@@ -10738,7 +10729,7 @@ def run_orca(runner: Runner, once: bool) -> int:
         return 3
     if failure := runner.resolve_briefs_log():
         runner.escalate(f"briefs-log:{runner.config.briefs_log or 'unset'}", "BRIEFS-LOG-FAILED", "runner", f"the briefs log did not resolve at start: {failure}; each brief attach retries it")
-    swept = rotated = datetime.min.replace(tzinfo=timezone.utc)
+    rotated = datetime.min.replace(tzinfo=timezone.utc)
     alive = runner.keep_alive("orca")
     try:
         runner.register_lane(ORCA_DESK)
@@ -10754,10 +10745,10 @@ def run_orca(runner: Runner, once: bool) -> int:
             try:
                 ready = runner.check()
                 if ready:
-                    runner.steps(runner.reap, runner.read_cci, runner.deliver)
-                    if runner.now() - swept >= SWEEP_EVERY:
+                    runner.steps(runner.reap, runner.read_cci, runner.deliver, runner.flush)
+                    if runner.now() - runner.swept >= SWEEP_EVERY:
                         runner.steps(runner.sweep)
-                        swept = runner.now()
+                        runner.swept = runner.now()
                 slow = (runner.deadlines_orca, runner.incident_clock, runner.pr_silent, runner.class_unowned, runner.mute_pushback, runner.in_process, runner.cut_clock, runner.release_coupling, runner.finders, runner.fidelities, runner.sprite_beats)
                 runner.steps(*(step for each in slow for step in (each, runner.prompt)) if ready else slow)
             except StopRequested:
@@ -10961,7 +10952,7 @@ def run_landing(runner: Runner, once: bool) -> int:
 
 def launch_model(model: str) -> str:
     if not MODELS.fullmatch(model):
-        raise argparse.ArgumentTypeError(f"{model} is not a model orca-launch.sh starts: opus, sonnet, fable, claude-*, sol, codex, incident, astra, or gpt-*")
+        raise argparse.ArgumentTypeError(not_a_model(model))
     return model
 
 
@@ -11116,7 +11107,7 @@ def main(argv: list[str] | None = None, shell: Shell | None = None) -> int:
             runner.flush()
             print(duplicate_line(args.key, args.lane, holder), file=sys.stderr)
             return 1
-        action, created = runner.accept_launch(args.key, args.lane, args.model, args.effort, str(brief), args.owner_directed, role=args.role)
+        action, created = runner.accept_launch(args.key, args.lane, args.model, args.effort, str(brief), role=args.role)
     else:
         action, created = runner.accept_policy(args.key, args.landing, args.revision, args.source, args.supersedes)
     posted = runner.flush()

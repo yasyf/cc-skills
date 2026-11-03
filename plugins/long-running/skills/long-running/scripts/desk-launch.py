@@ -10,7 +10,6 @@
     desk-launch.py hold <slug> <owner> <what> [--drive D] [--lane L]
     desk-launch.py unhold <slug> [--drive D] [--lane L]
     desk-launch.py withdraw <R<n> | unfixed:<msg>:<n> | lane> [--drive D] [--lane L]
-    desk-launch.py refused <lane> (--drive D | --session ID)
 
 STDLIB ONLY. `incident` launches `<name>-fix`, and `<name>-evidence` when an evidence brief is
 given, each `NOW incident xhigh` under its role, `role=fix` or `role=evidence`, the Incident
@@ -19,7 +18,10 @@ a template: its `Root:` lines go, every `<lane>` becomes that lane's name, its `
 becomes `Alert: TEXT`, and the result is written to `<state dir>/<lane>/brief.md`, the path the
 runner accepts. An incident brief that still holds `<lane>`, `<state>` or `<...>`, or an
 `Alert:` line with any `<...>` in it, posts nothing: the command names the line and exits. `lane` launches one lane on any
-model `orca-launch.sh` starts; `--now` skips the runner's load hold. `relay`, `hold`,
+model `orca-launch.sh` starts; `--now` launches beside a live lane holding the same work. Before
+any post, a launch runs every check the runner applies, `launch_checks`, and exits naming every
+fault together, so a missing `Register slice:` and `Scale:` line cost one fix and no runner round
+trip. `relay`, `hold`,
 `unhold`, and `withdraw` post the runner's line of that verb and print it without waiting,
 since the runner's verdict reaches the root on cci. The next key is one past the highest
 `R<n>` opening an `orca-desk:` record addressed to `orca-desk` on the drive. A drive whose orca runner posted no `orca alive` record
@@ -27,15 +29,11 @@ in the last five minutes posts nothing: the command refuses in one line, naming 
 for a launch. Each line is one
 `cci post --kind go --to orca-desk` record in the runner's grammar, so nothing is posted
 unaddressed or in another form. A launch then reads the runner's records on the drive
-until each key settles as `LAUNCHED`, `LAUNCH-FAILED`, `LAUNCH-EXPIRED`, `LAUNCH-HELD`, `UNVERIFIABLE`, or
+until each key settles as `LAUNCHED`, `LAUNCH-FAILED`, `LAUNCH-EXPIRED`, `UNVERIFIABLE`, or
 `SPRITE-UNVERIFIABLE`, and prints one line per lane: its key, the runner's line, and so the
 dispatch and terminal of a launched lane. It exits 0 when every lane launched, 1 when any
 settled otherwise, and 2 when one has not settled within `--timeout-seconds`; a withdrawal
 of an unsettled key is `cci post --kind go --to orca-desk --text "orca-desk: withdraw R<n>"`.
-`refused` prints the runner record from the last 30 minutes that sends `<lane>`, or its
-`-fix` alias, to an in-process launch, and exits 1 when there is none: the lane's newest
-verdict when it is a `LAUNCH-FAILED` refused on load, or the newest `LOAD-HIGH` when the
-lane has no verdict at all. `--session` reads the drive from the drive registry.
 """
 
 from __future__ import annotations
@@ -53,16 +51,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+import launch_checks
 from long_running import drive as registry
 
 DESK = "orca-desk"
 RUNNER = "desk-runner"
 PACIFIC = ZoneInfo("America/Los_Angeles")
 KEY = re.compile(r"^(?:-\s+)?R(\d+)\b")
-VERDICT = re.compile(r"^(?P<label>LAUNCHED|LAUNCH-FAILED|LAUNCH-EXPIRED|LAUNCH-HELD|UNVERIFIABLE|SPRITE-UNVERIFIABLE) (?:desk-lane-[\w.-]+/)?(?P<key>R\d+) (?P<lane>[\w.-]+): ")
-LOAD_HIGH = "LOAD-HIGH "
-LOAD_REFUSAL = re.compile(r"^LAUNCH-FAILED .*: R\d+ refused on load ")
-REFUSAL_WINDOW = "30m"
+VERDICT = re.compile(r"^(?P<label>LAUNCHED|LAUNCH-FAILED|LAUNCH-EXPIRED|UNVERIFIABLE|SPRITE-UNVERIFIABLE) (?:desk-lane-[\w.-]+/)?(?P<key>R\d+) (?P<lane>[\w.-]+): ")
 FIX_ALIAS = "-fix"
 ROOT_LINES = re.compile(r"^Root:.*\n", re.MULTILINE)
 ALERT_LINE = re.compile(r"^Alert:.*$", re.MULTILINE)
@@ -167,26 +163,11 @@ def launches(args: argparse.Namespace) -> list[tuple[str, str, str, bool, str, P
     return [(args.target, args.model, args.effort, args.now, "", args.brief)]
 
 
-def refusal(drive: str, lane: str) -> str:
-    posted = records(cci(drive, "grep", "LOAD-HIGH|LAUNCHED|LAUNCH-FAILED|LAUNCH-EXPIRED|LAUNCH-HELD|UNVERIFIABLE", "--lane", RUNNER, "--since", REFUSAL_WINDOW, "--json", "--budget", BUDGET))
-    newest = sorted(posted, key=lambda record: record["seq"], reverse=True)
-    names = {lane, f"{lane}{FIX_ALIAS}"}
-    verdicts = [record["text"] for record in newest if (verdict := VERDICT.match(record["text"])) and verdict["lane"] in names]
-    if verdicts:
-        return verdicts[0] if LOAD_REFUSAL.match(verdicts[0]) else ""
-    return next((record["text"] for record in newest if record["text"].startswith(LOAD_HIGH)), "")
-
-
-def refused(args: argparse.Namespace) -> int:
-    drive = args.drive
-    if args.session:
-        if not (entry := registry.find(None, args.session)):
-            sys.exit(f"no drive in the registry claims session {args.session}")
-        drive = registry.cci_drive(entry)
-    if text := refusal(drive, args.target):
-        print(text)
-        return 0
-    return 1
+def preflight(planned: list[tuple[str, str, str, bool, str, Path]]) -> None:
+    """Exit before any post when a launch would fail, naming every fault of every planned lane in one message."""
+    faults = [fault for lane, model, effort, now, role, brief in planned for fault in launch_checks.preflight_faults(lane, model, effort, now, role, brief.resolve())]
+    if faults:
+        sys.exit(f"refused, nothing was posted: {'; '.join(faults)}")
 
 
 def post(drive: str, author: str, topic: str, key: int, text: str) -> int:
@@ -229,7 +210,7 @@ def main(argv: list[str] | None = None) -> int:
     lane.add_argument("model")
     lane.add_argument("effort")
     lane.add_argument("brief", type=Path)
-    lane.add_argument("--now", action="store_true", help="owner-directed: skip the runner's load hold")
+    lane.add_argument("--now", action="store_true", help="owner-directed: launch beside a live lane already holding this work")
     relay = verbs.add_parser("relay", parents=[poster], help="relay text to each named lane's live dispatch")
     relay.add_argument("lanes", metavar="lane[,lane...]")
     relay.add_argument("text")
@@ -241,14 +222,7 @@ def main(argv: list[str] | None = None) -> int:
     unhold.add_argument("slug")
     withdraw = verbs.add_parser("withdraw", parents=[poster], help="withdraw a launch by key, or a lane")
     withdraw.add_argument("target", metavar="R<n>|unfixed:<msg>:<n>|lane")
-    load = verbs.add_parser("refused", help="print the runner's load refusal that sends <lane> to an in-process launch")
-    load.add_argument("target", metavar="lane")
-    which = load.add_mutually_exclusive_group(required=True)
-    which.add_argument("--drive", default="")
-    which.add_argument("--session", default="")
     args = parser.parse_args(argv)
-    if args.verb == "refused":
-        return refused(args)
     if args.verb in ("relay", "hold", "unhold", "withdraw"):
         topic, text = directive(args)
         with keyed():
@@ -265,6 +239,7 @@ def main(argv: list[str] | None = None) -> int:
         for lane, *_, brief in planned:
             if line := unfilled(brief.read_text(), args.alert):
                 parser.error(f"brief {brief} for {lane} still holds a placeholder root fills, so nothing is posted: {line}")
+    preflight(planned)
     topic = args.name if args.verb == "incident" else args.target
     with keyed():
         first = next_key(args.drive, agent_fallback(args))
