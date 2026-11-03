@@ -57,7 +57,7 @@ func TestOnlyABlockerOnAHeadThePRHasLeftIsResolved(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var left []string
+	left := make([]string, 0, len(open))
 	for _, record := range open {
 		left = append(left, record.ID)
 	}
