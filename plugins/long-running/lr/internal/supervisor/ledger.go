@@ -128,10 +128,11 @@ func (l *prLedger) dropLaneRow(ctx context.Context, key string) error {
 
 func (l *prLedger) advance(ctx context.Context) error {
 	git := []string{"git", "-C", l.env.Config.Checkout}
-	if _, err := l.env.Runner.Run(ctx, shell.Command{Argv: append(slices.Clone(git), "fetch", "-q", "--no-tags", "--refmap=", "origin", "refs/heads/"+l.env.Config.Trunk), Timeout: ledgerLimit}); err != nil {
+	fetched := "refs/lr/ledger/" + l.env.Config.Trunk
+	if _, err := l.env.Runner.Run(ctx, shell.Command{Argv: append(slices.Clone(git), "fetch", "-q", "--no-tags", "--refmap=", "origin", "+refs/heads/"+l.env.Config.Trunk+":"+fetched), Timeout: ledgerLimit}); err != nil {
 		return err
 	}
-	_, err := l.env.Runner.Run(ctx, shell.Command{Argv: append(git, "merge", "-q", "--ff-only", "FETCH_HEAD"), Timeout: ledgerLimit})
+	_, err := l.env.Runner.Run(ctx, shell.Command{Argv: append(git, "merge", "-q", "--ff-only", fetched), Timeout: ledgerLimit})
 	return err
 }
 
