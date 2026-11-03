@@ -195,6 +195,25 @@ func TestLandedClosesEveryOpenItem(t *testing.T) {
 	}
 }
 
+func TestAFailedPostNeverStopsThePassAndIsReported(t *testing.T) {
+	s := newStore(t)
+	given := []machine.Facts{facts(45470, finderAsks), facts(45471, finderAsks)}
+	post := func([]string, bus.Body) error { return &bus.Refused{Message: "never reaches this lane"} }
+	route := func(desk string) string { return desk + "-3" }
+	if _, err := pass.Run(s, given, t0, post, all, route); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := pass.Run(s, given, t0.Add(20*time.Minute), post, all, route)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(out.Escalated) != 2 || len(out.Unposted) != 2 {
+		t.Fatalf("escalated = %+v, unposted = %+v", out.Escalated, out.Unposted)
+	}
+}
+
 func TestAnOverdueVerdictGoesOnceToTheGraderDeskNeverRoot(t *testing.T) {
 	s, r := newStore(t), &recorder{}
 	given := facts(45470, finderAsks)
@@ -207,9 +226,9 @@ func TestAnOverdueVerdictGoesOnceToTheGraderDeskNeverRoot(t *testing.T) {
 	if !reflect.DeepEqual(late.Escalated, want) || len(later.Escalated) != 0 {
 		t.Fatalf("late = %+v, later = %+v", late.Escalated, later.Escalated)
 	}
-	body := bus.Escalation{Subject: "org/repo#45470", Cause: "verdict overdue"}
-	if !reflect.DeepEqual(r.of("escalation"), []posted{{[]string{"grader-appeals-3"}, body}}) {
-		t.Fatalf("posts = %+v", r.of("escalation"))
+	body := bus.Note{Text: "org/repo#45470 verdict overdue"}
+	if !reflect.DeepEqual(r.of("note"), []posted{{[]string{"grader-appeals-3"}, body}}) {
+		t.Fatalf("posts = %+v", r.of("note"))
 	}
 }
 
@@ -259,9 +278,9 @@ func TestAWorkerSilentFifteenMinutesLosesItsItemsAndTheGraderDeskHearsOnce(t *te
 	if len(again.Released) != 0 {
 		t.Fatalf("again = %+v", again.Released)
 	}
-	body := bus.Escalation{Subject: "worker:lane-7", Cause: "silent 15 minutes"}
-	if !reflect.DeepEqual(r.of("escalation"), []posted{{[]string{"grader-appeals-3"}, body}}) {
-		t.Fatalf("posts = %+v", r.of("escalation"))
+	body := bus.Note{Text: "worker:lane-7 silent 15 minutes"}
+	if !reflect.DeepEqual(r.of("note"), []posted{{[]string{"grader-appeals-3"}, body}}) {
+		t.Fatalf("posts = %+v", r.of("note"))
 	}
 }
 
@@ -343,8 +362,8 @@ func TestAnOverdueEnqueueNamesWhatTheQueueSaid(t *testing.T) {
 	}
 	run(t, s, r, t0.Add(10*time.Minute), all, facts(45583, nil))
 
-	want := []posted{{[]string{"landing-desk-3"}, bus.Escalation{
-		Subject: "org/repo#45583", Cause: "enqueue overdue; the queue said exit 1: #45583 BLOCKED required check pending",
+	want := []posted{{[]string{"landing-desk-3"}, bus.Note{
+		Text: "org/repo#45583 enqueue overdue; the queue said exit 1: #45583 BLOCKED required check pending",
 	}}}
 	if !reflect.DeepEqual(r.posts, want) {
 		t.Fatalf("posts = %+v", r.posts)
@@ -381,7 +400,7 @@ func TestAnOverdueRedOrRestackGoesToThePRsLaneNeverRoot(t *testing.T) {
 			run(t, s, r, t0, all, pr)
 			run(t, s, r, t0.Add(20*time.Minute), all, pr)
 
-			got := r.of("escalation")
+			got := r.of("note")
 			if len(got) != 1 || !reflect.DeepEqual(got[0].to, []string{pr.Lane}) {
 				t.Fatalf("escalations = %+v", got)
 			}
@@ -421,8 +440,8 @@ func TestAHeldOrUntappedConflictIsNeitherActedOnNorEscalatedWhileLandingIsLive(t
 			first := run(t, s, r, t0, live, pr)
 			run(t, s, r, t0.Add(machine.LaneClock), live, pr)
 
-			if len(first.Acts) != 0 || len(r.of("escalation")) != 0 {
-				t.Fatalf("acts = %+v, escalations = %+v", first.Acts, r.of("escalation"))
+			if len(first.Acts) != 0 || len(r.of("note")) != 0 {
+				t.Fatalf("acts = %+v, notes = %+v", first.Acts, r.of("note"))
 			}
 		})
 	}
@@ -435,9 +454,9 @@ func TestAHoldOverdueReachesTheLandingDeskOnceLandingIsLive(t *testing.T) {
 	run(t, s, r, t0, []machine.Mover{machine.MoverSupervisor}, held)
 	run(t, s, r, t0.Add(machine.OwnerClock), []machine.Mover{machine.MoverSupervisor}, held)
 
-	want := []posted{{[]string{"landing-desk-3"}, bus.Escalation{Subject: "org/repo#48401", Cause: "lift overdue"}}}
-	if !reflect.DeepEqual(r.of("escalation"), want) {
-		t.Fatalf("posts = %+v", r.of("escalation"))
+	want := []posted{{[]string{"landing-desk-3"}, bus.Note{Text: "org/repo#48401 lift overdue"}}}
+	if !reflect.DeepEqual(r.of("note"), want) {
+		t.Fatalf("posts = %+v", r.of("note"))
 	}
 }
 

@@ -31,6 +31,7 @@ type Outcome struct {
 	Acts      []Act
 	Escalated []Escalated
 	Released  map[string][]store.Item
+	Unposted  []error
 }
 
 const (
@@ -77,22 +78,28 @@ func Live(movers []string) []machine.Mover {
 func Run(s *store.Store, snapshot []machine.Facts, now time.Time, post Post, live []machine.Mover, route Route) (Outcome, error) {
 	out := Outcome{Verdicts: map[int]machine.Verdict{}, Released: map[string][]store.Item{}}
 	now = now.UTC().Truncate(time.Second)
+	tell := func(to []string, body bus.Body) error {
+		if err := post(to, body); err != nil {
+			out.Unposted = append(out.Unposted, err)
+		}
+		return nil
+	}
 	byBranch := make(map[string]machine.Facts, len(snapshot))
 	for _, f := range snapshot {
 		byBranch[f.Branch] = f
 	}
 	for _, f := range snapshot {
-		if err := classifyOne(s, f, byBranch, now, post, live, &out); err != nil {
+		if err := classifyOne(s, f, byBranch, now, tell, live, &out); err != nil {
 			return out, fmt.Errorf("#%d: %w", f.Number, err)
 		}
 	}
-	if err := escalateOverdue(s, snapshot, now, post, live, route, &out); err != nil {
+	if err := escalateOverdue(s, snapshot, now, tell, live, route, &out); err != nil {
 		return out, err
 	}
 	if !slices.Contains(live, machine.MoverPool) {
 		return out, nil
 	}
-	err := releaseStale(s, now, post, route, &out)
+	err := releaseStale(s, now, tell, route, &out)
 	return out, err
 }
 
@@ -247,7 +254,7 @@ func escalate(s *store.Store, subject, cause, to string, now time.Time, post Pos
 		return err
 	}
 	out.Escalated = append(out.Escalated, Escalated{subject, cause, to})
-	return post([]string{to}, bus.Escalation{Subject: subject, Cause: cause})
+	return post([]string{to}, bus.Overdue(to, subject, cause))
 }
 
 func audience(verdict machine.Verdict, f machine.Facts) string {
