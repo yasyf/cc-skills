@@ -10,6 +10,12 @@ The bridge owns every owner update and the drive dashboard. It runs one standing
 4. **It routes the gaps.** A gap is a message of his that no record carries. When the render lists gaps, the bridge posts them as one record: `cci post --lane owner-relay --kind blocker --to root --path <render file> --text 'update gaps: <count> owner messages no record carries'`. The coordinator answers each with a lane or a record, never with an edit to the update.
 5. **It quotes him.** Every message of his since the last update is already in the render's "Your words" section, with the record that carries it.
 
+## FYIs, written by the bridge
+
+The coordinator writes freely and owes the bridge no formatted updates. A Sonnet signal lane tails the coordinator and posts the bridge pointers to what matters. From those pointers the bridge writes FYIs: the interpretation he would want, not the mechanics. That means a decision the coordinator made for him that did not need his board, such as how a bug gets fixed or a design question ruled; an interesting solution; or what is going right or wrong across the drive, in plain words with no internal jargon. A lane recycled, a seq, a desk state or a cursor is never an FYI.
+
+Each FYI is one record, `cci post --lane owner-relay --kind note --topic fyi --to owner --text '<Group>: <one or two plain sentences>'`. The group is a few words, such as "Bug fixes", "Design" or "Work tracking". The bridge sends the same text to him in chat when it is worth his attention now. The next update's FYI section and the dashboard's main view both show it.
+
 The bridge never waits for a clean render to send. An update with its gaps shown beats an update held back. He waited 30 minutes for one on Nov 2 2026, and that wait was the failure.
 
 ## The dashboard

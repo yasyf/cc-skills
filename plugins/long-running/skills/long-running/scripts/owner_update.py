@@ -50,7 +50,9 @@ and by when (each lane's newest record and its next record due by the supervisor
 line), and what went wrong with each open retro-table row's prevention; every open row with
 nobody on it also leads the update as unowned work. Before it come what moved since the
 last update the owner was sent (each row new, or whose owner, blocker or doneness changed)
-and his words the bridge queued since then, each with the record that carries it. A section
+and his words the bridge queued since then, each with the record that carries it; between
+them, the bridge's FYIs (`note` records of owner-relay on topic `fyi`), grouped; after
+unowned work, one row per drive-entry `pinned_rows` piece. A section
 with nothing says so in one line. It exits 1 printing to stderr `missing: <count>` and then,
 one per line, each section, working lane, open ask and open PR the render left out, and each
 of his messages no record carries, which also print as the update's last section.
@@ -113,6 +115,11 @@ STEPS = Path("progress-desk") / "steps.json"
 SNAPSHOT = Path("progress-desk") / "owner-update.json"
 SINCE = "Since you last looked"
 WORDS = "Your words since the last update"
+FYI = "Decisions made for you (FYI)"
+FYI_TOPIC = "fyi"
+FEED_WINDOW = timedelta(hours=24)
+GROUP_CHARS = 40
+PINNED = "Pinned for you"
 
 Runner = Callable[..., subprocess.CompletedProcess]
 
@@ -512,6 +519,40 @@ def publish(model: dict, sent: bool) -> None:
         drive.write_atomic(root / SNAPSHOT, model["snapshot"])
 
 
+
+def fyi_entries(records: list[dict]) -> list[dict]:
+    """The FYIs the bridge wrote, newest first: each `note` record of lane owner-relay on topic `fyi`, grouped by the words before its first colon. Coordinator records never become FYIs; the bridge writes each one as plain-words synthesis."""
+    out = []
+    for record in records:
+        if (record["lane"], record["kind"], record.get("topic")) != (BRIDGE, "note", FYI_TOPIC):
+            continue
+        text = (record.get("text") or "").strip()
+        group, colon, rest = text.partition(": ")
+        grouped = bool(colon) and len(group) <= GROUP_CHARS
+        out.append({"seq": record["seq"], "at": record["at"], "group": group if grouped else "Other", "text": rest if grouped else text})
+    return sorted(out, key=lambda entry: entry["seq"], reverse=True)
+
+
+def fyi_lines(entries: list[dict]) -> list[str]:
+    groups: dict[str, list[dict]] = {}
+    for entry in entries:
+        groups.setdefault(entry["group"], []).append(entry)
+    return [line for group, found in groups.items() for line in (f"- **{group}**", *(f"  - {when(entry)}: {entry['text']}" for entry in found))]
+
+
+def on_words(lane: dict, words: list[str]) -> bool:
+    return any(word.casefold() in (lane.get(key) or "").casefold() for word in words for key in ("lane", "step", "deliverable"))
+
+
+def pinned_rows(entry: dict, lanes: list[dict], sources: Sources) -> list[tuple[Row, list[dict]]]:
+    """One row per piece of work the drive entry's `pinned_rows` names, such as devbox speed and bug hunting or the next build, held by every working lane whose name, step or deliverable holds one of its words, so it is on every update even with nobody on it."""
+    out = []
+    for pin in entry.get("pinned_rows") or []:
+        mine = [lane for lane in lanes if on_words(lane, pin["words"])]
+        out.append((step_row(pin["name"], pin["delivers"], [], mine, sources), mine))
+    return out
+
+
 def report(drive_name: str, runner: Runner, now: datetime | None = None) -> tuple[str, list[str], dict]:
     """The owner update as markdown from sources only, every row in the owner report table's columns and unowned rows first; every name it must mention: each section, working lane, open ask key and open PR; and the model `publish` writes: the dashboard's steps from the same rows, the snapshot, and the update's gaps."""
     now = now or datetime.now(timezone.utc)
@@ -530,7 +571,9 @@ def report(drive_name: str, runner: Runner, now: datetime | None = None) -> tupl
     progress = plans.read(lambda *argv: runner(["ccn", "-R", entry["checkout"], *argv]).stdout, entry.get("program"))
     asks = ask_rows(runner, entry["checkout"], entry["ledger"], latest)
     board = board_rows(runner, drive_name, entry["sessions"][-1])
-    tables: list[tuple[str, list[Row]]] = [("Standing duties", duty_rows(sources))]
+    pins = pinned_rows(entry, lanes, sources)
+    steps += [step_entry(index, row.name, PINNED, row, mine) for index, (row, mine) in enumerate(pins)]
+    tables: list[tuple[str, list[Row]]] = [(PINNED, [row for row, _ in pins]), ("Standing duties", duty_rows(sources))]
     placed: set[str] = set()
     for plan, step in progress.steps():
         if plan is None:
@@ -566,7 +609,9 @@ def report(drive_name: str, runner: Runner, now: datetime | None = None) -> tupl
     head = [f"{len(unowned)} rows have nobody on them; each also sits in its own section below.", "", *table(unowned)] if unowned else []
     words, gaps = owner_words(cci.records(owner_waits.tail(runner), drive_name, since=before["at"]))
     current = snapshot_of(tables)
-    opening = [(f"{SINCE} ({owner_waits.pacific_text(before['at'])})", since_lines(current, before["rows"])), (WORDS, words)]
+    feed = fyi_entries(cci.records(owner_waits.tail(runner), drive_name, f"--lane={BRIDGE}", "--kind=note", since=(now - FEED_WINDOW).isoformat()))
+    fresh = [item for item in feed if owner_waits.at(item) > datetime.fromisoformat(before["at"])]
+    opening = [(f"{SINCE} ({owner_waits.pacific_text(before['at'])})", since_lines(current, before["rows"])), (FYI, fyi_lines(fresh)), (WORDS, words)]
     out = [
         f"# Owner update: {drive_name}, {owner_waits.pacific(now)}",
         *(text for title, found in opening for text in section(title, found)),
@@ -575,12 +620,12 @@ def report(drive_name: str, runner: Runner, now: datetime | None = None) -> tupl
         *(text for title, found in lists for text in section(title, found)),
         *(section("Gaps in this update", [f"- {gap}" for gap in gaps]) if gaps else []),
     ]
-    titles = [SINCE, WORDS, UNOWNED, *(title for title, _ in tables), *(title for title, _ in lists)]
+    titles = [SINCE, FYI, WORDS, UNOWNED, *(title for title, _ in tables), *(title for title, _ in lists)]
     prs = next(found for title, found in tables if title == OPEN_PRS)
     releases = [{"name": row.name, "state": row.state} for row in next(found for title, found in tables if title == "Releases today")]
     model = {
         "state_dir": entry["state_dir"],
-        "steps": {"updated": now.isoformat(), "steps": steps, "now": {"blocker": None, "release": releases[-1] if releases else None, "releases": releases}},
+        "steps": {"updated": now.isoformat(), "steps": steps, "fyi": feed, "now": {"blocker": None, "release": releases[-1] if releases else None, "releases": releases}},
         "snapshot": {"at": now.isoformat(), "rows": current},
         "gaps": gaps,
     }

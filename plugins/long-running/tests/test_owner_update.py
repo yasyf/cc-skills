@@ -305,7 +305,8 @@ def drive_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(home))
     entry = home / "long-running/drives/d1.json"
     entry.parent.mkdir(parents=True)
-    entry.write_text(json.dumps({"drive": DRIVE, "cci_drive": DRIVE, "sessions": [SESSION], "ledger": "abc", "checkout": str(tmp_path), "state_dir": str(tmp_path), "program": "prog"}))
+    pins = [{"name": "The next build", "delivers": "Bugs fixed against open, and the platform team's flip back", "words": ["next-build"]}]
+    entry.write_text(json.dumps({"drive": DRIVE, "cci_drive": DRIVE, "sessions": [SESSION], "ledger": "abc", "checkout": str(tmp_path), "state_dir": str(tmp_path), "program": "prog", "pinned_rows": pins}))
     (tmp_path / "retro.json").write_text(json.dumps({"ledger": "rl"}))
     return tmp_path
 
@@ -318,6 +319,8 @@ def test_the_update_opens_with_what_moved_and_his_words_ends_with_its_gaps_and_p
             record(12, "root", "go", "spawned five-fix-1", 20) | {"re": 11},
             record(13, "owner-relay", "ask", "and the devbox", 15),
             record(14, "release-5", "release", "llm-gateway live", 60),
+            record(15, "owner-relay", "note", "Bug fixes: the chat list fix ships in the next release", 25) | {"topic": "fyi"},
+            record(16, "root", "note", "Lanes: board-refresher-7 recycled", 24) | {"topic": "fyi"},
         ],
         [lane("ssql-replicator-1", "desired", 10, prs=[48401], deliverable="The replicator uploads every chat")],
     )
@@ -325,7 +328,11 @@ def test_the_update_opens_with_what_moved_and_his_words_ends_with_its_gaps_and_p
     text, names, model = owner_update.report(DRIVE, runner, NOW)
 
     titles = [line for line in text.splitlines() if line.startswith("## ")]
-    assert titles[:3] == [f"## Since you last looked ({owner_update.owner_waits.pacific(NOW - owner_update.DEFAULT_SINCE)})", "## Your words since the last update", "## Unowned work"]
+    assert titles[:5] == [f"## Since you last looked ({owner_update.owner_waits.pacific(NOW - owner_update.DEFAULT_SINCE)})", "## Decisions made for you (FYI)", "## Your words since the last update", "## Unowned work", "## Pinned for you"]
+    assert "- **Bug fixes**" in text and ": the chat list fix ships in the next release" in text and "board-refresher-7 recycled" not in text
+    assert "| The next build | Bugs fixed against open, and the platform team's flip back |" in text
+    assert [entry["text"] for entry in model["steps"]["fyi"]] == ["the chat list fix ships in the next release"]
+    assert model["steps"]["steps"][0]["title"] == "The next build" and model["steps"]["steps"][0]["tone"] == "later"
     assert titles[-1] == "## Gaps in this update" and "- owner words no record carries: #13" in text
     assert '"fix the five services blockers" | carried by root #12' in text and "- new: ssql-replicator-1" in text
     assert "The five services dropped from two updates, prevented by pieces rows from the plan (building, due " in text
@@ -338,3 +345,30 @@ def test_the_update_opens_with_what_moved_and_his_words_ends_with_its_gaps_and_p
     again, _, _ = owner_update.report(DRIVE, runner, NOW)
 
     assert again.split("## Since you last looked", 1)[1].split("\n## ", 1)[0].strip().splitlines()[-1] == owner_update.NOTHING
+
+
+def test_fyis_are_only_the_bridges_notes_on_topic_fyi_grouped_by_the_words_before_the_first_colon_newest_first():
+    records = [
+        record(1, "owner-relay", "note", "Bug fixes: the share link no longer waits on uploads", 50) | {"topic": "fyi"},
+        record(2, "owner-relay", "note", "A plain sentence with no group", 40) | {"topic": "fyi"},
+        record(3, "root", "note", "Lanes: red-sweep-3 recycled", 30) | {"topic": "fyi"},
+        record(4, "owner-relay", "note", "not an fyi", 20),
+        record(5, "owner-relay", "note", "Bug fixes: the SQL tab opens again", 10) | {"topic": "fyi"},
+    ]
+
+    entries = owner_update.fyi_entries(records)
+
+    assert [(entry["seq"], entry["group"], entry["text"]) for entry in entries] == [(5, "Bug fixes", "the SQL tab opens again"), (2, "Other", "A plain sentence with no group"), (1, "Bug fixes", "the share link no longer waits on uploads")]
+    lines = owner_update.fyi_lines(entries)
+    assert lines[0] == "- **Bug fixes**" and lines[1].endswith(": the SQL tab opens again") and lines[2].endswith(": the share link no longer waits on uploads") and lines[3] == "- **Other**"
+
+
+def test_a_pinned_row_is_held_by_every_working_lane_its_words_name_and_by_nobody_when_none_does():
+    found = sources(lane("devbox-perf-1", "desired", 10), lane("next-build-tester-2", "desired", 10, deliverable="run the next build"))
+    entry = {"pinned_rows": [{"name": "Devbox speed and bug hunting", "delivers": "The perf harness and the creative tester", "words": ["devbox"]}, {"name": "Gateway", "delivers": "Every provider", "words": ["gateway"]}]}
+    lanes = list(found.by_lane.values())
+
+    (devbox, mine), (gateway, none) = owner_update.pinned_rows(entry, lanes, found)
+
+    assert (devbox.name, devbox.who, [lane["lane"] for lane in mine]) == ("Devbox speed and bug hunting", "devbox-perf-1", ["devbox-perf-1"])
+    assert (gateway.who, gateway.unowned, none) == ("**nobody**", True, [])
