@@ -129,6 +129,8 @@ Owner-gate lines in the plan without live answer ids appear under `## Lint findi
 `Quote: active progress doc: <id8>; the id in this summary wins over any id captured earlier in the conversation.`
 When `Read first` records exist, the quote opens `hand-written handoff <id7>, ..., then` and those ids win.
 
+**Carry the open owner orders through every desk and communicator compaction.** A desk's `lr lanes handoff` doc, and the communicator's when it runs as `owner-relay`, opens an `## Open owner orders` section from `lr owner audit`. The communicator's window runs no lane handoff, so its `PreCompact` hook in `owner_ledger.py` puts the same list in the compaction instructions, and its `SessionStart` after a compaction runs `lr owner audit` and `lr owner list` before any other search. An order leaves the list only when a live lane, an open PR, a landed record or a `delivered` report carries it, never because a summary dropped it.
+
 ## Restore context after compaction or resume
 
 **Read the register, hand-written handoffs, progress doc, and plan after compaction.** On `SessionStart` with source `compact`, the hook injects the compact digest from `generate`. This digest stays under Claude Code's 10,000-character `SessionStart` truncation limit alongside `cc-notes`'s 7,500-byte restore budget of 4,500 bytes for answers and 3,000 bytes for touched records.
