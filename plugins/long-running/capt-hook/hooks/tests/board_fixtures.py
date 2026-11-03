@@ -44,6 +44,7 @@ FAILING = (
     "r3-confirm-loops-v1.json",
     "r3-spikes-queue-v1.json",
     "unverified-approval.json",
+    "deadline-no-lane.json",
 )
 
 JUDGE = "claude -p"
@@ -60,6 +61,7 @@ BREACHES = {
     "r3-confirm-loops-v1.json": r"names \"held copy\"",
     "r3-spikes-queue-v1.json": r"r3-spikes-queue: a claim about what exists cites no path:line @ ref",
     "unverified-approval.json": r"banner-ok: an approval carries an unverified claim",
+    "deadline-no-lane.json": r"share-open: names a deadline with no lane",
 }
 HELD = {"r3-confirm-loops-v1.json": f"open - {SCOPE_KEY} {BOARDS / 'r3-confirm-loops-v1.json'}:12 held copy\n"}
 
