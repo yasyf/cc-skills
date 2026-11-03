@@ -329,11 +329,12 @@ Then start the desk as a Sprite service:
 ```sh
 sprite exec -s <host> -- sprite-env services create bk-desk \
   --cmd /home/sprite/.local/bin/lr --args bk,desk,--config,<lr.json> \
-  --env PATH=/home/sprite/.local/bin:/.sprite/bin:/usr/local/bin:/usr/bin:/bin \
   --needs desk-creds --no-stream
 ```
 
-The desk reads the token once at start, so restart the service after rotating it. It needs the host joined to the
+The desk reads the token once at start, so restart the service after rotating it.
+A crash restarts it with the Sprite's own backoff, and it then answers any ask from
+the last hour that is still open. It needs the host joined to the
 relay and nothing else: no tailnet route, no open port and no credential on a lane.
 
 A lane cannot reach the desk any other way. The tailnet policy admits only the
