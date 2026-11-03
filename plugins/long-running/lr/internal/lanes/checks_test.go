@@ -280,6 +280,29 @@ func TestALandingATargetDoesNotRunAfterAnHourDrawsOneBlockerNamingItsRelease(t *
 	equal(t, blocker.Text, "LANDED-NOT-LIVE sand: #47799 landed, the oldest 120 minutes ago, and sand runs none of them; start its release: `tools/ci release start --only sand --manual`")
 }
 
+func TestARootHoldOnATargetKeepsItsLandingQuietUntilTheHoldEnds(t *testing.T) {
+	ledger := fmt.Sprintf(`[{"pr":"47799","state":"landed","title":"sand: fix it","landed_sha":"abc","landed_at":%q}]`, t0.Add(-2*time.Hour).Format(time.RFC3339))
+	check, bus := notLive(t, ledger, map[string]string{"abc": "go/sand/internal/vm/vm.go\n"}, `[{"target":"sand","commit":"c1"}]`, false)
+	var hold client.Record
+	body := fmt.Sprintf(`{"seq":9,"lane":"root","kind":"hold","status":"open","at":%q,"text":"routine cuts wait for the morning","refs":{"targets":["sand"]},"fields":{"attrs":{"until":%q}}}`, t0.Add(-time.Hour).Format(time.RFC3339), t0.Add(notLiveEvery).Format(time.RFC3339))
+	if err := json.Unmarshal([]byte(body), &hold); err != nil {
+		t.Fatal(err)
+	}
+	bus.open = []client.Record{hold}
+
+	if err := check.Check(context.Background(), t0); err != nil {
+		t.Fatal(err)
+	}
+	equal(t, len(bus.posted), 0)
+
+	if err := check.Check(context.Background(), t0.Add(notLiveEvery)); err != nil {
+		t.Fatal(err)
+	}
+	equal(t, len(bus.posted), 2)
+	equal(t, bus.posted[0].Text, "LANDED-NOT-LIVE sand: #47799")
+	equal(t, bus.posted[1].Kind, blockerKind)
+}
+
 func TestALandingItsTargetRunsOwesNoRelease(t *testing.T) {
 	ledger := fmt.Sprintf(`[{"pr":"47799","state":"landed","title":"sand: fix it","landed_sha":"abc","landed_at":%q}]`, t0.Add(-2*time.Hour).Format(time.RFC3339))
 	check, bus := notLive(t, ledger, map[string]string{"abc": "go/sand/internal/vm/vm.go\n"}, `[{"target":"sand","commit":"c1"}]`, true)
