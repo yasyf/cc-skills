@@ -370,6 +370,7 @@ func TestRenderBriefFillsEveryPlaceholder(t *testing.T) {
 		`env -u AWS_PROFILE tools/ci break-glass --reason "INCIDENT x: WHY" --stack DOMAIN/ENV`,
 		"incident-x-fix",
 		"lr incident note --incident x --pr <PR number>",
+		"A regular release is the default. Use `--emergency` only when the regular path",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("brief lacks %q", want)

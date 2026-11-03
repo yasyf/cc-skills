@@ -7,6 +7,9 @@ Authority: implement the fix and open its PR through <submit skill>.
   through the release skill or <break-glass skill>, never after a dry run, a
   `--plan` or a preview: the apply's own approve hold or prompt is the only gate,
   and 0 deletes and 0 replaces apply without asking.
+  A regular release is the default. Use `--emergency` only when the regular path
+  is too slow for an active customer-facing failure, and say why in the release
+  record.
   Log the apply in <runbook>, and append one line to the production-operations
   log in the same turn, for this and every other state-changing production
   command you run:
