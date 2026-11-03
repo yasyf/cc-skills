@@ -174,7 +174,7 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 		return Deps{}, err
 	}
 	if runner.Ledger != "" {
-		deps.Checks = append(deps.Checks, (&background{name: "pr-ledger", every: ledgerEvery, run: prLedger{env, s, runner.Ledger}.pass, store: s, post: post, log: a.Log}).Check)
+		deps.Checks = append(deps.Checks, (&background{name: "pr-ledger", every: ledgerEvery, run: (&prLedger{env: env, store: s, id: runner.Ledger}).pass, store: s, post: post, log: a.Log}).Check)
 	}
 	if runner.TrunkCheck != "" {
 		trunk := &landing.TrunkWatch{
