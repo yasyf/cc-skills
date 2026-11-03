@@ -26,9 +26,19 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Test (iOS Simulator)
+        env:
+          TEST_RUNNER_SNAPSHOT_DIR: ${{ runner.temp }}/screen-snapshots
         run: >
+          mkdir -p "$TEST_RUNNER_SNAPSHOT_DIR" &&
           xcodebuild test
           -project plugins/long-running/ios/LongRunning.xcodeproj
           -scheme LongRunning
           -destination 'platform=iOS Simulator,name=iPhone 17'
           CODE_SIGNING_ALLOWED=NO
+      - name: Upload screen snapshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: screen-snapshots
+          path: ${{ runner.temp }}/screen-snapshots
+          if-no-files-found: warn
