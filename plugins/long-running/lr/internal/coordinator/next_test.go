@@ -134,7 +134,22 @@ func TestALongBodyStaysAPointerSoItCostsNoContext(t *testing.T) {
 
 func stubWatch(t *testing.T, rs ...record) string {
 	t.Helper()
+	return stubBus(t, nil, rs...)
+}
+
+func stubBus(t *testing.T, questions []record, rs ...record) string {
+	t.Helper()
 	dir := t.TempDir()
+	records := writeRecords(t, filepath.Join(dir, "records"), rs)
+	shown := writeRecords(t, filepath.Join(dir, "shown"), questions)
+	argv := filepath.Join(dir, "argv")
+	script := "#!/bin/sh\nif [ \"$1\" = show ]; then grep \"^{\\\"seq\\\":$2,\" " + shown + "; exit; fi\necho \"$@\" >> " + argv + "\ncat " + records + "\nexec sleep 60\n"
+	installCCI(t, dir, script)
+	return argv
+}
+
+func writeRecords(t *testing.T, path string, rs []record) string {
+	t.Helper()
 	var lines bytes.Buffer
 	for _, r := range rs {
 		raw, err := json.Marshal(r)
@@ -144,14 +159,45 @@ func stubWatch(t *testing.T, rs ...record) string {
 		lines.Write(raw)
 		lines.WriteByte('\n')
 	}
-	records := filepath.Join(dir, "records")
-	if err := os.WriteFile(records, lines.Bytes(), 0o600); err != nil {
+	if err := os.WriteFile(path, lines.Bytes(), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	argv := filepath.Join(dir, "argv")
-	script := "#!/bin/sh\necho \"$@\" >> " + argv + "\ncat " + records + "\nexec sleep 60\n"
-	installCCI(t, dir, script)
-	return argv
+	return path
+}
+
+func addressed(r record, re int64, to ...string) record {
+	r.Re, r.To = re, to
+	return r
+}
+
+func TestAnAnswerBetweenTwoOtherLanesStaysOutOfTheBatchAndEverythingElsePrints(t *testing.T) {
+	const betweenLanes, askedRoot, askedByRoot, unknown = 1, 2, 3, 4
+	questions := []record{
+		addressed(at(betweenLanes, "lane-a", "ask"), 0, "lane-b"),
+		addressed(at(askedRoot, "lane-a", "ask"), 0, "root", "lane-b"),
+		addressed(at(askedByRoot, "root", "ask"), 0, "lane-b"),
+	}
+	cursor := filepath.Join(t.TempDir(), "next.cursor")
+	stubBus(t, questions,
+		addressed(at(16, "owner-relay", "answer"), betweenLanes, "lane-a", "root"),
+		addressed(at(10, "lane-b", "answer"), betweenLanes, "lane-a", "root"),
+		addressed(at(11, "lane-b", "answer"), askedRoot, "lane-a", "root"),
+		addressed(at(12, "lane-b", "answer"), askedByRoot, "lane-a", "root"),
+		addressed(at(13, "lane-b", "answer"), unknown, "lane-a", "root"),
+		addressed(at(14, "lane-b", "answer"), betweenLanes, "root"),
+		addressed(at(15, "lane-b", "answer"), 0, "lane-a", "root"),
+		addressed(at(17, "board-watch", "owner"), betweenLanes, "owner-relay", "root"),
+		addressed(at(18, "lane-b", "ask"), betweenLanes, "lane-a", "root"),
+	)
+	out := runNext(t, cursor)
+	if strings.Contains(out, "#10 ") {
+		t.Fatalf("an answer between two other lanes reached the coordinator: %q", out)
+	}
+	for _, seq := range []string{"#11 ", "#12 ", "#13 ", "#14 ", "#15 ", "#16 ", "#17 ", "#18 "} {
+		if !strings.Contains(out, seq) {
+			t.Fatalf("batch %q lost %s", out, seq)
+		}
+	}
 }
 
 func installCCI(t *testing.T, dir, script string) {
