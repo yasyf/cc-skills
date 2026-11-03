@@ -79,6 +79,7 @@ MODEL_URL = "https://api.cerebras.ai/v1/chat/completions"
 MODEL_NAME = "gpt-oss-120b"
 MODEL_FIELDS = ("messages", "tools", "tool_choice", "parallel_tool_calls", "reasoning_effort", "reasoning_format", "max_completion_tokens", "temperature", "response_format", "prompt_cache_key", "stream", "stream_options")
 ASSIST =HERE.parents[1] / "skills" / "long-running" / "templates" / "drive-assist.html"
+TALK_LINKS = "talk.json"
 BUILD = hashlib.sha1(b"".join(path.read_bytes() for path in sorted([*HERE.iterdir(), ASSIST]) if path.suffix in (".js", ".css", ".html", ".py"))).hexdigest()[:12]
 CLIENT_RECORD = ("seq", "lane", "kind", "at", "text", "refs", "re")
 PR_ROUTE = re.compile(r"/api/pr/(\d+)")
@@ -140,7 +141,7 @@ BOXES = 12
 SEVERITY = {"blocker": "bad", "defect": "bad", "incident": "bad", "ask": "you", "owner": "you", "landed": "ok", "go": "ok", "fix-live": "ok"}
 TONE_RANK = {"bad": 3, "you": 2, "ok": 1, "info": 0}
 PR_MENTION = re.compile(r"#(4\d{4})\b")
-STATIC = {"/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"), "/app.css": ("app.css", "text/css"), "/review.js": ("review.js", "text/javascript"), "/review.css": ("review.css", "text/css"), "/overview.js": ("overview.js", "text/javascript"), "/overview.css": ("overview.css", "text/css"), "/cockpit.css": ("cockpit.css", "text/css"), "/now.js": ("now.js", "text/javascript"), "/now.css": ("now.css", "text/css"), "/pages.js": ("pages.js", "text/javascript"), "/pages.css": ("pages.css", "text/css"), "/theme.css": ("theme.css", "text/css")}
+STATIC = {"/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"), "/app.css": ("app.css", "text/css"), "/review.js": ("review.js", "text/javascript"), "/review.css": ("review.css", "text/css"), "/overview.js": ("overview.js", "text/javascript"), "/overview.css": ("overview.css", "text/css"), "/cockpit.css": ("cockpit.css", "text/css"), "/now.js": ("now.js", "text/javascript"), "/now.css": ("now.css", "text/css"), "/pages.js": ("pages.js", "text/javascript"), "/pages.css": ("pages.css", "text/css"), "/theme.css": ("theme.css", "text/css"), "/talk.js": ("talk.js", "text/javascript"), "/talk.css": ("talk.css", "text/css")}
 
 
 def gh(repo, *args):
@@ -1545,6 +1546,7 @@ class Drive:
             "trees": {n: entry["trees"] for n, entry in self.paths.items()},
             "tree_names": [tree["name"] for tree in self.config["trees"]],
             "lanes": lanes,
+            "talk": json.loads(talk.read_text()) if (talk := Path(self.config["steps"]).parents[1] / TALK_LINKS).is_file() else None,
             "built_at": dt.datetime.now(dt.timezone.utc).isoformat(),
             "errors": dict(self.errors),
         }

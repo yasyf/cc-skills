@@ -1,0 +1,13 @@
+:root { --talk-width: 440px; }
+#talkbtn { margin-left: 0; cursor: pointer; }
+#talkbtn + #kbtn { margin-left: 0; }
+.top #talkbtn { margin-left: auto; }
+.talk-drawer { position: fixed; z-index: 40; top: 54px; right: 0; bottom: 0; width: var(--talk-width); background: var(--bg); border-left: 1px solid var(--surface-3); }
+.talk-drawer[hidden] { display: none; }
+.talk-drawer iframe { display: block; width: 100%; height: 100%; border: 0; background: transparent; }
+@media (min-width: 1200px) {
+  body.talk-open #main, body.talk-open #embed, body.talk-open #cardembed { margin-right: var(--talk-width); }
+}
+@media (max-width: 1199px) {
+  .talk-drawer { left: 0; width: auto; border-left: 0; }
+}

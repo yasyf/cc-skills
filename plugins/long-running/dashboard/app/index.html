@@ -13,11 +13,13 @@
 <link rel="stylesheet" href="/now.css">
 <link rel="stylesheet" href="/pages.css">
 <link rel="stylesheet" href="/theme.css">
+<link rel="stylesheet" href="/talk.css">
 </head>
 <body>
 <header class="top">
   <a class="brand" href="#/"></a>
   <nav class="tabs" id="tabs"></nav>
+  <button class="kbtn" id="talkbtn" type="button" hidden>✎ <span>Talk</span></button>
   <a class="kbtn" id="kbtn" href="#/jump">⌕ <span>Jump to anything</span><kbd>⌘K</kbd></a>
   <span class="fresh" id="fresh"></span>
 </header>
@@ -25,10 +27,12 @@
 <main id="main" class="wrap"><div class="sk"></div><div class="sk"></div><div class="sk"></div></main>
 <section id="embed" class="review-embed" hidden></section>
 <section id="cardembed" hidden></section>
+<aside id="talk" class="talk-drawer" hidden><iframe id="talkframe" title="Talk to the communicator"></iframe></aside>
 <script src="/review.js"></script>
 <script src="/overview.js"></script>
 <script src="/now.js"></script>
 <script src="/pages.js"></script>
+<script src="/talk.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>

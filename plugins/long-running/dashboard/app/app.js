@@ -4,8 +4,7 @@ const clockFmt = new Intl.DateTimeFormat('en-US', { timeZone: PACIFIC, hour: 'nu
 const dayFmt = new Intl.DateTimeFormat('en-US', { timeZone: PACIFIC, weekday: 'short' });
 const KIND_WORD = { owner: 'You', go: 'Approved to land', landed: 'Landed', release: 'Release', incident: 'Incident', mechanism: 'Cause found', 'fix-live': 'Fix live', opened: 'Opened', report: 'Report', hold: 'Held', lift: 'Hold lifted', blocker: 'Blocked', defect: 'Tool problem', correction: 'Correction', decide: 'Decision', ask: 'Question', answer: 'Answer' };
 
-const state = { drive: new Map(), model: null, version: -1, open: new Set(), seen: new Set(), chat: [], asking: false, taps: [] };
-const SUGGESTED = ['What is blocking the next release?', 'What did I approve tonight that has not landed yet?', 'Which workers are stuck, and on what?'];
+const state = { drive: new Map(), model: null, version: -1, open: new Set(), seen: new Set(), taps: [] };
 const $ = (sel) => document.querySelector(sel);
 
 function esc(s) {
@@ -236,35 +235,6 @@ window.addEventListener('message', (e) => {
 });
 
 
-function chatTurns() {
-  return state.chat.map((t) => `<div class="turn ${t.role}">${t.role === 'user' ? esc(t.content) : markdown(t.content) || '<span class="dim">Reading the drive…</span>'}</div>`).join('');
-}
-function askScreen() {
-  const turns = chatTurns();
-  return `<h2 class="sec">Ask about the drive <span class="dim">answers come only from the drive's records, the plan and the merge board</span></h2>
-    <div class="chat">${turns || `<div class="suggest">${SUGGESTED.map((q) => `<button class="btn" data-ask="${esc(q)}">${esc(q)}</button>`).join('')}</div>`}</div>
-    <form class="ask" id="ask"><textarea name="q" rows="2" placeholder="Ask anything about the drive…"${state.asking ? ' disabled' : ''}></textarea><button class="btn pri"${state.asking ? ' disabled' : ''}>Ask</button></form>`;
-}
-async function ask(question) {
-  if (!question.trim() || state.asking) return;
-  const history = state.chat.map(({ role, content }) => ({ role, content }));
-  state.chat.push({ role: 'user', content: question }, { role: 'assistant', content: '' });
-  state.asking = true;
-  render();
-  fetch('/api/asked', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: question }) });
-  const answer = state.chat[state.chat.length - 1];
-  try {
-    answer.content = await assistAsk(question, history, (text) => {
-      answer.content = text;
-      if (route().screen === 'ask') $('#main .chat').innerHTML = chatTurns();
-    });
-  } catch (error) {
-    answer.content += `\n\nThe answer stopped: ${error.message}`;
-  } finally {
-    state.asking = false;
-    render();
-  }
-}
 
 const DRAWER = /^(?:review\/\d+(?:\/code)?|plan\/[^/~]+|status\/s\d+|(?:work|story|worker|blocker|question)\/[^/~]+)$/;
 const NATURAL = { review: '#/review', plan: '#/plan', status: '#/status', work: '#/work', worker: '#/work' };
@@ -308,6 +278,7 @@ function render() {
   const stack = stackOf();
   document.title = m.title;
   $('.brand').textContent = m.title;
+  syncTalk(m.talk);
   const tabs = [['overview', 'Now'], ['needs', 'Needs me', openTaps().length], ['plan', 'Plan'], ['status', 'Status'], ['work', 'Work'], ['review', 'Review', needsTotal()], ['asks', 'Your asks', openAsks()], ['replies', 'Replies', openReplies()], ['history', 'History']];
   $('#kbtn').classList.toggle('on', p.screen === 'jump');
   const typing = document.activeElement?.matches('#main input, #main textarea') ? document.activeElement : null;
@@ -315,7 +286,7 @@ function render() {
   const spotRoot = [$('#main'), $('#tabs')].find((el) => el.contains(document.activeElement));
   const spot = !typing && state.shown === location.hash && spotRoot && focusSpot(spotRoot);
   $('#tabs').innerHTML = tabs.map(([id, label, count]) => `<a class="tab${(p.screen === 'milestone' ? 'plan' : p.screen) === id ? ' on' : ''}" href="#/${id === 'overview' ? '' : id}">${label}${count ? `<span class="count">${count}</span>` : ''}</a>`).join('');
-  const screens = { overview: nowScreen, plan: planScreen, work: workScreen, review: () => reviewScreen(p.id ?? ''), milestone: () => (curated('plan') ? milestonePage(curated('plan'), Number(p.id)) : writing(state.model.milestones[p.id])), history: () => historyScreen(p.id), asks: () => asksScreen(p.id), needs: needsScreen, replies: repliesScreen, ask: askScreen, status: () => statusScreen(p.id, p.tab), jump: () => `<div class="pg">${pageHead('Jump to anything')}<p class="pg-lead">Find a change, a part of the plan, a piece of work or a page, or ask the assistant a question.</p></div>` };
+  const screens = { overview: nowScreen, plan: planScreen, work: workScreen, review: () => reviewScreen(p.id ?? ''), milestone: () => (curated('plan') ? milestonePage(curated('plan'), Number(p.id)) : writing(state.model.milestones[p.id])), history: () => historyScreen(p.id), asks: () => asksScreen(p.id), needs: needsScreen, replies: repliesScreen, status: () => statusScreen(p.id, p.tab), jump: () => `<div class="pg">${pageHead('Jump to anything')}<p class="pg-lead">Find a change, a part of the plan, a piece of work or a page, or ask the assistant a question.</p></div>` };
   const y = window.scrollY;
   const kept = [...document.querySelectorAll('[data-keep-scroll]')].map((el) => [el.dataset.keepScroll, el.scrollLeft, el.scrollTop]);
   let screen;
@@ -540,7 +511,7 @@ async function fetchModel() {
 }
 function reloadWhenIdle() {
   const typing = document.activeElement?.matches('input, textarea') && document.activeElement.value;
-  if (typing || state.pressing || state.asking || (pending.number && !pending.error)) setTimeout(reloadWhenIdle, 2000);
+  if (typing || state.pressing || (pending.number && !pending.error)) setTimeout(reloadWhenIdle, 2000);
   else location.reload();
 }
 document.addEventListener('pointerdown', () => { state.pressing = true; }, true);
@@ -579,13 +550,6 @@ document.addEventListener('click', (e) => {
     state.open.has(id) ? state.open.delete(id) : state.open.add(id);
     render();
   }
-  const suggestion = e.target.closest('[data-ask]');
-  if (suggestion) ask(suggestion.dataset.ask);
-});
-document.addEventListener('submit', (e) => {
-  if (e.target.id !== 'ask') return;
-  e.preventDefault();
-  ask(e.target.q.value);
 });
 window.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape' || !e.target.matches?.('#main input, #main textarea') || e.target.closest('#pal')) return;
