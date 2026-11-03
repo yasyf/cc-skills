@@ -69,6 +69,8 @@ github.com/yasyf/daemonkit v0.36.0 h1:2SOhdDB/bxNbJDPsYEWRhQ9fqtxFSNgUatngrM0BPk
 github.com/yasyf/daemonkit v0.36.0/go.mod h1:hEUZvGh+jCBOJmltSQa3QZR0kqV6G/ApJoViU1aAMps=
 github.com/yasyf/synckit v0.51.2 h1:TXRynt/4P9620fcC3YEj+FDB12XZmE2Vsx8uwyk1dGU=
 github.com/yasyf/synckit v0.51.2/go.mod h1:uJApRIVZZ0WeXPZ1Bir2rPx5cJeW7AoUr12fcMo7W2M=
+github.com/yuin/goldmark v1.8.7 h1:XT/tNqCIbabh0ln675w4x3dv04kQBKi8NwYqi9IJaxI=
+github.com/yuin/goldmark v1.8.7/go.mod h1:ip/1k0VRfGynBgxOz0yCqHrbZXhcjxyuS66Brc7iBKg=
 github.com/yusufpapurcu/wmi v1.2.4 h1:zFUKzehAFReQwLys1b/iSMl+JQGSCSjtVqQn9bBrPo0=
 github.com/yusufpapurcu/wmi v1.2.4/go.mod h1:SBZ9tNy3G9/m5Oi98Zks0QjeHVDvuK0qfxQmPyzfmi0=
 go.yaml.in/yaml/v3 v3.0.4/go.mod h1:DhzuOOF2ATzADvBadXxruRBLzYTpT36CKvDb3+aBEFg=

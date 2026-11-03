@@ -1,0 +1,428 @@
+package explain
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"html"
+	"html/template"
+	"io"
+	"io/fs"
+	"net/http"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"time"
+
+	"github.com/spf13/cobra"
+	"github.com/yasyf/cc-inbox/client"
+	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/ast"
+	"github.com/yuin/goldmark/extension"
+	"github.com/yuin/goldmark/text"
+
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/launchd"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
+)
+
+const (
+	Label      = "com.long-running.explain"
+	Branch     = "explainers"
+	Port       = 8642
+	ServePort  = 8643
+	relay      = "owner-relay"
+	answerWait = 30
+	stepWait   = time.Minute
+)
+
+var (
+	nonWord  = regexp.MustCompile(`[^a-z0-9]+`)
+	record   = regexp.MustCompile(`^#\d+(@\w+)?$`)
+	markdown = goldmark.New(goldmark.WithExtensions(extension.GFM))
+	page     = template.Must(template.New("page").Parse(`<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{.Title}}</title>
+<meta name="description" content="{{.Lede}}">
+<meta name="updated" content="{{.Updated.Format "2006-01-02"}}">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="../kit/one-pager.css">
+<script type="module" src="../kit/one-pager.js"></script>
+</head>
+<body>
+<header class="op-head">
+  <div class="op-bar"><a class="op-home" href="../">← All one-pagers</a></div>
+  <h1>{{.Title}}</h1>
+{{- with .Lede}}
+  <p class="xs-sub">{{.}}</p>
+{{- end}}
+  <ul class="op-nav">
+{{- range .Sections}}{{if .ID}}
+    <li><a href="#{{.ID}}">{{.Heading}}</a></li>
+{{- end}}{{end}}
+  </ul>
+</header>
+{{range .Sections}}
+<section class="op-panel"{{with .ID}} id="{{.}}"{{end}}>
+{{- with .Heading}}
+  <header><h2>{{.}}</h2></header>
+{{- end}}
+{{.Body}}
+</section>
+{{end}}
+<footer class="op-foot">Updated {{.Updated.Format "January 2, 2006"}}.</footer>
+</body>
+</html>
+`))
+)
+
+func Slug(topic string) string {
+	return strings.Trim(nonWord.ReplaceAllString(strings.ToLower(topic), "-"), "-")
+}
+
+type section struct {
+	ID      string
+	Heading string
+	Body    template.HTML
+}
+
+type onePager struct {
+	Title    string
+	Lede     string
+	Updated  time.Time
+	Sections []section
+}
+
+func parse(topic string, source []byte, updated time.Time) (onePager, error) {
+	doc := markdown.Parser().Parse(text.NewReader(source))
+	p := onePager{Updated: updated}
+	var body bytes.Buffer
+	heading := ""
+	flush := func() {
+		if heading != "" || strings.TrimSpace(body.String()) != "" {
+			p.Sections = append(p.Sections, section{ID: Slug(heading), Heading: heading, Body: template.HTML(body.String())}) //nolint:gosec // goldmark escapes raw HTML in the source, and mermaid text is escaped below.
+		}
+		body.Reset()
+	}
+	for node := doc.FirstChild(); node != nil; node = node.NextSibling() {
+		opening := p.Sections == nil && heading == "" && body.Len() == 0
+		switch n := node.(type) {
+		case *ast.Heading:
+			switch {
+			case n.Level == 1 && opening && p.Title == "" && p.Lede == "":
+				p.Title = plain(n, source)
+				continue
+			case n.Level == 2:
+				flush()
+				heading = plain(n, source)
+				continue
+			}
+		case *ast.Paragraph:
+			if opening && p.Lede == "" {
+				p.Lede = plain(n, source)
+				continue
+			}
+		case *ast.FencedCodeBlock:
+			if string(n.Language(source)) == "mermaid" {
+				body.WriteString(`<figure class="op-fig"><pre class="mermaid">`)
+				for i := range n.Lines().Len() {
+					line := n.Lines().At(i)
+					body.WriteString(html.EscapeString(string(line.Value(source))))
+				}
+				body.WriteString("</pre></figure>\n")
+				continue
+			}
+		}
+		if err := markdown.Renderer().Render(&body, source, node); err != nil {
+			return onePager{}, err
+		}
+	}
+	flush()
+	if p.Title == "" {
+		p.Title = topic
+	}
+	return p, nil
+}
+
+func (p onePager) HTML() ([]byte, error) {
+	var out bytes.Buffer
+	if err := page.Execute(&out, p); err != nil {
+		return nil, err
+	}
+	return out.Bytes(), nil
+}
+
+func plain(n ast.Node, source []byte) string {
+	var out strings.Builder
+	_ = ast.Walk(n, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+		if t, ok := n.(*ast.Text); ok && entering {
+			out.Write(t.Segment.Value(source))
+			if t.SoftLineBreak() {
+				out.WriteByte(' ')
+			}
+		}
+		return ast.WalkContinue, nil
+	})
+	return out.String()
+}
+
+type Checkout struct {
+	Runner shell.Runner
+	Root   string
+	Dir    string
+}
+
+func (c Checkout) git(ctx context.Context, dir string, args ...string) (string, error) {
+	result, err := c.Runner.Run(ctx, shell.Command{Argv: append([]string{"git", "-C", dir}, args...), Timeout: stepWait})
+	return result.Stdout, err
+}
+
+func (c Checkout) Write(ctx context.Context, topic, slug string, body []byte) error {
+	if _, err := os.Stat(c.Dir); errors.Is(err, fs.ErrNotExist) {
+		if err := c.add(ctx); err != nil {
+			return err
+		}
+	} else if err != nil {
+		return err
+	}
+	path := filepath.Join(c.Dir, "one-pagers", slug, "index.html")
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		return err
+	}
+	if err := os.WriteFile(path, body, 0o600); err != nil {
+		return err
+	}
+	changed, err := c.git(ctx, c.Dir, "status", "--porcelain", "--", path)
+	if err != nil || changed == "" {
+		return err
+	}
+	if _, err := c.git(ctx, c.Dir, "add", "--", path); err != nil {
+		return err
+	}
+	_, err = c.git(ctx, c.Dir, "commit", "--quiet", "--no-verify", "-m", "one-pagers: explain "+topic, "--", path)
+	return err
+}
+
+func (c Checkout) add(ctx context.Context) error {
+	_, err := c.git(ctx, c.Root, "rev-parse", "--verify", "--quiet", "refs/heads/"+Branch)
+	var exit *shell.ExitError
+	switch {
+	case err == nil:
+		_, err = c.git(ctx, c.Root, "worktree", "add", c.Dir, Branch)
+		return err
+	case !errors.As(err, &exit) || exit.Code != 1:
+		return err
+	}
+	if _, err := c.git(ctx, c.Root, "fetch", "--quiet", "origin", "main"); err != nil {
+		return err
+	}
+	_, err = c.git(ctx, c.Root, "worktree", "add", "-b", Branch, c.Dir, "origin/main")
+	return err
+}
+
+type Host interface {
+	Serve(ctx context.Context, dir string) (string, error)
+}
+
+type Tailnet struct {
+	Runner  shell.Runner
+	Agents  launchd.Launchd
+	Binary  string
+	Log     string
+	Answers func(string) bool
+}
+
+func (t Tailnet) Serve(ctx context.Context, dir string) (string, error) {
+	backend := fmt.Sprintf("127.0.0.1:%d", Port)
+	job := launchd.Job{Label: Label, Arguments: []string{t.Binary, "explain", "serve", "--dir", dir, "--addr", backend}, Log: t.Log}
+	if err := t.Agents.Install(ctx, job); err != nil {
+		return "", err
+	}
+	if _, err := t.Runner.Run(ctx, shell.Command{Argv: []string{"tailscale", "serve", "--bg", fmt.Sprintf("--https=%d", ServePort), "http://" + backend}, Timeout: stepWait}); err != nil {
+		return "", err
+	}
+	status, err := t.Runner.Run(ctx, shell.Command{Argv: []string{"tailscale", "status", "--peers=false", "--json"}, Timeout: stepWait})
+	if err != nil {
+		return "", err
+	}
+	var self struct {
+		Self struct {
+			DNSName string `json:"DNSName"`
+		} `json:"Self"`
+	}
+	if err := json.Unmarshal([]byte(status.Stdout), &self); err != nil || self.Self.DNSName == "" {
+		return "", errors.New("tailscale status --json names no DNSName for this machine")
+	}
+	url := fmt.Sprintf("https://%s:%d/", strings.TrimSuffix(self.Self.DNSName, "."), ServePort)
+	for range answerWait {
+		if t.Answers(url) {
+			return url, nil
+		}
+		t.Agents.Sleep(time.Second)
+	}
+	return "", fmt.Errorf("%s runs but %s did not answer within %d s; see %s", Label, url, answerWait, t.Log)
+}
+
+type Notice struct {
+	Title string
+	Lede  string
+	Link  string
+}
+
+type Announcer interface {
+	Announce(ctx context.Context, n Notice) error
+}
+
+type Owner struct {
+	Runner shell.Runner
+	Post   func(context.Context, client.Draft) (client.Record, error)
+	Drive  string
+	Lane   string
+}
+
+func (o Owner) Announce(ctx context.Context, n Notice) error {
+	if o.Lane != relay {
+		if _, err := o.Post(ctx, client.Draft{Drive: o.Drive, Lane: o.Lane, Kind: "report", To: []string{relay}, Stamp: true, Text: fmt.Sprintf("one-pager for the owner, %s: %s", n.Title, n.Link)}); err != nil {
+			return err
+		}
+	}
+	err := o.dm(ctx, n)
+	if err == nil {
+		return nil
+	}
+	if _, posted := o.Post(ctx, client.Draft{Drive: o.Drive, Lane: o.Lane, Kind: "blocker", To: []string{"root"}, Stamp: true, Text: fmt.Sprintf("lr explain hosted %s but could not post it at the owner's Slack DM root: %v", n.Link, err)}); posted != nil {
+		return errors.Join(err, posted)
+	}
+	return fmt.Errorf("the owner's Slack DM did not get %s, and a blocker to root says so: %w", n.Link, err)
+}
+
+func (o Owner) dm(ctx context.Context, n Notice) error {
+	card, err := json.Marshal(map[string]any{"title": n.Title, "body": n.Lede, "links": []map[string]string{{"label": "Open the one-pager", "url": n.Link}}})
+	if err != nil {
+		return err
+	}
+	_, err = o.Runner.Run(ctx, shell.Command{Argv: []string{"cc-slack", "dm-status", "--card", string(card)}, Timeout: stepWait})
+	return err
+}
+
+func Explain(ctx context.Context, checkout Checkout, host Host, owner Announcer, topic string, source []byte, now time.Time) (string, error) {
+	slug := Slug(topic)
+	if slug == "" {
+		return "", fmt.Errorf("topic %q has no letter or digit to name its page", topic)
+	}
+	p, err := parse(topic, source, now)
+	if err != nil {
+		return "", err
+	}
+	body, err := p.HTML()
+	if err != nil {
+		return "", err
+	}
+	if err := checkout.Write(ctx, topic, slug, body); err != nil {
+		return "", err
+	}
+	base, err := host.Serve(ctx, checkout.Dir)
+	if err != nil {
+		return "", err
+	}
+	link := base + "one-pagers/" + slug + "/"
+	return link, owner.Announce(ctx, Notice{Title: p.Title, Lede: p.Lede, Link: link})
+}
+
+func read(ctx context.Context, runner shell.Runner, from string) ([]byte, error) {
+	if !record.MatchString(from) {
+		return os.ReadFile(from)
+	}
+	result, err := runner.Run(ctx, shell.Command{Argv: []string{"cci", "show", from, "--json"}, Timeout: stepWait})
+	if err != nil {
+		return nil, err
+	}
+	var shown struct {
+		Text string `json:"text"`
+		Refs struct {
+			Path string `json:"path"`
+		} `json:"refs"`
+	}
+	if err := json.Unmarshal([]byte(result.Stdout), &shown); err != nil {
+		return nil, fmt.Errorf("cci show %s: %w", from, err)
+	}
+	if shown.Refs.Path == "" {
+		return []byte(shown.Text), nil
+	}
+	return os.ReadFile(shown.Refs.Path)
+}
+
+func designDocs(cfg config.Config) string {
+	if root := os.Getenv("DESIGN_DOCS_ROOT"); root != "" {
+		return root
+	}
+	return filepath.Join(filepath.Dir(cfg.Checkout), "design-docs")
+}
+
+func answers(url string) bool {
+	client := http.Client{Timeout: 5 * time.Second}
+	response, err := client.Get(url)
+	if err != nil {
+		return false
+	}
+	_, _ = io.Copy(io.Discard, response.Body)
+	_ = response.Body.Close()
+	return response.StatusCode == http.StatusOK
+}
+
+func Command(a *app.App) *cobra.Command {
+	var from string
+	cmd := &cobra.Command{
+		Use:   "explain <topic>",
+		Short: "Write a one-pager on a topic into this machine's design-docs explainers branch, host it on the tailnet, and send its link to the owner",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := a.Config()
+			if err != nil {
+				return err
+			}
+			source, err := read(cmd.Context(), a.Runner, from)
+			if err != nil {
+				return err
+			}
+			claude, err := drive.ConfigDir()
+			if err != nil {
+				return err
+			}
+			agents, err := launchd.New(a.Runner, cmd.ErrOrStderr())
+			if err != nil {
+				return err
+			}
+			home := filepath.Join(claude, "long-running")
+			host := Tailnet{Runner: a.Runner, Agents: agents, Binary: filepath.Join(home, "current", "bin", "lr"), Log: filepath.Join(home, "explain.log"), Answers: answers}
+			owner := Owner{Runner: a.Runner, Post: client.Post, Drive: cfg.Drive, Lane: os.Getenv(lanes.LaneEnv)}
+			link, err := Explain(cmd.Context(), Checkout{Runner: a.Runner, Root: designDocs(cfg), Dir: filepath.Join(home, Branch)}, host, owner, args[0], source, a.Now())
+			if link != "" {
+				fmt.Fprintln(cmd.OutOrStdout(), link)
+			}
+			return err
+		},
+	}
+	cmd.Flags().StringVar(&from, "from", "", "a markdown file, or a cci record such as #359589 whose text or body is markdown")
+	_ = cmd.MarkFlagRequired("from")
+	var dir, addr string
+	serve := &cobra.Command{Use: "serve", Hidden: true, Short: "Serve the explainers worktree, as the launchd agent lr explain installs", Args: cobra.NoArgs, RunE: func(*cobra.Command, []string) error {
+		server := http.Server{Addr: addr, Handler: http.FileServer(http.Dir(dir)), ReadHeaderTimeout: 10 * time.Second}
+		return server.ListenAndServe()
+	}}
+	serve.Flags().StringVar(&dir, "dir", "", "the explainers worktree")
+	serve.Flags().StringVar(&addr, "addr", "", "the loopback address tailscale serve forwards to")
+	cmd.AddCommand(serve)
+	return cmd
+}
