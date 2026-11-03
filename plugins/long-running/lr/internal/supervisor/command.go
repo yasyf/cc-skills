@@ -124,7 +124,7 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 			(&watch.Stalls{Store: s, Drive: env.Config.Drive, Runner: a.Runner, Post: post, Log: a.Log}).Check,
 			(&lanes.MutePushback{Env: env, Log: a.Log}).Check,
 			(&background{name: "relay-rejoin", every: rejoinEvery, run: rejoin.Pass, store: s, post: post, log: a.Log}).Check,
-			(&background{name: "prompt-watch", every: promptEvery, run: func(ctx context.Context) error {
+			(&background{name: "prompt-watch", every: TickEvery, run: func(ctx context.Context) error {
 				entry, err := prompts.Find(env.Config.Drive)
 				if err != nil {
 					return err

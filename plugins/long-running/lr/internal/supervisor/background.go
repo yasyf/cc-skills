@@ -19,7 +19,6 @@ const (
 	wasteEvery  = time.Hour
 	judgeEvery  = time.Minute
 	judgeLimit  = 15 * time.Minute
-	promptEvery = 30 * time.Second
 )
 
 type background struct {
