@@ -150,7 +150,7 @@ func (d drive) owed(out io.Writer) ([]owing, error) {
 				if seq != 0 {
 					newest = fmt.Sprintf("newest record #%d", seq)
 				}
-				fmt.Fprintf(out, "%s is up as %s, %s; launching another takes `lr request stand-down %s --successor <lane>` first\n", standingDesk.name, row.Name, newest, row.Name)
+				fmt.Fprintf(out, "%s is up as %s, %s; launching another takes `lr request stand-down %s --successor <lane> --open '<items>'` first\n", standingDesk.name, row.Name, newest, row.Name)
 				continue
 			}
 			next.lane, next.from = lanes.SuccessorName(row.Name, taken), row.Brief

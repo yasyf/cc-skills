@@ -251,6 +251,7 @@ func RequestCommand(a *app.App) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&request.Successor, "successor", "", "the lane that takes over")
 	cmd.Flags().StringVar(&request.LastRead, "last-read", "", "the lane's newest record you have read")
+	cmd.Flags().StringVar(&request.Open, "open", "", "a desk's open items its stand-down hands on, or none")
 	cmd.Flags().IntSliceVar(&request.PRs, "pr", nil, "a PR the request moves; repeatable")
 	cmd.Flags().StringVar(&request.By, "by", "", "the lane asking; defaults to the lane bound to this session")
 	return cmd

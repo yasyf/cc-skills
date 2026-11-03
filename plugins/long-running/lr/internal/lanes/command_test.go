@@ -159,7 +159,10 @@ func TestTheRequestVerbPostsOneTypedRecordAndRefusesAStandingLaneAlone(t *testin
 	if _, err := execute(t, RequestCommand(a), "shelve", refresher); err == nil || !strings.Contains(err.Error(), "unknown request") {
 		t.Fatalf("err %v", err)
 	}
-	text, err := execute(t, RequestCommand(a), "stand-down", refresher, "--successor", "board-refresher-7", "--last-read", "9", "--pr", "12", "--by", "coordinator")
+	if _, err := execute(t, RequestCommand(a), "stand-down", refresher, "--successor", "board-refresher-7", "--last-read", "9", "--by", "coordinator"); err == nil || !strings.Contains(err.Error(), "its stand-down carries its open items") {
+		t.Fatalf("err %v", err)
+	}
+	text, err := execute(t, RequestCommand(a), "stand-down", refresher, "--successor", "board-refresher-7", "--last-read", "9", "--pr", "12", "--open", "card-cleanup-daemon-restart", "--by", "coordinator")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +176,7 @@ func TestTheRequestVerbPostsOneTypedRecordAndRefusesAStandingLaneAlone(t *testin
 	}
 	equal(t, len(records), 1)
 	r := recordOf(records[0])
-	equal(t, []any{r.Lane, r.Kind, isRequest(r), r.Attr("verb"), r.Attr("lane"), r.Attr("successor"), r.Attr("last-read"), r.PRs()}, []any{"coordinator", "decide", true, "stand-down", refresher, "board-refresher-7", "9", []int{12}})
+	equal(t, []any{r.Lane, r.Kind, isRequest(r), r.Attr("verb"), r.Attr("lane"), r.Attr("successor"), r.Attr("last-read"), r.Attr("open"), r.PRs()}, []any{"coordinator", "decide", true, "stand-down", refresher, "board-refresher-7", "9", "card-cleanup-daemon-restart", []int{12}})
 }
 
 func TestTheRequestVerbPostsNothingUntilTheCallerHasReadTheLaneItWouldStandDown(t *testing.T) {
