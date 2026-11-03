@@ -110,9 +110,9 @@ func TestATickOverLanesWithNoProcessReadsTheSameAtOneLaneAndAtAThousand(t *testi
 	counts := func(n int) [5]int {
 		s := memory(t)
 		f := adopted(t, s, writeBrief(t), "")
-		var who, records, states, owed int
+		var peers, records, states, owed int
 		base := f.deps
-		f.deps.Who = func(names []string) ([]Row, error) { who++; return base.Who(names) }
+		f.deps.Who = func(names []string) ([]Row, error) { peers++; return base.Who(names) }
 		f.deps.Records = func(since int64) ([]Record, error) { records++; return base.Records(since) }
 		f.deps.PRStates = func(numbers []int) (map[int]string, error) { states++; return base.PRStates(numbers) }
 		f.deps.Owed = func() ([]deletions.Owed, error) { owed++; return base.Owed() }
@@ -130,7 +130,7 @@ func TestATickOverLanesWithNoProcessReadsTheSameAtOneLaneAndAtAThousand(t *testi
 			t.Fatal(err)
 		}
 		equal(t, len(retired), n)
-		return [5]int{who, records, states, owed, len(f.launches)}
+		return [5]int{peers, records, states, owed, len(f.launches)}
 	}
 	equal(t, counts(1000), counts(1))
 }
