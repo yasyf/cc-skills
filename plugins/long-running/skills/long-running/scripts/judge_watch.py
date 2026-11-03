@@ -6,8 +6,9 @@
 
     judge_watch.py --config RUNNER_JSON [--dry-run]
 
-The orca runner starts a pass every `judge.every_minutes` (default 1) once the last has exited. A pass reads
-every record since its cursor and asks the drive's judge (`long_running/judge.py`):
+The supervisor starts a pass each minute once the last has exited. A pass reads every record since its cursor
+and asks the drive's judge (`long_running/judge.py`), on a Sprite from `judge.sprite` through `sprite-job.sh` and
+`judge_job.py` when `runner.json` names them, so no model call runs on the Mac:
 
     contract  a lane's `contract`: does it misread his words, narrower than he said or too literally, on the
               rows it acts on, which `rulings.py readback --words` prints: those its slice carries for its lane,
@@ -37,8 +38,10 @@ import fcntl
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -66,6 +69,7 @@ WRITER_RIGHT = "2 The writer's reading"
 RELAY_KINDS = frozenset({"decide"})
 POSTED = re.compile(r"#(\d+)")
 RULING_CHARS = 200
+SPRITE_SECONDS = 600
 SCRIPTS = Path(__file__).resolve().parent
 
 
@@ -76,17 +80,22 @@ class Watch:
     state: Path
     drive_state: Path
     repo: str
+    sprites: list[str] = field(default_factory=list)
+    keys: dict[str, list[str]] = field(default_factory=dict)
 
     @classmethod
     def load(cls, path: Path) -> Watch:
         config = json.loads(path.read_text())
         entry = drive.find(config["drive"], None)
+        judging = config.get("judge") or {}
         return cls(
             config["drive"],
             entry.get("cci_drive") or config["drive"],
             Path(config["orca"]["desk_inbox"]).expanduser().with_name(STATE),
             Path(entry["state_dir"]),
             entry["checkout"],
+            judging.get("sprite") or [],
+            judging.get("sprite_keys") or {},
         )
 
 
@@ -154,7 +163,7 @@ class Pass:
 
     def judged(self, record: dict, kind: str, text: str, evidence: str, subject: str, recheck: str | None, key: str | None = None) -> None:
         before = earlier(self.watch.drive_state, subject) if recheck else None
-        verdict = judge.judge(kind, evidence, text, backend=self.backend, drive=self.watch.drive, subject=subject)
+        verdict = self.ask(kind, evidence, text, subject)
         if verdict is None or not verdict.flagged:
             return
         key = key or judge.quoted_row(evidence, verdict.evidence_phrase)
@@ -163,6 +172,26 @@ class Pass:
         if missed:
             write_case(self.watch.drive_state / "judge" / "misses" / f"{record['seq']}-{key.replace('/', '-')}.json", kind, "yes", key, said, text)
         self.flag(record, kind, key, verdict, said, text, missed if recheck else None)
+
+    def ask(self, kind: str, evidence: str, text: str, subject: str) -> judge.Verdict | None:
+        if not self.watch.sprites:
+            return judge.judge(kind, evidence, text, backend=self.backend, drive=self.watch.drive, subject=subject)
+        jobs = self.watch.drive_state / "judge" / "jobs"
+        jobs.mkdir(parents=True, exist_ok=True)
+        directory = Path(tempfile.mkdtemp(dir=jobs))
+        try:
+            (directory / "job.json").write_text(json.dumps({"drive": self.watch.drive, "checkout": self.watch.repo, "kind": kind, "evidence": evidence, "artifact": text, "backend": self.backend}))
+            sprite = self.watch.sprites[sum(subject.encode()) % len(self.watch.sprites)]
+            subprocess.run([str(SCRIPTS / "sprite-job.sh"), sprite, str(SCRIPTS / "judge_job.py"), str(directory)], capture_output=True, timeout=SPRITE_SECONDS, env={**os.environ, "SPRITE_JOB_KEYS": json.dumps(self.watch.keys)})
+            answer = json.loads((directory / "result.json").read_text())
+        except (OSError, ValueError, subprocess.SubprocessError) as failed:
+            answer = {"error": f"{type(failed).__name__}: {failed}"[:300]}
+        finally:
+            shutil.rmtree(directory, ignore_errors=True)
+        found = answer.get("verdict")
+        verdict = judge.Verdict(**found) if found else None
+        judge.record(self.watch.drive, kind, self.backend, verdict.verdict if verdict else "error", answer.get("summary") or {"error": answer.get("error", "")}, subject)
+        return verdict
 
     def said(self, key: str) -> list[dict]:
         return judge.said(self.rows()["rows"][key], Path(self.rows()["state_dir"]))
