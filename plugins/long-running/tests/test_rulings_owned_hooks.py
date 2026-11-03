@@ -31,14 +31,14 @@ class HookShell(RegisterShell):
         return []
 
     def run(self, argv: list[str], stdin: str | None = None, cwd: Path | None = None) -> str:
-        argv = gateway(argv)
-        if argv == ["git", "-C", REPO, "rev-parse", "--abbrev-ref", "HEAD"]:
-            self.calls.append(argv)
+        plain = gateway(argv)
+        if plain == ["git", "-C", REPO, "rev-parse", "--abbrev-ref", "HEAD"]:
+            self.calls.append(plain)
             return "HEAD\n"
-        if argv == ["ccn", "-R", REPO, "answer", "list", "--label", "scope:durable", "--limit", "0", "--label", "program:brook", "--json"]:
+        if plain == ["ccn", "-R", REPO, "answer", "list", "--label", "scope:durable", "--limit", "0", "--label", "program:brook", "--json"]:
             argv = ["ccn", "-R", REPO, "answer", "list", "--label", "scope:durable", "--label", "program:brook", "--limit", "0", "--json"]
-        if argv[:4] == ["cci", "tail", "--drive", "brook-cci"]:
-            self.calls.append(argv)
+        if plain[:4] == ["cci", "tail", "--drive", "brook-cci"]:
+            self.calls.append(plain)
             return "".join(json.dumps(record) + "\n" for record in self.records)
         return super().run(argv, stdin, cwd)
 
