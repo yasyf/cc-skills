@@ -4,7 +4,7 @@ import re
 import subprocess
 from collections import defaultdict
 
-from captain_hook import Allow, BaseHookEvent, Context, Event, FromSubagent, HookResult, Input, on
+from captain_hook import Allow, BaseHookEvent, Event, FromSubagent, HookResult, Input, Warn, on
 
 from .lane_reports import ACTIVE
 from .lane_rotation import DriveActive
@@ -12,8 +12,8 @@ from .lane_rotation import DriveActive
 POLL_ROOT = re.compile(r"^(?:\S*/)?(?:g?timeout|sleep|tail|bounded\.py)\s|desk-wait\.sh|inboxes\.py wait|\bcci (?:watch|tail -f)")
 PS_SECONDS = 10
 LANE = "awatcher-lane-1-0123456789abcdef"
-TABLE = "ps -axo pid=,ppid=,command="
-ENV_PS = "ps -E -o pid=,command= -p"
+TABLE = "ps -A -o pid=,ppid=,command="
+ENV_PS = "ps eww -o pid=,command= -p"
 ENVS = f"{ENV_PS} 4100"
 ROWS = "  4100     1 timeout 240 zsh /s/landing-desk-3/loop3.sh\n  4101  4100 zsh /s/landing-desk-3/loop3.sh\n  4102  4101 sleep 30\n   900     1 sh /s/remote-desks-5/sprite-desk.sh\n"
 REAPED = (
@@ -25,7 +25,7 @@ REAPED = (
 
 def rows() -> list[tuple[int, int, str]]:
     out = subprocess.run(TABLE.split(), capture_output=True, text=True, timeout=PS_SECONDS, check=True).stdout
-    return [(int(pid), int(ppid), command) for pid, ppid, command in (line.split(None, 2) for line in out.splitlines() if line.strip())]
+    return [(int(pid), int(ppid), process) for pid, ppid, process in (line.split(None, 2) for line in out.splitlines() if line.strip())]
 
 
 def owned_by(agent_id: str, pids: list[int]) -> set[int]:
@@ -42,7 +42,7 @@ def owned_by(agent_id: str, pids: list[int]) -> set[int]:
             agent_id=LANE,
             state=ACTIVE,
             commands={TABLE: ROWS, ENVS: f"4100 timeout 240 zsh /s/landing-desk-3/loop3.sh HOME=/h CCI_AGENT_ID={LANE} PWD=/s\n", "kill -TERM": ""},
-        ): Context(pattern=r"Reaped 3 orphaned watcher processes .*timeout 240 zsh /s/landing-desk-3/loop3\.sh"),
+        ): Warn(pattern=r"Reaped 3 orphaned watcher processes .*timeout 240 zsh /s/landing-desk-3/loop3\.sh"),
         Input(agent_id=LANE, state=ACTIVE, commands={TABLE: ROWS, ENVS: "4100 timeout 240 zsh /s/landing-desk-3/loop3.sh CCI_AGENT_ID=aother-lane-1-fedcba9876543210\n"}): Allow(),
         Input(agent_id=LANE, state=ACTIVE, commands={TABLE: "   900     1 sh /s/remote-desks-5/sprite-desk.sh\n  4102  3000 sleep 30\n"}): Allow(),
         Input(agent_id=LANE, commands={TABLE: ROWS}): Allow(),
@@ -51,7 +51,7 @@ def owned_by(agent_id: str, pids: list[int]) -> set[int]:
 def reap_orphaned_lane_watchers(evt: BaseHookEvent) -> HookResult | None:
     """When a lane stops, SIGTERM every poll tree it left reparented to launchd: a `timeout`, `sleep`, `tail`, `cci watch` or desk-wait root whose environment carries the lane's CCI_AGENT_ID, with all its descendants (owner, 8:45 PM Nov 2: "get rid of all those idle watchers now and fix it so they don't stick around in the future")."""
     table = rows()
-    roots = [pid for pid, ppid, command in table if ppid == 1 and POLL_ROOT.search(command)]
+    roots = [pid for pid, ppid, process in table if ppid == 1 and POLL_ROOT.search(process)]
     if not roots or not (mine := owned_by(evt.agent_id or "", roots)):
         return None
     children: dict[int, list[int]] = defaultdict(list)
@@ -63,5 +63,5 @@ def reap_orphaned_lane_watchers(evt: BaseHookEvent) -> HookResult | None:
             victims.add(pid)
             stack.extend(children[pid])
     subprocess.run(["kill", "-TERM", *map(str, sorted(victims))], capture_output=True, timeout=PS_SECONDS)
-    commands = {pid: command for pid, _, command in table}
-    return evt.context(REAPED.format(count=len(victims), roots="; ".join(commands[pid][:120] for pid in sorted(mine))))
+    processes = {pid: process for pid, _, process in table}
+    return evt.context(REAPED.format(count=len(victims), roots="; ".join(processes[pid][:120] for pid in sorted(mine))))
