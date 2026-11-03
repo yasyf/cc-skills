@@ -3157,7 +3157,10 @@ another site cannot start one. The server therefore binds its tailnet address di
 never behind a local proxy. Other reads stay open to the tailnet and carry no secret.
 The review assistant reads text a PR's author wrote, so its `claude -p` runs in
 `dontAsk` with only the cc-review tools, `Agent`, reads of the review's own files, and
-the `cci` and `rulings.py` commands its prompt names.
+the `cci` and `rulings.py` commands its prompt names. It also runs `--restricted`,
+because `--allowedTools` adds to the user's settings rather than replacing them: their
+allow rules and hooks would otherwise still apply. Those settings are what enable
+plugins, so it loads cc-review alone with `--plugin-dir`.
 
 The assistant runs in the browser on the design-doc client (`_shared/html/ai-core.js`),
 calling `POST /ai/chat/completions`. The server adds `CEREBRAS_API_KEY`, fixes the

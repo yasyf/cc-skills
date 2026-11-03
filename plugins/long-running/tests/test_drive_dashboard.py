@@ -1306,6 +1306,8 @@ def test_the_review_assistant_never_runs_with_permissions_bypassed(tmp_path, mon
     ran = []
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path))
     monkeypatch.setattr("subprocess.run", run)
+    (tmp_path / "plugins").mkdir()
+    (tmp_path / "plugins" / "installed_plugins.json").write_text(json.dumps({"plugins": {"cc-review@cc-review": [{"installPath": "/cc-review/0.46.1"}]}}))
     assistant = ReviewAssistant({"repo": "a/b", "drive": "d"}, tmp_path, "http://model")
     assistant.queues[7] = queue.Queue()
     assistant.scope(7).mkdir(parents=True)
@@ -1315,6 +1317,8 @@ def test_the_review_assistant_never_runs_with_permissions_bypassed(tmp_path, mon
         assistant.serve(7)
     argv = ran[0]
     assert "bypassPermissions" not in argv and argv[argv.index("--permission-mode") + 1] == "dontAsk"
+    assert "--restricted" in argv and argv[argv.index("--plugin-dir") + 1] == "/cc-review/0.46.1"
+    assert not {"Write", "Edit", "WebFetch", "WebSearch"} & set(argv[argv.index("--tools") + 1].split(","))
     assert set(assistant.allowed_tools(7)) <= set(argv)
     assert not {"Bash", "Read", "Write", "Edit"} & set(argv)
     assert "curl" not in argv[2] and '"head": "abc"' in argv[2]

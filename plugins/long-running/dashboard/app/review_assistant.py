@@ -153,10 +153,11 @@ class ReviewAssistant:
         while True:
             event = self.queues[number].get()
             prompt = PROMPT.format(repo=self.config["repo"], number=number, event=json.dumps(event, indent=2), row=json.dumps(self.board_row(number)), scripts=SCRIPTS, drive=self.config["drive"])
-            transcripts = Path(os.environ.get("CLAUDE_CONFIG_DIR", Path.home() / ".claude")) / "projects"
-            session = ["--resume" if any(transcripts.glob(f"*/{self.session(number)}.jsonl")) else "--session-id", self.session(number)]
+            claude_dir = Path(os.environ.get("CLAUDE_CONFIG_DIR", Path.home() / ".claude"))
+            session = ["--resume" if any((claude_dir / "projects").glob(f"*/{self.session(number)}.jsonl")) else "--session-id", self.session(number)]
+            plugin = json.loads((claude_dir / "plugins" / "installed_plugins.json").read_text())["plugins"]["cc-review@cc-review"][0]["installPath"]
             with (self.scope(number) / "assistant.log").open("a") as log:
-                ran = subprocess.run(["claude", "-p", prompt, "--model", "sonnet", "--effort", "low", "--permission-mode", "dontAsk", "--allowedTools", *self.allowed_tools(number), *session], cwd=self.scope(number), stdin=subprocess.DEVNULL, stdout=log, stderr=log)
+                ran = subprocess.run(["claude", "-p", prompt, "--model", "sonnet", "--effort", "low", "--restricted", "--tools", "Agent,Bash,Read,Grep,Glob,ToolSearch", "--plugin-dir", plugin, "--add-dir", str(Path.home() / ".cc-review"), "--permission-mode", "dontAsk", "--allowedTools", *self.allowed_tools(number), *session], cwd=self.scope(number), stdin=subprocess.DEVNULL, stdout=log, stderr=log)
                 if ran.returncode:
                     log.write(f"exit {ran.returncode} on {event['type']}\n")
 
