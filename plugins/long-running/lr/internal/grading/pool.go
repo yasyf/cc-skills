@@ -301,7 +301,7 @@ func (p *JobPool) command(d desk, grading, sprite, directory string) ([]string, 
 	if err != nil {
 		return nil, nil, err
 	}
-	argv := []string{filepath.Join(p.Scripts, "sprite-job.sh"), sprite, filepath.Join(p.Scripts, grading+".py"), directory}
+	argv := []string{filepath.Join(p.Scripts, "sprite-job.sh"), sprite, grading, directory}
 	return argv, map[string]string{"SPRITE_JOB_KEYS": string(keys)}, nil
 }
 

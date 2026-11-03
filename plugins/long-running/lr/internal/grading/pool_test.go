@@ -432,7 +432,7 @@ func TestASpritePassRunsThroughSpriteJobWithTheDesksKeyCommands(t *testing.T) {
 	f.started(t, GraderFidelity)
 
 	directory := filepath.Join(f.pool.root, grader.FidelityLane, jobDir)
-	sameStrings(t, f.shell.spawns[0].argv, []string{"/plugin/scripts/sprite-job.sh", "dar-1", "/plugin/scripts/fidelity.py", directory})
+	sameStrings(t, f.shell.spawns[0].argv, []string{"/plugin/scripts/sprite-job.sh", "dar-1", "fidelity", directory})
 	if want := `{"GH_TOKEN":["gh","auth","token"]}`; f.shell.spawns[0].env["SPRITE_JOB_KEYS"] != want {
 		t.Errorf("env = %v", f.shell.spawns[0].env)
 	}
