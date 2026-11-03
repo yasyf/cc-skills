@@ -2,6 +2,7 @@ package landing
 
 import (
 	"context"
+	"slices"
 	"strconv"
 	"time"
 
@@ -43,6 +44,30 @@ type Done struct {
 	Dequeued    []int
 	Restacked   []Move
 	Conflicts   []int
+}
+
+func Clear(acts []pass.Act, snapshot []machine.Facts, trunk string) []pass.Act {
+	byBranch := make(map[string]machine.Facts, len(snapshot))
+	for _, f := range snapshot {
+		byBranch[f.Branch] = f
+	}
+	return slices.DeleteFunc(slices.Clone(acts), func(act pass.Act) bool {
+		return act.Verdict.Action == machine.ActionEnqueue && !clearBelow(act.Facts, byBranch, trunk)
+	})
+}
+
+func clearBelow(f machine.Facts, byBranch map[string]machine.Facts, trunk string) bool {
+	for range len(byBranch) + 1 {
+		if f.Base == trunk {
+			return true
+		}
+		below, open := byBranch[f.Base]
+		if !open || !(below.Landable() || below.Queued()) {
+			return false
+		}
+		f = below
+	}
+	return false
 }
 
 func Act(ctx context.Context, s *store.Store, queue Queue, restacker Restacker, acts []pass.Act, now time.Time) (Done, error) {

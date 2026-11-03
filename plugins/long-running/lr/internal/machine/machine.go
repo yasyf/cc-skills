@@ -118,6 +118,7 @@ type Facts struct {
 	Repo        string
 	Number      int
 	Head        string
+	Branch      string
 	Base        string
 	Lane        string
 	Closed      bool
@@ -156,6 +157,10 @@ func (f Facts) Tapped() bool {
 
 func (f Facts) Restackable() bool {
 	return slices.Contains([]Mergeable{MergeableConflict, MergeableBehind}, f.Mergeable) || len(f.Carries) > 0
+}
+
+func (f Facts) Queued() bool {
+	return f.Queue == QueueQueued && f.QueuedHead == f.Head
 }
 
 func (f Facts) Landable() bool {

@@ -39,6 +39,7 @@ const (
       nodes {
         number
         headRefOid
+        headRefName
         author { login }
         labels(first: 50) { nodes { name } }
         commits(first: 100) { nodes { commit { oid } } }
@@ -332,9 +333,10 @@ type label struct {
 }
 
 type pullRequest struct {
-	Number     int    `json:"number"`
-	HeadRefOid string `json:"headRefOid"`
-	Author     struct {
+	Number      int    `json:"number"`
+	HeadRefOid  string `json:"headRefOid"`
+	HeadRefName string `json:"headRefName"`
+	Author      struct {
 		Login string `json:"login"`
 	} `json:"author"`
 	Labels struct {
@@ -537,6 +539,7 @@ func (s Source) factsOf(row statusRow, pr pullRequest, required []string, stored
 		Repo:        s.Repo,
 		Number:      row.Number,
 		Head:        row.Head,
+		Branch:      pr.HeadRefName,
 		Base:        row.Base,
 		Lane:        lane,
 		Closed:      row.State != "OPEN",
