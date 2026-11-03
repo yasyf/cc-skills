@@ -166,6 +166,7 @@ func Tick(s *store.Store, d Deps, now time.Time, generation int64) (out Outcome,
 		do(d.Post(Post{Kind: "report", To: []string{to}, Text: fmt.Sprintf("RETIRED for owning no PR, holding no standing duty, and posting nothing for %d minutes or more: %s.", int(d.RetireAfter.Minutes()), strings.Join(retiredTo[to], "; "))}))
 	}
 	claimBranches(s, d, now)
+	openAnswered(s, d, found, taken, now, &out)
 	unownedDuties(s, d, found, now)
 	hourly(s, d, now)
 	woken, err := chaseUnread(s, d, found, now)
@@ -904,12 +905,59 @@ func recommendedSweep(s *store.Store, d Deps, now time.Time) {
 			continue
 		}
 		why := fmt.Sprintf("%s stands, so no lane parks on a pick that recommends an option: build the recommended option of %s as a branch, never a PR, and carry on. If the card recommends none, re-post blocked naming it with %s.", d.BuildRecommendedOrder, strings.Join(cards, ", "), noRecommendation)
+		do(s.PutBranchCards(lane.Name, cards))
 		do(s.SetLaneWaiting(lane.Name, 0, now, ""))
 		do(s.SetLanePage(lane.Name, map[string]any{"topic": d.BuildRecommendedOrder, "why": why, "text": why, "prs": append([]int{}, lane.PRs...)}))
 		woken = append(woken, fmt.Sprintf("%s (%s)", lane.Name, strings.Join(cards, ", ")))
 	}
 	if meta := must(MetaDesk(s)); len(woken) > 0 && meta != Root {
 		do(d.Post(Post{Kind: "report", To: []string{meta}, Text: fmt.Sprintf("%s: woke these lanes from a pick to build its recommended option: %s.", d.BuildRecommendedOrder, strings.Join(woken, "; "))}))
+	}
+}
+
+func openAnswered(s *store.Store, d Deps, found map[string]Peer, taken map[string]bool, now time.Time, out *Outcome) {
+	branches := map[string][]store.BranchCard{}
+	for _, built := range must(s.BranchCards()) {
+		branches[built.Lane] = append(branches[built.Lane], built)
+	}
+	meta := must(MetaDesk(s))
+	var ordered []string
+	for _, name := range slices.Sorted(maps.Keys(branches)) {
+		built := branches[name]
+		if slices.ContainsFunc(built, func(c store.BranchCard) bool { return c.Answered.IsZero() }) {
+			continue
+		}
+		cards := make([]string, len(built))
+		for i, c := range built {
+			cards[i] = c.Card
+		}
+		answered := strings.Join(cards, ", ")
+		holder, _ := newest(s, name)
+		if built[0].Ordered.IsZero() {
+			why := fmt.Sprintf("the owner answered every card your branch was built on (%s), so nothing holds its PR: build his picks on it and open the PR now with submit-pr", answered)
+			if holder.State == store.LaneRetired {
+				relaunch(s, d, holder, found, why, taken, now, out)
+				holder, _ = newest(s, holder.Name)
+			} else {
+				do(s.SetLaneWaiting(holder.Name, 0, now, ""))
+				do(s.SetLanePage(holder.Name, map[string]any{"topic": "branch:" + strings.Join(cards, ","), "why": why, "text": why}))
+			}
+			do(s.OrderBranch(name, holder.Name, holder.PRs, now))
+			ordered = append(ordered, fmt.Sprintf("%s (%s)", holder.Name, answered))
+			continue
+		}
+		if slices.ContainsFunc(holder.PRs, func(n int) bool { return !slices.Contains(built[0].Held, n) }) {
+			do(s.DropBranch(name))
+			continue
+		}
+		if now.Sub(built[0].Ordered) < branchPRDue || meta == Root {
+			continue
+		}
+		do(d.Post(Post{Kind: "defect", To: []string{meta}, LaneRef: holder.Name, Text: fmt.Sprintf("branch:%s: the owner answered every card its branch was built on (%s), and %d minutes after the supervisor told it to open the PR it owns no new one. Open that PR, or find what blocks it; this never goes to the owner as a card.", holder.Name, answered, int(branchPRDue.Minutes()))}))
+		do(s.DropBranch(name))
+	}
+	if len(ordered) > 0 && meta != Root {
+		do(d.Post(Post{Kind: "report", To: []string{meta}, Text: "Told these lanes to open the PR of a branch whose every card the owner answered: " + strings.Join(ordered, "; ") + "."}))
 	}
 }
 

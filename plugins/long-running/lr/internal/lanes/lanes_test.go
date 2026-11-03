@@ -1366,6 +1366,64 @@ func TestACardWithNoRecommendationOrNoStandingOrderLeavesTheLaneParked(t *testin
 	}
 }
 
+func defectsTo(f *fake, lane string) []string {
+	var texts []string
+	for _, p := range f.posts {
+		if p.Kind == "defect" && slices.Contains(p.To, lane) {
+			texts = append(texts, p.Text)
+		}
+	}
+	return texts
+}
+
+func answeredBranch(t *testing.T) (*store.Store, *fake, func(time.Duration) Outcome) {
+	t.Helper()
+	s, f, at := recommendedDrive(t, "parked on the owner's picks on card-signal-redesign-relay and card-signal-redesign-prs")
+	f.deps.BuildRecommendedOrder = "owner:m104"
+	tickAt := func(after time.Duration) Outcome {
+		f.peers = []Row{who(lane2, true, at.Add(after)), who("meta-desk-3", true, at.Add(after))}
+		return tick(t, s, f, at.Add(after))
+	}
+	tickAt(0)
+	f.feed = append(f.feed, rec(3, "board-watch", "owner", at.Add(mins(1)), "Owner on board d50e80e8, Which transport? (signal-redesign-relay): picked \"direct-or-relay\"", "all"))
+	tickAt(mins(2))
+	if topic := pageText(must(s.Pages())[lane2], "topic"); topic != "owner:m104" {
+		t.Fatalf("one card still open, yet the page is %q", topic)
+	}
+	f.feed = append(f.feed, rec(4, "owner-relay", "owner", at.Add(mins(3)), "go with the recommended option on card-signal-redesign-prs", "all"))
+	tickAt(mins(4))
+	return s, f, tickAt
+}
+
+func TestWhenTheOwnerAnswersTheLastCardOfABoardBuiltBranchItsLaneIsToldToOpenThePR(t *testing.T) {
+	s, f, tickAt := answeredBranch(t)
+
+	if why := pageText(must(s.Pages())[lane2], "why"); !strings.HasPrefix(why, "the owner answered every card your branch was built on (card-signal-redesign-prs, card-signal-redesign-relay), so nothing holds its PR") {
+		t.Fatal(why)
+	}
+	if !slices.Contains(reportsTo(f, "meta-desk-3"), "Told these lanes to open the PR of a branch whose every card the owner answered: conflicts-2 (card-signal-redesign-prs, card-signal-redesign-relay).") {
+		t.Fatal(reportsTo(f, "meta-desk-3"))
+	}
+	tickAt(mins(10))
+	equal(t, len(defectsTo(f, "meta-desk-3")), 0)
+	tickAt(mins(20))
+	tickAt(mins(30))
+	defects := defectsTo(f, "meta-desk-3")
+	equal(t, len(defects), 1)
+	contains(t, defects[0], "branch:conflicts-2: the owner answered every card its branch was built on")
+}
+
+func TestALaneThatOpensItsAnsweredBranchsPRRaisesNoDefect(t *testing.T) {
+	s, f, tickAt := answeredBranch(t)
+
+	f.feed = append(f.feed, rec(5, lane2, "opened", t0.Add(mins(66)), "").withRefs(prs(2440)))
+	tickAt(mins(6))
+	tickAt(mins(20))
+
+	equal(t, len(defectsTo(f, "meta-desk-3")), 0)
+	equal(t, len(must(s.BranchCards())), 0)
+}
+
 func TestAHeadRelayedToThePRsOwnerLeavesTheOwnerInPlace(t *testing.T) {
 	s := memory(t)
 	f := adopted(t, s, writeBrief(t), "", 46888)

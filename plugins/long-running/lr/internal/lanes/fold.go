@@ -445,11 +445,17 @@ func foldOrder(s *store.Store, r Record, addressed map[string]bool, at time.Time
 
 func foldOwnerPick(s *store.Store, r Record, fresh bool, at time.Time) {
 	marks, named := picked.FindAllString(r.Text, -1), card.FindAllString(r.Text, -1)
+	answers := func(found string) bool {
+		return slices.Contains(named, found) || slices.Contains(marks, "("+found+")") || slices.Contains(marks, "("+strings.TrimPrefix(found, "card-")+")")
+	}
+	for _, built := range must(s.BranchCards()) {
+		if answers(built.Card) {
+			do(s.AnswerBranchCard(built.Lane, built.Card, at))
+		}
+	}
 	for _, waiter := range must(s.Lanes(live...)) {
 		cards := card.FindAllString(waiter.Awaits, -1)
-		i := slices.IndexFunc(cards, func(found string) bool {
-			return slices.Contains(named, found) || slices.Contains(marks, "("+found+")") || slices.Contains(marks, "("+strings.TrimPrefix(found, "card-")+")")
-		})
+		i := slices.IndexFunc(cards, answers)
 		if i < 0 {
 			continue
 		}
