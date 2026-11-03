@@ -17,6 +17,7 @@ from long_running import ledger
 import pytest
 from long_running import ghdiff
 from long_running import rulings
+import judge_watch
 from conftest import gateway
 
 REPO = "/repo"
@@ -930,7 +931,7 @@ def test_classify_refuses_a_pick_that_widens_a_scope_row(home: Path, package: Pa
     assert out.strip() == f"PICK-WIDENS {'a' * 16}: the pick adds desktop app to rule/aaaaaaa; pass supersedes=rule/aaaaaaa with owner words naming each surface"
 
 
-def test_classify_writes_a_scope_row_its_card_and_one_record_to_every_live_lane(
+def test_classify_writes_a_scope_row_its_card_and_one_record_addressed_to_no_lane_whose_slice_misses_it(
     home: Path, package: Path, state: Path, registered: Path, tmp_path: Path, capsys
 ) -> None:
     (state / "briefs").mkdir()
@@ -973,7 +974,7 @@ def test_classify_writes_a_scope_row_its_card_and_one_record_to_every_live_lane(
     assert f"Register new {PROMPT_KEY} (scope): the owner's words and what they mean, verbatim." in announced
     assert "> uploads stay out of the desktop shell. keep them in the journal" in announced
     assert "3. The journal may keep an upload queue. (permits, proposed, waits for the owner's tick)" in announced
-    assert [post[index + 1] for index, flag in enumerate(post) if flag == "--to"] == ["lane-a", "lane-b"]
+    assert addressed(post) == []
 
 
 def test_classify_warns_of_each_new_implication_the_judge_reads_as_misstating_his_words_and_writes_it_anyway(
@@ -1026,7 +1027,7 @@ def test_classify_posts_one_record_per_batch_however_many_rows_and_captures_it_t
     assert "Register extended rule/aaaaaaa (scope): the owner's words and what they mean, verbatim." in announced
     assert "Register extended rule/9999999 (pick): the owner's words and what they mean, verbatim." in announced
     assert "> also, Oct 23 5:30 AM PT: no parked worker there" in announced
-    assert [post[index + 1] for index, flag in enumerate(post) if flag == "--to"] == ["lane-a", "lane-b"]
+    assert addressed(post) == ["lane-b"]
 
 
 def test_classify_announces_a_row_only_to_the_live_lanes_whose_slice_it_changes(
@@ -1040,7 +1041,66 @@ def test_classify_announces_a_row_only_to_the_live_lanes_whose_slice_it_changes(
 
     assert code == 0
     [post] = [argv for argv in shell.calls if argv[:2] == ["cci", "post"]]
-    assert [post[index + 1] for index, flag in enumerate(post) if flag == "--to"] == ["lane-b"]
+    assert addressed(post) == ["lane-b"]
+
+
+def test_classify_addresses_exactly_the_live_lanes_whose_rendered_slice_carries_the_row(
+    home: Path, package: Path, state: Path, registered: Path, tmp_path: Path, capsys
+) -> None:
+    steps = {"lane-a": "1.9", "lane-b": "7.1", "lane-c": "all"}
+    sliced(state, steps)
+    captured(state, capture("1", "no parked worker here"))
+    shell = RegisterShell(seeded(package), records=LIVE)
+    carrying = [lane for lane, step in steps.items() if "rule/aaaaaaa" in ran(capsys, shell, "slice", "--lane", lane, "--step", step)[1]]
+
+    code, _ = classify(tmp_path, capsys, shell, {"digest": "1" * 16, "extends": "rule/aaaaaaa", "words": "no parked worker here"})
+
+    assert code == 0
+    [post] = [argv for argv in shell.calls if argv[:2] == ["cci", "post"]]
+    assert addressed(post) == carrying == ["lane-a"]
+
+
+def test_classify_tells_the_lane_whose_slice_a_row_leaves_and_the_lane_it_enters(
+    home: Path, package: Path, state: Path, registered: Path, tmp_path: Path, capsys
+) -> None:
+    sliced(state, {"lane-a": "1.9", "lane-b": "7.1", "lane-c": "all"})
+    captured(state, capture("5", "the health probe is a rule for every step"))
+    shell = RegisterShell(seeded(package), records=LIVE)
+    three = [
+        {"text": "No step drops the health probe.", "direction": "removes"},
+        {"text": "Every relay keeps a health probe.", "direction": "requires"},
+        {"text": "The probe may move between hosts.", "direction": "permits"},
+    ]
+
+    code, _ = classify(tmp_path, capsys, shell, {"digest": "5" * 16, "extends": "rule/9999999", "kind": "scope", "words": "the health probe is a rule for every step", "implications": three, "names": ["health probe"]})
+
+    assert code == 0
+    assert json.loads(shell.rows["rule/9999999"]["steps"]) == ["all"]
+    [post] = [argv for argv in shell.calls if argv[:2] == ["cci", "post"]]
+    assert addressed(post) == ["lane-a", "lane-b"]
+
+
+def test_judge_watch_rechecks_an_extended_row_whose_classify_addresses_no_lane(
+    home: Path, package: Path, state: Path, registered: Path, tmp_path: Path, capsys, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sliced(state, {"lane-c": "all"})
+    captured(state, capture("1", "no parked worker here"))
+    shell = RegisterShell(seeded(package), records=LIVE)
+    code, _ = classify(tmp_path, capsys, shell, {"digest": "1" * 16, "extends": "rule/aaaaaaa", "words": "no parked worker here"})
+    [post] = [argv for argv in shell.calls if argv[:2] == ["cci", "post"]]
+    record = {"seq": 1, "lane": post[post.index("--lane") + 1], "kind": post[post.index("--kind") + 1], "text": Path(post[post.index("--path") + 1]).read_text().splitlines()[0], "refs": {}}
+    rechecked: list[str] = []
+    monkeypatch.setattr(judge_watch.cci, "records", lambda cli, drive, *filters, since=0: [record])
+    monkeypatch.setattr(judge_watch.Pass, "recheck", lambda self, key: rechecked.append(key))
+
+    judge_watch.Pass(judge_watch.Watch("brook-drive", "brook-cci", tmp_path / "judge-watch.json", state, REPO), dry_run=True).run()
+
+    assert code == 0 and addressed(post) == []
+    assert rechecked == ["rule/aaaaaaa"]
+
+
+def addressed(post: list[str]) -> list[str]:
+    return [post[index + 1] for index, flag in enumerate(post) if flag == "--to"]
 
 
 def sliced(state: Path, steps: dict[str, str]) -> None:
@@ -1228,7 +1288,7 @@ def test_a_repeat_extends_its_row_counts_it_and_posts_its_sweep_hits_to_the_fide
 
 class RefusingPostShell(RegisterShell):
     def run(self, argv: list[str], stdin: str | None = None, cwd: Path | None = None) -> str:
-        if argv[:2] == ["cci", "post"] and "--path" in argv:
+        if argv[:2] == ["cci", "post"] and "--path" in argv and Path(argv[argv.index("--path") + 1]).parent.name == "repeats":
             self.calls.append(argv)
             raise subprocess.CalledProcessError(1, argv, "", "cci: no live lane fidelity-desk-15")
         return super().run(argv, stdin, cwd)
