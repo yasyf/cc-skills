@@ -24,7 +24,7 @@ def batch(*calls) -> list:
     skip_if=[FromSubagent(), Annotated("raw")],
     transcript_events=TURN_WINDOW,
     tests=coordinator_tests({
-        Input(command=REPLY, transcript=batch(NEXT_CALL, REPLY), state=ACTIVE): Warn(pattern=r"one call"),
+        Input(command=REPLY, transcript=batch(NEXT_CALL, REPLY), state=ACTIVE): Warn(pattern=r"one reply call"),
         Input(command="cat > /tmp/coord.zsh <<'EOF'\ncci post --kind go\nEOF\nzsh /tmp/coord.zsh", transcript=batch(NEXT_CALL, "cat > /tmp/c.zsh <<'EOF'\ncci post --kind decide\nEOF"), state=ACTIVE): Warn(),
         Input(command=REPLY, transcript=batch(NEXT_CALL), state=ACTIVE): Allow(),
         Input(command=REPLY, transcript=batch(REPLY, NEXT_CALL), state=ACTIVE): Allow(),
