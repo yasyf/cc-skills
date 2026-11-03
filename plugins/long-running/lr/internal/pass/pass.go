@@ -2,7 +2,10 @@ package pass
 
 import (
 	"fmt"
+	"regexp"
 	"slices"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
@@ -46,6 +49,10 @@ const (
 	BoardDesk    = "board-refresher"
 	GraderDesk   = "grader-appeals"
 	root         = string(machine.MoverRoot)
+
+	clusterSize    = 3
+	refusalCluster = 30 * time.Minute
+	waitCluster    = time.Hour
 )
 
 var (
@@ -60,6 +67,7 @@ var (
 		machine.ActionEnqueue, machine.ActionDequeue, machine.ActionRestack,
 		machine.ActionWaitCI, machine.ActionWatchQueue,
 	}
+	automated  = []machine.Mover{machine.MoverSupervisor, machine.MoverPool}
 	liveMovers = map[string]machine.Mover{
 		"landing": machine.MoverSupervisor,
 		"grading": machine.MoverPool,
@@ -108,6 +116,14 @@ func Run(s *store.Store, snapshot []machine.Facts, now time.Time, post Post, liv
 	if err := escalateOverdue(s, snapshot, now, tell, live, route, &out); err != nil {
 		return out, err
 	}
+	if slices.Contains(live, machine.MoverSupervisor) {
+		if err := escalateClusters(s, snapshot, now, tell, &out); err != nil {
+			return out, err
+		}
+		if err := escalateStuckBases(s, snapshot, byBranch, now, tell, &out); err != nil {
+			return out, err
+		}
+	}
 	if !slices.Contains(live, machine.MoverPool) {
 		return out, nil
 	}
@@ -143,7 +159,7 @@ func classifyOne(s *store.Store, f machine.Facts, byBranch map[string]machine.Fa
 		_, err := s.CloseItems(f.Repo, f.Number, now, "")
 		return err
 	}
-	if verdict.Action == machine.ActionEnqueue && waitsBelow(f, byBranch) {
+	if _, waits := blockerBelow(f, byBranch); verdict.Action == machine.ActionEnqueue && waits {
 		return closeOthers(s, f, "", now)
 	}
 	if err := closeOthers(s, f, verdict.Action, now); err != nil {
@@ -168,18 +184,18 @@ func classifyOne(s *store.Store, f machine.Facts, byBranch map[string]machine.Fa
 	return nil
 }
 
-func waitsBelow(f machine.Facts, byBranch map[string]machine.Facts) bool {
+func blockerBelow(f machine.Facts, byBranch map[string]machine.Facts) (machine.Facts, bool) {
 	for range len(byBranch) + 1 {
 		below, open := byBranch[f.Base]
 		if !open {
-			return false
+			return machine.Facts{}, false
 		}
 		if !below.ClearsAbove() {
-			return true
+			return below, true
 		}
 		f = below
 	}
-	return false
+	return machine.Facts{}, false
 }
 
 func heldBelow(f machine.Facts, byBranch map[string]machine.Facts) bool {
@@ -246,6 +262,116 @@ func escalateOverdue(s *store.Store, snapshot []machine.Facts, now time.Time, po
 		}
 	}
 	return nil
+}
+
+func escalateClusters(s *store.Store, snapshot []machine.Facts, now time.Time, post Post, out *Outcome) error {
+	if len(snapshot) == 0 {
+		return nil
+	}
+	repo := snapshot[0].Repo
+	open, err := s.OpenItems(repo, 0)
+	if err != nil {
+		return err
+	}
+	var causes []string
+	clusters := map[string][]store.Item{}
+	for _, item := range open {
+		cause, within, err := clusterCause(s, item)
+		if err != nil {
+			return err
+		}
+		if cause == "" || now.Sub(item.Created) < within {
+			continue
+		}
+		if clusters[cause] == nil {
+			causes = append(causes, cause)
+		}
+		clusters[cause] = append(clusters[cause], item)
+	}
+	for _, cause := range causes {
+		items := clusters[cause]
+		if len(items) < clusterSize {
+			continue
+		}
+		numbers := make([]string, len(items))
+		for i, item := range items {
+			numbers[i] = fmt.Sprintf("#%d", item.Number)
+		}
+		shared := fmt.Sprintf("on %d or more open PRs, first #%d", clusterSize, items[0].Number)
+		if err := escalate(s, repo+": "+cause, shared, ": "+strings.Join(numbers, ", "), root, now, post, out); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func clusterCause(s *store.Store, item store.Item) (string, time.Duration, error) {
+	if item.Kind == string(machine.ActionEnqueue) {
+		facts, err := s.Facts(item.Repo, item.Number, item.Head)
+		if err != nil {
+			return "", 0, err
+		}
+		if said := facts[EnqueuedFact]; said != "" {
+			own := regexp.MustCompile(`\b` + strconv.Itoa(item.Number) + `\b`)
+			return fmt.Sprintf("the queue said %q for %d minutes", own.ReplaceAllString(said, "<pr>"), int(refusalCluster.Minutes())), refusalCluster, nil
+		}
+	}
+	switch {
+	case item.Kind == string(machine.ActionReview):
+		return fmt.Sprintf("review waited on a reviewer for %d minutes", int(waitCluster.Minutes())), waitCluster, nil
+	case slices.Contains(automated, item.Mover):
+		return fmt.Sprintf("%s waited on the %s for %d minutes", item.Kind, item.Mover, int(waitCluster.Minutes())), waitCluster, nil
+	}
+	return "", 0, nil
+}
+
+func escalateStuckBases(s *store.Store, snapshot []machine.Facts, byBranch map[string]machine.Facts, now time.Time, post Post, out *Outcome) error {
+	var bases []machine.Facts
+	held := map[int][]string{}
+	for _, f := range snapshot {
+		if out.Verdicts[f.Number].Action != machine.ActionEnqueue {
+			continue
+		}
+		base, waits := blockerBelow(f, byBranch)
+		if !waits || out.Verdicts[base.Number].State.Terminal() {
+			continue
+		}
+		if held[base.Number] == nil {
+			bases = append(bases, base)
+		}
+		held[base.Number] = append(held[base.Number], fmt.Sprintf("#%d", f.Number))
+	}
+	for _, base := range bases {
+		stuck, err := stuckBecause(s, base, now)
+		if err != nil {
+			return err
+		}
+		if stuck == "" {
+			continue
+		}
+		subject := fmt.Sprintf("%s#%d", base.Repo, base.Number)
+		cause := "stack base stuck at " + base.Head[:min(10, len(base.Head))]
+		if err := escalate(s, subject, cause, "; "+stuck+" and holds "+strings.Join(held[base.Number], ", ")+" above it", root, now, post, out); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func stuckBecause(s *store.Store, base machine.Facts, now time.Time) (string, error) {
+	open, err := s.OpenItems(base.Repo, base.Number)
+	if err != nil {
+		return "", err
+	}
+	if len(open) == 0 {
+		return "nobody drives it", nil
+	}
+	for _, item := range open {
+		if !now.Before(item.Deadline) {
+			return fmt.Sprintf("its %s waits on the %s past its deadline", item.Kind, item.Mover), nil
+		}
+	}
+	return "", nil
 }
 
 func gateOf(mover machine.Mover) machine.Mover {
