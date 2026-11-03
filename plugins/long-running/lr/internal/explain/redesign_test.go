@@ -138,7 +138,7 @@ func TestRedesignWithdrawsTheSubsystemsCardsHoldsItsPRsHostsThePageAndOpensItsDe
 	if got := heldPRs(t); !slices.Equal(got, []int{41, 42, 99}) {
 		t.Fatalf("held %v", got)
 	}
-	if len(f.owner.notices) != 1 || f.owner.notices[0].Link != "https://mac.tail1.ts.net:8643/one-pagers/landing-queue-redesign/" {
+	if len(f.owner.notices) != 1 || f.owner.notices[0].Link != "https://mac.tail1.ts.net:8665/one-pagers/landing-queue-redesign/" {
 		t.Fatalf("announced %+v", f.owner.notices)
 	}
 	if len(f.lanes.orders) != 1 || f.lanes.orders[0].Lane != "landing-queue-design-1" || f.lanes.orders[0].Model != designer {
@@ -148,7 +148,7 @@ func TestRedesignWithdrawsTheSubsystemsCardsHoldsItsPRsHostsThePageAndOpensItsDe
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"Register slice: lane=landing-queue-design-1 step=all", "Scale: ", "https://mac.tail1.ts.net:8643/one-pagers/landing-queue-redesign/", "- queue-retries", "- yasyf/cc-skills#42, held by #"} {
+	for _, want := range []string{"Register slice: lane=landing-queue-design-1 step=all", "Scale: ", "https://mac.tail1.ts.net:8665/one-pagers/landing-queue-redesign/", "- queue-retries", "- yasyf/cc-skills#42, held by #"} {
 		if !strings.Contains(string(brief), want) {
 			t.Errorf("brief lacks %q:\n%s", want, brief)
 		}

@@ -104,8 +104,7 @@ MECHANISM = Binary(
 )
 UNEXPLAINED = (
     "A reply that explains a mechanism, incident or design change to the owner carries a hosted one-pager, unasked."
-    " Run `lr explain <topic> --from <markdown file or cci record>` and put the tailnet link it prints in this reply."
-    " When the verb itself fails it files a defect, and the reply passes without a link: say in plain words that the page is not up yet."
+    " Run `lr explain <topic> --from <markdown file or cci record>` and put its link in this reply; if the verb fails it files a defect, and the reply says the page is not up."
 )
 NO = BinaryAnswer(p_yes=0.02, confidence=0.95)
 YES = BinaryAnswer(p_yes=0.97, confidence=0.94)
@@ -483,7 +482,7 @@ def reads_records(use: object, reader: str = "lr") -> bool:
         return False
     if use.call.name.startswith(CCI_TOOLS):
         return use.call.name != f"{CCI_TOOLS}post"
-    return use.call.name == "Bash" and any(Path(cmd.argv[0]).name == reader or (Path(cmd.argv[0]).name == "cci" and cmd.argv[1:2] != ["post"]) for cmd in use.call.command_line if cmd.argv)
+    return use.call.name == "Bash" and any(Path(cmd.argv[0]).name == reader or (Path(cmd.argv[0]).name == "cci" and "post" not in cmd.argv[1:2]) for cmd in use.call.command_line if cmd.argv)
 
 
 def file_path(evt: BaseHookEvent, reply: str) -> str | None:
@@ -504,7 +503,7 @@ def unexplained(evt: BaseHookEvent, reply: str) -> str | None:
 
 
 def explain_failed(evt: BaseHookEvent) -> bool:
-    if not any(use.call.name == "Bash" and any(cmd.argv[:1] and Path(cmd.argv[0]).name == "lr" and cmd.argv[1:2] == ["explain"] for cmd in use.call.command_line) for use in evt.ctx.turn.tool_calls.items):
+    if not any(use.call.name == "Bash" and any(Path(cmd.argv[0]).name == "lr" and "explain" in cmd.argv[1:2] for cmd in use.call.command_line if cmd.argv) for use in evt.ctx.turn.tool_calls.items):
         return False
     since = next(iter(evt.ctx.turn.events)).meta.timestamp.isoformat()
     out = read(["cci", "tail", "--drive", bus_name(drive_entry(evt)), "--lane", COMMUNICATOR_LANE, "--kind", "defect", "--topic", EXPLAIN_TOPIC, "--since", since, "--budget", str(RECORD_BYTES), "--json"])
