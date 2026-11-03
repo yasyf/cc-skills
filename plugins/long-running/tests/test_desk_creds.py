@@ -162,3 +162,32 @@ def test_roll_copies_the_pinned_version_then_stops_the_desk_runner_at_the_end_of
     assert stop[:5] == ["sprite", "exec", "-s", "dar-desk-1", "--no-stdin"]
     assert stop[-5:] == ["/home/sprite/.claude/plugins/cache/skills/long-running/0.7.927", "/home/sprite/.claude/long-running/current", str(config), "landing", "1200"]
     assert ".stop.$pid" in stop[stop.index("-c") + 1]
+
+
+def test_run_preflight_asks_the_desk_runner_under_the_same_environment_and_opens_no_log(tmp_path, monkeypatch):
+    config = tmp_path / "runner.json.next"
+    config.write_text(json.dumps({
+        "drive": "d",
+        "host": {"aws_profiles": [], "region": "us-west-2", "github_app": {"name": "app"}, "gh_user": "yasyf", "tz": "America/Los_Angeles", "secrets": {"GH_TOKEN": ["gh"], "TRUNK_TOKEN": ["x"]}, "ssm_profile": "core-auto"},
+    }))
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(desk_creds, "SHM", tmp_path / "shm")
+    monkeypatch.setattr(desk_creds.os, "environ", dict(desk_creds.os.environ))
+    monkeypatch.setattr(desk_creds, "fetch", lambda key, port: {"Value": {"secret/GH_TOKEN": "gho_user", "secret/TRUNK_TOKEN": "trunk"}[key]})
+
+    class Execed(Exception):
+        pass
+
+    execs = []
+
+    def execv(path, argv):
+        execs.append(argv)
+        raise Execed
+
+    monkeypatch.setattr(desk_creds.os, "execv", execv)
+    with pytest.raises(Execed):
+        desk_creds.run(config, "landing", preflight=True)
+
+    assert execs[0][-6:] == ["preflight", "--config", str(config), "--desk", "landing", "--json"]
+    assert desk_creds.os.environ["TRUNK_TOKEN"] == "trunk"
+    assert not (tmp_path / "landing-runner.log").exists()
