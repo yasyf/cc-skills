@@ -27,8 +27,6 @@ const (
 	sweepEvery      = 5 * time.Minute
 	aliveEvery      = time.Minute
 	unreachableFact = "orca-unreachable"
-	relayTopic      = "relay"
-	relayAlive      = "relay alive"
 	relayLock       = "relay.lock"
 	unboundExit     = 3
 )
@@ -162,9 +160,9 @@ func (d *Desk) postAlive(ctx context.Context) {
 		return
 	}
 	d.alive = d.Now()
-	text := fmt.Sprintf("%s %s pass %d", relayAlive, d.Now().In(pacificTime).Format("3:04 PM"), d.passes)
+	text := fmt.Sprintf("%s %s pass %d", runnerAlive, d.Now().In(pacificTime).Format("3:04 PM"), d.passes)
 	attrs := map[string]string{"pid": fmt.Sprint(os.Getpid()), "config": d.Config.Source, "terminal": d.Env("ORCA_TERMINAL_HANDLE")}
-	if _, err := d.Bus.Post(ctx, client.Draft{Drive: d.Config.Drive, Lane: deskRunner, Kind: kindState, Topic: relayTopic, Text: text, To: []string{watchdogLane + "@" + d.Config.Drive}, Attrs: attrs}); err != nil {
+	if _, err := d.Bus.Post(ctx, client.Draft{Drive: d.Config.Drive, Lane: deskRunner, Kind: kindState, Topic: runnerTopic, Text: text, To: []string{watchdogLane + "@" + d.Config.Drive}, Attrs: attrs}); err != nil {
 		fmt.Fprintf(d.Stderr, "relay alive left for the next pass: %v\n", err)
 	}
 }
