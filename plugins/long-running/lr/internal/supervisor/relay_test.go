@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -15,19 +16,8 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
-type fakeChild struct {
-	code    int
-	done    bool
-	stopped int
-}
-
-func (c *fakeChild) Exited() (int, bool) { return c.code, c.done }
-
-func (c *fakeChild) Stop(time.Duration) { c.stopped++ }
-
 type keeperWorld struct {
 	keeper *RelayKeeper
-	starts []*fakeChild
 	posts  []bus.Body
 }
 
@@ -41,17 +31,12 @@ func newKeeperWorld(t *testing.T) *keeperWorld {
 	dir := t.TempDir()
 	w := &keeperWorld{}
 	w.keeper = &RelayKeeper{
-		Argv: []string{"lr", "relay", "run"}, Lock: filepath.Join(dir, "relay.lock"), Log: filepath.Join(dir, "lr-relay.log"), Store: s,
+		Lock: filepath.Join(dir, "relay.lock"), Log: filepath.Join(dir, "lr-relay.log"), Store: s,
 		Post: func(_ []string, body bus.Body) error {
 			w.posts = append(w.posts, body)
 			return nil
 		},
 		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
-		Start: func([]string, string) (relayChild, error) {
-			child := &fakeChild{}
-			w.starts = append(w.starts, child)
-			return child, nil
-		},
 	}
 	return w
 }
@@ -63,115 +48,105 @@ func (w *keeperWorld) check(t *testing.T, at time.Time) {
 	}
 }
 
-var keeperStart = time.Date(2026, 11, 3, 4, 0, 0, 0, time.UTC)
-
-func TestTheKeeperStartsOneRelayAndLeavesARunningOneAlone(t *testing.T) {
-	w := newKeeperWorld(t)
-
-	w.check(t, keeperStart)
-	w.check(t, keeperStart.Add(time.Second))
-	w.check(t, keeperStart.Add(2*relayRespawn))
-
-	if len(w.starts) != 1 {
-		t.Fatalf("starts = %d", len(w.starts))
-	}
-}
-
-func TestARelayAnotherProcessHoldsIsLeftAlone(t *testing.T) {
-	w := newKeeperWorld(t)
+func (w *keeperWorld) hold(t *testing.T) *os.File {
+	t.Helper()
 	lock, err := os.OpenFile(w.keeper.Lock, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = lock.Close() }()
+	t.Cleanup(func() { _ = lock.Close() })
 	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
 		t.Fatal(err)
 	}
-
-	w.check(t, keeperStart)
-	if len(w.starts) != 0 {
-		t.Fatalf("started beside a held lock: %d", len(w.starts))
-	}
-
-	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_UN); err != nil {
-		t.Fatal(err)
-	}
-	w.check(t, keeperStart.Add(time.Second))
-	if len(w.starts) != 1 {
-		t.Fatalf("starts after the lock came free = %d", len(w.starts))
-	}
+	return lock
 }
 
-func TestACleanExitRestartsWithNoReport(t *testing.T) {
+var keeperStart = time.Date(2026, 11, 3, 4, 0, 0, 0, time.UTC)
+
+func TestARelayHoldingItsLockIsUpAndSaysNothing(t *testing.T) {
 	w := newKeeperWorld(t)
+	w.hold(t)
+
 	w.check(t, keeperStart)
-	w.starts[0].done = true
+	w.check(t, keeperStart.Add(2*relayDownAfter))
 
-	w.check(t, keeperStart.Add(time.Second))
-	if len(w.starts) != 1 {
-		t.Fatalf("restarted inside the respawn gap: %d", len(w.starts))
-	}
-	w.check(t, keeperStart.Add(relayRespawn))
-
-	if len(w.starts) != 2 || len(w.posts) != 0 {
-		t.Fatalf("starts = %d, posts = %+v", len(w.starts), w.posts)
+	if len(w.posts) != 0 {
+		t.Fatalf("posts = %+v", w.posts)
 	}
 }
 
-func TestAFailedExitTellsRootOncePerErrorAndRestarts(t *testing.T) {
+func TestARelayDownPastLaunchdsRestartWindowTellsRootOncePerErrorNamingItsLog(t *testing.T) {
 	w := newKeeperWorld(t)
 	if err := os.WriteFile(w.keeper.Log, []byte("first line\nthe orca app is gone\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	at := keeperStart
-	w.check(t, at)
-	for range 2 {
-		w.starts[len(w.starts)-1].code, w.starts[len(w.starts)-1].done = 1, true
-		at = at.Add(relayRespawn)
-		w.check(t, at)
-	}
 
-	if len(w.starts) != 3 || len(w.posts) != 1 {
-		t.Fatalf("starts = %d, posts = %+v", len(w.starts), w.posts)
+	w.check(t, keeperStart)
+	w.check(t, keeperStart.Add(relayDownAfter-time.Second))
+	if len(w.posts) != 0 {
+		t.Fatalf("told inside the launchd restart gap: %+v", w.posts)
+	}
+	w.check(t, keeperStart.Add(relayDownAfter))
+	w.check(t, keeperStart.Add(2*relayDownAfter))
+
+	if len(w.posts) != 1 {
+		t.Fatalf("posts = %+v", w.posts)
 	}
 	told, isEscalation := w.posts[0].(bus.Escalation)
-	if !isEscalation || !strings.Contains(told.Cause, "exited 1, so no desk order is read until it restarts: the orca app is gone") {
+	if !isEscalation || !strings.Contains(told.Cause, "until it is back: the orca app is gone") {
 		t.Fatalf("told = %+v", w.posts[0])
 	}
 }
 
-func TestStopReachesTheChildItStartedAndNoneStartsAfter(t *testing.T) {
+func TestARelayBackInsideTheWindowStartsTheClockAgain(t *testing.T) {
 	w := newKeeperWorld(t)
+
 	w.check(t, keeperStart)
+	lock := w.hold(t)
+	w.check(t, keeperStart.Add(relayDownAfter/2))
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_UN); err != nil {
+		t.Fatal(err)
+	}
+	w.check(t, keeperStart.Add(relayDownAfter))
 
-	w.keeper.Stop()
-	w.check(t, keeperStart.Add(2*relayRespawn))
-
-	if len(w.starts) != 1 || w.starts[0].stopped != 1 {
-		t.Fatalf("starts = %d, stopped = %d", len(w.starts), w.starts[0].stopped)
+	if len(w.posts) != 0 {
+		t.Fatalf("posts = %+v", w.posts)
 	}
 }
 
-func TestStopWithNoChildStopsNothing(t *testing.T) {
-	newKeeperWorld(t).keeper.Stop()
-}
-
-func TestKeepStartsTheRelayWithNoTickRunningAndEndsWithItsContext(t *testing.T) {
+func TestKeepChecksWithNoTickRunningAndEndsWithItsContext(t *testing.T) {
 	w := newKeeperWorld(t)
-	started := make(chan struct{})
-	w.keeper.Start = func([]string, string) (relayChild, error) {
-		close(started)
-		return &fakeChild{}, nil
-	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	checked := make(chan struct{})
+	var once bool
 	ended := make(chan struct{})
 	go func() {
-		w.keeper.Keep(ctx, func() time.Time { return keeperStart })
+		w.keeper.Keep(ctx, func() time.Time {
+			if !once {
+				once = true
+				close(checked)
+			}
+			return keeperStart
+		})
 		close(ended)
 	}()
 
-	<-started
+	<-checked
 	cancel()
 	<-ended
+}
+
+func TestTheRelayIsItsOwnJobSoASupervisorReexecNeverTouchesIt(t *testing.T) {
+	job := agent().RelayJob("/state/inbox/orca.md")
+
+	if job.Label == agent().Job().Label || job.Label != RelayLabel("d1") {
+		t.Fatal(job.Label)
+	}
+	if !slices.Equal(job.Arguments, []string{"/claude/long-running/current/bin/lr", "relay", "run", "--config", "/state/lr.json"}) {
+		t.Fatal(job.Arguments)
+	}
+	if job.Log != "/state/inbox/lr-relay.log" {
+		t.Fatal(job.Log)
+	}
 }

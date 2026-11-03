@@ -89,9 +89,6 @@ func run(ctx context.Context, a *app.App) error {
 	}
 	a.Log.Info("supervisor ended", "how", string(ended), "ticks", len(reports))
 	if ended == EndedRelease {
-		if deps.Relay != nil {
-			deps.Relay.Stop()
-		}
 		return Reexec(env.Claude, syscall.Exec)
 	}
 	return nil
@@ -213,7 +210,14 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 		return Deps{}, err
 	}
 	if orcaRunner.Orca.GoRelay {
-		deps.Relay = NewRelayKeeper(env.Claude, a.ConfigPath, env.State, orcaRunner.Orca.DeskInbox, s, post, a.Log)
+		agents, err := launchd.New(a.Runner, os.Stdout)
+		if err != nil {
+			return Deps{}, err
+		}
+		if err := agents.Install(ctx, agentOf(env).RelayJob(orcaRunner.Orca.DeskInbox)); err != nil {
+			a.Log.Warn("the relay's launchd job is not installed", "err", err)
+		}
+		deps.Relay = NewRelayKeeper(env.State, orcaRunner.Orca.DeskInbox, s, post, a.Log)
 	}
 	if !slices.Contains(env.Config.Movers, config.MoverGrading) {
 		return deps, nil
@@ -235,17 +239,30 @@ func Install(cmd *cobra.Command, a *app.App) error {
 	if err != nil {
 		return err
 	}
-	path := os.Getenv("PATH")
-	if path == "" {
+	agent := agentOf(env)
+	if agent.Path == "" {
 		return errors.New("PATH is empty; launchd would run the supervisor with no tools")
 	}
-	return agents.Install(cmd.Context(), Agent{
-		Drive:  cfg.Drive,
-		Config: filepath.Join(state, "lr.json"),
+	runner, err := config.LoadRunner(filepath.Join(state, runnerFile))
+	if err != nil {
+		return err
+	}
+	if runner.Orca.GoRelay {
+		if err := agents.Install(cmd.Context(), agent.RelayJob(runner.Orca.DeskInbox)); err != nil {
+			return err
+		}
+	}
+	return agents.Install(cmd.Context(), agent.Job())
+}
+
+func agentOf(env lanes.Env) Agent {
+	return Agent{
+		Drive:  env.Config.Drive,
+		Config: filepath.Join(env.State, "lr.json"),
 		Binary: filepath.Join(env.Claude, "long-running", "current", "bin", "lr"),
-		Path:   path,
-		Log:    filepath.Join(state, "supervisor.log"),
-	}.Job())
+		Path:   os.Getenv("PATH"),
+		Log:    filepath.Join(env.State, "supervisor.log"),
+	}
 }
 
 func Uninstall(cmd *cobra.Command, a *app.App) error {
@@ -255,6 +272,9 @@ func Uninstall(cmd *cobra.Command, a *app.App) error {
 	}
 	agents, err := launchd.New(a.Runner, cmd.OutOrStdout())
 	if err != nil {
+		return err
+	}
+	if err := agents.Uninstall(cmd.Context(), RelayLabel(cfg.Drive)); err != nil {
 		return err
 	}
 	return agents.Uninstall(cmd.Context(), Label(cfg.Drive))
