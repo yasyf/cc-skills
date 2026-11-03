@@ -31,6 +31,7 @@ const (
 	signalDuplicate   = "duplicate-ask"
 	signalRace        = "race-warning"
 	signalUninstalled = "uninstalled"
+	signalOwedReply   = "owed-reply"
 )
 
 type Bus interface {
@@ -101,6 +102,10 @@ func Read(ctx context.Context, src Sources, cfg Config, drive config.Config, now
 	if err != nil {
 		return Report{}, err
 	}
+	owed, err := owedReplies(ctx, src.Runner, cfg, peers, now)
+	if err != nil {
+		return Report{}, err
+	}
 	files, changed, err := changedTranscripts(ctx, src.Runner, cfg, peers, since)
 	if err != nil {
 		return Report{}, err
@@ -117,7 +122,7 @@ func Read(ctx context.Context, src Sources, cfg Config, drive config.Config, now
 	if err != nil {
 		return Report{}, err
 	}
-	findings := slices.Concat(dead, unfinished, fanOut(cfg, records, window), duplicateAsks(cfg, records), raceWarnings(cfg, records), used.findings(cfg, records, window), skips)
+	findings := slices.Concat(dead, unfinished, owed, fanOut(cfg, records, window), duplicateAsks(cfg, records), raceWarnings(cfg, records), used.findings(cfg, records, window), skips)
 	slices.SortFunc(findings, func(a, b Finding) int {
 		return cmp.Or(cmp.Compare(b.weight(), a.weight()), cmp.Compare(a.Key, b.Key))
 	})
