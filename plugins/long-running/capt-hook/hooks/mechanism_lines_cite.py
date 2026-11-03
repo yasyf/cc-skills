@@ -29,8 +29,8 @@ UNCITED_REFUSAL = (
 )
 UNKNOWN = re.compile(r"\b(?:unanswered|unproven|nobody knows|no one knows)\b", re.IGNORECASE)
 UNSEARCHED = (
-    "A line to the owner that calls a question unanswered, unproven or something nobody knows comes after a `cci grep` over the drive for that question in this turn, since a lane may have answered it."
-    " Run `cci grep --drive <drive> -- <the question's terms>`, cite the record it finds or keep the label, then send it again."
+    "A line to the owner calling a question unanswered, unproven or unknown follows a `cci grep` of the drive for it this turn; a lane may have answered it."
+    " Run `cci grep --drive <drive> -- <its terms>`, cite what it finds or keep the label, then send it again."
 )
 GREPPED = T.tool_turn("Bash", result="#382682 report schema1-provenance-2 ...", command="cci grep --drive durable-agents-rebuild -- 'which Mac wrote'")
 EXAMPLE = "example: The run crashed because the cloud runner reads only migration 0 (#384714)."
@@ -60,7 +60,7 @@ def uncited(texts: list[str]) -> list[str]:
 
 def grepped(evt: BaseHookEvent) -> bool:
     return any(
-        use.call.name == f"{CCI_TOOLS}find" or use.call.name == "Bash" and any(Path(cmd.argv[0]).name == "cci" and cmd.argv[1:2] == ["grep"] for cmd in use.call.command_line if cmd.argv)
+        use.call.name == f"{CCI_TOOLS}find" or use.call.name == "Bash" and any(Path(cmd.argv[0]).name == "cci" and "grep" in cmd.argv[1:2] for cmd in use.call.command_line if cmd.argv)
         for use in evt.ctx.turn.tool_calls.items
     )
 
@@ -79,7 +79,7 @@ def refused(evt: BaseHookEvent, texts: list[str]) -> HookResult | None:
         card(title="Why did the FDE run crash?", body=SKEW): Block(pattern=r"^A sentence to the owner that says why[\s\S]*migration 6[\s\S]*That is a release skew[\s\S]*example: "),
         card(title="Why did the FDE run crash?", body=CITED): Allow(),
         card(title="Why did the FDE run crash?", body="Build 12280 ships the old reader. So every FDE run on it fails at the first chat."): Allow(),
-        card(title="Why did the FDE run crash?", body=LABELLED): Block(pattern=r"^A line to the owner that calls a question unanswered[\s\S]*Unproven: a release skew"),
+        card(title="Why did the FDE run crash?", body=LABELLED): Block(pattern=r"^A line to the owner calling a question unanswered[\s\S]*Unproven: a release skew"),
         Input(tool=SLACK_CARD, tool_input={"card": {"title": "Why did the FDE run crash?", "body": LABELLED}}, env=DRIVE_CONFIG, transcript=[T.user("why"), *GREPPED]): Allow(),
         card(title="Which Mac wrote it?", body="Nobody knows which Mac wrote the chat."): Block(pattern=r"Nobody knows which Mac"),
         card(title="Did the lane retract it?", body='It withdrew "a release skew caused it" and reads the chat rows now.'): Allow(),
@@ -103,7 +103,7 @@ def mechanism_lines_cite(evt: BaseHookEvent) -> HookResult | None:
     tests=communicator_tests({
         Input(transcript=reply_transcript(SKEW), state=ACTIVE): Block(pattern=r"writes chats at sessions migration 6[\s\S]*That is a release skew"),
         Input(transcript=reply_transcript(f"{CITED} The fix is up as `go/sand/internal/vm/chat.go:88`, which reads migration 6."), state=ACTIVE): Allow(),
-        Input(transcript=reply_transcript(LABELLED), state=ACTIVE): Block(pattern=r"^A line to the owner that calls a question unanswered"),
+        Input(transcript=reply_transcript(LABELLED), state=ACTIVE): Block(pattern=r"^A line to the owner calling a question unanswered"),
         Input(transcript=[T.user("which Mac wrote it?"), *GREPPED, T.assistant("Which Mac wrote the chat is still unanswered; no lane record names it.")], state=ACTIVE): Allow(),
     }),
 )
