@@ -752,7 +752,7 @@ func TestAMetaLanesSecondDeathRaisesItsDefectToItsLaunchersHead(t *testing.T) {
 	registered(t, s, store.Lane{Name: "meta-desk-2", Role: RoleMeta})
 	spawn := spawned(1, "liveness-1", brief, t0.Add(-time.Hour), nil)
 	spawn.Lane = "meta-desk-2"
-	f := newFake(t, []Record{spawn}, []Row{who("liveness-1", true, t0.Add(-mins(1)))})
+	f := newFake(t, []Record{spawn}, []Row{who("liveness-1", true, t0.Add(-mins(1))), who("meta-desk-2", true, t0.Add(-mins(1)))})
 	tick(t, s, f, t0.Add(-mins(1)))
 	if err := s.SetLanePRs("liveness-1", []int{46001}); err != nil {
 		t.Fatal(err)
