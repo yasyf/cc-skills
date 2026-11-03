@@ -60,3 +60,15 @@ func TestAHeldPRLeavesTheBoardSoARejectionPostsOneHold(t *testing.T) {
 		t.Fatalf("rows = %+v", found)
 	}
 }
+
+func TestAPRAboveOneThatCannotLandNamesItAndWhy(t *testing.T) {
+	snapshot := facts(func(f *machine.Facts) { f.Branch, f.Base = "top", "bottom" })
+	snapshot[7] = machine.Facts{Number: 7, Head: moved, Branch: "bottom", Base: "dev", CI: machine.CIFailure, Mergeable: machine.MergeableClean, Approved: true, Finder: machine.FinderClear, Fidelity: machine.FidelityPass, Tap: machine.TapTapped}
+
+	got := Live{}.Explain(number, snapshot)
+
+	want := "#45583 at e718a74: not waiting on you: the board holds no row for it; the PR below it, #7, cannot land yet: CI is not green"
+	if got.Line != want {
+		t.Fatalf("line = %q", got.Line)
+	}
+}

@@ -529,3 +529,33 @@ func TestLiveNamesTheMoverEachConfiguredMoverPutsOnTheBus(t *testing.T) {
 		t.Fatalf("live = %v", got)
 	}
 }
+
+func TestAQueuedPRAboveAHeldOneLeavesTheQueueWithIt(t *testing.T) {
+	s, r := newStore(t), &recorder{}
+	queued := func(number int, branch, base string, hold machine.Mover) machine.Facts {
+		return facts(number, func(f *machine.Facts) {
+			f.Branch, f.Base, f.Queue, f.QueuedHead, f.Hold = branch, base, machine.QueueQueued, f.Head, hold
+		})
+	}
+	snapshot := []machine.Facts{
+		queued(1, "bottom", "dev", machine.MoverRoot),
+		queued(2, "middle", "bottom", ""),
+		queued(3, "top", "middle", ""),
+		queued(4, "other", "dev", ""),
+	}
+
+	out, err := pass.Run(s, snapshot, t0, r.post, all, func(desk string) string { return desk })
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	acted := make([]int, 0, len(out.Acts))
+	for _, act := range out.Acts {
+		if act.Verdict.Action == machine.ActionDequeue {
+			acted = append(acted, act.Facts.Number)
+		}
+	}
+	if !slices.Equal(acted, []int{1, 2, 3}) {
+		t.Fatalf("dequeued = %v", acted)
+	}
+}

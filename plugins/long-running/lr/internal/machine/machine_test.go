@@ -54,6 +54,7 @@ var cases = []struct {
 	{"a root hold is root's to lift", facts(func(f *Facts) { f.Hold = MoverRoot }), Verdict{StateAwaitingTap, MoverRoot, ActionLift, 12 * time.Hour}},
 	{"queued on this head is watched for thirty minutes", facts(func(f *Facts) { f.Queue, f.QueuedHead = QueueQueued, head }), Verdict{StateQueued, MoverSupervisor, ActionWatchQueue, 30 * time.Minute}},
 	{"queued on an older head is dequeued the same pass", facts(func(f *Facts) { f.Queue, f.QueuedHead = QueueQueued, oldHead }), Verdict{StateAwaitingTap, MoverSupervisor, ActionDequeue, 10 * time.Minute}},
+	{"queued under an open hold is dequeued the same pass", facts(func(f *Facts) { f.Queue, f.QueuedHead, f.Hold = QueueQueued, head, MoverRoot }), Verdict{StateAwaitingTap, MoverSupervisor, ActionDequeue, 10 * time.Minute}},
 	{"an ungraded PR no lane owns and nobody tapped is nobody's", facts(func(f *Facts) { f.Lane, f.Finder, f.Fidelity, f.Tap = "", "", "", "" }), Verdict{StatePushed, MoverNobody, ActionNone, 0}},
 	{"a graded PR no lane owns never asks the owner for a tap", facts(func(f *Facts) { f.Lane, f.Tap = "", "" }), Verdict{StatePushed, MoverNobody, ActionNone, 0}},
 	{"a tapped PR with no lane is still graded", facts(func(f *Facts) { f.Lane, f.Finder, f.Fidelity, f.Tap = "", "", "", TapTapped }), Verdict{StateGrading, MoverPool, ActionGrade, GradeClock}},

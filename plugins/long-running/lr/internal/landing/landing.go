@@ -1,6 +1,7 @@
 package landing
 
 import (
+	"cmp"
 	"context"
 	"slices"
 	"strconv"
@@ -20,7 +21,7 @@ const (
 
 type Queue interface {
 	Enqueue(ctx context.Context, number int, head string) (string, error)
-	Dequeue(ctx context.Context, number int) error
+	Dequeue(ctx context.Context, number int) (string, error)
 }
 
 type Restacker interface {
@@ -39,8 +40,10 @@ type Move struct {
 }
 
 type Said struct {
-	Facts machine.Facts
-	Text  string
+	Facts    machine.Facts
+	Accepted string
+	Refused  string
+	Text     string
 }
 
 type Done struct {
@@ -57,9 +60,28 @@ func Clear(acts []pass.Act, snapshot []machine.Facts, trunk string) []pass.Act {
 	for _, f := range snapshot {
 		byBranch[f.Branch] = f
 	}
-	return slices.DeleteFunc(slices.Clone(acts), func(act pass.Act) bool {
+	kept := slices.DeleteFunc(slices.Clone(acts), func(act pass.Act) bool {
 		return act.Verdict.Action == machine.ActionEnqueue && !clearBelow(act.Facts, byBranch, trunk)
 	})
+	slices.SortStableFunc(kept, func(a, b pass.Act) int {
+		return cmp.Compare(dequeueRank(a, byBranch), dequeueRank(b, byBranch))
+	})
+	return kept
+}
+
+func dequeueRank(act pass.Act, byBranch map[string]machine.Facts) int {
+	if act.Verdict.Action != machine.ActionDequeue {
+		return 1
+	}
+	rank, f := 0, act.Facts
+	for range len(byBranch) {
+		below, open := byBranch[f.Base]
+		if !open {
+			break
+		}
+		rank, f = rank-1, below
+	}
+	return rank
 }
 
 func clearBelow(f machine.Facts, byBranch map[string]machine.Facts, trunk string) bool {
@@ -68,7 +90,7 @@ func clearBelow(f machine.Facts, byBranch map[string]machine.Facts, trunk string
 			return true
 		}
 		below, open := byBranch[f.Base]
-		if !open || (!below.Landable() && !below.Queued()) {
+		if !open || !below.ClearsAbove() {
 			return false
 		}
 		f = below
@@ -84,8 +106,12 @@ func Act(ctx context.Context, s *store.Store, queue Queue, restacker Restacker, 
 		case machine.ActionEnqueue:
 			err = enqueue(ctx, s, queue, act.Facts, now, &done)
 		case machine.ActionDequeue:
-			if err = queue.Dequeue(ctx, act.Facts.Number); err == nil {
+			var said string
+			if said, err = queue.Dequeue(ctx, act.Facts.Number); err == nil {
 				done.Dequeued = append(done.Dequeued, act.Facts.Number)
+				if said != "" {
+					done.Said = append(done.Said, Said{act.Facts, "DEQUEUED", "DEQUEUE-REFUSED", dequeueWhy(act.Facts) + "; the queue said " + said})
+				}
 			}
 		case machine.ActionRestack:
 			err = restack(ctx, s, restacker, act.Facts, now, &done)
@@ -97,6 +123,17 @@ func Act(ctx context.Context, s *store.Store, queue Queue, restacker Restacker, 
 	return done, nil
 }
 
+func dequeueWhy(f machine.Facts) string {
+	switch {
+	case f.QueuedHead != f.Head:
+		return "the queue held an older head"
+	case f.Hold != "":
+		return "an open hold names it"
+	default:
+		return "an open hold names a PR below it"
+	}
+}
+
 func enqueue(ctx context.Context, s *store.Store, queue Queue, f machine.Facts, now time.Time, done *Done) error {
 	said, err := queue.Enqueue(ctx, f.Number, f.Head)
 	if err != nil {
@@ -106,7 +143,7 @@ func enqueue(ctx context.Context, s *store.Store, queue Queue, f machine.Facts, 
 		if _, err := s.PutFact(f.Repo, f.Number, f.Head, pass.EnqueuedFact, said, now); err != nil {
 			return err
 		}
-		done.Said = append(done.Said, Said{f, said})
+		done.Said = append(done.Said, Said{f, "QUEUED", "REFUSED", said})
 	}
 	if f.Queue != machine.QueueEvicted {
 		done.Enqueued = append(done.Enqueued, Head{f.Number, f.Head})

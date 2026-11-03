@@ -59,9 +59,9 @@ func (q *queue) Enqueue(_ context.Context, number int, head string) (string, err
 	return fmt.Sprintf("exit 0: #%d QUEUED", number), nil
 }
 
-func (q *queue) Dequeue(_ context.Context, number int) error {
+func (q *queue) Dequeue(_ context.Context, number int) (string, error) {
 	q.dequeued = append(q.dequeued, number)
-	return nil
+	return fmt.Sprintf("exit 0: #%d DEQUEUED", number), nil
 }
 
 type restacker struct {
@@ -304,5 +304,34 @@ func TestARestackFailureStopsTheMoversAndWritesNoFactSoTheNextPassRetries(t *tes
 	}
 	if got := fact(t, s, 1, landing.RestackedFact); got != "" {
 		t.Fatalf("restacked fact = %q", got)
+	}
+}
+
+func TestAHeldStackLeavesTheQueueTopFirstAndNoPRAboveItEnters(t *testing.T) {
+	stacked := func(number int, branch, base string, change func(*machine.Facts)) machine.Facts {
+		return facts(number, func(f *machine.Facts) {
+			f.Branch, f.Base = branch, base
+			if change != nil {
+				change(f)
+			}
+		})
+	}
+	heldInQueue := func(f *machine.Facts) { f.Queue, f.QueuedHead, f.Hold = machine.QueueQueued, f.Head, machine.MoverRoot }
+	inQueue := func(f *machine.Facts) { f.Queue, f.QueuedHead = machine.QueueQueued, f.Head }
+	bottom := stacked(1, "bottom", "dev", heldInQueue)
+	middle := stacked(2, "middle", "bottom", inQueue)
+	waiting := stacked(3, "top", "middle", nil)
+	out := func(f machine.Facts) pass.Act {
+		return pass.Act{Facts: f, Verdict: machine.Verdict{Action: machine.ActionDequeue}}
+	}
+
+	acts := landing.Clear([]pass.Act{
+		out(bottom),
+		{Facts: waiting, Verdict: machine.Verdict{Action: machine.ActionEnqueue}},
+		out(middle),
+	}, []machine.Facts{bottom, middle, waiting}, "dev")
+
+	if len(acts) != 2 || acts[0].Facts.Number != 2 || acts[1].Facts.Number != 1 {
+		t.Fatalf("acts = %+v", acts)
 	}
 }

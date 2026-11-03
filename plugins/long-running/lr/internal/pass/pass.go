@@ -132,6 +132,9 @@ func knownRows(s *store.Store, snapshot []machine.Facts) (map[int]store.PR, erro
 
 func classifyOne(s *store.Store, f machine.Facts, byBranch map[string]machine.Facts, now time.Time, post Post, live []machine.Mover, out *Outcome) error {
 	verdict := machine.Classify(f)
+	if verdict.Action == machine.ActionWatchQueue && heldBelow(f, byBranch) {
+		verdict = machine.Verdict{State: machine.StateAwaitingTap, Mover: machine.MoverSupervisor, Action: machine.ActionDequeue, Deadline: machine.SupervisorClock}
+	}
 	out.Verdicts[f.Number] = verdict
 	if err := s.PutPR(store.PR{Repo: f.Repo, Number: f.Number, Head: f.Head, Base: f.Base, Lane: f.Lane, State: verdict.State, ReadAt: now}); err != nil {
 		return err
@@ -171,7 +174,21 @@ func waitsBelow(f machine.Facts, byBranch map[string]machine.Facts) bool {
 		if !open {
 			return false
 		}
-		if !below.Landable() && !below.Queued() {
+		if !below.ClearsAbove() {
+			return true
+		}
+		f = below
+	}
+	return false
+}
+
+func heldBelow(f machine.Facts, byBranch map[string]machine.Facts) bool {
+	for range len(byBranch) + 1 {
+		below, open := byBranch[f.Base]
+		if !open {
+			return false
+		}
+		if below.Hold != "" {
 			return true
 		}
 		f = below

@@ -59,9 +59,9 @@ func Settle(ctx context.Context, drive string, answers []Said) error {
 	unposted := make([]error, 0, len(answers))
 	for _, answer := range answers {
 		f := answer.Facts
-		label, text := "REFUSED", answer.Text
-		if rest, accepted := strings.CutPrefix(text, queueAccepted); accepted {
-			label, text = "QUEUED", rest
+		label := answer.Refused
+		if strings.Contains(answer.Text, queueAccepted) {
+			label = answer.Accepted
 		}
 		to := f.Lane
 		if to == "" {
@@ -74,7 +74,7 @@ func Settle(ctx context.Context, drive string, answers []Said) error {
 			To:    []string{to},
 			ID:    fmt.Sprintf("settled:%d:%s:%s", f.Number, f.Head, label),
 			PRs:   []string{pullRef(f)},
-			Text:  fmt.Sprintf("%s #%d at %s: %s", label, f.Number, shortHead(f.Head), text),
+			Text:  fmt.Sprintf("%s #%d at %s: %s", label, f.Number, shortHead(f.Head), answer.Text),
 		})
 		unposted = append(unposted, err)
 	}

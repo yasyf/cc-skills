@@ -30,9 +30,8 @@ func (t Trunk) Enqueue(ctx context.Context, number int, _ string) (string, error
 	return t.call(ctx, strconv.Itoa(number))
 }
 
-func (t Trunk) Dequeue(ctx context.Context, number int) error {
-	_, err := t.call(ctx, strconv.Itoa(number), "--dequeue")
-	return err
+func (t Trunk) Dequeue(ctx context.Context, number int) (string, error) {
+	return t.call(ctx, strconv.Itoa(number), "--dequeue")
 }
 
 func (t Trunk) call(ctx context.Context, args ...string) (string, error) {
