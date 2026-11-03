@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bkread"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
@@ -258,6 +259,8 @@ func notLive(t *testing.T, ledger string, files map[string]string, live string, 
 				return shell.Result{}, nil
 			}
 			return shell.Result{Code: 1}, &shell.ExitError{Argv: argv, Code: 1}
+		case argv[0] == tokenTool:
+			return shell.Result{Stdout: "read-token\n"}, nil
 		case slices.Equal(argv[len(argv)-2:], []string{"select", "--pr"}):
 			var request struct {
 				Paths []string `json:"paths"`
@@ -277,7 +280,7 @@ func notLive(t *testing.T, ledger string, files map[string]string, live string, 
 			return shell.Result{Stdout: live}, nil
 		}
 	})}
-	return &LandedNotLive{Env: env, ReleaseCLI: []string{"tools/ci", "release"}, Log: slog.Default()}, bus
+	return &LandedNotLive{Env: env, ReleaseCLI: []string{"tools/ci", "release"}, Token: bkread.Token{Command: []string{tokenTool}}, Log: slog.Default()}, bus
 }
 
 func TestALandingATargetDoesNotRunAfterAnHourDrawsOneBlockerNamingItsRelease(t *testing.T) {

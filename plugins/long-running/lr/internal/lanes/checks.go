@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bkread"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 	"golang.org/x/mod/semver"
@@ -449,6 +450,7 @@ type landing struct {
 type LandedNotLive struct {
 	Env        Env
 	ReleaseCLI []string
+	Token      bkread.Token
 	Log        *slog.Logger
 	read       time.Time
 	holds      map[[2]string]bool
@@ -486,11 +488,6 @@ func ReadRunnerLanding(state string) (RunnerLanding, error) {
 		return RunnerLanding{}, fmt.Errorf("runner.json: %w", err)
 	}
 	return runner.Landing, nil
-}
-
-func ReleaseCLI(state string) ([]string, error) {
-	landing, err := ReadRunnerLanding(state)
-	return strings.Fields(landing.ReleaseCLI), err
 }
 
 func (n *LandedNotLive) landings(ctx context.Context, now time.Time) (map[int]landing, error) {
@@ -559,7 +556,7 @@ func (n *LandedNotLive) targetsOf(ctx context.Context, sha string) ([]string, er
 
 func (n *LandedNotLive) running(ctx context.Context) (map[string][]string, error) {
 	argv := append(slices.Clone(n.ReleaseCLI), "live", "--json")
-	result, err := n.Env.Runner.Run(ctx, shell.Command{Argv: argv, Dir: n.Env.Config.Checkout, Timeout: readTimeout})
+	result, err := n.Token.Run(ctx, n.Env.Runner, shell.Command{Argv: argv, Dir: n.Env.Config.Checkout, Timeout: readTimeout})
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrUnread, err)
 	}
@@ -786,18 +783,18 @@ func (e Env) Checks(s *store.Store, log *slog.Logger) ([]Check, error) {
 		checks = append(checks, Alerts{Env: e, Store: s, Channels: channels, Log: log, Launch: e.IncidentLaunch}.Check)
 	}
 	checks = append(checks, (&OverrideRefusals{Env: e, Store: s}).Check)
-	if pipelines := e.Config.ReleasePipelineSlugs(); len(pipelines) > 0 {
-		checks = append(checks, (&ReleaseBuilds{Env: e, Store: s, Pipelines: pipelines, CLI: strings.Fields(e.Config.BuildkiteCLI), Log: log}).Check)
-	}
-	if e.Config.OrcaRun != "" {
-		checks = append(checks, (&FixLiveGC{Env: e, Log: log}).Check, (&SettledGC{Env: e, Store: s, Log: log}).Check)
-	}
 	landing, err := ReadRunnerLanding(e.State)
 	if err != nil {
 		return nil, err
 	}
+	if pipelines := e.Config.ReleasePipelineSlugs(); len(pipelines) > 0 {
+		checks = append(checks, (&ReleaseBuilds{Env: e, Store: s, Pipelines: pipelines, CLI: strings.Fields(e.Config.BuildkiteCLI), Token: bkread.Token{Command: landing.CITokenCommand}, Log: log}).Check)
+	}
+	if e.Config.OrcaRun != "" {
+		checks = append(checks, (&FixLiveGC{Env: e, Log: log}).Check, (&SettledGC{Env: e, Store: s, Log: log}).Check)
+	}
 	if len(landing.Pages.Channels) > 0 {
-		checks = append(checks, (&PageWatch{Env: e, Store: s, Channels: landing.Pages.Channels, BuildCLI: landing.Pages.Build, Log: log}).Check)
+		checks = append(checks, (&PageWatch{Env: e, Store: s, Channels: landing.Pages.Channels, BuildCLI: landing.Pages.Build, Token: bkread.Token{Command: landing.CITokenCommand}, Log: log}).Check)
 	}
 	remote, err := CcRemoteOf(e.State)
 	if err != nil {
@@ -809,12 +806,8 @@ func (e Env) Checks(s *store.Store, log *slog.Logger) ([]Check, error) {
 	if _, err := exec.LookPath("nsc"); err == nil {
 		checks = append(checks, (&NscDeadlines{Env: e, Store: s, Log: log}).Check)
 	}
-	cli, err := ReleaseCLI(e.State)
-	if err != nil {
-		return nil, err
-	}
-	if len(cli) > 0 {
-		checks = append(checks, (&LandedNotLive{Env: e, ReleaseCLI: cli, Log: log}).Check, (&ReleaseGates{Env: e, ReleaseCLI: cli, Log: log}).Check)
+	if cli := strings.Fields(landing.ReleaseCLI); len(cli) > 0 {
+		checks = append(checks, (&LandedNotLive{Env: e, ReleaseCLI: cli, Token: bkread.Token{Command: landing.CITokenCommand}, Log: log}).Check, (&ReleaseGates{Env: e, ReleaseCLI: cli, Token: bkread.Token{Command: landing.CITokenCommand}, Log: log}).Check)
 	}
 	return checks, nil
 }

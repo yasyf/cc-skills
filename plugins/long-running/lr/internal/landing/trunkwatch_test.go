@@ -241,7 +241,7 @@ func TestAWatchWithoutAUsableTokenReadsNoBuildAndNamesTheSetting(t *testing.T) {
 		reply   func(*shelltest.Fake)
 		want    string
 	}{
-		"unset":   {nil, func(*shelltest.Fake) {}, "landing.ci_build needs landing.ci_token_command"},
+		"unset":   {nil, func(*shelltest.Fake) {}, "reading Buildkite needs landing.ci_token_command"},
 		"failing": {[]string{tokenTool}, func(fake *shelltest.Fake) { fake.Fail(254, "the SSO session expired", tokenTool) }, "landing.ci_token_command failed: "},
 		"empty":   {[]string{tokenTool}, func(fake *shelltest.Fake) { fake.Reply("\n", tokenTool) }, "landing.ci_token_command printed nothing"},
 	} {
@@ -278,7 +278,7 @@ func TestABuildkite401NamesItselfAndARedTrunkStillPostsThenTheComparisonCatchesU
 
 	err := f.watch.Pass(context.Background())
 
-	if err == nil || !strings.Contains(err.Error(), "auth failure, not a red build") || !strings.Contains(err.Error(), "failed: 401") {
+	if err == nil || !strings.Contains(err.Error(), "not a red build") || !strings.Contains(err.Error(), "auth failure") || !strings.Contains(err.Error(), "failed: 401") {
 		t.Fatalf("err = %v, want it to name the auth failure", err)
 	}
 	if strings.Contains(err.Error(), "read-token") {

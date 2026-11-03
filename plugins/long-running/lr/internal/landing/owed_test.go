@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bkread"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/incident"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/landing"
@@ -62,8 +63,9 @@ func (f *owedFixture) instance(t *testing.T, started time.Time) *landing.Release
 	t.Helper()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	clock := func() time.Time { return f.now }
+	f.fake.Reply("read-token\n", tokenTool)
 	return &landing.ReleaseOwed{
-		Runner: f.fake, CCX: ccx.CLI{Runner: f.fake}, Store: f.store, Drive: "d", Repo: monorepo, Owner: "release-5", CLI: []string{owedTool, "release"}, Checkout: "/co",
+		Runner: f.fake, CCX: ccx.CLI{Runner: f.fake}, Store: f.store, Drive: "d", Repo: monorepo, Owner: "release-5", CLI: []string{owedTool, "release"}, Token: bkread.Token{Command: []string{tokenTool}}, Checkout: "/co",
 		Every: 10 * time.Minute, Urgent: 3 * time.Minute, Cut: 4 * time.Minute, Started: started, Now: clock, Log: logger,
 		LiveClocks: func() ([]string, error) { return f.clocks, nil },
 		Squash:     &landing.Squash{Runner: f.fake, CCX: ccx.CLI{Runner: f.fake}, Store: f.store, Incidents: incident.Store{Root: t.TempDir()}, Drive: "d", Trunk: "dev", FixLane: func(string) (bool, error) { return false, nil }, Now: clock, Log: logger},

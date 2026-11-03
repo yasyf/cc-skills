@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bkread"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
@@ -39,10 +40,13 @@ func gateJSON(state string, at time.Time) string {
 
 func gates(status *string, rows ...client.Record) (*ReleaseGates, *fakeBus) {
 	bus := &fakeBus{tail: rows}
-	env := Env{Bus: bus, Config: config.Config{Drive: testDrive, Checkout: "/checkout"}, Runner: scripted(func([]string) (shell.Result, error) {
+	env := Env{Bus: bus, Config: config.Config{Drive: testDrive, Checkout: "/checkout"}, Runner: scripted(func(argv []string) (shell.Result, error) {
+		if argv[0] == tokenTool {
+			return shell.Result{Stdout: "read-token\n"}, nil
+		}
 		return shell.Result{Stdout: *status}, nil
 	})}
-	return &ReleaseGates{Env: env, ReleaseCLI: []string{"tools/ci", "release"}, Log: slog.Default()}, bus
+	return &ReleaseGates{Env: env, ReleaseCLI: []string{"tools/ci", "release"}, Token: bkread.Token{Command: []string{tokenTool}}, Log: slog.Default()}, bus
 }
 
 func pass(t *testing.T, check *ReleaseGates, at time.Time) {
