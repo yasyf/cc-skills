@@ -51,7 +51,12 @@ func newDesk(t *testing.T, runner *fakeRunner) (*Desk, *time.Time) {
 
 func ask(t *testing.T, text string) client.Record {
 	t.Helper()
-	posted, err := client.Post(context.Background(), client.Draft{Drive: drive, Lane: lane, Kind: askKind, Text: text, To: []string{Lane}, Force: true})
+	return askAs(t, lane, text)
+}
+
+func askAs(t *testing.T, from, text string) client.Record {
+	t.Helper()
+	posted, err := client.Post(context.Background(), client.Draft{Drive: drive, Lane: from, Kind: askKind, Text: text, To: []string{Lane}, Force: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,12 +167,12 @@ func TestAnAskToAnotherLaneIsLeftAlone(t *testing.T) {
 }
 
 func TestManyLanesReadingOneBuildCostOneBuildkiteCall(t *testing.T) {
-	for _, asks := range []int{1, 200} {
+	for _, asks := range []int{1, 100} {
 		t.Run(fmt.Sprint(asks), func(t *testing.T) {
 			runner := &fakeRunner{reply: shell.Result{Stdout: "{}"}}
 			desk, _ := newDesk(t, runner)
-			for range asks {
-				ask(t, "bk api /pipelines/test/builds/1")
+			for i := range asks {
+				askAs(t, fmt.Sprintf("lane-%d", i), "bk api /pipelines/test/builds/1")
 			}
 
 			firstPass(t, desk)

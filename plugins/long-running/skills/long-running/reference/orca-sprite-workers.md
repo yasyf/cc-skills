@@ -303,7 +303,8 @@ The answer is a record addressed to the lane that closes the ask, usually within
 seconds. Its line carries the state or size, and `cci show <seq>` prints the body.
 Any other text, a write included, gets a refusal and runs nothing. Ask once per
 need: `gh pr checks` follows a build's progress, and `bk-desk` is for reading a
-result.
+result. cci treats an identical ask from one lane within ten minutes as the same
+record: `cci post` prints `(duplicate)`, and the earlier answer stands.
 
 One desk serves the whole drive. It holds the token in memory, runs one read at a
 time, and answers a repeated read from memory for a minute, so every lane shares

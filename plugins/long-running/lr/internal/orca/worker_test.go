@@ -886,7 +886,7 @@ func TestAToolPinInstallsOnlyTheArchiveWithItsDigestAndVersion(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(plugins, "installed_plugins.json"), []byte(baked), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		run := exec.Command("sh", slices.Concat([]string{"-c", installTools, "sh", cciURL, cciSHA, lrURL, lrSHA, "lr", ""}, tools, []string{"--"})...)
+		run := exec.Command("sh", slices.Concat([]string{"-c", installTools, "sh", cciURL, cciSHA, lrURL, lrSHA, "lr"}, tools, []string{"--"})...)
 		run.Env = append(os.Environ(), "HOME="+home)
 		if out, err := run.CombinedOutput(); err != nil {
 			return fmt.Errorf("%s: %w", out, err)
