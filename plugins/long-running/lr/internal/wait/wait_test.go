@@ -415,6 +415,31 @@ func TestACciSourceFollowsTheDaemonStreamAndReadsThroughCciTail(t *testing.T) {
 	}
 }
 
+func TestAnUnrelatedFileInAWatchedDirectoryRunsNoCciTail(t *testing.T) {
+	dir := t.TempDir()
+	inbox := filepath.Join(dir, "inbox.md")
+	if err := os.WriteFile(inbox, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s := &stream{emit: make(chan struct{}, 1)}
+	server := httptest.NewServer(s)
+	t.Cleanup(server.Close)
+	runner := &tailRunner{}
+	r := start(t, Options{Seconds: 1, Sources: []string{inbox + "=" + filepath.Join(dir, "cursor"), "cci:dar:landing-desk"}, Runner: runner, Stream: server.URL, Now: ninePM})
+	time.Sleep(armed)
+	before := len(runner.seen())
+	for i := range 5 {
+		if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("noise-%d", i)), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if after := len(runner.seen()); after != before {
+		t.Fatalf("cci tail ran %d times for files no source names", after-before)
+	}
+	r.wait(t)
+}
+
 func TestARecordAddressedToTwoSourcesPrintsOnce(t *testing.T) {
 	s := &stream{emit: make(chan struct{}, 1)}
 	server := httptest.NewServer(s)
