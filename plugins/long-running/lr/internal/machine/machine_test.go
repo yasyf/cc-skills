@@ -56,6 +56,7 @@ var cases = []struct {
 	{"queued on an older head is dequeued the same pass", facts(func(f *Facts) { f.Queue, f.QueuedHead = QueueQueued, oldHead }), Verdict{StateAwaitingTap, MoverSupervisor, ActionDequeue, 10 * time.Minute}},
 	{"queued under an open hold is dequeued the same pass", facts(func(f *Facts) { f.Queue, f.QueuedHead, f.Hold = QueueQueued, head, MoverRoot }), Verdict{StateAwaitingTap, MoverSupervisor, ActionDequeue, 10 * time.Minute}},
 	{"queued with no tap at its head is dequeued the same pass", facts(func(f *Facts) { f.Queue, f.QueuedHead, f.Tap = QueueQueued, head, "" }), Verdict{StateAwaitingTap, MoverSupervisor, ActionDequeue, 10 * time.Minute}},
+	{"queued with no lane and no tap is another session's, and is left alone", facts(func(f *Facts) { f.Queue, f.QueuedHead, f.Tap, f.Lane = QueueQueued, head, "", "" }), Verdict{StatePushed, MoverNobody, ActionNone, 0}},
 	{"queued on a withdrawn tap is dequeued the same pass", facts(func(f *Facts) { f.Queue, f.QueuedHead, f.Tap = QueueQueued, head, TapWithdrawn }), Verdict{StateAwaitingTap, MoverSupervisor, ActionDequeue, 10 * time.Minute}},
 	{"queued on a conditional tap is dequeued the same pass", facts(func(f *Facts) {
 		f.Queue, f.QueuedHead, f.Tap, f.Condition = QueueQueued, head, TapConditional, "only if covered"

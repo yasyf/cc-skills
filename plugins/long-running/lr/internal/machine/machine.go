@@ -206,6 +206,9 @@ func Classify(f Facts) Verdict {
 		return Verdict{StateEvicted, MoverSupervisor, ActionEnqueue, SupervisorClock}
 	}
 	if f.Queue == QueueQueued {
+		if f.Undriven() {
+			return Verdict{StatePushed, MoverNobody, ActionNone, 0}
+		}
 		if f.QueuedHead != f.Head || f.Hold != "" || !f.Tapped() {
 			return Verdict{StateAwaitingTap, MoverSupervisor, ActionDequeue, SupervisorClock}
 		}

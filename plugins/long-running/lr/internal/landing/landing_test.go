@@ -207,6 +207,16 @@ func TestAQueuedPRWithNoTapAtItsHeadIsDequeuedWithAnAlarm(t *testing.T) {
 	}
 }
 
+func TestAQueuedPRNoLaneOfThisDriveOwnsStaysInTheQueueWithNoAlarm(t *testing.T) {
+	s, q := newStore(t), &queue{}
+
+	done := act(t, s, q, &restacker{}, t0, facts(49110, func(f *machine.Facts) { f.Queue, f.QueuedHead, f.Tap, f.Lane = machine.QueueQueued, head, "", "" }))
+
+	if len(q.dequeued) != 0 || len(done.Said) != 0 {
+		t.Fatalf("queue = %+v, done = %+v", q, done)
+	}
+}
+
 func TestAConflictIsRestackedMechanicallyAndTheNewHeadRecorded(t *testing.T) {
 	s, r := newStore(t), &restacker{result: moved}
 
