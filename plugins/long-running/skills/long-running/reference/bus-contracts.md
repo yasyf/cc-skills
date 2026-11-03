@@ -55,7 +55,7 @@ The cursor is a cci cursor named for the lane. It survives session compaction an
 
 `--since <seq>` reads after that sequence without reading or advancing the cursor. `--since 0` replays retained records. Omit `--reader` for a drive-wide replay when another lane's thread matters.
 
-Every lane waits with `lr wait 540 cci:<drive>:<lane>` as its foreground Bash call at `timeout: 570000`, and re-runs it when it returns; only an in-process teammate adds its mailbox, under I7. The call follows the cci daemon's stream and any file source, so it polls nothing; its `<lane>-wake` cursor keeps a wake from advancing the lane's read cursor. No lane arms a `cci watch` Monitor: the `lane_waits` hook warns on one, since each is a process that polls once a second for the life of the lane.
+Every lane waits with `lr wait 540 cci:<drive>:<lane>` as its foreground Bash call at `timeout: 570000`, and re-runs it when it returns; only an in-process teammate adds its mailbox, under I7. The call follows the cci daemon's stream and any file source, so it polls nothing; its `<lane>-wake` cursor keeps a wake from advancing the lane's read cursor. Only a record stamped at or after the wait's start wakes it. An older one, such as a reply's parent that relay sync fetches on a Sprite, prints with the next record that wakes the wait, or before `QUIET` at the deadline. No lane arms a `cci watch` Monitor: the `lane_waits` hook warns on one, since each is a process that polls once a second for the life of the lane.
 
 ## Desk inbox rules (I1-I7)
 
