@@ -11,7 +11,7 @@ from captain_hook.events import PostToolUseEvent, PreToolUseEvent, StopEvent, Us
 from captain_hook.testing.helpers import build_context
 
 from fire import fire
-from hooks import owner_ledger
+from hooks import owner_ledger, owner_returns
 from hooks.compaction_handoff import CompactionState
 
 SESSION = "0123456789abcdef"
@@ -177,7 +177,7 @@ def test_a_slack_message_that_is_not_the_owners_dm_adds_no_row(communicator: Win
 def test_an_owner_slack_dm_in_the_turn_reaches_the_reminder_judge(communicator: Window) -> None:
     communicator.queued(slack_dm(text="you forgot the slack root again"))
 
-    assert owner_ledger.OwnerWords().content(communicator.event(StopEvent)) == "you forgot the slack root again"
+    assert owner_returns.owner_words(communicator.event(StopEvent)) == "you forgot the slack root again"
 
 
 def test_the_coordinator_gets_neither_hook(drive: Path) -> None:
