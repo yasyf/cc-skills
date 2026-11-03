@@ -46,6 +46,10 @@ CREATE TABLE IF NOT EXISTS heard (lane TEXT PRIMARY KEY, at TEXT NOT NULL, kind 
 CREATE TABLE IF NOT EXISTS owners (pr INTEGER PRIMARY KEY, lane TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS probes (lane TEXT PRIMARY KEY, asked TEXT NOT NULL, dead TEXT);
 CREATE TABLE IF NOT EXISTS orders (seq INTEGER PRIMARY KEY);
+CREATE TABLE IF NOT EXISTS ledger_rows (
+  ledger TEXT NOT NULL, key TEXT NOT NULL, fields TEXT NOT NULL, synced TEXT NOT NULL,
+  PRIMARY KEY (ledger, key)
+);
 `
 
 var addedColumns = []struct{ table, column, kind string }{
