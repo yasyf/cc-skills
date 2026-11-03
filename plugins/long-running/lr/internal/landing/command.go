@@ -14,6 +14,7 @@ import (
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
 const (
@@ -24,8 +25,32 @@ const (
 
 func Command(a *app.App) *cobra.Command {
 	cmd := &cobra.Command{Use: "landing", Short: "Move ready heads into the queue, moved heads out, and conflicts onto their base"}
-	cmd.AddCommand(passCommand(a), restackCommand(a), goCommand(a), gateCommand(a))
+	cmd.AddCommand(passCommand(a), restackCommand(a), goCommand(a), gateCommand(a), clobbersCommand(a))
 	return cmd
+}
+
+func clobbersCommand(a *app.App) *cobra.Command {
+	return &cobra.Command{
+		Use:   "clobbers SQUASH...",
+		Short: "Read each trunk squash against the PRs landed since its PR's base, and post a CLOBBERED record for one that removed what they added",
+		Args:  cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := a.Config()
+			if err != nil {
+				return err
+			}
+			s, err := store.Open(filepath.Join(filepath.Dir(a.ConfigPath), storeFile))
+			if err != nil {
+				return err
+			}
+			defer func() { _ = s.Close() }()
+			clobbers := Clobbers{Runner: a.Runner, Store: s, Drive: cfg.Drive, Repo: cfg.Repo, Trunk: cfg.Trunk, Checkout: cfg.Checkout, Now: a.Now, Log: a.Log}
+			for _, squash := range args {
+				fmt.Fprintf(cmd.OutOrStdout(), "%s undid %d PRs\n", squash, len(clobbers.replay(cmd.Context(), squash)))
+			}
+			return nil
+		},
+	}
 }
 
 func restackCommand(a *app.App) *cobra.Command {
