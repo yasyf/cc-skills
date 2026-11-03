@@ -71,7 +71,7 @@ func Settle(ctx context.Context, s *store.Store, drive string, answers []Said) e
 			label = answer.Accepted
 		}
 		to := []string{cmp.Or(f.Lane, rootLane)}
-		kind := "report"
+		kind, id := "report", fmt.Sprintf("settled:%d:%s:%s", f.Number, f.Head, label)
 		if answer.Alarm {
 			meta, err := lanes.MetaDesk(s)
 			if err != nil {
@@ -80,14 +80,14 @@ func Settle(ctx context.Context, s *store.Store, drive string, answers []Said) e
 			if !slices.Contains(to, meta) {
 				to = append(to, meta)
 			}
-			kind = "blocker"
+			kind, id = "blocker", ""
 		}
 		_, err := client.Post(ctx, client.Draft{
 			Drive: drive,
 			Lane:  self,
 			Kind:  kind,
 			To:    to,
-			ID:    fmt.Sprintf("settled:%d:%s:%s", f.Number, f.Head, label),
+			ID:    id,
 			PRs:   []string{pullRef(f)},
 			Text:  fmt.Sprintf("%s #%d at %s: %s", label, f.Number, shortHead(f.Head), answer.Text),
 		})

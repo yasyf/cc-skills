@@ -178,4 +178,15 @@ func TestAnUntappedDequeueIsABlockerToItsLaneAndTheMetaDesk(t *testing.T) {
 	if len(posted) != 1 || !slices.Equal(posted[0].To, []string{"ssql-5", "meta-desk-3"}) || !strings.HasPrefix(posted[0].Text, "UNTAPPED-DEQUEUED #46927") {
 		t.Fatalf("posted = %+v", posted)
 	}
+
+	if err := landing.Settle(ctx, s, "d", []landing.Said{answer}); err != nil {
+		t.Fatal(err)
+	}
+	again, err := client.Tail(ctx, client.Query{Drive: "d", Kinds: []string{"blocker"}, Lanes: []string{"supervisor"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(again) != 2 {
+		t.Fatalf("a second dequeue at the same head posted nothing: %+v", again)
+	}
 }
