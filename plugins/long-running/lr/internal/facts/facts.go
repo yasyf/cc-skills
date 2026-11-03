@@ -43,6 +43,7 @@ const (
         isDraft
         headRefOid
         headRefName
+        body
         author { login }
         labels(first: 50) { nodes { name } }
         commits(first: 100) { nodes { commit { oid } } }
@@ -368,6 +369,7 @@ type pullRequest struct {
 	IsDraft     bool   `json:"isDraft"`
 	HeadRefOid  string `json:"headRefOid"`
 	HeadRefName string `json:"headRefName"`
+	Body        string `json:"body"`
 	Author      struct {
 		Login string `json:"login"`
 	} `json:"author"`
@@ -654,6 +656,7 @@ func (s Source) factsOf(row statusRow, pr pullRequest, required []string, stored
 		Fidelity:    machine.Fidelity(stored["fidelity"]),
 		Tap:         machine.Tap(stored["tap"]),
 		Condition:   stored["condition"],
+		UnsafeWait:  gates.UnsafeWait(pr.Body),
 	}
 	if queue == machine.QueueQueued {
 		f.QueuedHead = row.Head

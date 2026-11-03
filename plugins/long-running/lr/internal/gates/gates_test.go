@@ -144,3 +144,44 @@ func TestAnUngradedHeadSaysSo(t *testing.T) {
 		t.Fatalf("missing %v", got)
 	}
 }
+
+const (
+	pr46018 = "Nothing reads or writes the columns once #46014 ships, and they make the `teams` row look like it configures executor scaling when each pool does.\n\n" +
+		"- **Availability:** an api pod still on an image before #46014 selects all four columns and would fail its `teams` queries, so this lands only after #46014 is live on every cluster.\n"
+	pr48995 = "This PR is the API half; the clients switch to the number in the PRs above it, one release after this one is live.\n\n" +
+		"- **Availability:** additive only. No client selects or sends `chatVersion` in this PR, so every released build keeps working; the next and old clients that select it ship one release after this API is live.\n"
+	pr2436 = "- `lr board draw` posts a card change on the bus and `lr board link` on the Mac applies it through cc-present in order, resuming from a cursor.\n\n" +
+		"Nothing calls either verb yet, so nothing live changes.\n"
+)
+
+func TestABodyThatWaitsToGoLiveAndNamesNoWayItIsSafeOnDevDoesNotLand(t *testing.T) {
+	for name, c := range map[string]struct{ body, wait string }{
+		"#46018 as merged":          {pr46018, "this lands only after #46014 is live on every cluster"},
+		"#48995 waiting on a card":  {pr48995 + "\nThis PR waits on the owner's card before it goes live.\n", "This PR waits on the owner's card before it goes live"},
+		"a hold until a release":    {"## Risk\n\n**Hold this PR until that release is live.**\n", "Hold this PR until that release is live"},
+		"a stack held by the owner": {"> Held by the owner until Dec 2, 2026; needs evidence that old clients upgraded\n", "Held by the owner until Dec 2, 2026; needs evidence that old clients upgraded"},
+	} {
+		f := green
+		f.UnsafeWait = UnsafeWait(c.body)
+		if f.UnsafeWait != c.wait {
+			t.Errorf("%s: wait = %q, want %q", name, f.UnsafeWait, c.wait)
+		}
+		if got := Missing(f); !slices.Equal(got, []string{UnsafeOnDev(c.wait)}) || f.Landable() {
+			t.Errorf("%s: missing %v, landable %v", name, got, f.Landable())
+		}
+	}
+}
+
+func TestABodyThatNamesHowItIsSafeOnDevOrWaitsOnNothingLands(t *testing.T) {
+	for name, body := range map[string]string{
+		"#48995 as merged":            pr48995,
+		"#2436 as merged":             pr2436,
+		"#2436 waiting on his tap":    pr2436 + "\nIt waits for his tap before it goes live.\n",
+		"#46018 behind a flag":        pr46018 + "\nThe drop sits behind a feature flag that stays off until #46014 is live.\n",
+		"a wait for a page to settle": "It waits for the chat to open, about 10 s at the burst's p50.\n",
+	} {
+		if wait := UnsafeWait(body); wait != "" {
+			t.Errorf("%s: refused for %q", name, wait)
+		}
+	}
+}

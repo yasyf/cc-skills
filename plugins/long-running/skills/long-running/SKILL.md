@@ -28,7 +28,7 @@ it replaces kept only until each verb goes live
 
 | Topic | File |
 |---|---|
-| Landing and the merge queue, D1 to D22 | [reference/landing.md](reference/landing.md) |
+| Landing and the merge queue, D1 to D23 | [reference/landing.md](reference/landing.md) |
 | Grading heads, landings and plans | [reference/grading-principles.md](reference/grading-principles.md) |
 | The orca runner and Orca workers | [reference/orca-desk-brief.md](reference/orca-desk-brief.md), [reference/orca-workers.md](reference/orca-workers.md) |
 | Writing a lane brief; the briefs of the coordinator, the meta lane and the signal lane | [reference/orca-lane-brief.md](reference/orca-lane-brief.md), [reference/coordinator-brief.md](reference/coordinator-brief.md), [reference/meta-lane-brief.md](reference/meta-lane-brief.md), [reference/signal-lane-brief.md](reference/signal-lane-brief.md) |

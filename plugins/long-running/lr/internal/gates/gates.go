@@ -28,7 +28,32 @@ const (
 var (
 	hunkLines = regexp.MustCompile(`(?m)^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@`)
 	blobLine  = regexp.MustCompile(`(?m)^index [0-9a-f]+\.\.[0-9a-f]+(?: \d+)?\n`)
+	waitsLive = regexp.MustCompile(`(?im)(?:^|[.;:!?,]\s+|\*\*|\b(?:so|and)\s+)[\s>*-]*(` +
+		`(?:hold (?:this|it)\b[^.\n]*?\buntil\b` +
+		`|held by (?:the owner|root|him)\b` +
+		`|(?:` + waiter + ` )?(?:do not|don't|must not|never) (?:merge|land|ship)\b[^.\n]*?\b(?:until|before)\b` +
+		`|` + waiter + `(?: is [^.;\n]{0,40}? and)? (?:lands|merges|ships|goes live) (?:only )?(?:(?:one |a )?release after|in a release after|after|once|until)\b` +
+		`|` + waiter + ` waits (?:on|for) (?:a |an |the |his |that |its |the owner's )?(?:[\w-]+ )?(?:card|tap|pick|release|hold|go|ruling|decision|cutover)\b` +
+		`)[^.\n]*)`)
+	safeOnDev = regexp.MustCompile(`(?i)\b(?:feature flag|flag(?:ged)? (?:off|behind)|behind a (?:flag|gate)|code gate|gated (?:by|behind|on)|inert|nothing (?:calls|runs|reads|uses)\b[^.\n]*\b(?:yet|until #\d+))`)
 )
+
+const waiter = `(?:this|it)(?: pr| stack| change| deletion| removal| drop)?`
+
+func UnsafeWait(body string) string {
+	wait := waitsLive.FindStringSubmatch(body)
+	if wait == nil || safeOnDev.MatchString(body) {
+		return ""
+	}
+	return strings.Trim(wait[1], " *")
+}
+
+func UnsafeOnDev(wait string) string {
+	if wait == "" {
+		return ""
+	}
+	return fmt.Sprintf("its body waits to go live (%q) and names no way it is safe on dev: a code gate, a feature flag, or inert until a named caller lands", wait)
+}
 
 func DiffHash(diff string) string {
 	sum := sha256.Sum256([]byte(blobLine.ReplaceAllString(hunkLines.ReplaceAllString(diff, "@@"), "")))
@@ -77,6 +102,9 @@ func Missing(f machine.Facts) []string {
 	}
 	if f.Hold != "" {
 		out = append(out, fmt.Sprintf("held by %s", f.Hold))
+	}
+	if f.UnsafeWait != "" {
+		out = append(out, UnsafeOnDev(f.UnsafeWait))
 	}
 	return out
 }

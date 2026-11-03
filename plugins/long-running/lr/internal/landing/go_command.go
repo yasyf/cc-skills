@@ -104,12 +104,16 @@ func runGo(ctx context.Context, a *app.App, numbers []int, flags goFlags, stdout
 		if err != nil {
 			return err
 		}
+		body, err := a.CCX.GH(ctx, ccx.MaxAgeFresh, "pr", "view", strconv.Itoa(number), "--repo", cfg.Repo, "--json", "body", "--jq", ".body")
+		if err != nil {
+			fmt.Fprintf(stdout, "WARNING #%d: could not read its body, so no wait it names refuses it: %v\n", number, err)
+		}
 		lifts, err := bus.HoldLifts(records, func(seqs []int64) ([]client.Record, error) { return client.Among(ctx, cfg.Drive, seqs) })
 		if err != nil {
 			fmt.Fprintf(stdout, "WARNING #%d: could not read what its holds resolve, so each counts as a lift: %v\n", number, err)
 		}
 		claim := gates.Claim{Repo: cfg.Repo, PR: number, Head: head}
-		text, refusals := gates.ExemptGo(claim, gates.Read{Lifts: lifts, Records: records, GoLanes: cfg.GoLaneNames(), Exempt: landing.ExemptGrades, TapRules: landing.TapRules, Files: strings.Fields(files), Cards: cards, TapRows: taps})
+		text, refusals := gates.ExemptGo(claim, gates.Read{Lifts: lifts, Records: records, GoLanes: cfg.GoLaneNames(), Exempt: landing.ExemptGrades, TapRules: landing.TapRules, Files: strings.Fields(files), Cards: cards, TapRows: taps, Body: body})
 		if len(refusals) > 0 {
 			fmt.Fprintf(stdout, "REFUSED #%d at %s: %s\n", number, head[:7], strings.Join(refusals, "; "))
 			continue
