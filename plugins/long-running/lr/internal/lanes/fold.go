@@ -358,7 +358,7 @@ func foldOwnerPick(s *store.Store, r Record, fresh bool, at time.Time) {
 		}
 		do(s.SetLaneWaiting(waiter.Name, 0, at, ""))
 		if !fresh {
-			do(s.SetLanePage(waiter.Name, map[string]any{"topic": fmt.Sprintf("owner:%d", r.Seq), "why": fmt.Sprintf("the owner answered %s, the card you wait on: %s", waiter.Awaits, r.Text), "text": r.Text, "prs": slices.Concat([]int{}, waiter.PRs)}))
+			do(s.SetLanePage(waiter.Name, map[string]any{"topic": fmt.Sprintf("owner:%d", r.Seq), "why": fmt.Sprintf("the owner answered %s, the card you wait on: %s", waiter.Awaits, r.Text), "text": r.Text, "prs": append([]int{}, waiter.PRs...)}))
 		}
 	}
 }

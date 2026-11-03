@@ -53,7 +53,7 @@ func LivenessRows(s *store.Store) (rows []Liveness, err error) {
 		names[name] = true
 	}
 	for _, name := range slices.Sorted(maps.Keys(names)) {
-		row := Liveness{Lane: name, State: Unregistered, Live: probes[name].Dead.IsZero(), PRs: slices.Concat([]int{}, owned[name]), Route: routeOf(s, name)}
+		row := Liveness{Lane: name, State: Unregistered, Live: probes[name].Dead.IsZero(), PRs: append([]int{}, owned[name]...), Route: routeOf(s, name)}
 		if at, ok := heard[name]; ok {
 			row.Heard = nullable(store.Stamp(at))
 		}
