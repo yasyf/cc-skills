@@ -103,7 +103,7 @@ Answer in the schema:
 - `exempt`: `port` only when the PR ports an old-tree PR its body names by number, line for
   line, and touches no code or behavior the plan's steps changed or own ("{port}");
   `test-only` only when every file it changes is a test or CI configuration ("{test_only}");
-  `none` otherwise.
+  any other class among {classes} only when the head is what its words say; `none` otherwise.
 - `old_app`: what the head changes for a user of the live old app, against {baseline}:
   `unchanged` when it touches nothing the old app runs, `bug fix` when it only fixes a defect
   in what the old app does, `changes` otherwise; `why` names the paths or behavior that
