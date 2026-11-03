@@ -332,17 +332,17 @@ type scripted func(argv []string) (shell.Result, error)
 
 func (s scripted) Run(_ context.Context, c shell.Command) (shell.Result, error) { return s(c.Argv) }
 
-type bus struct{ posted []client.Draft }
+type recordingBus struct{ posted []client.Draft }
 
-func (b *bus) Post(_ context.Context, d client.Draft) (client.Record, error) {
+func (b *recordingBus) Post(_ context.Context, d client.Draft) (client.Record, error) {
 	b.posted = append(b.posted, d)
 	return client.Record{Seq: 1}, nil
 }
-func (*bus) Tail(context.Context, client.Query) ([]client.Record, error) { return nil, nil }
-func (*bus) Open(context.Context, string, ...string) ([]client.Record, error) {
+func (*recordingBus) Tail(context.Context, client.Query) ([]client.Record, error) { return nil, nil }
+func (*recordingBus) Open(context.Context, string, ...string) ([]client.Record, error) {
 	return nil, nil
 }
-func (*bus) Who(context.Context, string) ([]client.Peer, error) { return nil, nil }
+func (*recordingBus) Who(context.Context, string) ([]client.Peer, error) { return nil, nil }
 
 func link(t *testing.T, claude, version string) {
 	t.Helper()
@@ -364,7 +364,7 @@ func TestTheSupervisorMovesToANewerInstallUnlessItsReplayGateRefusesIt(t *testin
 	claude := t.TempDir()
 	codes := map[string]int{"0.7.821": 3, "0.7.822": 0, "0.7.823": 1}
 	var gates []string
-	b := &bus{}
+	b := &recordingBus{}
 	env := lanes.Env{Bus: b, Claude: claude, Config: config.Config{Drive: "d1", Repo: "org/repo"}, Runner: scripted(func(argv []string) (shell.Result, error) {
 		version := argv[len(argv)-1]
 		gates = append(gates, strings.Join(argv[1:], " "))
