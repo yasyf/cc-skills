@@ -92,7 +92,7 @@ func OpenAsks(asks, records []client.Record, now time.Time) []Wait {
 	return waits
 }
 
-func landedPRs(records []client.Record) map[string]client.Record {
+func LandedPRs(records []client.Record) map[string]client.Record {
 	landed := map[string]client.Record{}
 	for _, record := range records {
 		if record.Kind != "landed" {
@@ -122,7 +122,7 @@ func waitedPRs(text string) []string {
 }
 
 func LandedWaits(records []client.Record) []Wait {
-	landed := landedPRs(records)
+	landed := LandedPRs(records)
 	type key struct{ lane, pr string }
 	waiting := map[key]client.Record{}
 	var order []key

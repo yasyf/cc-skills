@@ -25,9 +25,15 @@ type Escalated struct {
 
 type Route func(desk string) string
 
+type Landing struct {
+	Facts    machine.Facts
+	LastOpen time.Time
+}
+
 type Outcome struct {
 	Verdicts  map[int]machine.Verdict
 	Opened    []store.Item
+	Landed    []Landing
 	Acts      []Act
 	Escalated []Escalated
 	Released  map[string][]store.Item
@@ -88,9 +94,16 @@ func Run(s *store.Store, snapshot []machine.Facts, now time.Time, post Post, liv
 	for _, f := range snapshot {
 		byBranch[f.Branch] = f
 	}
+	known, err := knownRows(s, snapshot)
+	if err != nil {
+		return out, err
+	}
 	for _, f := range snapshot {
 		if err := classifyOne(s, f, byBranch, now, tell, live, &out); err != nil {
 			return out, fmt.Errorf("#%d: %w", f.Number, err)
+		}
+		if row, seen := known[f.Number]; seen && row.State != machine.StateLanded && out.Verdicts[f.Number].State == machine.StateLanded {
+			out.Landed = append(out.Landed, Landing{f, row.ReadAt})
 		}
 	}
 	if err := escalateOverdue(s, snapshot, now, tell, live, route, &out); err != nil {
@@ -99,8 +112,23 @@ func Run(s *store.Store, snapshot []machine.Facts, now time.Time, post Post, liv
 	if !slices.Contains(live, machine.MoverPool) {
 		return out, nil
 	}
-	err := releaseStale(s, now, tell, route, &out)
+	err = releaseStale(s, now, tell, route, &out)
 	return out, err
+}
+
+func knownRows(s *store.Store, snapshot []machine.Facts) (map[int]store.PR, error) {
+	if len(snapshot) == 0 {
+		return nil, nil
+	}
+	rows, err := s.PRs(snapshot[0].Repo)
+	if err != nil {
+		return nil, err
+	}
+	known := make(map[int]store.PR, len(rows))
+	for _, row := range rows {
+		known[row.Number] = row
+	}
+	return known, nil
 }
 
 func classifyOne(s *store.Store, f machine.Facts, byBranch map[string]machine.Facts, now time.Time, post Post, live []machine.Mover, out *Outcome) error {
