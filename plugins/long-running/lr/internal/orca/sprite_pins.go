@@ -27,6 +27,7 @@ type spriteTool struct {
 	URL     string `json:"url"`
 	SHA256  string `json:"sha256"`
 	Version string `json:"version"`
+	Follows string `json:"follows,omitempty"`
 }
 
 type spritePins struct {

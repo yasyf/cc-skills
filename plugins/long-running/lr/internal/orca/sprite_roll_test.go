@@ -16,6 +16,7 @@ import (
 
 const (
 	rollRun   = "run_roll"
+	rollTree  = "/home/sprite/monorepo::"
 	rollCCX   = "0.91.68"
 	rollPack  = "0.7.1199"
 	rollTools = `[{"kind":"binary","name":"ccx","url":"https://example.test/ccx.tgz","sha256":"` + testCCISHA + `","version":"` + rollCCX + `"},{"kind":"plugin","name":"long-running@skills","url":"https://example.test/pack.tgz","sha256":"` + testLRSHA + `","version":"` + rollPack + `"}]`
@@ -44,14 +45,25 @@ func newRollWorld(t *testing.T) *rollWorld {
 	f.write(filepath.Join(root, "plugin", "bin", "lr.binrun"), lrPin("linux-x86_64"), 0o700)
 	w.env = map[string]string{"WORKER_CCI_URL": testCCIURL, "WORKER_CCI_SHA256": testCCISHA, "BINRUN_PLUGIN_ROOT": filepath.Join(root, "plugin"), "WORKER_TOOLS": rollTools}
 	w.workers = []Worker{
-		{Dispatch: "ctx_done", Status: statusCompleted, Workspace: "pool-done"},
-		{Dispatch: "ctx_c", Workspace: "pool-c"},
-		{Dispatch: "ctx_a", Workspace: "pool-a"},
-		{Dispatch: "ctx_a2", Workspace: "pool-a"},
-		{Dispatch: "ctx_local"},
-		{Dispatch: "ctx_b", Workspace: "pool-b"},
+		{Dispatch: "ctx_done", Status: statusCompleted, Workspace: rollTree + "done", Terminal: "term_done"},
+		{Dispatch: "ctx_c", Workspace: rollTree + "c", Terminal: "term_c"},
+		{Dispatch: "ctx_a", Workspace: rollTree + "a", Terminal: "term_a"},
+		{Dispatch: "ctx_a2", Workspace: rollTree + "a", Terminal: "term_a2"},
+		{Dispatch: "ctx_mac", Workspace: "repo::/Users/me/worktrees/lane", Terminal: "term_mac"},
+		{Dispatch: "ctx_unstarted"},
+		{Dispatch: "ctx_b", Workspace: rollTree + "b", Terminal: "term_b"},
 	}
 	return w
+}
+
+func (w *rollWorld) Sprites() (map[SpriteKey]Sprite, error) {
+	return map[SpriteKey]Sprite{
+		{rollTree + "done", "term_done"}: {Workspace: "pool-done"},
+		{rollTree + "a", "term_a"}:       {Workspace: "pool-a"},
+		{rollTree + "a", "term_a2"}:      {Workspace: "pool-a"},
+		{rollTree + "b", "term_b"}:       {Workspace: "pool-b"},
+		{rollTree + "c", "term_c"}:       {Workspace: "pool-c"},
+	}, nil
 }
 
 func (w *rollWorld) Workers(_ context.Context, run string) ([]Worker, error) {
@@ -80,7 +92,7 @@ func (w *rollWorld) Run(_ context.Context, c shell.Command) (shell.Result, error
 func (w *rollWorld) roll(probe string) string {
 	w.t.Helper()
 	w.out.Reset()
-	roller := SpriteRoll{Runner: w, Orca: w, Store: w.store, Now: func() time.Time { return time.Date(2026, 11, 3, 13, 0, 0, 0, time.UTC) }, Out: &w.out}
+	roller := SpriteRoll{Runner: w, Orca: w, Fleet: w, Store: w.store, Now: func() time.Time { return time.Date(2026, 11, 3, 13, 0, 0, 0, time.UTC) }, Out: &w.out}
 	err := roller.Run(context.Background(), rollRun, func(name string) string { return w.env[name] }, probe)
 	var failed *Failed
 	if errors.As(err, &failed) {
@@ -162,6 +174,14 @@ func TestAFailureBeforeAnyPinMarksNothingBad(t *testing.T) {
 		if why, err := w.store.BadTool(tool, map[string]string{"ccx": rollCCX, "long-running@skills": rollPack}[tool]); err != nil || why != "" {
 			t.Fatal(tool, why, err)
 		}
+	}
+}
+
+func TestACensusWithNoSpriteSaysSoInsteadOfPrintingNothing(t *testing.T) {
+	var out bytes.Buffer
+	writeCensus(&out, nil)
+	if out.String() != "lr sprites: no launch or roll has recorded a Sprite's tools\n" {
+		t.Fatal(out.String())
 	}
 }
 

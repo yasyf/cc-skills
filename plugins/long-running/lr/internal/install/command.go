@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -18,6 +19,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/orca"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -104,7 +106,7 @@ func install(ctx context.Context, a *app.App, version string, opts options) (int
 	if err != nil {
 		return 0, err
 	}
-	return Run(ctx, s, cfg.Drive, version, Steps{
+	generation, err := Run(ctx, s, cfg.Drive, version, Steps{
 		Preflight: func(ctx context.Context) []string {
 			return preflight(ctx, a, s, checks, cfg, configPath, version, opts)
 		},
@@ -116,6 +118,13 @@ func install(ctx context.Context, a *app.App, version string, opts options) (int
 		Now:   a.Now,
 		Sleep: time.Sleep,
 	})
+	if err != nil {
+		return 0, err
+	}
+	if err := orca.MoveSpritePins(ctx, s, claude, filepath.Join(state, "runner.json"), a.Stderr); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		a.Log.Warn("the Sprite pins did not all move", "error", err)
+	}
+	return generation, nil
 }
 
 func preflight(ctx context.Context, a *app.App, s *store.Store, checks Checks, cfg config.Config, configPath, version string, opts options) []string {
