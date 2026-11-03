@@ -444,62 +444,8 @@ target runs none of an hour after landing, posts that set as one `state` record 
 `<landing.release_cli> start --only <target> --manual` line that ships them; a change in that set resolves the old blocker
 and raises a new one (root #342171). A worker's question escalates to root as `DECIDE`, and only a reply this
 drive's root posts with `--re` or `--resolves` on that `DECIDE`, or with `--re` on the lane's own record, answers it.
-With a `finder` object in runner.json, read again every pass, each orca pass, and a thread of the orca desk every 15 seconds
-between them, dispatches the finder (reference/finder-brief.md) on every drive head, beside the fidelity desks and never
-after them, so a slot a finished pass frees refills in seconds. A head whose PR a root `go` or an owner's board tap names
-starts first, then a head of a PR a finder pass already graded, which carries or reads only a delta, then the PR that has
-waited longest, counted from the first of its heads a newer one superseded, so a PR whose head keeps moving keeps its place. Each `head` or `opened` record
-past the saved sequence that names a PR of `finder.repo`, default `landing.repo`, and a full head, its `commit` field or
-the first full sha of its text that no `was` precedes, queues one `finder:<pr>:<head>` action in the `desk-finder`
-container, so a head two records name queues once; a first read starts at the newest record. Each pass also reads the ledger once
-and queues the green head of every open drive row whose PR has no pass waiting or running, so a restack that posted no `head`
-record is graded with no hand requeue. A stall-watch `finder:<pr>:<head>` stall, which stall-watch sends to `finder-desk`,
-queues that head while the PR's ledger row is still at it. At most `finder.concurrent`
-passes (default 8) run at once and the rest wait queued; each PR's newest queued head starts, a PR a root `decide` of the last three hours puts first
-("#<pr> ... first") ahead of all, then a lower ledger `priority`, then longest waiting, and only such a PR may take the `finder.reserved` slots
-(default 0) of `finder.concurrent` (root #325189); an older
-queued head of the same PR settles as superseded, and so does a running pass of it: the runner writes its job's `cancelled`
-mark and runs `codex-ask --cancel` on each codex run the pass started. Before it starts any, one fresh GraphQL read of every
-queued PR settles a head whose PR is closed, or no longer at that head, as skipped. A head a `finder:` record of `finder-desk` already names starts nothing. An
-`ask` from any lane of the drive to `finder-desk` that names a PR and says `finder: whole` queues one `full` pass of that PR, as does a
-root `decide` or `defect` to `finder-desk` saying `finder-desk: regrade #N`, for each PR that clause names. A full pass
-starts ahead of the rest and wins over its queued heads: it reads the PR's whole own change at its live head even when a record
-names that head, unless a whole-range finder record about the PR is newer than its newest `head` record. A pass
-writes `<config dir>/finder-desk/<pr>-<head12>/job.json` and starts `finder.py` on that directory detached, which runs
-`codex-ask -m <finder.model, default sol> --incident --schema findings`, at the fast tier unless `finder.fast` is false, in `finder.checkout`, default `landing.checkout`, over
-the head's own commits against the base branch's current tip, or over what changed since the head the PR's newest finder
-record at another head read, else since the head its `head` record replaced when the PR has any finder review
-(finder.py), and posts
-`finder: ok <head> …` or `finder: major <head> <n> open: …` under lane `finder-desk` to the head's lane, root, the runner
-and each `finder.to` address, since the landing runner reads finder records by address. A pass whose job wrote an error, whose
-process (its pid in `pid` beside `job.json`) exited with no result, or that wrote no result within `finder.timeout_minutes` (default 60)
-fails that pass, freeing its slot, and its job queues again as `<key>#<n>` in its own `-<n>` directory, up to three attempts; the
-third failure logs `FINDER-FAILED` once. A head the landing check refuses `FINDER-PENDING` with no finder record queues one more
-attempt when no pass on it waits or runs, so a job a pass skipped while its PR was closed, or one no record queued, runs again.
-While passes wait queued and none has settled for 15 minutes, one `FINDER-DESK-STALLED` per streak names how many wait and each
-running pass's age. `show` lists each queued and running pass.
-With a `fidelity` object in runner.json, each orca pass and the finder's 15-second thread also dispatch one fidelity grade
-per drive head the same way: each `head` or `opened` record queues one `fidelity:<pr>:<head>:<seq>` action in the `desk-fidelity` container, and
-the green head of each open drive row with no pass waiting or running queues one `fidelity:<pr>:<head>:ledger`,
-the newest queued head of each PR starts, a PR a root `decide` puts first ahead of all, then a lower ledger `priority`, while fewer than
-`fidelity.concurrent` (default 8) run, less `fidelity.reserved` (default 0) for any other PR, and a head any
-fidelity lane, `fidelity-pipeline` included, already graded or sent to a reader starts nothing. A pass writes
-`<config dir>/fidelity-pipeline/<pr>-<head12>-<seq>/job.json` and starts `fidelity.py` on it detached, which carries
-an earlier head's ok with no model call when its own commits are patch-identical, else runs `codex-ask -m
-<fidelity.model, default sol> --incident`, at the fast tier unless `fidelity.fast` is false, over the head's own diff, its required register rows, the plan, the lane's newest
-contract, the PR body, and the plan grounds root accepted outside the plan package that `fidelity.sources` names, each cc-notes doc in `docs` and each cci record `records` lists under the head's lane, with `*` records for every lane, each root defect, decide or answer the PR body cites as `#<seq>`, and, on an `options/<card>-<option>` branch, that card as the root's board shows it, written in full to the pass's `sources.md`, and posts the fidelity line and the `old-app:` line against `fidelity.baseline` under lane
-`fidelity-pipeline` to the head's lane, root, the runner and each `fidelity.to` address; a head it cannot settle goes to
-the other `landing.fidelity_lane` lanes as `fidelity: reader`. A pass whose job wrote an error, or no result within
-`fidelity.timeout_minutes` (default 60), fails at once and logs `FIDELITY-FAILED` to those lanes; the next `head`
-record for the PR queues it again. `show` lists each queued and running pass.
-With `finder.sprite` or `fidelity.sprite` naming a Sprite or a list of them, each pass runs through `sprite-job.sh` on
-the listed Sprite running the fewest finder and fidelity passes together, the first listed on a tie, at the same paths, and posts its
-records over the drive's cci relay; the runner still writes the job, naming the Sprite, tracks the local process, and
-settles the pass from the result copied back. Every ten minutes the runner posts one `state` record per listed Sprite
-to root and the drive watchdog naming the finder and fidelity passes it runs and the age of its oldest; a Sprite whose
-passes run while none it ran settled in thirty minutes posts a `SPRITE-STALLED` defect to root instead. `finder.sprite_keys` or `fidelity.sprite_keys` maps each environment name the pass
-needs there, such as `OPENAI_API_KEY` or `GH_TOKEN`, to the command that prints its value here; sprite-job.sh runs
-each at start and hands the values to the pass's process through its standard input, never a file or an argument.
+`lr supervisor run` dispatches the finder and the fidelity grade once `grading` is listed in lr.json.
+
 Between orca passes the runner waits ten seconds, cut short within a quarter second by a desk
 inbox append or an exiting launch, and its sweep shows only dispatches it has not
 named for reclaim, once each in a `RECLAIM` line that names `gc` and then `orca.gc` for the worktrees.
@@ -670,7 +616,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from concurrent.futures import wait as finished_by
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
-from fnmatch import fnmatch, fnmatchcase
+from fnmatch import fnmatch
 from functools import cache
 from pathlib import Path, PurePosixPath
 from zoneinfo import ZoneInfo
@@ -681,7 +627,6 @@ from long_running.build_cache import BuildCache
 from long_running.desk_control import DeskControl, QuiesceFailed
 from long_running import board_rows
 from long_running import cci
-from long_running import desk_result
 from long_running import release
 from long_running import drive
 import fidelity
@@ -702,11 +647,11 @@ import judge_watch
 import prompt_watch
 import stall_watch
 from long_running import testfiles
-from long_running.grades import FIDELITY_MISSING, FIDELITY_OK, FIDELITY_OVERRIDE, FINDER_PASS, GO_BRACKET, OLD_APP_PASSES, SHORT_SHA, about_pr, about_prs, carried_go, closes, fidelity_carries, fidelity_grades_in, finder_records, finder_reviews_in, carried_gos, go_batch, go_heads, gone_at, goes, full_text, graded_head, head_moves, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, newest_naming, old_app_grades_in, overridden, overrides, precondition_sentences, repo_prs, root_settles_finder, standing, unread_old_apps_in
+from long_running.grades import FIDELITY_MISSING, FIDELITY_OK, FIDELITY_OVERRIDE, FINDER_PASS, GO_BRACKET, OLD_APP_PASSES, SHORT_SHA, about_pr, about_prs, carried_go, closes, fidelity_carries, fidelity_grades_in, finder_records, finder_reviews_in, carried_gos, go_batch, go_heads, gone_at, goes, full_text, graded_head, head_moves, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, old_app_grades_in, overridden, overrides, precondition_sentences, repo_prs, root_settles_finder, standing, unread_old_apps_in
 from long_running.grades import carry_of, delegated
 from long_running.registry import Registry
 from long_running.grades import carries as carry_grade
-from long_running.grades import PORT_PHRASE, QUOTED_BLOCK, QUOTED_SPAN, TEST_ONLY_PHRASE, TEST_ONLY_PHRASES
+from long_running.grades import PORT_PHRASE, QUOTED_BLOCK, QUOTED_SPAN, TEST_ONLY_PHRASES
 from long_running.grades import WITHDRAWN as WITHDRAWN_OPENING
 from long_running.grades import GO_KIND_FLAGS, GO_KINDS, go_state, is_go, lifts_hold
 from long_running.grades import REVIEW_BOT_CHECK, REVIEW_BOT_HELD, VOIDING_KINDS, review_bot_wait, voids, withdrawn
@@ -726,11 +671,9 @@ TAP_REQUIRED_WORD = re.compile(r"\bTAP-REQUIRED\b")
 GO_CONDITION = re.compile(r"\[\s*(?:exempt:|TAP-CARRIED\b|TAP-KEPT\b)", re.IGNORECASE)
 GO_CONDITIONS = "exempt:<class>, TAP-REQUIRED, TAP-CARRIED from <sha>, TAP-KEPT"
 EXEMPT_GO = re.compile(r"\bgo\s+(?:port|test-only|ci-only)\s+#\d+|\bpure port\b|\b(?:test|ci)-only\b", re.IGNORECASE)
-CLASS_WRONG = re.compile(r"(?:re #\d+:\s*)?class wrong\b", re.IGNORECASE)
 TEST_ONLY_CLAIM = re.compile(r"\b(?:tests?|ci|harness|fixtures?)\b", re.IGNORECASE)
 PORT_CLAIM = re.compile(r"\bport\b", re.IGNORECASE)
 TAP_CLAIM = re.compile(r"\bTAP-(?:KEPT|CARRIED)\b|\bowner tapped (?:#\d+ at )?[0-9a-f]{7,40}\b")
-OLD_APP_LINE = re.compile(r"^old-app:\s*(?:unchanged|bug fix|changes)\b.*$", re.IGNORECASE | re.MULTILINE)
 TEST_DIRS = frozenset({"__tests__", "testdata", "fixtures", "docs"})
 CI_PREFIXES = (".buildkite/", ".github/", "tools/ci/", "go/ci/", "infra/ci/")
 TOOLING_GLOBS = (".agents/skills/*/scripts/*", ".agents/skills/*/tests/*", ".agents/skills/*.md", ".config/nextest*", "*/.config/nextest*")
@@ -751,33 +694,7 @@ REGISTRY_REQUEST = "decide"
 ORCA_DESK = "orca-desk"
 RUNNER_LANES = frozenset({RUNNER, ORCA_DESK, finder.LANE, fidelity.LANE, stall_watch.LANE, prompt_watch.LANE, judge_watch.LANE})
 LANE_KEYS = ("fidelity_lane", "go_lanes", "desk_lane", "board_lane", "restack_lane", "flake_lane")
-FINDER = "desk-finder"
-FINDER_CURSOR = "cursor"
-FINDER_CONCURRENT = 8
-FINDER_MINUTES = 60
-FINDER_MODEL = "sol"
-FINDER_FAST = True
-FINDER_ATTEMPTS = 3
-GRADER_RETRY_AFTER = timedelta(minutes=10)
-STALE_READ_WAIT = timedelta(minutes=10)
-TOOLING_CAUSE = re.compile(r"[0-9a-f]{7,}|\d+|/\S+")
-FINDER_STALLED_AFTER = timedelta(minutes=15)
-FINDER_STALL = re.compile(r"finder:(?P<pr>\d+):(?P<head>[0-9a-f]{7,40})(?::quiet)?")
-FINDER_SETTLED = "settled_at"
-FINDER_SKIPS = {"CLOSED": "#{pr} is closed", "NOT_FOUND": "#{pr} is no pull request in {repo}"}
-PROOF_TITLE = re.compile(r"\bproof:|\b(?:red|green) proof\b|\bproof, do not merge\b", re.IGNORECASE)
-PROOF_BODY = re.compile(r"^proof PR(?: for #\d+\b|\b.*\bnever merge)", re.IGNORECASE | re.MULTILINE)
-PROOF_SKIP = "is a proof PR"
-FINDER_STALLED = "stalled"
-FIDELITY = "desk-fidelity"
 REFUSALS_PER_MINUTE = 10
-FIDELITY_CONCURRENT = 8
-FIDELITY_MINUTES = 60
-FINDER_EVERY = timedelta(seconds=15)
-SPRITES = "desk-sprites"
-SPRITE_BEATS = "sprite_beats"
-SPRITE_BEAT_EVERY = timedelta(minutes=10)
-SPRITE_STALLED_AFTER = timedelta(minutes=30)
 FINDER_TAPS_EVERY = timedelta(minutes=5)
 CCI_TEXT = 400
 ESCALATION_KINDS = {"PREFIX": "blocker", "CARRIES": "blocker", "DECIDE": "decide", "INCIDENT": "incident", "INCIDENT-OWNED": "state", "UNBOUND": "blocker", "UNOWNED": "blocker", "CLASS-UNOWNED": "blocker", "UNACKED": "blocker", "INCIDENT-CLOCK": "blocker", "LOAD-HIGH": "blocker", "CUT-SILENT": "blocker", "RELEASE-HELD-AFTER-LANDING": "blocker", "LAUNCH-STALLED": "blocker", "LAUNCH-DUPLICATE": "blocker", "UNGRADED-30": "blocker", "SLICE-UNREAD": "blocker", "GITHUB-QUOTA-LOW": "urgent", "FINDER-DESK-STALLED": "blocker", "GO-TAP-MISSING": "blocker", "OVERRIDE-REFUSED": "blocker", "REFUSED-STOP": "incident", "MUTE-PUSHBACK": "incident"}
@@ -793,9 +710,6 @@ IDLE_PROBE_MS = 1500
 QUIET = timedelta(minutes=10)
 DONE_MARKER = re.compile(r"^✻ .* · done ")
 NOT_IDLE = "not idle: busy, prompt typed or asking, or output in the last 10 minutes"
-OPTIONS_BRANCH = "options/"
-CITED_RECORD = re.compile(r"#(\d{6,})\b")
-CITED_ROOT_KINDS = ("defect", "decide", "answer")
 GO_UNQUEUED_OUTCOMES = frozenset({"blocked", "failed", "stranded", "unsettled"})
 RETRYABLE = frozenset({"blocked", "superseded", "foreign", "dropped", "refused", "dequeued", merge_queue.RATE_LIMITED})
 FAILED_RETRY = timedelta(minutes=10)
@@ -854,8 +768,6 @@ ENQUEUE_CHECKS = ("precondition", "rulings", "fidelity", "finder", "old-app", "b
 KNOWN_CHECKS = merge_queue.CHECKS + merge_queue.OPT_IN_CHECKS
 CHECK_STAGES = {"hold": "enqueue", "precondition": "accept, enqueue", "rulings": "accept, enqueue", "fidelity": "accept, enqueue", "finder": "accept, enqueue", "old-app": "accept, enqueue", "build-failed": "accept, enqueue", "merge-mode": "accept, enqueue", "approvals": "adapter check", "required-ci": "adapter check"}
 DEFAULT_PRIORITY = 100
-ROOT_FIRST = re.compile(r"#(\d+)\b(?=[^.\n]{0,160}?\bfirst\b)", re.IGNORECASE)
-ROOT_FIRST_HORIZON = timedelta(hours=3)
 HIGH_RISK_STARTER = ("*migrations/*", "*.sql", "*backfill*", "*secret*", "*credential*", "*creds*")
 PULLED = "pulled"
 VOLATILE = re.compile(r"\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b|\d+")
@@ -1073,7 +985,6 @@ FAILED_TEST = re.compile(r"--- FAIL: (?P<go>[\w.-]+)|^test (?P<cargo>\S+) \.\.\.
 LOG_CONTROL = re.compile(r"\x1b(?:_[^\x07]*\x07|\[[0-9;]*[A-Za-z])|\r")
 UNREACHABLE_WAIT = timedelta(minutes=2)
 HANDOFF_WAIT = timedelta(minutes=20)
-SPRITE_FAILING_FOR = timedelta(minutes=10)
 HANDOFF_FAULTS = 12
 LAUNCHD_THROTTLE_SECONDS = 60
 RUNNER_OPEN_FILES = 65536
@@ -1190,7 +1101,6 @@ WITHDRAW_PENDING = "withdraw-pending"
 FENCED = "dispatch_inactive"
 DECIDE_LINE = re.compile(r"^DECIDE (?P<msg>msg_\S+) (?P<lane>[\w.-]+): ")
 ROOT = "root"
-ACCEPTED = re.compile(r"\s*accept(?:ed|s)?\b", re.IGNORECASE)
 
 
 @dataclass
@@ -1402,10 +1312,6 @@ class Shell:
         with out.open("a" if append else "w") as sink:
             return subprocess.Popen(release.command(argv), stdin=subprocess.DEVNULL, stdout=sink, stderr=subprocess.STDOUT, env={**os.environ, **env}, start_new_session=True)
 
-    def runs_job(self, pid: int, directory: Path) -> bool:
-        """Whether process `pid` still runs the desk job in `directory`: it exists and its command line names that directory, since macOS hands an exited job's pid to another process within minutes; a child that exited is reaped at the next spawn."""
-        return str(directory) in subprocess.run(["ps", "-ww", "-o", "command=", "-p", str(pid)], capture_output=True, text=True).stdout
-
     def stat(self, path: Path) -> tuple[int, int] | None:
         try:
             info = path.stat()
@@ -1604,45 +1510,6 @@ def dev_only(name: str, patch: str | None) -> bool:
         if not toml and JSON_CLOSE.match(body):
             section = ""
     return True
-
-
-def queued_since(passes: list[actions.Action], action: actions.Action) -> tuple[str, int]:
-    """When the PR of `action` began waiting for a finder pass, and the record that queued it: the oldest head in the unbroken run of its heads a newer one superseded just before `action`, so a PR whose head keeps moving keeps its place in line."""
-    first = action
-    for earlier in reversed(passes[: passes.index(action)]):
-        if "superseded" not in (earlier.response or {}):
-            break
-        first = earlier
-    return first.accepted_at, json.loads(first.target)["seq"]
-
-
-def full_pass(action: actions.Action) -> bool:
-    """Whether `action` is a requested full pass; an action queued before full passes existed carries no mark and is not."""
-    return json.loads(action.target).get("full", False)
-
-
-def desk_sprites(spec: dict) -> list[str]:
-    """The Sprites a desk's `sprite` names, one or a list."""
-    sprite = spec.get("sprite", [])
-    return [sprite] if isinstance(sprite, str) else list(sprite)
-
-
-def grading_skip(state: dict, repo: str, pr: str, head: str) -> str | None:
-    """Why a grader skips `pr`'s pass at `head`: the PR is closed or no PR, it is a proof PR whose title or body says so and which never merges (root #275597), or it moved past `head`."""
-    if state["state"] in FINDER_SKIPS:
-        return FINDER_SKIPS[state["state"]].format(pr=pr, repo=repo)
-    if PROOF_TITLE.search(state["title"]) or PROOF_BODY.search(state["body"] or ""):
-        return f"#{pr} is a proof PR, which never merges and gets no grade"
-    if head and state["headRefOid"] != head:
-        return f"#{pr} moved to {state['headRefOid'][:12]}"
-    return None
-
-
-def job_command(spec: dict, sprite: str, script: str, directory: Path) -> tuple[list[str], dict[str, str]]:
-    """The command and environment that run the desk job `directory` through `script`: here, or through sprite-job.sh on `sprite`, with the desk's `sprite_keys`, each an environment name to the command that prints its value, for sprite-job.sh to run at start."""
-    if sprite:
-        return [str(SCRIPTS / "sprite-job.sh"), sprite, str(SCRIPTS / script), str(directory)], {"SPRITE_JOB_KEYS": json.dumps(spec.get("sprite_keys", {}))}
-    return [sys.executable, str(SCRIPTS / script), str(directory)], {}
 
 
 def whole_minutes(start: datetime, end: datetime) -> int:
@@ -2115,10 +1982,6 @@ def sentence(text: str, found: re.Match) -> str:
 
 
 
-def lane_sources[T](table: dict[str, list[T]], lane: str) -> list[T]:
-    """Every entry `table` lists under a shell pattern `lane` matches, in the table's order, each once."""
-    return list(dict.fromkeys(entry for pattern, entries in table.items() if fnmatchcase(lane, pattern) for entry in entries))
-
 class Runner:
     def __init__(self, shell: Shell, config: Config, store: actions.Store):
         self.shell = shell
@@ -2420,7 +2283,7 @@ class Runner:
     def adopt_cursors(self) -> None:
         """Renumber each sequence cursor the store keeps into this machine's numbering when another machine numbered it, through the record that machine numbers it, so a store moved to another machine resumes after the same record and never compares a seq across machines; a cursor no record here matches is dropped, so its next read starts at the newest record (root #333826: the landing desk moved to dar-desk-1 kept `rowed-read` at the Mac's 309100, past every seq there, and rowed no PR for seven hours)."""
         here = self.shell.run(["cci", "node"]).out.split()[1]
-        cursors = {RUNNER: [f"cci:{self.config.drive}:{ORCA_DESK}", RELEASE_CURSOR, CUT_CURSOR], FINDER: [FINDER_CURSOR], FIDELITY: [FINDER_CURSOR], LANDING: [ROWED_READ]}
+        cursors = {RUNNER: [f"cci:{self.config.drive}:{ORCA_DESK}", RELEASE_CURSOR, CUT_CURSOR], LANDING: [ROWED_READ]}
         for container, keys in cursors.items():
             if not self.book.exists(container) or (numbered := self.book.fact(container, CURSOR_NODE, None)) == here:
                 continue
@@ -4931,163 +4794,6 @@ class Runner:
         status = f"stopped: {clock['ended']}" if clock["ended"] else f"{whole_minutes(launched, self.now())} min of {self.config.incident_ready_minutes}"
         return f"- incident clock [{status}] launched {pacific(launched)}; {reached or 'no milestone yet'}"
 
-    def finders(self) -> None:
-        """Dispatch one finder pass per drive head while runner.json carries `finder` (reference/finder-brief.md): queue each new `head` record's PR and full head, settle the passes that wrote a result, then start the newest queued head of each PR, up to `finder.concurrent` at once. The orca pass and the `keep_finding` thread take turns under one lock."""
-        if (spec := json.loads(self.config.source.read_text()).get("finder")) is None:
-            return
-        repo = spec.get("repo") or self.config.landing["repo"]
-        with self.finding:
-            self.book.ensure(FINDER, FINDER)
-            try:
-                rows = self.open_rows()
-                self.queue_finders(repo, rows)
-                self.settle_finders()
-                self.start_finders(spec, repo, rows)
-                self.watch_finder_desk(spec)
-            except CciTailFailed as failure:
-                self.tail_failed(failure)
-
-    def keep_finding(self) -> threading.Event:
-        """Run the finder and fidelity desks every `FINDER_EVERY` from a daemon thread until the returned event is set, so a new head starts its passes, and a slot a finished pass frees refills, in seconds rather than on the next orca pass, which runs for minutes. A desk whose loop raises the same twice running drops out of the thread, and the orca pass still runs it."""
-        stop = threading.Event()
-        desks = {FINDER: self.finders, FIDELITY: self.fidelities, SPRITES: self.sprite_beats}
-
-        def loop() -> None:
-            while desks and not stop.wait(FINDER_EVERY.total_seconds()):
-                for desk, step in list(desks.items()):
-                    try:
-                        step()
-                    except Exception as error:
-                        if self.pass_raised(desk, error):
-                            del desks[desk]
-                    self.passes[desk] += 1
-
-        threading.Thread(target=loop, name="finders", daemon=True).start()
-        return stop
-
-    def queue_finders(self, repo: str, rows: dict[str, dict]) -> None:
-        """Accept one `finder:<pr>:<head>` action per PR and full head the drive's `head` and `opened` records past the saved sequence name, per stall-watch `finder:<pr>:<head>` stall naming an open ledger row's head (root #304381), and per green head of an open ledger row, so a head two records name, or a restack that posted no record, queues once; a first read starts at the newest record. A `head` record that names no PR, or a PR and no sha, sends its lane one `HEAD-UNQUEUED`, since no pass of either grader would ever name it (root #225521)."""
-        cursor = self.book.fact(FINDER, FINDER_CURSOR, None)
-        if cursor is None:
-            newest = cci.records(self.cci_tail, self.config.drive, "--limit", "1")
-            self.book.edit(FINDER, lambda incident: incident.facts.update({FINDER_CURSOR: max((record["seq"] for record in newest), default=0)}))
-            return
-        read = cci.records(self.cci_tail, self.config.drive, "--kind=head", "--kind=opened", "--kind=ask", "--kind=decide", "--kind=defect", "--kind=urgent", since=cursor)
-        for record in read:
-            if record["drive"] == self.config.drive and record["kind"] in ("ask", "decide", "defect"):
-                for pr in finder.requested(record, repo):
-                    self.book.accept(FINDER, f"finder:{pr}:whole:{record['seq']}", "finder", json.dumps({"pr": pr, "head": "", "lane": record["lane"], "seq": record["seq"], "full": True}), f"cci#{record['seq']}", None)
-        for record, pr, head in self.named_heads(repo, read):
-            self.book.accept(FINDER, f"finder:{pr}:{head}", "finder", json.dumps({"pr": pr, "head": head, "lane": record["lane"], "seq": record["seq"], "full": False}), f"cci#{record['seq']}", None)
-        for record in read:
-            if record["drive"] == self.config.drive and record["lane"] == stall_watch.LANE and (stalled := FINDER_STALL.fullmatch(record.get("topic") or "")) and (row := rows.get(stalled["pr"])) and row.get("head", "").startswith(stalled["head"]):
-                self.book.accept(FINDER, f"finder:{stalled['pr']}:{row['head']}", "finder", json.dumps({"pr": stalled["pr"], "head": row["head"], "lane": row.get("lane") or ROOT, "seq": record["seq"], "full": False}), f"cci#{record['seq']}", None)
-        for record in read:
-            if (record["drive"], record["kind"]) == (self.config.drive, "head") and (gap := finder.head_gap(record, repo)):
-                self.escalate(f"head-unqueued:{record['seq']}", "HEAD-UNQUEUED", record["lane"], f"head record cci #{record['seq']} {gap}, so no finder or fidelity pass grades it; post it again as `cci post --kind head --pr <n> --head <n>=<sha>`", f"cci#{record['seq']}", record["lane"])
-        if read:
-            cursor = read[-1]["seq"]
-            self.book.edit(FINDER, lambda incident: incident.facts.update({FINDER_CURSOR: cursor}))
-        for pr, row in self.green_heads(FINDER, rows):
-            self.book.accept(FINDER, f"finder:{pr}:{row['head']}", "finder", json.dumps({"pr": pr, "head": row["head"], "lane": row.get("lane") or ROOT, "seq": cursor, "full": False}), "ledger", None)
-
-    def settle_finders(self) -> None:
-        """Settle each started pass from the result its job wrote; one that wrote an error, whose process exited with no result, whose job directory is gone, or that wrote none by its deadline fails, so its slot frees this pass. A pass that posted nothing because its head replays a head no finder record graded queues one `full` pass of its PR, so a green head is graded without a root `finder: whole` ask (root #215820)."""
-        settled = False
-        for action in self.book.actions(FINDER, kind="finder", status="started"):
-            directory = Path(action.dispatch_id)
-            if not directory.is_dir():
-                self.finder_failed(action, f"its job directory {directory} is gone")
-                settled = True
-                continue
-            outcome = desk_result.read(directory, lambda: self.job_gone(directory))
-            if outcome is None:
-                if self.now() < actions.parse_stamp(action.deadline):
-                    continue
-                self.finder_failed(action, f"no result {whole_minutes(actions.parse_stamp(action.started_at), self.now())} min after it started")
-            elif "error" in outcome:
-                self.finder_failed(action, outcome["error"], hold=not outcome.get(desk_result.LOST))
-            else:
-                self.repost(directory)
-                self.finder_settled(action.action_id, outcome)
-                if outcome.get("ungraded"):
-                    job = json.loads(action.target)
-                    self.book.accept(FINDER, f"finder:{job['pr']}:whole:{job['head']}", "finder", json.dumps({"pr": job["pr"], "head": "", "lane": job["lane"], "seq": job["seq"], "full": True}), "ungraded", None)
-            settled = True
-        if settled:
-            self.book.edit(FINDER, lambda incident: incident.facts.update({FINDER_SETTLED: self.book.stamp()}))
-
-    def start_finders(self, spec: dict, repo: str, rows: dict[str, dict]) -> None:
-        """Start the newest queued head of each PR, a requested full pass over any head, while fewer than `finder.concurrent` passes run: a lower ledger `priority` first, then full passes, then those a root `go` or an owner's board tap names, then heads of a PR a finder pass already graded, which carry or read only a delta, then the PR waiting longest, counted from the first of its heads a newer one superseded. An older queued head of the same PR settles as superseded, and so does a running pass of it, its codex run cancelled. A queued head whose PR is closed, or no longer at that head, or whose number names no PR, settles as skipped without a pass, except a live read that names an older queued head of the PR, which `read_lags` holds."""
-        newest: dict[str, actions.Action] = {}
-        for action in sorted(self.book.actions(FINDER, kind="finder", status="accepted"), key=lambda action: (full_pass(action), json.loads(action.target)["seq"])):
-            if (older := newest.get(pr := json.loads(action.target)["pr"])) is not None:
-                self.finder_settled(older.action_id, {"superseded": json.loads(action.target)["head"]})
-            newest[pr] = action
-        running = 0
-        for action in self.book.actions(FINDER, kind="finder", status="started"):
-            running += not self.cancel_finder(action, newest.get(json.loads(action.target)["pr"]))
-        if not newest or running >= spec.get("concurrent", FINDER_CONCURRENT):
-            return
-        live = self.live_heads(repo, list(newest))
-        for pr, action in list(newest.items()):
-            job = json.loads(action.target)
-            if (state := live.get(pr)) and (skipped := grading_skip(state, repo, pr, job["head"])):
-                if not self.read_lags(FINDER, action, state):
-                    self.finder_settled(action.action_id, {"skipped": skipped})
-                    self.tell_proof_skip(pr, job["head"], rows, skipped)
-                del newest[pr]
-        going = self.tapped() | {pr for record in cci.records(self.cci_tail, self.config.drive, "--lane", ROOT, *GO_KIND_FLAGS) if record["lane"] == ROOT and is_go(record) for pr in go_heads(record)}
-        history: dict[str, list[actions.Action]] = {}
-        for action in sorted(self.book.actions(FINDER, kind="finder"), key=lambda action: action.accepted_at):
-            history.setdefault(json.loads(action.target)["pr"], []).append(action)
-        graded = {pr for pr, passes in history.items() if any({"verdict", "answered"} & set(action.response or {}) for action in passes)}
-        ranks = {pr: int(row.get("priority", DEFAULT_PRIORITY)) for pr, row in rows.items()}
-        first = self.root_firsts()
-        for action in sorted(newest.values(), key=lambda action: ((pr := json.loads(action.target)["pr"]) not in first, ranks.get(pr, DEFAULT_PRIORITY), not full_pass(action), pr not in going, pr not in graded, queued_since(history[pr], action))):
-            if running >= spec.get("concurrent", FINDER_CONCURRENT) - (json.loads(action.target)["pr"] not in first) * spec.get("reserved", 0) or self.least_busy_sprite(spec) is None:
-                return
-            if not self.waiting_on_fix(action):
-                running += self.start_finder(spec, repo, action, rows)
-
-    def tell_proof_skip(self, pr: str, head: str, rows: dict[str, dict], skipped: str) -> None:
-        """Tell the PR's lane once per head that no grader reads a head its title or body marks as a proof PR, since a skip that posts nothing leaves a real change ungraded with no reason (root #348793)."""
-        if PROOF_SKIP not in skipped:
-            return
-        record_id = f"grader-skipped:{pr}:{head}"
-        self.cci_post("note", f"GRADER-SKIPPED #{pr} {head[:12]}: no finder or fidelity pass grades it, because its title or body marks it a proof PR, which never merges; a real change drops those words", rows.get(pr, {}).get("lane") or ROOT, f"grader-skipped:{pr}", record_id, record_id=record_id)
-
-    def root_firsts(self) -> set[str]:
-        """The PRs a root `decide` of the last `ROOT_FIRST_HORIZON` puts first, such as root #324665's "#48141 at a04386d ... is first in every grading queue": they start ahead of every other head, and only they may take the `reserved` slots of `finder.concurrent` and `fidelity.concurrent` (root #325189)."""
-        decides = cci.records(self.cci_tail, self.config.drive, "--lane", ROOT, "--kind=decide", since=actions.stamp(self.now() - ROOT_FIRST_HORIZON))
-        return {pr for record in decides if record["lane"] == ROOT for pr in ROOT_FIRST.findall(full_text(record))}
-
-    def read_lags(self, container: str, action: actions.Action, state: dict) -> bool:
-        """Whether a queued head whose live read names another head of its open PR waits for that read instead of settling as skipped. GitHub can answer a read a second after a push with the head the push replaced, which skipped #48102 at 449d438 as moved to its older 8942a2d and left it ungraded (cci #329206), so a live head the runner already queued for the PR reads as that lag for `STALE_READ_WAIT`. Past it the move is real, and the live head queues under a fresh key unless a pass of it holds a verdict or is under way, since its own key already settled."""
-        job = json.loads(action.target)
-        live = state["headRefOid"]
-        earlier = [other for other in self.book.actions(container, kind=action.kind) if other.action_id != action.action_id and json.loads(other.target)["pr"] == job["pr"] and json.loads(other.target)["head"] == live]
-        if state["state"] != "OPEN" or not earlier:
-            return False
-        if self.now() - actions.parse_stamp(action.accepted_at) < STALE_READ_WAIT:
-            return True
-        if not any(other.status in ("accepted", "started") or {"verdict", "answered"} & set(other.response or {}) for other in earlier):
-            self.book.accept(container, f"{action.kind}:{job['pr']}:{live}:live:{job['seq']}", action.kind, json.dumps({**job, "head": live}), action.authority_ref, None)
-        return False
-
-    def cancel_finder(self, action: actions.Action, queued: actions.Action | None) -> bool:
-        """Settle a running pass as superseded when a newer head of its PR is queued, write its job's `cancelled` mark so it asks codex nothing, and cancel each codex run it started, since a head that moves while codex reads it posts nothing."""
-        job = json.loads(action.target)
-        if queued is None or full_pass(action) or full_pass(queued) or json.loads(queued.target)["seq"] <= job["seq"]:
-            return False
-        head = json.loads(queued.target)["head"]
-        directory = Path(action.dispatch_id)
-        (directory / finder.CANCELLED).write_text(f"{head}\n")
-        for run in sorted(directory.glob("codex-*")):
-            self.shell.run(["codex-ask", "--cancel", str(run)])
-        self.finder_settled(action.action_id, {"superseded": head})
-        return True
-
     def named_heads(self, repo: str, read: list[dict]) -> list[tuple[dict, str, str]]:
         """Each `(record, pr, head)` a `head` or `opened` record of this drive names, an abbreviated head spelled whole from the live head of its PR it begins, and left out once that PR has moved past it (#220098)."""
         named = [(record, pr, head) for record in read if record["drive"] == self.config.drive and record["kind"] in ("head", "opened") for pr, head in finder.heads(record, repo)]
@@ -5107,11 +4813,6 @@ class Runner:
             return {}
         missing = {error["path"][-1] for error in read.get("errors") or [] if error.get("type") == "NOT_FOUND"}
         return {alias.removeprefix("p"): state or {"state": "NOT_FOUND", "headRefOid": ""} for alias, state in answered.items() if state or alias in missing}
-
-    def green_heads(self, container: str, rows: dict[str, dict]) -> list[tuple[str, dict]]:
-        """Each open drive row whose head is green while no pass of its PR waits or runs in `container`, so a ledger head that trails a newer queued one never supersedes it."""
-        busy = {json.loads(action.target)["pr"] for status in ("accepted", "started") for action in self.book.actions(container, status=status)}
-        return [(pr, row) for pr, row in rows.items() if pr not in busy and row.get("ours") and row.get("test_state") == "success" and finder.FULL_SHA.fullmatch(row.get("head", ""))]
 
     def open_rows(self) -> dict[str, dict]:
         """Each open ledger row by PR, whose `priority` ranks the graders' queues, lower first, so a row the root ranks or an open owner ask links is graded before the rest, and whose green head queues a pass no record named; an unread ledger names none."""
@@ -5141,348 +4842,6 @@ class Runner:
         found = [*cci.records(self.cci_tail, drive, "--lane", board_rows.OWNER_LANE), *cci.records(self.cci_tail, drive, "--lane", RUNNER, f"--topic={board_rows.WRITE_TOPIC}")]
         return sorted((record for record in found if record["drive"] == drive), key=lambda record: record["seq"])
 
-    def start_finder(self, spec: dict, repo: str, action: actions.Action, rows: dict[str, dict]) -> bool:
-        """Settle a head a finder desk record already names, or a full pass a whole-range finder record posted after the PR's newest `head` record answered, or after the request when no `head` record names the PR, or write the pass's job and start finder.py on it detached, reading since the head the PR's newest finder record at another head read, or the whole change for a full pass."""
-        job = json.loads(action.target)
-        full = full_pass(action)
-        records = cci.records(self.cci_tail, self.config.drive, "--kind=review", "--kind=head", "--pr", f"{repo}#{job['pr']}")
-        named = finder_reviews_in(records, self.config.drive, repo, job["pr"])
-        reviews = finder_records(named)
-        moved = max((record["seq"] for record in records if record["kind"] == "head"), default=job["seq"])
-        answered = next((review for review in reviews if review["seq"] > moved and finder.WHOLE_READ in review["text"]), None) if full else newest_finder(reviews, job["head"])
-        if answered:
-            self.finder_settled(action.action_id, {"answered": f"cci #{answered['seq']} from {answered['lane']}"})
-            return False
-        last, prior = ("", None) if full else finder.since(reviews, records, job["head"], repo)
-        attempt = action.action_id.partition("#")[2]
-        directory = self.config.source.parent / finder.LANE / ((f"{job['pr']}-whole-{job['seq']}" if full else f"{job['pr']}-{job['head'][:12]}") + (f"-{attempt}" if attempt else ""))
-        directory.mkdir(parents=True, exist_ok=True)
-        landing = self.config.landing or {}
-        sprite = self.least_busy_sprite(spec)
-        drive.write_atomic(
-            directory / finder.JOB,
-            {
-                "drive": self.config.drive,
-                "repo": repo,
-                "pr": job["pr"],
-                "head": job["head"],
-                "since": last,
-                "prior": prior,
-                "previous": finder.previous(next((record for record in records if record["seq"] == job["seq"]), None), repo, job["pr"]) if named and not full else "",
-                "history": [{"seq": record["seq"], "lane": record["lane"], "text": record["text"], "path": (record.get("refs") or {}).get("path", "")} for record in named],
-                "settled": self.root_settled(repo, job["pr"], named),
-                "ruled": [{"seq": record["seq"], "lane": record["lane"], "text": record["text"], "path": (record.get("refs") or {}).get("path", "")} for record in cci.records(self.cci_tail, self.config.drive, "--kind=decide", "--lane", ROOT, "--pr", f"{repo}#{job['pr']}") if record["drive"] == self.config.drive],
-                "lane": job["lane"],
-                "to": [RUNNER, *filter(None, [rows.get(job["pr"], {}).get("lane")]), *spec.get("to", [])],
-                "checkout": spec.get("checkout") or landing["checkout"],
-                "model": spec.get("model", FINDER_MODEL),
-                "fast": spec.get("fast", FINDER_FAST),
-                "full": full,
-                "sprite": sprite,
-            },
-        )
-        deadline = self.now() + timedelta(minutes=spec.get("timeout_minutes", FINDER_MINUTES))
-        if not self.book.attempt(FINDER, lambda incident: incident.start(action.action_id, self.now(), deadline=deadline, dispatch_id=str(directory))):
-            return False
-        self.spawn_job(spec, sprite, "finder.py", directory)
-        return True
-
-    def root_settled(self, repo: str, pr: str, named: list[dict]) -> dict[str, int]:
-        """Each finder or fidelity record of `named` root settled, keyed by its seq, with the oldest record that settled it: a root `decide` naming it by `--re` or `--resolves`, or one about `pr` that says settled and came after it (root #182456), or a `finder-override`, `fidelity-override` or finder clear naming its head (root #278140, #287102), or the first root `go` or `decide` about `pr` after a lane's `accept` answer naming it by `--re` (root #273671), or a root `decide` about `pr` that a lane's `note` or `answer` rebutting it by `--re` cites, so a restack that carries a rebutted `missing` carries the rebuttal too (root #330745)."""
-        if not (seqs := {record["seq"] for record in named}):
-            return {}
-        drive_id = self.config.drive
-        settled: dict[str, int] = {}
-        for decide in cci.records(self.cci_tail, drive_id, "--kind=decide", "--lane", ROOT, since=min(seqs)):
-            if (decide["kind"], decide["lane"], decide["drive"]) != ("decide", ROOT, drive_id):
-                continue
-            named_by = ({decide.get("re")} | cci.resolved(decide)) & seqs
-            said = {seq for seq in seqs if seq < decide["seq"]} if "settled" in decide["text"].casefold() and about_pr(decide, repo, pr) else set()
-            cleared = {
-                record["seq"]
-                for record in named
-                if record["text"].startswith("finder:") and root_settles_finder([decide], pr, graded_head(record["text"]), record)
-                or record["text"].startswith(FIDELITY_MISSING) and record["seq"] < decide["seq"] and overridden(decide, FIDELITY_OVERRIDE, pr, graded_head(record["text"]))
-            }
-            settled |= {str(seq): decide["seq"] for seq in named_by | said | cleared if str(seq) not in settled}
-        rebuttals = [record for record in cci.records(self.cci_tail, drive_id, "--kind=note", "--kind=answer", "--pr", f"{repo}#{pr}", since=min(seqs)) if record["drive"] == drive_id and record.get("re") in seqs and str(record["re"]) not in settled]
-        if cited := sorted({int(seq) for record in rebuttals for seq in CITED_RECORD.findall(full_text(record))}):
-            rulings = {record["seq"] for record in cci.selected_records(self.cci_tail, drive_id, cited) if (record["kind"], record["lane"], record["drive"]) == ("decide", ROOT, drive_id) and about_pr(record, repo, pr)}
-            for record in rebuttals:
-                if str(record["re"]) not in settled and (ruling := next((int(seq) for seq in CITED_RECORD.findall(full_text(record)) if int(seq) in rulings), None)):
-                    settled[str(record["re"])] = ruling
-        accepted = [answer for answer in cci.records(self.cci_tail, drive_id, "--kind=answer", "--pr", f"{repo}#{pr}") if answer["drive"] == drive_id and answer.get("re") in seqs and ACCEPTED.match(answer["text"])]
-        if not accepted:
-            return settled
-        rulings = sorted(record["seq"] for record in cci.records(self.cci_tail, drive_id, "--kind=go", "--kind=decide", "--lane", ROOT, "--pr", f"{repo}#{pr}") if (record["lane"], record["drive"]) == (ROOT, drive_id) and record["kind"] in ("go", "decide"))
-        for answer in accepted:
-            if str(answer["re"]) not in settled and (ruling := next((seq for seq in rulings if seq > answer["seq"]), None)):
-                settled[str(answer["re"])] = ruling
-        return settled
-
-    def finder_settled(self, key: str, response: dict) -> None:
-        def settle(incident: actions.Incident) -> None:
-            if incident.action(key).status == "accepted":
-                incident.start(key, self.now())
-            incident.complete(key, response | {"at": self.book.stamp()})
-            incident.verify(key, response)
-
-        self.book.attempt(FINDER, settle)
-
-    def finder_failed(self, action: actions.Action, why: str, hold: bool = True) -> None:
-        """Fail a pass and queue its job again once the tooling may be fixed, or at once when `hold` is off because its wrapper died, so a job runs at most `FINDER_ATTEMPTS` times; each failure tells the tooling lane once per cause, and only the last logs `FINDER-FAILED` to the lanes (root #226668)."""
-        job = json.loads(action.target)
-        if not self.book.attempt(FINDER, lambda incident: incident.fail(action.action_id, why)):
-            return
-        self.tooling_failed("finder", job, why)
-        if self.requeue_finder(action.action_id.partition("#")[0], self.on_fix(action.target) if hold else unheld(action.target), action.authority_ref):
-            return
-        log = Path(action.dispatch_id) / finder.LOG
-        self.escalate(f"finder:{job['pr']}:{job['head']}", "FINDER-FAILED", job["lane"], f"#{job['pr']} {job['head'][:12]}: the finder desk's pass failed on the last of its {FINDER_ATTEMPTS} attempts: {why}; its log is {log}; root asks {finder.LANE} `finder: whole` on #{job['pr']} to run it again, since only its records grade a head")
-
-    def requeue_finder(self, key: str, target: str, authority: str) -> bool:
-        """Accept one more attempt at the finder job `key` names, `key` itself first and then `<key>#<n>`, while it has had fewer than `FINDER_ATTEMPTS`."""
-        tried = sum(action.action_id.partition("#")[0] == key for action in self.book.actions(FINDER, kind="finder"))
-        if tried >= FINDER_ATTEMPTS:
-            return False
-        self.book.accept(FINDER, f"{key}#{tried + 1}" if tried else key, "finder", target, authority, None)
-        return True
-
-    def requeue_pending_finder(self, repo: str, pr: str, head: str, lane: str) -> None:
-        """Queue one more finder pass on a head the landing check refuses `FINDER-PENDING` with no finder record, while runner.json carries `finder` for `repo` and no pass that would answer it waits or runs, so a lost job, or a pass that skipped the PR while it was closed, runs again."""
-        if (spec := json.loads(self.config.source.read_text()).get("finder")) is None or (spec.get("repo") or self.config.landing["repo"]) != repo:
-            return
-        self.book.ensure(FINDER, FINDER)
-        jobs = [(action, job) for action in self.book.actions(FINDER, kind="finder") if (job := json.loads(action.target))["pr"] == pr]
-        if any(action.status in ("accepted", "started") and (job["full"] or names_head(job["head"], head)) for action, job in jobs):
-            return
-        tried = [action for action, job in jobs if not job["full"] and names_head(job["head"], head)]
-        key = tried[0].action_id.partition("#")[0] if tried else f"finder:{pr}:{head}"
-        self.requeue_finder(key, tried[-1].target if tried else json.dumps({"pr": pr, "head": head, "lane": lane, "seq": 0, "full": False}), "FINDER-PENDING")
-
-    def watch_finder_desk(self, spec: dict) -> None:
-        """Log one `FINDER-DESK-STALLED` per streak while passes wait queued and none has settled for `FINDER_STALLED_AFTER`, naming how many wait and each running pass's age; the streak ends once a pass settles or none waits."""
-        passes = self.book.actions(FINDER, kind="finder", statuses=("accepted", "started"))
-        facts = self.book.facts(FINDER, [FINDER_SETTLED, FINDER_STALLED])
-        queued = [action for action in passes if action.status == "accepted"]
-        quiet = max(stamp for stamp in (facts.get(FINDER_SETTLED), min((action.accepted_at for action in queued), default="")) if stamp) if queued else ""
-        if not quiet or self.now() - (since := actions.parse_stamp(quiet)) < FINDER_STALLED_AFTER:
-            if FINDER_STALLED in facts:
-                self.book.edit(FINDER, lambda incident: incident.facts.pop(FINDER_STALLED, None))
-            return
-        streak = self.book.edit(FINDER, lambda incident: dict(incident.facts.setdefault(FINDER_STALLED, {"since": actions.stamp(since)})))
-        running = ", ".join(f"#{job['pr']} {job['head'][:12] or 'whole'} for {whole_minutes(actions.parse_stamp(action.started_at), self.now())} min" for action in passes if action.status == "started" for job in [json.loads(action.target)])
-        self.escalate(f"finder-desk:{streak['since']}", "FINDER-DESK-STALLED", finder.LANE, f"{len(queued)} queued, and no finder pass has settled since {pacific(since)}; running (at most {spec.get('concurrent', FINDER_CONCURRENT)} at once): {running or 'none'}; each pass logs to job.log in its directory under {self.config.source.parent / finder.LANE}")
-
-    def fidelities(self) -> None:
-        """Dispatch one fidelity grade per drive head while runner.json carries `fidelity`: queue each new `head` or `opened` record's PR and full head, settle the passes that wrote a result, then start the newest queued head of each PR, up to `fidelity.concurrent` at once. The orca pass and the `keep_finding` thread take turns under the finder desk's lock."""
-        if (spec := json.loads(self.config.source.read_text()).get("fidelity")) is None:
-            return
-        repo = spec.get("repo") or self.config.landing["repo"]
-        with self.finding:
-            self.book.ensure(FIDELITY, FIDELITY)
-            try:
-                rows = self.open_rows()
-                self.queue_fidelities(repo, rows)
-                self.settle_fidelities()
-                self.start_fidelities(spec, repo, rows)
-            except CciTailFailed as failure:
-                self.tail_failed(failure)
-
-    def queue_fidelities(self, repo: str, rows: dict[str, dict]) -> None:
-        """Accept one `fidelity:<pr>:<head>:<seq>` action per PR, full head and record past the saved sequence, so the next `head` record for a PR queues a pass again after one failed, and one `fidelity:<pr>:<head>:ledger` per green head of an open ledger row, so a restack that posted no record queues once; a first read starts at the newest record."""
-        cursor = self.book.fact(FIDELITY, FINDER_CURSOR, None)
-        if cursor is None:
-            newest = cci.records(self.cci_tail, self.config.drive, "--limit", "1")
-            self.book.edit(FIDELITY, lambda incident: incident.facts.update({FINDER_CURSOR: max((record["seq"] for record in newest), default=0)}))
-            return
-        read = cci.records(self.cci_tail, self.config.drive, "--kind=head", "--kind=opened", since=cursor)
-        for record, pr, head in self.named_heads(repo, read):
-            self.book.accept(FIDELITY, f"fidelity:{pr}:{head}:{record['seq']}", "fidelity", json.dumps({"pr": pr, "head": head, "lane": record["lane"], "seq": record["seq"]}), f"cci#{record['seq']}", None)
-        if read:
-            cursor = read[-1]["seq"]
-            self.book.edit(FIDELITY, lambda incident: incident.facts.update({FINDER_CURSOR: cursor}))
-        for pr, row in self.green_heads(FIDELITY, rows):
-            self.book.accept(FIDELITY, f"fidelity:{pr}:{row['head']}:ledger", "fidelity", json.dumps({"pr": pr, "head": row["head"], "lane": row.get("lane") or ROOT, "seq": cursor}), "ledger", None)
-
-    def spawn_job(self, spec: dict, sprite: str, script: str, directory: Path) -> None:
-        """Run the desk job `directory` through `script` and record the wrapper's pid beside it, so `job_gone` can tell a wrapper that ended from one still running."""
-        argv, env = job_command(spec, sprite, script, directory)
-        process = self.shell.spawn(argv, directory / finder.LOG, env)
-        drive.write_atomic(directory / finder.PID, process.pid)
-
-    def job_gone(self, directory: Path) -> bool:
-        """Whether the process that ran the desk job in `directory`, named by its pid file, no longer runs it; a job whose pid file is empty is gone too (root #220372)."""
-        pid = directory / finder.PID
-        return pid.is_file() and not ((said := pid.read_text().strip()).isdigit() and self.shell.runs_job(int(said), directory))
-
-    def settle_fidelities(self) -> None:
-        for action in self.book.actions(FIDELITY, kind="fidelity", status="started"):
-            if not Path(action.dispatch_id).is_dir():
-                self.fidelity_failed(action, f"its job directory {action.dispatch_id} is gone")
-                continue
-            directory = Path(action.dispatch_id)
-            outcome = desk_result.read(directory, lambda: self.job_gone(directory))
-            if outcome is None:
-                if self.now() >= actions.parse_stamp(action.deadline):
-                    self.fidelity_failed(action, f"no result {whole_minutes(actions.parse_stamp(action.started_at), self.now())} min after it started")
-            elif "error" in outcome:
-                self.fidelity_failed(action, outcome["error"], hold=not outcome.get(desk_result.LOST))
-            else:
-                self.repost(directory)
-                self.settle(FIDELITY, action.action_id, outcome)
-
-    def repost(self, directory: Path) -> None:
-        """Post again, on this machine's bus, every record a settled desk job logged to `finder.POSTS`: each carries its `--id`, so a record the Sprite's relay delivered comes back as the stored duplicate and one it dropped lands now (root #217856)."""
-        posts = directory / finder.POSTS
-        if not posts.is_file():
-            return
-        for line in posts.read_text().splitlines():
-            if (done := self.shell.run(json.loads(line))).code:
-                print(f"{directory.name}: reposting a desk record failed: {(done.err or done.out).strip()[:300]}", file=sys.stderr)
-
-    def start_fidelities(self, spec: dict, repo: str, rows: dict[str, dict]) -> None:
-        """Start the newest queued head of each PR, an incident fix row first, then a lower ledger `priority`, then oldest PR first, while fewer than `fidelity.concurrent` passes run; an older queued head of the same PR settles as superseded, and a queued head whose PR is closed, no longer at that head, or whose number names no PR, such as a cci seq a record bound as one, settles as skipped without a pass, except a live read that names an older queued head of the PR, which `read_lags` holds."""
-        newest: dict[str, actions.Action] = {}
-        for action in sorted(self.book.actions(FIDELITY, kind="fidelity", status="accepted"), key=lambda action: json.loads(action.target)["seq"]):
-            if (older := newest.get(pr := json.loads(action.target)["pr"])) is not None:
-                self.settle(FIDELITY, older.action_id, {"superseded": json.loads(action.target)["head"]})
-            newest[pr] = action
-        running = len(self.book.actions(FIDELITY, kind="fidelity", status="started"))
-        if not newest or running >= spec.get("concurrent", FIDELITY_CONCURRENT):
-            return
-        live = self.live_heads(repo, list(newest))
-        for pr, action in list(newest.items()):
-            if (state := live.get(pr)) and (skipped := grading_skip(state, repo, pr, json.loads(action.target)["head"])):
-                if not self.read_lags(FIDELITY, action, state):
-                    self.settle(FIDELITY, action.action_id, {"skipped": skipped})
-                    self.tell_proof_skip(pr, json.loads(action.target)["head"], rows, skipped)
-                del newest[pr]
-        ranks = {pr: (not self.incident_fix_row(row), int(row.get("priority", DEFAULT_PRIORITY))) for pr, row in rows.items()}
-        first = self.root_firsts()
-        for action in sorted(newest.values(), key=lambda action: ((pr := json.loads(action.target)["pr"]) not in first, *ranks.get(pr, (True, DEFAULT_PRIORITY)))):
-            if running >= spec.get("concurrent", FIDELITY_CONCURRENT) - (json.loads(action.target)["pr"] not in first) * spec.get("reserved", 0) or self.least_busy_sprite(spec) is None:
-                return
-            if not self.waiting_on_fix(action):
-                running += self.start_fidelity(spec, repo, action, rows, live.get(json.loads(action.target)["pr"], {}))
-
-    def fidelity_sources(self, spec: dict, drive_id: str, lane: str, live: dict) -> str:
-        """The plan grounds root accepted outside the plan package for a head of `lane` whose PR GitHub reads as `live`, in full: each cc-notes doc and cci record `fidelity.sources.docs` and `records` list under a shell pattern `lane` matches, such as `*` or `s*-class-*`, each root defect, decide or answer the PR body cites as `#<seq>`, and, on an `options/<card>-<option>` branch, the root board's card the branch builds an option of, as `cc-present block show` prints it."""
-        shown = [self.briefs("doc", "show", ident, "--json") for ident in lane_sources(spec.get("docs", {}), lane)]
-        docs = [json.loads(done.out) for done in shown if done.code == 0 and done.out.strip()]
-        named = lane_sources(spec.get("records", {}), lane)
-        cited = {int(seq) for seq in CITED_RECORD.findall(live.get("body") or "")} - set(named)
-        records = [record for record in cci.selected_records(self.cci_tail, drive_id, [*named, *cited]) if record["seq"] not in cited or (record["lane"] == ROOT and record["kind"] in CITED_ROOT_KINDS)]
-        sections = [*(f"## cc-notes doc {doc['id'][:7]}: {doc['title']}\n\n{doc['body'].strip()}" for doc in docs), *(f"## cci #{record['seq']}, {record['kind']} from {record['lane']}\n\n{full_text(record)}" for record in records)]
-        if (branch := live.get("headRefName") or "").startswith(OPTIONS_BRANCH):
-            card, option = branch.removeprefix(OPTIONS_BRANCH).rsplit("-", 1)
-            shown = self.shell.run(["cc-present", "block", "show", card, "--session", drive.root_session(drive_id)])
-            if shown.code == 0:
-                sections.append(f"## Board card {card}, whose option {option} this branch builds\n\n{shown.out.strip()}")
-        return "\n\n".join(sections)
-
-    def incident_fix_row(self, row: dict) -> bool:
-        lane = row.get("lane", "")
-        return bool(INCIDENT_NAME.match(lane) or (self.book.exists(lane_container(lane)) and self.fix_launch(lane_container(lane))))
-
-    def start_fidelity(self, spec: dict, repo: str, action: actions.Action, rows: dict[str, dict], live: dict) -> bool:
-        """Settle a head a fidelity lane already graded or sent to a reader, or write the pass's job, with every fidelity grade and `old-app:` line on the PR, the grades a root `class wrong` decision answers, and the lane's newest contract and sources, the lane being the PR's ledger row's owner before the lane that posted the head, such as a desk asking for a regrade (#48335, root #331359), and start fidelity.py on it detached."""
-        job = json.loads(action.target)
-        lane = rows.get(job["pr"], {}).get("lane") or job["lane"]
-        drive_id, landing = self.config.drive, self.config.landing or {}
-        lanes = list(dict.fromkeys([*self.landing_lanes("fidelity_lane"), fidelity.LANE]))
-        records = cci.records(self.cci_tail, drive_id, "--kind=review", "--kind=head", "--pr", f"{repo}#{job['pr']}")
-        grades = [record | {"text": full_text(record)} for record in fidelity_grades_in(records, drive_id, lanes, repo, job["pr"])]
-        sent = [record for record in records if (record["kind"], record["lane"]) == ("review", fidelity.LANE) and record["text"].startswith(fidelity.READER)]
-        if answered := newest_naming(grades, job["head"]) or newest_naming(sent, job["head"]):
-            self.settle(FIDELITY, action.action_id, {"answered": f"cci #{answered['seq']} from {answered['lane']}"})
-            return False
-        contracts = [record for record in cci.records(self.cci_tail, drive_id, "--kind=contract", "--lane", lane) if (record["kind"], record["lane"]) == ("contract", lane)]
-        contract = max((record for record in contracts if about_pr(record, repo, job["pr"])), key=lambda record: record["seq"], default=None) or max(contracts, key=lambda record: record["seq"], default=None)
-        directory = self.config.source.parent / fidelity.LANE / (f"{job['pr']}-{job['head'][:12]}-{job['seq']}" + (f"-{attempt}" if (attempt := action.action_id.partition("#")[2]) else ""))
-        directory.mkdir(parents=True, exist_ok=True)
-        if sources := self.fidelity_sources(spec.get("sources", {}), drive_id, lane, live):
-            (directory / fidelity.SOURCES).write_text(sources)
-        sprite = self.least_busy_sprite(spec)
-        drive.write_atomic(
-            directory / fidelity.JOB,
-            {
-                "drive": drive_id,
-                "repo": repo,
-                "pr": job["pr"],
-                "head": job["head"],
-                "lane": lane,
-                "to": [RUNNER, *filter(None, [rows.get(job["pr"], {}).get("lane")]), *spec.get("to", [])],
-                "readers": [lane for lane in lanes if lane != fidelity.LANE],
-                "lanes": lanes,
-                "grades": [{key: grade[key] for key in ("seq", "lane", "text")} for grade in grades],
-                "old_apps": [{"seq": grade["seq"], "lane": grade["lane"], "head": grade["head"], "line": OLD_APP_LINE.search(full_text(grade))[0]} for grade in old_app_grades_in(records, drive_id, lanes, repo, job["pr"])],
-                "settled": self.root_settled(repo, job["pr"], grades),
-                "rulings": [{"seq": record["seq"], "text": full_text(record)} for record in cci.records(self.cci_tail, drive_id, "--kind=decide", "--kind=answer", "--lane", ROOT, "--pr", f"{repo}#{job['pr']}") if record["kind"] in ("decide", "answer") and record["lane"] == ROOT],
-                "corrected": [record["re"] for record in cci.records(self.cci_tail, drive_id, "--kind=decide", "--lane", ROOT, "--pr", f"{repo}#{job['pr']}") if (record["kind"], record["lane"]) == ("decide", ROOT) and record.get("re") and CLASS_WRONG.match(record["text"])],
-                "contract": full_text(contract) if contract else "",
-                "sources": str(directory / fidelity.SOURCES) if sources else "",
-                "exempt": {"port": landing.get("port_phrase", PORT_PHRASE), "test-only": TEST_ONLY_PHRASE},
-                "exempt_grades": landing.get("exempt_grades", [landing.get("port_phrase", PORT_PHRASE), TEST_ONLY_PHRASE]),
-                "baseline": spec.get("baseline", ""),
-                "checkout": spec.get("checkout") or landing["checkout"],
-                "model": spec.get("model", FINDER_MODEL),
-                "fast": spec.get("fast", FINDER_FAST),
-                "sprite": sprite,
-            },
-        )
-        deadline = self.now() + timedelta(minutes=spec.get("timeout_minutes", FIDELITY_MINUTES))
-        if not self.book.attempt(FIDELITY, lambda incident: incident.start(action.action_id, self.now(), deadline=deadline, dispatch_id=str(directory))):
-            return False
-        self.spawn_job(spec, sprite, "fidelity.py", directory)
-        return True
-
-    def least_busy_sprite(self, spec: dict) -> str | None:
-        """The Sprite the desk's `sprite` lists that runs the fewest finder and fidelity passes together now, the first listed on a tie; none when it lists none, so the pass runs here; and None while that Sprite already runs runner.json's `sprite_cap` passes, so the pass waits queued. A listed Sprite where a pass ended with no result in the last `SPRITE_FAILING_FOR` takes no pass while another listed one has none such, so a Sprite that restarts mid-pass, finishing nothing and so running the fewest, never draws every retry (dar-fleet-26, 12 passes in an hour, root #331960)."""
-        listed = desk_sprites(spec)
-        if not listed:
-            return ""
-        running = Counter(self.pass_sprite(action) for container in (FINDER, FIDELITY) if self.book.exists(container) for action in self.book.actions(container, status="started"))
-        since = self.now() - SPRITE_FAILING_FOR
-        failing = {self.pass_sprite(action) for container in (FINDER, FIDELITY) if self.book.exists(container) for action in self.book.actions(container, status="failed") if action.started_at and actions.parse_stamp(action.started_at) >= since and "no result" in (action.reason or "")}
-        sprite = min([name for name in listed if name not in failing] or listed, key=lambda name: running[name])
-        cap = json.loads(self.config.source.read_text()).get("sprite_cap")
-        return None if cap is not None and running[sprite] >= cap else sprite
-
-    def pass_sprite(self, action: actions.Action) -> str:
-        """The Sprite a desk pass ran on, from its job, or none for a pass that ran here."""
-        return json.loads((Path(action.dispatch_id) / finder.JOB).read_text()).get("sprite", "")
-
-    def sprite_beats(self) -> None:
-        """Post, every `SPRITE_BEAT_EVERY` for each Sprite `finder.sprite` or `fidelity.sprite` lists, one state record to root and the drive watchdog naming the finder and fidelity passes it runs and the age of its oldest, or, while it runs passes and none it ran settled in the last `SPRITE_STALLED_AFTER`, a `SPRITE-STALLED` defect to root instead."""
-        raw = json.loads(self.config.source.read_text())
-        specs = {container: spec for container, desk in ((FINDER, "finder"), (FIDELITY, "fidelity")) if (spec := raw.get(desk)) is not None}
-        beats = self.book.fact(RUNNER, SPRITE_BEATS, {})
-        due = [sprite for sprite in dict.fromkeys(sprite for spec in specs.values() for sprite in desk_sprites(spec)) if sprite not in beats or self.now() - actions.parse_stamp(beats[sprite]) >= SPRITE_BEAT_EVERY]
-        if not due:
-            return
-        with self.finding:
-            for container in specs:
-                self.book.ensure(container, container)
-            now, window = self.now(), self.now() - SPRITE_STALLED_AFTER
-            running = [(container, action) for container in specs for action in self.book.actions(container, status="started")]
-            settled = [action for container in specs for action in self.book.actions(container, statuses=("completed", "verified")) if action.dispatch_id and actions.parse_stamp(action.response["at"]) > window]
-            posted = {}
-            for sprite in due:
-                passes = [(container, actions.parse_stamp(action.started_at)) for container, action in running if self.pass_sprite(action) == sprite]
-                counts = Counter(container for container, _ in passes)
-                oldest = min((started for _, started in passes), default=None)
-                age = f"oldest {whole_minutes(oldest, now)} min" if oldest else "none running"
-                if oldest and oldest <= window and not any(self.pass_sprite(action) == sprite for action in settled):
-                    done = self.cci_post("defect", f"SPRITE-STALLED {sprite}: {len(passes)} passes running, {age}, and none it ran settled in the last {int(SPRITE_STALLED_AFTER.total_seconds()) // 60} min; check the Sprite and each pass's job.log", ROOT, f"sprite:{sprite}", f"sprite-stalled:{sprite}")
-                else:
-                    done = self.cci_post("state", f"sprite {sprite}: {counts[FINDER]} finder and {counts[FIDELITY]} fidelity passes, {age}", self.watchdog, f"sprite:{sprite}", f"sprite-beat:{sprite}")
-                if done.code:
-                    print(f"sprite {sprite} heartbeat left for the next pass; cci post exited {done.code}: {(done.err or done.out).strip()[:300]}", file=sys.stderr)
-                    continue
-                posted[sprite] = actions.stamp(now)
-            self.book.edit(RUNNER, lambda incident: incident.facts.setdefault(SPRITE_BEATS, {}).update(posted))
-
     def settle(self, container: str, key: str, response: dict) -> None:
         def settled(incident: actions.Incident) -> None:
             if incident.action(key).status == "accepted":
@@ -5491,37 +4850,6 @@ class Runner:
             incident.verify(key, response)
 
         self.book.attempt(container, settled)
-
-    def fidelity_failed(self, action: actions.Action, why: str, hold: bool = True) -> None:
-        """Fail the pass whether or not any notice posts, so a refused notice never holds a slot (root #219303), and queue it again once the tooling may be fixed, or at once when `hold` is off because its wrapper died, so a pass runs at most `FINDER_ATTEMPTS` times; each failure tells the tooling lane once per cause, and only the last tells the human fidelity desks (root #226668)."""
-        job = json.loads(action.target)
-        self.book.attempt(FIDELITY, lambda incident: incident.fail(action.action_id, why))
-        self.tooling_failed("fidelity", job, why)
-        base = action.action_id.partition("#")[0]
-        tried = sum(other.action_id.partition("#")[0] == base for other in self.book.actions(FIDELITY, kind="fidelity"))
-        if tried < FINDER_ATTEMPTS:
-            self.book.accept(FIDELITY, f"{base}#{tried + 1}", "fidelity", self.on_fix(action.target) if hold else unheld(action.target), action.authority_ref, None)
-            return
-        key = f"fidelity:{job['pr']}:{job['head']}:{job['seq']}"
-        readers = [lane for lane in self.landing_lanes("fidelity_lane") if lane != fidelity.LANE]
-        log = Path(action.dispatch_id) / fidelity.LOG
-        self.escalate(key, "FIDELITY-FAILED", job["lane"], f"#{job['pr']} {job['head'][:12]}: the fidelity pass failed on the last of its {FINDER_ATTEMPTS} attempts: {why}; its log is {log}; a fidelity desk grades it by hand, and the next head record for #{job['pr']} queues the pass again", to=",".join(readers))
-
-    def on_fix(self, target: str) -> str:
-        """`target` marked to wait `GRADER_RETRY_AFTER`, or until a newer runner version installs, before it starts again."""
-        return json.dumps(json.loads(target) | {"retry_after": actions.stamp(self.now() + GRADER_RETRY_AFTER), "failed_on": RUNNING_VERSION})
-
-    def waiting_on_fix(self, action: actions.Action) -> bool:
-        job = json.loads(action.target)
-        return job.get("failed_on") == RUNNING_VERSION and self.now() < actions.parse_stamp(job["retry_after"])
-
-    def tooling_failed(self, desk: str, job: dict, why: str) -> None:
-        """Tell runner.json's `tooling_lane`, when it names one, once an hour per cause, that a grader pass died on a tooling error rather than a verdict."""
-        if not (lane := json.loads(self.config.source.read_text()).get("tooling_lane")):
-            return
-        cause = TOOLING_CAUSE.sub("…", why)[:200]
-        minutes = int(GRADER_RETRY_AFTER.total_seconds() // 60)
-        self.escalate(f"grader-tooling:{hashlib.sha1(cause.encode()).hexdigest()[:12]}:{self.now():%Y%m%d%H}", "GRADER-TOOLING", desk, f"{desk} passes die on a tooling error, first on #{job['pr']} {job['head'][:12]}: {why}; each retries after {minutes} min or once a newer long-running installs, and its lanes hear only after its {FINDER_ATTEMPTS}th failure", to=lane)
 
     def render(self) -> str:
         runner = self.book.facts(RUNNER, [BINDING, DEFERRED])
@@ -5533,16 +4861,6 @@ class Runner:
         if policy := self.landing_policy():
             held = json.loads(policy.target)
             lines.append(f"landing policy: {held['rule']} at {held['revision']} ({policy.authority_ref})")
-        if self.book.store.exists(FINDER):
-            for action in self.book.actions(FINDER, kind="finder"):
-                if action.status in ("accepted", "started"):
-                    job = json.loads(action.target)
-                    lines.append(f"finder #{job['pr']} {job['head'][:12]}: {f'running since {pacific(actions.parse_stamp(action.started_at))}' if action.started_at else 'queued'}")
-        if self.book.store.exists(FIDELITY):
-            for action in self.book.actions(FIDELITY, kind="fidelity"):
-                if action.status in ("accepted", "started"):
-                    job = json.loads(action.target)
-                    lines.append(f"fidelity #{job['pr']} {job['head'][:12]}: {f'running since {pacific(actions.parse_stamp(action.started_at))}' if action.started_at else 'queued'}")
         for container in [*self.book.containers(LANE_PREFIX), LANDING]:
             header = self.book.header(container)
             facts = self.book.facts(container, [CLOCK, MERGE_WAITS])
@@ -7936,8 +7254,6 @@ class Landing:
         if graded.act:
             for pr, state in states.items():
                 self.refuse_head(f"finder:{pr}:{graded.heads[pr]}{failed[pr]}", pr, graded, state.reason, states, also=[finder.LANE])
-                if not failed[pr]:
-                    self.runner.requeue_pending_finder(self.repo, pr, graded.heads[pr], self.owner(pr, graded.rows.get(pr, {})) or ROOT)
         return states
 
     def finder_clear(self, pr: str, sha: str) -> bool:
@@ -10729,7 +10045,6 @@ def run_orca(runner: Runner, once: bool) -> int:
     try:
         runner.register_lane(ORCA_DESK)
         if not once:
-            runner.keep_finding()
             runner.keep_probing()
         while True:
             runner.pass_since = runner.now()
@@ -10747,7 +10062,7 @@ def run_orca(runner: Runner, once: bool) -> int:
                     if runner.now() - swept >= SWEEP_EVERY:
                         runner.steps(runner.sweep)
                         swept = runner.now()
-                slow = (runner.deadlines_orca, runner.incident_clock, runner.class_unowned, runner.mute_pushback, runner.in_process, runner.cut_clock, runner.release_coupling, runner.finders, runner.fidelities, runner.sprite_beats)
+                slow = (runner.deadlines_orca, runner.incident_clock, runner.class_unowned, runner.mute_pushback, runner.in_process, runner.cut_clock, runner.release_coupling)
                 runner.steps(*(step for each in slow for step in (each, runner.prompt)) if ready else slow)
             except StopRequested:
                 runner.flush()
