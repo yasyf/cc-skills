@@ -156,42 +156,61 @@ def test_the_update_names_every_lane_posting_within_a_day_registered_or_not_and_
     assert [row["lane"] for row in owner_update.working(rows, NOW)] == ["memory-siblings-2", "red-sweep-3", "devbox-perf-1"]
 
 
-def test_a_standing_duty_reads_the_end_of_its_successor_chain_and_no_live_owner_once_that_end_retired_alone():
-    rows = [
+def sources(*rows: dict, latest: dict | None = None, waits: dict | None = None) -> owner_update.Sources:
+    return owner_update.Sources({row["lane"]: row for row in rows}, latest or {}, waits or {}, NOW)
+
+
+def test_a_standing_duty_reads_the_end_of_its_successor_chain_and_no_successor_once_that_end_retired_alone():
+    found = sources(
         lane("devbox-explore-7", "retired", 600, standing="devbox perf and bug hunting", retired_by="done"),
         lane("board-refresher-6", "retired", 90, standing="refresh the board", retired_by="board-refresher-7"),
         lane("board-refresher-7", "desired", 2, standing="refresh the board"),
-    ]
+    )
 
-    lines = owner_update.duty_lines(rows)
+    devbox, board = owner_update.duty_rows(found)
 
-    assert lines[0].startswith("- devbox perf and bug hunting: NO LIVE OWNER: devbox-explore-7 retired by done, last heard ") and lines[0].endswith("; brief /b/devbox-explore-7.md")
-    assert lines[1].startswith("- refresh the board: board-refresher-7 desired, last heard ") and len(lines) == 2
+    assert (devbox.who, devbox.blocks, devbox.unblock, devbox.unowned) == ("**nobody**", "devbox-explore-7 retired by done with no successor", "root launches its successor from /b/devbox-explore-7.md this turn", True)
+    assert (board.name, board.who, board.unowned) == ("refresh the board", "board-refresher-7", False)
 
 
-def test_an_owner_table_row_held_only_by_root_or_a_quiet_lane_reads_nobody_and_comes_first():
-    body = "\n".join([
-        "## Ordered plan",
-        "",
-        "| Step | Left | Who, next step |",
-        "|---|---|---|",
-        "| 0. The base and the copy | ports | The [port workers](worker:root) |",
-        "| 7. The reader | release | Its [worker](worker:release-5) and [desk](worker:old-desk-1) |",
-        "| 12. Cutover | everything | nobody yet |",
-    ])
-    docs = [{"id": "57967b6", "title": "durable-agents-rebuild: owner report table"}]
+def test_work_is_held_only_by_lanes_heard_within_two_hours_with_their_next_record_due_and_root_waits_named():
+    found = sources(
+        lane("release-5", "desired", 10),
+        lane("old-desk-1", "desired", 300),
+        lane("root", "unregistered", 1),
+        latest={"release-5": record(7, "release-5", "head", "pushed #48700", 10)},
+        waits={"release-5": record(8, "release-5", "blocker", "needs the owner's word on deletes", 5)},
+    )
 
-    def runner(argv: list[str], env: dict | None = None) -> subprocess.CompletedProcess:
-        return done(json.dumps(docs) if argv[3:5] == ["doc", "list"] else json.dumps({"body": body}))
+    who, blocks, unblock, wrong = found.work(["release-5", "old-desk-1", "root"])
+    nobody = found.work(["old-desk-1", "root"])
 
-    entry = {"checkout": "/c", "program": "durable-agents-rebuild"}
-    rows = [lane("release-5", "desired", 10), lane("old-desk-1", "desired", 300), lane("root", "unregistered", 1)]
+    assert who == "release-5" and blocks.startswith("release-5 waits on root's answer to blocker #8 since ")
+    assert unblock.startswith("release-5: head ") and "; next record due by " in unblock
+    assert wrong.startswith("old-desk-1 quiet since ")
+    assert nobody[0] == "**nobody**" and nobody[2] == "nobody is on it, so root starts a lane on it this turn"
 
-    assert [line.split(" (heard")[0] for line in owner_update.owner_table_rows(runner, entry, rows, NOW)] == [
-        "- **nobody**: Step 0. The base and the copy (names root)",
-        "- **nobody**: Step 12. Cutover",
-        "- release-5",
-    ]
+
+def test_a_plan_with_no_numbered_steps_rows_each_piece_its_title_lists_and_a_lane_joins_a_piece_by_its_word():
+    plan = owner_update.plans.Plan("731649a5", "SandSQL five pieces: ssql-server (two modes), ssql-replicator, ssql-signal; migration R0-R8", "draft", [owner_update.plans.Step("unmapped", "No step label")])
+
+    assert owner_update.pieces(plan) == ["ssql-server", "ssql-replicator", "ssql-signal"]
+    assert owner_update.on_piece({"lane": "uploads-to-replicator-1"}, "ssql-replicator") and owner_update.on_piece({"lane": "x-1", "deliverable": "read the sandsql-server supervisor"}, "ssql-server")
+    assert not owner_update.on_piece({"lane": "signal-valkey-2"}, "ssql-replicator")
+
+
+def test_a_step_with_every_task_done_is_never_unowned_and_an_open_one_with_nobody_is():
+    task = lambda state: owner_update.plans.Task("t", "Port the consumer", state, None, None, "#45723 review" if state == "blocked" else None, 0)
+    done = owner_update.step_row("Step 2", "2. Data", [task("done")], [], sources())
+    open_step = owner_update.step_row("Step 0", "0. The base", [task("done"), task("blocked")], [], sources())
+
+    assert not done.unowned and open_step.unowned
+    assert open_step.state == "1 of 2 tasks done, 0 in progress, 1 blocked" and open_step.blocks == "task Port the consumer waits on #45723 review"
+
+
+def test_a_table_cell_never_breaks_its_row():
+    row = owner_update.Row("#48401", "a | b", "red", "**nobody**", "waits: red", "x", "its head is red")
+    assert owner_update.table([row])[2] == "| #48401 | a / b | red | **nobody** | waits: red | x | its head is red |"
 
 
 @pytest.mark.parametrize(
