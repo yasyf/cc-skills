@@ -38,6 +38,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from long_running import cci
+from long_running.grades import names_head
 from long_running import drive as lr_drive
 from long_running import release
 from lr import config as lr_config
@@ -229,6 +230,11 @@ class PrStates:
         return {n: self.read[n][1] for n in prs}
 
 
+def reported_held(config: lr_config.Config) -> set[int]:
+    rows = json.loads(run([sys.executable, str(SCRIPTS / "ledger.py"), "-C", config.checkout, "list", "--drive", config.drive, "--open", "--json"]))
+    return {int(row["pr"]) for row in rows if row.get("reported_verdict") == "held" and names_head(row.get("reported_head") or "", row.get("head") or "")}
+
+
 def pr_state(node: dict | None) -> str:
     if not node or node["state"] != "OPEN":
         return "closed"
@@ -290,7 +296,7 @@ def lanes_deps(config: lr_config.Config, state: Path) -> lanes.Deps:
         withdraw=lambda name: desk_launch(briefs, name, "withdraw", name, "--drive", config.drive, "--lane", lanes.SELF),
         wake=Waker(config.drive, clock),
         pr_states=PrStates(config.repo, clock),
-        held=lambda: {int(pr) for pr in cci.held_prs(run, config.drive)},
+        held=lambda: {int(pr) for pr in cci.held_prs(run, config.drive)} | reported_held(config),
         rotate_at=rotate_at(),
     )
 

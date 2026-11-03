@@ -5,8 +5,10 @@ from __future__ import annotations
 import json
 import plistlib
 import os
+import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 import drive_supervisor as supervisor
 import pytest
@@ -173,3 +175,18 @@ def test_the_supervisor_moves_to_a_newer_install_unless_its_replay_gate_refuses_
     [post] = posts
     assert post[post.index("--id") + 1] == "replay-failed:0.7.823" and post[-1] == "the supervisor moves from 0.7.820 to 0.7.823 unreplayed: its replay gate exited 1: Traceback: boom"
 
+
+
+def test_a_pr_its_lane_reported_held_at_its_current_head_owes_no_work(monkeypatch):
+    """p8a-step7 #334230, root #334240: #47794 sat green and graded under a held report while the supervisor pinged its lane hourly as if it still needed work."""
+    config = SimpleNamespace(checkout="/checkout", drive="durable")
+    rows = [
+        {"pr": "47794", "head": "847e655aaaa", "reported_head": "847e655", "reported_verdict": "held"},
+        {"pr": "47708", "head": "70284afbbbb", "reported_head": "39c21ff", "reported_verdict": "held"},
+        {"pr": "47851", "head": "1234567cccc", "reported_head": "1234567", "reported_verdict": "clean"},
+    ]
+    calls = []
+    monkeypatch.setattr(supervisor, "run", lambda argv: calls.append(argv) or json.dumps(rows))
+
+    assert supervisor.reported_held(config) == {47794}
+    assert calls == [[sys.executable, str(supervisor.SCRIPTS / "ledger.py"), "-C", "/checkout", "list", "--drive", "durable", "--open", "--json"]]
