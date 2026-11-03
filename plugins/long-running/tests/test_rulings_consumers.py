@@ -35,8 +35,7 @@ def cases():
     return result
 
 
-@pytest.mark.parametrize("entry,inp,expected", cases())
-def test_rulings_consumer_outcomes(entry, inp, expected, monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+def stage(entry, inp, monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     if inp.commands and "claude -p" in inp.commands:
         commands = {"uv run --no-project --quiet": json.dumps({"p_yes": 0.9, "tokens": 2})} | inp.commands
         inp = replace(inp, commands=commands)
@@ -69,6 +68,12 @@ def test_rulings_consumer_outcomes(entry, inp, expected, monkeypatch: pytest.Mon
                 return captured.astimezone(tz) if tz is not None else captured.replace(tzinfo=None)
 
         monkeypatch.setattr(next(module for module in MODULES if module.__name__ == "hooks.board_text_gate"), "datetime", FixtureDateTime)
+    return inp
+
+
+@pytest.mark.parametrize("entry,inp,expected", cases())
+def test_rulings_consumer_outcomes(entry, inp, expected, monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    inp = stage(entry, inp, monkeypatch, tmp_path)
     isolated = replace(entry, spec=replace(entry.spec, tests={inp: expected}))
     monkeypatch.setattr(_state, "hooks", [isolated])
     results = run_inline_tests()
