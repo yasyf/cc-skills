@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ownred"
@@ -178,5 +179,79 @@ func TestAGhWithoutTheEscapeFlagReadsTheJobLogWithoutIt(t *testing.T) {
 		if slices.Contains(call.Argv, "--allow-escape-sequences") {
 			t.Fatalf("an old gh got the flag it exits on: %q", call.Argv)
 		}
+	}
+}
+
+func bus(t *testing.T, records ...map[string]any) string {
+	t.Helper()
+	var out strings.Builder
+	for _, r := range records {
+		out.WriteString(encoded(t, r) + "\n")
+	}
+	return out.String()
+}
+
+func reads(fake *shelltest.Fake) [][]string {
+	var argvs [][]string
+	for _, call := range fake.Calls() {
+		if call.Argv[0] == "cci" {
+			argvs = append(argvs, call.Argv)
+		}
+	}
+	return argvs
+}
+
+func TestAMergeByALaneRefusesOnARelayItHasNotReadAndNotOnOneItsReadClosed(t *testing.T) {
+	relay := map[string]any{"seq": 360037, "lane": "meta-desk-2", "kind": "relay", "text": "hold #2188,\ndo not merge", "to": []string{"fix-1"}}
+	answered := map[string]any{"seq": 360038, "lane": "root", "kind": "ask", "text": "which head?", "to": []string{"fix-1"}, "status": "closed"}
+	broadcast := map[string]any{"seq": 360040, "lane": "root", "kind": "note", "text": "dev is green"}
+	fake := github(t, map[int]map[string]any{7: pull(green)}, false)
+	fake.Reply(bus(t, relay, answered, broadcast), "cci", "tail")
+	got := lines(t, fake, ownred.Merge{Selector: "7", Drive: "d", Lane: "fix-1"})
+	want := []string{
+		"UNREAD #360037 meta-desk-2 relay: hold #2188, do not merge",
+		"MAIL #360038 root ask: which head?",
+		"MAIL #360040 root note: dev is green",
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	if argvs := reads(fake); !slices.Equal(argvs[0], []string{"cci", "tail", "--drive", "d", "--cursor", "fix-1", "--reader", "fix-1", "--json"}) {
+		t.Fatalf("the merge read the bus as %q, not through the lane's own cursor", argvs)
+	}
+}
+
+func TestAMergeAfterTheLaneReadItsRecordsComesDownToItsChecks(t *testing.T) {
+	fake := github(t, map[int]map[string]any{7: pull(ownRed)}, false)
+	fake.Reply("", "cci", "tail")
+	if got := lines(t, fake, ownred.Merge{Selector: "7", Drive: "d", Lane: "fix-1"}); !slices.Equal(got, []string{ownLint}) {
+		t.Fatalf("got %q, want %q", got, []string{ownLint})
+	}
+}
+
+func TestAMergeOutsideAnyLaneNeverReadsTheBus(t *testing.T) {
+	fake := github(t, map[int]map[string]any{7: pull(green)}, false)
+	lines(t, fake, ownred.Merge{Selector: "7"})
+	if argvs := reads(fake); len(argvs) != 0 {
+		t.Fatalf("an unbound merge read the bus: %q", argvs)
+	}
+}
+
+func TestTheLaneReadIsOneCallAtOneRecordAndAtAThousand(t *testing.T) {
+	counts := map[int]int{}
+	for _, n := range []int{1, 1000} {
+		records := make([]map[string]any, 0, n)
+		for seq := range n {
+			records = append(records, map[string]any{"seq": seq + 1, "lane": "root", "kind": "note", "text": "dev is green", "to": []string{"fix-1"}})
+		}
+		fake := github(t, map[int]map[string]any{7: pull(green)}, false)
+		fake.Reply(bus(t, records...), "cci", "tail")
+		if got := lines(t, fake, ownred.Merge{Selector: "7", Drive: "d", Lane: "fix-1"}); len(got) != n {
+			t.Fatalf("n=%d: got %d lines", n, len(got))
+		}
+		counts[n] = len(fake.Calls())
+	}
+	if counts[1] != counts[1000] {
+		t.Fatalf("calls grew with the bus: %v", counts)
 	}
 }
