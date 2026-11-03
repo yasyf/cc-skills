@@ -3266,8 +3266,12 @@ func TestALongPassKeepsPostingAliveAndAStuckOneIsNamedOnce(t *testing.T) {
 	go func() { done <- w.desk.Run(context.Background(), true) }()
 	<-held.reached
 
-	alive := func(post client.Draft) bool { return post.Topic == runnerTopic && strings.HasPrefix(post.Text, runnerAlive) }
-	stuck := func(post client.Draft) bool { return post.Kind == kindBlocker && strings.Contains(post.Text, "orca relay pass 1 has run") }
+	alive := func(post client.Draft) bool {
+		return post.Topic == runnerTopic && strings.HasPrefix(post.Text, runnerAlive)
+	}
+	stuck := func(post client.Draft) bool {
+		return post.Kind == kindBlocker && strings.Contains(post.Text, "orca relay pass 1 has run")
+	}
 	started := w.awaitPosts(1, alive)[0]
 	if started.Text != "orca alive pass 1" || started.Attrs[incident.PassSecondsAttr] != "0" {
 		t.Fatal(started)
