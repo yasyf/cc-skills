@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import tempfile
 import time
@@ -1595,7 +1596,8 @@ def test_inbox_needs_stale(orca):
 
 def test_the_plugin_bin_launches_every_script_by_name():
     launchers = [path for path in BIN.iterdir() if path.name != "lr.binrun"]
-    assert sorted(path.name for path in launchers) == sorted(["lr", *(path.name for path in SCRIPTS.iterdir() if (path.suffix in (".py", ".sh") or path.name.startswith("cci-")) and (path.read_text().startswith("#!") or "__main__" in path.read_text()))])
+    shimmed = set(re.findall(r'^\s*(\S+)\) exec "\$ROOT/bin/lr" ', (BIN.parent / "scripts" / "bin-shim.sh").read_text(), re.MULTILINE))
+    assert sorted(path.name for path in launchers if path.name not in shimmed) == sorted(["lr", *(path.name for path in SCRIPTS.iterdir() if path.name not in shimmed and (path.suffix in (".py", ".sh") or path.name.startswith("cci-")) and (path.read_text().startswith("#!") or "__main__" in path.read_text()))])
     for launcher in launchers:
         assert os.access(launcher, os.X_OK)
         assert os.readlink(launcher) == "../scripts/bin-shim.sh"
