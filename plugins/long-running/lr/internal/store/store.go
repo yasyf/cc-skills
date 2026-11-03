@@ -240,6 +240,11 @@ func (s *Store) PutFact(repo string, number int, head, kind, value string, at ti
 	return changed(result, err)
 }
 
+func (s *Store) ClearExempt(repo string, number int, through time.Time) error {
+	_, err := s.db.Exec("DELETE FROM facts WHERE repo = ? AND number = ? AND kind = 'exempt' AND posted <= ?", repo, number, Stamp(through))
+	return err
+}
+
 func (s *Store) Facts(repo string, number int, head string) (map[string]string, error) {
 	rows, err := s.db.Query("SELECT kind, value FROM facts WHERE repo = ?1 AND number = ?2 AND length(head) >= 7 AND substr(?3, 1, length(head)) = head ORDER BY posted, length(head)", repo, number, head)
 	found, err := collect(rows, err, func(rows *sql.Rows) ([2]string, error) {

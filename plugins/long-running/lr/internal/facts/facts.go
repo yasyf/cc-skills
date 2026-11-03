@@ -316,8 +316,33 @@ func (s Source) ingestLegacy(ctx context.Context) error {
 		if err := s.putFacts(bus.LegacyFacts(record, s.Repo, s.GoLanes), record.At.UTC()); err != nil {
 			return err
 		}
+		if err := s.clearWithdrawn(ctx, record); err != nil {
+			return err
+		}
 		if err := s.Store.Advance(bus.LegacyCursor, record.Seq); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+func (s Source) clearWithdrawn(ctx context.Context, record client.Record) error {
+	seqs := bus.ClosedGos(record, s.GoLanes)
+	if len(seqs) == 0 {
+		return nil
+	}
+	closed, err := client.Among(ctx, s.Drive, seqs)
+	if err != nil {
+		return err
+	}
+	for _, closedGo := range closed {
+		for _, fact := range bus.LegacyFacts(closedGo, s.Repo, s.GoLanes) {
+			if fact.Kind != "exempt" {
+				continue
+			}
+			if err := s.Store.ClearExempt(s.Repo, fact.PR, record.At.UTC()); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

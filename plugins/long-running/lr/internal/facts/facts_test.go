@@ -625,6 +625,41 @@ func TestAGoLanesExemptGoLeavesARootHoldStanding(t *testing.T) {
 	}
 }
 
+func TestAWithdrawnExemptGoStopsCountingAndALaterGoCountsAgain(t *testing.T) {
+	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
+	h.source.GoLanes = []string{"landing-desk"}
+	exempt := "go #1 at " + head + " on green [exempt: owner-pick]"
+	first := goRecord(t, "landing-desk-3", exempt)
+	if !h.snapshot(t)[1].Exempt {
+		t.Fatal("the go marks the PR exempt")
+	}
+
+	if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "root", Kind: "withdraw", Text: "open card", Re: first.Seq}); err != nil {
+		t.Fatal(err)
+	}
+	if h.snapshot(t)[1].Exempt {
+		t.Fatal("a withdrawn go still marks the PR exempt")
+	}
+
+	time.Sleep(time.Second)
+	goRecord(t, "landing-desk-3", exempt+" after the card closed")
+	if !h.snapshot(t)[1].Exempt {
+		t.Fatal("a later go must mark it exempt again")
+	}
+}
+
+func TestAWithdrawalFromALaneWithNoSayLeavesTheExemptGo(t *testing.T) {
+	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
+	first := goRecord(t, "root", "go #1 at "+head+" on green [exempt: owner-pick]")
+	if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "lane-7", Kind: "withdraw", Text: "not mine", Re: first.Seq}); err != nil {
+		t.Fatal(err)
+	}
+
+	if !h.snapshot(t)[1].Exempt {
+		t.Fatal("a lane outside root and the go lanes cleared an exempt go")
+	}
+}
+
 func TestAHoldStandsAgainstEveryGoThatIsNotALaterLiveRootGo(t *testing.T) {
 	for name, setup := range map[string]func(t *testing.T){
 		"a go before the hold": func(t *testing.T) {

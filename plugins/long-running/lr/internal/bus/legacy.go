@@ -20,7 +20,7 @@ const (
 )
 
 var (
-	legacyKinds    = []string{"review", "owner", "go", "decide", "decision"}
+	legacyKinds    = []string{"review", "owner", "go", "decide", "decision", "withdraw", "correction"}
 	goKinds        = []string{"go", "decide", "decision"}
 	finderDesk     = []string{"finder-desk"}
 	fidelityLanes  = []string{"fidelity-pipeline", "fidelity-desk"}
@@ -63,6 +63,8 @@ func (b Bus) ReadLegacy(ctx context.Context, since int64, now time.Time) ([]clie
 func LegacyFacts(record client.Record, repo string, goLanes []string) []Fact {
 	kind := string(record.Kind)
 	switch {
+	case kind == "withdraw" || kind == "correction":
+		return nil
 	case kind == "review" && delegated(record.Lane, finderDesk) && strings.HasPrefix(record.Text, "finder:"):
 		grade, head := finderVerdicts[finderGrade(record.Text)], firstSHA(record.Text)
 		if grade == "" || head == "" {
@@ -269,6 +271,14 @@ func LiveGos(records []client.Record, goLanes []string) []client.Record {
 	return slices.DeleteFunc(slices.Clone(records), func(record client.Record) bool {
 		return !delegated(record.Lane, lanes) || !isGo(record) || closed[record.Seq]
 	})
+}
+
+func ClosedGos(record client.Record, goLanes []string) []int64 {
+	kind := string(record.Kind)
+	if (kind != "withdraw" && kind != "correction") || !delegated(record.Lane, append([]string{rootLane}, goLanes...)) {
+		return nil
+	}
+	return slices.DeleteFunc(closes(record), func(seq int64) bool { return seq == 0 })
 }
 
 func closes(record client.Record) []int64 {
