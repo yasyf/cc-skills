@@ -59,12 +59,13 @@ func Sweep(s *store.Store, records, asks []client.Record, unfinished []Wait, now
 	if err != nil {
 		return nil, err
 	}
-	standing := slices.Concat(unfinished, OpenAsks(asks, records, now), LandedWaits(records), Repeats(escalations, now))
+	watched := slices.DeleteFunc(slices.Clone(records), func(record client.Record) bool { return !slices.Contains(Kinds, string(record.Kind)) })
+	standing := slices.Concat(unfinished, OpenAsks(asks, watched, now), LandedWaits(watched), Unplanned(records), Repeats(escalations, now))
 	return Apply(s, Namespaces, standing, now, post)
 }
 
 func Check(ctx context.Context, s *store.Store, entry drive.Entry, runner shell.Runner, now time.Time, post pass.Post) ([]pass.Escalated, error) {
-	records, err := client.Tail(ctx, client.Query{Drive: entry.Bus(), Since: now.Add(-Window), Kinds: Kinds})
+	records, err := client.Tail(ctx, client.Query{Drive: entry.Bus(), Since: now.Add(-Window)})
 	if err != nil {
 		return nil, err
 	}

@@ -36,7 +36,7 @@ var (
 
 	Kinds = []string{"decide", "decision", "go", "state", "report", "landed", "opened", "head", "answer", "note"}
 
-	Namespaces = []string{AskNamespace, GateNamespace, RepeatNamespace, UnfinishedNamespace}
+	Namespaces = []string{AskNamespace, GateNamespace, RepeatNamespace, UnfinishedNamespace, PlanNamespace}
 
 	pacific = func() *time.Location {
 		zone, err := time.LoadLocation("America/Los_Angeles")
@@ -191,7 +191,7 @@ func Repeats(escalations []store.Escalation, now time.Time) []Wait {
 	var classes []string
 	for _, escalation := range escalations {
 		class := classOf(escalation.Cause)
-		if class == repeatKind || class == unfinishedKind || class == metaKind || now.Sub(escalation.Raised) >= repeatWindow || strings.HasPrefix(escalation.Subject, RepeatNamespace) {
+		if class == repeatKind || class == unfinishedKind || class == metaKind || class == unplannedClass || now.Sub(escalation.Raised) >= repeatWindow || strings.HasPrefix(escalation.Subject, RepeatNamespace) {
 			continue
 		}
 		if subjects[class] == nil {
