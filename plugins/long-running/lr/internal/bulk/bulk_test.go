@@ -223,6 +223,7 @@ func TestReaderBriefReadsEachCorpusKindThroughItsOwnTool(t *testing.T) {
 		job.Findings(),
 		"/pack/bin/lr bulk triage " + job.JobPath(),
 		"where did it struggle?",
+		"cci watch --drive " + testDrive + " --lane desk-runner --kind state --topic orca",
 	} {
 		if !strings.Contains(brief, want) {
 			t.Errorf("reader brief lacks %q:\n%s", want, brief)
@@ -241,7 +242,7 @@ func TestTriageBriefFilesToTheLauncherAndCarriesTheContract(t *testing.T) {
 	for _, want := range []string{
 		"You never launch a lane: " + testLauncher + " launches every one",
 		"Read " + job.Contract + " in full first",
-		"/pack/bin/lr explain",
+		"/pack/bin/lr explain \"<topic>\" --from " + job.OnePager() + " --config " + filepath.Join(h.state, "lr.json"),
 		"/pack/bin/lr bulk file " + job.JobPath() + " --one-pager",
 		job.FixList(),
 	} {
