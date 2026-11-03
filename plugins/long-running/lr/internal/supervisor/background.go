@@ -46,7 +46,7 @@ func (b *background) pass(ctx context.Context, now time.Time) {
 	if failed == nil || ctx.Err() != nil {
 		return
 	}
-	cause := fmt.Sprintf("the last %s pass failed, so it posts nothing until a pass succeeds: %v", b.name, failed)
+	cause := fmt.Sprintf("the last %s pass failed; the next one runs on schedule: %v", b.name, failed)
 	to := cmp.Or(b.to, lanes.Root)
 	raised, err := b.store.Escalate(b.name, cause, to, now)
 	if err == nil && raised {

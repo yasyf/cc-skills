@@ -1872,6 +1872,17 @@ def test_refresh_reads_the_forge_without_the_ledger_lock_so_a_register_never_wai
     assert shell.fields(PR)["last_refresh"]
 
 
+def test_a_rate_limited_refresh_exits_with_the_limited_code_and_writes_nothing(capsys, lock):
+    shell = desk_shell(user={"login": "yasyf"}, title="t", changed_files=1, created_at="2026-09-24T08:00:00Z")
+    shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"lane": LANE, "reported_head": HEAD}})
+    shell.quota_refusal = "ccx: pr state: no poll answered within 30s: github rate limit since 2026-11-03T17:40:08Z"
+
+    assert run(shell, "refresh", "--repo", REPO, "--ledger", LEDGER, "--lock", str(lock)) == ledger.FORGE_LIMITED_EXIT
+
+    assert "forge rate limited, wrote nothing" in capsys.readouterr().err
+    assert "last_refresh" not in shell.fields(PR)
+
+
 class MovingShell(FakeShell):
     """Moves one PR's head the moment another PR is labelled, as a lane pushing mid-batch would."""
 

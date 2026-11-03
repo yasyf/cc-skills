@@ -189,6 +189,7 @@ SETTLE_WORKERS = 8
 REFRESH_BATCH = 25
 PR_STATE_MAX_AGE = "2m"
 REFRESH_WORKERS = 16
+FORGE_LIMITED_EXIT = 75
 TERMINAL_STATES = frozenset({LANDED, CLOSED_WITHOUT_SQUASH})
 REOPEN_WINDOW = timedelta(hours=24)
 WATCH_P0_EVENTS = frozenset({"ejected", "conflicting", "red"})
@@ -2924,6 +2925,9 @@ def main(argv: list[str] | None = None, shell: Shell | None = None) -> int:
         if synced and not reads:
             converge(shell, synced)
         return code
+    except QuotaExhausted as exhausted:
+        print(f"forge rate limited, wrote nothing: {exhausted}", file=sys.stderr)
+        return FORGE_LIMITED_EXIT
     except ForgeUnreachable as unreachable:
         print(f"forge unreachable, wrote nothing: {unreachable}", file=sys.stderr)
         return 1

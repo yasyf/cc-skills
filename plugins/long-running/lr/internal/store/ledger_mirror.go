@@ -36,6 +36,11 @@ func (s *Store) PutLedgerRow(ledger, key string, fields map[string]string, at ti
 	return putLedgerRow(s.db, ledger, key, fields, at)
 }
 
+func (s *Store) DropLedgerRow(ledger, key string) error {
+	_, err := s.db.Exec("DELETE FROM ledger_rows WHERE ledger = ? AND key = ?", ledger, key)
+	return err
+}
+
 type execer interface {
 	Exec(query string, args ...any) (sql.Result, error)
 }
