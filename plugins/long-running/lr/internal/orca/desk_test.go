@@ -1538,6 +1538,23 @@ func TestARelayToAStoodDownLaneFailsQuietly(t *testing.T) {
 	}
 }
 
+func TestARelayToAStoodDownLaneWhoseDispatchStillRunsIsSentAndTellsItsSender(t *testing.T) {
+	w := newDeskWorld(t)
+	w.live(testLane, testDispatch, testTerminal)
+	w.lines()
+	stop := w.add(object{"lane": supervisorLane, "kind": kindStandDown, "text": "lane-a stood down for lane-b", "to": []string{testLane}})
+	w.line("R2 (5:01 PM) orca-desk: relay to lane-a: stop pushing")
+	w.lines()
+	w.step(w.desk.deliver)
+	sends := w.orcaCalls("orchestration send")
+	if len(sends) != 1 || flag(sends[0], "--to") != "dispatch:ctx_a" {
+		t.Fatal(w.calls)
+	}
+	wantContains(t, flag(sends[0], "--body"), "stop pushing")
+	wantContains(t, w.wantEscalation("RELAYED-STOOD-DOWN R2 lane-a"), fmt.Sprintf("stood down by #%d, but its dispatch ctx_a still runs, so the relay went to it; send it to the lane that took over too", stop.Seq))
+	w.noEscalation("RELAY-FAILED R2")
+}
+
 func TestALaneCopiedOnAnotherLanesStandDownStillTakesItsRelay(t *testing.T) {
 	w := newDeskWorld(t)
 	w.lines()

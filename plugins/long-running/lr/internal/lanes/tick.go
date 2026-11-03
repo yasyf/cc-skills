@@ -94,7 +94,9 @@ func Tick(s *store.Store, d Deps, now time.Time, generation int64) (out Outcome,
 	cursor := must(s.Cursor(CursorName))
 	fresh := cursor == 0
 	var named []string
+	var running []store.Lane
 	if !fresh {
+		running = must(s.Lanes(store.LaneLaunching, store.LaneDesired, store.LaneHeld))
 		desired := must(s.Lanes(live...))
 		named = make([]string, 0, len(desired))
 		for _, lane := range desired {
@@ -155,6 +157,7 @@ func Tick(s *store.Store, d Deps, now time.Time, generation int64) (out Outcome,
 	for _, lane := range desired {
 		act(s, d, lane, found, proven, taken, generation, now, &out)
 	}
+	tellRetired(s, d, running, said.stood)
 	retiredTo := map[string][]string{}
 	for _, one := range out.Retired {
 		retiredTo[one.To] = append(retiredTo[one.To], fmt.Sprintf("%s (it %s)", one.Lane, one.Why))
@@ -171,6 +174,23 @@ func Tick(s *store.Store, d Deps, now time.Time, generation int64) (out Outcome,
 	}
 	out.Woken = append(out.Woken, woken...)
 	return out, nil
+}
+
+func tellRetired(s *store.Store, d Deps, running []store.Lane, told []stoodDown) {
+	for _, was := range running {
+		lane, _ := laneOf(s, was.Name)
+		if lane.State != store.LaneRetired || lane.RetiredBy == "stand-down" || slices.Contains([]string{"done", "stopped", "stand-down", "handoff"}, lane.Last) || slices.ContainsFunc(told, func(one stoodDown) bool { return one.name == lane.Name }) {
+			continue
+		}
+		post := Post{Kind: "stand-down", To: []string{lane.Name}, Text: fmt.Sprintf("%s stood down: the supervisor retired it (%s).", lane.Name, lane.RetiredBy), PRs: lane.PRs}
+		if heir, ok := laneOf(s, lane.RetiredBy); ok && heir.Name != Root {
+			post.Successor, post.PRs, post.Text = heir.Name, heir.PRs, fmt.Sprintf("%s stood down for %s.", lane.Name, heir.Name)
+			if heir.Predecessor == lane.Name && heir.Reason != "" {
+				post.Text = fmt.Sprintf("%s stood down for %s; %s %s.", lane.Name, heir.Name, lane.Name, heir.Reason)
+			}
+		}
+		do(d.Post(post))
+	}
 }
 
 func adoptStanding(s *store.Store, d Deps, found map[string]Peer, now time.Time) []string {
@@ -229,11 +249,6 @@ func act(s *store.Store, d Deps, lane store.Lane, found map[string]Peer, proven 
 	switch verdict.Kind {
 	case CameUp:
 		do(s.SetLaneState(lane.Name, store.LaneDesired, now, "", ""))
-		if lane.Predecessor != "" && lane.Reason != "" {
-			if old, ok := laneOf(s, lane.Predecessor); ok && old.RetiredBy == lane.Name {
-				do(d.Post(Post{Kind: "stand-down", To: []string{old.Name}, Text: fmt.Sprintf("%s stood down for %s, now up; %s %s.", old.Name, lane.Name, old.Name, lane.Reason), Successor: lane.Name, PRs: lane.PRs}))
-			}
-		}
 	case NoShow:
 		hold(s, lane.Name, verdict.Why, now)
 		escalate(s, d, "lane:"+lane.Name, fmt.Sprintf("%s; brief %s", verdict.Why, filepath.Join(d.Briefs, lane.Name+".brief.md")), now)

@@ -23,7 +23,7 @@ func TestADesiredOrcaLaneWhoseAgentExitedWithAnOpenPRRelaunchesOnce(t *testing.T
 	equal(t, row(t, s, "conflicts-3").PRs, []int{46001})
 }
 
-func TestADeadLaneThatHoldsNothingRetiresOnceSilentPastTheThreshold(t *testing.T) {
+func TestADeadLaneThatHoldsNothingRetiresOnceSilentPastTheThresholdAndIsToldItStoodDown(t *testing.T) {
 	s := memory(t)
 	f := adopted(t, s, writeBrief(t), "")
 	f.feed = append(f.feed, rec(2, lane2, "state", t0, "reading the logs", Root))
@@ -40,6 +40,13 @@ func TestADeadLaneThatHoldsNothingRetiresOnceSilentPastTheThreshold(t *testing.T
 	equal(t, len(reports), 1)
 	equal(t, reports[0].To, []string{Root})
 	equal(t, reports[0].Text, "RETIRED for owning no PR, holding no standing duty, and posting nothing for 60 minutes or more: conflicts-2 (it stopped, quiet for 60 min).")
+	standDowns := f.ofKind("stand-down")
+	equal(t, len(standDowns), 1)
+	equal(t, []any{standDowns[0].To, standDowns[0].Successor, standDowns[0].Text}, []any{[]string{lane2}, "", "conflicts-2 stood down: the supervisor retired it (silent)."})
+
+	tick(t, s, f, t0.Add(mins(61)))
+
+	equal(t, len(f.ofKind("stand-down")), 1)
 }
 
 func TestAColdSpriteParkedOnARecordedWaitIsLeftAloneAndAnUnparkedOneWithAPRIsHeld(t *testing.T) {
