@@ -907,6 +907,55 @@ func TestTheBeforeWorkerScriptRunsTheInstallWithItsQuotedPinsAndMergesItsOutput(
 	}
 }
 
+func TestAPluginNewToAMarketplaceThePayloadHoldsJoinsAWritableCopyOfIt(t *testing.T) {
+	dir := t.TempDir()
+	cciURL, cciSHA := tarball(t, dir, "cci.tgz", map[string]string{"cci": "#!/bin/sh\necho 0.49.36\n"})
+	lrURL, lrSHA := tarball(t, dir, "lr.tgz", map[string]string{"lr": "#!/bin/sh\necho lr version 9.9.9\n"})
+	orcaURL, orcaSHA := tarball(t, dir, "orca.tgz", map[string]string{".claude-plugin/plugin.json": `{"version":"0.1.0"}`, "skills/orca.md": "orca\n"})
+	home, baked := t.TempDir(), t.TempDir()
+	listing := `{"name":"skills","plugins":[{"name":"long-running","source":"./plugins/long-running"}]}`
+	write := func(path, content string) {
+		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(filepath.Join(baked, ".claude-plugin", "marketplace.json"), listing)
+	write(filepath.Join(baked, "plugins", "long-running", "SKILL.md"), "pack\n")
+	write(filepath.Join(home, ".claude", "plugins", "installed_plugins.json"), `{"version":2,"plugins":{"long-running@skills":[{"scope":"user","installPath":"/payload/long-running/0.7.692","version":"0.7.692"}]}}`)
+	write(filepath.Join(home, ".claude", "plugins", "known_marketplaces.json"), `{}`)
+	write(filepath.Join(home, ".claude", "settings.json"), `{"enabledPlugins":{"long-running@skills":true}}`)
+	tree := filepath.Join(home, ".local", "share", "cc-remote", "marketplaces", "skills")
+	if err := os.MkdirAll(filepath.Dir(tree), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(baked, tree); err != nil {
+		t.Fatal(err)
+	}
+	run := exec.Command("sh", "-c", installTools, "sh", cciURL, cciSHA, lrURL, lrSHA, "lr", "plugin", "orca@skills", orcaURL, orcaSHA, "0.1.0", "--")
+	run.Env = append(os.Environ(), "HOME="+home)
+	if out, err := run.CombinedOutput(); err != nil {
+		t.Fatal(string(out), err)
+	}
+	for _, path := range []string{tree, filepath.Join(tree, "plugins"), filepath.Join(tree, "plugins", "long-running")} {
+		if info, err := os.Lstat(path); err != nil || !info.IsDir() {
+			t.Fatal(path, "is no real directory, and Claude refuses a plugin source that leaves its marketplace", err)
+		}
+	}
+	if present(filepath.Join(baked, "orca")) {
+		t.Fatal("the install wrote into the payload's tree")
+	}
+	if !present(filepath.Join(tree, "orca", "skills", "orca.md")) || !present(filepath.Join(tree, "plugins", "long-running", "SKILL.md")) {
+		t.Fatal("the copy lost a plugin's source")
+	}
+	got, err := os.ReadFile(filepath.Join(tree, ".claude-plugin", "marketplace.json"))
+	if err != nil || !strings.Contains(string(got), `"source": "./plugins/long-running"`) || !strings.Contains(string(got), `"source": "./orca"`) {
+		t.Fatal(string(got), err)
+	}
+}
+
 func TestAToolPinInstallsOnlyTheArchiveWithItsDigestAndVersion(t *testing.T) {
 	dir := t.TempDir()
 	cciURL, cciSHA := tarball(t, dir, "cci.tgz", map[string]string{"cci": "#!/bin/sh\necho 0.49.36\n"})
