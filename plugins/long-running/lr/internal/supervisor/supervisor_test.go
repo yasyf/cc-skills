@@ -1,0 +1,515 @@
+package supervisor
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"log/slog"
+	"os"
+	"path/filepath"
+	"reflect"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
+)
+
+const head = "e718a7434fa01ee9835f992a9a647a825350732c"
+
+var t0 = time.Date(2026, 10, 30, 21, 0, 0, 0, time.UTC)
+
+type clock struct{ now time.Time }
+
+func (c *clock) read() time.Time        { return c.now }
+func (c *clock) sleep(by time.Duration) { c.now = c.now.Add(by) }
+
+type queue struct {
+	enqueued []int
+	err      error
+}
+
+func (q *queue) Enqueue(_ context.Context, number int, _ string) (string, error) {
+	if q.err != nil {
+		return "", q.err
+	}
+	q.enqueued = append(q.enqueued, number)
+	return "queued", nil
+}
+
+func (q *queue) Dequeue(context.Context, int) error { return nil }
+
+type restacker struct{}
+
+func (restacker) Restack(context.Context, int, string, string) (string, error) { return "", nil }
+
+type pool struct{ jobs []string }
+
+func (p *pool) Dispatch(grader, _ string, number int, _ string) (string, error) {
+	job := fmt.Sprintf("job/%s/%d", grader, number)
+	p.jobs = append(p.jobs, job)
+	return job, nil
+}
+
+func (*pool) Alive(string) bool { return true }
+
+func memory(t *testing.T) *store.Store {
+	t.Helper()
+	s, err := store.Memory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	return s
+}
+
+func facts(number int, change func(*machine.Facts)) machine.Facts {
+	f := machine.Facts{
+		Repo: "org/repo", Number: number, Head: head, Base: "dev", Lane: "lane-7",
+		CI: machine.CISuccess, Mergeable: machine.MergeableClean, Approved: true,
+		Finder: machine.FinderClear, Fidelity: machine.FidelityPass, Tap: machine.TapTapped,
+	}
+	if change != nil {
+		change(&f)
+	}
+	return f
+}
+
+func deps(c *clock, q *queue, p *pool, snapshot ...machine.Facts) Deps {
+	return Deps{
+		Movers: []string{"landing", "grading"},
+		Clock:  c.read,
+		Sleep:  c.sleep,
+		Snapshot: func(context.Context) ([]machine.Facts, error) {
+			return snapshot, nil
+		},
+		Post:      func([]string, bus.Body) error { return nil },
+		Queue:     q,
+		Restacker: restacker{},
+		Pool:      p,
+		Log:       slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+}
+
+func equal(t *testing.T, got, want any) {
+	t.Helper()
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %#v, want %#v", got, want)
+	}
+}
+
+func runLoop(t *testing.T, s *store.Store, version string, pid int, d Deps, ticks int) ([]Report, Ended) {
+	t.Helper()
+	reports, ended, err := Run(context.Background(), s, "d", version, pid, d, ticks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return reports, ended
+}
+
+func TestATickIsOnePassThatLandsAndGrades(t *testing.T) {
+	s, c, q, p := memory(t), &clock{t0}, &queue{}, &pool{}
+	ungraded := facts(2, func(f *machine.Facts) { f.Finder, f.Fidelity = "", "" })
+
+	reports, _ := runLoop(t, s, "0.8.0", 1, deps(c, q, p, facts(1, nil), ungraded), 1)
+
+	r := reports[0]
+	equal(t, []int{r.PRs, r.Enqueued, r.Dispatched, r.Escalated}, []int{2, 1, 2, 0})
+	equal(t, q.enqueued, []int{1})
+	lease, err := s.Lease("d")
+	if err != nil {
+		t.Fatal(err)
+	}
+	equal(t, lease.Generation, int64(1))
+	workers, err := s.Workers()
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := make([]string, 0, len(workers))
+	for _, worker := range workers {
+		names = append(names, worker.Name)
+	}
+	equal(t, names, []string{"job/fidelity/2", "job/finder/2", lanes.Self})
+}
+
+func TestTicksAreThirtySecondsApartAndRenewTheLease(t *testing.T) {
+	s, c := memory(t), &clock{t0}
+
+	reports, ended := runLoop(t, s, "0.8.0", 1, deps(c, &queue{}, &pool{}), 3)
+
+	equal(t, ended, EndedTicks)
+	equal(t, []time.Time{reports[0].At, reports[1].At, reports[2].At}, []time.Time{t0, t0.Add(30 * time.Second), t0.Add(time.Minute)})
+	lease, err := s.Lease("d")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !lease.Renewed.Equal(t0.Add(time.Minute)) {
+		t.Fatalf("renewed %v", lease.Renewed)
+	}
+}
+
+func TestASecondSupervisorTakesTheLeaseAndTheFirstExitsOnItsNextTick(t *testing.T) {
+	s, c := memory(t), &clock{t0}
+	first, err := s.AcquireLease("d", "0.8.0", 101, t0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := deps(c, &queue{}, &pool{}, facts(1, nil))
+	if _, err := Tick(context.Background(), s, "d", first.Generation, d); err != nil {
+		t.Fatal(err)
+	}
+
+	second, _ := runLoop(t, s, "0.8.1", 202, d, 1)
+
+	equal(t, len(second), 1)
+	lease, err := s.Lease("d")
+	if err != nil {
+		t.Fatal(err)
+	}
+	equal(t, lease.PID, 202)
+	if _, err := Tick(context.Background(), s, "d", first.Generation, d); !errors.Is(err, store.ErrStaleGeneration) {
+		t.Fatalf("err %v", err)
+	}
+}
+
+func TestRunEndsByItselfWhenItsGenerationIsTaken(t *testing.T) {
+	s, c := memory(t), &clock{t0}
+	d := deps(c, &queue{}, &pool{})
+	stolen := false
+	d.Snapshot = func(context.Context) ([]machine.Facts, error) {
+		if !stolen {
+			stolen = true
+			if _, err := s.AcquireLease("d", "0.8.1", 202, c.read()); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return nil, nil
+	}
+
+	reports, ended := runLoop(t, s, "0.8.0", 101, d, 0)
+
+	equal(t, len(reports), 1)
+	equal(t, ended, EndedGeneration)
+}
+
+func TestRunEndsAtTheTickBoundaryOnceANewerReleaseIsInstalled(t *testing.T) {
+	s, c := memory(t), &clock{t0}
+	d := deps(c, &queue{}, &pool{}, facts(1, nil))
+	d.Stale = func(context.Context) (bool, error) { return true, nil }
+
+	reports, ended := runLoop(t, s, "0.8.0", 101, d, 0)
+
+	equal(t, len(reports), 1)
+	equal(t, ended, EndedRelease)
+	equal(t, c.now, t0)
+}
+
+func TestALanesOnlySupervisorRunsNoPRPass(t *testing.T) {
+	s, c := memory(t), &clock{t0}
+	var ticked []time.Time
+	d := Deps{Movers: []string{"lanes"}, Clock: c.read, Sleep: c.sleep, Log: slog.New(slog.NewTextHandler(io.Discard, nil)), Lanes: func(now time.Time, _ int64) (lanes.Outcome, error) {
+		ticked = append(ticked, now)
+		return lanes.Outcome{}, nil
+	}}
+
+	reports, _ := runLoop(t, s, "0.8.0", 1, d, 1)
+
+	equal(t, ticked, []time.Time{t0})
+	equal(t, reports[0].PRs+reports[0].Enqueued+reports[0].Dispatched, 0)
+	items, err := s.OpenItems("", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	equal(t, len(items), 0)
+}
+
+func TestAnUnreadLanesSourceAndAnUnreadCheckSkipOnlyThemselves(t *testing.T) {
+	s, c := memory(t), &clock{t0}
+	checked := 0
+	d := Deps{
+		Movers: []string{"lanes"}, Clock: c.read, Sleep: c.sleep, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Lanes: func(time.Time, int64) (lanes.Outcome, error) {
+			return lanes.Outcome{}, fmt.Errorf("%w: orca refused", lanes.ErrUnread)
+		},
+		Checks: []lanes.Check{func(context.Context, time.Time) error {
+			checked++
+			return fmt.Errorf("%w: slack down", lanes.ErrUnread)
+		}, func(context.Context, time.Time) error {
+			checked++
+			return nil
+		}},
+	}
+
+	reports, _ := runLoop(t, s, "0.8.0", 1, d, 2)
+
+	equal(t, len(reports), 2)
+	equal(t, checked, 4)
+}
+
+func TestAStoreFailureInALanesTickEndsTheProcess(t *testing.T) {
+	s, c := memory(t), &clock{t0}
+	broken := errors.New("disk full")
+	d := Deps{Movers: []string{"lanes"}, Clock: c.read, Sleep: c.sleep, Log: slog.New(slog.NewTextHandler(io.Discard, nil)), Lanes: func(time.Time, int64) (lanes.Outcome, error) {
+		return lanes.Outcome{}, broken
+	}}
+
+	if _, _, err := Run(context.Background(), s, "d", "0.8.0", 1, d, 1); !errors.Is(err, broken) {
+		t.Fatalf("err %v", err)
+	}
+}
+
+func TestThePRPassRunsEveryThreeMinutesWhileTheLanesTickEveryThirtySeconds(t *testing.T) {
+	s, c := memory(t), &clock{t0}
+	untapped := facts(1, func(f *machine.Facts) { f.Tap = "" })
+
+	reports, _ := runLoop(t, s, "0.8.0", 1, deps(c, &queue{}, &pool{}, untapped), 7)
+
+	prs := make([]int, 0, len(reports))
+	for _, r := range reports {
+		prs = append(prs, r.PRs)
+	}
+	equal(t, prs, []int{1, 0, 0, 0, 0, 0, 1})
+}
+
+func TestAPassWhoseSourcesDoNotAnswerActsOnNothing(t *testing.T) {
+	s, c, q := memory(t), &clock{t0}, &queue{}
+	d := deps(c, q, &pool{})
+	d.Snapshot = func(context.Context) ([]machine.Facts, error) {
+		return nil, fmt.Errorf("%w: ccx vcs pr status exited 1", lanes.ErrUnread)
+	}
+
+	reports, _ := runLoop(t, s, "0.8.0", 1, d, 1)
+
+	equal(t, reports[0].PRs+reports[0].Enqueued, 0)
+	equal(t, len(q.enqueued), 0)
+}
+
+func TestAQueueThatDoesNotAnswerStopsTheMoversAndNeverTheSupervisor(t *testing.T) {
+	s, c := memory(t), &clock{t0}
+
+	reports, _ := runLoop(t, s, "0.8.0", 1, deps(c, &queue{err: errors.New("git fetch exited 128")}, &pool{}, facts(1, nil)), 2)
+
+	equal(t, []int{reports[0].PRs, reports[1].PRs}, []int{1, 0})
+	lease, err := s.Lease("d")
+	if err != nil {
+		t.Fatal(err)
+	}
+	equal(t, lease.Generation, int64(1))
+}
+
+func TestAShadowPassActsOnNothingAndUsesItsOwnStore(t *testing.T) {
+	s, shadow, c, q := memory(t), memory(t), &clock{t0}, &queue{}
+	d := deps(c, q, &pool{}, facts(1, nil))
+	d.Movers, d.Shadow = []string{"lanes", "shadow"}, shadow
+	d.Lanes = func(time.Time, int64) (lanes.Outcome, error) { return lanes.Outcome{}, nil }
+
+	reports, _ := runLoop(t, s, "0.8.0", 1, d, 1)
+
+	equal(t, reports[0].PRs, 1)
+	equal(t, reports[0].Enqueued, 0)
+	equal(t, len(q.enqueued), 0)
+	position, err := s.Cursor(passedName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	equal(t, position, int64(0))
+	position, err = shadow.Cursor(passedName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	equal(t, position, t0.Unix())
+}
+
+type scripted func(argv []string) (shell.Result, error)
+
+func (s scripted) Run(_ context.Context, c shell.Command) (shell.Result, error) { return s(c.Argv) }
+
+type recordingBus struct{ posted []client.Draft }
+
+func (b *recordingBus) Post(_ context.Context, d client.Draft) (client.Record, error) {
+	b.posted = append(b.posted, d)
+	return client.Record{Seq: 1}, nil
+}
+func (*recordingBus) Tail(context.Context, client.Query) ([]client.Record, error) { return nil, nil }
+func (*recordingBus) Open(context.Context, string, ...string) ([]client.Record, error) {
+	return nil, nil
+}
+func (*recordingBus) Who(context.Context, string) ([]client.Peer, error) { return nil, nil }
+
+func link(t *testing.T, claude, version string) {
+	t.Helper()
+	dir := filepath.Join(claude, "long-running")
+	target := filepath.Join(dir, version)
+	if err := os.MkdirAll(target, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	current := filepath.Join(dir, "current")
+	if err := os.Remove(current); err != nil && !errors.Is(err, os.ErrNotExist) {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, current); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTheSupervisorMovesToANewerInstallUnlessItsReplayGateRefusesIt(t *testing.T) {
+	claude := t.TempDir()
+	codes := map[string]int{"0.7.821": 3, "0.7.822": 0, "0.7.823": 1}
+	var gates []string
+	b := &recordingBus{}
+	env := lanes.Env{Bus: b, Claude: claude, Config: config.Config{Drive: "d1", Repo: "org/repo"}, Runner: scripted(func(argv []string) (shell.Result, error) {
+		version := argv[len(argv)-1]
+		gates = append(gates, strings.Join(argv[1:], " "))
+		code := codes[version]
+		if code == 0 {
+			return shell.Result{}, nil
+		}
+		return shell.Result{Code: code, Stderr: "Traceback: boom"}, &shell.ExitError{Argv: argv, Code: code}
+	})}
+	upgrade := &Upgrade{Env: env, Running: "0.7.820"}
+	var got []bool
+	for _, version := range []string{"0.7.820", "0.7.821", "0.7.821", "0.7.822", "0.7.823"} {
+		link(t, claude, version)
+		stale, err := upgrade.Stale(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, stale)
+	}
+
+	equal(t, got, []bool{false, false, false, true, true})
+	equal(t, gates, []string{
+		"gate --drive d1 --repo org/repo --old 0.7.820 --new 0.7.821",
+		"gate --drive d1 --repo org/repo --old 0.7.820 --new 0.7.822",
+		"gate --drive d1 --repo org/repo --old 0.7.820 --new 0.7.823",
+	})
+	equal(t, len(b.posted), 1)
+	equal(t, b.posted[0].ID, "replay-failed:0.7.823")
+	if !strings.HasSuffix(b.posted[0].Text, "the supervisor moves from 0.7.820 to 0.7.823 unreplayed: its replay gate exited 1: Traceback: boom") {
+		t.Fatal(b.posted[0].Text)
+	}
+}
+
+func TestBehindComparesVersionsNumerically(t *testing.T) {
+	equal(t, Behind("0.7.99", "0.7.100"), true)
+	equal(t, Behind("0.7.100", "0.7.99"), false)
+	equal(t, Behind("0.7.100", "0.7.100"), false)
+	equal(t, Behind("", "0.7.100"), true)
+	equal(t, Behind("0.7.100", ""), false)
+}
+
+func TestReexecRunsTheInstalledBinaryWithTheSameArguments(t *testing.T) {
+	var path string
+	var argv []string
+	err := Reexec("/claude", func(p string, a, _ []string) error {
+		path, argv = p, a
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	equal(t, path, "/claude/long-running/current/bin/lr")
+	equal(t, argv[0], path)
+}
+
+type ctl struct {
+	calls  []string
+	loaded []int
+	writes int
+}
+
+func (c *ctl) run(argv []string) (shell.Result, error) {
+	verb := argv[1]
+	c.calls = append(c.calls, verb)
+	if verb != "print" || len(c.loaded) == 0 {
+		return shell.Result{}, nil
+	}
+	code := c.loaded[0]
+	c.loaded = c.loaded[1:]
+	if code == 0 {
+		return shell.Result{}, nil
+	}
+	return shell.Result{Code: code}, &shell.ExitError{Argv: argv, Code: code}
+}
+
+func agent() Agent {
+	return Agent{Drive: "d1", Config: "/state/lr.json", Binary: "/claude/long-running/current/bin/lr", Path: "/usr/bin:/bin", Log: "/state/supervisor.log"}
+}
+
+func TestAReinstallBootstrapsOnlyOnceLaunchdHasFinishedBootingOutTheOldCopy(t *testing.T) {
+	c := &ctl{loaded: []int{0, 0, 0, 113}}
+	var out bytes.Buffer
+	l := Launchd{Runner: scripted(c.run), Home: t.TempDir(), UID: 501, Sleep: func(time.Duration) {}, Out: &out}
+
+	if err := l.Install(context.Background(), agent()); err != nil {
+		t.Fatal(err)
+	}
+
+	equal(t, c.calls, []string{"print", "bootout", "print", "print", "print", "bootstrap"})
+}
+
+func TestTheSupervisorAgentNamesTheInstallLinkSoAPluginUpdateNeverChangesIt(t *testing.T) {
+	c := &ctl{loaded: []int{113}}
+	var out bytes.Buffer
+	home := t.TempDir()
+	l := Launchd{Runner: scripted(c.run), Home: home, UID: 501, Sleep: func(time.Duration) {}, Out: &out}
+
+	if err := l.Install(context.Background(), agent()); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(home, "Library", "LaunchAgents", Label("d1")+".plist"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(body, []byte("<string>/claude/long-running/current/bin/lr</string>")) {
+		t.Fatal(string(body))
+	}
+	c.calls, c.loaded = nil, []int{0}
+
+	if err := l.Install(context.Background(), agent()); err != nil {
+		t.Fatal(err)
+	}
+
+	equal(t, c.calls, []string{"print"})
+}
+
+func TestUninstallBootsOutAndRemovesThePlist(t *testing.T) {
+	c := &ctl{loaded: []int{113}}
+	var out bytes.Buffer
+	home := t.TempDir()
+	l := Launchd{Runner: scripted(c.run), Home: home, UID: 501, Sleep: func(time.Duration) {}, Out: &out}
+	if err := l.Install(context.Background(), agent()); err != nil {
+		t.Fatal(err)
+	}
+	c.calls, c.loaded = nil, []int{0}
+
+	if err := l.Uninstall(context.Background(), "d1"); err != nil {
+		t.Fatal(err)
+	}
+
+	equal(t, c.calls, []string{"print", "bootout"})
+	if _, err := os.Stat(filepath.Join(home, "Library", "LaunchAgents", Label("d1")+".plist")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("err %v", err)
+	}
+}
+
+func TestThePlistEscapesItsValuesAndCarriesTheKeepAliveAndLimits(t *testing.T) {
+	a := agent()
+	a.Path = "/usr/bin:/a&b"
+
+	body := string(a.Plist())
+
+	for _, want := range []string{"/usr/bin:/a&amp;b", "<key>KeepAlive</key>\n\t<true/>", "<integer>65536</integer>", "<integer>60</integer>", "<string>com.long-running.d1.supervisor</string>", "<string>--config</string>"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("%q not in\n%s", want, body)
+		}
+	}
+}

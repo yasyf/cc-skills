@@ -394,7 +394,8 @@ func foldRegistry(s *store.Store, r Record, row store.Lane, known, fresh bool, a
 		do(s.SetLaneHandoff(name, r.Refs.CCN, flushed))
 		return
 	}
-	if kind == "handoff" && known && row.State != store.LaneRetired && r.Re == 0 {
+	settles := known && !isRoot && row.State != store.LaneRetired
+	if kind == "handoff" && settles && r.Re == 0 {
 		retire(s, name, "stand-down", at)
 		return
 	}
@@ -410,9 +411,9 @@ func foldRegistry(s *store.Store, r Record, row store.Lane, known, fresh bool, a
 	switch {
 	case kind == kindLanded:
 		foldLanded(s, r, at)
-	case kind == "done" && known && row.State != store.LaneRetired:
+	case kind == "done" && settles:
 		retire(s, name, "done", at)
-	case known && row.State != store.LaneRetired && (kind == "stopped" || kind == "stand-down"):
+	case settles && (kind == "stopped" || kind == "stand-down"):
 		retire(s, name, "stand-down", at)
 	case kind == "stand-down" && isRoot:
 		foldRootStandDown(s, r, fresh, at, out)

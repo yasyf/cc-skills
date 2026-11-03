@@ -193,12 +193,69 @@ func act(s *store.Store, d Deps, lane store.Lane, found map[string]Peer, taken m
 }
 
 func escalate(s *store.Store, d Deps, subject, cause string, now time.Time) {
-	if must(s.Escalate(subject, cause, Root, now)) {
-		do(d.Post(Post{Kind: "blocker", To: []string{Root}, Text: fmt.Sprintf("%s %s: %s", pacific(now), subject, cause), LaneRef: strings.TrimPrefix(subject, "lane:")}))
+	lane := strings.TrimPrefix(subject, "lane:")
+	to := Root
+	if lane == Root {
+		to = OwnerRelay
+	}
+	if must(s.Escalate(subject, cause, to, now)) {
+		do(d.Post(Post{Kind: "blocker", To: []string{to}, Text: fmt.Sprintf("%s %s: %s", pacific(now), subject, cause), LaneRef: lane}))
 	}
 }
 
+func relaunchCoordinator(s *store.Store, d Deps, old store.Lane, found map[string]Peer, why string, now time.Time, out *Outcome) {
+	diedFast := old.Reason != "" && now.Sub(old.Since) < strikeWindow
+	if diedFast || !briefExists(old.Brief) {
+		hold(s, Root, why, now)
+		cause := fmt.Sprintf("its brief %s is gone", old.Brief)
+		if diedFast {
+			cause = fmt.Sprintf("it died within %d minutes of its relaunch", int(strikeWindow.Minutes()))
+		}
+		escalate(s, d, "lane:"+Root, fmt.Sprintf("held, not relaunched: %s; it %s", cause, why), now)
+		out.Held = append(out.Held, Root)
+		return
+	}
+	path := filepath.Join(d.Briefs, Root+".brief.md")
+	do(os.MkdirAll(d.Briefs, 0o750))
+	transcript := ""
+	if peer, ok := found[Root]; ok {
+		transcript = d.Transcript(peer.Row)
+	}
+	do(os.WriteFile(path, []byte(must(coordinatorBrief(old, why, d, transcript))), 0o600))
+	do(s.SetLaneState(Root, store.LaneLaunching, now, "", why))
+	must(s.ReleaseWorker(Root))
+	do(d.Launch(Root, old.Model, old.Effort, path))
+	do(d.Post(Post{Kind: "report", To: []string{OwnerRelay}, LaneRef: Root, Text: fmt.Sprintf("%s RELAUNCHED the coordinator: it %s; handoff %s; brief %s", pacific(now), why, or(old.Handoff, "none, the new session writes it"), path)}))
+	out.Relaunched = append(out.Relaunched, Relaunch{Root, Root, why})
+}
+
+func handoffStart(old store.Lane, d Deps, transcript string) string {
+	if old.Handoff != "" {
+		return fmt.Sprintf("Your handoff is `ccn -R %s doc show %s`; read it first.", d.Checkout, old.Handoff)
+	}
+	return fmt.Sprintf("%s left no handoff. Before anything else, spawn one `long-running:lane` subagent, model sonnet, effort xhigh, named `%s-handoff`, from the spawn brief in %s, with transcript %s, reference brief %s, cci drive %s, previous handoff none and drive checkout %s; read the doc it returns.", old.Name, old.Name, d.HandoffBrief, or(transcript, "unknown: find it with cc-transcript list"), old.Brief, d.Drive, d.Checkout)
+}
+
+func coordinatorBrief(old store.Lane, why string, d Deps, transcript string) (string, error) {
+	body, err := os.ReadFile(old.Brief)
+	if err != nil {
+		return "", err
+	}
+	return strings.Join([]string{
+		"Replaces: " + Root,
+		"ccx: place=local",
+		fmt.Sprintf("You are %s, this drive's coordinator, in a new session. The lane supervisor launched you from your brief because the last coordinator session %s.", Root, why),
+		handoffStart(old, d, transcript),
+		"",
+		string(body),
+	}, "\n"), nil
+}
+
 func relaunch(s *store.Store, d Deps, old store.Lane, found map[string]Peer, why string, taken map[string]bool, now time.Time, out *Outcome) {
+	if old.Name == Root {
+		relaunchCoordinator(s, d, old, found, why, now, out)
+		return
+	}
 	for _, name := range slices.Sorted(maps.Keys(found)) {
 		peer := found[name]
 		if alive(&peer, peer.Seen, now) && succeeds(name, old.Name) {
@@ -248,10 +305,7 @@ func successorBrief(old store.Lane, name, why string, d Deps, transcript string)
 		return "", err
 	}
 	drive, checkout := d.Drive, d.Checkout
-	start := fmt.Sprintf("Your handoff is `ccn -R %s doc show %s`; read it first.", checkout, old.Handoff)
-	if old.Handoff == "" {
-		start = fmt.Sprintf("%s left no handoff. Before anything else, spawn one `long-running:lane` subagent, model sonnet, effort xhigh, named `%s-handoff`, from the spawn brief in %s, with transcript %s, reference brief %s, cci drive %s, previous handoff none and drive checkout %s; read the doc it returns.", old.Name, old.Name, d.HandoffBrief, or(transcript, "unknown: find it with cc-transcript list"), old.Brief, drive, checkout)
-	}
+	start := handoffStart(old, d, transcript)
 	owned := "none recorded"
 	if len(old.PRs) > 0 {
 		owned = strings.ReplaceAll(numberList(old.PRs), " ", ", ")

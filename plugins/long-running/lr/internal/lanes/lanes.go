@@ -15,6 +15,7 @@ import (
 const (
 	Self        = "supervisor"
 	Root        = "root"
+	OwnerRelay  = "owner-relay"
 	runner      = "desk-runner"
 	mainLane    = "main"
 	CursorName  = "lanes"
