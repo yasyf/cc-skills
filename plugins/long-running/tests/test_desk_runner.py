@@ -12211,12 +12211,15 @@ def test_two_posters_typing_one_key_for_two_lanes_both_launch_under_their_record
     assert incident(tmp_path, f"desk-lane-{LANE}-2").actions[f"R{second}"].kind == "launch"
 
 
-def test_a_launch_posted_on_another_node_is_keyed_by_the_number_every_node_names_its_record_by(shell, config, tmp_path):
+def test_a_launch_posted_on_another_node_is_keyed_and_withdrawn_by_the_number_every_node_names_its_record_by(shell, config, tmp_path):
     brief = launch_brief(tmp_path)
     orca_pass(shell, config)
     cci_record(shell, to=["orca-desk"], at=actions.stamp(shell.clock), num="#700@8d2775d4", text=f"orca-desk: launch {LANE} NOW opus xhigh brief={brief}")
+    withdraw = cci_record(shell, to=["orca-desk"], at=actions.stamp(shell.clock), text="orca-desk: withdraw R700@8d2775d4")
     orca_pass(shell, config)
-    assert incident(tmp_path, f"desk-lane-{LANE}").actions["R700@8d2775d4"].kind == "launch"
+    assert launches(shell) == []
+    assert incident(tmp_path, f"desk-lane-{LANE}").actions["R700@8d2775d4"].status == "failed"
+    assert escalations(shell) == [f"WITHDRAWN R700@8d2775d4 {LANE}: by inbox@cci#{withdraw}; nothing was launched"]
 
 
 @pytest.mark.parametrize("via", ["inbox", "cli"])

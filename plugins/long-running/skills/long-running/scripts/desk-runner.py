@@ -1183,7 +1183,7 @@ FABLE_MODEL = re.compile(r"(^|[-_.])fable([-_.0-9]|$)", re.IGNORECASE)
 LAUNCHER = SCRIPTS.parents[2] / "bin" / "orca-launch.sh"
 HOLD_SPEC = re.compile(r"^ (?P<slug>[a-z0-9][a-z0-9.-]*) owner=(?P<owner>[\w.-]+) :: (?P<what>\S.*)$")
 UNHOLD_SPEC = re.compile(r"^ (?P<slug>[a-z0-9][a-z0-9.-]*)$")
-WITHDRAW_SPEC = re.compile(r"^ (?P<target>[\w.:-]+)$")
+WITHDRAW_SPEC = re.compile(r"^ (?P<target>[\w.:@-]+)$")
 LAUNCH_KEY = re.compile(rf"R\d+(?:@\w+)?|unfixed:[\w-]+:\d+|inbox@\S+|{CLOCK}:ctx_[\w-]+")
 WITHDRAWN = "withdrawn"
 WITHDRAW_PENDING = "withdraw-pending"
