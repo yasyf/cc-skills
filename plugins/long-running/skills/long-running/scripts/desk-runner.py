@@ -40,11 +40,12 @@ already holding another answer, goes at once to the dispatch as a message on the
 instead. A send with a receipt is never resent,
 and a send to a dispatch that is no longer the lane's live one logs `UNVERIFIABLE`
 and is never resent. An accepted relay to a lane with no live dispatch and no
-launch in flight fails at once as `RELAY-FAILED`, unless a send already delivered it;
-a delivered relay is never failed or reported again. A dispatch that refused a send as not
+launch in flight goes at once to the lane as a cci record addressed to it, which the
+lane's next dispatch reads from its cursor, unless a send already delivered it; no such
+relay fails (root #349350), and a delivered relay is never posted or reported again. A dispatch that refused a send as not
 active is no live dispatch, so no relay is sent to it twice. A line the landing desk routes
-about a PR, a blocker, a bot-held review or a conflict, reaches a lane with no live dispatch as
-a cci `blocker` record addressed to the lane instead (root #267150). A lane the root stood down,
+about a PR, a blocker, a bot-held review or a conflict, goes as a `blocker` (root #267150), and
+any other relay as a `note`, logged `RELAYED` with the record's number. A lane the root stood down,
 with a `stand-down` or `stopped` addressed to it since its latest launch, is relayed nothing
 and none of its release builds is claimed (root #267130). A relay about a PR at a newer head,
 while the lane has not answered the one it was sent about an earlier head, folds into
@@ -76,7 +77,7 @@ of Orca's agentWait; the sweep reads its last poll and escalates `PROMPT-WATCH-D
 while that poll is over two minutes old. It also reads the drive's cci records addressed to `orca-desk`,
 its only source of orders, and turns each new `orca-desk: relay to <lane>[, <lane>…][ and <lane>]: <text>` line into one relay
 per lane, a reply to the lane's latest open question no other reply claims, logged once as
-`RELAYED` or `RELAY-FAILED`. Each new `orca-desk: launch <lane> [NOW] <model> <effort> [role=<role>] brief=<absolute path>`
+`RELAYED` or `RELAY-FAILED`; to a lane with no live dispatch it is a plain relay delivered as above. Each new `orca-desk: launch <lane> [NOW] <model> <effort> [role=<role>] brief=<absolute path>`
 line is the `launch` command under its key, `NOW` meaning `--owner-directed` and `role=` meaning `--role`, valid for
 fifteen minutes from its record's time, or for the longest of the runner's last ten passes when that is longer: a `launch`
 or `incident` line read later launches nothing and logs `LAUNCH-EXPIRED` naming both, so a backlog replayed after an
@@ -2871,18 +2872,18 @@ class Runner:
             self.relay_to(at, key, lane, parsed["text"])
 
     def relay_to(self, at: str, key: str, lane: str, text: str, question: str | None = None) -> None:
-        """Accept what `relay` accepts for one lane: a reply to `question`, or to the current dispatch's latest open question no other reply claims when none is named, else a plain relay."""
+        """Accept what `relay` accepts for one lane: a reply to `question`, or to the current dispatch's latest open question no other reply claims when none is named, else a plain relay. A lane with no live dispatch gets a plain relay, which `deliver_relays` routes (root #349350)."""
         log = f"escalation:relay:{at}:{lane}"
         dispatch = self.orca.show(lane)
-        if not dispatch or dispatch.status in INACTIVE:
-            self.record(log, f"RELAY-FAILED {key} {lane}: no live dispatch{f' ({dispatch.id} is {dispatch.status})' if dispatch else ''}")
-            return
-        question = self.unclaimed(key, lane, self.open_questions(dispatch)) if question is None else question
+        live = dispatch and dispatch.status not in INACTIVE
+        if question is None:
+            question = self.unclaimed(key, lane, self.open_questions(dispatch)) if live else ""
         action, created = self.accept_relay(key, lane, text, question, self.config.start_minutes)
         if not created and json.loads(action.target)["text"] != text:
             self.record(log, f"RELAY-FAILED {key} {lane}: {key} already holds a different relay to {lane} ({action.status})")
             return
-        self.record(log, f"RELAYED {key} {lane}: {f'reply to question {question} of' if question else 'relay to'} dispatch {dispatch.id}")
+        if live:
+            self.record(log, f"RELAYED {key} {lane}: {f'reply to question {question} of' if question else 'relay to'} dispatch {dispatch.id}")
 
     def launch_line(self, at: str, key: str, rest: str, by: str) -> None:
         """Accept what `launch` accepts, `NOW` meaning `--owner-directed`, once per key and only for a lane with no live dispatch and no launch in flight, remembering `by`, the lane that posted the line, as the one the lane's questions go to."""
@@ -3455,7 +3456,7 @@ class Runner:
         return self.cut_closed(key, clock) or self.cut_answer(clock)
 
     def deliver_relays(self, container: str, lane: str, relays: list[actions.Action]) -> None:
-        """Send each accepted relay to the lane's live dispatch. With none and no launch in flight to bring one, each relay no send delivered goes out as a cci `blocker` to the lane when it is a line about a PR, else fails as RELAY-FAILED now; a stood-down lane's relays fail quietly."""
+        """Send each accepted relay to the lane's live dispatch. With none and no launch in flight to bring one, each relay no send delivered goes to the lane on cci, which its next dispatch reads from its cursor, and is never failed: a line about a PR as a `blocker`, any other as a `note` that logs `RELAYED` naming the record. A stood-down lane's relays fail quietly."""
         try:
             stood_down = self.lane_stood_down(lane)
         except CciTailFailed as failure:
@@ -3479,10 +3480,8 @@ class Runner:
             spec = json.loads(action.target)
             if stood_down:
                 self.book.attempt(container, lambda incident, key=action.action_id: incident.fail(key, reason))
-            elif spec.get("pr"):
-                self.post_relay(container, lane, action, spec)
-            elif self.book.attempt(container, lambda incident, key=action.action_id: incident.fail(key, reason)):
-                self.record(f"escalation:relay:{container}/{action.action_id}", f"RELAY-FAILED {action.action_id} {lane}: {reason}; nothing was relayed")
+            elif (seq := self.post_relay(container, lane, action, spec)) and not spec.get("pr"):
+                self.record(f"escalation:relay:{container}/{action.action_id}", f"RELAYED {action.action_id} {lane}: {reason}, so it went to the lane on cci as #{seq}")
 
     def relayable(self, lane: str) -> Dispatch | None:
         """The lane's dispatch while it takes relays: Orca shows it active and it refused no send as not active."""
@@ -3498,11 +3497,14 @@ class Runner:
             return f"no live dispatch ({dispatch.id} is not active)"
         return f"no live dispatch{f' ({dispatch.id} is {dispatch.status})' if dispatch else ''}"
 
-    def post_relay(self, container: str, lane: str, action: actions.Action, spec: dict) -> None:
-        done = self.cci_post("blocker", spec["text"], lane, spec["pr"], f"relay:{container}/{action.action_id}", pr=spec["pr"])
-        if done.code == 0:
-            receipt = {"posted": cci.receipt(done.records[0].seq), "at": self.book.stamp()}
-            self.book.attempt(container, lambda incident, key=action.action_id: (incident.start(key, self.now()), incident.complete(key, receipt)))
+    def post_relay(self, container: str, lane: str, action: actions.Action, spec: dict) -> int:
+        pr = spec.get("pr", "")
+        done = self.cci_post("blocker" if pr else "note", spec["text"], lane, pr or action.action_id, f"relay:{container}/{action.action_id}", pr=pr)
+        if done.code != 0:
+            return 0
+        receipt = {"posted": cci.receipt(done.records[0].seq), "at": self.book.stamp()}
+        self.book.attempt(container, lambda incident, key=action.action_id: (incident.start(key, self.now()), incident.complete(key, receipt)))
+        return done.records[0].seq
 
     def lane_stood_down(self, lane: str) -> str:
         """The root's `stand-down` or `stopped` addressed to the lane since its latest verified launch, as `#<seq>`, or empty."""

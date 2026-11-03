@@ -1229,6 +1229,10 @@ def escalations(shell: FakeShell) -> list[str]:
     return [Path(post["path"]).read_text().splitlines()[0] if "path" in post else post["text"] for post in shell.posts if post["to"] == "root"]
 
 
+def relay_notes(shell: FakeShell) -> dict[tuple[str, str], tuple[int, str]]:
+    return {(post["to"], post["topic"]): (seq, post["text"]) for seq, post in enumerate(shell.posts, 1) if post["kind"] == "note"}
+
+
 def refused_escalations(shell: FakeShell) -> list[str]:
     return [line for line in said(shell) if line.startswith("REFUSED refused:")]
 
@@ -10332,18 +10336,20 @@ def test_a_send_with_no_parseable_reply_is_unverifiable_not_failed(shell, config
     assert send_statuses(tmp_path) == ["unverifiable"]
 
 
-def test_an_accepted_relay_with_no_dispatch_to_reach_fails_at_once_not_at_its_deadline(shell, config, tmp_path):
+def test_an_accepted_relay_with_no_dispatch_to_reach_goes_to_the_lane_on_cci_at_once_not_at_its_deadline(shell, config, tmp_path):
     shell.launch(LANE, "ctx_a", status="completed")
     cli(shell, config, "relay", "--key", "R633", "--lane", LANE, "--text", "use evidence.md", "--reply-to", "msg_q9")
     cli(shell, config, "relay", "--key", "R634", "--lane", "ghost", "--text", "rebase onto dev")
     for _ in range(12):
         orca_pass(shell, config)
         shell.sleep(60)
+    notes = relay_notes(shell)
+    assert {key: text for key, (_, text) in notes.items()} == {(LANE, "R633"): "use evidence.md", ("ghost", "R634"): "rebase onto dev"}
     assert sorted(line for line in escalations(shell) if not line.startswith("RECLAIM")) == [
-        "RELAY-FAILED R633 api-fix: no live dispatch (ctx_a is completed); nothing was relayed",
-        "RELAY-FAILED R634 ghost: no live dispatch; nothing was relayed",
+        f"RELAYED R633 {LANE}: no live dispatch (ctx_a is completed), so it went to the lane on cci as #{notes[LANE, 'R633'][0]}",
+        f"RELAYED R634 ghost: no live dispatch, so it went to the lane on cci as #{notes['ghost', 'R634'][0]}",
     ]
-    assert incident(tmp_path, f"desk-lane-{LANE}").actions["R633"].status == "failed"
+    assert incident(tmp_path, f"desk-lane-{LANE}").actions["R633"].status == "completed"
     assert shell.sends() == [] and replies(shell) == []
 
 
@@ -10384,7 +10390,7 @@ def test_a_landing_line_to_a_lane_with_no_live_dispatch_goes_to_cci(shell, confi
     assert shell.sends() == [] and not [line for line in escalations(shell) if line.startswith("RELAY-FAILED")]
 
 
-def test_a_root_relay_to_a_dispatch_that_refuses_sends_as_inactive_fails_after_one_send(shell, config, tmp_path):
+def test_a_root_relay_to_a_dispatch_that_refuses_sends_as_inactive_goes_to_cci_after_one_send(shell, config, tmp_path):
     shell.launch(LANE, "ctx_a")
     shell.dispatches["ctx_a"]["inactive"] = True
     cli(shell, config, "relay", "--key", "R636", "--lane", LANE, "--text", "rebase onto dev")
@@ -10392,18 +10398,21 @@ def test_a_root_relay_to_a_dispatch_that_refuses_sends_as_inactive_fails_after_o
         orca_pass(shell, config)
         shell.sleep(60)
     assert len(shell.sends()) == 1
-    assert [line for line in escalations(shell) if not line.startswith("RECLAIM")] == [f"RELAY-FAILED R636 {LANE}: no live dispatch (ctx_a is not active); nothing was relayed"]
+    [(seq, text)] = relay_notes(shell).values()
+    assert text == "rebase onto dev"
+    assert [line for line in escalations(shell) if not line.startswith("RECLAIM")] == [f"RELAYED R636 {LANE}: no live dispatch (ctx_a is not active), so it went to the lane on cci as #{seq}"]
 
 
-def test_a_dispatch_orca_answers_is_gone_fails_its_relay(shell, config, tmp_path):
+def test_a_relay_to_a_dispatch_orca_answers_is_gone_goes_to_the_lane_on_cci(shell, config, tmp_path):
     shell.launch(LANE, "ctx_a")
     del shell.dispatches["ctx_a"]
     cli(shell, config, "relay", "--key", "R635", "--lane", LANE, "--text", "rebase onto dev")
     orca_pass(shell, config)
-    assert escalations(shell) == [f"RELAY-FAILED R635 {LANE}: no live dispatch; nothing was relayed"]
+    [(seq, _)] = relay_notes(shell).values()
+    assert escalations(shell) == [f"RELAYED R635 {LANE}: no live dispatch, so it went to the lane on cci as #{seq}"]
 
 
-def test_a_delivered_relay_is_never_failed_or_reported_again_when_its_dispatch_ends(shell, config, tmp_path):
+def test_a_delivered_relay_is_never_posted_or_reported_again_when_its_dispatch_ends(shell, config, tmp_path):
     shell.launch(LANE, "ctx_a")
     cli(shell, config, "relay", "--key", "R437", "--lane", LANE, "--text", "rebase onto dev")
     orca_pass(shell, config)
@@ -10412,9 +10421,11 @@ def test_a_delivered_relay_is_never_failed_or_reported_again_when_its_dispatch_e
     for _ in range(3):
         orca_pass(shell, config)
     container = incident(tmp_path, f"desk-lane-{LANE}")
-    assert (container.actions["R437"].status, container.actions["R440"].status) == ("accepted", "failed")
+    assert (container.actions["R437"].status, container.actions["R440"].status) == ("accepted", "completed")
     assert len(shell.sends()) == 1
-    assert [line for line in escalations(shell) if not line.startswith("RECLAIM")] == [f"RELAY-FAILED R440 {LANE}: no live dispatch (ctx_a is completed); nothing was relayed"]
+    [((lane, topic), (seq, _))] = relay_notes(shell).items()
+    assert (lane, topic) == (LANE, "R440")
+    assert [line for line in escalations(shell) if not line.startswith("RECLAIM")] == [f"RELAYED R440 {LANE}: no live dispatch (ctx_a is completed), so it went to the lane on cci as #{seq}"]
 
 
 def test_a_worker_on_an_unreachable_remote_runtime_stops_no_pass_and_other_lanes_still_get_their_relays(shell, config, tmp_path):
@@ -11863,17 +11874,24 @@ def test_an_inbox_relay_replies_to_the_lanes_latest_open_question(shell, config,
     assert line == f"RELAYED inbox@cci#{seq} {LANE}: reply to question msg_q9 of dispatch ctx_a"
 
 
-def test_an_inbox_relay_to_a_lane_without_a_live_dispatch_fails_visibly(shell, config, tmp_path):
+def test_an_inbox_relay_to_a_lane_without_a_live_dispatch_goes_to_the_lane_on_cci(shell, config, tmp_path):
+    """Root #349350: at 8:59 PM Nov 2 seven inbox relays, such as R85975 to devbox-creative-tester-1 and monitor-sensitivity-1 whose dispatches had failed and cci#349240 to the completed rel12210-secrets-fix, each drew a RELAY-FAILED defect the root could only acknowledge, and no lane got its text."""
     shell.launch(LANE, "ctx_a", status="completed")
+    shell.launch("sprite-lane", "ctx_b", status="failed")
     orca_pass(shell, config)
-    desk_orders(shell, f"R3 orca-desk: relay to {LANE} and ghost: G332")
+    desk_orders(shell, f"R3 orca-desk: relay to {LANE}, sprite-lane and ghost: G332")
+    seq = desk_orders(shell, f"- orca-desk: relay to {LANE}: G333")
     orca_pass(shell, config)
     orca_pass(shell, config)
     assert shell.sends() == [] and replies(shell) == []
-    assert [line for line in escalations(shell) if line.startswith("RELAY")] == [
-        f"RELAY-FAILED R3 {LANE}: no live dispatch (ctx_a is completed)",
-        "RELAY-FAILED R3 ghost: no live dispatch",
-    ]
+    notes = relay_notes(shell)
+    assert {key: text for key, (_, text) in notes.items()} == {(LANE, "R3"): "G332", ("sprite-lane", "R3"): "G332", ("ghost", "R3"): "G332", (LANE, f"inbox@cci#{seq}"): "G333"}
+    assert sorted(line for line in escalations(shell) if line.startswith("RELAY")) == sorted([
+        f"RELAYED R3 {LANE}: no live dispatch (ctx_a is completed), so it went to the lane on cci as #{notes[LANE, 'R3'][0]}",
+        f"RELAYED R3 sprite-lane: no live dispatch (ctx_b is failed), so it went to the lane on cci as #{notes['sprite-lane', 'R3'][0]}",
+        f"RELAYED R3 ghost: no live dispatch, so it went to the lane on cci as #{notes['ghost', 'R3'][0]}",
+        f"RELAYED inbox@cci#{seq} {LANE}: no live dispatch (ctx_a is completed), so it went to the lane on cci as #{notes[LANE, f'inbox@cci#{seq}'][0]}",
+    ])
 
 
 def test_a_relay_line_outside_the_grammar_fails_visibly_and_relays_nothing(shell, config, tmp_path):
