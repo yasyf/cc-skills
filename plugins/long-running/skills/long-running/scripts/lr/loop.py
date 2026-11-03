@@ -1,7 +1,7 @@
 """The supervisor's loop: one leased process per drive, one pass per tick, exit when the lease moves.
 
 Every tick renews the lease under the generation it was started with, beats as a worker,
-runs the lanes mover, and, every three minutes, reads the facts, runs the pass, hands the
+runs the lanes mover and the drive checks, an unopened alert and an idle fix lane past FIX-LIVE, and, every three minutes, reads the facts, runs the pass, hands the
 pass's actions to the landing mover and its grade items to the grading mover; then it sleeps.
 The shadow mover runs the same pass over its own store and acts on nothing. Only the movers the
 config names run, so each one cuts over on its own: a pass opens every item, and only the
@@ -43,6 +43,7 @@ class Deps:
     lane_deps: lanes.Deps | None = None
     stale: Callable[[], bool] = lambda: False
     shadow: Store | None = None
+    checks: tuple[Callable[[datetime], None], ...] = ()
 
 
 @dataclass
@@ -63,6 +64,8 @@ def tick(store: Store, drive: str, generation: int, deps: Deps) -> Tick:
     if acted := "; ".join(f"{name} {', '.join(map(str, values))}" for name, values in vars(moved).items() if values):
         print(f"{stamp(now)} {acted}", flush=True)
     relaunched = len(moved.relaunched)
+    for check in deps.checks:
+        check(now)
     passing = deps.shadow if "shadow" in deps.movers else store
     if not deps.movers & PR_MOVERS or now.timestamp() - passing.cursor(PASSED) < PASS_EVERY.total_seconds():
         return Tick(now, 0, 0, 0, 0, relaunched)
