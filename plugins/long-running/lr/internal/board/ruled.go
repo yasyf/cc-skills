@@ -208,7 +208,6 @@ func sameQuestion(card, asked string) bool {
 }
 
 func (c Cards) spoken(ctx context.Context) ([]Ruling, error) {
-	var said []Ruling
 	var unread []error
 	var answers []struct {
 		ID    string `json:"id"`
@@ -223,19 +222,20 @@ func (c Cards) spoken(ctx context.Context) ([]Ruling, error) {
 	if err != nil {
 		unread = append(unread, fmt.Errorf("his ccn answers were not read: %w", err))
 	}
-	for _, answer := range answers {
-		said = append(said, Ruling{ID: answer.ID, Title: answer.Title, Said: answer.Body, At: answer.At, answer: true})
-	}
 	rows, err := ledger.Register(ctx, c.ccn, c.Ledger, c.Program)
 	if err != nil {
 		unread = append(unread, fmt.Errorf("the register was not read: %w", err))
 	}
-	for _, row := range rows {
-		said = append(said, Ruling{ID: row.Key, Said: row.Fields["words"], At: row.Updated.Format(time.RFC3339), row: row.Fields})
-	}
 	lines, err := client.Tail(ctx, client.Query{Drive: c.Bus, Lanes: []string{lanes.OwnerRelay}, Kinds: []string{kindOwner}})
 	if err != nil {
 		unread = append(unread, fmt.Errorf("his Slack lines were not read: %w", err))
+	}
+	said := make([]Ruling, 0, len(answers)+len(rows)+len(lines))
+	for _, answer := range answers {
+		said = append(said, Ruling{ID: answer.ID, Title: answer.Title, Said: answer.Body, At: answer.At, answer: true})
+	}
+	for _, row := range rows {
+		said = append(said, Ruling{ID: row.Key, Said: row.Fields["words"], At: row.Updated.Format(time.RFC3339), row: row.Fields})
 	}
 	for _, line := range lines {
 		said = append(said, Ruling{ID: fmt.Sprintf("#%d", line.Seq), Title: clip(line.Text), Said: line.Text, At: line.At.Format(time.RFC3339)})
