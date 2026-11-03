@@ -1526,6 +1526,31 @@ def test_the_now_tab_keeps_its_slice_beside_the_now_screen(tmp_path):
     assert json.loads(drive.body(screen_kind("now"))[0])["screen"] == "now"
 
 
+def test_a_screen_route_serves_its_view_and_the_stream_names_only_what_changed(tmp_path):
+    drive = Drive({"board_url": "http://board/p/x"}, None)
+    drive.publish(publishable_model(), tmp_path / "served.json.gz")
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.handler(drive))
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{httpd.server_port}"
+
+    def next_screens(stream):
+        next(line for line in stream if line.startswith(b"event: screens"))
+        return json.loads(stream.readline().removeprefix(b"data: "))["screens"]
+
+    try:
+        assert json.loads(urllib.request.urlopen(f"{base}/api/view/now", timeout=5).read())["screen"] == "now"
+        assert json.loads(urllib.request.urlopen(f"{base}/api/model?tab=now", timeout=5).read())["cut"] is True
+        with pytest.raises(urllib.error.HTTPError) as missing:
+            urllib.request.urlopen(f"{base}/api/view/nope", timeout=5)
+        assert missing.value.code == 404
+        with urllib.request.urlopen(f"{base}/api/stream", timeout=5) as stream:
+            assert "status" in next_screens(stream)
+            drive.publish(publishable_model(steps=[{"title": "Gateway", "state": "Holding"}]), tmp_path / "served.json.gz")
+            assert next_screens(stream) == ["status"]
+    finally:
+        httpd.shutdown()
+
+
 def test_a_curator_waits_for_a_view_built_after_it_asked(monkeypatch, tmp_path):
     drive = Drive({"board_url": "http://board/p/x"}, None)
     drive.live_model, drive.live_at = {"built_at": "old"}, 1.0
