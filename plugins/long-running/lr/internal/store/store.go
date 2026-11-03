@@ -279,7 +279,7 @@ func (s *Store) DeleteFact(repo string, number int, head, kind string) error {
 }
 
 func (s *Store) Facts(repo string, number int, head string) (map[string]string, error) {
-	rows, err := s.db.Query("SELECT kind, value FROM facts WHERE repo = ?1 AND number = ?2 AND length(head) >= 7 AND (substr(?3, 1, length(head)) = head OR substr(head, 1, length(?3)) = ?3) ORDER BY posted, length(head)", repo, number, head)
+	rows, err := s.db.Query("SELECT kind, value FROM facts WHERE repo = ?1 AND number = ?2 AND length(head) >= 7 AND (substr(?3, 1, length(head)) = head OR length(?3) >= 7 AND substr(head, 1, length(?3)) = ?3) ORDER BY posted, length(head)", repo, number, head)
 	found, err := collect(rows, err, func(rows *sql.Rows) ([2]string, error) {
 		var pair [2]string
 		err := rows.Scan(&pair[0], &pair[1])
