@@ -20,7 +20,7 @@ func runDeskSync(t *testing.T, deployment string, sumExit string) deskSyncRun {
 	t.Helper()
 	dir := t.TempDir()
 	home := filepath.Join(dir, "home")
-	if err := os.MkdirAll(filepath.Join(home, ".local", "bin"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(home, ".local", "bin"), 0o750); err != nil {
 		t.Fatal(err)
 	}
 	log := filepath.Join(dir, "log")
@@ -33,7 +33,7 @@ func runDeskSync(t *testing.T, deployment string, sumExit string) deskSyncRun {
 		"runuser":   `echo "runuser $*" >>"$LOG"; if [ "$4" = install ]; then ls -ld "$(dirname "$7")" >>"$LOG"; fi`,
 		"systemctl": `echo "systemctl $*" >>"$LOG"`,
 	} {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte("#!/bin/bash\n"+body+"\n"), 0o755); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("#!/bin/bash\n"+body+"\n"), 0o700); err != nil { //nolint:gosec // the stub has to execute
 			t.Fatal(err)
 		}
 	}
