@@ -50,11 +50,11 @@ function nowScreen() {
     <p class="nw-sub">Written from the drive's records at ${clock(b.at)}. <button class="linkish" data-toggle="nw-why">Why this sentence ›</button></p>
     ${state.open.has('nw-why') ? `<ul class="nw-why">${b.because.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
     ${notLive().length ? `<p class="nw-sub nw-notlive">${notLive().length} failure${notLive().length === 1 ? '' : 's'} with no live fix yet, listed under What failed.</p>` : ''}
-    ${diagramSlot()}
-    ${fyiFeed()}
     <section><h2 class="nw-h">Overall progress</h2>${view('progress') === 'compact' ? compact(b) : journey(b)}</section>
+    ${fyiFeed()}
     ${liveFeed(b)}
     ${preventions()}
+    ${diagramSlot()}
   </div>`;
   lastPaint.events = lastPaint.next;
   lastPaint.next = new Map();
