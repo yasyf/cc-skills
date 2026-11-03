@@ -12,6 +12,8 @@ Spawn one `alerts-desk` beside the landing-desk as `long-running:lane`, model so
 
 **Open the incident in the same turn.** Each alert is P0 for the root. When the runner's `INCIDENT` line for a desk launch arrives, or the root judges a reported transition an incident, the root opens the incident with `incident.py open --kind alert --target <monitor's target>`, adopting any desk-launched fix lane with `--adopt fix=<lane>`, and starts `incident.py run` in that turn with no verdict gate (`reference/active-alert-brief.md`, SKILL.md R16). When posting individual cci records to `orca-desk` such as an evidence-lane launch or a fence, send one action per record; the runner logs `LAUNCH-FAILED` for a record that chains launches or a fence. While the alert is unresolved, the monitor's targets stay fenced from deploys, applies, releases, and enqueues into its `release-target:*` targets; the fence never blocks the fix lane's own apply under R16. A recovery line or a diagnosis clearing the alert lifts the fence; a mute does not resolve it.
 
+**An alert nobody opens raises itself.** With `alert_channels` set in the drive's `lr.json`, the supervisor reads those channels every tick, and a Datadog or Sentry alert no `incident` record names three minutes after it fired posts one `ALERT-UNOPENED` blocker to root naming it. Root opens the incident on sight, with no verdict first.
+
 **Manage the monitors file and desk inbox without respawning.** The root owns the monitors file, with one `--tag <glob>` or `--id <monitor id>` per line, and rewrites it to change the set; the desk re-reads it on its next watch rerun while keeping its state file, identity, and session. The root addresses the desk over the cci bus with `cci post --drive <drive> --lane root --kind go --to alerts-desk --text "<ruling>"`, never by `SendMessage` (`reference/bus-contracts.md` I4). Pages in on-call channels during a drive release reach the root from the orca runner, not this desk (`reference/release-lanes.md`).
 
 ## Spawn brief
@@ -70,7 +72,10 @@ On each printed line, in the same turn:
      `dd-<id>-fix` lane is already live, No Data alone, and recovery. To launch,
      post one record to the orca desk:
      `cci post --drive <drive> --lane alerts-desk --kind go --to orca-desk --text 'orca-desk: incident dd-<id> <link> reported=<HH:MM> :: <what fired>'`,
-     where `reported` is the transition's Pacific time from `at`.
+     where `reported` is the transition's Pacific time from `at`. In the same turn,
+     post the incident record that names it, so the supervisor raises no
+     `ALERT-UNOPENED` for it:
+     `cci post --drive <drive> --lane alerts-desk --kind incident --to root --url <link> --text 'dd-<id> <what fired>'`
      When a log entry on the monitor's target explains the transition, launch
      nothing and quote the entry in the report; a release on the target never
      explains a smoke team or release check failing, it is the first suspect.

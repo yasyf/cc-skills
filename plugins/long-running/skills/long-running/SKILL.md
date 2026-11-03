@@ -401,9 +401,10 @@ out while a known fix for the last failure is still open.
 
 Incidents are the exception: a release whose purpose is landing an incident fix is pre-authorized end to end across its
 start, every approval step and its migrations, starts real at once with no dry run, and
-is the smallest release that carries the fix. Its apply stays bounded by zero deletes and zero
-replaces with counts reported; a delete or replace goes to the owner. Release lanes are
-in [reference/release-lanes.md](reference/release-lanes.md).
+is the smallest release that carries the fix. A release the owner ordered is pre-authorized the
+same way: its lane approves every approval step itself and counts the deletes and replaces it
+approved in its done line, and only a delete or replace that neither the plan nor the order names
+goes to the owner. Release lanes are in [reference/release-lanes.md](reference/release-lanes.md).
 
 **R12. Route every red at once.** Every `STALLED-RED` line goes to its owning lane in the
 same turn with a 15-minute deadline. A red with no live owner gets a new lane at once,
@@ -465,8 +466,9 @@ include a Datadog monitor, a Sentry alert, an `#outage` report, an on-call page,
 CI or review pipeline, an alert or breakage link from the owner, and an `incident` record
 from ai-oncall's feed. They also include a runner `PAGE` record, a record saying customers are failing or
 about to fail from a change already moving, a failing release smoke team, a red dev build, and
-a failing release check. Each is P0 from the moment it is seen, with no owner round-trip
-and no wait on ai-oncall. That turn, before anything else, the root runs
+a failing release check, and a supervisor `ALERT-UNOPENED` blocker. Each is P0 from the moment
+it is seen, with no owner round-trip and no wait on ai-oncall: the root opens the incident on
+sight. That turn, before anything else, the root runs
 `incident.py open` with the owner's grants and starts `incident.py run` in the
 background. The executor then owns the incident through its final reply, covering the fix and
 evidence lanes, comms, clocks, release, and recovery.

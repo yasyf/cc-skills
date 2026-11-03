@@ -1,7 +1,7 @@
 """The supervisor's loop: one leased process per drive, one pass per tick, exit when the lease moves.
 
 Every tick renews the lease under the generation it was started with, beats as a worker,
-runs the lanes mover, then reads the facts, runs the pass, hands the pass's actions to the
+runs the lanes mover and the drive checks, an unopened alert and an idle fix lane past FIX-LIVE, then reads the facts, runs the pass, hands the pass's actions to the
 landing mover and its grade items to the grading mover, and sleeps. Only the movers the
 config names run, so each one cuts over on its own. A renewal that finds a newer generation ends the
 loop on that tick, so two supervisors never act at once and an install that starts the
@@ -36,6 +36,7 @@ class Deps:
     pool: grading.Pool | None = None
     lane_deps: lanes.Deps | None = None
     stale: Callable[[], bool] = lambda: False
+    checks: tuple[Callable[[datetime], None], ...] = ()
 
 
 @dataclass
@@ -56,6 +57,8 @@ def tick(store: Store, drive: str, generation: int, deps: Deps) -> Tick:
     if acted := "; ".join(f"{name} {', '.join(map(str, values))}" for name, values in vars(moved).items() if values):
         print(f"{stamp(now)} {acted}", flush=True)
     relaunched = len(moved.relaunched)
+    for check in deps.checks:
+        check(now)
     if not deps.movers & {"landing", "grading"}:
         return Tick(now, 0, 0, 0, 0, relaunched)
     snapshot = list(deps.snapshot())

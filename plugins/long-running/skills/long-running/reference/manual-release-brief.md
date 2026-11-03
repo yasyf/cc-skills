@@ -28,8 +28,11 @@ Do, in order:
    post `--kind fix-live --target {component} --build <url>` with
    `RELEASED {component} <version> (<build>)` as its text.
 
-Never ask the owner anything; a refusal you cannot get past goes to root as a
-`blocker` with the command and its output.
+Approve every approval step of this release yourself: its deletes, replaces and
+migrations the plan names are no second ask, and the `fix-live` text counts each
+delete and replace you approved. Never cancel it mid-apply. Never ask the owner
+anything; a refusal you cannot get past goes to root as a `blocker` with the
+command and its output.
 
 Scale: no N; this lane cuts a release and writes no code.
 

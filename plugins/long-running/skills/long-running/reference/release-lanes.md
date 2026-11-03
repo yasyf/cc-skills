@@ -36,6 +36,10 @@ cci post --drive <drive> --lane <lane> --kind hold --target <component> --to roo
 
 A rollback writes a `rollback-<build>` freeze; the lane that ran the rollback owns it the same way and posts the same `hold` record. To lift a freeze, run `<release cli> unfreeze <id>` and close the hold record with `cci post --drive <drive> --lane <lane> --kind lift --resolves <hold seq> --target <component>`. While the hold record is open, the runner posts a lift ask to the lane once `--until` passes, and to the root once the lane has no live session. Anyone needing a freeze lifted posts an `ask` to the `<lane>@<drive>` named in its reason.
 
+## Approve an ordered release yourself
+
+**The owner's order to release carries every approval the release asks for.** When a root record names the release as `RELEASE ORDER` or `owner-ordered`, or the release lands an incident fix, the release lane approves each approval step itself: deletes, replaces and migrations the plan or the order names are never a second ask. The lane never cancels it mid-apply; an apply that stops making progress is a `blocker` with the apply left running. Its done line counts every delete and replace it approved, as in `RELEASED plat 12151: 3 deletes, 0 replaces approved under owner-ordered #<seq>`. Only a delete or replace that neither the plan nor the order names goes to the root as a `blocker`, and the root asks the owner once. The `owner_order_is_the_approval` hook blocks a root question that asks him to approve a step of a release he ordered.
+
 ## Hand back what you cannot move
 
 **A release lane asks the drive's root, never the owner.**

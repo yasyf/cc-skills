@@ -2,7 +2,8 @@
 
 The file names the repository, the drive, the checkout the supervisor lands from, the drive
 author and label that admit a PR, the movers the supervisor runs, the Orca run its lanes
-launch into, and the box the graders run on. Any other key is refused by name, so a list of
+launch into, the box the graders run on, and the Slack channels, comma-separated, whose
+Datadog and Sentry alerts the supervisor holds to an incident record. Any other key is refused by name, so a list of
 desks or workers in the config cannot collide with the ones that register. `movers` has no
 default: each mover cuts over when the file names it.
 """
@@ -26,6 +27,7 @@ class Config:
     movers: tuple[str, ...]
     orca_run: str = ""
     remote_box: str = ""
+    alert_channels: str = ""
 
 
 class BadConfig(ValueError):
