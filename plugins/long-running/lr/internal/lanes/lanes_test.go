@@ -1539,6 +1539,19 @@ func TestALaneWhoseOrcaWorkerSucceededByItsOutcomeLineIsRetired(t *testing.T) {
 	equal(t, row(t, s, lane2).RetiredBy, "worker-done")
 }
 
+func TestAnOrcaWorkerThatSucceededIsRetiredBeforeItsOutcomeLineArrives(t *testing.T) {
+	s := memory(t)
+	f := adopted(t, s, writeBrief(t), "")
+	finished := who(lane2, false, t0.Add(-mins(20)))
+	finished.Succeeded = true
+	f.peers = []Row{finished}
+
+	out := tick(t, s, f, t0)
+
+	equal(t, len(out.Relaunched), 0)
+	equal(t, row(t, s, lane2).RetiredBy, retiredWorkerDone)
+}
+
 func TestALaneWhoseOrcaWorkerFailedStillRelaunches(t *testing.T) {
 	s := memory(t)
 	f := adopted(t, s, writeBrief(t), "")

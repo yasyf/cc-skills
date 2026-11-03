@@ -37,6 +37,11 @@ const (
 	lrLaneEnv   = "LR_LANE"
 )
 
+const (
+	retiredWorkerDone = "worker-done"
+	workerSucceeded   = "succeeded"
+)
+
 var sessionIdentity = []string{"CCI_AGENT_ID", "CCI_LANE", "CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID"}
 
 func Identity(lane string) []string {
@@ -285,6 +290,7 @@ type Row struct {
 	StoodDown bool      `json:"stood_down,omitempty"`
 	Roster    string    `json:"roster,omitempty"`
 	Dispatch  string    `json:"dispatch,omitempty"`
+	Succeeded bool      `json:"succeeded,omitempty"`
 }
 
 type Peer struct {

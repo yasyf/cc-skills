@@ -354,11 +354,11 @@ func (c *SpriteStops) Check(ctx context.Context, now time.Time) error {
 	return nil
 }
 
-func endedBecause(lane store.Lane, dispatch string, statuses map[string]string) string {
-	status, known := statuses[dispatch]
+func endedBecause(lane store.Lane, dispatch string, statuses map[string]dispatchRead) string {
+	read, known := statuses[dispatch]
 	switch {
-	case known && slices.Contains(settledDispatch, status):
-		return fmt.Sprintf("its dispatch %s is %s", dispatch, status)
+	case known && slices.Contains(settledDispatch, read.Status):
+		return fmt.Sprintf("its dispatch %s is %s", dispatch, read.Status)
 	case !known && (lane.RetiredBy == "done" || lane.RetiredBy == "withdrawn"):
 		return "it was retired by " + lane.RetiredBy
 	}

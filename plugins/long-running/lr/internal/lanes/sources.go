@@ -254,11 +254,11 @@ func (e Env) orcaRows(ctx context.Context, names []string) ([]Row, error) {
 	slices.Sort(lanes)
 	var rows []Row
 	for _, lane := range lanes {
-		status, known := statuses[dispatches[lane]]
+		read, known := statuses[dispatches[lane]]
 		if !known {
 			continue
 		}
-		live := !slices.Contains(settledDispatch, status)
+		live := !slices.Contains(settledDispatch, read.Status)
 		seen := e.Now().UTC()
 		if !live {
 			info, err := os.Stat(filepath.Join(receipts, lane+".json"))
@@ -267,13 +267,18 @@ func (e Env) orcaRows(ctx context.Context, names []string) ([]Row, error) {
 			}
 			seen = info.ModTime().UTC()
 		}
-		rows = append(rows, Row{Lane: lane, Live: live, SeenAt: seen, Dispatch: dispatches[lane]})
+		rows = append(rows, Row{Lane: lane, Live: live, SeenAt: seen, Dispatch: dispatches[lane], Succeeded: read.Worker == workerSucceeded})
 	}
 	return rows, nil
 }
 
-func (e Env) dispatchStatuses(ctx context.Context) (map[string]string, error) {
-	statuses := map[string]string{}
+type dispatchRead struct {
+	Status string
+	Worker string
+}
+
+func (e Env) dispatchStatuses(ctx context.Context) (map[string]dispatchRead, error) {
+	statuses := map[string]dispatchRead{}
 	var cursor []string
 	for {
 		argv := append([]string{"orca", "orchestration", "worker-list", "--run", e.Config.OrcaRun, "--include-remote", "--limit", "100"}, cursor...)
@@ -288,6 +293,7 @@ func (e Env) dispatchStatuses(ctx context.Context) (map[string]string, error) {
 				Workers []struct {
 					DispatchID     string `json:"dispatchId"`
 					DispatchStatus string `json:"dispatchStatus"`
+					WorkerState    string `json:"workerState"`
 				} `json:"workers"`
 				Page struct {
 					NextCursor string `json:"nextCursor"`
@@ -301,7 +307,7 @@ func (e Env) dispatchStatuses(ctx context.Context) (map[string]string, error) {
 			return nil, fmt.Errorf("%w: orca worker-list: %v", ErrUnread, page.Error)
 		}
 		for _, worker := range page.Result.Workers {
-			statuses[worker.DispatchID] = worker.DispatchStatus
+			statuses[worker.DispatchID] = dispatchRead{worker.DispatchStatus, worker.WorkerState}
 		}
 		if page.Result.Page.NextCursor == "" {
 			return statuses, nil
