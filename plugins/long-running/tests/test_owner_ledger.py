@@ -165,7 +165,7 @@ def test_an_owner_slack_dm_adds_one_row_with_its_slack_time(communicator: Window
     assert communicator.rows() == ["| m1 | Oct 27 8:53 PM | Meant to approve 43807 |  | open |"]
 
 
-@pytest.mark.parametrize("fields", [{"user": "U01OTHER"}, {"from_claude": True}, {"kind": "thread"}])
+@pytest.mark.parametrize("fields", [{"user": "U01OTHER"}, {"from_claude": True}, {"channel_id": "C0TEAM0001"}])
 def test_a_slack_message_that_is_not_the_owners_dm_adds_no_row(communicator: Window, fields: dict) -> None:
     communicator.queued(slack_dm(**fields))
 
