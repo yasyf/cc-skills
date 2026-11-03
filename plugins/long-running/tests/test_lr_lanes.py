@@ -1106,3 +1106,84 @@ def test_a_lane_whose_orca_worker_failed_still_relaunches(tmp_path, brief):
     out = lanes.tick(store, fake.deps, T0, 1)
 
     assert [old for old, _, _ in out.relaunched] == ["conflicts-2"]
+
+
+def standing_brief(tmp_path: Path, name: str = "board-refresher-6") -> Path:
+    path = tmp_path / f"{name}.brief.md"
+    path.write_text(f"# {name}\nRegister slice: lane={name} step=tooling\nStanding: refresh the owner's board every pass\n\nDeliverable: every board row current at its head\n")
+    return path
+
+
+def standing_lane(tmp_path: Path, store: Store, name: str = "board-refresher-6") -> Fake:
+    path = standing_brief(tmp_path, name)
+    fake = Fake(tmp_path, [spawned(1, name, path)], [who(name, True, T0 - timedelta(hours=1))])
+    lanes.tick(store, fake.deps, T0 - timedelta(hours=1), 1)
+    fake.posts.clear()
+    return fake
+
+
+def blockers(fake: Fake) -> list[str]:
+    return [argv[argv.index("--text") + 1] for argv in fake.posts if argv[argv.index("--kind") + 1] == "blocker"]
+
+
+def test_a_standing_lane_done_with_no_successor_reaches_root_once_after_ten_minutes(tmp_path):
+    store = Store.memory()
+    fake = standing_lane(tmp_path, store)
+    fake.feed.append(record(2, "board-refresher-6", "done", T0, "retired"))
+    fake.peers = []
+
+    early = lanes.tick(store, fake.deps, T0 + timedelta(minutes=9), 1)
+    assert early == lanes.Outcome() and blockers(fake) == []
+    lanes.tick(store, fake.deps, T0 + timedelta(minutes=11), 1)
+    lanes.tick(store, fake.deps, T0 + timedelta(minutes=40), 1)
+
+    [blocker] = blockers(fake)
+    assert "standing lane board-refresher-6 (refresh the owner's board every pass) has had no live owner since 10:00 AM" in blocker
+    assert "retired by done" in blocker and str(tmp_path / "board-refresher-6.brief.md") in blocker
+
+
+def test_a_standing_lane_stood_down_for_a_live_successor_raises_nothing(tmp_path):
+    store = Store.memory()
+    fake = standing_lane(tmp_path, store)
+    fake.feed.append(ask(2, "stand-down", "board-refresher-6", T0, successor="board-refresher-7", last_read="1"))
+    fake.peers = [who("board-refresher-7", True, T0 + timedelta(minutes=1))]
+
+    for minutes in (1, 15, 30):
+        lanes.tick(store, fake.deps, T0 + timedelta(minutes=minutes), 1)
+        fake.peers = [who("board-refresher-7", True, T0 + timedelta(minutes=minutes))]
+
+    assert blockers(fake) == [] and store.lane("board-refresher-7").state == "desired"
+
+
+def test_a_standing_lane_dead_while_it_waits_on_root_reaches_root_with_its_brief(tmp_path):
+    store = Store.memory()
+    fake = standing_lane(tmp_path, store)
+    fake.feed.append(record(2, "board-refresher-6", "ask", T0 - timedelta(minutes=30), "which card first?", ("root",)))
+    fake.peers = [who("board-refresher-6", False, T0 - timedelta(minutes=30))]
+
+    lanes.tick(store, fake.deps, T0, 1)
+
+    [blocker] = blockers(fake)
+    assert "is neither live nor heard since 9:30 AM" in blocker and fake.launches == []
+
+
+def test_a_brief_without_a_standing_line_is_never_a_duty(tmp_path, brief):
+    store = Store.memory()
+    fake = adopted(tmp_path, brief, store)
+    fake.feed.append(record(2, "conflicts-2", "done", T0, "finished"))
+    fake.peers = []
+
+    lanes.tick(store, fake.deps, T0 + timedelta(hours=1), 1)
+
+    assert blockers(fake) == []
+
+
+def test_the_liveness_answer_carries_each_lanes_step_duty_and_deliverable_from_its_brief(tmp_path, brief):
+    store = Store.memory()
+    store.want_lane("board-refresher-6", str(standing_brief(tmp_path)), "opus", "xhigh", "lane", "desired", T0)
+    store.want_lane("conflicts-2", str(brief), "opus", "xhigh", "lane", "desired", T0)
+
+    rows = {row["lane"]: row for row in lanes.liveness(store, T0)}
+
+    assert {key: rows["board-refresher-6"][key] for key in ("step", "standing", "deliverable", "brief")} == {"step": "tooling", "standing": "refresh the owner's board every pass", "deliverable": "every board row current at its head", "brief": str(tmp_path / "board-refresher-6.brief.md")}
+    assert (rows["conflicts-2"]["standing"], rows["conflicts-2"]["deliverable"]) == ("", "")

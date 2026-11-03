@@ -460,6 +460,7 @@ def registry_lines(store: Store, now: datetime) -> list[str]:
         f"{lane.name} {lane.state} {'live' if lane.name in live else 'silent'} heard {lanes.pacific(lane.heard) if lane.heard else 'never'} since {lane.since:%H:%MZ} handoff {lane.handoff or '-'} prs {' '.join(f'#{n}' for n in lane.prs) or '-'}"
         + (f" after {lane.predecessor}: {lane.reason}" if lane.predecessor else "")
         + (f" retired by {lane.retired_by}" if lane.retired_by else "")
+        + (f" standing: {duty}" if (duty := lanes.brief_of(lane.brief).standing) else "")
         for lane in store.all_lanes()
     ]
 

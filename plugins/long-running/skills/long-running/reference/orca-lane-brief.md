@@ -149,6 +149,11 @@ Scale: <the N each path this lane changes runs at: chats, teams, sessions, or ru
   successor (`<lane>-<n>` or a `Replaces:` line), and a brief written before the rule pass
   quietly. Both also warn when a judge reads a brief's `Scale:` line as missing the N its
   paths run at.
+Standing: <only for a duty the drive keeps for good, such as a desk, a sweep, or bug
+  hunting: what it keeps doing>. The lane supervisor reads it; once the newest lane on
+  the duty has had no live owner for 10 minutes, root hears one blocker naming the lane
+  and this brief. Stand such a lane down only with a successor. Deleting the line ends
+  the duty.
 Standing rules served: <`#<seq>` ids with their answer ids, each with the owner's
   words and confirmed implications (R19b), or "none">. Your task cites
   them; finishing it never retires them, and no report calls them done.
