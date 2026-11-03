@@ -26,7 +26,6 @@ const (
 	authorityR16      = "R16"
 	authorityAdopt    = "adopted"
 	backupAfter       = 15 * time.Minute
-	landedAfter       = 20 * time.Minute
 	clockFallback     = "-opus"
 	commsDeadline     = 2 * time.Minute
 	syncDeadline      = 10 * time.Minute
@@ -573,17 +572,15 @@ func (r *Runner) writeBrief(ctx context.Context, facts Facts, role string) (stri
 }
 
 func (r *Runner) dispatch(ctx context.Context) error {
-	facts, err := r.facts("repair_pr", "not_ours", "landed_sha", "human_review")
-	if err != nil {
+	facts, err := r.facts("repair_pr", "not_ours")
+	if err != nil || facts.RepairPR != 0 {
 		return err
 	}
-	if facts.RepairPR == 0 {
-		if err := r.launch(ctx, RoleFix); err != nil {
-			return err
-		}
-		if err := r.launch(ctx, RoleEvidence); err != nil {
-			return err
-		}
+	if err := r.launch(ctx, RoleFix); err != nil {
+		return err
+	}
+	if err := r.launch(ctx, RoleEvidence); err != nil {
+		return err
 	}
 	fix, err := r.latest("dispatch:" + RoleFix)
 	if err != nil || fix == nil || fix.Status != ActionVerified {
@@ -593,7 +590,7 @@ func (r *Runner) dispatch(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if facts.NotOurs != "" || !r.overBudget(facts, started) {
+	if facts.NotOurs != "" || r.Now().Sub(started) < backupAfter {
 		return nil
 	}
 	backup, err := r.latest("dispatch:" + RoleBackup)
@@ -611,14 +608,6 @@ func (r *Runner) dispatch(ctx context.Context) error {
 		}
 	}
 	return r.launch(ctx, RoleBackup)
-}
-
-func (r *Runner) overBudget(facts Facts, started time.Time) bool {
-	since := r.Now().Sub(started)
-	if facts.RepairPR == 0 {
-		return since >= backupAfter
-	}
-	return facts.LandedSHA == "" && !facts.HumanReview && since >= landedAfter
 }
 
 func (r *Runner) design(ctx context.Context) error {

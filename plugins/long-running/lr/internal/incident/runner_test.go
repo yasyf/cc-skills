@@ -1349,32 +1349,6 @@ func TestABackupLaunchesWhenAMechanismHasNoPRInFifteenMinutes(t *testing.T) {
 	}
 }
 
-func TestABackupLaunchesWhenTheRepairPRHasNotLandedInTwentyMinutesUnlessAHumanHoldsIt(t *testing.T) {
-	cases := []struct {
-		name   string
-		review bool
-		backup bool
-	}{
-		{"nobody holds it", false, true},
-		{"a human reviews it", true, false},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			h := opened(t)
-			h.fake.data.Repair.LandedAt = h.intake(24 * time.Hour).Format(time.RFC3339)
-			h.drive(h.intake(time.Minute), nil)
-			h.note("repair_pr", h.fake.data.Repair.PR)
-			h.note("human_review", c.review)
-
-			h.drive(h.intake(21*time.Minute), nil)
-
-			if h.launchedBackup() != c.backup {
-				t.Fatalf("launches %v", h.fake.launches)
-			}
-		})
-	}
-}
-
 func TestAnExhaustedBackupTellsRootToStartItInProcess(t *testing.T) {
 	h := opened(t)
 	lane := laneName(h.id, "backup")
