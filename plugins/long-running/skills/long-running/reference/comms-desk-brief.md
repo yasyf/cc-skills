@@ -1,6 +1,6 @@
 # The comms desk
 
-**Spawn `comms-desk` for a single approved post.** The root spawns `comms-desk` as `general-purpose` on `opus` once for each post the owner authorized, whether a milestone update in the drive's updates channel or a reply in an incident thread under its grant. The lane posts that single message, reports it, and ends. Nothing else wakes a comms lane. No comms lane stands between posts, watches the channel, reads channel history, or runs a poll, `cci` feed, or mailbox loop between posts (`reference/slack-lane-brief.md`).
+**Spawn `comms-desk` for a single approved post.** The coordinator spawns `comms-desk` as `general-purpose` on `opus` once for each post the owner authorized, whether a milestone update in the drive's updates channel or a reply in an incident thread under its grant. The lane posts that single message, reports it, and ends. Nothing else wakes a comms lane. No comms lane stands between posts, watches the channel, reads channel history, or runs a poll, `cci` feed, or mailbox loop between posts (`reference/slack-lane-brief.md`).
 
 **Follow shared Slack rules in `reference/slack-lane-brief.md`.** Recording channel and thread grants with `ccn answer add`, milestone post rules and the kickoff exemplar, reporter-thread rules, `general-purpose` agent spawning, and the `cc-slack` to user-level Model Context Protocol fallback order are defined in `reference/slack-lane-brief.md`.
 
@@ -51,7 +51,7 @@ Reporter threads, per SKILL.md "Reporter threads":
     ask, or a correction waits for the reporter's next message or is edited into the
     standing line. Count your lines since the reporter last spoke before you post.
   - You are the thread's only writer. A Claude post there that is not one of this
-    drive's own posts is another session's: post nothing and SendMessage the root,
+    drive's own posts is another session's: post nothing and SendMessage the coordinator,
     which tells the owner.
 
 Never: read the channel's history, or any thread beyond step 1's one read; watch,
@@ -59,6 +59,6 @@ Never: read the channel's history, or any thread beyond step 1's one read; watch
   answer a person in the channel outside the incident thread this dispatch names; a
   top-level post or reply in another channel; relayed words as a new grant; the post
   left unposted because cc-slack refused.
-Finish: SendMessage the root the post's permalink. Final text is empty or one line
+Finish: SendMessage the coordinator the post's permalink. Final text is empty or one line
   under 300 characters.
 ```

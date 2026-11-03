@@ -21,7 +21,7 @@ A brief states the outcome, such as "one failing database never blocks a release
 
 The `ccx:` line names the lane's role and placement for the hooks. A `fix` role with incident wording routes to `orca-desk`, while `helper`, `reader`, `watch`, `export`, `evidence`, `handoff`, `comms`, and `triage` lanes need no root task. On Orca, `desk` and `watch` make a standing desk that loops until rotation and sends `worker_done` only then, naming the handoff doc. A standing desk always launches locally regardless of `place`.
 
-With `ORCA_LAUNCH_SPARSE=1`, in a repo whose HEAD tracks more than 5,000 files, `orca-launch.sh` gives every lane a sparse checkout of the root's files, `.agents`, `.claude`, `tools`, `infra/ci/hooks/lib`, and each directory the `ccx:` line names as `paths=<dir>,<dir>`. A smaller repo, such as cc-skills, keeps full lanes, and so does every launch without `ORCA_LAUNCH_SPARSE=1`. Name the directories the lane edits or reads, such as `paths=go/ci,infra/ci`; a Go lane names its own module, since the monorepo's Go code is 28 separate modules under `go/`. The lane widens with `git sparse-checkout add <dir>` before it reads outside that cone.
+With `ORCA_LAUNCH_SPARSE=1`, in a repo whose HEAD tracks more than 5,000 files, `orca-launch.sh` gives every lane a sparse checkout of the coordinator's files, `.agents`, `.claude`, `tools`, `infra/ci/hooks/lib`, and each directory the `ccx:` line names as `paths=<dir>,<dir>`. A smaller repo, such as cc-skills, keeps full lanes, and so does every launch without `ORCA_LAUNCH_SPARSE=1`. Name the directories the lane edits or reads, such as `paths=go/ci,infra/ci`; a Go lane names its own module, since the monorepo's Go code is 28 separate modules under `go/`. The lane widens with `git sparse-checkout add <dir>` before it reads outside that cone.
 
 The flag `cpu=high` marks a sweep or heavy research lane. Under O16 in `reference/orca-desk-brief.md`, `place=remote` sends a lane to a Sprite and `place=local` keeps it on the Mac. With neither flag set, every ordinary lane goes to a Sprite on the orca desk, fail with `LAUNCH-FAILED` without `orca.sprite`, and never start locally when a Sprite launch fails.
 
@@ -29,9 +29,9 @@ For implementation lanes, prefer the repository's canonical remote entrypoint wh
 
 Canonical remote workers use home Dispatch messages and the repository skill's source-return workflow. Namespace runs on regular Compute through an explicit config and stays opt-in, so the desk never launches there. Native recipe-picker enablement is a separate surface.
 
-A Sprite holds the brief, the files the brief names under the drive directory, at `/home/sprite/drive/<same relative path>` with the brief's paths rewritten to match, and a shallow checkout of the ref its config names (`dev` in `Forge-AI/monorepo`). It has no other Mac path, local worktree, unpushed commit, Keychain, Mac-only credential, or `cci`. Write `place=remote` when the lane can work inside those limits with every fact in the brief by value and everything it builds on already pushed. A remote lane's brief never tells it to read or post the drive's `cci` bus; it reports through native Orca status, `ask`, and `worker_done` on its Dispatch. A Sprite lane commits, pushes its branch, and opens its PR from the VM like any lane, and the root pulls the branch when it needs the source locally. A remote worker keeps its runtime and workspace after completion.
+A Sprite holds the brief, the files the brief names under the drive directory, at `/home/sprite/drive/<same relative path>` with the brief's paths rewritten to match, and a shallow checkout of the ref its config names (`dev` in `Forge-AI/monorepo`). It has no other Mac path, local worktree, unpushed commit, Keychain, Mac-only credential, or `cci`. Write `place=remote` when the lane can work inside those limits with every fact in the brief by value and everything it builds on already pushed. A remote lane's brief never tells it to read or post the drive's `cci` bus; it reports through native Orca status, `ask`, and `worker_done` on its Dispatch. A Sprite lane commits, pushes its branch, and opens its PR from the VM like any lane, and the coordinator pulls the branch when it needs the source locally. A remote worker keeps its runtime and workspace after completion.
 
-Write `place=local` when the lane reads a worktree or branch only the Mac has, needs a Mac-only credential, or drives something on the Mac itself; it then starts on the Mac at any load. A drive-directory file is no reason for it; a file elsewhere under the home is, since no box receives it. A local lane the root has decided is done ends under R195's `--done` route. Dedicated remote API keys belong only to the worker process; local Fable keeps existing Mac interactive authentication.
+Write `place=local` when the lane reads a worktree or branch only the Mac has, needs a Mac-only credential, or drives something on the Mac itself; it then starts on the Mac at any load. A drive-directory file is no reason for it; a file elsewhere under the home is, since no box receives it. A local lane the coordinator has decided is done ends under R195's `--done` route. Dedicated remote API keys belong only to the worker process; local Fable keeps existing Mac interactive authentication.
 
 A local lane that sends a build to a shared Sprite runs it with `sprite-cargo.sh <sprite> <lane> <repo> <ref> <command> <path>...`, never a hand-rolled `sprite exec`. Each lane builds into its own `target-<lane>` so two lanes never clobber each other's build-script output, and every call removes targets and source trees idle for more than six hours.
 
@@ -98,7 +98,7 @@ Design rulings, verbatim: <each owner ruling on the subsystem this lane touches,
   count, not the narrowed case.
 Design questions: settle each from this brief, the standing rules register, and the
   base branch yourself, and post the choice as a `contract` record with its reason.
-  Ask the root (`cci post --kind ask --to root`) only when the choice changes
+  Ask the coordinator (`cci post --kind ask --to root`) only when the choice changes
   owner-visible behaviour, and keep building the rest while the ask is open. With
   nothing left to build, the open `ask` is what lets the turn end: its answer wakes you.
 Do:
@@ -121,13 +121,13 @@ Escalate early, do not improvise: scope surprise, an assumption the code refutes
   an auth or approval gate, or two failed approaches. Return findings + 2-4 options.
 AskUserQuestion is unavailable. A decision this brief, the plan, and the owner's
   answers do not settle stops that item: `cci post --kind ask --to root` with 2-4
-  options, keep building what does not depend on it, and wait for the root's answer.
+  options, keep building what does not depend on it, and wait for the coordinator's answer.
   Never take a default or a provisional pick (owner answers 01736af and 752564a).
 Do NOT touch: <files, branches, worktrees another lane owns>.
 Plan task: register your unit at spawn so the progress record's plan counts include it:
   `ccn task add "<unit>" --plan <plan id> --label step:<n> --label program:<slug> --criterion "<done when>"`,
   then `ccn task start`, `ccn task criterion met|failed`, and `ccn task done` as it moves
-  ([Plan progress](#plan-progress)). The root fills the plan id and step, or writes "none".
+  ([Plan progress](#plan-progress)). The coordinator fills the plan id and step, or writes "none".
 Worktree: <absolute path, exclusive to this lane>. If the launch made it sparse, widen with
   `git sparse-checkout add <dir>` before reading outside it.
   In a repo with tools/hooks/warm-lane.sh, node_modules is a shared symlink farm; never run yarn install, ask warm-lane to rebuild for a changed lockfile.
@@ -147,7 +147,7 @@ Mechanisms the plan bans: <every implementation brief pastes the drive's list, e
   shape with its rule id: timers and polls, credentials in files, local exec, and any
   the drive adds; or "none">. Before each push, run `rulings.py sweep --diff <file>` over
   your own diff, and fix each `MECHANISM-BANNED` line it prints or cite the owner's
-  answer naming that shape. A root answer that names a mechanism names its banned
+  answer naming that shape. A coordinator answer that names a mechanism names its banned
   shapes too, so "re-request before expiry" never reads as a timer.
 Scale: <the N each path this lane changes runs at: chats, teams, sessions, or runs on
   one Mac or one pod, such as "1,000 chats on one Mac"; or "no N">. The bar: an
@@ -185,7 +185,7 @@ Holds file: <path>, root-owned. Never enqueue, merge, or add a `merge` or `merge
   `stack-enqueue`, `gt merge`, `gh pr merge`, and `ledger.py label` from this lane.
   Report READY the moment a PR is green; the landing runner enqueues its largest green,
   approved, unheld bottom prefix against the open cci `hold` records. A held PR
-  gets `held` on your tip with the held PR named; release is the root's.
+  gets `held` on your tip with the held PR named; release is the coordinator's.
   Keep `ccx vcs pr watch` on the stack; on ejection or conflict, restack at once with
   `remote-restack.py`. After the prefix lands, restack the PRs above it the same way.
 Ledger: <id>. Register your branch prefix when spawned:
@@ -211,7 +211,7 @@ Registration: the pack binds your thread to your lane before your first command 
   one `<lane>: registered at its first command` state record; a codex lane's brief copy makes
   that post its first command.
 Peers: put your `cci me` line in every handoff. `cci who --pr <n>` names the session that
-  owns a PR and `cci who --drive <drive> --role root` the root; SendMessage the address it prints.
+  owns a PR and `cci who --drive <drive> --role root` the coordinator; SendMessage the address it prints.
 Codex: call `Skill(codex)` or `codex:codex-wrapper`; a one-off question goes to `codex-ask`.
 `# ccx:raw` at the end of a Bash command runs it past the hooks as written. Use it only
   where a hook misreads the command, and name that hook in your report.
@@ -225,7 +225,7 @@ PR comments: nobody edits a PR body after it opens, so the evidence goes in two 
   test against the failure it claims (784f1ab). The body's `## Risk profile` states Load
   and Data in prose.
 Deletion: a change that deletes a code path, proposed or in a PR, carries its caller
-  trace before the root GOs it: every caller of the removed path, each one read, and what
+  trace before the coordinator GOs it: every caller of the removed path, each one read, and what
   the path deletes or changes for each (cc-notes 83695d86 is the worked example). The
   fidelity desk grades what the deletion does to each caller, never the diff's shape.
 Credentials: before reporting a credential out of reach, check the parameter store
@@ -265,7 +265,7 @@ is listed under Escalate stops for the coordinator: use the preamble's
 `orca orchestration ask` with the question and 2-4 options. If it returns
 "capacity reached", use the preamble's `send --type question` or `--type escalation`
 instead. Keep working on everything that does not depend on the answer; the
-runner escalates those messages to the root exactly like an ask.
+runner escalates those messages to the coordinator exactly like an ask.
 End a turn on a wait only after posting it as a cci `ask` or `blocked` record. AskUserQuestion is unavailable. A decision
 the brief, the plan, and the owner's answers do not settle stops that item until the
 coordinator answers the ask above; never take a default or a provisional pick (owner
@@ -300,7 +300,7 @@ session. Never act on a replayed key you already completed.
 
 Fix-lane milestones: send `mechanism: <evidence>` as a status Run message when
 known. The brief names the exact live-check command and expected live output;
-the root uses that command too. Run it every two minutes and post its output as a
+the coordinator uses that command too. Run it every two minutes and post its output as a
 status Run message until it flips, then send status subject
 `fix-live: <evidence>`. Carry the preamble's Run addressing.
 
@@ -355,7 +355,7 @@ Landing desk (PR rows in cc-notes, lane messages in cci, shared by every checkou
   `gh pr merge`, and `ledger.py label` from a lane. Report READY the moment a PR is green;
   the landing runner enqueues the largest green, approved, unheld bottom prefix against the
   open cci `hold` records. On a held PR, report `held` on your tip with the held
-  PR named and leave release to the root. After the prefix lands, inspect whether GitHub already rebased the remaining stack onto the base branch before restacking with
+  PR named and leave release to the coordinator. After the prefix lands, inspect whether GitHub already rebased the remaining stack onto the base branch before restacking with
   `ccx vcs stack submit`.
 - After opening a PR, run
   `ccx vcs pr watch --lane-prefix <branch-prefix> --until landed` under Monitor
@@ -393,7 +393,7 @@ It posts one PR comment opening with `## Rulings` and one opening with `## Regre
 tests`, which lists each test id and links one CI run where that test failed against
 the old tree, since nobody edits a PR body after it opens. The body's `## Risk profile`
 states Load and Data in prose. A change that deletes a code path carries its caller
-trace before the root GOs it: every caller of the removed path, each one read, and
+trace before the coordinator GOs it: every caller of the removed path, each one read, and
 what the path deletes or changes for each.
 Drive to a terminal state, post `cci post --kind done --to root` with the outcome, since
 the lane supervisor relaunches a lane that stops without one, then send the preamble's `worker_done` with
@@ -401,7 +401,7 @@ the lane supervisor relaunches a lane that stops without one, then send the prea
 from that preamble. The three-sentence body names what changed, what was
 found, and what is left; the PR numbers, full head shas, and any tool refusal, verbatim,
 go in the report file its `--report-path` names. `worker_done` is your last act: the
-root's gc then closes your idle terminal and removes your worktree once it is clean
+coordinator's gc then closes your idle terminal and removes your worktree once it is clean
 and pushed, so push everything and leave no background process running first.
 A standing desk, `role=desk` or `role=watch`, never reaches a terminal state: it
 loops until rotation, through setup and quiet cycles alike, and never ends a turn

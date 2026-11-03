@@ -4,15 +4,15 @@ This reference covers [root discipline](#root-discipline), [desk rules](#desk-ru
 
 ## Root discipline
 
-**P1. Give each owner-named #1 outcome its own desk.** While the outcome is open, the root spawns `<outcome>-desk` as `long-running:lane`, model opus, with its own append-only inbox file. It owns only that outcome's lanes. The desk's inbox is the set of cci records addressed to `<outcome>-desk`. Every other desk forwards traffic from those lanes with `cci post --to <outcome>-desk` and stops handling them.
+**P1. Give each owner-named #1 outcome its own desk.** While the outcome is open, the coordinator spawns `<outcome>-desk` as `long-running:lane`, model opus, with its own append-only inbox file. It owns only that outcome's lanes. The desk's inbox is the set of cci records addressed to `<outcome>-desk`. Every other desk forwards traffic from those lanes with `cci post --to <outcome>-desk` and stops handling them.
 
-**P2. Open with the owner's owed list and the start state.** The root posts P1 with `cci post --drive <drive> --lane root --kind go --to <outcome>-desk --topic owed --text "<owed list summary>" --path <owed list file>`. The body lists one numbered item per PR or proof in the owner's definition of done. It states what is on the base branch, queued, open as a PR, and pushed with no PR, and names the lanes that owe each item.
+**P2. Open with the owner's owed list and the start state.** The coordinator posts P1 with `cci post --drive <drive> --lane root --kind go --to <outcome>-desk --topic owed --text "<owed list summary>" --path <owed list file>`. The body lists one numbered item per PR or proof in the owner's definition of done. It states what is on the base branch, queued, open as a PR, and pushed with no PR, and names the lanes that owe each item.
 
-The root posts P2 with root-verified truth and a timestamp using the same command with `--topic truth` and its own text and body file. It directs the desk to act on all items in parallel, one dispatch per lane in the same iteration.
+The coordinator posts P2 with root-verified truth and a timestamp using the same command with `--topic truth` and its own text and body file. It directs the desk to act on all items in parallel, one dispatch per lane in the same iteration.
 
-The root posts later rulings with `cci post --drive <drive> --lane root --kind go --to <outcome>-desk --text "<ruling>"`. A standing owner rule gets a `scope:durable` cc-notes answer first, then its own `go` record with `--ccn <answer id> --topic standing` under [I6](owner-rulings.md).
+The coordinator posts later rulings with `cci post --drive <drive> --lane root --kind go --to <outcome>-desk --text "<ruling>"`. A standing owner rule gets a `scope:durable` cc-notes answer first, then its own `go` record with `--ccn <answer id> --topic standing` under [I6](owner-rulings.md).
 
-The root owns holds, which are cci `hold` records. The root reads the desk's 15-minute reports and reads priority PR state directly in one batched `ccx vcs pr status <n1> <n2> ...` call. The root dispatches every owed item with no PR in the same turn under R13 in [SKILL.md](../SKILL.md). Follow [bus-contracts.md](bus-contracts.md) if the cursor stays stale.
+The coordinator owns holds, which are cci `hold` records. The coordinator reads the desk's 15-minute reports and reads priority PR state directly in one batched `ccx vcs pr status <n1> <n2> ...` call. The coordinator dispatches every owed item with no PR in the same turn under R13 in [SKILL.md](../SKILL.md). Follow [bus-contracts.md](bus-contracts.md) if the cursor stays stale.
 
 ## Desk rules
 
@@ -20,7 +20,7 @@ The root owns holds, which are cci `hold` records. The root reads the desk's 15-
 
 **P4. Dispatch unclaimed work at the PR deadline.** For pushed heads with no PR after 10 minutes, the desk checks the owning lane's active work before dispatching `<lane>-submit`, sonnet xhigh, in its own worktree. `<lane>-submit` does PR mechanics only and submits those exact heads as one linear stack. For an unbuilt owed item with no PR after 15 minutes, the desk dispatches a separate implementation lane only when no live lane is working on it. The desk keeps the original session and never duplicates its active work.
 
-**P5. Report the owed list every 15 minutes and idle when it is done.** The desk sends the root each item as landed, queued, PR + blocker, or no PR + the lane launched for it, and includes `cursor #<seq>` or `cursor R<n>`. When every item is landed or proven, the desk reports once and keeps the session open and idle.
+**P5. Report the owed list every 15 minutes and idle when it is done.** The desk sends the coordinator each item as landed, queued, PR + blocker, or no PR + the lane launched for it, and includes `cursor #<seq>` or `cursor R<n>`. When every item is landed or proven, the desk reports once and keeps the session open and idle.
 
 ## Spawn brief
 
@@ -34,7 +34,7 @@ Keep cci text under 400 characters; attach longer bodies with --path and link du
 
 Authority: drive only the named lanes; enqueue their green, approved, unheld
   stacks under D3; launch a fresh lane for an owed item with no PR past its
-  deadline; relaunch a dead lane. Everything else stops for the root.
+  deadline; relaunch a dead lane. Everything else stops for the coordinator.
 
 Verified facts, do not re-derive:
   repo <owner/name>; base branch <base>; checkout <path, read-only for you>
@@ -78,7 +78,7 @@ Do, in this order, every iteration:
      `cci tail --drive <drive> --cursor <outcome>-desk --to <outcome>-desk`.
      Act on each new record and any delivered message; repeat a capped read
      with the same cursor and filters.
-     Include `cursor #<seq>` in every report. Never report "waiting on the root"
+     Include `cursor #<seq>` in every report. Never report "waiting on the coordinator"
      before reading cci for its answer.
      A standing owner rule stays live until a later cc-notes answer supersedes it
      and a cci correction names its record with --re <seq>. Never report it done.
@@ -96,7 +96,7 @@ Do, in this order, every iteration:
   2. Act on all owed items in parallel, one dispatch per lane in this iteration:
      - Enqueue each stack's largest ready, unqueued bottom prefix at once. Lanes never
        enqueue under D1; never enqueue above a held PR.
-       Lanes report `held` on the tip, name the held PR, and leave release to the root.
+       Lanes report `held` on the tip, name the held PR, and leave release to the coordinator.
        `stack-enqueue` takes no hold flag and reads no holds, so the hold check
        below is the only thing keeping a held PR out of a hand enqueue.
        Before every enqueue, re-read the held set: the PRs
@@ -111,7 +111,7 @@ Do, in this order, every iteration:
        repo has no script, use `ledger.py label --repo <repo> --ledger <id>
        --pr <prefix top> --expect-head <sha> --checkout <path>`; mirrored ledger holds
        are the guard. A `held` refusal is not a red and is not routed; it waits
-       for the root. Never enqueue one stack per iteration, and never hold a ready
+       for the coordinator. Never enqueue one stack per iteration, and never hold a ready
        stack for another stack's landing under D19. `label --all-clean` grades
        stacks in one sequential call and is the fallback only where the repo has
        no enqueue script.
@@ -130,7 +130,7 @@ Do, in this order, every iteration:
        no PR at that deadline, launch a separate implementation lane in its own
        worktree only when no live lane is working on it. Keep the original session.
        Report the new lane against its owed item.
-  3. Every 15 minutes, report the owed list to the root. Mark each item as
+  3. Every 15 minutes, report the owed list to the coordinator. Mark each item as
      landed, queued, PR + blocker, or no PR + the lane launched for it.
      Include `cursor #<seq>`. Do not wait for this report to route a blocker.
 
@@ -140,7 +140,7 @@ Rules:
     the iteration ends.
   - Apply R7 before stating any PR's state. Read it; never report from memory.
   - Never touch another desk's lanes. Forward traffic for them to their desk.
-  - Only the root posts or resolves a hold. Priority approval covers only the named
+  - Only the coordinator posts or resolves a hold. Priority approval covers only the named
     head under D1. Every stack takes D3's gates.
 
 Do NOT touch: another desk's lanes; worker files or branches; hold records;

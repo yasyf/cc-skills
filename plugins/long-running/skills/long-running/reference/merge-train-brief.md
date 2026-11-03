@@ -10,7 +10,7 @@ ledger.py train --repo "$REPO" --ledger "$LEDGER" --paths 'infra/ci/src/pipeline
 
 ## Root and desk discipline
 
-The desk routes a hot-set row to the train, not to its lane, under D7 in `reference/landing.md`. Lanes whose PRs touch the hot set report them to the train as `TRAIN #N <sha>` the moment they are green or conflicting, and never rebase or enqueue them again. The owning lane still pushes code fixes for its own PR's red, while the train restacks and enqueues. The root answers the train's `RULING NEEDED` lines and nothing else.
+The desk routes a hot-set row to the train, not to its lane, under D7 in `reference/landing.md`. Lanes whose PRs touch the hot set report them to the train as `TRAIN #N <sha>` the moment they are green or conflicting, and never rebase or enqueue them again. The owning lane still pushes code fixes for its own PR's red, while the train restacks and enqueues. The coordinator answers the train's `RULING NEEDED` lines and nothing else.
 
 ## Spawn brief
 
@@ -19,7 +19,7 @@ Paste the brief below and fill the angle brackets.
 ```
 ccx: role=ship
 You are merge-train <name>: you land every ready PR that touches this hot set.
-Model opus. You run passes until the root tells you the drive is over, and never end
+Model opus. You run passes until the coordinator tells you the drive is over, and never end
 a turn waiting.
 
 Authority: rebase, reorder, and restack the cars with `ccx vcs stack rebase`; resolve
@@ -28,7 +28,7 @@ Authority: rebase, reorder, and restack the cars with `ccx vcs stack rebase`; re
   car's red to its lane.
   A conflict whose resolution changes what either side does, a car with no live
   owner and a red only a code change fixes, and anything touching another train's
-  PRs stop for the root.
+  PRs stop for the coordinator.
 
 Verified facts, do not re-derive:
   repo <owner/name>; trunk <dev>; checkout <absolute path>
@@ -99,7 +99,7 @@ Rules that are not the tool's to enforce:
 
 Do NOT touch: another train's PRs; a PR outside the hot set; any lane's worktree.
 Worktree: <absolute path, exclusive to this lane>.
-Finish: when the root says the drive is over, log the last pass and send the root
+Finish: when the coordinator says the drive is over, log the last pass and send the coordinator
   one report of at most ten lines: landed, queued, ejected, still open. That message
   is your last action.
   Final text is empty or one line under 300 characters (outcome + pointer), never

@@ -13,11 +13,11 @@
 
 ## Overview
 
-`cci` is the drive's shared record between lanes. The cci drive needs no init. The root puts the cci drive name in every brief beside the ledger id, and lanes use that name as `DRIVE` from any worktree. Ephemeral communication and state live in `cci`, never in manual files or `ccn`, while durable owner rulings, decisions, runbooks, and design docs stay in cc-notes and link to bus records with `--ccn <id>`.
+`cci` is the drive's shared record between lanes. The cci drive needs no init. The coordinator puts the cci drive name in every brief beside the ledger id, and lanes use that name as `DRIVE` from any worktree. Ephemeral communication and state live in `cci`, never in manual files or `ccn`, while durable owner rulings, decisions, runbooks, and design docs stay in cc-notes and link to bus records with `--ccn <id>`.
 
 Each post is one record, and each lane reads deliveries from its own cci cursor. `SendMessage` can arrive while its reader is idle or mid-poll. A `SendMessage` carries the record's sequence number, and the reader checks `cci` before acting on a message that may be stale.
 
-`incident.py` posts through `bus.py` onto the same cci drive. The root opens an incident with `incident.py open --bus <cci drive>`, and its comms lane reads asks and answers with `cci`:
+`incident.py` posts through `bus.py` onto the same cci drive. The coordinator opens an incident with `incident.py open --bus <cci drive>`, and its comms lane reads asks and answers with `cci`:
 
 ```sh
 cci tail --drive <drive> --reader <comms lane> --kind ask --since 0 --json
@@ -59,25 +59,25 @@ Every lane, top-level or in-process, waits with `lr wait 540 cci:<drive>:<lane> 
 
 ## Desk inbox rules (I1-I7)
 
-These I-rules apply to the landing desk, priority desks, and shards. The root never `SendMessage`s a desk.
+These I-rules apply to the landing desk, priority desks, and shards. The coordinator never `SendMessage`s a desk.
 
-The orca desk reads its launch, relay, and hold lines only from cci records addressed to `orca-desk` in the `R<n>` form from the owner's CLAUDE.md Incident Turn. The root posts each one with `desk-launch.py`, which mints the `R<n>` and the clock. By hand, the root launches an incident fix lane with:
+The orca desk reads its launch, relay, and hold lines only from cci records addressed to `orca-desk` in the `R<n>` form from the owner's CLAUDE.md Incident Turn. The coordinator posts each one with `desk-launch.py`, which mints the `R<n>` and the clock. By hand, the coordinator launches an incident fix lane with:
 `cci post --drive <drive> --lane root --kind go --to orca-desk --text 'R<n> (<h:mm AM|PM>) orca-desk: launch <dir> NOW incident xhigh role=fix brief=<state>/<dir>/brief.md'`.
 A lane launched from a `brief.md` takes its directory's name and keeps that name from launch on. The runner refuses any other name with `LAUNCH-FAILED` and prints the order that launches the lane under its directory's name.
 
-**I1. A desk's inbox is the set of cci records addressed to it.** The root posts each ruling with `cci post --drive <drive> --lane root --kind go --to <desk> --text "<ruling>"`. Keep text under 400 characters, attach a longer body from a file with `--path <file>`, and link durable records with `--ccn <id>`.
+**I1. A desk's inbox is the set of cci records addressed to it.** The coordinator posts each ruling with `cci post --drive <drive> --lane root --kind go --to <desk> --text "<ruling>"`. Keep text under 400 characters, attach a longer body from a file with `--path <file>`, and link durable records with `--ccn <id>`.
 
 **I2. Read from the saved cursor at the top of every iteration.** Before any other work, act on the records printed by `lr wait` or the cci Monitor. `lr wait` reads its own `<desk>-wake` cursor, so the read below prints those records again; act once per seq. Then read with `cci tail --drive <drive> --cursor <desk> --to <desk>` and act on each new record and any delivered message. Repeat a capped read with the same cursor and filters. Every report names the last sequence read as `cursor #<seq>`.
 
-**I3. Read the inbox before reporting a wait on the root.** Check for the answer before saying an item is waiting on the root.
+**I3. Read the inbox before reporting a wait on the coordinator.** Check for the answer before saying an item is waiting on the coordinator.
 
-**I4. Never `SendMessage` a running desk.** When a desk's reported cursor stays behind the root's last addressed record for more than one iteration, the root posts one `cci post --drive <drive> --lane root --kind go --to <desk> --text "Read unread range #<first>-#<last>."` and records the stall in its progress record. The desk reads that record at the top of its next iteration under I2. Resume only a desk that has already reported and ended its loop, using Scoped resume in `reference/orca-lane-brief.md`, in place with the same identity.
+**I4. Never `SendMessage` a running desk.** When a desk's reported cursor stays behind the coordinator's last addressed record for more than one iteration, the coordinator posts one `cci post --drive <drive> --lane root --kind go --to <desk> --text "Read unread range #<first>-#<last>."` and records the stall in its progress record. The desk reads that record at the top of its next iteration under I2. Resume only a desk that has already reported and ended its loop, using Scoped resume in `reference/orca-lane-brief.md`, in place with the same identity.
 
 **I5. Keep about 15 lanes per desk.** Split early into a second desk or a priority desk.
 
 **I6. Standing rules have durable answers and are never done.** Standing rule registration and supersession rules are in `reference/owner-rulings.md`.
 
-**I7. In-process teammate desks wait in the foreground.** Every Agent-spawned desk is in-process. Every in-process desk and lane names its own team mailbox as the source `mailbox:<lane name>=<cursor file>`. `lr wait` resolves that mailbox on every call from the live team roster in the root process's own `session-<id>` under `~/.claude/teams/`. `inboxes.py mailbox <lane name>` prints that path. A numbered successor names its own lane name, never the one baked into a predecessor's scripts.
+**I7. In-process teammate desks wait in the foreground.** Every Agent-spawned desk is in-process. Every in-process desk and lane names its own team mailbox as the source `mailbox:<lane name>=<cursor file>`. `lr wait` resolves that mailbox on every call from the live team roster in the coordinator process's own `session-<id>` under `~/.claude/teams/`. `inboxes.py mailbox <lane name>` prints that path. A numbered successor names its own lane name, never the one baked into a predecessor's scripts.
 
 Run one foreground Bash call with `timeout: 60000`:
 `lr wait 50 cci:<drive>:<desk> mailbox:<desk>=<cursor file> [<other file>=<cursor file>...]`.
@@ -119,9 +119,9 @@ lr wait 540 cci:"$DRIVE":pr-plans mailbox:pr-plans=<cursor file>
 
 **B4. Withdraw, never overwrite.** A poster retracts a verdict, moves a head, or changes an interface by posting `cci post --drive <drive> --lane <lane> --kind withdraw --re <seq> --text "<reason>"` to the original recipients, then posting the new record. Withdraw only your own records, once, before replacing them. A withdrawal reveals the previous non-withdrawn record in state, if one exists; publish the replacement when it is ready.
 
-**B5. Read `state` before asking, and `digest` for the root's view.** `cci state --drive <drive>` returns the latest non-withdrawn `head` and `contract` per lane and topic; add `--lane` or `--topic` to narrow the result. Never send a question to a lane that `cci state` already answers.
+**B5. Read `state` before asking, and `digest` for the coordinator's view.** `cci state --drive <drive>` returns the latest non-withdrawn `head` and `contract` per lane and topic; add `--lane` or `--topic` to narrow the result. Never send a question to a lane that `cci state` already answers.
 
-The root reads `cci digest --drive <drive>` beside the desk's summary for counts, open asks and decision requests, blockers, holds, incidents, and the latest record per lane. The digest covers 24 hours by default and counts older open items separately; pass `--since` for a longer window, and narrow a follow-up read when the digest reports truncation. An open ask older than its lane's cadence, or a blocker with nobody to clear it, is the root's to dispatch under R6 in `SKILL.md`. Two conflicting contracts on the same topic from two lanes require a root ruling before either ships.
+The coordinator reads `cci digest --drive <drive>` beside the desk's summary for counts, open asks and decision requests, blockers, holds, incidents, and the latest record per lane. The digest covers 24 hours by default and counts older open items separately; pass `--since` for a longer window, and narrow a follow-up read when the digest reports truncation. An open ask older than its lane's cadence, or a blocker with nobody to clear it, is the coordinator's to dispatch under R6 in `SKILL.md`. Two conflicting contracts on the same topic from two lanes require a coordinator ruling before either ships.
 
 ```sh
 cci state --drive "$DRIVE"
@@ -188,8 +188,8 @@ cci tail --drive <drive> --cursor <lane> --reader <lane>
 cci post --drive <drive> --lane <lane> --kind done --topic <pr> --to landing-desk --re <blocker seq> --text 'The blocker is fixed on the new head.'
 ```
 
-The root's digest keeps the blocker open until an explicit closure, even after a new head is posted.
+The coordinator's digest keeps the blocker open until an explicit closure, even after a new head is posted.
 
 ## What stays on SendMessage
 
-A lane reports through a `cci` record first, such as a report, `head`, `handoff`, `fix-live`, or `done` record, and then sends one `SendMessage`. Sending a report only by `SendMessage` is a defect because messages are lost across compaction. Everything with a body goes on `cci` first. `SendMessage` carries only a one-line wake saying `bus #n` or `read the bus`, or a `RULING NEEDED` line to the root. It also carries the lane report to the desk under D1 in `reference/landing.md`, which the desk records in the ledger.
+A lane reports through a `cci` record first, such as a report, `head`, `handoff`, `fix-live`, or `done` record, and then sends one `SendMessage`. Sending a report only by `SendMessage` is a defect because messages are lost across compaction. Everything with a body goes on `cci` first. `SendMessage` carries only a one-line wake saying `bus #n` or `read the bus`, or a `RULING NEEDED` line to the coordinator. It also carries the lane report to the desk under D1 in `reference/landing.md`, which the desk records in the ledger.
