@@ -22,6 +22,7 @@ import (
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
+	"golang.org/x/mod/semver"
 )
 
 const (
@@ -33,6 +34,7 @@ const (
 	gcEvery      = 5 * time.Minute
 	gcTimeout    = 10 * time.Minute
 	stopTimeout  = 5 * time.Minute
+	stopRelease  = "v0.27.3"
 	launchWait   = 5 * time.Minute
 	launchMargin = 10 * time.Second
 	incidentBar  = 20 * time.Minute
@@ -297,6 +299,19 @@ func CcRemoteOf(state string) (*CcRemote, error) {
 	return &CcRemote{Binary: or(env["WORKER_CC_REMOTE"], filepath.Join(tools, "bin", "cc-remote")), Config: or(env["CC_REMOTE_CONFIG"], filepath.Join(tools, "config.yaml"))}, nil
 }
 
+func (r CcRemote) hasStop(ctx context.Context, runner shell.Runner) error {
+	result, err := runner.Run(ctx, shell.Command{Argv: []string{r.Binary, "version"}, Timeout: stopTimeout})
+	if err != nil {
+		return err
+	}
+	printed := strings.TrimSpace(result.Stdout + result.Stderr)
+	version := printed[strings.LastIndex(printed, "\n")+1:]
+	if semver.Compare("v"+version, stopRelease) < 0 {
+		return fmt.Errorf("%s version printed %s, and orca stop first shipped in cc-remote %s", r.Binary, or(version, "nothing"), stopRelease)
+	}
+	return nil
+}
+
 type SpriteStops struct {
 	Env      Env
 	Store    *store.Store
@@ -319,18 +334,27 @@ func (c *SpriteStops) Check(ctx context.Context, now time.Time) error {
 		c.Log.Warn("sprite stops did not read the Run", "err", err)
 		return nil
 	}
-	var ended, why []string
+	why := map[string]string{}
 	for _, lane := range hosted {
-		reason := endedBecause(lane, dispatchOf(c.Env.receipts(), lane.Name), statuses)
-		if reason == "" {
-			continue
+		if reason := endedBecause(lane, dispatchOf(c.Env.receipts(), lane.Name), statuses); reason != "" {
+			why[lane.Name] = reason
 		}
-		first, err := c.Store.StopSprite(lane.Name, now)
+	}
+	if len(why) == 0 {
+		return nil
+	}
+	if err := c.CcRemote.hasStop(ctx, c.Env.Runner); err != nil {
+		c.Log.Warn("sprite stops wait for a cc-remote that has orca stop", "lanes", slices.Sorted(maps.Keys(why)), "err", err)
+		return nil
+	}
+	var ended []string
+	for _, lane := range slices.Sorted(maps.Keys(why)) {
+		first, err := c.Store.StopSprite(lane, now)
 		if err != nil {
 			return err
 		}
 		if first {
-			ended, why = append(ended, lane.Name), append(why, reason)
+			ended = append(ended, lane)
 		}
 	}
 	stopped := make([]error, len(ended))
@@ -343,10 +367,10 @@ func (c *SpriteStops) Check(ctx context.Context, now time.Time) error {
 	wg.Wait()
 	for i, lane := range ended {
 		if stopped[i] == nil {
-			c.Log.Info("sprite stopped", "lane", lane, "why", why[i])
+			c.Log.Info("sprite stopped", "lane", lane, "why", why[lane])
 			continue
 		}
-		text := fmt.Sprintf("SPRITE-STOP-FAILED %s: %s, so the supervisor ran `cc-remote orca stop %s` once, and it failed: %s | its Sprite still runs and the supervisor does not try again; stop it by hand with `%s orca stop %s --config %s`", lane, why[i], lane, truncated(stopped[i].Error(), 300), c.CcRemote.Binary, lane, c.CcRemote.Config)
+		text := fmt.Sprintf("SPRITE-STOP-FAILED %s: %s, so the supervisor ran `cc-remote orca stop %s` once, and it failed: %s | its Sprite still runs and the supervisor does not try again; stop it by hand with `%s orca stop %s --config %s`", lane, why[lane], lane, truncated(stopped[i].Error(), 300), c.CcRemote.Binary, lane, c.CcRemote.Config)
 		if _, err := c.Env.Bus.Post(ctx, client.Draft{Drive: c.Env.Config.Drive, Lane: Self, Kind: blockerKind, To: []string{Root}, ID: "sprite-stop:" + lane, Stamp: true, Text: text}); err != nil {
 			return fmt.Errorf("%w: cci post: %w", ErrUnread, err)
 		}
