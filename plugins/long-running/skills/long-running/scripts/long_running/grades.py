@@ -176,9 +176,10 @@ def go_heads(record: dict) -> dict[str, str]:
     return {pr: sha.lower() for pr, sha in GO_HEAD.findall(clause[1])} if clause else {}
 
 
-def lifts_hold(gos: list[dict], pr: str, hold: int) -> bool:
-    """Whether a go in `gos` posted after hold record `hold` names `pr`: root's later word to land a PR lifts its earlier hold, so the PR never sits held and unnamed by any stall (root #341762)."""
-    return any(go["seq"] > hold and pr in go_heads(go) for go in gos)
+def lifts_hold(gos: list[dict], pr: str, hold: int) -> dict | None:
+    """The first go in `gos` posted after hold record `hold` that names `pr`, or None: root's later word to land a PR lifts its earlier hold, so the PR never sits held and unnamed by any stall (root #341762). A go the landing runner posts on the owner's tap is never root's word, so it lifts no hold."""
+    return next((go for go in gos if go["seq"] > hold and go["lane"] != cci.TRUNK_RUNNER and pr in go_heads(go)), None)
+
 
 def is_go(record: dict) -> bool:
     """Whether `record` is a go, as every reader of the bus counts one: a `go` record, or a `decide` or `decision` whose text carries a go clause (root #243333)."""

@@ -2652,6 +2652,8 @@ def test_a_root_go_after_an_open_hold_lifts_it_and_the_pr_enqueues_that_pass(she
     root_go(shell, "GO #29020 at cccc3333 standard", shell.now())
     landing_pass(shell, config)
     assert len(shell.enqueues()) == 1 and refused_escalations(shell) == []
+    [lifted] = [note for note in notes(shell) if post_body(note).startswith("HOLD-LIFTED")]
+    assert lifted["to"] == "root" and post_body(lifted).startswith("HOLD-LIFTED #29020: go cci #")
 
 
 def test_a_hold_posted_after_the_go_still_holds_the_pr(shell, config, tmp_path):
@@ -4886,6 +4888,66 @@ def test_a_queued_head_the_runner_carried_a_tap_to_stays_queued_in_the_pass_that
     assert [post["text"][:28] for post in shell.posts if post["kind"] == "go"] == ["go #29020 at cccc333 TAP-CAR"]
     assert dequeues(shell) == []
 
+
+
+def reading_own_gos(shell: FakeShell, pr: str) -> None:
+    run = shell.run
+
+    def posting(argv, *args, **kwargs):
+        done = run(argv, *args, **kwargs)
+        if argv[:2] == ["cci", "post"] and argv[argv.index("--kind") + 1] == "go":
+            merge_go(shell, pr, argv[argv.index("--text") + 1], lane="desk-runner")
+        return done
+
+    shell.run = posting
+
+
+def test_a_pr_the_owner_taps_at_its_head_lands_on_the_runners_own_go_in_that_pass(shell, config, tmp_path):
+    """Root #342211: approved, green, graded PRs he tapped sat for hours on a root go nobody posted."""
+    board_surface(config)
+    board_lane(config)
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    reading_own_gos(shell, "29020")
+    landing_pass(shell, config)
+    assert shell.enqueues() == [] and [post for post in shell.posts if post["kind"] == "go"] == []
+    tap(shell, "29020", "cccc333333")
+    landing_pass(shell, config)
+    [go] = [post for post in shell.posts if post["kind"] == "go"]
+    assert go["text"].startswith("go #29020 at cccc333 owner tapped cccc333333 on the root's board; the runner posts this go itself")
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
+    assert [line for line in escalations(shell) if line.startswith("GO-TAP-MISSING")] == []
+
+
+def test_the_runners_own_go_on_a_tap_lifts_no_hold(shell, config, tmp_path):
+    board_surface(config)
+    board_lane(config)
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    root_hold(shell, 29020, text="HOLD #29020 until the env teardown applies")
+    tap(shell, "29020", "cccc333333")
+    reading_own_gos(shell, "29020")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert len([post for post in shell.posts if post["kind"] == "go"]) == 1
+    assert shell.enqueues() == [] and [note for note in notes(shell) if post_body(note).startswith("HOLD-LIFTED")] == []
+
+
+def test_a_pr_ready_but_for_a_go_is_named_to_root_on_every_passs_landing_state(shell, config, tmp_path):
+    """Root #342211: a PR with every gate and no go is reported to root every pass, never skipped in silence."""
+    board_surface(config)
+    board_lane(config)
+    lone_green_pr(shell)
+    shell.rows[0]["test_state"] = "success"
+    shell.github_merge["29020"] = {"headRefOid": "cccc333333", "mergeable": "MERGEABLE", "mergeStateStatus": "CLEAN"}
+    grade(shell, "29020", "ok F307 at cccc333.")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert len(shell.states) == 2
+    for state in shell.states:
+        assert state["to"] == f"root,{runner_module.WATCHDOG}@d1"
+        assert "ready but no go: #29020 (no board row yet), each landing on the owner's tap or a root go naming its exempt class" in state["text"]
+    assert shell.enqueues() == []
 
 def test_a_successor_fidelity_desk_grade_counts_with_no_config_edit(shell, config, tmp_path):
     """Root #197631: fidelity-desk-13 succeeded fidelity-desk-12, and its ok on #45427 read as ungraded because the configured list stopped at -12."""
