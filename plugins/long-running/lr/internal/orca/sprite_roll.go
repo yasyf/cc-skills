@@ -108,7 +108,8 @@ func (r SpriteRoll) Run(ctx context.Context, run string, env func(string) string
 }
 
 func spriteUnreached(result shell.Result) bool {
-	return result.Code == shell.CodeTimedOut || strings.Contains(result.Stdout+result.Stderr, "failed to start sprite command")
+	said := result.Stdout + result.Stderr
+	return result.Code == shell.CodeTimedOut || strings.Contains(said, "failed to start sprite command") || strings.Contains(said, "failed to fetch sprite version")
 }
 
 func lastSaid(result shell.Result) string {

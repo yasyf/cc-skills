@@ -202,6 +202,17 @@ func TestABoxTheRollCannotReachIsPassedOverAndNamedAtTheEnd(t *testing.T) {
 	}
 }
 
+func TestABoxTheSpriteAPICannotAnswerForIsPassedOver(t *testing.T) {
+	w := newRollWorld(t)
+	w.replies["pool-a"] = shell.Result{Code: 1, Stderr: `Error: failed to fetch sprite version: failed to fetch version: Head "https://api.sprites.dev/v1/sprites/pool-a/exec": net/http: request canceled (Client.Timeout exceeded while awaiting headers)` + "\n"}
+	if refused := w.roll(""); refused != "" || !slices.Equal(w.boxes, []string{"pool-a", "pool-b", "pool-c"}) {
+		t.Fatal(refused, w.boxes)
+	}
+	if !bytes.HasSuffix(w.out.Bytes(), []byte("lr sprites roll: never reached: pool-a\n")) {
+		t.Fatal(w.out.String())
+	}
+}
+
 func TestABoxThatTimesOutWithNothingInstalledIsPassedOver(t *testing.T) {
 	w := newRollWorld(t)
 	w.replies["pool-a"] = shell.Result{Code: shell.CodeTimedOut}
