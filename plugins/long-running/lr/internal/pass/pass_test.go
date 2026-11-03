@@ -127,6 +127,22 @@ func TestAFindingWithoutAVerdictIsPostedToTheOwningLaneWithItsDeadline(t *testin
 	}
 }
 
+func TestAPRTheStoreSawOpenIsLandedOnceWhenItReadsMerged(t *testing.T) {
+	s := newStore(t)
+	r := &recorder{}
+	merged := func(f *machine.Facts) { f.Merged = true }
+	run(t, s, r, t0, nil, facts(7, nil))
+
+	first := run(t, s, r, t0.Add(time.Minute), nil, facts(7, merged), facts(8, merged))
+	if len(first.Landed) != 1 || first.Landed[0].Facts.Number != 7 || !first.Landed[0].LastOpen.Equal(t0) {
+		t.Fatalf("landed = %+v, want #7 last open at %s; #8 was never seen open", first.Landed, t0)
+	}
+
+	if again := run(t, s, r, t0.Add(2*time.Minute), nil, facts(7, merged)); len(again.Landed) != 0 {
+		t.Fatalf("landed again = %+v", again.Landed)
+	}
+}
+
 func TestAMissingTapIsTheOwnersItem(t *testing.T) {
 	s, r := newStore(t), &recorder{}
 

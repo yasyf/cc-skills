@@ -88,10 +88,10 @@ func Tick(ctx context.Context, s *store.Store, drive string, generation int64, d
 	if !runsPass(d.Movers) {
 		return report, nil
 	}
-	return runPass(ctx, s, generation, d, now, report)
+	return runPass(ctx, s, drive, generation, d, now, report)
 }
 
-func runPass(ctx context.Context, s *store.Store, generation int64, d Deps, now time.Time, report Report) (Report, error) {
+func runPass(ctx context.Context, s *store.Store, drive string, generation int64, d Deps, now time.Time, report Report) (Report, error) {
 	passing := s
 	shadow := slices.Contains(d.Movers, moverShadow)
 	if shadow {
@@ -130,6 +130,9 @@ func runPass(ctx context.Context, s *store.Store, generation int64, d Deps, now 
 	}
 	report.Escalated = len(out.Escalated)
 	if slices.Contains(d.Movers, "landing") {
+		if err := landing.Announce(ctx, drive, d.Trunk, out.Landed, route); err != nil {
+			d.Log.Warn("a landed record went unposted", "err", err)
+		}
 		landed, err := landing.Act(ctx, s, d.Queue, d.Restacker, landing.Clear(out.Acts, snapshot, d.Trunk), now)
 		if err != nil {
 			d.Log.Warn("landing stopped mid-pass", "err", err)
