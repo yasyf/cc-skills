@@ -32,7 +32,7 @@ var (
 	finderClean    = regexp.MustCompile(`(?i)\bno (?:majors?|findings)\b|\b0 majors?\b|\bok\b`)
 	exemptClass    = regexp.MustCompile(`(?i)\[exempt:\s*([^\],;\s]+)`)
 	overrideNamed  = regexp.MustCompile(`(?i)\b(?:finder|fidelity)-override\b[^.;\n]*`)
-	overrideForm   = regexp.MustCompile(`(?i)^(?:finder|fidelity)-override\s+#?(\d+)\s+(?:at\s+)?([0-9a-f]{7,40})\b`)
+	overrideForm   = regexp.MustCompile(`(?i)^(finder|fidelity)-override\s+#?(\d+)\s+(?:at\s+)?([0-9a-f]{7,40})\b(?:\s*:\s*#?(\d+(?:@[0-9a-f]+)?)\b)?`)
 	clauseStart    = regexp.MustCompile(`(?m)(?:^|[.!?]\s+)(?:\d{1,2}:\d{2} [AP]M\s+)?(?:(?:root|main):\s+)?$`)
 	goPair         = `#\d+\s+at\s+[0-9a-f]{7,40}\b`
 	goClause       = regexp.MustCompile(`(?i)(?:^\s*(?:\d{1,2}:\d{2}\s*[AP]M\s+)?|[.:;!?]\s+)(?:go(?:\s+(?:port|test-only|ci-only))?|merge)\s+(` + goPair + `(?:(?:\s*,\s*|\s*,?\s+and\s+)` + goPair + `)*)`)
@@ -179,8 +179,19 @@ func fullText(record client.Record) string {
 	return whole
 }
 
-func overrides(text string) []Fact {
-	var out []Fact
+type Override struct {
+	Grader string
+	PR     int
+	Head   string
+	Cites  string
+}
+
+func Overrides(record client.Record) []Override {
+	return overridesIn(fullText(record))
+}
+
+func overridesIn(text string) []Override {
+	var out []Override
 	for _, span := range overrideNamed.FindAllStringIndex(text, -1) {
 		if !clauseStart.MatchString(text[:span[0]]) {
 			continue
@@ -189,11 +200,19 @@ func overrides(text string) []Fact {
 		if form == nil {
 			continue
 		}
-		pr, err := strconv.Atoi(form[1])
+		pr, err := strconv.Atoi(form[2])
 		if err != nil {
 			continue
 		}
-		fact := Fact{pr, strings.ToLower(form[2]), "verdict", "accept"}
+		out = append(out, Override{strings.ToLower(form[1]), pr, strings.ToLower(form[3]), form[4]})
+	}
+	return out
+}
+
+func overrides(text string) []Fact {
+	var out []Fact
+	for _, override := range overridesIn(text) {
+		fact := Fact{override.PR, override.Head, "verdict", "accept"}
 		if !slices.Contains(out, fact) {
 			out = append(out, fact)
 		}
@@ -262,6 +281,10 @@ func closes(record client.Record) []int64 {
 
 func GoNames(record client.Record, pr int) bool {
 	return slices.ContainsFunc(goHeads(record.Text), func(pair headPair) bool { return pair.PR == pr })
+}
+
+func GoNamesHead(record client.Record, pr int, head string) bool {
+	return slices.ContainsFunc(goHeads(record.Text), func(pair headPair) bool { return pair.PR == pr && strings.HasPrefix(head, pair.Head) })
 }
 
 func HeldBy(record client.Record, repo string) []int {
