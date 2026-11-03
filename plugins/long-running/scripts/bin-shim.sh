@@ -43,8 +43,6 @@ case "$TOOL" in
   desk-creds.py) exec "$ROOT/bin/lr" desk-creds "$@" ;;
   owner_waits.py) exec "$ROOT/bin/lr" board waits "$@" ;;
   owner_update.py) exec "$ROOT/bin/lr" update "$@" ;;
-  finder.py) exec "$ROOT/bin/lr" grade finder "$@" ;;
-  fidelity.py) exec "$ROOT/bin/lr" grade fidelity "$@" ;;
   orca-launch.sh) exec "$ROOT/bin/lr" launch start "$@" ;;
   desk-launch.py) exec "$ROOT/bin/lr" launch "$@" ;;
   worker-launch.sh) exec "$ROOT/bin/lr" launch worker "$@" ;;

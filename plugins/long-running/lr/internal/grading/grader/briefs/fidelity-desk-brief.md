@@ -67,7 +67,7 @@ Finally, post each line of the file. An ok is `fidelity: ok <head7> checked <key
 
 ## The pipeline
 
-When `runner.json` carries a `fidelity` object, the orca desk runner grades heads itself under lane `fidelity-pipeline` (`scripts/fidelity.py`). A patch-identical restack of a head graded ok carries that grade with no model call. Any other head gets one codex read against [fidelity-job-brief.md](fidelity-job-brief.md) and this brief. That read takes each row as the owner's words with the board card each tap answered (`rulings.py slice --required --words`), with no implications, and grades the head against the repository's `AGENTS.md` rules as well. A desk then grades a head only when the pipeline posts `fidelity: reader <head> <why>` to it, or when `FIDELITY-FAILED` names it. Read-backs, text grades, and the sweep stay with the desks.
+When `runner.json` carries a `fidelity` object, the orca desk runner grades heads itself under lane `fidelity-pipeline` (`lr grade fidelity`). A patch-identical restack of a head graded ok carries that grade with no model call. Any other head gets one codex read against [fidelity-job-brief.md](fidelity-job-brief.md) and this brief. That read takes each row as the owner's words with the board card each tap answered (`rulings.py slice --required --words`), with no implications, and grades the head against the repository's `AGENTS.md` rules as well. A desk then grades a head only when the pipeline posts `fidelity: reader <head> <why>` to it, or when `FIDELITY-FAILED` names it. Read-backs, text grades, and the sweep stay with the desks.
 
 ## Text mode
 
