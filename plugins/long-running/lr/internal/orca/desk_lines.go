@@ -373,7 +373,7 @@ func (d *Desk) expiredLine(parsed *directive, record client.Record, key string) 
 	}
 	lane := found[1]
 	if parsed.Verb == verbIncident {
-		lane += spawnedFix
+		lane = strings.TrimSuffix(lane, spawnedFix) + spawnedFix
 	}
 	var longest time.Duration
 	for _, took := range d.passTook {
@@ -875,7 +875,7 @@ func (d *Desk) alertLine(ctx context.Context, at, key, rest string) error {
 	if spec == nil {
 		return d.record(log, fmt.Sprintf("ALERT-FAILED %s inbox: one alert per line, in the form `%s`; nothing was recorded", key, alertGrammar))
 	}
-	slug, link, what := spec[1], spec[2], spec[3]
+	slug, link, what := strings.TrimSuffix(spec[1], spawnedFix), spec[2], spec[3]
 	lane := slug + spawnedFix
 	dispatch, err := d.show(ctx, lane, "")
 	if err != nil {
@@ -893,7 +893,7 @@ func (d *Desk) incidentLine(ctx context.Context, at, key, rest string) error {
 	if spec == nil {
 		return d.record(log, fmt.Sprintf("INCIDENT-FAILED %s inbox: one incident per line, in the form `%s`; nothing was launched", key, incidentGrammar))
 	}
-	slug, link, what := spec[1], spec[2], spec[3]
+	slug, link, what := strings.TrimSuffix(spec[1], spawnedFix), spec[2], spec[3]
 	lane := slug + spawnedFix
 	dispatch, err := d.show(ctx, lane, "")
 	if err != nil {
