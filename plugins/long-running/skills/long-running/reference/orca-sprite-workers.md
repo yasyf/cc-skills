@@ -92,8 +92,25 @@ replaced by rename, so a running process keeps its old file; a plugin's old
 tree stays where the session loaded it; and a lane in mid-turn sees the new
 hooks at its next hook call, and the new skills only in its next session.
 
+`lr sprites roll` finds a Sprite through the cc-remote task record of each live
+worker, keyed by worktree and terminal, so a worker on the Mac is never a box.
+
 `lr sprites` prints, from one store read, each Sprite's tools and versions as
-its last launch or roll installed them.
+its last launch or roll installed them, or one line saying none is recorded.
+
+`lr sprites pin` moves each pin to the version the Mac runs, read from
+`installed_plugins.json`, so no one edits the versions by hand. A `plugin` pin
+tracks itself. Any other pin names the plugin it tracks in `follows`, such as
+`"follows": "cc-context@cc-context"` on `ccx`; a pin without `follows` stays
+where it is. The new URL is the old one with its version replaced. The pin moves
+only after that asset's SHA-256 matches its line in the release's `checksums.txt`
+or `SHA256SUMS.txt`, and `runner.json` is replaced by rename with every other key
+kept. When the Mac's newest version has no release yet, the pin takes the newest
+version in the Mac's plugin cache that has one, because the pack's release follows
+its install by a minute or two. A version marked bad is passed over. An asset off
+its checksum stops that pin for the pass and refuses with exit 1; the other pins
+still move. `lr install` runs the same step after its swap. Live Sprites move
+only when someone runs `lr sprites roll`.
 
 The same step then checks, once, that the box runs every drive CLI the
 carried brief invokes: `ccn`, `cc-notes`, `cci`, `lr`, `gh` and `ccx`, each
