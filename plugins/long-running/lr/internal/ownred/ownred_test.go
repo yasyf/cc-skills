@@ -1,0 +1,182 @@
+package ownred_test
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"slices"
+	"testing"
+
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ownred"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell/shelltest"
+)
+
+const (
+	sources     = "lr/internal/lanes/sources.go"
+	sourcesTest = "lr/internal/lanes/sources_test.go"
+	prealloc    = "Consider preallocating messages with capacity 1 (prealloc)"
+	ownLint     = "OWN-RED #7 lr-go " + sources + ":336 " + prealloc
+)
+
+type annotation struct {
+	path    string
+	line    int
+	message string
+}
+
+func checkRun(status, conclusion string, notes ...annotation) map[string]any {
+	nodes := make([]map[string]any, 0, len(notes))
+	for _, note := range notes {
+		nodes = append(nodes, map[string]any{"path": note.path, "location": map[string]any{"start": map[string]any{"line": note.line}}, "message": note.message})
+	}
+	return map[string]any{"name": "lr-go", "status": status, "conclusion": conclusion, "databaseId": 9, "annotations": map[string]any{"nodes": nodes}}
+}
+
+var (
+	ownRed       = checkRun("COMPLETED", "FAILURE", annotation{sources, 336, prealloc + "\nmore detail"})
+	inheritedRed = checkRun("COMPLETED", "FAILURE", annotation{"lr/internal/asks/command.go", 12, "QF1008: could remove embedded field (staticcheck)"})
+	pending      = checkRun("IN_PROGRESS", "", annotation{sources, 336, prealloc})
+	green        = checkRun("COMPLETED", "SUCCESS")
+	testFailure  = checkRun("COMPLETED", "FAILURE", annotation{".github", 140, "Process completed with exit code 1."})
+)
+
+func pull(runs ...map[string]any) map[string]any {
+	suite := map[string]any{"app": map[string]any{"slug": "github-actions"}, "checkRuns": map[string]any{"nodes": runs}}
+	return map[string]any{
+		"files":   map[string]any{"nodes": []map[string]any{{"path": sources}, {"path": sourcesTest}}},
+		"commits": map[string]any{"nodes": []map[string]any{{"commit": map[string]any{"checkSuites": map[string]any{"nodes": []any{suite}}}}}},
+	}
+}
+
+func encoded(t *testing.T, v any) string {
+	t.Helper()
+	out, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(out)
+}
+
+func stack() map[string]any {
+	pulls := make([]map[string]any, 0, 4)
+	for number, state := range []string{"closed", "open", "open", "open"} {
+		pulls = append(pulls, map[string]any{"number": number + 5, "state": state})
+	}
+	return map[string]any{"url": "https://api.github.com/repos/acme/app/stacks/42", "pull_requests": pulls}
+}
+
+func github(t *testing.T, pulls map[int]map[string]any, stacked bool) *shelltest.Fake {
+	t.Helper()
+	fake := &shelltest.Fake{}
+	repository := map[string]any{}
+	for number, p := range pulls {
+		repository[fmt.Sprintf("p%d", number)] = p
+	}
+	fake.Reply(encoded(t, map[string]any{"data": map[string]any{"repository": repository}}), "gh", "api", "graphql")
+	fake.Reply(`{"number":7,"url":"https://github.com/acme/app/pull/7"}`, "gh", "pr", "view")
+	fake.Fail(1, "gh: Not Found (HTTP 404)", "gh", "api", "repos/{owner}/{repo}/stacks/7")
+	fake.Reply(encoded(t, stack()), "gh", "api", "repos/{owner}/{repo}/stacks/42")
+	listed := []any{}
+	if stacked {
+		listed = append(listed, stack())
+	}
+	fake.Reply(encoded(t, listed), "gh", "api", "repos/acme/app/stacks?pull_request=7")
+	return fake
+}
+
+func lines(t *testing.T, fake *shelltest.Fake, m ownred.Merge) []string {
+	t.Helper()
+	got, err := ownred.Guard{Runner: fake}.Lines(context.Background(), m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return got
+}
+
+func TestEveryMergePathNamesItsOwnRedAndPassesAnInheritedRedAndAPendingCheck(t *testing.T) {
+	paths := map[string]ownred.Merge{
+		"gh pr merge":    {Selector: "7"},
+		"ccx vcs merge":  {Selector: "7", Mode: ownred.Below},
+		"gh stack merge": {Selector: "7", Mode: ownred.Stack},
+	}
+	checks := map[string]struct {
+		run  map[string]any
+		want []string
+	}{
+		"own red":       {ownRed, []string{ownLint}},
+		"inherited red": {inheritedRed, []string{"INHERITED #7 lr-go"}},
+		"pending":       {pending, nil},
+		"green":         {green, nil},
+	}
+	for path, merge := range paths {
+		for name, check := range checks {
+			t.Run(path+"/"+name, func(t *testing.T) {
+				fake := github(t, map[int]map[string]any{6: pull(green), 7: pull(check.run)}, true)
+				if got := lines(t, fake, merge); !slices.Equal(got, check.want) {
+					t.Fatalf("got %q, want %q", got, check.want)
+				}
+			})
+		}
+	}
+}
+
+func TestAStackedMergeReadsEveryOpenPRBelowItsTargetAndNoneAbove(t *testing.T) {
+	pulls := map[int]map[string]any{5: pull(ownRed), 6: pull(ownRed), 7: pull(green), 8: pull(ownRed)}
+	for _, mode := range []ownred.Mode{ownred.Below, ownred.Stack} {
+		got := lines(t, github(t, pulls, true), ownred.Merge{Selector: "7", Mode: mode})
+		if want := []string{"OWN-RED #6 lr-go " + sources + ":336 " + prealloc}; !slices.Equal(got, want) {
+			t.Fatalf("mode %d: got %q, want %q", mode, got, want)
+		}
+	}
+}
+
+func TestAStackMergeOfAStackNumberOrOfNoSelectorReadsTheWholeStack(t *testing.T) {
+	pulls := map[int]map[string]any{6: pull(green), 7: pull(green), 8: pull(ownRed)}
+	want := []string{"OWN-RED #8 lr-go " + sources + ":336 " + prealloc}
+	for _, selector := range []string{"42", ""} {
+		if got := lines(t, github(t, pulls, true), ownred.Merge{Selector: selector, Mode: ownred.Stack}); !slices.Equal(got, want) {
+			t.Fatalf("selector %q: got %q, want %q", selector, got, want)
+		}
+	}
+	if got := lines(t, github(t, pulls, true), ownred.Merge{Mode: ownred.Below}); len(got) != 0 {
+		t.Fatalf("ccx vcs merge of the current branch read above it: %q", got)
+	}
+}
+
+func TestAPROutsideAnyStackMergesAlone(t *testing.T) {
+	got := lines(t, github(t, map[int]map[string]any{7: pull(ownRed)}, false), ownred.Merge{Selector: "7", Mode: ownred.Below})
+	if want := []string{ownLint}; !slices.Equal(got, want) {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestATestFailureThatAnnotatesNoFileIsReadFromItsJobLog(t *testing.T) {
+	ownLog := "2026-11-03T04:10:55.1971800Z ok  \tlr/internal/asks\n2026-11-03T04:10:55.1980294Z \x1b[31m    sources_test.go:42: got 2 messages, want 1\x1b[0m\n"
+	inheritedLog := "2026-11-03T04:10:55.1980294Z     command_test.go:9: want ask line\n"
+	for log, want := range map[string][]string{
+		ownLog:       {"OWN-RED #7 lr-go " + sourcesTest + ":42 sources_test.go:42: got 2 messages, want 1"},
+		inheritedLog: {"INHERITED #7 lr-go"},
+	} {
+		fake := github(t, map[int]map[string]any{7: pull(testFailure)}, false)
+		fake.Reply("      --allow-escape-sequences   Allow terminal escape sequences in the output\n", "gh", "api", "--help")
+		fake.Reply(log, "gh", "api", "repos/acme/app/actions/jobs/9/logs", "--allow-escape-sequences")
+		if got := lines(t, fake, ownred.Merge{Selector: "7"}); !slices.Equal(got, want) {
+			t.Fatalf("got %q, want %q", got, want)
+		}
+	}
+}
+
+func TestAGhWithoutTheEscapeFlagReadsTheJobLogWithoutIt(t *testing.T) {
+	fake := github(t, map[int]map[string]any{7: pull(testFailure)}, false)
+	fake.Reply("  -X, --method string   The HTTP method for the request\n", "gh", "api", "--help")
+	fake.Reply("2026-11-03T04:10:55.1980294Z     sources_test.go:42: got 2 messages, want 1\n", "gh", "api", "repos/acme/app/actions/jobs/9/logs")
+	got := lines(t, fake, ownred.Merge{Selector: "7"})
+	if want := []string{"OWN-RED #7 lr-go " + sourcesTest + ":42 sources_test.go:42: got 2 messages, want 1"}; !slices.Equal(got, want) {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	for _, call := range fake.Calls() {
+		if slices.Contains(call.Argv, "--allow-escape-sequences") {
+			t.Fatalf("an old gh got the flag it exits on: %q", call.Argv)
+		}
+	}
+}
