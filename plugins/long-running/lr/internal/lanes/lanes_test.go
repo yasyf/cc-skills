@@ -948,36 +948,18 @@ func TestARootRecordStandingDownALaneItHasNotReadSinceItsNewestRecordIsRefusedAn
 	}
 }
 
-func TestAnOwnerDecideMovesOnlyThePRsItRefsAndStandsNoLaneItMentionsDown(t *testing.T) {
-	s, brief := memory(t), writeBrief(t)
-	f := adopted(t, s, brief, "", 47245)
-	f.feed = append(f.feed, spawned(2, "restack-children-2", brief, t0, nil), rec(3, lane2, "head", t0, "#47245 7071204").withRefs(prs(47245)),
-		rec(4, Root, "decide", t0, "root: owner=restack-children-2 for #48037. Its red is #47245 7071204: conflicts-2 fixes that on #47245 now and posts HEAD.", "supervisor-registry", "restack-children-2", lane2).withRefs(prs(48037)))
-	f.peers = append(f.peers, who("restack-children-2", true, t0))
+func TestAnOwnerDecideInProseMovesNoPR(t *testing.T) {
+	for _, text := range []string{"root: owner=restack-children-2 for #47245.", "root: #47245 moves to restack-children-2.", "root: #47245 with restack-children-2 as owner."} {
+		s, brief := memory(t), writeBrief(t)
+		f := adopted(t, s, brief, "", 47245)
+		f.feed = append(f.feed, spawned(2, "restack-children-2", brief, t0, nil), rec(3, Root, "decide", t0, text, Self, "restack-children-2", lane2).withRefs(prs(47245)))
+		f.peers = append(f.peers, who("restack-children-2", true, t0))
 
-	tick(t, s, f, t0)
+		tick(t, s, f, t0)
 
-	if row(t, s, lane2).State == store.LaneHeld {
-		t.Fatal("held")
+		equal(t, owners(t, s, 47245), map[int]string{47245: lane2})
+		equal(t, len(f.ofKind("defect")), 0)
 	}
-	equal(t, owners(t, s, 48037, 47245), map[int]string{48037: "restack-children-2", 47245: lane2})
-	equal(t, len(f.ofKind("defect")), 0)
-}
-
-func TestAnOwnerDecideMovesItsPRFromALiveLaneAndHoldsNoLane(t *testing.T) {
-	s, brief := memory(t), writeBrief(t)
-	f := adopted(t, s, brief, "", 48257)
-	f.feed = append(f.feed, spawned(2, "restack-children-2", brief, t0, nil), rec(3, lane2, "head", t0, "#48257 6322d2f").withRefs(prs(48257)),
-		rec(4, Root, "decide", t0, "root: #48257 at 6322d2f: owner=restack-children-2 again for this one item; conflicts-2 restacked it.", "restack-children-2", "supervisor-registry").withRefs(prs(48257)))
-	f.peers = append(f.peers, who("restack-children-2", true, t0))
-
-	tick(t, s, f, t0)
-
-	if row(t, s, lane2).State == store.LaneHeld {
-		t.Fatal("held")
-	}
-	equal(t, owners(t, s, 48257), map[int]string{48257: "restack-children-2"})
-	equal(t, len(f.ofKind("defect")), 0)
 }
 
 func TestALaneAnUnreadStandDownLeftInPlaceIsNeverRelaunchedOnceItStops(t *testing.T) {
@@ -1277,18 +1259,34 @@ func TestAFreshStorePagesNoLaneFromTheBlockersItRefolds(t *testing.T) {
 	}
 }
 
-func TestARootDecideToTheSupervisorWithNoRegistryRequestIsAnsweredWithTheRequestToPost(t *testing.T) {
-	s := memory(t)
-	f := adopted(t, s, writeBrief(t), "")
-	f.feed = append(f.feed, rec(2, Root, "decide", t0, "Root task list: conflicts-2 (1985) is complete and closed; supervisor, stop waking it. last-read=1", Self, lane2), ask(3, "done", lane2, t0, nil, "", nil))
+func TestOnlyARootDecidesTypedFieldsChangeTheRegistry(t *testing.T) {
+	prose := "Root task list: conflicts-2 (1985) is complete and closed; supervisor, stop waking it; conflicts-2 retired, park it. last-read=1"
+	typed := ask(2, "park", lane2, t0, nil, "", map[string]string{"last-read": "1"})
+	typed.Text = prose
+	cases := []struct {
+		name    string
+		decide  Record
+		waiting int64
+		defects int
+	}{
+		{"prose naming lanes", rec(2, Root, "decide", t0, prose, Self, lane2), 0, 0},
+		{"a typed request", ask(2, "park", lane2, t0, nil, "", nil), 2, 0},
+		{"a typed request whose prose names other verbs", typed, 2, 0},
+		{"a verb with no lane", ask(2, "park", "", t0, nil, "", nil), 0, 1},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := memory(t)
+			f := adopted(t, s, writeBrief(t), "")
+			f.feed = append(f.feed, c.decide)
 
-	tick(t, s, f, t0)
+			tick(t, s, f, t0)
 
-	defects := f.ofKind("defect")
-	equal(t, len(defects), 1)
-	equal(t, defects[0].Re, int64(2))
-	contains(t, defects[0].Text, "post `lr request <done|owner|park|stand-down|unpark> <lane>`")
-	equal(t, row(t, s, lane2).State, store.LaneRetired)
+			lane := row(t, s, lane2)
+			equal(t, []any{lane.State, lane.Waiting}, []any{store.LaneDesired, c.waiting})
+			equal(t, len(f.ofKind("defect")), c.defects)
+		})
+	}
 }
 
 func TestARootDecideToTheSupervisorNamingNoRegistryVerbRaisesNoDefect(t *testing.T) {
@@ -1466,7 +1464,7 @@ func TestARootStandDownAfterTheLanesOwnDoneStillHandsItsPRsToRoot(t *testing.T) 
 func TestANeedsWorkPageSkipsAHeldPRAndAPRRootMoved(t *testing.T) {
 	said := map[string]Record{
 		"hold":   rec(2, Root, "hold", t0.Add(-mins(99)), "hold #46107: held per its earlier root decide; no work owed by any lane until the hold lifts", Self).withRefs(prs(46107)),
-		"decide": rec(3, Root, "decide", t0.Add(-mins(98)), "root: #46107 moves to root under its existing typed hold", Self).withRefs(prs(46107)),
+		"decide": ask(3, "owner", Root, t0.Add(-mins(98)), []int{46107}, "", map[string]string{"last-read": "1"}),
 	}
 	for _, shown := range [][]string{{}, {"hold"}, {"decide"}} {
 		s := memory(t)
@@ -1489,25 +1487,16 @@ func TestANeedsWorkPageSkipsAHeldPRAndAPRRootMoved(t *testing.T) {
 	}
 }
 
-func TestALaneARootDecideCallsRetiredOrDoneIsRetiredAndNeverAsked(t *testing.T) {
-	for _, text := range []string{"root: conflicts-2 retired; gos posted for the four (stack order on #48190).", "root: #47491 moves to p8a-step7; conflicts-2 is done (registry request filed)."} {
-		s := memory(t)
-		f := adopted(t, s, writeBrief(t), "", 48283)
-		f.feed = append(f.feed, rec(2, Root, "decide", t0.Add(-mins(95)), text, lane2))
-		f.states = map[int]string{48283: NeedsWork}
-		if err := s.LaneHeard(lane2, t0.Add(-mins(90)), "state", 0); err != nil {
-			t.Fatal(err)
-		}
-		f.peers = []Row{onRoster(who(lane2, true, t0))}
+func TestALaneARootDecideCallsRetiredOrDoneInProseStaysInTheRegistry(t *testing.T) {
+	for _, text := range []string{"root: conflicts-2 retired; gos posted for the four (stack order on #48190).", "root: conflicts-2 is done.", "root: restack-children-2 replaces conflicts-2."} {
+		s, brief := memory(t), writeBrief(t)
+		f := adopted(t, s, brief, "")
+		f.feed = append(f.feed, spawned(2, "restack-children-2", brief, t0, nil), rec(3, Root, "decide", t0, text, Self, lane2))
+		f.peers = append(f.peers, who("restack-children-2", true, t0))
 
 		tick(t, s, f, t0)
 
-		equal(t, row(t, s, lane2).State, store.LaneRetired)
-		for _, p := range f.ofKind("ask") {
-			if p.To[0] == lane2 {
-				t.Fatalf("asked %+v", p)
-			}
-		}
+		equal(t, row(t, s, lane2).State, store.LaneDesired)
 	}
 }
 
@@ -1797,13 +1786,6 @@ func TestBriefParsing(t *testing.T) {
 	said := parseBrief("# x\nRegister slice: lane=x step=B13\nStanding: keep it up   \n\n**Deliverable:**\n  the thing\n")
 	equal(t, said, Brief{Step: "B13", Standing: "keep it up", Deliverable: "the thing"})
 	equal(t, parseBrief("nothing"), Brief{})
-}
-
-func TestNamesVerbReadsAStandDownOnlyWhenNoWordFollowsIt(t *testing.T) {
-	cases := map[string]bool{"stand-down": true, "stand-down.": true, "stand-down conflicts-2": false, "closed": true, "the chase": false}
-	for text, want := range cases {
-		equal(t, namesVerb(text), want)
-	}
 }
 
 func coordinator(t *testing.T, s *store.Store, brief string) *fake {

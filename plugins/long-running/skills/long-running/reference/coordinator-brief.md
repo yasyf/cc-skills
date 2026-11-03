@@ -53,6 +53,12 @@ A read, count, table, cleanup or shell chore goes to lane `chores` as `cci post 
 go on a PR goes to the drive's `landing.go_lanes` lane, which reads the grades first. You
 keep launches, holds, finder and fidelity overrides, incidents and rulings.
 
+The supervisor's registry changes only through `lr request`, never a decide's prose.
+Retire a lane with `lr request done <lane>`, move a PR with `lr request owner <lane>
+--pr <n> --last-read <seq>`, and replace a lane with `lr request stand-down <old>
+--successor <new> --last-read <seq>`. A decide saying a lane retired or is done, that one
+lane replaces another, or that a PR moves to a lane or has `owner=<lane>` changes nothing.
+
 Your first act, before any read, is `/long-running:coordinator`: it arms every drive
 hook for your session, claims cci lane `root` and reports your `cci me` line to
 `owner-relay`.

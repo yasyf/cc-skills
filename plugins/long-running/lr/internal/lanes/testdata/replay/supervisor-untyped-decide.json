@@ -2,9 +2,7 @@
  "class": "supervisor-untyped-decide",
  "defect": 313837,
  "expect": {
-  "untyped": [
-   312386
-  ]
+  "untyped": []
  },
  "fix": "yasyf/cc-skills#1769",
  "input": {

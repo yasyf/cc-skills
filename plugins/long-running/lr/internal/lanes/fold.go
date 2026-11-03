@@ -427,15 +427,8 @@ func foldRegistry(s *store.Store, r Record, row store.Lane, known, fresh bool, a
 	name, kind, text := r.Lane, r.Kind, r.Text
 	isRoot := name == Root
 	request := isRequest(r)
-	if (isRoot || name == mainLane) && kind == kindRequest && r.Addressed()[Self] && !request && (r.Attr("verb") != "" || namesVerb(text)) && !fresh {
+	if (isRoot || name == mainLane) && kind == kindRequest && r.Addressed()[Self] && !request && r.Attr("verb") != "" && !fresh {
 		out.untyped = append(out.untyped, r.Seq)
-	}
-	if isRoot && kind == kindRequest {
-		for _, found := range retiredWord.FindAllStringSubmatch(text, -1) {
-			if gone, ok := laneOf(s, found[1]); ok && gone.State != store.LaneRetired && out.owesNothing(s, gone.Name, fresh, at) {
-				retire(s, gone.Name, Root, at)
-			}
-		}
 	}
 	if request {
 		grant(s, r, fresh, at, out)
@@ -499,10 +492,6 @@ func foldRegistry(s *store.Store, r Record, row store.Lane, known, fresh bool, a
 		foldWithdraw(s, r, at)
 	case kind == "stand-down" && isRoot:
 		foldRootStandDown(s, r, fresh, at, out)
-	case kind == "decide" && isRoot:
-		foldRootDecide(s, r, fresh, at, out)
-	case isRoot:
-		foldReplaces(s, r, fresh, at, out)
 	}
 }
 
@@ -629,49 +618,4 @@ func foldRootStandDown(s *store.Store, r Record, fresh bool, at time.Time, out *
 			do(s.Own(Root, gone.PRs))
 		}
 	}
-}
-
-func foldRootDecide(s *store.Store, r Record, fresh bool, at time.Time, out *folded) {
-	if found := ownerAttr.FindStringSubmatch(r.Text); found != nil {
-		do(s.Own(found[1], r.PRs()))
-		return
-	}
-	if moves := ownerClause.FindAllStringSubmatch(r.Text, -1); len(moves) > 0 {
-		for _, move := range moves {
-			number, err := strconv.Atoi(move[1])
-			if err != nil {
-				continue
-			}
-			target := or(move[2], move[3])
-			if _, found := laneOf(s, target); target == Root || found {
-				do(s.Own(target, []int{number}))
-			}
-		}
-		return
-	}
-	foldReplaces(s, r, fresh, at, out)
-}
-
-func foldReplaces(s *store.Store, r Record, fresh bool, at time.Time, out *folded) {
-	found := replaces.FindStringSubmatch(r.Text)
-	if found == nil {
-		return
-	}
-	old, known := laneOf(s, found[2])
-	if !known || !isLive(old.State) {
-		return
-	}
-	taker, known := laneOf(s, found[1])
-	if !known {
-		return
-	}
-	if !fresh {
-		if why := unreadBy(s, r, old.Name, citedIn(r)); why != "" {
-			out.unread = append(out.unread, unread{old.Name, why})
-			hold(s, old.Name, why, at)
-			return
-		}
-	}
-	retire(s, old.Name, taker.Name, at)
-	do(s.Own(taker.Name, old.PRs))
 }
