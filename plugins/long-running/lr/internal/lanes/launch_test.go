@@ -101,6 +101,29 @@ func TestOnlyTheCoordinatorLaunchesOnFable(t *testing.T) {
 	}
 }
 
+func TestASubDrivesCoordinatorLaunchesOnOpus(t *testing.T) {
+	var ran []string
+	env := startEnv(&fakeBus{tail: []client.Record{{Lane: orcaRunner, Topic: orcaTopic, Text: "orca alive 7:00 PM pass 3"}}}, &ran)
+	env.Config.Parent = "brook"
+
+	if _, err := env.LaunchCoordinator(context.Background(), filepath.Join("/state", Root, "brief.md")); err != nil {
+		t.Fatal(err)
+	}
+
+	equal(t, ran[3:5], []string{"opus", "xhigh"})
+}
+
+func TestASubDrivesCoordinatorLaunchedBeforeItCouldRegisterIsAdoptedOnOpus(t *testing.T) {
+	s, state := memory(t), t.TempDir()
+	sessionBrief(t, state, Root, "")
+	f := newFake(t, nil, []Row{who(Root, true, t0)})
+	f.deps.State, f.deps.Parent = state, "brook"
+
+	tick(t, s, f, t0)
+
+	equal(t, row(t, s, Root).Model, "opus")
+}
+
 func TestABriefInAnotherLanesDirectoryLaunchesNothing(t *testing.T) {
 	var ran []string
 	_, err := startEnv(&fakeBus{}, &ran).launchStanding(context.Background(), standingSessions["meta"], "/state/root/brief.md")

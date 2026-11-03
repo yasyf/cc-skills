@@ -131,7 +131,7 @@ func Tick(s *store.Store, d Deps, now time.Time, generation int64) (out Outcome,
 func adoptStanding(s *store.Store, d Deps, found map[string]Peer, now time.Time) []string {
 	var adopted []string
 	for _, name := range slices.Sorted(maps.Keys(standingSessions)) {
-		session := standingSessions[name]
+		session := sessionFor(name, d.Parent)
 		brief := filepath.Join(d.State, session.lane, "brief.md")
 		peer, listed := found[session.lane]
 		if _, known := laneOf(s, session.lane); known || !listed || !alive(&peer, peer.Seen, now) || !briefExists(brief) {
