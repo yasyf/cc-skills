@@ -99,7 +99,11 @@ It owns the dashboard and the owner updates: one generator, `lr update render`,
 feeds both from the same rows, run by its one standing helper `update-desk`
 ([owner-report-table.md](reference/owner-report-table.md)). A dashboard restart is
 `lr dashboard restart`, which the communicator runs itself and never hands the
-owner. When the owner writes after an hour or more away, its reply opens with the
+owner. Every reply that explains a mechanism, an incident or a design change to him
+carries a hosted one-pager, unasked, and so does the turn after he asks how a system
+works. `lr explain <topic> --from <markdown or record>` hosts it and sends him its
+link, and the communicator's hooks prompt for it and refuse a reply without one.
+When the owner writes after an hour or more away, its reply opens with the
 full update: the dashboard link, then the owner table grouped by feature. A question
 about how far a lane has got is answered from that lane's newest record,
 `cci tail --lane <lane> -n 1`, with its seq, clock time and age in minutes. Every

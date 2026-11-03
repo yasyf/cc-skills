@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import json
+import html
 import json
 import re
 import subprocess
@@ -84,7 +84,29 @@ UNANSWERED = (
     " Reply in each thread with `slack_reply` saying what was done with it, then stop."
 )
 OWED_REPLY = {"thread_ts": "1793684147.131059", "ts": "1793705742.180139", "text": "A, but as buttons", "permalink": "https://acme.slack.com/archives/D0B6Z/p1793705742180139"}
-CALM = {"reminder": BinaryAnswer(p_yes=0.02, confidence=0.95), "status_question": BinaryAnswer(p_yes=0.02, confidence=0.95)}
+EXPLAINER = re.compile(r"https?://[^\s/]+/(?:one-pagers|design-docs)/[\w.-]+/")
+TITLE = re.compile(r"<title>(.*?)</title>", re.DOTALL)
+SYSTEM_RAISED = Binary(
+    "The owner's words this turn are below, then the titles of the one-pagers already hosted for him; his typos are his, so read through them."
+    " Yes when his words raise a system, a worry about how something works, or how something is meant to work, and no listed page already explains it."
+    " No for status, a pick, an approval, thanks, a request that asks nothing about how a system works, or a topic a listed page covers."
+)
+RAISED = "His words raise how a system works or is meant to work. Before replying, run `lr explain <topic> --from <markdown with a mermaid diagram>` and put the link it prints in the reply."
+MECHANISM = Binary(
+    "The assistant's reply to the owner is below."
+    " Yes when it explains a mechanism, an incident or a design change to him: how something works, why something failed, or what a design now does differently."
+    " No for a status line, a list of what landed or comes next, a question, an acknowledgement, a pick, or an answer that explains no mechanism."
+)
+UNEXPLAINED = (
+    "A reply that explains a mechanism, incident or design change to the owner carries a hosted one-pager, unasked."
+    " Run `lr explain <topic> --from <markdown file or cci record>` and put the tailnet link it prints in this reply."
+)
+NO = BinaryAnswer(p_yes=0.02, confidence=0.95)
+YES = BinaryAnswer(p_yes=0.97, confidence=0.94)
+SIGNAL = "how does the signal server decide which replica a chat talks to"
+WHY = "The relay dropped your message because both chats shared one replica, so the second chat's write replaced the first."
+PAGE = "https://mac.tail1.ts.net:8643/one-pagers/relay-replicas/"
+CALM = {"reminder": NO, "status_question": NO, "mechanism": NO}
 REMINDED = CALM | {"reminder": BinaryAnswer(p_yes=0.97, confidence=0.94)}
 ASKED = CALM | {"status_question": BinaryAnswer(p_yes=0.96, confidence=0.93)}
 HOW_FAR = "you told me what the relay fix lane is for already, I asked how far along it is"
@@ -106,6 +128,7 @@ LAND_CARD = {"title": "Land the relay fix tonight?", "body": f"Its checks passed
 class OwnerReturns(WorkflowState):
     prompted_at: float | None = None
     returned: bool = False
+    explain_due: bool = False
 
 
 def away(minutes: float) -> list:
@@ -151,6 +174,46 @@ def owner_return_opens_with_the_update(evt: BaseHookEvent) -> HookResult | None:
 
 def owed(replies: str | tuple) -> Input:
     return Input(transcript=[T.user("where are we"), T.assistant("On it.")], state=[CompactionState(active=True)], env=DRIVE_CONFIG, commands={f"{SHIPPED_CC_SLACK} dm-owed": replies}, decide=CALM)
+
+
+def raised(decide: dict, prompt: str = SIGNAL, **fields: object) -> Input:
+    return Input(prompt=prompt, state=[CompactionState(active=True)], env=DRIVE_CONFIG, decide=decide, **fields)
+
+
+@on(
+    Event.UserPromptSubmit,
+    only_if=[Communicator()],
+    skip_if=[FromSubagent()],
+    tests=communicator_tests({
+        raised({"system_raised": YES}): Warn(pattern=r"^His words raise how a system works or is meant to work\. Before replying, run `lr explain <topic>"),
+        raised({"system_raised": NO}): Allow(),
+        raised({"system_raised": Refused()}): Allow(),
+        raised({"system_raised": YES}, prompt="<task-notification>signal-1 finished</task-notification>"): Allow(),
+        raised({"system_raised": YES}, agent_id="a1b2c3"): Allow(),
+    }),
+)
+def owner_words_about_a_system_get_a_page(evt: BaseHookEvent) -> HookResult | None:
+    due = OwnerPrompt().check(evt) and system_raised(evt)
+    with OwnerReturns.mutate(evt) as state:
+        state.explain_due = due
+    return evt.context(RAISED) if due else None
+
+
+def system_raised(evt: BaseHookEvent) -> bool:
+    pages = "\n".join(f"- {title}" for title in hosted_titles()) or "(none)"
+    match (decision := evt.decide(f"{evt.user_prompt}\n\nHosted one-pagers:\n{pages}", {"system_raised": SYSTEM_RAISED})) and decision.answers["system_raised"]:
+        case BinaryAnswer(p_yes=p_yes) if p_yes > 0.5:
+            return True
+    return False
+
+
+def hosted_titles() -> list[str]:
+    pages = Path(reqenv.getenv("CLAUDE_CONFIG_DIR") or Path.home() / ".claude") / "long-running" / "explainers" / "one-pagers"
+    return sorted(html.unescape(found.group(1).strip()) for page in pages.glob("*/index.html") if (found := TITLE.search(page.read_text())))
+
+
+def explained(reply: str, mechanism: object = YES, due: bool = False) -> Input:
+    return Input(transcript=[T.user("why did my message vanish"), T.assistant(reply)], state=[CompactionState(active=True), OwnerReturns(explain_due=due)], decide=CALM | {"mechanism": mechanism})
 
 
 def picked(*calls: dict) -> Input:
@@ -218,11 +281,17 @@ def asked(reply: str, *calls: dict, words: str = HOW_FAR, decide: dict = ASKED) 
         pathed("The rows are in `progress-desk/steps.json`."): Block(pattern=r"never opens a file"),
         pathed("The relay row is on http://dash.brook.ts.net:8840/progress-desk/#relay."): Allow(),
         pathed("The fix is in `owner_returns.py`, in `communicator_reply_follows_the_owner_rules`."): Allow(),
+        explained(WHY): Block(pattern=r"^A reply that explains a mechanism, incident or design change to the owner carries a hosted one-pager.*`lr explain <topic>"),
+        explained(f"{WHY}\n\nThe whole mechanism, with its diagram: {PAGE}"): Allow(),
+        explained("Three PRs merged and step 2 is green.", mechanism=NO): Allow(),
+        explained(WHY, mechanism=Refused()): Allow(),
+        explained("Looking into the signal server now.", mechanism=NO, due=True): Block(pattern=r"carries a hosted one-pager"),
+        explained(f"The signal server picks the replica by chat id: {PAGE}", mechanism=NO, due=True): Allow(),
     }),
 )
 def communicator_reply_follows_the_owner_rules(evt: BaseHookEvent) -> HookResult | None:
     reply = AssistantMessage().content(evt) or ""
-    problems = [problem for problem in (unanswered_reply(evt), missing_update(evt, reply), inline_pick(evt, reply), unrouted_reminder(evt), unread_status(evt, reply), file_path(evt, reply)) if problem]
+    problems = [problem for problem in (unanswered_reply(evt), missing_update(evt, reply), inline_pick(evt, reply), unrouted_reminder(evt), unread_status(evt, reply), file_path(evt, reply), unexplained(evt, reply)) if problem]
     return evt.block(" ".join(problems)) if problems else None
 
 
@@ -379,6 +448,17 @@ def file_path(evt: BaseHookEvent, reply: str) -> str | None:
     prose = LINK.sub("", reply)
     roots = (*SCRATCH_ROOTS, *((f"{entry['state_dir'].rstrip('/')}/",) if (entry := drive_entry(evt)) else ()))
     return FILE_PATH if any(root in prose for root in roots) else None
+
+
+def unexplained(evt: BaseHookEvent, reply: str) -> str | None:
+    if not reply or EXPLAINER.search(reply):
+        return None
+    if OwnerReturns.load(evt).explain_due:
+        return UNEXPLAINED
+    match (decision := evt.decide(reply, {"mechanism": MECHANISM})) and decision.answers["mechanism"]:
+        case BinaryAnswer(p_yes=p_yes) if p_yes > 0.5:
+            return UNEXPLAINED
+    return None
 
 
 def owner_words(evt: BaseHookEvent) -> str:
