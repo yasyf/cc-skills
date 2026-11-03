@@ -40,7 +40,7 @@ from captain_hook.command_schema import Scalar
 from captain_hook.util import reqenv
 from pydantic import BaseModel
 
-from .compaction_handoff import ccn, Communicator, communicator_tests, CompactionState, progress_folder
+from .compaction_handoff import ccn, Communicator, communicator_tests, CompactionState, progress_folder, shared_tests
 from .nudges import queue_nudge
 from .tests.root_fixtures import ACTIVE, LONG
 
@@ -469,7 +469,7 @@ def root_warning(*, message: str, only_if: Sequence[object], tests: dict, bypass
         message=message,
         only_if=[DriveActive(), *only_if],
         skip_if=[FromSubagent(), *([Annotated("raw")] if bypass else [])],
-        tests=tests,
+        tests=shared_tests(tests),
     )
 
 

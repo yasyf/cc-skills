@@ -2,6 +2,10 @@
 
 The bridge owns every owner update and the drive dashboard. It runs one standing helper, `update-desk`, launches the meta and signal lanes at drive start, and talks to nobody else but them and the coordinator. The update's format is in [owner-report-table.md](owner-report-table.md), and the owner's words behind it are in cc-notes doc `Owner update format`.
 
+## Reads
+
+The bridge is a root session, and its context is spent on the owner. Each fact it needs is one bounded read, such as `cci show <seq>` or one named file; anything more goes to a subagent, `Agent` with `Explore` and `model: sonnet`, which returns only the answer. The shared read hooks, `root_context` and `root_reads`, act in this window as in the coordinator's and warn on an unbounded search, a multi-file read or a `curl` investigation. On Nov 2 2026 the bridge spent about 50K tokens finding the dashboard URL inline, and at 8:21 PM the owner wrote back "you are still a root session ... delegating to subagents ... fix your prompting and tooling."
+
 ## The bridge, for each update
 
 1. **It knows an update is due.** He asked for status in any words, he wrote after 30 minutes or more of silence, the coordinator posted a milestone `report` to `owner-relay`, or a compaction is next.

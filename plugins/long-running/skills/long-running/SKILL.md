@@ -115,6 +115,9 @@ a structural fault, such as PRs queued behind one coordinator decision, it bring
 the split as an option, not only the symptom. It never calls `AskUserQuestion`: a pick
 goes on his board, and an urgent yes/no goes to his Slack as an ask card with buttons
 (`cc-present ask`).
+It is a root session for reads: each fact it needs is one bounded read, else a
+subagent, and the shared read hooks act on it as on the coordinator
+([owner-bridge-brief.md](reference/owner-bridge-brief.md)).
 
 **The coordinator** reads reader `root`, posts as `root`, runs in a foreground
 `cci watch` loop for the life of the drive, and holds everything a root holds:

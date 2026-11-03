@@ -202,6 +202,12 @@ def tier_tests(tests: dict, coordinator: bool) -> dict:
     return cases | {switched(other, not coordinator): Ask()}
 
 
+def shared_tests(tests: dict) -> dict:
+    """`tests` plus their first root-thread case that fires, run once in each window, where the hook acts the same."""
+    roots = [(case, expected) for case, expected in tests.items() if isinstance(case, Input) and not case.agent_id and case.state and fired(expected)]
+    return tests | {switched(case, coordinator): expected for case, expected in roots[:1] for coordinator in (True, False)}
+
+
 def communicator_tests(tests: dict) -> dict:
     return tier_tests(tests, False)
 
