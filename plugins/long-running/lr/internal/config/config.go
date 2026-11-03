@@ -18,25 +18,31 @@ const (
 var Movers = []string{"lanes", "shadow", MoverLanding, "grading", "items"}
 
 type Config struct {
-	Repo          string
-	Drive         string
-	Checkout      string
-	Author        string
-	Label         string
-	Movers        []string
-	OrcaRun       string
-	RemoteBox     string
-	GoLanes       string
-	Trunk         string
-	QueueScript   string
-	QueueKey      string
-	AlertChannels string
-	Parent        string
+	Repo             string
+	Drive            string
+	Checkout         string
+	Author           string
+	Label            string
+	Movers           []string
+	OrcaRun          string
+	RemoteBox        string
+	GoLanes          string
+	Trunk            string
+	QueueScript      string
+	QueueKey         string
+	AlertChannels    string
+	ReleasePipelines string
+	BuildkiteCLI     string
+	Parent           string
 }
 
-func (c Config) GoLaneNames() []string {
+func (c Config) GoLaneNames() []string { return listed(c.GoLanes) }
+
+func (c Config) ReleasePipelineSlugs() []string { return listed(c.ReleasePipelines) }
+
+func listed(text string) []string {
 	var names []string
-	for name := range strings.SplitSeq(c.GoLanes, ",") {
+	for name := range strings.SplitSeq(text, ",") {
 		if name = strings.TrimSpace(name); name != "" {
 			names = append(names, name)
 		}
@@ -61,7 +67,8 @@ func Load(path string, warn io.Writer) (Config, error) {
 	optional := map[string]*string{
 		"orca_run": &loaded.OrcaRun, "remote_box": &loaded.RemoteBox, "go_lanes": &loaded.GoLanes,
 		"trunk": &loaded.Trunk, "queue_script": &loaded.QueueScript, "queue_key": &loaded.QueueKey,
-		"alert_channels": &loaded.AlertChannels, "parent": &loaded.Parent,
+		"alert_channels": &loaded.AlertChannels, "release_pipelines": &loaded.ReleasePipelines,
+		"buildkite_cli": &loaded.BuildkiteCLI, "parent": &loaded.Parent,
 	}
 	var unknown []string
 	for _, name := range slices.Sorted(maps.Keys(raw)) {
@@ -102,6 +109,9 @@ func Load(path string, warn io.Writer) (Config, error) {
 	}
 	if slices.Contains(loaded.Movers, MoverLanding) && strings.TrimSpace(loaded.QueueScript) == "" {
 		return Config{}, fmt.Errorf("%s: the landing mover needs queue_script, the repository's queue script relative to the checkout", path)
+	}
+	if len(loaded.ReleasePipelineSlugs()) > 0 && strings.TrimSpace(loaded.BuildkiteCLI) == "" {
+		return Config{}, fmt.Errorf("%s: release_pipelines needs buildkite_cli, the Buildkite client command line relative to the checkout", path)
 	}
 	return loaded, nil
 }
