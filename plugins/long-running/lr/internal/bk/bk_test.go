@@ -371,7 +371,7 @@ func TestSettingsNameTheClientCheckoutAndTokenCommand(t *testing.T) {
 	for name, body := range map[string]string{
 		"no cli":      `{"checkout": "/c", "token_command": ["t"]}`,
 		"no checkout": `{"cli": "tools/ci bk", "token_command": ["t"]}`,
-		"no token":    `{"cli": "tools/ci bk", "checkout": "/c"}`,
+		"no command":  `{"cli": "tools/ci bk", "checkout": "/c"}`,
 		"not json":    `{`,
 	} {
 		t.Run(name, func(t *testing.T) {
