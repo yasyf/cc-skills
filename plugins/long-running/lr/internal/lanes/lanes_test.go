@@ -88,6 +88,7 @@ type fake struct {
 	pages     []map[string]any
 	states    map[int]string
 	holds     map[int]bool
+	desks     map[string]string
 	deps      Deps
 }
 
@@ -134,6 +135,7 @@ func newFake(t *testing.T, records []Record, peers []Row) *fake {
 			return out, nil
 		},
 		Held:     func() (map[int]bool, error) { return f.holds, nil },
+		Desk:     func(lane string) (string, error) { return f.desks[lane], nil },
 		RotateAt: 600_000,
 	}
 	return f
@@ -1796,4 +1798,119 @@ func TestACoordinatorHandoffRecordIsTheHandoffItsRelaunchReads(t *testing.T) {
 	tick(t, s, f, t0)
 
 	contains(t, f.briefs[Root], "doc show 9a1b2c3")
+}
+
+func registered(t *testing.T, s *store.Store, lane store.Lane) {
+	t.Helper()
+	lane.Brief, lane.Model, lane.Effort = "/brief.md", "opus", "xhigh"
+	if lane.State == "" {
+		lane.State = store.LaneDesired
+	}
+	if _, err := s.WantLane(lane, t0); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTheOwningDeskIsTheNewestLiveLaneOfWhoeverLaunchedTheLane(t *testing.T) {
+	const worker, desk, nextDesk = "board-mirror-1", "meta-desk-1", "meta-desk-2"
+	launchedBy := map[string]string{worker: desk}
+	cases := []struct {
+		name  string
+		lanes []store.Lane
+		desks map[string]string
+		want  string
+	}{
+		{"a live launcher owns it", []store.Lane{{Name: worker}, {Name: desk}}, launchedBy, desk},
+		{"its successor takes the lane over", []store.Lane{{Name: worker}, {Name: desk, State: store.LaneRetired, RetiredBy: nextDesk}, {Name: nextDesk}}, launchedBy, nextDesk},
+		{"a relaunch keeps its predecessor's desk", []store.Lane{{Name: "board-mirror-2", Predecessor: worker}, {Name: worker, State: store.LaneRetired}, {Name: desk}}, launchedBy, desk},
+		{"root launched it", []store.Lane{{Name: worker}, {Name: Root}}, map[string]string{worker: Root}, Root},
+		{"nobody launched it", []store.Lane{{Name: worker}}, nil, Root},
+		{"its launcher is no registered lane", []store.Lane{{Name: worker}}, launchedBy, Root},
+		{"its launcher retired with no successor", []store.Lane{{Name: worker}, {Name: desk, State: store.LaneRetired, RetiredBy: "done"}}, launchedBy, Root},
+		{"its launcher is held", []store.Lane{{Name: worker}, {Name: desk, State: store.LaneHeld}}, launchedBy, Root},
+		{"a lane never owns itself", []store.Lane{{Name: worker}}, map[string]string{worker: worker}, Root},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := memory(t)
+			for _, lane := range c.lanes {
+				registered(t, s, lane)
+				if lane.State == store.LaneRetired {
+					retire(s, lane.Name, lane.RetiredBy, t0)
+				}
+			}
+			d := Deps{Desk: func(lane string) (string, error) { return c.desks[lane], nil }}
+			equal(t, owningDesk(s, d, c.lanes[0].Name), c.want)
+		})
+	}
+}
+
+func TestAHeldLanesBlockerReachesItsDeskAndNeverRoot(t *testing.T) {
+	s := memory(t)
+	f := adopted(t, s, writeBrief(t), "")
+	f.desks = map[string]string{lane2: "meta-desk-1"}
+	registered(t, s, store.Lane{Name: "meta-desk-1"})
+	f.feed = append(f.feed, rec(2, lane2, "ask", t0, "pick A or B?", Root))
+	f.peers = []Row{who("meta-desk-1", true, t0.Add(mins(16)))}
+
+	tick(t, s, f, t0.Add(mins(16)))
+
+	equal(t, f.kinds(), []string{"blocker:meta-desk-1"})
+	contains(t, f.posts[0].Text, "nothing proves it died")
+}
+
+func TestARelaunchIsReportedToTheDeskThatOwnsTheLane(t *testing.T) {
+	s := memory(t)
+	f := adopted(t, s, writeBrief(t), "9f3c2e1")
+	f.desks = map[string]string{lane2: "meta-desk-1"}
+	registered(t, s, store.Lane{Name: "meta-desk-1"})
+	f.peers = []Row{who(lane2, false, t0.Add(-mins(20))), who("meta-desk-1", true, t0)}
+
+	out := tick(t, s, f, t0)
+
+	equal(t, len(out.Relaunched), 1)
+	equal(t, f.kinds(), []string{"report:meta-desk-1"})
+}
+
+func TestAWokenLaneThatStaysQuietIsTheDesksToReassignWithAVerbTheDeskCanPost(t *testing.T) {
+	s := memory(t)
+	f := adopted(t, s, writeBrief(t), "", 46475)
+	f.desks = map[string]string{lane2: "meta-desk-1"}
+	registered(t, s, store.Lane{Name: "meta-desk-1"})
+	f.feed = append(f.feed, stall(2, t0.Add(-mins(30)), "STALL red #46475 at 89f46c3, 659 min", 46475, "red:46475:89f46c3"))
+	f.peers = []Row{onRoster(who(lane2, true, t0.Add(-2*time.Hour))), who("meta-desk-1", true, t0)}
+
+	tick(t, s, f, t0)
+	asked := tick(t, s, f, t0.Add(PageAnswer))
+
+	equal(t, asked.Reassign, []string{lane2})
+	equal(t, f.kinds(), []string{"ask:meta-desk-1"})
+	contains(t, f.posts[0].Text, "Post `lr request stand-down conflicts-2 --successor <lane>`")
+}
+
+func TestQuietOwnersAreNamedToEachOwnersDeskInOneBlockerAndRootHasTheRest(t *testing.T) {
+	s := memory(t)
+	f := adopted(t, s, writeBrief(t), "", 46869)
+	f.desks = map[string]string{"quiet-desk": "meta-desk-1"}
+	registered(t, s, store.Lane{Name: "meta-desk-1"})
+	if err := s.LaneHeard(lane2, t0.Add(-mins(90)), "state", 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Own("quiet-desk", []int{46002}); err != nil {
+		t.Fatal(err)
+	}
+	f.states = map[int]string{46869: NeedsWork, 46002: NeedsWork}
+	f.peers = []Row{who(lane2, true, t0), who("meta-desk-1", true, t0)}
+
+	tick(t, s, f, t0)
+	asked := f.ofKind("ask")
+	tick(t, s, f, t0.Add(StaleAfter))
+
+	equal(t, []string{asked[0].To[0], asked[1].To[0]}, []string{lane2, "quiet-desk"})
+	contains(t, asked[0].Text, "or root is told you are gone")
+	contains(t, asked[1].Text, "or meta-desk-1 is told you are gone")
+	blockers := f.ofKind("blocker")
+	equal(t, []string{blockers[0].To[0], blockers[1].To[0]}, []string{"meta-desk-1", Root})
+	contains(t, blockers[0].Text, "quiet-desk (#46002;")
+	contains(t, blockers[1].Text, lane2+" (#46869;")
 }

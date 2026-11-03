@@ -39,6 +39,7 @@ type Deps struct {
 	Wake         func(name string, row Row, page map[string]any) (bool, error)
 	PRStates     func(prs []int) (map[int]string, error)
 	Held         func() (map[int]bool, error)
+	Desk         func(lane string) (string, error)
 	RotateAt     int
 }
 
@@ -194,13 +195,28 @@ func act(s *store.Store, d Deps, lane store.Lane, found map[string]Peer, taken m
 
 func escalate(s *store.Store, d Deps, subject, cause string, now time.Time) {
 	lane := strings.TrimPrefix(subject, "lane:")
-	to := Root
+	to := owningDesk(s, d, lane)
 	if lane == Root {
 		to = OwnerRelay
 	}
 	if must(s.Escalate(subject, cause, to, now)) {
 		do(d.Post(Post{Kind: "blocker", To: []string{to}, Text: fmt.Sprintf("%s %s: %s", pacific(now), subject, cause), LaneRef: lane}))
 	}
+}
+
+func owningDesk(s *store.Store, d Deps, lane string) string {
+	desk := must(d.Desk(lane))
+	row, known := laneOf(s, lane)
+	for seen := map[string]bool{lane: true}; desk == "" && known && row.Predecessor != "" && !seen[row.Predecessor]; {
+		seen[row.Predecessor] = true
+		desk = must(d.Desk(row.Predecessor))
+		row, known = laneOf(s, row.Predecessor)
+	}
+	head, found := newest(s, desk)
+	if !found || head.Name == lane || !isLive(head.State) {
+		return Root
+	}
+	return head.Name
 }
 
 func relaunchCoordinator(s *store.Store, d Deps, old store.Lane, found map[string]Peer, why string, now time.Time, out *Outcome) {
@@ -295,7 +311,7 @@ func relaunch(s *store.Store, d Deps, old store.Lane, found map[string]Peer, why
 	retire(s, old.Name, name, now)
 	must(s.WantLane(store.Lane{Name: name, Brief: old.Brief, Model: old.Model, Effort: old.Effort, Role: old.Role, State: store.LaneLaunching, Handoff: old.Handoff, PRs: old.PRs, Predecessor: old.Name, Reason: why, Strikes: strikes}, now))
 	do(d.Launch(name, old.Model, old.Effort, path))
-	do(d.Post(Post{Kind: "report", To: []string{Root}, LaneRef: name, Text: fmt.Sprintf("%s RELAUNCHED %s as %s: it %s; handoff %s; PRs %s; brief %s", pacific(now), old.Name, name, why, or(old.Handoff, "none, the successor writes it"), or(numberList(old.PRs), "none"), path)}))
+	do(d.Post(Post{Kind: "report", To: []string{owningDesk(s, d, old.Name)}, LaneRef: name, Text: fmt.Sprintf("%s RELAUNCHED %s as %s: it %s; handoff %s; PRs %s; brief %s", pacific(now), old.Name, name, why, or(old.Handoff, "none, the successor writes it"), or(numberList(old.PRs), "none"), path)}))
 	out.Relaunched = append(out.Relaunched, Relaunch{old.Name, name, why})
 }
 
@@ -369,7 +385,12 @@ func wake(s *store.Store, d Deps, lane store.Lane, peer Peer, now time.Time, out
 		return
 	}
 	owned := or(numberList(prs), lane.Name+"'s work")
-	do(d.Post(Post{Kind: "ask", To: []string{Root}, LaneRef: lane.Name, PRs: prs, Text: fmt.Sprintf("%s reassign %s: %s has posted nothing since it was woken at %s because %s. Post `<lane> replaces %s` or a decide naming owner=<lane>; it is not woken again for that blocker.", pacific(now), owned, lane.Name, pacific(wokeAt), truncated(pageText(page, "why"), 240), lane.Name)}))
+	desk := owningDesk(s, d, lane.Name)
+	how := fmt.Sprintf("Post `<lane> replaces %s` or a decide naming owner=<lane>", lane.Name)
+	if desk != Root {
+		how = fmt.Sprintf("Post `lr request stand-down %s --successor <lane>`", lane.Name)
+	}
+	do(d.Post(Post{Kind: "ask", To: []string{desk}, LaneRef: lane.Name, PRs: prs, Text: fmt.Sprintf("%s reassign %s: %s has posted nothing since it was woken at %s because %s. %s; it is not woken again for that blocker.", pacific(now), owned, lane.Name, pacific(wokeAt), truncated(pageText(page, "why"), 240), how)}))
 	do(s.SetLanePage(lane.Name, with(page, "asked", store.Stamp(now))))
 	out.Reassign = append(out.Reassign, lane.Name)
 }
@@ -446,7 +467,7 @@ func probeOwners(s *store.Store, d Deps, found map[string]Peer, now time.Time) {
 			do(s.Probe(fmt.Sprintf("%s:%d", Root, n), now))
 		}
 	}
-	var lines []string
+	lines := map[string][]string{}
 	for _, name := range slices.Sorted(maps.Keys(quiet)) {
 		var work []int
 		for _, n := range quiet[name] {
@@ -465,7 +486,7 @@ func probeOwners(s *store.Store, d Deps, found map[string]Peer, now time.Time) {
 			if at, ok := heard[name]; ok {
 				since = pacific(at)
 			}
-			text := fmt.Sprintf("%s %s: you own %s, which still need work, and have posted nothing since %s. Post any record within %d minutes, such as your state, or root is told you are gone.", pacific(now), name, owned, since, int(StaleAfter.Minutes()))
+			text := fmt.Sprintf("%s %s: you own %s, which still need work, and have posted nothing since %s. Post any record within %d minutes, such as your state, or %s is told you are gone.", pacific(now), name, owned, since, int(StaleAfter.Minutes()), owningDesk(s, d, name))
 			do(d.Post(Post{Kind: "ask", To: []string{name}, Text: text}))
 			do(s.Probe(name, now))
 			if peer, ok := found[name]; ok && peer.Row.Roster != "" {
@@ -473,15 +494,16 @@ func probeOwners(s *store.Store, d Deps, found map[string]Peer, now time.Time) {
 			}
 		case probe.Dead.IsZero() && now.Sub(probe.Asked) >= StaleAfter:
 			do(s.ProbeDead(name, now))
-			lines = append(lines, fmt.Sprintf("%s (%s; asked at %s; %s)", name, owned, pacific(probe.Asked), successorNote(s, name)))
+			desk := owningDesk(s, d, name)
+			lines[desk] = append(lines[desk], fmt.Sprintf("%s (%s; asked at %s; %s)", name, owned, pacific(probe.Asked), successorNote(s, name)))
 		}
 	}
-	if len(lines) > 0 {
+	for _, desk := range slices.Sorted(maps.Keys(lines)) {
 		noun := "lane"
-		if len(lines) > 1 {
+		if len(lines[desk]) > 1 {
 			noun = "lanes"
 		}
-		do(d.Post(Post{Kind: "blocker", To: []string{Root}, Text: fmt.Sprintf("%s %d %s own PRs that need work and left the supervisor's direct ask unanswered for %d minutes: %s", pacific(now), len(lines), noun, int(StaleAfter.Minutes()), strings.Join(lines, "; "))}))
+		do(d.Post(Post{Kind: "blocker", To: []string{desk}, Text: fmt.Sprintf("%s %d %s own PRs that need work and left the supervisor's direct ask unanswered for %d minutes: %s", pacific(now), len(lines[desk]), noun, int(StaleAfter.Minutes()), strings.Join(lines[desk], "; "))}))
 	}
 }
 
