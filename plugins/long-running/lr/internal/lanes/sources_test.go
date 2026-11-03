@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -102,7 +103,7 @@ func TestAWakeReachesARosterLanesInboxAndAnOrcaLanesDispatch(t *testing.T) {
 		}
 		sent = append(sent, dispatch+" "+subject+" "+body)
 		return nil
-	}}
+	}, Unread: func(string, string) (bool, error) { return false, nil }}
 	page := map[string]any{"why": "this blocker on your PR #46475 arrived after your last record: STALL red #46475 at 89f46c3", "prs": []int{46475}}
 
 	woken, err := waker.Wake("done-lane", Row{Session: "d50e80e8-7ba3", Roster: team}, page)
@@ -154,6 +155,126 @@ func TestAnOrcaWakeFromLaunchdSendsAsTheRunsCoordinator(t *testing.T) {
 	}
 
 	contains(t, sent, "--from term_coordinator --to dispatch:ctx_1 --run run_1 --type dispatch")
+}
+
+func TestAnOrcaLaneHoldingAnUnreadWakeGetsNoSecondOneUntilItReadsIt(t *testing.T) {
+	local := t.TempDir()
+	env := Env{Config: config.Config{OrcaRun: "run_1"}, Local: local, Now: func() time.Time { return t0 }}
+	if err := os.MkdirAll(env.receipts(), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(env.receipts(), "go-sweep.terminal"), []byte("term_lane\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var inbox []string
+	sends := 0
+	env.Runner = scripted(func(argv []string) (shell.Result, error) {
+		line := strings.Join(argv, " ")
+		switch {
+		case strings.Contains(line, "run-show"):
+			return shell.Result{Stdout: `{"ok":true,"result":{"run":{"coordinator_handle":"term_coordinator"}}}`}, nil
+		case strings.Contains(line, "check --terminal term_lane --run run_1 --peek"):
+			return shell.Result{Stdout: `{"ok":true,"result":{"messages":[` + strings.Join(inbox, ",") + `]}}`}, nil
+		case strings.Contains(line, "orchestration send"):
+			sends++
+			inbox = append(inbox, `{"id":"msg_`+strconv.Itoa(sends)+`","subject":"WAKE go-sweep: continue the work in hand"}`)
+			return shell.Result{Stdout: `{"ok":true}`}, nil
+		}
+		t.Fatalf("unexpected orca call: %s", line)
+		return shell.Result{}, nil
+	})
+	ctx := context.Background()
+	waker := &Waker{Drive: testDrive, Clock: env.Now, Send: func(dispatch, subject, body string) error {
+		return env.sendDispatch(ctx, dispatch, subject, body)
+	}, Unread: func(lane, subject string) (bool, error) {
+		return env.dispatchHoldsUnread(ctx, lane, subject)
+	}}
+	row := Row{Dispatch: "ctx_1"}
+
+	for _, why := range []string{"orders addressed to you are unread: root's decide #1.", "orders addressed to you are unread: root's decide #2.", "orders addressed to you are unread: root's decide #3."} {
+		woken, err := waker.Wake("go-sweep", row, map[string]any{"why": why})
+		if err != nil || !woken {
+			t.Fatalf("wake for %q = %v, %v; want the lane counted as woken", why, woken, err)
+		}
+	}
+	equal(t, sends, 1)
+
+	inbox = nil
+	woken, err := waker.Wake("go-sweep", row, map[string]any{"why": "orders addressed to you are unread: root's decide #4."})
+	if err != nil || !woken {
+		t.Fatal(woken, err)
+	}
+	equal(t, sends, 2)
+}
+
+func TestAnUnrelatedUnreadMessageDoesNotHoldAWake(t *testing.T) {
+	local := t.TempDir()
+	env := Env{Config: config.Config{OrcaRun: "run_1"}, Local: local, Now: func() time.Time { return t0 }}
+	if err := os.MkdirAll(env.receipts(), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(env.receipts(), "go-sweep.terminal"), []byte("term_lane\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	env.Runner = scripted(func([]string) (shell.Result, error) {
+		return shell.Result{Stdout: `{"ok":true,"result":{"messages":[{"subject":"WAKE other-lane: continue the work in hand"},{"subject":"relay #12"}]}}`}, nil
+	})
+
+	pending, err := env.dispatchHoldsUnread(context.Background(), "go-sweep", "WAKE go-sweep: continue the work in hand")
+	if err != nil || pending {
+		t.Fatalf("pending = %v, %v; want no wake pending", pending, err)
+	}
+}
+
+func TestAnUnreadablePeekSendsNoWakeAndTheNextTickRetries(t *testing.T) {
+	sends := 0
+	waker := &Waker{Drive: testDrive, Clock: func() time.Time { return t0 }, Send: func(string, string, string) error {
+		sends++
+		return nil
+	}, Unread: func(string, string) (bool, error) { return false, errors.New("orca down") }}
+
+	woken, err := waker.Wake("go-sweep", Row{Dispatch: "ctx_1"}, map[string]any{"why": "orders"})
+
+	if err != nil || woken {
+		t.Fatalf("wake = %v, %v; want it unwoken with the tick unharmed", woken, err)
+	}
+	equal(t, sends, 0)
+}
+
+func TestARosterLaneHoldingAnUnreadWakeGetsNoSecondOneUntilItReadsIt(t *testing.T) {
+	team := filepath.Join(t.TempDir(), "teams", "session-d50e80e8")
+	waker := &Waker{Drive: testDrive, Clock: func() time.Time { return t0 }}
+	row := Row{Session: "d50e80e8-7ba3", Roster: team}
+	path := filepath.Join(team, "inboxes", "go-sweep.json")
+	inboxOf := func() []map[string]any {
+		t.Helper()
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var messages []map[string]any
+		if err := json.Unmarshal(data, &messages); err != nil {
+			t.Fatal(err)
+		}
+		return messages
+	}
+
+	for range 3 {
+		woken, err := waker.Wake("go-sweep", row, map[string]any{"why": "orders"})
+		if err != nil || !woken {
+			t.Fatal(woken, err)
+		}
+	}
+	messages := inboxOf()
+	equal(t, len(messages), 1)
+
+	messages[0]["read"] = true
+	writeJSON(t, path, messages)
+	woken, err := waker.Wake("go-sweep", row, map[string]any{"why": "orders"})
+	if err != nil || !woken {
+		t.Fatal(woken, err)
+	}
+	equal(t, len(inboxOf()), 2)
 }
 
 func TestAnEndedOrcaDispatchIsAProcessRowThatReadsNotLiveSinceItsLaunch(t *testing.T) {

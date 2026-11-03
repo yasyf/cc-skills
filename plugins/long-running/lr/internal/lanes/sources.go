@@ -395,20 +395,30 @@ func randomHex(n int) string {
 }
 
 type Waker struct {
-	Drive string
-	Clock func() time.Time
-	Send  func(dispatch, subject, body string) error
+	Drive  string
+	Clock  func() time.Time
+	Send   func(dispatch, subject, body string) error
+	Unread func(lane, subject string) (bool, error)
 }
 
 func (w *Waker) Wake(lane string, row Row, page map[string]any) (bool, error) {
 	text := fmt.Sprintf("WAKE %s: %s Read your mail with `cci tail --drive %s --reader %s --to %s`, then continue the work in hand from your ledger; do not restart your brief.", lane, pageText(page, "why"), w.Drive, lane, lane)
 	summary := fmt.Sprintf("WAKE %s: continue the work in hand", lane)
 	if row.Dispatch != "" {
-		if err := w.Send(row.Dispatch, summary, text); err != nil {
+		pending, err := w.Unread(lane, summary)
+		if err == nil && !pending {
+			err = w.Send(row.Dispatch, summary, text)
+		}
+		if err != nil {
 			slog.Warn("wake not delivered", "lane", lane, "dispatch", row.Dispatch, "err", err)
 			return false, nil
 		}
 		return true, nil
+	}
+	inbox := filepath.Join(row.Roster, "inboxes", unsafeName.ReplaceAllString(lane, "-")+".json")
+	pending, err := inboxHoldsUnread(inbox, summary)
+	if err != nil || pending {
+		return pending, err
 	}
 	message := map[string]any{
 		"from":      wakeSender,
@@ -420,7 +430,30 @@ func (w *Waker) Wake(lane string, row Row, page map[string]any) (bool, error) {
 		"type":      "message",
 		"read":      false,
 	}
-	return appendInbox(filepath.Join(row.Roster, "inboxes", unsafeName.ReplaceAllString(lane, "-")+".json"), message)
+	return appendInbox(inbox, message)
+}
+
+func inboxHoldsUnread(inbox, summary string) (bool, error) {
+	data, err := os.ReadFile(inbox)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return false, err
+	}
+	if len(bytes.TrimSpace(data)) == 0 {
+		return false, nil
+	}
+	var messages []struct {
+		Summary string `json:"summary"`
+		Read    bool   `json:"read"`
+	}
+	if err := json.Unmarshal(data, &messages); err != nil {
+		return false, fmt.Errorf("%s: %w", inbox, err)
+	}
+	for _, message := range messages {
+		if message.Summary == summary && !message.Read {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func transcriptOf(projects string, row Row) string {
@@ -733,6 +766,38 @@ func (e Env) sendDispatch(ctx context.Context, dispatch, subject, body string) e
 	return err
 }
 
+func (e Env) dispatchHoldsUnread(ctx context.Context, lane, subject string) (bool, error) {
+	terminal, err := os.ReadFile(filepath.Join(e.receipts(), lane+".terminal"))
+	if err != nil {
+		return false, err
+	}
+	stdout, err := e.Run(ctx, "orca", "orchestration", "check", "--terminal", strings.TrimSpace(string(terminal)), "--run", e.Config.OrcaRun, "--peek", "--json", "--full")
+	if err != nil {
+		return false, err
+	}
+	var peek struct {
+		OK     bool `json:"ok"`
+		Error  any  `json:"error"`
+		Result struct {
+			Messages []struct {
+				Subject string `json:"subject"`
+			} `json:"messages"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &peek); err != nil {
+		return false, fmt.Errorf("%w: orca check: %w", ErrUnread, err)
+	}
+	if !peek.OK {
+		return false, fmt.Errorf("%w: orca check: %v", ErrUnread, peek.Error)
+	}
+	for _, message := range peek.Result.Messages {
+		if message.Subject == subject {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func (e Env) Deps(ctx context.Context) (Deps, error) {
 	briefs := filepath.Join(e.State, "lanes")
 	if err := os.MkdirAll(briefs, 0o750); err != nil {
@@ -748,6 +813,8 @@ func (e Env) Deps(ctx context.Context) (Deps, error) {
 	desks := &deskReader{env: e, ctx: ctx, desks: map[string]string{}}
 	waker := &Waker{Drive: e.Config.Drive, Clock: e.Now, Send: func(dispatch, subject, body string) error {
 		return e.sendDispatch(ctx, dispatch, subject, body)
+	}, Unread: func(lane, subject string) (bool, error) {
+		return e.dispatchHoldsUnread(ctx, lane, subject)
 	}}
 	launcher := e.tool("desk-launch.py")
 	trunk := deletions.Of(e.Runner, e.Config)
