@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/carry"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
@@ -110,7 +111,7 @@ func (o Order) launchFaults(text string, readable bool) []string {
 
 func (o Order) wrongLaneFault() string {
 	owner := filepath.Base(filepath.Dir(o.Brief))
-	if filepath.Base(o.Brief) != briefFile || owner == o.Lane {
+	if filepath.Base(o.Brief) != briefFile || owner == o.Lane || owner == client.Stem(o.Lane) {
 		return ""
 	}
 	order := o

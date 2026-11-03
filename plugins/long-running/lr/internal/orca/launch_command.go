@@ -99,14 +99,19 @@ func laneCommand(a *app.App) *cobra.Command {
 	var timeout float64
 	cmd := &cobra.Command{
 		Use:   "lane LANE MODEL EFFORT BRIEF",
-		Short: "Post one lane's launch to the orca runner and wait for its verdict",
+		Short: "Post one lane's launch to the orca runner and wait for its verdict; a stem launches as its next number",
 		Long: `Run every check the runner applies, post the launch, and print the runner's verdict.
 
 Exit 0 when the lane launched, or when no verdict came within --timeout-seconds while the runner is alive, since its verdict then arrives as a desk-runner record; 1 when the runner refused it or a check did; and 2 when no verdict came and the runner has posted no orca alive record in five minutes. A drive whose orca runner posted no orca alive record in five minutes posts nothing.`,
 		Args: cobra.ExactArgs(4),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			order := Order{Lane: args[0], Model: args[1], Effort: args[2], Role: role, Brief: args[3], Now: now}
-			return flags.poster(cmd, a).LaunchOrExit(cmd.Context(), order, seconds(timeout))
+			poster := flags.poster(cmd, a)
+			lane, err := poster.Numbered(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			order := Order{Lane: lane, Model: args[1], Effort: args[2], Role: role, Brief: args[3], Now: now}
+			return poster.LaunchOrExit(cmd.Context(), order, seconds(timeout))
 		},
 	}
 	flags.bind(cmd)

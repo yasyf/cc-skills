@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -128,6 +129,30 @@ func (p Poster) Faults(ctx context.Context, order Order) ([]string, error) {
 		return nil, err
 	}
 	return order.faults(ctx, p.Runner, p.Env("HOME"), entry.Checkout)
+}
+
+func (p Poster) Numbered(ctx context.Context, lane string) (string, error) {
+	if client.Stem(lane) != lane {
+		return lane, nil
+	}
+	entry, err := p.Entry()
+	if err != nil {
+		return "", err
+	}
+	taken, err := client.Generations(ctx, entry.Bus(), lane)
+	if err != nil {
+		return "", err
+	}
+	highest := 0
+	for _, name := range taken {
+		if n, err := strconv.Atoi(strings.TrimPrefix(name, lane+"-")); err == nil {
+			highest = max(highest, n)
+		}
+	}
+	if highest == 0 && slices.Contains(taken, lane) {
+		return lane, nil
+	}
+	return fmt.Sprintf("%s-%d", lane, highest+1), nil
 }
 
 func (p Poster) Launch(ctx context.Context, order Order, timeout time.Duration) (string, error) {

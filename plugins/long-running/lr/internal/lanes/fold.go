@@ -141,6 +141,9 @@ func foldSpawn(s *store.Store, r Record, spawn Spawn, adoptable map[string]bool,
 	for _, other := range must(s.Names()) {
 		if succeeds(name, other) {
 			old, _ := laneOf(s, other)
+			if !fresh && isLive(old.State) {
+				out.stood = append(out.stood, stoodDown{old.Name, name, old.PRs, r.Seq})
+			}
 			role = or(role, takesOver(s, name, old, at))
 		}
 	}

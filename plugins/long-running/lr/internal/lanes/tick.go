@@ -520,6 +520,7 @@ func relaunch(s *store.Store, d Deps, old store.Lane, found map[string]Peer, why
 		peer := found[name]
 		if alive(&peer, peer.Seen, now) && succeeds(name, old.Name) {
 			retire(s, old.Name, name, now)
+			do(d.Post(Post{Kind: "stand-down", To: []string{old.Name}, Text: fmt.Sprintf("%s stood down for %s, already up; %s %s.", old.Name, name, old.Name, why), Successor: name, PRs: old.PRs}))
 			return name
 		}
 	}
