@@ -1,0 +1,29 @@
+{
+  "id": "7d34dd9c-2755-4e10-8700-f64aa57b0233",
+  "ok": true,
+  "result": {
+    "terminal": {
+      "handle": "term_7f2d70f5-ca5c-4260-ab60-129bfd2e6ec2",
+      "status": "running",
+      "truncated": true,
+      "limited": false,
+      "oldestCursor": "53524",
+      "nextCursor": "55524",
+      "latestCursor": "55524",
+      "returnedLineCount": 7,
+      "source": "screen",
+      "tail": [
+        "⏺ Watching the coordinator; nothing is waiting.",
+        "",
+        "──────────────────────────────────────────────────────────────────────────────────────────────────────────────",
+        "❯ ",
+        "──────────────────────────────────────────────────────────────────────────────────────────────────────────────",
+        "  ⏵⏵ bypass permissions on (shift+tab to cycle)                                                               ",
+        "                                                                                               447569 tokens"
+      ]
+    }
+  },
+  "_meta": {
+    "runtimeId": "c05185ed-5f91-4a22-ade0-5317625bb4fd"
+  }
+}

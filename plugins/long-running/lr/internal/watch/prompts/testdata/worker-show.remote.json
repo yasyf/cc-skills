@@ -1,0 +1,166 @@
+{
+  "id": "c7e82c05-0099-45fc-83bd-8c526259a022",
+  "ok": true,
+  "result": {
+    "dispatch": {
+      "id": "ctx_1e2e970fc485",
+      "runId": "run_4104a86f0a03",
+      "taskId": "task_39708dfe4834",
+      "task_id": "task_39708dfe4834",
+      "contractVersion": 1,
+      "assigneeHandle": null,
+      "assigneePaneKey": null,
+      "processIncarnation": null,
+      "capabilityRevokedAt": null,
+      "retryOfDispatchId": null,
+      "creatorDispatchId": null,
+      "hostScope": null,
+      "status": "dispatched",
+      "failureCount": 0,
+      "lastFailure": null,
+      "terminationReason": null,
+      "depth": 1,
+      "dispatchedAt": "2026-10-10 10:05:33",
+      "completedAt": null,
+      "createdAt": "2026-10-10 10:05:33",
+      "lastHeartbeatAt": "2026-10-10T10:07:58.029Z"
+    },
+    "worker": {
+      "dispatchId": "ctx_1e2e970fc485",
+      "runtimeEpoch": "3a3659aa-ea2a-4b73-873c-c6133da9f754",
+      "state": "running",
+      "stage": "input_accepted",
+      "worktreeId": "433506a7-0897-484c-ab62-f06990247987::/home/sprite/app",
+      "agentTerminalHandle": "term_5cfcad9a-6928-47d6-88e3-f04749533661",
+      "setupState": "not_applicable",
+      "effects": [
+        {
+          "kind": "worktree",
+          "action": "reused",
+          "id": "433506a7-0897-484c-ab62-f06990247987::/home/sprite/app"
+        },
+        {
+          "kind": "setup",
+          "action": "not_applicable",
+          "state": "not_applicable"
+        },
+        {
+          "kind": "terminal",
+          "role": "agent",
+          "action": "reused",
+          "id": "term_5cfcad9a-6928-47d6-88e3-f04749533661"
+        }
+      ],
+      "residualResources": [],
+      "startOptions": {
+        "on": "4cf25470-2acf-421b-9106-83fefee74ece",
+        "serverName": "codex-hooks-proof",
+        "worktree": "id:433506a7-0897-484c-ab62-f06990247987::/home/sprite/app",
+        "name": null,
+        "repo": null,
+        "baseBranch": null,
+        "terminal": "term_5cfcad9a-6928-47d6-88e3-f04749533661",
+        "agent": null,
+        "launch": {
+          "requested": {
+            "agent": null,
+            "model": null,
+            "effort": null
+          },
+          "effective": null
+        },
+        "timeoutMs": 60000,
+        "setup": "not_applicable",
+        "setupSource": "existing_worktree"
+      },
+      "lastError": null,
+      "createdAt": "2026-10-10 10:05:33",
+      "updatedAt": "2026-10-10T10:10:00.013Z"
+    },
+    "projection": {
+      "id": "ctx_1e2e970fc485",
+      "dispatchId": "ctx_1e2e970fc485",
+      "taskId": "task_39708dfe4834",
+      "runId": "run_4104a86f0a03",
+      "role": "worker",
+      "parent": null,
+      "provider": null,
+      "host": {
+        "kind": "remote",
+        "id": "4cf25470-2acf-421b-9106-83fefee74ece"
+      },
+      "workspace": {
+        "id": "433506a7-0897-484c-ab62-f06990247987::/home/sprite/app",
+        "kind": "folder_or_worktree"
+      },
+      "stage": {
+        "worker": "ready",
+        "dispatch": "dispatched",
+        "detail": "input_accepted",
+        "activity": "unknown"
+      },
+      "outcome": "in_progress",
+      "liveness": {
+        "verdict": "live",
+        "observedAt": 1791628209173,
+        "source": "execution_host"
+      },
+      "evidence": {
+        "durable": true,
+        "liveStatus": "fresh",
+        "lastObservedAt": 1791628209173
+      },
+      "resource": {
+        "state": "absent",
+        "reason": "not_materialized"
+      },
+      "nextAction": {
+        "kind": "inspect",
+        "argv": [
+          "orchestration",
+          "worker-show",
+          "--dispatch",
+          "ctx_1e2e970fc485"
+        ]
+      },
+      "attention": {
+        "categories": [],
+        "requiresAction": false
+      }
+    },
+    "server": {
+      "environmentId": "4cf25470-2acf-421b-9106-83fefee74ece",
+      "name": "codex-hooks-proof"
+    },
+    "remoteRuntimeEpoch": "f18dbbcf-4cec-4040-b08e-130cf3c7fd54",
+    "terminal": {
+      "handle": "term_5cfcad9a-6928-47d6-88e3-f04749533661",
+      "ptyId": "433506a7-0897-484c-ab62-f06990247987::/home/sprite/app@@b45f42e0",
+      "incarnationId": "bd53de06-6abd-4a94-aa80-6edc592bb28e",
+      "orphaned": false,
+      "worktreeId": "433506a7-0897-484c-ab62-f06990247987::/home/sprite/app",
+      "worktreePath": "/home/sprite/app",
+      "branch": "refs/heads/dev",
+      "tabId": "294705ad-62bb-4d29-943a-f44f74153353",
+      "leafId": "efcc4086-f7b3-45f9-a225-9fd87b5a3e12",
+      "title": "Report task_39708dfe4834 outcome | app",
+      "connected": true,
+      "writable": true,
+      "lastOutputAt": 1791627011331,
+      "preview": "› Ask Codex to do anything",
+      "executionHostId": "local",
+      "agentIdentity": "codex",
+      "paneRuntimeId": -1,
+      "rendererGraphEpoch": 0,
+      "agentWait": null
+    },
+    "observation": {
+      "status": "live",
+      "exactWorker": true,
+      "agentWait": null
+    }
+  },
+  "_meta": {
+    "runtimeId": "c05185ed-5f91-4a22-ade0-5317625bb4fd"
+  }
+}

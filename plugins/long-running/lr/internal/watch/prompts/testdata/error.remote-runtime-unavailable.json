@@ -1,0 +1,11 @@
+{
+  "id": "local",
+  "ok": false,
+  "error": {
+    "code": "remote_runtime_unavailable",
+    "message": "Could not connect to the remote Orca runtime."
+  },
+  "_meta": {
+    "runtimeId": null
+  }
+}
