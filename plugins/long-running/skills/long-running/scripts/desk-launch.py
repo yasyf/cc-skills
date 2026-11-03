@@ -21,7 +21,8 @@ runner accepts. An incident brief that still holds `<lane>`, `<state>` or `<...>
 model `orca-launch.sh` starts; `--now` launches beside a live lane holding the same work. Before
 any post, a launch runs every check the runner applies, `launch_checks`, and exits naming every
 fault together, so a missing `Register slice:` and `Scale:` line cost one fix and no runner round
-trip. `relay`, `hold`,
+trip. A launch not pinned to the Mac also runs `lr carry` against the drive's checkout, so a brief
+naming a path or ccn entity no Sprite can receive is refused here, naming each one. `relay`, `hold`,
 `unhold`, and `withdraw` post the runner's line of that verb and print it without waiting,
 since the runner's verdict reaches the root on cci. A launch's key is `R<n>`, `<n>` being the number every cci node names
 its record by, which the bus allocates once, so two posters on any session or machine never share one; no line carries
@@ -146,9 +147,9 @@ def launches(args: argparse.Namespace) -> list[tuple[str, str, str, bool, str, P
     return [(args.target, args.model, args.effort, args.now, "", args.brief)]
 
 
-def preflight(planned: list[tuple[str, str, str, bool, str, Path]]) -> None:
+def preflight(planned: list[tuple[str, str, str, bool, str, Path]], repo: str) -> None:
     """Exit before any post when a launch would fail, naming every fault of every planned lane in one message."""
-    faults = [fault for lane, model, effort, now, role, brief in planned for fault in launch_checks.preflight_faults(lane, model, effort, now, role, brief.resolve())]
+    faults = [fault for lane, model, effort, now, role, brief in planned for fault in launch_checks.preflight_faults(lane, model, effort, now, role, brief.resolve(), repo)]
     if faults:
         sys.exit(f"refused, nothing was posted: {'; '.join(faults)}")
 
@@ -221,7 +222,7 @@ def main(argv: list[str] | None = None) -> int:
         for lane, *_, brief in planned:
             if line := unfilled(brief.read_text(), args.alert):
                 parser.error(f"brief {brief} for {lane} still holds a placeholder root fills, so nothing is posted: {line}")
-    preflight(planned)
+    preflight(planned, drive_entry(args.drive)["checkout"])
     topic = args.name if args.verb == "incident" else args.target
     require_runner(args.drive, agent_fallback(args))
     stored = [(post(args.drive, args.lane, topic, launch_directive(lane, model, effort, now, role, brief.resolve())), lane) for lane, model, effort, now, role, brief in planned]
