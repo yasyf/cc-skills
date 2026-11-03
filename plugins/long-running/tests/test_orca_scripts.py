@@ -187,7 +187,7 @@ def test_the_plugin_bin_launches_every_script_by_name():
         assert os.readlink(launcher) == "../scripts/bin-shim.sh"
 
 
-@pytest.mark.parametrize("script", ["ledger.py", "bus.py", "drive.py"])
+@pytest.mark.parametrize("script", ["ledger.py", "drive.py"])
 def test_a_cli_runs_by_name_from_any_directory_with_the_plugin_bin_on_path(script, tmp_path):
     env = {**os.environ, "PATH": f"{BIN}:{os.environ['PATH']}"}
     result = subprocess.run([script, "--help"], cwd=tmp_path, env=env, capture_output=True, text=True, timeout=30)

@@ -57,7 +57,7 @@ The resumed the coordinator runs `drive.py start --drive <id> --ledger <id>` to 
 | `drive.py`, `handoff.py`, `standing.py`, `compact_job.py` | CLI | Drive lifecycle and compaction handoff scripts on `PATH` through `bin/` |
 | `ledger.py`, `rulings.py` | CLI | Landing desk and merge queue tools over `cc-notes` for queueing reports, grading heads, guarding the merge label, managing holds, and inspecting queue state |
 | `lr supervisor`, `lr relay run`, `lr launch`, `sprite-job.sh`, `lr launch start`, `orca-check.sh`, `prompt_watch.py`, `inboxes.py`, `inbox-digest.py`, `inbox-rotate.py` | CLI | The supervisor and its relay, finder and fidelity passes on a remote Sprite box, Orca worker launchers, and inbox management tools |
-| `incident.py`, `actions.py`, `bus.py`, `monitor-watch.py` | CLI | Production incident lifecycle, lane bus helpers, and monitor transition watchers |
+| `lr incident`, `actions.py`, `monitor-watch.py` | CLI | Production incident lifecycle, lane helpers, and monitor transition watchers |
 | `board_rows.py`, `board_watch.py`, `plan-table.py`, `dashboard/app/server.py` | CLI | Owner board helpers and the drive web dashboard app |
 | `pr-prose.py`, `sprite-cargo.sh`, `remote-restack.py`, `remote-vet.py` | CLI | Lane helpers that write a branch's PR title, body, and commit message with a headless Claude Opus, build a ref on a remote Sprite box, restack a PR and the open PRs below it on a Sprite, or build and vet a lane's uncommitted change on a Sprite |
 
