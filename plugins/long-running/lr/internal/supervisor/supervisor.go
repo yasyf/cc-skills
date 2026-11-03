@@ -25,6 +25,7 @@ const (
 	PassEvery     = 3 * time.Minute
 	checkDeadline = 15 * time.Minute
 	checkStopWait = 30 * time.Second
+	checkStagger  = time.Second
 	passedName    = "pass"
 	moverLanes    = "lanes"
 
@@ -42,6 +43,7 @@ type Deps struct {
 	Sleep     func(time.Duration)
 	Lanes     func(now time.Time, generation int64) (lanes.Outcome, error)
 	Checks    []lanes.Check
+	Stagger   time.Duration
 	Snapshot  func(ctx context.Context) ([]machine.Facts, error)
 	Post      pass.Post
 	Queue     landing.Queue
@@ -186,8 +188,12 @@ const (
 func startChecks(ctx context.Context, d Deps) func() {
 	ctx, cancel := context.WithCancel(ctx)
 	var running sync.WaitGroup
-	for _, check := range d.Checks {
+	for i, check := range d.Checks {
 		running.Go(func() {
+			select {
+			case <-ctx.Done():
+			case <-time.After(time.Duration(i) * d.Stagger):
+			}
 			for ctx.Err() == nil {
 				limit, done := context.WithTimeout(ctx, checkDeadline)
 				if err := check(limit, d.Clock().UTC()); err != nil {
