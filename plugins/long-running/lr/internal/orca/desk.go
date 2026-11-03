@@ -104,6 +104,7 @@ type runnerFile struct {
 type spriteRoute struct {
 	Launcher string            `json:"launcher"`
 	Env      map[string]string `json:"env"`
+	Tools    []spriteTool      `json:"tools"`
 }
 
 func readRunnerFile(path string) (runnerFile, error) {

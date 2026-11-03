@@ -51,6 +51,7 @@ A Bash append to `orca-desk.md` in a drive session draws `UNREAD` and the `cci p
 | `orca.launch_env` | Environment variables passed to `lr launch start`. `ORCA_LAUNCH_PREPARE` is one shell command run in each new worktree before the worker starts; set it to the repo's code generators, never a JavaScript dependency install, and, in a repo with `tools/hooks/warm-lane.sh`, to that script. `ORCA_LAUNCH_SPARSE=1` makes each new lane a sparse `git worktree add` checkout instead of a full `orca worktree create` one, as [orca-workers.md](orca-workers.md) describes. A failure or a run past `ORCA_LAUNCH_PREPARE_SECONDS`, which defaults to `120`, does not stop the launch, and the worker's brief ends with the command and its log path. |
 | `orca.sprite.launcher` | Path to the plugin's `bin/worker-launch.sh` for Sprite launches. |
 | `orca.sprite.env` | Environment passed to Sprite launches alongside `WORKER_RUN`. Set `WORKER_CHECKOUT` to the checkout whose `tools/cc-remote` starts Sprites, and `WORKER_CCI_URL` and `WORKER_CCI_SHA256` to the cci `linux_amd64` release archive each Sprite worker installs before its brief. Set `WORKER_RELAY_SPONSOR` to the Sprite holding the drive's enrolled cci service key, so each worker joins the relay and its records reach the Mac. Set `CC_REMOTE_CONFIG`, because without it `cc-remote` reads `~/.config/cc-remote/config.yaml`. Set `WORKER_CC_REMOTE` to a worktree on branch `dev` or `cc-remote-<version>` that moves only with a `cc-remote` pin PR, never a session checkout. |
+| `orca.sprite.tools` | The tools each new Sprite installs before its brief, at the versions the Mac runs: a list of `{"kind": "binary" or "plugin", "name", "url", "sha256", "version"}`, each a release asset and its SHA-256 from that release's checksums. The desk passes it to the launcher as `WORKER_TOOLS`; [orca-sprite-workers.md](orca-sprite-workers.md) describes the install. Move a pin here when the Mac installs that version. |
 | `stall.every_minutes` | Cadence in minutes for `stall_watch.py`; default `5`. Re-read every pass. |
 | `deadlines.start_minutes` | Minutes before an accepted action without start proof triggers `DEADLINE`; default `10`. |
 | `deadlines.launch_minutes` | Minutes a launch or incident line stays valid from its record time; default `15`. |
@@ -99,7 +100,11 @@ A Bash append to `orca-desk.md` in a drive session draws `UNREAD` and the `cci p
         "CC_REMOTE_CONFIG": "/absolute/drive/checkout/tools/cc-remote/config.yaml",
         "WORKER_REF": "dev",
         "WORKER_RELAY_SPONSOR": "<Sprite holding the enrolled cci service key>"
-      }
+      },
+      "tools": [
+        {"kind": "plugin", "name": "long-running@skills", "url": "https://github.com/yasyf/cc-skills/releases/download/long-running--v<version>/long-running_<version>.tar.gz", "sha256": "<from that release's checksums.txt>", "version": "<version>"},
+        {"kind": "binary", "name": "ccx", "url": "https://github.com/yasyf/cc-context/releases/download/v<version>/ccx_<version>_linux_amd64.tar.gz", "sha256": "<from that release's checksums.txt>", "version": "<version>"}
+      ]
     }
   },
   "stall": {"every_minutes": 5},

@@ -56,6 +56,25 @@ SHA-256, so a Sprite lane runs the `lr` the launching drive runs. A pack whose
 `bin/lr.binrun` pins no sha256 tar.gz GitHub release for `linux-x86_64` refuses
 before prepare.
 
+The same step then installs each pin in `WORKER_TOOLS`, which the desk fills
+from `runner.json`'s `orca.sprite.tools`, so a new Sprite runs the tools the
+Mac runs without a payload rebuild. A pin is `{kind, name, url, sha256,
+version}`. Each archive is checked against its SHA-256 before anything moves.
+A `binary` pin extracts the member `name` to `~/.local/bin/<name>.new`, runs
+it with `--version`, and moves it over `~/.local/bin/<name>` only when the
+last word printed, less a leading `v`, is the pinned version. A `plugin` pin,
+such as `long-running@skills`, unpacks into Claude Code's plugin cache at
+`<marketplace>/<plugin>/<version>.new`, checks that tree's
+`.claude-plugin/plugin.json` version, moves it into place, and points that
+plugin's `installed_plugins.json` entries at it. Captain Hook rereads that file
+on every hook call, so the pack's hooks apply from the worker's first tool
+call; skills and agents the session loaded at start stay the payload's until
+the lane's next session. The pack's archive is the `long-running_<version>.tar.gz`
+asset the `long-running pack release` workflow publishes, with `checksums.txt`,
+on each `long-running--v<version>` tag. A pin off its digest or version stops
+the install, and the worker stays idle. A malformed pin refuses before
+prepare.
+
 The same step then checks, once, that the box runs every drive CLI the
 carried brief invokes: `ccn`, `cc-notes`, `cci`, `lr`, `gh` and `ccx`, each
 counted when the brief names it before a space and a lowercase verb. A box

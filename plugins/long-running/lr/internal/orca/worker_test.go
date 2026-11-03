@@ -377,8 +377,8 @@ func (f *workerFixture) prepareCallFor(lane, kind, model, effort string, extra .
 	return slices.Concat([]string{"cc-remote", "orca", "prepare", lane, "--warm", "--provider", "sprites", "--profile", "agents", "--agent", kind, "--model", model, "--effort", effort, "--brief-file", filepath.Join(f.attempt, "brief.md")}, extra)
 }
 
-func installCall(workspace string) []string {
-	return []string{"sprite", "exec", "-s", workspace, "--no-stdin", "--", "sh", "-c", installTools, "sh", testCCIURL, testCCISHA, testLRURL, testLRSHA, "lr", testBKURL}
+func installCall(workspace string, tools ...string) []string {
+	return slices.Concat([]string{"sprite", "exec", "-s", workspace, "--no-stdin", "--", "sh", "-c", installTools, "sh", testCCIURL, testCCISHA, testLRURL, testLRSHA, "lr", testBKURL}, tools, []string{"--"})
 }
 
 func (f *workerFixture) startCalls(task object) [][]string {
@@ -716,7 +716,7 @@ func TestAFailedToolInstallLeavesThePreparedWorkerUnattached(t *testing.T) {
 	f := newWorkerFixture(t)
 	f.sprite()
 	f.reply("sprite exec", workerReply{code: 1})
-	f.refusedWith(fmt.Sprintf("installing cci from %s and lr from %s on Sprite %s failed; %s/install.log keeps its output, and the prepared worker stays idle and unattached", testCCIURL, testLRURL, workerWorkspace, f.attempt), versionCall, currentRunCall, f.prepareCall(), installCall(workerWorkspace))
+	f.refusedWith(fmt.Sprintf("installing cci from %s, lr from %s and the 0 WORKER_TOOLS pins on Sprite %s failed; %s/install.log keeps its output, and the prepared worker stays idle and unattached", testCCIURL, testLRURL, workerWorkspace, f.attempt), versionCall, currentRunCall, f.prepareCall(), installCall(workerWorkspace))
 	if kept := f.kept(); !slices.Equal(kept, sorted(prepareKept, "install.log")) {
 		t.Fatal(kept)
 	}
@@ -763,7 +763,7 @@ func TestTheToolInstallPutsThePinnedLROnPathWithTheProxyURLAndRefusesAnotherDige
 	home := ""
 	install := func(digest string, needs ...string) (string, error) {
 		home = t.TempDir()
-		run := exec.Command("sh", append([]string{"-c", installTools, "sh", cciURL, cciSHA, lrURL, digest, "lr", testBKURL}, needs...)...)
+		run := exec.Command("sh", slices.Concat([]string{"-c", installTools, "sh", cciURL, cciSHA, lrURL, digest, "lr", testBKURL, "--"}, needs)...)
 		run.Env = append(os.Environ(), "HOME="+home)
 		if out, err := run.CombinedOutput(); err != nil {
 			return filepath.Join(home, ".local", "bin", "lr"), fmt.Errorf("%s: %w", out, err)
@@ -789,6 +789,119 @@ func TestTheToolInstallPutsThePinnedLROnPathWithTheProxyURLAndRefusesAnotherDige
 	}
 	if lr, err = install(testLRSHA); err == nil || present(lr) {
 		t.Fatal("an archive off the pinned digest installed lr", err)
+	}
+}
+
+func TestALaunchCarriesEachToolPinIntoTheInstallAndRefusesAMalformedPinBeforeAnyCall(t *testing.T) {
+	f := newWorkerFixture(t)
+	f.env["WORKER_TOOLS"] = `[{"kind":"binary","name":"ccx","url":"https://example.test/ccx.tgz","sha256":"` + testCCISHA + `","version":"0.91.68"},{"kind":"plugin","name":"long-running@skills","url":"https://example.test/pack.tgz","sha256":"` + testLRSHA + `","version":"0.7.1199"}]`
+	f.sprite()
+	f.launched()
+	want := installCall(workerWorkspace, "binary", "ccx", "https://example.test/ccx.tgz", testCCISHA, "0.91.68", "plugin", "long-running@skills", "https://example.test/pack.tgz", testLRSHA, "0.7.1199")
+	if !slices.Equal(f.calls[3], want) {
+		t.Fatalf("install\n%v\nwant\n%v", f.calls[3], want)
+	}
+	for name, pin := range map[string]string{
+		"ccx":          `{"kind":"script","name":"ccx","url":"https://example.test/ccx.tgz","sha256":"` + testCCISHA + `","version":"0.91.68"}`,
+		"long-running": `{"kind":"plugin","name":"long-running","url":"https://example.test/pack.tgz","sha256":"` + testLRSHA + `","version":"0.7.1199"}`,
+		"cc-present":   `{"kind":"binary","name":"cc-present","url":"https://example.test/p.tgz","sha256":"` + strings.ToUpper(testLRSHA) + `","version":"0.54.5"}`,
+	} {
+		f = newWorkerFixture(t)
+		f.env["WORKER_TOOLS"] = "[" + pin + "]"
+		f.refusedWith(fmt.Sprintf("WORKER_TOOLS pins %q, not a binary or plugin with a name, url, lowercase SHA-256 and version; nothing was prepared", name))
+		f.wantNoAttempt()
+	}
+}
+
+func tarball(t *testing.T, dir, name string, files map[string]string) (string, string) {
+	t.Helper()
+	root := filepath.Join(dir, name+".d")
+	members := slices.Sorted(maps.Keys(files))
+	for path, text := range files {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(root, path)), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, path), []byte(text), 0o700); err != nil { //nolint:gosec // the stub has to execute
+			t.Fatal(err)
+		}
+	}
+	tgz := filepath.Join(dir, name)
+	if out, err := exec.Command("tar", slices.Concat([]string{"-C", root, "-czf", tgz}, members)...).CombinedOutput(); err != nil {
+		t.Fatal(string(out), err)
+	}
+	raw, err := os.ReadFile(tgz)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return "file://" + tgz, hexSum(string(raw))
+}
+
+func TestAToolPinInstallsOnlyTheArchiveWithItsDigestAndVersion(t *testing.T) {
+	dir := t.TempDir()
+	cciURL, cciSHA := tarball(t, dir, "cci.tgz", map[string]string{"cci": "#!/bin/sh\necho 0.49.36\n"})
+	lrURL, lrSHA := tarball(t, dir, "lr.tgz", map[string]string{"lr": "#!/bin/sh\necho lr version 9.9.9\n"})
+	ccxURL, ccxSHA := tarball(t, dir, "ccx.tgz", map[string]string{"ccx": "#!/bin/sh\necho v0.91.68\n", "README.md": "ccx\n"})
+	staleURL, staleSHA := tarball(t, dir, "stale.tgz", map[string]string{"ccx": "#!/bin/sh\necho v0.89.18\n"})
+	packURL, packSHA := tarball(t, dir, "pack.tgz", map[string]string{".claude-plugin/plugin.json": `{"version":"0.7.1199"}`, "capt-hook/pack.toml": "\n"})
+	baked := `{"version":2,"plugins":{"long-running@skills":[{"scope":"user","installPath":"/payload/long-running/0.7.692","version":"0.7.692"}]}}` + "\n"
+	home := ""
+	install := func(tools ...string) error {
+		home = t.TempDir()
+		plugins := filepath.Join(home, ".claude", "plugins")
+		if err := os.MkdirAll(plugins, 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(plugins, "installed_plugins.json"), []byte(baked), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		run := exec.Command("sh", slices.Concat([]string{"-c", installTools, "sh", cciURL, cciSHA, lrURL, lrSHA, "lr", ""}, tools, []string{"--"})...)
+		run.Env = append(os.Environ(), "HOME="+home)
+		if out, err := run.CombinedOutput(); err != nil {
+			return fmt.Errorf("%s: %w", out, err)
+		}
+		return nil
+	}
+	recorded := func() string {
+		raw, err := os.ReadFile(filepath.Join(home, ".claude", "plugins", "installed_plugins.json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(raw)
+	}
+	ccx := func() string { return filepath.Join(home, ".local", "bin", "ccx") }
+
+	if err := install("binary", "ccx", ccxURL, ccxSHA, "0.91.68", "plugin", "long-running@skills", packURL, packSHA, "0.7.1199"); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command(ccx(), "--version").Output(); err != nil || string(out) != "v0.91.68\n" {
+		t.Fatal(string(out), err)
+	}
+	pack := filepath.Join(home, ".claude", "plugins", "cache", "skills", "long-running", "0.7.1199")
+	var moved struct {
+		Plugins map[string][]struct {
+			Scope       string `json:"scope"`
+			InstallPath string `json:"installPath"`
+			Version     string `json:"version"`
+		} `json:"plugins"`
+	}
+	if err := json.Unmarshal([]byte(recorded()), &moved); err != nil {
+		t.Fatal(err)
+	}
+	if entry := moved.Plugins["long-running@skills"]; len(entry) != 1 || entry[0].Scope != "user" || entry[0].InstallPath != pack || entry[0].Version != "0.7.1199" || !present(filepath.Join(pack, "capt-hook", "pack.toml")) {
+		t.Fatal(recorded())
+	}
+
+	if err := install("binary", "ccx", ccxURL, testCCISHA, "0.91.68"); err == nil || present(ccx()) {
+		t.Fatal("a binary archive off its pinned digest installed", err)
+	}
+	if err := install("plugin", "long-running@skills", packURL, testLRSHA, "0.7.1199"); err == nil || recorded() != baked || present(filepath.Join(home, ".claude", "plugins", "cache")) {
+		t.Fatal("a pack archive off its pinned digest moved the install", err, recorded())
+	}
+	if err := install("binary", "ccx", staleURL, staleSHA, "0.91.68"); err == nil || present(ccx()) || present(ccx()+".new") {
+		t.Fatal("a binary that prints another version installed", err)
+	}
+	if err := install("plugin", "long-running@skills", packURL, packSHA, "0.7.1200"); err == nil || recorded() != baked {
+		t.Fatal("a pack archive of another version moved the install", err, recorded())
 	}
 }
 

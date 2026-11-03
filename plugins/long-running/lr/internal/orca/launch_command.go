@@ -163,12 +163,13 @@ func workerCommand(a *app.App) *cobra.Command {
 	return &cobra.Command{
 		Use:   "worker LANE MODEL EFFORT BRIEF",
 		Short: "Prepare one Sprite and start a worker on it, or a local worktree with WORKER_LOCAL=1, and print one JSON line",
-		Long: `Prepare one Sprite through cc-remote, copy what the brief names to it, install cci and the lr this pack pins for linux-x86_64 in bin/lr.binrun into the Sprite's ~/.local/bin, and start a worker. Print one JSON line naming the task, dispatch, terminal and worktree. A failure prints one line on stderr, exit 1, and keeps what it made in BRIEF's .worker directory. A brief gets one attempt at worker-start.
+		Long: `Prepare one Sprite through cc-remote, copy what the brief names to it, install cci, the lr this pack pins for linux-x86_64 in bin/lr.binrun, and each WORKER_TOOLS pin on the Sprite, and start a worker. Print one JSON line naming the task, dispatch, terminal and worktree. A failure prints one line on stderr, exit 1, and keeps what it made in BRIEF's .worker directory. A brief gets one attempt at worker-start.
 
   WORKER_RUN            the Orca Run id, required
   WORKER_CHECKOUT       the checkout whose tools/cc-remote starts Sprites, required
   WORKER_CCI_URL        the cci linux_amd64 release archive a Sprite installs, required
   WORKER_CCI_SHA256     the SHA-256 of that archive, required
+  WORKER_TOOLS          a JSON list of {kind, name, url, sha256, version} pins, binary or plugin, each installed from its verified archive
   WORKER_BK_URL         the drive's lr bk proxy, which lr bk install prints; a Sprite's lr bk reads through it
   WORKER_CC_REMOTE      the cc-remote command, default the checkout's own
   CC_REMOTE_CONFIG      the cc-remote config, default the checkout's own
