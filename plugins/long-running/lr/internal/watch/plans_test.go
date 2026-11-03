@@ -93,14 +93,18 @@ func TestAClockTimeWithoutByBeforeUntilOrDueIsNoDeadline(t *testing.T) {
 			want(t, len(planSweep(t, s, r, said.Add(time.Minute), client.Record{Seq: 40, Lane: "lane-a", Kind: "state", At: said, Text: text})), 0)
 		})
 	}
-	t.Run("the desk runner relaying an order", func(t *testing.T) {
-		s, r := memory(t), &recorder{}
-		want(t, len(planSweep(t, s, r, said.Add(time.Minute), client.Record{Seq: 40, Lane: "desk-runner", Kind: "note", At: said, Text: "relay: land it by 5:00 AM"})), 0)
-	})
 	for _, text := range []string{"lands before 4 PM", "holds until 21:30", "due 9:00 a.m. Nov 4"} {
 		t.Run(text, func(t *testing.T) {
 			s, r := memory(t), &recorder{}
 			want(t, len(planSweep(t, s, r, said.Add(time.Minute), client.Record{Seq: 40, Lane: "lane-a", Kind: "state", At: said, Text: text})), 1)
 		})
 	}
+}
+
+func TestTheDeskRunnersRelayOfAnOrderPagesNothing(t *testing.T) {
+	s, r := memory(t), &recorder{}
+	said := at(t, "2026-11-03T10:00:00Z")
+	relay := client.Record{Seq: 40, Lane: "desk-runner", Kind: "note", At: said, Text: "relay: land it by 5:00 AM"}
+
+	want(t, len(planSweep(t, s, r, said.Add(time.Minute), relay)), 0)
 }
