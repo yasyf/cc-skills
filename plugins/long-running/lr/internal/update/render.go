@@ -112,7 +112,7 @@ func (s section) lines(f folding) []string {
 	}
 	lanes := s.lanes()
 	var full []Row
-	var brief, quiet, still, onIt []string
+	var brief, quiet, still, onIt, blocked []string
 	for _, row := range s.rows {
 		isLane := slices.Contains(lanes, row)
 		switch {
@@ -122,6 +122,8 @@ func (s section) lines(f folding) []string {
 			quiet = append(quiet, fmt.Sprintf("%s (%s)", row.Name, opening(row.State)))
 		case f.folds(s, row, isLane):
 			still = append(still, row.Name)
+		case isLane && f.at(foldBlocked) && row.Blocks != nothingBlocks:
+			blocked = append(blocked, row.Name)
 		case isLane && f.at(foldLanes) && row.Blocks != nothingBlocks:
 			brief = append(brief, fmt.Sprintf("- %s: %s", row.Name, cell(row.Blocks)))
 		case isLane && f.at(foldLanes):
@@ -141,6 +143,9 @@ func (s section) lines(f folding) []string {
 		lines = table(full)
 	}
 	lines = append(lines, brief...)
+	if len(blocked) > 0 {
+		lines = append(lines, blockedNow+strings.Join(blocked, ", "))
+	}
 	if len(onIt) > 0 {
 		lines = append(lines, onItNow+strings.Join(onIt, ", "))
 	}
@@ -182,11 +187,10 @@ func prLines(rows []Row, numbersOnly bool) []string {
 
 func unownedLines(sections []section, f folding) []string {
 	var lines []string
-	count := 0
+	count, foldedLanes := 0, 0
 	for _, found := range sections {
 		lanes := found.lanes()
 		var names []string
-		foldedLanes := 0
 		for _, row := range found.rows {
 			switch {
 			case !row.unowned():
@@ -196,22 +200,17 @@ func unownedLines(sections []section, f folding) []string {
 				names = append(names, row.Name)
 			}
 		}
-		total := len(names) + foldedLanes
-		if total == 0 {
-			continue
-		}
-		count += total
-		line := fmt.Sprintf("- %s (%d)", found.title, total)
 		if len(names) > 0 {
-			line += ": " + strings.Join(names, ", ")
+			count += len(names)
+			lines = append(lines, fmt.Sprintf("- %s (%d): %s", found.title, len(names), strings.Join(names, ", ")))
 		}
-		if foldedLanes > 0 {
-			line += fmt.Sprintf(", %d of them lanes", foldedLanes)
-		}
-		lines = append(lines, line)
 	}
+	count += foldedLanes
 	if count == 0 {
 		return nil
+	}
+	if foldedLanes > 0 {
+		lines = append(lines, fmt.Sprintf("- %d lanes, named in their own sections", foldedLanes))
 	}
 	return slices.Insert(lines, 0, fmt.Sprintf("%d open rows have nobody on them; each also sits in its own section below.", count))
 }

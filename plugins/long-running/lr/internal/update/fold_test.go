@@ -116,6 +116,40 @@ func TestAnUpdateHisWordsAloneOverflowKeepsThemDropsTheTailAndSaysSo(t *testing.
 	}
 }
 
+func TestLongMessagesFromHimClipBeforeAnyLineDropsAndKeepWhatCarriesThem(t *testing.T) {
+	in := inputs(t)
+	for i := range 100 {
+		in.All = append(in.All, record(int64(i+1), bridge, "ask", strings.Repeat("words ", 100), 5))
+	}
+	report := Render(in)
+	if len(report.Text) >= updateBytes || strings.Contains(report.Text, "Dropped to fit") {
+		t.Fatalf("size = %d, closing = %q", len(report.Text), closing(report.Text))
+	}
+	if !strings.Contains(closing(report.Text), "the messages quoted from you to their first 240 characters") {
+		t.Fatalf("closing = %q", closing(report.Text))
+	}
+	if !strings.Contains(report.Text, "… | "+noCarrier) {
+		t.Fatalf("a clipped message lost what carries it:\n%s", report.Text)
+	}
+}
+
+func TestAtTheLastFoldsALaneIsStillNamedAndUnownedLanesBecomeACount(t *testing.T) {
+	blocked := Row{"red-sweep-3", "reds", "desired", "red-sweep-3", "red-sweep-3 waits on the coordinator's answer to ask #9", "x", noneRecorded, false}
+	plain := Row{"flake-1", "flakes", "desired", "flake-1", nothingBlocks, "x", noneRecorded, false}
+	quiet := Row{"old-lane-1", "x", "desired", nobody, nothingBlocks, "x", "x", false}
+	lanes := section{title: noStepTitle, rows: []Row{blocked, plain, quiet}}
+	want := []string{"Waiting on the coordinator: red-sweep-3", "On it, nothing blocking: flake-1", "", quietNow + "old-lane-1"}
+	if got := lanes.lines(folding{level: foldLast}); !reflect.DeepEqual(got, want) {
+		t.Fatalf("lines = %v", got)
+	}
+	step := section{title: "The writer", rows: []Row{{Name: "Step 3", Who: nobody, Blocks: nothingBlocks}}, step: true}
+	want = []string{"3 open rows have nobody on them; each also sits in its own section below.", "- The writer (1): Step 3", "- 2 lanes, named in their own sections"}
+	withQuiet := section{title: noStepTitle, rows: []Row{quiet, quiet}}
+	if got := unownedLines([]section{step, withQuiet}, folding{level: foldUnowned}); !reflect.DeepEqual(got, want) {
+		t.Fatalf("unowned = %v", got)
+	}
+}
+
 func TestAHeadingNeverCarriesAPlanIDARowIDOrACommitSHA(t *testing.T) {
 	for raw, want := range map[string]string{
 		"0. The base and the copy (F)":                                    "The base and the copy",

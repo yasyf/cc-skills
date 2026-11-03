@@ -17,11 +17,16 @@ const (
 	foldQuiet
 	foldFYI
 	foldDuties
-	foldLast = foldDuties
+	foldBlocked
+	foldWords
+	foldLast = foldWords
 
 	newestFYIs = 3
+	fyiChars   = 240
+	wordsChars = 240
 	stillSince = "No change since %s: %s"
 	onItNow    = "On it, nothing blocking: "
+	blockedNow = "Waiting on the coordinator: "
 )
 
 var foldNames = []string{
@@ -32,8 +37,10 @@ var foldNames = []string{
 	foldSteps:     "every plan step to one line",
 	foldUnowned:   "unowned lanes to counts",
 	foldQuiet:     "quiet lanes to their names",
-	foldFYI:       fmt.Sprintf("FYIs to the newest %d per group", newestFYIs),
+	foldFYI:       fmt.Sprintf("FYIs to the newest %d per group, each cut at %d characters", newestFYIs, fyiChars),
 	foldDuties:    "standing duties to one line each",
+	foldBlocked:   "blocked lanes to their names",
+	foldWords:     fmt.Sprintf("the messages quoted from you to their first %d characters", wordsChars),
 }
 
 type folding struct {
@@ -186,7 +193,15 @@ func (d draft) lines(f folding) ([]string, int) {
 		perGroup = newestFYIs
 	}
 	out = append(out, titled(fyiTitle, fyiLines(d.fyi, perGroup))...)
-	out = append(out, titled(wordsTitle, d.words)...)
+	words := d.words
+	if f.at(foldWords) {
+		words = make([]string, len(d.words))
+		for i, line := range d.words {
+			at := strings.LastIndex(line, " | ")
+			words[i] = clipTo(line[:at], wordsChars) + line[at:]
+		}
+	}
+	out = append(out, titled(wordsTitle, words)...)
 	out = append(out, titled(unownedTitle, unownedLines(d.sections, f))...)
 	stepLines := 0
 	for at := 0; at < len(d.sections); {

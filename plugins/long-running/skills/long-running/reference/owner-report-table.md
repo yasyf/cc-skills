@@ -47,10 +47,12 @@ An update never exits 1 for its size. Over 40 KB, the render folds in this order
 5. Every plan step, to one line.
 6. Unowned lanes, to counts.
 7. Quiet lanes, to their names.
-8. FYIs, to the newest three per group.
+8. FYIs, to the newest three per group, each cut at 240 characters.
 9. Standing duties, to one line each.
+10. Blocked lanes, to their names. What they wait on stays in "Waiting on the coordinator".
+11. The messages quoted from him, to their first 240 characters, keeping what carries each.
 
-If that is still over, the render drops whole lines from the end of the body, keeping the gaps, and the closing line says how many it dropped and after which heading. A dropped item no longer counts as missing. His words and the tooling table never fold.
+If that is still over, the render drops whole lines from the end of the body, keeping the gaps, and the closing line says how many it dropped and after which heading. A dropped item no longer counts as missing. The tooling table never folds.
 
 ## The row
 

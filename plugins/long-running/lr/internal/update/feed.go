@@ -67,7 +67,11 @@ func fyiLines(entries []FYI, perGroup int) []string {
 			kept = kept[:perGroup]
 		}
 		for _, entry := range kept {
-			lines = append(lines, fmt.Sprintf("  - %s: %s", pacific(entry.At), entry.Text))
+			text := entry.Text
+			if perGroup > 0 {
+				text = clipTo(text, fyiChars)
+			}
+			lines = append(lines, fmt.Sprintf("  - %s: %s", pacific(entry.At), text))
 		}
 		if older := len(byGroup[group]) - len(kept); older > 0 {
 			lines = append(lines, fmt.Sprintf("  - and %d older", older))
