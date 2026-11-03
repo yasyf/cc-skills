@@ -31,7 +31,7 @@ LR = Path(__file__).parents[2] / "bin" / "lr"
 AUDIT = f"{LR} owner audit --drive brook-drive"
 AUDIT_SECONDS = 60
 CARRY = "Every order below is still owed, and a reply or a route does not close one. Carry each into the summary by its row id.\n\n```\n{orders}\n```"
-REREAD = "You are the communicator and just compacted. Run `{lr} owner audit --drive {drive}` and `{lr} owner list --drive {drive}` before any other search: every order the audit prints is still owed."
+REREAD = "You just compacted as the communicator. Run `{lr} owner audit --drive {drive}` before any other search: every order it prints is still owed."
 MARK = "`{lr} owner mark {row} responded|addressed [--routed <seq>] --drive {drive}`"
 NEW_ROW = f"Owner message `{{row}}` is open in the communicator's ledger. Once it is answered or routed, run {MARK}."
 OPEN_ROWS = f"A communicator turn ends only when every owner message is marked responded or addressed. Run {MARK} for each row below.\n\n```\n{{rows}}\n```"
@@ -201,7 +201,7 @@ def compaction_carries_the_open_owner_orders(evt: BaseHookEvent) -> HookResult |
     only_if=[Communicator()],
     skip_if=[FromSubagent()],
     tests=communicator_tests({
-        Input(source="compact", state=ACTIVE, env=DRIVE_CONFIG): Warn(pattern=r"^You are the communicator and just compacted\. Run `\S+ owner audit --drive brook-drive`"),
+        Input(source="compact", state=ACTIVE, env=DRIVE_CONFIG): Warn(pattern=r"^You just compacted as the communicator\. Run `\S+ owner audit --drive brook-drive` before any other search"),
         Input(source="startup", state=ACTIVE, env=DRIVE_CONFIG): Allow(),
     }),
 )
