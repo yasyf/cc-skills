@@ -366,7 +366,7 @@ func truncated(text string, limit int) string {
 }
 
 func wake(s *store.Store, d Deps, lane store.Lane, peer Peer, found map[string]Peer, taken map[string]bool, now time.Time, out *Outcome) {
-	if slices.Contains(settled, lane.Last) {
+	if lane.Last != "done" && slices.Contains(settled, lane.Last) {
 		return
 	}
 	page := lane.Page
