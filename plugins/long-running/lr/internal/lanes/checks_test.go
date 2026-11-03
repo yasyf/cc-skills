@@ -347,7 +347,7 @@ func TestALandingATargetDoesNotRunAfterAnHourDrawsOneBlockerNamingItsRelease(t *
 	state, blocker := bus.posted[0], bus.posted[1]
 	equal(t, []string{state.Kind, state.Topic, state.Text}, []string{"state", notLiveTopic, "LANDED-NOT-LIVE sand: #47799"})
 	equal(t, blocker.Kind, blockerKind)
-	equal(t, blocker.Text, "LANDED-NOT-LIVE sand: #47799 landed, the oldest 120 minutes ago, and sand runs none of them; start its release: `tools/ci release start --only sand --manual`")
+	equal(t, blocker.Text, "LANDED-NOT-LIVE sand: #47799. The oldest landed 120 minutes ago, and no live release or running release build carries them; start each release: `tools/ci release start --only sand --manual`")
 }
 
 func TestARootHoldOnATargetKeepsItsLandingQuietUntilTheHoldEnds(t *testing.T) {
@@ -405,7 +405,7 @@ func TestALandingOwesTheTargetsItsFilesReachNeverItsTitleScope(t *testing.T) {
 
 	equal(t, len(bus.posted), 2)
 	equal(t, bus.posted[0].Text, "LANDED-NOT-LIVE api: #48377")
-	equal(t, bus.posted[1].Text, "LANDED-NOT-LIVE api: #48377 landed, the oldest 120 minutes ago, and api runs none of them; start its release: `tools/ci release start --only api --manual`")
+	equal(t, bus.posted[1].Text, "LANDED-NOT-LIVE api: #48377. The oldest landed 120 minutes ago, and no live release or running release build carries them; start each release: `tools/ci release start --only api --manual`")
 }
 
 func TestAReleaseThatShipsALandingResolvesItsBlocker(t *testing.T) {
@@ -423,6 +423,79 @@ func TestAReleaseThatShipsALandingResolvesItsBlocker(t *testing.T) {
 	equal(t, len(bus.posted), 4)
 	equal(t, bus.posted[2].Text, "LANDED-NOT-LIVE none")
 	equal(t, bus.posted[3].Resolves, int64(2))
+}
+
+func releasingFeed(state string) string {
+	return fmt.Sprintf(`[{"number":12383,"state":%q,"commit":"r1","jobs":[{"step_key":"bootstrap","state":"passed"},{"step_key":"apply-sand--plat-usw2-prod","state":"running"}]}]`, state)
+}
+
+func carriedByBuild(t *testing.T, feed *string) (*LandedNotLive, *fakeBus) {
+	t.Helper()
+	ledger := fmt.Sprintf(`[{"pr":"47799","state":"landed","title":"sand: fix it","landed_sha":"abc","landed_at":%q}]`, t0.Add(-2*time.Hour).Format(time.RFC3339))
+	check, bus := notLive(t, ledger, map[string]string{"abc": "go/sand/internal/vm/vm.go\n"}, `[{"target":"sand","commit":"c1"}]`, false)
+	check.holds = map[[2]string]bool{{"c1", "abc"}: false, {"r1", "abc"}: true}
+	check.Builds, _ = releaseBuildsIn(t, memory(t), feed)
+	return check, bus
+}
+
+func TestALandingARunningReleaseBuildCarriesPostsNothing(t *testing.T) {
+	feed := releasingFeed("running")
+	check, bus := carriedByBuild(t, &feed)
+
+	if err := check.Check(context.Background(), t0); err != nil {
+		t.Fatal(err)
+	}
+
+	equal(t, len(bus.posted), 0)
+}
+
+func TestAFailedReleaseBuildPutsItsLandingBackInTheCount(t *testing.T) {
+	feed := releasingFeed("running")
+	check, bus := carriedByBuild(t, &feed)
+	if err := check.Check(context.Background(), t0); err != nil {
+		t.Fatal(err)
+	}
+	feed = releasingFeed("failed")
+
+	if err := check.Check(context.Background(), t0.Add(notLiveEvery)); err != nil {
+		t.Fatal(err)
+	}
+
+	equal(t, len(bus.posted), 2)
+	equal(t, bus.posted[1].Kind, blockerKind)
+	contains(t, bus.posted[1].Text, "LANDED-NOT-LIVE sand: #47799. ")
+}
+
+func TestANewLandingOnATargetAddsOneRecordNamingEveryTarget(t *testing.T) {
+	ledger := fmt.Sprintf(`[{"pr":"47799","state":"landed","title":"sand: fix it","landed_sha":"abc","landed_at":%q},{"pr":"48377","state":"landed","title":"api: one","landed_sha":"def","landed_at":%q},{"pr":"48400","state":"landed","title":"api: two","landed_sha":"ghi","landed_at":%q}]`, t0.Add(-2*time.Hour).Format(time.RFC3339), t0.Add(-2*time.Hour).Format(time.RFC3339), t0.Add(notLiveEvery-notLiveOwed).Format(time.RFC3339))
+	check, bus := notLive(t, ledger, map[string]string{"abc": "go/sand/internal/vm/vm.go\n", "def": "api/src/one.ts\n", "ghi": "api/src/two.ts\n"}, `[{"target":"sand","commit":"c1"},{"target":"api","commit":"c2"}]`, false)
+	blockers := func() []client.Draft {
+		return slices.DeleteFunc(slices.Clone(bus.posted), func(d client.Draft) bool { return d.Kind != blockerKind })
+	}
+
+	if err := check.Check(context.Background(), t0); err != nil {
+		t.Fatal(err)
+	}
+	equal(t, len(blockers()), 1)
+	first := blockers()[0]
+	equal(t, first.PRs, []string{"48377", "47799"})
+	contains(t, first.Text, "LANDED-NOT-LIVE api: #48377; sand: #47799. ")
+
+	if err := check.Check(context.Background(), t0.Add(notLiveEvery)); err != nil {
+		t.Fatal(err)
+	}
+	equal(t, len(blockers()), 2)
+	second := blockers()[1]
+	equal(t, second.PRs, []string{"48377", "48400", "47799"})
+	equal(t, second.Resolves, int64(2))
+	contains(t, second.Text, "LANDED-NOT-LIVE api: #48377, #48400; sand: #47799. ")
+	contains(t, second.Text, "start each release: `tools/ci release start --only api --manual`, `tools/ci release start --only sand --manual`")
+
+	posted := len(bus.posted)
+	if err := check.Check(context.Background(), t0.Add(2*notLiveEvery)); err != nil {
+		t.Fatal(err)
+	}
+	equal(t, len(bus.posted), posted)
 }
 
 type spriteRun struct {

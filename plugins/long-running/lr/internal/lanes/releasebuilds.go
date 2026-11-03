@@ -31,6 +31,7 @@ var (
 	buildFailed  = []string{"failing", "failed"}
 	buildClosed  = []string{"passed", "canceled", "canceling", "skipped", "not_run"}
 	jobFailed    = []string{"failed", "timed_out"}
+	jobStopped   = []string{"failed", "timed_out", "canceled", "canceling", "skipped", "broken", "expired"}
 )
 
 type ReleaseBuilds struct {
@@ -50,6 +51,7 @@ type releaseBuild struct {
 	Number    int       `json:"number"`
 	State     string    `json:"state"`
 	URL       string    `json:"web_url"`
+	Commit    string    `json:"commit"`
 	Branch    string    `json:"branch"`
 	Source    string    `json:"source"`
 	Message   string    `json:"message"`

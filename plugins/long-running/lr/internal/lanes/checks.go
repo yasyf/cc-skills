@@ -458,12 +458,13 @@ type LandedNotLive struct {
 	Env        Env
 	ReleaseCLI []string
 	Token      bkread.Token
+	Builds     *ReleaseBuilds
 	Log        *slog.Logger
 	read       time.Time
 	holds      map[[2]string]bool
 	touched    map[string][]string
 	said       string
-	owed       map[string]int64
+	blocker    int64
 }
 
 type RunnerLanding struct {
@@ -619,11 +620,16 @@ func (n *LandedNotLive) Check(ctx context.Context, now time.Time) error {
 			n.Log.Warn("landed-not-live did not read the holds", "err", err)
 			return nil
 		}
+		releasing, err := n.releasing(ctx)
+		if err != nil {
+			n.Log.Warn("landed-not-live did not read the release builds", "err", err)
+			return nil
+		}
 		for _, number := range slices.Sorted(maps.Keys(landed)) {
 			entry := landed[number]
 			for _, target := range entry.targets {
 				commits, known := running[target]
-				if !known || withheld[target] || slices.ContainsFunc(commits, func(commit string) bool { return n.holdsSHA(ctx, commit, entry.sha) }) {
+				if !known || withheld[target] || slices.ContainsFunc(slices.Concat(commits, releasing[target]), func(commit string) bool { return n.holdsSHA(ctx, commit, entry.sha) }) {
 					continue
 				}
 				owed[target] = append(owed[target], number)
@@ -631,6 +637,30 @@ func (n *LandedNotLive) Check(ctx context.Context, now time.Time) error {
 		}
 	}
 	return n.announce(ctx, landed, owed, now)
+}
+
+func (n *LandedNotLive) releasing(ctx context.Context) (map[string][]string, error) {
+	releasing := map[string][]string{}
+	if n.Builds == nil {
+		return releasing, nil
+	}
+	builds, err := n.Builds.builds(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrUnread, err)
+	}
+	for _, build := range builds {
+		if build.mode == dryRunMode || slices.Contains(buildFailed, build.State) || slices.Contains(buildClosed, build.State) {
+			continue
+		}
+		for _, job := range build.Jobs {
+			stack, applies := strings.CutPrefix(job.StepKey, "apply-")
+			component, _, addressed := strings.Cut(stack, "--")
+			if applies && addressed && !slices.Contains(jobStopped, job.State) {
+				releasing[component] = append(releasing[component], build.Commit)
+			}
+		}
+	}
+	return releasing, nil
 }
 
 func (n *LandedNotLive) withheld(ctx context.Context, now time.Time) (map[string]bool, error) {
@@ -661,66 +691,51 @@ func (n *LandedNotLive) withheld(ctx context.Context, now time.Time) (map[string
 }
 
 func (n *LandedNotLive) announce(ctx context.Context, landed map[int]landing, owed map[string][]int, now time.Time) error {
+	cli := strings.Join(n.ReleaseCLI, " ")
 	parts := make([]string, 0, len(owed))
-	keys := map[string]bool{}
+	starts := make([]string, 0, len(owed))
+	var prs []string
+	oldest := now
 	for _, target := range slices.Sorted(maps.Keys(owed)) {
 		numbers := owed[target]
 		words := make([]string, 0, len(numbers))
 		for _, number := range numbers {
 			words = append(words, fmt.Sprintf("#%d", number))
-		}
-		parts = append(parts, target+": "+strings.Join(words, ", "))
-		keys[notLiveKey(target, numbers)] = true
-	}
-	said := strings.Join(parts, "; ")
-	bus, drive := n.Env.Bus, n.Env.Config.Drive
-	if said != n.said {
-		digest := sha256.Sum256([]byte(said))
-		if _, err := bus.Post(ctx, client.Draft{Drive: drive, Lane: Self, Kind: "state", Topic: notLiveTopic, ID: notLiveTopic + ":" + hex.EncodeToString(digest[:])[:12], Text: "LANDED-NOT-LIVE " + or(said, "none"), To: []string{Root}}); err != nil {
-			return fmt.Errorf("%w: cci post: %w", ErrUnread, err)
-		}
-		n.said = said
-	}
-	if n.owed == nil {
-		n.owed = map[string]int64{}
-	}
-	for key, seq := range n.owed {
-		if keys[key] {
-			continue
-		}
-		if _, err := bus.Post(ctx, client.Draft{Drive: drive, Lane: Self, Kind: "note", Text: "LANDED-NOT-LIVE outlived: " + key, Resolves: seq}); err != nil {
-			return fmt.Errorf("%w: cci post: %w", ErrUnread, err)
-		}
-		delete(n.owed, key)
-	}
-	cli := strings.Join(n.ReleaseCLI, " ")
-	for _, target := range slices.Sorted(maps.Keys(owed)) {
-		numbers := owed[target]
-		key := notLiveKey(target, numbers)
-		if _, posted := n.owed[key]; posted {
-			continue
-		}
-		oldest := now
-		for _, number := range numbers {
+			if pr := strconv.Itoa(number); !slices.Contains(prs, pr) {
+				prs = append(prs, pr)
+			}
 			if landed[number].at.Before(oldest) {
 				oldest = landed[number].at
 			}
 		}
-		stored, err := bus.Post(ctx, client.Draft{Drive: drive, Lane: Self, Kind: blockerKind, To: []string{Root}, ID: key, PRs: []string{strconv.Itoa(numbers[0])}, Text: fmt.Sprintf("LANDED-NOT-LIVE %s: %s landed, the oldest %d minutes ago, and %s runs none of them; start its release: `%s start --only %s --manual`", target, numberList(numbers), int(now.Sub(oldest).Minutes()), target, cli, target)})
+		parts = append(parts, target+": "+strings.Join(words, ", "))
+		starts = append(starts, fmt.Sprintf("`%s start --only %s --manual`", cli, target))
+	}
+	said := strings.Join(parts, "; ")
+	if said == n.said {
+		return nil
+	}
+	bus, drive := n.Env.Bus, n.Env.Config.Drive
+	digest := sha256.Sum256([]byte(said))
+	key := notLiveTopic + ":" + hex.EncodeToString(digest[:])[:12]
+	if _, err := bus.Post(ctx, client.Draft{Drive: drive, Lane: Self, Kind: "state", Topic: notLiveTopic, ID: key, Text: "LANDED-NOT-LIVE " + or(said, "none"), To: []string{Root}}); err != nil {
+		return fmt.Errorf("%w: cci post: %w", ErrUnread, err)
+	}
+	switch {
+	case said != "":
+		stored, err := bus.Post(ctx, client.Draft{Drive: drive, Lane: Self, Kind: blockerKind, To: []string{Root}, ID: key + ":blocker", PRs: prs, Resolves: n.blocker, Text: fmt.Sprintf("LANDED-NOT-LIVE %s. The oldest landed %d minutes ago, and no live release or running release build carries them; start each release: %s", said, int(now.Sub(oldest).Minutes()), strings.Join(starts, ", "))})
 		if err != nil {
 			return fmt.Errorf("%w: cci post: %w", ErrUnread, err)
 		}
-		n.owed[key] = stored.Seq
+		n.blocker = stored.Seq
+	case n.blocker != 0:
+		if _, err := bus.Post(ctx, client.Draft{Drive: drive, Lane: Self, Kind: "note", Text: "LANDED-NOT-LIVE outlived", Resolves: n.blocker}); err != nil {
+			return fmt.Errorf("%w: cci post: %w", ErrUnread, err)
+		}
+		n.blocker = 0
 	}
+	n.said = said
 	return nil
-}
-
-func notLiveKey(target string, numbers []int) string {
-	words := make([]string, 0, len(numbers))
-	for _, number := range numbers {
-		words = append(words, strconv.Itoa(number))
-	}
-	return notLiveTopic + ":" + target + ":" + strings.Join(words, ",")
 }
 
 func (e Env) gc(ctx context.Context, args ...string) (shell.Result, error) {
@@ -794,8 +809,10 @@ func (e Env) Checks(s *store.Store, log *slog.Logger) ([]Check, error) {
 	if err != nil {
 		return nil, err
 	}
+	var builds *ReleaseBuilds
 	if pipelines := e.Config.ReleasePipelineSlugs(); len(pipelines) > 0 {
-		checks = append(checks, (&ReleaseBuilds{Env: e, Store: s, Pipelines: pipelines, CLI: strings.Fields(e.Config.BuildkiteCLI), Token: bkread.Token{Command: landing.CITokenCommand}, Log: log}).Check)
+		builds = &ReleaseBuilds{Env: e, Store: s, Pipelines: pipelines, CLI: strings.Fields(e.Config.BuildkiteCLI), Token: bkread.Token{Command: landing.CITokenCommand}, Log: log}
+		checks = append(checks, builds.Check)
 	}
 	if e.Config.OrcaRun != "" {
 		checks = append(checks, (&FixLiveGC{Env: e, Log: log}).Check, (&SettledGC{Env: e, Store: s, Log: log}).Check)
@@ -814,7 +831,7 @@ func (e Env) Checks(s *store.Store, log *slog.Logger) ([]Check, error) {
 		checks = append(checks, (&NscDeadlines{Env: e, Store: s, Log: log}).Check)
 	}
 	if cli := strings.Fields(landing.ReleaseCLI); len(cli) > 0 {
-		checks = append(checks, (&LandedNotLive{Env: e, ReleaseCLI: cli, Token: bkread.Token{Command: landing.CITokenCommand}, Log: log}).Check, (&ReleaseGates{Env: e, ReleaseCLI: cli, Token: bkread.Token{Command: landing.CITokenCommand}, Log: log}).Check)
+		checks = append(checks, (&LandedNotLive{Env: e, ReleaseCLI: cli, Token: bkread.Token{Command: landing.CITokenCommand}, Builds: builds, Log: log}).Check, (&ReleaseGates{Env: e, ReleaseCLI: cli, Token: bkread.Token{Command: landing.CITokenCommand}, Log: log}).Check)
 	}
 	return checks, nil
 }
