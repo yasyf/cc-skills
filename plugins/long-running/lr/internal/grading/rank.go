@@ -41,6 +41,9 @@ func (p *JobPool) Plan(ctx context.Context, items []store.Item, snapshot map[int
 			p.firsts[pr] = true
 		}
 	}
+	if p.picks, err = p.Picks(); err != nil {
+		return nil, err
+	}
 	rows, err := p.ledgerRows()
 	if err != nil {
 		return nil, err

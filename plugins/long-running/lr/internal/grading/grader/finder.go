@@ -259,7 +259,11 @@ func (s *finderPassState) grade() (FinderOutcome, error) {
 	if repeat != nil {
 		findings = append(findings, *repeat)
 	}
-	text := s.recordText(own, last, findings)
+	open, settled := s.openFindings(findings)
+	text := s.recordText(own, last, open)
+	if len(settled) > 0 {
+		text += "; " + settledByPicks(settled)
+	}
 	body := filepath.Join(s.dir, bodyFile)
 	if err := os.WriteFile(body, []byte(text+"\n\n"+strings.TrimSpace(reply)+"\n"), 0o600); err != nil {
 		return FinderOutcome{}, err

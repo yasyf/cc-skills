@@ -102,6 +102,7 @@ type fidelityReply struct {
 	Exempt  string         `json:"exempt"`
 	Reader  string         `json:"reader"`
 	OldApp  fidelityOldApp `json:"old_app"`
+	picks   string
 }
 
 type FidelityOutcome struct {
@@ -239,6 +240,7 @@ func (s *fidelityPassState) grade() (FidelityOutcome, error) {
 	if reply, err = s.unsettled(reply); err != nil {
 		return FidelityOutcome{}, err
 	}
+	reply = s.settleByPicks(reply)
 	lines := s.gradedLines(reply)
 	body := filepath.Join(s.dir, bodyFile)
 	if err := s.writeGradeBody(body, lines, reply); err != nil {
@@ -950,6 +952,9 @@ func (s *fidelityPassState) gradedLines(reply fidelityReply) []gradeLine {
 				keys = append(keys, entry.Key)
 			}
 			broken = append(broken, squeezed(entry.Line))
+		}
+		if reply.picks != "" {
+			broken = append(broken, reply.picks)
 		}
 		lines = append(lines, gradeLine{text: fmt.Sprintf("%s %s %s %s", fidelityMissing, head, strings.Join(keys, ","), strings.Join(broken, "; "))})
 		if strings.TrimSpace(reply.Reader) != "" {

@@ -529,6 +529,27 @@ func TestAMissingVerdictPostsOneOwnerGroundedLineNamingEveryBrokenRow(t *testing
 	})
 }
 
+func TestAMissingPointAnOwnerPickAnswersLeavesTheLineWhichNamesThePick(t *testing.T) {
+	directory := fidelityDir(t, map[string]any{"grades": []any{}, "baseline": "", "picks": []any{ownerPick("rule/abc", "rule/949e6be")}})
+	shell, _ := newFidelityFake(t, samePatch, fidelityReplyOf(map[string]any{"verdict": "missing", "missing": []any{
+		missingOf("rule/949e6be", "follow.go:41 polls the signal, 'not polled'"),
+		missingOf("plan:212", "plan names no retry counter"),
+	}}))
+	mustFidelity(t, directory, shell)
+	line := shell.texts()[0]
+	holdsAll(t, line, "fidelity: missing "+shaHead+" plan:212 plan names no retry counter", `settled by owner picks: rule/abc "the owner's words"`)
+	holdsNone(t, line, "follow.go:41")
+}
+
+func TestAHeadWhoseEveryMissingPointAnOwnerPickAnswersGradesOk(t *testing.T) {
+	directory := fidelityDir(t, map[string]any{"grades": []any{}, "baseline": "", "picks": []any{ownerPick("rule/abc", "polls the signal")}})
+	shell, _ := newFidelityFake(t, samePatch, fidelityReplyOf(map[string]any{"verdict": "missing", "missing": []any{
+		missingOf("rule/949e6be", "follow.go:41 polls the signal, 'not polled'"),
+	}}))
+	mustFidelity(t, directory, shell)
+	holdsAll(t, shell.texts()[0], "fidelity: ok "+shaHead, "Every missing point is settled by owner picks: rule/abc")
+}
+
 func TestAHeadCodexCannotSettleGoesToTheHumanFidelityDesks(t *testing.T) {
 	directory := fidelityDir(t, map[string]any{"grades": []any{}, "baseline": ""})
 	shell, _ := newFidelityFake(t, samePatch, fidelityReplyOf(map[string]any{"verdict": "reader", "reader": "deletes the eviction path, a reserved row no answer authorizes", "touches": []string{"rule/949e6be"}}))

@@ -123,6 +123,7 @@ func poolAt(t *testing.T, root string, sections map[string]any) *poolFixture {
 		Workers: f.store.Workers,
 		Cursors: f.store,
 		Ledger:  f.store.LedgerRows,
+		Picks:   f.store.CheckedRules,
 		Now:     func() time.Time { return f.now },
 		Log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Self:    "/plugin/bin/lr",
