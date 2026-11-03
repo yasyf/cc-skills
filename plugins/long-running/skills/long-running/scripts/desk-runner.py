@@ -78,8 +78,10 @@ its only source of orders, and turns each new `orca-desk: relay to <lane>[, <lan
 per lane, a reply to the lane's latest open question no other reply claims, logged once as
 `RELAYED` or `RELAY-FAILED`. Each new `orca-desk: launch <lane> [NOW] <model> <effort> [role=<role>] brief=<absolute path>`
 line is the `launch` command under its key, `NOW` meaning `--owner-directed` and `role=` meaning `--role`, valid for
-fifteen minutes from its record's time: a `launch` or `incident` line read later launches nothing and logs `LAUNCH-EXPIRED`,
-so a backlog replayed after an outage starts no stale lane (root #267159). A fresh launch is refused as
+fifteen minutes from its record's time, or for the longest of the runner's last ten passes when that is longer: a `launch`
+or `incident` line read later launches nothing and logs `LAUNCH-EXPIRED` naming both, so a backlog replayed after an
+outage starts no stale lane (root #267159). Desk lines are read at each pass's start, between its slow steps, and from a
+`desk-lines` thread every ten seconds with no read, so no step or sweep holds a launch (meta-desk-1 #347397). A fresh launch is refused as
 `LAUNCH-FAILED` while the lane has a live dispatch or a launch in flight, or while its brief has no `Register slice:`
 line and the launch is not an incident lane's; a new lane's brief (`lane_brief.owes_scale`) with no `Scale:` line logs `SCALE-MISSING` and launches; a non-incident launch whose `Scale:` line a judge reads as missing
 the N its brief's paths run at goes ahead with one `SCALE-MISSED` to the root. Before any launch the runner refreshes the register slice under that
@@ -247,8 +249,8 @@ binding lost mid-run escalates UNBOUND once and fails every launch at once with
 `accepted_at` logs one `LAUNCH-STALLED` blocker naming the `orca-desk: withdraw` line and the `orca-launch.sh` command
 that launches it by hand, whatever held it; no incident clock defers it. `rebind` runs
 `orca orchestration run-use` from the current terminal and records it; `show` prints the
-binding first. Mac load queues and refuses no launch. While the 1-minute load is above the
-core count, each ten minutes of it logs one `LOAD-HIGH` blocker telling the drive watchdog to
+binding first. Mac load queues and refuses no launch. While the cores busy, the sum of every
+process's `ps` CPU share, are above the core count, each ten minutes of it logs one `LOAD-HIGH` blocker telling the drive watchdog to
 move the load, a `role=desk` or `role=watch` launch starts on a Sprite at once, its `LAUNCHED`
 line naming the box, and a launch that may run only on the Mac starts there anyway: a brief
 whose `ccx:` line says `place=local`, a Fable or incident launch, and an incident clock fallback.
@@ -960,6 +962,7 @@ DEFERRABLE = frozenset({"DEADLINE", "UNACKED", "STALE-MAIL", "RECLAIM"})
 DEFERRED = "deferred-escalations"
 SWEEP_EVERY = timedelta(minutes=5)
 PASS_SECONDS = 10
+DESK_LINES_EVERY = timedelta(seconds=PASS_SECONDS)
 TRUNK_DEPTH = 50
 TRUNK_RED_EVERY = timedelta(minutes=30)
 FINISHED_STATES = frozenset({"SUCCESS", "FAILURE", "ERROR"})
@@ -1068,6 +1071,7 @@ RESEND = ":resend"
 RETRY = ":retry"
 SEND_ATTEMPTS = 3
 LAUNCH_VALID = timedelta(minutes=15)
+PASSES_TIMED = 10
 INBOX_PAGE_SIZE = 100
 UNPARSEABLE = "unparseable"
 UNREAD = "unread"
@@ -1437,7 +1441,8 @@ class Shell:
         time.sleep(seconds)
 
     def load(self) -> float:
-        return os.getloadavg()[0]
+        """Cores' worth of CPU in use, the sum of every process's `ps` share: the load average also counts the thousands of idle watcher shells a drive leaves, which held the 1-minute load at 36 to 66 while the CPU was a third busy (meta-desk-1, Nov 2 8:43 PM)."""
+        return sum(float(share) for share in subprocess.run(["ps", "-A", "-o", "%cpu="], capture_output=True, text=True, timeout=QUICK_SECONDS).stdout.split()) / 100
 
     def cores(self) -> int:
         return os.cpu_count() or 1
@@ -2120,6 +2125,11 @@ class Runner:
         self.cci_tail = cci.Tail(self.cci_read)
         self.read_failed_at = float("-inf")
         self.passing: set[str] = set()
+        self.prompting = threading.Lock()
+        self.prompted = float("-inf")
+        self.flushing = threading.Lock()
+        self.pass_took: tuple[timedelta, ...] = ()
+        self.pass_since = self.now()
         self.bus_misses: list[datetime] = []
         self.judge_backend = judge.backend_from(os.environ)
         self.judges = ThreadPoolExecutor(JUDGE_WORKERS)
@@ -2221,26 +2231,27 @@ class Runner:
 
     def flush(self) -> bool:
         """Post each accepted escalation to root. While an incident clock runs, a DEADLINE, UNACKED, STALE-MAIL, or RECLAIM about anything outside the incident waits in the view, and the pass after the last clock ends posts them as one DEFERRED record."""
-        failures = []
-        clocks = self.live_clocks()
-        incident = {alias for lane in clocks for name in (lane, *self.siblings(lane)) for alias in self.names(name)}
-        if not clocks:
-            self.release_deferred()
-        held = set(self.book.fact(RUNNER, DEFERRED, {'ids': []})["ids"])
-        for action in self.book.actions(RUNNER, kind="escalation", status="accepted"):
-            label = action.target.split()[0]
-            if clocks and label in DEFERRABLE and action.target.split()[2].rstrip(":") not in incident:
-                if action.action_id not in held:
-                    self.defer(action, clocks)
-                continue
-            done = self.post_escalation(action.target, ROOT, action.action_id)
-            if done.code != 0:
-                failures.append(f"cci post exited {done.code}: {(done.err or done.out).strip()[:300]}")
-                continue
-            self.book.attempt(RUNNER, lambda incident, key=action.action_id: (incident.start(key, self.now()), incident.complete(key, {"at": self.book.stamp(), "posted": cci.receipt(done.records[0].seq)})))
-        if failures:
-            print(f"{len(failures)} escalation(s) left for the next pass; {failures[0]}", file=sys.stderr)
-        return not failures
+        with self.flushing:
+            failures = []
+            clocks = self.live_clocks()
+            incident = {alias for lane in clocks for name in (lane, *self.siblings(lane)) for alias in self.names(name)}
+            if not clocks:
+                self.release_deferred()
+            held = set(self.book.fact(RUNNER, DEFERRED, {'ids': []})["ids"])
+            for action in self.book.actions(RUNNER, kind="escalation", status="accepted"):
+                label = action.target.split()[0]
+                if clocks and label in DEFERRABLE and action.target.split()[2].rstrip(":") not in incident:
+                    if action.action_id not in held:
+                        self.defer(action, clocks)
+                    continue
+                done = self.post_escalation(action.target, ROOT, action.action_id)
+                if done.code != 0:
+                    failures.append(f"cci post exited {done.code}: {(done.err or done.out).strip()[:300]}")
+                    continue
+                self.book.attempt(RUNNER, lambda incident, key=action.action_id: (incident.start(key, self.now()), incident.complete(key, {"at": self.book.stamp(), "posted": cci.receipt(done.records[0].seq)})))
+            if failures:
+                print(f"{len(failures)} escalation(s) left for the next pass; {failures[0]}", file=sys.stderr)
+            return not failures
 
     def defer(self, action: actions.Action, clocks: list[str]) -> None:
         def hold(incident: actions.Incident) -> None:
@@ -2424,7 +2435,8 @@ class Runner:
         return self.pinned() not in ("", RUNNING_VERSION)
 
     def reexec(self, desk: str) -> None:
-        self.shell.reexec([str(RUNNER_BIN), "run", "--config", str(self.config.source), "--desk", desk])
+        with self.prompting:
+            self.shell.reexec([str(RUNNER_BIN), "run", "--config", str(self.config.source), "--desk", desk])
 
     def stop_marker(self, pid: int | None = None) -> Path:
         return self.control.marker(pid)
@@ -2451,11 +2463,31 @@ class Runner:
             step()
 
     def prompt(self) -> None:
-        """Between an orca pass's slow steps, settle exited launches, act on new desk orders, deliver them, and post what that recorded, so an order, a launch or a refusal reaches root within one step rather than one pass (cci 310384, 311079)."""
-        self.reap()
-        self.read_cci()
-        self.deliver()
-        self.flush()
+        """Settle exited launches, act on new desk orders, deliver them, and post what that recorded, one caller at a time: at the start of an orca pass, between its slow steps, and from `keep_reading_lines` while a step runs, so an order, a launch or a refusal never waits on a step (cci 310384, 311079, 347397)."""
+        with self.prompting:
+            self.prompted = time.monotonic()
+            self.reap()
+            self.read_cci()
+            self.deliver()
+            self.flush()
+
+    def keep_reading_lines(self) -> threading.Event:
+        """Run `prompt` from a daemon thread whenever `DESK_LINES_EVERY` passes with none, until the returned event is set, so a launch posted while the sweep or a slow step runs is read within that interval: R85015, posted at 7:44 PM while one step surveyed every worktree at load 60, was read at 8:04 PM and expired unlaunched (meta-desk-1 #347397)."""
+        stop = threading.Event()
+
+        def tick() -> None:
+            while not stop.wait(DESK_LINES_EVERY.total_seconds()):
+                if time.monotonic() - self.prompted < DESK_LINES_EVERY.total_seconds():
+                    continue
+                try:
+                    self.prompt()
+                except OrcaUnreachable:
+                    continue
+                except Exception:
+                    print(traceback.format_exc(), file=sys.stderr, flush=True)
+
+        threading.Thread(target=tick, name="desk-lines", daemon=True).start()
+        return stop
 
     @contextmanager
     def desk_lock(self, desk: str) -> Iterator[int | None]:
@@ -2835,12 +2867,19 @@ class Runner:
         directive = INBOX_DIRECTIVE.match(line)
         if directive and directive["verb"] == "relay" and not (line := self.whole_text(f"cci#{seq}", directive["key"] or f"inbox@cci#{seq}", "inbox", record)):
             return
-        if directive and directive["verb"] in EXPIRING and (spec := EXPIRING[directive["verb"]].match(directive["rest"])) and (age := self.now() - actions.parse_stamp(record["at"])) > LAUNCH_VALID:
+        if directive and directive["verb"] in EXPIRING and (spec := EXPIRING[directive["verb"]].match(directive["rest"])) and (age := self.now() - actions.parse_stamp(record["at"])) > (window := self.launch_window()):
             lane = spec["lane"] if directive["verb"] == "launch" else f"{spec['slug']}-fix"
-            self.record(f"escalation:launch:cci#{seq}", f"LAUNCH-EXPIRED {directive['key'] or f'inbox@cci#{seq}'} {lane}: cci #{seq} was posted at {pacific(actions.parse_stamp(record['at']))}, {int(age.total_seconds() // 60)} minutes before this read, and a launch line is valid for {int(LAUNCH_VALID.total_seconds() // 60)}; nothing was launched")
+            self.record(f"escalation:launch:cci#{seq}", f"LAUNCH-EXPIRED {directive['key'] or f'inbox@cci#{seq}'} {lane}: cci #{seq} was posted at {pacific(actions.parse_stamp(record['at']))}, {int(age.total_seconds() // 60)} minutes before this read; this runner's longest recent pass took {int(max(self.pass_took, default=timedelta()).total_seconds() // 60)} minutes, and a launch line is valid for {int(window.total_seconds() // 60)}; nothing was launched")
             return
         if not self.inbox_line(f"cci#{seq}", line, record["lane"]):
             self.refuse_line(record)
+
+    def launch_window(self) -> timedelta:
+        """How long a launch or incident line stays valid: `LAUNCH_VALID`, or longer while one of this runner's last `PASSES_TIMED` passes, or the one running, took longer, so no line expires for the runner's own slowness while a backlog replayed after a restart still starts nothing stale (root #267159)."""
+        return max(LAUNCH_VALID, *self.pass_took, self.now() - self.pass_since)
+
+    def timed_pass(self) -> None:
+        self.pass_took = (*self.pass_took[1 - PASSES_TIMED :], self.now() - self.pass_since)
 
     def refuse_line(self, record: dict) -> None:
         """Answer a record addressed to the orca desk that is neither a desk line nor a reply this desk acts on, quoting how it opens, so no order to the desk goes unanswered (root #279034: #278863 and #278913 carried `--re`, read as replies, and drew nothing)."""
@@ -3716,7 +3755,7 @@ class Runner:
         return None
 
     def mac_over_load(self) -> str:
-        """The Mac's load when it is over what a worktree checkout survives, or empty while the 1-minute load is at or below the core count."""
+        """The Mac's CPU load when it is over what a worktree checkout survives, or empty while the cores busy are at or below the core count."""
         load, cores = self.shell.load(), self.shell.cores()
         if load <= cores:
             return ""
@@ -3744,7 +3783,7 @@ class Runner:
                     f"stalled:{container}/{action.action_id}",
                     "LAUNCH-STALLED",
                     lane,
-                    f"{action.action_id} accepted at {pacific(since)} has no dispatch {int((self.now() - since).total_seconds())} s on, with the 1-minute load {self.shell.load():.0f} of {self.shell.cores()} cores;"
+                    f"{action.action_id} accepted at {pacific(since)} has no dispatch {int((self.now() - since).total_seconds())} s on, with {self.shell.load():.0f} of {self.shell.cores()} cores busy;"
                     f" withdraw it with `orca-desk: withdraw {action.action_id}`, then launch it by hand: `orca-launch.sh {lane} {spec['model']} {spec['effort']} {spec['brief']}`",
                 )
 
@@ -4040,7 +4079,7 @@ class Runner:
             self.shell.sleep(WAKE_SECONDS)
 
     def running(self) -> int:
-        return sum(process.poll() is None for process in self.launching.values())
+        return sum(process.poll() is None for process in list(self.launching.values()))
 
     def rotate_inboxes(self) -> None:
         for path in sorted(self.config.desk_inbox.parent.glob("*.md")):
@@ -10729,12 +10768,14 @@ def run_orca(runner: Runner, once: bool) -> int:
         runner.escalate(f"briefs-log:{runner.config.briefs_log or 'unset'}", "BRIEFS-LOG-FAILED", "runner", f"the briefs log did not resolve at start: {failure}; each brief attach retries it")
     swept = rotated = datetime.min.replace(tzinfo=timezone.utc)
     alive = runner.keep_alive("orca")
+    lines = None
     try:
         runner.register_lane(ORCA_DESK)
         if not once:
             runner.keep_finding()
             runner.keep_probing()
         while True:
+            runner.pass_since = runner.now()
             if runner.now() - rotated >= ROTATE_EVERY:
                 runner.rotate_inboxes()
                 runner.recur_watch()
@@ -10743,7 +10784,9 @@ def run_orca(runner: Runner, once: bool) -> int:
             try:
                 ready = runner.check()
                 if ready:
-                    runner.steps(runner.reap, runner.read_cci, runner.deliver)
+                    runner.steps(runner.prompt)
+                    if not (once or lines):
+                        lines = runner.keep_reading_lines()
                     if runner.now() - swept >= SWEEP_EVERY:
                         runner.steps(runner.sweep)
                         swept = runner.now()
@@ -10767,6 +10810,7 @@ def run_orca(runner: Runner, once: bool) -> int:
             runner.judge_watch()
             behind = runner.moved()
             runner.flush()
+            runner.timed_pass()
             runner.beat("orca")
             if once:
                 return 0
@@ -10778,6 +10822,10 @@ def run_orca(runner: Runner, once: bool) -> int:
                 runner.reexec("orca")
     finally:
         alive.set()
+        if lines:
+            lines.set()
+            with runner.prompting:
+                pass
 
 
 def mq_config_fault(landing: dict) -> str:

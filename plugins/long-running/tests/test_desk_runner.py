@@ -1932,7 +1932,7 @@ def test_an_accepted_launch_with_no_dispatch_a_minute_on_logs_one_launch_stalled
         orca_pass(shell, config)
         shell.sleep(60)
     assert sorted(stalled(shell)) == [
-        f"LAUNCH-STALLED stalled:desk-lane-{lane}/{key} {lane}: {key} accepted at 11:00 has no dispatch 60 s on, with the 1-minute load 11 of 32 cores;"
+        f"LAUNCH-STALLED stalled:desk-lane-{lane}/{key} {lane}: {key} accepted at 11:00 has no dispatch 60 s on, with 11 of 32 cores busy;"
         f" withdraw it with `orca-desk: withdraw {key}`, then launch it by hand: `orca-launch.sh {lane} incident xhigh {brief}`"
         for key, lane in lanes.items()
     ]
@@ -12327,6 +12327,50 @@ def test_a_launch_line_read_over_fifteen_minutes_after_its_record_launches_nothi
         f"LAUNCH-EXPIRED R84867 {LANE}: cci #{launch} was posted at 10:44",
         f"LAUNCH-EXPIRED inbox@cci#{alert} dd-7-fix: cci #{alert} was posted at 10:44",
     ]
+
+
+def test_a_launch_posted_while_the_sweep_runs_launches_before_the_sweep_ends(shell, config, tmp_path, monkeypatch):
+    """meta-desk-1 #347397: R85015, posted at 7:44 PM while one step of the orca pass ran at load 60, was read at 8:04 PM and expired unlaunched, as did every meta lane launch after it."""
+    monkeypatch.setattr(runner_module, "DESK_LINES_EVERY", timedelta(milliseconds=10))
+    brief = launch_brief(tmp_path)
+    shell.launch_line = f"{LANE} ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
+    orca_pass(shell, config)
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    during_sweep = []
+
+    def slow_sweep():
+        cci_record(shell, to=["orca-desk"], at=actions.stamp(shell.clock), text=f"R85015 (7:44 PM) orca-desk: launch {LANE} NOW incident xhigh brief={brief}")
+        until = time.monotonic() + 30
+        while not launches(shell) and time.monotonic() < until:
+            time.sleep(0.01)
+        during_sweep.extend(launches(shell))
+
+    def beat(desk):
+        raise RuntimeError("end loop")
+
+    monkeypatch.setattr(runner, "sweep", slow_sweep)
+    monkeypatch.setattr(runner, "beat", beat)
+    with pytest.raises(RuntimeError, match="end loop"):
+        runner_module.run_orca(runner, False)
+    assert during_sweep == [[str(runner_module.LAUNCHER), LANE, "incident", "xhigh", str(brief)]]
+
+
+def test_a_launch_line_stays_valid_for_the_runners_longest_recent_pass(shell, config, tmp_path, monkeypatch):
+    """meta-desk-1 #347397: passes of twenty minutes at load 60 outlasted the fifteen a launch line was valid, so lines expired for the runner's own slowness."""
+    brief = launch_brief(tmp_path)
+    shell.launch_line = f"{LANE} ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
+    orca_pass(shell, config)
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+
+    def slow_step():
+        shell.clock += timedelta(minutes=20)
+
+    monkeypatch.setattr(runner, "pr_silent", slow_step)
+    assert runner_module.run_orca(runner, True) == 0
+    cci_record(shell, to=["orca-desk"], at=actions.stamp(shell.clock - timedelta(minutes=16)), text=f"R85019 (7:44 PM) orca-desk: launch {LANE} NOW incident xhigh brief={brief}")
+    assert runner_module.run_orca(runner, True) == 0
+    assert launches(shell) == [[str(runner_module.LAUNCHER), LANE, "incident", "xhigh", str(brief)]]
+    assert not [line for line in escalations(shell) if line.startswith("LAUNCH-EXPIRED")]
 
 
 def cci_record(shell: FakeShell, **fields) -> int:
