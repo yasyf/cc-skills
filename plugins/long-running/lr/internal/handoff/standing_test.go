@@ -370,7 +370,7 @@ func TestParsedRowsKeepTheOrderOfTheJSONObjectAndTypeTheirFields(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	keys := []string{}
+	keys := make([]string, 0, len(rows))
 	for _, row := range rows {
 		keys = append(keys, row.key)
 	}

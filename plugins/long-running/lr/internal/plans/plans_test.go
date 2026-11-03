@@ -29,7 +29,7 @@ func byStep(progress *plans.Progress) map[string][]string {
 		if plan != nil {
 			owner = plan.ID[:7]
 		}
-		items := []string{}
+		items := make([]string, 0, len(step.Tasks))
 		for _, task := range step.Tasks {
 			items = append(items, task.Title+"="+task.State)
 		}
@@ -61,7 +61,7 @@ func TestTasksJoinTheStepTheirLabelNamesElseTheirPlansUnmappedStepElseUnassigned
 	if got := byStep(progress); !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %v, want %v", got, want)
 	}
-	titles := []string{}
+	titles := make([]string, 0, len(progress.Plans[0].Steps))
 	for _, step := range progress.Plans[0].Steps {
 		titles = append(titles, step.Title)
 	}
@@ -90,7 +90,7 @@ func TestAnUnfinishedBlockerOrAFailedCriterionBlocksATaskAndSaysWhatItWaitsOn(t 
 	progress := read(t, fake)
 
 	waiting := map[string][2]string{}
-	states := []string{}
+	states := make([]string, 0, len(progress.Unassigned.Tasks))
 	for _, item := range progress.Unassigned.Tasks {
 		waiting[item.Title] = [2]string{item.State, item.Waiting}
 		states = append(states, item.State)
@@ -128,7 +128,7 @@ func TestOnlyPlansHoldingTasksOrNamedOutrightAreDrawn(t *testing.T) {
 		Plans: []fields{planstest.Plan(planstest.PlanID, "Migration"), planstest.Plan(planstest.OtherPlanID, "Idle plan")},
 	}
 	titles := func(progress *plans.Progress) []string {
-		found := []string{}
+		found := make([]string, 0, len(progress.Plans))
 		for _, plan := range progress.Plans {
 			found = append(found, plan.Title)
 		}
@@ -164,8 +164,9 @@ func TestSummaryLinesNameEachPlanAndItsOpenSteps(t *testing.T) {
 }
 
 func TestAStepHeadingMayLeadWithTheWordStep(t *testing.T) {
-	got := []string{}
-	for _, step := range plans.StepsOf("### Step 11. Releases: R1a cloud\n### Streaming: no number\n### 2. Data\n") {
+	steps := plans.StepsOf("### Step 11. Releases: R1a cloud\n### Streaming: no number\n### 2. Data\n")
+	got := make([]string, 0, len(steps))
+	for _, step := range steps {
 		got = append(got, fmt.Sprintf("%s|%s", step.Number, step.Title))
 	}
 	if want := []string{"11|11. Releases: R1a cloud", "2|2. Data"}; !reflect.DeepEqual(got, want) {
