@@ -232,6 +232,9 @@ func Run(ctx context.Context, s *store.Store, drive, version string, pid int, d 
 		if err != nil {
 			return done, "", err
 		}
+		if ticks == 0 {
+			done = done[:0]
+		}
 		done = append(done, report)
 		if d.Stale != nil {
 			stale, err := d.Stale(ctx)

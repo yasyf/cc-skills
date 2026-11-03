@@ -67,7 +67,7 @@ func TestARecoveryIsSaidAfterASupervisorRestart(t *testing.T) {
 	started(nil).pass(context.Background(), t0.Add(recurEvery))
 
 	equal(t, len(told), 2)
-	equal(t, told[1].Kind(), "note")
+	equal(t, told[1].Kind(), "escalation")
 }
 
 func TestAPassTheSupervisorsShutdownCancelledReachesNobody(t *testing.T) {
@@ -117,6 +117,25 @@ func TestABackgroundPassRunsOnceAPeriod(t *testing.T) {
 
 	for _, at := range []time.Time{t0, t0.Add(time.Minute), t0.Add(time.Hour)} {
 		if err := b.Check(context.Background(), at); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	equal(t, passes, 2)
+}
+
+func TestABackgroundPassKeepsItsPeriodAcrossARestart(t *testing.T) {
+	s := memory(t)
+	passes := 0
+	started := func() *background {
+		return &background{name: "p", every: time.Hour, store: s, run: func(context.Context) error {
+			passes++
+			return nil
+		}}
+	}
+
+	for _, at := range []time.Time{t0, t0.Add(time.Minute), t0.Add(time.Hour)} {
+		if err := started().Check(context.Background(), at); err != nil {
 			t.Fatal(err)
 		}
 	}

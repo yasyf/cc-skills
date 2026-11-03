@@ -99,11 +99,11 @@ func run(ctx context.Context, a *app.App) error {
 	version := Installed(env.Claude)
 	upgrade := &Upgrade{Env: env, Running: version, Read: read}
 	deps.Stale = upgrade.Stale
-	reports, ended, err := Run(ctx, s, cfg.Drive, version, os.Getpid(), deps, 0)
+	_, ended, err := Run(ctx, s, cfg.Drive, version, os.Getpid(), deps, 0)
 	if err != nil {
 		return err
 	}
-	a.Log.Info("supervisor ended", "how", string(ended), "ticks", len(reports))
+	a.Log.Info("supervisor ended", "how", string(ended))
 	if ended == EndedRelease {
 		return Reexec(env.Claude, syscall.Exec)
 	}

@@ -22,6 +22,7 @@ const (
 	choiceEvery = 10 * time.Minute
 
 	recoveredCursor = "background-recovered:"
+	startedCursor   = "background-started:"
 )
 
 type background struct {
@@ -36,10 +37,20 @@ type background struct {
 }
 
 func (b *background) Check(ctx context.Context, now time.Time) error {
-	if !b.read.IsZero() && now.Sub(b.read) < b.every {
+	if b.read.IsZero() {
+		started, err := b.store.Cursor(startedCursor + b.name)
+		if err != nil {
+			return err
+		}
+		b.read = time.UnixMicro(started)
+	}
+	if now.Sub(b.read) < b.every {
 		return nil
 	}
 	b.read = now
+	if err := b.store.Advance(startedCursor+b.name, now.UnixMicro()); err != nil {
+		return err
+	}
 	b.pass(ctx, now)
 	return nil
 }
@@ -77,8 +88,7 @@ func (b *background) sayRecovered(to string) error {
 	if err != nil || last.Raised.UnixMicro() <= said {
 		return err
 	}
-	text := fmt.Sprintf("%s recovered: a pass succeeded after this failure: %s", b.name, last.Cause)
-	if err := b.post([]string{to}, bus.Note{Text: text}); err != nil {
+	if err := b.post([]string{to}, bus.Overdue(to, b.name+" recovered:", "a pass succeeded after this failure: "+last.Cause)); err != nil {
 		return err
 	}
 	return b.store.Advance(cursor, last.Raised.UnixMicro())
