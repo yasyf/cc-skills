@@ -44,12 +44,9 @@ SLACK_POSTED = re.compile(r"\bts\W{1,4}\d{10}\.\d{6}|/archives/\w+/p\d{16}")
 BOARD_VERBS = frozenset({"push", "update-block", "ask", "send"})
 INLINE_PICK = "A pick for the owner never sits inline or in plain Slack text; he answers with a button. Send it with the `reply` tool, the answers as its `picks` and one of them as `recommended`, then stop again."
 PLAIN_PICK = "A pick for the owner is never plain text in his Slack DM; he taps a button, and a thread reply is for notes. Send it with the `reply` tool, the answers as its `picks` and one of them as `recommended`."
-QUESTION = re.compile(r"\?(?=\s|$)")
-PR_NAMED = re.compile(r"github\.com/[\w.-]+/[\w.-]+/pull/\d+|[\w.-]+/[\w.-]+#\d+|\b(?i:PR|pull request) #?\d+\b")
 PR_REF = re.compile(r"github\.com/[\w.-]+/[\w.-]+/pull/(\d+)|[\w.-]+/[\w.-]+#(\d+)|\b(?i:PR|pull request) #?(\d+)\b|(?<![\w&/])#(\d+)\b")
 PR_STATE = re.compile(r"\b(?:stale|merged|queued|red|green)\b", re.IGNORECASE)
 UNREAD_PR = "A reply that calls a PR stale, merged, queued, red or green follows a cci or ccx read of that PR this turn. Read {prs} with `ccx vcs pr status <n>` and say what it shows."
-PR_CARD = "An ask to the owner about a pull request carries its PR card, never only the link. Send the ask with the `reply` tool and list each PR's url in its `prs`."
 PICK = "Two ways to fix the relay:\n\nA) Keep one shared replica\nB) Give each chat its own\n\nWhich do you want?"
 REMINDER = Binary(
     "The owner's words this turn are below; his typos are his, so read through them."
@@ -345,19 +342,15 @@ def dm(tool: str = DM_CARD, **given: object) -> Input:
         Input(command=f"cc-slack dm-status --card '{json.dumps(RELAY_CARD)}'", state=[CompactionState(active=True)]): Allow(),
         Input(command="cc-slack dm-status 'The relay fix merged at 3:10 AM.'", state=[CompactionState(active=True)]): Allow(),
         Input(command="ls", state=[CompactionState(active=True)]): Allow(),
-        dm(card=LAND_CARD): Block(pattern=r"^An ask to the owner about a pull request carries its PR card.*the `reply` tool.*`prs`"),
-        dm(card=LAND_CARD | {"refs": [{"url": RELAY_PR, "label": "relay fix"}]}): Allow(),
-        dm(text=f"Should I land {RELAY_PR} tonight?"): Block(pattern=r"carries its PR card"),
+        dm(card=LAND_CARD): Allow(),
+        dm(text=f"Should I land {RELAY_PR} tonight?"): Allow(),
         dm(text=f"{RELAY_PR} merged at 3:10 AM, so the relay keeps one replica per chat."): Allow(),
-        Input(command="cc-slack dm-status 'Land PR 2196 tonight, or hold it for the morning build?'", state=[CompactionState(active=True)]): Block(pattern=r"carries its PR card"),
+        Input(command="cc-slack dm-status 'Land PR 2196 tonight, or hold it for the morning build?'", state=[CompactionState(active=True)]): Allow(),
     }),
 )
 def owner_asks_post_as_cards(evt: BaseHookEvent) -> HookResult | None:
-    problems = dict.fromkeys(problem for words, posted in dm_posts(evt) for problem, found in (
-        (PLAIN_PICK, offers_pick(words) and not posted.get("options")),
-        (PR_CARD, (offers_pick(words) or QUESTION.search(words)) and PR_NAMED.search(words) and not posted.get("refs")),
-    ) if found)
-    return evt.block(" ".join(problems)) if problems else None
+    plain = any(offers_pick(words) and not posted.get("options") for words, posted in dm_posts(evt))
+    return evt.block(PLAIN_PICK) if plain else None
 
 
 def dm_posts(evt: BaseHookEvent) -> list[tuple[str, dict]]:

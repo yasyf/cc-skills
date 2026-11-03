@@ -304,6 +304,18 @@ func TestAnEditUpdatesEachSurfaceInPlace(t *testing.T) {
 	}
 }
 
+func TestAStatusReplyNamesItsPRsInTheSlackCardTextForCCSlackToLinkAndCard(t *testing.T) {
+	fake := scripted()
+	fanout(t, fake).Send(context.Background(), Reply{ID: "r5", Title: "The relay fix", MD: "Checks passed.", Status: "done", PRs: []string{landPR}})
+	posted := calls(fake, "cc-slack")
+	if len(posted) != 1 {
+		t.Fatalf("cc-slack calls = %+v, want one card", posted)
+	}
+	if card := slack(t, posted[0]); card.Body != "Checks passed.\n"+landPR || len(card.Refs) != 0 {
+		t.Fatalf("card = %+v, want the PR in its text and no refs", card)
+	}
+}
+
 func TestAReplyThatFitsNoSurfaceIsRefusedBeforeAnythingPosts(t *testing.T) {
 	base := Reply{ID: "r4", Title: "Pick a relay", MD: "Two ways."}
 	for name, r := range map[string]Reply{

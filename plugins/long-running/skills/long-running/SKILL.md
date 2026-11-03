@@ -127,9 +127,10 @@ store, adds a board card that cc-present posts to his Slack with one button per 
 when it carries `picks`, and a card at his Slack DM root when it carries links, PRs
 or a status; it hand-posts no Slack or board card
 ([communicator-brief.md](reference/communicator-brief.md#replies)). A pick is never
-plain text asking him for a letter or number, and an ask about a pull request lists
-the PR in `prs`, so its card shows the PR's live state. `owner_returns.py` refuses a
-plain pick, a PR ask with no PR card, and a stop that leaves the pick inline. Its session
+plain text asking him for a letter or number. A PR the text or `prs` names is
+linked by cc-slack, which posts its merge-row card from `lr board card` in the
+same thread when the PR waits on his tap. `owner_returns.py` refuses a plain pick
+and a stop that leaves the pick inline. Its session
 holds the owner's DM: `owner_returns.py` arms a channel watch on the DM at session start
 and on each prompt, so his reply in any DM thread reaches it as well as the lane that
 posted there, and refuses a stop while `cc-slack dm-owed` lists a reply nobody has

@@ -212,11 +212,10 @@ func (f Fanout) slack(ctx context.Context, r Reply, _ []Outcome) []Outcome {
 	if len(r.Picks) > 0 || len(r.Links) == 0 && len(r.PRs) == 0 && r.Status == "" {
 		return nil
 	}
-	refs := make([]Link, len(r.PRs))
-	for n, pr := range r.PRs {
-		refs[n] = Link{URL: pr}
-	}
 	body := mrkdwn(r.MD)
+	for _, pr := range r.PRs {
+		body += "\n" + pr
+	}
 	buttons := make([]Link, 0, len(r.Links))
 	for _, link := range r.Links {
 		if strings.HasPrefix(link.URL, "https://") {
@@ -232,8 +231,7 @@ func (f Fanout) slack(ctx context.Context, r Reply, _ []Outcome) []Outcome {
 		Body   string `json:"body"`
 		Drive  string `json:"drive"`
 		Links  []Link `json:"links,omitempty"`
-		Refs   []Link `json:"refs,omitempty"`
-	}{r.ID, cmp.Or(r.Status, "info"), r.Title, fitted(body, maxSlackBody), f.Entry.Bus(), buttons, refs})
+	}{r.ID, cmp.Or(r.Status, "info"), r.Title, fitted(body, maxSlackBody), f.Entry.Bus(), buttons})
 	if err != nil {
 		return []Outcome{{Surface: "slack", Error: err.Error()}}
 	}
