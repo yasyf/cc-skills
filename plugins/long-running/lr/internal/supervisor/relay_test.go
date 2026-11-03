@@ -43,7 +43,7 @@ func newKeeperWorld(t *testing.T) *keeperWorld {
 
 func (w *keeperWorld) check(t *testing.T, at time.Time) {
 	t.Helper()
-	if err := w.keeper.Check(at); err != nil {
+	if err := w.keeper.Check(context.Background(), at); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -112,29 +112,6 @@ func TestARelayBackInsideTheWindowStartsTheClockAgain(t *testing.T) {
 	if len(w.posts) != 0 {
 		t.Fatalf("posts = %+v", w.posts)
 	}
-}
-
-func TestKeepChecksWithNoTickRunningAndEndsWithItsContext(t *testing.T) {
-	w := newKeeperWorld(t)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	checked := make(chan struct{})
-	var once bool
-	ended := make(chan struct{})
-	go func() {
-		w.keeper.Keep(ctx, func() time.Time {
-			if !once {
-				once = true
-				close(checked)
-			}
-			return keeperStart
-		})
-		close(ended)
-	}()
-
-	<-checked
-	cancel()
-	<-ended
 }
 
 func TestTheRelayIsItsOwnJobSoASupervisorReexecNeverTouchesIt(t *testing.T) {

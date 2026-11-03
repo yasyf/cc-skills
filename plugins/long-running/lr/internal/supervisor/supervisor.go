@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"regexp"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
@@ -20,11 +21,13 @@ import (
 )
 
 const (
-	TickEvery   = 30 * time.Second
-	PassEvery   = 3 * time.Minute
-	passedName  = "pass"
-	moverLanes  = "lanes"
-	moverShadow = "shadow"
+	TickEvery     = 30 * time.Second
+	PassEvery     = 3 * time.Minute
+	checkDeadline = 15 * time.Minute
+	checkStopWait = 30 * time.Second
+	passedName    = "pass"
+	moverLanes    = "lanes"
+	moverShadow   = "shadow"
 
 	unreadSubject = "STATUS-READ-FAILED"
 )
@@ -40,7 +43,6 @@ type Deps struct {
 	Sleep     func(time.Duration)
 	Lanes     func(now time.Time, generation int64) (lanes.Outcome, error)
 	Checks    []lanes.Check
-	Relay     *RelayKeeper
 	Snapshot  func(ctx context.Context) ([]machine.Facts, error)
 	Post      pass.Post
 	Queue     landing.Queue
@@ -87,11 +89,6 @@ func Tick(ctx context.Context, s *store.Store, drive string, generation int64, d
 			if !reflect.DeepEqual(moved, lanes.Outcome{}) {
 				d.Log.Info("lanes acted", "relaunched", moved.Relaunched, "asked", moved.Asked, "held", moved.Held, "adopted", moved.Adopted, "withdrawn", moved.Withdrawn, "woken", moved.Woken)
 			}
-		}
-	}
-	for _, check := range d.Checks {
-		if err := check(ctx, now); err != nil {
-			d.Log.Warn("check skipped", "err", err)
 		}
 	}
 	if !runsPass(d.Movers) {
@@ -197,11 +194,46 @@ const (
 	EndedTicks      Ended = "ticks"
 )
 
+func startChecks(ctx context.Context, d Deps) func() {
+	ctx, cancel := context.WithCancel(ctx)
+	var running sync.WaitGroup
+	for _, check := range d.Checks {
+		running.Go(func() {
+			for ctx.Err() == nil {
+				limit, done := context.WithTimeout(ctx, checkDeadline)
+				if err := check(limit, d.Clock().UTC()); err != nil {
+					d.Log.Warn("check skipped", "err", err)
+				}
+				done()
+				select {
+				case <-ctx.Done():
+				case <-time.After(TickEvery):
+				}
+			}
+		})
+	}
+	return func() {
+		cancel()
+		finished := make(chan struct{})
+		go func() {
+			running.Wait()
+			close(finished)
+		}()
+		select {
+		case <-finished:
+		case <-time.After(checkStopWait):
+			d.Log.Warn("a check outlived its stop")
+		}
+	}
+}
+
 func Run(ctx context.Context, s *store.Store, drive, version string, pid int, d Deps, ticks int) ([]Report, Ended, error) {
 	lease, err := s.AcquireLease(drive, version, pid, d.Clock())
 	if err != nil {
 		return nil, "", err
 	}
+	stop := startChecks(ctx, d)
+	defer stop()
 	var done []Report
 	for ticks == 0 || len(done) < ticks {
 		report, err := Tick(ctx, s, drive, lease.Generation, d)
