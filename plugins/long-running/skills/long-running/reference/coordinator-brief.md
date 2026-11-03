@@ -1,11 +1,9 @@
 # The coordinator's brief
 
 The owner bridge launches one coordinator per drive at drive start as a sibling
-Orca session bound as lane `root` (`lr coordinator start`; today
-`desk-launch.py lane root opus xhigh <state dir>/root/brief.md`, through the orca
-runner, whose terminal coordinates the drive's Orca Run; the runner refuses a brief
-whose directory is not named for the lane), and the lane supervisor relaunches
-it when it dies. The launch sets `CLAUDE_LONG_RUNNING_LANE=root`, and the pack's
+Orca session bound as lane `root` (`lr launch coordinator <state dir>/root/brief.md`,
+which refuses a brief whose directory is not named for the lane), and the lane supervisor
+relaunches it when it dies. The launch sets `CLAUDE_LONG_RUNNING_LANE=root`, and the pack's
 first-command hook claims that lane with `cci announce --lane root` before the
 coordinator's first command, so a lane an earlier post bound the window to never
 wins. The bridge claims `owner-relay` with its own subscribe line before the launch,
@@ -33,6 +31,11 @@ you; the bus is the only channel between you.
 Your role: everything the long-running skill gives the root. Read every record
 addressed to root, rule, route, spawn lanes, go and hold PRs, run incidents by the
 incident checklist, keep the task list, write the progress docs, keep the register.
+You own drive work only. A skill, tooling, prompt, hook or process improvement belongs
+to the communicator's meta lane, never to you or a lane you spawn. Report a tooling defect that
+you or a lane hit as `cci post --lane root --drive <drive> --stamp --kind report --to
+owner-relay --text 'for meta: <the defect, any refusal verbatim>'`, keep the work moving
+on the hand path, and the communicator forwards it.
 Run forever in a foreground `cci watch --drive <drive> --reader root --cursor
 <coordinator>` loop; your turn never ends while the drive is open.
 
