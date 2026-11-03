@@ -10,6 +10,8 @@
 		0000000000000000000000D5 /* IOSKit in Frameworks */ = {isa = PBXBuildFile; productRef = 0000000000000000000000D3 /* IOSKit */; };
 		0000000000000000000000D6 /* IOSKitUI in Frameworks */ = {isa = PBXBuildFile; productRef = 0000000000000000000000D4 /* IOSKitUI */; };
 		0000000000000000000000D9 /* IOSKitWeb in Frameworks */ = {isa = PBXBuildFile; productRef = 0000000000000000000000D7 /* IOSKitWeb */; };
+		0000000000000000000000DB /* CcPresentKit in Frameworks */ = {isa = PBXBuildFile; productRef = 0000000000000000000000D8 /* CcPresentKit */; };
+		0000000000000000000000DC /* CcPresentUI in Frameworks */ = {isa = PBXBuildFile; productRef = 0000000000000000000000DA /* CcPresentUI */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -61,6 +63,8 @@
 				0000000000000000000000D5 /* IOSKit in Frameworks */,
 				0000000000000000000000D6 /* IOSKitUI in Frameworks */,
 				0000000000000000000000D9 /* IOSKitWeb in Frameworks */,
+				0000000000000000000000DB /* CcPresentKit in Frameworks */,
+				0000000000000000000000DC /* CcPresentUI in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -115,6 +119,8 @@
 				0000000000000000000000D3 /* IOSKit */,
 				0000000000000000000000D4 /* IOSKitUI */,
 				0000000000000000000000D7 /* IOSKitWeb */,
+				0000000000000000000000D8 /* CcPresentKit */,
+				0000000000000000000000DA /* CcPresentUI */,
 			);
 			productName = "LongRunning";
 			productReference = 0000000000000000000000B3 /* LongRunning.app */;
@@ -171,6 +177,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				0000000000000000000000D2 /* XCRemoteSwiftPackageReference "ioskit" */,
+				0000000000000000000000D1 /* XCRemoteSwiftPackageReference "cc-present" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 0000000000000000000000A3 /* Products */;
@@ -478,6 +485,14 @@
 				minimumVersion = 0.1.0;
 			};
 		};
+		0000000000000000000000D1 /* XCRemoteSwiftPackageReference "cc-present" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/yasyf/cc-present";
+			requirement = {
+				branch = "owner-apps/ios-kit";
+				kind = branch;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -495,6 +510,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 0000000000000000000000D2 /* XCRemoteSwiftPackageReference "ioskit" */;
 			productName = IOSKitWeb;
+		};
+		0000000000000000000000D8 /* CcPresentKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 0000000000000000000000D1 /* XCRemoteSwiftPackageReference "cc-present" */;
+			productName = CcPresentKit;
+		};
+		0000000000000000000000DA /* CcPresentUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 0000000000000000000000D1 /* XCRemoteSwiftPackageReference "cc-present" */;
+			productName = CcPresentUI;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

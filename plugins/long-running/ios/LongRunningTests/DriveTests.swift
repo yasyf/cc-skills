@@ -20,7 +20,7 @@ struct ScreenStreamTests {
 }
 
 private func session(_ id: String, status: String = "open", href: String? = "https://studio.ts.net:61118") -> TalkSession {
-    TalkSession(sessionId: id, slug: "\(id)-slug", title: id, status: status, updatedAt: "2026-11-03T10:00:00Z", href: href)
+    TalkSession(subject: "\(id)-subject", sessionId: id, status: status, updatedAt: "2026-11-03T10:00:00Z", href: href)
 }
 
 private func studio() throws -> Machine {
@@ -46,12 +46,21 @@ struct DriveListTests {
         #expect(drives.map(\.dashboard) == [nil, nil])
     }
 
-    @Test("the Talk thread opens on the paired Mac, carrying its token when it has one")
-    func talkURL() throws {
-        let tokenless = try #require(Drive.drives(on: studio(), token: nil, sessions: [session("talk-a")]).first)
-        #expect(tokenless.talkURL.absoluteString == "https://studio.ts.net:8765/p/talk-a-slug?thread=talk")
-        let tokened = try #require(Drive.drives(on: studio(), token: "t1", sessions: [session("talk-a")]).first)
-        #expect(tokened.talkURL.absoluteString == "https://studio.ts.net:8765/p/talk-a-slug?thread=talk&token=t1")
+    @Test("a dashboard route in a reply opens natively, anything else goes to the system")
+    func repliesRouteDashboardLinks() throws {
+        let drive = try #require(Drive.drives(on: studio(), token: nil, sessions: [session("talk-a")]).first)
+        #expect(try drive.route(#require(URL(string: "#/status/gateway?row=st-gateway-2"))) == "#/status/gateway?row=st-gateway-2")
+        #expect(try drive.route(#require(URL(string: "https://studio.ts.net:61118/#/asks?row=ask-7"))) == "#/asks?row=ask-7")
+        #expect(try drive.route(#require(URL(string: "https://elsewhere.example/#/asks?row=ask-7"))) == nil)
+        #expect(try drive.route(#require(URL(string: "https://github.com/yasyf/cc-present/pull/1"))) == nil)
+        #expect(try drive.route(#require(URL(string: "#/drives"))) == nil)
+    }
+
+    @Test("a drive keeps its Talk board's subject for the native thread")
+    func driveKeepsSubject() throws {
+        let drive = try #require(Drive.drives(on: studio(), token: "t1", sessions: [session("talk-a")]).first)
+        #expect(drive.subject == "talk-a-subject")
+        #expect(drive.token == "t1")
     }
 }
 
@@ -93,8 +102,8 @@ private struct ScriptedSessions: TalkSessionsProviding {
     let studio = try Machine(id: "m1", name: "Studio", baseURL: #require(URL(string: "https://studio.ts.net:8765")))
     let laptop = try Machine(id: "m2", name: "Laptop", baseURL: #require(URL(string: "https://laptop.ts.net:8765")))
     let away = try Machine(id: "m3", name: "Away", baseURL: #require(URL(string: "https://away.ts.net:8765")))
-    let older = TalkSession(sessionId: "talk-a", slug: "a", title: "a", status: "open", updatedAt: "2026-11-03T09:00:00Z", href: "")
-    let newer = TalkSession(sessionId: "talk-b", slug: "b", title: "b", status: "open", updatedAt: "2026-11-03T12:00:00Z", href: "")
+    let older = TalkSession(subject: "a", sessionId: "talk-a", status: "open", updatedAt: "2026-11-03T09:00:00Z", href: "")
+    let newer = TalkSession(subject: "b", sessionId: "talk-b", status: "open", updatedAt: "2026-11-03T12:00:00Z", href: "")
     let model = DrivesModel(registry: MemoryRegistry([studio, laptop, away])) { machine, _ in
         switch machine.id {
         case "m1": ScriptedSessions(sessions: [older])

@@ -12,9 +12,8 @@ extension AppIdentity {
 }
 
 struct TalkSession: Decodable, Equatable, Sendable {
+    let subject: String
     let sessionId: String
-    let slug: String
-    let title: String
     let status: String
     let updatedAt: String
     let href: String?
@@ -28,8 +27,7 @@ struct Drive: Identifiable, Hashable, Sendable {
     let name: String
     let machine: Machine
     let token: String?
-    let slug: String
-    let title: String
+    let subject: String
     let updatedAt: String
     let dashboard: URL?
 
@@ -37,15 +35,16 @@ struct Drive: Identifiable, Hashable, Sendable {
         "\(machine.id)/\(name)"
     }
 
-    var talkURL: URL {
-        var items = [URLQueryItem(name: "thread", value: "talk")]
-        if let token {
-            items.append(URLQueryItem(name: "token", value: token))
-        }
-        return machine.baseURL.appending(path: "p").appending(component: slug).appending(queryItems: items)
+    func route(_ url: URL) -> String? {
+        let raw = url.absoluteString
+        let onDashboard = url.host() == dashboard?.host() && url.port == dashboard?.port
+        let link = raw.hasPrefix("#/") ? raw : onDashboard ? url.fragment.map { "#\($0)" } : nil
+        guard let link, ScreenLink(link) != nil else { return nil }
+        return link
     }
 
     static let talkPrefix = "talk-"
+    static let talkBlock = "talk"
 
     static func drives(on machine: Machine, token: String?, sessions: [TalkSession]) -> [Drive] {
         sessions
@@ -55,8 +54,7 @@ struct Drive: Identifiable, Hashable, Sendable {
                     name: String($0.sessionId.dropFirst(talkPrefix.count)),
                     machine: machine,
                     token: token,
-                    slug: $0.slug,
-                    title: $0.title,
+                    subject: $0.subject,
                     updatedAt: $0.updatedAt,
                     dashboard: $0.dashboard
                 )

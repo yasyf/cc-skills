@@ -1,6 +1,7 @@
+import CcPresentKit
+import CcPresentUI
 import IOSKit
 import IOSKitUI
-import IOSKitWeb
 import SwiftUI
 
 enum DriveTab: Hashable {
@@ -26,7 +27,7 @@ struct DriveView: View {
                 screenTab(screen)
             }
             Tab("Talk", systemImage: "bubble.left.and.bubble.right", value: DriveTab.talk) {
-                TalkView(drive: drive)
+                TalkView(drive: drive, open: open)
             }
             ForEach([Screen.plan, .work, .review, .history], id: \.self) { screen in
                 screenTab(screen)
@@ -71,13 +72,57 @@ struct DriveView: View {
 
 struct TalkView: View {
     let drive: Drive
+    let open: (String) -> Void
+
+    @State private var store: BoardStore
+    @State private var failure: String?
+    private let client: HTTPClient
+
+    init(drive: Drive, open: @escaping (String) -> Void) {
+        self.drive = drive
+        self.open = open
+        let client = HTTPClient(baseURL: drive.machine.baseURL, bearerToken: drive.token)
+        self.client = client
+        _store = State(initialValue: BoardStore(subject: drive.subject, transport: client))
+    }
 
     var body: some View {
         NavigationStack {
-            WebHost(url: drive.talkURL)
-                .navigationTitle("Talk · \(drive.name)")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar { DrivesButton() }
+            Group {
+                if let failure {
+                    ContentUnavailableView("Talk Unavailable", systemImage: "wifi.exclamationmark", description: Text(failure))
+                } else {
+                    TalkThreadView(
+                        store: store,
+                        talkId: Drive.talkBlock,
+                        client: client,
+                        packContext: PackContext(baseURL: drive.machine.baseURL, token: drive.token, subject: drive.subject)
+                    )
+                }
+            }
+            .navigationTitle("Talk · \(drive.name)")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { DrivesButton() }
+        }
+        .environment(\.openURL, OpenURLAction { url in
+            guard let route = drive.route(url) else { return .systemAction }
+            open(route)
+            return .handled
+        })
+        .task {
+            do {
+                let snapshot = try await client.snapshot(subject: drive.subject)
+                store.load(snapshot)
+                let connection = await SSEClient(
+                    baseURL: drive.machine.baseURL,
+                    session: drive.subject,
+                    lastEventID: snapshot.seq,
+                    bearerToken: drive.token
+                ).connect()
+                store.connect(connection)
+            } catch {
+                failure = error.localizedDescription
+            }
         }
     }
 }
