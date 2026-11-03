@@ -14,6 +14,8 @@ import (
 
 const namespace = "lr"
 
+var headRequired = []string{"pr", "head", "lane"}
+
 type Refused struct {
 	Message string
 }
@@ -27,9 +29,20 @@ type Body interface {
 }
 
 type Head struct {
-	PR   int    `json:"pr"`
-	Head string `json:"head"`
-	Lane string `json:"lane"`
+	PR      int    `json:"pr"`
+	Head    string `json:"head"`
+	Lane    string `json:"lane"`
+	Title   string `json:"title,omitempty"`
+	Change  string `json:"change,omitempty"`
+	Plan    string `json:"plan,omitempty"`
+	Risk    string `json:"risk,omitempty"`
+	Blocks  string `json:"blocks,omitempty"`
+	Group   string `json:"group,omitempty"`
+	Summary string `json:"summary,omitempty"`
+}
+
+func (h Head) Words() map[string]string {
+	return map[string]string{"title": h.Title, "change": h.Change, "plan": h.Plan, "risk": h.Risk, "blocks": h.Blocks, "group": h.Group, "summary": h.Summary}
 }
 
 type Grade struct {
@@ -251,7 +264,7 @@ func summary(kind string, names []string, fields map[string]any) string {
 	for _, name := range names {
 		value, given := fields[name]
 		switch {
-		case !given || name == "text":
+		case !given || name == "text" || kind == "head" && !slices.Contains(headRequired, name):
 		case name == "pr":
 			parts = append(parts, "#"+plain(value))
 		case name == "head":
