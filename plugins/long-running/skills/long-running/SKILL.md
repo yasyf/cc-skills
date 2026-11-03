@@ -104,7 +104,11 @@ coordinator, the meta and signal lanes and helpers it spawned for its own work,
 never to the coordinator's children, and beyond the launches at drive start it posts
 no `go`, `hold`, `decide` or `launch`. Every owner message lands in its message
 ledger as it arrives, and its turn cannot end while a row is not marked responded
-or addressed (`lr owner mark <id> responded|addressed`). A board answer lands there
+or addressed (`lr owner mark <id> responded|addressed`). A coordinator `ask` or
+`blocked` record that waits on him is a ledger row the moment it posts, delivered by
+the cci channel the communicator subscribed to, never found by a later read: on Nov 3
+the coordinator waited from 10:20 PM to 1:40 AM and he noticed before the
+communicator did (owner, 1:40 AM). A board answer lands there
 too, sorted by `lr board classify`: a tap or verdict goes straight to the asking
 lane with a copy here and a closed row; a write-in or note comes here alone with an
 open row, and the communicator routes it to the lane that asked. It also proposes:
@@ -272,7 +276,7 @@ Mac starts on a box at once, and a worker's question goes to the lane that launc
 it. The coordinator receives records as batches from `lr coordinator next`, after
 one `cci subscribe --drive <drive> --reader root --to-kind incident --follow oncall=incident`
 keeps all but incidents off its tool calls; the communicator subscribes as
-`owner-relay`. A seq already handled is skipped.
+`owner-relay` for `report`, `ask` and `blocked`. A seq already handled is skipped.
 
 **R9a.** An urgent hold gets a decision owner and a clock; the coordinator
 resolves the runner's `DECIDE hold:` line ahead of any open owner card on another
@@ -438,7 +442,7 @@ that posted it, and closes that page when the plan arrives.
 ```sh
 LEDGER=$(ledger.py init --title "desk: $DRIVE")
 drive.py start --ledger "$LEDGER" --orca-run <run> [--state-dir ~/.claude/scratch/<slug>] [--program <plan slug>]
-cci subscribe --drive <drive> --reader owner-relay --kind report,ask
+cci subscribe --drive <drive> --reader owner-relay --kind report,ask,blocked
 lr supervisor install --config <state dir>/lr.json
 export LR_CONFIG=<state dir>/lr.json
 lr launch coordinator <state dir>/root/brief.md
