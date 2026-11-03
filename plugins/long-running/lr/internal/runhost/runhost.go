@@ -109,8 +109,10 @@ func ForwardArgv(ctx context.Context, runner shell.Runner, s Settings) ([]string
 	if len(ids) != 1 {
 		return nil, fmt.Errorf("%d running instances are named %s, want exactly one", len(ids), s.Host)
 	}
-	return []string{"aws", "--profile", s.Profile, "--region", s.Region, "ssm", "start-session", "--target", ids[0], "--document-name", "AWS-StartPortForwardingSession",
-		"--parameters", fmt.Sprintf(`{"portNumber":["%d"],"localPortNumber":["%d"]}`, s.Port, s.Port)}, nil
+	return []string{
+		"aws", "--profile", s.Profile, "--region", s.Region, "ssm", "start-session", "--target", ids[0], "--document-name", "AWS-StartPortForwardingSession",
+		"--parameters", fmt.Sprintf(`{"portNumber":["%d"],"localPortNumber":["%d"]}`, s.Port, s.Port),
+	}, nil
 }
 
 func (h Host) ready(ctx context.Context, s Settings) (ready, error) {
