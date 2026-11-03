@@ -40,7 +40,7 @@ DRIVE_ENV = {"CLAUDE_LONG_RUNNING_DRIVE": "900424b6", "CLAUDE_CONFIG_DIR": str(F
 MONOREPO = "forge-ai/monorepo"
 MONOREPO_ENV = {"CLAUDE_LONG_RUNNING_DRIVE": "5c0e81aa", "CLAUDE_CONFIG_DIR": str(FIXTURES / "gate5-config")}
 MONOREPO_GATE = "lr landing gate --config /s/durable-agents-rebuild/lr.json"
-UNTAPPED = "#36023 0123456789 TAP-REQUIRED no approval on the owner's board at this head\n"
+UNTAPPED = "#7 0123456789 TAP-REQUIRED no approval on the owner's board at this head\n"
 ACTIVE = [CompactionState(active=True, coordinator=True)]
 LANE = "alane-a-0123456789abcdef"
 DESK = "alanding-desk-0123456789abcdef"
@@ -380,29 +380,29 @@ def gate_failure(done: subprocess.CompletedProcess[str] | None) -> str | None:
     only_if=[Tool("Bash")],
     tests={
         Input(command=ENQUEUE, agent_id=DESK, env=DRIVE_ENV, state=ACTIVE, commands={"lr landing gate": ""}): Allow(),
-        Input(command="stack-enqueue 36023 --check", env=DRIVE_ENV): Allow(),
-        Input(command="stack-enqueue 36023 --dequeue", env=DRIVE_ENV): Allow(),
+        Input(command="stack-enqueue 7 --check", env=DRIVE_ENV): Allow(),
+        Input(command="stack-enqueue 7 --dequeue", env=DRIVE_ENV): Allow(),
         Input(command=ENQUEUE): Allow(),
-        Input(command="gh pr merge 36023 -R Forge-AI/monorepo --squash", agent_id=LANE, env=MONOREPO_ENV, commands={f"{MONOREPO_GATE} 36023 --partial": UNTAPPED}): Block(
-            pattern=r"^A hand landing needs the owner's tap at its head.*: #36023 0123456789 TAP-REQUIRED .*\. Ask him for it with a board card at that head, or report the PR"
+        Input(command="gh pr merge 7 -R Forge-AI/monorepo --squash", agent_id=LANE, env=MONOREPO_ENV, commands={f"{MONOREPO_GATE} 7 --partial": UNTAPPED}): Block(
+            pattern=r"^A hand landing needs the owner's tap at its head.*: #7 0123456789 TAP-REQUIRED .*\. Ask him for it with a board card at that head, or report the PR"
         ),
-        Input(command="gh pr merge 36023 -R Forge-AI/monorepo --squash", env=MONOREPO_ENV, commands={f"{MONOREPO_GATE} 36023 --partial": UNTAPPED}): Block(),
-        Input(command="stack-enqueue 36023", agent_id=LANE, env=MONOREPO_ENV, commands={f"{MONOREPO_GATE} 36023": UNTAPPED}): Block(pattern=r"#36023 0123456789 TAP-REQUIRED"),
-        Input(command="gh api repos/Forge-AI/monorepo/issues/36023/labels -f 'labels[]=merge'", agent_id=LANE, env=MONOREPO_ENV, commands={f"{MONOREPO_GATE} 36023 --partial": UNTAPPED}): Block(),
-        Input(command="gh pr merge 36023 -R Forge-AI/monorepo --squash", agent_id=LANE, env=MONOREPO_ENV, commands={f"{MONOREPO_GATE} 36023 --partial": ""}): Allow(),
+        Input(command="gh pr merge 7 -R Forge-AI/monorepo --squash", env=MONOREPO_ENV, commands={f"{MONOREPO_GATE} 7 --partial": UNTAPPED}): Block(),
+        Input(command="stack-enqueue 7", agent_id=LANE, env=MONOREPO_ENV, commands={f"{MONOREPO_GATE} 7": UNTAPPED}): Block(pattern=r"#7 0123456789 TAP-REQUIRED"),
+        Input(command="gh api repos/Forge-AI/monorepo/issues/7/labels -f 'labels[]=merge'", agent_id=LANE, env=MONOREPO_ENV, commands={f"{MONOREPO_GATE} 7 --partial": UNTAPPED}): Block(),
+        Input(command="gh pr merge 7 -R Forge-AI/monorepo --squash", agent_id=LANE, env=MONOREPO_ENV, commands={f"{MONOREPO_GATE} 7 --partial": ""}): Allow(),
         Input(
-            command="gh pr merge https://github.com/Forge-AI/monorepo/pull/36023 --squash --match-head-commit fedcba9876543210fedcba9876543210fedcba98",
+            command="gh pr merge https://github.com/Forge-AI/monorepo/pull/7 --squash --match-head-commit fedcba9876543210fedcba9876543210fedcba98",
             agent_id=LANE,
             env=MONOREPO_ENV,
-            commands={f"{MONOREPO_GATE} 36023 --partial": ""},
+            commands={f"{MONOREPO_GATE} 7 --partial": ""},
         ): Allow(),
         Input(command="gh pr merge 44811 -R Forge-AI/monorepo --squash", agent_id=FIX_LANE, env=MONOREPO_ENV, transcript=sliced_brief("inc-fixruns-fix", "incident"), commands={MONOREPO_GATE: UNTAPPED}): Allow(),
         Input(command="gh pr merge 81 -R yasyf/cc-inbox --squash --admin", agent_id=LANE, env=MONOREPO_ENV, commands={MONOREPO_GATE: UNTAPPED}): Allow(),
-        Input(command="gh pr merge 36023 -R Forge-AI/monorepo --squash", agent_id="adesk-runner-0123456789abcdef", env=MONOREPO_ENV, commands={MONOREPO_GATE: UNTAPPED}): Allow(),
-        Input(command="gh pr merge 36023 -R Forge-AI/monorepo --squash", agent_id=LANE, env=MONOREPO_ENV, commands={MONOREPO_GATE: (2, "lr: the store is locked")}): Warn(
+        Input(command="gh pr merge 7 -R Forge-AI/monorepo --squash", agent_id="adesk-runner-0123456789abcdef", env=MONOREPO_ENV, commands={MONOREPO_GATE: UNTAPPED}): Allow(),
+        Input(command="gh pr merge 7 -R Forge-AI/monorepo --squash", agent_id=LANE, env=MONOREPO_ENV, commands={MONOREPO_GATE: (2, "lr: the store is locked")}): Warn(
             pattern=r"^Warning, nothing was blocked: the owner's tap did not read for this landing, .*: `lr landing gate` exited 2: lr: the store is locked"
         ),
-        Input(command="gh pr merge 36023 -R Forge-AI/monorepo --squash", commands={MONOREPO_GATE: UNTAPPED}): Allow(),
+        Input(command="gh pr merge 7 -R Forge-AI/monorepo --squash", commands={MONOREPO_GATE: UNTAPPED}): Allow(),
     },
 )
 def hand_landings_meet_the_runner_checks(evt: BaseHookEvent) -> HookResult | None:
