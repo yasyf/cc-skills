@@ -26,7 +26,7 @@ const (
 )
 
 var (
-	reference   = regexp.MustCompile(`ccn (doc|task) show ([0-9A-Za-z][\w-]*)|(?:~/|/)[^` + pathStop + `]+`)
+	reference   = regexp.MustCompile(`ccn (doc|plan|task) show ([0-9A-Za-z][\w-]*)|(?:~/|/)[^` + pathStop + `]+`)
 	joinedByte  = regexp.MustCompile(`[` + joined + `]`)
 	credentials = []string{".ssh", ".aws", ".gnupg", ".config/gh", ".netrc"}
 )
@@ -47,7 +47,7 @@ func Command(a *app.App) *cobra.Command {
 	c := Carrier{Runner: a.Runner}
 	cmd := &cobra.Command{
 		Use:   "carry BRIEF",
-		Short: "Copy each file under this home and each ccn doc or task a brief names into --into, which lands at --box on a Sprite, and print the brief with every reference rewritten to its copy",
+		Short: "Copy each file under this home and each ccn doc, plan or task a brief names into --into, which lands at --box on a Sprite, and print the brief with every reference rewritten to its copy",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			brief, err := os.ReadFile(args[0])

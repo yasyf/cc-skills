@@ -722,6 +722,15 @@ func TestAFailedToolInstallLeavesThePreparedWorkerUnattached(t *testing.T) {
 	}
 }
 
+func TestABoxWithoutAToolTheBriefRunsRefusesNamingItAndStartsNoWorker(t *testing.T) {
+	f := newWorkerFixture(t)
+	text := "# Watchdog\n\nLoop `lr wait 540 cci:d:w -- cci watch --drive d`; log each finding with `ccn log append <id>`, then lr wait again.\n"
+	f.write(f.brief, text, 0o600)
+	f.spriteWith(overlaid(prepared(), object{"brief": object{"path": "/box/brief.md", "sha256": hexSum(text), "bytes": len(text)}}))
+	f.reply("sprite exec", workerReply{code: toolsMissing, out: "/tmp/cci.tgz: OK\n/tmp/lr.tgz: OK\nmissing: ccn lr\n"})
+	f.refusedWith(fmt.Sprintf("Sprite %s has no ccn, lr, which the brief runs, so nothing launched; %s/install.log keeps its output, and the prepared worker stays idle and unattached", workerWorkspace, f.attempt), versionCall, currentRunCall, f.prepareCall(), append(installCall(workerWorkspace), "cci", "ccn", "lr"))
+}
+
 func TestAPackWithoutALinuxLRPinRefusesBeforeAnyCall(t *testing.T) {
 	f := newWorkerFixture(t)
 	descriptor := filepath.Join(f.root, "plugin", "bin", "lr.binrun")
@@ -736,7 +745,7 @@ func TestAPackWithoutALinuxLRPinRefusesBeforeAnyCall(t *testing.T) {
 func TestTheToolInstallPutsThePinnedLROnPathWithTheProxyURLAndRefusesAnotherDigest(t *testing.T) {
 	dir := t.TempDir()
 	archive := func(name, text string) (string, string) {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(text), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(text), 0o700); err != nil { //nolint:gosec // the stub has to execute
 			t.Fatal(err)
 		}
 		tgz := filepath.Join(dir, name+".tgz")
@@ -752,9 +761,9 @@ func TestTheToolInstallPutsThePinnedLROnPathWithTheProxyURLAndRefusesAnotherDige
 	cciURL, cciSHA := archive("cci", "#!/bin/sh\necho cci\n")
 	lrURL, lrSHA := archive("lr", "#!/bin/sh\necho lr 9.9.9\n")
 	home := ""
-	install := func(digest string) (string, error) {
+	install := func(digest string, needs ...string) (string, error) {
 		home = t.TempDir()
-		run := exec.Command("sh", "-c", installTools, "sh", cciURL, cciSHA, lrURL, digest, "lr", testBKURL)
+		run := exec.Command("sh", append([]string{"-c", installTools, "sh", cciURL, cciSHA, lrURL, digest, "lr", testBKURL}, needs...)...)
 		run.Env = append(os.Environ(), "HOME="+home)
 		if out, err := run.CombinedOutput(); err != nil {
 			return filepath.Join(home, ".local", "bin", "lr"), fmt.Errorf("%s: %w", out, err)
@@ -770,6 +779,13 @@ func TestTheToolInstallPutsThePinnedLROnPathWithTheProxyURLAndRefusesAnotherDige
 	}
 	if written, err := os.ReadFile(filepath.Join(home, ".config", "lr", "bk.url")); err != nil || string(written) != testBKURL+"\n" {
 		t.Fatal(string(written), err)
+	}
+	if _, err := install(lrSHA, "cci", "lr"); err != nil {
+		t.Fatal("a box holding every tool the brief runs was refused", err)
+	}
+	var missing *exec.ExitError
+	if _, err := install(lrSHA, "lr", "no-such-drive-tool"); !errors.As(err, &missing) || missing.ExitCode() != toolsMissing || !strings.Contains(err.Error(), "missing: no-such-drive-tool\n") {
+		t.Fatal("a box without a tool the brief runs was not refused naming it", err)
 	}
 	if lr, err = install(testLRSHA); err == nil || present(lr) {
 		t.Fatal("an archive off the pinned digest installed lr", err)

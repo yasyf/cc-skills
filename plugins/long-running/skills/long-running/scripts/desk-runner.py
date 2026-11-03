@@ -238,7 +238,7 @@ whose `ccx:` line says `place=local`, a Fable or incident launch, and an inciden
 An incident launch also logs one `LOAD-INCIDENT` report naming the load. A desk with no usable
 Sprite route starts on the Mac too. Every other launch, a `role=desk` or `role=watch` one
 included, runs `orca.sprite.launcher`, the repository's worker-launch.sh, on a Sprite and never reads Mac
-load; worker-launch.sh carries each file under this home and each ccn doc or task the brief names,
+load; worker-launch.sh carries each file under this home and each ccn doc, plan or task the brief names,
 rendered from `orca.briefs.repo`, onto the box with `lr carry`, and a brief naming one that cannot
 travel fails as `LAUNCH-FAILED` naming it. The runner counts no Sprites
 and sets no limit: the provider admits or refuses each one. A Sprite launch fails at once
