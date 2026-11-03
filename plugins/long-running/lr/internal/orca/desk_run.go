@@ -29,6 +29,7 @@ const (
 	unreachableFact = "orca-unreachable"
 	relayTopic      = "relay"
 	relayAlive      = "relay alive"
+	relayLock       = "relay.lock"
 	unboundExit     = 3
 )
 
@@ -191,7 +192,30 @@ func (d *Desk) timedPass() {
 	}
 }
 
+func (d *Desk) holdRelayLock() (*os.File, bool, error) {
+	path := filepath.Join(filepath.Dir(d.Config.Source), relayLock)
+	lock, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, false, err
+	}
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		_ = lock.Close()
+		if errors.Is(err, syscall.EWOULDBLOCK) {
+			fmt.Fprintf(d.Stderr, "another lr relay run holds %s\n", path)
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+	return lock, true, nil
+}
+
 func (d *Desk) Run(ctx context.Context, once bool) error {
+	lock, held, err := d.holdRelayLock()
+	if err != nil || !held {
+		return err
+	}
+	defer func() { _ = lock.Close() }()
+	parent := d.Parent()
 	d.open()
 	if err := d.ensure(deskRunner, deskRunner); err != nil {
 		return err
@@ -238,6 +262,10 @@ func (d *Desk) Run(ctx context.Context, once bool) error {
 			return nil
 		}
 		d.idle(ctx, d.passWait())
+		if d.Parent() != parent {
+			d.background.Wait()
+			return nil
+		}
 	}
 }
 
@@ -287,7 +315,7 @@ func newDesk(a *app.App) (*Desk, error) {
 		return nil, err
 	}
 	return &Desk{
-		Config: config, Bus: deskCCI{}, Runner: a.Runner, Spawn: SpawnDetached, Env: os.Getenv, Now: a.Now, Sleep: time.Sleep, Plugin: os.Getenv("BINRUN_PLUGIN_ROOT"), Stderr: os.Stderr,
+		Config: config, Bus: deskCCI{}, Runner: a.Runner, Spawn: SpawnDetached, Env: os.Getenv, Now: a.Now, Sleep: time.Sleep, Parent: os.Getppid, Plugin: os.Getenv("BINRUN_PLUGIN_ROOT"), Stderr: os.Stderr,
 		FireIncident: func(ctx context.Context, fired lanes.Fired) error {
 			_, err := env.IncidentLaunch(ctx, fired)
 			return err

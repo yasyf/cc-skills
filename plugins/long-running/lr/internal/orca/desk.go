@@ -170,6 +170,7 @@ type Desk struct {
 	Env          func(string) string
 	Now          func() time.Time
 	Sleep        func(time.Duration)
+	Parent       func() int
 	Plugin       string
 	Stderr       io.Writer
 	FireIncident func(ctx context.Context, fired lanes.Fired) error

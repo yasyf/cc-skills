@@ -74,6 +74,7 @@ type deskWorld struct {
 	sentID     int
 	busy       string
 	ccnFails   bool
+	parent     int
 }
 
 func newDeskWorld(t *testing.T) *deskWorld {
@@ -90,7 +91,7 @@ func newDeskWorld(t *testing.T) *deskWorld {
 	}
 	w.write(config.Source, `{"drive":"brook","orca":{"run":"run_1"}}`)
 	w.desk = &Desk{
-		Config: config, Bus: w, Runner: w, Env: func(string) string { return "" }, Now: func() time.Time { return w.now }, Sleep: func(d time.Duration) { w.now = w.now.Add(d) },
+		Config: config, Bus: w, Runner: w, Env: func(string) string { return "" }, Now: func() time.Time { return w.now }, Sleep: func(d time.Duration) { w.now = w.now.Add(d) }, Parent: func() int { return w.parent },
 		Plugin: filepath.Join(home, "plugin"), Stderr: io.Discard,
 		Spawn: func(argv []string, log string, env []string) (Process, error) {
 			w.mu.Lock()
@@ -537,7 +538,7 @@ func TestARecordToTheDeskThatIsNoLineIsAnswered(t *testing.T) {
 	w.lines()
 	w.line("please launch something")
 	w.lines()
-	wantContains(t, w.wantEscalation("DIRECTIVE-FAILED cci#2 inbox"), "it opens `please launch something`")
+	wantContains(t, w.wantEscalation("DIRECTIVE-FAILED cci#1 inbox"), "it opens `please launch something`")
 }
 
 func TestARecordNotToTheDeskDoesNothing(t *testing.T) {
@@ -1485,12 +1486,6 @@ func TestAReplyFromAnotherDispatchIsToldToStandDown(t *testing.T) {
 	w := newDeskWorld(t)
 	w.live(testLane, testDispatch, testTerminal)
 	container := w.acceptedRelay("R2")
-	if err := w.desk.transfer(testLane); err != nil {
-		t.Fatal(err)
-	}
-	if err := w.desk.store.Edit(container, func(tx *incident.Tx) error { return tx.TakeOver(testDispatch) }); err != nil {
-		t.Fatal(err)
-	}
 	message := runMessage("msg_s", typeStatus, "term_old", 1)
 	message.Subject, message.ThreadID, message.Payload = "started R2", threadOf(container, "R2"), `{"dispatchId":"ctx_old"}`
 	w.checked(message)
@@ -1504,11 +1499,8 @@ func TestAReplyFromAnotherDispatchIsToldToStandDown(t *testing.T) {
 func TestAStatusNamingARelayAcknowledgesIt(t *testing.T) {
 	w := newDeskWorld(t)
 	w.live(testLane, testDispatch, testTerminal)
-	container := w.acceptedRelay("R77")
+	w.acceptedRelay("R77")
 	w.step(w.desk.deliver)
-	if err := w.desk.store.Edit(container, func(tx *incident.Tx) error { return tx.TakeOver(testDispatch) }); err != nil {
-		t.Fatal(err)
-	}
 	message := runMessage("msg_s", typeStatus, testTerminal, 1)
 	message.Subject, message.Body = "handled R77", "all set"
 	w.checked(message)
@@ -2026,6 +2018,33 @@ func TestOnePassReadsALineAndDeliversIt(t *testing.T) {
 	}
 	if !alive {
 		t.Fatal(w.posts)
+	}
+}
+
+func TestASecondRelayOnOneStateDirLeavesTheFirstRunning(t *testing.T) {
+	w := newDeskWorld(t)
+	first, held, err := w.desk.holdRelayLock()
+	if err != nil || !held {
+		t.Fatal(held, err)
+	}
+	defer func() { _ = first.Close() }()
+	if err := w.desk.Run(context.Background(), true); err != nil {
+		t.Fatal(err)
+	}
+	if len(w.posts) != 0 || len(w.calls) != 0 {
+		t.Fatal(w.posts, w.calls)
+	}
+}
+
+func TestARelayOrphanedByItsParentStops(t *testing.T) {
+	w := newDeskWorld(t)
+	w.parent = 7
+	w.desk.Sleep = func(time.Duration) { w.parent = 1 }
+	if err := w.desk.Run(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	if w.desk.passes != 1 {
+		t.Fatal(w.desk.passes)
 	}
 }
 
