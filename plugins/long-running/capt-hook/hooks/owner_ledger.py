@@ -21,7 +21,15 @@ LEDGER_DIR = "owner-relay"
 LEDGER = "owner-ledger.md"
 LOCK = ".owner-ledger.lock"
 HEADER = "| id | time | message | routed | state |\n|---|---|---|---|---|\n"
-ROW = re.compile(r"^\| m(\d+) \| ([^|]*) \| (.*) \| [^|]* \| (open|responded|addressed|no-order) \|$", re.MULTILINE)
+ROW = re.compile(r"^\| (m(\d+)(?:\.\d+)?) \| ([^|]*) \| (.*) \| [^|]* \| (open|responded|addressed|no-order) \|$", re.MULTILINE)
+PARAGRAPH = re.compile(r"\n\s*\n")
+AFTER_QUESTION = re.compile(r"(?<=\?)\s+")
+BEFORE_ALSO = re.compile(
+    r"(?:[,;.]\s*|\s+and\s+|\n\s*)(?=also\W+(?:add|build|bring|change|check|close|consider|cut|delete|design|dig|drop|explain|figure|find|fix|get|give|keep|land|let|make|merge|move|mute|put|raise|redesign|release|remove|restore|run|send|ship|show|spin|start|stop|switch|tell|turn|use|write)\b)",
+    re.IGNORECASE,
+)
+ASK_WORDS = 4
+MOST_ASKS = 6
 ROW_TIME = "%b %-d %-I:%M %p"
 SHOWN = 120
 OWNER_ANSWER = "from:owner"
@@ -33,7 +41,7 @@ AUDIT_SECONDS = 60
 CARRY = "Every order below is still owed, and a reply or a route does not close one. Carry each into the summary by its row id.\n\n```\n{orders}\n```"
 REREAD = "You just compacted as the communicator. Run `{lr} owner audit --drive {drive}` before any other search: every order it prints is still owed."
 MARK = "`{lr} owner mark {row} responded|addressed [--routed <seq>] --drive {drive}`"
-NEW_ROW = f"Owner message `{{row}}` is open in the communicator's ledger. Once it is answered or routed, run {MARK}."
+NEW_ROW = f"Owner message {{rows}} is open in the communicator's ledger, one row per ask. Once each ask is answered or routed, run {MARK} for its row."
 OPEN_ROWS = f"A communicator turn ends only when every owner message is marked responded or addressed. Run {MARK} for each row below.\n\n```\n{{rows}}\n```"
 HAND_RULING = "The `owner_ledger` hook records every owner message in the owner ledger and a cc-notes answer, so nothing writes to `root/rulings/` by hand. Drop this write and post anything else for the coordinator with `cci post`."
 NO_ASK = "The communicator never calls `AskUserQuestion`. Put the question on the owner's board with `cc-present push`, or send an urgent yes/no to the owner's Slack with `cc-present ask <card>`."
@@ -48,20 +56,38 @@ def ledger_of(entry: dict) -> Path:
     return Path(entry["state_dir"]) / LEDGER_DIR / LEDGER
 
 
-def add_row(path: Path, at: datetime, text: str) -> str | None:
+def continues(before: str, piece: str) -> bool:
+    return min(len(before.split()), len(piece.split())) < ASK_WORDS or before.startswith(">") or before.count("(") > before.count(")")
+
+
+def asks(text: str) -> list[str]:
+    pieces = [piece.strip() for paragraph in PARAGRAPH.split(text.strip()) for question in AFTER_QUESTION.split(paragraph) for piece in BEFORE_ALSO.split(question)]
+    merged: list[str] = []
+    for piece in filter(None, pieces):
+        if merged and continues(merged[-1], piece):
+            merged[-1] = f"{merged[-1]} {piece}"
+        else:
+            merged.append(piece)
+    return merged if 1 < len(merged) <= MOST_ASKS else [text]
+
+
+def add_rows(path: Path, at: datetime, text: str) -> list[tuple[str, str]]:
     path.parent.mkdir(parents=True, exist_ok=True)
     with (path.parent / LOCK).open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         ledger = path.read_text() if path.exists() else ""
         rows = ROW.findall(ledger)
-        cell = "<br>".join(CREDENTIAL.sub(REDACTED, text).replace("|", r"\|").splitlines())
-        if rows and rows[-1][2:] == (cell, "open"):
-            return None
-        row = f"m{max((int(found[0]) for found in rows), default=0) + 1}"
+        split = asks(CREDENTIAL.sub(REDACTED, text))
+        cells = ["<br>".join(ask.replace("|", r"\|").splitlines()) for ask in split]
+        if [found[3:] for found in rows[-len(cells) :]] == [(cell, "open") for cell in cells]:
+            return []
+        number = max((int(found[1]) for found in rows), default=0) + 1
+        ids = [f"m{number}"] if len(cells) == 1 else [f"m{number}.{part}" for part in range(1, len(cells) + 1)]
         heading = "" if HEADER in ledger else f"\n{HEADER}"
+        stamp = at.astimezone(PACIFIC).strftime(ROW_TIME)
         with path.open("a") as file:
-            file.write(f"{heading}| {row} | {at.astimezone(PACIFIC).strftime(ROW_TIME)} | {cell} |  | open |\n")
-    return row
+            file.write(heading + "".join(f"| {row} | {stamp} | {cell} |  | open |\n" for row, cell in zip(ids, cells, strict=True)))
+    return list(zip(ids, split, strict=True))
 
 
 def post_owner_row(entry: dict, row: str, text: str) -> None:
@@ -77,7 +103,7 @@ def add_answer(evt: BaseHookEvent, at: datetime) -> None:
 
 def open_rows(path: Path) -> list[str]:
     ledger = path.read_text() if path.exists() else ""
-    return [f"m{row} {at}: {text[:SHOWN]}" for row, at, text, state in ROW.findall(ledger) if state == "open"]
+    return [f"{row} {at}: {text[:SHOWN]}" for row, _, at, text, state in ROW.findall(ledger) if state == "open"]
 
 
 @on(
@@ -94,11 +120,13 @@ def add_owner_message(evt: BaseHookEvent) -> HookResult | None:
     if not (entry := drive_entry(evt)):
         return None
     at, text = datetime.now(UTC), evt.user_prompt or ""
-    if not (row := add_row(ledger_of(entry), at, text)):
+    if not (rows := add_rows(ledger_of(entry), at, text)):
         return None
-    post_owner_row(entry, row, text)
+    for row, ask in rows:
+        post_owner_row(entry, row, ask)
     add_answer(evt, at)
-    return evt.context(NEW_ROW.format(lr=LR, row=row, drive=entry["drive"]))
+    ids = [row for row, _ in rows]
+    return evt.context(NEW_ROW.format(lr=LR, rows=", ".join(f"`{row}`" for row in ids), row=ids[0] if len(ids) == 1 else "<row>", drive=entry["drive"]))
 
 
 @on(
@@ -117,8 +145,8 @@ def add_owner_slack_dms(evt: BaseHookEvent) -> HookResult | None:
         return None
     with LedgeredDms.mutate(evt) as state:
         for dm in new:
-            if row := add_row(ledger_of(entry), datetime.strptime(dm["at"], STAMP).replace(tzinfo=UTC), dm["text"]):
-                post_owner_row(entry, row, dm["text"])
+            for row, ask in add_rows(ledger_of(entry), datetime.strptime(dm["at"], STAMP).replace(tzinfo=UTC), dm["text"]):
+                post_owner_row(entry, row, ask)
             state.digests.append(dm["digest"])
     return None
 

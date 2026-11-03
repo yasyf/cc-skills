@@ -890,7 +890,7 @@ func hourly(s *store.Store, d Deps, now time.Time) {
 	if orders, err := d.Orders(s); !errors.Is(err, ErrUnread) {
 		do(err)
 		if len(orders) > 0 {
-			do(d.Post(Post{Kind: "report", To: []string{OwnerRelay}, Text: fmt.Sprintf("%d owner orders have no live lane, no open PR and no landed or done record: %s. Restart each one, or run `lr owner mark <row> no-order` on a row that orders nothing; a lane delivering an order names its owner:<row> token in its brief.", len(orders), owner.Tokens(orders))}))
+			do(d.Post(Post{Kind: "report", To: []string{OwnerRelay}, Text: fmt.Sprintf("%d owner asks are open, orders with no live lane, no open PR and no landed or done record and questions nobody answered: %s. Answer each question and mark its row, restart each order, or run `lr owner mark <row> no-order` on a row that orders nothing; a lane delivering an order names its owner:<row> token in its brief.", len(orders), owner.Tokens(orders))}))
 		}
 	}
 	records, err := d.OpenWork()

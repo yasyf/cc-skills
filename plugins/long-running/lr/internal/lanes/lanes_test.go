@@ -2684,7 +2684,7 @@ func TestTheHourlyTickNamesEveryUndeliveredOwnerOrderToTheCommunicator(t *testin
 	tick(t, s, f, at)
 
 	equal(t, f.kinds(), []string{"report:" + OwnerRelay})
-	equal(t, f.posts[0].Text, "2 owner orders have no live lane, no open PR and no landed or done record: owner:m2, owner:m85. Restart each one, or run `lr owner mark <row> no-order` on a row that orders nothing; a lane delivering an order names its owner:<row> token in its brief.")
+	equal(t, f.posts[0].Text, "2 owner asks are open, orders with no live lane, no open PR and no landed or done record and questions nobody answered: owner:m2, owner:m85. Answer each question and mark its row, restart each order, or run `lr owner mark <row> no-order` on a row that orders nothing; a lane delivering an order names its owner:<row> token in its brief.")
 }
 
 func TestAnUnreadOpenWorkQueryLeavesTheHourlyTickRunning(t *testing.T) {
