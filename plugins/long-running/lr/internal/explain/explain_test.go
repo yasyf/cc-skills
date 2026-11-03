@@ -116,7 +116,7 @@ func TestTheCheckoutLivesUnderTheConfiguredWorktreeRootAndOtherwiseUnderClaudesO
 			git := &shelltest.Fake{}
 			tc.git(git)
 
-			checkout, err := locate(context.Background(), git, "acme/monorepo", "/claude")
+			checkout, err := Locate(context.Background(), git, "acme/monorepo", "/claude")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -129,7 +129,7 @@ func TestTheCheckoutLivesUnderTheConfiguredWorktreeRootAndOtherwiseUnderClaudesO
 
 	git := &shelltest.Fake{}
 	git.Fail(128, "fatal: bad config", "git", "config", "ccx.worktreeRoot")
-	if _, err := locate(context.Background(), git, "acme/monorepo", "/claude"); err == nil {
+	if _, err := Locate(context.Background(), git, "acme/monorepo", "/claude"); err == nil {
 		t.Fatal("a broken git config located a checkout")
 	}
 }
