@@ -95,13 +95,13 @@ func TestALaterPlanRecordClearsTheDeadlinePage(t *testing.T) {
 
 func TestAClockTimeWithoutByBeforeUntilOrDueIsNoDeadline(t *testing.T) {
 	said := at(t, "2026-11-03T10:00:00Z")
-	for _, text := range []string{"2:47 AM slack-bugs-1: quiet since 9:45 PM", "relaunched at 3:10 AM", "overdue 3 PM row closed"} {
+	for _, text := range []string{"2:47 AM slack-bugs-1: quiet since 9:45 PM", "relaunched at 3:10 AM", "overdue 3 PM row closed", "owed to root since before 5 AM"} {
 		t.Run(text, func(t *testing.T) {
 			s, r := memory(t), &recorder{}
 			want(t, len(planSweep(t, s, r, said.Add(time.Minute), client.Record{Seq: 40, Lane: "lane-a", Kind: "state", At: said, Text: text})), 0)
 		})
 	}
-	for _, text := range []string{"lands before 4 PM", "holds until 21:30", "due 9:00 a.m. Nov 4"} {
+	for _, text := range []string{"lands before 4 PM", "holds until 21:30", "due 9:00 a.m. Nov 4", "quiet since before 5 AM, lands by 9 AM"} {
 		t.Run(text, func(t *testing.T) {
 			s, r := memory(t), &recorder{}
 			want(t, len(planSweep(t, s, r, said.Add(time.Minute), client.Record{Seq: 40, Lane: "lane-a", Kind: "state", At: said, Text: text})), 1)

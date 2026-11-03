@@ -49,8 +49,10 @@ func deadlineOf(record client.Record) string {
 	if due := record.Fields.Attrs[deadlineAttr]; due != "" {
 		return due
 	}
-	if found := namedDeadline.FindStringSubmatch(record.Text); found != nil {
-		return found[1]
+	for _, at := range namedDeadline.FindAllStringSubmatchIndex(record.Text, -1) {
+		if !strings.HasSuffix(strings.ToLower(strings.TrimSpace(record.Text[:at[0]])), "since") {
+			return record.Text[at[2]:at[3]]
+		}
 	}
 	return ""
 }
