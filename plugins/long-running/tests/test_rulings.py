@@ -417,6 +417,7 @@ class RegisterShell(ledger.Shell):
         self.calls: list[list[str]] = []
         self.status = "active"
         self.vocabulary: dict[str, dict[str, str]] | None = None
+        self.added = ""
 
     def writes(self) -> list[list[str]]:
         return [argv for argv in self.calls if argv[3:6] == ["ledger", "row", "set"]]
@@ -492,6 +493,8 @@ class RegisterShell(ledger.Shell):
                 return f"{FULL_HEAD}\n"
             case ["git", "-C", "/repo", "merge-base", _, _]:
                 return hashlib.sha1(self.diff.encode()).hexdigest() + "\n"
+            case ["git", "-C", "/repo", "diff-tree", *_]:
+                return self.added
             case ["git", "-C", "/repo", "diff", *_, output, _]:
                 Path(output.removeprefix("--output=")).write_text(self.diff)
                 return ""
@@ -2042,6 +2045,19 @@ def test_the_drive_checkout_diff_fetches_nothing_the_checkout_already_holds(home
     assert code == 0
     assert "rule/bbbbbbb" in required(out)
     assert not [argv for argv in shell.calls if "fetch" in argv]
+
+
+@pytest.mark.parametrize(("added", "searched"), [("", False), ("go/new.go\n", True)])
+def test_the_checkout_diff_searches_the_whole_tree_for_copies_only_when_the_pr_adds_a_file(home: Path, package: Path, state: Path, registered: Path, capsys, added: str, searched: bool) -> None:
+    """Nov 3: --find-copies-harder -l0 reads every blob in the tree, and on a loaded Sprite it ran past the 600 s limit and killed fidelity passes on #49186 and #49197. Only an added file can be a copy."""
+    shell = RegisterShell(seeded(package), diff=DIFF, present=frozenset({BASE_TIP, FULL_HEAD}))
+    shell.added = added
+
+    code, _ = ran(capsys, shell, "slice", "--required", "--pr", "acme/app#12", "--head", FULL_HEAD, "--base", "main")
+
+    assert code == 0
+    diffs = [argv for argv in shell.calls if argv[3:4] == ["diff"]]
+    assert diffs and ("--find-copies-harder" in diffs[0]) is searched
 
 
 def test_the_required_slice_diffs_a_large_pr_in_the_drive_checkout_and_counts_a_binary_file_by_name(home: Path, package: Path, state: Path, registered: Path, capsys) -> None:
