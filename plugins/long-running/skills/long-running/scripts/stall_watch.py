@@ -9,8 +9,8 @@
 STDLIB ONLY. `--config` is the desk runner's config, and its `stall` object turns the watch on: the orca
 desk runner reads that object every pass and starts one detached pass every `stall.every_minutes`
 (default 5) once the last has exited, logging to `stall-watch.log` beside `orca.desk_inbox`. A pass reads
-the drive's cci records over the last `stall.window_hours` (default 24), the landing ledger's open rows,
-the open `hold` records, the landing desk's store, the board through
+the drive's cci records over the last `stall.window_hours` (default 24), the landing ledger's open rows
+that GitHub still reads open, since a ledger copy lags the landings (root #339762), the open `hold` records, the landing desk's store, the board through
 board-watch's records, and the root session's task list. A proof PR, whose title says `proof:`, a red,
 green or failing-first proof, or do not merge, never merges, so it draws no stall of any kind (root
 #275597, #275660). For every other open PR no hold covers, at the head its ledger row names, it finds:
@@ -299,6 +299,7 @@ PR_KINDS = frozenset({"go", "refusal", "red", "unclassed", "unfixed", "tap", "un
 BOARD_KINDS = frozenset({"tap", "board", "carry"})
 REVIEW_HELD = frozenset({"neutral", "failure"})
 LISTED = 5
+PRS_PER_QUERY = 50
 QUOTE = 160
 RECORD_CHARS = 1200
 COMMAND_SECONDS = 120
@@ -899,7 +900,24 @@ class Pass:
         if done.code:
             self.warn(PR_KINDS, f"ledger.py list exited {done.code}: {(done.err or done.out).strip()[:200]}")
             return None
-        return {row["pr"]: row for row in json.loads(done.out) if row.get("head") and not PROOF_TITLE.search(row.get("title", ""))}
+        listed = {row["pr"]: row for row in json.loads(done.out) if row.get("head") and not PROOF_TITLE.search(row.get("title", ""))}
+        if (shut := self.shut_on_github(list(listed))) is None:
+            return None
+        return {pr: row for pr, row in listed.items() if pr not in shut}
+
+    def shut_on_github(self, prs: list[str]) -> set[str] | None:
+        """The PRs of `prs` GitHub reads merged or closed, `PRS_PER_QUERY` to a GraphQL query, so a PR that landed draws no stall whatever a ledger copy still says (root #339762); a read that fails answers None."""
+        owner, name = self.watch.landing["repo"].split("/")
+        shut: set[str] = set()
+        for start in range(0, len(prs), PRS_PER_QUERY):
+            fields = " ".join(f"s{pr}: pullRequest(number: {pr}) {{ state }}" for pr in prs[start : start + PRS_PER_QUERY])
+            done = self.shell.run(ghread.read("api", "graphql", "-f", f'query=query {{ repository(owner: "{owner}", name: "{name}") {{ {fields} }} }}'))
+            if done.code:
+                self.warn(PR_KINDS, f"the states of {len(prs)} open ledger rows did not read: {(done.err or done.out).strip()[:200]}")
+                return None
+            answered = json.loads(done.out)["data"]["repository"]
+            shut |= {alias.removeprefix("s") for alias, found in answered.items() if found["state"] != "OPEN"}
+        return shut
 
     def landing_facts(self) -> dict:
         store = actions.Store(self.watch.store)

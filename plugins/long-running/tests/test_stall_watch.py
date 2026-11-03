@@ -78,6 +78,7 @@ class FakeShell(stall_watch.Shell):
         self.successions: dict[str, str] = {}
         self.ledgers: dict[str, list[dict]] = {}
         self.live: dict[str, str] = {}
+        self.states: dict[str, str] = {}
         self.clock = NOW
 
     def run(self, argv, stdin=None, env=None, timeout=stall_watch.COMMAND_SECONDS):
@@ -100,6 +101,8 @@ class FakeShell(stall_watch.Shell):
         if argv[:3] == ["ccx", "vcs", "gh"] and argv[argv.index("--") + 1 : argv.index("--") + 3] == ["pr", "view"]:
             return stall_watch.Done(0, json.dumps({"comments": self.comments.get(argv[argv.index("--") + 3], [])}), "")
         if argv[:3] == ["ccx", "vcs", "gh"] and argv[argv.index("--") + 1 : argv.index("--") + 3] == ["api", "graphql"]:
+            if shut := re.findall(r"s(\d+): pullRequest\(number: \1\) \{ state \}", argv[-1]):
+                return stall_watch.Done(0, json.dumps({"data": {"repository": {f"s{pr}": {"state": self.states.get(pr, "OPEN")} for pr in shut}}}), "")
             heads = {found["pr"]: found.get("head") for found in self.rows}
             asked = re.findall(r"p(\d+): pullRequest", argv[-1])
             return stall_watch.Done(0, json.dumps({"data": {"repository": {f"p{pr}": {"headRefOid": self.live.get(pr, heads.get(pr))} for pr in asked}}}), "")
@@ -1104,6 +1107,18 @@ def test_a_pr_in_one_state_for_two_hours_posts_one_stale_record_naming_its_owner
     shell.records += graded(4, "101", OTHER, 5)
     watch(shell, config)
     assert opened(config) == {}
+
+
+@pytest.mark.parametrize("state", ["MERGED", "CLOSED"])
+def test_a_pr_github_reads_shut_draws_no_stall_whatever_the_ledger_copy_says(config, state):
+    """Root #339762: the Mac ledger still read #48152 open in the queue two hours after Trunk merged it, and stall-watch paged its landing desk."""
+    go = record(4, "root", "go", f"go #101 at {HEAD[:7]}", 150)
+    shell = FakeShell([*graded(1, "101", HEAD, 150), go], [row("101", ai_review="failure")])
+    shell.states["101"] = state
+
+    watch(shell, config)
+
+    assert shell.topics() == []
 
 
 def test_a_green_head_with_a_go_left_unqueued_stalls_to_root_and_the_landing_desk_as_the_runners_defect_not_its_lane(config):
