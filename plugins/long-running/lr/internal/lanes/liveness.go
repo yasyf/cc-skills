@@ -157,7 +157,8 @@ func (r Request) Draft(drive string) client.Draft {
 }
 
 func (r Request) Command() string {
-	words := []string{"lr", "request", r.Verb, r.Lane}
+	words := make([]string, 0, 4+2*len(r.PRs))
+	words = append(words, "lr", "request", r.Verb, r.Lane)
 	for _, pr := range r.PRs {
 		words = append(words, "--pr", strconv.Itoa(pr))
 	}
