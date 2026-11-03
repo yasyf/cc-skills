@@ -102,6 +102,21 @@ func owedPost(t *testing.T, draft client.Draft) client.Record {
 	return posted
 }
 
+func owedAlert(t *testing.T) {
+	t.Helper()
+	owedPost(t, client.Draft{Lane: "root", Kind: "incident", To: []string{"incident-api-fix"}, Text: "api is down"})
+}
+
+func (f *owedFixture) register(t *testing.T, name string, state store.LaneState, retiredBy string) {
+	t.Helper()
+	if _, err := f.store.WantLane(store.Lane{Name: name, State: store.LaneDesired}, f.merged); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.store.SetLaneState(name, state, f.merged, retiredBy, ""); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestAMergeFastLandingPressesItsOwnerUntilARecordNamesIt(t *testing.T) {
 	f := newOwed(t, "lane-1", fastLabel, "text\nRelease-With: api datadog\n")
 
@@ -147,13 +162,14 @@ func TestALandingThatOwesNoReleaseDrawsNothing(t *testing.T) {
 
 func TestAnIncidentFixOwesItsReleaseAndOnlyABuildOrFixLiveSettlesIt(t *testing.T) {
 	f := newOwed(t, "incident-api-fix", "", "no release line")
+	owedAlert(t)
 
 	f.at(t, 0)
 	if got := owedPosted(t, "release"); len(got) != 1 || !strings.Contains(got[0].Text, "as an incident fix") || !strings.Contains(got[0].Text, "--build <url>") {
 		t.Fatalf("release records = %+v", got)
 	}
 
-	owedPost(t, client.Draft{Lane: "release-5", Kind: "release", PRs: []string{oneLanding}, Text: "looking at it"})
+	owedPost(t, client.Draft{Lane: "landing-desk-3", Kind: "release", PRs: []string{oneLanding}, Text: "looking at it"})
 	f.at(t, 11*time.Minute)
 	if got := owedPosted(t, "blocker"); len(got) != 1 {
 		t.Fatalf("a release record with no build settled an incident landing: %+v", got)
@@ -188,6 +204,7 @@ func TestACoordinatorReplySettlesAMergeFastLandingButNotAnIncidentOne(t *testing
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := newOwed(t, c.lane, c.labels, "Release-With: api")
+			owedAlert(t)
 			f.at(t, 0)
 			first := owedPosted(t, "release")[0]
 			owedPost(t, client.Draft{Lane: "root", Kind: "answer", To: []string{"supervisor"}, Re: first.Seq, Text: "noted"})
@@ -280,6 +297,7 @@ func TestALandingBeforeTheStartThatAlreadyShippedOwesNothing(t *testing.T) {
 
 func TestAnOpenRootHoldAfterAnIncidentLandingDrawsOneLineThatARootReplyCloses(t *testing.T) {
 	f := newOwed(t, "incident-api-fix", "", "Release-With: api")
+	owedAlert(t)
 	f.at(t, 0)
 	owedPost(t, client.Draft{Lane: "root", Kind: "hold", To: []string{"release-5"}, Text: "hold the api cut"})
 
@@ -350,5 +368,66 @@ func TestASettledBuildPostsReleasedOnceEveryComponentIsLive(t *testing.T) {
 	}
 	if len(posts) != 1 || !strings.Contains(posts[0], "--kind fix-live --to root --id release:7:live") || !strings.Contains(posts[0], "--target api") || !strings.Contains(posts[0], "--build "+owedBuild) || !strings.HasSuffix(posts[0], "--text RELEASED api v42 ("+owedBuild+")") {
 		t.Fatalf("posts = %v", posts)
+	}
+}
+
+func TestANagToARetiredOwnerReachesTheRoleHolder(t *testing.T) {
+	for name, retiredBy := range map[string]string{"stood down for its successor": "release-6", "stood down with no successor": ""} {
+		t.Run(name, func(t *testing.T) {
+			f := newOwed(t, "incident-api-fix", "", "no release line")
+			f.clocks = []string{"incident-api-fix"}
+			owedAlert(t)
+			f.register(t, "release-5", store.LaneRetired, retiredBy)
+			f.register(t, "release-6", store.LaneDesired, "")
+
+			f.at(t, 0)
+			f.at(t, 4*time.Minute)
+
+			nags := owedPosted(t, "release", "blocker")
+			if len(nags) != 2 || !slices.ContainsFunc(nags, func(nag client.Record) bool { return nag.Kind == "blocker" }) {
+				t.Fatalf("nags = %+v", nags)
+			}
+			for _, nag := range nags {
+				if !slices.Equal(nag.To, []string{"release-6", "root"}) {
+					t.Fatalf("nag %d went to %v", nag.Seq, nag.To)
+				}
+			}
+		})
+	}
+}
+
+func TestTheHoldersAnswerStopsTheNagAcrossARestart(t *testing.T) {
+	f := newOwed(t, "incident-api-fix", "", "no release line")
+	f.clocks = []string{"incident-api-fix"}
+	owedAlert(t)
+	f.register(t, "release-5", store.LaneRetired, "release-6")
+	f.register(t, "release-6", store.LaneDesired, "")
+	f.at(t, 0)
+	f.at(t, 4*time.Minute)
+	nag := owedBlockers(t, "landed 4 minutes ago")
+	if len(nag) != 1 {
+		t.Fatalf("blockers = %+v", owedPosted(t, "blocker"))
+	}
+
+	owedPost(t, client.Draft{Lane: "d-release-6", Kind: "answer", To: []string{"supervisor"}, Re: nag[0].Seq, Text: "no alert backs it; it rides the next cut"})
+	f.at(t, 7*time.Minute)
+	f.owed = f.instance(t, f.merged.Add(-time.Minute))
+	f.at(t, 10*time.Minute)
+	f.at(t, 13*time.Minute)
+
+	if got := owedPosted(t, "blocker"); len(got) != 1 {
+		t.Fatalf("nagged past the holder's answer: %+v", got)
+	}
+}
+
+func TestAnIncidentLaneLandingWithNoLiveAlertIsOrdinaryLandingWork(t *testing.T) {
+	f := newOwed(t, "incident-api-fix", "", "no release line")
+	f.clocks = []string{"incident-api-fix"}
+
+	f.at(t, 0)
+	f.at(t, 4*time.Minute)
+
+	if got := owedPosted(t, "release", "blocker"); len(got) != 0 {
+		t.Fatalf("a landing no live alert backs drew the incident nag: %+v", got)
 	}
 }

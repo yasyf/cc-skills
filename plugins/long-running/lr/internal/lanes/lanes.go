@@ -112,6 +112,26 @@ func Canonical(drive, lane string) string {
 	return strings.TrimPrefix(lane, initials.String()+"-")
 }
 
+func Stem(name string) string {
+	stem, _ := family(name)
+	return stem
+}
+
+func Holder(s *store.Store, drive, name string) (holder string, err error) {
+	defer recovered(&err)
+	name = Canonical(drive, name)
+	if lane, found := newest(s, name); found && lane.State != store.LaneRetired {
+		return lane.Name, nil
+	}
+	holder, newestNumber := name, 0
+	for _, lane := range must(s.Lanes(live...)) {
+		if stem, number := family(lane.Name); stem == Stem(name) && number > newestNumber {
+			holder, newestNumber = lane.Name, number
+		}
+	}
+	return holder, nil
+}
+
 func family(name string) (string, int) {
 	if found := numbered.FindStringSubmatch(name); found != nil {
 		n, _ := strconv.Atoi(found[2])
