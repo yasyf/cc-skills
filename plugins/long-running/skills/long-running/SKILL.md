@@ -230,7 +230,7 @@ supervisor and registry entry, and names the `orca-gc` line to run once they sto
 | Which sub-drives are open and what each still holds | `lr drive sub list` |
 | The state of PRs it must name | `ccx vcs pr status <n1> <n2> ...`, batched |
 | Every open ask, and what is landed but not live | `lr asks` (today `ledger.py summary --drive <drive>`) |
-| The owner update, complete and from sources | `lr update render` (today `owner_update.py --render`), run by the bridge's `update-desk`, sent by the bridge |
+| The owner update, complete and from sources | `lr update render`, run by the bridge's `update-desk`, sent by the bridge |
 | What an incident is doing | `lr incident status <slug>` |
 | Where a lane's mail goes | `lr route <lane>` |
 | Whether an install may run now | `drive.py digest --quiet-point` |

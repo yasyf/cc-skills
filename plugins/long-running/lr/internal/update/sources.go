@@ -297,7 +297,7 @@ func statusAsks(book asks.Book, now time.Time, latest map[string]Record) []Statu
 }
 
 func statusInFlight(tasks []ClaudeTask, latest map[string]Record) []InFlight {
-	var out []InFlight
+	out := []InFlight{}
 	for _, task := range tasks {
 		if task.Status == "in_progress" && task.Owner != "" {
 			last, found := latest[task.Owner]
@@ -360,7 +360,7 @@ func statusBoard(ctx context.Context, src Sources, records []Record) []BoardLine
 	if err != nil {
 		return []BoardLine{{Line: fmt.Sprintf("board unread: %v", err)}}
 	}
-	var out []BoardLine
+	out := []BoardLine{}
 	for _, row := range live.Rows {
 		if row.Head != "" {
 			decided := live.Decided(row)
@@ -375,7 +375,7 @@ func statusBoard(ctx context.Context, src Sources, records []Record) []BoardLine
 }
 
 func statusIncidents(records []Record) []IncidentLine {
-	var out []IncidentLine
+	out := []IncidentLine{}
 	for _, record := range records {
 		if record.Kind == kindIncident && record.Status == statusOpen {
 			out = append(out, IncidentLine{record.Seq, record.Lane, record.At, record.Text, fmt.Sprintf("incident #%d %s %s: %s", record.Seq, record.Lane, pacific(record.At), clip(record.Text))})
@@ -410,7 +410,7 @@ func ReadStatus(ctx context.Context, src Sources, now, since time.Time, kinds, o
 		}
 	}
 	latest := newestByLane(mine)
-	status := Status{Since: since}
+	status := Status{Since: since, Asks: []StatusAsk{}, InFlight: []InFlight{}, Delivered: []Delivered{}, Board: []BoardLine{}, Incidents: []IncidentLine{}}
 	wanted := func(section string) bool { return len(only) == 0 || slices.Contains(only, section) }
 	if wanted("asks") {
 		book, err := src.Book(ctx)
