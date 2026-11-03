@@ -67,11 +67,11 @@ func TestALedgerPassRegistersEachNewPRTheHeadRecordsNameThenRefreshesAndReconcil
 		t.Fatalf("verbs = %v, want %v", got, want)
 	}
 	calls := runner.Calls()
-	if got := calls[0].Argv; got[3] != "fetch" || got[len(got)-1] != "refs/heads/dev" {
+	if got := calls[0].Argv; got[3] != "fetch" || got[len(got)-1] != "+refs/heads/dev:refs/lr/ledger/dev" {
 		t.Fatalf("first call = %v, want the checkout fetching the trunk", got)
 	}
-	if got := calls[1].Argv; got[3] != "merge" || !slices.Contains(got, "--ff-only") {
-		t.Fatalf("second call = %v, want a fast-forward", got)
+	if got := calls[1].Argv; got[3] != "merge" || !slices.Contains(got, "--ff-only") || got[len(got)-1] != "refs/lr/ledger/dev" {
+		t.Fatalf("second call = %v, want a fast-forward to the ledger's own fetched ref, which no other fetch in the checkout can move", got)
 	}
 	if got := calls[2].Argv; !slices.Contains(got, "lane-7") || got[len(got)-1] != "7" {
 		t.Fatalf("register = %v", got)
