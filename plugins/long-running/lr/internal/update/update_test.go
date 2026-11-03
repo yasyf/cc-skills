@@ -154,10 +154,17 @@ func TestARootCloseEndsAnIncidentOnlyForTheRecordsBeforeIt(t *testing.T) {
 	}
 }
 
-func TestAPRRowsOwnerIsTheNewestLaneRecordNamingItEvenWhenTheLedgerNamesAnother(t *testing.T) {
+func TestAPRRowsOwnerIsTheNewestLanePushingItEvenWhenTheLedgerNamesAnotherAndNoDeskCounts(t *testing.T) {
 	v := viewOf(
-		[]Lane{heard("stale-1", "desired", 300), heard("ship-2", "desired", 5), heard("older-3", "desired", 5)},
-		[]Record{record(1, "older-3", "head", "#48401 at abc", 30), record(2, "ship-2", "report", "landed nothing; #48401 is rebased", 10), record(3, "root", "decide", "#48401 goes", 1), record(4, "ship-2", "note", "other work on #484010", 1)},
+		[]Lane{heard("stale-1", "desired", 300), heard("ship-2", "desired", 5), heard("older-3", "desired", 5), heard("progress-desk-2", "unregistered", 1), heard("finder-desk", "unregistered", 1)},
+		[]Record{
+			record(1, "older-3", "head", "#48401 at abc", 30),
+			record(2, "ship-2", "head", "#48401 rebased", 10),
+			record(3, "root", "decide", "#48401 goes", 1),
+			record(4, "ship-2", "note", "other work on #484010", 1),
+			record(5, "progress-desk-2", "evidence", "#48401 is red", 1),
+			record(6, "finder-desk", "review", "finder: major on #48401", 1),
+		},
 		nil,
 	)
 	row := v.prRow(asks.PR{Number: 48401, Lane: "stale-1", State: "open", Title: "the title"}, nil)

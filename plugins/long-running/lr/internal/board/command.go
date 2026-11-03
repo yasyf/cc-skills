@@ -124,7 +124,7 @@ func snapshotOf(ctx context.Context, a *app.App, entry drive.Entry, s *store.Sto
 }
 
 func explainPRs(c *cobra.Command, a *app.App, entry drive.Entry, live Live, prs []string, asJSON bool) error {
-	s, err := store.Open(entry.Store())
+	s, err := store.Memory()
 	if err != nil {
 		return err
 	}

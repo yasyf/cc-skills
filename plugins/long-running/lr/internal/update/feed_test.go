@@ -8,9 +8,12 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ledger"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
 func TestOwnerWordsNameTheRecordThatCarriesEachAndFlagTheOnesNothingCarries(t *testing.T) {
@@ -18,6 +21,9 @@ func TestOwnerWordsNameTheRecordThatCarriesEachAndFlagTheOnesNothingCarries(t *t
 	answer.Re = 11
 	resolving := record(15, "root", "decide", "gateway-2 owns it", 5)
 	resolving.Resolves = []int64{14}
+	sqlTab := record(19, "root", "go", "sql-tab-fix-1 owns it", 1)
+	sqlTab.Re = 18
+	long := "Fix the gateway, and keep every provider the platform supports working the whole time while you move the keys over, and tell nobody until it is live. Do not deploy."
 	lines, gaps := ownerWords([]Record{
 		record(11, bridge, "ask", "fix the five services blockers", 30),
 		answer,
@@ -27,19 +33,24 @@ func TestOwnerWordsNameTheRecordThatCarriesEachAndFlagTheOnesNothingCarries(t *t
 		record(16, bridge, "ask", "and #1 in the list", 4),
 		record(17, "root", "go", "see #160 for the list", 3),
 		record(18, bridge, "ask", "and the SQL tab", 2),
-		record(19, "root", "go", "sql-tab-fix-1 owns #18", 1),
+		sqlTab,
+		record(20, bridge, "ask", long, 1),
+		record(21, "root", "state", "PR #20 is still red", 0),
 	})
 	statuses := make([]string, len(lines))
 	for i, line := range lines {
 		_, statuses[i], _ = strings.Cut(line, " | ")
 	}
-	if want := []string{"carried by root #12", noCarrier, "carried by root #15", noCarrier, "carried by root #19"}; !reflect.DeepEqual(statuses, want) {
+	if want := []string{"carried by root #12", noCarrier, "carried by root #15", noCarrier, "carried by root #19", noCarrier}; !reflect.DeepEqual(statuses, want) {
 		t.Fatalf("statuses = %v", statuses)
 	}
 	if !strings.HasSuffix(lines[0], `"fix the five services blockers" | carried by root #12`) {
 		t.Fatalf("line = %q", lines[0])
 	}
-	if want := []string{"owner words no record carries: #13", "owner words no record carries: #16"}; !reflect.DeepEqual(gaps, want) {
+	if !strings.Contains(lines[5], `"`+long+`"`) {
+		t.Fatalf("his words were clipped: %q", lines[5])
+	}
+	if want := []string{"owner words no record carries: #13", "owner words no record carries: #16", "owner words no record carries: #20"}; !reflect.DeepEqual(gaps, want) {
 		t.Fatalf("gaps = %v", gaps)
 	}
 }
@@ -55,6 +66,10 @@ func TestSinceYouLastLookedNamesNewRowsAndWhatMovedAndNothingThatStayed(t *testi
 	}
 	if got := sinceLines(current, takeSnapshot(current, now).Rows); len(got) != 0 {
 		t.Fatalf("an unmoved update moved: %v", got)
+	}
+	left := map[string][]string{"Step 2|Step 2": {"x-1", nothingBlocks, stateOpen}, "Step 1|Step 1": {"x-1", nothingBlocks, stateOpen}, "Open PRs|#1940": {"fix-1", nothingBlocks, stateDone}}
+	if got, want := sinceLines(current[1:2], left), []string{"- Step 1: no longer open (landed, answered or closed)"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("left = %v", got)
 	}
 }
 
@@ -200,19 +215,43 @@ func TestTheRetroTableIsItsLedgersRetroRowsLessDuplicatesAndNoneBeforeItsFirstRo
 	}
 }
 
-func TestADashboardStepCarriesTheSameWhoBlockerUnblockAndWentWrongAsTheUpdateRow(t *testing.T) {
+func TestADashboardStepSaysItsBlockerNextStepAndFailuresInPlainWordsAndKeepsTheRowsCellsForTheDrillIn(t *testing.T) {
 	row := Row{"Step 3", "3. Switch the chat writer", "1 of 2 tasks done, 1 in progress, 0 blocked", "chat-1, chat-2", "chat-1 waits on root's answer to ask #9", "chat-1: head 6:01 PM: pushed; next record due by 6:31 PM", noneRecorded, false}
-	lanes := []Lane{{Name: "chat-1", PRs: []int{48701, 48700}}, {Name: "chat-2", PRs: []int{48701}}}
-	step := numbered([]Step{{}, stepEntry("3. Switch the chat writer", "Plan, step 3", row, lanes)})[1]
+	first := heard("chat-1", "desired", 5)
+	first.PRs = []int{48701, 48700}
+	second := heard("chat-2", "desired", 15)
+	second.PRs = []int{48701}
+	lanes := []Lane{first, second}
+	wait := record(9, "chat-1", "ask", "which writer?", 20)
+	v := viewOf(lanes, nil, []Record{wait})
+	v.retro = []Retro{{Owner: "chat-2", Failure: "The writer shipped a layout no reader knew.", Mechanism: "readers first", State: "building"}}
+	step := numbered([]Step{{}, v.stepEntry("3. Switch the chat writer", "Plan, step 3", row, lanes)})[1]
 	if step.ID != "s1" || step.Label != "3. Switch" || step.Tone != "moving" || !reflect.DeepEqual(step.Who, []string{"chat-1", "chat-2"}) || !reflect.DeepEqual(step.PRs, []int{48700, 48701}) || !reflect.DeepEqual(step.Lanes, []string{"chat-1", "chat-2"}) {
 		t.Fatalf("step = %+v", step)
 	}
-	if *step.Blocker != row.Blocks || step.Next != row.Unblock || step.Unblocking != row.Unblock || step.WentWrong != noneRecorded {
-		t.Fatalf("step = %+v", step)
+	if *step.Blocker != "Waiting on a coordinator decision since "+pacific(wait.At)+"." {
+		t.Fatalf("blocker = %q", *step.Blocker)
 	}
-	idle := stepEntry("x", "s", Row{Who: nobody, Blocks: nothingBlocks}, nil)
-	if idle.Tone != "later" || len(idle.Who) != 0 || idle.Blocker != nil {
+	if want := "2 workers are on it; the next word is due by " + pacific(ago(15).Add(store.StaleAfter)) + "."; step.Next != want || step.Unblocking != want {
+		t.Fatalf("next = %q", step.Next)
+	}
+	if step.WentWrong != "The writer shipped a layout no reader knew. Prevention: readers first." {
+		t.Fatalf("went wrong = %q", step.WentWrong)
+	}
+	if want := (StepDetail{row.Blocks, row.Unblock, noneRecorded}); step.Detail != want {
+		t.Fatalf("detail = %+v", step.Detail)
+	}
+	idle := v.stepEntry("x", "s", Row{Who: nobody, Blocks: nothingBlocks}, nil)
+	if idle.Tone != "later" || len(idle.Who) != 0 || idle.Blocker != nil || idle.Next != noWorker || idle.WentWrong != nothingYet {
 		t.Fatalf("idle = %+v", idle)
+	}
+	done := v.stepEntry("x", "s", Row{Who: nobody, Blocks: nothingBlocks, Done: true}, nil)
+	if done.Tone != stateDone || done.Next != "Done." || done.WentWrong != "Nothing open." {
+		t.Fatalf("done = %+v", done)
+	}
+	planned := v.stepEntry("x", "s", Row{Who: nobody, Blocks: "task t waits on #1"}, nil)
+	if *planned.Blocker != plannedWait {
+		t.Fatalf("planned = %q", *planned.Blocker)
 	}
 }
 
@@ -279,6 +318,12 @@ func TestTheUpdateOpensWithWhatMovedAndHisWordsEndsWithItsGapsAndPublishesTheSna
 	if err := report.Publish(dir, false); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(steps, []byte(`{"steps":[],"pr_state":{"48401":{"state":"Open"}},"history":{"lane:x-1":{"events":[]}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := report.Publish(dir, false); err != nil {
+		t.Fatal(err)
+	}
 	if before, err := ReadSnapshot(dir); err != nil || !before.At.IsZero() {
 		t.Fatalf("publishing without sending saved a snapshot: %+v, %v", before, err)
 	}
@@ -292,18 +337,23 @@ func TestTheUpdateOpensWithWhatMovedAndHisWordsEndsWithItsGapsAndPublishesTheSna
 		Now   struct {
 			Release map[string]any `json:"release"`
 		} `json:"now"`
+		PRState map[string]any `json:"pr_state"`
+		History map[string]any `json:"history"`
 	}
 	if err := json.Unmarshal(data, &published); err != nil {
 		t.Fatal(err)
 	}
-	if first := published.Steps[0]; first["id"] != "s0" || first["title"] != "The next build" || first["tone"] != "later" || first["went_wrong"] != noneRecorded {
+	if first := published.Steps[0]; first["id"] != "s0" || first["title"] != "The next build" || first["tone"] != "later" || first["went_wrong"] != nothingYet {
 		t.Fatalf("first step = %v", first)
 	}
 	if len(published.FYI) != 1 || published.FYI[0]["text"] != "the chat list fix ships in the next release" {
 		t.Fatalf("fyi = %v", published.FYI)
 	}
-	if published.Now.Release["name"] != "release-5" {
+	if published.Now.Release["id"] != "release:release-5" || published.Now.Release["name"] != "release-5" {
 		t.Fatalf("now = %+v", published.Now)
+	}
+	if published.PRState["48401"] == nil || published.History["lane:x-1"] == nil {
+		t.Fatalf("publishing dropped what the overview keeps: %+v, %+v", published.PRState, published.History)
 	}
 
 	if err := report.Publish(dir, true); err != nil {
@@ -346,5 +396,26 @@ func TestAnUpdateOverItsSizeNamesTheGap(t *testing.T) {
 	}
 	if !strings.Contains(report.Text, "over the 40 KB an update may run") {
 		t.Fatal("the render does not name its size")
+	}
+}
+
+func TestTheFlagsOwnerUpdatePyCallersNameReachTheVerbs(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	for _, args := range [][]string{
+		{"--drive", "absent", "--render"},
+		{"--drive", "absent", "--render", "--publish"},
+		{"--drive", "absent", "--render", "--sent"},
+		{"--drive", "absent", "--check", "-"},
+		{"--drive", "absent", "--json", "--only", "delivered", "--since", "2026-11-02T19:00:00Z", "--kind", "report"},
+		{"render", "--drive", "absent", "--sent"},
+		{"status", "--drive", "absent", "--json"},
+	} {
+		cmd := Command(&app.App{Now: func() time.Time { return now }})
+		cmd.SetArgs(args)
+		cmd.SilenceUsage, cmd.SilenceErrors = true, true
+		err := cmd.Execute()
+		if err == nil || !strings.Contains(err.Error(), "absent") {
+			t.Errorf("%v: %v", args, err)
+		}
 	}
 }

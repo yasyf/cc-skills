@@ -211,7 +211,7 @@ func (v view) pinnedRows(pins []drive.Pin, lanes []Lane) ([]Row, []Step) {
 	for i, pin := range pins {
 		mine := lanesWhere(lanes, func(lane Lane) bool { return onWords(lane, pin.Words) })
 		rows[i] = v.stepRow(pin.Name, pin.Delivers, &plans.Step{}, namesOf(mine))
-		steps[i] = stepEntry(pin.Name, pinnedTitle, rows[i], mine)
+		steps[i] = v.stepEntry(pin.Name, pinnedTitle, rows[i], mine)
 	}
 	return rows, steps
 }
@@ -224,10 +224,10 @@ type planned struct {
 	steps     []Step
 }
 
-func (p *planned) add(title, stepTitle string, row Row, lanes []Lane, laneRows []Row) {
+func (p *planned) add(v view, title, stepTitle string, row Row, lanes []Lane) {
 	place(p.placed, lanes)
-	p.sections = append(p.sections, section{title, slices.Insert(laneRows, 0, row), true})
-	p.steps = append(p.steps, stepEntry(stepTitle, title, row, lanes))
+	p.sections = append(p.sections, section{title, slices.Insert(v.laneRows(lanes), 0, row), true})
+	p.steps = append(p.steps, v.stepEntry(stepTitle, title, row, lanes))
 }
 
 func (v view) planSections(list []*plans.Plan, lanes []Lane) planned {
@@ -239,7 +239,7 @@ func (v view) planSections(list []*plans.Plan, lanes []Lane) planned {
 				for _, piece := range pieces(plan) {
 					mine := lanesWhere(lanes, func(lane Lane) bool { return onPiece(lane, piece) })
 					row := v.stepRow(piece, fmt.Sprintf("the %s piece of %s", piece, clip(plan.Title)), &plans.Step{}, namesOf(mine))
-					out.add(fmt.Sprintf("%s, %s", clip(plan.Title), piece), piece, row, mine, v.laneRows(mine))
+					out.add(v, fmt.Sprintf("%s, %s", clip(plan.Title), piece), piece, row, mine)
 				}
 				continue
 			}
@@ -249,14 +249,14 @@ func (v view) planSections(list []*plans.Plan, lanes []Lane) planned {
 				row := v.stepRow("Step "+step.Number, step.Title, step, nil)
 				doneSteps = append(doneSteps, clip(step.Title))
 				out.folded = append(out.folded, section{title, []Row{row}, true})
-				out.steps = append(out.steps, stepEntry(step.Title, title, row, nil))
+				out.steps = append(out.steps, v.stepEntry(step.Title, title, row, nil))
 				continue
 			}
 			names := namesOf(mine)
 			if owner := v.ownerOfStep(step.Number); owner != "" {
 				names = append(names, owner)
 			}
-			out.add(title, step.Title, v.stepRow("Step "+step.Number, step.Title, step, names), mine, v.laneRows(mine))
+			out.add(v, title, step.Title, v.stepRow("Step "+step.Number, step.Title, step, names), mine)
 		}
 		if len(doneSteps) > 0 {
 			out.doneLines = append(out.doneLines, fmt.Sprintf("- %s: %s", clip(plan.Title), strings.Join(doneSteps, "; ")))
@@ -372,7 +372,7 @@ func Render(in Inputs) Report {
 		Text:      strings.Join(out, "\n") + "\n",
 		Needs:     needs,
 		Gaps:      gaps,
-		Published: Published{in.Now, numbered(slices.Concat(pinnedSteps, plan.steps)), feed, nowOf(releases)},
+		Published: Published{Updated: in.Now, Steps: numbered(slices.Concat(pinnedSteps, plan.steps)), FYI: feed, Now: nowOf(releases)},
 		Snapshot:  takeSnapshot(tracked, in.Now),
 	}
 }

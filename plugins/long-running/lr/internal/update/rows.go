@@ -41,6 +41,8 @@ var (
 	parenthetical = regexp.MustCompile(`\([^)]*\)`)
 	askWrong      = map[asks.State]string{asks.Lost: "no PR and no record carry it", asks.Stale: "no progress past its due time", asks.LandedNotLive: "landed but not live for users"}
 	prWrong       = map[string]string{"red": "its head is red", "refused": "the landing gate refused its head", "held": "a hold stops it"}
+	prWorkKinds   = []string{"head", "opened"}
+	stepWorkKinds = []string{"head", "opened", "report", "done", "handoff"}
 )
 
 func must[T any](value T, err error) T {
@@ -266,9 +268,9 @@ func (v view) live(name string) bool {
 	return found && !slices.Contains(selves, name) && slices.Contains(posting, lane.State) && !lane.Heard.IsZero() && v.now.Sub(lane.Heard) < heardWithin
 }
 
-func (v view) newestNaming(pattern *regexp.Regexp, pr string) string {
+func (v view) newestNaming(kinds []string, pattern *regexp.Regexp, pr string) string {
 	for _, record := range slices.Backward(v.records) {
-		if slices.Contains(coordinators, record.Lane) {
+		if !slices.Contains(kinds, record.Kind) || slices.Contains(coordinators, record.Lane) {
 			continue
 		}
 		if pattern.MatchString(record.Text) || (pr != "" && slices.ContainsFunc(record.PRs, func(named string) bool { return named == pr || strings.HasSuffix(named, "#"+pr) })) {
@@ -280,11 +282,11 @@ func (v view) newestNaming(pattern *regexp.Regexp, pr string) string {
 
 func (v view) ownerOfPR(number int) string {
 	pr := strconv.Itoa(number)
-	return v.newestNaming(regexp.MustCompile(`#`+pr+`\b`), pr)
+	return v.newestNaming(prWorkKinds, regexp.MustCompile(`#`+pr+`\b`), pr)
 }
 
 func (v view) ownerOfStep(number string) string {
-	return v.newestNaming(regexp.MustCompile(`(?i)\bstep[ =]`+regexp.QuoteMeta(number)+`(?:\.\d+)*\b`), "")
+	return v.newestNaming(stepWorkKinds, regexp.MustCompile(`(?i)\bstep[ =]`+regexp.QuoteMeta(number)+`(?:\.\d+)*\b`), "")
 }
 
 type work struct {

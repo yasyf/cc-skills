@@ -57,7 +57,8 @@ func Command(a *app.App) *cobra.Command {
 		}
 		return Render(in), opened.entry.StateDir, nil
 	}
-	var publish, sent bool
+	var publish, sent, rendering bool
+	var checking string
 	render := &cobra.Command{
 		Use:   "render",
 		Short: "Print the whole owner update and exit 1 naming what it leaves out and each gap",
@@ -76,10 +77,9 @@ func Command(a *app.App) *cobra.Command {
 			return missingError(append(Missing(found.Text, found.Needs), found.Gaps...))
 		},
 	}
-	render.Flags().BoolVar(&publish, "publish", false, "write the dashboard's steps.json from the same rows")
-	render.Flags().BoolVar(&sent, "sent", false, "publish, and save this render as the update the owner is sent, which the next one diffs against")
-	cmd.AddCommand(render)
-	cmd.AddCommand(&cobra.Command{
+	cmd.PersistentFlags().BoolVar(&publish, "publish", false, "with render: write the dashboard's steps.json from the same rows")
+	cmd.PersistentFlags().BoolVar(&sent, "sent", false, "with render: publish, and save this render as the update the owner is sent, which the next one diffs against")
+	check := &cobra.Command{
 		Use:   "check FILE",
 		Short: "Exit 1 naming each section, lane, ask and PR a written update leaves out; - reads stdin",
 		Args:  cobra.ExactArgs(1),
@@ -99,12 +99,25 @@ func Command(a *app.App) *cobra.Command {
 			}
 			return missingError(Missing(string(written), found.Needs))
 		},
-	})
-	cmd.AddCommand(statusCommand(a, &driveName))
+	}
+	status := statusCommand(a, &driveName, cmd)
+	cmd.AddCommand(render, check, status)
+	cmd.Args = cobra.NoArgs
+	cmd.Flags().BoolVar(&rendering, "render", false, "the render verb, under the flag owner_update.py callers name")
+	cmd.Flags().StringVar(&checking, "check", "", "the check verb on this file, under the flag owner_update.py callers name")
+	cmd.RunE = func(c *cobra.Command, _ []string) error {
+		switch {
+		case rendering:
+			return render.RunE(c, nil)
+		case checking != "":
+			return check.RunE(c, []string{checking})
+		}
+		return status.RunE(c, nil)
+	}
 	return cmd
 }
 
-func statusCommand(a *app.App, driveName *string) *cobra.Command {
+func statusCommand(a *app.App, driveName *string, parent *cobra.Command) *cobra.Command {
 	var sinceText string
 	var kinds, only []string
 	var asJSON bool
@@ -142,9 +155,9 @@ func statusCommand(a *app.App, driveName *string) *cobra.Command {
 			return nil
 		},
 	}
-	status.Flags().StringVar(&sinceText, "since", "", "an RFC 3339 time; delivered records after it count (default: 2 h ago)")
-	status.Flags().StringArrayVar(&kinds, "kind", nil, "a record kind that counts as a delivery, repeatable")
-	status.Flags().StringArrayVar(&only, "only", nil, "read only this section, repeatable")
-	status.Flags().BoolVar(&asJSON, "json", false, "print the sections as one JSON object")
+	parent.PersistentFlags().StringVar(&sinceText, "since", "", "with status: an RFC 3339 time; delivered records after it count (default: 2 h ago)")
+	parent.PersistentFlags().StringArrayVar(&kinds, "kind", nil, "with status: a record kind that counts as a delivery, repeatable")
+	parent.PersistentFlags().StringArrayVar(&only, "only", nil, "with status: read only this section, repeatable")
+	parent.PersistentFlags().BoolVar(&asJSON, "json", false, "with status: print the sections as one JSON object")
 	return status
 }
