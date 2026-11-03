@@ -30,7 +30,7 @@ Every skill, tooling, prompt, hook and process improvement goes to the meta lane
 
 ## The dashboard
 
-The dashboard app reads `<state dir>/progress-desk/steps.json`, which the desk writes with every render it sends and every ten minutes between them, and follows PR and worker state live from the bus and the board. The communicator hands the owner its tailnet URL once. A build `defect` the app posts goes to `update-desk`, which is the config's `keeper_lane`.
+The dashboard app reads `<state dir>/progress-desk/steps.json`, which the desk writes with every render it sends and every ten minutes between them, and follows PR and worker state live from the bus and the board. The communicator hands the owner its tailnet URL once. launchd keeps the app up as `com.long-running.<drive>.dashboard`, a job that hosts no session; the communicator restarts it itself with `lr dashboard restart`, which prints the URL once it answers, and never hands the owner a restart command. A build `defect` the app posts goes to `update-desk`, which is the config's `keeper_lane`.
 
 ## Spawning the desk
 
@@ -53,7 +53,7 @@ Loop, one foreground Bash call each, timeout 570000 ms:
   the stderr. SendMessage the communicator the
   markdown file's whole contents and the gaps file's path. Nothing else in the message.
 - Every wake: run `python3 <plugin>/dashboard/app/keep.py --config <state dir>/dashboard.json`,
-  which restarts the dashboard app only when its URL stops answering.
+  which runs `lr dashboard restart` only when its URL stops answering.
 - Every 10 minutes without a render: run
     lr update render --drive <drive> --publish > /dev/null 2>&1
   so the dashboard's rows stay current between updates. Only a render the communicator asked

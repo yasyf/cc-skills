@@ -95,11 +95,12 @@ name never a codename or id, the mechanism of the failure before the fix, the hu
 layer before the agent layer ([communicator-brief.md](reference/communicator-brief.md)).
 It owns the dashboard and the owner updates: one generator, `lr update render`,
 feeds both from the same rows, run by its one standing helper `update-desk`
-([owner-report-table.md](reference/owner-report-table.md)). When the owner writes
-after an hour or more away, its reply opens with the full update: the dashboard
-link, then the owner table grouped by feature. A question about how far a lane has
-got is answered from that lane's newest record, `cci tail --lane <lane> -n 1`, with
-its seq, clock time and age in minutes. It talks only to the
+([owner-report-table.md](reference/owner-report-table.md)). A dashboard restart is
+`lr dashboard restart`, which the communicator runs itself and never hands the
+owner. When the owner writes after an hour or more away, its reply opens with the
+full update: the dashboard link, then the owner table grouped by feature. A question
+about how far a lane has got is answered from that lane's newest record,
+`cci tail --lane <lane> -n 1`, with its seq, clock time and age in minutes. It talks only to the
 coordinator, the meta and signal lanes and helpers it spawned for its own work,
 never to the coordinator's children, and beyond the launches at drive start it posts
 no `go`, `hold`, `decide` or `launch`. Every owner message lands in its message
@@ -441,6 +442,7 @@ drive.py start --ledger "$LEDGER" --orca-run <run> [--state-dir ~/.claude/scratc
 cci subscribe --drive <drive> --reader owner-relay --kind report,ask
 lr supervisor install --config <state dir>/lr.json
 export LR_CONFIG=<state dir>/lr.json
+lr dashboard install
 lr launch coordinator <state dir>/root/brief.md
 lr launch meta <state dir>/meta/brief.md
 lr launch signal <state dir>/signal/brief.md
