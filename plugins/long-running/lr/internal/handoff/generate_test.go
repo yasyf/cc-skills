@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -35,6 +36,7 @@ var (
 )
 
 type fakeNotes struct {
+	mu            sync.Mutex
 	stdout        bytes.Buffer
 	docs          map[string]string
 	order         []string
@@ -238,8 +240,14 @@ func (f *fakeNotes) addDoc(c shell.Command) (shell.Result, error) {
 	return jsonResult(map[string]string{"id": doc})
 }
 
+func (f *fakeNotes) called(argv []string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, argv)
+}
+
 func (f *fakeNotes) Run(ctx context.Context, c shell.Command) (shell.Result, error) {
-	f.calls = append(f.calls, c.Argv)
+	f.called(c.Argv)
 	argv := c.Argv
 	switch {
 	case argv[0] == "rulings.py":
@@ -288,7 +296,7 @@ func (f *fakeNotes) Run(ctx context.Context, c shell.Command) (shell.Result, err
 }
 
 func (f *fakeNotes) records(_ context.Context, q recordQuery) ([]busRecord, error) {
-	f.calls = append(f.calls, []string{"cci", "tail", q.drive})
+	f.called([]string{"cci", "tail", q.drive})
 	source := f.laneRecords
 	if slices.Contains(q.kinds, goKind) {
 		source = f.standing

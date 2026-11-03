@@ -2,6 +2,7 @@ package handoff
 
 import (
 	"context"
+	"log/slog"
 	"os"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 
 const (
 	rootLane    = "root"
+	handoffLane = "lr-handoff"
 	blockerKind = "blocker"
 )
 
@@ -30,7 +32,7 @@ func depsOf(a *app.App, cmd *cobra.Command) *deps {
 		runner:  a.Runner,
 		ledger:  a.Ledger,
 		records: tailRecords,
-		blocker: postBlocker,
+		blocker: postingBlockers(a.Log),
 		now:     a.Now,
 		stdin:   cmd.InOrStdin(),
 		stdout:  cmd.OutOrStdout(),
@@ -59,8 +61,13 @@ func tailRecords(ctx context.Context, q recordQuery) ([]busRecord, error) {
 	return records, nil
 }
 
-func postBlocker(ctx context.Context, drive, id, text string) {
-	_, _ = client.Post(ctx, client.Draft{Drive: drive, Lane: rootLane, Kind: blockerKind, ID: id, To: []string{rootLane}, Text: text})
+func postingBlockers(log *slog.Logger) blockerPoster {
+	return func(ctx context.Context, drive, id, text string) {
+		draft := client.Draft{Drive: drive, Lane: handoffLane, Kind: blockerKind, ID: id, To: []string{rootLane}, Text: text}
+		if _, err := client.Post(ctx, draft); err != nil {
+			log.Warn("the handoff blocker did not post", "drive", drive, "id", id, "error", err)
+		}
+	}
 }
 
 func exitWith(code int, err error) error {

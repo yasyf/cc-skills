@@ -196,7 +196,7 @@ func (d *deps) openAsks(ctx context.Context, ledgerID string, at time.Time) ([]s
 	lines := []string{}
 	for _, ask := range book.Open(at) {
 		if ask.State != asks.Live {
-			lines = append(lines, fmt.Sprintf("%s — %s", ask.Ask.Line(), ask.State))
+			lines = append(lines, fmt.Sprintf("%s — %s", ask.Line(), ask.State))
 		}
 	}
 	return lines, nil
