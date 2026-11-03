@@ -134,6 +134,7 @@ def test_the_needs_you_band_shows_every_word(page):
 
 def test_review_frames_each_question_once(page):
     page.goto(page.url.split("#")[0] + "#/review")
+    page.locator("#review-questions details > summary").first.click()
     page.wait_for_selector(".bq")
     nested = page.evaluate("""() => {
         const framed = (el) => el.matches('section, article, div') && parseFloat(getComputedStyle(el).borderTopWidth) > 0 && parseFloat(getComputedStyle(el).borderTopLeftRadius) > 0;
@@ -149,6 +150,7 @@ def test_review_frames_each_question_once(page):
 
 def test_review_question_headings_are_one_neutral_color(page):
     page.goto(page.url.split("#")[0] + "#/review")
+    page.locator("#review-questions details > summary").first.click()
     page.wait_for_selector(".bq")
     loud = page.evaluate("""() => [...document.querySelectorAll('.bq > header .mr-t')]
         .filter((h) => h.querySelector('.nmark, a, i') || [...h.querySelectorAll('*')].some((el) => getComputedStyle(el).color !== getComputedStyle(h).color))
@@ -339,6 +341,7 @@ def test_an_incident_never_hides_what_waits_on_him(page):
 
 
 def test_the_feed_puts_stuck_work_first_and_each_line_opens_to_its_detail(page):
+    page.reload()
     now(page)
     rows = page.locator(".nw-live .ev-rows > li")
     assert "Stuck" in rows.first.locator("summary").inner_text()
