@@ -87,10 +87,7 @@ func (p *JobPool) toolingFailed(ctx context.Context, lane, directory string) err
 	if err != nil {
 		return err
 	}
-	desk := GraderFinder
-	if lane == grader.FidelityLane {
-		desk = GraderFidelity
-	}
+	desk := graderOf(lane)
 	why := failureOf(directory)
 	cause := toolingCause.ReplaceAllString(why, clipMark)
 	cause = string([]rune(cause)[:min(causeChars, len([]rune(cause)))])

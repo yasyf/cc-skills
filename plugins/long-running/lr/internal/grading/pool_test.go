@@ -635,6 +635,39 @@ func TestSettleReadsOneProcessListAtOneWorkerAndAtAThousand(t *testing.T) {
 	}
 }
 
+func TestAJobWithNoResultPastItsTimeoutFailsAndFreesItsSlot(t *testing.T) {
+	f := newPool(t, map[string]any{"finder": map[string]any{"timeout_minutes": 30}})
+	name := f.started(t, GraderFinder)
+	directory := f.finderDir(jobDir)
+	startedAgo := func(ago time.Duration) map[string]bool {
+		t.Helper()
+		at := f.now.Add(-ago)
+		if err := os.Chtimes(filepath.Join(directory, pidFile), at, at); err != nil {
+			t.Fatal(err)
+		}
+		live, err := f.pool.Settle(context.Background(), []string{name})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return live
+	}
+
+	if !startedAgo(29 * time.Minute)[name] {
+		t.Fatal("a job inside its timeout was settled")
+	}
+	if startedAgo(31 * time.Minute)[name] {
+		t.Fatal("a job past its timeout stayed live")
+	}
+
+	result, err := os.ReadFile(filepath.Join(directory, grader.ResultFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(result), "no result 31 min after it started") {
+		t.Fatalf("result = %s", result)
+	}
+}
+
 func TestSettleKeepsARunningJobAndPostsASettledJobsRecordsAgain(t *testing.T) {
 	f := newPool(t, map[string]any{"finder": map[string]any{}})
 	name := f.started(t, GraderFinder)

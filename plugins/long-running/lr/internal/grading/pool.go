@@ -26,18 +26,19 @@ import (
 )
 
 const (
-	localBox          = "local"
-	logFile           = "job.log"
-	pidFile           = "pid"
-	sourcesFile       = "sources.md"
-	capacityFile      = "grader-capacity.json"
-	failuresDir       = "sprite-failures"
-	defaultConcurrent = 8
-	maxAttempts       = 3
-	headChars         = 12
-	readTimeout       = 120 * time.Second
-	failedHold        = 10 * time.Minute
-	spriteFailingFor  = 10 * time.Minute
+	localBox              = "local"
+	logFile               = "job.log"
+	pidFile               = "pid"
+	sourcesFile           = "sources.md"
+	capacityFile          = "grader-capacity.json"
+	failuresDir           = "sprite-failures"
+	defaultConcurrent     = 8
+	defaultTimeoutMinutes = 60
+	maxAttempts           = 3
+	headChars             = 12
+	readTimeout           = 120 * time.Second
+	failedHold            = 10 * time.Minute
+	spriteFailingFor      = 10 * time.Minute
 )
 
 var (
@@ -60,17 +61,18 @@ func (n *names) UnmarshalJSON(data []byte) error {
 }
 
 type Spec struct {
-	Repo       string              `json:"repo"`
-	Sprite     names               `json:"sprite"`
-	SpriteKeys map[string][]string `json:"sprite_keys"`
-	Checkout   string              `json:"checkout"`
-	Model      string              `json:"model"`
-	Fast       *bool               `json:"fast"`
-	To         []string            `json:"to"`
-	Concurrent int                 `json:"concurrent"`
-	Reserved   int                 `json:"reserved"`
-	Baseline   string              `json:"baseline"`
-	Sources    Sources             `json:"sources"`
+	Repo           string              `json:"repo"`
+	Sprite         names               `json:"sprite"`
+	SpriteKeys     map[string][]string `json:"sprite_keys"`
+	Checkout       string              `json:"checkout"`
+	Model          string              `json:"model"`
+	Fast           *bool               `json:"fast"`
+	To             []string            `json:"to"`
+	Concurrent     int                 `json:"concurrent"`
+	Reserved       int                 `json:"reserved"`
+	TimeoutMinutes int                 `json:"timeout_minutes"`
+	Baseline       string              `json:"baseline"`
+	Sources        Sources             `json:"sources"`
 }
 
 type Sources struct {
@@ -169,7 +171,7 @@ func NewJobPool(runner config.Runner, deps PoolDeps) (*JobPool, error) {
 		if !on {
 			continue
 		}
-		spec := Spec{Concurrent: defaultConcurrent}
+		spec := Spec{Concurrent: defaultConcurrent, TimeoutMinutes: defaultTimeoutMinutes}
 		if err := json.Unmarshal(raw, &spec); err != nil {
 			return nil, fmt.Errorf("%s: %w", grading, err)
 		}
@@ -317,8 +319,15 @@ func (p *JobPool) Settle(ctx context.Context, workers []string) (map[string]bool
 		directory := filepath.Join(p.root, ref.lane, ref.base)
 		state := stateOf(directory, commands)
 		if state == jobRunning {
-			live[name] = true
-			continue
+			late, err := p.timedOut(ref.lane, directory)
+			if err != nil {
+				return nil, err
+			}
+			if !late {
+				live[name] = true
+				continue
+			}
+			state = jobFailed
 		}
 		if err := p.finished(ctx, ref, directory, state); err != nil {
 			return nil, err
@@ -328,6 +337,30 @@ func (p *JobPool) Settle(ctx context.Context, workers []string) (map[string]bool
 		}
 	}
 	return live, nil
+}
+
+func (p *JobPool) timedOut(lane, directory string) (bool, error) {
+	d, on := p.desks[graderOf(lane)]
+	if !on {
+		return false, nil
+	}
+	info, err := os.Stat(filepath.Join(directory, pidFile))
+	if err != nil {
+		return false, err
+	}
+	running := p.Now().Sub(info.ModTime())
+	if running < time.Duration(d.spec.TimeoutMinutes)*time.Minute {
+		return false, nil
+	}
+	why := fmt.Sprintf("no result %d min after it started", int(running.Minutes()))
+	return true, writeAtomic(filepath.Join(directory, grader.ResultFile), map[string]string{"error": why})
+}
+
+func graderOf(lane string) string {
+	if lane == grader.FidelityLane {
+		return GraderFidelity
+	}
+	return GraderFinder
 }
 
 type jobState int
