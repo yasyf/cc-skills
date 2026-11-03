@@ -299,10 +299,11 @@ func (a *Alerts) raise(ctx context.Context, channel string, card, message slackM
 	}
 	if launchErr != nil {
 		draft.Kind, draft.ID = blockerKind, "alert-unopened:"+channel+":"+message.TS
-		draft.Text = fmt.Sprintf("ALERT-UNOPENED %s: no incident record names %s %d min after it fired, and the supervisor's launch of %s-fix failed: %s | coordinator: open the incident on sight with `lr incident open --kind alert` and launch its fix lane this turn", headline, alert.name, minutes, alert.slug, truncated(launchErr.Error(), 200))
+		failure := []rune(launchErr.Error())
+		draft.Text = fmt.Sprintf("ALERT-UNOPENED %s: no incident record names %s %d min after it fired, and the supervisor's launch of %s-fix failed: %s | coordinator: open the incident on sight with `lr incident open --kind alert` and launch its fix lane this turn", headline, alert.name, minutes, alert.slug, string(failure[max(0, len(failure)-200):]))
 	} else {
 		draft.Kind, draft.ID = kindSpawn, "alert-launched:"+channel+":"+message.TS
-		draft.LaneRefs = []string{alert.slug + "-fix", alert.slug + "-evidence"}
+		draft.LaneRefs = []string{alert.slug + "-fix"}
 		draft.Attrs = map[string]string{"brief": brief, "role": "fix", "model": "incident", "effort": "xhigh"}
 		draft.Text = fmt.Sprintf("ALERT-LAUNCHED %s: no incident record named %s %d min after it fired, so the supervisor launched %s-fix and %s-evidence", headline, alert.name, minutes, alert.slug, alert.slug)
 	}
