@@ -3160,7 +3160,14 @@ The review assistant reads text a PR's author wrote, so its `claude -p` runs in
 the `cci` and `rulings.py` commands its prompt names. It also runs `--restricted`,
 because `--allowedTools` adds to the user's settings rather than replacing them: their
 allow rules and hooks would otherwise still apply. Those settings are what enable
-plugins, so it loads cc-review alone with `--plugin-dir`.
+plugins, so it loads cc-review alone with `--plugin-dir`. It and the agents it starts run
+on `claude-sonnet-5-5`.
+
+A click on a PR's Code and review tab, or its `c` key, opens the review with no second
+step, and the tab then fills the window: the drawer keeps its breadcrumb, its Close and
+its two tabs, and Approve, Hold and the change box wait on What it does, with their keys
+still live. A page opened on a bare `/code` link keeps a start button, because a page
+never starts a session by loading.
 
 The assistant runs in the browser on the design-doc client (`_shared/html/ai-core.js`),
 calling `POST /ai/chat/completions`. The server adds `CEREBRAS_API_KEY`, fixes the

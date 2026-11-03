@@ -1317,6 +1317,7 @@ def test_the_review_assistant_never_runs_with_permissions_bypassed(tmp_path, mon
         assistant.serve(7)
     argv = ran[0]
     assert "bypassPermissions" not in argv and argv[argv.index("--permission-mode") + 1] == "dontAsk"
+    assert argv[argv.index("--model") + 1] == "claude-sonnet-5-5"
     assert "--restricted" in argv and argv[argv.index("--plugin-dir") + 1] == "/cc-review/0.46.1"
     assert not {"Write", "Edit", "WebFetch", "WebSearch"} & set(argv[argv.index("--tools") + 1].split(","))
     assert set(assistant.allowed_tools(7)) <= set(argv)

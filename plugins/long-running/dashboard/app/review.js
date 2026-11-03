@@ -1,6 +1,6 @@
 const VERDICT_TONE = { you: 'bad', approved: 'ok', held: 'warn' };
 const VERDICT_WORD = { you: 'Waiting on you', approved: 'Approved', held: 'Held' };
-const embed = { number: null, head: null, row: false, started: null };
+const embed = { number: null, head: null, row: false, started: new Set() };
 const pending = { number: null, holding: false, error: '', note: '' };
 const openReview = (number) => fetch(`/api/review/${number}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
 
@@ -182,7 +182,10 @@ document.addEventListener('keydown', (e) => {
   const row = boardRow(r.id);
   const key = e.key.toLowerCase();
   const go = (to) => to && swapDrawer(`#/review/${to.number}`);
-  if (key === 'c') swapDrawer(`#/review/${r.id}${r.tab === 'code' ? '' : '/code'}`);
+  if (key === 'c') {
+    embed.started.add(Number(r.id));
+    swapDrawer(`#/review/${r.id}${r.tab === 'code' ? '' : '/code'}`);
+  }
   else if (key === 'o') $('#main .pr-drawer.front [data-key="o"]').click();
   else if (key === 'a' && row && verdictState(row) === 'you') decide(row, 'approved');
   else if (key === 'h' && row && verdictState(row) === 'you') { Object.assign(pending, { number: row.number, holding: true, error: '' }); render(); }
@@ -214,7 +217,7 @@ function syncReviewEmbed(r) {
     el.innerHTML = '<div class="pane code"></div>';
   }
   const code = el.querySelector('.pane.code');
-  if (embed.started !== number) {
+  if (!embed.started.has(number)) {
     if (!code.querySelector('[data-start-review]')) code.innerHTML = `<div class="pane-wait"><p>The code review opens its own review session for this pull request, so it starts only when you ask.</p><button class="btn pri" data-start-review="${number}">Start the code review</button></div>`;
     return;
   }
@@ -232,14 +235,15 @@ function syncReviewEmbed(r) {
     });
 }
 document.addEventListener('click', (e) => {
-  const start = e.target.closest('[data-start-review]');
+  if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+  const start = e.target.closest('[data-start-review], .review-tabs a[href$="/code"]');
   if (!start) return;
-  embed.started = Number(start.dataset.startReview);
+  embed.started.add(Number(start.dataset.startReview ?? route(start.getAttribute('href')).id));
   syncReviewEmbed(route());
 });
 setInterval(() => {
   const r = route();
-  if (r.screen === 'review' && embed.number && embed.started === embed.number && !document.hidden) openReview(embed.number);
+  if (r.screen === 'review' && embed.started.has(embed.number) && !document.hidden) openReview(embed.number);
 }, 5 * 60 * 1000);
 const changeDrafts = {};
 const sentChanges = [];
