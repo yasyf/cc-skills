@@ -25,6 +25,8 @@ const (
 	agentClaude            = "claude"
 	agentCodex             = "codex"
 	agentIncident          = "incident"
+	modelIncidentOpus      = "incident-opus"
+	claudeFastSettings     = ` --settings '{"fastMode":true}'`
 	startPoll              = 4 * time.Second
 	coordinatorLane        = "root"
 	coordinatorCompact     = 280000
@@ -354,7 +356,7 @@ func modelRoute(model string) (string, string, bool) {
 		return agentIncident, "gpt-6.1-sol", true
 	case strings.HasPrefix(model, "gpt-"):
 		return agentCodex, model, true
-	case model == "opus":
+	case model == "opus" || model == modelIncidentOpus:
 		return agentClaude, "claude-opus-5-5", true
 	case model == "sonnet":
 		return agentClaude, "claude-sonnet-5-5", true
@@ -428,7 +430,7 @@ func (l *launch) resolveRun() error {
 func (l *launch) resolveLaunch() error {
 	var known bool
 	if l.agent, l.modelID, known = modelRoute(l.model); !known {
-		return l.fail("model %s unknown: use opus, sonnet, fable, claude-*, sol, codex, incident, astra, or gpt-*", l.model)
+		return l.fail("model %s unknown: use opus, sonnet, fable, claude-*, sol, codex, incident, incident-opus, astra, or gpt-*", l.model)
 	}
 	if !validEffort(l.effort) {
 		return l.fail("effort %s unknown: use low, medium, high, xhigh, or max", l.effort)
@@ -533,6 +535,9 @@ func (l *launch) composeCommand() error {
 		command += " " + args
 	}
 	l.command = command + " --model " + l.modelID + " --effort " + l.effort
+	if l.model == modelIncidentOpus {
+		l.command += claudeFastSettings
+	}
 	if l.agent != agentIncident {
 		return nil
 	}
