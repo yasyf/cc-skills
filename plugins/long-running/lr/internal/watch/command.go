@@ -11,6 +11,6 @@ func Command(a *app.App) *cobra.Command {
 		Use:   "watch",
 		Short: "Find what nobody can see waiting: terminals at a prompt and waits past their deadline",
 	}
-	cmd.AddCommand(prompts.Command(a))
+	cmd.AddCommand(prompts.Command(a), deadlinesCommand(a))
 	return cmd
 }

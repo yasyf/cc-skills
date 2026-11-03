@@ -14,6 +14,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/facts"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/pass"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/watch"
 )
 
 const (
@@ -67,7 +68,11 @@ func runPass(ctx context.Context, a *app.App, shadow bool, stdout io.Writer) err
 		fmt.Fprintf(stdout, "%s shadow prs=%d disagreements=%d\n", store.Stamp(now), len(snapshot), len(diffs))
 		return err
 	}
-	out, err := pass.Run(s, snapshot, now, post, pass.Live(cfg.Movers))
+	route, err := watch.Desks(s)
+	if err != nil {
+		return err
+	}
+	out, err := pass.Run(s, snapshot, now, post, pass.Live(cfg.Movers), route)
 	if err != nil {
 		return err
 	}

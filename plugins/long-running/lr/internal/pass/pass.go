@@ -20,8 +20,10 @@ type Act struct {
 type Escalated struct {
 	Subject string
 	Cause   string
-	To      machine.Mover
+	To      string
 }
+
+type Route func(desk string) string
 
 type Outcome struct {
 	Verdicts  map[int]machine.Verdict
@@ -31,16 +33,26 @@ type Outcome struct {
 	Released  map[string][]store.Item
 }
 
-const EnqueuedFact = "enqueued"
+const (
+	EnqueuedFact = "enqueued"
+	LandingDesk  = "landing-desk"
+	BoardDesk    = "board-refresher"
+	GraderDesk   = "grader-appeals"
+	root         = string(machine.MoverRoot)
+)
 
 var (
-	escalatesTo = map[machine.Mover]machine.Mover{
-		machine.MoverPool:       machine.MoverSupervisor,
-		machine.MoverLane:       machine.MoverRoot,
-		machine.MoverSupervisor: machine.MoverRoot,
-		machine.MoverRoot:       machine.MoverOwner,
-		machine.MoverOwner:      machine.MoverOwner,
+	deskOf = map[machine.Action]string{
+		machine.ActionEnqueue:    LandingDesk,
+		machine.ActionDequeue:    LandingDesk,
+		machine.ActionWatchQueue: LandingDesk,
+		machine.ActionWaitCI:     LandingDesk,
+		machine.ActionLift:       LandingDesk,
+		machine.ActionTap:        BoardDesk,
+		machine.ActionGrade:      GraderDesk,
+		machine.ActionVerdict:    GraderDesk,
 	}
+	lanesOwn = []machine.Action{machine.ActionFixRed, machine.ActionRestack, machine.ActionReview}
 	samePass = []machine.Action{
 		machine.ActionEnqueue, machine.ActionDequeue, machine.ActionRestack,
 		machine.ActionWaitCI, machine.ActionWatchQueue,
@@ -62,7 +74,7 @@ func Live(movers []string) []machine.Mover {
 	return live
 }
 
-func Run(s *store.Store, snapshot []machine.Facts, now time.Time, post Post, live []machine.Mover) (Outcome, error) {
+func Run(s *store.Store, snapshot []machine.Facts, now time.Time, post Post, live []machine.Mover, route Route) (Outcome, error) {
 	out := Outcome{Verdicts: map[int]machine.Verdict{}, Released: map[string][]store.Item{}}
 	now = now.UTC().Truncate(time.Second)
 	for _, f := range snapshot {
@@ -70,7 +82,7 @@ func Run(s *store.Store, snapshot []machine.Facts, now time.Time, post Post, liv
 			return out, fmt.Errorf("#%d: %w", f.Number, err)
 		}
 	}
-	if err := escalateOverdue(s, now, post, live, &out); err != nil {
+	if err := escalateOverdue(s, snapshot, now, post, live, route, &out); err != nil {
 		return out, err
 	}
 	if !slices.Contains(live, machine.MoverPool) {
@@ -131,24 +143,48 @@ func closeOthers(s *store.Store, f machine.Facts, keep machine.Action, now time.
 	return nil
 }
 
-func escalateOverdue(s *store.Store, now time.Time, post Post, live []machine.Mover, out *Outcome) error {
+func escalateOverdue(s *store.Store, snapshot []machine.Facts, now time.Time, post Post, live []machine.Mover, route Route, out *Outcome) error {
 	overdue, err := s.Overdue(now)
 	if err != nil {
 		return err
 	}
 	for _, item := range overdue {
-		if !slices.Contains(live, item.Mover) {
+		action := machine.Action(item.Kind)
+		desk, deskOwns := deskOf[action]
+		if !deskOwns && !slices.Contains(lanesOwn, action) {
+			continue
+		}
+		if !slices.Contains(live, gateOf(item.Mover)) {
 			continue
 		}
 		cause, err := overdueCause(s, item)
 		if err != nil {
 			return err
 		}
-		if err := escalate(s, fmt.Sprintf("%s#%d", item.Repo, item.Number), cause, escalatesTo[item.Mover], now, post, out); err != nil {
+		to := laneOf(snapshot, item)
+		if deskOwns {
+			to = route(desk)
+		}
+		if err := escalate(s, fmt.Sprintf("%s#%d", item.Repo, item.Number), cause, to, now, post, out); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func gateOf(mover machine.Mover) machine.Mover {
+	if mover == machine.MoverRoot || mover == machine.MoverOwner {
+		return machine.MoverSupervisor
+	}
+	return mover
+}
+
+func laneOf(snapshot []machine.Facts, item store.Item) string {
+	at := slices.IndexFunc(snapshot, func(f machine.Facts) bool { return f.Repo == item.Repo && f.Number == item.Number })
+	if at < 0 || snapshot[at].Lane == "" {
+		return root
+	}
+	return snapshot[at].Lane
 }
 
 func overdueCause(s *store.Store, item store.Item) (string, error) {
@@ -177,20 +213,20 @@ func releaseStale(s *store.Store, now time.Time, post Post, out *Outcome) error 
 			return err
 		}
 		out.Released[name] = held
-		if err := escalate(s, "worker:"+name, "silent 15 minutes", machine.MoverRoot, now, post, out); err != nil {
+		if err := escalate(s, "worker:"+name, "silent 15 minutes", root, now, post, out); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func escalate(s *store.Store, subject, cause string, to machine.Mover, now time.Time, post Post, out *Outcome) error {
-	raised, err := s.Escalate(subject, cause, string(to), now)
+func escalate(s *store.Store, subject, cause, to string, now time.Time, post Post, out *Outcome) error {
+	raised, err := s.Escalate(subject, cause, to, now)
 	if err != nil || !raised {
 		return err
 	}
 	out.Escalated = append(out.Escalated, Escalated{subject, cause, to})
-	return post([]string{string(to)}, bus.Escalation{Subject: subject, Cause: cause})
+	return post([]string{to}, bus.Escalation{Subject: subject, Cause: cause})
 }
 
 func audience(verdict machine.Verdict, f machine.Facts) string {

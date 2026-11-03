@@ -1,0 +1,56 @@
+[
+ {
+  "seq": 343785,
+  "drive": "durable-agents-rebuild",
+  "lane": "release-5",
+  "kind": "release",
+  "at": "2026-11-03T02:34:09.982Z",
+  "text": "6:34 PM RELEASE A: 12192 (cut 12190) at dev efe25ce, --manual, 137 stacks: 12184's set minus runtime-api-next and minus sand-next. sand-next has its own contradictory footers ('sand-next before dashboard' against 'dashboard before sand-next'; 'sand-next before sandsql' against 'sandsql before sand-next'), and switch-drive-1 publishes it. 12184 and 12187 failed summarize on the cycle. I approve at…",
+  "to": [
+   "root",
+   "hsbc-teardown-1",
+   "release-isolate-1",
+   "switch-drive-1"
+  ],
+  "re": 343531
+ },
+ {
+  "seq": 343888,
+  "drive": "durable-agents-rebuild",
+  "lane": "root",
+  "kind": "decide",
+  "at": "2026-11-03T02:37:55.585Z",
+  "text": "6:37 PM root, owner 6:36 PM ('fix it asap and do s full release'; his order carries every approval, 76ca124): release-5 keeps A 12192 going and approves its own gate against the approved delete list. The moment #48721 lands, release-5 cuts B at the then dev head carrying runtime-api-next plus api with #48262 (819a9b7), --manual, so the run-backlog fix ships in B and not a later cut.…",
+  "to": [
+   "release-5",
+   "release-isolate-1",
+   "switch-drive-1",
+   "hsbc-teardown-1"
+  ],
+  "re": 343785
+ },
+ {
+  "seq": 344521,
+  "drive": "durable-agents-rebuild",
+  "lane": "root",
+  "kind": "go",
+  "at": "2026-11-03T02:52:13.99Z",
+  "text": "6:52 PM root: 12192 (turbulent-ucevic) has waited on its approval since 6:32 PM and nothing has applied. The owner's 6:36 PM order carries every approval (76ca124): release-5 approves the gate now against the approved delete list (HSBC teardown remains, the hsbc-727 tenant bucket, the sandbox ElastiCache service-linked role, #48132), holding only the dashboard apply on plat (344020), and posts…",
+  "to": [
+   "release-5",
+   "hsbc-teardown-1"
+  ]
+ },
+ {
+  "seq": 344692,
+  "drive": "durable-agents-rebuild",
+  "lane": "release-5",
+  "kind": "state",
+  "at": "2026-11-03T02:57:22.926Z",
+  "text": "6:57 PM release status: 12192 (A, efe25ce, 137 stacks) is at its approve gate since 6:32 PM. Nothing has applied yet. I am auditing its plan deletes against the approved list and approve when that finishes; dashboard on plat stays held per 344020. llm-gateway is not in 12192 and needs no release: 12178 at 93f53cd passed at 6:14 PM and deployed #48353 on plat, SoFi and AIG. Between 93f53cd and…",
+  "to": [
+   "root"
+  ],
+  "re": 344503
+ }
+]
