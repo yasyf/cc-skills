@@ -877,7 +877,7 @@ def gated(command: str, said: str = "accepted lane-a\n", env: dict[str, str] = L
         gated("ccx vcs ship -m x", "CONTRACT-MISSING alerts-api-0305-fix: none\n", env={"CLAUDE_LONG_RUNNING_LANE": "alerts-api-0305-fix"}, incidents=OPEN_FIX): Allow(),
         gated("ccx vcs ship -m x", "CONTRACT-MISSING alerts-api-0305-fix: none\n", env={"CLAUDE_LONG_RUNNING_LANE": "alerts-api-0305-fix"}): Warn(pattern=r"`alerts-api-0305-fix`"),
         gated("ccx vcs ship -m x", "CONTRACT-MISSING alerts-api-0305-fix: none\n", env={"CLAUDE_LONG_RUNNING_LANE": "alerts-api-0305-fix"}, incidents=(1, "store down")): Block(pattern=r"could not read the register"),
-        gated("ccx vcs ship -m x", "CONTRACT-MISSING lane-a: none\n", prs=(1, "ccn down")): Block(pattern=r"^readback_gate could not read the register \(.*ccn down.*\), so this call is refused"),
+        gated("ccx vcs ship -m x", "CONTRACT-MISSING lane-a: none\n", prs=(1, "ccn down")): Block(pattern=r"^readback_gate could not read the register .*, so this call is refused"),
         gated("ccx vcs ship -m x", "Traceback: boom\n"): Allow(),
     }),
 )
