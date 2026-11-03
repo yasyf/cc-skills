@@ -870,6 +870,18 @@ def test_the_handoff_lists_each_incident_lane_with_its_last_record_and_age(drive
     assert "enum-local-client" not in body and "inc-old-fix" not in body
 
 
+def test_the_handoff_lists_every_live_lane_under_the_step_its_brief_names(drive_home: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch) -> None:
+    registry = json.loads((drive_home / ".claude/long-running/drives/d1.json").read_text())
+    state = Path(registry["state_dir"])
+    state.mkdir(parents=True, exist_ok=True)
+    (state / "lr.json").write_text("{}")
+    monkeypatch.setattr(handoff.owner_update, "live_lanes", lambda runner, entry: [{"lane": "tooling-codify-1", "step": "tooling"}, {"lane": "release-5", "step": ""}, {"lane": "hook-copy-1", "step": "tooling"}])
+    shell = shell_with()
+
+    body = shell.docs[generate(drive_home, shell, capsys=capsys)["id"]]
+
+    assert "## Live lanes by step\n- no step: release-5\n- tooling: hook-copy-1, tooling-codify-1\n" in body
+
 def test_each_open_task_whose_lane_delivered_since_the_last_progress_record_is_listed_with_that_record(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
     session = json.loads((drive_home / "session.json").read_text())
     session["tasks"] = [

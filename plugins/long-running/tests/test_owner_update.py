@@ -125,3 +125,14 @@ def test_a_board_row_names_its_pr_head_and_the_owner_verdict_at_that_head(tasks)
     board = found(Runner([], board={"doc": doc, "interactions": interactions}))["board"]
 
     assert [item["line"] for item in board] == ["board #47321 at 632c4a5: approved"]
+
+
+def test_a_written_update_misses_each_lane_ask_and_pr_it_does_not_name_whole():
+    names = ["tooling-codify-1", "release-5", "ask:abc123", "#48401", "tooling-codify-1"]
+    assert owner_update.missing("tooling-codify-1 landed #48401; release-5-2 still runs", names) == ["release-5", "ask:abc123"]
+
+
+def test_a_lane_sits_under_the_plan_step_its_brief_names_by_number_or_word():
+    step = owner_update.plans.Step("11", "11. Tooling and the long-running rewrite")
+    assert owner_update.on_step({"step": "11"}, step) and owner_update.on_step({"step": "tooling"}, step)
+    assert not owner_update.on_step({"step": "memory"}, step) and not owner_update.on_step({"step": ""}, step)
