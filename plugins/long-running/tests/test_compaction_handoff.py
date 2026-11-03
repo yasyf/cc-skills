@@ -984,7 +984,7 @@ def test_a_failed_root_slice_read_passes_and_posts_one_blocker(
     posts = [json.loads(line) for line in (docs / "cci-calls").read_text().splitlines()]
     assert posts == [
         [
-            "post", "--drive", "brook-drive", "--lane", "capt-hook", "--kind", "blocker", "--to", "root", "--text",
+            "post", "--drive", "brook-drive", "--lane", "supervisor", "--kind", "blocker", "--to", "root", "--text",
             f"The coordinator's register slice did not load at SessionStart {source}: {reason}. "
             "Run `rulings.py slice --root --drive b7` and read it before the first plan or card edit.",
         ]

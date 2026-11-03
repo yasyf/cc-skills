@@ -133,7 +133,7 @@ def test_an_unclassified_owner_capture_posts_one_blocker_to_a_running_register_l
 
     [blocker] = root.blockers()
     assert option(blocker, "--drive") == DRIVE
-    assert option(blocker, "--lane") == ("capt-hook" if to == "root" else "root")
+    assert option(blocker, "--lane") == ("supervisor" if to == "root" else "root")
     assert option(blocker, "--to") == to
     assert option(blocker, "--text").startswith(f'Owner capture {UNCLASSIFIED} (Oct 23 4:20 AM) has no row in register brook: "keep the nightly report".')
     assert option(blocker, "--text").endswith(f"before the next key moment.{note}")

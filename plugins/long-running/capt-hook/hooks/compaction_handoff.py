@@ -563,7 +563,7 @@ def bus_name(entry: dict) -> str:
     return entry.get("cci_drive") or Path(entry["state_dir"]).name
 
 
-HOOK_POSTER = "capt-hook"
+HOOK_POSTER = "supervisor"
 
 
 def post_blocker(evt: BaseHookEvent, text: str, *, lane: str = ROOT_LANE, key: str | None = None, to: str = ROOT_LANE) -> None:
