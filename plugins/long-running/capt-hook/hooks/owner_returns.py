@@ -41,8 +41,25 @@ UNROUTED_REMINDER = (
     "Every owner reminder or correction spawns a meta tooling lane that makes the behaviour automatic."
     " Before stopping, forward his words verbatim with their time as `cci post --lane owner-relay --kind ask --to meta`, or launch the lane with `lr launch`."
 )
-CALM = {"reminder": BinaryAnswer(p_yes=0.02, confidence=0.95)}
-REMINDED = {"reminder": BinaryAnswer(p_yes=0.97, confidence=0.94)}
+STATUS_QUESTION = Binary(
+    "The owner's words this turn are below; his typos are his, so read through them."
+    " Yes when he asks how far a lane or a piece of running work has got: its progress or status, whether it is done, where it stands, including a pronoun such as 'that' or 'it' pointing at work named earlier."
+    " No for a new request, a pick, or a question about how something works."
+)
+UNREAD_STATUS = (
+    "A status question is answered from the lane's newest record, never from what the lane is for."
+    " Read it with `cci tail --lane <lane> -n 1` and answer with what it says, its `#<seq>`, clock time and age in minutes;"
+    " if the lane has no record, say so and name when it launched."
+)
+CCI_TOOLS = "mcp__plugin_cc-inbox_cci__"
+SEQ = re.compile(r"#(\d+)\b")
+CLOCK = re.compile(r"\b(?:1[0-2]|0?[1-9]):[0-5]\d\s?[AP]M\b", re.IGNORECASE)
+CALM = {"reminder": BinaryAnswer(p_yes=0.02, confidence=0.95), "status_question": BinaryAnswer(p_yes=0.02, confidence=0.95)}
+REMINDED = CALM | {"reminder": BinaryAnswer(p_yes=0.97, confidence=0.94)}
+ASKED = CALM | {"status_question": BinaryAnswer(p_yes=0.96, confidence=0.93)}
+HOW_FAR = "you told me what the relay fix lane is for already, I asked how far along it is"
+NEWEST = "#359771 3:02 AM REPORT relay-fix-2 opened yasyf/cc-skills#2190, CI running"
+TAILED = T.tool_turn("Bash", result=NEWEST, command="cci tail --lane relay-fix-2 -n 1")
 HIS_1_34_AM = (
     "every tjme i need to remknd you to do skemtjjng, hou need to spawn a meta tooling lane foe thay (includkng tbis)."
     " uou did tjay for the ildate after being away a long tome, so good job, but make sure thay is durable behavior not just this session."
@@ -98,6 +115,10 @@ def reminded(*calls: dict, decide: dict = REMINDED) -> Input:
     return Input(transcript=[T.user(HIS_1_34_AM), *calls, T.assistant("On it.")], state=[CompactionState(active=True)], decide=decide)
 
 
+def asked(reply: str, *calls: dict, words: str = HOW_FAR, decide: dict = ASKED) -> Input:
+    return Input(transcript=[T.user(words), *calls, T.assistant(reply)], state=[CompactionState(active=True)], decide=decide)
+
+
 @on(
     Event.Stop,
     only_if=[Communicator()],
@@ -124,12 +145,18 @@ def reminded(*calls: dict, decide: dict = REMINDED) -> Input:
         reminded(*T.tool_turn("Bash", result="R1", command="lr launch meta /drive/meta/brief.md")): Allow(),
         reminded(*T.tool_turn("Bash", result="R1", command="bash ~/.claude/long-running/current/bin/orca-launch.sh /drive/fix-3 brief.md")): Allow(),
         reminded(decide=CALM): Allow(),
-        reminded(decide={"reminder": Refused()}): Allow(),
+        reminded(decide=CALM | {"reminder": Refused()}): Allow(),
+        asked("relay-fix-2 opened its PR and CI is running (#359771, 3:02 AM, 8 minutes ago).", *TAILED): Allow(),
+        asked("relay-fix-2 opened its PR and CI is running (#359771, 3:02 AM, 8 minutes ago)."): Block(pattern=r"^A status question is answered from the lane's newest record.*`cci tail --lane <lane> -n 1`"),
+        asked("relay-fix-2 rebuilds the relay so each chat keeps its own replica.", *TAILED): Block(pattern=r"never from what the lane is for"),
+        asked("relay-fix-2 rebuilds the relay so each chat keeps its own replica.", decide=CALM | {"status_question": BinaryAnswer(p_yes=0.9, confidence=0.3)}): Allow(),
+        asked("Launched relay-fix-3 for it.", words="start a second lane on the relay fix", decide=CALM): Allow(),
+        asked("relay-fix-2 rebuilds the relay so each chat keeps its own replica.", decide=CALM | {"status_question": Refused()}): Allow(),
     }),
 )
 def communicator_reply_follows_the_owner_rules(evt: BaseHookEvent) -> HookResult | None:
     reply = AssistantMessage().content(evt) or ""
-    problems = [problem for problem in (missing_update(evt, reply), inline_pick(evt, reply), unrouted_reminder(evt)) if problem]
+    problems = [problem for problem in (missing_update(evt, reply), inline_pick(evt, reply), unrouted_reminder(evt), unread_status(evt, reply)) if problem]
     return evt.block(" ".join(problems)) if problems else None
 
 
@@ -171,6 +198,24 @@ def unrouted_reminder(evt: BaseHookEvent) -> str | None:
         case BinaryAnswer(p_yes=p_yes) if p_yes > 0.5:
             return UNROUTED_REMINDER
     return None
+
+
+def unread_status(evt: BaseHookEvent, reply: str) -> str | None:
+    read = {seq for use in evt.ctx.turn.tool_calls.items if reads_records(use) for seq in SEQ.findall(use.result.content)}
+    if (CLOCK.search(reply) and read & set(SEQ.findall(reply))) or not (words := owner_words(evt)):
+        return None
+    match (decision := evt.decide(words, {"status_question": STATUS_QUESTION})) and decision.answers["status_question"]:
+        case BinaryAnswer(p_yes=p_yes, confidence=confidence) if p_yes > 0.5 and confidence > 0.5:
+            return UNREAD_STATUS
+    return None
+
+
+def reads_records(use: object) -> bool:
+    if use.result is None or use.result.is_error:
+        return False
+    if use.call.name.startswith(CCI_TOOLS):
+        return use.call.name != f"{CCI_TOOLS}post"
+    return use.call.name == "Bash" and any(Path(cmd.argv[0]).name == "lr" or (Path(cmd.argv[0]).name == "cci" and cmd.argv[1:2] != ["post"]) for cmd in use.call.command_line if cmd.argv)
 
 
 def owner_words(evt: BaseHookEvent) -> str:
