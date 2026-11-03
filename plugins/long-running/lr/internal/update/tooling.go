@@ -75,7 +75,7 @@ func toolingLines(programs []Program) []string {
 
 func ToolingLeft(text string, programs []Program) []string {
 	if len(programs) == 0 {
-		return []string{fmt.Sprintf("%s has no programs: meta-desk-1 keeps one row per program in <state dir>/%s", toolingTitle, toolingList)}
+		return []string{fmt.Sprintf("%s has no programs: meta-desk keeps one row per program in <state dir>/%s", toolingTitle, toolingList)}
 	}
 	lines := strings.Split(strings.ToLower(text), "\n")
 	var left []string
