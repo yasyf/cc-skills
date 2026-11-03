@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
@@ -51,7 +53,7 @@ func TestACardOnWhatHeOrderedDeletedNamesHisWordsNewestFirst(t *testing.T) {
 		spokenAnswer{"pool", "Which pool should Sonnet bill to?", "Just delete the pool.", "2026-11-03T01:00:00Z"},
 	)
 
-	rulings, _ := cards.Ruled(context.Background(), versionCard)
+	rulings, _ := cards.Ruled(context.Background(), versionCard, "")
 
 	if got, want := rulingIDs(rulings), []string{"newer", "older"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("named %v, want %v", got, want)
@@ -64,7 +66,7 @@ func TestACardOnWhatHeOrderedDeletedNamesHisWordsNewestFirst(t *testing.T) {
 func TestAnOptionOfferedToHimIsNotAnOrderOfHis(t *testing.T) {
 	cards := ruledCards(t, spokenAnswer{"asked", "Old cloud agents?", "Options: just delete the cloud agent rows (Recommended) | keep them", "2026-10-22T05:00:00Z"})
 
-	if rulings, _ := cards.Ruled(context.Background(), versionCard); len(rulings) != 0 {
+	if rulings, _ := cards.Ruled(context.Background(), versionCard, ""); len(rulings) != 0 {
 		t.Fatalf("named %v", rulingIDs(rulings))
 	}
 }
@@ -72,7 +74,7 @@ func TestAnOptionOfferedToHimIsNotAnOrderOfHis(t *testing.T) {
 func TestACardsOwnAnswerDoesNotRefuseItsRedraw(t *testing.T) {
 	cards := ruledCards(t, spokenAnswer{"own", versionCard, "Just delete them.", "2026-11-03T18:07:00Z"})
 
-	if rulings, _ := cards.Ruled(context.Background(), versionCard); len(rulings) != 0 {
+	if rulings, _ := cards.Ruled(context.Background(), versionCard, ""); len(rulings) != 0 {
 		t.Fatalf("named %v", rulingIDs(rulings))
 	}
 }
@@ -85,7 +87,7 @@ func TestACardReAskingWhatHeAnsweredNamesTheAnswerBeforeAnyOrder(t *testing.T) {
 		spokenAnswer{"elsewhere", "How do old apps build?", "From source.", "2026-11-03T00:00:00Z"},
 	)
 
-	rulings, _ := cards.Ruled(context.Background(), reAsked)
+	rulings, _ := cards.Ruled(context.Background(), reAsked, "")
 
 	if got, want := rulingIDs(rulings), []string{"same", "order"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("named %v, want %v", got, want)
@@ -105,7 +107,7 @@ func TestHisSlackLineCountsAsAnAnswer(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rulings, _ := cards.Ruled(context.Background(), "An old chat will not open on the new build")
+	rulings, _ := cards.Ruled(context.Background(), "An old chat will not open on the new build", "")
 	got := rulingIDs(rulings)
 
 	if want := []string{fmt.Sprintf("#%d", line.Seq)}; !reflect.DeepEqual(got, want) {
@@ -128,7 +130,7 @@ func TestARegisterRowCountsByHisWordsNotItsSummary(t *testing.T) {
 	fake.Reply(`[{"id":"reg","updated_at":"2026-11-03T00:00:00Z"}]`, "ccn", "-R", "/co", "ledger", "list")
 	cards := Cards{Runner: fake, Ledger: store, Bus: "d", Checkout: "/co", Session: "s1", Program: "p"}
 
-	rulings, _ := cards.Ruled(ctx, versionCard)
+	rulings, _ := cards.Ruled(ctx, versionCard, "")
 	if got, want := rulingIDs(rulings), []string{"rule/words"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("named %v, want %v", got, want)
 	}
@@ -141,13 +143,77 @@ func TestARulingsReadThatFailsRefusesNothingAndSaysWhichSourceWentUnread(t *test
 	fake.Reply("[]", "ccn", "-R", "/co", "ledger", "list")
 	cards := Cards{Runner: fake, Ledger: &ledgertest.Fake{}, Bus: "d", Checkout: "/co", Session: "s1", Program: "p"}
 
-	rulings, unread := cards.Ruled(context.Background(), versionCard)
+	rulings, unread := cards.Ruled(context.Background(), versionCard, "")
 
 	if len(rulings) != 0 {
 		t.Fatalf("named %v", rulingIDs(rulings))
 	}
 	if unread == nil || !strings.Contains(unread.Error(), "his ccn answers were not read") || strings.Contains(unread.Error(), "register") {
 		t.Fatalf("unread = %v", unread)
+	}
+}
+
+const (
+	signalCard     = "Open the signal redesign's PRs now?"
+	signalCardFile = `{"title":"Open the signal redesign's PRs now?","body":"Your order was branches, no PR, before you woke. Five of six signal answers are built.","options":[{"label":"Keep them as branches for now","hint":"A copy still needs the signal to open until you lift this"}]}`
+)
+
+func registerCards(t *testing.T, rule map[string]string, answers ...spokenAnswer) Cards {
+	t.Helper()
+	t.Setenv("CCI_HOME", t.TempDir())
+	store := &ledgertest.Fake{}
+	if err := store.SetRow(context.Background(), "reg", "order/overnight-branches", rule); err != nil {
+		t.Fatal(err)
+	}
+	listed, err := json.Marshal(answers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake := &shelltest.Fake{}
+	fake.Reply(string(listed), "ccn", "-R", "/co", "answer", "list")
+	fake.Reply(`[{"id":"reg","updated_at":"2026-11-03T00:00:00Z"}]`, "ccn", "-R", "/co", "ledger", "list")
+	return Cards{Runner: fake, Ledger: store, Bus: "d", Checkout: "/co", Session: "s1", Program: "p", Now: func() time.Time { return time.Date(2026, 11, 3, 20, 45, 0, 0, time.UTC) }}
+}
+
+func TestACardAskingHimToLiftARuleWhoseEndPassedIsRefusedNamingWhyItEnded(t *testing.T) {
+	for name, c := range map[string]struct {
+		rule    map[string]string
+		answers []spokenAnswer
+		why     string
+	}{
+		"overnight": {
+			rule: map[string]string{"words": "build each recommended option as a branch, never a PR, until he wakes", "status": "in-force"},
+			why:  "ended: its words hold it overnight",
+		},
+		"until he picks": {
+			rule:    map[string]string{"words": "keep the signal redesign as branches until he picks", "status": "in-force"},
+			answers: []spokenAnswer{{"a1b2c3d4e5f6a7b8", "Signal redesign: which transport carries a share?", "Direct or relay.", "2026-11-03T18:00:00Z"}},
+			why:     "ended: its words hold it until he picks, and he answered a1b2c3d4e5f6",
+		},
+		"superseded": {
+			rule: map[string]string{"words": "keep the signal redesign as branches", "status": "superseded", "superseded_by": "order/prs-open"},
+			why:  "ended: superseded by order/prs-open",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cards := registerCards(t, c.rule, c.answers...)
+
+			rulings, _ := cards.Ruled(context.Background(), signalCard, signalCardFile)
+
+			if len(rulings) == 0 || rulings[0].Mark != markEnded || rulings[0].ID != "order/overnight-branches" || !strings.HasPrefix(rulings[0].Title, c.why) {
+				t.Fatalf("rulings = %+v, want ENDED order/overnight-branches %q first", rulings, c.why)
+			}
+		})
+	}
+}
+
+func TestARuleStatingNoEndLetsTheCardDraw(t *testing.T) {
+	cards := registerCards(t, map[string]string{"words": "build each recommended option as a branch, never a PR", "status": "in-force"})
+
+	rulings, _ := cards.Ruled(context.Background(), signalCard, signalCardFile)
+
+	if slices.ContainsFunc(rulings, func(r Ruling) bool { return r.Mark == markEnded }) {
+		t.Fatalf("refused: %+v", rulings)
 	}
 }
 
