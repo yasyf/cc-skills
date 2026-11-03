@@ -197,7 +197,7 @@ Anything else is a failure, printed as one line naming the step, exit 1. A launc
 
 A relaunch whose receipt names a worktree that is still a checkout resumes in it. Every other launch makes a worktree under a name no launch has used: PREFIX+LANE-RUN-N, on branch USER/PREFIX+LANE-RUN-N. orca worktree create makes it by default; ORCA_LAUNCH_SPARSE=1 adds it with git worktree add from the main checkout, sparse in a repo over ORCA_LAUNCH_SPARSE_FILES tracked files.
 
-MODEL is opus, sonnet, fable, a claude-* model id, sol or codex (gpt-6.1-sol on the standard tier), incident (gpt-6.1-sol on the fast tier), astra (gpt-6-astra, for exceptional cases only), or a gpt-* model id. EFFORT is low, medium, high, xhigh or max.
+MODEL is opus, sonnet, fable, a claude-* model id, sol or codex (gpt-6.1-sol on the standard tier), incident (gpt-6.1-sol on the fast tier), incident-opus (claude-opus-5-5 in fast mode), astra (gpt-6-astra, for exceptional cases only), or a gpt-* model id. EFFORT is low, medium, high, xhigh or max.
 
 Only the terminal bound to the Run may call worker-start, so a launch from any other terminal creates nothing and names the rebind command.
 

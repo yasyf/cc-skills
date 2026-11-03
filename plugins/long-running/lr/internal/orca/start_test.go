@@ -1962,7 +1962,7 @@ func TestLaunchRejectsAnUnknownModelInOneLine(t *testing.T) {
 	if code != 1 {
 		t.Fatal(line)
 	}
-	wantLine(t, line, "lane-a failed model gemini unknown: use opus, sonnet, fable, claude-*, sol, codex, incident, astra, or gpt-*")
+	wantLine(t, line, "lane-a failed model gemini unknown: use opus, sonnet, fable, claude-*, sol, codex, incident, incident-opus, astra, or gpt-*")
 	if len(h.calls) != 0 {
 		t.Fatal(h.calls)
 	}
@@ -1976,6 +1976,37 @@ func TestAnAstraLaneStartsGPT6AstraOnTheCodexAgent(t *testing.T) {
 	start := h.orcaCalls("orchestration worker-start")[0]
 	if flag(start, "--agent") != agentCodex || flag(start, "--model") != "gpt-6-astra" {
 		t.Fatal(start)
+	}
+}
+
+func TestAnIncidentOpusLaneRunsClaudeOpusInFastMode(t *testing.T) {
+	h := newHarness(t)
+	h.healthyClaude()
+	h.launchedAs(modelIncidentOpus, "xhigh")
+	command := flag(h.orcaCalls("terminal create")[0], "--command")
+	if !strings.HasSuffix(command, ` --model claude-opus-5-5 --effort xhigh --settings '{"fastMode":true}'`) {
+		t.Fatal(command)
+	}
+}
+
+func TestNoClaudeAliasButIncidentOpusTurnsOnFastMode(t *testing.T) {
+	for _, model := range []string{"opus", "sonnet", "fable", "claude-opus-5-5"} {
+		h := newHarness(t)
+		h.healthyClaude()
+		h.launchedAs(model, "xhigh")
+		if command := flag(h.orcaCalls("terminal create")[0], "--command"); strings.Contains(command, "fastMode") {
+			t.Fatalf("%s: %s", model, command)
+		}
+	}
+}
+
+func TestAnIncidentOpusLaneIsPinnedToTheMacAndPassesTheModelCheck(t *testing.T) {
+	if !macPinned(modelIncidentOpus, "") {
+		t.Fatal("incident-opus can leave the Mac")
+	}
+	order := Order{Lane: "api-fix-opus", Model: modelIncidentOpus, Effort: "xhigh", Brief: "/b.md"}
+	if faults := order.launchFaults("Register slice: lane=api-fix-opus step=all\n", true); len(faults) != 0 {
+		t.Fatal(faults)
 	}
 }
 

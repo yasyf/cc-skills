@@ -84,7 +84,7 @@ func (o Order) incidentFix(text string) bool {
 func (o Order) launchFaults(text string, readable bool) []string {
 	var faults []string
 	if _, _, known := modelRoute(o.Model); !known {
-		faults = append(faults, o.Model+" is not a model lr launch starts: opus, sonnet, fable, claude-*, sol, codex, incident, astra, or gpt-*")
+		faults = append(faults, o.Model+" is not a model lr launch starts: opus, sonnet, fable, claude-*, sol, codex, incident, incident-opus, astra, or gpt-*")
 	}
 	if !validEffort(o.Effort) {
 		faults = append(faults, o.Effort+" is not an effort: "+strings.Join(efforts, ", "))
@@ -129,7 +129,7 @@ func (o Order) scaleFault(text string, written time.Time) string {
 
 func macPinned(model, text string) bool {
 	placed := briefPlace.FindStringSubmatch(text)
-	return fableModel.MatchString(model) || model == agentIncident || (placed != nil && placed[1] == "local")
+	return fableModel.MatchString(model) || model == agentIncident || model == modelIncidentOpus || (placed != nil && placed[1] == "local")
 }
 
 func carryFault(ctx context.Context, runner shell.Runner, home, repo, brief, text string) (string, error) {
