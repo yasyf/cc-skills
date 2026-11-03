@@ -398,7 +398,10 @@ and terminal, and whose workspace record still exists. `lr gc` runs
 once no unsettled Dispatch shares the workspace, the terminal reads idle twice,
 and the checkout, read over ssh, is clean with its HEAD on origin or landed;
 `--done` skips the idle check. A Sprite with no matching task record is left
-alone.
+alone. A Sprite whose Orca runtime is down, as it is on any Sprite `lr stop-sprites`
+stopped, reads as unknown and is kept. The destroy runs `WORKER_CC_REMOTE` with
+`CC_REMOTE_CONFIG` when set, otherwise `tools/cc-remote/bin/cc-remote` and
+`tools/cc-remote/config.yaml` of the checkout gc runs from.
 
 A lane that ended has its Sprite stopped without the coordinator. Every five minutes
 the lane supervisor runs `lr stop-sprites`, which picks each retired registry lane

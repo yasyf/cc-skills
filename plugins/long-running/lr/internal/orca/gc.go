@@ -34,6 +34,7 @@ const (
 	verbDestroy = "destroy"
 	verbGone    = "destroyed"
 	stopping    = "stopping"
+	unknownID   = "its session's identity is unknown: "
 )
 
 type API interface {
@@ -51,15 +52,13 @@ type API interface {
 	Forget(ctx context.Context, environment string) (string, error)
 	NowMS() int64
 	Holder(ctx context.Context, worktree string, panes map[string]bool) (string, error)
+	Sessions(ctx context.Context) (Sessions, error)
+	StillRuns(ctx context.Context, session Session) (bool, error)
 }
 
 type Live struct {
 	Client
 	Processes
-}
-
-func (l Live) Idle(ctx context.Context, terminal, environment string) (Idleness, error) {
-	return l.Client.Idle(ctx, terminal, environment, NowMS)
 }
 
 func (Live) NowMS() int64 {
@@ -74,10 +73,20 @@ type Action struct {
 	Agents      []Action
 	Error       string
 	Environment string
+	Tree        tree
+	Session     *Session
+	Unproven    bool
+}
+
+func (a Action) named() string {
+	if a.Session == nil {
+		return a.Target
+	}
+	return a.Target + " " + a.Session.said()
 }
 
 func (a Action) Line() string {
-	said := a.Verb + " " + a.Target
+	said := a.Verb + " " + a.named()
 	if a.Reason != "" {
 		said += " " + a.Reason
 	}
@@ -143,7 +152,7 @@ func parallel[T, R any](items []T, work func(T) (R, error)) ([]R, error) {
 	return results, errors.Join(faults...)
 }
 
-func current(ctx context.Context, worker Worker, orca API) (string, *Action, error) {
+func current(ctx context.Context, worker Worker, orca API, sessions Sessions) (string, *Action, error) {
 	presence, err := orca.Presence(ctx, worker.Terminal, worker.Environment)
 	if err != nil {
 		return "", nil, err
@@ -152,12 +161,15 @@ func current(ctx context.Context, worker Worker, orca API) (string, *Action, err
 	case disconnected:
 		return "", nil, nil
 	case CodeStaleHandle:
+		if worker.Environment == "" && len(sessions[worker.Terminal]) == 0 {
+			return "", nil, nil
+		}
 		return "", &Action{Verb: verbKeep, Target: worker.Terminal, Reason: staleHandle}, nil
 	}
 	return worker.Terminal, nil, nil
 }
 
-func terminalAction(ctx context.Context, worker Worker, live map[string]bool, orca API, ended map[string]string) (*Action, error) {
+func terminalAction(ctx context.Context, worker Worker, live map[string]bool, orca API, ended map[string]string, sessions Sessions) (*Action, error) {
 	if worker.TerminalState == stateReleased || worker.Terminal == "" {
 		return nil, nil
 	}
@@ -168,7 +180,7 @@ func terminalAction(ctx context.Context, worker Worker, live map[string]bool, or
 		if worker.Ownership == "owned" && worker.Settled() && worker.RetainedReason == "" {
 			return &Action{Verb: verbRelease, Target: worker.Dispatch}, nil
 		}
-		terminal, verdict, err := current(ctx, worker, orca)
+		terminal, verdict, err := current(ctx, worker, orca, sessions)
 		if terminal == "" || err != nil {
 			return verdict, err
 		}
@@ -186,7 +198,7 @@ func terminalAction(ctx context.Context, worker Worker, live map[string]bool, or
 	if live[worker.Terminal] {
 		return &Action{Verb: verbKeep, Target: worker.Terminal, Reason: "serves an unsettled dispatch"}, nil
 	}
-	terminal, verdict, err := current(ctx, worker, orca)
+	terminal, verdict, err := current(ctx, worker, orca, sessions)
 	if terminal == "" || err != nil {
 		return verdict, err
 	}
@@ -200,7 +212,16 @@ func terminalAction(ctx context.Context, worker Worker, live map[string]bool, or
 	case IdleBusy:
 		return &Action{Verb: verbKeep, Target: terminal, Reason: notIdle}, nil
 	}
-	return &Action{Verb: verbClose, Target: terminal, Reason: "dispatch " + worker.Dispatch, Environment: worker.Environment}, nil
+	closable := &Action{Verb: verbClose, Target: terminal, Reason: "dispatch " + worker.Dispatch, Environment: worker.Environment, Tree: tree{worker.Environment, worker.Worktree}}
+	if worker.Environment != "" {
+		return closable, nil
+	}
+	session, unknown := sessions.agent(worker)
+	if unknown != "" {
+		return &Action{Verb: verbKeep, Target: terminal, Reason: unknownID + unknown}, nil
+	}
+	closable.Session = &session
+	return closable, nil
 }
 
 func unsaved(ctx context.Context, checkout Checkout, remote Remote) (string, error) {
@@ -225,6 +246,13 @@ func worktreeAction(ctx context.Context, checkout Checkout, listed TerminalList,
 	if listed.Refusal != "" {
 		return Action{Verb: verbKeep, Target: checkout.Path, Reason: listed.Refusal}, nil
 	}
+	held, err := unsaved(ctx, checkout, remote)
+	if err != nil {
+		return Action{}, err
+	}
+	if held != "" {
+		return Action{Verb: verbKeep, Target: checkout.Path, Reason: held, Unproven: true}, nil
+	}
 	agents := 0
 	for _, terminal := range listed.Terminals {
 		if _, closes := closing[terminal.Handle]; terminal.Agent != "" && !closes {
@@ -239,13 +267,6 @@ func worktreeAction(ctx context.Context, checkout Checkout, listed TerminalList,
 			return Action{Verb: verbKeep, Target: checkout.Path, Reason: fmt.Sprintf("shell %s is in use: %s", terminal.Handle, terminal.Title)}, nil
 		}
 	}
-	held, err := unsaved(ctx, checkout, remote)
-	if err != nil {
-		return Action{}, err
-	}
-	if held != "" {
-		return Action{Verb: verbKeep, Target: checkout.Path, Reason: held}, nil
-	}
 	action := Action{Verb: verbRemove, Target: checkout.Path, Environment: checkout.Environment}
 	for _, terminal := range listed.Terminals {
 		action.Shells = append(action.Shells, terminal.Handle)
@@ -258,7 +279,7 @@ func worktreeAction(ctx context.Context, checkout Checkout, listed TerminalList,
 	if len(action.Agents) > 0 {
 		targets := make([]string, len(action.Agents))
 		for i, agent := range action.Agents {
-			targets[i] = agent.Target
+			targets[i] = agent.named()
 		}
 		action.Reason = "stopping " + strings.Join(targets, ", ")
 	}
@@ -280,15 +301,22 @@ func (g *GC) oneRemoval(work func() error) error {
 	return work()
 }
 
-func (g *GC) applyRemove(ctx context.Context, action Action) (Action, error) {
+func (g *GC) sameSession(ctx context.Context, action Action) (bool, error) {
+	if action.Session == nil {
+		return true, nil
+	}
+	return g.Orca.StillRuns(ctx, *action.Session)
+}
+
+func (g *GC) removalBlocked(ctx context.Context, action Action) (*Action, error) {
 	listed, err := g.Orca.TerminalsIn(ctx, action.Target, action.Environment)
 	if err != nil {
-		return Action{}, err
+		return nil, err
 	}
 	if listed.Refusal != "" {
-		return Action{Verb: verbKeep, Target: action.Target, Reason: listed.Refusal}, nil
+		return &Action{Verb: verbKeep, Target: action.Target, Reason: listed.Refusal}, nil
 	}
-	moved := Action{Verb: verbKeep, Target: action.Target, Reason: changed, Shells: action.Shells, Agents: action.Agents}
+	moved := &Action{Verb: verbKeep, Target: action.Target, Reason: changed, Shells: action.Shells, Agents: action.Agents}
 	stoppingTargets := map[string]bool{}
 	for _, agent := range action.Agents {
 		stoppingTargets[agent.Target] = true
@@ -299,9 +327,16 @@ func (g *GC) applyRemove(ctx context.Context, action Action) (Action, error) {
 		}
 		idle, err := g.Orca.Idle(ctx, agent.Target, agent.Environment)
 		if err != nil {
-			return Action{}, err
+			return nil, err
 		}
 		if idle == IdleBusy {
+			return moved, nil
+		}
+		same, err := g.sameSession(ctx, agent)
+		if err != nil {
+			return nil, err
+		}
+		if !same {
 			return moved, nil
 		}
 	}
@@ -319,11 +354,22 @@ func (g *GC) applyRemove(ctx context.Context, action Action) (Action, error) {
 	if action.Environment == "" {
 		held, err := g.Orca.Holder(ctx, action.Target, panes)
 		if err != nil {
-			return Action{}, err
+			return nil, err
 		}
 		if held != "" {
-			return Action{Verb: verbKeep, Target: action.Target, Reason: held, Shells: action.Shells, Agents: action.Agents}, nil
+			return &Action{Verb: verbKeep, Target: action.Target, Reason: held, Shells: action.Shells, Agents: action.Agents}, nil
 		}
+	}
+	return nil, nil
+}
+
+func (g *GC) applyRemove(ctx context.Context, action Action) (Action, error) {
+	blocked, err := g.removalBlocked(ctx, action)
+	if err != nil {
+		return Action{}, err
+	}
+	if blocked != nil {
+		return *blocked, nil
 	}
 	if g.Pause.Held() {
 		return g.Pause.Skip(action.Target, action.Verb), nil
@@ -421,6 +467,13 @@ func (g *GC) apply(ctx context.Context, action Action) (Action, error) {
 			return Action{}, err
 		}
 		if idle != IdleQuiet {
+			return Action{Verb: verbKeep, Target: action.Target, Reason: changed}, nil
+		}
+		same, err := g.sameSession(ctx, action)
+		if err != nil {
+			return Action{}, err
+		}
+		if !same {
 			return Action{Verb: verbKeep, Target: action.Target, Reason: changed}, nil
 		}
 		if g.Pause.Held() {
@@ -551,6 +604,16 @@ func (g *GC) reap(ctx context.Context, action Action, worker Worker, sprite Spri
 
 func (g *GC) act(ctx context.Context, action Action) (Action, error) {
 	if g.DryRun {
+		if action.Verb != verbRemove {
+			return g.report(action), nil
+		}
+		blocked, err := g.removalBlocked(ctx, action)
+		if err != nil {
+			return Action{}, err
+		}
+		if blocked != nil {
+			return g.report(*blocked), nil
+		}
 		return g.report(action), nil
 	}
 	done, err := g.apply(ctx, action)
@@ -631,8 +694,12 @@ func (g *GC) Run(ctx context.Context, run string, dispatches, ending []string) (
 		liveWorkspaces[worker.Workspace] = true
 	}
 	sprites := map[SpriteKey]Sprite{}
+	sessions := Sessions{}
 	if len(finished) > 0 {
 		if sprites, err = g.Fleet.Sprites(); err != nil {
+			return nil, err
+		}
+		if sessions, err = g.Orca.Sessions(ctx); err != nil {
 			return nil, err
 		}
 	}
@@ -665,7 +732,7 @@ func (g *GC) Run(ctx context.Context, run string, dispatches, ending []string) (
 		}
 	}
 	verdicts, err := parallel(finished, func(worker Worker) (*Action, error) {
-		return terminalAction(ctx, worker, liveTerminals, g.Orca, ended)
+		return terminalAction(ctx, worker, liveTerminals, g.Orca, ended, sessions)
 	})
 	if err != nil {
 		return nil, err
@@ -713,9 +780,15 @@ func (g *GC) Run(ctx context.Context, run string, dispatches, ending []string) (
 	}
 	var closes []Action
 	for _, target := range closingOrder {
-		if action := closing[target]; action.Verb == verbClose && !stoppedTerminals[target] {
-			closes = append(closes, action)
+		action := closing[target]
+		if action.Verb != verbClose || stoppedTerminals[target] {
+			continue
 		}
+		if held, kept := worktrees.unproven[action.Tree]; kept {
+			tally[g.report(Action{Verb: verbKeep, Target: target, Reason: "its worktree is kept: " + held}).Verb]++
+			continue
+		}
+		closes = append(closes, action)
 	}
 	closedTerminals, err := parallel(closes, acted)
 	if err != nil {
@@ -742,8 +815,9 @@ func (g *GC) Run(ctx context.Context, run string, dispatches, ending []string) (
 }
 
 type reclaimed struct {
-	done    []Action
-	remotes map[string]Remote
+	done     []Action
+	remotes  map[string]Remote
+	unproven map[tree]string
 }
 
 func (g *GC) reclaimTrees(ctx context.Context, candidates []tree, closing map[string]Action, hosted []hostedSprite) (reclaimed, map[string]bool, error) {
@@ -770,7 +844,7 @@ func (g *GC) reclaimTrees(ctx context.Context, candidates []tree, closing map[st
 	if err != nil {
 		return reclaimed{}, nil, err
 	}
-	var result reclaimed
+	result := reclaimed{unproven: map[tree]string{}}
 	var checkouts []Checkout
 	var missing []string
 	for i, found := range read {
@@ -778,6 +852,7 @@ func (g *GC) reclaimTrees(ctx context.Context, candidates []tree, closing map[st
 		case found.Found != nil:
 			checkouts = append(checkouts, *found.Found)
 		case found.Refusal != "":
+			result.unproven[local[i]] = found.Refusal
 			result.done = append(result.done, g.report(Action{Verb: verbKeep, Target: local[i].path, Reason: found.Refusal}))
 		default:
 			missing = append(missing, local[i].path)
@@ -788,6 +863,7 @@ func (g *GC) reclaimTrees(ctx context.Context, candidates []tree, closing map[st
 		case found.Found != nil:
 			checkouts = append(checkouts, *found.Found)
 		case found.Refusal != "":
+			result.unproven[paired[i]] = found.Refusal
 			result.done = append(result.done, g.report(Action{Verb: verbKeep, Target: paired[i].path, Reason: found.Refusal}))
 		}
 	}
@@ -841,6 +917,11 @@ func (g *GC) reclaimTrees(ctx context.Context, candidates []tree, closing map[st
 		return reclaimed{}, nil, err
 	}
 	result.done = append(result.done, actions...)
+	for i, done := range actions {
+		if done.Unproven {
+			result.unproven[tree{checkouts[i].Environment, checkouts[i].Path}] = done.Reason
+		}
+	}
 	stopped := map[string]bool{}
 	for _, done := range result.done {
 		for _, agent := range done.Agents {

@@ -51,6 +51,7 @@ func row(dispatch string, options ...rowOption) Worker {
 		TerminalState:  "retained",
 		Ownership:      "external",
 		RetainedReason: external,
+		Owner:          dispatch,
 		Terminal:       "term_" + dispatch,
 		Workspace:      "repo::" + testWT,
 		Worktree:       testWT,
@@ -124,6 +125,8 @@ type fakeOrca struct {
 	onStop        func()
 	onHolder      func()
 	beforeListing func(string)
+	sessions      Sessions
+	restarted     map[string]bool
 }
 
 func newOrca(rows ...Worker) *fakeOrca {
@@ -276,6 +279,33 @@ func (f *fakeOrca) Holder(_ context.Context, worktree string, panes map[string]b
 	return f.holders[worktree], nil
 }
 
+func liveSession(worker Worker) []Session {
+	env := " ORCA_WORKTREE_ID=" + worker.Workspace
+	return []Session{
+		{PID: "100", PPID: "90", PGID: "100", Start: "Mon Nov 2 23:49:37 2026", Command: "-/opt/homebrew/bin/fish -l" + env},
+		{PID: "101", PPID: "100", PGID: "101", Start: "Mon Nov 2 23:49:38 2026", Command: "claude --allow-dangerously-skip-permissions" + env},
+	}
+}
+
+func (f *fakeOrca) Sessions(context.Context) (Sessions, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.sessions != nil {
+		return f.sessions, nil
+	}
+	index := Sessions{}
+	for _, worker := range f.rows {
+		index[worker.Terminal] = liveSession(worker)
+	}
+	return index, nil
+}
+
+func (f *fakeOrca) StillRuns(_ context.Context, session Session) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return !f.restarted[session.PID], nil
+}
+
 func (f *fakeOrca) count(call ...string) int {
 	return len(slices.DeleteFunc(slices.Clone(f.calls), func(got []string) bool { return !slices.Equal(got, call) }))
 }
@@ -396,6 +426,7 @@ func runGC(t *testing.T, orca API, git Repositories, options gcOptions) (Tally, 
 type scripted struct {
 	mu    sync.Mutex
 	calls [][]string
+	envs  [][]string
 	reply func(argv []string) (string, string, int)
 }
 
@@ -403,6 +434,7 @@ func (s *scripted) Run(_ context.Context, c shell.Command) (shell.Result, error)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.calls = append(s.calls, c.Argv)
+	s.envs = append(s.envs, c.Env)
 	stdout, stderr, code := s.reply(c.Argv)
 	result := shell.Result{Code: code, Stdout: stdout, Stderr: stderr}
 	if code != 0 {

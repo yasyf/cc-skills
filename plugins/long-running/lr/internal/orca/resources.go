@@ -22,7 +22,7 @@ const (
 	staleHandle      = "stale handle"
 	idleProbeMS      = 1500
 	quietMS          = 10 * 60 * 1000
-	notIdle          = "not idle: busy, prompt typed or asking, or output in the last 10 minutes"
+	notIdle          = "not idle: busy, prompt typed or asking"
 	screenLines      = 40
 	promptWindow     = 8
 	claudePrompt     = "❯"
@@ -42,6 +42,7 @@ type Worker struct {
 	TerminalState  string
 	Ownership      string
 	RetainedReason string
+	Owner          string
 	Terminal       string
 	Workspace      string
 	Worktree       string
@@ -61,6 +62,7 @@ type workerRow struct {
 		Worktree  string `json:"worktreeId"`
 		Ownership string `json:"ownershipState"`
 		Retained  string `json:"retainedReason"`
+		Owner     string `json:"ownerDispatchId"`
 	} `json:"resource"`
 	Projection struct {
 		Workspace *struct {
@@ -78,6 +80,7 @@ func (r workerRow) worker() Worker {
 	if r.Resource != nil {
 		worker.Ownership = r.Resource.Ownership
 		worker.RetainedReason = r.Resource.Retained
+		worker.Owner = r.Resource.Owner
 		worker.Workspace = r.Resource.Worktree
 	}
 	if worker.Workspace == "" && r.Projection.Workspace != nil {
@@ -128,11 +131,10 @@ type TerminalList struct {
 
 type terminalShow struct {
 	Terminal struct {
-		Connected    bool     `json:"connected"`
-		LastOutputMS int64    `json:"lastOutputAt"`
-		Worktree     string   `json:"worktreePath"`
-		Tab          string   `json:"tabId"`
-		Tail         []string `json:"tail"`
+		Connected bool     `json:"connected"`
+		Worktree  string   `json:"worktreePath"`
+		Tab       string   `json:"tabId"`
+		Tail      []string `json:"tail"`
 	} `json:"terminal"`
 }
 
@@ -199,13 +201,14 @@ func (c Client) show(ctx context.Context, terminal, environment string) (Reply, 
 }
 
 func idleFromRefusal(reply Reply) Idleness {
-	if reply.Error.Code == CodeStaleHandle {
+	switch reply.Error.Code {
+	case CodeStaleHandle, CodeRuntimeDown:
 		return IdleUnknown
 	}
 	return IdleBusy
 }
 
-func (c Client) Idle(ctx context.Context, terminal, environment string, nowMS func() int64) (Idleness, error) {
+func (c Client) Idle(ctx context.Context, terminal, environment string) (Idleness, error) {
 	reply, err := c.show(ctx, terminal, environment)
 	if err != nil {
 		return IdleUnknown, err
@@ -238,19 +241,12 @@ func (c Client) Idle(ctx context.Context, terminal, environment string, nowMS fu
 	if !waited.Wait.Satisfied {
 		return IdleBusy, nil
 	}
-	reply, err = c.show(ctx, terminal, environment)
-	if err != nil {
-		return IdleUnknown, err
-	}
-	if err := reply.Into(&shown); err != nil {
-		return IdleUnknown, err
-	}
-	if nowMS()-shown.Terminal.LastOutputMS <= quietMS {
-		return IdleBusy, nil
-	}
 	screen, err := c.Call(ctx, append([]string{"terminal", "read", "--terminal", terminal, "--screen", "--limit", strconv.Itoa(screenLines)}, on(environment)...)...)
 	if err != nil {
 		return IdleUnknown, err
+	}
+	if !screen.OK {
+		return idleFromRefusal(screen), nil
 	}
 	var read terminalShow
 	if err := screen.Into(&read); err != nil {

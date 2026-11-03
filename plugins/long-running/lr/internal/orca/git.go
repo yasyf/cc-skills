@@ -1,6 +1,7 @@
 package orca
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -20,6 +21,7 @@ const (
 	ccRemoteTaskSchema = 1
 	providerSprites    = "sprites"
 	ccRemoteEnv        = "WORKER_CC_REMOTE"
+	ccRemoteConfigEnv  = "CC_REMOTE_CONFIG"
 )
 
 var (
@@ -345,12 +347,36 @@ func (c CCRemote) Checkout(ctx context.Context, sprite Sprite, git Repositories)
 	return CheckoutRead{Found: &checkout}, nil
 }
 
-func (c CCRemote) Destroy(ctx context.Context, sprite Sprite) (string, error) {
-	command := os.Getenv(ccRemoteEnv)
-	if command == "" {
-		command = "cc-remote"
+func (c CCRemote) tool(ctx context.Context) (string, []string, error) {
+	top, err := c.Runner.Run(ctx, shell.Command{Argv: []string{"git", "rev-parse", "--show-toplevel"}})
+	var outside *shell.ExitError
+	if err != nil && !errors.As(err, &outside) {
+		return "", nil, err
 	}
-	result, err := c.Runner.Run(ctx, shell.Command{Argv: []string{command, "destroy", sprite.Workspace}})
+	tools := filepath.Join(strings.TrimSpace(top.Stdout), "tools", "cc-remote")
+	found := func(env, path string) string {
+		if set := os.Getenv(env); set != "" {
+			return set
+		}
+		if info, err := os.Stat(filepath.Join(tools, path)); err == nil && info.Mode().IsRegular() {
+			return filepath.Join(tools, path)
+		}
+		return ""
+	}
+	command := cmp.Or(found(ccRemoteEnv, filepath.Join("bin", "cc-remote")), "cc-remote")
+	config := found(ccRemoteConfigEnv, "config.yaml")
+	if config == "" {
+		return command, nil, nil
+	}
+	return command, []string{ccRemoteConfigEnv + "=" + config}, nil
+}
+
+func (c CCRemote) Destroy(ctx context.Context, sprite Sprite) (string, error) {
+	command, env, err := c.tool(ctx)
+	if err != nil {
+		return "", err
+	}
+	result, err := c.Runner.Run(ctx, shell.Command{Argv: []string{command, "destroy", sprite.Workspace}, Env: env})
 	var exit *shell.ExitError
 	if errors.As(err, &exit) {
 		return describeExit(result.Stderr, "cc-remote destroy exited %d", result.Code), nil
