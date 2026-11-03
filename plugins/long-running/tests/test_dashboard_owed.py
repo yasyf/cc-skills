@@ -7,12 +7,12 @@ from owed import kept, overdue_rows, owner_ask_rows
 
 LEDGER = """| m | at | text | record | mark |
 |---|---|---|---|---|
-| m7 | Nov 3 3:01 AM | fold the dashboard to one-line events | | |
+| m7 | Nov 3 3:01 AM | fold the dashboard to one-line events |  |  |
 M12 carries this.
-| m8 | Nov 3 3:05 AM | what is the status of the gateway rollout | | responded |
-| m9 | Nov 3 3:09 AM | > quoted words from the agent<br>move the owner table to a tab | | |
-| m10 | Nov 3 3:10 AM | Owner on board d50e, Merge it? (merge-prs): 49000 approved at abc | | |
-| m11 | Nov 3 3:11 AM | ok | | |
+| m8 | Nov 3 3:05 AM | what is the status of the gateway rollout |  | responded |
+| m9 | Nov 3 3:09 AM | > quoted words from the agent<br>move the owner table to a tab |  |  |
+| m10 | Nov 3 3:10 AM | Owner on board d50e, Merge it? (merge-prs): 49000 approved at abc |  |  |
+| m11 | Nov 3 3:11 AM | ok |  |  |
 """
 
 
