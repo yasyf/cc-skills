@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	passEvery     = 10 * time.Second
+	passEvery       = 10 * time.Second
 	unreachableWait = 2 * time.Minute
 	wakeEvery       = 250 * time.Millisecond
 	sweepEvery      = 5 * time.Minute
