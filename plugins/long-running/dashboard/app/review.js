@@ -2,6 +2,7 @@ const VERDICT_TONE = { you: 'bad', approved: 'ok', held: 'warn' };
 const VERDICT_WORD = { you: 'Waiting on you', approved: 'Approved', held: 'Held' };
 const embed = { number: null, head: null, row: false, started: null };
 const pending = { number: null, holding: false, error: '', note: '' };
+const openReview = (number) => fetch(`/api/review/${number}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
 
 function approvedAt(n) {
   return state.model.records.findLast((r) => r.kind === 'go' && r.refs?.prs?.includes(n))?.at;
@@ -220,7 +221,7 @@ function syncReviewEmbed(r) {
   if (embed.head === head) return;
   embed.head = head;
   code.innerHTML = '<p class="dim pane-wait">Opening the code and review…</p>';
-  fetch(`/api/review/${number}`, { cache: 'no-store' })
+  openReview(number)
     .then((res) => res.json())
     .then(({ url, assistant, stale, error }) => {
       if (embed.number !== number) return;
@@ -238,7 +239,7 @@ document.addEventListener('click', (e) => {
 });
 setInterval(() => {
   const r = route();
-  if (r.screen === 'review' && embed.number && embed.started === embed.number && !document.hidden) fetch(`/api/review/${embed.number}`, { cache: 'no-store' });
+  if (r.screen === 'review' && embed.number && embed.started === embed.number && !document.hidden) openReview(embed.number);
 }, 5 * 60 * 1000);
 const changeDrafts = {};
 const sentChanges = [];
