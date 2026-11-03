@@ -91,6 +91,11 @@ func run(ctx context.Context, a *app.App) error {
 	if err != nil {
 		return err
 	}
+	if stop, err := serveProfiles(filepath.Join(state, profileFile), a.Log); err != nil {
+		a.Log.Warn("the supervisor serves no profiles", "err", err)
+	} else {
+		defer stop()
+	}
 	version := Installed(env.Claude)
 	upgrade := &Upgrade{Env: env, Running: version, Read: read}
 	deps.Stale = upgrade.Stale
