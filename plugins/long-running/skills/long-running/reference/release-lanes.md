@@ -2,6 +2,10 @@
 
 The release tooling records nothing about drives; its freezes name only the setter, its watch posts no cci record when an apply starts, and a start claims nothing on cci. The relay couples the drive to its releases from the records its lanes post. In `runner.json`, `landing.release_owner` names the release owner (`reference/landing.md` D20) and `landing.release_cli` names the release command line.
 
+## State the release and live time of a status he keeps asking
+
+A row under **You asked more than once** in his update names its record. When the release carrying it is live, post `cci post --drive <drive> --lane <lane> --kind answer --re <seq> --attr release=<n> --attr live=<time> --text <what is live>`; the row leaves the lead only on those attrs.
+
 ## Post each release you start
 
 **Post a `release` record right after a start prints its build.**
