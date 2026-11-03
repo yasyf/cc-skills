@@ -484,7 +484,7 @@ func (e Env) Checks(s *store.Store, log *slog.Logger) ([]Check, error) {
 		return nil, err
 	}
 	if len(cli) > 0 {
-		checks = append(checks, (&LandedNotLive{Env: e, ReleaseCLI: cli, Log: log}).Check)
+		checks = append(checks, (&LandedNotLive{Env: e, ReleaseCLI: cli, Log: log}).Check, (&ReleaseGates{Env: e, ReleaseCLI: cli, Log: log}).Check)
 	}
 	return checks, nil
 }

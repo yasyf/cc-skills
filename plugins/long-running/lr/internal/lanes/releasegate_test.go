@@ -1,0 +1,139 @@
+package lanes
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
+)
+
+const gatedRelease = "releases/2026-11-02/12192"
+
+var (
+	gateReached = time.Date(2026, 11, 2, 18, 32, 0, 0, pacificZone)
+	ownerOrder  = time.Date(2026, 11, 2, 18, 36, 0, 0, pacificZone)
+)
+
+func orderRecord(t *testing.T, seq int64, lane string, at time.Time, attrs string) client.Record {
+	t.Helper()
+	var row client.Record
+	body := fmt.Sprintf(`{"seq":%d,"lane":%q,"kind":"release","at":%q,"text":"12192 started","fields":{"attrs":%s}}`, seq, lane, at.Format(time.RFC3339), attrs)
+	if err := json.Unmarshal([]byte(body), &row); err != nil {
+		t.Fatal(err)
+	}
+	return row
+}
+
+func gateJSON(state string, at time.Time) string {
+	return fmt.Sprintf(`{"record":{"hold":{"job":"job-1"}},"build":{"state":"running","gate":{"state":%q,"at":%q}}}`, state, at.Format(time.RFC3339))
+}
+
+func gates(status *string, rows ...client.Record) (*ReleaseGates, *fakeBus) {
+	bus := &fakeBus{tail: rows}
+	env := Env{Bus: bus, Config: config.Config{Drive: testDrive, Checkout: "/checkout"}, Runner: scripted(func([]string) (shell.Result, error) {
+		return shell.Result{Stdout: *status}, nil
+	})}
+	return &ReleaseGates{Env: env, ReleaseCLI: []string{"tools/ci", "release"}, Log: slog.Default()}, bus
+}
+
+func pass(t *testing.T, check *ReleaseGates, at time.Time) {
+	t.Helper()
+	if err := check.Check(context.Background(), at); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestARelease12192StillAtItsGateFiveMinutesAfterHisOrderDrawsOneBlockerNamingReleaseGateAndLane(t *testing.T) {
+	status := gateJSON(gateWaiting, gateReached)
+	attrs := fmt.Sprintf(`{"release":%q,"order":"d847000"}`, gatedRelease)
+	check, bus := gates(&status, orderRecord(t, 1, "release-5", ownerOrder, attrs))
+
+	pass(t, check, ownerOrder.Add(gateGrace-time.Minute))
+	equal(t, len(bus.posted), 0)
+
+	pass(t, check, ownerOrder.Add(gateGrace))
+	equal(t, len(bus.posted), 1)
+	blocker := bus.posted[0]
+	equal(t, blocker.Kind, blockerKind)
+	equal(t, blocker.To, []string{Root})
+	equal(t, blocker.ID, "release-gate:"+gatedRelease+":job-1")
+	for _, named := range []string{gatedRelease, "approve gate (job job-1)", "since 6:32 PM", "owner order d847000 at 6:36 PM", "release-5 approves it now", "tools/ci release approve " + gatedRelease} {
+		if !strings.Contains(blocker.Text, named) {
+			t.Fatalf("%q does not name %q", blocker.Text, named)
+		}
+	}
+
+	pass(t, check, ownerOrder.Add(gateGrace+time.Minute))
+	equal(t, len(bus.posted), 1)
+}
+
+func TestAReleaseApprovedFourMinutesAfterHisOrderDrawsNoBlocker(t *testing.T) {
+	status := gateJSON(gateWaiting, gateReached)
+	attrs := fmt.Sprintf(`{"release":%q,"order":"d847000"}`, gatedRelease)
+	check, bus := gates(&status, orderRecord(t, 1, "release-5", ownerOrder, attrs))
+
+	pass(t, check, ownerOrder.Add(3*time.Minute))
+	status = gateJSON("approved", ownerOrder.Add(4*time.Minute))
+	pass(t, check, ownerOrder.Add(4*time.Minute))
+	pass(t, check, ownerOrder.Add(gateGrace))
+	equal(t, len(bus.posted), 0)
+}
+
+func TestAGateReachedAfterHisOrderGetsItsFiveMinutesFromTheGate(t *testing.T) {
+	reached := ownerOrder.Add(10 * time.Minute)
+	status := gateJSON(gateWaiting, reached)
+	attrs := fmt.Sprintf(`{"release":%q,"order":"d847000"}`, gatedRelease)
+	check, bus := gates(&status, orderRecord(t, 1, "release-5", ownerOrder, attrs))
+
+	pass(t, check, reached.Add(time.Minute))
+	equal(t, len(bus.posted), 0)
+
+	pass(t, check, reached.Add(gateGrace))
+	equal(t, len(bus.posted), 1)
+}
+
+func TestTheOrderTimeTheRecordSaysAndTheLaneItNamesBeatItsPostTimeAndWriter(t *testing.T) {
+	status := gateJSON(gateWaiting, gateReached)
+	attrs := fmt.Sprintf(`{"release":%q,"order":"d847000","ordered_at":%q,"lane":"release-5"}`, gatedRelease, ownerOrder.Format(time.RFC3339))
+	check, bus := gates(&status, orderRecord(t, 1, "root", ownerOrder.Add(10*time.Minute), attrs))
+
+	pass(t, check, ownerOrder.Add(gateGrace))
+	equal(t, len(bus.posted), 1)
+	if !strings.Contains(bus.posted[0].Text, "release-5 approves it now") {
+		t.Fatal(bus.posted[0].Text)
+	}
+}
+
+func TestAReleaseStillPlanningOrARecordNamingNoOrderDrawsNoBlocker(t *testing.T) {
+	status := gateJSON("planning", gateReached)
+	named := fmt.Sprintf(`{"release":%q,"order":"d847000"}`, gatedRelease)
+	check, bus := gates(&status, orderRecord(t, 1, "release-5", ownerOrder, named), orderRecord(t, 2, "release-5", ownerOrder, `{"release":"releases/2026-11-02/1"}`))
+
+	pass(t, check, ownerOrder.Add(time.Hour))
+	equal(t, len(bus.posted), 0)
+	equal(t, len(check.orders), 1)
+}
+
+func TestAStopOutsideHisOrderDrawsOneBlockerAndAnEndedBuildLeavesTheWatch(t *testing.T) {
+	status := `{"record":{"failures":[{"stack":"api/plat-usw2-prod","job":"https://b/1#a","cause":"exit 1"},{"unlisted":true,"stack":"router/plat-usw2-prod","job":"https://b/1#r","cause":"its plan deletes m3"}]},"build":{"state":"failing","gate":{"state":"approved"}}}`
+	attrs := fmt.Sprintf(`{"release":%q,"order":"d847000"}`, gatedRelease)
+	check, bus := gates(&status, orderRecord(t, 1, "release-5", ownerOrder, attrs))
+
+	pass(t, check, ownerOrder.Add(time.Minute))
+	pass(t, check, ownerOrder.Add(2*time.Minute))
+	equal(t, len(bus.posted), 1)
+	equal(t, bus.posted[0].ID, "release-order-stop/"+gatedRelease+"/router/plat-usw2-prod")
+	equal(t, bus.posted[0].Text, "RELEASE-STOP "+gatedRelease+": router/plat-usw2-prod stopped outside owner order d847000: its plan deletes m3; job https://b/1#r")
+	equal(t, len(check.orders), 1)
+
+	status = `{"record":{},"build":{"state":"failed","gate":{"state":"approved"}}}`
+	pass(t, check, ownerOrder.Add(3*time.Minute))
+	equal(t, len(check.orders), 0)
+}

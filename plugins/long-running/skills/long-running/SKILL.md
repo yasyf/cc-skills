@@ -303,8 +303,10 @@ never a retry.
 starts, approves, watches or re-cuts a release unless the owner asked. When he
 orders one, the release lane applies and counts the deletes, replaces and
 migrations its plan names and never asks again; the `owner_order_is_the_approval`
-hook refuses a second word. An incident release starts at once, no dry run, and
-keeps the zero-delete bound unless he ordered it. No release is canceled once its
+hook refuses a second word, and `tools/ci release start --order <answer id>` passes
+the gate itself. An incident fix rides the next regular release when one can cut
+within its urgency, with no dry run, and keeps the zero-delete bound unless he
+ordered it. No release is canceled once its
 apply has started. A regular release is the default: an emergency release runs only
 when the regular path is too slow for a live customer impact, and never two for one
 fix. A release at its approval gate five minutes after an owner order is a blocker
