@@ -410,7 +410,7 @@ func wantContains(t *testing.T, text, part string) {
 func TestLoadDeskConfigReadsTheRunnerFileWithItsDefaults(t *testing.T) {
 	home := t.TempDir()
 	path := filepath.Join(home, "runner.json")
-	raw := `{"drive":"brook","store":"~/store","orca":{"desk_inbox":"~/inbox/orca-desk.md","run":"run_9","briefs":{"repo":"~/repo","log":"log_1"},"launch_env":{"A":"b"},"gc":"gc"},"deadlines":{"hold_minutes":7}}`
+	raw := `{"drive":"brook","store":"~/store","orca":{"desk_inbox":"~/inbox/orca-desk.md","run":"run_9","briefs":{"repo":"~/repo","log":"log_1"},"launch_env":{"A":"b"},"gc":"gc"}}`
 	if err := os.WriteFile(path, []byte(raw), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -426,7 +426,7 @@ func TestLoadDeskConfigReadsTheRunnerFileWithItsDefaults(t *testing.T) {
 	if config.Store != filepath.Join(home, "store") || config.BriefsRepo != filepath.Join(home, "repo") || config.Run != "run_9" || config.GC != "gc" {
 		t.Fatalf("%+v", config)
 	}
-	if config.StartMinutes != 10 || config.LaunchMinutes != 15 || config.HoldMinutes != 7 || config.CaseLanes != 2 {
+	if config.StartMinutes != 10 || config.LaunchMinutes != 15 || config.CaseLanes != 2 {
 		t.Fatalf("%+v", config)
 	}
 	if config.Receipts != filepath.Join(home, ".local", "state", "long-running", "orca-launch", "run_9") {
@@ -843,7 +843,7 @@ func TestAStopOrcaNeverConfirmsIsReported(t *testing.T) {
 	wantContains(t, w.wantEscalation("WITHDRAW-UNCONFIRMED R9 lane-a"), "dispatch ctx_a still running on terminal term_a")
 }
 
-func TestAHoldAgesIntoADecideAndAnUnholdLiftsIt(t *testing.T) {
+func TestAHoldIsKeptOnceAndAnUnholdLiftsIt(t *testing.T) {
 	w := newDeskWorld(t)
 	w.lines()
 	w.line("R3 (5:02 PM) orca-desk: hold sandsql-5177 owner=root :: sand releases")
@@ -854,12 +854,6 @@ func TestAHoldAgesIntoADecideAndAnUnholdLiftsIt(t *testing.T) {
 	if err != nil || len(held) != 1 {
 		t.Fatal(held, err)
 	}
-	w.now = w.now.Add(16 * time.Minute)
-	if err := w.desk.agedHolds(); err != nil {
-		t.Fatal(err)
-	}
-	line := w.wantEscalation("DECIDE hold:sandsql-5177 root: held 16 min: sand releases")
-	wantContains(t, line, "the root decides it now with root")
 	w.line("R5 (5:02 PM) orca-desk: unhold sandsql-5177")
 	w.lines()
 	held, err = w.desk.store.Actions(deskRunner, kindHold, incident.ActionAccepted)

@@ -223,7 +223,6 @@ func (d *Desk) Run(ctx context.Context, once bool) error {
 		}
 		for _, step := range []func() error{
 			func() error { return d.settlePass(ctx, passErr) },
-			d.agedHolds,
 			func() error { return d.stalledLaunches(ctx) },
 			func() error { return d.flush(ctx) },
 		} {

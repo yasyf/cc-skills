@@ -92,7 +92,7 @@ func taskList(ids ...string) reply {
 	return okResult(object{"tasks": tasks})
 }
 
-func screen(lines ...string) reply {
+func onScreen(lines ...string) reply {
 	return okResult(object{"terminal": object{"source": "screen", "tail": lines}})
 }
 
@@ -1417,7 +1417,7 @@ func TestAnAgentBlockedOnAStartupPromptFailsNamingThePrompt(t *testing.T) {
 	h := newHarness(t)
 	h.healthyClaude()
 	h.reply("terminal wait", reply{rc: 1, out: object{"ok": true, "result": object{"wait": object{"handle": "term_a", "condition": "tui-idle", "satisfied": false, "status": "running", "exitCode": nil, "blockedReason": "agent-trust-workspace"}}}})
-	h.reply("terminal read", screen("yasyf@mac ~/v3-lane-a-base> env CLAUDE_LONG_RUNNING_LANE=lane-a claude", "Do you trust the files in this folder?"))
+	h.reply("terminal read", onScreen("yasyf@mac ~/v3-lane-a-base> env CLAUDE_LONG_RUNNING_LANE=lane-a claude", "Do you trust the files in this folder?"))
 	line, code := h.launch()
 	if code != 1 || !strings.Contains(line, "boot terminal=term_a: orca terminal wait --for tui-idle reads agent-trust-workspace after 180s;") {
 		t.Fatal(line)
@@ -1429,7 +1429,7 @@ func TestAnAgentThatExitedIsNotIdle(t *testing.T) {
 	h := newHarness(t)
 	h.healthyClaude()
 	h.reply("terminal wait", okResult(object{"wait": object{"handle": "term_a", "condition": "tui-idle", "satisfied": true, "status": "exited", "exitCode": 1}}))
-	h.reply("terminal read", screen("yasyf@mac ~/v3-lane-a-base> env CLAUDE_LONG_RUNNING_LANE=lane-a claude", "yasyf@mac ~/v3-lane-a-base>"))
+	h.reply("terminal read", onScreen("yasyf@mac ~/v3-lane-a-base> env CLAUDE_LONG_RUNNING_LANE=lane-a claude", "yasyf@mac ~/v3-lane-a-base>"))
 	h.env["ORCA_LAUNCH_BOOT_SECONDS"] = "12"
 	line, code := h.launch()
 	if code != 1 || !strings.Contains(line, "reads status=exited after 12s") {
@@ -1446,7 +1446,7 @@ func TestAStartupCommandOrcaDroppedIsTypedIntoTheTerminalOnce(t *testing.T) {
 		h.reply("terminal create", timedOut)
 		h.reply("terminal list", bareListing(), listing(nil))
 		h.reply("terminal wait", notIdleWait, idleWait)
-		h.reply("terminal read", screen("Welcome to fish", "yasyf@mac ~/v3-lane-a-base>"), screen("❯", agentScreen))
+		h.reply("terminal read", onScreen("Welcome to fish", "yasyf@mac ~/v3-lane-a-base>"), onScreen("❯", agentScreen))
 		h.reply("terminal send", sent)
 		if line, code := h.launchAs("lane-a", model, "high", h.brief); code != 0 {
 			t.Fatal(line)
@@ -1466,7 +1466,7 @@ func TestATypedCommandThatStartsNoAgentFailsTheLaunchBeforeWorkerStart(t *testin
 	h := newHarness(t)
 	h.noAgent()
 	h.env["ORCA_LAUNCH_BOOT_SECONDS"] = "12"
-	h.reply("terminal read", screen("yasyf@mac ~/v3-lane-a-base>"))
+	h.reply("terminal read", onScreen("yasyf@mac ~/v3-lane-a-base>"))
 	h.reply("terminal send", sent)
 	line, code := h.launch()
 	if code != 1 {
@@ -1483,7 +1483,7 @@ func TestAFailedCommandSendFailsTheLaunchBeforeWorkerStart(t *testing.T) {
 	h := newHarness(t)
 	h.noAgent()
 	h.env["ORCA_LAUNCH_BOOT_SECONDS"] = "12"
-	h.reply("terminal read", screen("yasyf@mac ~/v3-lane-a-base>"))
+	h.reply("terminal read", onScreen("yasyf@mac ~/v3-lane-a-base>"))
 	h.reply("terminal send", reply{rc: 1, out: "runtime_unavailable"})
 	line, code := h.launch()
 	if code != 1 {
@@ -1497,7 +1497,7 @@ func TestACommandLineWrappedAcrossScreenRowsIsNotTypedAgain(t *testing.T) {
 	h := newHarness(t)
 	h.noAgent()
 	h.env["ORCA_LAUNCH_BOOT_SECONDS"] = "12"
-	h.reply("terminal read", screen("yasyf@mac ~/v3-lane-a-base> env CLAUDE_LONG_RUNN", "ING_LANE=lane-a claude --model claude-opus-5-5"))
+	h.reply("terminal read", onScreen("yasyf@mac ~/v3-lane-a-base> env CLAUDE_LONG_RUNN", "ING_LANE=lane-a claude --model claude-opus-5-5"))
 	line, code := h.launch()
 	if code != 1 || !strings.HasSuffix(line, "after 12s; rolled back terminal=term_a worktree="+h.worktree()+" branch="+testBranch) {
 		t.Fatal(line)

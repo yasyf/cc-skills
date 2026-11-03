@@ -260,37 +260,6 @@ func (d *Desk) reclaim(settled []laneDispatch) error {
 	return nil
 }
 
-func (d *Desk) agedHolds() error {
-	held, err := d.store.Actions(deskRunner, kindHold, incident.ActionAccepted)
-	if err != nil {
-		return err
-	}
-	moment := d.Now()
-	for _, action := range held {
-		overdue, err := action.Overdue(moment)
-		if err != nil {
-			return err
-		}
-		if !overdue {
-			continue
-		}
-		var target holdTarget
-		if err := json.Unmarshal([]byte(action.Target), &target); err != nil {
-			return err
-		}
-		accepted, err := store.Parse(action.AcceptedAt)
-		if err != nil {
-			return err
-		}
-		minutes := int(moment.Sub(accepted).Minutes())
-		line := fmt.Sprintf("DECIDE hold:%s %s: held %d min: %s | the root decides it now with %s, ahead of any open owner question on another subject", target.Slug, target.Owner, minutes, target.What, target.Owner)
-		if err := d.record("escalation:aged:"+action.ActionID, line); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 func (d *Desk) deadlines(ctx context.Context) error {
 	books, err := d.containers(lanePrefix)
 	if err != nil {
