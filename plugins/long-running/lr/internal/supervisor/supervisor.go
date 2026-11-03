@@ -38,6 +38,7 @@ type Deps struct {
 	Queue     landing.Queue
 	Restacker landing.Restacker
 	Trunk     string
+	Admit     func(ctx context.Context, acts []pass.Act, snapshot []machine.Facts) []pass.Act
 	Pool      grading.Pool
 	Shadow    *store.Store
 	Stale     func(ctx context.Context) (bool, error)
@@ -136,7 +137,11 @@ func runPass(ctx context.Context, s *store.Store, drive string, generation int64
 		if err := landing.CarryTaps(ctx, s, drive, out.Carried, now); err != nil {
 			d.Log.Warn("a tap did not carry", "err", err)
 		}
-		landed, err := landing.Act(ctx, s, d.Queue, d.Restacker, landing.Clear(out.Acts, snapshot, d.Trunk), now)
+		acts := landing.Clear(out.Acts, snapshot, d.Trunk)
+		if d.Admit != nil {
+			acts = d.Admit(ctx, acts, snapshot)
+		}
+		landed, err := landing.Act(ctx, s, d.Queue, d.Restacker, acts, now)
 		if err != nil {
 			d.Log.Warn("landing stopped mid-pass", "err", err)
 		}

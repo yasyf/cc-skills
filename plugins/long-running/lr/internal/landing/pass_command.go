@@ -91,7 +91,11 @@ func runPass(ctx context.Context, a *app.App, shadow bool, stdout io.Writer) err
 		return err
 	}
 	trunk := Trunk{Runner: a.Runner, Checkout: cfg.Checkout, Branch: cfg.Trunk, Script: cfg.QueueScript, KeyCommand: cfg.QueueKey}
-	done, err := Act(ctx, s, trunk, remote, Clear(out.Acts, snapshot, cfg.Trunk), now)
+	gates, err := NewGates(a, s, cfg, filepath.Join(dir, runnerFile))
+	if err != nil {
+		return err
+	}
+	done, err := Act(ctx, s, trunk, remote, gates.Admit(ctx, Clear(out.Acts, snapshot, cfg.Trunk), snapshot), now)
 	fmt.Fprintf(stdout, "%s landing enqueued=%d resubmitted=%d dequeued=%d restacked=%d conflicts=%d\n", store.Stamp(now), len(done.Enqueued), len(done.Resubmitted), len(done.Dequeued), len(done.Restacked), len(done.Conflicts))
 	if err != nil {
 		return fmt.Errorf("movers stopped mid-pass: %w", err)

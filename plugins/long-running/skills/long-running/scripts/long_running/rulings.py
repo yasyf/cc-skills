@@ -2560,6 +2560,8 @@ def check_pr(loaded: Register, args: argparse.Namespace, head: Head, findings: F
         if fields.get("kind") == "reserved" and key in facts["reserved"]:
             if findings.read(f"the authorizes:{key} answers", lambda key=key: authorized(loaded, head, key)) is False:
                 findings.refusals.append(f"RESERVED-NO-ANSWER {key}\t{first_sentence(fields.get('words') or '')}")
+    if args.reserved_only:
+        return
     findings.refusals += findings.read("the removed tests", lambda: removed_tests(loaded, head, findings, args.incident, loaded.plan(args.plan))) or []
     if args.incident:
         return
@@ -3011,6 +3013,7 @@ def build_parser(parser_type=argparse.ArgumentParser) -> argparse.ArgumentParser
     checked.add_argument("--head", required=True, metavar="SHA")
     checked.add_argument("--base", metavar="REF")
     checked.add_argument("--incident", action="store_true")
+    checked.add_argument("--reserved-only", action="store_true", help="read only the reserved rows, with no model call, for the supervisor's gate on the Mac")
     checked.add_argument("--plan", metavar="PATH")
     graded = verb("grade", cmd_grade, "write a head's fidelity grade, refusing ok while any added mechanism lacks a plan line or an owner row")
     graded.add_argument("--pr", required=True, metavar="[OWNER/NAME#]N")

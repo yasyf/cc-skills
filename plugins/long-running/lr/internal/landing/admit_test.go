@@ -1,0 +1,275 @@
+package landing_test
+
+import (
+	"context"
+	"encoding/json"
+	"io"
+	"log/slog"
+	"slices"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/landing"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/pass"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell/shelltest"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
+)
+
+const (
+	gateTool  = "/plugin/bin/rulings.py"
+	gateSHA   = "e718a7434fa01ee9835f992a9a647a825350732"
+	gateBase  = "aa11bb22cc33dd44ee55ff6677889900aabbccdd"
+	gateBuild = "https://buildkite.com/forge/test/builds/700"
+	baseBuild = "https://buildkite.com/forge/test/builds/600"
+	prView    = `{"title":"delete the old bucket","author":{"login":"lane"},"additions":3,"deletions":1,"reviewDecision":"APPROVED"}`
+)
+
+type rulingsTool struct {
+	*shelltest.Fake
+	refusals map[string]string
+	tapped   string
+	broken   bool
+	reads    int
+}
+
+func (r *rulingsTool) Run(ctx context.Context, c shell.Command) (shell.Result, error) {
+	if c.Argv[0] != gateTool {
+		return r.Fake.Run(ctx, c)
+	}
+	if r.broken {
+		return shell.Result{Code: 2}, &shell.ExitError{Argv: c.Argv, Code: 2}
+	}
+	if c.Argv[1] == "authorize" {
+		if !slices.Contains(c.Argv, r.tapped) {
+			return shell.Result{Code: 1}, &shell.ExitError{Argv: c.Argv, Code: 1}
+		}
+		clear(r.refusals)
+		return shell.Result{}, nil
+	}
+	r.reads++
+	line := r.refusals[c.Argv[slices.Index(c.Argv, "--pr")+1]]
+	if line == "" {
+		return shell.Result{}, nil
+	}
+	return shell.Result{Code: 1, Stdout: line + "\n"}, &shell.ExitError{Argv: c.Argv, Code: 1}
+}
+
+type gateFixture struct {
+	gates *landing.Gates
+	fake  *shelltest.Fake
+	tool  *rulingsTool
+	now   time.Time
+}
+
+func newGates(t *testing.T) *gateFixture {
+	t.Helper()
+	t.Setenv("CCI_HOME", t.TempDir())
+	s, err := store.Memory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	fake := &shelltest.Fake{}
+	tool := &rulingsTool{Fake: fake, refusals: map[string]string{}}
+	f := &gateFixture{fake: fake, tool: tool, now: t0}
+	f.gates = &landing.Gates{
+		Runner: tool, CCX: ccx.CLI{Runner: fake}, Store: s, Drive: "d", Repo: monorepo, Checkout: "/co", Rulings: gateTool,
+		Session: func() (string, error) { return "board-1", nil },
+		Now:     func() time.Time { return f.now },
+		Log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+	return f
+}
+
+func gateHead(number int) string {
+	return gateSHA + strconv.Itoa(number)
+}
+
+func enqueueAct(number int, branch, base string) pass.Act {
+	return pass.Act{
+		Facts:   machine.Facts{Repo: monorepo, Number: number, Head: gateHead(number), Branch: branch, Base: base, Lane: "lane-7"},
+		Verdict: machine.Verdict{Action: machine.ActionEnqueue},
+	}
+}
+
+func (f *gateFixture) admit(t *testing.T, acts []pass.Act, want ...int) {
+	t.Helper()
+	snapshot := make([]machine.Facts, 0, len(acts))
+	for _, act := range acts {
+		snapshot = append(snapshot, act.Facts)
+	}
+	got := make([]int, 0, len(acts))
+	for _, act := range f.gates.Admit(context.Background(), acts, snapshot) {
+		got = append(got, act.Facts.Number)
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("admitted %v, want %v", got, want)
+	}
+}
+
+func gateRecords(t *testing.T, kind string) []client.Record {
+	t.Helper()
+	records, err := client.Tail(context.Background(), client.Query{Drive: "d", Kinds: []string{kind}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return records
+}
+
+func TestAReservedRowHoldsItsStackOnOneCardAndMergeOnThatCardAdmitsIt(t *testing.T) {
+	f := newGates(t)
+	f.fake.Reply(prView, "ccx", "vcs", "gh", "--max-age", "5m", "--", "pr", "view")
+	f.tool.refusals[monorepo+"#1"] = "RESERVED-NO-ANSWER reserved/cloud-delete\tNo cloud deletion."
+	acts := []pass.Act{enqueueAct(2, "upper", "lower"), enqueueAct(1, "lower", "dev"), enqueueAct(3, "other", "dev")}
+
+	f.admit(t, acts, 3)
+
+	notes := gateRecords(t, "note")
+	if len(notes) != 1 {
+		t.Fatalf("notes = %+v", notes)
+	}
+	attrs := notes[0].Fields.Attrs
+	if notes[0].Lane != "supervisor" || notes[0].Topic != "board-write" || attrs["op"] != "ask" || attrs["session"] != "board-1" || attrs["waits"] != "merge:1:e718a74" {
+		t.Fatalf("board write = %+v", notes[0])
+	}
+	var card struct {
+		ID       string `json:"id"`
+		Title    string `json:"title"`
+		Children []struct {
+			ID      string `json:"id"`
+			MD      string `json:"md"`
+			Options []struct {
+				ID string `json:"id"`
+			} `json:"options"`
+		} `json:"children"`
+	}
+	if err := json.Unmarshal([]byte(attrs["card"]), &card); err != nil {
+		t.Fatal(err)
+	}
+	said := card.Children[0].MD
+	if card.ID != "merge:1:e718a74" || !strings.Contains(card.Title, "#1 ") || !strings.Contains(said, "No cloud deletion.") || !strings.Contains(said, "reserved/cloud-delete") || !strings.Contains(said, "delete the old bucket, by lane, +3") {
+		t.Fatalf("card = %+v", card)
+	}
+	answer := card.Children[2]
+	if answer.ID != "merge:1:e718a74-answer" || answer.Options[0].ID != "merge" {
+		t.Fatalf("answer block = %+v", answer)
+	}
+	reports := gateRecords(t, "report")
+	if len(reports) != 1 || !slices.Equal(reports[0].To, []string{"lane-7", "root"}) || !strings.Contains(reports[0].Text, "reserved/cloud-delete") || !strings.Contains(reports[0].Text, "merge:1:e718a74") {
+		t.Fatalf("reports = %+v", reports)
+	}
+	if got := gateRecords(t, "blocker"); len(got) != 0 {
+		t.Fatalf("a reserved row raised a blocker: %+v", got)
+	}
+
+	f.now = t0.Add(time.Minute)
+	reads := f.tool.reads
+	f.admit(t, acts, 3)
+	if f.tool.reads != reads {
+		t.Fatalf("read again inside the re-read window: %d, was %d", f.tool.reads, reads)
+	}
+
+	f.now = t0.Add(6 * time.Minute)
+	f.admit(t, acts, 3)
+	if got := gateRecords(t, "note"); len(got) != 1 {
+		t.Fatalf("the same card drew again: %+v", got)
+	}
+
+	f.tool.tapped = answer.ID
+	f.now = t0.Add(12 * time.Minute)
+	f.admit(t, acts, 2, 1, 3)
+}
+
+func TestACardThatCannotDrawTellsTheLaneAndRootAndStillHoldsTheHead(t *testing.T) {
+	f := newGates(t)
+	f.fake.Fail(1, "boom", "ccx", "vcs", "gh")
+	f.tool.refusals[monorepo+"#1"] = "RESERVED-NO-ANSWER reserved/cloud-delete\tNo cloud deletion."
+
+	f.admit(t, []pass.Act{enqueueAct(1, "one", "dev")})
+
+	reports := gateRecords(t, "report")
+	if len(reports) != 1 || !strings.Contains(reports[0].Text, "did not draw") {
+		t.Fatalf("reports = %+v", reports)
+	}
+	if got := gateRecords(t, "note"); len(got) != 0 {
+		t.Fatalf("notes = %+v", got)
+	}
+}
+
+func TestARulingsCheckThatDoesNotReadPassesTheHeadAndAClearOneIsNotReadAgain(t *testing.T) {
+	f := newGates(t)
+	acts := []pass.Act{enqueueAct(1, "one", "dev")}
+
+	f.tool.broken = true
+	f.admit(t, acts, 1)
+
+	f.tool.broken = false
+	f.admit(t, acts, 1)
+	f.admit(t, acts, 1)
+	if f.tool.reads != 1 {
+		t.Fatalf("reads = %d, want one read after the failed one and none once clear", f.tool.reads)
+	}
+}
+
+func statusOf(url string) string {
+	return `{"statuses":[{"state":"failure","target_url":"` + url + `"}]}`
+}
+
+func buildAnnotation(body string) string {
+	return `[{"context":"go-build-failed-sand-next-tests","body_html":"<ul><li><code>` + body + `</code></li></ul>"},{"context":"other","body_html":"<ul><li>not this</li></ul>"}]`
+}
+
+func buildGates(t *testing.T, files, atHead, atBase string) *gateFixture {
+	t.Helper()
+	f := newGates(t)
+	f.gates.Build = landing.BuildFailures{Tree: "go/sand/next/", Context: "go-build-failed-sand-next-tests", Annotations: "tools/ci bk api /pipelines/{pipeline}/builds/{number}/annotations"}
+	gh := []string{"ccx", "vcs", "gh", "--max-age", "5m", "--", "api"}
+	f.fake.Reply(files, append(slices.Clone(gh), "--paginate")...)
+	f.fake.Reply(statusOf(gateBuild), append(slices.Clone(gh), "repos/"+monorepo+"/commits/"+gateHead(1)+"/status")...)
+	f.fake.Reply(statusOf(baseBuild), append(slices.Clone(gh), "repos/"+monorepo+"/commits/"+gateBase+"/status")...)
+	f.fake.Reply(atHead, ciTool, "bk", "api", "/pipelines/test/builds/700/annotations")
+	f.fake.Reply(atBase, ciTool, "bk", "api", "/pipelines/test/builds/600/annotations")
+	f.fake.Reply("", "git", "-C", "/co", "cat-file")
+	f.fake.Reply(gateBase+"\n", "git", "-C", "/co", "merge-base")
+	return f
+}
+
+func TestABuildBreakInTheSoftFailedTreeStaysOutOfTheQueue(t *testing.T) {
+	f := buildGates(t, "go/sand/next/run.go\n", buildAnnotation("go/sand/next/run undefined: Foo"), `[]`)
+
+	f.admit(t, []pass.Act{enqueueAct(1, "one", "dev")})
+
+	got := gateRecords(t, "blocker")
+	if len(got) != 1 || !strings.HasPrefix(got[0].Text, "BUILD-FAILED #1: go/sand/next/run fails to build at e718a7434f on "+gateBuild+": undefined: Foo") || !slices.Equal(got[0].To, []string{"lane-7", "root"}) {
+		t.Fatalf("blockers = %+v", got)
+	}
+}
+
+func TestABuildBreakItsBaseAlsoHasIsInherited(t *testing.T) {
+	broken := buildAnnotation("go/sand/next/run undefined: Foo")
+	f := buildGates(t, "go/sand/next/run.go\n", broken, broken)
+
+	f.admit(t, []pass.Act{enqueueAct(1, "one", "dev")}, 1)
+
+	if got := gateRecords(t, "blocker"); len(got) != 0 {
+		t.Fatalf("blockers = %+v", got)
+	}
+}
+
+func TestAHeadOutsideTheTreeReadsNoBuild(t *testing.T) {
+	f := buildGates(t, "api/src/index.ts\n", buildAnnotation("go/sand/next/run undefined: Foo"), `[]`)
+
+	f.admit(t, []pass.Act{enqueueAct(1, "one", "dev")}, 1)
+
+	for _, call := range f.fake.Calls() {
+		if strings.Contains(strings.Join(call.Argv, " "), "annotations") {
+			t.Fatalf("read a build for a head outside the tree: %v", call.Argv)
+		}
+	}
+}
