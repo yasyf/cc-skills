@@ -3,12 +3,17 @@ from __future__ import annotations
 import re
 import time
 from itertools import pairwise
+from collections.abc import Sequence
 from pathlib import Path
+
+from spawnllm import Binary, BinaryAnswer, Refused
 
 from captain_hook import Allow, AssistantMessage, BaseHookEvent, Block, Event, FromSubagent, HookResult, Input, T, Warn, WorkflowState, on, workflow_state
 
 from .compaction_handoff import Communicator, communicator_tests, CompactionState, drive_entry
+from .register_capture import slack_dms
 from .root_context import OwnerPrompt
+from .root_replies import SYSTEM_PREFIXES, owner_text
 from .tests.register_fixtures import DRIVE_CONFIG
 
 RETURN_GAP_SECONDS = 60 * 60
@@ -27,6 +32,22 @@ SLACK_TS = re.compile(r"\bts\W{1,4}\d{10}\.\d{6}")
 BOARD_VERBS = frozenset({"push", "update-block", "ask"})
 INLINE_PICK = "A pick for the owner never sits inline in this window. Post the options at his Slack DM root with `slack_send`, or draw them as a board card with `cc-present push` or `cc-present update-block`, then stop again."
 PICK = "Two ways to fix the relay:\n\nA) Keep one shared replica\nB) Give each chat its own\n\nWhich do you want?"
+REMINDER = Binary(
+    "The owner's words this turn are below; his typos are his, so read through them."
+    " Yes when he reminds the assistant of something it should already have done, repeats an instruction or ruling he gave before, or corrects how it works: something missed, forgotten, still happening, done wrong or not followed."
+    " No for a new request, a question, an answer to a question, a pick, an approval or thanks that points at nothing the assistant failed to do."
+)
+UNROUTED_REMINDER = (
+    "Every owner reminder or correction spawns a meta tooling lane that makes the behaviour automatic."
+    " Before stopping, forward his words verbatim with their time as `cci post --lane owner-relay --kind ask --to meta`, or launch the lane with `lr launch`."
+)
+CALM = {"reminder": BinaryAnswer(p_yes=0.02, confidence=0.95)}
+REMINDED = {"reminder": BinaryAnswer(p_yes=0.97, confidence=0.94)}
+HIS_1_34_AM = (
+    "every tjme i need to remknd you to do skemtjjng, hou need to spawn a meta tooling lane foe thay (includkng tbis)."
+    " uou did tjay for the ildate after being away a long tome, so good job, but make sure thay is durable behavior not just this session."
+)
+FORWARDED = "cci post --lane owner-relay --kind ask --to meta-desk-1 --text '1:34 AM, verbatim: every tjme i need to remknd you'"
 SENT = '{"ok": true, "channel": "D0B6Z", "ts": "1793635190.051179"}'
 
 
@@ -41,7 +62,7 @@ def away(minutes: float) -> list:
 
 
 def back(reply: str, returned: bool = True) -> Input:
-    return Input(transcript=[T.user("where are we"), T.assistant(reply)], state=[CompactionState(active=True), OwnerReturns(returned=returned)])
+    return Input(transcript=[T.user("where are we"), T.assistant(reply)], state=[CompactionState(active=True), OwnerReturns(returned=returned)], decide=CALM)
 
 
 @on(
@@ -68,7 +89,11 @@ def owner_return_opens_with_the_update(evt: BaseHookEvent) -> HookResult | None:
 
 
 def picked(*calls: dict) -> Input:
-    return Input(transcript=[T.user("how do we fix the relay"), *calls, T.assistant(PICK)], state=[CompactionState(active=True)])
+    return Input(transcript=[T.user("how do we fix the relay"), *calls, T.assistant(PICK)], state=[CompactionState(active=True)], decide=CALM)
+
+
+def reminded(*calls: dict, decide: dict = REMINDED) -> Input:
+    return Input(transcript=[T.user(HIS_1_34_AM), *calls, T.assistant("On it.")], state=[CompactionState(active=True)], decide=decide)
 
 
 @on(
@@ -80,16 +105,24 @@ def picked(*calls: dict) -> Input:
         picked(*T.tool_turn("mcp__plugin_cc-slack_cc-slack__slack_send", result=SENT, channel_id="D0B6Z", text=PICK)): Allow(),
         picked(*T.tool_turn("mcp__plugin_cc-slack_cc-slack__slack_send", result="channel_not_found", is_error=True, channel_id="D0B6Z", text=PICK)): Block(pattern=r"never sits inline"),
         picked(*T.tool_turn("Bash", result="updated relay-card", command="cc-present update-block relay-card --session s --block -")): Allow(),
-        Input(transcript=[T.user("where are we"), T.assistant("Three things landed:\n\n1. The relay fix merged.\n2. The dashboard shows step 2.\n3. CI is green on main.")], state=[CompactionState(active=True)]): Allow(),
+        Input(transcript=[T.user("where are we"), T.assistant("Three things landed:\n\n1. The relay fix merged.\n2. The dashboard shows step 2.\n3. CI is green on main.")], state=[CompactionState(active=True)], decide=CALM): Allow(),
         back("Since you were away, three PRs merged.\n\n" + UPDATE): Block(pattern=r"lacks the dashboard link on its first line\."),
         back("http://dash.brook.ts.net:8840/\n\nThree PRs merged while you were away."): Block(pattern=r"lacks the owner table under a feature heading\."),
         back(UPDATE): Allow(),
         back("Since you were away, three PRs merged.", returned=False): Allow(),
+        reminded(): Block(pattern=r"^Every owner reminder or correction spawns a meta tooling lane.*--to meta"),
+        reminded(*T.tool_turn("Bash", result="#1", command="cci post --lane owner-relay --kind go --to meta-desk-1 --text x")): Block(pattern=r"meta tooling lane"),
+        reminded(*T.tool_turn("Bash", result="#1", command=FORWARDED)): Allow(),
+        reminded(*T.tool_turn("Bash", result="#1", command="cci post --lane owner-relay --kind=ask --to=root,meta --text x")): Allow(),
+        reminded(*T.tool_turn("Bash", result="R1", command="lr launch meta /drive/meta/brief.md")): Allow(),
+        reminded(*T.tool_turn("Bash", result="R1", command="bash ~/.claude/long-running/current/bin/orca-launch.sh /drive/fix-3 brief.md")): Allow(),
+        reminded(decide=CALM): Allow(),
+        reminded(decide={"reminder": Refused()}): Allow(),
     }),
 )
 def communicator_reply_follows_the_owner_rules(evt: BaseHookEvent) -> HookResult | None:
     reply = AssistantMessage().content(evt) or ""
-    problems = [problem for problem in (missing_update(evt, reply), inline_pick(evt, reply)) if problem]
+    problems = [problem for problem in (missing_update(evt, reply), inline_pick(evt, reply), unrouted_reminder(evt)) if problem]
     return evt.block(" ".join(problems)) if problems else None
 
 
@@ -122,3 +155,29 @@ def drawn(argv: list[str], result: str) -> bool:
         case "cci", "post":
             return any(flag == "--attr" and value.startswith("card=") and value != "card=" for flag, value in pairwise(argv))
     return False
+
+
+def unrouted_reminder(evt: BaseHookEvent) -> str | None:
+    if any(routes_to_meta(cmd.argv) for use in evt.ctx.turn.tool_calls.named("Bash").items for cmd in use.call.command_line if cmd.argv) or not (words := owner_words(evt)):
+        return None
+    match (decision := evt.decide(words, {"reminder": REMINDER})) and decision.answers["reminder"]:
+        case BinaryAnswer(p_yes=p_yes) if p_yes > 0.5:
+            return UNROUTED_REMINDER
+    return None
+
+
+def owner_words(evt: BaseHookEvent) -> str:
+    events = list(evt.ctx.turn.events)
+    typed = [text for event in events if (text := owner_text(event)) and not text.lstrip().startswith(SYSTEM_PREFIXES)]
+    return "\n\n".join([*typed, *(dm["text"] for dm in slack_dms(evt, events))])
+
+
+def routes_to_meta(argv: Sequence[str]) -> bool:
+    names = [Path(word).name for word in argv]
+    if "orca-launch.sh" in names or ("lr" in names and names[names.index("lr") + 1 : names.index("lr") + 2] == ["launch"]):
+        return True
+    return names[0] == "cci" and "post" in argv and "ask" in values(argv, "--kind") and any(to.startswith("meta") for value in values(argv, "--to") for to in value.split(","))
+
+
+def values(argv: Sequence[str], flag: str) -> list[str]:
+    return [after for word, after in pairwise(argv) if word == flag] + [word.removeprefix(f"{flag}=") for word in argv if word.startswith(f"{flag}=")]
