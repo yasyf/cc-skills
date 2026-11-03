@@ -26,10 +26,11 @@ const (
 )
 
 var (
-	buildLink   = regexp.MustCompile(`buildkite\.com/[\w.-]+/[\w.-]+/builds/\d+`)
-	buildFailed = []string{"failing", "failed"}
-	buildClosed = []string{"passed", "canceled", "canceling", "skipped", "not_run"}
-	jobFailed   = []string{"failed", "timed_out"}
+	buildLink    = regexp.MustCompile(`buildkite\.com/[\w.-]+/[\w.-]+/builds/\d+`)
+	buildSession = regexp.MustCompile(`via Claude session ([0-9a-f-]+)`)
+	buildFailed  = []string{"failing", "failed"}
+	buildClosed  = []string{"passed", "canceled", "canceling", "skipped", "not_run"}
+	jobFailed    = []string{"failed", "timed_out"}
 )
 
 type ReleaseBuilds struct {
@@ -51,6 +52,7 @@ type releaseBuild struct {
 	URL       string    `json:"web_url"`
 	Branch    string    `json:"branch"`
 	Source    string    `json:"source"`
+	Message   string    `json:"message"`
 	Creator   *struct{} `json:"creator"`
 	StartedAt time.Time `json:"started_at"`
 	Env       struct {
@@ -81,11 +83,19 @@ func (r *ReleaseBuilds) Check(ctx context.Context, now time.Time) error {
 		r.Log.Warn("release builds did not read Buildkite", "err", err)
 		return nil
 	}
+	peers, err := r.Env.Bus.Who(ctx, r.Env.Config.Drive)
+	if err != nil {
+		r.Log.Warn("release builds did not read the drive's sessions", "err", err)
+		return nil
+	}
 	release, err := r.releaseLane()
 	if err != nil {
 		return err
 	}
 	for _, build := range builds {
+		if _, named := r.named[buildLink.FindString(build.URL)]; !named && build.startedOutside(peers) {
+			continue
+		}
 		if err := r.tend(ctx, build, builds, release, now); err != nil {
 			return err
 		}
@@ -187,6 +197,11 @@ func (r *ReleaseBuilds) tend(ctx context.Context, build releaseBuild, builds []r
 		}
 	}
 	return nil
+}
+
+func (b releaseBuild) startedOutside(peers []client.Peer) bool {
+	started := buildSession.FindStringSubmatch(b.Message)
+	return started != nil && !slices.ContainsFunc(peers, func(peer client.Peer) bool { return peer.Session == started[1] })
 }
 
 func (b releaseBuild) automatic() bool {
