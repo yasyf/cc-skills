@@ -2,6 +2,7 @@ import re
 
 SCREENS = ("now", "plan", "status", "work", "review", "history", "asks")
 RECORDS_PER_ROW = 5
+RECORD_TEXT = 280
 HISTORY_ROWS = 200
 PLAN_STATUS = {"done": "done", "live": "done", "doing": "doing", "you": "needs_you", "stuck": "stuck", "waiting": "waiting", "later": "later"}
 TONE_STATUS = {"ok": "done", "acc": "doing", "you": "needs_you", "bad": "stuck", "waiting": "waiting", "": "later"}
@@ -22,7 +23,8 @@ def by_lane(view):
 
 def lane_records(lanes, names):
     found = [record for name in names for record in lanes.get(re.sub(r"-\d+$", "", name), [])[-RECORDS_PER_ROW:]]
-    return [{key: record.get(key) for key in ("seq", "kind", "lane", "text", "at")} for record in sorted(found, key=lambda r: r["seq"])[-RECORDS_PER_ROW:]]
+    newest = sorted(found, key=lambda r: r["seq"])[-RECORDS_PER_ROW:]
+    return [{**{key: record.get(key) for key in ("seq", "kind", "lane", "at")}, "text": record["text"][:RECORD_TEXT]} for record in newest]
 
 
 def now_screen(view, _ledger):
