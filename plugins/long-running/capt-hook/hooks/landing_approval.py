@@ -17,7 +17,8 @@ hook(
     message="Only the owner changes who approves landings. Put the proposed change to him as an ask on the board, and leave the merge mode as it is.",
     tests={
         Input(command="cci post --drive d --lane root --kind decide --to desk-runner --text 'merge mode auto: land every green PR'", state=ACTIVE, decide=CONFIRMED): Block(pattern=r"^Only the owner changes who approves landings"),
-        Input(tool="Write", tool_input={"file_path": "/drive/lane-9/brief.md", "content": "PRs land on green; no owner tap needed."}, state=ACTIVE, decide=CONFIRMED): Block(),
+        Input(tool="Write", file="/drive/lane-9/brief.md", content="PRs land on green; no owner tap needed.", state=ACTIVE, decide=CONFIRMED): Block(),
+        Input(tool="Write", file="/drive/lane-9/notes.md", content="PRs land on green; no owner tap needed.", state=ACTIVE, decide=CONFIRMED): Allow(),
         Input(command="cci post --drive d --lane root --kind decide --to desk-runner --text 'merge mode is unchanged: every PR to the owner'", state=ACTIVE, decide=UNCONFIRMED): Allow(),
         Input(command="cci post --drive d --lane root --kind go --text 'go #9 at e718a74 [exempt: test-only]'", state=ACTIVE): Allow(),
         Input(command="cci post --drive d --lane root --kind decide --text 'merge mode auto'", state=ACTIVE, agent_id="a1b2c3"): Allow(),
