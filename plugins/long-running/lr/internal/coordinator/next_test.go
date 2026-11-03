@@ -100,6 +100,38 @@ func TestALineNamesWhatTheCoordinatorActsOn(t *testing.T) {
 	}
 }
 
+func withBody(t *testing.T, text, body string) record {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "body.txt")
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r := at(9, "lane-a", "ask")
+	r.Text, r.Refs.Path = text, path
+	return r
+}
+
+func TestABatchPrintsAClippedRecordWholeSoNoReadFollows(t *testing.T) {
+	whole := "9:05 PM the whole question, past the point the bus cut it"
+	if got := withBody(t, "9:05 PM the whole question…", whole+"\n").whole(); got != whole {
+		t.Fatalf("got %q, want the blob in place of the clipped text", got)
+	}
+}
+
+func TestABatchPrintsAShortDocumentBesideItsSummary(t *testing.T) {
+	if got := withBody(t, "plan attached", "step one").whole(); got != "plan attached\nstep one" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestALongBodyStaysAPointerSoItCostsNoContext(t *testing.T) {
+	r := withBody(t, "plan attached", strings.Repeat("x", bodyShown+1))
+	got := r.whole()
+	if strings.Contains(got, "xxx") || !strings.Contains(got, r.Refs.Path) || !strings.Contains(got, "4001 bytes") {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func stubWatch(t *testing.T, rs ...record) string {
 	t.Helper()
 	dir := t.TempDir()

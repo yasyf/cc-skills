@@ -24,6 +24,8 @@ const (
 	settle       = 2 * time.Second
 	killGrace    = 5 * time.Second
 	maxRecord    = 16 << 20
+	bodyShown    = 4000
+	cutMark      = "…"
 	stallWatch   = "stall-watch"
 )
 
@@ -251,14 +253,29 @@ func (l line) render() string {
 	if others := l.alsoTo(); len(others) > 0 {
 		fmt.Fprintf(&out, " -> %s", strings.Join(others, ","))
 	}
-	fmt.Fprintf(&out, ": %s", l.Text)
-	if l.Refs.Path != "" {
-		fmt.Fprintf(&out, " (body %s)", l.Refs.Path)
-	}
+	fmt.Fprintf(&out, ": %s", l.whole())
 	if l.seen > 1 {
 		fmt.Fprintf(&out, " (seen %d times)", l.seen)
 	}
 	return out.String()
+}
+
+func (r record) whole() string {
+	if r.Refs.Path == "" {
+		return r.Text
+	}
+	raw, err := os.ReadFile(r.Refs.Path)
+	if err != nil {
+		return fmt.Sprintf("%s (body %s)", r.Text, r.Refs.Path)
+	}
+	if len(raw) > bodyShown {
+		return fmt.Sprintf("%s (body %s, %d bytes)", r.Text, r.Refs.Path, len(raw))
+	}
+	body := strings.TrimSpace(string(raw))
+	if strings.HasPrefix(body, strings.TrimSuffix(r.Text, cutMark)) {
+		return body
+	}
+	return r.Text + "\n" + body
 }
 
 func (r record) alsoTo() []string {
