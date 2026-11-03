@@ -129,6 +129,7 @@ from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
 from functools import cache, cached_property, partial
+from itertools import accumulate
 from pathlib import Path
 from typing import TextIO
 
@@ -139,6 +140,7 @@ from . import register_reads
 from .register_reads import BINDING_DIRECTIONS, LEDGER_REFS, NOT_RULINGS, SLICE_LINE, UNANCHORED, binding, digest, hashed, kept_copy, listed, rendered_row, row_anchors, row_heading, section, write_atomic
 from .ruling_documents import DocumentIndex, readable
 
+from . import answer_search
 from . import board_rows
 from . import cci
 from . import drive
@@ -191,13 +193,14 @@ PROOF_SOURCE = re.compile(r"^proof:([\w-]+):")
 CONFIRMS_OPTIONS = ["Yes", "No"]
 PRODUCT_NOUNS = ("chat", "Mac", "cloud", "share link", "pod", "API", "SandSQL", "journal", "attachment", "update", "team", "project")
 UNCONFIRMED_AFTER = timedelta(hours=4)
-SLICE_HEADER = re.compile(r"^Register slice: lane=(?P<lane>\S+) step=(?P<step>\S+)(?: paths=(?P<paths>\S+))?(?: prs=(?P<prs>\S+))?(?P<codex> codex=yes)?[ \t]*$", re.MULTILINE)
+SLICE_HEADER = re.compile(r"^Register slice: lane=(?P<lane>\S+) step=(?P<step>\S+)(?: topics=(?P<topics>\S+))?(?: paths=(?P<paths>\S+))?(?: prs=(?P<prs>\S+))?(?P<codex> codex=yes)?[ \t]*$", re.MULTILINE)
 PR_FIELDS = ("words", "repeats", "names", "implications", "protects", "not_when", "evidence", "shape_tests")
 SLICE_HASH = re.compile(r"^slice-hash: (?P<hash>[0-9a-f]{12})$", re.MULTILINE)
 SLICED_ROW = re.compile(r"^### (\S+) \|", re.MULTILINE)
 INCIDENT_STEP = "incident"
 SLICE_CAP = 40_000
 SLICE_TAIL = 1_000
+ANSWERS_CAP = 16_000
 REPEAT_MARKERS = re.compile(
     r"\bi\b\W+(?:\w+\W+){0,2}?t[oi]ld you\b|\bi have said this\b|\bhow many times\b|\bwhy are you ignoring\b|\bwe already said\b",
     re.IGNORECASE,
@@ -347,6 +350,10 @@ class RequestParser(argparse.ArgumentParser):
 
 def ccn(shell: ledger.Shell, repo: str, *args: str) -> object:
     return register_reads.ccn(shell.run, repo, *args)
+
+
+def ccn_text(shell: ledger.Shell, repo: str, argv: list[str]) -> str:
+    return shell.run(["ccn", "-R", repo, *argv])
 
 
 def entry_of(args: argparse.Namespace) -> dict | None:
@@ -828,9 +835,12 @@ class Want:
     paths: list[str]
     codex: bool
     prs: list[str] = field(default_factory=list)
+    topics: list[str] = field(default_factory=list)
 
     def header(self) -> str:
         line = f"{SLICE_LINE} lane={self.lane} step={self.step}"
+        if self.topics:
+            line += f" topics={','.join(self.topics)}"
         if self.paths:
             line += f" paths={','.join(self.paths)}"
         if self.prs:
@@ -860,7 +870,7 @@ class Want:
 
     @classmethod
     def parse(cls, header: re.Match[str]) -> Want:
-        return cls(header["lane"], header["step"], [pattern for pattern in (header["paths"] or "").split(",") if pattern], bool(header["codex"]), [key for key in (header["prs"] or "").split(",") if key])
+        return cls(header["lane"], header["step"], [pattern for pattern in (header["paths"] or "").split(",") if pattern], bool(header["codex"]), [key for key in (header["prs"] or "").split(",") if key], [topic for topic in (header["topics"] or "").split(",") if topic])
 
 
 def write_in_first(item: tuple[str, dict[str, str]]) -> tuple[bool, str]:
@@ -909,7 +919,7 @@ class Selection:
 
     @classmethod
     def of(cls, loaded: Register, want: Want, plan_lines: list[str]) -> Selection:
-        want = Want(want.lane, want.step, want.paths, want.codex, sorted({*want.prs, *loaded.lane_prs(want.lane)}, key=ledger.pr_order))
+        want = Want(want.lane, want.step, want.paths, want.codex, sorted({*want.prs, *loaded.lane_prs(want.lane)}, key=ledger.pr_order), want.topics)
         bounds = None if want.step == INCIDENT_STEP else step_bounds(plan_lines, want.step)
         return cls(want, bounds, "\n".join(plan_lines[bounds[0] : bounds[1]]) if bounds else "")
 
@@ -928,6 +938,17 @@ def lane_slice(loaded: Register, want: Want, plan: Path | None) -> str:
         want.header(),
         f"Program {loaded.program}, register ledger {loaded.ledger[:12]}. Every row is the owner's words, verbatim: the rows naming this lane, its step or its paths, then those whose Names or Surfaces its plan step mentions, up to {SLICE_CAP // 1000} KB.",
     ])
+    tail = []
+    out.add(["", "## Step one: his answers on this lane's topics and paths"])
+    if searches := answer_search.commands(want.topics, want.paths):
+        found = answer_search.hits(partial(ccn_text, loaded.shell, loaded.repo), want.topics, want.paths, branch_of(loaded.shell, loaded.repo) if want.paths else "")
+        blocks = [rendered(answer) for answer in found]
+        kept = sum(size <= ANSWERS_CAP for size in accumulate(len(block.encode()) for block in blocks))
+        out.add([f"Run these again before any ask, decide with options, or PR, and build to what they return. At launch they found {len(found)}:", *(f"`{command}`" for command in searches), *(line for block in blocks[:kept] for line in block.splitlines())])
+        if kept < len(found):
+            tail.append(f"{len(found) - kept} more answers pass the {ANSWERS_CAP // 1000} KB answer cap; run the step-one commands for them.")
+    else:
+        out.add(["This brief names no `topics=` or `paths=`, so the launch searched nothing. Run `ccn answer search <topic>` for each subject you decide on before any ask, decide with options, or PR."])
     if want.codex and doc:
         out.add(["", "## Standing rules", doc["body"].rstrip()])
     picks = sorted((key for key in ranks if rulings[key].get("kind") == "pick"), key=lambda key: write_in_first((key, rulings[key])))
@@ -936,8 +957,7 @@ def lane_slice(loaded: Register, want: Want, plan: Path | None) -> str:
     for title, keys in ((f"Rows matched for lane {want.lane} and step {want.step}", rows), (f"Board answers for step {want.step}, write-ins first", picks)):
         out.add(["", f"## {title}"])
         carried += sum(out.add(["", *rendered_row(key, rulings[key])]) for key in keys)
-    where = f"`ccn doc show {doc['id'][:7]}`" if doc else f"`ccn ledger show {loaded.ledger[:12]}`"
-    tail = [f"The register's other {len(rulings) - carried} rows match nothing of this lane or pass the {SLICE_CAP // 1000} KB cap; read them with {where}."]
+    tail.append(f"The register's other {len(rulings) - carried} rows match nothing of this lane or pass the {SLICE_CAP // 1000} KB cap; read them with `ccn ledger show {loaded.ledger[:12]}`.")
     if want.step == INCIDENT_STEP:
         done = set(loaded.classified())
         pending = [capture for item, capture in judge.captures(loaded.state).items() if item not in done]
@@ -1109,6 +1129,12 @@ def refresh(loaded: Register, brief: Path, plan: Path | None) -> str:
         return f"fresh {brief} slice-hash {new}"
     write_atomic(brief, text[: header.start()] + fresh.rstrip("\n") + text[end:])
     return f"refreshed {brief} slice-hash {old or 'none'} -> {new}"
+
+
+def cmd_answers(args: argparse.Namespace, shell: ledger.Shell) -> int:
+    found = answer_search.hits(partial(ccn_text, shell, register_repo(args)), args.topics, args.paths, args.base or "")
+    args.stdout.write(json.dumps(found) + "\n" if args.json else "".join(map(rendered, found)))
+    return 0
 
 
 def cmd_register(args: argparse.Namespace, shell: ledger.Shell) -> int:
@@ -1809,7 +1835,7 @@ def cmd_slice(args: argparse.Namespace, shell: ledger.Shell) -> int:
     else:
         if not (args.lane and args.step):
             raise SystemExit("slice needs --lane and --step, --root, --refresh BRIEF, or --required")
-        args.stdout.write(lane_slice(loaded, Want(args.lane, args.step, args.paths, args.codex, args.prs), plan_path(args, loaded)))
+        args.stdout.write(lane_slice(loaded, Want(args.lane, args.step, args.paths, args.codex, args.prs, args.topics), plan_path(args, loaded)))
     return 0
 
 
@@ -3027,6 +3053,7 @@ def build_parser(parser_type=argparse.ArgumentParser) -> argparse.ArgumentParser
     sliced.add_argument("--lane")
     sliced.add_argument("--step")
     sliced.add_argument("--paths", action="append", default=[], metavar="GLOB")
+    sliced.add_argument("--topics", action="append", default=[], metavar="TOPIC", help="a subject the lane decides on; its `ccn answer search` hits open the slice")
     sliced.add_argument("--prs", action="append", default=[], metavar="[OWNER/NAME#]N", help="a PR the lane owns beyond the open ones the drive's ledger gives it; rows naming it join the slice")
     sliced.add_argument("--codex", action="store_true")
     sliced.add_argument("--root", action="store_true")
@@ -3038,6 +3065,11 @@ def build_parser(parser_type=argparse.ArgumentParser) -> argparse.ArgumentParser
     sliced.add_argument("--base", metavar="REF")
     sliced.add_argument("--plan", metavar="PATH")
     verb("plan", cmd_plan, "print the plan path the register names, or nothing")
+    answers = verb("answers", cmd_answers, "print his answers on these topics and paths, newest first: the search a brief's step one, fidelity's rows and a card draw share")
+    answers.add_argument("--topics", action="append", default=[], metavar="TOPIC")
+    answers.add_argument("--paths", action="append", default=[], metavar="GLOB")
+    answers.add_argument("--base", metavar="REF", help="the branch `ccn relevant` measures against")
+    answers.add_argument("--json", action="store_true")
     swept_verb = verb("sweep", cmd_sweep, "grep every scope row's names, or one row's, and print each hit as open, deleted or authorized")
     swept_verb.add_argument("key", nargs="?")
     swept_verb.add_argument("--artifact", action="append", default=[], metavar="PATH")

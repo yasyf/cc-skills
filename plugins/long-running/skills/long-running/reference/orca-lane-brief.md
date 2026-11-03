@@ -114,8 +114,8 @@ Design questions: settle each from this brief, the standing rules register, and 
   an answer to another lane, names only the lanes that act on it.
 Do:
   0. Before designing, name what already grades or handles this signal: monitors,
-     the release's Watch, open owner tasks and picks (`ccn task list`,
-     `ccn answer search`). If one covers it, route through it or delete the
+     the release's Watch, open owner tasks and picks (`ccn task list`, and the
+     `ccn answer search` and `ccn relevant` hits under the slice's step one). If one covers it, route through it or delete the
      duplicate. Building alongside it is a return-early-with-options case.
   0a. For a bug fix, before any code: (a) name which tree ran the failing path, old
      tree or next, from the run's own record (its build, binary version or pod image),
