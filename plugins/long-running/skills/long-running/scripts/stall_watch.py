@@ -224,6 +224,7 @@ from __future__ import annotations
 
 import argparse
 import fcntl
+import hashlib
 import json
 import os
 import re
@@ -729,6 +730,18 @@ class Pass:
         self.customer_seq: int | None = None
         self.spawned: dict[str, str] = {}
         self.lanes: Registry | None = None
+        self.registry_read = ""
+        self.dry_run = False
+
+    def registry_failed(self, why: str) -> None:
+        """Post one `defect` record to root per cause of a failed registry read, keyed by that cause, saying the pass runs on its last good read."""
+        text = f"DEFECT stall-watch: the lane registry did not read ({why}), so this pass and each one after it runs on the last good read until it does"
+        if self.dry_run:
+            print(text)
+            return
+        done = self.shell.run(["cci", "post", "--drive", self.watch.drive, "--lane", LANE, "--kind", "defect", "--to", ROOT, "--topic", "registry-read", "--id", f"registry-read:{hashlib.sha1(why.encode()).hexdigest()[:12]}", "--text", text])
+        if done.code:
+            print(f"cci post exited {done.code} for registry-read: {(done.err or done.out).strip()[:300]}", file=sys.stderr)
 
     def tail(self, argv: list[str]) -> str:
         done = self.shell.run(argv)
@@ -737,12 +750,16 @@ class Pass:
         return done.out
 
     def registry(self) -> Registry:
-        """The lane supervisor's registry, `drive_supervisor.py lanes --json` over the `landing.supervisor` config, read once a pass: which names are one worker's lineage and where each lane's mail goes."""
+        """The lane supervisor's registry, the installed version's `drive_supervisor.py lanes --json` over the `landing.supervisor` config, read once a pass: which names are one worker's lineage and where each lane's mail goes. A read that fails falls back to the pass's last good read, kept in the state file, with one `defect` record to root per cause, so a broken supervisor never stops the stall alarms (root #343297); with no good read kept, the pass fails."""
         if self.lanes is None:
-            done = self.shell.run([sys.executable, str(SCRIPTS / "drive_supervisor.py"), "lanes", "--config", str(Path(self.watch.landing["supervisor"]).expanduser()), "--json"])
-            if done.code:
+            done = self.shell.run([sys.executable, str(drive.installed_script("drive_supervisor.py")), "lanes", "--config", str(Path(self.watch.landing["supervisor"]).expanduser()), "--json"])
+            if done.code == 0:
+                self.registry_read = done.out
+            elif not self.registry_read:
                 raise ReadFailed(f"drive_supervisor.py lanes exited {done.code}: {(done.err or done.out).strip()[:300]}")
-            self.lanes = Registry.parse(done.out)
+            else:
+                self.registry_failed(f"drive_supervisor.py lanes exited {done.code}: {(done.err or done.out).strip().splitlines()[-1][:300] if (done.err or done.out).strip() else 'no output'}")
+            self.lanes = Registry.parse(self.registry_read)
         return self.lanes
 
     def live_lane(self, lane: str) -> str | None:
@@ -770,6 +787,8 @@ class Pass:
     def run(self, dry_run: bool) -> int:
         saved = json.loads(self.watch.state.read_text()) if self.watch.state.is_file() else {"open": {}, "verdicts": {}}
         self.probe_day = saved.get("probe_day", "")
+        self.registry_read = saved.get("registry", "")
+        self.dry_run = dry_run
         records = [record for record in cci.records(self.tail, self.watch.drive, since=actions.stamp(self.now - self.watch.window)) if record["drive"] == self.watch.drive]
         self.lane_newest = {record["lane"]: record for record in records}
         self.resolved = {seq for record in records for seq in cci.resolved(record)}
@@ -848,7 +867,7 @@ class Pass:
                 told |= dict.fromkeys(fresh, actions.stamp(self.now))
         if not dry_run:
             staged = self.watch.state.with_name(f".{STATE}")
-            staged.write_text(json.dumps({"open": kept, "last": last, "verdicts": verdicts, "states": self.states, "told": told, "probe_day": self.probe_day, "customer_seq": self.customer_seq, "spawned": self.spawned}, indent=1) + "\n")
+            staged.write_text(json.dumps({"open": kept, "last": last, "verdicts": verdicts, "states": self.states, "told": told, "probe_day": self.probe_day, "customer_seq": self.customer_seq, "spawned": self.spawned, "registry": self.registry_read}, indent=1) + "\n")
             staged.replace(self.watch.state)
             if self.stack is not None:
                 stack = self.watch.state.with_name(drive.STACK)

@@ -75,6 +75,8 @@ class FakeShell(stall_watch.Shell):
         self.slices: list[list[str]] = []
         self.slice_code = 0
         self.registry_rows: list[dict] = []
+        self.registry_code = 0
+        self.supervisor_calls: list[list[str]] = []
         self.successions: dict[str, str] = {}
         self.ledgers: dict[str, list[dict]] = {}
         self.live: dict[str, str] = {}
@@ -115,6 +117,9 @@ class FakeShell(stall_watch.Shell):
             return stall_watch.Done(0, f"{argv[3]} R1 LAUNCHED", "")
         if Path(argv[1]).name == "drive_supervisor.py":
             assert argv[2] == "lanes"
+            self.supervisor_calls.append(argv)
+            if self.registry_code:
+                return stall_watch.Done(self.registry_code, "", "Traceback (most recent call last):\nlr.config.BadConfig: lr.json: go_lanes is not configuration")
             return stall_watch.Done(0, "".join(json.dumps(found) + "\n" for found in self.registry()), "")
         if Path(argv[1]).name == "rulings.py" and argv[2] == "slice":
             self.slices.append(argv)
@@ -230,6 +235,43 @@ def test_a_stall_reaches_the_live_successor_of_the_lane_that_posted_the_prs_newe
 
     assert shell.post("finder:101:abc1234")["to"] == "port-memory-3@d1"
 
+
+
+def test_a_failed_registry_read_runs_the_pass_on_the_last_good_read_with_one_defect_per_cause(config):
+    """Root #343297: 0.7.952's supervisor refused lr.json's go_lanes key, and every stall-watch pass died with no alarm."""
+    rotated = record(1, "port-memory-1", "head", f"HEAD #101 {HEAD}", 40, "101")
+    shell = FakeShell([rotated, fidelity(2, "101", HEAD, 35), record(10, "port-memory-3", "state", "took over port-memory-1's PRs", 5)], [row("101", test_state="pending")])
+    shell.successions = {"port-memory-1": "port-memory-3"}
+    watch(shell, config)
+    shell.successions = {}
+    shell.registry_code = 1
+    shell.records += [record(4, "port-memory-1", "head", f"HEAD #102 {OTHER}", 40, "102"), fidelity(5, "102", OTHER, 35)]
+    shell.rows.append(row("102", OTHER, test_state="pending"))
+
+    watch(shell, config)
+    watch(shell, config)
+
+    assert shell.post(f"finder:102:{OTHER[:7]}")["to"] == "port-memory-3@d1"
+    defects = [argv for argv in shell.posts if argv[argv.index("--topic") + 1] == "registry-read"]
+    assert len(defects) == 2 and len({argv[argv.index("--id") + 1] for argv in defects}) == 1
+    assert defects[0][defects[0].index("--kind") + 1] == "defect" and "go_lanes is not configuration" in defects[0][defects[0].index("--text") + 1]
+
+
+def test_a_failed_registry_read_with_no_good_read_kept_fails_the_pass(config):
+    shell = FakeShell([head(1, "101", HEAD, 40), fidelity(2, "101", HEAD, 35)], [row("101", test_state="pending")])
+    shell.registry_code = 1
+
+    with pytest.raises(stall_watch.ReadFailed):
+        watch(shell, config)
+
+
+def test_the_registry_reads_through_the_installed_versions_supervisor(config, tmp_path, monkeypatch):
+    monkeypatch.setattr(drive.release, "held", lambda: tmp_path / "0.7.999")
+    shell = FakeShell([head(1, "101", HEAD, 40), fidelity(2, "101", HEAD, 35)], [row("101", test_state="pending")])
+
+    watch(shell, config)
+
+    assert shell.supervisor_calls[0][1] == str(tmp_path / "0.7.999" / "skills" / "long-running" / "scripts" / "drive_supervisor.py")
 
 def test_a_head_no_finder_names_posts_one_urgent_record_to_root_and_its_lane_until_a_review_clears_it(config):
     shell = FakeShell([head(1, "101", HEAD, 40), fidelity(2, "101", HEAD, 35), head(3, "102", OTHER, 9), fidelity(4, "102", OTHER, 8)], [row("101", test_state="pending"), row("102", OTHER, test_state="pending")])

@@ -204,6 +204,12 @@ def install_bin(version: str, tool: str) -> Path:
     return installs() / version / "bin" / tool
 
 
+def installed_script(name: str) -> Path:
+    """The script `name` of the version the install link names, or this copy's own while the link names none, so a read of state every version shares, such as the supervisor's `lr.json`, runs the code that wrote it even from a process an older version started (root #343297: 0.7.952's supervisor refused the `go_lanes` key 0.7.957 wrote, and every stall-watch pass died)."""
+    scripts = Path(__file__).resolve().parents[1]
+    return named / scripts.relative_to(PLUGIN) / name if (named := release.held()) else scripts / name
+
+
 def release_faults(version: str) -> list[str]:
     """Each way the install of `version` differs from the release tagged for it, read against that tag fetched from the repository the marketplace entry Claude Code installed from pins, so an install cut short, copied from past its tag, or edited in place reads here before anything runs it; none when this plugin runs from no cache install."""
     if PLUGIN.parents[2].name != "cache":
