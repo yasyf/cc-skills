@@ -1752,7 +1752,7 @@ func TestAStandDownForASuccessorCarriesTheChainPastALaneThatAlreadyStopped(t *te
 
 func TestAStandDownOfARelaunchedLaneKeepsTheSuccessorThatAlreadyPosted(t *testing.T) {
 	s, brief := memory(t), writeBrief(t)
-	f := adopted(t, s, brief, "7d102a9")
+	f := adopted(t, s, brief, "7d102a9", 46001)
 	f.peers = []Row{who(lane2, false, t0.Add(-mins(30)))}
 	tick(t, s, f, t0)
 	equal(t, row(t, s, "conflicts-3").State, store.LaneLaunching)

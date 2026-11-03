@@ -116,7 +116,7 @@ func TestATickOverLanesWithNoProcessReadsTheSameAtOneLaneAndAtAThousand(t *testi
 		f.deps.Records = func(since int64) ([]Record, error) { records++; return base.Records(since) }
 		f.deps.PRStates = func(numbers []int) (map[int]string, error) { states++; return base.PRStates(numbers) }
 		f.deps.Owed = func() ([]deletions.Owed, error) { owed++; return base.Owed() }
-		f.peers = nil
+		f.peers = []Row{who(lane2, true, t0)}
 		for i := range n {
 			name := fmt.Sprintf("gone-%d", i)
 			if _, err := s.WantLane(store.Lane{Name: name, Brief: "/briefs/x.md", Model: "opus", Effort: "xhigh", Role: "lane", State: store.LaneDesired}, t0.Add(-3*time.Hour)); err != nil {

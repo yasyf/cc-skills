@@ -490,6 +490,9 @@ func TestALaunchOrderOrAnOwnedByDecideNamesTheDeskThatOwnsALane(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := reader.all(); err != nil {
+		t.Fatal(err)
+	}
 
 	equal(t, desks, map[string]string{"board-mirror-1": "meta-desk-1", "alerts-desk-3": "root", "stall-watch": "meta-desk-1"})
 	equal(t, bus.query.After, int64(10))
