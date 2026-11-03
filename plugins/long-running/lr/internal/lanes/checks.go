@@ -661,6 +661,7 @@ func (e Env) Checks(s *store.Store, log *slog.Logger) ([]Check, error) {
 	if len(channels) > 0 {
 		checks = append(checks, Alerts{Env: e, Store: s, Channels: channels, Log: log, Launch: e.IncidentLaunch}.Check)
 	}
+	checks = append(checks, (&OverrideRefusals{Env: e, Store: s}).Check)
 	if pipelines := e.Config.ReleasePipelineSlugs(); len(pipelines) > 0 {
 		checks = append(checks, (&ReleaseBuilds{Env: e, Pipelines: pipelines, CLI: strings.Fields(e.Config.BuildkiteCLI), Log: log}).Check)
 	}
