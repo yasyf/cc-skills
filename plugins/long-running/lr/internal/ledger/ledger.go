@@ -3,15 +3,21 @@ package ledger
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io/fs"
 	"maps"
+	"os"
 	"slices"
+	"time"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
 
 type Row struct {
-	Key    string            `json:"key"`
-	Fields map[string]string `json:"fields"`
+	Key     string            `json:"key"`
+	Fields  map[string]string `json:"fields"`
+	Updated time.Time         `json:"updated_at,omitzero"`
 }
 
 type Store interface {
@@ -19,6 +25,26 @@ type Store interface {
 	SetRow(ctx context.Context, ledger, key string, fields map[string]string) error
 	RemoveRow(ctx context.Context, ledger, key string) error
 	Sync(ctx context.Context, ledger string, rows []Row) error
+}
+
+func FromState(ctx context.Context, source Store, path string) ([]Row, error) {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var state struct {
+		Ledger string `json:"ledger"`
+	}
+	if err := json.Unmarshal(data, &state); err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	if state.Ledger == "" {
+		return nil, nil
+	}
+	return source.Rows(ctx, state.Ledger)
 }
 
 type CLI struct {

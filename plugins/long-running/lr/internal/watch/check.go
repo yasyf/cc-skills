@@ -3,17 +3,18 @@ package watch
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/pass"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
@@ -21,8 +22,8 @@ import (
 )
 
 const (
-	Lane          = "watch"
-	statusTimeout = 2 * time.Minute
+	Lane       = "watch"
+	stallEvery = 5 * time.Minute
 )
 
 var numberedLane = regexp.MustCompile(`^(.+)-(\d{1,2})$`)
@@ -53,49 +54,63 @@ func Desks(s *store.Store) (pass.Route, error) {
 	}, nil
 }
 
-func Sweep(s *store.Store, records, asks []client.Record, status func(int) (Gate, error), now time.Time, post pass.Post) ([]pass.Escalated, error) {
-	gates, err := ReleaseGates(s, records, status, now)
-	if err != nil {
-		return nil, err
-	}
+func Sweep(s *store.Store, records, asks []client.Record, unfinished []Wait, now time.Time, post pass.Post) ([]pass.Escalated, error) {
 	escalations, err := s.Escalations("")
 	if err != nil {
 		return nil, err
 	}
-	standing := slices.Concat(gates, OpenAsks(asks, records, now), LandedWaits(records), Repeats(escalations, now))
+	standing := slices.Concat(unfinished, OpenAsks(asks, records, now), LandedWaits(records), Repeats(escalations, now))
 	return Apply(s, Namespaces, standing, now, post)
 }
 
-func releaseStatus(ctx context.Context, runner shell.Runner, checkout string, now time.Time) func(int) (Gate, error) {
-	return func(id int) (Gate, error) {
-		result, err := runner.Run(ctx, shell.Command{Argv: []string{"tools/ci", "release", "status", strconv.Itoa(id)}, Dir: checkout, Timeout: statusTimeout})
-		if err != nil {
-			return Gate{}, fmt.Errorf("release status %d: %w", id, err)
-		}
-		first, _, _ := strings.Cut(result.Stdout, "\n")
-		return ParseGate(first, now)
+func Check(ctx context.Context, s *store.Store, entry drive.Entry, runner shell.Runner, now time.Time, post pass.Post) ([]pass.Escalated, error) {
+	records, err := client.Tail(ctx, client.Query{Drive: entry.Bus(), Since: now.Add(-Window), Kinds: Kinds})
+	if err != nil {
+		return nil, err
 	}
+	open, err := client.Open(ctx, entry.Bus(), "ask")
+	if err != nil {
+		return nil, err
+	}
+	ledgers, err := ReadLedgers(ctx, s, entry, runner, now)
+	if err != nil {
+		return nil, err
+	}
+	unfinished, err := Unfinished(ledgers, now)
+	if err != nil {
+		return nil, err
+	}
+	return Sweep(s, records, open, unfinished, now, post)
 }
 
-func Check(ctx context.Context, s *store.Store, drive, checkout string, runner shell.Runner, now time.Time) ([]pass.Escalated, error) {
-	records, err := client.Tail(ctx, client.Query{Drive: drive, Since: now.Add(-Window), Kinds: Kinds})
+type Stalls struct {
+	Store  *store.Store
+	Drive  string
+	Runner shell.Runner
+	Post   pass.Post
+	Log    *slog.Logger
+	read   time.Time
+}
+
+func (w *Stalls) Check(ctx context.Context, now time.Time) error {
+	if !w.read.IsZero() && now.Sub(w.read) < stallEvery {
+		return nil
+	}
+	w.read = now
+	entry, err := drive.Named(w.Drive)
 	if err != nil {
-		return nil, err
+		w.Log.Warn("stall watch has no drive entry", "err", err)
+		return nil
 	}
-	asks, err := client.Open(ctx, drive, "ask")
-	if err != nil {
-		return nil, err
+	if _, err := Check(ctx, w.Store, entry, w.Runner, now, w.Post); err != nil {
+		w.Log.Warn("stall watch stopped mid-pass", "err", err)
 	}
-	sender := bus.Bus{Drive: drive, Lane: Lane}
-	post := func(to []string, body bus.Body) error {
-		_, err := sender.Post(ctx, to, body)
-		return err
-	}
-	return Sweep(s, records, asks, releaseStatus(ctx, runner, checkout, now), now, post)
+	return nil
 }
 
 func deadlinesCommand(a *app.App) *cobra.Command {
-	return &cobra.Command{
+	var dryRun bool
+	cmd := &cobra.Command{
 		Use:   "deadlines",
 		Short: "Open an item for each wait no PR state carries, and tell the lane that owns each one past its deadline",
 		Args:  cobra.NoArgs,
@@ -109,7 +124,19 @@ func deadlinesCommand(a *app.App) *cobra.Command {
 				return err
 			}
 			defer func() { _ = s.Close() }()
-			escalated, err := Check(cmd.Context(), s, cfg.Drive, cfg.Checkout, a.Runner, a.Now())
+			entry, err := drive.Named(cfg.Drive)
+			if err != nil {
+				return err
+			}
+			sender := bus.Bus{Drive: entry.Bus(), Lane: Lane}
+			post := func(to []string, body bus.Body) error {
+				if dryRun {
+					return nil
+				}
+				_, err := sender.Post(cmd.Context(), to, body)
+				return err
+			}
+			escalated, err := Check(cmd.Context(), s, entry, a.Runner, a.Now(), post)
 			if err != nil {
 				return err
 			}
@@ -121,4 +148,6 @@ func deadlinesCommand(a *app.App) *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print what is overdue and post nothing; the store still records it, so point --config at a copy")
+	return cmd
 }

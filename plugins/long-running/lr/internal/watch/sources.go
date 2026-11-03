@@ -15,19 +15,14 @@ import (
 )
 
 const (
-	ReleaseNamespace = "release"
-	AskNamespace     = "ask"
-	GateNamespace    = "gate"
-	RepeatNamespace  = "repeat"
+	AskNamespace    = "ask"
+	GateNamespace   = "gate"
+	RepeatNamespace = "repeat"
 
-	approveKind = "approve"
-	askKind     = "ask"
-	gateKind    = "gate"
+	askKind    = "ask"
+	gateKind   = "gate"
+	repeatKind = "repeat"
 
-	gateFactHead = "release"
-	repeatKind   = "repeat"
-
-	gateWithin   = 5 * time.Minute
 	askWithin    = 15 * time.Minute
 	waitWithin   = 10 * time.Minute
 	repeatWindow = 2 * time.Hour
@@ -39,9 +34,9 @@ const (
 var (
 	Window = askWindow
 
-	Kinds = []string{"release", "decide", "decision", "go", "state", "report", "landed", "opened", "head", "answer", "note"}
+	Kinds = []string{"decide", "decision", "go", "state", "report", "landed", "opened", "head", "answer", "note"}
 
-	Namespaces = []string{ReleaseNamespace, AskNamespace, GateNamespace, RepeatNamespace}
+	Namespaces = []string{AskNamespace, GateNamespace, RepeatNamespace, UnfinishedNamespace}
 
 	pacific = func() *time.Location {
 		zone, err := time.LoadLocation("America/Los_Angeles")
@@ -51,51 +46,11 @@ var (
 		return zone
 	}()
 
-	releaseID = regexp.MustCompile(`\b(\d{5})\b`)
-	ownerWord = regexp.MustCompile(`(?i)\bowner\b`)
 	waitsOnPR = regexp.MustCompile(`(?i)\b(?:waits?\s+(?:only\s+)?on|blocked\s+on)\s+#(\d+)|\bwhen\s+#(\d+)\s+lands\b`)
 	landedPR  = regexp.MustCompile(`^LANDED\s+#(\d+)\b`)
 	notLanes  = []string{root, "main", "team-lead", "stall-watch", "desk-runner"}
 	deskLane  = regexp.MustCompile(`^(?:.+-)?desk(?:-\d{1,2})?$`)
 )
-
-type GateState string
-
-const (
-	GateWaiting  GateState = "waiting"
-	GatePlanning GateState = "planning"
-	GateSettled  GateState = "settled"
-)
-
-type Gate struct {
-	State GateState
-	Since time.Time
-}
-
-var (
-	gateWaits = regexp.MustCompile(`waits on approval since (\d{1,2}:\d{2}:\d{2} [AP]M)`)
-	gatePlans = regexp.MustCompile(`decides its approve gate when its plans finish`)
-)
-
-func ParseGate(firstLine string, now time.Time) (Gate, error) {
-	if gatePlans.MatchString(firstLine) {
-		return Gate{State: GatePlanning}, nil
-	}
-	found := gateWaits.FindStringSubmatch(firstLine)
-	if found == nil {
-		return Gate{State: GateSettled}, nil
-	}
-	clock, err := time.ParseInLocation("3:04:05 PM", found[1], pacific)
-	if err != nil {
-		return Gate{}, fmt.Errorf("release gate clock %q: %w", found[1], err)
-	}
-	local := now.In(pacific)
-	since := time.Date(local.Year(), local.Month(), local.Day(), clock.Hour(), clock.Minute(), clock.Second(), 0, pacific)
-	if since.After(now) {
-		since = since.AddDate(0, 0, -1)
-	}
-	return Gate{GateWaiting, since}, nil
-}
 
 func clip(text string) string {
 	text = strings.Join(strings.Fields(text), " ")
@@ -107,81 +62,6 @@ func clip(text string) string {
 
 func rootLane(lane string) bool {
 	return lane == root || lane == "main"
-}
-
-type releaseRow struct {
-	id      int
-	lane    string
-	seq     int64
-	order   client.Record
-	ordered bool
-}
-
-func namesRelease(record client.Record, id int, seq int64) bool {
-	if record.Re == seq {
-		return true
-	}
-	return slices.Contains(releaseID.FindAllString(record.Text, -1), strconv.Itoa(id))
-}
-
-func orderedReleases(records []client.Record) []releaseRow {
-	var rows []releaseRow
-	for _, record := range records {
-		if record.Kind == "release" {
-			if found := releaseID.FindString(record.Text); found != "" {
-				id, err := strconv.Atoi(found)
-				if err != nil {
-					panic(err)
-				}
-				rows = append(rows, releaseRow{id: id, lane: record.Lane, seq: record.Seq})
-			}
-			continue
-		}
-		if !rootLane(record.Lane) || (record.Kind != "decide" && record.Kind != "decision" && record.Kind != "go") || !ownerWord.MatchString(record.Text) {
-			continue
-		}
-		for i := range rows {
-			if !rows[i].ordered && namesRelease(record, rows[i].id, rows[i].seq) {
-				rows[i].order, rows[i].ordered = record, true
-			}
-		}
-	}
-	return slices.DeleteFunc(rows, func(row releaseRow) bool { return !row.ordered })
-}
-
-func gateWait(row releaseRow, gate Gate) Wait {
-	since := gate.Since
-	if row.order.At.After(since) {
-		since = row.order.At
-	}
-	return Wait{
-		Kind: approveKind, Repo: ReleaseNamespace, Number: row.id, Mover: machine.MoverLane, Since: since, Within: gateWithin, To: root,
-		Cause: fmt.Sprintf("approve overdue: release %d has sat at its approval gate since %s, %d minutes after owner order #%d; %s has not approved it", row.id, gate.Since.In(pacific).Format("3:04 PM"), int(gateWithin.Minutes()), row.order.Seq, row.lane),
-	}
-}
-
-func ReleaseGates(s *store.Store, records []client.Record, status func(id int) (Gate, error), now time.Time) ([]Wait, error) {
-	var waits []Wait
-	for _, row := range orderedReleases(records) {
-		facts, err := s.Facts(ReleaseNamespace, row.id, gateFactHead)
-		if err != nil {
-			return nil, err
-		}
-		if facts[gateKind] == string(GateSettled) {
-			continue
-		}
-		gate, err := status(row.id)
-		if err != nil {
-			return nil, err
-		}
-		if _, err := s.PutFact(ReleaseNamespace, row.id, gateFactHead, gateKind, string(gate.State), now); err != nil {
-			return nil, err
-		}
-		if gate.State == GateWaiting {
-			waits = append(waits, gateWait(row, gate))
-		}
-	}
-	return waits, nil
 }
 
 func answeredByRoot(records []client.Record) map[int64]bool {
@@ -311,7 +191,7 @@ func Repeats(escalations []store.Escalation, now time.Time) []Wait {
 	var classes []string
 	for _, escalation := range escalations {
 		class := classOf(escalation.Cause)
-		if class == repeatKind || now.Sub(escalation.Raised) >= repeatWindow || strings.HasPrefix(escalation.Subject, RepeatNamespace) {
+		if class == repeatKind || class == unfinishedKind || now.Sub(escalation.Raised) >= repeatWindow || strings.HasPrefix(escalation.Subject, RepeatNamespace) {
 			continue
 		}
 		if subjects[class] == nil {
