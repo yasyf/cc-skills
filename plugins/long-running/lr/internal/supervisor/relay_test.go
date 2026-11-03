@@ -58,7 +58,7 @@ func newKeeperWorld(t *testing.T) *keeperWorld {
 
 func (w *keeperWorld) check(t *testing.T, at time.Time) {
 	t.Helper()
-	if err := w.keeper.Check(context.Background(), at); err != nil {
+	if err := w.keeper.Check(at); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -140,14 +140,38 @@ func TestAFailedExitTellsRootOncePerErrorAndRestarts(t *testing.T) {
 	}
 }
 
-func TestStopReachesTheChildItStarted(t *testing.T) {
+func TestStopReachesTheChildItStartedAndNoneStartsAfter(t *testing.T) {
 	w := newKeeperWorld(t)
-	w.keeper.Stop()
 	w.check(t, keeperStart)
 
 	w.keeper.Stop()
+	w.check(t, keeperStart.Add(2*relayRespawn))
 
-	if w.starts[0].stopped != 1 {
-		t.Fatalf("stopped = %d", w.starts[0].stopped)
+	if len(w.starts) != 1 || w.starts[0].stopped != 1 {
+		t.Fatalf("starts = %d, stopped = %d", len(w.starts), w.starts[0].stopped)
 	}
+}
+
+func TestStopWithNoChildStopsNothing(t *testing.T) {
+	newKeeperWorld(t).keeper.Stop()
+}
+
+func TestKeepStartsTheRelayWithNoTickRunningAndEndsWithItsContext(t *testing.T) {
+	w := newKeeperWorld(t)
+	started := make(chan struct{})
+	w.keeper.Start = func([]string, string) (relayChild, error) {
+		close(started)
+		return &fakeChild{}, nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ended := make(chan struct{})
+	go func() {
+		w.keeper.Keep(ctx, func() time.Time { return keeperStart })
+		close(ended)
+	}()
+
+	<-started
+	cancel()
+	<-ended
 }
