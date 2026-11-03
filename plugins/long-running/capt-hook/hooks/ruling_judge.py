@@ -5,6 +5,7 @@ import re
 import subprocess
 import sys
 from dataclasses import asdict
+from itertools import pairwise
 from pathlib import Path
 
 from captain_hook import Allow, BaseHookEvent, Event, FromSubagent, HookResult, Input, Warn, WorkflowState, on, workflow_state
@@ -30,6 +31,7 @@ DECISION = re.compile(r"\b(?:GO|HOLD|DECIDE)\b")
 BLOCK_ID = re.compile(r"^- ([0-9a-f]{7}) ", re.MULTILINE)
 BLOCK_START = re.compile(r"(?m)^(?=- [0-9a-f]{7} )")
 PR_VERBS = {("vcs", "ship"), ("vcs", "stack"), ("pr", "create")}
+CCX_PROSE_FLAGS = {"-m", "--message", "--pr-title"}
 EVIDENCE = "A durable answer of the owner's: the question it answered, then his answer quoted under it.\n{block}"
 WARNING = "Warning, nothing was blocked: this call makes the decision durable owner answer `{answer}` settled without carrying all of it."
 FINDING = '{sentence}\nThe call: "{artifact_phrase}"\nHis answer: "{evidence_phrase}"\n\n{block}'
@@ -91,8 +93,10 @@ def bash_moment(evt: BaseHookEvent) -> tuple[str, str] | None:
         if any(redirect.op == ">>" and "inbox" in Path(redirect.target).parts for redirect in call.redirects):
             if DECISION.search(text := " ".join(args)):
                 return "a GO, HOLD or DECIDE line", text
-        if name in ("ccx", "gh") and tuple(args[:2]) in PR_VERBS:
+        if name == "gh" and tuple(args[:2]) in PR_VERBS:
             return "a pull request", " ".join(args)
+        if name == "ccx" and tuple(args[:2]) in PR_VERBS and (prose := " ".join(value for flag, value in pairwise(args) if flag in CCX_PROSE_FLAGS)):
+            return "a pull request", prose
         if start_operands(name, args) and Path(args[-1]).expanduser().is_file():
             return "a lane spawn", Path(args[-1]).expanduser().read_text()
     return None
@@ -136,6 +140,11 @@ def moment(evt: BaseHookEvent) -> tuple[str, str] | None:
         Input(command="echo '- G902 (the coordinator) note' >> ~/scratch/brook/inbox/deploy-go.md", commands=answered(DROPPED), env=DRIVE_CONFIG, state=[ACTIVE]): Allow(),
         Input(command="cc-slack reply --url C0B/p1 --text 'Shipping the skip flag'", commands=answered(DROPPED), env=DRIVE_CONFIG, state=[ACTIVE]): Allow(),
         Input(command="ls", commands=answered(DROPPED), env=DRIVE_CONFIG, state=[ACTIVE]): Allow(),
+        Input(command="ccx vcs ship --no-commit --no-watch --tip-only", commands=answered(DROPPED), env=DRIVE_CONFIG, state=[ACTIVE]): Allow(),
+        Input(command="ccx vcs stack submit --no-watch", commands=answered(DROPPED), env=DRIVE_CONFIG, state=[ACTIVE]): Allow(),
+        Input(command="ccx vcs ship -m 'Add a --skip-tenant flag' --no-watch", commands=answered(DROPPED), env=DRIVE_CONFIG, state=[ACTIVE]): Warn(
+            pattern=r"durable owner answer `1984bf6`"
+        ),
         Input(tool="Agent", tool_input={"prompt": "Add a --skip-tenant flag."}, commands=answered(DROPPED)): Allow(),
     }),
 )
