@@ -177,7 +177,7 @@ func TestARetiredLanesUnownedOpenPRsOnItsBranchGoToRootOnce(t *testing.T) {
 	tick(t, s, f, t0.Add(mins(1)))
 	tick(t, s, f, t0.Add(mins(2)))
 
-	equal(t, owners(t, s, 48999, 49000, 1, 48990), map[int]string{48999: Root, 49000: Root, 48990: "chat-spin-1"})
+	equal(t, owners(t, s, 48999, 49000, 1, 48990), map[int]string{48999: Root, 49000: Root, 1: "", 48990: "chat-spin-1"})
 	reports := f.ofKind("report")
 	equal(t, len(reports), 1)
 	equal(t, reports[0].PRs, []int{48999, 49000})
