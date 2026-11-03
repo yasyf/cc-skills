@@ -162,7 +162,7 @@ Every verdict is read live from the cc-present store through `cc-present outcome
 **Exempt go gate.** A lane posts an exempt go only through `lr landing go <pr>... --lane <lane>`, never by hand or from its own script; without `--lane` the pass is dry. It reads each PR's records once and posts only when all of these hold at the PR's current head on GitHub:
 
 - The finder-desk's newest grade is `ok`, or a coordinator `decide` on lane `root` reads `finder-override #<n> at <sha>: <seq>` citing a record that exists.
-- Every fidelity lane's newest grade is `ok`, or a coordinator `decide` reads `fidelity-override #<n> at <sha>`, and some `ok` grade names one of `landing.exempt_grades`, which becomes the go's class.
+- Every fidelity lane's newest grade is `ok`, or a coordinator `decide` reads `fidelity-override #<n> at <sha>`, and some `ok` grade names one of `landing.exempt_grades` or `landing.go_classes`, which becomes the go's class. Only the gate reads `landing.go_classes`, so a class listed there never sends a head to the queue without a go.
 - No typed `hold` record holds the PR, and no open card or tap row on the owner's board names it.
 - No `landing.tap_rules` glob matches a changed file, and no live go already names the head.
 
