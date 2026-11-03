@@ -179,12 +179,12 @@ func Tick(s *store.Store, d Deps, now time.Time, generation int64) (out Outcome,
 func tellRetired(s *store.Store, d Deps, running []store.Lane, told []stoodDown) {
 	for _, was := range running {
 		lane, _ := laneOf(s, was.Name)
-		if lane.State != store.LaneRetired || lane.RetiredBy == "stand-down" || slices.ContainsFunc(told, func(one stoodDown) bool { return one.name == lane.Name }) {
+		if lane.State != store.LaneRetired || lane.RetiredBy == "stand-down" || slices.Contains([]string{"done", "stopped", "stand-down", "handoff"}, lane.Last) || slices.ContainsFunc(told, func(one stoodDown) bool { return one.name == lane.Name }) {
 			continue
 		}
 		post := Post{Kind: "stand-down", To: []string{lane.Name}, Text: fmt.Sprintf("%s stood down: the supervisor retired it (%s).", lane.Name, lane.RetiredBy), PRs: lane.PRs}
 		if heir, ok := laneOf(s, lane.RetiredBy); ok && heir.Name != Root {
-			post.Successor, post.Text = heir.Name, fmt.Sprintf("%s stood down for %s.", lane.Name, heir.Name)
+			post.Successor, post.PRs, post.Text = heir.Name, heir.PRs, fmt.Sprintf("%s stood down for %s.", lane.Name, heir.Name)
 			if heir.Predecessor == lane.Name && heir.Reason != "" {
 				post.Text = fmt.Sprintf("%s stood down for %s; %s %s.", lane.Name, heir.Name, lane.Name, heir.Reason)
 			}

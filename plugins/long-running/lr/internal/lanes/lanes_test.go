@@ -499,7 +499,7 @@ func TestAProtectedSessionIsNeverTouched(t *testing.T) {
 
 	tick(t, s, f, t0)
 
-	equal(t, f.kinds(), []string{"report:root"})
+	equal(t, f.kinds(), []string{"report:root", "stand-down:" + lane2})
 	equal(t, f.launches, []string{"conflicts-3"})
 	names, err := s.Names()
 	if err != nil {
@@ -2508,7 +2508,7 @@ func TestARelaunchIsReportedToTheDeskThatOwnsTheLane(t *testing.T) {
 	out := tick(t, s, f, t0)
 
 	equal(t, len(out.Relaunched), 1)
-	equal(t, f.kinds(), []string{"report:meta-desk-1"})
+	equal(t, f.kinds(), []string{"report:meta-desk-1", "stand-down:" + lane2})
 }
 
 func TestALaneThatPostsStoppedAsAStateIsRetiredAndNeverGetsASuccessor(t *testing.T) {
