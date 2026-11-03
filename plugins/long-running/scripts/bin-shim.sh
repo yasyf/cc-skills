@@ -45,6 +45,10 @@ case "$TOOL" in
   owner_update.py) exec "$ROOT/bin/lr" update "$@" ;;
   finder.py) exec "$ROOT/bin/lr" grade finder "$@" ;;
   fidelity.py) exec "$ROOT/bin/lr" grade fidelity "$@" ;;
+  orca-launch.sh) exec "$ROOT/bin/lr" launch start "$@" ;;
+  desk-launch.py) exec "$ROOT/bin/lr" launch "$@" ;;
+  worker-launch.sh) exec "$ROOT/bin/lr" launch worker "$@" ;;
+  orca-gc) exec "$ROOT/bin/lr" gc "$@" ;;
   *.py)
     for python in python3.15 python3.14 python3.13 /opt/homebrew/bin/python3.14 /opt/homebrew/bin/python3.13 python3; do
       command -v "$python" >/dev/null 2>&1 && break

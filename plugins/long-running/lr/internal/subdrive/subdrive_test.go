@@ -324,7 +324,7 @@ func TestEndHandsEveryOpenItemBackToTheParentAndClosesTheChild(t *testing.T) {
 	if back.Drive != parentDrive || back.Kind != "ask" || !slices.Equal(back.To, []string{lanes.Root}) || back.Lane == lanes.Root {
 		t.Errorf("hand-back = %+v", back)
 	}
-	for _, want := range []string{"3 open items", "lane invoices (desired)", "#77 blocker from invoices", "PR #4801 of invoices", "orca-gc --run " + childRun} {
+	for _, want := range []string{"3 open items", "lane invoices (desired)", "#77 blocker from invoices", "PR #4801 of invoices", "lr gc --run " + childRun} {
 		if !strings.Contains(back.Text, want) {
 			t.Errorf("hand-back %q lacks %q", back.Text, want)
 		}

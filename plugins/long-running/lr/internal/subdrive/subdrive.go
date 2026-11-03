@@ -342,7 +342,7 @@ func (m Manager) End(ctx context.Context, name string) (string, error) {
 		return "", err
 	}
 	parent := m.Env.Config.Drive
-	gc := fmt.Sprintf("Run `orca-gc --run %s` once its lanes stop.", entry.OrcaRun)
+	gc := fmt.Sprintf("Run `lr gc --run %s` once its lanes stop.", entry.OrcaRun)
 	back := client.Draft{Drive: parent, Lane: "sub-drive-" + name, Kind: "report", To: []string{lanes.Root}, ID: "sub-drive-end:" + entry.Drive, Stamp: true, Text: fmt.Sprintf("Sub-drive %s ended with nothing open. %s", name, gc)}
 	if len(items) > 0 {
 		path, err := writeHandback(entry, name, items)

@@ -1657,7 +1657,7 @@ class Pass:
                 print(f"rulings.py slice --refresh {brief} exited {sliced.code}: {(sliced.err or sliced.out).strip()[:300]}; {lane} launches on a later pass", file=sys.stderr)
                 continue
             self.spawned[lane] = actions.stamp(self.now)
-            done = self.shell.run([sys.executable, str(SCRIPTS / "desk-launch.py"), "lane", lane, *FIX_MODEL, str(brief), "--drive", self.watch.drive, "--lane", LANE, "--timeout-seconds", str(LAUNCH_SECONDS)])
+            done = self.shell.run([str(SCRIPTS.parents[2] / "bin" / "desk-launch.py"), "lane", lane, *FIX_MODEL, str(brief), "--drive", self.watch.drive, "--lane", LANE, "--timeout-seconds", str(LAUNCH_SECONDS)])
             if done.code:
                 print(f"desk-launch.py lane {lane} exited {done.code}: {(done.err or done.out).strip()[:300]}", file=sys.stderr)
 

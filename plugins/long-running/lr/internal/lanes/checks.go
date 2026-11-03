@@ -253,11 +253,10 @@ func (g *FixLiveGC) reclaim(ctx context.Context, lane string, seq int64, heard, 
 		g.reclaimed = map[string]bool{}
 	}
 	g.reclaimed[dispatch] = true
-	gc := filepath.Join(g.Env.plugin(), "skills", "long-running", "scripts", "orca-gc")
-	result, err := g.Env.Runner.Run(ctx, shell.Command{Argv: []string{gc, "--run", g.Env.Config.OrcaRun, "--done", dispatch}, Timeout: gcTimeout})
+	result, err := g.Env.Runner.Run(ctx, shell.Command{Argv: []string{g.Env.tool("lr"), "gc", "--run", g.Env.Config.OrcaRun, "--done", dispatch}, Timeout: gcTimeout})
 	var exit *shell.ExitError
 	if err != nil && !errors.As(err, &exit) {
-		g.Log.Warn("orca-gc did not run", "dispatch", dispatch, "err", err)
+		g.Log.Warn("lr gc did not run", "dispatch", dispatch, "err", err)
 	}
 	said := strings.TrimSpace(or(result.Stdout, result.Stderr))
 	lines := strings.Split(said, "\n")

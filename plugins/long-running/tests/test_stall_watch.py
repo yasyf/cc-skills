@@ -112,9 +112,9 @@ class FakeShell(stall_watch.Shell):
             endpoint = argv[argv.index("--") + 2]
             assert endpoint.endswith("/check-runs?check_name=ai-review")
             return stall_watch.Done(0, self.review_titles[endpoint.split("/")[4]] + "\n", "")
-        if Path(argv[1]).name == "desk-launch.py":
+        if Path(argv[0]).name == "desk-launch.py":
             self.launches.append(argv)
-            return stall_watch.Done(0, f"{argv[3]} R1 LAUNCHED", "")
+            return stall_watch.Done(0, f"{argv[2]} R1 LAUNCHED", "")
         if Path(argv[1]).name == "drive_supervisor.py":
             assert argv[2] == "lanes"
             self.supervisor_calls.append(argv)
@@ -2208,7 +2208,7 @@ def test_the_fourth_acknowledgement_launches_one_fix_lane_with_a_brief_written_f
     watch(shell, config)
 
     [launch] = shell.launches
-    assert launch[2:7] == ["lane", "class-fix-refused-unsettled-1", "opus", "xhigh", str(state / "class-fix-refused-unsettled-1" / "brief.md")]
+    assert launch[1:6] == ["lane", "class-fix-refused-unsettled-1", "opus", "xhigh", str(state / "class-fix-refused-unsettled-1" / "brief.md")]
     brief = (state / "class-fix-refused-unsettled-1" / "brief.md").read_text()
     assert brief.startswith("# Lane class-fix-refused-unsettled-1: remove the desk defect class REFUSED unsettled\n")
     assert "- #303700 desk-runner defect at " in brief and "- #303701 answer at " in brief
@@ -2233,7 +2233,7 @@ def test_a_fix_lane_whose_register_slice_does_not_refresh_launches_on_the_next_p
     watch(shell, config)
 
     [launch] = shell.launches
-    assert launch[6] == str(state / "class-fix-refused-unsettled-1" / "brief.md") and len(shell.slices) == 2
+    assert launch[5] == str(state / "class-fix-refused-unsettled-1" / "brief.md") and len(shell.slices) == 2
 
 def test_acknowledgements_spread_past_two_hours_raise_nothing(config):
     registered_state(config)
