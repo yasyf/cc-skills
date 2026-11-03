@@ -47,9 +47,9 @@ STATUS_QUESTION = Binary(
     " No for a new request, a pick, or a question about how something works."
 )
 UNREAD_STATUS = (
-    "The owner asked how far a piece of work has got, so the answer comes from its newest record, never a restatement of what it is for."
-    " Read it with `cci tail --lane <lane> -n 1`, then answer with what it says, its `#<seq>`, its clock time and its age in minutes;"
-    " when the lane has no record, say so and name when it launched."
+    "A status question is answered from the lane's newest record, never from what the lane is for."
+    " Read it with `cci tail --lane <lane> -n 1` and answer with what it says, its `#<seq>`, clock time and age in minutes;"
+    " if the lane has no record, say so and name when it launched."
 )
 CCI_TOOLS = "mcp__plugin_cc-inbox_cci__"
 SEQ = re.compile(r"#(\d+)\b")
@@ -140,8 +140,8 @@ def asked(reply: str, *calls: dict, words: str = HOW_FAR, decide: dict = ASKED) 
         reminded(decide=CALM): Allow(),
         reminded(decide=CALM | {"reminder": Refused()}): Allow(),
         asked("relay-fix-2 opened its PR and CI is running (#359771, 3:02 AM, 8 minutes ago).", *TAILED): Allow(),
-        asked("relay-fix-2 opened its PR and CI is running (#359771, 3:02 AM, 8 minutes ago)."): Block(pattern=r"^The owner asked how far a piece of work has got.*`cci tail --lane <lane> -n 1`"),
-        asked("relay-fix-2 rebuilds the relay so each chat keeps its own replica.", *TAILED): Block(pattern=r"answer comes from its newest record"),
+        asked("relay-fix-2 opened its PR and CI is running (#359771, 3:02 AM, 8 minutes ago)."): Block(pattern=r"^A status question is answered from the lane's newest record.*`cci tail --lane <lane> -n 1`"),
+        asked("relay-fix-2 rebuilds the relay so each chat keeps its own replica.", *TAILED): Block(pattern=r"never from what the lane is for"),
         asked("relay-fix-2 rebuilds the relay so each chat keeps its own replica.", decide=CALM | {"status_question": BinaryAnswer(p_yes=0.9, confidence=0.3)}): Allow(),
         asked("Launched relay-fix-3 for it.", words="start a second lane on the relay fix", decide=CALM): Allow(),
         asked("relay-fix-2 rebuilds the relay so each chat keeps its own replica.", decide=CALM | {"status_question": Refused()}): Allow(),
