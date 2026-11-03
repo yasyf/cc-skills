@@ -1,0 +1,264 @@
+package choices_test
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/board"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/choices"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell/shelltest"
+)
+
+const (
+	testDrive = "d"
+	boardDesk = "board-refresher-7"
+)
+
+func post(t *testing.T, draft client.Draft) int64 {
+	t.Helper()
+	draft.Drive, draft.Force = testDrive, true
+	record, err := client.Post(context.Background(), draft)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return record.Seq
+}
+
+func newCheck(now time.Time, asks ...board.OpenAsk) *choices.Check {
+	return &choices.Check{
+		Drive:    testDrive,
+		Asks:     func(context.Context) ([]board.OpenAsk, error) { return asks, nil },
+		Desk:     func() (string, error) { return boardDesk, nil },
+		Now:      func() time.Time { return now },
+		Patience: time.Hour,
+	}
+}
+
+func said(t *testing.T) []client.Record {
+	t.Helper()
+	records, err := client.Tail(context.Background(), client.Query{Drive: testDrive, Lanes: []string{lanes.Self}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return records
+}
+
+func passTwice(t *testing.T, check *choices.Check) {
+	t.Helper()
+	for range 2 {
+		if err := check.Pass(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestACardRecordStillOpenAfterAnHourGoesToTheBoardDeskOnce(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	seq := post(t, client.Draft{Lane: "lane-a", Kind: "ask", To: []string{boardDesk}, Text: "CARD: card-x: Which table?"})
+
+	passTwice(t, newCheck(time.Now().Add(2*time.Hour)))
+
+	records := said(t)
+	if len(records) != 1 {
+		t.Fatalf("said %d records, want one", len(records))
+	}
+	if !strings.Contains(records[0].Text, fmt.Sprintf("NO-CARD #%d", seq)) || records[0].Re != seq || records[0].To[0] != boardDesk {
+		t.Fatalf("said %+v", records[0])
+	}
+}
+
+func TestACardRecordDrawnOrYoungOrSentElsewhereSaysNothing(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	drawn := post(t, client.Draft{Lane: "lane-a", Kind: "ask", To: []string{boardDesk}, Text: "CARD: card-drawn: Which table?"})
+	post(t, client.Draft{Lane: boardDesk, Kind: "answer", To: []string{"lane-a"}, Resolves: drawn, Text: "Drawn."})
+	post(t, client.Draft{Lane: "lane-a", Kind: "ask", To: []string{"root"}, Text: "CARD: card-elsewhere: Which table?"})
+
+	passTwice(t, newCheck(time.Now().Add(2*time.Hour)))
+	if records := said(t); len(records) != 0 {
+		t.Fatalf("said %q", records[0].Text)
+	}
+
+	post(t, client.Draft{Lane: "lane-a", Kind: "ask", To: []string{boardDesk}, Text: "CARD: card-young: Which table?"})
+	passTwice(t, newCheck(time.Now().Add(30*time.Minute)))
+	if records := said(t); len(records) != 0 {
+		t.Fatalf("said %q", records[0].Text)
+	}
+}
+
+func TestACardWaitingWithNoSlackCopyIsNamedAfterAnHourAndOneWithACopyNever(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	at := time.Now()
+	check := newCheck(at, board.OpenAsk{ID: "card-unsent", Title: "Where does the table go?"}, board.OpenAsk{ID: "card-sent", Title: "Sent", Slack: true})
+	check.Now = func() time.Time { return at }
+
+	passTwice(t, check)
+	if records := said(t); len(records) != 0 {
+		t.Fatalf("said %q before the hour", records[0].Text)
+	}
+
+	at = at.Add(time.Hour)
+	passTwice(t, check)
+	records := said(t)
+	if len(records) != 1 || !strings.Contains(records[0].Text, "NO-SLACK card-unsent") || records[0].To[0] != boardDesk {
+		t.Fatalf("said %+v", records)
+	}
+}
+
+func TestProseReadingAsAChoiceIsNamedToItsLaneOnceADay(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	first := post(t, client.Draft{Lane: "lane-a", Kind: "ask", To: []string{"root"}, Text: "One owner pick before that build: what may it reach?"})
+	post(t, client.Draft{Lane: "lane-a", Kind: "report", Text: "Waiting on his pick for the reach."})
+	post(t, client.Draft{Lane: "lane-b", Kind: "decide", To: []string{"lane-c"}, Text: "A (recommended): rename the table. B: copy it."})
+	post(t, client.Draft{Lane: "lane-c", Kind: "note", Text: "A (recommended): rename the table. B: copy it."})
+	post(t, client.Draft{Lane: "lane-d", Kind: "ask", To: []string{"root"}, Text: "Needs his pick on the table card."})
+	post(t, client.Draft{Lane: "root", Kind: "ask", To: []string{boardDesk}, Text: "Needs his pick on the reach."})
+
+	check := newCheck(time.Now())
+	passTwice(t, check)
+
+	lanesTold := map[string]int{}
+	for _, record := range said(t) {
+		lanesTold[record.To[0]]++
+		if record.To[0] == "lane-a" && (record.Re != first || !strings.Contains(record.Text, "UNTYPED")) {
+			t.Errorf("told lane-a %+v", record)
+		}
+	}
+	if len(lanesTold) != 2 || lanesTold["lane-a"] != 1 || lanesTold["lane-b"] != 1 {
+		t.Fatalf("told %v, want lane-a and lane-b once each", lanesTold)
+	}
+	if listed := check.Findings(context.Background()); len(listed) != 3 {
+		t.Fatalf("listed %d findings, want every hit", len(listed))
+	}
+}
+
+func TestALaneBlockedOnHisPickWithNothingBuiltIsToldToBuildOnceADay(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	first := post(t, client.Draft{Lane: "lane-a", Kind: "blocked", Text: "Waits on his 14 picks on the apps board. Its doc is at 40c96f8; this lane has built and merged nothing."})
+	post(t, client.Draft{Lane: "lane-a", Kind: "blocked", Text: "Still waits on his picks."})
+	post(t, client.Draft{Lane: "lane-b", Kind: "blocked", Text: "Waits on the owner's pick on the card. A built at lane-b/branch."})
+	post(t, client.Draft{Lane: "lane-c", Kind: "blocked", Text: "Waits on the owner's pick on the card; #48941 at 5dfaa22 is green."})
+	post(t, client.Draft{Lane: "lane-d", Kind: "blocked", Text: "Green; waits on his tap on #49055."})
+	post(t, client.Draft{Lane: "lane-f", Kind: "blocked", Text: "Waits on his picks. Branch lane-f/build 64c3a08, no PR until he picks."})
+	post(t, client.Draft{Lane: "board-refresher-7", Kind: "blocked", Text: "Waits on his picks."})
+	post(t, client.Draft{Lane: "lane-e", Kind: "ask", To: []string{"root"}, Text: "Is the build done?"})
+
+	passTwice(t, newCheck(time.Now()))
+
+	parked := 0
+	for _, record := range said(t) {
+		if !strings.Contains(record.Text, "PARKED") {
+			continue
+		}
+		parked++
+		if record.To[0] != "lane-a" || record.Re < first {
+			t.Errorf("told %+v", record)
+		}
+	}
+	if parked != 1 {
+		t.Fatalf("told %d lanes, want lane-a once", parked)
+	}
+}
+
+func TestARepeatedOrderAsksRootWhatHoldsItAndNamesWhatSharesItsWords(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	holding := post(t, client.Draft{Lane: "lane-a", Kind: "blocked", Text: "Old cloud agent rows wait on the agent runner release."})
+	unrelated := post(t, client.Draft{Lane: "lane-b", Kind: "blocked", Text: "Tests wait on the build."})
+	order := post(t, client.Draft{Lane: "owner-relay", Kind: "ask", To: []string{"meta"}, Text: "Owner correction, a repeat: delete the old cloud agent rows behind the agent runner release."})
+
+	passTwice(t, newCheck(time.Now()))
+
+	records := said(t)
+	if len(records) != 1 {
+		t.Fatalf("said %d records, want one", len(records))
+	}
+	got := records[0]
+	if string(got.Kind) != "ask" || got.To[0] != lanes.Root || got.Re != order || !strings.Contains(got.Text, fmt.Sprintf("REPEAT #%d", order)) {
+		t.Fatalf("said %+v", got)
+	}
+	if !strings.Contains(got.Text, fmt.Sprintf("#%d", holding)) || strings.Contains(got.Text, fmt.Sprintf("#%d", unrelated)) {
+		t.Fatalf("named the wrong blocks: %q", got.Text)
+	}
+}
+
+func TestARepeatedOrderNothingSharesStillAsksRoot(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	post(t, client.Draft{Lane: "lane-b", Kind: "blocked", Text: "Tests wait on the build."})
+	post(t, client.Draft{Lane: "owner-relay", Kind: "ask", To: []string{"root"}, Text: "He has now given the delete order three times."})
+
+	passTwice(t, newCheck(time.Now()))
+
+	records := said(t)
+	if len(records) != 1 || !strings.Contains(records[0].Text, "Nothing open shares its words") {
+		t.Fatalf("said %+v", records)
+	}
+}
+
+func docsFake(now time.Time, register string) *shelltest.Fake {
+	const ref = "refs/remotes/origin/main:"
+	fake := &shelltest.Fake{}
+	fake.Reply("", "git", "-C", "/docs", "fetch")
+	fake.Reply(register, "git", "-C", "/docs", "rev-parse")
+	fake.Reply("design-docs/x/registers.json\ndesign-docs/x/index.html\ndesign-docs/old/registers.json\none-pagers/y/index.html\n", "git", "-C", "/docs", "ls-tree")
+	fake.Reply(register, "git", "-C", "/docs", "show", ref+"design-docs/x/registers.json")
+	fake.Reply(fmt.Sprintf(`{"meta":{"date":%q},"open":[{"g":"owner","id":"Q9","t":"Long gone"}]}`, now.Add(-60*24*time.Hour).Format(time.DateOnly)), "git", "-C", "/docs", "show", ref+"design-docs/old/registers.json")
+	fake.Reply("<p>nothing here</p>\n<p>Your pick: keep it or drop it</p>\n<p>Your call on card-z</p>", "git", "-C", "/docs", "show", ref+"one-pagers/y/index.html")
+	return fake
+}
+
+func TestADesignDocsOpenChoiceWithNoCardReachesTheDeskOnceUntilTheListChanges(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	now := time.Now()
+	register := fmt.Sprintf(`{"meta":{"date":%q},
+		"open":[{"g":"owner","id":"Q1","t":"Pick the route"},{"g":"picks","id":"Q2","t":"Board card card-a: choose"},{"g":"owner","id":"Q3","t":"Picked","s":"resolved"},{"g":"spikes","id":"V1","t":"Measure it"}],
+		"decisions":[{"id":"DQ1","s":"resolved","r":"Provisional owner pick; the owner's choice is still open."},{"id":"DQ2","s":"superseded","r":"The owner's choice is still open."},{"id":"DQ3","s":"resolved","r":"Settled."}]}`, now.Format(time.DateOnly))
+	check := newCheck(now)
+	check.Docs = &choices.Docs{Runner: docsFake(now, register), Dir: "/docs"}
+
+	passTwice(t, check)
+
+	records := said(t)
+	if len(records) != 1 || records[0].To[0] != boardDesk {
+		t.Fatalf("said %+v", records)
+	}
+	text := records[0].Text
+	if !strings.Contains(text, "x (Q1, DQ1)") || !strings.Contains(text, "y (Your pick: keep it or drop it.)") {
+		t.Fatalf("said %q", text)
+	}
+	for _, closed := range []string{"Q2", "Q3", "V1", "DQ2", "DQ3", "Q9", "card-z"} {
+		if strings.Contains(text, closed) {
+			t.Errorf("named %s in %q", closed, text)
+		}
+	}
+
+	moved := strings.ReplaceAll(register, `"id":"Q1"`, `"id":"Q7"`)
+	check.Docs = &choices.Docs{Runner: docsFake(now, moved), Dir: "/docs"}
+	passTwice(t, check)
+	if records := said(t); len(records) != 2 {
+		t.Fatalf("said %d records after the list changed, want two", len(records))
+	}
+}
+
+func TestAReadThatFailsSaysNothing(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	failed := errors.New("read failed")
+	post(t, client.Draft{Lane: "lane-a", Kind: "ask", To: []string{boardDesk}, Text: "CARD: card-x: Which table?"})
+
+	unreadBoard := newCheck(time.Now())
+	unreadBoard.Asks = func(context.Context) ([]board.OpenAsk, error) { return nil, failed }
+	unreadBoard.Docs = &choices.Docs{Runner: &shelltest.Fake{}, Dir: "/docs"}
+	passTwice(t, unreadBoard)
+
+	unroutable := newCheck(time.Now().Add(2 * time.Hour))
+	unroutable.Desk = func() (string, error) { return "", failed }
+	passTwice(t, unroutable)
+
+	if records := said(t); len(records) != 0 {
+		t.Fatalf("said %q", records[0].Text)
+	}
+}

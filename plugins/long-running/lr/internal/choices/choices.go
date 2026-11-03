@@ -1,0 +1,278 @@
+package choices
+
+import (
+	"cmp"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"regexp"
+	"slices"
+	"strings"
+	"time"
+
+	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/board"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/pass"
+)
+
+const (
+	patience     = time.Hour
+	proseWindow  = 3 * time.Hour
+	staleCard    = 7 * 24 * time.Hour
+	communicator = "owner-relay"
+	lineChars    = 240
+	listChars    = 2000
+	heldShown    = 5
+	heldPairs    = 2
+	kindAsk      = "ask"
+	kindDecide   = "decide"
+	kindNote     = "note"
+	kindBlocked  = "blocked"
+)
+
+var (
+	cardRecord  = regexp.MustCompile(`^(?:re #\d+ )?(?:\d{1,2}:\d{2} [AP]M )?CARD\b`)
+	namesCard   = regexp.MustCompile(`(?i)\bcards?\b`)
+	ownerWords  = regexp.MustCompile(`(?i)\bneeds? (?:his|the owner'?s?) (?:pick|call|word|choice)\b|\bfor him to (?:pick|decide|choose)\b|\bfork is his\b|\bwait(?:s|ing)? on (?:his|the owner'?s?) (?:pick|call|word|choice)\b|\b(?:needs?|one|an) owner pick\b|\bowner pick (?:asked|needed|before|open)\b|\bplan (?:fork|gap)\b`)
+	optionWords = regexp.MustCompile(`(?is)\bA \(recommended\)|\boption A\b.*\boption B\b|\boptions?:\s*(?:A|1)\b`)
+	repeatWords = regexp.MustCompile(`(?i)\ba repeat\b|\bhe repeated\b|\brepeated (?:an? )?(?:order|ruling)\b|\bhas now given\b`)
+	deskLane    = regexp.MustCompile(`^(?:board-refresher|board-watch|card-mirror|owner-relay|desk-runner|supervisor|fidelity|finder|grader|judge|go-sweep|progress-desk|meta-desk|root$)`)
+	clockTime   = regexp.MustCompile(`(?i)\b\d{1,2}:\d{2}(?::\d{2})? ?(?:AM|PM)\b`)
+	proseKinds  = []string{kindAsk, kindDecide, kindBlocked, "report", kindNote}
+	onHisPick   = regexp.MustCompile(`(?i)\b(?:his|the owner'?s?|owner)\s+(?:\d+\s+|two\s+)?(?:picks?|answers?|taps?)\b[^.#]*\b(?:card|board)\b|\b(?:his|owner'?s?) picks?\b|\buntil he picks\b`)
+	builtWork   = regexp.MustCompile(`(?i)\bat [0-9a-f]{7,40}\b|\bbuilt at\b|\bstays branch\b|\bbranch [\w./-]+ [0-9a-f]{7,40}\b|\bheads? in\b|\bcarries option\b`)
+	builtNone   = regexp.MustCompile(`(?i)\bnothing built\b|\bbuilt (?:and merged )?nothing\b|\bno build\b`)
+)
+
+type Finding struct {
+	ID   string
+	Kind string
+	To   string
+	Re   int64
+	Line string
+}
+
+type Check struct {
+	Drive    string
+	Asks     func(ctx context.Context) ([]board.OpenAsk, error)
+	Desk     func() (string, error)
+	Docs     *Docs
+	Now      func() time.Time
+	Patience time.Duration
+	seen     map[string]time.Time
+	said     map[string]bool
+}
+
+func (c *Check) Pass(ctx context.Context) error {
+	if c.said == nil {
+		c.said = map[string]bool{}
+	}
+	for _, finding := range c.Findings(ctx) {
+		if c.said[finding.ID] {
+			continue
+		}
+		_, err := client.Post(ctx, client.Draft{
+			Drive: c.Drive,
+			Lane:  lanes.Self,
+			Kind:  finding.Kind,
+			To:    []string{finding.To},
+			ID:    finding.ID,
+			Re:    finding.Re,
+			Text:  finding.Line,
+			Force: true,
+		})
+		c.said[finding.ID] = err == nil
+	}
+	return nil
+}
+
+func (c *Check) Findings(ctx context.Context) []Finding {
+	now := c.Now()
+	found := append(c.prose(ctx, now), c.parked(ctx)...)
+	desk, err := c.Desk()
+	if err != nil {
+		return found
+	}
+	found = append(found, c.undrawn(ctx, desk, now)...)
+	found = append(found, c.unsent(ctx, desk, now)...)
+	return append(found, c.documented(ctx, desk, now)...)
+}
+
+func (c *Check) undrawn(ctx context.Context, desk string, now time.Time) []Finding {
+	open, err := client.Open(ctx, c.Drive, kindAsk)
+	if err != nil {
+		return nil
+	}
+	var found []Finding
+	for _, record := range open {
+		age := now.Sub(record.At)
+		if !cardRecord.MatchString(record.Text) || age < c.Patience || age > staleCard || !toBoardDesk(record.To) {
+			continue
+		}
+		found = append(found, Finding{
+			ID:   fmt.Sprintf("choice-no-card:%d", record.Seq),
+			Kind: kindNote,
+			To:   desk,
+			Re:   record.Seq,
+			Line: fmt.Sprintf("NO-CARD #%d from %s is still open: %s Draw it, or answer it with why not.", record.Seq, record.Lane, excerpt(record.Text)),
+		})
+	}
+	return found
+}
+
+func toBoardDesk(to []string) bool {
+	return slices.ContainsFunc(to, func(lane string) bool { return strings.HasPrefix(lane, pass.BoardDesk) })
+}
+
+func (c *Check) unsent(ctx context.Context, desk string, now time.Time) []Finding {
+	asks, err := c.Asks(ctx)
+	if err != nil {
+		return nil
+	}
+	seen := make(map[string]time.Time, len(asks))
+	var found []Finding
+	for _, ask := range asks {
+		if ask.Slack {
+			continue
+		}
+		first, known := c.seen[ask.ID]
+		if !known {
+			first = now
+		}
+		seen[ask.ID] = first
+		if now.Sub(first) < c.Patience {
+			continue
+		}
+		found = append(found, Finding{
+			ID:   "choice-no-slack:" + ask.ID,
+			Kind: kindNote,
+			To:   desk,
+			Line: fmt.Sprintf("NO-SLACK %s waits on him with no Slack copy: %s Send it.", ask.ID, excerpt(ask.Title)),
+		})
+	}
+	c.seen = seen
+	return found
+}
+
+func (c *Check) prose(ctx context.Context, now time.Time) []Finding {
+	recent, err := client.Tail(ctx, client.Query{Drive: c.Drive, Since: now.Add(-proseWindow), Kinds: proseKinds})
+	if err != nil {
+		return nil
+	}
+	var found []Finding
+	for _, record := range recent {
+		switch {
+		case record.Lane == communicator && repeatWords.MatchString(record.Text):
+			found = append(found, c.repeated(ctx, record))
+		case untyped(record):
+			found = append(found, Finding{
+				ID:   fmt.Sprintf("choice-untyped:%s:%s", record.Lane, record.At.Format(time.DateOnly)),
+				Kind: kindNote,
+				To:   record.Lane,
+				Re:   record.Seq,
+				Line: fmt.Sprintf("UNTYPED #%d reads as a choice for him with no card: %s If it is his, post it to %s as `CARD: card-<slug>: <question>`, options recommended first. If it is yours or root's, ignore this.", record.Seq, excerpt(record.Text), pass.BoardDesk),
+			})
+		}
+	}
+	return found
+}
+
+func (c *Check) parked(ctx context.Context) []Finding {
+	open, err := client.Open(ctx, c.Drive, kindBlocked)
+	if err != nil {
+		return nil
+	}
+	var found []Finding
+	for _, record := range open {
+		if deskLane.MatchString(record.Lane) || !onHisPick.MatchString(record.Text) {
+			continue
+		}
+		if builtWork.MatchString(record.Text) && !builtNone.MatchString(record.Text) {
+			continue
+		}
+		found = append(found, Finding{
+			ID:   fmt.Sprintf("choice-parked:%s:%s", record.Lane, record.At.Format(time.DateOnly)),
+			Kind: kindNote,
+			To:   record.Lane,
+			Re:   record.Seq,
+			Line: fmt.Sprintf("PARKED #%d waits on his pick with nothing built: %s His order m104 covers this: build the card's recommended option as a branch, no PR, and he can overturn it. A pick that deletes data, sends a message or needs his hand stays with him.", record.Seq, excerpt(record.Text)),
+		})
+	}
+	return found
+}
+
+func untyped(record client.Record) bool {
+	if deskLane.MatchString(record.Lane) || namesCard.MatchString(record.Text) {
+		return false
+	}
+	if ownerWords.MatchString(record.Text) {
+		return true
+	}
+	kind := string(record.Kind)
+	return (kind == kindAsk || kind == kindDecide) && optionWords.MatchString(record.Text)
+}
+
+func (c *Check) repeated(ctx context.Context, order client.Record) Finding {
+	holding := "Nothing open shares its words."
+	if named := c.holding(ctx, order); len(named) > 0 {
+		holding = "Open holds and blocks sharing its words: " + strings.Join(named, ", ") + "."
+	}
+	return Finding{
+		ID:   fmt.Sprintf("choice-repeat:%d", order.Seq),
+		Kind: kindAsk,
+		To:   lanes.Root,
+		Re:   order.Seq,
+		Line: fmt.Sprintf("REPEAT #%d: he gave this order again: %s %s Name the lane doing it and what holds it, unrelated work included.", order.Seq, excerpt(order.Text), holding),
+	}
+}
+
+func (c *Check) holding(ctx context.Context, order client.Record) []string {
+	open, err := client.Open(ctx, c.Drive, "hold", "blocked", "blocker")
+	if err != nil {
+		return nil
+	}
+	slices.SortFunc(open, func(one, other client.Record) int { return cmp.Compare(other.Seq, one.Seq) })
+	var named []string
+	for _, record := range open {
+		if len(named) < heldShown && board.SharedWordPairs(order.Text, record.Text) >= heldPairs {
+			named = append(named, fmt.Sprintf("#%d", record.Seq))
+		}
+	}
+	return named
+}
+
+func (c *Check) documented(ctx context.Context, desk string, now time.Time) []Finding {
+	if c.Docs == nil {
+		return nil
+	}
+	open := c.Docs.Open(ctx, now)
+	if len(open) == 0 {
+		return nil
+	}
+	listed := make([]string, 0, len(open))
+	for _, doc := range open {
+		listed = append(listed, fmt.Sprintf("%s (%s)", doc.Slug, strings.Join(doc.Items, ", ")))
+	}
+	list := strings.Join(listed, "; ")
+	sum := sha256.Sum256([]byte(list))
+	return []Finding{{
+		ID:   "choice-doc:" + hex.EncodeToString(sum[:6]),
+		Kind: kindNote,
+		To:   desk,
+		Line: fmt.Sprintf("DOC-CHOICE design docs list choices for him that name no card: %s. Draw each, or have its author close it in the doc.", clip(list, listChars)),
+	}}
+}
+
+func excerpt(text string) string {
+	return strings.TrimRight(clip(clockTime.ReplaceAllString(text, ""), lineChars), ".") + "."
+}
+
+func clip(text string, chars int) string {
+	runes := []rune(strings.Join(strings.Fields(text), " "))
+	if len(runes) <= chars {
+		return string(runes)
+	}
+	return string(runes[:chars]) + "…"
+}

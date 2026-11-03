@@ -17,7 +17,9 @@ import (
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/choices"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	prfacts "github.com/yasyf/cc-skills/plugins/long-running/lr/internal/facts"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/grading"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/install"
@@ -156,6 +158,14 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 				return err
 			}, store: s, post: post, log: a.Log}).Check,
 		)
+	}
+	if slices.Contains(env.Config.Movers, moverLanes) {
+		entry, err := drive.Named(env.Config.Drive)
+		if err != nil {
+			a.Log.Warn("the choices check is off", "err", err)
+		} else {
+			checks = append(checks, (&background{name: "choices", every: choiceEvery, run: choices.New(ctx, a, entry, env.Claude, s).Pass, store: s, post: post, log: a.Log}).Check)
+		}
 	}
 	deps := Deps{
 		Movers: env.Config.Movers,

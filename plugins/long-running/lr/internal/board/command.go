@@ -32,6 +32,7 @@ const (
 	snapshotWindow = 24 * time.Hour
 	configFile     = "lr.json"
 	judgeTimeout   = 2 * time.Minute
+	rulingsShown   = 3
 )
 
 func Snapshots(ctx context.Context, bus string, since time.Time) ([]Snapshot, error) {
@@ -391,6 +392,32 @@ func cardsCommand(cards func() (Cards, func(), error), judge Judge) *cobra.Comma
 			}
 			for _, card := range args {
 				fmt.Fprintln(c.OutOrStdout(), card, stamp(drawn[card]))
+			}
+			return nil
+		},
+	}, &cobra.Command{
+		Use:   "ruled CARD_FILE",
+		Short: "Print each answer or Slack line of his on this card's question, then each order of his that removes something and shares words with its title, newest first; nothing when a read fails",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(c *cobra.Command, args []string) error {
+			board, done, err := cards()
+			if err != nil {
+				return nil
+			}
+			defer done()
+			data, err := os.ReadFile(args[0])
+			if err != nil {
+				return nil
+			}
+			var card struct {
+				Title string `json:"title"`
+			}
+			if json.Unmarshal(data, &card) != nil {
+				return nil
+			}
+			rulings := board.Ruled(c.Context(), card.Title)
+			for _, ruling := range rulings[:min(len(rulings), rulingsShown)] {
+				fmt.Fprintln(c.OutOrStdout(), ruling.Line())
 			}
 			return nil
 		},

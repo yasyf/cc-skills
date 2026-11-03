@@ -19,6 +19,7 @@ const (
 	wasteEvery  = time.Hour
 	judgeEvery  = time.Minute
 	judgeLimit  = 15 * time.Minute
+	choiceEvery = 10 * time.Minute
 
 	recoveredCursor = "background-recovered:"
 )

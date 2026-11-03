@@ -186,7 +186,7 @@ type Checkout struct {
 	Dir    string
 }
 
-func locate(ctx context.Context, runner shell.Runner, repo, claude string) (Checkout, error) {
+func Locate(ctx context.Context, runner shell.Runner, repo, claude string) (Checkout, error) {
 	root := filepath.Join(claude, "worktrees")
 	configured, err := runner.Run(ctx, shell.Command{Argv: []string{"git", "config", "ccx.worktreeRoot"}, Timeout: stepWait})
 	var exit *shell.ExitError
@@ -428,7 +428,7 @@ func publisher(cmd *cobra.Command, a *app.App, cfg config.Config) (Checkout, Tai
 	if err != nil {
 		return Checkout{}, Tailnet{}, Owner{}, err
 	}
-	checkout, err := locate(cmd.Context(), a.Runner, cfg.Repo, claude)
+	checkout, err := Locate(cmd.Context(), a.Runner, cfg.Repo, claude)
 	if err != nil {
 		return Checkout{}, Tailnet{}, Owner{}, err
 	}
