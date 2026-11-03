@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import json
 import re
+import subprocess
 import time
 from itertools import pairwise
 from collections.abc import Sequence
@@ -12,7 +13,7 @@ from spawnllm import Binary, BinaryAnswer, Refused
 
 from captain_hook import Allow, AssistantMessage, BaseHookEvent, Block, Event, FromSubagent, HookResult, Input, T, Tool, Warn, WorkflowState, on, workflow_state
 
-from .compaction_handoff import bus_name, Communicator, communicator_tests, CompactionState, drive_entry
+from .compaction_handoff import bus_name, Communicator, COMMUNICATOR_LANE, communicator_tests, CompactionState, drive_entry
 from .owner_answers import read, RECORD_BYTES
 from .lane_slack_status import CC_SLACK, CLI, WRITE_TOOLS
 from .register_capture import slack_dms
@@ -70,6 +71,11 @@ FILE_PATH = (
     " Link the dashboard section that shows it on the tailnet instead, and say what it shows in plain words."
 )
 SCRATCH_ROOTS = (".claude/scratch/", "progress-desk/")
+UNANSWERED = (
+    "The owner wrote in Slack and nobody has answered in that thread: {replies}."
+    " Reply in each thread with `slack_reply` saying what was done with it, then stop."
+)
+OWED_REPLY = {"thread_ts": "1793684147.131059", "ts": "1793705742.180139", "text": "A, but as buttons", "permalink": "https://acme.slack.com/archives/D0B6Z/p1793705742180139"}
 CALM = {"reminder": BinaryAnswer(p_yes=0.02, confidence=0.95), "status_question": BinaryAnswer(p_yes=0.02, confidence=0.95)}
 REMINDED = CALM | {"reminder": BinaryAnswer(p_yes=0.97, confidence=0.94)}
 ASKED = CALM | {"status_question": BinaryAnswer(p_yes=0.96, confidence=0.93)}
@@ -103,6 +109,16 @@ def back(reply: str, returned: bool = True) -> Input:
 
 
 @on(
+    Event.SessionStart | Event.UserPromptSubmit,
+    only_if=[Communicator()],
+    skip_if=[FromSubagent()],
+)
+def communicator_holds_the_owners_dm(evt: BaseHookEvent) -> None:
+    if me := cc_slack("whoami"):
+        cc_slack("follow", "--channel", json.loads(me)["dm_channel_id"], "--session", evt.session_id)
+
+
+@on(
     Event.UserPromptSubmit,
     only_if=[Communicator()],
     skip_if=[FromSubagent()],
@@ -123,6 +139,10 @@ def owner_return_opens_with_the_update(evt: BaseHookEvent) -> HookResult | None:
     if not state.returned:
         return None
     return evt.context(RETURNED.format(minutes=int(gap // 60), steps=Path(drive_entry(evt)["state_dir"]) / STEPS))
+
+
+def owed(replies: str | tuple) -> Input:
+    return Input(transcript=[T.user("where are we"), T.assistant("On it.")], state=[CompactionState(active=True)], commands={"cc-slack dm-owed": replies}, decide=CALM)
 
 
 def picked(*calls: dict) -> Input:
@@ -150,6 +170,9 @@ def asked(reply: str, *calls: dict, words: str = HOW_FAR, decide: dict = ASKED) 
     only_if=[Communicator()],
     skip_if=[FromSubagent()],
     tests=communicator_tests({
+        owed(json.dumps({"replies": [OWED_REPLY]})): Block(pattern=r"^The owner wrote in Slack.*p1793705742180139 \"A, but as buttons\".*`slack_reply`"),
+        owed(json.dumps({"replies": []})): Allow(),
+        owed((1, "cc-slack can't reach the daemon")): Allow(),
         picked(): Block(pattern=r"^A pick for the owner never sits inline"),
         picked(*T.tool_turn("mcp__plugin_cc-slack_cc-slack__slack_send", result=SENT, channel_id="D0B6Z", text=PICK)): Block(pattern=r"never sits inline.*`slack_dm_status` card whose `options`"),
         picked(*T.tool_turn("Bash", result=SENT, command=f"cc-slack send --channel D0B6Z --text '{PICK}'")): Block(pattern=r"never sits inline"),
@@ -188,7 +211,7 @@ def asked(reply: str, *calls: dict, words: str = HOW_FAR, decide: dict = ASKED) 
 )
 def communicator_reply_follows_the_owner_rules(evt: BaseHookEvent) -> HookResult | None:
     reply = AssistantMessage().content(evt) or ""
-    problems = [problem for problem in (missing_update(evt, reply), inline_pick(evt, reply), unrouted_reminder(evt), unread_status(evt, reply), file_path(evt, reply)) if problem]
+    problems = [problem for problem in (unanswered_reply(), missing_update(evt, reply), inline_pick(evt, reply), unrouted_reminder(evt), unread_status(evt, reply), file_path(evt, reply)) if problem]
     return evt.block(" ".join(problems)) if problems else None
 
 
@@ -246,6 +269,19 @@ def dm_posts(evt: BaseHookEvent) -> list[tuple[str, dict]]:
 
 def dm_words(text: str, posted: dict) -> tuple[str, dict]:
     return "\n".join([text, str(posted.get("title") or ""), str(posted.get("body") or ""), *map(str, posted.get("options") or [])]), posted
+
+
+def cc_slack(*args: str) -> str | None:
+    try:
+        return read(["cc-slack", *args])
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def unanswered_reply() -> str | None:
+    out = cc_slack("dm-owed")
+    replies = json.loads(out)["replies"] if out else []
+    return UNANSWERED.format(replies="; ".join(f'{reply["permalink"]} "{reply["text"]}"' for reply in replies)) if replies else None
 
 
 def missing_update(evt: BaseHookEvent, reply: str) -> str | None:
@@ -327,7 +363,7 @@ def owner_words(evt: BaseHookEvent) -> str:
 
 def forwarded(evt: BaseHookEvent) -> bool:
     since = next(iter(evt.ctx.turn.events)).meta.timestamp.isoformat()
-    out = read(["cci", "tail", "--drive", bus_name(drive_entry(evt)), "--lane", "owner-relay", "--kind", "ask", "--since", since, "--budget", str(RECORD_BYTES), "--json"])
+    out = read(["cci", "tail", "--drive", bus_name(drive_entry(evt)), "--lane", COMMUNICATOR_LANE, "--kind", "ask", "--since", since, "--budget", str(RECORD_BYTES), "--json"])
     return out is None or any(to.startswith("meta") for line in out.splitlines() if line.strip() for to in json.loads(line).get("to") or ())
 
 

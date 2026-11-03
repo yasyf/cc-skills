@@ -11,8 +11,9 @@ from pathlib import Path
 
 from cc_transcript import AttachmentEvent, UserEvent
 from captain_hook import Allow, BaseHookEvent, Event, FromSubagent, HookResult, Input, Tool, WorkflowState, on, workflow_state
+from captain_hook.util import reqenv
 
-from .compaction_handoff import ccn, CCN_TIMEOUT_SECONDS, Communicator, communicator_tests, CompactionState, rulings
+from .compaction_handoff import bus_name, ccn, CCN_TIMEOUT_SECONDS, Communicator, COMMUNICATOR_LANE, communicator_tests, CompactionState, drive_entry, rulings
 from .owner_facing import REPLY_WINDOW, last_reply
 from .register_gates import READ_ERRORS, captures, failed_open, folded, read_register
 from .register_injection import drive_args
@@ -233,10 +234,18 @@ def slack_dms(evt: BaseHookEvent, events: Iterable[object]) -> list[dict]:
             "session": evt.session_id,
             "source": "slack",
             "text": message["text"],
+            "ts": message["ts"],
+            "thread": message["thread_ts"],
         }
         for message in messages
-        if message["kind"] == "dm" and message["user"] == OPERATOR and not message["from_claude"] and not message["text"].startswith(FALLBACK_POST)
+        if message["channel_id"].startswith("D") and message["user"] == OPERATOR and not message["from_claude"] and not message["text"].startswith(FALLBACK_POST)
     ]
+
+
+def post_owner_reply(evt: BaseHookEvent, dm: dict) -> None:
+    argv = ["cci", "post", "--drive", bus_name(drive_entry(evt)), "--lane", COMMUNICATOR_LANE, "--kind", "owner", "--id", f"slack:{dm['ts']}"]
+    argv += ["--attr", f"ts={dm['ts']}", "--attr", f"thread={dm['thread']}", "--path", "-"]
+    subprocess.run(argv, input=capture(dm)["text"], capture_output=True, text=True, timeout=CCN_TIMEOUT_SECONDS, env=dict(reqenv.env_map()))
 
 
 def capture(prompt: dict) -> dict:
@@ -278,13 +287,16 @@ def stamp_owner_prompts(evt: BaseHookEvent) -> HookResult | None:
         try:
             path = captures(read_register(evt, which))
             earlier = [json.loads(line) for line in path.read_text().splitlines() if line.strip()] if path.is_file() else []
-            landed += [capture(dm) for dm in dms if dm["digest"] not in {entry["digest"] for entry in earlier}]
+            fresh = list({dm["digest"]: dm for dm in dms if dm["digest"] not in {entry["digest"] for entry in earlier}}.values())
+            landed += [capture(dm) for dm in fresh]
             if not landed:
                 return None
             relays = [entry for entry in [*earlier, *landed] if entry["source"] == "relay"]
             landed = [line | ({"supersedes": names} if line["source"] == "prompt" and (names := repeated(line, relays)) else {}) for line in landed]
             with path.open("a") as file:
                 file.writelines(f"{json.dumps(line)}\n" for line in landed)
+            for dm in fresh:
+                post_owner_reply(evt, dm)
         except READ_ERRORS as error:
             failed_open(evt, "stamp_owner_prompts", error)
             return None

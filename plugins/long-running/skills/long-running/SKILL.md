@@ -106,7 +106,12 @@ put to him in Slack is a card with one button per option, `slack_dm_status` with
 reply with a letter or number; a thread reply is for notes. An ask about a pull
 request carries its PR card, the PR in the card's `refs`, never only the link;
 `drive.py ask-owner` attaches each PR its text names. `owner_returns.py` refuses a
-plain pick, a PR ask with no PR card, and a stop that leaves the pick inline. It talks only to the
+plain pick, a PR ask with no PR card, and a stop that leaves the pick inline. Its session
+holds the owner's DM: `owner_returns.py` arms a channel watch on the DM at session start
+and on each prompt, so his reply in any DM thread reaches it as well as the lane that
+posted there, and refuses a stop while `cc-slack dm-owed` lists a reply nobody has
+answered in its thread. `register_capture.py` posts each such reply once as an `owner`
+record with id `slack:<ts>` and attrs `ts` and `thread`, so a forward names the id instead of pasting his words. It talks only to the
 coordinator, the meta and signal lanes and helpers it spawned for its own work,
 never to the coordinator's children, and beyond the launches at drive start it posts
 no `go`, `hold`, `decide` or `launch`. Every owner message lands in its message
