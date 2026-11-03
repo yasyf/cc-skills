@@ -325,7 +325,7 @@ func TestAReviewAddressedToAWorkerNoLaneRegisteredStillPostsAndThePassSucceeds(t
 	shell, _ := newFinderFake(t, replyOf(findingOf("major", "go/sand/internal/replica/follow.go:42", "the resubscribe drops the held marker")))
 	mustFinder(t, directory, shell)
 	equal(t, shell.posted[0]["--to"], "p8a7-send-latency,desk-runner,p8a-step7")
-	equal(t, finderGrade(shell.posted[0]["--text"]), finderFail)
+	equal(t, FinderGrade(shell.posted[0]["--text"]), finderFail)
 	equal(t, resultOf(t, directory)["posted"].(string), "#150001")
 }
 
@@ -513,7 +513,7 @@ func TestMajorsPastCcisLimitPostAClippedLineThatStillReadsMajor(t *testing.T) {
 	if !strings.HasSuffix(text, "…") {
 		t.Errorf("text %q", text)
 	}
-	equal(t, finderGrade(text), finderFail)
+	equal(t, FinderGrade(text), finderFail)
 	equal(t, strings.Count(readText(t, directory, "record.md"), "go/sand/file3.go:4"), 2)
 }
 
@@ -641,7 +641,7 @@ func TestAHeadSupersededWhileCodexReadItPostsNothing(t *testing.T) {
 
 func TestAJobTheRunnerCancelledForANewerHeadAsksCodexNothing(t *testing.T) {
 	directory := finderJobDir(t, nil)
-	if err := os.WriteFile(filepath.Join(directory, cancelledFile), []byte(shaNewer+"\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(directory, CancelledFile), []byte(shaNewer+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	shell, _ := newFinderFake(t)
@@ -760,7 +760,7 @@ func TestAReplayOntoAMovedParentWhoseEveryOwnCommitPairsEqualPostsTheGradedHeads
 			repo.resolved = map[string]string{"a269784": shaOld}
 			repo.ranges = map[string]string{earlierRange: pairLines("=", "=")}
 			mustFinder(t, directory, shell)
-			verdict := finderGrade(graded)
+			verdict := FinderGrade(graded)
 			post := shell.posted[0]
 			equal(t, len(shell.asks()), 0)
 			equal(t, post["--text"], "finder: "+verdict+" "+shaHead[:7]+" carried from #149302")
@@ -808,7 +808,7 @@ func TestAMergedPRWhoseBaseBranchTheRemoteDeletedStillGetsItsPassOverTheTrunk(t 
 	shell.state = "MERGED"
 	repo.baseGone = true
 	mustFinder(t, directory, shell)
-	equal(t, finderGrade(shell.posted[0]["--text"]), finderPass)
+	equal(t, FinderGrade(shell.posted[0]["--text"]), finderPass)
 }
 
 func TestAClosedPRRunsNoFinderAndPostsNothing(t *testing.T) {
@@ -1066,7 +1066,7 @@ func TestACancelDuringARateLimitPauseStartsNoFurtherCodexRun(t *testing.T) {
 	shell, _ := newFinderFake(t, limited, replyOf())
 	deps := shell.deps()
 	deps.Sleep = func(time.Duration) {
-		if err := os.WriteFile(filepath.Join(directory, cancelledFile), []byte(shaNewer+"\n"), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(directory, CancelledFile), []byte(shaNewer+"\n"), 0o600); err != nil {
 			t.Error(err)
 		}
 	}

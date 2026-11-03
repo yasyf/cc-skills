@@ -53,26 +53,26 @@ var (
 	generic    = map[string]bool{"page": true, "pages": true, "route": true, "routes": true, "file": true, "files": true, "feature": true, "features": true, "endpoint": true, "endpoints": true, "code": true, "which": true, "that": true, "and": true, "the": true, "its": true, "from": true, "for": true, "with": true, "unused": true, "old": true, "dead": true}
 )
 
-type oldApp struct {
+type OldApp struct {
 	Seq  int64  `json:"seq"`
 	Lane string `json:"lane"`
 	Head string `json:"head"`
 	Line string `json:"line"`
 }
 
-type ruling struct {
+type Ruling struct {
 	Seq  int64  `json:"seq"`
 	Text string `json:"text"`
 }
 
-type fidelityJob struct {
-	job
+type FidelityJob struct {
+	Job
 	Readers      []string          `json:"readers"`
 	Lanes        []string          `json:"lanes"`
-	Grades       []record          `json:"grades"`
-	OldApps      []oldApp          `json:"old_apps"`
+	Grades       []Record          `json:"grades"`
+	OldApps      []OldApp          `json:"old_apps"`
 	Corrected    []int64           `json:"corrected"`
-	Rulings      []ruling          `json:"rulings"`
+	Rulings      []Ruling          `json:"rulings"`
 	Contract     string            `json:"contract"`
 	Sources      string            `json:"sources"`
 	Exempt       map[string]string `json:"exempt"`
@@ -118,7 +118,7 @@ type gradeLine struct {
 
 type fidelityPassState struct {
 	*pass
-	job *fidelityJob
+	job *FidelityJob
 }
 
 func Fidelity(ctx context.Context, dir string, deps Deps) error {
@@ -127,15 +127,15 @@ func Fidelity(ctx context.Context, dir string, deps Deps) error {
 }
 
 func runFidelity(ctx context.Context, dir string, deps Deps) (FidelityOutcome, error) {
-	data, err := os.ReadFile(filepath.Join(dir, jobFile))
+	data, err := os.ReadFile(filepath.Join(dir, JobFile))
 	if err != nil {
 		return FidelityOutcome{}, err
 	}
-	var spec fidelityJob
+	var spec FidelityJob
 	if err := json.Unmarshal(data, &spec); err != nil {
 		return FidelityOutcome{}, err
 	}
-	state := &fidelityPassState{&pass{Deps: deps, ctx: ctx, dir: dir, job: &spec.job}, &spec}
+	state := &fidelityPassState{&pass{Deps: deps, ctx: ctx, dir: dir, job: &spec.Job}, &spec}
 	return state.grade()
 }
 
@@ -347,28 +347,28 @@ func findingsLine(head string, found []findingRow) string {
 
 type candidate struct {
 	head  string
-	stand []record
+	stand []Record
 }
 
 func gradedHead(text string) string {
 	return shortSHA.FindString(text)
 }
 
-func newestNaming(grades []record, sha string) *record {
-	var newest *record
+func newestNaming(grades []Record, sha string) *Record {
+	var newest *Record
 	for index := range grades {
 		grade := &grades[index]
-		if head := gradedHead(grade.Text); head != "" && namesHead(head, sha) && (newest == nil || grade.Seq > newest.Seq) {
+		if head := gradedHead(grade.Text); head != "" && NamesHead(head, sha) && (newest == nil || grade.Seq > newest.Seq) {
 			newest = grade
 		}
 	}
 	return newest
 }
 
-func (s *fidelityPassState) standing(sha string) []record {
-	var stand []record
+func (s *fidelityPassState) standing(sha string) []Record {
+	var stand []Record
 	for _, lane := range s.job.Lanes {
-		var own []record
+		var own []Record
 		for _, grade := range s.job.Grades {
 			if grade.Lane == lane {
 				own = append(own, grade)
@@ -381,7 +381,7 @@ func (s *fidelityPassState) standing(sha string) []record {
 	return stand
 }
 
-func (s *fidelityPassState) passes(grade record) bool {
+func (s *fidelityPassState) passes(grade Record) bool {
 	if strings.HasPrefix(grade.Text, fidelityOK) {
 		return true
 	}
@@ -391,7 +391,7 @@ func (s *fidelityPassState) passes(grade record) bool {
 
 func (s *fidelityPassState) candidates() []candidate {
 	oks := slices.Clone(s.job.Grades)
-	slices.SortStableFunc(oks, func(a, b record) int { return cmp.Compare(b.Seq, a.Seq) })
+	slices.SortStableFunc(oks, func(a, b Record) int { return cmp.Compare(b.Seq, a.Seq) })
 	var named []string
 	for _, grade := range oks {
 		if !s.passes(grade) {
@@ -401,27 +401,27 @@ func (s *fidelityPassState) candidates() []candidate {
 		if parts == nil {
 			continue
 		}
-		if head := gradedHead(parts[3]); head != "" && !namesHead(head, s.job.Head) && !slices.Contains(named, head) {
+		if head := gradedHead(parts[3]); head != "" && !NamesHead(head, s.job.Head) && !slices.Contains(named, head) {
 			named = append(named, head)
 		}
 	}
 	var heads []candidate
 	for _, head := range named {
 		stand := s.standing(head)
-		if len(stand) > 0 && !slices.ContainsFunc(stand, func(grade record) bool { return !s.passes(grade) }) {
+		if len(stand) > 0 && !slices.ContainsFunc(stand, func(grade Record) bool { return !s.passes(grade) }) {
 			heads = append(heads, candidate{head, stand})
 		}
 	}
 	return heads
 }
 
-func newestGrade(stand []record) record {
-	return slices.MaxFunc(stand, func(a, b record) int { return cmp.Compare(a.Seq, b.Seq) })
+func newestGrade(stand []Record) Record {
+	return slices.MaxFunc(stand, func(a, b Record) int { return cmp.Compare(a.Seq, b.Seq) })
 }
 
 type carryMatch struct {
 	head  string
-	grade record
+	grade Record
 	patch string
 }
 
@@ -484,8 +484,8 @@ func (s *fidelityPassState) sinceEarlier(heads []candidate, base, trunk string, 
 	return last, pairs, changed, err
 }
 
-func (s *fidelityPassState) chain(grade record) []int64 {
-	bySeq := make(map[int64]record, len(s.job.Grades))
+func (s *fidelityPassState) chain(grade Record) []int64 {
+	bySeq := make(map[int64]Record, len(s.job.Grades))
 	for _, other := range s.job.Grades {
 		bySeq[other.Seq] = other
 	}
@@ -512,7 +512,7 @@ func (s *fidelityPassState) exemptPhrases(text string) []string {
 	return said
 }
 
-func (s *fidelityPassState) carriedClass(grade record) string {
+func (s *fidelityPassState) carriedClass(grade Record) string {
 	if slices.ContainsFunc(s.chain(grade), func(seq int64) bool { return slices.Contains(s.job.Corrected, seq) }) {
 		return ""
 	}
@@ -557,10 +557,10 @@ func (s *fidelityPassState) carried(match *carryMatch, by, proof string) (Fideli
 	return FidelityOutcome{Verdict: "carried", From: match.head, Posted: posted}, nil
 }
 
-func newestOldApp(records []oldApp, sha string) *oldApp {
-	var newest *oldApp
+func newestOldApp(records []OldApp, sha string) *OldApp {
+	var newest *OldApp
 	for index := range records {
-		if namesHead(records[index].Head, sha) && (newest == nil || records[index].Seq > newest.Seq) {
+		if NamesHead(records[index].Head, sha) && (newest == nil || records[index].Seq > newest.Seq) {
 			newest = &records[index]
 		}
 	}
@@ -943,7 +943,8 @@ func (s *fidelityPassState) gradedLines(reply fidelityReply) []gradeLine {
 		}
 		lines = append(lines, gradeLine{text: fmt.Sprintf("%s %s %s%s", fidelityOK, head, said, squeezed(reply.Summary))})
 	case "missing":
-		var keys, broken []string
+		var keys []string
+		broken := make([]string, 0, len(reply.Missing))
 		for _, entry := range reply.Missing {
 			if !slices.Contains(keys, entry.Key) {
 				keys = append(keys, entry.Key)

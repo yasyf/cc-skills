@@ -59,8 +59,8 @@ github.com/vishvananda/netlink v1.2.1-beta.2 h1:Llsql0lnQEbHj0I1OuKyp8otXp0r3q0m
 github.com/vishvananda/netlink v1.2.1-beta.2/go.mod h1:twkDnbuQxJYemMlGd4JFIcuhgX83tXhKS2B/PRMpOho=
 github.com/vishvananda/netns v0.0.0-20200728191858-db3c7e526aae h1:4hwBBUfQCFe3Cym0ZtKyq7L16eZUtYKs+BaHDN6mAns=
 github.com/vishvananda/netns v0.0.0-20200728191858-db3c7e526aae/go.mod h1:DD4vA1DwXk04H54A1oHXtwZmA0grkVMdPxx/VGLCah0=
-github.com/yasyf/cc-inbox v0.49.30-0.20261103035357-15985fca3d28 h1:mt+MvRn9xWkw8hs9Lc7KN8a+ox3hv1dybKnh7dLSEv8=
-github.com/yasyf/cc-inbox v0.49.30-0.20261103035357-15985fca3d28/go.mod h1:1/oGGmR3uXcIgF4LcO3KcMklfZNZoBtLrXyWme/RiFQ=
+github.com/yasyf/cc-inbox v0.49.31-0.20261103040426-034cc43b1f3d h1:316/S3itMDK/tpraQBCpjzKvqMjwyCO2ZwG2ipOZeok=
+github.com/yasyf/cc-inbox v0.49.31-0.20261103040426-034cc43b1f3d/go.mod h1:1/oGGmR3uXcIgF4LcO3KcMklfZNZoBtLrXyWme/RiFQ=
 github.com/yasyf/cc-interact v0.39.0 h1:ebJhMzXSx56zVvD0n8BRKxAb+dRmDOtytG2tpqooqps=
 github.com/yasyf/cc-interact v0.39.0/go.mod h1:+zkZi12pmVPfpTnLTzLanAfaj6Ox2QbGIMKS5+/SjAM=
 github.com/yasyf/daemonkit v0.36.0 h1:2SOhdDB/bxNbJDPsYEWRhQ9fqtxFSNgUatngrM0BPkY=
