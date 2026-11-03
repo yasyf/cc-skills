@@ -20,7 +20,7 @@ FLAG = re.compile(r"(?<![\w-])--[a-z][a-z-]*")
 SECTION = re.compile(r"^(\w[\w ]*):\n((?:  .*\n)+)", re.MULTILINE)
 
 
-def segments(suffix: str, text: str) -> Iterator[str]:
+def segments(suffix: str, text: str, pattern: re.Pattern[str] = COMMAND) -> Iterator[str]:
     if suffix == ".md":
         for block in FENCE.findall(text):
             yield from block.splitlines()
@@ -28,16 +28,16 @@ def segments(suffix: str, text: str) -> Iterator[str]:
     elif suffix == ".py":
         for node in ast.walk(ast.parse(text)):
             if isinstance(node, ast.Constant) and isinstance(node.value, str):
-                if COMMAND.match(node.value):
+                if pattern.match(node.value):
                     yield node.value
                 yield from SPAN.findall(node.value)
     else:
         yield from (line for line in text.splitlines() if not line.lstrip().startswith("#"))
 
 
-def commands(suffix: str, text: str) -> Iterator[tuple[str, ...]]:
-    for segment in segments(suffix, text):
-        for match in COMMAND.finditer(segment):
+def commands(suffix: str, text: str, pattern: re.Pattern[str] = COMMAND) -> Iterator[tuple[str, ...]]:
+    for segment in segments(suffix, text, pattern):
+        for match in pattern.finditer(segment):
             yield (*match[1].split(), *FLAG.findall(END.split(segment[match.end() :], maxsplit=1)[0]))
 
 
@@ -50,8 +50,8 @@ def named() -> Iterator[tuple[Path, tuple[str, ...]]]:
 
 
 @cache
-def command(*path: str) -> tuple[frozenset[str], bool, frozenset[str]]:
-    shown = subprocess.run([str(LR), *path, "--help"], capture_output=True, text=True, timeout=120, check=True).stdout
+def command(binary: str, *path: str) -> tuple[frozenset[str], bool, frozenset[str]]:
+    shown = subprocess.run([binary, *path, "--help"], capture_output=True, text=True, timeout=120, check=True).stdout
     sections = dict(SECTION.findall(shown))
     subcommands = frozenset(line.split()[0] for line in sections.get("Available Commands", "").splitlines())
     runnable = any(not line.endswith("[command]") for line in sections["Usage"].splitlines())
@@ -59,16 +59,16 @@ def command(*path: str) -> tuple[frozenset[str], bool, frozenset[str]]:
     return subcommands, runnable, flags
 
 
-def missing(words: tuple[str, ...]) -> str | None:
+def missing(words: tuple[str, ...], binary: str = str(LR)) -> str | None:
     path: tuple[str, ...] = ()
     for word in (word for word in words if not word.startswith("--")):
-        subcommands, runnable, _ = command(*path)
+        subcommands, runnable, _ = command(binary, *path)
         if word not in subcommands:
             if path and runnable:
                 break
             return " ".join((*path, word))
         path += (word,)
-    unknown = [word for word in words if word.startswith("--") and word not in command(*path)[2]]
+    unknown = [word for word in words if word.startswith("--") and word not in command(binary, *path)[2]]
     return " ".join((*path, *unknown)) if unknown else None
 
 
