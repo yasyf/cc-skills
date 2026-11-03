@@ -252,7 +252,7 @@ func (g *FixLiveGC) reclaim(ctx context.Context, lane string, seq int64, heard, 
 		g.reclaimed = map[string]bool{}
 	}
 	g.reclaimed[dispatch] = true
-	result, err := g.Env.Runner.Run(ctx, shell.Command{Argv: []string{g.Env.tool("lr"), "gc", "--run", g.Env.Config.OrcaRun, "--done", dispatch}, Timeout: gcTimeout})
+	result, err := g.Env.gc(ctx, "--done", dispatch)
 	var exit *shell.ExitError
 	if err != nil && !errors.As(err, &exit) {
 		g.Log.Warn("lr gc did not run", "dispatch", dispatch, "err", err)
@@ -650,6 +650,61 @@ func notLiveKey(target string, numbers []int) string {
 	return notLiveTopic + ":" + target + ":" + strings.Join(words, ",")
 }
 
+func (e Env) gc(ctx context.Context, args ...string) (shell.Result, error) {
+	remote, err := CcRemoteOf(e.State)
+	if err != nil {
+		return shell.Result{}, err
+	}
+	command := shell.Command{Argv: append([]string{e.tool("lr"), "gc", "--run", e.Config.OrcaRun}, args...), Dir: e.Config.Checkout, Timeout: gcTimeout}
+	if remote != nil {
+		command.Env = []string{"WORKER_CC_REMOTE=" + remote.Binary, "CC_REMOTE_CONFIG=" + remote.Config}
+	}
+	return e.Runner.Run(ctx, command)
+}
+
+func (e Env) keepWanted(s *store.Store) ([]string, error) {
+	registered, err := s.AllLanes()
+	if err != nil {
+		return nil, err
+	}
+	var keep []string
+	for _, lane := range registered {
+		if !isLive(lane.State) {
+			continue
+		}
+		if dispatch := dispatchOf(e.receipts(), lane.Name); dispatch != "" {
+			keep = append(keep, "--keep", dispatch)
+		}
+	}
+	return keep, nil
+}
+
+type SettledGC struct {
+	Env   Env
+	Store *store.Store
+	Log   *slog.Logger
+	read  time.Time
+}
+
+func (g *SettledGC) Check(ctx context.Context, now time.Time) error {
+	if !g.read.IsZero() && now.Sub(g.read) < gcEvery {
+		return nil
+	}
+	g.read = now
+	keep, err := g.Env.keepWanted(g.Store)
+	if err != nil {
+		g.Log.Warn("lr gc --new did not read the registry", "err", err)
+		return nil
+	}
+	result, err := g.Env.gc(ctx, append(keep, "--new")...)
+	if err != nil {
+		g.Log.Warn("lr gc --new did not finish", "err", err, "said", strings.TrimSpace(result.Stderr))
+		return nil
+	}
+	g.Log.Info("lr gc --new", "said", strings.TrimSpace(result.Stdout))
+	return nil
+}
+
 func (e Env) Checks(s *store.Store, log *slog.Logger) ([]Check, error) {
 	checks := []Check{(&ClassUnowned{Env: e, Store: s}).Check}
 	var channels []string
@@ -666,7 +721,7 @@ func (e Env) Checks(s *store.Store, log *slog.Logger) ([]Check, error) {
 		checks = append(checks, (&ReleaseBuilds{Env: e, Pipelines: pipelines, CLI: strings.Fields(e.Config.BuildkiteCLI), Log: log}).Check)
 	}
 	if e.Config.OrcaRun != "" {
-		checks = append(checks, (&FixLiveGC{Env: e, Log: log}).Check)
+		checks = append(checks, (&FixLiveGC{Env: e, Log: log}).Check, (&SettledGC{Env: e, Store: s, Log: log}).Check)
 	}
 	landing, err := ReadRunnerLanding(e.State)
 	if err != nil {
