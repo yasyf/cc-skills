@@ -62,7 +62,7 @@ func clearBelow(f machine.Facts, byBranch map[string]machine.Facts, trunk string
 			return true
 		}
 		below, open := byBranch[f.Base]
-		if !open || !(below.Landable() || below.Queued()) {
+		if !open || (!below.Landable() && !below.Queued()) {
 			return false
 		}
 		f = below
