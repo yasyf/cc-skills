@@ -5,6 +5,7 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -81,8 +82,9 @@ func (tr landings) landStaff(t *testing.T) {
 	t.Helper()
 	git(t, tr.work, "checkout", "-q", "dev")
 	write(t, tr.work, map[string]string{
-		"wire.go": "type Run struct {\n\tTeam string\n\tStaffTeam bool\n}\n",
-		"loop.go": "log.Warn(\"journal refused\", \"team\", team, \"staffTeam\", staff)\n",
+		"wire.go":  "type Run struct {\n\tTeam string\n\tStaffTeam bool\n}\n",
+		"loop.go":  "log.Warn(\"journal refused\", \"team\", team, \"staffTeam\", staff)\n",
+		"card.tsx": "export const ParameterCard = () => <OAuthConnection />;\n",
 	}, staffPR)
 	git(t, tr.work, "push", "-q", "origin", "dev")
 }
@@ -91,6 +93,19 @@ func (tr landings) openConnect(t *testing.T) {
 	t.Helper()
 	git(t, tr.work, "checkout", "-q", "-b", "connect")
 	write(t, tr.work, map[string]string{"card.tsx": "export const ConnectAppCard = () => null;\n"}, "connect_app raises its own card")
+}
+
+func (tr landings) mergeDev(t *testing.T, resolved bool) {
+	t.Helper()
+	git(t, tr.work, "checkout", "-q", "connect")
+	if !resolved {
+		git(t, tr.work, "merge", "-q", "-s", "ours", "dev", "-m", "Merge remote-tracking branch 'origin/dev' into connect")
+		return
+	}
+	if out, err := exec.Command("git", "-C", tr.work, "merge", "-q", "dev").CombinedOutput(); err == nil {
+		t.Fatalf("merging dev did not conflict: %s", out)
+	}
+	write(t, tr.work, map[string]string{"card.tsx": "export const ConnectAppCard = () => <OAuthConnection />;\n"}, "Merge dev into connect")
 }
 
 func (tr landings) squashConnect(t *testing.T, pushHead bool, description string) {
@@ -125,8 +140,7 @@ func TestASquashWhoseMergeFromTrunkKeptAStaleTreeTellsBothLanesAndRootWhatItUndi
 	tr.openConnect(t)
 	tr.landStaff(t)
 	tr.pass(t)
-	git(t, tr.work, "checkout", "-q", "connect")
-	git(t, tr.work, "merge", "-q", "-s", "ours", "dev", "-m", "Merge remote-tracking branch 'origin/dev' into connect")
+	tr.mergeDev(t, false)
 	tr.squashConnect(t, true, connected)
 
 	tr.pass(t)
@@ -136,7 +150,7 @@ func TestASquashWhoseMergeFromTrunkKeptAStaleTreeTellsBothLanesAndRootWhatItUndi
 		t.Fatalf("records = %+v", records)
 	}
 	got := records[0]
-	for _, want := range []string{"CLOBBERED #49121", "2 lines #49148 added, in loop.go, wire.go"} {
+	for _, want := range []string{"CLOBBERED #49121", "#49148's 3 lines in loop.go, wire.go"} {
 		if !strings.Contains(got.Text, want) {
 			t.Fatalf("text %q lacks %q", got.Text, want)
 		}
@@ -153,16 +167,17 @@ func TestASquashWhoseMergeFromTrunkKeptAStaleTreeTellsBothLanesAndRootWhatItUndi
 
 func TestASquashThatUndoesNothingUnsaidPostsNothing(t *testing.T) {
 	for name, c := range map[string]struct {
-		forkAfterStaff bool
-		description    string
+		merge       string
+		description string
 	}{
-		"its description names the PR it undoes": {false, connected + "\nIt takes back #49148's staff field.\n"},
-		"its description names the files":        {false, connected + "\nIt drops the staff field from wire.go and loop.go.\n"},
-		"it branched after the landing":          {true, connected},
+		"its description names the PR it undoes":     {"stale", connected + "\nIt takes back #49148's staff field.\n"},
+		"its description names the files":            {"stale", connected + "\nIt drops the staff field from wire.go and loop.go.\n"},
+		"its merge changed only the conflicted file": {"resolved", connected},
+		"its branch carries no merge commit":         {"", connected},
 	} {
 		t.Run(name, func(t *testing.T) {
 			tr := newLandings(t)
-			if c.forkAfterStaff {
+			if c.merge == "" {
 				tr.landStaff(t)
 				tr.openConnect(t)
 				write(t, tr.work, map[string]string{
@@ -174,8 +189,7 @@ func TestASquashThatUndoesNothingUnsaidPostsNothing(t *testing.T) {
 				tr.openConnect(t)
 				tr.landStaff(t)
 				tr.pass(t)
-				git(t, tr.work, "checkout", "-q", "connect")
-				git(t, tr.work, "merge", "-q", "-s", "ours", "dev", "-m", "Merge dev")
+				tr.mergeDev(t, c.merge == "resolved")
 			}
 			tr.squashConnect(t, true, c.description)
 
@@ -193,8 +207,7 @@ func TestASquashWhosePRHeadCannotBeReadLogsAndThePassMovesOn(t *testing.T) {
 	tr.openConnect(t)
 	tr.landStaff(t)
 	tr.pass(t)
-	git(t, tr.work, "checkout", "-q", "connect")
-	git(t, tr.work, "merge", "-q", "-s", "ours", "dev", "-m", "Merge dev")
+	tr.mergeDev(t, false)
 	tr.squashConnect(t, false, connected)
 
 	tr.pass(t)

@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
@@ -21,6 +20,8 @@ const (
 	clobberFact = "trunk-read"
 	clobberKind = "report"
 	commitMark  = "\x00"
+
+	mergeConflicted = 1
 )
 
 type Clobbers struct {
@@ -45,8 +46,6 @@ type Undone struct {
 	Files  []string
 	Lines  int
 }
-
-type fileLines map[string]map[string]bool
 
 func (c *Clobbers) Pass(ctx context.Context) error {
 	facts, err := c.Store.Facts(c.Repo, 0, clobberHead)
@@ -87,7 +86,7 @@ func (c *Clobbers) replay(ctx context.Context, squash string) []Undone {
 		err = c.tell(ctx, *found)
 	}
 	if err != nil {
-		c.Log.Warn("a squash was not read against the PRs landed since its base", "squash", shortHead(squash), "err", err)
+		c.Log.Warn("a squash's merges were not read against a clean merge", "squash", shortHead(squash), "err", err)
 	}
 	if found == nil {
 		return nil
@@ -118,104 +117,87 @@ func (c *Clobbers) check(ctx context.Context, squash string) (*Clobber, error) {
 	if _, err := c.git(ctx, trunkReadLimit, "fetch", "-q", "--no-tags", "origin", head, "--no-write-fetch-head"); err != nil {
 		return nil, err
 	}
-	own, err := c.git(ctx, gitLimit, "rev-list", "--first-parent", head, "^"+parent)
+	merges, err := c.git(ctx, gitLimit, "rev-list", "--merges", head, "^"+parent)
+	if err != nil || merges == "" {
+		return nil, err
+	}
+	touched, err := c.git(ctx, gitLimit, "diff", "--name-only", "--no-renames", parent, squash)
 	if err != nil {
 		return nil, err
 	}
-	chain := strings.Fields(own)
-	if len(chain) == 0 {
+	undid := map[int]*Undone{}
+	for _, merge := range strings.Fields(merges) {
+		if err := c.dropped(ctx, merge, strings.Split(touched, "\n"), description, undid); err != nil {
+			return nil, err
+		}
+	}
+	if len(undid) == 0 {
 		return nil, nil
-	}
-	base, err := c.git(ctx, gitLimit, "rev-parse", chain[len(chain)-1]+"^1")
-	if err != nil {
-		return nil, err
-	}
-	diff, err := c.git(ctx, gitLimit, "diff", "--no-renames", parent, squash)
-	if err != nil {
-		return nil, err
-	}
-	added, removed := parseDiff(diff)
-	if len(removed) == 0 {
-		return nil, nil
-	}
-	files := make([]string, 0, len(removed))
-	for file := range removed {
-		files = append(files, file)
-	}
-	since, err := c.git(ctx, trunkReadLimit, slices.Concat([]string{"log", "--first-parent", "--no-renames", "-p", "--format=%x00%s", base + ".." + parent, "--"}, files)...)
-	if err != nil {
-		return nil, err
 	}
 	clobber := Clobber{Number: number, Squash: squash}
-	for _, landing := range strings.Split(since, commitMark)[1:] {
-		landedSubject, landedDiff, _ := strings.Cut(landing, "\n")
-		landedNumber := squashedPR.FindStringSubmatch(landedSubject)
-		if landedNumber == nil || regexp.MustCompile(`#`+landedNumber[1]+`\b`).MatchString(description) {
-			continue
-		}
-		undone := Undone{}
-		undone.Number, _ = strconv.Atoi(landedNumber[1])
-		landedAdded, landedRemoved := parseDiff(landedDiff)
-		for file, lines := range landedAdded {
-			if within(lines, removed[file]) && within(landedRemoved[file], added[file]) && !describes(description, file) {
-				undone.Files = append(undone.Files, file)
-				undone.Lines += len(lines)
-			}
-		}
-		if len(undone.Files) > 0 {
-			slices.Sort(undone.Files)
-			clobber.Undid = append(clobber.Undid, undone)
-		}
+	for _, undone := range undid {
+		slices.Sort(undone.Files)
+		clobber.Undid = append(clobber.Undid, *undone)
 	}
-	if len(clobber.Undid) == 0 {
-		return nil, nil
-	}
+	slices.SortFunc(clobber.Undid, func(a, b Undone) int { return a.Number - b.Number })
 	return &clobber, nil
 }
 
-func within(lines, of map[string]bool) bool {
-	for line := range lines {
-		if !of[line] {
-			return false
+func (c *Clobbers) dropped(ctx context.Context, merge string, touched []string, description string, undid map[int]*Undone) error {
+	merged, err := c.Runner.Run(ctx, shell.Command{Argv: []string{"git", "-C", c.Checkout, "merge-tree", "--write-tree", "--name-only", "--no-messages", merge + "^1", merge + "^2"}, Timeout: gitLimit})
+	if err != nil && merged.Code != mergeConflicted {
+		return err
+	}
+	clean, conflicted, _ := strings.Cut(strings.TrimSpace(merged.Stdout), "\n")
+	stat, err := c.git(ctx, gitLimit, slices.Concat([]string{"diff", "--numstat", "--no-renames", clean, merge, "--"}, touched)...)
+	if err != nil || stat == "" {
+		return err
+	}
+	lines := map[string]int{}
+	for row := range strings.SplitSeq(stat, "\n") {
+		fields := strings.SplitN(row, "\t", 3)
+		if slices.Contains(strings.Split(conflicted, "\n"), fields[2]) || describes(description, fields[2]) {
+			continue
+		}
+		added, _ := strconv.Atoi(fields[0])
+		removed, _ := strconv.Atoi(fields[1])
+		lines[fields[2]] = added + removed
+	}
+	if len(lines) == 0 {
+		return nil
+	}
+	files := make([]string, 0, len(lines))
+	for file := range lines {
+		files = append(files, file)
+	}
+	landed, err := c.git(ctx, gitLimit, slices.Concat([]string{"log", "--first-parent", "--name-only", "--format=%x00%s", merge + "^2", "^" + merge + "^1", "--"}, files)...)
+	if err != nil {
+		return err
+	}
+	for _, landing := range strings.Split(landed, commitMark)[1:] {
+		subject, named, _ := strings.Cut(landing, "\n")
+		pr := squashedPR.FindStringSubmatch(subject)
+		if pr == nil || regexp.MustCompile(`#`+pr[1]+`\b`).MatchString(description) {
+			continue
+		}
+		number, _ := strconv.Atoi(pr[1])
+		undone := undid[number]
+		if undone == nil {
+			undone = &Undone{Number: number}
+			undid[number] = undone
+		}
+		for file := range strings.SplitSeq(strings.TrimSpace(named), "\n") {
+			if !slices.Contains(undone.Files, file) {
+				undone.Files = append(undone.Files, file)
+				undone.Lines += lines[file]
+			}
 		}
 	}
-	return true
+	return nil
 }
 
 func describes(description, file string) bool {
 	return strings.Contains(description, file) || strings.Contains(description, file[strings.LastIndex(file, "/")+1:])
-}
-
-func parseDiff(diff string) (added, removed fileLines) {
-	added, removed = fileLines{}, fileLines{}
-	var file string
-	inHunk := false
-	for line := range strings.SplitSeq(diff, "\n") {
-		switch {
-		case strings.HasPrefix(line, "diff --git "):
-			_, file, _ = strings.Cut(line, " b/")
-			inHunk = false
-		case strings.HasPrefix(line, "@@"):
-			inHunk = true
-		case !inHunk || line == "":
-		case line[0] == '+':
-			added.mark(file, line[1:])
-		case line[0] == '-':
-			removed.mark(file, line[1:])
-		}
-	}
-	return added, removed
-}
-
-func (f fileLines) mark(file, line string) {
-	line = strings.TrimSpace(line)
-	if !strings.ContainsFunc(line, func(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) }) {
-		return
-	}
-	if f[file] == nil {
-		f[file] = map[string]bool{}
-	}
-	f[file][line] = true
 }
 
 func (c *Clobbers) tell(ctx context.Context, found Clobber) error {
@@ -231,7 +213,7 @@ func (c *Clobbers) tell(ctx context.Context, found Clobber) error {
 	undid := make([]string, 0, len(found.Undid))
 	for _, undone := range found.Undid {
 		numbers = append(numbers, undone.Number)
-		undid = append(undid, fmt.Sprintf("%d lines #%d added, in %s", undone.Lines, undone.Number, strings.Join(undone.Files, ", ")))
+		undid = append(undid, fmt.Sprintf("#%d's %d lines in %s", undone.Number, undone.Lines, strings.Join(undone.Files, ", ")))
 	}
 	to := []string{rootLane}
 	refs := make([]string, 0, len(numbers))
@@ -245,7 +227,7 @@ func (c *Clobbers) tell(ctx context.Context, found Clobber) error {
 			to = append(to, holder)
 		}
 	}
-	text := fmt.Sprintf("CLOBBERED #%d at %s removed what PRs landed since its base added, and its description names none of it: %s. The squash put those lines back as they were before those PRs; restore them forward", found.Number, shortHead(found.Squash), strings.Join(undid, "; "))
+	text := fmt.Sprintf("CLOBBERED #%d at %s undid what landed since its base: a merge from trunk on its branch kept stale copies of files that merged cleanly, so its squash took out %s, and its description names none of it. Restore them forward", found.Number, shortHead(found.Squash), strings.Join(undid, "; "))
 	_, err = client.Post(ctx, client.Draft{Drive: c.Drive, Lane: self, Kind: clobberKind, To: to, ID: "clobbered:" + found.Squash, PRs: refs, Text: text})
 	return err
 }
