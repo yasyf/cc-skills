@@ -63,8 +63,11 @@ Do:
      otherwise, start from a fresh trunk. Ship it through submit-pr, pushing and
      opening the PR within 10 minutes of the candidate; the PR text never gates the
      push, and a scope change on a later push goes in one PR comment. Once GitHub's
-     required checks are green and the bots approved, post READY with the exact
-     head; the landing desk owns enqueue. Never run stack-enqueue, rebase, or push
+     required checks are green and the PR is approved, post READY with the exact
+     head; the landing desk owns enqueue. Accept each reviewer-bot finding with
+     `scripts/pr-reviews accept <slug> --why "incident: <why the fix is still right>"`
+     and push nothing for it, since a push restarts CI; push only for a finding
+     that says the fix itself is wrong, ending the push with `# fix-is-wrong: <slug>`. Never run stack-enqueue, rebase, or push
      a queued branch. A red check the branch rules do not require is read for its
      content and never waited on.
   3. The orca desk's clock runs from your launch. It reads the cci records you
