@@ -166,20 +166,16 @@ func TestATargetGoneFromTrunkOwesNoDeletion(t *testing.T) {
 	git(t, work, "rm", "-q", "go/old/main.go")
 	git(t, work, "commit", "-q", "-m", "gone")
 	git(t, work, "push", "-q", "origin", "HEAD:main")
-	write(t, root, map[string]string{"rows.json": string(encoded(t, map[string]map[string]any{
+	rows := encoded(t, map[string]map[string]any{
 		"rule/seal":       {"status": "in-force", "implications": removes("proposed"), "symbols": `["AdminState::positions", "runStorage.closeStore", "Restore::plan"]`, "paths": `["rust/admin.rs:191 @ 19dd3ce", "go/run/storage.go", "rust/restore.rs:735 @ 2a00d64"]`},
 		"rule/takeover":   {"status": "in-force", "implications": removes("proposed"), "symbols": `["CloudHost.TakeOverRun", "onlyInTest"]`, "paths": `["go/run/takeover.go", "go/run/takeover_test.go"]`},
 		"rule/old-main":   {"status": "in-force", "implications": removes("proposed"), "paths": `["go/old/main.go"]`},
 		"rule/run-dir":    {"status": "in-force", "implications": removes("proposed"), "paths": `["go/run"]`},
 		"rule/unanchored": {"status": "in-force", "implications": removes("proposed"), "symbols": `["Floating"]`},
-	}))})
-	rulings := filepath.Join(root, "rulings")
-	if err := os.WriteFile(rulings, []byte("#!/bin/sh\ncat "+filepath.Join(root, "rows.json")+"\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	trunk := Trunk{Runner: notes{}, Checkout: checkout, Branch: "main"}
+	})
+	trunk := Trunk{Runner: notes{rows: rows}, Checkout: checkout, Branch: "main"}
 
-	gaps, err := trunk.Gaps(context.Background(), rulings, "durable-agents-rebuild")
+	gaps, err := trunk.Gaps(context.Background(), "rulings.py", "durable-agents-rebuild")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -215,9 +211,13 @@ func TestAnOwedDeletionIsOverdueOnceItsDueDayHasPassed(t *testing.T) {
 
 type notes struct {
 	tasks map[string]string
+	rows  []byte
 }
 
 func (n notes) Run(ctx context.Context, c shell.Command) (shell.Result, error) {
+	if c.Argv[0] == "rulings.py" {
+		return shell.Result{Stdout: string(n.rows)}, nil
+	}
 	if c.Argv[0] != "ccn" {
 		return shell.Exec{}.Run(ctx, c)
 	}
@@ -308,7 +308,7 @@ func TestPresentKeepsTheOpenTasksWhoseCodeIsStillOnTrunk(t *testing.T) {
 		"never":         shown(t, "never", owner, map[string]string{"go/next/cmd/never.go": "path"}),
 		"another-lane":  shown(t, "another-lane", "other-lane-2", map[string]string{"go/follower": "dir"}),
 	}
-	trunk := Trunk{Runner: notes{tasks}, Checkout: checkout, Branch: "main"}
+	trunk := Trunk{Runner: notes{tasks: tasks}, Checkout: checkout, Branch: "main"}
 
 	listed, err := trunk.List(context.Background())
 	if err != nil {
