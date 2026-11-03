@@ -1691,6 +1691,23 @@ func TestAStandingLanesDoneClosesAnItemAndNeverTheLane(t *testing.T) {
 	equal(t, len(f.ofKind("blocker")), 0)
 }
 
+func TestALaneParkedOnAStandingLaneWakesOnItsStopNotOnADoneForAnItem(t *testing.T) {
+	s := memory(t)
+	f, _ := standingLane(t, s)
+	f.feed = append(f.feed, spawned(2, lane2, writeBrief(t), t0.Add(-time.Hour), nil), rec(3, lane2, "blocked", t0.Add(-mins(30)), "waits on the desk").withRefs(Refs{Lanes: []string{refresher}}))
+	f.peers = []Row{who(refresher, true, t0), who(lane2, true, t0)}
+	tick(t, s, f, t0)
+	equal(t, row(t, s, lane2).Waiting, int64(3))
+
+	f.feed = append(f.feed, rec(4, refresher, "done", t0.Add(mins(1)), "item 157 proven"))
+	tick(t, s, f, t0.Add(mins(2)))
+	equal(t, row(t, s, lane2).Waiting, int64(3))
+
+	f.feed = append(f.feed, rec(5, refresher, "stopped", t0.Add(mins(3)), "stopping"))
+	tick(t, s, f, t0.Add(mins(4)))
+	equal(t, row(t, s, lane2).Waiting, int64(0))
+}
+
 func TestOnlyAStandingLaneStaysUnsettledOnItsOwnDone(t *testing.T) {
 	brief := standingBrief(t, refresher)
 	equal(t, settledLane(store.Lane{Name: refresher, Brief: brief, Last: "done"}), false)
