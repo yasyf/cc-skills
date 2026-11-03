@@ -412,7 +412,11 @@ behavior change. Every other owner ask is a question card from `drive.py ask-own
 with two to four answers and one recommended; a settled question never reaches the
 board; a card he touched stays until he submits the round; nobody calls
 `AskUserQuestion`, and an urgent yes/no is the same card sent to his Slack with
-`cc-present ask`. `board_watch.py` records
+`cc-present ask`. A card proposing a change to an existing artifact sets its
+`design`, carrying a screenshot of the live artifact, the change rendered inside
+it, and a cite of its design record; cc-present refuses the card without them, and
+the lane drawing it starts from "A design lane's part" in
+[orca-lane-brief.md](reference/orca-lane-brief.md). `board_watch.py` records
 every tap as an `owner` record and a cc-notes answer. What waits on him is what
 `cci owner-waits` prints, never a runner note. The drive writes one automated Slack
 message, the merge card in his direct-message status thread; everything else is a

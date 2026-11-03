@@ -9,6 +9,7 @@
 - [In-process subagent brief template](#in-process-subagent-brief-template)
 - [The `common.md` contract every lane shares](#commonmd-the-contract-every-lane-shares)
 - [One lane's `<lane>.md` part](#lanemd-one-lanes-part)
+- [A design lane's part](#a-design-lanes-part)
 - [A standing desk's brief](#a-standing-desks-brief)
 - [Scoped resume](#scoped-resume)
 - [Sequencer lane](#sequencer-lane)
@@ -441,6 +442,17 @@ Scale: <the N each path this lane changes runs at: chats, teams, sessions, or ru
 Standing rules served: <`#<seq>` ids with their answer ids, or "none">; your task cites them, and completing this lane never retires them.
 Plan task: register your unit at spawn so the progress record's plan counts include it: `ccn task add "<unit>" --plan <plan id> --label step:<n> --label program:<slug> --criterion "<done when>"`, then `ccn task start`, `ccn task criterion met|failed`, and `ccn task done` as it moves (SKILL.md Plan progress). The coordinator fills the plan id and step, or writes "none".
 Observable acceptance: <the test, output, or PR URL that proves completion>.
+```
+
+## A design lane's part
+
+A lane that designs, mocks or redesigns anything the owner sees, such as a dashboard, a board, a Slack card format or a skill's UI, carries these lines in its `<lane>.md` part, before `Change:`. Its brief never says to design from a blank page or "not from today's layout"; a change the owner wants away from the live artifact still starts from it.
+
+```
+Artifact: <the live artifact: its URL or app, and the repo path that renders it>.
+Design record: <the ccn docs, answers and owner picks on this artifact, by id, or "none found" with the searches run>.
+First step, before any mockup: open the live artifact and screenshot it as it is; read its design record; list the owner's prior picks on it, each with its answer id and his words. Post the list as a `contract` record. Then draw each proposed change inside the live artifact, never as a standalone page.
+Card: the card that shows the change sets `design.changes` to this artifact, `design.live` and `design.inPlace` to the two screenshots on the card, and `design.record` to the record above; cc-present refuses it without them.
 ```
 
 ## A standing desk's brief
