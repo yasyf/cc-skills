@@ -461,16 +461,22 @@ def save(entry: dict) -> Path:
 
 def session_id() -> str:
     if not (session := os.environ.get(SESSION_ENV)):
-        raise SystemExit(f"{SESSION_ENV} is unset; run this from the drive's coordinator Claude session")
+        raise SystemExit(f"{SESSION_ENV} is unset and no drive's lane registry has a row for {LANE_ENV}; run this from the drive's coordinator session or a lane its supervisor registered")
     return session
 
 
-def current_drive(env: Mapping[str, str] | None = None, root: Path | None = None) -> str | None:
+def current_drive(env: Mapping[str, str] | None = None, root: Path | None = None, run: lanes.Run | None = None) -> str | None:
     env = os.environ if env is None else env
     if drive := env.get(DRIVE_ENV):
         return drive
-    entry = find(None, env.get(SESSION_ENV), root)
+    entry = find(None, env.get(SESSION_ENV), root) or registered_drive(env.get(LANE_ENV), root, run or ledger.Shell().run)
     return entry["drive"] if entry else None
+
+
+def registered_drive(lane: str | None, root: Path | None, run: lanes.Run) -> dict | None:
+    if not lane:
+        return None
+    return next((entry for entry in drives(root) if (config := Path(entry["state_dir"]) / "lr.json").is_file() and lanes.output(run, [sys.executable, str(installed_script("drive_supervisor.py")), "lanes", lane, "--config", str(config), "--json"])), None)
 
 
 def orca_run_drive() -> str | None:
@@ -630,8 +636,8 @@ def cmd_landed(args: argparse.Namespace, shell: ledger.Shell) -> int:
         return 1
 
 
-def resolve(args: argparse.Namespace) -> dict | None:
-    drive = args.drive or current_drive() or orca_run_drive()
+def resolve(args: argparse.Namespace, shell: ledger.Shell) -> dict | None:
+    drive = args.drive or current_drive(run=shell.run) or orca_run_drive()
     entry = find(drive, None if drive else getattr(args, "session", None) or session_id())
     if entry is None:
         print(f"no drive {drive} is registered" if drive else "this session belongs to no drive; name it with --drive", file=sys.stderr)
@@ -661,7 +667,7 @@ def runner_checkouts(entry: dict) -> frozenset[str]:
 
 
 def cmd_lane_status(args: argparse.Namespace, shell: ledger.Shell) -> int:
-    entry = find(args.drive or current_drive(), os.environ.get(SESSION_ENV)) if args.run else resolve(args)
+    entry = find(args.drive or current_drive(run=shell.run), os.environ.get(SESSION_ENV)) if args.run else resolve(args, shell)
     if entry is None and not args.run:
         return 1
     now = datetime.now(timezone.utc)
@@ -695,7 +701,7 @@ def busy(beats: dict[str, dict | None], now: datetime) -> list[str]:
 
 
 def cmd_digest(args: argparse.Namespace, shell: ledger.Shell) -> int:
-    if (entry := resolve(args)) is None:
+    if (entry := resolve(args, shell)) is None:
         return 1
     installed = installed_version()
     current = True
@@ -738,7 +744,7 @@ def cmd_digest(args: argparse.Namespace, shell: ledger.Shell) -> int:
 
 
 def cmd_reds(args: argparse.Namespace, shell: ledger.Shell) -> int:
-    if (entry := resolve(args)) is None:
+    if (entry := resolve(args, shell)) is None:
         return 1
     if not (stack := Path(entry["state_dir"]) / "inbox" / STACK).is_file():
         print(f"no {stack}: the stall watch has not run a pass for this drive")
@@ -753,7 +759,7 @@ def cmd_reds(args: argparse.Namespace, shell: ledger.Shell) -> int:
 
 
 def cmd_go(args: argparse.Namespace, shell: ledger.Shell) -> int:
-    if (entry := resolve(args)) is None:
+    if (entry := resolve(args, shell)) is None:
         return 1
     runner = str(Path(__file__).resolve().parents[1] / "desk-runner.py")
     os.execv(sys.executable, [sys.executable, runner, "go", "--config", str(Path(entry["state_dir"]) / "runner.json"), *args.prs])
@@ -761,7 +767,7 @@ def cmd_go(args: argparse.Namespace, shell: ledger.Shell) -> int:
 
 
 def cmd_worktree(args: argparse.Namespace, shell: ledger.Shell) -> int:
-    if (entry := resolve(args)) is None:
+    if (entry := resolve(args, shell)) is None:
         return 1
     top = lanes.output(shell.run, ["git", "-C", str(args.path), "rev-parse", "--show-toplevel"])
     if top is None or not in_repo(Path(top.strip()), entry):
@@ -789,7 +795,7 @@ def cmd_spawned(args: argparse.Namespace, shell: ledger.Shell) -> int:
 def cmd_overview(args: argparse.Namespace, shell: ledger.Shell) -> int:
     if args.steps:
         path = args.steps
-    elif (entry := resolve(args)) is None:
+    elif (entry := resolve(args, shell)) is None:
         return 1
     else:
         path = Path(entry["state_dir"]) / overview.STEPS
@@ -815,7 +821,7 @@ def cmd_ask_owner(args: argparse.Namespace, shell: ledger.Shell) -> int:
         raise SystemExit(f"--recommend {args.recommend} names no option; pass 1 to {len(args.option)}")
     if numbered := [hit for text in (args.title, args.lede, *args.option) for hit in NUMBERED.findall(text)]:
         raise SystemExit(f"the card names {', '.join(numbered)}; say what each is in plain words")
-    if (entry := resolve(args)) is None:
+    if (entry := resolve(args, shell)) is None:
         return 1
     slug = args.id or "-".join(re.findall(r"[a-z0-9]+", args.title.lower())[:SLUG_WORDS])
     block = card(slug, args.title, args.lede, args.option, args.recommend, entry["repo"])
