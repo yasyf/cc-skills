@@ -358,7 +358,11 @@ before 4 PM had a time and no plan).
 A lane that ships a PR or calls a skill is `long-running:lane-ship`; any other lane
 or desk is `long-running:lane`; a lane that posts to Slack is `general-purpose` on
 opus. Implementation lanes and every desk run on Sprites. A brief whose duty the
-drive keeps for good carries `Standing: <duty>`. A lane never spawns with `Agent`;
+drive keeps for good carries `Standing: <duty>`. Every standing desk is an
+`lr`-launched lane registered to the coordinator, on a Sprite unless its brief says
+`place=local` and names why it needs the Mac; an `Agent` subagent ends with the window
+that spawned it, so neither window spawns a desk with `Agent`, and the communicator
+spawns only short read lanes, under an hour and with no `Standing:` line. A lane never spawns with `Agent`;
 it writes the brief and posts `cci post --kind ask --to root --text 'spawn <name>
 brief=<path> model=<model>'`. The meta lane launches its own implementers with
 `lr launch lane <name> opus xhigh <brief> --lane meta`.
