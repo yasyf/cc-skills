@@ -318,6 +318,18 @@ func TestAHeadAFidelityGradeOrAReaderHandoffAlreadyNamesStartsNoPass(t *testing.
 	}
 }
 
+func TestAGradeFromANumberedSuccessorOfAConfiguredDeskStartsNoPass(t *testing.T) {
+	f := newPool(t, map[string]any{
+		"landing":  map[string]any{"fidelity_lane": []string{"fidelity-desk", "fidelity-desk-21"}},
+		"fidelity": map[string]any{},
+	})
+	post(t, client.Draft{Lane: "fidelity-desk-22", Kind: kindReview, Text: "fidelity: ok " + head[:7] + " reads", PRs: []string{pull}})
+
+	if _, err := f.dispatch(t, GraderFidelity); !errors.Is(err, ErrAnswered) {
+		t.Fatalf("err = %v, want ErrAnswered", err)
+	}
+}
+
 func TestABranchOfABoardOptionGroundsItsGradeOnTheCardAndTheRootsSession(t *testing.T) {
 	f := newPool(t, map[string]any{"fidelity": map[string]any{}})
 	registry := filepath.Join(f.pool.Config, "long-running", "drives")

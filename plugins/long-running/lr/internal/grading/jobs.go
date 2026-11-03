@@ -138,6 +138,7 @@ func (p *JobPool) fidelityJob(ctx context.Context, d desk, facts machine.Facts, 
 	if err != nil {
 		return job{}, err
 	}
+	lanes = withSuccessors(lanes, found)
 	grades := fidelityGrades(found, lanes, facts.Repo, pr)
 	sent := slices.DeleteFunc(slices.Clone(found), func(r client.Record) bool {
 		return r.Kind != kindReview || r.Lane != grader.FidelityLane || !strings.HasPrefix(r.Text, fidelityReader)
