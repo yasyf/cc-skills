@@ -897,7 +897,7 @@ def nudge_at_threshold(evt: BaseHookEvent) -> HookResult | None:
 
 def delivered_since(drive: str, since: str) -> list[str]:
     kinds = [arg for kind in ("report", "head", "handoff", "done", "fix-live") for arg in ("--kind", kind)]
-    argv = [sys.executable, str(script("owner_update.py")), "--drive", drive, "--json", "--only", "delivered", "--since", since, *kinds]
+    argv = [str(LR), "update", "--drive", drive, "--json", "--only", "delivered", "--since", since, *kinds]
     try:
         done = subprocess.run(argv, capture_output=True, text=True, timeout=GENERATE_TIMEOUT_SECONDS, env=dict(reqenv.env_map()), check=True)
     except (OSError, subprocess.SubprocessError):
