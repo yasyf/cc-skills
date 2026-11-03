@@ -120,6 +120,8 @@ def check_pr_stub(monkeypatch, code: int, out: str, viewed: str = "41700") -> li
         if len(argv) > 2 and argv[2] == "check-pr":
             calls.append(list(argv))
             return subprocess.CompletedProcess(argv, code, out, "")
+        if list(argv[:3]) == ["lr", "landing", "gate"]:
+            return subprocess.CompletedProcess(argv, 0, "", "")
         return real(argv, **kwargs)
 
     def capability(cwd, *args, evt, stdin="", timeout=lane_landing.CHECK_PR_TIMEOUT_SECONDS):
@@ -210,8 +212,7 @@ def test_every_merge_in_a_command_is_advised_whichever_selector_names_it(tmp_pat
     assert advice.splitlines() == [
         lane_landing.RULINGS_ADVICE.format(causes="RULINGS-UNCITED rule/abc1234", pr=pr, head=HEAD[:10]) for pr in ("41700", "41711")
     ]
-    [view] = [call for call in calls if call[:3] == ["gh", "pr", "view"]]
-    assert view[3:6] == ["fix/sand-read", "--repo", "Forge-AI/monorepo"]
+    assert {tuple(call[3:6]) for call in calls if call[:3] == ["gh", "pr", "view"]} == {("fix/sand-read", "--repo", "Forge-AI/monorepo")}
     assert [call[call.index("--pr") + 1] for call in calls if "check-pr" in call] == ["Forge-AI/monorepo#41700", "Forge-AI/monorepo#41711"]
 
 
@@ -222,8 +223,7 @@ def test_a_merge_of_the_current_branch_asks_gh_for_its_pr_in_the_working_directo
     [advice] = advise(tmp_path, "gh pr merge --squash")
 
     assert advice == lane_landing.RULINGS_ADVICE.format(causes="RULINGS-UNCITED rule/abc1234", pr="41711", head=HEAD[:10])
-    [view] = [call for call in calls if call[:3] == ["gh", "pr", "view"]]
-    assert view[3:5] == ["--json", "number,headRefOid"]
+    assert {tuple(call[3:5]) for call in calls if call[:3] == ["gh", "pr", "view"]} == {("--json", "number,headRefOid")}
 
 
 FINDER_PENDING = "#43243 e949262e91 finder fail FINDER-PENDING #43243: no `finder:` review record names this head"

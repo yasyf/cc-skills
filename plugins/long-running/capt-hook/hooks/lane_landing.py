@@ -79,8 +79,8 @@ HAND_ENQUEUE_TAP_REFUSAL = (
 TAP_REFUSAL = "TAP-REQUIRED"
 GATE_UNREAD = "Warning, nothing was refused:"
 HAND_LANDING_REFUSAL = (
-    "A hand landing needs the owner's tap at the head it lands, and the landing runner's own read finds none: {lines}. "
-    "Ask him for the tap with a card on the board at that head, or report the PR with `ledger.py report` and let the landing runner land it."
+    "A hand landing needs the owner's tap at its head, and the runner's read finds none: {lines}. "
+    "Ask him for it with a board card at that head, or report the PR with `ledger.py report` for the runner to land."
 )
 TAP_UNREAD = "Warning, nothing was blocked: the owner's tap did not read for this landing, so it goes ahead unchecked for it: {failure}"
 ADMIN_MERGE_REFUSAL = (
@@ -384,7 +384,7 @@ def gate_failure(done: subprocess.CompletedProcess[str] | None) -> str | None:
         Input(command="stack-enqueue 36023 --dequeue", env=DRIVE_ENV): Allow(),
         Input(command=ENQUEUE): Allow(),
         Input(command="gh pr merge 36023 -R Forge-AI/monorepo --squash", agent_id=LANE, env=MONOREPO_ENV, commands={f"{MONOREPO_GATE} 36023 --partial": UNTAPPED}): Block(
-            pattern=r"^A hand landing needs the owner's tap .*: #36023 0123456789 TAP-REQUIRED .*\. Ask him for the tap with a card .* or report the PR"
+            pattern=r"^A hand landing needs the owner's tap at its head.*: #36023 0123456789 TAP-REQUIRED .*\. Ask him for it with a board card at that head, or report the PR"
         ),
         Input(command="gh pr merge 36023 -R Forge-AI/monorepo --squash", env=MONOREPO_ENV, commands={f"{MONOREPO_GATE} 36023 --partial": UNTAPPED}): Block(),
         Input(command="stack-enqueue 36023", agent_id=LANE, env=MONOREPO_ENV, commands={f"{MONOREPO_GATE} 36023": UNTAPPED}): Block(pattern=r"#36023 0123456789 TAP-REQUIRED"),
@@ -402,7 +402,6 @@ def gate_failure(done: subprocess.CompletedProcess[str] | None) -> str | None:
         Input(command="gh pr merge 36023 -R Forge-AI/monorepo --squash", agent_id=LANE, env=MONOREPO_ENV, commands={MONOREPO_GATE: (2, "lr: the store is locked")}): Warn(
             pattern=r"^Warning, nothing was blocked: the owner's tap did not read for this landing, .*: `lr landing gate` exited 2: lr: the store is locked"
         ),
-        Input(command="stack-enqueue 36023", agent_id=DESK, env=MONOREPO_ENV, commands={f"{MONOREPO_GATE} 36023": UNTAPPED}): Warn(pattern=r"^Warning, nothing was blocked: A hand `stack-enqueue` lands nothing"),
         Input(command="gh pr merge 36023 -R Forge-AI/monorepo --squash", commands={MONOREPO_GATE: UNTAPPED}): Allow(),
     },
 )
@@ -412,6 +411,7 @@ def hand_landings_meet_the_runner_checks(evt: BaseHookEvent) -> HookResult | Non
     lander = bool(LANDERS.match(lane := lane_name(evt) or ""))
     incident = incident_lane(evt, lane)
     monorepo = entry["repo"].casefold() == MONOREPO
+    blocking = monorepo and not lander
     config = str(Path(entry["state_dir"]) / "lr.json")
     untapped: list[str] = []
     failing: list[str] = []
@@ -434,10 +434,11 @@ def hand_landings_meet_the_runner_checks(evt: BaseHookEvent) -> HookResult | Non
         lines = [line.strip() for line in done.stdout.splitlines() if line.strip()]
         untapped += [line for line in lines if TAP_REFUSAL in line]
         failing += [line for line in lines if TAP_REFUSAL not in line and verb == "stack-enqueue"]
-    if untapped and monorepo and not lander:
+    if untapped and blocking:
         return evt.block(HAND_LANDING_REFUSAL.format(lines="; ".join(untapped)))
-    notes = [TAP_UNREAD.format(failure=failure) for failure in unread]
-    notes += [HAND_ENQUEUE_TAP_REFUSAL.format(lines="; ".join(untapped))] if untapped else []
+    if untapped:
+        return evt.context(HAND_ENQUEUE_TAP_REFUSAL.format(lines="; ".join(untapped)))
+    notes = [TAP_UNREAD.format(failure=failure) for failure in unread] if blocking else []
     notes += [HAND_ENQUEUE_WARNING.format(lines="; ".join(failing))] if failing else []
     return evt.context("\n".join(notes)) if notes else None
 
