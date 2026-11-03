@@ -30,8 +30,8 @@ ROUTE = f"{LR} route {GATE_LANE}"
 GREP = "cci grep"
 
 UNGATED = (
-    "GATE5: this release carries sand-next at {sha}, and switch-drive-1 has posted no `GATE5 PASS {sha}` on drive durable-agents-rebuild"
-    " in the last 12 hours. Ask switch-drive-1 for a gate run on {sha}, or start the release with `--without sand-next`."
+    "GATE5: this release carries sand-next at {commit}, and switch-drive-1 has posted no `GATE5 PASS <sha>` for that commit"
+    " on drive durable-agents-rebuild in the last 12 hours. Ask switch-drive-1 for a gate run on it, or start the release with `--without sand-next`."
 )
 UNCHECKABLE = (
     "GATE5: a {what} that carries sand-next names no commit the gate can check against switch-drive-1's `GATE5 PASS <sha>` records."
@@ -83,14 +83,15 @@ def carries_sand_next(flags: dict[str, list[str]]) -> bool:
     return not narrowed or any(NAMES_SAND_NEXT.search(name) for name in narrowed)
 
 
-def released_commit(flags: dict[str, list[str]], cwd: str) -> str:
+def released_commit(flags: dict[str, list[str]], cwd: str) -> tuple[str, str]:
     ref = (flags.get("commit") or flags.get("from") or [""])[-1]
     if not ref and "manual" not in flags and "local" not in flags:
         dev = read(["git", "ls-remote", "origin", "refs/heads/dev"], cwd).split()
         if not dev:
             raise Unread("origin has no dev branch")
-        return dev[0].lower()
-    return read(["git", "rev-parse", "--verify", f"{ref or 'HEAD'}^{{commit}}"], cwd).strip().lower()
+        return dev[0].lower(), "origin dev's tip"
+    ref = ref or "HEAD"
+    return read(["git", "rev-parse", "--verify", f"{ref}^{{commit}}"], cwd).strip().lower(), f"`{ref}`"
 
 
 def gate_lanes() -> list[str]:
@@ -124,8 +125,8 @@ def gated(call: Call, cwd: str) -> str | None:
         return overridden(call, seq)
     if call.args[1] == "hotfix" or "green" in flags:
         return UNCHECKABLE.format(what="hotfix" if call.args[1] == "hotfix" else "`--green` release")
-    sha = released_commit(flags, cwd)
-    return None if gate_passed(sha) else UNGATED.format(sha=sha[:12])
+    sha, commit = released_commit(flags, cwd)
+    return None if gate_passed(sha) else UNGATED.format(commit=commit)
 
 
 
@@ -153,14 +154,14 @@ def release(command: str, said: str | tuple[int, str] = "", routed: str = GATE_L
         Input(command="tools/ci release start --manual --stack api/plat-usw2-prod --commit dc94738"): Allow(),
         Input(command="tools/ci release hotfix 48885 --without sand-next"): Allow(),
         Input(command="tools/ci release status"): Allow(),
-        release("tools/ci release start sand"): Block(pattern=r"^GATE5: this release carries sand-next at dc94738e5a1f, and switch-drive-1 has posted no"),
+        release("tools/ci release start sand"): Block(pattern=r"^GATE5: this release carries sand-next at origin dev's tip, and switch-drive-1 has posted no"),
         release("./tools/ci release start sand --without sand-next/core-usw2-auto"): Block(pattern=r"Ask switch-drive-1 for a gate run"),
         release("tools/ci release start sand", passes(SHA)): Allow(),
         release("cd /repo && ci release start --targets sand --from dc94738", passes(SHA)): Allow(),
         release("tools/ci release start sand", passes(OTHER)): Block(pattern=r"^GATE5: this release carries sand-next"),
         release("tools/ci release start sand", passes(SHA, "switch-drive-2"), routed="switch-drive-2"): Allow(),
         release("tools/ci release start sand", passes(SHA), routed=ROOT_LANE): Allow(),
-        release("tools/ci release start --manual --stack sand-next/core-usw2-auto", passes(OTHER)): Block(pattern=r"^GATE5: this release carries sand-next at dc94738e5a1f,"),
+        release("tools/ci release start --manual --stack sand-next/core-usw2-auto", passes(OTHER)): Block(pattern=r"^GATE5: this release carries sand-next at `HEAD`,"),
         release("tools/ci release start sand", (1, "cci: daemon unavailable")): Block(pattern=r"^GATE5 fails closed: it could not read[\s\S]*daemon unavailable"),
         release("tools/ci release start sand", **{"git ls-remote": (128, "fatal: could not read from remote")}): Block(pattern=r"^GATE5 fails closed[\s\S]*could not read from remote"),
         release("tools/ci release start sand", env={"CLAUDE_CONFIG_DIR": "/nonexistent"}): Block(pattern=r"no drive durable-agents-rebuild is registered"),
