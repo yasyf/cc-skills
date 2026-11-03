@@ -276,6 +276,15 @@ def test_held_prints_each_pr_an_open_cci_hold_names_and_skips_lifted_ones(capsys
     assert capsys.readouterr().out == "29020\n35070\n"
 
 
+def test_held_skips_a_pr_a_root_go_names_after_its_hold(capsys):
+    shell = desk_shell()
+    shell.cci = [
+        {"seq": 1, "drive": DRIVE, "lane": "root", "kind": "hold", "status": "open", "topic": "", "refs": {"prs": [29020, 35070]}, "text": "HOLD the env removal"},
+        {"seq": 2, "drive": DRIVE, "lane": "root", "kind": "go", "status": "open", "topic": "", "refs": {"prs": [29020]}, "text": "go #29020 at abc1234"},
+    ]
+    assert run(shell, "held", "--drive", DRIVE) == 0
+    assert capsys.readouterr().out == "35070\n"
+
 def test_label_re_reads_the_head_and_posts_the_label_once():
     shell = admitted(desk_shell())
     assert label(shell) == 0
