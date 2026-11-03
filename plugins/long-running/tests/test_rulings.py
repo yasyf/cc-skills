@@ -2649,6 +2649,59 @@ def test_an_owner_requirement_binds_when_recorded_and_amend_moves_a_permits_line
     assert ran(capsys, shell, "amend", "rule/aaaaaaa", "--implication", "1") == (2, "AMEND-USAGE: --implication goes with --text, --direction, or both\n")
 
 
+def test_amend_add_appends_the_next_numbered_line_ticked_only_by_a_proof_and_records_it(home: Path, package: Path, state: Path, registered: Path, capsys, judged: Judge) -> None:
+    """register-amend-1 (cci 355989): an amend meant to add the owner's correction overwrote implication 1's text instead."""
+    shell = RegisterShell(seeded(package), answers=[ROUND_TWO], records=[{"seq": 209337, "lane": "root", "text": "Tooling PRs owe no regression test."}])
+
+    code, out = ran(capsys, shell, "amend", "rule/aaaaaaa", "--add", "--text", "Tooling PRs owe no regression test.", "--direction", "permits", "--proof", "requirement:root-209337")
+
+    implications = json.loads(shell.rows["rule/aaaaaaa"]["implications"])
+    assert code == 0
+    assert out.splitlines()[3] == "4. [permits, ticked, binds now] Tooling PRs owe no regression test."
+    assert [item["text"] for item in implications[:3]] == [text for text, _ in RELAY]
+    assert (implications[3]["state"], implications[3]["proof"]) == ("ticked", "requirement:root-209337")
+    assert [(edit["implication"], edit["added"], edit["direction"]) for edit in json.loads(shell.rows["rule/aaaaaaa"]["amends"])] == [(4, "Tooling PRs owe no regression test.", "permits")]
+    assert [artifact for _, _, artifact, _ in judged.asked] == ["Tooling PRs owe no regression test. (permits)"]
+
+    proposed = ran(capsys, shell, "amend", "rule/aaaaaaa", "--add", "--text", "Relay docs may live in the wiki.", "--direction", "permits")
+    assert proposed[1].splitlines()[4] == "5. [permits, proposed, waits for the owner's tick] Relay docs may live in the wiki."
+    assert ran(capsys, shell, "amend", "rule/aaaaaaa", "--add", "--text", "Relay tests may live in CI.", "--direction", "permits", "--proof", "5eed0c0")[0] == 0
+    assert [(item["state"], item["proof"]) for item in json.loads(shell.rows["rule/aaaaaaa"]["implications"])[4:]] == [("proposed", ""), ("ticked", ROUND_TWO["id"])]
+    assert ran(capsys, shell, "amend", "rule/aaaaaaa", "--add", "--text", "Relay tests may live in CI.") == (2, "AMEND-USAGE: --add goes with --text and --direction, never --implication\n")
+    assert ran(capsys, shell, "amend", "rule/aaaaaaa", "--implication", "1", "--direction", "removes", "--proof", "5eed0c0") == (2, "AMEND-USAGE: --proof goes with --add\n")
+
+
+@pytest.mark.parametrize(
+    ("proof", "refusal"),
+    [("requirement:root-209338", "PROOF-NOT-ROOT requirement:root-209338: cci record #209338 is lane-a's"), ("requirement:root-1", "no cci record #1 in drive brook-cci")],
+)
+def test_amend_add_refuses_a_requirement_proof_naming_no_root_record_and_writes_nothing(home: Path, package: Path, state: Path, registered: Path, capsys, proof: str, refusal: str) -> None:
+    shell = RegisterShell(seeded(package), records=[{"seq": 209338, "lane": "lane-a", "text": "Tooling PRs owe no regression test."}])
+    before = dict(shell.rows["rule/aaaaaaa"])
+
+    with pytest.raises(SystemExit, match=re.escape(refusal)):
+        ran(capsys, shell, "amend", "rule/aaaaaaa", "--add", "--text", "Tooling PRs owe no regression test.", "--direction", "permits", "--proof", proof)
+
+    assert shell.rows["rule/aaaaaaa"] == before
+
+
+def test_amend_refuses_to_rewrite_a_ticked_lines_text_unless_told_and_points_at_add(home: Path, package: Path, state: Path, capsys) -> None:
+    rows = seeded(package)
+    rows["rule/aaaaaaa"]["implications"] = json.dumps([{"n": 1, "text": "Every PR matches the plan exactly.", "direction": "permits", "state": "ticked", "proof": "requirement:root-209337"}])
+    shell = RegisterShell(rows)
+
+    assert ran(capsys, shell, "amend", "rule/aaaaaaa", "--implication", "1", "--text", "Tooling PRs owe no regression test.") == (
+        1,
+        "TICKED-IMPLICATION rule/aaaaaaa: implication 1 is ticked; add the new line with --add, or pass --rewrite-ticked to replace its text\n",
+    )
+    assert json.loads(shell.rows["rule/aaaaaaa"]["implications"])[0]["text"] == "Every PR matches the plan exactly."
+    assert "amends" not in shell.rows["rule/aaaaaaa"]
+
+    code, out = ran(capsys, shell, "amend", "rule/aaaaaaa", "--implication", "1", "--text", "Every monorepo PR matches the plan exactly.", "--rewrite-ticked")
+    assert (code, out) == (0, "1. [permits, ticked, binds now] Every monorepo PR matches the plan exactly.\n")
+    assert json.loads(shell.rows["rule/aaaaaaa"]["implications"])[0]["proof"] == "requirement:root-209337"
+
+
 def test_confirm_refuses_an_owner_answer_the_row_never_cites_and_the_rows_own_source(home: Path, package: Path, state: Path, tmp_path: Path, capsys) -> None:
     unrelated = dict(ROUND_TWO, id="0dd0c0de" + "0" * 32)
     shell = RegisterShell(seeded(package), answers=[ROUND_TWO, unrelated])
