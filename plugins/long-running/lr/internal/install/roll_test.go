@@ -34,6 +34,32 @@ func TestTheHostConfigMergesHostLandingOverLandingOneLevelDown(t *testing.T) {
 	}
 }
 
+func TestTheHostConfigPutsTheDeskHostsRunOverTheMacsAndKeepsTheRestOfOrca(t *testing.T) {
+	raw := map[string]any{
+		"drive": "d",
+		"orca":  map[string]any{"run": "run_mac", "desk_inbox": "/drive/inbox/orca-desk.md", "launch_env": map[string]any{"ORCA_LAUNCH_RUN": "run_mac", "ORCA_LAUNCH_BASE": "origin/dev"}},
+		"host":  map[string]any{"sprite": "s", "orca": map[string]any{"run": "run_host", "launch_env": map[string]any{"ORCA_LAUNCH_RUN": "run_host"}}},
+	}
+
+	got, err := HostConfig(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := map[string]any{"run": "run_host", "desk_inbox": "/drive/inbox/orca-desk.md", "launch_env": map[string]any{"ORCA_LAUNCH_RUN": "run_host", "ORCA_LAUNCH_BASE": "origin/dev"}}
+	if !reflect.DeepEqual(got["orca"], want) {
+		t.Fatalf("orca %+v", got["orca"])
+	}
+	if raw["orca"].(map[string]any)["run"] != "run_mac" {
+		t.Fatal("the merge edited the Mac's Run")
+	}
+	delete(raw["host"].(map[string]any), "orca")
+	unnamed, err := HostConfig(raw)
+	if err != nil || !reflect.DeepEqual(unnamed["orca"], raw["orca"]) {
+		t.Fatalf("a host naming no orca moved it: %+v %v", unnamed["orca"], err)
+	}
+}
+
 type rollWorld struct {
 	calls   []shell.Command
 	refuse  string

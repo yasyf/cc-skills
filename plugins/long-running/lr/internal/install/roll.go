@@ -75,20 +75,32 @@ func HostConfig(raw map[string]any) (map[string]any, error) {
 	if !isHost {
 		return nil, errors.New("runner.json has no host")
 	}
-	given, _ := raw["landing"].(map[string]any)
-	landing := make(map[string]any, len(given))
-	for key, value := range given {
-		landing[key] = value
+	out := make(map[string]any, len(raw))
+	for key, value := range raw {
+		out[key] = value
 	}
-	overrides, _ := host["landing"].(map[string]any)
+	out["landing"] = overlaid(raw["landing"], host["landing"])
+	if _, named := host["orca"]; named {
+		out["orca"] = overlaid(raw["orca"], host["orca"])
+	}
+	return out, nil
+}
+
+func overlaid(section, host any) map[string]any {
+	given, _ := section.(map[string]any)
+	out := make(map[string]any, len(given))
+	for key, value := range given {
+		out[key] = value
+	}
+	overrides, _ := host.(map[string]any)
 	for key, value := range overrides {
 		override, isMap := value.(map[string]any)
 		if !isMap {
-			landing[key] = value
+			out[key] = value
 			continue
 		}
 		merged := map[string]any{}
-		if base, isBase := landing[key].(map[string]any); isBase {
+		if base, isBase := out[key].(map[string]any); isBase {
 			for name, kept := range base {
 				merged[name] = kept
 			}
@@ -96,14 +108,9 @@ func HostConfig(raw map[string]any) (map[string]any, error) {
 		for name, set := range override {
 			merged[name] = set
 		}
-		landing[key] = merged
+		out[key] = merged
 	}
-	out := make(map[string]any, len(raw))
-	for key, value := range raw {
-		out[key] = value
-	}
-	out["landing"] = landing
-	return out, nil
+	return out
 }
 
 func EncodedConfig(config map[string]any) ([]byte, error) {
