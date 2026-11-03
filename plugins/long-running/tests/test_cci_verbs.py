@@ -16,8 +16,8 @@ import pytest
 
 from test_lr_verbs import END, FLAG, PACK, SPAN, TEXT, commands, missing
 
-COMMAND = re.compile(r"""(?:^\s*|[|;&(]\s*|\bexec\s+|/)cci\b((?:[ \t]+[a-z][a-z-]*)+)""")
-ARGV = re.compile(r'"cci"\s*,(.*)')
+COMMAND = re.compile(r"""(?:^\s*|[|;&(]\s*|\bexec\s+|/)cci\b((?:[ \t]+[a-z][a-z-]*)+)(?=[^`\n]*?\s--[a-z])""")
+ARGV = re.compile(r'(?:\[\]string\{|\b(?:[Rr]un|capture|Command(?:Context)?)\((?:[^()"]*,\s*)?)"cci"\s*,(.*)')
 LITERAL = re.compile(r'"((?:[^"\\\n]|\\.)*)"')
 VERB = re.compile(r"[a-z][a-z-]*")
 RELEASE = "https://github.com/yasyf/cc-inbox/releases/download/v{}/"
@@ -58,6 +58,10 @@ def go(text: str) -> Iterator[tuple[str, ...]]:
             yield (*match[1].split(), *FLAG.findall(END.split(segment[match.end() :], maxsplit=1)[0]))
 
 
+def extension(words: tuple[str, ...]) -> bool:
+    return bool(words) and (PACK / "bin" / f"cci-{words[0]}").exists()
+
+
 def named() -> Iterator[tuple[Path, tuple[str, ...]]]:
     for path in sorted((PACK / "lr").rglob("*.go")):
         if not path.name.endswith("_test.go") and "testdata" not in path.parts:
@@ -80,6 +84,7 @@ def named() -> Iterator[tuple[Path, tuple[str, ...]]]:
         ('cmd := exec.CommandContext(ctx, "cci", argv...)', [()]),
         ("joinRelay = `~/.local/bin/cci relay join --instance --drive \"$1\" && sprite-env services create cci --cmd x`", [("relay", "join", "--instance", "--drive")]),
         ('return errors.New("cci relay status failed")', []),
+        ('return filepath.Join(d.Config.Receipts, "cci", "messages", id+".md")', []),
     ],
 )
 def test_lr_names_cci_where_it_runs_it(text: str, words: list[tuple[str, ...]]) -> None:
@@ -94,6 +99,6 @@ def test_the_check_reads_lr_and_the_pack_text() -> None:
 
 
 def test_every_cci_verb_and_flag_the_pack_names_is_in_the_cci_it_requires() -> None:
-    lacked = sorted({f"{path.relative_to(PACK)}: cci {verb}" for path, words in named() if (verb := missing(words, cci()))})
+    lacked = sorted({f"{path.relative_to(PACK)}: cci {verb}" for path, words in named() if not extension(words) and (verb := missing(words, cci()))})
 
     assert not lacked, f"plugin.json requires cc-inbox >={floor()}, whose cci lacks these; raise the floor to a release that has them:\n" + "\n".join(lacked)

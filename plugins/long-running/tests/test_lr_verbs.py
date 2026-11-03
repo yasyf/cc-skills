@@ -18,6 +18,7 @@ COMMAND = re.compile(r"""(?:^\s*|[|;&(]\s*|\bexec\s+|/)\{?lr\b["'}]?((?:[ \t]+[a
 END = re.compile(r"`|\n|;|&&|\| | -- ")
 FLAG = re.compile(r"(?<![\w-])--[a-z][a-z-]*")
 SECTION = re.compile(r"^(\w[\w ]*):\n((?:  .*\n)+)", re.MULTILINE)
+QUOTED = re.compile(r"'[^']*'|\"[^\"]*\"")
 
 
 def segments(suffix: str, text: str, pattern: re.Pattern[str] = COMMAND) -> Iterator[str]:
@@ -38,7 +39,7 @@ def segments(suffix: str, text: str, pattern: re.Pattern[str] = COMMAND) -> Iter
 def commands(suffix: str, text: str, pattern: re.Pattern[str] = COMMAND) -> Iterator[tuple[str, ...]]:
     for segment in segments(suffix, text, pattern):
         for match in pattern.finditer(segment):
-            yield (*match[1].split(), *FLAG.findall(END.split(segment[match.end() :], maxsplit=1)[0]))
+            yield (*match[1].split(), *FLAG.findall(QUOTED.sub("", END.split(segment[match.end() :], maxsplit=1)[0])))
 
 
 def named() -> Iterator[tuple[Path, tuple[str, ...]]]:
@@ -59,16 +60,28 @@ def command(binary: str, *path: str) -> tuple[frozenset[str], bool, frozenset[st
     return subcommands, runnable, flags
 
 
+@cache
+def hidden(binary: str, *path: str) -> bool:
+    shown = subprocess.run([binary, *path, "--help"], capture_output=True, text=True, timeout=120)
+    return shown.returncode == 0 and f"{Path(binary).name} {' '.join(path)}" in dict(SECTION.findall(shown.stdout)).get("Usage", "")
+
+
+@cache
+def takes(binary: str, path: tuple[str, ...], flag: str) -> bool:
+    shown = subprocess.run([binary, *path, "--help", flag], capture_output=True, text=True, timeout=120)
+    return "unknown flag" not in shown.stdout + shown.stderr
+
+
 def missing(words: tuple[str, ...], binary: str = str(LR)) -> str | None:
     path: tuple[str, ...] = ()
     for word in (word for word in words if not word.startswith("--")):
         subcommands, runnable, _ = command(binary, *path)
-        if word not in subcommands:
+        if word not in subcommands and not hidden(binary, *path, word):
             if path and runnable:
                 break
             return " ".join((*path, word))
         path += (word,)
-    unknown = [word for word in words if word.startswith("--") and word not in command(binary, *path)[2]]
+    unknown = [word for word in words if word.startswith("--") and word not in command(binary, *path)[2] and not takes(binary, path, word)]
     return " ".join((*path, *unknown)) if unknown else None
 
 
