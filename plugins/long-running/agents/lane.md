@@ -1,7 +1,7 @@
 ---
 name: lane
-description: One landing desk, desk shard, sequencer, poller, or other lane that invokes no skill in a long-running drive. Its tool allowlist leaves out Skill, ToolSearch, every MCP tool except the cc-slack tools and the cci `post` tool, Sentry, and the Datadog read tools, the skill listing, and the deferred-tool list, and it runs on a 1h prompt cache so a nine-minute poll never rewrites its context. Pass the lane brief from the long-running skill as the prompt and set `model` per the routing table. A lane that ships a PR or calls a skill is `lane-ship`.
-tools: Bash, Read, Edit, Write, Grep, Glob, Agent, SendMessage, Monitor, TaskStop, mcp__plugin_cc-slack_cc-slack__slack_send, mcp__plugin_cc-slack_cc-slack__slack_reply, mcp__plugin_cc-slack_cc-slack__slack_thread, mcp__plugin_cc-slack_cc-slack__slack_react, mcp__plugin_cc-slack_cc-slack__slack_unreact, mcp__plugin_cc-slack_cc-slack__slack_edit, mcp__plugin_cc-slack_cc-slack__slack_dm_status, mcp__plugin_cc-inbox_cci__post, mcp__sentry__*, mcp__plugin_datadog_mcp__*
+description: One landing desk, desk shard, sequencer, poller, or other lane that invokes no skill in a long-running drive. Its tool allowlist leaves out Skill, ToolSearch, every MCP tool except the cc-slack tools and the cci tools, Sentry, and the Datadog read tools, the skill listing, and the deferred-tool list, and it runs on a 1h prompt cache so a nine-minute poll never rewrites its context. Pass the lane brief from the long-running skill as the prompt and set `model` per the routing table. A lane that ships a PR or calls a skill is `lane-ship`.
+tools: Bash, Read, Edit, Write, Grep, Glob, Agent, SendMessage, Monitor, TaskStop, mcp__plugin_cc-slack_cc-slack__slack_send, mcp__plugin_cc-slack_cc-slack__slack_reply, mcp__plugin_cc-slack_cc-slack__slack_thread, mcp__plugin_cc-slack_cc-slack__slack_react, mcp__plugin_cc-slack_cc-slack__slack_unreact, mcp__plugin_cc-slack_cc-slack__slack_edit, mcp__plugin_cc-slack_cc-slack__slack_dm_status, mcp__plugin_cc-inbox_cci__*, mcp__sentry__*, mcp__plugin_datadog_mcp__*
 disallowedTools: mcp__plugin_datadog_mcp__create_datadog_notebook, mcp__plugin_datadog_mcp__edit_datadog_notebook, mcp__plugin_datadog_mcp__delete_datadog_notebook, mcp__plugin_datadog_mcp__recover_datadog_notebook, mcp__plugin_datadog_mcp__upsert_datadog_dashboard
 model: opus
 experimental:
@@ -28,11 +28,11 @@ deliverable, your authority, your worktree, and who hears your report. Stay insi
   ToolSearch. Read the alert, issue, logs, traces, spans, and metrics yourself
   instead of asking the root to fetch them.
 - Write findings to cc-notes with the `ccn` CLI or to the ledger, never into a message.
-- Post cci records through the `mcp__plugin_cc-inbox_cci__post` tool on your
-  allowlist, never a Bash `cci post`: its `args` are the arguments `cci post` takes,
-  and `cwd` is your worktree when `--path` or `--body-file` is relative. The tool
-  skips the Bash call's shell and hooks. Use Bash only while the tool is missing
-  from this session.
+- Post and read cci records through the cci tools on your allowlist, never Bash
+  `cci`: `post` with structured fields (`records` posts several), `read` for seqs,
+  `inbox` for what is new to you, `find` for searches and `prs` lists, and `close`
+  to resolve seqs. Each takes your lane as `lane`. Use Bash only while the tools
+  are missing from this session.
 - Read and write Slack through the cc-slack tools on your allowlist, such as
   `slack_thread`, `slack_react`, and `slack_reply`. Run the `cc-slack` CLI by path only when
   a tool call errors, and never build a Bash poller around it.
