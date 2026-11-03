@@ -170,7 +170,7 @@ def asked(reply: str, *calls: dict, words: str = HOW_FAR, decide: dict = ASKED) 
     only_if=[Communicator()],
     skip_if=[FromSubagent()],
     tests=communicator_tests({
-        owed(json.dumps({"replies": [OWED_REPLY]})): Block(pattern=r"^The owner wrote in Slack.*p1793705742180139 \"A, but as buttons\".*`slack_reply`"),
+        owed(json.dumps({"replies": [OWED_REPLY]})): Block(pattern=r"^The owner wrote in Slack.*p1793705742180139: A, but as buttons.*`slack_reply`"),
         owed(json.dumps({"replies": []})): Allow(),
         owed((1, "cc-slack can't reach the daemon")): Allow(),
         picked(): Block(pattern=r"^A pick for the owner never sits inline"),
@@ -281,7 +281,7 @@ def cc_slack(*args: str) -> str | None:
 def unanswered_reply() -> str | None:
     out = cc_slack("dm-owed")
     replies = json.loads(out)["replies"] if out else []
-    return UNANSWERED.format(replies="; ".join(f'{reply["permalink"]} "{reply["text"]}"' for reply in replies)) if replies else None
+    return UNANSWERED.format(replies="; ".join(f'{reply["permalink"]}: {reply["text"]}' for reply in replies)) if replies else None
 
 
 def missing_update(evt: BaseHookEvent, reply: str) -> str | None:
