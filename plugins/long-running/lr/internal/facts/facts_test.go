@@ -612,6 +612,19 @@ func TestALaterRootGoLiftsARootHoldAtAnyHeadSoARestackDoesNotRestallThePR(t *tes
 	}
 }
 
+func TestAGoLanesExemptGoLeavesARootHoldStanding(t *testing.T) {
+	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
+	h.source.GoLanes = []string{"landing-desk"}
+	hold(t, "root", "hold #1 for now", repo+"#1")
+	goRecord(t, "landing-desk-3", "go #1 at "+head+" on green [exempt: owner-pick]")
+
+	row := h.snapshot(t)[1]
+
+	if row.Hold != machine.MoverRoot || !row.Exempt {
+		t.Fatalf("hold = %q, exempt = %v; want the coordinator's hold and the exempt class", row.Hold, row.Exempt)
+	}
+}
+
 func TestAHoldStandsAgainstEveryGoThatIsNotALaterLiveRootGo(t *testing.T) {
 	for name, setup := range map[string]func(t *testing.T){
 		"a go before the hold": func(t *testing.T) {

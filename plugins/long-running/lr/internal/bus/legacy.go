@@ -86,7 +86,10 @@ func LegacyFacts(record client.Record, repo string, goLanes []string) []Fact {
 		return nil
 	}
 	whole := fullText(record)
-	out := overrides(whole)
+	var out []Fact
+	if delegated(record.Lane, []string{rootLane}) {
+		out = overrides(whole)
+	}
 	exempt := exemptClass.FindStringSubmatch(whole)
 	if exempt == nil || !isGo(record) {
 		return out
@@ -230,8 +233,8 @@ func goHeads(text string) []headPair {
 	return pairs
 }
 
-func LiveGos(records []client.Record, goLanes []string) []client.Record {
-	lanes := append([]string{rootLane}, goLanes...)
+func RootGos(records []client.Record) []client.Record {
+	lanes := []string{rootLane}
 	closed := make(map[int64]bool)
 	for _, record := range records {
 		if delegated(record.Lane, lanes) {
