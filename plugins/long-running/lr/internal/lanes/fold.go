@@ -256,6 +256,9 @@ func foldRecord(s *store.Store, r Record, fresh bool, at time.Time, out *folded)
 	var moved []int
 	if kind == "head" {
 		moved = r.PRs()
+		for _, n := range moved {
+			do(s.Unprobe(brokenProbe(n)))
+		}
 	}
 	for holder, page := range must(s.Pages()) {
 		if intersect(resolved, pageSeqs(page)) || intersect(moved, pagePRs(page)) {

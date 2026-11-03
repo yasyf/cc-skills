@@ -186,14 +186,14 @@ func prNode(t *testing.T, text string) *PRNode {
 	return &node
 }
 
-func TestOnlyAConflictingRedOrUnapprovedOpenPRNeedsWork(t *testing.T) {
+func TestAConflictingOrRedOpenPRIsBrokenAndAnUnapprovedOneNeedsWork(t *testing.T) {
 	node := func(state, mergeable, review, rollup string) string {
 		return fmt.Sprintf(`{"state":%q,"mergeable":%q,"reviewDecision":%q,"commits":{"nodes":[{"commit":{"statusCheckRollup":{"state":%q}}}]}}`, state, mergeable, review, rollup)
 	}
 	cases := map[string]string{
 		node("OPEN", "MERGEABLE", "APPROVED", "SUCCESS"):        Waiting,
-		node("OPEN", "CONFLICTING", "APPROVED", "SUCCESS"):      NeedsWork,
-		node("OPEN", "MERGEABLE", "APPROVED", "FAILURE"):        NeedsWork,
+		node("OPEN", "CONFLICTING", "APPROVED", "SUCCESS"):      Broken,
+		node("OPEN", "MERGEABLE", "APPROVED", "FAILURE"):        Broken,
 		node("OPEN", "MERGEABLE", "REVIEW_REQUIRED", "SUCCESS"): NeedsWork,
 		node("OPEN", "MERGEABLE", "APPROVED", "PENDING"):        Waiting,
 		node("MERGED", "MERGEABLE", "APPROVED", "SUCCESS"):      Closed,

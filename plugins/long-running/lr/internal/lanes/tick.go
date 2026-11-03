@@ -408,6 +408,10 @@ func ownedWork(s *store.Store, d Deps, now time.Time) {
 	for _, lane := range must(s.Lanes(store.LaneRetired)) {
 		retired[lane.Name] = true
 	}
+	rows := map[string]store.Lane{}
+	for _, lane := range must(s.Lanes(live...)) {
+		rows[lane.Name] = lane
+	}
 	var unowned, wanted []int
 	quiet := map[string][]int{}
 	for name, prs := range must(s.Owners()) {
@@ -425,7 +429,7 @@ func ownedWork(s *store.Store, d Deps, now time.Time) {
 			wanted = append(wanted, open...)
 			continue
 		}
-		if since, ok := heard[name]; !ok || now.Sub(since) >= liveWithin {
+		if since, ok := heard[name]; !ok || now.Sub(since) >= liveWithin || waitsOnOwn(rows[name], open) {
 			quiet[name] = open
 			wanted = append(wanted, open...)
 		}
@@ -439,7 +443,7 @@ func ownedWork(s *store.Store, d Deps, now time.Time) {
 	strandedFresh := []int{}
 	for _, n := range unowned {
 		key := fmt.Sprintf("%s:%d", Root, n)
-		if states[n] != NeedsWork {
+		if states[n] != NeedsWork && states[n] != Broken {
 			do(s.Unprobe(key))
 			continue
 		}
@@ -461,7 +465,7 @@ func ownedWork(s *store.Store, d Deps, now time.Time) {
 		var work, gone []int
 		for _, n := range quiet[name] {
 			switch states[n] {
-			case NeedsWork:
+			case NeedsWork, Broken:
 				work = append(work, n)
 			case Closed:
 				gone = append(gone, n)
@@ -471,13 +475,50 @@ func ownedWork(s *store.Store, d Deps, now time.Time) {
 			do(s.Disown(gone))
 			settleOwner(s, name, now)
 		}
-		lane, known := laneOf(s, name)
-		if len(work) == 0 || !known || !isLive(lane.State) || lane.Waiting != 0 || lane.Page != nil {
+		lane, known := rows[name]
+		if !known || lane.Page != nil {
+			continue
+		}
+		if lane.Waiting != 0 {
+			if !waitsOnOwn(lane, quiet[name]) {
+				continue
+			}
+			work = freshlyBroken(s, quiet[name], states, probes, now)
+			if len(work) > 0 {
+				do(s.SetLaneWaiting(name, 0, now, ""))
+			}
+		}
+		if len(work) == 0 {
 			continue
 		}
 		text := fmt.Sprintf("you own %s, which still need work", numberList(work))
 		do(s.SetLanePage(name, map[string]any{"topic": "work:" + name, "why": text, "text": text, "prs": work}))
 	}
+}
+
+func waitsOnOwn(lane store.Lane, prs []int) bool {
+	gates := strings.Fields(lane.Awaits)
+	return slices.Contains(gates, doneParked) || slices.ContainsFunc(prs, func(n int) bool { return slices.Contains(gates, fmt.Sprintf("pr:%d", n)) })
+}
+
+func freshlyBroken(s *store.Store, prs []int, states map[int]string, probes map[string]store.Probe, now time.Time) []int {
+	var broken []int
+	for _, n := range prs {
+		key := brokenProbe(n)
+		_, paged := probes[key]
+		switch {
+		case states[n] == Broken && !paged:
+			do(s.Probe(key, now))
+			broken = append(broken, n)
+		case states[n] != Broken && paged:
+			do(s.Unprobe(key))
+		}
+	}
+	return broken
+}
+
+func brokenProbe(n int) string {
+	return fmt.Sprintf("broken:%d", n)
 }
 
 func unownedDuties(s *store.Store, d Deps, found map[string]Peer, now time.Time) {

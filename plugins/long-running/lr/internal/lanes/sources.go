@@ -487,7 +487,10 @@ func PRStateOf(node *PRNode) string {
 	if len(node.Commits.Nodes) > 0 && node.Commits.Nodes[0].Commit.StatusCheckRollup != nil {
 		rollup = node.Commits.Nodes[0].Commit.StatusCheckRollup.State
 	}
-	if node.Mergeable == "CONFLICTING" || rollup == "FAILURE" || rollup == "ERROR" || node.ReviewDecision != "APPROVED" {
+	if node.Mergeable == "CONFLICTING" || rollup == "FAILURE" || rollup == "ERROR" {
+		return Broken
+	}
+	if node.ReviewDecision != "APPROVED" {
 		return NeedsWork
 	}
 	return Waiting

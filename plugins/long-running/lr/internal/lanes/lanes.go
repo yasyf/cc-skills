@@ -28,6 +28,7 @@ const (
 	doneParked  = "done"
 	turnDied    = "died"
 	NeedsWork   = "needs-work"
+	Broken      = "broken"
 	Waiting     = "waiting"
 	Closed      = "closed"
 )

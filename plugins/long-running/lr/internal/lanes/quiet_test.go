@@ -164,6 +164,38 @@ func TestDoneWhileAPRIsOpenParksTheLaneUntilItsLastPRLands(t *testing.T) {
 	equal(t, []any{lane.State, lane.RetiredBy, len(final.Relaunched)}, []any{store.LaneRetired, "done", 0})
 }
 
+func TestABrokenPRWakesTheLaneParkedOnItOnceUntilANewHead(t *testing.T) {
+	parks := map[string]func(seq int64, at time.Time) Record{
+		"done": func(seq int64, at time.Time) Record { return rec(seq, lane2, "done", at, "ready", Root) },
+		"blocked on its PR": func(seq int64, at time.Time) Record {
+			return rec(seq, lane2, "blocked", at, "waiting on CI").withRefs(prs(47001))
+		},
+	}
+	for name, park := range parks {
+		t.Run(name, func(t *testing.T) {
+			s := memory(t)
+			f := adopted(t, s, writeBrief(t), "", 47001)
+			f.feed = append(f.feed, park(2, t0))
+			f.peers = []Row{onRoster(who(lane2, true, t0))}
+			f.states = map[int]string{47001: NeedsWork}
+			equal(t, len(tick(t, s, f, t0.Add(mins(1))).Woken), 0)
+
+			f.states = map[int]string{47001: Broken}
+			equal(t, tick(t, s, f, t0.Add(mins(2))).Woken, []string{lane2})
+			equal(t, row(t, s, lane2).Waiting, int64(0))
+
+			f.feed = append(f.feed, park(3, t0.Add(mins(4))))
+			tick(t, s, f, t0.Add(mins(5)))
+			equal(t, row(t, s, lane2).Waiting, int64(3))
+			equal(t, row(t, s, lane2).Page == nil, true)
+
+			f.feed = append(f.feed, rec(4, lane2, "head", t0.Add(mins(6)), "HEAD #47001").withRefs(prs(47001)), park(5, t0.Add(mins(7))))
+			tick(t, s, f, t0.Add(mins(8)))
+			equal(t, row(t, s, lane2).Waiting, int64(0))
+		})
+	}
+}
+
 func TestAParkedDoneLaneRetiresWhenItsPRCloses(t *testing.T) {
 	s := memory(t)
 	f := adopted(t, s, writeBrief(t), "", 47001)
