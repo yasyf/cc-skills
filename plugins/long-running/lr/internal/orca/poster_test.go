@@ -493,3 +493,45 @@ func TestALongPassPostsALineAndAStuckOneRefusesIt(t *testing.T) {
 		t.Fatal(stuck.bus.posts)
 	}
 }
+
+func TestALaunchWarnsOfALaneAlreadyClaimingItsWorkAndClaimsItOnceLaunched(t *testing.T) {
+	f := newPosterFixture(t)
+	brief := f.brief(t, "beside/brief.md", "Fix https://app.withforge.com/iris/sessions/sess_01m6efkn56e9krzhaa2fwtqmh0 from https://acme.slack.com/archives/C0909AD1458/p1793733828430639\n"+briefLines)
+	runner := &scripted{reply: func(argv []string) (string, string, int) {
+		if joined(argv) == "cci who --drive prog --ref thread:C0909AD1458/1793733828.430639 --json --fields lane" {
+			return "{\"lane\":\"shared-open-fix\"}\n{\"lane\":\"beside\"}\n", "", 0
+		}
+		return "", "", 0
+	}}
+	f.poster.Runner = runner
+	f.bus.verdicts["R102"] = "LAUNCHED R102 %[1]s: dispatch ctx_l terminal term_l"
+	label, err := f.poster.Launch(context.Background(), Order{Lane: "beside", Model: "opus", Effort: "xhigh", Brief: brief}, time.Minute)
+	if err != nil || label != verdictLaunched {
+		t.Fatal(label, err)
+	}
+	if !strings.Contains(f.out.String(), "WARN shared-open-fix already claims thread:C0909AD1458/1793733828.430639, so beside launches beside it;") || strings.Count(f.out.String(), "WARN ") != 1 {
+		t.Fatal(f.out)
+	}
+	if last := joined(runner.calls[len(runner.calls)-1]); last != "cci claim --for beside@prog --ref session:sess_01m6efkn56e9krzhaa2fwtqmh0 --ref thread:C0909AD1458/1793733828.430639" {
+		t.Fatal(last)
+	}
+}
+
+func TestABriefClaimingNoSlackGrantWarnsUnlessItQuotesAnAnswerSearch(t *testing.T) {
+	for text, warns := range map[string]bool{
+		"Root cannot post and no grant covers the thread.\n":                                           true,
+		"No Slack grant covers it. Run `ccn answer search <topic>` first.\n":                           true,
+		"No Slack grant covers it: `ccn answer search slack-grant` returns nothing for C0909AD1458.\n": false,
+		"Every Slack write needs the owner's permission.\n":                                            false,
+	} {
+		f := newPosterFixture(t)
+		brief := f.brief(t, "grant/brief.md", text+briefLines)
+		f.bus.verdicts["R102"] = "LAUNCHED R102 %[1]s: dispatch ctx_l terminal term_l"
+		if _, err := f.poster.Launch(context.Background(), Order{Lane: "grant", Model: "opus", Effort: "xhigh", Brief: brief}, time.Minute); err != nil {
+			t.Fatal(err)
+		}
+		if got := strings.Contains(f.out.String(), "WARN brief "+brief+" says no Slack grant covers its work"); got != warns || len(f.bus.posts) != 1 {
+			t.Fatalf("%q: warned %v, posts %d\n%s", text, got, len(f.bus.posts), f.out)
+		}
+	}
+}

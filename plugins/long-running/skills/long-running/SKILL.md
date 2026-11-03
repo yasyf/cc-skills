@@ -329,7 +329,11 @@ a blocker.
 **R9.** Orca worker traffic runs through the runner (`lr launch`), never a
 check-and-ack loop. Mac load queues and refuses no launch: one that may leave the
 Mac starts on a box at once, and a worker's question goes to the lane that launched
-it. The coordinator receives records as batches from `lr coordinator next`, after
+it. `lr launch` warns and still posts when a live lane already claims a session id
+or Slack thread its brief names, or when the brief says no Slack grant covers its
+work without quoting a `ccn answer search` by subject; once `LAUNCHED`, it claims
+those session ids and threads for the new lane with `cci claim --for`. The
+coordinator receives records as batches from `lr coordinator next`, after
 one `cci subscribe --drive <drive> --reader root --to-kind incident --follow oncall=incident`
 keeps all but incidents off its tool calls; the communicator subscribes as
 `owner-relay` for `report`, `ask` and `blocked`. A seq already handled is skipped.

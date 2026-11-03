@@ -314,7 +314,9 @@ SHAPE = re.compile(
     re.IGNORECASE,
 )
 DELETE_OP = re.compile(r"delete|remove|unlink|\brm\b", re.IGNORECASE)
-CHECK_PR_ORDER = ("RULINGS-UNCITED", "RESERVED-NO-ANSWER", "TEST-REMOVED", "SHAPE-UNTESTED", "FINDER-MAJOR", "MECHANISM-BANNED", "NAME-HIT", "LANE-DECIDED", "CONTRACT-MISSING", "TESTS-CORPUS")
+CHECK_PR_ORDER = ("RULINGS-UNCITED", "RESERVED-NO-ANSWER", "TEST-REMOVED", "SHAPE-UNTESTED", "FINDER-MAJOR", "MECHANISM-BANNED", "NAME-HIT", "LANE-DECIDED", "STORE-UNCOUNTED", "CONTRACT-MISSING", "TESTS-CORPUS")
+STATEFUL_STORE = re.compile(r"\b(?:valkey|redis|elasticache|memorydb|dynamodb|PersistentVolumeClaim|volumeClaimTemplates|litestream|DROP\s+TABLE|delete-?bucket)\b", re.IGNORECASE)
+RECORDS_BEFORE_AFTER = re.compile(r"^(?=.*\bbefore\b)(?=.*\bafter\b).*\d", re.IGNORECASE | re.MULTILINE)
 JUDGED_ROWS = 4
 PLAN_LINES = 12
 NO_RULINGS = "No ruling of his was found that bears on this pull request."
@@ -2687,6 +2689,14 @@ def decided(body: str, answers: set[str] | None) -> list[str]:
     return [f"LANE-DECIDED {line.strip()[:CCI_TEXT]}" for line, own in lines if DECISION.search(own) and not cites_answer(line, answers)]
 
 
+def uncounted_store(head: Head) -> list[str]:
+    """A head that deletes or replaces a stateful store names, on one body line, the records it held before and after: #48132 said its store was never applied while it held 2,025 keys."""
+    if RECORDS_BEFORE_AFTER.search(head.body):
+        return []
+    gone = next(((file, number, found[0]) for file, number, text in head.diff.removed if not testfiles.test_file(file) and (found := STATEFUL_STORE.search(text))), None)
+    return [f"STORE-UNCOUNTED {gone[0]}:{gone[1]} {gone[2]}\tadd a body line naming the records the store held before and after this change"] if gone else []
+
+
 def diff_facts(loaded: Register, head: Head, base: str) -> dict[str, list]:
     """What `head`'s diff alone decides against the register's rows: the rows it touches, the reserved rows it hits, and the lines naming a scope row. A copy of thousands of files takes seconds a pass to read, so the facts are kept per head, base, diff and set of rows, and reread only when one of them changes."""
     rulings = loaded.rulings()
@@ -2735,6 +2745,7 @@ def check_pr(loaded: Register, args: argparse.Namespace, head: Head, findings: F
         if hit.status == "open" and not acknowledged(head, hit.key, scope[hit.key]) and not any(hit.name.lower() not in banned and named(words, hit.name) for cited in head.cited for words, banned in authorizers.get(cited, [])):
             findings.refusals.append(f"NAME-HIT {hit.key} {hit.file}:{hit.line} {hit.name}")
     findings.refusals += decided(head.body, card_answers(loaded, findings))
+    findings.refusals += uncounted_store(head)
     if records is None:
         return
     if not (lane := lane_of(records)):
