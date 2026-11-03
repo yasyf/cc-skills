@@ -94,13 +94,36 @@ func TestAnAlertWhoseMonitorALiveLaneHoldsLaunchesNothing(t *testing.T) {
 		return "", nil
 	}}
 
+	for range 2 {
+		if err := check.Check(context.Background(), t0); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	equal(t, strings.Join(asked, " "), "338724738 dd-338724738-fix")
+	equal(t, len(bus.posted), 0)
+}
+
+func TestAnAlertWhoseMonitorCheckFailsRaisesABlockerAndLaunchesNothing(t *testing.T) {
+	s := memory(t)
+	bus := &fakeBus{}
+	env := Env{Bus: bus, Config: config.Config{Drive: testDrive}, Runner: scripted(func([]string) (shell.Result, error) {
+		return shell.Result{Stdout: slackHistory(t0.Add(-mins(4)), "Triggered: x\n"+monitorLink)}, nil
+	}), MonitorLane: func(context.Context, string, string) (string, error) {
+		return "", errors.New("orca unreachable")
+	}}
+	check := Alerts{Env: env, Store: s, Channels: []string{"C1"}, Log: slog.Default(), Launch: func(context.Context, Fired) (string, error) {
+		t.Fatal("launched")
+		return "", nil
+	}}
+
 	if err := check.Check(context.Background(), t0); err != nil {
 		t.Fatal(err)
 	}
 
-	equal(t, asked[1], "dd-338724738-fix")
-	equal(t, asked[0], "338724738")
-	equal(t, len(bus.posted), 0)
+	equal(t, len(bus.posted), 1)
+	equal(t, strings.Contains(bus.posted[0].Text, "ALERT-UNOPENED"), true)
+	equal(t, strings.Contains(bus.posted[0].Text, "orca unreachable"), true)
 }
 
 func TestAFailedAlertLaunchRaisesOneBlockerToRoot(t *testing.T) {
