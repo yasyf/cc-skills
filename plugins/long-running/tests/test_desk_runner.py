@@ -4939,6 +4939,8 @@ def test_a_pr_ready_but_for_a_go_is_named_to_root_on_every_passs_landing_state(s
     board_lane(config)
     lone_green_pr(shell)
     shell.rows[0]["test_state"] = "success"
+    shell.queue["29020"] = "not queued"
+    shell.pr_status["29020"] = {"verdict": "landable"}
     shell.github_merge["29020"] = {"headRefOid": "cccc333333", "mergeable": "MERGEABLE", "mergeStateStatus": "CLEAN"}
     grade(shell, "29020", "ok F307 at cccc333.")
     landing_pass(shell, config)
@@ -8878,11 +8880,11 @@ def test_a_go_named_green_head_above_a_red_or_conflicting_parent_with_its_own_go
 def test_a_go_named_green_head_above_a_held_parent_draws_one_below_held_note_and_no_go_unqueued(shell, config, tmp_path, parent_go):
     board_surface(config)
     two_pr_stack(shell)
+    if parent_go:
+        merge_go(shell, "29020", "merge #29020 at cccc333")
     root_hold(shell, 29020, text="hold #29020 owner gate on the old app")
     shell.rows = [dict(row, test_state="success") for row in shell.rows]
     shell.queue["29031"] = "not queued"
-    if parent_go:
-        merge_go(shell, "29020", "merge #29020 at cccc333")
     merge_go(shell, "29031", "merge #29031 at dddd444")
     shell.sleep(6 * 60)
     landing_pass(shell, config)

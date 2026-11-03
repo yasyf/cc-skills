@@ -104,7 +104,7 @@ def test_actual_landing_native_reads_keep_cache_and_fresh_mutable_holds(config, 
         legacy.cci_tail.forget()
         assert legacy.held({}) == ["29020"]
         before = costs.copy()
-        assert before == {"tail_processes": 2, "post_processes": 0, "temporary_feeds": 2}
+        assert before == {"tail_processes": 3, "post_processes": 0, "temporary_feeds": 3}
         assert native_cci.counts()["native_requests"] == 0
         costs.update({key: 0 for key in costs})
 
@@ -116,10 +116,10 @@ def test_actual_landing_native_reads_keep_cache_and_fresh_mutable_holds(config, 
         current.cci_tail.remember()
         held(["29020"])
         held(["29020"])
-        assert native_cci.counts()["native_requests"] == 1
+        assert native_cci.counts()["native_requests"] == 2
         native_cci.change("append")
         held(["29020"])
-        assert native_cci.counts()["native_requests"] == 1
+        assert native_cci.counts()["native_requests"] == 2
         posted = current.runner.cci_post("note", "native cache refresh", "root", "native-ci", "native-ci-refresh")
         assert posted.code == 0, posted
         held(["29020", "29021"])
@@ -133,7 +133,7 @@ def test_actual_landing_native_reads_keep_cache_and_fresh_mutable_holds(config, 
         requests = native_cci.counts()["native_requests"]
         print(json.dumps({"history": native_cci.population, "provider_source": os.environ["CCI_NATIVE_PROVIDER_SOURCE"], "legacy_source_sha256": legacy_hash, "runner_sha256": hashlib.sha256(Path(runner_module.__file__).read_bytes()).hexdigest(), "native_client_sha256": hashlib.sha256(Path(runner_module.cci.__file__).read_bytes()).hexdigest(), "legacy_two_fresh_reads": before, "native_reads_and_one_post": after, "native_requests": requests, "freshness": ["cached hit", "external append waits for barrier", "own post invalidates", "resolve", "expire"]}))
         assert after == {"tail_processes": 0, "post_processes": 1, "temporary_feeds": 1}
-        assert requests == 4
+        assert requests == 5
     finally:
         legacy.close()
         current.close()

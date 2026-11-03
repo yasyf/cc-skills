@@ -6237,8 +6237,9 @@ class Landing:
         return rows
 
     def at_live_heads(self, rows: dict[str, dict]) -> dict[str, dict]:
-        """`rows` with each open row whose PR GitHub reads at a newer head moved to that head, its build state GitHub's check rollup there, from the pass's one batched head read, so the pass gates the head it reads and never one a slow ledger refresh left behind (root #341720: #48053, #48064 and #48099 drew `head moved after the ledger read` every pass)."""
-        open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
+        """`rows` with each open row a go names, at any head, whose PR GitHub reads at a newer head moved to that head, its build state GitHub's check rollup there, from one batched head read, so the pass gates the head it reads and never one a slow ledger refresh left behind (root #341720: #48053, #48064 and #48099 drew `head moved after the ledger read` every pass). Only go'd rows are read here, so the rest of the ledger's heads are read after the go'd trees enqueue."""
+        named = {pr for go in self.root_gos() for pr in go_heads(go)}
+        open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open" and pr in named}
         self.read_heads({row["head"]: pr for pr, row in open_rows.items() if row.get("head")})
         moved = {pr: open_rows[pr] | {"head": sha, "test_state": state.lower() or "pending", "green_at": ""} for pr, (sha, state) in self.rollups.items() if pr in open_rows and sha and not names_head(sha, open_rows[pr].get("head", ""))}
         self.row_heads |= {pr: row["head"] for pr, row in moved.items()}
