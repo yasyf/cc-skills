@@ -826,6 +826,21 @@ func TestALaneRetiresWhenEveryOwedDeletionIsAnotherLanes(t *testing.T) {
 	equal(t, len(f.ofKind("defect")), 0)
 }
 
+func TestADoneAnsweringARecordClosesThatItemAndLeavesTheLaneLive(t *testing.T) {
+	s := memory(t)
+	f := adopted(t, s, writeBrief(t), "")
+	answer := rec(2, lane2, "done", t0, "done on 373500: the branch is deleted", Root)
+	answer.Re = 1
+	f.feed = append(f.feed, answer)
+	f.peers = []Row{who(lane2, false, t0)}
+
+	tick(t, s, f, t0.Add(mins(1)))
+
+	if got := row(t, s, lane2); got.State == store.LaneRetired {
+		t.Fatalf("a done answering one record retired the lane, by %q", got.RetiredBy)
+	}
+}
+
 func TestTheHourlyTickPostsOneOwedDeletionDigestPerChangedSetOfGaps(t *testing.T) {
 	s := memory(t)
 	f := adopted(t, s, writeBrief(t), "")
