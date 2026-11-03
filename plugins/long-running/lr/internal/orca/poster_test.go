@@ -287,6 +287,18 @@ func TestABriefNamingWhatNoSpriteCanReceiveIsRefusedOnlyWhenTheLaneMayLeaveTheMa
 	}
 }
 
+func TestTheCoordinatorsLaunchWalksNoSpritePayloadWhateverItsBriefSays(t *testing.T) {
+	f := newPosterFixture(t)
+	gone := filepath.Join(f.env["HOME"], ".claude", "skills")
+	brief := f.brief(t, filepath.Join(coordinatorLane, briefFile), "ccx: incident=none\nRead "+gone+".\n"+briefLines)
+	if _, err := f.poster.Launch(context.Background(), Order{Lane: coordinatorLane, Model: "opus", Effort: "xhigh", Brief: brief}, 0); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.bus.posts) != 1 {
+		t.Fatal(f.bus.posts)
+	}
+}
+
 func TestWhatALaunchOwesFollowsItsLaneItsBriefAndItsModel(t *testing.T) {
 	oldBrief := scaleRule.Add(-time.Hour)
 	newBrief := scaleRule.Add(time.Hour)

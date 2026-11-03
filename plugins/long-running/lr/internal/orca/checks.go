@@ -127,9 +127,9 @@ func (o Order) scaleFault(text string, written time.Time) string {
 	return "brief " + o.Brief + " has no `Scale:` line; add one line to it: `Scale: no N`, or the N its paths run at, such as `Scale: chats on one Mac, up to 1,000`"
 }
 
-func macPinned(model, text string) bool {
+func macPinned(lane, model, text string) bool {
 	placed := briefPlace.FindStringSubmatch(text)
-	return fableModel.MatchString(model) || model == agentIncident || model == modelIncidentOpus || (placed != nil && placed[1] == "local")
+	return lane == coordinatorLane || fableModel.MatchString(model) || model == agentIncident || model == modelIncidentOpus || (placed != nil && placed[1] == "local")
 }
 
 func carryFault(ctx context.Context, runner shell.Runner, home, repo, brief, text string) (string, error) {
@@ -161,7 +161,7 @@ func (o Order) faults(ctx context.Context, runner shell.Runner, home, repo strin
 	if scale := o.scaleFault(text, info.ModTime()); scale != "" {
 		faults = append(faults, scale)
 	}
-	if macPinned(o.Model, text) {
+	if macPinned(o.Lane, o.Model, text) {
 		return faults, nil
 	}
 	carried, err := carryFault(ctx, runner, home, repo, o.Brief, text)
