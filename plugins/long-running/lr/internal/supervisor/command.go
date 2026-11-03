@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -17,8 +18,10 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	prfacts "github.com/yasyf/cc-skills/plugins/long-running/lr/internal/facts"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/grading"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/install"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/landing"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/replay"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/watch"
 )
@@ -97,7 +100,16 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 		return err
 	}
 	if slices.Contains(env.Config.Movers, moverLanes) {
-		checks = append(checks, (&watch.Stalls{Store: s, Drive: env.Config.Drive, Runner: a.Runner, Post: post, Log: a.Log}).Check)
+		installs, err := install.Installs(env.Claude)
+		if err != nil {
+			return Deps{}, err
+		}
+		counter := replay.Deps{Runner: a.Runner, CCX: a.CCX, Installs: installs, Now: a.Now, Stdout: io.Discard}
+		checks = append(checks,
+			(&watch.Stalls{Store: s, Drive: env.Config.Drive, Runner: a.Runner, Post: post, Log: a.Log}).Check,
+			(&lanes.MutePushback{Env: env, Log: a.Log}).Check,
+			(&recurrences{count: func(ctx context.Context) error { return counter.Recur(ctx, env.Config.Drive) }, store: s, post: post, log: a.Log}).Check,
+		)
 	}
 	deps := Deps{
 		Movers: env.Config.Movers,
