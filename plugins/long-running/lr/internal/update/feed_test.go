@@ -110,7 +110,7 @@ func TestAPinnedRowIsHeldByEveryWorkingLaneItsWordsNameAndByNobodyWhenNoneDoes(t
 		{Name: "Devbox speed and bug hunting", Delivers: "The perf harness and the creative tester", Words: []string{"DEVBOX"}},
 		{Name: "Gateway", Delivers: "Every provider", Words: []string{"gateway"}},
 	}
-	rows, steps := viewOf(lanes, nil, nil).pinnedRows(pins, lanes)
+	rows, steps := viewOf(lanes, nil, nil).pinnedRows(Inputs{Pins: pins}, lanes)
 	if rows[0].Who != "devbox-perf-1" || !reflect.DeepEqual(steps[0].Lanes, []string{"devbox-perf-1"}) {
 		t.Fatalf("devbox = %+v, %+v", rows[0], steps[0])
 	}

@@ -88,6 +88,24 @@ func Wire(a *app.App, entry drive.Entry, s *store.Store) Sources {
 			return lanes.OpenOrders(ctx, lanes.CCI{}, s, entry.Bus(), entry.Repo, entry.StateDir)
 		},
 		Pins: entry.Pinned,
+		Where: func(ctx context.Context, shas map[int]string) map[int]string {
+			read, err := lanes.NewReleaseRead(a, entry)
+			if err != nil {
+				a.Log.Warn("the update's rows read no release", "err", err)
+				return nil
+			}
+			view := read.View(ctx)
+			lines := make(map[int]string, len(shas))
+			for number, sha := range shas {
+				found := read.Locate(ctx, view, sha)
+				if len(found.Unknown) > 0 {
+					a.Log.Warn("a row did not read the release carrying its PR", "pr", number, "unknown", found.Unknown)
+					continue
+				}
+				lines[number] = found.Line()
+			}
+			return lines
+		},
 	}
 }
 
@@ -138,7 +156,7 @@ func busRecords(ctx context.Context, bus string, since time.Time, kinds []string
 		for j, pr := range raw.Refs.PRs {
 			prs[j] = fmt.Sprint(pr)
 		}
-		out[i] = Record{Seq: raw.Seq, Drive: raw.Drive, Lane: raw.Lane, Kind: string(raw.Kind), Text: raw.Text, Status: raw.Status, At: raw.At, To: raw.To, PRs: prs, Topic: raw.Topic, Board: raw.Fields.Attrs["board"], Re: raw.Re, Resolves: raw.Closes()}
+		out[i] = Record{Seq: raw.Seq, Drive: raw.Drive, Lane: raw.Lane, Kind: string(raw.Kind), Text: raw.Text, Status: raw.Status, At: raw.At, To: raw.To, PRs: prs, Topic: raw.Topic, Board: raw.Fields.Attrs["board"], Attrs: raw.Fields.Attrs, Re: raw.Re, Resolves: raw.Closes()}
 	}
 	return out, nil
 }

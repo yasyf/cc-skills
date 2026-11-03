@@ -54,6 +54,7 @@ type Sources struct {
 	Overdue  func(now time.Time) ([]store.Item, error)
 	Orders   func(ctx context.Context) ([]owner.Row, error)
 	Pins     []drive.Pin
+	Where    func(ctx context.Context, shas map[int]string) map[int]string
 }
 
 func midnight(now time.Time) time.Time {
@@ -151,6 +152,10 @@ func Collect(ctx context.Context, src Sources, bus string, now time.Time) (Input
 		return Inputs{}, err
 	}
 	in := Inputs{Drive: bus, Now: now, Lanes: lanes, Plans: list, Book: book, Held: heldPRs(holds), Waits: waitingOnRoot(day), Board: boardLines(ctx, src, day), All: all, Before: before, Retro: retro, Owed: owed, Pins: src.Pins, Programs: programs, Rulings: rulings, Overdue: slices.DeleteFunc(overdue, func(item store.Item) bool { return item.Mover != machine.MoverRoot }), Orders: orders}
+	in.Leading = leadingAsks(all)
+	if shas := landedSHAs(src.Pins, in.Leading, book); len(shas) > 0 {
+		in.Released = src.Where(ctx, shas)
+	}
 	named := namesOf(working(lanes, now))
 	start := midnight(now)
 	for _, record := range day {

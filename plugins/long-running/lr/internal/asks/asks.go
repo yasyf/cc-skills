@@ -75,6 +75,7 @@ type PR struct {
 	Number           int
 	State            string
 	LandedAt         time.Time
+	LandedSHA        string
 	Lane             string
 	Title            string
 	Head             string
@@ -93,6 +94,10 @@ type PR struct {
 
 func (p PR) Open() bool {
 	return p.State == stateOpen
+}
+
+func (p PR) Landed() bool {
+	return p.State == stateLanded
 }
 
 func (p PR) CurrentHead() string {
@@ -183,7 +188,7 @@ func readPR(key string, fields map[string]string) (PR, error) {
 		state = stateOpen
 	}
 	return PR{
-		Key: key, Repo: found[1], Number: number, State: state, LandedAt: landed,
+		Key: key, Repo: found[1], Number: number, State: state, LandedAt: landed, LandedSHA: fields["landed_sha"],
 		Lane: fields["lane"], Title: fields["title"],
 		Head: fields["head"], ReportedHead: fields["reported_head"], ReportedVerdict: fields["reported_verdict"], Registered: fields["registered"] != "",
 		Labels: fields["labels"], LabelHead: fields["label_head"], LabelledAt: fields["labelled_at"], LabelPulledAt: fields["label_pulled_at"], LabelRefusedHead: fields["label_refused_head"],

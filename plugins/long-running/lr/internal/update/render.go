@@ -69,6 +69,8 @@ type Inputs struct {
 	Rulings   []PlanRuling
 	Overdue   []store.Item
 	Orders    []owner.Row
+	Leading   []Record
+	Released  map[int]string
 }
 
 type Need struct {
@@ -259,12 +261,15 @@ func onWords(lane Lane, words []string) bool {
 	})
 }
 
-func (v view) pinnedRows(pins []drive.Pin, lanes []Lane) ([]Row, []Step) {
-	rows := make([]Row, len(pins))
-	steps := make([]Step, len(pins))
-	for i, pin := range pins {
+func (v view) pinnedRows(in Inputs, lanes []Lane) ([]Row, []Step) {
+	rows := make([]Row, len(in.Pins))
+	steps := make([]Step, len(in.Pins))
+	for i, pin := range in.Pins {
 		mine := lanesWhere(lanes, func(lane Lane) bool { return onWords(lane, pin.Words) })
 		rows[i] = v.stepRow(pin.Name, pin.Delivers, &plans.Step{}, namesOf(mine))
+		if line := deliveryLine(pin.PRs, in.Book, in.Released); line != "" {
+			rows[i].State = line
+		}
 		steps[i] = v.stepEntry(pin.Name, pinnedTitle, rows[i], mine)
 	}
 	return rows, steps
@@ -349,6 +354,7 @@ func (v view) laneRows(lanes []Lane) []Row {
 
 type draft struct {
 	header     string
+	lead       []Row
 	overdue    []string
 	orders     []string
 	sinceTitle string
@@ -367,7 +373,7 @@ func Render(in Inputs) Report {
 	v := newView(in.Lanes, in.Records, in.Waits, in.Now)
 	v.retro = in.Retro
 	v.rulings = rulingsReplacer(in.Rulings)
-	pinned, pinnedSteps := v.pinnedRows(in.Pins, lanes)
+	pinned, pinnedSteps := v.pinnedRows(in, lanes)
 	plan := v.planSections(in.Plans, lanes)
 	sections := append([]section{{title: pinnedTitle, rows: pinned}, {title: dutiesTitle, rows: v.dutyRows()}}, plan.sections...)
 	rest := lanesWhere(lanes, func(lane Lane) bool { return !plan.placed[lane.Name] })
@@ -403,8 +409,10 @@ func Render(in Inputs) Report {
 	fresh := slices.DeleteFunc(slices.Clone(feed), func(entry FYI) bool { return !entry.At.After(in.Before.At) })
 	words, gaps := ownerWords(recordsFrom(in.All, in.Before.At))
 	lists := v.listSections(in, lanes, plan.doneLines)
+	lead := leadRows(in)
 	found := draft{
 		header:     fmt.Sprintf("# Owner update: %s, %s", in.Drive, pacific(in.Now)),
+		lead:       lead,
 		overdue:    overdueLines(in.Overdue),
 		orders:     orderLines(in.Orders),
 		sinceTitle: fmt.Sprintf("%s (%s)", sinceTitle, pacificText(in.Before.At)),
@@ -419,6 +427,12 @@ func Render(in Inputs) Report {
 	}
 	needs := make([]Need, 0, 5+len(sections)+len(lists)+len(lanes)+len(open)+len(prs))
 	needs = append(needs, Need{sinceTitle, sinceTitle}, Need{fyiTitle, fyiTitle}, Need{wordsTitle, wordsTitle}, Need{unownedTitle, unownedTitle}, Need{toolingTitle, toolingTitle})
+	if len(lead) > 0 {
+		needs = append(needs, Need{leadTitle, leadTitle})
+	}
+	for _, row := range lead {
+		needs = append(needs, Need{row.Name, row.Delivers})
+	}
 	for _, each := range sections {
 		needs = append(needs, Need{each.title, each.title})
 	}
