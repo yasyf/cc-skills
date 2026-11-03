@@ -10,7 +10,7 @@ This section maps to rev 7's supervisor section (Forge-AI/design-docs#265).
 
 | The lane's newest record | What it means | Who resumes the work |
 | --- | --- | --- |
-| `done`, `stopped`, `stand-down` | The lane ended on purpose | Nobody. The row retires, a retired row never gets a successor, and nothing the lane posts afterwards revives it. A `done` is refused while the lane owns an open PR, so it posts `blocked --pr <n>` instead; a PR it still owns after a `stopped` or `stand-down` goes to the coordinator if it breaks |
+| `done`, `stopped`, `stand-down` | The lane ended on purpose | Nobody. The row retires, a retired row never gets a successor, and nothing the lane posts afterwards revives it. A `done` is refused while the lane owns an open PR, so it posts `blocked --pr <n>` instead; a PR it still owns after a `stopped` or `stand-down` goes to the coordinator if it breaks. A lane that still owes a deletion is held instead, as "What the supervisor owns" says |
 | `ask`, `blocker`, or `blocked` to a lane | It waits on that lane's answer | The answer, through the supervisor |
 | `blocked` naming a gate: `--pr`, `--target`, `--lane-ref`, or a `card-` id in the text | It waits on an event | That event, through the supervisor |
 | Anything else | The turn has open work | Stopping is refused, and the refusal prints the commands |
@@ -61,6 +61,7 @@ One tick does the following, all from one read of the new records and one `cci w
 - **Gates:** an event record clears the wait and sets a page for each lane parked on it.
 - **Restart:** a page reaches a live lane through its roster inbox or `orca orchestration send`. A process that is gone gets a successor, because its obligation is on the row.
 - **Successor:** only for a live row. A row that ended is retired, and a parked row waits for its gate.
+- **Owed deletions:** a lane cannot retire while its line owns an open `owed-deletion` task whose code is still on `origin/<trunk>`. The task's assignee is its owner, followed through successors to the lane now at the head. A task with no anchors counts as present until it closes. Its own `done`, `stopped`, `stand-down` or handoff, the runner's `worker_done` or `WITHDRAWN`, and a coordinator stand-down that names no successor all hold the lane, and one `defect` to the coordinator and the lane names each task. Each hour, the tick posts one `blocker` to the coordinator for each anchor of an in-force `removes` row that lacks both an `owed-deletion` task and an `exception` row. The owner update lists each such task of the drive's program whose code is still there and whose owner has no live lane, under "Owed deletions with no live owner".
 
 A woken lane that answers nothing for 30 minutes and has made no tool call in that time gets a successor. The successor's existing check for live processes in the worktree keeps two writers out.
 
@@ -83,5 +84,5 @@ The live Python mover and `stall_watch.py` are deleted by lr-go-lanes-1's cutove
 - **The store cannot answer at the exact moment of a stop.** The hook passes. A teammate lane's peer row retires on `SubagentStop`, so the supervisor relaunches it. An Orca worker's row reads live until its dispatch settles, so it stays idle until something pages it.
 - **An Orca worker that never answers a wake gets no successor.** Its row carries the dispatch's time as its last sign of life, so the supervisor cannot tell silence from work. The dispatch settling retires the row.
 - **A Sprite with no `lr.json` writes no compaction handoff.** The hook finds no drive there and does nothing, and the lane resumes from its transcript's summary.
-- **A lane can post `done` with work unfinished.** The row retires, because `done` is the lane's own word, and only a PR it owned reaches the coordinator, if that PR breaks. Prose such as "X owns the rest" stays prose. `blocked --lane-ref L` is the typed form, and the lane brief tells lanes to use it. An acknowledged transfer record would close this, and it needs an owner pick because it adds a record kind.
+- **A lane can post `done` with work unfinished.** Owed deletions are the exception. Otherwise, the row retires, because `done` is the lane's own word, and only a PR it owned reaches the coordinator, if that PR breaks. Prose such as "X owns the rest" stays prose. `blocked --lane-ref L` is the typed form, and the lane brief tells lanes to use it. An acknowledged transfer record would close this, and it needs an owner pick because it adds a record kind.
 - **`inboxes.py wait` prints a `JSONDecodeError` and then `QUIET`.** `release-5` read that as no mail. The lane kept working, so no turn ended. It is reported to meta-desk-1, since Python drive tooling takes no new work here.

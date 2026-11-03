@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/deletions"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
@@ -21,6 +22,7 @@ const (
 	mainLane    = "main"
 	CursorName  = "lanes"
 	hourCursor  = "lanes.hour"
+	owedSubject = "owed-deletions"
 	strikeLimit = 2
 	kindSpawn   = "spawn"
 	kindRequest = "decide"
@@ -207,6 +209,56 @@ func retire(s *store.Store, name, by string, at time.Time) {
 func hold(s *store.Store, name, why string, at time.Time) {
 	do(s.SetLaneState(name, store.LaneHeld, at, "", why))
 	must(s.ReleaseWorker(name))
+}
+
+type owing struct {
+	name string
+	rows []deletions.Owed
+	err  error
+}
+
+func owingOf(s *store.Store, owed func(owns func(lane string) bool) ([]deletions.Owed, error), name string) (owing, bool) {
+	rows, err := owed(func(owner string) bool {
+		head, found := newest(s, owner)
+		return found && head.Name == name
+	})
+	return owing{name: name, rows: rows, err: err}, err != nil || len(rows) > 0
+}
+
+func (out *folded) owesNothing(s *store.Store, name string, fresh bool, at time.Time) bool {
+	if fresh {
+		return true
+	}
+	one, owes := owingOf(s, out.owed, name)
+	if owes {
+		hold(s, name, one.owes(), at)
+		out.owing = append(out.owing, one)
+	}
+	return !owes
+}
+
+func refusedOwing(s *store.Store, d Deps, name string, now time.Time) bool {
+	one, owes := owingOf(s, d.Owed, name)
+	if owes {
+		hold(s, name, one.owes(), now)
+		one.post(d, now)
+	}
+	return owes
+}
+
+func (o owing) owes() string {
+	if o.err != nil {
+		return "the deletions it owes did not read: " + o.err.Error()
+	}
+	rows := make([]string, len(o.rows))
+	for i, row := range o.rows {
+		rows[i] = row.String()
+	}
+	return fmt.Sprintf("it owes %d deletions whose code is still on trunk: %s", len(o.rows), strings.Join(rows, "; "))
+}
+
+func (o owing) post(d Deps, now time.Time) {
+	do(d.Post(Post{Kind: "defect", To: []string{Root, o.name}, LaneRef: o.name, Text: fmt.Sprintf("%s %s would retire, but %s. The supervisor holds %s, never relaunched or retired, until it posts again. %s: delete the code, or hand each task to a live lane with `ccn task edit <id> --assignee <lane>`; root: relaunch it or reassign its tasks.", pacific(now), o.name, o.owes(), o.name, o.name)}))
 }
 
 func unreadBy(s *store.Store, r Record, name, cited string) string {

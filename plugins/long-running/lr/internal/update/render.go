@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/asks"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/deletions"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/plans"
 )
@@ -59,6 +60,7 @@ type Inputs struct {
 	Board     []string
 	Before    Snapshot
 	Retro     []Retro
+	Owed      []deletions.Owed
 	Pins      []drive.Pin
 }
 
@@ -399,6 +401,10 @@ func (v view) listSections(in Inputs, lanes []Lane, doneLines []string) []listSe
 	for i, wait := range in.Waits {
 		waiting[i] = recordLine(wait)
 	}
+	owed := make([]string, len(in.Owed))
+	for i, row := range in.Owed {
+		owed[i] = "- " + row.String()
+	}
 	board := make([]string, len(in.Board))
 	for i, line := range in.Board {
 		board[i] = "- " + line
@@ -420,6 +426,7 @@ func (v view) listSections(in Inputs, lanes []Lane, doneLines []string) []listSe
 	return []listSection{
 		{fmt.Sprintf("Registry lanes quiet over %d h", int(quietAfter.Hours())), quietLines},
 		{"Waiting on root", waiting},
+		{"Owed deletions with no live owner", owed},
 		{"Board picks", board},
 		{fmt.Sprintf("Delivered in the last %d h", int(heardWithin.Hours())), deliveredLines},
 		{"Done plan steps", doneLines},

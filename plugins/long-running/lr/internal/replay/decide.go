@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/deletions"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -216,6 +217,8 @@ func decideLanes(given Input) (Decided, error) {
 		Drive: "replay", Checkout: dir, Briefs: filepath.Join(dir, "lanes"),
 		Desk:     func(string) (string, error) { return "", nil },
 		OpenWork: func() ([]lanes.Record, error) { return nil, nil },
+		Owed:     func(func(string) bool) ([]deletions.Owed, error) { return nil, nil },
+		Gaps:     func() ([]string, error) { return nil, nil },
 		Records: func(since int64) ([]lanes.Record, error) {
 			start := shown
 			for shown < len(feed) && !feed[shown].At.After(now) {

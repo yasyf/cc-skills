@@ -268,6 +268,11 @@ func (v view) live(name string) bool {
 	return found && !slices.Contains(selves, name) && slices.Contains(posting, lane.State) && !lane.Heard.IsZero() && v.now.Sub(lane.Heard) < heardWithin
 }
 
+func (v view) liveHead(name string) bool {
+	lane, found := v.byLane[name]
+	return found && v.live(v.headOf(lane).Name)
+}
+
 func (v view) newestNaming(kinds []string, pattern *regexp.Regexp, pr string) string {
 	for _, record := range slices.Backward(v.records) {
 		if !slices.Contains(kinds, record.Kind) || slices.Contains(coordinators, record.Lane) {

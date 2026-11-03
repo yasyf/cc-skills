@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/deletions"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
@@ -43,6 +44,8 @@ type Deps struct {
 	Held         func() (map[int]bool, error)
 	Desk         func(lane string) (string, error)
 	OpenWork     func() ([]Record, error)
+	Owed         func(owns func(lane string) bool) ([]deletions.Owed, error)
+	Gaps         func() ([]string, error)
 	RotateAt     int
 }
 
@@ -92,7 +95,7 @@ func Tick(s *store.Store, d Deps, now time.Time, generation int64) (out Outcome,
 			}
 		}
 	}
-	said := fold(s, records, adoptable, d.Briefs)
+	said := fold(s, records, adoptable, d.Briefs, d.Owed)
 	out.Adopted = said.adopted
 	announce(d, said, now)
 	ownedWork(s, d, now)
@@ -137,6 +140,9 @@ func announce(d Deps, said folded, now time.Time) {
 	for _, one := range said.unread {
 		do(d.Post(Post{Kind: "defect", To: []string{Root, one.name}, LaneRef: one.name, Text: fmt.Sprintf("%s %s, so the supervisor refused it and holds %s with its PRs, never relaunched or retired, until %s posts again; %s, keep working. Root: read %s with `cci tail --lane %s --since <its wake seq> --oldest` and the registry's heard time, then post it again citing last-read=<seq>.", pacific(now), one.why, one.name, one.name, one.name, one.name, one.name)}))
 	}
+	for _, one := range said.owing {
+		one.post(d, now)
+	}
 }
 
 func act(s *store.Store, d Deps, lane store.Lane, found map[string]Peer, taken map[string]bool, generation int64, now time.Time, out *Outcome) {
@@ -177,10 +183,14 @@ func act(s *store.Store, d Deps, lane store.Lane, found map[string]Peer, taken m
 		escalate(s, d, "lane:"+lane.Name, fmt.Sprintf("held, not relaunched: it %s; brief %s", verdict.Why, lane.Brief), now)
 		out.Held = append(out.Held, lane.Name)
 	case StoodDown:
-		retire(s, lane.Name, "stand-down", now)
+		if !refusedOwing(s, d, lane.Name, now) {
+			retire(s, lane.Name, "stand-down", now)
+		}
 	case Dead:
 		if lane.Last == kindLanded {
-			retire(s, lane.Name, kindLanded, now)
+			if !refusedOwing(s, d, lane.Name, now) {
+				retire(s, lane.Name, kindLanded, now)
+			}
 			return
 		}
 		relaunch(s, d, lane, found, verdict.Why, taken, now, out)
@@ -581,6 +591,15 @@ func hourly(s *store.Store, d Deps, now time.Time) {
 	do(s.Advance(hourCursor, hour))
 	if last == 0 || hour <= last {
 		return
+	}
+	gaps, err := d.Gaps()
+	if err != nil {
+		gaps = []string{fmt.Sprintf("the owed-deletions check did not run: %v", err)}
+	}
+	for _, gap := range gaps {
+		if must(s.Escalate(owedSubject, gap, Root, now)) {
+			do(d.Post(Post{Kind: "blocker", To: []string{Root}, Text: fmt.Sprintf("%s %s. Open an owed-deletion task anchored to it, or anchor an exception row to it with `rulings.py anchor`; `lr deletions check` exits 0 once every removes row is covered.", pacific(now), gap)}))
+		}
 	}
 	start := time.Unix((hour-1)*3600, 0).UTC()
 	end := start.Add(time.Hour)

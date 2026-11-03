@@ -22,6 +22,7 @@ import (
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/deletions"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
 
@@ -716,6 +717,7 @@ func (e Env) Deps(ctx context.Context) (Deps, error) {
 		return e.sendDispatch(ctx, dispatch, subject, body)
 	}}
 	launcher := e.tool("desk-launch.py")
+	trunk := deletions.Of(e.Runner, e.Config)
 	return Deps{
 		Drive: e.Config.Drive, Parent: e.Config.Parent, Checkout: e.Config.Checkout, Briefs: briefs,
 		HandoffBrief: filepath.Join(e.plugin(), "skills", "long-running", "reference", "handoff-subagent-brief.md"),
@@ -741,6 +743,8 @@ func (e Env) Deps(ctx context.Context) (Deps, error) {
 		Held:     func() (map[int]bool, error) { return e.held(ctx) },
 		Desk:     desks.desk,
 		OpenWork: func() ([]Record, error) { return e.openWork(ctx) },
+		Owed:     func(owns func(lane string) bool) ([]deletions.Owed, error) { return trunk.Owed(ctx, owns) },
+		Gaps:     func() ([]string, error) { return trunk.Gaps(ctx, e.tool("rulings.py"), e.Config.Drive) },
 		RotateAt: at,
 	}, nil
 }

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/deletions"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
@@ -90,6 +91,8 @@ type fake struct {
 	holds     map[int]bool
 	desks     map[string]string
 	work      []Record
+	owed      []deletions.Owed
+	gaps      []string
 	deps      Deps
 }
 
@@ -138,6 +141,16 @@ func newFake(t *testing.T, records []Record, peers []Row) *fake {
 		Held:     func() (map[int]bool, error) { return f.holds, nil },
 		Desk:     func(lane string) (string, error) { return f.desks[lane], nil },
 		OpenWork: func() ([]Record, error) { return f.work, nil },
+		Owed: func(owns func(string) bool) ([]deletions.Owed, error) {
+			var owed []deletions.Owed
+			for _, row := range f.owed {
+				if owns(row.Owner) {
+					owed = append(owed, row)
+				}
+			}
+			return owed, nil
+		},
+		Gaps:     func() ([]string, error) { return f.gaps, nil },
 		RotateAt: 600_000,
 	}
 	return f
@@ -746,6 +759,74 @@ func TestDoneAndARootStandDownRetireALane(t *testing.T) {
 	equal(t, f.kinds(), []string{"stand-down:red-sweep-3"})
 	equal(t, row(t, s, lane2).RetiredBy, "done")
 	equal(t, row(t, s, "red-sweep-3").RetiredBy, Root)
+}
+
+func TestALaneOwingADeletionWhoseCodeIsStillThereIsHeldNotRetired(t *testing.T) {
+	for name, ending := range map[string]Record{
+		"its done":        rec(2, lane2, "done", t0, "all five stacks restacked", Root),
+		"its stop":        rec(2, lane2, "stopped", t0, "stopping at root's word", Root),
+		"a root standown": ask(2, "stand-down", lane2, t0, nil, "", map[string]string{"last-read": "1"}),
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := memory(t)
+			f := adopted(t, s, writeBrief(t), "")
+			f.owed = []deletions.Owed{{ID: "4ec66f9bf94aa8352ab8c2229b2c9e4d3ad0d17b", Title: "Owed deletion: epoch fields left in share and journal positions", Owner: lane2, Paths: []string{"go/sand/next/cmd/iris_serve_share.go"}, Symbols: []string{"Epoch"}, Due: time.Date(2026, 11, 9, 0, 0, 0, 0, time.UTC)}}
+			f.feed = append(f.feed, ending)
+			f.peers = []Row{who(lane2, true, t0)}
+
+			tick(t, s, f, t0.Add(mins(1)))
+
+			equal(t, row(t, s, lane2).State, store.LaneHeld)
+			defects := f.ofKind("defect")
+			equal(t, len(defects), 1)
+			equal(t, defects[0].To, []string{Root, lane2})
+			contains(t, defects[0].Text, `task 4ec66f9 "Owed deletion: epoch fields left in share and journal positions" (go/sand/next/cmd/iris_serve_share.go, #Epoch; owner conflicts-2, due 2026-11-09)`)
+		})
+	}
+}
+
+func TestALaneRetiresWhenEveryOwedDeletionIsAnotherLanes(t *testing.T) {
+	s := memory(t)
+	f := adopted(t, s, writeBrief(t), "")
+	f.owed = []deletions.Owed{{ID: "9c99a5d50bf0b9c7fb141090e0bb6acd9798de24", Title: "Owed deletion: Go client of the server's sync and upload watch", Owner: "replicator-reads-disk-1", Dirs: []string{"go/sandsql-follower"}}}
+	f.feed = append(f.feed, rec(2, lane2, "done", t0, "all five stacks restacked", Root))
+	f.peers = []Row{who(lane2, false, t0)}
+
+	tick(t, s, f, t0.Add(mins(1)))
+
+	equal(t, row(t, s, lane2).RetiredBy, "done")
+	equal(t, len(f.ofKind("defect")), 0)
+}
+
+func TestTheHourlyTickPostsEachOwedDeletionGapToRootOnce(t *testing.T) {
+	s := memory(t)
+	f := adopted(t, s, writeBrief(t), "")
+	gap := "register row order/incarnation removes Incarnation, which no open owed-deletion task anchors and no exception row anchors"
+	f.gaps = []string{gap}
+
+	for _, at := range []time.Time{t0.Add(mins(61)), t0.Add(mins(121))} {
+		f.peers = []Row{who(lane2, true, at)}
+		tick(t, s, f, at)
+	}
+
+	blockers := f.ofKind("blocker")
+	equal(t, len(blockers), 1)
+	equal(t, blockers[0].To, []string{Root})
+	contains(t, blockers[0].Text, gap)
+}
+
+func TestAnOwedDeletionCheckThatCannotReadTellsRoot(t *testing.T) {
+	s := memory(t)
+	f := adopted(t, s, writeBrief(t), "")
+	f.deps.Gaps = func() ([]string, error) { return nil, errors.New("rulings.py rows exited 1: no register") }
+	at := t0.Add(mins(61))
+	f.peers = []Row{who(lane2, true, at)}
+
+	tick(t, s, f, at)
+
+	blockers := f.ofKind("blocker")
+	equal(t, len(blockers), 1)
+	contains(t, blockers[0].Text, "the owed-deletions check did not run: rulings.py rows exited 1: no register")
 }
 
 func TestALaneThatStopsAfterItsLastPRLandedIsRetiredNotRelaunched(t *testing.T) {
