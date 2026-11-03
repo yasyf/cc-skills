@@ -17,7 +17,7 @@ from captain_hook.util import reqenv
 from .compaction_handoff import bus_name, Communicator, COMMUNICATOR_LANE, communicator_tests, CompactionState, drive_entry, ROOT_LANE
 from .owner_answers import read, RECORD_BYTES
 from .lane_slack_status import CC_SLACK, CLI, WRITE_TOOLS
-from .register_capture import slack_dms
+from .register_capture import OPERATOR, slack_dms
 from .register_gates import blocker, cause
 from .root_context import OwnerPrompt
 from .root_replies import SENTENCE_END, SYSTEM_PREFIXES, owner_text
@@ -83,6 +83,8 @@ UNANSWERED = (
     "The owner wrote in Slack and nobody has answered in that thread: {replies}."
     " Reply in each thread with `slack_reply` saying what was done with it, then stop."
 )
+ACK_AFTER_SECONDS = 30
+UNACKED = "An owner Slack reply has waited over 30 seconds with no ack. Run `slack_reply` with `url` {permalink}, one line saying you have it."
 HOLDER = "900424b6-0000"
 OWED_REPLY = {"thread_ts": "1793684147.131059", "ts": "1793705742.180139", "text": "A, but as buttons", "permalink": "https://acme.slack.com/archives/D0B6Z/p1793705742180139"}
 EXPLAINER = re.compile(r"https?://[^\s/]+/(?:one-pagers|design-docs)/[\w.-]+/")
@@ -175,6 +177,13 @@ def owner_return_opens_with_the_update(evt: BaseHookEvent) -> HookResult | None:
     if not state.returned:
         return None
     return evt.context(RETURNED.format(minutes=int(gap // 60), steps=Path(drive_entry(evt)["state_dir"]) / STEPS))
+
+
+def waiting(replies: str | tuple) -> Input:
+    payload = {"type": "slack.message", "channel_id": "D0B6Z", "thread_ts": OWED_REPLY["thread_ts"], "ts": OWED_REPLY["ts"], "user": OPERATOR, "from_claude": False, "text": OWED_REPLY["text"]}
+    tagged = f'<channel source="plugin:cc-slack:cc-slack" subject_id="50c3b930" type="slack.message">\n{json.dumps(payload)}\n</channel>'
+    delivered = {"type": "attachment", "timestamp": "2026-11-03T17:00:00Z", "attachment": {"type": "queued_command", "prompt": tagged, "commandMode": "prompt"}}
+    return Input(session_id=HOLDER, command="ls", transcript=[T.user("where are we", timestamp="2026-11-03T16:59:00Z"), delivered], state=[CompactionState(active=True)], env=DRIVE_CONFIG, commands={f"{SHIPPED_CC_SLACK} dm-owed": replies})
 
 
 def owed(replies: str | tuple) -> Input:
@@ -390,6 +399,33 @@ def cc_slack(evt: BaseHookEvent, *args: str) -> str | None:
 
 def unread_cc_slack(evt: BaseHookEvent, verb: str, why: str) -> None:
     blocker(evt, f"cc-slack:{verb}", CC_SLACK_UNREAD.format(verb=verb, why=why), to="meta")
+
+
+@on(
+    Event.PostToolUse,
+    only_if=[Communicator()],
+    skip_if=[FromSubagent()],
+    tests=communicator_tests({
+        waiting(json.dumps({"replies": [OWED_REPLY], "holder_session": HOLDER})): Warn(pattern=r"^An owner Slack reply has waited.*`url` https://\S*p1793705742180139"),
+        waiting(json.dumps({"replies": [OWED_REPLY], "holder_session": "another-drive"})): Allow(),
+        waiting(json.dumps({"replies": [OWED_REPLY | {"ts": f"{time.time() + 3600:.6f}"}], "holder_session": HOLDER})): Allow(),
+        waiting(json.dumps({"replies": [], "holder_session": HOLDER})): Allow(),
+        waiting((1, "cc-slack can't reach the daemon")): Allow(),
+        Input(session_id=HOLDER, command="ls", transcript=[T.user("where are we")], state=[CompactionState(active=True)], env=DRIVE_CONFIG): Allow(),
+    }),
+)
+def owner_reply_gets_a_fast_ack(evt: BaseHookEvent) -> HookResult | None:
+    if not slack_dms(evt, evt.ctx.turn.events):
+        return None
+    try:
+        out = read([str(shipped_cc_slack()), "dm-owed"])
+    except (OSError, subprocess.SubprocessError):
+        return None
+    owed = json.loads(out) if out else {"replies": [], "holder_session": ""}
+    if owed["holder_session"] != evt.session_id:
+        return None
+    waited = [reply for reply in owed["replies"] if time.time() - float(reply["ts"]) > ACK_AFTER_SECONDS]
+    return evt.warn(UNACKED.format(permalink=waited[0]["permalink"])) if waited else None
 
 
 def dm_owed(evt: BaseHookEvent) -> dict:
