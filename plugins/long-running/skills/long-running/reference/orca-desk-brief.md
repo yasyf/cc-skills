@@ -43,6 +43,7 @@ A Bash append to `orca-desk.md` in a drive session draws `UNREAD` and the `cci p
 | `incident.case_lanes` | Cap on case lanes launched per incident; default `2`. |
 | `tooling_lane` | Lane told once an hour per cause when a grader pass dies on a tooling error rather than a verdict. Set it to the meta lane, `meta`. |
 | `orca.run` | Orca Run id. Match it to the launch environment. |
+| `orca.launches` | Which launches this runner takes while two runners share the drive. `mac` takes the launches that stay on the Mac (the coordinator, Fable, incident and `place=local` lanes) and every incident, alert and hold line. `sprite` takes every other launch. Without it the runner takes every launch, as one runner does today. Relays and withdrawals reach both runners. Any other value refuses at start. |
 | `orca.desk_inbox` | Required path to the drive's `inbox/orca-desk.md`. Anchors runner logs and state; the runner never reads this file. |
 | `orca.briefs.repo` | Drive checkout path for cc-notes brief attachments. |
 | `orca.briefs.log` | Briefs log id for generated fix briefs. Checked at start and before every attachment; if unset or unresolvable, the runner switches to or creates `briefs: <drive>` and logs `BRIEFS-LOG` with the new id. |
@@ -152,6 +153,17 @@ desk-runner.py rebind --config "$CONFIG"
 nohup desk-runner.py run --config "$CONFIG" --desk orca >> "$DRIVE/orca-runner.log" 2>&1 < /dev/null &
 desk-creds.py install --config "$CONFIG" --desk landing
 ```
+
+**Serve the Run from the desk host with `lr run-host install`.** A Run lives on the Orca server that created it, so a Run on the Mac's Orca app stops taking launches when the Mac sleeps. `lr run-host install --config <lr.json>` puts the server on the desk host instead. It reads `host.orca_server` from `runner.json`, `{"port": <port>, "environment": "<name>"}`, and runs `orca serve --port <port> --pairing-address 127.0.0.1` on `host.sprite` as the Sprite service `orca-run-host`, logging under `~/.local/state/long-running/run-host` there. It refuses a host where another Orca server runs, since a second server shares the first one's Orca state, and it refuses a server that fell back to Electron instead of Orca's managed server. A running `orca-run-host` is kept, never restarted.
+
+On the Mac, `lr run-host install` writes the launchd agent `com.long-running.<drive>.run-host`, which keeps `sprite proxy` forwarding that port to `127.0.0.1`, then pairs the Mac's Orca with the server as environment `<name>` unless the Mac already has it. The pairing code passes from the host to `orca environment add` and is never printed, written or posted.
+
+The owner moves the drive onto it in four steps:
+
+1. Add `host.orca_server` to `runner.json` and run `lr run-host install --config <lr.json>` on the Mac.
+2. In the Mac's Orca app, open a terminal on environment `<name>` and run `orca orchestration run-create --objective "<drive> launches" --json` in it. That terminal, on the desk host, is the new Run's coordinator.
+3. Put the new Run's id in `runner.json` as `host.orca.run`, and as `host.orca.launch_env.ORCA_LAUNCH_RUN`. `host.orca` overlays `orca` one level down in the host's copy of `runner.json`, as `host.landing` overlays `landing`, so the host's runners read the new Run and the Mac's runner keeps the old one.
+4. Set `orca.launches` to `mac` in `runner.json` and to `sprite` in `host.orca`. New Sprite lanes then start on the host's Run, Mac-only lanes keep starting on the Mac's Run, and lanes already running finish on the Run that started them.
 
 **Cut over cleanly from an existing desk or config.** To cut over from a running orca-desk, let it finish its current pass and acknowledge its delivered batch, then end its loop before starting the runner. Keep its session open and carry unresolved work into runner commands with existing keys. For the cci cutover, the coordinator adds `drive` to the runner config, confirms `orca.desk_inbox`, and restarts both runners.
 
