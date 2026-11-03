@@ -56,7 +56,7 @@ func Announce(ctx context.Context, drive, trunk string, landings []pass.Landing,
 }
 
 func Settle(ctx context.Context, drive string, answers []Said) error {
-	var unposted []error
+	unposted := make([]error, 0, len(answers))
 	for _, answer := range answers {
 		f := answer.Facts
 		label, text := "REFUSED", answer.Text

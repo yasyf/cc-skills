@@ -105,7 +105,7 @@ func TestEachHeadCarriesOneRecordOfWhatTheQueueSaid(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var said []string
+	said := make([]string, 0, len(posted))
 	for _, record := range posted {
 		said = append(said, record.To[0]+": "+record.Text)
 	}
