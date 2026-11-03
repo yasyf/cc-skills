@@ -1,0 +1,67 @@
+[
+  {
+    "number": 72959,
+    "state": "passed",
+    "commit": "96f8125b6e892a01ae9cefade3df8e8c577704db",
+    "branch": "yasyf/v3-b4-b7-engine/b4-release-images",
+    "created_at": "2026-10-01T18:08:43.839Z",
+    "pull_request": {
+      "base": "yasyf/v3-d-cutover/d4-delete",
+      "id": "28345",
+      "labels": [
+        "configuration"
+      ],
+      "repository": "https://github.com/Forge-AI/monorepo.git"
+    },
+    "rebuilt_from": {
+      "id": "01a0f88d-ad7a-485f-8e10-42dfc99aae29",
+      "number": 72867,
+      "url": "https://api.buildkite.com/v2/organizations/forge/pipelines/pr-review/builds/72867"
+    },
+    "web_url": "https://buildkite.com/forge/pr-review/builds/72959",
+    "jobs": [
+      {
+        "id": "01a0f8a7-872f-4585-a2ac-34362322eb4e",
+        "name": ":robot_face: Prepare PR evidence",
+        "step_key": "prepare-review-evidence",
+        "state": "passed",
+        "exit_status": 0
+      },
+      {
+        "id": "01a0f8a7-8737-410a-88b0-a2b940aa6b9f",
+        "name": ":wastebasket: Cancel reviews of older heads",
+        "step_key": "cancel-stale-reviews",
+        "state": "passed",
+        "exit_status": 0
+      },
+      {
+        "id": "01a0f8a7-873a-4547-ba81-c19395619fd3",
+        "name": ":robot_face: AI code review",
+        "step_key": "review",
+        "state": "passed",
+        "exit_status": 0
+      },
+      {
+        "id": "01a0f8a7-873b-4293-bc46-d8d555656164",
+        "name": ":robot_face: AI code review",
+        "step_key": "review-reassess",
+        "state": "broken",
+        "exit_status": null
+      },
+      {
+        "id": "01a0f8a7-873c-4c4a-9f3a-5bc6be8b6bfa",
+        "name": ":left_speech_bubble: PR companion",
+        "step_key": "companion",
+        "state": "passed",
+        "exit_status": 0
+      },
+      {
+        "id": "01a0f8a7-873d-4f1f-9e59-027d593d0939",
+        "name": ":robot_face: AI review finalize",
+        "step_key": "finalize",
+        "state": "passed",
+        "exit_status": 0
+      }
+    ]
+  }
+]
