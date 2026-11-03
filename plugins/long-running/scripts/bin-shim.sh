@@ -40,6 +40,9 @@ case "$TOOL" in
   incident.py) exec "$ROOT/bin/lr" incident "$@" ;;
   replay.py) exec "$ROOT/bin/lr" replay "$@" ;;
   desk-creds.py) exec "$ROOT/bin/lr" desk-creds "$@" ;;
+  board_cards.py) exec "$ROOT/bin/lr" board cards "$@" ;;
+  owner_waits.py) exec "$ROOT/bin/lr" board waits "$@" ;;
+  owner_update.py) exec "$ROOT/bin/lr" update "$@" ;;
   *.py)
     for python in python3.15 python3.14 python3.13 /opt/homebrew/bin/python3.14 /opt/homebrew/bin/python3.13 python3; do
       command -v "$python" >/dev/null 2>&1 && break

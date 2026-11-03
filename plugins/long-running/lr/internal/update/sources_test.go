@@ -172,8 +172,8 @@ func TestOnlyLimitsTheReadsToTheSectionsItNames(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if status.Asks != nil || status.Board != nil {
-		t.Fatalf("status = %+v", status)
+	if status.Asks == nil || len(status.Asks) != 0 || status.Board == nil || len(status.Board) != 0 {
+		t.Fatalf("a section left unread is not an empty list: %+v", status)
 	}
 }
 
