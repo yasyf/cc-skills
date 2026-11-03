@@ -35,4 +35,4 @@ It carries the owner's answers and rulings down with `--to root@<parent>--<name>
 `lr drive sub list` names each open sub-drive with what it still holds.
 `lr drive sub end <name>` hands every open lane, record and PR back to the parent as
 one `ask` it must close, posts the child's sessions a stand-down, removes its
-supervisor and registry entry, and names the `orca-gc` line to run once they stop.
+supervisor and registry entry, and names the `lr gc` line to run once they stop.

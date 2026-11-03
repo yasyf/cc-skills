@@ -2,7 +2,7 @@
 
 This brief covers [Coordinator discipline](#root-discipline), [What a desk reads](#what-a-desk-reads), [How a desk grades](#how-a-desk-grades), [Head mode](#head-mode), [The pipeline](#the-pipeline), [Text mode](#text-mode), [Sweep mode](#sweep-mode), [Grade lines](#grade-lines), [Fixtures](#fixtures), and [Spawn brief](#spawn-brief).
 
-The coordinator starts `fidelity-desk` remote with `lr desks start`, model opus, effort xhigh, right after the register seed, and a second as `desk-launch.py lane fidelity-desk-2 opus xhigh <brief>`. Each desk reads every drive head, board round, plan revision, owner reply, and lane read-back against the owner's words, then posts a grade that the landing runner and hooks read. One of them, the sweep desk, also re-reads the whole plan every hour. A `missing` from either desk, or from the sol finder ([finder-brief.md](finder-brief.md)), blocks landing. Fill the angle brackets and paste the spawn brief at the end.
+The coordinator starts `fidelity-desk` remote with `lr desks start`, model opus, effort xhigh, right after the register seed, and a second as `lr launch lane fidelity-desk-2 opus xhigh <brief>`. Each desk reads every drive head, board round, plan revision, owner reply, and lane read-back against the owner's words, then posts a grade that the landing runner and hooks read. One of them, the sweep desk, also re-reads the whole plan every hour. A `missing` from either desk, or from the sol finder ([finder-brief.md](finder-brief.md)), blocks landing. Fill the angle brackets and paste the spawn brief at the end.
 
 ## Coordinator discipline
 

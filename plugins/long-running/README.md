@@ -11,7 +11,7 @@
 
 - The `captain-hook` plugin, version 12.94.0 or later, from the `captain-hook` marketplace, and the `live-dashboard` plugin, version 0.5.0 or later, from this marketplace.
 - `ccx` for PR state, `cci` for the lane bus, and `ccn` for cc-notes, where drive state and the ledger live.
-- Orca, when the drive launches worker lanes through `orca-launch.sh` and the orca desk runner.
+- Orca, when the drive launches worker lanes through `lr launch start` and the orca desk runner.
 - Optional: `CEREBRAS_API_KEY` for the drive dashboard's in-browser assistant, whose controls stay hidden without it.
 
 ## Use it
@@ -56,7 +56,7 @@ The resumed the coordinator runs `drive.py start --drive <id> --ledger <id>` to 
 | `capt-hook/hooks/` | hook pack | About 30 captain-hook hooks, among them `root_context`, `task_list`, `lane_landing`, and `settled_questions`. They warn by default and block only on trust: an unapproved merge, revert, or rollback, hook-file edits, and session-protection guards. A judgment reminder re-injects the rules every 30 minutes; `judgment_reminder_minutes` changes it. |
 | `drive.py`, `handoff.py`, `standing.py`, `compact_job.py` | CLI | Drive lifecycle and compaction handoff scripts on `PATH` through `bin/` |
 | `ledger.py`, `mq.py`, `rulings.py`, `label-watch.sh`, `red-sweep.sh` | CLI | Landing desk and merge queue tools over `cc-notes` for queueing reports, grading heads, guarding the merge label, managing holds, and inspecting queue state |
-| `desk-runner.py`, `desk-launch.py`, `sprite-job.sh`, `orca-launch.sh`, `orca-check.sh`, `prompt_watch.py`, `inboxes.py`, `inbox-digest.py`, `inbox-rotate.py` | CLI | Detached desk runners through `desk-runner.py run --desk orca` and `run --desk landing`, finder and fidelity passes on a remote Sprite box, Orca worker launchers, and inbox management tools |
+| `desk-runner.py`, `lr launch`, `sprite-job.sh`, `lr launch start`, `orca-check.sh`, `prompt_watch.py`, `inboxes.py`, `inbox-digest.py`, `inbox-rotate.py` | CLI | Detached desk runners through `desk-runner.py run --desk orca` and `run --desk landing`, finder and fidelity passes on a remote Sprite box, Orca worker launchers, and inbox management tools |
 | `incident.py`, `actions.py`, `bus.py`, `monitor-watch.py` | CLI | Production incident lifecycle, lane bus helpers, and monitor transition watchers |
 | `board_rows.py`, `board_watch.py`, `plan-table.py`, `dashboard/app/server.py` | CLI | Owner board helpers and the drive web dashboard app |
 | `pr-prose.py`, `sprite-cargo.sh`, `remote-restack.py`, `remote-vet.py` | CLI | Lane helpers that write a branch's PR title, body, and commit message with a headless Claude Opus, build a ref on a remote Sprite box, restack a PR and the open PRs below it on a Sprite, or build and vet a lane's uncommitted change on a Sprite |

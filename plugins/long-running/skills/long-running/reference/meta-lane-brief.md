@@ -35,7 +35,7 @@ read: `cci subscribe --drive <drive> --reader meta`.
 2. Give each item one implementer, the turn it arrives. Write its brief to
    `<state dir>/<lane>/brief.md` with its `Register slice:`, `Scale:` and `ccx:` lines,
    the owner's words verbatim and the contract below, and launch it with
-   `desk-launch.py lane <lane> opus xhigh <brief> --drive <drive> --lane meta`. A
+   `lr launch lane <lane> opus xhigh <brief> --drive <drive> --lane meta`. A
    lane's `Agent` spawn holds its turn, so an implementer is never an in-process
    subagent. An item that designs or mocks anything the owner sees carries the
    lines of "A design lane's part" in `reference/orca-lane-brief.md`, and you open

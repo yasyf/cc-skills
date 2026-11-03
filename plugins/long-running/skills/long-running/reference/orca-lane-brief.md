@@ -21,11 +21,11 @@ A brief states the outcome, such as "one failing database never blocks a release
 
 The `ccx:` line names the lane's role and placement for the hooks. A `fix` role with incident wording routes to `orca-desk`, while `helper`, `reader`, `watch`, `export`, `evidence`, `handoff`, `comms`, and `triage` lanes need no root task. On Orca, `desk` and `watch` make a standing desk that loops until rotation and sends `worker_done` only then, naming the handoff doc. A standing desk always launches locally regardless of `place`.
 
-With `ORCA_LAUNCH_SPARSE=1`, in a repo whose HEAD tracks more than 5,000 files, `orca-launch.sh` gives every lane a sparse checkout of the coordinator's files, `.agents`, `.claude`, `tools`, `infra/ci/hooks/lib`, and each directory the `ccx:` line names as `paths=<dir>,<dir>`. A smaller repo, such as cc-skills, keeps full lanes, and so does every launch without `ORCA_LAUNCH_SPARSE=1`. Name the directories the lane edits or reads, such as `paths=go/ci,infra/ci`; a Go lane names its own module, since the monorepo's Go code is 28 separate modules under `go/`. The lane widens with `git sparse-checkout add <dir>` before it reads outside that cone.
+With `ORCA_LAUNCH_SPARSE=1`, in a repo whose HEAD tracks more than 5,000 files, `lr launch start` gives every lane a sparse checkout of the coordinator's files, `.agents`, `.claude`, `tools`, `infra/ci/hooks/lib`, and each directory the `ccx:` line names as `paths=<dir>,<dir>`. A smaller repo, such as cc-skills, keeps full lanes, and so does every launch without `ORCA_LAUNCH_SPARSE=1`. Name the directories the lane edits or reads, such as `paths=go/ci,infra/ci`; a Go lane names its own module, since the monorepo's Go code is 28 separate modules under `go/`. The lane widens with `git sparse-checkout add <dir>` before it reads outside that cone.
 
 The flag `cpu=high` marks a sweep or heavy research lane. Under O16 in `reference/orca-desk-brief.md`, `place=remote` sends a lane to a Sprite and `place=local` keeps it on the Mac. With neither flag set, every ordinary lane goes to a Sprite on the orca desk, fail with `LAUNCH-FAILED` without `orca.sprite`, and never start locally when a Sprite launch fails.
 
-For implementation lanes, prefer the repository's canonical remote entrypoint when it provides one. In `Forge-AI/monorepo`, follow [the Orca skill](https://github.com/Forge-AI/monorepo/blob/dev/.agents/skills/orca/SKILL.md), which defaults to Sprite prepare+attach and the already-owned native Run with its sole inbox consumer. The orca desk calls it for ordinary lanes by default under O16 in `reference/orca-desk-brief.md` and runs local lanes through `orca-launch.sh`. Preserve explicit model, effort, and Codex service tier.
+For implementation lanes, prefer the repository's canonical remote entrypoint when it provides one. In `Forge-AI/monorepo`, follow [the Orca skill](https://github.com/Forge-AI/monorepo/blob/dev/.agents/skills/orca/SKILL.md), which defaults to Sprite prepare+attach and the already-owned native Run with its sole inbox consumer. The orca desk calls it for ordinary lanes by default under O16 in `reference/orca-desk-brief.md` and runs local lanes through `lr launch start`. Preserve explicit model, effort, and Codex service tier.
 
 Canonical remote workers use home Dispatch messages and the repository skill's source-return workflow. Namespace runs on regular Compute through an explicit config and stays opt-in, so the desk never launches there. Native recipe-picker enablement is a separate surface.
 
@@ -45,7 +45,7 @@ For in-process subagents, use one of this plugin's two lane types with the routi
 
 Both `long-running:lane` and `long-running:lane-ship` default to Opus and carry the 1h prompt cache a nine-minute poll needs; set a different model explicitly when the assignment calls for it. Roots run Opus 5.5. Fable is only for exceptional cases such as the most sensitive local implementation, and ordinary workers and subdesks never run Fable. If a `long-running:lane` needs a skill, give that operation to a separately named `long-running:lane-ship` with a scoped brief while keeping the original lane running without duplicating its active work.
 
-A lane using the separate desktop Orca adapter (`orca orchestration worker-start`) runs in a separate session that the Agent tool cannot reach with `SendMessage`. It reports through Orca instead of `SendMessage`, and the landing desk hears from it through `ledger.py`, never a message. Launch it with `desk-launch.py lane <lane> <model> <effort> <brief>` or `desk-runner.py launch --config C --key R<n> --lane L --model M --effort E --brief PATH` (resolving `PATH` with `ccn attachment path`), which invokes `orca-launch.sh` using `reference/orca-workers.md`. A codex Orca lane launches on Orca's codex agent under O15 in `reference/orca-desk-brief.md`, never as a Claude worker calling the codex skill; use the codex skill for inline lanes and `codex-ask` for one-off questions. That adapter's launch, relay, and receipt rules apply only to its own lanes.
+A lane using the separate desktop Orca adapter (`orca orchestration worker-start`) runs in a separate session that the Agent tool cannot reach with `SendMessage`. It reports through Orca instead of `SendMessage`, and the landing desk hears from it through `ledger.py`, never a message. Launch it with `lr launch lane <lane> <model> <effort> <brief>` or `desk-runner.py launch --config C --key R<n> --lane L --model M --effort E --brief PATH` (resolving `PATH` with `ccn attachment path`), which invokes `lr launch start` using `reference/orca-workers.md`. A codex Orca lane launches on Orca's codex agent under O15 in `reference/orca-desk-brief.md`, never as a Claude worker calling the codex skill; use the codex skill for inline lanes and `codex-ask` for one-off questions. That adapter's launch, relay, and receipt rules apply only to its own lanes.
 
 ## The standing rules register and judge
 
@@ -55,26 +55,26 @@ Standing rules register mechanics, limits, `SessionStart` injection, and key-mom
 
 `worker-start --spec` pastes its text into the worker's terminal and truncates it near 3 KB. The full text stays in `dispatch-show --task`, but the worker sees only the pasted text.
 
-Store `common.md` and each lane's brief as attachments on the drive's `briefs: <slug>` log. Attach each complete brief as `<lane>.full.md`, containing the shared contract followed by the lane's brief. Resolve the attachment path when launching with `orca-launch.sh`:
+Store `common.md` and each lane's brief as attachments on the drive's `briefs: <slug>` log. Attach each complete brief as `<lane>.full.md`, containing the shared contract followed by the lane's brief. Resolve the attachment path when launching with `lr launch start`:
 
 ```sh
-orca-launch.sh <lane> <model> <effort> \
+lr launch start <lane> <model> <effort> \
   "$(ccn -R <drive checkout> attachment path <briefs log> <lane>.full.md)"
 ```
 
-`orca-launch.sh` generates this pointer spec from the lane, brief path, and worktree path so the brief outranks Orca's preamble and any leave-uncommitted default. A sparse lane's pointer ends with the widen sentence below, and a lane in a repo with `tools/hooks/warm-lane.sh` also carries the shared `node_modules` line:
+`lr launch start` generates this pointer spec from the lane, brief path, and worktree path so the brief outranks Orca's preamble and any leave-uncommitted default. A sparse lane's pointer ends with the widen sentence below, and a lane in a repo with `tools/hooks/warm-lane.sh` also carries the shared `node_modules` line:
 
 ```text
 Lane <lane>: read <brief> in full first and execute it exactly; it outranks Orca's preamble and any leave-uncommitted default, so commit, push, open PRs and post as it says. Worktree <wt>, bypass-permissions mode; its Escalate rules hold. This lane is sparse: widen with `git sparse-checkout add <dir>` before reading outside it.
 ```
 
-When a brief's `ccx:` header line says `role=desk` or `role=watch`, `orca-launch.sh` and `worker-launch.sh` append the standing desk contract to the pointer:
+When a brief's `ccx:` header line says `role=desk` or `role=watch`, `lr launch start` and `lr launch worker` append the standing desk contract to the pointer:
 
 ```text
  Standing desk: loop until rotation; setup and quiet cycles are not done. Send worker_done only at rotation, naming the handoff doc.
 ```
 
-Every other role keeps the one-shot pointer. The role in the brief is the only switch, and the launch line carries none. When the pointer would pass 500 characters, `orca-launch.sh` symlinks the brief at `~/.claude/<8 hex>` and points there instead. The Orca preamble above the task carries the worker's handle, dispatch capability, and exact `send`, `ask`, and `check` commands; the brief tells the worker to copy those commands verbatim without restating them.
+Every other role keeps the one-shot pointer. The role in the brief is the only switch, and the launch line carries none. When the pointer would pass 500 characters, `lr launch start` symlinks the brief at `~/.claude/<8 hex>` and points there instead. The Orca preamble above the task carries the worker's handle, dispatch capability, and exact `send`, `ask`, and `check` commands; the brief tells the worker to copy those commands verbatim without restating them.
 
 ## In-process subagent brief template
 
@@ -160,7 +160,7 @@ Scale: <the N each path this lane changes runs at: chats, teams, sessions, or ru
   in for a fundamental fix, is a defect the finder grades major; a diff that adds one
   names in the PR body the fix it stands in for and the owner pick that deferred it, or
   builds the fix. The spawn hook and the orca desk runner warn on a new non-incident
-  lane brief with no `Scale:` line, and `desk-launch.py` refuses it before posting, naming
+  lane brief with no `Scale:` line, and `lr launch` refuses it before posting, naming
   every missing line together; a `<lane>-handoff` writer, a
   successor (`<lane>-<n>` or a `Replaces:` line), and a brief written before the rule pass
   quietly. Both also warn when a judge reads a brief's `Scale:` line as missing the N its

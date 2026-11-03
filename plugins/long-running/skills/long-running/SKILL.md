@@ -306,7 +306,7 @@ forward; a rollback runs only on the owner's own word.
 **R17.** An owner routing instruction applies to the next spawn and to every live
 lane on that problem, the turn it arrives.
 
-**R18.** A ruling reaches a lane the way it reads: Orca lanes by `desk-launch.py relay`, a desk
+**R18.** A ruling reaches a lane the way it reads: Orca lanes by `lr relay`, a desk
 by a record addressed to it, an Agent lane by a record it reads at its next tool
 call. A stand-down is confirmed on disk before it counts.
 
@@ -340,7 +340,7 @@ opus. Implementation lanes and every desk run on Sprites. A brief whose duty the
 drive keeps for good carries `Standing: <duty>`. A lane never spawns with `Agent`;
 it writes the brief and posts `cci post --kind ask --to root --text 'spawn <name>
 brief=<path> model=<model>'`. The meta lane launches its own implementers with
-`desk-launch.py lane <name> opus xhigh <brief> --lane meta`.
+`lr launch lane <name> opus xhigh <brief> --lane meta`.
 
 | Desk or lane | Does | Brief |
 |---|---|---|

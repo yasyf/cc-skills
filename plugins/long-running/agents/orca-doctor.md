@@ -16,7 +16,7 @@ order; a step that finds nothing is evidence, so record it and continue.
 You are read-only. Run only the commands written here and read-only `git`,
 `jq`, `ps`, `uptime`, `sysctl`, and `date`. Never run `orca terminal send`,
 `orca terminal close`, `orca orchestration send|reply|check|worker-stop|worker-abandon|worker-release`,
-`orca worktree rm|set`, `worker-launch.sh`, `kill`, or any write to a file. `orca orchestration check` acknowledges mail
+`orca worktree rm|set`, `lr launch worker`, `kill`, or any write to a file. `orca orchestration check` acknowledges mail
 the coordinator's waiter owns, so read mail with `inbox` only. Never signal
 any process.
 
@@ -41,7 +41,7 @@ Turn a target that is not a lane name into one:
 
 ## 1. Did the lane launch?
 
-When the caller passed the lane's brief, `worker-launch.sh` kept its attempt
+When the caller passed the lane's brief, `lr launch worker` kept its attempt
 in `ATTEMPT`, the `<brief-stem>.worker` directory beside the brief:
 
 ```sh
@@ -139,7 +139,7 @@ next step: <one sentence for the orchestrator>
 
 Pick `next step` from the state:
 
-- `never-launched`: launch it with `worker-launch.sh`
+- `never-launched`: launch it with `lr launch worker`
   from the coordinator that owns the Run.
 - `launch-failed`: quote the failing step and say the attempt directory keeps
   its receipts; a brief gets one attempt, so a relaunch needs a new brief.
