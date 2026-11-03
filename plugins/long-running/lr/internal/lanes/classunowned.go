@@ -50,7 +50,7 @@ func (c *ClassUnowned) Check(ctx context.Context, now time.Time) error {
 		}
 	}
 	for _, record := range records {
-		if record.Lane == Root || closed[record.Seq] || !(string(record.Kind) == "incident" || classLine.MatchString(record.Text)) {
+		if record.Lane == Root || closed[record.Seq] || (string(record.Kind) != "incident" && !classLine.MatchString(record.Text)) {
 			continue
 		}
 		keys := classKeys(record)
