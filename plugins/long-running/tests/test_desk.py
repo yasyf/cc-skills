@@ -2248,7 +2248,7 @@ def watch_row(name: str, role: str, state: str, line: str) -> dict:
     return {"name": name, "role": role, "state": state, "detail": "", "line": line}
 
 
-DOWN_ROW = watch_row("900424b6", "watch", "down", "PROMPT-WATCH-DOWN 900424b6: last poll 7m ago, so the states below are old; start it with `prompt_watch.py start --drive 900424b6`")
+DOWN_ROW = watch_row("900424b6", "watch", "down", "PROMPT-WATCH-DOWN 900424b6: last poll 7m ago, so the states below are old; check it with `lr watch prompts --drive 900424b6`")
 APPROVAL_ROW = watch_row(LANE, "worker", "approval", f"WAITING-ON-PROMPT {LANE} worker approval 3m terminal=term_a: This shell -c script runs rm and could not be checked / Do you want to proceed?")
 UNREACHABLE_ROW = watch_row("ssql-bake", "worker", "unreachable", "PROMPT-UNREACHABLE ssql-bake worker 2m terminal=term_b environment=pool-a: remote_runtime_unavailable: Could not connect to the remote Orca runtime.")
 COORDINATOR_ROW = watch_row("coordinator", "coordinator", "stale", "PROMPT-STALE coordinator coordinator 1m terminal=term_root: agentWait via hook is set and the input box is back")
@@ -2261,7 +2261,7 @@ def test_summary_prints_the_prompt_watch_rows_right_after_the_counts(capsys):
     lines = summarize(shell, capsys)
 
     assert lines[1:5] == [DOWN_ROW["line"], APPROVAL_ROW["line"], UNREACHABLE_ROW["line"], COORDINATOR_ROW["line"]]
-    assert [sys.executable, str(ledger.PROMPT_WATCH), "show", "--cci-drive", DRIVE, "--json"] in shell.calls
+    assert [str(ledger.LR), "watch", "prompts", "show", "--drive", DRIVE, "--json"] in shell.calls
     assert not [call for call in shell.calls if call[0] == "orca"]
 
 

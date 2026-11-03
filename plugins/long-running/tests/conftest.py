@@ -212,7 +212,7 @@ class FakeShell(ledger.Shell):
             return self.ccx_out
         if argv[0].endswith("stack-enqueue"):
             return self._stack_enqueue(argv)
-        if argv[1:3] == [str(ledger.PROMPT_WATCH), "show"]:
+        if argv[:4] == [str(ledger.LR), "watch", "prompts", "show"]:
             return json.dumps(self.prompt_watch)
         raise AssertionError(f"unexpected command: {argv}")
 

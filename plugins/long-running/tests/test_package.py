@@ -40,7 +40,7 @@ def test_relocated_paths_still_name_the_original_plugin_and_entrypoints():
 
     assert drive.PLUGIN == SCRIPTS.parents[2]
     assert drive.PACK == SCRIPTS.parents[2] / "dashboard"
-    assert ledger.PROMPT_WATCH == SCRIPTS / "prompt_watch.py"
+    assert ledger.LR == SCRIPTS.parents[2] / "bin" / "lr"
 
 
 def test_actual_hook_registration_resolves_relocated_script_dependencies(tmp_path):

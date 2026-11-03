@@ -70,7 +70,7 @@ on a stacked follow-up PR instead.
 ``summary`` ends with one ``LANDED-NOT-LIVE <target>`` line per release target the landing runner's newest
 ``landed-not-live`` record names, the PRs landed on it in the last day that it runs none of.
 
-``summary`` also prints the prompt watch's last poll for the drive, from ``prompt_watch.py show``:
+``summary`` also prints the prompt watch's last poll for the drive, from ``lr watch prompts show``:
 one line per coordinator, desk, or worker terminal that is at a prompt, stale, unknown, or
 unreachable, led by ``PROMPT-WATCH-DOWN`` when the watch stopped polling.
 
@@ -162,7 +162,7 @@ AGED_HOURS = 60
 TRAIN_CARS = 6
 TRAIN_TIERS = ("green", "dirty")
 LIVE_KEY = "live"
-PROMPT_WATCH = Path(__file__).resolve().parents[1] / "prompt_watch.py"
+LR = Path(__file__).resolve().parents[4] / "bin" / "lr"
 LOST_MINUTES = 30
 STANDING_HOURS = 24
 ESCALATE_MINUTES = 60
@@ -1270,7 +1270,7 @@ def render_table(rows: dict[str, dict[str, str]]) -> str:
 
 def prompt_lines(shell: Shell, drive: str, shard: frozenset[str] | None) -> list[str]:
     """The prompt watch's last poll for the cci drive: its own line when it stopped polling, then one per terminal that is not clear."""
-    watch = json.loads(shell.run([sys.executable, str(PROMPT_WATCH), "show", "--cci-drive", drive, "--json"]) or "{}")
+    watch = json.loads(shell.run([str(LR), "watch", "prompts", "show", "--drive", drive, "--json"]) or "{}")
     return [row["line"] for row in watch.get("rows") or [] if shard is None or row["role"] == "watch" or row["name"] in shard]
 
 

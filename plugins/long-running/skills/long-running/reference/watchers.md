@@ -20,9 +20,7 @@
 
 ## Run the prompt watch
 
-**`prompt_watch.py` detects terminals stopped at interactive prompts.** A terminal stopped at a prompt reports nothing in its transcript and its lane looks busy, so the prompt watch reads Orca directly. `drive.py start` and coordinator `SessionStart` run `prompt_watch.py start --drive <id>`, which detaches one `run` process per drive. The watch is its own process, so a stuck session does not stop it. It polls every 30 seconds, holds `<state dir>/prompt-watch/lock` so a second instance exits, and ends when `drive.py end` removes the registry file.
-
-**Hand over cleanly across plugin updates.** A plugin update signals nothing. The next `prompt_watch.py start` from the new version locks `<state dir>/prompt-watch/successor` and waits on `<state dir>/prompt-watch/lock`. The running watch exits after the poll that finds `successor` locked, and the new watch takes over. One watch waits at a time, and one that dies while waiting leaves no lock behind. A watch older than 0.7.43 never checks `successor`; stop it once by hand so the waiting watch takes over.
+**`lr watch prompts` detects terminals stopped at interactive prompts.** A terminal stopped at a prompt reports nothing in its transcript and its lane looks busy, so the prompt watch reads Orca directly. The supervisor runs it as one of its checks every 30 seconds, so a stuck session does not stop it, and it holds `<state dir>/prompt-watch/lock` while it polls. `drive.py start` records the coordinator's terminal, and when the coordinator resumes in another one, the `SessionStart` hook records the new one with `lr watch prompts bind --root-terminal`.
 
 **Poll every terminal in the drive registry.** The coordinator's terminal is `root_terminal`, which `drive.py start` and the hook record from `ORCA_TERMINAL_HANDLE`, and a prompt raised by an in-process lane appears here. Each standing desk is recorded with `drive.py desk --name <lane> --terminal <handle>`, plus `--environment <name>` for a desk on a remote host. The workers are every in-progress dispatch of the drive's Run, local or remote, from `orca orchestration worker-list --include-remote`. With no `orca_run` in the registry, the watch uses the Run bound to `root_terminal`, or none when that terminal is unbound. While `worker-list` fails, no worker's prompt is closed; each worker keeps its record and reads `unknown` or `unreachable` until the list answers again.
 
@@ -41,13 +39,13 @@
 
 **Read remote worker screens on every poll.** `unknown` and `unreachable` mean the prompt state is unknown; never treat either as working or stuck. A host running Orca's managed server installs no agent hook, so `agentWait` stays unset there. The watch reads every remote worker's screen on every poll through the `--environment` that `worker-show` names.
 
-**Store dialog text on disk only.** A dialog's text can hold a command or a secret, so the watch saves the screen of each prompt and each unclassified screen owner-only under `<state dir>/prompt-watch/screens/`. A record, a wake, and `prompt_watch.py show` name that file, the dialog's class, and the command that reads the live screen, never the dialog's text.
+**Store dialog text on disk only.** A dialog's text can hold a command or a secret, so the watch saves the screen of each prompt and each unclassified screen owner-only under `<state dir>/prompt-watch/screens/`. A record, a wake, and `lr watch prompts show` name that file, the dialog's class, and the command that reads the live screen, never the dialog's text.
 
 **Post one cci record per prompt.** Each prompt raises one cci record from lane `prompt-watch` on topic `prompt:<name>`, never one per poll. The terminal, the dialog's class, and every row of text in the dialog identify a prompt, so a second command behind the same warning is a second prompt. Orca rewrites `agentWait.since` every few seconds while one dialog stays open, so it identifies nothing.
-- A worker's or desk's prompt posts as a `blocker` to `root`. The coordinator reads the screen with the command in the record and decides. An approval record also carries the `prompt_watch.py answer` command that settles it.
-- A question dialog on `root_terminal` already waits on the owner there, so it raises no record, while `prompt_watch.py show` still lists it. During execution, an owner question goes on the board, never in that dialog (R8 in `SKILL.md`).
+- A worker's or desk's prompt posts as a `blocker` to `root`. The coordinator reads the screen with the command in the record and decides. An approval record also carries the `lr watch prompts answer` command that settles it.
+- A question dialog on `root_terminal` already waits on the owner there, so it raises no record, while `lr watch prompts show` still lists it. During execution, an owner question goes on the board, never in that dialog (R8 in `SKILL.md`).
 - The coordinator's own approval cannot wake the coordinator. Register one independent agent as its supervisor with `drive.py desk --name <lane> --terminal <handle> --supervisor`. The coordinator's approval then posts as a `blocker` to that lane, and the watch types the record's line into the supervisor's terminal with `orca terminal send --enter`.
-- When started with `prompt_watch.py start --slack-cards`, the watch posts a `needs_you` card at the root of the owner's DM with its own thread, for the drive's newest coordinator session, by using `cc-slack dm-status` whenever no supervisor can take the prompt. That covers a drive with no supervisor, a supervisor at a prompt, `unknown`, or `unreachable`, a wake Orca refuses, or a prompt still open five minutes after the supervisor's record. Without `--slack-cards`, the owner gets no Slack message for a dialog.
+- Once `lr watch prompts bind --drive <id> --slack-cards` has set the drive's `slack_cards`, the watch posts a `needs_you` card at the root of the owner's DM with its own thread, for the drive's newest coordinator session, by using `cc-slack dm-status` whenever no supervisor can take the prompt. That covers a drive with no supervisor, a supervisor at a prompt, `unknown`, or `unreachable`, a wake Orca refuses, or a prompt still open five minutes after the supervisor's record. Without it, the owner gets no Slack message for a dialog.
 
 **Wake an idle supervisor once per prompt.** Orca must read the supervisor terminal `tui-idle`, and the screen must read `idle`:
 
@@ -65,18 +63,18 @@ The row records what Orca reported for the line, where `turn_started` means Orca
 
 ## Answer a terminal dialog
 
-**Use `prompt_watch.py answer` to settle an approval dialog.** Orca refuses `orca terminal send --enter` and `--retry-request` into an agent showing an approval dialog with `agent_prompt_blocked`. Answer the dialog with the command the record names:
+**Use `lr watch prompts answer` to settle an approval dialog.** Orca refuses `orca terminal send --enter` and `--retry-request` into an agent showing an approval dialog with `agent_prompt_blocked`. Answer the dialog with the command the record names:
 
 ```bash
-prompt_watch.py answer --dispatch <ctx_id> --episode <key> --by root yes
-prompt_watch.py answer --dispatch <ctx_id> --episode <key> --by root no --instead "<what to do instead>"
+lr watch prompts answer --dispatch <ctx_id> --episode <key> --by root yes
+lr watch prompts answer --dispatch <ctx_id> --episode <key> --by root no --instead "<what to do instead>"
 ```
 
-`--terminal <handle>`, with `--environment <server>` for a remote terminal, replaces `--dispatch` for a desk, the coordinator, or a worker known only by its terminal. `prompt_watch.py answer` reads the live screen and types only when an approval dialog is open there and matches `--episode` when given; otherwise, it refuses. It types the number of the first option in the dialog's closing list that reads Yes or Allow, or No or Deny, as raw keys, then reads the screen until the dialog closes. Numbered lines in the command preceding the closing list are ignored. A denied agent ends its turn, and Orca refuses new prompts until one is typed.
+`--terminal <handle>`, with `--environment <server>` for a remote terminal, replaces `--dispatch` for a desk, the coordinator, or a worker known only by its terminal. `lr watch prompts answer` reads the live screen and types only when an approval dialog is open there and matches `--episode` when given; otherwise, it refuses. It types the number of the first option in the dialog's closing list that reads Yes or Allow, or No or Deny, as raw keys, then reads the screen until the dialog closes. Numbered lines in the command preceding the closing list are ignored. A denied agent ends its turn, and Orca refuses new prompts until one is typed.
 
 Passing `no` requires `--instead`, which `answer` types and submits as raw keys once the screen shows the agent's empty input box. It posts one `status` message to the Run mailbox of the worker that owns the terminal, or of the Run the terminal coordinates, naming who chose which option, the dialog's title, and its episode, which names the watch's saved screen. The dialog's text stays out of the mail. With no Run to hold that line, `answer` refuses before typing. A dialog whose options carry no numbers, such as a folder trust check, is refused; answer it in the terminal.
 
-**Check prompt watch health with `show`.** `prompt_watch.py show --drive <id>` prints the last poll as a count line, then one line per terminal that is not `clear`. `ledger.py summary` prints the same lines after its counts. `PROMPT-WATCH-DOWN` leads them when the last poll is over two minutes old; run the `start` command it names.
+**Check prompt watch health with `show`.** `lr watch prompts show --drive <id>` prints the last poll as a count line, then one line per terminal that is not `clear`. `ledger.py summary` prints the same lines after its counts. `PROMPT-WATCH-DOWN` leads them when the last poll is over two minutes old; run the `start` command it names.
 
 ## Respect shared API budgets
 

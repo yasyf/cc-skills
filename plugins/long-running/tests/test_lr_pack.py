@@ -9,7 +9,6 @@ from types import SimpleNamespace
 import pytest
 from ccn_plans import PLAN_ID, PROGRAM, CcnPlans, plan, task
 from hooks import prompt_watch as hook
-from hooks import compaction_handoff
 from livedash import registry
 from livedash.context import Context
 
@@ -169,47 +168,36 @@ def test_compactions_in_reads_boundaries_from_an_offset(tmp_path):
 
 
 @pytest.mark.parametrize(
-    ("calls", "starts"),
+    ("session", "named", "binds"),
     [
-        ([("drive.py", ("start", "--ledger", "x"))], True),
-        ([("/p/bin/drive.py", ("start",))], True),
-        ([("python3", ("/p/scripts/drive.py", "start", "--ledger", "x"))], True),
-        ([("drive.py", ("list",))], False),
-        ([("ledger.py", ("start",))], False),
+        ("root-session", None, True),
+        ("root-session", "900424b6", True),
+        ("lane-session", None, False),
+        ("lane-session", "900424b6", False),
     ],
 )
-def test_the_hook_recognizes_drive_start(calls, starts):
-    evt = SimpleNamespace(cmd=SimpleNamespace(calls=lambda: [SimpleNamespace(name=name, args=args) for name, args in calls]))
-    assert hook.starts_drive(evt) is starts
-
-
-def test_the_hook_starts_the_prompt_watch_and_names_the_terminal_only_for_a_root_session(monkeypatch):
+def test_a_coordinator_session_rebinds_the_prompt_watch_to_its_terminal(monkeypatch, session, named, binds):
     spawned = []
     monkeypatch.setattr(hook.subprocess, "Popen", lambda argv, **kw: spawned.append((argv, kw["start_new_session"])))
-    monkeypatch.setattr(hook.reqenv, "getenv", {"ORCA_TERMINAL_HANDLE": "term_root"}.get)
+    monkeypatch.setattr(hook.reqenv, "getenv", {"ORCA_TERMINAL_HANDLE": "term_new", "CLAUDE_LONG_RUNNING_DRIVE": named}.get)
     monkeypatch.setattr(hook.reqenv, "env_map", dict)
-    entry = {"drive": "900424b6", "sessions": ["900424b6-0000"]}
+    monkeypatch.setattr(hook, "entries", lambda: [{"drive": "900424b6", "sessions": ["root-session"], "root_terminal": "term_old"}])
 
-    hook.watch_prompts(SimpleNamespace(session_id="900424b6-0000"), entry)
-    hook.watch_prompts(SimpleNamespace(session_id="0dd0bead-0000"), entry)
+    assert hook.bind_prompt_watch_to_this_terminal(SimpleNamespace(session_id=session)) is None
 
-    start = [sys.executable, str(compaction_handoff.script("prompt_watch.py")), "start", "--drive", "900424b6"]
-    assert spawned == [([*start, "--root-terminal", "term_root"], True), (start, True)]
-    assert compaction_handoff.script("prompt_watch.py").is_file()
+    bind = [str(hook.LR), "watch", "prompts", "bind", "--drive", "900424b6", "--root-terminal", "term_new"]
+    assert spawned == ([(bind, True)] if binds else [])
 
 
-def test_session_start_and_drive_start_launch_the_prompt_watch_and_never_a_dashboard(monkeypatch, tmp_path):
+def test_a_coordinator_session_already_in_the_saved_terminal_binds_nothing(monkeypatch):
     spawned = []
     monkeypatch.setattr(hook.subprocess, "Popen", lambda argv, **kw: spawned.append(argv))
-    monkeypatch.setattr(hook.reqenv, "env_map", dict)
-    monkeypatch.setattr(hook, "entry_of", lambda evt: {"drive": "900424b6", "sessions": [], "state_dir": str(tmp_path)})
-    started = SimpleNamespace(session_id="900424b6-0000", cmd=SimpleNamespace(calls=lambda: [SimpleNamespace(name="drive.py", args=("start",))]))
+    monkeypatch.setattr(hook.reqenv, "getenv", {"ORCA_TERMINAL_HANDLE": "term_same"}.get)
+    monkeypatch.setattr(hook, "entries", lambda: [{"drive": "900424b6", "sessions": ["root-session"], "root_terminal": "term_same"}])
 
-    assert hook.watch_prompts_on_session_start(started) is None
-    assert hook.watch_prompts_on_drive_start(started) is None
+    hook.bind_prompt_watch_to_this_terminal(SimpleNamespace(session_id="root-session"))
 
-    watch = [sys.executable, str(compaction_handoff.script("prompt_watch.py")), "start", "--drive", "900424b6"]
-    assert spawned == [watch, watch]
+    assert spawned == []
 
 
 def test_inbox_files_include_rotated_archives(tmp_path):
