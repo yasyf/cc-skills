@@ -17,6 +17,7 @@ from captain_hook.cmd import Cmd
 from captain_hook.util import reqenv
 
 from .compaction_handoff import CCN_TIMEOUT_SECONDS, CompactionState, ccn, rulings, script, script_module
+from .deadline_plans import unowned_deadline
 from .owner_facing import OWNER_QUOTE, PROGRAM_ACTIVE, RULINGS, STDIN, Reads, board_bytes, board_sources, fenced, plain_words, plan_words, shown, squeeze
 from .register_injection import drive_args
 from .tests.register_fixtures import DRIVE_CONFIG
@@ -328,6 +329,7 @@ def graded(reads: Reads, item: Published) -> list[str]:
         *strikes(item, found, reads),
         *unended(reads, item, found),
         *amended(reads, found),
+        *(f"{where}: names a deadline with no lane; name the lane that owns it beside the time, as <lane>-<n> or lane=<name>" for where, text in shown(item.doc) if unowned_deadline(text)),
     ]
     if register:
         problems += verify_reports(item, reads, register)

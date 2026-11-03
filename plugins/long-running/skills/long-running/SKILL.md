@@ -427,9 +427,11 @@ A record that names a deadline, a clock time after by, before, until or due, or 
 `deadline` attr, carries its plan as attrs: `--attr owner=<lane>` and one
 `--attr step:<n>=<clock> <what>` per step, each step leading with its Pacific time
 and holding no comma. A reply to it carrying those attrs, or a record that resolves
-it, settles it too. The stall watch pages `owner-relay` once for a deadline record
-that has neither, naming the record, its deadline and the lane that posted it, and
-closes that page when the plan arrives.
+it, settles it too. The `deadline_plans` hook refuses a Bash `cci post` or a cci post
+tool call that names a deadline without them, and the board text gate flags a card
+that names a deadline beside no lane. The stall watch pages `owner-relay` once for
+a deadline record that slips through, naming the record, its deadline and the lane
+that posted it, and closes that page when the plan arrives.
 
 ## Start and resume
 
