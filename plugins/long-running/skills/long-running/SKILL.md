@@ -510,7 +510,7 @@ that posted it, and closes that page when the plan arrives.
 ```sh
 LEDGER=$(ledger.py init --title "desk: $DRIVE")
 drive.py start --ledger "$LEDGER" --orca-run <run> [--state-dir ~/.claude/scratch/<slug>] [--program <plan slug>]
-cci subscribe --drive <drive> --reader owner-relay --kind report,ask,blocked
+lr owner start --drive <drive> --project <the communicator's worktree>
 lr supervisor install --config <state dir>/lr.json
 export LR_CONFIG=<state dir>/lr.json
 lr dashboard install
@@ -537,8 +537,13 @@ names, each desk with a `Standing:` line. The communicator's lines above start n
 runner and no desk. Every lane registers its branch prefix at spawn with
 `ledger.py register`.
 
-A resumed communicator joins with `drive.py start --drive <id> --ledger <id>` and
-checks the standing sessions with `lr lanes root meta signal`. A resumed or
+`lr owner start` subscribes the communicator: the owner's taps, asks, decides, blocks
+and incidents wake it on arrival, and reports, notes, answers and other routine kinds
+reach it together, at most every five minutes and at once ahead of any other record.
+It also sets the window's `autoCompactWindow` to 280K, the coordinator's ceiling.
+
+A resumed communicator joins with `drive.py start --drive <id> --ledger <id>`, runs
+`lr owner start` again, and checks the standing sessions with `lr lanes root meta signal`. A resumed or
 relaunched coordinator catches up with `cci digest`, `cci tail --cursor root` and
 `lr lanes`, runs `lr desks start`, which takes the Run and starts only what is
 down, and after a compaction answers every unresolved record from
