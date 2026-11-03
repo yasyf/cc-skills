@@ -481,7 +481,7 @@ func TestALaunchWithNoVerdictFromAStaleRunnerIsUnsettled(t *testing.T) {
 	if err := desk.Run(context.Background()); !errors.Is(err, ErrUnsettled) {
 		t.Fatalf("got %v", err)
 	}
-	if !strings.Contains(out.String(), "slow-fix R102 unsettled after 0s: the orca runner has posted no orca alive record in five minutes") {
+	if !strings.Contains(out.String(), "slow-fix R102 unsettled after 0s: no orca desk runner has posted an orca alive record on cci drive prog in the last five minutes") {
 		t.Fatalf("output:\n%s", out)
 	}
 }
@@ -614,6 +614,36 @@ func TestARunnerWithNoRecentAliveRecordRefusesNamingTheAgentFallback(t *testing.
 			}
 			if len(bus.drafts) != 0 {
 				t.Fatalf("drafts %+v", bus.drafts)
+			}
+		})
+	}
+}
+
+func TestAStuckPassRefusesAnIncidentLaunchAndALongOneDoesNot(t *testing.T) {
+	for name, running := range map[string]time.Duration{"long": 8 * time.Minute, "stuck": StuckPass} {
+		t.Run(name, func(t *testing.T) {
+			desk, bus, dir, _ := deskFixture(t)
+			desk.Name, desk.FixBrief = "inc-x", briefFile(t, dir, "fix.md", "fix")
+			bus.records = slices.DeleteFunc(bus.records, func(record client.Record) bool { return record.Lane == deskRunner })
+			alive := newRecord(t, 98, deskRunner, "state", "orca", "orca alive pass 3", 0, time.Now())
+			alive.Fields.Attrs = map[string]string{PassSecondsAttr: fmt.Sprint(int(running.Seconds())), PassStepAttr: "deliver"}
+			bus.add(98, alive)
+			fault, err := desk.runnerFault(context.Background(), "prog")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if running < StuckPass {
+				if fault != "" {
+					t.Fatal(fault)
+				}
+				return
+			}
+			err = desk.Run(context.Background())
+			if err == nil || !strings.HasPrefix(err.Error(), "refused: the orca desk runner on cci drive prog is alive but stuck: pass 3 has run 20 minutes, at step deliver, so nothing reads orca-desk lines; spawn an Agent named `inc-x-fix`") {
+				t.Fatalf("got %v", err)
+			}
+			if len(bus.drafts) != 0 {
+				t.Fatalf("posted %+v", bus.drafts)
 			}
 		})
 	}

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/incident"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/wait"
 )
 
@@ -229,7 +230,7 @@ func TestAnElapsedWaitExitsZeroWhileTheRunnerIsAliveAndTwoOnceItIsStale(t *testi
 		said  string
 	}{
 		{"alive", 30 * time.Second, 0, "slow-restore R102 posted with no verdict after 60s; the orca runner is alive, so its verdict arrives as a desk-runner record"},
-		{"stale", 6 * time.Minute, unsettledExit, "slow-restore R102 unsettled after 60s: the orca runner has posted no orca alive record in five minutes (last at "},
+		{"stale", 6 * time.Minute, unsettledExit, "slow-restore R102 unsettled after 60s: no orca desk runner has posted an orca alive record on cci drive prog in the last five minutes (last at "},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			f := newPosterFixture(t)
@@ -467,5 +468,28 @@ func TestADriveWhoseRunnerIsNotBeatingRefusesInOneLineNamingWhatToDoInstead(t *t
 		if len(f.bus.posts) != 0 {
 			t.Fatal(f.bus.posts)
 		}
+	}
+}
+
+func TestALongPassPostsALineAndAStuckOneRefusesIt(t *testing.T) {
+	beating := func(running time.Duration) client.Record {
+		record := aliveRecord(time.Now())
+		record.Text = "orca alive pass 3"
+		record.Fields.Attrs = map[string]string{incident.PassSecondsAttr: fmt.Sprint(int(running.Seconds())), incident.PassStepAttr: "deliver"}
+		return record
+	}
+	long := newPosterFixture(t)
+	long.bus.records = slices.Insert(long.bus.records[1:], 0, beating(8*time.Minute))
+	if err := long.poster.Line(context.Background(), "lane-a", "relay to lane-a: go"); err != nil {
+		t.Fatal(err)
+	}
+	stuck := newPosterFixture(t)
+	stuck.bus.records = slices.Insert(stuck.bus.records[1:], 0, beating(incident.StuckPass))
+	err := stuck.poster.Line(context.Background(), "lane-a", "relay to lane-a: go")
+	if err == nil || err.Error() != "refused: the orca desk runner on cci drive prog is alive but stuck: pass 3 has run 20 minutes, at step deliver, so nothing reads orca-desk lines; "+nothingPosted {
+		t.Fatal(err)
+	}
+	if len(stuck.bus.posts) != 0 {
+		t.Fatal(stuck.bus.posts)
 	}
 }

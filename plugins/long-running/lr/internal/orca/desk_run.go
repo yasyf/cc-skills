@@ -5,9 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
+	"strings"
 	"syscall"
 	"time"
 
@@ -29,23 +32,31 @@ const (
 	unreachableFact = "orca-unreachable"
 	relayLock       = "relay.lock"
 	unboundExit     = 3
+	stepStart       = "start"
+	stepIdle        = "idle"
 )
 
 func (d *Desk) prompt(ctx context.Context) error {
+	d.enter("reap")
 	if err := d.reap(ctx); err != nil {
 		return err
 	}
+	d.enter("read lines")
 	if err := d.readLines(ctx); err != nil {
 		return err
 	}
+	d.enter("deliver")
 	if err := d.deliver(ctx); err != nil {
 		return err
 	}
+	d.enter("flush")
 	return d.flush(ctx)
 }
 
 func (d *Desk) onePass(ctx context.Context) error {
+	d.enter("follow coordinator")
 	d.followCoordinator(ctx)
+	d.enter("check")
 	ready, err := d.check(ctx)
 	if err != nil {
 		return err
@@ -55,6 +66,7 @@ func (d *Desk) onePass(ctx context.Context) error {
 			return err
 		}
 		if d.Now().Sub(d.swept) >= sweepEvery {
+			d.enter("sweep")
 			if err := d.sweep(ctx); err != nil {
 				return err
 			}
@@ -64,9 +76,11 @@ func (d *Desk) onePass(ctx context.Context) error {
 			}
 		}
 	}
+	d.enter("deadlines")
 	if err := d.deadlines(ctx); err != nil {
 		return err
 	}
+	d.enter("incident clock")
 	if err := d.clockPass(ctx); err != nil {
 		return err
 	}
@@ -151,16 +165,59 @@ func (d *Desk) idle(ctx context.Context, pause time.Duration) {
 	}
 }
 
+type passMark struct {
+	number  int
+	since   time.Time
+	step    string
+	entered time.Time
+}
+
+func (d *Desk) enter(step string) {
+	now := d.Now()
+	if left := d.pass.Load(); left != nil {
+		d.stepTook[left.step] += now.Sub(left.entered)
+	}
+	d.pass.Store(&passMark{number: d.passes + 1, since: d.passSince, step: step, entered: now})
+}
+
+func (d *Desk) keepAlive(ctx context.Context) (stop func()) {
+	d.postAlive(ctx)
+	ctx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-d.AliveTicks:
+				d.postAlive(ctx)
+			}
+		}
+	}()
+	return func() {
+		cancel()
+		<-done
+	}
+}
+
 func (d *Desk) postAlive(ctx context.Context) {
-	if d.Now().Sub(d.alive) < aliveEvery {
+	pass := d.pass.Load()
+	running := d.Now().Sub(pass.since)
+	text := fmt.Sprintf("%s pass %d", runnerAlive, pass.number)
+	attrs := map[string]string{"pid": fmt.Sprint(os.Getpid()), "config": d.Config.Source, "terminal": d.Env("ORCA_TERMINAL_HANDLE"), incident.PassSecondsAttr: fmt.Sprint(int(running.Seconds())), incident.PassStepAttr: pass.step}
+	if _, err := d.Bus.Post(ctx, client.Draft{Drive: d.Config.Drive, Lane: deskRunner, Kind: kindState, Topic: runnerTopic, Text: text, To: []string{watchdogLane + "@" + d.Config.Drive}, Attrs: attrs}); err != nil {
+		fmt.Fprintf(d.Stderr, "relay alive left for the next minute: %v\n", err)
+	}
+	if running < incident.StuckPass || d.stuckPass == pass.number {
 		return
 	}
-	d.alive = d.Now()
-	text := fmt.Sprintf("%s pass %d", runnerAlive, d.passes)
-	attrs := map[string]string{"pid": fmt.Sprint(os.Getpid()), "config": d.Config.Source, "terminal": d.Env("ORCA_TERMINAL_HANDLE")}
-	if _, err := d.Bus.Post(ctx, client.Draft{Drive: d.Config.Drive, Lane: deskRunner, Kind: kindState, Topic: runnerTopic, Text: text, To: []string{watchdogLane + "@" + d.Config.Drive}, Attrs: attrs}); err != nil {
-		fmt.Fprintf(d.Stderr, "relay alive left for the next pass: %v\n", err)
+	stuck := fmt.Sprintf("orca relay pass %d has run %d minutes, at step %s; nothing reads %s lines until it ends, and launchd leaves a live process alone", pass.number, int(running.Minutes()), pass.step, deskLane)
+	if _, err := d.post(ctx, deskPost{Kind: kindBlocker, Text: stuck, To: coordinatorLane, Topic: "relay", Key: "pass-stuck:relay"}); err != nil {
+		fmt.Fprintf(d.Stderr, "relay stuck report left for the next minute: %v\n", err)
+		return
 	}
+	d.stuckPass = pass.number
 }
 
 func (d *Desk) raised(ctx context.Context, err error) {
@@ -183,10 +240,22 @@ func (d *Desk) settlePass(ctx context.Context, err error) error {
 }
 
 func (d *Desk) timedPass() {
-	d.passTook = append(d.passTook, d.Now().Sub(d.passSince))
+	d.enter(stepIdle)
+	took := d.Now().Sub(d.passSince)
+	d.passTook = append(d.passTook, took)
 	if len(d.passTook) > passesTimed {
 		d.passTook = d.passTook[len(d.passTook)-passesTimed:]
 	}
+	if took < aliveEvery {
+		return
+	}
+	var steps []string
+	for _, step := range slices.Sorted(maps.Keys(d.stepTook)) {
+		if seconds := int(d.stepTook[step].Seconds()); seconds > 0 {
+			steps = append(steps, fmt.Sprintf("%s %ds", step, seconds))
+		}
+	}
+	fmt.Fprintf(d.Stderr, "relay pass %d took %ds: %s\n", d.passes, int(took.Seconds()), strings.Join(steps, ", "))
 }
 
 func (d *Desk) holdRelayLock() (*os.File, bool, error) {
@@ -235,13 +304,19 @@ func (d *Desk) Run(ctx context.Context, once bool) error {
 	if _, err := d.post(ctx, deskPost{Kind: kindNote, Text: fmt.Sprintf("%s reads its orders through lr relay pid %d", deskLane, os.Getpid()), To: watchdogLane + "@" + d.Config.Drive, Topic: "alive:" + deskLane, Key: "register:" + deskLane, Lane: deskLane}); err != nil {
 		fmt.Fprintf(d.Stderr, "the desk's register note left unposted: %v\n", err)
 	}
+	d.passSince = d.Now()
+	d.enter(stepStart)
+	defer d.keepAlive(ctx)()
 	for {
 		d.passSince = d.Now()
+		d.enter(stepStart)
+		clear(d.stepTook)
 		passErr := d.onePass(ctx)
 		if ctx.Err() != nil {
 			d.background.Wait()
 			return nil
 		}
+		d.enter("settle")
 		for _, step := range []func() error{
 			func() error { return d.settlePass(ctx, passErr) },
 			func() error { return d.stalledLaunches(ctx) },
@@ -252,12 +327,13 @@ func (d *Desk) Run(ctx context.Context, once bool) error {
 			}
 		}
 		d.passes++
-		d.postAlive(ctx)
 		d.timedPass()
 		if once {
 			d.background.Wait()
 			return nil
 		}
+		d.passSince = d.Now()
+		d.enter(stepIdle)
 		d.idle(ctx, d.passWait())
 		if d.Release() != release {
 			d.background.Wait()
@@ -320,7 +396,7 @@ func newDesk(a *app.App) (*Desk, error) {
 		return nil, err
 	}
 	return &Desk{
-		Config: config, Bus: deskCCI{}, Runner: a.Runner, Spawn: SpawnDetached, Env: os.Getenv, Now: a.Now, Sleep: time.Sleep,
+		Config: config, Bus: deskCCI{}, Runner: a.Runner, Spawn: SpawnDetached, Env: os.Getenv, Now: a.Now, Sleep: time.Sleep, AliveTicks: time.Tick(aliveEvery),
 		Release: func() string {
 			lease, err := registry.Lease(cfg.Drive)
 			if err != nil {
