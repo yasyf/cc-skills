@@ -68,6 +68,7 @@ func (w *pinWorld) macRuns(plugins map[string]string) {
 	entries := map[string]any{}
 	for id, version := range plugins {
 		entries[id] = []map[string]string{{"scope": "user", "version": version}, {"scope": "project", "version": "0.0.1"}}
+		w.macCached(id, version)
 	}
 	raw, err := json.Marshal(map[string]any{"version": 2, "plugins": entries})
 	if err != nil {
@@ -78,6 +79,16 @@ func (w *pinWorld) macRuns(plugins map[string]string) {
 	}
 	if err := os.WriteFile(filepath.Join(w.claude, "plugins", "installed_plugins.json"), raw, 0o600); err != nil {
 		w.t.Fatal(err)
+	}
+}
+
+func (w *pinWorld) macCached(plugin string, versions ...string) {
+	w.t.Helper()
+	name, marketplace, _ := strings.Cut(plugin, "@")
+	for _, version := range versions {
+		if err := os.MkdirAll(filepath.Join(w.claude, "plugins", "cache", marketplace, name, version), 0o700); err != nil {
+			w.t.Fatal(err)
+		}
 	}
 }
 
@@ -203,6 +214,45 @@ func TestAVersionWithNoReleaseYetWaitsForTheNextPassWithoutFailing(t *testing.T)
 	}
 	if want := "lr sprites pin: long-running@skills stays at 0.7.1: 0.7.2 has no published release yet\n"; w.out.String() != want {
 		t.Fatal(w.out.String())
+	}
+}
+
+func TestAPinTakesTheNewestVersionTheMacHasWithAReleaseWhenItsNewestIsStillPublishing(t *testing.T) {
+	w := newPinWorld(t)
+	w.macRuns(map[string]string{"long-running@skills": "0.7.12"})
+	w.macCached("long-running@skills", "0.7.9", "0.7.10", "0.7.11", "0.7.1", "0.7.1.lock", "0.7.11.digest")
+	w.publish("/pack--v0.7.9/pack_0.7.9.tar.gz", "pack nine", "checksums.txt")
+	w.publish("/pack--v0.7.10/pack_0.7.10.tar.gz", "pack ten", "checksums.txt")
+	w.pinned(w.pack("0.7.9"))
+
+	if err := w.move(); err != nil {
+		t.Fatal(err)
+	}
+
+	if tool := w.tools()[0]; tool.Version != "0.7.10" || tool.SHA256 != digestOf("pack ten") {
+		t.Fatalf("%+v", tool)
+	}
+	if want := "lr sprites pin: long-running@skills moved from 0.7.9 to 0.7.10\n"; w.out.String() != want {
+		t.Fatal(w.out.String())
+	}
+}
+
+func TestAnAssetOffItsChecksumIsNotPassedOverForAnOlderVersion(t *testing.T) {
+	w := newPinWorld(t)
+	w.macRuns(map[string]string{"long-running@skills": "0.7.3"})
+	w.macCached("long-running@skills", "0.7.2")
+	w.publish("/pack--v0.7.3/pack_0.7.3.tar.gz", "pack three", "checksums.txt")
+	w.releases["/pack--v0.7.3/pack_0.7.3.tar.gz"] = "pack three, truncated"
+	w.publish("/pack--v0.7.2/pack_0.7.2.tar.gz", "pack two", "checksums.txt")
+	before := w.pack("0.7.1")
+	w.pinned(before)
+
+	var failed *Failed
+	if err := w.move(); !errors.As(err, &failed) {
+		t.Fatal(err)
+	}
+	if w.tools()[0] != before {
+		t.Fatal("a pin moved past a release off its digest", w.tools()[0])
 	}
 }
 

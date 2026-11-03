@@ -2,6 +2,7 @@ package orca
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -18,6 +19,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
+	"golang.org/x/mod/semver"
 )
 
 const pinFetchTimeout = 5 * time.Minute
@@ -55,25 +57,37 @@ func MoveSpritePins(ctx context.Context, s *store.Store, claude, runner string, 
 			failed = append(failed, fmt.Sprintf("%s follows %s, which this Mac has not installed", tool.Name, plugin))
 			continue
 		}
-		why, err := s.BadTool(tool.Name, version)
+		versions, err := versionsToTry(claude, plugin, version, tool.Version)
 		if err != nil {
 			return err
 		}
-		if why != "" {
-			fmt.Fprintf(out, "lr sprites pin: %s stays at %s: %s is marked bad, since %s\n", tool.Name, tool.Version, version, why)
-			continue
+		stays := ""
+		for _, candidate := range versions {
+			why, err := s.BadTool(tool.Name, candidate)
+			if err != nil {
+				return err
+			}
+			if why != "" {
+				stays = cmp.Or(stays, fmt.Sprintf("%s is marked bad, since %s", candidate, why))
+				continue
+			}
+			next, err := pinAt(ctx, tool, candidate)
+			if errors.Is(err, errUnpublished) {
+				stays = cmp.Or(stays, candidate+" has no published release yet")
+				continue
+			}
+			if err != nil {
+				failed = append(failed, err.Error())
+				stays = ""
+				break
+			}
+			fmt.Fprintf(out, "lr sprites pin: %s moved from %s to %s\n", tool.Name, tool.Version, candidate)
+			tools[i], moved, stays = next, true, ""
+			break
 		}
-		next, err := pinAt(ctx, tool, version)
-		if errors.Is(err, errUnpublished) {
-			fmt.Fprintf(out, "lr sprites pin: %s stays at %s: %s has no published release yet\n", tool.Name, tool.Version, version)
-			continue
+		if stays != "" {
+			fmt.Fprintf(out, "lr sprites pin: %s stays at %s: %s\n", tool.Name, tool.Version, stays)
 		}
-		if err != nil {
-			failed = append(failed, err.Error())
-			continue
-		}
-		fmt.Fprintf(out, "lr sprites pin: %s moved from %s to %s\n", tool.Name, tool.Version, version)
-		tools[i], moved = next, true
 	}
 	if moved {
 		if err := writePins(runner, tools); err != nil {
@@ -84,6 +98,23 @@ func MoveSpritePins(ctx context.Context, s *store.Store, claude, runner string, 
 		return refuse("lr sprites pin: %s", strings.Join(failed, "; "))
 	}
 	return nil
+}
+
+func versionsToTry(claude, plugin, running, pinned string) ([]string, error) {
+	name, marketplace, _ := strings.Cut(plugin, "@")
+	entries, err := os.ReadDir(filepath.Join(claude, "plugins", "cache", marketplace, name))
+	if err != nil {
+		return nil, err
+	}
+	var older []string
+	for _, entry := range entries {
+		version := "v" + entry.Name()
+		if semver.IsValid(version) && semver.Compare(version, "v"+running) < 0 && semver.Compare(version, "v"+pinned) > 0 {
+			older = append(older, entry.Name())
+		}
+	}
+	slices.SortFunc(older, func(a, b string) int { return semver.Compare("v"+b, "v"+a) })
+	return append([]string{running}, older...), nil
 }
 
 func macPlugins(claude string) (map[string]string, error) {
