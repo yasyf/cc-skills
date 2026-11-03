@@ -26,7 +26,9 @@ The supervisor alone posts the `stand-down --successor` record cci routes mail b
 answers every sender from the row. A lane whose process row reads not live, with no record
 within `STALE_AFTER`, has its successor launched from the lane's brief and newest handoff; a
 lane with no process row is held for root, since nothing proves it died; a lane waiting on an
-ask to root keeps its clock until the answer. A lane past its context line is asked to rotate
+ask to root keeps its clock until the answer. A brief's `Standing: <duty>` line marks a duty the
+drive keeps for good: when the newest lane holding it has had no live owner for
+`UNOWNED_AFTER`, root hears one blocker naming the lane and its brief. A lane past its context line is asked to rotate
 and flushes in place. A fresh store adopts only the lanes alive at that moment, and a tick
 whose sources do not all answer acts on nothing. The supervisor signals no process.
 """
@@ -63,6 +65,9 @@ VERBS = frozenset({"stand-down", "park", "unpark", "owner", "done"})
 VERB_NAMED = re.compile(r"\b(?:closed|complete|done|park|retired|stop waking|unpark)\b|\bstand-down\b(?!\s+\w)")
 LANDED = "landed"
 SLICE_STEP = re.compile(r"^Register slice: lane=\S+ step=(\S+)", re.MULTILINE)
+STANDING = re.compile(r"^Standing: *(\S.*?)\s*$", re.MULTILINE)
+DELIVERABLE = re.compile(r"^(?:#+ *)?(?:\*\*)?Deliverables?\b[^\n:]*:?\**[ \t]*([^\n]*)(?:\n\s*([^\n]*))?", re.MULTILINE)
+UNOWNED_AFTER = timedelta(minutes=10)
 WORKER_DONE = re.compile(r"^OUTCOME \S+ (?P<lane>[\w.-]+): worker_done succeeded\b")
 STAND_DOWN_LIST = re.compile(r"\bstand[ -]?down\s+(?P<names>[^.(;:\n]+)", re.IGNORECASE)
 CARD = re.compile(r"\bcard-[\w.-]*\w")
@@ -120,6 +125,31 @@ class Outcome:
     withdrawn: list[str] = field(default_factory=list)
     woken: list[str] = field(default_factory=list)
     reassign: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class Brief:
+    step: str = ""
+    standing: str = ""
+    deliverable: str = ""
+
+
+BRIEFS: dict[str, tuple[float, Brief]] = {}
+
+
+def brief_of(path: str) -> Brief:
+    """What a lane's brief says of it: the step its `Register slice` names, the duty its `Standing:` line keeps, and its `Deliverable` line, read again only when the file changes; a brief that is gone says nothing."""
+    try:
+        changed = Path(path).stat().st_mtime
+    except FileNotFoundError:
+        return Brief()
+    if (cached := BRIEFS.get(path)) and cached[0] == changed:
+        return cached[1]
+    text = Path(path).read_text(errors="replace")
+    step, standing, deliverable = SLICE_STEP.search(text), STANDING.search(text), DELIVERABLE.search(text)
+    found = Brief(step[1] if step else "", standing[1] if standing else "", (deliverable[1] or deliverable[2] or "").strip() if deliverable else "")
+    BRIEFS[path] = (changed, found)
+    return found
 
 
 def pacific(at: datetime) -> str:
@@ -604,10 +634,33 @@ def liveness(store: Store, now: datetime) -> list[dict]:
     registered = {lane.name: lane for lane in store.all_lanes()}
     heard, owned, probes = store.heard(), store.owners(), store.probes()
     return [
-        {"lane": name, "state": lane.state if lane else "unregistered", "live": not (probes.get(name) or {}).get("dead"), "heard": stamp(heard[name]) if name in heard else None, "prs": owned.get(name, []), "handoff": lane.handoff if lane else None, "retired_by": lane.retired_by if lane else None, "placement": lane.placement if lane else None, "predecessor": lane.predecessor if lane else None, "route": route(store, name)}
+        {"lane": name, "state": lane.state if lane else "unregistered", "live": not (probes.get(name) or {}).get("dead"), "heard": stamp(heard[name]) if name in heard else None, "prs": owned.get(name, []), "handoff": lane.handoff if lane else None, "retired_by": lane.retired_by if lane else None, "placement": lane.placement if lane else None, "predecessor": lane.predecessor if lane else None, "route": route(store, name), "brief": lane.brief if lane else None, "step": said.step, "standing": said.standing, "deliverable": said.deliverable}
         for name in sorted(registered.keys() | heard.keys() | owned.keys())
         for lane in [registered.get(name)]
+        for said in [brief_of(lane.brief) if lane else Brief()]
     ]
+
+
+def unowned_duties(store: Store, deps: Deps, found: dict[str, Peer], now: datetime) -> None:
+    """One blocker to root per standing duty whose newest lane has had no live owner for `UNOWNED_AFTER`: retired with no successor, or neither live nor heard within `STALE_AFTER`. A held or launching lane is already escalated with its brief, and a numbered successor heard within `STALE_AFTER` owns its predecessor's duty."""
+    heard = store.heard()
+    heads = {head.name: head for lane in store.all_lanes() if brief_of(lane.brief).standing and (head := newest(store, lane.name))}
+    for head in heads.values():
+        if head.state in ("held", "launching"):
+            continue
+        if head.state == "desired":
+            peer = found.get(head.name)
+            last = max([at for at in (peer.seen if peer else None, head.heard) if at], default=None)
+            if alive(peer, last, now):
+                continue
+            since, why = last or head.since, f"is neither live nor heard since {pacific(last) if last else 'its launch'}"
+        else:
+            heir = head.retired_by or ""
+            if succeeds(heir, head.name) and (at := heard.get(heir)) and now - at < STALE_AFTER:
+                continue
+            since, why = head.since, f"was retired by {heir or 'nobody'} at {pacific(head.since)} with no successor"
+        if now - since >= UNOWNED_AFTER:
+            escalate(store, deps, f"lane:{head.name}", f"standing lane {head.name} ({brief_of(head.brief).standing}) has had no live owner since {pacific(since)}: it {why}. Launch its successor from {head.brief}, or post `drive_supervisor.py request stand-down {head.name} --successor <lane>`; deleting the brief's `Standing:` line ends the duty.", now)
 
 
 def hourly(store: Store, deps: Deps, now: datetime) -> None:
@@ -681,5 +734,6 @@ def tick(store: Store, deps: Deps, now: datetime, generation: int) -> Outcome:
             post(deps, "ask", lane.name, f"ROTATE: {lane.name} is at {verdict.why}. Write anything not yet in the ledger or cc-notes to a cc-notes doc, post `cci post --lane {lane.name} --kind handoff --ccn <doc id> --re <this record>`, then keep working.")
             store.lane_asked(lane.name, now)
             out.asked.append(lane.name)
+    unowned_duties(store, deps, found, now)
     hourly(store, deps, now)
     return out
