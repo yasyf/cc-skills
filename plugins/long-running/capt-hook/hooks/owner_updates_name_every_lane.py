@@ -4,6 +4,7 @@ import subprocess
 import sys
 
 from captain_hook import Allow, BaseHookEvent, Event, FromSubagent, HookResult, Input, Warn, on
+from captain_hook.util import reqenv
 
 from .compaction_handoff import bus_name, drive_entry, script
 from .lane_rotation import DriveActive
@@ -43,7 +44,7 @@ def owner_updates_name_every_lane(evt: BaseHookEvent) -> HookResult | None:
     if (entry := drive_entry(evt)) is None:
         return None
     drive = bus_name(entry)
-    done = subprocess.run([sys.executable, str(script("owner_update.py")), "--drive", drive, "--check", "-"], input=last_reply(evt), capture_output=True, text=True, timeout=CHECK_SECONDS)
+    done = subprocess.run([sys.executable, str(script("owner_update.py")), "--drive", drive, "--check", "-"], input=last_reply(evt), capture_output=True, text=True, timeout=CHECK_SECONDS, env=dict(reqenv.env_map()))
     if done.returncode != 1 or not done.stdout.startswith(MISSING):
         return None
     names = done.stdout.splitlines()[1:]
