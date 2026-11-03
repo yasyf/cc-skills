@@ -67,7 +67,8 @@ keep launches, holds, finder and fidelity overrides, incidents and rulings.
 The supervisor's registry changes only through `lr request`, never a decide's prose.
 Retire a lane with `lr request done <lane>`, move a PR with `lr request owner <lane>
 --pr <n>`, and replace a lane with `lr request stand-down <old> --successor <new>
---last-read <seq>`. An `owner` that takes every PR a live lane holds needs `--last-read`
+--last-read <seq>`. A desk's stand-down also names what it leaves open, every owner order,
+ask, PR and card, with `--open '<item>; <item>'`, or says `--open none`. An `owner` that takes every PR a live lane holds needs `--last-read`
 too. Run without it, the verb posts nothing and prints the records you have not read with
 the command to run again. A request posts under the lane bound to your session, and is
 refused when none is bound unless `--by <lane>` names one. A decide saying a lane retired or is done, that one
