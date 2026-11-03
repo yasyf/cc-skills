@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest import mock
 
 import pytest
-from captain_hook.events import StopEvent, UserPromptSubmitEvent
+from captain_hook.events import PostToolUseEvent, StopEvent, UserPromptSubmitEvent
 from fire import fire
 from hooks import owner_returns
 from hooks.compaction_handoff import CompactionState
@@ -121,3 +121,13 @@ def test_a_dm_counts_as_the_owners_words_only_for_the_session_holding_it(root, s
 
     assert "you forgot this again" not in words("another-drive")
     assert "you forgot this again" in words(SESSION)
+
+
+def test_a_read_that_raises_adds_no_nudge_and_no_blocker(root):  # noqa: F811
+    root.typed("where are we", "2026-10-28T03:53:25.695Z")
+    root.queued(slack_message(), "2026-10-28T03:53:26.695Z")
+
+    messages = [result.message for result in fired(root, root.event(PostToolUseEvent, tool_name="Bash", tool_input={"command": "ls"}))]
+
+    assert not any("with no ack" in (message or "") for message in messages)
+    assert not blockers(root)

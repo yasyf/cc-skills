@@ -244,8 +244,8 @@ def slack_dms(evt: BaseHookEvent, events: Iterable[object]) -> list[dict]:
 
 def post_owner_reply(evt: BaseHookEvent, dm: dict) -> None:
     argv = ["cci", "post", "--drive", bus_name(drive_entry(evt)), "--lane", COMMUNICATOR_LANE, "--kind", "owner", "--id", f"slack:{dm['ts']}"]
-    argv += ["--attr", f"ts={dm['ts']}", "--attr", f"thread={dm['thread']}", "--path", "-"]
-    subprocess.run(argv, input=capture(dm)["text"], capture_output=True, text=True, timeout=CCN_TIMEOUT_SECONDS, env=dict(reqenv.env_map()))
+    argv += ["--attr", f"ts={dm['ts']}", "--attr", f"thread={dm['thread']}", "--quoted", capture(dm)["text"]]
+    subprocess.run(argv, capture_output=True, text=True, timeout=CCN_TIMEOUT_SECONDS, env=dict(reqenv.env_map()))
 
 
 def capture(prompt: dict) -> dict:

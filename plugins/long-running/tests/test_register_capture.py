@@ -211,6 +211,7 @@ def test_an_owner_reply_in_any_dm_thread_posts_one_record_with_its_ts_and_thread
     assert posts[0][posts[0].index("--id") + 1] == "slack:1793159602.693499"
     assert {"ts=1793159602.693499", "thread=1792842193.708029"} <= set(posts[0])
     assert posts[0][posts[0].index("--lane") + 1] == "owner-relay"
+    assert posts[0][posts[0].index("--quoted") + 1] == "Meant to approve 43807"
 
 
 def test_a_message_that_is_not_the_owners_posts_no_record(root):
