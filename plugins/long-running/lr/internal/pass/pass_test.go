@@ -1,9 +1,11 @@
 package pass_test
 
 import (
+	"fmt"
 	"reflect"
 	"slices"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -557,5 +559,119 @@ func TestAQueuedPRAboveAHeldOneLeavesTheQueueWithIt(t *testing.T) {
 	}
 	if !slices.Equal(acted, []int{1, 2, 3}) {
 		t.Fatalf("dequeued = %v", acted)
+	}
+}
+
+func escalated(out pass.Outcome, keep func(pass.Escalated) bool) []pass.Escalated {
+	var kept []pass.Escalated
+	for _, e := range out.Escalated {
+		if keep(e) {
+			kept = append(kept, e)
+		}
+	}
+	return kept
+}
+
+func clustered(out pass.Outcome) []pass.Escalated {
+	return escalated(out, func(e pass.Escalated) bool { return strings.HasPrefix(e.Subject, repo+": ") })
+}
+
+func toRoot(out pass.Outcome) []pass.Escalated {
+	return escalated(out, func(e pass.Escalated) bool { return e.To == "root" })
+}
+
+func refuse(t *testing.T, s *store.Store, numbers ...int) {
+	t.Helper()
+	for _, number := range numbers {
+		if _, err := s.PutFact(repo, number, head, "enqueued", fmt.Sprintf("exit 1: #%d is in a stack that branches", number), t0); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestThreePRsTheQueueRefusesAlikeForHalfAnHourReachRootOnceAsOneCause(t *testing.T) {
+	s, r := newStore(t), &recorder{}
+	ready := []machine.Facts{facts(48001, nil), facts(48002, nil), facts(48003, nil)}
+
+	run(t, s, r, t0, all, ready...)
+	refuse(t, s, 48001, 48002, 48003)
+	early := run(t, s, r, t0.Add(29*time.Minute), all, ready...)
+	late := run(t, s, r, t0.Add(30*time.Minute), all, ready...)
+	later := run(t, s, r, t0.Add(33*time.Minute), all, ready...)
+
+	want := []pass.Escalated{{
+		Subject: `org/repo: the queue said "exit 1: #<pr> is in a stack that branches" for 30 minutes`,
+		Cause:   "on 3 or more open PRs, first #48001: #48001, #48002, #48003",
+		To:      "root",
+	}}
+	if len(clustered(early)) != 0 || !reflect.DeepEqual(clustered(late), want) || len(clustered(later)) != 0 {
+		t.Fatalf("early = %+v, late = %+v, later = %+v", clustered(early), clustered(late), clustered(later))
+	}
+}
+
+func TestTwoPRsTheQueueRefusesAlikeRaiseNoCluster(t *testing.T) {
+	s, r := newStore(t), &recorder{}
+	ready := []machine.Facts{facts(48001, nil), facts(48002, nil)}
+
+	run(t, s, r, t0, all, ready...)
+	refuse(t, s, 48001, 48002)
+	out := run(t, s, r, t0.Add(2*time.Hour), all, ready...)
+
+	if got := clustered(out); len(got) != 0 {
+		t.Fatalf("clustered = %+v", got)
+	}
+}
+
+func TestThreePRsWaitingOnAnAutomatedActorOrAReviewerForAnHourReachRoot(t *testing.T) {
+	for subject, given := range map[string]func(*machine.Facts){
+		"org/repo: grade waited on the pool for 60 minutes":    func(f *machine.Facts) { f.Finder, f.Fidelity = "", "" },
+		"org/repo: review waited on a reviewer for 60 minutes": func(f *machine.Facts) { f.Approved = false },
+	} {
+		t.Run(subject, func(t *testing.T) {
+			s, r := newStore(t), &recorder{}
+			waiting := []machine.Facts{facts(1, given), facts(2, given), facts(3, given)}
+
+			run(t, s, r, t0, all, waiting...)
+			early := run(t, s, r, t0.Add(59*time.Minute), all, waiting...)
+			late := run(t, s, r, t0.Add(time.Hour), all, waiting...)
+
+			want := []pass.Escalated{{Subject: subject, Cause: "on 3 or more open PRs, first #1: #1, #2, #3", To: "root"}}
+			if len(clustered(early)) != 0 || !reflect.DeepEqual(clustered(late), want) {
+				t.Fatalf("early = %+v, late = %+v", clustered(early), clustered(late))
+			}
+		})
+	}
+}
+
+func TestAStackBasePastItsDeadlineTellsRootOnceWhatItHolds(t *testing.T) {
+	s, r := newStore(t), &recorder{}
+	below := facts(45469, func(f *machine.Facts) { f.Branch, f.CI = "below", machine.CIFailure })
+	above := facts(45470, func(f *machine.Facts) { f.Branch, f.Base = "above", "below" })
+
+	run(t, s, r, t0, all, below, above)
+	early := run(t, s, r, t0.Add(machine.LaneClock-time.Minute), all, below, above)
+	late := run(t, s, r, t0.Add(machine.LaneClock), all, below, above)
+	later := run(t, s, r, t0.Add(machine.LaneClock+time.Minute), all, below, above)
+
+	want := []pass.Escalated{{
+		Subject: "org/repo#45469",
+		Cause:   "stack base stuck at e718a7434f; its fix-red waits on the lane past its deadline and holds #45470 above it",
+		To:      "root",
+	}}
+	if len(toRoot(early)) != 0 || !reflect.DeepEqual(toRoot(late), want) || len(toRoot(later)) != 0 {
+		t.Fatalf("early = %+v, late = %+v, later = %+v", toRoot(early), toRoot(late), toRoot(later))
+	}
+}
+
+func TestAStackBaseNobodyDrivesTellsRootWhatItHolds(t *testing.T) {
+	s, r := newStore(t), &recorder{}
+	below := facts(45469, func(f *machine.Facts) { f.Branch, f.Lane, f.Tap = "below", "", "" })
+	above := facts(45470, func(f *machine.Facts) { f.Branch, f.Base = "above", "below" })
+
+	out := run(t, s, r, t0, all, below, above)
+
+	want := []pass.Escalated{{Subject: "org/repo#45469", Cause: "stack base stuck at e718a7434f; nobody drives it and holds #45470 above it", To: "root"}}
+	if !reflect.DeepEqual(toRoot(out), want) {
+		t.Fatalf("escalated = %+v", toRoot(out))
 	}
 }
