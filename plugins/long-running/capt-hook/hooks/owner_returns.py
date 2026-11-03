@@ -20,7 +20,7 @@ from .lane_slack_status import CC_SLACK, CLI, WRITE_TOOLS
 from .register_capture import slack_dms
 from .register_gates import blocker, cause
 from .root_context import OwnerPrompt
-from .root_replies import SYSTEM_PREFIXES, owner_text
+from .root_replies import SENTENCE_END, SYSTEM_PREFIXES, owner_text
 from .tests.register_fixtures import DRIVE_CONFIG
 
 RETURN_GAP_SECONDS = 60 * 60
@@ -46,6 +46,9 @@ INLINE_PICK = "A pick for the owner never sits inline or in plain Slack text; he
 PLAIN_PICK = "A pick for the owner is never plain text in his Slack DM; he taps a button, and a thread reply is for notes. Send it with the `reply` tool, the answers as its `picks` and one of them as `recommended`."
 QUESTION = re.compile(r"\?(?=\s|$)")
 PR_NAMED = re.compile(r"github\.com/[\w.-]+/[\w.-]+/pull/\d+|[\w.-]+/[\w.-]+#\d+|\b(?i:PR|pull request) #?\d+\b")
+PR_REF = re.compile(r"github\.com/[\w.-]+/[\w.-]+/pull/(\d+)|[\w.-]+/[\w.-]+#(\d+)|\b(?i:PR|pull request) #?(\d+)\b|(?<![\w&/])#(\d+)\b")
+PR_STATE = re.compile(r"\b(?:stale|merged|queued|red|green)\b", re.IGNORECASE)
+UNREAD_PR = "A reply that calls a PR stale, merged, queued, red or green follows a cci or ccx read of that PR this turn. Read {prs} with `ccx vcs pr status <n>` and say what it shows."
 PR_CARD = "An ask to the owner about a pull request carries its PR card, never only the link. Send the ask with the `reply` tool and list each PR's url in its `prs`."
 PICK = "Two ways to fix the relay:\n\nA) Keep one shared replica\nB) Give each chat its own\n\nWhich do you want?"
 REMINDER = Binary(
@@ -232,6 +235,10 @@ def ask_to(*to: str) -> str:
     return json.dumps({"seq": 361445, "lane": "owner-relay", "kind": "ask", "to": list(to), "text": "owner:m47 name the row"})
 
 
+def stated(reply: str, *calls: dict) -> Input:
+    return Input(transcript=[T.user("where are we"), *calls, T.assistant(reply)], state=[CompactionState(active=True)], decide=CALM)
+
+
 def asked(reply: str, *calls: dict, words: str = HOW_FAR, decide: dict = ASKED) -> Input:
     return Input(transcript=[T.user(words), *calls, T.assistant(reply)], state=[CompactionState(active=True)], decide=decide)
 
@@ -287,11 +294,16 @@ def asked(reply: str, *calls: dict, words: str = HOW_FAR, decide: dict = ASKED) 
         explained(WHY, mechanism=Refused()): Allow(),
         explained("Looking into the signal server now.", mechanism=NO, due=True): Block(pattern=r"carries a hosted one-pager"),
         explained(f"The signal server picks the replica by chat id: {PAGE}", mechanism=NO, due=True): Allow(),
+        stated("yasyf/cc-skills#2196 merged, so the relay keeps one replica per chat."): Block(pattern=r"^A reply that calls a PR stale, merged, queued, red or green.*Read PR 2196 with `ccx vcs pr status <n>`"),
+        stated(f"{RELAY_PR} is queued.", *TAILED): Block(pattern=r"Read PR 2196 with"),
+        stated("PR 2196 is green.", *T.tool_turn("Bash", result="#2196 MERGED at 3:10 AM", command="ccx vcs pr status 2196")): Allow(),
+        stated("#2196 is red.", *T.tool_turn(f"{CCI_TOOLS}tail", result="#361807 REPORT relay-fix-2 yasyf/cc-skills#2196 CI red", lane="relay-fix-2")): Allow(),
+        stated("The relay dashboard is green again, and the queue is empty."): Allow(),
     }),
 )
 def communicator_reply_follows_the_owner_rules(evt: BaseHookEvent) -> HookResult | None:
     reply = AssistantMessage().content(evt) or ""
-    problems = [problem for problem in (unanswered_reply(evt), missing_update(evt, reply), inline_pick(evt, reply), unrouted_reminder(evt), unread_status(evt, reply), file_path(evt, reply), unexplained(evt, reply)) if problem]
+    problems = [problem for problem in (unanswered_reply(evt), missing_update(evt, reply), inline_pick(evt, reply), unrouted_reminder(evt), unread_status(evt, reply), file_path(evt, reply), unexplained(evt, reply), unread_pr_state(evt, reply)) if problem]
     return evt.block(" ".join(problems)) if problems else None
 
 
@@ -436,12 +448,19 @@ def unread_status(evt: BaseHookEvent, reply: str) -> str | None:
     return None
 
 
-def reads_records(use: object) -> bool:
+def unread_pr_state(evt: BaseHookEvent, reply: str) -> str | None:
+    claimed = {pr for sentence in SENTENCE_END.split(reply) if PR_STATE.search(LINK.sub("", sentence)) for found in PR_REF.findall(sentence) for pr in found if pr}
+    read = "\n".join(f"{json.dumps(use.call.raw)}\n{use.result.content}" for use in evt.ctx.turn.tool_calls.items if reads_records(use, "ccx"))
+    unread = sorted(pr for pr in claimed if not re.search(rf"(?<!\d){pr}(?!\d)", read))
+    return UNREAD_PR.format(prs=", ".join(f"PR {pr}" for pr in unread)) if unread else None
+
+
+def reads_records(use: object, reader: str = "lr") -> bool:
     if use.result is None or use.result.is_error:
         return False
     if use.call.name.startswith(CCI_TOOLS):
         return use.call.name != f"{CCI_TOOLS}post"
-    return use.call.name == "Bash" and any(Path(cmd.argv[0]).name == "lr" or (Path(cmd.argv[0]).name == "cci" and cmd.argv[1:2] != ["post"]) for cmd in use.call.command_line if cmd.argv)
+    return use.call.name == "Bash" and any(Path(cmd.argv[0]).name == reader or (Path(cmd.argv[0]).name == "cci" and cmd.argv[1:2] != ["post"]) for cmd in use.call.command_line if cmd.argv)
 
 
 def file_path(evt: BaseHookEvent, reply: str) -> str | None:

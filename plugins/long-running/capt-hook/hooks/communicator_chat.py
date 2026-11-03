@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from cc_transcript.models import AssistantEvent, AttachmentEvent, UserEvent
 from captain_hook import Allow, AssistantMessage, BaseHookEvent, Block, Event, FromSubagent, hook, HookResult, Input, llm_gate, on, T, Tool, Warn
 
 from .compaction_handoff import Communicator, communicator_tests, CompactionState
-from .root_replies import read_call
+from .root_replies import owner_text, read_call
 
 PROMPT = """Judge only the message in <assistant_message>, the reply that ends the assistant's turn in the owner's chat.
 Block when nothing in it tells the owner, in second person, what changed for him or what he must decide: a message that is only ledger rows or ledger marks, hook or tooling mechanics, acknowledgements of lanes, workers or records, or a "nothing new" or "no change" line.
@@ -15,6 +16,8 @@ REPLY = "The communicator's chat carries only what changed for the owner or what
 RECORDS_ONLY = "This wake carries only cci records. A record that changes nothing for the owner and puts no decision to him ends this turn with no text at all; never tell him that all is in hand or that nothing is new."
 CCI_CHANNEL = '<channel source="plugin:cc-inbox:cci"'
 MONITOR = [{"id": "m1", "type": "monitor", "status": "running", "description": "cci subscribe owner-relay"}]
+WAKE = f'{CCI_CHANNEL} seq="359771">#359771 board-watch owner: the owner picked “Land” on merge-prs</channel>'
+REFUSED = {"type": "attachment", "timestamp": "2026-01-15T20:19:00Z", "attachment": {"type": "hook_blocking_error", "hookName": "Stop", "blockingError": {"blockingError": REPLY, "command": "capt-hook"}}}
 READS = "Two Bash reads in a row with no subagent between them. Hand the rest of this read to `Agent` with `Explore` and `model: sonnet`, and keep only its answer."
 
 ACTIVE = [CompactionState(active=True)]
@@ -26,6 +29,27 @@ def closing(text: str) -> list:
 
 def turn(*calls) -> list:
     return [T.user("what's the dashboard url"), T.assistant(*calls)]
+
+
+def records_only(prompt: str) -> bool:
+    *channels, rest = prompt.split("</channel>")
+    return not rest.strip() and bool(channels) and all(channel.strip().startswith(CCI_CHANNEL) for channel in channels)
+
+
+class QuietRecordsWake:
+    def check(self, evt: BaseHookEvent) -> bool:
+        events = list(evt.ctx.turn.events)
+        said = [text for event in events if (text := owner_text(event)) and (records_only(text) or not event.meta.is_meta)]
+        return bool(said) and all(records_only(text) for text in said) and not replied(events)
+
+
+def replied(events: list) -> bool:
+    for event in reversed(events):
+        if isinstance(event, AssistantEvent) and event.text.strip():
+            return True
+        if isinstance(event, UserEvent) or (isinstance(event, AttachmentEvent) and event.attachment_type == "hook_blocking_error"):
+            return False
+    return False
 
 
 class BashRead:
@@ -45,7 +69,7 @@ llm_gate(
     label="communicator_replies_carry_owner_news",
     contexts=[AssistantMessage()],
     only_if=[Communicator()],
-    skip_if=[FromSubagent()],
+    skip_if=[FromSubagent(), QuietRecordsWake()],
     once_per_turn=False,
     guards_waiting=False,
     max_fires=None,
@@ -63,6 +87,10 @@ llm_gate(
         Input(transcript=closing("You need to pick whether the restore runs tonight or tomorrow."), state=ACTIVE, llm={"block": False}): Allow(),
         Input(transcript=turn(T.tool("Bash", command="cci post --lane owner-relay --kind ask --to root --text x")), state=ACTIVE): Allow(),
         Input(transcript=closing("Nothing new."), agent_id="a1b2c3", state=ACTIVE): Allow(),
+        Input(transcript=[T.user(WAKE), T.assistant("Tap noted: merge-prs is with the coordinator."), REFUSED, T.assistant("")], state=ACTIVE): Allow(),
+        Input(transcript=[T.user(WAKE), T.assistant("")], state=ACTIVE): Allow(),
+        Input(transcript=[T.user(WAKE), T.assistant("All in hand; nothing new for you.")], state=ACTIVE): Block(),
+        Input(transcript=[T.user("how is the relay fix going"), T.assistant("Tap noted: merge-prs is with the coordinator."), REFUSED, T.assistant("")], state=ACTIVE): Block(pattern=r"^The communicator's chat carries only"),
     }),
 )
 
@@ -79,10 +107,7 @@ llm_gate(
     }),
 )
 def records_only_wake_ends_quiet(evt: BaseHookEvent) -> HookResult | None:
-    *channels, rest = (evt.user_prompt or "").split("</channel>")
-    if rest.strip() or not channels or not all(channel.strip().startswith(CCI_CHANNEL) for channel in channels):
-        return None
-    return evt.context(RECORDS_ONLY)
+    return evt.context(RECORDS_ONLY) if records_only(evt.user_prompt or "") else None
 
 
 hook(

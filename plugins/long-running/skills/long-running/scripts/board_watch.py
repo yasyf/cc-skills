@@ -32,13 +32,15 @@ triage.decided and submit also reaches the drive's bus the moment it arrives, so
 tap: one `cci post --kind owner` from lane `board-watch` names the card title and block
 id, the verdict, picked option labels or the owner's text verbatim, each merge row's head, each
 head a pick's card asked about, and the time. `lr board classify` routes it, and its `answer` attribute says which way: `structured` (an
-option tap, a pack pick, an approval or rejection, a merge-row verdict) and `noted` (a verdict with a
-note) go to the coordinator and to `owner-relay`, and resolve every open `ask`, `blocker` or `hold` whose text
+option tap, a pack pick, an approval or rejection, a merge-row verdict) goes to the coordinator alone,
+and `noted` (a verdict with a note) to the coordinator and to `owner-relay`; both resolve every open `ask`, `blocker` or `hold` whose text
 names the block, its card, or the merge row (`merge-row-<pr>` or `merge:<pr>`); `free-text` (a
 write-in, a note, an input, any other reply) goes to `owner-relay` alone and resolves nothing, since
 the communicator routes it; `none` (a submit, an emptied choice) goes to the coordinator. Each answer also adds a row
 to the communicator's owner ledger with `lr owner add`: `addressed` at its record for `structured`,
-`open` for `noted` and `free-text`. Its idempotency key is the event's line number
+`open` for `noted` and `free-text`. The communicator hears of taps only in batches: every tenth
+`structured` answer on a board posts one `note` to `owner-relay` on topic `tap-batch`, a single line
+naming those ten, which `<state dir>/boards/<session>-taps.jsonl` holds until the tenth arrives. Its idempotency key is the event's line number
 in the events file plus a hash of the line, so a restart that resumes from the watch's cursor
 never posts an event twice. Each record carries attributes a reader takes without parsing the
 text: `event`, `session` and `block`; a decision's `verdict`; a pick's `picked` option ids,
@@ -153,8 +155,10 @@ NOTED = "noted"
 FREE_TEXT = "free-text"
 NO_ANSWER = "none"
 LANE_PICKS = frozenset({"choice.selected", "pack.interaction"})
-ANSWER_TO = {STRUCTURED: f"root,{RELAY_LANE}", NOTED: f"root,{RELAY_LANE}", FREE_TEXT: RELAY_LANE, NO_ANSWER: "root"}
+ANSWER_TO = {STRUCTURED: "root", NOTED: f"root,{RELAY_LANE}", FREE_TEXT: RELAY_LANE, NO_ANSWER: "root"}
 WORDS_CHARS = 300
+TAPS_PER_LINE = 10
+TAP_TOPIC = "tap-batch"
 CCN_SECONDS = 60
 
 
@@ -404,17 +408,20 @@ def open_asks(shell: Shell, bus: Bus, names: list[str]) -> list[dict]:
     return [asks[seq] for seq in sorted(asks)]
 
 
-def announce(event: dict, line: str, session: str, doc: dict | None, shell: Shell, bus: Bus) -> None:
+def announce(event: dict, line: str, session: str, doc: dict | None, shell: Shell, bus: Bus) -> list[str]:
     key = f"board:{session}:{bus.lines}:{hashlib.sha256(line.encode()).hexdigest()[:8]}"
     block = event.get("blockId", "")
     fields = {"event": event["type"], "session": session, "block": block}
     if event["type"] == "triage.decided":
         heads = {row.id: row.head for row in board_rows.rows_of(doc or {})}
+        taps = []
         for row, entry in event["verdicts"].items():
             single = dict(event, verdicts={row: entry})
             pr = board_rows.pr_of(row)
-            post_owner(shell, bus, f"{key}:{row}", announced(single, session, doc), block, named(single, doc), [pr] if pr else [], fields | {"row": row, "verdict": entry["verdict"], "head": entry.get("head") or heads.get(row) or ""}, answer_of(single, session, shell))
-        return
+            answer = answer_of(single, session, shell)
+            post_owner(shell, bus, f"{key}:{row}", announced(single, session, doc), block, named(single, doc), [pr] if pr else [], fields | {"row": row, "verdict": entry["verdict"], "head": entry.get("head") or heads.get(row) or ""}, answer)
+            taps += [f"{place(doc, block)}: {told(single, doc)}"] if answer == STRUCTURED else []
+        return taps
     if event["type"] == "decision.created":
         fields["verdict"] = event.get("verdict", "")
     if event["type"] == "choice.selected":
@@ -424,6 +431,24 @@ def announce(event: dict, line: str, session: str, doc: dict | None, shell: Shel
     register(event, key, session, doc, shell, bus.drive)
     if answer == STRUCTURED and event["type"] in LANE_PICKS and shell.root_session(bus.drive) in (None, session) and all(record["lane"] in ROOT_LANES for record in answered):
         ask_lane(event, key, session, doc, shell, bus)
+    return [f"{place(doc, block)}: {told(event, doc)}"] if answer == STRUCTURED else []
+
+
+def batch_taps(taps: list[str], pending: Path, session: str, shell: Shell, bus: Bus) -> None:
+    if not taps:
+        return
+    with pending.open("a") as sink:
+        sink.writelines(f"{json.dumps(tap, ensure_ascii=False)}\n" for tap in taps)
+    held = [json.loads(line) for line in pending.read_text().splitlines() if line.strip()]
+    batches = len(held) // TAPS_PER_LINE
+    for index in range(batches):
+        batch = held[index * TAPS_PER_LINE : (index + 1) * TAPS_PER_LINE]
+        text = f"The owner made {TAPS_PER_LINE} taps on board {session[:8]}, each already with the coordinator: " + "; ".join(" ".join(tap.split()) for tap in batch)
+        argv = ["post", "--drive", bus.drive, "--lane", BUS_LANE, "--kind", "note", "--to", RELAY_LANE, "--topic", TAP_TOPIC, "--id", f"{TAP_TOPIC}:{session}:{bus.lines}:{index}", *attr_args({"session": session}), "--text", CREDENTIAL.sub(REDACTED, text)]
+        if (done := shell.cci(argv)).returncode:
+            print(f"board-watch {session}: the tap batch did not post: {done.stderr.strip()}", flush=True)
+    if batches:
+        pending.write_text("".join(f"{json.dumps(tap, ensure_ascii=False)}\n" for tap in held[batches * TAPS_PER_LINE :]))
 
 
 def answer_of(event: dict, session: str, shell: Shell) -> str:
@@ -635,7 +660,7 @@ def record(line: str, state: Path, session: str, shell: Shell, seen: set[str], b
     owner = event.get("type") in OWNER_EVENTS
     doc = shell.document(session, event["blockId"]) if owner and event.get("blockId") else None
     if owner:
-        announce(event, line, session, doc, shell, bus)
+        batch_taps(announce(event, line, session, doc, shell, bus), state / BOARDS / f"{session}-taps.jsonl", session, shell, bus)
     with (state / CAPTURES).open("a") as sink:
         for capture in captures(event, session, doc, shell.now(), bus.lines):
             if capture["digest"] not in seen:
