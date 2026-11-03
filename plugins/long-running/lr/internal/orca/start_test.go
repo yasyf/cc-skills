@@ -26,7 +26,7 @@ const (
 	sparseLine   = " This lane is sparse: widen with `git sparse-checkout add <dir>` before reading outside it."
 	deskContract = " Standing desk: loop until rotation; setup and quiet cycles are not done. Send worker_done only at rotation, naming the handoff doc."
 	pluginBin    = "/plugin/bin"
-	screenBypass = "⏵⏵ bypass permissions on (shift+tab to cycle)"
+	agentScreen  = "⏵⏵ bypass permissions on (shift+tab to cycle)"
 )
 
 type reply struct {
@@ -72,7 +72,8 @@ func listing(agent any, handles ...string) reply {
 	if len(handles) == 0 {
 		handles = []string{"term_a"}
 	}
-	terminals := []object{{"handle": "term_other", "agentIdentity": "claude"}}
+	terminals := make([]object, 0, 1+len(handles))
+	terminals = append(terminals, object{"handle": "term_other", "agentIdentity": "claude"})
 	for _, handle := range handles {
 		terminals = append(terminals, object{"handle": handle, "agentIdentity": agent})
 	}
@@ -230,7 +231,7 @@ func (h *harness) healthy(options healthyOptions) {
 		state = "ready"
 	}
 	if scr == "" {
-		scr = screenBypass
+		scr = agentScreen
 	}
 	h.reply("orchestration run-current", boundRun)
 	h.reply("worktree set", sent)
@@ -319,7 +320,7 @@ func (h *harness) orcaTool(c shell.Command) (shell.Result, error) {
 	}
 	if current.sh != "" {
 		if out, err := exec.Command("sh", "-c", current.sh).CombinedOutput(); err != nil {
-			return shell.Result{}, fmt.Errorf("%v: %s", err, out)
+			return shell.Result{}, fmt.Errorf("%w: %s", err, out)
 		}
 	}
 	result := shell.Result{Code: current.rc, Stdout: current.body()}
@@ -1445,7 +1446,7 @@ func TestAStartupCommandOrcaDroppedIsTypedIntoTheTerminalOnce(t *testing.T) {
 		h.reply("terminal create", timedOut)
 		h.reply("terminal list", bareListing(), listing(nil))
 		h.reply("terminal wait", notIdleWait, idleWait)
-		h.reply("terminal read", screen("Welcome to fish", "yasyf@mac ~/v3-lane-a-base>"), screen("❯", screenBypass))
+		h.reply("terminal read", screen("Welcome to fish", "yasyf@mac ~/v3-lane-a-base>"), screen("❯", agentScreen))
 		h.reply("terminal send", sent)
 		if line, code := h.launchAs("lane-a", model, "high", h.brief); code != 0 {
 			t.Fatal(line)
