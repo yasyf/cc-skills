@@ -22,8 +22,9 @@ message it. Your handoff is `ccn -R <drive checkout> doc show <handoff doc id>`,
 you read deliveries from cci cursor <cursor the handoff names>.
 
 Before any write (an edit, commit, push, ship, PR comment, or a record that claims work):
-  1. From <drive checkout>, run `drive.py lane-status <lane>`. Each line is a worktree
-     <lane> held, with its branch, dirty files, push state, and PR.
+  1. From <drive checkout>, run `drive.py lane-status <lane> --held`. Each line is a worktree
+     <lane> made, with its branch, dirty files, push state, and PR; `no worktree found`
+     means it made none.
   2. From <drive checkout>, never from inside one of those worktrees, run for each
      worktree path it printed:
      lsof -n -d cwd 2>/dev/null | awk -v w='<worktree>' '$NF == w || index($NF, w "/") == 1'
@@ -32,7 +33,8 @@ Before any write (an edit, commit, push, ship, PR comment, or a record that clai
      `cci post --drive <drive> --lane <lane>-<N+1> --kind blocker --to root --text "LIVE <lane>: <worktree> pids <pids>"`
      and end your turn with that as your report. Never stop or signal those processes.
   4. With no live process in any worktree, continue in <lane>'s worktree and branch,
-     starting from the dirty files, unpushed commits, and PR that lane-status shows.
+     starting from the dirty files, unpushed commits, and PR that lane-status shows; the
+     trees of the PRs it only named print without `--held`.
 
 <the lane's reference brief, unchanged>
 ```

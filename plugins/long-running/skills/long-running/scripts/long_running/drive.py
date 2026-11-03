@@ -648,7 +648,7 @@ def cmd_lane_status(args: argparse.Namespace, shell: ledger.Shell) -> int:
         since = (now - LANE_RECORDS).strftime("%Y-%m-%dT%H:%M:%SZ")
         drive = cci_drive(entry)
         records = [record for record in cci.records(shell.run, drive, "--lane", args.lane, since=since) if record["drive"] == drive and record["lane"] == args.lane]
-        worktrees = lanes.lane_status(args.lane, records, receipt_dirs(entry), Path(entry["checkout"]), entry["repo"], trunk_of(shell, entry["checkout"]), now, shell.run, runner_checkouts(entry))
+        worktrees = lanes.lane_status(args.lane, records, receipt_dirs(entry), Path(entry["checkout"]), entry["repo"], trunk_of(shell, entry["checkout"]), now, shell.run, runner_checkouts(entry), held=args.held)
     run = args.run or (entry or {}).get("orca_run") or (lanes.coordinated_run(shell.run, entry["root_terminal"]) if entry and entry.get("root_terminal") else None)
     teammates = lanes.teammate_status(args.lane, (entry or {}).get("sessions") or [], config_dir(), now)
     found = [*(worktrees or lanes.orca_status(args.lane, run, now, shell.run)), *teammates]
@@ -827,6 +827,7 @@ def build_parser() -> argparse.ArgumentParser:
     lane_status = subparsers.add_parser("lane-status", help="every worktree a lane owns with its branch, dirty files, push state, and open PR, else its Orca dispatches; exit 1 when none")
     lane_status.add_argument("lane", help="a lane name, or an Orca dispatch id ctx_...")
     lane_status.add_argument("--drive")
+    lane_status.add_argument("--held", action="store_true", help="only the worktrees the lane made, never the tree of a PR it merely named, for a successor's live-process check")
     lane_status.add_argument("--run", help="the Orca run to read a lane with no local worktree from; default the drive's")
     lane_status.set_defaults(handler=cmd_lane_status)
 

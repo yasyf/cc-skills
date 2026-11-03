@@ -309,3 +309,20 @@ NOW = datetime(2026, 10, 28, 23, 45, tzinfo=timezone.utc)
 )
 def test_a_teammate_whose_last_turn_ended_is_idle_and_one_mid_turn_runs_until_an_hour_passes(last, state):
     assert lanes.turn_state(last, NOW) == state
+
+
+def test_held_lists_only_the_trees_the_lane_made(home, capsys):
+    """Nov 3: fidelity-desk-23's takeover check printed 83 trees of PRs its predecessor graded, 20 holding other lanes' sessions, and it stopped for 5 minutes."""
+    own = worktree(home, LANE, "-b", LANE)
+    graded = worktree(home, "someone-else", "-b", "someone-else")
+    shell = LaneShell()
+    shell.records = [{"seq": 1, "drive": "d1", "lane": LANE, "kind": "review", "text": "ok", "refs": {"prs": ["Forge-AI/monorepo#48182"]}}]
+    shell.heads["48182"] = "someone-else"
+
+    code = drive.main(["lane-status", LANE, "--held"], shell)
+    held = capsys.readouterr().out
+    assert code == 0
+    assert str(own) in held and str(graded) not in held
+
+    assert drive.main(["lane-status", LANE], shell) == 0
+    assert str(graded) in capsys.readouterr().out
