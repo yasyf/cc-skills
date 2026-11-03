@@ -60,7 +60,9 @@ func Command(a *app.App) *cobra.Command {
 			}
 			defer func() { _ = s.Close() }()
 			for i := range names {
-				names[i] = Canonical(cfg.Drive, names[i])
+				if names[i], err = Resolve(cmd.Context(), cfg.Drive, names[i]); err != nil {
+					return err
+				}
 			}
 			if !asJSON {
 				lines, err := RegistryLines(s, names, a.Now())
@@ -109,7 +111,10 @@ func adoptMetaCommand(a *app.App) *cobra.Command {
 				return err
 			}
 			defer func() { _ = s.Close() }()
-			desk := Canonical(cfg.Drive, args[0])
+			desk, err := Resolve(cmd.Context(), cfg.Drive, args[0])
+			if err != nil {
+				return err
+			}
 			adopted, unknown, err := AdoptMeta(s, desk, strings.Fields(string(listed)))
 			if err != nil {
 				return err
@@ -172,7 +177,11 @@ func DoneCheckCommand(a *app.App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			refusal, err := DoneRefusal(s, Canonical(cfg.Drive, args[0]), (&prReader{env: env, ctx: cmd.Context(), read: map[int]prRead{}}).states)
+			lane, err := Resolve(cmd.Context(), cfg.Drive, args[0])
+			if err != nil {
+				return err
+			}
+			refusal, err := DoneRefusal(s, lane, (&prReader{env: env, ctx: cmd.Context(), read: map[int]prRead{}}).states)
 			if err != nil || refusal == "" {
 				return err
 			}
@@ -193,10 +202,15 @@ func RouteCommand(a *app.App) *cobra.Command {
 				return err
 			}
 			defer func() { _ = s.Close() }()
-			answer, err := AnswerRoute(s, Canonical(cfg.Drive, args[0]))
+			lane, err := Resolve(cmd.Context(), cfg.Drive, args[0])
 			if err != nil {
 				return err
 			}
+			answer, err := AnswerRoute(s, lane)
+			if err != nil {
+				return err
+			}
+			answer.Lane = Canonical(cfg.Drive, args[0])
 			return json.NewEncoder(cmd.OutOrStdout()).Encode(answer)
 		},
 	}
@@ -226,7 +240,10 @@ func RequestCommand(a *app.App) *cobra.Command {
 			if request.By == "" {
 				return errors.New("no lane is bound to this session, so the request would post under no name; pass --by <your lane>")
 			}
-			request.Lane, request.Successor, request.By = Canonical(cfg.Drive, request.Lane), Canonical(cfg.Drive, request.Successor), Canonical(cfg.Drive, request.By)
+			if request.Lane, err = Resolve(cmd.Context(), cfg.Drive, request.Lane); err != nil {
+				return err
+			}
+			request.Successor, request.By = Canonical(cfg.Drive, request.Successor), Canonical(cfg.Drive, request.By)
 			refusal, err := StandingRefusal(s, request)
 			if err == nil && refusal == "" {
 				refusal, err = UnreadRefusal(cmd.Context(), s, cfg.Drive, request)

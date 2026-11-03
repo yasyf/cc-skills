@@ -266,6 +266,9 @@ its own; `lr drive sub start` refuses without each fact
 | What an incident is doing | `lr incident status <slug>` |
 | Where a lane's mail goes | `lr route <lane>` |
 
+Every `lr` verb that takes a lane takes its stem too, `meta-desk` for
+`meta-desk-3`, and acts on the lane cci routes that stem to.
+
 A read the table lacks belongs to a lane: a PR, a diff, a CI log, a Slack thread,
 a plan artifact, a long file, a cloud listing, a build page. The coordinator spawns
 a reader and takes back at most five lines; a search is one call, `lr ask-lane '<question>'`. The `root_context` and `root_reads`

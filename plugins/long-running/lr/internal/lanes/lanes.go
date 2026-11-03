@@ -1,6 +1,7 @@
 package lanes
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/deletions"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
@@ -142,6 +144,21 @@ func Canonical(drive, lane string) string {
 		}
 	}
 	return strings.TrimPrefix(lane, initials.String()+"-")
+}
+
+func Resolve(ctx context.Context, drive, name string) (string, error) {
+	name = Canonical(drive, name)
+	if client.Stem(name) != name {
+		return name, nil
+	}
+	switch reach, err := client.Resolve(ctx, drive, name); {
+	case errors.Is(err, client.ErrNoLaneRegistry):
+		return name, nil
+	case err != nil:
+		return "", err
+	default:
+		return cmp.Or(reach.Lane, name), nil
+	}
 }
 
 func Stem(name string) string {
