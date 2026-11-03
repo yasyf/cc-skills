@@ -130,7 +130,7 @@ with no sponsor refuses before it prepares anything. A join that fails retries
 after 5, 15 and 45 seconds, and a join that still fails refuses the launch,
 naming the relay's reason, with no worker started. Every five minutes the
 supervisor joins each live lane whose receipt shows a failed join, stopping at
-the first refusal.
+the first refusal; `lr rejoin` runs the same pass at once.
 
 Prepare starts the Sprite's Orca runtime through its `orca` CLI, and Orca
 1.4.224 serves it on its managed server, `orcad`. The prepared task records that
