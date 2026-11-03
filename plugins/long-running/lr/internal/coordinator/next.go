@@ -137,7 +137,7 @@ func follow(ctx context.Context, driveName string, since int64) (<-chan record, 
 	records := make(chan record)
 	failure := make(chan error, 1)
 	go func() {
-		bad := read(ctx, stdout, records, func(r record) bool { return !r.betweenOtherLanes(ctx, driveName) })
+		bad := read(ctx, stdout, records)
 		err := cmd.Wait()
 		if ctx.Err() != nil {
 			err = nil
@@ -148,7 +148,7 @@ func follow(ctx context.Context, driveName string, since int64) (<-chan record, 
 	return records, failure, nil
 }
 
-func read(ctx context.Context, stdout io.Reader, records chan<- record, keep func(record) bool) error {
+func read(ctx context.Context, stdout io.Reader, records chan<- record) error {
 	lines := bufio.NewScanner(stdout)
 	lines.Buffer(nil, maxRecord)
 	var bad []error
@@ -156,9 +156,6 @@ func read(ctx context.Context, stdout io.Reader, records chan<- record, keep fun
 		var r record
 		if err := json.Unmarshal(lines.Bytes(), &r); err != nil {
 			bad = append(bad, fmt.Errorf("cci watch printed %q: %w", lines.Text(), err))
-			continue
-		}
-		if !keep(r) {
 			continue
 		}
 		select {
@@ -279,21 +276,6 @@ func (r record) whole() string {
 		return body
 	}
 	return r.Text + "\n" + body
-}
-
-func (r record) betweenOtherLanes(ctx context.Context, driveName string) bool {
-	if r.Kind != "answer" || r.Lane == lanes.OwnerRelay || r.Re == 0 || len(r.alsoTo()) == 0 {
-		return false
-	}
-	raw, err := exec.CommandContext(ctx, "cci", "show", strconv.FormatInt(r.Re, 10), "--drive", driveName, "--json").Output()
-	if err != nil {
-		return false
-	}
-	var question record
-	if err := json.Unmarshal(raw, &question); err != nil {
-		return false
-	}
-	return question.Lane != lanes.Root && len(question.alsoTo()) == len(question.To)
 }
 
 func (r record) alsoTo() []string {

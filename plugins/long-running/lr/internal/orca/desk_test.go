@@ -2157,6 +2157,19 @@ func TestAnIncidentClockDefersOutsideNoiseUntilItEnds(t *testing.T) {
 	wantContains(t, w.posts[len(w.posts)-1].Text, "DEFERRED 1 escalations held during api-fix: DEADLINE deadline:x lane-b: late")
 }
 
+func TestAConfirmationWithNoActionStaysOnTheBusAndOffTheCoordinator(t *testing.T) {
+	for label, to := range map[string]string{"RELAYED": deskRunner, "LAUNCHED": deskRunner, "ORCA-BACK": deskRunner, "RELAY-FAILED": coordinatorLane, "DECIDE": coordinatorLane, "UNKNOWN-LABEL": coordinatorLane} {
+		w := newDeskWorld(t)
+		if err := w.desk.escalate("k1", label, testLane, "text"); err != nil {
+			t.Fatal(err)
+		}
+		w.step(w.desk.flush)
+		if len(w.posts) != 1 || !slices.Equal(w.posts[0].To, []string{to}) || w.posts[0].Lane != deskRunner {
+			t.Fatalf("%s: posts %+v, want one from the runner to %s", label, w.posts, to)
+		}
+	}
+}
+
 func TestAnEscalationToALaneIsRecordedOnlyOncePosted(t *testing.T) {
 	w := newDeskWorld(t)
 	if err := w.desk.escalateTo(context.Background(), "k1", "DECIDE", testLane, "text", "meta-desk-1"); err != nil {
