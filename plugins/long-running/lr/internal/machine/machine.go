@@ -14,6 +14,7 @@ const (
 	StateNeedsRestack State = "needs-restack"
 	StateRed          State = "red"
 	StateAwaitingTap  State = "awaiting-tap"
+	StateHeld         State = "held"
 	StateReady        State = "ready"
 	StateQueued       State = "queued"
 	StateEvicted      State = "evicted"
@@ -23,7 +24,7 @@ const (
 
 var States = []State{
 	StatePushed, StateGrading, StateNeedsVerdict, StateNeedsRestack, StateRed, StateAwaitingTap,
-	StateReady, StateQueued, StateEvicted, StateLanded, StateClosed,
+	StateHeld, StateReady, StateQueued, StateEvicted, StateLanded, StateClosed,
 }
 
 func (s State) Terminal() bool {
@@ -111,6 +112,7 @@ const (
 	LaneClock       = 20 * time.Minute
 	QueueClock      = 30 * time.Minute
 	CIClock         = 120 * time.Minute
+	RootClock       = time.Hour
 	OwnerClock      = 12 * time.Hour
 )
 
@@ -138,6 +140,7 @@ type Facts struct {
 	TapFrom     string
 	Exempt      bool
 	Hold        Mover
+	HoldSeq     int64
 	Carries     []int
 	Condition   string
 }
@@ -235,6 +238,9 @@ func Classify(f Facts) Verdict {
 	}
 	if !f.Approved {
 		return Verdict{StateGrading, MoverLane, ActionReview, LaneClock}
+	}
+	if f.Hold != "" && f.Tap == TapTapped {
+		return Verdict{StateHeld, MoverRoot, ActionLift, RootClock}
 	}
 	if f.Hold != "" {
 		return Verdict{StateAwaitingTap, f.Hold, ActionLift, OwnerClock}

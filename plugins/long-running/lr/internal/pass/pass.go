@@ -123,6 +123,9 @@ func Run(s *store.Store, snapshot []machine.Facts, now time.Time, post Post, liv
 		if err := escalateStuckBases(s, snapshot, byBranch, now, tell, &out); err != nil {
 			return out, err
 		}
+		if err := escalateTappedHolds(s, snapshot, now, tell, &out); err != nil {
+			return out, err
+		}
 	}
 	if !slices.Contains(live, machine.MoverPool) {
 		return out, nil
@@ -352,6 +355,20 @@ func escalateStuckBases(s *store.Store, snapshot []machine.Facts, byBranch map[s
 		subject := fmt.Sprintf("%s#%d", base.Repo, base.Number)
 		cause := "stack base stuck at " + base.Head[:min(10, len(base.Head))]
 		if err := escalate(s, subject, cause, "; "+stuck+" and holds "+strings.Join(held[base.Number], ", ")+" above it", root, now, post, out); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func escalateTappedHolds(s *store.Store, snapshot []machine.Facts, now time.Time, post Post, out *Outcome) error {
+	for _, f := range snapshot {
+		if out.Verdicts[f.Number].State != machine.StateHeld {
+			continue
+		}
+		subject := fmt.Sprintf("%s#%d at %s", f.Repo, f.Number, f.Head[:min(10, len(f.Head))])
+		cause := fmt.Sprintf("DECIDE: the owner tapped this head while hold #%d stands; lift the hold, or tell the owner why not", f.HoldSeq)
+		if err := escalate(s, subject, cause, "", root, now, post, out); err != nil {
 			return err
 		}
 	}
