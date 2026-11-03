@@ -219,6 +219,15 @@ def test_a_worker_launched_inside_a_drive_carries_the_drive_to_claude(orca):
     assert flag(terminal, "--command").startswith("env CLAUDE_LONG_RUNNING_LANE=lane-a CLAUDE_LONG_RUNNING_DRIVE=900424b6 claude ")
 
 
+def test_an_incident_lane_launched_inside_a_drive_carries_the_drive_to_codex(orca):
+    """Retro row 144: alert-c0822-fix-2 sat 12 minutes on its takeover check, since drive.py lane-status found no drive without CLAUDE_CODE_SESSION_ID, which an Orca codex lane never has."""
+    orca.healthy(agent="codex")
+    orca.env["CLAUDE_LONG_RUNNING_DRIVE"] = "900424b6"
+    assert orca.launch("lane-a", "incident", "xhigh", str(orca.brief)).returncode == 0
+    [terminal] = orca.calls("terminal create")
+    assert flag(terminal, "--command").startswith(f"sh -c 'PATH={BIN}:$PATH exec env CLAUDE_LONG_RUNNING_LANE=lane-a CLAUDE_LONG_RUNNING_DRIVE=900424b6 codex ")
+
+
 def test_a_worker_launched_by_a_sessionless_runner_carries_the_drive_of_its_orca_run(orca):
     orca.healthy()
     drives = orca.root / "home" / ".claude" / "long-running" / "drives"
@@ -546,7 +555,7 @@ def test_an_incident_lane_runs_codex_on_the_fast_tier_in_its_own_terminal_in_a_t
     assert "--no-parent" in worktree and "--parent-worktree" not in worktree
     [terminal] = orca.calls("terminal create")
     assert flag(terminal, "--command") == (
-        f"sh -c 'PATH={BIN}:$PATH exec codex --dangerously-bypass-approvals-and-sandbox -c model=gpt-6.1-sol -c service_tier=fast -c model_reasoning_effort=xhigh -c check_for_update_on_startup=false -c mcp_servers={{}}'"
+        f"sh -c 'PATH={BIN}:$PATH exec env CLAUDE_LONG_RUNNING_LANE=lane-a codex --dangerously-bypass-approvals-and-sandbox -c model=gpt-6.1-sol -c service_tier=fast -c model_reasoning_effort=xhigh -c check_for_update_on_startup=false -c mcp_servers={{}}'"
     )
     [start] = orca.calls("orchestration worker-start")
     assert flag(start, "--terminal") == "term_a"

@@ -63,10 +63,11 @@ disallows AskUserQuestion, EnterPlanMode, and ExitPlanMode: a worker's prompt
 reaches only its own terminal, which no one watches. It also passes
 --strict-mcp-config, so a worker starts only the MCP servers ORCA_LAUNCH_MCP_CONFIG
 names instead of the eight or so every interactive session starts; a brief that
-needs a server names it there. Claude runs under
+needs a server names it there. Claude, and an incident lane's codex, run under
 CLAUDE_LONG_RUNNING_LANE=<lane> and, when drive.py places this session in a drive,
 CLAUDE_LONG_RUNNING_DRIVE=<drive>, so the pack's PR hook records every PR the worker
-opens in the drive's ledger under the lane's name, and a ready launch posts the drive's
+opens in the drive's ledger under the lane's name, drive.py finds the drive with no
+Claude session id, and a ready launch posts the drive's
 SPAWNED record (drive.py spawned) that adds the lane to the supervisor's registry. The spec is a
 pointer to <brief-file>, because Orca truncates a pasted spec near 3 KB. It names
 the brief as the authority over Orca's preamble, which forbids GitHub posts, and
@@ -350,7 +351,7 @@ named = {"datadog", "sentry", *tomllib.loads(f"named = {sys.argv[2]}")["named"]}
 print("".join(f" -c mcp_servers.{name}.enabled=false" for name in servers if name not in named))
 PY
 ) || fail "codex config: cannot read the mcp_servers of ${CODEX_HOME:-$HOME/.codex}/config.toml"
-[ "$AGENT" != incident ] || COMMAND="sh -c 'PATH=$BIN:\$PATH exec codex --dangerously-bypass-approvals-and-sandbox -c model=$MODEL_ID -c service_tier=fast -c model_reasoning_effort=$EFFORT -c check_for_update_on_startup=false -c mcp_servers=$CODEX_MCP$CODEX_OFF'"
+[ "$AGENT" != incident ] || COMMAND="sh -c 'PATH=$BIN:\$PATH exec env CLAUDE_LONG_RUNNING_LANE=$LANE${DRIVE:+ CLAUDE_LONG_RUNNING_DRIVE=$DRIVE} codex --dangerously-bypass-approvals-and-sandbox -c model=$MODEL_ID -c service_tier=fast -c model_reasoning_effort=$EFFORT -c check_for_update_on_startup=false -c mcp_servers=$CODEX_MCP$CODEX_OFF'"
 DESK='' SPARSE='' NODE=''
 ! grep -qE '^ccx:(.* )?role=(desk|watch)([[:space:]]|$)' "$BRIEF" ||
   DESK=" Standing desk: loop until rotation; setup and quiet cycles are not done. Send worker_done only at rotation, naming the handoff doc."
