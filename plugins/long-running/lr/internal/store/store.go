@@ -295,6 +295,23 @@ func (s *Store) Facts(repo string, number int, head string) (map[string]string, 
 	return facts, nil
 }
 
+func (s *Store) PRFacts(repo string, number int) (map[string]string, error) {
+	rows, err := s.db.Query("SELECT kind, value FROM facts WHERE repo = ? AND number = ? ORDER BY posted, rowid", repo, number)
+	found, err := collect(rows, err, func(rows *sql.Rows) ([2]string, error) {
+		var pair [2]string
+		err := rows.Scan(&pair[0], &pair[1])
+		return pair, err
+	})
+	if err != nil {
+		return nil, err
+	}
+	facts := make(map[string]string, len(found))
+	for _, pair := range found {
+		facts[pair[0]] = pair[1]
+	}
+	return facts, nil
+}
+
 type FactKey struct {
 	Number int
 	Head   string

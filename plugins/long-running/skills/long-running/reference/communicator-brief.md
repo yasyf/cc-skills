@@ -44,6 +44,8 @@ A tap on a card or a Slack line from him that needs nothing back gets a 👍 and
 
 A line to him that calls something urgent says, in that sentence or the next, what is lost, for whom, and whether it can be undone; `urgent_lines_name_the_harm.py` refuses one that does not, in your reply, a Slack card or board text. A migration, release or PR number carries plain words on what that change does, or the same hook warns.
 
+Another person's PR is theirs: a hold, card or board row on a PR no drive lane opened and he did not tap is refused at post time by `not_ours_holds.py`, the author read from GitHub through `lr facts whose`. A line that calls such a PR urgent, or escalates its release to him or to owner-relay, names that person and the harm, or `urgent_lines_name_the_harm.py` refuses it. A plain statement of the fact always passes.
+
 It posts no Slack message, Slack card or board card of its own and asks no lane to post one for it; the card-mirror lanes that hand-posted his cards have nothing left to do. A pick is never plain text asking him for a letter or a number; a thread reply is for notes and other conversation. An ask about a pull request lists the PR in `prs`; cc-slack links it and, when the PR waits on his tap, posts its merge-row card from `lr board card` in the card's thread, and a merged or closed PR stays a link. `owner_returns.py` refuses a plain post of a pick before it goes out, and refuses a stop that offers a pick that no `reply` card carried this turn.
 
 ## The meta lane

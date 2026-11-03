@@ -63,6 +63,7 @@ KEPT_REFUSALS = KEPT | {
     "root_context.The communicator runs no search inline: as": "the owner corrected the communicator's warned wide searches twice, so a warning did not stop them",
     "root_replies.tap_claims_match_the_board": STOP.format(what="the owner would read a false claim about what waits on him"),
     "shell_script_file.BLOCKED: Claude Code reads `$$(`, `$${` or": "the call would hold on a permission prompt, so a warning lands too late",
+    "not_ours_holds.not_ours_holds": "the owner ordered the refusal: a hold or card on another person's PR reaches lanes and his board the moment it posts",
     "urgent_lines_name_the_harm.urgent_lines_name_the_harm": "the owner ordered the refusal: he acts on an urgent line the moment it reaches him",
     "urgent_lines_name_the_harm.urgent_replies_name_the_harm": STOP.format(what="the owner would act on an urgent line that names no harm"),
 }
