@@ -146,6 +146,7 @@ LOCK_WAIT_SECONDS = 120
 LOCK_POLL_SECONDS = 0.2
 LANE_PREFIX = "lane/"
 ASK_PREFIX = "ask/"
+LEDGER_SYNC = "LONG_RUNNING_LEDGER_SYNC"
 OWNER_PRIORITY = 0
 DEFAULT_PRIORITY = 100
 ASK_KEY = re.compile(rf"(?:{ASK_PREFIX})?(?P<seq>\d+)")
@@ -2878,6 +2879,13 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def converge(shell: Shell, ledger_id: str) -> None:
+    try:
+        shell.run(["ccn", "sync", "--prefix", f"refs/cc-notes/ledgers/{ledger_id}"])
+    except subprocess.CalledProcessError as failed:
+        print(f"ledger {ledger_id[:8]} did not sync: {(failed.stderr or failed.stdout or '').strip()[-300:]}", file=sys.stderr)
+
+
 def main(argv: list[str] | None = None, shell: Shell | None = None) -> int:
     args = build_parser().parse_args(argv)
     shell = shell or Shell()
@@ -2893,8 +2901,15 @@ def main(argv: list[str] | None = None, shell: Shell | None = None) -> int:
         checkout = vars(args).get("checkout")
         args.repo = args.repo or (origin_repo(shell, checkout) if checkout else default)
         args.scope = Scope(args.repo, default)
+    synced = os.environ.get(LEDGER_SYNC) == "1" and vars(args).get("ledger")
+    reads = args.handler in (cmd_show, cmd_list, cmd_summary, cmd_stale, cmd_held)
     try:
-        return args.handler(args, shell)
+        if synced and reads:
+            converge(shell, synced)
+        code = args.handler(args, shell)
+        if synced and not reads:
+            converge(shell, synced)
+        return code
     except ForgeUnreachable as unreachable:
         print(f"forge unreachable, wrote nothing: {unreachable}", file=sys.stderr)
         return 1

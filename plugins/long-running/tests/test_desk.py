@@ -694,6 +694,37 @@ def test_show_renders_pr_rows_only(capsys):
     assert HEAD[:9] in printed
 
 
+@pytest.mark.parametrize("synced", [True, False])
+def test_a_ledger_command_syncs_only_its_ledger_ref_before_a_read_and_after_a_write(capsys, monkeypatch, synced):
+    """Root #339762: the landing desk on dar-desk-1 wrote its own ledger copy while the Mac read another, so stall-watch paged on PRs already landed."""
+    if synced:
+        monkeypatch.setenv(ledger.LEDGER_SYNC, "1")
+    shell = desk_shell()
+    report(shell)
+    assert shell.ccn_syncs == ([f"refs/cc-notes/ledgers/{LEDGER}"] if synced else [])
+    shell.ccn_syncs.clear()
+    start = len(shell.calls)
+
+    run(shell, "show", "--ledger", LEDGER)
+
+    ran = [call[:3] for call in shell.calls[start:] if call[0] == "ccn"]
+    assert ran[: 2 if synced else 1] == ([["ccn", "sync", "--prefix"]] if synced else []) + [["ccn", "ledger", "show"]]
+
+
+def test_a_ledger_sync_that_fails_warns_and_keeps_the_commands_result(capsys, monkeypatch):
+    monkeypatch.setenv(ledger.LEDGER_SYNC, "1")
+    shell = desk_shell()
+    shell.ccn_sync_error = "fatal: unable to access remote"
+    report(shell)
+    capsys.readouterr()
+
+    assert run(shell, "show", "--ledger", LEDGER) == 0
+
+    captured = capsys.readouterr()
+    assert f"#{PR}" in captured.out
+    assert f"ledger {LEDGER[:8]} did not sync: fatal: unable to access remote" in captured.err
+
+
 def test_init_creates_the_ledger_and_prints_its_id(capsys):
     shell = FakeShell()
 

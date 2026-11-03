@@ -163,6 +163,8 @@ class FakeShell(ledger.Shell):
         self.fetched = ""
         self.ccx_out = ""
         self.fail_ccn_writes = False
+        self.ccn_syncs: list[str] = []
+        self.ccn_sync_error = ""
         self.ccx_calls: list[list[str]] = []
         self.routes = dict(routes or {})
         self.pages = pages or {1: "pulls-page-1.json", 2: "pulls-page-2.json"}
@@ -402,6 +404,11 @@ class FakeShell(ledger.Shell):
             ledger = f"{len(self.stores) + 1:040x}"
             self.stores[ledger] = {"id": ledger, "title": argv[3], "columns": [], "rows": []}
             return json.dumps(self.stores[ledger])
+        if argv[1:3] == ["sync", "--prefix"]:
+            if self.ccn_sync_error:
+                raise subprocess.CalledProcessError(1, argv, stderr=self.ccn_sync_error)
+            self.ccn_syncs.append(argv[3])
+            return ""
         if argv[1:3] == ["ledger", "show"]:
             return json.dumps(self.stores[argv[3]])
         if argv[1:3] == ["ledger", "sync"]:
