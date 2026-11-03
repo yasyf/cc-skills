@@ -17,7 +17,7 @@ import (
 
 const fivePieces = "SandSQL five pieces: ssql-server (two modes), ssql-replicator, ssql-follower, ssql-signal, ssql-journal; migration R0-R8"
 
-var threeModes = PlanRuling{"two modes", "three modes: server, sidecar and mac"}
+var threeModes = PlanRuling{"two modes", "three modes: laptop, sidecar, server"}
 
 func crowded(t *testing.T) Inputs {
 	t.Helper()
@@ -203,10 +203,10 @@ func TestAPlanHeadingAndPieceRowReadTheRulingThatSupersedesThePlanText(t *testin
 	if strings.Contains(report.Text, "two modes") {
 		t.Fatalf("the superseded words render:\n%s", report.Text)
 	}
-	if !strings.Contains(report.Text, "## SandSQL five pieces: ssql-server (three modes: server, sidecar and mac), ssql-replicator, ssql-follower, ssql-signal, ssql-journal\n") {
+	if !strings.Contains(report.Text, "## SandSQL five pieces: ssql-server (three modes: laptop, sidecar, server), ssql-replicator, ssql-follower, ssql-signal, ssql-journal\n") {
 		t.Fatalf("heading:\n%s", report.Text)
 	}
-	if !strings.Contains(report.Text, "| ssql-server | the ssql-server piece of SandSQL five pieces: three modes: server, sidecar and mac |") {
+	if !strings.Contains(report.Text, "| ssql-server | the ssql-server piece of SandSQL five pieces: three modes: laptop, sidecar, server |") {
 		t.Fatalf("piece row:\n%s", report.Text)
 	}
 	for _, piece := range []string{"ssql-server", "ssql-replicator", "ssql-follower", "ssql-signal", "ssql-journal"} {
