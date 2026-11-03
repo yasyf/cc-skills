@@ -1,4 +1,5 @@
 import Foundation
+@testable import LongRunningApp
 
 enum Fixtures {
     static let now = #"""

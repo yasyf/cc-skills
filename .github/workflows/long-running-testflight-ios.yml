@@ -1,6 +1,12 @@
 name: long-running TestFlight (iOS)
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "plugins/long-running/ios/**"
+  schedule:
+    - cron: "23 9 * * 1"
   workflow_dispatch:
 
 concurrency:
