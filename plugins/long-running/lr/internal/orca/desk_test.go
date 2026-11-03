@@ -3346,7 +3346,7 @@ func TestARelayDeliveredToAnEarlierDispatchGoesToTheLanesNewOne(t *testing.T) {
 		t.Fatal(err)
 	}
 	sends := w.orcaCalls("orchestration send")
-	if len(sends) != 2 || !slices.Contains(sends[1], "term_relaunched") {
+	if len(sends) != 2 || !slices.Contains(sends[1], "dispatch:ctx_relaunched") {
 		t.Fatal(sends)
 	}
 }
