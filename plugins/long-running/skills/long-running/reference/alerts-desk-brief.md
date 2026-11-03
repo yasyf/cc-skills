@@ -68,8 +68,10 @@ On each printed line, in the same turn:
      can cause or fix: a customer-facing error rate, failing runs, a stalled
      pipeline. A monitor that fires on a Forge release smoke team, a release
      check, or dev red always launches one, with "no customer impact" in the
-     report as scope, never as a skip. Skip a flap that recovered before your read, a monitor whose
-     `dd-<id>-fix` lane is already live, No Data alone, and recovery. To launch,
+     report as scope, never as a skip. Skip a flap that recovered before your read, No Data alone, and recovery.
+     The orca desk decides whether a live lane already holds the monitor: it
+     relays to `dd-<id>-fix`, or answers `LAUNCH-SKIPPED` naming the lane whose
+     brief or incident record names the monitor, so post the line. To launch,
      post one record to the orca desk:
      `cci post --drive <drive> --lane alerts-desk --kind go --to orca-desk --text 'orca-desk: incident dd-<id> <link> :: <what fired>'`.
      In the same turn, post the incident record that names it, so the supervisor raises no

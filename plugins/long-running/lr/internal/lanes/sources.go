@@ -79,6 +79,8 @@ type Env struct {
 	Claude string
 	Local  string
 	Now    func() time.Time
+
+	MonitorLane func(ctx context.Context, monitor, lane string) (string, error)
 }
 
 func NewEnv(runner shell.Runner, cfg config.Config, state string, now func() time.Time) (Env, error) {

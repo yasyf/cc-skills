@@ -201,11 +201,11 @@ func (d *Desk) incidentLane(ctx context.Context, monitors map[string]bool, lane 
 			continue
 		}
 		spec := launchSpec.FindStringSubmatch(parsed.Rest)
-		if spec != nil && spec[1] != lane && overlaps(submatches(briefIncident, readBrief(spec[6])), wanted) {
+		if spec != nil && spec[1] != lane && overlaps(briefMonitors(readBrief(spec[6])), wanted) {
 			return spec[1], nil
 		}
 	}
-	return "", nil
+	return d.laneNamedOnMonitor(ctx, wanted, lane)
 }
 
 func (d *Desk) onMonitors(ctx context.Context, container, other string, wanted []string) (bool, error) {
@@ -219,7 +219,7 @@ func (d *Desk) onMonitors(ctx context.Context, container, other string, wanted [
 		if err != nil {
 			return false, err
 		}
-		if overlaps(submatches(briefIncident, readBrief(spec.Brief)), wanted) {
+		if overlaps(briefMonitors(readBrief(spec.Brief)), wanted) {
 			matched = append(matched, action)
 		}
 	}
@@ -237,6 +237,35 @@ func (d *Desk) onMonitors(ctx context.Context, container, other string, wanted [
 	return slices.ContainsFunc(matched, func(action incident.Action) bool {
 		return action.Status == incident.ActionAccepted || action.Status == incident.ActionStarted || (live != "" && string(action.DispatchID) == live)
 	}), nil
+}
+
+func briefMonitors(text string) []string {
+	return append(submatches(briefIncident, text), submatches(briefMonitor, text)...)
+}
+
+func (d *Desk) laneNamedOnMonitor(ctx context.Context, wanted []string, lane string) (string, error) {
+	opened, err := d.tail(ctx, client.Query{Kinds: []string{"incident"}})
+	if err != nil {
+		return "", d.noteTailFailure(err)
+	}
+	for _, record := range opened {
+		if !slices.Contains(wanted, record.Fields.Attrs["monitor"]) {
+			continue
+		}
+		for _, other := range record.Refs.Lanes {
+			if other == lane {
+				continue
+			}
+			dispatch, err := d.show(ctx, other, "")
+			if err != nil {
+				return "", err
+			}
+			if dispatch.active() {
+				return other, nil
+			}
+		}
+	}
+	return "", nil
 }
 
 func addressed(record client.Record, names []string) bool {

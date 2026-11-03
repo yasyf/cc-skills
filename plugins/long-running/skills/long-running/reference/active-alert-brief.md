@@ -80,6 +80,8 @@ With `--alert`, `lr launch` fills each brief template itself. The script drops t
 
 After posting, `lr launch` waits for `LAUNCHED` or `LAUNCH-FAILED`, prints each lane's dispatch and terminal, and exits 0 when both launched, or when a lane has no verdict yet while the relay's `orca alive` record is fresh, since that verdict arrives as a record; it exits 2 only when the relay's `orca alive` record is over five minutes old. A lane writes its own PR title, body, and commit message. The coordinator answers a lane's question with `cci post --kind answer --to <lane> --re <seq>` on the lane's ask or the runner's `DECIDE`, which the runner relays to the open Orca question (`reference/orca-desk-brief.md`). The coordinator withdraws a launch or lane with `lr launch withdraw <R<n> | unfixed:<msg>:<n> | lane>`.
 
+**Name the monitor a hand-opened fix lane holds.** A slug such as `journal-open-plat` tells the desk and the supervisor nothing about which monitor a lane is on, so they launch a duplicate `dd-<id>-fix` when that monitor alerts. Put `monitor=<id>` on the brief's `ccx:` line when the alert line already shows it. When the monitor is learned after launch, post one record: `cci post --kind incident --lane <your lane> --lane-ref <fix lane> --attr monitor=<id> --to root --text 'monitor <id> is <slug>'`. Both answer the same check: while that lane's dispatch is live, an incident line for the monitor logs `LAUNCH-SKIPPED` and the supervisor launches nothing.
+
 **Check runner liveness and fall back inline when the runner is down.** Before launching, the coordinator reads the orca runner's newest alive record:
 
 ```sh

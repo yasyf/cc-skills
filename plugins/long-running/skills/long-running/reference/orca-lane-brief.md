@@ -87,7 +87,7 @@ When the `ccx:` line says `pr=none`, as it does for work on a design the owner h
 Paste and fill this template for an Agent-tool subagent:
 
 ```
-ccx: role=<role> [cpu=high] [place=remote|local] [paths=<dir>,<dir>] [pr=none] tooling-lane=<key, for a tooling lane only>
+ccx: role=<role> [cpu=high] [place=remote|local] [paths=<dir>,<dir>] [pr=none] [monitor=<Datadog monitor id>] tooling-lane=<key, for a tooling lane only>
 Standing: <the duty the drive keeps for good, such as "devbox perf and bug hunting"; only
   on a lane whose work never ends. The supervisor raises a blocker when a standing duty
   has no live owner for ten minutes, so a dead or stood-down standing lane is never

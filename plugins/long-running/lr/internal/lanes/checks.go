@@ -184,11 +184,18 @@ func (a Alerts) raise(ctx context.Context, channel string, message slackMessage,
 	if err != nil || !first {
 		return err
 	}
+	holder, launchErr := a.Env.MonitorLane(ctx, alert, slug+"-fix")
+	if holder != "" {
+		return nil
+	}
 	headline, _, _ := strings.Cut(message.Text, "\n")
 	headline = truncated(strings.Join(strings.Fields(headline), " "), 160)
 	minutes := int(now.Sub(fired).Minutes())
 	draft := client.Draft{Drive: a.Env.Config.Drive, Lane: Self, To: []string{Root}, URL: message.Permalink}
-	brief, launchErr := a.Launch(ctx, Fired{slug, headline, message.Permalink, fired})
+	var brief string
+	if launchErr == nil {
+		brief, launchErr = a.Launch(ctx, Fired{slug, headline, message.Permalink, fired})
+	}
 	if launchErr != nil {
 		draft.Kind, draft.ID = blockerKind, "alert-unopened:"+channel+":"+message.TS
 		draft.Text = fmt.Sprintf("ALERT-UNOPENED %s: no incident record names %s %d min after it fired, and the supervisor's launch of %s-fix failed: %s | coordinator: open the incident on sight with `lr incident open --kind alert` and launch its fix lane this turn", headline, alert, minutes, slug, truncated(launchErr.Error(), 200))
