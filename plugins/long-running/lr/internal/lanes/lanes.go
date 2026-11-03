@@ -159,6 +159,14 @@ func Holder(s *store.Store, drive, name string) (holder string, err error) {
 	return holder, nil
 }
 
+func Running(s *store.Store, drive, name string) (holder string, err error) {
+	defer recovered(&err)
+	if lane, found := newest(s, Canonical(drive, name)); found && isLive(lane.State) {
+		return lane.Name, nil
+	}
+	return Root, nil
+}
+
 func family(name string) (string, int) {
 	if found := numbered.FindStringSubmatch(name); found != nil {
 		n, _ := strconv.Atoi(found[2])

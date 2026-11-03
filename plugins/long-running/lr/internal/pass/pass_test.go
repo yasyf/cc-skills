@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/pass"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
@@ -82,7 +83,7 @@ func (r *recorder) of(kind string) []posted {
 
 func run(t *testing.T, s *store.Store, r *recorder, now time.Time, live []machine.Mover, snapshot ...machine.Facts) pass.Outcome {
 	t.Helper()
-	out, err := pass.Run(s, snapshot, now, r.post, live, func(desk string) string { return desk + "-3" })
+	out, err := pass.Run(s, snapshot, now, r.post, live, func(desk string) string { return desk + "-3" }, running(s))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -232,11 +233,11 @@ func TestAFailedPostNeverStopsThePassAndIsReported(t *testing.T) {
 	given := []machine.Facts{facts(45470, finderAsks), facts(45471, finderAsks)}
 	post := func([]string, bus.Body) error { return &bus.Refused{Message: "never reaches this lane"} }
 	route := func(desk string) string { return desk + "-3" }
-	if _, err := pass.Run(s, given, t0, post, all, route); err != nil {
+	if _, err := pass.Run(s, given, t0, post, all, route, running(s)); err != nil {
 		t.Fatal(err)
 	}
 
-	out, err := pass.Run(s, given, t0.Add(20*time.Minute), post, all, route)
+	out, err := pass.Run(s, given, t0.Add(20*time.Minute), post, all, route, running(s))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -372,6 +373,43 @@ func TestAMoverNotYetCutOverKeepsItsItemsInTheStoreAndSilent(t *testing.T) {
 	}
 }
 
+func running(s *store.Store) pass.Owner {
+	return func(lane string) (string, error) { return lanes.Running(s, "d", lane) }
+}
+
+func TestAnOverdueRedReachesOnlyARunningOwnerOrItsNamedSuccessorElseRootAsUnowned(t *testing.T) {
+	for _, tt := range []struct {
+		name, state, retiredBy string
+		want                   posted
+	}{
+		{"the owner runs", string(store.LaneDesired), "", posted{[]string{"lane-7"}, bus.Note{Text: "org/repo#45470 fix-red overdue"}}},
+		{"the owner stood down for a named successor", string(store.LaneRetired), "lane-9", posted{[]string{"lane-9"}, bus.Note{Text: "org/repo#45470 fix-red overdue"}}},
+		{"the owner stopped while a later lane of its stem runs", string(store.LaneRetired), "", posted{[]string{"root"}, bus.Escalation{Subject: "org/repo#45470", Cause: "UNOWNED, lane-7 is not running: fix-red overdue"}}},
+		{"the owner is held", string(store.LaneHeld), "", posted{[]string{"root"}, bus.Escalation{Subject: "org/repo#45470", Cause: "UNOWNED, lane-7 is not running: fix-red overdue"}}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			s, r := newStore(t), &recorder{}
+			for _, lane := range []string{"lane-7", "lane-8", "lane-9"} {
+				if _, err := s.WantLane(store.Lane{Name: lane, State: store.LaneDesired}, t0); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := s.SetLaneState("lane-7", store.LaneState(tt.state), t0, tt.retiredBy, ""); err != nil {
+				t.Fatal(err)
+			}
+			given := facts(45470, func(f *machine.Facts) { f.CI, f.Lane = machine.CIFailure, "lane-7" })
+
+			run(t, s, r, t0, all, given)
+			r.posts = nil
+			run(t, s, r, t0.Add(20*time.Minute), all, given)
+
+			if !reflect.DeepEqual(r.posts, []posted{tt.want}) {
+				t.Fatalf("posts = %+v", r.posts)
+			}
+		})
+	}
+}
+
 func TestARedNoLaneOwnsWaitsForItsDeadlineToReachRoot(t *testing.T) {
 	s, r := newStore(t), &recorder{}
 	given := facts(45470, func(f *machine.Facts) { f.CI, f.Lane = machine.CIFailure, "" })
@@ -446,6 +484,9 @@ func TestAnOverdueRedOrRestackGoesToThePRsLaneNeverRoot(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			s, r := newStore(t), &recorder{}
 			pr := facts(45470, given)
+			if _, err := s.WantLane(store.Lane{Name: pr.Lane, State: store.LaneDesired}, t0); err != nil {
+				t.Fatal(err)
+			}
 
 			run(t, s, r, t0, all, pr)
 			run(t, s, r, t0.Add(20*time.Minute), all, pr)
@@ -546,7 +587,7 @@ func TestAQueuedPRAboveAHeldOneLeavesTheQueueWithIt(t *testing.T) {
 		queued(4, "other", "dev", ""),
 	}
 
-	out, err := pass.Run(s, snapshot, t0, r.post, all, func(desk string) string { return desk })
+	out, err := pass.Run(s, snapshot, t0, r.post, all, func(desk string) string { return desk }, running(s))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -647,6 +688,9 @@ func TestAStackBasePastItsDeadlineTellsRootOnceWhatItHolds(t *testing.T) {
 	s, r := newStore(t), &recorder{}
 	below := facts(45469, func(f *machine.Facts) { f.Branch, f.CI = "below", machine.CIFailure })
 	above := facts(45470, func(f *machine.Facts) { f.Branch, f.Base = "above", "below" })
+	if _, err := s.WantLane(store.Lane{Name: below.Lane, State: store.LaneDesired}, t0); err != nil {
+		t.Fatal(err)
+	}
 
 	run(t, s, r, t0, all, below, above)
 	early := run(t, s, r, t0.Add(machine.LaneClock-time.Minute), all, below, above)

@@ -75,6 +75,9 @@ func newGates(t *testing.T) *gateFixture {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
+	if _, err := s.WantLane(store.Lane{Name: "lane-7", State: store.LaneDesired}, t0); err != nil {
+		t.Fatal(err)
+	}
 	fake := &shelltest.Fake{}
 	tool := &rulingsTool{Fake: fake, refusals: map[string]string{}}
 	f := &gateFixture{fake: fake, tool: tool, now: t0}
@@ -247,6 +250,20 @@ func TestABuildBreakInTheSoftFailedTreeStaysOutOfTheQueue(t *testing.T) {
 
 	got := gateRecords(t, "blocker")
 	if len(got) != 1 || !strings.HasPrefix(got[0].Text, "BUILD-FAILED #1: go/sand/next/run fails to build at e718a7434f on "+gateBuild+": undefined: Foo") || !slices.Equal(got[0].To, []string{"lane-7", "root"}) {
+		t.Fatalf("blockers = %+v", got)
+	}
+}
+
+func TestABuildBreakWhoseOwnerStoppedReachesRootAloneAsUnowned(t *testing.T) {
+	f := buildGates(t, "go/sand/next/run.go\n", buildAnnotation("go/sand/next/run undefined: Foo"), `[]`)
+	if err := f.gates.Store.SetLaneState("lane-7", store.LaneHeld, t0, "", "quiet 40 min"); err != nil {
+		t.Fatal(err)
+	}
+
+	f.admit(t, []pass.Act{enqueueAct(1, "one", "dev")})
+
+	got := gateRecords(t, "blocker")
+	if len(got) != 1 || !strings.HasPrefix(got[0].Text, "UNOWNED, lane-7 is not running: BUILD-FAILED #1: ") || !slices.Equal(got[0].To, []string{"root"}) {
 		t.Fatalf("blockers = %+v", got)
 	}
 }
