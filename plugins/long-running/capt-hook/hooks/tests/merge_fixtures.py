@@ -27,7 +27,7 @@ OWN_LINT = checks_read(check_run("lr-go", ("lr/internal/lanes/sources.go", 336, 
 INHERITED_LINT = checks_read(check_run("lr-go", ("lr/internal/asks/command.go", 12, "QF1008: could remove embedded field (staticcheck)")))
 OWN_TEST = checks_read(
     check_run("lr-go", WORKFLOW_ANNOTATION),
-    log="2026-11-03T04:10:55.1971800Z ok  \tlr/internal/asks\n2026-11-03T04:10:55.1980294Z     sources_test.go:42: got 2 messages, want 1\n",
+    log="2026-11-03T04:10:55.1971800Z ok  \tlr/internal/asks\n2026-11-03T04:10:55.1980294Z \x1b[31m    sources_test.go:42: got 2 messages, want 1\x1b[0m\n",
 )
 INHERITED_TEST = checks_read(check_run("lr-go", WORKFLOW_ANNOTATION), log="2026-11-03T04:10:55.1980294Z     command_test.go:9: want ask line\n")
 PENDING = checks_read(check_run("lr-go", ("lr/internal/lanes/sources.go", 336, "prealloc"), status="IN_PROGRESS", conclusion=None))
