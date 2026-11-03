@@ -91,6 +91,7 @@ type finderRepo struct {
 	baseGone  bool
 	missing   []string
 	landedLog string
+	deleted   []string
 }
 
 func newFinderFake(t *testing.T, replies ...any) (*fakeShell, *finderRepo) {
@@ -161,6 +162,14 @@ func (r *finderRepo) git(full []string) (string, error) {
 		return "", nil
 	case "rev-list":
 		return r.revList(argv), nil
+	case "ls-tree":
+		var present []string
+		for _, file := range argv[slices.Index(argv, "--")+1:] {
+			if !slices.Contains(r.deleted, file) {
+				present = append(present, file)
+			}
+		}
+		return strings.Join(present, "\n") + "\n", nil
 	case "-c":
 		return "", nil
 	}
@@ -829,6 +838,41 @@ func TestAReplayOntoAMovedParentWhoseEveryOwnCommitPairsEqualPostsTheGradedHeads
 			}
 		})
 	}
+}
+
+func TestAReplayDropsAMajorWhoseEveryCitedFileIsGoneAtTheHead(t *testing.T) {
+	original := "finder: major a269784 1 open: gone/walk.go:9; gone/walk.go:40 skips the volume link"
+	for name, job := range map[string]map[string]any{
+		"the graded record": {"prior": map[string]any{"seq": 149302, "lane": "finder-desk", "head": "a269784", "text": original}},
+		"a carried chain": {
+			"prior":   map[string]any{"seq": 149302, "lane": "finder-desk", "head": "a269784", "text": "finder: major a269784 carried from #149100"},
+			"history": []map[string]any{{"seq": 149100, "lane": "finder-desk", "text": original}},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			directory := finderJobDir(t, job)
+			shell, repo := newFinderFake(t)
+			repo.own[shaBase+".."+shaOld] = []string{shaOldOwn}
+			repo.resolved = map[string]string{"a269784": shaOld}
+			repo.ranges = map[string]string{earlierRange: pairLines("=", "=")}
+			repo.deleted = []string{"gone/walk.go"}
+			mustFinder(t, directory, shell)
+			equal(t, len(shell.asks()), 0)
+			equal(t, shell.posted[0]["--text"], "finder: ok "+shaHead[:7]+" carried from #149302, whose findings cite only files gone at this head: gone/walk.go")
+		})
+	}
+}
+
+func TestAReplayWithOnlySomeCitedFilesGoneReadsTheWholeChangeAgain(t *testing.T) {
+	directory := finderJobDir(t, map[string]any{"prior": map[string]any{"seq": 149302, "lane": "finder-desk", "head": "a269784", "text": "finder: major a269784 1 open: gone/walk.go:9; kept/link.go:2 skips the volume link"}})
+	shell, repo := newFinderFake(t, replyOf(findingOf("minor", "a.go:1", "minor")))
+	repo.own[shaBase+".."+shaOld] = []string{shaOldOwn}
+	repo.resolved = map[string]string{"a269784": shaOld}
+	repo.ranges = map[string]string{earlierRange: pairLines("=", "=")}
+	repo.deleted = []string{"gone/walk.go"}
+	mustFinder(t, directory, shell)
+	equal(t, len(shell.asks()), 1)
+	equal(t, shell.posted[0]["--text"], "finder: ok "+shaHead+" sol finder "+wholeRecord+": no majors")
 }
 
 func TestAHeadWhoseOnlyFinderReviewNamesNoHeadReadsSinceTheHeadItsHeadRecordReplaced(t *testing.T) {

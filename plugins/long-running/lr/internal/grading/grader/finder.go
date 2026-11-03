@@ -43,6 +43,7 @@ var (
 	majors       = []string{"blocker", "major"}
 	fixGlyphs    = []string{"🐛", "🚑", "🩹"}
 	carriedFrom  = regexp.MustCompile(`\bcarried from #(\d+)`)
+	citedFile    = regexp.MustCompile(`([\w.@+-]+(?:/[\w.@+-]+)*\.\w+):\d+`)
 	counted      = regexp.MustCompile(`\brows checked:\s*(\d+)`)
 	lists        = regexp.MustCompile(`\b(rows met|rows checked|n/a|pending|tests):`)
 	classNamed   = regexp.MustCompile(`(?im)^.*\bclass\b.*\b(?:remov\w*|impossible|eliminat\w*|cannot recur|can no longer)\b|\bdeleted at cutover\b`)
@@ -203,7 +204,14 @@ func (s *finderPassState) grade() (FinderOutcome, error) {
 			return FinderOutcome{}, err
 		}
 		if len(changed) == 0 {
-			return s.replayed(view, last)
+			gone, kept, err := s.citesAtHead()
+			if err != nil {
+				return FinderOutcome{}, err
+			}
+			if len(gone) == 0 || len(kept) == 0 {
+				return s.replayed(view, last, gone)
+			}
+			last = ""
 		}
 	}
 	diff, err := s.touched(own[0]+"^", head)
@@ -281,7 +289,60 @@ func (s *finderPassState) grade() (FinderOutcome, error) {
 	return outcome, nil
 }
 
-func (s *finderPassState) replayed(view pullRequest, last string) (FinderOutcome, error) {
+func (s *finderPassState) citesAtHead() (gone, kept []string, err error) {
+	from := s.job.Prior
+	if from == nil || FinderGrade(from.Text) != finderFail || s.settledBy(from) != 0 {
+		return nil, nil, nil
+	}
+	var cited []string
+	for _, found := range citedFile.FindAllStringSubmatch(s.originOf(from).Text, -1) {
+		if !slices.Contains(cited, found[1]) {
+			cited = append(cited, found[1])
+		}
+	}
+	if len(cited) == 0 {
+		return nil, nil, nil
+	}
+	listed, err := s.git(append([]string{"ls-tree", "--name-only", s.job.Head, "--"}, cited...)...)
+	if err != nil {
+		return nil, nil, err
+	}
+	present := strings.Fields(listed)
+	for _, file := range cited {
+		if slices.Contains(present, file) {
+			kept = append(kept, file)
+		} else {
+			gone = append(gone, file)
+		}
+	}
+	return gone, kept, nil
+}
+
+func (s *finderPassState) originOf(from *Record) *Record {
+	bySeq := s.historyBySeq()
+	for {
+		found := carriedFrom.FindStringSubmatch(from.Text)
+		if found == nil {
+			return from
+		}
+		seq, _ := strconv.ParseInt(found[1], 10, 64)
+		older, known := bySeq[seq]
+		if !known {
+			return from
+		}
+		from = older
+	}
+}
+
+func (s *finderPassState) historyBySeq() map[int64]*Record {
+	bySeq := make(map[int64]*Record, len(s.job.History))
+	for index := range s.job.History {
+		bySeq[s.job.History[index].Seq] = &s.job.History[index]
+	}
+	return bySeq
+}
+
+func (s *finderPassState) replayed(view pullRequest, last string, gone []string) (FinderOutcome, error) {
 	spec := s.job
 	head := spec.Head
 	said := fmt.Sprintf("%s at %s replays every own commit of %s, patch for patch or dropping only hunks %s carries", spec.pull(), short(head, 12), short(last, 12), view.BaseRefName)
@@ -293,6 +354,9 @@ func (s *finderPassState) replayed(view pullRequest, last string) (FinderOutcome
 	text := fmt.Sprintf("finder: %s %s carried from #%d", grade, short(head, 7), earlier.Seq)
 	if root := s.settledBy(earlier); grade != finderPass && root != 0 {
 		text = fmt.Sprintf("finder: %s %s carried from #%d, settled by root #%d", finderPass, short(head, 7), earlier.Seq, root)
+	}
+	if len(gone) > 0 {
+		text = fmt.Sprintf("finder: %s %s carried from #%d, whose findings cite only files gone at this head: %s", finderPass, short(head, 7), earlier.Seq, strings.Join(gone, ", "))
 	}
 	body := filepath.Join(s.dir, bodyFile)
 	if err := os.WriteFile(body, fmt.Appendf(nil, "%s\n\n%s.\n\n#%d: %s\n", text, said, earlier.Seq, earlier.Text), 0o600); err != nil {
@@ -546,10 +610,7 @@ func (s *finderPassState) recordCensus(census []finding) (string, error) {
 }
 
 func (s *finderPassState) settledBy(from *Record) int64 {
-	bySeq := make(map[int64]*Record, len(s.job.History))
-	for index := range s.job.History {
-		bySeq[s.job.History[index].Seq] = &s.job.History[index]
-	}
+	bySeq := s.historyBySeq()
 	for current := from; current != nil; {
 		if root, settled := s.job.Settled[strconv.FormatInt(current.Seq, 10)]; settled {
 			return root
