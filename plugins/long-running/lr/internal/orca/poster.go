@@ -70,7 +70,7 @@ type Poster struct {
 	Author string
 }
 
-func (p Poster) entry() (*drive.Entry, error) {
+func (p Poster) Entry() (*drive.Entry, error) {
 	session := p.Env(sessionEnv)
 	for _, entry := range allDrives(p.Env) {
 		if entry.Bus() == p.Drive || (p.Drive == "" && slices.Contains(entry.Sessions, session)) {
@@ -113,7 +113,7 @@ func (p Poster) post(ctx context.Context, bus, topic, text string) (client.Recor
 }
 
 func (p Poster) Line(ctx context.Context, topic, text string) error {
-	entry, err := p.entry()
+	entry, err := p.Entry()
 	if err != nil {
 		return err
 	}
@@ -124,13 +124,21 @@ func (p Poster) Line(ctx context.Context, topic, text string) error {
 	return err
 }
 
+func (p Poster) Faults(ctx context.Context, order Order) ([]string, error) {
+	entry, err := p.Entry()
+	if err != nil {
+		return nil, err
+	}
+	return order.faults(ctx, p.Runner, p.Env("HOME"), entry.Checkout)
+}
+
 func (p Poster) Launch(ctx context.Context, order Order, timeout time.Duration) (string, error) {
 	brief, err := filepath.Abs(order.Brief)
 	if err != nil {
 		return "", err
 	}
 	order.Brief = brief
-	entry, err := p.entry()
+	entry, err := p.Entry()
 	if err != nil {
 		return "", err
 	}
