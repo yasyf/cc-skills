@@ -378,7 +378,9 @@ that spawned it, so neither window spawns a desk with `Agent`, and the communica
 spawns only short read lanes, under an hour and with no `Standing:` line. A lane never spawns with `Agent`;
 it writes the brief and posts `cci post --kind ask --to root --text 'spawn <name>
 brief=<path> model=<model>'`. The meta lane launches its own implementers with
-`lr launch lane <name> opus xhigh <brief> --lane meta`.
+`lr launch lane <name> opus xhigh <brief> --lane meta`. A lane reads its records
+before it merges (B2 in [bus-contracts.md](reference/bus-contracts.md)): its merge is
+refused while one addressed to it sits unread, and the refusal prints them.
 
 | Desk or lane | Does | Brief |
 |---|---|---|

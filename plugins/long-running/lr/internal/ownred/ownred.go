@@ -18,6 +18,9 @@ import (
 const (
 	OwnLine       = "OWN-RED"
 	InheritedLine = "INHERITED"
+	UnreadLine    = "UNREAD"
+	MailLine      = "MAIL"
+	closed        = "closed"
 	readTimeout   = 60 * time.Second
 	workflowPath  = ".github"
 	actionsApp    = "github-actions"
@@ -52,6 +55,8 @@ type Merge struct {
 	Repo     string
 	Selector string
 	Mode     Mode
+	Drive    string
+	Lane     string
 }
 
 type Guard struct {
@@ -108,6 +113,15 @@ type pull struct {
 	} `json:"commits"`
 }
 
+type record struct {
+	Seq    int64    `json:"seq"`
+	Lane   string   `json:"lane"`
+	Kind   string   `json:"kind"`
+	Text   string   `json:"text"`
+	To     []string `json:"to"`
+	Status string   `json:"status"`
+}
+
 type finding struct {
 	path string
 	line int
@@ -115,6 +129,10 @@ type finding struct {
 }
 
 func (g Guard) Lines(ctx context.Context, m Merge) ([]string, error) {
+	lines, err := g.mail(ctx, m)
+	if err != nil {
+		return nil, err
+	}
 	repo, numbers, err := g.merged(ctx, m)
 	if err != nil {
 		return nil, err
@@ -123,7 +141,6 @@ func (g Guard) Lines(ctx context.Context, m Merge) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	var lines []string
 	seen := map[string]bool{}
 	add := func(line string) {
 		if !seen[line] {
@@ -161,6 +178,30 @@ func (g Guard) Lines(ctx context.Context, m Merge) ([]string, error) {
 				}
 			}
 		}
+	}
+	return lines, nil
+}
+
+func (g Guard) mail(ctx context.Context, m Merge) ([]string, error) {
+	if m.Lane == "" {
+		return nil, nil
+	}
+	done, err := g.Runner.Run(ctx, shell.Command{Argv: []string{"cci", "tail", "--drive", m.Drive, "--cursor", m.Lane, "--reader", m.Lane, "--json"}, Timeout: readTimeout})
+	if err != nil {
+		return nil, err
+	}
+	var lines []string
+	decoder := json.NewDecoder(strings.NewReader(done.Stdout))
+	for decoder.More() {
+		var r record
+		if err := decoder.Decode(&r); err != nil {
+			return nil, err
+		}
+		kind := MailLine
+		if slices.Contains(r.To, m.Lane) && r.Status != closed {
+			kind = UnreadLine
+		}
+		lines = append(lines, fmt.Sprintf("%s #%d %s %s: %s", kind, r.Seq, r.Lane, r.Kind, strings.ReplaceAll(r.Text, "\n", " ")))
 	}
 	return lines, nil
 }

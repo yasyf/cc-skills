@@ -8,7 +8,7 @@ import (
 )
 
 func Command(a *app.App) *cobra.Command {
-	var repo string
+	var repo, drive, lane string
 	var below, stack bool
 	cmd := &cobra.Command{
 		Use:   "own-red [PR]",
@@ -23,10 +23,15 @@ The PR is a number, URL or branch, the current branch's when none is given.
 With --below, the merge also lands every open PR below it in its native stack,
 as ccx vcs merge does. With --stack, the selector reads as gh stack merge reads
 it: a stack number, or a stacked PR merged together with every open PR below
-it, and with none the whole stack of the current branch's PR.`,
+it, and with none the whole stack of the current branch's PR.
+
+With --lane, the merge first reads that lane's records on --drive, as the lane
+reads them, through its own cursor: one UNREAD line for each record addressed to
+it that no reply has closed, and one MAIL line for each other record the read
+delivered.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			m := Merge{Repo: repo, Mode: One}
+			m := Merge{Repo: repo, Mode: One, Drive: drive, Lane: lane}
 			if len(args) == 1 {
 				m.Selector = args[0]
 			}
@@ -46,6 +51,9 @@ it, and with none the whole stack of the current branch's PR.`,
 	cmd.Flags().StringVarP(&repo, "repo", "R", "", "the owner/name repository (default: the current checkout's)")
 	cmd.Flags().BoolVar(&below, "below", false, "the merge also lands every open PR below this one in its native stack")
 	cmd.Flags().BoolVar(&stack, "stack", false, "read the selector as gh stack merge does")
+	cmd.Flags().StringVar(&drive, "drive", "", "the cci drive the lane reads")
+	cmd.Flags().StringVar(&lane, "lane", "", "the lane running the merge, whose unread records refuse it")
 	cmd.MarkFlagsMutuallyExclusive("below", "stack")
+	cmd.MarkFlagsRequiredTogether("drive", "lane")
 	return cmd
 }
