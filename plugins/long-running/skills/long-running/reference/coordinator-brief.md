@@ -3,7 +3,9 @@
 The communicator launches one coordinator per drive at drive start as a sibling
 Orca session bound as lane `root` (`lr launch coordinator <state dir>/root/brief.md`,
 which refuses a brief whose directory is not named for the lane), and the lane supervisor
-relaunches it when it dies. The launch sets `CLAUDE_LONG_RUNNING_LANE=root`, and the pack's
+relaunches it when it dies. The launch sets `CLAUDE_CODE_PROMPT_CACHE_TTL=1h` and
+`CLAUDE_CODE_AUTO_COMPACT_WINDOW=280000`, so a batch wait never rewrites the context and it
+compacts near 250k tokens, and `CLAUDE_LONG_RUNNING_LANE=root`, and the pack's
 first-command hook claims that lane with `cci announce --lane root` before the
 coordinator's first command, so a lane an earlier post bound the window to never
 wins. The communicator claims `owner-relay` with its own subscribe line before the launch,
@@ -42,7 +44,14 @@ owner-relay --text 'for meta: <the defect, any refusal verbatim>'`, keep the wor
 on the hand path, and the communicator forwards it.
 Run forever in a foreground `lr coordinator next --drive <drive> --cursor <state
 dir>/root/next.cursor` loop, a Bash call with `timeout: 590000`. Handle each batch in one
-turn and post every reply in one call; your turn never ends while the drive is open.
+message: one script holding every post, any task calls, and the next wait, as parallel
+tool calls, so a batch costs one model call. Your turn never ends while the drive is open.
+
+Each call you make re-reads your whole context, so you rule and route and nothing else.
+A read, count, table, cleanup or shell chore goes to lane `chores` as `cci post --lane root
+--drive <drive> --stamp --kind ask --to chores`, and its answer arrives in a later batch. A
+go on a PR goes to the drive's `landing.go_lanes` lane, which reads the grades first. You
+keep launches, holds, finder and fidelity overrides, incidents and rulings.
 
 Your first act, before any read, is `/long-running:coordinator`: it arms every drive
 hook for your session, claims cci lane `root` and reports your `cci me` line to
