@@ -37,6 +37,7 @@ it replaces kept only until each verb goes live
 | Incidents, releases, Slack | [reference/active-alert-brief.md](reference/active-alert-brief.md), [reference/release-lanes.md](reference/release-lanes.md), [reference/slack-lane-brief.md](reference/slack-lane-brief.md) |
 | Owner rulings, the register, judges | [reference/owner-rulings.md](reference/owner-rulings.md) |
 | The lane supervisor and the watches; why a lane cannot go quiet | [reference/watchers.md](reference/watchers.md), [reference/supervisor.md](reference/supervisor.md) |
+| Reading a large corpus into fix lanes | [the bulk-read skill](../bulk-read/SKILL.md) |
 | Compaction and the owner update | [reference/compaction.md](reference/compaction.md), [reference/owner-report-table.md](reference/owner-report-table.md) |
 | What went wrong before, by date | [reference/lessons.md](reference/lessons.md) |
 
@@ -410,7 +411,9 @@ that spawned it, so neither window spawns a desk with `Agent`, and the communica
 spawns only short read lanes, under an hour and with no `Standing:` line. A lane never spawns with `Agent`;
 it writes the brief and posts `cci post --kind ask --to root --text 'spawn <name>
 brief=<path> model=<model>'`. The meta lane launches its own implementers with
-`lr launch lane <name> opus xhigh <brief> --lane meta`. A lane reads its records
+`lr launch lane <name> opus xhigh <brief> --lane meta`. A question that takes more than a
+few reads of transcripts, records or logs goes through `lr bulk read` (the `bulk-read`
+skill), so no window reads the corpus itself. A lane reads its records
 before it merges (B2 in [bus-contracts.md](reference/bus-contracts.md)): its merge is
 refused while one addressed to it sits unread, and the refusal prints them.
 
