@@ -44,6 +44,8 @@ def plugin_with_job(mac: Path, job: str) -> Path:
     executable(scripts / "sprite-job.sh", (SCRIPTS / "sprite-job.sh").read_text())
     executable(scripts / "long_running" / "desk_result.py", (SCRIPTS / "long_running" / "desk_result.py").read_text())
     executable(scripts / "rulings.py", "")
+    for tool in ("fresh-token.sh", "gh", "ccx"):
+        executable(scripts / "sprite-fresh-token" / tool, (SCRIPTS / "sprite-fresh-token" / tool).read_text())
     executable(mac / "plugin" / "bin" / "lr", LR_PRELUDE + job)
     return scripts / "sprite-job.sh"
 
@@ -348,6 +350,53 @@ def test_a_key_command_that_prints_nothing_stops_the_job_before_the_sprite(tmp_p
     assert done.returncode == 1
     assert json.loads((directory / "result.json").read_text()) == {"error": "the GH_TOKEN command printed nothing, so the job would run without GH_TOKEN"}
     assert not Path(f"{sprite}{directory}/result.json").exists()
+
+
+LONG_PASS_JOB = """import json, pathlib, subprocess, sys, time
+for _ in range(200):
+    token = subprocess.run(["ccx"], capture_output=True, text=True).stdout.strip()
+    if token == "ghs_second":
+        break
+    time.sleep(0.05)
+(pathlib.Path(sys.argv[1]) / "result.json").write_text(json.dumps({"token": token}))
+"""
+
+CREDENTIAL_GIT = """#!/bin/sh
+if [ "$1" = credential-cache ]; then
+  for arg do last=$arg; done
+  case $last in
+    store) sed -n "s/^password=//p" >"$TOKEN_CACHE" ;;
+    get) [ ! -e "$TOKEN_CACHE" ] || printf "password=%s\\n" "$(cat "$TOKEN_CACHE")" ;;
+  esac
+  exit 0
+fi
+exec "$REAL_GIT" "$@"
+"""
+
+
+def test_a_pass_that_outlives_its_token_reads_github_on_the_refreshed_one(tmp_path: Path) -> None:
+    """finder-401-1, 378341: #48330's codex ran 58 minutes on one GH_TOKEN, and its next `ccx vcs gh` died on "GET /rate_limit: 401 Bad credentials"; a later ccx in the same job now reads the token the launching machine refreshed."""
+    mac, sprite = tmp_path / "mac", tmp_path / "sprite"
+    checkout, directory, config = mac / "checkout", mac / "finder-desk" / "48330-67b798e4c8ae", mac / "config"
+    job_script, grader = plugin_with_job(mac, LONG_PASS_JOB), "finder"
+    executable(mac / "bin" / "sprite", SPRITE)
+    executable(mac / "bin" / "cci", "#!/bin/sh\n")
+    executable(mac / "bin" / "git", CREDENTIAL_GIT)
+    executable(mac / "bin" / "ccx", "#!/bin/sh\nprintf %s \"$GH_TOKEN\"\n")
+    executable(mac / "bin" / "mint", "#!/bin/sh\nif [ -e \"$MINTED\" ]; then echo ghs_second; else : >\"$MINTED\"; echo ghs_first; fi\n")
+    directory.mkdir(parents=True)
+    (mac / "state").mkdir()
+    (directory / "job.json").write_text(json.dumps({"drive": "d1", "checkout": str(checkout)}))
+    (config / "long-running" / "drives").mkdir(parents=True)
+    (config / "long-running" / "drives" / "d1.json").write_text(json.dumps({"state_dir": str(mac / "state")}))
+    real_git = shutil.which("git")
+    assert real_git
+    subprocess.run([real_git, "init", "-q", f"{sprite}{checkout}"], check=True)
+
+    env = {**os.environ, "PATH": f"{mac / 'bin'}:{os.environ['PATH']}", "MAC_ROOT": str(mac), "SPRITE_ROOT": str(sprite), "CLAUDE_CONFIG_DIR": str(config), "REAL_GIT": real_git, "TOKEN_CACHE": str(tmp_path / "token-cache"), "MINTED": str(tmp_path / "minted"), "SPRITE_JOB_KEYS": json.dumps({"GH_TOKEN": ["mint"]})}
+    subprocess.run(["sh", str(job_script), "dar-fleet-8", grader, str(directory)], env=env, check=True, capture_output=True, timeout=60)
+
+    assert json.loads((directory / "result.json").read_text()) == {"token": "ghs_second"}
 
 
 DROPPING_SPRITE = """#!/usr/bin/env python3
