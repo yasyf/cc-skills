@@ -14,6 +14,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/pass"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/watch"
 )
 
 const (
@@ -118,7 +119,11 @@ func runPass(ctx context.Context, s *store.Store, generation int64, d Deps, now 
 		_, err := pass.Shadow(passing, snapshot, now, d.Post)
 		return report, err
 	}
-	out, err := pass.Run(s, snapshot, now, d.Post, pass.Live(d.Movers))
+	route, err := watch.Desks(s)
+	if err != nil {
+		return report, err
+	}
+	out, err := pass.Run(s, snapshot, now, d.Post, pass.Live(d.Movers), route)
 	if err != nil {
 		return report, err
 	}
