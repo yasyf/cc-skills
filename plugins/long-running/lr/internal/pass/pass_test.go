@@ -688,6 +688,9 @@ func TestAStackBasePastItsDeadlineTellsRootOnceWhatItHolds(t *testing.T) {
 	s, r := newStore(t), &recorder{}
 	below := facts(45469, func(f *machine.Facts) { f.Branch, f.CI = "below", machine.CIFailure })
 	above := facts(45470, func(f *machine.Facts) { f.Branch, f.Base = "above", "below" })
+	if _, err := s.WantLane(store.Lane{Name: below.Lane, State: store.LaneDesired}, t0); err != nil {
+		t.Fatal(err)
+	}
 
 	run(t, s, r, t0, all, below, above)
 	early := run(t, s, r, t0.Add(machine.LaneClock-time.Minute), all, below, above)
