@@ -161,7 +161,7 @@ Every runner holds `$CONFIG.<desk>.lock` for its life, and a second `run` on the
 **Subscribe the root to the `cci` channel at drive start.** Under R9 in [SKILL.md](../SKILL.md), launch the root with `--channels plugin:cc-inbox@cc-inbox`, which `allowedChannelPlugins` lists in managed settings, and run once:
 
 ```bash
-cci subscribe --drive <drive> --reader root --kind incident,decide,ask,defect,blocker --follow oncall=incident
+cci subscribe --drive <drive> --reader root --to-kind incident --follow oncall=incident
 ```
 
 Full bus delivery rules, cursor catch-up after compaction, and desk watch commands are in [reference/bus-contracts.md](bus-contracts.md) and R9 in [SKILL.md](../SKILL.md).

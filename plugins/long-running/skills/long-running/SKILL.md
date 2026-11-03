@@ -125,7 +125,7 @@ on it at the coordinator's thresholds, and a second Bash read with no `Agent` sp
 since the first draws a nudge ([owner-bridge-brief.md](reference/owner-bridge-brief.md)).
 
 **The coordinator** reads reader `root`, posts as `root`, runs in a foreground
-`cci watch` loop for the life of the drive, and holds everything a root holds:
+`lr coordinator next` loop for the life of the drive, one turn per batch of records, and holds everything a root holds:
 lanes, gos, holds, incidents, the task list, progress docs and the register. It
 launches lanes through the supervisor and Orca (`lr launch`), never with `Agent`. It
 owns and starts desk-runner, the launch runner and every desk (`lr desks start`), each
@@ -300,8 +300,9 @@ a blocker.
 
 **R9.** Orca worker traffic runs through the runner (`lr launch`, `lr relay`),
 never a check-and-ack loop. Mac load queues and refuses no launch: one that may leave
-the Mac starts on a box at once, and a worker's question goes to the lane that launched it. The coordinator receives records over the cc-inbox
-channel after one `cci subscribe --drive <drive> --reader root --kind incident,decide,ask,defect,blocker --follow oncall=incident`;
+the Mac starts on a box at once, and a worker's question goes to the lane that launched it. The coordinator receives records as batches from
+`lr coordinator next`, after one `cci subscribe --drive <drive> --reader root --to-kind incident --follow oncall=incident`
+keeps all but incidents off its tool calls;
 the bridge subscribes as `owner-relay`. A seq already handled is skipped.
 
 **R9a.** An urgent hold gets a decision owner and a clock, posted with
