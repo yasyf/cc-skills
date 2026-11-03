@@ -60,7 +60,7 @@ def test_scrubbing_keeps_the_lines_the_mover_reads_and_drops_the_prose():
     assert replay.scrubbed_text("SPAWNED takeover-500-tooling-fix /Users/x/.claude/scratch/drive/takeover-500-tooling/brief.md") == "SPAWNED takeover-500-tooling-fix /scratch/takeover-500-tooling/brief.md"
     assert replay.scrubbed_text("OUTCOME msg_585d takeover-500-tooling-fix: worker_done succeeded dispatch=ctx_ea33b9fa3728: Source fix merged; deploy owner-gated /Users/x/run") == "OUTCOME msg_585d takeover-500-tooling-fix: worker_done succeeded dispatch=ctx_ea33b9fa3728"
     assert replay.scrubbed_text("3:07 AM stand-down conflicts-2: false relaunch of a customer's lane") == "stand-down conflicts-2"
-    assert replay.scrubbed_text("the customer cluster's api is down for SoFi") == ""
+    assert replay.scrubbed_text("the customer cluster's api is down for Acme") == ""
 
 
 def test_a_row_reads_as_it_stood_at_each_tick():

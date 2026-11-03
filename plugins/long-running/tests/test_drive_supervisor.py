@@ -205,7 +205,7 @@ def test_a_pr_its_lane_reported_held_at_its_current_head_owes_no_work(monkeypatc
 )
 def test_an_alert_no_incident_record_names_three_minutes_on_raises_one_blocker_to_root(monkeypatch, text, minutes, incident, posted):
     fired = NOW - timedelta(minutes=minutes)
-    message = {"ts": f"{fired.timestamp():.6f}", "user": "", "text": text, "permalink": "https://poetic-technology.slack.com/archives/C0822AHFY3G/p1793668287854899"}
+    message = {"ts": f"{fired.timestamp():.6f}", "user": "", "text": text, "permalink": "https://poetic-technology.slack.com/archives/C0ALERTS001/p1793668287854899"}
     calls: list[list[str]] = []
 
     def run(argv: list[str]) -> str:
@@ -217,7 +217,7 @@ def test_an_alert_no_incident_record_names_three_minutes_on_raises_one_blocker_t
         return "#9001\n"
 
     monkeypatch.setattr(supervisor, "run", run)
-    supervisor.Alerts("d1", ["C0822AHFY3G"])(NOW)
+    supervisor.Alerts("d1", ["C0ALERTS001"])(NOW)
 
     posts = [argv for argv in calls if argv[:2] == ["cci", "post"]]
     assert bool(posts) is posted
@@ -232,7 +232,7 @@ def test_an_alert_channel_that_does_not_read_posts_nothing_and_the_tick_goes_on(
         raise supervisor.lanes.Unread("cc-slack history: exited 1")
 
     monkeypatch.setattr(supervisor, "run", run)
-    supervisor.Alerts("d1", ["C0822AHFY3G"])(NOW)
+    supervisor.Alerts("d1", ["C0ALERTS001"])(NOW)
 
 
 @pytest.mark.parametrize(("fixed", "quiet", "reclaimed"), [(31, 31, True), (31, 5, False), (12, 31, False)], ids=["idle", "lane-busy", "too-soon"])

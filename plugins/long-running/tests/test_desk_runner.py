@@ -11868,7 +11868,7 @@ def test_a_relay_line_outside_the_grammar_fails_visibly_and_relays_nothing(shell
     orca_pass(shell, config)
     desk_orders(
         shell,
-        f"R1050 (12:0x AM PT) orca-desk: relay G328 (AIG applies held again) to {LANE}.",
+        f"R1050 (12:0x AM PT) orca-desk: relay G328 (Orb applies held again) to {LANE}.",
         f"R1048 (10:5x PM PT) orca-desk: relay to {LANE}: `walker: router GO`; relay to walker: `d-land: sandsql GO`",
     )
     orca_pass(shell, config)
@@ -12055,8 +12055,8 @@ DIRECTIVE_SPECS = {
         ("orca-desk: withdraw unfixed:msg_fc99fa64dc83:2", "withdraw"),
         ("orca-desk: alert dd-333042395 https://app.datadoghq.com/monitors/333042395 :: Datadog OK -> Alert at 2026-10-16T01:41:35+00:00: Runner refusing runs", "alert"),
         ("orca-desk: incident dd-333042395 https://app.datadoghq.com/monitors/333042395 reported=18:41 :: Datadog OK -> Alert Runner refusing runs", "incident"),
-        ("orca-desk: incident alerts-api-1841 https://in-the-forge.slack.com/archives/C0822AHFY3G/p1791941123606789 reported=18:41 :: Datadog Warn mount failing", "incident"),
-        ("orca-desk: incident eng_alerts-1841 https://in-the-forge.slack.com/archives/C0822AHFY3G/p1791941123606789 reported=18:41 :: Sentry [api] fetch failed", "incident"),
+        ("orca-desk: incident alerts-api-1841 https://in-the-forge.slack.com/archives/C0ALERTS001/p1791941123606789 reported=18:41 :: Datadog Warn mount failing", "incident"),
+        ("orca-desk: incident eng_alerts-1841 https://in-the-forge.slack.com/archives/C0ALERTS001/p1791941123606789 reported=18:41 :: Sentry [api] fetch failed", "incident"),
         ("orca-desk: incident runner-refusing-1841 https://app.datadoghq.com/monitors/333042395 reported=6:41 PM :: Datadog 333042395 Runner refusing runs", "incident"),
         ("orca-desk: hold release-api owner=lane-a :: api deploys, until #123 lands", "hold"),
         ("orca-desk: unhold release-api", "unhold"),
@@ -12783,7 +12783,7 @@ def test_an_incident_line_attaches_the_brief_to_the_briefs_log_and_launches_the_
     assert lines[1] == f"LAUNCHED inbox@cci#{seq} dd-312516332-fix: dispatch ctx_n terminal term_ctx_n"
 
 
-ROOT_ALERT = "orca-desk: incident alerts-api-0305 https://in-the-forge.slack.com/archives/C0822AHFY3G/p1791108227539019 reported=03:03 :: SandDB admission turning bulk queries away on 0ddq7rb (monitor 327967001, Warn 3:03 AM PT)"
+ROOT_ALERT = "orca-desk: incident alerts-api-0305 https://in-the-forge.slack.com/archives/C0ALERTS001/p1791108227539019 reported=03:03 :: SandDB admission turning bulk queries away on 0ddq7rb (monitor 327967001, Warn 3:03 AM PT)"
 
 
 def root_brief(tmp_path: Path, monitor: str) -> Path:
@@ -12856,7 +12856,7 @@ def test_a_repeat_alert_relays_to_the_live_fix_lane_and_keeps_its_brief(shell, c
     shell.attachments["alerts-runs-1704-fix.full.md"] = brief
     shell.launch("alerts-runs-1704-fix", "ctx_a")
     orca_pass(shell, config)
-    seq = desk_orders(shell, "orca-desk: alert alerts-runs-1704 https://in-the-forge.slack.com/archives/C098XDNJJR3/p1791072242613549 :: Page #11507 SoFi Disputes stuck-case monitor stopped reporting")
+    seq = desk_orders(shell, "orca-desk: alert alerts-runs-1704 https://in-the-forge.slack.com/archives/C0RUNS00001/p1791072242613549 :: Page #11507 Acme Disputes stuck-case monitor stopped reporting")
     orca_pass(shell, config)
     assert launches(shell) == []
     [send] = shell.sends()
@@ -13631,7 +13631,7 @@ def test_a_lane_stopping_a_failing_release_gate_for_no_customer_impact_is_refuse
 @pytest.mark.parametrize(("lane", "text", "pushed"), [
     ("run-history-fix", "MECHANISM journal refusals only on the smoke teams; ai-oncall's #47507 makes the monitor skip the smoke teams", True),
     ("desk-runner", "PAGE ai-oncall: Muted: smoke-team run-failure pages until 6:30pm", True),
-    ("run-history-fix", "MECHANISM False alarm: Runner refusing runs whose journal cannot open on HSBC", True),
+    ("run-history-fix", "MECHANISM False alarm: Runner refusing runs whose journal cannot open on Zeta", True),
     ("run-history-fix", "MECHANISM sandsql-primary resets connections at each api roll", False),
     ("root", "INCIDENT That is a mute, not a fix", False),
     ("run-history-fix", "MECHANISM mute the smoke-team monitor until the roll ends", True),
@@ -13641,9 +13641,9 @@ def test_a_lane_stopping_a_failing_release_gate_for_no_customer_impact_is_refuse
     ("run-queue-fix", "MUTE run-queue-fix: monitors 339598935 339599887 until fix-live: every team's runs complete since 4:46 PM; rsw-cp logs backlog_not_draining from a pre-admission snapshot", False),
     ("run-history-fix", "MUTE run-history-fix: monitors 339000001 until fix-live: the smoke teams' journal refusals are a monitor defect", True),
     ("run-queue-fix", "mute monitors 339598935 and 339599887, they are noise", True),
-    ("desk-runner", "SCALE-MISSED scale:R84898 hsbc-sso-hop: The failing health check runs on its own schedule per saved login session, not once per customer run, so counting only HSBC runs leaves out the sessions (and any other teams' sessions) that go through the same blocked connection.", False),
-    ("desk-runner", "SCALE-MISSED scale:R84898 hsbc-sso-hop: counting only HSBC runs leaves out the sessions (and any other teams' sessions) the run-failure monitor sees.", False),
-    ("hsbc-sso-hop", "MECHANISM the N line leaves out the other teams' sessions, which stop counting toward the monitor", False),
+    ("desk-runner", "SCALE-MISSED scale:R84898 zeta-sso-hop: The failing health check runs on its own schedule per saved login session, not once per customer run, so counting only Zeta runs leaves out the sessions (and any other teams' sessions) that go through the same blocked connection.", False),
+    ("desk-runner", "SCALE-MISSED scale:R84898 zeta-sso-hop: counting only Zeta runs leaves out the sessions (and any other teams' sessions) the run-failure monitor sees.", False),
+    ("zeta-sso-hop", "MECHANISM the N line leaves out the other teams' sessions, which stop counting toward the monitor", False),
 ])
 def test_a_mute_or_monitor_skip_on_an_unfixed_mechanism_gets_one_pushback_to_root(shell, config, lane, text, pushed):
     """Nov 1, 2:17-2:59 PM: ai-oncall called the smoke-team journal refusals a false alarm, muted them and opened a monitor skip, and customer runs failed the same way at 2:56 PM. Nov 1, 4:52-5:01 PM: run-queue-fix proved two new run-queue monitors false and nobody muted them, so page 13321 reached the on-call; its typed MUTE window passes."""
@@ -13944,14 +13944,14 @@ def test_a_withdrawn_lanes_stop_report_launches_no_case_lane_and_its_redispatch_
     two_case_lanes(shell, config, tmp_path)
     desk_orders(shell, f"R21 orca-desk: withdraw {LANE}")
     orca_pass(shell, config)
-    unfixed_report(shell, LANE, "ready", "SoFi mount timeouts x16, alerts desk owns; root withdrew this fix lane")
+    unfixed_report(shell, LANE, "ready", "Acme mount timeouts x16, alerts desk owns; root withdrew this fix lane")
     offer = shell.receive({"type": "escalation", "subject": "Agent exited unexpectedly (Agent process stop was requested but never confirmed)", "body": "The task is ready to be dispatched again.", "from_handle": f"term_ctx_{LANE}"})
     orca_pass(shell, config)
     assert [call[1] for call in launches(shell)] == [LANE, f"{LANE}-case1", f"{LANE}-case2"]
     assert not [call for call in shell.calls if call[0] == "claude"] and not [line for line in escalations(shell) if line.startswith("DECIDE ")]
     assert [line for line in escalations(shell) if line.startswith(("UNFIXED ", "WITHDRAWN "))] == [
         f"WITHDRAWN {LANE} {LANE}: by R21; dispatch ctx_{LANE} stopped (stopped), and no report of it launches a case lane",
-        f"UNFIXED {LANE} 11:00: SoFi mount timeouts x16, alerts desk owns; root withdrew this fix lane | no case lane launched: the root withdrew {LANE} (R21)",
+        f"UNFIXED {LANE} 11:00: Acme mount timeouts x16, alerts desk owns; root withdrew this fix lane | no case lane launched: the root withdrew {LANE} (R21)",
         f"WITHDRAWN {offer['id']} {LANE}: withdrawn by R21, so it is not dispatched again and its question needs no answer: {offer['subject']}",
     ]
 
@@ -15160,7 +15160,7 @@ def test_only_open_page_cards_and_peoples_messages_reach_root_as_pages(shell, co
         ("Runner refusing runs", ":link: *{title}* Same problem as", ""),
         ("Iris chat list failing", ":white_check_mark: *{title}*", ""),
         ("Run history failing", ":hammer_and_wrench: *{title}*", ""),
-        ("run assignment is broken for single tenant teams", "{title}", "U0BDK3X2QSD"),
+        ("run assignment is broken for single tenant teams", "{title}", "U0PERSON001"),
     ]:
         page(shell, title, header=header, user=user)
         shell.sleep(1)

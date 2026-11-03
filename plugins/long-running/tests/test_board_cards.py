@@ -119,7 +119,7 @@ def test_until_records_the_event_that_ends_a_card(given, stored):
     ("given", "said"),
     [
         ("soon", "names no end condition"),
-        ("when Anubhav's release is done", "names no end condition"),
+        ("when Kennedy's release is done", "names no end condition"),
         ("pr:abc", "is not an end condition"),
         ("at:2026-11-02T07:00:00Z", "has already passed"),
     ],

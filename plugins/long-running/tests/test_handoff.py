@@ -71,7 +71,7 @@ Read first after the plan. Drive ssql-hacks, root session b577ef71.
 - Verify an Orca launch actually produced a lane within a minute.
 
 ## G. Open owner-facing items
-- #23 reply to Andrew: the copy is drafted and unsent."""
+- #23 reply to Taylor: the copy is drafted and unsent."""
 
 def creation_entry(body: str) -> dict:
     return {"kind": "create", "time": "2026-09-01T00:00:00Z", "changes": [{"field": "body", "to": body}]}
@@ -205,7 +205,7 @@ def drive_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     plan = tmp_path / ".claude" / "plans" / "brook.md"
     plan.parent.mkdir()
     plan.write_text(
-        "# brook\n\n- SoFi release on the owner's word\n- SoFi releases as it merges (4ffc9a5), never on the owner's word\n"
+        "# brook\n\n- Acme release on the owner's word\n- Acme releases as it merges (4ffc9a5), never on the owner's word\n"
     )
     drives = tmp_path / ".claude" / "long-running" / "drives"
     drives.mkdir(parents=True)
@@ -244,7 +244,7 @@ def generated_record(narrative: str) -> str:
 
 def shell_with(narrative: str = "", register: bool = True, rows: list[dict] | None = None) -> FakeCcn:
     rows = rows or [ask("000001"), ask("000002", dropped_at="2026-10-01T01:00:00Z"), ask("000003", answered_at="2026-10-01T01:00:00Z")]
-    shell = FakeCcn([RULE, OLD_RULE, OTHER], {"a" * 40: generated_record(narrative or "## Root's next actions\n1. watch SoFi")}, rows)
+    shell = FakeCcn([RULE, OLD_RULE, OTHER], {"a" * 40: generated_record(narrative or "## Root's next actions\n1. watch Acme")}, rows)
     shell.titles["a" * 40] = "brook: progress 2026-10-01T0000Z (generated)"
     if register:
         shell.docs[REGISTER_DOC] = REGISTER_BODY
@@ -273,7 +273,7 @@ def test_generate_writes_every_source_into_the_active_generated_doc(drive_home: 
         "- monitor: batches.jsonl grep",
         "- orca-desk.md: head R3, cursor R2: - R3 (root) → desk: launch l02",
         "- landing-desk.md: head L1, cursor -: - L1 (root) → desk: hold #1",
-        "- plan owner-gate line cites no live answer: brook.md:3: - SoFi release on the owner's word",
+        "- plan owner-gate line cites no live answer: brook.md:3: - Acme release on the owner's word",
         "- Drive `d1`: ledger `1a2b3c4`, Orca run `run_1`, checkout `/repo`, root sessions s-root\n\n## Open owner asks\n",
     ):
         assert line in body
@@ -281,7 +281,7 @@ def test_generate_writes_every_source_into_the_active_generated_doc(drive_home: 
     assert "Unrelated" not in body
     assert "000002" not in body and "000003" not in body
     assert "never on the owner's word" not in body.split("## Lint findings")[1]
-    assert body.split("## Root narrative\n")[1].strip() == "_From doc aaaaaaa, carried forward._\n\n## Root's next actions\n1. watch SoFi"
+    assert body.split("## Root narrative\n")[1].strip() == "_From doc aaaaaaa, carried forward._\n\n## Root's next actions\n1. watch Acme"
 
 
 def test_generate_reads_the_register_of_the_drives_program_not_the_plan_stem(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -413,7 +413,7 @@ def test_a_carried_narrative_is_only_the_previous_narrative_section(drive_home: 
 
     body = shell.docs[second["id"]]
     assert body.count("## Standing owner rules") == 1
-    assert body.count("1. watch SoFi") == 1
+    assert body.count("1. watch Acme") == 1
     assert body.count("_From ") == 1
     assert "_From doc aaaaaaa, carried forward._" in body
     assert first["id"] == second["id"]
@@ -472,18 +472,18 @@ def test_lint_flags_the_plans_uncited_owner_gate_lines(drive_home: Path, capsys:
 
     printed = capsys.readouterr().out
     assert code == 3
-    assert "plan owner-gate line cites no live answer: brook.md:3: - SoFi release on the owner's word" in printed
+    assert "plan owner-gate line cites no live answer: brook.md:3: - Acme release on the owner's word" in printed
     assert "missing durable rule" not in printed
 
 
 def test_strict_refuses_a_narrative_with_an_uncited_owner_gate(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
     shell = shell_with()
-    shell.write("b" * 40, "## Root's next actions\n1. ship sanddb on SoFi on the owner's word")
+    shell.write("b" * 40, "## Root's next actions\n1. ship sanddb on Acme on the owner's word")
     argv = ["generate", "--program", "brook", "--plan", str(drive_home / ".claude/plans/brook.md"), "--repo", REPO, "--strict"]
 
     assert handoff.main(argv, shell) == 3
 
-    assert "owner-gate line cites no live answer id: 1. ship sanddb on SoFi on the owner's word" in capsys.readouterr().out
+    assert "owner-gate line cites no live answer id: 1. ship sanddb on Acme on the owner's word" in capsys.readouterr().out
     assert not any(call[3:5] == ["doc", "add"] for call in shell.calls)
     assert not (drive_home / ".claude/plans/brook-progress").exists()
 
@@ -539,12 +539,12 @@ def test_strict_names_an_uncited_standing_rule_until_a_cited_record_replaces_it(
 
 def test_strict_names_the_narrative_line_and_its_edit(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
     shell = shell_with()
-    shell.write("b" * 40, "## Root's next actions\n1. land l11\n2. ship sanddb on SoFi on the owner's word")
+    shell.write("b" * 40, "## Root's next actions\n1. land l11\n2. ship sanddb on Acme on the owner's word")
 
     assert strict(drive_home, shell) == 3
 
     assert capsys.readouterr().out.strip() == (
-        "narrative (doc bbbbbbb) line 3: owner-gate line cites no live answer id: 2. ship sanddb on SoFi on the owner's "
+        "narrative (doc bbbbbbb) line 3: owner-gate line cites no live answer id: 2. ship sanddb on Acme on the owner's "
         "word; end that line with `(answer <id>)` via `ccn doc edit bbbbbbbb --body -`"
     )
 
@@ -552,7 +552,7 @@ def test_strict_names_the_narrative_line_and_its_edit(drive_home: Path, capsys: 
 def test_strict_lints_only_the_newest_hand_written_record_never_the_ones_it_supersedes(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """Root #287923: the Stop hook flagged owner-gate lines in six superseded progress docs from Oct 30 and 31 on every stop."""
     shell = shell_with()
-    shell.write("b" * 40, "## Root's next actions\n1. ship sanddb on SoFi on the owner's word", supersedes=("a" * 40,))
+    shell.write("b" * 40, "## Root's next actions\n1. ship sanddb on Acme on the owner's word", supersedes=("a" * 40,))
     shell.write("d" * 40, "## Root's next actions\n1. land l11", supersedes=("b" * 40,))
 
     out = generate(drive_home, shell, "--strict", capsys=capsys)

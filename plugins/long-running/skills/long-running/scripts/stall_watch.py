@@ -1674,7 +1674,7 @@ class Pass:
 
 
 def dev_health_break(text: str) -> str | None:
-    """The clause of a dev-health line's `prod:` counts that is a customer break: nonzero run crashes, a nonzero APM error count, or a nonzero count naming customers that no open finding the line lists covers, as `prod:hsbcsso` covers `HSBC SSO errors 15m 98` (root #305535)."""
+    """The clause of a dev-health line's `prod:` counts that is a customer break: nonzero run crashes, a nonzero APM error count, or a nonzero count naming customers that no open finding the line lists covers, as `prod:zetasso` covers `Zeta SSO errors 15m 98` (root #305535)."""
     findings = OPEN_FINDINGS.search(text)
     covered = {squashed(key.split(":", 1)[-1]) for key in findings["keys"].split(";")} if findings else set()
     for clause in (part.strip() for part in PROD_COUNTS.search(text)["counts"].split(";")):

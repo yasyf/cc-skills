@@ -38,7 +38,7 @@ ENTRIES = [
     {"ts": "2026-10-16T11:22:59Z", "text": "Baseline with no step tag."},
     {"ts": "2026-10-16T11:30:00Z", "text": "[step 2b] restack missed its 4:05 clock."},
     {"ts": "2026-10-16T11:40:00Z", "text": "[Step 2B] restack landed at 4:38 after a second post."},
-    {"ts": "2026-10-16T11:35:00Z", "text": "[step 1] SoFi write pass stalled on s2."},
+    {"ts": "2026-10-16T11:35:00Z", "text": "[step 1] Acme write pass stalled on s2."},
 ]
 
 
@@ -88,7 +88,7 @@ def test_refreshed_state(state, verdicts, expected):
 def test_latest_retro_keeps_the_newest_tagged_entry_per_step():
     assert plan_table.latest_retro(ENTRIES) == {
         "2b": ("2026-10-16T11:40:00Z", "restack landed at 4:38 after a second post."),
-        "1": ("2026-10-16T11:35:00Z", "SoFi write pass stalled on s2."),
+        "1": ("2026-10-16T11:35:00Z", "Acme write pass stalled on s2."),
     }
 
 
@@ -106,7 +106,7 @@ def test_main_writes_the_refreshed_table(tmp_path, monkeypatch):
     assert lines[4] == HEADER
     rows = {line.split(" | ")[0].lstrip("| "): line.split(" | ") for line in lines[6:]}
     assert rows["1. Empty the skip files"][2] == "in progress, PRs: 1 blocked"
-    assert rows["1. Empty the skip files"][5] == "Three passes failed alike. Watchdog 4:35 AM: SoFi write pass stalled on s2. |"
+    assert rows["1. Empty the skip files"][5] == "Three passes failed alike. Watchdog 4:35 AM: Acme write pass stalled on s2. |"
     assert rows["2b. Drop the mirror"][5] == "Restack was late. Watchdog 4:40 AM: restack landed at 4:38 after a second post. |"
     assert rows["8. Binding refs"][2] == "landed"
     assert rows["9. Live already"][2] == "live"

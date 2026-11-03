@@ -2438,7 +2438,7 @@ def test_unregister_refuses_an_unknown_lane_or_a_mismatched_prefix():
 
 
 def test_unregister_pr_removes_the_named_rows_whole_and_leaves_the_rest(capsys):
-    shell = FakeShell(rows=[{"key": "41141", "fields": {"author": "anubhav94", "state": "open"}}, {"key": "24070", "fields": {"lane": LANE, "registered": LANE}}, {"key": f"lane/{LANE}", "fields": {"lane": LANE, "branch_prefix": "lightning/"}}])
+    shell = FakeShell(rows=[{"key": "41141", "fields": {"author": "kennedy94", "state": "open"}}, {"key": "24070", "fields": {"lane": LANE, "registered": LANE}}, {"key": f"lane/{LANE}", "fields": {"lane": LANE, "branch_prefix": "lightning/"}}])
 
     assert run(shell, "unregister", "--ledger", LEDGER, "--pr", "41141") == 0
 

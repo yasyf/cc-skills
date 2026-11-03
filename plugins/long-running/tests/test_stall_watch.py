@@ -2056,7 +2056,7 @@ def test_a_pass_whose_post_cci_refuses_ends_its_output_on_that_refusal(config, c
 
 
 def test_a_replay_of_nov_1_opens_the_tenant_incident_at_290083_in_the_pass_that_first_reads_it(config):
-    """Retro C4: release-5 said at 11:45 AM (#290083) that Anubhav's release ships sand ahead of api, so tenant users see 'index unavailable'; root put it on a card (#290155), told the detector to hold its finding (#290003), and no incident opened until 1:54 PM (owner 3:03 PM Nov 1, root #296632)."""
+    """Retro C4: release-5 said at 11:45 AM (#290083) that Kennedy's release ships sand ahead of api, so tenant users see 'index unavailable'; root put it on a card (#290155), told the detector to hold its finding (#290003), and no incident opened until 1:54 PM (owner 3:03 PM Nov 1, root #296632)."""
     replay = [{"drive": DRIVE, "num": f"#{found['seq']}", "refs": {}, "to": []} | found for found in map(json.loads, (Path(__file__).parent / "fixtures/customer_break/nov1.jsonl").read_text().splitlines())]
     shell = FakeShell([], [])
     opened: list[tuple[str, datetime]] = []
@@ -2085,13 +2085,13 @@ def test_a_replay_of_nov_1_opens_the_tenant_incident_at_290083_in_the_pass_that_
 @pytest.mark.parametrize(
     ("seq", "kind", "text"),
     [
-        (308806, "note", "card-sofi-crashed-runs: merged with the 5:26 AM crashed-run Slack pick (releases-slack-choice moved here unchanged, same ids)."),
-        (308810, "report", "card-sofi-crashed-runs: re-run or tell SoFi, and tell the 5:26 AM team."),
-        (309258, "answer", "NOT CODE (a release, a post, a billing or a person's step): card-releases, card-sofi-crashed-runs (both picks), card-logged-secrets (both). SoFi runs crashed and users see errors."),
+        (308806, "note", "card-acme-crashed-runs: merged with the 5:26 AM crashed-run Slack pick (releases-slack-choice moved here unchanged, same ids)."),
+        (308810, "report", "card-acme-crashed-runs: re-run or tell Acme, and tell the 5:26 AM team."),
+        (309258, "answer", "NOT CODE (a release, a post, a billing or a person's step): card-releases, card-acme-crashed-runs (both picks), card-logged-secrets (both). Acme runs crashed and users see errors."),
     ],
 )
 def test_a_board_lane_note_naming_a_customer_card_opens_no_customer_break(config, seq, kind, text):
-    """Root #310188: three board-curate-1 notes naming card-sofi-crashed-runs, an Oct 31 card already settled, each opened an INCIDENT customer-break (309794, 309795, 309846)."""
+    """Root #310188: three board-curate-1 notes naming card-acme-crashed-runs, an Oct 31 card already settled, each opened an INCIDENT customer-break (309794, 309795, 309846)."""
     shell = FakeShell([record(1, "root", "state", "seed", 30)], [])
     watch(shell, config)
     shell.records += [record(seq, "board-curate-1", kind, text, 1), record(seq + 1, "release-5", "urgent", "Release 11719 ships sand ahead of api, so tenant users see 'index unavailable' in the sidebar.", 1)]
@@ -2101,7 +2101,7 @@ def test_a_board_lane_note_naming_a_customer_card_opens_no_customer_break(config
 
 def test_the_first_pass_reads_no_history_and_a_failed_incident_post_is_read_again_next_pass(config):
     warned = record(5, "release-5", "urgent", "Release 11719 ships sand ahead of api, so tenant users see 'index unavailable' in the sidebar.", 2)
-    shell = FakeShell([record(4, "api-lane", "note", "SoFi users see 'chat failed' since the 11:52 release.", 30)], [])
+    shell = FakeShell([record(4, "api-lane", "note", "Acme users see 'chat failed' since the 11:52 release.", 30)], [])
     watch(shell, config)
     assert shell.posts == []
 
@@ -2116,10 +2116,10 @@ def test_the_first_pass_reads_no_history_and_a_failed_incident_post_is_read_agai
     assert shell.topics() == ["customer:5"]
 
 
-DEV_HEALTH_LINE = """dev-health-desk-1 hourly: 4 open findings: rel:lag:sand; rel:lag:sand-next; prod:hsbcsso
+DEV_HEALTH_LINE = """dev-health-desk-1 hourly: 4 open findings: rel:lag:sand; rel:lag:sand-next; prod:zetasso
 
 dev: latest finished dev test #100844 1eb90d31e passed, 0 bad job names
-prod: run crashes 1h none; HSBC SSO errors 15m 98; runtime-v2 err 42/2; runtime-v2 apm 0/3301 (24h ago 0); sandsql apm 0/28446 (24h ago 0)
+prod: run crashes 1h none; Zeta SSO errors 15m 98; runtime-v2 err 42/2; runtime-v2 apm 0/3301 (24h ago 0); sandsql apm 0/28446 (24h ago 0)
 release: 70 release builds in 6h, 1 failing steps"""
 
 
@@ -2129,11 +2129,11 @@ release: 70 release builds in 6h, 1 failing steps"""
         (DEV_HEALTH_LINE, False),
         (DEV_HEALTH_LINE.replace("run crashes 1h none", "run crashes 1h 3"), True),
         (DEV_HEALTH_LINE.replace("runtime-v2 apm 0/3301", "runtime-v2 apm 4/3301"), True),
-        (DEV_HEALTH_LINE.replace("prod:hsbcsso", "prod:sofisso"), True),
+        (DEV_HEALTH_LINE.replace("prod:zetasso", "prod:acmesso"), True),
     ],
 )
 def test_a_dev_health_line_opens_a_customer_break_only_on_crashes_apm_errors_or_a_customer_count_no_open_finding_covers(config, line, opens):
-    """Root #305535: three dev-health state lines in 17 minutes opened customer-breaks that root closed on scope (305119, 305171, 305361), since `HSBC` and the zero-crash clause `run crashes 1h none` shared one sentence."""
+    """Root #305535: three dev-health state lines in 17 minutes opened customer-breaks that root closed on scope (305119, 305171, 305361), since `Zeta` and the zero-crash clause `run crashes 1h none` shared one sentence."""
     shell = FakeShell([record(4, "dev-health-desk-1", "note", "dev-health-desk-1 up", 30)], [])
     watch(shell, config)
     shell.records.append(record(5, "dev-health-desk-1", "state", line, 1))

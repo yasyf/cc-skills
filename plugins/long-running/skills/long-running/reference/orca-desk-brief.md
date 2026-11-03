@@ -125,7 +125,7 @@ A Bash append to `orca-desk.md` in a drive session draws `UNREAD` and the `cci p
     "release_owner": "peer:<release session>",
     "release_cli": "tools/ci release",
     "applying": {"build": "tools/ci bk api /pipelines/{pipeline}/builds/{number}", "step": "apply-(?P<component>.+?)--(?P<env>.+)", "components": ["sandsql", "api", "executor", "rsw-*"]},
-    "pages": {"channels": ["C0C5SEUJK5L", "C0BGGNU2C76"], "build": "tools/ci bk api /pipelines/{pipeline}/builds/{number}"},
+    "pages": {"channels": ["C0PAGES0001", "C0PAGES0002"], "build": "tools/ci bk api /pipelines/{pipeline}/builds/{number}"},
     "interval_seconds": 180,
     "status_card": true,
     "policy": {

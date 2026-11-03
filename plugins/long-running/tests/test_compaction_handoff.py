@@ -721,7 +721,7 @@ def test_a_narrative_with_an_uncited_owner_gate_warns_at_the_stop_until_fixed(ho
     rule = {"id": "4ffc9a5" + "0" * 33, "title": "When does a merged change get released?", "tags": ["scope:durable", "brook"]}
     (docs / "answers.json").write_text(json.dumps([rule]))
     (docs / "docs.json").write_text(json.dumps([doc("a" * 40, "2026-09-30T04:00:00Z"), doc("b" * 40, "2026-09-30T05:44:08Z")]))
-    (docs / ("b" * 40 + ".md")).write_text("## Owner asks\nSoFi release on the owner's word\n")
+    (docs / ("b" * 40 + ".md")).write_text("## Owner asks\nAcme release on the owner's word\n")
     handoff.CompactionState(active=True, coordinator=True, plan_path=str(plan), slug="brook", phase="due", prior=["a" * 40]).save(
         bash(session)
     )
@@ -730,12 +730,12 @@ def test_a_narrative_with_an_uncited_owner_gate_warns_at_the_stop_until_fixed(ho
 
     assert warned.action.name == "warn"
     assert "fails the standing-rules lint" in warned.message and "`ccn doc edit bbbbbbbb --body -`" in warned.message
-    assert "owner-gate line cites no live answer id: SoFi release on the owner's word" in warned.message
+    assert "owner-gate line cites no live answer id: Acme release on the owner's word" in warned.message
     assert "missing durable rule" not in warned.message
     assert state(session).phase == "due"
     assert not any(call[:2] in (["doc", "supersede"], ["doc", "add"]) for call in ccn_calls(docs))
 
-    (docs / ("b" * 40 + ".md")).write_text("## Owner asks\nSoFi released as it merges (4ffc9a5), never on the owner's word\n")
+    (docs / ("b" * 40 + ".md")).write_text("## Owner asks\nAcme released as it merges (4ffc9a5), never on the owner's word\n")
     assert handoff.compact_when_idle(stop_event(session)).system_message.startswith("The handoff is recorded")
     assert ["doc", "supersede", "a" * 40, "--by", "b" * 40] in ccn_calls(docs)
     assert "## Standing owner rules\n\n- no `standing-rules` register doc\n" in (docs / ("b" * 40 + ".md")).read_text()
@@ -746,7 +746,7 @@ def test_an_uncited_standing_rule_warns_at_the_stop_at_its_record_not_the_doc(ho
     rule = {"id": "4ffc9a5" + "0" * 33, "title": "When does a merged change get released?", "tags": ["scope:durable", "brook"]}
     (docs / "answers.json").write_text(json.dumps([rule]))
     (docs / "docs.json").write_text(json.dumps([doc("b" * 40, "2026-09-30T05:44:08Z")]))
-    (docs / ("b" * 40 + ".md")).write_text("## Root's next actions\n1. watch SoFi\n")
+    (docs / ("b" * 40 + ".md")).write_text("## Root's next actions\n1. watch Acme\n")
     standing_rule(docs, "go", "release on the owner's word")
     handoff.CompactionState(active=True, coordinator=True, plan_path=str(plan), slug="brook", phase="due").save(bash(session))
 
@@ -772,7 +772,7 @@ def test_every_compaction_generates_the_handoff_and_restores_its_digest(home: Pa
     inbox.mkdir(parents=True)
     standing_rule(docs, "go", "release every landing as it merges")
     (docs / "docs.json").write_text(json.dumps([doc("a" * 40, "2026-09-30T04:00:00Z")]))
-    (docs / ("a" * 40 + ".md")).write_text("## Root's next actions\n1. watch SoFi\n")
+    (docs / ("a" * 40 + ".md")).write_text("## Root's next actions\n1. watch Acme\n")
     add_register(docs, "# brook register\n\n1. Pulumi state is the only truth.\n")
     handoff.CompactionState(active=True, coordinator=True, plan_path=str(plan), slug="brook").save(bash(session))
 
@@ -780,7 +780,7 @@ def test_every_compaction_generates_the_handoff_and_restores_its_digest(home: Pa
 
     generated = (docs / ("a" * 40 + ".md")).read_text()
     assert "- #1 [cci #1]" in generated
-    assert generated.endswith("_From doc aaaaaaa._\n\n## Root's next actions\n1. watch SoFi\n")
+    assert generated.endswith("_From doc aaaaaaa._\n\n## Root's next actions\n1. watch Acme\n")
     assert not any(call[:2] in (["doc", "add"], ["doc", "supersede"]) and "standing-rules:brook" not in call for call in ccn_calls(docs))
 
     restored = handoff.reground(session_start(session, "compact")).message
@@ -840,7 +840,7 @@ def test_a_resumed_drive_restores_its_newest_progress_doc_within_budget(home: Pa
     session = home / "session"
     (docs / "docs.json").write_text(json.dumps([doc("a" * 40, "2026-09-30T04:00:00Z"), doc("b" * 40, "2026-09-30T05:00:00Z")]))
     (docs / ("a" * 40 + ".md")).write_text("## Root's next actions\n1. stale\n")
-    (docs / ("b" * 40 + ".md")).write_text("## Root's next actions\n1. watch SoFi\n" + "- lane row\n" * 400)
+    (docs / ("b" * 40 + ".md")).write_text("## Root's next actions\n1. watch Acme\n" + "- lane row\n" * 400)
     add_register(docs, "# brook register\n\n1. Pulumi state is the only truth.\n")
     handoff.CompactionState(active=True, coordinator=True, plan_path=str(plan), slug="brook").save(bash(session))
 
@@ -848,7 +848,7 @@ def test_a_resumed_drive_restores_its_newest_progress_doc_within_budget(home: Pa
     assert handoff.deliver_register(bash(session)) is None
 
     assert restored.startswith("Resumed long-running drive `brook`. Before acting, read the progress record `ccn doc show bbbbbbb`")
-    assert "\n## Root's next actions\n1. watch SoFi\n- lane row\n" in restored
+    assert "\n## Root's next actions\n1. watch Acme\n- lane row\n" in restored
     assert "stale" not in restored
     assert len(restored.encode()) <= handoff.RESTORE_BUDGET
 
