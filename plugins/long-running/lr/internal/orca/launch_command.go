@@ -1,6 +1,7 @@
 package orca
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -59,6 +60,19 @@ func (f *posterFlags) poster(cmd *cobra.Command, a *app.App) Poster {
 	return Poster{Bus: CCI{}, Runner: a.Runner, Env: os.Getenv, Now: a.Now, Sleep: time.Sleep, Out: cmd.OutOrStdout(), Drive: f.drive, Author: f.lane}
 }
 
+func (p Poster) LaunchOrExit(ctx context.Context, order Order, timeout time.Duration) error {
+	label, err := p.Launch(ctx, order, timeout)
+	switch {
+	case err != nil:
+		return err
+	case label == "":
+		return &wait.ExitError{Code: unsettledExit}
+	case label != verdictLaunched:
+		return &wait.ExitError{Code: failedExit}
+	}
+	return nil
+}
+
 func seconds(value float64) time.Duration {
 	return time.Duration(value * float64(time.Second))
 }
@@ -92,16 +106,7 @@ Exit 0 when the lane launched, 1 when the runner refused it or a check did, and 
 		Args: cobra.ExactArgs(4),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			order := Order{Lane: args[0], Model: args[1], Effort: args[2], Role: role, Brief: args[3], Now: now}
-			label, err := flags.poster(cmd, a).Launch(cmd.Context(), order, seconds(timeout))
-			switch {
-			case err != nil:
-				return err
-			case label == "":
-				return &wait.ExitError{Code: unsettledExit}
-			case label != verdictLaunched:
-				return &wait.ExitError{Code: failedExit}
-			}
-			return nil
+			return flags.poster(cmd, a).LaunchOrExit(cmd.Context(), order, seconds(timeout))
 		},
 	}
 	flags.bind(cmd)
