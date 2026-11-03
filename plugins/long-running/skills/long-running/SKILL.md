@@ -96,6 +96,9 @@ he would want from it, never forwarding the coordinator's text as written. Only 
 communicator owes him his own terms (R21): plain words, Pacific times, the thing's
 name never a codename or id, the mechanism of the failure before the fix, the human
 layer before the agent layer ([communicator-brief.md](reference/communicator-brief.md)).
+A line to him that calls something urgent says in that sentence or the next what is
+lost, for whom, and whether it can be undone, or `urgent_lines_name_the_harm` refuses
+it, and a migration, release or PR number carries plain words on what that change does.
 It owns the dashboard and the owner updates: one generator, `lr update render`,
 feeds both from the same rows, run by its one standing helper `update-desk`
 ([owner-report-table.md](reference/owner-report-table.md)). A dashboard restart is
