@@ -504,6 +504,9 @@ func foldRegistry(s *store.Store, r Record, row store.Lane, known, fresh bool, a
 	if slices.Contains(carries, kind) && !isRoot && foldCarried(s, r, at) {
 		return
 	}
+	if slices.Contains(claims, kind) && known && isLive(row.State) && slices.Contains(builders, row.Role) {
+		foldClaimed(s, r)
+	}
 	switch {
 	case kind == kindLanded:
 		foldLanded(s, r, at)
@@ -548,6 +551,16 @@ func foldCarried(s *store.Store, r Record, at time.Time) bool {
 	}
 	do(s.Own(r.Lane, numbers))
 	return true
+}
+
+func foldClaimed(s *store.Store, r Record) {
+	var unowned []int
+	for n, owner := range must(s.OwnerOf(r.PRs())) {
+		if owner == "" {
+			unowned = append(unowned, n)
+		}
+	}
+	do(s.Own(r.Lane, unowned))
 }
 
 func foldLanded(s *store.Store, r Record, at time.Time) {

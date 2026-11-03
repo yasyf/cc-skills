@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/grading"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -55,6 +56,10 @@ const (
 	clusterSize    = 3
 	refusalCluster = 30 * time.Minute
 	waitCluster    = time.Hour
+
+	ungradedFact = "green-ungraded"
+	ungradedLane = time.Hour
+	ungradedRoot = 3 * time.Hour
 )
 
 var (
@@ -131,6 +136,9 @@ func Run(s *store.Store, snapshot []machine.Facts, now time.Time, post Post, liv
 	}
 	if !slices.Contains(live, machine.MoverPool) {
 		return out, nil
+	}
+	if err := escalateUngraded(s, snapshot, now, tell, route, owner, &out); err != nil {
+		return out, err
 	}
 	err = releaseStale(s, now, tell, route, &out)
 	return out, err
@@ -397,6 +405,53 @@ func stuckBecause(s *store.Store, base machine.Facts, now time.Time) (string, er
 		}
 	}
 	return "", nil
+}
+
+func escalateUngraded(s *store.Store, snapshot []machine.Facts, now time.Time, post Post, route Route, owner Owner, out *Outcome) error {
+	if len(snapshot) == 0 {
+		return nil
+	}
+	since, err := s.FactsOfKind(snapshot[0].Repo, ungradedFact)
+	if err != nil {
+		return err
+	}
+	for _, f := range snapshot {
+		if !f.Green() || f.Graded() || f.Draft || f.Restackable() || out.Verdicts[f.Number].State.Terminal() {
+			continue
+		}
+		first, seen := since[store.FactKey{Number: f.Number, Head: f.Head}]
+		if !seen {
+			if _, err := s.PutFact(f.Repo, f.Number, f.Head, ungradedFact, "green", now); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := tellUngraded(s, f, now.Sub(first), now, post, route, owner, out); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func tellUngraded(s *store.Store, f machine.Facts, waited time.Duration, now time.Time, post Post, route Route, owner Owner, out *Outcome) error {
+	subject := fmt.Sprintf("%s#%d at %s", f.Repo, f.Number, f.Head[:min(10, len(f.Head))])
+	detail := ": no " + strings.Join(grading.Missing(f), " or ") + " grade"
+	if f.Lane == "" {
+		detail += fmt.Sprintf("; no lane owns it, so no grade item opens until `lr request owner <lane> --pr %d`", f.Number)
+	}
+	switch {
+	case waited >= ungradedRoot:
+		return escalate(s, subject, fmt.Sprintf("green and ungraded for %d minutes", int(ungradedRoot.Minutes())), detail, root, now, post, out)
+	case waited >= ungradedLane && f.Lane != "":
+		lane, err := owner(f.Lane)
+		if err != nil {
+			return err
+		}
+		desk := route(GraderDesk)
+		both := func(_ []string, body bus.Body) error { return post(slices.Compact([]string{desk, lane}), body) }
+		return escalate(s, subject, fmt.Sprintf("green and ungraded for %d minutes", int(ungradedLane.Minutes())), detail, desk, now, both, out)
+	}
+	return nil
 }
 
 func gateOf(mover machine.Mover) machine.Mover {

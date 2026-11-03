@@ -105,6 +105,8 @@ var (
 
 	helperRoles = []string{"helper", "reader", "watch", "export", "evidence", "handoff", "comms", "triage"}
 	carries     = []string{"head", "opened"}
+	claims      = []string{"blocked", "ready"}
+	builders    = []string{"build", "fix"}
 	waits       = []string{"ask", "blocked", "blocker"}
 	settled     = []string{"handoff", "done", "stand-down", "stopped"}
 	laneEnds    = []string{"done", "stopped", "fix-live"}

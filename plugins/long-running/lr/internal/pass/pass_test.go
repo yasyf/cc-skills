@@ -267,7 +267,7 @@ func TestAnOverdueVerdictGoesOnceToTheGraderDeskNeverRoot(t *testing.T) {
 
 func TestAnOverdueGradeGoesToTheGraderDeskAndAnOverdueTapToTheBoardDesk(t *testing.T) {
 	s, r := newStore(t), &recorder{}
-	given := []machine.Facts{facts(1, func(f *machine.Facts) { f.Fidelity = "" }), facts(2, noTap)}
+	given := []machine.Facts{facts(1, func(f *machine.Facts) { f.Fidelity, f.CI = "", machine.CIPending }), facts(2, noTap)}
 
 	run(t, s, r, t0, all, given...)
 	out := run(t, s, r, t0.Add(12*time.Hour), all, given...)
@@ -742,5 +742,103 @@ func TestAStackBaseNobodyDrivesTellsRootWhatItHolds(t *testing.T) {
 	want := []pass.Escalated{{Subject: "org/repo#45469", Cause: "stack base stuck at e718a7434f; nobody drives it and holds #45470 above it", To: "root"}}
 	if !reflect.DeepEqual(toRoot(out), want) {
 		t.Fatalf("escalated = %+v", toRoot(out))
+	}
+}
+
+func ungradedPosts(r *recorder) []posted {
+	kept := make([]posted, 0, len(r.posts))
+	for _, p := range r.posts {
+		if strings.Contains(fmt.Sprint(p.body), "green and ungraded") {
+			kept = append(kept, p)
+		}
+	}
+	return kept
+}
+
+func TestAGreenHeadMissingAGradeTellsTheGraderAndLaneAtAnHourAndRootAtThreeOnce(t *testing.T) {
+	s, r := newStore(t), &recorder{}
+	if _, err := s.WantLane(store.Lane{Name: "lane-7", State: store.LaneDesired}, t0); err != nil {
+		t.Fatal(err)
+	}
+	given := facts(48967, func(f *machine.Facts) { f.Finder = "" })
+
+	run(t, s, r, t0, all, given)
+	run(t, s, r, t0.Add(59*time.Minute), all, given)
+	if got := ungradedPosts(r); len(got) != 0 {
+		t.Fatalf("before the hour: %+v", got)
+	}
+
+	run(t, s, r, t0.Add(time.Hour), all, given)
+	run(t, s, r, t0.Add(2*time.Hour), all, given)
+	wantHour := posted{[]string{"grader-appeals-3", "lane-7"}, bus.Note{Text: "org/repo#48967 at e718a7434f green and ungraded for 60 minutes: no finder grade"}}
+	if got := ungradedPosts(r); !reflect.DeepEqual(got, []posted{wantHour}) {
+		t.Fatalf("at the hour: %+v", got)
+	}
+
+	run(t, s, r, t0.Add(3*time.Hour), all, given)
+	run(t, s, r, t0.Add(4*time.Hour), all, given)
+	wantRoot := posted{[]string{"root"}, bus.Escalation{Subject: "org/repo#48967 at e718a7434f", Cause: "green and ungraded for 180 minutes: no finder grade"}}
+	if got := ungradedPosts(r); !reflect.DeepEqual(got, []posted{wantHour, wantRoot}) {
+		t.Fatalf("at three hours: %+v", got)
+	}
+}
+
+func TestAGreenUngradedHeadNoLaneOwnsReachesOnlyRootAtThreeHoursSayingHowToOwnIt(t *testing.T) {
+	s, r := newStore(t), &recorder{}
+	given := facts(48967, func(f *machine.Facts) { f.Lane, f.Finder, f.Fidelity, f.Tap = "", "", "", "" })
+
+	run(t, s, r, t0, all, given)
+	run(t, s, r, t0.Add(2*time.Hour), all, given)
+	if got := ungradedPosts(r); len(got) != 0 {
+		t.Fatalf("before three hours: %+v", got)
+	}
+
+	run(t, s, r, t0.Add(3*time.Hour), all, given)
+	want := []posted{{[]string{"root"}, bus.Escalation{
+		Subject: "org/repo#48967 at e718a7434f",
+		Cause:   "green and ungraded for 180 minutes: no finder or fidelity grade; no lane owns it, so no grade item opens until `lr request owner <lane> --pr 48967`",
+	}}}
+	if got := ungradedPosts(r); !reflect.DeepEqual(got, want) {
+		t.Fatalf("posts = %+v", got)
+	}
+	if open, err := s.OpenItems(repo, 48967); err != nil || len(open) != 0 {
+		t.Fatalf("open = %+v, %v", open, err)
+	}
+}
+
+func TestANewHeadRestartsTheUngradedClock(t *testing.T) {
+	s, r := newStore(t), &recorder{}
+	given := facts(48967, func(f *machine.Facts) { f.Finder = "" })
+	moved := given
+	moved.Head = newHead
+
+	run(t, s, r, t0, all, given)
+	run(t, s, r, t0.Add(30*time.Minute), all, moved)
+	run(t, s, r, t0.Add(time.Hour), all, moved)
+
+	if got := ungradedPosts(r); len(got) != 0 {
+		t.Fatalf("posts = %+v", got)
+	}
+}
+
+func TestOnlyAGreenOpenHeadThatCanBeGradedStartsTheUngradedClock(t *testing.T) {
+	for name, change := range map[string]func(*machine.Facts){
+		"graded":   nil,
+		"pending":  func(f *machine.Facts) { f.Finder, f.CI = "", machine.CIPending },
+		"draft":    func(f *machine.Facts) { f.Finder, f.Draft = "", true },
+		"conflict": func(f *machine.Facts) { f.Finder, f.Mergeable = "", machine.MergeableConflict },
+		"merged":   func(f *machine.Facts) { f.Finder, f.Merged = "", true },
+	} {
+		t.Run(name, func(t *testing.T) {
+			s, r := newStore(t), &recorder{}
+			given := facts(48967, change)
+
+			run(t, s, r, t0, all, given)
+			run(t, s, r, t0.Add(4*time.Hour), all, given)
+
+			if got := ungradedPosts(r); len(got) != 0 {
+				t.Fatalf("posts = %+v", got)
+			}
+		})
 	}
 }
