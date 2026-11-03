@@ -31,3 +31,24 @@ func TestFirstSpriteRefusesARunnerThatNamesNone(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestRestackReadsTheRunnerBesideConfigWhenNoRunnerIsPassed(t *testing.T) {
+	cases := []struct {
+		name, runner, config, want string
+	}{
+		{"an explicit runner wins", "/d/other.json", "/d/lr.json", "/d/other.json"},
+		{"the runner beside lr.json", "", "/d/lr.json", "/d/runner.json"},
+		{"a config that is the runner itself", "", "/d/runner.json", "/d/runner.json"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, err := restackRunner(c.runner, c.config)
+			if err != nil || got != c.want {
+				t.Fatalf("got %q, %v; want %q", got, err, c.want)
+			}
+		})
+	}
+	if got, err := restackRunner("", ""); err == nil {
+		t.Fatalf("got %q with neither flag", got)
+	}
+}
