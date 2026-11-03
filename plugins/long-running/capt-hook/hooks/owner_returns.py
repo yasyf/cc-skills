@@ -12,11 +12,13 @@ from pathlib import Path
 from spawnllm import Binary, BinaryAnswer, Refused
 
 from captain_hook import Allow, AssistantMessage, BaseHookEvent, Block, Event, FromSubagent, HookResult, Input, T, Tool, Warn, WorkflowState, on, workflow_state
+from captain_hook.util import reqenv
 
 from .compaction_handoff import bus_name, Communicator, COMMUNICATOR_LANE, communicator_tests, CompactionState, drive_entry
 from .owner_answers import read, RECORD_BYTES
 from .lane_slack_status import CC_SLACK, CLI, WRITE_TOOLS
 from .register_capture import slack_dms
+from .register_gates import blocker, cause
 from .root_context import OwnerPrompt
 from .root_replies import SYSTEM_PREFIXES, owner_text
 from .tests.register_fixtures import DRIVE_CONFIG
@@ -71,6 +73,10 @@ FILE_PATH = (
     " Link the dashboard section that shows it on the tailnet instead, and say what it shows in plain words."
 )
 SCRATCH_ROOTS = (".claude/scratch/", "progress-desk/")
+CC_SLACK_CACHE = Path("plugins") / "cache" / "cc-slack" / "cc-slack"
+VERSION = re.compile(r"\d+(?:\.\d+)*")
+SHIPPED_CC_SLACK = Path(DRIVE_CONFIG["CLAUDE_CONFIG_DIR"]) / CC_SLACK_CACHE / "0.4.27" / "bin" / "cc-slack"
+CC_SLACK_UNREAD = "The communicator could not run `cc-slack {verb}` from the plugin ({why}), so the owner's DM replies go unwatched or unchecked until it works."
 UNANSWERED = (
     "The owner wrote in Slack and nobody has answered in that thread: {replies}."
     " Reply in each thread with `slack_reply` saying what was done with it, then stop."
@@ -114,8 +120,8 @@ def back(reply: str, returned: bool = True) -> Input:
     skip_if=[FromSubagent()],
 )
 def communicator_holds_the_owners_dm(evt: BaseHookEvent) -> None:
-    if me := cc_slack("whoami"):
-        cc_slack("follow", "--channel", json.loads(me)["dm_channel_id"], "--session", evt.session_id)
+    if me := cc_slack(evt, "whoami"):
+        cc_slack(evt, "follow", "--channel", json.loads(me)["dm_channel_id"], "--session", evt.session_id)
 
 
 @on(
@@ -142,7 +148,7 @@ def owner_return_opens_with_the_update(evt: BaseHookEvent) -> HookResult | None:
 
 
 def owed(replies: str | tuple) -> Input:
-    return Input(transcript=[T.user("where are we"), T.assistant("On it.")], state=[CompactionState(active=True)], commands={"cc-slack dm-owed": replies}, decide=CALM)
+    return Input(transcript=[T.user("where are we"), T.assistant("On it.")], state=[CompactionState(active=True)], env=DRIVE_CONFIG, commands={f"{SHIPPED_CC_SLACK} dm-owed": replies}, decide=CALM)
 
 
 def picked(*calls: dict) -> Input:
@@ -211,7 +217,7 @@ def asked(reply: str, *calls: dict, words: str = HOW_FAR, decide: dict = ASKED) 
 )
 def communicator_reply_follows_the_owner_rules(evt: BaseHookEvent) -> HookResult | None:
     reply = AssistantMessage().content(evt) or ""
-    problems = [problem for problem in (unanswered_reply(), missing_update(evt, reply), inline_pick(evt, reply), unrouted_reminder(evt), unread_status(evt, reply), file_path(evt, reply)) if problem]
+    problems = [problem for problem in (unanswered_reply(evt), missing_update(evt, reply), inline_pick(evt, reply), unrouted_reminder(evt), unread_status(evt, reply), file_path(evt, reply)) if problem]
     return evt.block(" ".join(problems)) if problems else None
 
 
@@ -271,15 +277,28 @@ def dm_words(text: str, posted: dict) -> tuple[str, dict]:
     return "\n".join([text, str(posted.get("title") or ""), str(posted.get("body") or ""), *map(str, posted.get("options") or [])]), posted
 
 
-def cc_slack(*args: str) -> str | None:
+def shipped_cc_slack() -> Path:
+    cache = Path(reqenv.getenv("CLAUDE_CONFIG_DIR") or Path.home() / ".claude").expanduser() / CC_SLACK_CACHE
+    installs = [path for path in cache.glob("*/bin/cc-slack") if VERSION.fullmatch(path.parents[1].name) and not (path.parents[1] / ".orphaned_at").exists()]
+    if not installs:
+        raise FileNotFoundError(f"no cc-slack plugin under {cache}")
+    return max(installs, key=lambda path: [int(part) for part in path.parents[1].name.split(".")])
+
+
+def cc_slack(evt: BaseHookEvent, *args: str) -> str | None:
     try:
-        return read(["cc-slack", *args])
-    except (OSError, subprocess.SubprocessError):
-        return None
+        out = read([str(shipped_cc_slack()), *args])
+    except (OSError, subprocess.SubprocessError) as error:
+        return unread_cc_slack(evt, args[0], cause(error))
+    return out if out is not None else unread_cc_slack(evt, args[0], "it exited nonzero")
 
 
-def unanswered_reply() -> str | None:
-    out = cc_slack("dm-owed")
+def unread_cc_slack(evt: BaseHookEvent, verb: str, why: str) -> None:
+    blocker(evt, f"cc-slack:{verb}", CC_SLACK_UNREAD.format(verb=verb, why=why), to="meta")
+
+
+def unanswered_reply(evt: BaseHookEvent) -> str | None:
+    out = cc_slack(evt, "dm-owed")
     replies = json.loads(out)["replies"] if out else []
     return UNANSWERED.format(replies="; ".join(f'{reply["permalink"]}: {reply["text"]}' for reply in replies)) if replies else None
 
