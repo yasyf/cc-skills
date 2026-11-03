@@ -15,6 +15,13 @@ Drive facts:
 {facts}
 
 Standing orders, fixed in this template:
+  - A release alert's drive facts name its component, env, monitor, release, who
+    released it and the job. Never fence, freeze or hold anyone's release. A red
+    Watch rolls its component back by itself once monorepo #49355 is live, so a
+    rollback is not this lane's work: fix forward what the alert names, and when
+    the monitor is false, fix the monitor. A line to the owner names who released
+    and the concrete harm, with no alarm about a colleague's release doing what dev
+    says; who released is a fact on the line, never a reason to skip the fix.
   - Reported {reported} PT. The bar is fixed and live within 20 minutes of the
     report, by {due} PT; the desk's limits below run from your launch, inside it.
   - "stop asking people for things you can collect yourself": never ask a reporter
