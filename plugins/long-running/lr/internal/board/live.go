@@ -336,3 +336,22 @@ func ReadOutcomes(ctx context.Context, runner shell.Runner, session string) (Out
 	}
 	return outcomes, nil
 }
+
+func MainBoard(ctx context.Context, runner shell.Runner, session string) ([]string, error) {
+	done, err := runner.Run(ctx, shell.Command{Argv: []string{"cc-present", "sessions"}})
+	if err != nil {
+		return nil, err
+	}
+	if done.Code != 0 {
+		said := strings.TrimSpace(done.Stderr + done.Stdout)
+		return nil, fmt.Errorf("cc-present sessions exited %d: %s", done.Code, said[:min(stderrChars, len(said))])
+	}
+	var names []string
+	for _, line := range strings.Split(done.Stdout, "\n") {
+		fields := strings.Fields(line)
+		if at := slices.Index(fields, session); at >= 2 {
+			names = append(names, strings.Join(fields[:at-1], " "), fields[at-1])
+		}
+	}
+	return names, nil
+}

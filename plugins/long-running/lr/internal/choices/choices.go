@@ -44,12 +44,14 @@ var (
 	onHisPick   = regexp.MustCompile(`(?i)\b(?:his|the owner'?s?|owner)\s+(?:\d+\s+|two\s+)?(?:picks?|answers?|taps?)\b[^.#]*\b(?:card|board)\b|\b(?:his|owner'?s?) picks?\b|\buntil he picks\b`)
 	builtWork   = regexp.MustCompile(`(?i)\bat [0-9a-f]{7,40}\b|\bbuilt at\b|\bstays branch\b|\bbranch [\w./-]+ [0-9a-f]{7,40}\b|\bheads? in\b|\bcarries option\b`)
 	builtNone   = regexp.MustCompile(`(?i)\bnothing built\b|\bbuilt (?:and merged )?nothing\b|\bno build\b`)
+	boardRef    = regexp.MustCompile(`/p/([\w-]+)|\bboard ([0-9a-f]{32})\b`)
+	unmirrored  = regexp.MustCompile(`(?i)\bnot (?:mirrored|sent|copied) to Slack\b|\bno Slack copy\b`)
 )
 
 type Finding struct {
 	ID   string
 	Kind string
-	To   string
+	To   []string
 	Re   int64
 	Line string
 }
@@ -58,6 +60,8 @@ type Check struct {
 	Drive    string
 	Asks     func(ctx context.Context) ([]board.OpenAsk, error)
 	Desk     func() (string, error)
+	Main     func(ctx context.Context) ([]string, error)
+	Owners   func(lane string) ([]string, error)
 	Docs     *Docs
 	Now      func() time.Time
 	Patience time.Duration
@@ -77,7 +81,7 @@ func (c *Check) Pass(ctx context.Context) error {
 			Drive: c.Drive,
 			Lane:  lanes.Self,
 			Kind:  finding.Kind,
-			To:    []string{finding.To},
+			To:    finding.To,
 			ID:    finding.ID,
 			Re:    finding.Re,
 			Text:  finding.Line,
@@ -90,13 +94,16 @@ func (c *Check) Pass(ctx context.Context) error {
 
 func (c *Check) Findings(ctx context.Context) []Finding {
 	now := c.Now()
-	found := append(c.prose(ctx, now), c.parked(ctx)...)
+	asks, asked := c.Asks(ctx)
+	found := append(c.prose(ctx, now), c.parked(ctx, unsentCards(asks))...)
 	desk, err := c.Desk()
 	if err != nil {
 		return found
 	}
 	found = append(found, c.undrawn(ctx, desk, now)...)
-	found = append(found, c.unsent(ctx, desk, now)...)
+	if asked == nil {
+		found = append(found, c.unsent(asks, desk, now)...)
+	}
 	return append(found, c.documented(ctx, desk, now)...)
 }
 
@@ -114,7 +121,7 @@ func (c *Check) undrawn(ctx context.Context, desk string, now time.Time) []Findi
 		found = append(found, Finding{
 			ID:   fmt.Sprintf("choice-no-card:%d", record.Seq),
 			Kind: kindNote,
-			To:   desk,
+			To:   []string{desk},
 			Re:   record.Seq,
 			Line: fmt.Sprintf("NO-CARD #%d from %s is still open: %s Draw it, or answer it with why not.", record.Seq, record.Lane, excerpt(record.Text)),
 		})
@@ -126,11 +133,7 @@ func toBoardDesk(to []string) bool {
 	return slices.ContainsFunc(to, func(lane string) bool { return strings.HasPrefix(lane, pass.BoardDesk) })
 }
 
-func (c *Check) unsent(ctx context.Context, desk string, now time.Time) []Finding {
-	asks, err := c.Asks(ctx)
-	if err != nil {
-		return nil
-	}
+func (c *Check) unsent(asks []board.OpenAsk, desk string, now time.Time) []Finding {
 	seen := make(map[string]time.Time, len(asks))
 	var found []Finding
 	for _, ask := range asks {
@@ -148,12 +151,22 @@ func (c *Check) unsent(ctx context.Context, desk string, now time.Time) []Findin
 		found = append(found, Finding{
 			ID:   "choice-no-slack:" + ask.ID,
 			Kind: kindNote,
-			To:   desk,
+			To:   []string{desk},
 			Line: fmt.Sprintf("NO-SLACK %s waits on him with no Slack copy: %s Send it.", ask.ID, excerpt(ask.Title)),
 		})
 	}
 	c.seen = seen
 	return found
+}
+
+func unsentCards(asks []board.OpenAsk) []string {
+	var unsent []string
+	for _, ask := range asks {
+		if !ask.Slack {
+			unsent = append(unsent, ask.ID)
+		}
+	}
+	return unsent
 }
 
 func (c *Check) prose(ctx context.Context, now time.Time) []Finding {
@@ -170,7 +183,7 @@ func (c *Check) prose(ctx context.Context, now time.Time) []Finding {
 			found = append(found, Finding{
 				ID:   fmt.Sprintf("choice-untyped:%s:%s", record.Lane, record.At.Format(time.DateOnly)),
 				Kind: kindNote,
-				To:   record.Lane,
+				To:   []string{record.Lane},
 				Re:   record.Seq,
 				Line: fmt.Sprintf("UNTYPED #%d reads as a choice for him with no card: %s If it is his, post it to %s as `CARD: card-<slug>: <question>`, options recommended first. If it is yours or root's, ignore this.", record.Seq, excerpt(record.Text), pass.BoardDesk),
 			})
@@ -179,28 +192,81 @@ func (c *Check) prose(ctx context.Context, now time.Time) []Finding {
 	return found
 }
 
-func (c *Check) parked(ctx context.Context) []Finding {
+func (c *Check) parked(ctx context.Context, unsent []string) []Finding {
 	open, err := client.Open(ctx, c.Drive, kindBlocked)
 	if err != nil {
 		return nil
 	}
 	var found []Finding
 	for _, record := range open {
-		if deskLane.MatchString(record.Lane) || !onHisPick.MatchString(record.Text) {
+		if deskLane.MatchString(record.Lane) {
 			continue
 		}
-		if builtWork.MatchString(record.Text) && !builtNone.MatchString(record.Text) {
+		if unseen := c.unseen(ctx, record, unsent); unseen != "" {
+			if finding, routed := c.offBoard(record, unseen); routed {
+				found = append(found, finding)
+			}
+			continue
+		}
+		if !onHisPick.MatchString(record.Text) || builtWork.MatchString(record.Text) && !builtNone.MatchString(record.Text) {
 			continue
 		}
 		found = append(found, Finding{
 			ID:   fmt.Sprintf("choice-parked:%s:%s", record.Lane, record.At.Format(time.DateOnly)),
 			Kind: kindNote,
-			To:   record.Lane,
+			To:   []string{record.Lane},
 			Re:   record.Seq,
 			Line: fmt.Sprintf("PARKED #%d waits on his pick with nothing built: %s His order m104 covers this: build the card's recommended option as a branch, no PR, and he can overturn it. A pick that deletes data, sends a message or needs his hand stays with him.", record.Seq, excerpt(record.Text)),
 		})
 	}
 	return found
+}
+
+func (c *Check) unseen(ctx context.Context, record client.Record, unsent []string) string {
+	var why []string
+	if side := c.sideBoards(ctx, record.Text); len(side) > 0 {
+		why = append(why, "board "+strings.Join(side, ", ")+" is not his main board")
+	}
+	cards := slices.DeleteFunc(namedCard.FindAllString(record.Text, -1), func(card string) bool { return !slices.Contains(unsent, card) })
+	switch {
+	case len(cards) > 0:
+		why = append(why, strings.Join(slices.Compact(slices.Sorted(slices.Values(cards))), ", ")+" has no Slack copy")
+	case unmirrored.MatchString(record.Text):
+		why = append(why, "its cards have no Slack copy")
+	}
+	return strings.Join(why, " and ")
+}
+
+func (c *Check) sideBoards(ctx context.Context, text string) []string {
+	named := boardRef.FindAllStringSubmatch(text, -1)
+	if len(named) == 0 {
+		return nil
+	}
+	main, err := c.Main(ctx)
+	if err != nil {
+		return nil
+	}
+	var side []string
+	for _, ref := range named {
+		if name := ref[1] + ref[2]; !slices.Contains(main, name) && !slices.Contains(side, name) {
+			side = append(side, name)
+		}
+	}
+	return side
+}
+
+func (c *Check) offBoard(record client.Record, unseen string) (Finding, bool) {
+	owners, err := c.Owners(record.Lane)
+	if err != nil {
+		return Finding{}, false
+	}
+	return Finding{
+		ID:   fmt.Sprintf("choice-off-board:%s:%s", record.Lane, record.At.Format(time.DateOnly)),
+		Kind: kindNote,
+		To:   owners,
+		Re:   record.Seq,
+		Line: fmt.Sprintf("OFF-BOARD #%d from %s is a defect, not a wait: %s, so he never sees it. %s draws each card on the main board with `lr board draw` and sends its Slack copy, then re-posts blocked naming the card-<slug> ids: %s", record.Seq, record.Lane, unseen, record.Lane, excerpt(record.Text)),
+	}, true
 }
 
 func untyped(record client.Record) bool {
@@ -222,7 +288,7 @@ func (c *Check) repeated(ctx context.Context, order client.Record) Finding {
 	return Finding{
 		ID:   fmt.Sprintf("choice-repeat:%d", order.Seq),
 		Kind: kindAsk,
-		To:   lanes.Root,
+		To:   []string{lanes.Root},
 		Re:   order.Seq,
 		Line: fmt.Sprintf("REPEAT #%d: he gave this order again: %s %s Name the lane doing it and what holds it, unrelated work included.", order.Seq, excerpt(order.Text), holding),
 	}
@@ -260,7 +326,7 @@ func (c *Check) documented(ctx context.Context, desk string, now time.Time) []Fi
 	return []Finding{{
 		ID:   "choice-doc:" + hex.EncodeToString(sum[:6]),
 		Kind: kindNote,
-		To:   desk,
+		To:   []string{desk},
 		Line: fmt.Sprintf("DOC-CHOICE design docs list choices for him that name no card: %s. Draw each, or have its author close it in the doc.", clip(list, listChars)),
 	}}
 }
