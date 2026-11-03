@@ -1,6 +1,7 @@
 package lanes
 
 import (
+	"context"
 	"fmt"
 	"maps"
 	"slices"
@@ -15,6 +16,7 @@ import (
 const (
 	Unregistered = "unregistered"
 	nodeChars    = 8
+	unreadShown  = 10
 )
 
 type Liveness struct {
@@ -193,7 +195,54 @@ func (r Request) Command() string {
 	for _, pr := range r.PRs {
 		words = append(words, "--pr", strconv.Itoa(pr))
 	}
+	if r.Successor != "" {
+		words = append(words, "--successor", r.Successor)
+	}
+	if r.LastRead != "" {
+		words = append(words, "--last-read", r.LastRead)
+	}
+	if r.By != "" && r.By != Root {
+		words = append(words, "--by", r.By)
+	}
 	return strings.Join(words, " ")
+}
+
+func UnreadRefusal(ctx context.Context, s *store.Store, drive string, r Request) (refusal string, err error) {
+	defer recovered(&err)
+	var named []string
+	switch r.Verb {
+	case "stand-down":
+		if lane, found := laneOf(s, r.Lane); found && isLive(lane.State) {
+			named = []string{r.Lane}
+		}
+	case "owner":
+		named = strippedBy(s, r.Lane, r.PRs)
+	}
+	after, _ := strconv.ParseInt(r.LastRead, 10, 64)
+	var newest int64
+	var lines strings.Builder
+	for _, name := range named {
+		read, seq := unseen(s, name, r.LastRead)
+		if read == "" {
+			continue
+		}
+		newest = max(newest, seq)
+		records := must(client.Tail(ctx, client.Query{Drive: drive, After: after, Lanes: []string{name}}))
+		fmt.Fprintf(&lines, "%s: this request %s. Its records you have not read:\n", name, read)
+		if hidden := len(records) - unreadShown; hidden > 0 {
+			fmt.Fprintf(&lines, "(%d older not shown)\n", hidden)
+			records = records[hidden:]
+		}
+		for _, record := range records {
+			fmt.Fprintf(&lines, "%s %s %s\n", record.Name(), record.Kind, record.Text)
+			newest = max(newest, record.Seq)
+		}
+	}
+	if lines.Len() == 0 {
+		return "", nil
+	}
+	r.LastRead = strconv.FormatInt(newest, 10)
+	return fmt.Sprintf("Nothing posted: the supervisor would refuse this request and hold each lane below.\n%sOnce read, run:\n%s", lines.String(), r.Command()), nil
 }
 
 func StandingRefusal(s *store.Store, r Request) (refusal string, err error) {

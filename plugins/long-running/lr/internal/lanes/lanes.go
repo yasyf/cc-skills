@@ -389,18 +389,34 @@ func (o owing) post(s *store.Store, d Deps) {
 }
 
 func unreadBy(s *store.Store, r Record, name, cited string) string {
-	newestSeq := must(s.NewestSeq(name))
-	if cited != "" {
-		seq, err := strconv.ParseInt(cited, 10, 64)
-		if err == nil && (newestSeq == 0 || seq >= newestSeq) {
-			return ""
-		}
-	}
-	read := "cites no last-read=<seq>"
-	if cited != "" {
-		read = fmt.Sprintf("cites last-read=%s, older than %s's newest record #%d", cited, name, newestSeq)
+	read, _ := unseen(s, name, cited)
+	if read == "" {
+		return ""
 	}
 	return fmt.Sprintf("the coordinator's %s #%d would stand %s%s%s", r.Kind, r.Seq, name, unreadMark, read)
+}
+
+func strippedBy(s *store.Store, owner string, numbers []int) []string {
+	var stripped []string
+	for _, lane := range must(s.Lanes(live...)) {
+		kept := slices.ContainsFunc(lane.PRs, func(n int) bool { return !slices.Contains(numbers, n) })
+		if lane.Name != owner && len(lane.PRs) > 0 && !kept {
+			stripped = append(stripped, lane.Name)
+		}
+	}
+	return stripped
+}
+
+func unseen(s *store.Store, name, cited string) (read string, newest int64) {
+	newest = must(s.NewestSeq(name))
+	if cited == "" {
+		return "cites no last-read=<seq>", newest
+	}
+	seq, err := strconv.ParseInt(cited, 10, 64)
+	if err == nil && (newest == 0 || seq >= newest) {
+		return "", newest
+	}
+	return fmt.Sprintf("cites last-read=%s, older than %s's newest record #%d", cited, name, newest), newest
 }
 
 type Row struct {

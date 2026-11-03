@@ -220,6 +220,9 @@ func RequestCommand(a *app.App) *cobra.Command {
 			defer func() { _ = s.Close() }()
 			request.Lane, request.Successor = Canonical(cfg.Drive, request.Lane), Canonical(cfg.Drive, request.Successor)
 			refusal, err := StandingRefusal(s, request)
+			if err == nil && refusal == "" {
+				refusal, err = UnreadRefusal(cmd.Context(), s, cfg.Drive, request)
+			}
 			if err != nil {
 				return err
 			}
