@@ -22,25 +22,27 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - name: Publish the pack tree of each recent long-running tag that has no release
+      - name: Publish the plugin tree of each recent long-running or orca tag that has no release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          for tag in $(git tag --list 'long-running--v*' --sort=-version:refname | head -n 20); do
-            if gh release view "$tag" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
-              continue
-            fi
-            version="${tag#long-running--v}"
-            name="long-running_${version}.tar.gz"
-            dist="$RUNNER_TEMP/$tag"
-            mkdir -p "$dist"
-            git archive --format=tar "$tag:plugins/long-running" | gzip -n > "$dist/$name"
-            test "$(tar -xzOf "$dist/$name" .claude-plugin/plugin.json | jq -r .version)" = "$version"
-            (cd "$dist" && sha256sum "$name" > checksums.txt)
-            gh release create "$tag" "$dist"/* \
-              --verify-tag \
-              --title "long-running $version" \
-              --notes "The long-running plugin tree at $tag, which lr launch worker installs on a Sprite." \
-              --latest=false
+          for plugin in long-running orca; do
+            for tag in $(git tag --list "$plugin--v*" --sort=-version:refname | head -n 20); do
+              if gh release view "$tag" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+                continue
+              fi
+              version="${tag#"$plugin"--v}"
+              name="${plugin}_${version}.tar.gz"
+              dist="$RUNNER_TEMP/$tag"
+              mkdir -p "$dist"
+              git archive --format=tar "$tag:plugins/$plugin" | gzip -n > "$dist/$name"
+              test "$(tar -xzOf "$dist/$name" .claude-plugin/plugin.json | jq -r .version)" = "$version"
+              (cd "$dist" && sha256sum "$name" > checksums.txt)
+              gh release create "$tag" "$dist"/* \
+                --verify-tag \
+                --title "$plugin $version" \
+                --notes "The $plugin plugin tree at $tag, which lr launch worker installs on a Sprite." \
+                --latest=false
+            done
           done
