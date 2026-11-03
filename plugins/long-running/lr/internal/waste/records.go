@@ -6,6 +6,7 @@ import (
 	"maps"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -143,6 +144,51 @@ func raceWarnings(cfg Config, records []client.Record) []Finding {
 		}
 	}
 	return findings
+}
+
+func uninstalled(ctx context.Context, src Sources, cfg Config, drive string, now time.Time) ([]Finding, error) {
+	lookback := time.Duration(cfg.MergeLookbackHours) * time.Hour
+	records, err := src.Bus.Tail(ctx, client.Query{Drive: drive, Since: now.Add(-lookback), Kinds: []string{"landed", "done"}})
+	if err != nil {
+		return nil, err
+	}
+	type merge struct {
+		lane   string
+		at     time.Time
+		number int
+	}
+	merges := map[string]merge{}
+	installed := map[string]bool{}
+	for _, record := range records {
+		for _, ref := range record.Refs.PRs {
+			if record.Fields.Attrs["installed"] != "" {
+				installed[ref.String()] = true
+				continue
+			}
+			if _, seen := merges[ref.String()]; !seen {
+				merges[ref.String()] = merge{record.Lane, record.At, ref.Number}
+			}
+		}
+	}
+	meta := map[string]bool{}
+	var findings []Finding
+	for pr, merged := range merges {
+		age := int64(now.Sub(merged.at).Minutes())
+		if installed[pr] || installed[strconv.Itoa(merged.number)] || age < cfg.Floors.Uninstalled {
+			continue
+		}
+		isMeta, asked := meta[merged.lane]
+		if !asked {
+			if isMeta, err = src.Meta(merged.lane); err != nil {
+				return nil, err
+			}
+			meta[merged.lane] = isMeta
+		}
+		if isMeta {
+			findings = append(findings, Finding{signalUninstalled, signalUninstalled + "/" + pr, age, "minutes", merged.lane, pr + " merged, and no done record names its installed version and proof", cfg.Floors.Uninstalled})
+		}
+	}
+	return findings, nil
 }
 
 func askedWords(text string) string {

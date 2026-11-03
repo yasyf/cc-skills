@@ -46,7 +46,9 @@ any read: `cci subscribe --drive <drive> --reader meta`.
    subagent. An item that designs or mocks anything the owner sees carries the
    lines of "A design lane's part" in `reference/orca-lane-brief.md`, and you open
    the live artifact and its design record before recommending any of its mockups. A non-trivial PR gets one finder pass, on `sol`, through the same launch.
-3. End each item in a merged PR with tests. You hold its install: install the pack
+3. End each item in a merged PR with tests, installed where it runs and seen working once;
+   merged, released or built is still in progress. Your own `--kind done` is refused unless it
+   carries `--attr installed=<version> --attr proof=<what you saw working>`. You hold its install: install the pack
    yourself at the drive's quiet point, `drive.py digest --quiet-point`, and send no
    install to the coordinator. Report the PR URL, merge sha and install to the
    communicator; the item reads `installed` once you have installed it.
@@ -67,7 +69,8 @@ any read: `cci subscribe --drive <drive> --reader meta`.
 6. Find waste before anyone complains. Each time you post, read the newest `lr waste` note
    the supervisor sent you, or run `lr waste` yourself: dead recipients, fan-out, injected
    context, hook skips, repeated chores and reads, cost per lane, duplicate forwards, and
-   lanes warning about clobbering or racing. Open an item for what it shows without waiting
+   lanes warning about clobbering or racing, merged meta PRs older than 30 minutes with no
+   install. Open an item for what it shows without waiting
    for the owner, and name in the item's row the signal it came from. A race warning opens
    a fix for the tool that allows the race; passing it on as news is not handling it.
 ```
@@ -77,8 +80,10 @@ any read: `cci subscribe --drive <drive> --reader meta`.
 ```
 - You are a helper of the meta lane. Report to it only:
   `cci post --lane <your lane> --drive <drive> --stamp --kind report --to meta` at each
-  deliverable (PR opened, PR merged, blocker), and a final `--kind done --to meta` with
-  the PR URL and merge sha once merged. A question goes to it as `--kind ask --to meta`.
+  deliverable (PR opened, blocker). Once merged, post `--kind landed --pr <url> --commit <merge sha>
+  --to meta`, then wait with `--kind blocked --lane-ref meta`: the meta lane installs it, and
+  `--kind done` is refused without the installed version and the proof. A question goes to it
+  as `--kind ask --to meta`.
   You never message the coordinator, the communicator or any drive lane.
 - Work in a worktree cut from a fresh default branch, never inside a repo and never in /tmp.
 - Nothing that is a test, build, vet, typecheck, lint or LLM call runs on this Mac. CI
@@ -94,5 +99,6 @@ any read: `cci subscribe --drive <drive> --reader meta`.
 - No credential, token or key in any file, record or brief.
 - If the owner's words do not settle a choice that leads to different work, stop and report
   to the meta lane with 2 to 4 options and a recommendation.
-- Done is a PR merged with tests and the report posted with its URL and merge sha.
+- Your part is done at a PR merged with tests and its `landed` record posted. The item is done
+  when the meta lane has installed it and seen it work.
 ```

@@ -209,10 +209,14 @@ The meta lane also finds waste itself; a person noticing it first is the failure
 LLM call, and the supervisor runs it hourly and sends the meta lane one note of what is new
 or has grown; a quiet hour sends nothing. The meta lane reads it each time it posts and
 opens an item for what it finds, naming the signal; a lane warning about clobbering or
-racing opens a fix, never a report. The `waste` section of `runner.json`
+racing opens a fix, never a report. A meta task is done only when its change is installed
+where it runs and has been seen working: its `done` record carries `--attr installed=` and
+`--attr proof=`, a lane that only merged posts `landed`, and `lr waste` flags a merged meta
+PR older than 30 minutes with no such record. The `waste` section of `runner.json`
 holds `lane` (the meta lane's name, default `meta`), `ignore` (recipients that never post
 by design), `growth` (the factor a repeated finding must reach to post again, default 2),
 `fan_out_recipients`, `transcripts` (the most it reads an hour, largest first), `hook_logs`,
+`merge_lookback_hours`,
 and `floors` per signal.
 
 **The signal lane** is a standing Sonnet session the communicator launches at drive

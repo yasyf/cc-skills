@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -20,15 +21,16 @@ const (
 	ByteCap = 4096
 	lineCap = 240
 
-	signalDead       = "dead-recipient"
-	signalFanOut     = "fan-out"
-	signalInjected   = "injected"
-	signalSkips      = "hook-skips"
-	signalChore      = "chore"
-	signalRepeatRead = "repeat-read"
-	signalCost       = "cost"
-	signalDuplicate  = "duplicate-ask"
-	signalRace       = "race-warning"
+	signalDead        = "dead-recipient"
+	signalFanOut      = "fan-out"
+	signalInjected    = "injected"
+	signalSkips       = "hook-skips"
+	signalChore       = "chore"
+	signalRepeatRead  = "repeat-read"
+	signalCost        = "cost"
+	signalDuplicate   = "duplicate-ask"
+	signalRace        = "race-warning"
+	signalUninstalled = "uninstalled"
 )
 
 type Bus interface {
@@ -40,10 +42,16 @@ type Sources struct {
 	Bus     Bus
 	Runner  shell.Runner
 	Retired func() ([]store.Lane, error)
+	Meta    func(lane string) (bool, error)
 }
 
 func Live(bus Bus, runner shell.Runner, s *store.Store) Sources {
-	return Sources{Bus: bus, Runner: runner, Retired: func() ([]store.Lane, error) { return s.Lanes(store.LaneRetired) }}
+	return Sources{
+		Bus:     bus,
+		Runner:  runner,
+		Retired: func() ([]store.Lane, error) { return s.Lanes(store.LaneRetired) },
+		Meta:    func(lane string) (bool, error) { return lanes.IsMeta(s, lane) },
+	}
 }
 
 type Finding struct {
@@ -107,7 +115,11 @@ func Read(ctx context.Context, src Sources, cfg Config, drive string, now time.T
 	if err != nil {
 		return Report{}, err
 	}
-	findings := slices.Concat(dead, fanOut(cfg, records, window), duplicateAsks(cfg, records), raceWarnings(cfg, records), used.findings(cfg, records, window), skips)
+	unfinished, err := uninstalled(ctx, src, cfg, drive, now)
+	if err != nil {
+		return Report{}, err
+	}
+	findings := slices.Concat(dead, unfinished, fanOut(cfg, records, window), duplicateAsks(cfg, records), raceWarnings(cfg, records), used.findings(cfg, records, window), skips)
 	slices.SortFunc(findings, func(a, b Finding) int {
 		return cmp.Or(cmp.Compare(b.weight(), a.weight()), cmp.Compare(a.Key, b.Key))
 	})

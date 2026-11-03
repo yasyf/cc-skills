@@ -11,43 +11,47 @@ import (
 )
 
 type Floors struct {
-	Dead       int64 `json:"dead"`
-	FanOut     int64 `json:"fan_out"`
-	Injected   int64 `json:"injected"`
-	Skips      int64 `json:"skips"`
-	Chores     int64 `json:"chores"`
-	Reads      int64 `json:"reads"`
-	Cost       int64 `json:"cost"`
-	Duplicates int64 `json:"duplicates"`
-	Races      int64 `json:"races"`
+	Dead        int64 `json:"dead"`
+	FanOut      int64 `json:"fan_out"`
+	Injected    int64 `json:"injected"`
+	Skips       int64 `json:"skips"`
+	Chores      int64 `json:"chores"`
+	Reads       int64 `json:"reads"`
+	Cost        int64 `json:"cost"`
+	Duplicates  int64 `json:"duplicates"`
+	Races       int64 `json:"races"`
+	Uninstalled int64 `json:"uninstalled"`
 }
 
 type Config struct {
-	Lane             string   `json:"lane"`
-	Ignore           []string `json:"ignore"`
-	Growth           float64  `json:"growth"`
-	FanOutRecipients int      `json:"fan_out_recipients"`
-	Transcripts      int      `json:"transcripts"`
-	HookLogs         string   `json:"hook_logs"`
-	Floors           Floors   `json:"floors"`
+	Lane               string   `json:"lane"`
+	Ignore             []string `json:"ignore"`
+	Growth             float64  `json:"growth"`
+	FanOutRecipients   int      `json:"fan_out_recipients"`
+	Transcripts        int      `json:"transcripts"`
+	HookLogs           string   `json:"hook_logs"`
+	MergeLookbackHours int      `json:"merge_lookback_hours"`
+	Floors             Floors   `json:"floors"`
 }
 
 func defaults() Config {
 	return Config{
-		Lane:             "meta",
-		Growth:           2,
-		FanOutRecipients: 8,
-		Transcripts:      200,
+		Lane:               "meta",
+		Growth:             2,
+		FanOutRecipients:   8,
+		Transcripts:        200,
+		MergeLookbackHours: 24,
 		Floors: Floors{
-			Dead:       20,
-			FanOut:     40,
-			Injected:   200_000,
-			Skips:      100,
-			Chores:     20,
-			Reads:      5,
-			Cost:       20_000_000,
-			Duplicates: 2,
-			Races:      1,
+			Dead:        20,
+			FanOut:      40,
+			Injected:    200_000,
+			Skips:       100,
+			Chores:      20,
+			Reads:       5,
+			Cost:        20_000_000,
+			Duplicates:  2,
+			Races:       1,
+			Uninstalled: 30,
 		},
 	}
 }
