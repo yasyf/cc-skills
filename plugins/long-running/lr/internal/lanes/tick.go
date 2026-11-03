@@ -240,15 +240,12 @@ func act(s *store.Store, d Deps, lane store.Lane, found map[string]Peer, taken m
 		escalate(s, d, "lane:"+lane.Name, fmt.Sprintf("%s; brief %s", verdict.Why, filepath.Join(d.Briefs, lane.Name+".brief.md")), now)
 		out.Held = append(out.Held, lane.Name)
 	case Unproven:
-		if !holdsNothing(lane) {
-			hold(s, lane.Name, verdict.Why, now)
-			escalate(s, d, "lane:"+lane.Name, fmt.Sprintf("held, not relaunched: it %s; brief %s", verdict.Why, lane.Brief), now)
-			out.Held = append(out.Held, lane.Name)
+		if holdsNothing(lane) && silent < d.RetireAfter {
 			return
 		}
-		if silent >= d.RetireAfter {
-			retireSilent(s, d, lane, verdict.Why, now, out)
-		}
+		hold(s, lane.Name, verdict.Why, now)
+		escalate(s, d, "lane:"+lane.Name, fmt.Sprintf("held, not relaunched or retired: it %s; brief %s", verdict.Why, lane.Brief), now)
+		out.Held = append(out.Held, lane.Name)
 	case StoodDown:
 		if !refusedOwing(s, d, lane.Name, now) {
 			retire(s, lane.Name, "stand-down", now)
