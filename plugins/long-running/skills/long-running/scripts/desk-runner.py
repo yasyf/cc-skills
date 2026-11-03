@@ -237,7 +237,7 @@ move the load, and a launch that may run only on the Mac starts there anyway: a 
 whose `ccx:` line says `place=local`, a Fable or incident launch, and an incident clock fallback.
 An incident launch also logs one `LOAD-INCIDENT` report naming the load. A desk with no usable
 Sprite route starts on the Mac too. Every other launch, a `role=desk` or `role=watch` one
-included, runs `orca.sprite.launcher`, the repository's worker-launch.sh, on a Sprite and never reads Mac
+included, runs `orca.sprite.launcher`, the pack's worker-launch.sh, on a Sprite and never reads Mac
 load; worker-launch.sh carries each file under this home and each ccn doc, plan or task the brief names,
 rendered from `orca.briefs.repo`, onto the box with `lr carry`, and a brief naming one that cannot
 travel fails as `LAUNCH-FAILED` naming it. The runner counts no Sprites

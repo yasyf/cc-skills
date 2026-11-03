@@ -10850,7 +10850,7 @@ def test_a_finished_launch_ends_the_wait_at_once(shell, config, tmp_path, monkey
 
 def with_gc(config: Path) -> None:
     raw = json.loads(config.read_text())
-    raw["orca"]["gc"] = ".agents/skills/orca/scripts/orca-gc"
+    raw["orca"]["gc"] = "/plugin/bin/orca-gc"
     config.write_text(json.dumps(raw))
 
 
@@ -10863,7 +10863,7 @@ def test_a_settled_dispatch_is_named_once_for_the_roots_gc_and_never_closed(shel
     reclaims = [line for line in escalations(shell) if line.startswith("RECLAIM ")]
     assert len(reclaims) == 1
     assert [call for call in shell.calls if call[:5] == ["orca", "orchestration", "worker-show", "--dispatch", "ctx_a"]] == []
-    assert reclaims[0].endswith(f"1 settled dispatch(es) still hold their terminal: {LANE}=ctx_a:term_ctx_a; run {runner_module.SCRIPTS / 'desk-runner.py'} gc --config {config.resolve()}, then .agents/skills/orca/scripts/orca-gc --run run_1 --dispatch ctx_a")
+    assert reclaims[0].endswith(f"1 settled dispatch(es) still hold their terminal: {LANE}=ctx_a:term_ctx_a; run {runner_module.SCRIPTS / 'desk-runner.py'} gc --config {config.resolve()}, then /plugin/bin/orca-gc --run run_1 --dispatch ctx_a")
     assert [call for call in shell.calls if FORBIDDEN & {Path(token).name for token in call}] == []
 
 
@@ -10873,7 +10873,7 @@ def test_a_large_settled_set_names_the_whole_run(shell, config, tmp_path):
         shell.launch(f"lane-{index:02d}", f"ctx_{index:02d}", status="failed")
     orca_pass(shell, config)
     [reclaim] = [line for line in escalations(shell) if line.startswith("RECLAIM ")]
-    assert f" and 2 more; run {runner_module.SCRIPTS / 'desk-runner.py'} gc --config {config.resolve()}, then .agents/skills/orca/scripts/orca-gc --run run_1" in reclaim
+    assert f" and 2 more; run {runner_module.SCRIPTS / 'desk-runner.py'} gc --config {config.resolve()}, then /plugin/bin/orca-gc --run run_1" in reclaim
     assert reclaim.endswith("--run run_1")
 
 
@@ -14551,7 +14551,7 @@ def test_a_hold_outside_the_grammar_fails_visibly(shell, config, tmp_path):
     assert runner_module.HOLD_GRAMMAR in lines[0] and runner_module.UNHOLD_GRAMMAR in lines[1]
 
 
-LAUNCHER = "/repo/.agents/skills/orca/scripts/worker-launch.sh"
+LAUNCHER = "/plugin/bin/worker-launch.sh"
 
 
 def with_sprites(config: Path) -> None:
