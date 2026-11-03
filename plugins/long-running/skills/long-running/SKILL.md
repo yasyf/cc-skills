@@ -299,7 +299,7 @@ commit on fetched trunk, never a message or memory.
 with no release in an hour reads `LANDED-NOT-LIVE` and reaches the coordinator as
 a blocker.
 
-**R9.** Orca worker traffic runs through the runner (`lr launch`, `lr relay`),
+**R9.** Orca worker traffic runs through the runner (`lr launch`, `desk-launch.py relay`),
 never a check-and-ack loop. Mac load queues and refuses no launch: one that may leave
 the Mac starts on a box at once, and a worker's question goes to the lane that launched it. The coordinator receives records as batches from
 `lr coordinator next`, after one `cci subscribe --drive <drive> --reader root --to-kind incident --follow oncall=incident`
@@ -353,7 +353,7 @@ forward; a rollback runs only on the owner's own word.
 **R17.** An owner routing instruction applies to the next spawn and to every live
 lane on that problem, the turn it arrives.
 
-**R18.** A ruling reaches a lane the way it reads: Orca lanes by `lr relay`, a desk
+**R18.** A ruling reaches a lane the way it reads: Orca lanes by `desk-launch.py relay`, a desk
 by a record addressed to it, an Agent lane by a record it reads at its next tool
 call. A stand-down is confirmed on disk before it counts.
 
