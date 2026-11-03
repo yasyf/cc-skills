@@ -58,7 +58,7 @@ func git(t *testing.T, repo string, args ...string) string {
 
 func commit(t *testing.T, repo, name, text string) {
 	t.Helper()
-	if err := os.WriteFile(filepath.Join(repo, name), []byte(text), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(repo, name), []byte(text), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	git(t, repo, "add", name)
@@ -69,7 +69,7 @@ func stacked(t *testing.T, conflicting bool) (origin, clone string) {
 	t.Helper()
 	root := t.TempDir()
 	config := filepath.Join(root, "gitconfig")
-	if err := os.WriteFile(config, []byte("[user]\n\tname = Lane\n\temail = lane@example.com\n[init]\n\tdefaultBranch = dev\n"), 0o644); err != nil {
+	if err := os.WriteFile(config, []byte("[user]\n\tname = Lane\n\temail = lane@example.com\n[init]\n\tdefaultBranch = dev\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("GIT_CONFIG_GLOBAL", config)

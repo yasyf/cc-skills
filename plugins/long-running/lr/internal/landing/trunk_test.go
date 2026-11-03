@@ -14,12 +14,12 @@ import (
 const (
 	checkout = "/repos/lr-landing"
 	script   = "/repos/lr-landing/.agents/skills/submit-pr/scripts/stack-enqueue"
-	secret   = "queue-key-value"
+	queueKey = "queue-key-value"
 )
 
 func trunk(fake *shelltest.Fake) landing.Trunk {
 	fake.Reply("", "git")
-	fake.Reply(secret+"\n", "sh", "-c")
+	fake.Reply(queueKey+"\n", "sh", "-c")
 	return landing.Trunk{
 		Runner: fake, Checkout: checkout, Branch: "dev",
 		Script: ".agents/skills/submit-pr/scripts/stack-enqueue", KeyCommand: "print-key --name queue",
@@ -51,10 +51,10 @@ func TestEnqueueRunsTheQueueScriptAtFreshTrunkWithTheKeyInItsEnvironmentOnly(t *
 	if !slices.Equal(call.Argv, []string{script, "45583"}) || call.Dir != checkout {
 		t.Fatalf("queue call = %+v", call)
 	}
-	if !slices.Contains(call.Env, "TRUNK_MERGE_API_KEY="+secret) {
+	if !slices.Contains(call.Env, "TRUNK_MERGE_API_KEY="+queueKey) {
 		t.Fatalf("env = %v", call.Env)
 	}
-	if strings.Contains(strings.Join(call.Argv, " "), secret) || strings.Contains(said, secret) {
+	if strings.Contains(strings.Join(call.Argv, " "), queueKey) || strings.Contains(said, queueKey) {
 		t.Fatal("the key left the environment")
 	}
 }
