@@ -25,14 +25,14 @@ const (
 var (
 	namedDeadline = regexp.MustCompile(`(?i)\b(?:by|before|until|due(?:\s+(?:by|at))?)\s+(` + clockTime + `)\b`)
 	leadingClock  = regexp.MustCompile(`(?i)^(?:` + clockTime + `)\b`)
-	watchLanes    = []string{Lane, "stall-watch"}
+	machineLanes  = []string{Lane, "stall-watch", "desk-runner"}
 )
 
 func Unplanned(records []client.Record) []Wait {
 	var waits []Wait
 	for _, record := range records {
 		deadline := deadlineOf(record)
-		if deadline == "" || record.Kind == "escalation" || record.Status == "closed" || slices.Contains(watchLanes, record.Lane) || planned(record.Fields.Attrs) || settled(records, record.Seq) {
+		if deadline == "" || record.Kind == "escalation" || record.Status == "closed" || slices.Contains(machineLanes, record.Lane) || planned(record.Fields.Attrs) || settled(records, record.Seq) {
 			continue
 		}
 		waits = append(waits, Wait{
