@@ -2,6 +2,7 @@ package lanes
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -20,6 +21,22 @@ var startSequence = []struct {
 	{"meta", "meta", "opus", "xhigh"},
 	{"signal", "signal", "sonnet", "low"},
 	{"chores", "chores", "sonnet", "low"},
+}
+
+func sessionBrief(t *testing.T, state, lane, role string) string {
+	t.Helper()
+	path := filepath.Join(state, lane, "brief.md")
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	ccx := "ccx: place=local"
+	if role != "" {
+		ccx = "ccx: role=" + role + " place=local"
+	}
+	if err := os.WriteFile(path, []byte(fmt.Sprintf("# %s\nRegister slice: lane=%s step=all\nStanding: the %s duty\n%s\n", lane, lane, lane, ccx)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
 
 func startEnv(bus *fakeBus, ran *[]string) Env {
@@ -124,4 +141,46 @@ printf '%s|%s|%s|%s|%s|%s' "$CLAUDE_LONG_RUNNING_LANE" "$LR_LANE" "$CCI_AGENT_ID
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
+}
+
+func TestEachStandingSessionsLaunchRegistersItsLaneWhateverItsBriefsRole(t *testing.T) {
+	roles := map[string]string{"coordinator": "", "meta": "desk", "signal": "watch", "chores": "helper"}
+	for _, want := range startSequence {
+		t.Run(want.session, func(t *testing.T) {
+			s := memory(t)
+			role := roles[want.session]
+			brief := sessionBrief(t, t.TempDir(), want.lane, role)
+			attrs := map[string]string{"model": want.model, "effort": want.effort, "placement": "orca"}
+			if role != "" {
+				attrs["role"] = role
+			}
+			f := newFake(t, []Record{spawned(1, want.lane, brief, t0.Add(-time.Minute), attrs)}, []Row{who(want.lane, true, t0)})
+
+			tick(t, s, f, t0)
+
+			lane := row(t, s, want.lane)
+			equal(t, []string{lane.Brief, lane.Model, lane.Effort}, []string{brief, want.model, want.effort})
+		})
+	}
+}
+
+func TestAStandingLaneLaunchedBeforeItCouldRegisterIsAdoptedAndListedByItsLaneName(t *testing.T) {
+	s, state := memory(t), t.TempDir()
+	brief := sessionBrief(t, state, "chores", "helper")
+	sessionBrief(t, state, "signal", "watch")
+	f := newFake(t, nil, []Row{who("chores", true, t0), who("meta", true, t0), who("signal", false, t0.Add(-time.Hour))})
+	f.deps.State = state
+
+	out := tick(t, s, f, t0)
+
+	equal(t, out.Adopted, []string{"chores"})
+	equal(t, len(f.launches), 0)
+	equal(t, row(t, s, "chores").Brief, brief)
+	lines, err := RegistryLines(s, []string{"chores", "meta", "signal"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	contains(t, lines[0], "chores desired live")
+	contains(t, lines[0], "standing: the chores duty")
+	equal(t, lines[1:], []string{"meta unregistered", "signal unregistered"})
 }

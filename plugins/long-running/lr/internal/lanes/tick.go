@@ -31,6 +31,7 @@ type Deps struct {
 	Drive        string
 	Parent       string
 	Checkout     string
+	State        string
 	Briefs       string
 	HandoffBrief string
 	Records      func(since int64) ([]Record, error)
@@ -98,7 +99,7 @@ func Tick(s *store.Store, d Deps, now time.Time, generation int64) (out Outcome,
 		}
 	}
 	said := fold(s, records, adoptable, d.Briefs, d)
-	out.Adopted = said.adopted
+	out.Adopted = append(said.adopted, adoptStanding(s, d, found, now)...)
 	announce(d, said, now)
 	ownedWork(s, d, now)
 	for _, name := range said.hand {
@@ -125,6 +126,21 @@ func Tick(s *store.Store, d Deps, now time.Time, generation int64) (out Outcome,
 	unownedDuties(s, d, found, now)
 	hourly(s, d, now)
 	return out, nil
+}
+
+func adoptStanding(s *store.Store, d Deps, found map[string]Peer, now time.Time) []string {
+	var adopted []string
+	for _, name := range slices.Sorted(maps.Keys(standingSessions)) {
+		session := standingSessions[name]
+		brief := filepath.Join(d.State, session.lane, "brief.md")
+		peer, listed := found[session.lane]
+		if _, known := laneOf(s, session.lane); known || !listed || !alive(&peer, peer.Seen, now) || !briefExists(brief) {
+			continue
+		}
+		must(s.WantLane(store.Lane{Name: session.lane, Brief: brief, Model: session.model, Effort: session.effort, Role: "lane", State: store.LaneDesired}, now))
+		adopted = append(adopted, session.lane)
+	}
+	return adopted
 }
 
 func announce(d Deps, said folded, now time.Time) {
@@ -322,7 +338,7 @@ func relaunch(s *store.Store, d Deps, old store.Lane, found map[string]Peer, why
 		out.Held = append(out.Held, old.Name)
 		return
 	}
-	name := successorName(old.Name, taken)
+	name := SuccessorName(old.Name, taken)
 	taken[name] = true
 	path := filepath.Join(d.Briefs, name+".brief.md")
 	do(os.MkdirAll(d.Briefs, 0o750))

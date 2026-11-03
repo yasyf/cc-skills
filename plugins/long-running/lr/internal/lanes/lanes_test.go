@@ -1096,7 +1096,7 @@ func TestSuccessorName(t *testing.T) {
 		for _, name := range c.taken {
 			taken[name] = true
 		}
-		equal(t, successorName(c.name, taken), c.want)
+		equal(t, SuccessorName(c.name, taken), c.want)
 	}
 }
 

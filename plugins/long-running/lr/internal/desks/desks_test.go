@@ -101,14 +101,14 @@ func writeBrief(t *testing.T, state, name, text string) {
 	}
 }
 
-func wantLane(t *testing.T, state, name string, laneState store.LaneState) {
+func wantLane(t *testing.T, state, name, brief string, laneState store.LaneState) {
 	t.Helper()
 	s, err := store.Open(filepath.Join(state, lanes.StoreFile))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = s.Close() }()
-	if _, err := s.WantLane(store.Lane{Name: name, Brief: "/b.md", Model: "opus", Effort: "xhigh", Role: "lane", State: laneState}, t0); err != nil {
+	if _, err := s.WantLane(store.Lane{Name: name, Brief: brief, Model: "opus", Effort: "xhigh", Role: "lane", State: laneState}, t0); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -187,7 +187,7 @@ func TestTheLaunchRunnerTheCoordinatorStartsRunsAsTheDeskRunner(t *testing.T) {
 func TestADeskUpUnderAnyNumberIsNotStartedAgain(t *testing.T) {
 	a, m, state := newDrive(t, lanes.Root, "fidelity-desk", "red-sweep", "alerts-desk", "drive-watchdog", "board-refresher")
 	m.alive = map[string]bool{launchRunner: true, landingRunner: true}
-	wantLane(t, state, "landing-desk-3", store.LaneDesired)
+	wantLane(t, state, "landing-desk-3", "/b.md", store.LaneDesired)
 	var out bytes.Buffer
 	if err := start(context.Background(), a, &out); err != nil {
 		t.Fatal(err)
@@ -206,14 +206,57 @@ func TestADeskUpUnderAnyNumberIsNotStartedAgain(t *testing.T) {
 	}
 }
 
-func TestARetiredDeskIsStarted(t *testing.T) {
+func recordedBrief(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "landing-desk-3.brief.md")
+	if err := os.WriteFile(path, []byte(onlyDeskBrief), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestADownDeskRelaunchesUnderItsNextNameFromItsRecordedBrief(t *testing.T) {
+	for _, down := range []store.LaneState{store.LaneHeld, store.LaneRetired} {
+		t.Run(string(down), func(t *testing.T) {
+			a, m, state := newDrive(t, lanes.Root, "fidelity-desk", "red-sweep", "alerts-desk", "drive-watchdog", "board-refresher")
+			wantLane(t, state, "landing-desk-3", recordedBrief(t), down)
+			var out bytes.Buffer
+			if err := start(context.Background(), a, &out); err != nil {
+				t.Fatal(err)
+			}
+			successor := filepath.Join(state, "landing-desk-4", "brief.md")
+			want := fmt.Sprintf("desk-launch.py lane landing-desk-4 opus xhigh %s --drive %s --lane %s", successor, testDrive, lanes.Root)
+			if launched := m.lines("desk-launch.py lane landing-desk"); !slices.Equal(launched, []string{want}) {
+				t.Fatalf("launched %q, want %q", launched, want)
+			}
+			if copied, err := os.ReadFile(successor); err != nil || string(copied) != onlyDeskBrief {
+				t.Fatalf("the successor's brief holds %q (%v), want landing-desk-3's recorded brief", copied, err)
+			}
+			if !strings.Contains(out.String(), "landing-desk is "+string(down)+" as landing-desk-3, so landing-desk-4 launches") {
+				t.Fatalf("got %q", out.String())
+			}
+		})
+	}
+}
+
+func TestADownDeskNeverTakesANameAnotherLanePostedUnder(t *testing.T) {
 	a, m, state := newDrive(t, lanes.Root, everyDesk...)
-	wantLane(t, state, "red-sweep-2", store.LaneRetired)
+	wantLane(t, state, "red-sweep-2", recordedBrief(t), store.LaneRetired)
+	s, err := store.Open(filepath.Join(state, lanes.StoreFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.LaneHeard("red-sweep-3", t0, "note", 7); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
 	if err := start(context.Background(), a, &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
 	}
-	if launched := m.lines("desk-launch.py lane red-sweep "); len(launched) != 1 {
-		t.Fatalf("got %q, want red-sweep launched once", launched)
+	if launched := m.lines("desk-launch.py lane red-sweep"); len(launched) != 1 || !strings.HasPrefix(launched[0], "desk-launch.py lane red-sweep-4 ") {
+		t.Fatalf("got %q, want red-sweep-4 launched once", launched)
 	}
 }
 
