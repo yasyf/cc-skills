@@ -1,6 +1,6 @@
 # Owner rulings, standing rules, and judges
 
-This file defines the mechanics for applying settled questions (`R19`), satisfying owner-ruling gates (`R19a`), extrapolating owner rulings (`R19b`), and maintaining standing rules (`I6`). For the root rule summaries, see `R17`, `R18`, `R19`, `R19a`, and `R19b` in `SKILL.md`.
+This file defines the mechanics for applying settled questions (`R19`), satisfying owner-ruling gates (`R19a`), extrapolating owner rulings (`R19b`), and maintaining standing rules (`I6`). For the coordinator rule summaries, see `R17`, `R18`, `R19`, `R19a`, and `R19b` in `SKILL.md`.
 
 ## Contents
 
@@ -19,7 +19,7 @@ This file defines the mechanics for applying settled questions (`R19`), satisfyi
 
 ## Filter questions against authorities (R19)
 
-**The root checks every question against three authorities in order before calling `cc-present start --doc`, `push`, or `update-block`.**
+**The coordinator checks every question against three authorities in order before calling `cc-present start --doc`, `push`, or `update-block`.**
 
 | Order | Authority | What to check |
 | --- | --- | --- |
@@ -27,29 +27,29 @@ This file defines the mechanics for applying settled questions (`R19`), satisfyi
 | 2 | Durable and drive answers | `ccn answer list --label scope:durable` plus the drive's answer labels. |
 | 3 | Feedback memories | The project's feedback memories. |
 
-**The root applies any question that an authority answers.** It writes the ruling to the lanes (see `R18` in `SKILL.md`) and logs it. The question never reaches the owner. "Confirm or override" cards for items settled by the plan count as asking and are forbidden.
+**The coordinator applies any question that an authority answers.** It writes the ruling to the lanes (see `R18` in `SKILL.md`) and logs it. The question never reaches the owner. "Confirm or override" cards for items settled by the plan count as asking and are forbidden.
 
-**The root filters every lane question list before posting to the board.** A lane's owner-question file is raw input. The root never forwards a lane's question file verbatim. Only questions that no authority settles go to the owner, and each card names which authorities the root checked.
+**The coordinator filters every lane question list before posting to the board.** A lane's owner-question file is raw input. The coordinator never forwards a lane's question file verbatim. Only questions that no authority settles go to the owner, and each card names which authorities the coordinator checked.
 
-**The root keeps absolute owner instructions absolute.** Instructions such as "nothing is dropped" or "every side-feature carries" stay unqualified in every brief, ruling, and memory the root writes. The root never appends "unless the owner explicitly drops it" or "or an explicit owner drop," because an exit clause turns the ruling into a decision surface that audit lanes use to manufacture questions.
+**The coordinator keeps absolute owner instructions absolute.** Instructions such as "nothing is dropped" or "every side-feature carries" stay unqualified in every brief, ruling, and memory the coordinator writes. The coordinator never appends "unless the owner explicitly drops it" or "or an explicit owner drop," because an exit clause turns the ruling into a decision surface that audit lanes use to manufacture questions.
 
 **Audit and parity lane briefs enforce the same filter.** Each audit or parity brief instructs the lane to grade any row covered by the owner's rulings against carry or the plan mechanism that carries it. The brief also instructs the lane never to queue that row as an owner question.
 
-**Contradictions with an owner ruling or plan are defects to fix forward.** When a prior root decision, a landed PR, or a refining plan line conflicts with an owner ruling or the owner's plan, the owner's plan wins. The root spawns a fix lane that changes the code to match the plan instead of asking the owner. A revert runs only when the owner's own words name a revert.
+**Contradictions with an owner ruling or plan are defects to fix forward.** When a prior coordinator decision, a landed PR, or a refining plan line conflicts with an owner ruling or the owner's plan, the owner's plan wins. The coordinator spawns a fix lane that changes the code to match the plan instead of asking the owner. A revert runs only when the owner's own words name a revert.
 
 ## Price check, gate and grader options
 
-**Questions about a check, gate, or grader always include a deletion option and a cost table.** When an unsettled fork concerns a check, gate, or grader, the question names every existing mechanism that grades the same signal. The options include `"delete it and let <that mechanism> own the signal"`, and each option lists its added lines and added graders as its cost. The root marks `Recommended` on the option that adds the least new machinery, unless the question states what that option fails to cover. The root waits for any lane asked to research options to reply before writing options, and it cites the research verdict the options rest on.
+**Questions about a check, gate, or grader always include a deletion option and a cost table.** When an unsettled fork concerns a check, gate, or grader, the question names every existing mechanism that grades the same signal. The options include `"delete it and let <that mechanism> own the signal"`, and each option lists its added lines and added graders as its cost. The coordinator marks `Recommended` on the option that adds the least new machinery, unless the question states what that option fails to cover. The coordinator waits for any lane asked to research options to reply before writing options, and it cites the research verdict the options rest on.
 
 ## Run the `settled_questions` hook
 
-**The `settled_questions` hook blocks asking the owner what he already ruled.** When the root or a lane makes an asking call, the hook sends each question to a judge before the call proceeds.
+**The `settled_questions` hook blocks asking the owner what he already ruled.** When the coordinator or a lane makes an asking call, the hook sends each question to a judge before the call proceeds.
 
 Asking calls covered by `settled_questions`:
 - `AskUserQuestion`
 - Each card of `cc-present start --doc`, `push`, or `update-block`
 - A Slack status card with options
-- A root `DECIDE` sentence that orders a card
+- A coordinator `DECIDE` sentence that orders a card
 
 Context passed to the judge:
 - The owner's verbatim words on the register rows the question cites or `rulings.py match` finds
@@ -59,17 +59,17 @@ Context passed to the judge:
 
 **The judge warns when a card re-asks a settled question or narrows an owner ruling.** It flags any card that asks what the owner already ruled or offers an option narrower or more literal than his words. A found violation of an existing owner ruling is applied directly and never put back to the owner as a card or pick.
 
-**The hook runs in lanes as well as the root.** This checks pushes from the board refresher lane. A failed judge call adds nothing. Re-issuing the same card passes on retry, so a false positive costs one retry.
+**The hook runs in lanes as well as the coordinator.** This checks pushes from the board refresher lane. A failed judge call adds nothing. Re-issuing the same card passes on retry, so a false positive costs one retry.
 
 ## Record standing rules and board taps (I6)
 
-**The root records every standing rule on the turn it arrives.** When an owner message states a standing rule using phrases like `"from now on"`, `"always"`, `"never"`, `"I told you"`, `"the plan is"`, `"for the remainder"`, or `"every landing"`, the root records it that turn in two places:
+**The coordinator records every standing rule on the turn it arrives.** When an owner message states a standing rule using phrases like `"from now on"`, `"always"`, `"never"`, `"I told you"`, `"the plan is"`, `"for the remainder"`, or `"every landing"`, the coordinator records it that turn in two places:
 1. A cc-notes `answer_add` labeled `scope:durable`.
 2. A line in the plan's `Decisions` section.
 
 If a turn ends without an `answer_add` or `answer_edit`, the `root_context` hook queues `owner standing rule not recorded: answer_add it (scope:durable) + a plan Decisions line` for the next turn.
 
-**I6. A standing rule has its own durable answer, and it is never done.** After recording the `scope:durable` cc-notes answer, the root posts a dedicated `go` record to the target desk:
+**I6. A standing rule has its own durable answer, and it is never done.** After recording the `scope:durable` cc-notes answer, the coordinator posts a dedicated `go` record to the target desk:
 
 ```
 cci post --drive <drive> --lane root --kind go --to <desk> --ccn <answer id> --topic standing --text "<rule>"
@@ -78,8 +78,8 @@ cci post --drive <drive> --lane root --kind go --to <desk> --ccn <answer id> --t
 Standing rule lifecycle rules:
 - Separate from one-offs: A standing rule never shares a cci record or cc-notes answer id with a one-off instruction. `"Deploy everything now"` and `"deploy every landing from now on"` require two separate records.
 - Never closed: No record ever marks a standing rule `done`, `complete`, or `closed`.
-- Deliverable tasks: When the root hands a standing rule to a lane as a deliverable, the root still creates the durable answer and addressed cci record first. The lane's task cites both the rule id (`#<seq>`) and the answer id, and completing the task never retires the rule.
-- Superseding a rule: To replace a standing rule, the root supersedes its cc-notes answer with a later answer and posts the following correction record.
+- Deliverable tasks: When the coordinator hands a standing rule to a lane as a deliverable, the coordinator still creates the durable answer and addressed cci record first. The lane's task cites both the rule id (`#<seq>`) and the answer id, and completing the task never retires the rule.
+- Superseding a rule: To replace a standing rule, the coordinator supersedes its cc-notes answer with a later answer and posts the following correction record.
 
 ```
 cci post --drive <drive> --lane root --kind correction --to <desk> --re <seq> --ccn <later answer id> --topic standing --text "<replacement rule>"
@@ -88,23 +88,23 @@ cci post --drive <drive> --lane root --kind correction --to <desk> --re <seq> --
 Here `<seq>` is the cci sequence number of the standing record being replaced.
 - Listing active rules: Standing rule ids take the form `#<seq>`. Every desk brief and desk summary lists live standing rules individually by `#<seq>` with their cc-notes answer ids, alongside the plan's `Decisions`, and never collapses them into a sequence range.
 
-**A tap on an ask card is an owner answer.** When the owner taps an option on a Slack card or a board card, that tap is the owner's answer and authorization for that question. This includes a tap approving a Slack lane's draft. The root records it as one `from:owner` cc-notes answer whose body names the card's permalink and the tapped label.
+**A tap on an ask card is an owner answer.** When the owner taps an option on a Slack card or a board card, that tap is the owner's answer and authorization for that question. This includes a tap approving a Slack lane's draft. The coordinator records it as one `from:owner` cc-notes answer whose body names the card's permalink and the tapped label.
 
 ## Satisfy owner-ruling gates (R19a)
 
-**The root satisfies any gate requiring an owner-recorded answer on the same turn.** Some gates accept only an answer the owner recorded, such as `pr-reviews accept --owner-ruling` taking a cc-notes answer id. When the plan or a board pick already carries the decision, the root records the plan's decision as the ruling in cc-notes and accepts on the owner's behalf that same turn, citing the plan line or board pick id in the accept reason. When nothing settles it, the root puts the question card on the board that turn.
+**The coordinator satisfies any gate requiring an owner-recorded answer on the same turn.** Some gates accept only an answer the owner recorded, such as `pr-reviews accept --owner-ruling` taking a cc-notes answer id. When the plan or a board pick already carries the decision, the coordinator records the plan's decision as the ruling in cc-notes and accepts on the owner's behalf that same turn, citing the plan line or board pick id in the accept reason. When nothing settles it, the coordinator puts the question card on the board that turn.
 
-The root never ends a turn waiting for the owner to say "ask" and never leaves PRs parked behind the gate.
+The coordinator never ends a turn waiting for the owner to say "ask" and never leaves PRs parked behind the gate.
 
 ## Extrapolate and sweep every ruling (R19b)
 
-**A ruling binds everything it implies across the entire drive.** On the turn an owner ruling arrives, the root:
+**A ruling binds everything it implies across the entire drive.** On the turn an owner ruling arrives, the coordinator:
 1. Records the owner's words verbatim.
 2. Writes out the ruling's implications across sibling mechanisms, both directions of any relationship, and every artifact, lane, ledger row, budget line, test row, board card, and brief that carries the old assumption.
 3. Confirms those implications with the owner that same turn (in chat when there are a few, or on one board card when there are many).
 4. Applies the ruling to every live artifact and lane at once, never to new work only (see `R17` in `SKILL.md`).
 
-**A ruling or design that removes code owes the deletion a task.** When the owner approves a design, each row of its deletion table, whatever the design calls it, becomes a register row with a `removes` implication. The same holds for any ruling that removes a path or symbol. The root anchors what goes with `rulings.py anchor <key> --symbols <name>...`, or `--paths <path>...` when whole files or directories go.
+**A ruling or design that removes code owes the deletion a task.** When the owner approves a design, each row of its deletion table, whatever the design calls it, becomes a register row with a `removes` implication. The same holds for any ruling that removes a path or symbol. The coordinator anchors what goes with `rulings.py anchor <key> --symbols <name>...`, or `--paths <path>...` when whole files or directories go.
 
 Each anchor then needs an open cc-notes task labeled `owed-deletion`, one per deletion, in the drive's checkout. Its assignee is the owner lane, and none means the coordinator still has to assign it. Its `--path` and `--dir` anchors name what goes, a `symbol:<name>` label names each symbol in them, and a `due:YYYY-MM-DD` label names the date. The body's first sentence names the decision. An `exception` row anchored to the same target records why nothing is owed instead. An anchor that marks the surface a row guards rather than code it deletes goes in the row's `guards` field with `rulings.py anchor KEY --guards ...`; the check skips it, while `check-pr` and sweeps still read the row's paths and symbols. A target no longer on trunk at the row's anchored paths owes nothing.
 
@@ -112,11 +112,11 @@ The approver runs `lr deletions check` the turn the design or ruling is approved
 
 **A ruling travels by its verbatim words and its implications.** Briefs, handoffs, progress docs, and compaction narratives must carry the owner's words and implications. Carrying only an answer id or a short gist drops the ruling.
 
-**The root sweeps every outbound artifact against every ruling's broadest reading.** Before presenting a board, brief, handoff, or plan, the root checks the entire text against all rulings. Any sentence that keeps, budgets, tests, or asks about something a ruling removed is a defect, even when it cites no ruling. The root drafts every board, card, or reply from the owner's rulings instead of from code on the base branch. A card that explains a term from base-branch code where a ruling covers it fails the sweep.
+**The coordinator sweeps every outbound artifact against every ruling's broadest reading.** Before presenting a board, brief, handoff, or plan, the coordinator checks the entire text against all rulings. Any sentence that keeps, budgets, tests, or asks about something a ruling removed is a defect, even when it cites no ruling. The coordinator drafts every board, card, or reply from the owner's rulings instead of from code on the base branch. A card that explains a term from base-branch code where a ruling covers it fails the sweep.
 
-**A repeated owner ruling is a defect report.** When the owner repeats a ruling, the root finds every place where an earlier narrow reading survived and fixes all of them that same turn. It then reports to `owner-relay` what was missed and why.
+**A repeated owner ruling is a defect report.** When the owner repeats a ruling, the coordinator finds every place where an earlier narrow reading survived and fixes all of them that same turn. It then reports to `owner-relay` what was missed and why.
 
-**The root never settles a plan gap by `DECIDE`.** A lane may encounter a new column, table, route, field, state, timer, or metric missing from both the plan and the owner rows. When that happens, the root puts a card on the owner's board, and the lane stops on that gap. Before relaying any lane report such as "a worker did X," the root checks what the lane did against the plan.
+**The coordinator never settles a plan gap by `DECIDE`.** A lane may encounter a new column, table, route, field, state, timer, or metric missing from both the plan and the owner rows. When that happens, the coordinator puts a card on the owner's board, and the lane stops on that gap. Before relaying any lane report such as "a worker did X," the coordinator checks what the lane did against the plan.
 
 ## Audit contracts and relays with `judge_watch.py`
 
@@ -125,7 +125,7 @@ The approver runs `lr deletions check` the turn the design or ruling is approved
 | Artifact | What `judge_watch.py` asks the judge |
 | --- | --- |
 | Lane contract | Whether the contract misreads the owner's verbatim words on the rows it acts on, which `rulings.py readback --words` prints: the rows its slice carries for its lane, step, PRs and paths, and the rows it cites, a superseded one replaced by the rows superseding it. The judge reads them in one call, so his newest words on a subject govern, and the flag names the row whose words it quotes. |
-| Root relay | Whether the relay misreads the owner's verbatim words on the rows it cites, or adds a mechanism missing from both the owner's words and the plan lines sharing words with it. |
+| Coordinator relay | Whether the relay misreads the owner's verbatim words on the rows it cites, or adds a mechanism missing from both the owner's words and the plan lines sharing words with it. |
 
 **A `yes` verdict posts a `JUDGE` review record.** `judge_watch.py` posts one `review` record in reply to the artifact, addressed to its writer and `root`:
 
@@ -133,11 +133,11 @@ The approver runs `lr deletions check` the turn the design or ruling is approved
 JUDGE <kind> #<seq> <key>: <sentence>
 ```
 
-**Writers must fix a flagged artifact or answer with the owner's words.** A writer receiving a `JUDGE` review record can update the artifact to fix the misread. Alternatively, the writer can reply to the flag quoting the owner words that carry its reading. A root ruling from the last 24 hours closes the answer when it replies to the flag, the artifact, or the writer's answer. It also closes the answer when it names one of the writer's PRs. Otherwise, the writer sends the answer to `root` alone as an `ask` record containing the owner's words and both readings, and never sends it to a board lane. When the root places a `judge-dispute-<flag>` card on the board and the owner picks an option, the root saves that pick as an eval fixture under `judge/owner/`.
+**Writers must fix a flagged artifact or answer with the owner's words.** A writer receiving a `JUDGE` review record can update the artifact to fix the misread. Alternatively, the writer can reply to the flag quoting the owner words that carry its reading. A coordinator ruling from the last 24 hours closes the answer when it replies to the flag, the artifact, or the writer's answer. It also closes the answer when it names one of the writer's PRs. Otherwise, the writer sends the answer to `root` alone as an `ask` record containing the owner's words and both readings, and never sends it to a board lane. When the coordinator places a `judge-dispute-<flag>` card on the board and the owner picks an option, the coordinator saves that pick as an eval fixture under `judge/owner/`.
 
 **Extending a ruling row triggers a retroactive re-judge.** When `rulings.py classify` extends an existing row with new owner words, `judge_watch.py` re-judges the 10 newest contracts and relays from the last 24 hours that cite that row against all of the owner's words. Any artifact that flips from carried to `yes` is flagged as a miss in the `JUDGE` record and written as an eval case under `judge/misses/`.
 
-**Cite a rule as the owner's only with his words.** A record that calls a rule the owner's quotes his timed words. Any other rule, the root's own included, is cited as "root rule". `drive-watchdog` checks each such cite against the drive's `owner-prompts.jsonl` captures.
+**Cite a rule as the owner's only with his words.** A record that calls a rule the owner's quotes his timed words. Any other rule, the coordinator's own included, is cited as "coordinator rule". `drive-watchdog` checks each such cite against the drive's `owner-prompts.jsonl` captures.
 
 ## Run `judge.py` and `judge-eval.py`
 
@@ -162,7 +162,7 @@ Core `judge.py` behaviors:
 
 ## Ship-time and turn-time judges
 
-**`scripts/long_running/judge.py` powers warning judges at ship time, spawn time, and root reply time.** Each judge runs alongside the deterministic check it fronts or replaces:
+**`scripts/long_running/judge.py` powers warning judges at ship time, spawn time, and coordinator reply time.** Each judge runs alongside the deterministic check it fronts or replaces:
 
 | Judge / Hook | When it runs | What it checks |
 | --- | --- | --- |
@@ -170,7 +170,7 @@ Core `judge.py` behaviors:
 | `refusal_kinds_need_owner_answer` | PR ship | Reads the refusal kinds, retries, clocks, and budgets added by a PR and asks whether the owner's words or the plan name them. |
 | `pr_bodies_name_what_they_defer` | PR open or edit | Asks whether the PR body names the fix its stand-ins put off and why, and states in plain words the rulings the diff builds. |
 | Brief `Scale:` judge | Lane spawn hook and orca desk runner | Requires a `Scale:` line in every lane brief and asks whether it names the `N` that the brief's code paths run at; emits one `SCALE-MISSED` from the orca desk runner on failure. |
-| Incident defect admission judge | Root reply during an open incident | When a root reply admits a defect during an open incident, asks whether the root started the fix on the same turn. |
+| Incident defect admission judge | Coordinator reply during an open incident | When a coordinator reply admits a defect during an open incident, asks whether the coordinator started the fix on the same turn. |
 | Read-claim judge | After a code read or review | Asks whether a claim about code or a review states more than the preceding read showed. |
 | Release cancel / rollback judge | Release cancel or rollback | Alongside the block that refuses an unordered rollback, checks a cancel or rollback citing an owner answer to verify that the answer orders that exact undo. |
 

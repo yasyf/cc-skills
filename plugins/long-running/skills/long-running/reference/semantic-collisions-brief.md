@@ -4,7 +4,7 @@ Spawn one standing `semantic-collisions` lane as `long-running:lane` with model 
 
 The lane keeps a map file at `map.md` with one row per collision listing the lanes, the PRs, the contradiction, the verdict, and who was told. Head snapshots beside the map let each sweep re-read only the heads that moved. Per collision, the lane messages the owning lanes directly with a 20-minute deadline. Only a collision that no settled ruling decides goes to the coordinator as `RULING NEEDED`. An owner ruling that retires a mechanism triggers a full sweep of every open PR and worktree. That sweep gives one verdict per PR, stating whether the PR builds on the mechanism, mentions it, or carries the same guard under another name.
 
-## Root discipline
+## Coordinator discipline
 
 The coordinator pings the lane on every 30-minute tick with `SWEEP` plus any new owner ruling, because an in-process teammate cannot schedule itself. The coordinator answers the lane's `RULING NEEDED` lines with a letter and nothing else. The coordinator sends a new owner ruling that retires a mechanism to the lane in the same turn as `FULL SWEEP <ruling>`.
 
@@ -21,7 +21,7 @@ xhigh. You run until the coordinator tells you the drive is over, and never end 
 Authority: read every open PR of this drive and every lane worktree; message the
   owning lanes of a collision directly; retract your own verdicts. You edit no code,
   push nothing, and label nothing. A collision no settled ruling decides goes to the
-  root as `RULING NEEDED: <collision>; options: A <...> / B <...>`.
+  coordinator as `RULING NEEDED: <collision>; options: A <...> / B <...>`.
 
 Verified facts, do not re-derive:
   repo <owner/name>; base branch <dev>; checkout <absolute path, read-only for you>
@@ -60,7 +60,7 @@ On FULL SWEEP <ruling>, when an owner ruling retires a mechanism:
 map.md shape:
 
   # Semantic collisions (sweep <n>, <date>Z)
-  Status: sent = lane told with a 20-min deadline; ruling = RULING NEEDED to root;
+  Status: sent = lane told with a 20-min deadline; ruling = RULING NEEDED to the coordinator;
     resolved = the lane's head now matches the verdict; note = recorded, no action;
     ok = checked, no collision.
 

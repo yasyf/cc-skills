@@ -2,7 +2,7 @@
 
 The coordinator starts one `alerts-desk` remote beside the landing-desk with `lr desks start`, model sonnet, effort low; it watches whatever the drive deploys, applies, releases, or migrates. `scripts/monitor-watch.py` owns the polling and dedup. Fill the angle brackets and paste the brief below.
 
-## Root discipline
+## Coordinator discipline
 
 **A1. Report monitor transitions, and nothing else.** The desk runs `monitor-watch.py watch --alert-drive <drive>` in the foreground under `lr wait` over the drive's monitors by tag glob such as `release-target:*` and by named id. It messages the coordinator only on a move into Alert, Warn, or No Data, or a recovery to OK. Each message includes the monitor id, name, transition time, a one-line first read, any `production-operations` entry from the last 24 hours on the monitor's target (SKILL.md R24), and its launch decision. It never messages on an unchanged state or a timer tick, owns no fixes, and posts nothing to Slack.
 
@@ -12,7 +12,7 @@ The coordinator starts one `alerts-desk` remote beside the landing-desk with `lr
 
 **Open the incident in the same turn.** Each alert is P0 for the coordinator. When the runner's `INCIDENT` line for a desk launch arrives, or the coordinator judges a reported transition an incident, the coordinator opens the incident with `incident.py open --kind alert --target <monitor's target>`, adopting any desk-launched fix lane with `--adopt fix=<lane>`, and starts `incident.py run` in that turn with no verdict gate (`reference/active-alert-brief.md`, SKILL.md R16). When posting individual cci records to `orca-desk` such as an evidence-lane launch or a fence, send one action per record; the runner logs `LAUNCH-FAILED` for a record that chains launches or a fence. While the alert is unresolved, the monitor's targets stay fenced from deploys, applies, releases, and enqueues into its `release-target:*` targets; the fence never blocks the fix lane's own apply under R16. A recovery line or a diagnosis clearing the alert lifts the fence; a mute does not resolve it.
 
-**An alert nobody opens raises itself.** With `alert_channels` set in the drive's `lr.json`, the supervisor reads those channels every tick, and a Datadog or Sentry alert no `incident` record names three minutes after it fired posts one `ALERT-UNOPENED` blocker to root naming it. Root opens the incident on sight, with no verdict first.
+**An alert nobody opens raises itself.** With `alert_channels` set in the drive's `lr.json`, the supervisor reads those channels every tick, and a Datadog or Sentry alert no `incident` record names three minutes after it fired posts one `ALERT-UNOPENED` blocker to the coordinator naming it. The coordinator opens the incident on sight, with no verdict first.
 
 **Manage the monitors file and desk inbox without respawning.** The coordinator owns the monitors file, with one `--tag <glob>` or `--id <monitor id>` per line, and rewrites it to change the set; the desk re-reads it on its next watch rerun while keeping its state file, identity, and session. The coordinator addresses the desk over the cci bus with `cci post --drive <drive> --lane root --kind go --to alerts-desk --text "<ruling>"`, never by `SendMessage` (`reference/bus-contracts.md` I4). Pages in on-call channels during a drive release reach the coordinator from the orca runner, not this desk (`reference/release-lanes.md`).
 
@@ -30,8 +30,8 @@ Authority: read Datadog monitors and the production-operations log, report
 Verified facts, do not re-derive:
   tools on PATH by name (ledger.py, cci); cci drive <drive>
   state file <path>, yours; it persists across reruns
-  monitors file <path>, root-owned; one --tag <glob> or --id <monitor id> per line
-  root <root agent name>
+  monitors file <path>, coordinator-owned; one --tag <glob> or --id <monitor id> per line
+  coordinator <coordinator agent name>
 
 At spawn, run once and report every line it prints as one message:
   python3 <scripts>/monitor-watch.py once --state <state file> \

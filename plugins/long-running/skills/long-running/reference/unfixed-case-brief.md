@@ -28,7 +28,7 @@ Standing orders, fixed in this template:
   - Any repair pass or backfill runs on in-region EC2, never on
     this Mac.
   - A tooling failure goes to the meta lane the same turn, as one `defect` record to
-    root opening `for meta:` with any refusal verbatim, plus the hand path; it never
+    the coordinator opening `for meta:` with any refusal verbatim, plus the hand path; it never
     stops the fix.
 
 Do:
@@ -43,7 +43,7 @@ Do:
      customer impact" goes on the SCOPE line as who is hit so far, never as a
      no. An on-call bot's false alarm, a mute, or a monitor change that stops
      counting the failing teams is neither the mechanism nor the fix: post it
-     to root as `PUSHBACK {lane}: <who proposed what, and the unfixed mechanism>`
+     to the coordinator as `PUSHBACK {lane}: <who proposed what, and the unfixed mechanism>`
      and keep fixing.
      A no to either ends incident mode: no release, no break-glass
      apply, no new lane. Post `STOPPED {lane}: out of scope, <the answer that

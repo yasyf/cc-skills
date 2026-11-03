@@ -8,7 +8,7 @@ ledger.py train --repo "$REPO" --ledger "$LEDGER" --paths 'infra/ci/src/pipeline
 
 `ledger.py train` prints at most six cars, placing green cars before conflicting but approved ones and ordering them by fewest file overlaps with the other cars and then oldest. It also prints the rows past the cap as the next train, the hot rows that are not ready, and the `ccx vcs stack rebase --linearize` line for the cars. It leaves out held rows and rows the queue already holds, and writes nothing. The globs are `fnmatch` globs, where `*` crosses `/`.
 
-## Root and desk discipline
+## Coordinator and desk discipline
 
 The desk routes a hot-set row to the train, not to its lane, under D7 in `reference/landing.md`. Lanes whose PRs touch the hot set report them to the train as `TRAIN #N <sha>` the moment they are green or conflicting, and never rebase or enqueue them again. The owning lane still pushes code fixes for its own PR's red, while the train restacks and enqueues. The coordinator answers the train's `RULING NEEDED` lines and nothing else.
 

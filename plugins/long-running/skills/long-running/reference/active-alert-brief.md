@@ -26,7 +26,7 @@ A record that says customers are failing, or fail from a change already moving, 
 ```sh
 incident.py open --kind pr-review --incident <id> --thread <permalink> --onset <ISO time> \
   --reported <ISO time of the first report> \
-  --bus <cci drive> --comms-lane <comms lane name> --root-lane <root agent name> \
+  --bus <cci drive> --comms-lane <comms lane name> --root-lane <coordinator agent name> \
   --checkout <repo checkout> --orca-run <run id> --orca-repo <repo id> \
   --common "$(ccn -R <repo checkout> attachment path <briefs log> common.md)" \
   --alert <Sentry issue or monitor link> --runbook <runbook> [--adopt fix=<lane already running>] \
@@ -132,7 +132,7 @@ A fix that grows into a redesign of a path the plan deletes is a signal to stop,
 
 **A lane cannot post a mechanism and go silent.** `mechanism` is not a turn end, so `cci hook stop` refuses the lane's stop until it posts `opened` or `blocker`. Read a lane's code state with `drive.py lane-status <lane>`.
 
-`drive.py lane-status <lane>` finds every worktree the lane owns from launch receipts, `WORKTREE` records posted by the `announce_lane_worktree` hook, `git worktree list`, and PR head branches. Each line names the branch, dirty files, commits ahead of trunk, the last commit's age, whether the origin branch holds HEAD, and the PR with its CI state. A lane with no worktree on this Mac, such as an Orca worker on a paired remote server, reads from the drive's Orca Run instead, or `--run <run>` or a `ctx_` dispatch id. It prints one line per dispatch whose task title, display name, or spec names the lane, with its worktree, environment, branch, stage, outcome, liveness, last update and heartbeat, terminal, and last message to the Run. A lane that is an in-process teammate of the drive's root session also gets a line naming its agent type, model, whether it runs or sits idle, its last activity, and when it joined. With none, it prints `no worktree found for lane <lane>` and exits 1.
+`drive.py lane-status <lane>` finds every worktree the lane owns from launch receipts, `WORKTREE` records posted by the `announce_lane_worktree` hook, `git worktree list`, and PR head branches. Each line names the branch, dirty files, commits ahead of trunk, the last commit's age, whether the origin branch holds HEAD, and the PR with its CI state. A lane with no worktree on this Mac, such as an Orca worker on a paired remote server, reads from the drive's Orca Run instead, or `--run <run>` or a `ctx_` dispatch id. It prints one line per dispatch whose task title, display name, or spec names the lane, with its worktree, environment, branch, stage, outcome, liveness, last update and heartbeat, terminal, and last message to the Run. A lane that is an in-process teammate of the drive's coordinator session also gets a line naming its agent type, model, whether it runs or sits idle, its last activity, and when it joined. With none, it prints `no worktree found for lane <lane>` and exits 1.
 
 ## Case lanes for unfixed cases
 
@@ -160,7 +160,7 @@ cci post --drive <drive> --lane incident-<slug>-watch --kind blocker --to root -
 
 **Spawn `incident-<slug>-ship` the turn `TAKEOVER` arrives.** The coordinator spawns `incident-<slug>-ship` as `long-running:lane-ship` on opus in fast mode. The ship lane checks out the PR's branch with `ccx vcs worktree add <branch>` and replays it onto current dev with `ccx vcs stack submit --restack`. It posts `opened --pr <n>` on this drive so the landing runner owns the PR, and posts `ready` when approved and green so the landing runner merges it by plain squash.
 
-On landing, the ship lane posts the `release` record required by D20 (`reference/landing.md`). The coordinator posts one `decision` addressed to the owning drive's coordinator and fix lane naming the takeover and its trigger. The coordinator never sets the owning drive a deadline, never asks whether it is mid-push, and never waits for its root to rule. If the owning drive pushes a newer head later, the ship lane continues from that head and never force-pushes over it.
+On landing, the ship lane posts the `release` record required by D20 (`reference/landing.md`). The coordinator posts one `decision` addressed to the owning drive's coordinator and fix lane naming the takeover and its trigger. The coordinator never sets the owning drive a deadline, never asks whether it is mid-push, and never waits for its coordinator to rule. If the owning drive pushes a newer head later, the ship lane continues from that head and never force-pushes over it.
 
 ## What the executor guarantees
 
@@ -200,7 +200,7 @@ cci post --drive <drive> --lane <comms lane> --kind answer --re <seq> --text "po
 ccx: role=retro
 You are incident-<incident id>-retro, maintaining the live incident doc.
 Agent long-running:lane; model opus.
-Owner: <root agent name>, for incident <incident id>.
+Owner: <coordinator agent name>, for incident <incident id>.
 Authority: maintain the incident doc through the incident-retro skill's live
   mode in the Forge-AI/design-docs checkout. You gate no fix or comms post.
 
@@ -236,7 +236,7 @@ Do:
      gemini-4-argon, then `retro.py publish <dir>`. It runs the
      gates, opens a ready PR, enables squash auto-merge, and waits for merge
      and the rendered-URL check. On exit 75, resume the printed AWAIT: command.
-     Hand only the URL from the final RENDERED: line to <root agent name> and
+     Hand only the URL from the final RENDERED: line to <coordinator agent name> and
      <comms lane name>. The incident's step 4 report and Slack retro-link reply
      take that URL from the skill output, never a PR URL. Every such draft
      passes `retro.py comms-check <draft-file|-> --url <rendered-url>` before posting.
@@ -252,7 +252,7 @@ Finish: after resolution, final sync, merge, and handoff of the checked RENDERED
 ccx: role=fix
 You are <fix lane name>, fixing the active production alert.
 Model gpt-6.1-sol, effort xhigh, service tier fast; Orca codex worker.
-Owner: the incident executor <root agent name> for incident <incident id>.
+Owner: the incident executor <coordinator agent name> for incident <incident id>.
 Authority: implement the fix and open its PR through <submit skill>.
   While the alert is active, the fix rides the next regular release when one is
   cutting or can cut within the fix's urgency; otherwise release or apply it now,
@@ -291,7 +291,7 @@ Standing orders, fixed in this template:
   - Any repair pass or backfill runs on in-region EC2, never on
     this Mac.
   - A tooling failure goes to the meta lane the same turn, as one `defect` record to
-    root opening `for meta:` with any refusal verbatim, plus the hand path; it never
+    the coordinator opening `for meta:` with any refusal verbatim, plus the hand path; it never
     stops the fix.
 
 Design rulings on this subsystem, verbatim; the fix calls their entry point:
@@ -312,11 +312,11 @@ Do:
      customer impact" goes on the SCOPE line as who is hit so far, never as a
      no. An on-call bot's false alarm, a mute, or a monitor change that stops
      counting the failing teams is neither the mechanism nor the fix: post it
-     to root as `PUSHBACK <fix lane name>: <who proposed what, and the unfixed mechanism>`
+     to the coordinator as `PUSHBACK <fix lane name>: <who proposed what, and the unfixed mechanism>`
      and keep fixing. A page your mechanism proves false is muted the minute it is proven, as
      the window until your fix is live, never the close: post
      `MUTE <fix lane name>: monitors <ids> until fix-live: <the proof, one line>`, kind
-     `incident`, to root, then ask ai-oncall with its verb, never a prose Slack post:
+     `incident`, to the coordinator, then ask ai-oncall with its verb, never a prose Slack post:
      `ci oncall connect <page id> --state <your worktree>/oncall.json --label <fix lane name>`
      under a persistent Monitor (`ci aioncall open-incidents` names the page id), and
      `ci oncall say <page id> --state <your worktree>/oncall.json --kind request --text "MUTE <ids> until <RFC3339, fix-live estimate plus an hour, at most 24 hours>: <the proof>. The fix is ours; page nobody on these monitors."`.
@@ -424,7 +424,7 @@ Escalate: with no mechanism 15 minutes after launch, the executor launches an
 Do NOT touch: unrelated targets, files, branches, or another lane's worktree.
 Worktree: <absolute path, exclusive to this lane>.
 Finish: when the PR is noted and any production apply is verified, report to
-  <root agent name> with the PR, head, apply counts, runbook entry, and the
+  <coordinator agent name> with the PR, head, apply counts, runbook entry, and the
   `UNFIXED` lines again. Use the bus when unsupervised, otherwise the
   preamble's Orca worker_done command. Your
   completion settles this assignment; the executor owns the incident until its
@@ -437,7 +437,7 @@ Finish: when the PR is noted and any production apply is verified, report to
 ccx: role=evidence
 You are <evidence lane name>, reading telemetry, logs, and the deploy timeline for the active production alert.
 Model gpt-6.1-sol, effort xhigh, service tier fast; Orca codex worker.
-Owner: the incident executor <root agent name> for incident <incident id>.
+Owner: the incident executor <coordinator agent name> for incident <incident id>.
 Authority: read-only evidence. Feed <fix lane name> and the executor.
   You gate nothing. Never ask the fix lane to wait for diagnosis.
 

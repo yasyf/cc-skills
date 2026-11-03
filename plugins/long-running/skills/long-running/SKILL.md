@@ -1,16 +1,16 @@
 ---
 name: long-running
-description: How a multi-lane drive runs without a root as its bottleneck. The session the owner types in is the communicator; a sibling Orca session bound as lane root is the coordinator; a standing meta lane takes every skill, tooling and process improvement; every question has a verb of the drive tool lr; landing, grading, lane liveness, incident spawn, release tracking and owner updates run as processes that reach the coordinator only with a decision to make. Use when orchestrating multi-lane work, driving a CI or infra bring-up, running a migration or audit across many units, supervising background agents or PR landings, tracking more than ten open PRs, landing PRs through a merge queue from many lanes, or on any task that will plainly exceed one context window.
+description: How a multi-lane drive runs without a coordinator as its bottleneck. The session the owner types in is the communicator; a sibling Orca session bound as lane root is the coordinator; a standing meta lane takes every skill, tooling and process improvement; every question has a verb of the drive tool lr; landing, grading, lane liveness, incident spawn, release tracking and owner updates run as processes that reach the coordinator only with a decision to make. Use when orchestrating multi-lane work, driving a CI or infra bring-up, running a migration or audit across many units, supervising background agents or PR landings, tracking more than ten open PRs, landing PRs through a merge queue from many lanes, or on any task that will plainly exceed one context window.
 ---
 
 # Long-running orchestration
 
-A drive's root is a serial decision point: every read it makes and every decision
+A drive's coordinator is a serial decision point: every read it makes and every decision
 routed through it waits in a queue with no clock, and when it saturates the work
 stops in silence until the owner notices ([lessons.md](reference/lessons.md), Nov 2
 2026). This skill exists so nothing reaches such a queue again.
 
-The root is two sessions, and the whole skill is built around that split. The
+A drive's top level is two sessions, and the whole skill is built around that split. The
 **communicator** is the session the owner types in; its whole job is him. The
 **coordinator** is a sibling Orca session the communicator launches at drive start,
 bound as lane `root`: it spawns a lane for every ask with a body the turn it arrives,
@@ -65,7 +65,7 @@ single-lane investigation is one subagent in direct mode, not a drive.
 **Binding.** Every session of a drive is bound to one lane name, and every hook,
 stop check, injection and cci delivery keys on that binding and nothing else. The
 communicator's window is bound `owner-relay`; the coordinator's is bound `root`, so
-every root hook and every record addressed to `root` lands on the coordinator and
+every coordinator hook and every record addressed to `root` lands on the coordinator and
 none of it on the communicator. The hooks come in three tiers on one switch:
 shared hooks (context discipline) act in both windows; coordinator hooks (asks,
 retro rows, coverage, landing, launch, incident checks, the task list, the
@@ -111,12 +111,12 @@ goes to his Slack as an ask card with buttons (`cc-present ask`). Every message 
 sends is addressed to him in second person and carries only what changed for him
 or what he must decide; ledger rows, hook mechanics, lane acks and "nothing new"
 never appear in chat, a turn with nothing for him ends with no text, and its Stop
-hook refuses any other closing message. For reads it is a root session: each fact
+hook refuses any other closing message. For reads it is a top-level session: each fact
 it needs is one bounded read or one post, else a subagent.
 
 **The coordinator** reads reader `root`, posts as `root`, runs in a foreground
 `lr coordinator next` loop for the life of the drive, one turn per batch of
-records, and holds everything a root holds: lanes, gos, holds, incidents, the task
+records, and holds lanes, gos, holds, incidents, the task
 list, progress docs and the register. It launches lanes through the supervisor and
 Orca (`lr launch`), never with `Agent`. It owns and starts desk-runner, the launch
 runner and every desk (`lr desks start`), each remote as an Orca session except the
@@ -154,7 +154,7 @@ waits are each a defect the hooks name, and so is a queue of PRs waiting on one 
 its decisions: a decision the owner's picks already settle moves to a package that
 applies them by rule, and one they do not settle is his, on the board. Every
 escalation target, brief, template, handoff, task list, incident checklist and
-dashboard in the pack names the coordinator where it once named the root, names
+dashboard in the pack names the coordinator for a decision, names
 `owner-relay` where the owner must see something, and names the meta lane where a
 skill or tooling fix is owed.
 
@@ -281,8 +281,8 @@ can cut within its urgency and keeps the zero-delete bound unless he ordered it.
 regular release is the default; an emergency release runs only when the regular
 path is too slow for a live customer impact, never twice for one fix. No release is
 canceled once its apply has started. A release at its approval gate five minutes
-after an owner order is a blocker to root, never a wait, and so is an order no
-release record carries five minutes on: root posts the order with `--attr
+after an owner order is a blocker to the coordinator, never a wait, and so is an order no
+release record carries five minutes on: the coordinator posts the order with `--attr
 order=<answer id> --attr lane=<release lane>`. A cluster leaves the code
 and ships before it is destroyed ([release-lanes.md](reference/release-lanes.md)).
 
@@ -350,7 +350,7 @@ brief=<path> model=<model>'`. The meta lane launches its own implementers with
 
 | Desk or lane | Does | Brief |
 |---|---|---|
-| Coordinator | Everything in [Phase 0](#phase-0-the-standing-sessions), every former root role, and every runner and desk in this table but `update-desk`, which it starts with `lr desks start` | [coordinator-brief.md](reference/coordinator-brief.md) |
+| Coordinator | Everything in [Phase 0](#phase-0-the-standing-sessions), every former coordinator role, and every runner and desk in this table but `update-desk`, which it starts with `lr desks start` | [coordinator-brief.md](reference/coordinator-brief.md) |
 | Meta lane, the communicator's | Every skill, tooling, prompt, hook and process improvement, and every meta order the owner sends; `items.md`; one implementer per item | [meta-lane-brief.md](reference/meta-lane-brief.md) |
 | Signal lane, the communicator's | Tails the coordinator's feed and posts the communicator pointers, never summaries | [signal-lane-brief.md](reference/signal-lane-brief.md) |
 | Landing runner and `landing-desk` | The merge queue, lane reports, the ledger; both remote | [landing.md](reference/landing.md), [landing-desk-brief.md](reference/landing-desk-brief.md) |
@@ -380,7 +380,7 @@ the card without them ("A design lane's part" in
 [orca-lane-brief.md](reference/orca-lane-brief.md)). `board_watch.py` records every
 tap as an `owner` record and a cc-notes answer. What waits on him is what
 `cci owner-waits` prints, never a runner note. The drive writes one automated Slack
-message, the merge card in his direct-message status thread; everything else is a
+message, the merge card, posted at the root of his DM with its own thread; everything else is a
 post he named. Every update he gets is `lr update render`, sent by the communicator
 unchanged with its gaps shown, and the dashboard shows the same rows.
 

@@ -1,6 +1,6 @@
 ---
 name: coordinator
-description: Make this session the drive's coordinator, the one session where every drive-coordination hook of the long-running pack acts (asks, retro rows, update coverage, landing, launch, incident checks, the task list, the compaction handoff), and claim cci lane root, so every record addressed to root lands here. Use only in the sibling Orca session the communicator launches as the coordinator; the communicator, the window the owner types in, runs /long-running instead.
+description: Make this session the drive's coordinator, the one session where every drive-coordination hook of the long-running pack acts (asks, retro rows, update coverage, landing, launch, incident checks, the task list, the compaction handoff), and claim cci lane root, so every record addressed to the coordinator lands here. Use only in the sibling Orca session the communicator launches as the coordinator; the communicator, the window the owner types in, runs /long-running instead.
 ---
 
 # The drive's coordinator
@@ -30,7 +30,7 @@ lr coordinator next --drive <drive> --cursor <state dir>/root/next.cursor
 ```
 
 Run it as a foreground Bash call with `timeout: 590000`. It returns within 5 minutes
-with every record addressed to root, and at once for anything from `owner-relay`, an
+with every record addressed to the coordinator, and at once for anything from `owner-relay`, an
 incident, a mechanism, a fix-live or an urgent. A record's body of up to 4000 bytes prints
 in the batch, so it needs no `cci show`; a longer one prints as a path for lane `chores` to
 read. Post every reply to a batch in one call, then run it again. Never wait with a Monitor, `cci watch` or `sleep`.
@@ -50,6 +50,6 @@ Start them with `lr desks start`, before any lane and again after any relaunch; 
 only what is down. The launch runner is the one exception to remote for now: it starts
 from your Orca terminal on the Mac, because it drives the Mac's Orca app.
 
-Then load the `long-running` skill: every rule there that names the root binds you, and
+Then load the `long-running` skill: every rule there that names the coordinator binds you, and
 loading it after this one leaves the switch armed. Your role and inheritance are in its
 `reference/coordinator-brief.md` and in the brief you were launched with.

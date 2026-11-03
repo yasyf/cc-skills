@@ -47,7 +47,7 @@ Never rewrite the plan; it remains the stable mandate and decisions document, an
 ## <UTC> pre-compact handoff
 
 ### How the drive runs
-<root role, lane contracts, desks, ledger and rulings-log ids>
+<coordinator role, lane contracts, desks, ledger and rulings-log ids>
 
 ### Owner asks and state
 <every ask, its current state, evidence, and next gate>
@@ -62,7 +62,7 @@ answer id; an id or a gist alone drops it (R19b)>
 ### Waiting on the owner
 <unresolved decisions and the options already presented>
 
-### Root's next actions
+### The coordinator's next actions
 <ordered actions, dependencies, and owed follow-ups>
 ```
 
@@ -75,7 +75,7 @@ handoff.py generate --program <slug> --plan <path> [--inbox-dir DIR] [--ledger I
 handoff.py lint (--doc ID | --file PATH) --program <slug> [--plan PATH] [--previous-doc ID | --previous-file PATH] [--repo PATH]
 ```
 
-**Populate `## Standing owner rules` from the register and live cci rules.** The standing rules register uses label `standing-rules:<slug>` and caps at 35 owner-approved rules, as detailed in `reference/owner-rulings.md` alongside the `register_injection` hook and `bin/rulings.py` (`rulings.py register`, `rulings.py match`, `rulings.py rows`). `rulings.py register --program <slug>` prints the newest register as `{id, body}` or `null`. `rulings.py match --program <slug>` reads a lane brief from stdin, mirrors the drive's `scope:durable` answers into `<state dir>/rulings/<id7>.md` with atomic per-file replacements, and queries `ccx code search --semantic` with the brief's first 2,000 characters; `--budget` defaults to 8,000 bytes. The drive's answers are those labeled `program:<slug>` plus those anchored to the repo's current branch, another drive's answers never enter the corpus, and `capture_standing_rule` labels each owner ruling it records with `program:<slug>`. `--drive <id>` replaces `--program` and resolves the program and state directory from the drive registry; with neither flag, every `rulings.py` verb uses the session's drive from `CLAUDE_LONG_RUNNING_DRIVE`, else the drive whose root sessions hold this session.
+**Populate `## Standing owner rules` from the register and live cci rules.** The standing rules register uses label `standing-rules:<slug>` and caps at 35 owner-approved rules, as detailed in `reference/owner-rulings.md` alongside the `register_injection` hook and `bin/rulings.py` (`rulings.py register`, `rulings.py match`, `rulings.py rows`). `rulings.py register --program <slug>` prints the newest register as `{id, body}` or `null`. `rulings.py match --program <slug>` reads a lane brief from stdin, mirrors the drive's `scope:durable` answers into `<state dir>/rulings/<id7>.md` with atomic per-file replacements, and queries `ccx code search --semantic` with the brief's first 2,000 characters; `--budget` defaults to 8,000 bytes. The drive's answers are those labeled `program:<slug>` plus those anchored to the repo's current branch, another drive's answers never enter the corpus, and `capture_standing_rule` labels each owner ruling it records with `program:<slug>`. `--drive <id>` replaces `--program` and resolves the program and state directory from the drive registry; with neither flag, every `rulings.py` verb uses the session's drive from `CLAUDE_LONG_RUNNING_DRIVE`, else the drive whose coordinator sessions hold this session.
 
 At `SubagentStart`, `register_injection` collects matches from same-type spawns in the preceding 60 seconds, deduplicates them, and delivers at most 8,000 bytes on the subagent's first `PostToolUse`. Helper and relay subagents receive no register, including `Explore`, `Plan`, `claude-code-guide`, `statusline-setup`, `output-style-setup`, `open-pr:pr-style-scout`, and every agent type from `cc-context`, `cc-review`, `cc-slack`, `cc-present`, and `codex`. An Orca Claude worker's first `UserPromptSubmit` delivers matches for its brief, all injections warn and fail open, and Codex briefs must paste the register body because Codex workers have no Claude hooks. `handoff.py generate` reads the newest register doc by `updated_at` and never builds, edits, or supersedes a register doc or file. The first section of the progress doc is `## Standing owner rules`, opening with one pointer line:
 
@@ -87,8 +87,8 @@ Once the register ledger exists, `generate` reads it through `rulings.py rows --
 
 `generate` then lists live standing rules from cci on `--program` as `- #<seq> [<source>]`, where `<source>` is `ccn <answer id>` when cited, else `cci #<seq>`, keeping the rule text in cci. Each rule missing since the previous handoff appears last, once, as `- <id> superseded by <successor id>` or `- <id> superseded by nothing: the sources dropped it ...`, retiring old `R<n>` ids once. The handoff carries no separate list of durable answer titles. The `root_context` Stop check `nudge_unrecorded_standing_rule` prompts the coordinator to record standing rules.
 
-**Compile the drive state sections in fixed order.** Sections run in fixed order, namely `Standing owner rules`, `Read first`, `Open owner asks`, `Open tasks`, `Delivered since the last progress record`, `Lane registry`, `Owner update`, `Lanes and monitors`, `Incident lanes`, `Inboxes`, `Lint findings`, and `Root narrative`. The record also carries the drive registry line with the drive, ledger, Orca run, checkout, and root sessions, and never names a dashboard. The successor root inherits every lane and every open item from `Lane registry` and `Owner update`, never from the narrative, so a coordinator that forgot a lane cannot pass the gap on.
-- `Lane registry`: `drive_supervisor.py lanes --config <lr.json>` verbatim, one line per lane with its state, liveness, newest record, PRs, successor and standing duty, so the post-compaction coordinator starts from the registry and not from what the old root remembered.
+**Compile the drive state sections in fixed order.** Sections run in fixed order, namely `Standing owner rules`, `Read first`, `Open owner asks`, `Open tasks`, `Delivered since the last progress record`, `Lane registry`, `Owner update`, `Lanes and monitors`, `Incident lanes`, `Inboxes`, `Lint findings`, and `Root narrative`. The record also carries the drive registry line with the drive, ledger, Orca run, checkout, and coordinator sessions, and never names a dashboard. The successor coordinator inherits every lane and every open item from `Lane registry` and `Owner update`, never from the narrative, so a coordinator that forgot a lane cannot pass the gap on.
+- `Lane registry`: `drive_supervisor.py lanes --config <lr.json>` verbatim, one line per lane with its state, liveness, newest record, PRs, successor and standing duty, so the post-compaction coordinator starts from the registry and not from what the old coordinator remembered.
 - `Owner update`: the output of `owner_update.py --render --drive <drive>` as of the handoff, every derived section and every row with its owner, blocker and unblock plan, and the generator's missing-item list when it exits 1.
 - `Open owner asks`: `ledger.py` ask rows from the drive's ledger that are not dropped, answered, or `LIVE`, with their state.
 - `Open tasks`: only `in_progress` tasks, one line each as `- #<id> <subject>` clipped to 120 characters, or `- none in progress`. When tasks are pending, a final ``- N pending in `TaskList` `` line counts them.

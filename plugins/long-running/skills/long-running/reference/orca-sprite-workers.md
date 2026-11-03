@@ -389,7 +389,7 @@ makes no Orca, git, or cc-remote call for it.
 Only the coordinator that coordinates the Run ends its lanes. A lane never stops
 another Dispatch, and nobody uses `pkill`, signals, `run-stop`, or bulk
 terminal closes. The captain-hook sessions guard allows a bare
-`orca orchestration worker-stop --dispatch <ctx>` only from that root.
+`orca orchestration worker-stop --dispatch <ctx>` only from that coordinator.
 
 A settled Sprite worker frees its Sprite through the same `lr gc` call. The
 Sprite must be one whose cc-remote task record names the Dispatch's worktree
@@ -412,7 +412,7 @@ For each ended lane, lr runs `cc-remote orca stop <lane>` with the
 That stop closes the forward and stops every service, so the Sprite goes cold
 with its disk kept, and it refuses a warm pool workspace's own name. The gc pause
 below does not hold it. A stop that fails is tried again on the next pass, up to
-three tries. The third failure posts one `SPRITE-STOP-FAILED` blocker to root with
+three tries. The third failure posts one `SPRITE-STOP-FAILED` blocker to the coordinator with
 the error, and lr never runs that lane's stop again.
 
 Before any stop, lr asks that CLI its `version`. A release older than 0.27.4,
@@ -460,7 +460,7 @@ unacknowledged. Later guidance stays queued until that batch is acknowledged. Af
 processing the queued guidance, they send one honest explicit-outcome
 `worker_done` and idle.
 
-## Return source for root review
+## Return source for coordinator review
 
 For a source task, leave HEAD at the actual prepared `baseCommit` and source
 edits uncommitted. Do not stage, commit, push, open a PR, close the coordinator task,
@@ -617,7 +617,7 @@ inherit a Mac lane's shipping obligations.
 
 ## Models
 
-Root orchestrators and Claude implementation workers run Opus; subdesks use
+Coordinators and Claude implementation workers run Opus; subdesks use
 Opus or Sonnet per the routing table. Codex review, diagnosis, sweeps and
 shell-heavy lanes run `gpt-6.1-sol` at `xhigh` on the standard tier; only an
 incident lane adds `WORKER_SERVICE_TIER=fast` with `WORKER_INCIDENT=1`. Fable is
@@ -629,7 +629,7 @@ set `fallbackModel`.
 
 | Alias | Model ID | Placement |
 | --- | --- | --- |
-| `opus` | `claude-opus-5-5` | Root orchestrators and the Claude implementation default |
+| `opus` | `claude-opus-5-5` | Coordinators and the Claude implementation default |
 | `sonnet` | `claude-sonnet-5-5` | Explicitly selected Claude worker |
 | `fable` | `claude-fable-5-1` | Exceptional: explicit local, most sensitive implementation only |
 | `gpt-6.1-sol` | `gpt-6.1-sol` | Codex review, diagnosis, sweeps and shell-heavy lanes on the standard tier; incident lanes add the fast tier |

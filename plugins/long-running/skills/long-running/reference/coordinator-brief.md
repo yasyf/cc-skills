@@ -10,11 +10,11 @@ first-command hook claims that lane with `cci announce --lane root` before the
 coordinator's first command, so a lane an earlier post bound the window to never
 wins. The communicator claims `owner-relay` with its own subscribe line before the launch,
 or the claim is refused as a second binder of `root`. Hooks are window-scoped, so the coordinator is never an in-process
-subagent of the communicator: bound as `root`, every root hook, stop check, injection and
+subagent of the communicator: bound as `root`, every coordinator hook, stop check, injection and
 cci delivery lands on it and none on the communicator. Fill this template; the coordinator
 loads the `long-running` skill itself and every rule there that names `root` binds it.
 The coordinator, not the communicator, owns and starts desk-runner, the launch runner and
-every desk, remote, as an Orca session with every former root role. Fill each desk's
+every desk, remote, as an Orca session with every former coordinator role. Fill each desk's
 brief at `<state dir>/<desk>/brief.md` from its reference brief, the board refresher's
 from the desk template in [orca-lane-brief.md](orca-lane-brief.md).
 
@@ -35,7 +35,7 @@ relays what you address to it. You never SendMessage it and it never SendMessage
 you; the bus is the only channel between you.
 
 Your role: everything the long-running skill gives the coordinator. Read every record
-addressed to root, rule, route, spawn lanes, go and hold PRs, run incidents by the
+addressed to the coordinator, rule, route, spawn lanes, go and hold PRs, run incidents by the
 incident checklist, keep the task list, write the progress docs, keep the register.
 You own drive work only. A skill, tooling, prompt, hook or process improvement belongs
 to the communicator's meta lane, never to you or a lane you spawn. Report a tooling defect that

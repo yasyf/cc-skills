@@ -195,18 +195,18 @@ Do, in this order, forever:
   5. Hold. `ledger.py hold --pr <n> --reason "<why>" --hours <h>` for anything
      waiting on a person, a grader, or a parent; `ledger.py lift` when it clears.
      Every hold has a reason and an expiry; an expired hold is a question for the
-     root. `hold` refuses a PR with green PRs stacked on it: reparent them onto the
+     coordinator. `hold` refuses a PR with green PRs stacked on it: reparent them onto the
      trunk first, or pass `--stack` to hold the whole stack. `ledger.py stale` also
      names every open PR opened 60 or more hours ago; ask the coordinator once per PR to
      land it through the next train or close it as superseded, gone by 72 hours.
   6. Every 30 minutes:
      `ledger.py summary --repo <owner/name> --ledger <id> --drive <drive> --checkout <path>` to the
-     root, unchanged. `--checkout` defaults to the working directory and `--repo` to
+     coordinator, unchanged. `--checkout` defaults to the working directory and `--repo` to
      its origin; summary settles landings first so it never reports a landed row as pending. This sweep
      reclassifies every ask from the forge and the release/deploy record.
      `LOST`, `LANDED-NOT-LIVE`, `IN-PROGRESS`, and `IN-PR` past 60 minutes
      follow the counts, outside the ten-line cap; forward every one unchanged. The
-     root dispatches each `LOST` ask in that turn and advances each escalated
+     coordinator dispatches each `LOST` ask in that turn and advances each escalated
      `LANDED-NOT-LIVE` or `IN-PR` ask. Once the shipping pipeline runs, the coordinator
      records it with `ledger.py live` so a delivered ask reads `LIVE`. Its
      `waiting:` line

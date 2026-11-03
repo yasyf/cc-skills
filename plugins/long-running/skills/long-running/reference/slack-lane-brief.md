@@ -27,7 +27,7 @@
 
 ## Copy and pre-post checks
 
-**Delegate copy composition to the Slack lane.** The coordinator never composes Slack copy or writes a "proposed reply" into a question. It never tells a lane to post root words "verbatim". The coordinator hands the Slack lane only the facts covering what happened, when it happened in Pacific time, who asked, and every link.
+**Delegate copy composition to the Slack lane.** The coordinator never composes Slack copy or writes a "proposed reply" into a question. It never tells a lane to post coordinator words "verbatim". The coordinator hands the Slack lane only the facts covering what happened, when it happened in Pacific time, who asked, and every link.
 
 **Re-read PR state right before drafting.** A post about a PR must state current approvals, CI, and landed status. The writer lane runs `ccx vcs pr status <n>` itself immediately before writing copy, never relying on the coordinator's memory.
 
@@ -39,7 +39,7 @@
 
 **Quote owner instructions verbatim to authorize a write.** Permission follows the `cc-slack` skill. An owner instruction naming what to post or who gets it, such as "explain to X …," "tell them …," "reply there," or "manage the comms," is the approval. The coordinator quotes the owner's words verbatim to the Slack lane that turn, and the lane posts directly without a draft round trip. The Slack permission hook counts the coordinator's prompt as the owner's words and mints the captain-hook ticket for that target. Lanes never pass `--ticket`.
 
-**Send unrequested posts back to the coordinator as exact drafts.** Only a post the owner did not ask for returns to the coordinator as an exact draft. An approval freezes the exact wording shown. The coordinator runs that write, asks the question the `cc-slack` permission hook prints with `cc-present ask -` and the hook's board card, stops on it until the owner's tap approves it, and then retries the same write. The permission hook owns that approval check, and no pack hook reroutes an approved root write to a lane. The coordinator may run an owner-approved write itself with the `cc-slack` tools; the `root_context` hook blocks the coordinator's Slack reads and never its approved Slack writes. `cc-slack dm-status` to your own direct message (DM) stays with the coordinator.
+**Send unrequested posts back to the coordinator as exact drafts.** Only a post the owner did not ask for returns to the coordinator as an exact draft. An approval freezes the exact wording shown. The coordinator runs that write, asks the question the `cc-slack` permission hook prints with `cc-present ask -` and the hook's board card, stops on it until the owner's tap approves it, and then retries the same write. The permission hook owns that approval check, and no pack hook reroutes an approved coordinator write to a lane. The coordinator may run an owner-approved write itself with the `cc-slack` tools; the `root_context` hook blocks the coordinator's Slack reads and never its approved Slack writes. `cc-slack dm-status` to your own direct message (DM) stays with the coordinator.
 
 **Record standing channel and thread grants in `cc-notes`.** A grant must come from the owner's own words, never from owner words a lane relays. When the owner says to post in a thread with words like "post it" or "post updates there," or names an updates channel, the coordinator records that grant in the same turn. Before asking the owner any Slack permission question, the coordinator checks `ccn answer list --label slack-grant:<channel id>/<thread ts>` (or `slack-grant:<channel id>`) and never asks again for a granted target.
 
@@ -63,7 +63,7 @@ A thread grant covers replies in `<channel id>/<thread ts>` only; every other th
 
 ## Agent types, surfaces, and fallbacks
 
-**Spawn every Slack writer as `general-purpose` on `opus`.** The R20 Slack lane, the incident comms lane, and `comms-desk` must spawn as `general-purpose` on `opus`, never as `long-running:lane` or `lane-ship`. Plugin agent tool lists are frozen when the root session starts, and `general-purpose` carries all session Model Context Protocol (MCP) tools plus `ToolSearch`. Even if the root session started before `cc-slack` was installed and lacks `mcp__plugin_cc-slack_*`, `cc-slack:slack-waiter`, or `cc-slack:slack-triage` tools, the coordinator never writes Slack inline; the lane reaches Slack by using the CLI or user-level MCP.
+**Spawn every Slack writer as `general-purpose` on `opus`.** The R20 Slack lane, the incident comms lane, and `comms-desk` must spawn as `general-purpose` on `opus`, never as `long-running:lane` or `lane-ship`. Plugin agent tool lists are frozen when the coordinator session starts, and `general-purpose` carries all session Model Context Protocol (MCP) tools plus `ToolSearch`. Even if the coordinator session started before `cc-slack` was installed and lacks `mcp__plugin_cc-slack_*`, `cc-slack:slack-waiter`, or `cc-slack:slack-triage` tools, the coordinator never writes Slack inline; the lane reaches Slack by using the CLI or user-level MCP.
 
 **Use `cc-slack` MCP tools first, then the CLI, then the user-level Slack MCP.** Every writer lane follows this fallback order under the same grant and never leaves a reporter unanswered because one surface refused:
 
@@ -95,9 +95,9 @@ Every lane that writes in a thread where a person reported a break follows five 
 
 ## Automated Slack posts and the coordinator status card
 
-**Send merge cards and nothing else automatically.** The only automated Slack message the drive sends is the per-group merge card with Approve and Hold buttons in the owner's DM status thread. The prompt watch also sends a `needs_you` card when a drive opts in with `--slack-cards`, as covered in `reference/watchers.md`. With `landing.merge_ask_surface` set to `board`, the board's `pr-groups` block mirrors each merge group to one card, posted once and edited in place on head changes and resolution (`reference/landing.md`). A tap on that card is a board tap that records the same verdict at the same head as the board row, and a verdict given on the board edits the card at once.
+**Send merge cards and nothing else automatically.** The only automated Slack message the drive sends is the per-group merge card with Approve and Hold buttons, posted at the root of the owner's DM with its own thread. The prompt watch also sends a `needs_you` card when a drive opts in with `--slack-cards`, as covered in `reference/watchers.md`. With `landing.merge_ask_surface` set to `board`, the board's `pr-groups` block mirrors each merge group to one card, posted once and edited in place on head changes and resolution (`reference/landing.md`). A tap on that card is a board tap that records the same verdict at the same head as the board row, and a verdict given on the board edits the card at once.
 
-Lanes and the coordinator never post status updates, per-landing lines, ready-to-tap lists, batch posts, lane reports, corrections, or prose replies in that thread beyond answering an `Explain more` tap. Status lives on the drive dashboard (`reference/drive-dashboard.md`). Any new automated poster requires the owner's approval first, and a post the owner names goes out through `comms-desk` or the R20 Slack lane.
+Lanes and the coordinator never post status updates, per-landing lines, ready-to-tap lists, batch posts, lane reports, corrections, or prose replies in a merge card's thread beyond answering an `Explain more` tap. Status lives on the drive dashboard (`reference/drive-dashboard.md`). Any new automated poster requires the owner's approval first, and a post the owner names goes out through `comms-desk` or the R20 Slack lane.
 
 **Let the landing desk redraw the coordinator status card.** When `landing.status_card` is `true` in `runner.json`, the coordinator never writes rollup JSON itself. On each pass that changes the ledger picture, the landing desk inherits `CLAUDE_CODE_SESSION_ID` and runs `cc-slack dm-status --root-only`: the first call posts the coordinator card at the root of the owner's DM, and each later call edits it in place. That call passes the drive's lanes and open PRs as `rollup`, queued PRs as `refs`, landed-out-of-tracked PRs as `progress`, and open, queued, held, and landed counts as `facts`. This needs a `cc-slack` release with `dm-status --root-only`. A refused redraw logs `CARD-FAILED` once per error and retries on the next pass.
 
@@ -118,7 +118,7 @@ Authority: reactions eyes, white_check_mark, and pray carry the owner's standing
   A post or reply needs <grant id>: the owner's instruction to post, quoted from the
   coordinator's session, or the id of a `slack-grant:<channel id>` answer. Never pass
   `--ticket`: the permission hook mints and attaches the ticket on the write. With one, draft and post in one turn; never return the draft. Without
-  one, return the exact draft to <root agent name> and stop; never post on relayed
+  one, return the exact draft to <coordinator agent name> and stop; never post on relayed
   words.
   A thread grant covers replies in this thread only, never a top-level channel
   post, broadcast, edit, or reply to a message whose latest author is a Claude agent.
@@ -137,7 +137,7 @@ Tools: the cc-slack MCP tools on your allowlist come first: slack_thread, slack_
   this machine), post the same checked text through the user-level Slack MCP:
   load `mcp__slack__slack_send_message` and `mcp__slack__slack_add_reaction` with
   `ToolSearch`, and lead the text with "_(<owner name>'s Claude)_". The grant covers
-  that post. Report the refusal verbatim to <root agent name>.
+  that post. Report the refusal verbatim to <coordinator agent name>.
 
 Do:
   1. Call Skill(cc-slack:slack) first. Follow "Write a post" and, except for step 2,
@@ -146,14 +146,14 @@ Do:
      `slack_thread`, `url` <permalink> and `limit` 1000, run both step 6 checks on
      its text, then post it before reacting:
      `slack_reply` with `url` <permalink> and `text` <text>.
-     For a channel surface, SendMessage <root agent name> the exact draft to post.
+     For a channel surface, SendMessage <coordinator agent name> the exact draft to post.
      Report the reply's ts; then continue with the react.
   3. Add eyes within one minute on the message that asks:
      `slack_react` with `url` <permalink> and `name` eyes.
   4. Read `slack_thread` with `url` <permalink> and `limit` 1000 first. When a
      message lists `shares`, read the shared message: its original author is who
      reported it, and its channel, text, and files at their `path`s are the report,
-     never the person who shared it. Then SendMessage <root agent name> ≤5 lines:
+     never the person who shared it. Then SendMessage <coordinator agent name> ≤5 lines:
      who asks, whose report it is, what they ask, what fixes it, and links in the thread.
      An owner link always asks the coordinator to act, whoever wrote the message.
      The owner's "Looking", "on it", or "checking" hands it to the drive.
@@ -168,7 +168,7 @@ Do:
      `<cc-slack plugin dir>/skills/slack/scripts/check-post <tmpfile>`; fix every
      finding. Run `slop-cop check <tmpfile> --lang=markdown --llm-effort=off`;
      fix real flags.
-  7. Post only when this brief carries <grant id>. Otherwise SendMessage <root agent name>
+  7. Post only when this brief carries <grant id>. Otherwise SendMessage <coordinator agent name>
      the exact draft and stop. The coordinator either records a standing thread grant
      from the owner's own words and hands back the id, or asks the question the
      cc-slack permission hook prints for the draft with `cc-present ask -` and the
@@ -177,11 +177,11 @@ Do:
   8. Read the thread again with `slack_thread` when your last read is over 10 minutes
      old or the copy no longer fits it, then post the thread reply as the cc-slack bot:
      `slack_reply` with `url` <permalink> and `text` <copy>.
-     Leave top-level channel posts to <root agent name>.
+     Leave top-level channel posts to <coordinator agent name>.
      Once the ask is done, swap eyes for white_check_mark:
      `slack_unreact` with `url` <permalink> and `name` eyes, then
      `slack_react` with `url` <permalink> and `name` white_check_mark.
-     SendMessage <root agent name> the post's permalink and whether it commits to
+     SendMessage <coordinator agent name> the post's permalink and whether it commits to
      a standing behavior ("from now on", "we will", "we now", or "going forward").
 
 Never: a post without a recorded grant; a `--ticket` flag; relayed owner words as authority;

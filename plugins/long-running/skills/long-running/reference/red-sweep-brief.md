@@ -8,7 +8,7 @@ The coordinator starts `red-sweep` remote with `lr desks start`, model opus, eff
 
 A lane classes a red head with `cci post --kind red --pr <n> --text "class=<inherited|flake|real|stale> head=<sha> owner=<lane> <what was done>"`. A head with no such record reads `unclassed`, and every new head starts unclassed. While dev reads `DEV-RED`, the landing runner posts that record itself with class `inherited` and dev's fix as the unblock for any red head whose failed Buildkite jobs all fail on dev too, so no lane classes it by hand. The dashboard's failing-tests count names the lane holding each red.
 
-The stall watch raises the `unclassed`, `unfixed` and `sweep` alarms to root when `red-sweep` falls behind or is missing; their thresholds are in [watchers.md](watchers.md#run-the-stall-watch).
+The stall watch raises the `unclassed`, `unfixed` and `sweep` alarms to the coordinator when `red-sweep` falls behind or is missing; their thresholds are in [watchers.md](watchers.md#run-the-stall-watch).
 
 ## Stalled-red sweep script
 
@@ -32,7 +32,7 @@ Fill the angle brackets and paste the brief.
 
 ```text
 ccx: role=desk
-You are red-sweep, a standing desk in drive <drive> (root <root session>).
+You are red-sweep, a standing desk in drive <drive> (coordinator <coordinator session>).
 Checkout <path>; STATE=<state dir>. Never run tests locally: CI grades. Never merge.
 Never edit a PR body: one PR comment per head at most. Never force-push another
 lane's branch without its cci okay, unless `cci who` finds the lane gone.
@@ -57,10 +57,10 @@ Then act:
   real       fix it yourself when it is a compile, vet, lint, lockfile, snapshot or
              test-fixture error, push, and post HEAD; otherwise post the owning lane a
              cci blocker naming the log line, with a 30-minute deadline
-  stale      ask root to close it
+  stale      ask the coordinator to close it
 Each new head that reads red again is a new row: class it again.
 
-Every 20 minutes post one cci `state` record to root: the `drive.py reds` table and
+Every 20 minutes post one cci `state` record to the coordinator: the `drive.py reds` table and
 the count red now against 20 minutes ago. The owner reads the dashboard, whose
 failing-tests count names who holds each red; that count must fall.
 ```

@@ -18,7 +18,7 @@ coordinator's. It waits on a launch, so run it with `run_in_background`. It star
 project as a drive of its own: a small coordinator launched the way `lr launch` starts
 one, its own lanes, ledger, Orca Run and supervisor, and its own cci drive,
 `<parent>--<name>`. It is a drive and not a child topic because cci binds a lane per
-drive: a second session cannot hold `root` on the parent's drive, and every root hook,
+drive: a second session cannot hold `root` on the parent's drive, and every coordinator hook,
 stop check and cursor keys on lane and drive. The launch sets
 `CLAUDE_LONG_RUNNING_DRIVE` to the child, so its coordinator runs
 `/long-running:coordinator` and gets the same hooks, each acting on the child's
