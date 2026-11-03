@@ -1,0 +1,49 @@
+from __future__ import annotations
+
+from cc_transcript import AttachmentEvent, DeferredToolsDelta
+from captain_hook import Allow, BaseHookEvent, Block, Event, Input, Or, hook
+
+from .compaction_handoff import Communicator, Coordinator, shared_tests
+from .owner_facing import CCI_POST
+from .tests.root_fixtures import ACTIVE
+
+POST_TOOL = "mcp__plugin_cc-inbox_cci__post"
+CARRIED = frozenset({"words", "attr", "drive", "kind", "lane", "path", "pr", "re", "resolves", "stamp", "text", "to", "topic"})
+POST = "cci post --drive d --lane root --kind report --to owner-relay --stamp --text 'merged #9'"
+LISTED = [{"type": "attachment", "timestamp": "2026-11-03T09:00:00Z", "attachment": {"type": "deferred_tools_delta", "addedNames": [POST_TOOL], "addedLines": [POST_TOOL], "removedNames": []}}]
+DROPPED = [*LISTED, {"type": "attachment", "timestamp": "2026-11-03T09:05:00Z", "attachment": {"type": "deferred_tools_delta", "addedNames": [], "addedLines": [], "removedNames": [POST_TOOL]}}]
+
+
+class PostTheToolCarries:
+    def check(self, evt: BaseHookEvent) -> bool:
+        posts = [args for call in evt.command.calls("cci") if (args := CCI_POST.bind(call)).values.get("words", ())[:1] == ("post",)]
+        return bool(posts) and all(not args.unread and {name for name, value in args.values.items() if value} <= CARRIED for args in posts)
+
+
+class ListsThePostTool:
+    def check(self, evt: BaseHookEvent) -> bool:
+        listed = False
+        for event in evt.ctx.t.events:
+            if isinstance(event, AttachmentEvent) and isinstance(found := event.detail, DeferredToolsDelta):
+                listed = POST_TOOL in found.added_names or (listed and POST_TOOL not in found.removed_names)
+        return listed
+
+
+hook(
+    Event.PreToolUse,
+    block=True,
+    only_if=[Or(Coordinator(), Communicator()), PostTheToolCarries(), ListsThePostTool()],
+    message=f"This session lists the cci post tool, so post through `{POST_TOOL}`, never a Bash `cci post`. Pass the same fields as arguments; a post that needs a flag the tool lacks, such as --owned-by, still runs in Bash.",
+    tests=shared_tests({
+        Input(command=POST, transcript=LISTED, state=ACTIVE): Block(pattern=r"^This session lists the cci post tool, so post through `mcp__plugin_cc-inbox_cci__post`"),
+        Input(command=f"cci tail --drive d --reader root --since 9 && {POST}", transcript=LISTED, state=ACTIVE): Block(),
+        Input(command="cci post --drive d --lane root --kind report --to owner-relay --path - <<'EOF'\nmerged #9\nEOF", transcript=LISTED, state=ACTIVE): Block(),
+        Input(command=POST, state=ACTIVE): Allow(),
+        Input(command=POST, transcript=DROPPED, state=ACTIVE): Allow(),
+        Input(command="cci tail --drive d --reader root --since 9", transcript=LISTED, state=ACTIVE): Allow(),
+        Input(command="cci post --drive d --lane root --kind decide --owned-by desk-runner --to stall-watch --text 'desk-runner owns stall-watch'", transcript=LISTED, state=ACTIVE): Allow(),
+        Input(command="cci post --drive d --lane root --kind report --quiet --text 'merged #9'", transcript=LISTED, state=ACTIVE): Allow(),
+        Input(command=POST, transcript=LISTED, state=ACTIVE, agent_id="a1b2c3"): Allow(),
+        Input(command=POST, transcript=LISTED): Allow(),
+    }),
+)
