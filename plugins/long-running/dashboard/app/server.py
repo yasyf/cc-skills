@@ -1438,6 +1438,12 @@ class Drive:
         answered = {card: {"picked": answer["picked"], "at": max(self.board_times[ask] for ask in answer["asks"])} for card, answer in read["answered"].items()}
         return {**read, "answered": answered, "seq": seq}
 
+    def talk_links(self):
+        if "steps" not in self.config:
+            return None
+        links = Path(self.config["steps"]).parents[1] / TALK_LINKS
+        return json.loads(links.read_text()) if links.is_file() else None
+
     def live(self, model):
         board = self.board()
         self.check_gos(board["rows"])
@@ -1546,7 +1552,7 @@ class Drive:
             "trees": {n: entry["trees"] for n, entry in self.paths.items()},
             "tree_names": [tree["name"] for tree in self.config["trees"]],
             "lanes": lanes,
-            "talk": json.loads(talk.read_text()) if (talk := Path(self.config["steps"]).parents[1] / TALK_LINKS).is_file() else None,
+            "talk": self.talk_links(),
             "built_at": dt.datetime.now(dt.timezone.utc).isoformat(),
             "errors": dict(self.errors),
         }
