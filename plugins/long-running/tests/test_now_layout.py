@@ -26,7 +26,8 @@ class Handler(SimpleHTTPRequestHandler):
     def do_GET(self):
         path = self.path.split("?")[0]
         if path == "/":
-            return self.reply((APP / "index.html").read_text().replace("</body>", ASSIST.read_text() + "</body>").encode(), "text/html")
+            served = (APP / "index.html").read_text().replace("</body>", ASSIST.read_text() + "</body>")
+            return self.reply((served.replace("<html", '<html class="ai-on"', 1) if "ai=1" in self.path else served).encode(), "text/html")
         if path == "/api/model":
             return self.reply(self.model, "application/json")
         if path.startswith("/api/story/"):
@@ -63,11 +64,6 @@ def page():
 def now(page):
     page.goto(page.url.split("#")[0] + "#/")
     page.wait_for_selector(".nw-spine")
-
-
-def test_the_finished_product_picture_sits_above_the_milestones(page):
-    now(page)
-    assert page.locator(".nw-diagram").bounding_box()["y"] < page.locator(".nw-spine").bounding_box()["y"]
 
 
 def test_every_open_blocker_and_the_focused_work_say_how_long_they_have_waited(page):
@@ -190,9 +186,9 @@ def test_a_question_opens_in_a_panel_with_its_answers(page):
     assert page.locator(".pr-drawer.front [data-choose]").count() == len(card["options"])
 
 
-def test_the_milestones_sit_between_the_picture_and_the_live_feed(page):
+def test_now_reads_milestones_then_the_live_feed_then_the_merge_map(page):
     now(page)
-    assert page.locator(".nw-diagram").bounding_box()["y"] < page.locator(".nw-spine").bounding_box()["y"] < page.locator(".nw-live").bounding_box()["y"]
+    assert page.locator(".nw-spine").bounding_box()["y"] < page.locator(".nw-live").bounding_box()["y"] < page.locator(".nw-diagram").bounding_box()["y"]
 
 
 def test_tapping_a_worker_swaps_the_live_feed_to_its_story_and_back(page):
@@ -477,4 +473,43 @@ def test_the_first_load_asks_for_the_now_slice_and_another_tab_fetches_the_whole
     fresh.goto(page.url.split("#")[0] + "#/work")
     fresh.wait_for_function("state.model && !state.model.cut")
     assert asked[-1] == ""
+    fresh.close()
+
+
+def test_the_assistant_answers_through_the_server_route_with_no_key_in_the_browser(page):
+    calls = []
+
+    def model(route):
+        calls.append(route.request)
+        if route.request.post_data_json.get("stream"):
+            return route.fulfill(status=200, content_type="text/event-stream", body='data: {"choices": [{"delta": {"content": "From the model."}}]}\n\ndata: [DONE]\n\n')
+        return route.fulfill(json={"choices": [{"message": {"content": "{}"}}]})
+
+    fresh = page.context.browser.new_page(viewport=LAPTOP)
+    requested = []
+    fresh.on("request", lambda request: requested.append(request.url))
+    fresh.route("**/ai/chat/completions", model)
+    fresh.goto(page.url.split("#")[0] + "?ai=1#/")
+    fresh.wait_for_selector(".nw-spine")
+    fresh.evaluate("location.hash = '#/jump'")
+    fresh.fill("#pal-q", "why is it slow?")
+    fresh.press("#pal-q", "Tab")
+    fresh.wait_for_function("document.getElementById('pal-ans').textContent.includes('From the model.')")
+    ask = next(call for call in calls if "why is it slow?" in call.post_data)
+    assert "authorization" not in ask.headers and "model" not in ask.post_data_json
+    assert not any("ai.json" in url or "cerebras" in url for url in requested)
+    fresh.close()
+
+
+def test_a_page_served_without_the_assistant_hides_it_and_calls_no_model(page):
+    fresh = page.context.browser.new_page(viewport=LAPTOP)
+    requested = []
+    fresh.on("request", lambda request: requested.append(request.url))
+    fresh.goto(page.url.split("#")[0] + "#/")
+    fresh.wait_for_selector(".nw-spine")
+    fresh.evaluate("location.hash = '#/jump'")
+    fresh.fill("#pal-q", "why is it slow?")
+    fresh.press("#pal-q", "Tab")
+    assert fresh.evaluate("document.documentElement.classList.contains('ai-on')") is False
+    assert not any("/ai/" in url or "ai.json" in url for url in requested)
     fresh.close()

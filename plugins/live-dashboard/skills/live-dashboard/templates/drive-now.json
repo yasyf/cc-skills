@@ -16,6 +16,7 @@
  "paths_cache": "/Users/you/.claude/scratch/your-drive/dashboard/paths.json",
  "host": "<tailnet address>",
  "port": 61210,
+ "tailnet_owner": "<your Tailscale login>",
  "milestones_label": "Milestones to everyone on Iris",
  "milestones": [
   {"name": "Sand keeps working in the cloud", "release": "R1"},

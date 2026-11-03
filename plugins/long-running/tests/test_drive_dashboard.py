@@ -4,14 +4,16 @@ import itertools
 import gzip
 import json
 import os
+import socket
 import sqlite3
 import subprocess
 import threading
 import urllib.request
-from http.server import ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import queue
 import urllib.error
 import urllib.parse
+from types import SimpleNamespace
 
 import pytest
 from holds import Entry
@@ -20,8 +22,23 @@ from review_assistant import ReviewAssistant
 import server
 from server import QUEUED_NEXT, Drive, changed_since, drive_prs, drive_workers, journeys, needs, open_findings, parse_plan, plan_prs, step_rows, release_path, paths_current, hold_reasons, verdict_state, with_conflicts
 
+TAILNET_OWNER = "owner@example.test"
+OWNER_WHOIS = {"Node": {"Name": "owners-mac."}, "UserProfile": {"LoginName": TAILNET_OWNER}}
+TAGGED_WHOIS = {"Node": {"Name": "sprite.", "Tags": ["tag:sprite"]}, "UserProfile": {"LoginName": "tagged-devices"}}
+TAGGED_AS_OWNER_WHOIS = {"Node": {"Name": "sprite.", "Tags": ["tag:sprite"]}, "UserProfile": {"LoginName": TAILNET_OWNER}}
+OTHER_WHOIS = {"Node": {"Name": "laptop."}, "UserProfile": {"LoginName": "someone-else@example.test"}}
+MODEL_KEY = "model-key-the-browser-never-sees"
+MODEL_REPLY = b'data: {"choices": [{"delta": {"content": "hello"}}]}\n\ndata: [DONE]\n\n'
+ROUTE_ACTIONS = {"/api/verdict": "decide", "/api/answer": "answer", "/api/asked": "asked", "/api/change": "change_request"}
+WRITES = {
+    "/api/verdict": {"block": "b", "number": 7, "verdict": "approved", "head": "abc"},
+    "/api/answer": {"kind": "input", "block": "b", "text": "yes"},
+    "/api/asked": {"text": "why?"},
+    "/api/change": {"number": 7, "head": "abc", "text": "no lock"},
+}
+REFUSED_CALLERS = [json.dumps(TAGGED_WHOIS), json.dumps(TAGGED_AS_OWNER_WHOIS), json.dumps(OTHER_WHOIS), "not json", "null", json.dumps({"Node": {}}), json.dumps({"Node": {}, "UserProfile": None}), json.dumps({"Node": None, "UserProfile": {"LoginName": TAILNET_OWNER}}), subprocess.CalledProcessError(1, "tailscale", stderr="no match for IP"), subprocess.TimeoutExpired("tailscale", 60), FileNotFoundError(2, "No such file or directory", "tailscale")]
 NOW = dt.datetime(2026, 10, 27, 8, 0, tzinfo=dt.timezone.utc)
-TREES = ["New tree", "Old tree", "Shared"]
+TREES =["New tree", "Old tree", "Shared"]
 PARTS = [{"key": "agent", "scopes": ["sand"]}, {"key": "api", "scopes": ["api"]}, {"key": "tools", "scopes": []}]
 
 DOC = """id: a5262e7
@@ -896,7 +913,7 @@ def test_the_model_request_serves_the_prebuilt_view_and_never_builds_it(tmp_path
     snapshot = tmp_path / "served.json.gz"
     snapshot.write_bytes(gzip.compress(body))
     drive.restore(snapshot)
-    httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.handler(drive))
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.handler(drive, TAILNET_OWNER))
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     try:
         assert urllib.request.urlopen(f"http://127.0.0.1:{httpd.server_port}/api/model", timeout=5).read() == body
@@ -1080,8 +1097,14 @@ def test_a_tap_records_only_on_a_row_the_board_still_holds_at_the_head_the_page_
 
 def test_a_change_request_the_record_tool_cannot_post_answers_with_the_reason(monkeypatch):
     drive = Drive({"drive": "d", "board_url": "http://board/p/x"}, None)
-    monkeypatch.setattr(server, "run", lambda *args, **kwargs: (_ for _ in ()).throw(FileNotFoundError(2, "No such file or directory", "cci")))
-    httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.handler(drive))
+
+    def record_tool_missing(argv, cwd=None):
+        if argv[0] == "tailscale":
+            return json.dumps(OWNER_WHOIS)
+        raise FileNotFoundError(2, "No such file or directory", "cci")
+
+    monkeypatch.setattr(server, "run", record_tool_missing)
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.handler(drive, TAILNET_OWNER))
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     request = urllib.request.Request(f"http://127.0.0.1:{httpd.server_port}/api/change", data=json.dumps({"number": 7, "head": "abc", "text": "no lock"}).encode(), headers={"Content-Type": "application/json"})
     try:
@@ -1091,6 +1114,172 @@ def test_a_change_request_the_record_tool_cannot_post_answers_with_the_reason(mo
         assert "cci" in json.loads(failed.value.read())["error"]
     finally:
         httpd.shutdown()
+
+
+class FakeModel(BaseHTTPRequestHandler):
+    calls = []
+    status = 200
+    retry_after = None
+
+    def log_message(self, *args):
+        pass
+
+    def do_POST(self):
+        FakeModel.calls.append({"path": self.path, "auth": self.headers["Authorization"], "agent": self.headers["User-Agent"], "body": json.loads(self.rfile.read(int(self.headers["Content-Length"])))})
+        reply = MODEL_REPLY if FakeModel.status == 200 else b'{"message": "slow down"}'
+        self.send_response(FakeModel.status)
+        self.send_header("Content-Type", "text/event-stream" if FakeModel.status == 200 else "application/json")
+        if FakeModel.retry_after:
+            self.send_header("Retry-After", FakeModel.retry_after)
+        self.send_header("Content-Length", str(len(reply)))
+        self.end_headers()
+        self.wfile.write(reply)
+
+
+@pytest.fixture
+def dashboard(monkeypatch):
+    monkeypatch.setenv("CEREBRAS_API_KEY", MODEL_KEY)
+    model = ThreadingHTTPServer(("127.0.0.1", 0), FakeModel)
+    threading.Thread(target=model.serve_forever, daemon=True).start()
+    monkeypatch.setattr(server, "MODEL_URL", f"http://127.0.0.1:{model.server_port}/v1/chat/completions")
+    monkeypatch.setattr(FakeModel, "calls", [])
+    monkeypatch.setattr(FakeModel, "status", 200)
+    monkeypatch.setattr(FakeModel, "retry_after", None)
+    drive = Drive({"drive": "d", "board_url": "http://board/p/x"}, None)
+    drive.acted = []
+    for name in ROUTE_ACTIONS.values():
+        setattr(drive, name, lambda *args, name=name: (drive.acted.append(name), (200, {"recorded": name}))[1])
+    drive.review_url = lambda number: drive.acted.append("review_url") or "http://review/"
+    drive.assistant = SimpleNamespace(watching={}, stale=set())
+    drive.work = lambda item: drive.acted.append("work")
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.handler(drive, TAILNET_OWNER))
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    try:
+        yield SimpleNamespace(url=f"http://127.0.0.1:{httpd.server_port}", drive=drive)
+    finally:
+        httpd.shutdown()
+        model.shutdown()
+
+
+def whois_answers(monkeypatch, answer):
+    asked = []
+
+    def whois(argv, cwd=None):
+        asked.append(argv)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    monkeypatch.setattr(server, "run", whois)
+    return asked
+
+
+def call(url, path, body=None):
+    request = urllib.request.Request(url + path, data=None if body is None else json.dumps(body).encode(), headers={"Content-Type": "application/json", "Authorization": "Bearer from-the-page"})
+    try:
+        with urllib.request.urlopen(request, timeout=5) as reply:
+            return reply.status, reply.read(), reply.headers
+    except urllib.error.HTTPError as error:
+        return error.code, error.read(), error.headers
+
+
+def test_the_key_route_is_gone_and_the_page_never_carries_the_key(dashboard, monkeypatch):
+    whois_answers(monkeypatch, json.dumps(OWNER_WHOIS))
+    assert call(dashboard.url, "/ai.json")[0] == 404
+    status, page, _ = call(dashboard.url, "/")
+    assert status == 200 and '<html class="ai-on"' in page.decode()
+    assert MODEL_KEY.encode() not in page
+
+
+@pytest.mark.parametrize("answer", [json.dumps(TAGGED_WHOIS), json.dumps(OTHER_WHOIS), subprocess.CalledProcessError(1, "tailscale", stderr="no match for IP")])
+def test_only_the_owners_device_sees_the_assistant(dashboard, monkeypatch, answer):
+    whois_answers(monkeypatch, answer)
+    assert "ai-on" not in call(dashboard.url, "/")[1].decode().split("<head>")[0]
+
+
+def test_a_server_with_no_key_keeps_the_assistant_hidden_from_the_owner(dashboard, monkeypatch):
+    whois_answers(monkeypatch, json.dumps(OWNER_WHOIS))
+    monkeypatch.delenv("CEREBRAS_API_KEY")
+    assert "ai-on" not in call(dashboard.url, "/")[1].decode().split("<head>")[0]
+
+
+def test_one_model_call_adds_the_key_on_the_server_and_fixes_the_endpoint_and_model(dashboard, monkeypatch):
+    whois_answers(monkeypatch, json.dumps(OWNER_WHOIS))
+    asked = {"messages": [{"role": "user", "content": "why is it slow?"}], "stream": True, "tool_choice": "none", "model": "someone-elses-model", "endpoint": "https://elsewhere.example", "seed": 7}
+    status, body, headers = call(dashboard.url, server.MODEL_ROUTE, asked)
+    assert (status, body, headers.get_content_type()) == (200, MODEL_REPLY, "text/event-stream")
+    assert MODEL_KEY.encode() not in body and MODEL_KEY not in str(headers)
+    [sent] = FakeModel.calls
+    assert sent["path"] == "/v1/chat/completions" and sent["auth"] == f"Bearer {MODEL_KEY}" and sent["agent"] == "drive-dashboard"
+    assert sent["body"] == {"messages": asked["messages"], "stream": True, "tool_choice": "none", "model": server.MODEL_NAME}
+
+
+def test_a_refused_model_call_passes_its_status_and_wait_to_the_page_without_the_key(dashboard, monkeypatch):
+    whois_answers(monkeypatch, json.dumps(OWNER_WHOIS))
+    monkeypatch.setattr(FakeModel, "status", 429)
+    monkeypatch.setattr(FakeModel, "retry_after", "3")
+    status, body, headers = call(dashboard.url, server.MODEL_ROUTE, {"messages": []})
+    assert (status, headers["Retry-After"]) == (429, "3")
+    assert b"slow down" in body and MODEL_KEY.encode() not in body
+    assert len(FakeModel.calls) == 1
+
+
+def test_a_model_that_does_not_answer_comes_back_as_a_bad_gateway_without_the_key(dashboard, monkeypatch):
+    whois_answers(monkeypatch, json.dumps(OWNER_WHOIS))
+    closed = socket.socket()
+    closed.bind(("127.0.0.1", 0))
+    monkeypatch.setattr(server, "MODEL_URL", f"http://127.0.0.1:{closed.getsockname()[1]}/v1/chat/completions")
+    closed.close()
+    status, body, _ = call(dashboard.url, server.MODEL_ROUTE, {"messages": []})
+    assert status == 502 and MODEL_KEY.encode() not in body
+
+
+@pytest.mark.parametrize("answer", REFUSED_CALLERS)
+@pytest.mark.parametrize("route", ROUTE_ACTIONS)
+def test_every_write_refuses_anyone_but_the_owner_and_a_failed_lookup(dashboard, monkeypatch, route, answer):
+    whois_answers(monkeypatch, answer)
+    status, body, _ = call(dashboard.url, route, WRITES[route])
+    assert status == 403 and "error" in json.loads(body)
+    assert dashboard.drive.acted == []
+
+
+@pytest.mark.parametrize("answer", REFUSED_CALLERS)
+def test_the_model_route_refuses_anyone_but_the_owner_and_calls_nothing(dashboard, monkeypatch, answer):
+    whois_answers(monkeypatch, answer)
+    status, body, _ = call(dashboard.url, server.MODEL_ROUTE, {"messages": []})
+    assert status == 403 and MODEL_KEY.encode() not in body
+    assert FakeModel.calls == []
+
+
+@pytest.mark.parametrize("route", ROUTE_ACTIONS)
+def test_a_write_from_the_owner_lands_and_the_lookup_names_the_callers_address(dashboard, monkeypatch, route):
+    asked = whois_answers(monkeypatch, json.dumps(OWNER_WHOIS))
+    status, body, _ = call(dashboard.url, route, WRITES[route])
+    assert status == 200 and json.loads(body) == {"recorded": ROUTE_ACTIONS[route]}
+    assert dashboard.drive.acted == [ROUTE_ACTIONS[route]]
+    assert asked == [["tailscale", "whois", "--json", "127.0.0.1"]]
+
+
+@pytest.mark.parametrize("path", ["/api/review/7", "/api/story/some-work"])
+def test_a_tagged_device_cannot_start_a_review_or_a_story(dashboard, monkeypatch, path):
+    whois_answers(monkeypatch, json.dumps(TAGGED_WHOIS))
+    assert call(dashboard.url, path)[0] == 403
+    assert dashboard.drive.acted == []
+
+
+def test_the_owner_still_opens_a_review(dashboard, monkeypatch):
+    whois_answers(monkeypatch, json.dumps(OWNER_WHOIS))
+    status, body, _ = call(dashboard.url, "/api/review/7")
+    assert status == 200 and json.loads(body)["url"] == "http://review/"
+    assert dashboard.drive.acted == ["review_url"]
+
+
+def test_a_read_stays_open_and_asks_nobody_who_is_calling(dashboard, monkeypatch):
+    asked = whois_answers(monkeypatch, json.dumps(TAGGED_WHOIS))
+    dashboard.drive.model = {"words": ["one"]}
+    status, body, _ = call(dashboard.url, "/api/words")
+    assert status == 200 and json.loads(body) == ["one"]
+    assert asked == []
 
 
 def test_the_retro_table_reads_through_the_installed_retro_py_drops_duplicates_and_names_a_failed_read(tmp_path, monkeypatch):

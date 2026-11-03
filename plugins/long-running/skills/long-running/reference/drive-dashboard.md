@@ -47,7 +47,8 @@ one merge group with any row waiting on him: the group's title and how its PRs r
 its rows (number, head, title, change, plan, risk, review, blocker, block, state), and
 the group's other rows. A question typed into Ask goes to the bus through
 `POST /api/asked` as an `owner` record; one starting `[user-test]` posts as a `note` from
-lane `dashboard-ask-test`, so a user-test round never reads as his words.
+lane `dashboard-ask-test`, so a user-test round never reads as his words. The route
+answers only the owner's Tailscale identity, so a user-test round posts from his Mac.
 
 A PR is `you` when the board holds no approval at its current or carried head. A root
 `go` at that head means reviewed and checked: the row says so and still waits on his tap.
