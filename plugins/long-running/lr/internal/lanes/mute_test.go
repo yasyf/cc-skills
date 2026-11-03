@@ -40,11 +40,11 @@ func TestAMuteOrMonitorSkipOnAnUnfixedMechanismGetsOnePushbackToRoot(t *testing.
 	}
 	for _, c := range cases {
 		t.Run(c.text[:min(len(c.text), 40)], func(t *testing.T) {
-			kind := "mechanism"
+			row := client.Record{Seq: 7, Lane: c.lane, Kind: "mechanism", At: t0, Text: c.text}
 			if c.lane == Root {
-				kind = "incident"
+				row.Kind = muteKind
 			}
-			watch, bus := muteWatch(client.Record{Seq: 7, Lane: c.lane, Kind: kind, At: t0, Text: c.text})
+			watch, bus := muteWatch(row)
 
 			if err := watch.Check(context.Background(), t0); err != nil {
 				t.Fatal(err)
@@ -71,20 +71,24 @@ func TestAMuteByARootOrderedFixLaneAfterItsFixLandedGetsNoPushback(t *testing.T)
 	const lane = "run-queue-fix"
 	muted := "Step 2 muting monitor 339599887 with the ai-oncall mute verb until fix-live"
 	cases := []struct {
-		name      string
-		orderKind string
-		answers   bool
-		landed    bool
-		pushed    bool
+		name    string
+		goOrder bool
+		answers bool
+		landed  bool
+		pushed  bool
 	}{
-		{"an order, its fix landed", "incident", false, true, false},
-		{"an answer on the order, its fix landed", "incident", true, true, false},
-		{"an order, no fix yet", "incident", false, false, true},
-		{"a go is no incident order", "go", false, true, true},
+		{"an order, its fix landed", false, false, true, false},
+		{"an answer on the order, its fix landed", false, true, true, false},
+		{"an order, no fix yet", false, false, false, true},
+		{"a go is no incident order", true, false, true, true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			rows := []client.Record{{Seq: 1, Lane: Root, Kind: c.orderKind, At: t0, To: []string{lane}, Text: "INCIDENT run-queue-backlog: fix lane run-queue-fix with incident apply authority"}}
+			order := client.Record{Seq: 1, Lane: Root, Kind: muteKind, At: t0, To: []string{lane}, Text: "INCIDENT run-queue-backlog: fix lane run-queue-fix with incident apply authority"}
+			if c.goOrder {
+				order.Kind = "go"
+			}
+			rows := []client.Record{order}
 			if c.landed {
 				rows = append(rows, client.Record{Seq: 2, Lane: lane, Kind: landedKind, At: t0, To: []string{Root}, Text: "MERGED #47601 as 3975fbea5ec, verified on fresh dev"})
 			}

@@ -95,7 +95,7 @@ func fixedByOrderedLane(rows []client.Record) map[string]int64 {
 
 func proposedMute(row client.Record) string {
 	text := row.Text
-	if !slices.Contains(muteKinds, row.Kind) || strings.HasPrefix(text, mutePosted) || (muteWindow.MatchString(text) && !releaseGates.MatchString(text)) {
+	if !slices.Contains(muteKinds, string(row.Kind)) || strings.HasPrefix(text, mutePosted) || (muteWindow.MatchString(text) && !releaseGates.MatchString(text)) {
 		return ""
 	}
 	for _, found := range muteProposed.FindAllStringIndex(text, -1) {
