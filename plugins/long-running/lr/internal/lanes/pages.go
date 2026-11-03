@@ -31,7 +31,7 @@ const (
 var (
 	livePage     = regexp.MustCompile(`^:(?:rotating_light|mag|eyes|hammer_and_wrench|hourglass_flowing_sand|chart_with_upwards_trend): \*`)
 	slackLink    = regexp.MustCompile(`<[^|>]+\|([^>]+)>`)
-	buildLink    = regexp.MustCompile(`https://buildkite\.com/[\w.-]+/[\w.-]+/builds/\d+`)
+	laneBuildURL = regexp.MustCompile(`https://buildkite\.com/[\w.-]+/[\w.-]+/builds/\d+`)
 	buildAddress = regexp.MustCompile(`/([\w.-]+)/builds/(\d+)/?$`)
 	releaseID    = regexp.MustCompile(`\breleases/(\d{4}-\d{2}-\d{2}/\d+)\b`)
 )
@@ -95,7 +95,7 @@ func (w *PageWatch) readReleases(ctx context.Context, now time.Time) error {
 		if found := releaseID.FindStringSubmatch(record.Text); found != nil {
 			release = found[1]
 		}
-		for _, build := range slices.Concat(record.Refs.Builds, buildLink.FindAllString(record.Text, -1)) {
+		for _, build := range slices.Concat(record.Refs.Builds, laneBuildURL.FindAllString(record.Text, -1)) {
 			if _, known := w.builds[build]; known {
 				continue
 			}
