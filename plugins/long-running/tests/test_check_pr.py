@@ -193,6 +193,14 @@ def test_a_reserved_touch_needs_an_answer_cited_or_tapped_for_this_pr(package: P
     assert check(capsys, CheckShell(pinned(package), diff=BUCKET_DIFF, answers=[tapped])) == (0, [])
 
 
+def test_the_supervisors_read_stops_at_the_reserved_rows(package: Path, state: Path, registered: Path, capsys) -> None:
+    major = {"seq": 12, "kind": "review", "lane": "finder-desk", "text": f"finder: major {HEAD[:7]} 2 open"}
+    records = [LANE_HEAD, FINDER_OK, major]
+
+    assert check(capsys, CheckShell(pinned(package), records=records), "--reserved-only") == (0, [])
+    assert check(capsys, CheckShell(pinned(package), records=records, diff=BUCKET_DIFF), "--reserved-only") == (1, ["RESERVED-NO-ANSWER reserved/cloud-delete\tNothing deletes a cloud bucket without my word."])
+
+
 def test_a_graders_touches_tag_alone_is_no_reserved_touch(package: Path, state: Path, registered: Path, capsys) -> None:
     tagged = [LANE_HEAD, FINDER_OK, *({"seq": seq, "kind": "review", "lane": "fidelity-pipeline", "text": text} for seq, text in ((12, "touches reserved/cloud-delete"), (13, "touches rule/1375cff"), (14, f"fidelity: missing {HEAD[:7]} touches reserved/cloud-delete")))]
 

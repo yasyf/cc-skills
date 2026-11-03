@@ -158,6 +158,11 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 	deps.Post = post
 	deps.Queue = landing.Trunk{Runner: a.Runner, Checkout: env.Config.Checkout, Branch: env.Config.Trunk, Script: env.Config.QueueScript, KeyCommand: env.Config.QueueKey}
 	deps.Restacker = restacker
+	gates, err := landing.NewGates(a, s, env.Config, filepath.Join(env.State, runnerFile))
+	if err != nil {
+		return Deps{}, err
+	}
+	deps.Admit = gates.Admit
 	deps.Trunk = env.Config.Trunk
 	if !slices.Contains(env.Config.Movers, config.MoverGrading) {
 		return deps, nil
