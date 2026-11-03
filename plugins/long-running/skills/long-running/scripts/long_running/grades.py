@@ -178,7 +178,7 @@ def go_heads(record: dict) -> dict[str, str]:
 
 def lifts_hold(gos: list[dict], pr: str, hold: int) -> dict | None:
     """The first go in `gos` posted after hold record `hold` that names `pr`, or None: root's later word to land a PR lifts its earlier hold, so the PR never sits held and unnamed by any stall (root #341762). A go the landing runner posts on the owner's tap is never root's word, so it lifts no hold."""
-    return next((go for go in gos if go["seq"] > hold and go["lane"] != cci.TRUNK_RUNNER and pr in go_heads(go)), None)
+    return next((go for go in gos if go["seq"] > hold and go["lane"] not in cci.TRUNK_RUNNERS and pr in go_heads(go)), None)
 
 
 def is_go(record: dict) -> bool:
