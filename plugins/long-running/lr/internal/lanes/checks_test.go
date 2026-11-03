@@ -33,7 +33,7 @@ func TestAnAlertNobodyAnsweredThreeMinutesOnLaunchesItsLanes(t *testing.T) {
 		launched bool
 	}{
 		"unopened":     {triggered, 4, "", true},
-		"in-grace":     {triggered, 2, "", false},
+		"in-grace":     {triggered, 1, "", false},
 		"too-old":      {triggered, 61, "", false},
 		"opened":       {triggered, 4, "INCIDENT OPEN: Datadog 338724738", false},
 		"recovered":    {"Recovered: runtime-api-next logging errors — plat\n" + monitorLink, 4, "", false},
