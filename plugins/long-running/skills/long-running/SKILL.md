@@ -3140,16 +3140,25 @@ whenever it exits, carrying the installing shell's `PATH`, `HOME`, `LANG` and
 `CEREBRAS_API_KEY`; rerunning it replaces the job, and a deploy checks out the new
 code and runs `launchctl kickstart -k` on the label it prints. The config
 names the drive, ledger, board session and URL, repo, progress-doc label, release doc,
-story file, keeper lane, host, and port, plus the Now page's milestones, views, brief and
+story file, keeper lane, host, port, and `tailnet_owner` (the owner's Tailscale login), plus the Now page's milestones, views, brief and
 story directories, and transcript directory; `/live-dashboard`'s
 `templates/drive-now.json` is the template and `reference/drive-now-page.md` says how a
 drive fits it. It serves Now, Plan, Work, Review, History, and Ask from the cci daemon's record stream, `cc-present watch` on the
 board, the ledger, the drive's cc-notes answers, and the newest progress doc carrying
 `## Ordered plan of action`. A build failure posts one `defect` record to root.
 
+Every route that changes state, starts a process or spends model tokens
+(`/api/verdict`, `/api/answer`, `/api/asked`, `/api/change`, `/api/review/<n>`,
+`/api/story/<item>`, `/ai/chat/completions`) answers only `tailnet_owner`: the server
+runs `tailscale whois` on the caller's address and refuses a tagged device, another
+login, or a failed lookup. The server therefore binds its tailnet address directly,
+never behind a local proxy. Other reads stay open to the tailnet and carry no secret.
+
 The assistant runs in the browser on the design-doc client (`_shared/html/ai-core.js`),
-calling Cerebras `gpt-oss-120b` with the key the server hands out at `/ai.json` from
-`CEREBRAS_API_KEY`; without the key every assistant control stays hidden. Command-K (or
+calling `POST /ai/chat/completions`. The server adds `CEREBRAS_API_KEY`, fixes the
+endpoint and `gpt-oss-120b`, and forwards only the chat fields the page sends, so the key
+never reaches a browser. Without the key, or on a device that is not the owner's, every
+assistant control stays hidden. Command-K (or
 `/`) jumps to any screen, pull request, stack, plan step, worker, release section, owner
 answer or record, and Tab sends the query to the assistant. Needs you sorts the owner's
 taps into safe-to-approve-together and read-first, flags a tap that conflicts with a

@@ -65,8 +65,11 @@ CARD_ID = re.compile(r"\bcard-[a-z0-9]+(?:-[a-z0-9]+)*")
 PR_REF = re.compile(r"#(\d{4,6})\b")
 PR_RANGE = re.compile(r"#(\d{4,6})-#(\d{4,6})")
 REVIEW_ROUTE = re.compile(r"/api/review/(\d+)")
-AI_CONFIG = {"endpoint": "https://api.cerebras.ai/v1", "model": "gpt-oss-120b"}
-ASSIST = HERE.parents[1] / "skills" / "long-running" / "templates" / "drive-assist.html"
+MODEL_ROUTE = "/ai/chat/completions"
+MODEL_URL = "https://api.cerebras.ai/v1/chat/completions"
+MODEL_NAME = "gpt-oss-120b"
+MODEL_FIELDS = ("messages", "tools", "tool_choice", "parallel_tool_calls", "reasoning_effort", "reasoning_format", "max_completion_tokens", "temperature", "response_format", "prompt_cache_key", "stream", "stream_options")
+ASSIST =HERE.parents[1] / "skills" / "long-running" / "templates" / "drive-assist.html"
 BUILD = hashlib.sha1(b"".join(path.read_bytes() for path in sorted([*HERE.iterdir(), ASSIST]) if path.suffix in (".js", ".css", ".html", ".py"))).hexdigest()[:12]
 CLIENT_RECORD = ("seq", "lane", "kind", "at", "text", "refs", "re")
 PR_ROUTE = re.compile(r"/api/pr/(\d+)")
@@ -1527,13 +1530,25 @@ class Drive:
         return {"rows": rows, "cards": cards, "answered": answered, "merge": merge, "url": self.config["board_url"]}
 
 
-def handler(drive):
+def handler(drive, tailnet_owner):
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
             pass
 
+        def owner_calling(self):
+            try:
+                who = json.loads(run(["tailscale", "whois", "--json", self.client_address[0]]))
+            except (OSError, subprocess.SubprocessError, ValueError):
+                return False
+            return not who["Node"].get("Tags") and who["UserProfile"]["LoginName"] == tailnet_owner
+
+        def refuse(self):
+            return self.send(403, "application/json", json.dumps({"error": "only the drive's owner can do this, and this device is not signed in as them"}).encode())
+
         def do_GET(self):
             path = self.path.split("?", 1)[0]
+            if (REVIEW_ROUTE.fullmatch(path) or STORY_ROUTE.fullmatch(path)) and not self.owner_calling():
+                return self.refuse()
             if path in STATIC:
                 name, kind = STATIC[path]
                 body = (HERE / name).read_text()
@@ -1541,6 +1556,8 @@ def handler(drive):
                     for asset, _ in STATIC.values():
                         body = body.replace(f"/{asset}", f"/{asset}?v={(HERE / asset).stat().st_mtime_ns}")
                     body = body.replace("</body>", ASSIST.read_text() + "</body>").replace("<head>", f'<head>\n<meta name="build" content="{BUILD}">', 1)
+                    if "CEREBRAS_API_KEY" in os.environ and self.owner_calling():
+                        body = body.replace("<html", '<html class="ai-on"', 1)
                 return self.send(200, kind, body.encode())
             if path == "/api/model":
                 kind = "full" if "full=1" in self.path else "now" if "tab=now" in self.path else "lean"
@@ -1560,8 +1577,6 @@ def handler(drive):
                 except subprocess.CalledProcessError as error:
                     return self.send(502, "application/json", json.dumps({"error": (error.stderr or error.stdout).strip()}).encode())
                 return self.send(200, "application/json", json.dumps({"url": url, "assistant": int(found[1]) in drive.assistant.watching, "stale": int(found[1]) in drive.assistant.stale}).encode())
-            if path == "/ai.json":
-                return self.send(200, "application/json", json.dumps({**AI_CONFIG, "key": os.environ["CEREBRAS_API_KEY"]}).encode())
             if found := STORY_ROUTE.fullmatch(path):
                 return self.story(found[1])
             if found := TRANSCRIPT_ROUTE.fullmatch(path):
@@ -1596,11 +1611,17 @@ def handler(drive):
             self.send(404, "text/plain", b"not found")
 
         def do_POST(self):
-            if self.path not in ("/api/verdict", "/api/answer", "/api/asked", "/api/change"):
+            if self.path not in (MODEL_ROUTE, "/api/verdict", "/api/answer", "/api/asked", "/api/change"):
                 return self.send(404, "text/plain", b"not found")
             if self.headers.get_content_type() != "application/json":
                 return self.send(415, "text/plain", b"Content-Type must be application/json")
-            body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            raw = self.rfile.read(int(self.headers["Content-Length"]))
+            if not self.owner_calling():
+                return self.refuse()
+            body = json.loads(raw)
+            if self.path == MODEL_ROUTE:
+                call = {name: body[name] for name in MODEL_FIELDS if name in body} | {"model": MODEL_NAME}
+                return self.relay(urllib.request.Request(MODEL_URL, data=json.dumps(call).encode(), method="POST", headers={"Content-Type": "application/json", "Authorization": f"Bearer {os.environ['CEREBRAS_API_KEY']}", "User-Agent": "drive-dashboard"}))
             if self.path == "/api/answer":
                 status, out = drive.answer(body)
             elif self.path == "/api/asked":
@@ -1617,12 +1638,14 @@ def handler(drive):
         def source(self, title, text):
             return self.send(200, "text/html; charset=utf-8", SOURCE_PAGE.format(title=title, text=html.escape(text)).encode())
 
-        def send(self, status, kind, body):
+        def send(self, status, kind, body, retry_after=None):
             zipped = len(body) > 4096 and "gzip" in self.headers.get("Accept-Encoding", "")
             if zipped:
                 body = gzip.compress(body, 5)
             self.send_response(status)
             self.send_header("Content-Type", kind)
+            if retry_after:
+                self.send_header("Retry-After", retry_after)
             if zipped:
                 self.send_header("Content-Encoding", "gzip")
             self.send_header("Content-Length", str(len(body)))
@@ -1669,13 +1692,15 @@ def handler(drive):
             finally:
                 story.leave(viewer)
 
-        def relay(self, url):
+        def relay(self, request):
             try:
-                upstream = urllib.request.urlopen(url, timeout=60)
+                upstream = urllib.request.urlopen(request, timeout=60)
             except urllib.error.HTTPError as error:
-                return self.send(error.code, "text/plain", error.read())
+                return self.send(error.code, "text/plain", error.read(), error.headers["Retry-After"])
+            except OSError as error:
+                return self.send(502, "text/plain", f"the upstream did not answer: {error}".encode())
             self.send_response(200)
-            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Content-Type", upstream.headers["Content-Type"])
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
             with upstream:
@@ -1736,7 +1761,7 @@ def main():
     writers = [(drive.follow_mirror, ())] if "mirror" in config else [(curator.loop, ()) for curator in drive.curators]
     for target, rest in ((drive.follow_code, ()), *writers, (drive.follow_records, (after,)), (drive.follow_board, ()), (drive.follow_steps, ()), (drive.follow_status, ()), (drive.refresh_loop, (snapshot,)), (drive.follow_paths, ())):
         threading.Thread(target=target, args=rest, daemon=True).start()
-    server = ThreadingHTTPServer((config["host"], config["port"]), handler(drive))
+    server = ThreadingHTTPServer((config["host"], config["port"]), handler(drive, config["tailnet_owner"]))
     server.daemon_threads = True
     print(f"http://{config['host']}:{config['port']}/", flush=True)
     server.serve_forever()
