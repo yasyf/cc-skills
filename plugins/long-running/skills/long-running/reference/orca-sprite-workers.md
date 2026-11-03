@@ -102,23 +102,6 @@ without one refuses the launch naming each missing CLI, keeps the output in
 `install.log`, and leaves the prepared worker idle and unattached, so no lane
 starts on a box that cannot run its brief.
 
-With `WORKER_BK_URL` set, the same step writes it to `~/.config/lr/bk.url` on
-the Sprite. There `lr bk api|log|graphql` sends each read to the drive host,
-which runs it with its own `tools/ci bk` and its own token, so no Buildkite
-credential reaches a Sprite and every lane's reads share the host's rate
-budget and response cache.
-
-The drive host serves those reads once per drive. Write `bk.json` beside
-`lr.json`, with `port` for the loopback listener, `serve_port` for the tailnet
-HTTPS port, and `admit_tag` for the tailnet tag of the machines it answers,
-`tag:orca` for Sprites. Then run `lr bk install`. It writes the
-`com.long-running.<drive>.bk` launchd agent running `lr bk serve`, publishes
-the listener with `tailscale serve`, and prints the `WORKER_BK_URL` line for
-`orca.sprite.env` in `runner.json`. The proxy answers only callers that
-`tailscale serve` forwards and whose `tailscale whois` carries `admit_tag`. It
-runs `api` with GET inside its own organization, `log`, and `graphql` queries,
-and refuses `-X`, `-d`, `cancel`, `rerun`, and any mutation or subscription.
-
 `WORKER_RELAY_SPONSOR` names a Sprite
 that holds an enrolled cci service key, and the script then joins the new Sprite to
 this Mac's default relay mesh for the mesh's routed drives, with a 24-hour
@@ -299,6 +282,65 @@ On Sprite, the JSON also names `lane`, the actual `workspace`, and `allocation`
 `prepared.projectRoot`, the checkout on the VM. Use that actual workspace for
 later `cc-remote orca collect` calls. A failed or unproven start prints no success JSON
 and retains the attempt without retry or cleanup.
+
+## Read Buildkite from a Sprite
+
+`tools/ci bk` needs the aws CLI or the devbox broker, and a Sprite has neither,
+so no Buildkite token reaches a Sprite. A lane asks the `bk-desk` lane over cci
+instead, and the launch spec tells each new worker how:
+
+```sh
+cci post --kind ask --to bk-desk "bk build <pipeline> <number>"
+```
+
+| Read | Answer body |
+|---|---|
+| `bk build <pipeline> <number>` | The build's state, branch, commit and URL, then one line per job not passed with its state, exit status and job id |
+| `bk log <pipeline> <number> <job>` | The last 16 KiB of the job's log, with terminal escapes removed |
+| `bk api <path>` | The first 16 KiB of a GET inside the organization |
+
+The answer is a record addressed to the lane that closes the ask, usually within
+seconds. Its line carries the state or size, and `cci show <seq>` prints the body.
+Any other text, a write included, gets a refusal and runs nothing. Ask once per
+need: `gh pr checks` follows a build's progress, and `bk-desk` is for reading a
+result. cci treats an identical ask from one lane within ten minutes as the same
+record: `cci post` prints `(duplicate)`, and the earlier answer stands.
+
+One desk serves the whole drive. It holds the token in memory, runs one read at a
+time, and answers a repeated read from memory for a minute, so every lane shares
+one client path on the organization's shared rate limit. An ask no desk answered
+stays open, which is how a dead desk surfaces.
+
+### Run the desk
+
+Run it once per drive, on the desk host. Write `bk.json` beside the host's
+`lr.json`, naming the Buildkite client, the checkout that holds it, and the command
+that prints a read-only token:
+
+```json
+{
+  "cli": "tools/ci bk",
+  "checkout": "<checkout on the host>",
+  "token_command": ["aws", "ssm", "get-parameter", "--profile", "<profile>", "--region", "<region>", "--name", "<parameter>", "--with-decryption", "--query", "Parameter.Value", "--output", "text"]
+}
+```
+
+Then start the desk as a Sprite service:
+
+```sh
+sprite exec -s <host> -- sprite-env services create bk-desk \
+  --cmd /home/sprite/.local/bin/lr --args bk,desk,--config,<lr.json> \
+  --needs desk-creds --no-stream
+```
+
+The desk reads the token once at start, so restart the service after rotating it.
+A crash restarts it with the Sprite's own backoff, and it then answers any ask from
+the last hour that is still open. It needs the host joined to the
+relay and nothing else: no tailnet route, no open port and no credential on a lane.
+
+A lane cannot reach the desk any other way. The tailnet policy admits only the
+owner's devices to a `tag:orca` node, so one Sprite cannot reach another or this
+Mac, and a Sprite's URL needs an organization token that no Sprite holds.
 
 ## Prepare and attach separately
 

@@ -701,7 +701,7 @@ func (w *workerLaunch) startSprite() (string, error) {
 	path, _ := textOf(table(task["brief"])["path"])
 	environment, _ := textOf(task["environment"])
 	worktreeID, _ := textOf(task["worktreeId"])
-	spec := fmt.Sprintf("Lane %s: read the whole brief at %s, verify its SHA-256 is %s and its size is %d bytes, then follow it exactly.%s", w.lane, path, w.sha, w.bytes, desk)
+	spec := fmt.Sprintf("Lane %s: read the whole brief at %s, verify its SHA-256 is %s and its size is %d bytes, then follow it exactly.%s%s", w.lane, path, w.sha, w.bytes, spriteBuildkite, desk)
 	taskID, dispatch, err := w.startWorker(spec, "--on", environment, "--worktree", "id:"+worktreeID, "--terminal", w.terminal)
 	if err != nil {
 		return "", err
