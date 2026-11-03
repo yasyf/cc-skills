@@ -35,18 +35,11 @@ CHOICE = re.compile(
 DM_CARD = "slack_dm_status"
 SLACK_POSTED = re.compile(r"\bts\W{1,4}\d{10}\.\d{6}|/archives/\w+/p\d{16}")
 BOARD_VERBS = frozenset({"push", "update-block", "ask", "send"})
-CARD_FORM = (
-    "Send it as a card with one button per option: `slack_dm_status` with a `card` whose `options` are the answers, or a board card with `cc-present ask`,"
-    " `push` or `update-block`, which cc-present posts to his Slack with its buttons."
-)
-INLINE_PICK = f"A pick for the owner never sits inline in this window, and plain Slack text asking him to reply does not count. {CARD_FORM} Then stop again."
-PLAIN_PICK = f"A pick for the owner is never plain text in his Slack DM; he taps a button, and a thread reply is for notes. {CARD_FORM}"
+INLINE_PICK = "A pick for the owner never sits inline or in plain Slack text; he answers with a button. Post it as a `slack_dm_status` card whose `options` are the answers, or as a `cc-present ask` card, then stop again."
+PLAIN_PICK = "A pick for the owner is never plain text in his Slack DM; he taps a button, and a thread reply is for notes. Send a `slack_dm_status` card whose `options` are the answers, or a `cc-present ask` card."
 ASKS = re.compile(r"\?(?=\s|$)")
 PR_NAMED = re.compile(r"github\.com/[\w.-]+/[\w.-]+/pull/\d+|[\w.-]+/[\w.-]+#\d+|\b(?i:PR|pull request) #?\d+\b")
-PR_CARD = (
-    "An ask to the owner about a pull request carries its PR card, never only the link: list each PR in the card's `refs` as `{\"url\": ..., \"label\": ...}`"
-    " so Slack shows its live checks, queue and landed state, or ask through `drive.py ask-owner`, which attaches every PR the ask names."
-)
+PR_CARD = "An ask to the owner about a pull request carries its PR card, never only the link. List each PR in the card's `refs` as `{\"url\", \"label\"}`, or ask with `drive.py ask-owner`, which attaches it."
 PICK = "Two ways to fix the relay:\n\nA) Keep one shared replica\nB) Give each chat its own\n\nWhich do you want?"
 REMINDER = Binary(
     "The owner's words this turn are below; his typos are his, so read through them."
@@ -154,7 +147,7 @@ def asked(reply: str, *calls: dict, words: str = HOW_FAR, decide: dict = ASKED) 
     skip_if=[FromSubagent()],
     tests=communicator_tests({
         picked(): Block(pattern=r"^A pick for the owner never sits inline"),
-        picked(*T.tool_turn("mcp__plugin_cc-slack_cc-slack__slack_send", result=SENT, channel_id="D0B6Z", text=PICK)): Block(pattern=r"never sits inline.*`slack_dm_status` with a `card` whose `options`"),
+        picked(*T.tool_turn("mcp__plugin_cc-slack_cc-slack__slack_send", result=SENT, channel_id="D0B6Z", text=PICK)): Block(pattern=r"never sits inline.*`slack_dm_status` card whose `options`"),
         picked(*T.tool_turn("Bash", result=SENT, command=f"cc-slack send --channel D0B6Z --text '{PICK}'")): Block(pattern=r"never sits inline"),
         picked(*T.tool_turn(f"{CC_SLACK}{DM_CARD}", result=CARDED, card=RELAY_CARD)): Allow(),
         picked(*T.tool_turn("Bash", result=CARDED, command=f"cc-slack dm-status --card '{json.dumps(RELAY_CARD)}'")): Allow(),
@@ -208,7 +201,7 @@ def dm(tool: str = DM_CARD, **given: object) -> Input:
     only_if=[Communicator(), Tool("Bash", *WRITE_TOOLS)],
     skip_if=[FromSubagent()],
     tests=communicator_tests({
-        dm("slack_send", channel_id="D0B6Z", text=PICK): Block(pattern=r"^A pick for the owner is never plain text in his Slack DM.*`slack_dm_status` with a `card` whose `options`"),
+        dm("slack_send", channel_id="D0B6Z", text=PICK): Block(pattern=r"^A pick for the owner is never plain text in his Slack DM.*`slack_dm_status` card whose `options`"),
         dm(text=PICK): Block(pattern=r"never plain text"),
         dm("slack_reply", channel_id="D0B6Z", thread_ts="1793635190.051179", text="Reply with a number: 1 keeps one replica, 2 gives each chat its own."): Block(pattern=r"never plain text"),
         dm(card={"title": "How do we fix the relay?", "body": PICK}): Block(pattern=r"never plain text"),
