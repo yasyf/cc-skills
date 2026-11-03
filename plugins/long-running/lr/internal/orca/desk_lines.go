@@ -489,7 +489,10 @@ func (d *Desk) relayToLane(ctx context.Context, at, key, lane, text string, ques
 }
 
 func (d *Desk) openQuestions(ctx context.Context, dispatch *laneDispatch) ([]string, error) {
-	asked := messagesOf(d.call(ctx, orchestration, "check", "--terminal", "run:"+d.Config.Run, "--all", "--types", "question"))
+	asked, err := messagesOf(d.call(ctx, orchestration, "check", "--terminal", "run:"+d.Config.Run, "--all", "--types", "question"))
+	if err != nil {
+		return nil, err
+	}
 	mine := make([]orcaMessage, 0, len(asked))
 	for _, message := range asked {
 		if message.FromHandle == "dispatch:"+dispatch.ID || message.FromHandle == dispatch.Terminal {
@@ -499,8 +502,12 @@ func (d *Desk) openQuestions(ctx context.Context, dispatch *laneDispatch) ([]str
 	if len(mine) == 0 {
 		return nil, nil
 	}
+	replies, err := messagesOf(d.call(ctx, orchestration, "check", "--terminal", dispatch.Terminal, "--all"))
+	if err != nil {
+		return nil, err
+	}
 	answered := map[string]bool{}
-	for _, message := range messagesOf(d.call(ctx, orchestration, "check", "--terminal", dispatch.Terminal, "--all")) {
+	for _, message := range replies {
 		answered[message.ThreadID] = true
 	}
 	slices.SortStableFunc(mine, func(a, b orcaMessage) int { return strings.Compare(b.CreatedAt, a.CreatedAt) })

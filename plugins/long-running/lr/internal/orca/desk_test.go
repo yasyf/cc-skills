@@ -1630,6 +1630,34 @@ func TestAQuestionFromALaneAnotherLaneLaunchedGoesToThatLane(t *testing.T) {
 	}
 }
 
+func TestRunMailOrcaSendsWithItsNumericReadFlagBecomesRecords(t *testing.T) {
+	raw, err := os.ReadFile("testdata/run-home-flip.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	messages, err := messagesOf(Reply{Result: raw})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(messages) != 45 {
+		t.Fatalf("read %d of the 45 messages the flip missed", len(messages))
+	}
+	w := newDeskWorld(t)
+	w.checked(messages...)
+	for _, message := range messages {
+		held, err := w.desk.known(deskRunner, escalationPref+message.ID)
+		if err != nil || held == nil {
+			t.Fatalf("%s %s reached no record: %v", message.Type, message.ID, err)
+		}
+	}
+}
+
+func TestAnUnreadableRunMailRowRaisesInsteadOfReadingAsEmpty(t *testing.T) {
+	if _, err := messagesOf(Reply{Result: json.RawMessage(`{"messages":[{"id":"m","sequence":"not a number"}]}`)}); err == nil {
+		t.Fatal("an unreadable row read as no mail")
+	}
+}
+
 func TestAWithdrawnLanesQuestionNeedsNoAnswer(t *testing.T) {
 	w := newDeskWorld(t)
 	w.live(testLane, testDispatch, testTerminal)

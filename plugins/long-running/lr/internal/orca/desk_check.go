@@ -48,7 +48,11 @@ func (d *Desk) check(ctx context.Context) (bool, error) {
 		Messages []orcaMessage `json:"messages"`
 		Delivery string        `json:"deliveryId"`
 	}
-	_ = json.Unmarshal(d.call(ctx, orchestration, "check", "--run", d.Config.Run).Result, &handed)
+	if delivery := d.call(ctx, orchestration, "check", "--run", d.Config.Run); delivery.OK {
+		if err := json.Unmarshal(delivery.Result, &handed); err != nil {
+			return false, fmt.Errorf("orca check --run: %w", err)
+		}
+	}
 	unrelayed := map[string]bool{}
 	for _, message := range handed.Messages {
 		if message.Type != typeHeartbeat && !slices.Contains(relayed, message.ID) {
@@ -118,7 +122,10 @@ func (d *Desk) runInbox(ctx context.Context, cursor int64, hasCursor bool, unrel
 			}
 			return nil, hasCursor, d.escalate("orca-inbox:"+store.Stamp(d.Now())[:15], "ORCA-INBOX", "runner", string(encoded))
 		}
-		messages := messagesOf(reply)
+		messages, err := messagesOf(reply)
+		if err != nil {
+			return nil, false, err
+		}
 		if !hasCursor {
 			var newest int64
 			for _, message := range messages {
