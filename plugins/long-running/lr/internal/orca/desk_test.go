@@ -993,6 +993,47 @@ func TestAnIncidentLineNamingNoReportTimeLaunchesAndPostsItsIncidentWithNoClock(
 	}
 }
 
+func TestAnIncidentLineNamingItsFixLaneFiresThatLaneOnce(t *testing.T) {
+	w := newDeskWorld(t)
+	w.lines()
+	w.line("orca-desk: incident api-500-fix https://dd/1 :: errors")
+	w.lines()
+	w.desk.background.Wait()
+	if len(w.fired) != 1 || w.fired[0].Slug != "api-500" {
+		t.Fatal(w.fired)
+	}
+	w.step(w.desk.flush)
+	wantContains(t, w.postOpening("INCIDENT api-500:").Text, "fix lane api-500-fix launching")
+}
+
+func TestAFullFormIncidentLaunchStartsItsLaneOnceUnderItsOwnName(t *testing.T) {
+	w := newDeskWorld(t)
+	brief := w.brief("api-500-fix", "Register slice: lane=api-500-fix step=all\nScale: no N\nccx: place=local\n")
+	w.lines()
+	line := w.line("orca-desk: launch api-500-fix NOW incident xhigh role=fix brief=" + brief)
+	key := "R" + strings.TrimPrefix(line.Name(), "#")
+	w.launchOut["api-500-fix"] = w.launched("api-500-fix", testDispatch, testTerminal)
+	w.lines()
+	w.step(w.desk.deliver)
+	w.step(w.desk.reap)
+	w.step(w.desk.flush)
+
+	if len(w.spawns) != 1 || !slices.Contains(w.spawns[0].argv, "api-500-fix") {
+		t.Fatal(w.spawns)
+	}
+	w.postOpening("LAUNCHED " + key + " api-500-fix")
+}
+
+func TestAnExpiredIncidentLineNamingItsFixLaneReportsThatLane(t *testing.T) {
+	w := newDeskWorld(t)
+	w.lines()
+	w.line("orca-desk: incident api-500-fix https://dd/1 :: errors")
+	w.now = w.now.Add(20 * time.Minute)
+	w.desk.passSince = w.now
+	w.lines()
+	wantContains(t, w.wantEscalation("LAUNCH-EXPIRED "), " api-500-fix: cci #1 ")
+}
+
 func TestAnIncidentLaunchThatFailsIsReported(t *testing.T) {
 	w := newDeskWorld(t)
 	w.fireErr = errors.New("no brief")
