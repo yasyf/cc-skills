@@ -179,7 +179,11 @@ func (d *Desk) launchSprite(container, lane string, action incident.Action, spec
 	env := append(envPairs(d.Config.LaunchEnv), d.sender...)
 	env = append(env, "WORKER_RUN="+d.Config.Run)
 	env = append(env, envPairs(sprite.Env)...)
-	env = append(env, "WORKER_LOCAL=", "WORKER_NOTES_REPO="+d.Config.BriefsRepo)
+	tools, err := json.Marshal(sprite.Tools)
+	if err != nil {
+		return err
+	}
+	env = append(env, "WORKER_LOCAL=", "WORKER_NOTES_REPO="+d.Config.BriefsRepo, "WORKER_TOOLS="+string(tools))
 	model := spec.Model
 	if mapped, found := spriteModels[model]; found {
 		model = mapped

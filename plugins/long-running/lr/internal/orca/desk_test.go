@@ -1328,9 +1328,11 @@ func TestASendStartedAndOrphanedIsLost(t *testing.T) {
 	}
 }
 
+const deskToolPin = `{"kind":"binary","name":"ccx","url":"https://example.test/ccx.tgz","sha256":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","version":"0.91.68"}`
+
 func spriteConfig(w *deskWorld) string {
 	launcher := filepath.Join(w.home, "repo", "worker-launch.sh")
-	w.write(w.desk.Config.Source, fmt.Sprintf(`{"drive":"brook","orca":{"run":"run_1","sprite":{"launcher":%q,"env":{"WORKER_RELAY_SPONSOR":"sponsor-1"}}}}`, launcher))
+	w.write(w.desk.Config.Source, fmt.Sprintf(`{"drive":"brook","orca":{"run":"run_1","sprite":{"launcher":%q,"env":{"WORKER_RELAY_SPONSOR":"sponsor-1"},"tools":[%s]}}}`, launcher, deskToolPin))
 	return launcher
 }
 
@@ -1348,7 +1350,7 @@ func TestALaunchThatMayLeaveTheMacStartsOnASpriteAndSettlesFromItsReceipt(t *tes
 	if len(w.spawns) != 1 || w.spawns[0].argv[0] != launcher || w.spawns[0].argv[2] != "claude-opus-5-5" {
 		t.Fatal(w.spawns)
 	}
-	if !slices.Contains(w.spawns[0].env, "WORKER_RELAY_SPONSOR=sponsor-1") || !slices.Contains(w.spawns[0].env, "WORKER_RUN="+testRun) || !slices.Contains(w.spawns[0].env, "WORKER_LOCAL=") {
+	if !slices.Contains(w.spawns[0].env, "WORKER_RELAY_SPONSOR=sponsor-1") || !slices.Contains(w.spawns[0].env, "WORKER_RUN="+testRun) || !slices.Contains(w.spawns[0].env, "WORKER_LOCAL=") || !slices.Contains(w.spawns[0].env, "WORKER_TOOLS=["+deskToolPin+"]") {
 		t.Fatal(w.spawns[0].env)
 	}
 	attempt := spriteAttempt(brief)
