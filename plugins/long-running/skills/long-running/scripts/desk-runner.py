@@ -188,7 +188,9 @@ and has no later root `go`, `decide`, or `decision` naming one of them `deadline
 line, declares no class.
 A launch, from the inbox or the `launch` verb, whose lane shares an incident key with a live lane,
 or whose brief names the PR a live lane's branch carries, is refused with `LAUNCH-DUPLICATE` naming
-that lane and its lane status when that lane has commits ahead or a pushed branch; `NOW` and
+that lane and its lane status when that lane has commits ahead or a pushed branch in a worktree it made,
+one its launch receipt, its own `WORKTREE` record, or its name places; a worktree only a record's text or a
+watched PR's head names, the way root, shepherd and orphan-PR lanes name other lanes' trees, holds nothing. `NOW` and
 `--owner-directed` launch anyway.
 Only an incident fix lane's partial-fix reports launch case lanes: when its `ready:` or
 `fix-live:` Run status carries `UNFIXED <lane>: <case>` lines in its body, the runner launches
@@ -3333,7 +3335,7 @@ class Runner:
         return next((question for question in questions if question not in claimed), "")
 
     def duplicate_holder(self, lane: str, brief: Path) -> str:
-        """The live lane already holding the work a launch's brief names, with commits ahead or a pushed branch, as `<lane>: <lane status>`, or empty: a fix lane on the same incident, a lane sharing an incident the brief names, or one whose branch carries a PR the brief names."""
+        """The live lane already holding the work a launch's brief names, with commits ahead or a pushed branch, as `<lane>: <lane status>`, or empty: a fix lane on the same incident, a lane sharing an incident the brief names, or one whose branch carries a PR the brief names; only a worktree the lane made counts, never one its records or watched PRs only name."""
         keys = brief_incidents(brief) - {NAMES_NOTHING}
         text = brief.read_text(errors="replace") if brief.is_file() else ""
         prs = {number for found in PR_NAMED.finditer(text) for number in found.groups() if number}
@@ -3347,7 +3349,7 @@ class Runner:
             if not (shared or prs) or not ((dispatch := self.orca.show(other)) and dispatch.status not in INACTIVE):
                 continue
             try:
-                held = [tree for tree in self.lane_worktrees(other) if tree.ahead or tree.pushed not in UNPUSHED]
+                held = [tree for tree in self.lane_worktrees(other) if tree.owned and (tree.ahead or tree.pushed not in UNPUSHED)]
             except CciTailFailed as failure:
                 self.tail_failed(failure)
                 return ""

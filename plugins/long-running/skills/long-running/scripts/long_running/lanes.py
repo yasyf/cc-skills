@@ -5,6 +5,8 @@ A lane's worktrees come from four places, deduplicated by path: its Orca launch 
 worktree path in the text of a ``WORKTREE``, ``FIRST-REPORT``, ``started``, or any other record;
 ``git worktree list`` in the drive's checkout, a worktree whose directory or branch is the lane's
 name; and the head branch of each PR the lane's records name. Only paths that exist count.
+``Worktree.owned`` marks a worktree the lane made, from its receipt, its ``WORKTREE`` attr, or its name,
+apart from one a record's text or a watched PR only names.
 A lane with no worktree on this machine, such as an Orca worker on a paired remote server, is
 read from the drive's Orca Run instead: ``orca_status`` matches the lane to the Run's tasks by
 title, display name, or the lane its spec opens with, and reports each matching dispatch. A drive
@@ -36,6 +38,10 @@ Item = TypeVar("Item")
 Result = TypeVar("Result")
 WORKERS = 8
 WORKTREE_PATH = re.compile(r"(?<![\w/])(/[\w.~/-]*/(?:worktrees|workspaces)/[\w.-]+(?:/[\w.-]+)*)")
+RECEIPT = "launch receipt"
+OWN_RECORD = "WORKTREE record"
+LISTED = "git worktree list"
+OWNING = frozenset({RECEIPT, OWN_RECORD, LISTED})
 DIRTY_NAMED = 5
 PULLS_SHOWN = 3
 SHORT = 10
@@ -74,6 +80,11 @@ class Worktree:
     ref: str = ""
     head: str = ""
     common: str = ""
+
+    @property
+    def owned(self) -> bool:
+        """Whether the lane made this worktree, never only named it in a record or a PR it watches."""
+        return bool(OWNING & set(self.sources))
 
     def line(self) -> str:
         if self.error:
@@ -143,12 +154,14 @@ def pr_heads(run: Run, prs: list[tuple[str, str]]) -> dict[tuple[str, str], str]
     return {(pr_repo, pr): head for pr_repo, pulls in zip(numbers, found) for pr in numbers[pr_repo] if (head := (pulls.get(f"p{pr}") or {}).get("headRefName"))}
 
 
-def record_paths(records: Iterable[dict]) -> list[str]:
-    paths: list[str] = []
+def record_paths(records: Iterable[dict]) -> list[tuple[str, str]]:
+    """Each worktree path the records name with its source: a `worktree` attr is the lane's own `WORKTREE record`, a path in the text only a `cci record` mention."""
+    paths: list[tuple[str, str]] = []
     for record in records:
-        if attr := ((record.get("fields") or {}).get("attrs") or {}).get("worktree"):
-            paths.append(attr)
-        paths += WORKTREE_PATH.findall(record.get("text") or "")
+        attr = ((record.get("fields") or {}).get("attrs") or {}).get("worktree")
+        if attr:
+            paths.append((attr, OWN_RECORD))
+        paths += [(path, "cci record") for path in WORKTREE_PATH.findall(record.get("text") or "") if path != attr]
     return paths
 
 
@@ -203,12 +216,12 @@ def lane_worktrees(lane: str, records: list[dict], receipts: Iterable[Path], che
 
     for receipt in receipts:
         if (file := receipt / f"{lane}.worktree").is_file():
-            add(file.read_text().strip(), "launch receipt")
-    for path in record_paths(records):
-        add(path, "cci record")
+            add(file.read_text().strip(), RECEIPT)
+    for path, source in record_paths(records):
+        add(path, source)
     for path, (branch, _) in listed.items():
         if Path(path).name == lane or branch == lane or branch.endswith(f"/{lane}"):
-            add(path, "git worktree list")
+            add(path, LISTED)
     prs = record_prs(records, repo) if repo else []
     heads = pr_heads(run, prs)
     for pr_repo, pr in prs:
