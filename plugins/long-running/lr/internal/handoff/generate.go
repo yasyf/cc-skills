@@ -329,11 +329,11 @@ func (d *progressDoc) buildFromFolder(plan string) (string, error) {
 }
 
 func (d *deps) readGeneratedSources(ctx context.Context, doc *progressDoc, opts generateOptions) error {
-	found, err := d.records(ctx, recordQuery{drive: opts.program, kinds: []string{goKind, correctionKind}})
+	found, err := d.records(ctx, recordQuery{drive: doc.busName(), kinds: []string{goKind, correctionKind}})
 	if err != nil {
 		return err
 	}
-	doc.standing = readStanding(found, opts.program)
+	doc.standing = readStanding(found, doc.busName())
 	if err := d.readIncidentLanes(ctx, doc); err != nil {
 		return err
 	}

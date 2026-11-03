@@ -1341,10 +1341,62 @@ func TestTheHandoffCarriesTheLaneRegistryAndTheOwnerUpdateRenderedFromSources(t 
 	body := f.docs[str(runGenerate(t, depsFor(f), home.options()).ID)]
 
 	contains(t, body,
-		"## Lane registry\n- tooling-codify-1 desired, heard an unrecorded time, step tooling, PRs #1904, brief /b/codify.md\n- board-refresher-7 retired, heard an unrecorded time, step -, standing: refresh the board, brief /b/board.md\n",
+		"## Lane registry\n- tooling-codify-1 desired, heard an unrecorded time, step tooling, PRs #1904\n- board-refresher-7 retired, heard an unrecorded time, step -, standing: refresh the board, brief /b/board.md\n",
 		"## Owner update\n\n### Standing duties\n- refresh the board: NO LIVE OWNER\n",
 	)
 	lacks(t, body, "old-lane-1")
+}
+
+func TestACoordinatorOutsideTheSessionListReadsItsDriveByName(t *testing.T) {
+	home := newHome(t)
+	home.writeDrive(t, map[string]any{"sessions": []string{"s-communicator"}, "cci_drive": "bus-1", "state_dir": filepath.Join(home.root, "state", "brook")})
+	writeFile(t, filepath.Join(home.root, "state", "brook", "lr.json"), "{}")
+	f := newFake("", true)
+	f.laneJSON = `{"lane":"tooling-codify-1","state":"desired","heard":null,"step":"tooling","standing":"","prs":[]}
+`
+	f.ownerReport = "# Owner update: d1, 6:00 PM\n\n## Standing duties\n- none\n"
+
+	lacks(t, f.docs[str(runGenerate(t, depsFor(f), home.options()).ID)], "tooling-codify-1")
+
+	t.Setenv(driveEnv, "d1")
+	body := f.docs[str(runGenerate(t, depsFor(f), home.options()).ID)]
+
+	contains(t, body, "## Lane registry\n- tooling-codify-1 desired", "### Standing duties\n- none")
+	called := false
+	for _, call := range f.calls {
+		called = called || slices.Equal(call, []string{"cci", "tail", "bus-1"})
+	}
+	if !called {
+		t.Fatal(f.calls)
+	}
+}
+
+func TestAHandoffOnAWideDriveStaysUnderTheCapAndNamesWhatItLeftOut(t *testing.T) {
+	home := newHome(t)
+	writeFile(t, filepath.Join(home.root, "state", "brook", "lr.json"), "{}")
+	f := newFake("", true)
+	var lanes, update strings.Builder
+	update.WriteString("# Owner update: d1, 6:00 PM\n\n")
+	for i := range 2_000 {
+		fmt.Fprintf(&lanes, `{"lane":"lane-%d","state":"desired","heard":null,"step":"all","standing":"","prs":[%d]}`+"\n", i, i)
+		fmt.Fprintf(&update, "- row %d: what it changes, who owns it and what blocks it\n", i)
+	}
+	f.laneJSON = lanes.String()
+	f.ownerReport = update.String()
+
+	out := runGenerate(t, depsFor(f), home.options())
+	body := f.docs[str(out.ID)]
+
+	head, _, _ := strings.Cut(body, narrativeMarker)
+	if len(head) > progressCap {
+		t.Fatalf("%d bytes", len(head))
+	}
+	contains(t, body, "more lines: run `lr lanes --config ", "more lines: run `lr update --drive brook --render`")
+}
+
+func TestWithinBudgetKeepsWholeLinesAndCountsTheRest(t *testing.T) {
+	equal(t, strings.Join(withinBudget([]string{"aaaa", "bbbb", "cccc", "dddd"}, 10, "whole"), "|"), "aaaa|bbbb|- 2 more lines: run `whole`")
+	equal(t, strings.Join(withinBudget([]string{"aaaa", "bbbb"}, 10, "whole"), "|"), "aaaa|bbbb")
 }
 
 func TestAnUnreadRegistryIsNamedAndTheHandoffStillWrites(t *testing.T) {
@@ -1506,7 +1558,7 @@ func scopeRowsJSON(t *testing.T, count int) string {
 func TestGeneratePrintsEveryScopeRowInTheOwnersWordsPastTheSizeCap(t *testing.T) {
 	home := newHome(t)
 	f := newFake("", false)
-	f.rowsJSON = scopeRowsJSON(t, 60)
+	f.rowsJSON = scopeRowsJSON(t, 400)
 
 	body := f.docs[str(runGenerate(t, depsFor(f), home.options()).ID)]
 
@@ -1514,11 +1566,8 @@ func TestGeneratePrintsEveryScopeRowInTheOwnersWordsPastTheSizeCap(t *testing.T)
 		t.Fatalf("the generated head is only %d bytes", len(head))
 	}
 	lacks(t, body, "no `standing-rules` register doc")
-	for number := range 60 {
-		contains(t, body,
-			fmt.Sprintf("- `rule/%07x` (in-force, said 1): “the app shows no syncing state, and the downloading bar is the one transfer state, row %d”\n", number, number),
-			fmt.Sprintf("  - implication 5, removes, proposed: surface %d.5 shows no syncing state ", number),
-		)
+	for number := range 400 {
+		contains(t, body, fmt.Sprintf("- `rule/%07x` (in-force, said 1): “the app shows no syncing state, and the downloading bar is the one transfer state, row %d”\n", number, number))
 	}
 	equal(t, len(f.blockers), 0)
 	rows := depsFor(f).registerRows(context.Background(), testRepo, []string{"--program", "brook"}, "brook", base)

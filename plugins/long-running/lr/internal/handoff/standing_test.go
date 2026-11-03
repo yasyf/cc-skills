@@ -2,6 +2,7 @@ package handoff
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"reflect"
 	"strings"
@@ -259,10 +260,10 @@ func TestTheSectionPrintsEveryScopeRowInTheOwnersWordsAndLintsClean(t *testing.T
 	if !strings.HasPrefix(rendered, "## Standing owner rules\n\n- #2 [cci #2]\n\n### Scope rows, in the owner's words\n\n") {
 		t.Fatalf("rendered:\n%s", rendered)
 	}
+	lacks(t, rendered, "  - implication 1, removes")
 	contains(t, rendered,
 		"- `rule/f958522` (in-force, said 2): “"+indented+"”\n",
-		"  - implication 1, removes, proposed: No Syncing state appears anywhere in the UI.\n",
-		"  - implication 2, permits, ticked: The downloading bar shows on a share without the owner's word.\n",
+		"Each row's implications and their states: `rulings.py rows --json`.\n",
 		"  - names: syncing state | Syncing\n",
 		"- `rule/4830123` (in-force, said 1): “"+continued+"”\n",
 	)
@@ -333,6 +334,48 @@ func TestTheDocSentenceStaysOnlyUntilTheRegisterLedgerIsRead(t *testing.T) {
 			lacks(t, sectionOf(testReg, nil, "", tc.rows), "no `standing-rules` register doc")
 		})
 	}
+}
+
+func TestTouchedRowsStopAtTheirBudgetNewestFirstAndKeepEveryScopeRow(t *testing.T) {
+	rows := testRows(t)
+	older, newer := stamp(t, "2026-10-23T11:00:00Z"), stamp(t, "2026-10-23T11:59:00Z")
+	words := strings.Repeat("the owner's words ", 40)
+	for i := range 100 {
+		rows.rows = append(rows.rows, registerRow{key: fmt.Sprintf("old/%d", i), kind: "order", status: inForce, words: words, updatedAt: "2026-10-23T11:00:00Z", updated: older})
+	}
+	rows.rows = append(rows.rows, registerRow{key: "new/1", kind: "order", status: inForce, words: words, updatedAt: "2026-10-23T11:59:00Z", updated: newer})
+
+	lines := touchedLines(rows)
+
+	if !strings.HasPrefix(lines[0], "- `new/1`") {
+		t.Fatal(lines[0])
+	}
+	last := lines[len(lines)-1]
+	if !strings.Contains(last, "more rows: run `rulings.py rows --json`") {
+		t.Fatal(last)
+	}
+	if size := len(strings.Join(lines, "\n")); size > touchedBudget+len(last)+1 {
+		t.Fatalf("%d bytes", size)
+	}
+	if kept := lines[len(lines)-2]; !strings.HasSuffix(kept, "”") {
+		t.Fatalf("a row was cut: %q", kept)
+	}
+	contains(t, sectionOf(nil, nil, "", rows), "- `rule/4830123` (in-force, said 1): “"+continued+"”\n")
+}
+
+func TestUnconfirmedImplicationsStopAtTheirBudgetAndNameTheCommand(t *testing.T) {
+	rows := testRows(t)
+	row := &rows.rows[0]
+	for i := range 500 {
+		row.implications = append(row.implications, implication{N: i + 10, Direction: "removes", State: "proposed", Text: strings.Repeat("a proposed implication ", 8)})
+	}
+
+	section := after(strings.Join(rowsSection(rows), "\n"), "### Unconfirmed implications\n\n")
+
+	if len(section) > unconfirmedBudget+80 {
+		t.Fatalf("%d bytes", len(section))
+	}
+	contains(t, section, "more lines: run `rulings.py rows --json`")
 }
 
 func TestATouchedNoRulingRowRendersItsReasonInTheRowsSection(t *testing.T) {
