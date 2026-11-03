@@ -2106,6 +2106,81 @@ def test_a_read_back_answers_only_for_rows_the_owner_said_before_it_was_posted(
     assert ("WARNING READBACK-ROW-MISSING rule/fffffff: no read-back line names it" in out.splitlines()) is warned
 
 
+REPLAN = {
+    "kind": "order",
+    "status": "in-force",
+    "global": "no",
+    "words": "the replan needs to basically remove everything we did here, revert back to clean build from 48 hours ago, and then properly implement the clean, minimal, no edge case version",
+    "answer": '["0c720aa"]',
+    "at": "Oct 20 7:38 PM PT",
+    "said": "1",
+    "steps": '["4.1"]',
+    "lanes": '["replan-1"]',
+    "paths": "none",
+}
+FORWARD = {
+    "kind": "order",
+    "status": "in-force",
+    "global": "no",
+    "words": "dont revert capt-hook or cc-trancsript stuff fix it forward",
+    "answer": '["0d1102b"]',
+    "at": "Nov 02 3:12 PM PT",
+    "said": "1",
+    "steps": '["1.9"]',
+    "lanes": '["all"]',
+    "paths": "none",
+}
+
+
+def contract_words(capsys, tmp_path: Path, rows: dict[str, dict[str, str]], lane: str, *lines: str) -> tuple[int, str]:
+    body = tmp_path / "contract.md"
+    body.write_text("\n".join(lines) + "\n")
+    records = [{"seq": 500, "kind": "contract", "lane": lane, "text": "contract", "refs": {"path": str(body)}, "at": AT}]
+    return ran(capsys, RegisterShell(rows, records=records), "readback", "--lane", lane, "--contract", "500", "--words")
+
+
+def test_a_contracts_words_carry_the_rows_its_lane_and_step_act_on_and_never_a_row_on_another_subject_that_shares_its_words(
+    home: Path, package: Path, state: Path, registered: Path, tmp_path: Path, capsys
+) -> None:
+    """Coordinator #351385 on judge-watch #351355: lr-go-cutover-2's cutover contract said "revert nothing" and was flagged against the Oct 20 replan row, a ruling about the durable-agents replan, read over his Nov 2 words on reverting."""
+    rows = seeded(package) | {"rule/0c720aa": REPLAN, "rule/0d1102b": FORWARD}
+
+    code, out = contract_words(
+        capsys,
+        tmp_path,
+        rows,
+        "lr-go-cutover-2",
+        "Register slice: lane=lr-go-cutover-2 step=1.9",
+        "Order: lanes mover under launchd first, landing right after it. Delete the shared Python, run lr replay as the gate. Fix forward, revert nothing.",
+    )
+
+    assert code == 0
+    assert rulings.SLICED_ROW.findall(out) == ["rule/0d1102b", "rule/aaaaaaa", "rule/ccccccc"]
+    assert f'- Nov 02 3:12 PM PT: "{FORWARD["words"]}"' in out.splitlines()
+    assert "revert back to clean build" not in out
+
+
+def test_a_contract_citing_a_superseded_row_reads_the_row_superseding_it_and_never_the_old_words(
+    home: Path, package: Path, state: Path, registered: Path, tmp_path: Path, capsys
+) -> None:
+    rows = seeded(package)
+    rows["rule/bbbbbbb"] = rows["rule/bbbbbbb"] | {"supersedes": '["rule/ddddddd"]'}
+
+    code, out = contract_words(capsys, tmp_path, rows, "lane-a", "Register slice: lane=lane-a step=1.9", "rule/ddddddd: retries every failed upload forever")
+
+    assert code == 0
+    assert "rule/bbbbbbb" in rulings.SLICED_ROW.findall(out)
+    assert "This row supersedes rule/ddddddd, which no longer binds." in out.splitlines()
+    assert "Retry every failed upload forever." not in out
+
+
+def test_a_contract_with_no_slice_reads_only_the_rows_it_cites_and_one_citing_none_reads_nothing(
+    home: Path, package: Path, state: Path, registered: Path, tmp_path: Path, capsys
+) -> None:
+    assert rulings.SLICED_ROW.findall(contract_words(capsys, tmp_path, seeded(package), "lane-z", "rule/ccccccc: quotes the words")[1]) == ["rule/ccccccc"]
+    assert contract_words(capsys, tmp_path, seeded(package), "lane-z", "Builds the pass.") == (0, "")
+
+
 def test_pr_block_quotes_the_owners_sentence_for_each_matched_row(home: Path, package: Path, state: Path, capsys) -> None:
     code, out = ran(capsys, RegisterShell(seeded(package), diff=DIFF), "pr-block", "--pr", "12", "--head", "cafef00d", "--lane", "lane-b")
 

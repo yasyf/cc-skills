@@ -9,8 +9,9 @@
 The orca runner starts a pass every `judge.every_minutes` (default 1) once the last has exited. A pass reads
 every record since its cursor and asks the drive's judge (`long_running/judge.py`):
 
-    contract  a lane's `contract`: does it misread his words on the rows it cites, or the two `rulings.py
-              match` finds, narrower than he said or too literally?
+    contract  a lane's `contract`: does it misread his words, narrower than he said or too literally, on the
+              rows it acts on, which `rulings.py readback --words` prints: those its slice carries for its lane,
+              step, PRs and paths, and those it cites, read together so his newest words on a subject govern
     relay     a root `decide`: does it carry his pick on the rows it cites in full, and add nothing his words
               and the plan lines it shares words with never named?
     recheck   a root `decision` announcing `Register classify` with `extended <key>`: he added words to a
@@ -18,8 +19,9 @@ every record since its cursor and asks the drive's judge (`long_running/judge.py
               all his words, told to apply the reason behind his correction to items he did not name
 
 A yes posts one `review` record, `JUDGE <kind> #<seq> <key>: <sentence>`, to the writer and root, in reply to
-the artifact. A recheck yes whose earlier verdict on the same artifact and row was not a yes is a miss: it
-says so, and the case is written to `judge/misses/` in the drive's state folder for `judge-eval.py`.
+the artifact, naming the row whose words the judge quoted. A recheck yes whose earlier verdict on the same
+contract, or the same relay and row, was not a yes is a miss: it says so, and the case is written to
+`judge/misses/` in the drive's state folder for `judge-eval.py`.
 The writer disputes a flag by answering on it. A root `decide` or `decision` of the last day that replies to
 or resolves the flag, the artifact or the answer, or names one of the artifact's PRs, closes the dispute with
 that ruling. Otherwise the pass asks root alone, never a board lane, with his words, the judge's reading and
@@ -53,12 +55,10 @@ FIRST_SINCE = "15m"
 RECHECK = 10
 RECHECK_WINDOW = timedelta(days=1)
 ROWS_PER_ARTIFACT = 2
-MATCH_CHARS = 2000
-MATCH_BYTES = 6000
 PLAN_LINES = 40
 PLAN_WORD = re.compile(r"[a-z][a-z_.-]{5,}")
 ROW_KEY = re.compile(r"\b(?:rule|prompt|exception|design|reserved)/[\w-]+")
-ANSWER_ID = re.compile(r"^- ([0-9a-f]{7}) ", re.MULTILINE)
+ROW_HEADING = re.compile(r"^### (\S+) \|", re.MULTILINE)
 CLASSIFIED = re.compile(r"^Register classify, \d+ rows?: ")
 EXTENDED = re.compile(r"\bextended ((?:rule|prompt|exception|design|reserved)/[\w-]+)")
 PICKED = re.compile(r"\(judge-dispute-(?P<flag>\d+)\): picked “(?P<label>[^”]+)”")
@@ -117,9 +117,9 @@ class Pass:
                 for key in dict.fromkeys(EXTENDED.findall(record["text"])):
                     self.recheck(key)
             elif record.get("kind") == "contract":
-                self.judge_record(record, "contract", semantic=True)
+                self.judge_record(record, "contract")
             elif record.get("kind") in RELAY_KINDS and record.get("lane") == ROOT:
-                self.judge_record(record, "relay", semantic=False)
+                self.judge_record(record, "relay")
             elif str(record.get("re")) in self.saved.flags and record.get("lane") == self.saved.flags[str(record["re"])]["lane"]:
                 self.dispute(record)
             elif picked := PICKED.search(record.get("text", "")):
@@ -133,41 +133,40 @@ class Pass:
     def cli(self, argv: list[str]) -> str:
         return subprocess.run(argv, capture_output=True, text=True, check=True, cwd=self.watch.drive_state).stdout
 
-    def rulings(self, *args: str, stdin: str = "") -> str:
+    def rulings(self, *args: str) -> str:
         argv = [sys.executable, str(SCRIPTS / "rulings.py"), *args, "--drive", self.watch.drive, "--repo", self.watch.repo]
-        return subprocess.run(argv, input=stdin, capture_output=True, text=True, check=True, cwd=self.watch.repo).stdout
+        return subprocess.run(argv, capture_output=True, text=True, check=True, cwd=self.watch.repo).stdout
 
     def rows(self) -> dict:
         if self.registered is None:
             self.registered = json.loads(self.rulings("rows"))
         return self.registered
 
-    def judge_record(self, record: dict, kind: str, semantic: bool, recheck: str | None = None) -> None:
+    def judge_record(self, record: dict, kind: str, recheck: str | None = None) -> None:
         text = body(record)
+        if kind == "contract":
+            if evidence := self.rulings("readback", "--lane", record["lane"], "--contract", str(record["seq"]), "--words"):
+                self.judged(record, kind, text, evidence, f"cci:{record['seq']}", recheck)
+            return
         rows = self.rows()["rows"]
-        keys = [recheck] if recheck else [key for key in dict.fromkeys(ROW_KEY.findall(text)) if key in rows] or (self.matched(text, rows) if semantic else [])
-        for key in keys[:ROWS_PER_ARTIFACT]:
-            if not rows.get(key, {}).get("words"):
-                continue
-            said = judge.said(rows[key], Path(self.rows()["state_dir"]))
-            evidence = judge.owner_words(key, said) + (self.plan_lines(text) if kind == "relay" else "")
-            subject = f"cci:{record['seq']}:{key}"
-            before = earlier(self.watch.drive_state, subject) if recheck else None
-            verdict = judge.judge(kind, evidence, text, backend=self.backend, drive=self.watch.drive, subject=subject)
-            if verdict is None or not verdict.flagged:
-                continue
-            missed = recheck is not None and before != "yes"
-            if missed:
-                write_case(self.watch.drive_state / "judge" / "misses" / f"{record['seq']}-{key.replace('/', '-')}.json", kind, "yes", key, said, text)
-            self.flag(record, kind, key, verdict, said, text, missed if recheck else None)
+        for key in ([recheck] if recheck else [key for key in dict.fromkeys(ROW_KEY.findall(text)) if key in rows])[:ROWS_PER_ARTIFACT]:
+            if rows.get(key, {}).get("words"):
+                self.judged(record, kind, text, judge.owner_words(key, self.said(key)) + self.plan_lines(text), f"cci:{record['seq']}:{key}", recheck, key)
 
-    def matched(self, text: str, rows: dict) -> list[str]:
-        try:
-            found = self.rulings("match", "-k", str(ROWS_PER_ARTIFACT), "--budget", str(MATCH_BYTES), stdin=text[:MATCH_CHARS])
-        except subprocess.CalledProcessError:
-            return []
-        answers = tuple(ANSWER_ID.findall(found))
-        return [key for key, row in rows.items() if answers and any(str(answer).startswith(answers) for answer in json.loads(row.get("answer") or "[]"))]
+    def judged(self, record: dict, kind: str, text: str, evidence: str, subject: str, recheck: str | None, key: str | None = None) -> None:
+        before = earlier(self.watch.drive_state, subject) if recheck else None
+        verdict = judge.judge(kind, evidence, text, backend=self.backend, drive=self.watch.drive, subject=subject)
+        if verdict is None or not verdict.flagged:
+            return
+        key = key or quoted_row(evidence, verdict.evidence_phrase)
+        said = self.said(key)
+        missed = recheck is not None and before != "yes"
+        if missed:
+            write_case(self.watch.drive_state / "judge" / "misses" / f"{record['seq']}-{key.replace('/', '-')}.json", kind, "yes", key, said, text)
+        self.flag(record, kind, key, verdict, said, text, missed if recheck else None)
+
+    def said(self, key: str) -> list[dict]:
+        return judge.said(self.rows()["rows"][key], Path(self.rows()["state_dir"]))
 
     def plan_lines(self, text: str) -> str:
         plan = self.rulings("plan").strip()
@@ -185,7 +184,7 @@ class Pass:
             if key in body(record) and record.get("lane") != LANE and (record["kind"] == "contract" or record.get("lane") == ROOT)
         ]
         for record in citing[-RECHECK:]:
-            self.judge_record(record, "contract" if record["kind"] == "contract" else "relay", semantic=False, recheck=key)
+            self.judge_record(record, "contract" if record["kind"] == "contract" else "relay", recheck=key)
 
     def flag(self, record: dict, kind: str, key: str, verdict: judge.Verdict, said: list[dict], text: str, missed: bool | None) -> None:
         when = "" if missed is None else " after his newer words" + (", which the judge missed before; it is now an eval case" if missed else "")
@@ -243,6 +242,12 @@ class Pass:
 def body(record: dict) -> str:
     attached = (record.get("refs") or {}).get("path")
     return "\n".join([record.get("text", ""), Path(attached).read_text() if attached and Path(attached).is_file() else ""]).strip()
+
+
+def quoted_row(evidence: str, phrase: str) -> str:
+    piece = judge.plain_text(phrase).split("...")[0].strip(judge.QUOTE_EDGES)
+    starts = [*ROW_HEADING.finditer(evidence)]
+    return next(start[1] for start, end in zip(starts, [*starts[1:], None]) if piece in judge.plain_text(evidence[start.start() : end.start() if end else None]))
 
 
 def earlier(state: Path, subject: str) -> str | None:

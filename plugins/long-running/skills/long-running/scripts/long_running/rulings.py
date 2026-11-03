@@ -16,7 +16,7 @@
     rulings.py slice        [--program SLUG | --drive ID] --required --pr [OWNER/NAME#]N --head SHA [--base REF] [--words]
     rulings.py plan         [--program SLUG | --drive ID]
     rulings.py sweep        [--program SLUG | --drive ID] [KEY] [--artifact PATH]... [--paths GLOB]... [--root DIR] [--diff FILE] [--plan PATH]
-    rulings.py readback     [--program SLUG | --drive ID] --lane NAME --contract SEQ [--step N] [--root DIR]
+    rulings.py readback     [--program SLUG | --drive ID] --lane NAME --contract SEQ [--step N] [--root DIR] [--words]
     rulings.py accepted     [--program SLUG | --drive ID] --lane NAME
     rulings.py narrowed     [--program SLUG | --drive ID] < TEXT
     rulings.py narrowed     [--program SLUG | --drive ID] --contract SEQ < GRADE
@@ -77,10 +77,15 @@ through the registry entry and uses ``--repo`` for the PR's own checkout. ``slic
 through the GitHub compare API otherwise. ``--paths`` globs
 resolve under ``--root``, which defaults to ``--repo``; an absolute glob stands alone.
 ``slice --required`` adds every live row the PR body or its author's comments cite by key or by an answer id the row
-carries, and names each cited id no live row carries as unknown to the register.
+carries, a superseded row's key standing for the rows superseding it, and names each cited id no live row carries as
+unknown to the register.
 ``slice --required --words`` prints each row as fidelity.py's grader reads it: the owner's words and repeats verbatim,
 oldest first, each board tap with the card it answered as ``cc-present block show`` prints it, a design row's or
 exception's plan text labelled as the root's, and none of the register's implications or summaries.
+``readback --words`` prints the live rows a lane's contract acts on, as ``slice --required --words`` prints a row: the rows
+its slice carries for its lane, step, PRs and paths, then the rows it cites, each superseded row it cites replaced by the rows
+superseding it, and nothing when it acts on no row. A row that supersedes another says so, so its reader takes the older row as
+no longer binding.
 ``check-pr`` and ``sweep --diff`` print one ``MECHANISM-BANNED`` line for the added lines, in code and tests alike, that
 start a timer or wait inside a loop when the drive's judge reads them as named by neither the owner's words nor the plan,
 and one per added line that writes a credential to a file or runs a build or test on this machine, outside a script
@@ -181,6 +186,7 @@ UNCONFIRMED_AFTER = timedelta(hours=4)
 SLICE_HEADER = re.compile(r"^Register slice: lane=(?P<lane>\S+) step=(?P<step>\S+)(?: paths=(?P<paths>\S+))?(?: prs=(?P<prs>\S+))?(?P<codex> codex=yes)?[ \t]*$", re.MULTILINE)
 PR_FIELDS = ("words", "repeats", "names", "implications", "protects", "not_when", "evidence", "shape_tests")
 SLICE_HASH = re.compile(r"^slice-hash: (?P<hash>[0-9a-f]{12})$", re.MULTILINE)
+SLICED_ROW = re.compile(r"^### (\S+) \|", re.MULTILINE)
 INCIDENT_STEP = "incident"
 SLICE_CAP = 40_000
 SLICE_TAIL = 1_000
@@ -542,6 +548,7 @@ def worded_row(key: str, fields: dict[str, str], state: Path) -> list[str]:
         lines = [row_heading(key, fields), "The plan's text for this row, the root's words his answers approve, not his own:", *(f"> {line}" for line in (fields.get("words") or "").splitlines())]
     else:
         lines = [row_heading(key, fields), judge.owner_words(key, judge.said(fields, state))]
+    lines += [f"This row supersedes {old}, which no longer binds." for old in listed(fields.get("supersedes"))]
     if anchors := row_anchors(fields):
         lines += ["The root's reading of where this row bears, not his words:", *anchors]
     return lines
@@ -1016,7 +1023,7 @@ def cited_rows(loaded: Register, text: str, required: list[tuple[str, dict[str, 
     tokens += [token[:SHORT] for token in CITED.findall(KEY_TOKEN.sub(" ", text))]
     cited, unknown = {}, []
     for token in dict.fromkeys(tokens):
-        if keys := ([token] if token in rows else carriers.get(token)):
+        if keys := ([token] if token in rows else successors(loaded, token) if loaded.rows.get(token, {}).get("status") == "superseded" else carriers.get(token)):
             cited |= dict.fromkeys(keys)
         else:
             unknown.append(token)
@@ -1031,11 +1038,15 @@ def required_slice(loaded: Register, diff: Diff, pr: str, head: str, text: str) 
     return hashed(lines + section("Every global, pending and touched row", rows) + section("Rows the PR cites by id", cited) + unknown)
 
 
+def worded_rows(loaded: Register, rows: list[tuple[str, dict[str, str]]]) -> list[list[str]]:
+    with ThreadPoolExecutor(CARD_READERS) as pool:
+        return list(pool.map(lambda item: worded_row(*item, loaded.state), rows))
+
+
 def worded_slice(loaded: Register, diff: Diff, pr: str, head: str, text: str) -> str:
     rows = required_rows(loaded, diff)
     cited, unknown = cited_rows(loaded, text, rows)
-    with ThreadPoolExecutor(CARD_READERS) as pool:
-        worded = list(pool.map(lambda item: worded_row(*item, loaded.state), [*rows, *cited]))
+    worded = worded_rows(loaded, [*rows, *cited])
     lines = [
         f"Required rows for {pr} at {head}",
         f"Program {loaded.program}, register ledger {loaded.ledger[:12]}. Each row is the owner's words verbatim, oldest first, with the board card each tap answered; the register's implications and summaries are left out.",
@@ -1725,8 +1736,8 @@ class ReadBack:
     sliced_by: str = ""
 
 
-def read_back(loaded: Register, cci: str, seq: int, lane: str, step: str | None, plan: Path | None, selector: str) -> ReadBack | str:
-    record = record_of(loaded.shell, cci, seq)
+def read_back(loaded: Register, record: dict, lane: str, step: str | None, plan: Path | None, selector: str) -> ReadBack | str:
+    seq = record["seq"]
     if record.get("kind") != "contract" or record.get("lane") != lane:
         return f"READBACK-NOT-LANES #{seq}: the read-back is {lane}'s own contract record"
     attached = (record.get("refs") or {}).get("path")
@@ -1764,7 +1775,11 @@ def cmd_readback(args: argparse.Namespace, shell: ledger.Shell) -> int:
     loaded = Register.load(args, shell)
     if not (entry := entry_of(args)):
         raise SystemExit(f"no drive runs program {loaded.program}; readback reads the lane's contract from its cci drive")
-    read = read_back(loaded, drive.cci_drive(entry), args.contract, args.lane, args.step, plan_path(args, loaded), f"--drive {args.drive}" if args.drive else f"--program {loaded.program}")
+    record = record_of(shell, drive.cci_drive(entry), args.contract)
+    read = read_back(loaded, record, args.lane, args.step, plan_path(args, loaded), f"--drive {args.drive}" if args.drive else f"--program {loaded.program}")
+    if args.words:
+        args.stdout.write(contract_words(loaded, record, read, plan_path(args, loaded)))
+        return 0
     if isinstance(read, str):
         print(read, file=args.stdout)
         return 1
@@ -1774,7 +1789,7 @@ def cmd_readback(args: argparse.Namespace, shell: ledger.Shell) -> int:
     posted = datetime.fromisoformat(read.record["at"])
     later = {digest for digest, capture in judge.captures(loaded.state).items() if captured_at(capture["at"]) > posted}
     rows = loaded.rulings()
-    keys = [key for key in re.findall(r"^### (\S+) \|", fresh, re.MULTILINE) if not (heard := proof_digests(rows[key]) if key in rows else {key}) or not heard <= later]
+    keys = [key for key in SLICED_ROW.findall(fresh) if not (heard := proof_digests(rows[key]) if key in rows else {key}) or not heard <= later]
     lines = read.body.splitlines()
     warnings = [f"READBACK-ROW-MISSING {key}: no read-back line names it" for key in keys if not any(key in line for line in lines if not line.startswith("### "))]
     root = args.root or args.repo
@@ -1785,6 +1800,20 @@ def cmd_readback(args: argparse.Namespace, shell: ledger.Shell) -> int:
         print(f"WARNING {warning}", file=args.stdout)
     print(f"readback request {args.lane} {SLICE_HASH.search(fresh)['hash']}: {len(keys)} rows, contract #{args.contract}{f' at {read.attached}' if read.attached else ''}; a fidelity desk grades it against each row's words and implications", file=args.stdout)
     return 0
+
+
+def contract_words(loaded: Register, record: dict, read: ReadBack | str, plan: Path | None) -> str:
+    rulings = loaded.rulings()
+    sliced = [] if isinstance(read, str) else [(key, rulings[key]) for key in SLICED_ROW.findall(lane_slice(loaded, read.want, plan)) if key in rulings]
+    cited, _ = cited_rows(loaded, record_body(record), sliced)
+    return "".join("\n".join(row) + "\n\n" for row in worded_rows(loaded, [*sliced, *cited]))
+
+
+def successors(loaded: Register, key: str) -> list[str]:
+    fields = loaded.rows[key]
+    if fields.get("status") != "superseded":
+        return [key]
+    return [current for later in listed(fields.get("superseded_by")) for current in successors(loaded, later)]
 
 
 def fidelity_lanes(loaded: Register) -> set[str]:
@@ -2894,6 +2923,7 @@ def build_parser(parser_type=argparse.ArgumentParser) -> argparse.ArgumentParser
     readback.add_argument("--step", metavar="N", help="the lane's plan step, for a read-back and brief with no `Register slice:` line; written into the brief named for the lane")
     readback.add_argument("--plan", metavar="PATH")
     readback.add_argument("--root", metavar="DIR")
+    readback.add_argument("--words", action="store_true", help="print the live rows the contract acts on, as his words and the cards his taps answered, instead of the grade request")
     accepted = verb("accepted", cmd_accepted, "exit 0 when a fidelity desk's newest grade of the lane's read-back is ok")
     accepted.add_argument("--lane", required=True)
     shapes = verb("shapes", cmd_shapes, "print each in-force row naming a count or topology (one process, one primary, everything a client) with the tests recorded for it")

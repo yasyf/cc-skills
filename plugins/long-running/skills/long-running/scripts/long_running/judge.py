@@ -89,7 +89,7 @@ SCHEMA = json.dumps(
 
 READINGS = """- Narrower: it commits to less than he said, such as a partition his words lack ("per X", "grouped by X", "same X"), an exception, a smaller count, or an invariant that holds in the case built but not in every case his words cover.
 - Literal: it applies his words word for word to cases his purpose does not cover, so it adds the very cost his words were removing, such as making work wait that never needed to."""
-CORRECTED = "When his later words correct how his earlier words were read, apply the reason behind the correction, not just the item he named: the same reason may cover things he did not list."
+CORRECTED = "When his later words correct how his earlier words were read, apply the reason behind the correction, not just the item he named: the same reason may cover things he did not list. When two of his rows conflict on one subject, the one he said last governs, and a row another supersedes no longer binds: never read the artifact against the older one."
 MISREAD = f"""Does the artifact misread his words? It misreads in one of two ways.
 {READINGS}
 {CORRECTED}
