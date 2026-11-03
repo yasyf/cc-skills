@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -136,4 +138,90 @@ func TestAStopOutsideHisOrderDrawsOneBlockerAndAnEndedBuildLeavesTheWatch(t *tes
 	status = `{"record":{},"build":{"state":"failed","gate":{"state":"approved"}}}`
 	pass(t, check, ownerOrder.Add(3*time.Minute))
 	equal(t, len(check.orders), 0)
+}
+
+const cutAnswer = "1c487a5"
+
+func release12070(t *testing.T) (order, report client.Record) {
+	t.Helper()
+	data, err := os.ReadFile("testdata/release-12070.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rows []client.Record
+	if err := json.Unmarshal(data, &rows); err != nil {
+		t.Fatal(err)
+	}
+	rows[0].Fields.Attrs = map[string]string{"order": cutAnswer, "lane": "release-5"}
+	return rows[0], rows[1]
+}
+
+func TestRelease12070sOrderDrawsOneCutSilentFiveMinutesOnWhileNoReleaseRecordCarriesIt(t *testing.T) {
+	order, report := release12070(t)
+	status := ""
+	check, bus := gates(&status, order, report)
+
+	pass(t, check, order.At.Add(gateGrace-time.Minute))
+	equal(t, len(bus.posted), 0)
+
+	pass(t, check, order.At.Add(gateGrace))
+	equal(t, len(bus.posted), 1)
+	blocker := bus.posted[0]
+	equal(t, blocker.Kind, blockerKind)
+	equal(t, blocker.To, []string{Root})
+	equal(t, blocker.ID, "cut-silent:"+cutAnswer)
+	for _, named := range []string{"CUT-SILENT release-5", "owner order " + cutAnswer, "5 minutes", "tools/ci release start --manual <component> --order " + cutAnswer, "resolve #333545"} {
+		if !strings.Contains(blocker.Text, named) {
+			t.Fatalf("%q does not name %q", blocker.Text, named)
+		}
+	}
+
+	pass(t, check, order.At.Add(gateGrace+time.Minute))
+	equal(t, len(bus.posted), 1)
+}
+
+func TestAnOrderedCutStopsAtItsReleaseARefusalOrRootsResolve(t *testing.T) {
+	order, _ := release12070(t)
+	started := 2 * time.Minute
+	carried := orderRecord(t, 333600, "release-5", order.At.Add(started), fmt.Sprintf(`{"release":%q,"order":%q}`, gatedRelease, cutAnswer))
+	refused := client.Record{Seq: 333600, Lane: "release-5", Kind: "refuse", At: order.At.Add(started), Text: "tools/ci refused the start: InWatch"}
+	resolved := client.Record{Seq: 333600, Lane: Root, Kind: "answer", At: order.At.Add(started), Resolves: order.Seq, Text: "that order stood down"}
+	otherLane := client.Record{Seq: 333600, Lane: "release-6", Kind: "refuse", At: order.At.Add(started), Text: "not this order"}
+	cases := []struct {
+		name   string
+		row    client.Record
+		silent bool
+	}{
+		{"a release record carrying his order", carried, false},
+		{"the lane refused", refused, false},
+		{"root resolved the order", resolved, false},
+		{"another lane's refusal", otherLane, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			status := gateJSON(gateWaiting, order.At.Add(gateGrace+time.Hour))
+			check, bus := gates(&status, order, c.row)
+
+			pass(t, check, order.At.Add(gateGrace))
+
+			silent := slices.ContainsFunc(bus.posted, func(d client.Draft) bool { return strings.HasPrefix(d.ID, "cut-silent:") })
+			equal(t, silent, c.silent)
+		})
+	}
+}
+
+func TestAnOrderNoRootPostedOrNamingNoLaneOpensNoCut(t *testing.T) {
+	order, _ := release12070(t)
+	noLane := order
+	noLane.Fields.Attrs = map[string]string{"order": cutAnswer}
+	fromLane := order
+	fromLane.Lane = "release-5"
+	for _, row := range []client.Record{noLane, fromLane} {
+		status := ""
+		check, bus := gates(&status, row)
+
+		pass(t, check, order.At.Add(time.Hour))
+
+		equal(t, len(bus.posted), 0)
+	}
 }

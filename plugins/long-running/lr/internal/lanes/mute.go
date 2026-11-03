@@ -56,7 +56,7 @@ func (m *MutePushback) Check(ctx context.Context, now time.Time) error {
 		if said == "" || m.raised[row.Seq] || row.Lane == Root || (fixed[row.Lane] != 0 && fixed[row.Lane] < row.Seq) {
 			continue
 		}
-		text := fmt.Sprintf("%s %s: #%d proposes \"%s\" while its mechanism is unfixed; a mute or a monitor that skips the failing teams is never a close, and smoke teams are the canary (owner, Nov 1 3:04 PM) | coordinator: push back where it was proposed, keep the incident open, and name its fix owner", mutePosted, row.Lane, row.Seq, said)
+		text := fmt.Sprintf("%s %s: #%d proposes \"%s\" while its mechanism is unfixed; a mute or a monitor that skips the failing teams is never a close, and smoke teams are the canary (owner, 3:04 PM Nov 1) | coordinator: push back where it was proposed, keep the incident open, and name its fix owner", mutePosted, row.Lane, row.Seq, said)
 		if _, err := m.Env.Bus.Post(ctx, client.Draft{Drive: m.Env.Config.Drive, Lane: Self, Kind: muteKind, To: []string{Root}, ID: fmt.Sprintf("mute-pushback:%d", row.Seq), Text: text}); err != nil {
 			return fmt.Errorf("%w: cci post: %w", ErrUnread, err)
 		}

@@ -277,7 +277,9 @@ can cut within its urgency and keeps the zero-delete bound unless he ordered it.
 regular release is the default; an emergency release runs only when the regular
 path is too slow for a live customer impact, never twice for one fix. No release is
 canceled once its apply has started. A release at its approval gate five minutes
-after an owner order is a blocker to root, never a wait. A cluster leaves the code
+after an owner order is a blocker to root, never a wait, and so is an order no
+release record carries five minutes on: root posts the order with `--attr
+order=<answer id> --attr lane=<release lane>`. A cluster leaves the code
 and ships before it is destroyed ([release-lanes.md](reference/release-lanes.md)).
 
 **R12.** Every red goes to its owning lane the same turn with a 15-minute
