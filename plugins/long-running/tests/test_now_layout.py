@@ -373,7 +373,7 @@ def test_what_the_coordinator_owes_folds_by_kind_and_names_each_when_opened(page
     band = page.locator(".nw-overdue")
     assert "3 overdue items" in band.locator(".nw-h").text_content().lower()
     rows = band.locator(".ev-rows > li")
-    assert [row.locator("summary").inner_text().split("\n")[-1] for row in rows.all()] == ["2 of your picks not carried out", "1 asks with no answer"]
+    assert [row.locator("summary").inner_text().split("\n")[-1] for row in rows.all()] == ["2 of your picks not carried out", "1 ask with no answer"]
     assert "Delete the leftovers?" in rows.first.text_content()
     page.evaluate("() => { state.model.coordinator_overdue = []; render(); }")
     assert page.locator(".nw-overdue").count() == 0

@@ -69,7 +69,13 @@ function fyiFeed() {
   return `<section class="nw-fyi"><h2 class="nw-h">Decided for you, and what changed</h2>${eventList(rows.slice(0, EVENTS_AT_REST))}${earlier > 0 ? `<a class="ev-all" href="#/history">Earlier today ${countPill(earlier)} ›</a>` : ''}</section>`;
 }
 
-const OVERDUE_GROUP = { pick: 'of your picks not carried out', ask: 'asks with no answer', retro: 'retro actions not done', finding: 'findings not closed', repeat: 'repeating alarms' };
+const OVERDUE_GROUP = {
+  pick: (n) => `${n} of your picks not carried out`,
+  ask: (n) => `${plural(n, 'ask')} with no answer`,
+  retro: (n) => `${plural(n, 'retro action')} not done`,
+  finding: (n) => `${plural(n, 'finding')} not closed`,
+  repeat: (n) => plural(n, 'repeating alarm'),
+};
 function overdueBand() {
   const items = state.model.coordinator_overdue ?? [];
   if (!items.length) return '';
@@ -77,7 +83,7 @@ function overdueBand() {
   const groups = new Map(groupBy(items, (item) => item.group));
   const rows = Object.keys(OVERDUE_GROUP).filter((group) => groups.has(group)).map((group) => {
     const list = groups.get(group);
-    return { id: `overdue-${group}`, at: list[0].due, word: 'Overdue', tone: 'bad', title: `${list.length} ${OVERDUE_GROUP[group]}`, more: `<ol class="ev-named">${list.map(named).join('')}</ol>` };
+    return { id: `overdue-${group}`, at: list[0].due, word: 'Overdue', tone: 'bad', title: OVERDUE_GROUP[group](list.length), more: `<ol class="ev-named">${list.map(named).join('')}</ol>` };
   });
   return `<section class="nw-overdue"><h2 class="nw-h">The coordinator owes you ${plural(items.length, 'overdue item')}</h2>${eventList(rows)}</section>`;
 }
