@@ -19,7 +19,8 @@ source through the cci daemon's stream, so nothing polls. New file lines print c
 characters and advance the count the cursor holds; unread mailbox entries print as MAILBOX <n>
 unread, then == <from> <timestamp> and the text, are marked read under the harness lock, and
 their keys join the cursor; cci records addressed to the lane past the <lane>-wake cursor print
-as cci tail prints them. At the deadline it prints QUIET <Pacific time>. A command after -- runs
+as cci tail prints them, and a first wait starts that cursor where the lane's own <lane> cursor
+stands, or at the newest record when the lane has none. At the deadline it prints QUIET <Pacific time>. A command after -- runs
 in its own session and process group; its output and exit status pass through when it exits
 first, and a wake or the deadline ends the whole group with SIGTERM, then SIGKILL after 5 s.
 Exit 2 is a usage error, 1 names a lane no roster lists, 127 a cci missing for 30 s.`,
