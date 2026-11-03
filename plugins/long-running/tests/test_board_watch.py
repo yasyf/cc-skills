@@ -542,6 +542,15 @@ def test_the_applier_carries_a_tap_reopening_a_closed_round_and_answers_each_wri
     assert [(post[post.index("--kind") + 1], post[post.index("--re-seq") + 1], post[post.index("--id") + 1]) for post in shell.posts] == [("applied", "7", "applied:7"), ("applied", "9", "applied:9")]
 
 
+def test_the_supervisors_carry_stands_as_his_tap_and_reaches_the_board(tmp_path: Path) -> None:
+    carry = write(7, op="carry", block="merge-prs", row="202", head="5555555aaa", note="restack") | {"lane": "supervisor", "at": "2026-11-03T09:00:00Z"}
+    shell = BoardShell(SNAPSHOT_DOC, writes=[carry])
+    board_watch.apply_writes(shell, board_watch.Bus("brook", 0), SESSION)
+
+    assert [argv[:3] for argv, _ in shell.presented] == [["cc-present", "verdict", "carry"]]
+    assert board_watch.board_rows.verdicts_of_records([carry])["merge-prs"]["202"]["head"] == "5555555aaa"
+
+
 def test_a_carry_cc_present_refuses_is_answered_as_a_defect_to_the_runner_and_root(tmp_path: Path) -> None:
     shell = BoardShell(SNAPSHOT_DOC, writes=[write(7, op="carry", block="merge-prs", row="202", head="5555555aaa")], refusals=["cc-present: no verdict on row 202"])
     board_watch.apply_writes(shell, board_watch.Bus("brook", 0), SESSION)

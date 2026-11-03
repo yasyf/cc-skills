@@ -543,6 +543,15 @@ func (s Source) assemble(rows []statusRow, open openRead, required []string, hel
 			return nil, err
 		}
 		f.Hold, f.Carries = held[row.Number], open.carries[row.Number]
+		if f.Tap == "" {
+			f.TapFrom, err = s.Store.StandingTap(s.Repo, row.Number)
+			if err != nil {
+				return nil, err
+			}
+			if f.TapFrom != "" {
+				f.Tap = machine.TapTapped
+			}
+		}
 		out = append(out, f)
 	}
 	return out, nil

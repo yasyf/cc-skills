@@ -137,6 +137,7 @@ PACIFIC = ZoneInfo("America/Los_Angeles")
 SINCE = "since"
 OWNER_LANE = "board-watch"
 RUNNER_LANE = "desk-runner"
+SUPERVISOR_LANE = "supervisor"
 SNAPSHOT_TOPIC = "board-rows"
 WRITE_TOPIC = "board-write"
 MERGE_CARD = re.compile(r"^merge:(\d+):([0-9a-f]{7,40})$")
@@ -554,7 +555,7 @@ def verdicts_of_records(records: list[dict]) -> dict[str, dict[str, dict]]:
     for record in records:
         found = attrs(record)
         owner = (record["lane"], record["kind"]) == (OWNER_LANE, "owner") and found.get("row") and found.get("verdict")
-        carry = record["lane"] == RUNNER_LANE and record.get("topic") == WRITE_TOPIC and found.get("op") == "carry"
+        carry = record["lane"] in (RUNNER_LANE, SUPERVISOR_LANE) and record.get("topic") == WRITE_TOPIC and found.get("op") == "carry"
         if not (owner or carry):
             continue
         entry = {"verdict": found["verdict"] if owner else "approved", "head": found.get("head", ""), "at": found.get("at") or record["at"], "session": found.get("session", "")}

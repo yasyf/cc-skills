@@ -223,7 +223,7 @@ class Shell:
         return subprocess.run(argv, input=stdin, capture_output=True, text=True)
 
     def writes(self, drive_name: str, cursor: str) -> Iterator[str]:
-        argv = ["cci", "watch", "--drive", drive_name, "--cursor", cursor, "--lane", RUNNER, "--topic", board_rows.WRITE_TOPIC, "--json", "--budget", str(WATCH_BYTES)]
+        argv = ["cci", "watch", "--drive", drive_name, "--cursor", cursor, "--lane", RUNNER, "--lane", board_rows.SUPERVISOR_LANE, "--topic", board_rows.WRITE_TOPIC, "--json", "--budget", str(WATCH_BYTES)]
         yield from self._watch(argv)
 
     def spawn(self, target, *args) -> None:
@@ -515,7 +515,7 @@ def bus_records(shell: Shell, drive_name: str, *filters: str, since: int | str =
 
 
 def board_records(shell: Shell, drive_name: str) -> list[dict]:
-    return sorted([*bus_records(shell, drive_name, "--lane", BUS_LANE, "--kind=owner"), *bus_records(shell, drive_name, "--lane", RUNNER, f"--topic={board_rows.WRITE_TOPIC}")], key=lambda record: record["seq"])
+    return sorted([*bus_records(shell, drive_name, "--lane", BUS_LANE, "--kind=owner"), *bus_records(shell, drive_name, "--lane", RUNNER, "--lane", board_rows.SUPERVISOR_LANE, f"--topic={board_rows.WRITE_TOPIC}")], key=lambda record: record["seq"])
 
 
 def post_snapshot(shell: Shell, bus: Bus, session: str, posted: dict) -> None:
@@ -598,7 +598,7 @@ def apply_writes(shell: Shell, bus: Bus, session: str) -> None:
             continue
         record = json.loads(line)
         write = board_rows.attrs(record)
-        if record["lane"] != RUNNER or write.get("session") != session or write.get("op") not in ("carry", "ask"):
+        if record["lane"] not in (RUNNER, board_rows.SUPERVISOR_LANE) or write.get("session") != session or write.get("op") not in ("carry", "ask"):
             continue
         done = apply(shell, session, write)
         said = ((done.stderr or done.stdout).strip().splitlines() or [f"exit {done.returncode}"])[-1]

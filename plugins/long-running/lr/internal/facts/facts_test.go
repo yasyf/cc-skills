@@ -580,6 +580,60 @@ func TestTrunkLabelsAnswerWhereTheStatusReadCannot(t *testing.T) {
 	}
 }
 
+func TestTheOwnersTapCarriesToEveryLaterHeadUntilHeWithdrawsIt(t *testing.T) {
+	const older = "a28ab62"
+	at := time.Date(2026, 11, 2, 9, 29, 0, 0, time.UTC)
+	for name, tc := range map[string]struct {
+		put     func(t *testing.T, s *store.Store)
+		tap     machine.Tap
+		tapFrom string
+	}{
+		"tapped at an older head": {
+			put: func(t *testing.T, s *store.Store) { putTap(t, s, older, "tapped", at) },
+			tap: machine.TapTapped, tapFrom: older,
+		},
+		"tapped at this head": {
+			put: func(t *testing.T, s *store.Store) {
+				putTap(t, s, older, "tapped", at)
+				putTap(t, s, head, "tapped", at.Add(time.Hour))
+			},
+			tap: machine.TapTapped,
+		},
+		"withdrawn at this head": {
+			put: func(t *testing.T, s *store.Store) {
+				putTap(t, s, older, "tapped", at)
+				putTap(t, s, head, "withdrawn", at.Add(time.Hour))
+			},
+			tap: machine.TapWithdrawn,
+		},
+		"withdrawn at an older head, after the tap": {
+			put: func(t *testing.T, s *store.Store) {
+				putTap(t, s, "b1b2b3b", "tapped", at)
+				putTap(t, s, older, "withdrawn", at.Add(time.Hour))
+			},
+		},
+		"never tapped": {put: func(*testing.T, *store.Store) {}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
+			tc.put(t, h.store)
+
+			row := h.snapshot(t)[1]
+
+			if row.Tap != tc.tap || row.TapFrom != tc.tapFrom {
+				t.Fatalf("tap = %q from %q, want %q from %q", row.Tap, row.TapFrom, tc.tap, tc.tapFrom)
+			}
+		})
+	}
+}
+
+func putTap(t *testing.T, s *store.Store, at, value string, posted time.Time) {
+	t.Helper()
+	if _, err := s.PutFact(repo, 1, at, "tap", value, posted); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func hold(t *testing.T, lane, text, pr string) client.Record {
 	t.Helper()
 	record, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: lane, Kind: "hold", Text: text, PRs: []string{pr}})
@@ -744,7 +798,7 @@ func TestAHoldNamesWhoLiftsItAndALiftedOneHoldsNothing(t *testing.T) {
 	}
 }
 
-func TestFactsBelongToAHeadSoANewPushStartsUngraded(t *testing.T) {
+func TestGradesBelongToAHeadSoANewPushStartsUngradedWithItsTapCarried(t *testing.T) {
 	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
 	at := time.Date(2026, 10, 30, 21, 0, 0, 0, time.UTC)
 	for kind, value := range map[string]string{"finder": "clear", "tap": "tapped"} {
@@ -755,7 +809,7 @@ func TestFactsBelongToAHeadSoANewPushStartsUngraded(t *testing.T) {
 
 	row := h.snapshot(t)[1]
 
-	if row.Finder != "" || row.Tap != "" || row.Graded() {
+	if row.Finder != "" || row.Graded() || row.Tap != machine.TapTapped || row.TapFrom != head2 {
 		t.Fatalf("row = %+v", row)
 	}
 }

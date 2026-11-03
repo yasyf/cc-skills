@@ -134,6 +134,7 @@ type Facts struct {
 	Fidelity    Fidelity
 	Verdict     bool
 	Tap         Tap
+	TapFrom     string
 	Exempt      bool
 	Hold        Mover
 	Carries     []int
