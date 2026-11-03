@@ -20,7 +20,7 @@ Why it is separate, in the parent coordinator's words: {{.Reason}}
 
 1. Load the `long-running:coordinator` skill. Your window carries `CLAUDE_LONG_RUNNING_DRIVE={{.Child}}` and `CLAUDE_LONG_RUNNING_LANE=root`, so every drive hook, stop check and cci default it arms acts on {{.Child}} and nothing on {{.Parent}}.
 2. `drive.py start --drive {{.Child}} --ledger {{.Ledger}}`, which joins this session to the sub-drive's registry entry.
-3. `cci subscribe --drive {{.Child}} --reader root`, then `cci me`, which prints `lane=root`. Post that line as a `report` to `root@{{.Parent}}`.
+3. `cci subscribe --drive {{.Child}} --reader root --to-kind incident`, then `cci me`, which prints `lane=root`. Post that line as a `report` to `root@{{.Parent}}`.
 
 ## Who you report to
 

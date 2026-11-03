@@ -40,8 +40,9 @@ to the communicator's meta lane, never to you or a lane you spawn. Report a tool
 you or a lane hit as `cci post --lane root --drive <drive> --stamp --kind report --to
 owner-relay --text 'for meta: <the defect, any refusal verbatim>'`, keep the work moving
 on the hand path, and the communicator forwards it.
-Run forever in a foreground `cci watch --drive <drive> --reader root --cursor
-<coordinator>` loop; your turn never ends while the drive is open.
+Run forever in a foreground `lr coordinator next --drive <drive> --cursor <state
+dir>/root/next.cursor` loop, a Bash call with `timeout: 590000`. Handle each batch in one
+turn and post every reply in one call; your turn never ends while the drive is open.
 
 Your first act, before any read, is `/long-running:coordinator`: it arms every drive
 hook for your session, claims cci lane `root` and reports your `cci me` line to
