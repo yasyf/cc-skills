@@ -256,6 +256,7 @@ class FakeShell(runner_module.Shell):
         self.slack_history: dict[str, list[dict]] = {}
         self.annotations: dict[str, list[dict]] = {}
         self.job_logs: dict[str, str] = {}
+        self.jobs: dict[str, dict] = {}
         self.test_files: dict[str, str] = {}
         self.subjects: dict[str, str] = {}
         self.go_imports: set[tuple[str, str, str]] = set()
@@ -680,6 +681,8 @@ class FakeShell(runner_module.Shell):
             return runner_module.Done(0, json.dumps({"web_url": f"https://buildkite.com/forge/{argv[7].split('/')[2]}/builds/{number}"}), "")
         if argv[:3] == [str(self.root / "checkout/tools/ci"), "bk", "api"] and argv[3].endswith("/log"):
             return runner_module.Done(0, json.dumps({"content": self.job_logs[argv[3].split("/")[-2]]}), "")
+        if argv[:3] == [str(self.root / "checkout/tools/ci"), "bk", "api"] and "/jobs/" in argv[3]:
+            return runner_module.Done(0, json.dumps(self.jobs.get(argv[3].rsplit("/", 1)[1], {})), "")
         if argv[:3] == [str(self.root / "checkout/tools/ci"), "bk", "api"] and argv[3].endswith("/annotations"):
             return runner_module.Done(0, json.dumps(self.annotations.get(argv[3].split("/")[4], [])), "")
         if argv[:3] == [str(self.root / "checkout/tools/ci"), "bk", "api"]:
@@ -15699,6 +15702,20 @@ def test_a_jest_flake_names_its_test_by_title_and_finds_its_file(shell, config, 
 
     [flake] = [post for post in shell.posts if "FLAKE" in post["text"]]
     assert flake["text"].startswith("[finding:desk-runner] - common/src/llm/codegen/llmCodeSandbox.test.ts flake owner root: FLAKE rejects an uploaded result that expands past the limit failed on")
+
+
+def test_a_retry_after_its_agent_was_stopped_is_no_flake(shell, config, tmp_path):
+    """Spot reclaims stopped the agents under seven jobs of dev 103158, and each retry posted a FLAKE naming no test (census rule 35, root #331646)."""
+    with_ci_build(config)
+    landing = trunk_watch(shell, config, tmp_path)
+    built(shell, "aaaa", "29018", script_build("sand-tests"))
+    built(shell, "cccc", "29020", {"state": "passed", "commit": "c" * 10, "finished_at": "2026-10-01T17:58:00Z", "jobs": [{"id": "job-2", "type": "script", "name": "sand-tests", "state": "passed", "retry_source": {"job_id": "job-1", "retry_type": "automatic"}}]})
+    shell.jobs["job-1"] = {"id": "job-1", "state": "failed", "exit_status": -1, "signal": "SIGTERM", "signal_reason": "agent_stop"}
+    shell.trunk = [trunk_commit("c", "SUCCESS", "29020", "2026-10-01T17:55:00Z"), trunk_commit("a", "SUCCESS", "29018", "2026-10-01T17:40:00Z")]
+
+    landing.watch_trunk(OPEN_ROWS)
+
+    assert not [post for post in shell.posts if "FLAKE" in post["text"]]
 
 
 def test_a_trunk_build_green_only_because_a_job_soft_fails_posts_post_merge_red_once_naming_the_prs_landed_since_the_last_build(shell, config, tmp_path):
