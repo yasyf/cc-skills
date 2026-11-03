@@ -8243,11 +8243,12 @@ def test_a_pr_left_on_a_graphite_base_is_resubmitted_once_per_head_one_a_pass_wi
 
 def test_a_runner_started_from_a_lane_posts_a_resubmits_head_as_the_prs_owner_not_that_lane(shell, config, tmp_path):
     """Oct 29: tooling-mq-redesign-2 ran `desk-runner.py handoff`, its CCI_AGENT_ID reached the runner, and ccx posted the resubmits' head records for #45379 and #45383 as tooling-mq-redesign-2, so their blockers went to it."""
-    shell.environ |= {"CCI_AGENT_ID": "atooling-mq-redesign-2-477d5e57b81838a8", "CLAUDE_CODE_SESSION_ID": "d50e80e8", "CCI_LANE": "tooling-mq-redesign-2"}
+    shell.environ |= {"CCI_AGENT_ID": "atooling-mq-redesign-2-477d5e57b81838a8", "CLAUDE_CODE_SESSION_ID": "d50e80e8", "CCI_LANE": "tooling-mq-redesign-2", "CLAUDE_LONG_RUNNING_LANE": "tooling-mq-redesign-2"}
     shell.rows = [{"pr": "29020", "lane": LANE, "branch": "a/3", "base": "graphite-base/29020", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"}]
     shell.gates["29020"] = [gate("#29020 BLOCKED cccc333333 GitHub reads CONFLICTING")]
     landing_pass(shell, config)
-    assert [shell.environ[name] for name in runner_module.LANE_IDENTITY] == ["", "", "", ""]
+    assert [shell.environ[name] for name in runner_module.drive.SESSION_IDENTITY] == ["", "", "", ""]
+    assert (shell.environ["CLAUDE_LONG_RUNNING_LANE"], shell.environ["LR_LANE"]) == ("desk-runner", "desk-runner")
     assert shell.ship_envs == [{"CCI_DRIVE": json.loads(config.read_text())["drive"], "CCI_LANE": LANE}]
 
 
@@ -11344,10 +11345,10 @@ def live_runner(shell: FakeShell, config: Path, tmp_path: Path, desk: str) -> tu
     return runner, held
 
 
-def test_a_runner_a_lane_started_drops_that_lanes_name(shell, config, monkeypatch):
-    monkeypatch.setenv("CLAUDE_LONG_RUNNING_LANE", "installer-1")
+def test_a_runner_a_lane_started_drops_that_lanes_name(shell, config):
+    shell.environ["CLAUDE_LONG_RUNNING_LANE"] = "installer-1"
     orca_pass(shell, config)
-    assert "CLAUDE_LONG_RUNNING_LANE" not in os.environ
+    assert shell.environ["CLAUDE_LONG_RUNNING_LANE"] == "desk-runner"
 
 
 def test_handoff_waits_for_the_runner_holding_the_desk_to_exit_and_then_starts_its_successor(shell, config, tmp_path, monkeypatch):
@@ -11382,7 +11383,7 @@ def test_a_desk_env_in_runner_json_reaches_the_runner_its_restart_line_and_its_h
     monkeypatch.setattr(shell, "sleep", lambda seconds: held.close())
     assert cli(shell, config, "handoff", "--desk", "landing") == 0
     assert shell.successors == [successor(config, tmp_path, "landing")]
-    assert shell.spawned_env["desk-runner.py"] == {"AWS_PROFILE": "release-operator"}
+    assert shell.spawned_env["desk-runner.py"] == runner_module.drive.own_lane("desk-runner") | {"AWS_PROFILE": "release-operator"}
     del shell.environ["AWS_PROFILE"]
     orca_pass(shell, config)
     assert "AWS_PROFILE" not in shell.environ
@@ -11672,7 +11673,7 @@ def test_supervise_install_bootstraps_only_its_own_label_with_the_key_read_from_
     assert plistlib.loads(plist.read_bytes()) == {
         "Label": agent_label("landing"),
         "ProgramArguments": ["/bin/zsh", "-c", f'export TRUNK_MERGE_API_KEY="$(security find-generic-password -s trunk-merge-api-key -w)"; exec {shlex.quote(str(runner_module.release.link() / 'bin' / 'desk-runner.py'))} run --config {shlex.quote(str(config.resolve()))} --desk landing'],
-        "EnvironmentVariables": {"PATH": "/opt/homebrew/bin:/usr/bin:/bin"},
+        "EnvironmentVariables": {"PATH": "/opt/homebrew/bin:/usr/bin:/bin", "CLAUDE_LONG_RUNNING_LANE": "desk-runner"},
         "KeepAlive": True,
         "ThrottleInterval": 60,
         "SoftResourceLimits": {"NumberOfFiles": 65536},
@@ -12613,6 +12614,20 @@ def test_a_workers_question_goes_to_the_lane_that_posted_its_launch(shell, confi
     shell.receive({"id": "msg_q1", "type": "question", "subject": "rebase?", "body": "may I rebase onto dev", "payload": json.dumps({"dispatchId": "ctx_a"}), "from_handle": "term_ctx_a"})
     orca_pass(shell, config)
     assert [post["to"] for post in shell.posts if post["text"].startswith("DECIDE msg_q1")] == [asked]
+
+
+@pytest.mark.parametrize("poster", ["supervisor", "meta-desk-1"])
+def test_a_runner_started_from_another_lanes_session_launches_as_the_lane_that_posted_the_launch(shell, config, tmp_path, poster):
+    """drive-watchdog-2, cci 350833: from 7:20 PM 33 SPAWNED records, the supervisor's relaunches among them, named pack-install-1, the lane whose session had started the runner."""
+    shell.environ |= {"CLAUDE_LONG_RUNNING_LANE": "pack-install-1", "CCI_AGENT_ID": "apack-install-1-0c1d", "CLAUDE_CODE_SESSION_ID": "5e55"}
+    brief = launch_brief(tmp_path)
+    orca_pass(shell, config)
+    cci_record(shell, lane=poster, to=["orca-desk"], at=actions.stamp(shell.clock), text=f"R50 (11:49 PM) orca-desk: launch {LANE} sol xhigh brief={brief}")
+    shell.launch_line = f"{LANE} ready task=task_1 dispatch=ctx_a terminal=term_ctx_a worktree=/w\n"
+    orca_pass(shell, config)
+    assert launches(shell) == [[str(runner_module.LAUNCHER), LANE, "sol", "xhigh", str(brief)]]
+    assert shell.spawned_env["orca-launch.sh"]["CLAUDE_LONG_RUNNING_LANE"] == poster
+    assert (shell.environ["CLAUDE_LONG_RUNNING_LANE"], shell.environ["CCI_AGENT_ID"], shell.environ["CLAUDE_CODE_SESSION_ID"]) == ("desk-runner", "", "")
 
 
 def test_a_root_reply_to_a_decide_answers_that_worker_question(shell, config, tmp_path):
@@ -14529,7 +14544,7 @@ def test_an_ordinary_lane_launches_on_a_sprite_whatever_the_mac_load(shell, conf
     assert incident(tmp_path, f"desk-lane-{LANE}").actions["R638"].status == "verified"
     assert json.loads((shell.receipts / f"{LANE}.json").read_text())["result"]["dispatchId"] == "ctx_s"
     assert (shell.receipts / f"{LANE}.terminal").read_text() == "term_s\n"
-    assert shell.spawned_rows == [["--lane", LANE, "--brief", str(brief), "--model", "opus", "--effort", "xhigh", "--placement", "sprite", "--by", "desk-runner"]]
+    assert shell.spawned_rows == [["--lane", LANE, "--brief", str(brief), "--model", "opus", "--effort", "xhigh", "--placement", "sprite", "--by", "root"]]
 
 
 @pytest.mark.parametrize("override", ["inherited", "launch_env", "sprite_env"])
@@ -14813,7 +14828,7 @@ def test_a_desk_launch_the_mac_cannot_take_starts_on_a_sprite_at_once_and_its_re
     assert launches(shell) == []
     assert escalations(shell) == [f"LAUNCHED R638 {LANE}: dispatch ctx_s terminal term_s on Sprite {LANE}"]
     assert incident(tmp_path, f"desk-lane-{LANE}").actions["R638"].status == "verified"
-    assert shell.spawned_rows == [["--lane", LANE, "--brief", str(brief), "--model", "opus", "--effort", "xhigh", "--placement", "sprite", "--by", "desk-runner"]]
+    assert shell.spawned_rows == [["--lane", LANE, "--brief", str(brief), "--model", "opus", "--effort", "xhigh", "--placement", "sprite", "--by", "root"]]
 
 
 @pytest.mark.parametrize(("busy", "high"), [(0.3, False), (0.95, True)])

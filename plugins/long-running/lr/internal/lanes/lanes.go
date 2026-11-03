@@ -3,6 +3,7 @@ package lanes
 import (
 	"errors"
 	"fmt"
+	"os"
 	"regexp"
 	"slices"
 	"strconv"
@@ -30,7 +31,30 @@ const (
 	Broken      = "broken"
 	Waiting     = "waiting"
 	Closed      = "closed"
+	LaneEnv     = "CLAUDE_LONG_RUNNING_LANE"
+	lrLaneEnv   = "LR_LANE"
 )
+
+var sessionIdentity = []string{"CCI_AGENT_ID", "CCI_LANE", "CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID"}
+
+func Identity(lane string) []string {
+	env := make([]string, 0, 2+len(sessionIdentity))
+	env = append(env, LaneEnv+"="+lane, lrLaneEnv+"="+lane)
+	for _, name := range sessionIdentity {
+		env = append(env, name+"=")
+	}
+	return env
+}
+
+func Adopt(lane string) error {
+	identity := Identity(lane)
+	errs := make([]error, 0, len(identity))
+	for _, pair := range identity {
+		name, value, _ := strings.Cut(pair, "=")
+		errs = append(errs, os.Setenv(name, value))
+	}
+	return errors.Join(errs...)
+}
 
 const (
 	StaleAfter   = store.StaleAfter

@@ -5,6 +5,7 @@ from __future__ import annotations
 import fcntl
 import hashlib
 import json
+import os
 import subprocess
 import threading
 from datetime import UTC, datetime, timedelta
@@ -159,6 +160,16 @@ def test_a_burst_that_returns_to_an_earlier_pick_captures_every_tap_in_order(tmp
     assert [capture["text"] for capture in captured] == ["The transcript plus the latest snapshot", "Only the transcript", "The transcript plus the latest snapshot"]
     assert {capture["at"] for capture in captured} == {"2026-01-02T03:04:05Z"}
     assert len({capture["digest"] for capture in captured}) == 3
+
+
+def test_a_watch_a_sessions_hook_starts_runs_as_board_watch_and_not_as_that_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CLAUDE_LONG_RUNNING_LANE", "root")
+    monkeypatch.setenv("CCI_AGENT_ID", "aroot-0c1d")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", SESSION)
+
+    run(tmp_path)
+
+    assert (os.environ["CLAUDE_LONG_RUNNING_LANE"], os.environ["CCI_AGENT_ID"], os.environ["CLAUDE_CODE_SESSION_ID"]) == ("board-watch", "", "")
 
 
 def test_a_second_watch_of_the_same_board_exits_at_once(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

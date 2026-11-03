@@ -715,6 +715,7 @@ def free(lock) -> bool:
 
 
 def cmd_run(args: argparse.Namespace, shell: Shell) -> int:
+    os.environ.update(drive.own_lane(LANE))
     if not (entry := drive.find(args.drive, None)):
         raise SystemExit(f"no drive {args.drive} in {drive.drives_dir()}")
     watch_dir(entry).mkdir(parents=True, exist_ok=True)
@@ -761,7 +762,7 @@ def cmd_start(args: argparse.Namespace, shell: Shell) -> int:
     log = watch_dir(entry) / LOG_FILE
     log.parent.mkdir(parents=True, exist_ok=True)
     with log.open("a") as sink:
-        child = subprocess.Popen([sys.executable, str(SCRIPT), "run", "--drive", args.drive], stdin=subprocess.DEVNULL, stdout=sink, stderr=sink, start_new_session=True)
+        child = subprocess.Popen([sys.executable, str(SCRIPT), "run", "--drive", args.drive], stdin=subprocess.DEVNULL, stdout=sink, stderr=sink, start_new_session=True, env=os.environ | drive.own_lane(LANE))
     print(f"prompt-watch {args.drive} pid {child.pid} log {log}")
     return 0
 

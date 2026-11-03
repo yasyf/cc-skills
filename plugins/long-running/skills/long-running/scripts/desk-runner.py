@@ -1465,9 +1465,6 @@ def busy_share(then: tuple[int, int], now: tuple[int, int]) -> float:
     return busy / max(busy + idle, 1)
 
 
-LANE_IDENTITY = ("CCI_AGENT_ID", "CCI_LANE", "CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID")
-
-
 def brief_posters(brief: Path) -> set[str]:
     return set(POSTER.findall(brief.read_text())) - {ROOT} if brief.is_file() else set()
 
@@ -2567,7 +2564,7 @@ class Runner:
                 self.shell.sleep(WAKE_SECONDS)
         if supervised:
             return self.await_launchd(desk, pid)
-        started = self.shell.spawn([str(RUNNER_BIN), "run", "--config", str(self.config.source), "--desk", desk], self.runner_log(desk), self.config.desk_env[desk], append=True)
+        started = self.shell.spawn([str(RUNNER_BIN), "run", "--config", str(self.config.source), "--desk", desk], self.runner_log(desk), drive.own_lane(RUNNER) | self.config.desk_env[desk], append=True)
         print(f"desk-runner handoff: {f'runner {pid} exited' if pid is not None else f'no live {desk} runner'}; started runner {started.pid}, logging to {self.runner_log(desk)}")
         return 0
 
@@ -2604,7 +2601,7 @@ class Runner:
             if supervised[desk]:
                 result = max(result, self.await_launchd(desk, predecessors[desk]))
             else:
-                started = self.shell.spawn([str(RUNNER_BIN), "run", "--config", str(self.config.source), "--desk", desk], self.runner_log(desk), self.config.desk_env[desk], append=True)
+                started = self.shell.spawn([str(RUNNER_BIN), "run", "--config", str(self.config.source), "--desk", desk], self.runner_log(desk), drive.own_lane(RUNNER) | self.config.desk_env[desk], append=True)
                 print(f"desk-runner handoff: started {desk} runner {started.pid}, logging to {self.runner_log(desk)}")
         print(f"desk-runner handoff: paired pin {target}; target uptake still requires native process evidence and two fresh target heartbeats per desk")
         return result
@@ -2667,7 +2664,7 @@ class Runner:
             {
                 "Label": label,
                 "ProgramArguments": ["/bin/zsh", "-c", f"{exports}exec {shlex.quote(str(release.link() / 'bin' / 'desk-runner.py'))} run --config {shlex.quote(str(self.config.source))} --desk {desk}"],
-                "EnvironmentVariables": {"PATH": self.shell.env("PATH")},
+                "EnvironmentVariables": {"PATH": self.shell.env("PATH"), drive.LANE_ENV: RUNNER},
                 "KeepAlive": True,
                 "ThrottleInterval": LAUNCHD_THROTTLE_SECONDS,
                 "SoftResourceLimits": {"NumberOfFiles": RUNNER_OPEN_FILES},
@@ -3402,7 +3399,7 @@ class Runner:
             self.refresh_slice(key, lane, brief)
             return brief.read_text()
 
-    def accept_launch(self, key: str, lane: str, model: str, effort: str, brief: str, fast: bool = False, role: str = "", incident: str = "", by: str = ROOT) -> tuple[actions.Action, bool]:
+    def accept_launch(self, key: str, lane: str, model: str, effort: str, brief: str, fast: bool = False, role: str = "", incident: str = "", by: str = RUNNER) -> tuple[actions.Action, bool]:
         target = json.dumps({"model": model, "effort": effort, "brief": brief, "prior": self.orca.receipt(lane), "fast": fast, "role": role, "incident": incident, "by": by})
         return self.book.accept(self.lane(lane), key, "launch", target, key, self.now() + timedelta(minutes=self.config.launch_minutes))
 
@@ -3734,7 +3731,7 @@ class Runner:
     def launch_local(self, container: str, lane: str, action: actions.Action) -> None:
         spec = json.loads(action.target)
         argv = [str(LAUNCHER), lane, spec["model"], spec["effort"], spec["brief"]]
-        env = {**self.config.launch_env, **self.orca.sender, "ORCA_LAUNCH_STATE": str(self.config.receipts), "LAUNCH_ROLE": spec.get("role") or ""}
+        env = {**self.config.launch_env, **self.orca.sender, "ORCA_LAUNCH_STATE": str(self.config.receipts), "LAUNCH_ROLE": spec.get("role") or "", drive.LANE_ENV: spec.get("by", ROOT)}
         if spec.get("fast"):
             env[CLAUDE_ARGS] = " ".join(filter(None, [env.get(CLAUDE_ARGS, self.shell.env(CLAUDE_ARGS)), CLAUDE_FAST_MODE]))
         self.launching[f"{container}/{action.action_id}"] = self.shell.spawn(argv, self.launch_log(container, action.action_id), env)
@@ -3761,7 +3758,7 @@ class Runner:
         container = lane_container(lane)
         launches = self.book.actions(container, kind="launch") if self.book.exists(container) else []
         by = json.loads(launches[-1].target).get("by", ROOT) if launches else ROOT
-        return "" if by in (ROOT, SUPERVISOR, stall_watch.LANE) else by
+        return "" if by in (ROOT, RUNNER, SUPERVISOR, stall_watch.LANE) else by
 
     def sprite_refusal(self, lane: str, spec: dict) -> str | None:
         """Empty when the launch takes the Mac route for now, None when it takes a Sprite, or why the Sprite route it must take cannot start it."""
@@ -3859,7 +3856,7 @@ class Runner:
         (self.config.receipts / f"{lane}.terminal").write_text(f"{ready['terminal']}\n")
         self.launch_log(container, key).write_text(f"{line}\n")
         spec = json.loads(action.target)
-        done = self.shell.run([sys.executable, str(SCRIPTS / "drive.py"), "spawned", "--lane", lane, "--brief", spec["brief"], "--model", spec["model"], "--effort", spec["effort"], "--placement", "sprite", *(["--role", spec["role"]] if spec.get("role") else []), "--by", RUNNER], env=self.config.launch_env)
+        done = self.shell.run([sys.executable, str(SCRIPTS / "drive.py"), "spawned", "--lane", lane, "--brief", spec["brief"], "--model", spec["model"], "--effort", spec["effort"], "--placement", "sprite", *(["--role", spec["role"]] if spec.get("role") else []), "--by", spec.get("by", ROOT)], env=self.config.launch_env)
         if done.code:
             self.escalate(f"{container}/{key}:spawned", "SPAWN-UNRECORDED", lane, f"{key} runs on a Sprite with no registry row, so the lane supervisor does not keep it alive: drive.py spawned exited {done.code}: {(done.err or done.out).strip()[:300]}")
         self.settle_launch(container, lane, action, box)
@@ -11033,9 +11030,10 @@ def main(argv: list[str] | None = None, shell: Shell | None = None) -> int:
             print(f"desk-runner quiesce: {error}", file=sys.stderr)
             return 1
         return 0
+    if args.verb == "run":
+        shell.adopt(drive.own_lane(RUNNER))
     runner = Runner(shell, config, actions.Store(config.store))
     if args.verb == "run":
-        os.environ.pop("CLAUDE_LONG_RUNNING_LANE", None)
         if not (pin := runner.pinned()):
             runner.pin(pin := RUNNING_VERSION)
         if pin != RUNNING_VERSION:
@@ -11058,7 +11056,7 @@ def main(argv: list[str] | None = None, shell: Shell | None = None) -> int:
         while True:
             with runner.desk_lock(args.desk) as holder:
                 if holder is None:
-                    runner.shell.adopt(dict.fromkeys(LANE_IDENTITY, "") | config.desk_env[args.desk])
+                    runner.shell.adopt(config.desk_env[args.desk])
                     with runner.book.store.reading():
                         runner.adopt_cursors()
                         return (run_orca if args.desk == "orca" else run_landing)(runner, args.once)
@@ -11115,7 +11113,7 @@ def main(argv: list[str] | None = None, shell: Shell | None = None) -> int:
             runner.flush()
             print(duplicate_line(args.key, args.lane, holder), file=sys.stderr)
             return 1
-        action, created = runner.accept_launch(args.key, args.lane, args.model, args.effort, str(brief), role=args.role)
+        action, created = runner.accept_launch(args.key, args.lane, args.model, args.effort, str(brief), role=args.role, by=ROOT)
     else:
         action, created = runner.accept_policy(args.key, args.landing, args.revision, args.source, args.supersedes)
     posted = runner.flush()

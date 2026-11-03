@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -48,6 +49,7 @@ func exitAndOutput(ctx context.Context, runner shell.Runner, c shell.Command) (i
 
 type OrcaCLI struct {
 	Runner   shell.Runner
+	Lane     string
 	Run      string
 	Repo     string
 	Launcher string
@@ -57,7 +59,7 @@ func (o OrcaCLI) Launch(ctx context.Context, lane, model, effort, brief string, 
 	if o.Run == "" || o.Repo == "" {
 		return LaunchReceipt{}, &EffectFailed{"no Orca run: open the incident with --orca-run and --orca-repo"}
 	}
-	env := []string{"ORCA_LAUNCH_RUN=" + o.Run, "ORCA_LAUNCH_REPO=" + o.Repo}
+	env := append(lanes.Identity(o.Lane), "ORCA_LAUNCH_RUN="+o.Run, "ORCA_LAUNCH_REPO="+o.Repo)
 	if fast {
 		args := claudeFastMode
 		if held := os.Getenv(claudeArgsEnv); held != "" {

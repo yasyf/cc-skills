@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell/shelltest"
 )
 
@@ -127,6 +128,22 @@ func TestGitHubReadsAMergeCommitAndAnOpenPRIsNotLanded(t *testing.T) {
 	}
 	if sha, err := github.Landed(ctx, 2); err != nil || sha != "" {
 		t.Fatalf("sha %q, err %v", sha, err)
+	}
+}
+
+func TestAnIncidentRunnerStartedFromTheCoordinatorLaunchesItsLanesAsItself(t *testing.T) {
+	fake := &shelltest.Fake{}
+	fake.Reply("incident-x-fix ready task=t1 dispatch=d1 terminal=term-1 worktree=/w/x\n", "orca-launch.sh")
+
+	if _, err := (OrcaCLI{Runner: fake, Lane: "incident-x", Run: "run1", Repo: "repo1", Launcher: "orca-launch.sh"}).Launch(context.Background(), "incident-x-fix", "incident", "xhigh", "/b.md", false); err != nil {
+		t.Fatal(err)
+	}
+
+	env := strings.Join(fake.Calls()[0].Env, "\n")
+	for _, want := range []string{lanes.LaneEnv + "=incident-x", "CLAUDE_CODE_SESSION_ID=", "CCI_AGENT_ID="} {
+		if !strings.Contains(env, want) {
+			t.Fatalf("%q not in\n%s", want, env)
+		}
 	}
 }
 

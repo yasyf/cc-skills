@@ -530,6 +530,14 @@ func TestThePlistEscapesItsValuesAndCarriesTheKeepAliveAndLimits(t *testing.T) {
 	}
 }
 
+func TestThePlistStartsTheSupervisorUnderItsOwnLane(t *testing.T) {
+	body := string(agent().Plist())
+
+	if want := "<key>CLAUDE_LONG_RUNNING_LANE</key>\n\t\t<string>supervisor</string>"; !strings.Contains(body, want) {
+		t.Fatalf("%q not in\n%s", want, body)
+	}
+}
+
 func TestALandablePRAboveAnUntappedOneIsLeftOutOfTheQueue(t *testing.T) {
 	s, c, q := memory(t), &clock{t0}, &queue{}
 	lower := prFacts(1, func(f *machine.Facts) { f.Branch, f.Tap = "lower", "" })
