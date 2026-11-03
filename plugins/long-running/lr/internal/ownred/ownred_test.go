@@ -186,6 +186,7 @@ func bus(t *testing.T, records ...map[string]any) string {
 	t.Helper()
 	var out strings.Builder
 	for _, r := range records {
+		r["num"] = fmt.Sprintf("#%v", r["seq"])
 		out.WriteString(encoded(t, r) + "\n")
 	}
 	return out.String()
@@ -216,8 +217,107 @@ func TestAMergeByALaneRefusesOnARelayItHasNotReadAndNotOnOneItsReadClosed(t *tes
 	if !slices.Equal(got, want) {
 		t.Fatalf("got %q, want %q", got, want)
 	}
-	if argvs := reads(fake); !slices.Equal(argvs[0], []string{"cci", "tail", "--drive", "d", "--cursor", "fix-1", "--reader", "fix-1", "--json"}) {
-		t.Fatalf("the merge read the bus as %q, not through the lane's own cursor", argvs)
+	argvs := reads(fake)
+	if !slices.Equal(argvs[0], []string{"cci", "tail", "--drive", "d", "--cursor", "fix-1", "--reader", "fix-1", "--json", "--budget", "2147483647"}) {
+		t.Fatalf("the merge read the bus as %q, not whole through the lane's own cursor", argvs)
+	}
+	if !slices.Equal(argvs[1], []string{"cci", "tail", "--drive", "d", "--lane", "fix-1", "--since", "#360037", "--json", "--budget", "2147483647"}) {
+		t.Fatalf("the merge read the lane's own records as %q, not whole from the oldest record it delivered", argvs)
+	}
+}
+
+func TestAMergeCountsOnlyWhatAnotherLaneSentAndTheLaneHasNotActedOn(t *testing.T) {
+	note := func() map[string]any {
+		return map[string]any{"seq": 100, "lane": "meta-desk-2", "kind": "note", "text": "take #2188", "to": []string{"fix-1"}}
+	}
+	unread := "UNREAD #100 meta-desk-2 note: take #2188"
+	read := "MAIL #100 meta-desk-2 note: take #2188"
+	for name, c := range map[string]struct {
+		delivered []map[string]any
+		own       []map[string]any
+		want      []string
+	}{
+		"its own record addressed to itself": {
+			delivered: []map[string]any{{"seq": 101, "lane": "fix-1", "kind": "note", "text": "for me", "to": []string{"fix-1"}}},
+		},
+		"its own reply to its own record": {
+			delivered: []map[string]any{{"seq": 102, "lane": "fix-1", "kind": "correction", "text": "fixed", "re": 101, "to": []string{"root"}}},
+		},
+		"its own records around another lane's": {
+			delivered: []map[string]any{{"seq": 99, "lane": "fix-1", "kind": "note", "text": "for me", "to": []string{"fix-1"}}, note()},
+			want:      []string{unread},
+		},
+		"a record it has not acted on": {
+			delivered: []map[string]any{note()},
+			want:      []string{unread},
+		},
+		"a record it answered": {
+			delivered: []map[string]any{note()},
+			own:       []map[string]any{{"seq": 110, "lane": "fix-1", "kind": "answer", "text": "taken", "re": 100, "to": []string{"meta-desk-2"}}},
+			want:      []string{read},
+		},
+		"a record it resolved": {
+			delivered: []map[string]any{note()},
+			own:       []map[string]any{{"seq": 110, "lane": "fix-1", "kind": "done", "text": "taken", "resolves": 100}},
+			want:      []string{read},
+		},
+		"a record it resolved among others": {
+			delivered: []map[string]any{note()},
+			own:       []map[string]any{{"seq": 110, "lane": "fix-1", "kind": "done", "text": "taken", "resolves": 98, "also_resolves": []int{100}}},
+			want:      []string{read},
+		},
+		"a record another lane resolved": {
+			delivered: []map[string]any{note(), {"seq": 111, "lane": "root", "kind": "note", "text": "moot", "resolves": 100}},
+			want:      []string{read, "MAIL #111 root note: moot"},
+		},
+		"a record another lane only answered": {
+			delivered: []map[string]any{note(), {"seq": 111, "lane": "root", "kind": "answer", "text": "seen", "re": 100}},
+			want:      []string{unread, "MAIL #111 root answer: seen"},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			fake := github(t, map[int]map[string]any{7: pull(green)}, false)
+			fake.Reply(bus(t, c.own...), "cci", "tail", "--drive", "d", "--lane", "fix-1")
+			fake.Reply(bus(t, c.delivered...), "cci", "tail")
+			if got := lines(t, fake, ownred.Merge{Selector: "7", Drive: "d", Lane: "fix-1"}); !slices.Equal(got, c.want) {
+				t.Fatalf("got %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+func TestAMergeListsAllItsUnreadAndCutsOnlyItsBroadcasts(t *testing.T) {
+	records := make([]map[string]any, 0, 60)
+	var want []string
+	for seq := 1; seq <= 30; seq++ {
+		records = append(records, map[string]any{"seq": seq, "lane": "root", "kind": "go", "text": "take it", "to": []string{"fix-1"}})
+		want = append(want, fmt.Sprintf("UNREAD #%d root go: take it", seq))
+	}
+	for seq := 31; seq <= 60; seq++ {
+		records = append(records, map[string]any{"seq": seq, "lane": "root", "kind": "note", "text": "dev is green"})
+	}
+	want = append(want, "MAIL #31 root note: dev is green", "MAIL 9 more after #31 not shown; read them with cci tail --drive d --reader fix-1 --since #31 --oldest")
+	for seq := 41; seq <= 60; seq++ {
+		want = append(want, fmt.Sprintf("MAIL #%d root note: dev is green", seq))
+	}
+	fake := github(t, map[int]map[string]any{7: pull(green)}, false)
+	fake.Reply(bus(t, records...), "cci", "tail")
+	if got := lines(t, fake, ownred.Merge{Selector: "7", Drive: "d", Lane: "fix-1"}); !slices.Equal(got, want) {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestAMergeShowsEveryBroadcastUpToTheCut(t *testing.T) {
+	records := make([]map[string]any, 0, 21)
+	var want []string
+	for seq := 1; seq <= 21; seq++ {
+		records = append(records, map[string]any{"seq": seq, "lane": "root", "kind": "note", "text": "dev is green"})
+		want = append(want, fmt.Sprintf("MAIL #%d root note: dev is green", seq))
+	}
+	fake := github(t, map[int]map[string]any{7: pull(green)}, false)
+	fake.Reply(bus(t, records...), "cci", "tail")
+	if got := lines(t, fake, ownred.Merge{Selector: "7", Drive: "d", Lane: "fix-1"}); !slices.Equal(got, want) {
+		t.Fatalf("got %q, want %q", got, want)
 	}
 }
 
@@ -237,7 +337,7 @@ func TestAMergeOutsideAnyLaneNeverReadsTheBus(t *testing.T) {
 	}
 }
 
-func TestTheLaneReadIsOneCallAtOneRecordAndAtAThousand(t *testing.T) {
+func TestTheLaneReadTakesTheSameCallsAtOneRecordAndAtAThousand(t *testing.T) {
 	counts := map[int]int{}
 	for _, n := range []int{1, 1000} {
 		records := make([]map[string]any, 0, n)

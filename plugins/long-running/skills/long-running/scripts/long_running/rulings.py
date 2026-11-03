@@ -285,7 +285,9 @@ RUST_TEST = re.compile(r"^\s*#\[(?:\w+::)?test\b")
 RUST_TEST_FILE = re.compile(r"(?:^|/)tests/[^/]+\.rs$|_test\.rs$")
 IDENTIFIER = re.compile(r"\w+")
 WORD_RUN = re.compile(r"[\w-]+")
-FACTS_VERSION = 4
+CRYPTOGRAPHIC = re.compile(r"\b\w*key\b|\benvelopes?\b|\bsign(?:ed|s|ature)?\b|\b(?:en|de)crypt\w*|\bcipher\w*|\bcrypto\w*|\bnacl\b|\baead\b|\bjwt\b|\bsealed?\(t\b", re.IGNORECASE)
+OTHER_SENSE = dict.fromkeys(("seal", "sealed", "sealing"), CRYPTOGRAPHIC)
+FACTS_VERSION = 5
 PROSE_SUFFIXES = frozenset({".md", ".mdx", ".txt", ".rst"})
 MERGE_CARD = re.compile(r"merge:(?P<pr>\d+):(?P<head>[0-9a-f]{7,40})")
 TEST_DEFINITION = re.compile(
@@ -418,6 +420,10 @@ def name_pattern(name: str) -> re.Pattern[str]:
 
 def named(text: str, name: str) -> bool:
     return bool(name_pattern(name).search(text))
+
+
+def meant(text: str, name: str) -> bool:
+    return named(text, name) and not ((sense := OTHER_SENSE.get(name.lower())) and sense.search(text))
 
 
 def names_of(fields: dict[str, str]) -> list[str]:
@@ -683,7 +689,7 @@ class Sweeper:
             for number, text in numbered
             if self.anything.search(words := PATH_TOKEN.sub(" ", text))
             for key, name in self.wanted
-            if named(words, name)
+            if meant(words, name)
         ]
 
     def file(self, path: Path, shown: str) -> list[Hit]:
@@ -721,12 +727,12 @@ class Sweeper:
             words = PATH_TOKEN.sub(" ", text)
             for index in sorted({index for run in WORD_RUN.findall(words.lower()) for index in starts.get(run, ())}):
                 key, name = wanted[index]
-                if named(words, name):
+                if meant(words, name):
                     found.append([key, file, number, name, text, False])
         if self.anything:
             for file, number, text in diff.removed:
                 if not imports(file, text) and self.anything.search(words := PATH_TOKEN.sub(" ", text)):
-                    found += [[key, file, number, name, text, True] for key, name in self.wanted if named(words, name)]
+                    found += [[key, file, number, name, text, True] for key, name in self.wanted if meant(words, name)]
         return found
 
 
