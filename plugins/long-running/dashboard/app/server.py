@@ -8,6 +8,7 @@ import subprocess
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from collections import Counter, deque
@@ -30,7 +31,11 @@ GO = re.compile(r"^go #(\d+) at (\w+)")
 PR_REF = re.compile(r"#(\d{4,6})\b")
 PR_RANGE = re.compile(r"#(\d{4,6})-#(\d{4,6})")
 REVIEW_ROUTE = re.compile(r"/api/review/(\d+)")
-AI_CONFIG = {"endpoint": "https://api.cerebras.ai/v1", "model": "gpt-oss-120b"}
+MODEL_ROUTE = "/ai/chat/completions"
+MODEL_URL = "https://api.cerebras.ai/v1/chat/completions"
+MODEL_NAME = "gpt-oss-120b"
+MODEL_FIELDS = ("messages", "tools", "tool_choice", "parallel_tool_calls", "reasoning_effort", "reasoning_format", "max_completion_tokens", "temperature", "response_format", "prompt_cache_key", "stream", "stream_options")
+MODEL_KEY_ITEM = "cerebras-api-key"
 ASSIST = HERE.parents[1] / "skills" / "long-running" / "templates" / "drive-assist.html"
 PR_ROUTE = re.compile(r"/api/pr/(\d+)")
 PR_FACTS = "{body: .body, additions: .additions, deletions: .deletions, files: .changed_files, commits: .commits, head: .head.sha}"
@@ -443,10 +448,35 @@ class Drive:
         return {"rows": rows, "cards": cards, "url": self.config["board_url"]}
 
 
-def handler(drive):
+def own_names(host):
+    me = json.loads(run(["tailscale", "status", "--json"]))["Self"]
+    name = me["DNSName"].rstrip(".").lower()
+    return {host, name, name.split(".")[0], *me["TailscaleIPs"]}
+
+
+def model_key():
+    try:
+        return run(["security", "find-generic-password", "-w", "-s", MODEL_KEY_ITEM]).strip()
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return None
+
+
+def handler(drive, tailnet_owner, names, key):
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
             pass
+
+        def owner_calling(self):
+            if urllib.parse.urlsplit(f"//{self.headers.get('Host', '')}").hostname not in names:
+                return False
+            try:
+                who = json.loads(run(["tailscale", "whois", "--json", self.client_address[0]]))
+                return not who["Node"].get("Tags") and who["UserProfile"]["LoginName"] == tailnet_owner
+            except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError, AttributeError):
+                return False
+
+        def refuse(self):
+            return self.send(403, "application/json", json.dumps({"error": "only the drive's owner can do this, and this device is not signed in as them"}).encode())
 
         def do_GET(self):
             path = self.path.split("?", 1)[0]
@@ -457,6 +487,8 @@ def handler(drive):
                     for asset in ("app.js", "app.css", "review.js", "review.css"):
                         body = body.replace(f"/{asset}", f"/{asset}?v={(HERE / asset).stat().st_mtime_ns}")
                     body = body.replace("</body>", ASSIST.read_text() + "</body>")
+                    if key and self.owner_calling():
+                        body = body.replace("<html", '<html class="ai-on"', 1)
                 return self.send(200, kind, body.encode())
             if path == "/api/model":
                 with drive.lock:
@@ -464,14 +496,6 @@ def handler(drive):
                 return self.send(200, "application/json", json.dumps(drive.live(model) if "prs" in model else model).encode())
             if path == "/api/stream":
                 return self.stream()
-            if found := REVIEW_ROUTE.fullmatch(path):
-                try:
-                    url = drive.review_url(int(found[1]))
-                except subprocess.CalledProcessError as error:
-                    return self.send(502, "application/json", json.dumps({"error": (error.stderr or error.stdout).strip()}).encode())
-                return self.send(200, "application/json", json.dumps({"url": url}).encode())
-            if path == "/ai.json":
-                return self.send(200, "application/json", json.dumps({**AI_CONFIG, "key": os.environ["CEREBRAS_API_KEY"]}).encode())
             if found := PR_ROUTE.fullmatch(path):
                 try:
                     facts = drive.facts(int(found[1]))
@@ -481,17 +505,51 @@ def handler(drive):
             self.send(404, "text/plain", b"not found")
 
         def do_POST(self):
-            if self.path != "/api/verdict":
+            review = REVIEW_ROUTE.fullmatch(self.path)
+            if not review and self.path not in ("/api/verdict", *([MODEL_ROUTE] if key else [])):
                 return self.send(404, "text/plain", b"not found")
             if self.headers.get_content_type() != "application/json":
                 return self.send(415, "text/plain", b"Content-Type must be application/json")
-            body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            raw = self.rfile.read(int(self.headers["Content-Length"]))
+            if not self.owner_calling():
+                return self.refuse()
+            if review:
+                try:
+                    url = drive.review_url(int(review[1]))
+                except subprocess.CalledProcessError as error:
+                    return self.send(502, "application/json", json.dumps({"error": (error.stderr or error.stdout).strip()}).encode())
+                return self.send(200, "application/json", json.dumps({"url": url}).encode())
+            body = json.loads(raw)
+            if self.path == MODEL_ROUTE:
+                call = {name: body[name] for name in MODEL_FIELDS if name in body} | {"model": MODEL_NAME}
+                return self.relay(urllib.request.Request(MODEL_URL, data=json.dumps(call).encode(), method="POST", headers={"Content-Type": "application/json", "Authorization": f"Bearer {key}", "User-Agent": "drive-dashboard"}))
             status, error = drive.decide(body["block"], body["number"], body["verdict"], body.get("head"), body.get("note"))
             self.send(status, "application/json", json.dumps({"error": error} if error else {}).encode())
 
-        def send(self, status, kind, body):
+        def relay(self, request):
+            try:
+                upstream = urllib.request.urlopen(request, timeout=60)
+            except urllib.error.HTTPError as error:
+                return self.send(error.code, "text/plain", error.read(), error.headers["Retry-After"])
+            except OSError as error:
+                return self.send(502, "text/plain", f"the upstream did not answer: {error}".encode())
+            self.send_response(200)
+            self.send_header("Content-Type", upstream.headers["Content-Type"])
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            with upstream:
+                try:
+                    for line in upstream:
+                        self.wfile.write(line)
+                        self.wfile.flush()
+                except OSError:
+                    return
+
+        def send(self, status, kind, body, retry_after=None):
             self.send_response(status)
             self.send_header("Content-Type", kind)
+            if retry_after:
+                self.send_header("Retry-After", retry_after)
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
@@ -540,7 +598,7 @@ def main():
     after = drive.load_records()
     for target, rest in ((drive.follow_records, (after,)), (drive.follow_board, ()), (drive.follow_steps, ()), (drive.rebuild_loop, ()), (drive.follow_paths, ())):
         threading.Thread(target=target, args=rest, daemon=True).start()
-    server = ThreadingHTTPServer((config["host"], config["port"]), handler(drive))
+    server = ThreadingHTTPServer((config["host"], config["port"]), handler(drive, config["tailnet_owner"], own_names(config["host"]), model_key()))
     server.daemon_threads = True
     publish(config, Path.home(), os.getpid(), dt.datetime.now(dt.timezone.utc))
     print(f"http://{config['host']}:{config['port']}/", flush=True)

@@ -2,6 +2,7 @@ const VERDICT_TONE = { you: 'bad', approved: 'ok', go: 'ok', held: 'warn' };
 const VERDICT_WORD = { you: 'Waiting on you', approved: 'Approved', go: 'Cleared to land by the coordinator', held: 'Held' };
 const embed = { number: null, head: null, row: false };
 const pending = { number: null, holding: false, error: '', note: '' };
+const openReview = (number) => fetch(`/api/review/${number}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
 
 const REVIEW_LISTS = [['', 'Needs you'], ['flight', 'In flight'], ['landed', 'Landed']];
 function reviewList(list = '') {
@@ -185,7 +186,7 @@ function syncReviewEmbed(r) {
   Object.assign(embed, { number, head, row: Boolean(row) });
   const code = el.querySelector('.pane.code');
   code.innerHTML = `<p class="dim pane-wait">Opening the review of #${number}…</p>`;
-  fetch(`/api/review/${number}`, { cache: 'no-store' })
+  openReview(number)
     .then((res) => res.json())
     .then(({ url, error }) => {
       if (embed.number !== number) return;
@@ -201,5 +202,5 @@ window.addEventListener('message', (e) => {
 });
 setInterval(() => {
   const r = route();
-  if (r.screen === 'review' && embed.number && !document.hidden) fetch(`/api/review/${embed.number}`, { cache: 'no-store' });
+  if (r.screen === 'review' && embed.number && !document.hidden) openReview(embed.number);
 }, 5 * 60 * 1000);

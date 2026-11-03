@@ -1,5 +1,5 @@
 <div id="ldchat">
-<!-- built by plugins/_shared/build.py from templates/src/live-dashboard-chat.html + 3 partials sha256:cb2c4463c70d — do not edit; edit the source and rerun -->
+<!-- built by plugins/_shared/build.py from templates/src/live-dashboard-chat.html + 3 partials sha256:8e67634ab93d — do not edit; edit the source and rerun -->
 <style>
 #ldchat-launch { position: fixed; right: 18px; bottom: 18px; z-index: 50; font: 600 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; padding: 9px 16px; border-radius: 20px; border: 1px solid var(--accent); background: var(--accent); color: #fff; cursor: pointer; box-shadow: 0 4px 14px rgba(0,0,0,.18); }
 #ldchat.open #ldchat-launch { display: none; }
@@ -156,7 +156,7 @@ async function aiPost(body,signal){
  let stripped=false;
  for(let attempt=0;;attempt++){
   await aiSlot(signal);
-  const r=await fetch(AI.endpoint+"/chat/completions",{method:"POST",signal,headers:{"content-type":"application/json",authorization:"Bearer "+AI.key},body:JSON.stringify(body)});
+  const r=await fetch(AI.endpoint+"/chat/completions",{method:"POST",signal,headers:{"content-type":"application/json",...(AI.key?{authorization:"Bearer "+AI.key}:{})},body:JSON.stringify(body)});
   if(r.status===429&&attempt<3){
    const wait=aiRetryAfter(r.headers.get("retry-after"));
    await aiWait(wait==null?2000:wait,signal);

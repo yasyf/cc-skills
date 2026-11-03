@@ -49,7 +49,7 @@ async function aiPost(body,signal){
  let stripped=false;
  for(let attempt=0;;attempt++){
   await aiSlot(signal);
-  const r=await fetch(AI.endpoint+"/chat/completions",{method:"POST",signal,headers:{"content-type":"application/json",authorization:"Bearer "+AI.key},body:JSON.stringify(body)});
+  const r=await fetch(AI.endpoint+"/chat/completions",{method:"POST",signal,headers:{"content-type":"application/json",...(AI.key?{authorization:"Bearer "+AI.key}:{})},body:JSON.stringify(body)});
   if(r.status===429&&attempt<3){
    const wait=aiRetryAfter(r.headers.get("retry-after"));
    await aiWait(wait==null?2000:wait,signal);

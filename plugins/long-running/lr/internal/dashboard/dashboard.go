@@ -24,7 +24,7 @@ const answerWait = 90
 var driveName = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
 func Label(drive string) string {
-	return "com.long-running." + drive + ".dashboard"
+	return "com.yasyf.long-running.dashboard." + drive
 }
 
 type Service struct {

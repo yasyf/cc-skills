@@ -1,5 +1,5 @@
 <style>
-<!-- built by plugins/_shared/build.py from templates/src/drive-assist.html + 3 partials sha256:d52e0d08021d — do not edit; edit the source and rerun -->
+<!-- built by plugins/_shared/build.py from templates/src/drive-assist.html + 2 partials sha256:63478a4a4d29 — do not edit; edit the source and rerun -->
 .kbtn + .fresh { margin-left: 0; }
 .kbtn { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px 0 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface-2); color: var(--ink-3); font: 600 13px var(--sans); cursor: pointer; white-space: nowrap; }
 .kbtn kbd { font: 600 11px var(--mono); padding: 1px 6px; border-radius: 6px; background: var(--surface); border: 1px solid var(--line); color: var(--ink-2); }
@@ -102,50 +102,6 @@ function scrub(root){
   });
  });
 }
-// @requires $
-// @defines AI_CFG_KEY,AI_LOOPBACK,GH_CFG_KEY,aiEndpoint,cfgNormalise,siteCfg,siteConfig
-const AI_CFG_KEY="design-doc-ai";
-const GH_CFG_KEY="design-doc-github";
-const AI_LOOPBACK=/^(localhost|127\.0\.0\.1|\[::1\])$/;
-function aiEndpoint(raw){
- if(!raw)return null;
- let u;
- try{u=new URL(raw)}catch(e){return null}
- if(u.protocol!=="https:"&&!(u.protocol==="http:"&&AI_LOOPBACK.test(u.hostname)))return null;
- return u.href.replace(/\/+$/,"");
-}
-function cfgNormalise(j){
- if(!j||typeof j!=="object")return {ai:null,github:null,comments:null};
- const s=k=>typeof j[k]==="string"&&j[k].trim()?j[k].trim():null;
- let ai=null;
- if(j.disabled===true)ai={disabled:true};
- else{
-  const endpoint=aiEndpoint(s("endpoint")),model=s("model"),key=s("key"),reasoning=s("reasoning");
-  if(endpoint&&model&&key)ai={endpoint,model,key,...(reasoning?{reasoning}:{})};
- }
- const g=j.github;
- const token=g&&typeof g==="object"&&typeof g.token==="string"&&g.token.trim()?g.token.trim():null;
- const c=j.comments&&typeof j.comments==="object"?j.comments:null;
- const comments=c?{repo:typeof c.repo==="string"&&/^[\w.-]+\/[\w.-]+$/.test(c.repo)?c.repo:null,forbiddenTerms:Array.isArray(c.forbiddenTerms)?c.forbiddenTerms.filter(t=>typeof t==="string"&&t):[]}:null;
- return {ai,github:token?{token}:null,comments};
-}
-let siteCfg=null;
-function siteConfig(){
- if(!siteCfg)siteCfg=(async()=>{
-  const out={ai:null,github:null,comments:null};
-  const take=c=>{out.ai=out.ai||c.ai;out.github=out.github||c.github;out.comments=out.comments||c.comments};
-  try{const raw=localStorage.getItem(AI_CFG_KEY);if(raw)take({ai:cfgNormalise(JSON.parse(raw)).ai})}catch(e){}
-  try{const raw=localStorage.getItem(GH_CFG_KEY);if(raw)take({github:cfgNormalise({github:JSON.parse(raw)}).github})}catch(e){}
-  for(const path of ["../ai.json","ai.json"]){
-   if(out.ai&&out.github&&out.comments)break;
-   let j=null;
-   try{const r=await fetch(path);if(!r.ok)continue;j=await r.json()}catch(e){continue}
-   take(cfgNormalise(j));
-  }
-  return {ai:out.ai&&!out.ai.disabled?out.ai:null,github:out.github,comments:out.comments};
- })();
- return siteCfg;
-}
 // @requires AI,AI_TOOLS,META,SLUG,aiCtxText,aiPrompt,aiReady,$,aiDiagRender,aiTally,aiUsage
 // @defines AI_CTX_BUDGET,AI_EFFORT,AI_EFFORT_LADDER,AI_LAST_TURN,AI_NO_TOOLS,AI_RATE_KEY,AI_RESULT_CAP,AI_RETRY_MSG,AI_ROLES,AI_ROUNDS,AI_RPM,AI_TOOL_BUDGET,AI_VENDOR_KEYS,aiBody,aiBusyNow,aiCacheGet,aiCacheKey,aiCached,aiClean,aiHash,aiNoteUsage,aiOnce,aiPost,aiRecent,aiRetryAfter,aiRetryNote,aiSlot,aiStoreKey,aiStream,aiWait,lowerEffort
 const AI_ROUNDS=10;
@@ -197,7 +153,7 @@ async function aiPost(body,signal){
  let stripped=false;
  for(let attempt=0;;attempt++){
   await aiSlot(signal);
-  const r=await fetch(AI.endpoint+"/chat/completions",{method:"POST",signal,headers:{"content-type":"application/json",authorization:"Bearer "+AI.key},body:JSON.stringify(body)});
+  const r=await fetch(AI.endpoint+"/chat/completions",{method:"POST",signal,headers:{"content-type":"application/json",...(AI.key?{authorization:"Bearer "+AI.key}:{})},body:JSON.stringify(body)});
   if(r.status===429&&attempt<3){
    const wait=aiRetryAfter(r.headers.get("retry-after"));
    await aiWait(wait==null?2000:wait,signal);
@@ -316,7 +272,8 @@ async function aiCached(feature,input,make){
  try{localStorage.setItem(aiStoreKey(feature,input),JSON.stringify(out))}catch(e){}
  return out;
 }
-const aiReady=siteConfig().then(c=>{if(c.ai)Object.assign(AI,c.ai);document.documentElement.classList.toggle("ai-on",Boolean(c.ai))});
+if(document.documentElement.classList.contains("ai-on"))AI.endpoint="/ai";
+const aiReady=Promise.resolve();
 function aiDiagRender(){}
 const KEY_KINDS=["owner","go","landed","release","incident","fix-live","hold","lift","blocker"];
 const BIG_KINDS=["owner","release","incident","fix-live","hold"];
@@ -351,7 +308,7 @@ function search(query){
 }
 async function assistAsk(question,history,onText){
  await aiReady;
- if(!AI.key)throw new Error("the assistant is off: the dashboard server has no CEREBRAS_API_KEY");
+ if(!AI.endpoint)throw new Error("the assistant is off: the dashboard server has no Cerebras key, or this device is not the owner's");
  aiCtxText=digest();
  const msgs=[{role:"system",content:aiCtxText},...history.slice(-8),{role:"user",content:`It is ${clock(new Date().toISOString())} Pacific.\n\n${question}`}];
  const signal=new AbortController().signal;
@@ -512,7 +469,7 @@ function nowItem(r,i,t){
 function needsYou(){
  const rows=waiting().concat(state.model.board.rows.filter(r=>r.verdict&&r.verdict.at&&Date.now()-new Date(r.verdict.at)<600000&&verdictState(r)!=="you"));
  const cards=openCards();
- const t=AI.key?triage():null;
+ const t=AI.endpoint?triage():null;
  const by=Object.fromEntries((t?.items??[]).map((x,i)=>[x.pr,{...x,i}]));
  const order=r=>by[r.number]?.i??(100+(state.model.prs[r.number]?.test_state==="failure"?50:0)+state.model.plan.findIndex(s=>s.prs.includes(r.number)));
  rows.sort((a,b)=>order(a)-order(b));
@@ -586,7 +543,7 @@ function results(raw){
  const groups={};
  picked.sort((a,b)=>b.score-a.score).forEach(e=>{(groups[e.group]??=[]).push(e)});
  const items=Object.keys(CAPS).filter(g=>groups[g]).sort((a,b)=>groups[b][0].score-groups[a][0].score).flatMap(g=>groups[g].slice(0,q.length?CAPS[g]:20));
- if(q.length&&AI.key){const askRow={group:"Assistant",icon:"✦",label:`Ask: ${raw.trim()}`,sub:"answers from the drive's records, the plan and your words",go:()=>askInPal(raw.trim()),ask:true};QUESTION.test(raw.trim())?items.unshift(askRow):items.push(askRow)}
+ if(q.length&&AI.endpoint){const askRow={group:"Assistant",icon:"✦",label:`Ask: ${raw.trim()}`,sub:"answers from the drive's records, the plan and your words",go:()=>askInPal(raw.trim()),ask:true};QUESTION.test(raw.trim())?items.unshift(askRow):items.push(askRow)}
  return {items,q};
 }
 function openPal(){
@@ -656,7 +613,7 @@ document.addEventListener("keydown",e=>{
  else if(e.key==="ArrowDown"){e.preventDefault();pal.i=Math.min(pal.items.length-1,pal.i+1);paintPal()}
  else if(e.key==="ArrowUp"){e.preventDefault();pal.i=Math.max(0,pal.i-1);paintPal()}
  else if(e.key==="Enter"){e.preventDefault();pick(pal.i)}
- else if(e.key==="Tab"&&AI.key){e.preventDefault();const q=document.getElementById("pal-q").value.trim();if(q)askInPal(q)}
+ else if(e.key==="Tab"&&AI.endpoint){e.preventDefault();const q=document.getElementById("pal-q").value.trim();if(q)askInPal(q)}
 },true);
 document.getElementById("pal-q").addEventListener("input",()=>{pal.i=0;document.getElementById("pal-ans").hidden=true;paintPal()});
 document.getElementById("pal-list").addEventListener("click",e=>{const it=e.target.closest("[data-i]");if(it)pick(Number(it.dataset.i))});
