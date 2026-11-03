@@ -15,6 +15,7 @@ import (
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/board"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
@@ -103,8 +104,12 @@ func runGo(ctx context.Context, a *app.App, numbers []int, flags goFlags, stdout
 		if err != nil {
 			return err
 		}
+		lifts, err := bus.HoldLifts(records, func(seqs []int64) ([]client.Record, error) { return client.Among(ctx, cfg.Drive, seqs) })
+		if err != nil {
+			fmt.Fprintf(stdout, "WARNING #%d: could not read what its holds resolve, so each counts as a lift: %v\n", number, err)
+		}
 		claim := gates.Claim{Repo: cfg.Repo, PR: number, Head: head}
-		text, refusals := gates.ExemptGo(claim, gates.Read{Records: records, GoLanes: cfg.GoLaneNames(), Exempt: landing.ExemptGrades, TapRules: landing.TapRules, Files: strings.Fields(files), Cards: cards, TapRows: taps})
+		text, refusals := gates.ExemptGo(claim, gates.Read{Lifts: lifts, Records: records, GoLanes: cfg.GoLaneNames(), Exempt: landing.ExemptGrades, TapRules: landing.TapRules, Files: strings.Fields(files), Cards: cards, TapRows: taps})
 		if len(refusals) > 0 {
 			fmt.Fprintf(stdout, "REFUSED #%d at %s: %s\n", number, head[:7], strings.Join(refusals, "; "))
 			continue

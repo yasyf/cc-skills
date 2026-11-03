@@ -762,6 +762,27 @@ func TestARootGoNeverLiftsTheOwnersHold(t *testing.T) {
 	}
 }
 
+func TestAHoldThatLiftsAnEarlierHoldHoldsNothingAndOneThatAnswersAnAskStillHolds(t *testing.T) {
+	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}, {number: 2, head: head2, login: "drive-bot"}}, status(1), status(2))
+	first := hold(t, "root", "hold #1 for now", repo+"#1")
+	if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "root", Kind: "hold", Text: "lift: the rework is done", PRs: []string{repo + "#1"}, Resolves: first.Seq}); err != nil {
+		t.Fatal(err)
+	}
+	ask, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "root", Kind: "ask", Text: "should #2 wait?"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "root", Kind: "hold", Text: "yes, it waits", PRs: []string{repo + "#2"}, Resolves: ask.Seq}); err != nil {
+		t.Fatal(err)
+	}
+
+	by := h.snapshot(t)
+
+	if by[1].Hold != "" || by[2].Hold != machine.MoverRoot {
+		t.Fatalf("holds = %q, %q", by[1].Hold, by[2].Hold)
+	}
+}
+
 func TestAHoldLeadingWithItsNumberHoldsOnlyThatPR(t *testing.T) {
 	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}, {number: 2, head: head2, login: "drive-bot"}},
 		status(1), status(2, func(r *statusRow) { r.Head = head2 }))

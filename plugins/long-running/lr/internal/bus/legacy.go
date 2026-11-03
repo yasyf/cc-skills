@@ -321,6 +321,40 @@ func GoNamesHead(record client.Record, pr int, head string) bool {
 	return slices.ContainsFunc(goHeads(record.Text), func(pair headPair) bool { return pair.PR == pr && strings.HasPrefix(head, pair.Head) })
 }
 
+func HoldLifts(records []client.Record, read func([]int64) ([]client.Record, error)) (map[int64]bool, error) {
+	resolving := map[int64][]int64{}
+	var seqs []int64
+	for _, record := range records {
+		if string(record.Kind) != "hold" {
+			continue
+		}
+		resolved := slices.DeleteFunc(append([]int64{record.Resolves}, record.AlsoResolves...), func(seq int64) bool { return seq == 0 })
+		if len(resolved) > 0 {
+			resolving[record.Seq] = resolved
+			seqs = append(seqs, resolved...)
+		}
+	}
+	lifts := make(map[int64]bool, len(resolving))
+	if len(seqs) == 0 {
+		return lifts, nil
+	}
+	targets, err := read(seqs)
+	if err != nil {
+		for seq := range resolving {
+			lifts[seq] = true
+		}
+		return lifts, err
+	}
+	holds := map[int64]bool{}
+	for _, target := range targets {
+		holds[target.Seq] = string(target.Kind) == "hold"
+	}
+	for seq, resolved := range resolving {
+		lifts[seq] = slices.ContainsFunc(resolved, func(target int64) bool { return holds[target] })
+	}
+	return lifts, nil
+}
+
 func HeldBy(record client.Record, repo string) []int {
 	var prs []int
 	for _, pr := range record.Refs.PRs {

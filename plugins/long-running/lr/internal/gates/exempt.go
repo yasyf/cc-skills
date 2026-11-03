@@ -48,6 +48,7 @@ type Read struct {
 	Files    []string
 	Cards    []Card
 	TapRows  []TapRow
+	Lifts    map[int64]bool
 }
 
 type standingGrade struct {
@@ -58,7 +59,7 @@ type standingGrade struct {
 func ExemptGo(c Claim, r Read) (string, []string) {
 	finder, finderRefusal := finderCite(c, r.Records)
 	class, fidelity, fidelityRefusals := fidelityCite(c, r.Records, r.Exempt)
-	refusals := slices.Concat(nonEmpty(finderRefusal), fidelityRefusals, openHolds(c, r.Records), ownerWaits(c, r), tapRules(r.TapRules, r.Files), standingGos(c, r))
+	refusals := slices.Concat(nonEmpty(finderRefusal), fidelityRefusals, openHolds(c, r.Records, r.Lifts), ownerWaits(c, r), tapRules(r.TapRules, r.Files), standingGos(c, r))
 	if len(refusals) > 0 {
 		return "", refusals
 	}
@@ -158,7 +159,7 @@ func classOf(phrase string) string {
 	return strings.Join(strings.Fields(strings.TrimPrefix(strings.TrimSpace(lead), "class ")), "-")
 }
 
-func openHolds(c Claim, records []client.Record) []string {
+func openHolds(c Claim, records []client.Record, lifts map[int64]bool) []string {
 	closed := map[int64]bool{}
 	for _, record := range records {
 		closed[record.Resolves] = true
@@ -168,7 +169,7 @@ func openHolds(c Claim, records []client.Record) []string {
 	}
 	var out []string
 	for _, record := range records {
-		if string(record.Kind) == kindHold && !closed[record.Seq] && slices.Contains(bus.HeldBy(record, c.Repo), c.PR) {
+		if string(record.Kind) == kindHold && !closed[record.Seq] && !lifts[record.Seq] && slices.Contains(bus.HeldBy(record, c.Repo), c.PR) {
 			out = append(out, fmt.Sprintf("hold %s by %s is open", record.Name(), record.Lane))
 		}
 	}

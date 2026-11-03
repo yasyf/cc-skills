@@ -3,7 +3,9 @@ package bus_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -172,5 +174,54 @@ func TestTheFirstReadStartsThreeDaysBackAndLaterReadsFromTheCursor(t *testing.T)
 	past, err := b.ReadLegacy(context.Background(), 0, now.Add(96*time.Hour))
 	if err != nil || len(past) != 0 {
 		t.Fatalf("read four days on = %+v, %v", past, err)
+	}
+}
+
+func TestHoldLifts(t *testing.T) {
+	hold := func(seq, resolves int64) client.Record {
+		return client.Record{Seq: seq, Kind: "hold", Resolves: resolves}
+	}
+	for name, tc := range map[string]struct {
+		records []client.Record
+		targets []client.Record
+		failed  error
+		want    map[int64]bool
+		reads   int
+	}{
+		"a hold resolving a hold lifts":     {records: []client.Record{hold(5, 4)}, targets: []client.Record{hold(4, 0)}, want: map[int64]bool{5: true}, reads: 1},
+		"a hold resolving an ask holds":     {records: []client.Record{hold(5, 3)}, targets: []client.Record{{Seq: 3, Kind: "ask"}}, want: map[int64]bool{5: false}, reads: 1},
+		"a hold resolving nothing reads no": {records: []client.Record{hold(5, 0)}, want: map[int64]bool{}},
+		"another kind reads nothing":        {records: []client.Record{{Seq: 5, Kind: "note", Resolves: 4}}, want: map[int64]bool{}},
+		"a failed read fails open":          {records: []client.Record{hold(5, 3), hold(6, 0)}, failed: errors.New("cci is down"), want: map[int64]bool{5: true}, reads: 1},
+	} {
+		t.Run(name, func(t *testing.T) {
+			reads := 0
+			got, err := bus.HoldLifts(tc.records, func([]int64) ([]client.Record, error) {
+				reads++
+				return tc.targets, tc.failed
+			})
+			if !errors.Is(err, tc.failed) || reads != tc.reads || !maps.Equal(got, tc.want) {
+				t.Fatalf("lifts %v, err %v, reads %d", got, err, reads)
+			}
+		})
+	}
+}
+
+func TestHoldLiftsReadsOnceForAnyNumberOfHolds(t *testing.T) {
+	for _, n := range []int64{1, 1000} {
+		records := make([]client.Record, n)
+		for i := range n {
+			records[i] = client.Record{Seq: 2000 + i, Kind: "hold", Resolves: i + 1}
+		}
+		reads := 0
+		if _, err := bus.HoldLifts(records, func([]int64) ([]client.Record, error) {
+			reads++
+			return nil, nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if reads != 1 {
+			t.Fatalf("%d holds took %d reads", n, reads)
+		}
 	}
 }

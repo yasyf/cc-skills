@@ -81,6 +81,18 @@ func TestTonightsWrongExemptGosAreRefusedFromTheRecordsTheirPostersRead(t *testi
 	}
 }
 
+func TestAHoldThatLiftsAnEarlierHoldIsNotOpen(t *testing.T) {
+	lift := client.Record{Seq: 364345, Lane: "root", Kind: "hold", Text: "hold #48889 lift: the rework is done", Resolves: 362361}
+	claim := Claim{Repo: monorepo, PR: 48889}
+
+	if open := openHolds(claim, []client.Record{lift}, map[int64]bool{lift.Seq: true}); len(open) != 0 {
+		t.Fatalf("a lift reads as open: %q", open)
+	}
+	if open := openHolds(claim, []client.Record{lift}, nil); len(open) != 1 {
+		t.Fatalf("a hold that lifts nothing should stay open, got %q", open)
+	}
+}
+
 func TestAHoldWrittenAsProseInARootRecordStopsNoGo(t *testing.T) {
 	text, refusals := gate(recordsBefore(t, "48707", 355281), 48707, "8fcfba3211db21eb43c6dedb4a1ad6e02eda069d")
 	if len(refusals) > 0 || !strings.HasPrefix(text, "go #48707 at 8fcfba3 on green [exempt: owner-pick]") {
