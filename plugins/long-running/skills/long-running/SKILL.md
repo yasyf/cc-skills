@@ -103,7 +103,9 @@ the coordinator and to helpers it spawned itself for its own work; it never addr
 arrives, and the bridge's turn cannot end while a row is not marked responded or
 addressed (`lr owner mark <id>`). The bridge also proposes: when what it relays shows
 a structural fault, such as PRs queued behind one coordinator decision, it brings him
-the split as an option, not only the symptom.
+the split as an option, not only the symptom. It never calls `AskUserQuestion`: a pick
+goes on his board, and an urgent yes/no goes to his Slack as an ask card with buttons
+(`cc-present ask`).
 
 **The coordinator** reads reader `root`, posts as `root`, runs in a foreground
 `cci watch` loop for the life of the drive, and holds everything a root holds:
@@ -318,7 +320,9 @@ he exempted land on a go, nothing new joins them without his word, and the
 never comes back: the tap carries to every later head, and a tapped PR takes no
 behavior change. Every other owner ask is a question card from `drive.py ask-owner`
 with two to four answers and one recommended; a settled question never reaches the
-board; a card he touched stays until he submits the round. `board_watch.py` records
+board; a card he touched stays until he submits the round; nobody calls
+`AskUserQuestion`, and an urgent yes/no is the same card sent to his Slack with
+`cc-present ask`. `board_watch.py` records
 every tap as an `owner` record and a cc-notes answer. What waits on him is what
 `cci owner-waits` prints, never a runner note. The drive writes one automated Slack
 message, the merge card in his direct-message status thread; everything else is a
