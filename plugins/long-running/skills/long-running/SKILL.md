@@ -84,10 +84,11 @@ posts them to the coordinator as one
 coordinator reads them at its next tool call and its thought is never interrupted.
 It relays what the coordinator addresses to it (`--kind report --to owner-relay`)
 unchanged and the moment it arrives. It owns the dashboard and the owner updates:
-one generator (`lr update render`) feeds both, and the bridge's own helper derives
-their format from the owner's words on updates, work tracking and blockers. The
-bridge talks only to the coordinator and to helpers it spawned itself for its own
-work; it never addresses the coordinator's children, and it posts no `go`, `hold`,
+one generator (`lr update render`) feeds both from the same rows, run by its one
+standing helper `update-desk`, in the format the owner's words on updates, work
+tracking and blockers set ([owner-report-table.md](reference/owner-report-table.md),
+[owner-bridge-brief.md](reference/owner-bridge-brief.md)). The bridge talks only to
+the coordinator and to helpers it spawned itself for its own work; it never addresses the coordinator's children, and it posts no `go`, `hold`,
 `decide` or `launch`.
 
 **The coordinator** reads reader `root`, posts as `root`, runs in a foreground
@@ -110,9 +111,11 @@ owner meanwhile. It decides five things and nothing else:
    is refused by the pack.
 4. **A conflict between two owner rules** is settled in one line to the owner,
    through the bridge, naming the rule applied.
-5. **A desk's output is relayed** unchanged: the progress desk's update as a
-   `report` to the bridge, a tap card by saying nothing while the runner lands on
-   the tap.
+5. **A desk's output is relayed** unchanged: a milestone as a `report` to the
+   bridge, which then sends the owner an update, a tap card by saying nothing while
+   the runner lands on the tap. A gap the bridge's update names, a message of the
+   owner's no record carries, comes back as a `blocker` and gets a record naming the
+   lane that acts.
 
 Its own work on a deliverable, its own reads past one bounded window and its own
 waits are each a defect the hooks name. Every escalation target, brief, template,
@@ -130,7 +133,7 @@ must see something.
 | What waits on the owner | `cci owner-waits --drive <drive>` |
 | The state of PRs it must name | `ccx vcs pr status <n1> <n2> ...`, batched |
 | Every open ask, and what is landed but not live | `lr asks` (today `ledger.py summary --drive <drive>`) |
-| The owner update, complete and from sources | `lr update render` (today `owner_update.py --render`), run by the progress desk, relayed by the bridge |
+| The owner update, complete and from sources | `lr update render` (today `owner_update.py --render`), run by the bridge's `update-desk`, sent by the bridge |
 | What an incident is doing | `lr incident status <slug>` |
 | Where a lane's mail goes | `lr route <lane>` |
 | Whether an install may run now | `drive.py digest --quiet-point` |
@@ -152,7 +155,7 @@ ask, and on a lane's records piped through `tail` or `grep`.
 | Landed, not live (`lr asks`) | A landed PR whose release target has shipped nothing in an hour | One `blocker` per target with the exact release line |
 | Stalls (item deadlines; today `stall_watch.py`) | Work that stopped moving, read from the registry | Only a stall whose owner is the coordinator |
 | The owner's taps (`board_watch.py`) | Every tap, pick and write-in as an `owner` record; the runner lands on it | A pick with no lane at 30 minutes, as an `ask` |
-| The owner update and the dashboard (`lr update render`, run by the progress desk) | Every plan step, workstream, live lane under its step, open ask, pick, incident and release today, PR with a go owed or hold; every row with who is on it or **nobody**, what blocks it, what unblocks it and by when, what went wrong; unowned work first; exit 1 naming anything missing | The rendered update, which the bridge relays and the dashboard shows |
+| The owner update and the dashboard (`lr update render --sent`, run by the bridge's `update-desk`) | Every plan step, workstream, live lane under its step, open ask, pick, incident and release today, PR with a go owed or hold; every row with who is on it or **nobody**, what blocks it, what unblocks it and by when, what went wrong; unowned work first; exit 1 naming anything missing | The rendered update, which the bridge relays and the dashboard shows |
 | The handoff (`lr handoff generate`) | The pre-compaction doc with the lane registry and the rendered update | Nothing but the coordinator's own narrative |
 
 A mechanism that does not run is a defect of the drive, never a chore for a root.
@@ -284,9 +287,9 @@ brief and posts `cci post --kind ask --to root --text 'spawn <name> brief=<path>
 | Orca runner | Launches and relays to Orca workers, starts grading jobs | [orca-desk-brief.md](reference/orca-desk-brief.md) |
 | Lane supervisor | Liveness, relaunch, rotation, standing duties, alert launch, landed-not-live | [watchers.md](reference/watchers.md) |
 | Incident executor, `alerts-desk` | One incident from intake to final reply; monitor transitions as records | [active-alert-brief.md](reference/active-alert-brief.md), [alerts-desk-brief.md](reference/alerts-desk-brief.md) |
-| Progress desk | Renders and posts the owner update the bridge relays and the dashboard shows | [owner-report-table.md](reference/owner-report-table.md) |
+| `update-desk`, the bridge's one helper | Renders the owner update the bridge sends, writes the dashboard's rows from it, keeps the dashboard app up | [owner-bridge-brief.md](reference/owner-bridge-brief.md), [owner-report-table.md](reference/owner-report-table.md) |
 | `finder-desk`, fidelity desks, `red-sweep` | Grade every head; own every red with no owner | [finder-brief.md](reference/finder-brief.md), [fidelity-desk-brief.md](reference/fidelity-desk-brief.md), [red-sweep-brief.md](reference/red-sweep-brief.md) |
-| Board refresher, `drive-watchdog`, `dashboard-keeper`, `user-test` | Tap cards and records; the retro log; the dashboard; the owner played against each surface | [drive-watchdog-brief.md](reference/drive-watchdog-brief.md), [dashboard-keeper-brief.md](reference/dashboard-keeper-brief.md), [user-test-brief.md](reference/user-test-brief.md) |
+| Board refresher, `drive-watchdog`, `user-test` | Tap cards and records; the retro log; the owner played against each surface | [drive-watchdog-brief.md](reference/drive-watchdog-brief.md), [user-test-brief.md](reference/user-test-brief.md) |
 | Priority desk, merge train, sequencer, Slack lane, handoff writer | One number-one outcome; the hot set; a wait-then-do chain; a named post; a rotating lane's handoff | [priority-desk-brief.md](reference/priority-desk-brief.md), [merge-train-brief.md](reference/merge-train-brief.md), [orca-lane-brief.md](reference/orca-lane-brief.md), [slack-lane-brief.md](reference/slack-lane-brief.md), [handoff-subagent-brief.md](reference/handoff-subagent-brief.md) |
 
 ## The owner's surfaces
@@ -302,8 +305,8 @@ board; a card he touched stays until he submits the round. `board_watch.py` reco
 every tap as an `owner` record and a cc-notes answer. What waits on him is what
 `cci owner-waits` prints, never a runner note. The drive writes one automated Slack
 message, the merge card in his direct-message status thread; everything else is a
-post he named. Every update he gets is `lr update render`, relayed by the bridge
-unchanged, and the dashboard shows the same rows.
+post he named. Every update he gets is `lr update render`, sent by the bridge
+unchanged with its gaps shown, and the dashboard shows the same rows.
 
 ## Records and the task list
 
@@ -346,7 +349,7 @@ is read by every installed version.
 
 Is there a verb for this? Run it. Does it have a body? Spawn the lane with its task
 and ledger row. Is it a wait? Fold it into the lane that acts. Is it status? Relay
-the progress desk's update, or send nothing. Is it an owner message? The bridge
+the update desk's render, or send nothing. Is it an owner message? The bridge
 records the words and queues them; the coordinator applies the ruling everywhere.
 Is it an alert the supervisor has not answered? `lr incident open` and `run` now.
 Did a tool refuse, or did something go wrong twice? The fix is this turn's

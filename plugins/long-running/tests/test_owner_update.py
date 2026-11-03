@@ -1,4 +1,4 @@
-"""owner_update.py over a recorded task list, ledger, board and cci: the lines the root's update to the owner must cover."""
+"""owner_update.py over a recorded registry, task list, ledger, retro table, board and cci: the update the owner reads and the dashboard steps built from the same rows."""
 
 from __future__ import annotations
 
@@ -223,3 +223,118 @@ def test_a_table_cell_never_breaks_its_row():
 )
 def test_an_incident_record_is_filed_under_the_slug_it_opens_else_its_lane_else_the_lane_a_coordinator_addresses(lane_name, text, to, named):
     assert owner_update.incident_name({"lane": lane_name, "text": text, "to": to}) == named
+
+
+def test_a_lane_row_says_what_went_wrong_with_the_prevention_of_each_open_retro_row_it_owns():
+    found = owner_update.Sources(
+        {"release-5": lane("release-5", "desired", 10)}, {}, {}, NOW,
+        ({"owner": "release-5", "failure": "A cancel mid-apply broke prod", "mechanism": "the release tool refuses a cancel after apply starts", "state": "building", "due": stamp(-30)},
+         {"owner": "release-5", "failure": "Closed long ago", "mechanism": "fixed", "state": "live"},
+         {"owner": "other-1", "failure": "Not this lane", "mechanism": "-", "state": "open"}),
+    )
+
+    wrong = found.work(["release-5"])[3]
+
+    assert wrong.startswith("A cancel mid-apply broke prod, prevented by the release tool refuses a cancel after apply starts (building, due ")
+    assert "Closed long ago" not in wrong and "Not this lane" not in wrong
+
+
+def test_owner_words_name_the_record_that_carries_each_and_flag_the_ones_nothing_carries():
+    records = [
+        record(11, "owner-relay", "ask", "fix the five services blockers", 30),
+        record(12, "root", "go", "spawned five-fix-1", 20) | {"re": 11},
+        record(13, "owner-relay", "ask", "and the devbox", 15),
+        record(14, "owner-relay", "ask", "and the gateway", 10),
+        record(15, "root", "decide", "gateway-2 owns #14", 5),
+        record(16, "owner-relay", "ask", "and #1 in the list", 4),
+        record(17, "root", "go", "see #160 for the list", 3),
+    ]
+
+    lines, gaps = owner_update.owner_words(records)
+
+    assert [line.split(" | ")[1] for line in lines] == ["carried by root #12", "**no record carries this yet**", "carried by root #15", "**no record carries this yet**"]
+    assert lines[0].endswith('"fix the five services blockers" | carried by root #12')
+    assert gaps == ["owner words no record carries: #13", "owner words no record carries: #16"]
+
+
+def test_since_you_last_looked_names_new_rows_and_what_moved_and_nothing_that_stayed():
+    before = {"Step 1|Step 1": ["release-5", "nothing recorded", "open"], "Step 2|Step 2": ["x-1", "nothing recorded", "open"]}
+    now = {"Step 1|Step 1": ["**nobody**", "nothing recorded", "open"], "Step 2|Step 2": ["x-1", "nothing recorded", "open"], "Step 3|Step 3": ["y-1", "nothing recorded", "open"]}
+
+    assert owner_update.since_lines(now, before) == ["- Step 1: who release-5 -> **nobody**", "- new: Step 3"]
+    assert owner_update.since_lines(before, before) == []
+
+
+def test_a_dashboard_step_carries_the_same_who_blocker_unblock_and_went_wrong_as_the_update_row():
+    row = owner_update.Row("Step 3", "3. Switch the chat writer", "1 of 2 tasks done, 1 in progress, 0 blocked", "chat-1, chat-2", "chat-1 waits on root's answer to ask #9", "chat-1: head 6:01 PM: pushed; next record due by 6:31 PM", "None recorded")
+    lanes = [lane("chat-1", "desired", 5, prs=[48700, 48701]), lane("chat-2", "desired", 5, prs=[48701])]
+
+    step = owner_update.step_entry(4, "3. Switch the chat writer", "Plan, step 3", row, lanes)
+
+    assert (step["id"], step["label"], step["tone"], step["who"], step["prs"], step["lanes"]) == ("s4", "3. Switch", "moving", ["chat-1", "chat-2"], [48700, 48701], ["chat-1", "chat-2"])
+    assert (step["blocker"], step["next"], step["unblocking"], step["went_wrong"]) == (row.blocks, row.unblock, row.unblock, "None recorded")
+    nobody = owner_update.step_entry(0, "x", "s", owner_update.Row("x", "", "", "**nobody**", "nothing recorded", "", ""), [])
+    assert (nobody["tone"], nobody["who"], nobody["blocker"]) == ("later", [], None)
+
+
+class DriveRunner:
+    def __init__(self, records: list[dict], lanes: list[dict]) -> None:
+        self.records, self.lanes = records, lanes
+        self.ledgers = {
+            "abc": [ask(1, "ssql-replicator-1", "measure idle resources", 300), {"key": "48401", "fields": {"state": "open", "title": "replicator: upload", "lane": "ssql-replicator-1"}}],
+            "rl": [{"key": "retro/000001", "fields": {"failure": "The five services dropped from two updates", "mechanism": "pieces rows from the plan", "owner": "ssql-replicator-1", "due": stamp(-60), "state": "building"}}],
+        }
+
+    def __call__(self, argv: list[str], env: dict | None = None) -> subprocess.CompletedProcess:
+        if argv[1].endswith("drive_supervisor.py"):
+            return done("".join(json.dumps(row) + "\n" for row in self.lanes))
+        if argv[:2] == ["cc-present", "outcomes"]:
+            return done(json.dumps({"doc": {}, "interactions": {}}))
+        if argv[:2] == ["cci", "tail"]:
+            return done("" if "--lane" in argv else "".join(json.dumps(found) + "\n" for found in self.records))
+        if argv[:2] == ["cci", "digest"]:
+            return done(json.dumps({"open_incidents": [], "open_asks": [], "open_blockers": []}))
+        if argv[3:5] == ["ledger", "show"]:
+            return done(json.dumps({"rows": self.ledgers[argv[5]]}))
+        return done("[]")
+
+
+@pytest.fixture
+def drive_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    home = tmp_path / "claude"
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(home))
+    entry = home / "long-running/drives/d1.json"
+    entry.parent.mkdir(parents=True)
+    entry.write_text(json.dumps({"drive": DRIVE, "cci_drive": DRIVE, "sessions": [SESSION], "ledger": "abc", "checkout": str(tmp_path), "state_dir": str(tmp_path), "program": "prog"}))
+    (tmp_path / "retro.json").write_text(json.dumps({"ledger": "rl"}))
+    return tmp_path
+
+
+def test_the_update_opens_with_what_moved_and_his_words_ends_with_its_gaps_and_publishes_the_snapshot_it_diffs_against(drive_home):
+    runner = DriveRunner(
+        [
+            record(10, "ssql-replicator-1", "state", "fixing the red test", 5),
+            record(11, "owner-relay", "ask", "fix the five services blockers", 30),
+            record(12, "root", "go", "spawned five-fix-1", 20) | {"re": 11},
+            record(13, "owner-relay", "ask", "and the devbox", 15),
+            record(14, "release-5", "release", "llm-gateway live", 60),
+        ],
+        [lane("ssql-replicator-1", "desired", 10, prs=[48401], deliverable="The replicator uploads every chat")],
+    )
+
+    text, names, model = owner_update.report(DRIVE, runner, NOW)
+
+    titles = [line for line in text.splitlines() if line.startswith("## ")]
+    assert titles[:3] == [f"## Since you last looked ({owner_update.owner_waits.pacific(NOW - owner_update.DEFAULT_SINCE)})", "## Your words since the last update", "## Unowned work"]
+    assert titles[-1] == "## Gaps in this update" and "- owner words no record carries: #13" in text
+    assert '"fix the five services blockers" | carried by root #12' in text and "- new: ssql-replicator-1" in text
+    assert "The five services dropped from two updates, prevented by pieces rows from the plan (building, due " in text
+    assert owner_update.missing(text, names) == [] and model["gaps"] == ["owner words no record carries: #13"]
+    assert model["steps"]["now"]["release"]["name"] == "release-5"
+
+    owner_update.publish(model, sent=False)
+    assert (drive_home / owner_update.STEPS).is_file() and not (drive_home / owner_update.SNAPSHOT).exists()
+    owner_update.publish(model, sent=True)
+    again, _, _ = owner_update.report(DRIVE, runner, NOW)
+
+    assert again.split("## Since you last looked", 1)[1].split("\n## ", 1)[0].strip().splitlines()[-1] == owner_update.NOTHING
