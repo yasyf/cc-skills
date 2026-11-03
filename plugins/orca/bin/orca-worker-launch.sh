@@ -21,6 +21,10 @@ matches() {
   jq -ne --arg value "$1" --arg pattern "$2" '$value | test($pattern)' >/dev/null
 }
 
+repo_value() {
+  [ ! -f .orca.json ] || jq -r --arg key "$1" '.[$key] // empty | if type == "array" then join(" ") else . end' .orca.json
+}
+
 [ -f "$brief" ] || die "no brief at $brief"
 dir=$(cd "$(dirname "$brief")" && pwd) name=$(basename "$brief")
 brief=$dir/$name
@@ -58,12 +62,13 @@ if [ "$route" = sprite ]; then
     die "WORKER_BASE_BRANCH picks a local worktree's base; a Sprite checks out WORKER_REF, a branch or tag, or the cc-remote config's ref; nothing was prepared"
   [ -z "$expect" ] || matches "$expect" '\A[0-9a-f]{40}([0-9a-f]{24})?\z' ||
     die "WORKER_EXPECT_BASE is a full 40- or 64-character lowercase commit; nothing was prepared"
-  cc_remote=${WORKER_CC_REMOTE:-cc-remote}
+  cc_remote=${WORKER_CC_REMOTE:-$(repo_value ccRemote)}
+  cc_remote=${cc_remote:-cc-remote}
   command -v "$cc_remote" >/dev/null ||
     die "WORKER_CC_REMOTE names no cc-remote command at $cc_remote; nothing was prepared"
-  [ -n "${CC_REMOTE_CONFIG:-}" ] ||
-    die "set CC_REMOTE_CONFIG to the cc-remote config that names the repository a Sprite checks out; nothing was prepared"
-  config=$CC_REMOTE_CONFIG
+  config=${CC_REMOTE_CONFIG:-$(repo_value ccRemoteConfig)}
+  [ -n "$config" ] ||
+    die "set CC_REMOTE_CONFIG, or ccRemoteConfig in .orca.json, to the cc-remote config that names the repository a Sprite checks out; nothing was prepared"
   [[ $config == /* ]] || config=$PWD/$config
   export CC_REMOTE_CONFIG=$config
   payload=$(dirname "$(readlink -f "$config")")/agents-payload.json
@@ -78,9 +83,9 @@ if [ "$route" = sprite ]; then
 else
   [ "$kind" = claude ] || die "the local route starts only claude, and codex runs $model_id; nothing launched"
   [ -z "$ref$expect" ] || die "WORKER_REF and WORKER_EXPECT_BASE pick a Sprite's checkout; the local route takes WORKER_BASE_BRANCH; nothing launched"
-  repo=${WORKER_REPO:-} base=${WORKER_BASE_BRANCH:-}
-  [ -n "$repo" ] || die "set WORKER_REPO to the Orca repository the local route adds its worktree to; nothing launched"
-  [ -n "$base" ] || die "set WORKER_BASE_BRANCH to the branch a local worktree starts from; nothing launched"
+  repo=${WORKER_REPO:-$(repo_value repo)} base=${WORKER_BASE_BRANCH:-$(repo_value baseBranch)}
+  [ -n "$repo" ] || die "set WORKER_REPO, or repo in .orca.json, to the Orca repository the local route adds its worktree to; nothing launched"
+  [ -n "$base" ] || die "set WORKER_BASE_BRANCH, or baseBranch in .orca.json, to the branch a local worktree starts from; nothing launched"
   worktree=$lane-$(printf '%s' "$run" | shasum -a 256 | cut -c1-8)
 fi
 
@@ -202,8 +207,8 @@ wt=${created:-$existing}
 [ -n "$wt" ] || die "no worktree named $worktree"
 printf '%s\n' "$worktree" >"$attempt/worktree"
 sparse=
-if [ -z "$existing" ] && [ -n "${WORKER_SPARSE:-}" ]; then
-  read -ra cone <<<"$WORKER_SPARSE"
+read -ra cone <<<"$(repo_value sparse) ${WORKER_SPARSE:-}"
+if [ -z "$existing" ] && [ ${#cone[@]} -gt 0 ]; then
   git -C "$wt" sparse-checkout set --cone "${cone[@]}"
   widen="git -C $wt sparse-checkout add <dir>"
   echo "$wt is sparse: widen with $widen" >&2

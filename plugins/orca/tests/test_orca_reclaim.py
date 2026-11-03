@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import io
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -12,7 +13,7 @@ from importlib.machinery import SourceFileLoader
 from pathlib import Path
 from unittest import mock
 
-SCRIPT = Path(__file__).resolve().parents[1] / "skills/long-running/scripts/orca-reclaim.py"
+SCRIPT = Path(__file__).resolve().parents[1] / "bin/orca-reclaim.py"
 loader = SourceFileLoader("orca_gc", str(SCRIPT))
 orca_gc = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
 sys.modules[loader.name] = orca_gc
@@ -1228,6 +1229,34 @@ class OrcaArgvTest(unittest.TestCase):
     def test_remove_refusal_names_the_code_and_message(self):
         orca = RecordingOrca({"ok": False, "error": {"code": "worktree_dirty", "message": "uncommitted changes"}})
         self.assertEqual(orca.remove(WT), "worktree_dirty: uncommitted changes")
+
+
+
+PROBE = """
+import importlib.util, json, os, sys
+spec = importlib.util.spec_from_file_location("orca_gc", sys.argv[1])
+gc = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(gc)
+print(json.dumps([gc.CC_REMOTE, os.environ.get("CC_REMOTE_CONFIG")]))
+"""
+
+
+class RepoValuesTest(unittest.TestCase):
+    def cc_remote(self, cwd: Path, **env: str) -> list:
+        inherited = {key: value for key, value in os.environ.items() if key not in ("WORKER_CC_REMOTE", "CC_REMOTE_CONFIG")}
+        done = subprocess.run([sys.executable, "-c", PROBE, str(SCRIPT)], cwd=cwd, env={**inherited, **env}, capture_output=True, text=True, check=True)
+        return json.loads(done.stdout)
+
+    def test_a_checkouts_orca_json_names_the_cc_remote_pair_the_environment_leaves_unset(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            checkout = Path(tmp).resolve()
+            (checkout / ".orca.json").write_text(json.dumps({"ccRemote": "tools/cc-remote", "ccRemoteConfig": "tools/config.yaml"}))
+            self.assertEqual(self.cc_remote(checkout), ["tools/cc-remote", str(checkout / "tools/config.yaml")])
+            self.assertEqual(self.cc_remote(checkout, WORKER_CC_REMOTE="/opt/cc-remote", CC_REMOTE_CONFIG="/etc/cc.yaml"), ["/opt/cc-remote", "/etc/cc.yaml"])
+
+    def test_a_checkout_without_an_orca_json_runs_cc_remote_from_path_under_the_inherited_config(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(self.cc_remote(Path(tmp)), ["cc-remote", None])
 
 
 if __name__ == "__main__":

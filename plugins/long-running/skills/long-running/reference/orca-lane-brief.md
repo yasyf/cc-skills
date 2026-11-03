@@ -25,7 +25,7 @@ With `ORCA_LAUNCH_SPARSE=1`, in a repo whose HEAD tracks more than 5,000 files, 
 
 The flag `cpu=high` marks a sweep or heavy research lane. Under O16 in `reference/orca-desk-brief.md`, `place=remote` sends a lane to a Sprite and `place=local` keeps it on the Mac. With neither flag set, every ordinary lane goes to a Sprite on the orca desk, fail with `LAUNCH-FAILED` without `orca.sprite`, and never start locally when a Sprite launch fails.
 
-For implementation lanes, prefer the repository's canonical remote entrypoint when it provides one. In `Forge-AI/monorepo`, follow [the Orca skill](https://github.com/Forge-AI/monorepo/blob/dev/.agents/skills/orca/SKILL.md), which defaults to Sprite prepare+attach and the already-owned native Run with its sole inbox consumer. The orca desk calls it for ordinary lanes by default under O16 in `reference/orca-desk-brief.md` and runs local lanes through `lr launch start`. Preserve explicit model, effort, and Codex service tier.
+For implementation lanes, prefer the repository's canonical remote entrypoint when it provides one. In a repository with an `.orca.json`, follow the `orca` plugin's `orca` skill, which defaults to Sprite prepare+attach and the already-owned native Run with its sole inbox consumer. The orca desk calls it for ordinary lanes by default under O16 in `reference/orca-desk-brief.md` and runs local lanes through `lr launch start`. Preserve explicit model, effort, and Codex service tier.
 
 Canonical remote workers use home Dispatch messages and the repository skill's source-return workflow. Namespace runs on regular Compute through an explicit config and stays opt-in, so the desk never launches there. Native recipe-picker enablement is a separate surface.
 

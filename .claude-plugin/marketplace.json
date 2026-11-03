@@ -138,6 +138,11 @@
       "version": "0.7.37"
     },
     {
+      "name": "orca",
+      "source": "./plugins/orca",
+      "description": "Launch Orca workers on a Sprite or a local worktree, reclaim what a settled Dispatch left behind, and diagnose a stuck lane, with a repository's values checked in once as .orca.json."
+    },
+    {
       "name": "long-running",
       "source": {
         "source": "git-subdir",

@@ -1,6 +1,6 @@
 # Orca Sprite workers
 
-This guide is the drive's copy of monorepo's `.agents/skills/orca`, which stays in monorepo. Drive changes land here, since the owner ruled at 3:02 AM Nov 2 that no drive tooling is added to monorepo. Its tools are `lr launch worker`, `lr gc` and `scripts/coordinator-waiter.sh`, and `coordinator-waiter.sh` is on PATH through the plugin's `bin/`.
+This guide is the drive's variant of the `orca` plugin's `orca` skill, which this pack depends on and which carries `orca-worker-launch.sh`, `orca-reclaim.py` and the `orca-doctor` agent. Drive changes land here. Its tools are `lr launch worker`, `lr gc` and `scripts/coordinator-waiter.sh`, and `coordinator-waiter.sh` is on PATH through the plugin's `bin/`.
 
 Load the version-matched guides first: `orca skills get orca-cli` and
 `orca skills get orchestration`. This skill defines the repository's worker
