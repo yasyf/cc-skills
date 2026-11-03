@@ -68,7 +68,7 @@ func (c *Clobbers) Pass(ctx context.Context) error {
 }
 
 func (c *Clobbers) landed(ctx context.Context, read string) (string, []string, error) {
-	listed, err := c.git(ctx, gitLimit, "ls-remote", "origin", "refs/heads/"+c.Trunk)
+	listed, err := c.git(ctx, gitLimit, "ls-remote", "--heads", "origin", "refs/heads/"+c.Trunk)
 	if err != nil {
 		return "", nil, err
 	}
