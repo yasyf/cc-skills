@@ -1195,6 +1195,43 @@ func TestALaneCopiedOnAnotherLanesStandDownStillTakesItsRelay(t *testing.T) {
 	}
 }
 
+func TestASuccessorWhoseBriefQuotesItsPredecessorStillTakesItsRelay(t *testing.T) {
+	w := newDeskWorld(t)
+	brief := w.brief(testLane, testBrief+"ccx: place=local\nYour predecessor posted with `cci post --lane old-lane --kind note`.\n")
+	w.lines()
+	w.line(launchText(testLane, brief))
+	w.launchOut[testLane] = w.launched(testLane, testDispatch, testTerminal)
+	w.lines()
+	w.step(w.desk.deliver)
+	w.step(w.desk.reap)
+	w.live(testLane, testDispatch, testTerminal)
+	names, err := w.desk.names(testLane)
+	if err != nil || !slices.Contains(names, "old-lane") {
+		t.Fatal(names, err)
+	}
+	w.add(object{"lane": supervisorLane, "kind": kindStandDown, "text": "old-lane handed over", "to": []string{"old-lane"}, "fields": object{"attrs": object{"successor": testLane}}})
+	w.line("R2 (5:01 PM) orca-desk: relay to lane-a: go")
+	w.lines()
+	w.step(w.desk.deliver)
+	if action := w.action(testLane, "R2"); action.Status == incident.ActionFailed {
+		t.Fatal(action)
+	}
+}
+
+func TestOnlyTheFirstLaneOfARootStandDownEndsItsIncident(t *testing.T) {
+	w := newDeskWorld(t)
+	w.add(object{"kind": kindStandDown, "text": "another-lane stands down", "to": []string{"another-lane", "api-fix"}})
+	ended, err := w.desk.incidentEnd(context.Background(), "api-fix", "api-fix", zeroTime)
+	if err != nil || ended != "" {
+		t.Fatal(ended, err)
+	}
+	stop := w.add(object{"kind": kindStandDown, "text": "api-fix stands down", "to": []string{"api-fix"}})
+	ended, err = w.desk.incidentEnd(context.Background(), "api-fix", "api-fix", zeroTime)
+	if want := fmt.Sprintf("#%d STAND-DOWN %s", stop.Seq, coordinatorLane); err != nil || ended != want {
+		t.Fatal(ended, err)
+	}
+}
+
 func TestARelayWaitsForALaunchInFlight(t *testing.T) {
 	w := newDeskWorld(t)
 	brief := w.brief(testLane, testBrief+"ccx: place=local\n")

@@ -345,7 +345,7 @@ func (d *Desk) incidentEnd(ctx context.Context, first, lane string, reported tim
 		}
 		kind := string(record.Kind)
 		ownersEnded := slices.Contains(owners, record.Lane) && slices.Contains(incidentEnds, kind)
-		rootEnded := record.Lane == coordinatorLane && (kind == kindStandDown || kind == kindStopped) && addressed(record, audience)
+		rootEnded := record.Lane == coordinatorLane && (kind == kindStandDown || kind == kindStopped) && standsDown(record, audience)
 		laneStopped := slices.Contains(own, record.Lane) && kind == kindStopped && !reported.IsZero() && record.At.Before(reported)
 		if ownersEnded || rootEnded || laneStopped {
 			return fmt.Sprintf("#%d %s %s", record.Seq, strings.ToUpper(kind), record.Lane), nil
@@ -392,7 +392,7 @@ func (d *Desk) laneStoodDown(ctx context.Context, lane string) (string, error) {
 
 func standsDown(record client.Record, names []string) bool {
 	if string(record.Kind) == kindStandDown && len(record.To) > 0 {
-		return slices.Contains(names, record.To[0])
+		return slices.Contains(names, record.To[0]) && !slices.Contains(names, record.Fields.Attrs["successor"])
 	}
 	return addressed(record, names)
 }
