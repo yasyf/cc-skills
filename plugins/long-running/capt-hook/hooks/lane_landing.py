@@ -6,7 +6,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from captain_hook import Allow, BaseHookEvent, Call, Event, HookResult, Input, Tool, TranscriptFixture, Warn, on
+from captain_hook import Allow, BaseHookEvent, Block, Call, Event, HookResult, Input, Tool, TranscriptFixture, Warn, on
 from captain_hook.annotations import dispatch_prompt, header_lines, session_annotations
 from captain_hook.util import reqenv
 
@@ -18,7 +18,7 @@ LANDERS = re.compile(r"^(?:desk-runner|merge-train)(?:-.+)?$|^(?:\w+-)*desk(?:-\
 TEAMMATE_NAME = re.compile(r"^a(?P<name>.+)-[0-9a-f]{16}$")
 QUEUE_LABELS = frozenset({"merge", "merge-fast"})
 LABEL_FIELDS = frozenset({"labels[]", "labels"})
-LABELS_ENDPOINT = re.compile(r"(?:^|/)repos/[^/]+/[^/]+/issues/\d+/labels(?:\?|$)")
+LABELS_ENDPOINT = re.compile(r"(?:^|/)repos/[^/]+/[^/]+/issues/(?P<pr>\d+)/labels(?:\?|$)")
 READ_ONLY_ENQUEUE = frozenset({"--check", "--status", "-h", "--help"})
 ENQUEUERS = frozenset({"stack-enqueue", "ci trunk submit", "gh stack merge"})
 MERGERS = frozenset({"gh pr merge", "ccx vcs merge"})
@@ -37,6 +37,10 @@ RULING_KINDS = frozenset({"ready", "go", "decide", "decision"})
 READY_TEXT = re.compile(r"^\W*READY\b")
 FIXTURES = Path(__file__).parent / "tests" / "fixtures"
 DRIVE_ENV = {"CLAUDE_LONG_RUNNING_DRIVE": "900424b6", "CLAUDE_CONFIG_DIR": str(FIXTURES / "claude-config")}
+MONOREPO = "forge-ai/monorepo"
+MONOREPO_ENV = {"CLAUDE_LONG_RUNNING_DRIVE": "5c0e81aa", "CLAUDE_CONFIG_DIR": str(FIXTURES / "gate5-config")}
+MONOREPO_GATE = "lr landing gate --config /s/durable-agents-rebuild/lr.json"
+UNTAPPED = "#36023 0123456789 TAP-REQUIRED no approval on the owner's board at this head\n"
 ACTIVE = [CompactionState(active=True, coordinator=True)]
 LANE = "alane-a-0123456789abcdef"
 DESK = "alanding-desk-0123456789abcdef"
@@ -73,6 +77,12 @@ HAND_ENQUEUE_TAP_REFUSAL = (
     "A coordinator go is no tap: wait for his approval on the board row at that head, then enqueue."
 )
 TAP_REFUSAL = "TAP-REQUIRED"
+GATE_UNREAD = "Warning, nothing was refused:"
+HAND_LANDING_REFUSAL = (
+    "A hand landing needs the owner's tap at the head it lands, and the landing runner's own read finds none: {lines}. "
+    "Ask him for the tap with a card on the board at that head, or report the PR with `ledger.py report` and let the landing runner land it."
+)
+TAP_UNREAD = "Warning, nothing was blocked: the owner's tap did not read for this landing, so it goes ahead unchecked for it: {failure}"
 ADMIN_MERGE_REFUSAL = (
     "Warning, nothing was blocked: Incident fixes merge by plain squash once approved and green, never past review, so lane `{lane}` may not run `{verb} --admin`. "
     "Wait for the approval and the required checks, then run `{verb} <N> --squash`."
@@ -342,28 +352,94 @@ def gate_args(call: Call) -> list[str]:
     return [*prs, *{"--partial"} & set(args)] if prs and not NOT_AN_ENQUEUE & set(args) else []
 
 
+def landed_prs(call: Call, verb: str, repo: str, cwd: str) -> list[str] | None:
+    """The `lr landing gate` operands for one hand landing: the PRs it lands, with `--partial` unless a `stack-enqueue` takes whole stacks; None when the PR it lands does not read."""
+    if verb == "stack-enqueue":
+        return gate_args(call)
+    if verb in MERGERS or verb == "gh stack merge":
+        found = PULL.fullmatch(merge_target(call)[0])
+        merged = (found["pr"], "") if found else merged_pr(call, repo, cwd)
+        return None if merged is None else [merged[0], "--partial"]
+    if verb == "gh api labels":
+        prs = [found["pr"] for arg in call.args if (found := LABELS_ENDPOINT.search(arg))]
+    else:
+        prs = [arg for arg in program((call.name, *call.args))[1:] if arg.isdigit()]
+    return [*prs, "--partial"] if prs else None
+
+
+def gate_failure(done: subprocess.CompletedProcess[str] | None) -> str | None:
+    if done is None:
+        return "`lr landing gate` did not run or timed out"
+    if done.returncode not in (0, 1):
+        return f"`lr landing gate` exited {done.returncode}: {done.stderr.strip()}"
+    return done.stderr.strip() if done.stderr.startswith(GATE_UNREAD) else None
+
+
 @on(
     Event.PreToolUse,
     only_if=[Tool("Bash")],
     tests={
-        Input(command=ENQUEUE, agent_id=DESK, env=DRIVE_ENV, state=ACTIVE): Allow(),
+        Input(command=ENQUEUE, agent_id=DESK, env=DRIVE_ENV, state=ACTIVE, commands={"lr landing gate": ""}): Allow(),
         Input(command="stack-enqueue 36023 --check", env=DRIVE_ENV): Allow(),
         Input(command="stack-enqueue 36023 --dequeue", env=DRIVE_ENV): Allow(),
         Input(command=ENQUEUE): Allow(),
+        Input(command="gh pr merge 36023 -R Forge-AI/monorepo --squash", agent_id=LANE, env=MONOREPO_ENV, commands={f"{MONOREPO_GATE} 36023 --partial": UNTAPPED}): Block(
+            pattern=r"^A hand landing needs the owner's tap .*: #36023 0123456789 TAP-REQUIRED .*\. Ask him for the tap with a card .* or report the PR"
+        ),
+        Input(command="gh pr merge 36023 -R Forge-AI/monorepo --squash", env=MONOREPO_ENV, commands={f"{MONOREPO_GATE} 36023 --partial": UNTAPPED}): Block(),
+        Input(command="stack-enqueue 36023", agent_id=LANE, env=MONOREPO_ENV, commands={f"{MONOREPO_GATE} 36023": UNTAPPED}): Block(pattern=r"#36023 0123456789 TAP-REQUIRED"),
+        Input(command="gh api repos/Forge-AI/monorepo/issues/36023/labels -f 'labels[]=merge'", agent_id=LANE, env=MONOREPO_ENV, commands={f"{MONOREPO_GATE} 36023 --partial": UNTAPPED}): Block(),
+        Input(command="gh pr merge 36023 -R Forge-AI/monorepo --squash", agent_id=LANE, env=MONOREPO_ENV, commands={f"{MONOREPO_GATE} 36023 --partial": ""}): Allow(),
+        Input(
+            command="gh pr merge https://github.com/Forge-AI/monorepo/pull/36023 --squash --match-head-commit fedcba9876543210fedcba9876543210fedcba98",
+            agent_id=LANE,
+            env=MONOREPO_ENV,
+            commands={f"{MONOREPO_GATE} 36023 --partial": ""},
+        ): Allow(),
+        Input(command="gh pr merge 44811 -R Forge-AI/monorepo --squash", agent_id=FIX_LANE, env=MONOREPO_ENV, transcript=sliced_brief("inc-fixruns-fix", "incident"), commands={MONOREPO_GATE: UNTAPPED}): Allow(),
+        Input(command="gh pr merge 81 -R yasyf/cc-inbox --squash --admin", agent_id=LANE, env=MONOREPO_ENV, commands={MONOREPO_GATE: UNTAPPED}): Allow(),
+        Input(command="gh pr merge 36023 -R Forge-AI/monorepo --squash", agent_id="adesk-runner-0123456789abcdef", env=MONOREPO_ENV, commands={MONOREPO_GATE: UNTAPPED}): Allow(),
+        Input(command="gh pr merge 36023 -R Forge-AI/monorepo --squash", agent_id=LANE, env=MONOREPO_ENV, commands={MONOREPO_GATE: (2, "lr: the store is locked")}): Warn(
+            pattern=r"^Warning, nothing was blocked: the owner's tap did not read for this landing, .*: `lr landing gate` exited 2: lr: the store is locked"
+        ),
+        Input(command="stack-enqueue 36023", agent_id=DESK, env=MONOREPO_ENV, commands={f"{MONOREPO_GATE} 36023": UNTAPPED}): Warn(pattern=r"^Warning, nothing was blocked: A hand `stack-enqueue` lands nothing"),
+        Input(command="gh pr merge 36023 -R Forge-AI/monorepo --squash", commands={MONOREPO_GATE: UNTAPPED}): Allow(),
     },
 )
-def hand_enqueue_meets_the_runner_checks(evt: BaseHookEvent) -> HookResult | None:
+def hand_landings_meet_the_runner_checks(evt: BaseHookEvent) -> HookResult | None:
     if (entry := drive_entry(evt)) is None:
         return None
-    gates = [args for call in evt.cmd.calls() if landing_verb(call) == "stack-enqueue" and not outside_drive_repo(evt, call, entry) and (args := gate_args(call))]
-    if not gates:
-        return None
-    config = Path(entry["state_dir"]) / "lr.json"
-    runs = [run_quietly(["lr", "landing", "gate", "--config", str(config), *args], str(evt.cwd)) for args in gates]
-    failing = [line for done in runs if done is not None and done.returncode == 1 for line in done.stdout.splitlines() if line.strip()]
-    if untapped := [line for line in failing if TAP_REFUSAL in line]:
-        return evt.context(HAND_ENQUEUE_TAP_REFUSAL.format(lines="; ".join(untapped)))
-    return evt.context(HAND_ENQUEUE_WARNING.format(lines="; ".join(failing))) if failing else None
+    lander = bool(LANDERS.match(lane := lane_name(evt) or ""))
+    incident = incident_lane(evt, lane)
+    monorepo = entry["repo"].casefold() == MONOREPO
+    config = str(Path(entry["state_dir"]) / "lr.json")
+    untapped: list[str] = []
+    failing: list[str] = []
+    unread: list[str] = []
+    for call in evt.cmd.calls():
+        if not (verb := landing_verb(call)) or outside_drive_repo(evt, call, entry):
+            continue
+        if verb != "stack-enqueue" and (lander or not monorepo or incident and verb in MERGERS):
+            continue
+        cwd = str(call.cwd or evt.cwd)
+        if (args := landed_prs(call, verb, named_repo(call) or entry["repo"], cwd)) is None:
+            unread.append(f"`{verb}` names no PR that reads")
+            continue
+        if not args:
+            continue
+        done = run_quietly(["lr", "landing", "gate", "--config", config, *args], cwd)
+        if failure := gate_failure(done):
+            unread.append(failure)
+            continue
+        lines = [line.strip() for line in done.stdout.splitlines() if line.strip()]
+        untapped += [line for line in lines if TAP_REFUSAL in line]
+        failing += [line for line in lines if TAP_REFUSAL not in line and verb == "stack-enqueue"]
+    if untapped and monorepo and not lander:
+        return evt.block(HAND_LANDING_REFUSAL.format(lines="; ".join(untapped)))
+    notes = [TAP_UNREAD.format(failure=failure) for failure in unread]
+    notes += [HAND_ENQUEUE_TAP_REFUSAL.format(lines="; ".join(untapped))] if untapped else []
+    notes += [HAND_ENQUEUE_WARNING.format(lines="; ".join(failing))] if failing else []
+    return evt.context("\n".join(notes)) if notes else None
 
 
 def merge_target(call: Call) -> tuple[str, str]:
