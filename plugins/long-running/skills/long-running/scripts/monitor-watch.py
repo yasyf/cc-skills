@@ -29,7 +29,9 @@ With --alert-drive, each move from a known state into Alert or Warn also posts o
 ALERT-POST-FAIL with the line when cci refuses it. The orca desk runner
 records the transition and launches nothing; the alerts desk launches an incident
 lane only when it judges one necessary. A monitor seen for the first time never
-appends one.
+appends one. A read that succeeds also posts one `state` record as monitor-watch
+when the last one is 15 minutes old or there is none, so the supervisor hears the
+watcher while nothing alerts; a watcher that stops reading goes quiet and is held.
 
 once reads one time. watch reads every --interval seconds, default 60, until
 --timeout seconds pass, default 1740, so a Monitor re-arms it before its own
@@ -37,6 +39,7 @@ once reads one time. watch reads every --interval seconds, default 60, until
 only what changed while it was down.
 """
 
+ALIVE_EVERY = 15 * 60
 LOUD = {"Alert", "Warn", "No Data"}
 PAGING = {"Alert", "Warn"}
 
@@ -90,7 +93,22 @@ def poll(args: argparse.Namespace, failing: bool) -> bool:
     with open(args.state + ".new", "w") as out:
         json.dump(states, out)
     os.replace(args.state + ".new", args.state)
+    if args.alert_drive:
+        report_alive(args, len(states))
     return False
+
+
+def report_alive(args: argparse.Namespace, watching: int) -> None:
+    marker = args.state + ".alive"
+    if os.path.exists(marker) and time.time() - os.path.getmtime(marker) < ALIVE_EVERY:
+        return
+    line = f"monitor-watch: watching {watching} monitors"
+    posted = subprocess.run(["cci", "post", "--drive", args.alert_drive, "--lane", "monitor-watch", "--kind", "state", "--text", line], capture_output=True, text=True)
+    if posted.returncode:
+        print(f"{utc()} STATE-POST-FAIL {(posted.stderr or posted.stdout).strip()[:200]} | {line}", flush=True)
+        return
+    open(marker, "w").close()
+    os.utime(marker)
 
 
 def main() -> None:
