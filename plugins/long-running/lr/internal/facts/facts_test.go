@@ -751,14 +751,14 @@ func TestAHoldStandsAgainstEveryGoThatIsNotALaterLiveRootGo(t *testing.T) {
 	}
 }
 
-func TestARootGoNeverLiftsTheOwnersHold(t *testing.T) {
+func TestARootGoNeverLiftsTheOwnersHoldAndTheRowNamesTheOwnersRecord(t *testing.T) {
 	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
-	hold(t, "owner", "hold #1 for me", repo+"#1")
+	owner := hold(t, "owner", "hold #1 for me", repo+"#1")
 	hold(t, "root", "hold #1 too", repo+"#1")
 	goRecord(t, "root", "go #1 at e718a74")
 
-	if row := h.snapshot(t)[1]; row.Hold != machine.MoverOwner {
-		t.Fatalf("hold = %q, want owner", row.Hold)
+	if row := h.snapshot(t)[1]; row.Hold != machine.MoverOwner || row.HoldSeq != owner.Seq {
+		t.Fatalf("hold = %q at #%d, want owner at #%d", row.Hold, row.HoldSeq, owner.Seq)
 	}
 }
 

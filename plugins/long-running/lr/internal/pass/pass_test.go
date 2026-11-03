@@ -540,7 +540,7 @@ func TestAHeldOrUntappedConflictIsNeitherActedOnNorEscalatedWhileLandingIsLive(t
 
 func TestAHoldOverdueReachesRootOnceLandingIsLive(t *testing.T) {
 	s, r := newStore(t), &recorder{}
-	held := facts(48401, func(f *machine.Facts) { f.Hold = machine.MoverRoot })
+	held := facts(48401, func(f *machine.Facts) { f.Hold, f.Tap = machine.MoverRoot, "" })
 
 	run(t, s, r, t0, []machine.Mover{machine.MoverSupervisor}, held)
 	run(t, s, r, t0.Add(machine.OwnerClock), []machine.Mover{machine.MoverSupervisor}, held)
@@ -549,6 +549,31 @@ func TestAHoldOverdueReachesRootOnceLandingIsLive(t *testing.T) {
 	want := []posted{{[]string{"root"}, overdue}}
 	if !reflect.DeepEqual(r.of(overdue.Kind()), want) {
 		t.Fatalf("posts = %+v", r.posts)
+	}
+}
+
+func TestATappedHeadUnderAHoldAsksTheCoordinatorOnceAndAnUntappedOneWaitsOnTheOwner(t *testing.T) {
+	s, r := newStore(t), &recorder{}
+	supervisor := []machine.Mover{machine.MoverSupervisor}
+	tapped := facts(48401, func(f *machine.Facts) { f.Hold, f.HoldSeq = machine.MoverRoot, 372915 })
+	untapped := facts(48402, func(f *machine.Facts) { f.Hold, f.HoldSeq, f.Tap = machine.MoverRoot, 372916, "" })
+	pushed := tapped
+	pushed.Head = newHead
+
+	run(t, s, r, t0, supervisor, tapped, untapped)
+	run(t, s, r, t0.Add(3*time.Minute), supervisor, tapped, untapped)
+	run(t, s, r, t0.Add(6*time.Minute), supervisor, pushed, untapped)
+
+	decide := "DECIDE: the owner tapped this head while hold #372915 stands; lift the hold, or tell the owner why not"
+	want := []posted{
+		{[]string{"root"}, bus.Escalation{Subject: "org/repo#48401 at e718a7434f", Cause: decide}},
+		{[]string{"root"}, bus.Escalation{Subject: "org/repo#48401 at aa11bb22cc", Cause: decide}},
+	}
+	if !reflect.DeepEqual(r.posts, want) {
+		t.Fatalf("posts = %+v", r.posts)
+	}
+	if item := openOne(t, s, 48402); item.Mover != machine.MoverRoot || !item.Deadline.Equal(t0.Add(machine.OwnerClock)) {
+		t.Fatalf("untapped item = %+v, want root's lift on the owner's clock", item)
 	}
 }
 

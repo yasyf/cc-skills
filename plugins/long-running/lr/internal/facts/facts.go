@@ -489,7 +489,12 @@ func (s Source) withOpenItems(open []int) ([]int, error) {
 	return slices.Compact(all), nil
 }
 
-func (s Source) holds(ctx context.Context) (map[int]machine.Mover, error) {
+type hold struct {
+	by  machine.Mover
+	seq int64
+}
+
+func (s Source) holds(ctx context.Context) (map[int]hold, error) {
 	records, err := client.Open(ctx, s.Drive, "hold")
 	if err != nil || len(records) == 0 {
 		return nil, err
@@ -504,7 +509,7 @@ func (s Source) holds(ctx context.Context) (map[int]machine.Mover, error) {
 	if err != nil {
 		s.Log.Warn("could not read what holds resolve, so each counts as a lift", "error", err)
 	}
-	held := make(map[int]machine.Mover)
+	held := make(map[int]hold)
 	for _, record := range records {
 		if lifts[record.Seq] {
 			continue
@@ -514,16 +519,16 @@ func (s Source) holds(ctx context.Context) (map[int]machine.Mover, error) {
 			lifted := slices.ContainsFunc(gos, func(g client.Record) bool { return g.Seq > record.Seq && bus.GoNames(g, pr) })
 			switch {
 			case byOwner:
-				held[pr] = machine.MoverOwner
-			case !lifted && held[pr] != machine.MoverOwner:
-				held[pr] = machine.MoverRoot
+				held[pr] = hold{machine.MoverOwner, record.Seq}
+			case !lifted && held[pr].by != machine.MoverOwner:
+				held[pr] = hold{machine.MoverRoot, record.Seq}
 			}
 		}
 	}
 	return held, nil
 }
 
-func (s Source) assemble(rows []statusRow, open openRead, required []string, held map[int]machine.Mover) ([]machine.Facts, error) {
+func (s Source) assemble(rows []statusRow, open openRead, required []string, held map[int]hold) ([]machine.Facts, error) {
 	if len(rows) == 0 {
 		return nil, nil
 	}
@@ -549,7 +554,7 @@ func (s Source) assemble(rows []statusRow, open openRead, required []string, hel
 		if err != nil {
 			return nil, err
 		}
-		f.Hold, f.Carries = held[row.Number], open.carries[row.Number]
+		f.Hold, f.HoldSeq, f.Carries = held[row.Number].by, held[row.Number].seq, open.carries[row.Number]
 		if f.Tap == "" {
 			f.TapFrom, err = s.Store.StandingTap(s.Repo, row.Number)
 			if err != nil {
