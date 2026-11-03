@@ -31,8 +31,9 @@ lr coordinator next --drive <drive> --cursor <state dir>/root/next.cursor
 
 Run it as a foreground Bash call with `timeout: 590000`. It returns within 5 minutes
 with every record addressed to root, and at once for anything from `owner-relay`, an
-incident, a mechanism, a fix-live or an urgent. Post every reply to a batch in one call,
-then run it again. Never wait with a Monitor, `cci watch` or `sleep`.
+incident, a mechanism, a fix-live or an urgent. A record's body of up to 4000 bytes prints
+in the batch, so it needs no `cci show`; a longer one prints as a path for lane `chores` to
+read. Post every reply to a batch in one call, then run it again. Never wait with a Monitor, `cci watch` or `sleep`.
 
 Post that `cci me` line to the communicator as a `report` to `owner-relay`. A claim refused as
 a second binder of `root` means another live window still holds the lane; report it to
