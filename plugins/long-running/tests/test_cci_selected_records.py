@@ -7,12 +7,18 @@ from long_running import cci
 
 def test_a_hold_that_resolves_an_earlier_hold_is_a_lift_and_one_that_answers_an_ask_still_holds():
     rows = [
-        {"seq": 4, "kind": "hold", "drive": "d1", "text": "hold #29020", "refs": {}, "status": "closed"},
-        {"seq": 5, "kind": "hold", "drive": "d1", "text": "hold #29020 lift: done", "refs": {}, "resolves": 4, "status": "open"},
-        {"seq": 7, "kind": "hold", "drive": "d1", "text": "hold #29021", "refs": {}, "resolves": 6, "status": "open"},
+        {"seq": 4, "kind": "hold", "drive": "d1", "text": "hold #29020", "refs": {"prs": [29020]}, "status": "closed"},
+        {"seq": 5, "kind": "hold", "drive": "d1", "text": "hold #29020 lift: done", "refs": {"prs": [29020]}, "resolves": 4, "status": "open"},
+        {"seq": 7, "kind": "hold", "drive": "d1", "text": "hold #29021", "refs": {"prs": [29021]}, "resolves": 6, "status": "open"},
     ]
 
     assert cci.held_prs(lambda _: "\n".join(map(json.dumps, rows)), "d1") == {"29021": 7}
+
+
+def test_a_hold_holds_the_prs_it_was_posted_with_and_none_its_text_cites():
+    rows = [{"seq": 8, "kind": "hold", "drive": "d1", "text": "hold #2 until the cutover, behind #2", "refs": {"prs": ["Forge-AI/monorepo#1"]}, "status": "open"}]
+
+    assert cci.held_prs(lambda _: "\n".join(map(json.dumps, rows)), "d1") == {"1": 8}
 
 
 def test_selected_records_complete_statuses_missing_and_order():

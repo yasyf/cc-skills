@@ -385,7 +385,11 @@ func TestAPRItsLaneReportedHeldAtItsCurrentHeadOwesNoWork(t *testing.T) {
 	if err := json.Unmarshal([]byte(`{"seq":4,"lane":"root","kind":"hold","at":"2026-10-31T17:00:00Z","text":"typed","refs":{"prs":["o/r#46109"]}}`), &typed); err != nil {
 		t.Fatal(err)
 	}
-	bus := &fakeBus{open: []client.Record{{Seq: 1, Text: "hold #46107: no work owed #9"}, typed}}
+	var cites client.Record
+	if err := json.Unmarshal([]byte(`{"seq":1,"lane":"root","kind":"hold","text":"hold #9: no work owed #9","refs":{"prs":["o/r#46107"]}}`), &cites); err != nil {
+		t.Fatal(err)
+	}
+	bus := &fakeBus{open: []client.Record{cites, typed}}
 	env := Env{Bus: bus, Config: config.Config{Drive: "durable", Checkout: "/checkout"}, Claude: t.TempDir(), Runner: scripted(func(argv []string) (shell.Result, error) {
 		contains(t, strings.Join(argv, " "), "ledger.py -C /checkout list --drive durable --open --json")
 		return shell.Result{Stdout: `[{"pr":"47794","head":"847e655aaaa","reported_head":"847e655","reported_verdict":"held"},{"pr":"47708","head":"70284afbbbb","reported_head":"39c21ff","reported_verdict":"held"},{"pr":"47851","head":"1234567cccc","reported_head":"1234567","reported_verdict":"clean"}]`}, nil
