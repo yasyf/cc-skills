@@ -329,6 +329,16 @@ def test_a_root_go_no_queued_record_names_goes_to_whoever_holds_its_next_step_an
     assert "fix the red build of #102 at fedcba9" in shell.post("go:102:fedcba9")["text"]
 
 
+
+def test_a_root_go_after_an_open_hold_lifts_it_so_the_go_stall_names_the_next_step(config):
+    records = [head(1, "101", HEAD, 30), finder(2, "101", HEAD, 25), fidelity(3, "101", HEAD, 25), hold(4, "hold #101 until the env teardown applies", "101"), record(5, "root", "go", f"go #101 at {HEAD[:7]}", 12)]
+    shell = FakeShell(records, [row("101", test_state="failure")])
+
+    watch(shell, config)
+
+    assert shell.topics() == ["go:101:abc1234"]
+    assert "fix the red build of #101 at abc1234" in shell.post("go:101:abc1234")["text"]
+
 @pytest.mark.parametrize(
     ("title", "step"),
     [
@@ -1076,6 +1086,18 @@ def test_an_owner_order_to_a_lane_spawned_for_it_waits_for_its_first_record_or_f
 
     assert ("order:1" in shell.topics()) is stalls
 
+
+@pytest.mark.parametrize(("minutes", "stalls"), [(4, False), (24, False), (27, True)])
+def test_an_owner_order_to_an_incident_fix_lane_waits_twenty_five_minutes_from_its_spawn(config, minutes, stalls):
+    order = record(1, "root", "decide", "Owner 5:07 PM, verbatim: 'fix the creds error'. run-creds-fix writes the typed error and posts a HEAD.", minutes, to=["run-creds-fix"])
+    spawn = record(2, "root", "spawn", "SPAWNED run-creds-fix", minutes - 1, refs={"lanes": ["run-creds-fix"], "prs": []})
+    heard = record(3, "run-creds-fix", "state", "MECHANISM: the upstream 403 reads as a local failure", 1)
+    shell = FakeShell([order, spawn, heard], [])
+    shell.answer = lambda question: {"pr": True} if question["kind"] == "order" else {}
+
+    watch(shell, config)
+
+    assert ("order:1" in shell.topics()) is stalls
 
 def graded(seq: int, pr: str, sha: str, minutes_ago: float) -> list[dict]:
     return [head(seq, pr, sha, minutes_ago), finder(seq + 1, pr, sha, minutes_ago - 1), fidelity(seq + 2, pr, sha, minutes_ago - 1)]

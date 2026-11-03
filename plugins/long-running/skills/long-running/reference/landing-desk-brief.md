@@ -105,6 +105,9 @@ Do, in this order, forever:
      List live standing answer ids in every report and apply corrections before
      acting on the rule. The root posts rulings with cci post --kind go --to <desk>.
      Read the PRs `ledger.py held --drive <drive>` prints from open cci holds.
+     A hold is only an open `--kind hold` record naming the PR; `HOLD #N` quoted in
+     any other record, a review included, holds nothing, and a root go posted after
+     the hold lifts it.
      Mirror them with `ledger.py hold`, the stated reason, and an expiry under D6,
      and lift them when their record is resolved. The queue's `hold` check reads the
      records itself on every pass; the mirrored ledger can lag them.

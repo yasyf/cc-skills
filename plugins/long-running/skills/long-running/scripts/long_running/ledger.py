@@ -107,6 +107,7 @@ from . import cci
 from . import ends
 from . import release
 from . import ghread
+from . import grades
 from . import match_session
 
 AI_REVIEW_CHECK = "ai-review"
@@ -2112,7 +2113,9 @@ def route_refused(notes: Notes, gh: Github, rows: dict[str, dict[str, str]], ref
 
 
 def cmd_held(args: argparse.Namespace, shell: Shell) -> int:
-    print("".join(f"{pr}\n" for pr in sorted(cci.held_prs(shell.run, args.drive), key=int)), end="")
+    gos = [record for record in cci.records(shell.run, args.drive, "--lane", "root", *grades.GO_KIND_FLAGS) if grades.is_go(record)]
+    held = cci.held_prs(shell.run, args.drive)
+    print("".join(f"{pr}\n" for pr in sorted(held, key=int) if not grades.lifts_hold(gos, pr, held[pr])), end="")
     return 0
 
 
