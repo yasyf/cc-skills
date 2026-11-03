@@ -137,7 +137,7 @@ func spawnedBy(r Record) (Spawn, bool) {
 	}
 	return Spawn{
 		Name: name, Brief: brief,
-		Model: or(r.Attr("model"), "opus"), Effort: or(r.Attr("effort"), "xhigh"), Role: or(r.Attr("role"), "lane"),
+		Model: or(r.Attr("model"), "opus"), Effort: or(r.Attr("effort"), "xhigh"), Role: r.Attr("role"),
 		Placement: r.Attr("placement"), SuccessorOf: r.Attr("successor-of"),
 	}, true
 }

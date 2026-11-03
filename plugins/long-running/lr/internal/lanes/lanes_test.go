@@ -2250,6 +2250,45 @@ func TestAMetaLaneAdoptedBeforeItsSpawnRecordKeepsTheMetaRole(t *testing.T) {
 	equal(t, row(t, s, "meta").Role, RoleMeta)
 }
 
+func TestAMetaDesksSuccessorLaunchedByAnotherLaneStaysTheMetaDeskForItsHelpers(t *testing.T) {
+	s, brief := memory(t), writeBrief(t)
+	launch := func(seq int64, lane, by string, attrs map[string]string) Record {
+		r := spawned(seq, lane, brief, t0.Add(-time.Hour), attrs)
+		r.Lane = by
+		return r
+	}
+	f := newFake(t, []Record{
+		launch(1, "meta-desk-2", Root, map[string]string{"role": RoleMeta}),
+		launch(2, "meta-desk-3", OwnerRelay, nil),
+		launch(3, "sprite-pins-1", "meta-desk-3", nil),
+	}, []Row{who("meta-desk-2", true, t0), who("meta-desk-3", true, t0), who("sprite-pins-1", true, t0)})
+
+	tick(t, s, f, t0)
+
+	equal(t, row(t, s, "meta-desk-3").Role, RoleMeta)
+	for _, lane := range []string{"meta-desk-3", "sprite-pins-1"} {
+		answer, err := AnswerRoute(s, lane)
+		if err != nil {
+			t.Fatal(err)
+		}
+		equal(t, answer.Meta, true)
+	}
+	equal(t, must(NoticeTo(s, "sprite-pins-1")), "meta-desk-3")
+	equal(t, must(MetaDesk(s)), "meta-desk-3")
+}
+
+func TestASuccessorKeepsTheRoleItsSpawnNames(t *testing.T) {
+	s, brief := memory(t), writeBrief(t)
+	f := newFake(t, []Record{
+		spawned(1, "meta-desk-2", brief, t0.Add(-time.Hour), map[string]string{"role": RoleMeta}),
+		spawned(2, "meta-desk-3", brief, t0.Add(-time.Hour), map[string]string{"role": "desk"}),
+	}, []Row{who("meta-desk-2", true, t0), who("meta-desk-3", true, t0)})
+
+	tick(t, s, f, t0)
+
+	equal(t, row(t, s, "meta-desk-3").Role, "desk")
+}
+
 func TestAMetaLanesDefectsReachItsLauncherAndADriveLanesReachRoot(t *testing.T) {
 	for _, tt := range []struct {
 		name, launcher, want string
