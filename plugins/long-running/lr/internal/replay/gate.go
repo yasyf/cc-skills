@@ -3,6 +3,7 @@ package replay
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -309,11 +310,15 @@ func (d Deps) judge(ctx context.Context, drive, repo, oldVersion, newVersion str
 			return fmt.Sprintf("replayed %s against %s and %s, which root accepted in #%d", replayed, oldVersion, strings.Join(found, "; "), seq), 0, nil
 		}
 		why := fmt.Sprintf("%s replayed %s against %s and %s, which %s did not, so it is not installed; root accepts a deliberate change with `cci post --kind decide --attr %s=%s`", newVersion, replayed, oldVersion, strings.Join(found, "; "), oldVersion, acceptAttr, oldVersion)
-		err := d.post(ctx, drive, "blocker", "replay-refused:"+newVersion, "REPLAY-REFUSED "+why, "--attr", "version="+newVersion)
+		err := d.post(ctx, drive, "blocker", refusalKey(oldVersion, found), "REPLAY-REFUSED "+why, "--attr", "version="+newVersion)
 		_, printed := fmt.Fprintln(d.Stdout, why)
 		return "", Refused, errors.Join(err, printed)
 	}
 	return fmt.Sprintf("replayed %s against %s with no new relaunch or refusal", replayed, oldVersion), 0, nil
+}
+
+func refusalKey(serving string, found []string) string {
+	return fmt.Sprintf("replay-refused:%s:%x", serving, sha256.Sum256([]byte(strings.Join(found, ";"))))
 }
 
 func acceptedAt(records []read, serving string) int64 {

@@ -280,7 +280,7 @@ func TestTheGateRefusesAVersionThatRelaunchesOrRefusesWhatTheOldOneDidNot(t *tes
 	}
 
 	posts := runner.posts()
-	if len(posts) != 1 || argAfter(posts[0], "--kind") != "blocker" || argAfter(posts[0], "--id") != "replay-refused:0.7.821" {
+	if len(posts) != 1 || argAfter(posts[0], "--kind") != "blocker" || argAfter(posts[0], "--id") != refusalKey("0.7.820", []string{"relaunches b", "refuses #47425's test-only claim"}) {
 		t.Fatalf("posts %v", posts)
 	}
 	text := argAfter(posts[0], "--text")
@@ -291,6 +291,16 @@ func TestTheGateRefusesAVersionThatRelaunchesOrRefusesWhatTheOldOneDidNot(t *tes
 	}
 	if strings.Contains(text, "relaunches a;") || !strings.Contains(out.String(), "relaunches b") {
 		t.Fatalf("text %q out %q", text, out.String())
+	}
+}
+
+func TestARefusalKeepsOneKeyUntilItsServingVersionOrItsDifferencesChange(t *testing.T) {
+	same := refusalKey("0.7.820", []string{"relaunches b"})
+	if refusalKey("0.7.820", []string{"relaunches b"}) != same {
+		t.Fatal("the same set on a newer pack must keep its key")
+	}
+	if refusalKey("0.7.820", []string{"relaunches b", "relaunches c"}) == same || refusalKey("0.7.821", []string{"relaunches b"}) == same {
+		t.Fatal("a changed set or serving version must post again")
 	}
 }
 
