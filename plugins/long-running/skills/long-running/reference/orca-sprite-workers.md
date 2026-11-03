@@ -74,7 +74,11 @@ on every hook call, so the pack's hooks apply from the worker's first tool
 call; skills and agents the session loaded at start stay the payload's until
 the lane's next session. The pack's archive is the `long-running_<version>.tar.gz`
 asset the `long-running pack release` workflow publishes, with `checksums.txt`,
-on each `long-running--v<version>` tag. A pin off its digest or version stops
+on each `long-running--v<version>` tag. A `plugin` pin for a plugin the payload
+lacks, such as `cc-inbox@cc-inbox` from its `cc-inbox_<version>.tar.gz` asset,
+also adds its entry, a directory marketplace under
+`~/.local/share/cc-remote/marketplaces/`, the one location the Sprites' managed
+settings allow, and its `enabledPlugins` key; it loads at the next session. A pin off its digest or version stops
 the install, and the worker stays idle. A malformed pin refuses before
 prepare.
 
