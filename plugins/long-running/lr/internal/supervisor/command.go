@@ -16,6 +16,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	prfacts "github.com/yasyf/cc-skills/plugins/long-running/lr/internal/facts"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/grading"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/landing"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
@@ -47,8 +48,8 @@ func run(ctx context.Context, a *app.App) error {
 	if err != nil {
 		return err
 	}
-	if unwired := slices.DeleteFunc(slices.Clone(cfg.Movers), func(mover string) bool { return mover == moverLanes || mover == config.MoverLanding }); len(unwired) > 0 {
-		return fmt.Errorf("lr supervisor run wires the lanes and landing movers, not %s", strings.Join(unwired, ", "))
+	if unwired := slices.DeleteFunc(slices.Clone(cfg.Movers), func(mover string) bool { return mover == moverLanes || mover == config.MoverLanding || mover == config.MoverGrading }); len(unwired) > 0 {
+		return fmt.Errorf("lr supervisor run wires the lanes, landing and grading movers, not %s", strings.Join(unwired, ", "))
 	}
 	s, err := store.Open(filepath.Join(state, lanes.StoreFile))
 	if err != nil {
@@ -112,7 +113,11 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 	deps.Queue = landing.Trunk{Runner: a.Runner, Checkout: env.Config.Checkout, Branch: env.Config.Trunk, Script: env.Config.QueueScript, KeyCommand: env.Config.QueueKey}
 	deps.Restacker = restacker
 	deps.Trunk = env.Config.Trunk
-	return deps, nil
+	if !slices.Contains(env.Config.Movers, config.MoverGrading) {
+		return deps, nil
+	}
+	deps.Pool, err = grading.NewLivePool(a, filepath.Join(env.State, runnerFile), s)
+	return deps, err
 }
 
 func launchd(a *app.App, out *cobra.Command) (Launchd, error) {

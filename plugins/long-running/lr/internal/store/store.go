@@ -304,7 +304,7 @@ func (s *Store) Workers() ([]Worker, error) {
 }
 
 func (s *Store) StaleWorkers(now time.Time) ([]string, error) {
-	return s.strings("SELECT name FROM workers WHERE heartbeat <= ? ORDER BY name", Stamp(now.Add(-StaleAfter)))
+	return s.strings("SELECT name FROM workers WHERE heartbeat <= ? AND EXISTS (SELECT 1 FROM items WHERE items.worker = workers.name AND items.closed IS NULL) ORDER BY name", Stamp(now.Add(-StaleAfter)))
 }
 
 func (s *Store) ReleaseWorker(name string) ([]Item, error) {

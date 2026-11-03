@@ -208,6 +208,7 @@ func TestAWorkerSilentFifteenMinutesIsStaleAndItsItemsComeBack(t *testing.T) {
 	held := must[Item](t)(s.OpenItem(item("fix-red", 45651, machine.MoverLane, 20*time.Minute), t0))
 	ok(t, s.Heartbeat(Worker{Name: "lane-7", Generation: 1, Heartbeat: t0, Item: held.ID}))
 	ok(t, s.Heartbeat(Worker{Name: "lane-8", Generation: 1, Heartbeat: t0.Add(14 * time.Minute)}))
+	ok(t, s.Heartbeat(Worker{Name: "lane-holding-nothing", Generation: 1, Heartbeat: t0}))
 	if got := must[[]string](t)(s.StaleWorkers(t0.Add(14*time.Minute + 59*time.Second))); len(got) != 0 {
 		t.Fatalf("stale %v", got)
 	}

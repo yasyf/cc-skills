@@ -10,7 +10,10 @@ import (
 	"strings"
 )
 
-const MoverLanding = "landing"
+const (
+	MoverLanding = "landing"
+	MoverGrading = "grading"
+)
 
 var Movers = []string{"lanes", "shadow", MoverLanding, "grading", "items"}
 
