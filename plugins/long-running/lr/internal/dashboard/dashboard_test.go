@@ -57,7 +57,7 @@ func TestRestartKickstartsOnlyTheDrivesDashboardAndReturnsItsURLOnceItAnswers(t 
 	if url != "http://100.113.56.52:61210/" {
 		t.Fatalf("url %q", url)
 	}
-	want := [][]string{{"launchctl", "print", "gui/501/com.long-running.d1.dashboard"}, {"launchctl", "kickstart", "-k", "gui/501/com.long-running.d1.dashboard"}}
+	want := [][]string{{"launchctl", "print", "gui/501/com.yasyf.long-running.dashboard.d1"}, {"launchctl", "kickstart", "-k", "gui/501/com.yasyf.long-running.dashboard.d1"}}
 	if !slices.EqualFunc(c.calls, want, slices.Equal) {
 		t.Fatalf("calls %v", c.calls)
 	}

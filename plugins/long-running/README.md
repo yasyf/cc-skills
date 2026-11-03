@@ -12,7 +12,7 @@
 - The `captain-hook` plugin, version 12.94.0 or later, from the `captain-hook` marketplace, and the `live-dashboard` plugin, version 0.5.0 or later, from this marketplace.
 - `ccx` for PR state, `cci` for the lane bus, and `ccn` for cc-notes, where drive state and the ledger live.
 - Orca, when the drive launches worker lanes through `lr launch start` and `lr relay run`.
-- Optional: `CEREBRAS_API_KEY` for the drive dashboard's in-browser assistant, whose controls stay hidden without it.
+- Optional: a Cerebras key in the login Keychain item `cerebras-api-key` for the drive dashboard's assistant, whose controls stay hidden without it.
 
 ## Use it
 
