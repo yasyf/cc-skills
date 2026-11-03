@@ -6,6 +6,7 @@ const NODE_TONE = { fixing: 'acc', you: 'you', nobody: 'bad', waiting: '', done:
 const hover = { at: null, timer: 0, hold: 0, scrolled: 0 };
 const story = { item: null, es: null, lines: [], draft: null, status: null, open: false };
 const feed = { item: null };
+const FYI_SHOWN = 5;
 const lastPaint = { events: new Map(), next: new Map(), stops: null };
 
 function view(key) {
@@ -50,6 +51,7 @@ function nowScreen() {
     ${state.open.has('nw-why') ? `<ul class="nw-why">${b.because.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
     ${notLive().length ? `<p class="nw-sub nw-notlive">${notLive().length} failure${notLive().length === 1 ? '' : 's'} with no live fix yet, listed under What failed.</p>` : ''}
     ${diagramSlot()}
+    ${fyiFeed()}
     <section><h2 class="nw-h">Overall progress</h2>${view('progress') === 'compact' ? compact(b) : journey(b)}</section>
     ${liveFeed(b)}
     ${preventions()}
@@ -57,6 +59,14 @@ function nowScreen() {
   lastPaint.events = lastPaint.next;
   lastPaint.next = new Map();
   return html;
+}
+
+function fyiFeed() {
+  const all = state.model.fyi ?? [];
+  const open = state.open.has('nw-fyi-all');
+  const rows = (open ? all : all.slice(0, FYI_SHOWN)).map((f) => `<div class="fy-row"><time>${clock(f.at)}</time><span class="fy-tag">${esc(f.group)}</span><span class="fy-text">${esc(f.text)}</span></div>`).join('');
+  const more = all.length > FYI_SHOWN ? `<button class="linkish" data-toggle="nw-fyi-all">${open ? 'Newest only ‹' : 'Earlier today ›'}</button>  ·  ` : '';
+  return `<section class="nw-fyi"><h2 class="nw-h">Decided for you, and what changed</h2><div class="fy">${rows || '<div class="fy-row fy-none">Nothing has been decided for you yet today.</div>'}<div class="fy-foot">${more}The same notes reach you in chat as they are written</div></div></section>`;
 }
 
 function band(b) {

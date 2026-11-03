@@ -1349,6 +1349,7 @@ class Drive:
             "steps": steps,
             "parts": self.config["parts"],
             "now": {**progress.get("now", {}), "releases": releases},
+            "fyi": progress.get("fyi", []),
             "steps_at": progress["updated"],
             "history": self.history(progress, self.milestone_cache[2]),
             "pr_state": progress.get("pr_state", {}),
