@@ -8,10 +8,8 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-import compact_job
 from long_running import drive
 import pytest
-import standing
 from cc_transcript import Session
 from captain_hook.app import _state
 from captain_hook.events import PostToolUseEvent, PreCompactEvent, SessionStartEvent, StopEvent, UserPromptSubmitEvent
@@ -578,8 +576,9 @@ def test_stop_after_the_record_spawns_one_compact_job_and_retries_after_30_minut
 
     argv, kw = spawned[0]
     assert argv == [
-        sys.executable,
-        str(handoff.script("compact_job.py")),
+        str(handoff.LR),
+        "handoff",
+        "compact",
         "term-7",
         "/compact Resume the drive from `/p/brook.md` and its progress record: read the plan, "
         "then the progress doc: `ccn doc list --label progress:brook`, then "
@@ -622,98 +621,6 @@ def test_compaction_resets_the_handoff(tmp_path: Path, phase: str) -> None:
 
     saved = handoff.CompactionState.load(evt)
     assert (saved.phase, saved.compacting_since) == ("idle", None)
-
-
-def test_compact_job_stops_once_the_session_compacts(tmp_path: Path) -> None:
-    transcript = tmp_path / "t.jsonl"
-    transcript.write_text('{"type":"assistant"}\n')
-    offset = transcript.stat().st_size
-    cursor = compact_job.CompactionCursor(transcript, offset)
-    assert not cursor.compacted()
-    with transcript.open("a") as file:
-        file.write('{"type":"system","subtype":"compact_boundary","content":"Conversation compacted"}\n')
-    assert cursor.compacted()
-    assert cursor.compacted()
-
-
-@pytest.mark.parametrize("polls", [5, 50])
-def test_compact_job_reads_appended_transcript_bytes_once(tmp_path, monkeypatch, polls):
-    transcript = tmp_path / "t.jsonl"
-    transcript.write_bytes(b'{"type":"assistant"}\n')
-    clock, reads = [0], [0]
-    original_open = Path.open
-
-    class Reader:
-        def __init__(self, file):
-            self.file = file
-
-        def __getattr__(self, name):
-            return getattr(self.file, name)
-
-        def read(self, size=-1):
-            data = self.file.read(size)
-            reads[0] += len(data)
-            return data
-
-    @contextmanager
-    def opened(path, *args, **kwargs):
-        with original_open(path, *args, **kwargs) as file:
-            yield Reader(file) if path == transcript and args == ("rb",) else file
-
-    def sleep(seconds):
-        clock[0] += seconds
-        with transcript.open("ab") as file:
-            file.write(b"x" * 128)
-
-    monkeypatch.setattr(Path, "open", opened)
-    monkeypatch.setattr(compact_job.time, "monotonic", lambda: clock[0])
-    monkeypatch.setattr(compact_job.time, "sleep", sleep)
-    monkeypatch.setattr(compact_job, "DEADLINE_SECONDS", polls * compact_job.POLL_SECONDS)
-    monkeypatch.setattr(compact_job, "orca", lambda *args: subprocess.CompletedProcess(args, 1))
-    compact_job.main("terminal", "/compact", str(transcript))
-    print(f"polls={polls} transcript_bytes_read={reads[0]} expected={(polls - 1) * 128}")
-    assert reads[0] == (polls - 1) * 128
-
-
-@pytest.mark.parametrize("split", [1, 13, len(compact_job.COMPACT_BOUNDARY) - 1])
-def test_compact_job_finds_boundary_split_between_polls(tmp_path, split):
-    transcript = tmp_path / "t.jsonl"
-    transcript.write_bytes(compact_job.COMPACT_BOUNDARY)
-    cursor = compact_job.CompactionCursor(transcript, transcript.stat().st_size)
-    with transcript.open("ab") as file:
-        file.write(compact_job.COMPACT_BOUNDARY[:split])
-    assert not cursor.compacted()
-    with transcript.open("ab") as file:
-        file.write(compact_job.COMPACT_BOUNDARY[split:])
-    assert cursor.compacted()
-
-
-def test_compact_job_finds_boundary_split_between_read_chunks(tmp_path):
-    transcript = tmp_path / "t.jsonl"
-    transcript.write_bytes(b"x" * (64 * 1024 - 13) + compact_job.COMPACT_BOUNDARY)
-    assert compact_job.CompactionCursor(transcript, 0).compacted()
-
-
-@pytest.mark.parametrize("replace", [False, True])
-def test_compact_job_restarts_its_original_offset_after_rotation_or_truncation(tmp_path, replace):
-    transcript = tmp_path / "t.jsonl"
-    transcript.write_bytes(b"before\n")
-    cursor = compact_job.CompactionCursor(transcript, transcript.stat().st_size)
-    with transcript.open("ab") as file:
-        file.write(b"x" * 1024)
-    assert not cursor.compacted()
-    data = b"before\n" + (b"y" * 2048 if replace else b"") + compact_job.COMPACT_BOUNDARY
-    if replace:
-        staged = transcript.with_suffix(".new")
-        staged.write_bytes(data)
-        staged.replace(transcript)
-    else:
-        transcript.write_bytes(data)
-    assert cursor.compacted()
-
-
-def test_retry_outlives_the_previous_job() -> None:
-    assert handoff.COMPACT_RETRY_SECONDS > compact_job.MAX_LIFETIME_SECONDS
 
 
 def test_a_narrative_with_an_uncited_owner_gate_warns_at_the_stop_until_fixed(home: Path, plan: Path, docs: Path) -> None:
@@ -809,7 +716,7 @@ def test_the_register_arrives_once_whole_after_a_compaction(home: Path, plan: Pa
     assert len(delivered.message) < 10_000
     assert handoff.deliver_register(bash(session)) is None
     assert handoff.deliver_register(bash(session, agent_id="a1")) is None
-    assert standing.pointer({"id": REGISTER_ID, "body": body}) in (docs / ("d" * 40 + ".md")).read_text()
+    assert "Register `ccn doc show 9999999`: " in (docs / ("d" * 40 + ".md")).read_text()
     assert not any(call[:2] in (["doc", "edit"], ["doc", "add"], ["doc", "supersede"]) and REGISTER_ID in call for call in ccn_calls(docs))
 
 
@@ -1164,15 +1071,15 @@ def test_a_hook_runs_the_scripts_of_the_release_the_install_link_names(tmp_path:
     (tmp_path / "config" / "long-running" / "current").symlink_to(cache / "0.7.48")
 
     monkeypatch.setattr(handoff, "OWN", cache / "0.7.46")
-    assert handoff.script("handoff.py") == (cache / "0.7.48").resolve() / handoff.SCRIPTS / "handoff.py"
+    assert handoff.script("rulings.py") == (cache / "0.7.48").resolve() / handoff.SCRIPTS / "rulings.py"
     monkeypatch.setattr(handoff, "OWN", tmp_path / "long-running-worktree")
-    assert handoff.script("handoff.py") == tmp_path / "long-running-worktree" / handoff.SCRIPTS / "handoff.py"
+    assert handoff.script("rulings.py") == tmp_path / "long-running-worktree" / handoff.SCRIPTS / "rulings.py"
 
 
 def test_a_hook_runs_its_own_scripts_while_the_install_link_names_none(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
     monkeypatch.setattr(handoff, "OWN", tmp_path / "long-running" / "0.7.46")
-    assert handoff.script("handoff.py") == tmp_path / "long-running" / "0.7.46" / handoff.SCRIPTS / "handoff.py"
+    assert handoff.script("rulings.py") == tmp_path / "long-running" / "0.7.46" / handoff.SCRIPTS / "rulings.py"
 
 
 FULL_HANDOFF = (

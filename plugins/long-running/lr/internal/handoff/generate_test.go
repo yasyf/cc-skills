@@ -257,7 +257,7 @@ func (f *fakeNotes) Run(ctx context.Context, c shell.Command) (shell.Result, err
 		return shell.Result{Stdout: f.rowsJSON}, nil
 	case argv[0] == "drive_supervisor.py":
 		return shell.Result{Stdout: f.laneJSON}, nil
-	case argv[0] == "owner_update.py":
+	case argv[0] == "lr":
 		return shell.Result{Stdout: f.ownerReport}, nil
 	case argv[1] == "ledger":
 		return jsonResult(map[string]any{"id": argv[3], "rows": f.askRows})

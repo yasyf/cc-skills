@@ -1,4 +1,4 @@
-"""Page through cci records in sequence order for bus.py, standing.py and ledger.py, and read which PRs open `hold` records name."""
+"""Page through cci records in sequence order for bus.py and ledger.py, and read which PRs open `hold` records name."""
 
 from __future__ import annotations
 
