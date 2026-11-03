@@ -131,6 +131,8 @@ var (
 	picked        = regexp.MustCompile(`\([\w.-]+\)`)
 )
 
+const noRecommendation = "no-recommendation"
+
 func Canonical(drive, lane string) string {
 	var initials strings.Builder
 	for word := range strings.SplitSeq(drive, "-") {

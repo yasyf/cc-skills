@@ -839,10 +839,11 @@ func (e Env) Deps(ctx context.Context) (Deps, error) {
 		Orders: func(s *store.Store) ([]owner.Row, error) {
 			return OpenOrders(ctx, e.Bus, s, e.Config.Drive, e.Config.Repo, e.State)
 		},
-		RotateAt:     at,
-		RetireAfter:  e.Config.RetireSilent,
-		OpenBranches: func() (map[string][]int, error) { return e.openBranches(ctx) },
-		Hosts:        func(names []string) map[string]Host { return e.hosts(ctx, names) },
+		RotateAt:              at,
+		RetireAfter:           e.Config.RetireSilent,
+		OpenBranches:          func() (map[string][]int, error) { return e.openBranches(ctx) },
+		Hosts:                 func(names []string) map[string]Host { return e.hosts(ctx, names) },
+		BuildRecommendedOrder: e.Config.BuildRecommendedOrder,
 	}, nil
 }
 

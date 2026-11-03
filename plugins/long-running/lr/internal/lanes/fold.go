@@ -324,8 +324,13 @@ func gatesOf(r Record) []string {
 	for _, lane := range r.Refs.Lanes {
 		gates = append(gates, "lane:"+lane)
 	}
-	if found := card.FindString(r.Text); found != "" {
-		gates = append(gates, found)
+	for _, found := range card.FindAllString(r.Text, -1) {
+		if !slices.Contains(gates, found) {
+			gates = append(gates, found)
+		}
+	}
+	if strings.Contains(r.Text, noRecommendation) {
+		gates = append(gates, noRecommendation)
 	}
 	return gates
 }
@@ -427,15 +432,16 @@ func foldOrder(s *store.Store, r Record, addressed map[string]bool, at time.Time
 }
 
 func foldOwnerPick(s *store.Store, r Record, fresh bool, at time.Time) {
-	marks := picked.FindAllString(r.Text, -1)
+	marks, named := picked.FindAllString(r.Text, -1), card.FindAllString(r.Text, -1)
 	for _, waiter := range must(s.Lanes(live...)) {
-		found := card.FindString(waiter.Awaits)
-		if found == "" {
+		cards := card.FindAllString(waiter.Awaits, -1)
+		i := slices.IndexFunc(cards, func(found string) bool {
+			return slices.Contains(named, found) || slices.Contains(marks, "("+found+")") || slices.Contains(marks, "("+strings.TrimPrefix(found, "card-")+")")
+		})
+		if i < 0 {
 			continue
 		}
-		if !slices.Contains(marks, "("+found+")") && !slices.Contains(marks, "("+strings.TrimPrefix(found, "card-")+")") {
-			continue
-		}
+		found := cards[i]
 		do(s.SetLaneWaiting(waiter.Name, 0, at, ""))
 		if !fresh {
 			do(s.SetLanePage(waiter.Name, map[string]any{"topic": fmt.Sprintf("owner:%d", r.Seq), "why": fmt.Sprintf("the owner answered %s, the card you wait on: %s", found, r.Text), "text": r.Text, "prs": append([]int{}, waiter.PRs...)}))
