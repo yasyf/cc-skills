@@ -265,11 +265,12 @@ Keep cci text under 400 characters; attach longer bodies with --path and link du
 
 Authority: everything inside your Ownership below, without asking. Anything that
 changes the plan, touches production (<apply, deploy, Slack write, state move>) or
-is listed under Escalate stops for the coordinator: use the preamble's
-`orca orchestration ask` with the question and 2-4 options. If it returns
-"capacity reached", use the preamble's `send --type question` or `--type escalation`
-instead. Keep working on everything that does not depend on the answer; the
-runner escalates those messages to the coordinator exactly like an ask.
+is listed under Escalate stops for the coordinator: post
+`cci post --kind ask --to root` with the question and 2-4 options. `cci post
+--kind ask|report|blocker` is the only way to reach a lane or the coordinator; the
+preamble's `orca orchestration send` and `ask` carry the dispatch lifecycle alone
+(heartbeats, the runner-action acks below, `worker_done`). Keep working on everything
+that does not depend on the answer.
 End a turn on a wait only after posting it as a cci `ask` or `blocked` record. AskUserQuestion is unavailable. A decision
 the brief, the plan, and the owner's answers do not settle stops that item until the
 coordinator answers the ask above; never take a default or a provisional pick (owner

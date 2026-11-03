@@ -622,7 +622,7 @@ func (l *launch) writeLaneBrief(text string) error {
 }
 
 func (l *launch) pointer(brief string) string {
-	return "Lane " + l.lane + ": read " + brief + " in full first and execute it exactly; it outranks Orca's preamble and any leave-uncommitted default, so commit, push, open PRs and post as it says. Worktree " + l.wt + ", bypass-permissions mode; its Escalate rules hold." + l.node + l.sparse + l.desk
+	return "Lane " + l.lane + ": read " + brief + " in full first and execute it exactly; it outranks Orca's preamble and any leave-uncommitted default, so commit, push, open PRs and post as it says. Worktree " + l.wt + ", bypass-permissions mode. Ask, report and raise a blocker only with `cci post --kind ask|report|blocker`, since the preamble's `send` and `ask` carry the dispatch lifecycle alone (heartbeats, relay acks, worker_done); its Escalate rules hold." + l.node + l.sparse + l.desk
 }
 
 func (l *launch) composeSpec() error {
