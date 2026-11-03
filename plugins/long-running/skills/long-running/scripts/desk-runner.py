@@ -1008,7 +1008,8 @@ STEP_BUDGETS = {"fetch": FETCH_SECONDS, "check": 2 * GATE_CHECK_SECONDS + 60, "s
 STACKS_FILE = "landing-stacks.json"
 BUILDS_KEPT = timedelta(days=3)
 BUILD_FIELDS = ("state", "commit", "finished_at")
-JOB_FIELDS = ("id", "type", "name", "step_key", "state", "soft_failed", "retry_source")
+JOB_FIELDS = ("id", "type", "name", "step_key", "state", "soft_failed", "retry_source", "signal_reason")
+AGENT_STOP = "agent_stop"
 CHECK_PR_WORKERS = 8
 TELL_BUDGET = timedelta(seconds=60)
 REFRESH_EVERY = timedelta(minutes=2)
@@ -7279,11 +7280,11 @@ class Landing:
         if red == green:
             if not (build := self.build(green, refresh=True)):
                 return False
-            jobs = [job["retry_source"]["job_id"] for job in build.get("jobs", []) if job.get("type") == "script" and job.get("state") == "passed" and job.get("retry_source")]
+            jobs = [source for job in build.get("jobs", []) if job.get("type") == "script" and job.get("state") == "passed" and job.get("retry_source") and not self.stopped(green, source := job["retry_source"]["job_id"])]
         else:
             if not (build := self.build(red)):
                 return False
-            jobs = [job["id"] for job in build.get("jobs", []) if job.get("type") == "script" and job.get("state") == "failed" and not job.get("soft_failed")]
+            jobs = [job["id"] for job in build.get("jobs", []) if job.get("type") == "script" and job.get("state") == "failed" and not job.get("soft_failed") and job.get("signal_reason") != AGENT_STOP]
         if not jobs:
             return True
         test = next(filter(None, (self.failed_test(red, job) for job in jobs)), "")
@@ -7323,6 +7324,11 @@ class Landing:
         """The first failing test the log of `job` in `build` names, Go, Rust, or a Jest test by its own title under its `describe`; empty when the log does not read or names none."""
         found = FAILED_TEST.search(self.job_log(build, job))
         return next(filter(None, found.groups())) if found else ""
+
+    def stopped(self, build: str, job: str) -> bool:
+        """Whether `job` in `build` ended because its agent stopped under it, a spot reclaim and never a test, so its retry is no flake (census rule 35, root #331646); a build read leaves a retried job out, so this reads the job itself."""
+        done = self.shell.run(release_build_argv(self.checkout, f"{self.landing_config['ci_build']}/jobs/{job}", build))
+        return done.code == 0 and json.loads(done.out).get("signal_reason") == AGENT_STOP
 
     def job_log(self, build: str, job: str) -> str:
         """The log of `job` in `build` with its terminal control codes taken out; empty when it does not read."""
