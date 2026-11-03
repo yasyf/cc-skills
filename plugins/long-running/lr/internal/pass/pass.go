@@ -217,7 +217,7 @@ func escalateOverdue(s *store.Store, snapshot []machine.Facts, now time.Time, po
 		if !slices.Contains(live, gateOf(item.Mover)) {
 			continue
 		}
-		cause, err := overdueCause(s, item)
+		said, err := queueSaid(s, item)
 		if err != nil {
 			return err
 		}
@@ -225,7 +225,7 @@ func escalateOverdue(s *store.Store, snapshot []machine.Facts, now time.Time, po
 		if deskOwns {
 			to = route(desk)
 		}
-		if err := escalate(s, fmt.Sprintf("%s#%d", item.Repo, item.Number), cause, to, now, post, out); err != nil {
+		if err := escalate(s, fmt.Sprintf("%s#%d", item.Repo, item.Number), item.Kind+" overdue", said, to, now, post, out); err != nil {
 			return err
 		}
 	}
@@ -247,19 +247,18 @@ func laneOf(snapshot []machine.Facts, item store.Item) string {
 	return snapshot[at].Lane
 }
 
-func overdueCause(s *store.Store, item store.Item) (string, error) {
-	cause := item.Kind + " overdue"
+func queueSaid(s *store.Store, item store.Item) (string, error) {
 	if item.Kind != string(machine.ActionEnqueue) {
-		return cause, nil
+		return "", nil
 	}
 	facts, err := s.Facts(item.Repo, item.Number, item.Head)
 	if err != nil {
 		return "", err
 	}
 	if said := facts[EnqueuedFact]; said != "" {
-		return cause + "; the queue said " + said, nil
+		return "; the queue said " + said, nil
 	}
-	return cause, nil
+	return "", nil
 }
 
 func releaseStale(s *store.Store, now time.Time, post Post, route Route, out *Outcome) error {
@@ -273,20 +272,20 @@ func releaseStale(s *store.Store, now time.Time, post Post, route Route, out *Ou
 			return err
 		}
 		out.Released[name] = held
-		if err := escalate(s, "worker:"+name, "silent 15 minutes", route(GraderDesk), now, post, out); err != nil {
+		if err := escalate(s, "worker:"+name, "silent 15 minutes", "", route(GraderDesk), now, post, out); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func escalate(s *store.Store, subject, cause, to string, now time.Time, post Post, out *Outcome) error {
+func escalate(s *store.Store, subject, cause, detail, to string, now time.Time, post Post, out *Outcome) error {
 	raised, err := s.Escalate(subject, cause, to, now)
 	if err != nil || !raised {
 		return err
 	}
-	out.Escalated = append(out.Escalated, Escalated{subject, cause, to})
-	return post([]string{to}, bus.Overdue(to, subject, cause))
+	out.Escalated = append(out.Escalated, Escalated{subject, cause + detail, to})
+	return post([]string{to}, bus.Overdue(to, subject, cause+detail))
 }
 
 func audience(verdict machine.Verdict, f machine.Facts) string {

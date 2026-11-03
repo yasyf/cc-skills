@@ -383,6 +383,26 @@ func TestARedNoLaneOwnsWaitsForItsDeadlineToReachRoot(t *testing.T) {
 	}
 }
 
+func TestAQueueThatKeepsChangingItsWordsRaisesOneStuckPROnce(t *testing.T) {
+	s, r := newStore(t), &recorder{}
+	said := func(words string) {
+		t.Helper()
+		if _, err := s.PutFact(repo, 48476, head, "enqueued", words, t0); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	run(t, s, r, t0, all, facts(48476, nil))
+	said("exit 5: TLS handshake timeout")
+	run(t, s, r, t0.Add(10*time.Minute), all, facts(48476, nil))
+	said("exit 1: no approved green bottom prefix")
+	run(t, s, r, t0.Add(20*time.Minute), all, facts(48476, nil))
+
+	if len(r.posts) != 1 {
+		t.Fatalf("posts = %+v, want the first escalation alone", r.posts)
+	}
+}
+
 func TestAnOverdueEnqueueNamesWhatTheQueueSaid(t *testing.T) {
 	s, r := newStore(t), &recorder{}
 
