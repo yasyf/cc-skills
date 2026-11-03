@@ -277,7 +277,7 @@ func (e Env) orcaRows(ctx context.Context, names []string) ([]Row, error) {
 		if !settled && !slices.Contains(agentVerdicts, read.Liveness) {
 			return nil, fmt.Errorf("%w: orca worker-list gives dispatch %s agent liveness %q, not one of %s", ErrUnread, dispatches[lane], read.Liveness, strings.Join(agentVerdicts, ", "))
 		}
-		row := Row{Lane: lane, Live: !settled && read.Liveness == agentLive, SeenAt: e.Now().UTC(), Dispatch: dispatches[lane], Succeeded: read.Worker == workerSucceeded}
+		row := Row{Lane: lane, Live: !settled && read.Liveness == agentLive, SeenAt: e.Now().UTC(), Dispatch: dispatches[lane], Succeeded: read.Worker == workerSucceeded, Settled: settled}
 		if !row.Live {
 			info, err := os.Stat(filepath.Join(receipts, lane+".json"))
 			if err != nil {
@@ -843,6 +843,7 @@ func (e Env) Deps(ctx context.Context) (Deps, error) {
 		RetireAfter:           e.Config.RetireSilent,
 		OpenBranches:          func() (map[string][]int, error) { return e.openBranches(ctx) },
 		Hosts:                 func(names []string) map[string]Host { return e.hosts(ctx, names) },
+		Stopped:               func(names []string) map[string]Sprite { return e.stopped(ctx, names) },
 		BuildRecommendedOrder: e.Config.BuildRecommendedOrder,
 	}, nil
 }

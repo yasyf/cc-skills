@@ -57,6 +57,7 @@ type Deps struct {
 	RetireAfter           time.Duration
 	OpenBranches          func() (map[string][]int, error)
 	Hosts                 func(lanes []string) map[string]Host
+	Stopped               func(lanes []string) map[string]Sprite
 	BuildRecommendedOrder string
 }
 
@@ -153,8 +154,13 @@ func Tick(s *store.Store, d Deps, now time.Time, generation int64) (out Outcome,
 		taken[name] = true
 	}
 	desired := must(s.Lanes(live...))
-	proven := proofs(s, d, desired, found, now)
+	lost := lostSprites(d, desired, found, now)
+	proven := proofs(s, d, desired, found, lost, now)
 	for _, lane := range desired {
+		if sprite, gone := lost[lane.Name]; gone {
+			lose(s, d, lane, sprite, found, taken, now, &out)
+			continue
+		}
 		act(s, d, lane, found, proven, taken, generation, now, &out)
 	}
 	tellRetired(s, d, running, said.stood)
@@ -301,7 +307,7 @@ func died(s *store.Store, d Deps, lane store.Lane, peer *Peer, found map[string]
 		return
 	}
 	if !holdsNothing(lane) {
-		relaunch(s, d, lane, found, verdict.Why, taken, now, out)
+		relaunch(s, d, lane, found, verdict.Why, nil, taken, now, out)
 		return
 	}
 	if silent >= d.RetireAfter {
@@ -479,7 +485,7 @@ func coordinatorBrief(old store.Lane, why string, d Deps, transcript string) (st
 	}, "\n"), nil
 }
 
-func relaunch(s *store.Store, d Deps, old store.Lane, found map[string]Peer, why string, taken map[string]bool, now time.Time, out *Outcome) {
+func relaunch(s *store.Store, d Deps, old store.Lane, found map[string]Peer, why string, lead []string, taken map[string]bool, now time.Time, out *Outcome) {
 	if old.Name == Root {
 		relaunchCoordinator(s, d, old, found, why, now, out)
 		return
@@ -520,7 +526,7 @@ func relaunch(s *store.Store, d Deps, old store.Lane, found map[string]Peer, why
 	if peer, ok := found[old.Name]; ok {
 		transcript = d.Transcript(peer.Row)
 	}
-	do(os.WriteFile(path, []byte(must(successorBrief(old, name, why, d, transcript))), 0o600))
+	do(os.WriteFile(path, []byte(must(successorBrief(old, name, why, lead, d, transcript))), 0o600))
 	retire(s, old.Name, name, now)
 	must(s.WantLane(store.Lane{Name: name, Brief: old.Brief, Model: old.Model, Effort: old.Effort, Role: old.Role, State: store.LaneLaunching, Handoff: old.Handoff, PRs: old.PRs, Predecessor: old.Name, Reason: why, Launcher: old.Launcher}, now))
 	do(d.Launch(name, old.Model, old.Effort, path))
@@ -528,7 +534,7 @@ func relaunch(s *store.Store, d Deps, old store.Lane, found map[string]Peer, why
 	out.Relaunched = append(out.Relaunched, Relaunch{old.Name, name, why})
 }
 
-func successorBrief(old store.Lane, name, why string, d Deps, transcript string) (string, error) {
+func successorBrief(old store.Lane, name, why string, lead []string, d Deps, transcript string) (string, error) {
 	body, err := os.ReadFile(old.Brief)
 	if err != nil {
 		return "", err
@@ -543,7 +549,7 @@ func successorBrief(old store.Lane, name, why string, d Deps, transcript string)
 	if found := sliceStep.FindSubmatch(body); found != nil {
 		step = string(found[1])
 	}
-	return strings.Join([]string{
+	return strings.Join(slices.Concat(lead, []string{
 		"Replaces: " + old.Name,
 		"ccx: place=local",
 		fmt.Sprintf("Register slice: lane=%s step=%s", name, step),
@@ -563,7 +569,7 @@ func successorBrief(old store.Lane, name, why string, d Deps, transcript string)
 		fmt.Sprintf("When the deliverable is done, post `cci post --drive %s --lane %s --kind done --to root` before your final message; told to stand down after a task, post that `done` when the task is finished. On `ROTATE`, write your state to cc-notes and post `cci post --drive %s --lane %s --kind handoff --ccn <doc id> --re <the ROTATE record>`, then keep working.", drive, name, drive, name),
 		"",
 		string(body),
-	}, "\n"), nil
+	}), "\n"), nil
 }
 
 func truncated(text string, limit int) string {
@@ -597,7 +603,7 @@ func wake(s *store.Store, d Deps, lane store.Lane, peer Peer, found map[string]P
 		return
 	}
 	do(s.SetLanePage(lane.Name, nil))
-	relaunch(s, d, lane, found, fmt.Sprintf("has made no tool call in the %d min since it was woken because %s", int(now.Sub(wokeAt).Minutes()), truncated(pageText(page, "why"), 240)), taken, now, out)
+	relaunch(s, d, lane, found, fmt.Sprintf("has made no tool call in the %d min since it was woken because %s", int(now.Sub(wokeAt).Minutes()), truncated(pageText(page, "why"), 240)), nil, taken, now, out)
 }
 
 func chaseUnread(s *store.Store, d Deps, found map[string]Peer, now time.Time) (woken []string, err error) {
@@ -936,7 +942,7 @@ func openAnswered(s *store.Store, d Deps, found map[string]Peer, taken map[strin
 		if built[0].Ordered.IsZero() {
 			why := fmt.Sprintf("the owner answered every card your branch was built on (%s), so nothing holds its PR: build his picks on it and open the PR now with submit-pr", answered)
 			if holder.State == store.LaneRetired {
-				relaunch(s, d, holder, found, why, taken, now, out)
+				relaunch(s, d, holder, found, why, nil, taken, now, out)
 				holder, _ = newest(s, holder.Name)
 			} else {
 				do(s.SetLaneWaiting(holder.Name, 0, now, ""))

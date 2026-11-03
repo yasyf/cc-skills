@@ -461,15 +461,17 @@ type Row struct {
 	Idle       bool      `json:"idle,omitempty"`
 	Dispatch   string    `json:"dispatch,omitempty"`
 	Succeeded  bool      `json:"succeeded,omitempty"`
+	Settled    bool      `json:"settled,omitempty"`
 	Unverified string    `json:"unverified,omitempty"`
 }
 
 type Peer struct {
-	Lane     string
-	Live     bool
-	Seen     time.Time
-	Row      Row
-	LastCall time.Time
+	Lane      string
+	Live      bool
+	Seen      time.Time
+	Row       Row
+	LastCall  time.Time
+	Unsettled string
 }
 
 func Peers(rows []Row) map[string]Peer {
@@ -479,14 +481,16 @@ func Peers(rows []Row) map[string]Peer {
 			continue
 		}
 		have, known := found[row.Lane]
-		lastCall := have.LastCall
+		lastCall, unsettled := have.LastCall, have.Unsettled
 		if row.Dispatch == "" {
 			lastCall = newer(lastCall, row.SeenAt.UTC())
+		} else if !row.Settled {
+			unsettled = row.Dispatch
 		}
 		if !known || (row.Live && !have.Live) || (row.Live == have.Live && row.SeenAt.After(have.Seen)) {
 			have = Peer{Lane: row.Lane, Live: row.Live, Seen: row.SeenAt.UTC(), Row: row}
 		}
-		have.LastCall = lastCall
+		have.LastCall, have.Unsettled = lastCall, unsettled
 		found[row.Lane] = have
 	}
 	return found
