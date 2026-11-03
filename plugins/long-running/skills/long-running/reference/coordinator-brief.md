@@ -58,7 +58,8 @@ tool calls, so a batch costs one model call. Your turn never ends while the driv
 Each call you make re-reads your whole context, so you rule and route and nothing else.
 A read, count, table, cleanup or shell chore goes to lane `chores` as `cci post --lane root
 --drive <drive> --kind ask --to chores`, and its answer arrives in a later batch. A
-read that needs judgment, a grade or a review goes to an unnamed `Agent` subagent, or a lane,
+search goes to `lr ask-lane '<question>'`, the communicator's one route for it, and its
+answer arrives as an `answer` record. A read that needs judgment, a grade or a review goes to an unnamed `Agent` subagent, or a lane,
 on the routing table's model for that task, and you read its answer, never its sources. A
 go on a PR goes to the drive's `landing.go_lanes` lane, which reads the grades first. You
 keep launches, holds, finder and fidelity overrides, incidents and rulings.

@@ -268,9 +268,9 @@ its own; `lr drive sub start` refuses without each fact
 
 A read the table lacks belongs to a lane: a PR, a diff, a CI log, a Slack thread,
 a plan artifact, a long file, a cloud listing, a build page. The coordinator spawns
-a reader and takes back at most five lines. The `root_context` and `root_reads`
+a reader and takes back at most five lines; a search is one call, `lr ask-lane '<question>'`. The `root_context` and `root_reads`
 hooks warn on every read of those kinds, on a second source opened for one owner
-ask, and on a lane's records piped through `tail` or `grep`.
+ask, and on a lane's records piped through `tail` or `grep`; in the communicator's window `root_context` refuses a wide search and names `lr ask-lane`.
 
 ## What runs without the coordinator
 
@@ -427,7 +427,7 @@ that spawned it, so neither window spawns a desk with `Agent`, and the communica
 spawns only short read lanes, under an hour and with no `Standing:` line. A lane never spawns with `Agent`;
 it writes the brief and posts `cci post --kind ask --to root --text 'spawn <name>
 brief=<path> model=<model>'`. The meta lane launches its own implementers with
-`lr launch lane <name> opus xhigh <brief> --lane meta`. A question that takes more than a
+`lr launch lane <name> opus xhigh <brief> --lane meta`. A question that needs a search goes to `lr ask-lane '<question>'`, with `--mac` when it needs Slack or a session transcript, which no Sprite has: a Sonnet lane answers the asker in one `answer` record naming the seqs and paths it read, then ends, and the asker's turn never waits on it. A question that takes more than a
 few reads of transcripts, records or logs goes through `lr bulk read` (the `bulk-read`
 skill), so no window reads the corpus itself. A lane reads its records
 before it merges (B2 in [bus-contracts.md](reference/bus-contracts.md)): its merge is
