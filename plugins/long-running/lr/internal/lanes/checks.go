@@ -647,7 +647,7 @@ func notLiveKey(target string, numbers []int) string {
 }
 
 func (e Env) Checks(s *store.Store, log *slog.Logger) ([]Check, error) {
-	var checks []Check
+	checks := []Check{(&ClassUnowned{Env: e, Store: s}).Check}
 	var channels []string
 	for channel := range strings.SplitSeq(e.Config.AlertChannels, ",") {
 		if channel = strings.TrimSpace(channel); channel != "" {
