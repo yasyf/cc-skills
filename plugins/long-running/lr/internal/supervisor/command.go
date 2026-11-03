@@ -173,6 +173,17 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 	if err != nil {
 		return Deps{}, err
 	}
+	liveClocks, err := orca.LiveClocks(a)
+	if err != nil {
+		return Deps{}, err
+	}
+	owed, err := landing.NewReleaseOwed(a, s, env.Config, filepath.Join(env.State, runnerFile), squash, liveClocks)
+	if err != nil {
+		return Deps{}, err
+	}
+	if owed.Owner != "" {
+		deps.Checks = append(deps.Checks, (&background{name: "release-owed", every: time.Minute, run: owed.Pass, store: s, post: post, log: a.Log}).Check)
+	}
 	deps.Admit = func(ctx context.Context, acts []pass.Act, snapshot []machine.Facts) []pass.Act {
 		return gates.Admit(ctx, squash.Admit(ctx, acts, snapshot), snapshot)
 	}

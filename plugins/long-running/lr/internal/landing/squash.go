@@ -31,6 +31,7 @@ const (
 	incidentHorizon = 14 * 24 * time.Hour
 	mergeLimit      = 2 * time.Minute
 	statusOpen      = "open"
+	squashMerged    = "merged"
 )
 
 var (
@@ -108,6 +109,7 @@ func (q *Squash) pass(ctx context.Context, snapshot []machine.Facts) (map[int]bo
 			return taken, err
 		}
 		if cleared {
+			q.tell(ctx, f, "report", "incident-tag-cleared:"+strconv.Itoa(f.Number), fmt.Sprintf("INCIDENT-TAG-CLEARED #%d: a coordinator record took it off the incident path, so the runner never squashes it and gates it as a normal row, landing it only through the queue once its go and the owner's tap name its head", f.Number))
 			continue
 		}
 		taken[f.Number] = true
@@ -116,6 +118,27 @@ func (q *Squash) pass(ctx context.Context, snapshot []machine.Facts) (map[int]bo
 		}
 	}
 	return taken, nil
+}
+
+func (q *Squash) isFix(ctx context.Context, f machine.Facts) (bool, error) {
+	named, repairs, err := q.tagged([]machine.Facts{f})
+	if err != nil || len(named) == 0 {
+		return false, err
+	}
+	if repairs[f.Number] {
+		return true, nil
+	}
+	since := q.Now().Add(-incidentHorizon)
+	incidents, err := client.Tail(ctx, client.Query{Drive: q.Drive, Kinds: []string{incidentKind}, Since: since})
+	if err != nil {
+		return false, err
+	}
+	decides, err := client.Tail(ctx, client.Query{Drive: q.Drive, Kinds: []string{"decide"}, Lanes: []string{rootLane}, Since: since})
+	if err != nil {
+		return false, err
+	}
+	_, closed := endedLanes(slices.Concat(incidents, decides))[f.Lane]
+	return !closed, nil
 }
 
 func (q *Squash) tagged(snapshot []machine.Facts) ([]machine.Facts, map[int]bool, error) {
@@ -255,7 +278,7 @@ func (q *Squash) land(ctx context.Context, f machine.Facts, open *client.Record)
 		return nil
 	}
 	merged, err := q.Runner.Run(ctx, shell.Command{Argv: []string{"gh", "pr", "merge", number, "--repo", f.Repo, "--squash", "--match-head-commit", f.Head}, Timeout: mergeLimit})
-	outcome := "merged"
+	outcome := squashMerged
 	if err != nil {
 		outcome = strings.TrimSpace(merged.Stderr + merged.Stdout)
 		q.tell(ctx, f, "blocker", "land:"+number+":"+f.Head, fmt.Sprintf("SQUASH-FAILED #%d: gh pr merge --squash refused the approved, green incident fix at %s: %s", f.Number, shortHead(f.Head), outcome))

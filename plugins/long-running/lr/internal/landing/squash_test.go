@@ -272,3 +272,19 @@ func TestARebasedFixIsRebasedAgainOnlyWhenTrunkTouchedItsFiles(t *testing.T) {
 		})
 	}
 }
+
+func TestAFixRootTookOffTheIncidentPathTellsItsLaneOnce(t *testing.T) {
+	s := newSquash(t)
+	squashPost(t, "decide", "root", "#7 is not an incident fix", []string{"incident-api-fix"}, monorepo+"#7")
+
+	s.squash.Admit(context.Background(), nil, []machine.Facts{fixFacts(nil)})
+	s.squash.Admit(context.Background(), nil, []machine.Facts{fixFacts(nil)})
+
+	records, err := client.Tail(context.Background(), client.Query{Drive: "d", Kinds: []string{"report"}, Lanes: []string{"supervisor"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 || !strings.HasPrefix(records[0].Text, "INCIDENT-TAG-CLEARED #7") || !slices.Contains(records[0].To, "incident-api-fix") {
+		t.Fatalf("records = %+v", records)
+	}
+}
