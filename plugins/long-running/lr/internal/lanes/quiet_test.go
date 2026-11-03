@@ -141,71 +141,77 @@ func TestAnAnsweredAskToAnyLaneResumesItsAsker(t *testing.T) {
 	equal(t, out.Relaunched[0].Old, lane2)
 }
 
-func TestDoneWhileAPRIsOpenParksTheLaneUntilItsLastPRLands(t *testing.T) {
+func TestDoneRetiresALaneWithAnOpenPRAndABrokenOneReachesTheCoordinatorOnce(t *testing.T) {
 	s := memory(t)
-	f := adopted(t, s, writeBrief(t), "", 47001, 47002)
+	f := adopted(t, s, writeBrief(t), "", 47001)
 	f.feed = append(f.feed, rec(2, lane2, "done", t0.Add(-time.Hour), "ready; lands after the stack below", Root))
 	f.peers = []Row{who(lane2, false, t0.Add(-time.Hour))}
+	f.states = map[int]string{47001: NeedsWork}
 
 	out := tick(t, s, f, t0)
 
 	equal(t, len(out.Relaunched)+len(f.launches), 0)
 	lane := row(t, s, lane2)
-	equal(t, []any{lane.State, lane.Awaits}, []any{store.LaneDesired, doneParked})
-	equal(t, owners(t, s, 47001, 47002), map[int]string{47001: lane2, 47002: lane2})
+	equal(t, []any{lane.State, lane.RetiredBy, lane.Waiting, lane.Awaits}, []any{store.LaneRetired, "done", int64(0), ""})
+	equal(t, len(f.ofKind("blocker")), 0)
 
-	f.feed = append(f.feed, rec(3, runner, kindLanded, t0.Add(mins(1)), "LANDED #47001", Root).withRefs(prs(47001)))
+	f.states = map[int]string{47001: Broken}
+	tick(t, s, f, t0.Add(mins(1)))
 	tick(t, s, f, t0.Add(mins(2)))
-	equal(t, row(t, s, lane2).State, store.LaneDesired)
+	blockers := f.ofKind("blocker")
+	equal(t, len(blockers), 1)
+	equal(t, blockers[0].To, []string{Root})
+	contains(t, blockers[0].Text, "#47001 needs work and no lane owns it")
 
-	f.feed = append(f.feed, rec(4, runner, kindLanded, t0.Add(mins(3)), "LANDED #47002", Root).withRefs(prs(47002)))
-	final := tick(t, s, f, t0.Add(mins(4)))
-	lane = row(t, s, lane2)
-	equal(t, []any{lane.State, lane.RetiredBy, len(final.Relaunched)}, []any{store.LaneRetired, "done", 0})
+	f.states = map[int]string{47001: Closed}
+	tick(t, s, f, t0.Add(mins(3)))
+	owned, err := s.Owners()
+	if err != nil {
+		t.Fatal(err)
+	}
+	equal(t, len(owned[lane2]), 0)
+}
+
+func TestALaneThatPostedDoneStaysRetiredWhateverItPostsAfter(t *testing.T) {
+	s := memory(t)
+	f := adopted(t, s, writeBrief(t), "", 1907)
+	f.feed = append(f.feed,
+		rec(2, lane2, "done", t0, "done: #1907 merged", Root).withRefs(prs(1907)),
+		rec(3, lane2, "opened", t0.Add(mins(6)), "opened #1920").withRefs(prs(1920)),
+		rec(4, lane2, "answer", t0.Add(mins(8)), "#1920 drops the section", "progress-desk-2"),
+	)
+	f.peers = []Row{who(lane2, false, t0.Add(mins(8)))}
+
+	tick(t, s, f, t0.Add(mins(9)))
+	out := tick(t, s, f, t0.Add(time.Hour))
+
+	equal(t, len(out.Relaunched)+len(f.launches), 0)
+	equal(t, row(t, s, lane2).State, store.LaneRetired)
 }
 
 func TestABrokenPRWakesTheLaneParkedOnItOnceUntilANewHead(t *testing.T) {
-	parks := map[string]func(seq int64, at time.Time) Record{
-		"done": func(seq int64, at time.Time) Record { return rec(seq, lane2, "done", at, "ready", Root) },
-		"blocked on its PR": func(seq int64, at time.Time) Record {
-			return rec(seq, lane2, "blocked", at, "waiting on CI").withRefs(prs(47001))
-		},
-	}
-	for name, park := range parks {
-		t.Run(name, func(t *testing.T) {
-			s := memory(t)
-			f := adopted(t, s, writeBrief(t), "", 47001)
-			f.feed = append(f.feed, park(2, t0))
-			f.peers = []Row{onRoster(who(lane2, true, t0))}
-			f.states = map[int]string{47001: NeedsWork}
-			equal(t, len(tick(t, s, f, t0.Add(mins(1))).Woken), 0)
-
-			f.states = map[int]string{47001: Broken}
-			equal(t, tick(t, s, f, t0.Add(mins(2))).Woken, []string{lane2})
-			equal(t, row(t, s, lane2).Waiting, int64(0))
-
-			f.feed = append(f.feed, park(3, t0.Add(mins(4))))
-			tick(t, s, f, t0.Add(mins(5)))
-			equal(t, row(t, s, lane2).Waiting, int64(3))
-			equal(t, row(t, s, lane2).Page == nil, true)
-
-			f.feed = append(f.feed, rec(4, lane2, "head", t0.Add(mins(6)), "HEAD #47001").withRefs(prs(47001)), park(5, t0.Add(mins(7))))
-			tick(t, s, f, t0.Add(mins(8)))
-			equal(t, row(t, s, lane2).Waiting, int64(0))
-		})
-	}
-}
-
-func TestAParkedDoneLaneRetiresWhenItsPRCloses(t *testing.T) {
 	s := memory(t)
 	f := adopted(t, s, writeBrief(t), "", 47001)
-	f.feed = append(f.feed, rec(2, lane2, "done", t0.Add(-2*time.Hour), "ready", Root))
-	f.states = map[int]string{47001: Closed}
+	park := func(seq int64, at time.Time) Record {
+		return rec(seq, lane2, "blocked", at, "waiting on CI").withRefs(prs(47001))
+	}
+	f.feed = append(f.feed, park(2, t0))
+	f.peers = []Row{onRoster(who(lane2, true, t0))}
+	f.states = map[int]string{47001: NeedsWork}
+	equal(t, len(tick(t, s, f, t0.Add(mins(1))).Woken), 0)
 
-	tick(t, s, f, t0)
+	f.states = map[int]string{47001: Broken}
+	equal(t, tick(t, s, f, t0.Add(mins(2))).Woken, []string{lane2})
+	equal(t, row(t, s, lane2).Waiting, int64(0))
 
-	lane := row(t, s, lane2)
-	equal(t, []any{lane.State, lane.RetiredBy}, []any{store.LaneRetired, "done"})
+	f.feed = append(f.feed, park(3, t0.Add(mins(4))))
+	tick(t, s, f, t0.Add(mins(5)))
+	equal(t, row(t, s, lane2).Waiting, int64(3))
+	equal(t, row(t, s, lane2).Page == nil, true)
+
+	f.feed = append(f.feed, rec(4, lane2, "head", t0.Add(mins(6)), "HEAD #47001").withRefs(prs(47001)), park(5, t0.Add(mins(7))))
+	tick(t, s, f, t0.Add(mins(8)))
+	equal(t, row(t, s, lane2).Waiting, int64(0))
 }
 
 func TestATurnKilledByAnAPIErrorResumesTheSameLane(t *testing.T) {

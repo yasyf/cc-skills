@@ -10,8 +10,7 @@ This section maps to rev 7's supervisor section (Forge-AI/design-docs#265).
 
 | The lane's newest record | What it means | Who resumes the work |
 | --- | --- | --- |
-| `done` with no open PR, `stopped`, `stand-down` | The lane ended on purpose | Nobody. The row retires, and a retired row never gets a successor |
-| `done` while it owns an open PR | The lane finished but the PR did not land | The row stays parked and retires when its last PR lands |
+| `done`, `stopped`, `stand-down` | The lane ended on purpose | Nobody. The row retires, a retired row never gets a successor, and nothing the lane posts afterwards revives it. A PR it still owns goes to the coordinator if it breaks |
 | `ask`, `blocker`, or `blocked` to a lane | It waits on that lane's answer | The answer, through the supervisor |
 | `blocked` naming a gate: `--pr`, `--target`, `--lane-ref`, or a `card-` id in the text | It waits on an event | That event, through the supervisor |
 | Anything else | The turn has open work | Stopping is refused, and the refusal prints the commands |
@@ -42,7 +41,7 @@ The first ten come from the brief and root #348144. The gate classes are what `q
 | 13 | Release gate (`pod-local-ack-1`), cutover gate (`n-enumeration-13`) | `blocked --target T` fires on the `release`, `applied` or `fix-live` record naming T; `blocked --lane-ref L` fires when lane L posts `done`, `stopped` or `fix-live` | `lanes.foldGates` | `internal/lanes`: each fires, and an unrelated record does not |
 | 14 | Head and go gate: green at a new head with an old go (`passive-only-1`) | The lane parks on `--pr N`. The landing mover owns the go at the new head; a `blocker` naming N pages the lane and overrides the wait | `lanes.foldPage` | `internal/lanes`: a blocker on N resumes a lane parked on N |
 | 15 | Report and end the turn (`disk-first-align-1`) | A `report` is not a turn end | `cci hook stop` | Row 1's test |
-| 16 | `done` while the lane still owns an open PR, so the PR orphans and root launches `orphan-prs-N` | `done` with open PRs parks the row instead of retiring it. A red PR pages the same lane, or its successor | `lanes.foldRegistry`, `lanes.foldLanded` | `internal/lanes`: no state reads retired with an owned open PR; the last `landed` retires |
+| 16 | `done` while the lane still owns an open PR, so the PR orphans and the coordinator launches `orphan-prs-N` | `done` retires the row, whatever is open (communicator #350741: "a stopped, withdrawn or done lane is never relaunched by replay or supervisor"). A lane still waiting on its PR posts `blocked --pr N` instead. When a retired lane's PR goes red or conflicting, one blocker tells the coordinator no lane owns it | `lanes.foldRegistry`, `lanes.ownedWork` | Replay fixture `supervisor-done-lane-keeps-posting`: no launch. `internal/lanes`: a done lane's broken PR draws one blocker |
 
 ## What the supervisor owns
 

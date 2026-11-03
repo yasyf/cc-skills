@@ -25,7 +25,6 @@ const (
 	kindRequest = "decide"
 	kindLanded  = "landed"
 	unreadMark  = " down or hand its PRs on, but it "
-	doneParked  = "done"
 	turnDied    = "died"
 	NeedsWork   = "needs-work"
 	Broken      = "broken"
@@ -174,6 +173,8 @@ func routeOf(s *store.Store, name string) string {
 
 func retire(s *store.Store, name, by string, at time.Time) {
 	do(s.SetLaneState(name, store.LaneRetired, at, by, ""))
+	do(s.SetLaneWaiting(name, 0, time.Time{}, ""))
+	do(s.SetLanePage(name, nil))
 	must(s.ReleaseWorker(name))
 }
 

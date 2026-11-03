@@ -366,7 +366,7 @@ func truncated(text string, limit int) string {
 }
 
 func wake(s *store.Store, d Deps, lane store.Lane, peer Peer, found map[string]Peer, taken map[string]bool, now time.Time, out *Outcome) {
-	if lane.Last != "done" && slices.Contains(settled, lane.Last) {
+	if slices.Contains(settled, lane.Last) {
 		return
 	}
 	page := lane.Page
@@ -412,17 +412,19 @@ func ownedWork(s *store.Store, d Deps, now time.Time) {
 	for _, lane := range must(s.Lanes(live...)) {
 		rows[lane.Name] = lane
 	}
-	var unowned, wanted []int
+	var unowned, ended, wanted []int
 	quiet := map[string][]int{}
 	for name, prs := range must(s.Owners()) {
-		if retired[name] {
-			continue
-		}
 		var open []int
 		for _, n := range prs {
 			if !holds[n] {
 				open = append(open, n)
 			}
+		}
+		if retired[name] {
+			ended = append(ended, open...)
+			wanted = append(wanted, open...)
+			continue
 		}
 		if name == Root {
 			unowned = open
@@ -441,22 +443,30 @@ func ownedWork(s *store.Store, d Deps, now time.Time) {
 	}
 	do(err)
 	strandedFresh := []int{}
-	for _, n := range unowned {
+	var closed []int
+	for _, n := range slices.Concat(unowned, ended) {
 		key := fmt.Sprintf("%s:%d", Root, n)
-		if states[n] != NeedsWork && states[n] != Broken {
-			do(s.Unprobe(key))
-			continue
-		}
-		if _, asked := probes[key]; !asked {
+		_, asked := probes[key]
+		stranded := states[n] == Broken || (states[n] == NeedsWork && slices.Contains(unowned, n))
+		switch {
+		case stranded && !asked:
 			strandedFresh = append(strandedFresh, n)
+		case !stranded && asked:
+			do(s.Unprobe(key))
 		}
+		if states[n] == Closed && slices.Contains(ended, n) {
+			closed = append(closed, n)
+		}
+	}
+	if len(closed) > 0 {
+		do(s.Disown(closed))
 	}
 	if len(strandedFresh) > 0 {
 		verb, pronoun := "need", "them"
 		if len(strandedFresh) == 1 {
 			verb, pronoun = "needs", "it"
 		}
-		do(d.Post(Post{Kind: "blocker", To: []string{Root}, Text: fmt.Sprintf("%s %s %s work and no lane owns %s: root stood down the lane that did, naming no successor. Name one with a root decide carrying `owner=<lane>`.", pacific(now), numberList(strandedFresh), verb, pronoun)}))
+		do(d.Post(Post{Kind: "blocker", To: []string{Root}, Text: fmt.Sprintf("%s %s %s work and no lane owns %s: the lane that did ended, naming no successor. Name one with a coordinator decide carrying `owner=<lane>`.", pacific(now), numberList(strandedFresh), verb, pronoun)}))
 		for _, n := range strandedFresh {
 			do(s.Probe(fmt.Sprintf("%s:%d", Root, n), now))
 		}
@@ -498,7 +508,7 @@ func ownedWork(s *store.Store, d Deps, now time.Time) {
 
 func waitsOnOwn(lane store.Lane, prs []int) bool {
 	gates := strings.Fields(lane.Awaits)
-	return slices.Contains(gates, doneParked) || slices.ContainsFunc(prs, func(n int) bool { return slices.Contains(gates, fmt.Sprintf("pr:%d", n)) })
+	return slices.ContainsFunc(prs, func(n int) bool { return slices.Contains(gates, fmt.Sprintf("pr:%d", n)) })
 }
 
 func freshlyBroken(s *store.Store, prs []int, states map[int]string, probes map[string]store.Probe, now time.Time) []int {
