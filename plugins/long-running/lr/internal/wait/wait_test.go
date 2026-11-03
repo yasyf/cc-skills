@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -333,6 +334,12 @@ func (s *stream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *stream) served() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.requests)
+}
+
 type tailRunner struct {
 	mu     sync.Mutex
 	calls  []shell.Command
@@ -385,6 +392,34 @@ func TestACciSourceFollowsTheDaemonStreamAndReadsThroughCciTail(t *testing.T) {
 	defer s.mu.Unlock()
 	if len(s.requests) != 1 || s.requests[0] != "drive=dar&to=landing-desk" {
 		t.Fatalf("stream requests %q", s.requests)
+	}
+}
+
+func TestADaemonRestartPastTheGraceReconnectsInsteadOfEndingTheWait(t *testing.T) {
+	s := &stream{emit: make(chan struct{}, 1)}
+	server := httptest.NewServer(s)
+	t.Cleanup(server.Close)
+	var elapsed atomic.Int64
+	now := func() time.Time { return time.Unix(0, elapsed.Load()) }
+	runner := &tailRunner{}
+	r := start(t, Options{Seconds: 10, Sources: []string{"cci:dar:landing-desk"}, Runner: runner, Stream: server.URL, Now: now})
+	time.Sleep(armed)
+
+	elapsed.Store(int64(time.Hour))
+	server.CloseClientConnections()
+	deadline := time.Now().Add(5 * time.Second)
+	for s.served() < 2 {
+		if time.Now().After(deadline) {
+			t.Fatalf("the stream never reconnected: %q", r.errs.String())
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	runner.deliver("#6 9:01 PM NOTE root -> landing-desk go\n")
+	s.emit <- struct{}{}
+	r.wait(t)
+
+	if r.code != 0 || r.out.String() != "#6 9:01 PM NOTE root -> landing-desk go\n" {
+		t.Fatalf("got %d %q %s", r.code, r.out.String(), r.errs.String())
 	}
 }
 
