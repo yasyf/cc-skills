@@ -335,7 +335,7 @@ func (d *Desk) cciLine(ctx context.Context, record client.Record) error {
 	case verbLaunch:
 		return d.launchLine(ctx, at, key, parsed.Rest, record.Lane)
 	case verbRelay:
-		return d.relayLine(ctx, at, key, parsed.Rest)
+		return d.relayLine(ctx, at, key, parsed.Rest, record.Lane)
 	case "alert":
 		return d.alertLine(ctx, at, key, parsed.Rest)
 	case verbIncident:
@@ -385,7 +385,7 @@ func (d *Desk) refuseLine(record client.Record) error {
 	return d.record(fmt.Sprintf("escalation:cci:%d", record.Seq), fmt.Sprintf("DIRECTIVE-FAILED cci#%d inbox: it opens `%s`, and a record addressed to %s is one `[<H:MM AM|PM>] [R<n> (<clock>)] orca-desk: <relay|launch|alert|incident|hold|unhold|withdraw> …` line, with or without --re, or a root reply this desk acts on: a withdraw of a launch line or an answer to an open question; nothing was done", record.Seq, line, deskLane))
 }
 
-func (d *Desk) relayLine(ctx context.Context, at, key, rest string) error {
+func (d *Desk) relayLine(ctx context.Context, at, key, rest, sender string) error {
 	found := relayTo.FindStringSubmatch(rest)
 	if found != nil {
 		first, _, _ := strings.Cut(found[2], "\n")
@@ -397,7 +397,14 @@ func (d *Desk) relayLine(ctx context.Context, at, key, rest string) error {
 		return d.record("escalation:relay:"+at, fmt.Sprintf("RELAY-FAILED %s inbox: one relay per line, in the form `%s`; nothing was relayed", key, relayGrammar))
 	}
 	for _, lane := range laneList.Split(found[1], -1) {
-		if err := d.relayToLane(ctx, at, key, lane, found[2], nil); err != nil {
+		target, err := d.pooled(ctx, key, lane, found[2], sender)
+		if err != nil {
+			return err
+		}
+		if target == "" {
+			continue
+		}
+		if err := d.relayToLane(ctx, at, key, target, found[2], nil); err != nil {
 			return err
 		}
 	}

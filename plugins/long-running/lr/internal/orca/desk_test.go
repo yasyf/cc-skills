@@ -17,6 +17,7 @@ import (
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/incident"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/wait"
@@ -1627,6 +1628,125 @@ func TestAQuestionFromALaneAnotherLaneLaunchedGoesToThatLane(t *testing.T) {
 	last := w.posts[len(w.posts)-1]
 	if !slices.Equal(last.To, []string{"meta-desk-1"}) || last.Kind != "decide" || last.Path == "" {
 		t.Fatal(last)
+	}
+}
+
+func (w *deskWorld) pooledLane(name, role string, prs ...int) {
+	w.t.Helper()
+	w.live(name, "ctx_"+name, "term_"+name)
+	if _, err := w.desk.Registry.WantLane(store.Lane{Name: name, Brief: "/b", Model: "opus", Effort: "high", Role: role, State: store.LaneDesired}, w.now); err != nil {
+		w.t.Fatal(err)
+	}
+	if err := w.desk.Registry.SetLanePRs(name, prs); err != nil {
+		w.t.Fatal(err)
+	}
+}
+
+func (w *deskWorld) saidStarted(lane, key string) {
+	w.t.Helper()
+	container, err := w.desk.lane(lane)
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	if err := w.desk.store.Edit(container, func(tx *incident.Tx) error {
+		if _, _, err := tx.AcceptDue(key, kindRelay, `{"text":"first"}`, key, w.now, w.now.Add(time.Hour)); err != nil {
+			return err
+		}
+		_, err := tx.StartBy(key, w.now, time.Time{}, "")
+		return err
+	}); err != nil {
+		w.t.Fatal(err)
+	}
+}
+
+func (w *deskWorld) holds(lane, key string) bool {
+	w.t.Helper()
+	held, err := w.desk.known(laneBook(lane), key)
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	return held != nil
+}
+
+func TestASecondOrderToALaneThatSaidStartedGoesToAFreeLaneOfItsRole(t *testing.T) {
+	w := newDeskWorld(t)
+	w.pooledLane("lane-a", "build")
+	w.pooledLane("lane-parked", "build")
+	w.pooledLane("lane-busy", "build")
+	w.pooledLane("lane-items", "build", 7)
+	w.pooledLane("lane-other", "fix")
+	w.pooledLane("lane-free", "build")
+	w.saidStarted("lane-a", "R1")
+	w.saidStarted("lane-busy", "R0")
+	if err := w.desk.Registry.SetLaneWaiting("lane-parked", 9, time.Time{}, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.desk.Registry.OpenItem(store.NewItem{Kind: "fix-red", Repo: "o/r", Number: 7, Head: "h", Mover: machine.MoverLane}, w.now); err != nil {
+		t.Fatal(err)
+	}
+	w.lines()
+
+	w.line("R2 (5:01 PM) orca-desk: relay to lane-a: the second order")
+	w.lines()
+
+	w.wantEscalation("ROUTED R2 lane-a -> lane-free: lane-a is busy with R1")
+	if w.holds("lane-a", "R2") || !w.holds("lane-free", "R2") {
+		t.Fatal("the order did not move to the free lane")
+	}
+}
+
+func TestAnOrderStaysWithItsLane(t *testing.T) {
+	cases := []struct {
+		name, role, text string
+		started          bool
+		prs              []int
+	}{
+		{name: "a delivered relay it has not started is not busy", role: "build", text: "go on"},
+		{name: "a desk keeps its own orders", role: "desk", text: "go on", started: true},
+		{name: "an order about a PR it owns", role: "build", text: "fix #48 now", started: true, prs: []int{48}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			w := newDeskWorld(t)
+			w.pooledLane("lane-a", c.role, c.prs...)
+			w.pooledLane("lane-free", c.role)
+			if c.started {
+				w.saidStarted("lane-a", "R1")
+			}
+			w.lines()
+
+			w.line("R2 (5:01 PM) orca-desk: relay to lane-a: " + c.text)
+			w.lines()
+
+			if !w.holds("lane-a", "R2") || w.holds("lane-free", "R2") {
+				t.Fatal("the order moved")
+			}
+		})
+	}
+}
+
+func TestABusyLaneWithNoFreeLaneOfItsRoleAsksRootToSpawnAndTellsTheSender(t *testing.T) {
+	w := newDeskWorld(t)
+	w.pooledLane("lane-a", "build")
+	w.saidStarted("lane-a", "R1")
+	w.lines()
+
+	w.add(object{"lane": "meta-desk-2", "text": "R2 (5:01 PM) orca-desk: relay to lane-a: the second order", "to": []string{deskLane}})
+	w.lines()
+
+	if w.holds("lane-a", "R2") {
+		t.Fatal("the order waits behind the busy lane")
+	}
+	asked := w.postOpening("spawn build lane for R2:")
+	if !slices.Equal(asked.To, []string{coordinatorLane}) || asked.Kind != kindAsk || readBrief(asked.Path) == "" {
+		t.Fatalf("%+v", asked)
+	}
+	if !strings.Contains(readBrief(asked.Path), "the second order") {
+		t.Fatal(readBrief(asked.Path))
+	}
+	told := w.postOpening("POOL-NONE R2 lane-a:")
+	if !slices.Equal(told.To, []string{"meta-desk-2"}) {
+		t.Fatalf("%+v", told)
 	}
 }
 
