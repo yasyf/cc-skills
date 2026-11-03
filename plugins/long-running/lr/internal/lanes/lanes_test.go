@@ -257,7 +257,7 @@ func owners(t *testing.T, s *store.Store, numbers ...int) map[int]string {
 	return found
 }
 
-func TestADeadLaneRelaunchesWithItsHandoffAndStandsDownOnceItsSuccessorIsUp(t *testing.T) {
+func TestADeadLaneRelaunchesWithItsHandoffAndIsToldItStoodDownAtOnce(t *testing.T) {
 	s, brief := memory(t), writeBrief(t)
 	f := adopted(t, s, brief, "9f3c2e1", 46001, 46002)
 	workers, err := s.Workers()
@@ -281,7 +281,10 @@ func TestADeadLaneRelaunchesWithItsHandoffAndStandsDownOnceItsSuccessorIsUp(t *t
 	if !strings.HasSuffix(text, string(body)) {
 		t.Fatal("the brief must end with the old brief")
 	}
-	equal(t, f.kinds(), []string{"report:root"})
+	equal(t, f.kinds(), []string{"report:root", "stand-down:" + lane2})
+	standDown := f.posts[1]
+	equal(t, []any{standDown.Successor, standDown.PRs}, []any{"conflicts-4", []int{46001, 46002}})
+	equal(t, standDown.Text, "conflicts-2 stood down for conflicts-4; conflicts-2 stopped, quiet for 20 min.")
 	if old := row(t, s, lane2); old.State != store.LaneRetired || old.RetiredBy != "conflicts-4" {
 		t.Fatalf("%+v", old)
 	}
@@ -295,10 +298,7 @@ func TestADeadLaneRelaunchesWithItsHandoffAndStandsDownOnceItsSuccessorIsUp(t *t
 
 	tick(t, s, f, t0.Add(mins(2)))
 
-	equal(t, len(f.posts), 1)
-	standDown := f.posts[0]
-	equal(t, []any{standDown.Kind, standDown.To, standDown.Successor, standDown.PRs}, []any{"stand-down", []string{lane2}, "conflicts-4", []int{46001, 46002}})
-	equal(t, standDown.Text, "conflicts-2 stood down for conflicts-4, now up; conflicts-2 stopped, quiet for 20 min.")
+	equal(t, len(f.posts), 0)
 	equal(t, row(t, s, "conflicts-4").State, store.LaneDesired)
 }
 

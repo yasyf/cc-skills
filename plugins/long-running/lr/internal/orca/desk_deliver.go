@@ -132,20 +132,27 @@ func (d *Desk) deliverRelays(ctx context.Context, container, lane string, relays
 	if err != nil {
 		return err
 	}
-	if stoodDown == "" {
-		dispatch, err := d.relayable(ctx, lane)
-		if err != nil {
+	dispatch, err := d.relayable(ctx, lane)
+	if err != nil {
+		return err
+	}
+	if dispatch != nil {
+		if err := d.sendRelays(ctx, container, dispatch, relays); err != nil {
 			return err
 		}
-		if dispatch != nil {
-			if err := d.sendRelays(ctx, container, dispatch, relays); err != nil {
-				return err
-			}
-			refused, err := d.sendRefused(lane, dispatch)
-			if err != nil || !refused {
-				return err
+		if stoodDown != "" {
+			for _, action := range relays {
+				if err := d.record("escalation:relay:"+container+"/"+action.ActionID+":stood-down", fmt.Sprintf("RELAYED-STOOD-DOWN %s %s: stood down by %s, but its dispatch %s still runs, so the relay went to it; send it to the lane that took over too", action.ActionID, lane, stoodDown, dispatch.ID)); err != nil {
+					return err
+				}
 			}
 		}
+		refused, err := d.sendRefused(lane, dispatch)
+		if err != nil || !refused {
+			return err
+		}
+	}
+	if stoodDown == "" {
 		launches, err := d.store.Actions(container, kindLaunch, incident.ActionAccepted, incident.ActionStarted)
 		if err != nil {
 			return err
