@@ -18,6 +18,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/launchd"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
@@ -487,9 +488,9 @@ func agent() Agent {
 func TestAReinstallBootstrapsOnlyOnceLaunchdHasFinishedBootingOutTheOldCopy(t *testing.T) {
 	c := &ctl{loaded: []int{0, 0, 0, 113}}
 	var out bytes.Buffer
-	l := Launchd{Runner: scripted(c.run), Home: t.TempDir(), UID: 501, Sleep: func(time.Duration) {}, Out: &out}
+	l := launchd.Launchd{Runner: scripted(c.run), Home: t.TempDir(), UID: 501, Sleep: func(time.Duration) {}, Out: &out}
 
-	if err := l.Install(context.Background(), agent()); err != nil {
+	if err := l.Install(context.Background(), agent().Job()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -500,9 +501,9 @@ func TestTheSupervisorAgentNamesTheInstallLinkSoAPluginUpdateNeverChangesIt(t *t
 	c := &ctl{loaded: []int{113}}
 	var out bytes.Buffer
 	home := t.TempDir()
-	l := Launchd{Runner: scripted(c.run), Home: home, UID: 501, Sleep: func(time.Duration) {}, Out: &out}
+	l := launchd.Launchd{Runner: scripted(c.run), Home: home, UID: 501, Sleep: func(time.Duration) {}, Out: &out}
 
-	if err := l.Install(context.Background(), agent()); err != nil {
+	if err := l.Install(context.Background(), agent().Job()); err != nil {
 		t.Fatal(err)
 	}
 	body, err := os.ReadFile(filepath.Join(home, "Library", "LaunchAgents", Label("d1")+".plist"))
@@ -514,7 +515,7 @@ func TestTheSupervisorAgentNamesTheInstallLinkSoAPluginUpdateNeverChangesIt(t *t
 	}
 	c.calls, c.loaded = nil, []int{0}
 
-	if err := l.Install(context.Background(), agent()); err != nil {
+	if err := l.Install(context.Background(), agent().Job()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -525,13 +526,13 @@ func TestUninstallBootsOutAndRemovesThePlist(t *testing.T) {
 	c := &ctl{loaded: []int{113}}
 	var out bytes.Buffer
 	home := t.TempDir()
-	l := Launchd{Runner: scripted(c.run), Home: home, UID: 501, Sleep: func(time.Duration) {}, Out: &out}
-	if err := l.Install(context.Background(), agent()); err != nil {
+	l := launchd.Launchd{Runner: scripted(c.run), Home: home, UID: 501, Sleep: func(time.Duration) {}, Out: &out}
+	if err := l.Install(context.Background(), agent().Job()); err != nil {
 		t.Fatal(err)
 	}
 	c.calls, c.loaded = nil, []int{0}
 
-	if err := l.Uninstall(context.Background(), "d1"); err != nil {
+	if err := l.Uninstall(context.Background(), Label("d1")); err != nil {
 		t.Fatal(err)
 	}
 
@@ -545,7 +546,7 @@ func TestThePlistEscapesItsValuesAndCarriesTheKeepAliveAndLimits(t *testing.T) {
 	a := agent()
 	a.Path = "/usr/bin:/a&b"
 
-	body := string(a.Plist())
+	body := string(a.Job().Plist())
 
 	for _, want := range []string{"/usr/bin:/a&amp;b", "<key>KeepAlive</key>\n\t<true/>", "<integer>65536</integer>", "<integer>60</integer>", "<string>com.long-running.d1.supervisor</string>", "<string>--config</string>"} {
 		if !strings.Contains(body, want) {
@@ -555,7 +556,7 @@ func TestThePlistEscapesItsValuesAndCarriesTheKeepAliveAndLimits(t *testing.T) {
 }
 
 func TestThePlistStartsTheSupervisorUnderItsOwnLane(t *testing.T) {
-	body := string(agent().Plist())
+	body := string(agent().Job().Plist())
 
 	if want := "<key>CLAUDE_LONG_RUNNING_LANE</key>\n\t\t<string>supervisor</string>"; !strings.Contains(body, want) {
 		t.Fatalf("%q not in\n%s", want, body)
