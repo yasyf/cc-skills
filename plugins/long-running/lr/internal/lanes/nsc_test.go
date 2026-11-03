@@ -14,6 +14,7 @@ import (
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
 const (
@@ -146,8 +147,19 @@ func TestAnExtendedBoxRecordsTheNewDeadlineNscPrints(t *testing.T) {
 	equal(t, []string{bus.posted[0].Topic, bus.posted[0].Attrs["deadline"]}, []string{"nsc:sh4pma4mccmt4", "2026-11-04T04:00:00Z"})
 }
 
-func renewing(t *testing.T, extend func(argv []string) (shell.Result, error)) (*NscDeadlines, *fakeBus) {
+func renewing(t *testing.T, state store.LaneState, extend func(argv []string) (shell.Result, error)) (*NscDeadlines, *fakeBus) {
 	t.Helper()
+	s, err := store.Memory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	if _, err := s.WantLane(store.Lane{Name: perfLane, Brief: "/briefs/" + perfLane + ".md", Model: "opus", Effort: "xhigh", State: store.LaneDesired}, t0.Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetLaneState(perfLane, state, t0.Add(-mins(30)), "", ""); err != nil {
+		t.Fatal(err)
+	}
 	bus := &fakeBus{tail: []client.Record{deadlineRecord(t, 1, t0.Add(mins(59)), `,"duration":"8h0m0s"`)}}
 	env := Env{Bus: cursorBus{bus}, Config: config.Config{Drive: testDrive}, Runner: scripted(func(argv []string) (shell.Result, error) {
 		if argv[1] == "list" {
@@ -155,13 +167,13 @@ func renewing(t *testing.T, extend func(argv []string) (shell.Result, error)) (*
 		}
 		return extend(argv)
 	})}
-	return &NscDeadlines{Env: env, Log: slog.Default()}, bus
+	return &NscDeadlines{Env: env, Store: s, Log: slog.Default()}, bus
 }
 
 func TestABoxWithACreateDurationIsExtendedByItAndItsLaneIsTold(t *testing.T) {
 	renewed := t0.Add(mins(59)).Add(8 * time.Hour)
 	var extended []string
-	watch, bus := renewing(t, func(argv []string) (shell.Result, error) {
+	watch, bus := renewing(t, store.LaneDesired, func(argv []string) (shell.Result, error) {
 		extended = argv
 		return shell.Result{Stdout: "New deadline: " + renewed.Format(time.RFC3339) + "\n"}, nil
 	})
@@ -178,7 +190,7 @@ func TestABoxWithACreateDurationIsExtendedByItAndItsLaneIsTold(t *testing.T) {
 }
 
 func TestABoxNscRefusesToExtendWarnsItsLaneToRecreateIt(t *testing.T) {
-	watch, bus := renewing(t, func(argv []string) (shell.Result, error) {
+	watch, bus := renewing(t, store.LaneDesired, func(argv []string) (shell.Result, error) {
 		return shell.Result{Code: 1}, &shell.ExitError{Argv: argv, Code: 1, Stderr: "Failed: maximum duration reached"}
 	})
 
@@ -188,4 +200,18 @@ func TestABoxNscRefusesToExtendWarnsItsLaneToRecreateIt(t *testing.T) {
 	equal(t, []string{bus.posted[0].Kind, bus.posted[0].To[0]}, []string{nscWarning, perfLane})
 	contains(t, bus.posted[0].Text, "nsc refused to extend it: ")
 	contains(t, bus.posted[0].Text, "Recreate it with `lr nsc create --drive d1 --lane devbox-perf-1 -- <nsc create flags>`")
+}
+
+func TestABoxWhoseLaneRetiredIsLeftToExpireWithOneWarningToTheCoordinator(t *testing.T) {
+	watch, bus := renewing(t, store.LaneRetired, func(argv []string) (shell.Result, error) {
+		t.Fatalf("extended a retired lane's box: %v", argv)
+		return shell.Result{}, nil
+	})
+
+	checkAt(t, watch, t0)
+	checkAt(t, watch, t0.Add(gcEvery))
+
+	equal(t, len(bus.posted), 1)
+	equal(t, []string{bus.posted[0].Kind, bus.posted[0].To[0]}, []string{nscWarning, Root})
+	contains(t, bus.posted[0].Text, "its lane devbox-perf-1 has no live registry row, so the supervisor leaves it to expire")
 }

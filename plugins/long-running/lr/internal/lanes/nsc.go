@@ -14,6 +14,7 @@ import (
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
 const (
@@ -35,6 +36,7 @@ type nscBox struct {
 
 type NscDeadlines struct {
 	Env   Env
+	Store *store.Store
 	Log   *slog.Logger
 	read  time.Time
 	after int64
@@ -68,7 +70,7 @@ func (n *NscDeadlines) Check(ctx context.Context, now time.Time) error {
 		}
 		delete(n.due, box.ID)
 		if err := n.renew(ctx, box, deadline, now); err != nil {
-			return fmt.Errorf("%w: cci post: %w", ErrUnread, err)
+			return fmt.Errorf("%w: nsc renew %s: %w", ErrUnread, box.ID, err)
 		}
 	}
 	return nil
@@ -78,6 +80,17 @@ func (n *NscDeadlines) renew(ctx context.Context, box nscBox, deadline, now time
 	lasts, known := n.lasts[box.ID]
 	if !known {
 		_, err := n.Env.Bus.Post(ctx, n.warning(box, deadline, now, ""))
+		return err
+	}
+	lane, found, err := n.Store.Lane(box.Labels[nscLabel])
+	if err != nil {
+		return err
+	}
+	if !found || lane.State == store.LaneRetired {
+		_, err := n.Env.Bus.Post(ctx, client.Draft{
+			Drive: n.Env.Config.Drive, Lane: Self, Kind: nscWarning, To: []string{Root}, ID: fmt.Sprintf("nsc-deadline:%s:%d", box.ID, deadline.Unix()), Stamp: true,
+			Text: fmt.Sprintf("NSC-DEADLINE %s: this Namespace box dies at %s, in %d minutes, and its lane %s has no live registry row, so the supervisor leaves it to expire. Destroy it now with `nsc destroy %s`, or keep it with `lr nsc extend %s --drive %s --lane %s -- --duration <how much longer>`.", box.ID, pacific(deadline), int(deadline.Sub(now).Minutes()), box.Labels[nscLabel], box.ID, box.ID, n.Env.Config.Drive, Root),
+		})
 		return err
 	}
 	_, renewed, err := extendNsc(ctx, n.Env.Runner, box.ID, []string{"--duration", lasts.String()})
@@ -90,9 +103,8 @@ func (n *NscDeadlines) renew(ctx context.Context, box nscBox, deadline, now time
 		return err
 	}
 	n.due[box.ID] = renewed
-	lane := or(box.Labels[nscLabel], Root)
 	_, err = n.Env.Bus.Post(ctx, client.Draft{
-		Drive: n.Env.Config.Drive, Lane: Self, Kind: nscRenewed, To: []string{lane}, ID: fmt.Sprintf("nsc-renewed:%s:%d", box.ID, renewed.Unix()), Stamp: true, Force: true,
+		Drive: n.Env.Config.Drive, Lane: Self, Kind: nscRenewed, To: []string{lane.Name}, ID: fmt.Sprintf("nsc-renewed:%s:%d", box.ID, renewed.Unix()), Stamp: true, Force: true,
 		Text: fmt.Sprintf("NSC-EXTENDED %s: this Namespace box was to die at %s, so the supervisor extended it by its create duration, %s; it now dies at %s. Destroy it with `nsc destroy %s` once its work is done.", box.ID, pacific(deadline), lasts, pacific(renewed), box.ID),
 	})
 	return err

@@ -623,7 +623,7 @@ func (e Env) Checks(s *store.Store, log *slog.Logger) ([]Check, error) {
 		checks = append(checks, (&SpriteStops{Env: e, Store: s, CcRemote: *remote, Log: log}).Check)
 	}
 	if _, err := exec.LookPath("nsc"); err == nil {
-		checks = append(checks, (&NscDeadlines{Env: e, Log: log}).Check)
+		checks = append(checks, (&NscDeadlines{Env: e, Store: s, Log: log}).Check)
 	}
 	cli, err := ReleaseCLI(e.State)
 	if err != nil {
