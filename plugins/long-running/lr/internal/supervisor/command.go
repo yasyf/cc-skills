@@ -179,8 +179,9 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 		Lanes: func(now time.Time, generation int64) (lanes.Outcome, error) {
 			return lanes.Tick(s, laneDeps, now, generation)
 		},
-		Checks: checks,
-		Log:    a.Log,
+		Checks:  checks,
+		Stagger: checkStagger,
+		Log:     a.Log,
 	}
 	if !slices.Contains(env.Config.Movers, config.MoverLanding) {
 		return deps, nil
