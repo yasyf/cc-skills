@@ -75,6 +75,7 @@ type Live struct {
 }
 
 type Outcomes struct {
+	Rev          int64          `json:"rev"`
 	Doc          map[string]any `json:"doc"`
 	Interactions struct {
 		Choices map[string]struct {

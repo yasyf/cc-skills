@@ -70,6 +70,9 @@ class RecordedShell(board_watch.Shell):
     def shown(self, session: str, block: str) -> dict | None:
         return {"doc": self.doc, "onBoard": True, "answers": self.answers.get(block, [])}
 
+    def outcomes(self, session: str) -> dict | None:
+        return {"doc": self.doc, "interactions": {}}
+
     def spawn(self, target, *args) -> None:
         self.spawned = [*getattr(self, "spawned", []), target.__name__]
 
@@ -122,6 +125,25 @@ def test_every_owner_interaction_is_captured_in_order(tmp_path: Path) -> None:
     ]
     assert {capture["source"] for capture in captured} == {"board"}
     assert {capture["at"] for capture in captured} == {"2026-01-02T03:04:05Z"}
+
+
+def test_a_proof_boards_taps_post_no_owner_record_and_no_capture(tmp_path: Path) -> None:
+    shell = RecordedShell(doc=json.loads((FIXTURES / "outcomes.json").read_text())["doc"] | {"proof": True})
+
+    assert run(tmp_path, shell) == []
+
+    assert shell.posts == []
+    assert shell.rows == []
+    assert shell.ledger == []
+    assert (tmp_path / "boards" / f"{SESSION}-events.jsonl").read_text() == (FIXTURES / "stream.jsonl").read_text()
+
+
+def test_the_same_taps_on_an_unmarked_board_post_owner_records(tmp_path: Path) -> None:
+    shell = RecordedShell()
+
+    run(tmp_path, shell)
+
+    assert shell.posted(board_watch.BUS_LANE)
 
 
 def test_a_write_in_then_a_pick_on_one_block_yields_two_captures(tmp_path: Path) -> None:

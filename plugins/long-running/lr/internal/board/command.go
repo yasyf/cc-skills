@@ -307,7 +307,7 @@ func cardsCommand(cards func() (Cards, func(), error), judge Judge) *cobra.Comma
 		},
 	}
 	record.Flags().StringVar(&until, "until", "", "at:TIME, pr:N, release:STACK@ENV:COMMIT or record:SEQ")
-	record.Flags().StringVar(&owner, "lane", os.Getenv("CC_PRESENT_LANE"), "the lane that owns the card, told when a ruling may change it")
+	record.Flags().StringVar(&owner, "lane", os.Getenv("CLAUDE_LONG_RUNNING_LANE"), "the lane that owns the card, told when a ruling may change it")
 	record.Flags().StringArrayVar(&on, "on", nil, "an object or card:ID the card rests on beyond the PRs and register names it cites, repeatable")
 	recheck := &cobra.Command{
 		Use:   "recheck [RULING...]",

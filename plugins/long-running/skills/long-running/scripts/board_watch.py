@@ -25,7 +25,9 @@ file joined by NUL and `at` is the arrival time in UTC. A triage row's note also
 A write-in a later pick replaces survives as its own capture, and every tap is its own capture,
 so a burst that returns to an earlier pick keeps all its taps and the last one stays last. A pick or approval whose block is missing from the board's document gets no
 capture, so no option id or bare verdict stands in for the owner's words; its event line stays. The state directory resolves as `rulings.py` resolves it; `--state-dir`
-overrides it. A second watch of the same board exits at once.
+overrides it. A second watch of the same board exits at once. A board whose document carries
+`proof: true` was made to prove a change, so its taps are an agent's: its event lines stay, and
+neither a capture nor an owner record comes of them, here or in `backfill`.
 
 Each decision.created, choice.selected, input.submitted, feedback.created, pack.interaction,
 triage.decided and submit also reaches the drive's bus the moment it arrives, so no lane waits on a coordinator to relay a
@@ -664,6 +666,8 @@ def record(line: str, state: Path, session: str, shell: Shell, seen: set[str], b
     event = json.loads(line)
     owner = event.get("type") in OWNER_EVENTS
     doc = shell.document(session, event["blockId"]) if owner and event.get("blockId") else None
+    if owner and ((doc if event.get("blockId") else (shell.outcomes(session) or {}).get("doc")) or {}).get("proof"):
+        return
     if owner:
         batch_taps(announce(event, line, session, doc, shell, bus), state / BOARDS / f"{session}-taps.jsonl", session, shell, bus)
     with (state / CAPTURES).open("a") as sink:
@@ -716,6 +720,8 @@ def cmd_backfill(args: argparse.Namespace, shell: Shell) -> int:
     if (outcomes := shell.outcomes(args.session)) is None:
         print(f"board-watch backfill: cc-present outcomes did not read for {args.session}", file=sys.stderr)
         return 1
+    if (outcomes.get("doc") or {}).get("proof"):
+        return 0
     verdicts, picks = unrecorded(outcomes, board_records(shell, drive_name))
     for block, row, entry in verdicts:
         carried = entry.get("carriedFrom") or ""

@@ -161,36 +161,37 @@ func (c Cards) register(ctx context.Context) ([]ledger.Row, error) {
 	return ledger.Register(ctx, c.ccn, c.Ledger, c.Program)
 }
 
-func (c Cards) card(ctx context.Context, card string) (json.RawMessage, bool, error) {
+func (c Cards) card(ctx context.Context, card string) (json.RawMessage, bool, int64, error) {
 	shown, err := c.present(ctx, "outcomes", "--block", card)
 	if err != nil {
-		return nil, false, err
+		return nil, false, 0, err
 	}
 	var outcomes struct {
-		OnBoard bool `json:"onBoard"`
+		Rev     int64 `json:"rev"`
+		OnBoard bool  `json:"onBoard"`
 		Doc     struct {
 			Blocks []json.RawMessage `json:"blocks"`
 		} `json:"doc"`
 	}
 	if err := json.Unmarshal([]byte(shown), &outcomes); err != nil {
-		return nil, false, fmt.Errorf("cc-present outcomes --block %s: %w", card, err)
+		return nil, false, 0, fmt.Errorf("cc-present outcomes --block %s: %w", card, err)
 	}
 	for _, block := range outcomes.Doc.Blocks {
 		var top struct {
 			ID string `json:"id"`
 		}
 		if err := json.Unmarshal(block, &top); err != nil {
-			return nil, false, err
+			return nil, false, 0, err
 		}
 		if top.ID == card {
-			return block, outcomes.OnBoard, nil
+			return block, outcomes.OnBoard, outcomes.Rev, nil
 		}
 	}
-	return nil, false, nil
+	return nil, false, 0, nil
 }
 
 func (c Cards) Depend(ctx context.Context, card, lane string, explicit []string) ([]string, error) {
-	shown, onBoard, err := c.card(ctx, card)
+	shown, onBoard, _, err := c.card(ctx, card)
 	if err != nil {
 		return nil, err
 	}
@@ -306,6 +307,7 @@ type judged struct {
 	ref     store.CardRef
 	cards   Cards
 	shown   json.RawMessage
+	rev     int64
 	gone    bool
 	premise *Judgment
 	decided *Judgment
@@ -314,11 +316,11 @@ type judged struct {
 func (r Recheck) judge(ctx context.Context, ref store.CardRef, evidence string) (judged, error) {
 	cards := r.Cards
 	cards.Session = ref.Session
-	shown, onBoard, err := cards.card(ctx, ref.Card)
+	shown, onBoard, rev, err := cards.card(ctx, ref.Card)
 	if err != nil || !onBoard {
 		return judged{ref: ref, cards: cards, gone: true}, err
 	}
-	one := judged{ref: ref, cards: cards, shown: shown}
+	one := judged{ref: ref, cards: cards, shown: shown, rev: rev}
 	if one.premise, err = r.Judge(ctx, premiseKind, evidence, string(shown)); err != nil || verdictOf(one.premise) != "yes" {
 		return one, err
 	}
@@ -340,7 +342,7 @@ func (r Recheck) apply(ctx context.Context, one judged) (*Moved, error) {
 	case "yes":
 		return r.withdraw(ctx, one.cards, one.ref, one.decided.Sentence)
 	case "no":
-		return r.redraw(ctx, one.cards, one.ref, one.shown, one.premise.Sentence)
+		return r.redraw(ctx, one.cards, one.ref, one.shown, one.rev, one.premise.Sentence)
 	}
 	return &Moved{one.ref, "flagged", sentenceOf(one.decided)}, nil
 }
@@ -379,7 +381,7 @@ func (r Recheck) withdraw(ctx context.Context, cards Cards, ref store.CardRef, w
 	return &Moved{ref, "withdrew", why}, cards.Store.DropCardDeps(ref)
 }
 
-func (r Recheck) redraw(ctx context.Context, cards Cards, ref store.CardRef, shown json.RawMessage, premise string) (*Moved, error) {
+func (r Recheck) redraw(ctx context.Context, cards Cards, ref store.CardRef, shown json.RawMessage, rev int64, premise string) (*Moved, error) {
 	var card map[string]any
 	if err := json.Unmarshal(shown, &card); err != nil {
 		return nil, err
@@ -395,7 +397,7 @@ func (r Recheck) redraw(ctx context.Context, cards Cards, ref store.CardRef, sho
 	if err != nil {
 		return nil, err
 	}
-	if _, err := cards.run(ctx, shell.Command{Argv: []string{"cc-present", "update-block", "-", "--session", cards.Session}, Stdin: string(encoded)}); err != nil {
+	if _, err := cards.run(ctx, shell.Command{Argv: []string{"cc-present", "update-block", "-", "--session", cards.Session, "--rev", strconv.FormatInt(rev, 10)}, Stdin: string(encoded)}); err != nil {
 		return refused(ref, err)
 	}
 	return &Moved{ref, "redrew", premise}, nil
