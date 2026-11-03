@@ -182,11 +182,12 @@ CCI_POST = CommandSchema(
         *(
             Option(name, (f"--{name}",))
             for name in (
-                "attr", "board", "body-file", "build", "ccn", "census", "commit", "count", "drive", "env", "id", "kind", "lane",
-                "lane-ref", "mode", "outcome", "path", "pr", "re", "resolves", "stack", "target", "text", "to", "topic", "ttl", "url",
+                "attr", "board", "body-file", "build", "ccn", "census", "commit", "count", "drive", "env", "head", "id", "kind", "lane",
+                "lane-ref", "mode", "outcome", "owned-by", "path", "pr", "quoted", "re", "resolves", "stack", "successor", "target",
+                "text", "to", "topic", "ttl", "url",
             )
         ),
-        Option("json", ("--json",), bool),
+        *(Option(name, (f"--{name}",), bool) for name in ("force", "json", "pairwise", "stamp")),
     ),
 )
 
