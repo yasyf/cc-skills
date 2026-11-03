@@ -79,8 +79,17 @@ func TestTheShadowPostsOnceWhereItDisagreesWithTheRunner(t *testing.T) {
 	for _, d := range posted {
 		causes = append(causes, d.ID[strings.LastIndex(d.ID, ":")+1:])
 	}
-	if strings.Join(causes, ",") != "unqueued,landed-early" {
-		t.Fatalf("posted %v, want one unqueued note for the overdue ready PR and one landed-early note for the held PR", causes)
+	if strings.Join(causes, ",") != "unqueued,merged-outside-queue" {
+		t.Fatalf("posted %v, want one unqueued note for the overdue ready PR and one merged-outside-queue note for the held PR Trunk never held", causes)
+	}
+	if err := s.Desk.Store.Update(func(tx *store.Tx) error {
+		return tx.PutEntry(store.Entry{Repo: repo, Number: 7, ID: "e1", Head: h1, Attempt: 1, Outcome: QueueIn})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	posted = nil
+	if err := s.disagree(context.Background(), moved[2:3]); err != nil || len(posted) != 1 || !strings.HasSuffix(posted[0].ID, ":landed-early") {
+		t.Fatalf("a held PR Trunk took posted %+v, %v, want landed-early", posted, err)
 	}
 }
 
