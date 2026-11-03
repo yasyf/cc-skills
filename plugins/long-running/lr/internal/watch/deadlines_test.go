@@ -2,6 +2,7 @@ package watch
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -254,4 +255,29 @@ func want[T comparable](t *testing.T, got, expected T) {
 	if got != expected {
 		t.Fatalf("got %v, want %v", got, expected)
 	}
+}
+
+func TestOneRefusedPostLeavesTheRestOfTheSweepPosting(t *testing.T) {
+	s, r := memory(t), &recorder{}
+	asked := at(t, "2026-11-03T05:00:00Z")
+	asks := []client.Record{
+		{Seq: 200, Lane: "lane-a", Kind: "ask", At: asked, To: []string{"root"}, Text: "cut at 6:30 AM?"},
+		{Seq: 201, Lane: "lane-b", Kind: "ask", At: asked, To: []string{"root"}, Text: "which head?"},
+	}
+	refused := false
+	post := func(to []string, body bus.Body) error {
+		if !refused {
+			refused = true
+			return errors.New("cci: time 6:30 AM in the text is 71 minutes after the post time")
+		}
+		return r.post(to, body)
+	}
+
+	escalated, err := Sweep(s, nil, asks, nil, asked.Add(15*time.Minute), post)
+
+	if err == nil || !strings.Contains(err.Error(), "71 minutes after the post time") {
+		t.Fatalf("err = %v, want the refusal", err)
+	}
+	want(t, len(escalated), 2)
+	want(t, len(r.posts), 1)
 }

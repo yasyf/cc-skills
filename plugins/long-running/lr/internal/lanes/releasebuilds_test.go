@@ -105,3 +105,33 @@ func TestAFailedReleaseBuildPostsOneFailedNamingItsStepToTheCoordinatorAndTheRel
 	equal(t, failed.ID, "release-failed:buildkite.com/org/release/builds/12272:failed")
 	equal(t, failed.Text, "RELEASE-FAILED 12272 apply-api--prod "+promotionURL)
 }
+
+func TestAnAutomaticStagingPromotionNeedsNoClaim(t *testing.T) {
+	feed := fmt.Sprintf(`[{"number":12272,"state":"running","web_url":%q,"source":"trigger_job","creator":null,"started_at":%q,"jobs":[]}]`, promotionURL, promotionStarted.Format(time.RFC3339))
+	check, bus := releaseBuilds(t, &feed)
+
+	watchBuilds(t, check, promotionStarted.Add(seenGrace))
+	watchBuilds(t, check, promotionStarted.Add(2*seenGrace))
+	equal(t, len(bus.posted), 0)
+}
+
+func TestAFailedReleaseBuildWaitsOnItsResumeAndPostsNothingWhenTheResumePasses(t *testing.T) {
+	resume := func(state string) string {
+		start, err := json.Marshal(map[string]string{"mode": "release", "replans": "releases/2026-11-02/3"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return fmt.Sprintf(`[
+			{"number":12276,"state":%q,"web_url":"https://buildkite.com/org/release/builds/12276","branch":"releases/2026-11-02/4","started_at":%q,"env":{"RELEASE_START":%q},"jobs":[]},
+			{"number":12272,"state":"failed","web_url":%q,"branch":"releases/2026-11-02/3","started_at":%q,"jobs":[{"name":"apply","state":"failed","soft_failed":false,"step_key":"apply-api--prod"}]}
+		]`, state, promotionStarted.Add(10*time.Minute).Format(time.RFC3339), start, promotionURL, promotionStarted.Format(time.RFC3339))
+	}
+	feed := resume("running")
+	check, bus := releaseBuilds(t, &feed, namingRecord(t, 1, "release-6", "resuming as https://buildkite.com/org/release/builds/12276"), namingRecord(t, 2, "release-6", "promotion started "+promotionURL))
+
+	watchBuilds(t, check, promotionStarted.Add(20*time.Minute))
+	feed = resume("passed")
+	watchBuilds(t, check, promotionStarted.Add(21*time.Minute))
+
+	equal(t, len(bus.posted), 0)
+}

@@ -21,6 +21,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/pass"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
@@ -136,18 +137,29 @@ func (g *Gates) refuses(ctx context.Context, f machine.Facts) bool {
 }
 
 func (g *Gates) tell(ctx context.Context, f machine.Facts, kind, id, text string) {
-	if err := postToLane(ctx, g.Drive, f, kind, id, text); err != nil {
+	if err := postToLane(ctx, g.Store, g.Drive, f, kind, id, text); err != nil {
 		g.Log.Warn("a gate's refusal went unposted", "pr", f.Number, "err", err)
 	}
 }
 
-func postToLane(ctx context.Context, drive string, f machine.Facts, kind, id, text string) error {
-	to := []string{rootLane}
-	if f.Lane != "" {
-		to = []string{f.Lane, rootLane}
+func postToLane(ctx context.Context, s *store.Store, drive string, f machine.Facts, kind, id, text string) error {
+	holder, err := laneHolder(s, drive, f.Lane)
+	if err != nil {
+		return err
 	}
-	_, err := client.Post(ctx, client.Draft{Drive: drive, Lane: self, Kind: kind, To: to, ID: id, PRs: []string{pullRef(f)}, Text: text})
+	to := []string{rootLane}
+	if holder != rootLane {
+		to = []string{holder, rootLane}
+	}
+	_, err = client.Post(ctx, client.Draft{Drive: drive, Lane: self, Kind: kind, To: to, ID: id, PRs: []string{pullRef(f)}, Text: text})
 	return err
+}
+
+func laneHolder(s *store.Store, drive, lane string) (string, error) {
+	if lane == "" {
+		return rootLane, nil
+	}
+	return lanes.Holder(s, drive, lane)
 }
 
 func pullRef(f machine.Facts) string {

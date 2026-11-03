@@ -43,14 +43,21 @@ type releaseBuild struct {
 	Number    int       `json:"number"`
 	State     string    `json:"state"`
 	URL       string    `json:"web_url"`
+	Branch    string    `json:"branch"`
+	Source    string    `json:"source"`
+	Creator   *struct{} `json:"creator"`
 	StartedAt time.Time `json:"started_at"`
-	Jobs      []struct {
+	Env       struct {
+		Start string `json:"RELEASE_START"`
+	} `json:"env"`
+	Jobs []struct {
 		Name       string `json:"name"`
 		StepKey    string `json:"step_key"`
 		State      string `json:"state"`
 		SoftFailed bool   `json:"soft_failed"`
 	} `json:"jobs"`
 	pipeline string
+	resumes  string
 }
 
 func (r *ReleaseBuilds) Check(ctx context.Context, now time.Time) error {
@@ -68,7 +75,7 @@ func (r *ReleaseBuilds) Check(ctx context.Context, now time.Time) error {
 		return nil
 	}
 	for _, build := range builds {
-		if err := r.tend(ctx, build, now); err != nil {
+		if err := r.tend(ctx, build, builds, now); err != nil {
 			return err
 		}
 	}
@@ -117,23 +124,32 @@ func (r *ReleaseBuilds) builds(ctx context.Context) ([]releaseBuild, error) {
 		}
 		for _, build := range read {
 			build.pipeline = slug
+			if build.Env.Start != "" {
+				var start struct {
+					Replans string `json:"replans"`
+				}
+				if err := json.Unmarshal([]byte(build.Env.Start), &start); err != nil {
+					return nil, fmt.Errorf("build %d RELEASE_START: %w", build.Number, err)
+				}
+				build.resumes = start.Replans
+			}
 			builds = append(builds, build)
 		}
 	}
 	return builds, nil
 }
 
-func (r *ReleaseBuilds) tend(ctx context.Context, build releaseBuild, now time.Time) error {
+func (r *ReleaseBuilds) tend(ctx context.Context, build releaseBuild, builds []releaseBuild, now time.Time) error {
 	link := buildLink.FindString(build.URL)
 	lane, named := r.named[link]
 	age := now.Sub(build.StartedAt)
-	if !build.StartedAt.IsZero() && !named && !slices.Contains(buildClosed, build.State) && age >= seenGrace && age < seenWindow {
+	if !build.StartedAt.IsZero() && !named && !build.automatic() && !slices.Contains(buildClosed, build.State) && age >= seenGrace && age < seenWindow {
 		text := fmt.Sprintf("RELEASE-SEEN %d %s %s: no record names %s %d minutes after it started; claim it or name it in a release record", build.Number, build.pipeline, build.State, build.URL, int(age.Minutes()))
 		if err := r.post(ctx, "release-seen:"+link, []string{Root}, text); err != nil {
 			return err
 		}
 	}
-	if !slices.Contains(buildFailed, build.State) || build.StartedAt.IsZero() || age >= gateBack {
+	if !slices.Contains(buildFailed, build.State) || build.StartedAt.IsZero() || age >= gateBack || slices.ContainsFunc(builds, build.resumedBy) {
 		return nil
 	}
 	to := []string{Root}
@@ -142,6 +158,14 @@ func (r *ReleaseBuilds) tend(ctx context.Context, build releaseBuild, now time.T
 	}
 	text := fmt.Sprintf("RELEASE-FAILED %d %s %s", build.Number, build.failingStep(), build.URL)
 	return r.post(ctx, "release-failed:"+link+":"+build.State, to, text)
+}
+
+func (b releaseBuild) automatic() bool {
+	return b.Source == "trigger_job" && b.Creator == nil
+}
+
+func (b releaseBuild) resumedBy(other releaseBuild) bool {
+	return other.resumes != "" && (other.resumes == b.Branch || strings.HasPrefix(other.resumes, b.Branch+"/"))
 }
 
 func (b releaseBuild) failingStep() string {

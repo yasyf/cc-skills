@@ -80,7 +80,7 @@ func runPass(ctx context.Context, a *app.App, shadow bool, stdout io.Writer) err
 	if !slices.Contains(cfg.Movers, config.MoverLanding) {
 		return nil
 	}
-	if err := Announce(ctx, cfg.Drive, cfg.Trunk, out.Landed, route); err != nil {
+	if err := Announce(ctx, s, cfg.Drive, cfg.Trunk, out.Landed, route); err != nil {
 		return fmt.Errorf("a landed record went unposted: %w", err)
 	}
 	if err := CarryTaps(ctx, s, cfg.Drive, out.Carried, now); err != nil {
