@@ -60,7 +60,7 @@ def deps(clock, snapshot, queue=None, pool=None):
 
 
 def facts(number, **fields):
-    base = dict(repo=REPO, number=number, head=HEAD, base="dev", lane="lane-7", ci="success", mergeable="clean", finder="clear", fidelity="pass", tap="tapped")
+    base = dict(repo=REPO, number=number, head=HEAD, base="dev", lane="lane-7", ci="success", mergeable="clean", approved=True, finder="clear", fidelity="pass", tap="tapped")
     return Facts(**{**base, **fields})
 
 
@@ -130,3 +130,22 @@ def test_a_lanes_only_supervisor_runs_no_pr_pass(monkeypatch):
 
     assert ticked == [T0] and (tick.prs, tick.enqueued, tick.dispatched) == (0, 0, 0)
     assert store.open_items() == []
+
+
+def test_the_pr_pass_runs_every_three_minutes_while_the_lanes_tick_every_thirty_seconds():
+    store, clock = Store.memory(), Clock()
+
+    ticks = loop.run(store, "d", "0.8.0", 1, deps(clock, [facts(1, tap=None)]), ticks=7)
+
+    assert [t.prs for t in ticks] == [1, 0, 0, 0, 0, 0, 1]
+
+
+def test_a_pass_whose_sources_do_not_answer_acts_on_nothing():
+    store, clock, queue = Store.memory(), Clock(), Queue()
+
+    def unread():
+        raise loop.lanes.Unread("ccx vcs pr status exited 1")
+
+    [tick] = loop.run(store, "d", "0.8.0", 1, replace(deps(clock, [], queue), snapshot=unread), ticks=1)
+
+    assert (tick.prs, tick.enqueued) == (0, 0) and queue.enqueued == []

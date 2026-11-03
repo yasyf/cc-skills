@@ -12,13 +12,14 @@ OLD_HEAD = "aa11bb22cc33dd44ee55ff6677889900aabbccdd"
 
 
 def facts(**fields) -> Facts:
-    base = dict(repo="org/repo", number=45711, head=HEAD, base="dev", lane="lane-7", ci="success", mergeable="clean", finder="clear", fidelity="pass", tap="tapped")
+    base = dict(repo="org/repo", number=45711, head=HEAD, base="dev", lane="lane-7", ci="success", mergeable="clean", approved=True, finder="clear", fidelity="pass", tap="tapped")
     return Facts(**{**base, **fields})
 
 
 LANDABLE = facts()
 
 CASES = {
+    "a green graded head without an approving review asks its lane for one": (facts(approved=False), Verdict(State.GRADING, Mover.LANE, Action.REVIEW, timedelta(minutes=20))),
     "evicted and green again gets one enqueue the same pass": (facts(queue="evicted"), Verdict(State.EVICTED, Mover.SUPERVISOR, Action.ENQUEUE, timedelta(minutes=10))),
     "evicted a second time on a green head is red for its lane": (facts(queue="evicted", resubmitted=1), Verdict(State.RED, Mover.LANE, Action.FIX_RED, timedelta(minutes=20))),
     "evicted for its own red check is red for its lane": (facts(queue="evicted", ci="failure"), Verdict(State.RED, Mover.LANE, Action.FIX_RED, timedelta(minutes=20))),

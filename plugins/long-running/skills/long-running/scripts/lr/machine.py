@@ -39,6 +39,7 @@ class Mover(StrEnum):
 class Action(StrEnum):
     GRADE = "grade"
     WAIT_CI = "wait-ci"
+    REVIEW = "review"
     RESTACK = "restack"
     VERDICT = "verdict"
     FIX_RED = "fix-red"
@@ -71,6 +72,7 @@ class Facts:
     open: bool = True
     merged: bool = False
     ci: str = "pending"
+    approved: bool = False
     mergeable: str = "unknown"
     queue: str = "none"
     queued_head: str | None = None
@@ -106,7 +108,7 @@ class Facts:
 
     @property
     def landable(self) -> bool:
-        return self.green and self.mergeable == "clean" and not self.carries and self.cleared and self.tapped and self.hold is None
+        return self.green and self.mergeable == "clean" and not self.carries and self.cleared and self.approved and self.tapped and self.hold is None
 
 
 @dataclass(frozen=True)
@@ -145,6 +147,8 @@ def classify(f: Facts) -> Verdict:
         return Verdict(State.NEEDS_VERDICT, Mover.LANE, Action.VERDICT, LANE_CLOCK)
     if not f.green or f.mergeable != "clean":
         return Verdict(State.GRADING, Mover.SUPERVISOR, Action.WAIT_CI, CI_CLOCK)
+    if not f.approved:
+        return Verdict(State.GRADING, Mover.LANE, Action.REVIEW, LANE_CLOCK)
     if f.hold is not None:
         return Verdict(State.AWAITING_TAP, Mover(f.hold), Action.LIFT, OWNER_CLOCK)
     if not f.tapped:

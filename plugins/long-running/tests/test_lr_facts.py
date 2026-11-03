@@ -22,9 +22,9 @@ def status(number, head=HEAD, queue="not queued", state="OPEN", ci="green", appr
 
 
 class Recorded:
-    def __init__(self, prs=(), statuses=(), graphql=None, holds=(), bus=()):
+    def __init__(self, prs=(), statuses=(), graphql=None, holds=(), bus=(), legacy=()):
         self.calls: list[list[str]] = []
-        self.answers = {"pr": json.dumps(list(prs)), "status": json.dumps(list(statuses)), "graphql": json.dumps(graphql or {"data": {"repository": {}}}), "hold": "\n".join(json.dumps(row) for row in holds), "bus": "\n".join(json.dumps(row) for row in bus)}
+        self.answers = {"pr": json.dumps(list(prs)), "status": json.dumps(list(statuses)), "graphql": json.dumps(graphql or {"data": {"repository": {}}}), "hold": "\n".join(json.dumps(row) for row in holds), "bus": "\n".join(json.dumps(row) for row in bus), "legacy": "\n".join(json.dumps(row) for row in legacy)}
 
     def __call__(self, argv):
         self.calls.append(argv)
@@ -33,7 +33,7 @@ class Recorded:
         if "graphql" in argv:
             return self.answers["graphql"]
         if argv[:2] == ["cci", "tail"]:
-            return self.answers["hold"] if "--kind=hold" in argv else self.answers["bus"]
+            return self.answers["hold"] if "--kind=hold" in argv else self.answers["legacy"] if "--kind=review" in argv else self.answers["bus"]
         return self.answers["pr"]
 
 
@@ -61,7 +61,7 @@ def test_a_pass_reads_each_source_once_whatever_the_pr_count(n):
     rows = facts.snapshot(store, Bus("d", "supervisor", run), run, REPO, "d", "drive-bot", "drive")
 
     assert len(rows) == n
-    assert [argv[:3] for argv in run.calls] == [["cci", "tail", "--drive"], ["ccx", "vcs", "gh"], ["ccx", "vcs", "pr"], ["ccx", "vcs", "gh"], ["cci", "tail", "--drive"]]
+    assert [argv[:3] for argv in run.calls] == [["cci", "tail", "--drive"], ["cci", "tail", "--drive"], ["ccx", "vcs", "gh"], ["ccx", "vcs", "pr"], ["ccx", "vcs", "gh"], ["cci", "tail", "--drive"]]
 
 
 def test_queue_ci_and_mergeability_come_from_the_one_status_read():
@@ -145,3 +145,24 @@ def test_a_conditional_tap_is_not_a_tap_and_keeps_its_condition_as_a_fact():
     assert store.facts(REPO, 45470, HEAD) == {"tap": "conditional", "condition": "only if the finding is superseded"}
     [row] = facts.assemble(store, REPO, [status(45470)], {}, {})
     assert (row.tap, row.tapped, row.condition) == ("conditional", False, "only if the finding is superseded")
+
+
+def test_the_approving_review_comes_from_the_status_read_and_a_merged_row_needs_no_ci():
+    rows = facts.assemble(Store.memory(), REPO, [status(1), status(2, approval="none"), {"head": HEAD, "number": 3, "queue": "landed", "state": "MERGED", "base": "dev", "approval": {"state": "approved"}, "mergeability": "merged", "verdict": "landed"}], {}, {})
+
+    by = {row.number: row for row in rows}
+    assert (by[1].approved, by[2].approved) == (True, False)
+    assert (by[3].merged, by[3].ci) == (True, "pending")
+
+
+def test_a_grade_the_finder_posted_as_a_review_line_counts_for_the_full_head_it_abbreviates():
+    store = Store.memory()
+    finder = {"seq": 11, "at": "2026-10-30T21:00:00Z", "kind": "review", "lane": "finder-desk", "text": f"finder: ok {HEAD} luna finder over delta: no majors", "refs": {"prs": [f"{REPO}#1"]}}
+    fidelity = {"seq": 12, "at": "2026-10-30T21:00:00Z", "kind": "review", "lane": "fidelity-desk-22", "text": f"fidelity: ok {HEAD[:7]} the change stays in scope", "refs": {"prs": [f"{REPO}#1"]}}
+    graphql = {"data": {"repository": {"pr1": {"headRefOid": HEAD, "commits": {"nodes": [{"commit": {"oid": HEAD}}]}}}}}
+    run = Recorded(prs=[pr(1)], statuses=[status(1)], graphql=graphql, legacy=[finder, fidelity])
+
+    [row] = facts.snapshot(store, Bus("d", "supervisor", run), run, REPO, "d", "drive-bot", "drive")
+
+    assert (row.finder, row.fidelity, row.cleared) == ("clear", "pass", True)
+    assert store.cursor("legacy") == 12

@@ -2,7 +2,8 @@
 
 The file names the repository, the drive, the checkout the supervisor lands from, the drive
 author and label that admit a PR, the movers the supervisor runs, the Orca run its lanes
-launch into, and the box the graders run on. Any other key is refused by name, so a list of
+launch into, the box the graders run on, and the lanes besides root whose `go` may name an
+exempt class. Any other key is refused by name, so a list of
 desks or workers in the config cannot collide with the ones that register. `movers` has no
 default: each mover cuts over when the file names it.
 """
@@ -13,7 +14,7 @@ import json
 from dataclasses import dataclass, fields
 from pathlib import Path
 
-MOVERS = ("lanes", "landing", "grading")
+MOVERS = ("lanes", "shadow", "landing", "grading")
 
 
 @dataclass(frozen=True)
@@ -26,6 +27,11 @@ class Config:
     movers: tuple[str, ...]
     orca_run: str = ""
     remote_box: str = ""
+    go_lanes: str = ""
+
+    @property
+    def go_lane_names(self) -> tuple[str, ...]:
+        return tuple(name.strip() for name in self.go_lanes.split(",") if name.strip())
 
 
 class BadConfig(ValueError):

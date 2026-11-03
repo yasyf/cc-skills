@@ -42,6 +42,8 @@ def missing(facts) -> list[str]:
         out.append("not graded")
     elif not facts.cleared:
         out.append("a grade needs a verdict")
+    if not facts.approved:
+        out.append("no approving review")
     if facts.tap == "conditional":
         out.append(f"tap given {facts.condition}")
     elif not facts.tapped:

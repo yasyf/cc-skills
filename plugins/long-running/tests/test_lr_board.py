@@ -16,7 +16,7 @@ NEW = "aa11bb22cc33dd44ee55ff6677889900aabbccdd"
 
 
 def facts(number=45583, head=HEAD, **fields):
-    base = dict(repo=REPO, number=number, head=head, base="dev", lane="lane-7", ci="success", mergeable="clean", finder="clear", fidelity="pass", tap=None)
+    base = dict(repo=REPO, number=number, head=head, base="dev", lane="lane-7", ci="success", mergeable="clean", approved=True, finder="clear", fidelity="pass", tap=None)
     return Facts(**{**base, **fields})
 
 

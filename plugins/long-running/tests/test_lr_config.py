@@ -43,10 +43,14 @@ def test_the_remote_box_is_optional_until_the_pool_runs_remotely(tmp_path):
 
 @pytest.mark.parametrize("movers", [[], ["lanes", "board"], "lanes"])
 def test_movers_name_only_known_movers_and_have_no_default(tmp_path, movers):
-    with pytest.raises(config.BadConfig, match="movers must be a non-empty list drawn from lanes, landing, grading"):
+    with pytest.raises(config.BadConfig, match="movers must be a non-empty list drawn from lanes, shadow, landing, grading"):
         config.load(write(tmp_path, {**GOOD, "movers": movers}))
 
 
 def test_a_config_without_movers_runs_nothing_by_default(tmp_path):
     with pytest.raises(config.BadConfig, match="missing movers"):
         config.load(write(tmp_path, {key: value for key, value in GOOD.items() if key != "movers"}))
+
+
+def test_go_lanes_name_the_lanes_besides_root_whose_go_may_name_an_exempt_class(tmp_path):
+    assert config.load(write(tmp_path, {**GOOD, "go_lanes": "go-carry-sweep, go-sweep"})).go_lane_names == ("go-carry-sweep", "go-sweep")

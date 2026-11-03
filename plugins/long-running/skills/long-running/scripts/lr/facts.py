@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 
+from lr import legacy
 from lr.bus import Bus, Record
 from lr.machine import Facts
 from lr.store import Store
@@ -86,7 +87,8 @@ def assemble(store: Store, repo: str, rows: list[dict], carries: dict[int, tuple
                 lane=facts.get("lane", ""),
                 open=row["state"] == "OPEN",
                 merged=row["state"] == "MERGED" or row["queue"] == "landed",
-                ci=CI[row["ci"]["state"]],
+                ci=CI[row.get("ci", {}).get("state", "none")],
+                approved=row.get("approval", {}).get("state") == "approved",
                 mergeable=mergeable(row),
                 queue=QUEUE[row["queue"]],
                 queued_head=row["head"] if row["queue"] == "queued" else None,
@@ -115,8 +117,9 @@ def mergeable(row: dict) -> str:
     return "clean"
 
 
-def snapshot(store: Store, bus: Bus, run: Run, repo: str, drive: str, author: str, label: str) -> list[Facts]:
+def snapshot(store: Store, bus: Bus, run: Run, repo: str, drive: str, author: str, label: str, go_lanes: tuple[str, ...] = ()) -> list[Facts]:
     records, _rejected = bus.read(store.cursor(BUS_CURSOR), kinds=("head", "grade", "tap", "verdict"))
     ingest(store, repo, records)
+    legacy.ingest(store, repo, legacy.read(run, drive, store.cursor(legacy.CURSOR)), go_lanes)
     numbers = open_prs(run, repo, author, label)
     return assemble(store, repo, statuses(run, numbers), carried(run, repo, numbers), holds(run, drive))

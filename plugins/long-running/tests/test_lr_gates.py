@@ -55,7 +55,7 @@ def test_an_exemption_carries_with_its_tap():
 
 
 def test_a_carried_tap_admits_nothing_until_the_new_head_is_green():
-    carried = Facts(repo=REPO, number=45717, head=NEW, base="dev", lane="l", ci="pending", mergeable="clean", finder="clear", fidelity="pass", tap="tapped")
+    carried = Facts(repo=REPO, number=45717, head=NEW, base="dev", lane="l", ci="pending", mergeable="clean", approved=True, finder="clear", fidelity="pass", tap="tapped")
 
     assert gates.missing(carried) == ["CI is not green"]
     assert not carried.landable
@@ -64,11 +64,11 @@ def test_a_carried_tap_admits_nothing_until_the_new_head_is_green():
 def test_missing_names_every_open_gate():
     facts = Facts(repo=REPO, number=1, head=NEW, base="dev", lane="l", ci="failure", mergeable="conflict", finder="ask", fidelity="pass", tap=None, hold="root", carries=(2,))
 
-    assert gates.missing(facts) == ["CI is not green", "mergeability is conflict", "branch carries #2", "a grade needs a verdict", "no tap", "held by root"]
+    assert gates.missing(facts) == ["CI is not green", "mergeability is conflict", "branch carries #2", "a grade needs a verdict", "no approving review", "no tap", "held by root"]
 
 
 def test_nothing_missing_means_landable():
-    facts = Facts(repo=REPO, number=1, head=NEW, base="dev", lane="l", ci="success", mergeable="clean", finder="clear", fidelity="pass", tap="tapped")
+    facts = Facts(repo=REPO, number=1, head=NEW, base="dev", lane="l", ci="success", mergeable="clean", approved=True, finder="clear", fidelity="pass", tap="tapped")
 
     assert gates.missing(facts) == []
     assert facts.landable
@@ -84,6 +84,6 @@ def test_a_conditional_tap_never_anchors_a_carry():
 
 
 def test_missing_names_the_condition_a_tap_waits_on():
-    facts = Facts(repo=REPO, number=45470, head=NEW, base="dev", lane="l", ci="success", mergeable="clean", finder="clear", fidelity="pass", tap="conditional", condition="only if covered")
+    facts = Facts(repo=REPO, number=45470, head=NEW, base="dev", lane="l", ci="success", mergeable="clean", finder="clear", fidelity="pass", approved=True, tap="conditional", condition="only if covered")
 
     assert gates.missing(facts) == ["tap given only if covered"]
