@@ -16,7 +16,7 @@ A wait that ends empty prints `timeout`. --peek prints unread messages without
 waiting or marking them read. Arguments after -- go to `orca orchestration check`,
 such as --terminal <handle>. To acknowledge a previous terminal batch, pass
 --ack <delivery-id> after --; a message id acknowledges nothing. The Run inbox
-belongs to desk-runner.py; no other loop may check --run with --wait or --ack.
+belongs to the relay; no other loop may check --run with --wait or --ack.
 
 <lane> is the lane whose orca-launch.sh receipt names the sender's terminal,
 else the sender's handle. A lost connection, or a runtime_unavailable error,

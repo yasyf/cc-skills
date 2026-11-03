@@ -161,28 +161,6 @@ def test_native_tail_timeout_keeps_the_shell_timeout_classification(monkeypatch)
     assert closed == [True]
 
 
-
-def test_a_blocked_native_header_uses_the_existing_shell_timeout_and_retry(native_endpoint, monkeypatch):
-    from test_desk_runner import runner_module
-
-    replies, _, connections = native_endpoint
-    release = threading.Event()
-    argv = ["cci", "tail", "--drive", "d1", "--since", "0", "--json"]
-    expected = list(runner_module.reread_pauses(argv))
-    pauses = []
-    replies.extend([(None, release)] * (1 + len(expected)))
-    monkeypatch.setattr(runner_module, "QUICK_SECONDS", 1)
-    monkeypatch.setattr(runner_module.Shell, "sleep", lambda self, seconds: pauses.append(seconds))
-    try:
-        result = runner_module.Shell().cci_query(argv)
-        assert result.code == runner_module.TIMED_OUT
-        assert "timed out" in result.err
-        assert len(connections) == 1 + len(expected)
-        assert pauses == expected
-    finally:
-        release.set()
-
-
 def test_progressing_native_body_reads_do_not_extend_the_read_budget(monkeypatch):
     clock, closed, timeouts, reads = [0.0], [], [], []
 

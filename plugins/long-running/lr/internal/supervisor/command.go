@@ -208,7 +208,7 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 	if err != nil {
 		return Deps{}, err
 	}
-	if orcaRunner.Orca.GoRelay {
+	if orcaRunner.Orca.DeskInbox != "" {
 		agents, err := launchd.New(a.Runner, os.Stdout)
 		if err != nil {
 			return Deps{}, err
@@ -246,7 +246,7 @@ func Install(cmd *cobra.Command, a *app.App) error {
 	if err != nil {
 		return err
 	}
-	if runner.Orca.GoRelay {
+	if runner.Orca.DeskInbox != "" {
 		if err := agents.Install(cmd.Context(), agent.RelayJob(runner.Orca.DeskInbox)); err != nil {
 			return err
 		}

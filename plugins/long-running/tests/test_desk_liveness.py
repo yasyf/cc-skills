@@ -13,7 +13,6 @@ from hooks import desk_liveness
 
 SESSION = "06923255-284c-4abb-9d9e-df56d5ca1e74"
 LANE = "aalerts-desk-3-7dd760cda47127c2"
-RESTART = "nohup desk-runner.py run --config /drive/runner.json --desk orca > /orca-runner.log 2>&1 < /dev/null &"
 
 
 @pytest.fixture
@@ -34,7 +33,7 @@ def drive(tmp_path, monkeypatch) -> Path:
 
 
 def beat(state: Path, at: datetime) -> None:
-    record = {"seq": 7, "drive": "drive", "lane": "desk-runner", "kind": "state", "topic": "orca", "to": ["drive-watchdog@drive"], "at": at.isoformat(), "text": "orca alive 1:59 PM pass 4", "fields": {"attrs": {"pid": "73091", "restart": RESTART}}}
+    record = {"seq": 7, "drive": "drive", "lane": "desk-runner", "kind": "state", "topic": "orca", "to": ["drive-watchdog@drive"], "at": at.isoformat(), "text": "orca alive 1:59 PM pass 4", "fields": {"attrs": {"pid": "73091"}}}
     (state.parent / "alive.jsonl").write_text(json.dumps(record) + "\n")
 
 
@@ -57,7 +56,7 @@ def test_an_append_to_the_desk_inbox_file_warns_that_nothing_reads_it_and_names_
 
     [result] = append(drive, tmp_path / "lane")
 
-    assert result.message.startswith("UNREAD: the orca desk runner reads only cci records addressed to `orca-desk`, never `orca-desk.md`")
+    assert result.message.startswith("UNREAD: the relay reads only cci records addressed to `orca-desk`, never `orca-desk.md`")
     assert "\ncci post --lane <your lane> --kind go --to orca-desk --text '<the orca-desk: line>'\n" in result.message
     assert not (tmp_path / "cci-calls").exists()
 
@@ -77,20 +76,20 @@ def test_a_runner_on_another_machine_with_no_heartbeat_file_here_is_running_whil
     assert post(drive, tmp_path / "lane") == []
 
 
-def test_a_silent_runner_names_its_last_alive_record_and_the_restart_it_posted(drive, tmp_path):
+def test_a_silent_relay_names_its_last_alive_record_and_where_to_read_why(drive, tmp_path):
     beat(drive, datetime(2026, 10, 10, 20, 59, tzinfo=timezone.utc))
 
     [result] = post(drive, tmp_path / "lane")
 
-    assert result.message.startswith("LAUNCH-FAILED: no orca alive record from the orca desk runner in the last five minutes (last 1:59 PM)")
-    assert f"\n{RESTART}\n" in result.message
+    assert result.message.startswith("LAUNCH-FAILED: no orca alive record from the relay in the last five minutes (last 1:59 PM)")
+    assert f"\n{desk_liveness.READ_WHY}\n" in result.message
 
 
-def test_a_drive_whose_orca_runner_never_posted_names_the_start_command(drive, tmp_path):
+def test_a_drive_whose_relay_never_posted_says_never(drive, tmp_path):
     [result] = post(drive, tmp_path / "lane")
 
     assert "(last never)" in result.message
-    assert f"\n{desk_liveness.START}\n" in result.message
+    assert f"\n{desk_liveness.READ_WHY}\n" in result.message
 
 
 def test_a_cci_that_does_not_answer_says_nothing(drive, tmp_path, monkeypatch):

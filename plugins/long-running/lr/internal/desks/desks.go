@@ -2,7 +2,6 @@ package desks
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -25,15 +24,9 @@ import (
 )
 
 const (
-	communicator  = "owner-relay"
-	laneEnv       = "CLAUDE_LONG_RUNNING_LANE"
-	launchRunner  = "orca"
-	landingRunner = "landing"
-	runnerLane    = "desk-runner"
-	watchdog      = "drive-watchdog"
-	beatStale     = 5 * time.Minute
-	beatWait      = 90 * time.Second
-	beatPoll      = 2 * time.Second
+	communicator = "owner-relay"
+	laneEnv      = "CLAUDE_LONG_RUNNING_LANE"
+	watchdog     = "drive-watchdog"
 )
 
 type desk struct{ name, model, effort string }
@@ -67,7 +60,7 @@ func Command(a *app.App) *cobra.Command {
 	cmd := &cobra.Command{Use: "desks", Short: "The drive's desks, which the coordinator owns and starts"}
 	cmd.AddCommand(&cobra.Command{
 		Use:   "start",
-		Short: "Start every runner and standing desk that is not up: the landing runner and each desk remote, the launch runner from this Orca terminal",
+		Short: "Take the drive's Orca Run for this terminal and start every standing desk that is not up, each one remote",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return start(cmd.Context(), a, cmd.OutOrStdout())
@@ -82,7 +75,7 @@ func start(ctx context.Context, a *app.App, out io.Writer) error {
 		return err
 	}
 	if lane == communicator {
-		return fmt.Errorf("refused: the communicator (lane %s) starts no runner and no desk; the coordinator (lane %s) owns desk-runner, the launch runner and every desk. Post it to the coordinator: cci post --lane %s --kind ask --to %s", communicator, lanes.Root, communicator, lanes.Root)
+		return fmt.Errorf("refused: the communicator (lane %s) starts no runner and no desk; the coordinator (lane %s) owns every desk. Post it to the coordinator: cci post --lane %s --kind ask --to %s", communicator, lanes.Root, communicator, lanes.Root)
 	}
 	d, err := loaded(a)
 	if err != nil {
@@ -92,10 +85,7 @@ func start(ctx context.Context, a *app.App, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if err := d.startLaunchRunner(ctx, out); err != nil {
-		return err
-	}
-	if err := d.startLandingRunner(ctx, out); err != nil {
+	if _, err := d.run(ctx, "lr", "relay", "rebind", "--config", a.ConfigPath); err != nil {
 		return err
 	}
 	return d.launch(ctx, out, owed)
@@ -128,8 +118,6 @@ func (d drive) run(ctx context.Context, argv ...string) (string, error) {
 }
 
 func (d drive) brief(lane string) string { return filepath.Join(d.state, lane, "brief.md") }
-
-func (d drive) runnerConfig() string { return filepath.Join(d.state, "runner.json") }
 
 func (d drive) owed(out io.Writer) ([]owing, error) {
 	s, err := store.Open(filepath.Join(d.state, lanes.StoreFile))
@@ -228,67 +216,6 @@ func (d drive) holder(known map[string]store.Lane, posted map[string]poster, rol
 		}
 	}
 	return row, found, live
-}
-
-func (d drive) beating(ctx context.Context, runner string) (bool, error) {
-	newest, err := d.run(ctx, "cci", "tail", "--drive", d.config.Drive, "--since", "0", "--json", "--lane", runnerLane, "--kind=state", "--topic="+runner, "--to", watchdog+"@"+d.config.Drive, "--limit", "1")
-	if err != nil || strings.TrimSpace(newest) == "" {
-		return false, err
-	}
-	var record struct {
-		At time.Time `json:"at"`
-	}
-	if err := json.Unmarshal([]byte(newest), &record); err != nil {
-		return false, fmt.Errorf("the %s runner's alive record: %w", runner, err)
-	}
-	return d.app.Now().Sub(record.At) < beatStale, nil
-}
-
-func (d drive) startLaunchRunner(ctx context.Context, out io.Writer) error {
-	if _, err := d.run(ctx, "desk-runner.py", "rebind", "--config", d.runnerConfig()); err != nil {
-		return err
-	}
-	alive, err := d.beating(ctx, launchRunner)
-	if err != nil {
-		return err
-	}
-	if alive {
-		fmt.Fprintf(out, "%s runner is up\n", launchRunner)
-		return nil
-	}
-	log := filepath.Join(d.state, launchRunner+"-runner.log")
-	if _, err := d.app.Runner.Run(ctx, shell.Command{Argv: []string{"sh", "-c", `nohup "$@" >>"$0" 2>&1 </dev/null &`, log, "desk-runner.py", "run", "--config", d.runnerConfig(), "--desk", launchRunner}, Env: lanes.Identity(runnerLane)}); err != nil {
-		return err
-	}
-	deadline := d.app.Now().Add(beatWait)
-	for {
-		alive, err := d.beating(ctx, launchRunner)
-		if err != nil {
-			return err
-		}
-		if alive {
-			fmt.Fprintf(out, "%s runner started from this Orca terminal, on the Mac, since it drives the Mac's Orca app\n", launchRunner)
-			return nil
-		}
-		if d.app.Now().After(deadline) {
-			return fmt.Errorf("the %s runner posted no alive record within %s, so no desk was launched; read %s", launchRunner, beatWait, log)
-		}
-		time.Sleep(beatPoll)
-	}
-}
-
-func (d drive) startLandingRunner(ctx context.Context, out io.Writer) error {
-	alive, err := d.beating(ctx, landingRunner)
-	if err != nil {
-		return err
-	}
-	if alive {
-		fmt.Fprintf(out, "%s runner is up\n", landingRunner)
-		return nil
-	}
-	installed, err := d.run(ctx, "desk-creds.py", "install", "--config", d.runnerConfig(), "--desk", landingRunner)
-	fmt.Fprint(out, installed)
-	return err
 }
 
 func (d drive) launch(ctx context.Context, out io.Writer, owed []owing) error {

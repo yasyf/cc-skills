@@ -23,17 +23,14 @@ import (
 )
 
 const (
-	updateTimeout  = 10 * time.Minute
-	handoffTimeout = 15 * time.Minute
-	pluginRootEnv  = "BINRUN_PLUGIN_ROOT"
-	shimFile       = "bin-shim.sh"
+	updateTimeout = 10 * time.Minute
+	pluginRootEnv = "BINRUN_PLUGIN_ROOT"
+	shimFile      = "bin-shim.sh"
 )
 
 var shimLine = regexp.MustCompile(`(?m)^\s*(\S+)\)\s+exec "\$ROOT/bin/lr" (.+) "\$@"`)
 
 type options struct {
-	desks   []string
-	runner  string
 	ciRedOK string
 }
 
@@ -41,7 +38,7 @@ func Command(a *app.App) *cobra.Command {
 	var opts options
 	cmd := &cobra.Command{
 		Use:   "install VERSION",
-		Short: "Refuse before the swap, move the install link, roll the named desks, and wait for the supervisor's lease",
+		Short: "Refuse before the swap, move the install link, and wait for the supervisor's lease",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			generation, err := install(cmd.Context(), a, args[0], opts)
@@ -52,11 +49,8 @@ func Command(a *app.App) *cobra.Command {
 			return err
 		},
 	}
-	cmd.Flags().StringArrayVar(&opts.desks, "desk", nil, "a Python desk to hand off onto the version once the link moves")
-	cmd.Flags().StringVar(&opts.runner, "runner", "", "the runner.json the desks read")
 	cmd.Flags().StringVar(&opts.ciRedOK, "ci-red-ok", "", "why this version must run though main's CI has not passed on it")
-	cmd.MarkFlagsRequiredTogether("desk", "runner")
-	cmd.AddCommand(rollCommand(a), &cobra.Command{
+	cmd.AddCommand(&cobra.Command{
 		Use:   "check",
 		Short: "Refuse when this binary could not run this drive: its config, its lanes, its credentials and every shim's verb",
 		Args:  cobra.NoArgs,
@@ -115,9 +109,6 @@ func install(ctx context.Context, a *app.App, version string, opts options) (int
 			return preflight(ctx, a, s, checks, cfg, configPath, version, opts)
 		},
 		Swap: func(_ context.Context, version string) error { return Promote(claude, checks.dir(version)) },
-		Start: func(ctx context.Context, version string) error {
-			return rollDesks(ctx, a.Runner, checks, version, opts)
-		},
 		Post: func(ctx context.Context, to []string, body bus.Body) error {
 			_, err := post.Post(ctx, to, body)
 			return err
@@ -140,11 +131,6 @@ func preflight(ctx context.Context, a *app.App, s *store.Store, checks Checks, c
 	if fault := checks.TargetFault(ctx, version, configPath); fault != "" {
 		faults = append(faults, fault)
 	}
-	for _, desk := range opts.desks {
-		if fault := checks.DeskFault(ctx, version, opts.runner, desk); fault != "" {
-			faults = append(faults, fault)
-		}
-	}
 	serving := ""
 	lease, err := s.Lease(cfg.Drive)
 	switch {
@@ -161,19 +147,6 @@ func preflight(ctx context.Context, a *app.App, s *store.Store, checks Checks, c
 		faults = append(faults, fault)
 	}
 	return faults
-}
-
-func rollDesks(ctx context.Context, runner shell.Runner, checks Checks, version string, opts options) error {
-	for _, desk := range opts.desks {
-		argv := []string{checks.tool(version, "desk-runner.py"), "handoff", "--config", opts.runner, "--desk", desk, "--version", version}
-		if opts.ciRedOK != "" {
-			argv = append(argv, "--ci-red-ok", opts.ciRedOK)
-		}
-		if _, err := runner.Run(ctx, shell.Command{Argv: argv, Env: []string{pinEnv + "=" + version}, Timeout: handoffTimeout}); err != nil {
-			return fmt.Errorf("the %s desk did not hand off onto %s: %s", desk, version, lastLine(err))
-		}
-	}
-	return nil
 }
 
 func check(cmd *cobra.Command, a *app.App) []string {

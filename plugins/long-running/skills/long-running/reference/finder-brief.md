@@ -2,7 +2,7 @@
 
 Every drive head gets one finder pass from one `gpt-6.1-sol` reader at xhigh on the standard tier, run through `Skill(codex)` with its finder recipe (`codex-ask --schema findings`). The finder looks for defects in the diff and reads the head against the same rows the [fidelity desks](fidelity-desk-brief.md) read, returning one verdict per row. A row it finds `missing` is a major.
 
-With a `finder` object in `runner.json`, the orca desk runner runs the pass on every `head` record and posts its record under lane `finder-desk`, from [finder-desk-brief.md](finder-desk-brief.md). The lane fixes or rebuts each major in the PR. The landing desk reads only `finder-desk`'s own `finder:` records, never a lane's.
+With a `finder` object in `runner.json`, the relay runs the pass on every `head` record and posts its record under lane `finder-desk`, from [finder-desk-brief.md](finder-desk-brief.md). The lane fixes or rebuts each major in the PR. The landing desk reads only `finder-desk`'s own `finder:` records, never a lane's.
 
 ## What the finder receives
 

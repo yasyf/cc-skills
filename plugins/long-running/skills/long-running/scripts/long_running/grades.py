@@ -1,4 +1,4 @@
-"""Fidelity grades and finder reviews on a drive's bus, read the one way for desk-runner.py's landing checks and board_rows.py's merge-row gate."""
+"""Fidelity grades and finder reviews on a drive's bus, read the one way for board_rows.py's merge-row gate."""
 
 from __future__ import annotations
 
@@ -357,7 +357,7 @@ class GoState:
 
 
 def go_state(gos: list[dict], pr: str, head: str) -> GoState:
-    """The `GoState` of `pr` at `head` over `gos`, root gos with their `voided` PRs and the gos carries made, as `desk-runner.py`'s `root_gos` reads them."""
+    """The `GoState` of `pr` at `head` over `gos`, root gos with their `voided` PRs and the gos carries made, as a landing reads them."""
     newest = max(gone_at(gos, pr, head), key=lambda go: (go["seq"], "graded_at" not in go), default=None)
     older = None if newest else max((go for go in gos if pr in go_heads(go) and pr not in go.get("voided", ())), key=lambda go: go["seq"], default=None)
     return GoState(pr, newest, older)

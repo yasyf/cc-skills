@@ -238,11 +238,8 @@ def test_a_sessionless_codex_lane_resolves_the_drive_it_names(repo, monkeypatch,
     capsys.readouterr()
     monkeypatch.delenv(drive.SESSION_ENV)
 
-    assert drive.main(["reds", "--drive", "elsewhere"]) == 1
+    assert drive.main(["digest", "--drive", "elsewhere"]) == 1
     assert capsys.readouterr().err == "no drive elsewhere is registered\n"
-
-    assert drive.main(["reds", "--drive", "900424b6"]) == 1
-    assert capsys.readouterr().out.endswith("the stall watch has not run a pass for this drive\n")
 
 
 def test_orca_run_prints_the_run_of_the_session_drive(repo, monkeypatch, capsys):
@@ -424,90 +421,36 @@ def test_release_records_the_builds_owner_on_the_drive_its_cci_drive_names(repo,
     assert "no registered drive posts to cci drive other-drive; build 1 not recorded" in capsys.readouterr().err
 
 
-def heartbeat(shell: FakeShell, desk: str, pid: int, version: str, ago: timedelta = timedelta(), flight: str | None = None, config: str = "/drive/runner.json") -> str:
-    restart = f"nohup desk-runner.py run --config {config} --desk {desk} > /drive/{desk}-runner.log 2>&1 < /dev/null &"
+def heartbeat(shell: FakeShell, desk: str, pid: int, ago: timedelta = timedelta()) -> str:
     at = (datetime.now(timezone.utc) - ago).isoformat()
-    attrs = {"pid": str(pid), "version": version, "config": config, "terminal": "term_root", "restart": restart} | ({} if flight is None else {"flight": flight})
+    attrs = {"pid": str(pid), "terminal": "term_root"}
     shell.cci.append({"seq": len(shell.cci) + 1, "drive": DRIVE, "lane": "desk-runner", "kind": "state", "topic": desk, "to": [f"drive-watchdog@{DRIVE}"], "at": at, "text": f"{desk} alive 9:26 PM pass 3", "fields": {"attrs": attrs}})
     return at
 
 
-def test_digest_reads_a_runner_off_its_pin_as_stale_and_a_newer_install_alone_as_current(repo, tmp_path, capsys):
-    """Oct 30: every autobump moved the live runner onto the newest install, so a fix patched into one copy was gone at the next bump; a runner now runs the version runner.json pins, and only a handoff moves the pin."""
-    started(repo, "--cci-drive", DRIVE)
-    shell = FakeShell()
-    installed("0.7.186", "0.7.187")
-    config = tmp_path / "runner.json"
-    config.write_text(json.dumps({"version": "0.7.186"}))
-    orca = heartbeat(shell, "orca", 73091, "0.7.186", config=str(config))
-    landing = heartbeat(shell, "landing", 49612, "0.7.185", config=str(config))
-    capsys.readouterr()
-
-    assert drive.main(["digest"], shell) == 1
-
-    assert capsys.readouterr().out.splitlines() == [
-        f"orca: pid 73091 runs 0.7.186, pinned 0.7.186, installed 0.7.187, last alive {orca}: current; `desk-runner.py handoff --config {config} --desk orca --version 0.7.187` moves it to the installed version once that version's preflight passes",
-        f"landing: pid 49612 runs 0.7.185, pinned 0.7.186, installed 0.7.187, last alive {landing}: off its pin; `desk-runner.py handoff --config {config} --desk landing` moves it onto 0.7.186",
-        "quiet point: no, orca runs a version whose alive record names no flight; landing runs a version whose alive record names no flight",
-    ]
-    heartbeat(shell, "landing", 50113, "0.7.186", config=str(config))
-    assert drive.main(["digest"], shell) == 0
-
-
-def test_digest_names_a_desk_with_no_alive_record_and_exits_one(repo, capsys):
-    started(repo, "--cci-drive", DRIVE)
-    shell = FakeShell()
-    heartbeat(shell, "orca", 73091, "0.7.186")
-    capsys.readouterr()
-
-    assert drive.main(["digest"], shell) == 1
-
-    lines = capsys.readouterr().out.splitlines()
-    assert lines[0].startswith("orca: pid 73091 runs 0.7.186, pinned nothing, installed unknown") and lines[0].endswith(": current")
-    assert lines[1] == f"landing: no landing alive record on cci drive {DRIVE}, so no landing runner has run there"
-
-
-def test_digest_reads_a_desk_runner_on_another_machine_from_its_alive_record_and_names_a_silent_one_down(repo, capsys):
+def test_digest_reads_the_relay_from_its_alive_record_and_names_a_silent_one_down(repo, capsys):
     """Oct 29: the runners must move off this Mac, so the digest reads cci records, never a heartbeat file or a local pid (cci #199401)."""
     started(repo, "--cci-drive", DRIVE)
     shell = FakeShell()
-    heartbeat(shell, "orca", 73091, "0.7.186")
-    landing = heartbeat(shell, "landing", 49612, "0.7.186", ago=timedelta(minutes=6))
+    orca = heartbeat(shell, "orca", 73091)
+    capsys.readouterr()
+
+    assert drive.main(["digest"], shell) == 0
+    assert capsys.readouterr().out.splitlines()[0] == f"orca: pid 73091 last alive {orca}: current"
+
+    silent = heartbeat(shell, "orca", 73091, ago=timedelta(minutes=6))
+    capsys.readouterr()
+    assert drive.main(["digest"], shell) == 1
+    assert capsys.readouterr().out.splitlines()[0] == f"orca: pid 73091 last alive {silent}: down; the supervisor restarts it within a minute, so read lr-relay.log and the supervisor's log"
+
+
+def test_digest_names_a_relay_with_no_alive_record_and_exits_one(repo, capsys):
+    started(repo, "--cci-drive", DRIVE)
+    shell = FakeShell()
     capsys.readouterr()
 
     assert drive.main(["digest"], shell) == 1
-
-    lines = capsys.readouterr().out.splitlines()
-    assert lines[0].endswith(": current")
-    assert lines[1] == f"landing: pid 49612 runs 0.7.186, pinned nothing, installed unknown, last alive {landing}: down; restart it with `nohup desk-runner.py run --config /drive/runner.json --desk landing > /drive/landing-runner.log 2>&1 < /dev/null &`"
-
-
-def test_digest_quiet_point_holds_while_a_desk_runs_a_pass_or_a_merge_and_passes_once_every_desk_rests(repo, capsys):
-    """4:31 to 4:40 PM Oct 29 every cci call hung about nine minutes after the cci 0.39.0 cask installed under running desks (coordinator #190549)."""
-    started(repo, "--cci-drive", DRIVE)
-    shell = FakeShell()
-    heartbeat(shell, "orca", 73091, "0.7.186", flight="")
-    held = [("stack-enqueue", "quiet point: no, landing runs `stack-enqueue`"), ("landing pass", "quiet point: no, landing runs `landing pass`"), ("", "quiet point: yes, no pass or merge in flight")]
-    for flight, line in held:
-        heartbeat(shell, "landing", 49612, "0.7.186", flight=flight)
-        capsys.readouterr()
-        assert drive.main(["digest", "--quiet-point"], shell) == (0 if not flight else 1)
-        assert capsys.readouterr().out.splitlines()[-1] == line
-
-    heartbeat(shell, "orca", 73091, "0.7.186", flight="", ago=timedelta(minutes=3))
-    capsys.readouterr()
-    assert drive.main(["digest", "--quiet-point"], shell) == 1
-    assert capsys.readouterr().out.splitlines()[-1] == "quiet point: no, orca posted no alive record in the last 2 min"
-
-
-def test_go_reads_the_go_state_through_the_landing_runner_on_the_runner_json_beside_the_drive_state(repo, monkeypatch):
-    entry = started(repo, "--cci-drive", DRIVE)
-    execs: list[list[str]] = []
-    monkeypatch.setattr(drive.os, "execv", lambda path, argv: execs.append(argv))
-
-    drive.main(["go", "45001", "#45002"])
-
-    assert execs == [[drive.sys.executable, str(Path(__file__).resolve().parents[1] / "skills" / "long-running" / "scripts" / "desk-runner.py"), "go", "--config", str(Path(entry["state_dir"]) / "runner.json"), "45001", "#45002"]]
+    assert capsys.readouterr().out.splitlines()[0] == f"orca: no orca alive record on cci drive {DRIVE}, so no orca runner has run there"
 
 
 def installed(*versions: str, named: str | None = None) -> Path:
@@ -557,28 +500,6 @@ def test_a_current_script_marks_its_children_with_its_version(repo, monkeypatch)
     assert drive.os.environ[drive.CALLER_VERSION_ENV] == "0.7.320"
 
 
-def test_digest_prints_the_stack_ledger_the_stall_watch_wrote_and_marks_each_stale_pr(repo, capsys):
-    entry = started(repo, "--cci-drive", DRIVE)
-    shell = FakeShell()
-    heartbeat(shell, "orca", 73091, "0.7.186")
-    heartbeat(shell, "landing", 49612, "0.7.186")
-    (Path(entry["state_dir"]) / "inbox").mkdir(parents=True)
-    prs = [
-        {"pr": "201", "title": "", "head": "abc1234def", "base": "dev", "below": "", "state": "conflicts with its base", "next": "restack #201 at abc1234 and post HEAD", "owner": "gone-lane", "since": "2026-10-27T17:00:00Z", "live": False, "stale": True},
-        {"pr": "202", "title": "", "head": "fedcba9876", "base": "b201", "below": "201", "state": "in the merge queue", "next": "the landing desk reads why the merge queue still holds #202 at fedcba9", "owner": "api-lane", "since": "2026-10-27T19:30:00Z", "live": True, "stale": False},
-    ]
-    (Path(entry["state_dir"]) / "inbox" / drive.STACK).write_text(json.dumps({"at": "2026-10-27T20:00:00Z", "prs": prs}))
-    capsys.readouterr()
-
-    drive.main(["digest"], shell)
-
-    assert capsys.readouterr().out.splitlines()[2:-1] == [
-        "stack at 2026-10-27T20:00:00Z: 2 open PRs, 1 stale",
-        "STALE #201 abc1234 on dev: conflicts with its base | owner gone-lane, not live | since 2026-10-27T17:00:00Z | next: restack #201 at abc1234 and post HEAD",
-        "#202 fedcba9 on #201: in the merge queue | owner api-lane | since 2026-10-27T19:30:00Z | next: the landing desk reads why the merge queue still holds #202 at fedcba9",
-    ]
-
-
 def released(origin: Path) -> Path:
     plugin = origin / "plugins" / "long-running"
     (plugin / ".claude-plugin").mkdir(parents=True)
@@ -586,11 +507,11 @@ def released(origin: Path) -> Path:
     (plugin / "bin").mkdir()
     (plugin / "reference").mkdir()
     (plugin / ".claude-plugin" / "plugin.json").write_text(json.dumps({"name": "long-running", "version": "1.2.3"}))
-    (plugin / "scripts" / "desk-runner.py").write_text("print('released')\n")
-    (plugin / "scripts" / "merge_queue.py").write_text("QUEUE = 1\n")
+    (plugin / "scripts" / "tool.py").write_text("print('released')\n")
+    (plugin / "scripts" / "queue_tool.py").write_text("QUEUE = 1\n")
     (plugin / "reference" / "finder-brief.md").write_text("brief\n")
     (plugin / "reference" / "orca-lane-brief.md").write_text("lane\n")
-    (plugin / "bin" / "desk-runner.py").symlink_to("../scripts/desk-runner.py")
+    (plugin / "bin" / "tool.py").symlink_to("../scripts/tool.py")
     (origin / "README.md").write_text("outside the plugin\n")
     commit(origin, "release")
     subprocess.run(["git", "-C", str(origin), "tag", "long-running--v1.2.3"], check=True)
@@ -608,7 +529,7 @@ def commit(origin: Path, message: str) -> None:
 def installed_copy(plugin: Path, copy: Path) -> Path:
     shutil.copytree(plugin, copy, symlinks=True)
     (copy / "scripts" / "__pycache__").mkdir()
-    (copy / "scripts" / "__pycache__" / "merge_queue.cpython-313.pyc").write_bytes(b"\0")
+    (copy / "scripts" / "__pycache__" / "queue_tool.cpython-313.pyc").write_bytes(b"\0")
     (copy / ".in_use").mkdir()
     (copy / ".in_use" / "4242").write_text("")
     (copy / ".orphaned_at").write_text("1793462400000")
@@ -623,14 +544,14 @@ def test_tree_faults_names_each_release_file_an_install_lacks_or_holds_edited_an
 
     assert drive.tree_faults(copy, str(origin), "long-running--v1.2.3", "plugins/long-running", releases) == []
 
-    (copy / "scripts" / "merge_queue.py").write_text("QUEUE = 2\n")
+    (copy / "scripts" / "queue_tool.py").write_text("QUEUE = 2\n")
     (copy / "reference" / "finder-brief.md").unlink()
-    (copy / "bin" / "desk-runner.py").unlink()
+    (copy / "bin" / "tool.py").unlink()
     assert drive.tree_faults(copy, str(origin), "long-running--v1.2.3", "plugins/long-running", releases) == [
         "the install holds 4 files where the release holds 6",
-        "bin/desk-runner.py is missing",
+        "bin/tool.py is missing",
         "reference/finder-brief.md is missing",
-        "scripts/merge_queue.py differs from the release",
+        "scripts/queue_tool.py differs from the release",
     ]
     assert drive.tree_faults(copy, str(origin), "long-running--v9.9.9", "plugins/long-running", releases)[0].startswith("the release tag long-running--v9.9.9 did not fetch from")
 
@@ -639,15 +560,15 @@ def test_tree_faults_names_an_install_copied_from_the_default_branch_past_its_ta
     """Oct 31 8:43 AM (#257362): 0.7.729's cache was copied from main at #1442, past its tag, and read as that release."""
     origin = tmp_path / "origin"
     plugin = released(origin)
-    (plugin / "scripts" / "stall_watch.py").write_text("PARKED = 'waiting'\n")
-    (plugin / "scripts" / "merge_queue.py").write_text("QUEUE = 2\n")
+    (plugin / "scripts" / "extra_tool.py").write_text("PARKED = 'waiting'\n")
+    (plugin / "scripts" / "queue_tool.py").write_text("QUEUE = 2\n")
     commit(origin, "#1442 lands after the bump")
     copy = installed_copy(plugin, tmp_path / "cache" / "1.2.3")
 
     assert drive.tree_faults(copy, str(origin), "long-running--v1.2.3", "plugins/long-running", tmp_path / "releases.git") == [
         "the install holds 7 files where the release holds 6",
-        "scripts/stall_watch.py is not in the release",
-        "scripts/merge_queue.py differs from the release",
+        "scripts/extra_tool.py is not in the release",
+        "scripts/queue_tool.py differs from the release",
     ]
 
 

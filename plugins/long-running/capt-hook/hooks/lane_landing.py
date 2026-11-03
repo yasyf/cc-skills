@@ -20,11 +20,9 @@ QUEUE_LABELS = frozenset({"merge", "merge-fast"})
 LABEL_FIELDS = frozenset({"labels[]", "labels"})
 LABELS_ENDPOINT = re.compile(r"(?:^|/)repos/[^/]+/[^/]+/issues/\d+/labels(?:\?|$)")
 READ_ONLY_ENQUEUE = frozenset({"--check", "--status", "-h", "--help"})
-ENQUEUERS = frozenset({"stack-enqueue", "mq.py enqueue", "ci trunk submit", "gh stack merge"})
+ENQUEUERS = frozenset({"stack-enqueue", "ci trunk submit", "gh stack merge"})
 MERGERS = frozenset({"gh pr merge", "ccx vcs merge"})
 NOT_AN_ENQUEUE = frozenset({"--dequeue"})
-QUEUE_STEERING = frozenset({"dequeue", "requeue", "priority", "recover", "hold", "lift"})
-MQ_VALUE_OPTIONS = frozenset({"--config"})
 GH_REPO_FLAGS = frozenset({"-R", "--repo"})
 FIELD_FLAGS = ("--raw-field=", "--field=", "-f", "-F")
 REPO_FLAGS = frozenset({"-R", "--repo"})
@@ -52,10 +50,6 @@ ENQUEUE = "~/monorepo/.agents/skills/submit-pr/scripts/stack-enqueue 36023 --hol
 REFUSAL = (
     "Warning, nothing was blocked: Lanes never enqueue: the landing desk is the only enqueuer, so lane `{lane}` may not run `{verb}`. "
     "Report the PR with `ledger.py report --drive <drive>`, and the landing desk enqueues it against the coordinator's holds."
-)
-STEERING_REFUSAL = (
-    "Warning, nothing was blocked: Only the coordinator steers the merge queue, so lane `{lane}` may not run `mq.py {verb}`. "
-    "Send the coordinator a `RULING NEEDED` line naming the PR and the verb, and read the queue with `mq.py why <n>`."
 )
 RULINGS_ADVICE = (
     "`rulings.py check-pr` names {causes} for #{pr} at {head}. These are warnings: the landing desk holds no head for them (4236611), "
@@ -214,29 +208,11 @@ def without_repo(argv: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(kept)
 
 
-def mq_subcommand(call: Call) -> str:
-    run = program((call.name, *call.args))
-    if not run or Path(run[0]).name != "mq.py":
-        return ""
-    args = run[1:]
-    index = 0
-    while index < len(args) and args[index].startswith("-"):
-        index += 2 if args[index] in MQ_VALUE_OPTIONS else 1
-    return args[index] if index < len(args) else ""
-
-
-def mq_verb(call: Call) -> str | None:
-    verb = mq_subcommand(call)
-    return verb if verb in QUEUE_STEERING else None
-
-
 def landing_verb(call: Call) -> str | None:
     argv = without_repo((call.name, *call.args)) if call.name == "gh" else call.verb_argv
     run = program((call.name, *call.args))
     if run and Path(run[0]).name == "stack-enqueue":
         return None if READ_ONLY_ENQUEUE & set(run[1:]) else "stack-enqueue"
-    if mq_subcommand(call) == "enqueue":
-        return "mq.py enqueue"
     if run and Path(run[0]).name == "ci" and run[1:3] == ("trunk", "submit"):
         return "ci trunk submit"
     if argv[:3] == ("gh", "stack", "merge"):
@@ -278,8 +254,6 @@ def landing_verb(call: Call) -> str | None:
         Input(command="true; stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`stack-enqueue`"),
         Input(command="true | .agents/skills/submit-pr/scripts/stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`stack-enqueue`"),
         Input(command="echo $(stack-enqueue 36023)", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`stack-enqueue`"),
-        Input(command="mq.py --config r.json enqueue 36023 --partial", agent_id=LANE, state=ACTIVE): Warn(pattern=r"lane `lane-a` may not run `mq.py enqueue`"),
-        Input(command="mq.py --config r.json enqueue 36023 --partial", agent_id=DESK, state=ACTIVE): Allow(),
         Input(command="sudo stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`stack-enqueue`"),
         Input(command="env GH_TOKEN=x stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`stack-enqueue`"),
         Input(command="cc-sudo run -- .agents/skills/submit-pr/scripts/stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`stack-enqueue`"),
@@ -348,7 +322,7 @@ def lanes_never_enqueue(evt: BaseHookEvent) -> HookResult | None:
     if evt.agent_id and not reqenv.getenv("CLAUDE_LONG_RUNNING_LANE") and not CompactionState.load(evt).active:
         return None
     entry = drive_entry(evt)
-    landings = [(call, verb) for call in evt.cmd.calls() if (verb := landing_verb(call)) and (verb == "mq.py enqueue" or not outside_drive_repo(evt, call, entry))]
+    landings = [(call, verb) for call in evt.cmd.calls() if (verb := landing_verb(call)) and not outside_drive_repo(evt, call, entry)]
     if not landings:
         return None
     verbs = [verb for _, verb in landings]
@@ -362,10 +336,10 @@ def lanes_never_enqueue(evt: BaseHookEvent) -> HookResult | None:
 
 
 def gate_args(call: Call) -> list[str]:
-    """The `mq.py gate` operands for a `stack-enqueue` call: its PRs and its `--partial`, or none for a call that enqueues nothing."""
+    """The `lr landing gate` operands for a `stack-enqueue` call: its PRs and any `--partial`, or none for a call that enqueues nothing."""
     args = program((call.name, *call.args))[1:]
     prs = [arg for arg in args if arg.isdigit()]
-    return [*prs, *(["--partial"] if "--partial" in args else [])] if prs and not NOT_AN_ENQUEUE & set(args) else []
+    return [*prs, *{"--partial"} & set(args)] if prs and not NOT_AN_ENQUEUE & set(args) else []
 
 
 @on(
@@ -382,9 +356,10 @@ def hand_enqueue_meets_the_runner_checks(evt: BaseHookEvent) -> HookResult | Non
     if (entry := drive_entry(evt)) is None:
         return None
     gates = [args for call in evt.cmd.calls() if landing_verb(call) == "stack-enqueue" and not outside_drive_repo(evt, call, entry) and (args := gate_args(call))]
-    if not gates or not (config := Path(entry["state_dir"]) / "runner.json").is_file():
+    if not gates:
         return None
-    runs = [run_quietly([sys.executable, str(script("mq.py")), "--config", str(config), "gate", *args], str(evt.cwd)) for args in gates]
+    config = Path(entry["state_dir"]) / "lr.json"
+    runs = [run_quietly(["lr", "landing", "gate", "--config", str(config), *args], str(evt.cwd)) for args in gates]
     failing = [line for done in runs if done is not None and done.returncode == 1 for line in done.stdout.splitlines() if line.strip()]
     if untapped := [line for line in failing if TAP_REFUSAL in line]:
         return evt.context(HAND_ENQUEUE_TAP_REFUSAL.format(lines="; ".join(untapped)))
@@ -481,20 +456,10 @@ def rulings_at_merge(evt: BaseHookEvent) -> HookResult | None:
     Event.PreToolUse,
     only_if=[Tool("Bash")],
     tests={
-        Input(command="mq.py --config ~/d/runner.json dequeue 36023 --reason pulled", agent_id=LANE, state=ACTIVE): Warn(pattern=r"^Warning, nothing was blocked: Only the coordinator steers the merge queue, so lane `lane-a` may not run `mq.py dequeue`\."),
-        Input(command="python3 skills/long-running/scripts/mq.py --config=r.json requeue 36023", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`mq.py requeue`"),
-        Input(command="mq.py --config r.json priority 36023 0", agent_id=DESK, state=ACTIVE): Warn(pattern=r"lane `landing-desk` may not run `mq.py priority`"),
-        Input(command="mq.py --config r.json recover 36023", agent_id="adesk-runner-0123456789abcdef", state=ACTIVE): Warn(pattern=r"`mq.py recover`"),
-        Input(command="mq.py --config r.json hold 36023 --reason wait", agent_id="aincident-api-500s-0123456789abcdef", state=ACTIVE): Warn(pattern=r"`mq.py hold`"),
-        Input(command="git fetch -q && mq.py --config r.json lift 36023", env={"CLAUDE_LONG_RUNNING_LANE": "lane-b"}): Warn(pattern=r"lane `lane-b` may not run `mq.py lift`"),
-        Input(command="mq.py --config r.json why 36023", agent_id=DESK, state=ACTIVE): Allow(),
-        Input(command="mq.py --config r.json status", agent_id=LANE, state=ACTIVE): Allow(),
-        Input(command="mq.py --config r.json checks", agent_id=LANE, state=ACTIVE): Allow(),
-        Input(command="mq.py --help", agent_id=LANE, state=ACTIVE): Allow(),
-        Input(command="cat skills/long-running/scripts/mq.py", agent_id=LANE, state=ACTIVE): Allow(),
-        Input(command="echo 'mq.py --config r.json dequeue 36023'", agent_id=LANE, state=ACTIVE): Allow(),
-        Input(command="mq.py --config r.json dequeue 36023", state=ACTIVE): Allow(),
-        Input(command="mq.py --config r.json dequeue 36023", agent_id=LANE): Allow(),
+        Input(command="tools/ci trunk dequeue 36023", agent_id=LANE, state=ACTIVE): Warn(pattern=r"lane `lane-a` may not run `ci trunk dequeue`"),
+        Input(command="tools/ci trunk restart 36023", agent_id=DESK, state=ACTIVE): Warn(pattern=r"lane `landing-desk` may not run `ci trunk restart`"),
+        Input(command="tools/ci trunk status 36023", agent_id=LANE, state=ACTIVE): Allow(),
+        Input(command="tools/ci trunk dequeue 36023", state=ACTIVE): Allow(),
     },
 )
 def only_the_root_steers_the_queue(evt: BaseHookEvent) -> HookResult | None:
@@ -502,13 +467,10 @@ def only_the_root_steers_the_queue(evt: BaseHookEvent) -> HookResult | None:
         return None
     if evt.agent_id and not reqenv.getenv("CLAUDE_LONG_RUNNING_LANE") and not CompactionState.load(evt).active:
         return None
-    verb = next((verb for call in evt.cmd.calls() if (verb := mq_verb(call))), None)
-    if verb:
-        return evt.context(STEERING_REFUSAL.format(lane=lane or "unnamed", verb=verb))
     for call in evt.cmd.calls():
         run = program((call.name, *call.args))
         if len(run) > 2 and Path(run[0]).name == "ci" and run[1] == "trunk" and run[2] in ("dequeue", "restart", "prioritize"):
-            return evt.context(f"Only the coordinator steers the merge queue, so lane `{lane or 'unnamed'}` may not run `ci trunk {run[2]}`. Ask the coordinator and read the queue with `mq.py why <n>`.")
+            return evt.context(f"Only the coordinator steers the merge queue, so lane `{lane or 'unnamed'}` may not run `ci trunk {run[2]}`. Ask the coordinator, and read what a PR waits on with `lr board waits --pr <n>`.")
     return None
 
 

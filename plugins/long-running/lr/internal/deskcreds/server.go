@@ -7,9 +7,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"os"
-	"path/filepath"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -22,7 +19,6 @@ import (
 const (
 	DefaultPort   = 9181
 	secretPrefix  = "secret/"
-	userToken     = "GH_TOKEN"
 	awakeTask     = "desk-creds"
 	awakeEvery    = time.Minute
 	fetchTimeout  = 10 * time.Second
@@ -34,7 +30,6 @@ const (
 var (
 	credentialFields = []string{"Version", "AccessKeyId", "SecretAccessKey", "SessionToken", expiration}
 	secretFields     = []string{"Value", expiration}
-	oauthToken       = regexp.MustCompile(`(?m)^(\s*oauth_token: ).*$`)
 )
 
 type Held = map[string]json.RawMessage
@@ -42,7 +37,6 @@ type Held = map[string]json.RawMessage
 type server struct {
 	mu   sync.Mutex
 	held map[string]Held
-	shm  string
 	now  func() time.Time
 	log  io.Writer
 }
@@ -56,8 +50,8 @@ func expired(credentials Held, now time.Time) bool {
 	return err != nil || !at.After(now)
 }
 
-func Handler(shm string, now func() time.Time, log io.Writer) http.Handler {
-	s := &server{held: map[string]Held{}, shm: shm, now: now, log: log}
+func Handler(now func() time.Time, log io.Writer) http.Handler {
+	s := &server{held: map[string]Held{}, now: now, log: log}
 	return s
 }
 
@@ -121,44 +115,8 @@ func (s *server) put(w http.ResponseWriter, r *http.Request, key string) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.held[key] = kept
-	if key == secretPrefix+userToken {
-		var token string
-		if err := json.Unmarshal(kept["Value"], &token); err != nil {
-			return refuse()
-		}
-		if err := keepGHToken(s.shm, token); err != nil {
-			_, _ = fmt.Fprintf(s.log, "desk-creds: a running desk kept its old token: %v\n", err)
-		}
-	}
 	w.WriteHeader(http.StatusNoContent)
 	return http.StatusNoContent
-}
-
-func keepGHToken(shm, token string) error {
-	paths, err := filepath.Glob(filepath.Join(shm, "*-gh", "hosts.yml"))
-	if err != nil {
-		return err
-	}
-	for _, path := range paths {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		replaced := oauthToken.ReplaceAllStringFunc(string(data), func(line string) string {
-			return oauthToken.FindStringSubmatch(line)[1] + token
-		})
-		staged := filepath.Join(filepath.Dir(path), ".hosts.yml.new")
-		if err := os.Remove(staged); err != nil && !os.IsNotExist(err) {
-			return err
-		}
-		if err := os.WriteFile(staged, []byte(replaced), 0o600); err != nil {
-			return err
-		}
-		if err := os.Rename(staged, path); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func holdAwake(ctx context.Context, runner shell.Runner, log io.Writer) {
@@ -175,13 +133,13 @@ func holdAwake(ctx context.Context, runner shell.Runner, log io.Writer) {
 	}
 }
 
-func Serve(ctx context.Context, runner shell.Runner, port int, shm string, log io.Writer) error {
+func Serve(ctx context.Context, runner shell.Runner, port int, log io.Writer) error {
 	go holdAwake(ctx, runner, log)
 	listener, err := (&net.ListenConfig{}).Listen(ctx, "tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
 	if err != nil {
 		return err
 	}
-	return (&http.Server{Handler: Handler(shm, time.Now, log), ReadHeaderTimeout: headerTimeout}).Serve(listener)
+	return (&http.Server{Handler: Handler(time.Now, log), ReadHeaderTimeout: headerTimeout}).Serve(listener)
 }
 
 func Fetch(ctx context.Context, key string, port int) (Held, error) {

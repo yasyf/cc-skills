@@ -32,7 +32,6 @@ func (r *Refused) Error() string {
 type Steps struct {
 	Preflight func(ctx context.Context) []string
 	Swap      func(ctx context.Context, version string) error
-	Start     func(ctx context.Context, version string) error
 	Post      func(ctx context.Context, to []string, body bus.Body) error
 	Now       func() time.Time
 	Sleep     func(time.Duration)
@@ -47,9 +46,6 @@ func Run(ctx context.Context, s *store.Store, drive, version string, steps Steps
 	}
 	if err := steps.Swap(ctx, version); err != nil {
 		return 0, steps.escalate(ctx, s, version, fmt.Sprintf("the install link did not move: %v", err), "")
-	}
-	if err := steps.Start(ctx, version); err != nil {
-		return 0, steps.escalate(ctx, s, version, err.Error(), "")
 	}
 	var serving int64
 	deadline := steps.Now().Add(Handoff)

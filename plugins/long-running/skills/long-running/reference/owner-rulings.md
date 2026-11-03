@@ -128,7 +128,7 @@ The approver runs `lr deletions check` the turn the design or ruling is approved
 
 ## Audit contracts and relays with `judge_watch.py`
 
-**Contracts, read-backs, and `DECIDE` records never narrow an owner row or stretch it past its purpose.** The orca desk runner runs `judge_watch.py` once every minute. It calls the drive's judge asynchronously after each post so writers never block.
+**Contracts, read-backs, and `DECIDE` records never narrow an owner row or stretch it past its purpose.** The relay runs `judge_watch.py` once every minute. It calls the drive's judge asynchronously after each post so writers never block.
 
 | Artifact | What `judge_watch.py` asks the judge |
 | --- | --- |
@@ -177,7 +177,7 @@ Core `judge.py` behaviors:
 | `ruling_misread` | PR ship | Judges the tests a PR ships the same way `judge_watch.py` judges contracts, checking whether they misread the owner's verbatim words on the rows each opened PR acts on, which `rulings.py slice --required --words` prints: its global, pending and touched rows and the rows it cites, a superseded one replaced by the rows superseding it. The judge reads them in one call, so his newest words on a subject govern, and the warning names the row whose words it quotes. |
 | `refusal_kinds_need_owner_answer` | PR ship | Reads the refusal kinds, retries, clocks, and budgets added by a PR and asks whether the owner's words or the plan name them. |
 | `pr_bodies_name_what_they_defer` | PR open or edit | Asks whether the PR body names the fix its stand-ins put off and why, and states in plain words the rulings the diff builds. |
-| Brief `Scale:` judge | Lane spawn hook and orca desk runner | Requires a `Scale:` line in every lane brief and asks whether it names the `N` that the brief's code paths run at; emits one `SCALE-MISSED` from the orca desk runner on failure. |
+| Brief `Scale:` judge | Lane spawn hook and relay | Requires a `Scale:` line in every lane brief and asks whether it names the `N` that the brief's code paths run at; emits one `SCALE-MISSED` from the relay on failure. |
 | Incident defect admission judge | Coordinator reply during an open incident | When a coordinator reply admits a defect during an open incident, asks whether the coordinator started the fix on the same turn. |
 | Read-claim judge | After a code read or review | Asks whether a claim about code or a review states more than the preceding read showed. |
 | Release cancel / rollback judge | Release cancel or rollback | Alongside the block that refuses an unordered rollback, checks a cancel or rollback citing an owner answer to verify that the answer orders that exact undo. |

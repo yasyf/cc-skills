@@ -45,7 +45,7 @@ For in-process subagents, use one of this plugin's two lane types with the routi
 
 Both `long-running:lane` and `long-running:lane-ship` default to Opus and carry the 1h prompt cache a nine-minute poll needs; set a different model explicitly when the assignment calls for it. The coordinator runs Fable 5.1 on the Mac. Beyond it, Fable is only for exceptional cases such as the most sensitive local implementation, and ordinary workers and subdesks never run Fable. If a `long-running:lane` needs a skill, give that operation to a separately named `long-running:lane-ship` with a scoped brief while keeping the original lane running without duplicating its active work.
 
-A lane using the separate desktop Orca adapter (`orca orchestration worker-start`) runs in a separate session that the Agent tool cannot reach with `SendMessage`. It reports through Orca instead of `SendMessage`, and the landing desk hears from it through `ledger.py`, never a message. Launch it with `lr launch lane <lane> <model> <effort> <brief>` or `desk-runner.py launch --config C --key R<n> --lane L --model M --effort E --brief PATH` (resolving `PATH` with `ccn attachment path`), which invokes `lr launch start` using `reference/orca-workers.md`. A codex Orca lane launches on Orca's codex agent under O15 in `reference/orca-desk-brief.md`, never as a Claude worker calling the codex skill; use the codex skill for inline lanes and `codex-ask` for one-off questions. That adapter's launch, relay, and receipt rules apply only to its own lanes.
+A lane using the separate desktop Orca adapter (`orca orchestration worker-start`) runs in a separate session that the Agent tool cannot reach with `SendMessage`. It reports through Orca instead of `SendMessage`, and the landing desk hears from it through `ledger.py`, never a message. Launch it with `lr launch lane <lane> <model> <effort> <brief>`, which invokes `lr launch start` using `reference/orca-workers.md`. A codex Orca lane launches on Orca's codex agent under O15 in `reference/orca-desk-brief.md`, never as a Claude worker calling the codex skill; use the codex skill for inline lanes and `codex-ask` for one-off questions. That adapter's launch, relay, and receipt rules apply only to its own lanes.
 
 ## The standing rules register and judge
 
@@ -162,7 +162,7 @@ Scale: <the N each path this lane changes runs at: chats, teams, sessions, or ru
   A loop that awaits I/O per item, or a cap, timer, cache, retry, or idle wait standing
   in for a fundamental fix, is a defect the finder grades major; a diff that adds one
   names in the PR body the fix it stands in for and the owner pick that deferred it, or
-  builds the fix. The spawn hook and the orca desk runner warn on a new non-incident
+  builds the fix. The spawn hook and the relay warn on a new non-incident
   lane brief with no `Scale:` line, and `lr launch` refuses it before posting, naming
   every missing line together; a `<lane>-handoff` writer, a
   successor (`<lane>-<n>` or a `Replaces:` line), and a brief written before the rule pass
@@ -189,7 +189,7 @@ Stack shape, under D19: put each shared-file edit in the smallest additive first
 Holds file: <path>, coordinator-owned. Never enqueue, merge, or add a `merge` or `merge-fast`
   label: the landing desk is the only enqueuer, and the pack's `lane_landing` hook warns on
   `stack-enqueue`, `gt merge`, `gh pr merge`, and `ledger.py label` from this lane.
-  Report READY the moment a PR is green; the landing runner enqueues its largest green,
+  Report READY the moment a PR is green; the landing pass enqueues its largest green,
   approved, unheld bottom prefix against the open cci `hold` records. A held PR
   gets `held` on your tip with the held PR named; release is the coordinator's.
   Keep `ccx vcs pr watch` on the stack; on ejection or conflict, restack at once with
@@ -249,7 +249,7 @@ GitHub budget: read GitHub only through ccx, with `ccx vcs pr status`, `vcs pr s
   `vcs pr watch`, or `ccx vcs gh -- <gh args>` for any other read. Writes stay plain `gh`.
   No loop reads faster than every five minutes, and every `ccx vcs gh` read in a loop passes
   `--max-age 5m`. A `ccx: GitHub rate limit floor:` refusal means stop reading until the
-  reset it names. The desk runner posts an `urgent` record to the coordinator when any quota drops
+  reset it names. The supervisor posts an `urgent` record to the coordinator when any quota drops
   under 1500.
 Report short deltas with pointers (file:line, PR number, sha, Slack ts, disk path); never
   paste a diff, log, PR body, or thread into a message. Write it to disk and send the path.
@@ -377,7 +377,7 @@ Landing desk (PR rows in cc-notes, lane messages in cci, shared by every checkou
 - Never enqueue, merge, or add a `merge` or `merge-fast` label: the landing desk is the
   only enqueuer, and the pack's `lane_landing` hook warns on `stack-enqueue`, `gt merge`,
   `gh pr merge`, and `ledger.py label` from a lane. Report READY the moment a PR is green;
-  the landing runner enqueues the largest green, approved, unheld bottom prefix against the
+  the landing pass enqueues the largest green, approved, unheld bottom prefix against the
   open cci `hold` records. On a held PR, report `held` on your tip with the held
   PR named and leave release to the coordinator. After the prefix lands, inspect whether GitHub already rebased the remaining stack onto the base branch before restacking with
   `ccx vcs stack submit`.
@@ -385,7 +385,7 @@ Landing desk (PR rows in cc-notes, lane messages in cci, shared by every checkou
   `ccx vcs pr watch --lane-prefix <branch-prefix> --until landed` under Monitor
   (re-arm on expiry) or in a foreground loop instead of ad-hoc polling. `ejected` or
   `conflicting` means rebase now: `ccx vcs stack submit` from your lane's worktree,
-  then report the new head; the landing runner re-enqueues it.
+  then report the new head; the landing pass re-enqueues it.
   `red <check>` means fix it. Your watch ends only when your PRs land.
 - Before reporting a credential out of reach, check the parameter store (SSM) and the
   secret stores the brief names, and report where it sits. Reading a value takes the owner's
@@ -400,7 +400,7 @@ Landing desk (PR rows in cc-notes, lane messages in cci, shared by every checkou
   `vcs pr watch`, or `ccx vcs gh -- <gh args>` for any other read. Writes stay plain
   `gh`. No loop reads faster than every five minutes, and every `ccx vcs gh` read in a loop
   passes `--max-age 5m`. A `ccx: GitHub rate limit floor:` refusal means stop reading
-  until the reset it names. The desk runner posts an `urgent` record to the coordinator when any
+  until the reset it names. The supervisor posts an `urgent` record to the coordinator when any
   quota drops under 1500.
 - Before designing, name what already grades or handles this signal: monitors, the
   release's Watch, open owner tasks and picks (`ccn task list`, `ccn answer search`).
@@ -413,7 +413,7 @@ Landing desk (PR rows in cc-notes, lane messages in cci, shared by every checkou
   `--to desk-runner,fidelity-pipeline,finder-desk,landing-desk` and never to the coordinator, as are your
   `state` records. A restack that moves several PRs posts one record carrying every head,
   `cci post --kind head --head <pr>=<was>..<sha> --head <pr>=<was>..<sha> ...`, with a
-  note after the sha such as `patch-identical` when the range-diff says so, never one record per PR: the desk runner's finder reads that head and posts its `finder:` record to you; fix or rebut each major before you call
+  note after the sha such as `patch-identical` when the range-diff says so, never one record per PR: the supervisor's finder reads that head and posts its `finder:` record to you; fix or rebut each major before you call
   a PR done. On a drive whose runner has no finder, run one finder pass yourself.
 
 Escalate early, never improvise: scope surprise, an assumption the code refutes, an

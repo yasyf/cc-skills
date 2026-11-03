@@ -31,8 +31,6 @@ var (
 type machine struct {
 	mu     sync.Mutex
 	lane   string
-	alive  map[string]bool
-	starts bool
 	refuse string
 	calls  []shell.Command
 }
@@ -45,17 +43,8 @@ func (m *machine) Run(_ context.Context, c shell.Command) (shell.Result, error) 
 	switch {
 	case line == "cci me":
 		return shell.Result{Stdout: fmt.Sprintf("window lane drive=%s lane=%s branch=b\n", testDrive, m.lane)}, nil
-	case strings.HasPrefix(line, "cci tail"):
-		for desk, alive := range m.alive {
-			if alive && slices.Contains(c.Argv, "--topic="+desk) {
-				return shell.Result{Stdout: fmt.Sprintf(`{"at":%q,"kind":"state"}`+"\n", t0.Add(-time.Minute).Format(time.RFC3339Nano))}, nil
-			}
-		}
-		return shell.Result{}, nil
 	case m.refuse != "" && strings.Contains(line, m.refuse):
 		return shell.Result{Code: 1, Stdout: m.refuse + " LAUNCH-FAILED\n"}, &shell.ExitError{Argv: c.Argv, Code: 1}
-	case strings.Contains(line, "desk-runner.py run") && m.starts:
-		m.alive[launchRunner] = true
 	}
 	return shell.Result{Stdout: c.Argv[0] + " ran\n"}, nil
 }
@@ -87,7 +76,7 @@ func newDrive(t *testing.T, lane string, briefs ...string) (*app.App, *machine, 
 	for _, name := range briefs {
 		writeBrief(t, state, name, onlyDeskBrief)
 	}
-	m := &machine{lane: lane, alive: map[string]bool{}, starts: true}
+	m := &machine{lane: lane}
 	return &app.App{ConfigPath: path, Runner: m, Now: func() time.Time { return t0 }}, m, state
 }
 
@@ -116,7 +105,7 @@ func wantLane(t *testing.T, state, name, brief string, laneState store.LaneState
 func TestACommunicatorBoundWindowStartsNoDesk(t *testing.T) {
 	a, m, _ := newDrive(t, communicator, everyDesk...)
 	err := start(context.Background(), a, &bytes.Buffer{})
-	if err == nil || !strings.Contains(err.Error(), "the coordinator (lane root) owns desk-runner, the launch runner and every desk") {
+	if err == nil || !strings.Contains(err.Error(), "the coordinator (lane root) owns every desk") {
 		t.Fatalf("got %v, want a refusal naming the coordinator", err)
 	}
 	if lines := m.lines(""); !slices.Equal(lines, []string{"cci me"}) {
@@ -137,23 +126,15 @@ func TestALauncherNamedCommunicatorWindowIsRefusedWithoutAskingCci(t *testing.T)
 
 func TestTheCoordinatorStartsEveryDesk(t *testing.T) {
 	a, m, state := newDrive(t, lanes.Root, everyDesk...)
-	var out bytes.Buffer
-	if err := start(context.Background(), a, &out); err != nil {
+	if err := start(context.Background(), a, io.Discard); err != nil {
 		t.Fatal(err)
 	}
-	runner := filepath.Join(state, "runner.json")
-	if rebound := m.lines("desk-runner.py rebind"); !slices.Equal(rebound, []string{"desk-runner.py rebind --config " + runner}) {
-		t.Fatalf("rebound %q", rebound)
-	}
+	config := filepath.Join(state, "lr.json")
 	all := m.lines("")
-	rebind := slices.IndexFunc(all, func(line string) bool { return strings.HasPrefix(line, "desk-runner.py rebind") })
-	start := "desk-runner.py run --config " + runner + " --desk orca"
-	launcher := slices.IndexFunc(all, func(line string) bool { return strings.Contains(line, start) })
-	if rebind < 0 || launcher < rebind {
-		t.Fatalf("the launch runner must start after this terminal takes the Run: %q", all)
-	}
-	if installed := m.lines("desk-creds.py install"); !slices.Equal(installed, []string{"desk-creds.py install --config " + runner + " --desk landing"}) {
-		t.Fatalf("the landing runner must start remote through desk-creds, ran %q", installed)
+	rebind := slices.Index(all, "lr relay rebind --config "+config)
+	first := slices.IndexFunc(all, func(line string) bool { return strings.HasPrefix(line, "desk-launch.py") })
+	if rebind < 0 || first < rebind {
+		t.Fatalf("this terminal must take the Run before any desk launches: %q", all)
 	}
 	launched := m.lines("desk-launch.py lane")
 	if len(launched) != len(everyDesk) {
@@ -166,27 +147,10 @@ func TestTheCoordinatorStartsEveryDesk(t *testing.T) {
 			t.Fatalf("no launch of %s posted as the coordinator from its brief in %q", name, launched)
 		}
 	}
-	if !strings.Contains(out.String(), "orca runner started from this Orca terminal") {
-		t.Fatalf("the output must say where the launch runner runs: %q", out.String())
-	}
-}
-
-func TestTheLaunchRunnerTheCoordinatorStartsRunsAsTheDeskRunner(t *testing.T) {
-	a, m, _ := newDrive(t, lanes.Root, everyDesk...)
-	if err := start(context.Background(), a, io.Discard); err != nil {
-		t.Fatal(err)
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	i := slices.IndexFunc(m.calls, func(c shell.Command) bool { return strings.Contains(strings.Join(c.Argv, " "), "desk-runner.py run") })
-	if i < 0 || !slices.Equal(m.calls[i].Env, lanes.Identity("desk-runner")) {
-		t.Fatalf("the launch runner must start as desk-runner, not the coordinator: %+v", m.calls)
-	}
 }
 
 func TestADeskUpUnderAnyNumberIsNotStartedAgain(t *testing.T) {
 	a, m, state := newDrive(t, lanes.Root, "fidelity-desk", "red-sweep", "alerts-desk", "drive-watchdog", "board-refresher")
-	m.alive = map[string]bool{launchRunner: true, landingRunner: true}
 	wantLane(t, state, "landing-desk-3", "/b.md", store.LaneDesired)
 	var out bytes.Buffer
 	if err := start(context.Background(), a, &out); err != nil {
@@ -198,10 +162,7 @@ func TestADeskUpUnderAnyNumberIsNotStartedAgain(t *testing.T) {
 	if launched := m.lines("desk-launch.py lane landing-desk"); len(launched) != 0 {
 		t.Fatalf("relaunched a live desk: %q", launched)
 	}
-	if started := append(m.lines("desk-creds.py"), m.lines("sh -c")...); len(started) != 0 {
-		t.Fatalf("restarted a live runner: %q", started)
-	}
-	if rebound := m.lines("desk-runner.py rebind"); len(rebound) != 1 {
+	if rebound := m.lines("lr relay rebind"); len(rebound) != 1 {
 		t.Fatalf("a relaunched coordinator must still take the Run, ran %q", rebound)
 	}
 }
@@ -315,23 +276,6 @@ func TestABriefThatStaysOnTheMacOrIsMissingStartsNothing(t *testing.T) {
 	}
 	if ran := m.lines(""); !slices.Equal(ran, []string{"cci me"}) {
 		t.Fatalf("started with a bad brief: %q", ran)
-	}
-}
-
-func TestALaunchRunnerThatNeverBeatsLaunchesNoDesk(t *testing.T) {
-	a, m, state := newDrive(t, lanes.Root, everyDesk...)
-	m.starts = false
-	now := t0
-	a.Now = func() time.Time {
-		now = now.Add(2 * beatWait)
-		return now
-	}
-	err := start(context.Background(), a, &bytes.Buffer{})
-	if err == nil || !strings.Contains(err.Error(), filepath.Join(state, "orca-runner.log")) {
-		t.Fatalf("got %v, want the runner's log named", err)
-	}
-	if launched := m.lines("desk-launch.py"); len(launched) != 0 {
-		t.Fatalf("launched behind a dead runner: %q", launched)
 	}
 }
 

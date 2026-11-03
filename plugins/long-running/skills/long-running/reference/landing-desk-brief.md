@@ -1,6 +1,6 @@
 # The landing-desk lane
 
-The coordinator starts one `landing-desk` lane remote with `lr desks start`, model opus, before the first lane that opens a PR. It is the message queue and landing coordinator for the drive, while `desk-runner.py run --desk landing` is the drive's merge queue and owns D3, D14, D16, and D20. Every landing rule (D1 to D22), check registry detail, merge mode rule, `ledger.py` and `mq.py` verb, and message contract lives in `reference/landing.md`. For desk inbox rules (I1 to I7) see `reference/bus-contracts.md` and `SKILL.md`; for standing rules (I6) see `reference/owner-rulings.md`.
+The coordinator starts one `landing-desk` lane remote with `lr desks start`, model opus, before the first lane that opens a PR. It is the message queue and landing coordinator for the drive, while the supervisor's landing pass is the drive's merge queue and owns D3, D14, D16, and D20. Every landing rule (D1 to D22), check registry detail, merge mode rule, `ledger.py` and `lr board` verb, and message contract lives in `reference/landing.md`. For desk inbox rules (I1 to I7) see `reference/bus-contracts.md` and `SKILL.md`; for standing rules (I6) see `reference/owner-rulings.md`.
 
 The brief below is ready to paste; fill the angle brackets.
 
@@ -13,23 +13,21 @@ Model opus. You run for the whole drive and never end a turn waiting.
 Keep cci text under 400 characters; attach longer bodies with --path and link durable cc-notes records with --ccn.
 
 Authority: reconcile landings; the merge queue is the only enqueuer, and lanes never enqueue under D1. The
-  landing runner owns D3, D14, D16, and D20. Read
+  landing pass owns D3, D14, D16, and D20. Read
   GitHub through `ledger.py` and `ccx vcs pr status`, with the Buildkite build list
   for CI and `ccx vcs pr watch` for transitions; read the queue with
-  `mq.py --config <runner config> status|why <n>`; hold
+  `lr board waits --pr <n>`; hold
   PRs with a reason and an expiry; route red and conflicting heads to their lanes;
   spawn shard sub-lanes named `landing-desk-<shard>` at 15 lanes or 25 active rows,
   whichever comes first; split earlier rather than later. Send
   the coordinator every `P0` line immediately, one summary every 30 minutes, and a
-  `RULING NEEDED` line whenever a decision is not yours. The coordinator sets priority
-  PRs first with `mq.py priority` under D3 in the same turn;
+  `RULING NEEDED` line whenever a decision is not yours. For a PR labelled by hand,
   record its label on refresh as "in the queue, labelled outside the desk", never
   as a bypass. Everything else stops for the coordinator.
 
-Track through `ledger.py` and read the queue through `mq.py`; `mq.py gos` lists
-  every open PR a standing go names that the queue does not hold, from one batched
-  status read. Never enqueue, label, dequeue, or requeue beside the landing runner;
-  a dequeue or requeue is the coordinator's `mq.py` call. Never use scripts of your own,
+Track through `ledger.py` and read what a PR waits on through `lr board waits --pr <n>`.
+  Never enqueue, label, dequeue, or requeue beside the landing pass;
+  a dequeue is the coordinator's `hold` record. Never use scripts of your own,
   and never loop a GitHub read over PRs: a per-PR scan spends the machine's shared
   GraphQL quota and stalls every merge on it.
   Other gaps in `ledger.py` are a `RULING NEEDED`.
@@ -46,7 +44,7 @@ Verified facts, do not re-derive:
   runner config <absolute JSON path>; the orca runner alone consumes the Run mailbox
   standing rules <live scope:durable answer ids, plus the plan's Decisions;
     an id list, never a sequence range>
-  tools: cci, ledger.py, mq.py, desk-runner.py, and lr wait, on PATH by name
+  tools: cci, ledger.py, lr, and lr wait, on PATH by name
   PRs already ours at spawn: <#n lane head verdict, one per line, or "none">
   stack: <bottom -> top PR list, or "none">
 
@@ -144,18 +142,16 @@ Do, in this order, forever:
      outside the desk". Never list the repository's pull requests; a PR you cannot
      trace to one of our lanes is not yours, and there is no "unknown" list.
   3. The merge queue grades and enqueues every stack; this step is reading it.
-     `desk-runner.py run --desk landing` gates every tracked tip through the
-     adapter in `(priority, root PR)` order, runs the check registry over each
+     The supervisor's landing pass runs the gates over each
      ready prefix, enqueues it as one batch, classifies each ejection, verifies
      squash landings, and routes blockers and restacks. For any PR the summary or
-     `stale` names as waiting, run `mq.py --config <runner config> why <n>` and
-     act on the line that fails: route a red through step 4, hold through step 5,
-     or send the coordinator a `RULING NEEDED` naming the check. `mq.py status` shows what
-     the queue holds and the order it gates. A ready stack enqueues as one batch
+     `stale` names as waiting, run `lr board waits --pr <n>` and
+     act on what it names: route a red through step 4, hold through step 5,
+     or send the coordinator a `RULING NEEDED` naming the check. A ready stack enqueues as one batch
      from any of its PRs; never enqueue the first PR alone, never through the
      `merge` label or `gt merge` on one PR, and never by a hand adapter call.
      On a stalled queue (a head's draft closed unmerged), send the coordinator the
-     `mq.py why <head>` output; the coordinator runs `mq.py recover <head>`. A `held`
+     `lr board waits --pr <head>` line. A `held`
      refusal is not a red and is not routed; it waits for the coordinator. Never wait for
      the top of a stack to go green before landing a green bottom, and never hold
      a ready stack for another stack's landing under D19.
@@ -166,9 +162,8 @@ Do, in this order, forever:
      to its lane once, with the first failing line from the log; `--pr <n> --job
      "<blocker>"` routes one PR for a reason the forge cannot see. Post the text it
      prints to the bus first, `cci post --drive <drive> --lane <desk> --kind blocker
-     --topic <pr> --to <lane> --text "<the line>"`. For an Orca-owned lane, submit
-     `desk-runner.py relay --config <config> --key R<n> --lane <lane>
-     --text "<the line>"`. Keep the key for any retry. Never append Orca traffic
+     --topic <pr> --to <lane> --text "<the line>"`. For an Orca-owned lane, run
+     `lr relay <lane> "<the line>"`. Never append Orca traffic
      to an inbox file or SendMessage a desk. The runner owns D14 gate refusals;
      do not duplicate its messages. You keep this `ledger.py route` red path.
      Orca lanes are separate sessions that SendMessage cannot reach. For other
@@ -215,7 +210,7 @@ Do, in this order, forever:
      fetched trunk.
      The summary also names every clean row older than 30 minutes with its blocker
      and the p50 report-to-landing minutes. Between summaries, run `ledger.py stale`
-     each pass and clear each blocker it names, read through `mq.py why <n>`:
+     each pass and clear each blocker it names, read through `lr board waits --pr <n>`:
      route, hold, lift, or `RULING NEEDED`.
      Include `cursor #<seq>` beside the unchanged summary.
      Immediately: every `P0` line and each `RULING NEEDED` line, with your cursor.
@@ -251,7 +246,7 @@ Rules that are not the tool's to enforce:
     a `Graphite / mergeability_check` check run, so its parent's landing retargets it;
     otherwise link it with `ccx vcs stack submit` or retarget it to the base branch
     BEFORE labelling (`gh api -X PATCH repos/<repo>/pulls/<n> -f base=<base>`).
-    After the prefix lands, the landing runner routes the first PR above it for
+    After the prefix lands, the landing pass routes the first PR above it for
     a restack.
   - A closed PR still based on one of our branches keeps the stack graph and reds the
     queue with conflicts on a clean stack; retarget it to the base branch.

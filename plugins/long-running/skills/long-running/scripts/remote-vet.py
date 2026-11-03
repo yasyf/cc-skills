@@ -6,7 +6,7 @@
 
     remote-vet.py --config PATH --lane LANE [--sprite NAME] [--base REF] [--timeout SECONDS] [WORKTREE]
 
-STDLIB ONLY. `--config` is the drive's desk-runner `runner.json`: `landing.checkout` names the clone path every Sprite
+STDLIB ONLY. `--config` is the drive's `runner.json`: `landing.checkout` names the clone path every Sprite
 holds, and the vet runs on `--sprite` or else the least loaded Sprite `vet.sprite` lists, Sprites of their own so a build
 never starves the finder and fidelity passes on a grader Sprite. A Sprite that does not answer the load probe is passed
 over, and when none answers or every one is over load 16 the script exits 3 without vetting, so the lane pushes and CI

@@ -111,7 +111,7 @@ Do, in this order, every iteration:
        no enqueue script.
        Never wait for the PRs above the prefix. After it lands, route a restack of
        the first PR above it to its owning lane; Orca routes use
-       `desk-runner.py relay --config C --key R<n> --lane L --text T`.
+       `lr relay <lane> <text>`.
      - Route an ejection, conflict, or red to its lane at once. The lane rebases,
        fixes the blocker, and re-enqueues when the gates and holds permit.
        Relaunch a dead lane in this iteration.

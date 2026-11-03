@@ -45,7 +45,7 @@ ORDERED = {"verdict": "no", "artifact_phrase": "", "evidence_phrase": "", "sente
 UNORDERED = {"verdict": "yes", "artifact_phrase": "rollback sand --to 905", "evidence_phrase": "Yes", "sentence": "He said to let it finish, not to roll it back."}
 FROZEN_TOOLING = (
     "Warning, nothing was blocked: Incident tooling stays as it is while an incident is open."
-    " Run `claude plugin update long-running` or `desk-runner.py handoff` once the incident closes."
+    " Run `claude plugin update long-running` once the incident closes."
 )
 
 
@@ -239,10 +239,6 @@ def tooling_change(evt: BaseHookEvent) -> bool:
         if call.name == "claude" and call.args[:1] == ("plugin",) and call.args[1:2] and call.args[1] in PLUGIN_VERBS:
             if any(arg.startswith("long-running") for arg in call.args[2:]):
                 return True
-        if call.name == "desk-runner.py" and "handoff" in call.args:
-            return True
-        if call.name.startswith("python") and any(arg.endswith("desk-runner.py") for arg in call.args) and "handoff" in call.args:
-            return True
     return False
 
 
@@ -256,8 +252,6 @@ def plugin(command: str, *stored: dict, state: list[object] = ACTIVE, **extra: o
     tests={
         plugin("claude plugin update long-running@skills", SAND_NOT_MIGRATED): Warn(pattern=r"^Warning, nothing was blocked: Incident tooling stays as it is"),
         plugin("claude plugin install long-running@skills", SAND_NOT_MIGRATED): Warn(),
-        plugin("desk-runner.py handoff --desk landing --config r.json", SAND_NOT_MIGRATED): Warn(),
-        plugin("python3 ~/.claude/plugins/cache/skills/long-running/0.7.212/skills/long-running/scripts/desk-runner.py handoff --desk orca", SAND_NOT_MIGRATED): Warn(),
         plugin("claude plugin update long-running@skills", SAND_NOT_MIGRATED, env={"CLAUDE_LONG_RUNNING_LANE": "p1-hooks"}, state=[]): Warn(),
         plugin("claude plugin update long-running@skills", CLOSED_0820): Allow(),
         plugin("claude plugin update codex@skills", SAND_NOT_MIGRATED): Allow(),
@@ -265,7 +259,6 @@ def plugin(command: str, *stored: dict, state: list[object] = ACTIVE, **extra: o
         Input(command="claude plugin update long-running@skills", commands=incident_sources(SAND_NOT_MIGRATED)): Allow(),
         Input(command="claude plugin update long-running@skills", state=ACTIVE, commands=incident_sources(posted=(BARE_INCIDENT,))): Warn(),
         Input(command="claude plugin update long-running@skills", state=ACTIVE, commands=incident_sources(posted=(BARE_INCIDENT,), closeout=(INCIDENT_CLOSED,))): Allow(),
-        Input(command="desk-runner.py handoff --desk landing", state=ACTIVE, commands=incident_sources(posted=(BARE_INCIDENT,), closeout=(EARLIER_CLOSEOUT,))): Warn(),
     },
 )
 def no_tooling_change_during_an_incident(evt: BaseHookEvent) -> HookResult | None:

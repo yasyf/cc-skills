@@ -10,9 +10,7 @@
     drive.py record  --session ID --lane NAME --cwd DIR [--drive ID] [--opened] --pr [OWNER/NAME#]N[=SHA]...
     drive.py landed  --session ID [--drive ID] --pr N...
     drive.py lane-status LANE|DISPATCH [--drive ID] [--run ID]
-    drive.py digest  [--drive ID] [--quiet-point]
-    drive.py reds    [--drive ID]
-    drive.py go      [--drive ID] PR...
+    drive.py digest  [--drive ID]
     drive.py worktree --lane NAME --path DIR [--session ID] [--drive ID]
     drive.py spawned --lane NAME --brief PATH [--by LANE] [--session ID] [--drive ID]
     drive.py release --cci-drive NAME --owner LANE@DRIVE --build BUILD [--release ID]
@@ -64,27 +62,8 @@ also gets a line from ``lanes.teammate_status``: its agent type, model, whether 
 activity, and when it joined. With none found it prints ``no worktree found for lane <lane>``
 and exits 1.
 
-``digest`` prints one line per desk runner from its newest ``<desk> alive`` cci record on the drive: its pid, the plugin
-version it runs, the version its ``runner.json`` pins, the version the install link names, and when it posted. A runner
-off its pin, or one whose record names no version, reads off its pin with the ``desk-runner.py handoff`` command that moves it
-onto the pin; a newer install alone never makes a runner stale, and the line names the ``handoff --version`` that would move
-the pin after that version's preflight. One whose
-record is five minutes old reads down with the restart command it posted; the command exits 1 while any desk is off its pin,
-down, or has posted no record. It then prints the stack ledger the stall watch wrote
-to ``<state dir>/inbox/stack.json`` on its last pass: one line per open PR with its head, the PR or branch it sits on,
-its state, its owning lane, since when, and its next step, marked ``STALE`` once that state has stood two hours.
-Its last line says whether the drive sits at a quiet point: every desk's newest alive record is under two minutes old and
-names no command or landing pass in flight. A tooling lane installs a cci or long-running release only there, so no
-pass or merge runs through the swap; ``--quiet-point`` exits 0 at a quiet point and 1 otherwise.
-
-``reds`` is the red register: from the same ``stack.json``, one line per open PR whose build reads red, with its
-head, its failing checks, its class, its owner, since when it has read red, and the last action its newest
-``red`` record names. A lane classes a red head with ``cci post --kind red --pr N --text "class=<inherited|flake|real|stale>
-head=<sha> owner=<lane> <what was done>"``; a red head with no such record reads ``unclassed``.
-
-``go`` prints, per PR, its ledger head and the newest go naming that head, a carried one included, by seq, lane and
-time, else the newest go at an older head: ``desk-runner.py go`` on the ``runner.json`` beside the drive's state, the
-reading every desk text that says a PR has, lacks, or lost a go comes from.
+``digest`` prints one line for the relay from its newest ``orca alive`` cci record on the drive: its pid and when it
+posted. One whose record is five minutes old reads down; the command exits 1 while the relay is down or has posted no record.
 
 ``worktree`` is the pack's entry point the first time a lane runs a command in a worktree: it posts one
 ``state`` record ``WORKTREE <lane> <path> <branch>`` with a ``worktree`` attr, keyed
@@ -163,13 +142,11 @@ OUTSIDE_REPO = 3
 CI_WORKFLOW = "long-running CI"
 GITHUB_REPO = re.compile(r"^https://github\.com/(?P<repo>[\w.-]+/[\w.-]+?)(?:\.git)?/?$")
 PLUGIN = Path(__file__).resolve().parents[4]
-DESKS = ("orca", "landing")
+DESKS = ("orca",)
 DESK_RUNNER = "desk-runner"
 WATCHDOG = "drive-watchdog"
 BEAT_STALE = timedelta(minutes=5)
-QUIET_BEAT = timedelta(minutes=2)
 JUDGE_WINDOW = timedelta(hours=24)
-STACK = "stack.json"
 ADMITTED = "landing-admitted.json"
 ROLE = re.compile(r"^ccx:(?:.* )?role=([\w-]+)", re.MULTILINE)
 REPLACES = re.compile(r"^Replaces: `?([\w.-]+)`?\s*$", re.MULTILINE)
@@ -185,12 +162,6 @@ def drives_dir() -> Path:
 
 def plugin_manifest() -> dict:
     return json.loads((PLUGIN / ".claude-plugin" / "plugin.json").read_text())
-
-
-def installed_version() -> str:
-    """The version the install link names, or an empty string while it names none."""
-    named = release.held()
-    return named.name if named else ""
 
 
 def installs() -> Path:
@@ -688,23 +659,9 @@ def cmd_lane_status(args: argparse.Namespace, shell: ledger.Shell) -> int:
     return 0
 
 
-def busy(beats: dict[str, dict | None], now: datetime) -> list[str]:
-    """What keeps the drive from a quiet point: each desk whose newest alive record is over `QUIET_BEAT` old, predates the `flight` attr, or names a command or pass in flight."""
-    found = []
-    for desk, beat in beats.items():
-        if beat is None or now - datetime.fromisoformat(beat["at"]) >= QUIET_BEAT:
-            found.append(f"{desk} posted no alive record in the last {int(QUIET_BEAT.total_seconds()) // 60} min")
-        elif "flight" not in beat:
-            found.append(f"{desk} runs a version whose alive record names no flight")
-        elif beat["flight"]:
-            found.append(f"{desk} runs `{beat['flight']}`")
-    return found
-
-
 def cmd_digest(args: argparse.Namespace, shell: ledger.Shell) -> int:
     if (entry := resolve(args, shell)) is None:
         return 1
-    installed = installed_version()
     current = True
     beats = {desk: heartbeat(shell.run, cci_drive(entry), desk) for desk in DESKS}
     for desk, beat in beats.items():
@@ -712,59 +669,14 @@ def cmd_digest(args: argparse.Namespace, shell: ledger.Shell) -> int:
             current = False
             print(f"{desk}: no {desk} alive record on cci drive {cci_drive(entry)}, so no {desk} runner has run there")
             continue
-        running, config = beat.get("version", ""), beat.get("config", "<runner.json>")
-        pinned = load(Path(config)).get("version", "") if Path(config).is_file() else ""
-        late = not running or bool(pinned) and running != pinned
         down = not beating(beat, datetime.now(timezone.utc))
-        current &= not late and not down
-        if down:
-            state = f"down; restart it with `{beat.get('restart', f'desk-runner.py run --desk {desk}')}`"
-        elif late:
-            state = f"off its pin; `desk-runner.py handoff --config {config} --desk {desk}` moves it onto {pinned or 'the version it runs'}"
-        elif behind(pinned, installed):
-            state = f"current; `desk-runner.py handoff --config {config} --desk {desk} --version {installed}` moves it to the installed version once that version's preflight passes"
-        else:
-            state = "current"
+        current &= not down
+        state = "down; the supervisor restarts it within a minute, so read lr-relay.log and the supervisor's log" if down else "current"
         pid = f"pid {beat['pid']} " if "pid" in beat else ""
-        print(f"{desk}: {pid}runs {running or 'a version it does not report'}, pinned {pinned or 'nothing'}, installed {installed or 'unknown'}, last alive {beat['at']}: {state}")
-    if (stack := Path(entry["state_dir"]) / "inbox" / STACK).is_file():
-        written = load(stack)
-        prs = written["prs"]
-        print(f"stack at {written['at']}: {len(prs)} open PRs, {sum(row['stale'] for row in prs)} stale")
-        for row in prs:
-            sits = f"#{row['below']}" if row["below"] else row["base"]
-            owner = row["owner"] if row["live"] else f"{row['owner']}, not live"
-            print(f"{'STALE ' if row['stale'] else ''}#{row['pr']} {row['head'][:7]} on {sits}: {row['state']} | owner {owner} | since {row['since']} | next: {row['next']}")
+        print(f"{desk}: {pid}last alive {beat['at']}: {state}")
     for line in judge.digest(judge.calls(Path(entry["state_dir"]), datetime.now(timezone.utc) - JUDGE_WINDOW)):
         print(line)
-    held = busy(beats, datetime.now(timezone.utc))
-    print(f"quiet point: no, {'; '.join(held)}" if held else "quiet point: yes, no pass or merge in flight")
-    if args.quiet_point:
-        return 1 if held else 0
     return 0 if current else 1
-
-
-def cmd_reds(args: argparse.Namespace, shell: ledger.Shell) -> int:
-    if (entry := resolve(args, shell)) is None:
-        return 1
-    if not (stack := Path(entry["state_dir"]) / "inbox" / STACK).is_file():
-        print(f"no {stack}: the stall watch has not run a pass for this drive")
-        return 1
-    written = load(stack)
-    reds = [row for row in written["prs"] if "red" in row]
-    print(f"reds at {overview.clock(datetime.fromisoformat(written['at']))}: {len(reds)} open PRs read red, {sum(row['red']['class'] == 'unclassed' for row in reds)} unclassed")
-    for row in reds:
-        red = row["red"]
-        print(f"#{row['pr']} {row['head'][:7]} | {red['checks']} | {red['class']} | owner {red['owner']} | red since {overview.clock(datetime.fromisoformat(red['since']))} | {red['action'] or 'no action recorded'}")
-    return 0
-
-
-def cmd_go(args: argparse.Namespace, shell: ledger.Shell) -> int:
-    if (entry := resolve(args, shell)) is None:
-        return 1
-    runner = str(Path(__file__).resolve().parents[1] / "desk-runner.py")
-    os.execv(sys.executable, [sys.executable, runner, "go", "--config", str(Path(entry["state_dir"]) / "runner.json"), *args.prs])
-    return 0
 
 
 def cmd_worktree(args: argparse.Namespace, shell: ledger.Shell) -> int:
@@ -920,16 +832,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     digest = subparsers.add_parser("digest", help="each desk runner's running version beside the installed one, and each judge kind's verdicts over the last day; exit 1 when a runner is behind or has no heartbeat")
     digest.add_argument("--drive")
-    digest.add_argument("--quiet-point", action="store_true", help="exit 0 only at a quiet point, where no desk runs a pass or a merge, the one time a tooling lane installs a cci or long-running release")
     digest.set_defaults(handler=cmd_digest)
-    go = subparsers.add_parser("go", help="each PR's ledger head and the newest go naming it, else the newest go at an older head")
-    go.add_argument("--drive")
-    go.add_argument("prs", nargs="+")
-    go.set_defaults(handler=cmd_go)
 
-    reds = subparsers.add_parser("reds", help="every open PR whose build reads red, with its class, owner, since when, and last action")
-    reds.add_argument("--drive")
-    reds.set_defaults(handler=cmd_reds)
 
     worktree = subparsers.add_parser("worktree", help="post the WORKTREE record that maps a lane to a worktree it works in")
     worktree.add_argument("--lane", required=True)

@@ -178,7 +178,6 @@ type Desk struct {
 	Env          func(string) string
 	Now          func() time.Time
 	Sleep        func(time.Duration)
-	Parent       func() int
 	Release      func() string
 	Plugin       string
 	Stderr       io.Writer

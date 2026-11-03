@@ -234,7 +234,7 @@ def gate_stub(monkeypatch, code: int, out: str) -> list[list[str]]:
     real = subprocess.run
 
     def run(argv, **kwargs):
-        if len(argv) > 1 and str(argv[1]).endswith("mq.py"):
+        if list(argv[:3]) == ["lr", "landing", "gate"]:
             calls.append(list(argv))
             return subprocess.CompletedProcess(argv, code, out, "")
         return real(argv, **kwargs)
@@ -243,7 +243,7 @@ def gate_stub(monkeypatch, code: int, out: str) -> list[list[str]]:
     return calls
 
 
-@pytest.mark.parametrize(("code", "out", "warned"), [(1, f"{FINDER_PENDING}\n", True), (0, "", False), (2, "usage: mq.py: invalid choice: 'gate'\n", False)])
+@pytest.mark.parametrize(("code", "out", "warned"), [(1, f"{FINDER_PENDING}\n", True), (0, "", False), (2, "Error: unknown command \"gate\" for \"lr landing\"\n", False)])
 def test_a_landing_desk_hand_enqueue_is_warned_only_when_the_runners_gate_names_a_failing_head(tmp_path, monkeypatch, code, out, warned):
     drive_registry(tmp_path, monkeypatch)
     subagent(tmp_path, "alanding-desk-1a2b", name="landing-desk", agentType="long-running:lane")
@@ -251,7 +251,7 @@ def test_a_landing_desk_hand_enqueue_is_warned_only_when_the_runners_gate_names_
 
     assert advise(tmp_path, "stack-enqueue 43246 43243 --partial", "alanding-desk-1a2b") == ([lane_landing.HAND_ENQUEUE_WARNING.format(lines=FINDER_PENDING)] if warned else [])
     [call] = calls
-    assert call[2:] == ["--config", str(tmp_path / "drive-state" / "runner.json"), "gate", "43246", "43243", "--partial"]
+    assert call == ["lr", "landing", "gate", "--config", str(tmp_path / "drive-state" / "lr.json"), "43246", "43243", "--partial"]
 
 
 TAP_REQUIRED = "#44705 cbc3f005e3 merge-mode pending TAP-REQUIRED rule/82317b0: it lands only on the owner's tap at this head, and a coordinator go is no tap; no approval on the coordinator's board names cbc3f005e3"
