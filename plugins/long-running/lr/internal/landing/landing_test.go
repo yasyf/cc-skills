@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/landing"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/pass"
@@ -76,7 +77,7 @@ func (r *restacker) Restack(_ context.Context, number int, head, base string) (s
 
 func acts(t *testing.T, s *store.Store, now time.Time, snapshot ...machine.Facts) []pass.Act {
 	t.Helper()
-	out, err := pass.Run(s, snapshot, now, func(string, []string, map[string]any) error { return nil }, []machine.Mover{machine.MoverSupervisor})
+	out, err := pass.Run(s, snapshot, now, func([]string, bus.Body) error { return nil }, []machine.Mover{machine.MoverSupervisor})
 	if err != nil {
 		t.Fatal(err)
 	}

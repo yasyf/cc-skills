@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
@@ -26,7 +27,7 @@ type Diff struct {
 }
 
 func Shadow(s *store.Store, snapshot []machine.Facts, now time.Time, post Post) ([]Diff, error) {
-	out, err := Run(s, snapshot, now, func(string, []string, map[string]any) error { return nil }, allMovers)
+	out, err := Run(s, snapshot, now, func([]string, bus.Body) error { return nil }, allMovers)
 	if err != nil {
 		return nil, err
 	}
@@ -35,8 +36,8 @@ func Shadow(s *store.Store, snapshot []machine.Facts, now time.Time, post Post) 
 		return nil, err
 	}
 	for _, diff := range diffs {
-		text := fmt.Sprintf("shadow %s: %s", diff.Subject, diff.Cause)
-		if err := post("note", []string{string(machine.MoverSupervisor)}, map[string]any{"text": text}); err != nil {
+		note := bus.Note{Text: fmt.Sprintf("shadow %s: %s", diff.Subject, diff.Cause)}
+		if err := post([]string{string(machine.MoverSupervisor)}, note); err != nil {
 			return diffs, err
 		}
 	}
