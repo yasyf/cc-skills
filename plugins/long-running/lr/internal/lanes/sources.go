@@ -591,6 +591,20 @@ func namesHead(named, sha string) bool {
 	return sha != "" && (strings.HasPrefix(sha, named) || strings.HasPrefix(named, sha))
 }
 
+func (e Env) openWork(ctx context.Context) ([]Record, error) {
+	records, err := e.Bus.Tail(ctx, client.Query{Drive: e.Config.Drive, Since: e.Now().Add(-24 * time.Hour), Kinds: []string{"defect", "ask", "blocker"}})
+	if err != nil {
+		return nil, fmt.Errorf("%w: cci tail: %w", ErrUnread, err)
+	}
+	open := make([]Record, 0, len(records))
+	for _, record := range records {
+		if record.Status == "open" {
+			open = append(open, recordOf(record))
+		}
+	}
+	return open, nil
+}
+
 func (e Env) held(ctx context.Context) (map[int]bool, error) {
 	records, err := e.Bus.Open(ctx, e.Config.Drive, "hold")
 	if err != nil {
@@ -728,6 +742,7 @@ func (e Env) Deps(ctx context.Context) (Deps, error) {
 		PRStates: states.states,
 		Held:     func() (map[int]bool, error) { return e.held(ctx) },
 		Desk:     desks.desk,
+		OpenWork: func() ([]Record, error) { return e.openWork(ctx) },
 		RotateAt: at,
 	}, nil
 }

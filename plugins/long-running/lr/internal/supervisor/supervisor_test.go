@@ -338,10 +338,13 @@ func (b *recordingBus) Post(_ context.Context, d client.Draft) (client.Record, e
 	b.posted = append(b.posted, d)
 	return client.Record{Seq: 1}, nil
 }
+
 func (*recordingBus) Tail(context.Context, client.Query) ([]client.Record, error) { return nil, nil }
+
 func (*recordingBus) Open(context.Context, string, ...string) ([]client.Record, error) {
 	return nil, nil
 }
+
 func (*recordingBus) Who(context.Context, string) ([]client.Peer, error) { return nil, nil }
 
 func link(t *testing.T, claude, version string) {
@@ -375,8 +378,9 @@ func TestTheSupervisorMovesToANewerInstallUnlessItsReplayGateRefusesIt(t *testin
 		return shell.Result{Code: code, Stderr: "Traceback: boom"}, &shell.ExitError{Argv: argv, Code: code}
 	})}
 	upgrade := &Upgrade{Env: env, Running: "0.7.820"}
-	var got []bool
-	for _, version := range []string{"0.7.820", "0.7.821", "0.7.821", "0.7.822", "0.7.823"} {
+	versions := []string{"0.7.820", "0.7.821", "0.7.821", "0.7.822", "0.7.823"}
+	got := make([]bool, 0, len(versions))
+	for _, version := range versions {
 		link(t, claude, version)
 		stale, err := upgrade.Stale(context.Background())
 		if err != nil {
@@ -423,7 +427,6 @@ func TestReexecRunsTheInstalledBinaryWithTheSameArguments(t *testing.T) {
 type ctl struct {
 	calls  []string
 	loaded []int
-	writes int
 }
 
 func (c *ctl) run(argv []string) (shell.Result, error) {

@@ -406,3 +406,27 @@ func TestALaunchOrderOrAnOwnedByDecideNamesTheDeskThatOwnsALane(t *testing.T) {
 	equal(t, bus.query.After, int64(10))
 	equal(t, bus.query.Kinds, []string{"go", "decide"})
 }
+
+func TestOpenWorkReadsOnlyTheLastDaysOpenRecords(t *testing.T) {
+	var records []client.Record
+	feed := `[
+		{"seq":1,"lane":"root","kind":"defect","at":"2026-11-02T19:59:00Z","text":"open one","to":["tooling-1"],"status":"open"},
+		{"seq":2,"lane":"root","kind":"ask","at":"2026-11-02T19:59:00Z","text":"answered","to":["tooling-1"],"status":"resolved"}
+	]`
+	if err := json.Unmarshal([]byte(feed), &records); err != nil {
+		t.Fatal(err)
+	}
+	bus := &fakeBus{tail: records}
+	now := time.Date(2026, 11, 3, 4, 0, 0, 0, time.UTC)
+	env := Env{Bus: bus, Config: config.Config{Drive: "durable"}, Now: func() time.Time { return now }}
+
+	open, err := env.openWork(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	equal(t, len(open), 1)
+	equal(t, open[0].Text, "open one")
+	equal(t, bus.query.Since, now.Add(-24*time.Hour))
+	equal(t, bus.query.Kinds, []string{"defect", "ask", "blocker"})
+}

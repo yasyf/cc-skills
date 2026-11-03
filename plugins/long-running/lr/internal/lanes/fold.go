@@ -100,6 +100,9 @@ func grant(s *store.Store, r Record, fresh bool, at time.Time, out *folded) {
 				return
 			}
 		}
+		if successor == "" && !fresh {
+			dropQueuedLaunch(s, row, at, out)
+		}
 		if row.State != store.LaneRetired {
 			retire(s, name, or(successor, Root), at)
 		}
@@ -413,8 +416,10 @@ func foldRegistry(s *store.Store, r Record, row store.Lane, known, fresh bool, a
 		foldLanded(s, r, at)
 	case kind == "done" && settles:
 		retire(s, name, "done", at)
-	case settles && (kind == "stopped" || kind == "stand-down"):
+	case settles && (kind == "stopped" || kind == "stand-down" || (kind == "state" && stoppedLine.MatchString(text))):
 		retire(s, name, "stand-down", at)
+	case kind == "go" && name != Self && withdrawOrder.MatchString(text):
+		foldWithdraw(s, r, at)
 	case kind == "stand-down" && isRoot:
 		foldRootStandDown(s, r, fresh, at, out)
 	case kind == "decide" && isRoot:
@@ -470,6 +475,32 @@ func foldLanded(s *store.Store, r Record, at time.Time) {
 	}
 }
 
+func dropQueuedLaunch(s *store.Store, stood store.Lane, at time.Time, out *folded) {
+	queued := stood
+	if stood.State == store.LaneRetired {
+		heir, found := laneOf(s, stood.RetiredBy)
+		if !found || heir.Predecessor != stood.Name {
+			return
+		}
+		queued = heir
+	}
+	if queued.State != store.LaneLaunching || queued.Reason == "" {
+		return
+	}
+	retire(s, queued.Name, Root, at)
+	do(s.Own(Root, queued.PRs))
+	out.hand = append(out.hand, queued.Name)
+}
+
+func foldWithdraw(s *store.Store, r Record, at time.Time) {
+	withdrawn, found := laneOf(s, withdrawOrder.FindStringSubmatch(r.Text)[1])
+	if !found || withdrawn.State != store.LaneLaunching {
+		return
+	}
+	retire(s, withdrawn.Name, "withdrawn", at)
+	do(s.Own(Root, withdrawn.PRs))
+}
+
 func foldRootStandDown(s *store.Store, r Record, fresh bool, at time.Time, out *folded) {
 	successor := r.Attr("successor")
 	named := map[string]bool{}
@@ -497,6 +528,9 @@ func foldRootStandDown(s *store.Store, r Record, fresh bool, at time.Time, out *
 				hold(s, old, why, at)
 				continue
 			}
+		}
+		if successor == "" && !fresh {
+			dropQueuedLaunch(s, gone, at, out)
 		}
 		if gone.State != store.LaneRetired {
 			retire(s, old, or(successor, Root), at)

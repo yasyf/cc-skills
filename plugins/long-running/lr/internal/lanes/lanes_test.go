@@ -89,6 +89,7 @@ type fake struct {
 	states    map[int]string
 	holds     map[int]bool
 	desks     map[string]string
+	work      []Record
 	deps      Deps
 }
 
@@ -136,6 +137,7 @@ func newFake(t *testing.T, records []Record, peers []Row) *fake {
 		},
 		Held:     func() (map[int]bool, error) { return f.holds, nil },
 		Desk:     func(lane string) (string, error) { return f.desks[lane], nil },
+		OpenWork: func() ([]Record, error) { return f.work, nil },
 		RotateAt: 600_000,
 	}
 	return f
@@ -1913,4 +1915,121 @@ func TestQuietOwnersAreNamedToEachOwnersDeskInOneBlockerAndRootHasTheRest(t *tes
 	equal(t, []string{blockers[0].To[0], blockers[1].To[0]}, []string{"meta-desk-1", Root})
 	contains(t, blockers[0].Text, "quiet-desk (#46002;")
 	contains(t, blockers[1].Text, lane2+" (#46869;")
+}
+
+func TestALaneThatPostsStoppedAsAStateIsRetiredAndNeverGetsASuccessor(t *testing.T) {
+	s := memory(t)
+	f := adopted(t, s, writeBrief(t), "")
+	f.feed = append(f.feed, rec(2, lane2, "state", t0, "7:26 PM STOPPED conflicts-2: out of scope, no customer failures", Root))
+	f.peers = []Row{who(lane2, false, t0)}
+
+	out := tick(t, s, f, t0.Add(mins(16)))
+
+	equal(t, len(out.Relaunched)+len(f.launches), 0)
+	equal(t, row(t, s, lane2).State, store.LaneRetired)
+	equal(t, row(t, s, lane2).RetiredBy, "stand-down")
+}
+
+func TestAStateThatOnlyMentionsStoppedLeavesTheLaneWorking(t *testing.T) {
+	s := memory(t)
+	f := adopted(t, s, writeBrief(t), "")
+	f.feed = append(f.feed, rec(2, lane2, "state", t0, "7:26 PM the runner STOPPED at the gate, retrying", Root))
+	f.peers = []Row{who(lane2, true, t0)}
+
+	tick(t, s, f, t0.Add(mins(1)))
+
+	equal(t, row(t, s, lane2).State, store.LaneDesired)
+}
+
+func TestAStandDownAfterARelaunchWasQueuedDropsTheQueuedLaunchAndGivesRootThePRs(t *testing.T) {
+	cases := map[string]func(heir string, at time.Time) Record{
+		"a registry request names the old lane": func(_ string, at time.Time) Record { return ask(2, "stand-down", lane2, at, nil, "", nil) },
+		"a registry request names the heir": func(heir string, at time.Time) Record {
+			return ask(2, "stand-down", heir, at, nil, "", map[string]string{"last-read": "0"})
+		},
+		"a root stand-down names the old lane": func(_ string, at time.Time) Record { return rec(2, Root, "stand-down", at, "stand down", lane2) },
+		"a root stand-down names the heir": func(heir string, at time.Time) Record {
+			return rec(2, Root, "stand-down", at, "stand down, last-read=0", heir)
+		},
+	}
+	for name, standDown := range cases {
+		t.Run(name, func(t *testing.T) {
+			s := memory(t)
+			f := adopted(t, s, writeBrief(t), "9f3c2e1", 46001)
+			f.peers = []Row{who(lane2, false, t0.Add(-mins(20)))}
+			heir := tick(t, s, f, t0).Relaunched[0].New
+			f.feed = append(f.feed, standDown(heir, t0.Add(mins(1))))
+
+			out := tick(t, s, f, t0.Add(mins(2)))
+
+			equal(t, out.Withdrawn, []string{heir})
+			equal(t, row(t, s, heir).State, store.LaneRetired)
+			owners, err := s.Owners()
+			if err != nil {
+				t.Fatal(err)
+			}
+			equal(t, owners[Root], []int{46001})
+		})
+	}
+}
+
+func TestAStandDownNamingASuccessorKeepsTheQueuedLaunch(t *testing.T) {
+	s := memory(t)
+	f := adopted(t, s, writeBrief(t), "9f3c2e1")
+	f.peers = []Row{who(lane2, false, t0.Add(-mins(20)))}
+	heir := tick(t, s, f, t0).Relaunched[0].New
+	f.feed = append(f.feed, ask(2, "stand-down", lane2, t0.Add(mins(1)), nil, "", map[string]string{"successor": "conflicts-9"}))
+
+	out := tick(t, s, f, t0.Add(mins(2)))
+
+	equal(t, len(out.Withdrawn), 0)
+	equal(t, row(t, s, heir).State, store.LaneLaunching)
+}
+
+func TestAWithdrawnLaunchRetiresItsRowButTheSupervisorsOwnWithdrawalDoesNot(t *testing.T) {
+	s := memory(t)
+	f := adopted(t, s, writeBrief(t), "")
+	registered(t, s, store.Lane{Name: "release-recut-2", State: store.LaneLaunching})
+	registered(t, s, store.Lane{Name: "handed-1", State: store.LaneLaunching})
+	f.feed = append(f.feed,
+		rec(2, Root, "go", t0, "R9 (5:00 PM) orca-desk: withdraw release-recut-2", "orca-desk"),
+		rec(3, Self, "go", t0, "R10 (5:00 PM) orca-desk: withdraw handed-1", "orca-desk"),
+	)
+	f.peers = []Row{who(lane2, true, t0)}
+
+	tick(t, s, f, t0.Add(mins(1)))
+
+	equal(t, row(t, s, "release-recut-2").State, store.LaneRetired)
+	equal(t, row(t, s, "handed-1").State, store.LaneLaunching)
+}
+
+func TestTheHourlyReportNamesEachLanesOpenWorkDeepestFirst(t *testing.T) {
+	s := memory(t)
+	f := adopted(t, s, writeBrief(t), "")
+	f.work = []Record{
+		rec(10, Root, "defect", t0.Add(-3*time.Hour), "fix the gate", "tooling-1"),
+		rec(11, Root, "ask", t0.Add(-time.Hour), "due time?", "tooling-1@drive"),
+		rec(12, Root, "defect", t0.Add(-mins(30)), "and this", "tooling-1", Root),
+		rec(13, "desk-runner", "blocker", t0.Add(-2*time.Hour), "stuck", "desk-3"),
+		rec(14, "lane-x", "ask", t0, "root only", Root),
+	}
+	at := t0.Add(mins(61))
+	f.peers = []Row{who(lane2, true, at)}
+
+	tick(t, s, f, at)
+
+	equal(t, f.kinds(), []string{"report:root"})
+	equal(t, f.posts[0].Text, fmt.Sprintf("%s open work by lane, so no queue grows unseen (retro row 133): tooling-1 2 defects, 1 ask (oldest %s); desk-3 1 blocker (oldest %s).", pacific(at), pacific(t0.Add(-3*time.Hour)), pacific(t0.Add(-2*time.Hour))))
+}
+
+func TestAnUnreadOpenWorkQueryLeavesTheHourlyTickRunning(t *testing.T) {
+	s := memory(t)
+	f := adopted(t, s, writeBrief(t), "")
+	f.deps.OpenWork = func() ([]Record, error) { return nil, fmt.Errorf("%w: cci tail", ErrUnread) }
+	at := t0.Add(mins(61))
+	f.peers = []Row{who(lane2, true, at)}
+
+	tick(t, s, f, at)
+
+	equal(t, len(f.posts), 0)
 }
