@@ -120,7 +120,7 @@ def hooks() -> list:
 
 
 def inputs(entry) -> list[Input]:
-    return [inp for inp in (*entry.spec.tests, *MIGRATED.get(label(entry), ())) if isinstance(inp, Input)]
+    return [inp for inp in (*(entry.spec.tests or ()), *MIGRATED.get(label(entry), ())) if isinstance(inp, Input)]
 
 
 def test_the_kept_list_names_real_hooks():

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
@@ -21,9 +22,10 @@ const readFailed = "read failed"
 
 var keptGates = map[string]string{"landing go": "8c73884"}
 
-type unreadable struct{}
+type unreadable struct{ reads atomic.Int64 }
 
-func (unreadable) Run(_ context.Context, c shell.Command) (shell.Result, error) {
+func (u *unreadable) Run(_ context.Context, c shell.Command) (shell.Result, error) {
+	u.reads.Add(1)
 	return shell.Result{Code: 1, Stderr: readFailed}, &shell.ExitError{Argv: c.Argv, Code: 1, Stderr: readFailed}
 }
 
@@ -31,7 +33,7 @@ func unreadDrive(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	config := filepath.Join(dir, "lr.json")
-	if err := os.WriteFile(config, []byte(`{"repo":"acme/app","drive":"d","checkout":"/co","author":"a","label":"l"}`), 0o600); err != nil {
+	if err := os.WriteFile(config, []byte(`{"repo":"acme/app","drive":"d","checkout":"/co","author":"a","label":"l","movers":["lanes"]}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	s, err := store.Open(filepath.Join(dir, lanes.StoreFile))
@@ -45,17 +47,18 @@ func unreadDrive(t *testing.T) string {
 	return config
 }
 
-func runUnread(args ...string) (stdout, stderr string, err error) {
+func runUnread(args ...string) (stdout, stderr string, reads int64, err error) {
 	var out, errs bytes.Buffer
+	runner := &unreadable{}
 	a := app.New(&errs)
-	a.Runner = unreadable{}
-	a.CCX = ccx.CLI{Runner: unreadable{}}
+	a.Runner = runner
+	a.CCX = ccx.CLI{Runner: runner}
 	cmd := root(a)
 	cmd.SetOut(&out)
 	cmd.SetErr(&errs)
 	cmd.SetArgs(args)
 	err = cmd.Execute()
-	return out.String(), errs.String(), err
+	return out.String(), errs.String(), runner.reads.Load(), err
 }
 
 func TestAGateWhoseReadFailedRefusesNothing(t *testing.T) {
@@ -68,7 +71,11 @@ func TestAGateWhoseReadFailedRefusesNothing(t *testing.T) {
 		{args: []string{"own-red", "5", "--repo", "acme/app"}},
 	} {
 		t.Run(strings.Join(gate.args, " "), func(t *testing.T) {
-			stdout, stderr, err := runUnread(append(gate.args, "--config", unreadDrive(t))...)
+			t.Setenv("CCI_HOME", t.TempDir())
+			stdout, stderr, reads, err := runUnread(append(gate.args, "--config", unreadDrive(t))...)
+			if reads == 0 {
+				t.Fatalf("attempted no read, so this proves nothing: %v", err)
+			}
 			if stdout != "" {
 				t.Errorf("printed a refusal it never read: %q", stdout)
 			}
@@ -76,7 +83,7 @@ func TestAGateWhoseReadFailedRefusesNothing(t *testing.T) {
 			if errors.As(err, &exit) {
 				t.Errorf("exited %d, the code that means it refused", exit.Code)
 			}
-			if gate.exitZero && (err != nil || !strings.Contains(stderr, readFailed)) {
+			if gate.exitZero && (err != nil || !strings.Contains(stderr, "Warning, nothing was refused") || !strings.Contains(stderr, readFailed)) {
 				t.Errorf("got %v and stderr %q, want exit 0 and a warning naming the failed read", err, stderr)
 			}
 		})
