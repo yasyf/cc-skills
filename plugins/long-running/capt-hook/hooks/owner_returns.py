@@ -81,10 +81,10 @@ SHIPPED_CC_SLACK = Path(DRIVE_CONFIG["CLAUDE_CONFIG_DIR"]) / CC_SLACK_CACHE / "0
 CC_SLACK_UNREAD = "The communicator could not run `cc-slack {verb}` from the plugin ({why}), so the owner's DM replies go unwatched or unchecked until it works."
 UNANSWERED = (
     "The owner wrote in Slack and nobody has answered in that thread: {replies}."
-    " Reply in each thread with `slack_reply` saying what was done with it, then stop."
+    " Run `slack_react` with `name` `+1` on each that needs nothing back, or `slack_reply` saying what was done with it, then stop."
 )
 ACK_AFTER_SECONDS = 30
-UNACKED = "An owner Slack reply has waited over 30 seconds with no ack. Run `slack_reply` with `url` {permalink}, one line saying you have it."
+UNACKED = "An owner Slack reply has waited over 30 seconds with no ack. Run `slack_react` with `name` `+1` and `url` {permalink}, or `slack_reply` if you have news for him."
 HOLDER = "900424b6-0000"
 OWED_REPLY = {"thread_ts": "1793684147.131059", "ts": "1793705742.180139", "text": "A, but as buttons", "permalink": "https://acme.slack.com/archives/D0B6Z/p1793705742180139"}
 EXPLAINER = re.compile(r"https?://[^\s/]+/(?:one-pagers|design-docs)/[\w.-]+/")
@@ -406,7 +406,7 @@ def unread_cc_slack(evt: BaseHookEvent, verb: str, why: str) -> None:
     only_if=[Communicator()],
     skip_if=[FromSubagent()],
     tests=communicator_tests({
-        waiting(json.dumps({"replies": [OWED_REPLY], "holder_session": HOLDER})): Warn(pattern=r"^An owner Slack reply has waited.*`url` https://\S*p1793705742180139"),
+        waiting(json.dumps({"replies": [OWED_REPLY], "holder_session": HOLDER})): Warn(pattern=r"^An owner Slack reply has waited.*`url` https://\S*p1793705742180139, or `slack_reply`"),
         waiting(json.dumps({"replies": [OWED_REPLY], "holder_session": "another-drive"})): Allow(),
         waiting(json.dumps({"replies": [OWED_REPLY | {"ts": f"{time.time() + 3600:.6f}"}], "holder_session": HOLDER})): Allow(),
         waiting(json.dumps({"replies": [], "holder_session": HOLDER})): Allow(),
