@@ -34,6 +34,7 @@ const (
 	testCCISHA      = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
 	testLRURL       = "https://github.com/yasyf/cc-skills/releases/download/lr--v9.9.9/lr_9.9.9_linux_amd64.tar.gz"
 	testLRSHA       = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+	testBKURL       = "https://drive-host.example.ts.net:8443/"
 	localWorktree   = "/w/lane-a"
 	localTerminal   = "term_local_1"
 	sponsorBox      = "sponsor-1"
@@ -198,6 +199,7 @@ func newWorkerFixture(t *testing.T) *workerFixture {
 		"WORKER_CHECKOUT":      f.checkout,
 		"WORKER_CCI_URL":       testCCIURL,
 		"WORKER_CCI_SHA256":    testCCISHA,
+		"WORKER_BK_URL":        testBKURL,
 		"ORCA_TERMINAL_HANDLE": "term_coordinator",
 		"BINRUN_PLUGIN_ROOT":   filepath.Join(root, "plugin"),
 		"HOME":                 f.home,
@@ -376,7 +378,7 @@ func (f *workerFixture) prepareCallFor(lane, kind, model, effort string, extra .
 }
 
 func installCall(workspace string) []string {
-	return []string{"sprite", "exec", "-s", workspace, "--no-stdin", "--", "sh", "-c", installTools, "sh", testCCIURL, testCCISHA, testLRURL, testLRSHA, "lr"}
+	return []string{"sprite", "exec", "-s", workspace, "--no-stdin", "--", "sh", "-c", installTools, "sh", testCCIURL, testCCISHA, testLRURL, testLRSHA, "lr", testBKURL}
 }
 
 func (f *workerFixture) startCalls(task object) [][]string {
@@ -731,7 +733,7 @@ func TestAPackWithoutALinuxLRPinRefusesBeforeAnyCall(t *testing.T) {
 	f.wantNoAttempt()
 }
 
-func TestTheToolInstallPutsThePinnedLROnPathAndRefusesAnotherDigest(t *testing.T) {
+func TestTheToolInstallPutsThePinnedLROnPathWithTheProxyURLAndRefusesAnotherDigest(t *testing.T) {
 	dir := t.TempDir()
 	archive := func(name, text string) (string, string) {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(text), 0o600); err != nil {
@@ -749,9 +751,10 @@ func TestTheToolInstallPutsThePinnedLROnPathAndRefusesAnotherDigest(t *testing.T
 	}
 	cciURL, cciSHA := archive("cci", "#!/bin/sh\necho cci\n")
 	lrURL, lrSHA := archive("lr", "#!/bin/sh\necho lr 9.9.9\n")
+	home := ""
 	install := func(digest string) (string, error) {
-		home := t.TempDir()
-		run := exec.Command("sh", "-c", installTools, "sh", cciURL, cciSHA, lrURL, digest, "lr")
+		home = t.TempDir()
+		run := exec.Command("sh", "-c", installTools, "sh", cciURL, cciSHA, lrURL, digest, "lr", testBKURL)
 		run.Env = append(os.Environ(), "HOME="+home)
 		if out, err := run.CombinedOutput(); err != nil {
 			return filepath.Join(home, ".local", "bin", "lr"), fmt.Errorf("%s: %w", out, err)
@@ -764,6 +767,9 @@ func TestTheToolInstallPutsThePinnedLROnPathAndRefusesAnotherDigest(t *testing.T
 	}
 	if out, err := exec.Command(lr).Output(); err != nil || string(out) != "lr 9.9.9\n" {
 		t.Fatal(string(out), err)
+	}
+	if written, err := os.ReadFile(filepath.Join(home, ".config", "lr", "bk.url")); err != nil || string(written) != testBKURL+"\n" {
+		t.Fatal(string(written), err)
 	}
 	if lr, err = install(testLRSHA); err == nil || present(lr) {
 		t.Fatal("an archive off the pinned digest installed lr", err)
