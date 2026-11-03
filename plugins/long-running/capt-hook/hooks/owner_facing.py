@@ -291,8 +291,8 @@ def fix_command(argv: list[str]) -> bool:
     if "orca-launch.sh" in names and len(argv) > (at := names.index("orca-launch.sh")) + 2 and argv[at + 2] == "incident":
         return True
     if "lr" in names:
-        verb = argv[names.index("lr") + 1 : names.index("lr") + 5]
-        if verb[:2] == ["launch", "incident"] or (verb[:2] == ["launch", "start"] and verb[3:] == ["incident"]):
+        verb = tuple(argv[names.index("lr") + 1 : names.index("lr") + 5])
+        if verb[:2] == ("launch", "incident") or (verb[:2] == ("launch", "start") and verb[3:] == ("incident",)):
             return True
     return names[0] == "cci" and "post" in argv and any("orca-desk: launch" in word and " incident " in word for word in argv)
 
