@@ -10,22 +10,28 @@ import judge_watch
 import pytest
 
 ROW = {"at": "Oct 29 9:16 PM PT", "words": "1 Server shares one process", "repeats": "[]", "answer": '["a201ee6"]'}
+FORWARD = {"at": "Nov 02 3:12 PM PT", "words": "dont revert capt-hook or cc-trancsript stuff fix it forward", "repeats": "[]", "answer": '["0d1102b"]'}
 MISREAD = judge.Verdict("yes", "one process per destination and key", "shares one process", "He asked for one shared process, and this splits it per key.")
 CARRIED = judge.Verdict("no", "", "", "It carries what he said.")
 
 
 class Scripted(judge_watch.Pass):
-    def __init__(self, watch: judge_watch.Watch, records: list[dict], verdicts: list[judge.Verdict | None], cited: list[dict] | None = None):
+    def __init__(self, watch: judge_watch.Watch, records: list[dict], verdicts: list[judge.Verdict | None], cited: list[dict] | None = None, rows: dict[str, dict] | None = None):
         super().__init__(watch, dry_run=False)
         self.found, self.cited, self.posts = records, cited or [], []
         self.verdicts = iter(verdicts)
+        self.rows_of = {"rule/a201ee6": ROW} if rows is None else rows
 
     def cli(self, argv: list[str]) -> str:
         self.posts.append(argv)
         return f"#{9000 + len(self.posts)}\n"
 
-    def rulings(self, *args: str, stdin: str = "") -> str:
-        return json.dumps({"rows": {"rule/a201ee6": ROW}, "state_dir": str(self.watch.drive_state)}) if args[0] == "rows" else ""
+    def rulings(self, *args: str) -> str:
+        if args[0] == "rows":
+            return json.dumps({"rows": self.rows_of, "state_dir": str(self.watch.drive_state)})
+        if args[0] == "readback":
+            return "".join(f"### {key} | order | in-force | said 1 | {row['at']}\n{judge.owner_words(key, [{'at': row['at'], 'words': row['words'], 'answered': None}])}\n\n" for key, row in self.rows_of.items())
+        return ""
 
 
 @pytest.fixture
@@ -61,6 +67,21 @@ def test_a_contract_the_judge_reads_as_a_misreading_is_flagged_to_its_writer_and
     assert json.loads(watch.state.read_text())["cursor"] == 100
 
 
+def test_a_contract_is_judged_on_every_row_it_acts_on_at_once_and_the_flag_names_the_current_row_it_breaks(watch, run):
+    """Coordinator #351385: a cutover contract was judged on one older row alone, never beside his newer words on the same subject."""
+    broke = judge.Verdict("yes", "revert the capt-hook hooks", "fix it forward", "He said to fix capt-hook forward, and this reverts it.")
+
+    scripted = run(Scripted(watch, [contract(100, "Revert the capt-hook hooks, then cut over.", lane="lr-go-cutover-2")], [broke], rows={"rule/a201ee6": ROW, "rule/0d1102b": FORWARD}))
+
+    [flag] = posted(scripted)
+    assert flag["text"].startswith("JUDGE contract #100 rule/0d1102b: He said to fix capt-hook forward, and this reverts it.")
+    assert [item["words"] for item in scripted.saved.flags[next(iter(scripted.saved.flags))]["said"]] == [FORWARD["words"]]
+
+
+def test_a_contract_acting_on_no_row_asks_the_judge_nothing(watch, run):
+    assert posted(run(Scripted(watch, [contract(100, "Order: lanes mover first. Fix forward, revert nothing.")], [], rows={}))) == []
+
+
 @pytest.mark.parametrize("verdict", [CARRIED, None])
 def test_a_carried_contract_or_a_failed_judge_posts_nothing(watch, run, verdict):
     assert posted(run(Scripted(watch, [contract(100)], [verdict]))) == []
@@ -81,7 +102,7 @@ def test_a_relay_is_judged_only_on_the_rows_it_cites_and_only_from_root(watch, r
 def test_new_owner_words_recheck_what_cites_the_row_and_a_new_yes_after_a_no_is_a_miss(watch, run):
     calls = watch.drive_state / judge.CALLS
     calls.parent.mkdir(parents=True)
-    calls.write_text(json.dumps({"at": "2026-10-30T04:20:00+00:00", "kind": "contract", "subject": "cci:100:rule/a201ee6", "verdict": "no", "seconds": 9}) + "\n")
+    calls.write_text(json.dumps({"at": "2026-10-30T04:20:00+00:00", "kind": "contract", "subject": "cci:100", "verdict": "no", "seconds": 9}) + "\n")
     announce = {"seq": 200, "lane": "root", "kind": "decision", "text": "Register classify, 1 rows: extended rule/a201ee6.", "refs": {}}
 
     [flag] = posted(run(Scripted(watch, [announce], [MISREAD], cited=[contract(100)])))

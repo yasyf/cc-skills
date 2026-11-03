@@ -118,7 +118,7 @@ The root never ends a turn waiting for the owner to say "ask" and never leaves P
 
 | Artifact | What `judge_watch.py` asks the judge |
 | --- | --- |
-| Lane contract | Whether the contract misreads the owner's verbatim words on the register rows it cites or on the two rows `rulings.py match` finds. |
+| Lane contract | Whether the contract misreads the owner's verbatim words on the rows it acts on, which `rulings.py readback --words` prints: the rows its slice carries for its lane, step, PRs and paths, and the rows it cites, a superseded one replaced by the rows superseding it. The judge reads them in one call, so his newest words on a subject govern, and the flag names the row whose words it quotes. |
 | Root relay | Whether the relay misreads the owner's verbatim words on the rows it cites, or adds a mechanism missing from both the owner's words and the plan lines sharing words with it. |
 
 **A `yes` verdict posts a `JUDGE` review record.** `judge_watch.py` posts one `review` record in reply to the artifact, addressed to its writer and `root`:
