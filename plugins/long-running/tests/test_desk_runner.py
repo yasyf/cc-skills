@@ -24,7 +24,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
-from long_running import actions, sqlite_store
+from long_running import actions, ghdiff, sqlite_store
 import findings as findings_module
 import mq as mq_module
 import owner_waits
@@ -6421,6 +6421,19 @@ def test_a_diff_carrying_terminal_escape_sequences_reads_and_carries_the_ok(shel
     landing_pass(shell, config)
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
     assert [line for line in escalations(shell) if "PATCH-READ-FAILED" in line] == [] and blockers(shell) == []
+
+
+def test_a_gh_without_the_escape_flag_reads_the_diff_and_carries_the_ok(shell, config, tmp_path, monkeypatch):
+    """Root #350252: gh 2.79 on the Sprites exits on the flag, so #47790's compare never read and its ok did not carry."""
+    monkeypatch.setattr(ghdiff, "gh_usage", lambda: "--verbose   Include full HTTP request and response in the output")
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at bbbb222.")
+    shell.diffs["bbbb222"] = shell.diffs["cccc333333"] = "diff --git a/log.go b/log.go\n"
+    finder_verdict(shell, "29020", "ok cccc333 no findings")
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
+    assert [line for line in escalations(shell) if "PATCH-READ-FAILED" in line] == []
+    assert not any(ghdiff.ALLOW_ESCAPES in call for call in shell.calls)
 
 
 def test_an_unreadable_head_diff_carries_nothing_and_escalates_once(shell, config, tmp_path):

@@ -382,7 +382,7 @@ grade names carries the ok of an older head whose lanes all stand at ok, when `g
 commits at both heads, GitHub's compare of `<head>~<n>...<head>` with n the PR's commit count, is equal, so a restack whose
 parent also moved still matches (root #131054), cited as `fidelity: ok at <head>, patch-identical to <graded head>`;
 a compare GitHub refuses for the PR's own head logs `PATCH-READ-FAILED` once and carries nothing. The compare is read with
-`--allow-escape-sequences`, so a diff that carries terminal escape sequences reads as bytes for `git patch-id`.
+`--allow-escape-sequences` where gh has that flag, so a diff that carries terminal escape sequences reads as bytes for `git patch-id`.
 Any other head gets one cci `blocker` per head and grade, to the PR's lane and the fidelity lane, and any accept check
 that refuses a PR cuts the prefix below it: the PRs under the cut enqueue on their own (`--partial` under `graphite-stack-enqueue`; `trunk-stack-enqueue` never passes `--partial`), leaving the refused PR
 and every PR above it out, and the refused PR's blocker names it as the cut. One linear chain per batch means a
@@ -705,6 +705,7 @@ from long_running import release
 from long_running import drive
 import fidelity
 import finder
+from long_running import ghdiff
 from long_running import ghread
 import incident
 import inboxes
@@ -864,8 +865,6 @@ REVIEW_REQUEST = "@forge-pr-reviewer review"
 BOT_REVIEWED = "bot-reviewed"
 DIRECT_MERGING = threading.Lock()
 UNGRADED_READ = "ungraded_read"
-DIFF_MEDIA = "Accept: application/vnd.github.diff"
-ALLOW_ESCAPES = "--allow-escape-sequences"
 HOLD_LABEL = "hold"
 MERGE_MODES = ("every", "high-risk", "auto")
 ACCEPT_CHECKS = ("precondition", "rulings", "fidelity", "finder", "old-app", "build-failed", "merge-mode")
@@ -7593,7 +7592,7 @@ class Landing:
         if (commits, sha) in self.patch_ids:
             return self.patch_ids[(commits, sha)]
         span = f"{sha}~{commits}...{sha}"
-        diff = self.shell.run(ghread.read("api", f"repos/{self.repo}/compare/{span}", "-H", DIFF_MEDIA, ALLOW_ESCAPES))
+        diff = self.shell.run(ghdiff.read(f"repos/{self.repo}/compare/{span}"))
         if diff.code != 0:
             if escalate and not self.read_only:
                 last = (diff.err or diff.out).strip().splitlines()[-1:] or [f"exit {diff.code}"]
