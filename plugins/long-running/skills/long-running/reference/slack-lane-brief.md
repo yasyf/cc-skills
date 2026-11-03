@@ -77,8 +77,9 @@ A thread grant covers replies in `<channel id>/<thread ts>` only; every other th
 
 ## Reporter threads
 
-Every lane that writes in a thread where a person reported a break follows four rules:
+Every lane that writes in a thread where a person reported a break follows five rules:
 
+- Read the whole thread, then the shared message. The lane that writes reads the thread itself with `slack_thread`, never from another lane's summary; the `cc-slack` hook refuses a reply without a full read by that agent in the last 10 minutes. A message that lists `shares` is a share: the report, the reporter, their machine, and their screenshot belong to the shared message's original author, never the person who shared it. Open each image at its `path`, and never ask for what the thread already holds.
 - Read telemetry, never ask the reporter. No lane asks a reporter for evidence such as a client version, an id, a log line, a reproduction step, or what they saw (owner answer `8ff2abf`). Lanes read metrics, logs, Sentry, and run or session records first. If a fact is missing from all of them, spawn a tooling lane to add it to telemetry (for example, logging the client version on every request).
 - Prove the architecture path before naming a client cause. Before any message names a cause on a reporter's machine, the lane states which component served the failing request and shows that the request reached the reporter's client. The cloud serves a cloud run. Every unproven cause is labeled "suspected" both to the owner and in the thread.
 - Post at most one message per reporter turn. Between two messages from the reporter, the drive posts at most once. A fix going live, a new ask, or a correction waits for the reporter's next message or is edited into the standing line. A root-directed line counts against this limit.
@@ -141,15 +142,19 @@ Tools: the cc-slack MCP tools on your allowlist come first: slack_thread, slack_
 Do:
   1. Call Skill(cc-slack:slack) first. Follow "Write a post" and, except for step 2,
      "React before you reply".
-  2. If this brief carries <grant id> for a thread reply, run both step 6 checks on
-     its text, then post it before reacting or reading:
+  2. If this brief carries <grant id> for a thread reply, read the thread with
+     `slack_thread`, `url` <permalink> and `limit` 1000, run both step 6 checks on
+     its text, then post it before reacting:
      `slack_reply` with `url` <permalink> and `text` <text>.
      For a channel surface, SendMessage <root agent name> the exact draft to post.
      Report the reply's ts; then continue with the react.
   3. Add eyes within one minute on the message that asks:
      `slack_react` with `url` <permalink> and `name` eyes.
-  4. Read `slack_thread` with `url` <permalink> and SendMessage <root agent name>
-     ≤5 lines: who asks, what they ask, what fixes it, and links in the thread.
+  4. Read `slack_thread` with `url` <permalink> and `limit` 1000 first. When a
+     message lists `shares`, read the shared message: its original author is who
+     reported it, and its channel, text, and files at their `path`s are the report,
+     never the person who shared it. Then SendMessage <root agent name> ≤5 lines:
+     who asks, whose report it is, what they ask, what fixes it, and links in the thread.
      An owner link always asks the root to act, whoever wrote the message.
      The owner's "Looking", "on it", or "checking" hands it to the drive.
      Never ask "what, if anything, it asks of the root".
@@ -169,7 +174,8 @@ Do:
      cc-slack permission hook prints for the draft with `cc-present ask -` and the
      hook's board card and, once the owner's tap approves it, posts the draft itself
      (owner answers 01736af, b4dfb16).
-  8. Post the thread reply as the cc-slack bot:
+  8. Read the thread again with `slack_thread` when your last read is over 10 minutes
+     old or the copy no longer fits it, then post the thread reply as the cc-slack bot:
      `slack_reply` with `url` <permalink> and `text` <copy>.
      Leave top-level channel posts to <root agent name>.
      Once the ask is done, swap eyes for white_check_mark:
@@ -186,6 +192,9 @@ Never: a post without a recorded grant; a `--ticket` flag; relayed owner words a
   announcing a pending PR as done;
   staging a dictated answer across several messages; a time in UTC or with a zone label.
 Reporter threads, per SKILL.md "Reporter threads":
+  - Read the whole thread yourself before you reply. A message that lists `shares` is
+    the original author's report, never the sharer's: read it, open its images at
+    their `path`s, and never ask for what it already holds.
   - Ask a reporter for no evidence: no client version, id, log line, reproduction
     step, or what they saw. The lanes read telemetry, Sentry, and our records (8ff2abf).
   - Name no cause on the reporter's machine until the evidence shows the failing
@@ -281,6 +290,9 @@ Never: a post without the matching channel or thread grant; a reply to a from_cl
   lane/desk/cursor names; raw shas, ULIDs, or run/browser/exec ids; status labels;
   unglossed code nouns.
 Reporter threads, per SKILL.md "Reporter threads":
+  - Read the whole thread yourself before you reply. A message that lists `shares` is
+    the original author's report, never the sharer's: read it, open its images at
+    their `path`s, and never ask for what it already holds.
   - Ask a reporter for no evidence: no client version, id, log line, reproduction
     step, or what they saw. The lanes read telemetry, Sentry, and our records (8ff2abf).
   - Name no cause on the reporter's machine until the evidence shows the failing

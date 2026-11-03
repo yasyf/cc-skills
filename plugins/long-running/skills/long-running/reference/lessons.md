@@ -245,6 +245,7 @@ Each entry is a time a drive went wrong and the rule that now covers it. The rul
 | Oct 30, 2026 | At 4:40 AM, the root told the owner that PRs were waiting on taps when no board rows at those heads awaited him. | Verify what waits on the owner with `cci owner-waits` before claiming a tap is needed. | `SKILL.md` |
 | Oct 31, 2026 | For the 10:31 AM runnerdb break, the root waited 3 minutes on a Slack reader and hand-wrote briefs instead of emitting an `orca-desk: incident` line in the first turn. This launched the fix lane 9 minutes after the on-call bot posted the cause. | Launch the Slack lane and the doing/incident lane in the same tool batch on the turn the link arrives. | `reference/slack-lane-brief.md` |
 | Oct 31, 2026 | The root asked the owner three times for permission to post in a thread after the owner had already granted it. | Record owner thread grants as `slack-grant:<channel id>/<thread ts>` in `cc-notes` the turn they arrive and check `ccn answer list` before asking. | `reference/slack-lane-brief.md` |
+| Nov 2, 2026 | At 8:00 PM Pacific the owner found the bridge had answered a person in Slack from a lane's one-line summary and asked for a screenshot already in the thread, which was that person sharing someone else's report. | The lane that writes reads the whole thread first, and a share's report belongs to its original author. | `reference/slack-lane-brief.md`, `reference/active-alert-brief.md` |
 
 ## Desks and the dashboard
 

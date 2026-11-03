@@ -32,6 +32,12 @@ Standing orders, fixed in this template:
   - When an on-call bot post, a peer session, or the alert already names the
     mechanism, confirm it with one query and build on it; never derive it again.
 
+Read the report first when {link} is a Slack message:
+  `cc-slack thread --url {link} --limit 1000`. A message that lists `shares` is a
+  share: the reporter, their team, their machine, and their screenshot are the shared
+  message's original author's (`user_name`, `channel_id`, `text`, `files[].path`),
+  never the person who shared it. Every "reporter" below means that author.
+
 Telemetry, never the reporter. Read what the platform already records about their
   case, and put each answer in the evidence:
   - the client build: the reporter's team's client versions from the metrics, and
