@@ -50,7 +50,7 @@ var (
 	currentRunCall = []string{"orca", "orchestration", "run-current", "--full", "--json"}
 	boundWorker    = workerReply{out: object{"ok": true, "result": object{"run": object{"id": workerRun, "coordinator_handle": "term_coordinator"}}}}
 	startedReceipt = object{"ok": true, "result": object{"runId": workerRun, "taskId": "task_a", "dispatchId": "ctx_a", "state": "ready", "stage": "remote_input_accepted"}}
-	allocationKept = []string{"allocation.json", "brief.md", "prepare.err", "prepare.status", "request.json"}
+	allocationKept = []string{"allocation.json", "before-worker.sh", "brief.md", "prepare.err", "prepare.status", "request.json"}
 	prepareKept    = sorted(allocationKept, "prepared.json")
 	startKept      = []string{"worker-start.err", "worker-start.json", "worker-start.status"}
 	spriteKept     = sorted(prepareKept, slices.Concat(startKept, []string{"install.log", joinReceipt})...)
@@ -377,11 +377,7 @@ func (f *workerFixture) prepareCall(extra ...string) []string {
 }
 
 func (f *workerFixture) prepareCallFor(lane, kind, model, effort string, extra ...string) []string {
-	return slices.Concat([]string{"cc-remote", "orca", "prepare", lane, "--warm", "--provider", "sprites", "--profile", "agents", "--agent", kind, "--model", model, "--effort", effort, "--brief-file", filepath.Join(f.attempt, "brief.md")}, extra)
-}
-
-func installCall(workspace string, tools ...string) []string {
-	return slices.Concat([]string{"sprite", "exec", "-s", workspace, "--no-stdin", "--", "sh", "-c", installTools, "sh", testCCIURL, testCCISHA, testLRURL, testLRSHA, "lr"}, tools, []string{"--"})
+	return slices.Concat([]string{"cc-remote", "orca", "prepare", lane, "--warm", "--provider", "sprites", "--profile", "agents", "--agent", kind, "--model", model, "--effort", effort, "--brief-file", filepath.Join(f.attempt, "brief.md"), "--before-worker-file", filepath.Join(f.attempt, "before-worker.sh")}, extra)
 }
 
 func joinCall(workspace string) []string {
@@ -395,7 +391,7 @@ func relayCalls(workspace string) [][]string {
 func (f *workerFixture) startCalls(task object) [][]string {
 	brief := task["brief"].(object)
 	spec := fmt.Sprintf("Lane %s: read the whole brief at %s, verify its SHA-256 is %s and its size is %d bytes, then follow it exactly.%s", workerLane, brief["path"], brief["sha256"], brief["bytes"], spriteBuildkite)
-	return slices.Concat([][]string{installCall(task["environment"].(string))}, relayCalls(task["environment"].(string)), [][]string{
+	return slices.Concat(relayCalls(task["environment"].(string)), [][]string{
 		slices.Concat([]string{"orca", "orchestration", "worker-start", "--run", workerRun, "--spec", spec, "--task-title", workerLane, "--on", task["environment"].(string), "--worktree", "id:" + task["worktreeId"].(string), "--terminal", task["terminal"].(string)}, []string{"--timeout-ms", "600000", "--full", "--json"}),
 	})
 }
@@ -698,7 +694,7 @@ func TestABriefThatOrdersNoPRSaysSoInTheSpriteSpec(t *testing.T) {
 func TestASponsorJoinsTheSpriteToTheDefaultMeshBeforeTheWorkerStartsAndNeverLogsTheKey(t *testing.T) {
 	f := newWorkerFixture(t)
 	f.sprite()
-	f.reply("sprite exec", workerReply{}, workerReply{out: "the sponsor key"}, workerReply{})
+	f.reply("sprite exec", workerReply{out: "the sponsor key"}, workerReply{})
 	f.launched()
 	f.wantCalls(f.fullSpriteCalls()...)
 	if f.stdins[strings.Join(joinCall(workerWorkspace), " ")] != "the sponsor key" {
@@ -712,7 +708,7 @@ func TestASponsorJoinsTheSpriteToTheDefaultMeshBeforeTheWorkerStartsAndNeverLogs
 func TestARelayFailureThenASuccessJoinsAndStartsTheWorker(t *testing.T) {
 	f := newWorkerFixture(t)
 	f.sprite()
-	f.reply("sprite exec", workerReply{}, workerReply{out: "the sponsor key"}, workerReply{code: 1, err: relayFailure}, workerReply{out: "joined mesh default\n"})
+	f.reply("sprite exec", workerReply{out: "the sponsor key"}, workerReply{code: 1, err: relayFailure}, workerReply{out: "joined mesh default\n"})
 	f.launched()
 	spec := f.startCalls(prepared())
 	f.wantCalls(slices.Concat([][]string{versionCall, currentRunCall, f.prepareCall()}, spec[:len(spec)-1], [][]string{joinCall(workerWorkspace)}, spec[len(spec)-1:])...)
@@ -727,7 +723,7 @@ func TestARelayFailureThenASuccessJoinsAndStartsTheWorker(t *testing.T) {
 func TestRepeatedRelayFailuresRefuseTheLaunchNamingTheReasonAndStartNoWorker(t *testing.T) {
 	f := newWorkerFixture(t)
 	f.sprite()
-	f.reply("sprite exec", workerReply{}, workerReply{}, workerReply{code: 1, err: relayFailure}, workerReply{code: 1, err: relayFailure}, workerReply{code: 1, err: relayFailure}, workerReply{code: 1, err: relayFailure})
+	f.reply("sprite exec", workerReply{}, workerReply{code: 1, err: relayFailure}, workerReply{code: 1, err: relayFailure}, workerReply{code: 1, err: relayFailure}, workerReply{code: 1, err: relayFailure})
 	_, failed, err := f.launch(workerLane, "opus", "xhigh")
 	if err != nil {
 		t.Fatal(err)
@@ -761,13 +757,22 @@ func TestASpriteLaunchWithNoSponsorRefusesBeforeAnyCall(t *testing.T) {
 	f.refusedWith("set " + sponsorEnv + " to the Sprite holding the drive's enrolled cci service key, because a worker with no relay posts nothing anyone reads; nothing was prepared")
 }
 
-func TestAFailedToolInstallLeavesThePreparedWorkerUnattached(t *testing.T) {
+func TestAToolInstallThatFailsInPrepareStartsNoWorkerAndIsNeverRetried(t *testing.T) {
 	f := newWorkerFixture(t)
 	f.sprite()
-	f.reply("sprite exec", workerReply{code: 1})
-	f.refusedWith(fmt.Sprintf("installing cci from %s, lr from %s and the 0 WORKER_TOOLS pins on Sprite %s failed; %s/install.log keeps its output, and the prepared worker stays idle and unattached", testCCIURL, testLRURL, workerWorkspace, f.attempt), versionCall, currentRunCall, f.prepareCall(), installCall(workerWorkspace))
-	if kept := f.kept(); !slices.Equal(kept, sorted(prepareKept, "install.log")) {
-		t.Fatal(kept)
+	f.reply("cc-remote orca prepare", workerReply{code: 1, err: "the --before-worker-file script failed, so no worker started: sh -c: exit 1: refused: an archive off its digest\n"})
+	f.refusedWith(fmt.Sprintf("cc-remote orca prepare exited 1; %s keeps its output, and nothing was attached or retried", f.attempt), versionCall, currentRunCall, f.prepareCall())
+	if !strings.Contains(f.receiptText("prepare.err"), "refused: an archive off its digest") {
+		t.Fatal(f.receiptText("prepare.err"))
+	}
+}
+
+func TestTheInstallOutputInTheTaskRecordIsKeptForTheCensus(t *testing.T) {
+	f := newWorkerFixture(t)
+	f.spriteWith(overlaid(prepared(), object{"beforeWorker": "installed cci 0.49.42\ninstalled ccx 0.91.69\n"}))
+	f.launched()
+	if got := f.receiptText("install.log"); got != "installed cci 0.49.42\ninstalled ccx 0.91.69\n" {
+		t.Fatal(got)
 	}
 }
 
@@ -776,8 +781,11 @@ func TestABoxWithoutAToolTheBriefRunsRefusesNamingItAndStartsNoWorker(t *testing
 	text := "# Watchdog\n\nLoop `lr wait 540 cci:d:w -- cci watch --drive d`; log each finding with `ccn log append <id>`, then lr wait again.\n"
 	f.write(f.brief, text, 0o600)
 	f.spriteWith(overlaid(prepared(), object{"brief": object{"path": "/box/brief.md", "sha256": hexSum(text), "bytes": len(text)}}))
-	f.reply("sprite exec", workerReply{code: toolsMissing, out: "/tmp/cci.tgz: OK\n/tmp/lr.tgz: OK\nmissing: ccn lr\n"})
-	f.refusedWith(fmt.Sprintf("Sprite %s has no ccn, lr, which the brief runs, so nothing launched; %s/install.log keeps its output, and the prepared worker stays idle and unattached", workerWorkspace, f.attempt), versionCall, currentRunCall, f.prepareCall(), append(installCall(workerWorkspace), "cci", "ccn", "lr"))
+	f.reply("cc-remote orca prepare", workerReply{code: 1, err: "the --before-worker-file script failed, so no worker started: sh -c: exit 3: installed lr 9\nmissing: ccn lr\n"})
+	f.refusedWith(fmt.Sprintf("the Sprite has no ccn, lr, which the brief runs, so no worker started; %s/prepare.err keeps its output", f.attempt), versionCall, currentRunCall, f.prepareCall())
+	if !strings.Contains(f.receiptText("before-worker.sh"), "-- cci ccn lr\n") {
+		t.Fatal(f.receiptText("before-worker.sh"))
+	}
 }
 
 func TestAPackWithoutALinuxLRPinRefusesBeforeAnyCall(t *testing.T) {
@@ -843,9 +851,9 @@ func TestALaunchCarriesEachToolPinIntoTheInstallAndRefusesAMalformedPinBeforeAny
 	f.env["WORKER_TOOLS"] = `[{"kind":"binary","name":"ccx","url":"https://example.test/ccx.tgz","sha256":"` + testCCISHA + `","version":"0.91.68"},{"kind":"plugin","name":"long-running@skills","url":"https://example.test/pack.tgz","sha256":"` + testLRSHA + `","version":"0.7.1199"}]`
 	f.sprite()
 	f.launched()
-	want := installCall(workerWorkspace, "binary", "ccx", "https://example.test/ccx.tgz", testCCISHA, "0.91.68", "plugin", "long-running@skills", "https://example.test/pack.tgz", testLRSHA, "0.7.1199")
-	if !slices.Equal(f.calls[3], want) {
-		t.Fatalf("install\n%v\nwant\n%v", f.calls[3], want)
+	want := "binary ccx https://example.test/ccx.tgz " + testCCISHA + " 0.91.68 plugin long-running@skills https://example.test/pack.tgz " + testLRSHA + " 0.7.1199 --"
+	if script := f.receiptText("before-worker.sh"); !strings.Contains(strings.SplitN(script, "\n", 3)[1], want) {
+		t.Fatalf("install\n%v\nwant\n%v", script, want)
 	}
 	for name, pin := range map[string]string{
 		"ccx":          `{"kind":"script","name":"ccx","url":"https://example.test/ccx.tgz","sha256":"` + testCCISHA + `","version":"0.91.68"}`,
@@ -880,6 +888,23 @@ func tarball(t *testing.T, dir, name string, files map[string]string) (string, s
 		t.Fatal(err)
 	}
 	return "file://" + tgz, hexSum(string(raw))
+}
+
+func TestTheBeforeWorkerScriptRunsTheInstallWithItsQuotedPinsAndMergesItsOutput(t *testing.T) {
+	dir := t.TempDir()
+	cciURL, cciSHA := tarball(t, dir, "cci.tgz", map[string]string{"cci": "#!/bin/sh\necho 0.49.36\n"})
+	lrURL, lrSHA := tarball(t, dir, "lr.tgz", map[string]string{"lr member": "#!/bin/sh\necho lr version 9.9.9\n"})
+	home := t.TempDir()
+	run := exec.Command("sh", "-c", spritePins{ccURL: cciURL, ccSHA: cciSHA, lrURL: lrURL, lrSHA: lrSHA, lrMember: "lr member"}.installScript([]string{"no-such-drive-tool"}))
+	run.Env = append(os.Environ(), "HOME="+home)
+	out, err := run.Output()
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) || exit.ExitCode() != toolsMissing {
+		t.Fatal(string(out), err)
+	}
+	if !strings.Contains(string(out), "installed cci 0.49.36\ninstalled lr 9.9.9\nmissing: no-such-drive-tool\n") {
+		t.Fatal(string(out))
+	}
 }
 
 func TestAToolPinInstallsOnlyTheArchiveWithItsDigestAndVersion(t *testing.T) {

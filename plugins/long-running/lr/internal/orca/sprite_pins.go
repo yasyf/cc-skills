@@ -99,11 +99,23 @@ func (p *spritePins) pinTools(raw string) error {
 }
 
 func (p spritePins) installArgv(workspace string, needs []string) []string {
+	return slices.Concat([]string{"sprite", "exec", "-s", workspace, "--no-stdin", "--", "sh", "-c", installTools, "sh"}, p.installWords(needs))
+}
+
+func (p spritePins) installScript(needs []string) string {
+	words := p.installWords(needs)
+	for i, word := range words {
+		words[i] = shellQuote(word)
+	}
+	return "exec 2>&1\nset -- " + strings.Join(words, " ") + "\n" + installTools
+}
+
+func (p spritePins) installWords(needs []string) []string {
 	pinned := make([]string, 0, 5*len(p.tools))
 	for _, tool := range p.tools {
 		pinned = append(pinned, tool.Kind, tool.Name, tool.URL, tool.SHA256, tool.Version)
 	}
-	return slices.Concat([]string{"sprite", "exec", "-s", workspace, "--no-stdin", "--", "sh", "-c", installTools, "sh", p.ccURL, p.ccSHA, p.lrURL, p.lrSHA, p.lrMember}, pinned, []string{"--"}, needs)
+	return slices.Concat([]string{p.ccURL, p.ccSHA, p.lrURL, p.lrSHA, p.lrMember}, pinned, []string{"--"}, needs)
 }
 
 func installedTools(stdout string) map[string]string {

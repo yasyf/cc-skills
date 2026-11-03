@@ -39,6 +39,7 @@ const (
 	joinReceipt       = "relay-join.log"
 	lrPlatform        = "linux-x86_64"
 	toolsMissing      = 3
+	beforeWorker      = "before-worker.sh"
 	unpackCarried     = `mkdir -p "$1" && tar -xzf - -C "$1"`
 	joinRelay         = `CCI_SERVICE_KEY=$(cat); export CCI_SERVICE_KEY; ~/.local/bin/cci relay join --instance --drive "$1" --url "$2" --ttl 24h --owner "$3" && sprite-env services create cci --cmd "$HOME/.local/bin/cci" --args supervise --no-stream`
 )
@@ -531,7 +532,19 @@ func (w *workerLaunch) allocationFault(raw string) (string, string) {
 }
 
 func (w *workerLaunch) prepareSprite() (map[string]any, error) {
-	argv := []string{w.ccRemote, "orca", "prepare", w.lane, "--warm", "--provider", "sprites", "--profile", "agents", "--agent", w.kind, "--model", w.modelID, "--effort", w.effort, "--brief-file", w.brief}
+	raw, err := os.ReadFile(w.brief)
+	if err != nil {
+		return nil, err
+	}
+	var needs []string
+	for _, match := range briefTool.FindAllSubmatch(raw, -1) {
+		needs = append(needs, string(match[1]))
+	}
+	slices.Sort(needs)
+	if err := w.receipt(beforeWorker, w.pins.installScript(slices.Compact(needs))); err != nil {
+		return nil, err
+	}
+	argv := []string{w.ccRemote, "orca", "prepare", w.lane, "--warm", "--provider", "sprites", "--profile", "agents", "--agent", w.kind, "--model", w.modelID, "--effort", w.effort, "--brief-file", w.brief, "--before-worker-file", filepath.Join(w.attempt, beforeWorker)}
 	if w.ref != "" {
 		argv = append(argv, "--ref", w.ref)
 	}
@@ -550,6 +563,10 @@ func (w *workerLaunch) prepareSprite() (map[string]any, error) {
 		if err := w.receipt(name, written); err != nil {
 			return nil, err
 		}
+	}
+	if _, missing, found := strings.Cut(result.Stderr, "missing:"); code != 0 && found {
+		missing, _, _ = strings.Cut(missing, "\n")
+		return nil, refuse("the Sprite has no %s, which the brief runs, so no worker started; %s keeps its output", strings.Join(strings.Fields(missing), ", "), filepath.Join(w.attempt, "prepare.err"))
 	}
 	if code != 0 {
 		return nil, refuse("cc-remote orca prepare exited %d; %s keeps its output, and nothing was attached or retried", code, w.attempt)
@@ -669,20 +686,9 @@ func (w *workerLaunch) startSprite() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	var needs []string
-	for _, match := range briefTool.FindAllSubmatch(raw, -1) {
-		needs = append(needs, string(match[1]))
-	}
-	slices.Sort(needs)
-	stdout, stderr, code := w.capture(w.pins.installArgv(workspace, slices.Compact(needs))...)
-	if err := w.receipt("install.log", stdout+stderr); err != nil {
+	installed, _ := textOf(task["beforeWorker"])
+	if err := w.receipt("install.log", installed); err != nil {
 		return "", err
-	}
-	if _, missing, found := strings.Cut(stdout, "missing:"); code == toolsMissing && found {
-		return "", refuse("Sprite %s has no %s, which the brief runs, so nothing launched; %s keeps its output, and the prepared worker stays idle and unattached", workspace, strings.Join(strings.Fields(missing), ", "), filepath.Join(w.attempt, "install.log"))
-	}
-	if code != 0 {
-		return "", refuse("installing cci from %s, lr from %s and the %d WORKER_TOOLS pins on Sprite %s failed; %s keeps its output, and the prepared worker stays idle and unattached", w.pins.ccURL, w.pins.lrURL, len(w.pins.tools), workspace, filepath.Join(w.attempt, "install.log"))
 	}
 	sponsor := w.Env(sponsorEnv)
 	log, joinErr := w.join(workspace, sponsor)

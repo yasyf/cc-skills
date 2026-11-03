@@ -69,21 +69,21 @@ its own install lock, and checks the installed `version` again. A `plugin` pin,
 such as `long-running@skills`, unpacks into Claude Code's plugin cache at
 `<marketplace>/<plugin>/<version>.new`, checks that tree's
 `.claude-plugin/plugin.json` version, moves it into place, and points that
-plugin's `installed_plugins.json` entries at it. Captain Hook rereads that file
-on every hook call, so the pack's hooks apply from the worker's first tool
-call; skills and agents the session loaded at start stay the payload's until
-the lane's next session. The pack's archive is the `long-running_<version>.tar.gz`
+plugin's `installed_plugins.json` entries at it. The launch passes this install
+to `cc-remote orca prepare --before-worker-file`, so it runs before Claude starts
+and the first session loads the pinned hooks, skills and agents. The pack's archive is the `long-running_<version>.tar.gz`
 asset the `long-running pack release` workflow publishes, with `checksums.txt`,
 on each `long-running--v<version>` tag. A `plugin` pin for a plugin the payload
 lacks, such as `cc-inbox@cc-inbox` from its `cc-inbox_<version>.tar.gz` asset,
 also adds its entry, a directory marketplace under
 `~/.local/share/cc-remote/marketplaces/`, the one location the Sprites' managed
-settings allow, and its `enabledPlugins` key; it loads at the next session. A pin off its digest or version stops
-the install, and the worker stays idle. A malformed pin refuses before
+settings allow, and its `enabledPlugins` key. A pin off its digest or version fails `prepare`, and no worker starts. A malformed pin refuses before
 prepare.
 
 The script prints one `installed <name> <version>` line per tool, cci and lr
-included, and the desk records them for the Sprite when it settles the launch.
+included. `prepare` returns them in the task record, the launch keeps them in
+`install.log`, and the desk records them for the Sprite when it settles the
+launch.
 
 `lr sprites roll` moves the Sprites already running onto the same pins. It runs
 the launch's install, with no brief check, on each Sprite that hosts a live
@@ -125,9 +125,8 @@ only when someone runs `lr sprites roll`.
 The same step then checks, once, that the box runs every drive CLI the
 carried brief invokes: `ccn`, `cc-notes`, `cci`, `lr`, `gh` and `ccx`, each
 counted when the brief names it before a space and a lowercase verb. A box
-without one refuses the launch naming each missing CLI, keeps the output in
-`install.log`, and leaves the prepared worker idle and unattached, so no lane
-starts on a box that cannot run its brief.
+without one refuses the launch naming each missing CLI and keeps the output in
+`prepare.err`, so no lane starts on a box that cannot run its brief.
 
 `WORKER_RELAY_SPONSOR` names a Sprite
 that holds an enrolled cci service key, and the script then joins the new Sprite to
