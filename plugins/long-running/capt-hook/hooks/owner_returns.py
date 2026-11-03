@@ -10,6 +10,7 @@ from spawnllm import Binary, BinaryAnswer, Refused
 
 from captain_hook import Allow, AssistantMessage, BaseHookEvent, Block, Event, FromSubagent, HookResult, Input, T, Warn, WorkflowState, on, workflow_state
 
+from .cci_mcp_posts import POST_TOOL
 from .compaction_handoff import Communicator, communicator_tests, CompactionState, drive_entry
 from .register_capture import slack_dms
 from .root_context import OwnerPrompt
@@ -39,7 +40,7 @@ REMINDER = Binary(
 )
 UNROUTED_REMINDER = (
     "Every owner reminder or correction spawns a meta tooling lane that makes the behaviour automatic."
-    " Before stopping, forward his words verbatim with their time as `cci post --lane owner-relay --kind ask --to meta`, or launch the lane with `lr launch`."
+    f" Before stopping, forward his words verbatim with their time as an ask to meta through `{POST_TOOL}` or `cci post --lane owner-relay --kind ask --to meta`, or launch the lane with `lr launch`."
 )
 CALM = {"reminder": BinaryAnswer(p_yes=0.02, confidence=0.95)}
 REMINDED = {"reminder": BinaryAnswer(p_yes=0.97, confidence=0.94)}
@@ -114,6 +115,10 @@ def reminded(*calls: dict, decide: dict = REMINDED) -> Input:
         reminded(*T.tool_turn("Bash", result="#1", command="cci post --lane owner-relay --kind go --to meta-desk-1 --text x")): Block(pattern=r"meta tooling lane"),
         reminded(*T.tool_turn("Bash", result="#1", command=FORWARDED)): Allow(),
         reminded(*T.tool_turn("Bash", result="#1", command="cci post --lane owner-relay --kind=ask --to=root,meta --text x")): Allow(),
+        reminded(*T.tool_turn(POST_TOOL, result="#359589", lane="owner-relay", kind="ask", to=["meta-desk-1"], text="x")): Allow(),
+        reminded(*T.tool_turn(POST_TOOL, result="#1", lane="owner-relay", records=[{"kind": "note", "to": ["root"], "text": "x"}, {"kind": "ASK", "to": ["root,meta"], "text": "x"}])): Allow(),
+        reminded(*T.tool_turn(POST_TOOL, result="#1", lane="owner-relay", kind="report", to=["meta-desk-1"], text="x")): Block(pattern=r"meta tooling lane"),
+        reminded(*T.tool_turn(POST_TOOL, result="cci: unknown lane", is_error=True, lane="owner-relay", kind="ask", to=["meta-desk-1"], text="x")): Block(pattern=r"meta tooling lane"),
         reminded(*T.tool_turn("Bash", result="R1", command="lr launch meta /drive/meta/brief.md")): Allow(),
         reminded(*T.tool_turn("Bash", result="R1", command="bash ~/.claude/long-running/current/bin/orca-launch.sh /drive/fix-3 brief.md")): Allow(),
         reminded(decide=CALM): Allow(),
@@ -158,7 +163,8 @@ def drawn(argv: list[str], result: str) -> bool:
 
 
 def unrouted_reminder(evt: BaseHookEvent) -> str | None:
-    if any(routes_to_meta(cmd.argv) for use in evt.ctx.turn.tool_calls.named("Bash").items for cmd in use.call.command_line if cmd.argv) or not (words := owner_words(evt)):
+    calls = evt.ctx.turn.tool_calls
+    if any(routes_to_meta(cmd.argv) for use in calls.named("Bash").items for cmd in use.call.command_line if cmd.argv) or any(posts_to_meta(use.call.raw) for use in calls.named(POST_TOOL).items) or not (words := owner_words(evt)):
         return None
     match (decision := evt.decide(words, {"reminder": REMINDER})) and decision.answers["reminder"]:
         case BinaryAnswer(p_yes=p_yes) if p_yes > 0.5:
@@ -177,6 +183,10 @@ def routes_to_meta(argv: Sequence[str]) -> bool:
     if "orca-launch.sh" in names or ("lr" in names and names[names.index("lr") + 1 : names.index("lr") + 2] == ["launch"]):
         return True
     return names[0] == "cci" and "post" in argv and "ask" in values(argv, "--kind") and any(to.startswith("meta") for value in values(argv, "--to") for to in value.split(","))
+
+
+def posts_to_meta(post: dict) -> bool:
+    return any(record.get("kind", "").lower() == "ask" and any(to.startswith("meta") for value in record.get("to", ()) for to in value.split(",")) for record in (post, *post.get("records", ())))
 
 
 def values(argv: Sequence[str], flag: str) -> list[str]:
