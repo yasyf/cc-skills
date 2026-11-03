@@ -120,7 +120,8 @@ plain pick, a PR ask with no PR card, and a stop that leaves the pick inline. It
 holds the owner's DM: `owner_returns.py` arms a channel watch on the DM at session start
 and on each prompt, so his reply in any DM thread reaches it as well as the lane that
 posted there, and refuses a stop while `cc-slack dm-owed` lists a reply nobody has
-answered in its thread. `register_capture.py` posts each such reply once as an `owner`
+answered in its thread. One session holds the DM at a time: while another live session
+holds it, this one takes no watch and owes no replies. `register_capture.py` posts each such reply once as an `owner`
 record with id `slack:<ts>` and attrs `ts` and `thread`, so a forward names the id instead of pasting his words. It talks only to the
 coordinator, the meta and signal lanes and helpers it spawned for its own work,
 never to the coordinator's children, and beyond the launches at drive start it posts

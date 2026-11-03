@@ -18,6 +18,7 @@ HANDOFF_TOOLS = frozenset({
     "SendMessage",
     "Write",
     "Edit",
+    "mcp__plugin_cc-inbox_cci__post",
 })
 HANDOFF_COMMANDS = (("cci", "post"), ("cc-slack", "reply"), ("cc-slack", "send"))
 UNROUTED = (
@@ -67,6 +68,10 @@ def names(use: object, wanted: set[str]) -> bool:
         ): Allow(),
         Input(
             transcript=[ASKED, T.assistant(T.tool("Bash", command="cci post --lane root --kind go --to bugs-comms-1 --text 'reply in thread 1793632907.983749'"), timestamp="2026-11-02T18:34:00Z")],
+            state=ACTIVE,
+        ): Allow(),
+        Input(
+            transcript=[ASKED, T.assistant(T.tool("mcp__plugin_cc-inbox_cci__post", kind="note", to="meta-desk-2", text=f"{LINK} is deleted; answered in the Lookups thread"), timestamp="2026-11-02T18:34:00Z")],
             state=ACTIVE,
         ): Allow(),
         Input(transcript=[T.user(f"<teammate-message>{LINK}</teammate-message>", timestamp="2026-11-02T18:33:00Z"), T.assistant("Noted.")], state=ACTIVE): Allow(),
