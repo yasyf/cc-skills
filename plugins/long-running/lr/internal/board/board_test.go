@@ -258,7 +258,7 @@ func (p *passShell) Run(_ context.Context, c shell.Command) (shell.Result, error
 func TestAPassAppliesEachVerdictAtItsHeadAndPushesOnlyWhatStillAsks(t *testing.T) {
 	s, hooks := withWords(t), &recorded{}
 	on := &passShell{outcomes: fmt.Sprintf(`{"doc":{},"interactions":{"triage":{%q:{"%d":{"verdict":"approved","head":"%s","at":"2026-10-30T21:00:00Z"}}}}}`, MergeBlock, number, head[:7])}
-	pass := Pass{Store: s, Repo: repo, Runner: on, Session: "s1", Hooks: hooks.hooks(), Now: func() time.Time { return t0 }}
+	pass := Pass{Store: s, Repo: repo, Runner: on, CCX: &prStatus{}, Session: "s1", Hooks: hooks.hooks(), Now: func() time.Time { return t0 }}
 	block, err := pass.Run(context.Background(), facts(nil))
 	if err != nil {
 		t.Fatal(err)
@@ -275,7 +275,7 @@ func TestAPassAppliesEachVerdictAtItsHeadAndPushesOnlyWhatStillAsks(t *testing.T
 func TestAVerdictAtAnOlderHeadStillAsksAtTheNewOne(t *testing.T) {
 	s, hooks := withWords(t), &recorded{}
 	on := &passShell{outcomes: fmt.Sprintf(`{"doc":{},"interactions":{"triage":{%q:{"%d":{"verdict":"approved","head":"aaaaaaa","at":"2026-10-30T21:00:00Z"}}}}}`, MergeBlock, number)}
-	pass := Pass{Store: s, Repo: repo, Runner: on, Session: "s1", Hooks: hooks.hooks(), Now: func() time.Time { return t0 }}
+	pass := Pass{Store: s, Repo: repo, Runner: on, CCX: &prStatus{}, Session: "s1", Hooks: hooks.hooks(), Now: func() time.Time { return t0 }}
 	block, err := pass.Run(context.Background(), facts(nil))
 	if err != nil {
 		t.Fatal(err)
@@ -288,7 +288,7 @@ func TestAVerdictAtAnOlderHeadStillAsksAtTheNewOne(t *testing.T) {
 func TestALaneHearsOnceAboutTheFieldsItsRowLacks(t *testing.T) {
 	s, hooks := withItem(t), &recorded{}
 	on := &passShell{outcomes: `{"doc":{},"interactions":{}}`}
-	pass := Pass{Store: s, Repo: repo, Runner: on, Session: "s1", Hooks: hooks.hooks(), Now: func() time.Time { return t0 }}
+	pass := Pass{Store: s, Repo: repo, Runner: on, CCX: &prStatus{}, Session: "s1", Hooks: hooks.hooks(), Now: func() time.Time { return t0 }}
 	for range 2 {
 		if _, err := pass.Run(context.Background(), facts(nil)); err != nil {
 			t.Fatal(err)

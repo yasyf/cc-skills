@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
@@ -199,6 +200,7 @@ type Pass struct {
 	Store   *store.Store
 	Repo    string
 	Runner  shell.Runner
+	CCX     ccx.Client
 	Session string
 	Hooks   Hooks
 	Now     func() time.Time
@@ -211,6 +213,9 @@ func (p Pass) Run(ctx context.Context, snapshot map[int]machine.Facts) (Block, e
 	}
 	outcomes, err := ReadOutcomes(ctx, p.Runner, p.Session)
 	if err != nil {
+		return Block{}, err
+	}
+	if err := p.redrawMoved(ctx, outcomes); err != nil {
 		return Block{}, err
 	}
 	answered := map[Key]bool{}

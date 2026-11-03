@@ -30,8 +30,8 @@ overrides it. A second watch of the same board exits at once.
 Each decision.created, choice.selected, input.submitted, feedback.created, pack.interaction,
 triage.decided and submit also reaches the drive's bus the moment it arrives, so no lane waits on a coordinator to relay a
 tap: one `cci post --kind owner` from lane `board-watch` names the card title and block
-id, the verdict, picked option labels or the owner's text verbatim, each merge row's head, and the
-time. `lr board classify` routes it, and its `answer` attribute says which way: `structured` (an
+id, the verdict, picked option labels or the owner's text verbatim, each merge row's head, each
+head a pick's card asked about, and the time. `lr board classify` routes it, and its `answer` attribute says which way: `structured` (an
 option tap, a pack pick, an approval or rejection, a merge-row verdict) and `noted` (a verdict with a
 note) go to the coordinator and to `owner-relay`, and resolve every open `ask`, `blocker` or `hold` whose text
 names the block, its card, or the merge row (`merge-row-<pr>` or `merge:<pr>`); `free-text` (a
@@ -41,8 +41,8 @@ to the communicator's owner ledger with `lr owner add`: `addressed` at its recor
 `open` for `noted` and `free-text`. Its idempotency key is the event's line number
 in the events file plus a hash of the line, so a restart that resumes from the watch's cursor
 never posts an event twice. Each record carries attributes a reader takes without parsing the
-text: `event`, `session` and `block`; a decision's `verdict`; a pick's `picked` option ids and
-`other` for a write-in; and a triage.decided posts one record per row, with that row's `row`,
+text: `event`, `session` and `block`; a decision's `verdict`; a pick's `picked` option ids,
+`other` for a write-in, and `heads`, each `owner/name#number=head` its card asked about; and a triage.decided posts one record per row, with that row's `row`,
 `verdict` and `head`, keyed by the row as well.
 
 Each of those records that carries the owner's answer, every one but a triage row and a submit,
@@ -354,7 +354,7 @@ def told(event: dict, doc: dict | None) -> str:
             words = [verdict, *([quoted(prompt)] if prompt else []), *said("noted", event.get("note"))]
         case {"type": "choice.selected"}:
             ids = event.get("optionIds") or []
-            words = [*(["picked", quoted(labels) if (labels := picked(found, ids)) else "option " + ", ".join(ids)] if ids else []), *said("wrote", event.get("other"))]
+            words = [*(["picked", quoted(labels) if (labels := picked(found, ids)) else "option " + ", ".join(ids)] if ids else []), *said("wrote", event.get("other")), *[f"at {pr} {head}" for pr, head in sorted((event.get("heads") or {}).items())]]
         case {"type": "input.submitted"}:
             words = said("wrote", event.get("text"))
         case {"type": "pack.interaction"}:
@@ -418,7 +418,7 @@ def announce(event: dict, line: str, session: str, doc: dict | None, shell: Shel
     if event["type"] == "decision.created":
         fields["verdict"] = event.get("verdict", "")
     if event["type"] == "choice.selected":
-        fields |= {"picked": ",".join(event.get("optionIds") or []), "other": "1" if event.get("other") else ""}
+        fields |= {"picked": ",".join(event.get("optionIds") or []), "other": "1" if event.get("other") else "", "heads": ",".join(f"{pr}={head}" for pr, head in sorted((event.get("heads") or {}).items()))}
     answer = answer_of(event, session, shell)
     answered = post_owner(shell, bus, key, announced(event, session, doc), block, named(event, doc), [], fields, answer)
     register(event, key, session, doc, shell, bus.drive)
