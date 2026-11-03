@@ -6,7 +6,7 @@ import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 
-from captain_hook import Allow, BaseHookEvent, Block, Event, FromSubagent, HookResult, Input, Tool, WorkflowState, hook, on, workflow_state
+from captain_hook import Allow, BaseHookEvent, Block, Event, FromSubagent, HookResult, Input, Tool, Warn, WorkflowState, hook, on, workflow_state
 from captain_hook.util import reqenv
 
 from .compaction_handoff import CCN_TIMEOUT_SECONDS, COMMUNICATOR_LANE, Communicator, CompactionState, bus_name, communicator_tests, drive_entry
@@ -28,6 +28,10 @@ OWNER_ANSWER = "from:owner"
 ANSWER_TITLE = "What did the owner say at {at}?"
 RULINGS = "root/rulings/*.md"
 LR = Path(__file__).parents[2] / "bin" / "lr"
+AUDIT = f"{LR} owner audit --drive brook-drive"
+AUDIT_SECONDS = 60
+CARRY = "Every order below is still owed, and a reply or a route does not close one. Carry each into the summary by its row id.\n\n```\n{orders}\n```"
+REREAD = "You just compacted as the communicator. Run `{lr} owner audit --drive {drive}` before any other search: every order it prints is still owed."
 MARK = "`{lr} owner mark {row} responded|addressed [--routed <seq>] --drive {drive}`"
 NEW_ROW = f"Owner message `{{row}}` is open in the communicator's ledger. Once it is answered or routed, run {MARK}."
 OPEN_ROWS = f"A communicator turn ends only when every owner message is marked responded or addressed. Run {MARK} for each row below.\n\n```\n{{rows}}\n```"
@@ -172,3 +176,36 @@ hook(  # capt-hook: no-escape the owner ruled that his words reach the drive onl
         Input(tool="Write", tool_input={"file_path": "/s/brook/rulings/4ffc9a5.md", "content": "x"}, cwd=CWD): Allow(),
     },
 )
+
+
+@on(
+    Event.PreCompact,
+    only_if=[Communicator()],
+    skip_if=[FromSubagent()],
+    tests=communicator_tests({
+        Input(state=ACTIVE, env=DRIVE_CONFIG, commands={AUDIT: "m85 Nov 3 4:50 AM: build the phone app\n"}): Warn(pattern=r"^Every order below is still owed[\s\S]*m85 Nov 3 4:50 AM: build the phone app"),
+        Input(state=ACTIVE, env=DRIVE_CONFIG, commands={AUDIT: (1, "no drive")}): Warn(pattern=r"lr owner audit failed: no drive"),
+        Input(env=DRIVE_CONFIG): Allow(),
+    }),
+)
+def compaction_carries_the_open_owner_orders(evt: BaseHookEvent) -> HookResult | None:
+    if not (entry := drive_entry(evt)):
+        return None
+    done = subprocess.run([str(LR), "owner", "audit", "--drive", entry["drive"]], capture_output=True, text=True, timeout=AUDIT_SECONDS, env=dict(reqenv.env_map()))
+    orders = done.stdout.strip() if done.returncode == 0 else f"lr owner audit failed: {(done.stderr or done.stdout).strip()}"
+    return evt.context(CARRY.format(orders=orders or "none"))
+
+
+@on(
+    Event.SessionStart,
+    only_if=[Communicator()],
+    skip_if=[FromSubagent()],
+    tests=communicator_tests({
+        Input(source="compact", state=ACTIVE, env=DRIVE_CONFIG): Warn(pattern=r"^You just compacted as the communicator\. Run `\S+ owner audit --drive brook-drive` before any other search"),
+        Input(source="startup", state=ACTIVE, env=DRIVE_CONFIG): Allow(),
+    }),
+)
+def a_compacted_communicator_reads_the_open_orders_first(evt: BaseHookEvent) -> HookResult | None:
+    if evt._raw.get("source") != "compact" or not (entry := drive_entry(evt)):
+        return None
+    return evt.context(REREAD.format(lr=LR, drive=entry["drive"]))
