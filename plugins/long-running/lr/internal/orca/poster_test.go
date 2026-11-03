@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/wait"
 )
 
 const (
@@ -208,15 +210,48 @@ func TestALaunchTheRunnerRefusesReturnsItsVerdict(t *testing.T) {
 	}
 }
 
-func TestAnUnsettledLaunchSaysSoAtTheTimeout(t *testing.T) {
+func TestADuplicateLaunchIsAVerdictThatFails(t *testing.T) {
 	f := newPosterFixture(t)
 	brief := f.brief(t, "b.md", "work\n"+briefLines)
-	label, err := f.poster.Launch(context.Background(), Order{Lane: "slow-restore", Model: "sol", Effort: "xhigh", Brief: brief}, 0)
-	if err != nil || label != "" {
-		t.Fatal(label, err)
+	f.bus.verdicts["R102"] = "LAUNCH-DUPLICATE R102 %[1]s: lane-b already holds this work; relay to it"
+	err := f.poster.LaunchOrExit(context.Background(), Order{Lane: "dup-lane", Model: "opus", Effort: "xhigh", Brief: brief}, time.Minute)
+	var exit *wait.ExitError
+	if !errors.As(err, &exit) || exit.Code != failedExit {
+		t.Fatal(err)
 	}
-	if !strings.Contains(f.out.String(), "slow-restore R102 unsettled after 0s") {
-		t.Fatal(f.out)
+}
+
+func TestAnElapsedWaitExitsZeroWhileTheRunnerIsAliveAndTwoOnceItIsStale(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		pause time.Duration
+		code  int
+		said  string
+	}{
+		{"alive", 30 * time.Second, 0, "slow-restore R102 posted with no verdict after 60s; the orca runner is alive, so its verdict arrives as a desk-runner record"},
+		{"stale", 6 * time.Minute, unsettledExit, "slow-restore R102 unsettled after 60s: the orca runner has posted no orca alive record in five minutes (last at "},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newPosterFixture(t)
+			brief := f.brief(t, "b.md", "work\n"+briefLines)
+			now := time.Now()
+			f.poster.Now = func() time.Time { return now }
+			f.poster.Sleep = func(time.Duration) { now = now.Add(tt.pause) }
+			err := f.poster.LaunchOrExit(context.Background(), Order{Lane: "slow-restore", Model: "sol", Effort: "xhigh", Brief: brief}, time.Minute)
+			code := 0
+			var exit *wait.ExitError
+			if errors.As(err, &exit) {
+				code = exit.Code
+			} else if err != nil {
+				t.Fatal(err)
+			}
+			if code != tt.code {
+				t.Fatal(code, err)
+			}
+			if !strings.Contains(f.out.String(), tt.said) {
+				t.Fatal(f.out)
+			}
+		})
 	}
 }
 

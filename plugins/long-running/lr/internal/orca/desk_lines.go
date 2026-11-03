@@ -335,7 +335,7 @@ func (d *Desk) cciLine(ctx context.Context, record client.Record) error {
 			return d.refuseLine(record)
 		}
 	}
-	if expired, err := d.expiredLine(parsed, record, key); expired || err != nil {
+	if expired, err := d.expiredLine(ctx, parsed, record, key); expired || err != nil {
 		return err
 	}
 	switch parsed.Verb {
@@ -355,7 +355,7 @@ func (d *Desk) cciLine(ctx context.Context, record client.Record) error {
 	return d.withdrawLine(ctx, at, key, parsed.Rest)
 }
 
-func (d *Desk) expiredLine(parsed *directive, record client.Record, key string) (bool, error) {
+func (d *Desk) expiredLine(ctx context.Context, parsed *directive, record client.Record, key string) (bool, error) {
 	if !expires(parsed.Verb) {
 		return false, nil
 	}
@@ -381,7 +381,7 @@ func (d *Desk) expiredLine(parsed *directive, record client.Record, key string) 
 	}
 	line := fmt.Sprintf("LAUNCH-EXPIRED %s %s: cci #%d was posted %d minutes before this read; this runner's longest recent pass took %d minutes, and a launch line is valid for %d; nothing was launched",
 		key, lane, record.Seq, int(age.Minutes()), int(longest.Minutes()), int(window.Minutes()))
-	return true, d.record(fmt.Sprintf("escalation:launch:cci#%d", record.Seq), line)
+	return true, d.recordTo(ctx, fmt.Sprintf("escalation:launch:cci#%d", record.Seq), line, verdictTo(record.Lane))
 }
 
 func (d *Desk) refuseLine(record client.Record) error {
@@ -581,11 +581,11 @@ func (d *Desk) launchLine(ctx context.Context, at, key, rest, by string) error {
 	log := "escalation:launch:" + at
 	spec := launchSpec.FindStringSubmatch(rest)
 	if spec == nil {
-		return d.record(log, fmt.Sprintf("LAUNCH-FAILED %s inbox: one launch per line, in the form `%s`; nothing was launched", key, launchGrammar))
+		return d.recordTo(ctx, log, fmt.Sprintf("LAUNCH-FAILED %s inbox: one launch per line, in the form `%s`; nothing was launched", key, launchGrammar), verdictTo(by))
 	}
 	order := Order{Lane: spec[1], Now: spec[2] != "", Model: spec[3], Effort: spec[4], Role: spec[5], Brief: resolved(spec[6])}
 	failed := func(why string) error {
-		return d.record(log, fmt.Sprintf("LAUNCH-FAILED %s %s: %s; nothing was launched", key, order.Lane, why))
+		return d.recordTo(ctx, log, fmt.Sprintf("LAUNCH-FAILED %s %s: %s; nothing was launched", key, order.Lane, why), verdictTo(by))
 	}
 	if wrong := order.wrongLaneFault(); wrong != "" {
 		return failed(wrong)
@@ -605,7 +605,7 @@ func (d *Desk) launchLine(ctx context.Context, at, key, rest, by string) error {
 			return err
 		}
 		if holder != "" {
-			return d.record(log, fmt.Sprintf("LAUNCH-DUPLICATE %s %s: %s already holds this work; relay to it, or launch with NOW or --owner-directed when the owner directs a second lane; nothing was launched", key, order.Lane, holder))
+			return d.recordTo(ctx, log, fmt.Sprintf("LAUNCH-DUPLICATE %s %s: %s already holds this work; relay to it, or launch with NOW or --owner-directed when the owner directs a second lane; nothing was launched", key, order.Lane, holder), verdictTo(by))
 		}
 	}
 	if readErr == nil {

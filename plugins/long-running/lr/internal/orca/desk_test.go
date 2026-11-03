@@ -635,6 +635,59 @@ func TestALaunchVerdictReachesTheMetaLaneThatLaunchedTheLaneAndADriveLanesReache
 	}
 }
 
+func TestALaunchVerdictReachesTheLaneThatPostedTheGo(t *testing.T) {
+	for _, tt := range []struct {
+		name, by, out, verdict, want string
+		helper                       bool
+	}{
+		{"a new lane's launch", "meta-desk-3", "", "LAUNCHED ", "meta-desk-3", false},
+		{"a new lane's failed launch", "meta-desk-3", "lane-a failed worker-start terminal=: refused\n", "LAUNCH-FAILED ", "meta-desk-3", false},
+		{"root's launch of a meta helper", coordinatorLane, "", "LAUNCHED ", coordinatorLane, true},
+		{"root's failed launch of a meta helper", coordinatorLane, "lane-a failed worker-start terminal=: refused\n", "LAUNCH-FAILED ", coordinatorLane, true},
+		{"the supervisor's relaunch", lanes.Self, "", "LAUNCHED ", coordinatorLane, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			w := newDeskWorld(t)
+			if tt.helper {
+				w.register(store.Lane{Name: "meta-desk-3", Role: lanes.RoleMeta, Launcher: lanes.OwnerRelay})
+				w.register(store.Lane{Name: testLane, Role: "lane", Launcher: "meta-desk-3"})
+			}
+			brief := w.brief(testLane, testBrief+"ccx: place=local\n")
+			w.lines()
+			w.add(object{"lane": tt.by, "text": launchText(testLane, brief), "to": []string{deskLane}})
+			w.launchOut[testLane] = or(tt.out, w.launched(testLane, testDispatch, testTerminal))
+			w.lines()
+			w.step(w.desk.deliver)
+			w.step(w.desk.reap)
+			w.step(w.desk.flush)
+			var to [][]string
+			for _, post := range w.posts {
+				if strings.HasPrefix(post.Text, tt.verdict) {
+					to = append(to, post.To)
+				}
+			}
+			if !slices.EqualFunc(to, [][]string{{tt.want}}, slices.Equal) {
+				t.Fatalf("%s went to %v, want only %s", tt.verdict, to, tt.want)
+			}
+		})
+	}
+}
+
+func TestARefusedLaunchTellsThePosterToPostTheGoAgain(t *testing.T) {
+	w := newDeskWorld(t)
+	brief := w.brief(testLane, testBrief+"ccx: place=local\n")
+	w.coordinate = "run_other"
+	w.lines()
+	w.add(object{"lane": "meta-desk-3", "text": launchText(testLane, brief), "to": []string{deskLane}})
+	w.lines()
+	w.step(w.desk.deliver)
+	failed := w.postOpening("LAUNCH-FAILED ")
+	if !slices.Equal(failed.To, []string{"meta-desk-3"}) {
+		t.Fatal(failed)
+	}
+	wantContains(t, failed.Text, "nothing was launched; post the go again under a new key once the coordinator's Orca terminal has run `lr relay rebind")
+}
+
 func TestALaunchIsStartedThroughLrLaunchStartAndSettlesFromItsLine(t *testing.T) {
 	w := newDeskWorld(t)
 	brief := w.brief(testLane, testBrief+"ccx: place=local\n")
