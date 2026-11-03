@@ -31,12 +31,16 @@ type fakeBus struct {
 	records []client.Record
 	history []client.Record
 	peers   []client.Peer
+	merges  []client.Record
 	tails   int
 	whos    int
 }
 
 func (b *fakeBus) Tail(_ context.Context, q client.Query) ([]client.Record, error) {
 	b.tails++
+	if len(q.Kinds) > 0 {
+		return b.merges, nil
+	}
 	if len(q.Lanes) == 0 {
 		return b.records, nil
 	}
@@ -88,7 +92,12 @@ func newWorld(t *testing.T) *world {
 }
 
 func (w *world) sources() Sources {
-	return Sources{Bus: w.bus, Runner: w.runner, Retired: func() ([]store.Lane, error) { return w.retired, nil }}
+	return Sources{
+		Bus:     w.bus,
+		Runner:  w.runner,
+		Retired: func() ([]store.Lane, error) { return w.retired, nil },
+		Meta:    func(lane string) (bool, error) { return strings.HasPrefix(lane, "meta-"), nil },
+	}
 }
 
 func (w *world) read(t *testing.T, window time.Duration) Report {
@@ -460,6 +469,63 @@ func TestALaneWarningAboutARaceOrAClobberAsksForAFix(t *testing.T) {
 
 	equal(t, signal(report, signalRace), []string{"lane-1 2", "lane-2 1"})
 	equal(t, report.Findings[0].Detail, `open a fix, not a report: #9 "two writers would clobber the row"`)
+}
+
+func merged(t *testing.T, at time.Time, lane, kind, pr string, attrs map[string]string) client.Record {
+	t.Helper()
+	var record client.Record
+	raw := encoded(map[string]any{
+		"lane":   lane,
+		"kind":   kind,
+		"at":     at.Format(time.RFC3339),
+		"refs":   map[string]any{"prs": []string{pr}},
+		"fields": map[string]any{"attrs": attrs},
+	})
+	if err := json.Unmarshal([]byte(raw), &record); err != nil {
+		t.Fatal(err)
+	}
+	return record
+}
+
+func TestAMergedMetaPRWithNoInstallIsFlaggedAfterHalfAnHour(t *testing.T) {
+	w := newWorld(t)
+	old := t0.Add(-45 * time.Minute)
+	proof := map[string]string{"installed": "0.7.1198", "proof": "saw it run"}
+	w.bus.merges = []client.Record{
+		merged(t, t0.Add(-3*time.Hour), "meta-helper-1", "landed", "yasyf/cc-skills#1", nil),
+		merged(t, old, "meta-helper-2", "landed", "yasyf/cc-skills#2", nil),
+		merged(t, old, "meta-helper-3", "done", "yasyf/cc-skills#3", nil),
+		merged(t, t0.Add(-10*time.Minute), "meta-helper-4", "landed", "yasyf/cc-skills#4", nil),
+		merged(t, old, "meta-helper-5", "landed", "yasyf/cc-skills#5", nil),
+		merged(t, old.Add(time.Minute), "meta-desk", "done", "yasyf/cc-skills#5", proof),
+		merged(t, old, "meta-helper-6", "landed", "yasyf/cc-skills#6", nil),
+		merged(t, old.Add(time.Minute), "meta-desk", "done", "6", proof),
+		merged(t, old, "drive-lane-1", "landed", "48043", nil),
+	}
+
+	report := w.read(t, Window)
+
+	equal(t, signal(report, signalUninstalled), []string{"meta-helper-1 180", "meta-helper-2 45", "meta-helper-3 45"})
+	if !strings.Contains(report.Findings[0].Detail, "yasyf/cc-skills#1 merged") {
+		t.Fatalf("detail %q does not name the PR", report.Findings[0].Detail)
+	}
+}
+
+func TestAnUninstalledMergeRepostsAsItAges(t *testing.T) {
+	w := newWorld(t)
+	w.bus.merges = []client.Record{merged(t, t0.Add(-30*time.Minute), "meta-helper-1", "landed", "yasyf/cc-skills#1", nil)}
+	p, posts := poster(t, w)
+
+	pass(t, p)
+	equal(t, len(*posts), 1)
+
+	w.bus.merges = []client.Record{merged(t, t0.Add(-59*time.Minute), "meta-helper-1", "landed", "yasyf/cc-skills#1", nil)}
+	pass(t, p)
+	equal(t, len(*posts), 1)
+
+	w.bus.merges = []client.Record{merged(t, t0.Add(-time.Hour), "meta-helper-1", "landed", "yasyf/cc-skills#1", nil)}
+	pass(t, p)
+	equal(t, len(*posts), 2)
 }
 
 func TestSignalsRankTogetherByHowFarPastTheirFloor(t *testing.T) {

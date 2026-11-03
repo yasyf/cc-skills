@@ -246,6 +246,11 @@ func noticeTo(s *store.Store, name string) string {
 	return OwnerRelay
 }
 
+func IsMeta(s *store.Store, name string) (meta bool, err error) {
+	defer recovered(&err)
+	return isMeta(s, name), nil
+}
+
 func isMeta(s *store.Store, name string) bool {
 	for seen := map[string]bool{}; !seen[name]; {
 		seen[name] = true

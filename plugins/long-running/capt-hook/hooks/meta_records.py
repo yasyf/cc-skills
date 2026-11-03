@@ -16,16 +16,18 @@ META = "meta-desk-2"
 IS_META = route(META, META, "desired", meta=True)
 REPORT = f"cci post --drive d --lane {META} --kind report --to root --text 'hook-gate-1 merged #2201, not installed'"
 DECIDE = f"cci post --drive d --lane {META} --kind decide --to root --text 'stand down conflicts-2: its brief is superseded'"
+DONE = f"cci post --drive d --lane {META} --kind done --to owner-relay --text 'hook-gate-1 is finished'"
+INSTALLED = "--attr installed=0.7.1198 --attr proof=saw-it-refuse"
 
 
-def posts(evt: BaseHookEvent) -> Iterator[tuple[str, list[str], str, str, bool]]:
-    """Each cci post in `evt` as its writing lane, recipients, kind, text, and whether that text is one inline line."""
+def posts(evt: BaseHookEvent) -> Iterator[tuple[str, list[str], str, str, bool, dict[str, str]]]:
+    """Each cci post in `evt` as its writing lane, recipients, kind, text, whether that text is one inline line, and its attributes."""
     if evt.tool_name == POST_TOOL:
         given = evt._tool_input
         lane = str(given.get("lane") or drive_lane(evt) or "")
         for record in [given, *(given.get("records") or ())]:
             text = str(record.get("text") or "")
-            yield str(record.get("lane") or lane), [str(to) for to in record.get("to") or ()], str(record.get("kind") or ""), text, not record.get("path") and "\n" not in text
+            yield str(record.get("lane") or lane), [str(to) for to in record.get("to") or ()], str(record.get("kind") or ""), text, not record.get("path") and "\n" not in text, {str(key): str(value) for key, value in (record.get("attrs") or given.get("attrs") or {}).items()}
         return
     for call in evt.command.calls("cci"):
         values = CCI_POST.bind(call).values
@@ -34,7 +36,8 @@ def posts(evt: BaseHookEvent) -> Iterator[tuple[str, list[str], str, str, bool]]
         text = record_text(values)
         inline = not (values.get("path") or values.get("body-file") or "-" in values.get("text", ())) and "\n" not in text
         recipients = [to for value in values.get("to", ()) for to in str(value).split(",")]
-        yield str((values.get("lane") or (drive_lane(evt) or "",))[0]), recipients, ",".join(values.get("kind", ())), text, inline
+        pairs = (pair.partition("=") for value in values.get("attr", ()) for pair in str(value).split(","))
+        yield str((values.get("lane") or (drive_lane(evt) or "",))[0]), recipients, ",".join(values.get("kind", ())), text, inline, {key: value for key, _, value in pairs}
 
 
 def one_decide_line(kind: str, text: str, inline: bool) -> bool:
@@ -45,7 +48,15 @@ class MetaRecordToRoot:
     def check(self, evt: BaseHookEvent) -> bool:
         return any(
             ROOT in (to.split("@", 1)[0] for to in recipients) and not one_decide_line(kind, text, inline) and (found := routed(evt, lane)) is not None and found.get("meta")
-            for lane, recipients, kind, text, inline in posts(evt)
+            for lane, recipients, kind, text, inline, _ in posts(evt)
+        )
+
+
+class MetaDoneOwesItsInstall:
+    def check(self, evt: BaseHookEvent) -> bool:
+        return any(
+            kind.lower() == "done" and not (attrs.get("installed") and attrs.get("proof")) and (found := routed(evt, lane)) is not None and found.get("meta")
+            for lane, _, kind, _, _, attrs in posts(evt)
         )
 
 
@@ -74,5 +85,28 @@ hook(  # capt-hook: no-escape the owner ruled that meta records reach root only 
         Input(command=REPORT.replace("--to root", "--to owner-relay"), env=DRIVE_CONFIG, commands=IS_META): Allow(),
         Input(command=REPORT.replace(META, "conflicts-2"), env=DRIVE_CONFIG, commands=route("conflicts-2", "conflicts-2", "desired")): Allow(),
         Input(command=REPORT): Allow(),
+    },
+)
+
+
+hook(  # capt-hook: no-escape a meta task is done only once it is installed and seen working, so its done record names both
+    Event.PreToolUse,
+    only_if=[Tool("Bash", POST_TOOL), MetaDoneOwesItsInstall()],
+    block=True,
+    message=(
+        "A meta lane's `--kind done` names what is running: add `--attr installed=<version> --attr proof=<what you saw working>`."
+        " A lane that merged with no install posts `--kind landed --pr <n>` instead, then `--kind blocked --lane-ref <its meta desk>`."
+    ),
+    tests={
+        Input(command=DONE, env=DRIVE_CONFIG, commands=IS_META): Block(pattern=r"^A meta lane's `--kind done`[\s\S]*`--attr installed=[\s\S]*`--kind landed --pr <n>`"),
+        Input(command=f"{DONE} --attr installed=0.7.1198", env=DRIVE_CONFIG, commands=IS_META): Block(),
+        Input(command=f"{DONE} --attr proof=saw-it", env=DRIVE_CONFIG, commands=IS_META): Block(),
+        Input(command=DONE.replace(f"--lane {META} ", ""), env=DRIVE_CONFIG | {"CLAUDE_LONG_RUNNING_LANE": META}, commands=IS_META): Block(),
+        mcp(META, "done", "hook-gate-1 is finished", ["owner-relay"]): Block(),
+        Input(command=f"{DONE} {INSTALLED}", env=DRIVE_CONFIG, commands=IS_META): Allow(),
+        Input(tool=POST_TOOL, tool_input={"lane": META, "kind": "done", "to": ["owner-relay"], "text": "x", "attrs": {"installed": "0.7.1198", "proof": "saw it"}}, env=DRIVE_CONFIG, commands=IS_META): Allow(),
+        Input(command=f"cci post --drive d --lane {META} --kind landed --pr yasyf/cc-skills#2201 --to owner-relay --text 'merged'", env=DRIVE_CONFIG, commands=IS_META): Allow(),
+        Input(command=DONE.replace(META, "conflicts-2"), env=DRIVE_CONFIG, commands=route("conflicts-2", "conflicts-2", "desired")): Allow(),
+        Input(command=DONE): Allow(),
     },
 )
