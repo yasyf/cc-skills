@@ -156,6 +156,14 @@ func (r Request) Draft(drive string) client.Draft {
 	return client.Draft{Drive: drive, Lane: r.By, Kind: kindRequest, To: []string{Self}, Attrs: attrs, PRs: refs, Stamp: true, Text: "registry request: " + strings.Join(words, " ")}
 }
 
+func (r Request) Command() string {
+	words := []string{"lr", "request", r.Verb, r.Lane}
+	for _, pr := range r.PRs {
+		words = append(words, "--pr", strconv.Itoa(pr))
+	}
+	return strings.Join(words, " ")
+}
+
 func StandingRefusal(s *store.Store, r Request) (refusal string, err error) {
 	defer recovered(&err)
 	if r.Verb != "stand-down" || r.Successor != "" {

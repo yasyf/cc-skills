@@ -126,6 +126,38 @@ func TestTheRequestVerbPostsOneTypedRecordAndRefusesAStandingLaneAlone(t *testin
 	equal(t, []any{r.Lane, r.Kind, isRequest(r), r.Attr("verb"), r.Attr("lane"), r.Attr("successor"), r.Attr("last-read"), r.PRs()}, []any{"coordinator", "decide", true, "stand-down", refresher, "board-refresher-7", "9", []int{12}})
 }
 
+func TestTheStrandedPRBlockersCommandRunAsWrittenHandsThePRsToTheLaneItNames(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	s := memory(t)
+	f := adopted(t, s, writeBrief(t), "", 45492, 46512)
+	f.feed = append(f.feed, ask(2, "stand-down", lane2, t0.Add(-mins(5)), nil, "", map[string]string{"last-read": "1"}))
+	f.states = map[int]string{45492: NeedsWork, 46512: NeedsWork}
+	tick(t, s, f, t0.Add(time.Hour))
+
+	blockers := f.ofKind("blocker")
+	equal(t, len(blockers), 1)
+	_, quoted, _ := strings.Cut(blockers[0].Text, "`")
+	suggested, _, _ := strings.Cut(quoted, "`")
+	equal(t, suggested, "lr request owner <lane> --pr 45492 --pr 46512")
+	args := strings.Fields(strings.ReplaceAll(suggested, "<lane>", "conflicts-3"))
+	a, _ := driveState(t)
+	if _, err := execute(t, RequestCommand(a), args[2:]...); err != nil {
+		t.Fatal(err)
+	}
+	records, err := client.Tail(context.Background(), client.Query{Drive: testDrive})
+	if err != nil {
+		t.Fatal(err)
+	}
+	equal(t, len(records), 1)
+	posted := recordOf(records[0])
+	posted.Seq = 3
+	f.feed, f.posts = append(f.feed, posted), nil
+	tick(t, s, f, t0.Add(time.Hour+mins(1)))
+
+	equal(t, len(f.ofKind("defect")), 0)
+	equal(t, owners(t, s, 45492, 46512), map[int]string{45492: "conflicts-3", 46512: "conflicts-3"})
+}
+
 func TestAMissingConfigNamesTheFlag(t *testing.T) {
 	_, err := execute(t, Command(&app.App{}))
 	if err == nil || !strings.Contains(err.Error(), "--config") {
