@@ -32,6 +32,11 @@ its block, row and head; an empty tap list or a coordinator go is no tap.
 `lr approved [--since <seq>]` lists the PRs the board approved, split into not open
 and still open, from one record read and one batched PR read; never rebuild that list
 from records.
+`lr lanes` names a lane on another node by its record's own clock: `heard 4:12 AM on
+110f10f5, arrived 55 min late`. It reads `lagging` until as long as that delay has passed,
+because this node cannot yet tell a silent lane from a late replica; only `silent` is silence.
+An escalation subject of the form `<kind>/<count>/<sum>` is one record for many waits;
+`cci show <seq>` prints each id and what moves it.
 
 Mandate: <the plan's number-one outcome, in the owner's words>. Plan <plan id>
 (`ccn plan show <plan id>`); owner table doc <table doc id> (`ccn doc show <id>`).

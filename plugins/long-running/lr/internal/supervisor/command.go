@@ -100,7 +100,7 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 	if err != nil {
 		return Deps{}, err
 	}
-	sender := bus.Bus{Drive: env.Config.Drive, Lane: lanes.Self}
+	sender := bus.Bus{Drive: env.Config.Drive, Lane: lanes.Self, Bodies: filepath.Join(env.State, bus.BodiesDir)}
 	post := func(to []string, body bus.Body) error {
 		_, err := sender.Post(ctx, to, body)
 		return err

@@ -1749,6 +1749,47 @@ func TestARetiredLaneThatStillPostsReadsAsPostingNotSilent(t *testing.T) {
 	contains(t, lines[0], "board-refresher-7 retired posting heard ")
 }
 
+func TestARecordFromAnotherNodeShowsItsClockAndNodeAndALateOneReadsLaggingUntilItsLagPasses(t *testing.T) {
+	s := memory(t)
+	if _, err := s.WantLane(store.Lane{Name: "sprite-1", Brief: "/briefs/sprite-1.md", State: store.LaneRetired, RetiredBy: Root}, t0.Add(-3*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	node := "110f10f5abcdef01"
+	records := []Record{
+		{Seq: 1, Lane: "local-1", Kind: "state", At: t0},
+		{Seq: 2, Origin: node, Lane: "sprite-1", Kind: "report", At: t0.Add(-mins(55))},
+	}
+	fold(s, records, nil, "", Deps{})
+
+	line := func(now time.Time) string {
+		t.Helper()
+		lines, err := RegistryLines(s, []string{"sprite-1"}, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return lines[0]
+	}
+	contains(t, line(t0), "sprite-1 retired lagging heard ")
+	contains(t, line(t0), " on 110f10f5, arrived 55 min late ")
+	contains(t, line(t0.Add(mins(10))), "sprite-1 retired silent heard ")
+}
+
+func TestARecordFromThisNodeNamesNoNode(t *testing.T) {
+	s := memory(t)
+	if _, err := s.WantLane(store.Lane{Name: "local-1", Brief: "/briefs/local-1.md", State: store.LaneRetired, RetiredBy: Root}, t0.Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	fold(s, []Record{{Seq: 1, Lane: "local-1", Kind: "state", At: t0}}, nil, "", Deps{})
+
+	lines, err := RegistryLines(s, []string{"local-1"}, t0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(lines[0], " on ") {
+		t.Fatalf("line = %q", lines[0])
+	}
+}
+
 func TestAStandingLaneDeadWhileItWaitsOnRootReachesRootWithItsBrief(t *testing.T) {
 	s := memory(t)
 	f, _ := standingLane(t, s)

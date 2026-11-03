@@ -146,6 +146,41 @@ func TestAClassOfEscalationAcrossThreeSubjectsInTwoHoursReachesRootOnce(t *testi
 	want(t, len(second), 0)
 }
 
+func TestAClassOverdueAtOnceIsOneRecordNamingEveryIDAndAloneKeepsItsOwnRecord(t *testing.T) {
+	s, r := memory(t), &recorder{}
+	now := at(t, "2026-11-03T12:28:00Z")
+	var standing []Wait
+	for i := range 35 {
+		key := "pick/" + strconv.Itoa(313000+i)
+		standing = append(standing, Wait{Kind: unfinishedKind, Repo: UnfinishedNamespace, Head: key, Mover: machine.MoverRoot, Since: now.Add(-time.Hour), To: root, Cause: "unfinished: " + key + " still standing"})
+	}
+	standing = append(standing, Wait{Kind: gateKind, Repo: "org/repo", Number: 9, Mover: machine.MoverLane, Since: now.Add(-time.Hour), To: root, Cause: "gate overdue"})
+
+	escalated, err := Apply(s, nil, standing, now, r.post)
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := Apply(s, nil, standing, now.Add(time.Minute), r.post)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want(t, len(escalated), 36)
+	want(t, len(again), 0)
+	want(t, len(r.posts), 2)
+	class, alone := r.posts[0].body, r.posts[1].body
+	if !strings.HasPrefix(class.Subject, "unfinished/35/") {
+		t.Fatalf("subject = %q", class.Subject)
+	}
+	for _, wait := range standing[:35] {
+		if !strings.Contains(class.Detail, wait.Head+"\n"+wait.Cause) {
+			t.Fatalf("body lacks %s: %q", wait.Head, class.Detail)
+		}
+	}
+	want(t, alone.Subject, "org/repo#9")
+	want(t, alone.Detail, "")
+}
+
 func TestDesksRouteToTheNewestLiveMemberOfTheFamilyAndRootWhenNoDeskOwnsIt(t *testing.T) {
 	s := memory(t)
 	now := at(t, "2026-11-03T02:00:00Z")
@@ -260,10 +295,8 @@ func want[T comparable](t *testing.T, got, expected T) {
 func TestOneRefusedPostLeavesTheRestOfTheSweepPosting(t *testing.T) {
 	s, r := memory(t), &recorder{}
 	asked := at(t, "2026-11-03T05:00:00Z")
-	asks := []client.Record{
-		{Seq: 200, Lane: "lane-a", Kind: "ask", At: asked, To: []string{"root"}, Text: "cut at 6:30 AM?"},
-		{Seq: 201, Lane: "lane-b", Kind: "ask", At: asked, To: []string{"root"}, Text: "which head?"},
-	}
+	asks := []client.Record{{Seq: 201, Lane: "lane-b", Kind: "ask", At: asked, To: []string{"root"}, Text: "which head?"}}
+	unfinished := []Wait{{Kind: unfinishedKind, Repo: UnfinishedNamespace, Head: "pick/1", Mover: machine.MoverRoot, Since: asked, To: root, Cause: "unfinished: cut at 6:30 AM?"}}
 	refused := false
 	post := func(to []string, body bus.Body) error {
 		if !refused {
@@ -273,7 +306,7 @@ func TestOneRefusedPostLeavesTheRestOfTheSweepPosting(t *testing.T) {
 		return r.post(to, body)
 	}
 
-	escalated, err := Sweep(s, nil, asks, nil, asked.Add(15*time.Minute), post)
+	escalated, err := Sweep(s, nil, asks, unfinished, asked.Add(15*time.Minute), post)
 
 	if err == nil || !strings.Contains(err.Error(), "71 minutes after the post time") {
 		t.Fatalf("err = %v, want the refusal", err)

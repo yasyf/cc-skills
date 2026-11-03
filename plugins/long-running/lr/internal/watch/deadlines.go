@@ -1,9 +1,12 @@
 package watch
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
@@ -64,22 +67,49 @@ func Apply(s *store.Store, namespaces []string, standing []Wait, now time.Time, 
 		}
 	}
 	var escalated []pass.Escalated
-	var refused []error
+	var order []waitClass
+	classes := map[waitClass][]Wait{}
+	var failed error
 	for _, wait := range standing {
 		if !wait.overdue(now) {
 			continue
 		}
 		raised, err := s.Escalate(wait.subject(), wait.Cause, wait.To, now)
 		if err != nil {
-			return escalated, err
+			failed = err
+			break
 		}
 		if !raised {
 			continue
 		}
 		escalated = append(escalated, pass.Escalated{Subject: wait.subject(), Cause: wait.Cause, To: wait.To})
-		if err := post([]string{wait.To}, bus.Overdue(wait.To, wait.subject(), wait.Cause)); err != nil {
-			refused = append(refused, fmt.Errorf("%s: %w", wait.subject(), err))
+		class := waitClass{wait.Kind, wait.To}
+		if classes[class] == nil {
+			order = append(order, class)
+		}
+		classes[class] = append(classes[class], wait)
+	}
+	for _, class := range order {
+		subject, body := overdueBody(class, classes[class])
+		if err := post([]string{class.to}, body); err != nil {
+			failed = errors.Join(failed, fmt.Errorf("%s: %w", subject, err))
 		}
 	}
-	return escalated, errors.Join(refused...)
+	return escalated, failed
+}
+
+type waitClass struct{ kind, to string }
+
+func overdueBody(class waitClass, waits []Wait) (string, bus.Body) {
+	if len(waits) == 1 {
+		return waits[0].subject(), bus.Overdue(class.to, waits[0].subject(), waits[0].Cause)
+	}
+	lines := make([]string, len(waits))
+	for i, wait := range waits {
+		lines[i] = wait.subject() + "\n" + wait.Cause
+	}
+	detail := strings.Join(lines, "\n\n") + "\n"
+	sum := sha256.Sum256([]byte(detail))
+	subject := fmt.Sprintf("%s/%d/%s", class.kind, len(waits), hex.EncodeToString(sum[:])[:8])
+	return subject, bus.OverdueClass(class.to, subject, fmt.Sprintf("%d overdue at once; the body names each id and what moves it", len(waits)), detail)
 }
