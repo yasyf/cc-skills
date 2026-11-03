@@ -31,6 +31,8 @@ var (
 	finderMajor    = regexp.MustCompile(`(?i)\b[1-9]\d* majors?\b`)
 	finderClean    = regexp.MustCompile(`(?i)\bno (?:majors?|findings)\b|\b0 majors?\b|\bok\b`)
 	exemptClass    = regexp.MustCompile(`(?i)\[exempt:\s*([^\],;\s]+)`)
+	quotedBlock    = regexp.MustCompile("(?s)```.*?(?:```|\\z)|(?m:^[ \\t]*>[^\\n]*)")
+	quotedSpan     = regexp.MustCompile("`[^`\\n]*`|\"[^\"\\n]*\"|“[^”]*”")
 	overrideNamed  = regexp.MustCompile(`(?i)\b(?:finder|fidelity)-override\b[^.;\n]*`)
 	overrideForm   = regexp.MustCompile(`(?i)^(finder|fidelity)-override\s+#?(\d+)\s+(?:at\s+)?([0-9a-f]{7,40})\b(?:\s*:\s*#?(\d+(?:@[0-9a-f]+)?)\b)?`)
 	clauseStart    = regexp.MustCompile(`(?m)(?:^|[.!?]\s+)(?:\d{1,2}:\d{2} [AP]M\s+)?(?:(?:root|main):\s+)?$`)
@@ -212,6 +214,17 @@ func overridesIn(text string) []Override {
 		out = append(out, Override{strings.ToLower(form[1]), pr, strings.ToLower(form[3]), form[4]})
 	}
 	return out
+}
+
+func UnreadOverrides(record client.Record) []string {
+	text := quotedSpan.ReplaceAllString(quotedBlock.ReplaceAllString(fullText(record), ""), "")
+	var unread []string
+	for _, span := range overrideNamed.FindAllStringIndex(text, -1) {
+		if clauseStart.MatchString(text[:span[0]]) && !overrideForm.MatchString(text[span[0]:span[1]]) {
+			unread = append(unread, strings.TrimSpace(text[span[0]:span[1]]))
+		}
+	}
+	return unread
 }
 
 func overrides(text string) []Fact {
