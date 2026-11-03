@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -30,10 +31,20 @@ type prLedger struct {
 func (l prLedger) pass(ctx context.Context) error {
 	repo, checkout := l.env.Config.Repo, l.env.Config.Checkout
 	return errors.Join(
+		l.advance(ctx),
 		l.register(ctx),
 		l.run(ctx, "refresh", "--repo", repo, "--ledger", l.id),
 		l.run(ctx, "reconcile", "--repo", repo, "--ledger", l.id, "--checkout", checkout),
 	)
+}
+
+func (l prLedger) advance(ctx context.Context) error {
+	git := []string{"git", "-C", l.env.Config.Checkout}
+	if _, err := l.env.Runner.Run(ctx, shell.Command{Argv: append(slices.Clone(git), "fetch", "-q", "--no-tags", "--refmap=", "origin", "refs/heads/"+l.env.Config.Trunk), Timeout: ledgerLimit}); err != nil {
+		return err
+	}
+	_, err := l.env.Runner.Run(ctx, shell.Command{Argv: append(git, "merge", "-q", "--ff-only", "FETCH_HEAD"), Timeout: ledgerLimit})
+	return err
 }
 
 func (l prLedger) register(ctx context.Context) error {

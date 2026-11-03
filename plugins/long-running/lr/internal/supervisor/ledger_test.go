@@ -25,7 +25,8 @@ func ledgerUnder(t *testing.T, runner *shelltest.Fake) (prLedger, *store.Store) 
 	if err := s.PutLedgerRows("L", map[string]map[string]string{"8": {"lane": "lane-8"}}, t0); err != nil {
 		t.Fatal(err)
 	}
-	env := lanes.Env{Bus: lanes.CCI{}, Runner: runner, Config: config.Config{Repo: "org/repo", Drive: "d", Checkout: "/co"}, Claude: "/claude", Now: time.Now}
+	runner.Reply("", "git", "-C", "/co")
+	env := lanes.Env{Bus: lanes.CCI{}, Runner: runner, Config: config.Config{Repo: "org/repo", Drive: "d", Checkout: "/co", Trunk: "dev"}, Claude: "/claude", Now: time.Now}
 	return prLedger{env, s, "L"}, s
 }
 
@@ -40,7 +41,9 @@ func verbs(runner *shelltest.Fake) []string {
 	calls := runner.Calls()
 	out := make([]string, 0, len(calls))
 	for _, call := range calls {
-		out = append(out, call.Argv[3])
+		if call.Argv[0] == ledgerTool {
+			out = append(out, call.Argv[3])
+		}
 	}
 	return out
 }
@@ -61,7 +64,14 @@ func TestALedgerPassRegistersEachNewPRTheHeadRecordsNameThenRefreshesAndReconcil
 	if got, want := verbs(runner), []string{"register", "refresh", "reconcile"}; !slices.Equal(got, want) {
 		t.Fatalf("verbs = %v, want %v", got, want)
 	}
-	if got := runner.Calls()[0].Argv; !slices.Contains(got, "lane-7") || got[len(got)-1] != "7" {
+	calls := runner.Calls()
+	if got := calls[0].Argv; got[3] != "fetch" || got[len(got)-1] != "refs/heads/dev" {
+		t.Fatalf("first call = %v, want the checkout fetching the trunk", got)
+	}
+	if got := calls[1].Argv; got[3] != "merge" || !slices.Contains(got, "--ff-only") {
+		t.Fatalf("second call = %v, want a fast-forward", got)
+	}
+	if got := calls[2].Argv; !slices.Contains(got, "lane-7") || got[len(got)-1] != "7" {
 		t.Fatalf("register = %v", got)
 	}
 
@@ -70,6 +80,20 @@ func TestALedgerPassRegistersEachNewPRTheHeadRecordsNameThenRefreshesAndReconcil
 	}
 	if got, want := verbs(runner)[3:], []string{"refresh", "reconcile"}; !slices.Equal(got, want) {
 		t.Fatalf("second pass = %v, want %v, its cursor past the records", got, want)
+	}
+}
+
+func TestACheckoutThatWillNotFastForwardReachesRootAndTheLedgerStillRuns(t *testing.T) {
+	runner := &shelltest.Fake{}
+	runner.Fail(1, "fatal: Not possible to fast-forward", "git", "-C", "/co", "merge")
+	runner.Reply("", ledgerTool)
+	l, _ := ledgerUnder(t, runner)
+
+	if err := l.pass(context.Background()); err == nil {
+		t.Fatal("a stale checkout must reach root")
+	}
+	if got, want := verbs(runner), []string{"refresh", "reconcile"}; !slices.Equal(got, want) {
+		t.Fatalf("verbs = %v, want %v", got, want)
 	}
 }
 
