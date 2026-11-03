@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -33,6 +34,7 @@ type PullRequest struct {
 	Head   string
 	Open   bool
 	Merged bool
+	Change string
 }
 
 type Review struct {
@@ -89,6 +91,15 @@ type Hold struct {
 	Until  string
 }
 
+type Behavior struct {
+	Meta
+	Number      int
+	Head        string
+	Since       string
+	Same        bool
+	WhatChanged string
+}
+
 type Lift struct {
 	Meta
 	Hold string
@@ -100,7 +111,12 @@ type Timer struct {
 }
 
 func (e PullRequest) record(tx *store.Tx) ([]int, error) {
-	return []int{e.Number}, tx.PutPRFacts(store.PRFacts{Repo: e.Repo, Number: e.Number, Branch: e.Branch, Base: e.Base, Head: e.Head, Open: e.Open, Merged: e.Merged, At: e.At})
+	if e.Change != "" {
+		if err := tx.PutChange(e.Repo, e.Head, e.Change); err != nil {
+			return nil, err
+		}
+	}
+	return []int{e.Number}, tx.PutPRFacts(store.PRFacts{Repo: e.Repo, Number: e.Number, Branch: e.Branch, Base: e.Base, Head: e.Head, Change: e.Change, Open: e.Open, Merged: e.Merged, At: e.At})
 }
 
 func (e Review) record(tx *store.Tx) ([]int, error) {
@@ -142,11 +158,30 @@ func (e Queue) record(tx *store.Tx) ([]int, error) {
 }
 
 func (e Tap) record(tx *store.Tx) ([]int, error) {
-	return []int{e.Number}, tx.PutTap(store.Tap{Repo: e.Repo, Change: e.Head, Verdict: string(e.Verdict), Record: e.Key, At: e.At})
+	change, err := tx.ChangeOf(e.Repo, e.Head)
+	if err != nil {
+		return nil, err
+	}
+	if change == "" {
+		change = e.Head
+	}
+	return []int{e.Number}, tx.PutTap(store.Tap{Repo: e.Repo, Number: e.Number, Head: e.Head, Change: change, Verdict: string(e.Verdict), Record: e.Key, At: e.At})
 }
 
 func (e Grade) record(tx *store.Tx) ([]int, error) {
-	return []int{e.Number}, tx.PutGrade(store.Grade{Repo: e.Repo, Number: e.Number, Head: e.Head, Grader: e.Grader, Attempt: e.Attempt, Verdict: e.Verdict, Record: e.Key, Posted: e.At})
+	change, err := tx.ChangeOf(e.Repo, e.Head)
+	if err != nil {
+		return nil, err
+	}
+	return []int{e.Number}, tx.PutGrade(store.Grade{Repo: e.Repo, Number: e.Number, Head: e.Head, Change: change, Grader: e.Grader, Attempt: e.Attempt, Verdict: e.Verdict, Record: e.Key, Posted: e.At})
+}
+
+func (e Behavior) record(tx *store.Tx) ([]int, error) {
+	behavior := gates.BehaviorChanged
+	if e.Same {
+		behavior = gates.BehaviorSame
+	}
+	return []int{e.Number}, tx.PutBehavior(store.Behavior{Repo: e.Repo, Number: e.Number, Head: e.Head, Since: e.Since, Behavior: behavior, WhatChanged: e.WhatChanged, Record: e.Key, At: e.At})
 }
 
 func (e Hold) record(tx *store.Tx) ([]int, error) {

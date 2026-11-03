@@ -44,7 +44,7 @@ func (c *clock) at(minute int) Meta {
 
 func clean(c *clock, minute, number int, branch, base, head string) []Event {
 	return []Event{
-		PullRequest{c.at(minute), number, branch, base, head, true, false},
+		PullRequest{c.at(minute), number, branch, base, head, true, false, ""},
 		Check{c.at(minute), head, "ci", "success", c.seq},
 		Grade{c.at(minute), number, head, "finder", 1, string(machine.FinderClear)},
 		Grade{c.at(minute), number, head, "fidelity", 1, string(machine.FidelityPass)},
@@ -103,7 +103,7 @@ func TestAPRWaitingOnTheOwnerIsReadiedByATapOnItsHead(t *testing.T) {
 	if got := owed(t, d); !slices.Equal(got, []string{"enqueue #1"}) {
 		t.Fatalf("owed = %v", got)
 	}
-	apply(t, d, PullRequest{c.at(2), 1, "lane/a", landing, h2, true, false})
+	apply(t, d, PullRequest{c.at(2), 1, "lane/a", landing, h2, true, false, ""})
 	expect(t, d, 1, machine.StateGrading)
 	if got := owed(t, d); !slices.Equal(got, []string{"grade-fidelity #1", "grade-finder #1"}) {
 		t.Fatalf("a new head kept its old enqueue or got no grade jobs: %v", got)
@@ -131,7 +131,7 @@ func TestAHoldUntilAPRLandsLiftsWhenItsSquashReachesTheLandingBranch(t *testing.
 	apply(t, d, clean(c, 0, 1, "lane/a", landing, h1)...)
 	apply(t, d, append(clean(c, 0, 2, "lane/b", landing, h2), Tap{c.at(1), 2, h2, machine.TapTapped}, Hold{c.at(1), 2, machine.MoverRoot, "lands after #1", "pr-landed:#1"})...)
 	expect(t, d, 2, machine.StateHeld)
-	apply(t, d, PullRequest{c.at(2), 1, "lane/a", landing, h1, false, true}, Push{c.at(3), []int{1}})
+	apply(t, d, PullRequest{c.at(2), 1, "lane/a", landing, h1, false, true, ""}, Push{c.at(3), []int{1}})
 	expect(t, d, 1, machine.StateLanded)
 	expect(t, d, 2, machine.StateReady)
 	apply(t, d, Hold{c.at(4), 2, machine.MoverRoot, "lands after #1", "pr-landed:#1"})
@@ -188,7 +188,7 @@ func TestShuffledEventsReachTheSameStates(t *testing.T) {
 	events := slices.Concat(clean(c, 0, 1, "lane/a", landing, h1), clean(c, 1, 2, "lane/b", "lane/a", h2), []Event{
 		Tap{c.at(2), 2, h2, machine.TapTapped},
 		Check{c.at(3), h1, "ci", "failure", 99},
-		PullRequest{c.at(4), 1, "lane/a", landing, h2, true, false},
+		PullRequest{c.at(4), 1, "lane/a", landing, h2, true, false, ""},
 		Hold{c.at(5), 2, machine.MoverRoot, "readers first", "coordinator"},
 	})
 	inOrder, shuffled := memory(t), memory(t)
