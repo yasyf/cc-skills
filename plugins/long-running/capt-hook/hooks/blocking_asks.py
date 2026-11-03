@@ -12,8 +12,8 @@ LANE = {"type": "subagent", "status": "running", "description": "spot-pool lane"
 SPAWNED = [T.user("keep going"), T.assistant(T.tool("Agent", name="spot-pool", prompt="Raise the spot quota.", run_in_background=True))]
 WATCH = {"type": "monitor", "status": "running", "description": "cci watch"}
 PARKED = (
-    "A drive root never calls `AskUserQuestion`. Post the pick to `owner-relay` as a `report`: the bridge puts it on his board, or sends an urgent yes/no to his Slack "
-    "with `cc-present ask <card>`. Proceed on a default and apply the answer when it arrives."
+    "A drive root never calls `AskUserQuestion`. Post the pick to `owner-relay` as a `report`, proceed on a default and apply the answer when it arrives; "
+    "the bridge puts it on his board or sends an urgent yes/no to his Slack with `cc-present ask <card>`."
 )
 
 
