@@ -118,7 +118,7 @@ func TestAHoldStopsAnOwedEnqueueAndDequeuesAQueuedPR(t *testing.T) {
 	if got := owed(t, d); len(got) != 0 {
 		t.Fatalf("a hold at the same head left the enqueue owed: %v", got)
 	}
-	apply(t, d, Lift{c.at(3), "#7"}, Queue{c.at(4), 1, h1, 1, QueueIn, ""})
+	apply(t, d, Lift{c.at(3), "#7", machine.MoverRoot}, Queue{c.at(4), 1, h1, 1, QueueIn, ""})
 	expect(t, d, 1, machine.StateQueued)
 	apply(t, d, Hold{c.at(5), 1, machine.MoverRoot, "a second look", "coordinator"})
 	if got := owed(t, d); !slices.Equal(got, []string{"dequeue #1"}) {

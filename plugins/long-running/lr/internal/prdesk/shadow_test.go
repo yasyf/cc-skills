@@ -117,3 +117,27 @@ func TestTheMinuteReadMakesOneGitHubCallAtAnyNumberOfOpenPRs(t *testing.T) {
 		}
 	}
 }
+
+func TestAHoldRecordHoldsItsPRsUntilItsOwnLifterResolvesIt(t *testing.T) {
+	s, c := shadowOf(t, &[]client.Draft{}), &clock{}
+	apply(t, s.Desk, append(clean(c, 0, 7, "lane/a", landing, h1), Tap{c.at(1), 7, h1, machine.TapTapped})...)
+	hold := client.Record{Seq: 40, Lane: "root", Kind: "hold", At: t0.Add(2 * time.Minute), Text: "readers first"}
+	hold.Refs.PRs = append(hold.Refs.PRs, struct {
+		Repo   string
+		Number int
+	}{repo, 7})
+	resolve := func(seq int64, lane string) client.Record {
+		return client.Record{Seq: seq, Lane: lane, Kind: "answer", At: t0.Add(3 * time.Minute), Resolves: 40}
+	}
+	for _, step := range []struct {
+		record client.Record
+		want   machine.State
+	}{
+		{hold, machine.StateHeld},
+		{resolve(41, "landing-desk-3"), machine.StateHeld},
+		{resolve(42, "root"), machine.StateReady},
+	} {
+		apply(t, s.Desk, s.events(step.record)...)
+		expect(t, s.Desk, 7, step.want)
+	}
+}

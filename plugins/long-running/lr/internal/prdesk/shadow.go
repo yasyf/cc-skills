@@ -21,10 +21,7 @@ const (
 	ReadEvery   = time.Minute
 )
 
-var (
-	readied  = []machine.State{machine.StateReady, machine.StateQueued, machine.StateEvicted}
-	followed = []string{"lr.tap", "lr.grade", "review", "owner", "go", "decide", "decision"}
-)
+var readied = []machine.State{machine.StateReady, machine.StateQueued, machine.StateEvicted}
 
 type Shadow struct {
 	Desk    Desk
@@ -75,7 +72,7 @@ func (s Shadow) follow(ctx context.Context, apply func(Event) error) error {
 		return err
 	}
 	for {
-		records, err := s.Tail(ctx, client.Query{Drive: s.Drive, After: after, Kinds: followed})
+		records, err := s.Tail(ctx, client.Query{Drive: s.Drive, After: after})
 		if err != nil {
 			return err
 		}
@@ -123,6 +120,26 @@ func (s Shadow) events(r client.Record) []Event {
 	}
 	meta := Meta{Source: busSource, Seq: r.Seq, Key: key, At: r.At, Repo: s.Repo}
 	fromBoard := r.Lane == s.Board && r.Origin == s.Origin
+	poster := machine.Mover(client.Stem(r.Lane))
+	resolved := slices.DeleteFunc(append([]int64{r.Resolves}, r.AlsoResolves...), func(seq int64) bool { return seq == 0 })
+	if string(r.Kind) == "hold" && len(resolved) == 0 {
+		held := bus.HeldBy(r, s.Repo)
+		holds := make([]Event, 0, len(held))
+		for _, number := range held {
+			m := meta
+			m.Key = fmt.Sprintf("#%d#%d", r.Seq, number)
+			holds = append(holds, Hold{m, number, poster, r.Text, "lifter"})
+		}
+		return holds
+	}
+	lifts := make([]Event, 0, len(resolved))
+	for _, seq := range resolved {
+		lifts = append(lifts, Lift{meta, fmt.Sprintf("#%d", seq), poster})
+	}
+	return append(lifts, s.said(r, meta, fromBoard)...)
+}
+
+func (s Shadow) said(r client.Record, meta Meta, fromBoard bool) []Event {
 	if parsed, err := bus.Parse(r); err == nil {
 		switch body := parsed.Body.(type) {
 		case bus.Tap:
