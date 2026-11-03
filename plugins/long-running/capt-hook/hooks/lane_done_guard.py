@@ -15,7 +15,7 @@ LR = Path(__file__).parents[2] / "bin" / "lr"
 DONE_CHECK_TIMEOUT_SECONDS = 60
 DONE_CHECK = f"{LR} done-check"
 REFUSAL = "A lane that owns an open PR never posts done, since done retires it for good. Post the blocked record below and wait for each PR to land or close:\n```\nopen: #13\ncci post --lane conflicts-2 --kind blocked --pr 13 --to <your desk> --text '<what lands it>'\n```"
-OPEN_PR = "Warning, nothing was blocked: this lane owns an open PR, and `done` retires it for good. Hand each PR on with `lr request owner <lane> --pr <n>`.\n```\n{refusal}\n```"
+OPEN_PR = "Warning, nothing was blocked: {refusal}"
 LANE_ENV = DRIVE_CONFIG | {"CLAUDE_LONG_RUNNING_LANE": "conflicts-2"}
 
 

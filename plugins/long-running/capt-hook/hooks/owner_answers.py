@@ -6,7 +6,7 @@ import subprocess
 from datetime import UTC, datetime, timedelta
 from functools import partial
 
-from captain_hook import Allow, Annotated, BaseHookEvent, Block, Event, FromSubagent, HookResult, Input, Tool, on
+from captain_hook import Allow, Annotated, BaseHookEvent, Block, Event, FromSubagent, HookResult, Input, Tool, Warn, on
 from captain_hook.util import reqenv
 
 from .compaction_handoff import bus_name, Communicator, communicator_tests, CompactionState, Coordinator, coordinator_tests, drive_entry, ROOT_LANE, script_module
@@ -30,7 +30,7 @@ UNANSWERED = (
 )
 UNROWED = (
     "Warning, nothing was blocked: these cards carry the owner's answer with no ccn answer row, and this call takes them off the board. "
-    "board-watch writes the row as it posts the OWNER record; run `board_watch.py backfill --session {session} --program {drive}` to write any it missed, so the answer stays on record.\n```\n{lines}\n```"
+    "Run `board_watch.py backfill --session {session} --program {drive}` to write the rows board-watch missed.\n```\n{lines}\n```"
 )
 APPROVED = "Warning, nothing was blocked: the owner already approved these PRs at their current heads, so they need no new board row. Withdraw them from this order.\n```\n{lines}\n```"
 
