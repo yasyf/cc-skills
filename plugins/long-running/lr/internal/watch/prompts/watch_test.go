@@ -276,11 +276,11 @@ func workersUp(t *testing.T, f *fake, localState string) Entry {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(receipts, 0o755); err != nil {
+	if err := os.MkdirAll(receipts, 0o750); err != nil {
 		t.Fatal(err)
 	}
 	receipt := fmt.Sprintf(`{"ok":true,"result":{"taskId":"task_8c1d2e3f4a5b","dispatchId":%q}}`, local)
-	if err := os.WriteFile(filepath.Join(receipts, "bake.json"), []byte(receipt), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(receipts, "bake.json"), []byte(receipt), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	return entry
@@ -344,7 +344,7 @@ func wantSlice[T comparable](t *testing.T, got []T, expected ...T) {
 }
 
 func recipients(f *fake) []string {
-	to := []string{}
+	to := make([]string, 0, len(f.notices))
 	for _, n := range f.notices {
 		to = append(to, n.To)
 	}
@@ -856,7 +856,7 @@ func TestAScreenOrcaCannotRenderIsUnknownWhateverItsTextHolds(t *testing.T) {
 }
 
 func firstWords(f *fake) []string {
-	words := []string{}
+	words := make([]string, 0, len(f.notices))
 	for _, n := range f.notices {
 		words = append(words, strings.Fields(n.Text)[0])
 	}
@@ -1269,14 +1269,14 @@ func TestShowNamesAWatchThatNeverPolledAndOneThatStopped(t *testing.T) {
 func TestFindReadsADriveByItsRegistryIdOrItsBusName(t *testing.T) {
 	e := register(t, nil)
 	dir := filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "long-running", "drives")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		t.Fatal(err)
 	}
 	data, err := json.Marshal(map[string]any{"drive": e.Drive, "state_dir": e.StateDir, "orca_run": nil, "cci_drive": nil, "root_terminal": rootTerm, "desks": map[string]any{supDesk: map[string]any{"terminal": supTerm, "environment": nil, "supervisor": true}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, e.Drive+".json"), data, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, e.Drive+".json"), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	for _, name := range []string{e.Drive, "release-v3"} {
@@ -1310,10 +1310,10 @@ func TestAStateFileThatDoesNotParseFailsTheCheckAndTheNextCheckRunsOnceItIsGone(
 	e := register(t, nil)
 	unbound(f)
 	coordinatorAt(f, "clear", "coordinator.answered")
-	if err := os.MkdirAll(e.dir(), 0o755); err != nil {
+	if err := os.MkdirAll(e.dir(), 0o750); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(e.statePath(), []byte("{"), 0o644); err != nil {
+	if err := os.WriteFile(e.statePath(), []byte("{"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := f.watch().Check(context.Background(), e); err == nil {
@@ -1329,7 +1329,7 @@ func TestAStateFileThatDoesNotParseFailsTheCheckAndTheNextCheckRunsOnceItIsGone(
 func TestACheckWhileAnotherWatchHoldsTheLockReadsNothing(t *testing.T) {
 	f := newFake(t)
 	e := register(t, nil)
-	if err := os.MkdirAll(e.dir(), 0o755); err != nil {
+	if err := os.MkdirAll(e.dir(), 0o750); err != nil {
 		t.Fatal(err)
 	}
 	held, err := os.OpenFile(filepath.Join(e.dir(), "lock"), os.O_CREATE|os.O_RDWR, 0o600)

@@ -175,7 +175,8 @@ type Shown struct {
 }
 
 func (s Shown) Text() string {
-	lines := []string{s.Header}
+	lines := make([]string, 0, 1+len(s.Rows))
+	lines = append(lines, s.Header)
 	for _, row := range s.Rows {
 		lines = append(lines, row.Line)
 	}
