@@ -17,7 +17,7 @@
     drive.py spawned --lane NAME --brief PATH [--by LANE] [--session ID] [--drive ID]
     drive.py release --cci-drive NAME --owner LANE@DRIVE --build BUILD [--release ID]
     drive.py overview [--drive ID] [--steps PATH] [--json] [--step ID] [--since TIME]    (alias plan-status)
-    drive.py ask-owner --title Q --lede TEXT --option LABEL... --recommend N [--id SLUG] [--for LANE...] [--lane NAME] [--drive ID] [--session ID]
+    drive.py ask-owner --title Q --lede TEXT --option LABEL... --recommend N [--branch OWNER/NAME:BRANCH | --nothing-to-build REASON] [--id SLUG] [--for LANE...] [--lane NAME] [--drive ID] [--session ID]
 
 STDLIB ONLY. One file per drive at ``$CLAUDE_CONFIG_DIR/long-running/drives/<drive>.json`` (default ``~/.claude``) names the
 drive's ledger, its repository, the git common dir every checkout of that repository shares,
@@ -108,7 +108,8 @@ number, and ``--since`` only the rows that moved after a time, ``90m``, ``2h``, 
 
 ``ask-owner`` puts one question card on the owner's board, the coordinator session's cc-present board that the board
 refresher pushes to: the title is the question, the lede its summary, and one single-select choice holds the 2 to 4
-options with ``--recommend`` (1-based) marked recommended. It then posts one ``ask`` record naming the card to each
+options with ``--recommend`` (1-based) marked recommended, and ``--branch OWNER/NAME:BRANCH`` names the branch that option is
+built on, or ``--nothing-to-build REASON`` says why it has none. It then posts one ``ask`` record naming the card to each
 ``--for`` lane, the coordinator by default, which the board recorder resolves when he taps. Text naming a change or record
 number is refused before anything is pushed. Each pull request the text names by its link, ``OWNER/NAME#N`` or ``PR N``
 rides on the card as a PR block, so the card cc-present posts to his Slack shows that PR with its live state.
@@ -807,8 +808,9 @@ def cmd_overview(args: argparse.Namespace, shell: ledger.Shell) -> int:
     return code
 
 
-def card(slug: str, title: str, lede: str, options: list[str], recommend: int, repo: str) -> dict:
-    choices = [{"id": f"{slug}-{n}", "label": label, **({"recommended": True} if n == recommend else {})} for n, label in enumerate(options, 1)]
+def card(slug: str, title: str, lede: str, options: list[str], recommend: int, repo: str, build: dict | None) -> dict:
+    marked = {"recommended": True, **({"build": build} if build else {})}
+    choices = [{"id": f"{slug}-{n}", "label": label, **(marked if n == recommend else {})} for n, label in enumerate(options, 1)]
     named = dict.fromkeys((found["linked"] or found["repo"] or repo, int(found["link"] or found["number"] or found["bare"])) for text in (title, lede, *options) for found in PR_NAMED.finditer(text))
     prs = [{"id": f"{slug}-pr-{number}", "type": "pr", "repo": owner, "number": number} for owner, number in named]
     return {"id": f"card-{slug}", "type": "card", "title": title, "summary": lede, "children": [{"id": f"{slug}-choice", "type": "choice", "options": choices}, *prs]}
@@ -824,7 +826,8 @@ def cmd_ask_owner(args: argparse.Namespace, shell: ledger.Shell) -> int:
     if (entry := resolve(args, shell)) is None:
         return 1
     slug = args.id or "-".join(re.findall(r"[a-z0-9]+", args.title.lower())[:SLUG_WORDS])
-    block = card(slug, args.title, args.lede, args.option, args.recommend, entry["repo"])
+    build = {"repo": args.branch[0], "branch": args.branch[1]} if args.branch else {"none": args.nothing_to_build} if args.nothing_to_build else None
+    block = card(slug, args.title, args.lede, args.option, args.recommend, entry["repo"], build)
     try:
         shell.run(["cc-present", "update-block", "-", "--session", args.session or entry["sessions"][-1], "--round", "current"], stdin=json.dumps(block), cwd=Path(entry["checkout"]))
     except subprocess.CalledProcessError as failure:
@@ -837,6 +840,13 @@ def cmd_ask_owner(args: argparse.Namespace, shell: ledger.Shell) -> int:
     )
     print(f"card {block['id']} is on the owner's board; ask {json.loads(posted)["num"]} stays open until his tap")
     return 0
+
+
+def branch_spec(value: str) -> tuple[str, str]:
+    repo, colon, branch = value.partition(":")
+    if not colon or repo.count("/") != 1 or not branch:
+        raise argparse.ArgumentTypeError(f"{value!r} is not OWNER/NAME:BRANCH")
+    return repo, branch
 
 
 def pr_spec(value: str) -> re.Match:
@@ -961,6 +971,9 @@ def build_parser() -> argparse.ArgumentParser:
     ask_owner.add_argument("--lede", required=True, help="what he needs to decide it")
     ask_owner.add_argument("--option", required=True, action="append", metavar="LABEL", help="one answer; 2 to 4")
     ask_owner.add_argument("--recommend", required=True, type=int, metavar="N", help="the recommended option, counting from 1")
+    built = ask_owner.add_mutually_exclusive_group()
+    built.add_argument("--branch", type=branch_spec, metavar="OWNER/NAME:BRANCH", help="the branch the recommended option is built on, shown under it on his board and in Slack")
+    built.add_argument("--nothing-to-build", metavar="REASON", help="why the recommended option has no branch, such as a process pick")
     ask_owner.add_argument("--id", metavar="SLUG", help="the card's id after card-; default the title's first words")
     ask_owner.add_argument("--for", dest="waiting", action="append", metavar="LANE", help="a lane that stops until his tap; default the coordinator")
     ask_owner.add_argument("--lane", default="root", help="the lane that asks")

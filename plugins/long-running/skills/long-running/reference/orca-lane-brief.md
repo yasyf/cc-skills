@@ -291,6 +291,15 @@ apply the answer, cite it, and never put it in an ask or in an owner-question li
 An owner-question list you write marks, for every item, which authorities you checked
 (plan section, durable answer id, memory) and holds only items none of them settles.
 
+A question that reaches his board has its recommended answer built on a branch as
+soon as the question is asked. Push the branch, open no PR for it until he answers,
+and name it on the card's recommended option as `build`
+(`drive.py ask-owner --branch OWNER/NAME:BRANCH`), or give `build.none` with the
+reason a pick such as a process choice has nothing to build. The branch is something
+he can try, not a provisional pick: nothing lands from it before his answer, and a
+branch he rejects is deleted. `board_text_gate` refuses a card that names neither
+an hour after its first draw.
+
 Never end a turn waiting, and never loop over `orca orchestration check`: Orca
   delivers its mail into your terminal, and `lr wait 540 cci:<drive>:<name> -- orca
   orchestration check --terminal "$ORCA_TERMINAL_HANDLE" --wait --timeout-ms 540000 --json`

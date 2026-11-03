@@ -203,6 +203,20 @@ def test_ask_owner_puts_the_card_on_the_root_sessions_board_and_opens_an_ask_for
     assert capsys.readouterr().out == f"card card-ship-the-chat-list-fix-tonight is on the owner's board; ask {number} stays open until his tap\n"
 
 
+@pytest.mark.parametrize(("flag", "build"), [
+    (["--branch", "yasyf/cc-skills:chat-list-morning"], {"repo": "yasyf/cc-skills", "branch": "chat-list-morning"}),
+    (["--nothing-to-build", "a timing pick"], {"none": "a timing pick"}),
+])
+def test_ask_owner_names_what_the_recommended_option_is_built_on(registered, flag, build):
+    shell = BoardShell()
+    assert ask(shell, *flag) == 0
+    [(_, block, _)] = shell.pushed
+    assert block["children"][0]["options"] == [
+        {"id": "ship-the-chat-list-fix-tonight-1", "label": "Ship now"},
+        {"id": "ship-the-chat-list-fix-tonight-2", "label": "Wait for the morning build", "recommended": True, "build": build},
+    ]
+
+
 def test_ask_owner_carries_each_pull_request_it_names_on_the_card(registered):
     shell = BoardShell()
     lede = "It is https://github.com/yasyf/cc-skills/pull/2196 rebased, and yasyf/cc-skills#2196 is the same change."

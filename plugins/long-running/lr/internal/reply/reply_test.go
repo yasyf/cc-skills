@@ -60,6 +60,7 @@ type child struct {
 	Options []struct {
 		Label       string `json:"label"`
 		Recommended bool   `json:"recommended"`
+		Build       *Build `json:"build"`
 	} `json:"options"`
 }
 
@@ -241,6 +242,21 @@ func TestAPickRendersOneButtonPerOptionWithTheRecommendedOneMarked(t *testing.T)
 	}
 }
 
+func TestTheRecommendedPickCarriesTheBranchItIsBuiltOn(t *testing.T) {
+	fake := scripted()
+	f := fanout(t, fake)
+	picks := []string{"Keep one shared replica", "Give each chat its own"}
+	built := &Build{Repo: "yasyf/cc-skills", Branch: "relay-per-chat"}
+
+	f.Send(context.Background(), Reply{ID: "r5", Title: "How do we fix the relay?", MD: "Each chat keeps its own replica, or they share one.", Picks: picks, Recommended: picks[1], Build: built})
+
+	card := board(t, calls(fake, "cc-present")[0])
+	choice := card.Children[slices.IndexFunc(card.Children, func(c child) bool { return c.Type == "choice" })]
+	if choice.Options[0].Build != nil || choice.Options[1].Build == nil || *choice.Options[1].Build != *built {
+		t.Fatalf("options %+v, want the branch on the recommended pick only", choice.Options)
+	}
+}
+
 func TestAnEditUpdatesEachSurfaceInPlace(t *testing.T) {
 	for name, edit := range map[string]func(Reply, string) Reply{
 		"pick": func(r Reply, md string) Reply {
@@ -300,6 +316,7 @@ func TestAReplyThatFitsNoSurfaceIsRefusedBeforeAnythingPosts(t *testing.T) {
 		"two-line title":    {ID: base.ID, Title: "Pick\na relay", MD: base.MD},
 		"no body":           {ID: base.ID, Title: base.Title},
 		"made-up id":        {ID: "../r4", Title: base.Title, MD: base.MD},
+		"build, no pick":    {ID: base.ID, Title: base.Title, MD: base.MD, Build: &Build{None: "a process pick"}},
 	} {
 		if err := r.check(); err == nil {
 			t.Errorf("%s: check passed %+v", name, r)

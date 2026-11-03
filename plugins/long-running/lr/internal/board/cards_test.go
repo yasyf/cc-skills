@@ -217,6 +217,32 @@ func TestAWithdrawnCardPushedAgainNeedsANewEnd(t *testing.T) {
 	}
 }
 
+func TestDrawnKeepsTheFirstDrawUntilASweepWithdrawsTheCard(t *testing.T) {
+	f := newCards(t, &cardShell{cards: []string{"merged-pr"}}, map[int]string{1: "MERGED"})
+	ctx := context.Background()
+	first := f.clock
+	drawnAt := func(want time.Time) {
+		t.Helper()
+		got, err := f.Drawn(ctx, []string{"merged-pr"})
+		if err != nil || !got["merged-pr"].Equal(want) {
+			t.Fatalf("drawn = %v, %v; want %s", got, err, want)
+		}
+	}
+	drawnAt(first)
+	f.clock = first.Add(2 * time.Hour)
+	if _, err := f.Until(ctx, "merged-pr", "pr:1"); err != nil {
+		t.Fatal(err)
+	}
+	drawnAt(first)
+	if err := f.Sweep(ctx, "board-lane", &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	f.clock = first.Add(3 * time.Hour)
+	drawnAt(f.clock)
+	f.clock = first.Add(5 * time.Hour)
+	drawnAt(first.Add(3 * time.Hour))
+}
+
 func TestRetroDueTimesReadThroughTheSameCheck(t *testing.T) {
 	if why := Refusal("at:90m", cardsNow, KindAt); why != "" {
 		t.Fatalf("at:90m refused: %s", why)
