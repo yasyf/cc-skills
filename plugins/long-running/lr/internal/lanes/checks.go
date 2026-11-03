@@ -365,9 +365,19 @@ func (c *SpriteStops) Check(ctx context.Context, now time.Time) error {
 		})
 	}
 	wg.Wait()
+	var running map[string]bool
+	var unlisted error
+	if slices.ContainsFunc(stopped, func(err error) bool { return err != nil }) {
+		running, unlisted = c.runningSprites(ctx)
+	}
 	for i, lane := range ended {
 		if stopped[i] == nil {
 			c.Log.Info("sprite stopped", "lane", lane, "why", why[lane])
+			continue
+		}
+		sprite := spriteOf(c.Env.receipts(), lane)
+		if unlisted == nil && !running[sprite] {
+			c.Log.Info("sprite is already gone, so its failed stop closes", "lane", lane, "sprite", sprite, "err", stopped[i])
 			continue
 		}
 		exhausted, err := c.Store.FailSpriteStop(lane, stopTries)
@@ -382,12 +392,28 @@ func (c *SpriteStops) Check(ctx context.Context, now time.Time) error {
 		if err != nil {
 			return err
 		}
-		text := fmt.Sprintf("SPRITE-STOP-FAILED %s: %s, so the supervisor ran `cc-remote orca stop %s` %d times, and the last failed: %s | its Sprite still runs and the supervisor does not try again; stop it by hand with `%s orca stop %s --config %s`", lane, why[lane], lane, stopTries, truncated(stopped[i].Error(), 300), c.CcRemote.Binary, lane, c.CcRemote.Config)
+		state := fmt.Sprintf("`sprite list` shows its Sprite %s still there", sprite)
+		if unlisted != nil {
+			state = fmt.Sprintf("`sprite list` failed too, so its Sprite %s may still run: %s", sprite, truncated(unlisted.Error(), 300))
+		}
+		text := fmt.Sprintf("SPRITE-STOP-FAILED %s: %s, so the supervisor ran `cc-remote orca stop %s` %d times, and the last failed: %s | %s, and the supervisor does not try again; stop it by hand with `%s orca stop %s --config %s`", lane, why[lane], lane, stopTries, truncated(stopped[i].Error(), 300), state, c.CcRemote.Binary, lane, c.CcRemote.Config)
 		if _, err := c.Env.Bus.Post(ctx, client.Draft{Drive: c.Env.Config.Drive, Lane: Self, Kind: blockerKind, To: []string{to}, ID: "sprite-stop:" + lane, Text: text}); err != nil {
 			return fmt.Errorf("%w: cci post: %w", ErrUnread, err)
 		}
 	}
 	return nil
+}
+
+func (c *SpriteStops) runningSprites(ctx context.Context) (map[string]bool, error) {
+	result, err := c.Env.Runner.Run(ctx, shell.Command{Argv: []string{"sprite", "list"}, Timeout: readTimeout})
+	if err != nil {
+		return nil, err
+	}
+	running := map[string]bool{}
+	for _, sprite := range strings.Fields(result.Stdout) {
+		running[sprite] = true
+	}
+	return running, nil
 }
 
 func endedBecause(lane store.Lane, dispatch string, statuses map[string]dispatchRead) string {
