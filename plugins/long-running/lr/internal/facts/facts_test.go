@@ -693,7 +693,7 @@ func TestAnOverrideMisquotingTheOwnerLeavesTheGradeStanding(t *testing.T) {
 			h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
 			configDir := t.TempDir()
 			t.Setenv("CLAUDE_CONFIG_DIR", configDir)
-			if err := os.MkdirAll(filepath.Join(configDir, "long-running", "drives"), 0o755); err != nil {
+			if err := os.MkdirAll(filepath.Join(configDir, "long-running", "drives"), 0o750); err != nil {
 				t.Fatal(err)
 			}
 			if err := os.WriteFile(filepath.Join(configDir, "long-running", "drives", "d.json"), []byte(`{"drive":"d","checkout":"/checkouts/repo","program":"p","sessions":["s"]}`), 0o600); err != nil {

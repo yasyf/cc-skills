@@ -37,7 +37,7 @@ func TestAnOverrideQuotingAWordTheAnswerDoesNotHoldComesBackOnce(t *testing.T) {
 	check := &OverrideRefusals{Env: Env{Bus: fake, Runner: runner, Config: config.Config{Drive: testDrive}}, Store: memory(t)}
 	configDir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", configDir)
-	if err := os.MkdirAll(filepath.Join(configDir, "long-running", "drives"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(configDir, "long-running", "drives"), 0o750); err != nil {
 		t.Fatal(err)
 	}
 	entry := fmt.Sprintf(`{"drive":%q,"checkout":"/repo","program":"p","sessions":["s"]}`, testDrive)

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-import subprocess
 from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -36,9 +35,6 @@ FINDER_CLEARED = re.compile(r"(?<!not )(?<!never )\bclear(?:s|ed)?\b|\brebuttal 
 ROOT_FINDER_CLEAR = r"(?:^|[.;]\s+)(?:\d{{1,2}}:\d\d [AP]M\s+)?(?:root:\s+)?clear(?:ed|s)?\b[^.;]*\bfinder\b[^.;]*#{pr}\s+(?:at\s+)?{sha}"
 OVERRIDE_NAMED = re.compile(r"\b(?:finder|fidelity)-override\b[^.;\n]*", re.IGNORECASE)
 CLAUSE_START = re.compile(r"(?:^|[.!?]\s+)(?:\d{1,2}:\d{2} [AP]M\s+)?(?:(?:root|main):\s+)?$", re.MULTILINE)
-CITED_QUOTE = re.compile(r"\b(?:rule/[0-9a-f]{7,40}|prompt/\d{4}-\d{6}|answer\s+[0-9a-f]{7,40})\b[^\n]*[\"“]", re.IGNORECASE)
-LR = Path(__file__).resolve().parents[4] / "bin" / "lr"
-QUOTES_READ: dict[str, bool] = {}
 OVERRIDE = re.compile(r"(finder|fidelity)-override\s+#?(\d+)\s+(?:at\s+)?([0-9a-f]{7,40})\b", re.IGNORECASE)
 FINDER_OVERRIDE = "finder"
 FIDELITY_OVERRIDE = "fidelity"
@@ -466,20 +462,7 @@ def overrides(text: str) -> tuple[set[tuple[str, str, str]], list[str]]:
 
 def overridden(record: dict, kind: str, pr: str, sha: str) -> bool:
     """Whether `record` reads `<kind>-override [#]<pr> [at] <sha>` for the head `sha` names (root #262497, #287102)."""
-    text = full_text(record)
-    return any((named, number) == (kind, pr) and names_head(head, sha) for named, number, head in overrides(text)[0]) and not misquotes_owner(record, text)
-
-
-def misquotes_owner(record: dict, text: str) -> bool:
-    """Whether `lr rules quotes` refuses the owner's words `text` quotes from a row or answer it cites, or could not read them: a quote that is not in the row, or that stops mid clause with no mark, settles nothing (owner-relay #365967)."""
-    if not CITED_QUOTE.search(text):
-        return False
-    if text in QUOTES_READ:
-        return QUOTES_READ[text]
-    run = subprocess.run([str(LR), "rules", "quotes", "--drive", record["drive"]], input=text, capture_output=True, text=True, check=False)
-    if run.returncode == 0 or run.stdout.startswith("refused:"):
-        QUOTES_READ[text] = run.returncode != 0
-    return run.returncode != 0
+    return any((named, number) == (kind, pr) and names_head(head, sha) for named, number, head in overrides(full_text(record))[0])
 
 
 def head_named(record: dict, heads: list[dict], repo: str, pr: str) -> str:
