@@ -25,6 +25,19 @@ func planSweep(t *testing.T, s *store.Store, r *recorder, now time.Time, records
 	return escalated
 }
 
+func TestAPlanlessPageSaysByBeforeItsClockSoTheBusTakesAClockStillAhead(t *testing.T) {
+	said := at(t, "2026-11-03T10:00:00Z")
+	deadline := client.Record{Seq: 41, Lane: "lane-a", Kind: "report", At: said, Text: "the plan"}
+	deadline.Fields.Attrs = map[string]string{"deadline": "6:00 AM"}
+
+	waits := Unplanned([]client.Record{deadline})
+
+	want(t, len(waits), 1)
+	if !strings.Contains(waits[0].Cause, "a deadline by 6:00 AM") {
+		t.Fatalf("cause %q", waits[0].Cause)
+	}
+}
+
 func TestADeadlineWithNoPlanPagesTheCommunicatorOnceNamingTheRecordDeadlineAndLane(t *testing.T) {
 	s, r := memory(t), &recorder{}
 	said := at(t, "2026-11-03T10:00:00Z")
