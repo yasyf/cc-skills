@@ -485,12 +485,16 @@ class Register:
     def brief_paths(self) -> list[Path]:
         return briefs(self.state)
 
+    @cached_property
+    def open_pulls(self) -> dict[str, dict[str, str]]:
+        if not self.drive_ledger:
+            return {}
+        rows = {row["key"]: row["fields"] for row in ccn(self.shell, self.repo, "ledger", "show", self.drive_ledger)["rows"]}
+        return {key: fields for key, fields in ledger.pull_rows(rows).items() if fields.get("state") == "open"}
+
     def lane_prs(self, lane: str) -> list[str]:
         """The open PRs the drive's ledger gives `lane` or a lane it succeeds, under their ledger keys."""
-        if not self.drive_ledger:
-            return []
-        rows = {row["key"]: row["fields"] for row in ccn(self.shell, self.repo, "ledger", "show", self.drive_ledger)["rows"]}
-        return sorted((key for key, fields in ledger.pull_rows(rows).items() if fields.get("state") == "open" and (fields.get("lane") == lane or grades.succeeds(lane, fields.get("lane") or ""))), key=ledger.pr_order)
+        return sorted((key for key, fields in self.open_pulls.items() if fields.get("lane") == lane or grades.succeeds(lane, fields.get("lane") or "")), key=ledger.pr_order)
 
     @classmethod
     def load(cls, args: argparse.Namespace, shell: ledger.Shell, repo: str | None = None, last: bool = False, kept_any: bool = False) -> Register:
@@ -821,11 +825,6 @@ class Want:
             line += f" prs={','.join(self.prs)}"
         return line + (" codex=yes" if self.codex else "")
 
-    def matches(self, fields: dict[str, str]) -> bool:
-        if self.lane in listed(fields.get("lanes")) or steps_match(listed(fields.get("steps")), self.step):
-            return True
-        return self.names_pr(fields) or self.anchored(fields)
-
     def names_pr(self, fields: dict[str, str]) -> bool:
         text = "\n".join(fields.get(name) or "" for name in PR_FIELDS)
         return any(re.search(rf"#{ledger.PR_KEY.fullmatch(key)['pr']}(?!\d)", text) for key in self.prs)
@@ -884,14 +883,35 @@ class Capped:
         return True
 
 
+def read_plan(plan: Path | None) -> list[str]:
+    return plan.read_text().splitlines() if plan and plan.is_file() else []
+
+
+@dataclass
+class Selection:
+    """The rows a lane's slice carries: its want with the open PRs the drive's ledger gives it, ranked against its plan step."""
+
+    want: Want
+    bounds: tuple[int, int] | None
+    step_text: str
+
+    @classmethod
+    def of(cls, loaded: Register, want: Want, plan_lines: list[str]) -> Selection:
+        want = Want(want.lane, want.step, want.paths, want.codex, sorted({*want.prs, *loaded.lane_prs(want.lane)}, key=ledger.pr_order))
+        bounds = None if want.step == INCIDENT_STEP else step_bounds(plan_lines, want.step)
+        return cls(want, bounds, "\n".join(plan_lines[bounds[0] : bounds[1]]) if bounds else "")
+
+    def ranks(self, rows: dict[str, dict[str, str]]) -> dict[str, int]:
+        return {key: rank for key, fields in rows.items() if (rank := self.want.rank(fields, self.step_text)) is not None}
+
+
 def lane_slice(loaded: Register, want: Want, plan: Path | None) -> str:
-    want = Want(want.lane, want.step, want.paths, want.codex, sorted({*want.prs, *loaded.lane_prs(want.lane)}, key=ledger.pr_order))
     rulings = loaded.rulings()
     doc = register(loaded.shell, loaded.repo, loaded.program)
-    plan_lines = plan.read_text().splitlines() if plan and plan.is_file() else []
-    bounds = None if want.step == INCIDENT_STEP else step_bounds(plan_lines, want.step)
-    step_text = "\n".join(plan_lines[bounds[0] : bounds[1]]) if bounds else ""
-    ranks = {key: rank for key, fields in rulings.items() if (rank := want.rank(fields, step_text)) is not None}
+    plan_lines = read_plan(plan)
+    selection = Selection.of(loaded, want, plan_lines)
+    want, bounds = selection.want, selection.bounds
+    ranks = selection.ranks(rulings)
     out = Capped([
         want.header(),
         f"Program {loaded.program}, register ledger {loaded.ledger[:12]}. Every row is the owner's words, verbatim: the rows naming this lane, its step or its paths, then those whose Names or Surfaces its plan step mentions, up to {SLICE_CAP // 1000} KB.",
@@ -1363,20 +1383,16 @@ def slice_wants(loaded: Register) -> dict[str, Want]:
     return wants
 
 
-def in_slice(want: Want, fields: dict[str, str]) -> bool:
-    return is_global(fields) or (want.step != INCIDENT_STEP and want.matches(fields))
-
-
-def announce(loaded: Register, cci: str, live: list[str], touched: dict[str, str], before: dict[str, dict[str, str]]) -> None:
-    """Post the touched rows to each live lane whose slice they change: a row its slice carries before or after the classify, so a lane with no slice line, or whose step, lanes, PRs and paths the rows miss, hears nothing."""
+def announce(loaded: Register, cci: str, live: list[str], touched: dict[str, str], before: dict[str, dict[str, str]], plan: Path | None) -> None:
+    """Post the touched rows once, addressed to each live lane whose slice carries one of them before or after the classify; a record no slice carries goes to no lane, for the readers that follow every classify."""
     wants = slice_wants(loaded)
-    lanes = {lane for lane in live if (want := wants.get(lane)) and any(in_slice(want, fields) for key in touched for fields in (before.get(key), loaded.rows[key]) if fields)}
+    plan_lines = read_plan(plan)
+    sides = [{key: rows[key] for key in touched if key in rows} for rows in (register_reads.live_rows(before), loaded.rulings())]
+    lanes = {lane for lane in live if lane in wants and any(Selection.of(loaded, wants[lane], plan_lines).ranks(side) for side in sides)}
     rows: list[str] = []
     for key, how in touched.items():
         fields = loaded.rows[key]
         rows += ["", f"Register {how} {key} ({fields.get('kind')}): the owner's words and what they mean, verbatim.", *rendered_row(key, fields)]
-    if not lanes:
-        return
     summary = ", ".join(f"{how} {key}" for key, how in touched.items())
     path = loaded.state / "register" / f"announce-{utc_now():%Y%m%d-%H%M%S-%f}.md"
     write_atomic(path, "\n".join([f"Register classify, {len(touched)} rows: {summary}.", *rows]) + "\n")
@@ -1532,7 +1548,7 @@ def cmd_classify(args: argparse.Namespace, shell: ledger.Shell) -> int:
                 fresh.setdefault(result["key"], []).extend(result["implications"][-added:])
         if touched_rows and (drive_entry := entry_of(args)):
             cci = drive.cci_drive(drive_entry)
-            announce(loaded, cci, live_lanes(loaded, cci), touched_rows, before)
+            announce(loaded, cci, live_lanes(loaded, cci), touched_rows, before, loaded.plan(args.plan))
             for key, hits in repeats.items():
                 post_repeat(loaded, cci, key, hits, args.stderr)
     for key, items in fresh.items():
