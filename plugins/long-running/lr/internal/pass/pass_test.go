@@ -287,11 +287,11 @@ func TestAFreshStoreActsOnEveryLandableHeadInItsFirstPass(t *testing.T) {
 
 func TestAMoverNotYetCutOverKeepsItsItemsInTheStoreAndSilent(t *testing.T) {
 	s, r := newStore(t), &recorder{}
-	supervisorOnly := []machine.Mover{machine.MoverSupervisor}
+	gradingOnly := []machine.Mover{machine.MoverPool}
 	given := []machine.Facts{facts(45470, finderAsks), facts(45471, noTap)}
 
-	run(t, s, r, t0, supervisorOnly, given...)
-	run(t, s, r, t0.Add(24*time.Hour), supervisorOnly, given...)
+	run(t, s, r, t0, gradingOnly, given...)
+	run(t, s, r, t0.Add(24*time.Hour), gradingOnly, given...)
 
 	if openOne(t, s, 45470).Kind != "verdict" || openOne(t, s, 45471).Kind != "tap" {
 		t.Fatal("the items were not kept")
