@@ -920,16 +920,30 @@ func TestAHandWrittenNarrativeIsCarriedVerbatimNeverFolded(t *testing.T) {
 
 func TestGenerateRefusesGeneratedSectionsOverTheCapAndWritesNothing(t *testing.T) {
 	home := newHome(t)
-	f := newFake("", true, askRow("000001", map[string]string{"text": strings.Repeat("x", progressCap)}))
+	tasks := make([]sessionTask, 0, 500)
+	for number := range 500 {
+		tasks = append(tasks, sessionTask{ID: fmt.Sprint(number), Status: inProgress, Subject: strings.Repeat("x", 200)})
+	}
+	home.writeSession(t, tasks, nil)
+	f := newFake("", true)
 
 	printed := refused(t, depsFor(f), home.options(), tooLarge)
 
-	contains(t, printed, "its largest section is `Open owner asks` at ")
+	contains(t, printed, "its largest section is `Open tasks` at ")
 	equal(t, hasDocCall(f, "add"), false)
 	equal(t, hasDocCall(f, "edit"), false)
 	if _, err := os.Stat(progressFolder(home.plan)); !os.IsNotExist(err) {
 		t.Fatalf("the progress folder exists: %v", err)
 	}
+}
+
+func TestAnOversizedAskIsLeftOutWithItsCommandAndTheHandoffStillWrites(t *testing.T) {
+	home := newHome(t)
+	f := newFake("", true, askRow("000001", map[string]string{"text": strings.Repeat("x", progressCap)}))
+
+	body := f.docs[str(runGenerate(t, depsFor(f), home.options()).ID)]
+
+	contains(t, body, "## Open owner asks\n- 1 more: run `ledger.py show --drive brook --asks`\n")
 }
 
 func TestTheHandWrittenHandoffAndItsAddendumSurviveARegeneratingCompaction(t *testing.T) {
@@ -1341,7 +1355,7 @@ func TestTheHandoffCarriesTheLaneRegistryAndTheOwnerUpdateRenderedFromSources(t 
 	body := f.docs[str(runGenerate(t, depsFor(f), home.options()).ID)]
 
 	contains(t, body,
-		"## Lane registry\n- tooling-codify-1 desired, heard an unrecorded time, step tooling, PRs #1904\n- board-refresher-7 retired, heard an unrecorded time, step -, standing: refresh the board, brief /b/board.md\n",
+		"## Lane registry\n- tooling-codify-1 desired, heard an unrecorded time, step tooling, PRs #1904\n- board-refresher-7 retired, heard an unrecorded time, step -, standing: refresh the board\n",
 		"## Owner update\n\n### Standing duties\n- refresh the board: NO LIVE OWNER\n",
 	)
 	lacks(t, body, "old-lane-1")
@@ -1391,11 +1405,11 @@ func TestAHandoffOnAWideDriveStaysUnderTheCapAndNamesWhatItLeftOut(t *testing.T)
 	if len(head) > progressCap {
 		t.Fatalf("%d bytes", len(head))
 	}
-	contains(t, body, "more lines: run `lr lanes --config ", "more lines: run `lr update --drive brook --render`")
+	contains(t, body, "more: run `lr lanes --config ", "more: run `lr update --drive brook --render`")
 }
 
 func TestWithinBudgetKeepsWholeLinesAndCountsTheRest(t *testing.T) {
-	equal(t, strings.Join(withinBudget([]string{"aaaa", "bbbb", "cccc", "dddd"}, 10, "whole"), "|"), "aaaa|bbbb|- 2 more lines: run `whole`")
+	equal(t, strings.Join(withinBudget([]string{"aaaa", "bbbb", "cccc", "dddd"}, 10, "whole"), "|"), "aaaa|bbbb|- 2 more: run `whole`")
 	equal(t, strings.Join(withinBudget([]string{"aaaa", "bbbb"}, 10, "whole"), "|"), "aaaa|bbbb")
 }
 

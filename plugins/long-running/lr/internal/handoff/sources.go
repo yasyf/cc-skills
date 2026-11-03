@@ -441,7 +441,7 @@ func withinBudget(lines []string, budget int, whole string) []string {
 	used := 0
 	for index, line := range lines {
 		if used += len(line) + 1; used > budget {
-			return append(slices.Clone(lines[:index]), fmt.Sprintf("- %d more lines: run `%s`", len(lines)-index, whole))
+			return append(slices.Clone(lines[:index]), fmt.Sprintf("- %d more: run `%s`", len(lines)-index, whole))
 		}
 	}
 	return lines

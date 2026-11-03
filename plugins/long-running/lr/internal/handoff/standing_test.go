@@ -375,7 +375,7 @@ func TestUnconfirmedImplicationsStopAtTheirBudgetAndNameTheCommand(t *testing.T)
 	if len(section) > unconfirmedBudget+80 {
 		t.Fatalf("%d bytes", len(section))
 	}
-	contains(t, section, "more lines: run `rulings.py rows --json`")
+	contains(t, section, "more: run `rulings.py rows --json`")
 }
 
 func TestATouchedNoRulingRowRendersItsReasonInTheRowsSection(t *testing.T) {
