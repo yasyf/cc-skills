@@ -1,0 +1,359 @@
+package orca
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
+	"slices"
+	"strconv"
+	"strings"
+	"sync"
+
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
+)
+
+const (
+	ccRemoteTaskSchema = 1
+	providerSprites    = "sprites"
+	ccRemoteEnv        = "WORKER_CC_REMOTE"
+)
+
+var (
+	squashSubject = regexp.MustCompile(` \(#(\d+)\)$`)
+	shellSafe     = regexp.MustCompile(`^[A-Za-z0-9_@%+=:,./-]+$`)
+)
+
+type Checkout struct {
+	Path        string
+	Dirty       bool
+	Branch      string
+	Head        string
+	OnTrunk     bool
+	Repository  string
+	Environment string
+}
+
+type CheckoutRead struct {
+	Found   *Checkout
+	Refusal string
+}
+
+type Landings interface {
+	Landed(ctx context.Context, head string) (bool, error)
+}
+
+type Remote struct {
+	Heads  map[string]bool
+	Landed Landings
+}
+
+type Repositories interface {
+	Checkout(ctx context.Context, path string) (CheckoutRead, error)
+	Repository(ctx context.Context) (string, error)
+	OnTrunk(ctx context.Context, head, repository string) (bool, error)
+	Remote(ctx context.Context, repository string) (Remote, error)
+	Remove(ctx context.Context, worktree string) (string, error)
+}
+
+type advertised struct {
+	trunk string
+	heads map[string]bool
+}
+
+type Git struct {
+	Runner shell.Runner
+
+	mu    sync.Mutex
+	cache map[string]advertised
+}
+
+func (g *Git) run(ctx context.Context, dir string, args ...string) (shell.Result, error) {
+	result, err := g.Runner.Run(ctx, shell.Command{Argv: append([]string{"git"}, args...), Dir: dir})
+	var exit *shell.ExitError
+	if errors.As(err, &exit) {
+		return result, nil
+	}
+	return result, err
+}
+
+func (g *Git) checked(ctx context.Context, dir string, args ...string) (string, error) {
+	result, err := g.Runner.Run(ctx, shell.Command{Argv: append([]string{"git"}, args...), Dir: dir})
+	return result.Stdout, err
+}
+
+func isDir(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
+}
+
+func (g *Git) Checkout(ctx context.Context, path string) (CheckoutRead, error) {
+	if !isDir(path) {
+		return CheckoutRead{}, nil
+	}
+	found, err := g.run(ctx, path, "rev-parse", "--path-format=absolute", "--git-common-dir", "HEAD")
+	if err != nil {
+		return CheckoutRead{}, err
+	}
+	if found.Code != 0 {
+		return CheckoutRead{Refusal: "git cannot read it: " + describeExit(found.Stderr, "exit %d", found.Code)}, nil
+	}
+	lines := strings.Split(strings.TrimSpace(found.Stdout), "\n")
+	repository, head := lines[0], lines[1]
+	status, err := g.checked(ctx, path, "status", "--porcelain")
+	if err != nil {
+		return CheckoutRead{}, err
+	}
+	branch, err := g.run(ctx, path, "symbolic-ref", "--short", "-q", "HEAD")
+	if err != nil {
+		return CheckoutRead{}, err
+	}
+	onTrunk, err := g.OnTrunk(ctx, head, repository)
+	if err != nil {
+		return CheckoutRead{}, err
+	}
+	return CheckoutRead{Found: &Checkout{
+		Path:       path,
+		Dirty:      strings.TrimSpace(status) != "",
+		Branch:     strings.TrimSpace(branch.Stdout),
+		Head:       head,
+		OnTrunk:    onTrunk,
+		Repository: repository,
+	}}, nil
+}
+
+func (g *Git) Repository(ctx context.Context) (string, error) {
+	out, err := g.checked(ctx, "", "rev-parse", "--path-format=absolute", "--git-common-dir")
+	return strings.TrimSpace(out), err
+}
+
+func (g *Git) Remove(ctx context.Context, worktree string) (string, error) {
+	repository, err := g.checked(ctx, worktree, "rev-parse", "--path-format=absolute", "--git-common-dir")
+	if err != nil {
+		return "", err
+	}
+	done, err := g.run(ctx, strings.TrimSpace(repository), "worktree", "remove", worktree)
+	if err != nil {
+		return "", err
+	}
+	if done.Code == 0 {
+		return "", nil
+	}
+	return describeExit(done.Stderr, "git worktree remove exited %d", done.Code), nil
+}
+
+func (g *Git) advertised(ctx context.Context, repository string) (advertised, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if known, ok := g.cache[repository]; ok {
+		return known, nil
+	}
+	out, err := g.checked(ctx, repository, "ls-remote", "--symref", "origin", "HEAD", "refs/heads/*")
+	if err != nil {
+		return advertised{}, err
+	}
+	read := advertised{heads: map[string]bool{}}
+	for line := range strings.Lines(out) {
+		ref, name, found := strings.Cut(strings.TrimRight(line, "\n"), "\t")
+		switch {
+		case !found:
+		case name == "HEAD" && strings.HasPrefix(ref, "ref: "):
+			read.trunk = strings.TrimPrefix(ref, "ref: refs/heads/")
+		case strings.HasPrefix(name, "refs/heads/"):
+			read.heads[ref] = true
+		}
+	}
+	if read.trunk == "" {
+		return advertised{}, fmt.Errorf("origin of %s advertises no HEAD", repository)
+	}
+	if g.cache == nil {
+		g.cache = map[string]advertised{}
+	}
+	g.cache[repository] = read
+	return read, nil
+}
+
+func (g *Git) OnTrunk(ctx context.Context, head, repository string) (bool, error) {
+	read, err := g.advertised(ctx, repository)
+	if err != nil {
+		return false, err
+	}
+	done, err := g.run(ctx, repository, "merge-base", "--is-ancestor", head, "origin/"+read.trunk)
+	return done.Code == 0, err
+}
+
+func (g *Git) Remote(ctx context.Context, repository string) (Remote, error) {
+	read, err := g.advertised(ctx, repository)
+	if err != nil {
+		return Remote{}, err
+	}
+	if _, err := g.run(ctx, repository, "fetch", "--quiet", "origin", read.trunk); err != nil {
+		return Remote{}, err
+	}
+	subjects, err := g.run(ctx, repository, "log", "origin/"+read.trunk, "--since=30.days", "--format=%s")
+	if err != nil {
+		return Remote{}, err
+	}
+	squashed := map[int]bool{}
+	for line := range strings.Lines(subjects.Stdout) {
+		if match := squashSubject.FindStringSubmatch(strings.TrimRight(line, "\n")); match != nil {
+			number, err := strconv.Atoi(match[1])
+			if err != nil {
+				return Remote{}, err
+			}
+			squashed[number] = true
+		}
+	}
+	origin, err := g.checked(ctx, repository, "remote", "get-url", "origin")
+	if err != nil {
+		return Remote{}, err
+	}
+	return Remote{Heads: read.heads, Landed: PullRequests{Runner: g.Runner, Origin: strings.TrimSpace(origin), Squashed: squashed}}, nil
+}
+
+type closedPull struct {
+	Number int    `json:"number"`
+	Head   string `json:"headRefOid"`
+}
+
+type PullRequests struct {
+	Runner   shell.Runner
+	Origin   string
+	Squashed map[int]bool
+}
+
+func (p PullRequests) Landed(ctx context.Context, head string) (bool, error) {
+	result, err := p.Runner.Run(ctx, shell.Command{Argv: []string{"gh", "pr", "list", "--repo", p.Origin, "--state", "closed", "--search", head, "--json", "number,headRefOid"}})
+	if err != nil {
+		return false, err
+	}
+	var pulls []closedPull
+	if err := json.Unmarshal([]byte(result.Stdout), &pulls); err != nil {
+		return false, err
+	}
+	return slices.ContainsFunc(pulls, func(pull closedPull) bool {
+		return p.Squashed[pull.Number] && pull.Head == head
+	}), nil
+}
+
+type Sprite struct {
+	Workspace   string
+	Host        string
+	SSHConfig   string
+	Root        string
+	Environment string
+}
+
+type SpriteKey struct {
+	Worktree string
+	Terminal string
+}
+
+type SpriteFleet interface {
+	Sprites() (map[SpriteKey]Sprite, error)
+	Checkout(ctx context.Context, sprite Sprite, git Repositories) (CheckoutRead, error)
+	Destroy(ctx context.Context, sprite Sprite) (string, error)
+}
+
+type CCRemote struct {
+	Runner shell.Runner
+	State  string
+}
+
+type ccRemoteTask struct {
+	Schema      int    `json:"schemaVersion"`
+	Provider    string `json:"provider"`
+	Workspace   string `json:"workspace"`
+	ProjectRoot string `json:"projectRoot"`
+	Environment string `json:"environmentId"`
+	Worktree    string `json:"worktreeId"`
+	Terminal    string `json:"terminal"`
+	Forward     *struct {
+		Host   string `json:"host"`
+		Config string `json:"config"`
+	} `json:"forward"`
+}
+
+func (c CCRemote) Sprites() (map[SpriteKey]Sprite, error) {
+	paths, err := filepath.Glob(filepath.Join(c.State, "orca", "*.json"))
+	if err != nil {
+		return nil, err
+	}
+	hosted := map[SpriteKey]Sprite{}
+	for _, path := range paths {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return nil, err
+		}
+		var task ccRemoteTask
+		if err := json.Unmarshal(raw, &task); err != nil {
+			return nil, fmt.Errorf("%s: %w", path, err)
+		}
+		if task.Schema != ccRemoteTaskSchema || task.Provider != providerSprites || task.Forward == nil || task.Worktree == "" || task.Terminal == "" {
+			continue
+		}
+		if info, err := os.Stat(filepath.Join(c.State, "workspaces", task.Workspace+".json")); err != nil || !info.Mode().IsRegular() {
+			continue
+		}
+		hosted[SpriteKey{task.Worktree, task.Terminal}] = Sprite{task.Workspace, task.Forward.Host, task.Forward.Config, task.ProjectRoot, task.Environment}
+	}
+	return hosted, nil
+}
+
+func shellQuote(word string) string {
+	if shellSafe.MatchString(word) {
+		return word
+	}
+	return "'" + strings.ReplaceAll(word, "'", `'"'"'`) + "'"
+}
+
+func (c CCRemote) Checkout(ctx context.Context, sprite Sprite, git Repositories) (CheckoutRead, error) {
+	result, err := c.Runner.Run(ctx, shell.Command{Argv: []string{"ssh", "-F", sprite.SSHConfig, "-o", "BatchMode=yes", sprite.Host, "git -C " + shellQuote(sprite.Root) + " status --porcelain=v2 --branch"}})
+	var exit *shell.ExitError
+	if errors.As(err, &exit) {
+		return CheckoutRead{Refusal: fmt.Sprintf("ssh to %s could not read %s: %s", sprite.Host, sprite.Root, describeExit(result.Stderr, "exit %d", result.Code))}, nil
+	}
+	if err != nil {
+		return CheckoutRead{}, err
+	}
+	checkout := Checkout{Path: sprite.Root}
+	for line := range strings.Lines(result.Stdout) {
+		line = strings.TrimRight(line, "\n")
+		if !strings.HasPrefix(line, "# ") {
+			checkout.Dirty = true
+			continue
+		}
+		name, value, _ := strings.Cut(line[2:], " ")
+		switch name {
+		case "branch.oid":
+			checkout.Head = value
+		case "branch.head":
+			if value != "(detached)" {
+				checkout.Branch = value
+			}
+		}
+	}
+	if checkout.Repository, err = git.Repository(ctx); err != nil {
+		return CheckoutRead{}, err
+	}
+	if checkout.OnTrunk, err = git.OnTrunk(ctx, checkout.Head, checkout.Repository); err != nil {
+		return CheckoutRead{}, err
+	}
+	return CheckoutRead{Found: &checkout}, nil
+}
+
+func (c CCRemote) Destroy(ctx context.Context, sprite Sprite) (string, error) {
+	command := os.Getenv(ccRemoteEnv)
+	if command == "" {
+		command = "cc-remote"
+	}
+	result, err := c.Runner.Run(ctx, shell.Command{Argv: []string{command, "destroy", sprite.Workspace}})
+	var exit *shell.ExitError
+	if errors.As(err, &exit) {
+		return describeExit(result.Stderr, "cc-remote destroy exited %d", result.Code), nil
+	}
+	return "", err
+}
