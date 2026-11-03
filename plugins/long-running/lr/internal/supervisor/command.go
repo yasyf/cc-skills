@@ -15,7 +15,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
-	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/facts"
+	prfacts "github.com/yasyf/cc-skills/plugins/long-running/lr/internal/facts"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/landing"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
@@ -101,7 +101,7 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 		return Deps{}, err
 	}
 	sender := bus.Bus{Drive: env.Config.Drive, Lane: lanes.Self}
-	deps.Snapshot = facts.New(a, env.Config, s).Snapshot
+	deps.Snapshot = prfacts.New(a, env.Config, s).Snapshot
 	deps.Post = func(to []string, body bus.Body) error {
 		_, err := sender.Post(ctx, to, body)
 		return err
