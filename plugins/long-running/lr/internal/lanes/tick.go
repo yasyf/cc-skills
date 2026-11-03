@@ -639,9 +639,12 @@ func wakeOnOrders(s *store.Store, d Deps, lane store.Lane, peer Peer, orders []s
 	if !peer.Live || (peer.Row.Roster == "" && peer.Row.Dispatch == "") || settledLane(lane) {
 		return false
 	}
-	patience := unreadAfter / 2
-	if isStanding(lane) {
-		patience = wakeAfter
+	patience := wakeAfter
+	if !isStanding(lane) {
+		if lane.Awaits != "" {
+			return false
+		}
+		patience = unreadAfter / 2
 	}
 	due := slices.DeleteFunc(slices.Clone(orders), func(order store.Unread) bool { return order.Woke || now.Sub(order.At) < patience })
 	if len(due) == 0 || !must(d.Wake(lane.Name, peer.Row, map[string]any{"why": fmt.Sprintf("orders addressed to you are unread: %s.", orderWords(due))})) {
