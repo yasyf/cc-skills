@@ -30,8 +30,8 @@ type spriteTool struct {
 }
 
 type spritePins struct {
-	ccURL, ccSHA, lrURL, lrSHA, lrMember, bk string
-	tools                                    []spriteTool
+	ccURL, ccSHA, lrURL, lrSHA, lrMember string
+	tools                                []spriteTool
 }
 
 type binrunRelease struct {
@@ -42,7 +42,7 @@ type binrunRelease struct {
 }
 
 func readPins(env func(string) string) (spritePins, error) {
-	p := spritePins{ccURL: env("WORKER_CCI_URL"), ccSHA: env("WORKER_CCI_SHA256"), bk: env("WORKER_BK_URL")}
+	p := spritePins{ccURL: env("WORKER_CCI_URL"), ccSHA: env("WORKER_CCI_SHA256")}
 	if p.ccURL == "" {
 		return p, refuse("set WORKER_CCI_URL to the cci linux_amd64 release archive a Sprite installs")
 	}
@@ -102,7 +102,7 @@ func (p spritePins) installArgv(workspace string, needs []string) []string {
 	for _, tool := range p.tools {
 		pinned = append(pinned, tool.Kind, tool.Name, tool.URL, tool.SHA256, tool.Version)
 	}
-	return slices.Concat([]string{"sprite", "exec", "-s", workspace, "--no-stdin", "--", "sh", "-c", installTools, "sh", p.ccURL, p.ccSHA, p.lrURL, p.lrSHA, p.lrMember, p.bk}, pinned, []string{"--"}, needs)
+	return slices.Concat([]string{"sprite", "exec", "-s", workspace, "--no-stdin", "--", "sh", "-c", installTools, "sh", p.ccURL, p.ccSHA, p.lrURL, p.lrSHA, p.lrMember}, pinned, []string{"--"}, needs)
 }
 
 func installedTools(stdout string) map[string]string {

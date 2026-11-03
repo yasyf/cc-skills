@@ -1,37 +1,51 @@
 package bk
 
 import (
-	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"net/http"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
 
 const (
+	Lane = "bk-desk"
+
+	askKind     = "ask"
+	answerKind  = "answer"
+	openStatus  = "open"
+	catchUp     = time.Hour
+	fresh       = time.Minute
+	pollEvery   = 2 * time.Second
 	readTimeout = 5 * time.Minute
-	urlFile     = ".config/lr/bk.url"
+	tokenWait   = time.Minute
+	replyLimit  = 16 << 10
+	bodiesDir   = "bk-desk"
+	usage       = "name one read: bk build <pipeline> <number>, bk log <pipeline> <number> <job>, or bk api <path>"
 )
 
 var (
-	graphQLNoise    = regexp.MustCompile(`"""[\s\S]*?"""|"(?:[^"\\]|\\.)*"|#[^\n]*`)
-	graphQLWriteOps = regexp.MustCompile(`\b(mutation|subscription)\b`)
+	request     = regexp.MustCompile(`\bbk\s+(\S+)(.*)`)
+	logEscapes  = regexp.MustCompile(`\x1b\[[0-9;]*[A-Za-z]|\x1b_bk;t=\d+\x07`)
+	unlistedJob = []string{"passed", "skipped", "broken", "not_run"}
 )
 
 type Settings struct {
-	Port      int    `json:"port"`
-	ServePort int    `json:"serve_port"`
-	AdmitTag  string `json:"admit_tag"`
+	CLI          string   `json:"cli"`
+	Checkout     string   `json:"checkout"`
+	TokenCommand []string `json:"token_command"`
 }
 
 func LoadSettings(path string) (Settings, error) {
@@ -40,148 +54,246 @@ func LoadSettings(path string) (Settings, error) {
 		return Settings{}, err
 	}
 	var s Settings
-	if err := json.Unmarshal(raw, &s); err != nil || s.Port <= 0 || s.ServePort <= 0 || s.AdmitTag == "" {
-		return Settings{}, fmt.Errorf("%s needs port, serve_port and admit_tag, the tailnet tag of the machines it answers", path)
+	if err := json.Unmarshal(raw, &s); err != nil || strings.TrimSpace(s.CLI) == "" || s.Checkout == "" || len(s.TokenCommand) == 0 {
+		return Settings{}, fmt.Errorf("%s needs cli, checkout and token_command, the command that prints this host's read-only Buildkite token", path)
 	}
 	return s, nil
 }
 
-type Reply struct {
-	Stdout string `json:"stdout"`
-	Stderr string `json:"stderr"`
-	Code   int    `json:"code"`
+type reply struct {
+	head, body string
+	at         time.Time
 }
 
-type Proxy struct {
+type Desk struct {
 	Runner   shell.Runner
 	CLI      []string
 	Checkout string
-	AdmitTag string
+	Drive    string
+	Bodies   string
+	Now      func() time.Time
+
+	token string
+	cache map[string]reply
 }
 
-func (p Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	caller := r.Header.Get("X-Forwarded-For")
-	if caller == "" {
-		http.Error(w, "this proxy answers only tailnet callers that tailscale serve forwards", http.StatusForbidden)
-		return
-	}
-	tags, err := p.tags(r.Context(), caller)
+func NewDesk(ctx context.Context, runner shell.Runner, settings Settings, drive, state string, now func() time.Time) (*Desk, error) {
+	printed, err := runner.Run(ctx, shell.Command{Argv: settings.TokenCommand, Timeout: tokenWait})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadGateway)
-		return
+		return nil, fmt.Errorf("the Buildkite token command failed: %w", err)
 	}
-	if !slices.Contains(tags, p.AdmitTag) {
-		http.Error(w, fmt.Sprintf("%s carries no %s, so it reads no Buildkite here", caller, p.AdmitTag), http.StatusForbidden)
-		return
+	token := strings.TrimSpace(printed.Stdout)
+	if token == "" {
+		return nil, errors.New("the Buildkite token command printed nothing")
 	}
-	var args []string
-	if err := json.NewDecoder(r.Body).Decode(&args); err != nil {
-		http.Error(w, "the body is no JSON list of bk arguments", http.StatusBadRequest)
-		return
-	}
-	if refusal := refused(args); refusal != "" {
-		http.Error(w, refusal, http.StatusForbidden)
-		return
-	}
-	result, err := p.Runner.Run(r.Context(), shell.Command{Argv: slices.Concat(p.CLI, args), Dir: p.Checkout, Timeout: readTimeout})
-	code := 0
-	var exit *shell.ExitError
-	switch {
-	case errors.As(err, &exit):
-		code = exit.Code
-	case err != nil:
-		http.Error(w, err.Error(), http.StatusBadGateway)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(Reply{Stdout: result.Stdout, Stderr: result.Stderr, Code: code})
+	return &Desk{
+		Runner: runner, CLI: strings.Fields(settings.CLI), Checkout: settings.Checkout, Drive: drive,
+		Bodies: filepath.Join(state, bodiesDir), Now: now, token: token, cache: map[string]reply{},
+	}, nil
 }
 
-func (p Proxy) tags(ctx context.Context, caller string) ([]string, error) {
-	result, err := p.Runner.Run(ctx, shell.Command{Argv: []string{"tailscale", "whois", "--json", caller}, Timeout: time.Minute})
+func (d *Desk) Serve(ctx context.Context) error {
+	query := client.Query{Drive: d.Drive, Since: d.Now().Add(-catchUp), Kinds: []string{askKind}}
+	for {
+		next, err := d.pass(ctx, query)
+		if err != nil {
+			return err
+		}
+		query = next
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(pollEvery):
+		}
+	}
+}
+
+func (d *Desk) pass(ctx context.Context, query client.Query) (client.Query, error) {
+	asks, err := client.Tail(ctx, query)
 	if err != nil {
-		return nil, fmt.Errorf("tailscale whois %s failed: %w", caller, err)
+		return query, err
 	}
-	var who struct {
-		Node struct {
-			Tags []string `json:"Tags"`
-		} `json:"Node"`
+	for _, ask := range asks {
+		query = client.Query{Drive: query.Drive, After: ask.Seq, Kinds: query.Kinds}
+		if ask.Status != openStatus || !slices.Contains(ask.To, Lane) {
+			continue
+		}
+		if err := d.answer(ctx, ask); err != nil {
+			return query, err
+		}
 	}
-	if err := json.Unmarshal([]byte(result.Stdout), &who); err != nil {
-		return nil, fmt.Errorf("tailscale whois %s printed no JSON", caller)
-	}
-	return who.Node.Tags, nil
+	return query, nil
 }
 
-func refused(args []string) string {
-	if len(args) == 0 {
-		return "name a bk read: api, log or graphql"
+func (d *Desk) answer(ctx context.Context, ask client.Record) error {
+	read := d.read(ctx, ask.Text)
+	sum := sha256.Sum256([]byte(read.body))
+	path := filepath.Join(d.Bodies, hex.EncodeToString(sum[:])[:16]+".txt")
+	if err := os.MkdirAll(d.Bodies, 0o750); err != nil {
+		return err
 	}
-	rest := args[1:]
-	switch args[0] {
+	if err := os.WriteFile(path, []byte(read.body), 0o600); err != nil {
+		return err
+	}
+	_, err := client.Post(ctx, client.Draft{
+		Drive: d.Drive, Lane: Lane, Kind: answerKind, Text: read.head, To: []string{ask.Lane},
+		Resolves: ask.Seq, Path: path, Force: true,
+	})
+	return err
+}
+
+func (d *Desk) read(ctx context.Context, text string) reply {
+	args, refusal := parse(text)
+	if refusal != "" {
+		return reply{head: "bk read refused", body: refusal}
+	}
+	key := strings.Join(args, " ")
+	now := d.Now()
+	if hit, found := d.cache[key]; found && now.Sub(hit.at) < fresh {
+		return hit
+	}
+	maps.DeleteFunc(d.cache, func(_ string, kept reply) bool { return now.Sub(kept.at) >= fresh })
+	read := d.fetch(ctx, args)
+	read.head = "bk " + key + ": " + read.head
+	read.at = now
+	d.cache[key] = read
+	return read
+}
+
+func parse(text string) ([]string, string) {
+	match := request.FindStringSubmatch(text)
+	if match == nil {
+		return nil, usage
+	}
+	rest := strings.Fields(match[2])
+	switch match[1] {
+	case "build":
+		if len(rest) == 2 {
+			if _, err := strconv.Atoi(rest[1]); err == nil {
+				return append([]string{"build"}, rest...), ""
+			}
+		}
+		return nil, "build takes <pipeline> <number>"
 	case "log":
 		if len(rest) == 3 {
-			return ""
+			return append([]string{"log"}, rest...), ""
 		}
-		return "log takes <pipeline> <build> <job>"
+		return nil, "log takes <pipeline> <number> <job>"
 	case "api":
-		if len(rest) == 2 && (rest[0] == "-no-wait" || rest[0] == "--no-wait") {
-			rest = rest[1:]
-		}
 		if len(rest) != 1 || strings.HasPrefix(rest[0], "-") {
-			return "api reads one path with GET, and takes no -X or -d"
+			return nil, "api reads one path with GET, and takes no -X or -d"
 		}
 		if strings.HasPrefix("/"+strings.TrimPrefix(rest[0], "/"), "/organizations/") {
-			return "api reads only the proxy's own organization; drop the /organizations/<org> prefix"
+			return nil, "api reads only this desk's own organization; drop the /organizations/<org> prefix"
 		}
-		return ""
-	case "graphql":
-		if len(rest) == 3 && rest[0] == "-v" {
-			rest = rest[2:]
-		}
-		if len(rest) != 1 {
-			return "graphql takes [-v JSON] <query>"
-		}
-		if graphQLWriteOps.MatchString(graphQLNoise.ReplaceAllString(rest[0], "")) {
-			return "graphql runs queries only, never a mutation or subscription"
-		}
-		return ""
+		return []string{"api", rest[0]}, ""
 	}
-	return fmt.Sprintf("bk %s is no read; the proxy runs api, log and graphql reads only", args[0])
+	return nil, fmt.Sprintf("bk %s is no read; %s", match[1], usage)
 }
 
-func Forward(ctx context.Context, home string, args []string, stdout, stderr io.Writer) (int, error) {
-	written, err := os.ReadFile(filepath.Join(home, urlFile))
-	if err != nil {
-		return 0, fmt.Errorf("no ~/%s names the drive's Buildkite proxy: set WORKER_BK_URL in runner.json's orca.sprite.env, and lr launch worker writes it on each Sprite", urlFile)
+func (d *Desk) fetch(ctx context.Context, args []string) reply {
+	switch args[0] {
+	case "build":
+		said, failure := d.run(ctx, "api", "-no-wait", "/pipelines/"+args[1]+"/builds/"+args[2])
+		if failure != nil {
+			return *failure
+		}
+		return summary(said)
+	case "log":
+		said, failure := d.run(ctx, args...)
+		if failure != nil {
+			return *failure
+		}
+		cut := lastBytes(logEscapes.ReplaceAllString(said, ""), replyLimit)
+		return reply{head: fmt.Sprintf("%d bytes of its log", len(cut)), body: cut}
 	}
-	url := strings.TrimSpace(string(written))
-	body, err := json.Marshal(args)
-	if err != nil {
-		return 0, err
+	said, failure := d.run(ctx, "api", "-no-wait", args[1])
+	if failure != nil {
+		return *failure
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
-	if err != nil {
-		return 0, err
+	cut := firstBytes(said, replyLimit)
+	return reply{head: fmt.Sprintf("%d of %d bytes", len(cut), len(said)), body: cut}
+}
+
+func (d *Desk) run(ctx context.Context, args ...string) (string, *reply) {
+	result, err := d.Runner.Run(ctx, shell.Command{
+		Argv: slices.Concat(d.CLI, args), Dir: d.Checkout,
+		Env: []string{"BUILDKITE_TOKEN=" + d.token}, Timeout: readTimeout,
+	})
+	if err == nil {
+		return result.Stdout, nil
 	}
-	response, err := http.DefaultClient.Do(request)
-	if err != nil {
-		return 0, err
+	said := lastBytes(strings.TrimSpace(result.Stderr), replyLimit)
+	var exit *shell.ExitError
+	if errors.As(err, &exit) {
+		return "", &reply{head: fmt.Sprintf("the read exited %d", exit.Code), body: said}
 	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		said, _ := io.ReadAll(response.Body)
-		return 0, fmt.Errorf("%s answered %d: %s", url, response.StatusCode, strings.TrimSpace(string(said)))
+	return "", &reply{head: "the read did not run", body: err.Error()}
+}
+
+type build struct {
+	Number int    `json:"number"`
+	State  string `json:"state"`
+	Branch string `json:"branch"`
+	Commit string `json:"commit"`
+	WebURL string `json:"web_url"`
+	Jobs   []job  `json:"jobs"`
+}
+
+type job struct {
+	ID         string `json:"id"`
+	Type       string `json:"type"`
+	Name       string `json:"name"`
+	State      string `json:"state"`
+	ExitStatus *int   `json:"exit_status"`
+	SoftFailed bool   `json:"soft_failed"`
+}
+
+func summary(said string) reply {
+	var read build
+	if err := json.Unmarshal([]byte(said), &read); err != nil {
+		return reply{head: "the build did not parse", body: firstBytes(said, replyLimit)}
 	}
-	var reply Reply
-	if err := json.NewDecoder(response.Body).Decode(&reply); err != nil {
-		return 0, fmt.Errorf("%s answered no bk reply: %w", url, err)
+	var scripts, unlisted int
+	var lines strings.Builder
+	fmt.Fprintf(&lines, "build %d %s on %s at %s\n%s\n", read.Number, read.State, read.Branch, read.Commit, read.WebURL)
+	for _, step := range read.Jobs {
+		if step.Type != "script" {
+			continue
+		}
+		scripts++
+		if slices.Contains(unlistedJob, step.State) {
+			unlisted++
+			continue
+		}
+		exit := "-"
+		if step.ExitStatus != nil {
+			exit = strconv.Itoa(*step.ExitStatus)
+		}
+		soft := ""
+		if step.SoftFailed {
+			soft = " soft"
+		}
+		fmt.Fprintf(&lines, "%s%s exit=%s job=%s %s\n", step.State, soft, exit, step.ID, step.Name)
 	}
-	if _, err := io.WriteString(stdout, reply.Stdout); err != nil {
-		return 0, err
+	return reply{
+		head: fmt.Sprintf("%s, %d of %d jobs not passed", read.State, scripts-unlisted, scripts),
+		body: firstBytes(lines.String(), replyLimit),
 	}
-	if _, err := io.WriteString(stderr, reply.Stderr); err != nil {
-		return 0, err
+}
+
+func firstBytes(text string, limit int) string {
+	if len(text) <= limit {
+		return text
 	}
-	return reply.Code, nil
+	cut := strings.ToValidUTF8(text[:limit], "")
+	return fmt.Sprintf("%s\n… cut: the first %d of %d bytes\n", cut, len(cut), len(text))
+}
+
+func lastBytes(text string, limit int) string {
+	if len(text) <= limit {
+		return text
+	}
+	cut := strings.ToValidUTF8(text[len(text)-limit:], "")
+	return fmt.Sprintf("… cut: the last %d of %d bytes\n%s", len(cut), len(text), cut)
 }

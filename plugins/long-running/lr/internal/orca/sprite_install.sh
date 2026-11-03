@@ -20,11 +20,7 @@ fetch "$3" "$4" /tmp/lr.tgz
 tar -xzOf /tmp/lr.tgz "$5" > "$bin/lr"
 chmod 755 "$bin/lr"
 echo "installed lr $(said "$bin/lr")"
-if [ -n "$6" ]; then
-  mkdir -p ~/.config/lr
-  printf '%s\n' "$6" > ~/.config/lr/bk.url
-fi
-shift 6
+shift 5
 while [ "$1" != -- ]; do
   kind=$1 name=$2 version=$5
   fetch "$3" "$4" /tmp/tool.tgz

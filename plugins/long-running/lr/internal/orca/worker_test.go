@@ -34,7 +34,6 @@ const (
 	testCCISHA      = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
 	testLRURL       = "https://github.com/yasyf/cc-skills/releases/download/lr--v9.9.9/lr_9.9.9_linux_amd64.tar.gz"
 	testLRSHA       = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
-	testBKURL       = "https://drive-host.example.ts.net:8443/"
 	localWorktree   = "/w/lane-a"
 	localTerminal   = "term_local_1"
 	sponsorBox      = "sponsor-1"
@@ -201,7 +200,6 @@ func newWorkerFixture(t *testing.T) *workerFixture {
 		"WORKER_CHECKOUT":      f.checkout,
 		"WORKER_CCI_URL":       testCCIURL,
 		"WORKER_CCI_SHA256":    testCCISHA,
-		"WORKER_BK_URL":        testBKURL,
 		"ORCA_TERMINAL_HANDLE": "term_coordinator",
 		"BINRUN_PLUGIN_ROOT":   filepath.Join(root, "plugin"),
 		"HOME":                 f.home,
@@ -383,7 +381,7 @@ func (f *workerFixture) prepareCallFor(lane, kind, model, effort string, extra .
 }
 
 func installCall(workspace string, tools ...string) []string {
-	return slices.Concat([]string{"sprite", "exec", "-s", workspace, "--no-stdin", "--", "sh", "-c", installTools, "sh", testCCIURL, testCCISHA, testLRURL, testLRSHA, "lr", testBKURL}, tools, []string{"--"})
+	return slices.Concat([]string{"sprite", "exec", "-s", workspace, "--no-stdin", "--", "sh", "-c", installTools, "sh", testCCIURL, testCCISHA, testLRURL, testLRSHA, "lr"}, tools, []string{"--"})
 }
 
 func joinCall(workspace string) []string {
@@ -396,7 +394,7 @@ func relayCalls(workspace string) [][]string {
 
 func (f *workerFixture) startCalls(task object) [][]string {
 	brief := task["brief"].(object)
-	spec := fmt.Sprintf("Lane %s: read the whole brief at %s, verify its SHA-256 is %s and its size is %d bytes, then follow it exactly.", workerLane, brief["path"], brief["sha256"], brief["bytes"])
+	spec := fmt.Sprintf("Lane %s: read the whole brief at %s, verify its SHA-256 is %s and its size is %d bytes, then follow it exactly.%s", workerLane, brief["path"], brief["sha256"], brief["bytes"], spriteBuildkite)
 	return slices.Concat([][]string{installCall(task["environment"].(string))}, relayCalls(task["environment"].(string)), [][]string{
 		slices.Concat([]string{"orca", "orchestration", "worker-start", "--run", workerRun, "--spec", spec, "--task-title", workerLane, "--on", task["environment"].(string), "--worktree", "id:" + task["worktreeId"].(string), "--terminal", task["terminal"].(string)}, []string{"--timeout-ms", "600000", "--full", "--json"}),
 	})
@@ -678,7 +676,7 @@ func TestAStandingDeskBriefCarriesTheDeskContractIntoTheSpriteSpec(t *testing.T)
 	f.spriteWith(overlaid(prepared(), object{"brief": object{"path": "/box/brief.md", "sha256": hexSum(text), "bytes": len(text)}}))
 	f.launched()
 	spec := flag(f.calls[len(f.calls)-1], "--spec")
-	if !strings.HasSuffix(spec, "then follow it exactly."+standingDesk) {
+	if !strings.HasSuffix(spec, "then follow it exactly."+spriteBuildkite+standingDesk) {
 		t.Fatal(spec)
 	}
 }
@@ -800,7 +798,7 @@ func TestTheToolInstallPutsThePinnedLROnPathWithTheProxyURLAndRefusesAnotherDige
 	home := ""
 	install := func(digest string, needs ...string) (string, error) {
 		home = t.TempDir()
-		run := exec.Command("sh", slices.Concat([]string{"-c", installTools, "sh", cciURL, cciSHA, lrURL, digest, "lr", testBKURL, "--"}, needs)...)
+		run := exec.Command("sh", slices.Concat([]string{"-c", installTools, "sh", cciURL, cciSHA, lrURL, digest, "lr", "--"}, needs)...)
 		run.Env = append(os.Environ(), "HOME="+home)
 		if out, err := run.CombinedOutput(); err != nil {
 			return filepath.Join(home, ".local", "bin", "lr"), fmt.Errorf("%s: %w", out, err)
@@ -813,9 +811,6 @@ func TestTheToolInstallPutsThePinnedLROnPathWithTheProxyURLAndRefusesAnotherDige
 	}
 	if out, err := exec.Command(lr).Output(); err != nil || string(out) != "lr 9.9.9\n" {
 		t.Fatal(string(out), err)
-	}
-	if written, err := os.ReadFile(filepath.Join(home, ".config", "lr", "bk.url")); err != nil || string(written) != testBKURL+"\n" {
-		t.Fatal(string(written), err)
 	}
 	if _, err := install(lrSHA, "cci", "lr"); err != nil {
 		t.Fatal("a box holding every tool the brief runs was refused", err)
