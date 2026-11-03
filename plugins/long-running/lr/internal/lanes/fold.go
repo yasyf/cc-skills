@@ -251,8 +251,14 @@ func foldRecord(s *store.Store, r Record, late time.Duration, fresh bool, at tim
 	if !fresh && (kind == "blocker" || (kind == "ask" && name == Root)) {
 		foldPage(s, r, name, addressed)
 	}
+	if !fresh && (kind == "ask" || kind == kindRequest) {
+		foldOrder(s, r, addressed, at)
+	}
 	foldGates(s, r, fresh, at)
 	resolved := r.resolved()
+	if len(resolved) > 0 {
+		do(s.ResolveUnread(resolved))
+	}
 	answers := resolved
 	if r.Re != 0 {
 		answers = append(slices.Clone(resolved), r.Re)
@@ -412,6 +418,14 @@ func foldPage(s *store.Store, r Record, name string, addressed map[string]bool) 
 		page["seqs"] = append(seqs, r.Seq)
 		do(s.SetLaneWaiting(target, 0, r.At.UTC(), ""))
 		do(s.SetLanePage(target, page))
+	}
+}
+
+func foldOrder(s *store.Store, r Record, addressed map[string]bool, at time.Time) {
+	for target := range addressed {
+		if lane, found := laneOf(s, target); found && target != r.Lane && target != Root && isLive(lane.State) {
+			do(s.AddUnread(store.Unread{Lane: target, Seq: r.Seq, At: at, Author: r.Lane, Kind: r.Kind}))
+		}
 	}
 }
 
