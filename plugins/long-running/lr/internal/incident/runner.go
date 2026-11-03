@@ -26,6 +26,7 @@ const (
 	authorityR16      = "R16"
 	authorityAdopt    = "adopted"
 	backupAfter       = 15 * time.Minute
+	landedAfter       = 20 * time.Minute
 	clockFallback     = "-opus"
 	commsDeadline     = 2 * time.Minute
 	syncDeadline      = 10 * time.Minute
@@ -358,6 +359,9 @@ func (r *Runner) exhausted(ctx context.Context) error {
 			continue
 		}
 		text := fmt.Sprintf("%s %s failed %d times: %s", action.Kind, action.Target, maxAttempts, action.Reason)
+		if strings.HasPrefix(action.ActionID, "dispatch:"+RoleBackup) {
+			text += fmt.Sprintf("; start %s in-process now, an Agent of type long-running:lane-ship on opus in fast mode", action.Target)
+		}
 		if err := r.decide(ctx, "exhausted:"+action.ActionID, text); err != nil {
 			return err
 		}
@@ -569,28 +573,27 @@ func (r *Runner) writeBrief(ctx context.Context, facts Facts, role string) (stri
 }
 
 func (r *Runner) dispatch(ctx context.Context) error {
-	facts, err := r.facts("mechanism", "repair_pr", "not_ours")
-	if err != nil || facts.RepairPR != 0 {
+	facts, err := r.facts("repair_pr", "not_ours", "landed_sha", "human_review")
+	if err != nil {
 		return err
 	}
-	if err := r.launch(ctx, RoleFix); err != nil {
-		return err
-	}
-	if err := r.launch(ctx, RoleEvidence); err != nil {
-		return err
+	if facts.RepairPR == 0 {
+		if err := r.launch(ctx, RoleFix); err != nil {
+			return err
+		}
+		if err := r.launch(ctx, RoleEvidence); err != nil {
+			return err
+		}
 	}
 	fix, err := r.latest("dispatch:" + RoleFix)
 	if err != nil || fix == nil || fix.Status != ActionVerified {
 		return err
 	}
-	if facts.Mechanism != "" || facts.NotOurs != "" {
-		return nil
-	}
 	started, err := store.Parse(string(fix.StartedAt))
 	if err != nil {
 		return err
 	}
-	if r.Now().Sub(started) < backupAfter {
+	if facts.NotOurs != "" || !r.overBudget(facts, started) {
 		return nil
 	}
 	backup, err := r.latest("dispatch:" + RoleBackup)
@@ -608,6 +611,14 @@ func (r *Runner) dispatch(ctx context.Context) error {
 		}
 	}
 	return r.launch(ctx, RoleBackup)
+}
+
+func (r *Runner) overBudget(facts Facts, started time.Time) bool {
+	since := r.Now().Sub(started)
+	if facts.RepairPR == 0 {
+		return since >= backupAfter
+	}
+	return facts.LandedSHA == "" && !facts.HumanReview && since >= landedAfter
 }
 
 func (r *Runner) design(ctx context.Context) error {
