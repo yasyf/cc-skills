@@ -19,22 +19,26 @@ import (
 const tapRequired = "TAP-REQUIRED no approval on the owner's board at this head"
 
 func gateCommand(a *app.App) *cobra.Command {
-	return &cobra.Command{
+	var partial bool
+	cmd := &cobra.Command{
 		Use:   "gate PR...",
 		Short: "Print each gate a hand enqueue of these PRs would pass over, posting nothing, and exit 1 when it prints any",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runGate(cmd.Context(), a, args, cmd.OutOrStdout())
+			return runGate(cmd.Context(), a, args, partial, cmd.OutOrStdout())
 		},
 	}
+	cmd.Flags().BoolVar(&partial, "partial", false, "The enqueue takes only the named PRs and those below them, not the stacks above")
+	return cmd
 }
 
-func runGate(ctx context.Context, a *app.App, args []string, stdout io.Writer) error {
+func runGate(ctx context.Context, a *app.App, args []string, partial bool, stdout io.Writer) error {
 	cfg, err := a.Config()
 	if err != nil {
 		return err
 	}
-	s, err := store.Open(filepath.Join(filepath.Dir(a.ConfigPath), storeFile))
+	dir := filepath.Dir(a.ConfigPath)
+	s, err := store.Open(filepath.Join(dir, storeFile))
 	if err != nil {
 		return err
 	}
@@ -43,27 +47,71 @@ func runGate(ctx context.Context, a *app.App, args []string, stdout io.Writer) e
 	if err != nil {
 		return err
 	}
-	byNumber := make(map[string]machine.Facts, len(snapshot))
-	for _, f := range snapshot {
-		byNumber[strconv.Itoa(f.Number)] = f
+	g, err := NewGates(a, s, cfg, filepath.Join(dir, runnerFile))
+	if err != nil {
+		return err
 	}
-	failing := false
-	for _, pr := range args {
-		f, open := byNumber[pr]
-		if !open {
-			failing = true
-			fmt.Fprintf(stdout, "#%s is no open PR of this drive\n", pr)
-			continue
-		}
-		for _, line := range GateLines(f) {
-			failing = true
-			fmt.Fprintln(stdout, line)
-		}
+	lines := g.HandEnqueueLines(ctx, snapshot, args, partial)
+	for _, line := range lines {
+		fmt.Fprintln(stdout, line)
 	}
-	if failing {
+	if len(lines) > 0 {
 		return &wait.ExitError{Code: 1}
 	}
 	return nil
+}
+
+func (g *Gates) HandEnqueueLines(ctx context.Context, snapshot []machine.Facts, named []string, partial bool) []string {
+	byNumber := make(map[string]machine.Facts, len(snapshot))
+	byBranch := make(map[string]machine.Facts, len(snapshot))
+	for _, f := range snapshot {
+		byNumber[strconv.Itoa(f.Number)] = f
+		byBranch[f.Branch] = f
+	}
+	var lines []string
+	below := map[string]bool{}
+	for _, pr := range named {
+		f, open := byNumber[pr]
+		if !open {
+			lines = append(lines, fmt.Sprintf("#%s is no open PR of this drive", pr))
+		}
+		for ; open; f, open = byBranch[f.Base] {
+			below[f.Branch] = true
+		}
+	}
+	for _, f := range snapshot {
+		if below[f.Branch] || !partial && downstackMeets(f, byBranch, below) {
+			lines = append(append(lines, GateLines(f)...), g.refusalLines(ctx, f)...)
+		}
+	}
+	return lines
+}
+
+func (g *Gates) refusalLines(ctx context.Context, f machine.Facts) []string {
+	kept, err := g.Store.Facts(f.Repo, f.Number, f.Head)
+	if err != nil {
+		g.Log.Warn("the hand enqueue gate did not read its facts", "pr", f.Number, "err", err)
+		return nil
+	}
+	var lines []string
+	if kept[rulingsClear] == "" {
+		rows, _ := g.checkPR(ctx, f)
+		for _, row := range rows {
+			lines = append(lines, fmt.Sprintf("#%d %s RESERVED %s: %s", f.Number, shortHead(f.Head), row.Key, row.Sentence))
+		}
+	}
+	if g.Build.Tree == "" || kept[buildClear] != "" {
+		return lines
+	}
+	failure, _, err := g.readBuildFailure(ctx, f)
+	if err != nil {
+		g.Log.Warn("the build gate did not read, so it passes this head this pass", "pr", f.Number, "err", err)
+		return lines
+	}
+	if failure != "" {
+		lines = append(lines, fmt.Sprintf("#%d %s BUILD-FAILED %s", f.Number, shortHead(f.Head), failure))
+	}
+	return lines
 }
 
 func GateLines(f machine.Facts) []string {
