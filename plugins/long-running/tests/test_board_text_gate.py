@@ -143,7 +143,7 @@ def test_a_failed_register_read_passes_the_board_and_posts_one_blocker(root: Roo
         assert gate.board_text_gate(root.event(PreToolUseEvent, f"cc-present update-block {board('clean-card.json')}")) is None
 
     [post] = posts.read_text().splitlines()
-    assert post.startswith("post --drive brook-bus --lane root --kind blocker --to root --text board_text_gate: rulings.py rows: ")
+    assert post.startswith("post --drive brook-bus --lane capt-hook --kind blocker --to root --text board_text_gate: rulings.py rows: ")
     assert " --id board_text_gate:" in post
 
 
