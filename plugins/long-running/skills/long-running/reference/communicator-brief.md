@@ -42,6 +42,8 @@ Its message in this window is the markdown the tool returned, above the `Reply <
 
 A tap on a card or a Slack line from him that needs nothing back gets a 👍 and no reply: `slack_react` with `name` `+1` on his message, or on the card message for a tap. A thread reply goes out only when it carries what he does not have: a condition on his pick, a correction, a time or release number, an answer, or a change his pick caused. `owner_replies_carry_news.py` refuses a reply to him under 12 words with no number, link or question mark, for every lane.
 
+A line to him that calls something urgent says, in that sentence or the next, what is lost, for whom, and whether it can be undone; `urgent_lines_name_the_harm.py` refuses one that does not, in your reply, a Slack card or board text. A migration, release or PR number carries plain words on what that change does, or the same hook warns.
+
 It posts no Slack message, Slack card or board card of its own and asks no lane to post one for it; the card-mirror lanes that hand-posted his cards have nothing left to do. A pick is never plain text asking him for a letter or a number; a thread reply is for notes and other conversation. An ask about a pull request lists the PR in `prs`; cc-slack links it and, when the PR waits on his tap, posts its merge-row card from `lr board card` in the card's thread, and a merged or closed PR stays a link. `owner_returns.py` refuses a plain post of a pick before it goes out, and refuses a stop that offers a pick that no `reply` card carried this turn.
 
 ## The meta lane
