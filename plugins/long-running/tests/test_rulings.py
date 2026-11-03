@@ -35,6 +35,7 @@ DRIVE_LEDGER = "d" * 40
 STAMP = "2026-10-23T12:00:00Z"
 AT = "2026-10-23T12:30:00Z"
 PROMPT_KEY = "prompt/1023-053000"
+RECORDED = "4444444" + "0" * 33
 LIVE = [
     {"lane": "lane-a", "kind": "head", "text": "lane-a 1234567"},
     {"lane": "root", "kind": "decision", "text": "lane-b: go"},
@@ -956,6 +957,47 @@ def test_classify_refuses_a_pick_that_widens_a_scope_row(home: Path, package: Pa
     assert out.strip() == f"PICK-WIDENS {'a' * 16}: the pick adds desktop app to rule/aaaaaaa; pass supersedes=rule/aaaaaaa with owner words naming each surface"
 
 
+def test_classify_records_a_ruling_with_no_answer_as_his_answer_with_its_topics_and_reuses_one_already_recorded(home: Path, package: Path, state: Path, tmp_path: Path, capsys) -> None:
+    prior = {"id": "5555555" + "0" * 33, "title": "What if a convert fails?", "body": "Read-only with fork.", "tags": ["from:owner", f"message:{'5' * 16}"]}
+    captured(state, capture("4", "old chats convert in the background at startup"), capture("5", "a failed convert opens read-only with fork"))
+    shell = RegisterShell(seeded(package), answers=[prior])
+    shell.vocabulary = {"old-chats": {"words": r"\bold chats?\b", "dirs": '["go/sand/next/internal/convert"]'}, "flags": {"words": r"\bflags?\b", "dirs": "[]"}}
+
+    code, out = classify(
+        tmp_path,
+        capsys,
+        shell,
+        {"digest": "4" * 16, "kind": "order", "words": "old chats convert in the background at startup"},
+        {"digest": "5" * 16, "kind": "order", "words": "a failed convert opens read-only with fork", "key": "prompt/again"},
+    )
+
+    assert code == 0, out
+    [add] = [argv for argv in shell.calls if argv[3:5] == ["answer", "add"]]
+    labels = {add[index + 1] for index, flag in enumerate(add) if flag == "--label"}
+    assert add[5] == "old chats convert in the background at startup"
+    assert add[add.index("--body") + 1].startswith(f"old chats convert in the background at startup\n\nOwner, Oct 23 5:30 AM PT, prompt capture {'4' * 16};")
+    assert {"from:owner", "scope:durable", "program:brook", f"message:{'4' * 16}", f"proof:prompt:{'4' * 16}", "topic:old-chats"} == labels
+    assert add[add.index("topic:old-chats") + 1 : add.index("topic:old-chats") + 3] == ["--dir", "go/sand/next/internal/convert"]
+    assert json.loads(shell.rows[PROMPT_KEY]["answer"]) == [RECORDED]
+    assert json.loads(shell.rows["prompt/again"]["answer"]) == [prior["id"]]
+
+
+def test_classify_records_no_answer_for_a_board_tap_or_a_design_row(home: Path, package: Path, state: Path, tmp_path: Path, capsys) -> None:
+    captured(state, capture("4", "keep the parked worker", source="board", block="worker-pick"), capture("5", "one database per session"))
+    shell = RegisterShell(seeded(package))
+
+    code, out = classify(
+        tmp_path,
+        capsys,
+        shell,
+        {"digest": "4" * 16, "kind": "pick", "words": "keep the parked worker"},
+        {"digest": "5" * 16, "kind": "design", "words": "one database per session", "key": "design/one-database"},
+    )
+
+    assert code == 0, out
+    assert [argv for argv in shell.calls if argv[3:5] == ["answer", "add"]] == []
+
+
 def test_classify_writes_a_scope_row_its_card_and_one_record_addressed_to_no_lane_whose_slice_misses_it(
     home: Path, package: Path, state: Path, registered: Path, tmp_path: Path, capsys
 ) -> None:
@@ -1300,7 +1342,7 @@ def test_a_repeat_extends_its_row_counts_it_and_posts_its_sweep_hits_to_the_fide
     assert json.loads(row["names"]) == ["relay-server", "parked worker", "relay hook"]
     assert [(item["n"], item["text"]) for item in json.loads(row["implications"])][-1] == (4, "relay-server exposes no relay hook.")
     assert json.loads(row["repeats"]) == [
-        {"key": PROMPT_KEY, "answer": [], "at": "Oct 23 5:30 AM PT", "words": "how many times: no parked worker on relay-server, and no relay hook either", "proof": f"proof:prompt:{'5' * 16}", "repeat": True}
+        {"key": PROMPT_KEY, "answer": [RECORDED], "at": "Oct 23 5:30 AM PT", "words": "how many times: no parked worker on relay-server, and no relay hook either", "proof": f"proof:prompt:{'5' * 16}", "repeat": True}
     ]
     brief = state / "briefs" / "lane-a.md"
     hits = json.loads(out)["hits"]

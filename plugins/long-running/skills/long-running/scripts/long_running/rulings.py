@@ -1494,6 +1494,17 @@ def post_repeat(loaded: Register, cci: str, key: str, hits: list[str], stderr: T
         print(f"WARN the sweep hits of {key} did not post to the fidelity desks ({(failed.stderr or '').strip() or failed}); they stay at {path}", file=stderr)
 
 
+def ruling_answer(loaded: Register, capture: dict, words: str, at: str, proof: str) -> str:
+    ccn = partial(ccn_text, loaded.shell, loaded.repo)
+    message = f"message:{capture['digest']}"
+    if found := json.loads(ccn(["answer", "list", "--label", message, "--limit", "0", "--json"]) or "[]"):
+        return found[0]["id"]
+    body = f"{words}\n\nOwner, {at}, {capture.get('source', 'prompt')} capture {capture['digest']}; recorded as rulings.py classify wrote its register row."
+    labels = ("from:owner", "scope:durable", f"program:{loaded.program}", message, proof)
+    topics = answer_search.anchors(answer_search.vocabulary(ccn, loaded.program), words)
+    return json.loads(ccn(["answer", "add", first_sentence(words), "--body", body, *topics, *(arg for label in labels for arg in ("--label", label)), "--json"]))["id"]
+
+
 def applied(loaded: Register, captured: dict[str, dict], entry: dict, files: Callable[[], list[Path]], documents: DocumentIndex | None = None) -> dict:
     item = entry["digest"]
     capture = captured[item]
@@ -1504,7 +1515,8 @@ def applied(loaded: Register, captured: dict[str, dict], entry: dict, files: Cal
     at = pacific(capture["at"])
     words = entry["words"]
     quote = words if capture.get("source") == ANSWER_SOURCE else capture["text"]
-    answers = answers_of(entry, capture)
+    planned = (entry.get("kind") or loaded.rows.get(entry.get("extends") or "", {}).get("kind")) in PLAN_KINDS
+    answers = answers_of(entry, capture) or ([] if planned or capture.get("source") in TAPS else [ruling_answer(loaded, capture, quote, at, proof)])
     repeated = False
     if extends := entry.get("extends"):
         key, how, repeated = extends, "extended", bool(repeat_markers(loaded, capture["text"]))
