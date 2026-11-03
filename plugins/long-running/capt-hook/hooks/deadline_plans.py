@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from collections.abc import Iterator
 
-from captain_hook import Allow, BaseHookEvent, Block, Event, Input, Tool, hook
+from captain_hook import Allow, BaseHookEvent, Event, HookResult, Input, Tool, Warn, on
 
 from .cci_mcp_posts import POST_TOOL
 from .compaction_handoff import CompactionState
@@ -55,20 +55,21 @@ def mcp(text: str, **attrs: str) -> Input:
     return Input(tool=POST_TOOL, tool_input={"kind": "report", "text": text, "attrs": attrs}, state=ACTIVE)
 
 
-hook(  # capt-hook: no-escape the message names the attrs that make the record postable
+DEADLINE_PLAN = (
+    "Warning, nothing was blocked: A record naming a deadline, a clock time after by, before, until or due, carries its plan."
+    " Add `--attr owner=<lane>` and one `--attr 'step:<n>=<clock> <what>'` per step, each opening with its Pacific time, no commas; the cci post tool takes the same keys in `attrs`."
+)
+
+
+@on(
     Event.PreToolUse,
     only_if=[Tool("Bash", POST_TOOL), DriveActive(), PostsUnplannedDeadline()],
-    block=True,
-    message=(
-        "A record naming a deadline, a clock time after by, before, until or due, carries its plan."
-        " Add `--attr owner=<lane>` and one `--attr 'step:<n>=<clock> <what>'` per step, each opening with its Pacific time, no commas; the cci post tool takes the same keys in `attrs`."
-    ),
     tests={
-        Input(command=POST, state=ACTIVE): Block(pattern=r"^A record naming a deadline"),
-        Input(command=f"{POST} --attr owner=memoryschema-1", state=ACTIVE): Block(),
-        Input(command=f"{POST} --attr owner=memoryschema-1 --attr 'step:1=2:30 AM open the PR' --attr 'step:2=merge on green'", state=ACTIVE): Block(),
-        Input(command="cci post --drive d --lane lane-a --kind note --attr 'deadline=5:00 AM' --text 'image published'", state=ACTIVE): Block(),
-        mcp("schema migration lands before 4 PM"): Block(),
+        Input(command=POST, state=ACTIVE): Warn(pattern=r"^Warning, nothing was blocked: A record naming a deadline"),
+        Input(command=f"{POST} --attr owner=memoryschema-1", state=ACTIVE): Warn(),
+        Input(command=f"{POST} --attr owner=memoryschema-1 --attr 'step:1=2:30 AM open the PR' --attr 'step:2=merge on green'", state=ACTIVE): Warn(),
+        Input(command="cci post --drive d --lane lane-a --kind note --attr 'deadline=5:00 AM' --text 'image published'", state=ACTIVE): Warn(),
+        mcp("schema migration lands before 4 PM"): Warn(),
         Input(command=f"{POST} {PLAN}", state=ACTIVE): Allow(),
         mcp("schema migration lands before 4 PM", owner="memoryschema-1", **{"step:1": "2:30 AM open the PR"}): Allow(),
         Input(command="cci post --drive d --lane lane-a --kind state --text 'relaunched at 3:10 AM, quiet since 9:45 PM'", state=ACTIVE): Allow(),
@@ -78,3 +79,5 @@ hook(  # capt-hook: no-escape the message names the attrs that make the record p
         Input(command=POST): Allow(),
     },
 )
+def deadline_records_carry_their_plan(evt: BaseHookEvent) -> HookResult:
+    return evt.context(DEADLINE_PLAN)

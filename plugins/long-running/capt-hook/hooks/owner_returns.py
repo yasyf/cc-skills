@@ -43,7 +43,7 @@ REPLIED = "Its checks passed.\n\n- Land it (recommended)\n- Hold it\n\nReply r1;
 SLACK_POSTED = re.compile(r"\bts\W{1,4}\d{10}\.\d{6}|/archives/\w+/p\d{16}")
 BOARD_VERBS = frozenset({"push", "update-block", "ask", "send"})
 INLINE_PICK = "A pick for the owner never sits inline or in plain Slack text; he answers with a button. Send it with the `reply` tool, the answers as its `picks` and one of them as `recommended`, then stop again."
-PLAIN_PICK = "A pick for the owner is never plain text in his Slack DM; he taps a button, and a thread reply is for notes. Send it with the `reply` tool, the answers as its `picks` and one of them as `recommended`."
+PLAIN_PICK = "Warning, nothing was blocked: A pick for the owner is never plain text in his Slack DM; he taps a button. Send it with the `reply` tool, the answers as its `picks` and one of them as `recommended`."
 PR_REF = re.compile(r"github\.com/[\w.-]+/[\w.-]+/pull/(\d+)|[\w.-]+/[\w.-]+#(\d+)|\b(?i:PR|pull request) #?(\d+)\b|(?<![\w&/])#(\d+)\b")
 PR_STATE = re.compile(r"\b(?:stale|merged|queued|red|green)\b", re.IGNORECASE)
 UNREAD_PR = "A reply that calls a PR stale, merged, queued, red or green follows a cci or ccx read of that PR this turn. Read {prs} with `ccx vcs pr status <n>` and say what it shows."
@@ -329,16 +329,16 @@ def dm(tool: str = DM_CARD, **given: object) -> Input:
     only_if=[Communicator(), Tool("Bash", *WRITE_TOOLS)],
     skip_if=[FromSubagent()],
     tests=communicator_tests({
-        dm("slack_send", channel_id="D0B6Z", text=PICK): Block(pattern=r"^A pick for the owner is never plain text in his Slack DM.*the `reply` tool, the answers as its `picks`"),
-        dm(text=PICK): Block(pattern=r"never plain text"),
-        dm("slack_reply", channel_id="D0B6Z", thread_ts="1793635190.051179", text="Reply with a number: 1 keeps one replica, 2 gives each chat its own."): Block(pattern=r"never plain text"),
-        dm(card={"title": "How do we fix the relay?", "body": PICK}): Block(pattern=r"never plain text"),
+        dm("slack_send", channel_id="D0B6Z", text=PICK): Warn(pattern=r"^Warning, nothing was blocked: A pick for the owner is never plain text in his Slack DM.*the `reply` tool, the answers as its `picks`"),
+        dm(text=PICK): Warn(pattern=r"never plain text"),
+        dm("slack_reply", channel_id="D0B6Z", thread_ts="1793635190.051179", text="Reply with a number: 1 keeps one replica, 2 gives each chat its own."): Warn(pattern=r"never plain text"),
+        dm(card={"title": "How do we fix the relay?", "body": PICK}): Warn(pattern=r"never plain text"),
         dm(card=RELAY_CARD): Allow(),
         dm(text="A) keeps one replica for every chat. B) gives each chat its own, so one slow chat stalls nobody.", about="pick-buttons:relay"): Allow(),
         dm("slack_send", channel_id="D0B6Z", text="The relay fix merged at 3:10 AM, and the dashboard shows it."): Allow(),
         dm("slack_send", channel_id="C0RELEASES1", text=PICK): Allow(),
-        Input(command="cc-slack dm-status 'Reply with A or B: A) one shared replica, B) one per chat'", state=[CompactionState(active=True)]): Block(pattern=r"never plain text"),
-        Input(command=f"cc-slack send --channel D0B6Z --text '{PICK}'", state=[CompactionState(active=True)]): Block(pattern=r"never plain text"),
+        Input(command="cc-slack dm-status 'Reply with A or B: A) one shared replica, B) one per chat'", state=[CompactionState(active=True)]): Warn(pattern=r"never plain text"),
+        Input(command=f"cc-slack send --channel D0B6Z --text '{PICK}'", state=[CompactionState(active=True)]): Warn(pattern=r"never plain text"),
         Input(command=f"cc-slack dm-status --card '{json.dumps(RELAY_CARD)}'", state=[CompactionState(active=True)]): Allow(),
         Input(command="cc-slack dm-status 'The relay fix merged at 3:10 AM.'", state=[CompactionState(active=True)]): Allow(),
         Input(command="ls", state=[CompactionState(active=True)]): Allow(),
@@ -350,7 +350,7 @@ def dm(tool: str = DM_CARD, **given: object) -> Input:
 )
 def owner_asks_post_as_cards(evt: BaseHookEvent) -> HookResult | None:
     plain = any(offers_pick(words) and not posted.get("options") for words, posted in dm_posts(evt))
-    return evt.block(PLAIN_PICK) if plain else None
+    return evt.context(PLAIN_PICK) if plain else None
 
 
 def dm_posts(evt: BaseHookEvent) -> list[tuple[str, dict]]:

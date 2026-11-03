@@ -20,7 +20,7 @@ import (
 
 const readFailed = "read failed"
 
-var keptGates = map[string]string{"landing go": "8c73884"}
+var keptGates = map[string]string{"landing go": "answer 8c73884: a go is the authorization itself, so an unread go has nothing to pass"}
 
 type unreadable struct{ reads atomic.Int64 }
 
@@ -92,9 +92,9 @@ func TestAGateWhoseReadFailedRefusesNothing(t *testing.T) {
 
 func TestEachKeptGateIsARealVerb(t *testing.T) {
 	cmd := root(app.New(&bytes.Buffer{}))
-	for verb, answer := range keptGates {
+	for verb, reason := range keptGates {
 		if found, _, err := cmd.Find(strings.Fields(verb)); err != nil || found.CommandPath() != "lr "+verb {
-			t.Errorf("%s, kept under answer %s, reached %s: %v", verb, answer, found.CommandPath(), err)
+			t.Errorf("%s, kept because %s, reached %s: %v", verb, reason, found.CommandPath(), err)
 		}
 	}
 }

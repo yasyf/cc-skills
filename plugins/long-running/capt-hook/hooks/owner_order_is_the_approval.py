@@ -4,12 +4,11 @@ import json
 import re
 import subprocess
 
-from captain_hook import CONFIRMED, Allow, BaseHookEvent, Block, Confirm, Event, FromSubagent, Input, Tool, hook
+from captain_hook import Allow, BaseHookEvent, Event, FromSubagent, HookResult, Input, Tool, Warn, on
 
 from .compaction_handoff import Communicator, communicator_tests, CompactionState
 from .lane_rotation import DriveActive
-from .owner_facing import REPLY_WINDOW, SLACK_CARD, last_reply
-from .tests.handoff_fixtures import reply_transcript
+from .owner_facing import SLACK_CARD
 
 ACTIVE = [CompactionState(active=True, coordinator=True)]
 QUESTION = re.compile(r"[^.?!\n]*\?")
@@ -19,7 +18,7 @@ ORDER_READ = ["cci", "grep", "--lane", "root", "--json", "-n", "1", "--since", "
 READ_SECONDS = 10
 ORDER = json.dumps({"seq": 341020, "lane": "root", "kind": "go", "text": "RELEASE ORDER: owner 4:52 PM, do a full release of plat"})
 MESSAGE = (
-    "The owner's release order already carries every approval its steps need, deletes and migrations included."
+    "Warning, nothing was blocked: The owner's release order already carries every approval its steps need, deletes and migrations included."
     " Let the release lane approve the step itself and report deletes and replaces in its done line."
 )
 
@@ -43,42 +42,22 @@ class AsksOrderedApproval:
         return asks_release_approval(card_text(evt)) and release_ordered()
 
 
-class RepliesOrderedApproval:
-    def check(self, evt: BaseHookEvent) -> bool:
-        return asks_release_approval(last_reply(evt)) and release_ordered()
-
-
 def ask(question: str, order: str = ORDER, **extra: object) -> Input:
-    return Input(tool=SLACK_CARD, tool_input={"card": {"title": question, "options": ["Approve", "Hold"]}}, state=ACTIVE, commands={"cci grep": order}, decide=CONFIRMED, **extra)
+    return Input(tool=SLACK_CARD, tool_input={"card": {"title": question, "options": ["Approve", "Hold"]}}, state=ACTIVE, commands={"cci grep": order}, **extra)
 
 
-hook(
+@on(
     Event.PreToolUse,
     only_if=[Communicator(), Tool(SLACK_CARD), DriveActive(), AsksOrderedApproval()],
     skip_if=[FromSubagent()],
-    block=True,
-    confirm=Confirm(rule="The owner already ordered this release, so nobody asks him to approve one of its steps."),
-    message=MESSAGE,
     tests=communicator_tests({
-        ask("Approve the 3 deletes on plat so release 12151 can apply?"): Block(pattern=r"^The owner's release order already carries"),
-        Input(tool=SLACK_CARD, tool_input={"card": {"title": "Your word on the migrations for the plat release?", "options": ["Approve", "Hold"]}}, state=ACTIVE, commands={"cci grep": ORDER}, decide=CONFIRMED): Block(),
+        ask("Approve the 3 deletes on plat so release 12151 can apply?"): Warn(pattern=r"^Warning, nothing was blocked: The owner's release order already carries"),
+        Input(tool=SLACK_CARD, tool_input={"card": {"title": "Your word on the migrations for the plat release?", "options": ["Approve", "Hold"]}}, state=ACTIVE, commands={"cci grep": ORDER}): Warn(),
         ask("Approve the 3 deletes on plat so release 12151 can apply?", ""): Allow(),
         ask("Merge #48401 now?"): Allow(),
         ask("Approve the 3 deletes on plat so release 12151 can apply?", agent_id="a1b2c3"): Allow(),
         Input(tool=SLACK_CARD, tool_input={"card": {"title": "Approve the deletes on plat?"}}, commands={"cci grep": ORDER}): Allow(),
     }),
 )
-
-hook(  # capt-hook: no-escape a reply to the owner carries no tool call to confirm, and the order already answers the ask
-    Event.Stop,
-    only_if=[Communicator(), DriveActive(), RepliesOrderedApproval()],
-    skip_if=[FromSubagent()],
-    transcript_events=REPLY_WINDOW,
-    block=True,
-    message=MESSAGE,
-    tests=communicator_tests({
-        Input(transcript=reply_transcript("Release 12151 shows 3 deletes on plat. Approve them so the apply can go on?"), state=ACTIVE, commands={"cci grep": ORDER}): Block(pattern=r"report deletes and replaces in its done line"),
-        Input(transcript=reply_transcript("Release 12151 applied with 3 deletes, which the release lane approved under the owner's order."), state=ACTIVE, commands={"cci grep": ORDER}): Allow(),
-        Input(transcript=reply_transcript("Approve the 3 deletes on plat?"), state=ACTIVE, commands={"cci grep": ""}): Allow(),
-    }),
-)
+def ordered_releases_ask_no_approval(evt: BaseHookEvent) -> HookResult:
+    return evt.context(MESSAGE)

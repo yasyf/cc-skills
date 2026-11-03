@@ -69,7 +69,7 @@ communicator's window is bound `owner-relay`; the coordinator's is bound `root`,
 every coordinator hook and every record addressed to `root` lands on the coordinator and
 none of it on the communicator. The hooks come in three tiers on one switch:
 shared hooks (context discipline) act in both windows; coordinator hooks (asks,
-retro rows, coverage, landing, launch, incident checks, the task list, the
+coverage, landing, launch, incident checks, the task list, the
 compaction handoff) act only in the session that ran `/long-running:coordinator`,
 which also claims the cci lane with `cci announce --lane root`; communicator hooks
 (plain words, owner words and picks, claims to the owner, confirm-back, failure
