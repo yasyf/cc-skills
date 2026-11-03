@@ -196,6 +196,27 @@ func TestABrokenPRWakesTheLaneParkedOnItOnceUntilANewHead(t *testing.T) {
 	}
 }
 
+func TestALaneThatPostsAfterItsDoneStaysParkedAndGetsNoSuccessor(t *testing.T) {
+	s := memory(t)
+	f := adopted(t, s, writeBrief(t), "", 47001)
+	f.feed = append(f.feed,
+		rec(2, lane2, "done", t0.Add(-3*time.Hour), "ready", Root),
+		rec(3, lane2, "head", t0.Add(-2*time.Hour), "HEAD #47002 merged").withRefs(prs(47002)),
+		rec(4, lane2, "answer", t0.Add(-2*time.Hour), "one more answer"),
+	)
+	f.peers = []Row{who(lane2, false, t0.Add(-2*time.Hour))}
+
+	out := tick(t, s, f, t0)
+
+	equal(t, len(out.Relaunched)+len(f.launches), 0)
+	equal(t, row(t, s, lane2).Awaits, doneParked)
+
+	f.states = map[int]string{47001: Closed, 47002: Closed}
+	final := tick(t, s, f, t0.Add(mins(1)))
+	lane := row(t, s, lane2)
+	equal(t, []any{lane.State, lane.RetiredBy, len(final.Relaunched)}, []any{store.LaneRetired, "done", 0})
+}
+
 func TestAParkedDoneLaneRetiresWhenItsPRCloses(t *testing.T) {
 	s := memory(t)
 	f := adopted(t, s, writeBrief(t), "", 47001)

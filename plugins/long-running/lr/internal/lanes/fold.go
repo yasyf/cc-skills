@@ -290,13 +290,16 @@ func maxOrder(s *store.Store, r Record) int64 {
 }
 
 func foldWait(s *store.Store, r Record, row store.Lane) {
+	do(s.SetLanePage(r.Lane, nil))
+	if row.Awaits == doneParked {
+		return
+	}
 	var ask int64
 	awaits := ""
 	if slices.Contains(waits, r.Kind) && (card.MatchString(r.Text) || slices.Contains(r.To, Root) || must(BriefOf(row.Brief)).Standing == "") {
 		ask, awaits = r.Seq, strings.Join(gatesOf(r), " ")
 	}
 	do(s.SetLaneWaiting(r.Lane, ask, time.Time{}, awaits))
-	do(s.SetLanePage(r.Lane, nil))
 }
 
 func gatesOf(r Record) []string {
