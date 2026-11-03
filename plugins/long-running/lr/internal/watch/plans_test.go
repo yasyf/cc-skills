@@ -1,0 +1,110 @@
+package watch
+
+import (
+	"slices"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/pass"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
+)
+
+func withAttrs(record client.Record, attrs map[string]string) client.Record {
+	record.Fields.Attrs = attrs
+	return record
+}
+
+func planSweep(t *testing.T, s *store.Store, r *recorder, now time.Time, records ...client.Record) []pass.Escalated {
+	t.Helper()
+	escalated, err := Sweep(s, records, nil, nil, now, r.post)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return escalated
+}
+
+func TestADeadlineWithNoPlanPagesTheCommunicatorOnceNamingTheRecordDeadlineAndLane(t *testing.T) {
+	s, r := memory(t), &recorder{}
+	said := at(t, "2026-11-03T10:00:00Z")
+	deadline := client.Record{Seq: 40, Lane: "memoryschema-1", Kind: "report", At: said, Text: "schema migration lands by 3:10 AM"}
+
+	first := planSweep(t, s, r, said.Add(time.Minute), deadline)
+	second := planSweep(t, s, r, said.Add(6*time.Minute), deadline)
+
+	want(t, len(first), 1)
+	want(t, first[0].Subject, "deadline#40")
+	want(t, first[0].To, "owner-relay")
+	for _, words := range []string{"deadline with no plan", "#40", "memoryschema-1", "3:10 AM"} {
+		if !strings.Contains(first[0].Cause, words) {
+			t.Fatalf("cause %q lacks %q", first[0].Cause, words)
+		}
+	}
+	want(t, len(r.posts), 1)
+	if !slices.Equal(r.posts[0].to, []string{"owner-relay"}) {
+		t.Fatalf("to = %v", r.posts[0].to)
+	}
+	want(t, len(second), 0)
+}
+
+func TestADeadlineCarryingAnOwnerAndATimedStepEachIsSilent(t *testing.T) {
+	said := at(t, "2026-11-03T10:00:00Z")
+	cases := []struct {
+		name  string
+		attrs map[string]string
+		pages int
+	}{
+		{"owner and timed steps", map[string]string{"owner": "memoryschema-1", "step:1": "2:30 AM open the PR", "step:2": "3:00 AM merge on green"}, 0},
+		{"no owner", map[string]string{"step:1": "2:30 AM open the PR"}, 1},
+		{"no steps", map[string]string{"owner": "memoryschema-1"}, 1},
+		{"a step without a time", map[string]string{"owner": "memoryschema-1", "step:1": "2:30 AM open the PR", "step:2": "merge on green"}, 1},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s, r := memory(t), &recorder{}
+			deadline := withAttrs(client.Record{Seq: 40, Lane: "memoryschema-1", Kind: "report", At: said, Text: "schema migration lands by 3:10 AM"}, c.attrs)
+			want(t, len(planSweep(t, s, r, said.Add(time.Minute), deadline)), c.pages)
+		})
+	}
+}
+
+func TestALaterPlanRecordClearsTheDeadlinePage(t *testing.T) {
+	s, r := memory(t), &recorder{}
+	said := at(t, "2026-11-03T10:00:00Z")
+	deadline := client.Record{Seq: 40, Lane: "memoryschema-1", Kind: "report", At: said, Text: "schema migration lands by 3:10 AM"}
+	plan := withAttrs(client.Record{Seq: 41, Lane: "memoryschema-1", Kind: "report", At: said.Add(10 * time.Minute), Re: 40, Text: "plan for the migration"},
+		map[string]string{"owner": "memoryschema-1", "step:1": "2:30 AM open the PR", "step:2": "3:00 AM merge on green"})
+
+	want(t, len(planSweep(t, s, r, said.Add(time.Minute), deadline)), 1)
+	want(t, len(planSweep(t, s, r, said.Add(11*time.Minute), deadline, plan)), 0)
+
+	open, err := s.OpenItems(PlanNamespace, 40)
+	if err != nil || len(open) != 0 {
+		t.Fatalf("open = %+v, %v", open, err)
+	}
+}
+
+func TestAClockTimeWithoutByBeforeUntilOrDueIsNoDeadline(t *testing.T) {
+	said := at(t, "2026-11-03T10:00:00Z")
+	for _, text := range []string{"2:47 AM slack-bugs-1: quiet since 9:45 PM", "relaunched at 3:10 AM", "overdue 3 PM row closed"} {
+		t.Run(text, func(t *testing.T) {
+			s, r := memory(t), &recorder{}
+			want(t, len(planSweep(t, s, r, said.Add(time.Minute), client.Record{Seq: 40, Lane: "lane-a", Kind: "state", At: said, Text: text})), 0)
+		})
+	}
+	for _, text := range []string{"lands before 4 PM", "holds until 21:30", "due 9:00 a.m. Nov 4"} {
+		t.Run(text, func(t *testing.T) {
+			s, r := memory(t), &recorder{}
+			want(t, len(planSweep(t, s, r, said.Add(time.Minute), client.Record{Seq: 40, Lane: "lane-a", Kind: "state", At: said, Text: text})), 1)
+		})
+	}
+}
+
+func TestTheDeskRunnersRelayOfAnOrderPagesNothing(t *testing.T) {
+	s, r := memory(t), &recorder{}
+	said := at(t, "2026-11-03T10:00:00Z")
+	relay := client.Record{Seq: 40, Lane: "desk-runner", Kind: "note", At: said, Text: "relay: land it by 5:00 AM"}
+
+	want(t, len(planSweep(t, s, r, said.Add(time.Minute), relay)), 0)
+}

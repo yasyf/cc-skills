@@ -221,7 +221,7 @@ ask, and on a lane's records piped through `tail` or `grep`.
 | Incident spawn (the supervisor's Alerts check) | An alert with no `incident` record and no fix lane after three minutes: the supervisor launches the fix and evidence lanes itself; a fix lane that misses gets its Opus fallback on `incident-opus`, the only alias that runs Claude fast mode | The spawn record; a `blocker` only when the launch fails |
 | Namespace box deadlines (the supervisor's nsc check) | Every box `nsc list` shows with a deadline that `lr nsc create` or `lr nsc extend` recorded on the bus. An hour before the deadline the supervisor extends the box by its create duration while its lane is live and tells the lane; a refused extend warns the lane to recreate the box | One `urgent` for a box whose lane is retired or that has no lane label, which is then left to expire |
 | Landed, not live (`lr asks`) | A landed PR whose release target has shipped nothing in an hour | One `blocker` per target with the exact release line |
-| Stalls (item deadlines, `lr watch`) | Work that stopped moving, read from the registry | Only a stall whose owner is the coordinator |
+| Stalls (item deadlines, `lr watch`) | Work that stopped moving, read from the registry; a record naming a deadline with no plan behind it | Only a stall whose owner is the coordinator; a planless deadline pages `owner-relay` |
 | The owner's taps (`board_watch.py`) | Every tap, pick and write-in as an `owner` record; the runner lands on it | A pick with no lane at 30 minutes, as an `ask` |
 | The owner update and the dashboard (`lr update render --sent`, run by `update-desk`) | Every plan step, workstream, live lane under its step, open ask, pick, incident and release today, PR with a go owed or hold; every row with who is on it or **nobody**, what blocks it, what unblocks it and by when, what went wrong; unowned work first; exit 1 naming anything missing | The rendered update, which the communicator relays and the dashboard shows |
 | The handoff (`lr handoff generate`, `lr lanes handoff` before a compaction) | The pre-compaction doc with the lane registry and the rendered update | Nothing but the coordinator's own narrative |
@@ -417,6 +417,14 @@ and meta items in the meta lane's `items.md`. The task list is the coordinator's
 it runs `TaskCreate` the turn it spawns a lane or an ask arrives, completes a task
 only after consuming the deliverable, and reconciles the list against the registry
 at every handoff.
+
+A record that names a deadline, a clock time after by, before, until or due, or a
+`deadline` attr, carries its plan as attrs: `--attr owner=<lane>` and one
+`--attr step:<n>=<clock> <what>` per step, each step leading with its Pacific time
+and holding no comma. A reply to it carrying those attrs, or a record that resolves
+it, settles it too. The stall watch pages `owner-relay` once for a deadline record
+that has neither, naming the record, its deadline and the lane that posted it, and
+closes that page when the plan arrives.
 
 ## Start and resume
 
