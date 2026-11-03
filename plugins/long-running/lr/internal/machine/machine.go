@@ -171,7 +171,7 @@ func (f Facts) Queued() bool {
 }
 
 func (f Facts) ClearsAbove() bool {
-	return f.Landable() || (f.Queued() && f.Hold == "")
+	return f.Landable() || (f.Queued() && f.Hold == "" && f.Tapped())
 }
 
 func (f Facts) Landable() bool {
@@ -206,7 +206,7 @@ func Classify(f Facts) Verdict {
 		return Verdict{StateEvicted, MoverSupervisor, ActionEnqueue, SupervisorClock}
 	}
 	if f.Queue == QueueQueued {
-		if f.QueuedHead != f.Head || f.Hold != "" {
+		if f.QueuedHead != f.Head || f.Hold != "" || !f.Tapped() {
 			return Verdict{StateAwaitingTap, MoverSupervisor, ActionDequeue, SupervisorClock}
 		}
 		return Verdict{StateQueued, MoverSupervisor, ActionWatchQueue, QueueClock}

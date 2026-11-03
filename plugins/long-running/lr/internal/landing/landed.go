@@ -1,6 +1,7 @@
 package landing
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/pass"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/watch"
@@ -60,7 +62,7 @@ func Announce(ctx context.Context, s *store.Store, drive, trunk string, landings
 	return errors.Join(unposted...)
 }
 
-func Settle(ctx context.Context, drive string, answers []Said) error {
+func Settle(ctx context.Context, s *store.Store, drive string, answers []Said) error {
 	unposted := make([]error, 0, len(answers))
 	for _, answer := range answers {
 		f := answer.Facts
@@ -68,15 +70,23 @@ func Settle(ctx context.Context, drive string, answers []Said) error {
 		if strings.Contains(answer.Text, queueAccepted) {
 			label = answer.Accepted
 		}
-		to := f.Lane
-		if to == "" {
-			to = rootLane
+		to := []string{cmp.Or(f.Lane, rootLane)}
+		kind := "report"
+		if answer.Alarm {
+			meta, err := lanes.MetaDesk(s)
+			if err != nil {
+				return err
+			}
+			if !slices.Contains(to, meta) {
+				to = append(to, meta)
+			}
+			kind = "blocker"
 		}
 		_, err := client.Post(ctx, client.Draft{
 			Drive: drive,
 			Lane:  self,
-			Kind:  "report",
-			To:    []string{to},
+			Kind:  kind,
+			To:    to,
 			ID:    fmt.Sprintf("settled:%d:%s:%s", f.Number, f.Head, label),
 			PRs:   []string{pullRef(f)},
 			Text:  fmt.Sprintf("%s #%d at %s: %s", label, f.Number, shortHead(f.Head), answer.Text),

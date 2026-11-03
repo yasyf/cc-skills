@@ -133,6 +133,7 @@ func TestAPRIsEnqueuedOnlyWhenEveryPRBelowItWouldLandOrIsQueued(t *testing.T) {
 		"on trunk":                {nil, "dev", true},
 		"on a landable PR":        {[]machine.Facts{stacked(1, "lower", "dev", nil)}, "lower", true},
 		"on a queued PR":          {[]machine.Facts{stacked(1, "lower", "dev", queued)}, "lower", true},
+		"on a queued untapped PR": {[]machine.Facts{stacked(1, "lower", "dev", func(f *machine.Facts) { queued(f); untapped(f) })}, "lower", false},
 		"on an untapped PR":       {[]machine.Facts{stacked(1, "lower", "dev", untapped)}, "lower", false},
 		"on a held PR":            {[]machine.Facts{stacked(1, "lower", "dev", held)}, "lower", false},
 		"two above an untapped":   {[]machine.Facts{stacked(1, "lowest", "dev", untapped), stacked(3, "lower", "lowest", nil)}, "lower", false},
@@ -192,6 +193,16 @@ func TestAQueuedPRWhoseHeadMovedIsDequeued(t *testing.T) {
 	done := act(t, s, q, &restacker{}, t0, facts(45744, func(f *machine.Facts) { f.Queue, f.QueuedHead = machine.QueueQueued, moved }))
 
 	if !slices.Equal(q.dequeued, []int{45744}) || !slices.Equal(done.Dequeued, []int{45744}) || len(q.enqueued) != 0 {
+		t.Fatalf("queue = %+v, done = %+v", q, done)
+	}
+}
+
+func TestAQueuedPRWithNoTapAtItsHeadIsDequeuedWithAnAlarm(t *testing.T) {
+	s, q := newStore(t), &queue{}
+
+	done := act(t, s, q, &restacker{}, t0, facts(46927, func(f *machine.Facts) { f.Queue, f.QueuedHead, f.Tap = machine.QueueQueued, head, "" }))
+
+	if !slices.Equal(q.dequeued, []int{46927}) || len(done.Said) != 1 || !done.Said[0].Alarm || done.Said[0].Accepted != "UNTAPPED-DEQUEUED" {
 		t.Fatalf("queue = %+v, done = %+v", q, done)
 	}
 }
