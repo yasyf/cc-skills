@@ -226,19 +226,17 @@ func TestAnUnrelatedUnreadMessageDoesNotHoldAWake(t *testing.T) {
 	}
 }
 
-func TestAnUnreadablePeekSendsNoWakeAndTheNextTickRetries(t *testing.T) {
+func TestAnUnreadablePeekStillSendsTheWake(t *testing.T) {
 	sends := 0
 	waker := &Waker{Drive: testDrive, Clock: func() time.Time { return t0 }, Send: func(string, string, string) error {
 		sends++
 		return nil
-	}, Unread: func(string, string) (bool, error) { return false, errors.New("orca down") }}
+	}, Unread: func(string, string) (bool, error) { return false, errors.New("no terminal receipt") }}
 
-	woken, err := waker.Wake("go-sweep", Row{Dispatch: "ctx_1"}, map[string]any{"why": "orders"})
-
-	if err != nil || woken {
-		t.Fatalf("wake = %v, %v; want it unwoken with the tick unharmed", woken, err)
+	woke, err := waker.Wake("go-sweep", Row{Dispatch: "ctx_1"}, nil)
+	if err != nil || !woke || sends != 1 {
+		t.Fatalf("woke %v, sends %d, err %v", woke, sends, err)
 	}
-	equal(t, sends, 0)
 }
 
 func TestARosterLaneHoldingAnUnreadWakeGetsNoSecondOneUntilItReadsIt(t *testing.T) {

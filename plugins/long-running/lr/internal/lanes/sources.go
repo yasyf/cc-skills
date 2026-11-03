@@ -405,11 +405,10 @@ func (w *Waker) Wake(lane string, row Row, page map[string]any) (bool, error) {
 	text := fmt.Sprintf("WAKE %s: %s Read your mail with `cci tail --drive %s --reader %s --to %s`, then continue the work in hand from your ledger; do not restart your brief.", lane, pageText(page, "why"), w.Drive, lane, lane)
 	summary := fmt.Sprintf("WAKE %s: continue the work in hand", lane)
 	if row.Dispatch != "" {
-		pending, err := w.Unread(lane, summary)
-		if err == nil && !pending {
-			err = w.Send(row.Dispatch, summary, text)
+		if pending, err := w.Unread(lane, summary); err == nil && pending {
+			return true, nil
 		}
-		if err != nil {
+		if err := w.Send(row.Dispatch, summary, text); err != nil {
 			slog.Warn("wake not delivered", "lane", lane, "dispatch", row.Dispatch, "err", err)
 			return false, nil
 		}
