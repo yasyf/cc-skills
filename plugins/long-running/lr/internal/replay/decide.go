@@ -214,7 +214,8 @@ func decideLanes(given Input) (Decided, error) {
 	woken, relaunched, held := map[string]bool{}, map[string]bool{}, map[string]bool{}
 	deps := lanes.Deps{
 		Drive: "replay", Checkout: dir, Briefs: filepath.Join(dir, "lanes"),
-		Desk: func(string) (string, error) { return "", nil },
+		Desk:     func(string) (string, error) { return "", nil },
+		OpenWork: func() ([]lanes.Record, error) { return nil, nil },
 		Records: func(since int64) ([]lanes.Record, error) {
 			start := shown
 			for shown < len(feed) && !feed[shown].At.After(now) {

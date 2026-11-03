@@ -59,6 +59,8 @@ var (
 	card           = regexp.MustCompile(`\bcard-[\w.-]*\w`)
 	parked         = regexp.MustCompile(`\bPARKED ([\w.-]+):`)
 	prMention      = regexp.MustCompile(`#(\d+)\b`)
+	stoppedLine    = regexp.MustCompile(`^(?:\d{1,2}:\d{2} [AP]M )?STOPPED\b`)
+	withdrawOrder  = regexp.MustCompile(`\borca-desk: withdraw (\S+)`)
 	ownerAttr      = regexp.MustCompile(`\bowner=([\w.-]+)`)
 	retiredWord    = regexp.MustCompile(`\b([\w.-]+) (?:retired|is done)\b`)
 	ownerClause    = regexp.MustCompile(`#(\d+)\b[^.;#]*?\b(?:moves to ([\w.-]+)|with ([\w.-]+) as owner)`)

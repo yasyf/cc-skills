@@ -168,7 +168,8 @@ func decided(t *testing.T, fixture replayFixture) map[string][]any {
 	woken, relaunched, held := map[string]bool{}, map[string]bool{}, map[string]bool{}
 	deps := Deps{
 		Drive: "replay", Checkout: dir, Briefs: filepath.Join(dir, "lanes"),
-		Desk: func(string) (string, error) { return "", nil },
+		Desk:     func(string) (string, error) { return "", nil },
+		OpenWork: func() ([]Record, error) { return nil, nil },
 		Records: func(since int64) ([]Record, error) {
 			start := shown
 			for shown < len(feed) && !feed[shown].At.After(now) {

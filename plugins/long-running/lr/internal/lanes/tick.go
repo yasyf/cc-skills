@@ -1,6 +1,7 @@
 package lanes
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"maps"
@@ -40,6 +41,7 @@ type Deps struct {
 	PRStates     func(prs []int) (map[int]string, error)
 	Held         func() (map[int]bool, error)
 	Desk         func(lane string) (string, error)
+	OpenWork     func() ([]Record, error)
 	RotateAt     int
 }
 
@@ -566,12 +568,57 @@ func hourly(s *store.Store, d Deps, now time.Time) {
 			words = append(words, fmt.Sprintf("%s %s, so %s took over", lane.Predecessor, lane.Reason, lane.Name))
 		}
 	}
-	if len(words) == 0 {
+	if len(words) > 0 {
+		noun := "lane"
+		if len(words) > 1 {
+			noun = "lanes"
+		}
+		do(d.Post(Post{Kind: "report", To: []string{Root}, Attrs: map[string]string{"audience": "owner"}, Text: fmt.Sprintf("Between %s and %s the lane supervisor restarted %d %s with no root action: %s.", pacific(start), pacific(end), len(words), noun, strings.Join(words, "; "))}))
+	}
+	records, err := d.OpenWork()
+	if errors.Is(err, ErrUnread) {
 		return
 	}
-	noun := "lane"
-	if len(words) > 1 {
-		noun = "lanes"
+	do(err)
+	if depth := queueDepth(records); depth != "" {
+		do(d.Post(Post{Kind: "report", To: []string{Root}, Text: fmt.Sprintf("%s open work by lane, so no queue grows unseen (retro row 133): %s.", pacific(now), depth)}))
 	}
-	do(d.Post(Post{Kind: "report", To: []string{Root}, Attrs: map[string]string{"audience": "owner"}, Text: fmt.Sprintf("Between %s and %s the lane supervisor restarted %d %s with no root action: %s.", pacific(start), pacific(end), len(words), noun, strings.Join(words, "; "))}))
+}
+
+func queueDepth(records []Record) string {
+	queues := map[string][]Record{}
+	for _, r := range records {
+		for lane := range r.Addressed() {
+			if lane != Root && lane != mainLane && lane != "all" && lane != Self {
+				queues[lane] = append(queues[lane], r)
+			}
+		}
+	}
+	names := slices.SortedFunc(maps.Keys(queues), func(a, b string) int {
+		return cmp.Or(cmp.Compare(len(queues[b]), len(queues[a])), cmp.Compare(a, b))
+	})
+	workKinds := []string{"defect", "ask", "blocker"}
+	lines := make([]string, 0, len(names))
+	for _, lane := range names {
+		oldest := queues[lane][0].At
+		tally := map[string]int{}
+		for _, r := range queues[lane] {
+			tally[r.Kind]++
+			if r.At.Before(oldest) {
+				oldest = r.At
+			}
+		}
+		counts := make([]string, 0, len(workKinds))
+		for _, kind := range workKinds {
+			switch tally[kind] {
+			case 0:
+			case 1:
+				counts = append(counts, "1 "+kind)
+			default:
+				counts = append(counts, fmt.Sprintf("%d %ss", tally[kind], kind))
+			}
+		}
+		lines = append(lines, fmt.Sprintf("%s %s (oldest %s)", lane, strings.Join(counts, ", "), pacific(oldest)))
+	}
+	return strings.Join(lines, "; ")
 }
