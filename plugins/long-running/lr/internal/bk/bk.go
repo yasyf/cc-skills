@@ -220,7 +220,7 @@ func (d *Desk) fetch(ctx context.Context, args []string) reply {
 func (d *Desk) run(ctx context.Context, args ...string) (string, *reply) {
 	result, err := d.Runner.Run(ctx, shell.Command{
 		Argv: slices.Concat(d.CLI, args), Dir: d.Checkout,
-		Env: []string{"BUILDKITE_TOKEN=" + d.token}, Timeout: readTimeout,
+		Env: []string{"BUILDKITE_TOKEN=" + d.token}, Timeout: readTimeout, Idempotent: true,
 	})
 	if err == nil {
 		return result.Stdout, nil
@@ -228,7 +228,11 @@ func (d *Desk) run(ctx context.Context, args ...string) (string, *reply) {
 	said := lastBytes(strings.TrimSpace(result.Stderr), replyLimit)
 	var exit *shell.ExitError
 	if errors.As(err, &exit) {
-		return "", &reply{head: fmt.Sprintf("the read exited %d", exit.Code), body: said}
+		head := fmt.Sprintf("the read exited %d", exit.Code)
+		if exit.Tries > 1 {
+			head += fmt.Sprintf(" after %d tries", exit.Tries)
+		}
+		return "", &reply{head: head, body: said}
 	}
 	return "", &reply{head: "the read did not run", body: err.Error()}
 }

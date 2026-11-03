@@ -309,8 +309,13 @@ receipt do not make it ready. Success prints one JSON line with the fields
 On Sprite, the JSON also names `lane`, the actual `workspace`, and `allocation`
 (`warm` or `created`). `terminal` is `prepared.terminal` and `worktree` is
 `prepared.projectRoot`, the checkout on the VM. Use that actual workspace for
-later `cc-remote orca collect` calls. A failed or unproven start prints no success JSON
-and retains the attempt without retry or cleanup.
+later `cc-remote orca collect` calls. When Orca answers `worker-start` with
+`runtime_timeout`, `runtime_unavailable`, `remote_runtime_unavailable`, or
+`invalid_runtime_response` and names an `orchestrationRequestId`, the script
+reissues the same command with `--retry-request <id>` after 5, 15, then 45
+seconds, so Orca replays or joins that one request instead of starting a second
+worker. A failed or unproven start prints no success JSON, names its tries when
+it made more than one, and retains the attempt without cleanup.
 
 ## Read Buildkite from a Sprite
 

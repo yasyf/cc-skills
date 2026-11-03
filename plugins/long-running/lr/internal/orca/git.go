@@ -228,7 +228,7 @@ type PullRequests struct {
 }
 
 func (p PullRequests) Landed(ctx context.Context, head string) (bool, error) {
-	result, err := p.Runner.Run(ctx, shell.Command{Argv: []string{"gh", "pr", "list", "--repo", p.Origin, "--state", "closed", "--search", head, "--json", "number,headRefOid"}})
+	result, err := p.Runner.Run(ctx, shell.Command{Argv: []string{"gh", "pr", "list", "--repo", p.Origin, "--state", "closed", "--search", head, "--json", "number,headRefOid"}, Idempotent: true})
 	if err != nil {
 		return false, err
 	}
