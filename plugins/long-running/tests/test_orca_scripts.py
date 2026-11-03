@@ -1594,8 +1594,9 @@ def test_inbox_needs_stale(orca):
 
 
 def test_the_plugin_bin_launches_every_script_by_name():
-    assert sorted(path.name for path in BIN.iterdir()) == sorted(path.name for path in SCRIPTS.iterdir() if (path.suffix in (".py", ".sh") or path.name.startswith("cci-")) and (path.read_text().startswith("#!") or "__main__" in path.read_text()))
-    for launcher in BIN.iterdir():
+    launchers = [path for path in BIN.iterdir() if path.name != "lr.binrun"]
+    assert sorted(path.name for path in launchers) == sorted(["lr", *(path.name for path in SCRIPTS.iterdir() if (path.suffix in (".py", ".sh") or path.name.startswith("cci-")) and (path.read_text().startswith("#!") or "__main__" in path.read_text()))])
+    for launcher in launchers:
         assert os.access(launcher, os.X_OK)
         assert os.readlink(launcher) == "../scripts/bin-shim.sh"
 

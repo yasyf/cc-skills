@@ -33,6 +33,10 @@ fi
 
 SCRIPT="$ROOT/skills/long-running/scripts/$TOOL"
 case "$TOOL" in
+  lr)
+    export BINRUN_PLUGIN_ROOT="$ROOT"
+    exec "$ROOT/scripts/binrun.sh" "$ROOT/bin/lr.binrun" "$@"
+    ;;
   *.py)
     for python in python3.15 python3.14 python3.13 /opt/homebrew/bin/python3.14 /opt/homebrew/bin/python3.13 python3; do
       command -v "$python" >/dev/null 2>&1 && break
