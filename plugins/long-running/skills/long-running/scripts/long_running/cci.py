@@ -32,6 +32,7 @@ TEXT_KINDS = ("report", "incident", "state")
 REPORT_VERDICTS = ("clean", "red", "conflicting", "held")
 SETTLING_KINDS = frozenset({*CLAIM_KINDS, "ready", "blocker", "blocked", "fix-live", "not-ours", "stopped", "stand-down", "done"})
 TRUNK_TOPIC = "dev-red"
+NOT_LIVE_TOPIC = "landed-not-live"
 TRUNK_RUNNER = "desk-runner"
 TRUNK_STATE = re.compile(r"^(?P<state>DEV-RED|POST-MERGE-RED|DEV-GREEN)\b(?: since (?P<since>\d{1,2}:\d{2} [AP]M))?")
 NAMED_PR = re.compile(r"#(\d+)\b")

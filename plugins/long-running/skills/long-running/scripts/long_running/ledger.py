@@ -67,6 +67,9 @@ and its latest progress entry is under HOURS old, 24 by default, and STALE after
 ask on one PR: a PR already carrying an unlanded ask takes no more, and a fresh ask goes
 on a stacked follow-up PR instead.
 
+``summary`` ends with one ``LANDED-NOT-LIVE <target>`` line per release target the landing runner's newest
+``landed-not-live`` record names, the PRs landed on it in the last day that it runs none of.
+
 ``summary`` also prints the prompt watch's last poll for the drive, from ``prompt_watch.py show``:
 one line per coordinator, desk, or worker terminal that is at a prompt, stale, unknown, or
 unreachable, led by ``PROMPT-WATCH-DOWN`` when the watch stopped polling.
@@ -2517,8 +2520,16 @@ def cmd_summary(args: argparse.Namespace, shell: Shell) -> int:
     rows = sharded(notes.view(stored), args.shard)
     prompts = prompt_lines(shell, args.drive, args.shard)
     messages = Messages(shell, args.drive).read(args.shard)
-    print("\n".join(summary_lines(rows, pull_rows(stored), messages, now(), timedelta(seconds=args.window_seconds), timedelta(minutes=args.stale_minutes), prompts)))
+    print("\n".join([*summary_lines(rows, pull_rows(stored), messages, now(), timedelta(seconds=args.window_seconds), timedelta(minutes=args.stale_minutes), prompts), *not_live_lines(shell, args.drive)]))
     return 0
+
+
+def not_live_lines(shell: Shell, drive: str) -> list[str]:
+    """One `LANDED-NOT-LIVE <target>: <PRs>` line per release target the landing runner's newest `landed-not-live` record names: the PRs landed in the last day that the target runs none of, each with its landing time."""
+    found = cci.records(shell.run, drive, "--kind=state", f"--lane={cci.TRUNK_RUNNER}", f"--topic={cci.NOT_LIVE_TOPIC}")
+    newest = max((record for record in found if record["drive"] == drive and record.get("topic") == cci.NOT_LIVE_TOPIC), key=lambda record: record["seq"], default=None)
+    said = newest["text"].removeprefix(f"{ASK_LANDED_NOT_LIVE} ") if newest else "none"
+    return [] if said == "none" else [f"{ASK_LANDED_NOT_LIVE} {target}" for target in said.split("; ")]
 
 
 def cmd_stale(args: argparse.Namespace, shell: Shell) -> int:

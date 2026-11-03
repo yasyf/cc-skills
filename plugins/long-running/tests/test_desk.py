@@ -793,6 +793,18 @@ def test_summary_settles_landings_from_the_working_directory_and_its_origin(caps
     assert all(call[call.index("--repo") + 1] == REPO for call in shell.calls if "--repo" in call)
 
 
+
+def test_summary_ends_with_each_target_the_runners_newest_landed_not_live_record_names(capsys):
+    shell = desk_shell()
+    shell.cci = [
+        {"seq": 1, "drive": DRIVE, "lane": "desk-runner", "kind": "state", "status": "open", "topic": "landed-not-live", "refs": {}, "text": "LANDED-NOT-LIVE api: #48001 (1:02 PM)"},
+        {"seq": 2, "drive": DRIVE, "lane": "desk-runner", "kind": "state", "status": "open", "topic": "landed-not-live", "refs": {}, "text": "LANDED-NOT-LIVE llm-gateway: #48353 (2:31 PM), #48360 (2:40 PM); router: #48400 (3:00 PM)"},
+    ]
+    lines = summarize(shell, capsys)
+    assert lines[-2:] == ["LANDED-NOT-LIVE llm-gateway: #48353 (2:31 PM), #48360 (2:40 PM)", "LANDED-NOT-LIVE router: #48400 (3:00 PM)"]
+    shell.cci.append({"seq": 3, "drive": DRIVE, "lane": "desk-runner", "kind": "state", "status": "open", "topic": "landed-not-live", "refs": {}, "text": "LANDED-NOT-LIVE none"})
+    assert not [line for line in summarize(shell, capsys) if line.startswith("LANDED-NOT-LIVE")]
+
 def test_a_repo_verb_refuses_an_origin_that_names_no_repository():
     shell = desk_shell()
     shell.origin = "../monorepo"
