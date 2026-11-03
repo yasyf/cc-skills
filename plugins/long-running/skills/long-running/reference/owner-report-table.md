@@ -1,6 +1,6 @@
 # The owner report table
 
-Every update the root gives the owner, whether a milestone report or a status answer, uses this table. The owner reads it to learn what is left of the plan, what holds each piece, what the drive is doing about it, and what has gone wrong so far. Lead with the table, then add at most three plain sentences on what the owner must decide, if anything. `drive.py overview` prints this table, with what is left until completion, from the progress desk's record; the root runs it and never assembles rows by hand.
+Every update the root gives the owner, whether a milestone report or a status answer, uses this table. The owner reads it to learn what is left of the plan, who is on each piece, what holds it, what the drive is doing about it, and what has gone wrong so far. Lead with the unowned work, then the table, then at most three plain sentences on what the owner must decide, if anything. `owner_update.py --render --drive <drive>` prints the whole update from sources: the plan's steps, the owner table's workstreams, the registry's live lanes under their steps, the ledger's asks, the board's open picks, today's incidents and releases, and every PR with a go owed or a hold. The progress desk runs it, the root relays it, and nobody assembles rows by hand. The generator exits 1 and names any live lane, open ask or open PR the text lacks, and a section with nothing new says so in one line rather than disappearing.
 
 ## Shape
 
@@ -9,11 +9,12 @@ Every update the root gives the owner, whether a milestone report or a status an
 | Step | The plan's own step, numbered as the plan numbers it and named as the work in plain words, such as "Get every team's sessions into the new store," never an id or a unit code. |
 | What it delivers | What is true for users or the system when the step is done, in one or two sentences. |
 | State | One of not started, in progress, READY-HELD, queued, landed, live, or done. |
+| Who is on it right now | The live lane's name from the registry, or **nobody** in bold. A row whose owner is nobody is also listed at the top of the update as unowned work. |
 | What blocks it | The concrete thing in the way right now. A READY-HELD row names its gate and why that order, in one sentence. |
-| What we are doing to unblock it | Who is doing what, now. A blocker with nobody on it says so and names the lane the root starts that turn. |
+| What we are doing to unblock it, and by when | Who is doing what, now, and the time it is due. A blocker with nobody on it says so and names the lane the root starts that turn. |
 | What went wrong or slowed it so far | A mini retro covering what stalled, slipped, or was wrong since the step started, and what it cost. Never blank. |
 
-Include one row for each plan step, and split a step into lettered rows only when its parts sit in different states. The rows follow the plan's order, critical path first. Every READY-HELD row justifies its hold by naming the rule. Readers first means a writer waits until every reader of its format is live. A data gate means a deletion waits until nothing still needs the data. A hold without either reason is a defect, so lift it or name the real gate.
+Every row the generator renders, a plan step, a workstream piece, an incident, a release, a lane or a PR, carries these columns. Include one row for each plan step, and split a step into lettered rows only when its parts sit in different states. The rows follow the plan's order, critical path first. Every READY-HELD row justifies its hold by naming the rule. Readers first means a writer waits until every reader of its format is live. A data gate means a deletion waits until nothing still needs the data. A hold without either reason is a defect, so lift it or name the real gate.
 
 The retro column is mandatory on every row of every update. The `drive-watchdog` retro log from [drive-watchdog-brief.md](drive-watchdog-brief.md) feeds it, one `[step <n>]` entry per finding. "None recorded" is allowed only when that log has nothing for the step.
 

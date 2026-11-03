@@ -81,6 +81,10 @@ Paste and fill this template for an Agent-tool subagent:
 
 ```
 ccx: role=<role> [cpu=high] [place=remote|local] [paths=<dir>,<dir>] tooling-lane=<key, for a tooling lane only>
+Standing: <the duty the drive keeps for good, such as "devbox perf and bug hunting"; only
+  on a lane whose work never ends. The supervisor raises a blocker when a standing duty
+  has no live owner for ten minutes, so a dead or stood-down standing lane is never
+  silent. Omit the line on a one-shot lane.>
 Authority: <what you do without asking; what stops for the owner>.
 Verified facts, do not re-derive: <ids, shas, URLs, state already confirmed>.
 Design rulings, verbatim: <each owner ruling on the subsystem this lane touches, quoted
@@ -437,6 +441,7 @@ A desk on Orca, whether on its first launch or as a successor after rotation, us
 ```
 # <lane>-<N>: <desk's job>, successor of <lane>-<N-1>
 ccx: role=desk
+Standing: <the duty this desk keeps>
 Read cc-notes doc <handoff or desk doc id> (ccn doc show <id>) and continue exactly as it says.
 <live standing rules by #<seq> id; anything this successor changes>.
 Report on cci as <lane>-<N>. Loop until rotation at <hours>h; setup and quiet cycles are not done.
