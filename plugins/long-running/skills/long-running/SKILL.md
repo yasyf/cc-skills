@@ -80,9 +80,11 @@ record survives a compaction where a message does not.
 
 **The communicator** answers every owner message that turn, in his terms: the "why"
 with the mechanism of the drive's own failure, the pick on his board, the Pacific
-time from `date`. It appends his words verbatim to the drive's rulings file and
-posts them to the coordinator as one `cci post --lane owner-relay --kind ask --to
-root` per message or batch, so the coordinator reads them at its next tool call. A
+time from `date`. The ledger hook records his words verbatim as they arrive
+(`lr owner`); nobody appends them to a rulings file by hand (owner, Nov 3 2:45 AM).
+The communicator posts them to the coordinator as one `cci post --lane owner-relay
+--kind ask --to root` per message or batch, so the coordinator reads them at its
+next tool call. A
 message about the skill, its tooling, a prompt, a hook or the process goes to the
 meta lane instead, verbatim, as `--kind ask --to meta`, and so does a tooling defect
 the coordinator reports. It is the drive's presentation layer: it reads what the
@@ -338,11 +340,18 @@ Slack copy outside the Slack lane.
 whole or holds, never split.
 
 **R23.** Every finished agent is stopped the turn its completion arrives, and
-before any spawn.
+before any spawn; a settled lane's Orca workspace and terminal are reclaimed by
+`lr gc` the same pass, and a new lane starts remote unless it drives the Mac's Orca
+app (owner, Nov 3 2:41 AM).
 
 **R24.** Every production operation is one line in the cc-notes log
 `production-operations` that turn; incident lanes read its last day before naming
 a mechanism.
+
+**R25.** A deadline comes with a plan. A record, update line or card that states a
+time something must happen by names the lane that meets it and the steps, and the
+pack refuses one without them (owner, Nov 3 2:45 AM: the one-time schema step
+before 4 PM had a time and no plan).
 
 ## Lanes and desks
 
