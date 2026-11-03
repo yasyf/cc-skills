@@ -43,7 +43,7 @@ func (b *background) Check(ctx context.Context, now time.Time) error {
 
 func (b *background) pass(ctx context.Context, now time.Time) {
 	failed := b.run(ctx)
-	if failed == nil {
+	if failed == nil || ctx.Err() != nil {
 		return
 	}
 	cause := fmt.Sprintf("the last %s pass failed, so it posts nothing until a pass succeeds: %v", b.name, failed)
