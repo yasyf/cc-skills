@@ -35,6 +35,15 @@ var standingSessions = map[string]standingSession{
 	"signal":      {"signal", "sonnet", "low"},
 }
 
+var subDriveCoordinator = standingSession{Root, "opus", "xhigh"}
+
+func sessionFor(name, parent string) standingSession {
+	if name == "coordinator" && parent != "" {
+		return subDriveCoordinator
+	}
+	return standingSessions[name]
+}
+
 func LaunchCommand(a *app.App) *cobra.Command {
 	names := strings.Join(slices.Sorted(maps.Keys(standingSessions)), "|")
 	return &cobra.Command{
@@ -42,8 +51,7 @@ func LaunchCommand(a *app.App) *cobra.Command {
 		Short: "Launch one of the standing sessions the communicator starts a drive with, bound to its own lane",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			session, ok := standingSessions[args[0]]
-			if !ok {
+			if _, ok := standingSessions[args[0]]; !ok {
 				return fmt.Errorf("unknown session %q, want one of %s", args[0], names)
 			}
 			cfg, state, err := Loaded(a)
@@ -54,7 +62,7 @@ func LaunchCommand(a *app.App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			out, err := env.launchStanding(cmd.Context(), session, args[1])
+			out, err := env.launchStanding(cmd.Context(), sessionFor(args[0], cfg.Parent), args[1])
 			_, _ = fmt.Fprint(cmd.OutOrStdout(), out)
 			return err
 		},
@@ -62,7 +70,7 @@ func LaunchCommand(a *app.App) *cobra.Command {
 }
 
 func (e Env) LaunchCoordinator(ctx context.Context, brief string, env ...string) (string, error) {
-	return e.launchStanding(ctx, standingSessions["coordinator"], brief, env...)
+	return e.launchStanding(ctx, sessionFor("coordinator", e.Config.Parent), brief, env...)
 }
 
 func (e Env) launchStanding(ctx context.Context, session standingSession, brief string, env ...string) (string, error) {

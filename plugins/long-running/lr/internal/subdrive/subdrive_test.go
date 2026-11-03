@@ -209,7 +209,7 @@ func TestAStartedCoordinatorIsBoundToTheChildDriveAndReportsToTheParent(t *testi
 	configPath := filepath.Join(state, configFile)
 	briefPath := filepath.Join(state, lanes.Root, "brief.md")
 	launch := h.runner.launch(t)
-	if !slices.Equal(launch.Argv[1:], []string{lanes.Root, "fable", "xhigh", briefPath}) {
+	if !slices.Equal(launch.Argv[1:], []string{lanes.Root, "opus", "xhigh", briefPath}) {
 		t.Fatalf("launch argv = %v", launch.Argv)
 	}
 	for _, want := range []string{driveEnv + "=" + childDrive, "ORCA_LAUNCH_RUN=" + childRun, "ORCA_LAUNCH_PARENT=/repo"} {
