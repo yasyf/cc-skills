@@ -174,7 +174,8 @@ def test_a_slack_message_that_is_not_the_owners_dm_adds_no_row(communicator: Win
     assert not communicator.ledger.exists()
 
 
-def test_an_owner_slack_dm_in_the_turn_reaches_the_reminder_judge(communicator: Window) -> None:
+def test_an_owner_slack_dm_in_the_turn_reaches_the_reminder_judge(communicator: Window, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(owner_returns, "dm_owed", lambda _evt: {"replies": [], "holder_session": SESSION})
     communicator.queued(slack_dm(text="you forgot the slack root again"))
 
     assert owner_returns.owner_words(communicator.event(StopEvent)) == "you forgot the slack root again"
