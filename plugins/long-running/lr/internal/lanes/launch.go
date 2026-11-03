@@ -60,7 +60,11 @@ func LaunchCommand(a *app.App) *cobra.Command {
 	}
 }
 
-func (e Env) launchStanding(ctx context.Context, session standingSession, brief string) (string, error) {
+func (e Env) LaunchCoordinator(ctx context.Context, brief string, env ...string) (string, error) {
+	return e.launchStanding(ctx, standingSessions["coordinator"], brief, env...)
+}
+
+func (e Env) launchStanding(ctx context.Context, session standingSession, brief string, env ...string) (string, error) {
 	path, err := filepath.Abs(brief)
 	if err != nil {
 		return "", err
@@ -76,7 +80,7 @@ func (e Env) launchStanding(ctx context.Context, session standingSession, brief 
 	if slices.ContainsFunc(states, runnerBeat) {
 		argv = []string{e.tool("desk-launch.py"), "lane", session.lane, session.model, session.effort, path, "--drive", e.Config.Drive, "--lane", communicator}
 	}
-	result, err := e.Runner.Run(ctx, shell.Command{Argv: argv, Timeout: standingWait})
+	result, err := e.Runner.Run(ctx, shell.Command{Argv: argv, Env: env, Timeout: standingWait})
 	return result.Stdout, err
 }
 

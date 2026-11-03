@@ -111,6 +111,10 @@ func (e Env) Run(ctx context.Context, argv ...string) (string, error) {
 	return result.Stdout, nil
 }
 
+func (e Env) Ledger(ctx context.Context, argv ...string) (string, error) {
+	return e.Run(ctx, append([]string{e.tool("ledger.py"), "-C", e.Config.Checkout}, argv...)...)
+}
+
 func recordOf(r client.Record) Record {
 	refs := Refs{Lanes: r.Refs.Lanes, CCN: r.Refs.CCN}
 	for _, pr := range r.Refs.PRs {
@@ -616,7 +620,7 @@ func (e Env) held(ctx context.Context) (map[int]bool, error) {
 			holds[n] = true
 		}
 	}
-	stdout, err := e.Run(ctx, e.tool("ledger.py"), "-C", e.Config.Checkout, "list", "--drive", e.Config.Drive, "--open", "--json")
+	stdout, err := e.Ledger(ctx, "list", "--drive", e.Config.Drive, "--open", "--json")
 	if err != nil {
 		return nil, err
 	}
@@ -719,7 +723,7 @@ func (e Env) Deps(ctx context.Context) (Deps, error) {
 	waker := &Waker{Drive: e.Config.Drive, Clock: e.Now, Tasks: filepath.Join(e.Claude, "tasks")}
 	launcher := e.tool("desk-launch.py")
 	return Deps{
-		Drive: e.Config.Drive, Checkout: e.Config.Checkout, Briefs: briefs,
+		Drive: e.Config.Drive, Parent: e.Config.Parent, Checkout: e.Config.Checkout, Briefs: briefs,
 		HandoffBrief: filepath.Join(e.plugin(), "skills", "long-running", "reference", "handoff-subagent-brief.md"),
 		Records:      e.Records(ctx),
 		Who:          e.Who(ctx),

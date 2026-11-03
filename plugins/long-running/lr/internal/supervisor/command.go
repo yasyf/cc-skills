@@ -24,10 +24,10 @@ func Command(a *app.App) *cobra.Command {
 			return run(cmd.Context(), a)
 		}},
 		&cobra.Command{Use: "install", Short: "Write this drive's launchd agent and bootstrap it", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
-			return install(cmd, a)
+			return Install(cmd, a)
 		}},
 		&cobra.Command{Use: "uninstall", Short: "Boot this drive's launchd agent out and remove it", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
-			return uninstall(cmd, a)
+			return Uninstall(cmd, a)
 		}},
 	)
 	return cmd
@@ -97,7 +97,7 @@ func launchd(a *app.App, out *cobra.Command) (Launchd, error) {
 	return Launchd{Runner: a.Runner, Home: home, UID: os.Getuid(), Sleep: time.Sleep, Out: out.OutOrStdout()}, nil
 }
 
-func install(cmd *cobra.Command, a *app.App) error {
+func Install(cmd *cobra.Command, a *app.App) error {
 	cfg, state, err := lanes.Loaded(a)
 	if err != nil {
 		return err
@@ -123,7 +123,7 @@ func install(cmd *cobra.Command, a *app.App) error {
 	})
 }
 
-func uninstall(cmd *cobra.Command, a *app.App) error {
+func Uninstall(cmd *cobra.Command, a *app.App) error {
 	cfg, _, err := lanes.Loaded(a)
 	if err != nil {
 		return err

@@ -37,3 +37,28 @@ func TestADriveIsFoundByItsBusNameAndItsNewestSessionIsItsRoot(t *testing.T) {
 		t.Fatal("an unknown drive read")
 	}
 }
+
+func TestASavedSubDriveReadsBackAsItsParentsChildUntilRemoved(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	child := Entry{Drive: "brook--billing", CCIDrive: "brook--billing", StateDir: "/s", Sessions: []string{}, Parent: "brook", Reason: "unrelated", Facts: map[string]string{"no-shared-prs": "none"}}
+	for _, entry := range []Entry{child, {Drive: "reef--ops", Sessions: []string{}, Parent: "reef"}, {Drive: "brook", Sessions: []string{"s1"}}} {
+		if err := Save(entry); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	found, err := Children("brook")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(found) != 1 || found[0].Drive != child.Drive || found[0].Facts["no-shared-prs"] != "none" {
+		t.Fatalf("children = %+v", found)
+	}
+
+	if err := Remove(child.Drive); err != nil {
+		t.Fatal(err)
+	}
+	if found, err := Children("brook"); err != nil || len(found) != 0 {
+		t.Fatalf("after remove: %+v, %v", found, err)
+	}
+}

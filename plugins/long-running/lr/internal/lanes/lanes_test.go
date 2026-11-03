@@ -1778,6 +1778,31 @@ func TestACoordinatorWithNoProcessRowIsHeldForTheBridge(t *testing.T) {
 	equal(t, f.kinds(), []string{"blocker:" + OwnerRelay})
 }
 
+func TestASubDrivesCoordinatorTellsItsParentAndNeverTheCommunicator(t *testing.T) {
+	t.Run("relaunched", func(t *testing.T) {
+		s, brief := memory(t), writeBrief(t)
+		f := coordinator(t, s, brief)
+		f.deps.Parent = "brook"
+		f.peers = []Row{who(Root, false, t0.Add(-mins(20)))}
+
+		tick(t, s, f, t0)
+
+		equal(t, f.launches, []string{Root})
+		equal(t, f.kinds(), []string{"report:root@brook"})
+	})
+	t.Run("held", func(t *testing.T) {
+		s := memory(t)
+		f := coordinator(t, s, writeBrief(t))
+		f.deps.Parent = "brook"
+		f.peers = nil
+
+		out := tick(t, s, f, t0)
+
+		equal(t, out.Held, []string{Root})
+		equal(t, f.kinds(), []string{"blocker:root@brook"})
+	})
+}
+
 func TestACoordinatorsOwnStandDownRecordAboutALaneNeverRetiresTheCoordinator(t *testing.T) {
 	for _, kind := range []string{"stand-down", "stopped", "done", "handoff"} {
 		s, brief := memory(t), writeBrief(t)

@@ -27,6 +27,7 @@ type Post struct {
 
 type Deps struct {
 	Drive        string
+	Parent       string
 	Checkout     string
 	Briefs       string
 	HandoffBrief string
@@ -195,11 +196,18 @@ func act(s *store.Store, d Deps, lane store.Lane, found map[string]Peer, taken m
 	}
 }
 
+func (d Deps) coordinatorReportsTo() string {
+	if d.Parent != "" {
+		return Root + "@" + d.Parent
+	}
+	return OwnerRelay
+}
+
 func escalate(s *store.Store, d Deps, subject, cause string, now time.Time) {
 	lane := strings.TrimPrefix(subject, "lane:")
 	to := owningDesk(s, d, lane)
 	if lane == Root {
-		to = OwnerRelay
+		to = d.coordinatorReportsTo()
 	}
 	if must(s.Escalate(subject, cause, to, now)) {
 		do(d.Post(Post{Kind: "blocker", To: []string{to}, Text: fmt.Sprintf("%s %s: %s", pacific(now), subject, cause), LaneRef: lane}))
@@ -243,7 +251,7 @@ func relaunchCoordinator(s *store.Store, d Deps, old store.Lane, found map[strin
 	do(s.SetLaneState(Root, store.LaneLaunching, now, "", why))
 	must(s.ReleaseWorker(Root))
 	do(d.Launch(Root, old.Model, old.Effort, path))
-	do(d.Post(Post{Kind: "report", To: []string{OwnerRelay}, LaneRef: Root, Text: fmt.Sprintf("%s RELAUNCHED the coordinator: it %s; handoff %s; brief %s", pacific(now), why, or(old.Handoff, "none, the new session writes it"), path)}))
+	do(d.Post(Post{Kind: "report", To: []string{d.coordinatorReportsTo()}, LaneRef: Root, Text: fmt.Sprintf("%s RELAUNCHED the coordinator: it %s; handoff %s; brief %s", pacific(now), why, or(old.Handoff, "none, the new session writes it"), path)}))
 	out.Relaunched = append(out.Relaunched, Relaunch{Root, Root, why})
 }
 

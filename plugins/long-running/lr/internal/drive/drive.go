@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 )
 
 type Pin struct {
@@ -14,14 +15,23 @@ type Pin struct {
 }
 
 type Entry struct {
-	Drive    string   `json:"drive"`
-	CCIDrive string   `json:"cci_drive"`
-	Program  string   `json:"program"`
-	Ledger   string   `json:"ledger"`
-	Checkout string   `json:"checkout"`
-	StateDir string   `json:"state_dir"`
-	Sessions []string `json:"sessions"`
-	Pinned   []Pin    `json:"pinned_rows"`
+	Drive        string            `json:"drive"`
+	CCIDrive     string            `json:"cci_drive"`
+	Program      string            `json:"program"`
+	Ledger       string            `json:"ledger"`
+	Repo         string            `json:"repo"`
+	GitCommonDir string            `json:"git_common_dir"`
+	Checkout     string            `json:"checkout"`
+	OrcaRun      string            `json:"orca_run"`
+	StateDir     string            `json:"state_dir"`
+	Sessions     []string          `json:"sessions"`
+	StartedAt    string            `json:"started_at"`
+	UpdatedAt    string            `json:"updated_at"`
+	Parent       string            `json:"parent,omitempty"`
+	Objective    string            `json:"objective,omitempty"`
+	Reason       string            `json:"reason,omitempty"`
+	Facts        map[string]string `json:"facts,omitempty"`
+	Pinned       []Pin             `json:"pinned_rows,omitempty"`
 }
 
 func (e Entry) Bus() string {
@@ -53,27 +63,90 @@ func ConfigDir() (string, error) {
 	return filepath.Join(home, ".claude"), nil
 }
 
-func Named(name string) (Entry, error) {
+func entriesDir() (string, error) {
 	dir, err := ConfigDir()
 	if err != nil {
-		return Entry{}, err
+		return "", err
 	}
-	paths, err := filepath.Glob(filepath.Join(dir, "long-running", "drives", "*.json"))
+	return filepath.Join(dir, "long-running", "drives"), nil
+}
+
+func entries() ([]Entry, error) {
+	dir, err := entriesDir()
 	if err != nil {
-		return Entry{}, err
+		return nil, err
 	}
+	paths, err := filepath.Glob(filepath.Join(dir, "*.json"))
+	if err != nil {
+		return nil, err
+	}
+	found := make([]Entry, 0, len(paths))
 	for _, path := range paths {
 		data, err := os.ReadFile(path)
 		if err != nil {
-			return Entry{}, err
+			return nil, err
 		}
 		var entry Entry
 		if err := json.Unmarshal(data, &entry); err != nil {
-			return Entry{}, fmt.Errorf("%s: %w", path, err)
+			return nil, fmt.Errorf("%s: %w", path, err)
 		}
+		found = append(found, entry)
+	}
+	return found, nil
+}
+
+func Named(name string) (Entry, error) {
+	found, err := entries()
+	if err != nil {
+		return Entry{}, err
+	}
+	for _, entry := range found {
 		if entry.Bus() == name && len(entry.Sessions) > 0 {
 			return entry, nil
 		}
 	}
 	return Entry{}, fmt.Errorf("no drive registry entry for %s names a root session", name)
+}
+
+func Children(parent string) ([]Entry, error) {
+	found, err := entries()
+	if err != nil {
+		return nil, err
+	}
+	return slices.DeleteFunc(found, func(entry Entry) bool { return entry.Parent != parent }), nil
+}
+
+func Save(entry Entry) error {
+	dir, err := entriesDir()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(entry, "", "  ")
+	if err != nil {
+		return err
+	}
+	staged, err := os.CreateTemp(dir, entry.Drive+".*.tmp")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.Remove(staged.Name()) }()
+	_, err = staged.Write(append(data, '\n'))
+	if closed := staged.Close(); err == nil {
+		err = closed
+	}
+	if err != nil {
+		return err
+	}
+	return os.Rename(staged.Name(), filepath.Join(dir, entry.Drive+".json"))
+}
+
+func Remove(name string) error {
+	dir, err := entriesDir()
+	if err != nil {
+		return err
+	}
+	return os.Remove(filepath.Join(dir, name+".json"))
 }
