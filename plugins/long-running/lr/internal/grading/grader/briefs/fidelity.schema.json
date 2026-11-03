@@ -20,7 +20,7 @@
       }
     },
     "touches": {"type": "array", "items": {"type": "string"}},
-    "exempt": {"type": "string", "enum": ["none", "port", "test-only"]},
+    "exempt": {"type": "string"},
     "reader": {"type": "string"},
     "old_app": {
       "type": "object",

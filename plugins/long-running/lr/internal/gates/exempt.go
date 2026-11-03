@@ -112,7 +112,7 @@ func fidelityCite(c Claim, records []client.Record, exempt []string) (string, st
 			continue
 		}
 		if phrase := exemptPhrase(grade.record.Text, exempt); phrase != "" && class == "" {
-			class, cite = classOf(phrase), "fidelity ok "+grade.record.Name()
+			class, cite = ClassOf(phrase), "fidelity ok "+grade.record.Name()
 		}
 	}
 	if class == "" {
@@ -154,7 +154,7 @@ func exemptPhrase(text string, exempt []string) string {
 	return ""
 }
 
-func classOf(phrase string) string {
+func ClassOf(phrase string) string {
 	lead, _, _ := strings.Cut(strings.ToLower(phrase), ",")
 	return strings.Join(strings.Fields(strings.TrimPrefix(strings.TrimSpace(lead), "class ")), "-")
 }

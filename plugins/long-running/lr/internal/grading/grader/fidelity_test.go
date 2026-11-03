@@ -584,6 +584,7 @@ func TestAReplyThatBreaksTheGradeContractIsAskedOnceMoreAndASecondFailsTheJob(t 
 		{"missing-without-entries", fidelityReplyOf(map[string]any{"verdict": "missing"})},
 		{"reader-without-reason", fidelityReplyOf(map[string]any{"verdict": "reader"})},
 		{"no-reasoning", fidelityReplyOf(map[string]any{"swept": "looks fine"})},
+		{"no-such-class", fidelityReplyOf(map[string]any{"exempt": "hotfix"})},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -656,6 +657,47 @@ func TestAReplyThatJudgesNoBehaviorAgainstHisTapOrNamesNoChangeIsAskedOnceMore(t
 			holdsAll(t, readText(t, directory, "question-2.md"), "Your last reply gave")
 		})
 	}
+}
+
+const regressionPhrase = "class regression, fixes shipped production code"
+
+var classes = map[string]string{"port": portPhrase, "test-only": testOnly, "regression": regressionPhrase}
+
+func TestAnOkNamesAnyClassTheGateAcceptsAndTheBriefListsThemAll(t *testing.T) {
+	directory := fidelityDir(t, map[string]any{"grades": []any{}, "exempt": classes})
+	shell, _ := newFidelityFake(t, samePatch, fidelityReplyOf(map[string]any{"exempt": "regression"}))
+	mustFidelity(t, directory, shell)
+	equal(t, shell.texts()[0], "fidelity: ok "+shaHead+" "+regressionPhrase+": Resubscribes from the fetched position after a cut.")
+	holdsAll(t, readText(t, directory, "question-1.md"), "`regression` (\""+regressionPhrase+"\")", "`port` (\""+portPhrase+"\")")
+}
+
+func TestAnOkNamingNoClassALaneClaimedIsAskedOnceMoreListingTheClassesAndItsSecondAnswerStands(t *testing.T) {
+	for name, second := range map[string]struct {
+		exempt string
+		posted string
+	}{
+		"it names the class":  {"regression", "fidelity: ok " + shaHead + " " + regressionPhrase + ": Resubscribes"},
+		"it still names none": {"none", "fidelity: ok " + shaHead + " Resubscribes"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			directory := fidelityDir(t, map[string]any{"grades": []any{}, "exempt": classes, "claims": []string{"regression"}})
+			shell, _ := newFidelityFake(t, samePatch, fidelityReplyOf(nil), fidelityReplyOf(map[string]any{"exempt": second.exempt}))
+			mustFidelity(t, directory, shell)
+			equal(t, len(shell.asks()), 2)
+			holdsAll(t, readText(t, directory, "question-2.md"), "though a lane claims regression for this head", "`regression` (\""+regressionPhrase+"\")")
+			if !strings.HasPrefix(shell.texts()[0], second.posted) {
+				t.Errorf("posted %q, want it to start %q", shell.texts()[0], second.posted)
+			}
+		})
+	}
+}
+
+func TestAnOkNamingNoClassWithNoClaimIsAPlainOk(t *testing.T) {
+	directory := fidelityDir(t, map[string]any{"grades": []any{}, "exempt": classes})
+	shell, _ := newFidelityFake(t, samePatch, fidelityReplyOf(nil))
+	mustFidelity(t, directory, shell)
+	equal(t, len(shell.asks()), 1)
+	equal(t, shell.texts()[0], "fidelity: ok "+shaHead+" Resubscribes from the fetched position after a cut.")
 }
 
 func TestAClosedPROrAHeadThatMovedPostsNothing(t *testing.T) {

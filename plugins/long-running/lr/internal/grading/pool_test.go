@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -348,6 +349,24 @@ func TestAFidelityJobNamesTheHeadHeTappedOnlyWhileHisTapAwaitsProofThere(t *test
 			}
 		})
 	}
+}
+
+func TestAFidelityJobOffersEveryClassTheGateAcceptsAndTheClassesLanesClaimedAtThisHead(t *testing.T) {
+	const regression = "class regression, fixes shipped production code"
+	f := newPool(t, map[string]any{
+		"landing":  map[string]any{"checkout": "/srv/main", "fidelity_lane": "fidelity-desk-4", "exempt_grades": []string{portPhrase, testOnlyPhrase, regression}},
+		"fidelity": map[string]any{"baseline": "base-1"},
+	})
+	post(t, client.Draft{Lane: "go-sweep-9", Kind: kindGo, Text: "go #45489 at " + head[:7] + " on green [exempt: regression]", PRs: []string{pull}})
+	post(t, client.Draft{Lane: "go-sweep-9", Kind: kindGo, Text: "go #45489 at " + older[:7] + " on green [exempt: port]", PRs: []string{pull}})
+
+	f.started(t, GraderFidelity)
+
+	spec := readJob[grader.FidelityJob](t, filepath.Join(f.pool.root, grader.FidelityLane, jobDir))
+	if want := map[string]string{"port": portPhrase, "test-only": testOnlyPhrase, "regression": regression}; !maps.Equal(spec.Exempt, want) {
+		t.Errorf("exempt = %v, want %v", spec.Exempt, want)
+	}
+	sameStrings(t, spec.Claims, []string{"regression"})
 }
 
 func TestAGradeFromANumberedSuccessorOfAConfiguredDeskStartsNoPass(t *testing.T) {

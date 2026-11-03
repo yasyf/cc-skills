@@ -12,6 +12,8 @@ import (
 	"strings"
 
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/grading/grader"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
@@ -167,6 +169,10 @@ func (p *JobPool) fidelityJob(ctx context.Context, d desk, facts machine.Facts, 
 	if err != nil {
 		return job{}, err
 	}
+	gos, err := client.Tail(ctx, client.Query{Drive: p.drive, Kinds: []string{kindGo}, PR: pull})
+	if err != nil {
+		return job{}, err
+	}
 	spec := grader.FidelityJob{
 		Job:          p.baseJob(d, facts, sprite, settled),
 		Readers:      slices.DeleteFunc(slices.Clone(lanes), func(lane string) bool { return lane == grader.FidelityLane }),
@@ -176,9 +182,10 @@ func (p *JobPool) fidelityJob(ctx context.Context, d desk, facts machine.Facts, 
 		Corrected:    corrected(rulings),
 		Rulings:      jobRulings(rulings),
 		Contract:     contract,
-		Exempt:       map[string]string{"port": p.port(), "test-only": testOnlyPhrase},
+		Exempt:       p.classes(),
 		ExemptGrades: p.exemptGrades(),
 		Baseline:     d.spec.Baseline,
+		Claims:       claimedClasses(gos, facts),
 	}
 	if !facts.Tapped() {
 		spec.Since = facts.TapFrom
@@ -205,6 +212,28 @@ func (p *JobPool) port() string {
 		return p.landing.PortPhrase
 	}
 	return portPhrase
+}
+
+func (p *JobPool) classes() map[string]string {
+	classes := map[string]string{"port": p.port(), "test-only": testOnlyPhrase}
+	for _, phrase := range p.exemptGrades() {
+		if !slices.Contains(slices.Collect(maps.Values(classes)), phrase) {
+			classes[gates.ClassOf(phrase)] = phrase
+		}
+	}
+	return classes
+}
+
+func claimedClasses(gos []client.Record, facts machine.Facts) []string {
+	var claims []string
+	for _, record := range gos {
+		for _, fact := range bus.LegacyFacts(record, facts.Repo, []string{record.Lane}) {
+			if fact.Kind == "exempt" && fact.PR == facts.Number && strings.HasPrefix(facts.Head, fact.Head) && !slices.Contains(claims, fact.Value) {
+				claims = append(claims, fact.Value)
+			}
+		}
+	}
+	return claims
 }
 
 func (p *JobPool) exemptGrades() []string {

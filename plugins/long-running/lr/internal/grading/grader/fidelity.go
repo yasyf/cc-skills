@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -80,6 +81,7 @@ type FidelityJob struct {
 	ExemptGrades []string          `json:"exempt_grades"`
 	Baseline     string            `json:"baseline"`
 	Since        string            `json:"since,omitempty"`
+	Claims       []string          `json:"claims,omitempty"`
 }
 
 type missingEntry struct {
@@ -640,6 +642,7 @@ func (s *fidelityPassState) prompt(view pullRequest, frame promptFrame) (string,
 		"rows":         frame.rows,
 		"port":         spec.Exempt["port"],
 		"test_only":    spec.Exempt["test-only"],
+		"classes":      s.classList(),
 		"baseline":     s.baseline(),
 		"plan":         plan,
 		"package":      packaged,
@@ -929,21 +932,41 @@ func (s *fidelityPassState) askUntilSound(view pullRequest, frame promptFrame, k
 	if err != nil {
 		return fidelityReply{}, err
 	}
-	gaps := fidelityShortfalls(keys, s.job.Since, reply)
-	if len(gaps) == 0 {
+	wrong, unnamed := s.classGaps(reply)
+	gaps := append(fidelityShortfalls(keys, s.job.Since, reply), wrong...)
+	if len(gaps)+len(unnamed) == 0 {
 		return reply, nil
 	}
 	retry := filepath.Join(s.dir, fmt.Sprintf("question-%d.md", attempt+1))
-	if err := os.WriteFile(retry, fmt.Appendf(nil, "%s\nYour last reply gave %s. Every key in the rows file appears in `checked`.\n", question, strings.Join(gaps, "; and ")), 0o600); err != nil {
+	if err := os.WriteFile(retry, fmt.Appendf(nil, "%s\nYour last reply gave %s. Every key in the rows file appears in `checked`.\n", question, strings.Join(append(gaps, unnamed...), "; and ")), 0o600); err != nil {
 		return fidelityReply{}, err
 	}
 	if reply, err = s.askFidelity(retry, attempt+1); err != nil {
 		return fidelityReply{}, err
 	}
-	if gaps = fidelityShortfalls(keys, s.job.Since, reply); len(gaps) > 0 {
+	wrong, _ = s.classGaps(reply)
+	if gaps = append(fidelityShortfalls(keys, s.job.Since, reply), wrong...); len(gaps) > 0 {
 		return fidelityReply{}, &JobFailed{"two replies gave " + strings.Join(gaps, "; and ")}
 	}
 	return reply, nil
+}
+
+func (s *fidelityPassState) classGaps(reply fidelityReply) (wrong, unnamed []string) {
+	if _, known := s.job.Exempt[reply.Exempt]; reply.Exempt != "none" && !known {
+		wrong = append(wrong, fmt.Sprintf("`exempt` %q, which names no class; the classes are %s", reply.Exempt, s.classList()))
+	}
+	if len(s.job.Claims) > 0 && reply.Verdict == "ok" && reply.Exempt == "none" {
+		unnamed = append(unnamed, fmt.Sprintf("an ok that names no class, though a lane claims %s for this head; the classes are %s, and `none` stays right when the head is none of them", strings.Join(s.job.Claims, ", "), s.classList()))
+	}
+	return wrong, unnamed
+}
+
+func (s *fidelityPassState) classList() string {
+	classes := make([]string, 0, len(s.job.Exempt))
+	for _, class := range slices.Sorted(maps.Keys(s.job.Exempt)) {
+		classes = append(classes, fmt.Sprintf("`%s` (\"%s\")", class, s.job.Exempt[class]))
+	}
+	return strings.Join(classes, ", ")
 }
 
 func (s *fidelityPassState) gradedLines(reply fidelityReply) []gradeLine {
