@@ -146,6 +146,14 @@ func TestTheSameHeadIsRefusedWhenTheGoLaneAlreadyPostedItsGo(t *testing.T) {
 	refusedWith(t, text, refusals, "go #356114 by go-sweep-9 already names this head")
 }
 
+func TestAPlainGoNamingTheHeadDoesNotStopTheGoThatCarriesItsClass(t *testing.T) {
+	records := append(recordsBefore(t, "48375", 356113), client.Record{Seq: 356114, Lane: "root", Kind: "go", Text: "go #48375 at 71bd0ab TAP-CARRIED: his tap on #48000 carries"})
+	text, refusals := gate(records, 48375, "71bd0ab1c2dc27453798cbc7fb75db730f59bf84")
+	if text == "" || len(refusals) > 0 {
+		t.Fatalf("got go %q and refusals %q", text, refusals)
+	}
+}
+
 func TestAClassOutsideTheDrivesExemptGradesNeedsHisTap(t *testing.T) {
 	text, refusals := ExemptGo(Claim{Repo: monorepo, PR: 48375, Head: "71bd0ab1c2dc27453798cbc7fb75db730f59bf84"}, Read{Records: recordsBefore(t, "48375", 356113), Exempt: DefaultExemptGrades})
 	refusedWith(t, text, refusals, "fidelity: no ok grade at 71bd0ab names an exempt class")
