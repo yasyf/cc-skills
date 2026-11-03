@@ -234,7 +234,7 @@ func TestAClosedIncidentOrARootClearingTakesTheFixOffThePath(t *testing.T) {
 	}
 }
 
-func TestAFixBehindTrunkRebasesThenMergesAtItsNewHeadWithoutWaitingOnCI(t *testing.T) {
+func TestAFixBehindTrunkRebasesThenMergesAtItsNewHeadOnlyOnceCIIsGreenThere(t *testing.T) {
 	f := newSquash(t)
 	behind := &shelltest.Fake{}
 	behind.Reply("", squashTool, "check-pr")
@@ -256,9 +256,41 @@ func TestAFixBehindTrunkRebasesThenMergesAtItsNewHeadWithoutWaitingOnCI(t *testi
 
 	f.admit(fixFacts(func(row *machine.Facts) { row.Head, row.CI, row.Fidelity = squashMoved, machine.CIPending, "" }))
 
+	if merges := f.merges(); len(merges) != 0 {
+		t.Fatalf("merged the new head before its CI ran: %v", merges)
+	}
+
+	f.admit(fixFacts(func(row *machine.Facts) { row.Head, row.Fidelity = squashMoved, "" }))
+
 	want := "gh pr merge 7 --repo " + monorepo + " --squash --match-head-commit " + squashMoved
 	if merges := f.merges(); !slices.Equal(merges, []string{want}) {
 		t.Fatalf("merges = %v", merges)
+	}
+}
+
+func TestAnUntappedIncidentFixInTheQueueIsLeftToTheSquashOnlyWhenTheSquashWouldMergeIt(t *testing.T) {
+	f := newSquash(t)
+	queued := func(row *machine.Facts) { row.Queue, row.QueuedHead = machine.QueueQueued, row.Head }
+	fix := fixFacts(queued)
+	ungraded := fixFacts(func(row *machine.Facts) { queued(row); row.Number, row.Branch, row.Fidelity = 9, "ungraded", "" })
+	ordinary := fixFacts(func(row *machine.Facts) { queued(row); row.Number, row.Lane, row.Branch = 8, "ordinary", "other" })
+	snapshot := []machine.Facts{fix, ungraded, ordinary}
+	acts := make([]pass.Act, 0, len(snapshot))
+	for _, row := range snapshot {
+		acts = append(acts, pass.Act{Facts: row, Verdict: machine.Classify(row)})
+	}
+
+	kept := f.squash.Admit(context.Background(), acts, snapshot)
+
+	numbers := make([]int, 0, len(kept))
+	for _, act := range kept {
+		numbers = append(numbers, act.Facts.Number)
+	}
+	if machine.Classify(fix).Action != machine.ActionDequeue || !slices.Equal(numbers, []int{9, 8}) {
+		t.Fatalf("kept = %+v", kept)
+	}
+	if len(f.merges()) != 1 {
+		t.Fatalf("merges = %v", f.merges())
 	}
 }
 

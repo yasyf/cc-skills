@@ -123,14 +123,14 @@ func TestEachHeadCarriesOneRecordOfWhatTheQueueSaid(t *testing.T) {
 	refused := machine.Facts{Repo: monorepo, Number: 48476, Head: "9b837a86bbcc", Lane: "ssql-4"}
 	unowned := machine.Facts{Repo: monorepo, Number: 48165, Head: "dde89028ddee"}
 	answers := []landing.Said{
-		{queued, "QUEUED", "REFUSED", "exit 0: #48897 QUEUED 1c40b68010 native stack covers #48897"},
-		{refused, "QUEUED", "REFUSED", "exit 1: enqueued nothing: no approved green bottom prefix"},
-		{unowned, "QUEUED", "REFUSED", "timed out after 300s"},
-		{refused, "DEQUEUED", "DEQUEUE-REFUSED", "an open hold names it; the queue said exit 0: #48476 DEQUEUED 9b837a86bb"},
+		{queued, "QUEUED", "REFUSED", "exit 0: #48897 QUEUED 1c40b68010 native stack covers #48897", false},
+		{refused, "QUEUED", "REFUSED", "exit 1: enqueued nothing: no approved green bottom prefix", false},
+		{unowned, "QUEUED", "REFUSED", "timed out after 300s", false},
+		{refused, "DEQUEUED", "DEQUEUE-REFUSED", "an open hold names it; the queue said exit 0: #48476 DEQUEUED 9b837a86bb", false},
 	}
 
 	for range 2 {
-		if err := landing.Settle(ctx, "d", answers); err != nil {
+		if err := landing.Settle(ctx, newStore(t), "d", answers); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -151,5 +151,31 @@ func TestEachHeadCarriesOneRecordOfWhatTheQueueSaid(t *testing.T) {
 	}
 	if !slices.Equal(said, want) {
 		t.Fatalf("got %q, want %q", said, want)
+	}
+}
+
+func TestAnUntappedDequeueIsABlockerToItsLaneAndTheMetaDesk(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	ctx := context.Background()
+	s := newStore(t)
+	if _, err := s.WantLane(store.Lane{Name: "meta-desk-3", State: store.LaneDesired}, t0); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetLaneRole("meta-desk-3", "meta"); err != nil {
+		t.Fatal(err)
+	}
+	untapped := machine.Facts{Repo: monorepo, Number: 46927, Head: "4a9c2e71d0bb", QueuedHead: "4a9c2e71d0bb", Queue: machine.QueueQueued, Lane: "ssql-5"}
+	answer := landing.Said{Facts: untapped, Accepted: "UNTAPPED-DEQUEUED", Refused: "UNTAPPED-DEQUEUE-REFUSED", Text: "the queue said exit 0: #46927 DEQUEUED", Alarm: true}
+
+	if err := landing.Settle(ctx, s, "d", []landing.Said{answer}); err != nil {
+		t.Fatal(err)
+	}
+
+	posted, err := client.Tail(ctx, client.Query{Drive: "d", Kinds: []string{"blocker"}, Lanes: []string{"supervisor"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(posted) != 1 || !slices.Equal(posted[0].To, []string{"ssql-5", "meta-desk-3"}) || !strings.HasPrefix(posted[0].Text, "UNTAPPED-DEQUEUED #46927") {
+		t.Fatalf("posted = %+v", posted)
 	}
 }

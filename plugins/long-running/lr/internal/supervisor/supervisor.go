@@ -153,7 +153,7 @@ func runPass(ctx context.Context, s *store.Store, drive string, generation int64
 		if err != nil {
 			d.Log.Warn("landing stopped mid-pass", "err", err)
 		}
-		if err := landing.Settle(ctx, drive, landed.Said); err != nil {
+		if err := landing.Settle(ctx, s, drive, landed.Said); err != nil {
 			d.Log.Warn("a queue answer went unposted", "err", err)
 		}
 		report.Enqueued = len(landed.Enqueued) + len(landed.Resubmitted)

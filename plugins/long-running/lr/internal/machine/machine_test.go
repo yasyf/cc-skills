@@ -55,6 +55,12 @@ var cases = []struct {
 	{"queued on this head is watched for thirty minutes", facts(func(f *Facts) { f.Queue, f.QueuedHead = QueueQueued, head }), Verdict{StateQueued, MoverSupervisor, ActionWatchQueue, 30 * time.Minute}},
 	{"queued on an older head is dequeued the same pass", facts(func(f *Facts) { f.Queue, f.QueuedHead = QueueQueued, oldHead }), Verdict{StateAwaitingTap, MoverSupervisor, ActionDequeue, 10 * time.Minute}},
 	{"queued under an open hold is dequeued the same pass", facts(func(f *Facts) { f.Queue, f.QueuedHead, f.Hold = QueueQueued, head, MoverRoot }), Verdict{StateAwaitingTap, MoverSupervisor, ActionDequeue, 10 * time.Minute}},
+	{"queued with no tap at its head is dequeued the same pass", facts(func(f *Facts) { f.Queue, f.QueuedHead, f.Tap = QueueQueued, head, "" }), Verdict{StateAwaitingTap, MoverSupervisor, ActionDequeue, 10 * time.Minute}},
+	{"queued on a withdrawn tap is dequeued the same pass", facts(func(f *Facts) { f.Queue, f.QueuedHead, f.Tap = QueueQueued, head, TapWithdrawn }), Verdict{StateAwaitingTap, MoverSupervisor, ActionDequeue, 10 * time.Minute}},
+	{"queued on a conditional tap is dequeued the same pass", facts(func(f *Facts) {
+		f.Queue, f.QueuedHead, f.Tap, f.Condition = QueueQueued, head, TapConditional, "only if covered"
+	}), Verdict{StateAwaitingTap, MoverSupervisor, ActionDequeue, 10 * time.Minute}},
+	{"queued exempt with no tap stays in the queue", facts(func(f *Facts) { f.Queue, f.QueuedHead, f.Tap, f.Exempt = QueueQueued, head, "", true }), Verdict{StateQueued, MoverSupervisor, ActionWatchQueue, 30 * time.Minute}},
 	{"an ungraded PR no lane owns and nobody tapped is nobody's", facts(func(f *Facts) { f.Lane, f.Finder, f.Fidelity, f.Tap = "", "", "", "" }), Verdict{StatePushed, MoverNobody, ActionNone, 0}},
 	{"a graded PR no lane owns never asks the owner for a tap", facts(func(f *Facts) { f.Lane, f.Tap = "", "" }), Verdict{StatePushed, MoverNobody, ActionNone, 0}},
 	{"a tapped PR with no lane is still graded", facts(func(f *Facts) { f.Lane, f.Finder, f.Fidelity, f.Tap = "", "", "", TapTapped }), Verdict{StateGrading, MoverPool, ActionGrade, GradeClock}},

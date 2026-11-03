@@ -44,6 +44,7 @@ type Said struct {
 	Accepted string
 	Refused  string
 	Text     string
+	Alarm    bool
 }
 
 type Done struct {
@@ -110,7 +111,7 @@ func Act(ctx context.Context, s *store.Store, queue Queue, restacker Restacker, 
 			if said, err = queue.Dequeue(ctx, act.Facts.Number); err == nil {
 				done.Dequeued = append(done.Dequeued, act.Facts.Number)
 				if said != "" {
-					done.Said = append(done.Said, Said{act.Facts, "DEQUEUED", "DEQUEUE-REFUSED", dequeueWhy(act.Facts) + "; the queue said " + said})
+					done.Said = append(done.Said, dequeued(act.Facts, said))
 				}
 			}
 		case machine.ActionRestack:
@@ -123,15 +124,21 @@ func Act(ctx context.Context, s *store.Store, queue Queue, restacker Restacker, 
 	return done, nil
 }
 
-func dequeueWhy(f machine.Facts) string {
+func dequeued(f machine.Facts, said string) Said {
+	answer := Said{Facts: f, Accepted: "DEQUEUED", Refused: "DEQUEUE-REFUSED"}
 	switch {
 	case f.QueuedHead != f.Head:
-		return "the queue held an older head"
+		answer.Text = "the queue held an older head"
 	case f.Hold != "":
-		return "an open hold names it"
+		answer.Text = "an open hold names it"
+	case !f.Tapped():
+		answer.Accepted, answer.Refused, answer.Alarm = "UNTAPPED-DEQUEUED", "UNTAPPED-DEQUEUE-REFUSED", true
+		answer.Text = "it was queued with no owner tap and no exempt class at this head"
 	default:
-		return "an open hold names a PR below it"
+		answer.Text = "an open hold names a PR below it"
 	}
+	answer.Text += "; the queue said " + said
+	return answer
 }
 
 func enqueue(ctx context.Context, s *store.Store, queue Queue, f machine.Facts, now time.Time, done *Done) error {
@@ -143,7 +150,7 @@ func enqueue(ctx context.Context, s *store.Store, queue Queue, f machine.Facts, 
 		if _, err := s.PutFact(f.Repo, f.Number, f.Head, pass.EnqueuedFact, said, now); err != nil {
 			return err
 		}
-		done.Said = append(done.Said, Said{f, "QUEUED", "REFUSED", said})
+		done.Said = append(done.Said, Said{Facts: f, Accepted: "QUEUED", Refused: "REFUSED", Text: said})
 	}
 	if f.Queue != machine.QueueEvicted {
 		done.Enqueued = append(done.Enqueued, Head{f.Number, f.Head})

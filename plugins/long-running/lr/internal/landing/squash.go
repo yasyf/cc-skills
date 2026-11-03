@@ -80,8 +80,13 @@ func (q *Squash) Admit(ctx context.Context, acts []pass.Act, snapshot []machine.
 		q.Log.Warn("the incident squash pass did not read", "err", err)
 	}
 	return slices.DeleteFunc(slices.Clone(acts), func(act pass.Act) bool {
-		return act.Verdict.Action == machine.ActionEnqueue && taken[act.Facts.Number]
+		return taken[act.Facts.Number] && (act.Verdict.Action == machine.ActionEnqueue || leftToSquash(act))
 	})
+}
+
+func leftToSquash(act pass.Act) bool {
+	f := act.Facts
+	return act.Verdict.Action == machine.ActionDequeue && f.Queued() && f.Hold == "" && f.Fidelity == machine.FidelityPass
 }
 
 func (q *Squash) pass(ctx context.Context, snapshot []machine.Facts) (map[int]bool, error) {
@@ -251,7 +256,7 @@ func (q *Squash) land(ctx context.Context, f machine.Facts, open *client.Record)
 		return err
 	}
 	rebased := facts[rebasedFact] != ""
-	if facts[squashedFact] != "" || !f.Approved || (!f.Green() && !rebased) {
+	if facts[squashedFact] != "" || !f.Approved || !f.Green() {
 		return nil
 	}
 	if (gates.Keeper{Store: q.Store, Now: q.Now, Log: q.Log, Tell: q.tell}).Refuses(ctx, f, gates.Gate{Name: "incident rulings", Kind: "blocker", Check: q.rulings}) {
