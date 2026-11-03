@@ -859,3 +859,25 @@ func TestAServiceTouchEntryThatDoesNotCompileGradesAsBefore(t *testing.T) {
 	texts := shell.texts()
 	equal(t, texts[len(texts)-1], "old-app: unchanged "+shaHead[:7]+" baseline "+baselineName+"; go/sand/next only")
 }
+
+func TestAReaderHeadWhoseOldAppLineNamesWorkloadsHoldsAtOldAppPendingWithoutReachingEveryReader(t *testing.T) {
+	directory := fidelityDir(t, map[string]any{"grades": []any{}, "service_touches": signalTouches})
+	shell, repo := newFidelityFake(t, samePatch, fidelityReplyOf(map[string]any{"verdict": "reader", "reader": "the whole diff is too large for one pass"}))
+	repo.diff = pr44080Diff
+	mustFidelity(t, directory, shell)
+	reader := shell.posted[0]
+	equal(t, reader["--text"], fidelityReader+" "+shaHead+" OLD-APP-PENDING: the whole diff is too large for one pass")
+	equal(t, reader["--to"], "p8a-step9,desk-runner,board-refresher-2")
+}
+
+func TestAServiceTouchOnTheDurableReaderPathMarksAnyAddedLineThereAsAnOldAppChange(t *testing.T) {
+	directory := fidelityDir(t, map[string]any{"grades": []any{}, "service_touches": []map[string]string{
+		{"service": "old-app pages", "path": "dashboard/src/iris/durable", "added": `\S`},
+	}})
+	shell, repo := newFidelityFake(t, samePatch, fidelityReplyOf(nil))
+	repo.diff = pr44080Diff
+	mustFidelity(t, directory, shell)
+	texts := shell.texts()
+	holdsAll(t, texts[len(texts)-1], "old-app: CHANGES "+shaHead[:7], "dashboard/src/iris/durable/replica.ts:1172 touches old-app pages")
+	holdsNone(t, texts[len(texts)-1], "journal/grant.ts", "replica.test.ts")
+}
