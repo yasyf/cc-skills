@@ -1365,6 +1365,32 @@ func spriteConfig(w *deskWorld) string {
 	return launcher
 }
 
+func TestAWarmSpriteWithNoInstallLogStillSettlesItsLaunch(t *testing.T) {
+	w := newDeskWorld(t)
+	spriteConfig(w)
+	brief := w.brief(testLane, testBrief)
+	w.lines()
+	line := w.line(launchText(testLane, brief))
+	key := "R" + strings.TrimPrefix(line.Name(), "#")
+	w.launchOut[testLane] = `{"task":"t","dispatch":"ctx_s","terminal":"term_s","worktree":"/box/w","workspace":"pool-1"}` + "\n"
+	w.lines()
+	w.step(w.desk.deliver)
+	attempt := spriteAttempt(brief)
+	w.write(filepath.Join(attempt, spriteReceipt), `{"result":{"dispatchId":"ctx_s"}}`)
+	w.write(filepath.Join(attempt, spriteMade), `{"workspace":"pool-1"}`)
+
+	w.step(w.desk.reap)
+
+	if action := w.action(testLane, key); action.Status != incident.ActionVerified {
+		t.Fatal(action)
+	}
+	census, err := w.desk.Registry.SpriteTools()
+	if err != nil || len(census) != 0 {
+		t.Fatal(census, err)
+	}
+	w.wantEscalation("LAUNCHED " + key)
+}
+
 func TestALaunchThatMayLeaveTheMacStartsOnASpriteAndSettlesFromItsReceipt(t *testing.T) {
 	w := newDeskWorld(t)
 	launcher := spriteConfig(w)
