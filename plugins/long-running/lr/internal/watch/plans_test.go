@@ -109,6 +109,25 @@ func TestAClockTimeWithoutByBeforeUntilOrDueIsNoDeadline(t *testing.T) {
 	}
 }
 
+func TestAnOrderNamingAClockOwesNoPlanAndAReportNamingOneStillDoes(t *testing.T) {
+	said := at(t, "2026-11-03T10:00:00Z")
+	text := "orca-desk: relay to iris-open-fix: land it by 11:10 AM"
+	for _, tt := range []struct {
+		record client.Record
+		pages  int
+	}{
+		{client.Record{Seq: 40, Lane: "root", Kind: "hold", At: said, Text: text}, 0},
+		{client.Record{Seq: 40, Lane: "root", Kind: "go", At: said, Text: text}, 0},
+		{client.Record{Seq: 40, Lane: "root", Kind: "lift", At: said, Text: text}, 0},
+		{client.Record{Seq: 40, Lane: "root", Kind: "report", At: said, Text: text}, 1},
+	} {
+		t.Run(string(tt.record.Kind), func(t *testing.T) {
+			s, r := memory(t), &recorder{}
+			want(t, len(planSweep(t, s, r, said.Add(time.Minute), tt.record)), tt.pages)
+		})
+	}
+}
+
 func TestTheDeskRunnersRelayOfAnOrderPagesNothing(t *testing.T) {
 	s, r := memory(t), &recorder{}
 	said := at(t, "2026-11-03T10:00:00Z")
