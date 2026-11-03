@@ -31,12 +31,12 @@ def answered(event: dict) -> bool:
     return False
 
 
-def add_argv(program: str, session: str, card: str, block: str, title: str, words: str, moment: datetime, proof: str) -> list[str]:
-    """The `ccn answer add` argv for one answer: the card's question as the title, and the owner's words verbatim, the card and block ids, the board and the Pacific time as the body."""
+def add_argv(program: str, session: str, card: str, block: str, title: str, words: str, moment: datetime, proof: str, anchors: list[str]) -> list[str]:
+    """The `ccn answer add` argv for one answer: the card's question as the title, and the owner's words verbatim, the card and block ids, the board and the Pacific time as the body, after the `anchors` of each vocabulary topic it names."""
     when = moment.astimezone(PACIFIC).strftime("%b %-d %-I:%M %p PT")
     body = f"{words}\nBoard question: {title}\nCard {card}, block {block}, board {session}, {when}."
     labels = (OWNER, ROW, f"program:{program}", f"board-session:{session}", f"board-card:{card}", f"board-block:{block}", proof)
-    return ["answer", "add", title, "--body", body, *(arg for label in labels for arg in ("--label", label)), "--json"]
+    return ["answer", "add", title, "--body", body, *anchors, *(arg for label in labels for arg in ("--label", label)), "--json"]
 
 
 def rowed(ccn: Run, session: str, card: str | None = None) -> set[str]:

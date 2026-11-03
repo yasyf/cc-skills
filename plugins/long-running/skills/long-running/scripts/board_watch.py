@@ -114,6 +114,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from long_running import answer_rows
+from long_running import answer_search
 from long_running import board_rows
 from long_running import cci
 from long_running import drive
@@ -477,7 +478,9 @@ def register(event: dict, key: str, session: str, doc: dict | None, shell: Shell
     listed = shell.ccn(entry["checkout"], ["answer", "list", "--label", proof, "--json"])
     if listed.returncode == 0 and json.loads(listed.stdout or "[]"):
         return
-    argv = answer_rows.add_argv(drive.program_of(entry), session, top.get("id") or block, block, title, CREDENTIAL.sub(REDACTED, told(event, doc)), moment or shell.now(), proof)
+    words = CREDENTIAL.sub(REDACTED, told(event, doc))
+    topics = answer_search.vocabulary(lambda argv: shell.ccn(entry["checkout"], argv).stdout, drive.program_of(entry))
+    argv = answer_rows.add_argv(drive.program_of(entry), session, top.get("id") or block, block, title, words, moment or shell.now(), proof, answer_search.anchors(topics, f"{title}\n{words}"))
     if (done := shell.ccn(entry["checkout"], argv)).returncode:
         print(f"board-watch {session}: the ccn answer row for {block} did not write: {done.stderr.strip()}", flush=True)
 

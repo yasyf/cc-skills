@@ -3,10 +3,12 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Callable, Iterable
+from dataclasses import dataclass
 
 Run = Callable[[list[str]], str]
 
 GLOB = re.compile(r"[*?\[]")
+TOPICS = "answer-topics"
 
 
 def roots(paths: Iterable[str]) -> list[str]:
@@ -28,3 +30,40 @@ def hits(ccn: Run, topics: Iterable[str], paths: Iterable[str], base: str) -> li
             if item["kind"] == "answer":
                 found.setdefault(item["answer"]["id"], item["answer"])
     return sorted(found.values(), key=lambda answer: answer["updated_at"], reverse=True)
+
+
+@dataclass(frozen=True)
+class Topic:
+    slug: str
+    words: str
+    dirs: tuple[str, ...]
+
+    def names(self, text: str) -> bool:
+        return re.search(self.words, text, re.IGNORECASE) is not None
+
+    def covers(self, path: str) -> bool:
+        return any(path == root or path.startswith(f"{root}/") or root.startswith(f"{path}/") for root in self.dirs)
+
+    def flags(self, verb: str = "") -> list[str]:
+        return [f"--{verb}label", f"topic:{self.slug}", *(flag for root in self.dirs for flag in (f"--{verb}dir", root))]
+
+
+def vocabulary_ledger(ccn: Run, program: str) -> str | None:
+    found = json.loads(ccn(["ledger", "list", "--label", TOPICS, "--label", f"program:{program}", "--json"]) or "[]")
+    return max(found, key=lambda ledger: ledger["updated_at"])["id"] if found else None
+
+
+def vocabulary(ccn: Run, program: str) -> list[Topic]:
+    if not (ledger := vocabulary_ledger(ccn, program)):
+        return []
+    rows = json.loads(ccn(["ledger", "show", ledger, "--json"]))["rows"]
+    return [Topic(row["key"], row["fields"]["words"], tuple(json.loads(row["fields"].get("dirs") or "[]"))) for row in rows]
+
+
+def named(topics: Iterable[Topic], text: str = "", paths: Iterable[str] = ()) -> list[Topic]:
+    paths = list(paths)
+    return [topic for topic in topics if (text and topic.names(text)) or any(topic.covers(path) for path in paths)]
+
+
+def anchors(topics: Iterable[Topic], text: str) -> list[str]:
+    return [flag for topic in named(topics, text) for flag in topic.flags()]
