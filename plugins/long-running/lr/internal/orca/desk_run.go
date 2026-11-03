@@ -5,9 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
+	"strings"
 	"syscall"
 	"time"
 
@@ -29,6 +32,8 @@ const (
 	unreachableFact = "orca-unreachable"
 	relayLock       = "relay.lock"
 	unboundExit     = 3
+	stepStart       = "start"
+	stepIdle        = "idle"
 )
 
 func (d *Desk) prompt(ctx context.Context) error {
@@ -161,13 +166,18 @@ func (d *Desk) idle(ctx context.Context, pause time.Duration) {
 }
 
 type passMark struct {
-	number int
-	since  time.Time
-	step   string
+	number  int
+	since   time.Time
+	step    string
+	entered time.Time
 }
 
 func (d *Desk) enter(step string) {
-	d.pass.Store(&passMark{number: d.passes + 1, since: d.passSince, step: step})
+	now := d.Now()
+	if left := d.pass.Load(); left != nil {
+		d.stepTook[left.step] += now.Sub(left.entered)
+	}
+	d.pass.Store(&passMark{number: d.passes + 1, since: d.passSince, step: step, entered: now})
 }
 
 func (d *Desk) keepAlive(ctx context.Context) (stop func()) {
@@ -230,10 +240,22 @@ func (d *Desk) settlePass(ctx context.Context, err error) error {
 }
 
 func (d *Desk) timedPass() {
-	d.passTook = append(d.passTook, d.Now().Sub(d.passSince))
+	d.enter(stepIdle)
+	took := d.Now().Sub(d.passSince)
+	d.passTook = append(d.passTook, took)
 	if len(d.passTook) > passesTimed {
 		d.passTook = d.passTook[len(d.passTook)-passesTimed:]
 	}
+	if took < aliveEvery {
+		return
+	}
+	var steps []string
+	for _, step := range slices.Sorted(maps.Keys(d.stepTook)) {
+		if seconds := int(d.stepTook[step].Seconds()); seconds > 0 {
+			steps = append(steps, fmt.Sprintf("%s %ds", step, seconds))
+		}
+	}
+	fmt.Fprintf(d.Stderr, "relay pass %d took %ds: %s\n", d.passes, int(took.Seconds()), strings.Join(steps, ", "))
 }
 
 func (d *Desk) holdRelayLock() (*os.File, bool, error) {
@@ -283,10 +305,12 @@ func (d *Desk) Run(ctx context.Context, once bool) error {
 		fmt.Fprintf(d.Stderr, "the desk's register note left unposted: %v\n", err)
 	}
 	d.passSince = d.Now()
-	d.enter("start")
+	d.enter(stepStart)
 	defer d.keepAlive(ctx)()
 	for {
 		d.passSince = d.Now()
+		d.enter(stepStart)
+		clear(d.stepTook)
 		passErr := d.onePass(ctx)
 		if ctx.Err() != nil {
 			d.background.Wait()
@@ -309,7 +333,7 @@ func (d *Desk) Run(ctx context.Context, once bool) error {
 			return nil
 		}
 		d.passSince = d.Now()
-		d.enter("idle")
+		d.enter(stepIdle)
 		d.idle(ctx, d.passWait())
 		if d.Release() != release {
 			d.background.Wait()

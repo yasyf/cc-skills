@@ -200,6 +200,7 @@ type Desk struct {
 	swept       time.Time
 	pass        atomic.Pointer[passMark]
 	stuckPass   int
+	stepTook    map[string]time.Duration
 	passes      int
 }
 
@@ -207,6 +208,7 @@ func (d *Desk) open() {
 	d.store = incident.Store{Root: d.Config.Store}
 	d.launching = map[string]Process{}
 	d.sprites = map[string]bool{}
+	d.stepTook = map[string]time.Duration{}
 }
 
 func (d *Desk) tool(name string) string {

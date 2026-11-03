@@ -3258,6 +3258,8 @@ func TestALongPassKeepsPostingAliveAndAStuckOneIsNamedOnce(t *testing.T) {
 	w := newDeskWorld(t)
 	held := &heldRunner{Runner: w, reached: make(chan struct{}), release: make(chan struct{})}
 	w.desk.Runner = held
+	var said strings.Builder
+	w.desk.Stderr = &said
 	ticks := make(chan time.Time)
 	w.desk.AliveTicks = ticks
 	done := make(chan error, 1)
@@ -3293,6 +3295,7 @@ func TestALongPassKeepsPostingAliveAndAStuckOneIsNamedOnce(t *testing.T) {
 	if found := w.postsWhere(stuck); len(found) != 1 {
 		t.Fatal(found)
 	}
+	wantContains(t, said.String(), "relay pass 1 took 1620s: check 1620s\n")
 }
 
 func TestARelayDeliveredToItsLanesDispatchCostsNoOrcaCallAndNoTailAtAnyN(t *testing.T) {
