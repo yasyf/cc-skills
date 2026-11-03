@@ -22,7 +22,7 @@ A red head whose every failing status is a Buildkite build, where each failed st
 
 Run `scripts/red-sweep.sh` beside `label-watch.sh watch`, pointed at the same list file, as its own background sweep. It never edits the list, so `label-watch.sh` still removes an entry once it lands or gets skipped.
 
-The root classifies each output line first.
+The coordinator classifies each output line first.
 - Hold a `DEV-RED` line as `dev-red:<step>` instead of routing it.
 - Route every `STALLED-RED` line to the lane that owns the PR by `SendMessage` in the same turn, with a 15-minute deadline, because an idle lane never sees CI. A red whose owner is gone gets a new lane at once, or goes to the train or red desk under D8 in [landing.md](landing.md).
 

@@ -17,7 +17,7 @@ The doc carries everything else. Then do only the swap.
 
 ```text
 Replaces: <lane>
-You are <lane>-<N+1> and take over <lane>'s work. The root stopped <lane>; never
+You are <lane>-<N+1> and take over <lane>'s work. The coordinator stopped <lane>; never
 SendMessage it. Your handoff is `ccn -R <drive checkout> doc show <handoff doc id>`, and
 you read deliveries from cci cursor <cursor the handoff names>.
 

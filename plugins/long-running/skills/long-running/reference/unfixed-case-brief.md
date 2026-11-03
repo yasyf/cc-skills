@@ -84,7 +84,7 @@ Do:
      - `FIX-LIVE {lane}: <what, where, the case passing on the released build, time>`,
        kind `fix-live`, or `NOT-OURS {lane}: <evidence and who owns it>`, kind
        `not-ours`. Either one stops the clock.
-     Each limit you pass without its record sends a blocker to the root, who tells
+     Each limit you pass without its record sends a blocker to the coordinator, who tells
      the owner.
   4. Before READY, run the case above again on the build that carries your fix. A
      fix proven only on a synthetic or neighbouring case is not ready. Quote the
@@ -95,7 +95,7 @@ Do:
      not cover, one line each, exactly `UNFIXED {lane}: <the case, one line>`, or
      `UNFIXED {lane}: none`. Send the lines to the Run as the body of the status
      messages whose subjects are `ready: <the READY line>` and
-     `fix-live: <the FIX-LIVE line>`. The desk puts each new case to the root.
+     `fix-live: <the FIX-LIVE line>`. The desk puts each new case to the coordinator.
 
 Worktree: your own. No Slack posts.
 Finish: a `STOPPED {lane}: <why>` line, kind `stopped`, and `worker_done`.

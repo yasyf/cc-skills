@@ -246,7 +246,7 @@ a reader and takes back at most five lines. The `root_context` and `root_reads`
 hooks warn on every read of those kinds, on a second source opened for one owner
 ask, and on a lane's records piped through `tail` or `grep`.
 
-## What runs without the root
+## What runs without the coordinator
 
 | Mechanism | Owns | Reaches the coordinator with |
 |---|---|---|
@@ -261,7 +261,7 @@ ask, and on a lane's records piped through `tail` or `grep`.
 | The owner update and the dashboard (`lr update render --sent`, run by the communicator's `update-desk`) | Every plan step, workstream, live lane under its step, open ask, pick, incident and release today, PR with a go owed or hold; every row with who is on it or **nobody**, what blocks it, what unblocks it and by when, what went wrong; unowned work first; exit 1 naming anything missing | The rendered update, which the communicator relays and the dashboard shows |
 | The handoff (`lr handoff generate`) | The pre-compaction doc with the lane registry and the rendered update | Nothing but the coordinator's own narrative |
 
-A mechanism that does not run is a defect of the drive, never a chore for a root.
+A mechanism that does not run is a defect of the drive, never a chore for a coordinator.
 When either session does a row's work by hand, it sends the defect to the meta lane
 that turn (R14).
 
@@ -342,7 +342,7 @@ to a Python script is a Go verb.
 **R15.** CI is the verifier. No lane runs tests, builds, typechecks or lint locally;
 the `local_builds` hook refuses them. Batch jobs run on in-region compute.
 
-**R16.** An active alert gets its executor the same turn, without a root: the
+**R16.** An active alert gets its executor the same turn, without a coordinator: the
 supervisor launches the fix and evidence lanes for an alert nobody answered in
 three minutes. When an alert reaches the coordinator first (a link the communicator
 relayed, an `#outage` report, a page, a runner `PAGE`, a failing release check, an

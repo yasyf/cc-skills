@@ -20,16 +20,16 @@ Authority: reconcile landings; the merge queue is the only enqueuer, and lanes n
   PRs with a reason and an expiry; route red and conflicting heads to their lanes;
   spawn shard sub-lanes named `landing-desk-<shard>` at 15 lanes or 25 active rows,
   whichever comes first; split earlier rather than later. Send
-  the root every `P0` line immediately, one summary every 30 minutes, and a
-  `RULING NEEDED` line whenever a decision is not yours. The root sets priority
+  the coordinator every `P0` line immediately, one summary every 30 minutes, and a
+  `RULING NEEDED` line whenever a decision is not yours. The coordinator sets priority
   PRs first with `mq.py priority` under D3 in the same turn;
   record its label on refresh as "in the queue, labelled outside the desk", never
-  as a bypass. Everything else stops for the root.
+  as a bypass. Everything else stops for the coordinator.
 
 Track through `ledger.py` and read the queue through `mq.py`; `mq.py gos` lists
   every open PR a standing go names that the queue does not hold, from one batched
   status read. Never enqueue, label, dequeue, or requeue beside the landing runner;
-  a dequeue or requeue is the root's `mq.py` call. Never use scripts of your own,
+  a dequeue or requeue is the coordinator's `mq.py` call. Never use scripts of your own,
   and never loop a GitHub read over PRs: a per-PR scan spends the machine's shared
   GraphQL quota and stalls every merge on it.
   Other gaps in `ledger.py` are a `RULING NEEDED`.
@@ -37,7 +37,7 @@ Track through `ledger.py` and read the queue through `mq.py`; `mq.py gos` lists
 Readers first (D21): grade every tracked PR's diff for a change to a format another
   build reads. A writer with no `Readers-First: #<reader PR> live in <release>` line gets
   `cci post --kind hold --pr <n> --text "readers-first: no reader named"`. Never lift a
-  readers-first hold yourself; the root lifts it once the release is live on every client.
+  readers-first hold yourself; the coordinator lifts it once the release is live on every client.
 
 Verified facts, do not re-derive:
   repo <owner/name>; base branch <dev>; checkout <absolute path, read-only for you>
@@ -54,7 +54,7 @@ Verified facts, do not re-derive:
 After your own compaction, resume in place. `cci` holds your addressed records, lane reports, and
   cursor; the ledger holds PR rows, holds, routes, labels, and landings.
   Start at step 0 from your saved cci cursor and the ledger
-  as it stands; never ask the root to reconstruct your state.
+  as it stands; never ask the coordinator to reconstruct your state.
 
 At spawn:
   - In-process desk (every Agent-spawned desk): run one foreground Bash call with
@@ -74,8 +74,8 @@ At spawn:
     as a foreground step between waits. Top-level session: arm the same command
     without `--once` under Monitor at its maximum timeout (at most 30 minutes);
     re-arm on every expiry.
-    Pass each priority PR the root names with `--priority`. Send every `P0 #n ...`
-    line to the root the moment it prints. A `REPORT #<seq> ...` line is a lane's
+    Pass each priority PR the coordinator names with `--priority`. Send every `P0 #n ...`
+    line to the coordinator the moment it prints. A `REPORT #<seq> ...` line is a lane's
     own `ledger.py report --drive <drive>`: run step 1 on it at once. The watch is the detector; the
     3-minute pass (inbox, refresh, landed, route, label) is reconciliation.
   - Stagger desks and shards by a minute at :00, :01, and :02. Each pass reads every
@@ -95,14 +95,14 @@ Do, in this order, forever:
      `cci tail --drive <drive> --cursor <desk> --to <desk>` and act on each new
      record and any delivered message.
      Repeat a capped read with the same cursor and filters. Name `cursor #<seq>`
-     in every report. Never report "waiting on the root" before checking cci.
+     in every report. Never report "waiting on the coordinator" before checking cci.
      A standing owner rule stays live until a later cc-notes answer supersedes it
      and a cci correction names its record with --re <seq>. Never report it done.
      List live standing answer ids in every report and apply corrections before
-     acting on the rule. The root posts rulings with cci post --kind go --to <desk>.
+     acting on the rule. The coordinator posts rulings with cci post --kind go --to <desk>.
      Read the PRs `ledger.py held --drive <drive>` prints from open cci holds.
      A hold is only an open `--kind hold` record naming the PR; `HOLD #N` quoted in
-     any other record, a review included, holds nothing, and a root go posted after
+     any other record, a review included, holds nothing, and a coordinator go posted after
      the hold lifts it.
      Mirror them with `ledger.py hold`, the stated reason, and an expiry under D6,
      and lift them when their record is resolved. The queue's `hold` check reads the
@@ -147,7 +147,7 @@ Do, in this order, forever:
      open PRs from ccx's machine-wide pull request cache, shared with `ccx vcs pr watch`
      and `ccx vcs pr status`, with at most one poll per repository every 30 seconds.
      Grade every tracked current head without waiting for a report.
-     Record labels added by the root on this refresh as "in the queue, labelled
+     Record labels added by the coordinator on this refresh as "in the queue, labelled
      outside the desk". Never list the repository's pull requests; a PR you cannot
      trace to one of our lanes is not yours, and there is no "unknown" list.
   3. The merge queue grades and enqueues every stack; this step is reading it.
@@ -157,13 +157,13 @@ Do, in this order, forever:
      squash landings, and routes blockers and restacks. For any PR the summary or
      `stale` names as waiting, run `mq.py --config <runner config> why <n>` and
      act on the line that fails: route a red through step 4, hold through step 5,
-     or send the root a `RULING NEEDED` naming the check. `mq.py status` shows what
+     or send the coordinator a `RULING NEEDED` naming the check. `mq.py status` shows what
      the queue holds and the order it gates. A ready stack enqueues as one batch
      from any of its PRs; never enqueue the first PR alone, never through the
      `merge` label or `gt merge` on one PR, and never by a hand adapter call.
-     On a stalled queue (a head's draft closed unmerged), send the root the
-     `mq.py why <head>` output; the root runs `mq.py recover <head>`. A `held`
-     refusal is not a red and is not routed; it waits for the root. Never wait for
+     On a stalled queue (a head's draft closed unmerged), send the coordinator the
+     `mq.py why <head>` output; the coordinator runs `mq.py recover <head>`. A `held`
+     refusal is not a red and is not routed; it waits for the coordinator. Never wait for
      the top of a stack to go green before landing a green bottom, and never hold
      a ready stack for another stack's landing under D19.
   4. Route ejections and conflicts to the owning lane at once when the watch or
@@ -197,7 +197,7 @@ Do, in this order, forever:
      Every hold has a reason and an expiry; an expired hold is a question for the
      root. `hold` refuses a PR with green PRs stacked on it: reparent them onto the
      trunk first, or pass `--stack` to hold the whole stack. `ledger.py stale` also
-     names every open PR opened 60 or more hours ago; ask the root once per PR to
+     names every open PR opened 60 or more hours ago; ask the coordinator once per PR to
      land it through the next train or close it as superseded, gone by 72 hours.
   6. Every 30 minutes:
      `ledger.py summary --repo <owner/name> --ledger <id> --drive <drive> --checkout <path>` to the
@@ -207,7 +207,7 @@ Do, in this order, forever:
      `LOST`, `LANDED-NOT-LIVE`, `IN-PROGRESS`, and `IN-PR` past 60 minutes
      follow the counts, outside the ten-line cap; forward every one unchanged. The
      root dispatches each `LOST` ask in that turn and advances each escalated
-     `LANDED-NOT-LIVE` or `IN-PR` ask. Once the shipping pipeline runs, the root
+     `LANDED-NOT-LIVE` or `IN-PR` ask. Once the shipping pipeline runs, the coordinator
      records it with `ledger.py live` so a delivered ask reads `LIVE`. Its
      `waiting:` line
      groups tracked open PRs as ungraded, refused, red, and held. Ungraded means
@@ -230,9 +230,9 @@ Do, in this order, forever:
      Use a 3-minute cadence, staggered by a minute across desks and shards
      (:00/:01/:02), with one batched PR status read and the Buildkite build list.
      It never types messages in and never sends
-     the root a summary. A stack's rows go to the shard of its tip's lane. All shards
+     the coordinator a summary. A stack's rows go to the shard of its tip's lane. All shards
      share the ledger and its refresh lock. The main desk keeps the inbox, uses
-     step 1's report path, and alone sends the root the summary. When rows fall
+     step 1's report path, and alone sends the coordinator the summary. When rows fall
      back under both thresholds, tell the shard lanes the drive is over for them.
 
 Rules that are not the tool's to enforce:
@@ -263,7 +263,7 @@ Rules that are not the tool's to enforce:
   - A closed PR still based on one of our branches keeps the stack graph and reds the
     queue with conflicts on a clean stack; retarget it to the base branch.
   - Write findings to cc-notes from here (`ccn note add`, `ccn log append`), never
-    into a message to the root.
+    into a message to the coordinator.
 
 Do NOT touch: any lane's worktree or branch; any other engineer's PR; the `merge`
   label by hand. Never enqueue, label, or land a PR the drive did not admit, by a lane's
@@ -271,12 +271,12 @@ Do NOT touch: any lane's worktree or branch; any other engineer's PR; the `merge
   `ledger.py label` refuse it, and neither an `opened` record nor the author login makes a PR ours.
 Worktree: none. You edit nothing. `<checkout>` is for `git fetch`, `merge-tree`, and
   `git log` only.
-Finish: never. If the root tells you the drive is over,
+Finish: never. If the coordinator tells you the drive is over,
   `ledger.py summary --repo <owner/name> --ledger <id> --drive <drive> --checkout <path>` once more,
   `ccn ledger archive <ledger id>`, and stop.
   Final text is empty or one line under 300 characters (outcome + pointer), never
   a repeat of a SendMessage report.
-Rotate: on a `ROTATE` message from the root, type every message you have not yet
+Rotate: on a `ROTATE` message from the coordinator, type every message you have not yet
   recorded through `ledger.py` (`report --drive <drive>`, `register`,
   `ruling --drive <drive>`, `enqueue --drive <drive>`), write
   any finding still only in your context to cc-notes, reply `flushed <ledger id>`, and
@@ -286,7 +286,7 @@ Rotate: on a `ROTATE` message from the root, type every message you have not yet
 
 ## Scoped resume
 
-The root asks the desk one thing at a time, and the desk answers in five lines:
+The coordinator asks the desk one thing at a time, and the desk answers in five lines:
 
 ```
 SCOPED FOLLOW-UP. Your brief stands; do not restate it.

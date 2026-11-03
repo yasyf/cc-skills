@@ -13,9 +13,9 @@ Contents:
 
 ## Dashboard app startup
 
-From the drive's first plan, the root runs the app in `dashboard/app/` with `python3 dashboard/app/server.py --config <state dir>/dashboard.json`. The config names the drive, ledger, board session and URL, repo, progress-doc label, release doc, story file, host, port, and keeper lane `update-desk`, the communicator's helper briefed from [communicator-brief.md](communicator-brief.md).
+From the drive's first plan, the coordinator runs the app in `dashboard/app/` with `python3 dashboard/app/server.py --config <state dir>/dashboard.json`. The config names the drive, ledger, board session and URL, repo, progress-doc label, release doc, story file, host, port, and keeper lane `update-desk`, the communicator's helper briefed from [communicator-brief.md](communicator-brief.md).
 
-`python3 dashboard/app/keep.py --config <state dir>/dashboard.json` starts the app detached when it is not answering, logs to `server.log` beside the config, and tells root. The root hands the owner its tailnet URL once, and never hands him a cc-present board in its place. A build failure posts one `defect` record to root.
+`python3 dashboard/app/keep.py --config <state dir>/dashboard.json` starts the app detached when it is not answering, logs to `server.log` beside the config, and tells root. The coordinator hands the owner its tailnet URL once, and never hands him a cc-present board in its place. A build failure posts one `defect` record to root.
 
 The app serves Overview, Needs you, Review, Releases, Workers, Timeline, and Ask from the cci daemon's record stream, `cc-present watch` on the board, the ledger, the drive's cc-notes answers, and the newest progress doc carrying `## Ordered plan of action`.
 
@@ -84,9 +84,9 @@ A worker's five-minute box takes the most severe record kind it posted in that w
 
 `owner_update.py --render --publish` (or `--sent`) rewrites `<state dir>/progress-desk/steps.json` atomically from the same rows as the owner update, with no counts, so the dashboard and the update never disagree; [owner-report-table.md](owner-report-table.md) lists its row fields. That file lists `steps[]` in plan order, each with an `id`, a label of at most two words, a plain title with no PR numbers, its `state`, and `blocker`, which is `null` when nothing blocks it. Each step entry also includes `next`, every open or landed PR of the step, and the lanes working on it. Beside the steps, `now.release` and `now.releases[]` describe the next release and every release with the parts it ships, in plain words. The `now.blocker` field holds a drive-wide stop only, such as a red trunk or a dead merge queue, with its start time, or `null` otherwise. A step's own blocker stays on the step.
 
-`drive.py overview` (alias `plan-status`) prints the owner's plan report from `steps.json` in about a tenth of a second. The report follows [owner-report-table.md](owner-report-table.md), one row per step and per milestone. Below the rows, it lists everything left until completion with the gate each item waits on. A step's state counts its changes from `pr_state`; change numbers fold into "a change," lane names into "a worker," and drive words into their plain names. `--json` serves tools, `--step <id>` prints one row by id, label, title, or milestone number, and `--since <90m|7:05 PM|ISO>` keeps the rows that moved and says what moved. The root answers "where does the plan stand" with `drive.py overview`, never by parsing `/api/model` by hand.
+`drive.py overview` (alias `plan-status`) prints the owner's plan report from `steps.json` in about a tenth of a second. The report follows [owner-report-table.md](owner-report-table.md), one row per step and per milestone. Below the rows, it lists everything left until completion with the gate each item waits on. A step's state counts its changes from `pr_state`; change numbers fold into "a change," lane names into "a worker," and drive words into their plain names. `--json` serves tools, `--step <id>` prints one row by id, label, title, or milestone number, and `--since <90m|7:05 PM|ISO>` keeps the rows that moved and says what moved. The coordinator answers "where does the plan stand" with `drive.py overview`, never by parsing `/api/model` by hand.
 
-A row or record the owner reads says he approved or tapped a PR only when the root's board holds his approval at that head (`cc-present outcomes --no-doc`), and gives its time. A root `go` alone reads "cleared to land by the coordinator at <time>," never "you approved it."
+A row or record the owner reads says he approved or tapped a PR only when the coordinator's board holds his approval at that head (`cc-present outcomes --no-doc`), and gives its time. A coordinator `go` alone reads "cleared to land by the coordinator at <time>," never "you approved it."
 
 ## Words at rest
 
@@ -102,7 +102,7 @@ Drives that do not run the app use the `/live-dashboard` layout, which answers w
 
 The drive's pack adds `lr.needs-owner`, `lr.plan-progress`, `lr.inbox-feed`, `lr.drive`, `lr.compactions`, and `lr.watches`. The owner's actions on `lr.needs-owner` and `pr-review-queue` arrive at main as `owner` records; on a `Reviewed #N` record, main sets `owner_reviewed_at` on that PR's ledger row.
 
-Before the first milestone report, the root adds the drive's own sources, such as the `release.*` cards for a release drive, per `/live-dashboard` `reference/picking.md`. The root revisits the layout at each milestone and runs `live-dashboard check` after every edit.
+Before the first milestone report, the coordinator adds the drive's own sources, such as the `release.*` cards for a release drive, per `/live-dashboard` `reference/picking.md`. The coordinator revisits the layout at each milestone and runs `live-dashboard check` after every edit.
 
 Every source card drops settled items itself per `/live-dashboard` `reference/keeping-live.md`. When a row stays on the page after its work closed, post a closing record with `--resolves` or `--re`. A stale row is a source defect for a cc-skills lane, never a hand edit to `layout.yaml`. Keep status written into `banner`, a manual card where a source exists, and internal ids where a name exists off the page.
 

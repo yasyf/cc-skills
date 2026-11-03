@@ -145,7 +145,7 @@ for incident lanes only: `WORKER_SERVICE_TIER=fast` refuses unless
 `WORKER_INCIDENT=1`. Without a tier, the launcher passes no service-tier flag,
 and codex runs on the standard tier.
 
-Use `WORKER_LOCAL=1` for a local root, which runs Opus, or for root-authorized
+Use `WORKER_LOCAL=1` for a local coordinator, which runs Opus, or for root-authorized
 extremely sensitive work, the one case for Fable:
 
 ```sh
@@ -342,7 +342,7 @@ the screen and never authority to answer one.
 
 ## End a done lane
 
-The root ends a local lane once it decides the lane is done: the deliverable is
+The coordinator ends a local lane once it decides the lane is done: the deliverable is
 on disk, the lane was stood down, or another lane superseded it. It does not
 message the lane to send `worker_done` first. One call ends it:
 
@@ -375,7 +375,7 @@ A settled Dispatch that Orca records no workspace for, such as one that failed
 before its worktree resolved, is kept and named on its own `keep` line. gc
 makes no Orca, git, or cc-remote call for it.
 
-Only the root that coordinates the Run ends its lanes. A lane never stops
+Only the coordinator that coordinates the Run ends its lanes. A lane never stops
 another Dispatch, and nobody uses `pkill`, signals, `run-stop`, or bulk
 terminal closes. The captain-hook sessions guard allows a bare
 `orca orchestration worker-stop --dispatch <ctx>` only from that root.
@@ -389,7 +389,7 @@ and the checkout, read over ssh, is clean with its HEAD on origin or landed;
 `--done` skips the idle check. A Sprite with no matching task record is left
 alone.
 
-A lane that ended has its Sprite stopped without the root. Every five minutes
+A lane that ended has its Sprite stopped without the coordinator. Every five minutes
 the lane supervisor runs `lr stop-sprites`, which picks each retired registry lane
 placed on a Sprite whose Orca dispatch reads completed or failed. When the Run
 lists no dispatch for the lane, its `done` record or a withdrawal must have
@@ -424,7 +424,7 @@ The brief must stand alone inside the VM. Include the exact task and source
 scope, requested branch/tag policy, constraints and owner rulings, verification,
 output paths, and the source-return contract below. Do not paste a Mac-only lane
 brief unchanged when it assumes local paths, local stack metadata, or worker PR
-shipping. Remote workers return source; the root integrates and ships it.
+shipping. Remote workers return source; the coordinator integrates and ships it.
 
 A standard Sprite startup does not eagerly initialize WordNet. When the task
 needs it in place beforehand, copy the setup command from `AGENTS.md` under
@@ -446,7 +446,7 @@ processing the queued guidance, they send one honest explicit-outcome
 ## Return source for root review
 
 For a source task, leave HEAD at the actual prepared `baseCommit` and source
-edits uncommitted. Do not stage, commit, push, open a PR, close the root task,
+edits uncommitted. Do not stage, commit, push, open a PR, close the coordinator task,
 or clean up resources. Produce a complete patch containing every tracked and
 untracked change with file modes, and a strict collection report beside the VM
 brief, outside the checkout. Use regular files, not links or an archive.
@@ -464,7 +464,7 @@ Do not put extra provenance keys in this strict report. Report unrun tests and
 other task facts through native status/completion. Include real modified paths
 and the actual report path in `worker_done` metadata.
 
-The root collects the two named files into a new local directory:
+The coordinator collects the two named files into a new local directory:
 
 ```sh
 "<selected-cc-remote>" orca collect "<workspace>" --config "<same-config>" \
@@ -477,7 +477,7 @@ runtime, unchanged HEAD, report/patch hashes, and bounded status. It does not
 prove patch completeness or correctness. Reconcile all status paths, including
 untracked files, with the report and full patch; require no status overflow or
 staged diff, and verify returned file hashes in isolated review. Apply the
-accepted source in a root-owned checkout and ship through normal repo tooling.
+accepted source in a coordinator-owned checkout and ship through normal repo tooling.
 
 ## Remote workspaces
 
@@ -587,14 +587,14 @@ recipe remains Sprite; native picker enablement stays separate.
 
 ## Layout
 
-A prepared VM checkout is the worker's source workspace, not the root's local
+A prepared VM checkout is the worker's source workspace, not the coordinator's local
 worktree. Give each editing lane its own checkout. Keep the brief, report,
 patch, and native attempt receipts outside source checkouts.
 
 Local Orca lane worktrees use
-`~/.orca/workspaces/monorepo/monorepo/<name>`. The root integrates accepted
+`~/.orca/workspaces/monorepo/monorepo/<name>`. The coordinator integrates accepted
 remote patches in an isolated local branch and one native GitHub stack, using
-`ccx vcs stack new` and [submit-pr](https://github.com/Forge-AI/monorepo/blob/dev/.agents/skills/submit-pr/SKILL.md). The root owns PR
+`ccx vcs stack new` and [submit-pr](https://github.com/Forge-AI/monorepo/blob/dev/.agents/skills/submit-pr/SKILL.md). The coordinator owns PR
 registration, pushes, and queue decisions; the remote source worker does not
 inherit a Mac lane's shipping obligations.
 
@@ -619,5 +619,5 @@ set `fallbackModel`.
 
 On the remote route, full `claude-*` and `gpt-*` model IDs pass through unchanged
 to Claude and Codex respectively; other prefixes refuse. The local route accepts
-Claude only. Preserve requested effort and Codex service tier; the root's model
+Claude only. Preserve requested effort and Codex service tier; the coordinator's model
 does not select a worker's model. The launcher passes effort through unchanged.

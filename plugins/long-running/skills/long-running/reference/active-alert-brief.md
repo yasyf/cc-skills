@@ -19,9 +19,9 @@
 
 **An active production alert is P0 from the moment it is seen.** An active alert or outage on any surface counts. That includes a Datadog monitor, a Sentry alert, an `#outage` report, an on-call page, or a broken CI or review pipeline. It also includes an alert or breakage link from the owner, an `incident` record from the `oncall` drive that carries ai-oncall's page feed, or a runner `PAGE` record relayed from an on-call channel during a drive release.
 
-A record that says customers are failing, or fail from a change already moving, counts too. The stall watch opens it to the root in the pass that reads it, never as a card (`reference/watchers.md`), and no finding waits on a card. An `oncall` or `PAGE` record works like the owner's alert link. The root opens the incident, the executor launches the fix lane, and the comms lane replies in the page's thread with no owner round-trip and no wait on ai-oncall.
+A record that says customers are failing, or fail from a change already moving, counts too. The stall watch opens it to the coordinator in the pass that reads it, never as a card (`reference/watchers.md`), and no finding waits on a card. An `oncall` or `PAGE` record works like the owner's alert link. The coordinator opens the incident, the executor launches the fix lane, and the comms lane replies in the page's thread with no owner round-trip and no wait on ai-oncall.
 
-**Open the incident and start `incident.py run` in the same turn, before anything else (SKILL.md R16).** One durable owner, `scripts/incident.py`, runs intake, comms events, fix and evidence launches, the landing check, activation, the canary, failed-work recovery, and the final reply. It reaches the root only with an unresolved decision. Its state lives in the `scripts/actions.py` store under `~/.claude/long-running/incidents/` as one file per incident, so a restarted executor resumes where the last one stopped and never repeats a side effect.
+**Open the incident and start `incident.py run` in the same turn, before anything else (SKILL.md R16).** One durable owner, `scripts/incident.py`, runs intake, comms events, fix and evidence launches, the landing check, activation, the canary, failed-work recovery, and the final reply. It reaches the coordinator only with an unresolved decision. Its state lives in the `scripts/actions.py` store under `~/.claude/long-running/incidents/` as one file per incident, so a restarted executor resumes where the last one stopped and never repeats a side effect.
 
 ```sh
 incident.py open --kind pr-review --incident <id> --thread <permalink> --onset <ISO time> \
@@ -47,13 +47,13 @@ Start `incident.py run` as a background command. It exits only when the final re
 | `incident.py grant` | Supplies a missing grant so the next executor pass proceeds. |
 | `incident.py brief --incident <id> [--role fix]` | Writes `incident-<id>-fix.full.md` and `incident-<id>-evidence.full.md` beside the incident record and prints their paths. |
 
-At intake, `incident.py` opens an investigation and an `incident <id>` log in cc-notes on the drive checkout, both labeled `incident` and `incident:<id>`. Milestones and lane-brief attachments go to the log; evidence and verdicts go to the investigation. It records the mechanism with `root-cause`, landing with `fix --commit`, and not-ours with `exonerate`. Read the record with `incident.py status --incident <id>`, `ccn investigation show <id>`, and `ccn log show <id>`. A refused write asks the root once and never blocks a launch.
+At intake, `incident.py` opens an investigation and an `incident <id>` log in cc-notes on the drive checkout, both labeled `incident` and `incident:<id>`. Milestones and lane-brief attachments go to the log; evidence and verdicts go to the investigation. It records the mechanism with `root-cause`, landing with `fix --commit`, and not-ours with `exonerate`. Read the record with `incident.py status --incident <id>`, `ccn investigation show <id>`, and `ccn log show <id>`. A refused write asks the coordinator once and never blocks a launch.
 
-**Never put anything between the alert and `incident.py run`.** Never wait for a "real-or-not" or "ours-or-not" verdict, a mechanism-depth mandate, or an `AskUserQuestion`, and never treat a mute as resolution. Diagnosis redirects the fix lane; it never precedes it. An owner's "if it is real, fix it" means launching the executor's fix and evidence lanes, not a verdict gate. The fix lane's route is the executor's on every surface, including CI or tooling breakages. The pack's `owner_facing` hook blocks the root's `Agent` spawn when the name starts with `incident-` or `outage-`, or the brief's first line says incident or outage. It allows the spawn when the name carries a support role such as `evidence`, `export`, `ship`, `comms`, `intake`, `retro`, `watch`, or `handoff`, or is the Opus 5.5 `-backup` lane.
+**Never put anything between the alert and `incident.py run`.** Never wait for a "real-or-not" or "ours-or-not" verdict, a mechanism-depth mandate, or an `AskUserQuestion`, and never treat a mute as resolution. Diagnosis redirects the fix lane; it never precedes it. An owner's "if it is real, fix it" means launching the executor's fix and evidence lanes, not a verdict gate. The fix lane's route is the executor's on every surface, including CI or tooling breakages. The pack's `owner_facing` hook blocks the coordinator's `Agent` spawn when the name starts with `incident-` or `outage-`, or the brief's first line says incident or outage. It allows the spawn when the name carries a support role such as `evidence`, `export`, `ship`, `comms`, `intake`, `retro`, `watch`, or `handoff`, or is the Opus 5.5 `-backup` lane.
 
 **Read the shared message at intake, never the sharer.** A report that arrives as a Slack share belongs to its original author. Read it with `slack_thread`, and take the reporter, team, machine, screenshot, and `reported=` time from the message under `shares`, so the fix and evidence lanes read that person's logs. The sharer may only be passing it along: never file it as theirs or ask them what they saw.
 
-**Ratify desk launches and start support lanes in the intake turn.** A monitor transition from `monitor-watch.py --alert-drive` posts `orca-desk: alert <slug> <link> :: <what fired>` to `orca-desk` on cci, which the runner records without launching. The alerts desk posts `orca-desk: incident <slug> <link> reported=<HH:MM> :: <what fired>` only when it judges a lane necessary (`reference/alerts-desk-brief.md`), where `reported` is the first report's Pacific time (`reference/orca-desk-brief.md`). For an `incident` line, the runner fills `reference/alert-fix-brief.md` with drive facts from `alert.facts` and attaches it to the briefs log as `<slug>-fix.full.md`. It launches `<slug>-fix` on `incident` `xhigh` at once, and relays a repeat to the live lane. When the runner's `INCIDENT` line arrives, the root ratifies it in that turn:
+**Ratify desk launches and start support lanes in the intake turn.** A monitor transition from `monitor-watch.py --alert-drive` posts `orca-desk: alert <slug> <link> :: <what fired>` to `orca-desk` on cci, which the runner records without launching. The alerts desk posts `orca-desk: incident <slug> <link> reported=<HH:MM> :: <what fired>` only when it judges a lane necessary (`reference/alerts-desk-brief.md`), where `reported` is the first report's Pacific time (`reference/orca-desk-brief.md`). For an `incident` line, the runner fills `reference/alert-fix-brief.md` with drive facts from `alert.facts` and attaches it to the briefs log as `<slug>-fix.full.md`. It launches `<slug>-fix` on `incident` `xhigh` at once, and relays a repeat to the live lane. When the runner's `INCIDENT` line arrives, the coordinator ratifies it in that turn:
 
 1. Adopt the launched fix lane into `incident.py` with `--adopt fix=<lane>`.
 2. Start or adopt the evidence lane, and spawn an incident-doc lane beside it as `long-running:lane` on opus named `incident-<id>-retro`.
@@ -62,37 +62,37 @@ At intake, `incident.py` opens an investigation and an `incident <id>` log in cc
 
 **Fix every incident forward.** No lane chooses a rollback or a revert. A rollback or revert runs only when the owner's own word names that act after diagnosis has found the issue. The never-cancel-a-running-apply rule holds.
 
-**Supply grants and answer executor asks.** Each `--grant` gives the owner's authority for one kind of side effect. `sync` and `rebuild` cite the owner's words or the standing rule authorizing pipeline sync and re-kick. The root records Slack grants for the affected account channels and threads, plus `#outage` for a platform-wide incident, under cc-notes answers `5ad4507` and `52f4863`.
+**Supply grants and answer executor asks.** Each `--grant` gives the owner's authority for one kind of side effect. `sync` and `rebuild` cite the owner's words or the standing rule authorizing pipeline sync and re-kick. The coordinator records Slack grants for the affected account channels and threads, plus `#outage` for a platform-wide incident, under cc-notes answers `5ad4507` and `52f4863`.
 
-It records each grant with `ccn answer add "<question>" --body "<owner's words>" --label slack-grant:<channel id>`. The Slack permission hook reads that label as a standing grant for top-level posts and replies in that channel and mints each write's ticket, so the comms lane passes no ticket or grant flag; see `reference/slack-lane-brief.md`. The root supplies grants for those channels and threads at launch, and each grant covers only its named surface. Consecutive replies under one-thread grant need no human message between them.
+It records each grant with `ccn answer add "<question>" --body "<owner's words>" --label slack-grant:<channel id>`. The Slack permission hook reads that label as a standing grant for top-level posts and replies in that channel and mints each write's ticket, so the comms lane passes no ticket or grant flag; see `reference/slack-lane-brief.md`. The coordinator supplies grants for those channels and threads at launch, and each grant covers only its named surface. Consecutive replies under one-thread grant need no human message between them.
 
-A missing grant pauses only the step that needs it. After intake, the root answers the executor's bus asks about a missing grant, a silent comms lane, an overdue action, a failed canary, or a read-back that still drifts. The executor posts the target fence on the bus and reports `opened`, `pr`, `landed`, `activated`, `live`, `recovered`, and `closed` to the root lane. The root posts `opened`, `pr`, `landed`, `activated`, `live`, `recovered`, and `closed` to `owner-relay` as one `report` each. The root never relays owner words to a lane as authority, never re-briefs the executor's lanes, and never posts or composes incident copy.
+A missing grant pauses only the step that needs it. After intake, the coordinator answers the executor's bus asks about a missing grant, a silent comms lane, an overdue action, a failed canary, or a read-back that still drifts. The executor posts the target fence on the bus and reports `opened`, `pr`, `landed`, `activated`, `live`, `recovered`, and `closed` to the coordinator lane. The coordinator posts `opened`, `pr`, `landed`, `activated`, `live`, `recovered`, and `closed` to `owner-relay` as one `report` each. The coordinator never relays owner words to a lane as authority, never re-briefs the executor's lanes, and never posts or composes incident copy.
 
 ## Launch incident lanes directly
 
-**The executor and the root launch incident lanes with `desk-launch.py incident`.** Both fix and evidence lanes run as Orca codex workers on `gpt-6.1-sol`, fast tier, `xhigh`. Only the `incident` alias runs fast, while plain `sol` is the standard tier and never an incident route. The executor refuses Claude for the fix and evidence roles and never uses fable or astra.
+**The executor and the coordinator launch incident lanes with `desk-launch.py incident`.** Both fix and evidence lanes run as Orca codex workers on `gpt-6.1-sol`, fast tier, `xhigh`. Only the `incident` alias runs fast, while plain `sol` is the standard tier and never an incident route. The executor refuses Claude for the fix and evidence roles and never uses fable or astra.
 
 ```sh
 desk-launch.py incident <name> <fix-brief> [<evidence-brief>] [--alert '<link, what fails, owner words>']
 ```
 
-With `--alert`, `desk-launch.py` fills each brief template itself. The script drops the template's `Root:` lines, writes the lane's name for every `<lane>` and the text for the `Alert:` line, and saves `<state dir>/<lane>/brief.md`, so the root never edits a template by hand. Any brief still holding `<lane>`, `<state>`, `<...>`, or a placeholder on its `Alert:` line is refused. `desk-launch.py` posts `<name>-fix` and `<name>-evidence` to `orca-desk` on cci as `NOW incident xhigh` launch lines with `role=fix` and `role=evidence` so the runner's incident clock holds only the fix lane. Each launch's key is `R` and the number cci gives its record.
+With `--alert`, `desk-launch.py` fills each brief template itself. The script drops the template's `Root:` lines, writes the lane's name for every `<lane>` and the text for the `Alert:` line, and saves `<state dir>/<lane>/brief.md`, so the coordinator never edits a template by hand. Any brief still holding `<lane>`, `<state>`, `<...>`, or a placeholder on its `Alert:` line is refused. `desk-launch.py` posts `<name>-fix` and `<name>-evidence` to `orca-desk` on cci as `NOW incident xhigh` launch lines with `role=fix` and `role=evidence` so the runner's incident clock holds only the fix lane. Each launch's key is `R` and the number cci gives its record.
 
-After posting, `desk-launch.py` waits for `LAUNCHED` or `LAUNCH-FAILED`, prints each lane's dispatch and terminal, and exits 0 only when both launched. A codex lane writes its PR title, body, and commit message with `pr-prose.py`, a headless Opus 5.5 writer named by `orca-launch.sh` (`reference/orca-workers.md`). The root answers a lane's question with `cci post --kind answer --to <lane> --re <seq>` on the lane's ask or the runner's `DECIDE`, which the runner relays to the open Orca question (`reference/orca-desk-brief.md`). The root withdraws a launch or lane with `desk-launch.py withdraw <R<n> | unfixed:<msg>:<n> | lane>`.
+After posting, `desk-launch.py` waits for `LAUNCHED` or `LAUNCH-FAILED`, prints each lane's dispatch and terminal, and exits 0 only when both launched. A codex lane writes its PR title, body, and commit message with `pr-prose.py`, a headless Opus 5.5 writer named by `orca-launch.sh` (`reference/orca-workers.md`). The coordinator answers a lane's question with `cci post --kind answer --to <lane> --re <seq>` on the lane's ask or the runner's `DECIDE`, which the runner relays to the open Orca question (`reference/orca-desk-brief.md`). The coordinator withdraws a launch or lane with `desk-launch.py withdraw <R<n> | unfixed:<msg>:<n> | lane>`.
 
-**Check runner liveness and fall back inline when the runner is down.** Before launching, the root reads the orca runner's newest alive record:
+**Check runner liveness and fall back inline when the runner is down.** Before launching, the coordinator reads the orca runner's newest alive record:
 
 ```sh
 cci tail --drive <drive> --lane desk-runner --kind state --topic orca -n 1
 ```
 
-A record under five minutes old means the runner takes the line, since its timer thread posts every minute. When no `orca alive` record is under five minutes old, `desk-launch.py` and the `desk_liveness` hook report `LAUNCH-FAILED` and refuse in one line naming `<name>-fix`. In that case, or when `incident.py run` is refused, the root renders the briefs with `incident.py brief --incident <id>`. It then launches the fix lane inline in the same turn as a background `codex:codex-wrapper` running `codex-ask --incident -l incident-<id>-<role> <brief>`. Never keep both; if the runner comes back and launches the same line, the root keeps the lane further along and stops the other.
+A record under five minutes old means the runner takes the line, since its timer thread posts every minute. When no `orca alive` record is under five minutes old, `desk-launch.py` and the `desk_liveness` hook report `LAUNCH-FAILED` and refuse in one line naming `<name>-fix`. In that case, or when `incident.py run` is refused, the coordinator renders the briefs with `incident.py brief --incident <id>`. It then launches the fix lane inline in the same turn as a background `codex:codex-wrapper` running `codex-ask --incident -l incident-<id>-<role> <brief>`. Never keep both; if the runner comes back and launches the same line, the coordinator keeps the lane further along and stops the other.
 
-**Escalate to Opus 5.5 fast mode after 15 minutes without a mechanism or PR.** If 15 minutes pass without a mechanism or a PR, the executor launches an Opus 5.5 backup (`claude-opus-5-5`) in Claude fast mode on the same brief. It passes `--settings '{"fastMode":true}'` through `ORCA_LAUNCH_CLAUDE_ARGS` and keeps the first lane running. When the owner asks for a smarter lane on the incident, that Opus 5.5 fast lane is the escalation, launched at once and named in the root's reply; never use fable, astra, or an unnamed model. A fix lane gets one Opus fallback; the executor launches none while the desk clock's `<lane>-opus` is launching or live, and the runner launches none while the executor's backup is launching or live.
+**Escalate to Opus 5.5 fast mode after 15 minutes without a mechanism or PR.** If 15 minutes pass without a mechanism or a PR, the executor launches an Opus 5.5 backup (`claude-opus-5-5`) in Claude fast mode on the same brief. It passes `--settings '{"fastMode":true}'` through `ORCA_LAUNCH_CLAUDE_ARGS` and keeps the first lane running. When the owner asks for a smarter lane on the incident, that Opus 5.5 fast lane is the escalation, launched at once and named in the coordinator's reply; never use fable, astra, or an unnamed model. A fix lane gets one Opus fallback; the executor launches none while the desk clock's `<lane>-opus` is launching or live, and the runner launches none while the executor's backup is launching or live.
 
 ## Scope before and during incident mode
 
-**Post the scope check at spawn and at every check-in.** Incident mode buys speed with authority through fast-tier lanes, releases without per-step owner approval, and break-glass applies. The root spends that authority only on a failure that is still happening on a path the plan keeps. The check never gates the spawn; the executor and its lanes start in the alert's turn, and every fix brief asks the fix lane for the same two answers as step zero. In the spawn turn and at every check-in after it, including each lane check, each milestone the executor relays, and each owner prompt while open, the root posts the `SCOPE` record.
+**Post the scope check at spawn and at every check-in.** Incident mode buys speed with authority through fast-tier lanes, releases without per-step owner approval, and break-glass applies. The coordinator spends that authority only on a failure that is still happening on a path the plan keeps. The check never gates the spawn; the executor and its lanes start in the alert's turn, and every fix brief asks the fix lane for the same two answers as step zero. In the spawn turn and at every check-in after it, including each lane check, each milestone the executor relays, and each owner prompt while open, the coordinator posts the `SCOPE` record.
 
 ```sh
 cci post --lane root --drive <drive> --kind incident --topic <slug> --to <fix lane>,<evidence lane> \
@@ -103,13 +103,13 @@ Active means customer runs are failing now in telemetry since the last check-in.
 
 **Own our failures and leave Akamai's.** A failure on our own build, such as a sand-next release, is ours by default and gets a fix lane at once. An alert whose cause is Akamai, such as a tenant-edge 403, gets a look and no fix work: the fix lane records it with `incident.py note --not-ours` and stops. Whether a recent PR caused a failure is evidence for the mechanism, never a stop. Customer harm now and a path the plan keeps are the only gates.
 
-Push back on false-alarm or mute closes while unfixed. A mute, a false-alarm verdict, or a monitor change that stops counting failing teams, proposed by ai-oncall or anyone while the mechanism is unfixed, is never a close. The root posts pushback where it was proposed, keeps the incident open, and names the fix owner that turn. The desk runner refuses a fix lane's stop that scopes a release gate out (`REFUSED-STOP`, launching its Opus fallback at once) and flags every proposed mute (`MUTE-PUSHBACK`).
+Push back on false-alarm or mute closes while unfixed. A mute, a false-alarm verdict, or a monitor change that stops counting failing teams, proposed by ai-oncall or anyone while the mechanism is unfixed, is never a close. The coordinator posts pushback where it was proposed, keeps the incident open, and names the fix owner that turn. The desk runner refuses a fix lane's stop that scopes a release gate out (`REFUSED-STOP`, launching its Opus fallback at once) and flags every proposed mute (`MUTE-PUSHBACK`).
 
 Mute a proven false page as a window, never a close. When the fix lane's mechanism proves a page false because every team the monitor names is completing runs and the defect is in the signal, the lane mutes it the minute it is proven. It posts `MUTE <lane>: monitors <ids> until fix-live: <proof>` and requests the mute from ai-oncall through `ci oncall connect` and `ci oncall say --kind request`, never a prose Slack post. The incident stays open until `FIX-LIVE`. A release smoke team, a release check, or dev red is never false. The plan keeps the path when no step of the drive's plan deletes or replaces it before its next milestone. A path deleted at cutover is `no`, however far off cutover is.
 
-**Close incident mode on either `no`.** A `no` to either question ends incident mode that turn. The root posts `INCIDENT <slug> CLOSED: <the answer that is no, and why>`, stands incident lanes down with `desk-launch.py withdraw <lane>`, cancels any incident release not yet started, and stops any replay or pass box the incident started. Fixes already live stay live. Remaining work becomes an ordinary PR through the landing desk or a card for the owner's pick. The root reports to `owner-relay` which incident closed, which answer was no, and what happens to the open work.
+**Close incident mode on either `no`.** A `no` to either question ends incident mode that turn. The coordinator posts `INCIDENT <slug> CLOSED: <the answer that is no, and why>`, stands incident lanes down with `desk-launch.py withdraw <lane>`, cancels any incident release not yet started, and stops any replay or pass box the incident started. Fixes already live stay live. Remaining work becomes an ordinary PR through the landing desk or a card for the owner's pick. The coordinator reports to `owner-relay` which incident closed, which answer was no, and what happens to the open work.
 
-A fix that grows into a redesign of a path the plan deletes is a signal to stop, not to add a lane. Re-ask both questions before launching a second release on the same path, a fix touching code shared with the new path, or a proper-fix card for a deleted path. When two owner rules pull apart, such as "shipped code failing is an incident" and "this path is deleted at cutover," the root pushes back, and reports to `owner-relay` which rule it applies and why.
+A fix that grows into a redesign of a path the plan deletes is a signal to stop, not to add a lane. Re-ask both questions before launching a second release on the same path, a fix touching code shared with the new path, or a proper-fix card for a deleted path. When two owner rules pull apart, such as "shipped code failing is an incident" and "this path is deleted at cutover," the coordinator pushes back, and reports to `owner-relay` which rule it applies and why.
 
 ## Incident mode on PRs and lanes
 
@@ -124,11 +124,11 @@ A fix that grows into a redesign of a path the plan deletes is a signal to stop,
 
 ## Incident clocks
 
-**Every incident fix lane aims to be fix-live within 20 minutes of launch.** The root treats a lane past 20 minutes as a miss to act on in that turn. The orca desk runner keeps a milestone clock on incident fix lanes: mechanism, opened PR, `ready`. Its thresholds, the lanes it covers, what stops it, and the `<lane>-opus` fallback are in [orca-desk-brief.md](orca-desk-brief.md#handle-alerts-incident-clocks-and-case-lanes). The root's part:
+**Every incident fix lane aims to be fix-live within 20 minutes of launch.** The coordinator treats a lane past 20 minutes as a miss to act on in that turn. The orca desk runner keeps a milestone clock on incident fix lanes: mechanism, opened PR, `ready`. Its thresholds, the lanes it covers, what stops it, and the `<lane>-opus` fallback are in [orca-desk-brief.md](orca-desk-brief.md#handle-alerts-incident-clocks-and-case-lanes). The coordinator's part:
 
-- **On `INCIDENT-CLOCK <lane> <mechanism|pr|ready>`**, the root posts the line as a `report` to `owner-relay`, ahead of any other work in that turn, and ratifies the fallback the line names. Both lanes keep running, and the first PR wins.
-- **On `INCIDENT-CLOCK <lane> in-process`**, which the runner posts after the Orca launch of `<lane>-opus` failed twice, the root starts `<lane>-opus` that turn in its own session as an `Agent` of type `long-running:lane-ship` on opus in fast mode with the brief the line names, and never retries Orca a third time.
-- **A root `decide` steers a clocked lane and never stops its clock**, so a handoff record cannot switch off the backup. A root `hold` naming the lane, or a `stand-down` or `stopped` to it, does stop it.
+- **On `INCIDENT-CLOCK <lane> <mechanism|pr|ready>`**, the coordinator posts the line as a `report` to `owner-relay`, ahead of any other work in that turn, and ratifies the fallback the line names. Both lanes keep running, and the first PR wins.
+- **On `INCIDENT-CLOCK <lane> in-process`**, which the runner posts after the Orca launch of `<lane>-opus` failed twice, the coordinator starts `<lane>-opus` that turn in its own session as an `Agent` of type `long-running:lane-ship` on opus in fast mode with the brief the line names, and never retries Orca a third time.
+- **A coordinator `decide` steers a clocked lane and never stops its clock**, so a handoff record cannot switch off the backup. A coordinator `hold` naming the lane, or a `stand-down` or `stopped` to it, does stop it.
 
 **A lane cannot post a mechanism and go silent.** `mechanism` is not a turn end, so `cci hook stop` refuses the lane's stop until it posts `opened` or `blocker`. Read a lane's code state with `drive.py lane-status <lane>`.
 
@@ -136,38 +136,38 @@ A fix that grows into a redesign of a path the plan deletes is a signal to stop,
 
 ## Case lanes for unfixed cases
 
-**Reproduce the reporter's exact case before reporting ready.** The fix lane must reproduce the exact thread, run, request, or monitor query the report named. It shows the case failing before the fix, passing on the build carrying the fix, and passing again on the released build before `fix-live`. A fix proven only on a synthetic or neighboring case is not ready, and the root never tells a reporter "fixed" on one.
+**Reproduce the reporter's exact case before reporting ready.** The fix lane must reproduce the exact thread, run, request, or monitor query the report named. It shows the case failing before the fix, passing on the build carrying the fix, and passing again on the released build before `fix-live`. A fix proven only on a synthetic or neighboring case is not ready, and the coordinator never tells a reporter "fixed" on one.
 
 **Every unfixed case becomes an incident case lane, never backlog.** The fix lane closes its `ready:` and `fix-live:` statuses with one `UNFIXED <lane>: <case>` line per known case the fix does not cover, or `UNFIXED <lane>: none`. Only those partial-fix reports launch case lanes; a `worker_done`, `NOT-OURS`, or `STOPPED` launches none. For each case up to `incident.case_lanes` (default 2), the runner fills `reference/unfixed-case-brief.md` and launches `<first>-case<n>` on incident xhigh in the same pass (`reference/orca-desk-brief.md`). It logs the launch as `INCIDENT <lane> …: its fix does not cover: <case> | case lane <first>-case<n> launching …`, and a case launches once whether the fix lane or its `-opus` fallback reports it.
 
-A case lane echoing its own case launches nothing. A `not-ours` or `stand-down` from the fix lane or its fallback, or the root's `stand-down` or `stopped` to either, ends the incident. A report that opens with `NOT-OURS`, `stood down`, or `Stopped` launches no case lane. The runner launches no fix lane for an incident the root resolved with a `done`, stopped by name, or another drive's root answered for, and posts `INCIDENT-OWNED` as a `state` record instead.
+A case lane echoing its own case launches nothing. A `not-ours` or `stand-down` from the fix lane or its fallback, or the coordinator's `stand-down` or `stopped` to either, ends the incident. A report that opens with `NOT-OURS`, `stood down`, or `Stopped` launches no case lane. The runner launches no fix lane for an incident the coordinator resolved with a `done`, stopped by name, or another drive's coordinator answered for, and posts `INCIDENT-OWNED` as a `state` record instead.
 
-A later report launches nothing and reaches the root as `UNFIXED <lane> …: <cases> | no case lane launched: …`, and a case launch not yet started fails; a report from a lane the root withdrew does the same. Excess cases, second-generation cases from a case lane, and cases from a report whose mechanism says `UNKNOWN` reach the root as a `DECIDE` carrying a ready `orca-desk: launch <first>-case<n> NOW incident xhigh brief=<path>` line per case; the root starts a lane by posting its line. The root ratifies each launched case lane, keeps the reporter told that the case is still open, and never parks a named case while the break is live.
+A later report launches nothing and reaches the coordinator as `UNFIXED <lane> …: <cases> | no case lane launched: …`, and a case launch not yet started fails; a report from a lane the coordinator withdrew does the same. Excess cases, second-generation cases from a case lane, and cases from a report whose mechanism says `UNKNOWN` reach the coordinator as a `DECIDE` carrying a ready `orca-desk: launch <first>-case<n> NOW incident xhigh brief=<path>` line per case; the coordinator starts a lane by posting its line. The coordinator ratifies each launched case lane, keeps the reporter told that the case is still open, and never parks a named case while the break is live.
 
 ## Take over another drive's stalled fix
 
-**Watch another drive's incident fix and take it over the moment it stalls.** Another drive owns an incident's fix when the runner posts an `INCIDENT-OWNED` state record or another drive's lane opens a fix PR. In that turn, the root spawns `incident-<slug>-watch` as `long-running:lane` on sonnet, effort low. It runs one foreground watch on the owning drive:
+**Watch another drive's incident fix and take it over the moment it stalls.** Another drive owns an incident's fix when the runner posts an `INCIDENT-OWNED` state record or another drive's lane opens a fix PR. In that turn, the coordinator spawns `incident-<slug>-watch` as `long-running:lane` on sonnet, effort low. It runs one foreground watch on the owning drive:
 
 ```sh
 lr wait 540 mailbox:incident-<slug>-watch=<cursor file> -- cci watch --drive <owning drive> --lane <its fix lane> --lane desk-runner --kind stopped --kind blocker --kind decide
 ```
 
-The trigger is the fix lane's `stopped` or `blocker` at once, or a `decide` from that drive's runner naming the fix lane once five minutes pass with no `answer` from that drive's root. On the trigger, the watch lane posts the `TAKEOVER` blocker and finishes:
+The trigger is the fix lane's `stopped` or `blocker` at once, or a `decide` from that drive's runner naming the fix lane once five minutes pass with no `answer` from that drive's coordinator. On the trigger, the watch lane posts the `TAKEOVER` blocker and finishes:
 
 ```sh
 cci post --drive <drive> --lane incident-<slug>-watch --kind blocker --to root --pr <n> --text "TAKEOVER #<n>: <owning drive> <kind> #<seq> <first line>"
 ```
 
-**Spawn `incident-<slug>-ship` the turn `TAKEOVER` arrives.** The root spawns `incident-<slug>-ship` as `long-running:lane-ship` on opus in fast mode. The ship lane checks out the PR's branch with `ccx vcs worktree add <branch>` and replays it onto current dev with `ccx vcs stack submit --restack`. It posts `opened --pr <n>` on this drive so the landing runner owns the PR, and posts `ready` when approved and green so the landing runner merges it by plain squash.
+**Spawn `incident-<slug>-ship` the turn `TAKEOVER` arrives.** The coordinator spawns `incident-<slug>-ship` as `long-running:lane-ship` on opus in fast mode. The ship lane checks out the PR's branch with `ccx vcs worktree add <branch>` and replays it onto current dev with `ccx vcs stack submit --restack`. It posts `opened --pr <n>` on this drive so the landing runner owns the PR, and posts `ready` when approved and green so the landing runner merges it by plain squash.
 
-On landing, the ship lane posts the `release` record required by D20 (`reference/landing.md`). The root posts one `decision` addressed to the owning drive's root and fix lane naming the takeover and its trigger. The root never sets the owning drive a deadline, never asks whether it is mid-push, and never waits for its root to rule. If the owning drive pushes a newer head later, the ship lane continues from that head and never force-pushes over it.
+On landing, the ship lane posts the `release` record required by D20 (`reference/landing.md`). The coordinator posts one `decision` addressed to the owning drive's coordinator and fix lane naming the takeover and its trigger. The coordinator never sets the owning drive a deadline, never asks whether it is mid-push, and never waits for its root to rule. If the owning drive pushes a newer head later, the ship lane continues from that head and never force-pushes over it.
 
 ## What the executor guarantees
 
 - Activation read-back before closing. A merge never closes a `pr-review` incident. After landing, the incident stays `activation_pending` until `ci sync <pipeline>`, run from a worktree at the landed commit, reports that the stored configuration matches and contains `--expect-config` text if given.
 - Canary before bulk rebuilds. No rebuild fires on the old configuration. The first rebuild is the canary, and remaining rebuilds wait until its `Prepare PR evidence` job passes.
 - Idempotent failed-work recovery. Affected work is re-derived on every pass from every build that failed or was canceled between onset and activation, grouped by PR. The latest failed build at an open PR's current head is rebuilt once; closed PRs and moved heads are accounted as skipped; a head that fails after the first pass is still owned.
-- Action-store deduplication. Every side effect is recorded in `scripts/actions.py` as `started` before it runs. A lost response leaves the action `unverifiable` until a read of external state settles it through the rebuild's `rebuilt_from`, the comms bus post, the launch receipt, or the sync dry run. An action is retried only after that read proves the effect absent, up to three attempts total. A lost launch with no receipt goes to the root so a retry cannot start a second worker.
+- Action-store deduplication. Every side effect is recorded in `scripts/actions.py` as `started` before it runs. A lost response leaves the action `unverifiable` until a read of external state settles it through the rebuild's `rebuilt_from`, the comms bus post, the launch receipt, or the sync dry run. An action is retried only after that read proves the effect absent, up to three attempts total. A lost launch with no receipt goes to the coordinator so a retry cannot start a second worker.
 - Strict completion gates. A worker's completion settles its assignment, not the incident. `recovered` waits for every build in the outage window to finish, the activation receipt, and accounting for every rebuild across re-run, green, red with PR links, and skipped states. `closed` requires the posted `ts` of the final reply.
 - Generation-checked ownership transfer. Reassignment runs `actions.py transfer --expect-generation <n> --to <owner>`, followed by the new owner's `actions.py ack`. The former owner's next write fails on the generation and its runner exits; a runner started as the former owner refuses to start. Nothing stops or signals a session.
 
@@ -190,7 +190,7 @@ cci tail --drive <drive> --reader <comms lane> --kind ask --since 0 --json
 cci post --drive <drive> --lane <comms lane> --kind answer --re <seq> --text "posted ts=<ts>"
 ```
 
-  An event left unanswered for two minutes becomes a decision for the root.
+  An event left unanswered for two minutes becomes a decision for the coordinator.
 
 ## Incident doc lane and brief
 
@@ -398,7 +398,7 @@ Do:
      status Run message until it shows <expected live output>. Run the
      reporter's own case again on the released build. Once both pass, send a status
      Run message with subject `fix-live: <evidence>`. The brief names
-     that exact command; the root uses it too. For a static site, for example:
+     that exact command; the coordinator uses it too. For a static site, for example:
      `curl -fsS https://platform.poetic.com/ | grep -oE '/releases/[0-9a-f]{40}/' | head -1`.
   10. Record every artifact in cc-notes, never under ~/.claude/scratch:
      `ccn log append <incident log id> --entry "<kind: one line>" --attach <file, repeatable>`.
@@ -406,7 +406,7 @@ Do:
      Investigation detail goes to
      `ccn investigation append <investigation id> "<evidence, one line>"`.
      Mechanism, PR, live, and not-ours still go through `incident.py note`; the
-     executor records the verdicts. Never run `ccn sync`; the root syncs.
+     executor records the verdicts. Never run `ccn sync`; the coordinator syncs.
 
 Escalate: with no mechanism 15 minutes after launch, the executor launches an
   Opus 5.5 backup lane in fast mode on this brief in parallel; keep working.
@@ -419,7 +419,7 @@ Escalate: with no mechanism 15 minutes after launch, the executor launches an
   Codex one, `ready`, `fix-live`, `not-ours`, and `stopped`. Past
   10 or 15 minutes it launches <fix lane name>-opus in parallel, and the first
   PR wins. You get one Opus fallback, from whichever of the two fires first.
-  Each missed limit sends a blocker to the root, which reports it to `owner-relay`.
+  Each missed limit sends a blocker to the coordinator, which reports it to `owner-relay`.
 
 Do NOT touch: unrelated targets, files, branches, or another lane's worktree.
 Worktree: <absolute path, exclusive to this lane>.
@@ -472,7 +472,7 @@ Do:
      Investigation detail goes to
      `ccn investigation append <investigation id> "<evidence, one line>"`.
      Mechanism, PR, live, and not-ours still go through `incident.py note`; the
-     executor records the verdicts. Never run `ccn sync`; the root syncs.
+     executor records the verdicts. Never run `ccn sync`; the coordinator syncs.
 
 Escalate: with no mechanism 15 minutes after launch, the executor launches an
   Opus 5.5 backup fix lane in fast mode in parallel; keep working. Never fable or astra.

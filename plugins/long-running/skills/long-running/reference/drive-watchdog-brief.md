@@ -4,13 +4,13 @@ The coordinator starts `drive-watchdog` remote with `lr desks start`, model opus
 
 ## Root discipline
 
-**W1. One lane watches the whole drive against the plan.** `drive-watchdog` reads every lane's cci records and judges each for off-plan work, distractions, excuses or deferrals, parked lanes, and root drift. The watchdog posts each finding as a `decide` to the lane and the root with the correction and the rule it cites. When the lane has not corrected within 15 minutes, `drive-watchdog` posts again to the root. This desk writes no code and leaves stopping a lane to the root, which acts on its second post that turn.
+**W1. One lane watches the whole drive against the plan.** `drive-watchdog` reads every lane's cci records and judges each for off-plan work, distractions, excuses or deferrals, parked lanes, and root drift. The watchdog posts each finding as a `decide` to the lane and the coordinator with the correction and the rule it cites. When the lane has not corrected within 15 minutes, `drive-watchdog` posts again to the coordinator. This desk writes no code and leaves stopping a lane to the coordinator, which acts on its second post that turn.
 
-The root addresses the watchdog over the cci bus and never by `SendMessage` under I4 in [bus-contracts.md](bus-contracts.md), using `cci post --drive <drive> --lane root --kind decide --to drive-watchdog --text "<ruling>"`.
+The coordinator addresses the watchdog over the cci bus and never by `SendMessage` under I4 in [bus-contracts.md](bus-contracts.md), using `cci post --drive <drive> --lane root --kind decide --to drive-watchdog --text "<ruling>"`.
 
-Within 10 minutes of a watchdog `decide`, the root re-briefs the lane, stands it down, or posts the ruling that makes the finding moot. The root never argues a finding in a reply; it fixes the cause or records the plan line that makes the work on-plan.
+Within 10 minutes of a watchdog `decide`, the coordinator re-briefs the lane, stands it down, or posts the ruling that makes the finding moot. The coordinator never argues a finding in a reply; it fixes the cause or records the plan line that makes the work on-plan.
 
-**W2. The watchdog keeps the retro.** Each finding is one entry in its cc-notes log, tagged `[step <n>]` with the plan step it slowed. That log feeds the owner table's last column in [owner-report-table.md](owner-report-table.md). Every 30 minutes the watchdog posts the root the top three things slowing the critical path. It feeds no dashboard.
+**W2. The watchdog keeps the retro.** Each finding is one entry in its cc-notes log, tagged `[step <n>]` with the plan step it slowed. That log feeds the owner table's last column in [owner-report-table.md](owner-report-table.md). Every 30 minutes the watchdog posts the coordinator the top three things slowing the critical path. It feeds no dashboard.
 
 **W3. No sweep finding or owner pick is lost.** A sweep or audit lane posts each finding with `bin/findings.py post --sweep <lane> --owner <lane> --verdict <word> [--pr N] [--line path:line] <text>`, which posts a cci `defect` opening with `[finding:<lane>]` addressed to the lane that owns the fix. `findings.py sync` keeps every finding, and every pick or write-in the owner gives on a board card, as a row of the drive's findings ledger in `findings.json` in the state dir. A row stays open until a later `head` or `landed` record names its PR or seq, or a pick's card, which marks it fixed. An answer or a resolve without a fix marks it routed and still live, because a finding never waits on a card.
 
@@ -28,7 +28,7 @@ post nothing to Slack, never call AskUserQuestion, and never stop a lane yoursel
 Keep cci text under 400 characters; attach longer bodies with --path.
 Never say a PR is tapped or approved without the board verdict id: read
 `cc-present outcomes --no-doc --session <root session>` for that PR and head and cite
-its block, row and head; an empty tap list or a root go is no tap.
+its block, row and head; an empty tap list or a coordinator go is no tap.
 
 Mandate: <the plan's number-one outcome, in the owner's words>. Plan <plan id>
 (`ccn plan show <plan id>`); owner table doc <table doc id> (`ccn doc show <id>`).
@@ -48,12 +48,12 @@ For every record, judge nine things:
       critical-path item sits idle.
   (b) DISTRACTION: lanes, PRs, or asks nobody asked for.
   (c) EXCUSE or DEFERRAL: "waiting on", "later", "follow-up", "unverified", or
-      "owner decision" where the root or the lane can decide.
+      "owner decision" where the coordinator or the lane can decide.
   (d) PARKED: a lane idle more than 20 minutes with an open deliverable, or a wait
       with no owner and no clock.
       An Orca fix lane idle past its incident's FIX-LIVE is no finding: the supervisor
       ends it through `orca-gc --done` 30 minutes on and posts `GC <lane>` to root.
-  (e) ROOT DRIFT: the root answering acknowledgments, reading logs, or reopening
+  (e) ROOT DRIFT: the coordinator answering acknowledgments, reading logs, or reopening
       decided items.
   (f) DEAD RUNNER: with each digest, `cci state --drive <drive> --lane desk-runner`
       shows each desk runner's newest `<desk> alive <time> pass <n>` record. One
@@ -75,7 +75,7 @@ For each finding act at once:
   cci post --drive <drive> --lane drive-watchdog --kind decide --to <lane>,root \
     --text 'WATCHDOG <class>: <what is off> | <the correction, one line, citing the rule id>'
 A lane that has not corrected within 15 minutes gets a second post to root asking
-the root to stand it down or re-brief it.
+the coordinator to stand it down or re-brief it.
 
 Retro log: one cc-notes log, "drive-watchdog retro", labelled
 program:<program> (`ccn log add` once, then `ccn log append <log id>` per finding).

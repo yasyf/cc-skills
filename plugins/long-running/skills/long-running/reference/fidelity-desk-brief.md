@@ -6,19 +6,19 @@ The coordinator starts `fidelity-desk` remote with `lr desks start`, model opus,
 
 ## Root discipline
 
-The root lists both desks in `runner.json` under `landing.fidelity_lane` (which takes a list) at launch. Once the runner relays `SWEEP-DUE`, the root names the sweep desk in `landing.sweep_lane`; until then, the sweep desk runs the hourly pass on its own 60-minute clock.
+The coordinator lists both desks in `runner.json` under `landing.fidelity_lane` (which takes a list) at launch. Once the runner relays `SWEEP-DUE`, the coordinator names the sweep desk in `landing.sweep_lane`; until then, the sweep desk runs the hourly pass on its own 60-minute clock.
 
-The root reaches a desk only over cci. To have a board round, plan revision, or reply graded before it goes out, the root posts:
+The coordinator reaches a desk only over cci. To have a board round, plan revision, or reply graded before it goes out, the coordinator posts:
 
 ```bash
 cci post --drive <drive> --lane root --kind go --to <desk> --text "text <absolute path> <sha12>"
 ```
 
-`<sha12>` is the first 12 hex characters of the file's sha256. The root never argues a grade, so it fixes the text and asks again.
+`<sha12>` is the first 12 hex characters of the file's sha256. The coordinator never argues a grade, so it fixes the text and asks again.
 
 ## What a desk reads
 
-A grade covers every reserved, scope, design, or exception global row, every `pending-owner` row, and every row the head or text matches. For a head, `rulings.py slice --pr <owner/name>#<n> --head <sha> --base <base> --repo <checkout> --required` prints each required row as a lane slice renders it, with a `### <key> | ...` heading with the owner's words, implications, and names, and a final `slice-hash: <sha12>` line. When that command exits non-zero, it is a read failure, so post one `blocker` to the root and grade nothing for that head in that pass. Until any other `rulings.py` verb named in this brief ships (`readback`, `sweep`, `status`), perform its step by hand from the register ledger and cci, and post the same line.
+A grade covers every reserved, scope, design, or exception global row, every `pending-owner` row, and every row the head or text matches. For a head, `rulings.py slice --pr <owner/name>#<n> --head <sha> --base <base> --repo <checkout> --required` prints each required row as a lane slice renders it, with a `### <key> | ...` heading with the owner's words, implications, and names, and a final `slice-hash: <sha12>` line. When that command exits non-zero, it is a read failure, so post one `blocker` to the coordinator and grade nothing for that head in that pass. Until any other `rulings.py` verb named in this brief ships (`readback`, `sweep`, `status`), perform its step by hand from the register ledger and cci, and post the same line.
 
 Per row, a desk reads three things, starting with the owner's words, verbatim, and then reading the implications. A `removes` line and a `requires` line holding an owner requirement such as a latency bound, batching a per-item loop, or one process for each Mac bind at once. A `permits` line binds only once the owner has ticked it, and a struck line binds nothing. Third, it reads the names, which are every alias the thing has in the plan, the boards, and the code.
 
@@ -54,9 +54,9 @@ Then grade every required row and write the grade with `rulings.py grade --pr <o
 
 Finally, post each line of the file. An ok is `fidelity: ok <head7> checked <key>,<key>... names <name>|<name>...`, and a failure is one `fidelity: missing <head7> <key> <one line>` per failing row and ungrounded mechanism. The runner counts an ok as posted regardless of rows the register gains after it. Post one `touches <key>` per reserved row the head touches, whatever the grade.
 
-**Grounds must be plan text or owner words.** A plan line prints beside its mechanism so the grade shows what the plan says. An owner row is a `rule/` or `prompt/` row with the owner's words, an `exception/` row his answers approve, or a board pick. A cci seq, a root note, a `design/` row, and a pending row are root rulings.
+**Grounds must be plan text or owner words.** A plan line prints beside its mechanism so the grade shows what the plan says. An owner row is a `rule/` or `prompt/` row with the owner's words, an `exception/` row his answers approve, or a board pick. A cci seq, a coordinator note, a `design/` row, and a pending row are root rulings.
 
-`rulings.py grade` rejects them with "root rulings are not grounds; put it on the owner's board," and the desk posts the mechanism to the root as a `finding` for a board card. Post only the lines `rulings.py grade` writes. When a `fidelity: missing` line has a bare word (such as `owner-words`), a cci seq, or a `design/` row as its key, the runner sends it to the root and the graders, never to the lane. The lane changes no code until the mechanism rests on plan text or the owner's words.
+`rulings.py grade` rejects them with "root rulings are not grounds; put it on the owner's board," and the desk posts the mechanism to the coordinator as a `finding` for a board card. Post only the lines `rulings.py grade` writes. When a `fidelity: missing` line has a bare word (such as `owner-words`), a cci seq, or a `design/` row as its key, the runner sends it to the coordinator and the graders, never to the lane. The lane changes no code until the mechanism rests on plan text or the owner's words.
 
 **Restacks.** A restack whose patch is identical to a head already graded ok gets the same line the minute it is asked, without re-reading the diff, per the restack grade carry in [landing.md](landing.md#fidelity-finder-and-rulings-checks). Rows the register gained since the earlier grade never hold it; the lane reads them back in its next PR.
 
@@ -75,7 +75,7 @@ Text mode grades a board round, a plan revision, a reply to the owner, the seede
 Read text in chunks of 40 to 80K tokens, cut at headings, and hash each chunk with sha256. Do not re-read a chunk before a push when both its hash and the `slice-hash` of the rows it was read against match a chunk the desk already graded; its earlier verdict stands.
 
 - Board rounds, plan revisions, and replies: Post `fidelity: ok text <sha12> checked <keys> names <names>`, or one `fidelity: missing text <sha12> <key> <one line>` per failing row, where `<sha12>` is the whole file's hash. The board and plan gate refuses a push that carries a choice block, and refuses `ExitPlanMode`, until an ok names the file's current hash.
-- Lane read-backs: A read-back is a lane's `contract` record, which has one line per slice row saying what it builds, moves, or deletes and what it leaves alone, plus a verdict per `rulings.py sweep` hit. `rulings.py readback --lane <lane> --contract <seq>` prints the grade request. Grade a read-back with no `Register slice:` line against the slice the lane's brief carries; with none there either, `rulings.py readback` prints `READBACK-NO-SLICE` and the `--step` command the root runs to write the slice into the lane's brief. Accept with `readback: ok <lane> <slice-hash>`, or return `readback: missing <lane> <key> <one line>`, as a, `review` or `answer` record (a grade opening `read-back <lane>: ok` or `read-back <lane>: missing` counts the same). The runner refuses the lane's `READY`, its first PR, and its first new branch until a desk accepts one. A grade stands until a desk posts a newer one, so rows added to the register never void it or hold a `READY` PR, and the lane reads them back in its next PR. The request prints any row the read-back leaves out or any hit it leaves unmarked as a `WARNING` line above it; weigh them and grade. Grade a contract that is narrower than the owner's ruling it cites, or that applies his words past their purpose, as `missing` against his words, quoting them; the judge watch's `JUDGE contract` flag on the contract names where it does so. A question the read-back raises stops the lane and goes to the owner on a card; the desk never answers it.
+- Lane read-backs: A read-back is a lane's `contract` record, which has one line per slice row saying what it builds, moves, or deletes and what it leaves alone, plus a verdict per `rulings.py sweep` hit. `rulings.py readback --lane <lane> --contract <seq>` prints the grade request. Grade a read-back with no `Register slice:` line against the slice the lane's brief carries; with none there either, `rulings.py readback` prints `READBACK-NO-SLICE` and the `--step` command the coordinator runs to write the slice into the lane's brief. Accept with `readback: ok <lane> <slice-hash>`, or return `readback: missing <lane> <key> <one line>`, as a, `review` or `answer` record (a grade opening `read-back <lane>: ok` or `read-back <lane>: missing` counts the same). The runner refuses the lane's `READY`, its first PR, and its first new branch until a desk accepts one. A grade stands until a desk posts a newer one, so rows added to the register never void it or hold a `READY` PR, and the lane reads them back in its next PR. The request prints any row the read-back leaves out or any hit it leaves unmarked as a `WARNING` line above it; weigh them and grade. Grade a contract that is narrower than the owner's ruling it cites, or that applies his words past their purpose, as `missing` against his words, quoting them; the judge watch's `JUDGE contract` flag on the contract names where it does so. A question the read-back raises stops the lane and goes to the owner on a card; the desk never answers it.
 
 ## Sweep mode
 
@@ -107,7 +107,7 @@ A line over 400 characters keeps its first 400 in the record, and cci writes the
 
 ## Fixtures
 
-[`fidelity-fixtures/`](fidelity-fixtures/README.md) names eight heads, each with its expected grade and the row it reads against, comprising six real heads as pointers the desk fetches and two synthetic diffs. After launch, the sweep desk grades every fixture once in head mode and records each grade beside the expected one with `ccn note add`. A grade that differs from the expected one goes to the root as a `blocker`. The fixtures need a model, so they are not a CI test.
+[`fidelity-fixtures/`](fidelity-fixtures/README.md) names eight heads, each with its expected grade and the row it reads against, comprising six real heads as pointers the desk fetches and two synthetic diffs. After launch, the sweep desk grades every fixture once in head mode and records each grade beside the expected one with `ccn note add`. A grade that differs from the expected one goes to the coordinator as a `blocker`. The fixtures need a model, so they are not a CI test.
 
 ## Spawn brief
 
@@ -143,5 +143,5 @@ Loop, forever, in the foreground:
   last one started, or on each `SWEEP-DUE` relay.>
 
 After your own compaction, resume in place: cci holds your cursor and every grade
-you posted, and the register holds the rows. Never ask the root to rebuild your state.
+you posted, and the register holds the rows. Never ask the coordinator to rebuild your state.
 ```
