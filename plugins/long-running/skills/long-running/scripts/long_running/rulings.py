@@ -11,6 +11,7 @@
     rulings.py implications [--program SLUG | --drive ID] KEY
     rulings.py confirm      [--program SLUG | --drive ID] KEY --capture DIGEST [--tick N,...|all] [--strike N,...] [--implication TEXT]
     rulings.py amend        [--program SLUG | --drive ID] KEY [--answer ID ...] [--implication N [--text TEXT [--rewrite-ticked]] [--direction DIR]
+    rulings.py amend        [--program SLUG | --drive ID] KEY --answer ID --words TEXT
                             | --add --text TEXT --direction DIR [--proof REF]]
     rulings.py round        [--program SLUG | --drive ID]
     rulings.py slice        [--program SLUG | --drive ID] (--lane NAME --step N [--paths GLOB]... [--prs [OWNER/NAME#]N]... [--codex] | --root | --refresh BRIEF) [--plan PATH]
@@ -200,6 +201,8 @@ REPEAT_MARKERS = re.compile(
 )
 AND_AGAIN = re.compile(r"\band\W+(a\w{3,5})\b", re.IGNORECASE)
 QUOTED = re.compile(r"[\"“]([^\"”\n]+)[\"”]")
+ANSWER_QUOTE = r"""(?:"[^"]+"|“[^”]+”|'(?:[^']|'(?=\w))+')"""
+QUOTE_RUN = re.compile(rf"""(?<![\w'"“]){ANSWER_QUOTE}(?:\s+and\s+{ANSWER_QUOTE})*(?!\w)""")
 QUOTED_WORDS = 4
 PLAIN_WORD = re.compile(r"[a-z]+", re.IGNORECASE)
 CAPTURE_STAMP = "%Y-%m-%d %I:%M %p PT"
@@ -1162,6 +1165,13 @@ def quoting_rows(loaded: Register, span: str) -> list[str]:
     ]
 
 
+def quote_around(text: str, words: str) -> str | None:
+    """The run of quotes in an answer record that `words` stop short of, without its outer marks; None when no quote holds them or they carry a run whole."""
+    said = words.strip()
+    runs = [match.group(0)[1:-1].strip() for match in QUOTE_RUN.finditer(text)]
+    return None if said in runs else next((run for run in runs if said in run), None)
+
+
 def repeat_markers(loaded: Register, words: str) -> list[str]:
     found = [match.group(0) for match in REPEAT_MARKERS.finditer(words)]
     found += [match.group(0) for match in AND_AGAIN.finditer(words) if one_edit(match.group(1).lower(), "again")]
@@ -1227,6 +1237,8 @@ def refusals(loaded: Register, captured: dict[str, dict], entry: dict, batch: Ba
     found = []
     if not words or words not in captured[item]["text"]:
         found.append(f"NOT-VERBATIM {item}: words must be a verbatim substring of the capture, never a reading")
+    elif captured[item]["source"] == ANSWER_SOURCE and (whole := quote_around(captured[item]["text"], words)):
+        found.append(f"CUT-WORDS {item}: words stop inside the owner's quote in the answer; carry all of it: {whole}")
     if kind not in KINDS:
         found.append(f"KIND {item}: {kind!r} is none of {', '.join(KINDS)}")
     implications = entry.get("implications") or []
@@ -1674,7 +1686,12 @@ def cmd_amend(args: argparse.Namespace, shell: ledger.Shell) -> int:
     if args.proof is not None and not args.add:
         print("AMEND-USAGE: --proof goes with --add", file=args.stdout)
         return 2
+    if args.words is not None and (len(args.answer) != 1 or args.add or args.implication is not None):
+        print("AMEND-USAGE: --words goes with the one --answer that holds them, never an implication edit", file=args.stdout)
+        return 2
     with writing(args, shell) as loaded:
+        if args.words is not None:
+            return amended_words(args, loaded)
         fields = loaded.row(args.key)
         answers = listed(fields.get("answer"))
         known, added = {str(answer)[:SHORT] for answer in answers}, []
@@ -1717,6 +1734,32 @@ def cmd_amend(args: argparse.Namespace, shell: ledger.Shell) -> int:
         print("\n".join(implication_lines(loaded.rows[args.key])), file=args.stdout)
     if args.add or args.implication is not None:
         misstated(args, loaded, args.key, named)
+    return 0
+
+
+def amended_words(args: argparse.Namespace, loaded: Register) -> int:
+    """Grow a row to the whole of the owner's words: each said item `--words` holds becomes `--words`, or `--words` folds on as a further capture of the answer when it holds none."""
+    fields = loaded.row(args.key)
+    answer = ccn(loaded.shell, loaded.repo, "answer", "show", args.answer[0])
+    if args.words not in answer["body"]:
+        print(f"NOT-VERBATIM {args.key}: --words must be a verbatim span of answer {answer['id'][:SHORT]}", file=args.stdout)
+        return 1
+    whole = folded(args.words)
+    repeats = listed(fields.get("repeats"))
+    said = [fields.get("words") or "", *(str(repeat.get("words") or "") for repeat in repeats)]
+    shorter = [words for words in said if words and folded(words) in whole and folded(words) != whole]
+    if not shorter and whole in map(folded, said):
+        print(f"{args.key} already carries these words", file=args.stdout)
+        return 0
+    if shorter:
+        repeats = [repeat | {"words": args.words} if repeat.get("words") in shorter else repeat for repeat in repeats]
+    else:
+        repeats.append({"key": args.key, "answer": [answer["id"]], "at": pacific(answer["created_at"]), "words": args.words, "proof": f"proof:answer:{answer['id'][:DIGEST_CHARS]}", "repeat": False})
+    answers = listed(fields.get("answer"))
+    linked = answers if answer["id"][:SHORT] in {str(known)[:SHORT] for known in answers} else [*answers, answer["id"]]
+    edit = {"at": stamp(), "answer": answer["id"], "words_was": shorter, "words_now": args.words}
+    loaded.write(args.key, words=args.words if fields.get("words") in shorter else fields.get("words") or "", repeats=repeats, answer=linked, amends=[*listed(fields.get("amends")), edit])
+    print(f"{args.key} now carries: {args.words}", file=args.stdout)
     return 0
 
 
@@ -2953,7 +2996,7 @@ def build_parser(parser_type=argparse.ArgumentParser) -> argparse.ArgumentParser
     confirm.add_argument("--tick", metavar="N,...|all")
     confirm.add_argument("--strike", metavar="N,...")
     confirm.add_argument("--implication", metavar="TEXT", help="the narrowed line that replaces the one line --strike names")
-    amend = verb("amend", cmd_amend, "link answer ids to a row, add an implication, or rewrite one implication's text, each edit recorded on the row's amends")
+    amend = verb("amend", cmd_amend, "link answer ids to a row, add an implication, rewrite one implication's text, or grow its words to the owner's whole quote, each edit recorded on the row's amends")
     amend.add_argument("key")
     amend.add_argument("--answer", action="append", default=[], metavar="ID")
     amend.add_argument("--implication", type=int, metavar="N")
@@ -2961,6 +3004,7 @@ def build_parser(parser_type=argparse.ArgumentParser) -> argparse.ArgumentParser
     amend.add_argument("--proof", metavar="REF", help="with --add, a ccn answer id or requirement:root-<seq> that ticks the new line; without it the line is proposed")
     amend.add_argument("--rewrite-ticked", action="store_true", help="replace the text of a ticked implication instead of refusing")
     amend.add_argument("--text", metavar="TEXT", help="the implication's new text")
+    amend.add_argument("--words", metavar="TEXT", help="a verbatim span of the one --answer: replaces every said item of the row it holds, or folds on as a further capture when it holds none")
     amend.add_argument("--direction", choices=DIRECTIONS, help="the implication's new direction: an owner requirement is `requires` and binds at once, like `removes`")
     verb("round", cmd_round, "put at most ten queued ruling cards on the live cc-present board as one round, foundational rows first")
     sliced = verb("slice", cmd_slice, "print the rows a lane, the coordinator, or a head's grade must carry, verbatim")

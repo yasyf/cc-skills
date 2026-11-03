@@ -69,6 +69,8 @@ Context passed to the judge:
 
 If a turn ends without an `answer_add` or `answer_edit`, the `root_context` hook queues `owner standing rule not recorded: answer_add it (scope:durable) + a plan Decisions line` for the next turn.
 
+**A register row carries the owner's whole quote.** Graders and judges read a row's `words`, never the answer's implications, so a row cut short reads as a narrower ruling than he gave. `rulings.py classify --answer` refuses words that stop inside a quote of the answer, or inside a run of quotes joined by `and`, with `CUT-WORDS`, and prints the whole of it. A row already cut grows with `rulings.py amend KEY --answer ID --words TEXT`: `TEXT` must be a verbatim span of that answer, it replaces every said item of the row it holds, and with none it folds on as a further capture that does not count as saying it again.
+
 **I6. A standing rule has its own durable answer, and it is never done.** After recording the `scope:durable` cc-notes answer, the coordinator posts a dedicated `go` record to the target desk:
 
 ```

@@ -2696,6 +2696,66 @@ def test_classify_answer_takes_only_words_in_an_owner_answer_body(home: Path, pa
             rulings.main(["classify", "--program", "brook", "--repo", REPO, "--answer", "5eed0c0", str(answer_sourced(tmp_path))], RegisterShell(rows, answers=[written]), stdin=sys.stdin, stdout=sys.stdout)
 
 
+CUT_ANSWER = dict(
+    ROUND_TWO,
+    body="Verbatim: 'drop the slow job, the one nobody asked for, and don't add another' and 'tests are still running, fix this now'. Implications: the job leaves CI.",
+)
+CUT_WORDS = "drop the slow job, the one nobody asked for"
+WHOLE_WORDS = "drop the slow job, the one nobody asked for, and don't add another' and 'tests are still running, fix this now"
+
+
+def test_classify_answer_refuses_words_that_stop_inside_the_owners_quote(home: Path, package: Path, state: Path, tmp_path: Path, capsys) -> None:
+    rows = seeded(package) | {"rule/5eed0c0": dict(ROUND_TWO_ROW)}
+    shell = RegisterShell(rows, answers=[CUT_ANSWER])
+
+    code, out = ran(capsys, shell, "classify", "--answer", "5eed0c0", str(answer_sourced(tmp_path, CUT_WORDS)))
+    assert code == 1
+    assert out == f"CUT-WORDS 5eed0c0de1b2c3d4: words stop inside the owner's quote in the answer; carry all of it: {WHOLE_WORDS}\n"
+
+    assert ran(capsys, shell, "classify", "--answer", "5eed0c0", str(answer_sourced(tmp_path, WHOLE_WORDS)))[0] == 0
+    assert json.loads(shell.rows["rule/5eed0c0"]["repeats"])[0]["words"] == WHOLE_WORDS
+
+
+def test_amend_words_grows_every_cut_item_and_records_what_it_was(home: Path, package: Path, state: Path, capsys, judged: Judge) -> None:
+    repeat = {"key": "rule/aaaaaaa", "answer": [ROUND_TWO["id"]], "at": "Oct 22 1:00 PM PT", "words": "tests are still running", "proof": "proof:answer:5eed0c0de1b2c3d4", "repeat": True}
+    kept = dict(repeat, words="an unrelated later order")
+    shell = RegisterShell(seeded(package), answers=[CUT_ANSWER])
+    shell.rows["rule/aaaaaaa"] |= {"words": CUT_WORDS, "repeats": json.dumps([repeat, kept])}
+
+    code, _ = ran(capsys, shell, "amend", "rule/aaaaaaa", "--answer", "5eed0c0", "--words", WHOLE_WORDS)
+
+    row = shell.rows["rule/aaaaaaa"]
+    assert code == 0
+    assert row["words"] == WHOLE_WORDS
+    assert [item["words"] for item in json.loads(row["repeats"])] == [WHOLE_WORDS, "an unrelated later order"]
+    assert CUT_ANSWER["id"] in json.loads(row["answer"])
+    [edit] = json.loads(row["amends"])
+    assert (edit["words_was"], edit["words_now"]) == ([CUT_WORDS, "tests are still running"], WHOLE_WORDS)
+    assert judged.asked == []
+    assert ran(capsys, shell, "amend", "rule/aaaaaaa", "--answer", "5eed0c0", "--words", WHOLE_WORDS) == (0, "rule/aaaaaaa already carries these words\n")
+
+
+def test_amend_words_folds_a_second_quote_of_the_answer_as_a_capture_that_is_no_repeat(home: Path, package: Path, state: Path, capsys, judged: Judge) -> None:
+    shell = RegisterShell(seeded(package), answers=[CUT_ANSWER])
+    before = dict(shell.rows["rule/aaaaaaa"])
+
+    assert ran(capsys, shell, "amend", "rule/aaaaaaa", "--answer", "5eed0c0", "--words", "tests are still running, fix this now")[0] == 0
+
+    row = shell.rows["rule/aaaaaaa"]
+    [repeat] = json.loads(row["repeats"])
+    assert (repeat["words"], repeat["answer"], repeat["repeat"]) == ("tests are still running, fix this now", [CUT_ANSWER["id"]], False)
+    assert (row["words"], row.get("said")) == (before["words"], before.get("said"))
+
+
+def test_amend_words_takes_only_a_span_of_the_named_answer(home: Path, package: Path, state: Path, capsys, judged: Judge) -> None:
+    shell = RegisterShell(seeded(package), answers=[CUT_ANSWER])
+    before = dict(shell.rows["rule/aaaaaaa"])
+
+    assert ran(capsys, shell, "amend", "rule/aaaaaaa", "--answer", "5eed0c0", "--words", "the owner meant the slow job") == (1, "NOT-VERBATIM rule/aaaaaaa: --words must be a verbatim span of answer 5eed0c0\n")
+    assert ran(capsys, shell, "amend", "rule/aaaaaaa", "--words", CUT_WORDS)[0] == 2
+    assert shell.rows["rule/aaaaaaa"] == before
+
+
 def answer_onto(tmp_path: Path, key: str) -> Path:
     path = tmp_path / "onto.json"
     path.write_text(json.dumps([{"extends": key, "words": APPROVED}]))
