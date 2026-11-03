@@ -178,7 +178,7 @@ func rollDesks(ctx context.Context, runner shell.Runner, checks Checks, version 
 
 func check(cmd *cobra.Command, a *app.App) []string {
 	ctx := cmd.Context()
-	cfg, _, err := lanes.Loaded(a)
+	cfg, state, err := lanes.Loaded(a)
 	if err != nil {
 		return []string{err.Error()}
 	}
@@ -199,6 +199,7 @@ func check(cmd *cobra.Command, a *app.App) []string {
 	if plugin == "" {
 		return faults
 	}
+	faults = append(faults, cciFaults(ctx, a.Runner, plugin, state)...)
 	script, err := os.ReadFile(filepath.Join(plugin, "scripts", shimFile))
 	if err != nil {
 		return append(faults, err.Error())

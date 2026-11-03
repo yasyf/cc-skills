@@ -244,6 +244,46 @@ func TestALaneThatOnlyPostedCountsAsRegistered(t *testing.T) {
 	}
 }
 
+func cciDrive(t *testing.T, workerURL string) (plugin, state string) {
+	t.Helper()
+	plugin, state = t.TempDir(), t.TempDir()
+	write(t, filepath.Join(plugin, ".claude-plugin", "plugin.json"), `{"dependencies":[{"name":"captain-hook","version":">=12.0.0"},{"name":"cc-inbox","version":">=0.49.34"}]}`)
+	if workerURL != "" {
+		write(t, filepath.Join(state, "runner.json"), `{"orca":{"sprite":{"env":{"WORKER_CCI_URL":"`+workerURL+`"}}}}`)
+	}
+	return plugin, state
+}
+
+func TestACCIBehindThePackFloorRefusesHereAndForSpriteWorkers(t *testing.T) {
+	url := "https://github.com/yasyf/cc-inbox/releases/download/v0.49.33/cci_0.49.33_linux_amd64.tar.gz"
+	plugin, state := cciDrive(t, url)
+	fake := &shelltest.Fake{}
+	fake.Reply("0.49.33\n", "cci", "--version")
+
+	got := cciFaults(context.Background(), fake, plugin, state)
+
+	want := []string{
+		"this machine's cci is 0.49.33, and the pack needs cc-inbox 0.49.34 or later; run cci upgrade",
+		"runner.json's WORKER_CCI_URL " + url + " is no cc-inbox 0.49.34 or later release, so every Sprite worker would install a cci this pack outruns",
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("got %v", got)
+	}
+}
+
+func TestACCIAtOrPastThePackFloorPassesAndADriveWithoutSpritesChecksOnlyThisMachine(t *testing.T) {
+	fake := &shelltest.Fake{}
+	fake.Reply("0.49.34\n", "cci", "--version")
+	plugin, state := cciDrive(t, "https://github.com/yasyf/cc-inbox/releases/download/v0.49.100/cci_0.49.100_linux_amd64.tar.gz")
+	if got := cciFaults(context.Background(), fake, plugin, state); len(got) != 0 {
+		t.Fatalf("got %v", got)
+	}
+	plugin, state = cciDrive(t, "")
+	if got := cciFaults(context.Background(), fake, plugin, state); len(got) != 0 {
+		t.Fatalf("got %v", got)
+	}
+}
+
 func TestLocalEditsInTheCheckoutRefuseOnlyWhenTheLandingMoverRuns(t *testing.T) {
 	fake := &shelltest.Fake{}
 	fake.Reply(" M go/a.go\nM  go/b.go\n", "git", "-C", "/co", "status")
