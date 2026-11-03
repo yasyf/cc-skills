@@ -9,17 +9,34 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/asks"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/plans"
 )
 
 const (
-	nothing      = "- nothing new"
-	unownedTitle = "Unowned work"
-	openPRsTitle = "Open PRs"
-	columns      = "| Row | What it delivers | State | Who is on it right now | What blocks it | What we are doing to unblock it, and by when | What went wrong or slowed it |"
-	divider      = "|---|---|---|---|---|---|---|"
-	subjectShare = 0.6
-	subjectWord  = 4
+	nothing        = "- nothing new"
+	sinceTitle     = "Since you last looked"
+	fyiTitle       = "Decisions made for you (FYI)"
+	wordsTitle     = "Your words since the last update"
+	unownedTitle   = "Unowned work"
+	pinnedTitle    = "Pinned for you"
+	dutiesTitle    = "Standing duties"
+	noStepTitle    = "Lanes on no plan step"
+	asksTitle      = "Owner asks"
+	incidentsTitle = "Incidents today"
+	releasesTitle  = "Releases today"
+	openPRsTitle   = "Open PRs"
+	gapsTitle      = "Gaps in this update"
+	workstream     = "Workstream "
+	firstUpdate    = "- The first update from this generator: every row below is new."
+	closedToday    = "Closed today: "
+	quietNow       = "Quiet over 2 h, nobody on them now: "
+	updateBytes    = 40_000
+	columns        = "| Row | What it delivers | State | Who is on it right now | What blocks it | What we are doing to unblock it, and by when | What went wrong or slowed it |"
+	divider        = "|---|---|---|---|---|---|---|"
+	subjectShare   = 0.6
+	subjectWord    = 4
+	whoColumn      = 3
 )
 
 var (
@@ -32,6 +49,7 @@ type Inputs struct {
 	Now       time.Time
 	Lanes     []Lane
 	Records   []Record
+	All       []Record
 	Waits     []Record
 	Plans     []*plans.Plan
 	Book      asks.Book
@@ -39,6 +57,9 @@ type Inputs struct {
 	Incidents []Record
 	Releases  []Record
 	Board     []string
+	Before    Snapshot
+	Retro     []Retro
+	Pins      []drive.Pin
 }
 
 type Need struct {
@@ -47,13 +68,101 @@ type Need struct {
 }
 
 type Report struct {
-	Text  string
-	Needs []Need
+	Text      string
+	Needs     []Need
+	Gaps      []string
+	Published Published
+	Snapshot  Snapshot
 }
 
 type section struct {
 	title string
 	rows  []Row
+	step  bool
+}
+
+func (s section) lanes() []Row {
+	switch {
+	case s.step:
+		return s.rows[1:]
+	case s.title == noStepTitle, strings.HasPrefix(s.title, workstream):
+		return s.rows
+	}
+	return nil
+}
+
+func (s section) lines() []string {
+	if s.title == openPRsTitle {
+		return prLines(s.rows)
+	}
+	lanes := s.lanes()
+	var full []Row
+	var brief, quiet []string
+	for _, row := range s.rows {
+		isLane := slices.Contains(lanes, row)
+		switch {
+		case (isLane && row.Who == nobody) || (s.title == incidentsTitle && row.Done):
+			quiet = append(quiet, fmt.Sprintf("%s (%s)", row.Name, opening(row.State)))
+		case !isLane, row.Blocks != nothingBlocks, row.Wrong != noneRecorded:
+			full = append(full, row)
+		case !s.step:
+			brief = append(brief, fmt.Sprintf("- %s: %s", row.Name, cell(row.Unblock)))
+		}
+	}
+	var lines []string
+	if len(full) > 0 {
+		lines = table(full)
+	}
+	lines = append(lines, brief...)
+	if len(quiet) == 0 {
+		return lines
+	}
+	label := quietNow
+	if s.title == incidentsTitle {
+		label = closedToday
+	}
+	return append(lines, "", label+strings.Join(quiet, "; "))
+}
+
+func prLines(rows []Row) []string {
+	var states []string
+	byState := map[string][]string{}
+	for _, row := range rows {
+		if _, seen := byState[row.State]; !seen {
+			states = append(states, row.State)
+		}
+		words := row.Name + " " + opening(row.Delivers)
+		if row.Who != nobody {
+			words += " [" + row.Who + "]"
+		}
+		byState[row.State] = append(byState[row.State], words)
+	}
+	lines := make([]string, len(states))
+	for i, state := range states {
+		lines[i] = fmt.Sprintf("- %s (%d): %s", state, len(byState[state]), strings.Join(byState[state], "; "))
+	}
+	return lines
+}
+
+func unownedLines(sections []section) []string {
+	var lines []string
+	count := 0
+	for _, found := range sections {
+		var names []string
+		for _, row := range found.rows {
+			if row.unowned() {
+				names = append(names, row.Name)
+			}
+		}
+		if len(names) > 0 {
+			count += len(names)
+			lines = append(lines, fmt.Sprintf("- %s (%d): %s", found.title, len(names), strings.Join(names, ", ")))
+		}
+	}
+	if count == 0 {
+		return nil
+	}
+	return slices.Insert(lines, 0, fmt.Sprintf("%d open rows have nobody on them; each also sits in its own section below.", count))
 }
 
 func table(rows []Row) []string {
@@ -66,6 +175,7 @@ func table(rows []Row) []string {
 		for i, text := range cells {
 			cells[i] = cell(text)
 		}
+		cells[whoColumn] = row.Who
 		lines = append(lines, "| "+strings.Join(cells, " | ")+" |")
 	}
 	return lines
@@ -86,38 +196,73 @@ func namesOf(lanes []Lane) []string {
 	return names
 }
 
-func (v view) planSections(list []*plans.Plan, lanes []Lane) (sections []section, doneLines []string, placed map[string]bool) {
-	placed = map[string]bool{}
+func onWords(lane Lane, words []string) bool {
+	return slices.ContainsFunc(words, func(word string) bool {
+		word = strings.ToLower(word)
+		return slices.ContainsFunc([]string{lane.Name, lane.Step, lane.Deliverable}, func(text string) bool {
+			return strings.Contains(strings.ToLower(text), word)
+		})
+	})
+}
+
+func (v view) pinnedRows(pins []drive.Pin, lanes []Lane) ([]Row, []Step) {
+	rows := make([]Row, len(pins))
+	steps := make([]Step, len(pins))
+	for i, pin := range pins {
+		mine := lanesWhere(lanes, func(lane Lane) bool { return onWords(lane, pin.Words) })
+		rows[i] = v.stepRow(pin.Name, pin.Delivers, &plans.Step{}, namesOf(mine))
+		steps[i] = stepEntry(pin.Name, pinnedTitle, rows[i], mine)
+	}
+	return rows, steps
+}
+
+type planned struct {
+	sections  []section
+	folded    []section
+	doneLines []string
+	placed    map[string]bool
+	steps     []Step
+}
+
+func (p *planned) add(title, stepTitle string, row Row, lanes []Lane, laneRows []Row) {
+	place(p.placed, lanes)
+	p.sections = append(p.sections, section{title, slices.Insert(laneRows, 0, row), true})
+	p.steps = append(p.steps, stepEntry(stepTitle, title, row, lanes))
+}
+
+func (v view) planSections(list []*plans.Plan, lanes []Lane) planned {
+	out := planned{placed: map[string]bool{}}
 	for _, plan := range list {
 		var doneSteps []string
 		for _, step := range plan.Steps {
 			if step.Number == plans.Unmapped {
 				for _, piece := range pieces(plan) {
 					mine := lanesWhere(lanes, func(lane Lane) bool { return onPiece(lane, piece) })
-					place(placed, mine)
 					row := v.stepRow(piece, fmt.Sprintf("the %s piece of %s", piece, clip(plan.Title)), &plans.Step{}, namesOf(mine))
-					sections = append(sections, section{fmt.Sprintf("%s, %s", clip(plan.Title), piece), slices.Insert(v.laneRows(mine), 0, row)})
+					out.add(fmt.Sprintf("%s, %s", clip(plan.Title), piece), piece, row, mine, v.laneRows(mine))
 				}
 				continue
 			}
 			mine := lanesWhere(lanes, func(lane Lane) bool { return onStep(lane, step) })
+			title := fmt.Sprintf("%s, step %s", clip(plan.Title), clip(step.Title))
 			if stepIsDone(step) && len(mine) == 0 {
+				row := v.stepRow("Step "+step.Number, step.Title, step, nil)
 				doneSteps = append(doneSteps, clip(step.Title))
+				out.folded = append(out.folded, section{title, []Row{row}, true})
+				out.steps = append(out.steps, stepEntry(step.Title, title, row, nil))
 				continue
 			}
-			place(placed, mine)
 			names := namesOf(mine)
 			if owner := v.ownerOfStep(step.Number); owner != "" {
 				names = append(names, owner)
 			}
-			row := v.stepRow("Step "+step.Number, step.Title, step, names)
-			sections = append(sections, section{fmt.Sprintf("%s, step %s", clip(plan.Title), clip(step.Title)), slices.Insert(v.laneRows(mine), 0, row)})
+			out.add(title, step.Title, v.stepRow("Step "+step.Number, step.Title, step, names), mine, v.laneRows(mine))
 		}
 		if len(doneSteps) > 0 {
-			doneLines = append(doneLines, fmt.Sprintf("- %s: %s", clip(plan.Title), strings.Join(doneSteps, "; ")))
+			out.doneLines = append(out.doneLines, fmt.Sprintf("- %s: %s", clip(plan.Title), strings.Join(doneSteps, "; ")))
 		}
 	}
-	return sections, doneLines, placed
+	return out
 }
 
 func lanesWhere(lanes []Lane, keep func(Lane) bool) []Lane {
@@ -147,9 +292,11 @@ func (v view) laneRows(lanes []Lane) []Row {
 func Render(in Inputs) Report {
 	lanes := working(in.Lanes, in.Now)
 	v := newView(in.Lanes, in.Records, in.Waits, in.Now)
-	sections, doneLines, placed := v.planSections(in.Plans, lanes)
-	sections = append([]section{{"Standing duties", v.dutyRows()}}, sections...)
-	rest := lanesWhere(lanes, func(lane Lane) bool { return !placed[lane.Name] })
+	v.retro = in.Retro
+	pinned, pinnedSteps := v.pinnedRows(in.Pins, lanes)
+	plan := v.planSections(in.Plans, lanes)
+	sections := append([]section{{title: pinnedTitle, rows: pinned}, {title: dutiesTitle, rows: v.dutyRows()}}, plan.sections...)
+	rest := lanesWhere(lanes, func(lane Lane) bool { return !plan.placed[lane.Name] })
 	var workstreams []string
 	for _, lane := range rest {
 		if step := stepOf(lane); step != "" && !slices.Contains(workstreams, step) {
@@ -158,7 +305,7 @@ func Render(in Inputs) Report {
 	}
 	slices.Sort(workstreams)
 	for _, step := range workstreams {
-		sections = append(sections, section{"Workstream " + step, v.laneRows(lanesWhere(rest, func(lane Lane) bool { return stepOf(lane) == step }))})
+		sections = append(sections, section{title: workstream + step, rows: v.laneRows(lanesWhere(rest, func(lane Lane) bool { return stepOf(lane) == step }))})
 	}
 	open := in.Book.Open(in.Now)
 	askRows := make([]Row, len(open))
@@ -170,31 +317,32 @@ func Render(in Inputs) Report {
 	for i, pr := range prs {
 		prRows[i] = v.prRow(pr, in.Held)
 	}
+	releases := v.releaseRows(in.Releases, in.Drive)
 	sections = append(sections,
-		section{"Lanes on no plan step", v.laneRows(lanesWhere(rest, func(lane Lane) bool { return stepOf(lane) == "" }))},
-		section{"Owner asks", askRows},
-		section{"Incidents today", v.incidentRows(in.Incidents, in.Drive)},
-		section{"Releases today", v.releaseRows(in.Releases, in.Drive)},
-		section{openPRsTitle, prRows},
+		section{title: noStepTitle, rows: v.laneRows(lanesWhere(rest, func(lane Lane) bool { return stepOf(lane) == "" }))},
+		section{title: asksTitle, rows: askRows},
+		section{title: incidentsTitle, rows: v.incidentRows(in.Incidents, in.Drive)},
+		section{title: releasesTitle, rows: releases},
+		section{title: openPRsTitle, rows: prRows},
 	)
-	var unowned []Row
-	for _, found := range sections {
-		for _, row := range found.rows {
-			if row.unowned() {
-				unowned = append(unowned, row)
-			}
-		}
+	tracked := slices.Concat(sections, plan.folded)
+	moved := []string{firstUpdate}
+	if len(in.Before.Rows) > 0 {
+		moved = sinceLines(tracked, in.Before.Rows)
 	}
-	var head []string
-	if len(unowned) > 0 {
-		head = append([]string{fmt.Sprintf("%d rows have nobody on them; each also sits in its own section below.", len(unowned)), ""}, table(unowned)...)
-	}
-	lists := v.listSections(in, lanes, doneLines)
-	out := append([]string{fmt.Sprintf("# Owner update: %s, %s", in.Drive, pacific(in.Now))}, titled(unownedTitle, head)...)
-	needs := make([]Need, 0, 1+len(sections)+len(lists)+len(lanes)+len(open)+len(prs))
-	needs = append(needs, Need{unownedTitle, unownedTitle})
+	feed := fyiEntries(recordsFrom(in.All, in.Now.Add(-feedWindow)))
+	fresh := slices.DeleteFunc(slices.Clone(feed), func(entry FYI) bool { return !entry.At.After(in.Before.At) })
+	words, gaps := ownerWords(recordsFrom(in.All, in.Before.At))
+	out := []string{fmt.Sprintf("# Owner update: %s, %s", in.Drive, pacific(in.Now))}
+	out = append(out, titled(fmt.Sprintf("%s (%s)", sinceTitle, pacificText(in.Before.At)), moved)...)
+	out = append(out, titled(fyiTitle, fyiLines(fresh))...)
+	out = append(out, titled(wordsTitle, words)...)
+	out = append(out, titled(unownedTitle, unownedLines(sections))...)
+	lists := v.listSections(in, lanes, plan.doneLines)
+	needs := make([]Need, 0, 4+len(sections)+len(lists)+len(lanes)+len(open)+len(prs))
+	needs = append(needs, Need{sinceTitle, sinceTitle}, Need{fyiTitle, fyiTitle}, Need{wordsTitle, wordsTitle}, Need{unownedTitle, unownedTitle})
 	for _, found := range sections {
-		out = append(out, titled(found.title, table(found.rows))...)
+		out = append(out, titled(found.title, found.lines())...)
 		needs = append(needs, Need{found.title, found.title})
 	}
 	for _, found := range lists {
@@ -210,7 +358,23 @@ func Render(in Inputs) Report {
 	for _, pr := range prs {
 		needs = append(needs, Need{"#" + strconv.Itoa(pr.Number), pr.Title})
 	}
-	return Report{strings.Join(out, "\n") + "\n", needs}
+	if size := len(strings.Join(out, "\n")); size > updateBytes {
+		gaps = append(gaps, fmt.Sprintf("this update is %d KB, over the %d KB an update may run", size/1000, updateBytes/1000))
+	}
+	if len(gaps) > 0 {
+		bulleted := make([]string, len(gaps))
+		for i, gap := range gaps {
+			bulleted[i] = "- " + gap
+		}
+		out = append(out, titled(gapsTitle, bulleted)...)
+	}
+	return Report{
+		Text:      strings.Join(out, "\n") + "\n",
+		Needs:     needs,
+		Gaps:      gaps,
+		Published: Published{in.Now, numbered(slices.Concat(pinnedSteps, plan.steps)), feed, nowOf(releases)},
+		Snapshot:  takeSnapshot(tracked, in.Now),
+	}
 }
 
 type listSection struct {

@@ -22,6 +22,8 @@ const (
 	unregistered  = "unregistered"
 	retired       = "retired"
 	textCells     = 120
+	cellChars     = 100
+	titleChars    = 60
 	heardWithin   = 2 * time.Hour
 	quietAfter    = 24 * time.Hour
 	queueLabelled = "labelled for the queue"
@@ -62,17 +64,19 @@ type Lane struct {
 }
 
 type Record struct {
-	Seq    int64
-	Drive  string
-	Lane   string
-	Kind   string
-	Text   string
-	Status string
-	At     time.Time
-	To     []string
-	PRs    []string
-	Topic  string
-	Board  string
+	Seq      int64
+	Drive    string
+	Lane     string
+	Kind     string
+	Text     string
+	Status   string
+	At       time.Time
+	To       []string
+	PRs      []string
+	Topic    string
+	Board    string
+	Re       int64
+	Resolves []int64
 }
 
 func stepIsDone(step *plans.Step) bool {
@@ -106,16 +110,31 @@ func pacificText(at time.Time) string {
 }
 
 func clip(text string) string {
+	return clipTo(text, textCells)
+}
+
+func clipTo(text string, limit int) string {
 	text = strings.Join(strings.Fields(text), " ")
 	runes := []rune(text)
-	if len(runes) <= textCells {
+	if len(runes) <= limit {
 		return text
 	}
-	return strings.TrimRight(string(runes[:textCells-1]), " \t\n") + "…"
+	return strings.TrimRight(string(runes[:limit-1]), " \t\n") + "…"
 }
 
 func cell(text string) string {
-	return strings.ReplaceAll(clip(text), "|", "/")
+	return strings.ReplaceAll(clipTo(text, cellChars), "|", "/")
+}
+
+func opening(text string) string {
+	runes := []rune(clip(text))
+	return string(runes[:min(titleChars, len(runes))])
+}
+
+func bySeq(records []Record) []Record {
+	ordered := slices.Clone(records)
+	slices.SortStableFunc(ordered, func(one, other Record) int { return int(one.Seq - other.Seq) })
+	return ordered
 }
 
 func unique(names []string) []string {
@@ -224,15 +243,15 @@ type view struct {
 	latest  map[string]Record
 	waits   map[string]Record
 	records []Record
+	retro   []Retro
 	now     time.Time
 }
 
 func newView(lanes []Lane, records, waits []Record, now time.Time) view {
-	v := view{lanes: lanes, byLane: map[string]Lane{}, latest: map[string]Record{}, waits: map[string]Record{}, records: slices.Clone(records), now: now}
+	v := view{lanes: lanes, byLane: map[string]Lane{}, latest: map[string]Record{}, waits: map[string]Record{}, records: bySeq(records), now: now}
 	for _, lane := range lanes {
 		v.byLane[lane.Name] = lane
 	}
-	slices.SortStableFunc(v.records, func(one, other Record) int { return int(one.Seq - other.Seq) })
 	for _, record := range v.records {
 		v.latest[record.Lane] = record
 	}
@@ -293,6 +312,11 @@ func (v view) workOf(lanes []string) work {
 		}
 		for _, lane := range on {
 			unblock = append(unblock, lane+": no record in a day")
+		}
+	}
+	for _, row := range v.retro {
+		if slices.Contains(lanes, row.Owner) && row.State != retroLive {
+			wrong = append(wrong, row.line())
 		}
 	}
 	for _, lane := range lanes {
@@ -394,9 +418,7 @@ func (v view) incidentRows(records []Record, drive string) []Row {
 	still := openIncidents(records)
 	groups := map[string][]Record{}
 	var names []string
-	sorted := slices.Clone(records)
-	slices.SortStableFunc(sorted, func(one, other Record) int { return int(one.Seq - other.Seq) })
-	for _, record := range sorted {
+	for _, record := range bySeq(records) {
 		if record.Kind != "incident" || record.Drive != drive {
 			continue
 		}
