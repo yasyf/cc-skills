@@ -61,6 +61,7 @@ type Push struct {
 type Queue struct {
 	Meta
 	Number  int
+	Entry   string
 	Head    string
 	Attempt int
 	Outcome string
@@ -155,7 +156,7 @@ func (e Push) record(tx *store.Tx) ([]int, error) {
 }
 
 func (e Queue) record(tx *store.Tx) ([]int, error) {
-	return []int{e.Number}, tx.PutEntry(store.Entry{Repo: e.Repo, Number: e.Number, Head: e.Head, Attempt: e.Attempt, Outcome: e.Outcome, Reason: string(e.Reason)})
+	return []int{e.Number}, tx.PutEntry(store.Entry{Repo: e.Repo, Number: e.Number, ID: e.Entry, Head: e.Head, Attempt: e.Attempt, Outcome: e.Outcome, Reason: string(e.Reason)})
 }
 
 func (e Tap) record(tx *store.Tx) ([]int, error) {

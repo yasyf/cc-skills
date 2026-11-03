@@ -158,4 +158,5 @@ var addedColumns = []struct{ table, column, kind string }{
 	{"taps", "number", "INTEGER NOT NULL DEFAULT 0"},
 	{"grades", "change", "TEXT NOT NULL DEFAULT ''"},
 	{"pr_facts", "change", "TEXT NOT NULL DEFAULT ''"},
+	{"queue", "entry", "TEXT NOT NULL DEFAULT ''"},
 }

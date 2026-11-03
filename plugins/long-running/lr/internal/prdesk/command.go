@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -97,6 +98,7 @@ func serve(ctx context.Context, a *app.App, to []string, origin string) error {
 		Graders: []string{grader.FinderLane, grader.FidelityLane}, GoLanes: cfg.GoLaneNames(),
 		Read: GitHubRead{CCX: a.CCX, Store: s, Repo: cfg.Repo, Author: cfg.Author, Label: cfg.Label}.Read,
 		Tail: client.Tail, Post: client.Post, Now: a.Now, Log: a.Log,
+		Trunk: TrunkRead{Runner: a.Runner, KeyCommand: cfg.QueueKey, URL: TrunkAPI, HTTP: &http.Client{Timeout: time.Minute}, Repo: cfg.Repo, Landing: cfg.Trunk}.Read,
 		Hash: func(ctx context.Context, base, head string) (string, error) {
 			return hashDiff(ctx, a.Runner, cfg.Checkout, base, head)
 		},
