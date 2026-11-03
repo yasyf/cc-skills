@@ -174,6 +174,12 @@ def test_a_slack_message_that_is_not_the_owners_dm_adds_no_row(communicator: Win
     assert not communicator.ledger.exists()
 
 
+def test_an_owner_slack_dm_in_the_turn_reaches_the_reminder_judge(communicator: Window) -> None:
+    communicator.queued(slack_dm(text="you forgot the slack root again"))
+
+    assert owner_ledger.OwnerWords().content(communicator.event(StopEvent)) == "you forgot the slack root again"
+
+
 def test_the_coordinator_gets_neither_hook(drive: Path) -> None:
     coordinator = Window(drive, coordinator=True)
 
