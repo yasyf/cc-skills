@@ -68,11 +68,11 @@ answer id; an id or a gist alone drops it (R19b)>
 
 ## Generate the compaction handoff
 
-**Run `scripts/handoff.py` through `bin/handoff.py`.** The script uses only the Python standard library and provides two verbs:
+**Run `lr handoff`.** It provides two verbs for the handoff:
 
 ```text
-handoff.py generate --program <slug> --plan <path> [--inbox-dir DIR] [--ledger ID] [--session FILE|-] [--strict] [--folder] [--repo PATH]
-handoff.py lint (--doc ID | --file PATH) --program <slug> [--plan PATH] [--previous-doc ID | --previous-file PATH] [--repo PATH]
+lr handoff generate --program <slug> --plan <path> [--inbox-dir DIR] [--ledger ID] [--session FILE|-] [--strict] [--folder] [--repo PATH]
+lr handoff lint (--doc ID | --file PATH) --program <slug> [--plan PATH] [--previous-doc ID | --previous-file PATH] [--repo PATH]
 ```
 
 **Populate `## Standing owner rules` from the register and live cci rules.** The standing rules register uses label `standing-rules:<slug>` and caps at 35 owner-approved rules, as detailed in `reference/owner-rulings.md` alongside the `register_injection` hook and `bin/rulings.py` (`rulings.py register`, `rulings.py match`, `rulings.py rows`). `rulings.py register --program <slug>` prints the newest register as `{id, body}` or `null`. `rulings.py match --program <slug>` reads a lane brief from stdin, mirrors the drive's `scope:durable` answers into `<state dir>/rulings/<id7>.md` with atomic per-file replacements, and queries `ccx code search --semantic` with the brief's first 2,000 characters; `--budget` defaults to 8,000 bytes. The drive's answers are those labeled `program:<slug>` plus those anchored to the repo's current branch, another drive's answers never enter the corpus, and `capture_standing_rule` labels each owner ruling it records with `program:<slug>`. `--drive <id>` replaces `--program` and resolves the program and state directory from the drive registry; with neither flag, every `rulings.py` verb uses the session's drive from `CLAUDE_LONG_RUNNING_DRIVE`, else the drive whose coordinator sessions hold this session.
@@ -89,7 +89,7 @@ Once the register ledger exists, `generate` reads it through `rulings.py rows --
 
 **Compile the drive state sections in fixed order.** Sections run in fixed order, namely `Standing owner rules`, `Read first`, `Open owner asks`, `Open tasks`, `Delivered since the last progress record`, `Lane registry`, `Owner update`, `Lanes and monitors`, `Incident lanes`, `Inboxes`, `Lint findings`, and `Root narrative`. The record also carries the drive registry line with the drive, ledger, Orca run, checkout, and coordinator sessions, and never names a dashboard. The successor coordinator inherits every lane and every open item from `Lane registry` and `Owner update`, never from the narrative, so a coordinator that forgot a lane cannot pass the gap on.
 - `Lane registry`: `drive_supervisor.py lanes --config <lr.json>` verbatim, one line per lane with its state, liveness, newest record, PRs, successor and standing duty, so the post-compaction coordinator starts from the registry and not from what the old coordinator remembered.
-- `Owner update`: the output of `owner_update.py --render --drive <drive>` as of the handoff, every derived section and every row with its owner, blocker and unblock plan, and the generator's missing-item list when it exits 1.
+- `Owner update`: the output of `lr update --render --drive <drive>` as of the handoff, every derived section and every row with its owner, blocker and unblock plan, and the generator's missing-item list when it exits 1.
 - `Open owner asks`: `ledger.py` ask rows from the drive's ledger that are not dropped, answered, or `LIVE`, with their state.
 - `Open tasks`: only `in_progress` tasks, one line each as `- #<id> <subject>` clipped to 120 characters, or `- none in progress`. When tasks are pending, a final ``- N pending in `TaskList` `` line counts them.
 - `Delivered since the last progress record`: the handoff lists every open task whose lane posted a `report`, `head`, `handoff`, `done`, or `fix-live` record since the newest progress doc, under `## Delivered since the last progress record`.
@@ -97,7 +97,7 @@ Once the register ledger exists, `generate` reads it through `rulings.py rows --
 - `Incident lanes`: every `inc-`, `incident-`, or `outage-` lane that posted on the drive's cci in the last six hours as ``- `<lane>`: last <kind> <n> min ago: <text>``. A lane whose newest `MECHANISM` or `CANDIDATE` has no `OPENED` or `BLOCKER` after it appends `| MECHANISM <n> min ago, no OPENED or BLOCKER since` and sorts first.
 - `Inboxes`: starts with `cci digest --drive <drive>`, then `cci tail --drive <drive>`, and the rule never to tail, sed, or grep a whole inbox. For at most 10 `~/.claude/scratch/<slug>/inbox/*.md` files, it prints `- <file>: head <id>, cursor <id>: <last ruling line>` (cursor from `<file>.cursor`, ruling line clipped to 120 characters and omitted when absent), plus `- N more inboxes` for the rest.
 
-**Write the generated markdown and return JSON metadata.** `handoff.py generate` writes the markdown to `<plan-stem>-progress/<UTC>-generated.md`, and in `--folder` mode without cc-notes it writes only that file. The hook caps generation at 120 seconds. Generation prints JSON `{id, file, register, fresh, digest, read_first, narrative}` where `id` is the active progress doc id and `register` is the register doc id or `null`; both fields are `null` in folder mode. In that JSON, `fresh` is `true` when the coordinator wrote the narrative for this compaction, `read_first` lists earlier hand-written records oldest first, and `narrative` names the record supplying the narrative or `null`.
+**Write the generated markdown and return JSON metadata.** `lr handoff generate` writes the markdown to `<plan-stem>-progress/<UTC>-generated.md`, and in `--folder` mode without cc-notes it writes only that file. The hook caps generation at 120 seconds. Generation prints JSON `{id, file, register, fresh, digest, read_first, narrative}` where `id` is the active progress doc id and `register` is the register doc id or `null`; both fields are `null` in folder mode. In that JSON, `fresh` is `true` when the coordinator wrote the narrative for this compaction, `read_first` lists earlier hand-written records oldest first, and `narrative` names the record supplying the narrative or `null`.
 
 **Preserve hand-written narratives and enforce the 40,000-byte cap.** At the next main-session `Stop` after the coordinator writes a progress doc, the hook runs `generate --strict`. Generation finds every hand-written `progress:<slug>` doc by walking from the active docs back along supersede edges to the last generated record. It identifies that record by `Generated from sources by the long-running compaction hook at`, never by title, session, or age, and in file mode it uses files in `<plan-stem>-progress/` newer than the newest generated file. The newest hand-written record's text becomes `## Root narrative` verbatim under `_From doc <id>._`. Each earlier hand-written record gets a `Read first` line of `` - Hand-written handoff, read it in full before `## Root narrative`: `ccn doc show <id7>`: <title> ``.
 
@@ -105,7 +105,7 @@ With no new hand-written record, the previous generated record's narrative and `
 
 ## Lint the handoff and plan
 
-**Validate register pointers, rule continuity, and owner-gate citations.** `handoff.py generate` and `handoff.py lint` check that:
+**Validate register pointers, rule continuity, and owner-gate citations.** `lr handoff generate` and `lr handoff lint` check that:
 - `## Standing owner rules` exists and carries the pointer for the current register doc; it fails with `does not name register` when missing or stale, while the sentence ``no `standing-rules` register doc`` is always a finding.
 - Every rule id from the previous handoff, including `#<seq>` and old `R<n>` ids, is carried or superseded, and durable answer titles are not required.
 - Every narrative line or live standing cci rule that gates on `owner's word`, `owner approval`, `owner sign-off`, `owner GO`, or `reserved for the owner` cites a live answer id, skipping lines prefixed with `  >`, inbox quotes, tasks, and asks, and each finding names its source (`ccn <answer id>`, `cci #<seq>`, or narrative doc and line).
@@ -113,7 +113,7 @@ With no new hand-written record, the previous generated record's narrative and `
 
 **Fix strict findings before stopping.** The `Stop` path runs `generate --strict`, blocking `Stop` and writing nothing when a narrative or standing-rule finding exists. Append `(answer <id>)` to fix a narrative line, or repair a standing rule by posting:
 `cci post --drive <drive> --lane root --kind correction --re <seq> --topic standing --ccn <answer id> --text "<replacement rule>"`.
-Owner-gate lines in the plan without live answer ids appear under `## Lint findings` and count in the restore, but never block generation. `handoff.py lint` runs the same checks on any doc or file, plus `--plan` when supplied, and exits 3 on any finding. Lint checks never hold a compaction and never read sweep staleness.
+Owner-gate lines in the plan without live answer ids appear under `## Lint findings` and count in the restore, but never block generation. `lr handoff lint` runs the same checks on any doc or file, plus `--plan` when supplied, and exits 3 on any finding. Lint checks never hold a compaction and never read sweep staleness.
 
 ## Supersede progress docs and update the plan pointer
 

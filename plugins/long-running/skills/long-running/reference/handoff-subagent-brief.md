@@ -96,7 +96,7 @@ Do, in this order:
      Every line that gates on the owner ("owner's word", "owner approval", "owner
      sign-off", "owner GO", "reserved for the owner") cites a live answer id;
      otherwise drop it and list it in the doc's `## Unverified` section.
-  5. Run `standing.py lint --file <buffer> --program <slug>
+  5. Run `lr handoff lint --file <buffer> --program <slug>
      [--previous-doc <previous handoff doc id>]` and fix the buffer until it exits 0.
   6. Run `ccn doc add --apply <buffer>`; it creates the doc and prints its id.
      The successor reads deliveries from the named cci cursor. Keep ephemeral

@@ -4,8 +4,8 @@ A plan is registered when it carries ``program:<program>`` or is named in ``pinn
 carries ``program:<program>`` or hangs off a registered plan. A plan's steps are its ``### <n>. <title>`` or ``### Step <n>. <title>`` headings; a
 task joins step ``<n>`` of its own plan through a ``step:<n>`` label, its plan's unmapped step without one, and the
 unassigned step with no plan. Done tasks count as done, cancelled ones count nowhere, an open or in-progress task with
-an unfinished blocker or a failed criterion is blocked. The drive dashboard's ``lr.plan-progress`` card and
-``handoff.py``'s progress record both read through :func:`read`. Stdlib only.
+an unfinished blocker or a failed criterion is blocked. The drive dashboard's ``lr.plan-progress`` card reads through
+:func:`read`. Stdlib only.
 """
 
 from __future__ import annotations

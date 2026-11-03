@@ -426,7 +426,7 @@ func (d *deps) readOwnerUpdate(ctx context.Context, doc *progressDoc, entry *dri
 		doc.laneRegistry = []string{"- registry unread: " + err.Error()}
 		return
 	}
-	rendered, err := d.run(ctx, []string{"owner_update.py", "--drive", entry.cciName(), "--render"}, "")
+	rendered, err := d.run(ctx, []string{"lr", "update", "--drive", entry.cciName(), "--render"}, "")
 	if err != nil && rendered == "" {
 		doc.laneRegistry = []string{"- registry unread: " + err.Error()}
 		return

@@ -93,6 +93,7 @@ REGISTER_FENCE = "~" * 12
 SWEEP_FIRST = "Run `rulings.py sweep --drive {drive}` before the first plan or card edit."
 ROOT_LANE = "root"
 COMMUNICATOR_LANE = "owner-relay"
+LR = Path(__file__).parents[2] / "bin" / "lr"
 ROOT_SLICE_BLOCKERS = "root-slice-blockers"
 DOC_ADD_TOOL = "mcp__plugin_cc-notes_cc-notes__doc_add"
 PROGRESS_TITLE = re.compile(r"\bprogress\b|\bpre-compact\b", re.IGNORECASE)
@@ -273,10 +274,17 @@ def session_json(evt: BaseHookEvent, state: CompactionState) -> str:
 
 
 def generate(evt: BaseHookEvent, state: CompactionState, *args: str) -> subprocess.CompletedProcess[str]:
-    argv = [sys.executable, str(script("handoff.py")), "generate", "--program", state.slug or "", "--plan", state.plan_path or ""]
+    argv = [str(LR), "handoff", "generate", "--program", state.slug or "", "--plan", state.plan_path or ""]
     argv += ["--session", "-", "--repo", evt.cwd, *(["--folder"] if state.store == "folder" else []), *args]
+    env = reqenv.env_map()
     return subprocess.run(
-        argv, input=session_json(evt, state), capture_output=True, text=True, timeout=GENERATE_TIMEOUT_SECONDS, cwd=evt.cwd
+        argv,
+        input=session_json(evt, state),
+        capture_output=True,
+        text=True,
+        timeout=GENERATE_TIMEOUT_SECONDS,
+        cwd=evt.cwd,
+        env={**env, "PATH": f"{LR.parent}{os.pathsep}{env.get('PATH', '')}"},
     )
 
 
@@ -1027,7 +1035,7 @@ def deliver_register(evt: BaseHookEvent) -> HookResult | None:
 
 def send_compact(handle: str, instructions: str, transcript: Path) -> None:
     subprocess.Popen(
-        [sys.executable, str(script("compact_job.py")), handle, f"/compact {instructions}", str(transcript)],
+        [str(LR), "handoff", "compact", handle, f"/compact {instructions}", str(transcript)],
         env=dict(reqenv.env_map()),
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
@@ -1097,7 +1105,7 @@ def compact_when_idle(evt: BaseHookEvent) -> HookResult | None:
             session_id="s1",
             file=FileFixture(home=True, name="brook.md", content="# brook\n"),
             state=[CompactionState(active=True, coordinator=True, plan_path="~/brook.md", slug="brook")],
-            commands={f"{sys.executable} {script('handoff.py')} generate": GENERATED_STUB},
+            commands={f"{LR} handoff generate": GENERATED_STUB},
         ): Warn(
             pattern=r"^Resume from `~/brook\.md`, then `ccn doc show dddddddd`; keep only in-flight details they lack\. "
             r"Quote: active progress doc: dddddddd; "
@@ -1107,7 +1115,7 @@ def compact_when_idle(evt: BaseHookEvent) -> HookResult | None:
             session_id="s1",
             file=FileFixture(home=True, name="brook.md", content="# brook\n"),
             state=[CompactionState(active=True, coordinator=True, plan_path="~/brook.md", slug="brook")],
-            commands={f"{sys.executable} {script('handoff.py')} generate": READ_FIRST_STUB},
+            commands={f"{LR} handoff generate": READ_FIRST_STUB},
         ): Warn(
             pattern=r"^Resume from `~/brook\.md`, then `ccn doc show bbbbbbb`, then `ccn doc show cccccccc`; "
             r"keep only in-flight details they lack\. Quote: hand-written handoff bbbbbbb, then active progress doc: cccccccc; "
