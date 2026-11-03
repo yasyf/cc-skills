@@ -1694,12 +1694,12 @@ func (w *deskWorld) holds(lane, key string) bool {
 
 func TestASecondOrderToALaneThatSaidStartedGoesToAFreeLaneOfItsRole(t *testing.T) {
 	w := newDeskWorld(t)
-	w.pooledLane("lane-a", "build")
-	w.pooledLane("lane-parked", "build")
-	w.pooledLane("lane-busy", "build")
-	w.pooledLane("lane-items", "build", 7)
-	w.pooledLane("lane-other", "fix")
-	w.pooledLane("lane-free", "build")
+	w.pooledLane("lane-a", "pool-triage")
+	w.pooledLane("lane-parked", "pool-triage")
+	w.pooledLane("lane-busy", "pool-triage")
+	w.pooledLane("lane-items", "pool-triage", 7)
+	w.pooledLane("lane-other", "pool-audit")
+	w.pooledLane("lane-free", "pool-triage")
 	w.saidStarted("lane-a", "R1")
 	w.saidStarted("lane-busy", "R0")
 	if err := w.desk.Registry.SetLaneWaiting("lane-parked", 9, time.Time{}, ""); err != nil {
@@ -1725,10 +1725,12 @@ func TestAnOrderStaysWithItsLane(t *testing.T) {
 		started          bool
 		prs              []int
 	}{
-		{name: "a delivered relay it has not started is not busy", role: "build", text: "go on"},
+		{name: "a delivered relay it has not started is not busy", role: "pool-triage", text: "go on"},
+		{name: "a lane launched with no pool role has its own brief", role: "build", text: "drop item 2 of my last relay", started: true},
+		{name: "nor does a release lane stand in for one", role: "release", text: "go on", started: true},
 		{name: "a desk keeps its own orders", role: "desk", text: "go on", started: true},
-		{name: "a meta desk keeps its own orders", role: "meta", text: "go on", started: true},
-		{name: "an order about a PR it owns", role: "build", text: "fix #48 now", started: true, prs: []int{48}},
+				{name: "a meta desk keeps its own orders", role: "meta", text: "go on", started: true},
+		{name: "an order about a PR it owns", role: "pool-triage", text: "fix #48 now", started: true, prs: []int{48}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -1752,7 +1754,7 @@ func TestAnOrderStaysWithItsLane(t *testing.T) {
 
 func TestABusyLaneWithNoFreeLaneOfItsRoleAsksRootToSpawnAndTellsTheSender(t *testing.T) {
 	w := newDeskWorld(t)
-	w.pooledLane("lane-a", "build")
+	w.pooledLane("lane-a", "pool-triage")
 	w.saidStarted("lane-a", "R1")
 	w.lines()
 
@@ -1762,7 +1764,7 @@ func TestABusyLaneWithNoFreeLaneOfItsRoleAsksRootToSpawnAndTellsTheSender(t *tes
 	if w.holds("lane-a", "R2") {
 		t.Fatal("the order waits behind the busy lane")
 	}
-	asked := w.postOpening("spawn build lane for R2:")
+	asked := w.postOpening("spawn pool-triage lane for R2:")
 	if !slices.Equal(asked.To, []string{coordinatorLane}) || asked.Kind != kindAsk || readBrief(asked.Path) == "" {
 		t.Fatalf("%+v", asked)
 	}
@@ -2411,8 +2413,11 @@ func TestAnIncidentClockDefersOutsideNoiseUntilItEnds(t *testing.T) {
 }
 
 func TestAConfirmationWithNoActionStaysOnTheBusAndOffTheCoordinator(t *testing.T) {
-	for label, to := range map[string]string{"RELAYED": deskRunner, "ORCA-BACK": deskRunner, "LAUNCHED": coordinatorLane, "RELAY-FAILED": coordinatorLane, "DECIDE": coordinatorLane, "UNKNOWN-LABEL": coordinatorLane} {
+	for label, to := range map[string]string{"RELAYED": watchdogLane, "ORCA-BACK": watchdogLane, "LAUNCHED": coordinatorLane, "RELAY-FAILED": coordinatorLane, "DECIDE": coordinatorLane, "UNKNOWN-LABEL": coordinatorLane} {
 		w := newDeskWorld(t)
+		if to == watchdogLane {
+			to += "@" + w.desk.Config.Drive
+		}
 		if err := w.desk.escalate("k1", label, testLane, "text"); err != nil {
 			t.Fatal(err)
 		}

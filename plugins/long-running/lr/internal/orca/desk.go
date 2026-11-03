@@ -531,7 +531,7 @@ func (d *Desk) flush(ctx context.Context) error {
 			continue
 		}
 		if slices.Contains(noAction, words[0]) {
-			to = deskRunner
+			to = watchdogLane + "@" + d.Config.Drive
 		}
 		posted, err := d.postEscalation(ctx, action.Target, to, action.ActionID)
 		if err != nil {

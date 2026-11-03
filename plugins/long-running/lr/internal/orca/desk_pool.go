@@ -6,15 +6,15 @@ import (
 	"regexp"
 	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/incident"
-	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
 const (
-	deskRole   = "desk"
 	kindAsk    = "ask"
+	poolPrefix = "pool-"
 	poolTopic  = "pool:"
 	poolNoneID = "pool-none:"
 )
@@ -23,7 +23,7 @@ var namedPR = regexp.MustCompile(`#(\d+)\b`)
 
 func (d *Desk) pooled(ctx context.Context, key, lane, text, sender string) (string, error) {
 	row, found, err := d.Registry.Lane(lane)
-	if err != nil || !found || row.Role == deskRole || row.Role == lanes.RoleMeta {
+	if err != nil || !found || !strings.HasPrefix(row.Role, poolPrefix) {
 		return lane, err
 	}
 	busyWith, err := d.startedRelay(lane, key)
