@@ -163,7 +163,7 @@ and has no later root `go`, `decide`, or `decision` naming one of them `deadline
 `CLASS-UNOWNED <class>` blocker per class. A tag elsewhere in the text, such as a step label or a hash in an evidence
 line, declares no class.
 A launch, from the inbox or the `launch` verb, whose lane shares an incident key with a live lane,
-or whose brief names the PR a live lane's branch carries, is refused with `LAUNCH-DUPLICATE` naming
+or whose brief names a PR a live lane's own `head` or `opened` record names and its branch carries, is refused with `LAUNCH-DUPLICATE` naming
 that lane and its lane status when that lane has commits ahead or a pushed branch in a worktree it made,
 one its launch receipt, its own `WORKTREE` record, or its name places; a worktree only a record's text or a
 watched PR's head names, the way root, shepherd and orphan-PR lanes name other lanes' trees, holds nothing. `NOW` and
@@ -3210,10 +3210,15 @@ class Runner:
         return next((question for question in questions if question not in claimed), "")
 
     def duplicate_holder(self, lane: str, brief: Path) -> str:
-        """The live lane already holding the work a launch's brief names, with commits ahead or a pushed branch, as `<lane>: <lane status>`, or empty: a fix lane on the same incident, a lane sharing an incident the brief names, or one whose branch carries a PR the brief names; only a worktree the lane made counts, never one its records or watched PRs only name."""
+        """The live lane already holding the work a launch's brief names, with commits ahead or a pushed branch, as `<lane>: <lane status>`, or empty: a fix lane on the same incident, a lane sharing an incident the brief names, or one whose own `head` or `opened` record names a PR the brief names and whose branch carries it, so a launch reads the dispatch and worktrees of those lanes alone, never of every lane the drive launched (a read per lane held every launch 6 to 7 minutes on Nov 2); only a worktree the lane made counts, never one its records or watched PRs only name."""
         keys = brief_incidents(brief) - {NAMES_NOTHING}
         text = brief.read_text(errors="replace") if brief.is_file() else ""
         prs = {number for found in PR_NAMED.finditer(text) for number in found.groups() if number}
+        try:
+            pushers = {record["lane"] for pr in prs for record in cci.records(self.cci_tail, self.config.drive, "--kind=head", "--kind=opened", "--pr", pr)}
+        except CciTailFailed as failure:
+            self.tail_failed(failure)
+            return ""
         for container in self.book.containers(LANE_PREFIX):
             other = container.removeprefix(LANE_PREFIX)
             launched = self.book.actions(container, kind="launch")
@@ -3221,7 +3226,7 @@ class Runner:
                 continue
             ours = keys | ({incident_name(lane)} if self.fix_launch(container) else set())
             shared = ours & self.incident_keys(other, launched[-1])
-            if not (shared or prs) or not ((dispatch := self.orca.show(other)) and dispatch.status not in INACTIVE):
+            if not (shared or other in pushers) or not ((dispatch := self.orca.show(other)) and dispatch.status not in INACTIVE):
                 continue
             try:
                 held = [tree for tree in self.lane_worktrees(other) if tree.owned and (tree.ahead or tree.pushed not in UNPUSHED)]

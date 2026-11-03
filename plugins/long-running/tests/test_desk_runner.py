@@ -12256,6 +12256,7 @@ def holding(monkeypatch, tmp_path: Path, holder: str = LANE, pr: str = "#1201", 
 def test_an_inbox_launch_naming_a_pr_a_live_lane_holds_is_refused_as_a_duplicate(shell, config, tmp_path, monkeypatch, now, ahead, pushed, duplicate):
     clocked_lane(shell, config, tmp_path)
     holding(monkeypatch, tmp_path, ahead=ahead, pushed=pushed)
+    lane_record(shell, LANE, "head", prs=[1201])
     brief = tmp_path / "cache.md"
     brief.write_text("ccx: place=local\nFinish the cache half of #1201.\nScale: no N\n\nRegister slice: lane=api-cache step=1.9\n")
     seq = desk_orders(shell, f"R11 orca-desk: launch api-cache {now}sol xhigh brief={brief}")
@@ -12273,6 +12274,7 @@ def test_an_inbox_launch_naming_a_pr_a_live_lane_only_names_is_launched(shell, c
     """Nov 2: root and the shepherd lanes name other lanes' trees and PRs, and the desk refused four launches as their duplicates (#347883, #347614, #347609, #348497)."""
     clocked_lane(shell, config, tmp_path)
     holding(monkeypatch, tmp_path, source=source)
+    lane_record(shell, LANE, "head", prs=[1201])
     brief = tmp_path / "cache.md"
     brief.write_text("ccx: place=local\nFinish the cache half of #1201.\nScale: no N\n\nRegister slice: lane=api-cache step=1.9\n")
     desk_orders(shell, f"R11 orca-desk: launch api-cache sol xhigh brief={brief}")
@@ -12280,6 +12282,30 @@ def test_an_inbox_launch_naming_a_pr_a_live_lane_only_names_is_launched(shell, c
     orca_pass(shell, config)
     assert [line for line in escalations(shell) if line.startswith("LAUNCH-DUPLICATE")] == []
     assert len(launches(shell)) == 2
+
+
+@pytest.mark.parametrize("bystanders", [1, 40])
+def test_a_launch_naming_a_pr_reads_only_the_lane_that_pushed_it_at_any_lane_count(shell, config, tmp_path, monkeypatch, capsys, bystanders):
+    """Nov 2: each launch without NOW whose brief named a PR ran `worker-show` for every lane the drive ever launched and a git survey for every live one, 374 to 431 s under the lock every other launch waits on, so devhost-upload-4 waited 16 minutes to be read."""
+    clocked_lane(shell, config, tmp_path)
+    holding(monkeypatch, tmp_path)
+    lane_record(shell, LANE, "head", prs=[1201])
+    lane_record(shell, "progress-desk", "evidence", prs=[1201])
+    idle = tmp_path / "idle.md"
+    idle.write_text("Fix the reader.\n")
+    for index in range(bystanders):
+        assert cli(shell, config, "launch", "--key", f"launch-{index}", "--lane", f"bystander-{index}", "--model", "opus", "--effort", "xhigh", "--brief", str(idle)) == 0
+        shell.launch(f"bystander-{index}", f"ctx_bystander_{index}")
+    inspected: list[str] = []
+    holds = runner_module.Runner.lane_worktrees
+    monkeypatch.setattr(runner_module.Runner, "lane_worktrees", lambda self, lane: inspected.append(lane) or holds(self, lane))
+    brief = tmp_path / "cache.md"
+    brief.write_text("Finish the cache half of #1201.\n")
+    shell.calls.clear()
+    assert cli(shell, config, "launch", "--key", "launch-cache", "--lane", "api-cache", "--model", "opus", "--effort", "xhigh", "--brief", str(brief)) == 1
+    assert f"LAUNCH-DUPLICATE launch-cache api-cache: {LANE}:" in capsys.readouterr().err
+    assert inspected == [LANE]
+    assert [call[4] for call in shell.calls if call[:3] == ["orca", "orchestration", "worker-show"] and call[4].startswith("ctx_bystander")] == []
 
 
 def test_a_cli_launch_on_a_live_lanes_incident_is_refused_unless_owner_directed(shell, config, tmp_path, monkeypatch, capsys):
