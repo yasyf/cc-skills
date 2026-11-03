@@ -21,11 +21,10 @@ HEADER = "| id | time | message | routed | state |\n|---|---|---|---|---|\n"
 ROW = re.compile(r"^\| m(\d+) \| ([^|]*) \| (.*) \| [^|]* \| (open|responded|addressed) \|$", re.MULTILINE)
 ROW_TIME = "%b %-d %-I:%M %p"
 SHOWN = 120
-NEW_ROW = "Owner message `{row}` is open in the communicator's ledger. Once it is answered run `lr owner mark {row} responded --drive {drive}`, or once it is routed `lr owner mark {row} addressed --routed <seq> --drive {drive}`."
-OPEN_ROWS = (
-    "A communicator turn ends only when every owner message is marked responded or addressed."
-    " Run `lr owner mark <row> responded|addressed [--routed <seq>] --drive {drive}` for each row below.\n\n```\n{rows}\n```"
-)
+LR = Path(__file__).parents[2] / "bin" / "lr"
+MARK = "`{lr} owner mark {row} responded|addressed [--routed <seq>] --drive {drive}`"
+NEW_ROW = f"Owner message `{{row}}` is open in the communicator's ledger. Once it is answered or routed, run {MARK}."
+OPEN_ROWS = f"A communicator turn ends only when every owner message is marked responded or addressed. Run {MARK} for each row below.\n\n```\n{{rows}}\n```"
 NO_ASK = "The communicator never calls `AskUserQuestion`. Put the question on the owner's board with `cc-present push`, or send an urgent yes/no to the owner's Slack with `cc-present ask <card>`."
 
 
@@ -70,7 +69,7 @@ def add_owner_message(evt: BaseHookEvent) -> HookResult | None:
     if not (entry := drive_entry(evt)):
         return None
     row = add_row(ledger_of(entry), datetime.now(UTC), evt.user_prompt or "")
-    return evt.context(NEW_ROW.format(row=row, drive=bus_name(entry)))
+    return evt.context(NEW_ROW.format(lr=LR, row=row, drive=bus_name(entry)))
 
 
 @on(
@@ -106,7 +105,7 @@ def add_owner_slack_dms(evt: BaseHookEvent) -> HookResult | None:
 def owner_messages_close_before_stop(evt: BaseHookEvent) -> HookResult | None:
     if not (entry := drive_entry(evt)) or not (rows := open_rows(ledger_of(entry))):
         return None
-    return evt.block(OPEN_ROWS.format(drive=bus_name(entry), rows="\n".join(rows)))
+    return evt.block(OPEN_ROWS.format(lr=LR, row="<row>", drive=bus_name(entry), rows="\n".join(rows)))
 
 
 def asked(text: str = "Merge #48401 now?", **call: object) -> Input:
