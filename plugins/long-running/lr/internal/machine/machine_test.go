@@ -54,6 +54,10 @@ var cases = []struct {
 	{"a root hold is root's to lift", facts(func(f *Facts) { f.Hold = MoverRoot }), Verdict{StateAwaitingTap, MoverRoot, ActionLift, 12 * time.Hour}},
 	{"queued on this head is watched for thirty minutes", facts(func(f *Facts) { f.Queue, f.QueuedHead = QueueQueued, head }), Verdict{StateQueued, MoverSupervisor, ActionWatchQueue, 30 * time.Minute}},
 	{"queued on an older head is dequeued the same pass", facts(func(f *Facts) { f.Queue, f.QueuedHead = QueueQueued, oldHead }), Verdict{StateAwaitingTap, MoverSupervisor, ActionDequeue, 10 * time.Minute}},
+	{"an ungraded PR no lane owns and nobody tapped is nobody's", facts(func(f *Facts) { f.Lane, f.Finder, f.Fidelity, f.Tap = "", "", "", "" }), Verdict{StatePushed, MoverNobody, ActionNone, 0}},
+	{"a graded PR no lane owns never asks the owner for a tap", facts(func(f *Facts) { f.Lane, f.Tap = "", "" }), Verdict{StatePushed, MoverNobody, ActionNone, 0}},
+	{"a tapped PR with no lane is still graded", facts(func(f *Facts) { f.Lane, f.Finder, f.Fidelity, f.Tap = "", "", "", TapTapped }), Verdict{StateGrading, MoverPool, ActionGrade, GradeClock}},
+	{"a draft is nobody's whatever its lane and tap", facts(func(f *Facts) { f.Draft, f.Tap = true, TapTapped }), Verdict{StatePushed, MoverNobody, ActionNone, 0}},
 	{"merged is landed and nobody's", facts(func(f *Facts) { f.Merged, f.Closed = true, true }), Verdict{StateLanded, MoverNobody, ActionNone, 0}},
 	{"closed without a merge is closed and nobody's", facts(func(f *Facts) { f.Closed = true }), Verdict{StateClosed, MoverNobody, ActionNone, 0}},
 }
@@ -73,7 +77,7 @@ func TestAWaitThatOpensAnItemIsBounded(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			verdict := Classify(c.given)
 			if !verdict.OpensItem() {
-				if !verdict.State.Terminal() {
+				if !verdict.State.Terminal() && !c.given.Undriven() {
 					t.Fatalf("%s opens no item and is not terminal", verdict.State)
 				}
 				return

@@ -40,6 +40,7 @@ type recordedPR struct {
 	commits []string
 	rollup  string
 	merge   string
+	draft   bool
 }
 
 func graphQLPages(prs []recordedPR) string {
@@ -56,7 +57,7 @@ func graphQLPages(prs []recordedPR) string {
 				commits = append(commits, map[string]any{"commit": map[string]any{"oid": oid}})
 			}
 			nodes = append(nodes, map[string]any{
-				"number": pr.number, "headRefOid": pr.head, "author": map[string]any{"login": pr.login},
+				"number": pr.number, "isDraft": pr.draft, "headRefOid": pr.head, "author": map[string]any{"login": pr.login},
 				"labels": map[string]any{"nodes": labels}, "commits": map[string]any{"nodes": commits},
 			})
 		}
@@ -180,6 +181,21 @@ func TestEveryOpenPRByTheDriveAuthorOrLabelIsAdmitted(t *testing.T) {
 
 	if got := h.statusNumbers(t); !slices.Equal(got, []string{"1", "45757"}) {
 		t.Fatalf("status read = %v", got)
+	}
+}
+
+func TestADraftIsReadAsADraft(t *testing.T) {
+	h := newHarness(t, []recordedPR{
+		{number: 1, head: head, login: "drive-bot", draft: true},
+		{number: 2, head: head2, login: "drive-bot"},
+	}, status(1), status(2))
+
+	drafts := map[int]bool{}
+	for _, f := range h.snapshot(t) {
+		drafts[f.Number] = f.Draft
+	}
+	if !drafts[1] || drafts[2] {
+		t.Fatalf("drafts = %v, want only #1", drafts)
 	}
 }
 

@@ -121,6 +121,7 @@ type Facts struct {
 	Branch      string
 	Base        string
 	Lane        string
+	Draft       bool
 	Closed      bool
 	Merged      bool
 	CI          CI
@@ -149,6 +150,10 @@ func (f Facts) Graded() bool {
 
 func (f Facts) Cleared() bool {
 	return f.Graded() && ((f.Finder == FinderClear && f.Fidelity == FidelityPass) || f.Verdict)
+}
+
+func (f Facts) Undriven() bool {
+	return f.Draft || (f.Lane == "" && !f.Tapped())
 }
 
 func (f Facts) Tapped() bool {
@@ -205,6 +210,9 @@ func Classify(f Facts) Verdict {
 			return Verdict{StateNeedsRestack, MoverSupervisor, ActionRestack, SupervisorClock}
 		}
 		return Verdict{StateNeedsRestack, MoverLane, ActionRestack, LaneClock}
+	}
+	if f.Undriven() {
+		return Verdict{StatePushed, MoverNobody, ActionNone, 0}
 	}
 	if !f.Graded() {
 		state := StateGrading
