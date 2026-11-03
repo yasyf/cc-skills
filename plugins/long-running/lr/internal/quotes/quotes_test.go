@@ -66,58 +66,81 @@ func TestCitedPairsEachQuoteWithTheKeyItFollows(t *testing.T) {
 	}
 }
 
-func TestMisquotes(t *testing.T) {
+func TestCheck(t *testing.T) {
 	for name, tc := range map[string]struct {
-		text string
-		want string
+		text    string
+		refused string
+		warned  string
 	}{
-		"a clause whole":                   {`finder-override #1 at abc1234: 9. Answer 79e14c4, "I told you to pick just one level to put the At", grounds it`, ""},
-		"a full sentence":                  {`Answer 79e14c4, "Go look into it.", is the order`, ""},
-		"after a joining word":             {`Answer 79e14c4, "it seems like maybe we picked the wrong level."`, ""},
-		"a marked cut":                     {`Answer 79e14c4, "that 32 database ... Go look into it", is the order`, ""},
-		"a repeat under its parent":        {`prompt/1026-113025, "yea just keep the fucking patches that are still useful jesus"`, ""},
-		"a repeat under its own key":       {`prompt/1026-184540, "yea just keep the fucking patches that are still useful jesus"`, ""},
-		"a line of a repeat":               {`prompt/1026-190000, "second line"`, ""},
-		"the row's own words":              {`prompt/1026-113025, "keep the patches of we need them for perf"`, ""},
-		"words he never said":              {`Answer 79e14c4, "orders this fix"`, `does not say "orders this fix"`},
-		"a parent's words, not a repeat's": {`prompt/1026-184540, "keep the patches of we need them for perf"`, "does not say"},
-		"the register's reading":           {`prompt/1026-113025, "the register's own reading"`, "does not say"},
-		"stopping mid clause":              {`rule/784f1ab, "every thjrn hiinchanhe jeedsa regresion test", asks for it`, `goes on after "every thjrn hiinchanhe jeedsa regresion test": "and one that actuwlly`},
-		"opening mid clause":               {`Answer 79e14c4, "pick just one level to put the At"`, `has more of that clause before`},
-		"an unknown row":                   {`rule/0000000, "anything"`, ErrUnknownKey.Error()},
-		"an unknown answer":                {`answer 0000000, "anything"`, ErrUnknownKey.Error()},
+		"a clause whole":                   {text: `finder-override #1 at abc1234: 9. Answer 79e14c4, "I told you to pick just one level to put the At", grounds it`},
+		"a full sentence":                  {text: `Answer 79e14c4, "Go look into it.", is the order`},
+		"after a joining word":             {text: `Answer 79e14c4, "it seems like maybe we picked the wrong level."`},
+		"a marked cut":                     {text: `Answer 79e14c4, "that 32 database ... Go look into it", is the order`},
+		"a repeat under its parent":        {text: `prompt/1026-113025, "yea just keep the fucking patches that are still useful jesus"`},
+		"a repeat under its own key":       {text: `prompt/1026-184540, "yea just keep the fucking patches that are still useful jesus"`},
+		"a line of a repeat":               {text: `prompt/1026-190000, "second line"`},
+		"the row's own words":              {text: `prompt/1026-113025, "keep the patches of we need them for perf"`},
+		"words he never said":              {text: `Answer 79e14c4, "orders this fix"`, refused: `does not say "orders this fix"`},
+		"a parent's words, not a repeat's": {text: `prompt/1026-184540, "keep the patches of we need them for perf"`, refused: "does not say"},
+		"the register's reading":           {text: `prompt/1026-113025, "the register's own reading"`, refused: "does not say"},
+		"an unknown row":                   {text: `rule/0000000, "anything"`, refused: ErrUnknownKey.Error()},
+		"stopping mid clause":              {text: `rule/784f1ab, "every thjrn hiinchanhe jeedsa regresion test", asks for it`, warned: `goes on after "every thjrn hiinchanhe jeedsa regresion test": "and one that actuwlly`},
+		"opening mid clause":               {text: `Answer 79e14c4, "pick just one level to put the At"`, warned: "has more of that clause before"},
+		"an answer it cannot read":         {text: `answer 0000000, "anything"`, warned: "could not read answer 0000000"},
+		"a quote with no row id":           {text: `finder-override #1 at abc1234: 9. The grade says "plan names no field"`, warned: "with no row or answer key"},
+		"no quote at all":                  {text: `finder-override #1 at abc1234: 9`},
 	} {
 		t.Run(name, func(t *testing.T) {
-			got, err := reader(t).Misquotes(context.Background(), tc.text)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if tc.want == "" && len(got) != 0 {
-				t.Fatalf("refused %q", got)
-			}
-			if tc.want != "" && (len(got) != 1 || !strings.Contains(got[0], tc.want)) {
-				t.Fatalf("got %q, want one refusal saying %q", got, tc.want)
+			verdict := reader(t).Check(context.Background(), tc.text)
+			for _, side := range []struct {
+				got  []string
+				want string
+			}{{verdict.Refused, tc.refused}, {verdict.Warned, tc.warned}} {
+				if side.want == "" && len(side.got) != 0 {
+					t.Fatalf("verdict %+v", verdict)
+				}
+				if side.want != "" && (len(side.got) != 1 || !strings.Contains(side.got[0], side.want)) {
+					t.Fatalf("verdict %+v, want one saying %q", verdict, side.want)
+				}
 			}
 		})
 	}
 }
 
-func TestRefusedReadsOnlyRootsOverrides(t *testing.T) {
-	bad := `finder-override #1 at abc1234: 9. rule/784f1ab, "every thjrn hiinchanhe jeedsa regresion test", asks for it`
+func TestARegisterItCannotReadWarnsAndRefusesNothing(t *testing.T) {
+	for name, stub := range map[string]func(*shelltest.Fake){
+		"ccn fails":   func(fake *shelltest.Fake) { fake.Fail(1, "ccn is down", "ccn") },
+		"no register": func(fake *shelltest.Fake) { fake.Reply(`[]`, "ccn", "-R", "/repo", "ledger", "list") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			fake := &shelltest.Fake{}
+			stub(fake)
+			r := &Reader{Runner: fake, Entry: func() (drive.Entry, error) { return drive.Entry{Checkout: "/repo", Program: "p"}, nil }}
+
+			verdict := r.Check(context.Background(), `rule/784f1ab, "anything" and rule/86efabc, "anything else"`)
+
+			if len(verdict.Refused) != 0 || len(verdict.Warned) != 2 || !strings.Contains(verdict.Warned[0], "could not read rule/784f1ab") {
+				t.Fatalf("verdict %+v", verdict)
+			}
+			if calls := len(fake.Calls()); calls != 1 {
+				t.Fatalf("read the register %d times", calls)
+			}
+		})
+	}
+}
+
+func TestOverrideReadsOnlyRootsOverrides(t *testing.T) {
+	bad := `finder-override #1 at abc1234: 9. rule/784f1ab, "words he never said", asks for it`
 	for name, tc := range map[string]struct {
 		record client.Record
 		want   int
 	}{
 		"root's override":       {client.Record{Lane: "root", Kind: "decide", Text: bad}, 1},
 		"a lane's proposal":     {client.Record{Lane: "grader-appeals-1", Kind: "decide", Text: bad}, 0},
-		"root with no override": {client.Record{Lane: "root", Kind: "decide", Text: `rule/784f1ab, "every thjrn" came up`}, 0},
+		"root with no override": {client.Record{Lane: "root", Kind: "decide", Text: `rule/784f1ab, "words he never said" came up`}, 0},
 	} {
 		t.Run(name, func(t *testing.T) {
-			got, err := reader(t).Refused(context.Background(), tc.record)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if len(got) != tc.want {
+			if got := reader(t).Override(context.Background(), tc.record).Refused; len(got) != tc.want {
 				t.Fatalf("Refused = %q, want %d", got, tc.want)
 			}
 		})
@@ -140,8 +163,8 @@ func TestReadingTheRegisterOnceServesEveryQuote(t *testing.T) {
 	r := reader(t)
 	text := `rule/784f1ab, "just fic the rmeaining wctuwl jssues" and prompt/1026-113025, "keep the patches of we need them for perf"`
 	for range 1000 {
-		if got, err := r.Misquotes(context.Background(), text); err != nil || len(got) != 0 {
-			t.Fatalf("got %q, %v", got, err)
+		if got := r.Check(context.Background(), text); len(got.Refused)+len(got.Warned) != 0 {
+			t.Fatalf("got %+v", got)
 		}
 	}
 	shows := 0

@@ -45,6 +45,11 @@ type Quote struct {
 	Words string
 }
 
+type Verdict struct {
+	Refused []string
+	Warned  []string
+}
+
 func Cited(text string) []Quote {
 	var out []Quote
 	spans := citation.FindAllStringSubmatchIndex(text, -1)
@@ -65,14 +70,14 @@ func Cited(text string) []Quote {
 	return out
 }
 
-func Misquote(key, words, source string) string {
+func Misquote(key, words, source string) (refused, cut string) {
 	said := flat(source)
 	parts := elided.Split(flat(words), -1)
 	opened, from := -1, 0
 	for _, part := range parts {
 		at := strings.Index(said[from:], part)
 		if at < 0 {
-			return fmt.Sprintf("%s does not say %q", key, words)
+			return fmt.Sprintf("%s does not say %q", key, words), ""
 		}
 		if opened < 0 {
 			opened = from + at
@@ -80,13 +85,13 @@ func Misquote(key, words, source string) string {
 		from += at + len(part)
 	}
 	if parts[0] != "" && !opensClause(strings.TrimSpace(said[:opened])) {
-		return fmt.Sprintf("%s has more of that clause before %q: %q; quote it whole or mark the cut with ...", key, words, tail(said[:opened]))
+		return "", fmt.Sprintf("%s has more of that clause before %q: %q", key, words, tail(said[:opened]))
 	}
 	rest := strings.TrimSpace(said[from:])
 	if parts[len(parts)-1] != "" && rest != "" && !strings.ContainsRune(clauseMarks, lastRune(words)) && !strings.ContainsRune(clauseMarks, firstRune(rest)) {
-		return fmt.Sprintf("%s goes on after %q: %q; quote it whole or mark the cut with ...", key, words, head(rest))
+		return "", fmt.Sprintf("%s goes on after %q: %q", key, words, head(rest))
 	}
-	return ""
+	return "", ""
 }
 
 func flat(text string) string {
@@ -132,49 +137,55 @@ type Reader struct {
 	rows    map[string]ledger.Row
 	parents map[string]string
 	answers map[string]string
+	unread  error
 }
 
 func NewReader(runner shell.Runner, driveName string) *Reader {
 	return &Reader{Runner: runner, Entry: func() (drive.Entry, error) { return drive.Named(driveName) }}
 }
 
-func (r *Reader) Misquotes(ctx context.Context, text string) ([]string, error) {
-	var out []string
-	for _, quote := range Cited(text) {
+func (r *Reader) Check(ctx context.Context, text string) Verdict {
+	var verdict Verdict
+	cited := Cited(text)
+	if words := quoted.FindString(text); words != "" && len(cited) == 0 {
+		verdict.Warned = append(verdict.Warned, fmt.Sprintf("quotes %s with no row or answer key before it", words))
+	}
+	for _, quote := range cited {
 		source, err := r.words(ctx, quote.Key)
 		if errors.Is(err, ErrUnknownKey) {
-			out = append(out, err.Error())
+			verdict.Refused = append(verdict.Refused, err.Error())
 			continue
 		}
 		if err != nil {
-			return nil, err
+			verdict.Warned = append(verdict.Warned, fmt.Sprintf("could not read %s: %v", quote.Key, err))
+			continue
 		}
-		if misquote := Misquote(quote.Key, quote.Words, source); misquote != "" {
-			out = append(out, misquote)
+		refused, cut := Misquote(quote.Key, quote.Words, source)
+		if refused != "" {
+			verdict.Refused = append(verdict.Refused, refused)
+		}
+		if cut != "" {
+			verdict.Warned = append(verdict.Warned, cut)
 		}
 	}
-	return out, nil
+	return verdict
 }
 
-func (r *Reader) Refused(ctx context.Context, record client.Record) ([]string, error) {
+func (r *Reader) Override(ctx context.Context, record client.Record) Verdict {
 	if record.Lane != rootLane || len(bus.Overrides(record)) == 0 {
-		return nil, nil
+		return Verdict{}
 	}
-	return r.Misquotes(ctx, bus.FullText(record))
+	return r.Check(ctx, bus.FullText(record))
 }
 
-func (r *Reader) RefusedAmong(ctx context.Context, records []client.Record) (map[int64][]string, error) {
+func (r *Reader) RefusedAmong(ctx context.Context, records []client.Record) map[int64][]string {
 	refused := map[int64][]string{}
 	for _, record := range records {
-		misquotes, err := r.Refused(ctx, record)
-		if err != nil {
-			return nil, err
-		}
-		if len(misquotes) > 0 {
-			refused[record.Seq] = misquotes
+		if verdict := r.Override(ctx, record); len(verdict.Refused) > 0 {
+			refused[record.Seq] = verdict.Refused
 		}
 	}
-	return refused, nil
+	return refused
 }
 
 func (r *Reader) Whole(ctx context.Context, key string) (string, error) {
@@ -238,10 +249,6 @@ func (r *Reader) answer(ctx context.Context, id string) (string, error) {
 		return "", err
 	}
 	result, err := r.Runner.Run(ctx, shell.Command{Argv: []string{"ccn", "-R", entry.Checkout, "answer", "show", id}})
-	var failed *shell.ExitError
-	if errors.As(err, &failed) {
-		return "", fmt.Errorf("answer %s: %w", id, ErrUnknownKey)
-	}
 	if err != nil {
 		return "", err
 	}
@@ -265,9 +272,14 @@ func (r *Reader) resolved() (drive.Entry, error) {
 }
 
 func (r *Reader) load(ctx context.Context) error {
-	if r.rows != nil {
-		return nil
+	if r.rows != nil || r.unread != nil {
+		return r.unread
 	}
+	r.unread = r.read(ctx)
+	return r.unread
+}
+
+func (r *Reader) read(ctx context.Context) error {
 	entry, err := r.resolved()
 	if err != nil {
 		return err
@@ -280,6 +292,9 @@ func (r *Reader) load(ctx context.Context) error {
 	rows, err := ledger.Register(ctx, ccn, ledger.CLI{Runner: r.Runner, Repo: entry.Checkout}, program)
 	if err != nil {
 		return fmt.Errorf("the owner's register: %w", err)
+	}
+	if len(rows) == 0 {
+		return fmt.Errorf("no owner's register for program %s", program)
 	}
 	r.rows, r.parents = map[string]ledger.Row{}, map[string]string{}
 	for _, row := range rows {

@@ -316,11 +316,7 @@ func (s Source) ingestLegacy(ctx context.Context) error {
 	quoted := quotes.NewReader(s.Runner, s.Drive)
 	for _, record := range records {
 		legacy := bus.LegacyFacts(record, s.Repo, s.GoLanes)
-		misquotes, err := quoted.Refused(ctx, record)
-		if err != nil {
-			return err
-		}
-		if len(misquotes) > 0 {
+		if len(quoted.Override(ctx, record).Refused) > 0 {
 			legacy = slices.DeleteFunc(legacy, func(fact bus.Fact) bool { return fact.Kind == "verdict" })
 		}
 		if err := s.putFacts(legacy, record.At.UTC()); err != nil {

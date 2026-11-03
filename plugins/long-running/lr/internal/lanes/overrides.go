@@ -39,20 +39,23 @@ func (o *OverrideRefusals) Check(ctx context.Context, now time.Time) error {
 	for _, record := range records {
 		if unread := bus.UnreadOverrides(record); len(unread) > 0 {
 			text := fmt.Sprintf("OVERRIDE-REFUSED cci #%d reads `%s`, which names no `finder-override #<pr> at <sha>: <id>` or `fidelity-override #<pr> at <sha>: <id>`, so it settles no grade; post it again in that form", record.Seq, strings.Join(unread, "`, `"))
-			if err := o.refuse(ctx, "override:"+strconv.FormatInt(record.Seq, 10), text, now); err != nil {
+			if err := o.tell(ctx, "override:"+strconv.FormatInt(record.Seq, 10), blockerKind, text, now); err != nil {
 				return err
 			}
 		}
 		if record.Seq <= o.quoted {
 			continue
 		}
-		misquotes, err := reader.Refused(ctx, record)
-		if err != nil {
-			return fmt.Errorf("%w: the owner's words: %w", ErrUnread, err)
+		verdict := reader.Override(ctx, record)
+		if len(verdict.Refused) > 0 {
+			text := fmt.Sprintf("OVERRIDE-REFUSED cci #%d settles no grade: %s. Read the row whole with `lr rules row <key>`, quote its exact words, and post it again", record.Seq, strings.Join(verdict.Refused, "; "))
+			if err := o.tell(ctx, "override-quote:"+strconv.FormatInt(record.Seq, 10), blockerKind, text, now); err != nil {
+				return err
+			}
 		}
-		if len(misquotes) > 0 {
-			text := fmt.Sprintf("OVERRIDE-REFUSED cci #%d settles no grade: %s. Read the row whole with `lr rules row <key>`, quote its exact words, and post it again", record.Seq, strings.Join(misquotes, "; "))
-			if err := o.refuse(ctx, "override-quote:"+strconv.FormatInt(record.Seq, 10), text, now); err != nil {
+		if len(verdict.Warned) > 0 {
+			text := fmt.Sprintf("OVERRIDE-WARNING cci #%d still counts: %s. Read the row whole with `lr rules row <key>` and check the words say what it claims", record.Seq, strings.Join(verdict.Warned, "; "))
+			if err := o.tell(ctx, "override-warning:"+strconv.FormatInt(record.Seq, 10), "note", text, now); err != nil {
 				return err
 			}
 		}
@@ -61,12 +64,12 @@ func (o *OverrideRefusals) Check(ctx context.Context, now time.Time) error {
 	return nil
 }
 
-func (o *OverrideRefusals) refuse(ctx context.Context, key, text string, now time.Time) error {
+func (o *OverrideRefusals) tell(ctx context.Context, key, kind, text string, now time.Time) error {
 	first, err := o.Store.Escalate(key, "override-refused", Root, now)
 	if err != nil || !first {
 		return err
 	}
-	if _, err := o.Env.Bus.Post(ctx, client.Draft{Drive: o.Env.Config.Drive, Lane: Self, Kind: blockerKind, To: []string{Root}, ID: key, Text: text}); err != nil {
+	if _, err := o.Env.Bus.Post(ctx, client.Draft{Drive: o.Env.Config.Drive, Lane: Self, Kind: kind, To: []string{Root}, ID: key, Text: text}); err != nil {
 		return fmt.Errorf("%w: cci post: %w", ErrUnread, err)
 	}
 	return nil

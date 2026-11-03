@@ -266,12 +266,12 @@ def test_an_override_reads_its_kind_pr_and_head_and_names_each_clause_it_cannot_
     assert grades.overrides(text) == (read, unread)
 
 
-@pytest.mark.parametrize(("code", "settled"), [(0, True), (1, False)], ids=["quotes-hold", "refused"])
-def test_an_override_quoting_the_owner_settles_only_when_lr_holds_the_quote(monkeypatch, code, settled):
+@pytest.mark.parametrize(("code", "stdout", "settled"), [(0, "", True), (0, "warned: a cut\n", True), (1, "refused: x\n", False), (1, "", True)], ids=["quotes-hold", "cut-warns", "refused", "read-failed-fails-open"])
+def test_an_override_quoting_the_owner_settles_unless_lr_refuses_the_quote(monkeypatch, code, stdout, settled):
     """Root #365947: 13 of 55 overrides misdescribed his lines, so a refused quote leaves the grade standing."""
     calls = []
     monkeypatch.setattr(grades, "QUOTES_READ", {})
-    monkeypatch.setattr(grades.subprocess, "run", lambda argv, **kwargs: (calls.append((argv, kwargs["input"])), SimpleNamespace(returncode=code, stdout="refused: x" if code else ""))[1])
+    monkeypatch.setattr(grades.subprocess, "run", lambda argv, **kwargs: (calls.append((argv, kwargs["input"])), SimpleNamespace(returncode=code, stdout=stdout))[1])
     text = 'finder-override #48889 at 9346378: 62066. rule/784f1ab, "every thjrn", asks for it'
 
     assert grades.overridden({"drive": "d", "text": text, "refs": {}}, grades.FINDER_OVERRIDE, "48889", "9346378aaaa") is settled

@@ -105,12 +105,8 @@ func runGo(ctx context.Context, a *app.App, numbers []int, flags goFlags, stdout
 		if err != nil {
 			return err
 		}
-		misquoted, err := quoted.RefusedAmong(ctx, records)
-		if err != nil {
-			return err
-		}
 		claim := gates.Claim{Repo: cfg.Repo, PR: number, Head: head}
-		text, refusals := gates.ExemptGo(claim, gates.Read{Misquoted: misquoted, Records: records, GoLanes: cfg.GoLaneNames(), Exempt: landing.ExemptGrades, TapRules: landing.TapRules, Files: strings.Fields(files), Cards: cards, TapRows: taps})
+		text, refusals := gates.ExemptGo(claim, gates.Read{Misquoted: quoted.RefusedAmong(ctx, records), Records: records, GoLanes: cfg.GoLaneNames(), Exempt: landing.ExemptGrades, TapRules: landing.TapRules, Files: strings.Fields(files), Cards: cards, TapRows: taps})
 		if len(refusals) > 0 {
 			fmt.Fprintf(stdout, "REFUSED #%d at %s: %s\n", number, head[:7], strings.Join(refusals, "; "))
 			continue

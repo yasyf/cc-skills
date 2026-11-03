@@ -471,15 +471,16 @@ def overridden(record: dict, kind: str, pr: str, sha: str) -> bool:
 
 
 def misquotes_owner(record: dict, text: str) -> bool:
-    """Whether `lr rules quotes` refuses the owner's words `text` quotes from a row or answer it cites, or could not read them: a quote that is not in the row, or that stops mid clause with no mark, settles nothing (owner-relay #365967)."""
+    """Whether `lr rules quotes` refuses the owner's words `text` quotes from a row or answer it cites, because they are not in it (owner-relay #365967). A failed read fails open and is not cached (answer 4236611)."""
     if not CITED_QUOTE.search(text):
         return False
     if text in QUOTES_READ:
         return QUOTES_READ[text]
     run = subprocess.run([str(LR), "rules", "quotes", "--drive", record["drive"]], input=text, capture_output=True, text=True, check=False)
-    if run.returncode == 0 or run.stdout.startswith("refused:"):
-        QUOTES_READ[text] = run.returncode != 0
-    return run.returncode != 0
+    refused = run.stdout.startswith("refused:")
+    if run.returncode == 0 or refused:
+        QUOTES_READ[text] = refused
+    return refused
 
 
 def head_named(record: dict, heads: list[dict], repo: str, pr: str) -> str:
