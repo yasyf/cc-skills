@@ -2,7 +2,7 @@
 # /// script
 # requires-python = ">=3.13"
 # ///
-"""What desk-runner.py still reads about a fidelity pass: its lane and its job's file names. The pass itself is `lr grade fidelity`, which this script execs."""
+"""What desk-runner.py still reads about a fidelity pass: its lane. The pass itself is `lr grade fidelity`."""
 
 from __future__ import annotations
 
@@ -11,10 +11,6 @@ import sys
 from pathlib import Path
 
 LANE = "fidelity-pipeline"
-JOB = "job.json"
-SOURCES = "sources.md"
-LOG = "job.log"
-READER = "fidelity: reader"
 
 
 if __name__ == "__main__":
