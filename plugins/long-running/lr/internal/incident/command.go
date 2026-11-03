@@ -108,7 +108,7 @@ func openCommand(a *app.App) *cobra.Command {
 	flags.StringVar(&o.RootLane, "root-lane", "", "the lane that answers the executor's asks")
 	flags.StringVar(&o.Checkout, "checkout", "", "a checkout of the repo; activation adds its own worktree from it")
 	flags.StringVar(&o.Pipeline, "pipeline", "", "the Buildkite pipeline whose stored settings the fix changes")
-	flags.StringVar(&o.Target, "target", "", "what to fence; default the pipeline")
+	flags.StringVar(&o.Target, "target", "", "the broken service; default the pipeline")
 	flags.StringVar(&o.Alert, "alert", "", "the alert's own link (Sentry issue, monitor); default the thread")
 	flags.StringVar(&o.CodePath, "code-path", "", "where the fix lane starts; default the pipeline or target")
 	flags.StringVar(&o.Runbook, "runbook", "", "where the fix lane logs a production apply")

@@ -57,8 +57,8 @@ At intake, `incident.py` opens an investigation and an `incident <id>` log in cc
 
 1. Adopt the launched fix lane into `incident.py` with `--adopt fix=<lane>`.
 2. Start or adopt the evidence lane, and spawn an incident-doc lane beside it as `long-running:lane` on opus named `incident-<id>-retro`.
-3. Fence the broken target from further deploys and applies outside the fix lane. Claim, freeze, and hold nothing (`tools/ci release claim`, freeze, or hold) unless the owner asks for that exact one; other releases keep flowing while the fix lands. Never freeze a target because a PR waits on review, a person's or a bot's, and never freeze everyone over a dependency your own change created; a change that must ship with another target waits in its own stack.
-4. Start the comms lane (`#incident-comms`). Post first in the affected account channels before the mechanism is known under cc-notes answer `5ad4507`, and open in `#outage` for a platform-wide incident under `52f4863`.
+3. Claim, fence, freeze, and hold nothing (`tools/ci release claim`, a fence, a freeze, or a hold) unless the owner asks for that exact one; other people's releases keep flowing while the fix lands. Never freeze a target because a PR waits on review, a person's or a bot's, and never freeze everyone over a dependency your own change created; a change that must ship with another target waits in its own stack.
+4. Start the comms lane (`#incident-comms`); the coordinator writes nothing to Slack. The comms lane posts first in the affected account channels before the mechanism is known under cc-notes answer `5ad4507`, and open in `#outage` for a platform-wide incident under `52f4863`.
 
 **Fix every incident forward.** No lane chooses a rollback or a revert. A rollback or revert runs only when the owner's own word names that act after diagnosis has found the issue. The never-cancel-a-running-apply rule holds.
 
@@ -66,7 +66,7 @@ At intake, `incident.py` opens an investigation and an `incident <id>` log in cc
 
 It records each grant with `ccn answer add "<question>" --body "<owner's words>" --label slack-grant:<channel id>`. The Slack permission hook reads that label as a standing grant for top-level posts and replies in that channel and mints each write's ticket, so the comms lane passes no ticket or grant flag; see `reference/slack-lane-brief.md`. The coordinator supplies grants for those channels and threads at launch, and each grant covers only its named surface. Consecutive replies under one-thread grant need no human message between them.
 
-A missing grant pauses only the step that needs it. After intake, the coordinator answers the executor's bus asks about a missing grant, a silent comms lane, an overdue action, a failed canary, or a read-back that still drifts. The executor posts the target fence on the bus and reports `opened`, `pr`, `landed`, `activated`, `live`, `recovered`, and `closed` to the coordinator lane. The coordinator posts `opened`, `pr`, `landed`, `activated`, `live`, `recovered`, and `closed` to `owner-relay` as one `report` each. The coordinator never relays owner words to a lane as authority, never re-briefs the executor's lanes, and never posts or composes incident copy.
+A missing grant pauses only the step that needs it. After intake, the coordinator answers the executor's bus asks about a missing grant, a silent comms lane, an overdue action, a failed canary, or a read-back that still drifts. The executor reports `opened`, `pr`, `landed`, `activated`, `live`, `recovered`, and `closed` to the coordinator lane. The coordinator posts `opened`, `pr`, `landed`, `activated`, `live`, `recovered`, and `closed` to `owner-relay` as one `report` each. The coordinator never relays owner words to a lane as authority, never re-briefs the executor's lanes, and never posts or composes incident copy.
 
 ## Launch incident lanes directly
 
@@ -337,8 +337,7 @@ Do:
      mechanism, never a stop: customer harm now and a path the plan keeps are
      the only gates.
      NO ROLLBACK; find the mechanism and fix forward; the fix ships as a new release
-     through the walker. The fence holds only other releases of the target, never
-     the fix.
+     through the walker while other releases of the target keep flowing.
      No brief, lane, or exception grants a rollback or a revert. One runs only when
      the owner's own word names that act, after your diagnosis has found the issue;
      never offer one before that.

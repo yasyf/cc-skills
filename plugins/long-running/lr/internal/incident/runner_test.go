@@ -134,7 +134,6 @@ type replay struct {
 	postedNever   bool
 	asks          []string
 	reports       []string
-	fences        []string
 	entries       []entry
 	verdicts      []verdict
 	refuseRecords bool
@@ -399,11 +398,6 @@ func (r *replay) AskRoot(_ context.Context, text string) error {
 
 func (r *replay) Report(_ context.Context, text string) error {
 	r.reports = append(r.reports, text)
-	return nil
-}
-
-func (r *replay) Fence(_ context.Context, text string) error {
-	r.fences = append(r.fences, text)
 	return nil
 }
 
@@ -956,8 +950,8 @@ func TestAnAlertWithNoPipelineClosesOnLiveEvidence(t *testing.T) {
 	if incident.Status != StatusClosed || len(fake.asks) != 0 || len(fake.applies) != 0 || len(fake.rebuilds) != 0 {
 		t.Fatalf("status %s asks %v applies %v rebuilds %v", incident.Status, fake.asks, fake.applies, fake.rebuilds)
 	}
-	if !reflect.DeepEqual(fake.fences, []string{"fence api from applies and deploys except " + laneName(h.id, "fix")}) {
-		t.Fatalf("fences %v", fake.fences)
+	if said := fmt.Sprint(fake.asks, fake.reports, fake.posts); strings.Contains(said, "fence") {
+		t.Fatalf("an incident run ordered a fence: %s", said)
 	}
 	if events := fake.events(); !reflect.DeepEqual(events, []string{"ack", "live", "recovered"}) {
 		t.Fatalf("events %v", events)
@@ -1060,9 +1054,6 @@ func TestAnAdoptedLaneIsRecordedNotLaunched(t *testing.T) {
 
 	if lanes := fake.lanes(); !reflect.DeepEqual(lanes, []string{laneName(h.id, "evidence")}) {
 		t.Fatalf("lanes %v", lanes)
-	}
-	if !reflect.DeepEqual(fake.fences, []string{"fence api from applies and deploys except api-1n85-fix"}) {
-		t.Fatalf("fences %v", fake.fences)
 	}
 	action := h.load().Actions["dispatch:fix"]
 	if !reflect.DeepEqual(action.VerificationReceipt, map[string]any{"lane": "api-1n85-fix", "adopted": true}) {

@@ -36,6 +36,7 @@ const (
 	verbIncident    = "incident"
 	verbWithdraw    = "withdraw"
 	spawnedFix      = "-fix"
+	spawnedEvidence = "-evidence"
 	lookbackFirst   = 24 * time.Hour
 	statusNames     = `(relay|launch|alert|incident|hold|unhold|withdraw)`
 )
@@ -933,7 +934,7 @@ func (d *Desk) incidentLine(ctx context.Context, at, key, rest string) error {
 			}
 		}
 	})
-	return d.record(log, fmt.Sprintf("INCIDENT %s: %s %s | fix lane %s launching on incident xhigh; root: ratify, spawn the evidence and incident-doc lanes, fence the target, start comms in the affected account channels and #outage", slug, what, link, lane))
+	return d.record(log, fmt.Sprintf("INCIDENT %s: %s %s | fix lane %s launching on incident xhigh with forward-fix authority, evidence lane %s%s beside it; root: ratify", slug, what, link, lane, slug, spawnedEvidence))
 }
 
 type holdTarget struct {

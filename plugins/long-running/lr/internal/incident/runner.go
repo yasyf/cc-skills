@@ -438,19 +438,12 @@ func (r *Runner) intake(ctx context.Context) error {
 	if err := r.openRecords(ctx); err != nil {
 		return err
 	}
-	facts, err := r.facts("kind", "thread", "target", "onset", "adopted")
+	facts, err := r.facts("kind", "thread", "onset")
 	if err != nil {
 		return err
 	}
-	fresh, err := r.milestone(ctx, "opened", fmt.Sprintf("%s outage from %s; executor owns it", facts.Kind, facts.Thread), "", nil)
-	if err != nil {
+	if _, err := r.milestone(ctx, "opened", fmt.Sprintf("%s outage from %s; executor owns it", facts.Kind, facts.Thread), "", nil); err != nil {
 		return err
-	}
-	if fresh {
-		text := fmt.Sprintf("fence %s from applies and deploys except %s", facts.Target, incidentLane(r.ID, facts, RoleFix))
-		if err := r.World.Comms.Fence(ctx, text); err != nil {
-			return err
-		}
 	}
 	return r.comms(ctx, "ack", map[string]any{"reaction": "eyes", "onset": pacific(facts.Onset)}, surfaceThread)
 }
