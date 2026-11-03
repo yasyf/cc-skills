@@ -1,14 +1,17 @@
 # The coordinator's brief
 
-The owner relay spawns one coordinator per drive at drive start, and the lane
-supervisor relaunches it when it dies. Fill this template and spawn it as a
-`long-running:lane` on opus with `run_in_background`; the coordinator loads the
-`long-running` skill itself and every rule there that names `root` binds it.
+The owner bridge launches one coordinator per drive at drive start as a sibling
+Orca session bound as lane `root` (`lr coordinator start`; today
+`desk-launch.py lane root opus xhigh <brief>`), and the lane supervisor relaunches
+it when it dies. Hooks are window-scoped, so the coordinator is never an in-process
+subagent of the bridge: bound as `root`, every root hook, stop check, injection and
+cci delivery lands on it and none on the bridge. Fill this template; the coordinator
+loads the `long-running` skill itself and every rule there that names `root` binds it.
 
 ```
-# <coordinator>: root coordinator of the <drive> drive
+# root: coordinator of the <drive> drive
 
-Register slice: lane=<coordinator> step=all
+Register slice: lane=root step=all
 Scale: the whole drive; every lane, PR, release, incident and owner ask on the bus.
 ccx: incident=none
 No test, build, vet, typecheck, lint or LLM call runs on this Mac; CI grades.
