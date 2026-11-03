@@ -105,14 +105,18 @@ the listener with `tailscale serve`, and prints the `WORKER_BK_URL` line for
 runs `api` with GET inside its own organization, `log`, and `graphql` queries,
 and refuses `-X`, `-d`, `cancel`, `rerun`, and any mutation or subscription.
 
-With `WORKER_RELAY_SPONSOR` set to a Sprite
-that holds an enrolled cci service key, the script then joins the new Sprite to
+`WORKER_RELAY_SPONSOR` names a Sprite
+that holds an enrolled cci service key, and the script then joins the new Sprite to
 this Mac's default relay mesh for the mesh's routed drives, with a 24-hour
 delegation and this Mac's node as owner, and starts `cci supervise` as a Sprite
 service so the worker's records push without a manual `cci relay push`. The key
 travels from the sponsor to the new Sprite over stdin and is never written to
-the Mac. Without the join, a worker's cci records stay on its Sprite. A failed join prints a warning, sets
-`relay` to `failed` in the launch line, and still starts the worker.
+the Mac. Without the join, a worker's cci records stay on its Sprite, so a launch
+with no sponsor refuses before it prepares anything. A join that fails retries
+after 5, 15 and 45 seconds, and a join that still fails refuses the launch,
+naming the relay's reason, with no worker started. `lr rejoin` repairs a live
+lane whose receipt shows a failed join, and the supervisor runs it every five
+minutes, stopping at the first refusal.
 
 Prepare starts the Sprite's Orca runtime through its `orca` CLI, and Orca
 1.4.224 serves it on its managed server, `orcad`. The prepared task records that

@@ -54,7 +54,8 @@ var (
 	allocationKept = []string{"allocation.json", "brief.md", "prepare.err", "prepare.status", "request.json"}
 	prepareKept    = sorted(allocationKept, "prepared.json")
 	startKept      = []string{"worker-start.err", "worker-start.json", "worker-start.status"}
-	spriteKept     = sorted(prepareKept, slices.Concat(startKept, []string{"install.log"})...)
+	spriteKept     = sorted(prepareKept, slices.Concat(startKept, []string{"install.log", joinReceipt})...)
+	relayFailure   = "cci: relay: 500 internal: the relay failed; retry\n"
 	localKept      = sorted(startKept, "request.json")
 )
 
@@ -161,6 +162,7 @@ type workerFixture struct {
 	replies  map[string][]workerReply
 	calls    [][]string
 	stdins   map[string]string
+	slept    []time.Duration
 	configs  []string
 	stderr   bytes.Buffer
 }
@@ -203,6 +205,7 @@ func newWorkerFixture(t *testing.T) *workerFixture {
 		"ORCA_TERMINAL_HANDLE": "term_coordinator",
 		"BINRUN_PLUGIN_ROOT":   filepath.Join(root, "plugin"),
 		"HOME":                 f.home,
+		sponsorEnv:             sponsorBox,
 	}
 	return f
 }
@@ -237,7 +240,9 @@ func (f *workerFixture) spriteAllocated(response any) {
 	f.reply("orca orchestration run-current", boundWorker)
 	f.reply("cc-remote orca prepare", workerReply{out: response, err: "prepared on sprites\n"})
 	f.reply("orca orchestration worker-start", workerReply{out: startedReceipt})
-	f.reply("sprite exec", workerReply{}, workerReply{}, workerReply{})
+	f.reply("cci relay status", workerReply{out: []object{{"mesh": "other", "url": "https://elsewhere.test/", "routes": []string{"x"}}, {"mesh": "default", "url": relayURL, "routes": []string{"drive-a", "drive-b"}}}})
+	f.reply("cci node", workerReply{out: object{"id": "n1", "public_key": ownerKey}})
+	f.reply("sprite exec", workerReply{}, workerReply{}, workerReply{}, workerReply{})
 }
 
 func (f *workerFixture) local() {
@@ -301,7 +306,7 @@ func (f *workerFixture) launch(lane, model, effort string) (string, string, erro
 	starter := &WorkerStarter{
 		Runner: f,
 		Env:    func(name string) string { return f.env[name] },
-		Sleep:  func(time.Duration) {},
+		Sleep:  func(wait time.Duration) { f.slept = append(f.slept, wait) },
 		Stderr: &f.stderr,
 	}
 	line, err := starter.Run(context.Background(), lane, model, effort, f.brief)
@@ -381,13 +386,20 @@ func installCall(workspace string, tools ...string) []string {
 	return slices.Concat([]string{"sprite", "exec", "-s", workspace, "--no-stdin", "--", "sh", "-c", installTools, "sh", testCCIURL, testCCISHA, testLRURL, testLRSHA, "lr", testBKURL}, tools, []string{"--"})
 }
 
+func joinCall(workspace string) []string {
+	return []string{"sprite", "exec", "-s", workspace, "--", "sh", "-c", joinRelay, "sh", "drive-a,drive-b", relayURL, ownerKey}
+}
+
+func relayCalls(workspace string) [][]string {
+	return [][]string{{"cci", "relay", "status", "--json"}, {"cci", "node", "--json"}, {"sprite", "exec", "-s", sponsorBox, "--no-stdin", "--", "cat", sponsorKey}, joinCall(workspace)}
+}
+
 func (f *workerFixture) startCalls(task object) [][]string {
 	brief := task["brief"].(object)
 	spec := fmt.Sprintf("Lane %s: read the whole brief at %s, verify its SHA-256 is %s and its size is %d bytes, then follow it exactly.", workerLane, brief["path"], brief["sha256"], brief["bytes"])
-	return [][]string{
-		installCall(task["environment"].(string)),
+	return slices.Concat([][]string{installCall(task["environment"].(string))}, relayCalls(task["environment"].(string)), [][]string{
 		slices.Concat([]string{"orca", "orchestration", "worker-start", "--run", workerRun, "--spec", spec, "--task-title", workerLane, "--on", task["environment"].(string), "--worktree", "id:" + task["worktreeId"].(string), "--terminal", task["terminal"].(string)}, []string{"--timeout-ms", "600000", "--full", "--json"}),
-	}
+	})
 }
 
 func (f *workerFixture) fullSpriteCalls() [][]string {
@@ -624,7 +636,7 @@ func TestTheDefaultPreparesOneSpriteAndStartsItOnce(t *testing.T) {
 	if err := json.Unmarshal([]byte(line), &printed); err != nil {
 		t.Fatal(err)
 	}
-	want := object{"state": "ready", "task": "task_a", "dispatch": "ctx_a", "terminal": remoteTerminal, "worktree": remoteRoot, "lane": workerLane, "workspace": workerWorkspace, "allocation": "warm", "relay": nil}
+	want := object{"state": "ready", "task": "task_a", "dispatch": "ctx_a", "terminal": remoteTerminal, "worktree": remoteRoot, "lane": workerLane, "workspace": workerWorkspace, "allocation": "warm"}
 	if !reflect.DeepEqual(printed, want) || strings.Contains(line, "\n") || f.stderr.Len() != 0 {
 		t.Fatal(line, f.stderr.String())
 	}
@@ -671,45 +683,70 @@ func TestAStandingDeskBriefCarriesTheDeskContractIntoTheSpriteSpec(t *testing.T)
 	}
 }
 
-func relaySprite(f *workerFixture) {
-	f.reply("cci relay status", workerReply{out: []object{{"mesh": "other", "url": "https://elsewhere.test/", "routes": []string{"x"}}, {"mesh": "default", "url": relayURL, "routes": []string{"drive-a", "drive-b"}}}})
-	f.reply("cci node", workerReply{out: object{"id": "n1", "public_key": ownerKey}})
-	f.reply("sprite exec", workerReply{}, workerReply{out: "the sponsor key"}, workerReply{})
-	f.env["WORKER_RELAY_SPONSOR"] = sponsorBox
-}
-
-func TestARelaySponsorJoinsTheSpriteToTheDefaultMeshBeforeTheWorkerStartsAndNeverLogsTheKey(t *testing.T) {
+func TestASponsorJoinsTheSpriteToTheDefaultMeshBeforeTheWorkerStartsAndNeverLogsTheKey(t *testing.T) {
 	f := newWorkerFixture(t)
 	f.sprite()
-	relaySprite(f)
-	var printed object
-	if err := json.Unmarshal([]byte(f.launched()), &printed); err != nil || printed["relay"] != "joined" {
-		t.Fatal(printed, err)
-	}
-	startCalls := f.startCalls(prepared())
-	join := []string{"sprite", "exec", "-s", workerWorkspace, "--", "sh", "-c", joinRelay, "sh", "drive-a,drive-b", relayURL, ownerKey}
-	f.wantCalls(versionCall, currentRunCall, f.prepareCall(), startCalls[0], []string{"cci", "relay", "status", "--json"}, []string{"cci", "node", "--json"}, []string{"sprite", "exec", "-s", sponsorBox, "--no-stdin", "--", "cat", sponsorKey}, join, startCalls[1])
-	if f.stdins[strings.Join(join, " ")] != "the sponsor key" {
+	f.reply("sprite exec", workerReply{}, workerReply{out: "the sponsor key"}, workerReply{})
+	f.launched()
+	f.wantCalls(f.fullSpriteCalls()...)
+	if f.stdins[strings.Join(joinCall(workerWorkspace), " ")] != "the sponsor key" {
 		t.Fatal(f.stdins)
 	}
-	if strings.Contains(f.receiptText("relay-join.log"), "the sponsor key") {
+	if strings.Contains(f.receiptText(joinReceipt), "the sponsor key") {
 		t.Fatal("the log holds the key")
 	}
 }
 
-func TestAFailedRelayJoinWarnsAndStillStartsTheWorker(t *testing.T) {
+func TestARelayFailureThenASuccessJoinsAndStartsTheWorker(t *testing.T) {
 	f := newWorkerFixture(t)
 	f.sprite()
-	relaySprite(f)
+	f.reply("sprite exec", workerReply{}, workerReply{out: "the sponsor key"}, workerReply{code: 1, err: relayFailure}, workerReply{out: "joined mesh default\n"})
+	f.launched()
+	spec := f.startCalls(prepared())
+	f.wantCalls(slices.Concat([][]string{versionCall, currentRunCall, f.prepareCall()}, spec[:len(spec)-1], [][]string{joinCall(workerWorkspace)}, spec[len(spec)-1:])...)
+	if !slices.Equal(f.slept, joinWaits[:1]) {
+		t.Fatal(f.slept)
+	}
+	if f.stdins[strings.Join(joinCall(workerWorkspace), " ")] != "the sponsor key" {
+		t.Fatal(f.stdins)
+	}
+}
+
+func TestRepeatedRelayFailuresRefuseTheLaunchNamingTheReasonAndStartNoWorker(t *testing.T) {
+	f := newWorkerFixture(t)
+	f.sprite()
+	f.reply("sprite exec", workerReply{}, workerReply{}, workerReply{code: 1, err: relayFailure}, workerReply{code: 1, err: relayFailure}, workerReply{code: 1, err: relayFailure}, workerReply{code: 1, err: relayFailure})
+	_, failed, err := f.launch(workerLane, "opus", "xhigh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := fmt.Sprintf("Sprite %s did not join the cci relay with %s's service key: 4 tries, the last saying cci: relay: 500 internal: the relay failed; retry; nothing started, because a worker with no relay posts nothing anyone reads; %s/%s keeps the output, and the prepared worker stays idle and unattached", workerWorkspace, sponsorBox, f.attempt, joinReceipt)
+	if failed != want {
+		t.Fatalf("failed\n%s\nwant\n%s", failed, want)
+	}
+	if !slices.Equal(f.slept, joinWaits) {
+		t.Fatal(f.slept)
+	}
+	if exists(filepath.Join(f.attempt, "worker-start.json")) {
+		t.Fatal("a worker started with no relay")
+	}
+}
+
+func TestAJoinThatCannotReadTheOwnerRefusesWithoutRetrying(t *testing.T) {
+	f := newWorkerFixture(t)
+	f.sprite()
 	f.reply("cci node", workerReply{code: 1})
-	var printed object
-	if err := json.Unmarshal([]byte(f.launched()), &printed); err != nil || printed["relay"] != "failed" {
-		t.Fatal(printed, err)
+	_, failed, err := f.launch(workerLane, "opus", "xhigh")
+	if err != nil || !strings.Contains(failed, "cci node names no public key") || len(f.slept) != 0 {
+		t.Fatal(failed, f.slept, err)
 	}
-	want := fmt.Sprintf("Sprite %s did not join the cci relay with %s's service key, so its records stay on the Sprite; %s/relay-join.log keeps the output, and the worker starts anyway\n", workerWorkspace, sponsorBox, f.attempt)
-	if f.stderr.String() != want {
-		t.Fatal(f.stderr.String())
-	}
+}
+
+func TestASpriteLaunchWithNoSponsorRefusesBeforeAnyCall(t *testing.T) {
+	f := newWorkerFixture(t)
+	f.sprite()
+	delete(f.env, sponsorEnv)
+	f.refusedWith("set "+sponsorEnv+" to the Sprite holding the drive's enrolled cci service key, because a worker with no relay posts nothing anyone reads; nothing was prepared")
 }
 
 func TestAFailedToolInstallLeavesThePreparedWorkerUnattached(t *testing.T) {
