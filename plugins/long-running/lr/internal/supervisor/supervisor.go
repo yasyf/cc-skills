@@ -132,8 +132,7 @@ func runPass(ctx context.Context, s *store.Store, generation int64, d Deps, now 
 	if slices.Contains(d.Movers, "landing") {
 		landed, err := landing.Act(ctx, s, d.Queue, d.Restacker, landing.Clear(out.Acts, snapshot, d.Trunk), now)
 		if err != nil {
-			d.Log.Warn("movers stopped mid-pass", "err", err)
-			return report, nil
+			d.Log.Warn("landing stopped mid-pass", "err", err)
 		}
 		report.Enqueued = len(landed.Enqueued) + len(landed.Resubmitted)
 	}
