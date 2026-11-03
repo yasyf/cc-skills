@@ -394,6 +394,26 @@ func TestAToolingFailureTellsTheToolingLaneOncePerCauseAndHour(t *testing.T) {
 	}
 }
 
+func TestACancelledJobWhoseCodexWasKilledTellsNobody(t *testing.T) {
+	f := newPool(t, map[string]any{"tooling_lane": "tooling-1", "finder": map[string]any{}})
+	f.now = time.Now().Truncate(time.Hour)
+	name := f.started(t, GraderFinder)
+	f.shell.exitAll()
+	directory := f.finderDir(jobDir)
+	if err := os.WriteFile(filepath.Join(directory, grader.CancelledFile), []byte("a newer head\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	writeResult(t, directory, `{"error":"codex-ask -m luna --schema exited 143"}`, f.now)
+
+	if _, err := f.pool.Settle(context.Background(), []string{name}); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := recordsOf(t, kindReport); len(got) != 0 {
+		t.Errorf("reports = %+v", got)
+	}
+}
+
 func TestNoToolingLaneMeansNoToolingNotice(t *testing.T) {
 	f := newPool(t, map[string]any{"finder": map[string]any{}})
 	name := f.started(t, GraderFinder)
