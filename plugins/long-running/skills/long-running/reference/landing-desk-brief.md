@@ -43,7 +43,6 @@ Verified facts, do not re-derive:
   repo <owner/name>; base branch <dev>; checkout <absolute path, read-only for you>
   ledger <id from `ledger.py init --title "desk: <drive>"`>
   cci drive <drive>; desk <desk>; cci cursor <desk>
-  team mailbox source `mailbox:<desk>`, resolved by lr wait; mailbox cursor <path>
   runner config <absolute JSON path>; the orca runner alone consumes the Run mailbox
   standing rules <live scope:durable answer ids, plus the plan's Decisions;
     an id list, never a sequence range>
@@ -57,18 +56,12 @@ After your own compaction, resume in place. `cci` holds your addressed records, 
   as it stands; never ask the coordinator to reconstruct your state.
 
 At spawn:
-  - In-process desk (every Agent-spawned desk): run one foreground Bash call with
-    `timeout: 60000`, running
-    `lr wait 50 cci:<drive>:<desk> mailbox:<desk>=<mailbox cursor> [<other file>=<cursor file>...]`.
-    It waits at most 50 seconds and returns on new addressed records, a new line
-    in another watched file, or a `MAILBOX <n> unread` line followed by each new
-    message's sender, time, and full text. Claude Code delivers mail only after
-    your turn ends, so act on that printed text. Run it as the Bash call itself
-    and never filter or discard its output: the `MAILBOX` text is your only copy
-    of that mail. Run step 0 on the output, then
-    rerun the call in a loop.
-    Top-level session: run the same call with `540` at `timeout: 570000`, never a
-    `cci watch` Monitor, and rerun it on every return and after your own compaction.
+  - Run one foreground Bash call with `timeout: 570000`, running
+    `lr wait 540 cci:<drive>:<desk> [<other file>=<cursor file>...]`.
+    It returns on new addressed records or a new line in another watched file.
+    Run it as the Bash call itself and never filter or discard its output. Run
+    step 0 on the output, then rerun the call on every return and after your own
+    compaction, never as a `cci watch` Monitor.
   - In-process desk: run
     `ledger.py watch --repo <repo> --ledger <id> --drive <drive> --checkout <path> [--priority <n>]... --once`
     as a foreground step between waits. Top-level session: arm the same command

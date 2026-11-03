@@ -271,6 +271,24 @@ func TestAMissingBriefIsRefusedBeforeAnyCall(t *testing.T) {
 	}
 }
 
+func TestADeskBriefWaitingOnItsOwnMailboxIsRefusedNamingItsCCIWait(t *testing.T) {
+	f := newPosterFixture(t)
+	stale := f.brief(t, filepath.Join("landing-desk-4", briefFile), briefLines+"`lr wait 50 cci:d:landing-desk mailbox:landing-desk=<cursor> -- ccx vcs pr watch`\n")
+	_, err := f.poster.Launch(context.Background(), Order{Lane: "landing-desk-4", Model: "opus", Effort: "xhigh", Brief: stale}, time.Minute)
+	if err == nil || !strings.Contains(err.Error(), "waits on `mailbox:landing-desk`") || !strings.Contains(err.Error(), "wait on `cci:<drive>:landing-desk-4`") || len(f.bus.calls) != 0 {
+		t.Fatal(err, f.bus.calls)
+	}
+	for lane, wait := range map[string]string{
+		"landing-desk-5": "`lr wait 540 cci:d:landing-desk-5 -- ccx vcs pr watch`",
+		"landing-desk-6": "Spawn shard-a with Agent; it waits with `lr wait 540 cci:d:shard-a mailbox:shard-a=<cursor>`.",
+	} {
+		brief := f.brief(t, filepath.Join(lane, briefFile), briefLines+wait+"\n")
+		if _, err := f.poster.Launch(context.Background(), Order{Lane: lane, Model: "opus", Effort: "xhigh", Brief: brief}, 0); err != nil {
+			t.Fatal(lane, err)
+		}
+	}
+}
+
 func TestABriefNamingWhatNoSpriteCanReceiveIsRefusedOnlyWhenTheLaneMayLeaveTheMac(t *testing.T) {
 	f := newPosterFixture(t)
 	gone := filepath.Join(f.env["HOME"], ".claude", "scratch", "gone.md")

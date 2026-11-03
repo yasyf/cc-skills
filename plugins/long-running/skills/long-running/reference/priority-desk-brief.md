@@ -4,7 +4,7 @@ This reference covers [coordinator discipline](#coordinator-discipline), [desk r
 
 ## Coordinator discipline
 
-**P1. Give each owner-named #1 outcome its own desk.** While the outcome is open, the coordinator spawns `<outcome>-desk` as `long-running:lane`, model opus, with its own append-only inbox file. It owns only that outcome's lanes. The desk's inbox is the set of cci records addressed to `<outcome>-desk`. Every other desk forwards traffic from those lanes with `cci post --to <outcome>-desk` and stops handling them.
+**P1. Give each owner-named #1 outcome its own desk.** While the outcome is open, the coordinator launches `<outcome>-desk` with `lr launch lane <outcome>-desk opus <effort> <brief>`. It owns only that outcome's lanes. The desk's inbox is the set of cci records addressed to `<outcome>-desk`. Every other desk forwards traffic from those lanes with `cci post --to <outcome>-desk` and stops handling them.
 
 **P2. Open with the owner's owed list and the start state.** The coordinator posts P1 with `cci post --drive <drive> --lane root --kind go --to <outcome>-desk --topic owed --text "<owed list summary>" --path <owed list file>`. The body lists one numbered item per PR or proof in the owner's definition of done. It states what is on the base branch, queued, open as a PR, and pushed with no PR, and names the lanes that owe each item.
 
@@ -40,7 +40,6 @@ Verified facts, do not re-derive:
   repo <owner/name>; base branch <base>; checkout <path, read-only for you>
   ledger <id>; cci drive <drive>; tools ledger.py, cci, and lr wait, on PATH by name
   cci cursor <outcome>-desk; addressed records use --to <outcome>-desk
-  team mailbox source `mailbox:<outcome>-desk`, resolved by lr wait; mailbox cursor <path>
   standing rules <live scope:durable answer ids, plus the plan's Decisions;
     an id list, never a sequence range>
   lanes you own <lane, brief path, branch prefix, worktree; one per line>
@@ -49,17 +48,12 @@ Verified facts, do not re-derive:
 
 At spawn:
   - Read P1 and P2.
-  - In-process desk (every Agent-spawned desk): run one foreground Bash call with
-    `timeout: 60000`, running
-    `lr wait 50 cci:<drive>:<outcome>-desk mailbox:<outcome>-desk=<mailbox cursor> [<other file>=<cursor file>...]`.
-    It waits at most 50 seconds and returns on new addressed records, a new line
-    in another watched file, or a `MAILBOX <n> unread` line followed by each new
-    message's sender, time, and full text. Claude Code delivers mail only after
-    your turn ends, so act on that printed text. Run it as the Bash call itself
-    and never filter or discard its output: the `MAILBOX` text is your only copy
-    of that mail. Run step 0 on the output, then rerun the call in a loop.
-    Top-level session: run the same call with `540` at `timeout: 570000`, never a
-    `cci watch` Monitor, and rerun it on every return and after your own compaction.
+  - Run one foreground Bash call with `timeout: 570000`, running
+    `lr wait 540 cci:<drive>:<outcome>-desk [<other file>=<cursor file>...]`.
+    It returns on new addressed records or a new line in another watched file.
+    Run it as the Bash call itself and never filter or discard its output. Run
+    step 0 on the output, then rerun the call on every return and after your own
+    compaction, never as a `cci watch` Monitor.
   - Run `ccx vcs pr watch <every owed PR number> --once` as a foreground step
     between waits. Route ejections, conflicts, and reds at once.
   - Run a pass every 3 minutes. Stagger with other desks and shards by a minute

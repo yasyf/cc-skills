@@ -37,14 +37,14 @@ At spawn, run once and report every line it prints as one message:
   python3 <scripts>/monitor-watch.py once --state <state file> \
     $(cat <monitors file>)
 Then run the watch in the foreground, one Bash call with `timeout: 570000`:
-  lr wait 540 cci:<drive>:alerts-desk mailbox:alerts-desk=<mailbox cursor file> -- \
+  lr wait 540 cci:<drive>:alerts-desk -- \
     python3 <scripts>/monitor-watch.py watch --state <state file> \
     --alert-drive <drive> $(cat <monitors file>)
   and rerun it on every return. Re-read the monitors file at every rerun. The watch
   reads every 60 seconds and prints only transitions: into Alert, Warn, or No Data,
-  and back to OK. A `MAILBOX` line or a record addressed to you ends the call; act
-  on the text it printed first. Run it as the Bash call itself and never filter or
-  discard its output: the `MAILBOX` text is your only copy of that mail.
+  and back to OK. A record addressed to you ends the call; act on the records it
+  printed first. Run it as the Bash call itself and never filter or discard its
+  output.
 
 Each known monitor's move into Alert or Warn also posts
   `orca-desk: alert dd-<id> <link> :: <what fired>` to `orca-desk` on cci.

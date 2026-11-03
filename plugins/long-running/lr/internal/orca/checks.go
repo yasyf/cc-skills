@@ -95,6 +95,14 @@ func (o Order) launchFaults(text string, readable bool) []string {
 	if !briefSlice.MatchString(text) && o.Model != agentIncident && !o.incidentFix(text) {
 		faults = append(faults, fmt.Sprintf("brief %s has no `%s lane=<name> step=<n>` line; add one and run `rulings.py slice --refresh %s`", o.Brief, sliceLine, o.Brief))
 	}
+	role := o.Lane
+	if numbered := successorLane.FindStringSubmatch(o.Lane); numbered != nil {
+		role = strings.TrimSuffix(o.Lane, "-"+numbered[1])
+	}
+	ownMailbox := regexp.MustCompile(`(?m)\blr wait\b.*\bmailbox:(` + regexp.QuoteMeta(role) + `(?:-\d+)?)=`)
+	if waits := ownMailbox.FindStringSubmatch(text); waits != nil {
+		faults = append(faults, fmt.Sprintf("brief %s waits on `mailbox:%s`, and no team roster lists an lr-launched lane, so that lr wait exits 1; wait on `cci:<drive>:%s`", o.Brief, waits[1], o.Lane))
+	}
 	return faults
 }
 
