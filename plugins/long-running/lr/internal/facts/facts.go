@@ -474,7 +474,7 @@ func (s Source) holds(ctx context.Context) (map[int]machine.Mover, error) {
 	if err != nil {
 		return nil, err
 	}
-	gos := bus.LiveGos(later, s.GoLanes)
+	gos := bus.RootGos(later)
 	held := make(map[int]machine.Mover)
 	for _, record := range records {
 		byOwner := record.Lane == string(machine.MoverOwner)

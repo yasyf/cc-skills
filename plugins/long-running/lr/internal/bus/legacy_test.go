@@ -95,6 +95,14 @@ func TestAGoLaneTheConfigNamesMayNameAnExemptClass(t *testing.T) {
 	}
 }
 
+func TestAGoLaneNamesAnExemptClassAndNoOverride(t *testing.T) {
+	record := legacyRecord(t, "decide", "landing-desk-3", "finder-override #9 at e718a74: the finding reads a deleted file", []int{9}, nil)
+
+	if got := bus.LegacyFacts(record, repo, []string{"landing-desk"}); len(got) != 0 {
+		t.Fatalf("LegacyFacts = %+v, want nothing", got)
+	}
+}
+
 func TestAGradeNamingAnotherRepositoryWritesNothingAndABareNumberCounts(t *testing.T) {
 	record := legacyRecord(t, "review", "finder-desk", "finder: ok "+head+" no majors", nil, nil)
 	if err := json.Unmarshal([]byte(`{"refs":{"prs":["other/repo#4",5]}}`), &record); err != nil {
