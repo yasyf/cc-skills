@@ -31,7 +31,7 @@ from captain_hook import (
 from captain_hook.transcripts import TranscriptLoadError
 from captain_hook.util import reqenv
 
-from .compaction_handoff import bus_name, Communicator, communicator_tests, CompactionState, Coordinator, coordinator_tests, drive_entry, judged, script
+from .compaction_handoff import LR, bus_name, Communicator, communicator_tests, CompactionState, Coordinator, coordinator_tests, drive_entry, judged, script
 from .nudges import NagClock, once_per_hour
 from .owner_facing import CCI_POST, incident_sources, last_reply, open_incidents
 from .tests.incident_fixtures import CLOSED_0820, SAND_NOT_MIGRATED
@@ -579,7 +579,7 @@ TAP_CLAIM = re.compile(
 )
 CLAIM_NEGATED = re.compile(r"\b(?:no|nothing|none|not|never|without)\b|n't\b", re.IGNORECASE)
 CLAIMED_PR = re.compile(r"(?<![\w&])#(\d{4,})\b")
-OWNER_WAITS = f"{sys.executable} {script('owner_waits.py')}"
+OWNER_WAITS = f"{LR} board waits"
 OWNER_WAITS_SECONDS = 30
 FALSE_TAP = (
     "Your reply says something waits on the owner's tap, approval or pick, and his board does not show it. "
@@ -607,7 +607,7 @@ def tap_claims(reply: str) -> tuple[list[str], bool]:
 
 
 def owner_waits(drive: str, *args: str) -> list[dict]:
-    argv = [sys.executable, str(script("owner_waits.py")), "--drive", drive, "--json", *args]
+    argv = [str(LR), "board", "waits", "--drive", drive, "--json", *args]
     done = subprocess.run(argv, capture_output=True, text=True, timeout=OWNER_WAITS_SECONDS, env=dict(reqenv.env_map()), check=True)
     return json.loads(done.stdout)
 
@@ -647,13 +647,13 @@ def tap_claims_match_the_board(evt: BaseHookEvent) -> HookResult | None:
             lines.append(NOTHING_WAITS)
     except (OSError, subprocess.SubprocessError, ValueError):
         return None
-    return evt.block(FALSE_TAP.format(lines="\n".join(lines), command=f"{script('owner_waits.py')} --drive {drive}")) if lines else None
+    return evt.block(FALSE_TAP.format(lines="\n".join(lines), command=f"lr board waits --drive {drive}")) if lines else None
 
 
 UPDATE_ASK = re.compile(r"\b(?:status|update|progress|recap|catch me up|where (?:are|is|do) (?:we|things)|what(?:'s| is| has) (?:done|left|landed|happening))\b", re.IGNORECASE)
 NOT_STARTED = re.compile(r"\bnot (?:yet )?(?:started|begun)\b|\b(?:has|have)(?:n't| not) (?:yet )?(?:started|begun)\b", re.IGNORECASE)
 LANE_SUFFIX = re.compile(r"-\d+$")
-OWNER_UPDATE = f"{sys.executable} {script('owner_update.py')}"
+OWNER_UPDATE = f"{LR} update"
 OWNER_UPDATE_SECONDS = 30
 UPDATE_WINDOW_SECONDS = 2 * 60 * 60
 IN_FLIGHT_MINUTES = 30
@@ -699,7 +699,7 @@ def omitted_deliveries(reply: str, found: dict, now: datetime) -> list[str]:
 
 
 def owner_update(drive: str, since: float) -> dict:
-    argv = [sys.executable, str(script("owner_update.py")), "--drive", drive, "--json", "--since", datetime.fromtimestamp(since).astimezone().isoformat()]
+    argv = [str(LR), "update", "--drive", drive, "--json", "--since", datetime.fromtimestamp(since).astimezone().isoformat()]
     done = subprocess.run(argv, capture_output=True, text=True, timeout=OWNER_UPDATE_SECONDS, env=dict(reqenv.env_map()), check=True)
     return json.loads(done.stdout)
 
@@ -735,7 +735,7 @@ FLYING = {"task": "952", "lane": "next-build-tester-2", "subject": "tester round
     }),
 )
 def owner_updates_cover_every_delivery(evt: BaseHookEvent) -> HookResult | None:
-    """A communicator reply to the owner's status or update ask covers every delivery `owner_update.py` lists since the last update that passed, and calls no in-flight task not started; else it goes back with the lines to add (owner, 9:55 PM Nov 1). A read that fails blocks nothing."""
+    """A communicator reply to the owner's status or update ask covers every delivery `lr update` lists since the last update that passed, and calls no in-flight task not started; else it goes back with the lines to add (owner, 9:55 PM Nov 1). A read that fails blocks nothing."""
     if not CompactionState.load(evt).active or not (entry := drive_entry(evt)) or not update_ask(evt):
         return None
     now = time.time()
@@ -745,7 +745,7 @@ def owner_updates_cover_every_delivery(evt: BaseHookEvent) -> HookResult | None:
     except (OSError, subprocess.SubprocessError, ValueError):
         return None
     if lines := omitted_deliveries(last_reply(evt), found, datetime.now(UTC)):
-        return evt.block(OMITTED_DELIVERY.format(command=f"{script('owner_update.py')} --drive {bus_name(entry)}", lines="\n".join(lines)))
+        return evt.block(OMITTED_DELIVERY.format(command=f"lr update --drive {bus_name(entry)}", lines="\n".join(lines)))
     with UpdateClock.mutate(evt) as clock:
         clock.at = now
     return None

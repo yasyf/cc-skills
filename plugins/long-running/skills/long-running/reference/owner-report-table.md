@@ -1,6 +1,6 @@
 # The owner update
 
-Every update the owner gets, whether a status answer, a milestone report or the pre-compaction doc, is one render of `owner_update.py --render --drive <drive>` (`lr update render` once the Go verb is live). The communicator's update desk runs it and the communicator sends its output unchanged; nobody types a row. The format comes from the owner's own words on updates, Oct 1 to Nov 2 2026, quoted with their times in cc-notes doc `Owner update format` (label `owner-update-format`). How the communicator produces and sends each one is in [communicator-brief.md](communicator-brief.md).
+Every update the owner gets, whether a status answer, a milestone report or the pre-compaction doc, is one render of `lr update render --drive <drive>`. The communicator's update desk runs it and the communicator sends its output unchanged; nobody types a row. The format comes from the owner's own words on updates, Oct 1 to Nov 2 2026, quoted with their times in cc-notes doc `Owner update format` (label `owner-update-format`). How the communicator produces and sends each one is in [communicator-brief.md](communicator-brief.md).
 
 ## When one goes out
 

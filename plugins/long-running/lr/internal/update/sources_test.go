@@ -279,6 +279,9 @@ func TestEachOpenTaskLaneWithAReportSinceTheLastUpdateIsDeliveredOnceAtItsNewest
 	if got := status.InFlight[1].Line; !strings.HasSuffix(got, "Quiet work | last report "+pacific(ago(200))) {
 		t.Fatalf("in flight = %q", got)
 	}
+	if last := status.InFlight[1].Last; last == nil || last.Kind != "report" || !last.At.Equal(ago(200)) {
+		t.Fatalf("last = %+v", last)
+	}
 }
 
 func TestOnlyLimitsTheReadsToTheSectionsItNames(t *testing.T) {

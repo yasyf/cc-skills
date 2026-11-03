@@ -231,11 +231,17 @@ type StatusAsk struct {
 	Line  string `json:"line"`
 }
 
+type LastPost struct {
+	Kind string    `json:"kind"`
+	At   time.Time `json:"at"`
+}
+
 type InFlight struct {
-	Task    string `json:"task"`
-	Lane    string `json:"lane"`
-	Subject string `json:"subject"`
-	Line    string `json:"line"`
+	Task    string    `json:"task"`
+	Lane    string    `json:"lane"`
+	Subject string    `json:"subject"`
+	Last    *LastPost `json:"last"`
+	Line    string    `json:"line"`
 }
 
 type Delivered struct {
@@ -324,7 +330,11 @@ func statusInFlight(tasks []ClaudeTask, latest map[string]Record) []InFlight {
 	for _, task := range tasks {
 		if task.Status == "in_progress" && task.Owner != "" {
 			last, found := latest[task.Owner]
-			out = append(out, InFlight{task.ID, task.Owner, task.Subject, fmt.Sprintf("in flight #%s %s: %s | %s", task.ID, task.Owner, clip(task.Subject), lastWords(last, found))})
+			var post *LastPost
+			if found {
+				post = &LastPost{last.Kind, last.At}
+			}
+			out = append(out, InFlight{task.ID, task.Owner, task.Subject, post, fmt.Sprintf("in flight #%s %s: %s | %s", task.ID, task.Owner, clip(task.Subject), lastWords(last, found))})
 		}
 	}
 	return out
