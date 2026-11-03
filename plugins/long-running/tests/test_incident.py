@@ -240,7 +240,7 @@ def store(tmp_path) -> Store:
 def open_incident(store: Store, clock: Clock, grants: dict | None = None, kind: str = "pr-review", **facts) -> str:
     argv = [
         "open", "--kind", kind, "--incident", "pr-review-1001", *(["--target", "api"] if kind == "alert" else []),
-        "--thread", "https://forge-ai.slack.com/archives/C0BQSADC7SS/p1790875497000000",
+        "--thread", "https://forge-ai.slack.com/archives/C0INCIDENT1/p1790875497000000",
         "--onset", REPLAY["onset"], "--reported", REPORTED, "--bus", "bus1", "--comms-lane", "incident-comms", "--root-lane", "release-v3",
         "--checkout", "/monorepo", "--expect-config", "infra/generate.ts", "--orca-run", "run1", "--orca-repo", "repo1",
     ]

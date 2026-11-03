@@ -207,8 +207,8 @@ def test_logged_bounded_single_file_reads_pass_without_the_model(root: Root, fil
                 "git log origin/dev --oneline -i --grep='#28601' -n 3 --format='%h %an %s'"
             },
         ),
-        ("Slack reads", "mcp__slack__slack_get_thread", {"channel_id": "C0BQSADC7SS", "thread_ts": "1790875497.353829"}),
-        ("Slack reads", "mcp__slack__slack_get_thread", {"channel_id": "C09G3N98YM6", "thread_ts": "1790890875.742979"}),
+        ("Slack reads", "mcp__slack__slack_get_thread", {"channel_id": "C0INCIDENT1", "thread_ts": "1790875497.353829"}),
+        ("Slack reads", "mcp__slack__slack_get_thread", {"channel_id": "C0THREAD001", "thread_ts": "1790890875.742979"}),
     ],
 )
 def test_logged_control_plane_reads_warn(root: Root, message: str, tool: str, tool_input: dict) -> None:
@@ -361,7 +361,7 @@ def test_an_unrecorded_standing_rule_leaves_no_stop_nudge(root: Root, notes: Not
         "ccn doc edit 91b9194 --body - < {home}/scratch/release-v3/register/dump-1015.md",
         "cd {home}/scratch/release-v3/structural-fixes && grep -n '^## \\|^### ' audit.md | cut -c1-120 | head -n 40",
         "grep -n '^## ' {home}/scratch/release-v3/structural-fixes/audit.md",
-        "grep -n pending {home}/projects/s/tool-results/toolu_01.txt | grep -i hsbc | cut -c1-260",
+        "grep -n pending {home}/projects/s/tool-results/toolu_01.txt | grep -i zeta | cut -c1-260",
         "sed -n '1,569p' {home}/scratch/release-v3/release-simplify/owner-cards.md",
         "grep -n x src/app.py > {home}/scratch/hits.txt",
     ],

@@ -91,7 +91,7 @@ Every lane that writes in a thread where a person reported a break follows five 
 
 **Post at milestones only, never on a clock.** The drive posts to its updates channel when a milestone lands. Milestones include a fix live on a named build, a release that passed or failed, a finished pass or migration, an opened or closed incident, or a decision the owner must see. Never post per event or on an hourly or other timer. A drive that stops posting while milestones pass is a `defect`, and so is one that makes up for it with timed posts. Silence between milestones is expected, and the root reports a quiet stretch only if the owner asks. Before reporting a milestone to the owner, the root verifies that the updates channel carries its post.
 
-**Follow the milestone post shape.** Each milestone gets exactly one post following the kickoff exemplar at `https://poetic-slack.slack.com/archives/C0C9H4KPS7J/p1791841367899079`. Lead with the milestone in one bold line, and state in plain words what changed and who it affects. Link the build or PR with its author and the next PR, use Pacific times, and include no lane, desk, or register names.
+**Follow the milestone post shape.** Each milestone gets exactly one post following the kickoff exemplar at `https://poetic-slack.slack.com/archives/C0MILESTN01/p1791841367899079`. Lead with the milestone in one bold line, and state in plain words what changed and who it affects. Link the build or PR with its author and the next PR, use Pacific times, and include no lane, desk, or register names.
 
 ## Automated Slack posts and the root status card
 

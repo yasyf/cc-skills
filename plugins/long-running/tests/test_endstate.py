@@ -59,9 +59,9 @@ def test_each_row_off_its_prefixes_end_state_is_named_and_a_matching_reading_pas
 def test_a_reading_missing_a_row_or_a_cluster_is_refused_before_it_is_graded() -> None:
     missing = {name: value for name, value in DESIGN_MAC.items() if name != "primaries"}
 
-    assert endstate.gaps("r1b", reading("r1b", missing, DESIGN_POD), ["plat-usw2-prod", "sofi-use1-prod"]) == [
+    assert endstate.gaps("r1b", reading("r1b", missing, DESIGN_POD), ["plat-usw2-prod", "acme-use1-prod"]) == [
         "the Mac reads no primaries",
-        "no pod read on sofi-use1-prod",
+        "no pod read on acme-use1-prod",
     ]
     assert endstate.gaps("r3", reading("r1b", DESIGN_MAC | {"followers": "0"}, DESIGN_POD), []) == [
         "prefix 'r3' is none of r1a, r1b, promoted",

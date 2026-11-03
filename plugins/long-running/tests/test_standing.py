@@ -17,7 +17,7 @@ UNQUOTED = "the standing rules section does not name register `0cf17c9`; regener
 
 
 def test_a_handoff_quoting_the_register_passes() -> None:
-    body = CARRIED + "\n## Owner asks\nSoFi releases as it merges (4ffc9a5), never on the owner's word\n"
+    body = CARRIED + "\n## Owner asks\nAcme releases as it merges (4ffc9a5), never on the owner's word\n"
 
     assert standing.lint(body, CARRIED, REGISTER, LIVE) == []
 
@@ -50,9 +50,9 @@ def test_dropping_a_carried_rule_needs_a_superseded_by_line() -> None:
 @pytest.mark.parametrize(
     ("line", "flagged"),
     [
-        ("real sanddb on SoFi (owner's word)", True),
+        ("real sanddb on Acme (owner's word)", True),
         ("needs owner approval before enqueue", True),
-        ("the SoFi release still requires owner sign-off", True),
+        ("the Acme release still requires owner sign-off", True),
         ("Card 1: reserved for the owner", True),
         ("released as it merges, no owner's word gate (4ffc9a5)", False),
         ("CODEOWNER approvals on #28756", False),
@@ -60,7 +60,7 @@ def test_dropping_a_carried_rule_needs_a_superseded_by_line() -> None:
         ("Where an audit row and an owner answer differ, the owner's words win.", False),
         ("When the owner's words list categories, the row names the surface", False),
         ("reserved for the owners of each lane", False),
-        ("the owner's go-ahead on SoFi", True),
+        ("the owner's go-ahead on Acme", True),
     ],
 )
 def test_an_owner_gate_line_must_cite_a_live_answer(line: str, flagged: bool) -> None:

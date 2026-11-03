@@ -25,13 +25,13 @@ INBOX = """\
 ## R751 (2026-10-02 01:1xZ / 6:1x PM PT) — sandsql-api-errors-fix: evidence complete
 lost-ask-capt-hook: READY 14:47Z https://github.com/yasyf/captain-hook/pull/230 0b81826f CI green
 HOLD (9:03 PM PT) reco-bucket-2: #30388 do NOT enqueue.
-R1086 (9:52 PM PT) orca-desk: launch hsbc-sanddb-2147-fix NOW sol xhigh brief=/x/fix-brief.md
-21:53 LAUNCHED R1086 hsbc-sanddb-2147-fix: dispatch ctx_65c99a29432f
+R1086 (9:52 PM PT) orca-desk: launch zeta-sanddb-2147-fix NOW sol xhigh brief=/x/fix-brief.md
+21:53 LAUNCHED R1086 zeta-sanddb-2147-fix: dispatch ctx_65c99a29432f
 LANDED 10:02 PM PT rules-nudge-hook: yasyf/captain-hook#306 merged f327d1db
-hsbc-sanddb-2147-evidence (22:02 PT) -> hsbc-sanddb-2147-fix: (2) stable 5m8qv: 0 log lines
+zeta-sanddb-2147-evidence (22:02 PT) -> zeta-sanddb-2147-fix: (2) stable 5m8qv: 0 log lines
 OPENED compact-continuity (10:04 PM PT) yasyf/cc-skills#227 compact-continuity 765aef0: register
 - landing-sweep-15 (10:04 PM PT) LANDED 0f7dbd244c #30414 (release: fix Platy messages)
-GO root (10:04 PM PT) hsbc-sanddb-2147-fix durable: option A
+GO root (10:04 PM PT) zeta-sanddb-2147-fix durable: option A
   continuation with no stamp at all
 """
 
@@ -51,7 +51,7 @@ def lines():
         (5, "orca-desk", "LAUNCH", "R1086", None),
         (6, None, "LAUNCHED", None, None),
         (7, None, "LANDED", None, None),
-        (8, "hsbc-sanddb-2147-evidence", None, None, "hsbc-sanddb-2147-fix"),
+        (8, "zeta-sanddb-2147-evidence", None, None, "zeta-sanddb-2147-fix"),
         (9, "compact-continuity", "OPENED", None, None),
         (10, "landing-sweep-15", "LANDED", None, None),
         (11, "root", "GO", None, None),
