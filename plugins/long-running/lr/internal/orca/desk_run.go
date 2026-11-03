@@ -350,6 +350,17 @@ func FixLanes(a *app.App) (func(lane string) (bool, error), error) {
 	}, nil
 }
 
+func MonitorLane(a *app.App) (func(ctx context.Context, monitor, lane string) (string, error), error) {
+	desk, err := newDesk(a)
+	if err != nil {
+		return nil, err
+	}
+	desk.open()
+	return func(ctx context.Context, monitor, lane string) (string, error) {
+		return desk.incidentLane(ctx, map[string]bool{monitor: true}, lane)
+	}, nil
+}
+
 func LiveClocks(a *app.App) (func() ([]string, error), error) {
 	desk, err := newDesk(a)
 	if err != nil {

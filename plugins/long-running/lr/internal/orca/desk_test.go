@@ -1125,6 +1125,59 @@ func TestAnIncidentAnotherLaneHoldsOnItsMonitorIsSkipped(t *testing.T) {
 	w.wantEscalation("LAUNCH-SKIPPED ")
 }
 
+func (w *deskWorld) incidentOnMonitor() {
+	w.t.Helper()
+	w.lines()
+	w.line("orca-desk: incident dd-334038082 https://app.datadoghq.com/monitors/334038082 reported=10:18 :: Runner refusing runs whose journal cannot open")
+	w.lines()
+	w.desk.background.Wait()
+}
+
+func TestAnIncidentOnAMonitorAHandOpenedFixLaneNamesInItsBriefIsSkipped(t *testing.T) {
+	w := newDeskWorld(t)
+	brief := w.brief("journal-open-fix", testBrief+"ccx: role=build place=local incident=journal-open-plat monitor=334038082\n")
+	if _, _, err := w.desk.acceptLaunch("R1", "journal-open-fix", launchTarget{Model: "incident", Effort: "xhigh", Brief: brief}); err != nil {
+		t.Fatal(err)
+	}
+	w.incidentOnMonitor()
+	if len(w.fired) != 0 {
+		t.Fatal(w.fired)
+	}
+	wantContains(t, w.wantEscalation("LAUNCH-SKIPPED "), "duplicate of journal-open-fix")
+}
+
+func TestAnIncidentOnALaneWhoseSlugNamesNoMonitorStillLaunches(t *testing.T) {
+	w := newDeskWorld(t)
+	brief := w.brief("journal-open-fix", testBrief+"ccx: role=build place=local incident=journal-open-plat\n")
+	if _, _, err := w.desk.acceptLaunch("R1", "journal-open-fix", launchTarget{Model: "incident", Effort: "xhigh", Brief: brief}); err != nil {
+		t.Fatal(err)
+	}
+	w.incidentOnMonitor()
+	if len(w.fired) != 1 {
+		t.Fatal(w.fired)
+	}
+}
+
+func TestAnIncidentRecordNamingALiveLaneOnTheMonitorSkipsTheLaunch(t *testing.T) {
+	w := newDeskWorld(t)
+	w.live("journal-open-fix", testDispatch, testTerminal)
+	w.add(object{"kind": "incident", "lane": coordinatorLane, "text": "monitor 334038082 is journal-open-plat", "refs": object{"lanes": []string{"journal-open-fix"}}, "fields": object{"attrs": map[string]string{"monitor": "334038082"}}})
+	w.incidentOnMonitor()
+	if len(w.fired) != 0 {
+		t.Fatal(w.fired)
+	}
+	wantContains(t, w.wantEscalation("LAUNCH-SKIPPED "), "duplicate of journal-open-fix")
+}
+
+func TestAnIncidentRecordNamingAFinishedLaneDoesNotSkipTheLaunch(t *testing.T) {
+	w := newDeskWorld(t)
+	w.add(object{"kind": "incident", "lane": coordinatorLane, "text": "monitor 334038082 is journal-open-plat", "refs": object{"lanes": []string{"journal-open-fix"}}, "fields": object{"attrs": map[string]string{"monitor": "334038082"}}})
+	w.incidentOnMonitor()
+	if len(w.fired) != 1 {
+		t.Fatal(w.fired)
+	}
+}
+
 func TestAnIncidentTheRootClosedIsOwned(t *testing.T) {
 	w := newDeskWorld(t)
 	w.lines()

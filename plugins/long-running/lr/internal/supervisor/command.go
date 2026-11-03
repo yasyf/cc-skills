@@ -104,6 +104,11 @@ func run(ctx context.Context, a *app.App) error {
 }
 
 func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps, error) {
+	monitorLane, err := orca.MonitorLane(a)
+	if err != nil {
+		return Deps{}, err
+	}
+	env.MonitorLane = monitorLane
 	checks, err := env.Checks(s, a.Log)
 	if err != nil {
 		return Deps{}, err

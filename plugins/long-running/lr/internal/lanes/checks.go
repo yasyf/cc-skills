@@ -180,6 +180,9 @@ func (a Alerts) raise(ctx context.Context, channel string, message slackMessage,
 	if _, found, err := a.Store.Lane(slug + "-fix"); err != nil || found {
 		return err
 	}
+	if holder, err := a.Env.MonitorLane(ctx, alert, slug+"-fix"); err != nil || holder != "" {
+		return err
+	}
 	first, err := a.Store.Escalate("alert:"+channel+":"+message.TS, "launch", Root, now)
 	if err != nil || !first {
 		return err

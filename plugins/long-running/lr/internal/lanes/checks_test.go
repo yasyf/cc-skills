@@ -49,7 +49,7 @@ func TestAnAlertNobodyAnsweredThreeMinutesOnLaunchesItsLanes(t *testing.T) {
 			if c.incident != "" {
 				bus.tail = []client.Record{{Seq: 7, Text: c.incident}}
 			}
-			env := Env{Bus: bus, Config: config.Config{Drive: testDrive}, Runner: scripted(func([]string) (shell.Result, error) {
+			env := Env{Bus: bus, Config: config.Config{Drive: testDrive}, MonitorLane: noMonitorLane, Runner: scripted(func([]string) (shell.Result, error) {
 				return shell.Result{Stdout: slackHistory(t0.Add(-mins(c.minutes)), c.text)}, nil
 			})}
 			var launched []Fired
@@ -77,10 +77,36 @@ func TestAnAlertNobodyAnsweredThreeMinutesOnLaunchesItsLanes(t *testing.T) {
 	}
 }
 
+func noMonitorLane(context.Context, string, string) (string, error) { return "", nil }
+
+func TestAnAlertWhoseMonitorALiveLaneHoldsLaunchesNothing(t *testing.T) {
+	s := memory(t)
+	bus := &fakeBus{}
+	var asked []string
+	env := Env{Bus: bus, Config: config.Config{Drive: testDrive}, Runner: scripted(func([]string) (shell.Result, error) {
+		return shell.Result{Stdout: slackHistory(t0.Add(-mins(4)), "Triggered: x\n"+monitorLink)}, nil
+	}), MonitorLane: func(_ context.Context, monitor, lane string) (string, error) {
+		asked = append(asked, monitor, lane)
+		return "journal-open-fix", nil
+	}}
+	check := Alerts{Env: env, Store: s, Channels: []string{"C1"}, Log: slog.Default(), Launch: func(context.Context, Fired) (string, error) {
+		t.Fatal("launched")
+		return "", nil
+	}}
+
+	if err := check.Check(context.Background(), t0); err != nil {
+		t.Fatal(err)
+	}
+
+	equal(t, asked[1], "dd-338724738-fix")
+	equal(t, asked[0], "338724738")
+	equal(t, len(bus.posted), 0)
+}
+
 func TestAFailedAlertLaunchRaisesOneBlockerToRoot(t *testing.T) {
 	s := memory(t)
 	bus := &fakeBus{}
-	env := Env{Bus: bus, Config: config.Config{Drive: testDrive}, Runner: scripted(func([]string) (shell.Result, error) {
+	env := Env{Bus: bus, Config: config.Config{Drive: testDrive}, MonitorLane: noMonitorLane, Runner: scripted(func([]string) (shell.Result, error) {
 		return shell.Result{Stdout: slackHistory(t0.Add(-mins(4)), "Triggered: x\n"+monitorLink)}, nil
 	})}
 	check := Alerts{Env: env, Store: s, Channels: []string{"C1"}, Log: slog.Default(), Launch: func(context.Context, Fired) (string, error) { return "", errors.New("desk-launch exited 2") }}
@@ -102,7 +128,7 @@ func TestAnAlertWithAFixLaneNamingItIsNotLaunchedAgain(t *testing.T) {
 		t.Fatal(err)
 	}
 	bus := &fakeBus{}
-	env := Env{Bus: bus, Config: config.Config{Drive: testDrive}, Runner: scripted(func([]string) (shell.Result, error) {
+	env := Env{Bus: bus, Config: config.Config{Drive: testDrive}, MonitorLane: noMonitorLane, Runner: scripted(func([]string) (shell.Result, error) {
 		return shell.Result{Stdout: slackHistory(t0.Add(-mins(4)), "Triggered: x\n"+monitorLink)}, nil
 	})}
 	check := Alerts{Env: env, Store: s, Channels: []string{"C1"}, Log: slog.Default(), Launch: func(context.Context, Fired) (string, error) {
