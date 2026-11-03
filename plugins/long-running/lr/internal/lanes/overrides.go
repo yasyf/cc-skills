@@ -9,6 +9,7 @@ import (
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/quotes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
@@ -21,7 +22,8 @@ type OverrideRefusals struct {
 	Env   Env
 	Store *store.Store
 
-	read time.Time
+	read   time.Time
+	quoted int64
 }
 
 func (o *OverrideRefusals) Check(ctx context.Context, now time.Time) error {
@@ -33,23 +35,39 @@ func (o *OverrideRefusals) Check(ctx context.Context, now time.Time) error {
 	if err != nil {
 		return fmt.Errorf("%w: cci tail decide: %w", ErrUnread, err)
 	}
+	reader := quotes.NewReader(o.Env.Runner, o.Env.Config.Drive)
 	for _, record := range records {
-		unread := bus.UnreadOverrides(record)
-		if len(unread) == 0 {
+		if unread := bus.UnreadOverrides(record); len(unread) > 0 {
+			text := fmt.Sprintf("OVERRIDE-REFUSED cci #%d reads `%s`, which names no `finder-override #<pr> at <sha>: <id>` or `fidelity-override #<pr> at <sha>: <id>`, so it settles no grade; post it again in that form", record.Seq, strings.Join(unread, "`, `"))
+			if err := o.refuse(ctx, "override:"+strconv.FormatInt(record.Seq, 10), text, now); err != nil {
+				return err
+			}
+		}
+		if record.Seq <= o.quoted {
 			continue
 		}
-		key := "override:" + strconv.FormatInt(record.Seq, 10)
-		first, err := o.Store.Escalate(key, "override-refused", Root, now)
+		misquotes, err := reader.Refused(ctx, record)
 		if err != nil {
-			return err
+			return fmt.Errorf("%w: the owner's words: %w", ErrUnread, err)
 		}
-		if !first {
-			continue
+		if len(misquotes) > 0 {
+			text := fmt.Sprintf("OVERRIDE-REFUSED cci #%d settles no grade: %s. Read the row whole with `lr rules row <key>`, quote its exact words, and post it again", record.Seq, strings.Join(misquotes, "; "))
+			if err := o.refuse(ctx, "override-quote:"+strconv.FormatInt(record.Seq, 10), text, now); err != nil {
+				return err
+			}
 		}
-		text := fmt.Sprintf("OVERRIDE-REFUSED cci #%d reads `%s`, which names no `finder-override #<pr> at <sha>: <id>` or `fidelity-override #<pr> at <sha>: <id>`, so it settles no grade; post it again in that form", record.Seq, strings.Join(unread, "`, `"))
-		if _, err := o.Env.Bus.Post(ctx, client.Draft{Drive: o.Env.Config.Drive, Lane: Self, Kind: blockerKind, To: []string{Root}, ID: key, Text: text}); err != nil {
-			return fmt.Errorf("%w: cci post: %w", ErrUnread, err)
-		}
+		o.quoted = record.Seq
+	}
+	return nil
+}
+
+func (o *OverrideRefusals) refuse(ctx context.Context, key, text string, now time.Time) error {
+	first, err := o.Store.Escalate(key, "override-refused", Root, now)
+	if err != nil || !first {
+		return err
+	}
+	if _, err := o.Env.Bus.Post(ctx, client.Draft{Drive: o.Env.Config.Drive, Lane: Self, Kind: blockerKind, To: []string{Root}, ID: key, Text: text}); err != nil {
+		return fmt.Errorf("%w: cci post: %w", ErrUnread, err)
 	}
 	return nil
 }

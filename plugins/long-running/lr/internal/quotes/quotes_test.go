@@ -1,0 +1,156 @@
+package quotes
+
+import (
+	"context"
+	"encoding/json"
+	"reflect"
+	"strings"
+	"testing"
+
+	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell/shelltest"
+)
+
+const oneLevel = "that 32 database Seems like a regression. Go look into it. I told you to pick just one level to put the At, and it seems like maybe we picked the wrong level."
+
+func reader(t *testing.T) *Reader {
+	t.Helper()
+	repeats, err := json.Marshal([]map[string]string{
+		{"key": "prompt/1026-184540", "at": "Oct 26", "words": "yea just keep the fucking patches that are still useful jesus"},
+		{"key": "prompt/1026-190000", "at": "Oct 26", "words": "second line\nthird line"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	implications, err := json.Marshal([]map[string]any{{"n": 1, "state": "proposed", "text": "the register's own reading"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, err := json.Marshal(map[string]any{"rows": []map[string]any{
+		{"key": "rule/784f1ab", "fields": map[string]string{"at": "Oct 20", "words": "every thjrn hiinchanhe jeedsa regresion test and one that actuwlly woild habe failed not a trivial one. just fic the rmeaining wctuwl jssues"}},
+		{"key": "prompt/1026-113025", "fields": map[string]string{"at": "Oct 26", "words": "keep the patches of we need them for perf", "repeats": string(repeats), "implications": string(implications)}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake := &shelltest.Fake{}
+	fake.Reply(`[{"id":"register-1","updated_at":"2026-11-03"}]`, "ccn", "-R", "/repo", "ledger", "list")
+	fake.Reply(string(rows), "ccn", "-R", "/repo", "ledger", "show", "register-1")
+	fake.Reply("title: the look\n\nVerbatim: \""+oneLevel+"\" Bridge reading: the lane re-reads.\n", "ccn", "-R", "/repo", "answer", "show", "79e14c4")
+	fake.Fail(1, "no such answer", "ccn", "-R", "/repo", "answer", "show", "0000000")
+	return &Reader{Runner: fake, Entry: func() (drive.Entry, error) { return drive.Entry{Checkout: "/repo", Program: "p"}, nil }}
+}
+
+func TestCitedPairsEachQuoteWithTheKeyItFollows(t *testing.T) {
+	for name, tc := range map[string]struct {
+		text string
+		want []Quote
+	}{
+		"beside its key":  {`rule/86efabc, "reader ships first", is the order`, []Quote{{"rule/86efabc", "reader ships first"}}},
+		"answer id":       {`Answer 79e14c4, "pick just one level", orders it`, []Quote{{"Answer 79e14c4", "pick just one level"}}},
+		"a chain of them": {`Answer 68c82f0: "A plus B", "one open connection", and "stacked"`, []Quote{{"Answer 68c82f0", "A plus B"}, {"Answer 68c82f0", "one open connection"}, {"Answer 68c82f0", "stacked"}}},
+		"curly quotes":    {`prompt/1101-103245 “seek ways”`, []Quote{{"prompt/1101-103245", "seek ways"}}},
+		"a later clause":  {`prompt/1101-214503, "2 bugs", and your 356750, "The named invariant"`, []Quote{{"prompt/1101-214503", "2 bugs"}}},
+		"root's words":    {`rule/86efabc is the ground, per your 356750, "The named invariant"`, nil},
+		"next sentence":   {`rule/da49cb1 is why it exists. The body says "cannot leak"`, nil},
+		"the next key":    {`prompt/1026-113025 and rule/91150e7, "rolls back"`, []Quote{{"rule/91150e7", "rolls back"}}},
+		"a dotted file":   {`rule/86efabc in remote.rs, "reader ships"`, []Quote{{"rule/86efabc", "reader ships"}}},
+		"no key at all":   {`The grade says "plan names no field"`, nil},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := Cited(tc.text); !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("Cited = %+v, want %+v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestMisquotes(t *testing.T) {
+	for name, tc := range map[string]struct {
+		text string
+		want string
+	}{
+		"a clause whole":                   {`finder-override #1 at abc1234: 9. Answer 79e14c4, "I told you to pick just one level to put the At", grounds it`, ""},
+		"a full sentence":                  {`Answer 79e14c4, "Go look into it.", is the order`, ""},
+		"after a joining word":             {`Answer 79e14c4, "it seems like maybe we picked the wrong level."`, ""},
+		"a marked cut":                     {`Answer 79e14c4, "that 32 database ... Go look into it", is the order`, ""},
+		"a repeat under its parent":        {`prompt/1026-113025, "yea just keep the fucking patches that are still useful jesus"`, ""},
+		"a repeat under its own key":       {`prompt/1026-184540, "yea just keep the fucking patches that are still useful jesus"`, ""},
+		"a line of a repeat":               {`prompt/1026-190000, "second line"`, ""},
+		"the row's own words":              {`prompt/1026-113025, "keep the patches of we need them for perf"`, ""},
+		"words he never said":              {`Answer 79e14c4, "orders this fix"`, `does not say "orders this fix"`},
+		"a parent's words, not a repeat's": {`prompt/1026-184540, "keep the patches of we need them for perf"`, "does not say"},
+		"the register's reading":           {`prompt/1026-113025, "the register's own reading"`, "does not say"},
+		"stopping mid clause":              {`rule/784f1ab, "every thjrn hiinchanhe jeedsa regresion test", asks for it`, `goes on after "every thjrn hiinchanhe jeedsa regresion test": "and one that actuwlly`},
+		"opening mid clause":               {`Answer 79e14c4, "pick just one level to put the At"`, `has more of that clause before`},
+		"an unknown row":                   {`rule/0000000, "anything"`, ErrUnknownKey.Error()},
+		"an unknown answer":                {`answer 0000000, "anything"`, ErrUnknownKey.Error()},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, err := reader(t).Misquotes(context.Background(), tc.text)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.want == "" && len(got) != 0 {
+				t.Fatalf("refused %q", got)
+			}
+			if tc.want != "" && (len(got) != 1 || !strings.Contains(got[0], tc.want)) {
+				t.Fatalf("got %q, want one refusal saying %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestRefusedReadsOnlyRootsOverrides(t *testing.T) {
+	bad := `finder-override #1 at abc1234: 9. rule/784f1ab, "every thjrn hiinchanhe jeedsa regresion test", asks for it`
+	for name, tc := range map[string]struct {
+		record client.Record
+		want   int
+	}{
+		"root's override":       {client.Record{Lane: "root", Kind: "decide", Text: bad}, 1},
+		"a lane's proposal":     {client.Record{Lane: "grader-appeals-1", Kind: "decide", Text: bad}, 0},
+		"root with no override": {client.Record{Lane: "root", Kind: "decide", Text: `rule/784f1ab, "every thjrn" came up`}, 0},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, err := reader(t).Refused(context.Background(), tc.record)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(got) != tc.want {
+				t.Fatalf("Refused = %q, want %d", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestWholeCarriesEveryRepeatAndImplication(t *testing.T) {
+	whole, err := reader(t).Whole(context.Background(), "prompt/1026-184540")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"prompt/1026-113025 (Oct 26)", "keep the patches of we need them for perf", "repeat prompt/1026-184540", "useful jesus", "third line", "implication 1 [proposed]: the register's own reading"} {
+		if !strings.Contains(whole, want) {
+			t.Fatalf("Whole lacks %q:\n%s", want, whole)
+		}
+	}
+}
+
+func TestReadingTheRegisterOnceServesEveryQuote(t *testing.T) {
+	r := reader(t)
+	text := `rule/784f1ab, "just fic the rmeaining wctuwl jssues" and prompt/1026-113025, "keep the patches of we need them for perf"`
+	for range 1000 {
+		if got, err := r.Misquotes(context.Background(), text); err != nil || len(got) != 0 {
+			t.Fatalf("got %q, %v", got, err)
+		}
+	}
+	shows := 0
+	for _, call := range r.Runner.(*shelltest.Fake).Calls() {
+		if strings.Contains(strings.Join(call.Argv, " "), "ledger show") {
+			shows++
+		}
+	}
+	if shows != 1 {
+		t.Fatalf("read the register %d times", shows)
+	}
+}

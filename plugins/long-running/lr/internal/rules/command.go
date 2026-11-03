@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/quotes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
@@ -43,6 +44,39 @@ func Command(a *app.App) *cobra.Command {
 			return nil
 		},
 	}, pickCommand(a, opened), &cobra.Command{
+		Use:   "row KEY",
+		Short: "Print an owner row whole, with every repeat and implication, or an answer as `answer <id>`; read this before quoting him",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			whole, err := quotes.NewReader(a.Runner, driveName).Whole(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			fmt.Fprint(cmd.OutOrStdout(), whole)
+			return nil
+		},
+	}, &cobra.Command{
+		Use:   "quotes",
+		Short: "Read an override on stdin, print each quote its cited row or answer does not contain, and exit 1 when any",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			text, err := io.ReadAll(cmd.InOrStdin())
+			if err != nil {
+				return err
+			}
+			misquotes, err := quotes.NewReader(a.Runner, driveName).Misquotes(cmd.Context(), string(text))
+			if err != nil {
+				return err
+			}
+			for _, misquote := range misquotes {
+				fmt.Fprintf(cmd.OutOrStdout(), "refused: %s\n", misquote)
+			}
+			if len(misquotes) > 0 {
+				return fmt.Errorf("%d quotes the owner's words do not hold", len(misquotes))
+			}
+			return nil
+		},
+	}, &cobra.Command{
 		Use:   "settle",
 		Short: "Read findings as JSON on stdin, print those no owner pick answers, and exit 1 when any remain",
 		Args:  cobra.NoArgs,
