@@ -1361,7 +1361,9 @@ func TestABackupLaunchesWhenTheRepairPRHasNotLandedInTwentyMinutesUnlessAHumanHo
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			h := opened(t)
-			h.note("repair_pr", 48000)
+			h.fake.data.Repair.LandedAt = h.intake(24 * time.Hour).Format(time.RFC3339)
+			h.drive(h.intake(time.Minute), nil)
+			h.note("repair_pr", h.fake.data.Repair.PR)
 			h.note("human_review", c.review)
 
 			h.drive(h.intake(21*time.Minute), nil)
