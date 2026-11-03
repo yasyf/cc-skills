@@ -133,15 +133,6 @@ func (t Trunk) List(ctx context.Context, labels ...string) ([]Owed, error) {
 	return owed, nil
 }
 
-func (t Trunk) Owed(ctx context.Context, owns func(lane string) bool, labels ...string) ([]Owed, error) {
-	listed, err := t.List(ctx, labels...)
-	if err != nil {
-		return nil, err
-	}
-	candidates := slices.DeleteFunc(listed, func(row Owed) bool { return !owns(row.Owner) })
-	return t.Present(ctx, candidates)
-}
-
 func (t Trunk) Present(ctx context.Context, rows []Owed) ([]Owed, error) {
 	if len(rows) == 0 {
 		return nil, nil

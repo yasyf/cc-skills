@@ -59,7 +59,7 @@ func Wire(a *app.App, entry drive.Entry, s *store.Store) Sources {
 		Retro: func(ctx context.Context) ([]Retro, error) {
 			return ReadRetro(ctx, mirror.Source, entry.StateDir)
 		},
-		Owed: func(ctx context.Context, owns func(lane string) bool) ([]deletions.Owed, error) {
+		Owed: func(ctx context.Context) ([]deletions.Owed, error) {
 			cfg, err := config.Load(filepath.Join(entry.StateDir, "lr.json"), a.Stderr)
 			if errors.Is(err, fs.ErrNotExist) {
 				return nil, nil
@@ -71,7 +71,12 @@ func Wire(a *app.App, entry drive.Entry, s *store.Store) Sources {
 			if entry.Program != "" {
 				labels = []string{"program:" + entry.Program}
 			}
-			return deletions.Of(a.Runner, cfg).Owed(ctx, owns, labels...)
+			trunk := deletions.Of(a.Runner, cfg)
+			listed, err := trunk.List(ctx, labels...)
+			if err != nil {
+				return nil, err
+			}
+			return trunk.Present(ctx, listed)
 		},
 		Pins: entry.Pinned,
 	}

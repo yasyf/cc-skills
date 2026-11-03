@@ -141,15 +141,8 @@ func newFake(t *testing.T, records []Record, peers []Row) *fake {
 		Held:     func() (map[int]bool, error) { return f.holds, nil },
 		Desk:     func(lane string) (string, error) { return f.desks[lane], nil },
 		OpenWork: func() ([]Record, error) { return f.work, nil },
-		Owed: func(owns func(string) bool) ([]deletions.Owed, error) {
-			var owed []deletions.Owed
-			for _, row := range f.owed {
-				if owns(row.Owner) {
-					owed = append(owed, row)
-				}
-			}
-			return owed, nil
-		},
+		Owed:     func() ([]deletions.Owed, error) { return slices.Clone(f.owed), nil },
+		Present:  func(rows []deletions.Owed) ([]deletions.Owed, error) { return rows, nil },
 		Gaps:     func() ([]string, error) { return f.gaps, nil },
 		RotateAt: 600_000,
 	}
@@ -813,6 +806,28 @@ func TestTheHourlyTickPostsEachOwedDeletionGapToRootOnce(t *testing.T) {
 	equal(t, len(blockers), 1)
 	equal(t, blockers[0].To, []string{Root})
 	contains(t, blockers[0].Text, gap)
+}
+
+func TestAnOwedDeletionPastItsDueDayDrawsOneBlockerToItsOwnerLane(t *testing.T) {
+	s := memory(t)
+	f := adopted(t, s, writeBrief(t), "")
+	f.owed = []deletions.Owed{
+		{ID: "025443e4e324ee52", Title: "Owed deletion: Iris stops reading uploaded from journal positions", Owner: lane2, Paths: []string{"go/sand/next/internal/journal/client.go"}, Symbols: []string{"Uploaded"}, Due: t0.AddDate(0, 0, -3)},
+		{ID: "c4015d76839d8b1c", Title: "Owed deletion: opening a Mac's own evicted chat holds the request on the cloud", Paths: []string{"go/sand/next/cmd/iris_serve_journal.go"}, Due: t0.AddDate(0, 0, -3)},
+		{ID: "4ec66f9bf94aa835", Title: "Owed deletion: epoch fields left in share and journal positions", Owner: lane2, Due: t0.AddDate(0, 0, 7)},
+	}
+
+	for _, at := range []time.Time{t0.Add(mins(61)), t0.Add(mins(121))} {
+		f.peers = []Row{who(lane2, true, at)}
+		tick(t, s, f, at)
+	}
+
+	blockers := f.ofKind("blocker")
+	equal(t, len(blockers), 2)
+	equal(t, []any{blockers[0].To, blockers[1].To}, []any{[]string{lane2}, []string{Root}})
+	contains(t, blockers[0].Text, `task 025443e "Owed deletion: Iris stops reading uploaded from journal positions"`)
+	contains(t, blockers[0].Text, "is past due with its code still on trunk")
+	contains(t, blockers[1].Text, "task c4015d7")
 }
 
 func TestAnOwedDeletionCheckThatCannotReadTellsRoot(t *testing.T) {

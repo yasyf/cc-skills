@@ -44,7 +44,8 @@ type Deps struct {
 	Held         func() (map[int]bool, error)
 	Desk         func(lane string) (string, error)
 	OpenWork     func() ([]Record, error)
-	Owed         func(owns func(lane string) bool) ([]deletions.Owed, error)
+	Owed         func() ([]deletions.Owed, error)
+	Present      func(rows []deletions.Owed) ([]deletions.Owed, error)
 	Gaps         func() ([]string, error)
 	RotateAt     int
 }
@@ -95,7 +96,7 @@ func Tick(s *store.Store, d Deps, now time.Time, generation int64) (out Outcome,
 			}
 		}
 	}
-	said := fold(s, records, adoptable, d.Briefs, d.Owed)
+	said := fold(s, records, adoptable, d.Briefs, d)
 	out.Adopted = said.adopted
 	announce(d, said, now)
 	ownedWork(s, d, now)
@@ -607,6 +608,7 @@ func hourly(s *store.Store, d Deps, now time.Time) {
 			do(d.Post(Post{Kind: "blocker", To: []string{Root}, Text: fmt.Sprintf("%s %s. Open an owed-deletion task anchored to it, or anchor an exception row to it with `rulings.py anchor`; `lr deletions check` exits 0 once every removes row is covered.", pacific(now), gap)}))
 		}
 	}
+	overdue(s, d, now)
 	start := time.Unix((hour-1)*3600, 0).UTC()
 	end := start.Add(time.Hour)
 	var words []string
