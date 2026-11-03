@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,10 +17,12 @@ import (
 )
 
 const (
-	Lane        = "pr-desk"
-	busSource   = "bus"
-	timerSource = "timer"
-	ReadEvery   = time.Minute
+	Lane         = "pr-desk"
+	busSource    = "bus"
+	timerSource  = "timer"
+	githubSource = "github"
+	githubDrive  = "github"
+	AuditEvery   = time.Hour
 )
 
 var readied = []machine.State{machine.StateReady, machine.StateQueued, machine.StateEvicted}
@@ -33,6 +36,8 @@ type Shadow struct {
 	Origin  string
 	Graders []string
 	GoLanes []string
+	Author  string
+	Label   string
 	Read    func(ctx context.Context, at time.Time) ([]Event, error)
 	Tail    func(ctx context.Context, q client.Query) ([]client.Record, error)
 	Hash    func(ctx context.Context, base, head string) (string, error)
@@ -61,7 +66,7 @@ func (s Shadow) Run(ctx context.Context) error {
 		}
 		return s.disagree(ctx, moved)
 	}
-	errs := make(chan error, 4)
+	errs := make(chan error, 5)
 	go func() {
 		errs <- s.tail(ctx, client.Query{Drive: s.Drive}, busSource, func(r client.Record) error {
 			for _, e := range s.events(r) {
@@ -77,7 +82,21 @@ func (s Shadow) Run(ctx context.Context) error {
 			return s.queued(ctx, r, apply)
 		})
 	}()
-	go func() { errs <- s.reads(ctx, apply) }()
+	go func() {
+		errs <- s.tail(ctx, client.Query{Drive: githubDrive, Kinds: []string{"github"}}, githubSource, func(r client.Record) error {
+			events, err := s.githubEvents(r)
+			if err != nil {
+				return err
+			}
+			for _, e := range events {
+				if err := apply(e); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+	}()
+	go func() { errs <- s.audits(ctx, apply) }()
 	go func() { errs <- s.timers(ctx, wake, apply) }()
 	return <-errs
 }
@@ -240,13 +259,64 @@ func (s Shadow) said(r client.Record, meta Meta, fromBoard bool) []Event {
 	return events
 }
 
-func (s Shadow) reads(ctx context.Context, apply func(Event) error) error {
-	tick := time.NewTicker(ReadEvery)
+func (s Shadow) githubEvents(r client.Record) ([]Event, error) {
+	meta := Meta{Source: githubSource, Seq: r.Seq, Key: r.ID, At: r.At, Repo: s.Repo}
+	attrs, outcome, commit := r.Fields.Attrs, r.Fields.Outcome, r.Fields.Commit
+	var numbers []int
+	for _, pr := range r.Refs.PRs {
+		if strings.EqualFold(pr.Repo, s.Repo) {
+			numbers = append(numbers, pr.Number)
+		}
+	}
+	switch r.Topic {
+	case "pull_request":
+		labels := strings.FieldsFunc(attrs["labels"], func(c rune) bool { return c == ',' })
+		if len(numbers) == 0 || attrs["author"] != s.Author && !slices.Contains(labels, s.Label) {
+			return nil, nil
+		}
+		open := outcome != "closed" && outcome != "merged"
+		return []Event{PullRequest{meta, numbers[0], attrs["branch"], attrs["base"], commit, open, outcome == "merged", ""}}, nil
+	case "review":
+		if len(numbers) == 0 {
+			return nil, nil
+		}
+		tracked, err := s.tracked(numbers[0])
+		if err != nil || !tracked {
+			return nil, err
+		}
+		return []Event{Review{meta, numbers[0], attrs["reviewer"], outcome, commit}}, nil
+	case "check":
+		if !strings.EqualFold(attrs["repo"], s.Repo) || !slices.Contains(s.Desk.Repos[s.Repo].Required, attrs["check"]) {
+			return nil, nil
+		}
+		id, _ := strconv.ParseInt(attrs["id"], 10, 64)
+		return []Event{Check{meta, commit, attrs["check"], outcome, id}}, nil
+	}
+	return nil, nil
+}
+
+func (s Shadow) tracked(number int) (bool, error) {
+	var found bool
+	err := s.Desk.Store.Update(func(tx *store.Tx) error {
+		_, ok, err := tx.PRFacts(s.Repo, number)
+		found = ok
+		return err
+	})
+	return found, err
+}
+
+func (s Shadow) audits(ctx context.Context, apply func(Event) error) error {
+	tick := time.NewTicker(AuditEvery)
 	defer tick.Stop()
-	for {
+	for first := true; ; first = false {
 		events, err := s.Read(ctx, s.Now().UTC().Truncate(time.Second))
 		if err != nil {
-			s.Log.Warn("the minute's GitHub read failed and changed nothing", "err", err)
+			s.Log.Warn("the GitHub read failed and changed nothing", "err", err)
+		}
+		if !first && err == nil {
+			if err := s.audit(ctx, events); err != nil {
+				return err
+			}
 		}
 		for _, e := range events {
 			if err := apply(e); err != nil {
@@ -259,6 +329,47 @@ func (s Shadow) reads(ctx context.Context, apply func(Event) error) error {
 		case <-tick.C:
 		}
 	}
+}
+
+func (s Shadow) audit(ctx context.Context, events []Event) error {
+	var drift []string
+	if err := s.Desk.Store.Update(func(tx *store.Tx) error {
+		for _, e := range events {
+			read, ok := e.(PullRequest)
+			if !ok {
+				continue
+			}
+			heard, found, err := tx.PRFacts(s.Repo, read.Number)
+			if err != nil {
+				return err
+			}
+			switch {
+			case !found && read.Open:
+				drift = append(drift, fmt.Sprintf("#%d is open at %s with no record", read.Number, short(read.Head)))
+			case found && (heard.Head != read.Head || heard.Base != read.Base || heard.Open != read.Open):
+				drift = append(drift, fmt.Sprintf("#%d records say %s, GitHub says %s", read.Number, describe(heard.Head, heard.Base, heard.Open), describe(read.Head, read.Base, read.Open)))
+			}
+		}
+		return nil
+	}); err != nil || len(drift) == 0 {
+		return err
+	}
+	_, err := s.Post(ctx, client.Draft{
+		Drive: s.Drive, Lane: Lane, Kind: "defect", To: s.To, ID: fmt.Sprintf("github-audit:%s:%d", s.Repo, s.Now().Unix()),
+		Text: fmt.Sprintf("GITHUB-EVENTS-DRIFT the hourly read of %s disagrees with its github records on %d pull requests: %s", s.Repo, len(drift), strings.Join(drift, "; ")),
+	})
+	return err
+}
+
+func describe(head, base string, open bool) string {
+	if !open {
+		return "shut at " + short(head)
+	}
+	return fmt.Sprintf("open at %s onto %s", short(head), base)
+}
+
+func short(sha string) string {
+	return sha[:min(10, len(sha))]
 }
 
 func (s Shadow) timers(ctx context.Context, wake <-chan struct{}, apply func(Event) error) error {
