@@ -212,6 +212,21 @@ func TestDeadRecipientsRankByDeliveriesAndNameTheirEmitters(t *testing.T) {
 	equal(t, report.Findings[0].Detail, "from emit-a 3, emit-b 1")
 }
 
+func TestARetiredRowDoesNotMakeALaneThatStillPostsDead(t *testing.T) {
+	w := newWorld(t)
+	w.cfg.Floors.Dead = 1
+	gone := t0.Add(-30 * time.Minute)
+	w.retired = []store.Lane{{Name: "root", Since: gone}, {Name: "really-gone", Since: gone}}
+	w.bus.records = []client.Record{
+		rec(inside, "emit", "x", "root"),
+		rec(inside, "root", "still here"),
+		rec(gone.Add(-time.Minute), "really-gone", "last words"),
+		rec(inside, "emit", "x", "really-gone"),
+	}
+
+	equal(t, signal(w.read(t, Window), signalDead), []string{"really-gone 1"})
+}
+
 func TestFanOutCountsDeliveriesAnHourByEmitterAndShape(t *testing.T) {
 	wide := make([]string, 10)
 	for i := range wide {
@@ -378,6 +393,30 @@ func TestCostComparesEachLaneWithItsPreviousWindow(t *testing.T) {
 	equal(t, report.Findings[0].Detail, "previous window 500/h, 2000 per record, 1 sessions")
 	equal(t, report.Findings[1].Detail, "previous window 0/h, no records, 1 sessions")
 	equal(t, w.runner.shows, 4)
+}
+
+func TestATeammateFileCountsToItsOwnLaneAndAHelperToItsSession(t *testing.T) {
+	w := newWorld(t)
+	w.cfg.Floors.Cost = 1000
+	w.cfg.Floors.Skips = 1
+	w.bus.peers = []client.Peer{
+		{Session: "s-1", Agent: "aworker-1-abc", Lane: "worker-1"},
+		{Session: "s-1", Lane: "owner-relay"},
+		{Session: "s-1", Agent: "aworker-2-def", Lane: "worker-2"},
+	}
+	w.runner.files["/projects/p/s-1.jsonl"] = assistant(inside, "r1", 3000) + "\n"
+	w.runner.files["/projects/p/s-1/subagents/agent-aworker-1-abc.jsonl"] = assistant(inside, "r2", 2000) + "\n" + assistant(inside, "r5", 3000) + "\n"
+	w.runner.files["/projects/p/s-1/subagents/agent-aworker-2-def.jsonl"] = assistant(inside, "r3", 1500) + "\n"
+	w.runner.files["/projects/p/s-1/subagents/agent-ahelper.jsonl"] = assistant(inside, "r4", 500) + "\n"
+	log := inside.In(time.Local).Format(logStamp) + " WARNING x: hook skipped: evidence incomplete | {'hook': 'steer'}\n"
+	if err := os.WriteFile(filepath.Join(w.cfg.HookLogs, "s-1.log"), []byte(log), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	report := w.read(t, Window)
+
+	equal(t, signal(report, signalCost), []string{"worker-1 5000", "owner-relay 3500", "worker-2 1500"})
+	equal(t, signal(report, signalSkips), []string{"owner-relay 1"})
 }
 
 func TestDuplicateForwardsNeedTheSameWordsFromTwoLanes(t *testing.T) {
