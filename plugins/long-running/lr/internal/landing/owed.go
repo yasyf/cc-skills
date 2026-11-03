@@ -15,6 +15,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
@@ -54,7 +55,8 @@ type ReleaseOwed struct {
 	Now        func() time.Time
 	Log        *slog.Logger
 
-	done map[int]bool
+	done   map[int]bool
+	holder string
 }
 
 type owedRelease struct {
@@ -65,6 +67,7 @@ type owedRelease struct {
 	Posted     map[string]int64 `json:"posted"`
 	Held       map[string]int64 `json:"held,omitempty"`
 	Pressed    time.Time        `json:"pressed"`
+	Answered   int64            `json:"answered,omitempty"`
 	Cut        bool             `json:"cut,omitempty"`
 	Settled    int64            `json:"settled,omitempty"`
 	Builds     []string         `json:"builds,omitempty"`
@@ -122,6 +125,9 @@ func (r *ReleaseOwed) Pass(ctx context.Context) error {
 	}
 	clocks, err := r.LiveClocks()
 	if err != nil {
+		return err
+	}
+	if r.holder, err = lanes.Holder(r.Store, r.Drive, r.Owner); err != nil {
 		return err
 	}
 	every := r.Every
@@ -236,14 +242,9 @@ func (r *ReleaseOwed) incident(ctx context.Context, pr store.PR) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	fix := facts[squashedFact] == squashMerged
-	if !fix {
-		if fix, err = r.Squash.isFix(ctx, f); err != nil {
-			return false, err
-		}
-	}
-	if !fix {
-		return false, nil
+	alerted, err := r.Squash.alerted(ctx, f, facts[squashedFact] == squashMerged)
+	if err != nil || !alerted {
+		return false, err
 	}
 	cleared, err := r.Squash.cleared(ctx, f)
 	return !cleared, err
@@ -307,7 +308,7 @@ func (r *ReleaseOwed) tend(ctx context.Context, landing owedLanding, records []c
 			return err
 		}
 	}
-	if err := r.press(ctx, landing, every); err != nil {
+	if err := r.press(ctx, landing, records, every); err != nil {
 		return err
 	}
 	return r.cutSilent(ctx, landing, records)
@@ -355,7 +356,7 @@ func (r *ReleaseOwed) started(record client.Record, owed *owedRelease, number in
 }
 
 func (r *ReleaseOwed) owned(record client.Record, owed *owedRelease, number int) bool {
-	if record.Lane == self || record.Lane == deskRunnerLane || record.Lane == rootLane || !slices.Contains(record.To, r.Owner) {
+	if record.Lane == self || record.Lane == deskRunnerLane || record.Lane == rootLane || !slices.ContainsFunc(record.To, r.holds) {
 		return false
 	}
 	named := slices.Clone(record.Refs.Targets)
@@ -385,12 +386,37 @@ func (r *ReleaseOwed) names(record client.Record, number int) bool {
 	return false
 }
 
+func (r *ReleaseOwed) holds(lane string) bool {
+	lane = lanes.Canonical(r.Drive, lane)
+	return lane == r.holder || lanes.Stem(lane) == lanes.Stem(lanes.Canonical(r.Drive, r.Owner))
+}
+
+func (r *ReleaseOwed) answer(owed *owedRelease, number int, records []client.Record) int64 {
+	nags := map[int64]bool{}
+	for _, seq := range owed.Posted {
+		nags[seq] = true
+	}
+	for _, record := range records {
+		replies := nags[record.Re] || nags[record.Resolves] || slices.ContainsFunc(record.AlsoResolves, func(seq int64) bool { return nags[seq] })
+		if r.holds(record.Lane) && !record.At.Before(owed.Landed) && (replies || r.names(record, number)) {
+			return record.Seq
+		}
+	}
+	return 0
+}
+
 func overlap(named, wanted []string) bool {
 	return slices.ContainsFunc(named, func(name string) bool { return slices.Contains(wanted, name) })
 }
 
-func (r *ReleaseOwed) press(ctx context.Context, landing owedLanding, every time.Duration) error {
+func (r *ReleaseOwed) press(ctx context.Context, landing owedLanding, records []client.Record, every time.Duration) error {
 	pr, owed := landing.pr, landing.owed
+	if owed.Answered != 0 {
+		return nil
+	}
+	if owed.Answered = r.answer(owed, pr.Number, records); owed.Answered != 0 {
+		return r.save(pr, owed)
+	}
 	whole := int(every.Minutes())
 	minutes := int(r.Now().Sub(owed.Landed).Minutes())
 	step := "0"
@@ -405,7 +431,7 @@ func (r *ReleaseOwed) press(ctx context.Context, landing owedLanding, every time
 	}
 	number := strconv.Itoa(pr.Number)
 	kind, text := r.pressWords(pr.Number, owed, minutes, whole)
-	posted, err := client.Post(ctx, client.Draft{Drive: r.Drive, Lane: self, Kind: kind, To: []string{r.Owner, rootLane}, ID: "release:" + number + ":" + step, Topic: number, PRs: []string{r.Repo + "#" + number}, Text: text})
+	posted, err := client.Post(ctx, client.Draft{Drive: r.Drive, Lane: self, Kind: kind, To: []string{r.holder, rootLane}, ID: "release:" + number + ":" + step, Topic: number, PRs: []string{r.Repo + "#" + number}, Text: text})
 	if err != nil {
 		return err
 	}
@@ -429,9 +455,9 @@ func (r *ReleaseOwed) pressWords(number int, owed *owedRelease, minutes, every i
 	}
 	sha := owed.SHA[:min(10, len(owed.SHA))]
 	if len(owed.Posted) > 0 {
-		settles := fmt.Sprintf("post that record with --pr %d or --target <component>; a coordinator reply to this record with --re also stops the blocker", number)
+		settles := fmt.Sprintf("post that record with --pr %d or --target <component>; your or the coordinator's reply to this record with --re also stops the blocker", number)
 		if owed.Incident {
-			settles = "post `release --build <url> --target <component>`"
+			settles = "post `release --build <url> --target <component>`; your reply to this record with --re also stops the blocker"
 		}
 		return "blocker", fmt.Sprintf("#%d %s: landed %d minutes ago %s, and no cci `release` record since %s or names #%d. %s and %s, which repeats every %d minutes.", number, sha, minutes, how, targets, number, start, settles, every)
 	}
@@ -451,7 +477,7 @@ func (r *ReleaseOwed) held(ctx context.Context, landing owedLanding) error {
 	for _, hold := range holds {
 		key := strconv.FormatInt(hold.Seq, 10)
 		_, told := owed.Held[key]
-		if told || hold.Lane != rootLane || hold.At.Before(owed.Landed) || (!r.names(hold, pr.Number) && !slices.Contains(hold.To, r.Owner)) {
+		if told || hold.Lane != rootLane || hold.At.Before(owed.Landed) || (!r.names(hold, pr.Number) && !slices.ContainsFunc(hold.To, r.holds)) {
 			continue
 		}
 		posted, err := client.Post(ctx, client.Draft{
@@ -483,7 +509,7 @@ func (r *ReleaseOwed) cutSilent(ctx context.Context, landing owedLanding, record
 		component := owed.Components[0]
 		hand := fmt.Sprintf("%s start --manual %s --env <env> --commit %s --emergency", strings.Join(r.CLI, " "), component, owed.SHA)
 		number := strconv.Itoa(pr.Number)
-		text := fmt.Sprintf("CUT-SILENT %s %s: no CUT or refusal %d min after the release record for #%s; hand path: %s", r.Owner, component, int(r.Now().Sub(owed.Pressed).Minutes()), number, hand)
+		text := fmt.Sprintf("CUT-SILENT %s %s: no CUT or refusal %d min after the release record for #%s; hand path: %s", r.holder, component, int(r.Now().Sub(owed.Pressed).Minutes()), number, hand)
 		if _, err := client.Post(ctx, client.Draft{Drive: r.Drive, Lane: self, Kind: "blocker", To: []string{rootLane}, ID: "cut:release:" + number, PRs: []string{r.Repo + "#" + number}, Text: text}); err != nil {
 			return err
 		}
@@ -498,7 +524,7 @@ func (r *ReleaseOwed) cutAnswer(record client.Record, owed *owedRelease, number 
 		return false
 	}
 	targets := overlap(record.Refs.Targets, owed.Components)
-	if record.Lane == r.Owner {
+	if r.holds(record.Lane) {
 		return len(record.Refs.Targets) == 0 || targets
 	}
 	return record.Lane != self && record.Lane != deskRunnerLane && (targets || r.names(record, number))

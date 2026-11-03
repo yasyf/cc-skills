@@ -120,9 +120,9 @@ func (q *Squash) pass(ctx context.Context, snapshot []machine.Facts) (map[int]bo
 	return taken, nil
 }
 
-func (q *Squash) isFix(ctx context.Context, f machine.Facts) (bool, error) {
+func (q *Squash) alerted(ctx context.Context, f machine.Facts, squashed bool) (bool, error) {
 	named, repairs, err := q.tagged([]machine.Facts{f})
-	if err != nil || len(named) == 0 {
+	if err != nil || (len(named) == 0 && !squashed) {
 		return false, err
 	}
 	if repairs[f.Number] {
@@ -137,8 +137,7 @@ func (q *Squash) isFix(ctx context.Context, f machine.Facts) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	_, closed := endedLanes(slices.Concat(incidents, decides))[f.Lane]
-	return !closed, nil
+	return openIncident(f, incidents, endedLanes(slices.Concat(incidents, decides))) != nil, nil
 }
 
 func (q *Squash) tagged(snapshot []machine.Facts) ([]machine.Facts, map[int]bool, error) {
