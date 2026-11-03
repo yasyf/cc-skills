@@ -88,7 +88,7 @@ func (r SpriteRoll) Run(ctx context.Context, run string, env func(string) string
 		if recorded := r.Store.RecordSpriteTools(box, installed, r.Now()); recorded != nil {
 			return recorded
 		}
-		if err != nil && len(installed) == 0 && neverStarted(result) {
+		if err != nil && len(installed) == 0 && spriteUnreached(result) {
 			if box == probe {
 				return refuse("lr sprites roll: could not reach the probe %s, so %d more Sprites keep what they run: %s", box, len(boxes)-done-1, lastSaid(result))
 			}
@@ -107,7 +107,7 @@ func (r SpriteRoll) Run(ctx context.Context, run string, env func(string) string
 	return nil
 }
 
-func neverStarted(result shell.Result) bool {
+func spriteUnreached(result shell.Result) bool {
 	return result.Code == shell.CodeTimedOut || strings.Contains(result.Stdout+result.Stderr, "failed to start sprite command")
 }
 
