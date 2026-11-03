@@ -413,43 +413,26 @@ func link(t *testing.T, claude, version string) {
 	}
 }
 
-func TestTheSupervisorMovesToANewerInstallUnlessItsReplayGateRefusesIt(t *testing.T) {
+func TestTheSupervisorMovesToANewerInstallWithoutReadingOrReplayingHistory(t *testing.T) {
 	claude := t.TempDir()
-	codes := map[string]int{"0.7.821": 3, "0.7.822": 0, "0.7.823": 1}
-	var gates []string
 	b := &recordingBus{}
-	env := lanes.Env{Bus: b, Claude: claude, State: configs(t), Config: config.Config{Drive: "d1", Repo: "org/repo"}, Runner: scripted(func(argv []string) (shell.Result, error) {
-		version := argv[len(argv)-1]
-		gates = append(gates, strings.Join(argv[1:], " "))
-		code := codes[version]
-		if code == 0 {
-			return shell.Result{}, nil
-		}
-		return shell.Result{Code: code, Stderr: "Traceback: boom"}, &shell.ExitError{Argv: argv, Code: code}
+	env := lanes.Env{Bus: b, Claude: claude, State: configs(t), Runner: scripted(func(argv []string) (shell.Result, error) {
+		t.Fatalf("upgrade launched a command: %v", argv)
+		return shell.Result{}, nil
 	})}
 	upgrade := &Upgrade{Env: env, Running: "0.7.820", Read: time.Now()}
-	versions := []string{"0.7.820", "0.7.821", "0.7.821", "0.7.822", "0.7.823"}
-	got := make([]bool, 0, len(versions))
-	for _, version := range versions {
-		link(t, claude, version)
+	for _, step := range []struct {
+		version string
+		stale   bool
+	}{{"0.7.819", false}, {"0.7.820", false}, {"0.7.821", true}, {"0.7.821", true}, {"0.7.822", true}} {
+		link(t, claude, step.version)
 		stale, err := upgrade.Stale(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
-		got = append(got, stale)
+		equal(t, stale, step.stale)
 	}
-
-	equal(t, got, []bool{false, false, false, true, true})
-	equal(t, gates, []string{
-		"gate --drive d1 --repo org/repo --old 0.7.820 --new 0.7.821",
-		"gate --drive d1 --repo org/repo --old 0.7.820 --new 0.7.822",
-		"gate --drive d1 --repo org/repo --old 0.7.820 --new 0.7.823",
-	})
-	equal(t, len(b.posted), 1)
-	equal(t, b.posted[0].ID, "replay-failed:0.7.823")
-	if !strings.HasSuffix(b.posted[0].Text, "the supervisor moves from 0.7.820 to 0.7.823 unreplayed: its replay gate exited 1: Traceback: boom") {
-		t.Fatal(b.posted[0].Text)
-	}
+	equal(t, len(b.posted), 0)
 }
 
 func configs(t *testing.T) string {

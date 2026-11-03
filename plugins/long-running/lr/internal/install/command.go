@@ -2,7 +2,6 @@ package install
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -108,7 +107,7 @@ func install(ctx context.Context, a *app.App, version string, opts options) (int
 	}
 	generation, err := Run(ctx, s, cfg.Drive, version, Steps{
 		Preflight: func(ctx context.Context) []string {
-			return preflight(ctx, a, s, checks, cfg, configPath, version, opts)
+			return preflight(ctx, checks, configPath, version, opts)
 		},
 		Swap: func(_ context.Context, version string) error { return Promote(claude, checks.dir(version)) },
 		Post: func(ctx context.Context, to []string, body bus.Body) error {
@@ -127,7 +126,7 @@ func install(ctx context.Context, a *app.App, version string, opts options) (int
 	return generation, nil
 }
 
-func preflight(ctx context.Context, a *app.App, s *store.Store, checks Checks, cfg config.Config, configPath, version string, opts options) []string {
+func preflight(ctx context.Context, checks Checks, configPath, version string, opts options) []string {
 	faults := checks.ReleaseFaults(ctx, version)
 	if len(faults) > 0 {
 		return faults
@@ -138,21 +137,6 @@ func preflight(ctx context.Context, a *app.App, s *store.Store, checks Checks, c
 		}
 	}
 	if fault := checks.TargetFault(ctx, version, configPath); fault != "" {
-		faults = append(faults, fault)
-	}
-	serving := ""
-	lease, err := s.Lease(cfg.Drive)
-	switch {
-	case err == nil:
-		serving = lease.Version
-	case !errors.Is(err, sql.ErrNoRows):
-		return append(faults, err.Error())
-	}
-	fault, warning := checks.GateFault(ctx, cfg.Drive, cfg.Repo, serving, version)
-	if warning != "" {
-		a.Log.Warn(warning)
-	}
-	if fault != "" {
 		faults = append(faults, fault)
 	}
 	return faults
