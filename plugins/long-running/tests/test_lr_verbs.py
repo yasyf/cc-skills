@@ -124,7 +124,7 @@ def test_the_check_reads_hooks_scripts_skill_text_and_brief_templates() -> None:
 
     assert ("capt-hook/hooks/lane_waits.py", ("wait",)) in read
     assert ("capt-hook/hooks/owner_ledger.py", ("owner", "mark", "--routed", "--drive")) in read
-    assert ("scripts/bin-shim.sh", ("board", "cards")) in read
+    assert ("scripts/bin-shim.sh", ("board", "waits")) in read
     assert ("skills/long-running/reference/sub-drives.md", ("drive", "sub", "start", "--objective", "--reason")) in read
     assert ("skills/long-running/reference/chores-lane-brief.md", ("launch", "chores")) in read
 

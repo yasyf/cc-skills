@@ -40,7 +40,6 @@ case "$TOOL" in
   incident.py) exec "$ROOT/bin/lr" incident "$@" ;;
   replay.py) exec "$ROOT/bin/lr" replay "$@" ;;
   desk-creds.py) exec "$ROOT/bin/lr" desk-creds "$@" ;;
-  board_cards.py) exec "$ROOT/bin/lr" board cards "$@" ;;
   owner_waits.py) exec "$ROOT/bin/lr" board waits "$@" ;;
   owner_update.py) exec "$ROOT/bin/lr" update "$@" ;;
   finder.py) exec "$ROOT/bin/lr" grade finder "$@" ;;
