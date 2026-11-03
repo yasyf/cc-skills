@@ -12,6 +12,7 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -30,13 +31,15 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/launchd"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
 const (
 	Label      = "com.long-running.explain"
 	Branch     = "explainers"
-	Port       = 8642
-	ServePort  = 8643
+	Port       = 8664
+	ServePort  = 8665
+	Topic      = "lr-explain"
 	relay      = "owner-relay"
 	answerWait = 30
 	stepWait   = time.Minute
@@ -179,8 +182,25 @@ func plain(n ast.Node, source []byte) string {
 
 type Checkout struct {
 	Runner shell.Runner
-	Root   string
+	Remote string
 	Dir    string
+}
+
+func locate(ctx context.Context, runner shell.Runner, repo, claude string) (Checkout, error) {
+	root := filepath.Join(claude, "worktrees")
+	configured, err := runner.Run(ctx, shell.Command{Argv: []string{"git", "config", "ccx.worktreeRoot"}, Timeout: stepWait})
+	var exit *shell.ExitError
+	switch {
+	case err == nil:
+		root = strings.TrimSpace(configured.Stdout)
+	case !errors.As(err, &exit) || exit.Code != 1:
+		return Checkout{}, err
+	}
+	return Checkout{
+		Runner: runner,
+		Remote: "https://github.com/" + path.Dir(repo) + "/design-docs.git",
+		Dir:    filepath.Join(root, "design-docs", Branch),
+	}, nil
 }
 
 func (c Checkout) git(ctx context.Context, dir string, args ...string) (string, error) {
@@ -196,38 +216,29 @@ func (c Checkout) Write(ctx context.Context, topic, slug string, body []byte) (b
 	} else if err != nil {
 		return false, err
 	}
-	path := filepath.Join(c.Dir, "one-pagers", slug, "index.html")
-	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+	file := filepath.Join(c.Dir, "one-pagers", slug, "index.html")
+	if err := os.MkdirAll(filepath.Dir(file), 0o750); err != nil {
 		return false, err
 	}
-	if err := os.WriteFile(path, body, 0o600); err != nil {
+	if err := os.WriteFile(file, body, 0o600); err != nil {
 		return false, err
 	}
-	changed, err := c.git(ctx, c.Dir, "status", "--porcelain", "--", path)
+	changed, err := c.git(ctx, c.Dir, "status", "--porcelain", "--", file)
 	if err != nil || changed == "" {
 		return false, err
 	}
-	if _, err := c.git(ctx, c.Dir, "add", "--", path); err != nil {
+	if _, err := c.git(ctx, c.Dir, "add", "--", file); err != nil {
 		return false, err
 	}
-	_, err = c.git(ctx, c.Dir, "commit", "--quiet", "--no-verify", "-m", "one-pagers: explain "+topic, "--", path)
+	_, err = c.git(ctx, c.Dir, "commit", "--quiet", "--no-verify", "-m", "one-pagers: explain "+topic, "--", file)
 	return true, err
 }
 
 func (c Checkout) add(ctx context.Context) error {
-	_, err := c.git(ctx, c.Root, "rev-parse", "--verify", "--quiet", "refs/heads/"+Branch)
-	var exit *shell.ExitError
-	switch {
-	case err == nil:
-		_, err = c.git(ctx, c.Root, "worktree", "add", c.Dir, Branch)
-		return err
-	case !errors.As(err, &exit) || exit.Code != 1:
+	if _, err := c.Runner.Run(ctx, shell.Command{Argv: []string{"git", "clone", "--quiet", "--depth", "1", "--branch", "main", c.Remote, c.Dir}}); err != nil {
 		return err
 	}
-	if _, err := c.git(ctx, c.Root, "fetch", "--quiet", "origin", "main"); err != nil {
-		return err
-	}
-	_, err = c.git(ctx, c.Root, "worktree", "add", "-b", Branch, c.Dir, "origin/main")
+	_, err := c.git(ctx, c.Dir, "switch", "--quiet", "-c", Branch)
 	return err
 }
 
@@ -282,11 +293,13 @@ type Notice struct {
 
 type Announcer interface {
 	Announce(ctx context.Context, n Notice) error
+	Failed(ctx context.Context, topic string, cause error) error
 }
 
 type Owner struct {
 	Runner shell.Runner
 	Post   func(context.Context, client.Draft) (client.Record, error)
+	Desk   func() (string, error)
 	Drive  string
 	Lane   string
 }
@@ -307,6 +320,17 @@ func (o Owner) Announce(ctx context.Context, n Notice) error {
 	return fmt.Errorf("the owner's Slack DM did not get %s, and a blocker to root says so: %w", n.Link, err)
 }
 
+func (o Owner) Failed(ctx context.Context, topic string, cause error) error {
+	desk, err := o.Desk()
+	if err != nil {
+		return errors.Join(cause, err)
+	}
+	if _, err := o.Post(ctx, client.Draft{Drive: o.Drive, Lane: o.Lane, Kind: "defect", To: []string{desk}, Topic: Topic, Text: fmt.Sprintf("lr explain could not host its page on %s: %v", topic, cause)}); err != nil {
+		return errors.Join(cause, err)
+	}
+	return fmt.Errorf("no page for %s, and a defect to %s says so: %w", topic, desk, cause)
+}
+
 func (o Owner) dm(ctx context.Context, n Notice) error {
 	card, err := json.Marshal(map[string]any{"title": n.Title, "body": n.Lede, "links": []map[string]string{{"label": "Open the one-pager", "url": n.Link}}})
 	if err != nil {
@@ -319,7 +343,7 @@ func (o Owner) dm(ctx context.Context, n Notice) error {
 func Explain(ctx context.Context, checkout Checkout, host Host, owner Announcer, topic string, source []byte, now time.Time) (string, error) {
 	notice, _, err := publish(ctx, checkout, host, topic, source, now)
 	if err != nil {
-		return "", err
+		return "", owner.Failed(ctx, topic, err)
 	}
 	return notice.Link, owner.Announce(ctx, notice)
 }
@@ -371,13 +395,6 @@ func read(ctx context.Context, runner shell.Runner, from string) ([]byte, error)
 	return os.ReadFile(shown.Refs.Path)
 }
 
-func designDocs(cfg config.Config) string {
-	if root := os.Getenv("DESIGN_DOCS_ROOT"); root != "" {
-		return root
-	}
-	return filepath.Join(filepath.Dir(cfg.Checkout), "design-docs")
-}
-
 func answers(url string) bool {
 	client := http.Client{Timeout: 5 * time.Second}
 	response, err := client.Get(url)
@@ -389,6 +406,19 @@ func answers(url string) bool {
 	return response.StatusCode == http.StatusOK
 }
 
+func metaDesk(name string) (string, error) {
+	entry, err := drive.Named(name)
+	if err != nil {
+		return "", err
+	}
+	registry, err := store.Open(entry.Store())
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = registry.Close() }()
+	return lanes.MetaDesk(registry)
+}
+
 func publisher(cmd *cobra.Command, a *app.App, cfg config.Config) (Checkout, Tailnet, Owner, error) {
 	claude, err := drive.ConfigDir()
 	if err != nil {
@@ -398,10 +428,14 @@ func publisher(cmd *cobra.Command, a *app.App, cfg config.Config) (Checkout, Tai
 	if err != nil {
 		return Checkout{}, Tailnet{}, Owner{}, err
 	}
+	checkout, err := locate(cmd.Context(), a.Runner, cfg.Repo, claude)
+	if err != nil {
+		return Checkout{}, Tailnet{}, Owner{}, err
+	}
 	home := filepath.Join(claude, "long-running")
-	return Checkout{Runner: a.Runner, Root: designDocs(cfg), Dir: filepath.Join(home, Branch)},
+	return checkout,
 		Tailnet{Runner: a.Runner, Agents: agents, Binary: filepath.Join(home, "current", "bin", "lr"), Log: filepath.Join(home, "explain.log"), Answers: answers},
-		Owner{Runner: a.Runner, Post: client.Post, Drive: cfg.Drive, Lane: os.Getenv(lanes.LaneEnv)},
+		Owner{Runner: a.Runner, Post: client.Post, Desk: func() (string, error) { return metaDesk(cfg.Drive) }, Drive: cfg.Drive, Lane: os.Getenv(lanes.LaneEnv)},
 		nil
 }
 
