@@ -3,12 +3,16 @@ package coordinator
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 )
 
 const (
@@ -132,34 +136,31 @@ func TestALongBodyStaysAPointerSoItCostsNoContext(t *testing.T) {
 	}
 }
 
-func stubWatch(t *testing.T, rs ...record) string {
+func post(t *testing.T, d client.Draft) client.Record {
 	t.Helper()
-	dir := t.TempDir()
-	var lines bytes.Buffer
-	for _, r := range rs {
-		raw, err := json.Marshal(r)
-		if err != nil {
-			t.Fatal(err)
-		}
-		lines.Write(raw)
-		lines.WriteByte('\n')
+	d.Drive = testDrive
+	stored, err := client.Post(context.Background(), d)
+	if err != nil {
+		t.Fatalf("post %s: %v", d.Kind, err)
 	}
-	records := filepath.Join(dir, "records")
-	if err := os.WriteFile(records, lines.Bytes(), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	argv := filepath.Join(dir, "argv")
-	script := "#!/bin/sh\necho \"$@\" >> " + argv + "\ncat " + records + "\nexec sleep 60\n"
-	installCCI(t, dir, script)
-	return argv
+	return stored
 }
 
-func installCCI(t *testing.T, dir, script string) {
+func toRoot(t *testing.T, d client.Draft) client.Record {
 	t.Helper()
-	if err := os.WriteFile(filepath.Join(dir, "cci"), []byte(script), 0o700); err != nil { //nolint:gosec // the stub has to execute
+	d.To = []string{lanes.Root}
+	return post(t, d)
+}
+
+func cursorAfterNow(t *testing.T) string {
+	t.Helper()
+	t.Setenv("CCI_HOME", t.TempDir())
+	seen := post(t, client.Draft{Lane: "lane-a", Kind: "note", Text: "before the coordinator's cursor"})
+	cursor := filepath.Join(t.TempDir(), "next.cursor")
+	if err := os.WriteFile(cursor, []byte(strconv.FormatInt(seen.Seq, 10)+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return cursor
 }
 
 func runNext(t *testing.T, cursor string) string {
@@ -174,43 +175,57 @@ func runNext(t *testing.T, cursor string) string {
 	return out.String()
 }
 
-func TestNextPrintsOneBatchKillsItsWatchAndResumesAfterIt(t *testing.T) {
-	argv := stubWatch(t, at(11, "lane-a", "answer"), at(12, "lane-b", "ask"))
-	cursor := filepath.Join(t.TempDir(), "next.cursor")
+func printed(out string, r client.Record) bool {
+	return strings.Contains(out, fmt.Sprintf("#%d ", r.Seq))
+}
 
-	started := time.Now()
-	out := runNext(t, cursor)
-	if time.Since(started) > 30*time.Second {
-		t.Fatal("next waited on its killed watch")
-	}
-	if !strings.Contains(out, "#11 ") || !strings.Contains(out, "#12 ") {
+func TestNextPrintsOneBatchAndResumesAfterIt(t *testing.T) {
+	cursor := cursorAfterNow(t)
+	answer := toRoot(t, client.Draft{Lane: "lane-a", Kind: "answer", Text: "dev", Topic: "base"})
+	ask := toRoot(t, client.Draft{Lane: "lane-b", Kind: "ask", Text: "which base?"})
+
+	if out := runNext(t, cursor); !printed(out, answer) || !printed(out, ask) {
 		t.Fatalf("batch %q misses a record", out)
 	}
 	saved, err := os.ReadFile(cursor)
-	if err != nil || strings.TrimSpace(string(saved)) != "12" {
-		t.Fatalf("cursor %q, %v, want 12", saved, err)
+	if err != nil || strings.TrimSpace(string(saved)) != strconv.FormatInt(ask.Seq, 10) {
+		t.Fatalf("cursor %q, %v, want %d", saved, err, ask.Seq)
 	}
 
-	runNext(t, cursor)
-	calls, err := os.ReadFile(argv)
-	if err != nil {
-		t.Fatal(err)
+	blocker := toRoot(t, client.Draft{Lane: "lane-a", Kind: "blocker", Text: "red"})
+	if out := runNext(t, cursor); printed(out, ask) || !printed(out, blocker) {
+		t.Fatalf("second batch %q, want only #%d", out, blocker.Seq)
 	}
-	lines := strings.Split(strings.TrimSpace(string(calls)), "\n")
-	if len(lines) != 2 {
-		t.Fatalf("watch ran %d times, want 2: %q", len(lines), calls)
+}
+
+func TestEveryKindAddressedToRootPrints(t *testing.T) {
+	for _, kind := range append(client.Kinds(), "waste.rank") {
+		t.Run(kind, func(t *testing.T) {
+			cursor := cursorAfterNow(t)
+			r := toRoot(t, client.Draft{Lane: "lane-a", Kind: kind, Text: "#7 " + kind, Topic: "t", PRs: []string{"7"}, LaneRefs: []string{"lane-b"}, Attrs: map[string]string{"brief": "/brief.md", "model": "opus"}})
+			if out := runNext(t, cursor); !printed(out, r) {
+				t.Fatalf("a %s addressed to root did not print: %q", kind, out)
+			}
+		})
 	}
-	if strings.Contains(lines[0], "--since") {
-		t.Fatalf("first run named a cursor it does not have: %q", lines[0])
-	}
-	if !strings.Contains(lines[1], "--since 12") || !strings.Contains(lines[1], "--reader root") || !strings.Contains(lines[1], "--drive d") {
-		t.Fatalf("second run did not resume as reader the coordinator after 12: %q", lines[1])
+}
+
+func TestAHoldPrintsAboveTheRecordsThatArrivedBeforeIt(t *testing.T) {
+	var out bytes.Buffer
+	printBatch(&out, []record{at(1, "lane-a", "answer"), at(2, "owner-relay", "hold"), at(3, "lane-b", "ask")})
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	if len(lines) != 3 || !strings.HasPrefix(lines[0], "#2 ") || !strings.HasPrefix(lines[1], "#1 ") || !strings.HasPrefix(lines[2], "#3 ") {
+		t.Fatalf("batch printed %q, want the hold first", out.String())
 	}
 }
 
 func TestAWatchThatFailsSurfacesInsteadOfWaiting(t *testing.T) {
 	dir := t.TempDir()
-	installCCI(t, dir, "#!/bin/sh\necho no such drive >&2\nexit 3\n")
+	notADirectory := filepath.Join(dir, "home")
+	if err := os.WriteFile(notADirectory, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CCI_HOME", notADirectory)
 	cmd := nextCommand()
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
