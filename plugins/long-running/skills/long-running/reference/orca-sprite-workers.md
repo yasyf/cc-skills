@@ -56,6 +56,23 @@ SHA-256, so a Sprite lane runs the `lr` the launching drive runs. A pack whose
 `bin/lr.binrun` pins no sha256 tar.gz GitHub release for `linux-x86_64` refuses
 before prepare.
 
+With `WORKER_BK_URL` set, the same step writes it to `~/.config/lr/bk.url` on
+the Sprite. There `lr bk api|log|graphql` sends each read to the drive host,
+which runs it with its own `tools/ci bk` and its own token, so no Buildkite
+credential reaches a Sprite and every lane's reads share the host's rate
+budget and response cache.
+
+The drive host serves those reads once per drive. Write `bk.json` beside
+`lr.json`, with `port` for the loopback listener, `serve_port` for the tailnet
+HTTPS port, and `admit_tag` for the tailnet tag of the machines it answers,
+`tag:orca` for Sprites. Then run `lr bk install`. It writes the
+`com.long-running.<drive>.bk` launchd agent running `lr bk serve`, publishes
+the listener with `tailscale serve`, and prints the `WORKER_BK_URL` line for
+`orca.sprite.env` in `runner.json`. The proxy answers only callers that
+`tailscale serve` forwards and whose `tailscale whois` carries `admit_tag`. It
+runs `api` with GET inside its own organization, `log`, and `graphql` queries,
+and refuses `-X`, `-d`, `cancel`, `rerun`, and any mutation or subscription.
+
 With `WORKER_RELAY_SPONSOR` set to a Sprite
 that holds an enrolled cci service key, the script then joins the new Sprite to
 this Mac's default relay mesh for the mesh's routed drives, with a 24-hour
