@@ -168,10 +168,10 @@ def lanes_stood_down_alone(evt: BaseHookEvent) -> list[str]:
     Event.PreToolUse,
     only_if=[Tool("Bash")],
     tests={
-        Input(tool="Bash", tool_input={"command": "drive_supervisor.py request stand-down devbox-explore-7 --config s/lr.json --last-read 5"}, env=DRIVE_CONFIG, commands=route("devbox-explore-7", "devbox-explore-7", "desired", DUTY)): Block(
-            pattern=r"^`devbox-explore-7` keeps a standing duty \(devbox perf and bug hunting\), so it stands down only for a successor"
+        Input(tool="Bash", tool_input={"command": "drive_supervisor.py request stand-down devbox-explore-7 --config s/lr.json --last-read 5"}, env=DRIVE_CONFIG, commands=route("devbox-explore-7", "devbox-explore-7", "desired", DUTY)): Warn(
+            pattern=r"^Warning, nothing was blocked: `devbox-explore-7` keeps a standing duty \(devbox perf and bug hunting\), so it stands down only for a successor"
         ),
-        Input(tool="Bash", tool_input={"command": "cci post --lane root --kind decide --to supervisor --attr verb=stand-down --attr lane=devbox-explore-7 --text x"}, env=DRIVE_CONFIG, commands=route("devbox-explore-7", "devbox-explore-7", "desired", DUTY)): Block(pattern=r"--successor <lane>"),
+        Input(tool="Bash", tool_input={"command": "cci post --lane root --kind decide --to supervisor --attr verb=stand-down --attr lane=devbox-explore-7 --text x"}, env=DRIVE_CONFIG, commands=route("devbox-explore-7", "devbox-explore-7", "desired", DUTY)): Warn(pattern=r"--successor <lane>"),
         Input(tool="Bash", tool_input={"command": "drive_supervisor.py request stand-down devbox-explore-7 --successor devbox-perf-1 --config s/lr.json"}, env=DRIVE_CONFIG, commands=route("devbox-explore-7", "devbox-explore-7", "desired", DUTY)): Allow(),
         Input(tool="Bash", tool_input={"command": "cci post --lane root --kind decide --to supervisor --attr verb=stand-down --attr lane=devbox-explore-7 --attr successor=devbox-perf-1 --text x"}, env=DRIVE_CONFIG, commands=route("devbox-explore-7", "devbox-explore-7", "desired", DUTY)): Allow(),
         Input(tool="Bash", tool_input={"command": "drive_supervisor.py request stand-down conflicts-2 --config s/lr.json"}, env=DRIVE_CONFIG, commands=route("conflicts-2", "conflicts-2", "desired")): Allow(),
@@ -180,5 +180,5 @@ def lanes_stood_down_alone(evt: BaseHookEvent) -> list[str]:
 def standing_lanes_stand_down_for_a_successor(evt: BaseHookEvent) -> HookResult | None:
     for lane in lanes_stood_down_alone(evt):
         if (found := routed(evt, lane)) and found.get("standing"):
-            return evt.block(f"`{lane}` keeps a standing duty ({found['standing']}), so it stands down only for a successor: add `--successor <lane>` to the request. If the duty itself ends, delete the `Standing:` line from its brief first.")
+            return evt.warn(f"Warning, nothing was blocked: `{lane}` keeps a standing duty ({found['standing']}), so it stands down only for a successor: add `--successor <lane>` to the request. If the duty ends, delete the `Standing:` line from its brief.")
     return None
