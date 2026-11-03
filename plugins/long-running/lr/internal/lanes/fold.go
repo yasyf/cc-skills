@@ -100,7 +100,7 @@ func grant(s *store.Store, r Record, fresh bool, at time.Time, out *folded) {
 		if successor == "" && !fresh {
 			dropQueuedLaunch(s, row, at, out)
 		}
-		if row.State != store.LaneRetired {
+		if row.State != store.LaneRetired || successor != "" {
 			retire(s, name, or(successor, Root), at)
 		}
 		if successor != "" {
@@ -543,7 +543,7 @@ func dropQueuedLaunch(s *store.Store, stood store.Lane, at time.Time, out *folde
 	queued := stood
 	if stood.State == store.LaneRetired {
 		heir, found := laneOf(s, stood.RetiredBy)
-		if !found || heir.Predecessor != stood.Name {
+		if !found || heir.Predecessor != stood.Name || heir.Heard.After(heir.Since) {
 			return
 		}
 		queued = heir
@@ -577,7 +577,8 @@ func foldRootStandDown(s *store.Store, r Record, fresh bool, at time.Time, out *
 	successor := r.Attr("successor")
 	named := map[string]bool{}
 	for _, listed := range standDownList.FindAllStringSubmatch(r.Text, -1) {
-		for _, word := range laneWord.FindAllString(listed[1], -1) {
+		before, _, _ := strings.Cut(listed[1], " for ")
+		for _, word := range laneWord.FindAllString(before, -1) {
 			if _, found := laneOf(s, word); found {
 				named[word] = true
 			}
@@ -588,7 +589,17 @@ func foldRootStandDown(s *store.Store, r Record, fresh bool, at time.Time, out *
 			named[to] = true
 		}
 	}
-	delete(named, successor)
+	heirs := map[string]bool{successor: true}
+	for old := range named {
+		gone, _ := laneOf(s, old)
+		heirs[gone.RetiredBy] = true
+		if named[gone.Predecessor] {
+			heirs[old] = true
+		}
+	}
+	for heir := range heirs {
+		delete(named, heir)
+	}
 	for _, old := range slices.Sorted(maps.Keys(named)) {
 		gone, found := laneOf(s, old)
 		if !found {

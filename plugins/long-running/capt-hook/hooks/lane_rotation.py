@@ -52,12 +52,13 @@ def mentions_stand_down(message: object) -> bool:
         Input(tool="SendMessage", tool_input={"to": "desk", "message": "status?"}, env=DRIVE_CONFIG, commands=route("desk", ROOT)): Warn(pattern=r"^Warning, nothing was blocked: `desk` is stood down with no successor"),
         Input(tool="SendMessage", tool_input={"to": "desk", "message": "STAND-DOWN: desk-2 owns it"}, env=DRIVE_CONFIG, commands=route("desk", "desk-2")): Warn(pattern=r"`TaskStop` `desk` instead\.$"),
         Input(tool="SendMessage", tool_input={"to": "desk-2", "message": "status?"}, env=DRIVE_CONFIG, commands=route("desk-2", "desk-2", "desired")): Allow(),
+        Input(tool="SendMessage", tool_input={"to": "dar-desk-2", "message": "status?"}, env=DRIVE_CONFIG, commands=route("desk-2", "desk-2", "desired")): Allow(),
         Input(tool="SendMessage", tool_input={"to": "desk", "message": "status?"}): Allow(),
     },
 )
 def redirect_retired_lanes(evt: BaseHookEvent) -> HookResult | None:
     raw = evt.input.raw
-    if not (to := raw.get("to")) or not (found := routed(evt, to)) or found["route"] == to:
+    if not (to := raw.get("to")) or not (found := routed(evt, to)) or found["route"] == found["lane"]:
         return None
     target = MAIN if found["route"] == ROOT else found["route"]
     if mentions_stand_down(raw.get("message")):
@@ -128,13 +129,14 @@ def urgent_targets(evt: BaseHookEvent) -> list[str]:
         Input(tool="Bash", tool_input={"command": "cci post --lane root --kind incident --to s3-errors-2 --text 'litestream respawn'"}, env=DRIVE_CONFIG, commands=route("s3-errors-2", ROOT)): Warn(pattern=r"`s3-errors-2` is stood down in the lane supervisor's registry with no successor"),
         Input(tool="Bash", tool_input={"command": "cci post --lane root --kind decide --to s3-errors-2@drive,root --text 'x'"}, env=DRIVE_CONFIG, commands=route("s3-errors-2", "s3-errors-3")): Warn(pattern=r"Post it to its successor `s3-errors-3`"),
         Input(tool="Bash", tool_input={"command": "cci post --lane root --kind incident --to s3-errors-3 --text 'x'"}, env=DRIVE_CONFIG, commands=route("s3-errors-3", "s3-errors-3", "desired")): Allow(),
+        Input(tool="Bash", tool_input={"command": "cci post --lane root --kind incident --to dar-s3-errors-3 --text 'x'"}, env=DRIVE_CONFIG, commands=route("s3-errors-3", "s3-errors-3", "desired")): Allow(),
         Input(tool="Bash", tool_input={"command": "cci post --lane root --kind note --to s3-errors-2 --text 'x'"}, env=DRIVE_CONFIG, commands=route("s3-errors-2", ROOT)): Allow(),
         Input(tool="Bash", tool_input={"command": "cci post --lane root --kind incident --to s3-errors-2 --text 'x'"}): Allow(),
     },
 )
 def urgent_posts_reach_live_lanes(evt: BaseHookEvent) -> HookResult | None:
     for lane in urgent_targets(evt):
-        if (found := routed(evt, lane)) and found["route"] != lane:
+        if (found := routed(evt, lane)) and found["route"] != found["lane"]:
             heir = f"its successor `{found['route']}`" if found["route"] != ROOT else "no successor"
             return evt.warn(f"Warning, nothing was blocked: `{lane}` is stood down in the lane supervisor's registry with {heir}, so this incident or decide sits unread. Post it to {heir if found['route'] != ROOT else 'a live lane'}, or spawn a successor this turn.")
 

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -144,20 +145,42 @@ func (d drive) owed(out io.Writer) ([]owing, error) {
 	if err != nil {
 		return nil, err
 	}
-	taken := map[string]bool{}
-	for _, row := range rows {
-		taken[row.Name] = true
+	posted := map[string]poster{}
+	for name, at := range heard {
+		canonical := lanes.Canonical(d.config.Drive, name)
+		if at.After(posted[canonical].at) {
+			posted[canonical] = poster{name, at}
+		}
 	}
-	for name := range heard {
+	known := map[string]store.Lane{}
+	for _, row := range rows {
+		row.Name = lanes.Canonical(d.config.Drive, row.Name)
+		known[row.Name] = row
+	}
+	for name := range posted {
+		if _, registered := known[name]; !registered {
+			known[name] = store.Lane{Name: name}
+		}
+	}
+	taken := map[string]bool{}
+	for name := range known {
 		taken[name] = true
 	}
 	var owed []owing
 	var faults []error
 	for _, standingDesk := range standing {
 		next := owing{desk: standingDesk, lane: standingDesk.name, from: d.brief(standingDesk.name)}
-		if row, found, live := newest(rows, standingDesk.name); found {
+		if row, found, live := d.holder(known, posted, standingDesk.name); found {
 			if live {
-				fmt.Fprintf(out, "%s is up as %s\n", standingDesk.name, row.Name)
+				seq, err := s.NewestSeq(posted[row.Name].name)
+				if err != nil {
+					return nil, err
+				}
+				newest := "no record yet"
+				if seq != 0 {
+					newest = fmt.Sprintf("newest record #%d", seq)
+				}
+				fmt.Fprintf(out, "%s is up as %s, %s; launching another takes `lr request stand-down %s --successor <lane>` first\n", standingDesk.name, row.Name, newest, row.Name)
 				continue
 			}
 			next.lane, next.from = lanes.SuccessorName(row.Name, taken), row.Brief
@@ -178,11 +201,16 @@ func (d drive) owed(out io.Writer) ([]owing, error) {
 	return owed, errors.Join(faults...)
 }
 
-func newest(rows []store.Lane, role string) (row store.Lane, found, live bool) {
+type poster struct {
+	name string
+	at   time.Time
+}
+
+func (d drive) holder(known map[string]store.Lane, posted map[string]poster, role string) (row store.Lane, found, live bool) {
 	numbered := regexp.MustCompile(`^` + regexp.QuoteMeta(role) + `(?:-(\d+))?$`)
 	newestNumber := 0
-	for _, lane := range rows {
-		match := numbered.FindStringSubmatch(lane.Name)
+	for _, name := range slices.Sorted(maps.Keys(known)) {
+		match := numbered.FindStringSubmatch(name)
 		if match == nil {
 			continue
 		}
@@ -190,7 +218,11 @@ func newest(rows []store.Lane, role string) (row store.Lane, found, live bool) {
 		if match[1] != "" {
 			number, _ = strconv.Atoi(match[1])
 		}
-		laneLive := slices.Contains(up, lane.State)
+		lane, at := known[name], posted[name].at
+		laneLive := slices.Contains(up, lane.State) || at.After(lane.Since) && d.app.Now().Sub(at) < lanes.StaleAfter
+		if lane.State == "" && !laneLive {
+			continue
+		}
 		if !found || laneLive && !live || laneLive == live && number > newestNumber {
 			row, found, live, newestNumber = lane, true, laneLive, number
 		}

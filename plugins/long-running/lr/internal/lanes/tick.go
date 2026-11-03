@@ -84,10 +84,16 @@ func Tick(s *store.Store, d Deps, now time.Time, generation int64) (out Outcome,
 	if err != nil {
 		return out, err
 	}
+	for i := range rows {
+		rows[i].Lane = Canonical(d.Drive, rows[i].Lane)
+	}
 	found := Peers(rows)
 	records, err := d.Records(cursor)
 	if err != nil {
 		return out, err
+	}
+	for i := range records {
+		records[i].Lane = Canonical(d.Drive, records[i].Lane)
 	}
 	var adoptable map[string]bool
 	if fresh {

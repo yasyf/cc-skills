@@ -101,6 +101,16 @@ var (
 	picked        = regexp.MustCompile(`\([\w.-]+\)`)
 )
 
+func Canonical(drive, lane string) string {
+	var initials strings.Builder
+	for word := range strings.SplitSeq(drive, "-") {
+		if word != "" {
+			initials.WriteByte(word[0])
+		}
+	}
+	return strings.TrimPrefix(lane, initials.String()+"-")
+}
+
 func family(name string) (string, int) {
 	if found := numbered.FindStringSubmatch(name); found != nil {
 		n, _ := strconv.Atoi(found[2])
@@ -379,7 +389,7 @@ func Classify(lane store.Lane, peer *Peer, now time.Time, tokens, rotateAt int) 
 	}
 	aliveNow := alive(peer, heard, now)
 	if lane.State == store.LaneLaunching {
-		if peer != nil && aliveNow {
+		if aliveNow && (peer != nil || lane.Heard.After(lane.Since)) {
 			return Verdict{Kind: CameUp}
 		}
 		if now.Sub(lane.Since) >= StaleAfter {
