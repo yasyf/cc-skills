@@ -104,3 +104,25 @@ func TestACompactionWhoseHandoffCannotBeWrittenLeavesABlocker(t *testing.T) {
 		})
 	}
 }
+
+func TestADeskHandoffCarriesTheOpenOwnerOrdersAndAWorkerHandoffDoesNot(t *testing.T) {
+	for _, role := range []string{"desk", "lane"} {
+		t.Run(role, func(t *testing.T) {
+			s := memory(t)
+			if _, err := s.WantLane(store.Lane{Name: "meta-desk-3", Brief: "/briefs/meta-desk-3.md", Model: "opus", Effort: "xhigh", Role: role, State: store.LaneDesired}, t0); err != nil {
+				t.Fatal(err)
+			}
+			run := &handoffRun{}
+			env := handoffEnv(&fakeBus{}, run)
+			env.State = ownerLedger(t, 1)
+
+			if _, err := env.WriteHandoff(context.Background(), s, "meta-desk-3", "", ""); err != nil {
+				t.Fatal(err)
+			}
+
+			doc := run.commands[0]
+			equal(t, doc.Argv[0], "ccn")
+			equal(t, strings.Contains(doc.Stdin, "## Open owner orders\n\nNo live lane, open PR or landed record delivers these yet (`lr owner audit`). Carry each until one does.\n\n- m1 Nov 3 4:50 AM: build order 1\n"), role == "desk")
+		})
+	}
+}

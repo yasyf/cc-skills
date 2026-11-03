@@ -141,16 +141,7 @@ coordinator, the meta and signal lanes and helpers it spawned for its own work,
 never to the coordinator's children, and beyond the launches at drive start it posts
 no `go`, `hold`, `decide` or `launch`. Every owner message lands in its message
 ledger as it arrives, and its turn cannot end while a row is not marked responded
-or addressed (`lr owner mark <id> responded|addressed`). A reply or a route is not a
-delivery: `lr owner audit` lists every order with no live lane whose brief names its
-`owner:m<row>` token, no open PR of such a lane, no landed or done record naming the
-token or posted by such a lane, and no report whose `delivered` attr names it. An order whose
-deliverable is a reply, such as an explanation or options, is delivered once he acts on it:
-the communicator posts `cci post --kind report --attr delivered=owner:m11`. A reply alone
-never counts, since an acknowledgement names the row too. The supervisor reports that list to the communicator every
-hour, and the owner update opens with it. Text alone cannot always tell an order from a
-question, so a bare question and a board tap are left out and `lr owner mark <id> no-order`
-takes a remark off the list. A coordinator `ask` or
+or addressed (`lr owner mark <id> responded|addressed`). A coordinator `ask` or
 `blocked` record that waits on him is a ledger row the moment it posts, delivered by
 the cci channel the communicator subscribed to, never found by a later read: on Nov 3
 the coordinator waited from 10:20 PM to 1:40 AM and he noticed before the

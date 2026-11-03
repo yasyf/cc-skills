@@ -196,8 +196,8 @@ func TestTheVerbMarksTheRowTheHooksLedgerPathHolds(t *testing.T) {
 
 func TestTheVerbRefusesAnyOtherState(t *testing.T) {
 	got, err := run(t, "mark", "m1", "done")
-	if err == nil || !strings.Contains(err.Error(), "responded or addressed") {
-		t.Fatalf("got %v, want a refusal naming the two states", err)
+	if err == nil || !strings.Contains(err.Error(), "responded, addressed or no-order") {
+		t.Fatalf("got %v, want a refusal naming the three states", err)
 	}
 	if !strings.Contains(got, "| m1 | Nov 2 8:05 PM | keep the nightly report |  | open |\n") {
 		t.Fatalf("m1 changed:\n%s", got)

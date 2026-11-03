@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -30,12 +31,16 @@ func handoffCommand(a *app.App) *cobra.Command {
 		Short: "Write a lane's handoff from its records, PRs and worktree with no model call, and post it; print the doc id",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			s, cfg, err := opened(a)
+			cfg, state, err := Loaded(a)
+			if err != nil {
+				return err
+			}
+			s, err := store.Open(filepath.Join(state, StoreFile))
 			if err != nil {
 				return err
 			}
 			defer func() { _ = s.Close() }()
-			env, err := NewEnv(a.Runner, cfg, "", a.Now)
+			env, err := NewEnv(a.Runner, cfg, state, a.Now)
 			if err != nil {
 				return err
 			}
@@ -110,6 +115,19 @@ func (e Env) handoffBody(ctx context.Context, s *store.Store, lane, cwd, transcr
 	fmt.Fprintf(&out, "- Brief: %s\n- Transcript: %s\n- PRs it owns: %s\n", or(row.Brief, "none on the registry"), or(transcript, "unknown"), or(numberList(row.PRs), "none"))
 	if row.Waiting != 0 {
 		fmt.Fprintf(&out, "- Parked on: record #%s %s\n", strconv.FormatInt(row.Waiting, 10), row.Awaits)
+	}
+	if lane == OwnerRelay || isStanding(row) {
+		orders, err := OpenOrders(ctx, e.Bus, s, e.Config.Drive, e.Config.Repo, e.State)
+		if err != nil {
+			return "", fmt.Errorf("lr owner audit: %w", err)
+		}
+		out.WriteString("\n## Open owner orders\n\nNo live lane, open PR or landed record delivers these yet (`lr owner audit`). Carry each until one does.\n\n")
+		if len(orders) == 0 {
+			out.WriteString("None.\n")
+		}
+		for _, order := range orders {
+			fmt.Fprintf(&out, "- %s\n", order.Line())
+		}
 	}
 	out.WriteString("\n## Asks and blockers addressed to it\n\n")
 	addressed := slices.DeleteFunc(open, func(r client.Record) bool { return !slices.Contains(r.To, lane) })
