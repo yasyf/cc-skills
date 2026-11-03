@@ -28,7 +28,7 @@
     rulings.py glossary     [--program SLUG | --drive ID]
     rulings.py authorize    [--program SLUG | --drive ID] --row KEY (--action TS | --block ID [--option ID] | --prompt DIGEST)
     rulings.py status       [--program SLUG | --drive ID] KEY STATE --evidence REF
-    rulings.py anchor       [--program SLUG | --drive ID] KEY [--paths P]... [--symbols S]... [--ops O]...
+    rulings.py anchor       [--program SLUG | --drive ID] KEY [--paths P]... [--symbols S]... [--ops O]... [--guards G]...
     rulings.py names        [--program SLUG | --drive ID] KEY [--remove NAME]... [--drop-repeat KEY]... --why ANSWER
     rulings.py supersede    [--program SLUG | --drive ID] OLD --by NEW
     rulings.py check-pr     [--program SLUG | --drive ID] --pr [OWNER/NAME#]N --head SHA [--base REF] [--incident] [--plan PATH]
@@ -2298,9 +2298,9 @@ def cmd_status(args: argparse.Namespace, shell: ledger.Shell) -> int:
 
 
 def cmd_anchor(args: argparse.Namespace, shell: ledger.Shell) -> int:
-    fields = {name: values for name, values in (("paths", args.paths), ("symbols", args.symbols), ("ops", args.ops)) if values}
+    fields = {name: values for name, values in (("paths", args.paths), ("symbols", args.symbols), ("ops", args.ops), ("guards", args.guards)) if values}
     if not fields:
-        raise SystemExit("anchor needs --paths, --symbols or --ops")
+        raise SystemExit("anchor needs --paths, --symbols, --ops or --guards")
     with writing(args, shell) as loaded:
         loaded.row(args.key)
         loaded.write(args.key, **fields)
@@ -2997,7 +2997,12 @@ def build_parser(parser_type=argparse.ArgumentParser) -> argparse.ArgumentParser
     anchor.add_argument("--paths", nargs="+", default=[])
     anchor.add_argument("--symbols", nargs="+", default=[])
     anchor.add_argument("--ops", nargs="+", default=[])
+<<<<<<< HEAD
     narrowed = verb("names", cmd_names, "remove names or wrongly attached repeats from a row, citing the answer that removes them (the coordinator and seed lane only)")
+=======
+    anchor.add_argument("--guards", nargs="+", default=[], help="anchors the row guards but does not remove; the owed-deletions check skips them")
+    narrowed = verb("names", cmd_names, "remove names or wrongly attached repeats from a row, citing the answer that removes them (root and seed lane only)")
+>>>>>>> c86fdea (long-running: 🐛 the owed-deletion check skips guarded anchors and targets gone from trunk)
     narrowed.add_argument("key")
     narrowed.add_argument("--remove", action="append", default=[], metavar="NAME")
     narrowed.add_argument("--drop-repeat", action="append", default=[], metavar="KEY")

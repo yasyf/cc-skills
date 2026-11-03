@@ -167,7 +167,7 @@ func (t Trunk) present(ctx context.Context, row Owed) (bool, error) {
 	}
 	args := []string{"grep", "-q", "-w", "-F"}
 	for _, symbol := range row.Symbols {
-		args = append(args, "-e", tail(symbol))
+		args = append(args, "-e", identifier(symbol))
 	}
 	args = append(args, t.rev(), "--")
 	for line := range strings.Lines(listing) {
@@ -197,14 +197,15 @@ func (t Trunk) run(ctx context.Context, tool string, args ...string) (string, er
 }
 
 type Ruling struct {
-	Key, Kind, Status string
-	Removes           bool
-	Paths, Symbols    []string
+	Key, Kind, Status      string
+	Removes                bool
+	Paths, Symbols, Guards []string
 }
 
 type Gap struct {
-	Target string
-	Keys   []string
+	Target      string
+	Symbol      bool
+	Keys, Paths []string
 }
 
 func (t Trunk) Gaps(ctx context.Context, rulings, drive string) ([]string, error) {
@@ -220,12 +221,41 @@ func (t Trunk) Gaps(ctx context.Context, rulings, drive string) ([]string, error
 	if err != nil {
 		return nil, err
 	}
+	var lines []string
 	gaps := Gaps(found, owed)
-	lines := make([]string, len(gaps))
-	for i, gap := range gaps {
-		lines[i] = fmt.Sprintf("%s, removed by %s", gap.Target, strings.Join(gap.Keys, ", "))
+	if len(gaps) == 0 {
+		return lines, nil
+	}
+	if _, err := t.run(ctx, "git", "fetch", "-q", "origin", t.Branch); err != nil {
+		return nil, err
+	}
+	for _, gap := range gaps {
+		standing, err := t.standing(ctx, gap)
+		if err != nil {
+			return nil, err
+		}
+		if standing {
+			lines = append(lines, fmt.Sprintf("%s, removed by %s", gap.Target, strings.Join(gap.Keys, ", ")))
+		}
 	}
 	return lines, nil
+}
+
+func (t Trunk) standing(ctx context.Context, gap Gap) (bool, error) {
+	if len(gap.Paths) == 0 {
+		return true, nil
+	}
+	args := []string{"grep", "-q", "-e", "^"}
+	if gap.Symbol {
+		args = []string{"grep", "-q", "-w", "-F", "-e", identifier(gap.Target)}
+	}
+	args = slices.Concat(args, []string{t.rev(), "--"}, gap.Paths, []string{":(glob,exclude)**/*_test.go"})
+	_, err := t.run(ctx, "git", args...)
+	var exit *shell.ExitError
+	if errors.As(err, &exit) && exit.Code == 1 {
+		return false, nil
+	}
+	return err == nil, err
 }
 
 func ParseRulings(raw string) ([]Ruling, error) {
@@ -255,11 +285,17 @@ func ParseRulings(raw string) ([]Ruling, error) {
 		if err != nil {
 			return nil, fmt.Errorf("row %s symbols: %w", key, err)
 		}
-		for i, path := range paths {
-			paths[i] = anchorSuffix.ReplaceAllString(path, "")
+		guards, err := anchored(fields["guards"])
+		if err != nil {
+			return nil, fmt.Errorf("row %s guards: %w", key, err)
+		}
+		for _, anchors := range [][]string{paths, guards} {
+			for i, anchor := range anchors {
+				anchors[i] = anchorSuffix.ReplaceAllString(anchor, "")
+			}
 		}
 		rulings = append(rulings, Ruling{
-			Key: key, Kind: fields["kind"], Status: fields["status"], Paths: paths, Symbols: symbols,
+			Key: key, Kind: fields["kind"], Status: fields["status"], Paths: paths, Symbols: symbols, Guards: guards,
 			Removes: slices.ContainsFunc(implications, func(item struct{ Direction, State string }) bool {
 				return item.Direction == "removes" && item.State != "struck"
 			}),
@@ -279,7 +315,7 @@ func anchored(value string) ([]string, error) {
 }
 
 func Gaps(rulings []Ruling, owed []Owed) []Gap {
-	keys := map[string][]string{}
+	found := map[string]Gap{}
 	for _, ruling := range rulings {
 		if ruling.Status != "in-force" || !ruling.Removes {
 			continue
@@ -302,23 +338,40 @@ func Gaps(rulings []Ruling, owed []Owed) []Gap {
 			excused := slices.ContainsFunc(rulings, func(other Ruling) bool {
 				return other.Kind == "exception" && names(other.Paths, other.Symbols)
 			})
+			if listed || excused || names(ruling.Guards, ruling.Guards) {
+				continue
+			}
+			gap := Gap{Target: target, Paths: []string{target}}
 			if symbolic {
-				target = tail(target)
+				gap = Gap{Target: tail(target), Symbol: true, Paths: ruling.Paths}
 			}
-			if !listed && !excused && !slices.Contains(keys[target], ruling.Key) {
-				keys[target] = append(keys[target], ruling.Key)
+			if seen, ok := found[gap.Target]; ok {
+				gap.Keys, gap.Paths = seen.Keys, union(seen.Paths, gap.Paths)
 			}
+			if !slices.Contains(gap.Keys, ruling.Key) {
+				gap.Keys = append(gap.Keys, ruling.Key)
+			}
+			found[gap.Target] = gap
 		}
 	}
-	gaps := make([]Gap, 0, len(keys))
-	for _, target := range slices.Sorted(maps.Keys(keys)) {
-		gaps = append(gaps, Gap{Target: target, Keys: keys[target]})
+	gaps := make([]Gap, 0, len(found))
+	for _, target := range slices.Sorted(maps.Keys(found)) {
+		gaps = append(gaps, found[target])
 	}
 	return gaps
 }
 
+func union(a, b []string) []string {
+	return slices.Compact(slices.Sorted(slices.Values(slices.Concat(a, b))))
+}
+
 func tail(symbol string) string {
 	return symbol[strings.LastIndex(symbol, ".")+1:]
+}
+
+func identifier(symbol string) string {
+	parts := strings.Split(tail(symbol), "::")
+	return parts[len(parts)-1]
 }
 
 func coveredPath(target, path string) bool {
