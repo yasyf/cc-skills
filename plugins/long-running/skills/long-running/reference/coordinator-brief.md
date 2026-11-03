@@ -1,15 +1,15 @@
 # The coordinator's brief
 
-The owner bridge launches one coordinator per drive at drive start as a sibling
+The communicator launches one coordinator per drive at drive start as a sibling
 Orca session bound as lane `root` (`lr launch coordinator <state dir>/root/brief.md`,
 which refuses a brief whose directory is not named for the lane), and the lane supervisor
 relaunches it when it dies. The launch sets `CLAUDE_LONG_RUNNING_LANE=root`, and the pack's
 first-command hook claims that lane with `cci announce --lane root` before the
 coordinator's first command, so a lane an earlier post bound the window to never
-wins. The bridge claims `owner-relay` with its own subscribe line before the launch,
+wins. The communicator claims `owner-relay` with its own subscribe line before the launch,
 or the claim is refused as a second binder of `root`. Hooks are window-scoped, so the coordinator is never an in-process
-subagent of the bridge: bound as `root`, every root hook, stop check, injection and
-cci delivery lands on it and none on the bridge. Fill this template; the coordinator
+subagent of the communicator: bound as `root`, every root hook, stop check, injection and
+cci delivery lands on it and none on the communicator. Fill this template; the coordinator
 loads the `long-running` skill itself and every rule there that names `root` binds it.
 The coordinator, not the communicator, owns and starts desk-runner, the launch runner and
 every desk, remote, as an Orca session with every former root role. Fill each desk's
@@ -65,7 +65,7 @@ then `cci tail --drive <drive> --reader root --since <seq> --oldest`.
 Everything the owner must see goes as
 `cci post --lane root --drive <drive> --stamp --kind report --to owner-relay`:
 the spawn of an incident lane, a mechanism, a fix-live, a release switch, a
-decision that is his, and each milestone, after which the bridge sends him an
+decision that is his, and each milestone, after which the communicator sends him an
 update. A `blocker` from `owner-relay` naming update gaps lists his messages no
 record carries; answer each with `--re <seq>` naming the lane that acts. You never
 post to Slack, the board or the owner directly.

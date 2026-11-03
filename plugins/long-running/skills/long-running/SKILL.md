@@ -1,6 +1,6 @@
 ---
 name: long-running
-description: How a multi-lane drive runs without a root as its bottleneck. The session the owner types in is the owner bridge; a sibling Orca session bound as lane root is the coordinator that runs the drive; a standing meta lane takes every skill, tooling and process improvement, and a standing signal lane points the communicator at what matters in the coordinator's feed; every question has a verb of the drive tool lr; landing, grading, lane liveness, incident spawn, release tracking and owner updates run as processes that reach the coordinator only with a decision to make. Use when orchestrating multi-lane work, driving a CI or infra bring-up, running a migration or audit across many units, supervising background agents or PR landings, tracking more than ten open PRs, landing PRs through a merge queue from many lanes, or on any task that will plainly exceed one context window.
+description: How a multi-lane drive runs without a root as its bottleneck. The session the owner types in is the communicator; a sibling Orca session bound as lane root is the coordinator that runs the drive; a standing meta lane takes every skill, tooling and process improvement, and a standing signal lane points the communicator at what matters in the coordinator's feed; every question has a verb of the drive tool lr; landing, grading, lane liveness, incident spawn, release tracking and owner updates run as processes that reach the coordinator only with a decision to make. Use when orchestrating multi-lane work, driving a CI or infra bring-up, running a migration or audit across many units, supervising background agents or PR landings, tracking more than ten open PRs, landing PRs through a merge queue from many lanes, or on any task that will plainly exceed one context window.
 ---
 
 # Long-running orchestration
@@ -14,14 +14,14 @@ owner message interrupted the coordination that would have moved them. This skil
 exists so none of that reaches a root's queue again.
 
 The root is two sessions, and the whole skill is built around that split. The
-**owner bridge** is the session the owner types in; its whole job is him. The
-**coordinator** is a sibling Orca session the bridge launches at drive start,
+**communicator** is the session the owner types in; its whole job is him. The
+**coordinator** is a sibling Orca session the communicator launches at drive start,
 bound as lane `root`, and it does the three things a root does: it spawns a lane
 for every ask with a body the turn it arrives, it decides what a process
 escalated, and it relays what the desks produce. Two standing lanes start beside
 them: the **meta lane** takes every improvement to this skill and its tooling, so the
 coordinator owns drive work only, and the **signal lane** tails the coordinator, so
-the communicator (the owner bridge) never has to. Everything else is a verb of the drive tool `lr` or a
+the communicator never has to. Everything else is a verb of the drive tool `lr` or a
 process that runs without any of them. A rule here names
 the verb or the process that makes a failure impossible; a rule with neither is a
 defect to fix in the pack.
@@ -69,10 +69,10 @@ single-lane investigation is one subagent in direct mode, not a drive.
 
 **Binding.** Every session of a drive is bound to one lane name, and every hook,
 stop check, injection and cci delivery keys on that binding and nothing else. The
-bridge's window is bound `owner-relay`. The coordinator's window is bound `root`,
+communicator's window is bound `owner-relay`. The coordinator's window is bound `root`,
 so every root hook (`root_context`, `root_reads`, `owner_facing`, `task_list`, the
 stop checks, the compaction handoff, the register injection) and every record
-addressed to `root` lands on the coordinator and none of it on the bridge. The pack's hooks
+addressed to `root` lands on the coordinator and none of it on the communicator. The pack's hooks
 come in three tiers on one switch, which `/long-running:coordinator` sets for the
 session that runs it. Shared hooks (context discipline: `root_context`, `root_reads`)
 act in both windows. Coordinator hooks (asks, retro rows, coverage, landing, launch,
@@ -83,12 +83,12 @@ recurrence) act only in the window that ran `/long-running`
 alone. The coordinator skill also claims cci lane `root` with `cci announce --lane
 root`, so cci's stop check and injections follow it; the communicator claims
 `owner-relay` with its subscribe line. A lane's window, the meta and signal lanes' included, is bound to its lane name and gets the lane hooks. Hooks are window-scoped,
-so the coordinator is never an in-process subagent of the bridge: it is a sibling
-Orca session, launched by the bridge, that the bridge never `SendMessage`s and that
-never `SendMessage`s the bridge. The bus is the only channel between them, because
+so the coordinator is never an in-process subagent of the communicator: it is a sibling
+Orca session, launched by the communicator, that the communicator never `SendMessage`s and that
+never `SendMessage`s the communicator. The bus is the only channel between them, because
 a record survives a compaction where a message does not.
 
-**The owner bridge** answers every owner message that turn, in his terms: the "why"
+**The communicator** answers every owner message that turn, in his terms: the "why"
 with the mechanism of the drive's own failure, the pick on his board, the Pacific
 time from `date`. It appends his words verbatim to the drive's rulings file and
 posts them to the coordinator as one
@@ -103,15 +103,15 @@ would want from it, and it never forwards the coordinator's text as written. Onl
 the communicator owes him his own terms (R21): plain words, Pacific times, the thing's
 name never a codename or id, the mechanism of the drive's failure before the fix,
 the human layer before the agent layer
-([owner-bridge-brief.md](reference/owner-bridge-brief.md)). It owns the dashboard and the owner updates:
+([communicator-brief.md](reference/communicator-brief.md)). It owns the dashboard and the owner updates:
 one generator (`lr update render`) feeds both from the same rows, run by its one
 standing helper `update-desk`, in the format the owner's words on updates, work
 tracking and blockers set ([owner-report-table.md](reference/owner-report-table.md),
-[owner-bridge-brief.md](reference/owner-bridge-brief.md)). The communicator talks only to
+[communicator-brief.md](reference/communicator-brief.md)). The communicator talks only to
 the coordinator, the meta and signal lanes and helpers it spawned itself for its own work; it never addresses the coordinator's children or the meta lane's, and beyond
-the three launches at drive start it posts no `go`, `hold`, `decide` or `launch`. Every owner message lands in the bridge's message ledger as it
-arrives, and the bridge's turn cannot end while a row is not marked responded or
-addressed (`lr owner mark <id> responded|addressed`). A board answer lands there too, sorted by `lr board classify`: a tap or verdict goes straight to the asking lane with a copy here and a row already closed; a write-in, note or other free text comes here alone with an open row, and the communicator routes it to the lane that asked. The bridge also proposes: when what it relays shows
+the three launches at drive start it posts no `go`, `hold`, `decide` or `launch`. Every owner message lands in the communicator's message ledger as it
+arrives, and the communicator's turn cannot end while a row is not marked responded or
+addressed (`lr owner mark <id> responded|addressed`). A board answer lands there too, sorted by `lr board classify`: a tap or verdict goes straight to the asking lane with a copy here and a row already closed; a write-in, note or other free text comes here alone with an open row, and the communicator routes it to the lane that asked. The communicator also proposes: when what it relays shows
 a structural fault, such as PRs queued behind one coordinator decision, it brings him
 the split as an option, not only the symptom. It never calls `AskUserQuestion`: a pick
 goes on his board, and an urgent yes/no goes to his Slack as an ask card with buttons
@@ -122,7 +122,7 @@ changed for him or what he must decide. Ledger rows, hook mechanics, lane acks a
 its Stop hook refuses any other closing message. It is a root session for reads: each
 fact it needs is one bounded read or one post, else a subagent. The shared read hooks act
 on it at the coordinator's thresholds, and a second Bash read with no `Agent` spawn
-since the first draws a nudge ([owner-bridge-brief.md](reference/owner-bridge-brief.md)).
+since the first draws a nudge ([communicator-brief.md](reference/communicator-brief.md)).
 
 **The coordinator** reads reader `root`, posts as `root`, runs in a foreground
 `lr coordinator next` loop for the life of the drive, one turn per batch of records, and holds everything a root holds:
@@ -137,7 +137,7 @@ It never posts to Slack or the board and never speaks to the owner; everything h
 must see is a `report` to `owner-relay`. Its records are for machines and the communicator:
 terse, jargon-heavy, ids and lane names included, in no format it owes anyone. The
 same holds for a lane's records to it. When it dies the supervisor relaunches it
-from its brief and newest handoff like any lane, and the bridge keeps answering the
+from its brief and newest handoff like any lane, and the communicator keeps answering the
 owner meanwhile. It owns drive work only: it never takes a skill, tooling, prompt, hook
 or process improvement and never spawns a lane for one. Its one duty there is to report a
 tooling defect that it or a lane hits, as
@@ -157,8 +157,8 @@ path meanwhile. It decides five things and nothing else:
 4. **A conflict between two owner rules** is settled in one `report` to the communicator,
    naming the rule applied.
 5. **A desk's output is relayed** unchanged: a milestone as a `report` to the
-   bridge, which then sends the owner an update, a tap card by saying nothing while
-   the runner lands on the tap. A gap the bridge's update names, a message of the
+   communicator, which then sends the owner an update, a tap card by saying nothing while
+   the runner lands on the tap. A gap the communicator's update names, a message of the
    owner's no record carries, comes back as a `blocker` and gets a record naming the
    lane that acts.
 
@@ -235,7 +235,7 @@ supervisor and registry entry, and names the `orca-gc` line to run once they sto
 | Which sub-drives are open and what each still holds | `lr drive sub list` |
 | The state of PRs it must name | `ccx vcs pr status <n1> <n2> ...`, batched |
 | Every open ask, and what is landed but not live | `lr asks` (today `ledger.py summary --drive <drive>`) |
-| The owner update, complete and from sources | `lr update render`, run by the bridge's `update-desk`, sent by the bridge |
+| The owner update, complete and from sources | `lr update render`, run by the communicator's `update-desk`, sent by the communicator |
 | What an incident is doing | `lr incident status <slug>` |
 | Where a lane's mail goes | `lr route <lane>` |
 | Whether an install may run now | `drive.py digest --quiet-point` |
@@ -257,7 +257,7 @@ ask, and on a lane's records piped through `tail` or `grep`.
 | Landed, not live (`lr asks`) | A landed PR whose release target has shipped nothing in an hour | One `blocker` per target with the exact release line |
 | Stalls (item deadlines; today `stall_watch.py`) | Work that stopped moving, read from the registry | Only a stall whose owner is the coordinator |
 | The owner's taps (`board_watch.py`) | Every tap, pick and write-in as an `owner` record; the runner lands on it | A pick with no lane at 30 minutes, as an `ask` |
-| The owner update and the dashboard (`lr update render --sent`, run by the bridge's `update-desk`) | Every plan step, workstream, live lane under its step, open ask, pick, incident and release today, PR with a go owed or hold; every row with who is on it or **nobody**, what blocks it, what unblocks it and by when, what went wrong; unowned work first; exit 1 naming anything missing | The rendered update, which the bridge relays and the dashboard shows |
+| The owner update and the dashboard (`lr update render --sent`, run by the communicator's `update-desk`) | Every plan step, workstream, live lane under its step, open ask, pick, incident and release today, PR with a go owed or hold; every row with who is on it or **nobody**, what blocks it, what unblocks it and by when, what went wrong; unowned work first; exit 1 naming anything missing | The rendered update, which the communicator relays and the dashboard shows |
 | The handoff (`lr handoff generate`) | The pre-compaction doc with the lane registry and the rendered update | Nothing but the coordinator's own narrative |
 
 A mechanism that does not run is a defect of the drive, never a chore for a root.
@@ -267,7 +267,7 @@ that turn (R14).
 ## The rules
 
 Ids are stable; scripts, hooks and references cite them. `root` means the
-coordinator unless the rule names the bridge.
+coordinator unless the rule names the communicator.
 
 **R1.** Ground truth comes from the owning lane or the verb, never a grep, a
 listing, a curl or a build page; at most five lines back. Priority PR state is
@@ -303,7 +303,7 @@ never a check-and-ack loop. Mac load queues and refuses no launch: one that may 
 the Mac starts on a box at once, and a worker's question goes to the lane that launched it. The coordinator receives records as batches from
 `lr coordinator next`, after one `cci subscribe --drive <drive> --reader root --to-kind incident --follow oncall=incident`
 keeps all but incidents off its tool calls;
-the bridge subscribes as `owner-relay`. A seq already handled is skipped.
+the communicator subscribes as `owner-relay`. A seq already handled is skipped.
 
 **R9a.** An urgent hold gets a decision owner and a clock, posted with
 `desk-launch.py hold`; the coordinator resolves the runner's `DECIDE hold:` line
@@ -343,7 +343,7 @@ the `local_builds` hook refuses them. Batch jobs run on in-region compute.
 
 **R16.** An active alert gets its executor the same turn, without a root: the
 supervisor launches the fix and evidence lanes for an alert nobody answered in
-three minutes. When an alert reaches the coordinator first (a link the bridge
+three minutes. When an alert reaches the coordinator first (a link the communicator
 relayed, an `#outage` report, a page, a runner `PAGE`, a failing release check, an
 `ALERT-UNOPENED` blocker), it runs `lr incident open` and `run` before anything
 else, with no real-or-not verdict and no mute treated as resolution. Fixes land
@@ -362,7 +362,7 @@ gate wanting an owner answer for a settled decision is satisfied by citing the p
 (R19a), and every ruling binds what it implies, recorded verbatim, confirmed with
 him and applied to every live artifact at once (R19b).
 
-**R20.** A Slack link from the owner is an assignment: the bridge queues it, the
+**R20.** A Slack link from the owner is an assignment: the communicator queues it, the
 coordinator spawns the Slack lane and the doing lane that turn in one batch, and
 one `report` to the communicator names both. Nobody reads Slack or writes Slack copy
 outside the Slack lane.
@@ -397,7 +397,7 @@ The meta lane, which never addresses root, launches its own implementers with
 | Orca runner, the launch runner | Launches and relays to Orca workers, starts grading jobs; on the Mac, the one desk that is not remote | [orca-desk-brief.md](reference/orca-desk-brief.md) |
 | Lane supervisor | Liveness, relaunch, rotation, standing duties, alert launch, landed-not-live | [watchers.md](reference/watchers.md) |
 | Incident executor, `alerts-desk` | One incident from intake to final reply; monitor transitions as records | [active-alert-brief.md](reference/active-alert-brief.md), [alerts-desk-brief.md](reference/alerts-desk-brief.md) |
-| `update-desk`, the bridge's one helper | Renders the owner update the bridge sends, writes the dashboard's rows from it, keeps the dashboard app up | [owner-bridge-brief.md](reference/owner-bridge-brief.md), [owner-report-table.md](reference/owner-report-table.md) |
+| `update-desk`, the communicator's one helper | Renders the owner update the communicator sends, writes the dashboard's rows from it, keeps the dashboard app up | [communicator-brief.md](reference/communicator-brief.md), [owner-report-table.md](reference/owner-report-table.md) |
 | `finder-desk`, fidelity desks, `red-sweep` | Grade every head; own every red with no owner | [finder-brief.md](reference/finder-brief.md), [fidelity-desk-brief.md](reference/fidelity-desk-brief.md), [red-sweep-brief.md](reference/red-sweep-brief.md) |
 | Board refresher, `drive-watchdog`, `user-test` | Tap cards and records; the retro log; the owner played against each surface | [drive-watchdog-brief.md](reference/drive-watchdog-brief.md), [user-test-brief.md](reference/user-test-brief.md) |
 | Priority desk, merge train, sequencer, Slack lane, handoff writer | One number-one outcome; the hot set; a wait-then-do chain; a named post; a rotating lane's handoff | [priority-desk-brief.md](reference/priority-desk-brief.md), [merge-train-brief.md](reference/merge-train-brief.md), [orca-lane-brief.md](reference/orca-lane-brief.md), [slack-lane-brief.md](reference/slack-lane-brief.md), [handoff-subagent-brief.md](reference/handoff-subagent-brief.md) |
@@ -421,7 +421,7 @@ the lane drawing it starts from "A design lane's part" in
 every tap as an `owner` record and a cc-notes answer. What waits on him is what
 `cci owner-waits` prints, never a runner note. The drive writes one automated Slack
 message, the merge card in his direct-message status thread; everything else is a
-post he named. Every update he gets is `lr update render`, sent by the bridge
+post he named. Every update he gets is `lr update render`, sent by the communicator
 unchanged with its gaps shown, and the dashboard shows the same rows.
 
 ## Records and the task list
