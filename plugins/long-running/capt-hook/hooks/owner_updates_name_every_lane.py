@@ -45,8 +45,8 @@ def owner_updates_name_every_lane(evt: BaseHookEvent) -> HookResult | None:
         return None
     drive = bus_name(entry)
     done = subprocess.run([sys.executable, str(script("owner_update.py")), "--drive", drive, "--check", "-"], input=last_reply(evt), capture_output=True, text=True, timeout=CHECK_SECONDS, env=dict(reqenv.env_map()))
-    if done.returncode != 1 or not done.stdout.startswith(MISSING):
+    if done.returncode != 1 or not done.stderr.startswith(MISSING):
         return None
-    names = done.stdout.splitlines()[1:]
+    names = done.stderr.splitlines()[1:]
     shown = ", ".join(names[:SHOWN]) + (f" and {len(names) - SHOWN} more" if len(names) > SHOWN else "")
     return evt.context(UNNAMED.format(count=len(names), names=shown, drive=drive))

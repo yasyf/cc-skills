@@ -43,8 +43,8 @@ doc with the lane on it now or **nobody**, unowned rows first, one per step of t
 program's plans holding the lanes whose
 `Register slice: ... step=` names it, one per other step a brief names, lanes on no step,
 then the registry lanes quiet over a day, and the rest. A section with nothing says so in
-one line. It exits 1 printing `missing: <count>` and then, one per line, each section, working
-lane, open ask and open PR the render left out. `--check` reads an update the root wrote and exits 1 naming each of those it
+one line. It exits 1 printing to stderr `missing: <count>` and then, one per line, each section,
+working lane, open ask and open PR the render left out. `--check` reads an update the root wrote and exits 1 naming each of those it
 leaves out, which the root's Stop hook turns into a nudge; the compaction hook adds the
 render to the progress record so the root after compaction inherits every lane.
 """
@@ -417,7 +417,7 @@ def main(argv: list[str] | None = None, runner: Runner = owner_waits.run) -> int
             print(text, end="")
         written = text if args.render else sys.stdin.read() if args.check == "-" else Path(args.check).read_text()
         if left := missing(written, names):
-            print(f"missing: {len(left)}", *left, sep="\n", file=sys.stderr if args.render else sys.stdout)
+            print(f"missing: {len(left)}", *left, sep="\n", file=sys.stderr)
             return 1
         return 0
     try:
