@@ -59,8 +59,8 @@ func within(path, root string) bool {
 }
 
 func resolved(path string) string {
-	if real, err := filepath.EvalSymlinks(path); err == nil {
-		return real
+	if target, err := filepath.EvalSymlinks(path); err == nil {
+		return target
 	}
 	return filepath.Clean(path)
 }

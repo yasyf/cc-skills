@@ -997,8 +997,7 @@ func TestTaskRecordsTieARecordedSpriteWorkspaceToItsOrcaWorktreeAndTerminal(t *t
 
 func realGit(t *testing.T, dir string, args ...string) string {
 	t.Helper()
-	config := []string{"-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"}
-	cmd := exec.Command("git", append(config, args...)...)
+	cmd := exec.Command("git", slices.Concat([]string{"-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"}, args)...)
 	cmd.Dir = dir
 	out, err := cmd.CombinedOutput()
 	if err != nil {
