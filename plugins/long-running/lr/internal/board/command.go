@@ -99,7 +99,7 @@ func Command(a *app.App) *cobra.Command {
 		}
 		return CardsOf(a, entry, board, s), func() { _ = s.Close() }, nil
 	}
-	cmd.AddCommand(waitsCommand(a, opened), cardsCommand(cards, packJudge(a.Runner)), passCommand(a, opened), classifyCommand(), slackCardCommand(a))
+	cmd.AddCommand(waitsCommand(a, opened), redsCommand(a, opened), cardsCommand(cards, packJudge(a.Runner)), passCommand(a, opened), classifyCommand(), slackCardCommand(a))
 	return cmd
 }
 

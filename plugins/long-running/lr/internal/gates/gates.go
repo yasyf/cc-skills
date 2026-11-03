@@ -42,6 +42,8 @@ func CarryTap(s *store.Store, repo string, number int, oldHead, newHead string, 
 	return changed, nil
 }
 
+const NoTap = "no tap"
+
 func Missing(f machine.Facts) []string {
 	var out []string
 	if f.CI != machine.CISuccess {
@@ -68,7 +70,7 @@ func Missing(f machine.Facts) []string {
 	if f.Tap == machine.TapConditional {
 		out = append(out, "tap given "+f.Condition)
 	} else if !f.Tapped() {
-		out = append(out, "no tap")
+		out = append(out, NoTap)
 	}
 	if f.Hold != "" {
 		out = append(out, fmt.Sprintf("held by %s", f.Hold))

@@ -582,6 +582,7 @@ func (s Source) factsOf(row statusRow, pr pullRequest, required []string, stored
 		Closed:      row.State != "OPEN",
 		Merged:      row.State == "MERGED" || row.Queue == "landed" || row.Queue == "unknown" && pr.labelled(trunkMerged),
 		CI:          ci,
+		Failing:     row.CI.Failing,
 		Approved:    row.Approval.State == "approved",
 		Mergeable:   mergeableOf(row, pr),
 		Queue:       queue,

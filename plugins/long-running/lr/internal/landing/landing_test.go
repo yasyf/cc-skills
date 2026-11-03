@@ -335,3 +335,15 @@ func TestAHeldStackLeavesTheQueueTopFirstAndNoPRAboveItEnters(t *testing.T) {
 		t.Fatalf("acts = %+v", acts)
 	}
 }
+
+func TestAHandEnqueueGateNamesEachGateAndCallsANoTapTapRequired(t *testing.T) {
+	lines := landing.GateLines(facts(44705, func(f *machine.Facts) { f.Tap, f.CI = "", machine.CIFailure }))
+
+	want := []string{"#44705 " + head[:10] + " CI is not green", "#44705 " + head[:10] + " TAP-REQUIRED no approval on the owner's board at this head"}
+	if !slices.Equal(lines, want) {
+		t.Fatalf("lines = %q", lines)
+	}
+	if lines := landing.GateLines(facts(44706, nil)); len(lines) != 0 {
+		t.Fatalf("a head that passes printed %q", lines)
+	}
+}

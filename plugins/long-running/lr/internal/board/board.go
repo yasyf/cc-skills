@@ -28,7 +28,7 @@ const (
 
 	tapFact   = "tap"
 	notedFact = "words-noted"
-	noTap     = "no tap"
+	noTap     = gates.NoTap
 	byOwner   = "owner"
 	shortSHA  = 12
 )
