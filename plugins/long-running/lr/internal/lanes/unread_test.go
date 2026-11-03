@@ -136,6 +136,19 @@ func TestOrdersUnreadForTenMinutesReachRootInOneBlockerOnce(t *testing.T) {
 	equal(t, len(f.wakes), 0)
 }
 
+func TestAnOrderAddressedToAStemIsUnreadForTheLaneHoldingIt(t *testing.T) {
+	s := memory(t)
+	f := adopted(t, s, writeBrief(t), "")
+	f.feed = append(f.feed, rec(2, Root, "ask", t0, "first", Stem(lane2)))
+	f.peers = []Row{who(lane2, true, t0.Add(-mins(5)))}
+
+	tick(t, s, f, t0.Add(mins(10)))
+
+	blockers := f.ofKind("blocker")
+	equal(t, len(blockers), 1)
+	contains(t, blockers[0].Text, lane2+" holds root's ask #2, the oldest for 10 min")
+}
+
 func TestAnOrderAfterALaneReadsStartsItsOwnTenMinutes(t *testing.T) {
 	s := memory(t)
 	f := adopted(t, s, writeBrief(t), "")

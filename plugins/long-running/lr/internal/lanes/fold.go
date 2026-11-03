@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
@@ -219,7 +220,7 @@ func foldRecord(s *store.Store, r Record, late time.Duration, fresh bool, at tim
 	if r.Origin != "" {
 		do(s.LaneDelivered(name, at, r.Origin, late))
 	}
-	addressed := r.Addressed()
+	addressed := addressees(s, r)
 	if name == Root || name == mainLane {
 		do(s.Order(r.Seq))
 		for target := range addressed {
@@ -380,6 +381,17 @@ func resume(s *store.Store, name, topic, why string, r Record, at time.Time) {
 	do(s.SetLanePage(name, map[string]any{"topic": topic, "why": why + ", as record #" + strconv.FormatInt(r.Seq, 10) + " says: " + r.Text, "text": r.Text}))
 }
 
+func addressees(s *store.Store, r Record) map[string]bool {
+	addressed := map[string]bool{}
+	for name := range r.Addressed() {
+		if client.Stem(name) == name {
+			name = must(Holder(s, "", name))
+		}
+		addressed[name] = true
+	}
+	return addressed
+}
+
 func foldPage(s *store.Store, r Record, name string, addressed map[string]bool) {
 	named := r.PRs()
 	if r.Kind == "ask" {
@@ -532,7 +544,7 @@ func foldRegistry(s *store.Store, r Record, row store.Lane, known, fresh bool, a
 }
 
 func foldCarried(s *store.Store, r Record, at time.Time) bool {
-	addressed := r.Addressed()
+	addressed := addressees(s, r)
 	var numbers []int
 	for n, owner := range must(s.OwnerOf(r.PRs())) {
 		if !addressed[owner] {

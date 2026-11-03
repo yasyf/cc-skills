@@ -18,6 +18,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/incident"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/pass"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
@@ -106,7 +107,7 @@ func (q *Squash) pass(ctx context.Context, snapshot []machine.Facts) (map[int]bo
 	ended := endedLanes(slices.Concat(incidents, decides))
 	taken := map[int]bool{}
 	for _, f := range named {
-		if _, closed := ended[f.Lane]; closed && !repairs[f.Number] {
+		if _, closed := ended[client.Stem(f.Lane)]; closed && !repairs[f.Number] {
 			continue
 		}
 		cleared, err := q.cleared(ctx, f)
@@ -202,7 +203,7 @@ func endedLanes(records []client.Record) map[string]int64 {
 			continue
 		}
 		for _, lane := range record.To {
-			ended[lane] = max(ended[lane], record.Seq)
+			ended[client.Stem(lane)] = max(ended[client.Stem(lane)], record.Seq)
 		}
 	}
 	return ended
@@ -219,7 +220,7 @@ func openIncident(f machine.Facts, incidents []client.Record, ended map[string]i
 		if record.Kind != incidentKind || record.Status != statusOpen || closesIncident(record) || supersededIncident(record, ended) {
 			continue
 		}
-		if namesPull(record, f) || number.MatchString(record.Text) || record.Lane == f.Lane || slices.Contains(record.To, f.Lane) {
+		if namesPull(record, f) || number.MatchString(record.Text) || record.Lane == f.Lane || lanes.Addresses(record.To, f.Lane) {
 			newest = &incidents[i]
 		}
 	}
@@ -237,7 +238,7 @@ func namesPull(record client.Record, f machine.Facts) bool {
 
 func supersededIncident(record client.Record, ended map[string]int64) bool {
 	lanes := slices.DeleteFunc(append([]string{record.Lane}, record.To...), func(lane string) bool { return lane == rootLane })
-	return len(lanes) > 0 && !slices.ContainsFunc(lanes, func(lane string) bool { return ended[lane] <= record.Seq })
+	return len(lanes) > 0 && !slices.ContainsFunc(lanes, func(lane string) bool { return ended[client.Stem(lane)] <= record.Seq })
 }
 
 func (q *Squash) cleared(ctx context.Context, f machine.Facts) (bool, error) {

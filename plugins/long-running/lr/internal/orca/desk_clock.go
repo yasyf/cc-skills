@@ -14,6 +14,7 @@ import (
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/incident"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
@@ -461,17 +462,17 @@ func openIncidentOf(lane string, incidents []client.Record) *client.Record {
 	for _, record := range incidents {
 		if clockCloses(record) {
 			for _, closed := range record.To {
-				ended[closed] = max(ended[closed], record.Seq)
+				ended[client.Stem(closed)] = max(ended[client.Stem(closed)], record.Seq)
 			}
 		}
 	}
 	var newest *client.Record
 	for i, record := range incidents {
-		if string(record.Kind) != clockIncident || record.Status != clockOpen || clockCloses(record) || (record.Lane != lane && !slices.Contains(record.To, lane)) {
+		if string(record.Kind) != clockIncident || record.Status != clockOpen || clockCloses(record) || (record.Lane != lane && !lanes.Addresses(record.To, lane)) {
 			continue
 		}
-		lanes := slices.DeleteFunc(append([]string{record.Lane}, record.To...), func(name string) bool { return name == coordinatorLane })
-		superseded := len(lanes) > 0 && !slices.ContainsFunc(lanes, func(name string) bool { return ended[name] <= record.Seq })
+		named := slices.DeleteFunc(append([]string{record.Lane}, record.To...), func(name string) bool { return name == coordinatorLane })
+		superseded := len(named) > 0 && !slices.ContainsFunc(named, func(name string) bool { return ended[client.Stem(name)] <= record.Seq })
 		if !superseded && (newest == nil || record.Seq > newest.Seq) {
 			newest = &incidents[i]
 		}

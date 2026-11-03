@@ -9,6 +9,7 @@ import (
 	"time"
 	_ "time/tzdata"
 
+	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/asks"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/plans"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
@@ -277,7 +278,7 @@ func openIncidents(records []Record) map[int64]bool {
 	for _, record := range records {
 		if closesIncident(record) {
 			for _, lane := range record.To {
-				closed[lane] = max(closed[lane], record.Seq)
+				closed[client.Stem(lane)] = max(closed[client.Stem(lane)], record.Seq)
 			}
 		}
 	}
@@ -287,7 +288,7 @@ func openIncidents(records []Record) map[int64]bool {
 			continue
 		}
 		lanes := slices.DeleteFunc(append([]string{record.Lane}, record.To...), func(lane string) bool { return lane == root })
-		if len(lanes) == 0 || slices.ContainsFunc(lanes, func(lane string) bool { return closed[lane] <= record.Seq }) {
+		if len(lanes) == 0 || slices.ContainsFunc(lanes, func(lane string) bool { return closed[client.Stem(lane)] <= record.Seq }) {
 			open[record.Seq] = true
 		}
 	}

@@ -16,6 +16,7 @@ import (
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/incident"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -269,7 +270,7 @@ func (d *Desk) laneNamedOnMonitor(ctx context.Context, wanted []string, lane str
 }
 
 func addressed(record client.Record, names []string) bool {
-	return overlaps(record.To, names)
+	return slices.ContainsFunc(names, func(name string) bool { return lanes.Addresses(record.To, name) })
 }
 
 func (d *Desk) crossDriveAnswers(ctx context.Context) ([]client.Record, error) {
@@ -636,7 +637,7 @@ func (d *Desk) releaseOwned(ctx context.Context, clock cutClock, since time.Time
 	}
 	for i := range posted {
 		record := posted[i]
-		if record.Lane == deskRunner || record.Lane == coordinatorLane || !slices.Contains(record.To, clock.Lane) {
+		if record.Lane == deskRunner || record.Lane == coordinatorLane || !lanes.Addresses(record.To, clock.Lane) {
 			continue
 		}
 		named := slices.Clone(record.Refs.Targets)
