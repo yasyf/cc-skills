@@ -217,7 +217,7 @@ func (d *Desk) spriteRefusal(ctx context.Context, lane string, spec launchTarget
 		return launchRoute{}, err
 	}
 	text := string(raw)
-	if macPinned(spec.Model, text) {
+	if macPinned(lane, spec.Model, text) {
 		return launchRoute{}, nil
 	}
 	fault, err := d.spriteFault(ctx, lane)

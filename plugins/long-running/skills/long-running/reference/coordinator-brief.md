@@ -23,7 +23,7 @@ from the desk template in [orca-lane-brief.md](orca-lane-brief.md).
 
 Register slice: lane=root step=all
 Scale: the whole drive; every lane, PR, release, incident and owner ask on the bus.
-ccx: incident=none
+ccx: place=local incident=none
 No test, build, vet, typecheck, lint or LLM call runs on this Mac; CI grades.
 No credential, token or key in any file, record, log or brief.
 

@@ -2001,7 +2001,7 @@ func TestNoClaudeAliasButIncidentOpusTurnsOnFastMode(t *testing.T) {
 }
 
 func TestAnIncidentOpusLaneIsPinnedToTheMacAndPassesTheModelCheck(t *testing.T) {
-	if !macPinned(modelIncidentOpus, "") {
+	if !macPinned("api-fix-opus", modelIncidentOpus, "") {
 		t.Fatal("incident-opus can leave the Mac")
 	}
 	order := Order{Lane: "api-fix-opus", Model: modelIncidentOpus, Effort: "xhigh", Brief: "/b.md"}

@@ -1341,6 +1341,35 @@ func TestAStandingDeskFallsBackToTheMacWithNoSpriteRoute(t *testing.T) {
 	}
 }
 
+func TestTheCoordinatorLaunchesOnTheMacWhileALaneWithNoPlaceTakesASprite(t *testing.T) {
+	for _, tt := range []struct {
+		lane, brief, want string
+	}{
+		{coordinatorLane, "Register slice: lane=root step=all\nScale: no N\nccx: incident=none\n", "start"},
+		{testLane, testBrief + "ccx: role=build\n", "sprite"},
+	} {
+		t.Run(tt.lane, func(t *testing.T) {
+			w := newDeskWorld(t)
+			launcher := spriteConfig(w)
+			brief := w.brief(tt.lane, tt.brief)
+			w.lines()
+			w.line(launchText(tt.lane, brief))
+			w.lines()
+			w.step(w.desk.deliver)
+			if len(w.spawns) != 1 {
+				t.Fatal(w.spawns)
+			}
+			got := "sprite"
+			if w.spawns[0].argv[0] != launcher {
+				got = w.spawns[0].argv[2]
+			}
+			if got != tt.want {
+				t.Fatal(w.spawns)
+			}
+		})
+	}
+}
+
 func TestAnIncidentLaunchOverLoadStartsAnywayAndTellsTheWatchdog(t *testing.T) {
 	w := newDeskWorld(t)
 	w.busy = "3.0"
