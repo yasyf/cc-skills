@@ -83,7 +83,7 @@ resolve under ``--root``, which defaults to ``--repo``; an absolute glob stands 
 ``slice --required`` adds every live row the PR body or its author's comments cite by key or by an answer id the row
 carries, a superseded row's key standing for the rows superseding it, and names each cited id no live row carries as
 unknown to the register.
-``slice --required --words`` prints each row as fidelity.py's grader reads it: the owner's words and repeats verbatim,
+``slice --required --words`` prints each row as `lr grade fidelity` reads it: the owner's words and repeats verbatim,
 oldest first, each board tap with the card it answered as ``cc-present block show`` prints it, a design row's or
 exception's plan text labelled as the coordinator's, and none of the register's implications or summaries.
 ``readback --words`` prints the live rows a lane's contract acts on, as ``slice --required --words`` prints a row: the rows

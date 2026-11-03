@@ -3,9 +3,9 @@ set -eu
 
 usage() {
   cat >&2 <<'EOF2'
-usage: sprite-job.sh <sprite> <script> <dir>
+usage: sprite-job.sh <sprite> <grader> <dir>
 
-Runs the desk job <dir> through <script>, finder.py or fidelity.py, on the Sprite
+Runs the desk job <dir> through `lr grade <grader>`, finder or fidelity, on the Sprite
 <sprite> at the same absolute paths, so job.json and every path it names read
 the same there. The Sprite mirrors this machine's home at its own path, has
 codex, codex-ask, ccx, ccn and cci installed, is joined to the drive's cci relay,
@@ -25,7 +25,7 @@ on-demand object fetches included. A GH_TOKEN also refreshes git's in-memory
 credential cache on the Sprite for an hour, so long-running processes there read
 GitHub between passes.
 
-The plugin version holding <script> is copied over whenever a file in it was
+The plugin version holding this script is copied over whenever a file in it was
 added, removed or changed since the Sprite's copy, so a truncated install or a
 half-finished copy is replaced on the next job, extracted into a directory of
 its own beside the path and named by one rename of a link, with caches and
@@ -50,27 +50,27 @@ cci relay, retried five times over about 40 seconds; a push that still fails
 loses nothing, since the runner reposts the job's records when it settles the
 pass. A `cancelled` mark
 the runner writes while the job runs is forwarded, and each codex run the job
-started there is cancelled. Exits with the script's status.
+started there is cancelled. Exits with the job's status.
 EOF2
   exit 2
 }
 
 [ $# -eq 3 ] || usage
 export COPYFILE_DISABLE=1
-sprite=$1 script=$2 dir=$3
+sprite=$1 grader=$(basename "$2" .py) dir=$3
 here=$(cd "$(dirname "$0")" && pwd)
 results=$here/long_running/desk_result.py
 no_result() {
   python3 "$results" lost "$dir" "the job on Sprite $sprite ended with status $1 and no result, as when the Sprite restarts mid-pass or cannot be reached"
 }
 trap 'no_result $?' EXIT
-plugin=$(cd "$(dirname "$script")/../../.." && pwd)
+plugin=$(cd "$here/../../.." && pwd)
 checkout=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["checkout"])' "$dir/job.json")
 drive=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["drive"])' "$dir/job.json")
 registry=${CLAUDE_CONFIG_DIR:-$HOME/.claude}/long-running/drives/$drive.json
 state=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["state_dir"])' "$registry")
 program=$(python3 -c 'import json, sys; from pathlib import Path; entry = json.load(open(sys.argv[1])); print(entry.get("program") or Path(entry["state_dir"]).name)' "$registry")
-plan=$(python3 "$(dirname "$script")/rulings.py" plan --repo "$checkout" --drive "$drive")
+plan=$(python3 "$here/rulings.py" plan --repo "$checkout" --drive "$drive")
 
 digest() {
   python3 -c '
@@ -164,7 +164,7 @@ sprite exec -s "$sprite" --no-stdin -- sh -c '
   fi
   exec 9>&-
   real=$(readlink "$4")
-  exec flock -s "$real.lock" python3 "$real${1#"$4"}" "$2"' sh "$script" "$dir" "$checkout" "$plugin" &
+  exec flock -s "$real.lock" "$real/bin/lr" grade "$1" "$2"' sh "$grader" "$dir" "$checkout" "$plugin" &
 job=$!
 { [ -z "$keys" ] || printf "%s\n" "$keys"; } | sprite exec -s "$sprite" -- sh -c '
   for _ in $(seq 600); do
