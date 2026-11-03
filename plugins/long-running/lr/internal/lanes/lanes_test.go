@@ -1554,6 +1554,14 @@ func TestALaneWhoseOrcaWorkerSucceededByItsOutcomeLineIsRetired(t *testing.T) {
 	equal(t, row(t, s, lane2).RetiredBy, "worker-done")
 }
 
+func TestALaneThatStoppedOnAnEarlierDayNamesTheDateSoCciNeverReadsTheClockAsAhead(t *testing.T) {
+	at := t0.Add(-30 * time.Hour)
+
+	verdict := Classify(store.Lane{Name: lane2, State: store.LaneDesired}, &Peer{Lane: lane2, Seen: at}, t0, 0, 0)
+
+	equal(t, verdict.Why, "stopped at "+at.In(pacificZone).Format("3:04 PM Jan 2"))
+}
+
 func TestAnOrcaWorkerThatSucceededIsRetiredBeforeItsOutcomeLineArrives(t *testing.T) {
 	s := memory(t)
 	f := adopted(t, s, writeBrief(t), "")

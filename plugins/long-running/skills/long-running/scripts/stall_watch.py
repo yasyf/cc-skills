@@ -807,6 +807,12 @@ class Pass:
         stalls += self.stale(entries, saved.get("states", {}), records, kept | {stall.pr for stall in stalls if stall.pr})
         return self.report({stall.id: stall for stall in stalls}, saved, {key: verdict for key, verdict in verdicts.items() if verdict}, dry_run)
 
+    def cleared_line(self, cleared: dict, standing: dict[str, Stall]) -> str:
+        today = f"{self.now.astimezone(PACIFIC):%Y-%m-%d}"
+        rolled = [key for key in cleared if f"{key.rpartition(':')[0]}:{today}" in standing]
+        gone = [key for key in cleared if key not in rolled]
+        return "; ".join(([f"CLEARED {', '.join(gone)}: no longer standing this pass"] if gone else []) + ([f"NEW DAY {', '.join(rolled)}: still standing under today's key, nothing changed"] if rolled else []))
+
     def report(self, standing: dict[str, Stall], saved: dict, verdicts: dict[str, dict], dry_run: bool) -> int:
         kept = {key: entry for key, entry in saved["open"].items() if key not in standing and entry["kind"] in self.unread}
         last = {key: stamp for key, stamp in saved.get("last", {}).items() if self.now - actions.parse_stamp(stamp) < REPEAT}
@@ -842,7 +848,7 @@ class Pass:
             last[stall.id] = actions.stamp(self.now)
         cleared = {key: seq for key, entry in saved["open"].items() if key not in standing and key not in kept and POST_KINDS.get(entry["kind"]) == "blocker" and (seq := POSTED_SEQ.search(entry.get("posted", "")))}
         if cleared and not dry_run:
-            done = self.shell.run(["cci", "post", "--drive", self.watch.drive, "--lane", LANE, "--kind", "note", "--to", ROOT, "--topic", f"cleared:{actions.stamp(self.now)}", "--resolves", ",".join(f"#{seq[1]}" for seq in cleared.values()), "--text", f"CLEARED {', '.join(cleared)}: no longer standing this pass"])
+            done = self.shell.run(["cci", "post", "--drive", self.watch.drive, "--lane", LANE, "--kind", "note", "--to", ROOT, "--topic", f"cleared:{actions.stamp(self.now)}", "--resolves", ",".join(f"#{seq[1]}" for seq in cleared.values()), "--text", self.cleared_line(cleared, standing)])
             if done.code:
                 failed.append(f"cci post exited {done.code} closing {', '.join(cleared)}: {(done.err or done.out).strip()[:300]}")
                 print(failed[-1], file=sys.stderr)

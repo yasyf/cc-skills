@@ -8,7 +8,7 @@ require (
 	github.com/BurntSushi/toml v1.5.0
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/spf13/cobra v1.10.2
-	github.com/yasyf/cc-inbox v0.49.34-0.20261103075851-8696b16482d3
+	github.com/yasyf/cc-inbox v0.49.34-0.20261103081410-c4155d57794c
 	golang.org/x/mod v0.41.0
 	modernc.org/sqlite v1.60.1
 )

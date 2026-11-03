@@ -8,6 +8,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/grading"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/landing"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
@@ -125,8 +126,11 @@ func runPass(ctx context.Context, s *store.Store, generation int64, d Deps, now 
 		return report, err
 	}
 	out, err := pass.Run(s, snapshot, now, d.Post, pass.Live(d.Movers), route)
-	if err != nil {
+	if err != nil && !errors.As(err, new(*bus.Refused)) {
 		return report, err
+	}
+	if err != nil {
+		d.Log.Warn("a pass post was refused", "err", err)
 	}
 	report.Escalated = len(out.Escalated)
 	if slices.Contains(d.Movers, "landing") {

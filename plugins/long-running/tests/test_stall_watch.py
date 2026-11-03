@@ -874,6 +874,8 @@ def test_a_retro_row_ask_or_pick_unchanged_for_a_day_or_past_due_reaches_root_on
     watch(shell, config)
     later = f"{shell.clock.astimezone(stall_watch.PACIFIC):%Y-%m-%d}"
     assert {f"unfinished:{key}:{later}" for key in ("retro/000001", "ask/000001", "pick/189864")} <= set(shell.topics())
+    rolled = shell.post(next(topic for topic in shell.topics() if topic.startswith("cleared:")))["text"]
+    assert rolled.startswith("NEW DAY unfinished:") and "CLEARED" not in rolled
 
 
 def alive(seq: int, desk: str, minutes_ago: float) -> dict:
