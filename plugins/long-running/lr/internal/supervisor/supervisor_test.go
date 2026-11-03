@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
@@ -90,7 +91,7 @@ func deps(c *clock, q *queue, p *pool, snapshot ...machine.Facts) Deps {
 		Snapshot: func(context.Context) ([]machine.Facts, error) {
 			return snapshot, nil
 		},
-		Post:      func(string, []string, map[string]any) error { return nil },
+		Post:      func([]string, bus.Body) error { return nil },
 		Queue:     q,
 		Restacker: restacker{},
 		Pool:      p,
