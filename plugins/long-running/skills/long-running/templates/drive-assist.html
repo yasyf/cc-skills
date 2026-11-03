@@ -62,7 +62,7 @@ html:not(.ai-on) .ai-only { display: none !important; }
   .as-nl .acts .btn { flex: 1; }
 }
 </style>
-<div id="pal" hidden><div class="box"><input id="pal-q" name="jump" placeholder="Jump to a change, a part of the plan, a piece of work, or ask a question" autocomplete="off" spellcheck="false"><div id="pal-ans" class="ans" hidden></div><div id="pal-list" class="list"></div><div class="foot"><span><kbd>Up</kbd> <kbd>Down</kbd> to move</span><span><kbd>Enter</kbd> to open</span><span class="ai-only"><kbd>Tab</kbd> to ask the assistant</span><button class="palx" type="button" data-pal-close><kbd>Esc</kbd> to close</button></div></div></div>
+<div id="pal" hidden><div class="box"><input id="pal-q" name="jump" placeholder="Jump to a change, a part of the plan, a piece of work, or ask the communicator a question" autocomplete="off" spellcheck="false"><div id="pal-ans" class="ans" hidden></div><div id="pal-list" class="list"></div><div class="foot"><span><kbd>Up</kbd> <kbd>Down</kbd> to move</span><span><kbd>Enter</kbd> to open</span><span class="ai-only"><kbd>Tab</kbd> to ask the assistant</span><button class="palx" type="button" data-pal-close><kbd>Esc</kbd> to close</button></div></div></div>
 <aside id="ash" hidden></aside>
 <script>
 const PAL=document.getElementById("pal");
@@ -506,7 +506,7 @@ function entries(){
  Object.keys(STATE_WORD).forEach(k=>{const l=prs.filter(e=>e.state===k);if(l.length)add("Show only",`<i class="d ${k}"></i>`,STATE_WORD[k],`show only these ${l.length} pull requests`,only(STATE_WORD[k],l),k)});
  m.parts.forEach(p=>{const l=prs.filter(e=>e.part===p.key);if(l.length)add("Show only","◧",p.name,`show only these ${l.length} pull requests · ${tally(l).landed} landed`,only(p.name,l),p.key)});
  m.steps.forEach(st=>{const l=prs.filter(e=>e.step===st.id);if(l.length)add("Show only","▸",st.label,`show only these ${l.length} pull requests · ${st.title}`,only(st.label,l),st.title)});
- [["","Now"],["plan","Plan"],["status","Status"],["work","Work"],["review","Review"],["history","History"],["ask","Ask"]].forEach(([id,label])=>add("Screens","→",label,"",()=>{location.hash=`#/${id}`}));
+ [["","Now"],["plan","Plan"],["status","Status"],["work","Work"],["review","Review"],["history","History"]].forEach(([id,label])=>add("Screens","→",label,"",()=>{location.hash=`#/${id}`}));
  waiting().forEach(r=>add("Needs you",`<i class="d you"></i>`,`#${r.number} ${r.title}`,"waiting on your tap",()=>{location.hash=`#/review/${r.number}`},r.group));
  openCards().slice(0,3).forEach(c=>add("Needs you","?",(m.pages?.review?.cards??[]).find(x=>x.key===c.key)?.question??c.title,"answer it on Review",()=>{location.hash="#/review"},c.summary));
  if(openCards().length>3)add("Needs you","→",`All ${openCards().length} questions waiting on you`,"on Review",()=>{location.hash="#/review"});
@@ -558,6 +558,7 @@ function paintPal(){
 function pick(i){const e=pal.items[i];if(!e)return;if(!e.ask)closePal();e.go()}
 function askInPal(question){
  closePal();
+ leavePal();
  openTalk(question);
 }
 
