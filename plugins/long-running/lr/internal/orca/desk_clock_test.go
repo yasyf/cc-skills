@@ -13,6 +13,7 @@ const clockLane = "api-fix"
 func clockedWorld(t *testing.T) *deskWorld {
 	t.Helper()
 	w := newDeskWorld(t)
+	w.desk.Config.IncidentMechanismMinutes, w.desk.Config.IncidentPRMinutes, w.desk.Config.IncidentReadyMinutes = 10, 15, 20
 	fixedLane(t, w, clockLane)
 	w.live(clockLane, testDispatch, "term_fix")
 	w.now = w.now.Add(-time.Hour)
