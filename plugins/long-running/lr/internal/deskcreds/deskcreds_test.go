@@ -117,7 +117,7 @@ func TestAPushedSecretReadsBackUntilItExpires(t *testing.T) {
 func TestAPushedUserTokenReplacesTheOneEachRunningDeskReadsGHWith(t *testing.T) {
 	shm := t.TempDir()
 	hosts := filepath.Join(shm, "d-gh", "hosts.yml")
-	before := "github.com:\n    users:\n        yasyf:\n            oauth_token: gho_old\n    git_protocol: https\n    oauth_token: gho_old\n    user: yasyf\n"
+	before := "github.com:\n    users:\n        kennedy94:\n            oauth_token: gho_old\n    git_protocol: https\n    oauth_token: gho_old\n    user: kennedy94\n"
 	if err := writeBeside(hosts, before); err != nil {
 		t.Fatal(err)
 	}
@@ -249,7 +249,7 @@ func runConfig(t *testing.T, dir string) string {
 	t.Helper()
 	return writeConfig(t, dir, map[string]any{"drive": "d", "host": map[string]any{
 		"aws_profiles": []string{"core-auto"}, "region": "us-west-2", "github_app": map[string]any{"name": "app", "client_id": "Iv1", "private_key_command": []string{"aws", "ssm", "get-parameter"}},
-		"gh_user": "yasyf", "tz": "America/Los_Angeles", "secrets": map[string][]string{"GH_TOKEN": {"gh"}, "TRUNK_TOKEN": {"x"}},
+		"gh_user": "kennedy94", "tz": "America/Los_Angeles", "secrets": map[string][]string{"GH_TOKEN": {"gh"}, "TRUNK_TOKEN": {"x"}},
 		"ssm": map[string]string{"BUILDKITE_READ": "/ci/tools/buildkite-read"}, "ssm_profile": "core-auto",
 	}})
 }
