@@ -189,7 +189,7 @@ func DoneRefusal(s *store.Store, lane string, states func(prs []int) (map[int]st
 	if len(open) == 0 {
 		return "", nil
 	}
-	return fmt.Sprintf("%s still owns open %s, and done retires a lane for good with no wake route back to them. Post `cci post --lane %s --kind blocked%s --to <your desk> --text '<what lands it>'` and wait; post done once none is open.", lane, numberList(open), lane, flags.String()), nil
+	return fmt.Sprintf("A lane that owns an open PR never posts done, since done retires it for good. Post the blocked record below and wait for each PR to land or close:\n```\nopen: %s\ncci post --lane %s --kind blocked%s --to <your desk> --text '<what lands it>'\n```", numberList(open), lane, flags.String()), nil
 }
 
 func (p Post) Draft(drive string) client.Draft {

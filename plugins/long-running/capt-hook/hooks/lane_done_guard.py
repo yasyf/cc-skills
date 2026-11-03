@@ -14,7 +14,7 @@ from .tests.register_fixtures import DRIVE_CONFIG
 LR = Path(__file__).parents[2] / "bin" / "lr"
 DONE_CHECK_TIMEOUT_SECONDS = 60
 DONE_CHECK = f"{LR} done-check"
-REFUSAL = "conflicts-2 still owns open #13, and done retires a lane for good with no wake route back to them. Post `cci post --lane conflicts-2 --kind blocked --pr 13 --to <your desk> --text '<what lands it>'` and wait; post done once none is open."
+REFUSAL = "A lane that owns an open PR never posts done, since done retires it for good. Post the blocked record below and wait for each PR to land or close:\n```\nopen: #13\ncci post --lane conflicts-2 --kind blocked --pr 13 --to <your desk> --text '<what lands it>'\n```"
 LANE_ENV = DRIVE_CONFIG | {"CLAUDE_LONG_RUNNING_LANE": "conflicts-2"}
 
 
@@ -28,7 +28,7 @@ def done_lanes(evt: BaseHookEvent) -> list[str]:
     only_if=[Tool("Bash"), Runs("cci", "post")],
     skip_if=[Annotated("raw")],
     tests={
-        Input(command="cci post --lane conflicts-2 --kind done --to landing-desk --text 'all merged'", env=DRIVE_CONFIG, commands={f"{DONE_CHECK} conflicts-2": REFUSAL}): Block(pattern=r"^conflicts-2 still owns open #13,.*--kind blocked --pr 13"),
+        Input(command="cci post --lane conflicts-2 --kind done --to landing-desk --text 'all merged'", env=DRIVE_CONFIG, commands={f"{DONE_CHECK} conflicts-2": REFUSAL}): Block(pattern=r"^A lane that owns an open PR never posts done[\s\S]*open: #13\ncci post --lane conflicts-2 --kind blocked --pr 13 "),
         Input(command="cci post --kind done --to landing-desk --text 'all merged'", env=LANE_ENV, commands={f"{DONE_CHECK} conflicts-2": REFUSAL}): Block(),
         Input(command="cci post --lane conflicts-2 --kind done --to landing-desk --text 'all merged'", env=DRIVE_CONFIG, commands={f"{DONE_CHECK} conflicts-2": ""}): Allow(),
         Input(command="cci post --lane conflicts-2 --kind blocked --pr 13 --to landing-desk --text 'waits on CI'", env=DRIVE_CONFIG, commands={f"{DONE_CHECK} conflicts-2": REFUSAL}): Allow(),

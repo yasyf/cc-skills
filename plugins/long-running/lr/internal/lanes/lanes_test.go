@@ -1651,8 +1651,8 @@ func TestADoneWhileTheLaneOwnsAnOpenPRIsRefusedNamingItAndTheBlockedForm(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	contains(t, refusal, "conflicts-2 still owns open #13,")
-	contains(t, refusal, "`cci post --lane conflicts-2 --kind blocked --pr 13 --to <your desk>")
+	contains(t, refusal, "open: #13\n")
+	contains(t, refusal, "cci post --lane conflicts-2 --kind blocked --pr 13 --to <your desk>")
 
 	for lane, found := range map[string]map[int]string{lane2: {12: Closed, 13: Closed}, "never-1": {}} {
 		refusal, err := DoneRefusal(s, lane, states(found))
