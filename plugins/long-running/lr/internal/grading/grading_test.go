@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 
@@ -29,11 +30,24 @@ type fakePool struct {
 	refused []string
 	queued  []int
 	settles int
+
+	reversed bool
+	wholes   []string
 }
 
-func (p *fakePool) Scale(queued int, _ time.Time) error {
+func (p *fakePool) Plan(_ context.Context, items []store.Item, _ map[int]machine.Facts, queued int, _ time.Time) ([]store.Item, error) {
 	p.queued = append(p.queued, queued)
-	return nil
+	if p.reversed {
+		items = slices.Clone(items)
+		slices.Reverse(items)
+	}
+	return items, nil
+}
+
+func (p *fakePool) Whole(context.Context, map[int]machine.Facts) ([]string, error) {
+	started := p.wholes
+	p.wholes = nil
+	return started, nil
 }
 
 func (p *fakePool) Settle(_ context.Context, workers []string) (map[string]bool, error) {
@@ -350,5 +364,46 @@ func TestAPassSettlesEveryWorkerInOneCallAndScalesToWhatIsMissing(t *testing.T) 
 	}
 	if want := []int{1, 1}; !reflect.DeepEqual(pool.queued, want) {
 		t.Fatalf("queued = %v, want %v", pool.queued, want)
+	}
+}
+
+func TestTheOrderThePoolRanksIsTheOrderItemsTakeSlots(t *testing.T) {
+	s, pool := memory(t), &fakePool{box: "sprite-1", reversed: true}
+	if _, err := s.OpenItem(store.NewItem{Kind: ItemKind, Repo: repo, Number: number + 1, Head: newer, Mover: machine.MoverPool, Deadline: machine.GradeClock}, t0); err != nil {
+		t.Fatal(err)
+	}
+	open := opened(t, s, head)
+	graded := func(f *machine.Facts) { f.Finder = machine.FinderClear }
+	second := facts(newer, graded, func(f *machine.Facts) { f.Number = number + 1 })
+
+	dispatched, err := Act(context.Background(), s, pool, open, map[int]machine.Facts{number: facts(head, graded), number + 1: second}, t0, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(dispatched) != 2 || dispatched[0].Number != number || dispatched[1].Number != number+1 {
+		t.Fatalf("dispatched = %v, want the pool's order", dispatched)
+	}
+}
+
+func TestAWholePassHoldsAWorkerWithNoItemUntilItsJobEnds(t *testing.T) {
+	s, pool := memory(t), &fakePool{box: "sprite-1"}
+	name := "sprite-1/finder-desk/45489-whole-300001"
+	pool.wholes = []string{name}
+
+	act(t, s, pool, nil, facts(head), t0)
+	if got := workerNames(t, s); !reflect.DeepEqual(got, []string{name}) {
+		t.Fatalf("workers = %v", got)
+	}
+
+	act(t, s, pool, nil, facts(head), t0.Add(20*time.Minute))
+	if stale, err := s.StaleWorkers(t0.Add(20 * time.Minute)); err != nil || len(stale) != 0 {
+		t.Fatalf("stale = %v, %v, want a live whole pass kept fresh", stale, err)
+	}
+
+	pool.gone = map[string]bool{name: true}
+	act(t, s, pool, nil, facts(head), t0.Add(21*time.Minute))
+	if got := workerNames(t, s); len(got) != 0 {
+		t.Fatalf("workers = %v, want it released", got)
 	}
 }

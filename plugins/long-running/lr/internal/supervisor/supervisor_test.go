@@ -59,7 +59,11 @@ func (p *pool) Dispatch(_ context.Context, grader string, facts machine.Facts) (
 	return job, nil
 }
 
-func (*pool) Scale(int, time.Time) error { return nil }
+func (*pool) Plan(_ context.Context, items []store.Item, _ map[int]machine.Facts, _ int, _ time.Time) ([]store.Item, error) {
+	return items, nil
+}
+
+func (*pool) Whole(context.Context, map[int]machine.Facts) ([]string, error) { return nil, nil }
 
 func (*pool) Settle(_ context.Context, workers []string) (map[string]bool, error) {
 	live := make(map[string]bool, len(workers))

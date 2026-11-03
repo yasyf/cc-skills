@@ -45,7 +45,7 @@ var (
 	ErrAnswered   = errors.New("no pass to run")
 
 	proofTitle = regexp.MustCompile(`(?i)\bproof:|\b(?:red|green) proof\b|\bproof, do not merge\b`)
-	proofBody  = regexp.MustCompile(`(?im)^proof PR\b`)
+	proofBody  = regexp.MustCompile(`(?im)^proof PR(?: for #\d+\b|\b.*\bnever merge).*$`)
 )
 
 type names []string
@@ -60,6 +60,7 @@ func (n *names) UnmarshalJSON(data []byte) error {
 }
 
 type Spec struct {
+	Repo       string              `json:"repo"`
 	Sprite     names               `json:"sprite"`
 	SpriteKeys map[string][]string `json:"sprite_keys"`
 	Checkout   string              `json:"checkout"`
@@ -67,6 +68,7 @@ type Spec struct {
 	Fast       *bool               `json:"fast"`
 	To         []string            `json:"to"`
 	Concurrent int                 `json:"concurrent"`
+	Reserved   int                 `json:"reserved"`
 	Baseline   string              `json:"baseline"`
 	Sources    Sources             `json:"sources"`
 }
@@ -77,6 +79,8 @@ type Sources struct {
 }
 
 type landing struct {
+	Repo         string   `json:"repo"`
+	Ledger       string   `json:"ledger"`
 	Checkout     string   `json:"checkout"`
 	FidelityLane names    `json:"fidelity_lane"`
 	PortPhrase   string   `json:"port_phrase"`
@@ -88,10 +92,17 @@ type desk struct {
 	lane string
 }
 
+type Cursors interface {
+	Cursor(source string) (int64, error)
+	Advance(source string, position int64) error
+}
+
 type PoolDeps struct {
 	Runner  shell.Runner
 	Spawn   Spawn
 	Workers func() ([]store.Worker, error)
+	Cursors Cursors
+	Ledger  func(ledger string) (map[string]map[string]string, error)
 	Now     func() time.Time
 	Log     *slog.Logger
 	Self    string
@@ -106,8 +117,10 @@ type JobPool struct {
 	briefs    string
 	landing   landing
 	spriteCap *int
+	tooling   string
 	desks     map[string]desk
 	executors int
+	firsts    map[string]bool
 }
 
 type Spawn func(ctx context.Context, argv []string, env map[string]string, log string) (int, error)
@@ -144,6 +157,11 @@ func NewJobPool(runner config.Runner, deps PoolDeps) (*JobPool, error) {
 			return nil, fmt.Errorf("sprite_cap: %w", err)
 		}
 	}
+	if raw, on := runner.Sections["tooling_lane"]; on {
+		if err := json.Unmarshal(raw, &p.tooling); err != nil {
+			return nil, fmt.Errorf("tooling_lane: %w", err)
+		}
+	}
 	for grading, lane := range map[string]string{GraderFinder: grader.FinderLane, GraderFidelity: grader.FidelityLane} {
 		raw, on := runner.Sections[grading]
 		if !on {
@@ -156,6 +174,13 @@ func NewJobPool(runner config.Runner, deps PoolDeps) (*JobPool, error) {
 		p.desks[grading] = desk{spec, lane}
 	}
 	return p, nil
+}
+
+func (p *JobPool) repo() string {
+	if d, on := p.desks[GraderFinder]; on && d.spec.Repo != "" {
+		return d.spec.Repo
+	}
+	return p.landing.Repo
 }
 
 func (p *JobPool) Scale(queued int, now time.Time) error {
@@ -201,20 +226,26 @@ func (p *JobPool) Dispatch(ctx context.Context, grading string, facts machine.Fa
 			return "", err
 		}
 	}
-	attempt, running, err := p.nextAttempt(ctx, d, pr, facts.Head)
-	if err != nil || running != "" {
-		return running, err
+	base := pr + "-" + short(facts.Head)
+	plan, err := p.nextAttempt(ctx, d, base)
+	if err != nil {
+		return "", err
 	}
-	sprite, err := p.place(d, workers)
+	if plan.running != "" {
+		return plan.running, nil
+	}
+	if plan.held || plan.done {
+		return "", ErrAnswered
+	}
+	sprite, err := p.place(d, workers, p.firsts[pr])
 	if err != nil {
 		return "", err
 	}
 	live := p.readPR(ctx, facts.Repo, pr)
 	if proofTitle.MatchString(live.Title) || proofBody.MatchString(live.Body) {
-		p.Log.Info("a proof PR gets no grade", "pr", pr, "grader", grading)
-		return "", ErrAnswered
+		return "", p.tellProofSkip(ctx, facts, pr, live)
 	}
-	directory := filepath.Join(p.root, d.lane, jobBase(pr, facts.Head, attempt))
+	directory := filepath.Join(p.root, d.lane, attemptBase(base, plan.number))
 	var built job
 	switch grading {
 	case GraderFinder:
@@ -287,10 +318,8 @@ func (p *JobPool) Settle(ctx context.Context, workers []string) (map[string]bool
 			live[name] = true
 			continue
 		}
-		if state == jobLost && ref.box != localBox {
-			if err := p.stampFailure(ref.box); err != nil {
-				return nil, err
-			}
+		if err := p.finished(ctx, ref, directory, state); err != nil {
+			return nil, err
 		}
 		if err := grader.Repost(ctx, directory, client.Post); err != nil {
 			p.Log.Warn("reposting a desk record failed", "job", directory, "error", err)
@@ -355,43 +384,50 @@ func (p *JobPool) commands(ctx context.Context) (map[int]string, error) {
 	return commands, nil
 }
 
-func (p *JobPool) nextAttempt(ctx context.Context, d desk, pr, head string) (int, string, error) {
+type attemptPlan struct {
+	number  int
+	running string
+	held    bool
+	done    bool
+}
+
+func (p *JobPool) nextAttempt(ctx context.Context, d desk, base string) (attemptPlan, error) {
 	tried := 0
-	for tried < maxAttempts && exists(filepath.Join(p.root, d.lane, jobBase(pr, head, tried+1))) {
+	for tried < maxAttempts && exists(filepath.Join(p.root, d.lane, attemptBase(base, tried+1))) {
 		tried++
 	}
 	if tried == 0 {
-		return 1, "", nil
+		return attemptPlan{number: 1}, nil
 	}
-	directory := filepath.Join(p.root, d.lane, jobBase(pr, head, tried))
+	directory := filepath.Join(p.root, d.lane, attemptBase(base, tried))
 	commands, err := p.commands(ctx)
 	if err != nil {
-		return 0, "", err
+		return attemptPlan{}, err
 	}
 	switch stateOf(directory, commands) {
 	case jobRunning:
 		sprite, err := jobSprite(directory)
-		return 0, workerName(sprite, d.lane, filepath.Base(directory)), err
+		return attemptPlan{running: workerName(sprite, d.lane, filepath.Base(directory))}, err
 	case jobSettled:
-		return 0, "", ErrAnswered
+		return attemptPlan{done: true}, nil
 	case jobFailed:
 		info, err := os.Stat(filepath.Join(directory, grader.ResultFile))
 		if err != nil {
-			return 0, "", err
+			return attemptPlan{}, err
 		}
 		if p.Now().Sub(info.ModTime()) < failedHold {
-			return 0, "", ErrAnswered
+			return attemptPlan{held: true}, nil
 		}
 	case jobLost:
 	}
 	if tried >= maxAttempts {
 		p.Log.Warn("a grader pass failed on its last attempt", "job", directory, "attempts", tried)
-		return 0, "", ErrAnswered
+		return attemptPlan{done: true}, p.exhausted(ctx, d, directory)
 	}
-	return tried + 1, "", nil
+	return attemptPlan{number: tried + 1}, nil
 }
 
-func (p *JobPool) place(d desk, workers []store.Worker) (string, error) {
+func (p *JobPool) place(d desk, workers []store.Worker, first bool) (string, error) {
 	running := map[string]int{}
 	lanePasses := 0
 	for _, worker := range workers {
@@ -401,7 +437,11 @@ func (p *JobPool) place(d desk, workers []store.Worker) (string, error) {
 			lanePasses++
 		}
 	}
-	if lanePasses >= d.spec.Concurrent {
+	open := d.spec.Concurrent
+	if !first {
+		open -= d.spec.Reserved
+	}
+	if lanePasses >= open {
 		return "", ErrNoCapacity
 	}
 	if len(d.spec.Sprite) == 0 {
@@ -440,16 +480,16 @@ func (p *JobPool) taking(listed []string) ([]string, error) {
 	return healthy[:min(len(healthy), max(p.executors, 1))], nil
 }
 
-func (p *JobPool) stampFailure(sprite string) error {
-	directory := filepath.Join(p.root, failuresDir)
+func (p *JobPool) stamp(kind, sprite string) error {
+	directory := filepath.Join(p.root, kind)
 	if err := os.MkdirAll(directory, 0o750); err != nil {
 		return err
 	}
 	return os.WriteFile(filepath.Join(directory, sprite), []byte(p.Now().UTC().Format(time.RFC3339)), 0o600)
 }
 
-func (p *JobPool) failing(sprite string) (bool, error) {
-	data, err := os.ReadFile(filepath.Join(p.root, failuresDir, sprite))
+func (p *JobPool) stampedWithin(kind, sprite string, window time.Duration) (bool, error) {
+	data, err := os.ReadFile(filepath.Join(p.root, kind, sprite))
 	if errors.Is(err, fs.ErrNotExist) {
 		return false, nil
 	}
@@ -460,7 +500,11 @@ func (p *JobPool) failing(sprite string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	return p.Now().Sub(at) < spriteFailingFor, nil
+	return p.Now().Sub(at) < window, nil
+}
+
+func (p *JobPool) failing(sprite string) (bool, error) {
+	return p.stampedWithin(failuresDir, sprite, spriteFailingFor)
 }
 
 func (p *JobPool) cancelSuperseded(ctx context.Context, workers []store.Worker, pr, head string) error {
@@ -468,7 +512,7 @@ func (p *JobPool) cancelSuperseded(ctx context.Context, workers []store.Worker, 
 	current := prefix + short(head)
 	for _, worker := range workers {
 		ref := refOf(worker.Name)
-		if ref.lane != grader.FinderLane || !strings.HasPrefix(ref.base, prefix) || strings.HasPrefix(ref.base, current) {
+		if ref.lane != grader.FinderLane || !strings.HasPrefix(ref.base, prefix) || strings.HasPrefix(ref.base, current) || isWhole(worker.Name) {
 			continue
 		}
 		directory := filepath.Join(p.root, ref.lane, ref.base)
@@ -500,8 +544,7 @@ func jobSprite(directory string) (string, error) {
 	return spec.Sprite, err
 }
 
-func jobBase(pr, head string, attempt int) string {
-	base := pr + "-" + short(head)
+func attemptBase(base string, attempt int) string {
 	if attempt > 1 {
 		return base + "-" + strconv.Itoa(attempt)
 	}
