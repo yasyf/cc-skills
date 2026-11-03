@@ -1288,7 +1288,7 @@ def test_a_repeat_extends_its_row_counts_it_and_posts_its_sweep_hits_to_the_fide
 
 class RefusingPostShell(RegisterShell):
     def run(self, argv: list[str], stdin: str | None = None, cwd: Path | None = None) -> str:
-        if argv[:2] == ["cci", "post"] and "--path" in argv:
+        if argv[:2] == ["cci", "post"] and "--path" in argv and Path(argv[argv.index("--path") + 1]).parent.name == "repeats":
             self.calls.append(argv)
             raise subprocess.CalledProcessError(1, argv, "", "cci: no live lane fidelity-desk-15")
         return super().run(argv, stdin, cwd)
