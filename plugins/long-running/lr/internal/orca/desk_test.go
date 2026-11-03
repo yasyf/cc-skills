@@ -1484,6 +1484,19 @@ func TestARelayToALaneWithALiveRowAndNoDispatchTellsItsSenderNothing(t *testing.
 	}
 }
 
+func TestARelayToAStemWhoseNumberedLaneIsLiveTellsItsSenderNothing(t *testing.T) {
+	w := newDeskWorld(t)
+	w.lines()
+	if _, err := w.desk.Registry.WantLane(store.Lane{Name: testLane + "-2", Brief: "/b", Model: "opus", Effort: "high", Role: "build", State: store.LaneDesired}, w.now); err != nil {
+		t.Fatal(err)
+	}
+	w.add(object{"lane": "asker", "text": "R2 (5:01 PM) orca-desk: relay to lane-a: go", "to": []string{deskLane}})
+	w.lines()
+	if told := postsToAsker(w); len(told) != 0 {
+		t.Fatal(told)
+	}
+}
+
 func TestARelayAboutAPRToALaneWithNoDispatchIsABlockerAndLogsNoRelayed(t *testing.T) {
 	w := newDeskWorld(t)
 	container, err := w.desk.lane(testLane)
