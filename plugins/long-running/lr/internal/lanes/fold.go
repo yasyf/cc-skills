@@ -27,7 +27,6 @@ type unread struct {
 type folded struct {
 	adopted []string
 	hand    []string
-	dead    []string
 	unread  []unread
 	stood   []stoodDown
 	untyped []int64
@@ -40,14 +39,6 @@ func takesOver(s *store.Store, name string, old store.Lane, at time.Time) {
 	}
 }
 
-func deadOwner(s *store.Store, name string, numbers []int, at time.Time) string {
-	probe, found := must(s.Probes())[name]
-	if len(numbers) == 0 || !found || probe.Dead.IsZero() {
-		return ""
-	}
-	return fmt.Sprintf("%s for %s: root named it owner at %s, but it left the supervisor's %s ask unanswered; %s", name, numberList(numbers), pacific(at), pacific(probe.Asked), successorNote(s, name))
-}
-
 func grant(s *store.Store, r Record, fresh bool, at time.Time, out *folded) {
 	name, verb, cited := r.Attr("lane"), r.Attr("verb"), r.Attr("last-read")
 	row, known := laneOf(s, name)
@@ -55,7 +46,11 @@ func grant(s *store.Store, r Record, fresh bool, at time.Time, out *folded) {
 	case verb == "park" && known:
 		do(s.SetLaneWaiting(name, r.Seq, time.Time{}, ""))
 	case verb == "unpark" && known:
-		do(s.SetLaneWaiting(name, 0, at, ""))
+		if fresh {
+			do(s.SetLaneWaiting(name, 0, at, ""))
+			return
+		}
+		resume(s, name, fmt.Sprintf("unpark:%d", r.Seq), "root lifted your park", r, at)
 	case verb == "done" && known && row.State != store.LaneRetired:
 		retire(s, name, "done", at)
 	case verb == "owner":
@@ -86,11 +81,6 @@ func grant(s *store.Store, r Record, fresh bool, at time.Time, out *folded) {
 			}
 		}
 		do(s.Own(name, numbers))
-		if !fresh {
-			if line := deadOwner(s, name, numbers, at); line != "" {
-				out.dead = append(out.dead, line)
-			}
-		}
 	case verb == "stand-down" && known:
 		successor := r.Attr("successor")
 		if !fresh && isLive(row.State) {
@@ -237,11 +227,15 @@ func foldRecord(s *store.Store, r Record, fresh bool, at time.Time, out *folded)
 		row, known = laneOf(s, name)
 	}
 	if known && isLive(row.State) {
-		foldWait(s, r, name)
+		foldWait(s, r, row)
+		if kind == "blocker" && r.Attr("turn") == turnDied && !fresh {
+			resume(s, name, fmt.Sprintf("turn:%d", r.Seq), "your last turn died on an API error", r, at)
+		}
 	}
 	if !fresh && (kind == "blocker" || (kind == "ask" && name == Root)) {
 		foldPage(s, r, name, addressed)
 	}
+	foldGates(s, r, fresh, at)
 	resolved := r.resolved()
 	answers := resolved
 	if r.Re != 0 {
@@ -292,17 +286,71 @@ func maxOrder(s *store.Store, r Record) int64 {
 	return slices.Max(orders)
 }
 
-func foldWait(s *store.Store, r Record, name string) {
-	found := ""
-	if slices.Contains(waits, r.Kind) {
-		found = card.FindString(r.Text)
-	}
+func foldWait(s *store.Store, r Record, row store.Lane) {
 	var ask int64
-	if slices.Contains(waits, r.Kind) && (found != "" || slices.Contains(r.To, Root)) {
-		ask = r.Seq
+	awaits := ""
+	if slices.Contains(waits, r.Kind) && (card.MatchString(r.Text) || slices.Contains(r.To, Root) || must(BriefOf(row.Brief)).Standing == "") {
+		ask, awaits = r.Seq, strings.Join(gatesOf(r), " ")
 	}
-	do(s.SetLaneWaiting(name, ask, time.Time{}, found))
-	do(s.SetLanePage(name, nil))
+	do(s.SetLaneWaiting(r.Lane, ask, time.Time{}, awaits))
+	do(s.SetLanePage(r.Lane, nil))
+}
+
+func gatesOf(r Record) []string {
+	var gates []string
+	for _, n := range r.PRs() {
+		gates = append(gates, fmt.Sprintf("pr:%d", n))
+	}
+	for _, target := range r.Refs.Targets {
+		gates = append(gates, "target:"+target)
+	}
+	for _, lane := range r.Refs.Lanes {
+		gates = append(gates, "lane:"+lane)
+	}
+	if found := card.FindString(r.Text); found != "" {
+		gates = append(gates, found)
+	}
+	return gates
+}
+
+func firedBy(r Record) []string {
+	var gates []string
+	if r.Kind == kindLanded {
+		for _, n := range r.PRs() {
+			gates = append(gates, fmt.Sprintf("pr:%d", n))
+		}
+	}
+	if slices.Contains(shipped, r.Kind) {
+		for _, target := range r.Refs.Targets {
+			gates = append(gates, "target:"+target)
+		}
+	}
+	if slices.Contains(laneEnds, r.Kind) {
+		gates = append(gates, "lane:"+r.Lane)
+	}
+	return gates
+}
+
+func foldGates(s *store.Store, r Record, fresh bool, at time.Time) {
+	fired := firedBy(r)
+	if len(fired) == 0 {
+		return
+	}
+	for _, waiter := range must(s.Lanes(live...)) {
+		if waiter.Name == r.Lane || !intersect(fired, strings.Fields(waiter.Awaits)) {
+			continue
+		}
+		if fresh {
+			do(s.SetLaneWaiting(waiter.Name, 0, at, ""))
+			continue
+		}
+		resume(s, waiter.Name, fmt.Sprintf("gate:%d", r.Seq), "what you parked on happened: "+strings.Join(fired, " "), r, at)
+	}
+}
+
+func resume(s *store.Store, name, topic, why string, r Record, at time.Time) {
+	do(s.SetLaneWaiting(name, 0, at, ""))
+	do(s.SetLanePage(name, map[string]any{"topic": topic, "why": why + ", as record #" + strconv.FormatInt(r.Seq, 10) + " says: " + r.Text, "text": r.Text}))
 }
 
 func foldPage(s *store.Store, r Record, name string, addressed map[string]bool) {
@@ -343,6 +391,7 @@ func foldPage(s *store.Store, r Record, name string, addressed map[string]bool) 
 			seqs = pageSeqs(paged.Page)
 		}
 		page["seqs"] = append(seqs, r.Seq)
+		do(s.SetLaneWaiting(target, 0, r.At.UTC(), ""))
 		do(s.SetLanePage(target, page))
 	}
 }
@@ -350,15 +399,16 @@ func foldPage(s *store.Store, r Record, name string, addressed map[string]bool) 
 func foldOwnerPick(s *store.Store, r Record, fresh bool, at time.Time) {
 	marks := picked.FindAllString(r.Text, -1)
 	for _, waiter := range must(s.Lanes(live...)) {
-		if waiter.Awaits == "" {
+		found := card.FindString(waiter.Awaits)
+		if found == "" {
 			continue
 		}
-		if !slices.Contains(marks, "("+waiter.Awaits+")") && !slices.Contains(marks, "("+strings.TrimPrefix(waiter.Awaits, "card-")+")") {
+		if !slices.Contains(marks, "("+found+")") && !slices.Contains(marks, "("+strings.TrimPrefix(found, "card-")+")") {
 			continue
 		}
 		do(s.SetLaneWaiting(waiter.Name, 0, at, ""))
 		if !fresh {
-			do(s.SetLanePage(waiter.Name, map[string]any{"topic": fmt.Sprintf("owner:%d", r.Seq), "why": fmt.Sprintf("the owner answered %s, the card you wait on: %s", waiter.Awaits, r.Text), "text": r.Text, "prs": append([]int{}, waiter.PRs...)}))
+			do(s.SetLanePage(waiter.Name, map[string]any{"topic": fmt.Sprintf("owner:%d", r.Seq), "why": fmt.Sprintf("the owner answered %s, the card you wait on: %s", found, r.Text), "text": r.Text, "prs": append([]int{}, waiter.PRs...)}))
 		}
 	}
 }
@@ -388,6 +438,13 @@ func foldRegistry(s *store.Store, r Record, row store.Lane, known, fresh bool, a
 				return
 			}
 		}
+		if found := withdrawnWork.FindStringSubmatch(text); found != nil {
+			if ended, ok := laneOf(s, found[1]); ok && ended.State != store.LaneRetired {
+				retire(s, ended.Name, "withdrawn", at)
+				do(s.Own(Root, ended.PRs))
+				return
+			}
+		}
 	}
 	if kind == "handoff" && known && r.Refs.CCN != "" {
 		flushed := time.Time{}
@@ -414,6 +471,8 @@ func foldRegistry(s *store.Store, r Record, row store.Lane, known, fresh bool, a
 	switch {
 	case kind == kindLanded:
 		foldLanded(s, r, at)
+	case kind == "done" && settles && len(row.PRs) > 0:
+		do(s.SetLaneWaiting(name, r.Seq, time.Time{}, doneParked))
 	case kind == "done" && settles:
 		retire(s, name, "done", at)
 	case settles && (kind == "stopped" || kind == "stand-down" || (kind == "state" && stoppedLine.MatchString(text))):
@@ -469,9 +528,7 @@ func foldLanded(s *store.Store, r Record, at time.Time) {
 	}
 	do(s.Disown(numbers))
 	for owner := range owners {
-		if owned, ok := laneOf(s, owner); ok && isLive(owned.State) && len(owned.PRs) == 0 {
-			do(s.LaneHeard(owner, at, kindLanded, 0))
-		}
+		settleOwner(s, owner, at)
 	}
 }
 
@@ -499,6 +556,18 @@ func foldWithdraw(s *store.Store, r Record, at time.Time) {
 	}
 	retire(s, withdrawn.Name, "withdrawn", at)
 	do(s.Own(Root, withdrawn.PRs))
+}
+
+func settleOwner(s *store.Store, owner string, at time.Time) {
+	owned, ok := laneOf(s, owner)
+	if !ok || !isLive(owned.State) || len(owned.PRs) > 0 {
+		return
+	}
+	if owned.Awaits == doneParked {
+		retire(s, owner, "done", at)
+		return
+	}
+	do(s.LaneHeard(owner, at, kindLanded, 0))
 }
 
 func foldRootStandDown(s *store.Store, r Record, fresh bool, at time.Time, out *folded) {
@@ -547,13 +616,7 @@ func foldRootStandDown(s *store.Store, r Record, fresh bool, at time.Time, out *
 
 func foldRootDecide(s *store.Store, r Record, fresh bool, at time.Time, out *folded) {
 	if found := ownerAttr.FindStringSubmatch(r.Text); found != nil {
-		numbers := r.PRs()
-		do(s.Own(found[1], numbers))
-		if !fresh {
-			if line := deadOwner(s, found[1], numbers, at); line != "" {
-				out.dead = append(out.dead, line)
-			}
-		}
+		do(s.Own(found[1], r.PRs()))
 		return
 	}
 	if moves := ownerClause.FindAllStringSubmatch(r.Text, -1); len(moves) > 0 {

@@ -44,9 +44,10 @@ func (p *PRRef) UnmarshalJSON(data []byte) error {
 }
 
 type Refs struct {
-	PRs   []PRRef  `json:"prs,omitempty"`
-	Lanes []string `json:"lanes,omitempty"`
-	CCN   string   `json:"ccn,omitempty"`
+	PRs     []PRRef  `json:"prs,omitempty"`
+	Lanes   []string `json:"lanes,omitempty"`
+	Targets []string `json:"targets,omitempty"`
+	CCN     string   `json:"ccn,omitempty"`
 }
 
 type Fields struct {

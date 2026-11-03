@@ -75,7 +75,7 @@ func Tick(ctx context.Context, s *store.Store, drive string, generation int64, d
 		default:
 			report.Relaunched = len(moved.Relaunched)
 			if !reflect.DeepEqual(moved, lanes.Outcome{}) {
-				d.Log.Info("lanes acted", "relaunched", moved.Relaunched, "asked", moved.Asked, "held", moved.Held, "adopted", moved.Adopted, "withdrawn", moved.Withdrawn, "woken", moved.Woken, "reassign", moved.Reassign)
+				d.Log.Info("lanes acted", "relaunched", moved.Relaunched, "asked", moved.Asked, "held", moved.Held, "adopted", moved.Adopted, "withdrawn", moved.Withdrawn, "woken", moved.Woken)
 			}
 		}
 	}

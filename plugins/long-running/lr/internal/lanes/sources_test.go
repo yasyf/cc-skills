@@ -92,55 +92,50 @@ func TestEveryTeammateOfALiveLeadSessionReadsLiveAndCarriesItsTeam(t *testing.T)
 	equal(t, rosters, []string{"", team, team, "", ""})
 }
 
-func TestAWakeMailsAnIdleLaneItsPageOrOncePerIntervalWhileItsRootTaskIsInProgress(t *testing.T) {
-	dir := t.TempDir()
-	tasks := filepath.Join(dir, "tasks")
-	writeJSON(t, filepath.Join(tasks, "session-d50e80e8", "1688.json"), map[string]string{"id": "1688", "subject": "flock-race-1: fix the lane-flock race", "status": "in_progress", "owner": "flock-race-1"})
-	writeJSON(t, filepath.Join(tasks, "session-d50e80e8", "1690.json"), map[string]string{"id": "1690", "subject": "done-lane: ship it", "status": "completed", "owner": "done-lane"})
-	team := filepath.Join(dir, "teams", "session-d50e80e8")
-	now := t0
-	waker := &Waker{Drive: testDrive, Clock: func() time.Time { return now }, Tasks: tasks}
-	row := Row{Session: "d50e80e8-7ba3", Roster: team}
-	wake := func(lane string, page map[string]any) bool {
-		woken, err := waker.Wake(lane, row, page)
-		if err != nil {
-			t.Fatal(err)
+func TestAWakeReachesARosterLanesInboxAndAnOrcaLanesDispatch(t *testing.T) {
+	team := filepath.Join(t.TempDir(), "teams", "session-d50e80e8")
+	var sent []string
+	refuse := false
+	waker := &Waker{Drive: testDrive, Clock: func() time.Time { return t0 }, Send: func(dispatch, subject, body string) error {
+		if refuse {
+			return errors.New("orca refused")
 		}
-		return woken
+		sent = append(sent, dispatch+" "+subject+" "+body)
+		return nil
+	}}
+	page := map[string]any{"why": "this blocker on your PR #46475 arrived after your last record: STALL red #46475 at 89f46c3", "prs": []int{46475}}
+
+	woken, err := waker.Wake("done-lane", Row{Session: "d50e80e8-7ba3", Roster: team}, page)
+	if err != nil || !woken {
+		t.Fatal(woken, err)
 	}
-
-	equal(t, []bool{wake("flock-race-1", nil), wake("flock-race-1", nil), wake("done-lane", nil)}, []bool{true, false, false})
-	now = t0.Add(mins(16))
-	equal(t, wake("flock-race-1", nil), true)
-	equal(t, wake("done-lane", map[string]any{"why": "this blocker on your PR #46475 arrived after your last record: STALL red #46475 at 89f46c3", "prs": []int{46475}}), true)
-
 	var inbox []map[string]any
-	data, err := os.ReadFile(filepath.Join(team, "inboxes", "flock-race-1.json"))
+	data, err := os.ReadFile(filepath.Join(team, "inboxes", "done-lane.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := json.Unmarshal(data, &inbox); err != nil {
 		t.Fatal(err)
 	}
-	equal(t, len(inbox), 2)
+	equal(t, len(inbox), 1)
 	equal(t, inbox[0]["from"], wakeSender)
-	contains(t, inbox[0]["text"].(string), "WAKE flock-race-1: ")
+	contains(t, inbox[0]["text"].(string), "WAKE done-lane: this blocker on your PR #46475 arrived after your last record")
 	contains(t, inbox[0]["text"].(string), "do not restart your brief")
-	paged, err := os.ReadFile(filepath.Join(team, "inboxes", "done-lane.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	contains(t, string(paged), "this blocker on your PR #46475 arrived after your last record")
-	if _, err := os.Stat(filepath.Join(team, "inboxes", "flock-race-1.json.lock")); err == nil {
+	if _, err := os.Stat(filepath.Join(team, "inboxes", "done-lane.json.lock")); err == nil {
 		t.Fatal("lock left behind")
 	}
 
-	if err := os.Mkdir(filepath.Join(team, "inboxes", "held-lane.json.lock"), 0o750); err != nil {
-		t.Fatal(err)
+	woken, err = waker.Wake("orca-lane", Row{Dispatch: "ctx_af31953664f5"}, page)
+	if err != nil || !woken {
+		t.Fatal(woken, err)
 	}
-	equal(t, wake("held-lane", map[string]any{"why": "this blocker arrived"}), false)
-	if _, err := os.Stat(filepath.Join(team, "inboxes", "held-lane.json")); err == nil {
-		t.Fatal("wrote through a held lock")
+	equal(t, len(sent), 1)
+	contains(t, sent[0], "ctx_af31953664f5 WAKE orca-lane: continue the work in hand WAKE orca-lane: this blocker")
+
+	refuse = true
+	woken, err = waker.Wake("orca-lane", Row{Dispatch: "ctx_af31953664f5"}, page)
+	if err != nil || woken {
+		t.Fatalf("a refused send = %v, %v; want it unwoken, for the next tick to retry, with the tick unharmed", woken, err)
 	}
 }
 

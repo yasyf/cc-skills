@@ -586,11 +586,6 @@ func (s *Store) Probe(name string, at time.Time) error {
 	return err
 }
 
-func (s *Store) ProbeDead(name string, at time.Time) error {
-	_, err := s.db.Exec("UPDATE probes SET dead = ? WHERE lane = ?", Stamp(at), name)
-	return err
-}
-
 func (s *Store) Unprobe(name string) error {
 	_, err := s.db.Exec("DELETE FROM probes WHERE lane = ?", name)
 	return err

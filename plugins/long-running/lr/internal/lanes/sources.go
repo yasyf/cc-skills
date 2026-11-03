@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -116,7 +117,7 @@ func (e Env) Ledger(ctx context.Context, argv ...string) (string, error) {
 }
 
 func recordOf(r client.Record) Record {
-	refs := Refs{Lanes: r.Refs.Lanes, CCN: r.Refs.CCN}
+	refs := Refs{Lanes: r.Refs.Lanes, Targets: r.Refs.Targets, CCN: r.Refs.CCN}
 	for _, pr := range r.Refs.PRs {
 		refs.PRs = append(refs.PRs, PRRef(pr.Number))
 	}
@@ -301,31 +302,6 @@ func (e Env) orcaRows(ctx context.Context, names []string) ([]Row, error) {
 	return rows, nil
 }
 
-func taskOpen(tasks, lane string) bool {
-	paths, err := filepath.Glob(filepath.Join(tasks, "*.json"))
-	if err != nil {
-		return false
-	}
-	for _, path := range paths {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			continue
-		}
-		var task struct {
-			Status  string `json:"status"`
-			Owner   string `json:"owner"`
-			Subject string `json:"subject"`
-		}
-		if json.Unmarshal(data, &task) != nil {
-			continue
-		}
-		if task.Status == "in_progress" && (task.Owner == lane || strings.HasPrefix(task.Subject, lane+":")) {
-			return true
-		}
-	}
-	return false
-}
-
 func appendInbox(inbox string, message map[string]any) (bool, error) {
 	if err := os.MkdirAll(filepath.Dir(inbox), 0o750); err != nil {
 		return false, err
@@ -380,43 +356,30 @@ func randomHex(n int) string {
 type Waker struct {
 	Drive string
 	Clock func() time.Time
-	Tasks string
-	woken map[string]time.Time
+	Send  func(dispatch, subject, body string) error
 }
 
 func (w *Waker) Wake(lane string, row Row, page map[string]any) (bool, error) {
-	now := w.Clock()
-	if page == nil {
-		if last, found := w.woken[lane]; found && now.Sub(last) < StaleAfter {
+	text := fmt.Sprintf("WAKE %s: %s Read your mail with `cci tail --drive %s --reader %s --to %s`, then continue the work in hand from your ledger; do not restart your brief.", lane, pageText(page, "why"), w.Drive, lane, lane)
+	summary := fmt.Sprintf("WAKE %s: continue the work in hand", lane)
+	if row.Dispatch != "" {
+		if err := w.Send(row.Dispatch, summary, text); err != nil {
+			slog.Warn("wake not delivered", "lane", lane, "dispatch", row.Dispatch, "err", err)
 			return false, nil
 		}
-		if !taskOpen(teamDir(w.Tasks, row.Session), lane) {
-			return false, nil
-		}
-	}
-	why := fmt.Sprintf("the lane supervisor has seen no record from you in %d minutes while your root task is in progress.", int(StaleAfter.Minutes()))
-	if page != nil {
-		why = pageText(page, "why")
+		return true, nil
 	}
 	message := map[string]any{
 		"from":      wakeSender,
-		"text":      fmt.Sprintf("WAKE %s: %s Read your mail with `cci tail --drive %s --reader %s --to %s`, then continue the work in hand from your ledger; do not restart your brief.", lane, why, w.Drive, lane, lane),
-		"summary":   fmt.Sprintf("WAKE %s: continue the work in hand", lane),
-		"timestamp": now.UTC().Format("2006-01-02T15:04:05.000Z"),
+		"text":      text,
+		"summary":   summary,
+		"timestamp": w.Clock().UTC().Format("2006-01-02T15:04:05.000Z"),
 		"msgV":      1,
 		"msg_id":    randomHex(16),
 		"type":      "message",
 		"read":      false,
 	}
-	written, err := appendInbox(filepath.Join(row.Roster, "inboxes", unsafeName.ReplaceAllString(lane, "-")+".json"), message)
-	if err != nil || !written {
-		return false, err
-	}
-	if w.woken == nil {
-		w.woken = map[string]time.Time{}
-	}
-	w.woken[lane] = now
-	return true, nil
+	return appendInbox(filepath.Join(row.Roster, "inboxes", unsafeName.ReplaceAllString(lane, "-")+".json"), message)
 }
 
 func transcriptOf(projects string, row Row) string {
@@ -720,7 +683,10 @@ func (e Env) Deps(ctx context.Context) (Deps, error) {
 	tokens := &tokenReader{projects: projects, clock: e.Now, measured: map[string]tokenRead{}}
 	states := &prReader{env: e, ctx: ctx, read: map[int]prRead{}}
 	desks := &deskReader{env: e, ctx: ctx, desks: map[string]string{}}
-	waker := &Waker{Drive: e.Config.Drive, Clock: e.Now, Tasks: filepath.Join(e.Claude, "tasks")}
+	waker := &Waker{Drive: e.Config.Drive, Clock: e.Now, Send: func(dispatch, subject, body string) error {
+		_, err := e.Run(ctx, "orca", "orchestration", "send", "--to", "dispatch:"+dispatch, "--run", e.Config.OrcaRun, "--type", "dispatch", "--subject", subject, "--body", body, "--json")
+		return err
+	}}
 	launcher := e.tool("desk-launch.py")
 	return Deps{
 		Drive: e.Config.Drive, Parent: e.Config.Parent, Checkout: e.Config.Checkout, Briefs: briefs,
