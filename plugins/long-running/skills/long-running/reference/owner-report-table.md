@@ -12,6 +12,8 @@ Every update the owner gets, whether a status answer, a milestone report or the 
 
 ## Sections, in order
 
+Under its title and before any section, the update opens with how many of the coordinator's own items in the drive's store are past due when it renders. One line per item follows, oldest due first, naming it and its due time. With none past due it prints nothing there.
+
 1. **Since you last looked.** Each row that is new, whose owner, blocker or doneness moved, or that left its table because a PR landed, an ask was answered or an incident closed, since the last update he was sent.
 2. **Decisions made for you (FYI).** The communicator's own FYIs since the last update, grouped. Each is a plain-words synthesis of something the coordinator decided or solved, or of what is going right or wrong. Each is a `note` record from `owner-relay` on topic `fyi`, and the group is the words before its first colon. The render never turns coordinator records into FYIs.
 3. **Your words since the last update.** Each message the communicator queued, quoted whole, with the record that carries it: a later record that answers it with `--re` or resolves it. A record that only names its number does not count, since `#<n>` is also a PR.
