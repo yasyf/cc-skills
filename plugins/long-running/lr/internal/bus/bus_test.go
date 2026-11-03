@@ -4,10 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"reflect"
 	"regexp"
 	"slices"
-	"strings"
 	"testing"
 	"time"
 
@@ -16,10 +14,6 @@ import (
 )
 
 const head = "e718a7434fa01ee9835f992a9a647a825350732c"
-
-func gradeFields() map[string]any {
-	return map[string]any{"pr": json.Number("45821"), "head": head, "grader": "finder", "verdict": "clear"}
-}
 
 func wantRefused(t *testing.T, err error, pattern string) {
 	t.Helper()
@@ -38,96 +32,29 @@ func bound(t *testing.T, lane string) bus.Bus {
 	return bus.Bus{Drive: "d", Lane: lane}
 }
 
-func TestAClearPostedAsTheWrongKindIsRefusedWithTheRightCommand(t *testing.T) {
-	wantRefused(t, bus.Check("note", gradeFields(), []string{"supervisor"}),
-		`these fields are a grade record, not note; run: lr post grade --pr 45821 --head `+head+` --grader finder --verdict clear --to supervisor`)
-}
-
-func TestAGradeNamingManyPRsIsRefusedWithOneCommandPerPR(t *testing.T) {
-	fields := gradeFields()
-	fields["pr"] = []any{json.Number("1"), json.Number("2"), json.Number("3")}
-
-	wantRefused(t, bus.Check("grade", fields, nil),
-		`a grade names one PR; post one record per PR: lr post grade --pr 1 .* && lr post grade --pr 2 .* && lr post grade --pr 3 `)
-}
-
-func TestRootHearsOnlyEscalationsAsksAndDecisions(t *testing.T) {
-	for kind, fields := range map[string]map[string]any{
-		"state": {"lane": "lane-7"},
-		"done":  {"item": json.Number("3")},
-		"grade": gradeFields(),
-		"item":  {"item": json.Number("3"), "action": "restack", "pr": json.Number("1"), "head": head, "mover": "lane", "deadline": "2026-10-31T06:20:00Z"},
-		"note":  {"text": "landing is slow"},
-	} {
-		wantRefused(t, bus.Check(kind, fields, []string{"root"}),
-			`a `+kind+` record never reaches root; .*post an escalation, an ask or a decision`)
-	}
-	for kind, fields := range map[string]map[string]any{
-		"escalation": {"subject": "org/repo#45470", "cause": "verdict overdue"},
-		"ask":        {"text": "which base?"},
-		"decision":   {"text": "land the bottom"},
-	} {
-		if err := bus.Check(kind, fields, []string{"root"}); err != nil {
-			t.Errorf("%s to root: %v", kind, err)
-		}
-	}
-}
-
-func TestAGoByRootIsNotATap(t *testing.T) {
-	wantRefused(t, bus.Check("tap", map[string]any{"pr": json.Number("45911"), "head": head, "by": "root", "value": "tapped"}, nil),
-		`tap\.by must be one of owner, rule, got 'root'`)
-}
-
-func TestAFieldOfTheWrongShapeIsRefused(t *testing.T) {
-	for _, tt := range []struct {
-		field   string
-		value   any
-		message string
-	}{
-		{"head", "e718a74", "a full 40-character sha"},
-		{"pr", "45821", "an integer"},
-		{"pr", json.Number("1.5"), "an integer"},
-		{"verdict", "lgtm", "one of clear, ask, pass, fail"},
-		{"grader", "codex", "one of finder, fidelity"},
-	} {
-		fields := gradeFields()
-		fields[tt.field] = tt.value
-		wantRefused(t, bus.Check("grade", fields, nil), `grade\.`+tt.field+` must be `+tt.message)
-	}
-}
-
-func TestAMissingFieldIsNamed(t *testing.T) {
-	fields := gradeFields()
-	delete(fields, "verdict")
-
-	wantRefused(t, bus.Check("grade", fields, nil), `grade takes pr, head, grader, verdict; missing verdict`)
-}
-
-func TestAnUnknownFieldIsNamed(t *testing.T) {
-	fields := gradeFields()
-	fields["reviewer"] = "sol"
-
-	wantRefused(t, bus.Check("grade", fields, nil), `grade takes pr, head, grader, verdict; unexpected reviewer`)
-}
-
 func TestAnUnknownKindListsTheTwelve(t *testing.T) {
-	wantRefused(t, bus.Check("evidence", map[string]any{"text": "x"}, nil),
+	wantRefused(t, bus.Check("evidence", json.RawMessage(`{"text":"x"}`), nil),
 		`unknown kind 'evidence'; the kinds are head, grade, tap, verdict, item, done, escalation, decision, ask, answer, note, state`)
 }
 
-func TestABlankConditionIsRefused(t *testing.T) {
-	wantRefused(t, bus.Check("tap", map[string]any{"pr": json.Number("45470"), "head": head, "by": "owner", "value": "tapped", "condition": "  "}, nil),
-		`tap\.condition must be non-empty text`)
+func TestABodyOfTheWrongShapeIsRefusedBeforeAnythingIsStored(t *testing.T) {
+	b := bound(t, "finder-desk")
+
+	_, err := b.Post(context.Background(), nil, bus.Grade{PR: 1, Head: "e718a74", Grader: "finder", Verdict: "clear"})
+
+	wantRefused(t, err, `grade\.head must be a full 40-character sha`)
+	rows, err := client.Tail(context.Background(), client.Query{Drive: "d"})
+	if err != nil || len(rows) != 0 {
+		t.Fatalf("Tail = %+v, %v", rows, err)
+	}
 }
 
-func TestAnItemReachesALaneByNameButNeverARole(t *testing.T) {
-	item := map[string]any{"item": json.Number("3"), "action": "verdict", "pr": json.Number("45470"), "head": head, "mover": "lane", "deadline": "2026-10-31T06:20:00Z"}
+func TestRootHearsNoTypedStateOrGrade(t *testing.T) {
+	b := bound(t, "lane-7")
 
-	if err := bus.Check("item", item, []string{"lane-7"}); err != nil {
-		t.Fatal(err)
-	}
-	wantRefused(t, bus.Check("item", item, []string{"root"}), `never reaches root`)
-	wantRefused(t, bus.Check("state", map[string]any{"lane": "lane-7"}, []string{"lane-7"}), `never reaches lane-7`)
+	_, err := b.Post(context.Background(), []string{"root"}, bus.State{Lane: "lane-7"})
+
+	wantRefused(t, err, `a state record never reaches root; .*post an escalation, an ask or a decision`)
 }
 
 func TestAPostStoresATypedBodyWithItsIdentityKeyAndSummary(t *testing.T) {
@@ -155,6 +82,35 @@ func TestAPostStoresATypedBodyWithItsIdentityKeyAndSummary(t *testing.T) {
 	if len(rows[0].Refs.PRs) != 1 || rows[0].Refs.PRs[0].Number != 45821 {
 		t.Errorf("prs = %+v", rows[0].Refs.PRs)
 	}
+}
+
+func TestATextKindSummarizesAsItsText(t *testing.T) {
+	b := bound(t, "lane-7")
+
+	if _, err := b.Post(context.Background(), []string{"lane-8"}, bus.Note{Text: "landing is slow"}); err != nil {
+		t.Fatal(err)
+	}
+
+	rows, err := client.Tail(context.Background(), client.Query{Drive: "d", Kinds: []string{"lr.note"}})
+	if err != nil || len(rows) != 1 || rows[0].Text != "note: landing is slow" || rows[0].ID != "" {
+		t.Fatalf("Tail = %+v, %v", rows, err)
+	}
+}
+
+func TestAnItemReachesALaneByName(t *testing.T) {
+	b := bound(t, "supervisor")
+	item := bus.Item{Item: 3, Action: "verdict", PR: 45470, Head: head, Mover: "lane", Deadline: "2026-10-31T06:20:00Z"}
+
+	record, err := b.Post(context.Background(), []string{"lane-7"}, item)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if record.Body != bus.Body(item) {
+		t.Fatalf("record = %+v", record)
+	}
+	_, err = b.Post(context.Background(), []string{"root"}, item)
+	wantRefused(t, err, `never reaches root`)
 }
 
 func TestPostingTheSameRecordTwiceIsOneRecordButAWithdrawalIsAnother(t *testing.T) {
@@ -243,34 +199,6 @@ func TestReadReturnsTypedRecordsFromTheCursorOldestFirst(t *testing.T) {
 	}
 }
 
-func TestReadSetsAsideABodyTheBusWouldHaveRefused(t *testing.T) {
-	b := bound(t, "lane-7")
-	good, err := b.Post(context.Background(), []string{"supervisor"}, bus.Grade{PR: 1, Head: head, Grader: "finder", Verdict: "clear"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	manyPRs, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "lane-7", Kind: "lr.grade", Text: "many PRs", To: []string{"supervisor"}, Body: json.RawMessage(`{"pr":[1,2],"head":"` + head + `","grader":"finder","verdict":"clear"}`)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	toRoot, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "lane-7", Kind: "lr.state", Text: "to root", To: []string{"root"}, Body: json.RawMessage(`{"lane":"lane-7"}`)})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	records, rejected, err := b.Read(context.Background(), 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if len(records) != 1 || records[0].Seq != good.Seq {
-		t.Fatalf("records = %+v", records)
-	}
-	if len(rejected) != 2 || rejected[0].Seq != manyPRs.Seq || rejected[1].Seq != toRoot.Seq {
-		t.Fatalf("rejected = %+v", rejected)
-	}
-}
-
 func TestEveryKindHasABodyWithExactlyItsFields(t *testing.T) {
 	bodies := []bus.Body{
 		bus.Head{PR: 1, Head: head, Lane: "l"},
@@ -292,19 +220,12 @@ func TestEveryKindHasABodyWithExactlyItsFields(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		dec := json.NewDecoder(strings.NewReader(string(raw)))
-		dec.UseNumber()
-		var fields map[string]any
-		if err := dec.Decode(&fields); err != nil {
-			t.Fatal(err)
-		}
-		if err := bus.Check(body.Kind(), fields, nil); err != nil {
+		if err := bus.Check(body.Kind(), raw, nil); err != nil {
 			t.Errorf("%T does not fit its kind: %v", body, err)
 		}
 		kinds = append(kinds, body.Kind())
 	}
-	want := []string{"head", "grade", "tap", "verdict", "item", "done", "escalation", "decision", "ask", "answer", "note", "state"}
-	if !reflect.DeepEqual(kinds, want) {
-		t.Fatalf("kinds = %v, want %v", kinds, want)
+	if want := client.TypedKinds(); !slices.Equal(kinds, want) {
+		t.Fatalf("kinds = %v, want the table's %v", kinds, want)
 	}
 }

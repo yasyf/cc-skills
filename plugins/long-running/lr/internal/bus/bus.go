@@ -11,6 +11,16 @@ import (
 	"github.com/yasyf/cc-inbox/client"
 )
 
+const namespace = "lr"
+
+type Refused struct {
+	Message string
+}
+
+func (r *Refused) Error() string {
+	return r.Message
+}
+
 type Body interface {
 	Kind() string
 }
@@ -148,6 +158,16 @@ func (r Record) Kind() string {
 	return r.Body.Kind()
 }
 
+func Check(kind string, raw json.RawMessage, to []string) error {
+	if _, ok := client.TypedSchema(kind); !ok {
+		return &Refused{fmt.Sprintf("unknown kind '%s'; the kinds are %s", kind, strings.Join(client.TypedKinds(), ", "))}
+	}
+	if err := client.CheckBody(kind, raw, to); err != nil {
+		return &Refused{err.Error()}
+	}
+	return nil
+}
+
 type Bus struct {
 	Drive string
 	Lane  string
@@ -158,25 +178,29 @@ func (b Bus) Post(ctx context.Context, to []string, body Body) (Record, error) {
 	if err != nil {
 		return Record{}, err
 	}
-	fields, err := decodeFields(raw)
-	if err != nil {
-		return Record{}, err
-	}
-	return b.PostFields(ctx, body.Kind(), fields, to)
+	return b.postRaw(ctx, body.Kind(), raw, to)
 }
 
 func (b Bus) PostFields(ctx context.Context, kind string, fields map[string]any, to []string) (Record, error) {
-	if err := Check(kind, fields, to); err != nil {
-		return Record{}, err
-	}
-	s, _ := lookup(kind)
 	raw, err := json.Marshal(fields)
 	if err != nil {
 		return Record{}, err
 	}
-	draft := client.Draft{Drive: b.Drive, Lane: b.Lane, Kind: namespace + "." + kind, Text: summary(s, fields), To: to, Body: raw}
-	if len(s.identity) > 0 {
-		draft.ID = identity(s, fields)
+	return b.postRaw(ctx, kind, raw, to)
+}
+
+func (b Bus) postRaw(ctx context.Context, kind string, raw json.RawMessage, to []string) (Record, error) {
+	if err := Check(kind, raw, to); err != nil {
+		return Record{}, err
+	}
+	fields, err := decodeFields(raw)
+	if err != nil {
+		return Record{}, err
+	}
+	schema, _ := client.TypedSchema(kind)
+	draft := client.Draft{Drive: b.Drive, Lane: b.Lane, Kind: namespace + "." + kind, Text: summary(kind, schema.Names(), fields), To: to, Body: raw}
+	if len(schema.Identity) > 0 {
+		draft.ID = identity(kind, schema.Identity, fields)
 	}
 	if pr, ok := fields["pr"]; ok {
 		draft.PRs = []string{plain(pr)}
@@ -203,13 +227,45 @@ func decodeFields(raw json.RawMessage) (map[string]any, error) {
 	return fields, nil
 }
 
+func plain(value any) string {
+	if text, isText := value.(string); isText {
+		return text
+	}
+	return fmt.Sprint(value)
+}
+
+func identity(kind string, names []string, fields map[string]any) string {
+	parts := []string{namespace + "." + kind}
+	for _, name := range names {
+		parts = append(parts, plain(fields[name]))
+	}
+	return strings.Join(parts, "/")
+}
+
+func summary(kind string, names []string, fields map[string]any) string {
+	parts := []string{kind}
+	for _, name := range names {
+		value, given := fields[name]
+		switch {
+		case !given || name == "text":
+		case name == "pr":
+			parts = append(parts, "#"+plain(value))
+		case name == "head":
+			parts = append(parts, plain(value)[:12])
+		default:
+			parts = append(parts, plain(value))
+		}
+	}
+	line := strings.Join(parts, " ")
+	if text, given := fields["text"]; given {
+		line += ": " + plain(text)
+	}
+	return line
+}
+
 func parse(raw client.Record) (Record, error) {
 	kind := strings.TrimPrefix(string(raw.Kind), namespace+".")
-	fields, err := decodeFields(raw.Body)
-	if err != nil {
-		return Record{}, err
-	}
-	if err := Check(kind, fields, raw.To); err != nil {
+	if err := Check(kind, raw.Body, raw.To); err != nil {
 		return Record{}, err
 	}
 	body, err := decodeBody(kind, raw.Body)
@@ -221,9 +277,7 @@ func parse(raw client.Record) (Record, error) {
 
 func (b Bus) Read(ctx context.Context, since int64, kinds ...string) (records []Record, rejected []client.Record, err error) {
 	if len(kinds) == 0 {
-		for _, s := range table {
-			kinds = append(kinds, s.kind)
-		}
+		kinds = client.TypedKinds()
 	}
 	selected := make([]string, 0, len(kinds))
 	for _, kind := range kinds {

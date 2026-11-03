@@ -44,7 +44,7 @@ func TestLrPostPrintsTheCorrectedCommandAndStoresNothing(t *testing.T) {
 
 	_, err := lrPost(t, "note", "--drive", "d", "--as", "finder-desk", "--pr", "45821", "--head", head, "--grader", "finder", "--verdict", "clear", "--to", "supervisor")
 
-	wantRefused(t, err, `run: lr post grade --pr 45821 --head `+head+` --grader finder --verdict clear --to supervisor`)
+	wantRefused(t, err, `these fields are a grade record, not note; run: lr post grade --pr 45821 --head `+head+` --grader finder --verdict clear --to supervisor`)
 	rows, err := client.Tail(context.Background(), client.Query{Drive: "d"})
 	if err != nil || len(rows) != 0 {
 		t.Fatalf("Tail = %+v, %v", rows, err)
