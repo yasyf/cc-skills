@@ -57,7 +57,7 @@ orca worktree set --worktree "path:<wt>" --parent-worktree "path:<coordinator wo
 
 **Pass a brief pointer, never the brief text, in `--spec`.** Attach the combined shared contract and lane section as `<lane>.full.md` on the drive's briefs log according to [reference/orca-lane-brief.md](orca-lane-brief.md). `--spec` points to its resolved file path, symlinked to a short path when the pointer exceeds 500 characters, because Orca truncates pasted prompts near 3 KB.
 
-**Select models and effort levels by role.** Effort is `low`, `medium`, `high`, `xhigh`, or `max`. Coordinators run Opus 5.5. Ordinary Claude implementation workers default to Opus, and subdesks use Opus or Sonnet according to the routing table. Fable is for exceptional, highly sensitive local implementation only, and auth, migrations, concurrency, or error-prone code alone do not qualify; never use Fable as a general fallback or set `fallbackModel`.
+**Select models and effort levels by role.** Effort is `low`, `medium`, `high`, `xhigh`, or `max`. The coordinator runs Fable 5.1 on the Mac. Ordinary Claude implementation workers default to Opus, and subdesks use Opus or Sonnet according to the routing table. Beyond the coordinator, Fable is for exceptional, highly sensitive local implementation only, and auth, migrations, concurrency, or error-prone code alone do not qualify; never use Fable as a general fallback or set `fallbackModel`.
 
 | Alias | Model id |
 |---|---|

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -17,7 +18,7 @@ import (
 var startSequence = []struct {
 	session, lane, model, effort string
 }{
-	{"coordinator", "root", "opus", "xhigh"},
+	{"coordinator", "root", "fable", "xhigh"},
 	{"meta", "meta", "opus", "xhigh"},
 	{"signal", "signal", "sonnet", "low"},
 	{"chores", "chores", "sonnet", "low"},
@@ -80,6 +81,22 @@ func TestWithARunnerUpDriveStartPostsEachSessionsLaunchToItAsTheCommunicator(t *
 			}
 
 			equal(t, ran, []string{"/claude/long-running/current/bin/desk-launch.py", "lane", want.lane, want.model, want.effort, brief, "--drive", testDrive, "--lane", "owner-relay"})
+		})
+	}
+}
+
+func TestOnlyTheCoordinatorLaunchesOnFable(t *testing.T) {
+	for _, name := range []string{"coordinator", "meta", "chores"} {
+		t.Run(name, func(t *testing.T) {
+			var ran []string
+			bus := &fakeBus{tail: []client.Record{{Lane: orcaRunner, Topic: orcaTopic, Text: "orca alive 7:00 PM pass 3"}}}
+			session := standingSessions[name]
+
+			if _, err := startEnv(bus, &ran).launchStanding(context.Background(), session, filepath.Join("/state", session.lane, "brief.md")); err != nil {
+				t.Fatal(err)
+			}
+
+			equal(t, slices.Contains(ran, "fable"), name == "coordinator")
 		})
 	}
 }
