@@ -26,9 +26,9 @@ const (
 
 var unreachableCodes = []string{"runtime_unavailable", codeRemoteUnreachable, "runtime_timeout", "invalid_runtime_response", codeUnparseable}
 
-type OrcaUnreachable struct{ Text string }
+type orcaUnreachable struct{ Text string }
 
-func (e *OrcaUnreachable) Error() string { return e.Text }
+func (e *orcaUnreachable) Error() string { return e.Text }
 
 type laneDispatch struct {
 	Lane, ID, Terminal, Status string
@@ -69,11 +69,11 @@ func (d *Desk) call(ctx context.Context, args ...string) Reply {
 	return reply
 }
 
-func unreachable(reply Reply) *OrcaUnreachable {
+func unreachable(reply Reply) *orcaUnreachable {
 	if reply.OK || !slices.Contains(unreachableCodes, reply.Error.Code) {
 		return nil
 	}
-	return &OrcaUnreachable{Text: reply.Refusal()}
+	return &orcaUnreachable{Text: reply.Refusal()}
 }
 
 func (d *Desk) ask(ctx context.Context, args ...string) (Reply, error) {

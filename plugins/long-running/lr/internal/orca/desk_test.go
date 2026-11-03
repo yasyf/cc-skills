@@ -1245,7 +1245,7 @@ func TestASendStartedAndOrphanedIsLost(t *testing.T) {
 		t.Fatal(err)
 	}
 	w.now = w.now.Add(orphanedSend + time.Second)
-	w.step(func(context.Context) error { return w.desk.reconcileSends(context.Background(), container, testLane) })
+	w.step(func(ctx context.Context) error { return w.desk.reconcileSends(ctx, container, testLane) })
 	if sent := w.action(testLane, "send:R2:ctx_a#1"); sent.Status == incident.ActionStarted {
 		t.Fatal(sent)
 	}
@@ -1936,11 +1936,11 @@ func TestAnEscalationToALaneIsRecordedOnlyOncePosted(t *testing.T) {
 
 func TestAnUnreachableOrcaIsOneReportAndBackoffUntilItAnswers(t *testing.T) {
 	w := newDeskWorld(t)
-	err := w.desk.settlePass(context.Background(), &OrcaUnreachable{Text: "runtime_timeout"})
+	err := w.desk.settlePass(context.Background(), &orcaUnreachable{Text: "runtime_timeout"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := w.desk.settlePass(context.Background(), &OrcaUnreachable{Text: "runtime_timeout"}); err != nil {
+	if err := w.desk.settlePass(context.Background(), &orcaUnreachable{Text: "runtime_timeout"}); err != nil {
 		t.Fatal(err)
 	}
 	if w.desk.passWait() != 40*time.Second {
@@ -1960,7 +1960,7 @@ func TestAnUnreachableOrcaIsOneReportAndBackoffUntilItAnswers(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantContains(t, w.wantEscalation("ORCA-BACK "), "for 5 min (runtime_timeout)")
-	if w.desk.passWait() != passSeconds {
+	if w.desk.passWait() != passEvery {
 		t.Fatal(w.desk.passWait())
 	}
 }
@@ -1970,7 +1970,7 @@ func TestAWorkerShowOrcaCannotAnswerStopsThePassAsUnreachable(t *testing.T) {
 	w.live(testLane, testDispatch, testTerminal)
 	w.refusals["orchestration worker-show"] = object{"code": "runtime_unavailable", "message": "down"}
 	_, err := w.desk.show(context.Background(), testLane, "")
-	var down *OrcaUnreachable
+	var down *orcaUnreachable
 	if !errors.As(err, &down) {
 		t.Fatal(err)
 	}

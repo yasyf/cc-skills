@@ -94,7 +94,7 @@ func (d *Desk) names(lane string) ([]string, error) {
 		}
 	}
 	slices.Sort(posters)
-	return append(names, posters...), nil
+	return slices.Concat(names, posters), nil
 }
 
 func (d *Desk) fixLaunch(container string) (*incident.Action, error) {
@@ -564,7 +564,7 @@ func (d *Desk) cutRecords(ctx context.Context, clock cutClock, kinds ...string) 
 		if record.Lane == clock.Lane {
 			return len(record.Refs.Targets) > 0 && !hitsTarget
 		}
-		return clock.PR == "" || record.Lane == deskRunner || !(hitsTarget || prNamed(record, clock.PR))
+		return clock.PR == "" || record.Lane == deskRunner || (!hitsTarget && !prNamed(record, clock.PR))
 	}), nil
 }
 

@@ -703,7 +703,7 @@ func TestStartByMovesAnActionAsStartDoesAndRefusesWithTheSameText(t *testing.T) 
 		_, byErr := tx.StartBy("by", storeNow, time.Time{}, "")
 		var refused *TransitionError
 		if !errors.As(byErr, &refused) || startErr == nil || byErr.Error() != startErr.Error() {
-			return fmt.Errorf("StartBy said %v, Start said %v", byErr, startErr)
+			return fmt.Errorf("StartBy said %w, Start said %w", byErr, startErr)
 		}
 		if byErr.Error() != "by is started, not accepted" {
 			return byErr

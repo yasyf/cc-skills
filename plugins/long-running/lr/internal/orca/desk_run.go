@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	passSeconds     = 10 * time.Second
+	passEvery     = 10 * time.Second
 	unreachableWait = 2 * time.Minute
 	wakeEvery       = 250 * time.Millisecond
 	sweepEvery      = 5 * time.Minute
@@ -75,7 +75,7 @@ func (d *Desk) onePass(ctx context.Context) error {
 	return d.prompt(ctx)
 }
 
-func (d *Desk) orcaDown(down *OrcaUnreachable) error {
+func (d *Desk) orcaDown(down *orcaUnreachable) error {
 	d.unreachable++
 	var streak struct {
 		Since string `json:"since"`
@@ -124,7 +124,7 @@ func (d *Desk) orcaBack() error {
 }
 
 func (d *Desk) passWait() time.Duration {
-	pause := passSeconds
+	pause := passEvery
 	for range d.unreachable {
 		pause *= 2
 		if pause >= unreachableWait {
@@ -174,7 +174,7 @@ func (d *Desk) raised(ctx context.Context, err error) {
 }
 
 func (d *Desk) settlePass(ctx context.Context, err error) error {
-	var down *OrcaUnreachable
+	var down *orcaUnreachable
 	switch {
 	case errors.As(err, &down):
 		return d.orcaDown(down)
