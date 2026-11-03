@@ -53,6 +53,9 @@ func SpawnDetached(argv []string, log string, env []string) (Process, error) {
 		return nil, err
 	}
 	defer sink.Close()
+	if err := syscall.Flock(int(sink.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		return nil, fmt.Errorf("lock launch log %s: %w", log, err)
+	}
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Stdout, cmd.Stderr = sink, sink
 	cmd.Env = append(os.Environ(), env...)
@@ -66,6 +69,15 @@ func SpawnDetached(argv []string, log string, env []string) (Process, error) {
 		process.done.Store(true)
 	}()
 	return process, nil
+}
+
+func launcherRunning(log string) bool {
+	file, err := os.Open(log)
+	if err != nil {
+		return false
+	}
+	defer file.Close()
+	return errors.Is(syscall.Flock(int(file.Fd()), syscall.LOCK_SH|syscall.LOCK_NB), syscall.EWOULDBLOCK)
 }
 
 func (d *Desk) capture(ctx context.Context, env []string, argv ...string) (string, int, error) {
@@ -411,6 +423,9 @@ func (d *Desk) reapOne(ctx context.Context, container, lane string, action incid
 	if process != nil && !process.Exited() {
 		return nil
 	}
+	if process == nil && (launcherRunning(d.launchLog(container, action.ActionID)) || launcherRunning(d.spriteLog(container, action.ActionID))) {
+		return nil
+	}
 	delete(d.launching, key)
 	sprite := d.sprites[key] || (isFile(d.spriteLog(container, action.ActionID)) && !isFile(d.launchLog(container, action.ActionID)))
 	delete(d.sprites, key)
@@ -594,13 +609,14 @@ func (d *Desk) settleLaunch(ctx context.Context, container, lane string, action 
 	found := launchedLine.FindStringSubmatch(out)
 	receipt := d.receipt(lane)
 	var proofLine, dispatch, terminal string
+	failure := failureLine(out, lane)
 	switch {
 	case found != nil && found[1] == lane:
 		proofLine, dispatch, terminal = found[0], found[3], found[4]
-	case out == "" && receipt != "" && receipt != spec.Prior:
+	case failure != "":
+		return d.failedLaunch(ctx, container, lane, key, failure, verdictTo(spec.By))
+	case receipt != "" && receipt != spec.Prior:
 		proofLine, dispatch, terminal = "receipt dispatch "+receipt, receipt, d.terminal(lane)
-	case out != "":
-		return d.failedLaunch(ctx, container, lane, key, out, verdictTo(spec.By))
 	default:
 		if _, err := d.attempt(container, func(tx *incident.Tx) error {
 			_, err := tx.Lose(key)
@@ -608,7 +624,11 @@ func (d *Desk) settleLaunch(ctx context.Context, container, lane string, action 
 		}); err != nil {
 			return err
 		}
-		return d.escalateTo(ctx, container+"/"+key, "UNVERIFIABLE", lane, "launch outcome unknown: no launch line and no new receipt; it was not relaunched", verdictTo(spec.By))
+		said := "launch outcome unknown: no launch line and no new receipt; it was not relaunched"
+		if out != "" {
+			said += "; its log says: " + clipRunes(collapsed(out), 300)
+		}
+		return d.escalateTo(ctx, container+"/"+key, "UNVERIFIABLE", lane, said, verdictTo(spec.By))
 	}
 	proof := map[string]any{"line": proofLine, "dispatch": dispatch, "at": d.stamp()}
 	if _, err := d.attempt(container, func(tx *incident.Tx) error {
@@ -638,15 +658,16 @@ func (d *Desk) settleLaunch(ctx context.Context, container, lane string, action 
 	return d.stopPendingWithdraw(ctx, container, lane, key, dispatch)
 }
 
-func (d *Desk) failedLaunch(ctx context.Context, container, lane, key, out, to string) error {
-	reason := clipRunes(collapsed(out), 300)
-	lines := strings.Split(out, "\n")
-	for _, line := range slices.Backward(lines) {
+func failureLine(out, lane string) string {
+	for _, line := range slices.Backward(strings.Split(out, "\n")) {
 		if strings.HasPrefix(line, lane+" failed ") {
-			reason = line
-			break
+			return line
 		}
 	}
+	return ""
+}
+
+func (d *Desk) failedLaunch(ctx context.Context, container, lane, key, reason, to string) error {
 	if _, err := d.attempt(container, func(tx *incident.Tx) error {
 		_, err := tx.Fail(key, reason)
 		return err
