@@ -1089,11 +1089,21 @@ def cited_rows(loaded: Register, text: str, required: list[tuple[str, dict[str, 
     return [(key, rows[key]) for key in cited if key not in have], ["", f"Cited by id in the PR, unknown to the register: {', '.join(unknown)}"] if unknown else []
 
 
+def pr_answers(loaded: Register, diff: Diff, text: str) -> list[str]:
+    ccn = partial(ccn_text, loaded.shell, loaded.repo)
+    topics = answer_search.named(answer_search.vocabulary(ccn, loaded.program), text, diff.files)
+    found = answer_search.hits(ccn, [topic.slug for topic in topics], [], "")
+    lines = ["", f"## His answers on the topics this PR's text names or its files touch ({len(found)})"]
+    for answer in found:
+        lines += ["", f"### answer/{answer['id'][:SHORT]} | answer | {answer['updated_at'][:10]}", f"Asked: {answer['title']}", *(f"> {line}" for line in answer["body"].splitlines())]
+    return lines
+
+
 def required_slice(loaded: Register, diff: Diff, pr: str, head: str, text: str) -> str:
     rows = required_rows(loaded, diff)
     cited, unknown = cited_rows(loaded, text, rows)
     lines = [f"Required rows for {pr} at {head}", f"Program {loaded.program}, register ledger {loaded.ledger[:12]}. Every row is the owner's words, verbatim."]
-    return hashed(lines + section("Every global, pending and touched row", rows) + section("Rows the PR cites by id", cited) + unknown)
+    return hashed(lines + section("Every global, pending and touched row", rows) + section("Rows the PR cites by id", cited) + pr_answers(loaded, diff, text) + unknown)
 
 
 def worded_rows(loaded: Register, rows: list[tuple[str, dict[str, str]]]) -> list[list[str]]:
@@ -1113,7 +1123,7 @@ def worded_slice(loaded: Register, diff: Diff, pr: str, head: str, text: str) ->
         lines += ["", f"## {title}"]
         for row in part:
             lines += ["", *row]
-    return hashed(lines + unknown)
+    return hashed(lines + pr_answers(loaded, diff, text) + unknown)
 
 
 def refresh(loaded: Register, brief: Path, plan: Path | None) -> str:

@@ -529,6 +529,21 @@ func TestAMissingVerdictPostsOneOwnerGroundedLineNamingEveryBrokenRow(t *testing
 	})
 }
 
+func TestAHeadThatBreaksOneOfHisAnswersGradesMissingNamingTheRulingItDepartsFrom(t *testing.T) {
+	directory := fidelityDir(t, map[string]any{"grades": []any{}, "baseline": ""})
+	shell, _ := newFidelityFake(t, samePatch, fidelityReplyOf(map[string]any{
+		"verdict": "missing",
+		"checked": append(slices.Clone(fidelityKeys), "answer/9d440bb"),
+		"missing": []any{missingOf("answer/9d440bb", "convert.go opens an old chat that fails to convert with no Fork")},
+	}))
+	shell.rows = strings.Replace(shell.rows, "slice-hash:", "### answer/9d440bb | answer | 2026-11-03\nAsked: Old-format chats in the new build: convert how?\n> Fall back to read only with fork.\n\nslice-hash:", 1)
+	mustFidelity(t, directory, shell)
+	sameList(t, shell.texts(), []string{
+		"fidelity: missing " + shaHead + " answer/9d440bb departs from ruling 9d440bb: convert.go opens an old chat that fails to convert with no Fork",
+		"old-app: unchanged " + shaHead[:7] + " baseline the old app as last released; go/sand/next only",
+	})
+}
+
 func TestAMissingPointAnOwnerPickAnswersLeavesTheLineWhichNamesThePick(t *testing.T) {
 	directory := fidelityDir(t, map[string]any{"grades": []any{}, "baseline": "", "picks": []any{ownerPick("rule/abc", "rule/949e6be")}})
 	shell, _ := newFidelityFake(t, samePatch, fidelityReplyOf(map[string]any{"verdict": "missing", "missing": []any{
