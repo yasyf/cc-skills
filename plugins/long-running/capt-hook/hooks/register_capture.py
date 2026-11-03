@@ -4,7 +4,7 @@ import hashlib
 import json
 import re
 import subprocess
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from datetime import UTC, datetime
 from itertools import dropwhile, takewhile
 from pathlib import Path
@@ -220,10 +220,10 @@ def stamped(prompt: dict, seen: dict[str, datetime], ending: bool) -> dict:
     return prompt
 
 
-def slack_dms(evt: BaseHookEvent) -> list[dict]:
+def slack_dms(evt: BaseHookEvent, events: Iterable[object]) -> list[dict]:
     messages = (
         json.loads(found["payload"])
-        for event in evt.ctx.t.events
+        for event in events
         if isinstance(event, AttachmentEvent) and event.attachment_type == "queued_command" and event.detail.prompt and (found := SLACK_MESSAGE.search(event.detail.prompt))
     )
     return [
@@ -262,7 +262,7 @@ def capture(prompt: dict) -> dict:
     })),
 )
 def stamp_owner_prompts(evt: BaseHookEvent) -> HookResult | None:
-    dms = slack_dms(evt)
+    dms = slack_dms(evt, evt.ctx.t.events)
     if not (PendingPrompts.load(evt).prompts or dms) or not (which := drive_args(evt)):
         return None
     with PendingPrompts.mutate(evt) as pending:
