@@ -117,6 +117,8 @@ Do:
      the release's Watch, open owner tasks and picks (`ccn task list`, and the
      `ccn answer search` and `ccn relevant` hits under the slice's step one). If one covers it, route through it or delete the
      duplicate. Building alongside it is a return-early-with-options case.
+     Run those searches again yourself before any ask, decide with options, or PR;
+     the `answer_search_first` hook warns a lane that does one with no search first.
   0a. For a bug fix, before any code: (a) name which tree ran the failing path, old
      tree or next, from the run's own record (its build, binary version or pod image),
      never from the report's wording, and fix that tree; (b) read the fix against
