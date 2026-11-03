@@ -20,22 +20,22 @@ import (
 )
 
 const (
-	routeIncident   = "incident"
-	routeOpus       = "opus"
-	effortXHigh     = "xhigh"
-	authorityR16    = "R16"
-	authorityAdopt  = "adopted"
-	backupAfter     = 15 * time.Minute
-	clockFallback   = "-opus"
-	commsDeadline   = 2 * time.Minute
-	syncDeadline    = 10 * time.Minute
-	rebuildDeadline = 45 * time.Minute
-	DefaultInterval = 30 * time.Second
-	reconciled      = "reconciled:"
-	maxAttempts     = 3
-	green           = "passed"
-	accountOpen     = "candidate"
-	surfaceThread   = "thread"
+	routeIncident     = "incident"
+	routeIncidentOpus = "incident-opus"
+	effortXHigh       = "xhigh"
+	authorityR16      = "R16"
+	authorityAdopt    = "adopted"
+	backupAfter       = 15 * time.Minute
+	clockFallback     = "-opus"
+	commsDeadline     = 2 * time.Minute
+	syncDeadline      = 10 * time.Minute
+	rebuildDeadline   = 45 * time.Minute
+	DefaultInterval   = 30 * time.Second
+	reconciled        = "reconciled:"
+	maxAttempts       = 3
+	green             = "passed"
+	accountOpen       = "candidate"
+	surfaceThread     = "thread"
 )
 
 var (
@@ -66,7 +66,7 @@ func routes() map[string][]string {
 	return map[string][]string{
 		RoleFix:      {routeIncident, effortXHigh},
 		RoleEvidence: {routeIncident, effortXHigh},
-		RoleBackup:   {routeOpus, effortXHigh},
+		RoleBackup:   {routeIncidentOpus, effortXHigh},
 	}
 }
 
@@ -522,7 +522,7 @@ func (r *Runner) launch(ctx context.Context, role string) error {
 		return err
 	}
 	response, err := r.effect(ctx, id, "dispatch", lane, authorityR16, 0, func() (map[string]any, error) {
-		receipt, err := r.World.Orca.Launch(ctx, lane, route[0], route[1], brief, role == RoleBackup)
+		receipt, err := r.World.Orca.Launch(ctx, lane, route[0], route[1], brief)
 		if err != nil {
 			return nil, err
 		}

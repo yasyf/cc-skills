@@ -66,6 +66,7 @@ orca worktree set --worktree "path:<wt>" --parent-worktree "path:<coordinator wo
 | `fable` | `claude-fable-5-1` |
 | `sol`, `codex` | `gpt-6.1-sol` on Orca's codex agent, standard tier |
 | `incident` | `gpt-6.1-sol` in its own terminal, fast tier |
+| `incident-opus` | `claude-opus-5-5` in Claude fast mode, the incident fallback |
 | `astra` | `gpt-6-astra` on Orca's codex agent, exceptional cases only |
 
 **Launch standard Codex workers with `--agent codex`.** A lane routed to Codex launches on Orca's codex agent, never as a Claude worker calling the codex skill. `orca-launch.sh <lane> sol xhigh <brief>`, where `codex` is the same alias, creates the worktree, and runs:
@@ -90,7 +91,7 @@ orca orchestration worker-start --run "<run>" --spec "<pointer>" \
 
 Codex 0.160 resolves `service_tier=fast` to the catalog id `priority`, labeled Fast, and records `service_tier: "priority"` in the session settings. Do not pass `--skip-git-repo-check`; it is exec-only and breaks interactive Codex. Only `incident` lanes run on the fast tier. Keep Orca's codex runtime config at `~/Library/Application Support/orca/codex-runtime-home/home/config.toml` set to `service_tier = "default"` so `sol` and `codex` lanes stay on the standard tier. Codex lanes mount `datadog` and `sentry` Model Context Protocol servers from `~/.codex/config.toml`, and `codex-ask` mounts both by default, using the OAuth sign-in from `codex mcp login <server>`.
 
-**Launch the Opus incident backup in Claude fast mode.** `incident.py` and the runner's incident clock launch `<lane>-opus` as `opus xhigh` with `ORCA_LAUNCH_CLAUDE_ARGS="--settings '{\"fastMode\":true}'"`. A session launched with that setting reports `fast_mode_state: on` even under a user-level `fastModePerSessionOptIn`.
+**Launch the Opus incident backup on `incident-opus`.** The incident executor's backup and the runner's `<lane>-opus` fallback launch as `incident-opus xhigh`. The alias puts `--settings '{"fastMode":true}'` on the worker's own command line, so fast mode never depends on runtime config, and a session launched with it reports `fast_mode_state: on` even under a user-level `fastModePerSessionOptIn`. No other alias turns fast mode on.
 
 **Handle Codex readiness timeouts as `unsupervised` launches.** Orca's readiness check does not recognize Codex, so `worker-start` can end with `state=failed`, `failedStage=agent_readiness`, `lastError=timeout` while Codex sits idle at its prompt with the spec undelivered. On that timeout with a live `codex` or `incident` terminal, `orca-launch.sh` types the spec pointer into the terminal itself and prints `<lane> unsupervised task=... dispatch=... terminal=... worktree=...`. Count `unsupervised` as launched. The lane reports with `cci post --drive <drive> --lane <lane> --kind report --to root --text "<report>"` and reads deliveries with `cci tail --drive <drive> --cursor <lane> --reader <lane>`, without Orca `worker_done` or escalation plumbing.
 

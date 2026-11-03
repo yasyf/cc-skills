@@ -49,7 +49,6 @@ class Replay:
         self.apply_changes_config = True
         self.applies: list[str] = []
         self.launches: list[tuple[str, str, str]] = []
-        self.fast: dict[str, bool] = {}
         self.receipts: dict[str, dict] = {}
         self.engaged_lanes: set[str] = set()
         self.rebuilds: list[int] = []
@@ -81,10 +80,9 @@ class Replay:
     def now(self) -> datetime:
         return self.clock.at
 
-    def launch(self, lane: str, model: str, effort: str, brief: Path, fast: bool = False) -> dict:
+    def launch(self, lane: str, model: str, effort: str, brief: Path) -> dict:
         assert brief.exists()
         self.launches.append((lane, model, effort))
-        self.fast[lane] = fast
         receipt = {"lane": lane, "state": "ready", "task": f"task-{lane}", "dispatch": f"dispatch-{lane}", "terminal": "t1", "worktree": "/w"}
         self.receipts[lane] = receipt
         return receipt
@@ -408,19 +406,18 @@ def test_claude_is_refused_as_the_incident_fix_route(store, clock, fake):
     assert fake.launches == []
 
 
-@pytest.mark.parametrize(("role", "model"), [("fix", "opus"), ("fix", "sol"), ("evidence", "claude-opus-5-5"), ("backup", "fable"), ("backup", "astra"), ("backup", "codex")])
+@pytest.mark.parametrize(("role", "model"), [("fix", "opus"), ("fix", "incident-opus"), ("fix", "sol"), ("evidence", "claude-opus-5-5"), ("backup", "fable"), ("backup", "astra"), ("backup", "codex")])
 def test_route_assertions(role, model):
     with pytest.raises(RouteRefused):
         incident.assert_route(role, model)
 
 
-def test_backup_launches_on_opus_after_fifteen_quiet_minutes(store, clock, fake):
+def test_backup_launches_on_incident_opus_after_fifteen_quiet_minutes(store, clock, fake):
     incident_id = open_incident(store, clock)
     runner = Runner(store, incident_id, world_of(fake), clock)
     drive(runner, store, clock, INTAKE + timedelta(minutes=16), worker=lambda *_: None)
 
-    assert [(lane.rsplit("-", 1)[1], model) for lane, model, _ in fake.launches] == [("fix", "incident"), ("evidence", "incident"), ("backup", "opus")]
-    assert {lane.rsplit("-", 1)[1]: fast for lane, fast in fake.fast.items()} == {"fix": False, "evidence": False, "backup": True}
+    assert [(lane.rsplit("-", 1)[1], model) for lane, model, _ in fake.launches] == [("fix", "incident"), ("evidence", "incident"), ("backup", "incident-opus")]
 
 
 def test_no_backup_launches_while_the_desk_clocks_opus_fallback_is_launching_or_live(store, clock, fake):
@@ -437,7 +434,7 @@ def test_no_backup_launches_while_the_desk_clocks_opus_fallback_is_launching_or_
     fake.engaged_lanes.clear()
     drive(runner, store, clock, INTAKE + timedelta(minutes=17), worker=lambda *_: None)
 
-    assert [(lane, model) for lane, model, _ in fake.launches][1:] == [(f"incident-{incident_id}-backup", "opus")]
+    assert [(lane, model) for lane, model, _ in fake.launches][1:] == [(f"incident-{incident_id}-backup", "incident-opus")]
 
 
 def test_a_transferred_incident_refuses_the_former_owner(store, clock, fake):
@@ -562,21 +559,6 @@ def test_orca_parses_the_launch_line():
         incident.Orca(shell, None, None).launch("incident-x-fix", "incident", "xhigh", Path("/b.md"))
 
 
-def test_orca_launches_the_backup_in_claude_fast_mode(monkeypatch):
-    monkeypatch.setenv("ORCA_LAUNCH_CLAUDE_ARGS", "--verbose")
-    envs = []
-
-    class Recording(Shell):
-        def run(self, argv, cwd=None, env=None):
-            envs.append(env)
-            return super().run(argv, cwd, env)
-
-    shell = Recording({("orca-launch.sh",): "incident-x-backup ready task=t1 dispatch=d1 terminal=term-1 worktree=/w/x\n"})
-    incident.Orca(shell, "run1", "repo1").launch("incident-x-backup", "opus", "xhigh", Path("/b.md"), fast=True)
-    incident.Orca(shell, "run1", "repo1").launch("incident-x-fix", "incident", "xhigh", Path("/b.md"))
-    assert [env["ORCA_LAUNCH_CLAUDE_ARGS"] for env in envs] == ["--verbose --settings '{\"fastMode\":true}'", "--verbose"]
-
-
 @pytest.mark.parametrize(
     ("code", "out", "drifted"),
     [(1, "pr-review: patch\nci sync: pipelines drifted from their resources: pr-review\n", True), (0, "1 v2 pipeline resource(s) match Buildkite\n", False)],
@@ -653,11 +635,11 @@ def test_a_lost_launch_without_a_receipt_asks_instead_of_relaunching(store, cloc
     incident_id = open_incident(store, clock)
     launch = fake.launch
 
-    def lost(lane, model, effort, brief, fast=False):
+    def lost(lane, model, effort, brief):
         if lane.endswith("-fix") and not any(name.endswith("-fix") for name, _, _ in fake.launches):
             fake.launches.append((lane, model, effort))
             raise ResponseLost("worker-start timed out")
-        return launch(lane, model, effort, brief, fast)
+        return launch(lane, model, effort, brief)
 
     world = world_of(fake)
     world.orca.launch = lost
