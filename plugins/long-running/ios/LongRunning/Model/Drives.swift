@@ -104,7 +104,11 @@ final class DrivesModel {
                     return (machine, Drive.drives(on: machine, token: token, sessions: sessions))
                 }
             }
-            return await group.reduce(into: [(Machine, [Drive]?)]()) { $0.append($1) }
+            var results: [(Machine, [Drive]?)] = []
+            for await result in group {
+                results.append(result)
+            }
+            return results
         }
         drives = results.compactMap { $0.1 }.flatMap { $0 }.sorted { (parseTimestamp($0.updatedAt) ?? .distantPast) > (parseTimestamp($1.updatedAt) ?? .distantPast) }
         unreachable = results.filter { $0.1 == nil }.map { $0.0 }.sorted { $0.name < $1.name }
