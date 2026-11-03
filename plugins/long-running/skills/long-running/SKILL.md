@@ -143,8 +143,11 @@ no `go`, `hold`, `decide` or `launch`. Every owner message lands in its message
 ledger as it arrives, and its turn cannot end while a row is not marked responded
 or addressed (`lr owner mark <id> responded|addressed`). A reply or a route is not a
 delivery: `lr owner audit` lists every order with no live lane whose brief names its
-`owner:m<row>` token, no open PR of such a lane, and no landed or done record naming the
-token or posted by such a lane. The supervisor reports that list to the communicator every
+`owner:m<row>` token, no open PR of such a lane, no landed or done record naming the
+token or posted by such a lane, and no report whose `delivered` attr names it. An order whose
+deliverable is a reply, such as an explanation or options, is delivered once he acts on it:
+the communicator posts `cci post --kind report --attr delivered=owner:m11`. A reply alone
+never counts, since an acknowledgement names the row too. The supervisor reports that list to the communicator every
 hour, and the owner update opens with it. Text alone cannot always tell an order from a
 question, so a bare question and a board tap are left out and `lr owner mark <id> no-order`
 takes a remark off the list. A coordinator `ask` or

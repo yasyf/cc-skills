@@ -42,7 +42,7 @@ func OpenOrders(ctx context.Context, bus Bus, s *store.Store, drive, repo, state
 			carriers = append(carriers, owner.Lane{Name: row.Lane, Working: row.Live || slices.ContainsFunc(row.PRs, func(pr int) bool { return open[pr] }), Orders: row.Orders})
 		}
 	}
-	proofs, err := bus.Tail(ctx, client.Query{Drive: drive, Kinds: []string{"landed", "done"}})
+	proofs, err := bus.Tail(ctx, client.Query{Drive: drive, Kinds: []string{"landed", "done", "report"}})
 	if err != nil {
 		return nil, fmt.Errorf("%w: cci tail: %w", ErrUnread, err)
 	}
@@ -53,7 +53,7 @@ func AuditCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "audit",
 		Short: "Print every owner order with no live lane, no open PR and no landed or done record; it advises and never blocks",
-		Long:  "A lane delivers an order its brief names as owner:m<row>, and a landed or done record delivers an order its text names or its lane carries. A board tap, a bare question and a row marked `lr owner mark <row> no-order` are not orders.",
+		Long:  "A lane delivers an order its brief names as owner:m<row>, a landed or done record delivers an order its text names or its lane carries, and a report delivers the orders its delivered attr names, as `cci post --kind report --attr delivered=owner:m11` once he has acted on a reply that was the deliverable. A board tap, a bare question and a row marked `lr owner mark <row> no-order` are not orders.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			entry, err := drive.Named(cmd.Flag("drive").Value.String())

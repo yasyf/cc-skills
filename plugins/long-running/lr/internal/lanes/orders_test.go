@@ -72,7 +72,7 @@ func TestOpenOrdersListsOnlyOrdersNoLaneOpenPROrRecordDelivers(t *testing.T) {
 	}
 
 	equal(t, owner.Tokens(orders), "owner:m3, owner:m4")
-	equal(t, bus.query, client.Query{Drive: testDrive, Kinds: []string{"landed", "done"}})
+	equal(t, bus.query, client.Query{Drive: testDrive, Kinds: []string{"landed", "done", "report"}})
 }
 
 func TestOpenOrdersReadsTheBusOnceWhateverTheLedgerHolds(t *testing.T) {

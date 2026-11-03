@@ -63,6 +63,19 @@ func TestALandedOrDoneRecordDeliversTheOrderItNamesOrItsLaneCarries(t *testing.T
 	}
 }
 
+func TestOnlyADeliveredAttrMakesAReportProofAndAReplyNamingTheRowIsNot(t *testing.T) {
+	rows := Parse([]byte(auditLedger))
+	delivered := client.Record{Lane: "owner-relay", Kind: "report", Text: "he picked B on the options"}
+	delivered.Fields.Attrs = map[string]string{"delivered": "owner:m2 owner:m3"}
+	acknowledged := client.Record{Lane: "owner-relay", Kind: "note", Text: "owner:m1 routed to a lane"}
+
+	got := ids(Undelivered(rows, []Lane{{Name: "owner-relay", Orders: []string{"m5"}}}, []client.Record{delivered, acknowledged}))
+
+	if want := []string{"m1", "m5", "m8", "m9"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
 func TestABoardTapABareQuestionAndANoOrderMarkAreNotOrders(t *testing.T) {
 	for _, row := range Parse([]byte(auditLedger)) {
 		want := row.ID != "m4" && row.ID != "m6" && row.ID != "m7"

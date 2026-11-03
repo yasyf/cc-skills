@@ -10,8 +10,9 @@ import (
 )
 
 const (
-	boardTap  = "Owner on board "
-	lineChars = 160
+	boardTap      = "Owner on board "
+	lineChars     = 160
+	deliveredAttr = "delivered"
 )
 
 var (
@@ -84,6 +85,12 @@ func Undelivered(rows []Row, lanes []Lane, proofs []client.Record) []Row {
 		}
 	}
 	for _, proof := range proofs {
+		for _, id := range Orders(proof.Fields.Attrs[deliveredAttr]) {
+			covered[id] = true
+		}
+		if proof.Kind != "landed" && proof.Kind != "done" {
+			continue
+		}
 		for _, id := range Orders(proof.Text) {
 			covered[id] = true
 		}
