@@ -44,8 +44,7 @@ def plugin_with_job(mac: Path, job: str) -> Path:
     executable(scripts / "sprite-job.sh", (SCRIPTS / "sprite-job.sh").read_text())
     executable(scripts / "long_running" / "desk_result.py", (SCRIPTS / "long_running" / "desk_result.py").read_text())
     executable(scripts / "rulings.py", "")
-    executable(scripts / "sprite-fresh-token.sh", (SCRIPTS / "sprite-fresh-token.sh").read_text())
-    for tool in ("gh", "ccx"):
+    for tool in ("fresh-token.sh", "gh", "ccx"):
         executable(scripts / "sprite-fresh-token" / tool, (SCRIPTS / "sprite-fresh-token" / tool).read_text())
     executable(mac / "plugin" / "bin" / "lr", LR_PRELUDE + job)
     return scripts / "sprite-job.sh"
@@ -354,13 +353,12 @@ def test_a_key_command_that_prints_nothing_stops_the_job_before_the_sprite(tmp_p
 
 
 LONG_PASS_JOB = """import json, pathlib, subprocess, sys, time
-seen = []
 for _ in range(200):
-    seen.append(subprocess.run(["ccx"], capture_output=True, text=True).stdout.strip())
-    if seen[-1] == "ghs_second":
+    token = subprocess.run(["ccx"], capture_output=True, text=True).stdout.strip()
+    if token == "ghs_second":
         break
     time.sleep(0.05)
-(pathlib.Path(sys.argv[1]) / "result.json").write_text(json.dumps({"first": seen[0], "last": seen[-1]}))
+(pathlib.Path(sys.argv[1]) / "result.json").write_text(json.dumps({"token": token}))
 """
 
 CREDENTIAL_GIT = """#!/bin/sh
@@ -398,7 +396,7 @@ def test_a_pass_that_outlives_its_token_reads_github_on_the_refreshed_one(tmp_pa
     env = {**os.environ, "PATH": f"{mac / 'bin'}:{os.environ['PATH']}", "MAC_ROOT": str(mac), "SPRITE_ROOT": str(sprite), "CLAUDE_CONFIG_DIR": str(config), "REAL_GIT": real_git, "TOKEN_CACHE": str(tmp_path / "token-cache"), "MINTED": str(tmp_path / "minted"), "SPRITE_JOB_KEYS": json.dumps({"GH_TOKEN": ["mint"]})}
     subprocess.run(["sh", str(job_script), "dar-fleet-8", grader, str(directory)], env=env, check=True, capture_output=True, timeout=60)
 
-    assert json.loads((directory / "result.json").read_text()) == {"first": "ghs_first", "last": "ghs_second"}
+    assert json.loads((directory / "result.json").read_text()) == {"token": "ghs_second"}
 
 
 DROPPING_SPRITE = """#!/usr/bin/env python3

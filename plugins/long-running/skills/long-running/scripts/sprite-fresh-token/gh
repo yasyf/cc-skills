@@ -1,2 +1,2 @@
 #!/bin/sh
-exec sh "$(dirname "$0")/../sprite-fresh-token.sh" gh "$@"
+exec sh "$(dirname "$0")/fresh-token.sh" gh "$@"
