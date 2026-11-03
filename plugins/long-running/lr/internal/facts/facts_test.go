@@ -374,6 +374,37 @@ func TestAHoldNamesWhoLiftsItAndALiftedOneHoldsNothing(t *testing.T) {
 	}
 }
 
+func TestARootGoAfterAHoldAtTheLiveHeadLiftsIt(t *testing.T) {
+	fourth := fmt.Sprintf("%040x", 5)
+	h := newHarness(t, []recordedPR{
+		{number: 48401, head: head, login: "drive-bot"},
+		{number: 48402, head: head2, login: "drive-bot"},
+		{number: 48403, head: head3, login: "drive-bot"},
+		{number: 48404, head: fourth, login: "drive-bot"},
+	}, status(48401), status(48402, func(r *ccx.PRStatus) { r.Head = head2 }), status(48403, func(r *ccx.PRStatus) { r.Head = head3 }), status(48404, func(r *ccx.PRStatus) { r.Head = fourth }))
+	ctx := context.Background()
+	post := func(lane, kind, text, pr string) {
+		t.Helper()
+		if _, err := client.Post(ctx, client.Draft{Drive: "d", Lane: lane, Kind: kind, Text: text, PRs: []string{pr}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	post("root", "hold", "hold #48401 for the audit", repo+"#48401")
+	post("root", "go", "go #48401 at "+head[:7], repo+"#48401")
+	post("root", "go", "go #48402 at "+head2[:7], repo+"#48402")
+	post("root", "hold", "hold #48402 after its go", repo+"#48402")
+	post("owner", "hold", "hold #48403 for me", repo+"#48403")
+	post("root", "go", "go #48403 at "+head3[:7], repo+"#48403")
+	post("root", "hold", "hold #48404 at an older head", repo+"#48404")
+	post("root", "go", "go #48404 at fedcba9", repo+"#48404")
+
+	by := h.snapshot(t)
+
+	if by[48401].Hold != "" || by[48402].Hold != machine.MoverRoot || by[48403].Hold != machine.MoverOwner || by[48404].Hold != machine.MoverRoot {
+		t.Fatalf("holds = %q, %q, %q, %q", by[48401].Hold, by[48402].Hold, by[48403].Hold, by[48404].Hold)
+	}
+}
+
 func TestFactsBelongToAHeadSoANewPushStartsUngraded(t *testing.T) {
 	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
 	at := time.Date(2026, 10, 30, 21, 0, 0, 0, time.UTC)

@@ -176,7 +176,7 @@ func (s Source) ingestLegacy(ctx context.Context) error {
 		return err
 	}
 	for _, record := range records {
-		if err := s.putFacts(bus.LegacyFacts(record, s.Repo, s.GoLanes), record.At.UTC()); err != nil {
+		if err := s.putFacts(append(bus.LegacyFacts(record, s.Repo, s.GoLanes), bus.GoFacts(record, s.GoLanes)...), record.At.UTC()); err != nil {
 			return err
 		}
 		if err := s.Store.Advance(bus.LegacyCursor, record.Seq); err != nil {
@@ -297,12 +297,31 @@ func (s Source) withOpenItems(open []int) ([]int, error) {
 	return slices.Compact(all), nil
 }
 
-func (s Source) holds(ctx context.Context) (map[int]machine.Mover, error) {
+type hold struct {
+	mover machine.Mover
+	seq   int64
+}
+
+func (h hold) moverAfter(goSeq string) (machine.Mover, error) {
+	if goSeq == "" || h.mover == machine.MoverOwner {
+		return h.mover, nil
+	}
+	seq, err := strconv.ParseInt(goSeq, 10, 64)
+	if err != nil {
+		return "", err
+	}
+	if seq > h.seq {
+		return "", nil
+	}
+	return h.mover, nil
+}
+
+func (s Source) holds(ctx context.Context) (map[int]hold, error) {
 	records, err := client.Open(ctx, s.Drive, "hold")
 	if err != nil {
 		return nil, err
 	}
-	held := make(map[int]machine.Mover)
+	held := make(map[int]hold)
 	for _, record := range records {
 		mover := machine.MoverRoot
 		if record.Lane == string(machine.MoverOwner) {
@@ -310,14 +329,14 @@ func (s Source) holds(ctx context.Context) (map[int]machine.Mover, error) {
 		}
 		for _, pr := range record.Refs.PRs {
 			if pr.Repo == "" || strings.EqualFold(pr.Repo, s.Repo) {
-				held[pr.Number] = mover
+				held[pr.Number] = hold{mover, record.Seq}
 			}
 		}
 	}
 	return held, nil
 }
 
-func (s Source) assemble(rows []ccx.PRStatus, carries map[int][]int, held map[int]machine.Mover) ([]machine.Facts, error) {
+func (s Source) assemble(rows []ccx.PRStatus, carries map[int][]int, held map[int]hold) ([]machine.Facts, error) {
 	if len(rows) == 0 {
 		return nil, nil
 	}
@@ -343,7 +362,12 @@ func (s Source) assemble(rows []ccx.PRStatus, carries map[int][]int, held map[in
 		if err != nil {
 			return nil, err
 		}
-		f.Hold, f.Carries = held[row.Number], carries[row.Number]
+		if by, found := held[row.Number]; found {
+			if f.Hold, err = by.moverAfter(stored[bus.GoFact]); err != nil {
+				return nil, fmt.Errorf("#%d go: %w", row.Number, err)
+			}
+		}
+		f.Carries = carries[row.Number]
 		out = append(out, f)
 	}
 	return out, nil

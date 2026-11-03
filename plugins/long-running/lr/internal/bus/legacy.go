@@ -41,6 +41,8 @@ var (
 	finderVerdicts = map[string]string{"ok": "clear", "major": "ask"}
 )
 
+const GoFact = "go"
+
 type Fact struct {
 	PR    int
 	Head  string
@@ -89,6 +91,17 @@ func LegacyFacts(record client.Record, repo string, goLanes []string) []Fact {
 	}
 	for _, pair := range goHeads(record.Text) {
 		out = append(out, Fact{pair.PR, pair.Head, "exempt", strings.ToLower(exempt[1])})
+	}
+	return out
+}
+
+func GoFacts(record client.Record, goLanes []string) []Fact {
+	if !delegated(record.Lane, append([]string{rootLane}, goLanes...)) || !isGo(record) {
+		return nil
+	}
+	var out []Fact
+	for _, pair := range goHeads(record.Text) {
+		out = append(out, Fact{pair.PR, pair.Head, GoFact, strconv.FormatInt(record.Seq, 10)})
 	}
 	return out
 }
