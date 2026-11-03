@@ -12,9 +12,9 @@ Every update the owner gets, whether a status answer, a milestone report or the 
 
 ## Sections, in order
 
-1. **Since you last looked.** Each row that is new, or whose owner, blocker or doneness moved, since the last update he was sent.
+1. **Since you last looked.** Each row that is new, whose owner, blocker or doneness moved, or that left its table because a PR landed, an ask was answered or an incident closed, since the last update he was sent.
 2. **Decisions made for you (FYI).** The bridge's own FYIs since the last update, grouped. Each is a plain-words synthesis of something the coordinator decided or solved, or of what is going right or wrong. Each is a `note` record from `owner-relay` on topic `fyi`, and the group is the words before its first colon. The render never turns coordinator records into FYIs.
-3. **Your words since the last update.** Each message the bridge queued, quoted, with the record that carries it: an answer, a resolution, or a later record naming its seq.
+3. **Your words since the last update.** Each message the bridge queued, quoted whole, with the record that carries it: a later record that answers it with `--re` or resolves it. A record that only names its number does not count, since `#<n>` is also a PR.
 4. **Unowned work.** Every open row with nobody on it, as a table. Each also sits in its own section.
 5. **Pinned for you.** One row per entry of the drive entry's `pinned_rows`, each a `name`, a `delivers` line and the `words` that pick its lanes by name, step or deliverable. It is on every update, with **nobody** when no lane holds it. For durable-agents-rebuild that is devbox speed and bug hunting, and the next build.
 6. **Standing duties.** One row per duty at the newest lane of its successor chain.

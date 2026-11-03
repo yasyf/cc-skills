@@ -126,6 +126,7 @@ UPDATE_BYTES = 40_000
 TITLE_CHARS = 60
 CELL_CHARS = 100
 NONE_RECORDED = "None recorded"
+CARRIED = ("pr_state", "history")
 
 Runner = Callable[..., subprocess.CompletedProcess]
 
@@ -480,13 +481,13 @@ def retro_rows(runner: Runner, entry: dict) -> tuple[dict, ...]:
 
 
 def owner_words(records: list[dict]) -> tuple[list[str], list[str]]:
-    """Each owner message the bridge queued, quoted with the record that carries it (an answer, a resolution, or a later record naming its seq), and the seqs nothing carries."""
+    """Each owner message the bridge queued, quoted whole with the record that carries it, a later record that answers it with `--re` or resolves it, and the seqs nothing carries. A record that merely names a number is not carrying it, since `#<n>` is also a PR."""
     lines, loose = [], []
     for record in records:
         if record["lane"] != BRIDGE or record["kind"] != "ask":
             continue
-        carried = next((other for other in records if other["seq"] > record["seq"] and (other.get("re") == record["seq"] or record["seq"] in cci.resolved(other) or re.search(rf"#{record['seq']}\b", other.get("text") or ""))), None)
-        lines.append(f"- {when(record)}: \"{owner_waits.clip(record.get('text') or '')}\" | " + (f"carried by {carried['lane']} #{carried['seq']}" if carried else "**no record carries this yet**"))
+        carried = next((other for other in records if other["seq"] > record["seq"] and (other.get("re") == record["seq"] or record["seq"] in cci.resolved(other))), None)
+        lines.append(f"- {when(record)}: \"{' '.join((record.get('text') or '').split())}\" | " + (f"carried by {carried['lane']} #{carried['seq']}" if carried else "**no record carries this yet**"))
         if not carried:
             loose.append(f"owner words no record carries: #{record['seq']}")
     return lines, loose
@@ -497,8 +498,8 @@ def snapshot_of(tables: list[tuple[str, list[Row]]]) -> dict[str, list[str]]:
 
 
 def since_lines(now: dict[str, list[str]], before: dict[str, list[str]]) -> list[str]:
-    """Each row that is new or whose owner, blocker or doneness moved since the snapshot of the last update the owner was sent."""
-    out = []
+    """Each row that is new, whose owner, blocker or doneness moved, or that left its table (a PR landed, an ask answered, an incident closed) since the snapshot of the last update the owner was sent."""
+    out = [f"- {key.split('|', 1)[1]}: no longer open (landed, answered or closed)" for key, was in before.items() if key not in now and was[2] != "done"]
     for key, current in now.items():
         name = key.split("|", 1)[1]
         if key not in before:
@@ -533,9 +534,10 @@ def step_entry(index: int, title: str, section_title: str, row: Row, lanes: list
 
 
 def publish(model: dict, sent: bool) -> None:
-    """Write the dashboard's steps atomically and, for an update the owner is sent, the snapshot the next update's "since you last looked" diffs against."""
+    """Write the dashboard's steps atomically, carrying forward the `pr_state` and `history` the existing file holds for `drive.py overview --since`, and, for an update the owner is sent, the snapshot the next update's "since you last looked" diffs against."""
     root = Path(model["state_dir"])
-    drive.write_atomic(root / STEPS, model["steps"])
+    kept = {key: found[key] for key in CARRIED if key in (found := json.loads((root / STEPS).read_text()) if (root / STEPS).is_file() else {})}
+    drive.write_atomic(root / STEPS, model["steps"] | kept)
     if sent:
         drive.write_atomic(root / SNAPSHOT, model["snapshot"])
 
@@ -683,7 +685,10 @@ def report(drive_name: str, runner: Runner, now: datetime | None = None) -> tupl
     out += section("Gaps in this update", [f"- {gap}" for gap in gaps]) if gaps else []
     titles = [SINCE, FYI, WORDS, UNOWNED, *(title for title, _ in tables), *(title for title, _ in lists)]
     prs = next(found for title, found in tables if title == OPEN_PRS)
-    releases = [{"name": row.name, "state": row.state} for row in next(found for title, found in tables if title == "Releases today")]
+    releases = [
+        {"id": f"release:{row.name}", "name": row.name, "state": row.state, "parts": [], "lanes": [row.name], "blocker": None if row.blocks == NOTHING_RECORDED else row.blocks, "unblocking": row.unblock, "went_wrong": row.wrong}
+        for row in next(found for title, found in tables if title == "Releases today")
+    ]
     model = {
         "state_dir": entry["state_dir"],
         "steps": {"updated": now.isoformat(), "steps": steps, "fyi": feed, "now": {"blocker": None, "release": releases[-1] if releases else None, "releases": releases}},

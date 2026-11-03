@@ -249,14 +249,17 @@ def test_owner_words_name_the_record_that_carries_each_and_flag_the_ones_nothing
         record(16, "owner-relay", "ask", "and #1 in the list", 4),
         record(17, "root", "go", "see #160 for the list", 3),
         record(18, "owner-relay", "ask", "and the SQL tab", 2),
-        record(19, "root", "go", "sql-tab-fix-1 owns #18", 1),
+        record(19, "root", "go", "sql-tab-fix-1 owns it", 1) | {"re": 18},
+        record(20, "owner-relay", "ask", "Fix the gateway, and keep every provider the platform supports working the whole time while you move the keys over. Do not deploy.", 1),
+        record(21, "root", "state", "PR #20 is still red", 0),
     ]
 
     lines, gaps = owner_update.owner_words(records)
 
-    assert [line.split(" | ")[1] for line in lines] == ["carried by root #12", "**no record carries this yet**", "carried by root #15", "**no record carries this yet**", "carried by root #19"]
+    assert [line.split(" | ")[1] for line in lines] == ["carried by root #12", "**no record carries this yet**", "carried by root #15", "**no record carries this yet**", "carried by root #19", "**no record carries this yet**"]
     assert lines[0].endswith('"fix the five services blockers" | carried by root #12')
-    assert gaps == ["owner words no record carries: #13", "owner words no record carries: #16"]
+    assert gaps == ["owner words no record carries: #13", "owner words no record carries: #16", "owner words no record carries: #20"]
+    assert lines[-1].endswith('while you move the keys over. Do not deploy." | **no record carries this yet**')
 
 
 def test_since_you_last_looked_names_new_rows_and_what_moved_and_nothing_that_stayed():
@@ -265,6 +268,7 @@ def test_since_you_last_looked_names_new_rows_and_what_moved_and_nothing_that_st
 
     assert owner_update.since_lines(now, before) == ["- Step 1: who release-5 -> **nobody**", "- new: Step 3"]
     assert owner_update.since_lines(before, before) == []
+    assert owner_update.since_lines({"Step 2|Step 2": before["Step 2|Step 2"]}, before | {"Open PRs|#1940": ["fix-1", "nothing recorded", "done"]}) == ["- Step 1: no longer open (landed, answered or closed)"]
 
 
 def test_a_dashboard_step_says_its_blocker_next_step_and_failures_in_plain_words_and_keeps_the_rows_cells_for_the_drill_in():
@@ -347,8 +351,13 @@ def test_the_update_opens_with_what_moved_and_his_words_ends_with_its_gaps_and_p
     assert owner_update.missing(text, names) == [] and model["gaps"] == ["owner words no record carries: #13"]
     assert model["steps"]["now"]["release"]["name"] == "release-5"
 
+    (drive_home / owner_update.STEPS).parent.mkdir(parents=True, exist_ok=True)
+    (drive_home / owner_update.STEPS).write_text(json.dumps({"steps": [], "pr_state": {"48401": {"state": "Open"}}, "history": {"lane:x-1": {"events": []}}}))
     owner_update.publish(model, sent=False)
-    assert (drive_home / owner_update.STEPS).is_file() and not (drive_home / owner_update.SNAPSHOT).exists()
+    published = json.loads((drive_home / owner_update.STEPS).read_text())
+    assert (published["pr_state"], published["history"]) == ({"48401": {"state": "Open"}}, {"lane:x-1": {"events": []}}) and not (drive_home / owner_update.SNAPSHOT).exists()
+    from long_running import overview
+    assert [row.id for row in overview.rows(published)][-1] == "release:release-5"
     owner_update.publish(model, sent=True)
     again, _, _ = owner_update.report(DRIVE, runner, NOW)
 
