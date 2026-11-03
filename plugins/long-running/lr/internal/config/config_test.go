@@ -98,6 +98,7 @@ func TestARefusedFileNamesWhatIsWrong(t *testing.T) {
 		{"only movers this release does not run", with(map[string]any{"movers": []string{"board"}}), "movers must name at least one of"},
 		{"movers that are not a list", with(map[string]any{"movers": "lanes"}), "movers must be a list of mover names"},
 		{"the landing mover without its queue script", with(map[string]any{"movers": []string{"lanes", "landing"}}), "landing mover needs queue_script"},
+		{"release pipelines without the Buildkite client", with(map[string]any{"release_pipelines": "org/release"}), "release_pipelines needs buildkite_cli"},
 		{"a file that is not an object", []string{"lanes"}, "must be a JSON object"},
 	}
 	for _, c := range cases {
@@ -126,6 +127,16 @@ func TestGoLanesNameTheLanesBesidesRootWhoseGoMayNameAnExemptClass(t *testing.T)
 		t.Fatal(err)
 	}
 	if got, want := loaded.GoLaneNames(), []string{"go-carry-sweep", "go-sweep"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestReleasePipelinesNameTheSlugsTheSupervisorWatches(t *testing.T) {
+	loaded, err := Load(write(t, with(map[string]any{"release_pipelines": "org/release, org/hotfix", "buildkite_cli": "tools/ci bk"})), io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := loaded.ReleasePipelineSlugs(), []string{"org/release", "org/hotfix"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %v, want %v", got, want)
 	}
 }
