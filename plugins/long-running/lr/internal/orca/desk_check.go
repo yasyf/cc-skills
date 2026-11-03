@@ -13,6 +13,7 @@ import (
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/incident"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
@@ -21,6 +22,9 @@ const (
 	typeQuestion        = "question"
 	typeEscalation      = "escalation"
 	kindBlocked         = "blocked"
+	workerStopped       = "Worker stopped"
+	stopFact            = "worker-stop:"
+	recordOpen          = "open"
 	typeWorkerDone      = "worker_done"
 	typeStatus          = "status"
 	heartbeatFact       = "lane-heartbeat"
@@ -309,7 +313,45 @@ func (d *Desk) relayQuestion(ctx context.Context, message orcaMessage, lane stri
 			return err
 		}
 	}
+	if message.Type == typeEscalation && strings.HasPrefix(message.Subject, workerStopped) {
+		return d.relayStop(ctx, message, lane)
+	}
 	return d.relayToDesk(ctx, message, lane, "DECIDE")
+}
+
+func (d *Desk) relayStop(ctx context.Context, message orcaMessage, lane string) error {
+	open, err := d.stopOpen(ctx, message.FromHandle)
+	if err != nil || open {
+		return err
+	}
+	by, err := d.laneBy(lane)
+	if err != nil {
+		return err
+	}
+	if by == lanes.OwnerRelay {
+		by = coordinatorLane
+	}
+	if err := d.setFact(deskRunner, stopFact+message.FromHandle, escalationPref+message.ID); err != nil {
+		return err
+	}
+	return d.escalateTo(ctx, message.ID, "DECIDE", lane, fmt.Sprintf("%s: %s", message.Subject, clipRunes(message.Body, 300)), by)
+}
+
+func (d *Desk) stopOpen(ctx context.Context, terminal string) (bool, error) {
+	key, found, err := d.factOf(deskRunner, stopFact+terminal)
+	if err != nil || !found {
+		return false, err
+	}
+	action, err := d.known(deskRunner, fmt.Sprint(key))
+	if err != nil || action == nil {
+		return false, err
+	}
+	seq := receiptSeq(fmt.Sprint(action.Response["posted"]))
+	if seq == 0 {
+		return true, nil
+	}
+	stop, err := d.cciRecord(ctx, seq)
+	return stop != nil && stop.Status == recordOpen, err
 }
 
 func (d *Desk) parkedOn(ctx context.Context, lane string) (int64, error) {
