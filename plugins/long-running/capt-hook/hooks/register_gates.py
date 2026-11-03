@@ -316,7 +316,7 @@ def spawn(name: str, prompt: str, state: str = "quiet", **extra: object) -> Inpu
     Event.PreToolUse,
     only_if=[Coordinator(), DriveActive(), Tool("Bash", "Agent", "Edit", "Write")],
     skip_if=[FromSubagent(), Annotated("raw")],
-    tests=coordinator_tests(separate("register_gates.register_gate", {
+    tests=separate("register_gates.register_gate", coordinator_tests({
         register_case(go(f"cut web under {ROWED[:7]}"), "quiet", (ROWED[:7], shown(ROWED))): Allow(),
         register_case(go(f"cut web under {UNROWED[:7]}"), "quiet", (UNROWED[:7], shown(UNROWED))): Warn(
             pattern=r"^Warning, nothing was blocked: this GO or DECIDE cites `1dfd09d`, and register `brook` has no row for it\."
@@ -498,7 +498,7 @@ def close_replied_questions(evt: BaseHookEvent) -> HookResult | None:
     Event.Stop,
     only_if=[Coordinator(), DriveActive()],
     skip_if=[FromSubagent()],
-    tests=coordinator_tests(separate("register_gates.close_chat_questions", {
+    tests=separate("register_gates.close_chat_questions", coordinator_tests({
         Input(state=ACTIVE, cwd=CWD, env=DRIVE_CONFIG, commands=readings("question-timers")): Allow(),
         Input(state=[CompactionState(active=True)], cwd=CWD): Allow(),
     })),
