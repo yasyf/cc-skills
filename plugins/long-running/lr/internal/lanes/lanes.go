@@ -19,6 +19,7 @@ const (
 	Root        = "root"
 	OwnerRelay  = "owner-relay"
 	RoleMeta    = "meta"
+	roleRelease = "release"
 	runner      = "desk-runner"
 	mainLane    = "main"
 	CursorName  = "lanes"
@@ -93,7 +94,7 @@ var (
 
 	settledDispatch = []string{"completed", "failed"}
 	agentVerdicts   = []string{agentLive, agentExited, agentUnverifiable}
-	standingRoles   = []string{"desk", RoleMeta, "release"}
+	standingRoles   = []string{"desk", RoleMeta, roleRelease}
 
 	numbered      = regexp.MustCompile(`^(.+)-(\d{1,2})$`)
 	handedOff     = regexp.MustCompile(`\bhandoff ([\w.-]+): doc ([0-9a-f]{7,40})\b`)

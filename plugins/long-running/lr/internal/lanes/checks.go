@@ -780,7 +780,7 @@ func (e Env) Checks(s *store.Store, log *slog.Logger) ([]Check, error) {
 	}
 	checks = append(checks, (&OverrideRefusals{Env: e, Store: s}).Check)
 	if pipelines := e.Config.ReleasePipelineSlugs(); len(pipelines) > 0 {
-		checks = append(checks, (&ReleaseBuilds{Env: e, Pipelines: pipelines, CLI: strings.Fields(e.Config.BuildkiteCLI), Log: log}).Check)
+		checks = append(checks, (&ReleaseBuilds{Env: e, Store: s, Pipelines: pipelines, CLI: strings.Fields(e.Config.BuildkiteCLI), Log: log}).Check)
 	}
 	if e.Config.OrcaRun != "" {
 		checks = append(checks, (&FixLiveGC{Env: e, Log: log}).Check, (&SettledGC{Env: e, Store: s, Log: log}).Check)

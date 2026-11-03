@@ -1,6 +1,7 @@
 package lanes
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
 const (
@@ -31,6 +33,7 @@ var (
 
 type ReleaseBuilds struct {
 	Env       Env
+	Store     *store.Store
 	Pipelines []string
 	CLI       []string
 	Log       *slog.Logger
@@ -76,12 +79,29 @@ func (r *ReleaseBuilds) Check(ctx context.Context, now time.Time) error {
 		r.Log.Warn("release builds did not read Buildkite", "err", err)
 		return nil
 	}
+	release, err := r.releaseLane()
+	if err != nil {
+		return err
+	}
 	for _, build := range builds {
-		if err := r.tend(ctx, build, builds, now); err != nil {
+		if err := r.tend(ctx, build, builds, release, now); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func (r *ReleaseBuilds) releaseLane() (string, error) {
+	lanes, err := r.Store.Lanes(live...)
+	if err != nil {
+		return "", err
+	}
+	for _, lane := range lanes {
+		if lane.Role == roleRelease {
+			return Holder(r.Store, r.Env.Config.Drive, lane.Name)
+		}
+	}
+	return Root, nil
 }
 
 func (r *ReleaseBuilds) readNames(ctx context.Context, now time.Time) error {
@@ -142,25 +162,29 @@ func (r *ReleaseBuilds) builds(ctx context.Context) ([]releaseBuild, error) {
 	return builds, nil
 }
 
-func (r *ReleaseBuilds) tend(ctx context.Context, build releaseBuild, builds []releaseBuild, now time.Time) error {
+func (r *ReleaseBuilds) tend(ctx context.Context, build releaseBuild, builds []releaseBuild, release string, now time.Time) error {
 	link := buildLink.FindString(build.URL)
 	lane, named := r.named[link]
 	age := now.Sub(build.StartedAt)
 	if !build.StartedAt.IsZero() && !named && !build.automatic() && build.mode != dryRunMode && !slices.Contains(buildClosed, build.State) && age >= seenGrace && age < seenWindow {
 		text := fmt.Sprintf("RELEASE-SEEN %d %s %s: no record names %s %d minutes after it started; claim it or name it in a release record", build.Number, build.pipeline, build.State, build.URL, int(age.Minutes()))
-		if err := r.post(ctx, "release-seen:"+link, []string{Root}, text); err != nil {
+		if err := r.post(ctx, "release-seen:"+link, []string{release}, text); err != nil {
 			return err
 		}
 	}
 	if !slices.Contains(buildFailed, build.State) || build.StartedAt.IsZero() || age >= gateBack || slices.ContainsFunc(builds, build.resumedBy) {
 		return nil
 	}
-	to := []string{Root}
-	if named && lane != Root {
+	to := []string{release}
+	if named && lane != Root && Canonical(r.Env.Config.Drive, lane) != release {
 		to = append(to, lane)
 	}
-	text := fmt.Sprintf("RELEASE-FAILED %d %s %s", build.Number, build.failingStep(), build.URL)
-	return r.post(ctx, "release-failed:"+link+":"+build.State, to, text)
+	for _, step := range build.failingSteps() {
+		if err := r.post(ctx, "release-failed:"+link+":"+step, to, fmt.Sprintf("RELEASE-FAILED %d %s %s", build.Number, step, build.URL)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (b releaseBuild) automatic() bool {
@@ -171,17 +195,17 @@ func (b releaseBuild) resumedBy(other releaseBuild) bool {
 	return other.resumes != "" && (other.resumes == b.Branch || strings.HasPrefix(other.resumes, b.Branch+"/"))
 }
 
-func (b releaseBuild) failingStep() string {
+func (b releaseBuild) failingSteps() []string {
+	var steps []string
 	for _, job := range b.Jobs {
-		if job.SoftFailed || !slices.Contains(jobFailed, job.State) {
-			continue
+		if !job.SoftFailed && slices.Contains(jobFailed, job.State) {
+			steps = append(steps, cmp.Or(job.StepKey, job.Name))
 		}
-		if job.StepKey != "" {
-			return job.StepKey
-		}
-		return job.Name
 	}
-	return "(no command step failed)"
+	if len(steps) == 0 {
+		return []string{"(no command step failed)"}
+	}
+	return steps
 }
 
 func (r *ReleaseBuilds) post(ctx context.Context, key string, to []string, text string) error {
