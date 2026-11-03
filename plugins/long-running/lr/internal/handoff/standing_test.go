@@ -62,7 +62,7 @@ func before(text, marker string) string {
 }
 
 func TestAHandoffQuotingTheRegisterPasses(t *testing.T) {
-	body := carriedDoc + "\n## Owner asks\nSoFi releases as it merges (4ffc9a5), never on the owner's word\n"
+	body := carriedDoc + "\n## Owner asks\nAcme releases as it merges (4ffc9a5), never on the owner's word\n"
 
 	if problems := lintBody(body, carriedDoc, testReg, liveAnswers, nil); len(problems) != 0 {
 		t.Fatalf("problems %v", problems)
@@ -102,9 +102,9 @@ func TestDroppingACarriedRuleNeedsASupersededByLine(t *testing.T) {
 
 func TestAnOwnerGateLineMustCiteALiveAnswer(t *testing.T) {
 	for line, flagged := range map[string]bool{
-		"real sanddb on SoFi (owner's word)":                                    true,
+		"real sanddb on Acme (owner's word)":                                    true,
 		"needs owner approval before enqueue":                                   true,
-		"the SoFi release still requires owner sign-off":                        true,
+		"the Acme release still requires owner sign-off":                        true,
 		"Card 1: reserved for the owner":                                        true,
 		"released as it merges, no owner's word gate (4ffc9a5)":                 false,
 		"CODEOWNER approvals on #28756":                                         false,
@@ -112,7 +112,7 @@ func TestAnOwnerGateLineMustCiteALiveAnswer(t *testing.T) {
 		"Where an audit row and an owner answer differ, the owner's words win.": false,
 		"When the owner's words list categories, the row names the surface":     false,
 		"reserved for the owners of each lane":                                  false,
-		"the owner's go-ahead on SoFi":                                          true,
+		"the owner's go-ahead on Acme":                                          true,
 		"the owner’s word with a curly apostrophe":                              true,
 	} {
 		t.Run(line, func(t *testing.T) {
