@@ -141,6 +141,30 @@ func TestAWholeRecordPostedSinceThePRsNewestHeadAnswersTheAsk(t *testing.T) {
 	}
 }
 
+func TestABodyEditHeadRecordRechecksTheMajorAtThatHeadAndNothingGradedOk(t *testing.T) {
+	for grade, wantStarted := range map[string]int{"major " + head[:7] + " 1 open over whole abc1234^.." + head[:7] + ": follow.go:40 second fix": 1, "ok " + head[:7] + " sol finder over whole abc1234^.." + head[:7] + ": no majors": 0} {
+		t.Run(grade, func(t *testing.T) {
+			f := newPool(t, map[string]any{"landing": map[string]any{"repo": repo, "checkout": "/srv/main"}, "finder": map[string]any{"sprite": "dar-1"}})
+			beginAsks(t, f)
+			post(t, client.Draft{Lane: "lane-7", Kind: kindHead, Text: "#45489 " + head, PRs: []string{pull}})
+			graded := post(t, client.Draft{Lane: grader.FinderLane, Kind: kindReview, Text: "finder: " + grade, PRs: []string{pull}})
+			edit := post(t, client.Draft{Lane: "lane-7", Kind: kindHead, To: []string{grader.FinderLane}, Text: head[:7] + " body edit", Attrs: map[string]string{"head:45489": head}, PRs: []string{pull}})
+
+			started, err := f.pool.Whole(context.Background(), map[int]machine.Facts{number: facts(head)})
+			if err != nil || len(started) != wantStarted {
+				t.Fatalf("started = %v, %v", started, err)
+			}
+			if wantStarted == 0 {
+				return
+			}
+			spec := readJob[grader.FinderJob](t, f.finderDir("45489"+wholeMark+strconv.FormatInt(edit, 10)))
+			if spec.Full || spec.Head != head || spec.Prior == nil || spec.Prior.Seq != graded || spec.Lane != "lane-7" {
+				t.Errorf("job = %+v", spec)
+			}
+		})
+	}
+}
+
 func TestAPassThatFoundAHeadNoRecordGradedQueuesOneWholePass(t *testing.T) {
 	f := newPool(t, map[string]any{"landing": map[string]any{"repo": repo}, "finder": map[string]any{}})
 	beginAsks(t, f)

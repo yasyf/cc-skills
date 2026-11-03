@@ -21,6 +21,7 @@ import (
 const (
 	wholeMark   = "-whole-"
 	wholeAsked  = "finder: whole"
+	bodyEdited  = "body edit"
 	wholeRead   = "over whole "
 	pendingDir  = "pending"
 	kindAsk     = "ask"
@@ -37,6 +38,7 @@ type wholeAsk struct {
 	PR   string `json:"pr"`
 	Lane string `json:"lane"`
 	Key  string `json:"key"`
+	Head string `json:"head,omitempty"`
 }
 
 func isWhole(worker string) bool {
@@ -92,6 +94,17 @@ func requested(r client.Record, repo string) []string {
 	return nil
 }
 
+func edited(r client.Record, repo string) map[string]string {
+	if string(r.Kind) != kindHead || !slices.Contains(r.To, grader.FinderLane) || !strings.Contains(strings.ToLower(r.Text), bodyEdited) {
+		return nil
+	}
+	heads := map[string]string{}
+	for pr, entry := range headEntries(r, repo) {
+		heads[pr] = entry.commit
+	}
+	return heads
+}
+
 func unique(list []string) []string {
 	kept := make([]string, 0, len(list))
 	for _, entry := range list {
@@ -107,7 +120,7 @@ func (p *JobPool) readAsks(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	found, err := client.Tail(ctx, client.Query{Drive: p.drive, Kinds: []string{kindAsk, kindDecide, kindDefect}, After: cursor})
+	found, err := client.Tail(ctx, client.Query{Drive: p.drive, Kinds: []string{kindAsk, kindDecide, kindDefect, kindHead}, After: cursor})
 	if err != nil {
 		return err
 	}
@@ -117,8 +130,14 @@ func (p *JobPool) readAsks(ctx context.Context) error {
 		if cursor == 0 {
 			continue
 		}
+		key := strconv.FormatInt(r.Seq, 10)
 		for _, pr := range requested(r, p.repo()) {
-			if err := p.queueWhole(wholeAsk{pr, r.Lane, strconv.FormatInt(r.Seq, 10)}); err != nil {
+			if err := p.queueWhole(wholeAsk{PR: pr, Lane: r.Lane, Key: key}); err != nil {
+				return err
+			}
+		}
+		for pr, head := range edited(r, p.repo()) {
+			if err := p.queueWhole(wholeAsk{PR: pr, Lane: r.Lane, Key: key, Head: head}); err != nil {
 				return err
 			}
 		}
@@ -147,7 +166,7 @@ func (p *JobPool) queueUngraded(directory string) error {
 	if err := json.Unmarshal(data, &spec); err != nil {
 		return err
 	}
-	return p.queueWhole(wholeAsk{spec.PR, spec.Lane, short(spec.Head)})
+	return p.queueWhole(wholeAsk{PR: spec.PR, Lane: spec.Lane, Key: short(spec.Head)})
 }
 
 func ungraded(directory string) bool {
@@ -263,6 +282,9 @@ func (p *JobPool) wholeJob(ctx context.Context, d desk, facts machine.Facts, ask
 		return job{}, err
 	}
 	reviews := finderReviews(found, facts.Repo, pr)
+	if ask.Head != "" {
+		return p.recheckJob(ctx, d, facts, ask, sprite, reviews)
+	}
 	moved := int64(0)
 	for _, r := range found {
 		if r.Kind == kindHead {
@@ -290,4 +312,30 @@ func (p *JobPool) wholeJob(ctx context.Context, d desk, facts machine.Facts, ask
 	base := p.baseJob(d, facts, sprite, settled)
 	base.Lane = ask.Lane
 	return job{spec: grader.FinderJob{Job: base, History: jobRecords(named), Ruled: jobRecords(ruled), Full: true}}, nil
+}
+
+func (p *JobPool) recheckJob(ctx context.Context, d desk, facts machine.Facts, ask wholeAsk, sprite string, reviews []review) (job, error) {
+	asked, err := strconv.ParseInt(ask.Key, 10, 64)
+	if err != nil {
+		return job{}, err
+	}
+	graded := slices.DeleteFunc(gradedReviews(reviews), func(r review) bool { return !grader.NamesHead(r.head, ask.Head) })
+	if len(graded) == 0 {
+		return job{}, ErrAnswered
+	}
+	last := graded[len(graded)-1]
+	if last.Seq > asked || last.grade == "ok" {
+		return job{}, ErrAnswered
+	}
+	named := make([]client.Record, 0, len(reviews))
+	for _, r := range reviews {
+		named = append(named, r.Record)
+	}
+	settled, err := rootSettled(ctx, p.drive, facts.Repo, strconv.Itoa(facts.Number), named)
+	if err != nil {
+		return job{}, err
+	}
+	base := p.baseJob(d, facts, sprite, settled)
+	base.Head, base.Lane = ask.Head, ask.Lane
+	return job{spec: grader.FinderJob{Job: base, Prior: &grader.Record{Seq: last.Seq, Lane: last.Lane, Head: last.head, Text: last.Text}, History: jobRecords(named)}}, nil
 }

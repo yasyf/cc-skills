@@ -169,6 +169,9 @@ func (s *finderPassState) grade() (FinderOutcome, error) {
 	}
 	spec.Head = view.HeadRefOid
 	head := spec.Head
+	if spec.Prior != nil && NamesHead(spec.Prior.Head, head) {
+		return s.replayed(view, head, nil)
+	}
 	var slicing *future[string]
 	if len(s.earlierHeads()) == 0 {
 		slicing = s.sliceRows(head, view.BaseRefName)
@@ -354,6 +357,9 @@ func (s *finderPassState) replayed(view pullRequest, last string, gone []string)
 	text := fmt.Sprintf("finder: %s %s carried from #%d", grade, short(head, 7), earlier.Seq)
 	if root := s.settledBy(earlier); grade != finderPass && root != 0 {
 		text = fmt.Sprintf("finder: %s %s carried from #%d, settled by coordinator #%d", finderPass, short(head, 7), earlier.Seq, root)
+	}
+	if grade == finderFail && s.onlySecondFix(earlier) && view.namesClassFix() {
+		text = fmt.Sprintf("finder: %s %s carried from #%d, whose one major, the second fix, the PR body now answers", finderPass, short(head, 7), earlier.Seq)
 	}
 	if len(gone) > 0 {
 		text = fmt.Sprintf("finder: %s %s carried from #%d, whose findings cite only files gone at this head: %s", finderPass, short(head, 7), earlier.Seq, strings.Join(gone, ", "))
@@ -579,6 +585,9 @@ func (s *finderPassState) post(text, body string) (string, error) {
 	if spec.Full {
 		id += ":whole"
 	}
+	if spec.Prior != nil && NamesHead(spec.Prior.Head, spec.Head) {
+		id += fmt.Sprintf(":after-%d", spec.Prior.Seq)
+	}
 	argv := []string{"cci", "post", "--drive", spec.Drive, "--lane", FinderLane, "--kind", "review", "--pr", spec.pull(), "--id", id, "--path", body}
 	if to := s.audience(); to != "" {
 		argv = append(argv, "--to", to)
@@ -655,7 +664,7 @@ func subset(inner, outer []string) bool {
 
 func (s *finderPassState) secondFix(view pullRequest, diff touched) (*finding, error) {
 	mine := diff.area()
-	if !isFix(view.Title) || classNamed.MatchString(view.Body+"\n"+view.rulingsComments()) || len(mine) == 0 {
+	if !isFix(view.Title) || view.namesClassFix() || len(mine) == 0 {
 		return nil, nil
 	}
 	landed, err := s.landedFixes()
@@ -684,6 +693,15 @@ func (s *finderPassState) secondFix(view pullRequest, diff touched) (*finding, e
 		named = append(named, fmt.Sprintf("#%s (%s) fixed %s", fix.number, fix.title, strings.Join(files, ", ")))
 	}
 	return &finding{Severity: finderFail, Cite: fmt.Sprintf("%s:%d", first.path, first.spans[0].start), Defect: secondFix + ". " + strings.Join(named, "; ")}, nil
+}
+
+func (v pullRequest) namesClassFix() bool {
+	return classNamed.MatchString(v.Body + "\n" + v.rulingsComments())
+}
+
+func (s *finderPassState) onlySecondFix(from *Record) bool {
+	text := s.originOf(from).Text
+	return strings.Contains(text, " 1 open ") && strings.Contains(text, secondFix)
 }
 
 type landedFix struct {
