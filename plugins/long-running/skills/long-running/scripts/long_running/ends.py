@@ -126,7 +126,8 @@ class Facts:
                 return self.released(RELEASE.fullmatch(end.value))
             case "record":
                 shown = self.shell.run(["cci", "show", end.value])
-                return f"record #{end.value} is closed" if RESOLVED.search(shown.splitlines()[0] if shown else "") else None
+                line = next((line for line in shown.splitlines() if not line.startswith("@")), "")
+                return f"record #{end.value} is closed" if RESOLVED.search(line) else None
         raise AssertionError(end)
 
     def released(self, want: re.Match[str]) -> str | None:
