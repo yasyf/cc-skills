@@ -174,7 +174,7 @@ func TestAnEndedOrcaDispatchIsAProcessRowThatReadsNotLiveSinceItsLaunch(t *testi
 	calls := 0
 	env.Runner = scripted(func([]string) (shell.Result, error) {
 		calls++
-		return shell.Result{Stdout: `{"ok":true,"result":{"workers":[{"dispatchId":"ctx_1","dispatchStatus":"dispatched"},{"dispatchId":"ctx_2","dispatchStatus":"completed","workerState":"succeeded"}],"page":{}}}`}, nil
+		return shell.Result{Stdout: `{"ok":true,"result":{"workers":[{"dispatchId":"ctx_1","dispatchStatus":"dispatched","projection":{"liveness":{"verdict":"live"}}},{"dispatchId":"ctx_2","dispatchStatus":"completed","workerState":"succeeded"}],"page":{}}}`}, nil
 	})
 
 	rows, err := env.orcaRows(context.Background(), nil)
@@ -193,6 +193,83 @@ func TestAnEndedOrcaDispatchIsAProcessRowThatReadsNotLiveSinceItsLaunch(t *testi
 		t.Fatal(err)
 	}
 	equal(t, len(gone), 0)
+}
+
+func orcaReceipts(t *testing.T, env Env, launched time.Time, dispatches map[string]string) {
+	t.Helper()
+	for lane, dispatch := range dispatches {
+		path := filepath.Join(env.receipts(), lane+".json")
+		writeJSON(t, path, map[string]any{"result": map[string]string{"dispatchId": dispatch}})
+		if err := os.Chtimes(path, launched, launched); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestAnOrcaLaneReadsLiveOnlyWhileItsAgentDoes(t *testing.T) {
+	env := Env{Config: config.Config{OrcaRun: "run_1"}, Local: t.TempDir(), Now: func() time.Time { return t0 }}
+	launched := t0.Add(-2 * time.Hour)
+	orcaReceipts(t, env, launched, map[string]string{"working": "ctx_1", "exited": "ctx_2", "cold": "ctx_3"})
+	env.Runner = scripted(func([]string) (shell.Result, error) {
+		return shell.Result{Stdout: `{"ok":true,"result":{"workers":[
+			{"dispatchId":"ctx_1","dispatchStatus":"dispatched","projection":{"liveness":{"verdict":"live"}}},
+			{"dispatchId":"ctx_2","dispatchStatus":"dispatched","projection":{"liveness":{"verdict":"exited"}}},
+			{"dispatchId":"ctx_3","dispatchStatus":"dispatched","projection":{"liveness":{"verdict":"unverifiable","reason":"host_unavailable"}}}
+		],"page":{}}}`}, nil
+	})
+
+	rows, err := env.orcaRows(context.Background(), []string{"working", "exited", "cold"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	equal(t, rows, []Row{
+		{Lane: "cold", SeenAt: launched, Dispatch: "ctx_3", Unverified: "has an Orca agent that reads unverifiable (host_unavailable)"},
+		{Lane: "exited", SeenAt: launched, Dispatch: "ctx_2"},
+		{Lane: "working", Live: true, SeenAt: t0, Dispatch: "ctx_1"},
+	})
+}
+
+func TestAnUnsettledDispatchWithNoAgentVerdictIsAnUnreadSource(t *testing.T) {
+	env := Env{Config: config.Config{OrcaRun: "run_1"}, Local: t.TempDir(), Now: func() time.Time { return t0 }}
+	orcaReceipts(t, env, t0, map[string]string{"lane-1": "ctx_1"})
+	env.Runner = scripted(func([]string) (shell.Result, error) {
+		return shell.Result{Stdout: `{"ok":true,"result":{"workers":[{"dispatchId":"ctx_1","dispatchStatus":"dispatched"}],"page":{}}}`}, nil
+	})
+
+	_, err := env.orcaRows(context.Background(), []string{"lane-1"})
+
+	if !errors.Is(err, ErrUnread) {
+		t.Fatalf("err %v", err)
+	}
+}
+
+func TestOrcaLivenessIsOneWorkerListReadAtOneLaneAndAtAThousand(t *testing.T) {
+	reads := func(n int) int {
+		env := Env{Config: config.Config{OrcaRun: "run_1"}, Local: t.TempDir(), Now: func() time.Time { return t0 }}
+		dispatches := map[string]string{}
+		var workers []string
+		names := make([]string, 0, n)
+		for i := range n {
+			lane := fmt.Sprintf("lane-%d", i)
+			dispatches[lane] = fmt.Sprintf("ctx_%d", i)
+			names = append(names, lane)
+			workers = append(workers, fmt.Sprintf(`{"dispatchId":"ctx_%d","dispatchStatus":"dispatched","projection":{"liveness":{"verdict":"exited"}}}`, i))
+		}
+		orcaReceipts(t, env, t0, dispatches)
+		calls := 0
+		env.Runner = scripted(func([]string) (shell.Result, error) {
+			calls++
+			return shell.Result{Stdout: `{"ok":true,"result":{"workers":[` + strings.Join(workers, ",") + `],"page":{}}}`}, nil
+		})
+		rows, err := env.orcaRows(context.Background(), names)
+		if err != nil {
+			t.Fatal(err)
+		}
+		equal(t, len(rows), n)
+		return calls
+	}
+	equal(t, reads(1000), reads(1))
 }
 
 func prNode(t *testing.T, text string) *PRNode {
@@ -371,7 +448,7 @@ func TestWhoRowsCarryTheRosterOfALiveLeadsTeam(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	equal(t, rows[1].Live, true)
+	equal(t, []bool{rows[0].Idle, rows[1].Live, rows[1].Idle}, []bool{false, true, true})
 	equal(t, rows[1].Roster, filepath.Join(claude, "teams", "session-d50e80e8"))
 }
 
@@ -409,13 +486,12 @@ func TestALaunchOrderOrAnOwnedByDecideNamesTheDeskThatOwnsALane(t *testing.T) {
 	bus := &fakeBus{tail: records}
 	reader := &deskReader{env: Env{Bus: bus, Config: config.Config{Drive: "durable"}}, ctx: context.Background(), desks: map[string]string{}}
 
-	for lane, want := range map[string]string{"board-mirror-1": "meta-desk-1", "alerts-desk-3": "root", "stall-watch": "meta-desk-1", "quoted-1": ""} {
-		got, err := reader.desk(lane)
-		if err != nil {
-			t.Fatal(err)
-		}
-		equal(t, got, want)
+	desks, err := reader.all()
+	if err != nil {
+		t.Fatal(err)
 	}
+
+	equal(t, desks, map[string]string{"board-mirror-1": "meta-desk-1", "alerts-desk-3": "root", "stall-watch": "meta-desk-1"})
 	equal(t, bus.query.After, int64(10))
 	equal(t, bus.query.Kinds, []string{"go", "decide"})
 }

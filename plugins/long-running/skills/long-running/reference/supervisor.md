@@ -65,14 +65,22 @@ The first ten come from the brief and coordinator record #348144. Row 25 is driv
 
 One tick does the following, all from one read of the new records and one `cci who`, so its work stays flat at 500 lanes:
 
-- **Liveness:** the process row and the lane's own records.
+- **Liveness:** the process row, the Orca agent's verdict on it, and the lane's own records.
 - **Parking:** every `ask`, `blocked` and `blocker` from a lane sets `Waiting` and `Awaits`. Any later record from that lane clears them, which matches the Stop hook's reading of "newest record".
 - **Gates:** an event record clears the wait and sets a page for each lane parked on it.
-- **Restart:** a page reaches a live lane through its roster inbox or `orca orchestration send`. A process that is gone gets a successor, because its obligation is on the row.
+- **Restart:** a page reaches a live lane through its roster inbox or `orca orchestration send`. A process that is gone gets one successor when its row holds an open PR or a standing duty, because its obligation is on the row; a row holding neither retires once silent past the threshold (see Dead lanes below).
 - **Successor:** only for a live row. A row that ended is retired, and a parked row waits for its gate.
 - **Owed deletions:** a lane cannot retire while its line owns an open `owed-deletion` task whose code is still on `origin/<trunk>`. The task's assignee is its owner, followed through successors to the lane now at the head. A task with no anchors counts as present until it closes. Its own `done`, `stopped`, `stand-down` or handoff, the runner's `worker_done` or `WITHDRAWN`, and a coordinator stand-down that names no successor all hold the lane, and one `defect` to the coordinator and the lane names each task. Each hour, the tick posts one `blocker` digest to the coordinator listing every path or symbol an in-force `removes` row names that lacks both an `owed-deletion` task and an `exception` row, is not in the row's `guards`, and is still on trunk at the row's anchored paths, one line per target with the rows that remove it. The digest's id hashes that list, so an unchanged set of gaps is never reposted. The owner update lists each such task of the drive's program whose code is still there and whose owner has no live lane, under "Owed deletions with no live owner". A task past its due date with its code still on trunk draws one `blocker` to the live head of its owner's line, or to the coordinator when there is none, and the update lists it under "Owed deletions past due".
 
 A woken lane that answers nothing for 30 minutes and has made no tool call in that time gets a successor. The successor's existing check for live processes in the worktree keeps two writers out.
+
+## Dead lanes
+
+A desired lane whose process is gone reads live forever: on Nov 3 `one-reader-2`'s agent died and its row read desired and live for three hours while it held five PRs, and chores then found 123 more such rows, 92 of them idle in-process teammates (root #360564 and #360756, chores #360686). An Orca row read live while its dispatch was unsettled, whatever its agent did, and the roster read every teammate it lists as live.
+
+Liveness comes from the agent, not the dispatch. The tick's one `orca orchestration worker-list --include-remote` read already carries each worker's `projection.liveness` verdict, which Orca gets from the Sprite: `live` is live, `exited` is no process, and `unverifiable`, a cold or unreachable Sprite, proves nothing. A teammate the roster lists whose turn has ended reads idle. Each lane then gets one decision. An open PR or a `Standing:` line relaunches it once, and a lane the supervisor already relaunched that dies again is held with one `defect` to the coordinator, or to the head of its launcher's line for a meta lane. A lane holding neither, silent past `retire_silent_minutes` in `lr.json` (60 by default), retires with one `RETIRED` report saying why; an idle teammate counts here only. An unproven lane that holds work is held with one blocker naming what is unproven. A lane parked on a recorded wait is left alone, and a retired lane, such as one whose Sprite the autostop stopped, never reaches the decision.
+
+Where: `lanes.orcaRows`, `lanes.Rostered`, `lanes.Classify`, `lanes.act`, `lanes.relaunch`, `config.Load`. Tests: `internal/lanes`: an exited agent with an open PR relaunches once; its second death raises one defect, to root or to the meta launcher; a lane holding nothing retires at the threshold and not before; a parked cold Sprite is left alone while an unparked one with a PR is held; an autostopped lane stays ended; an idle teammate holding nothing retires and one with a PR stays; a tick reads the same at 1 and 1,000 dead lanes, and Orca liveness is one worker-list read at either.
 
 ## Deleted in this series
 
@@ -90,8 +98,8 @@ The live Python mover and `stall_watch.py` are deleted by lr-go-lanes-1's cutove
 ## What remains possible
 
 - **A Codex lane has no Stop hook wired.** `cci hook stop` reads a Codex payload, and cci already keys on `CODEX_THREAD_ID`, but `~/.codex/hooks.json` does not call it. Wiring it is machine configuration for the drive's one installer.
-- **The store cannot answer at the exact moment of a stop.** The hook passes. A teammate lane's peer row retires on `SubagentStop`, so the supervisor relaunches it. An Orca worker's row reads live until its dispatch settles, so it stays idle until something pages it.
-- **An Orca worker that never answers a wake gets no successor.** Its row carries the dispatch's time as its last sign of life, so the supervisor cannot tell silence from work. The dispatch settling retires the row.
+- **The store cannot answer at the exact moment of a stop.** The hook passes. A teammate lane's peer row retires on `SubagentStop`, so the supervisor relaunches it. An Orca worker's row reads live while its agent's verdict is `live`.
+- **A cold Sprite holding work is held, never relaunched.** Its agent reads `unverifiable`, and absence is not death, so the supervisor cannot tell a stopped Sprite from a lost connection. One blocker names the reason, and the coordinator relaunches it or waits.
 - **A Sprite with no `lr.json` writes no compaction handoff.** The hook finds no drive there and does nothing, and the lane resumes from its transcript's summary.
 - **A lane can post `done` with work unfinished.** Owed deletions are the exception. Otherwise, the row retires, because `done` is the lane's own word, and only a PR it owned reaches the coordinator, if that PR breaks. Prose such as "X owns the rest" stays prose. `blocked --lane-ref L` is the typed form, and the lane brief tells lanes to use it. An acknowledged transfer record would close this, and it needs an owner pick because it adds a record kind.
 - **`inboxes.py wait` prints a `JSONDecodeError` and then `QUIET`.** `release-5` read that as no mail. The lane kept working, so no turn ended. It is reported to meta-desk-1, since Python drive tooling takes no new work here.

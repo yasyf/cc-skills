@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/deletions"
@@ -44,12 +45,13 @@ type Deps struct {
 	Wake         func(name string, row Row, page map[string]any) (bool, error)
 	PRStates     func(prs []int) (map[int]string, error)
 	Held         func() (map[int]bool, error)
-	Desk         func(lane string) (string, error)
+	Desks        func() (map[string]string, error)
 	OpenWork     func() ([]Record, error)
 	Owed         func() ([]deletions.Owed, error)
 	Present      func(rows []deletions.Owed) ([]deletions.Owed, error)
 	Gaps         func() ([]string, error)
 	RotateAt     int
+	RetireAfter  time.Duration
 }
 
 type Relaunch struct {
@@ -70,6 +72,12 @@ type Outcome struct {
 func Tick(s *store.Store, d Deps, now time.Time, generation int64) (out Outcome, err error) {
 	defer recovered(&err)
 	now = now.UTC().Truncate(time.Second)
+	d.Desks = sync.OnceValues(d.Desks)
+	owed := sync.OnceValues(d.Owed)
+	d.Owed = func() ([]deletions.Owed, error) {
+		rows, err := owed()
+		return slices.Clone(rows), err
+	}
 	cursor := must(s.Cursor(CursorName))
 	fresh := cursor == 0
 	var named []string
@@ -190,6 +198,10 @@ func act(s *store.Store, d Deps, lane store.Lane, found map[string]Peer, taken m
 	if verdict.Kind == Ok && lane.State == store.LaneDesired && lane.Waiting == 0 && lane.Page != nil && peer != nil && (peer.Row.Roster != "" || peer.Row.Dispatch != "") {
 		wake(s, d, lane, *peer, found, taken, now, out)
 	}
+	if verdict.Kind == Ok && lane.State == store.LaneDesired && lane.Waiting == 0 && lane.Page == nil && peer != nil && peer.Row.Idle && holdsNothing(lane) && silent >= d.RetireAfter {
+		retireSilent(s, d, lane, "is an idle teammate on "+peer.Row.Roster+" with no turn running", silent, now)
+		return
+	}
 	switch verdict.Kind {
 	case CameUp:
 		do(s.SetLaneState(lane.Name, store.LaneDesired, now, "", ""))
@@ -203,9 +215,15 @@ func act(s *store.Store, d Deps, lane store.Lane, found map[string]Peer, taken m
 		escalate(s, d, "lane:"+lane.Name, fmt.Sprintf("%s; brief %s", verdict.Why, filepath.Join(d.Briefs, lane.Name+".brief.md")), now)
 		out.Held = append(out.Held, lane.Name)
 	case Unproven:
-		hold(s, lane.Name, verdict.Why, now)
-		escalate(s, d, "lane:"+lane.Name, fmt.Sprintf("held, not relaunched: it %s; brief %s", verdict.Why, lane.Brief), now)
-		out.Held = append(out.Held, lane.Name)
+		if !holdsNothing(lane) {
+			hold(s, lane.Name, verdict.Why, now)
+			escalate(s, d, "lane:"+lane.Name, fmt.Sprintf("held, not relaunched: it %s; brief %s", verdict.Why, lane.Brief), now)
+			out.Held = append(out.Held, lane.Name)
+			return
+		}
+		if silent >= d.RetireAfter {
+			retireSilent(s, d, lane, verdict.Why, silent, now)
+		}
 	case StoodDown:
 		if !refusedOwing(s, d, lane.Name, now) {
 			retire(s, lane.Name, "stand-down", now)
@@ -223,12 +241,31 @@ func act(s *store.Store, d Deps, lane store.Lane, found map[string]Peer, taken m
 			}
 			return
 		}
-		relaunch(s, d, lane, found, verdict.Why, taken, now, out)
+		if !holdsNothing(lane) {
+			relaunch(s, d, lane, found, verdict.Why, taken, now, out)
+			return
+		}
+		if silent >= d.RetireAfter {
+			retireSilent(s, d, lane, verdict.Why, silent, now)
+		}
 	case AskRotate:
 		do(d.Post(Post{Kind: "ask", To: []string{lane.Name}, Text: fmt.Sprintf("ROTATE: %s is at %s. Write anything not yet in the ledger or cc-notes to a cc-notes doc, post `cci post --lane %s --kind handoff --ccn <doc id> --re <this record>`, then keep working.", lane.Name, verdict.Why, lane.Name)}))
 		do(s.SetLaneAsked(lane.Name, now))
 		out.Asked = append(out.Asked, lane.Name)
 	}
+}
+
+func holdsNothing(lane store.Lane) bool {
+	return lane.Name != Root && len(lane.PRs) == 0 && must(BriefOf(lane.Brief)).Standing == ""
+}
+
+func retireSilent(s *store.Store, d Deps, lane store.Lane, why string, silent time.Duration, now time.Time) {
+	if refusedOwing(s, d, lane.Name, now) {
+		return
+	}
+	to := owningDesk(s, d, lane.Name)
+	retire(s, lane.Name, retiredSilent, now)
+	do(d.Post(Post{Kind: "report", To: []string{to}, LaneRef: lane.Name, Text: fmt.Sprintf("RETIRED %s: it %s, owns no PR, holds no standing duty, and has posted nothing for %d minutes.", lane.Name, why, int(silent.Minutes()))}))
 }
 
 func (d Deps) coordinatorReportsTo() string {
@@ -250,11 +287,12 @@ func escalate(s *store.Store, d Deps, subject, cause string, now time.Time) {
 }
 
 func owningDesk(s *store.Store, d Deps, lane string) string {
-	desk := must(d.Desk(lane))
+	desks := must(d.Desks())
+	desk := desks[lane]
 	row, known := laneOf(s, lane)
 	for seen := map[string]bool{lane: true}; desk == "" && known && row.Predecessor != "" && !seen[row.Predecessor]; {
 		seen[row.Predecessor] = true
-		desk = must(d.Desk(row.Predecessor))
+		desk = desks[row.Predecessor]
 		row, known = laneOf(s, row.Predecessor)
 	}
 	head, found := newest(s, desk)
@@ -324,23 +362,24 @@ func relaunch(s *store.Store, d Deps, old store.Lane, found map[string]Peer, why
 			return
 		}
 	}
-	strikes := 0
-	if old.Predecessor != "" && now.Sub(old.Since) < strikeWindow {
-		strikes = old.Strikes + 1
-	}
 	hasBrief := briefExists(old.Brief)
-	if strikes >= strikeLimit || !hasBrief || strings.Contains(old.Reason, unreadMark) {
+	if !hasBrief || strings.Contains(old.Reason, unreadMark) {
 		hold(s, old.Name, why, now)
-		var cause string
-		switch {
-		case strikes >= strikeLimit:
-			cause = fmt.Sprintf("its successors died within %d minutes of launch %d times", int(strikeWindow.Minutes()), strikeLimit)
-		case !hasBrief:
+		cause := old.Reason + ", so the supervisor refused it, and the lane has since stopped; post the stand-down again citing last-read=<seq>, or relaunch it by hand"
+		if !hasBrief {
 			cause = fmt.Sprintf("its brief %s is gone", old.Brief)
-		default:
-			cause = old.Reason + ", so the supervisor refused it, and the lane has since stopped; post the stand-down again citing last-read=<seq>, or relaunch it by hand"
 		}
 		escalate(s, d, "lane:"+old.Name, fmt.Sprintf("held, not relaunched: %s; it %s", cause, why), now)
+		out.Held = append(out.Held, old.Name)
+		return
+	}
+	if old.Predecessor != "" && old.Reason != "" {
+		hold(s, old.Name, why, now)
+		to := noticeTo(s, old.Name)
+		cause := fmt.Sprintf("held, not relaunched: the supervisor already relaunched it once, when %s %s, and now it %s; brief %s", old.Predecessor, old.Reason, why, old.Brief)
+		if must(s.Escalate("lane:"+old.Name, cause, to, now)) {
+			do(d.Post(Post{Kind: "defect", To: []string{to}, LaneRef: old.Name, Text: fmt.Sprintf("lane:%s: %s", old.Name, cause)}))
+		}
 		out.Held = append(out.Held, old.Name)
 		return
 	}
@@ -354,7 +393,7 @@ func relaunch(s *store.Store, d Deps, old store.Lane, found map[string]Peer, why
 	}
 	do(os.WriteFile(path, []byte(must(successorBrief(old, name, why, d, transcript))), 0o600))
 	retire(s, old.Name, name, now)
-	must(s.WantLane(store.Lane{Name: name, Brief: old.Brief, Model: old.Model, Effort: old.Effort, Role: old.Role, State: store.LaneLaunching, Handoff: old.Handoff, PRs: old.PRs, Predecessor: old.Name, Reason: why, Strikes: strikes, Launcher: old.Launcher}, now))
+	must(s.WantLane(store.Lane{Name: name, Brief: old.Brief, Model: old.Model, Effort: old.Effort, Role: old.Role, State: store.LaneLaunching, Handoff: old.Handoff, PRs: old.PRs, Predecessor: old.Name, Reason: why, Launcher: old.Launcher}, now))
 	do(d.Launch(name, old.Model, old.Effort, path))
 	do(d.Post(Post{Kind: "report", To: []string{owningDesk(s, d, old.Name)}, LaneRef: name, Text: fmt.Sprintf("RELAUNCHED %s as %s: it %s; handoff %s; PRs %s; brief %s", old.Name, name, why, or(old.Handoff, "none, the successor writes it"), or(numberList(old.PRs), "none"), path)}))
 	out.Relaunched = append(out.Relaunched, Relaunch{old.Name, name, why})

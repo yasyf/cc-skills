@@ -199,7 +199,7 @@ func Rostered(rows []Row, teams string) []Row {
 	out := make([]Row, 0, len(rows))
 	for _, row := range rows {
 		if row.Agent != "" && members[row.Session][row.Lane] {
-			row.Live, row.Roster = true, teamDir(teams, row.Session)
+			row.Live, row.Idle, row.Roster = true, !row.Live, teamDir(teams, row.Session)
 		}
 		out = append(out, row)
 	}
@@ -258,23 +258,31 @@ func (e Env) orcaRows(ctx context.Context, names []string) ([]Row, error) {
 		if !known {
 			continue
 		}
-		live := !slices.Contains(settledDispatch, read.Status)
-		seen := e.Now().UTC()
-		if !live {
+		settled := slices.Contains(settledDispatch, read.Status)
+		if !settled && !slices.Contains(agentVerdicts, read.Liveness) {
+			return nil, fmt.Errorf("%w: orca worker-list gives dispatch %s agent liveness %q, not one of %s", ErrUnread, dispatches[lane], read.Liveness, strings.Join(agentVerdicts, ", "))
+		}
+		row := Row{Lane: lane, Live: !settled && read.Liveness == agentLive, SeenAt: e.Now().UTC(), Dispatch: dispatches[lane], Succeeded: read.Worker == workerSucceeded}
+		if !row.Live {
 			info, err := os.Stat(filepath.Join(receipts, lane+".json"))
 			if err != nil {
 				return nil, err
 			}
-			seen = info.ModTime().UTC()
+			row.SeenAt = info.ModTime().UTC()
 		}
-		rows = append(rows, Row{Lane: lane, Live: live, SeenAt: seen, Dispatch: dispatches[lane], Succeeded: read.Worker == workerSucceeded})
+		if !settled && read.Liveness == agentUnverifiable {
+			row.Unverified = fmt.Sprintf("has an Orca agent that reads unverifiable (%s)", or(read.Why, "no reason given"))
+		}
+		rows = append(rows, row)
 	}
 	return rows, nil
 }
 
 type dispatchRead struct {
-	Status string
-	Worker string
+	Status   string
+	Worker   string
+	Liveness string
+	Why      string
 }
 
 func (e Env) dispatchStatuses(ctx context.Context) (map[string]dispatchRead, error) {
@@ -294,6 +302,12 @@ func (e Env) dispatchStatuses(ctx context.Context) (map[string]dispatchRead, err
 					DispatchID     string `json:"dispatchId"`
 					DispatchStatus string `json:"dispatchStatus"`
 					WorkerState    string `json:"workerState"`
+					Projection     struct {
+						Liveness struct {
+							Verdict string `json:"verdict"`
+							Reason  string `json:"reason"`
+						} `json:"liveness"`
+					} `json:"projection"`
 				} `json:"workers"`
 				Page struct {
 					NextCursor string `json:"nextCursor"`
@@ -307,7 +321,7 @@ func (e Env) dispatchStatuses(ctx context.Context) (map[string]dispatchRead, err
 			return nil, fmt.Errorf("%w: orca worker-list: %v", ErrUnread, page.Error)
 		}
 		for _, worker := range page.Result.Workers {
-			statuses[worker.DispatchID] = dispatchRead{worker.DispatchStatus, worker.WorkerState}
+			statuses[worker.DispatchID] = dispatchRead{worker.DispatchStatus, worker.WorkerState, worker.Projection.Liveness.Verdict, worker.Projection.Liveness.Reason}
 		}
 		if page.Result.Page.NextCursor == "" {
 			return statuses, nil
@@ -668,10 +682,10 @@ type deskReader struct {
 	desks map[string]string
 }
 
-func (r *deskReader) desk(lane string) (string, error) {
+func (r *deskReader) all() (map[string]string, error) {
 	records, err := r.env.Bus.Tail(r.ctx, client.Query{Drive: r.env.Config.Drive, After: r.after, Kinds: []string{"go", "decide"}})
 	if err != nil {
-		return "", fmt.Errorf("%w: cci tail: %w", ErrUnread, err)
+		return nil, fmt.Errorf("%w: cci tail: %w", ErrUnread, err)
 	}
 	for _, raw := range records {
 		r.after = raw.Seq
@@ -684,7 +698,7 @@ func (r *deskReader) desk(lane string) (string, error) {
 			r.desks[found[1]] = record.Lane
 		}
 	}
-	return r.desks[lane], nil
+	return r.desks, nil
 }
 
 func (e Env) sendDispatch(ctx context.Context, dispatch, subject, body string) error {
@@ -744,14 +758,15 @@ func (e Env) Deps(ctx context.Context) (Deps, error) {
 		Withdraw: func(name string) error {
 			return detach(filepath.Join(briefs, name+".launch.log"), launcher, "withdraw", name, "--drive", e.Config.Drive, "--lane", Self)
 		},
-		Wake:     waker.Wake,
-		PRStates: states.states,
-		Held:     func() (map[int]bool, error) { return e.held(ctx) },
-		Desk:     desks.desk,
-		OpenWork: func() ([]Record, error) { return e.openWork(ctx) },
-		Owed:     func() ([]deletions.Owed, error) { return trunk.List(ctx) },
-		Present:  func(rows []deletions.Owed) ([]deletions.Owed, error) { return trunk.Present(ctx, rows) },
-		Gaps:     func() ([]string, error) { return trunk.Gaps(ctx, e.tool("rulings.py"), e.Config.Drive) },
-		RotateAt: at,
+		Wake:        waker.Wake,
+		PRStates:    states.states,
+		Held:        func() (map[int]bool, error) { return e.held(ctx) },
+		Desks:       desks.all,
+		OpenWork:    func() ([]Record, error) { return e.openWork(ctx) },
+		Owed:        func() ([]deletions.Owed, error) { return trunk.List(ctx) },
+		Present:     func(rows []deletions.Owed) ([]deletions.Owed, error) { return trunk.Present(ctx, rows) },
+		Gaps:        func() ([]string, error) { return trunk.Gaps(ctx, e.tool("rulings.py"), e.Config.Drive) },
+		RotateAt:    at,
+		RetireAfter: e.Config.RetireSilent,
 	}, nil
 }
