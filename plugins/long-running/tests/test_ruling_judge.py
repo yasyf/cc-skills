@@ -33,7 +33,10 @@ def session_start(tmp_path: Path, source: str) -> SessionStartEvent:
         ("mcp__slack__slack_send_message", {"channel_id": "C1", "text": "Shipping now"}, None),
         ("mcp__plugin_cc-slack_cc-slack__slack_reply", {"url": "C1/p1", "text": "Shipping now"}, None),
         ("Bash", {"command": "cc-slack send --channel C1 --text 'Shipping now'"}, None),
-        ("Bash", {"command": "ccx vcs ship -m 'release: add a skip flag' --pr-title 'release: add a skip flag'"}, ("a pull request", "vcs ship -m release: add a skip flag --pr-title release: add a skip flag")),
+        ("Bash", {"command": "ccx vcs ship -m 'release: add a skip flag' --pr-title 'release: drop the flag' --no-watch"}, ("a pull request", "release: add a skip flag release: drop the flag")),
+        ("Bash", {"command": "ccx vcs ship --no-commit --no-watch --tip-only"}, None),
+        ("Bash", {"command": "ccx vcs stack submit --no-watch"}, None),
+        ("Bash", {"command": "gh pr create --title 'release: add a skip flag'"}, ("a pull request", "pr create --title release: add a skip flag")),
         ("Bash", {"command": "git status"}, None),
     ],
 )
