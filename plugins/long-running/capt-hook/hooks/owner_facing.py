@@ -396,6 +396,7 @@ def owner_words(evt: BaseHookEvent) -> list[str]:
         for event in evt.ctx.t.events
         if isinstance(event, UserEvent)
         and not event.meta.is_sidechain
+        and not event.meta.is_meta
         and not event.is_agent_injected
         and event.text
         and not event.text.lstrip().startswith(("<", "[Request interrupted", "This session is being continued"))

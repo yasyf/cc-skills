@@ -20,7 +20,7 @@ from .lane_slack_status import CC_SLACK, CLI, WRITE_TOOLS
 from .register_capture import OPERATOR, slack_dms
 from .register_gates import blocker, cause
 from .root_context import OwnerPrompt
-from .root_replies import SENTENCE_END, SYSTEM_PREFIXES, owner_text
+from .root_replies import SENTENCE_END, owner_message
 from .tests.register_fixtures import DRIVE_CONFIG
 
 RETURN_GAP_SECONDS = 60 * 60
@@ -556,7 +556,7 @@ def explain_failed(evt: BaseHookEvent) -> bool:
 
 def owner_words(evt: BaseHookEvent) -> str:
     events = list(evt.ctx.turn.events)
-    typed = [text for event in events if (text := owner_text(event)) and not text.lstrip().startswith(SYSTEM_PREFIXES)]
+    typed = [text for event in events if (text := owner_message(event))]
     dms = slack_dms(evt, events)
     held = bool(dms) and dm_owed(evt)["holder_session"] == evt.session_id
     return "\n\n".join([*typed, *(dm["text"] for dm in dms if held)])
