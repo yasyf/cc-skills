@@ -428,6 +428,10 @@ type RunnerLanding struct {
 	CIBuild      string `json:"ci_build"`
 	FlakeLane    string `json:"flake_lane"`
 	FlakyChannel string `json:"flaky_channel"`
+	Pages        struct {
+		Channels []string `json:"channels"`
+		Build    string   `json:"build"`
+	} `json:"pages"`
 }
 
 func ReadRunnerLanding(state string) (RunnerLanding, error) {
@@ -662,6 +666,13 @@ func (e Env) Checks(s *store.Store, log *slog.Logger) ([]Check, error) {
 	}
 	if e.Config.OrcaRun != "" {
 		checks = append(checks, (&FixLiveGC{Env: e, Log: log}).Check)
+	}
+	landing, err := ReadRunnerLanding(e.State)
+	if err != nil {
+		return nil, err
+	}
+	if len(landing.Pages.Channels) > 0 {
+		checks = append(checks, (&PageWatch{Env: e, Store: s, Channels: landing.Pages.Channels, BuildCLI: landing.Pages.Build, Log: log}).Check)
 	}
 	remote, err := CcRemoteOf(e.State)
 	if err != nil {
