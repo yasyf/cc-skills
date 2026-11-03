@@ -19,6 +19,7 @@ import (
 )
 
 const (
+	regionPR  = "release: a watch fails on a monitor's missing data only when that monitor notifies on it (#48959)"
 	staffPR   = "cloudrunner: journal refusals of Forge staff teams never page (#49148)"
 	connectPR = "iris: connect_app asks to connect an account on its own card (#49121)"
 	connected = "## Summary\n\nA new connect_app tool raises its own card in the dashboard.\n"
@@ -66,7 +67,7 @@ func newLandings(t *testing.T) landings {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
-	for number, lane := range map[int]string{49148: "staffteam-1", 49121: "port-connect-app-1"} {
+	for number, lane := range map[int]string{48959: "release-watch-1", 49148: "staffteam-1", 49121: "port-connect-app-1"} {
 		if err := s.PutPR(store.PR{Repo: "o/r", Number: number, Head: "h", Lane: lane}); err != nil {
 			t.Fatal(err)
 		}
@@ -78,11 +79,22 @@ func newLandings(t *testing.T) landings {
 	}, logged}
 }
 
+func (tr landings) landRegion(t *testing.T) {
+	t.Helper()
+	git(t, tr.work, "checkout", "-q", "dev")
+	write(t, tr.work, map[string]string{"wire.go": "type Run struct {\n\tTeam string\n\tRegion string\n}\n"}, regionPR)
+	git(t, tr.work, "push", "-q", "origin", "dev")
+}
+
 func (tr landings) landStaff(t *testing.T) {
 	t.Helper()
 	git(t, tr.work, "checkout", "-q", "dev")
+	wire, err := os.ReadFile(filepath.Join(tr.work, "wire.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	write(t, tr.work, map[string]string{
-		"wire.go":  "type Run struct {\n\tTeam string\n\tStaffTeam bool\n}\n",
+		"wire.go":  strings.Replace(string(wire), "}\n", "\tStaffTeam bool\n}\n", 1),
 		"loop.go":  "log.Warn(\"journal refused\", \"team\", team, \"staffTeam\", staff)\n",
 		"card.tsx": "export const ParameterCard = () => <OAuthConnection />;\n",
 	}, staffPR)
@@ -97,11 +109,14 @@ func (tr landings) openConnect(t *testing.T) {
 
 func (tr landings) mergeDev(t *testing.T, resolved bool) {
 	t.Helper()
-	git(t, tr.work, "checkout", "-q", "connect")
 	if !resolved {
-		git(t, tr.work, "merge", "-q", "-s", "ours", "dev", "-m", "Merge remote-tracking branch 'origin/dev' into connect")
+		git(t, tr.work, "checkout", "-q", "dev")
+		stale := git(t, tr.work, "merge-tree", "--write-tree", "connect", "dev~1")
+		merge := git(t, tr.work, "commit-tree", stale, "-p", "connect", "-p", "dev", "-m", "Merge remote-tracking branch 'origin/dev' into connect")
+		git(t, tr.work, "update-ref", "refs/heads/connect", merge)
 		return
 	}
+	git(t, tr.work, "checkout", "-q", "connect")
 	if out, err := exec.Command("git", "-C", tr.work, "merge", "-q", "dev").CombinedOutput(); err == nil {
 		t.Fatalf("merging dev did not conflict: %s", out)
 	}
@@ -138,6 +153,7 @@ func clobbered(t *testing.T) []client.Record {
 func TestASquashWhoseMergeFromTrunkKeptAStaleTreeTellsBothLanesAndRootWhatItUndid(t *testing.T) {
 	tr := newLandings(t)
 	tr.openConnect(t)
+	tr.landRegion(t)
 	tr.landStaff(t)
 	tr.pass(t)
 	tr.mergeDev(t, false)
@@ -154,6 +170,9 @@ func TestASquashWhoseMergeFromTrunkKeptAStaleTreeTellsBothLanesAndRootWhatItUndi
 		if !strings.Contains(got.Text, want) {
 			t.Fatalf("text %q lacks %q", got.Text, want)
 		}
+	}
+	if strings.Contains(got.Text, "#48959") {
+		t.Fatalf("credited the landing the stale tree kept: %q", got.Text)
 	}
 	slices.Sort(got.To)
 	if !slices.Equal(got.To, []string{"port-connect-app-1", "root", "staffteam-1"}) {

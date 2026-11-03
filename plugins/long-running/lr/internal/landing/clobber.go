@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
@@ -46,6 +47,8 @@ type Undone struct {
 	Files  []string
 	Lines  int
 }
+
+type fileLines map[string]map[string]bool
 
 func (c *Clobbers) Pass(ctx context.Context) error {
 	facts, err := c.Store.Facts(c.Repo, 0, clobberHead)
@@ -149,51 +152,91 @@ func (c *Clobbers) dropped(ctx context.Context, merge string, touched []string, 
 		return err
 	}
 	clean, conflicted, _ := strings.Cut(strings.TrimSpace(merged.Stdout), "\n")
-	stat, err := c.git(ctx, gitLimit, slices.Concat([]string{"diff", "--numstat", "--no-renames", clean, merge, "--"}, touched)...)
-	if err != nil || stat == "" {
+	diff, err := c.git(ctx, gitLimit, slices.Concat([]string{"diff", "--no-renames", clean, merge, "--"}, touched)...)
+	if err != nil || diff == "" {
 		return err
 	}
-	lines := map[string]int{}
-	for row := range strings.SplitSeq(stat, "\n") {
-		fields := strings.SplitN(row, "\t", 3)
-		if slices.Contains(strings.Split(conflicted, "\n"), fields[2]) || describes(description, fields[2]) {
-			continue
+	restored, lost := parseDiff(diff)
+	var files []string
+	for file := range lost {
+		if !slices.Contains(strings.Split(conflicted, "\n"), file) && !describes(description, file) {
+			files = append(files, file)
 		}
-		added, _ := strconv.Atoi(fields[0])
-		removed, _ := strconv.Atoi(fields[1])
-		lines[fields[2]] = added + removed
 	}
-	if len(lines) == 0 {
+	if len(files) == 0 {
 		return nil
 	}
-	files := make([]string, 0, len(lines))
-	for file := range lines {
-		files = append(files, file)
-	}
-	landed, err := c.git(ctx, gitLimit, slices.Concat([]string{"log", "--first-parent", "--name-only", "--format=%x00%s", merge + "^2", "^" + merge + "^1", "--"}, files)...)
+	landed, err := c.git(ctx, gitLimit, slices.Concat([]string{"log", "--first-parent", "--no-renames", "-p", "--format=%x00%s", merge + "^2", "^" + merge + "^1", "--"}, files)...)
 	if err != nil {
 		return err
 	}
 	for _, landing := range strings.Split(landed, commitMark)[1:] {
-		subject, named, _ := strings.Cut(landing, "\n")
+		subject, landedDiff, _ := strings.Cut(landing, "\n")
 		pr := squashedPR.FindStringSubmatch(subject)
 		if pr == nil || regexp.MustCompile(`#`+pr[1]+`\b`).MatchString(description) {
 			continue
 		}
 		number, _ := strconv.Atoi(pr[1])
-		undone := undid[number]
-		if undone == nil {
-			undone = &Undone{Number: number}
-			undid[number] = undone
-		}
-		for file := range strings.SplitSeq(strings.TrimSpace(named), "\n") {
+		added, removed := parseDiff(landedDiff)
+		for _, file := range files {
+			count := shared(added[file], lost[file]) + shared(removed[file], restored[file])
+			if count == 0 {
+				continue
+			}
+			undone := undid[number]
+			if undone == nil {
+				undone = &Undone{Number: number}
+				undid[number] = undone
+			}
 			if !slices.Contains(undone.Files, file) {
 				undone.Files = append(undone.Files, file)
-				undone.Lines += lines[file]
 			}
+			undone.Lines += count
 		}
 	}
 	return nil
+}
+
+func shared(lines, of map[string]bool) int {
+	count := 0
+	for line := range lines {
+		if of[line] {
+			count++
+		}
+	}
+	return count
+}
+
+func parseDiff(diff string) (added, removed fileLines) {
+	added, removed = fileLines{}, fileLines{}
+	var file string
+	inHunk := false
+	for line := range strings.SplitSeq(diff, "\n") {
+		switch {
+		case strings.HasPrefix(line, "diff --git "):
+			_, file, _ = strings.Cut(line, " b/")
+			inHunk = false
+		case strings.HasPrefix(line, "@@"):
+			inHunk = true
+		case !inHunk || line == "":
+		case line[0] == '+':
+			added.mark(file, line[1:])
+		case line[0] == '-':
+			removed.mark(file, line[1:])
+		}
+	}
+	return added, removed
+}
+
+func (f fileLines) mark(file, line string) {
+	line = strings.TrimSpace(line)
+	if !strings.ContainsFunc(line, func(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) }) {
+		return
+	}
+	if f[file] == nil {
+		f[file] = map[string]bool{}
+	}
+	f[file][line] = true
 }
 
 func describes(description, file string) bool {
