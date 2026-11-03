@@ -505,6 +505,9 @@ func (d *Desk) settleSprite(ctx context.Context, container, lane string, action 
 		return err
 	}
 	installed, err := os.ReadFile(filepath.Join(attempt, "install.log"))
+	if errors.Is(err, os.ErrNotExist) {
+		return d.raiseHookDrift(lane, attempt)
+	}
 	if err != nil {
 		return err
 	}
