@@ -226,6 +226,21 @@ func TestAMergeByALaneRefusesOnARelayItHasNotReadAndNotOnOneItsReadClosed(t *tes
 	}
 }
 
+func TestAMergeListsNoStatusRecordUnlessItIsAddressedToTheLane(t *testing.T) {
+	evidence := map[string]any{"seq": 1, "lane": "progress-desk-2", "kind": "evidence", "text": "its build is running"}
+	peer := map[string]any{"seq": 2, "lane": "registry", "kind": "peer", "text": "dar-x lane"}
+	state := map[string]any{"seq": 3, "lane": "root", "kind": "state", "text": "SPAWNED x"}
+	addressed := map[string]any{"seq": 4, "lane": "root", "kind": "state", "text": "stop", "to": []string{"fix-1"}}
+	note := map[string]any{"seq": 5, "lane": "root", "kind": "note", "text": "dev is green"}
+	fake := github(t, map[int]map[string]any{7: pull(green)}, false)
+	fake.Reply(bus(t, evidence, peer, state, addressed, note), "cci", "tail")
+	got := lines(t, fake, ownred.Merge{Selector: "7", Drive: "d", Lane: "fix-1"})
+	want := []string{"UNREAD #4 root state: stop", "MAIL #5 root note: dev is green"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
 func TestAMergeCountsOnlyWhatAnotherLaneSentAndTheLaneHasNotActedOn(t *testing.T) {
 	note := func() map[string]any {
 		return map[string]any{"seq": 100, "lane": "meta-desk-2", "kind": "note", "text": "take #2188", "to": []string{"fix-1"}}
