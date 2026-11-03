@@ -403,6 +403,11 @@ with its disk kept, and it refuses a warm pool workspace's own name. The gc paus
 below does not hold it. A stop that fails posts one `SPRITE-STOP-FAILED` blocker
 to root with the error, and lr never runs that lane's stop again.
 
+Before any stop, lr asks that CLI its `version`. A release older than 0.27.3,
+which added `orca stop`, skips the pass with one warning in the supervisor log.
+The ended lanes stay unmarked, and lr stops them on the next pass after the
+checkout's pin reaches 0.27.3.
+
 gc is paused until `~/.local/state/orca-gc/resumed` exists, or
 `$XDG_STATE_HOME/orca-gc/resumed` when that variable is set. A paused gc prints
 one `skip` line and changes nothing. Resume it with
