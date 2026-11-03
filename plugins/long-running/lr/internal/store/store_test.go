@@ -509,7 +509,7 @@ func TestAProbeIsAskedAgainAndCleared(t *testing.T) {
 	s := memory(t)
 	ok(t, s.Probe("l", t0))
 	ok(t, s.Probe("l", t0.Add(2*time.Minute)))
-	if got := must[map[string]Probe](t)(s.Probes())["l"]; !got.Asked.Equal(t0.Add(2*time.Minute)) {
+	if got := must[map[string]Probe](t)(s.Probes())["l"]; !got.Asked.Equal(t0.Add(2 * time.Minute)) {
 		t.Fatalf("probe %+v", got)
 	}
 	ok(t, s.Unprobe("l"))

@@ -94,7 +94,7 @@ func Tick(s *store.Store, d Deps, now time.Time, generation int64) (out Outcome,
 	}
 	said := fold(s, records, adoptable, d.Briefs)
 	out.Adopted = said.adopted
-	announce(s, d, said, now)
+	announce(d, said, now)
 	ownedWork(s, d, now)
 	for _, name := range said.hand {
 		do(d.Withdraw(name))
@@ -122,7 +122,7 @@ func Tick(s *store.Store, d Deps, now time.Time, generation int64) (out Outcome,
 	return out, nil
 }
 
-func announce(s *store.Store, d Deps, said folded, now time.Time) {
+func announce(d Deps, said folded, now time.Time) {
 	for _, one := range said.stood {
 		how := ", its PRs to root"
 		if one.successor != "" {
