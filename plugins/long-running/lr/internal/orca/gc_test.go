@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -60,7 +61,7 @@ func action(t *testing.T, worker Worker, live map[string]bool, idle Idleness, en
 	t.Helper()
 	orca := newOrca()
 	orca.idle[worker.Terminal] = []Idleness{idle}
-	found, err := terminalAction(context.Background(), worker, live, orca, ended)
+	found, err := terminalAction(context.Background(), worker, live, orca, ended, Sessions{worker.Terminal: liveSession(worker)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,13 +220,143 @@ func TestATabCloseTimeoutNoLongerStrandsARemovableTree(t *testing.T) {
 	wantCalls(t, orca, []string{"remove", testWT})
 }
 
-func TestAKeptTreesTerminalIsStillClosed(t *testing.T) {
+func TestATreeHoldingUnsavedWorkKeepsItsSessionOpen(t *testing.T) {
+	cases := []struct {
+		name string
+		tree Checkout
+		want string
+	}{
+		{"uncommitted changes", checkout(testWT, dirtyTree), "uncommitted changes"},
+		{"unpushed commits", checkout(testWT, withHead(headD)), "unpushed commits on v3/lane"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			orca := newOrca(row("ctx_a"))
+			orca.terminals[testWT] = []Terminal{agentTerminal("term_ctx_a")}
+			tally, out := runGC(t, orca, newGit(c.tree), gcOptions{})
+			wantTally(t, tally, Tally{verbKeep: 2})
+			wantCalls(t, orca)
+			wantSaid(t, out, "keep "+testWT+" "+c.want, "keep term_ctx_a its worktree is kept: "+c.want)
+		})
+	}
+}
+
+func TestASettledSessionIdleAtItsPromptWithACleanPushedTreeIsClosedAndRemoved(t *testing.T) {
 	orca := newOrca(row("ctx_a"))
 	orca.terminals[testWT] = []Terminal{agentTerminal("term_ctx_a")}
-	tally, out := runGC(t, orca, newGit(checkout(testWT, dirtyTree)), gcOptions{})
-	wantTally(t, tally, Tally{verbKeep: 1, verbClosed: 1})
-	wantCalls(t, orca, []string{"close", "term_ctx_a"})
-	wantSaid(t, out, "keep "+testWT+" uncommitted changes")
+	tally, out := runGC(t, orca, newGit(checkout(testWT)), gcOptions{})
+	wantTally(t, tally, Tally{verbRemoved: 1, stopping: 1})
+	wantCalls(t, orca, []string{"remove", testWT})
+	wantSaid(t, out, "removed "+testWT+" stopping term_ctx_a pid 101 ppid 100 pgid 101 started Mon Nov 2 23:49:38 2026 claude")
+}
+
+func TestALiveDispatchsSessionIsNeverClosedOrItsTreeRemoved(t *testing.T) {
+	orca := newOrca(row("ctx_a", status("dispatched")))
+	orca.terminals[testWT] = []Terminal{agentTerminal("term_ctx_a")}
+	tally, _ := runGC(t, orca, newGit(checkout(testWT)), gcOptions{})
+	wantTally(t, tally, Tally{})
+	wantCalls(t, orca)
+}
+
+func TestASessionWhoseProcessRestartedSinceThePlanIsKept(t *testing.T) {
+	t.Run("before the removal that would stop it", func(t *testing.T) {
+		orca := newOrca(row("ctx_a"))
+		orca.terminals[testWT] = []Terminal{agentTerminal("term_ctx_a")}
+		orca.restarted = map[string]bool{"101": true}
+		tally, out := runGC(t, orca, newGit(checkout(testWT)), gcOptions{})
+		wantTally(t, tally, Tally{verbKeep: 1})
+		wantCalls(t, orca)
+		wantSaid(t, out, "keep "+testWT+" "+changed)
+	})
+	t.Run("before the close", func(t *testing.T) {
+		orca := newOrca(row("ctx_a"))
+		orca.restarted = map[string]bool{"101": true}
+		tally, out := runGC(t, orca, newGit(), gcOptions{})
+		wantTally(t, tally, Tally{verbKeep: 1})
+		wantCalls(t, orca)
+		wantSaid(t, out, "keep term_ctx_a "+changed)
+	})
+}
+
+func TestASessionOfUnknownIdentityIsKept(t *testing.T) {
+	const workspace = "repo::" + testWT
+	login := Session{PID: "100", PPID: "90", PGID: "100", Start: "s", Command: "-/opt/homebrew/bin/fish -l ORCA_WORKTREE_ID=" + workspace}
+	agent := func(pid, ppid, pgid, command string) Session {
+		return Session{PID: pid, PPID: ppid, PGID: pgid, Start: "s", Command: command + " ORCA_WORKTREE_ID=" + workspace}
+	}
+	cases := []struct {
+		name     string
+		worker   Worker
+		sessions []Session
+		want     string
+	}{
+		{name: "no process names the terminal", worker: row("ctx_a"), want: "0 agent processes run under its login shell"},
+		{name: "only a shell names it", worker: row("ctx_a"), sessions: []Session{login}, want: "0 agent processes run under its login shell"},
+		{name: "another agent's child names it", worker: row("ctx_a"), sessions: []Session{login, agent("103", "102", "103", "claude -p")}, want: "0 agent processes run under its login shell"},
+		{name: "two agents run under the shell", worker: row("ctx_a"), sessions: []Session{login, agent("101", "100", "101", "claude"), agent("102", "100", "102", "codex")}, want: "2 agent processes run under its login shell"},
+		{name: "the agent leads no process group", worker: row("ctx_a"), sessions: []Session{login, agent("101", "100", "100", "claude")}, want: "pid 101 leads no process group of its own"},
+		{name: "the agent runs for another worktree", worker: row("ctx_a", in(testWT2)), sessions: []Session{login, agent("101", "100", "101", "claude")}, want: "pid 101 runs for another worktree"},
+		{name: "another dispatch owns the terminal", worker: row("ctx_a", func(w *Worker) { w.Owner = "ctx_b" }), sessions: []Session{login, agent("101", "100", "101", "claude")}, want: "Orca records its owner as ctx_b"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			found, err := terminalAction(context.Background(), c.worker, nil, newOrca(), nil, Sessions{c.worker.Terminal: c.sessions})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if found == nil || found.Verb != verbKeep || found.Reason != unknownID+c.want {
+				t.Fatalf("got %+v, want keep %q", found, c.want)
+			}
+		})
+	}
+}
+
+func TestSessionsReadTheHandleFromTheEnvironmentNotAShellsInitText(t *testing.T) {
+	const fish = "-/opt/homebrew/bin/fish -l -C function __orca_shell_ready_marker ORCA_TERMINAL_HANDLE='$ORCA_TERMINAL_HANDLE'\" ORCA_PANE_KEY='$ORCA_PANE_KEY'\" ORCA_TERMINAL_HANDLE=term_a"
+	const claude = "claude --allow-dangerously-skip-permissions ORCA_TERMINAL_HANDLE=term_a ORCA_WORKTREE_ID=repo::/w/a HOME=/u"
+	runner := holderRunner(map[string]string{
+		"ps -axE -ww -o " + sessionColumns: "  100    90   100 Mon Nov  2 23:49:37 2026 " + fish + "\n  101   100   101 Mon Nov  2 23:49:38 2026 " + claude + "\n  300     1   300 Mon Nov  2 23:49:39 2026 /usr/sbin/cfprefsd agent\n",
+	}, "")
+	got, err := Processes{Runner: runner, Home: "/u"}.Sessions(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := Sessions{"term_a": {
+		{PID: "100", PPID: "90", PGID: "100", Start: "Mon Nov 2 23:49:37 2026", Command: fish},
+		{PID: "101", PPID: "100", PGID: "101", Start: "Mon Nov 2 23:49:38 2026", Command: claude},
+	}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %+v", got)
+	}
+	session, unknown := got.agent(Worker{Dispatch: "ctx_a", Owner: "ctx_a", Terminal: "term_a", Workspace: "repo::/w/a"})
+	if unknown != "" || session.PID != "101" {
+		t.Fatalf("session %+v, unknown %q", session, unknown)
+	}
+}
+
+func TestStillRunsComparesEveryFieldOfTheProcess(t *testing.T) {
+	session := Session{PID: "101", PPID: "100", PGID: "101", Start: "Mon Nov 2 23:49:38 2026", Command: "claude ORCA_TERMINAL_HANDLE=term_a"}
+	cases := []struct {
+		name string
+		ps   string
+		want bool
+	}{
+		{"the same process", "  101   100   101 Mon Nov  2 23:49:38 2026 claude ORCA_TERMINAL_HANDLE=term_a\n", true},
+		{"a pid whose start time no longer matches", "  101   100   101 Tue Nov  3 02:00:00 2026 claude ORCA_TERMINAL_HANDLE=term_a\n", false},
+		{"a pid with another parent", "  101     1   101 Mon Nov  2 23:49:38 2026 claude ORCA_TERMINAL_HANDLE=term_a\n", false},
+		{"a pid with another group", "  101   100   100 Mon Nov  2 23:49:38 2026 claude ORCA_TERMINAL_HANDLE=term_a\n", false},
+		{"a pid running another command", "  101   100   101 Mon Nov  2 23:49:38 2026 node ORCA_TERMINAL_HANDLE=term_a\n", false},
+		{"a pid that is gone", "", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			runner := holderRunner(map[string]string{"ps -E -ww -o " + sessionColumns + " -p 101": c.ps}, "")
+			got, err := Processes{Runner: runner, Home: "/u"}.StillRuns(context.Background(), session)
+			if err != nil || got != c.want {
+				t.Fatalf("got %v, err %v", got, err)
+			}
+		})
+	}
 }
 
 func TestARefusedRemovalFallsBackToClosingTheTerminal(t *testing.T) {
@@ -444,6 +575,31 @@ func TestAWorktreeWithOneUnrecordedConnectedTerminalStaysKept(t *testing.T) {
 	wantSaid(t, out, "keep term_old "+staleHandle, "keep "+testWT+" 1 agent terminal(s) no settled dispatch owns")
 }
 
+func TestAStaleHandleNoProcessNamesIsAlreadyGone(t *testing.T) {
+	orca := newOrca(row("ctx_a", terminal("term_old")))
+	orca.stale["term_old"] = true
+	orca.sessions = Sessions{}
+	tally, out := runGC(t, orca, newGit(checkout(testWT)), gcOptions{})
+	wantTally(t, tally, Tally{verbRemoved: 1})
+	wantCalls(t, orca, []string{"remove", testWT})
+	if strings.Contains(out, "term_old") {
+		t.Fatalf("output %q names the old handle", out)
+	}
+}
+
+func TestADryRunReadsTheLiveProcessScan(t *testing.T) {
+	orca := newOrca(row("ctx_a"))
+	orca.terminals[testWT] = []Terminal{agentTerminal("term_ctx_a")}
+	orca.holders[testWT] = heldOpenInside
+	tally, out := runGC(t, orca, newGit(checkout(testWT)), gcOptions{dryRun: true})
+	wantTally(t, tally, Tally{verbKeep: 1})
+	wantCalls(t, orca)
+	wantSaid(t, out, "keep "+testWT+" "+heldOpenInside)
+	if strings.Contains(out, "would remove") {
+		t.Fatalf("output %q plans a removal a real run refuses", out)
+	}
+}
+
 func TestATreeALiveProcessHoldsIsKept(t *testing.T) {
 	orca := newOrca(row("ctx_a"))
 	orca.holders[testWT] = "live process script /s/runner.zsh names it"
@@ -574,8 +730,8 @@ func TestATreeGitCannotReadIsKeptAndGCContinues(t *testing.T) {
 	git := newGit(checkout(other))
 	git.reads[testWT] = CheckoutRead{Refusal: "git cannot read it: fatal: gitfile does not point to a valid repository"}
 	tally, out := runGC(t, orca, git, gcOptions{})
-	wantTally(t, tally, Tally{verbClosed: 2, verbKeep: 1, verbRemoved: 1})
-	wantSaid(t, out, "keep "+testWT+" git cannot read it: fatal: gitfile does not point to a valid repository")
+	wantTally(t, tally, Tally{verbClosed: 1, verbKeep: 2, verbRemoved: 1})
+	wantSaid(t, out, "keep "+testWT+" git cannot read it: fatal: gitfile does not point to a valid repository", "keep term_ctx_a its worktree is kept: git cannot read it")
 }
 
 func TestAWorktreeWhoseTerminalsOrcaCannotListIsKept(t *testing.T) {
@@ -719,6 +875,7 @@ func TestHolders(t *testing.T) {
 		{name: "the agent of a terminal the removal stops does not hold the tree", ps: "84516 84510 84516 84516 claude\n", env: "84516 ttys064  claude ORCA_TERMINAL_HANDLE=term_new ORCA_PANE_KEY=tab_1:leaf_1 HOME=/u\n", panes: pane},
 		{name: "a process detached from a stopped terminal holds the tree", ps: "84516     1 84516     0 node\n", env: "84516 ??       node server.js ORCA_PANE_KEY=tab_1:leaf_1\n", panes: pane, want: heldOpenInside},
 		{name: "a process of a terminal the removal keeps holds the tree", ps: "84516 84510 84516 84516 claude\n", env: "84516 ttys070  claude ORCA_PANE_KEY=tab_2:leaf_2\n", panes: pane, want: heldOpenInside},
+		{name: "the login shell of a stopped terminal, whose init text names the pane key before its environment, does not hold the tree", ps: "84516 84510 84516 84861 -/opt/homebrew/bin/fish\n84861 84516 84861 84861 claude\n", env: "84516 ttys064  -/opt/homebrew/bin/fish -l -C function __orca_shell_ready_marker ORCA_PANE_KEY='$ORCA_PANE_KEY'\" ORCA_PANE_KEY=tab_1:leaf_1 HOME=/u\n", panes: pane},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -813,14 +970,14 @@ func TestPairedServers(t *testing.T) {
 		wantCalls(t, orca, []string{"remove", boxWT, boxEnv})
 		wantSaid(t, out, "removed "+boxWT+" stopping term_box")
 	})
-	t.Run("a box tree with unpushed commits is kept and its idle terminal closed", func(t *testing.T) {
+	t.Run("a box tree with unpushed commits is kept with its session", func(t *testing.T) {
 		orca := newOrca(boxRow("ctx_a"))
 		orca.terminals[boxWT] = []Terminal{boxAgent}
 		orca.paired[boxWT] = paired(checkout(boxWT, withHead(headD), onEnv(boxEnv)))
 		tally, out := runGC(t, orca, newGit(), gcOptions{})
-		wantTally(t, tally, Tally{verbKeep: 1, verbClosed: 1})
-		wantCalls(t, orca, []string{"close", "term_box", boxEnv})
-		wantSaid(t, out, "keep "+boxWT+" unpushed commits on v3/lane")
+		wantTally(t, tally, Tally{verbKeep: 2})
+		wantCalls(t, orca)
+		wantSaid(t, out, "keep "+boxWT+" unpushed commits on v3/lane", "keep term_box its worktree is kept: unpushed commits on v3/lane")
 	})
 	t.Run("a box terminal a live dispatch reuses keeps both", func(t *testing.T) {
 		orca := newOrca(boxRow("ctx_a"), boxRow("ctx_b", status("dispatched")))
@@ -1228,34 +1385,63 @@ func TestStopFencesTheDispatchThroughOrca(t *testing.T) {
 }
 
 func TestIdleReads(t *testing.T) {
-	now := func() int64 { return fakeNow }
 	t.Run("a terminal whose process exited is already gone", func(t *testing.T) {
 		client, runner := clientFor(constant(`{"ok":true,"result":{"terminal":{"connected":false,"lastOutputAt":0}}}`))
-		got, err := client.Idle(context.Background(), "term_a", "", now)
+		got, err := client.Idle(context.Background(), "term_a", "")
 		if err != nil || got != IdleUnknown || len(runner.calls) != 1 {
 			t.Fatalf("got %v, err %v, calls %v", got, err, runner.calls)
 		}
 	})
-	t.Run("output during the idle wait is not idle", func(t *testing.T) {
-		shows := 0
-		client, _ := clientFor(func(argv []string) (string, string, int) {
-			if argv[2] == "wait" {
+	screenReads := func(tail []string) func([]string) (string, string, int) {
+		lines, err := json.Marshal(tail)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return func(argv []string) (string, string, int) {
+			switch argv[2] {
+			case "wait":
 				return `{"ok":true,"result":{"wait":{"satisfied":true}}}`, "", 0
+			case "read":
+				return `{"ok":true,"result":{"terminal":{"tail":` + string(lines) + `}}}`, "", 0
 			}
-			shows++
-			last := "0"
-			if shows > 1 {
-				last = "10000000000"
+			return `{"ok":true,"result":{"terminal":{"connected":true,"lastOutputAt":` + strconv.FormatInt(NowMS(), 10) + `}}}`, "", 0
+		}
+	}
+	t.Run("a status line that just repainted over an empty prompt is idle", func(t *testing.T) {
+		client, _ := clientFor(screenReads(claudeDone))
+		if got, err := client.Idle(context.Background(), "term_a", ""); err != nil || got != IdleQuiet {
+			t.Fatalf("got %v, err %v", got, err)
+		}
+	})
+	t.Run("a running turn that just printed is busy", func(t *testing.T) {
+		client, _ := clientFor(screenReads(append([]string{"✶ Baking… (esc to interrupt)"}, claudeDone[2:]...)))
+		if got, err := client.Idle(context.Background(), "term_a", ""); err != nil || got != IdleBusy {
+			t.Fatalf("got %v, err %v", got, err)
+		}
+	})
+	t.Run("a Sprite whose Orca runtime is down reads as unknown, not busy", func(t *testing.T) {
+		client, _ := clientFor(constant(`{"ok":false,"error":{"code":"remote_runtime_unavailable","message":"Could not connect to the remote Orca runtime."}}`))
+		if got, err := client.Idle(context.Background(), "term_a", "env_abc"); err != nil || got != IdleUnknown {
+			t.Fatalf("got %v, err %v", got, err)
+		}
+	})
+	t.Run("a terminal that closes before the screen read is not a crash", func(t *testing.T) {
+		client, _ := clientFor(func(argv []string) (string, string, int) {
+			switch argv[2] {
+			case "wait":
+				return `{"ok":true,"result":{"wait":{"satisfied":true}}}`, "", 0
+			case "read":
+				return `{"ok":false,"error":{"code":"terminal_handle_stale"}}`, "", 1
 			}
-			return `{"ok":true,"result":{"terminal":{"connected":true,"lastOutputAt":` + last + `}}}`, "", 0
+			return `{"ok":true,"result":{"terminal":{"connected":true}}}`, "", 0
 		})
-		if got, err := client.Idle(context.Background(), "term_a", "", now); err != nil || got != IdleBusy {
+		if got, err := client.Idle(context.Background(), "term_a", ""); err != nil || got != IdleUnknown {
 			t.Fatalf("got %v, err %v", got, err)
 		}
 	})
 	t.Run("a Sprite terminal reads through its environment", func(t *testing.T) {
 		client, runner := clientFor(constant(`{"ok":false,"error":{"code":"terminal_handle_stale"}}`))
-		if got, err := client.Idle(context.Background(), "term_a", "env_abc", now); err != nil || got != IdleUnknown {
+		if got, err := client.Idle(context.Background(), "term_a", "env_abc"); err != nil || got != IdleUnknown {
 			t.Fatalf("got %v, err %v", got, err)
 		}
 		if want := []string{"orca", "terminal", "show", "--terminal", "term_a", "--environment", "env_abc", "--json"}; !slices.Equal(runner.calls[0], want) {
@@ -1322,7 +1508,7 @@ func TestAnOrchestrationCallAsksForTheFullRecordAndRefusesTheConciseView(t *test
 func TestWorkersPageThroughTheRun(t *testing.T) {
 	pages := []string{
 		`{"ok":true,"_meta":{},"result":{"workers":[{"dispatchId":"ctx_a","dispatchStatus":"failed","terminalState":null,"agentTerminalHandle":null,"resource":null,"projection":{"host":{"kind":"remote","id":"env_box"},"workspace":null}}],"page":{"nextCursor":"c2"}}}`,
-		`{"ok":true,"_meta":{},"result":{"workers":[{"dispatchId":"ctx_b","dispatchStatus":"completed","terminalState":"retained","agentTerminalHandle":"term_b","resource":{"ownershipState":"external","retainedReason":"external_terminal","worktreeId":"repo::/w/b"},"projection":{"workspace":{"id":"repo::/w/other"}}}],"page":{}}}`,
+		`{"ok":true,"_meta":{},"result":{"workers":[{"dispatchId":"ctx_b","dispatchStatus":"completed","terminalState":"retained","agentTerminalHandle":"term_b","resource":{"ownershipState":"external","retainedReason":"external_terminal","ownerDispatchId":"ctx_b","worktreeId":"repo::/w/b"},"projection":{"workspace":{"id":"repo::/w/other"}}}],"page":{}}}`,
 	}
 	client, runner := clientFor(func([]string) (string, string, int) {
 		reply := pages[0]
@@ -1335,7 +1521,7 @@ func TestWorkersPageThroughTheRun(t *testing.T) {
 	}
 	want := []Worker{
 		{Dispatch: "ctx_a", Status: statusFailed, Environment: "env_box"},
-		{Dispatch: "ctx_b", Status: statusCompleted, TerminalState: "retained", Ownership: "external", RetainedReason: external, Terminal: "term_b", Workspace: "repo::/w/b", Worktree: "/w/b"},
+		{Dispatch: "ctx_b", Status: statusCompleted, TerminalState: "retained", Ownership: "external", RetainedReason: external, Owner: "ctx_b", Terminal: "term_b", Workspace: "repo::/w/b", Worktree: "/w/b"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %+v", got)
@@ -1373,6 +1559,57 @@ func TestARemoteCheckoutReadsPorcelainBranchHeadersOverSSH(t *testing.T) {
 	}
 	if got := runner.calls[0][:6]; !slices.Equal(got, []string{"ssh", "-F", "/s/ssh/pool-abc.ssh", "-o", "BatchMode=yes", "pool-abc"}) {
 		t.Fatalf("argv %v", got)
+	}
+}
+
+func TestASpriteDestroyReadsTheConfigFromTheResolvedPath(t *testing.T) {
+	checkoutRoot := t.TempDir()
+	tools := filepath.Join(checkoutRoot, "tools", "cc-remote")
+	if err := os.MkdirAll(filepath.Join(tools, "bin"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"config.yaml", filepath.Join("bin", "cc-remote")} {
+		if err := os.WriteFile(filepath.Join(tools, name), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	repoRunner := func(top string, code int) *scripted {
+		return &scripted{reply: func(argv []string) (string, string, int) {
+			if argv[0] == "git" {
+				return top, "", code
+			}
+			return "", "", 0
+		}}
+	}
+	cases := []struct {
+		name        string
+		runner      *scripted
+		command     string
+		config      string
+		wantCommand string
+		wantEnv     []string
+	}{
+		{name: "the checkout gc runs from", runner: repoRunner(checkoutRoot+"\n", 0), wantCommand: filepath.Join(tools, "bin", "cc-remote"), wantEnv: []string{"CC_REMOTE_CONFIG=" + filepath.Join(tools, "config.yaml")}},
+		{name: "the operator's environment wins", runner: repoRunner(checkoutRoot+"\n", 0), command: "/pin/cc-remote", config: "/pin/config.yaml", wantCommand: "/pin/cc-remote", wantEnv: []string{"CC_REMOTE_CONFIG=/pin/config.yaml"}},
+		{name: "a checkout with no tools leaves cc-remote to its own lookup", runner: repoRunner(t.TempDir()+"\n", 0), wantCommand: "cc-remote"},
+		{name: "outside a checkout cc-remote keeps its own lookup", runner: repoRunner("", 128), wantCommand: "cc-remote"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Setenv(ccRemoteEnv, c.command)
+			t.Setenv(ccRemoteConfigEnv, c.config)
+			refusal, err := CCRemote{Runner: c.runner}.Destroy(context.Background(), testSprite)
+			if err != nil || refusal != "" {
+				t.Fatalf("refusal %q, err %v", refusal, err)
+			}
+			last := len(c.runner.calls) - 1
+			if want := []string{c.wantCommand, "destroy", "pool-abc"}; !slices.Equal(c.runner.calls[last], want) {
+				t.Fatalf("argv %v, want %v", c.runner.calls[last], want)
+			}
+			if !slices.Equal(c.runner.envs[last], c.wantEnv) {
+				t.Fatalf("env %v, want %v", c.runner.envs[last], c.wantEnv)
+			}
+		})
 	}
 }
 

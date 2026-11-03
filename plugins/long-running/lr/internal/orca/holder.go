@@ -2,8 +2,10 @@ package orca
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -19,12 +21,22 @@ const (
 	heldOpenInside = "a live process has a file or its cwd open inside"
 	heldByCommand  = "a live process names it on its command line"
 	detachedTTY    = "??"
+	sessionColumns = "pid=,ppid=,pgid=,lstart=,command="
+	sessionFields  = 9
+	loginPrefix    = "-"
 )
 
 var (
 	holderScripts = []string{"*.sh", "*.zsh", "*.py"}
-	paneKey       = regexp.MustCompile(`\bORCA_PANE_KEY=(\S+)`)
+	agentCommands = []string{"claude", "codex"}
+	paneKey       = environmentKey("ORCA_PANE_KEY")
+	terminalKey   = environmentKey("ORCA_TERMINAL_HANDLE")
+	workspaceKey  = environmentKey("ORCA_WORKTREE_ID")
 )
+
+func environmentKey(name string) *regexp.Regexp {
+	return regexp.MustCompile(`\b` + name + `=([^\s'"]+)`)
+}
 
 type Processes struct {
 	Runner shell.Runner
@@ -265,6 +277,89 @@ func (p Processes) Holder(ctx context.Context, worktree string, panes map[string
 		}
 	}
 	return "", nil
+}
+
+type Session struct {
+	PID     string
+	PPID    string
+	PGID    string
+	Start   string
+	Command string
+}
+
+func (s Session) said() string {
+	return fmt.Sprintf("pid %s ppid %s pgid %s started %s %s", s.PID, s.PPID, s.PGID, s.Start, commandName(s.Command))
+}
+
+func commandName(command string) string {
+	return filepath.Base(strings.Fields(command)[0])
+}
+
+func sessionOf(line string) (Session, bool) {
+	row := fields(strings.TrimRight(line, "\n"), sessionFields)
+	if len(row) != sessionFields {
+		return Session{}, false
+	}
+	return Session{PID: row[0], PPID: row[1], PGID: row[2], Start: strings.Join(row[3:8], " "), Command: row[8]}, true
+}
+
+type Sessions map[string][]Session
+
+func (s Sessions) agent(worker Worker) (Session, string) {
+	if worker.Owner != worker.Dispatch {
+		return Session{}, "Orca records its owner as " + cmp.Or(worker.Owner, "nobody")
+	}
+	bearers := s[worker.Terminal]
+	shells := map[string]bool{}
+	for _, process := range bearers {
+		if strings.HasPrefix(process.Command, loginPrefix) {
+			shells[process.PID] = true
+		}
+	}
+	var agents []Session
+	for _, process := range bearers {
+		if shells[process.PPID] && slices.Contains(agentCommands, commandName(process.Command)) {
+			agents = append(agents, process)
+		}
+	}
+	if len(agents) != 1 {
+		return Session{}, fmt.Sprintf("%d agent processes run under its login shell", len(agents))
+	}
+	agent := agents[0]
+	if agent.PGID != agent.PID {
+		return Session{}, fmt.Sprintf("pid %s leads no process group of its own", agent.PID)
+	}
+	if workspace := workspaceKey.FindStringSubmatch(agent.Command); workspace == nil || workspace[1] != worker.Workspace {
+		return Session{}, fmt.Sprintf("pid %s runs for another worktree", agent.PID)
+	}
+	return agent, ""
+}
+
+func (p Processes) Sessions(ctx context.Context) (Sessions, error) {
+	out, err := p.stdout(ctx, "ps", "-axE", "-ww", "-o", sessionColumns)
+	if err != nil {
+		return nil, err
+	}
+	bearers := Sessions{}
+	for line := range strings.Lines(out) {
+		process, ok := sessionOf(line)
+		if !ok {
+			continue
+		}
+		if handle := terminalKey.FindStringSubmatch(process.Command); handle != nil {
+			bearers[handle[1]] = append(bearers[handle[1]], process)
+		}
+	}
+	return bearers, nil
+}
+
+func (p Processes) StillRuns(ctx context.Context, session Session) (bool, error) {
+	out, err := p.stdout(ctx, "ps", "-E", "-ww", "-o", sessionColumns, "-p", session.PID)
+	if err != nil {
+		return false, err
+	}
+	read, ok := sessionOf(out)
+	return ok && read == session, nil
 }
 
 func (p Processes) liveHolder(ctx context.Context, pids, panes map[string]bool) (bool, error) {
