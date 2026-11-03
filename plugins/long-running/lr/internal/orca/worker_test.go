@@ -88,7 +88,7 @@ func prepared() object {
 	}
 }
 
-func changed(base object, fields object) object {
+func overlaid(base object, fields object) object {
 	merged := maps.Clone(base)
 	maps.Copy(merged, fields)
 	return merged
@@ -101,7 +101,7 @@ func without(base object, key string) object {
 }
 
 func allocationOf(task object, fields object) object {
-	return changed(object{
+	return overlaid(object{
 		"schemaVersion": 1,
 		"lane":          workerLane,
 		"workspace":     workerWorkspace,
@@ -506,7 +506,7 @@ func TestAMissingOrDifferentRunOwnerRefusesBeforePrepare(t *testing.T) {
 		{workerReply{out: object{"ok": false, "error": object{"code": refusalFenced, "message": "fenced"}}}, "no Run"},
 		{workerReply{out: object{"ok": true, "result": object{"run": object{"id": "run_2"}}}}, "run_2"},
 		{workerReply{out: object{"ok": true, "result": object{}}}, "no Run"},
-		{workerReply{out: changed(boundWorker.out.(object), object{"error": object{"code": "stale"}})}, "no Run"},
+		{workerReply{out: overlaid(boundWorker.out.(object), object{"error": object{"code": "stale"}})}, "no Run"},
 		{workerReply{out: rendered(boundWorker.out) + rendered(boundWorker.out)}, "no Run"},
 		{workerReply{out: "not json"}, "no Run"},
 	}
@@ -646,7 +646,7 @@ func TestAStandingDeskBriefCarriesTheDeskContractIntoTheSpriteSpec(t *testing.T)
 	f := newWorkerFixture(t)
 	text := "# Lane A\nccx: role=desk place=remote\nRun the loop until rotation.\n"
 	f.write(f.brief, text, 0o600)
-	f.spriteWith(changed(prepared(), object{"brief": object{"path": "/box/brief.md", "sha256": hexSum(text), "bytes": len(text)}}))
+	f.spriteWith(overlaid(prepared(), object{"brief": object{"path": "/box/brief.md", "sha256": hexSum(text), "bytes": len(text)}}))
 	f.launched()
 	spec := flag(f.calls[len(f.calls)-1], "--spec")
 	if !strings.HasSuffix(spec, "then follow it exactly."+standingDesk) {
@@ -738,7 +738,7 @@ func TestAnExplicitConfigOfAnotherCheckoutLeavesTheVersionToCCRemote(t *testing.
 
 func TestACodexModelKeepsItsEffortTierRefAndMCP(t *testing.T) {
 	f := newWorkerFixture(t)
-	task := changed(prepared(), object{"agent": object{"kind": "codex", "model": "gpt-6.1-sol", "effort": "xhigh", "serviceTier": "fast", "mcp": []string{"{}"}}})
+	task := overlaid(prepared(), object{"agent": object{"kind": "codex", "model": "gpt-6.1-sol", "effort": "xhigh", "serviceTier": "fast", "mcp": []string{"{}"}}})
 	f.spriteAllocated(allocationOf(task, object{"ref": "release/2026.10"}))
 	maps.Copy(f.env, map[string]string{"WORKER_SERVICE_TIER": "fast", "WORKER_INCIDENT": "1", "WORKER_REF": "release/2026.10", "WORKER_MCP_CONFIG": "{}"})
 	if _, failed, err := f.launch(workerLane, "gpt-6.1-sol", "xhigh"); err != nil || failed != "" {
@@ -767,7 +767,7 @@ func TestAnExpectedBaseThatMatchesAttaches(t *testing.T) {
 }
 
 func TestAFailedPrepareKeepsItsRawOutputAndAttachesNothing(t *testing.T) {
-	partial := rendered(allocationOf(changed(prepared(), object{"prepared": false}), nil))
+	partial := rendered(allocationOf(overlaid(prepared(), object{"prepared": false}), nil))
 	f := newWorkerFixture(t)
 	f.sprite()
 	f.reply("cc-remote orca prepare", workerReply{code: 1, out: partial, err: "cc-remote: provider timed out\n"})
@@ -796,21 +796,21 @@ func TestAPreparedRecordThatDiffersFromTheRequestAttachesNothing(t *testing.T) {
 		{rendered(task) + rendered(task), "not one JSON object"},
 		{rendered([]object{task}), "not one JSON object"},
 		{"prepared", "not readable as JSON"},
-		{changed(task, object{"prepared": false}), "prepared is not true"},
+		{overlaid(task, object{"prepared": false}), "prepared is not true"},
 		{without(task, "managedServer"), electron},
-		{changed(task, object{"managedServer": ""}), electron},
-		{changed(task, object{"workspace": "lane-b"}), workspace},
-		{changed(task, object{"provider": "namespace"}), workspace},
-		{changed(task, object{"profile": "tests"}), workspace},
-		{changed(task, object{"agent": changed(base, object{"kind": "codex"})}), anAgent},
-		{changed(task, object{"agent": changed(base, object{"effort": "high"})}), anAgent},
-		{changed(task, object{"agent": changed(base, object{"serviceTier": "fast"})}), anAgent},
-		{changed(task, object{"brief": changed(brief, object{"sha256": strings.Repeat("0", 64)})}), briefFault},
-		{changed(task, object{"brief": changed(brief, object{"bytes": workerBytes + 1})}), briefFault},
+		{overlaid(task, object{"managedServer": ""}), electron},
+		{overlaid(task, object{"workspace": "lane-b"}), workspace},
+		{overlaid(task, object{"provider": "namespace"}), workspace},
+		{overlaid(task, object{"profile": "tests"}), workspace},
+		{overlaid(task, object{"agent": overlaid(base, object{"kind": "codex"})}), anAgent},
+		{overlaid(task, object{"agent": overlaid(base, object{"effort": "high"})}), anAgent},
+		{overlaid(task, object{"agent": overlaid(base, object{"serviceTier": "fast"})}), anAgent},
+		{overlaid(task, object{"brief": overlaid(brief, object{"sha256": strings.Repeat("0", 64)})}), briefFault},
+		{overlaid(task, object{"brief": overlaid(brief, object{"bytes": workerBytes + 1})}), briefFault},
 		{without(task, "environment"), placement},
-		{changed(task, object{"terminal": ""}), placement},
-		{changed(task, object{"worktreeId": "repo-1::/home/sprite/other"}), placement},
-		{changed(task, object{"brief": changed(brief, object{"path": nil})}), placement},
+		{overlaid(task, object{"terminal": ""}), placement},
+		{overlaid(task, object{"worktreeId": "repo-1::/home/sprite/other"}), placement},
+		{overlaid(task, object{"brief": overlaid(brief, object{"path": nil})}), placement},
 	}
 	for _, c := range cases {
 		f := newWorkerFixture(t)
@@ -823,7 +823,7 @@ func TestAPreparedRecordThatDiffersFromTheRequestAttachesNothing(t *testing.T) {
 }
 
 func TestAnEmptyPoolCreatesTheRequestedLaneOnce(t *testing.T) {
-	task := changed(prepared(), object{"workspace": workerLane, "machine": workerLane, "environment": workerLane})
+	task := overlaid(prepared(), object{"workspace": workerLane, "machine": workerLane, "environment": workerLane})
 	f := newWorkerFixture(t)
 	f.spriteAllocated(allocationOf(task, object{"workspace": workerLane, "allocation": "created"}))
 	var printed object
@@ -873,12 +873,12 @@ func TestAnUnprovenReadyNeverPrintsSuccess(t *testing.T) {
 		"",
 		"not json",
 		rendered(startedReceipt) + rendered(startedReceipt),
-		changed(startedReceipt, object{"ok": false}),
-		changed(startedReceipt, object{"error": object{"code": "stale"}}),
-		object{"ok": true, "result": changed(result, object{"state": "outcome_unknown"})},
-		object{"ok": true, "result": changed(result, object{"runId": "run_2"})},
+		overlaid(startedReceipt, object{"ok": false}),
+		overlaid(startedReceipt, object{"error": object{"code": "stale"}}),
+		object{"ok": true, "result": overlaid(result, object{"state": "outcome_unknown"})},
+		object{"ok": true, "result": overlaid(result, object{"runId": "run_2"})},
 		object{"ok": true, "result": without(result, "taskId")},
-		object{"ok": true, "result": changed(result, object{"dispatchId": "ctx a"})},
+		object{"ok": true, "result": overlaid(result, object{"dispatchId": "ctx a"})},
 	}
 	for _, receipt := range cases {
 		f := newWorkerFixture(t)
@@ -894,7 +894,7 @@ func TestAMacFileTheBriefNamesIsOnTheBoxAtThePathTheWorkerReadsBeforeItStarts(t 
 	f.write(plan, "the plan\n", 0o600)
 	f.write(f.brief, "Read "+plan+" first.\n", 0o600)
 	sent := "Read " + carriedBox + plan + " first.\n"
-	f.spriteWith(changed(prepared(), object{"brief": object{"path": "/box/brief.md", "sha256": hexSum(sent), "bytes": len(sent)}}))
+	f.spriteWith(overlaid(prepared(), object{"brief": object{"path": "/box/brief.md", "sha256": hexSum(sent), "bytes": len(sent)}}))
 	f.launched()
 	if got := f.receiptText("brief.md"); got != sent {
 		t.Fatal(got)
@@ -925,7 +925,7 @@ func TestAFailedCopyLeavesTheWorkerIdle(t *testing.T) {
 	f.write(plan, "the plan\n", 0o600)
 	f.write(f.brief, "Read "+plan+" first.\n", 0o600)
 	sent := "Read " + carriedBox + plan + " first.\n"
-	f.spriteWith(changed(prepared(), object{"brief": object{"path": "/box/brief.md", "sha256": hexSum(sent), "bytes": len(sent)}}))
+	f.spriteWith(overlaid(prepared(), object{"brief": object{"path": "/box/brief.md", "sha256": hexSum(sent), "bytes": len(sent)}}))
 	f.reply("sprite exec", workerReply{code: 1})
 	_, failed, err := f.launch(workerLane, "opus", "xhigh")
 	if err != nil || !strings.HasPrefix(failed, "copying the files the brief names") {
