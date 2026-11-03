@@ -681,6 +681,20 @@ func TestAStandingDeskBriefCarriesTheDeskContractIntoTheSpriteSpec(t *testing.T)
 	}
 }
 
+func TestABriefThatOrdersNoPRSaysSoInTheSpriteSpec(t *testing.T) {
+	for header, want := range map[string]bool{"ccx: role=build pr=none": true, "ccx: role=build": false} {
+		f := newWorkerFixture(t)
+		text := "# Lane A\n" + header + "\nPush the design as a branch.\n"
+		f.write(f.brief, text, 0o600)
+		f.spriteWith(overlaid(prepared(), object{"brief": object{"path": "/box/brief.md", "sha256": hexSum(text), "bytes": len(text)}}))
+		f.launched()
+		spec := flag(f.calls[len(f.calls)-1], "--spec")
+		if strings.HasSuffix(spec, "then follow it exactly."+spriteBuildkite+" This brief orders no PR: push the work as a branch and never open a PR for it.") != want {
+			t.Fatal(header, spec)
+		}
+	}
+}
+
 func TestASponsorJoinsTheSpriteToTheDefaultMeshBeforeTheWorkerStartsAndNeverLogsTheKey(t *testing.T) {
 	f := newWorkerFixture(t)
 	f.sprite()
