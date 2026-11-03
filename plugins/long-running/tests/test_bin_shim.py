@@ -47,6 +47,10 @@ def run(cache: Path, version: str, tool: str = "tool.py") -> str:
     return out.stdout.strip()
 
 
+def test_every_bin_entry_reaches_a_nonempty_file():
+    assert [entry.name for entry in (PLUGIN / "bin").iterdir() if entry.stat().st_size == 0] == []
+
+
 def test_runs_its_own_script_with_python_or_directly(tmp_path: Path):
     cache = plugin_cache(tmp_path, "0.7.44")
     assert run(cache, "0.7.44") == "0.7.44 py a b c"
