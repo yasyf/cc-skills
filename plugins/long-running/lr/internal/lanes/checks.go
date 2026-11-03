@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"maps"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -611,6 +612,9 @@ func (e Env) Checks(s *store.Store, log *slog.Logger) ([]Check, error) {
 	}
 	if e.Config.OrcaRun != "" && remote != nil {
 		checks = append(checks, (&SpriteStops{Env: e, Store: s, CcRemote: *remote, Log: log}).Check)
+	}
+	if _, err := exec.LookPath("nsc"); err == nil {
+		checks = append(checks, (&NscDeadlines{Env: e, Log: log}).Check)
 	}
 	cli, err := ReleaseCLI(e.State)
 	if err != nil {

@@ -1,0 +1,187 @@
+package lanes
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"os"
+	"regexp"
+	"strings"
+	"time"
+
+	"github.com/spf13/cobra"
+	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
+)
+
+const (
+	nscTopic   = "nsc:"
+	nscKind    = "evidence"
+	nscWarning = "urgent"
+	nscLabel   = "lane"
+	nscWarnAt  = time.Hour
+	nscMake    = 15 * time.Minute
+)
+
+var nscExtended = regexp.MustCompile(`(?m)^New deadline: (\S+)`)
+
+type nscBox struct {
+	ID     string            `json:"cluster_id"`
+	Labels map[string]string `json:"labels"`
+}
+
+type NscDeadlines struct {
+	Env   Env
+	Log   *slog.Logger
+	read  time.Time
+	after int64
+	due   map[string]time.Time
+}
+
+func (n *NscDeadlines) Check(ctx context.Context, now time.Time) error {
+	if !n.read.IsZero() && now.Sub(n.read) < gcEvery {
+		return nil
+	}
+	n.read = now
+	stdout, err := n.Env.Run(ctx, "nsc", "list", "-o", "json")
+	if err != nil {
+		n.Log.Warn("nsc deadlines did not list the boxes", "err", err)
+		return nil
+	}
+	var boxes []nscBox
+	if err := json.Unmarshal([]byte(stdout), &boxes); err != nil {
+		n.Log.Warn("nsc deadlines did not parse the boxes", "err", err)
+		return nil
+	}
+	if err := n.recorded(ctx, now); err != nil {
+		n.Log.Warn("nsc deadlines did not read the recorded deadlines", "err", err)
+		return nil
+	}
+	for _, box := range boxes {
+		deadline, known := n.due[box.ID]
+		if left := deadline.Sub(now); !known || left <= 0 || left > nscWarnAt {
+			continue
+		}
+		if _, err := n.Env.Bus.Post(ctx, n.warning(box, deadline, now)); err != nil {
+			return fmt.Errorf("%w: cci post: %w", ErrUnread, err)
+		}
+		delete(n.due, box.ID)
+	}
+	return nil
+}
+
+func (n *NscDeadlines) recorded(ctx context.Context, now time.Time) error {
+	query := client.Query{Drive: n.Env.Config.Drive, Kinds: []string{nscKind}, After: n.after}
+	if n.after == 0 {
+		query.Since = now.Add(-adoptWindow)
+	}
+	records, err := n.Env.Bus.Tail(ctx, query)
+	if err != nil {
+		return err
+	}
+	if n.due == nil {
+		n.due = map[string]time.Time{}
+	}
+	for _, record := range records {
+		n.after = max(n.after, record.Seq)
+		box, ours := strings.CutPrefix(record.Topic, nscTopic)
+		if !ours {
+			continue
+		}
+		deadline, err := time.Parse(time.RFC3339, record.Fields.Attrs["deadline"])
+		if err != nil {
+			return fmt.Errorf("record #%d: %w", record.Seq, err)
+		}
+		n.due[box] = deadline
+	}
+	return nil
+}
+
+func (n *NscDeadlines) warning(box nscBox, deadline, now time.Time) client.Draft {
+	lane, unlabeled := box.Labels[nscLabel], ""
+	if lane == "" {
+		lane, unlabeled = Root, " It carries no lane label, so the warning goes to the coordinator."
+	}
+	return client.Draft{
+		Drive: n.Env.Config.Drive, Lane: Self, Kind: nscWarning, To: []string{lane}, ID: fmt.Sprintf("nsc-deadline:%s:%d", box.ID, deadline.Unix()), Stamp: true, Force: true,
+		Text: fmt.Sprintf("NSC-DEADLINE %s: this Namespace box dies at %s, in %d minutes.%s Extend it with `lr nsc extend %s --drive %s --lane %s -- --duration <how much longer>`, or finish its work and destroy it.", box.ID, pacific(deadline), int(deadline.Sub(now).Minutes()), unlabeled, box.ID, n.Env.Config.Drive, lane),
+	}
+}
+
+func MakeNscBox(ctx context.Context, runner shell.Runner, bus Bus, drive, lane string, flags []string) (string, error) {
+	made, err := os.CreateTemp("", "nsc-create-*.json")
+	if err != nil {
+		return "", err
+	}
+	_ = made.Close()
+	defer func() { _ = os.Remove(made.Name()) }()
+	argv := append(append([]string{"nsc", "create"}, flags...), "--label", nscLabel+"="+lane, "--output_json_to", made.Name())
+	result, err := runner.Run(ctx, shell.Command{Argv: argv, Timeout: nscMake})
+	if err != nil {
+		return "", err
+	}
+	data, err := os.ReadFile(made.Name())
+	if err != nil {
+		return "", err
+	}
+	var box struct {
+		ID       string `json:"cluster_id"`
+		Deadline string `json:"deadline"`
+	}
+	if err := json.Unmarshal(data, &box); err != nil {
+		return "", fmt.Errorf("nsc create --output_json_to: %w", err)
+	}
+	return result.Stdout, recordNscDeadline(ctx, bus, drive, lane, box.ID, box.Deadline)
+}
+
+func ExtendNscBox(ctx context.Context, runner shell.Runner, bus Bus, drive, lane, id string, flags []string) (string, error) {
+	result, err := runner.Run(ctx, shell.Command{Argv: append([]string{"nsc", "extend", id}, flags...), Timeout: readTimeout})
+	if err != nil {
+		return "", err
+	}
+	extended := nscExtended.FindStringSubmatch(result.Stdout)
+	if extended == nil {
+		return "", fmt.Errorf("nsc extend %s printed no new deadline: %q", id, result.Stdout)
+	}
+	return result.Stdout, recordNscDeadline(ctx, bus, drive, lane, id, extended[1])
+}
+
+func recordNscDeadline(ctx context.Context, bus Bus, drive, lane, id, printed string) error {
+	deadline, err := time.Parse(time.RFC3339, printed)
+	if err != nil {
+		return fmt.Errorf("nsc deadline of %s: %w", id, err)
+	}
+	_, err = bus.Post(ctx, client.Draft{
+		Drive: drive, Lane: lane, Kind: nscKind, Topic: nscTopic + id, ID: fmt.Sprintf("%s%s:%d", nscTopic, id, deadline.Unix()), Stamp: true,
+		Attrs: map[string]string{"deadline": deadline.UTC().Format(time.RFC3339)},
+		Text:  fmt.Sprintf("NSC %s: the Namespace box %s holds dies at %s", id, lane, pacific(deadline)),
+	})
+	return err
+}
+
+func NscCommand(a *app.App) *cobra.Command {
+	var drive, lane string
+	cmd := &cobra.Command{Use: "nsc", Short: "Make and extend Namespace boxes labeled with their lane, recording each deadline so the supervisor warns that lane an hour before it"}
+	cmd.PersistentFlags().StringVar(&drive, "drive", "", "the drive whose bus records the deadline")
+	cmd.PersistentFlags().StringVar(&lane, "lane", "", "the lane that holds the box")
+	for _, name := range []string{"drive", "lane"} {
+		if err := cmd.MarkPersistentFlagRequired(name); err != nil {
+			panic(err)
+		}
+	}
+	cmd.AddCommand(
+		&cobra.Command{Use: "create [-- NSC_CREATE_FLAGS...]", Short: "Run nsc create with the label lane=<lane> and record the box's deadline", RunE: func(cmd *cobra.Command, flags []string) error {
+			printed, err := MakeNscBox(cmd.Context(), a.Runner, CCI{}, drive, lane, flags)
+			fmt.Fprint(cmd.OutOrStdout(), printed)
+			return err
+		}},
+		&cobra.Command{Use: "extend ID [-- NSC_EXTEND_FLAGS...]", Short: "Run nsc extend and record the box's new deadline", Args: cobra.MinimumNArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+			printed, err := ExtendNscBox(cmd.Context(), a.Runner, CCI{}, drive, lane, args[0], args[1:])
+			fmt.Fprint(cmd.OutOrStdout(), printed)
+			return err
+		}},
+	)
+	return cmd
+}
