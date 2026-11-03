@@ -104,7 +104,7 @@ func cachedChecks(t *testing.T, gh map[string]string) Checks {
 	t.Helper()
 	plugins := t.TempDir()
 	write(t, filepath.Join(plugins, "marketplaces", "skills", ".claude-plugin", "marketplace.json"),
-		`{"plugins":[{"name":"long-running","source":{"url":"https://github.com/o/r.git","path":"plugins/long-running"}}]}`)
+		`{"plugins":[{"name":"codex","source":"./plugins/codex"},{"name":"long-running","source":{"url":"https://github.com/o/r.git","path":"plugins/long-running"}}]}`)
 	return Checks{CCX: &ccxtest.Fake{GHOut: gh}, Installs: filepath.Join(plugins, "cache", "skills", "long-running"), Claude: t.TempDir()}
 }
 
