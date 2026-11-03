@@ -2,7 +2,6 @@ package landing
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"path/filepath"
@@ -17,6 +16,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/incident"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/pass"
@@ -255,11 +255,10 @@ func (q *Squash) land(ctx context.Context, f machine.Facts, open *client.Record)
 	if facts[squashedFact] != "" || !f.Approved || (!f.Green() && !rebased) {
 		return nil
 	}
-	number := strconv.Itoa(f.Number)
-	if refusals := q.refusals(ctx, f); len(refusals) > 0 {
-		q.tell(ctx, f, "blocker", "rulings:"+number+":"+f.Head, fmt.Sprintf("#%d %s: RULINGS-REFUSED `rulings.py check-pr --incident` names these on the approved, green incident fix, and it does not merge until they clear (45200f2): %s", f.Number, shortHead(f.Head), strings.Join(refusals, "; ")))
+	if (gates.Keeper{Store: q.Store, Now: q.Now, Log: q.Log, Tell: q.tell}).Refuses(ctx, f, gates.Gate{Name: "incident rulings", Kind: "blocker", Check: q.rulings}) {
 		return nil
 	}
+	number := strconv.Itoa(f.Number)
 	if !rebased && f.Fidelity != machine.FidelityPass && !f.Tapped() {
 		return nil
 	}
@@ -293,23 +292,21 @@ func (q *Squash) tell(ctx context.Context, f machine.Facts, kind, id, text strin
 	}
 }
 
-func (q *Squash) refusals(ctx context.Context, f machine.Facts) []string {
-	result, err := q.Runner.Run(ctx, shell.Command{
-		Argv:    []string{q.Rulings, "check-pr", "--repo", q.Checkout, "--drive", q.Drive, "--pr", pullRef(f), "--head", f.Head, "--incident"},
-		Timeout: checkPRLimit,
-	})
-	var exit *shell.ExitError
-	if err != nil && (!errors.As(err, &exit) || exit.Code != 1) {
-		q.Log.Warn("the incident ruling checks did not read, so they refuse nothing this pass", "pr", f.Number, "err", err)
-		return nil
+func (q *Squash) rulings(ctx context.Context, f machine.Facts) (gates.Verdict, error) {
+	out, err := checkPR(ctx, q.Runner, q.Rulings, q.Checkout, q.Drive, f, "--incident")
+	if err != nil {
+		return gates.Verdict{}, err
 	}
 	var refusals []string
-	for _, line := range strings.Split(result.Stdout, "\n") {
+	for _, line := range strings.Split(out, "\n") {
 		if cause, _, _ := strings.Cut(line, " "); slices.Contains(incidentChecks, cause) {
 			refusals = append(refusals, line)
 		}
 	}
-	return refusals
+	if len(refusals) == 0 {
+		return gates.Verdict{}, nil
+	}
+	return gates.Verdict{Cause: "rulings", Refusal: fmt.Sprintf("#%d %s: RULINGS-REFUSED `rulings.py check-pr --incident` names these on the approved, green incident fix, and it does not merge until they clear (45200f2): %s", f.Number, shortHead(f.Head), strings.Join(refusals, "; "))}, nil
 }
 
 func (q *Squash) rebase(ctx context.Context, f machine.Facts, rebased bool) (bool, error) {
