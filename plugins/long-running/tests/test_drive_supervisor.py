@@ -190,3 +190,75 @@ def test_a_pr_its_lane_reported_held_at_its_current_head_owes_no_work(monkeypatc
 
     assert supervisor.reported_held(config) == {47794}
     assert calls == [[sys.executable, str(supervisor.SCRIPTS / "ledger.py"), "-C", "/checkout", "list", "--drive", "durable", "--open", "--json"]]
+
+
+@pytest.mark.parametrize(
+    ("text", "minutes", "incident", "posted"),
+    [
+        ("Triggered: runtime-api-next logging errors — plat\nmore <https://app.datadoghq.com/monitors/338724738?group=plat|monitor>", 4, "", True),
+        ("Triggered: runtime-api-next logging errors — plat\nmore <https://app.datadoghq.com/monitors/338724738?group=plat|monitor>", 2, "", False),
+        ("Triggered: runtime-api-next logging errors — plat\nmore <https://app.datadoghq.com/monitors/338724738?group=plat|monitor>", 4, '{"seq": 7, "kind": "incident", "text": "INCIDENT OPEN: Datadog 338724738"}', False),
+        ("Recovered: runtime-api-next logging errors — plat\nmore <https://app.datadoghq.com/monitors/338724738?group=plat|monitor>", 4, "", False),
+        ("the deploy finished", 4, "", False),
+    ],
+    ids=["unopened", "in-grace", "opened", "recovered", "not-an-alert"],
+)
+def test_an_alert_no_incident_record_names_three_minutes_on_raises_one_blocker_to_root(monkeypatch, text, minutes, incident, posted):
+    fired = NOW - timedelta(minutes=minutes)
+    message = {"ts": f"{fired.timestamp():.6f}", "user": "", "text": text, "permalink": "https://poetic-technology.slack.com/archives/C0822AHFY3G/p1793668287854899"}
+    calls: list[list[str]] = []
+
+    def run(argv: list[str]) -> str:
+        calls.append(argv)
+        if argv[:2] == ["cc-slack", "history"]:
+            return json.dumps({"messages": [message]})
+        if argv[:2] == ["cci", "grep"]:
+            return incident
+        return "#9001\n"
+
+    monkeypatch.setattr(supervisor, "run", run)
+    supervisor.Alerts("d1", ["C0822AHFY3G"])(NOW)
+
+    posts = [argv for argv in calls if argv[:2] == ["cci", "post"]]
+    assert bool(posts) is posted
+    if posted:
+        [post] = posts
+        assert post[post.index("--to") + 1] == "root" and post[post.index("--kind") + 1] == "blocker"
+        assert post[post.index("--text") + 1].startswith("ALERT-UNOPENED Triggered: runtime-api-next logging errors — plat: no incident record names 338724738 4 min after it fired")
+
+
+def test_an_alert_channel_that_does_not_read_posts_nothing_and_the_tick_goes_on(monkeypatch):
+    def run(argv: list[str]) -> str:
+        raise supervisor.lanes.Unread("cc-slack history: exited 1")
+
+    monkeypatch.setattr(supervisor, "run", run)
+    supervisor.Alerts("d1", ["C0822AHFY3G"])(NOW)
+
+
+@pytest.mark.parametrize(("fixed", "quiet", "reclaimed"), [(31, 31, True), (31, 5, False), (12, 31, False)], ids=["idle", "lane-busy", "too-soon"])
+def test_an_orca_fix_lane_idle_thirty_minutes_past_fix_live_is_reclaimed_with_one_report_to_root(tmp_path: Path, monkeypatch, fixed, quiet, reclaimed):
+    (tmp_path / "rapi-next-errors-fix.json").write_text(json.dumps({"result": {"dispatchId": "ctx_fix1"}}))
+    fix_live = {"seq": 341700, "lane": "root", "kind": "decide", "at": (NOW - timedelta(minutes=fixed)).isoformat(), "to": ["rapi-next-errors-fix", "alerts-desk"], "text": "FIX-LIVE rapi-next-errors"}
+    newest = {"seq": 341710, "lane": "rapi-next-errors-fix", "kind": "state", "at": (NOW - timedelta(minutes=quiet)).isoformat(), "text": "done"}
+    calls: list[list[str]] = []
+
+    def run(argv: list[str]) -> str:
+        calls.append(argv)
+        if argv[:3] == ["cci", "grep", "FIX-LIVE"]:
+            return json.dumps(fix_live) + "\n"
+        if argv[:2] == ["cci", "grep"]:
+            return json.dumps(newest) + "\n"
+        return "#9001\n"
+
+    gcs: list[list[str]] = []
+    monkeypatch.setattr(supervisor, "run", run)
+    monkeypatch.setattr(supervisor.subprocess, "run", lambda argv, **kwargs: gcs.append(argv) or supervisor.subprocess.CompletedProcess(argv, 0, "stopped ctx_fix1\nclosed=1 removed=1\n", ""))
+    gc = supervisor.FixLiveGc("d1", "run_1", tmp_path)
+    gc(NOW)
+    gc(NOW + timedelta(minutes=10))
+
+    posts = [argv for argv in calls if argv[:2] == ["cci", "post"]]
+    assert bool(gcs) is reclaimed and len(gcs) <= 1 and len(posts) == len(gcs)
+    if reclaimed:
+        assert gcs[0][-4:] == ["--run", "run_1", "--done", "ctx_fix1"]
+        assert posts[0][posts[0].index("--text") + 1].startswith("GC rapi-next-errors-fix: FIX-LIVE #341700 is 30 minutes old")

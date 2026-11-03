@@ -21,6 +21,11 @@ whenever it exits. `lanes` prints the registry, one line per lane, and with `--j
 prints, as one JSON object, where mail for a lane goes: the live end of its successor chain in the
 registry, or root. `request` posts the one typed record that asks the supervisor to change a row:
 `stand-down`, `park`, `unpark`, `owner` or `done`; nothing else changes the registry.
+With `alert_channels` set, each tick reads those channels' newest top-level messages and posts
+one `ALERT-UNOPENED` blocker to root for a Datadog or Sentry alert no `incident` record names three
+minutes after it fired. With `orca_run` set, every five minutes it ends each Orca lane a FIX-LIVE
+record names once the record and the lane's newest record are 30 minutes old, through
+`orca-gc --done`, and posts what it reclaimed to root.
 """
 
 from __future__ import annotations
@@ -75,6 +80,15 @@ ROTATE_PERCENT = 70
 THROTTLE_SECONDS = 60
 OPEN_FILES = 65536
 WHO_FIELDS = "session,agent,lane,live,seen_at,stood_down"
+ALERT_URL = re.compile(r"app\.datadoghq\.com/monitors/(\d+)|sentry\.io/\S*?issues/(\d+)")
+RECOVERED = re.compile(r"^\W*(?:Recovered|Resolved)\b", re.IGNORECASE)
+ALERT_GRACE = timedelta(minutes=3)
+ALERT_WINDOW = timedelta(hours=1)
+ALERT_READ = 20
+FIX_LIVE_IDLE = timedelta(minutes=30)
+GC_EVERY = timedelta(minutes=5)
+ORCA_GC = SCRIPTS / "orca-gc"
+GC_SECONDS = 600
 
 
 def run(argv: list[str], timeout: int = TIMEOUT) -> str:
@@ -306,6 +320,66 @@ def lanes_deps(config: lr_config.Config, state: Path) -> lanes.Deps:
     )
 
 
+class Alerts:
+    """Each Datadog or Sentry alert a top-level message in a watched channel posts, in its first hour: once it is `ALERT_GRACE` old and no `incident` record on the drive names its monitor or issue, one `blocker` to root naming it, keyed by the message so it posts once, since the root opens an incident on sight and a missed alert is the supervisor's to raise (Datadog 338724738 fired at 5:10 PM Nov 2 and drew no record for 8 minutes). A channel that does not read logs and is read again next tick."""
+
+    def __init__(self, drive: str, channels: list[str]):
+        self.drive, self.channels = drive, channels
+
+    def __call__(self, now: datetime) -> None:
+        for channel in self.channels:
+            try:
+                for message in json.loads(run(["cc-slack", "history", "--channel", channel, "--json", "--limit", str(ALERT_READ)]))["messages"]:
+                    self.raise_unopened(channel, message, now)
+            except lanes.Unread as unread:
+                print(f"alerts: {channel}: {unread}", file=sys.stderr, flush=True)
+
+    def raise_unopened(self, channel: str, message: dict, now: datetime) -> None:
+        fired = datetime.fromtimestamp(float(message["ts"]), UTC)
+        if not (found := ALERT_URL.search(message["text"])) or RECOVERED.match(message["text"]) or not ALERT_GRACE <= now - fired < ALERT_WINDOW:
+            return
+        alert = found[1] or found[2]
+        if run(["cci", "grep", alert, "--drive", self.drive, "--kind", "incident", "--since", fired.isoformat(), "--json", "-n", "1"]).strip():
+            return
+        headline = " ".join(message["text"].split("\n", 1)[0].split())[:160]
+        minutes = int((now - fired).total_seconds() // 60)
+        run(["cci", "post", "--drive", self.drive, "--lane", lanes.SELF, "--kind", "blocker", "--to", "root", "--id", f"alert-unopened:{channel}:{message['ts']}", "--url", message["permalink"], "--text", f"ALERT-UNOPENED {headline}: no incident record names {alert} {minutes} min after it fired | root: open the incident on sight with `incident.py open --kind alert` and launch its fix lane this turn"])
+
+
+class FixLiveGc:
+    """Each Orca lane a FIX-LIVE record names, as its poster or an addressee: once the record and the lane's own newest record are both `FIX_LIVE_IDLE` old, `orca-gc --done` stops its worker, closes its terminal and removes its clean worktree, and one `report` tells root what it reclaimed or kept, keyed by the dispatch so it posts once, read every `GC_EVERY` (two incidents sat listed open three hours past FIX-LIVE on Nov 2 with their Orca lanes idle)."""
+
+    def __init__(self, drive: str, run_id: str, receipts: Path):
+        self.drive, self.run_id, self.receipts = drive, run_id, receipts
+        self.read_at: datetime | None = None
+        self.reclaimed: set[str] = set()
+
+    def __call__(self, now: datetime) -> None:
+        if self.read_at and now - self.read_at < GC_EVERY:
+            return
+        self.read_at = now
+        try:
+            for record in self.lines("FIX-LIVE", "--since", "6h", "-n", "50"):
+                if now - datetime.fromisoformat(record["at"]) >= FIX_LIVE_IDLE:
+                    for lane in dict.fromkeys([record["lane"], *(record.get("to") or [])]):
+                        self.reclaim(lane, record, now)
+        except lanes.Unread as unread:
+            print(f"fix-live gc: {unread}", file=sys.stderr, flush=True)
+
+    def lines(self, pattern: str, *flags: str) -> list[dict]:
+        return [json.loads(line) for line in run(["cci", "grep", pattern, "--drive", self.drive, "--json", *flags]).splitlines() if line.startswith("{")]
+
+    def reclaim(self, lane: str, record: dict, now: datetime) -> None:
+        if not (dispatch := dispatch_of(self.receipts, lane)) or dispatch in self.reclaimed:
+            return
+        if (newest := self.lines(".", "--lane", lane, "-n", "1")) and now - datetime.fromisoformat(newest[0]["at"]) < FIX_LIVE_IDLE:
+            return
+        self.reclaimed.add(dispatch)
+        done = subprocess.run([sys.executable, str(ORCA_GC), "--run", self.run_id, "--done", dispatch], capture_output=True, text=True, timeout=GC_SECONDS)
+        said = " | ".join((done.stdout or done.stderr).strip().splitlines()[-3:]) or f"exit {done.returncode}"
+        run(["cci", "post", "--drive", self.drive, "--lane", lanes.SELF, "--kind", "report", "--to", "root", "--id", f"fix-live-gc:{dispatch}", "--text", f"GC {lane}: FIX-LIVE #{record['seq']} is 30 minutes old and {lane} has posted nothing since, so `orca-gc --done {dispatch}` ended it: {said}"])
+
+
 class Upgrade:
     """Whether the supervisor re-executes into the newest install: only when it is newer than `running` and `replay.py gate` passes it against `running` on the drive's last 24 hours, read once per version. A refusal keeps this version serving, and the gate posts why; a gate that did not finish proves nothing, so the supervisor moves on and posts one warning."""
 
@@ -388,7 +462,9 @@ def cmd_run(config: lr_config.Config, path: Path) -> int:
     store = Store.open(path.parent / "lr.sqlite")
     running = lr_drive.plugin_manifest()["version"]
     passes = pass_deps(config, path.parent, store) if set(config.movers) & loop.PR_MOVERS else {}
-    deps = loop.Deps(movers=frozenset(config.movers), clock=clock, sleep=time.sleep, lane_deps=lanes_deps(config, path.parent) if "lanes" in config.movers else None, stale=Upgrade(config, running), **passes)
+    channels = [channel for channel in config.alert_channels.split(",") if channel]
+    checks = (*((Alerts(config.drive, channels),) if channels else ()), *((FixLiveGc(config.drive, config.orca_run, lr_drive.launch_receipts(config.orca_run)),) if config.orca_run else ()))
+    deps = loop.Deps(movers=frozenset(config.movers), clock=clock, sleep=time.sleep, lane_deps=lanes_deps(config, path.parent) if "lanes" in config.movers else None, stale=Upgrade(config, running), checks=checks, **passes)
     ticks = loop.run(store, config.drive, SCRIPTS.parents[2].name, os.getpid(), deps)
     if not deps.stale():
         print(f"drive_supervisor: generation moved after {len(ticks)} ticks; exiting for the newer supervisor", file=sys.stderr)

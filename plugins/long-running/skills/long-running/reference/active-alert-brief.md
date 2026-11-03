@@ -267,7 +267,7 @@ Authority: implement the fix and open its PR through <submit skill>.
   log in the same turn, for this and every other state-changing production
   command you run:
   `ccn log append "$(ccn log list --label prod-ops | cut -f1)" --entry "who | when, UTC and Pacific | cluster, team | exact command | authority | effect"`
-  Any delete or replace stops for the owner.
+  Any delete or replace stops for the owner, unless he ordered this release.
   A break-glass profile refused with ForbiddenException on GetRoleCredentials
   holds no live grant. Grant yourself, never wait for the owner, then retry:
   `env -u AWS_PROFILE tools/ci break-glass --reason "INCIDENT <incident id>: WHY" --stack DOMAIN/ENV`
