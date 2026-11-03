@@ -107,7 +107,7 @@ func (f Files) Load(id string) (Incident, error) {
 	if err != nil {
 		return Incident{}, err
 	}
-	defer snapshot.Rollback()
+	defer func() { _ = snapshot.Rollback() }()
 	return read(snapshot)
 }
 
