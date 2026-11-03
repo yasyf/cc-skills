@@ -1,0 +1,406 @@
+package orca
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/yasyf/cc-inbox/client"
+)
+
+const (
+	briefLines = "Scale: no N\n\nRegister slice: lane=x step=1\n"
+	noRunner   = "refused: no orca desk runner has posted an orca alive record on cci drive prog in the last five minutes ("
+)
+
+func aliveRecord(at time.Time) client.Record {
+	return client.Record{Seq: 99, Lane: deskRunner, Kind: kindState, Topic: runnerTopic, At: at, Text: "orca alive 11:20 PM pass 3"}
+}
+
+type runnerBus struct {
+	mu       sync.Mutex
+	records  []client.Record
+	verdicts map[string]string
+	launched bool
+	node     string
+	posts    []client.Draft
+	calls    []string
+}
+
+func (b *runnerBus) Post(_ context.Context, d client.Draft) (client.Record, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.calls = append(b.calls, "post")
+	b.posts = append(b.posts, d)
+	seq := b.records[len(b.records)-1].Seq + 1
+	record := client.Record{Seq: seq, Num: fmt.Sprintf("#%d%s", seq, b.node), Lane: d.Lane, Text: d.Text}
+	b.records = append(b.records, record)
+	key := "R" + strings.TrimPrefix(record.Num, "#")
+	_, after, launch := strings.Cut(d.Text, " launch ")
+	if !launch {
+		return record, nil
+	}
+	lane, _, _ := strings.Cut(after, " ")
+	verdict := b.verdicts[key]
+	if verdict == "" && b.launched {
+		verdict = "LAUNCHED " + key + " %[1]s: dispatch ctx_%[1]s terminal term_%[1]s"
+	}
+	if verdict != "" {
+		b.records = append(b.records, client.Record{Seq: seq + 1, Lane: deskRunner, Kind: "report", Text: fmt.Sprintf(verdict, lane)})
+	}
+	return record, nil
+}
+
+func (b *runnerBus) Tail(_ context.Context, q client.Query) ([]client.Record, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.calls = append(b.calls, "tail")
+	var found []client.Record
+	for _, record := range b.records {
+		if record.Seq <= q.After || (!q.Since.IsZero() && record.At.Before(q.Since)) {
+			continue
+		}
+		if (len(q.Lanes) == 0 || slices.Contains(q.Lanes, record.Lane)) && (len(q.Kinds) == 0 || slices.Contains(q.Kinds, string(record.Kind))) {
+			found = append(found, record)
+		}
+	}
+	return found, nil
+}
+
+type posterFixture struct {
+	bus    *runnerBus
+	poster Poster
+	out    *bytes.Buffer
+	dir    string
+	env    map[string]string
+}
+
+func newPosterFixture(t *testing.T) *posterFixture {
+	t.Helper()
+	dir := t.TempDir()
+	home := filepath.Join(dir, "home")
+	entries := filepath.Join(home, ".claude", "long-running", "drives")
+	if err := os.MkdirAll(entries, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(map[string]any{"drive": "prog", "cci_drive": "prog", "sessions": []string{"s1"}, "state_dir": filepath.Join(dir, "prog"), "checkout": "/prog/checkout"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(entries, "prog.json"), raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f := &posterFixture{
+		bus: &runnerBus{records: []client.Record{
+			aliveRecord(time.Now()),
+			{Seq: 100, Lane: coordinatorLane, Kind: kindGo, Text: "R2025 (11:50 PM) orca-desk: launch old-fix NOW incident xhigh brief=/b.md"},
+			{Seq: 101, Lane: coordinatorLane, Kind: kindGo, Text: "orca-desk: unhold sandsql-5177"},
+		}, verdicts: map[string]string{}},
+		out: &bytes.Buffer{},
+		dir: dir,
+		env: map[string]string{"HOME": home, sessionEnv: "s1"},
+	}
+	f.poster = Poster{
+		Bus: f.bus,
+		Runner: &scripted{reply: func(argv []string) (string, string, int) {
+			t.Errorf("ran %v", argv)
+			return "", "", 1
+		}},
+		Env:    func(name string) string { return f.env[name] },
+		Now:    time.Now,
+		Sleep:  func(time.Duration) {},
+		Out:    f.out,
+		Author: coordinatorLane,
+	}
+	return f
+}
+
+func (f *posterFixture) brief(t *testing.T, rel, text string) string {
+	t.Helper()
+	path := filepath.Join(f.dir, rel)
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func (f *posterFixture) texts() []string {
+	texts := make([]string, len(f.bus.posts))
+	for i, post := range f.bus.posts {
+		texts[i] = post.Text
+	}
+	return texts
+}
+
+func TestTwoPostersAtOnceNeverShareAKey(t *testing.T) {
+	f := newPosterFixture(t)
+	f.bus.launched = true
+	brief := f.brief(t, "fix-brief.md", "fix\n"+briefLines)
+	outs := []*bytes.Buffer{{}, {}}
+	labels := make([]string, 2)
+	var racing sync.WaitGroup
+	for i, lane := range []string{"lane-a", "lane-b"} {
+		racing.Go(func() {
+			poster := f.poster
+			poster.Out = outs[i]
+			label, err := poster.Launch(context.Background(), Order{Lane: lane, Model: "sol", Effort: "xhigh", Brief: brief}, time.Minute)
+			if err != nil {
+				t.Error(err)
+			}
+			labels[i] = label
+		})
+	}
+	racing.Wait()
+	if !slices.Equal(labels, []string{verdictLaunched, verdictLaunched}) {
+		t.Fatal(labels, outs[0], outs[1])
+	}
+	keyOf := func(out *bytes.Buffer) string {
+		for line := range strings.Lines(out.String()) {
+			if strings.Contains(line, " LAUNCHED ") {
+				return strings.Fields(line)[1]
+			}
+		}
+		return ""
+	}
+	if a, b := keyOf(outs[0]), keyOf(outs[1]); a == "" || a == b {
+		t.Fatalf("keys %q and %q", a, b)
+	}
+}
+
+func TestALaunchPostsAnAddressedStampedLineAndPrintsItsVerdict(t *testing.T) {
+	f := newPosterFixture(t)
+	brief := f.brief(t, "brief-of-a.md", "work\n"+briefLines)
+	f.bus.verdicts["R102"] = "LAUNCHED R102 %[1]s: dispatch ctx_l terminal term_l"
+	label, err := f.poster.Launch(context.Background(), Order{Lane: "new-lane", Model: "opus", Effort: "xhigh", Brief: brief, Now: true}, time.Minute)
+	if err != nil || label != verdictLaunched {
+		t.Fatal(label, err)
+	}
+	post := f.bus.posts[0]
+	if post.Text != "orca-desk: launch new-lane NOW opus xhigh brief="+brief || !slices.Equal(post.To, []string{deskLane}) || !post.Stamp || post.Kind != kindGo || post.Topic != "new-lane" || post.Drive != "prog" || post.Lane != coordinatorLane {
+		t.Fatalf("%+v", post)
+	}
+	if !strings.Contains(f.out.String(), "new-lane R102 LAUNCHED R102 new-lane: dispatch ctx_l terminal term_l\n") {
+		t.Fatal(f.out)
+	}
+}
+
+func TestALaunchTheRunnerRefusesReturnsItsVerdict(t *testing.T) {
+	f := newPosterFixture(t)
+	brief := f.brief(t, "b.md", "work\n"+briefLines)
+	f.bus.verdicts["R102"] = "LAUNCH-FAILED desk-lane-%[1]s/R102 %[1]s: lr launch start exited 1"
+	label, err := f.poster.Launch(context.Background(), Order{Lane: "inc-x-fix", Model: "opus", Effort: "xhigh", Brief: brief}, time.Minute)
+	if err != nil || label != "LAUNCH-FAILED" {
+		t.Fatal(label, err)
+	}
+	if !strings.Contains(f.out.String(), "inc-x-fix R102 LAUNCH-FAILED desk-lane-inc-x-fix/R102 inc-x-fix: lr launch start exited 1") {
+		t.Fatal(f.out)
+	}
+}
+
+func TestAnUnsettledLaunchSaysSoAtTheTimeout(t *testing.T) {
+	f := newPosterFixture(t)
+	brief := f.brief(t, "b.md", "work\n"+briefLines)
+	label, err := f.poster.Launch(context.Background(), Order{Lane: "slow-restore", Model: "sol", Effort: "xhigh", Brief: brief}, 0)
+	if err != nil || label != "" {
+		t.Fatal(label, err)
+	}
+	if !strings.Contains(f.out.String(), "slow-restore R102 unsettled after 0s") {
+		t.Fatal(f.out)
+	}
+}
+
+func TestALaunchOnAnotherNodeWaitsOnTheKeyEveryNodeNamesItsRecordBy(t *testing.T) {
+	f := newPosterFixture(t)
+	brief := f.brief(t, "b.md", "work\n"+briefLines)
+	f.bus.node = "@8d2775d4"
+	f.bus.verdicts["R102@8d2775d4"] = "LAUNCHED desk-lane-%[1]s/R102@8d2775d4 %[1]s: dispatch ctx_r terminal term_r"
+	label, err := f.poster.Launch(context.Background(), Order{Lane: "next-lane", Model: "opus", Effort: "xhigh", Brief: brief}, time.Minute)
+	if err != nil || label != verdictLaunched {
+		t.Fatal(label, err)
+	}
+	if !strings.Contains(f.out.String(), "next-lane R102@8d2775d4 LAUNCHED desk-lane-next-lane/R102@8d2775d4 next-lane: dispatch ctx_r terminal term_r") {
+		t.Fatal(f.out)
+	}
+}
+
+func TestABriefMissingBothLinesIsRefusedBeforeAnyCallNamingBoth(t *testing.T) {
+	f := newPosterFixture(t)
+	brief := f.brief(t, "plain-brief.md", "Do the thing.\n")
+	_, err := f.poster.Launch(context.Background(), Order{Lane: "new-lane", Model: "opus", Effort: "xhigh", Brief: brief}, time.Minute)
+	if err == nil || !strings.Contains(err.Error(), "`Register slice: lane=<name> step=<n>`") || !strings.Contains(err.Error(), "`Scale:`") {
+		t.Fatal(err)
+	}
+	if len(f.bus.calls) != 0 {
+		t.Fatal(f.bus.calls)
+	}
+}
+
+func TestEveryFaultOfALaunchIsNamedAtOnceBeforeAnyCall(t *testing.T) {
+	f := newPosterFixture(t)
+	brief := f.brief(t, filepath.Join("other-lane", "brief.md"), "Do the thing.\n")
+	_, err := f.poster.Launch(context.Background(), Order{Lane: "new-lane", Model: "gemini", Effort: "hard", Brief: brief}, time.Minute)
+	if err == nil {
+		t.Fatal("the launch passed")
+	}
+	for _, fault := range []string{"gemini is not a model", "hard is not an effort", "is lane other-lane's", "`Register slice:", "`Scale:`"} {
+		if !strings.Contains(err.Error(), fault) {
+			t.Errorf("%q lacks %q", err, fault)
+		}
+	}
+	if len(f.bus.calls) != 0 {
+		t.Fatal(f.bus.calls)
+	}
+}
+
+func TestAMissingBriefIsRefusedBeforeAnyCall(t *testing.T) {
+	f := newPosterFixture(t)
+	_, err := f.poster.Launch(context.Background(), Order{Lane: "new-lane", Model: "opus", Effort: "xhigh", Brief: filepath.Join(f.dir, "missing.md")}, time.Minute)
+	if err == nil || !strings.Contains(err.Error(), "is not a file") || len(f.bus.calls) != 0 {
+		t.Fatal(err, f.bus.calls)
+	}
+}
+
+func TestABriefNamingWhatNoSpriteCanReceiveIsRefusedOnlyWhenTheLaneMayLeaveTheMac(t *testing.T) {
+	f := newPosterFixture(t)
+	gone := filepath.Join(f.env["HOME"], ".claude", "scratch", "gone.md")
+	away := f.brief(t, "away.md", "Read "+gone+".\n"+briefLines)
+	_, err := f.poster.Launch(context.Background(), Order{Lane: "a", Model: "opus", Effort: "xhigh", Brief: away}, 0)
+	if err == nil || !strings.Contains(err.Error(), "names what no Sprite can receive: "+gone+" does not exist on this Mac") || len(f.bus.posts) != 0 {
+		t.Fatal(err)
+	}
+	local := f.brief(t, "local.md", "ccx: role=build place=local\nRead "+gone+".\n"+briefLines)
+	for _, order := range []Order{{Lane: "a", Model: "opus", Effort: "xhigh", Brief: local}, {Lane: "a", Model: "fable", Effort: "xhigh", Brief: away}, {Lane: "a", Model: agentIncident, Effort: "xhigh", Brief: away}} {
+		if _, err := f.poster.Launch(context.Background(), order, 0); err != nil {
+			t.Fatal(order, err)
+		}
+	}
+}
+
+func TestWhatALaunchOwesFollowsItsLaneItsBriefAndItsModel(t *testing.T) {
+	oldBrief := scaleRule.Add(-time.Hour)
+	newBrief := scaleRule.Add(time.Hour)
+	cases := []struct {
+		name         string
+		order        Order
+		text         string
+		written      time.Time
+		slice, scale bool
+	}{
+		{name: "a plain lane owes both", order: Order{Lane: "new-lane", Model: "opus"}, text: "work\n", written: newBrief, slice: true, scale: true},
+		{name: "the incident route owes neither", order: Order{Lane: "inc-fix", Model: agentIncident}, text: "work\n", written: newBrief},
+		{name: "a brief naming an incident owes neither", order: Order{Lane: "inc-fix", Model: "opus"}, text: "ccx: incident=outage\n", written: newBrief},
+		{name: "a brief naming no incident owes both", order: Order{Lane: "inc-fix", Model: "opus"}, text: "ccx: incident=none\n", written: newBrief, slice: true, scale: true},
+		{name: "role=incident owes neither", order: Order{Lane: "inc-fix", Model: "opus"}, text: "ccx: role=incident\n", written: newBrief},
+		{name: "an evidence lane is no fix lane", order: Order{Lane: "inc-evidence", Model: "opus"}, text: "ccx: incident=outage\n", written: newBrief, slice: true, scale: true},
+		{name: "a desk role is no fix lane", order: Order{Lane: "inc", Model: "opus"}, text: "ccx: incident=outage role=desk\n", written: newBrief, slice: true, scale: true},
+		{name: "a handoff owes no scale", order: Order{Lane: "a-handoff", Model: "opus"}, text: "work\n", written: newBrief, slice: true},
+		{name: "a second lane owes no scale", order: Order{Lane: "a-2", Model: "opus"}, text: "work\n", written: newBrief, slice: true},
+		{name: "a first numbered lane owes scale", order: Order{Lane: "a-1", Model: "opus"}, text: "work\n", written: newBrief, slice: true, scale: true},
+		{name: "a replacement owes no scale", order: Order{Lane: "a", Model: "opus"}, text: "Replaces: `old`\n", written: newBrief, slice: true},
+		{name: "a brief from before the rule owes no scale", order: Order{Lane: "a", Model: "opus"}, text: "work\n", written: oldBrief, slice: true},
+		{name: "a quoted Scale line counts", order: Order{Lane: "a", Model: "opus"}, text: "> **Scale: no N\n", written: newBrief, slice: true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			c.order.Effort, c.order.Brief = "high", "/briefs/b.md"
+			slice := len(c.order.launchFaults(c.text, true)) > 0
+			scale := c.order.scaleFault(c.text, c.written) != ""
+			if slice != c.slice || scale != c.scale {
+				t.Fatalf("slice %v, scale %v", slice, scale)
+			}
+		})
+	}
+}
+
+func TestAnIncidentBriefInAnotherLanesDirectoryIsRefusedNamingItsLaunch(t *testing.T) {
+	for _, name := range []string{"inc-x", "inc-x-fix"} {
+		faults, err := wrongLaneFaults(incidentOrders(name, "/s/other/brief.md", "/s/inc-x-evidence/brief.md"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := []string{"brief /s/other/brief.md is lane other's, and a lane keeps one name from launch on; post `orca-desk: launch other NOW incident xhigh role=fix brief=/s/other/brief.md`"}; !slices.Equal(faults, want) {
+			t.Fatal(faults)
+		}
+	}
+}
+
+func TestEachLinePostsWithNoKeyOfItsOwnAfterReadingTheRunnerAndPrintsItsRecord(t *testing.T) {
+	cases := []struct {
+		line func([]string) (string, string)
+		args []string
+		want string
+	}{
+		{relayLine, []string{"lane-a,lane-b", "restack onto dev"}, "orca-desk: relay to lane-a, lane-b: restack onto dev"},
+		{holdLine, []string{"sandsql-5177", "root", "sand releases until #12 lands"}, "orca-desk: hold sandsql-5177 owner=root :: sand releases until #12 lands"},
+		{unholdLine, []string{"sandsql-5177"}, "orca-desk: unhold sandsql-5177"},
+		{withdrawLine, []string{"R2025"}, "orca-desk: withdraw R2025"},
+	}
+	for _, c := range cases {
+		f := newPosterFixture(t)
+		topic, text := c.line(c.args)
+		if err := f.poster.Line(context.Background(), topic, text); err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Equal(f.texts(), []string{c.want}) || !slices.Equal(f.bus.calls, []string{"tail", "post"}) || !f.bus.posts[0].Stamp {
+			t.Fatal(f.bus.posts, f.bus.calls)
+		}
+		if f.out.String() != "posted cci #102: "+c.want+"\n" {
+			t.Fatal(f.out)
+		}
+		if topic != strings.Split(c.args[0], ",")[0] {
+			t.Fatal(topic)
+		}
+	}
+}
+
+func TestADriveTheRegistryLacksPostsNothing(t *testing.T) {
+	f := newPosterFixture(t)
+	f.env[sessionEnv] = "s2"
+	err := f.poster.Line(context.Background(), "x", "unhold x")
+	if err == nil || !strings.Contains(err.Error(), "no drive in the registry is bound to session s2") || len(f.bus.calls) != 0 {
+		t.Fatal(err)
+	}
+	f.poster.Drive = "elsewhere"
+	err = f.poster.Line(context.Background(), "x", "unhold x")
+	if err == nil || !strings.Contains(err.Error(), "no drive in the registry is cci drive elsewhere") || len(f.bus.calls) != 0 {
+		t.Fatal(err)
+	}
+}
+
+func TestADriveWhoseRunnerIsNotBeatingRefusesInOneLineNamingWhatToDoInstead(t *testing.T) {
+	stale := aliveRecord(time.Now().Add(-6 * time.Minute))
+	for _, last := range []*client.Record{nil, &stale} {
+		f := newPosterFixture(t)
+		f.bus.records = f.bus.records[1:]
+		if last != nil {
+			f.bus.records = slices.Insert(f.bus.records, 0, *last)
+		}
+		check := func(err error, instead string) {
+			t.Helper()
+			if err == nil || !strings.HasPrefix(err.Error(), noRunner) || !strings.HasSuffix(err.Error(), "nothing reads orca-desk lines; "+instead) || strings.Contains(err.Error(), "\n") {
+				t.Fatal(err)
+			}
+			if strings.Contains(err.Error(), "(never)") != (last == nil) {
+				t.Fatal(err)
+			}
+		}
+		check(f.poster.Line(context.Background(), "lane-a", "relay to lane-a: go"), nothingPosted)
+		brief := f.brief(t, "b.md", "work\n"+briefLines)
+		_, err := f.poster.Launch(context.Background(), Order{Lane: "solo", Model: "opus", Effort: "xhigh", Brief: brief}, 0)
+		check(err, "spawn an Agent named `solo` instead")
+		if len(f.bus.posts) != 0 {
+			t.Fatal(f.bus.posts)
+		}
+	}
+}

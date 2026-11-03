@@ -42,12 +42,13 @@ const (
 	terminalListAttempts   = 3
 	terminalCreateAttempts = 3
 	saidEvery              = 30
+	standingDesk           = " Standing desk: loop until rotation; setup and quiet cycles are not done. Send worker_done only at rotation, naming the handoff doc."
 )
 
 var (
 	briefDesk        = regexp.MustCompile(`(?m)^ccx:(.* )?role=(desk|watch)(\s|$)`)
 	briefPaths       = regexp.MustCompile(`(?m)^ccx:(?:.* )?paths=(\S+)`)
-	briefRole        = regexp.MustCompile(`(?m)^ccx:(?:.* )?role=([\w-]+)`)
+	briefRole        = regexp.MustCompile(`(?m)^ccx:(?:.*[ \t])?role=([\w-]+)`)
 	briefReplaces    = regexp.MustCompile("(?m)^Replaces: `?([\\w.-]+)`?\\s*$")
 	whitespace       = regexp.MustCompile(`\s+`)
 	baseCone         = []string{".agents", ".claude", "tools", "infra/ci/hooks/lib"}
@@ -366,7 +367,7 @@ func modelRoute(model string) (string, string, bool) {
 }
 
 func validEffort(effort string) bool {
-	return slices.Contains([]string{"low", "medium", "high", "xhigh", "max"}, effort)
+	return slices.Contains(efforts, effort)
 }
 
 func (l *launch) stateHome() string {
@@ -448,7 +449,7 @@ func (l *launch) resolveLaunch() error {
 		return err
 	}
 	if briefDesk.MatchString(text) {
-		l.desk = " Standing desk: loop until rotation; setup and quiet cycles are not done. Send worker_done only at rotation, naming the handoff doc."
+		l.desk = standingDesk
 	}
 	if err := l.writeLaneBrief(text); err != nil {
 		return l.fail("brief copy: %v", err)

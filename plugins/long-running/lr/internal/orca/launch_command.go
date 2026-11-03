@@ -4,19 +4,144 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/incident"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/wait"
 )
 
-const failedExit = 1
+const (
+	failedExit     = 1
+	unsettledExit  = 2
+	defaultTimeout = 600.0
+)
 
 func LaunchCommand(a *app.App) *cobra.Command {
 	cmd := lanes.LaunchCommand(a)
-	cmd.AddCommand(startCommand(a))
+	cmd.AddCommand(
+		startCommand(a),
+		laneCommand(a),
+		incidentCommand(a),
+		RelayCommand(a),
+		lineCommand(a, "hold SLUG OWNER WHAT", "Start the runner's clock on an urgent hold", 3, holdLine),
+		lineCommand(a, "unhold SLUG", "Lift a hold", 1, unholdLine),
+		lineCommand(a, "withdraw R<n>|unfixed:<msg>:<n>|LANE", "Withdraw a launch by key, or a lane", 1, withdrawLine),
+	)
+	return cmd
+}
+
+func RelayCommand(a *app.App) *cobra.Command {
+	return lineCommand(a, "relay LANE[,LANE...] TEXT", "Relay text to each named lane's live dispatch", 2, relayLine)
+}
+
+type posterFlags struct {
+	drive, lane string
+}
+
+func (f *posterFlags) bind(cmd *cobra.Command) {
+	cmd.Flags().StringVar(&f.drive, "drive", "", "the cci drive the orca runner reads; default the drive bound to this session")
+	cmd.Flags().StringVar(&f.lane, "lane", coordinatorLane, "the lane posting the lines")
+}
+
+func (f *posterFlags) poster(cmd *cobra.Command, a *app.App) Poster {
+	return Poster{Bus: CCI{}, Runner: a.Runner, Env: os.Getenv, Now: a.Now, Sleep: time.Sleep, Out: cmd.OutOrStdout(), Drive: f.drive, Author: f.lane}
+}
+
+func seconds(value float64) time.Duration {
+	return time.Duration(value * float64(time.Second))
+}
+
+func lineCommand(a *app.App, use, short string, count int, line func([]string) (string, string)) *cobra.Command {
+	var flags posterFlags
+	cmd := &cobra.Command{
+		Use:   use,
+		Short: short,
+		Args:  cobra.ExactArgs(count),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			topic, text := line(args)
+			return flags.poster(cmd, a).Line(cmd.Context(), topic, text)
+		},
+	}
+	flags.bind(cmd)
+	return cmd
+}
+
+func laneCommand(a *app.App) *cobra.Command {
+	var flags posterFlags
+	var now bool
+	var timeout float64
+	cmd := &cobra.Command{
+		Use:   "lane LANE MODEL EFFORT BRIEF",
+		Short: "Post one lane's launch to the orca runner and wait for its verdict",
+		Long: `Run every check the runner applies, post the launch, and print the runner's verdict.
+
+Exit 0 when the lane launched, 1 when the runner refused it or a check did, and 2 when no verdict came within --timeout-seconds. A drive whose orca runner posted no orca alive record in five minutes posts nothing.`,
+		Args: cobra.ExactArgs(4),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			order := Order{Lane: args[0], Model: args[1], Effort: args[2], Brief: args[3], Now: now}
+			label, err := flags.poster(cmd, a).Launch(cmd.Context(), order, seconds(timeout))
+			switch {
+			case err != nil:
+				return err
+			case label == "":
+				return &wait.ExitError{Code: unsettledExit}
+			case label != verdictLaunched:
+				return &wait.ExitError{Code: failedExit}
+			}
+			return nil
+		},
+	}
+	flags.bind(cmd)
+	cmd.Flags().BoolVar(&now, "now", false, "owner-directed: launch beside a live lane already holding this work")
+	cmd.Flags().Float64Var(&timeout, "timeout-seconds", defaultTimeout, "how long to wait for the runner's verdict")
+	return cmd
+}
+
+func incidentCommand(a *app.App) *cobra.Command {
+	var flags posterFlags
+	var alert string
+	var timeout float64
+	cmd := &cobra.Command{
+		Use:   "incident NAME FIX_BRIEF [EVIDENCE_BRIEF]",
+		Short: "Post NAME-fix and NAME-evidence NOW on the incident route and wait for their verdicts",
+		Long:  "With --alert each brief is a template: its Root: lines go, every <lane> becomes that lane's name, its Alert: line becomes Alert: TEXT, and the result is written to <state dir>/<lane>/brief.md. A brief still holding a placeholder root fills posts nothing.",
+		Args:  cobra.RangeArgs(2, 3),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			evidence := ""
+			if len(args) == 3 {
+				evidence = args[2]
+			}
+			if alert == "" {
+				faults, err := wrongLaneFaults(incidentOrders(args[0], args[1], evidence))
+				if err != nil {
+					return err
+				}
+				if len(faults) > 0 {
+					return fmt.Errorf("refused, nothing was posted: %s", strings.Join(faults, "; "))
+				}
+			}
+			claude, err := drive.ConfigDir()
+			if err != nil {
+				return err
+			}
+			err = incident.DeskLaunch{
+				Bus: incident.CCI{}, Drive: flags.drive, Author: flags.lane, Name: args[0], FixBrief: args[1], EvidenceBrief: evidence, Alert: alert,
+				Claude: claude, Timeout: seconds(timeout), Poll: verdictPoll, Now: a.Now, Out: cmd.OutOrStdout(),
+			}.Run(cmd.Context())
+			if errors.Is(err, incident.ErrUnsettled) {
+				return &wait.ExitError{Code: unsettledExit}
+			}
+			return err
+		},
+	}
+	flags.bind(cmd)
+	cmd.Flags().StringVar(&alert, "alert", "", "the Alert line: the monitor or Slack link, what fails where, and the owner's words")
+	cmd.Flags().Float64Var(&timeout, "timeout-seconds", defaultTimeout, "how long to wait for the runner's verdicts")
 	return cmd
 }
 
