@@ -229,6 +229,10 @@ func TestAWorkerSilentFifteenMinutesLosesItsItemsAndRootHearsOnce(t *testing.T) 
 	if held := silent.Released["lane-7"]; len(held) != 1 || held[0].ID != item.ID {
 		t.Fatalf("silent = %+v", silent.Released)
 	}
+	wantEscalated := []pass.Escalated{{Subject: "worker:lane-7", Cause: "silent 15 minutes", To: machine.MoverRoot}}
+	if !reflect.DeepEqual(silent.Escalated, wantEscalated) {
+		t.Fatalf("escalated = %+v", silent.Escalated)
+	}
 	if openOne(t, s, 45651).Worker != "" {
 		t.Fatal("the item still names the silent worker")
 	}

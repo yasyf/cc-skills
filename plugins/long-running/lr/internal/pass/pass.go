@@ -75,7 +75,8 @@ func Run(s *store.Store, snapshot []machine.Facts, now time.Time, post Post, liv
 	if !slices.Contains(live, machine.MoverPool) {
 		return out, nil
 	}
-	return out, releaseStale(s, now, post, &out)
+	err := releaseStale(s, now, post, &out)
+	return out, err
 }
 
 func classifyOne(s *store.Store, f machine.Facts, now time.Time, post Post, live []machine.Mover, out *Outcome) error {
