@@ -39,7 +39,7 @@ REMINDER = Binary(
 )
 UNROUTED_REMINDER = (
     "Every owner reminder or correction spawns a meta tooling lane that makes the behaviour automatic."
-    " Before stopping, forward his words verbatim with their time as `cci post --lane owner-relay --kind ask --to meta`, or launch the lane with `lr launch`."
+    " Before stopping, forward his words verbatim with their time through `mcp__plugin_cc-inbox_cci__post` or `cci post --lane owner-relay --kind ask --to meta`, or launch the lane with `lr launch`."
 )
 STATUS_QUESTION = Binary(
     "The owner's words this turn are below; his typos are his, so read through them."
@@ -151,6 +151,8 @@ def asked(reply: str, *calls: dict, words: str = HOW_FAR, decide: dict = ASKED) 
         reminded(*T.tool_turn(MCP_POST, result="#1", lane="owner-relay", kind="ask", to=["meta-desk-2"], text="x")): Allow(),
         reminded(*T.tool_turn(MCP_POST, result="#1", lane="owner-relay", kind="ask", to=["root"], text="x")): Block(pattern=r"meta tooling lane"),
         reminded(*T.tool_turn(MCP_POST, result="#1", lane="owner-relay", kind="report", to=["meta-desk-1"], text="x")): Block(pattern=r"meta tooling lane"),
+        reminded(*T.tool_turn(MCP_POST, result="#1", lane="owner-relay", records=[{"kind": "note", "to": ["root"], "text": "x"}, {"kind": "ask", "to": ["meta-desk-2"], "text": "x"}])): Allow(),
+        reminded(*T.tool_turn(MCP_POST, result="cci: post: unknown lane", is_error=True, lane="owner-relay", kind="ask", to=["meta-desk-2"], text="x")): Block(pattern=r"meta tooling lane"),
         reminded(*T.tool_turn("Bash", result="R1", command="lr launch meta /drive/meta/brief.md")): Allow(),
         reminded(*T.tool_turn("Bash", result="R1", command="bash ~/.claude/long-running/current/bin/orca-launch.sh /drive/fix-3 brief.md")): Allow(),
         reminded(decide=CALM): Allow(),
@@ -247,7 +249,7 @@ def owner_words(evt: BaseHookEvent) -> str:
 def forwarded(use: object) -> bool:
     if use.call.name.endswith(MCP_POST_SUFFIX):
         raw = use.call.raw
-        return raw.get("lane") == "owner-relay" and raw.get("kind") == "ask" and any(to.startswith("meta") for to in raw.get("to") or ())
+        return raw.get("lane") == "owner-relay" and any(record.get("kind") == "ask" and any(to.startswith("meta") for to in record.get("to") or ()) for record in (raw, *raw.get("records", ())))
     return use.call.name == "Bash" and any(routes_to_meta(cmd.argv) for cmd in use.call.command_line if cmd.argv)
 
 
