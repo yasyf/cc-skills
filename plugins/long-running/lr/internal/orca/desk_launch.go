@@ -504,6 +504,13 @@ func (d *Desk) settleSprite(ctx context.Context, container, lane string, action 
 	if err := d.settleLaunch(ctx, container, lane, action, ready.Workspace); err != nil {
 		return err
 	}
+	installed, err := os.ReadFile(filepath.Join(attempt, "install.log"))
+	if err != nil {
+		return err
+	}
+	if err := d.Registry.RecordSpriteTools(ready.Workspace, installedTools(string(installed)), d.Now()); err != nil {
+		return err
+	}
 	return d.raiseHookDrift(lane, attempt)
 }
 

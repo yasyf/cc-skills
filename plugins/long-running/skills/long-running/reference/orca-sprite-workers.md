@@ -62,7 +62,10 @@ Mac runs without a payload rebuild. A pin is `{kind, name, url, sha256,
 version}`. Each archive is checked against its SHA-256 before anything moves.
 A `binary` pin extracts the member `name` to `~/.local/bin/<name>.new`, runs
 it with `--version`, and moves it over `~/.local/bin/<name>` only when the
-last word printed, less a leading `v`, is the pinned version. A `plugin` pin,
+last word printed, less a leading `v`, is the pinned version. A `package` pin,
+such as `capt-hookd`, stages the member, checks that `version` reports the
+pinned `build`, runs its `package-install`, which upgrades a live daemon under
+its own install lock, and checks the installed `version` again. A `plugin` pin,
 such as `long-running@skills`, unpacks into Claude Code's plugin cache at
 `<marketplace>/<plugin>/<version>.new`, checks that tree's
 `.claude-plugin/plugin.json` version, moves it into place, and points that
@@ -74,6 +77,23 @@ asset the `long-running pack release` workflow publishes, with `checksums.txt`,
 on each `long-running--v<version>` tag. A pin off its digest or version stops
 the install, and the worker stays idle. A malformed pin refuses before
 prepare.
+
+The script prints one `installed <name> <version>` line per tool, cci and lr
+included, and the desk records them for the Sprite when it settles the launch.
+
+`lr sprites roll` moves the Sprites already running onto the same pins. It runs
+the launch's install, with no brief check, on each Sprite that hosts a live
+worker of the drive's Run: `--probe <sprite>` first, else the first by name,
+then the rest in name order, one at a time. A failure stops the roll, so every
+later Sprite keeps what it runs, and the pin that failed is marked bad in the
+drive's store; a roll whose pins include a version marked bad refuses before
+it touches any Sprite. A roll does not wait for a lane to go idle. A binary is
+replaced by rename, so a running process keeps its old file; a plugin's old
+tree stays where the session loaded it; and a lane in mid-turn sees the new
+hooks at its next hook call, and the new skills only in its next session.
+
+`lr sprites` prints, from one store read, each Sprite's tools and versions as
+its last launch or roll installed them.
 
 The same step then checks, once, that the box runs every drive CLI the
 carried brief invokes: `ccn`, `cc-notes`, `cci`, `lr`, `gh` and `ccx`, each

@@ -2,6 +2,9 @@ set -eu
 bin="$HOME/.local/bin"
 plugins="$HOME/.claude/plugins"
 mkdir -p "$bin"
+said() {
+  "$1" --version 2>&1 | awk 'END { word = $NF; sub(/^v/, "", word); print word }'
+}
 fetch() {
   curl -fsSL "$1" -o "$3"
   if ! echo "$2  $3" | sha256sum -c --status -; then
@@ -12,9 +15,11 @@ fetch() {
 }
 fetch "$1" "$2" /tmp/cci.tgz
 tar -xzf /tmp/cci.tgz -C "$bin" cci
+echo "installed cci $(said "$bin/cci")"
 fetch "$3" "$4" /tmp/lr.tgz
 tar -xzOf /tmp/lr.tgz "$5" > "$bin/lr"
 chmod 755 "$bin/lr"
+echo "installed lr $(said "$bin/lr")"
 if [ -n "$6" ]; then
   mkdir -p ~/.config/lr
   printf '%s\n' "$6" > ~/.config/lr/bk.url
@@ -28,13 +33,30 @@ while [ "$1" != -- ]; do
   binary)
     tar -xzOf /tmp/tool.tgz "$name" > "$bin/$name.new"
     chmod 755 "$bin/$name.new"
-    said=$("$bin/$name.new" --version 2>&1 | awk 'END { print $NF }')
-    if [ "${said#v}" != "$version" ]; then
+    printed=$(said "$bin/$name.new")
+    if [ "$printed" != "$version" ]; then
       rm -f "$bin/$name.new"
-      echo "refused: $name from that archive prints $said for --version, not $version"
+      echo "refused: $name from that archive prints $printed for --version, not $version"
       exit 1
     fi
     mv "$bin/$name.new" "$bin/$name"
+    ;;
+  package)
+    tar -xzOf /tmp/tool.tgz "$name" > "/tmp/$name.new"
+    chmod 755 "/tmp/$name.new"
+    printed=$("/tmp/$name.new" version | jq -r .build)
+    if [ "$printed" != "$version" ]; then
+      rm -f "/tmp/$name.new"
+      echo "refused: $name from that archive reports build $printed, not $version"
+      exit 1
+    fi
+    "/tmp/$name.new" package-install
+    rm -f "/tmp/$name.new"
+    printed=$("$bin/$name" version | jq -r .build)
+    if [ "$printed" != "$version" ]; then
+      echo "refused: package-install left $name at build $printed, not $version"
+      exit 1
+    fi
     ;;
   plugin)
     dir="$plugins/cache/${name#*@}/${name%@*}/$version"
@@ -42,10 +64,10 @@ while [ "$1" != -- ]; do
       rm -rf "$dir.new"
       mkdir -p "$dir.new"
       tar -xzf /tmp/tool.tgz -C "$dir.new"
-      said=$(jq -r .version "$dir.new/.claude-plugin/plugin.json")
-      if [ "$said" != "$version" ]; then
+      printed=$(jq -r .version "$dir.new/.claude-plugin/plugin.json")
+      if [ "$printed" != "$version" ]; then
         rm -rf "$dir.new"
-        echo "refused: the $name archive is version $said, not $version"
+        echo "refused: the $name archive is version $printed, not $version"
         exit 1
       fi
       mv "$dir.new" "$dir"

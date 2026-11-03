@@ -169,7 +169,7 @@ func workerCommand(a *app.App) *cobra.Command {
   WORKER_CHECKOUT       the checkout whose tools/cc-remote starts Sprites, required
   WORKER_CCI_URL        the cci linux_amd64 release archive a Sprite installs, required
   WORKER_CCI_SHA256     the SHA-256 of that archive, required
-  WORKER_TOOLS          a JSON list of {kind, name, url, sha256, version} pins, binary or plugin, each installed from its verified archive
+  WORKER_TOOLS          a JSON list of {kind, name, url, sha256, version} pins, binary, package or plugin, each installed from its verified archive
   WORKER_BK_URL         the drive's lr bk proxy, which lr bk install prints; a Sprite's lr bk reads through it
   WORKER_CC_REMOTE      the cc-remote command, default the checkout's own
   CC_REMOTE_CONFIG      the cc-remote config, default the checkout's own

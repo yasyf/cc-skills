@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -1378,10 +1379,25 @@ func TestALaunchThatMayLeaveTheMacStartsOnASpriteAndSettlesFromItsReceipt(t *tes
 	attempt := spriteAttempt(brief)
 	w.write(filepath.Join(attempt, spriteReceipt), `{"result":{"dispatchId":"ctx_s"}}`)
 	w.write(filepath.Join(attempt, spriteMade), `{"workspace":"pool-1"}`)
+	w.write(filepath.Join(attempt, "install.log"), "installed cci 0.49.36\ninstalled lr 0.161.1\ninstalled ccx 0.91.68\n")
 	w.step(w.desk.reap)
 	action := w.action(testLane, key)
 	if action.Status != incident.ActionVerified || string(action.DispatchID) != "ctx_s" {
 		t.Fatal(action)
+	}
+	census, err := w.desk.Registry.SpriteTools()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, tool := range census {
+		if tool.Sprite != "pool-1" {
+			t.Fatal(census)
+		}
+		got[tool.Name] = tool.Version
+	}
+	if !maps.Equal(got, map[string]string{"cci": "0.49.36", "lr": "0.161.1", "ccx": "0.91.68"}) {
+		t.Fatal("the launch's installed versions were not recorded for its Sprite", census)
 	}
 	wantContains(t, w.wantEscalation("LAUNCHED "+key), "on Sprite pool-1")
 	if w.desk.receipt(testLane) != "ctx_s" || w.desk.terminal(testLane) != "term_s" {
@@ -1402,6 +1418,7 @@ func (w *deskWorld) settleOnSprite(lane, allocation string) string {
 	attempt := spriteAttempt(brief)
 	w.write(filepath.Join(attempt, spriteReceipt), `{"result":{"dispatchId":"ctx_`+lane+`"}}`)
 	w.write(filepath.Join(attempt, spriteMade), allocation)
+	w.write(filepath.Join(attempt, "install.log"), "installed cci 0.49.36\n")
 	w.step(w.desk.reap)
 	return "R" + strings.TrimPrefix(line.Name(), "#")
 }
