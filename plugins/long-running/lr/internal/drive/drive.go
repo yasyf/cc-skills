@@ -112,6 +112,17 @@ func Named(name string) (Entry, error) {
 	return Entry{}, fmt.Errorf("no drive registry entry for %s names a coordinator session", name)
 }
 
+func Holding(session string) (Entry, error) {
+	found, err := entries()
+	if err != nil {
+		return Entry{}, err
+	}
+	if i := slices.IndexFunc(found, func(entry Entry) bool { return slices.Contains(entry.Sessions, session) }); i >= 0 {
+		return found[i], nil
+	}
+	return Entry{}, fmt.Errorf("no drive registry entry holds session %q", session)
+}
+
 func Children(parent string) ([]Entry, error) {
 	found, err := entries()
 	if err != nil {

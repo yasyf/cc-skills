@@ -9,6 +9,7 @@ require (
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/spf13/cobra v1.10.2
 	github.com/yasyf/cc-inbox v0.49.34-0.20261103081410-c4155d57794c
+	github.com/yasyf/cc-interact v0.39.0
 	golang.org/x/mod v0.41.0
 	modernc.org/sqlite v1.60.1
 )
@@ -33,7 +34,6 @@ require (
 	github.com/tklauser/numcpus v0.11.0 // indirect
 	github.com/vishvananda/netlink v1.2.1-beta.2 // indirect
 	github.com/vishvananda/netns v0.0.0-20200728191858-db3c7e526aae // indirect
-	github.com/yasyf/cc-interact v0.39.0 // indirect
 	github.com/yasyf/daemonkit v0.36.0 // indirect
 	github.com/yasyf/synckit v0.51.2 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
