@@ -116,7 +116,7 @@ lane may post as `<name>`. With no mechanism at
 `deadlines.incident_mechanism_minutes` (default 10), no PR at
 `deadlines.incident_pr_minutes` (default 15), or no `ready` at
 `deadlines.incident_ready_minutes` (default 20), the runner launches `<lane>-opus` once per
-launch, urgent, on opus xhigh in Claude fast mode, from the lane's own brief under a
+launch, urgent, on incident-opus xhigh, Opus in Claude fast mode, from the lane's own brief under a
 fallback header it attaches to the briefs log as `<lane>-opus.full.md` and writes to
 `<state>/briefs/<lane>-opus.full.md`, the path the blocker names, and logs
 `INCIDENT-CLOCK <lane> mechanism`, `INCIDENT-CLOCK <lane> pr`, or `INCIDENT-CLOCK <lane> ready`,
@@ -635,7 +635,7 @@ from long_running import ghdiff
 from long_running import ghread
 import incident
 import inboxes
-from launch_checks import EFFORTS, INCIDENT_MODEL, MODELS, NAMES_NOTHING, SLICE_HEADER, SLICE_LINE, brief_incidents, incident_fix, not_a_model
+from launch_checks import EFFORTS, INCIDENT_MODEL, INCIDENT_OPUS, MODELS, NAMES_NOTHING, SLICE_HEADER, SLICE_LINE, brief_incidents, incident_fix, not_a_model
 import launch_checks
 from long_running import incidents, lanes
 from long_running.pass_io import OnePassIO
@@ -654,7 +654,7 @@ from long_running.grades import PORT_PHRASE, QUOTED_BLOCK, QUOTED_SPAN, TEST_ONL
 from long_running.grades import WITHDRAWN as WITHDRAWN_OPENING
 from long_running.grades import GO_KIND_FLAGS, GO_KINDS, go_state, is_go, lifts_hold
 from long_running.grades import REVIEW_BOT_CHECK, REVIEW_BOT_HELD, VOIDING_KINDS, review_bot_wait, voids, withdrawn
-from incident import CLAUDE_FAST_MODE, CLOCK_FALLBACK
+from incident import CLOCK_FALLBACK
 
 SCRIPTS = Path(__file__).resolve().parent
 RUNNER_BIN = SCRIPTS.parents[2] / "bin" / "desk-runner.py"
@@ -1054,7 +1054,6 @@ FIX_ALIAS = "-fix"
 CASE = "-case"
 LINEAGE = re.compile(rf"(?:{re.escape(CLOCK_FALLBACK)}|{re.escape(CASE)}\d+)+$")
 INCIDENT_PART = re.compile(r"-[^-]+(?:-\d+)?$")
-CLAUDE_ARGS = "ORCA_LAUNCH_CLAUDE_ARGS"
 CLASS_UNOWNED = "class-unowned"
 CLASS_TEXT = re.compile(r"^(?:NEW )?CLASS(?![\w-])")
 CLASS_HEADER = re.compile(r"^(?:(?:NEW )?CLASS(?![\w-])[^\n]*|\[[^\]\n]+\])")
@@ -3258,8 +3257,8 @@ class Runner:
             self.refresh_slice(key, lane, brief)
             return brief.read_text()
 
-    def accept_launch(self, key: str, lane: str, model: str, effort: str, brief: str, fast: bool = False, role: str = "", incident: str = "", by: str = RUNNER) -> tuple[actions.Action, bool]:
-        target = json.dumps({"model": model, "effort": effort, "brief": brief, "prior": self.orca.receipt(lane), "fast": fast, "role": role, "incident": incident, "by": by})
+    def accept_launch(self, key: str, lane: str, model: str, effort: str, brief: str, role: str = "", incident: str = "", by: str = RUNNER) -> tuple[actions.Action, bool]:
+        target = json.dumps({"model": model, "effort": effort, "brief": brief, "prior": self.orca.receipt(lane), "role": role, "incident": incident, "by": by})
         return self.book.accept(self.lane(lane), key, "launch", target, key, self.now() + timedelta(minutes=self.config.launch_minutes))
 
     def landing_policy(self) -> actions.Action | None:
@@ -3591,8 +3590,6 @@ class Runner:
         spec = json.loads(action.target)
         argv = [str(LAUNCHER), lane, spec["model"], spec["effort"], spec["brief"]]
         env = {**self.config.launch_env, **self.orca.sender, "ORCA_LAUNCH_STATE": str(self.config.receipts), "LAUNCH_ROLE": spec.get("role") or "", drive.LANE_ENV: spec.get("by", ROOT)}
-        if spec.get("fast"):
-            env[CLAUDE_ARGS] = " ".join(filter(None, [env.get(CLAUDE_ARGS, self.shell.env(CLAUDE_ARGS)), CLAUDE_FAST_MODE]))
         self.launching[f"{container}/{action.action_id}"] = self.shell.spawn(argv, self.launch_log(container, action.action_id), env)
 
     def sprite(self) -> dict | None:
@@ -3618,7 +3615,7 @@ class Runner:
     def sprite_refusal(self, lane: str, spec: dict) -> str | None:
         """Empty when the launch takes the Mac route for now, None when it takes a Sprite, or why the Sprite route it must take cannot start it."""
         text = brief_text(Path(spec["brief"]))
-        if launch_checks.mac_pinned(spec["model"], text, bool(spec.get("fast"))):
+        if launch_checks.mac_pinned(spec["model"], text):
             return ""
         fault = self.sprite_fault(lane)
         if STANDING_DESK.search(text):
@@ -4301,7 +4298,7 @@ class Runner:
             self.record(log, f"INCIDENT-CLOCK {lane} {label.lower()}: {text}")
 
     def fallback(self, lane: str, launch: actions.Action, missing: str, minutes: int) -> str:
-        """Launch `<lane>-opus` once per clocked launch, on opus xhigh in Claude fast mode, from the lane's own brief under a fallback header attached to the briefs log; the clause returned tells the blocker what was done."""
+        """Launch `<lane>-opus` once per clocked launch, on incident-opus xhigh, Opus in Claude fast mode, from the lane's own brief under a fallback header attached to the briefs log; the clause returned tells the blocker what was done."""
         backup = f"{lane}{CLOCK_FALLBACK}"
         key = f"{CLOCK}:{launch.dispatch_id}"
         if lane.endswith(CLOCK_FALLBACK):
@@ -4315,14 +4312,14 @@ class Runner:
         brief = self.brief_for(lane)
         if not brief:
             return f"no fallback launched for {backup}: {lane} has no brief file"
-        if refusal := self.launch_refusal(key, backup, "opus", "xhigh", brief, INCIDENT_MODEL):
+        if refusal := self.launch_refusal(key, backup, INCIDENT_OPUS, "xhigh", brief, INCIDENT_MODEL):
             return f"no fallback launched for {backup}: {refusal}"
         text = self.sliced(key, backup, FALLBACK_BRIEF.format(backup=backup, lane=lane, minutes=minutes, missing=missing, drive=self.config.drive, brief=brief.read_text()))
         attached, failure = self.attach_brief(backup, lambda _: text, f"INCIDENT-CLOCK {lane}: Opus fallback brief for {backup}, no {missing} at +{minutes} min")
         if attached is None:
             return f"no fallback launched for {backup}: {failure}"
-        self.accept_launch(key, backup, "opus", "xhigh", str(attached), fast=True)
-        return f"the Opus fallback {backup} is launching on opus xhigh in fast mode, brief {attached}"
+        self.accept_launch(key, backup, INCIDENT_OPUS, "xhigh", str(attached))
+        return f"the Opus fallback {backup} is launching on {INCIDENT_OPUS} xhigh, brief {attached}"
 
     def dispatch_active(self, lane: str) -> bool:
         return bool(self.orca.receipt(lane) and (shown := self.orca.show(lane)) and shown.status not in INACTIVE)
@@ -4410,8 +4407,8 @@ class Runner:
                 continue
             brief = json.loads(tries[0].target)["brief"]
             if len(tries) == 1:
-                if not self.launch_refusal(f"{key}{RETRY}", backup, "opus", "xhigh", Path(brief), INCIDENT_MODEL):
-                    self.accept_launch(f"{key}{RETRY}", backup, "opus", "xhigh", brief, fast=True)
+                if not self.launch_refusal(f"{key}{RETRY}", backup, INCIDENT_OPUS, "xhigh", Path(brief), INCIDENT_MODEL):
+                    self.accept_launch(f"{key}{RETRY}", backup, INCIDENT_OPUS, "xhigh", brief)
                 continue
             reasons = " | ".join(action.reason or "" for action in tries)
             self.record(

@@ -124,7 +124,6 @@ type replay struct {
 	changesConfig bool
 	applies       []string
 	launches      []launched
-	fast          map[string]bool
 	receipts      map[string]LaunchReceipt
 	engagedLanes  map[string]bool
 	rebuilds      []int
@@ -157,7 +156,6 @@ func newReplay(t *testing.T) *replay {
 		data:          data,
 		at:            parsed(t, data.Intake),
 		changesConfig: true,
-		fast:          map[string]bool{},
 		receipts:      map[string]LaunchReceipt{},
 		engagedLanes:  map[string]bool{},
 		loseRebuild:   map[int]string{},
@@ -198,7 +196,7 @@ func (r *replay) world() World {
 	return World{Orca: r, GitHub: r, Buildkite: r, Activation: r, Comms: r, Records: r}
 }
 
-func (r *replay) Launch(_ context.Context, lane, model, effort, brief string, fast bool) (LaunchReceipt, error) {
+func (r *replay) Launch(_ context.Context, lane, model, effort, brief string) (LaunchReceipt, error) {
 	if _, err := os.Stat(brief); err != nil {
 		r.t.Errorf("launch of %s has no brief: %v", lane, err)
 	}
@@ -207,7 +205,6 @@ func (r *replay) Launch(_ context.Context, lane, model, effort, brief string, fa
 		r.loseFixLaunch = false
 		return LaunchReceipt{}, fmt.Errorf("%w: worker-start timed out", ErrResponseLost)
 	}
-	r.fast[lane] = fast
 	receipt := LaunchReceipt{Lane: lane, State: "ready", Task: "task-" + lane, Dispatch: "dispatch-" + lane, Terminal: "t1", Worktree: "/w"}
 	r.receipts[lane] = receipt
 	return receipt, nil
@@ -849,14 +846,14 @@ func TestRouteAssertions(t *testing.T) {
 			t.Errorf("%s on %s: %v", c[0], c[1], err)
 		}
 	}
-	for _, c := range [][2]string{{"fix", "incident"}, {"evidence", "incident"}, {"backup", "opus"}} {
+	for _, c := range [][2]string{{"fix", "incident"}, {"evidence", "incident"}, {"backup", "incident-opus"}} {
 		if err := assertRoute(c[0], c[1]); err != nil {
 			t.Errorf("%s on %s: %v", c[0], c[1], err)
 		}
 	}
 }
 
-func TestBackupLaunchesOnOpusAfterFifteenQuietMinutes(t *testing.T) {
+func TestBackupLaunchesOnIncidentOpusAfterFifteenQuietMinutes(t *testing.T) {
 	h := opened(t)
 	fake := h.fake
 	h.drive(h.intake(16*time.Minute), nil)
@@ -864,13 +861,10 @@ func TestBackupLaunchesOnOpusAfterFifteenQuietMinutes(t *testing.T) {
 	want := []launched{
 		{laneName(h.id, "fix"), "incident", "xhigh"},
 		{laneName(h.id, "evidence"), "incident", "xhigh"},
-		{laneName(h.id, "backup"), "opus", "xhigh"},
+		{laneName(h.id, "backup"), "incident-opus", "xhigh"},
 	}
 	if !reflect.DeepEqual(fake.launches, want) {
 		t.Fatalf("launches %v", fake.launches)
-	}
-	if fake.fast[laneName(h.id, "fix")] || fake.fast[laneName(h.id, "evidence")] || !fake.fast[laneName(h.id, "backup")] {
-		t.Fatalf("fast %v", fake.fast)
 	}
 }
 

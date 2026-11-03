@@ -17,8 +17,8 @@
 STDLIB ONLY. ``open`` records the incident in the :mod:`actions` store; ``run`` owns it.
 Each pass of ``run`` advances every step whose inputs are ready and records each side
 effect as an action before it runs: the comms events, the fix and evidence launches on the
-``incident`` alias (gpt-6.1-sol, fast tier) through ``orca-launch.sh`` (an Opus 5.5 backup in
-fast mode at 15 minutes with no mechanism, unless the desk clock's ``<fix lane>-opus``
+``incident`` alias (gpt-6.1-sol, fast tier) through ``orca-launch.sh`` (an Opus 5.5 backup on
+the ``incident-opus`` alias, Claude fast mode, at 15 minutes with no mechanism, unless the desk clock's ``<fix lane>-opus``
 fallback is already launching or live: a fix lane gets one Opus fallback), the human
 review request a reviewer fix needs, the landing check, the single-pipeline ``ci sync``
 activation with its read-back, the canary, one rebuild per failed head in the outage window,
@@ -73,12 +73,11 @@ SCRIPTS = Path(__file__).resolve().parent
 TEMPLATE = SCRIPTS.parent / "reference" / "active-alert-brief.md"
 PACIFIC = ZoneInfo("America/Los_Angeles")
 INCIDENT = "incident"
+INCIDENT_OPUS = "incident-opus"
 INCIDENT_ROLES = ("fix", "evidence")
 SECTIONS = {"fix": "Fix lane brief", "evidence": "Evidence lane brief", "backup": "Fix lane brief"}
 FORBIDDEN_MODELS = ("fable", "astra", "sol", "codex", "claude-fable-5-1", "gpt-6-astra")
-ROUTES = {"fix": (INCIDENT, "xhigh"), "evidence": (INCIDENT, "xhigh"), "backup": ("opus", "xhigh")}
-FAST_ROLES = ("backup",)
-CLAUDE_FAST_MODE = """--settings '{"fastMode":true}'"""
+ROUTES = {"fix": (INCIDENT, "xhigh"), "evidence": (INCIDENT, "xhigh"), "backup": (INCIDENT_OPUS, "xhigh")}
 ADOPTABLE = ("fix", "evidence")
 GRANTS = ("thread", "channel", "sync", "rebuild")
 BACKUP_AFTER = timedelta(minutes=15)
@@ -162,12 +161,10 @@ class Orca:
     repo_id: str | None
     launcher: Path = SCRIPTS / "orca-launch.sh"
 
-    def launch(self, lane: str, model: str, effort: str, brief: Path, fast: bool = False) -> dict:
+    def launch(self, lane: str, model: str, effort: str, brief: Path) -> dict:
         if not (self.run_id and self.repo_id):
             raise EffectFailed("no Orca run: open the incident with --orca-run and --orca-repo")
         env = os.environ | {"ORCA_LAUNCH_RUN": self.run_id, "ORCA_LAUNCH_REPO": self.repo_id}
-        if fast:
-            env["ORCA_LAUNCH_CLAUDE_ARGS"] = " ".join(filter(None, [env.get("ORCA_LAUNCH_CLAUDE_ARGS"), CLAUDE_FAST_MODE]))
         line = self.shell.run([str(self.launcher), lane, model, effort, str(brief)], env=env).strip().splitlines()[-1]
         if not (match := LAUNCH.match(line)):
             raise EffectFailed(line)
@@ -653,7 +650,7 @@ class Runner:
         assert_route(role, model)
         brief = self.write_brief(incident, role)
         action_id = self.next_id(base)
-        if response := self.effect(action_id, "dispatch", lane, "R16", lambda: self.world.orca.launch(lane, model, effort, brief, fast=role in FAST_ROLES)):
+        if response := self.effect(action_id, "dispatch", lane, "R16", lambda: self.world.orca.launch(lane, model, effort, brief)):
             with self.owned() as incident:
                 incident.verify(action_id, response)
 

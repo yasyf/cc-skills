@@ -11,7 +11,8 @@ import lane_brief
 from long_running import lanes
 
 INCIDENT_MODEL = "incident"
-MODELS = re.compile(r"opus|sonnet|fable|astra|codex|sol|incident|claude-[\w.-]+|gpt-[\w.-]+")
+INCIDENT_OPUS = "incident-opus"
+MODELS = re.compile(r"incident-opus|opus|sonnet|fable|astra|codex|sol|incident|claude-[\w.-]+|gpt-[\w.-]+")
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
 SLICE_LINE = "Register slice:"
 SLICE_HEADER = re.compile(rf"^{SLICE_LINE}", re.MULTILINE)
@@ -35,7 +36,7 @@ def incident_fix(lane: str, model: str, brief: Path, role: str) -> bool:
 
 
 def not_a_model(model: str) -> str:
-    return f"{model} is not a model orca-launch.sh starts: opus, sonnet, fable, claude-*, sol, codex, incident, astra, or gpt-*"
+    return f"{model} is not a model orca-launch.sh starts: opus, sonnet, fable, claude-*, sol, codex, incident, incident-opus, astra, or gpt-*"
 
 
 def launch_faults(lane: str, model: str, effort: str, brief: Path, role: str = "") -> list[str]:
@@ -65,10 +66,10 @@ def scale_fault(lane: str, model: str, brief: Path, role: str = "") -> str:
     return lane_brief.no_scale(brief)
 
 
-def mac_pinned(model: str, brief_text: str, fast: bool = False) -> bool:
+def mac_pinned(model: str, brief_text: str) -> bool:
     """Whether a launch runs only on the Mac at any load: Fable and the fast and incident routes, which no Sprite starts, and a brief whose author wrote `place=local`."""
     placed = PLACE.search(brief_text)
-    return bool(FABLE_MODEL.search(model) or model == INCIDENT_MODEL or fast or (placed and placed[1] == "local"))
+    return bool(FABLE_MODEL.search(model) or model in (INCIDENT_MODEL, INCIDENT_OPUS) or (placed and placed[1] == "local"))
 
 
 def carry_fault(brief: Path, repo: str) -> str:

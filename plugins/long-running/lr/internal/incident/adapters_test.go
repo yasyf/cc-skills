@@ -135,7 +135,7 @@ func TestAnIncidentRunnerStartedFromTheCoordinatorLaunchesItsLanesAsItself(t *te
 	fake := &shelltest.Fake{}
 	fake.Reply("incident-x-fix ready task=t1 dispatch=d1 terminal=term-1 worktree=/w/x\n", "orca-launch.sh")
 
-	if _, err := (OrcaCLI{Runner: fake, Lane: "incident-x", Run: "run1", Repo: "repo1", Launcher: "orca-launch.sh"}).Launch(context.Background(), "incident-x-fix", "incident", "xhigh", "/b.md", false); err != nil {
+	if _, err := (OrcaCLI{Runner: fake, Lane: "incident-x", Run: "run1", Repo: "repo1", Launcher: "orca-launch.sh"}).Launch(context.Background(), "incident-x-fix", "incident", "xhigh", "/b.md"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -152,7 +152,7 @@ func TestOrcaParsesTheLaunchLine(t *testing.T) {
 	for _, state := range []string{"ready", "unsupervised"} {
 		fake := &shelltest.Fake{}
 		fake.Reply(fmt.Sprintf("booting\nincident-x-fix %s task=t1 dispatch=d1 terminal=term-1 worktree=/w/x\n", state), "orca-launch.sh")
-		receipt, err := OrcaCLI{Runner: fake, Run: "run1", Repo: "repo1", Launcher: "orca-launch.sh"}.Launch(ctx, "incident-x-fix", "incident", "xhigh", "/b.md", false)
+		receipt, err := OrcaCLI{Runner: fake, Run: "run1", Repo: "repo1", Launcher: "orca-launch.sh"}.Launch(ctx, "incident-x-fix", "incident", "xhigh", "/b.md")
 		if err != nil || receipt.State != state || receipt.Dispatch != "d1" {
 			t.Fatalf("receipt %+v, err %v", receipt, err)
 		}
@@ -160,32 +160,11 @@ func TestOrcaParsesTheLaunchLine(t *testing.T) {
 	fake := &shelltest.Fake{}
 	fake.Reply("incident-x-fix failed worker-start terminal=: refused\n", "orca-launch.sh")
 	var failed *EffectFailed
-	if _, err := (OrcaCLI{Runner: fake, Run: "run1", Repo: "repo1", Launcher: "orca-launch.sh"}).Launch(ctx, "incident-x-fix", "incident", "xhigh", "/b.md", false); !errors.As(err, &failed) {
+	if _, err := (OrcaCLI{Runner: fake, Run: "run1", Repo: "repo1", Launcher: "orca-launch.sh"}).Launch(ctx, "incident-x-fix", "incident", "xhigh", "/b.md"); !errors.As(err, &failed) {
 		t.Fatalf("got %v, want an effect failure", err)
 	}
-	if _, err := (OrcaCLI{Runner: fake, Launcher: "orca-launch.sh"}).Launch(ctx, "incident-x-fix", "incident", "xhigh", "/b.md", false); !errors.As(err, &failed) {
+	if _, err := (OrcaCLI{Runner: fake, Launcher: "orca-launch.sh"}).Launch(ctx, "incident-x-fix", "incident", "xhigh", "/b.md"); !errors.As(err, &failed) {
 		t.Fatalf("got %v, want an effect failure with no run", err)
-	}
-}
-
-func TestOrcaLaunchesTheBackupInClaudeFastMode(t *testing.T) {
-	t.Setenv(claudeArgsEnv, "--verbose")
-	fake := &shelltest.Fake{}
-	fake.Reply("incident-x-backup ready task=t1 dispatch=d1 terminal=term-1 worktree=/w/x\n", "orca-launch.sh")
-	orca := OrcaCLI{Runner: fake, Run: "run1", Repo: "repo1", Launcher: "orca-launch.sh"}
-	ctx := context.Background()
-	if _, err := orca.Launch(ctx, "incident-x-backup", "opus", "xhigh", "/b.md", true); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := orca.Launch(ctx, "incident-x-fix", "incident", "xhigh", "/b.md", false); err != nil {
-		t.Fatal(err)
-	}
-	calls := fake.Calls()
-	if want := claudeArgsEnv + `=--verbose --settings '{"fastMode":true}'`; !strings.Contains(strings.Join(calls[0].Env, "\n"), want) {
-		t.Fatalf("env %v", calls[0].Env)
-	}
-	if strings.Contains(strings.Join(calls[1].Env, "\n"), claudeArgsEnv) {
-		t.Fatalf("a fix lane launched with fast args: %v", calls[1].Env)
 	}
 }
 
@@ -448,7 +427,7 @@ func TestOpenFillsDefaultsAndValidatesItsTimes(t *testing.T) {
 	if facts.Alert != "t" || facts.CodePath != "the api service" || facts.Runbook != "" || len(facts.Adopted) != 0 || facts.CanaryJob != "" || facts.Pipeline != "" || facts.ReviewSurface != "thread" {
 		t.Fatalf("facts %+v", facts)
 	}
-	if !reflect.DeepEqual(facts.Routes[RoleBackup], []string{"opus", "xhigh"}) {
+	if !reflect.DeepEqual(facts.Routes[RoleBackup], []string{"incident-opus", "xhigh"}) {
 		t.Fatalf("routes %v", facts.Routes)
 	}
 	withLinks := base

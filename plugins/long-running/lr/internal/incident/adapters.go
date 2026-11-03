@@ -19,11 +19,9 @@ import (
 )
 
 const (
-	callTimeout    = 900 * time.Second
-	claudeFastMode = `--settings '{"fastMode":true}'`
-	claudeArgsEnv  = "ORCA_LAUNCH_CLAUDE_ARGS"
-	buildPageSize  = 100
-	landingLookup  = 10 * time.Minute
+	callTimeout   = 900 * time.Second
+	buildPageSize = 100
+	landingLookup = 10 * time.Minute
 )
 
 var (
@@ -55,18 +53,11 @@ type OrcaCLI struct {
 	Launcher string
 }
 
-func (o OrcaCLI) Launch(ctx context.Context, lane, model, effort, brief string, fast bool) (LaunchReceipt, error) {
+func (o OrcaCLI) Launch(ctx context.Context, lane, model, effort, brief string) (LaunchReceipt, error) {
 	if o.Run == "" || o.Repo == "" {
 		return LaunchReceipt{}, &EffectFailed{"no Orca run: open the incident with --orca-run and --orca-repo"}
 	}
 	env := append(lanes.Identity(o.Lane), "ORCA_LAUNCH_RUN="+o.Run, "ORCA_LAUNCH_REPO="+o.Repo)
-	if fast {
-		args := claudeFastMode
-		if held := os.Getenv(claudeArgsEnv); held != "" {
-			args = held + " " + args
-		}
-		env = append(env, claudeArgsEnv+"="+args)
-	}
 	out, err := stdout(ctx, o.Runner, shell.Command{Argv: []string{o.Launcher, lane, model, effort, brief}, Env: env})
 	if err != nil {
 		return LaunchReceipt{}, err

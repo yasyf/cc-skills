@@ -573,6 +573,34 @@ def test_an_incident_lane_runs_codex_on_the_fast_tier_in_its_own_terminal_in_a_t
     assert (orca.receipts / "lane-a.terminal").read_text().strip() == "term_a"
 
 
+def test_an_incident_opus_lane_runs_claude_opus_in_fast_mode(orca):
+    orca.healthy()
+    result = orca.launch("lane-a", "incident-opus", "xhigh", str(orca.brief))
+    assert result.returncode == 0, result.stdout + result.stderr
+    command = flag(orca.calls("terminal create")[0], "--command")
+    assert command == (
+        "env CLAUDE_LONG_RUNNING_LANE=lane-a claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions"
+        " --disallowedTools AskUserQuestion,EnterPlanMode,ExitPlanMode --strict-mcp-config"
+        " --channels plugin:cc-review@cc-review --model claude-opus-5-5 --effort xhigh --settings '{\"fastMode\":true}'"
+    )
+    claude = orca.root / "bin" / "claude"
+    claude.write_text('#!/bin/sh\nprintf "%s\\n" "$@"\n')
+    claude.chmod(0o755)
+    shell = subprocess.run(["sh", "-c", command], env={"PATH": f"{orca.root / 'bin'}:/usr/bin:/bin"}, capture_output=True, text=True)
+    assert shell.returncode == 0, shell.stderr
+    assert shell.stdout.splitlines()[-4:] == ["--effort", "xhigh", "--settings", '{"fastMode":true}']
+
+
+@pytest.mark.parametrize("model", ["opus", "sonnet", "fable", "claude-opus-5-5", "incident", "sol", "codex", "astra", "gpt-6.1-sol"])
+def test_no_alias_but_incident_opus_turns_on_claude_fast_mode(orca, model):
+    orca.healthy(agent="codex" if model == "incident" else "claude")
+    if model in ("sol", "codex", "astra", "gpt-6.1-sol"):
+        orca.reply("orchestration worker-start", {"rc": 0, "out": {"ok": True, "result": {"state": "ready", "taskId": "task_a", "dispatchId": "ctx_a", "effects": [{"kind": "terminal", "role": "agent", "id": "term_codex"}]}}})
+    result = orca.launch("lane-a", model, "xhigh", str(orca.brief))
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert not any("fastMode" in arg for call in orca.calls() for arg in call)
+
+
 def test_a_worker_starts_only_the_mcp_servers_its_launch_names(orca):
     orca.healthy()
     orca.env["ORCA_LAUNCH_MCP_CONFIG"] = "/briefs/slack-mcp.json"
@@ -1426,7 +1454,7 @@ def test_launch_rejects_an_unknown_effort_in_one_line(orca):
 def test_launch_rejects_an_unknown_model_in_one_line(orca):
     result = orca.launch("lane-a", "gemini", "xhigh", str(orca.brief))
     assert result.returncode == 1
-    assert result.stdout.strip() == "lane-a failed model gemini unknown: use opus, sonnet, fable, claude-*, sol, codex, incident, astra, or gpt-*"
+    assert result.stdout.strip() == "lane-a failed model gemini unknown: use opus, sonnet, fable, claude-*, sol, codex, incident, incident-opus, astra, or gpt-*"
     assert orca.calls() == []
 
 

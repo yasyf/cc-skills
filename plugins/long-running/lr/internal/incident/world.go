@@ -64,7 +64,7 @@ type Build struct {
 }
 
 type Orca interface {
-	Launch(ctx context.Context, lane, model, effort, brief string, fast bool) (LaunchReceipt, error)
+	Launch(ctx context.Context, lane, model, effort, brief string) (LaunchReceipt, error)
 	Receipt(lane string) (*LaunchReceipt, error)
 	Engaged(ctx context.Context, lane string, now time.Time) (bool, error)
 }

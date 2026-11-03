@@ -136,7 +136,10 @@ since worker-start has no tier flag.
 incident is the incident lane: gpt-6.1-sol in a top-level worktree, launched in a
 terminal running codex with -c service_tier=fast on its command line, so the
 fast tier never depends on Orca's runtime config. No other alias runs the fast
-tier. It also passes
+tier. incident-opus is the incident fallback when a sol fix lane misses: Claude
+Opus 5.5 with --settings '{"fastMode":true}' on its command line, which turns
+Claude Code's fast mode on even under a fastModePerSessionOptIn setting. No other
+alias enables fast mode. The incident alias also passes
 -c check_for_update_on_startup=false to disable the startup update prompt,
 -c mcp_servers=<ORCA_LAUNCH_CODEX_MCP, default {}>, and then
 -c mcp_servers.<name>.enabled=false for every server config.toml names other than
@@ -154,7 +157,8 @@ typing into the prompt. Otherwise, it types the spec pointer into that terminal
 itself and prints the lane as unsupervised: it runs, but Orca carries no worker_done for it.
 
 <model> is opus, sonnet, fable, a claude-* model id, sol or codex (gpt-6.1-sol on
-the standard tier), incident (gpt-6.1-sol on the fast tier), astra (gpt-6-astra,
+the standard tier), incident (gpt-6.1-sol on the fast tier), incident-opus
+(claude-opus-5-5 in fast mode), astra (gpt-6-astra,
 for exceptional cases only), or a gpt-* model id. <effort> is low, medium,
 high, xhigh, or max. Orca fails a terminal create with "Terminal creation timed
 out" when its renderer has not answered within a fixed 10 seconds, and the create
@@ -303,17 +307,18 @@ STATE=${ORCA_LAUNCH_STATE:-$RECEIPTS/$RUN}
 RECEIPT=$STATE/$LANE.json
 mkdir -p "$STATE"
 
-AGENT=claude
+AGENT=claude FAST=
 case $MODEL in
   codex | sol) AGENT=codex MODEL_ID=gpt-6.1-sol ;;
   astra) AGENT=codex MODEL_ID=gpt-6-astra ;;
   incident) AGENT=incident MODEL_ID=gpt-6.1-sol ;;
   gpt-*) AGENT=codex MODEL_ID=$MODEL ;;
   opus) MODEL_ID=claude-opus-5-5 ;;
+  incident-opus) MODEL_ID=claude-opus-5-5 FAST=" --settings '{\"fastMode\":true}'" ;;
   sonnet) MODEL_ID=claude-sonnet-5-5 ;;
   fable) MODEL_ID=claude-fable-5-1 ;;
   claude-*) MODEL_ID=$MODEL ;;
-  *) fail "model $MODEL unknown: use opus, sonnet, fable, claude-*, sol, codex, incident, astra, or gpt-*" ;;
+  *) fail "model $MODEL unknown: use opus, sonnet, fable, claude-*, sol, codex, incident, incident-opus, astra, or gpt-*" ;;
 esac
 case $EFFORT in
   low | medium | high | xhigh | max) ;;
@@ -344,7 +349,7 @@ BASE=${ORCA_LAUNCH_BASE:-$(git -C "$PARENT" symbolic-ref --short refs/remotes/or
 DRIVE=$(python3 "$(dirname "$0")/drive.py" current) || DRIVE=
 COORDINATOR_ENV=
 [ "$LANE" != root ] || COORDINATOR_ENV=" CLAUDE_CODE_PROMPT_CACHE_TTL=1h CLAUDE_CODE_AUTO_COMPACT_WINDOW=$COORDINATOR_COMPACT_WINDOW"
-COMMAND="env CLAUDE_LONG_RUNNING_LANE=$LANE${DRIVE:+ CLAUDE_LONG_RUNNING_DRIVE=$DRIVE}$COORDINATOR_ENV claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions --disallowedTools AskUserQuestion,EnterPlanMode,ExitPlanMode --strict-mcp-config${ORCA_LAUNCH_MCP_CONFIG:+ --mcp-config $ORCA_LAUNCH_MCP_CONFIG}${ORCA_LAUNCH_CLAUDE_ARGS:+ $ORCA_LAUNCH_CLAUDE_ARGS} --model $MODEL_ID --effort $EFFORT"
+COMMAND="env CLAUDE_LONG_RUNNING_LANE=$LANE${DRIVE:+ CLAUDE_LONG_RUNNING_DRIVE=$DRIVE}$COORDINATOR_ENV claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions --disallowedTools AskUserQuestion,EnterPlanMode,ExitPlanMode --strict-mcp-config${ORCA_LAUNCH_MCP_CONFIG:+ --mcp-config $ORCA_LAUNCH_MCP_CONFIG}${ORCA_LAUNCH_CLAUDE_ARGS:+ $ORCA_LAUNCH_CLAUDE_ARGS} --model $MODEL_ID --effort $EFFORT$FAST"
 BIN=$(cd "$(dirname "$0")/../../../bin" && pwd)
 CODEX_MCP=${ORCA_LAUNCH_CODEX_MCP:-'{}'}
 CODEX_OFF=

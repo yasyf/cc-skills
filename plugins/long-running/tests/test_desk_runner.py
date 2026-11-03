@@ -13123,10 +13123,7 @@ def test_a_silent_incident_lane_gets_one_opus_fallback_and_one_blocker_per_thres
     orca_pass(shell, config)
     backup = f"{LANE}-opus"
     fallback = written(tmp_path, f"{backup}")
-    assert launches(shell) == [[str(runner_module.LAUNCHER), LANE, "incident", "xhigh", str(brief)], [str(runner_module.LAUNCHER), backup, "opus", "xhigh", str(fallback)]]
-    assert shell.spawned_env["orca-launch.sh"]["ORCA_LAUNCH_CLAUDE_ARGS"] == runner_module.CLAUDE_FAST_MODE
-    launch = json.loads(incident(tmp_path, f"desk-lane-{backup}").actions[f"incident-clock:ctx_{LANE}"].target)
-    assert launch["fast"] is True
+    assert launches(shell) == [[str(runner_module.LAUNCHER), LANE, "incident", "xhigh", str(brief)], [str(runner_module.LAUNCHER), backup, "incident-opus", "xhigh", str(fallback)]]
     text = fallback.read_text()
     assert text.startswith(f"ccx: lane={backup} role=incident effort=xhigh\n") and text.endswith(f"{brief.read_text().rstrip()}\n\nRegister slice: lane={backup} step=incident\n")
     assert f"You are the Opus fallback for `{LANE}`" in text and f"10 minutes after `{LANE}` launched" in text
@@ -13140,7 +13137,7 @@ def test_a_silent_incident_lane_gets_one_opus_fallback_and_one_blocker_per_thres
         orca_pass(shell, config)
         orca_pass(shell, config)
     assert clock_lines(shell) == [
-        f"INCIDENT-CLOCK {LANE} mechanism: no mechanism 10 min after its launch at 11:00, limit 10 min; launch to now 10 min | the Opus fallback {backup} is launching on opus xhigh in fast mode, brief {fallback}",
+        f"INCIDENT-CLOCK {LANE} mechanism: no mechanism 10 min after its launch at 11:00, limit 10 min; launch to now 10 min | the Opus fallback {backup} is launching on incident-opus xhigh, brief {fallback}",
         f"INCIDENT-CLOCK {LANE} pr: no PR 15 min after its launch at 11:00, limit 15 min; launch to now 15 min | the Opus fallback {backup} is already launched",
         f"INCIDENT-CLOCK {LANE} ready: not ready 20 min after its launch at 11:00, limit 20 min; missing mechanism, PR, ready; launch to now 20 min | the Opus fallback {backup} is already launched",
     ]
@@ -13255,7 +13252,7 @@ def test_a_mechanism_with_no_pr_launches_the_fallback_at_the_pr_threshold(shell,
     orca_pass(shell, config)
     fallback = written(tmp_path, f"{LANE}-opus")
     assert clock_lines(shell) == [
-        f"INCIDENT-CLOCK {LANE} pr: no PR 15 min after its launch at 11:00, limit 15 min; launch to mechanism 4 min, mechanism to now 11 min | the Opus fallback {LANE}-opus is launching on opus xhigh in fast mode, brief {fallback}"
+        f"INCIDENT-CLOCK {LANE} pr: no PR 15 min after its launch at 11:00, limit 15 min; launch to mechanism 4 min, mechanism to now 11 min | the Opus fallback {LANE}-opus is launching on incident-opus xhigh, brief {fallback}"
     ]
     assert [call[1] for call in launches(shell)] == [LANE, f"{LANE}-opus"] and "had posted no PR" in fallback.read_text()
 
@@ -13656,7 +13653,7 @@ def test_a_pr_not_ready_at_the_ready_threshold_gets_the_opus_fallback_and_names_
     orca_pass(shell, config)
     fallback = written(tmp_path, f"{LANE}-opus")
     assert clock_lines(shell) == [
-        f"INCIDENT-CLOCK {LANE} ready: not ready 20 min after its launch at 11:00, limit 20 min; missing ready; launch to mechanism 4 min, mechanism to PR 8 min, PR to now 8 min | the Opus fallback {LANE}-opus is launching on opus xhigh in fast mode, brief {fallback}"
+        f"INCIDENT-CLOCK {LANE} ready: not ready 20 min after its launch at 11:00, limit 20 min; missing ready; launch to mechanism 4 min, mechanism to PR 8 min, PR to now 8 min | the Opus fallback {LANE}-opus is launching on incident-opus xhigh, brief {fallback}"
     ]
     assert [call[1] for call in launches(shell)] == [LANE, f"{LANE}-opus"] and "had posted no ready" in fallback.read_text()
 
@@ -13916,7 +13913,7 @@ def test_an_opus_fallback_whose_orca_launch_fails_once_is_launched_once_more(she
     for _ in range(2):
         orca_pass(shell, config)
     fallback = written(tmp_path, f"{backup}")
-    assert launches(shell) == [[str(runner_module.LAUNCHER), LANE, "incident", "xhigh", str(brief)], *[[str(runner_module.LAUNCHER), backup, "opus", "xhigh", str(fallback)]] * 2]
+    assert launches(shell) == [[str(runner_module.LAUNCHER), LANE, "incident", "xhigh", str(brief)], *[[str(runner_module.LAUNCHER), backup, "incident-opus", "xhigh", str(fallback)]] * 2]
     tries = incident(tmp_path, f"desk-lane-{backup}").actions
     assert [(key, action.status) for key, action in tries.items()] == [(f"incident-clock:ctx_{LANE}", "failed"), (f"incident-clock:ctx_{LANE}:retry", "verified")]
     assert [line for line in clock_lines(shell) if " in-process: " in line] == []
