@@ -190,6 +190,25 @@ func TestEveryOpenPRByTheDriveAuthorOrLabelIsAdmitted(t *testing.T) {
 	}
 }
 
+func TestAPRAnotherPersonWroteReadsWithTheirLoginWhetherALabelOrAnOpenItemKeepsItAndTheDrivesOwnWithNone(t *testing.T) {
+	h := newHarness(t, []recordedPR{
+		{number: 47613, head: head, login: "teammate"},
+		{number: 47615, head: head, login: "teammate", labels: []string{"drive"}},
+		{number: 1, head: head2, login: "drive-bot"},
+	}, status(1), status(47613), status(47615))
+	if _, err := h.store.OpenItem(store.NewItem{Kind: "tap", Repo: repo, Number: 47613, Head: head, Mover: machine.MoverOwner, Deadline: time.Hour}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+
+	authors := map[int]string{}
+	for _, f := range h.snapshot(t) {
+		authors[f.Number] = f.ForeignAuthor
+	}
+	if want := map[int]string{1: "", 47613: "teammate", 47615: "teammate"}; !maps.Equal(authors, want) {
+		t.Fatalf("foreign authors = %v, want %v", authors, want)
+	}
+}
+
 func TestADraftIsReadAsADraft(t *testing.T) {
 	h := newHarness(t, []recordedPR{
 		{number: 1, head: head, login: "drive-bot", draft: true},
@@ -438,6 +457,9 @@ func TestABranchCarryingASiblingsHeadIsMarkedWhateverGitHubSaysItsBaseIs(t *test
 		{number: 45501, head: head2, login: "drive-bot", commits: []string{head2}},
 		{number: 45583, head: head3, login: "drive-bot", commits: []string{head3}},
 	}, status(45501, func(r *statusRow) { r.Head = head2 }), status(45583, func(r *statusRow) { r.Head = head3 }), status(45799))
+	if err := h.store.Own("lane-9", []int{45799}); err != nil {
+		t.Fatal(err)
+	}
 
 	by := h.snapshot(t)
 

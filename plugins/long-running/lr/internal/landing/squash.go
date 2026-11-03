@@ -153,7 +153,7 @@ func (q *Squash) tagged(snapshot []machine.Facts) ([]machine.Facts, map[int]bool
 	}
 	var named []machine.Facts
 	for _, f := range snapshot {
-		if f.Base != q.Trunk || f.Closed || f.Merged || f.Draft {
+		if f.Base != q.Trunk || f.Closed || f.Merged || f.Draft || f.Foreign() {
 			continue
 		}
 		fix := incidentLane.MatchString(f.Lane) || repairs[f.Number]

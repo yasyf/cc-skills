@@ -416,7 +416,7 @@ func escalateUngraded(s *store.Store, snapshot []machine.Facts, now time.Time, p
 		return err
 	}
 	for _, f := range snapshot {
-		if !f.Green() || f.Graded() || f.Draft || f.Restackable() || out.Verdicts[f.Number].State.Terminal() {
+		if !f.Green() || f.Graded() || f.Draft || f.Foreign() || f.Restackable() || out.Verdicts[f.Number].State.Terminal() {
 			continue
 		}
 		first, seen := since[store.FactKey{Number: f.Number, Head: f.Head}]

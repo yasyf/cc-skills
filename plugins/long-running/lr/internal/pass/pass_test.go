@@ -806,6 +806,36 @@ func TestAGreenUngradedHeadNoLaneOwnsReachesOnlyRootAtThreeHoursSayingHowToOwnIt
 	}
 }
 
+func TestAnotherPersonsPRsALaneCarriesOpenNothingAndTellNobodyForHours(t *testing.T) {
+	s, r := newStore(t), &recorder{}
+	if _, err := s.WantLane(store.Lane{Name: "lane-7", State: store.LaneDesired}, t0); err != nil {
+		t.Fatal(err)
+	}
+	carried := func(number int, change func(*machine.Facts)) machine.Facts {
+		return facts(number, func(f *machine.Facts) {
+			f.ForeignAuthor, f.Tap = "teammate", ""
+			change(f)
+		})
+	}
+	snapshot := []machine.Facts{
+		carried(47613, func(*machine.Facts) {}),
+		carried(47615, func(f *machine.Facts) { f.Finder, f.Fidelity = "", "" }),
+		carried(47644, func(f *machine.Facts) { f.Queue, f.QueuedHead = machine.QueueQueued, head }),
+	}
+
+	var out pass.Outcome
+	for hour := range 4 {
+		out = run(t, s, r, t0.Add(time.Duration(hour)*time.Hour), all, snapshot...)
+	}
+
+	if len(r.posts) != 0 || len(out.Acts) != 0 || len(out.Escalated) != 0 {
+		t.Fatalf("posts = %+v, outcome = %+v", r.posts, out)
+	}
+	if open, err := s.OpenItems(repo, 0); err != nil || len(open) != 0 {
+		t.Fatalf("open = %+v, %v", open, err)
+	}
+}
+
 func TestANewHeadRestartsTheUngradedClock(t *testing.T) {
 	s, r := newStore(t), &recorder{}
 	given := facts(48967, func(f *machine.Facts) { f.Finder = "" })

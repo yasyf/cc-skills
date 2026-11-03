@@ -67,9 +67,40 @@ var cases = []struct {
 	{"an ungraded PR no lane owns and nobody tapped is nobody's", facts(func(f *Facts) { f.Lane, f.Finder, f.Fidelity, f.Tap = "", "", "", "" }), Verdict{StatePushed, MoverNobody, ActionNone, 0}},
 	{"a graded PR no lane owns never asks the owner for a tap", facts(func(f *Facts) { f.Lane, f.Tap = "", "" }), Verdict{StatePushed, MoverNobody, ActionNone, 0}},
 	{"a tapped PR with no lane is still graded", facts(func(f *Facts) { f.Lane, f.Finder, f.Fidelity, f.Tap = "", "", "", TapTapped }), Verdict{StateGrading, MoverPool, ActionGrade, GradeClock}},
+	{"a conflicting PR no lane owns and nobody tapped is never restacked", facts(func(f *Facts) { f.Lane, f.Tap, f.Mergeable = "", "", MergeableConflict }), Verdict{StatePushed, MoverNobody, ActionNone, 0}},
+	{"a red PR no lane owns and nobody tapped is no lane's to fix", facts(func(f *Facts) { f.Lane, f.Tap, f.CI = "", "", CIFailure }), Verdict{StatePushed, MoverNobody, ActionNone, 0}},
+	{"another person's PR a lane carries never asks the owner for a tap", facts(func(f *Facts) { f.ForeignAuthor, f.Tap = "teammate", "" }), Verdict{StatePushed, MoverNobody, ActionNone, 0}},
+	{"another person's PR a lane carries is never graded", facts(func(f *Facts) { f.ForeignAuthor, f.Tap, f.Finder, f.Fidelity = "teammate", "", "", "" }), Verdict{StatePushed, MoverNobody, ActionNone, 0}},
+	{"another person's queued PR a lane carries is never dequeued", facts(func(f *Facts) { f.ForeignAuthor, f.Tap, f.Queue, f.QueuedHead = "teammate", "", QueueQueued, head }), Verdict{StatePushed, MoverNobody, ActionNone, 0}},
+	{"another person's conflicting PR a lane carries is never restacked", facts(func(f *Facts) { f.ForeignAuthor, f.Tap, f.Mergeable = "teammate", "", MergeableConflict }), Verdict{StatePushed, MoverNobody, ActionNone, 0}},
+	{"another person's red PR a lane carries is no lane's to fix", facts(func(f *Facts) { f.ForeignAuthor, f.Tap, f.CI = "teammate", "", CIFailure }), Verdict{StatePushed, MoverNobody, ActionNone, 0}},
+	{"another person's PR the owner tapped lands like the drive's own", facts(func(f *Facts) { f.ForeignAuthor = "teammate" }), Verdict{StateReady, MoverSupervisor, ActionEnqueue, 10 * time.Minute}},
 	{"a draft is nobody's whatever its lane and tap", facts(func(f *Facts) { f.Draft, f.Tap = true, TapTapped }), Verdict{StatePushed, MoverNobody, ActionNone, 0}},
 	{"merged is landed and nobody's", facts(func(f *Facts) { f.Merged, f.Closed = true, true }), Verdict{StateLanded, MoverNobody, ActionNone, 0}},
 	{"closed without a merge is closed and nobody's", facts(func(f *Facts) { f.Closed = true }), Verdict{StateClosed, MoverNobody, ActionNone, 0}},
+}
+
+func TestOnlyAPRALaneOfThisDriveOpenedOrTheOwnerTappedIsOurs(t *testing.T) {
+	for _, c := range []struct {
+		name          string
+		given         Facts
+		ours, foreign bool
+	}{
+		{"a lane of this drive opened it", facts(func(f *Facts) { f.Tap = "" }), true, false},
+		{"no lane of this drive owns it", facts(func(f *Facts) { f.Lane, f.Tap = "", "" }), false, false},
+		{"no lane owns it and the owner tapped it", facts(func(f *Facts) { f.Lane = "" }), true, false},
+		{"another person wrote it and a lane carries it", facts(func(f *Facts) { f.ForeignAuthor, f.Tap = "teammate", "" }), false, true},
+		{"another person wrote it and the owner's tap is conditional", facts(func(f *Facts) { f.ForeignAuthor, f.Tap, f.Condition = "teammate", TapConditional, "only if covered" }), false, true},
+		{"another person wrote it and the owner withdrew his tap", facts(func(f *Facts) { f.ForeignAuthor, f.Tap = "teammate", TapWithdrawn }), false, true},
+		{"another person wrote it and the owner tapped it", facts(func(f *Facts) { f.ForeignAuthor = "teammate" }), true, false},
+		{"another person wrote it and no lane owns it", facts(func(f *Facts) { f.ForeignAuthor, f.Lane, f.Tap = "teammate", "", "" }), false, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if ours, foreign := c.given.Ours(), c.given.Foreign(); ours != c.ours || foreign != c.foreign {
+				t.Fatalf("Ours() = %v, Foreign() = %v, want %v, %v", ours, foreign, c.ours, c.foreign)
+			}
+		})
+	}
 }
 
 func TestEveryWaitHasOneMoverAndADeadline(t *testing.T) {
