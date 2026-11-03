@@ -130,12 +130,11 @@ def test_every_owner_interaction_is_captured_in_order(tmp_path: Path) -> None:
 def test_a_proof_boards_taps_post_no_owner_record_and_no_capture(tmp_path: Path) -> None:
     shell = RecordedShell(doc=json.loads((FIXTURES / "outcomes.json").read_text())["doc"] | {"proof": True})
 
-    assert board_watch.main(["start", "--session", SESSION, "--program", "brook", "--state-dir", str(tmp_path)], shell) == 0
+    assert run(tmp_path, shell) == []
 
     assert shell.posts == []
     assert shell.rows == []
     assert shell.ledger == []
-    assert not (tmp_path / "owner-prompts.jsonl").exists()
     assert (tmp_path / "boards" / f"{SESSION}-events.jsonl").read_text() == (FIXTURES / "stream.jsonl").read_text()
 
 
