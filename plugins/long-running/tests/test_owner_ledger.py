@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -128,6 +129,13 @@ def test_stop_with_an_open_row_refuses_naming_the_row_and_the_verb(communicator:
 def test_the_marks_the_hooks_name_run_the_packs_own_lr() -> None:
     assert owner_ledger.LR == Path(__file__).parents[1] / "bin" / "lr"
     assert owner_ledger.LR.exists()
+
+
+def test_the_lr_this_pack_pins_has_the_verb_and_flags_the_hooks_name() -> None:
+    done = subprocess.run([str(owner_ledger.LR), "owner", "mark", "--help"], capture_output=True, text=True, timeout=120, check=True)
+
+    assert "lr owner mark ROW responded|addressed" in done.stdout
+    assert "--routed" in done.stdout and "--drive" in done.stdout
 
 
 def test_marked_rows_allow_stop(communicator: Window) -> None:
