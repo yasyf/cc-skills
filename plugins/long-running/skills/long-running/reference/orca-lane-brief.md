@@ -237,7 +237,14 @@ Deletion: a change that deletes a code path, proposed or in a PR, carries its ca
   the path deletes or changes for each (cc-notes 83695d86 is the worked example). The
   fidelity desk grades what the deletion does to each caller, never the diff's shape.
 Credentials: before reporting a credential out of reach, check the parameter store
-  (SSM) and the secret stores this brief names, and report where it sits.
+  (SSM) and the secret stores this brief names, and report where it sits. Reading a value
+  takes the owner's Touch ID tap on that exact read, on the Mac only:
+  `VALUE=$(cc-sudo run -- /bin/launchctl asuser <uid> /usr/bin/sudo -H -u <user> <absolute read>)`.
+  Keep the argv literal, pick an AWS profile with `--profile` since an `AWS_PROFILE=` prefix
+  does not reach the read, and assign stdout so the value stays out of the transcript.
+  capt-hook's `secret_stores` guard refuses any other form and names this one. While the owner
+  is away from the Mac no prompt fires and the guard queues a card, so hold that step and keep
+  going on the rest. A Sprite has no `cc-sudo`, so its reads stay refused.
 GitHub budget: read GitHub only through ccx, with `ccx vcs pr status`, `vcs pr state`,
   `vcs pr watch`, or `ccx vcs gh -- <gh args>` for any other read. Writes stay plain `gh`.
   No loop reads faster than every five minutes, and every `ccx vcs gh` read in a loop passes
@@ -372,7 +379,14 @@ Landing desk (PR rows in cc-notes, lane messages in cci, shared by every checkou
   then report the new head; the landing runner re-enqueues it.
   `red <check>` means fix it. Your watch ends only when your PRs land.
 - Before reporting a credential out of reach, check the parameter store (SSM) and the
-  secret stores the brief names, and report where it sits.
+  secret stores the brief names, and report where it sits. Reading a value takes the owner's
+  Touch ID tap on that exact read, on the Mac only:
+  `VALUE=$(cc-sudo run -- /bin/launchctl asuser <uid> /usr/bin/sudo -H -u <user> <absolute read>)`.
+  Keep the argv literal, pick an AWS profile with `--profile` since an `AWS_PROFILE=` prefix
+  does not reach the read, and assign stdout so the value stays out of the transcript.
+  capt-hook's `secret_stores` guard refuses any other form and names this one. While the owner
+  is away from the Mac no prompt fires and the guard queues a card, so hold that step and keep
+  going on the rest. A Sprite has no `cc-sudo`, so its reads stay refused.
 - GitHub budget: read GitHub only through ccx, with `ccx vcs pr status`, `vcs pr state`,
   `vcs pr watch`, or `ccx vcs gh -- <gh args>` for any other read. Writes stay plain
   `gh`. No loop reads faster than every five minutes, and every `ccx vcs gh` read in a loop
