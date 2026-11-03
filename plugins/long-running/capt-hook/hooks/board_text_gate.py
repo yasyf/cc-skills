@@ -16,7 +16,7 @@ from captain_hook import Allow, BaseHookEvent, Call, Event, HookResult, Input, T
 from captain_hook.cmd import Cmd
 from captain_hook.util import reqenv
 
-from .compaction_handoff import CCN_TIMEOUT_SECONDS, CompactionState, ccn, rulings, script, script_module
+from .compaction_handoff import CCN_TIMEOUT_SECONDS, CompactionState, LR, ccn, rulings, script, script_module
 from .deadline_plans import unowned_deadline
 from .owner_facing import OWNER_QUOTE, PROGRAM_ACTIVE, RULINGS, STDIN, Reads, board_bytes, board_sources, fenced, plain_words, plan_words, shown, squeeze
 from .register_injection import drive_args
@@ -69,7 +69,7 @@ REFUSAL = "Warning, nothing was blocked: Owner-facing text passes every check be
 SKIPPED = "Warning, nothing was blocked: board_text_gate skipped text it could not read."
 UNREAD_REGISTER = r"^Warning, nothing was blocked: board_text_gate could not read what it checks[\s\S]*rulings\.py rows"
 BREAKAGE = script_module("long_running.breakage")
-BOARD_CARDS = f"{sys.executable} {script('board_cards.py')}"
+BOARD_CARDS = f"{LR} board cards"
 PIPED_SECTION = '{"id":"sec-merge-taps","type":"section","title":"Release plan and merges"}'
 
 
@@ -227,8 +227,8 @@ def unended(reads: Reads, item: Published, found: list[tuple[dict, dict | None]]
     cards = [block["id"] for block, card in found if block["type"] == "card" and card is None]
     if not cards:
         return []
-    missing = reads.read("the cards' end conditions", lambda: ran([sys.executable, str(script("board_cards.py")), *reads.which, "--session", item.session, "missing", *cards]).split())
-    return [f"{card}: no end condition, so nothing takes it down once its event passes; once it is on the board, run `board_cards.py until {card} --until <at:TIME|pr:N|release:STACK@ENV:COMMIT|record:SEQ> --lane <your lane>`, which also records the PRs and register names it rests on" for card in missing or []]
+    missing = reads.read("the cards' end conditions", lambda: ran([str(LR), "board", "cards", *reads.which, "--session", item.session, "missing", *cards]).split())
+    return [f"{card}: no end condition, so nothing takes it down once its event passes; once it is on the board, run `lr board cards until {card} --until <at:TIME|pr:N|release:STACK@ENV:COMMIT|record:SEQ> --lane <your lane>`, which also records the PRs and register names it rests on" for card in missing or []]
 
 
 def unbuilt(reads: Reads, item: Published, found: list[tuple[dict, dict | None]]) -> list[str]:
@@ -241,7 +241,7 @@ def unbuilt(reads: Reads, item: Published, found: list[tuple[dict, dict | None]]
     }
     if not owed:
         return []
-    drawn = reads.read("the cards' first draws", lambda: ran([sys.executable, str(script("board_cards.py")), "drawn", *owed, *reads.which, "--session", item.session]).splitlines())
+    drawn = reads.read("the cards' first draws", lambda: ran([str(LR), "board", "cards", "drawn", *owed, *reads.which, "--session", item.session]).splitlines())
     now = datetime.now(UTC)
     return [
         f'{card}: recommends "{owed[card]}" with no branch {int(age.total_seconds() // 60)} minutes after the card was first drawn; build it on a branch and name it on that option as "build": {{"repo": "OWNER/NAME", "branch": "NAME"}}, or give "build": {{"none": "<why it has nothing to build>"}}'

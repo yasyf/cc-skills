@@ -55,7 +55,7 @@ question, and as the body the owner's words verbatim, the card and block ids, th
 Pacific time, labelled `from:owner`, `board-answer`, `program:<program>`, `board-session:<session>`,
 `board-card:<card>`, `board-block:<block>` and a `proof:board-watch:<key>` that keeps it to one row
 per record. A card whose answer has no row stays on the board: the long-running hooks refuse a
-remove-block, push or update-block that takes it off, and `board_cards.py sweep` leaves it up.
+remove-block, push or update-block that takes it off, and `lr board cards sweep` leaves it up.
 
 A pick, write-in or pack pick that no `decide` or `claim` names by block id or by its owner record's
 seq 30 minutes after that record is posted again as an `ask` to the coordinator on topic `uncited:<block>`, and at 60 minutes as a
