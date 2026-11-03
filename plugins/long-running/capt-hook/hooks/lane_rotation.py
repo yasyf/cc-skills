@@ -25,12 +25,12 @@ class DriveActive:
         return CompactionState.load(evt).active
 
 
-def route(lane: str, to: str, state: str = "retired", standing: str = "") -> dict:
-    return {ROUTE: json.dumps({"lane": lane, "route": to, "state": state, "standing": standing})}
+def route(lane: str, to: str, state: str = "retired", standing: str = "", meta: bool = False) -> dict:
+    return {ROUTE: json.dumps({"lane": lane, "route": to, "state": state, "standing": standing, "meta": meta})}
 
 
 def routed(evt: BaseHookEvent, lane: str) -> dict | None:
-    """The lane supervisor's registry answer for `lane`: where its mail goes and its row's state; None outside a drive, where no registry exists."""
+    """The lane supervisor's registry answer for `lane`: where its mail goes, its row's state, and whether it is a meta lane; None outside a drive, where no registry exists."""
     if not (entry := drive_entry(evt)):
         return None
     argv = [sys.executable, str(script("drive_supervisor.py")), "route", lane, "--config", str(Path(entry["state_dir"]) / "lr.json")]

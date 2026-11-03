@@ -17,11 +17,12 @@ import (
 
 var startSequence = []struct {
 	session, lane, model, effort string
+	role                         []string
 }{
-	{"coordinator", "root", "fable", "xhigh"},
-	{"meta", "meta", "opus", "xhigh"},
-	{"signal", "signal", "sonnet", "low"},
-	{"chores", "chores", "sonnet", "low"},
+	{"coordinator", "root", "fable", "xhigh", nil},
+	{"meta", "meta", "opus", "xhigh", []string{"--role", "meta"}},
+	{"signal", "signal", "sonnet", "low", nil},
+	{"chores", "chores", "sonnet", "low", nil},
 }
 
 func sessionBrief(t *testing.T, state, lane, role string) string {
@@ -80,7 +81,7 @@ func TestWithARunnerUpDriveStartPostsEachSessionsLaunchToItAsTheCommunicator(t *
 				t.Fatal(err)
 			}
 
-			equal(t, ran, []string{"/claude/long-running/current/bin/desk-launch.py", "lane", want.lane, want.model, want.effort, brief, "--drive", testDrive, "--lane", "owner-relay"})
+			equal(t, ran, append([]string{"/claude/long-running/current/bin/desk-launch.py", "lane", want.lane, want.model, want.effort, brief, "--drive", testDrive, "--lane", "owner-relay"}, want.role...))
 		})
 	}
 }

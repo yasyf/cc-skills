@@ -321,6 +321,10 @@ func newDesk(a *app.App) (*Desk, error) {
 	if err != nil {
 		return nil, err
 	}
+	registry, err := store.Open(filepath.Join(state, lanes.StoreFile))
+	if err != nil {
+		return nil, err
+	}
 	return &Desk{
 		Config: config, Bus: deskCCI{}, Runner: a.Runner, Spawn: SpawnDetached, Env: os.Getenv, Now: a.Now, Sleep: time.Sleep, Parent: os.Getppid, Plugin: os.Getenv("BINRUN_PLUGIN_ROOT"), Stderr: os.Stderr,
 		Incidents: incident.Store{Root: executors},
@@ -328,6 +332,7 @@ func newDesk(a *app.App) (*Desk, error) {
 			_, err := env.IncidentLaunch(ctx, fired)
 			return err
 		},
+		Registry: registry,
 	}, nil
 }
 

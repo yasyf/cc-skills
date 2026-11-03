@@ -63,4 +63,5 @@ var addedColumns = []struct{ table, column, kind string }{
 	{"heard", "seq", "INTEGER"},
 	{"lanes", "placement", "TEXT"},
 	{"lanes", "stopped_on", "INTEGER"},
+	{"lanes", "launcher", "TEXT"},
 }

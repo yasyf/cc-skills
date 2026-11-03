@@ -181,6 +181,7 @@ type Desk struct {
 	Stderr       io.Writer
 	FireIncident func(ctx context.Context, fired lanes.Fired) error
 	Incidents    incident.Store
+	Registry     *store.Store
 
 	background  sync.WaitGroup
 	store       incident.Store
@@ -516,7 +517,14 @@ func (d *Desk) flush(ctx context.Context) error {
 			}
 			continue
 		}
-		posted, err := d.postEscalation(ctx, action.Target, coordinatorLane, action.ActionID)
+		to, err := lanes.NoticeTo(d.Registry, strings.TrimSuffix(words[2], ":"))
+		if words[0] == "HOOK-DRIFT" {
+			to, err = lanes.MetaDesk(d.Registry)
+		}
+		if err != nil {
+			return err
+		}
+		posted, err := d.postEscalation(ctx, action.Target, to, action.ActionID)
 		if err != nil {
 			failures = append(failures, err.Error())
 			continue

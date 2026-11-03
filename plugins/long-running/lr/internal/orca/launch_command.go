@@ -81,6 +81,7 @@ func lineCommand(a *app.App, use, short string, count int, line func([]string) (
 func laneCommand(a *app.App) *cobra.Command {
 	var flags posterFlags
 	var now bool
+	var role string
 	var timeout float64
 	cmd := &cobra.Command{
 		Use:   "lane LANE MODEL EFFORT BRIEF",
@@ -90,7 +91,7 @@ func laneCommand(a *app.App) *cobra.Command {
 Exit 0 when the lane launched, 1 when the runner refused it or a check did, and 2 when no verdict came within --timeout-seconds. A drive whose orca runner posted no orca alive record in five minutes posts nothing.`,
 		Args: cobra.ExactArgs(4),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			order := Order{Lane: args[0], Model: args[1], Effort: args[2], Brief: args[3], Now: now}
+			order := Order{Lane: args[0], Model: args[1], Effort: args[2], Role: role, Brief: args[3], Now: now}
 			label, err := flags.poster(cmd, a).Launch(cmd.Context(), order, seconds(timeout))
 			switch {
 			case err != nil:
@@ -105,6 +106,7 @@ Exit 0 when the lane launched, 1 when the runner refused it or a check did, and 
 	}
 	flags.bind(cmd)
 	cmd.Flags().BoolVar(&now, "now", false, "owner-directed: launch beside a live lane already holding this work")
+	cmd.Flags().StringVar(&role, "role", "", "the role the lane registry records for it, over the brief's ccx role")
 	cmd.Flags().Float64Var(&timeout, "timeout-seconds", defaultTimeout, "how long to wait for the runner's verdict")
 	return cmd
 }

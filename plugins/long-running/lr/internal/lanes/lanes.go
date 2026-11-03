@@ -18,6 +18,7 @@ const (
 	Self        = "supervisor"
 	Root        = "root"
 	OwnerRelay  = "owner-relay"
+	RoleMeta    = "meta"
 	runner      = "desk-runner"
 	mainLane    = "main"
 	CursorName  = "lanes"
@@ -209,6 +210,47 @@ func routeOf(s *store.Store, name string) string {
 	return lane.Name
 }
 
+func NoticeTo(s *store.Store, name string) (to string, err error) {
+	defer recovered(&err)
+	return noticeTo(s, name), nil
+}
+
+func noticeTo(s *store.Store, name string) string {
+	if !isMeta(s, name) {
+		return Root
+	}
+	lane, _ := laneOf(s, name)
+	if head, found := newest(s, lane.Launcher); found && isLive(head.State) && lane.Role != RoleMeta {
+		return head.Name
+	}
+	return OwnerRelay
+}
+
+func isMeta(s *store.Store, name string) bool {
+	for seen := map[string]bool{}; !seen[name]; {
+		seen[name] = true
+		lane, found := laneOf(s, name)
+		if !found {
+			return false
+		}
+		if lane.Role == RoleMeta {
+			return true
+		}
+		name = lane.Launcher
+	}
+	return false
+}
+
+func MetaDesk(s *store.Store) (desk string, err error) {
+	defer recovered(&err)
+	for _, lane := range must(s.Lanes(live...)) {
+		if lane.Role == RoleMeta {
+			return lane.Name, nil
+		}
+	}
+	return Root, nil
+}
+
 func retire(s *store.Store, name, by string, at time.Time) {
 	do(s.SetLaneState(name, store.LaneRetired, at, by, ""))
 	do(s.SetLaneWaiting(name, 0, time.Time{}, ""))
@@ -252,7 +294,7 @@ func overdue(s *store.Store, d Deps, now time.Time) {
 		return
 	}
 	for _, row := range late {
-		to := Root
+		to := noticeTo(s, row.Owner)
 		if head, found := newest(s, row.Owner); found && isLive(head.State) {
 			to = head.Name
 		}
@@ -278,7 +320,7 @@ func refusedOwing(s *store.Store, d Deps, name string, now time.Time) bool {
 	one, owes := owingOf(s, d, name)
 	if owes {
 		hold(s, name, one.owes(), now)
-		one.post(d, now)
+		one.post(s, d, now)
 	}
 	return owes
 }
@@ -294,8 +336,8 @@ func (o owing) owes() string {
 	return fmt.Sprintf("it owes %d deletions whose code is still on trunk: %s", len(o.rows), strings.Join(rows, "; "))
 }
 
-func (o owing) post(d Deps, now time.Time) {
-	do(d.Post(Post{Kind: "defect", To: []string{Root, o.name}, LaneRef: o.name, Text: fmt.Sprintf("%s %s would retire, but %s. The supervisor holds %s, never relaunched or retired, until it posts again. %s: delete the code, or hand each task to a live lane with `ccn task edit <id> --assignee <lane>`; coordinator: relaunch it or reassign its tasks.", pacific(now), o.name, o.owes(), o.name, o.name)}))
+func (o owing) post(s *store.Store, d Deps, now time.Time) {
+	do(d.Post(Post{Kind: "defect", To: []string{noticeTo(s, o.name), o.name}, LaneRef: o.name, Text: fmt.Sprintf("%s %s would retire, but %s. The supervisor holds %s, never relaunched or retired, until it posts again. %s: delete the code, or hand each task to a live lane with `ccn task edit <id> --assignee <lane>`; coordinator: relaunch it or reassign its tasks.", pacific(now), o.name, o.owes(), o.name, o.name)}))
 }
 
 func unreadBy(s *store.Store, r Record, name, cited string) string {

@@ -87,7 +87,9 @@ The communicator names each row to the coordinator as one `cci post --lane owner
 at its next tool call. A
 message about the skill, its tooling, a prompt, a hook or the process goes to the
 meta lane instead, verbatim, as `--kind ask --to meta`, and so does a tooling defect
-the coordinator reports. It is the drive's presentation layer: it reads what the
+the coordinator reports. Meta records go to the meta desk only, and the coordinator
+hears one line only when it must act on a drive lane. It is the drive's presentation
+layer: it reads what the
 coordinator addresses to it (`--kind report --to owner-relay`) and synthesizes what
 he would want from it, never forwarding the coordinator's text as written. Only the
 communicator owes him his own terms (R21): plain words, Pacific times, the thing's
@@ -178,9 +180,13 @@ skill or tooling fix is owed.
 **The meta lane** is a standing session the communicator launches at drive start
 from [meta-lane-brief.md](reference/meta-lane-brief.md), bound to lane `meta`.
 Every skill, tooling, prompt, hook and process improvement goes there, and so does
-every meta order the owner sends. It reports only to the communicator and never
-addresses the coordinator; when the coordinator must act, the communicator relays
-it. It keeps `<state dir>/meta/items.md`, one row per item with the owner's words,
+every meta order the owner sends. It reports only to the communicator. The
+coordinator hears from it only one `decide` line with no item number, when it must
+act on a drive lane such as a stand-down or a relaunch. The `meta_records` hook
+refuses any other record a meta lane sends `root`. `lr launch meta` records its role
+as `meta` in the lane registry. The orca runner and the lane supervisor send each
+notice about a meta lane to its launcher, and each `HOOK-DRIFT` blocker to the meta
+desk. It keeps `<state dir>/meta/items.md`, one row per item with the owner's words,
 the lane, the state, the PR, what blocks it and its Due, and the communicator reads
 only that file for meta items in the owner's updates. Every open row carries a Due:
 the Pacific time by which its next step must have happened, `3:04 PM`, with `Jan 2`
@@ -189,7 +195,7 @@ after it when that is not the day the file is written. The stall watch pages
 again only after the row changes, and never pages a row under `## Done`. Beside it,
 `meta/programs.md` holds one row per meta program with its state and blocker, and
 every owner update carries it as its Drive tooling section. Each item ends in a merged PR with
-tests, installed by the drive's one installer (R14).
+tests, which the meta lane installs itself (R14).
 
 **The signal lane** is a standing Sonnet session the communicator launches at drive
 start from [signal-lane-brief.md](reference/signal-lane-brief.md), bound to lane
