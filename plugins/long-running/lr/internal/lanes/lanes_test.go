@@ -1308,10 +1308,16 @@ func TestAQuietLaneWhosePRsOnlyWaitOnTheOwnersTapIsNeverAsked(t *testing.T) {
 	equal(t, len(probes), 0)
 }
 
+func TestAStandDownForALaneThatNeverBoundIsAddressedAsWritten(t *testing.T) {
+	draft := Post{Kind: "stand-down", To: []string{"scrub-1"}, Text: "x", Successor: "scrub-2"}.Draft(testDrive)
+
+	equal(t, draft.Force, true)
+}
+
 func TestEverySupervisorPostLetsCCIStampItsTimeSoASlowTickIsNeverRefused(t *testing.T) {
 	draft := Post{Kind: "report", To: []string{Root}, Text: "x", LaneRef: "l", PRs: []int{9}, Re: 4, Successor: "s"}.Draft(testDrive)
 
-	equal(t, draft, client.Draft{Drive: testDrive, Lane: Self, Kind: "report", To: []string{Root}, Text: "x", Re: 4, Successor: "s", LaneRefs: []string{"l"}, PRs: []string{"9"}, Stamp: true})
+	equal(t, draft, client.Draft{Drive: testDrive, Lane: Self, Kind: "report", To: []string{Root}, Text: "x", Re: 4, Successor: "s", Force: true, LaneRefs: []string{"l"}, PRs: []string{"9"}, Stamp: true})
 }
 
 func TestARootStandDownNamingNoSuccessorUnownsTheLanesPRsAndNamesToRootOnceOnlyThoseNeedingWork(t *testing.T) {
