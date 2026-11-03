@@ -575,6 +575,10 @@ func TestALandablePRAboveAnUntappedOneIsLeftOutOfTheQueue(t *testing.T) {
 
 func TestAPassThatCannotReadItsPRsTellsRootOncePerCause(t *testing.T) {
 	s, c, q, p := memory(t), &clock{t0}, &queue{}, &pool{}
+	lease, err := s.AcquireLease("d", "0.8.0", 101, t0)
+	if err != nil {
+		t.Fatal(err)
+	}
 	d := deps(c, q, p)
 	failures := []string{"ccx exited 1 at 04:01:02", "ccx exited 1 at 04:07:44", "gh: not found"}
 	d.Snapshot = func(context.Context) ([]machine.Facts, error) {
@@ -589,7 +593,7 @@ func TestAPassThatCannotReadItsPRsTellsRootOncePerCause(t *testing.T) {
 	}
 
 	for range 3 {
-		if _, err := Tick(context.Background(), s, "d", 1, d); err != nil {
+		if _, err := Tick(context.Background(), s, "d", lease.Generation, d); err != nil {
 			t.Fatal(err)
 		}
 		c.now = c.now.Add(PassEvery)
