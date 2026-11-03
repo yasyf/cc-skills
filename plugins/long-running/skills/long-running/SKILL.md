@@ -90,7 +90,7 @@ coordinator reads them at its next tool call and its thought is never interrupte
 It is the drive's presentation layer: it reads what the coordinator addresses to it
 (`--kind report --to owner-relay`) the moment it arrives and synthesizes what he
 would want from it, and it never forwards the coordinator's text as written. Only
-the bridge owes him his own terms (R21): plain words, Pacific times, the thing's
+the communicator owes him his own terms (R21): plain words, Pacific times, the thing's
 name never a codename or id, the mechanism of the drive's failure before the fix,
 the human layer before the agent layer
 ([owner-bridge-brief.md](reference/owner-bridge-brief.md)). It owns the dashboard and the owner updates:
@@ -112,7 +112,7 @@ goes on his board, and an urgent yes/no goes to his Slack as an ask card with bu
 lanes, gos, holds, incidents, the task list, progress docs and the register. It
 launches lanes through the supervisor and Orca (`lr launch`), never with `Agent`.
 It never posts to Slack or the board and never speaks to the owner; everything he
-must see is a `report` to `owner-relay`. Its records are for machines and the bridge:
+must see is a `report` to `owner-relay`. Its records are for machines and the communicator:
 terse, jargon-heavy, ids and lane names included, in no format it owes anyone. The
 same holds for a lane's records to it. When it dies the supervisor relaunches it
 from its brief and newest handoff like any lane, and the bridge keeps answering the
@@ -127,7 +127,7 @@ owner meanwhile. It decides five things and nothing else:
    `blocker` or `incident` record; it answers each with one record naming the
    lane that acts. A resolution naming no fixer, no `FIX-LIVE` and no reason
    is refused by the pack.
-4. **A conflict between two owner rules** is settled in one `report` to the bridge,
+4. **A conflict between two owner rules** is settled in one `report` to the communicator,
    naming the rule applied.
 5. **A desk's output is relayed** unchanged: a milestone as a `report` to the
    bridge, which then sends the owner an update, a tap card by saying nothing while
@@ -277,7 +277,7 @@ him and applied to every live artifact at once (R19b).
 
 **R20.** A Slack link from the owner is an assignment: the bridge queues it, the
 coordinator spawns the Slack lane and the doing lane that turn in one batch, and
-one `report` to the bridge names both. Nobody reads Slack or writes Slack copy
+one `report` to the communicator names both. Nobody reads Slack or writes Slack copy
 outside the Slack lane.
 
 **R22.** Every brief quotes the owner's design verbatim with the entry point at
@@ -369,8 +369,8 @@ is read by every installed version.
 ## Before every tool call
 
 Is there a verb for this? Run it. Does it have a body? Spawn the lane with its task
-and ledger row. Is it a wait? Fold it into the lane that acts. Is it status? The bridge
-sends the update desk's render; the coordinator sends nothing. Is it an owner message? The bridge
+and ledger row. Is it a wait? Fold it into the lane that acts. Is it status? The communicator
+sends the update desk's render; the coordinator sends nothing. Is it an owner message? The communicator
 records the words and queues them; the coordinator applies the ruling everywhere.
 Is it an alert the supervisor has not answered? `lr incident open` and `run` now.
 Did a tool refuse, or did something go wrong twice? The fix is this turn's

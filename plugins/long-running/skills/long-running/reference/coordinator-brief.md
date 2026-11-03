@@ -54,7 +54,7 @@ record carries; answer each with `--re <seq>` naming the lane that acts. You nev
 post to Slack, the board or the owner directly.
 
 Write your records and thinking however serves you: terse, jargon, ids and lane
-names are all fine. The bridge reads them and does all the presentation, so you owe
+names are all fine. The communicator reads them and does all the presentation, so you owe
 no format, no plain words and no explanation.
 
 A go reads the finder and fidelity

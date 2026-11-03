@@ -12,8 +12,8 @@ LANE = {"type": "subagent", "status": "running", "description": "spot-pool lane"
 SPAWNED = [T.user("keep going"), T.assistant(T.tool("Agent", name="spot-pool", prompt="Raise the spot quota.", run_in_background=True))]
 WATCH = {"type": "monitor", "status": "running", "description": "cci watch"}
 PARKED = (
-    "A drive root never calls `AskUserQuestion`. Post the pick to `owner-relay` as a `report`, proceed on a default and apply the answer when it arrives; "
-    "the bridge puts it on his board or sends an urgent yes/no to his Slack with `cc-present ask <card>`."
+    "A coordinator never calls `AskUserQuestion`. Post the pick to `owner-relay` as a `report`, proceed on a default and apply the answer when it arrives; "
+    "the communicator puts it on his board or sends an urgent yes/no to his Slack with `cc-present ask <card>`."
 )
 
 
@@ -41,7 +41,7 @@ def declared_blocking(evt: BaseHookEvent) -> bool:
     only_if=[Coordinator(), Tool("AskUserQuestion"), DriveActive()],
     skip_if=[FromSubagent(), Annotated("raw")],
     tests=coordinator_tests({
-        question("Carry a fourth Dagger patch?", state=live(LANE, WATCH)): Block(pattern=r"^A drive root never calls `AskUserQuestion`\..*`cc-present ask <card>`"),
+        question("Carry a fourth Dagger patch?", state=live(LANE, WATCH)): Block(pattern=r"^A coordinator never calls `AskUserQuestion`\..*`cc-present ask <card>`"),
         question("Raise the spot quota?", state=live(), transcript=SPAWNED): Block(pattern="never calls"),
         question("Carry a fourth Dagger patch?", state=live(WATCH)): Allow(),
         question("Carry a fourth Dagger patch?", state=live(LANE), agent_id="a1b2c3"): Allow(),

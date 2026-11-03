@@ -679,7 +679,7 @@ def owner_waits(drive: str, *args: str) -> list[dict]:
     }),
 )
 def tap_claims_match_the_board(evt: BaseHookEvent) -> HookResult | None:
-    """A bridge reply that says a PR or anything else waits on the owner's tap, approval or pick stands only when `cci owner-waits` finds a board row awaiting him at that PR's head, or anything awaiting him for a claim naming no PR; otherwise the reply goes back with the real state to say instead (owner, 4:40 AM Oct 30, #207532). A board that does not read blocks nothing."""
+    """A communicator reply that says a PR or anything else waits on the owner's tap, approval or pick stands only when `cci owner-waits` finds a board row awaiting him at that PR's head, or anything awaiting him for a claim naming no PR; otherwise the reply goes back with the real state to say instead (owner, 4:40 AM Oct 30, #207532). A board that does not read blocks nothing."""
     if not CompactionState.load(evt).active or not (entry := drive_entry(evt)):
         return None
     prs, bare = tap_claims(last_reply(evt))
@@ -780,7 +780,7 @@ FLYING = {"task": "952", "lane": "next-build-tester-2", "subject": "tester round
     }),
 )
 def owner_updates_cover_every_delivery(evt: BaseHookEvent) -> HookResult | None:
-    """A bridge reply to the owner's status or update ask covers every delivery `owner_update.py` lists since the last update that passed, and calls no in-flight task not started; else it goes back with the lines to add (owner, 9:55 PM Nov 1). A read that fails blocks nothing."""
+    """A communicator reply to the owner's status or update ask covers every delivery `owner_update.py` lists since the last update that passed, and calls no in-flight task not started; else it goes back with the lines to add (owner, 9:55 PM Nov 1). A read that fails blocks nothing."""
     if not CompactionState.load(evt).active or not (entry := drive_entry(evt)) or not update_ask(evt):
         return None
     now = time.time()
