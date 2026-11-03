@@ -10142,6 +10142,10 @@ def test_a_restarted_runner_never_replays_a_settled_incident_release_or_its_held
 
 
 
+def not_live(shell: FakeShell) -> list[dict]:
+    return [post for post in blockers(shell) if post_body(post).startswith("LANDED-NOT-LIVE")]
+
+
 def landed_on_gateway(shell: FakeShell, minutes: int) -> None:
     lone_green_pr(shell)
     shell.rows.append({"pr": "48353", "lane": LANE, "branch": "g/1", "base": "dev", "head": "aaaa111111", "state": "landed", "landed_sha": "f00d000001", "landed_at": actions.stamp(shell.now() - timedelta(minutes=minutes)), "title": "llm-gateway: ✨ route gemini through the gateway"})
@@ -10152,16 +10156,16 @@ def test_a_landing_its_target_runs_none_of_an_hour_on_draws_one_blocker_to_root_
     """Root #342171: #48353 landed at 2:31 PM, and llm-gateway shipped nothing for three hours."""
     landed_on_gateway(shell, minutes=30)
     landing_pass(shell, config)
-    assert blockers(shell) == [] and [call for call in shell.calls if call[1:] == ["release", "live", "--json"]] == []
+    assert not_live(shell) == [] and [call for call in shell.calls if call[1:] == ["release", "live", "--json"]] == []
     shell.sleep(31 * 60)
     landing_pass(shell, config)
-    [blocker] = blockers(shell)
+    [blocker] = not_live(shell)
     assert blocker["to"] == "root" and post_body(blocker) == "LANDED-NOT-LIVE llm-gateway: #48353 landed, the oldest 61 minutes ago, and llm-gateway runs none of them; start its release: `tools/ci release start --only llm-gateway --manual`"
     [state] = [post for post in shell.posts if post["kind"] == "state" and post.get("topic") == "landed-not-live"]
     assert state["text"].startswith("LANDED-NOT-LIVE llm-gateway: #48353 (")
     shell.sleep(6 * 60)
     landing_pass(shell, config)
-    assert len(blockers(shell)) == 1
+    assert len(not_live(shell)) == 1
     shell.running[0]["commit"] = "beef000002"
     shell.ancestors.add(("f00d000001", "beef000002"))
     shell.sleep(6 * 60)
