@@ -201,13 +201,15 @@ func serveUpIn(t *testing.T, others, services string) (string, string, error) {
 	if err := os.Mkdir(bin, 0o700); err != nil {
 		t.Fatal(err)
 	}
+	left := readyLine("0.0.9+stale")
 	if strings.Contains(services, Service) {
-		if err := os.Mkdir(dir, 0o700); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(dir, "serve.json"), []byte(readyLine("0.1.0+15ec2904eb00")), 0o600); err != nil {
-			t.Fatal(err)
-		}
+		left = readyLine("0.1.0+15ec2904eb00")
+	}
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "serve.json"), []byte(left), 0o600); err != nil {
+		t.Fatal(err)
 	}
 	stub(t, bin, "pgrep", `printf '%s' "$PGREP_SAYS"`)
 	stub(t, bin, "sprite-env", `case "$2" in
@@ -229,8 +231,8 @@ func TestTheHostScriptStartsOneServerAndRefusesBesideAnother(t *testing.T) {
 	if err != nil || !strings.Contains(said, "services create "+Service) {
 		t.Fatalf("err %v, said %q", err, said)
 	}
-	if _, err := readyOf(printed, 7300); err != nil {
-		t.Fatalf("ready %v", err)
+	if up, err := readyOf(printed, 7300); err != nil || up.Health.BuildVersion != "0.1.0+15ec2904eb00" {
+		t.Fatalf("a new service read an earlier server's ready event: %+v %v", up, err)
 	}
 
 	printed, said, err = serveUpIn(t, "", `[{"name":"`+Service+`","state":{"status":"running"}}]`)

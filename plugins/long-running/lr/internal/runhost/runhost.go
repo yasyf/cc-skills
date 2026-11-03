@@ -37,7 +37,7 @@ cd "$(dirname "$0")"
 exec orca serve --port "$1" --pairing-address 127.0.0.1 --json >serve.json 2>>serve.log
 EOF
 chmod 700 "$dir/serve.sh"
-sprite-env services list | grep -q "\"name\":\"$service\"" || sprite-env services create "$service" --cmd "$dir/serve.sh" --args "$port" --no-stream >/dev/null
+sprite-env services list | grep -q "\"name\":\"$service\"" || { rm -f "$dir/serve.json"; sprite-env services create "$service" --cmd "$dir/serve.sh" --args "$port" --no-stream >/dev/null; }
 deadline=$(($(date +%s) + wait))
 until grep -q '"type":"orca_server_ready"' "$dir/serve.json" 2>/dev/null; do
   if [ "$(date +%s)" -ge "$deadline" ]; then tail -n 5 "$dir/serve.log" >&2; exit 4; fi
