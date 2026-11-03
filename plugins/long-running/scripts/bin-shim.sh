@@ -53,7 +53,7 @@ case "$TOOL" in
     for python in python3.15 python3.14 python3.13 /opt/homebrew/bin/python3.14 /opt/homebrew/bin/python3.13 python3; do
       command -v "$python" >/dev/null 2>&1 && break
     done
-    exec "$python" "$SCRIPT" "$@"
+    PYTHONPATH="${SCRIPT%/*}${PYTHONPATH:+:$PYTHONPATH}" exec "$python" "$SCRIPT" "$@"
     ;;
   *) exec "$SCRIPT" "$@" ;;
 esac
