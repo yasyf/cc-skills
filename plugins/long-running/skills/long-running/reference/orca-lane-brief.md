@@ -209,12 +209,11 @@ Bus: cci drive <drive>; CLI cci, on PATH by name.
     `decision` another lane could build on, a `blocker` or `ask` addressed `--to` the lane
     that acts. Answer with `--kind answer --re <seq>`; use `--kind withdraw --re <seq>`
     before you change or retract a record. Set the topic and recipients on replies.
-    A SendMessage carries the entry number, never the body.
 Registration: the pack binds your thread to your lane before your first command runs, with
   one `<lane>: registered at its first command` state record; a codex lane's brief copy makes
   that post its first command.
 Peers: put your `cci me` line in every handoff. `cci who --pr <n>` names the session that
-  owns a PR and `cci who --drive <drive> --role root` the coordinator; SendMessage the address it prints.
+  owns a PR and `cci who --drive <drive> --role root` the coordinator; reach either with `cci post --to <its lane>`.
 Codex: call `Skill(codex)` or `codex:codex-wrapper`; a one-off question goes to `codex-ask`.
 `# ccx:raw` at the end of a Bash command runs it past the hooks as written. Use it only
   where a hook misreads the command, and name that hook in your report.
@@ -245,9 +244,8 @@ GitHub budget: read GitHub only through ccx, with `ccx vcs pr status`, `vcs pr s
 Report short deltas with pointers (file:line, PR number, sha, Slack ts, disk path); never
   paste a diff, log, PR body, or thread into a message. Write it to disk and send the path.
 Finish: a lane with a PR finishes only once its squash `(#N)` is on the base branch.
-  Drive to a terminal state, post the report as a cci `done` record, then
-  SendMessage <orchestrator> exactly one report, ≤10 lines: verdict | ids | what
-  changed | what is next. That message is your last action.
+  Drive to a terminal state, then post one cci `done` record to <orchestrator>,
+  ≤10 lines: verdict | ids | what changed | what is next. That record is your last action.
   A turn ends only on a typed record, and `cci hook stop` refuses every other stop:
   `done`, `stopped`, or an open `ask`, `blocker` or `blocked`. To wait on an event, post
   `cci post --kind blocked` with `--pr N`, `--target T`, `--lane-ref L`, or a `card-` id in

@@ -18,7 +18,7 @@ The doc carries everything else. Then do only the swap.
 ```text
 Replaces: <lane>
 You are <lane>-<N+1> and take over <lane>'s work. The coordinator stopped <lane>; never
-SendMessage it. Your handoff is `ccn -R <drive checkout> doc show <handoff doc id>`, and
+message it. Your handoff is `ccn -R <drive checkout> doc show <handoff doc id>`, and
 you read deliveries from cci cursor <cursor the handoff names>.
 
 Before any write (an edit, commit, push, ship, PR comment, or a record that claims work):
@@ -104,7 +104,7 @@ Do, in this order:
   7. If there was a previous handoff, run
      `ccn doc supersede <previous handoff doc id> --by <new id>`.
 
-Your last action is one SendMessage to `main` with exactly these lines and nothing else:
+Your last action is one `cci post --kind handoff --to root` with exactly these lines and nothing else:
   handoff <lane>: doc <new doc id>; successor <lane>-<N+1>
   unverified: <n> items (in the doc)
 Final text after it is empty or that same first line.

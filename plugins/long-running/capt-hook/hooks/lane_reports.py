@@ -12,7 +12,7 @@ LANE_TYPES = frozenset({"long-running:lane", "long-running:lane-ship"})
 TEAMMATE_ID = re.compile(r"^a(?P<name>.+)-[0-9a-f]{16}$")
 ONE_LINE = (
     f"Warning, nothing was blocked: Final text exceeds {FINAL_TEXT_CAP} characters. Replace it with "
-    "one line: outcome + pointer; the report went by SendMessage."
+    "one line: outcome + pointer; the report went on cci."
 )
 ACTIVE = [CompactionState(active=True, coordinator=True)]
 

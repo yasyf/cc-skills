@@ -28,7 +28,7 @@ One round per revision the builder tells you is up:
    Ask it also for the three changes it would make first and three ideas nobody asked for.
 3. Post `cci post --drive <drive> --lane user-test-<surface> --to <builder>,root --kind report
    --text "round <n>: <misses>/<tasks> missed at a glance; top three fixes" --path <report>`
-   and SendMessage <builder> the same line.
+   and post `cci post --to <builder>` with the same line.
 
 Stop after at least three rounds, the last with zero glance misses, and the builder's
 word that the revision is ready for his card; report the round history to the coordinator. Nothing runs on this Mac beyond

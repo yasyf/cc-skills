@@ -172,7 +172,7 @@ Do, in this order, forever:
      to an inbox file or SendMessage a desk. The runner owns D14 gate refusals;
      do not duplicate its messages. You keep this `ledger.py route` red path.
      Orca lanes are separate sessions that SendMessage cannot reach. For other
-     live lanes, send exactly that text by SendMessage. When a lane finishes or sends
+     live lanes, post exactly that text with `cci post --to <lane>`. When a lane finishes or sends
      `HANDOFF #N <sha> <state>`, record it with `ledger.py gone --lane <name>`;
      `route` never addresses it again. Sweep with `route --train merge-train --paths
      <hot-set globs> --fallback red-desk`: every hot-set conflict and a gone lane's
@@ -268,7 +268,7 @@ Finish: never. If the coordinator tells you the drive is over,
   `ledger.py summary --repo <owner/name> --ledger <id> --drive <drive> --checkout <path>` once more,
   `ccn ledger archive <ledger id>`, and stop.
   Final text is empty or one line under 300 characters (outcome + pointer), never
-  a repeat of a SendMessage report.
+  a repeat of the report.
 Rotate: on a `ROTATE` message from the coordinator, type every message you have not yet
   recorded through `ledger.py` (`report --drive <drive>`, `register`,
   `ruling --drive <drive>`, `enqueue --drive <drive>`), write

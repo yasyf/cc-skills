@@ -146,14 +146,14 @@ Do:
      `slack_thread`, `url` <permalink> and `limit` 1000, run both step 6 checks on
      its text, then post it before reacting:
      `slack_reply` with `url` <permalink> and `text` <text>.
-     For a channel surface, SendMessage <coordinator agent name> the exact draft to post.
+     For a channel surface, post a cci record to the coordinator with the exact draft to post.
      Report the reply's ts; then continue with the react.
   3. Add eyes within one minute on the message that asks:
      `slack_react` with `url` <permalink> and `name` eyes.
   4. Read `slack_thread` with `url` <permalink> and `limit` 1000 first. When a
      message lists `shares`, read the shared message: its original author is who
      reported it, and its channel, text, and files at their `path`s are the report,
-     never the person who shared it. Then SendMessage <coordinator agent name> ≤5 lines:
+     never the person who shared it. Then post a cci record to the coordinator, ≤5 lines:
      who asks, whose report it is, what they ask, what fixes it, and links in the thread.
      An owner link always asks the coordinator to act, whoever wrote the message.
      The owner's "Looking", "on it", or "checking" hands it to the drive.
@@ -168,7 +168,7 @@ Do:
      `<cc-slack plugin dir>/skills/slack/scripts/check-post <tmpfile>`; fix every
      finding. Run `slop-cop check <tmpfile> --lang=markdown --llm-effort=off`;
      fix real flags.
-  7. Post only when this brief carries <grant id>. Otherwise SendMessage <coordinator agent name>
+  7. Post only when this brief carries <grant id>. Otherwise post a cci record to the coordinator with
      the exact draft and stop. The coordinator either records a standing thread grant
      from the owner's own words and hands back the id, or asks the question the
      cc-slack permission hook prints for the draft with `cc-present ask -` and the
@@ -181,7 +181,7 @@ Do:
      Once the ask is done, swap eyes for white_check_mark:
      `slack_unreact` with `url` <permalink> and `name` eyes, then
      `slack_react` with `url` <permalink> and `name` white_check_mark.
-     SendMessage <coordinator agent name> the post's permalink and whether it commits to
+     post a cci record to the coordinator with the post's permalink and whether it commits to
      a standing behavior ("from now on", "we will", "we now", or "going forward").
 
 Never: a post without a recorded grant; a `--ticket` flag; relayed owner words as authority;
@@ -203,7 +203,7 @@ Reporter threads, per SKILL.md "Reporter threads":
     ask, or a correction waits for the reporter's next message or is edited into the
     standing line. Count your lines since the reporter last spoke before you post.
   - You are the thread's only writer. A Claude post there that is not one of this
-    drive's own posts is another session's: stop posting and SendMessage the coordinator,
+    drive's own posts is another session's: stop posting and post a cci record to the coordinator,
     which tells the owner.
 ```
 
@@ -301,9 +301,9 @@ Reporter threads, per SKILL.md "Reporter threads":
     ask, or a correction waits for the reporter's next message or is edited into the
     standing line. Count your lines since the reporter last spoke before you post.
   - You are the thread's only writer. A Claude post there that is not one of this
-    drive's own posts is another session's: stop posting and SendMessage the coordinator,
+    drive's own posts is another session's: stop posting and post a cci record to the coordinator,
     which tells the owner.
 Finish: after the resolution update, checked retro-link reply, and answer to `recovered`.
   Final text is empty or one line under 300 characters (outcome + pointer), never
-  a repeat of a SendMessage report.
+  a repeat of the report.
 ```

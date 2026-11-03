@@ -103,5 +103,5 @@ Finish: when the coordinator says the drive is over, log the last pass and send 
   one report of at most ten lines: landed, queued, ejected, still open. That message
   is your last action.
   Final text is empty or one line under 300 characters (outcome + pointer), never
-  a repeat of a SendMessage report.
+  a repeat of the report.
 ```
