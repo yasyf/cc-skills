@@ -42,7 +42,9 @@ from long_running.grades import names_head
 from long_running import drive as lr_drive
 from long_running import release
 from lr import config as lr_config
+from lr import facts as lr_facts
 from lr import loop
+from lr.bus import Bus
 from lr.movers import lanes
 from lr.store import Store
 
@@ -56,6 +58,7 @@ UNSAFE_NAME = re.compile(r"[^a-zA-Z0-9_-]")
 SENDER = "long-running"
 SETTINGS = Path.home() / ".claude" / "settings.json"
 TIMEOUT = 60
+PASS_TIMEOUT = 300
 PAGE_BYTES = 4_000_000
 MORE = "resume with --since"
 INACTIVE = frozenset({"completed", "failed"})
@@ -72,9 +75,9 @@ OPEN_FILES = 65536
 WHO_FIELDS = "session,agent,lane,live,seen_at,stood_down"
 
 
-def run(argv: list[str]) -> str:
+def run(argv: list[str], timeout: int = TIMEOUT) -> str:
     try:
-        done = subprocess.run(release.command(argv), capture_output=True, text=True, timeout=TIMEOUT)
+        done = subprocess.run(release.command(argv), capture_output=True, text=True, timeout=timeout)
     except (OSError, subprocess.TimeoutExpired) as error:
         raise lanes.Unread(f"{argv[0]} {argv[1]}: {error}") from error
     if done.returncode:
@@ -325,10 +328,23 @@ def label(config: lr_config.Config) -> str:
     return f"com.long-running.{config.drive}.supervisor"
 
 
+def pass_deps(config: lr_config.Config, state: Path) -> dict:
+    """The PR pass's sources and bus: one read of each per pass, over the shadow's own store while the shadow runs."""
+    shadow = Store.open(state / "lr-shadow.sqlite") if "shadow" in config.movers else None
+    passing = shadow or Store.open(state / "lr.sqlite")
+
+    def reads(argv: list[str]) -> str:
+        return run(argv, timeout=PASS_TIMEOUT)
+
+    bus = Bus(config.drive, loop.SELF, reads)
+    return {"shadow": shadow, "post": bus.post, "snapshot": lambda: lr_facts.snapshot(passing, bus, reads, config.repo, config.drive, config.author, config.label, config.go_lane_names)}
+
+
 def cmd_run(config: lr_config.Config, path: Path) -> int:
     store = Store.open(path.parent / "lr.sqlite")
     running = lr_drive.plugin_manifest()["version"]
-    deps = loop.Deps(movers=frozenset(config.movers), clock=clock, sleep=time.sleep, lane_deps=lanes_deps(config, path.parent) if "lanes" in config.movers else None, stale=Upgrade(config, running))
+    passes = pass_deps(config, path.parent) if set(config.movers) & loop.PR_MOVERS else {}
+    deps = loop.Deps(movers=frozenset(config.movers), clock=clock, sleep=time.sleep, lane_deps=lanes_deps(config, path.parent) if "lanes" in config.movers else None, stale=Upgrade(config, running), **passes)
     ticks = loop.run(store, config.drive, SCRIPTS.parents[2].name, os.getpid(), deps)
     if not deps.stale():
         print(f"drive_supervisor: generation moved after {len(ticks)} ticks; exiting for the newer supervisor", file=sys.stderr)

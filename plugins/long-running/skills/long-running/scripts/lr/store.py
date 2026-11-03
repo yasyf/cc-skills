@@ -202,7 +202,8 @@ class Store:
         return cursor.rowcount == 1
 
     def facts(self, repo: str, number: int, head: str) -> dict[str, str]:
-        rows = self.db.execute("SELECT kind, value FROM facts WHERE repo = ? AND number = ? AND head = ?", (repo, number, head)).fetchall()
+        """The fact rows for `head`, including those a record keyed by its short sha, the newest value of each kind winning."""
+        rows = self.db.execute("SELECT kind, value FROM facts WHERE repo = ? AND number = ? AND length(head) >= 7 AND substr(?, 1, length(head)) = head ORDER BY posted, length(head)", (repo, number, head)).fetchall()
         return {row["kind"]: row["value"] for row in rows}
 
     def escalate(self, subject: str, cause: str, to_mover: str, at: datetime) -> bool:

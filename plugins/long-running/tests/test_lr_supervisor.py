@@ -15,7 +15,7 @@ REPO = "org/repo"
 
 
 def facts(**fields) -> Facts:
-    base = dict(repo=REPO, number=45583, head=HEAD, base="dev", lane="lane-7", ci="success", mergeable="clean", finder="clear", fidelity="pass", tap="tapped")
+    base = dict(repo=REPO, number=45583, head=HEAD, base="dev", lane="lane-7", ci="success", mergeable="clean", approved=True, finder="clear", fidelity="pass", tap="tapped")
     return Facts(**{**base, **fields})
 
 
