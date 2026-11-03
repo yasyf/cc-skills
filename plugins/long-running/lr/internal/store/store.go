@@ -271,6 +271,18 @@ func (s *Store) StopSprite(lane string, at time.Time) (bool, error) {
 	return changed(result, err)
 }
 
+func (s *Store) FailSpriteStop(lane string, tries int) (exhausted bool, err error) {
+	var failures int
+	if err := s.db.QueryRow("INSERT INTO sprite_stop_failures (lane, failures) VALUES (?, 1) ON CONFLICT (lane) DO UPDATE SET failures = failures + 1 RETURNING failures", lane).Scan(&failures); err != nil {
+		return false, err
+	}
+	if failures >= tries {
+		return true, nil
+	}
+	_, err = s.db.Exec("DELETE FROM sprite_stops WHERE lane = ?", lane)
+	return false, err
+}
+
 func (s *Store) Escalations(subject string) ([]Escalation, error) {
 	rows, err := s.db.Query("SELECT subject, cause, to_mover, raised FROM escalations WHERE ?1 IS NULL OR subject = ?1 ORDER BY raised", text(subject))
 	return collect(rows, err, func(rows *sql.Rows) (Escalation, error) {

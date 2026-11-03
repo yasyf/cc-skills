@@ -407,17 +407,18 @@ lists no dispatch for the lane, its `done` record or a withdrawal must have
 retired it. A lane that is live or held, or whose dispatch is unsettled, keeps its
 Sprite.
 
-For each ended lane, lr runs `cc-remote orca stop <lane>` once with the
+For each ended lane, lr runs `cc-remote orca stop <lane>` with the
 `WORKER_CC_REMOTE` and `CC_REMOTE_CONFIG` of `runner.json`'s `orca.sprite.env`.
 That stop closes the forward and stops every service, so the Sprite goes cold
 with its disk kept, and it refuses a warm pool workspace's own name. The gc pause
-below does not hold it. A stop that fails posts one `SPRITE-STOP-FAILED` blocker
-to root with the error, and lr never runs that lane's stop again.
+below does not hold it. A stop that fails is tried again on the next pass, up to
+three tries. The third failure posts one `SPRITE-STOP-FAILED` blocker to root with
+the error, and lr never runs that lane's stop again.
 
-Before any stop, lr asks that CLI its `version`. A release older than 0.27.3,
-which added `orca stop`, skips the pass with one warning in the supervisor log.
+Before any stop, lr asks that CLI its `version`. A release older than 0.27.4,
+the first whose `orca stop` works on a finished lane's Sprite, skips the pass with one warning in the supervisor log.
 The ended lanes stay unmarked, and lr stops them on the next pass after the
-checkout's pin reaches 0.27.3.
+checkout's pin reaches 0.27.4.
 
 gc is paused until `~/.local/state/orca-gc/resumed` exists, or
 `$XDG_STATE_HOME/orca-gc/resumed` when that variable is set. A paused gc prints

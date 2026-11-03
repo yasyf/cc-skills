@@ -34,7 +34,8 @@ const (
 	gcEvery      = 5 * time.Minute
 	gcTimeout    = 10 * time.Minute
 	stopTimeout  = 5 * time.Minute
-	stopRelease  = "v0.27.3"
+	stopRelease  = "v0.27.4"
+	stopTries    = 3
 	launchWait   = 5 * time.Minute
 	launchMargin = 10 * time.Second
 	incidentBar  = 20 * time.Minute
@@ -307,7 +308,7 @@ func (r CcRemote) hasStop(ctx context.Context, runner shell.Runner) error {
 	printed := strings.TrimSpace(result.Stdout + result.Stderr)
 	version := printed[strings.LastIndex(printed, "\n")+1:]
 	if semver.Compare("v"+version, stopRelease) < 0 {
-		return fmt.Errorf("%s version printed %s, and orca stop first shipped in cc-remote %s", r.Binary, or(version, "nothing"), stopRelease)
+		return fmt.Errorf("%s version printed %s, and an orca stop that works on a finished lane first shipped in cc-remote %s", r.Binary, or(version, "nothing"), stopRelease)
 	}
 	return nil
 }
@@ -370,7 +371,15 @@ func (c *SpriteStops) Check(ctx context.Context, now time.Time) error {
 			c.Log.Info("sprite stopped", "lane", lane, "why", why[lane])
 			continue
 		}
-		text := fmt.Sprintf("SPRITE-STOP-FAILED %s: %s, so the supervisor ran `cc-remote orca stop %s` once, and it failed: %s | its Sprite still runs and the supervisor does not try again; stop it by hand with `%s orca stop %s --config %s`", lane, why[lane], lane, truncated(stopped[i].Error(), 300), c.CcRemote.Binary, lane, c.CcRemote.Config)
+		exhausted, err := c.Store.FailSpriteStop(lane, stopTries)
+		if err != nil {
+			return err
+		}
+		if !exhausted {
+			c.Log.Warn("sprite stop failed, the next pass tries again", "lane", lane, "err", stopped[i])
+			continue
+		}
+		text := fmt.Sprintf("SPRITE-STOP-FAILED %s: %s, so the supervisor ran `cc-remote orca stop %s` %d times, and the last failed: %s | its Sprite still runs and the supervisor does not try again; stop it by hand with `%s orca stop %s --config %s`", lane, why[lane], lane, stopTries, truncated(stopped[i].Error(), 300), c.CcRemote.Binary, lane, c.CcRemote.Config)
 		if _, err := c.Env.Bus.Post(ctx, client.Draft{Drive: c.Env.Config.Drive, Lane: Self, Kind: blockerKind, To: []string{Root}, ID: "sprite-stop:" + lane, Stamp: true, Text: text}); err != nil {
 			return fmt.Errorf("%w: cci post: %w", ErrUnread, err)
 		}

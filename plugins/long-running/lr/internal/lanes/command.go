@@ -89,7 +89,7 @@ func Command(a *app.App) *cobra.Command {
 func StopSpritesCommand(a *app.App) *cobra.Command {
 	return &cobra.Command{
 		Use:   "stop-sprites",
-		Short: "Stop the Sprite of each lane that ended, once, with cc-remote orca stop; a stop that fails posts one blocker to root",
+		Short: "Stop the Sprite of each lane that ended with cc-remote orca stop, up to three tries; the last failure posts one blocker to root",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg, state, err := Loaded(a)
