@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/pass"
@@ -13,8 +14,9 @@ import (
 )
 
 const (
-	landedKind = "landed"
-	rootLane   = "root"
+	landedKind    = "landed"
+	rootLane      = "root"
+	queueAccepted = "exit 0: "
 )
 
 func Announce(ctx context.Context, drive, trunk string, landings []pass.Landing, route pass.Route) error {
@@ -47,6 +49,32 @@ func Announce(ctx context.Context, drive, trunk string, landings []pass.Landing,
 			ID:    landedKind + ":" + number,
 			PRs:   []string{f.Repo + "#" + number},
 			Text:  fmt.Sprintf("LANDED #%d at %s: merged into %s", f.Number, f.Head[:min(10, len(f.Head))], trunk),
+		})
+		unposted = append(unposted, err)
+	}
+	return errors.Join(unposted...)
+}
+
+func Settle(ctx context.Context, drive string, answers []Said) error {
+	unposted := make([]error, 0, len(answers))
+	for _, answer := range answers {
+		f := answer.Facts
+		label, text := "REFUSED", answer.Text
+		if rest, accepted := strings.CutPrefix(text, queueAccepted); accepted {
+			label, text = "QUEUED", rest
+		}
+		to := f.Lane
+		if to == "" {
+			to = rootLane
+		}
+		_, err := client.Post(ctx, client.Draft{
+			Drive: drive,
+			Lane:  self,
+			Kind:  "report",
+			To:    []string{to},
+			ID:    fmt.Sprintf("settled:%d:%s:%s", f.Number, f.Head, label),
+			PRs:   []string{pullRef(f)},
+			Text:  fmt.Sprintf("%s #%d at %s: %s", label, f.Number, shortHead(f.Head), text),
 		})
 		unposted = append(unposted, err)
 	}

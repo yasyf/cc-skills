@@ -5,9 +5,11 @@ import (
 	"errors"
 	"log/slog"
 	"reflect"
+	"regexp"
 	"slices"
 	"time"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/grading"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/landing"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
@@ -23,9 +25,14 @@ const (
 	passedName  = "pass"
 	moverLanes  = "lanes"
 	moverShadow = "shadow"
+
+	unreadSubject = "STATUS-READ-FAILED"
 )
 
-var prMovers = []string{moverShadow, "landing", "grading", "items"}
+var (
+	prMovers = []string{moverShadow, "landing", "grading", "items"}
+	digits   = regexp.MustCompile(`\d+`)
+)
 
 type Deps struct {
 	Movers    []string
@@ -112,6 +119,9 @@ func runPass(ctx context.Context, s *store.Store, drive string, generation int64
 	snapshot, err := d.Snapshot(ctx)
 	if err != nil {
 		d.Log.Warn("pass skipped", "err", err)
+		if err := tellUnread(passing, d.Post, err, now); err != nil {
+			d.Log.Warn("a skipped pass could not say so", "err", err)
+		}
 		return report, nil
 	}
 	report.PRs = len(snapshot)
@@ -146,6 +156,9 @@ func runPass(ctx context.Context, s *store.Store, drive string, generation int64
 		if err != nil {
 			d.Log.Warn("landing stopped mid-pass", "err", err)
 		}
+		if err := landing.Settle(ctx, drive, landed.Said); err != nil {
+			d.Log.Warn("a queue answer went unposted", "err", err)
+		}
 		report.Enqueued = len(landed.Enqueued) + len(landed.Resubmitted)
 	}
 	if slices.Contains(d.Movers, "grading") {
@@ -165,6 +178,15 @@ func runPass(ctx context.Context, s *store.Store, drive string, generation int64
 		report.Dispatched = len(dispatched)
 	}
 	return report, nil
+}
+
+func tellUnread(s *store.Store, post pass.Post, unread error, now time.Time) error {
+	cause := "the PR read failed, so this pass moved nothing and the next one reads again: " + unread.Error()
+	raised, err := s.Escalate(unreadSubject, digits.ReplaceAllString(cause, "N"), lanes.Root, now)
+	if err != nil || !raised {
+		return err
+	}
+	return post([]string{lanes.Root}, bus.Escalation{Subject: unreadSubject, Cause: cause})
 }
 
 type Ended string
