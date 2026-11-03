@@ -88,6 +88,14 @@ cci post --drive <drive> --lane root --kind correction --to <desk> --re <seq> --
 Here `<seq>` is the cci sequence number of the standing record being replaced.
 - Listing active rules: Standing rule ids take the form `#<seq>`. Every desk brief and desk summary lists live standing rules individually by `#<seq>` with their cc-notes answer ids, alongside the plan's `Decisions`, and never collapses them into a sequence range.
 
+**A ruling that changes the wording of a plan title also corrects the update.** The owner update reads plan wording from the register, so the plan text a later ruling supersedes never reaches him. The register lane classifies the ruling's capture as usual, then sets the phrase on that row:
+
+```
+ccn -R <checkout> ledger row set <register ledger> --key <row> --field plan_was='<the plan's words>' --field plan_now='<the ruling's words>'
+```
+
+The replacement stops when the row stops being in force. Keep `plan_now` short enough for a heading, since it renders in place of `plan_was`.
+
 **A tap on an ask card is an owner answer.** When the owner taps an option on a Slack card or a board card, that tap is the owner's answer and authorization for that question. This includes a tap approving a Slack lane's draft. The coordinator records it as one `from:owner` cc-notes answer whose body names the card's permalink and the tapped label.
 
 ## Satisfy owner-ruling gates (R19a)

@@ -55,7 +55,7 @@ read: `cci subscribe --drive <drive> --reader meta`.
    Sprites, launch latency, the Go loop and every other), headed exactly
    `| Program | State | Blocker | Next |`. Every row names its blocker in plain words, or
    `nothing`. Every owner update's Drive tooling section is that table, and
-   `lr update render` and `lr update check` exit 1 when a program has no row or no blocker.
+   `lr update render` exits 3 and `lr update check` exits 1 when a program has no row or no blocker.
 5. Stop and report to the communicator with 2 to 4 options and a recommendation when an item
    needs an owner pick his words do not settle.
 ```

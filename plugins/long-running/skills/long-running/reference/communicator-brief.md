@@ -46,8 +46,9 @@ Loop, one foreground Bash call each, timeout 570000 ms:
 
 - MAILBOX `render` from the communicator: run
     lr update render --drive <drive> --sent > <state dir>/progress-desk/update-<HHMM>.md 2> <state dir>/progress-desk/update-<HHMM>.gaps
-  Exit 0 or 1 both mean the update is ready; any other exit, or an empty file, is a
-  read failure: retry once, then send the communicator the stderr. SendMessage the communicator the
+  Exit 0, 1 or 3 all mean the update is ready, and 3 means gaps are all that is wrong; any
+  other exit, or an empty file, is a read failure: retry once, then send the communicator
+  the stderr. SendMessage the communicator the
   markdown file's whole contents and the gaps file's path. Nothing else in the message.
 - Every wake: run `python3 <plugin>/dashboard/app/keep.py --config <state dir>/dashboard.json`,
   which restarts the dashboard app only when its URL stops answering.

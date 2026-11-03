@@ -39,6 +39,15 @@ var (
 	incidentSlug  = regexp.MustCompile(`\bINCIDENT (?:OPEN |REOPENED )?([a-z][a-z0-9-]+[a-z0-9])\b`)
 	incidentClose = regexp.MustCompile(`\bINCIDENT (?:\S+ CLOSED|CLOSED \S+)\b|\bis a closed incident\b`)
 	parenthetical = regexp.MustCompile(`\([^)]*\)`)
+	stepNumber    = regexp.MustCompile(`^\d+[a-z]?\.\s+`)
+	unitLabel     = regexp.MustCompile(`^[A-Z]\d+[a-z]?:\s+`)
+	unitCode      = regexp.MustCompile(`\b[A-Z]\d+(?:[.-][A-Z]?\d+)*[a-z]?\b`)
+	suffixedCode  = regexp.MustCompile(`\b[A-Z]\d+(?:[a-z]|(?:[.-][A-Z]?\d+)+[a-z]?)\b`)
+	planCite      = regexp.MustCompile(`\b(?:rev|row) \d|\b[a-z]\d\b`)
+	loneLetter    = regexp.MustCompile(`^[A-Z]$`)
+	hexWord       = regexp.MustCompile(`\b[0-9a-f]{7,40}\b`)
+	spaceBefore   = regexp.MustCompile(`\s+([,;:])`)
+	rawStep       = regexp.MustCompile(`^(?:\d|[A-Z]\d)`)
 	askWrong      = map[asks.State]string{asks.Lost: "no PR and no record carry it", asks.Stale: "no progress past its due time", asks.LandedNotLive: "landed but not live for users"}
 	prWrong       = map[string]string{"red": "its head is red", "refused": "the landing gate refused its head", "held": "a hold stops it"}
 	prWorkKinds   = []string{"head", "opened"}
@@ -189,6 +198,52 @@ func pieces(plan *plans.Plan) []string {
 	return out
 }
 
+func isSHA(word string) bool {
+	return strings.ContainsAny(word, "0123456789")
+}
+
+func hasSHA(text string) bool {
+	return slices.ContainsFunc(hexWord.FindAllString(text, -1), isSHA)
+}
+
+func plainTitle(text string) string {
+	text = unitLabel.ReplaceAllString(stepNumber.ReplaceAllString(text, ""), "")
+	text = parenthetical.ReplaceAllStringFunc(text, func(found string) string {
+		inner := found[1 : len(found)-1]
+		if loneLetter.MatchString(inner) || unitCode.MatchString(inner) || planCite.MatchString(inner) || hasSHA(inner) {
+			return ""
+		}
+		return found
+	})
+	clauses := strings.Split(text, "; ")
+	kept := slices.DeleteFunc(clauses[1:], func(clause string) bool { return suffixedCode.MatchString(clause) || hasSHA(clause) })
+	text = suffixedCode.ReplaceAllString(strings.Join(slices.Insert(kept, 0, clauses[0]), "; "), "")
+	text = hexWord.ReplaceAllStringFunc(text, func(word string) string {
+		if isSHA(word) {
+			return ""
+		}
+		return word
+	})
+	return strings.Trim(spaceBefore.ReplaceAllString(strings.Join(strings.Fields(text), " "), "$1"), " ,;:")
+}
+
+func pieceDelivers(title, piece string) string {
+	name, _, _ := strings.Cut(title, ": ")
+	delivers := fmt.Sprintf("the %s piece of %s", piece, name)
+	if note := regexp.MustCompile(regexp.QuoteMeta(piece) + ` \(([^)]*)\)`).FindStringSubmatch(title); note != nil {
+		return delivers + ": " + note[1]
+	}
+	return delivers
+}
+
+func workstreamOf(lane Lane) string {
+	step := stepOf(lane)
+	if rawStep.MatchString(step) {
+		return ""
+	}
+	return strings.ReplaceAll(step, "-", " ")
+}
+
 func onPiece(lane Lane, piece string) bool {
 	word := strings.ToLower(piece[strings.LastIndex(piece, "-")+1:])
 	pattern := regexp.MustCompile(`(?:^|[^a-z])` + regexp.QuoteMeta(word))
@@ -246,11 +301,12 @@ type view struct {
 	waits   map[string]Record
 	records []Record
 	retro   []Retro
+	rulings *strings.Replacer
 	now     time.Time
 }
 
 func newView(lanes []Lane, records, waits []Record, now time.Time) view {
-	v := view{lanes: lanes, byLane: map[string]Lane{}, latest: map[string]Record{}, waits: map[string]Record{}, records: bySeq(records), now: now}
+	v := view{lanes: lanes, byLane: map[string]Lane{}, latest: map[string]Record{}, waits: map[string]Record{}, records: bySeq(records), rulings: strings.NewReplacer(), now: now}
 	for _, lane := range lanes {
 		v.byLane[lane.Name] = lane
 	}
@@ -395,7 +451,7 @@ func (v view) stepRow(name, delivers string, step *plans.Step, lanes []string) R
 	var blocks []string
 	for _, task := range step.Tasks {
 		if task.State == plans.Blocked && task.Waiting != "" {
-			blocks = append(blocks, fmt.Sprintf("task %s waits on %s", clip(task.Title), task.Waiting))
+			blocks = append(blocks, fmt.Sprintf("task %s waits on %s", clip(v.rulings.Replace(task.Title)), task.Waiting))
 		}
 	}
 	if w.blocks != nothingBlocks || len(blocks) == 0 {
@@ -483,7 +539,11 @@ func (v view) askRow(ask asks.Graded) Row {
 	if words, found := askWrong[ask.State]; found {
 		w.wrong = fmt.Sprintf("%s: %s", ask.State, words)
 	}
-	return Row{ask.Key, clip(ask.Text), string(ask.State), w.who, w.blocks, w.unblock, w.wrong, ask.State == asks.Live}
+	name, rest, found := strings.Cut(ask.Text, ": ")
+	if !found {
+		name, rest = opening(ask.Text), ask.Text
+	}
+	return Row{name, clip(rest), string(ask.State), w.who, w.blocks, w.unblock, w.wrong, ask.State == asks.Live}
 }
 
 func (v view) prRow(pr asks.PR, held map[string]int64) Row {

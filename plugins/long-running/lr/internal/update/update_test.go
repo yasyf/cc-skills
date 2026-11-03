@@ -231,10 +231,10 @@ func inputs(t *testing.T) Inputs {
 
 func TestADoneStepFoldsIntoOneLineAndAnOpenOneWithNobodyLeadsAsUnowned(t *testing.T) {
 	report := Render(inputs(t))
-	if strings.Contains(report.Text, "step 1. The base") {
+	if strings.Contains(report.Text, "### The base") {
 		t.Fatalf("a done step keeps its section:\n%s", report.Text)
 	}
-	if !strings.Contains(report.Text, "## Done plan steps\n- The rebuild: 1. The base") {
+	if !strings.Contains(report.Text, "## Done plan steps\n- The rebuild: The base") {
 		t.Fatalf("a done step is gone from the update:\n%s", report.Text)
 	}
 	unowned := report.Text[strings.Index(report.Text, "## Unowned work"):strings.Index(report.Text, "## Standing duties")]

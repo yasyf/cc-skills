@@ -256,7 +256,12 @@ jobs:
       - name: release build parity (CGO_ENABLED=0, linux and darwin)
         run: |
           CGO_ENABLED=0 go build -o /dev/null ./cmd/lr
-          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o /dev/null ./cmd/lr
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o "$RUNNER_TEMP/lr-darwin-arm64" ./cmd/lr
+      - uses: actions/upload-artifact@v7
+        with:
+          name: lr-darwin-arm64
+          path: ${{ runner.temp }}/lr-darwin-arm64
+          retention-days: 3
       - uses: golangci/golangci-lint-action@v9
         with:
           version: latest

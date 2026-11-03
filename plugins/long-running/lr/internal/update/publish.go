@@ -210,7 +210,7 @@ func facets(row Row) []string {
 }
 
 func snapshotKey(found section, row Row) string {
-	return found.title + "|" + row.Name
+	return found.key() + "|" + row.Name
 }
 
 func takeSnapshot(sections []section, at time.Time) Snapshot {
@@ -223,34 +223,55 @@ func takeSnapshot(sections []section, at time.Time) Snapshot {
 	return Snapshot{at, rows}
 }
 
-func sinceLines(sections []section, before map[string][]string) []string {
+func sinceLines(sections []section, before map[string][]string, short bool) []string {
 	current := takeSnapshot(sections, time.Time{}).Rows
-	var out []string
+	var gone, fresh, moved []string
 	for _, key := range slices.Sorted(maps.Keys(before)) {
 		if _, stays := current[key]; !stays && before[key][2] != stateDone {
 			_, name, _ := strings.Cut(key, "|")
-			out = append(out, fmt.Sprintf("- %s: %s", name, leftTheTable))
+			gone = append(gone, name)
 		}
 	}
 	for _, found := range sections {
 		for _, row := range found.rows {
 			old, known := before[snapshotKey(found, row)]
 			if !known {
-				out = append(out, "- new: "+row.Name)
+				fresh = append(fresh, row.Name)
 				continue
 			}
-			var moved []string
+			var changes []string
 			for i, value := range facets(row) {
-				if old[i] != value {
-					moved = append(moved, fmt.Sprintf("%s %s -> %s", facetNames[i], clip(old[i]), clip(value)))
+				switch {
+				case old[i] == value:
+				case short:
+					changes = append(changes, facetNames[i])
+				default:
+					changes = append(changes, fmt.Sprintf("%s %s -> %s", facetNames[i], clip(old[i]), clip(value)))
 				}
 			}
-			if len(moved) > 0 {
-				out = append(out, fmt.Sprintf("- %s: %s", row.Name, strings.Join(moved, "; ")))
+			if len(changes) > 0 {
+				moved = append(moved, fmt.Sprintf("- %s: %s", row.Name, strings.Join(changes, "; ")))
 			}
 		}
 	}
-	return out
+	if !short {
+		out := make([]string, 0, len(gone)+len(moved)+len(fresh))
+		for _, name := range gone {
+			out = append(out, fmt.Sprintf("- %s: %s", name, leftTheTable))
+		}
+		out = append(out, moved...)
+		for _, name := range fresh {
+			out = append(out, "- new: "+name)
+		}
+		return out
+	}
+	if len(gone) > 0 {
+		moved = append(moved, fmt.Sprintf("- %s: %s", leftTheTable, strings.Join(gone, ", ")))
+	}
+	if len(fresh) > 0 {
+		moved = append(moved, "- new: "+strings.Join(fresh, ", "))
+	}
+	return moved
 }
 
 func ReadSnapshot(stateDir string) (Snapshot, error) {

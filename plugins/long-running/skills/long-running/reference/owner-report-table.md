@@ -19,15 +19,40 @@ Every update the owner gets, whether a status answer, a milestone report or the 
 5. **Pinned for you.** One row per entry of the drive entry's `pinned_rows`, each a `name`, a `delivers` line and the `words` that pick its lanes by name, step or deliverable. It is on every update, with **nobody** when no lane holds it. For durable-agents-rebuild that is devbox speed and bug hunting, and the next build.
 6. **Standing duties.** One row per duty at the newest lane of its successor chain.
 7. **Drive tooling.** One row per meta program (the cci token cut, the coordinator kept minimal for Fable, hook tiers, the dashboard, Sprites, launch latency, the Go loop and any other) with its state, its blocker and what comes next, in plain words. The rows come only from the meta lane's `<state dir>/meta/programs.md`, a table headed `| Program | State | Blocker | Next |`, one row per program; a program nothing blocks says `nothing`.
-8. **The plan.** One table per plan step, its step row first and then its lanes. A plan with no numbered steps whose title lists pieces, such as the five services, gets one table per piece, so no piece can drop out.
-9. **Workstreams and lanes.** One table per other step a brief names, then the lanes on no step.
+8. **The plan.** One heading per plan, in plain words. Under it a step with no changed row since the last update he was sent is one line, and a step with a changed row gets its own table, step row first and then its lanes. A plan with no numbered steps whose title lists pieces, such as the five services, gets one table per piece, so no piece can drop out.
+9. **Workstreams and lanes.** One table per other step a brief names in words, then the lanes on no step, which include any lane whose brief names a raw code such as `S5` or a step the plan lacks.
 10. **Owner asks, Incidents today, Releases today, Open PRs.** One row each; landed-but-not-live asks come first.
 11. Registry lanes quiet over a day, what waits on the coordinator, board picks, and what lanes delivered in the last two hours.
 12. **Gaps in this update.** Present only when a message of his has no record carrying it, a tooling program has no blocker, or the meta lane's list has no programs.
+13. **One closing line.** Present only when the render folded or dropped something, and it names each thing it folded or dropped.
 
 ## Detail where it matters
 
-Every item is named, and a full row goes where a decision or blocker lives: pinned rows, plan steps and pieces, standing duties, open incidents, and any lane that is blocked or carries a failure. A step's other live lanes appear in its Who. A live lane on no step with nothing blocking it is one line, its newest record. Lanes quiet over two hours, incidents closed today, and open PRs grouped by state are one line each, naming every item. Unowned work names each row once per section. Cells clip at 100 characters, and an update over 40 KB lists its size as a gap. The dashboard's drill-ins hold the rest.
+Every item is named, and a full row goes where a decision or blocker lives: pinned rows, plan steps and pieces, standing duties, open incidents, and any lane that is blocked or carries a failure. A step's other live lanes appear in its Who. A live lane on no step with nothing blocking it is one line, its newest record. Lanes quiet over two hours, incidents closed today, and open PRs grouped by state are one line each, naming every item. Unowned work names each row once per section. Cells clip at 100 characters. The dashboard's drill-ins hold the rest.
+
+## Plain words and the owner's later rulings
+
+A heading never carries a plan id, a row id or a commit SHA. The render strips a step's number and unit label, any parenthetical citing the plan, a later clause carrying a code, and any stray code or SHA from each plan and step title. An owner ask's row reads as his ask, without its ledger key.
+
+The render takes plan wording from the register, not only the plan. An in-force register row with `plan_was` and `plan_now` fields replaces that phrase wherever the plan's titles and task titles render, in the update and in `steps.json`; [owner-rulings.md](owner-rulings.md) says how to write one.
+
+## Staying under 40 KB
+
+An update never exits 1 for its size. Over 40 KB, the render folds in this order and stops as soon as it fits:
+
+1. Done and unchanged rows, to one line per section. Pinned rows, owner asks and the five-services piece rows do not fold here.
+2. What waits on the coordinator, deliveries and owed deletions with no live owner, to short lines, and "Since you last looked" to one line per changed row with names only.
+3. Open PRs, to their numbers.
+4. Lanes, to their blockers and names.
+5. Every plan step, to one line.
+6. Unowned lanes, to counts.
+7. Quiet lanes, to their names.
+8. FYIs, to the newest three per group, each cut at 240 characters.
+9. Standing duties, to one line each.
+10. Blocked lanes, to their names. What they wait on stays in "Waiting on the coordinator".
+11. The messages quoted from him, to their first 240 characters, keeping what carries each.
+
+If that is still over, the render drops whole lines from the end of the body, keeping the gaps, and the closing line says how many it dropped and after which heading. A dropped item no longer counts as missing. The tooling table never folds.
 
 ## The row
 
@@ -41,7 +66,7 @@ Every item is named, and a full row goes where a decision or blocker lives: pinn
 
 ## The coverage check
 
-The render exits 1 and prints to stderr each section, working lane, open ask and open PR it lacks. It also prints each message of his that no record carries, each tooling program with an empty Blocker cell as `<program>: no blocker line`, and a missing or empty `meta/programs.md`; that list is the update's last section, so the owner sees the gap and the coordinator gets it as a `blocker` from the communicator. `lr update check FILE` reads an update someone else wrote and exits 1 naming each section, lane, ask and PR it leaves out, each tooling program it never names, and each program whose blocker is on no line that names it; the coordinator's Stop hook runs it on every long reply to the owner.
+The render prints the update and writes `steps.json` before it exits, whatever its code. It exits 0 when nothing is left out. It exits 1 and names, on one `missing: <count>: <name>; <name>` line on stderr, each section, working lane, open ask and open PR it lacks. Its gaps are each message of his that no record carries, each tooling program with an empty Blocker cell as `<program>: no blocker line`, and a missing or empty `meta/programs.md`. When gaps are all that is wrong it exits 3, naming them on one `gaps: <count>: <gap>; <gap>` line, and the update is complete and ready to send. The gaps are the update's last section, so the owner sees them and the coordinator gets them as a `blocker` from the communicator. `lr update check FILE` reads an update someone else wrote and exits 1 naming each section, lane, ask and PR it leaves out, each tooling program it never names, and each program whose blocker is on no line that names it; the coordinator's Stop hook runs it on every long reply to the owner.
 
 ## The dashboard reads the same rows
 
