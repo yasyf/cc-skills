@@ -70,7 +70,7 @@ func Command(a *app.App) *cobra.Command {
 	return cmd
 }
 
-func installs(claude string) (string, error) {
+func Installs(claude string) (string, error) {
 	if plugin := os.Getenv(pluginRootEnv); plugin != "" {
 		return filepath.Dir(plugin), nil
 	}
@@ -90,7 +90,7 @@ func install(ctx context.Context, a *app.App, version string, opts options) (int
 	if err != nil {
 		return 0, err
 	}
-	dir, err := installs(claude)
+	dir, err := Installs(claude)
 	if err != nil {
 		return 0, err
 	}
