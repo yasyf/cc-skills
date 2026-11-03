@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 from long_running import grades
 import pytest
@@ -263,3 +264,21 @@ def test_a_root_finder_override_in_each_accepted_form_settles_the_major_at_its_h
 )
 def test_an_override_reads_its_kind_pr_and_head_and_names_each_clause_it_cannot_read(text, read, unread):
     assert grades.overrides(text) == (read, unread)
+
+
+@pytest.mark.parametrize(("code", "settled"), [(0, True), (1, False)], ids=["quotes-hold", "refused"])
+def test_an_override_quoting_the_owner_settles_only_when_lr_holds_the_quote(monkeypatch, code, settled):
+    """Root #365947: 13 of 55 overrides misdescribed his lines, so a refused quote leaves the grade standing."""
+    calls = []
+    monkeypatch.setattr(grades, "QUOTES_READ", {})
+    monkeypatch.setattr(grades.subprocess, "run", lambda argv, **kwargs: (calls.append((argv, kwargs["input"])), SimpleNamespace(returncode=code, stdout="refused: x" if code else ""))[1])
+    text = 'finder-override #48889 at 9346378: 62066. rule/784f1ab, "every thjrn", asks for it'
+
+    assert grades.overridden({"drive": "d", "text": text, "refs": {}}, grades.FINDER_OVERRIDE, "48889", "9346378aaaa") is settled
+    assert calls[0][0][1:] == ["rules", "quotes", "--drive", "d"] and calls[0][1] == text
+
+
+def test_an_override_quoting_no_row_never_runs_lr(monkeypatch):
+    monkeypatch.setattr(grades.subprocess, "run", lambda *_, **__: pytest.fail("no owner row is quoted"))
+
+    assert grades.overridden({"drive": "d", "text": "finder-override #48889 at 9346378: 62066", "refs": {}}, grades.FINDER_OVERRIDE, "48889", "9346378aaaa")
