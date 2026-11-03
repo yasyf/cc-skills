@@ -384,7 +384,8 @@ Landing restack routes sent through cci use `--kind blocker --to <lane> --topic 
 | `SLICE-UNREAD` | Read the `rulings.py slice --refresh` failure, fix the register or the brief's `Register slice:` line, run the refresh by hand, and relay the fresh slice to the lane. |
 | `LOAD-HIGH` | Move local passes, backfills, dry runs, or bulk rewrites to in-region compute in that turn. Never wait the load out. |
 | `ALERT-FAILED`, `HOLD-FAILED`, `DIRECTIVE-FAILED` | Correct the line's grammar, slug, link, or form and post it again. |
-| `RELAYED`, `LAUNCHED`, `ORCA-BACK` | None; informational confirmation. |
+| `RELAYED`, `ORCA-BACK` | None; informational confirmation. It stays on the bus under the runner's lane and is not addressed to the coordinator. |
+| `LAUNCHED` | None; it tells the launcher that a launch it posted settled. |
 | `RELAY-FAILED` | Fix the relay's key or form and send under a new key. If a file path was unreadable, post the relay again on the runner's machine. |
 | `LAUNCH-EXPIRED` | If the lane is still wanted, post a fresh launch line under a new key. |
 | `LAUNCH-FAILED` | Read the failure before issuing a new action; relay to a live dispatch or post a corrected launch line under a new key. A launch that never started a worker leaves the brief free to launch again. |

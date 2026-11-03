@@ -29,7 +29,12 @@ const (
 	claudeFastSettings     = ` --settings '{"fastMode":true}'`
 	startPoll              = 4 * time.Second
 	coordinatorLane        = "root"
-	coordinatorCompact     = 280000
+	coordinatorCompact     = 210000
+	coordinatorDenied      = ",Workflow,ScheduleWakeup,ReportFindings,ListAgents,Monitor,SendMessage,TaskGet"
+	coordinatorListing     = `"skillListingBudgetFraction":0.001`
+	coordinatorNoMemory    = `"autoMemoryEnabled":false,"claudeMdExcludes":["**/CLAUDE.md","**/AGENTS.md"],`
+	coordinatorSections    = "rules-sections"
+	coordinatorRules       = "rules.md"
 	specLimit              = 500
 	workerStartClaudeMS    = "600000"
 	workerStartCodexMS     = "90000"
@@ -50,6 +55,7 @@ const (
 var (
 	briefDesk        = regexp.MustCompile(`(?m)^ccx:(.* )?role=(desk|watch)(\s|$)`)
 	briefPaths       = regexp.MustCompile(`(?m)^ccx:(?:.* )?paths=(\S+)`)
+	markdownSection  = regexp.MustCompile(`(?m)^## `)
 	briefRole        = regexp.MustCompile(`(?m)^ccx:(?:.*[ \t])?role=([\w-]+)`)
 	briefReplaces    = regexp.MustCompile("(?m)^Replaces: `?([\\w.-]+)`?\\s*$")
 	whitespace       = regexp.MustCompile(`\s+`)
@@ -527,12 +533,23 @@ func (l *launch) composeCommand() error {
 	if l.lane == coordinatorLane {
 		command += fmt.Sprintf(" CLAUDE_CODE_PROMPT_CACHE_TTL=1h CLAUDE_CODE_AUTO_COMPACT_WINDOW=%d", coordinatorCompact)
 	}
-	command += " claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions --disallowedTools AskUserQuestion,EnterPlanMode,ExitPlanMode --strict-mcp-config"
+	denied := "AskUserQuestion,EnterPlanMode,ExitPlanMode"
+	if l.lane == coordinatorLane {
+		denied += coordinatorDenied
+	}
+	command += " claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions --disallowedTools " + denied + " --strict-mcp-config"
 	if config := l.Env("ORCA_LAUNCH_MCP_CONFIG"); config != "" {
 		command += " --mcp-config " + config
 	}
 	if args := l.Env("ORCA_LAUNCH_CLAUDE_ARGS"); args != "" {
 		command += " " + args
+	}
+	if l.lane == coordinatorLane {
+		flags, err := l.coordinatorFlags()
+		if err != nil {
+			return err
+		}
+		command += flags
 	}
 	l.command = command + " --model " + l.modelID + " --effort " + l.effort
 	if l.model == modelIncidentOpus {
@@ -555,6 +572,52 @@ func (l *launch) composeCommand() error {
 	}
 	l.command = "sh -c 'PATH=" + l.bin + ":$PATH exec env CLAUDE_LONG_RUNNING_LANE=" + l.lane + extra.String() + " codex --dangerously-bypass-approvals-and-sandbox -c model=" + l.modelID + " -c service_tier=fast -c model_reasoning_effort=" + l.effort + " -c check_for_update_on_startup=false -c mcp_servers=" + mcp + off + "'"
 	return nil
+}
+
+func (l *launch) coordinatorFlags() (string, error) {
+	sections := filepath.Join(filepath.Dir(l.brief), coordinatorSections)
+	if _, err := os.Stat(sections); errors.Is(err, os.ErrNotExist) {
+		return " --settings '{" + coordinatorListing + "}'", nil
+	}
+	rules, err := writeCoordinatorRules(sections, filepath.Join(l.Env("HOME"), ".claude", "CLAUDE.md"))
+	if err != nil {
+		return "", l.fail("coordinator rules: %v", err)
+	}
+	return " --settings '{" + coordinatorNoMemory + coordinatorListing + "}' --append-system-prompt-file " + rules, nil
+}
+
+func writeCoordinatorRules(sections, instructions string) (string, error) {
+	wanted, err := os.ReadFile(sections)
+	if err != nil {
+		return "", err
+	}
+	text, err := os.ReadFile(instructions)
+	if err != nil {
+		return "", err
+	}
+	rules, err := sectionsOf(string(text), strings.Split(strings.TrimSpace(string(wanted)), "\n"))
+	if err != nil {
+		return "", err
+	}
+	path := filepath.Join(filepath.Dir(sections), coordinatorRules)
+	return path, os.WriteFile(path, []byte(rules), 0o600)
+}
+
+func sectionsOf(text string, wanted []string) (string, error) {
+	sections := map[string]string{}
+	for _, part := range markdownSection.Split(text, -1)[1:] {
+		heading, _, _ := strings.Cut(part, "\n")
+		sections[strings.TrimSpace(heading)] = "## " + part
+	}
+	var kept strings.Builder
+	for _, name := range wanted {
+		section, found := sections[name]
+		if !found {
+			return "", fmt.Errorf("~/.claude/CLAUDE.md has no section %q", name)
+		}
+		kept.WriteString(section)
+	}
+	return kept.String(), nil
 }
 
 func codexDisabled(config, mcp string) (string, error) {

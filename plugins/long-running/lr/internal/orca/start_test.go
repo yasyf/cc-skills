@@ -519,11 +519,52 @@ func TestOnlyTheCoordinatorLaunchesOnTheLongCacheUnderALowCompactionCeiling(t *t
 	}
 	h.launched()
 	creates := h.orcaCalls("terminal create")
-	if command := flag(creates[0], "--command"); !strings.HasPrefix(command, "env CLAUDE_LONG_RUNNING_LANE=root CLAUDE_CODE_PROMPT_CACHE_TTL=1h CLAUDE_CODE_AUTO_COMPACT_WINDOW=280000 claude ") {
+	command := flag(creates[0], "--command")
+	if !strings.HasPrefix(command, "env CLAUDE_LONG_RUNNING_LANE=root CLAUDE_CODE_PROMPT_CACHE_TTL=1h CLAUDE_CODE_AUTO_COMPACT_WINDOW=210000 claude ") {
 		t.Fatal(command)
 	}
-	if command := flag(creates[1], "--command"); !strings.HasPrefix(command, "env CLAUDE_LONG_RUNNING_LANE=lane-a claude ") {
-		t.Fatal(command)
+	for _, want := range []string{"--disallowedTools AskUserQuestion,EnterPlanMode,ExitPlanMode" + coordinatorDenied + " ", `--settings '{"skillListingBudgetFraction":0.001}' `} {
+		if !strings.Contains(command, want) {
+			t.Fatalf("%q misses %q", command, want)
+		}
+	}
+	if strings.Contains(command, "claudeMdExcludes") || strings.Contains(command, "--append-system-prompt-file") {
+		t.Fatalf("a drive that names no rules kept its instructions out: %q", command)
+	}
+	other := flag(creates[1], "--command")
+	if !strings.HasPrefix(other, "env CLAUDE_LONG_RUNNING_LANE=lane-a claude ") || strings.Contains(other, coordinatorDenied) || strings.Contains(other, "--settings") {
+		t.Fatal(other)
+	}
+}
+
+func TestACoordinatorWithNamedRulesLoadsThoseSectionsInsteadOfItsInstructionFiles(t *testing.T) {
+	h := newHarness(t)
+	h.healthyClaude()
+	h.writeFile(filepath.Join(h.root, "home", ".claude", "CLAUDE.md"), "# Title\n\n## Style\n\nNo comments.\n\n## Routing\n\nUse sol.\n\n### Deep\n\nStill routing.\n\n## Judgment\n\nThink.\n")
+	dir := filepath.Dir(h.brief)
+	h.writeFile(filepath.Join(dir, coordinatorSections), "Judgment\nRouting\n")
+	if line, code := h.launchAs(coordinatorLane, "opus", "xhigh", h.brief); code != 0 {
+		t.Fatal(line)
+	}
+	command := flag(h.orcaCalls("terminal create")[0], "--command")
+	rules := filepath.Join(dir, coordinatorRules)
+	for _, want := range []string{`"autoMemoryEnabled":false`, `"claudeMdExcludes":["**/CLAUDE.md","**/AGENTS.md"]`, "--append-system-prompt-file " + rules + " "} {
+		if !strings.Contains(command, want) {
+			t.Fatalf("%q misses %q", command, want)
+		}
+	}
+	got, err := os.ReadFile(rules)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "## Judgment\n\nThink.\n## Routing\n\nUse sol.\n\n### Deep\n\nStill routing.\n\n"; string(got) != want {
+		t.Fatalf("rules %q, want %q", got, want)
+	}
+}
+
+func TestARuleSectionTheInstructionsNoLongerHaveRefusesTheLaunch(t *testing.T) {
+	if _, err := sectionsOf("## Style\n", []string{"Routing"}); err == nil || !strings.Contains(err.Error(), `"Routing"`) {
+		t.Fatalf("got %v, want the missing section named", err)
 	}
 }
 

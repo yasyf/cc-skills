@@ -4,8 +4,10 @@ The communicator launches one coordinator per drive at drive start as a sibling
 Orca session bound as lane `root` (`lr launch coordinator <state dir>/root/brief.md`,
 which refuses a brief whose directory is not named for the lane), and the lane supervisor
 relaunches it when it dies. The launch sets `CLAUDE_CODE_PROMPT_CACHE_TTL=1h` and
-`CLAUDE_CODE_AUTO_COMPACT_WINDOW=280000`, so a batch wait never rewrites the context and it
-compacts near 250k tokens, and `CLAUDE_LONG_RUNNING_LANE=root`, and the pack's
+`CLAUDE_CODE_AUTO_COMPACT_WINDOW=210000`, so a batch wait never rewrites the context and it
+compacts near 177k tokens, denies it `Workflow`, `ScheduleWakeup`, `ReportFindings`, `ListAgents`,
+`Monitor`, `SendMessage` and `TaskGet`, shrinks the skill listing to names, and sets
+`CLAUDE_LONG_RUNNING_LANE=root`, and the pack's
 first-command hook claims that lane with `cci announce --lane root` before the
 coordinator's first command, so a lane an earlier post bound the window to never
 wins. The communicator claims `owner-relay` with its own subscribe line before the launch,
@@ -17,6 +19,12 @@ The coordinator, not the communicator, owns and starts desk-runner, the launch r
 every desk, remote, as an Orca session with every former coordinator role. Fill each desk's
 brief at `<state dir>/<desk>/brief.md` from its reference brief, the board refresher's
 from the desk template in [orca-lane-brief.md](orca-lane-brief.md).
+
+A `rules-sections` file beside the brief, one `~/.claude/CLAUDE.md` heading per line, replaces
+the coordinator's instruction files: the launch copies those sections to `rules.md` beside
+the brief, appends it to the system prompt, where a compaction never rewrites it, and loads no
+`CLAUDE.md`, `AGENTS.md` or auto-memory. With no such file they load as usual. A named section
+that no longer exists refuses the launch.
 
 ```
 # root: coordinator of the <drive> drive
@@ -50,6 +58,8 @@ tool calls, so a batch costs one model call. Your turn never ends while the driv
 Each call you make re-reads your whole context, so you rule and route and nothing else.
 A read, count, table, cleanup or shell chore goes to lane `chores` as `cci post --lane root
 --drive <drive> --stamp --kind ask --to chores`, and its answer arrives in a later batch. A
+read that needs judgment, a grade or a review goes to an unnamed `Agent` subagent, or a lane,
+on the routing table's model for that task, and you read its answer, never its sources. A
 go on a PR goes to the drive's `landing.go_lanes` lane, which reads the grades first. You
 keep launches, holds, finder and fidelity overrides, incidents and rulings.
 

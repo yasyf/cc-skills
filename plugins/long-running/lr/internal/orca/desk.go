@@ -55,6 +55,7 @@ var (
 		"GITHUB-QUOTA-LOW": "urgent", "FINDER-DESK-STALLED": kindBlocker, "GO-TAP-MISSING": kindBlocker, "HOOK-DRIFT": kindBlocker, "OVERRIDE-REFUSED": kindBlocker, "REFUSED-STOP": "incident", "MUTE-PUSHBACK": "incident",
 	}
 	deferrable = []string{"DEADLINE", "UNACKED", "STALE-MAIL", "RECLAIM"}
+	noAction   = []string{"RELAYED", "ORCA-BACK"}
 	poster     = regexp.MustCompile("\\bcci post\\b[^`\\n]*?--lane[= ]['\"]?([\\w.-]+)")
 )
 
@@ -526,6 +527,9 @@ func (d *Desk) flush(ctx context.Context) error {
 				held = append(held, action.ActionID)
 			}
 			continue
+		}
+		if slices.Contains(noAction, words[0]) {
+			to = deskRunner
 		}
 		posted, err := d.postEscalation(ctx, action.Target, to, action.ActionID)
 		if err != nil {

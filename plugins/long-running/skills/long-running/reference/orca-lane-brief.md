@@ -101,6 +101,9 @@ Design questions: settle each from this brief, the standing rules register, and 
   Ask the coordinator (`cci post --kind ask --to root`) only when the choice changes
   owner-visible behaviour, and keep building the rest while the ask is open. With
   nothing left to build, the open `ask` is what lets the turn end: its answer wakes you.
+  Every record addressed to `root` costs the coordinator a read for the rest of its context, so
+  address it only with what it must rule on or asked for. A `state`, `head` or `note`, or
+  an answer to another lane, names only the lanes that act on it.
 Do:
   0. Before designing, name what already grades or handles this signal: monitors,
      the release's Watch, open owner tasks and picks (`ccn task list`,
