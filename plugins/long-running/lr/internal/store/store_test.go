@@ -223,7 +223,7 @@ func TestAWorkerSilentFifteenMinutesIsStaleAndItsItemsComeBack(t *testing.T) {
 		t.Fatalf("the item is still with %q", got)
 	}
 	workers := must[[]Worker](t)(s.Workers())
-	if len(workers) != 1 || workers[0].Name != "lane-8" {
+	if len(workers) != 2 || workers[0].Name != "lane-8" || workers[1].Name != "lane-holding-nothing" {
 		t.Fatalf("workers %+v", workers)
 	}
 }
