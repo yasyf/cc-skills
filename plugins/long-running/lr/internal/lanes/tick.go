@@ -21,7 +21,7 @@ type Post struct {
 	Successor string
 	LaneRef   string
 	PRs       []int
-	Attr      string
+	Attrs     map[string]string
 }
 
 type Deps struct {
@@ -74,10 +74,7 @@ func Tick(s *store.Store, d Deps, now time.Time, generation int64) (out Outcome,
 	if err != nil {
 		return out, err
 	}
-	found, err := Peers(rows)
-	if err != nil {
-		return out, err
-	}
+	found := Peers(rows)
 	records, err := d.Records(cursor)
 	if err != nil {
 		return out, err
@@ -91,10 +88,7 @@ func Tick(s *store.Store, d Deps, now time.Time, generation int64) (out Outcome,
 			}
 		}
 	}
-	said, err := fold(s, records, adoptable, d.Briefs)
-	if err != nil {
-		return out, err
-	}
+	said := fold(s, records, adoptable, d.Briefs)
 	out.Adopted = said.adopted
 	announce(s, d, said, now)
 	probeOwners(s, d, found, now)
@@ -502,5 +496,5 @@ func hourly(s *store.Store, d Deps, now time.Time) {
 	if len(words) > 1 {
 		noun = "lanes"
 	}
-	do(d.Post(Post{Kind: "report", To: []string{Root}, Attr: "audience=owner", Text: fmt.Sprintf("Between %s and %s the lane supervisor restarted %d %s with no root action: %s.", pacific(start), pacific(end), len(words), noun, strings.Join(words, "; "))}))
+	do(d.Post(Post{Kind: "report", To: []string{Root}, Attrs: map[string]string{"audience": "owner"}, Text: fmt.Sprintf("Between %s and %s the lane supervisor restarted %d %s with no root action: %s.", pacific(start), pacific(end), len(words), noun, strings.Join(words, "; "))}))
 }

@@ -19,7 +19,6 @@ const (
 	mainLane    = "main"
 	CursorName  = "lanes"
 	hourCursor  = "lanes.hour"
-	AdoptWindow = "72h"
 	strikeLimit = 2
 	kindSpawn   = "spawn"
 	kindRequest = "decide"
@@ -199,14 +198,14 @@ func successorNote(s *store.Store, name string) string {
 }
 
 type Row struct {
-	Lane      string `json:"lane"`
-	Session   string `json:"session,omitempty"`
-	Agent     string `json:"agent,omitempty"`
-	Live      bool   `json:"live"`
-	SeenAt    string `json:"seen_at"`
-	StoodDown bool   `json:"stood_down,omitempty"`
-	Roster    string `json:"roster,omitempty"`
-	Dispatch  string `json:"dispatch,omitempty"`
+	Lane      string    `json:"lane"`
+	Session   string    `json:"session,omitempty"`
+	Agent     string    `json:"agent,omitempty"`
+	Live      bool      `json:"live"`
+	SeenAt    time.Time `json:"seen_at"`
+	StoodDown bool      `json:"stood_down,omitempty"`
+	Roster    string    `json:"roster,omitempty"`
+	Dispatch  string    `json:"dispatch,omitempty"`
 }
 
 type Peer struct {
@@ -216,22 +215,18 @@ type Peer struct {
 	Row  Row
 }
 
-func Peers(rows []Row) (map[string]Peer, error) {
+func Peers(rows []Row) map[string]Peer {
 	found := make(map[string]Peer, len(rows))
 	for _, row := range rows {
 		if row.Lane == "" {
 			continue
 		}
-		seen, err := time.Parse(time.RFC3339Nano, row.SeenAt)
-		if err != nil {
-			return nil, fmt.Errorf("cci who row %s: %w", row.Lane, err)
-		}
 		have, known := found[row.Lane]
-		if !known || (row.Live && !have.Live) || (row.Live == have.Live && seen.After(have.Seen)) {
-			found[row.Lane] = Peer{row.Lane, row.Live, seen.UTC(), row}
+		if !known || (row.Live && !have.Live) || (row.Live == have.Live && row.SeenAt.After(have.Seen)) {
+			found[row.Lane] = Peer{row.Lane, row.Live, row.SeenAt.UTC(), row}
 		}
 	}
-	return found, nil
+	return found
 }
 
 func alive(peer *Peer, heard, now time.Time) bool {
