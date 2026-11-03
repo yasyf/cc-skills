@@ -62,4 +62,6 @@ def load(path: Path) -> Config:
     for name, value in raw.items():
         if not isinstance(value, str) or (name in required and not value.strip()):
             raise BadConfig(f"{path}: {name} must be non-empty text")
+    if "landing" in movers and not raw.get("queue_script", "").strip():
+        raise BadConfig(f"{path}: the landing mover needs queue_script, the repository's queue script relative to the checkout")
     return Config(**raw, movers=tuple(movers))

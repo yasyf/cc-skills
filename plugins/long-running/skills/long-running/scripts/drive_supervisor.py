@@ -4,7 +4,7 @@
     drive_supervisor.py run --config LR_JSON
     drive_supervisor.py install --config LR_JSON
     drive_supervisor.py uninstall --config LR_JSON
-    drive_supervisor.py lanes --config LR_JSON [--json]
+    drive_supervisor.py lanes [LANE ...] --config LR_JSON [--json]
     drive_supervisor.py route LANE --config LR_JSON
     drive_supervisor.py request VERB LANE --config LR_JSON [--successor LANE] [--last-read SEQ] [--pr N ...] [--by LANE]
 
@@ -16,7 +16,8 @@ that release under the same pid at the tick's end. Liveness is one `cci who` rea
 worker list per tick; a successor launches through `desk-launch.py lane`, detached, so a launch
 never holds the tick. `install` writes `~/Library/LaunchAgents/com.long-running.<drive>.supervisor.plist`
 and bootstraps that one label, booting out only its own earlier copy; launchd restarts the process
-whenever it exits. `lanes` prints the registry, one line per lane, and with `--json` one
+whenever it exits. `lanes` prints the registry, one line per lane with its newest record's kind and seq, only the
+named lanes when it names any, and with `--json` one
 `lanes.liveness` object per lane: the drive's one liveness answer, read by every desk. `route`
 prints, as one JSON object, where mail for a lane goes: the live end of its successor chain in the
 registry, or root. `request` posts the one typed record that asks the supervisor to change a row:
@@ -429,7 +430,7 @@ class Trunk:
 
 
 class RemoteRestack:
-    """`remote-restack.py` on a Sprite: the moved stack's new heads, or an empty string when only a lane can resolve the conflict."""
+    """`remote-restack.py` on a Sprite: `moved` once the stack's heads moved, an empty string when only a lane can resolve the conflict, and an unread source, which stops the pass's movers, when the restack itself failed."""
 
     def __init__(self, state: Path):
         self.runner_json = state / "runner.json"
@@ -437,12 +438,13 @@ class RemoteRestack:
     def restack(self, number: int, head: str, base: str) -> str:
         try:
             done = subprocess.run([sys.executable, str(REMOTE_RESTACK), "--config", str(self.runner_json), "--lane", loop.SELF, str(number)], capture_output=True, text=True, timeout=PASS_TIMEOUT)
-        except subprocess.TimeoutExpired:
-            return f"timed out after {PASS_TIMEOUT}s"
+        except subprocess.TimeoutExpired as error:
+            raise lanes.Unread(f"remote-restack.py #{number} timed out after {PASS_TIMEOUT}s") from error
         if done.returncode == 1:
             return ""
-        last = (done.stdout or done.stderr).strip().splitlines()
-        return "moved" if done.returncode == 0 else f"exit {done.returncode}: {last[-1] if last else ''}"
+        if done.returncode:
+            raise lanes.Unread(f"remote-restack.py #{number} exited {done.returncode}: {(done.stderr or done.stdout).strip()[-300:]}")
+        return "moved"
 
 
 def pass_deps(config: lr_config.Config, state: Path, store: Store) -> dict:
@@ -530,20 +532,25 @@ def cmd_uninstall(config: lr_config.Config, path: Path) -> int:
     return 0
 
 
-def registry_lines(store: Store, now: datetime) -> list[str]:
+def registry_lines(store: Store, now: datetime, names: list[str] = ()) -> list[str]:
     live = {row["lane"] for row in lanes.liveness(store, now) if row["live"]}
     return [
-        f"{lane.name} {lane.state} {'live' if lane.name in live else 'silent'} heard {lanes.pacific(lane.heard) if lane.heard else 'never'} since {lane.since:%H:%MZ} handoff {lane.handoff or '-'} prs {' '.join(f'#{n}' for n in lane.prs) or '-'}"
+        f"{lane.name} {lane.state} {'live' if lane.name in live else 'silent'} heard {lanes.pacific(lane.heard) if lane.heard else 'never'}"
+        + (f" {lane.last}" if lane.last else "")
+        + (f" #{seq}" if (seq := store.newest_seq(lane.name)) else "")
+        + f" since {lane.since:%H:%MZ} handoff {lane.handoff or '-'} prs {' '.join(f'#{n}' for n in lane.prs) or '-'}"
         + (f" after {lane.predecessor}: {lane.reason}" if lane.predecessor else "")
         + (f" retired by {lane.retired_by}" if lane.retired_by else "")
         + (f" standing: {duty}" if (duty := lanes.brief_of(lane.brief).standing) else "")
         for lane in store.all_lanes()
-    ]
+        if not names or lane.name in names
+    ] + [f"{name} unregistered" for name in names if store.lane(name) is None]
 
 
-def cmd_lanes(config: lr_config.Config, path: Path, as_json: bool) -> int:
+def cmd_lanes(config: lr_config.Config, path: Path, as_json: bool, names: list[str]) -> int:
     store, now = Store.open(path.parent / "lr.sqlite"), clock()
-    print("\n".join(json.dumps(row) for row in lanes.liveness(store, now)) if as_json else "\n".join(registry_lines(store, now)))
+    rows = [row for row in lanes.liveness(store, now) if not names or row["lane"] in names]
+    print("\n".join(json.dumps(row) for row in rows) if as_json else "\n".join(registry_lines(store, now, names)))
     return 0
 
 
@@ -569,6 +576,7 @@ def main(argv: list[str]) -> int:
     for verb in ("run", "install", "uninstall"):
         verbs.add_parser(verb, parents=[common])
     listing = verbs.add_parser("lanes", parents=[common])
+    listing.add_argument("names", nargs="*")
     listing.add_argument("--json", action="store_true")
     routing = verbs.add_parser("route", parents=[common])
     routing.add_argument("lane")
@@ -583,7 +591,7 @@ def main(argv: list[str]) -> int:
     path = args.config.resolve()
     config = lr_config.load(path)
     if args.verb == "lanes":
-        return cmd_lanes(config, path, args.json)
+        return cmd_lanes(config, path, args.json, args.names)
     if args.verb == "route":
         return cmd_route(config, path, args.lane)
     if args.verb == "request":

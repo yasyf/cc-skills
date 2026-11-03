@@ -262,3 +262,18 @@ def test_an_orca_fix_lane_idle_thirty_minutes_past_fix_live_is_reclaimed_with_on
     if reclaimed:
         assert gcs[0][-4:] == ["--run", "run_1", "--done", "ctx_fix1"]
         assert posts[0][posts[0].index("--text") + 1].startswith("GC rapi-next-errors-fix: FIX-LIVE #341700 is 30 minutes old")
+
+
+def test_the_lanes_verb_answers_for_the_named_lanes_with_their_newest_record():
+    from lr.store import Store
+
+    store, at = Store.memory(), datetime(2026, 11, 2, 23, 0, tzinfo=UTC)
+    for name in ("gateway-gemini-1", "work-system-build-1"):
+        store.want_lane(name, f"/briefs/{name}.md", "opus", "xhigh", "lane", "desired", at)
+    store.lane_heard("gateway-gemini-1", at, "head", 342601)
+
+    lines = supervisor.registry_lines(store, at, ["gateway-gemini-1", "never-launched-1"])
+
+    assert len(lines) == 2
+    assert lines[0].startswith("gateway-gemini-1 desired live heard ") and " head #342601 since " in lines[0]
+    assert lines[1] == "never-launched-1 unregistered"
