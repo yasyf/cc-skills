@@ -798,7 +798,7 @@ func TestAHoldNamesWhoLiftsItAndALiftedOneHoldsNothing(t *testing.T) {
 	}
 }
 
-func TestFactsBelongToAHeadSoANewPushStartsUngraded(t *testing.T) {
+func TestGradesBelongToAHeadSoANewPushStartsUngradedWithItsTapCarried(t *testing.T) {
 	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
 	at := time.Date(2026, 10, 30, 21, 0, 0, 0, time.UTC)
 	for kind, value := range map[string]string{"finder": "clear", "tap": "tapped"} {
@@ -809,7 +809,7 @@ func TestFactsBelongToAHeadSoANewPushStartsUngraded(t *testing.T) {
 
 	row := h.snapshot(t)[1]
 
-	if row.Finder != "" || row.Tap != "" || row.Graded() {
+	if row.Finder != "" || row.Graded() || row.Tap != machine.TapTapped || row.TapFrom != head2 {
 		t.Fatalf("row = %+v", row)
 	}
 }
