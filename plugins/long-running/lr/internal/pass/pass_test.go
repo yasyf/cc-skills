@@ -212,7 +212,7 @@ func TestAnOverdueGradeGoesToTheGraderDeskAndAnOverdueTapToTheBoardDesk(t *testi
 	}
 }
 
-func TestAWorkerSilentFifteenMinutesLosesItsItemsAndRootHearsOnce(t *testing.T) {
+func TestAWorkerSilentFifteenMinutesLosesItsItemsAndTheGraderDeskHearsOnce(t *testing.T) {
 	s, r := newStore(t), &recorder{}
 	given := facts(45651, func(f *machine.Facts) { f.CI = machine.CIFailure })
 
@@ -230,7 +230,7 @@ func TestAWorkerSilentFifteenMinutesLosesItsItemsAndRootHearsOnce(t *testing.T) 
 	if held := silent.Released["lane-7"]; len(held) != 1 || held[0].ID != item.ID {
 		t.Fatalf("silent = %+v", silent.Released)
 	}
-	wantEscalated := []pass.Escalated{{Subject: "worker:lane-7", Cause: "silent 15 minutes", To: "root"}}
+	wantEscalated := []pass.Escalated{{Subject: "worker:lane-7", Cause: "silent 15 minutes", To: "grader-appeals-3"}}
 	if !reflect.DeepEqual(silent.Escalated, wantEscalated) {
 		t.Fatalf("escalated = %+v", silent.Escalated)
 	}
@@ -241,7 +241,7 @@ func TestAWorkerSilentFifteenMinutesLosesItsItemsAndRootHearsOnce(t *testing.T) 
 		t.Fatalf("again = %+v", again.Released)
 	}
 	body := bus.Escalation{Subject: "worker:lane-7", Cause: "silent 15 minutes"}
-	if !reflect.DeepEqual(r.of("escalation"), []posted{{[]string{"root"}, body}}) {
+	if !reflect.DeepEqual(r.of("escalation"), []posted{{[]string{"grader-appeals-3"}, body}}) {
 		t.Fatalf("posts = %+v", r.of("escalation"))
 	}
 }

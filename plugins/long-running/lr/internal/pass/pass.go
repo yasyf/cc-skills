@@ -88,7 +88,7 @@ func Run(s *store.Store, snapshot []machine.Facts, now time.Time, post Post, liv
 	if !slices.Contains(live, machine.MoverPool) {
 		return out, nil
 	}
-	err := releaseStale(s, now, post, &out)
+	err := releaseStale(s, now, post, route, &out)
 	return out, err
 }
 
@@ -202,7 +202,7 @@ func overdueCause(s *store.Store, item store.Item) (string, error) {
 	return cause, nil
 }
 
-func releaseStale(s *store.Store, now time.Time, post Post, out *Outcome) error {
+func releaseStale(s *store.Store, now time.Time, post Post, route Route, out *Outcome) error {
 	names, err := s.StaleWorkers(now)
 	if err != nil {
 		return err
@@ -213,7 +213,7 @@ func releaseStale(s *store.Store, now time.Time, post Post, out *Outcome) error 
 			return err
 		}
 		out.Released[name] = held
-		if err := escalate(s, "worker:"+name, "silent 15 minutes", root, now, post, out); err != nil {
+		if err := escalate(s, "worker:"+name, "silent 15 minutes", route(GraderDesk), now, post, out); err != nil {
 			return err
 		}
 	}
