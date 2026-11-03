@@ -43,7 +43,6 @@ const (
 	relay      = "owner-relay"
 	answerWait = 30
 	stepWait   = time.Minute
-	cloneWait  = 5 * time.Minute
 )
 
 var (
@@ -236,7 +235,7 @@ func (c Checkout) Write(ctx context.Context, topic, slug string, body []byte) (b
 }
 
 func (c Checkout) add(ctx context.Context) error {
-	if _, err := c.Runner.Run(ctx, shell.Command{Argv: []string{"git", "clone", "--quiet", "--depth", "1", "--branch", "main", c.Remote, c.Dir}, Timeout: cloneWait}); err != nil {
+	if _, err := c.Runner.Run(ctx, shell.Command{Argv: []string{"git", "clone", "--quiet", "--depth", "1", "--branch", "main", c.Remote, c.Dir}}); err != nil {
 		return err
 	}
 	_, err := c.git(ctx, c.Dir, "switch", "--quiet", "-c", Branch)
