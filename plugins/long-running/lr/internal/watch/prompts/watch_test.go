@@ -432,7 +432,7 @@ func TestTheDialogsTextStaysInAnOwnerOnlyFileUnderTheDrivesStateDirectory(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	elsewhere := []string{whole(t, f.notices[0]), f.sends[0][4], string(cardsJSON), shown.Text(), string(rowsJSON)}
+	elsewhere := []string{whole(t, f.notices[0]), f.sends[0][5], string(cardsJSON), shown.Text(), string(rowsJSON)}
 	for _, text := range elsewhere {
 		for _, words := range []string{"runs rm", "Do you want to proceed", "Kick it off", "Would you like to run", "rm -rf"} {
 			if strings.Contains(text, words) {
@@ -557,7 +557,7 @@ func TestAnIdleSupervisorGetsTheRecordsLineTypedOnceIntoItsOwnTerminal(t *testin
 
 			want(t, len(f.notices), 1)
 			want(t, len(f.sends), 1)
-			want(t, f.sends[0][4], whole(t, f.notices[0]))
+			want(t, f.sends[0][5], whole(t, f.notices[0]))
 			wake := rows[rootTerm].Wake
 			want(t, wake.Request, c.request)
 			wantSlice(t, wake.Stages, "input_accepted", "turn_started")
