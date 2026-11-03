@@ -26,6 +26,7 @@ const (
 	day        = 24 * time.Hour
 	history    = "72h"
 	passed     = "REPLAY-PASSED"
+	acceptAttr = "replay-accepted"
 	pageBytes  = 4_000_000
 	pageRows   = 500
 	whoFields  = "lane,live,seen_at,announced_at,stood_down"
@@ -304,12 +305,24 @@ func (d Deps) judge(ctx context.Context, drive, repo, oldVersion, newVersion str
 	}
 	replayed := fmt.Sprintf("%s records and %d test-only class checks of the last 24 hours", thousands(inWindow), len(prs))
 	if found := differences(oldDecided, newDecided); len(found) > 0 {
-		why := fmt.Sprintf("%s replayed %s against %s and %s, which %s did not, so it is not installed", newVersion, replayed, oldVersion, strings.Join(found, "; "), oldVersion)
+		if seq := acceptedAt(records, oldVersion); seq != 0 {
+			return fmt.Sprintf("replayed %s against %s and %s, which root accepted in #%d", replayed, oldVersion, strings.Join(found, "; "), seq), 0, nil
+		}
+		why := fmt.Sprintf("%s replayed %s against %s and %s, which %s did not, so it is not installed; root accepts a deliberate change with `cci post --kind decide --attr %s=%s`", newVersion, replayed, oldVersion, strings.Join(found, "; "), oldVersion, acceptAttr, oldVersion)
 		err := d.post(ctx, drive, "blocker", "replay-refused:"+newVersion, "REPLAY-REFUSED "+why, "--attr", "version="+newVersion)
 		_, printed := fmt.Fprintln(d.Stdout, why)
 		return "", Refused, errors.Join(err, printed)
 	}
 	return fmt.Sprintf("replayed %s against %s with no new relaunch or refusal", replayed, oldVersion), 0, nil
+}
+
+func acceptedAt(records []read, serving string) int64 {
+	for _, one := range records {
+		if one.record.Lane == lanes.Root && one.record.Attr(acceptAttr) == serving {
+			return one.record.Seq
+		}
+	}
+	return 0
 }
 
 func writeInput(given map[string]any) (string, error) {
