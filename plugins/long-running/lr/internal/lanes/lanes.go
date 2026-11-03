@@ -91,6 +91,7 @@ var (
 
 	settledDispatch = []string{"completed", "failed"}
 	agentVerdicts   = []string{agentLive, agentExited, agentUnverifiable}
+	standingRoles   = []string{"desk", RoleMeta, "release"}
 
 	numbered      = regexp.MustCompile(`^(.+)-(\d{1,2})$`)
 	handedOff     = regexp.MustCompile(`\bhandoff ([\w.-]+): doc ([0-9a-f]{7,40})\b`)

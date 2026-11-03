@@ -39,7 +39,7 @@ func TestADeadLaneThatHoldsNothingRetiresOnceSilentPastTheThreshold(t *testing.T
 	reports := f.ofKind("report")
 	equal(t, len(reports), 1)
 	equal(t, reports[0].To, []string{Root})
-	contains(t, reports[0].Text, "RETIRED conflicts-2: it stopped, quiet for 60 min, owns no PR, holds no standing duty, and has posted nothing for 60 minutes.")
+	equal(t, reports[0].Text, "RETIRED for owning no PR, holding no standing duty, and posting nothing for 60 minutes or more: conflicts-2 (it stopped, quiet for 60 min).")
 }
 
 func TestAColdSpriteParkedOnARecordedWaitIsLeftAloneAndAnUnparkedOneWithAPRIsHeld(t *testing.T) {
@@ -107,7 +107,7 @@ func TestAnIdleRosteredTeammateHoldingNothingRetiresPastTheThresholdAndOneWithAP
 }
 
 func TestATickOverLanesWithNoProcessReadsTheSameAtOneLaneAndAtAThousand(t *testing.T) {
-	counts := func(n int) [5]int {
+	counts := func(n int) [6]int {
 		s := memory(t)
 		f := adopted(t, s, writeBrief(t), "")
 		var peers, records, states, owed int
@@ -130,7 +130,7 @@ func TestATickOverLanesWithNoProcessReadsTheSameAtOneLaneAndAtAThousand(t *testi
 			t.Fatal(err)
 		}
 		equal(t, len(retired), n)
-		return [5]int{peers, records, states, owed, len(f.launches)}
+		return [6]int{peers, records, states, owed, len(f.launches), len(f.ofKind("report"))}
 	}
 	equal(t, counts(1000), counts(1))
 }
@@ -203,4 +203,19 @@ func TestTheBranchReadIsOnePerTickAtOneRetiredLaneAndAtAThousand(t *testing.T) {
 		return f.branchReads
 	}
 	equal(t, reads(1000), reads(1))
+}
+
+func TestADeskMetaOrReleaseLaneIsStandingSoItsDeathRelaunchesItWithNoStandingLine(t *testing.T) {
+	for _, role := range []string{"desk", RoleMeta, "release"} {
+		t.Run(role, func(t *testing.T) {
+			s, brief := memory(t), writeBrief(t)
+			f := newFake(t, []Record{spawned(1, "drive-watchdog-4", brief, t0.Add(-time.Hour), map[string]string{"role": role})}, []Row{who("drive-watchdog-4", true, t0.Add(-mins(1)))})
+			tick(t, s, f, t0.Add(-mins(1)))
+			f.peers = []Row{who("drive-watchdog-4", false, t0.Add(-3*time.Hour))}
+
+			out := tick(t, s, f, t0.Add(2*time.Hour))
+
+			equal(t, []any{len(out.Relaunched), len(out.Retired), f.launches}, []any{1, 0, []string{"drive-watchdog-5"}})
+		})
+	}
 }
