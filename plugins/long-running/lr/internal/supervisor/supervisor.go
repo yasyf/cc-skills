@@ -33,6 +33,7 @@ type Deps struct {
 	Sleep     func(time.Duration)
 	Lanes     func(now time.Time, generation int64) (lanes.Outcome, error)
 	Checks    []lanes.Check
+	Relay     *RelayKeeper
 	Snapshot  func(ctx context.Context) ([]machine.Facts, error)
 	Post      pass.Post
 	Queue     landing.Queue

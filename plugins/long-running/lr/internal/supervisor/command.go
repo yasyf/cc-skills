@@ -85,6 +85,9 @@ func run(ctx context.Context, a *app.App) error {
 	}
 	a.Log.Info("supervisor ended", "how", string(ended), "ticks", len(reports))
 	if ended == EndedRelease {
+		if deps.Relay != nil {
+			deps.Relay.Stop()
+		}
 		return Reexec(env.Claude, syscall.Exec)
 	}
 	return nil
@@ -191,6 +194,14 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 		return gates.Admit(ctx, squash.Admit(ctx, acts, snapshot), snapshot)
 	}
 	deps.Trunk = env.Config.Trunk
+	orcaRunner, err := config.LoadRunner(filepath.Join(env.State, runnerFile))
+	if err != nil {
+		return Deps{}, err
+	}
+	if orcaRunner.Orca.GoRelay {
+		deps.Relay = NewRelayKeeper(env.Claude, a.ConfigPath, env.State, orcaRunner.Orca.DeskInbox, s, post, a.Log)
+		deps.Checks = append(deps.Checks, deps.Relay.Check)
+	}
 	if !slices.Contains(env.Config.Movers, config.MoverGrading) {
 		return deps, nil
 	}
