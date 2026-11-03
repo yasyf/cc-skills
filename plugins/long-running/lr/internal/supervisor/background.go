@@ -19,6 +19,8 @@ const (
 	wasteEvery  = time.Hour
 	judgeEvery  = time.Minute
 	judgeLimit  = 15 * time.Minute
+
+	recoveredCursor = "background-recovered:"
 )
 
 type background struct {
@@ -43,11 +45,17 @@ func (b *background) Check(ctx context.Context, now time.Time) error {
 
 func (b *background) pass(ctx context.Context, now time.Time) {
 	failed := b.run(ctx)
-	if failed == nil || ctx.Err() != nil {
+	if ctx.Err() != nil {
+		return
+	}
+	to := cmp.Or(b.to, lanes.Root)
+	if failed == nil {
+		if err := b.sayRecovered(to); err != nil {
+			b.log.Warn("a background pass recovered and could not say so", "pass", b.name, "err", err)
+		}
 		return
 	}
 	cause := fmt.Sprintf("the last %s pass failed; the next one runs on schedule: %v", b.name, failed)
-	to := cmp.Or(b.to, lanes.Root)
 	raised, err := b.store.Escalate(b.name, cause, to, now)
 	if err == nil && raised {
 		err = b.post([]string{to}, bus.Overdue(to, b.name, cause))
@@ -55,4 +63,22 @@ func (b *background) pass(ctx context.Context, now time.Time) {
 	if err != nil {
 		b.log.Warn("a background pass failed and could not say so", "pass", b.name, "failed", failed, "err", err)
 	}
+}
+
+func (b *background) sayRecovered(to string) error {
+	raised, err := b.store.Escalations(b.name)
+	if err != nil || len(raised) == 0 {
+		return err
+	}
+	last := raised[len(raised)-1]
+	cursor := recoveredCursor + b.name
+	said, err := b.store.Cursor(cursor)
+	if err != nil || last.Raised.UnixMicro() <= said {
+		return err
+	}
+	text := fmt.Sprintf("%s recovered: a pass succeeded after this failure: %s", b.name, last.Cause)
+	if err := b.post([]string{to}, bus.Note{Text: text}); err != nil {
+		return err
+	}
+	return b.store.Advance(cursor, last.Raised.UnixMicro())
 }

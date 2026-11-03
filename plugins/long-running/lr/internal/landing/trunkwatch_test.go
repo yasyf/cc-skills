@@ -21,6 +21,8 @@ const (
 	olderOID   = "a786019e701234567890abcdef1234567890abcd"
 	buildPath  = "/pipelines/test/builds/"
 	ciTool     = "/co/tools/ci"
+	tokenTool  = "print-read-token"
+	refusal    = `ci bk: GET /pipelines/test/builds/105354 failed: 401 {"message":"Authentication required."}`
 )
 
 func trunkHistory(commits ...string) string {
@@ -49,7 +51,7 @@ func newTrunkWatch(t *testing.T) trunkFixture {
 		Repo:     monorepo,
 		Trunk:    "dev",
 		Checkout: "/co",
-		Config:   landing.TrunkConfig{Check: "buildkite/test", CIBuild: "tools/ci bk api /pipelines/{pipeline}/builds/{number}", FlakeLane: "red-sweep-3"},
+		Config:   landing.TrunkConfig{Check: "buildkite/test", CIBuild: "tools/ci bk api /pipelines/{pipeline}/builds/{number}", TokenCommand: []string{tokenTool}, FlakeLane: "red-sweep-3"},
 		Now:      func() time.Time { return t0 },
 	}}
 }
@@ -61,6 +63,7 @@ func (f trunkFixture) pass(t *testing.T, history string, replies func(*shelltest
 	if replies != nil {
 		replies(fake)
 	}
+	fake.Reply("read-token\n", tokenTool)
 	f.watch.Runner, f.watch.CCX = fake, ccx.CLI{Runner: fake}
 	if err := f.watch.Pass(context.Background()); err != nil {
 		t.Fatal(err)
@@ -192,6 +195,105 @@ func TestARetriedJobInANewTrunkBuildIsAFlakeAndANewFailingJobIsAPostMergeRed(t *
 	f.pass(t, history, nil)
 	if got := trunkRecords(t, "report"); len(got) != 1 {
 		t.Fatalf("the same build compared twice: %+v", got)
+	}
+}
+
+func TestEveryBuildReadInAPassCarriesOneReadOfTheToken(t *testing.T) {
+	f := newTrunkWatch(t)
+	reads := func(token string) func(*shelltest.Fake) {
+		return func(fake *shelltest.Fake) {
+			fake.Reply(token+"\n", tokenTool)
+			bkReply(fake, buildPath+"105354", failedRead)
+			bkReply(fake, "/pipelines/test/builds?per_page=30", `[]`)
+		}
+	}
+	history := trunkHistory(trunkCommit(trunkOID, "FAILURE", redBuild))
+	carried := func(token string) {
+		t.Helper()
+		printed, built := 0, 0
+		for _, call := range f.watch.Runner.(*shelltest.Fake).Calls() {
+			switch call.Argv[0] {
+			case tokenTool:
+				printed++
+			case ciTool:
+				built++
+				if len(call.Env) != 1 || call.Env[0] != "BUILDKITE_TOKEN="+token {
+					t.Fatalf("%v ran with env %v, want the read token", call.Argv, call.Env)
+				}
+			}
+		}
+		if printed != 1 || built != 2 {
+			t.Fatalf("token read %d times for %d build reads, want 1 and 2", printed, built)
+		}
+	}
+
+	f.pass(t, history, reads("first"))
+	carried("first")
+
+	f.watch.Now = func() time.Time { return t0.Add(time.Hour) }
+	f.pass(t, history, reads("rotated"))
+	carried("rotated")
+}
+
+func TestAWatchWithoutAUsableTokenReadsNoBuildAndNamesTheSetting(t *testing.T) {
+	for name, set := range map[string]struct {
+		command []string
+		reply   func(*shelltest.Fake)
+		want    string
+	}{
+		"unset":   {nil, func(*shelltest.Fake) {}, "landing.ci_build needs landing.ci_token_command"},
+		"failing": {[]string{tokenTool}, func(fake *shelltest.Fake) { fake.Fail(254, "the SSO session expired", tokenTool) }, "landing.ci_token_command failed: "},
+		"empty":   {[]string{tokenTool}, func(fake *shelltest.Fake) { fake.Reply("\n", tokenTool) }, "landing.ci_token_command printed nothing"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newTrunkWatch(t)
+			f.watch.Config.TokenCommand = set.command
+			fake := &shelltest.Fake{}
+			fake.Reply(trunkHistory(trunkCommit(trunkOID, "SUCCESS", greenBuild), trunkCommit(olderOID, "SUCCESS", redBuild)), "ccx", "vcs", "gh")
+			set.reply(fake)
+			f.watch.Runner, f.watch.CCX = fake, ccx.CLI{Runner: fake}
+
+			err := f.watch.Pass(context.Background())
+
+			if err == nil || !strings.Contains(err.Error(), set.want) {
+				t.Fatalf("err = %v, want it to name %q", err, set.want)
+			}
+			for _, call := range fake.Calls() {
+				if call.Argv[0] == ciTool {
+					t.Fatalf("read a build with no token: %v", call.Argv)
+				}
+			}
+		})
+	}
+}
+
+func TestABuildkite401NamesItselfAndARedTrunkStillPostsThenTheComparisonCatchesUp(t *testing.T) {
+	f := newTrunkWatch(t)
+	history := trunkHistory(trunkCommit(trunkOID, "FAILURE", redBuild), trunkCommit(olderOID, "SUCCESS", greenBuild))
+	refused := &shelltest.Fake{}
+	refused.Reply(history, "ccx", "vcs", "gh")
+	refused.Reply("read-token\n", tokenTool)
+	refused.Fail(1, refusal, ciTool, "bk", "api")
+	f.watch.Runner, f.watch.CCX = refused, ccx.CLI{Runner: refused}
+
+	err := f.watch.Pass(context.Background())
+
+	if err == nil || !strings.Contains(err.Error(), "auth failure, not a red build") || !strings.Contains(err.Error(), "failed: 401") {
+		t.Fatalf("err = %v, want it to name the auth failure", err)
+	}
+	if strings.Contains(err.Error(), "read-token") {
+		t.Fatalf("the error carries the token: %v", err)
+	}
+	if got := trunkRecords(t, "incident"); len(got) != 1 || !strings.HasPrefix(got[0].Text, "DEV-RED for ") {
+		t.Fatalf("incidents = %+v, want the red trunk said despite the 401", got)
+	}
+
+	f.pass(t, history, func(fake *shelltest.Fake) {
+		bkReply(fake, buildPath+"105354", failedRead)
+		bkReply(fake, buildPath+"105355", greenRead)
+	})
+	if got := trunkRecords(t, "report"); len(got) != 1 || !strings.HasPrefix(got[0].Text, "POST-MERGE-RED trunk-jobs:105354 ") {
+		t.Fatalf("reports = %+v, want the comparison the 401 held back", got)
 	}
 }
 

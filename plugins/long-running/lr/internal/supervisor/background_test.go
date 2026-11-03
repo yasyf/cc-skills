@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -36,7 +37,37 @@ func TestAFailedBackgroundPassReachesRootOncePerError(t *testing.T) {
 
 	failure = nil
 	b.pass(context.Background(), t0.Add(3*recurEvery))
+	equal(t, len(told), 3)
+	equal(t, told[2].Kind(), "note")
+	if text := told[2].(bus.Note).Text; !strings.Contains(text, "recurrence-count recovered") || !strings.Contains(text, "a fixture class is gone") {
+		t.Fatalf("recovery said %q", text)
+	}
+
+	b.pass(context.Background(), t0.Add(4*recurEvery))
+	equal(t, len(told), 3)
+}
+
+func TestARecoveryIsSaidAfterASupervisorRestart(t *testing.T) {
+	s := memory(t)
+	var told []bus.Body
+	started := func(failure error) *background {
+		return &background{
+			name:  "trunk-watch",
+			run:   func(context.Context) error { return failure },
+			store: s,
+			post: func(_ []string, body bus.Body) error {
+				told = append(told, body)
+				return nil
+			},
+			log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		}
+	}
+
+	started(errors.New("auth failure")).pass(context.Background(), t0)
+	started(nil).pass(context.Background(), t0.Add(recurEvery))
+
 	equal(t, len(told), 2)
+	equal(t, told[1].Kind(), "note")
 }
 
 func TestAPassTheSupervisorsShutdownCancelledReachesNobody(t *testing.T) {
@@ -79,7 +110,7 @@ func TestAFailedPassWithItsOwnLaneTellsThatLaneNotRoot(t *testing.T) {
 
 func TestABackgroundPassRunsOnceAPeriod(t *testing.T) {
 	passes := 0
-	b := &background{name: "p", every: time.Hour, run: func(context.Context) error {
+	b := &background{name: "p", every: time.Hour, store: memory(t), run: func(context.Context) error {
 		passes++
 		return nil
 	}}

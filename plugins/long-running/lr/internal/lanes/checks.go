@@ -458,13 +458,14 @@ type LandedNotLive struct {
 }
 
 type RunnerLanding struct {
-	ReleaseCLI   string `json:"release_cli"`
-	Ledger       string `json:"ledger"`
-	TrunkCheck   string `json:"trunk_check"`
-	CIBuild      string `json:"ci_build"`
-	FlakeLane    string `json:"flake_lane"`
-	FlakyChannel string `json:"flaky_channel"`
-	Pages        struct {
+	ReleaseCLI     string   `json:"release_cli"`
+	Ledger         string   `json:"ledger"`
+	TrunkCheck     string   `json:"trunk_check"`
+	CIBuild        string   `json:"ci_build"`
+	CITokenCommand []string `json:"ci_token_command"`
+	FlakeLane      string   `json:"flake_lane"`
+	FlakyChannel   string   `json:"flaky_channel"`
+	Pages          struct {
 		Channels []string `json:"channels"`
 		Build    string   `json:"build"`
 	} `json:"pages"`
