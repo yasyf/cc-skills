@@ -2526,7 +2526,7 @@ def cmd_summary(args: argparse.Namespace, shell: Shell) -> int:
 
 def not_live_lines(shell: Shell, drive: str) -> list[str]:
     """One `LANDED-NOT-LIVE <target>: <PRs>` line per release target the landing runner's newest `landed-not-live` record names: the PRs landed in the last day that the target runs none of, each with its landing time."""
-    found = cci.records(shell.run, drive, "--kind=state", f"--lane={cci.TRUNK_RUNNER}", f"--topic={cci.NOT_LIVE_TOPIC}")
+    found = cci.records(shell.run, drive, "--kind=state", *(f"--lane={lane}" for lane in sorted(cci.TRUNK_RUNNERS)), f"--topic={cci.NOT_LIVE_TOPIC}")
     newest = max((record for record in found if record["drive"] == drive and record.get("topic") == cci.NOT_LIVE_TOPIC), key=lambda record: record["seq"], default=None)
     said = newest["text"].removeprefix(f"{ASK_LANDED_NOT_LIVE} ") if newest else "none"
     return [] if said == "none" else [f"{ASK_LANDED_NOT_LIVE} {target}" for target in said.split("; ")]

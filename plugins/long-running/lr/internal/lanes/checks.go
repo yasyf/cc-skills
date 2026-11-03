@@ -422,36 +422,35 @@ type LandedNotLive struct {
 	owed       map[string]int64
 }
 
-type runnerLanding struct {
-	ReleaseCLI string `json:"release_cli"`
-	Ledger     string `json:"ledger"`
+type RunnerLanding struct {
+	ReleaseCLI   string `json:"release_cli"`
+	Ledger       string `json:"ledger"`
+	TrunkCheck   string `json:"trunk_check"`
+	CIBuild      string `json:"ci_build"`
+	FlakeLane    string `json:"flake_lane"`
+	FlakyChannel string `json:"flaky_channel"`
 }
 
-func readRunnerLanding(state string) (runnerLanding, error) {
+func ReadRunnerLanding(state string) (RunnerLanding, error) {
 	data, err := os.ReadFile(filepath.Join(state, "runner.json"))
 	if errors.Is(err, fs.ErrNotExist) {
-		return runnerLanding{}, nil
+		return RunnerLanding{}, nil
 	}
 	if err != nil {
-		return runnerLanding{}, err
+		return RunnerLanding{}, err
 	}
 	var runner struct {
-		Landing runnerLanding `json:"landing"`
+		Landing RunnerLanding `json:"landing"`
 	}
 	if err := json.Unmarshal(data, &runner); err != nil {
-		return runnerLanding{}, fmt.Errorf("runner.json: %w", err)
+		return RunnerLanding{}, fmt.Errorf("runner.json: %w", err)
 	}
 	return runner.Landing, nil
 }
 
 func ReleaseCLI(state string) ([]string, error) {
-	landing, err := readRunnerLanding(state)
+	landing, err := ReadRunnerLanding(state)
 	return strings.Fields(landing.ReleaseCLI), err
-}
-
-func PRLedger(state string) (string, error) {
-	landing, err := readRunnerLanding(state)
-	return landing.Ledger, err
 }
 
 func (n *LandedNotLive) landings(ctx context.Context, now time.Time) (map[int]landing, error) {

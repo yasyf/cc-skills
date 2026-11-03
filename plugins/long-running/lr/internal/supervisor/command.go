@@ -133,12 +133,26 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 	if err != nil {
 		return Deps{}, err
 	}
-	ledgerID, err := lanes.PRLedger(env.State)
+	runner, err := lanes.ReadRunnerLanding(env.State)
 	if err != nil {
 		return Deps{}, err
 	}
-	if ledgerID != "" {
-		deps.Checks = append(deps.Checks, (&background{name: "pr-ledger", every: ledgerEvery, run: prLedger{env, s, ledgerID}.pass, store: s, post: post, log: a.Log}).Check)
+	if runner.Ledger != "" {
+		deps.Checks = append(deps.Checks, (&background{name: "pr-ledger", every: ledgerEvery, run: prLedger{env, s, runner.Ledger}.pass, store: s, post: post, log: a.Log}).Check)
+	}
+	if runner.TrunkCheck != "" {
+		trunk := &landing.TrunkWatch{
+			Runner:   a.Runner,
+			CCX:      a.CCX,
+			Store:    s,
+			Drive:    env.Config.Drive,
+			Repo:     env.Config.Repo,
+			Trunk:    env.Config.Trunk,
+			Checkout: env.Config.Checkout,
+			Config:   landing.TrunkConfig{Check: runner.TrunkCheck, CIBuild: runner.CIBuild, FlakeLane: runner.FlakeLane, Channel: runner.FlakyChannel},
+			Now:      a.Now,
+		}
+		deps.Checks = append(deps.Checks, (&background{name: "trunk-watch", every: PassEvery, run: trunk.Pass, store: s, post: post, log: a.Log}).Check)
 	}
 	deps.Snapshot = prfacts.New(a, env.Config, s).Snapshot
 	deps.Post = post

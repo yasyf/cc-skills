@@ -254,6 +254,28 @@ func (s *Store) StandingTap(repo string, number int) (string, error) {
 	return head, err
 }
 
+func (s *Store) TrunkFacts(repo, kind string) (map[string]string, error) {
+	rows, err := s.db.Query("SELECT head, value FROM facts WHERE repo = ? AND number = 0 AND kind = ?", repo, kind)
+	found, err := collect(rows, err, func(rows *sql.Rows) ([2]string, error) {
+		var pair [2]string
+		err := rows.Scan(&pair[0], &pair[1])
+		return pair, err
+	})
+	if err != nil {
+		return nil, err
+	}
+	facts := make(map[string]string, len(found))
+	for _, pair := range found {
+		facts[pair[0]] = pair[1]
+	}
+	return facts, nil
+}
+
+func (s *Store) DeleteFact(repo string, number int, head, kind string) error {
+	_, err := s.db.Exec("DELETE FROM facts WHERE repo = ? AND number = ? AND head = ? AND kind = ?", repo, number, head, kind)
+	return err
+}
+
 func (s *Store) Facts(repo string, number int, head string) (map[string]string, error) {
 	rows, err := s.db.Query("SELECT kind, value FROM facts WHERE repo = ?1 AND number = ?2 AND length(head) >= 7 AND substr(?3, 1, length(head)) = head ORDER BY posted, length(head)", repo, number, head)
 	found, err := collect(rows, err, func(rows *sql.Rows) ([2]string, error) {
