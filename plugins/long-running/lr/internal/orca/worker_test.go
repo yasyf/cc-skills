@@ -25,7 +25,7 @@ const (
 	workerRun       = "run_1"
 	workerLane      = "lane-a"
 	workerWorkspace = "pool-spare"
-	macGitLogin      = "a-github-login\n"
+	macGitLogin     = "a-github-login\n"
 	remoteTerminal  = "term_remote_1"
 	remoteRoot      = "/home/sprite/monorepo"
 	remoteBase      = "1111111111111111111111111111111111111111"
