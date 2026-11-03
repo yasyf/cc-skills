@@ -231,7 +231,8 @@ func fnmatch(glob string) *regexp.Regexp {
 func standingGos(c Claim, r Read) []string {
 	var out []string
 	for _, record := range bus.LiveGos(r.Records, r.GoLanes) {
-		if bus.GoNamesHead(record, c.PR, c.Head) {
+		admits := slices.ContainsFunc(bus.LegacyFacts(record, c.Repo, r.GoLanes), func(fact bus.Fact) bool { return fact.Kind == "exempt" && fact.PR == c.PR })
+		if admits && bus.GoNamesHead(record, c.PR, c.Head) {
 			out = append(out, fmt.Sprintf("go %s by %s already names this head", record.Name(), record.Lane))
 		}
 	}
