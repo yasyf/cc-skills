@@ -105,6 +105,11 @@ jobs:
           chmod +x "$DESCRIPTOR"
       - name: Probe the pinned binary through the shim's runner
         run: test "$(plugins/long-running/scripts/binrun.sh "$DESCRIPTOR" --version)" = "lr version $VERSION"
+      - uses: astral-sh/setup-uv@v8.2.0
+      - name: Refuse a pin that lacks a verb or flag the pack names
+        env:
+          UV_PYTHON: "3.14"
+        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_lr_verbs.py -q
       - name: Land the descriptor on main
         run: |
           set -euo pipefail
