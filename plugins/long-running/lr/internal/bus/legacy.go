@@ -253,7 +253,11 @@ func goHeads(text string) []headPair {
 }
 
 func RootGos(records []client.Record) []client.Record {
-	lanes := []string{rootLane}
+	return LiveGos(records, nil)
+}
+
+func LiveGos(records []client.Record, goLanes []string) []client.Record {
+	lanes := append([]string{rootLane}, goLanes...)
 	closed := make(map[int64]bool)
 	for _, record := range records {
 		if delegated(record.Lane, lanes) {
