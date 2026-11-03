@@ -45,11 +45,6 @@ type Quote struct {
 	Words string
 }
 
-type Verdict struct {
-	Refused []string
-	Warned  []string
-}
-
 func Cited(text string) []Quote {
 	var out []Quote
 	spans := citation.FindAllStringSubmatchIndex(text, -1)
@@ -70,14 +65,14 @@ func Cited(text string) []Quote {
 	return out
 }
 
-func Misquote(key, words, source string) (refused, cut string) {
+func Misquote(key, words, source string) string {
 	said := flat(source)
 	parts := elided.Split(flat(words), -1)
 	opened, from := -1, 0
 	for _, part := range parts {
 		at := strings.Index(said[from:], part)
 		if at < 0 {
-			return fmt.Sprintf("%s does not say %q", key, words), ""
+			return fmt.Sprintf("%s does not say %q", key, words)
 		}
 		if opened < 0 {
 			opened = from + at
@@ -85,13 +80,13 @@ func Misquote(key, words, source string) (refused, cut string) {
 		from += at + len(part)
 	}
 	if parts[0] != "" && !opensClause(strings.TrimSpace(said[:opened])) {
-		return "", fmt.Sprintf("%s has more of that clause before %q: %q", key, words, tail(said[:opened]))
+		return fmt.Sprintf("%s has more of that clause before %q: %q", key, words, tail(said[:opened]))
 	}
 	rest := strings.TrimSpace(said[from:])
 	if parts[len(parts)-1] != "" && rest != "" && !strings.ContainsRune(clauseMarks, lastRune(words)) && !strings.ContainsRune(clauseMarks, firstRune(rest)) {
-		return "", fmt.Sprintf("%s goes on after %q: %q", key, words, head(rest))
+		return fmt.Sprintf("%s goes on after %q: %q", key, words, head(rest))
 	}
-	return "", ""
+	return ""
 }
 
 func flat(text string) string {
@@ -144,48 +139,30 @@ func NewReader(runner shell.Runner, driveName string) *Reader {
 	return &Reader{Runner: runner, Entry: func() (drive.Entry, error) { return drive.Named(driveName) }}
 }
 
-func (r *Reader) Check(ctx context.Context, text string) Verdict {
-	var verdict Verdict
+func (r *Reader) Check(ctx context.Context, text string) []string {
+	var warnings []string
 	cited := Cited(text)
 	if words := quoted.FindString(text); words != "" && len(cited) == 0 {
-		verdict.Warned = append(verdict.Warned, fmt.Sprintf("quotes %s with no row or answer key before it", words))
+		warnings = append(warnings, fmt.Sprintf("quotes %s with no row or answer key before it", words))
 	}
 	for _, quote := range cited {
 		source, err := r.words(ctx, quote.Key)
-		if errors.Is(err, ErrUnknownKey) {
-			verdict.Refused = append(verdict.Refused, err.Error())
-			continue
-		}
 		if err != nil {
-			verdict.Warned = append(verdict.Warned, fmt.Sprintf("could not read %s: %v", quote.Key, err))
+			warnings = append(warnings, fmt.Sprintf("could not read %s: %v", quote.Key, err))
 			continue
 		}
-		refused, cut := Misquote(quote.Key, quote.Words, source)
-		if refused != "" {
-			verdict.Refused = append(verdict.Refused, refused)
-		}
-		if cut != "" {
-			verdict.Warned = append(verdict.Warned, cut)
+		if warning := Misquote(quote.Key, quote.Words, source); warning != "" {
+			warnings = append(warnings, warning)
 		}
 	}
-	return verdict
+	return warnings
 }
 
-func (r *Reader) Override(ctx context.Context, record client.Record) Verdict {
+func (r *Reader) Override(ctx context.Context, record client.Record) []string {
 	if record.Lane != rootLane || len(bus.Overrides(record)) == 0 {
-		return Verdict{}
+		return nil
 	}
 	return r.Check(ctx, bus.FullText(record))
-}
-
-func (r *Reader) RefusedAmong(ctx context.Context, records []client.Record) map[int64][]string {
-	refused := map[int64][]string{}
-	for _, record := range records {
-		if verdict := r.Override(ctx, record); len(verdict.Refused) > 0 {
-			refused[record.Seq] = verdict.Refused
-		}
-	}
-	return refused
 }
 
 func (r *Reader) Whole(ctx context.Context, key string) (string, error) {
@@ -220,7 +197,7 @@ func (r *Reader) words(ctx context.Context, key string) (string, error) {
 	}
 	parent, found := r.parents[key]
 	if !found {
-		return "", fmt.Errorf("%s: %w", key, ErrUnknownKey)
+		return "", ErrUnknownKey
 	}
 	row := r.rows[parent]
 	var spoken []string

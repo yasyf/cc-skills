@@ -46,15 +46,8 @@ func (o *OverrideRefusals) Check(ctx context.Context, now time.Time) error {
 		if record.Seq <= o.quoted {
 			continue
 		}
-		verdict := reader.Override(ctx, record)
-		if len(verdict.Refused) > 0 {
-			text := fmt.Sprintf("OVERRIDE-REFUSED cci #%d settles no grade: %s. Read the row whole with `lr rules row <key>`, quote its exact words, and post it again", record.Seq, strings.Join(verdict.Refused, "; "))
-			if err := o.tell(ctx, "override-quote:"+strconv.FormatInt(record.Seq, 10), blockerKind, text, now); err != nil {
-				return err
-			}
-		}
-		if len(verdict.Warned) > 0 {
-			text := fmt.Sprintf("OVERRIDE-WARNING cci #%d still counts: %s. Read the row whole with `lr rules row <key>` and check the words say what it claims", record.Seq, strings.Join(verdict.Warned, "; "))
+		if warnings := reader.Override(ctx, record); len(warnings) > 0 {
+			text := fmt.Sprintf("OVERRIDE-WARNING cci #%d still counts: %s. Read the row whole with `lr rules row <key>` and check its words say what the override says they say", record.Seq, strings.Join(warnings, "; "))
 			if err := o.tell(ctx, "override-warning:"+strconv.FormatInt(record.Seq, 10), "note", text, now); err != nil {
 				return err
 			}

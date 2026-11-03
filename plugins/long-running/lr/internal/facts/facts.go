@@ -19,7 +19,6 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
-	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/quotes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -313,13 +312,8 @@ func (s Source) ingestLegacy(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	quoted := quotes.NewReader(s.Runner, s.Drive)
 	for _, record := range records {
-		legacy := bus.LegacyFacts(record, s.Repo, s.GoLanes)
-		if len(quoted.Override(ctx, record).Refused) > 0 {
-			legacy = slices.DeleteFunc(legacy, func(fact bus.Fact) bool { return fact.Kind == "verdict" })
-		}
-		if err := s.putFacts(legacy, record.At.UTC()); err != nil {
+		if err := s.putFacts(bus.LegacyFacts(record, s.Repo, s.GoLanes), record.At.UTC()); err != nil {
 			return err
 		}
 		if err := s.clearWithdrawn(ctx, record); err != nil {

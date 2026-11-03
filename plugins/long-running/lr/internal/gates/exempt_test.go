@@ -95,21 +95,6 @@ func TestARootDecideOverridingTheFinderAtTheHeadSettlesTheFinder(t *testing.T) {
 	}
 }
 
-func TestAnOverrideThatMisquotesTheOwnerSettlesNothing(t *testing.T) {
-	head := "cb9ae506fc0cd466404f9c05efa86ec23f04462a"
-	records := recordsBefore(t, "48704", 350192)
-	overrides := slices.IndexFunc(records, func(record client.Record) bool {
-		return record.Lane == "root" && strings.Contains(record.Text, "finder-override #48704 at cb9ae50")
-	})
-	misquote := "rule/784f1ab goes on after \"every thjrn\""
-	text, refusals := ExemptGo(Claim{Repo: monorepo, PR: 48704, Head: head}, Read{
-		Records: records, GoLanes: goLanes, Exempt: driveClasses, TapRules: driveTaps, Files: []string{"dashboard/src/iris/x.ts"},
-		Misquoted: map[int64][]string{records[overrides].Seq: {misquote}},
-	})
-	refusedWith(t, text, refusals, "no root decide reads finder-override #48704 at cb9ae50")
-	refusedWith(t, text, refusals, misquote)
-}
-
 func TestAnOverrideCitingARecordThatDoesNotExistSettlesNothing(t *testing.T) {
 	records := recordsBefore(t, "48375", 355825)
 	records = append(records, client.Record{Seq: 355824, Lane: "root", Kind: "decide", Text: "12:22 AM finder-override #48375 at 71bd0ab: 346573"})

@@ -68,9 +68,8 @@ func TestCitedPairsEachQuoteWithTheKeyItFollows(t *testing.T) {
 
 func TestCheck(t *testing.T) {
 	for name, tc := range map[string]struct {
-		text    string
-		refused string
-		warned  string
+		text string
+		want string
 	}{
 		"a clause whole":                   {text: `finder-override #1 at abc1234: 9. Answer 79e14c4, "I told you to pick just one level to put the At", grounds it`},
 		"a full sentence":                  {text: `Answer 79e14c4, "Go look into it.", is the order`},
@@ -80,34 +79,29 @@ func TestCheck(t *testing.T) {
 		"a repeat under its own key":       {text: `prompt/1026-184540, "yea just keep the fucking patches that are still useful jesus"`},
 		"a line of a repeat":               {text: `prompt/1026-190000, "second line"`},
 		"the row's own words":              {text: `prompt/1026-113025, "keep the patches of we need them for perf"`},
-		"words he never said":              {text: `Answer 79e14c4, "orders this fix"`, refused: `does not say "orders this fix"`},
-		"a parent's words, not a repeat's": {text: `prompt/1026-184540, "keep the patches of we need them for perf"`, refused: "does not say"},
-		"the register's reading":           {text: `prompt/1026-113025, "the register's own reading"`, refused: "does not say"},
-		"an unknown row":                   {text: `rule/0000000, "anything"`, refused: ErrUnknownKey.Error()},
-		"stopping mid clause":              {text: `rule/784f1ab, "every thjrn hiinchanhe jeedsa regresion test", asks for it`, warned: `goes on after "every thjrn hiinchanhe jeedsa regresion test": "and one that actuwlly`},
-		"opening mid clause":               {text: `Answer 79e14c4, "pick just one level to put the At"`, warned: "has more of that clause before"},
-		"an answer it cannot read":         {text: `answer 0000000, "anything"`, warned: "could not read answer 0000000"},
-		"a quote with no row id":           {text: `finder-override #1 at abc1234: 9. The grade says "plan names no field"`, warned: "with no row or answer key"},
 		"no quote at all":                  {text: `finder-override #1 at abc1234: 9`},
+		"words he never said":              {`Answer 79e14c4, "orders this fix"`, `does not say "orders this fix"`},
+		"a parent's words, not a repeat's": {`prompt/1026-184540, "keep the patches of we need them for perf"`, "does not say"},
+		"the register's reading":           {`prompt/1026-113025, "the register's own reading"`, "does not say"},
+		"an unknown row":                   {`rule/0000000, "anything"`, ErrUnknownKey.Error()},
+		"stopping mid clause":              {`rule/784f1ab, "every thjrn hiinchanhe jeedsa regresion test", asks for it`, `goes on after "every thjrn hiinchanhe jeedsa regresion test": "and one that actuwlly`},
+		"opening mid clause":               {`Answer 79e14c4, "pick just one level to put the At"`, "has more of that clause before"},
+		"an answer it cannot read":         {`answer 0000000, "anything"`, "could not read answer 0000000"},
+		"a quote with no row id":           {`finder-override #1 at abc1234: 9. The grade says "plan names no field"`, "with no row or answer key"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			verdict := reader(t).Check(context.Background(), tc.text)
-			for _, side := range []struct {
-				got  []string
-				want string
-			}{{verdict.Refused, tc.refused}, {verdict.Warned, tc.warned}} {
-				if side.want == "" && len(side.got) != 0 {
-					t.Fatalf("verdict %+v", verdict)
-				}
-				if side.want != "" && (len(side.got) != 1 || !strings.Contains(side.got[0], side.want)) {
-					t.Fatalf("verdict %+v, want one saying %q", verdict, side.want)
-				}
+			got := reader(t).Check(context.Background(), tc.text)
+			if tc.want == "" && len(got) != 0 {
+				t.Fatalf("warned %q", got)
+			}
+			if tc.want != "" && (len(got) != 1 || !strings.Contains(got[0], tc.want)) {
+				t.Fatalf("got %q, want one warning saying %q", got, tc.want)
 			}
 		})
 	}
 }
 
-func TestARegisterItCannotReadWarnsAndRefusesNothing(t *testing.T) {
+func TestARegisterItCannotReadWarnsOncePerRead(t *testing.T) {
 	for name, stub := range map[string]func(*shelltest.Fake){
 		"ccn fails":   func(fake *shelltest.Fake) { fake.Fail(1, "ccn is down", "ccn") },
 		"no register": func(fake *shelltest.Fake) { fake.Reply(`[]`, "ccn", "-R", "/repo", "ledger", "list") },
@@ -117,10 +111,10 @@ func TestARegisterItCannotReadWarnsAndRefusesNothing(t *testing.T) {
 			stub(fake)
 			r := &Reader{Runner: fake, Entry: func() (drive.Entry, error) { return drive.Entry{Checkout: "/repo", Program: "p"}, nil }}
 
-			verdict := r.Check(context.Background(), `rule/784f1ab, "anything" and rule/86efabc, "anything else"`)
+			got := r.Check(context.Background(), `rule/784f1ab, "anything" and rule/86efabc, "anything else"`)
 
-			if len(verdict.Refused) != 0 || len(verdict.Warned) != 2 || !strings.Contains(verdict.Warned[0], "could not read rule/784f1ab") {
-				t.Fatalf("verdict %+v", verdict)
+			if len(got) != 2 || !strings.Contains(got[0], "could not read rule/784f1ab") {
+				t.Fatalf("got %q", got)
 			}
 			if calls := len(fake.Calls()); calls != 1 {
 				t.Fatalf("read the register %d times", calls)
@@ -140,8 +134,8 @@ func TestOverrideReadsOnlyRootsOverrides(t *testing.T) {
 		"root with no override": {client.Record{Lane: "root", Kind: "decide", Text: `rule/784f1ab, "words he never said" came up`}, 0},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if got := reader(t).Override(context.Background(), tc.record).Refused; len(got) != tc.want {
-				t.Fatalf("Refused = %q, want %d", got, tc.want)
+			if got := reader(t).Override(context.Background(), tc.record); len(got) != tc.want {
+				t.Fatalf("got %q, want %d", got, tc.want)
 			}
 		})
 	}
@@ -163,8 +157,8 @@ func TestReadingTheRegisterOnceServesEveryQuote(t *testing.T) {
 	r := reader(t)
 	text := `rule/784f1ab, "just fic the rmeaining wctuwl jssues" and prompt/1026-113025, "keep the patches of we need them for perf"`
 	for range 1000 {
-		if got := r.Check(context.Background(), text); len(got.Refused)+len(got.Warned) != 0 {
-			t.Fatalf("got %+v", got)
+		if got := r.Check(context.Background(), text); len(got) != 0 {
+			t.Fatalf("got %q", got)
 		}
 	}
 	shows := 0
