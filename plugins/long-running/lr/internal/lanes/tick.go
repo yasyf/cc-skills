@@ -818,7 +818,7 @@ func unownedDuties(s *store.Store, d Deps, found map[string]Peer, now time.Time)
 			since, why = head.Since, fmt.Sprintf("was retired by %s with no successor", or(head.RetiredBy, "nobody"))
 		}
 		if now.Sub(since) >= unownedAfter {
-			escalate(s, d, "lane:"+name, fmt.Sprintf("standing lane %s (%s) has had no live owner for over %d min: it %s. Launch its successor from %s, or post `lr request stand-down %s --successor <lane>`; deleting the brief's `Standing:` line ends the duty.", name, must(BriefOf(head.Brief)).Standing, int(unownedAfter.Minutes()), why, head.Brief, name), now)
+			escalate(s, d, "lane:"+name, fmt.Sprintf("standing lane %s (%s) has had no live owner for over %d min: it %s. Launch its successor from %s, or post `lr request stand-down %s --successor <lane> --open '<items>'`; deleting the brief's `Standing:` line ends the duty.", name, must(BriefOf(head.Brief)).Standing, int(unownedAfter.Minutes()), why, head.Brief, name), now)
 		}
 	}
 }

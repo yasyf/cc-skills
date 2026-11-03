@@ -166,6 +166,7 @@ type Request struct {
 	Lane      string
 	Successor string
 	LastRead  string
+	Open      string
 	PRs       []int
 	By        string
 }
@@ -180,6 +181,10 @@ func (r Request) Draft(drive string) client.Draft {
 	if r.LastRead != "" {
 		attrs["last-read"] = r.LastRead
 		words = append(words, "last-read="+r.LastRead)
+	}
+	if r.Open != "" {
+		attrs["open"] = r.Open
+		words = append(words, "open: "+r.Open)
 	}
 	refs := make([]string, 0, len(r.PRs))
 	for _, pr := range r.PRs {
@@ -200,6 +205,9 @@ func (r Request) Command() string {
 	}
 	if r.LastRead != "" {
 		words = append(words, "--last-read", r.LastRead)
+	}
+	if r.Open != "" {
+		words = append(words, "--open", strconv.Quote(r.Open))
 	}
 	if r.By != "" {
 		words = append(words, "--by", r.By)
@@ -247,15 +255,18 @@ func UnreadRefusal(ctx context.Context, s *store.Store, drive string, r Request)
 
 func StandingRefusal(s *store.Store, r Request) (refusal string, err error) {
 	defer recovered(&err)
-	if r.Verb != "stand-down" || r.Successor != "" {
+	if r.Verb != "stand-down" {
 		return "", nil
 	}
 	lane, found := laneOf(s, r.Lane)
-	if !found {
+	if !found || !isStanding(lane) {
 		return "", nil
 	}
-	if duty := must(BriefOf(lane.Brief)).Standing; duty != "" {
+	if duty := must(BriefOf(lane.Brief)).Standing; duty != "" && r.Successor == "" {
 		return fmt.Sprintf("%s is standing (%s): it stands down only for a successor, so name one with --successor, or delete the `Standing:` line in %s to end the duty", r.Lane, duty, lane.Brief), nil
+	}
+	if r.Open == "" {
+		return fmt.Sprintf("%s is a desk, so its stand-down carries its open items for whoever takes them: every owner order it holds (`lr owner audit`), and every ask, PR and card it owes. Name them with --open '<item>; <item>', or pass --open none", r.Lane), nil
 	}
 	return "", nil
 }

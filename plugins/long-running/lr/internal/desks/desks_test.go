@@ -259,7 +259,7 @@ func TestARoleWhoseHolderPostsUnderAnyNameLaunchesNoSecondWriter(t *testing.T) {
 			if launched := m.lines("desk-launch.py lane board-refresher"); len(launched) != 0 {
 				t.Fatalf("launched a second board writer: %q", launched)
 			}
-			want := "board-refresher is up as board-refresher-7, newest record #360698; launching another takes `lr request stand-down board-refresher-7 --successor <lane>` first"
+			want := "board-refresher is up as board-refresher-7, newest record #360698; launching another takes `lr request stand-down board-refresher-7 --successor <lane> --open '<items>'` first"
 			if !strings.Contains(out.String(), want) {
 				t.Fatalf("got %q, want %q", out.String(), want)
 			}

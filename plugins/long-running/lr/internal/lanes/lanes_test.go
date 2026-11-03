@@ -2072,13 +2072,39 @@ func TestAStandDownOfAStandingLaneWithNoSuccessorIsRefused(t *testing.T) {
 	}
 	contains(t, refusal, "it stands down only for a successor")
 
-	for _, allowed := range []Request{{Verb: "stand-down", Lane: refresher, Successor: "board-refresher-7"}, {Verb: "done", Lane: refresher}, {Verb: "stand-down", Lane: "unknown"}} {
+	for _, allowed := range []Request{{Verb: "stand-down", Lane: refresher, Successor: "board-refresher-7", Open: "none"}, {Verb: "done", Lane: refresher}, {Verb: "stand-down", Lane: "unknown"}} {
 		refusal, err := StandingRefusal(s, allowed)
 		if err != nil {
 			t.Fatal(err)
 		}
 		equal(t, refusal, "")
 	}
+}
+
+func TestADesksStandDownWithNoOpenItemListIsRefusedNamingWhatItMustCarry(t *testing.T) {
+	s := memory(t)
+	for _, lane := range []store.Lane{{Name: "meta-desk-2", Role: "desk"}, {Name: "fix-lane-1", Role: "lane"}} {
+		lane.Model, lane.Effort, lane.State = "opus", "xhigh", store.LaneDesired
+		if _, err := s.WantLane(lane, t0); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	refusal, err := StandingRefusal(s, Request{Verb: "stand-down", Lane: "meta-desk-2", Successor: "meta-desk-3"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	contains(t, refusal, "meta-desk-2 is a desk, so its stand-down carries its open items for whoever takes them: every owner order it holds (`lr owner audit`), and every ask, PR and card it owes. Name them with --open '<item>; <item>', or pass --open none")
+
+	for _, allowed := range []Request{{Verb: "stand-down", Lane: "meta-desk-2", Successor: "meta-desk-3", Open: "owner:m85 phone app; card-tap-hold"}, {Verb: "stand-down", Lane: "fix-lane-1"}} {
+		refusal, err := StandingRefusal(s, allowed)
+		if err != nil {
+			t.Fatal(err)
+		}
+		equal(t, refusal, "")
+	}
+	draft := Request{Verb: "stand-down", Lane: "meta-desk-2", Successor: "meta-desk-3", Open: "owner:m85 phone app", By: Root}.Draft(testDrive)
+	equal(t, []string{draft.Attrs["open"], draft.Text}, []string{"owner:m85 phone app", "registry request: stand-down meta-desk-2 for meta-desk-3 open: owner:m85 phone app"})
 }
 
 func TestADoneWhileTheLaneOwnsAnOpenPRIsRefusedNamingItAndTheBlockedForm(t *testing.T) {
