@@ -95,7 +95,7 @@ func TestARefusedFileNamesWhatIsWrong(t *testing.T) {
 		{"a blank required field", with(map[string]any{"repo": " "}), "repo must be non-empty text"},
 		{"a required field that is not text", with(map[string]any{"repo": 7}), "repo must be non-empty text"},
 		{"an optional field that is not text", with(map[string]any{"trunk": 7}), "trunk must be text"},
-		{"no movers", with(map[string]any{"movers": []string{}}), "movers must name at least one of lanes, shadow, landing, grading, items"},
+		{"no movers", with(map[string]any{"movers": []string{}}), "movers must name at least one of lanes, landing, grading, items"},
 		{"only movers this release does not run", with(map[string]any{"movers": []string{"board"}}), "movers must name at least one of"},
 		{"movers that are not a list", with(map[string]any{"movers": "lanes"}), "movers must be a list of mover names"},
 		{"the landing mover without its queue script", with(map[string]any{"movers": []string{"lanes", "landing"}}), "landing mover needs queue_script"},

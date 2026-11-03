@@ -30,7 +30,7 @@ func TestABodyTheBusWouldHaveRefusedDoesNotParse(t *testing.T) {
 		"no body at all":              stored(t, "lr.note", `null`, "supervisor"),
 	} {
 		t.Run(name, func(t *testing.T) {
-			if parsed, err := parse(record); err == nil {
+			if parsed, err := Parse(record); err == nil {
 				t.Fatalf("parse = %+v, want a refusal", parsed)
 			}
 		})
@@ -38,7 +38,7 @@ func TestABodyTheBusWouldHaveRefusedDoesNotParse(t *testing.T) {
 }
 
 func TestAStoredBodyParsesToItsType(t *testing.T) {
-	record, err := parse(stored(t, "lr.grade", `{"pr":45821,"head":"`+parseHead+`","grader":"finder","verdict":"clear"}`, "supervisor"))
+	record, err := Parse(stored(t, "lr.grade", `{"pr":45821,"head":"`+parseHead+`","grader":"finder","verdict":"clear"}`, "supervisor"))
 	if err != nil {
 		t.Fatal(err)
 	}

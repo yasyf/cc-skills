@@ -18,7 +18,7 @@ const (
 
 const RetireSilent = time.Hour
 
-var Movers = []string{"lanes", "shadow", MoverLanding, "grading", "items"}
+var Movers = []string{"lanes", MoverLanding, "grading", "items"}
 
 type Config struct {
 	Repo             string

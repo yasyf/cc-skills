@@ -166,11 +166,12 @@ func decodeAs[B Body](raw json.RawMessage) (Body, error) {
 }
 
 type Record struct {
-	Seq  int64
-	At   time.Time
-	Lane string
-	To   []string
-	Body Body
+	Seq    int64
+	At     time.Time
+	Lane   string
+	Origin string
+	To     []string
+	Body   Body
 }
 
 func (r Record) Kind() string {
@@ -270,7 +271,7 @@ func (b Bus) postRaw(ctx context.Context, kind string, raw json.RawMessage, to [
 	if err != nil {
 		return Record{}, err
 	}
-	return parse(stored)
+	return Parse(stored)
 }
 
 func decodeFields(raw json.RawMessage) (map[string]any, error) {
@@ -321,7 +322,7 @@ func summary(kind string, names []string, fields map[string]any) string {
 	return line
 }
 
-func parse(raw client.Record) (Record, error) {
+func Parse(raw client.Record) (Record, error) {
 	kind := strings.TrimPrefix(string(raw.Kind), namespace+".")
 	if err := Check(kind, raw.Body, raw.To); err != nil {
 		return Record{}, err
@@ -330,7 +331,7 @@ func parse(raw client.Record) (Record, error) {
 	if err != nil {
 		return Record{}, err
 	}
-	return Record{raw.Seq, raw.At.UTC(), raw.Lane, raw.To, body}, nil
+	return Record{raw.Seq, raw.At.UTC(), raw.Lane, raw.Origin, raw.To, body}, nil
 }
 
 func (b Bus) Read(ctx context.Context, since int64, kinds ...string) (records []Record, rejected []client.Record, err error) {
@@ -346,7 +347,7 @@ func (b Bus) Read(ctx context.Context, since int64, kinds ...string) (records []
 		return nil, nil, err
 	}
 	for _, row := range rows {
-		record, err := parse(row)
+		record, err := Parse(row)
 		if err != nil {
 			rejected = append(rejected, row)
 			continue
