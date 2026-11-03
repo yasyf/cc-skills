@@ -132,7 +132,7 @@ func announce(d Deps, said folded, now time.Time) {
 	}
 	verbs := slices.Sorted(slices.Values(Verbs))
 	for _, seq := range said.untyped {
-		do(d.Post(Post{Kind: "defect", To: []string{Root}, Text: fmt.Sprintf("%s root's decide #%d reaches the supervisor with no registry request, so the registry is unchanged and its lanes are still woken while their tasks read in progress; post `lr request <%s> <lane>` for each lane it names.", pacific(now), seq, strings.Join(verbs, "|")), Re: seq}))
+		do(d.Post(Post{Kind: "defect", To: []string{Root}, Text: fmt.Sprintf("%s root's decide #%d reaches the supervisor with no registry request, so the registry is unchanged and its lanes are still woken while their tasks read in progress; post `%s` for each lane it names.", pacific(now), seq, Request{Verb: "<" + strings.Join(verbs, "|") + ">", Lane: "<lane>"}.Command()), Re: seq}))
 	}
 	for _, one := range said.unread {
 		do(d.Post(Post{Kind: "defect", To: []string{Root, one.name}, LaneRef: one.name, Text: fmt.Sprintf("%s %s, so the supervisor refused it and holds %s with its PRs, never relaunched or retired, until %s posts again; %s, keep working. Root: read %s with `cci tail --lane %s --since <its wake seq> --oldest` and the registry's heard time, then post it again citing last-read=<seq>.", pacific(now), one.why, one.name, one.name, one.name, one.name, one.name)}))
@@ -466,7 +466,7 @@ func ownedWork(s *store.Store, d Deps, now time.Time) {
 		if len(strandedFresh) == 1 {
 			verb, pronoun = "needs", "it"
 		}
-		do(d.Post(Post{Kind: "blocker", To: []string{Root}, Text: fmt.Sprintf("%s %s %s work and no lane owns %s: the lane that did ended, naming no successor. Name one with a coordinator decide carrying `owner=<lane>`.", pacific(now), numberList(strandedFresh), verb, pronoun)}))
+		do(d.Post(Post{Kind: "blocker", To: []string{Root}, Text: fmt.Sprintf("%s %s %s work and no lane owns %s: the lane that did ended, naming no successor. Name one with `%s`.", pacific(now), numberList(strandedFresh), verb, pronoun, Request{Verb: "owner", Lane: "<lane>", PRs: strandedFresh}.Command())}))
 		for _, n := range strandedFresh {
 			do(s.Probe(fmt.Sprintf("%s:%d", Root, n), now))
 		}
