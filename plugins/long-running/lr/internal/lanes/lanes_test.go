@@ -983,6 +983,20 @@ func TestARootRecordStandingDownALaneItHasNotReadSinceItsNewestRecordIsRefusedAn
 	}
 }
 
+func TestAnOwnerDecideTakingSomeOfALiveLanesPRsMovesThemWithNoLastRead(t *testing.T) {
+	s, brief := memory(t), writeBrief(t)
+	f := adopted(t, s, brief, "", 46001, 46002)
+	f.feed = append(f.feed, spawned(2, "restack-children-2", brief, t0, nil), rec(3, lane2, "head", t0, "#46001 e590637").withRefs(prs(46001)), ask(4, "owner", "restack-children-2", t0, []int{46001}, "", nil))
+	f.peers = append(f.peers, who("restack-children-2", true, t0))
+
+	tick(t, s, f, t0)
+
+	lane := row(t, s, lane2)
+	equal(t, []any{lane.State == store.LaneHeld, lane.PRs}, []any{false, []int{46002}})
+	equal(t, row(t, s, "restack-children-2").PRs, []int{46001})
+	equal(t, len(f.ofKind("defect")), 0)
+}
+
 func TestAnOwnerDecideInProseMovesNoPR(t *testing.T) {
 	for _, text := range []string{"root: owner=restack-children-2 for #47245.", "root: #47245 moves to restack-children-2.", "root: #47245 with restack-children-2 as owner."} {
 		s, brief := memory(t), writeBrief(t)

@@ -63,7 +63,7 @@ func (m *machine) lines(prefix string) []string {
 
 func newDrive(t *testing.T, lane string, briefs ...string) (*app.App, *machine, string) {
 	t.Helper()
-	t.Setenv(laneEnv, "")
+	t.Setenv(lanes.LaneEnv, "")
 	state := t.TempDir()
 	config, err := json.Marshal(map[string]any{"repo": "o/r", "drive": testDrive, "checkout": "/c", "author": "a", "label": "l", "movers": []string{"lanes"}})
 	if err != nil {
@@ -115,7 +115,7 @@ func TestACommunicatorBoundWindowStartsNoDesk(t *testing.T) {
 
 func TestALauncherNamedCommunicatorWindowIsRefusedWithoutAskingCci(t *testing.T) {
 	a, m, _ := newDrive(t, "unread", everyDesk...)
-	t.Setenv(laneEnv, communicator)
+	t.Setenv(lanes.LaneEnv, communicator)
 	if err := start(context.Background(), a, &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "refused") {
 		t.Fatalf("got %v, want a refusal", err)
 	}

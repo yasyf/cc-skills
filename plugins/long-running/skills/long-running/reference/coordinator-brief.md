@@ -65,8 +65,11 @@ keep launches, holds, finder and fidelity overrides, incidents and rulings.
 
 The supervisor's registry changes only through `lr request`, never a decide's prose.
 Retire a lane with `lr request done <lane>`, move a PR with `lr request owner <lane>
---pr <n> --last-read <seq>`, and replace a lane with `lr request stand-down <old>
---successor <new> --last-read <seq>`. A decide saying a lane retired or is done, that one
+--pr <n>`, and replace a lane with `lr request stand-down <old> --successor <new>
+--last-read <seq>`. An `owner` that takes every PR a live lane holds needs `--last-read`
+too. Run without it, the verb posts nothing and prints the records you have not read with
+the command to run again. A request posts under the lane bound to your session, and is
+refused when none is bound unless `--by <lane>` names one. A decide saying a lane retired or is done, that one
 lane replaces another, or that a PR moves to a lane or has `owner=<lane>` changes nothing.
 Address a lane by its stem, the name without a trailing `-<n>`, such as `--to board-refresher`:
 cci delivers it to the stem's newest live lane, so no record has to track a lane's number.

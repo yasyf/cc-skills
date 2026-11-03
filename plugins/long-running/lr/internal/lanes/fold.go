@@ -60,21 +60,11 @@ func grant(s *store.Store, r Record, fresh bool, at time.Time, out *folded) {
 		}
 	case verb == "owner":
 		numbers := r.PRs()
-		running := map[string]bool{}
-		for _, other := range must(s.Lanes(live...)) {
-			running[other.Name] = true
-		}
-		taken := map[string]bool{}
-		for _, held := range must(s.OwnerOf(numbers)) {
-			if held != "" && held != name && running[held] {
-				taken[held] = true
-			}
-		}
 		if !fresh {
 			var refused []unread
-			for _, held := range slices.Sorted(maps.Keys(taken)) {
-				if why := unreadBy(s, r, held, cited); why != "" {
-					refused = append(refused, unread{held, why})
+			for _, stripped := range strippedBy(s, name, numbers) {
+				if why := unreadBy(s, r, stripped, cited); why != "" {
+					refused = append(refused, unread{stripped, why})
 				}
 			}
 			if len(refused) > 0 {
