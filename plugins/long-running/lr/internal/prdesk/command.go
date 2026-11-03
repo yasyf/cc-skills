@@ -93,6 +93,7 @@ func serve(ctx context.Context, a *app.App, to []string, origin string) error {
 	err = Shadow{
 		Desk: desk, Repo: cfg.Repo, Drive: cfg.Drive, To: to, Board: boardLane, Origin: origin,
 		Graders: []string{grader.FinderLane, grader.FidelityLane}, GoLanes: cfg.GoLaneNames(),
+		Author: cfg.Author, Label: cfg.Label,
 		Read: GitHubRead{CCX: a.CCX, Store: s, Repo: cfg.Repo, Author: cfg.Author, Label: cfg.Label}.Read,
 		Tail: client.Tail, Post: client.Post, Now: a.Now, Log: a.Log,
 	}.Run(ctx)
