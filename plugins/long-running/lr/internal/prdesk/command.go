@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+	_ "time/tzdata"
 
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-inbox/client"
@@ -20,6 +22,14 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
+var pacific = func() *time.Location {
+	zone, err := time.LoadLocation("America/Los_Angeles")
+	if err != nil {
+		panic(err)
+	}
+	return zone
+}()
+
 const (
 	deskFile   = "pr-desk.sqlite"
 	boardLane  = "board-watch"
@@ -29,8 +39,64 @@ const (
 
 func Command(a *app.App) *cobra.Command {
 	cmd := &cobra.Command{Use: "pr", Short: "The PR desk, the one owner of every PR's state"}
-	cmd.AddCommand(serveCommand(a))
+	cmd.AddCommand(serveCommand(a), statusCommand(a), whyCommand(a))
 	return cmd
+}
+
+func statusCommand(a *app.App) *cobra.Command {
+	return &cobra.Command{
+		Use:   "status",
+		Short: "Print every PR's one state, mover, deadline and reason, asked of the running PR desk",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			var rows []store.PRState
+			if err := ask(cmd.Context(), socketPath(a), "/status", &rows); err != nil {
+				return err
+			}
+			for _, row := range rows {
+				fmt.Fprintf(cmd.OutOrStdout(), "#%d %s %s%s: %s\n", row.Number, row.State, row.Mover, due(row.Deadline), row.Reason)
+			}
+			return nil
+		},
+	}
+}
+
+func whyCommand(a *app.App) *cobra.Command {
+	return &cobra.Command{
+		Use:   "why <pr>",
+		Short: "Say why one PR is where it is: its state and reason, its open holds, its carried taps and what the desk owes it",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var why Why
+			if err := ask(cmd.Context(), socketPath(a), "/why/"+strings.TrimPrefix(args[0], "#"), &why); err != nil {
+				return err
+			}
+			out := cmd.OutOrStdout()
+			row := why.State
+			fmt.Fprintf(out, "#%d at %s is %s, moved by %s%s: %s\n", row.Number, row.Head, row.State, row.Mover, due(row.Deadline), row.Reason)
+			for _, h := range why.Holds {
+				fmt.Fprintf(out, "held by %s until %s: %s\n", h.Lifter, h.Until, h.Reason)
+			}
+			for _, c := range why.Carries {
+				fmt.Fprintf(out, "tap carried to %s from #%d at %s by %s\n", c.ToHead, c.FromNumber, c.FromHead, c.Proof)
+			}
+			for _, o := range why.Owed {
+				fmt.Fprintf(out, "owed: %s at %s\n", o.Action, o.Head)
+			}
+			return nil
+		},
+	}
+}
+
+func socketPath(a *app.App) string {
+	return filepath.Join(filepath.Dir(a.ConfigPath), socketFile)
+}
+
+func due(deadline time.Time) string {
+	if deadline.IsZero() {
+		return ""
+	}
+	return ", due " + deadline.In(pacific).Format("Jan 2 3:04 PM")
 }
 
 func serveCommand(a *app.App) *cobra.Command {
@@ -92,6 +158,17 @@ func serve(ctx context.Context, a *app.App, to []string, origin string) error {
 			}
 		}
 	}()
+	listener, err := listen(socketPath(a))
+	if err != nil {
+		return err
+	}
+	status := statusServer(s, cfg.Repo)
+	go func() {
+		if err := status.Serve(listener); !errors.Is(err, http.ErrServerClosed) {
+			cancel(err)
+		}
+	}()
+	defer func() { _ = status.Close() }()
 	desk := Desk{s, map[string]Repo{cfg.Repo: {Name: cfg.Repo, Landing: cfg.Trunk, Required: required}}}
 	err = Shadow{
 		Desk: desk, Repo: cfg.Repo, Drive: cfg.Drive, To: to, Board: boardLane, Origin: origin,
