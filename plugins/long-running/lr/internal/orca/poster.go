@@ -1,0 +1,205 @@
+package orca
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"path/filepath"
+	"regexp"
+	"slices"
+	"strings"
+	"time"
+
+	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
+)
+
+const (
+	deskLane        = "orca-desk"
+	deskRunner      = "desk-runner"
+	runnerTopic     = "orca"
+	runnerAlive     = "orca alive"
+	runnerStale     = 5 * time.Minute
+	runnerLookback  = 24 * time.Hour
+	verdictPoll     = 2 * time.Second
+	verdictLaunched = "LAUNCHED"
+	kindGo          = "go"
+	kindState       = "state"
+	nothingPosted   = "nothing was posted"
+)
+
+var (
+	launchVerdict = regexp.MustCompile(`^(LAUNCHED|LAUNCH-FAILED|LAUNCH-EXPIRED|LAUNCH-HELD|UNVERIFIABLE|SPRITE-UNVERIFIABLE) (?:desk-lane-[\w.-]+/)?(R\d+(?:@\w+)?) ([\w.-]+): `)
+	pacificTime   = mustLocation("America/Los_Angeles")
+)
+
+func mustLocation(name string) *time.Location {
+	location, err := time.LoadLocation(name)
+	if err != nil {
+		panic(err)
+	}
+	return location
+}
+
+func relayLine(args []string) (string, string) {
+	names := strings.Split(args[0], ",")
+	return names[0], "relay to " + strings.Join(names, ", ") + ": " + args[1]
+}
+
+func holdLine(args []string) (string, string) {
+	return args[0], fmt.Sprintf("hold %s owner=%s :: %s", args[0], args[1], args[2])
+}
+
+func unholdLine(args []string) (string, string) {
+	return args[0], "unhold " + args[0]
+}
+
+func withdrawLine(args []string) (string, string) {
+	return args[0], "withdraw " + args[0]
+}
+
+type Poster struct {
+	Bus    Bus
+	Runner shell.Runner
+	Env    func(string) string
+	Now    func() time.Time
+	Sleep  func(time.Duration)
+	Out    io.Writer
+	Drive  string
+	Author string
+}
+
+func (p Poster) entry() (*drive.Entry, error) {
+	session := p.Env(sessionEnv)
+	for _, entry := range allDrives(p.Env) {
+		if entry.Bus() == p.Drive || (p.Drive == "" && slices.Contains(entry.Sessions, session)) {
+			return &entry, nil
+		}
+	}
+	if p.Drive == "" {
+		return nil, fmt.Errorf("no drive in the registry is bound to session %s, so its orca desk runner is unknown and nothing is posted", session)
+	}
+	return nil, fmt.Errorf("no drive in the registry is cci drive %s, so its orca desk runner is unknown and nothing is posted", p.Drive)
+}
+
+func (p Poster) requireRunner(ctx context.Context, bus, fallback string) error {
+	now := p.Now()
+	records, err := p.Bus.Tail(ctx, client.Query{Drive: bus, Since: now.Add(-runnerLookback), Kinds: []string{kindState}, Lanes: []string{deskRunner}})
+	if err != nil {
+		return err
+	}
+	last := "never"
+	for _, record := range slices.Backward(records) {
+		if record.Lane != deskRunner || record.Topic != runnerTopic || !strings.HasPrefix(record.Text, runnerAlive) {
+			continue
+		}
+		if now.Sub(record.At) < runnerStale {
+			return nil
+		}
+		last = "last at " + record.At.In(pacificTime).Format("3:04 PM")
+		break
+	}
+	return fmt.Errorf("refused: no orca desk runner has posted an orca alive record on cci drive %s in the last five minutes (%s), so nothing reads %s lines; %s", bus, last, deskLane, fallback)
+}
+
+func (p Poster) post(ctx context.Context, bus, topic, text string) (client.Record, error) {
+	stored, err := p.Bus.Post(ctx, client.Draft{Drive: bus, Lane: p.Author, Kind: kindGo, To: []string{deskLane}, Topic: topic, Text: deskLane + ": " + text, Stamp: true})
+	if err != nil {
+		return client.Record{}, err
+	}
+	fmt.Fprintf(p.Out, "posted cci %s: %s\n", stored.Name(), stored.Text)
+	return stored, nil
+}
+
+func (p Poster) Line(ctx context.Context, topic, text string) error {
+	entry, err := p.entry()
+	if err != nil {
+		return err
+	}
+	if err := p.requireRunner(ctx, entry.Bus(), nothingPosted); err != nil {
+		return err
+	}
+	_, err = p.post(ctx, entry.Bus(), topic, text)
+	return err
+}
+
+func (p Poster) Launch(ctx context.Context, order Order, timeout time.Duration) (string, error) {
+	brief, err := filepath.Abs(order.Brief)
+	if err != nil {
+		return "", err
+	}
+	order.Brief = brief
+	entry, err := p.entry()
+	if err != nil {
+		return "", err
+	}
+	faults, err := order.faults(ctx, p.Runner, p.Env("HOME"), entry.Checkout)
+	if err != nil {
+		return "", err
+	}
+	if len(faults) > 0 {
+		return "", fmt.Errorf("refused, nothing was posted: %s", strings.Join(faults, "; "))
+	}
+	bus := entry.Bus()
+	if err := p.requireRunner(ctx, bus, "spawn an Agent named `"+order.Lane+"` instead"); err != nil {
+		return "", err
+	}
+	stored, err := p.post(ctx, bus, order.Lane, order.Line())
+	if err != nil {
+		return "", err
+	}
+	key := "R" + strings.TrimPrefix(stored.Name(), "#")
+	label, err := p.settle(ctx, bus, stored.Seq-1, key, order.Lane, timeout)
+	if err != nil {
+		return "", err
+	}
+	if label == "" {
+		fmt.Fprintf(p.Out, "%s %s unsettled after %.0fs: no runner verdict; check the orca runner's newest alive record with `cci tail --drive %s --lane %s --kind state --topic %s -n 1`\n", order.Lane, key, timeout.Seconds(), bus, deskRunner, runnerTopic)
+	}
+	return label, nil
+}
+
+func (p Poster) settle(ctx context.Context, bus string, since int64, key, lane string, timeout time.Duration) (string, error) {
+	deadline := p.Now().Add(timeout)
+	for p.Now().Before(deadline) {
+		records, err := p.Bus.Tail(ctx, client.Query{Drive: bus, After: since, Lanes: []string{deskRunner}})
+		if err != nil {
+			return "", err
+		}
+		for _, record := range records {
+			since = max(since, record.Seq)
+			match := launchVerdict.FindStringSubmatch(record.Text)
+			if record.Lane == deskRunner && match != nil && match[2] == key && match[3] == lane {
+				fmt.Fprintf(p.Out, "%s %s %s\n", lane, key, record.Text)
+				return match[1], nil
+			}
+		}
+		p.Sleep(verdictPoll)
+	}
+	return "", nil
+}
+
+func incidentOrders(name, fixBrief, evidenceBrief string) []Order {
+	stem := strings.TrimSuffix(name, "-"+roleFix)
+	orders := []Order{{Lane: stem + "-" + roleFix, Model: agentIncident, Effort: "xhigh", Role: roleFix, Brief: fixBrief, Now: true}}
+	if evidenceBrief != "" {
+		orders = append(orders, Order{Lane: stem + "-evidence", Model: agentIncident, Effort: "xhigh", Role: "evidence", Brief: evidenceBrief, Now: true})
+	}
+	return orders
+}
+
+func wrongLaneFaults(orders []Order) ([]string, error) {
+	var faults []string
+	for _, order := range orders {
+		brief, err := filepath.Abs(order.Brief)
+		if err != nil {
+			return nil, err
+		}
+		order.Brief = brief
+		if fault := order.wrongLaneFault(); fault != "" {
+			faults = append(faults, fault)
+		}
+	}
+	return faults, nil
+}
