@@ -172,7 +172,7 @@ func (r *ReleaseBuilds) tend(ctx context.Context, build releaseBuild, builds []r
 			return err
 		}
 	}
-	if !slices.Contains(buildFailed, build.State) || build.StartedAt.IsZero() || age >= gateBack || slices.ContainsFunc(builds, build.resumedBy) {
+	if !slices.Contains(buildFailed, build.State) || build.mode == dryRunMode || build.StartedAt.IsZero() || age >= gateBack || slices.ContainsFunc(builds, build.resumedBy) {
 		return nil
 	}
 	to := []string{release}
