@@ -13,6 +13,7 @@ import (
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/asks"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/board"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/deletions"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/plans"
 )
 
@@ -35,6 +36,7 @@ func src(lanes []Lane, records []Record, tasks []ClaudeTask, boardErr error) Sou
 		Tasks:  func() ([]ClaudeTask, error) { return tasks, nil },
 		Before: func() (Snapshot, error) { return Snapshot{}, nil },
 		Retro:  func(context.Context) ([]Retro, error) { return nil, nil },
+		Owed:   func(context.Context, func(string) bool) ([]deletions.Owed, error) { return nil, nil },
 	}
 }
 
@@ -49,6 +51,51 @@ func TestCollectReadsRecordsBackToTheLastUpdateAndKeepsTheOtherSectionsToADay(t 
 	}
 	if len(in.All) != 2 || len(in.Waits) != 0 {
 		t.Fatalf("all = %+v, waits = %+v", in.All, in.Waits)
+	}
+}
+
+func TestAnOwedDeletionWhoseOwnerHasNoLiveLaneShowsOnTheUpdate(t *testing.T) {
+	alone := heard("old-reader-1", "retired", 30)
+	handed := heard("old-reader-2", "retired", 30)
+	handed.RetiredBy = "new-reader-3"
+	by := time.Date(2026, 11, 9, 0, 0, 0, 0, time.UTC)
+	rows := []deletions.Owed{
+		{ID: "e00667e1", Title: "Owed deletion: the Go wasm host", Owner: "one-reader-1", Dirs: []string{"go/sand/next"}, Symbols: []string{"ReplicaHost"}, Due: by},
+		{ID: "a1b2c3d4", Title: "Owed deletion: the incarnation", Owner: "old-reader-1", Dirs: []string{"go/sand/next"}, Symbols: []string{"Incarnation"}, Due: by},
+		{ID: "4ec66f9b", Title: "Owed deletion: epoch fields", Owner: "old-reader-2", Paths: []string{"go/sand/next/cmd/iris_serve_share.go"}, Symbols: []string{"Epoch"}, Due: by},
+		{ID: "9c99a5d5", Title: "Owed deletion: Go client of the server's sync", Paths: []string{"go/sand/next/internal/sandsql/local/lifecycle.go"}, Symbols: []string{"Sync"}, Due: by},
+		{ID: "c4015d76", Title: "Owed deletion: the old follower", Owner: "one-reader-delete-1", Dirs: []string{"go/sandsql-follower"}},
+	}
+	sources := src([]Lane{heard("one-reader-1", "desired", 5), alone, handed, heard("new-reader-3", "desired", 5)}, nil, nil, nil)
+	sources.Owed = func(_ context.Context, owns func(string) bool) ([]deletions.Owed, error) {
+		var owed []deletions.Owed
+		for _, row := range rows {
+			if owns(row.Owner) {
+				owed = append(owed, row)
+			}
+		}
+		return owed, nil
+	}
+
+	in, err := Collect(context.Background(), sources, testDrive, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, after, found := strings.Cut(Render(in).Text, "## Owed deletions with no live owner\n")
+	if !found {
+		t.Fatal("the update has no owed deletions section")
+	}
+	section, _, _ := strings.Cut(after, "\n## ")
+	for _, shown := range []string{`task a1b2c3d "Owed deletion: the incarnation" (go/sand/next, #Incarnation; owner old-reader-1, due 2026-11-09)`, "(go/sand/next/internal/sandsql/local/lifecycle.go, #Sync; owner nobody, due 2026-11-09)", "(go/sandsql-follower; owner one-reader-delete-1, no due date)"} {
+		if !strings.Contains(section, shown) {
+			t.Errorf("section lacks %s:\n%s", shown, section)
+		}
+	}
+	for _, hidden := range []string{"#ReplicaHost", "#Epoch"} {
+		if strings.Contains(section, hidden) {
+			t.Errorf("section names %s, whose owner's line is live:\n%s", hidden, section)
+		}
 	}
 }
 

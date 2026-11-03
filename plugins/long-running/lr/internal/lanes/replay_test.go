@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/deletions"
 )
 
 const replayTick = 30 * time.Second
@@ -170,6 +172,8 @@ func decided(t *testing.T, fixture replayFixture) map[string][]any {
 		Drive: "replay", Checkout: dir, Briefs: filepath.Join(dir, "lanes"),
 		Desk:     func(string) (string, error) { return "", nil },
 		OpenWork: func() ([]Record, error) { return nil, nil },
+		Owed:     func(func(string) bool) ([]deletions.Owed, error) { return nil, nil },
+		Gaps:     func() ([]string, error) { return nil, nil },
 		Records: func(since int64) ([]Record, error) {
 			start := shown
 			for shown < len(feed) && !feed[shown].At.After(now) {

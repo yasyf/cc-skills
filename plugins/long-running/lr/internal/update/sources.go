@@ -14,6 +14,7 @@ import (
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/asks"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/board"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/deletions"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/plans"
 )
@@ -45,6 +46,7 @@ type Sources struct {
 	Tasks   func() ([]ClaudeTask, error)
 	Before  func() (Snapshot, error)
 	Retro   func(ctx context.Context) ([]Retro, error)
+	Owed    func(ctx context.Context, owns func(lane string) bool) ([]deletions.Owed, error)
 	Pins    []drive.Pin
 }
 
@@ -126,7 +128,12 @@ func Collect(ctx context.Context, src Sources, bus string, now time.Time) (Input
 	if err != nil {
 		return Inputs{}, err
 	}
-	in := Inputs{Drive: bus, Now: now, Lanes: lanes, Plans: list, Book: book, Held: heldPRs(holds), Waits: waitingOnRoot(day), Board: boardLines(ctx, src, day), All: all, Before: before, Retro: retro, Pins: src.Pins}
+	registry := newView(lanes, nil, nil, now)
+	owed, err := src.Owed(ctx, func(owner string) bool { return !registry.liveHead(owner) })
+	if err != nil {
+		return Inputs{}, err
+	}
+	in := Inputs{Drive: bus, Now: now, Lanes: lanes, Plans: list, Book: book, Held: heldPRs(holds), Waits: waitingOnRoot(day), Board: boardLines(ctx, src, day), All: all, Before: before, Retro: retro, Owed: owed, Pins: src.Pins}
 	named := namesOf(working(lanes, now))
 	start := midnight(now)
 	for _, record := range day {

@@ -2,13 +2,18 @@ package update
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
+	"path/filepath"
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/asks"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/board"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/deletions"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ledger"
@@ -53,6 +58,20 @@ func Wire(a *app.App, entry drive.Entry, s *store.Store) Sources {
 		Before: func() (Snapshot, error) { return ReadSnapshot(entry.StateDir) },
 		Retro: func(ctx context.Context) ([]Retro, error) {
 			return ReadRetro(ctx, mirror.Source, entry.StateDir)
+		},
+		Owed: func(ctx context.Context, owns func(lane string) bool) ([]deletions.Owed, error) {
+			cfg, err := config.Load(filepath.Join(entry.StateDir, "lr.json"), a.Stderr)
+			if errors.Is(err, fs.ErrNotExist) {
+				return nil, nil
+			}
+			if err != nil {
+				return nil, err
+			}
+			var labels []string
+			if entry.Program != "" {
+				labels = []string{"program:" + entry.Program}
+			}
+			return deletions.Of(a.Runner, cfg).Owed(ctx, owns, labels...)
 		},
 		Pins: entry.Pinned,
 	}

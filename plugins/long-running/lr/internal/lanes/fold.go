@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/deletions"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
@@ -28,8 +29,10 @@ type folded struct {
 	adopted []string
 	hand    []string
 	unread  []unread
+	owing   []owing
 	stood   []stoodDown
 	untyped []int64
+	owed    func(owns func(lane string) bool) ([]deletions.Owed, error)
 }
 
 func takesOver(s *store.Store, name string, old store.Lane, at time.Time) {
@@ -52,7 +55,9 @@ func grant(s *store.Store, r Record, fresh bool, at time.Time, out *folded) {
 		}
 		resume(s, name, fmt.Sprintf("unpark:%d", r.Seq), "root lifted your park", r, at)
 	case verb == "done" && known && row.State != store.LaneRetired:
-		retire(s, name, "done", at)
+		if out.owesNothing(s, name, fresh, at) {
+			retire(s, name, "done", at)
+		}
 	case verb == "owner":
 		numbers := r.PRs()
 		running := map[string]bool{}
@@ -90,6 +95,9 @@ func grant(s *store.Store, r Record, fresh bool, at time.Time, out *folded) {
 				return
 			}
 		}
+		if successor == "" && row.State != store.LaneRetired && !out.owesNothing(s, name, fresh, at) {
+			return
+		}
 		if successor == "" && !fresh {
 			dropQueuedLaunch(s, row, at, out)
 		}
@@ -108,8 +116,8 @@ func grant(s *store.Store, r Record, fresh bool, at time.Time, out *folded) {
 	}
 }
 
-func fold(s *store.Store, records []Record, adoptable map[string]bool, briefs string) folded {
-	var out folded
+func fold(s *store.Store, records []Record, adoptable map[string]bool, briefs string, owed func(owns func(lane string) bool) ([]deletions.Owed, error)) folded {
+	out := folded{owed: owed}
 	fresh := adoptable != nil
 	for _, r := range records {
 		at := r.At.UTC()
@@ -425,7 +433,7 @@ func foldRegistry(s *store.Store, r Record, row store.Lane, known, fresh bool, a
 	}
 	if isRoot && kind == kindRequest {
 		for _, found := range retiredWord.FindAllStringSubmatch(text, -1) {
-			if gone, ok := laneOf(s, found[1]); ok && gone.State != store.LaneRetired {
+			if gone, ok := laneOf(s, found[1]); ok && gone.State != store.LaneRetired && out.owesNothing(s, gone.Name, fresh, at) {
 				retire(s, gone.Name, Root, at)
 			}
 		}
@@ -437,14 +445,18 @@ func foldRegistry(s *store.Store, r Record, row store.Lane, known, fresh bool, a
 	if name == runner {
 		if found := workerDone.FindStringSubmatch(text); found != nil {
 			if ended, ok := laneOf(s, found[1]); ok && ended.State != store.LaneRetired {
-				retire(s, ended.Name, "worker-done", at)
+				if out.owesNothing(s, ended.Name, fresh, at) {
+					retire(s, ended.Name, "worker-done", at)
+				}
 				return
 			}
 		}
 		if found := withdrawnWork.FindStringSubmatch(text); found != nil {
 			if ended, ok := laneOf(s, found[1]); ok && ended.State != store.LaneRetired {
-				retire(s, ended.Name, "withdrawn", at)
-				do(s.Own(Root, ended.PRs))
+				if out.owesNothing(s, ended.Name, fresh, at) {
+					retire(s, ended.Name, "withdrawn", at)
+					do(s.Own(Root, ended.PRs))
+				}
 				return
 			}
 		}
@@ -459,7 +471,9 @@ func foldRegistry(s *store.Store, r Record, row store.Lane, known, fresh bool, a
 	}
 	settles := known && !isRoot && row.State != store.LaneRetired
 	if kind == "handoff" && settles && r.Re == 0 {
-		retire(s, name, "stand-down", at)
+		if out.owesNothing(s, name, fresh, at) {
+			retire(s, name, "stand-down", at)
+		}
 		return
 	}
 	if found := handedOff.FindStringSubmatch(text); found != nil && name == found[1]+"-handoff" {
@@ -475,9 +489,13 @@ func foldRegistry(s *store.Store, r Record, row store.Lane, known, fresh bool, a
 	case kind == kindLanded:
 		foldLanded(s, r, at)
 	case kind == "done" && settles:
-		retire(s, name, "done", at)
+		if out.owesNothing(s, name, fresh, at) {
+			retire(s, name, "done", at)
+		}
 	case settles && (kind == "stopped" || kind == "stand-down" || (kind == "state" && stoppedLine.MatchString(text))):
-		retire(s, name, "stand-down", at)
+		if out.owesNothing(s, name, fresh, at) {
+			retire(s, name, "stand-down", at)
+		}
 	case kind == "go" && name != Self && withdrawOrder.MatchString(text):
 		foldWithdraw(s, r, at)
 	case kind == "stand-down" && isRoot:
@@ -594,6 +612,9 @@ func foldRootStandDown(s *store.Store, r Record, fresh bool, at time.Time, out *
 				hold(s, old, why, at)
 				continue
 			}
+		}
+		if successor == "" && gone.State != store.LaneRetired && !out.owesNothing(s, old, fresh, at) {
+			continue
 		}
 		if successor == "" && !fresh {
 			dropQueuedLaunch(s, gone, at, out)

@@ -104,6 +104,12 @@ The root never ends a turn waiting for the owner to say "ask" and never leaves P
 3. Confirms those implications with the owner that same turn (in chat when there are a few, or on one board card when there are many).
 4. Applies the ruling to every live artifact and lane at once, never to new work only (see `R17` in `SKILL.md`).
 
+**A ruling or design that removes code owes the deletion a task.** When the owner approves a design, each row of its deletion table, whatever the design calls it, becomes a register row with a `removes` implication. The same holds for any ruling that removes a path or symbol. The root anchors what goes with `rulings.py anchor <key> --symbols <name>...`, or `--paths <path>...` when whole files or directories go.
+
+Each anchor then needs an open cc-notes task labeled `owed-deletion`, one per deletion, in the drive's checkout. Its assignee is the owner lane, and none means the coordinator still has to assign it. Its `--path` and `--dir` anchors name what goes, a `symbol:<name>` label names each symbol in them, and a `due:YYYY-MM-DD` label names the date. The body's first sentence names the decision. An `exception` row anchored to the same target records why nothing is owed instead.
+
+The approver runs `lr deletions check`, which exits 1 naming each removes target with neither, the turn the design or ruling is approved. The supervisor runs the same check hourly and posts one blocker per gap to the coordinator.
+
 **A ruling travels by its verbatim words and its implications.** Briefs, handoffs, progress docs, and compaction narratives must carry the owner's words and implications. Carrying only an answer id or a short gist drops the ruling.
 
 **The root sweeps every outbound artifact against every ruling's broadest reading.** Before presenting a board, brief, handoff, or plan, the root checks the entire text against all rulings. Any sentence that keeps, budgets, tests, or asks about something a ruling removed is a defect, even when it cites no ruling. The root drafts every board, card, or reply from the owner's rulings instead of from code on the base branch. A card that explains a term from base-branch code where a ruling covers it fails the sweep.
