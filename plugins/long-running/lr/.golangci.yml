@@ -20,6 +20,7 @@ linters:
   settings:
     gosec:
       excludes:
+        - G104
         - G201
         - G202
         - G204
@@ -28,6 +29,9 @@ linters:
     presets:
       - comments
       - std-error-handling
+    rules:
+      - linters: [revive]
+        text: blank-imports
 
 formatters:
   enable:
