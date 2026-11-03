@@ -996,8 +996,7 @@ RAISED_BACKOFF = timedelta(minutes=1)
 WAKE_SECONDS = 0.25
 STOP_CONFIRM = timedelta(seconds=30)
 STOP_POLL_SECONDS = 2
-STALE_MAIL = timedelta(minutes=10)
-UNREAD_WINDOW = 5000
+SHOW_WORKERS = 8
 GATE_WORKERS = 16
 JUDGE_WORKERS = 2
 JUDGED_RECORDS = 12
@@ -1975,14 +1974,6 @@ class Orca:
         self.shell.run(["orca", "terminal", "send", "--terminal", terminal, "--text", text, "--enter", "--json"])
         return True
 
-    def statuses(self) -> dict[str, str]:
-        """Every dispatch's status in the Run from one batched list, read from Orca's own record, so no worker's remote runtime can hold it up."""
-        return {row["dispatchId"]: row["dispatchStatus"] for row in self.workers()}
-
-    def unread(self) -> list[dict]:
-        """The Run's unread messages across recipients, from one inbox read."""
-        return [message for message in self.ask("orchestration", "inbox", "--limit", str(UNREAD_WINDOW))["result"]["messages"] if not message["read"] and message["run_id"] == self.config.run]
-
     def workers(self, *scope: str) -> list[dict]:
         rows: list[dict] = []
         cursor: list[str] = []
@@ -2131,7 +2122,6 @@ class Runner:
         self.bus_misses: list[datetime] = []
         self.judge_backend = judge.backend_from(os.environ)
         self.judges = ThreadPoolExecutor(JUDGE_WORKERS)
-        self.swept = datetime.min.replace(tzinfo=timezone.utc)
         self.judgments: dict[str, Future] = {}
         self.judging = threading.Lock()
         self.book.ensure(RUNNER, RUNNER)
@@ -3308,7 +3298,6 @@ class Runner:
         keys = brief_incidents(brief) - {NAMES_NOTHING}
         text = brief.read_text(errors="replace") if brief.is_file() else ""
         prs = {number for found in PR_NAMED.finditer(text) for number in found.groups() if number}
-        statuses: dict[str, str] | None = None
         for container in self.book.containers(LANE_PREFIX):
             other = container.removeprefix(LANE_PREFIX)
             launched = self.book.actions(container, kind="launch")
@@ -3316,10 +3305,7 @@ class Runner:
                 continue
             ours = keys | ({incident_name(lane)} if self.fix_launch(container) else set())
             shared = ours & self.incident_keys(other, launched[-1])
-            if not (shared or prs):
-                continue
-            statuses = self.orca.statuses() if statuses is None else statuses
-            if not (status := statuses.get(self.orca.receipt(other))) or status in INACTIVE:
+            if not (shared or prs) or not ((dispatch := self.orca.show(other)) and dispatch.status not in INACTIVE):
                 continue
             try:
                 held = [tree for tree in self.lane_worktrees(other) if tree.ahead or tree.pushed not in UNPUSHED]
@@ -4060,26 +4046,33 @@ class Runner:
             inboxes.Inbox(path).rotate(self.now().timestamp())
 
     def sweep(self) -> None:
-        """Read the Run once, one batched worker list and one inbox read across recipients, never a call per dispatch. Unread mail on a live dispatch gets one wake, typed only at its idle prompt; mail a settled dispatch never read, a dispatch that is not live, or a prompt watch that stopped polling escalates once."""
-        statuses = self.orca.statuses()
-        receipts = {lane: dispatch for lane in self.orca.lanes() if (dispatch := self.orca.receipt(lane))}
-        owners = {handle: lane for lane, dispatch in receipts.items() for handle in (self.orca.terminal(lane), f"dispatch:{dispatch}")}
-        for message in self.orca.unread():
-            if not (lane := owners.get(message["to_handle"])):
+        """Unread mail on a live dispatch gets one wake, typed only at its idle prompt; mail a settled dispatch never read, a dispatch that is not live, or a prompt watch that stopped polling escalates once."""
+        done = self.shell.run([str(SCRIPTS / "orca-check.sh"), "--stale"], env={"ORCA_CHECK_STATE": str(self.config.receipts), "ORCA_LAUNCH_RUN": self.config.run})
+        for line in done.out.splitlines():
+            parts = line.split()
+            if len(parts) < 5 or parts[0] != "STALE":
                 continue
-            item, status = message["id"], statuses.get(receipts[lane])
-            if status in INACTIVE:
+            lane, status, item = parts[1], parts[3], parts[4]
+            if status != "unread":
                 self.escalate(f"stale:{item}", "STALE-MAIL", lane, f"{item} unread by a {status} dispatch")
-            elif (
-                self.now() - actions.parse_stamp(message["created_at"]) >= STALE_MAIL
-                and not self.book.known(RUNNER, f"wake:{item}")
+                continue
+            if (
+                not self.book.known(RUNNER, f"wake:{item}")
                 and (terminal := self.orca.terminal(lane))
                 and self.orca.wake(terminal, f"unread Orca message {item}; read it now")
             ):
                 self.book.accept(RUNNER, f"wake:{item}", "wake", item, lane, None)
         hour = actions.stamp(self.now())[:13]
         named = {action.action_id for action in self.book.actions(RUNNER, kind="reclaim")}
-        settled = [Dispatch(lane, dispatch, self.orca.terminal(lane), statuses[dispatch], False) for lane, dispatch in receipts.items() if f"reclaim:{dispatch}" not in named and statuses.get(dispatch) in INACTIVE]
+        settled: list[Dispatch] = []
+        lanes = [lane for lane in self.orca.lanes() if f"reclaim:{self.orca.receipt(lane)}" not in named]
+        with ThreadPoolExecutor(SHOW_WORKERS) as pool:
+            shown = list(pool.map(self.orca.show, lanes))
+        for lane, dispatch in zip(lanes, shown):
+            if not dispatch:
+                continue
+            if dispatch.status in INACTIVE:
+                settled.append(dispatch)
         if settled:
             self.reclaim(settled)
         watch = json.loads(self.shell.run([sys.executable, str(SCRIPTS / "prompt_watch.py"), "show", "--cci-drive", self.config.drive, "--json"]).out or "{}")
@@ -10724,7 +10717,7 @@ def run_orca(runner: Runner, once: bool) -> int:
         return 3
     if failure := runner.resolve_briefs_log():
         runner.escalate(f"briefs-log:{runner.config.briefs_log or 'unset'}", "BRIEFS-LOG-FAILED", "runner", f"the briefs log did not resolve at start: {failure}; each brief attach retries it")
-    rotated = datetime.min.replace(tzinfo=timezone.utc)
+    swept = rotated = datetime.min.replace(tzinfo=timezone.utc)
     alive = runner.keep_alive("orca")
     try:
         runner.register_lane(ORCA_DESK)
@@ -10740,10 +10733,10 @@ def run_orca(runner: Runner, once: bool) -> int:
             try:
                 ready = runner.check()
                 if ready:
-                    runner.steps(runner.reap, runner.read_cci, runner.deliver, runner.flush)
-                    if runner.now() - runner.swept >= SWEEP_EVERY:
+                    runner.steps(runner.reap, runner.read_cci, runner.deliver)
+                    if runner.now() - swept >= SWEEP_EVERY:
                         runner.steps(runner.sweep)
-                        runner.swept = runner.now()
+                        swept = runner.now()
                 slow = (runner.deadlines_orca, runner.incident_clock, runner.pr_silent, runner.class_unowned, runner.mute_pushback, runner.in_process, runner.cut_clock, runner.release_coupling, runner.finders, runner.fidelities, runner.sprite_beats)
                 runner.steps(*(step for each in slow for step in (each, runner.prompt)) if ready else slow)
             except StopRequested:

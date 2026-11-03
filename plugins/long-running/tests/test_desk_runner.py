@@ -112,7 +112,7 @@ class FakeShell(runner_module.Shell):
         self.mailbox_down = False
         self.garble_sends = 0
         self.requests: dict[str, str] = {}
-        self.unread: list[dict] = []
+        self.stale_out = ""
         self.prompt_watch: dict = {}
         self.screens: dict[str, list[str]] = {}
         self.stop_answers: dict[str, tuple[str, int | None]] = {}
@@ -431,6 +431,9 @@ class FakeShell(runner_module.Shell):
             return runner_module.Done(done.code, json.dumps({**json.loads(done.out), "_meta": {"runtimeId": "rt_1"}}), done.err)
         if argv[:3] == ["ccn", "-R", str(self.root / "checkout")]:
             return self.ccn(argv[3:])
+        if name == "orca-check.sh":
+            assert argv[1:] == ["--stale"]
+            return runner_module.Done(0, self.stale_out, "")
         if argv[:2] == [sys.executable, str(runner_module.SCRIPTS / "prompt_watch.py")]:
             assert argv[2:] == ["show", "--cci-drive", "d1", "--json"]
             return runner_module.Done(0, json.dumps(self.prompt_watch), "")
@@ -940,10 +943,8 @@ class FakeShell(runner_module.Shell):
                 return self.ok({"dispatch": {"status": dispatch["status"], **fence}, "observation": {"status": "missing", "exactWorker": False}, "terminal": None})
             return self.ok({"dispatch": {"status": dispatch["status"], **fence}, "observation": {"status": "live", "agentWait": None}, "terminal": {"handle": dispatch["terminal"]}})
         if verb == ["orchestration", "worker-list"]:
-            assert argv[2:4] == ["--run", "run_1"]
-            start, limit = int(argv[argv.index("--cursor") + 1]) if "--cursor" in argv else 0, int(argv[argv.index("--limit") + 1])
-            rows = [{"dispatchId": dispatch, "dispatchStatus": entry["status"], "agentTerminalHandle": entry["terminal"]} for dispatch, entry in self.dispatches.items()]
-            return self.ok({"workers": rows[start : start + limit], "page": {"nextCursor": str(start + limit) if start + limit < len(rows) else None}})
+            assert argv[2:] == ["--run", "run_1", "--include-remote", "--limit", "100"]
+            return self.ok({"workers": [{"dispatchId": dispatch, "dispatchStatus": entry["status"], "agentTerminalHandle": entry["terminal"]} for dispatch, entry in self.dispatches.items()], "page": {"nextCursor": None}})
         if verb in (["orchestration", "worker-stop"], ["orchestration", "worker-abandon"]):
             assert argv[2] == "--dispatch"
             dispatch = self.dispatches[argv[3]]
@@ -999,8 +1000,6 @@ class FakeShell(runner_module.Shell):
             if self.mailbox_down:
                 return runner_module.Done(1, json.dumps({"ok": False, "error": {"code": "runtime_unavailable"}}), "")
             return self.ok({"messages": self.inboxes.get(argv[3], [])})
-        if verb == ["orchestration", "inbox"] and argv[2] == "--limit":
-            return self.ok({"messages": self.unread, "count": len(self.unread)})
         if verb == ["orchestration", "inbox"]:
             assert argv[2:4] == ["--terminal", "run:run_1"]
             if self.inbox_error:
@@ -1720,27 +1719,9 @@ def test_a_polling_prompt_watch_keeps_the_sweep_quiet_about_prompts(shell, confi
     assert escalations(shell) == []
 
 
-def unread_mail(message: str, to: str, at: datetime) -> dict:
-    return {"id": message, "run_id": "run_1", "to_handle": to, "read": 0, "created_at": actions.stamp(at)}
-
-
-def test_young_mail_wakes_nobody_and_mail_a_settled_dispatch_never_read_escalates_once(shell, config, tmp_path):
-    shell.launch(LANE, "ctx_a")
-    shell.launch("done-lane", "ctx_b", status="completed")
-    shell.unread = [
-        unread_mail("msg_young", "dispatch:ctx_a", shell.clock - timedelta(minutes=2)),
-        unread_mail("msg_late", "term_ctx_b", shell.clock),
-        {**unread_mail("msg_other_run", "term_ctx_a", shell.clock - timedelta(hours=1)), "run_id": "run_2"},
-    ]
-    orca_pass(shell, config)
-    orca_pass(shell, config)
-    assert wakes(shell) == []
-    assert [line for line in escalations(shell) if line.startswith("STALE-MAIL")] == ["STALE-MAIL stale:msg_late done-lane: msg_late unread by a completed dispatch"]
-
-
 def test_stale_mail_wakes_a_lane_once_and_only_at_its_idle_prompt(shell, config, tmp_path):
     shell.launch(LANE, "ctx_a")
-    shell.unread = [unread_mail("msg_7", "term_ctx_a", shell.clock - timedelta(minutes=12))]
+    shell.stale_out = f"STALE {LANE} 12m unread msg_7\n"
     shell.screens["term_ctx_a"] = PICKER
     orca_pass(shell, config)
     orca_pass(shell, config)
@@ -10827,7 +10808,7 @@ def test_a_settled_dispatch_is_named_once_for_the_roots_gc_and_never_closed(shel
     orca_pass(shell, config)
     reclaims = [line for line in escalations(shell) if line.startswith("RECLAIM ")]
     assert len(reclaims) == 1
-    assert [call for call in shell.calls if call[:5] == ["orca", "orchestration", "worker-show", "--dispatch", "ctx_a"]] == []
+    assert len([call for call in shell.calls if call[:5] == ["orca", "orchestration", "worker-show", "--dispatch", "ctx_a"]]) == 1
     assert reclaims[0].endswith(f"1 settled dispatch(es) still hold their terminal: {LANE}=ctx_a:term_ctx_a; run {runner_module.SCRIPTS / 'desk-runner.py'} gc --config {config.resolve()}, then .agents/skills/orca/scripts/orca-gc --run run_1 --dispatch ctx_a")
     assert [call for call in shell.calls if FORBIDDEN & {Path(token).name for token in call}] == []
 
@@ -14716,53 +14697,6 @@ def test_a_desk_over_load_whose_brief_names_a_home_file_no_box_receives_stays_on
     orca_pass(shell, config)
     assert launches(shell) == [[str(runner_module.LAUNCHER), LANE, "opus", "xhigh", str(brief)]]
     assert sprite_launches(shell) == []
-
-
-def verdict_pass(shell: FakeShell, runner: runner_module.Runner, tmp_path: Path, lane: str, key: str) -> list[list[str]]:
-    brief = launch_brief(tmp_path)
-    shell.launch_line = f"{lane} ready task=task_1 dispatch=ctx_{key} terminal=term_{key} worktree=/w\n"
-    desk_orders(shell, f"{key} orca-desk: launch {lane} sol xhigh brief={brief}")
-    before = len(shell.calls)
-    assert runner_module.run_orca(runner, True) == 0
-    assert f"LAUNCHED {key} {lane}: dispatch ctx_{key} terminal term_{key}" in escalations(shell)
-    return sorted(call[:3] for call in shell.calls[before:] if call[0] == "orca")
-
-
-def test_a_launch_gets_its_verdict_in_one_pass_whose_orca_calls_do_not_grow_with_live_dispatches(shell, config, tmp_path):
-    """Nov 2, 7:27 PM to at least 7:39 PM: about ten launches waited with no verdict while each pass ran worker-show one dispatch at a time."""
-    shell.launch("live-0", "ctx_live_0")
-    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
-    assert runner_module.run_orca(runner, True) == 0
-    at_one = verdict_pass(shell, runner, tmp_path, "lane-one", "R61")
-    for number in range(1, 1000):
-        shell.launch(f"live-{number}", f"ctx_live_{number}")
-    assert verdict_pass(shell, runner, tmp_path, "lane-thousand", "R62") == at_one
-
-
-def test_a_sweep_of_a_thousand_dispatches_reads_the_run_in_one_list_and_one_inbox_read(shell, config, tmp_path):
-    for number in range(1000):
-        shell.launch(f"live-{number}", f"ctx_live_{number}")
-    orca_pass(shell, config)
-    orca_pass(shell, config)
-    before = len(shell.calls)
-    orca_pass(shell, config)
-    calls = [call[:4] for call in shell.calls[before:] if call[0] == "orca"]
-    assert [call for call in calls if call[2] == "worker-show" or call[2:4] == ["check", "--terminal"]] == []
-    assert len([call for call in calls if call[2] == "worker-list"]) == 10
-    assert len([call for call in calls if call[2:4] == ["inbox", "--limit"]]) == 1
-
-
-def test_a_launch_verdict_posts_before_the_sweep_lists_the_run(shell, config, tmp_path):
-    brief = tmp_path / "fix-brief.md"
-    brief.write_text("brief")
-    orca_pass(shell, config)
-    desk_orders(shell, f"R40 orca-desk: launch {LANE} sol xhigh brief={brief}")
-    before = len(shell.calls)
-    orca_pass(shell, config)
-    calls = shell.calls[before:]
-    posted = next(index for index, call in enumerate(calls) if call[:2] == ["cci", "post"] and any("LAUNCH-FAILED R40" in token for token in call))
-    listed = next(index for index, call in enumerate(calls) if call[:3] == ["orca", "orchestration", "worker-list"])
-    assert posted < listed
 
 
 SILENT_LANE = "inc-liam-load-opus"
