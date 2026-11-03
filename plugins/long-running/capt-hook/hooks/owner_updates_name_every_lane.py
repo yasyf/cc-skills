@@ -14,10 +14,11 @@ from .tests.register_fixtures import ACTIVE, DRIVE_CONFIG
 
 LONG_UPDATE = 40
 CHECK_SECONDS = 60
-SHOWN = 20
+SHOWN = 3
+NAME_CHARS = 36
 MISSING = "missing: "
 CHECK = f"{sys.executable} {script('owner_update.py')} --drive brook-drive --check -"
-UNNAMED = "An owner update names every section, working lane, open ask and open PR the sources hold, and this one leaves out {count}: {names}. Relay `owner_update.py --drive {drive} --render` as it prints, or add what it lists."
+UNNAMED = "This owner update leaves out {count} sections, lanes, asks or PRs the sources hold, such as {names}. Relay `owner_update.py --drive {drive} --render` as it prints, or add them."
 UPDATE = "\n".join(f"- line {index}: work moved" for index in range(LONG_UPDATE + 1))
 
 
@@ -32,8 +33,8 @@ class LongReply:
     skip_if=[FromSubagent()],
     transcript_events=REPLY_WINDOW,
     tests={
-        Input(transcript=reply_transcript(UPDATE), state=ACTIVE, env=DRIVE_CONFIG, commands={CHECK: (1, "missing: 2\ntooling-codify-1\n#48401\n")}): Warn(pattern=r"leaves out 2: tooling-codify-1, #48401\. Relay"),
-        Input(transcript=reply_transcript(UPDATE), state=ACTIVE, env=DRIVE_CONFIG, commands={CHECK: (1, "missing: 25\n" + "".join(f"lane-{n}\n" for n in range(25)))}): Warn(pattern=r"leaves out 25: lane-0, [\s\S]*lane-19 and 5 more\. Relay"),
+        Input(transcript=reply_transcript(UPDATE), state=ACTIVE, env=DRIVE_CONFIG, commands={CHECK: (1, "missing: 2\ntooling-codify-1\n#48401\n")}): Warn(pattern=r"leaves out 2 sections, lanes, asks or PRs the sources hold, such as tooling-codify-1\. Relay"),
+        Input(transcript=reply_transcript(UPDATE), state=ACTIVE, env=DRIVE_CONFIG, commands={CHECK: (1, "missing: 25\n" + "".join(f"lane-{n}\n" for n in range(25)))}): Warn(pattern=r"leaves out 25 [\s\S]*such as lane-0, lane-1, lane-2\. Relay"),
         Input(transcript=reply_transcript(UPDATE), state=ACTIVE, env=DRIVE_CONFIG, commands={CHECK: ""}): Allow(),
         Input(transcript=reply_transcript("Landed #48401; nothing else moved."), state=ACTIVE, env=DRIVE_CONFIG, commands={CHECK: (1, "missing: 1\ntooling-codify-1\n")}): Allow(),
         Input(transcript=reply_transcript(UPDATE, sidechain=True), state=ACTIVE, env=DRIVE_CONFIG, commands={CHECK: (1, "missing: 1\ntooling-codify-1\n")}): Allow(),
@@ -47,6 +48,5 @@ def owner_updates_name_every_lane(evt: BaseHookEvent) -> HookResult | None:
     done = subprocess.run([sys.executable, str(script("owner_update.py")), "--drive", drive, "--check", "-"], input=last_reply(evt), capture_output=True, text=True, timeout=CHECK_SECONDS, env=dict(reqenv.env_map()))
     if done.returncode != 1 or not done.stderr.startswith(MISSING):
         return None
-    names = done.stderr.splitlines()[1:]
-    shown = ", ".join(names[:SHOWN]) + (f" and {len(names) - SHOWN} more" if len(names) > SHOWN else "")
-    return evt.context(UNNAMED.format(count=len(names), names=shown, drive=drive))
+    named = [name[:NAME_CHARS] for name in done.stderr.splitlines()[1:] if not name.startswith("#")]
+    return evt.context(UNNAMED.format(count=len(done.stderr.splitlines()) - 1, names=", ".join(named[:SHOWN]) or "its open PRs", drive=drive))
