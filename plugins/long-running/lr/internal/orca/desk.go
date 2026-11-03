@@ -61,6 +61,7 @@ var (
 type DeskConfig struct {
 	Source, Store, Drive, DeskInbox, Run, Receipts, BriefsRepo, BriefsLog, GC, AlertFacts, LandingRepo, LandingCheckout string
 	LaunchEnv                                                                                                           map[string]string
+	IncidentMechanismMinutes, IncidentPRMinutes, IncidentReadyMinutes                                                   int
 	StartMinutes, LaunchMinutes, HoldMinutes, CaseLanes                                                                 int
 }
 
@@ -82,6 +83,10 @@ type runnerFile struct {
 		Start  *int `json:"start_minutes"`
 		Launch *int `json:"launch_minutes"`
 		Hold   *int `json:"hold_minutes"`
+
+		IncidentMechanism *int `json:"incident_mechanism_minutes"`
+		IncidentPR        *int `json:"incident_pr_minutes"`
+		IncidentReady     *int `json:"incident_ready_minutes"`
 	} `json:"deadlines"`
 	Incident struct {
 		CaseLanes *int `json:"case_lanes"`
@@ -150,6 +155,7 @@ func LoadDeskConfig(path string, env func(string) string) (DeskConfig, error) {
 		BriefsRepo: expandHome(file.Orca.Briefs.Repo, home), BriefsLog: file.Orca.Briefs.Log, GC: file.Orca.GC, AlertFacts: expandHome(file.Alert.Facts, home),
 		LandingRepo: file.Landing.Repo, LandingCheckout: file.Landing.Checkout, LaunchEnv: file.Orca.LaunchEnv,
 		StartMinutes: orDefault(file.Deadlines.Start, 10), LaunchMinutes: orDefault(file.Deadlines.Launch, 15), HoldMinutes: orDefault(file.Deadlines.Hold, 15), CaseLanes: orDefault(file.Incident.CaseLanes, 2),
+		IncidentMechanismMinutes: orDefault(file.Deadlines.IncidentMechanism, 10), IncidentPRMinutes: orDefault(file.Deadlines.IncidentPR, 15), IncidentReadyMinutes: orDefault(file.Deadlines.IncidentReady, 20),
 	}, nil
 }
 
@@ -174,6 +180,7 @@ type Desk struct {
 	Plugin       string
 	Stderr       io.Writer
 	FireIncident func(ctx context.Context, fired lanes.Fired) error
+	Incidents    incident.Store
 
 	background  sync.WaitGroup
 	store       incident.Store
