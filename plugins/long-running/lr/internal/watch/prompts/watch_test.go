@@ -1347,6 +1347,47 @@ func TestACheckWhileAnotherWatchHoldsTheLockReadsNothing(t *testing.T) {
 	want(t, len(f.calls), 0)
 }
 
+func TestBindSetsWhatItNamesAndKeepsTheRestOfTheEntry(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	path := filepath.Join(dir, "long-running", "drives", "d1.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"drive":"d1","repo":"/r","count":12345678901234567,"root_terminal":"term_old","state_dir":"/s"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	read := func() map[string]json.RawMessage {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(data, &fields); err != nil {
+			t.Fatal(err)
+		}
+		return fields
+	}
+
+	if err := Bind("d1", "term_new", false); err != nil {
+		t.Fatal(err)
+	}
+	fields := read()
+	want(t, string(fields["root_terminal"]), `"term_new"`)
+	want(t, string(fields["repo"]), `"/r"`)
+	want(t, string(fields["count"]), "12345678901234567")
+	if _, set := fields["slack_cards"]; set {
+		t.Fatal(fields)
+	}
+
+	if err := Bind("d1", "", true); err != nil {
+		t.Fatal(err)
+	}
+	fields = read()
+	want(t, string(fields["slack_cards"]), "true")
+	want(t, string(fields["root_terminal"]), `"term_new"`)
+}
+
 func TestACheckQueuesAsSuccessorUntilTheHolderLetsGoThenPolls(t *testing.T) {
 	f := newFake(t)
 	e := workersUp(t, f, "clear")

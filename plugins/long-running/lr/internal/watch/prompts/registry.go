@@ -95,6 +95,35 @@ func Find(name string) (Entry, error) {
 	return Entry{}, fmt.Errorf("%w named %s", ErrNoDrive, name)
 }
 
+func Bind(name, terminal string, cards bool) error {
+	entry, err := Find(name)
+	if err != nil {
+		return err
+	}
+	dir, err := configDir()
+	if err != nil {
+		return err
+	}
+	path := filepath.Join(dir, "long-running", "drives", entry.Drive+".json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("%s: %w", path, err)
+	}
+	if terminal != "" {
+		if fields["root_terminal"], err = json.Marshal(terminal); err != nil {
+			return err
+		}
+	}
+	if cards {
+		fields["slack_cards"] = json.RawMessage("true")
+	}
+	return writeAtomic(path, fields)
+}
+
 func launchReceipts(run string) (string, error) {
 	state := os.Getenv("XDG_STATE_HOME")
 	if state == "" {

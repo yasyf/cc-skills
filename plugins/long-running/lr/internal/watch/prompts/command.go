@@ -141,6 +141,19 @@ func Command(a *app.App) *cobra.Command {
 	}
 	showCmd.Flags().StringVar(&drive, "drive", os.Getenv("LR_DRIVE"), "the drive's registry id or bus name")
 	showCmd.Flags().BoolVar(&asJSON, "json", false, "print the view as JSON")
-	cmd.AddCommand(showCmd, answerCommandVerb(a))
+	var terminal string
+	var cards bool
+	bindCmd := &cobra.Command{
+		Use:   "bind --drive NAME [--root-terminal HANDLE] [--slack-cards]",
+		Short: "Record the coordinator's current terminal, or turn on owner cards for its prompts, in the drive's registry entry",
+		Args:  cobra.NoArgs,
+		RunE: func(*cobra.Command, []string) error {
+			return Bind(drive, terminal, cards)
+		},
+	}
+	bindCmd.Flags().StringVar(&drive, "drive", os.Getenv("LR_DRIVE"), "the drive's registry id or bus name")
+	bindCmd.Flags().StringVar(&terminal, "root-terminal", "", "the terminal the coordinator now runs in")
+	bindCmd.Flags().BoolVar(&cards, "slack-cards", false, "also card the owner's DM when the coordinator's own prompt has no supervisor to wake")
+	cmd.AddCommand(showCmd, bindCmd, answerCommandVerb(a))
 	return cmd
 }
