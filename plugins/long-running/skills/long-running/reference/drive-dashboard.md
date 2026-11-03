@@ -13,9 +13,9 @@ Contents:
 
 ## Dashboard app startup
 
-From the drive's first plan, the coordinator runs the app in `dashboard/app/` with `python3 dashboard/app/server.py --config <state dir>/dashboard.json`. The config names the drive, ledger, board session and URL, repo, progress-doc label, release doc, story file, host, port, and keeper lane `update-desk`, the communicator's helper briefed from [communicator-brief.md](communicator-brief.md).
+At drive start, `lr dashboard install` writes the launchd job `com.long-running.<drive>.dashboard` running `dashboard/app/server.py --config <state dir>/dashboard.json`. The config names the drive, ledger, board session and URL, repo, progress-doc label, release doc, story file, host, port, and keeper lane `update-desk`, the communicator's helper briefed from [communicator-brief.md](communicator-brief.md).
 
-`python3 dashboard/app/keep.py --config <state dir>/dashboard.json` starts the app detached when it is not answering, logs to `server.log` beside the config, and tells the coordinator. The coordinator hands the owner its tailnet URL once, and never hands him a cc-present board in its place. A build failure posts one `defect` record to the coordinator.
+`python3 dashboard/app/keep.py --config <state dir>/dashboard.json` runs `lr dashboard restart` when the app is not answering and tells the coordinator; the job logs to `server.log` beside the config. The coordinator hands the owner its tailnet URL once, and never hands him a cc-present board in its place. A build failure posts one `defect` record to the coordinator.
 
 The app serves Overview, Needs you, Review, Releases, Workers, Timeline, and Ask from the cci daemon's record stream, `cc-present watch` on the board, the ledger, the drive's cc-notes answers, and the newest progress doc carrying `## Ordered plan of action`.
 
