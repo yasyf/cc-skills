@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
@@ -33,7 +35,10 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/watch/prompts"
 )
 
-const runnerFile = "runner.json"
+const (
+	runnerFile = "runner.json"
+	configFile = "lr.json"
+)
 
 func Command(a *app.App) *cobra.Command {
 	cmd := &cobra.Command{Use: "supervisor", Short: "The drive's one leased process, kept alive by launchd"}
@@ -55,9 +60,15 @@ func run(ctx context.Context, a *app.App) error {
 	if err := lanes.Adopt(lanes.Self); err != nil {
 		return err
 	}
+	read := a.Now()
 	cfg, state, err := lanes.Loaded(a)
 	if err != nil {
 		return err
+	}
+	if gone := missing(ctx, a.Runner, exec.LookPath, cfg); len(gone) > 0 {
+		text := "SUPERVISOR-REFUSED the supervisor will not start: " + strings.Join(gone, "; ")
+		_, err := client.Post(ctx, client.Draft{Drive: cfg.Drive, Lane: lanes.Self, Kind: "blocker", To: []string{lanes.Root}, ID: "supervisor-start", Text: text})
+		return errors.Join(errors.New(text), err)
 	}
 	unwired := slices.DeleteFunc(slices.Clone(cfg.Movers), func(mover string) bool {
 		return mover == moverLanes || mover == config.MoverLanding || mover == config.MoverGrading
@@ -79,7 +90,7 @@ func run(ctx context.Context, a *app.App) error {
 		return err
 	}
 	version := Installed(env.Claude)
-	upgrade := &Upgrade{Env: env, Running: version}
+	upgrade := &Upgrade{Env: env, Running: version, Read: read}
 	deps.Stale = upgrade.Stale
 	reports, ended, err := Run(ctx, s, cfg.Drive, version, os.Getpid(), deps, 0)
 	if err != nil {
@@ -269,7 +280,7 @@ func Install(cmd *cobra.Command, a *app.App) error {
 func agentOf(env lanes.Env) Agent {
 	return Agent{
 		Drive:  env.Config.Drive,
-		Config: filepath.Join(env.State, "lr.json"),
+		Config: filepath.Join(env.State, configFile),
 		Binary: filepath.Join(env.Claude, "long-running", "current", "bin", "lr"),
 		Path:   os.Getenv("PATH"),
 		Log:    filepath.Join(env.State, "supervisor.log"),

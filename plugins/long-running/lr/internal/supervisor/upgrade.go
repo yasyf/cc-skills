@@ -53,10 +53,14 @@ func Installed(claude string) string {
 type Upgrade struct {
 	Env     lanes.Env
 	Running string
+	Read    time.Time
 	passed  map[string]bool
 }
 
 func (u *Upgrade) Stale(ctx context.Context) (bool, error) {
+	if changed, err := u.configChanged(ctx); changed || err != nil {
+		return changed, err
+	}
 	installed := Installed(u.Env.Claude)
 	if !Behind(u.Running, installed) {
 		return false, nil
@@ -93,6 +97,24 @@ func (u *Upgrade) Stale(ctx context.Context) (bool, error) {
 		return false, fmt.Errorf("%w: cci post: %w", lanes.ErrUnread, err)
 	}
 	return true, nil
+}
+
+func (u *Upgrade) configChanged(ctx context.Context) (bool, error) {
+	for _, name := range []string{configFile, runnerFile} {
+		info, err := os.Stat(filepath.Join(u.Env.State, name))
+		if err != nil {
+			return false, err
+		}
+		if !info.ModTime().After(u.Read) {
+			continue
+		}
+		_, err = u.Env.Bus.Post(ctx, client.Draft{Drive: u.Env.Config.Drive, Lane: lanes.Self, Kind: "report", To: []string{lanes.Root}, ID: fmt.Sprintf("config-changed:%s:%d", name, info.ModTime().Unix()), Text: "CONFIG-CHANGED " + name + " changed after the supervisor read it, so the supervisor restarts to read it fresh"})
+		if err != nil {
+			return false, fmt.Errorf("%w: cci post: %w", lanes.ErrUnread, err)
+		}
+		return true, nil
+	}
+	return false, nil
 }
 
 func Reexec(claude string, exec func(string, []string, []string) error) error {
