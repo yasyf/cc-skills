@@ -300,7 +300,8 @@ func (r *replay) render(build createdBuild) Build {
 	if elapsed >= time.Minute {
 		prepare = "passed"
 	}
-	jobs := []Job{{ID: "j1", Name: ":robot_face: Prepare PR evidence", State: prepare}}
+	jobs := make([]Job, 0, len(r.data.CanaryJobs))
+	jobs = append(jobs, Job{ID: "j1", Name: ":robot_face: Prepare PR evidence", State: prepare})
 	for i, job := range r.data.CanaryJobs[1:] {
 		jobState := "waiting"
 		if state != "running" {
