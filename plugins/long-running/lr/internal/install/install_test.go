@@ -146,6 +146,24 @@ func TestAVersionAlreadyServingNeedsNoNewGeneration(t *testing.T) {
 	}
 }
 
+func TestAnotherInstallThatGotPastThisVersionEndsTheWait(t *testing.T) {
+	w := newWorld(t)
+	w.takes = false
+	if _, err := w.store.AcquireLease("d", "0.8.10", 4242, t0); err != nil {
+		t.Fatal(err)
+	}
+
+	generation, err := Run(context.Background(), w.store, "d", "0.8.9", w.steps())
+
+	if err != nil || generation != 2 {
+		t.Fatalf("got %d %v", generation, err)
+	}
+	last := w.posts[len(w.posts)-1]
+	if !reflect.DeepEqual(last, posted{[]string{"supervisor"}, bus.State{Lane: "install", Text: "serving 0.8.10 on generation 2"}}) {
+		t.Fatalf("last post %+v", last)
+	}
+}
+
 func TestADeskThatWillNotHandOffEscalatesAfterTheSwap(t *testing.T) {
 	w := newWorld(t)
 	w.startErr = errors.New("the landing desk did not hand off onto 0.8.1: stalled")
