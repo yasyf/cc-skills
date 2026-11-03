@@ -11935,6 +11935,19 @@ def test_an_inbox_relay_to_a_lane_without_a_live_dispatch_goes_to_the_lane_on_cc
     ])
 
 
+def test_a_relay_over_the_text_limit_to_a_lane_without_a_live_dispatch_reaches_the_lane_whole_from_a_file(shell, config, tmp_path):
+    """Root #353796: a relay to a lane whose dispatch ended goes to the lane on cci with its whole text, never cut and never a RELAY-FAILED."""
+    shell.launch(LANE, "ctx_a", status="completed")
+    orca_pass(shell, config)
+    cci_record(shell, to=["orca-desk"], **spilled(tmp_path, f"R22 orca-desk: relay to {LANE}:\n{PARAGRAPHS}"))
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert shell.sends() == []
+    [(seq, note)] = [(seq, post) for seq, post in enumerate(shell.posts, 1) if post["kind"] == "note" and post["to"] == LANE]
+    assert Path(note["path"]).read_text() == f"{PARAGRAPHS}\n"
+    assert [line for line in escalations(shell) if line.startswith("RELAY")] == [f"RELAYED R22 {LANE}: no live dispatch (ctx_a is completed), so it went to the lane on cci as #{seq}"]
+
+
 def test_a_relay_line_outside_the_grammar_fails_visibly_and_relays_nothing(shell, config, tmp_path):
     shell.launch(LANE, "ctx_a")
     orca_pass(shell, config)
