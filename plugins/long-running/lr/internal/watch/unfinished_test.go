@@ -75,7 +75,9 @@ func TestProgressRestartsAnAsksDayAndADuePastStallsItAtOnce(t *testing.T) {
 func TestOnlyRetroRowsAndFindingsStillOpenStand(t *testing.T) {
 	now := at(t, "2026-11-03T08:00:00Z")
 	old := now.Add(-48 * time.Hour)
-	row := func(key string, fields map[string]string) ledger.Row { return ledger.Row{Key: key, Fields: fields, Updated: old} }
+	row := func(key string, fields map[string]string) ledger.Row {
+		return ledger.Row{Key: key, Fields: fields, Updated: old}
+	}
 	l := Ledgers{
 		Retro: []ledger.Row{
 			row("retro/1", map[string]string{"state": "building", "owner": "lane-a", "failure": "a stuck queue"}),
@@ -95,7 +97,7 @@ func TestOnlyRetroRowsAndFindingsStillOpenStand(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var keys []string
+	keys := make([]string, 0, len(waits))
 	for _, wait := range waits {
 		keys = append(keys, wait.subject())
 		want(t, wait.overdue(now), true)
