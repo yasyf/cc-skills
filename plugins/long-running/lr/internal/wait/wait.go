@@ -57,6 +57,7 @@ var (
 	sourceForm  = regexp.MustCompile(`(?s)\Acci:([^:=]+):([^:=]+)\z|\A([^=]+)=(.+)\z`)
 	taggedChain = regexp.MustCompile(`(?:^|\s)` + boundedTag + `=(\S+)`)
 	recordHead  = regexp.MustCompile(`^(?:#?(\d+(?:@\w+)?)\s|(@.*)$)`)
+	recordStamp = regexp.MustCompile(`^(?:@|#?\d+(?:@\w+)?\s+)((?:[A-Z][a-z]{2} \d{1,2} )?\d{1,2}:\d{2} [AP]M)(?:\s|$)`)
 	pacific     = must(time.LoadLocation("America/Los_Angeles"))
 )
 
@@ -111,6 +112,8 @@ type waiter struct {
 	wake         chan struct{}
 	printed      map[string]bool
 	repeat       bool
+	started      time.Time
+	held         []string
 }
 
 type child struct {
@@ -132,6 +135,7 @@ func Run(ctx context.Context, o Options) int {
 		w.Stream = Daemon
 	}
 	code, err := w.run(ctx)
+	w.flush()
 	if err != nil {
 		fmt.Fprintln(w.Stderr, "lr wait:", err)
 	}
@@ -142,6 +146,7 @@ func (w *waiter) run(ctx context.Context) (int, error) {
 	if code, err := w.parse(); err != nil {
 		return code, err
 	}
+	w.started = w.Now().Truncate(time.Minute)
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	watcher, err := w.watch(ctx)
@@ -200,6 +205,7 @@ func (w *waiter) run(ctx context.Context) (int, error) {
 				guarded.end()
 				return CodeCCIMissing, w.cciMissing()
 			}
+			w.flush()
 			fmt.Fprintf(w.Stdout, "QUIET %s\n", w.Now().In(pacific).Format("3:04 PM"))
 			guarded.end()
 			return 0, nil
@@ -494,14 +500,40 @@ func (s cciSource) check(ctx context.Context, w *waiter) (bool, error) {
 		return false, err
 	}
 	w.cciMissingAt = time.Time{}
-	changed := false
+	woke := false
+	var stamped time.Time
 	for _, line := range strings.Split(strings.TrimRight(result.Stdout, "\n"), "\n") {
-		if line != "" && w.fresh(line) {
-			fmt.Fprintln(w.Stdout, clip(line))
-			changed = true
+		if stamp := recordStamp.FindStringSubmatch(line); stamp != nil {
+			stamped = w.stampTime(stamp[1])
+		}
+		if line == "" || !w.fresh(line) {
+			continue
+		}
+		w.held = append(w.held, clip(line))
+		if head := recordHead.FindStringSubmatch(line); head != nil && head[1] != "" && (stamped.IsZero() || !stamped.Before(w.started)) {
+			woke = true
 		}
 	}
-	return changed, nil
+	if woke {
+		w.flush()
+	}
+	return woke, nil
+}
+
+func (w *waiter) stampTime(stamp string) time.Time {
+	now := w.Now().In(time.Local)
+	if t, err := time.ParseInLocation("3:04 PM", stamp, time.Local); err == nil {
+		return time.Date(now.Year(), now.Month(), now.Day(), t.Hour(), t.Minute(), 0, 0, time.Local)
+	}
+	t := must(time.ParseInLocation("Jan 2 3:04 PM", stamp, time.Local))
+	return time.Date(now.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), 0, 0, time.Local)
+}
+
+func (w *waiter) flush() {
+	for _, line := range w.held {
+		fmt.Fprintln(w.Stdout, line)
+	}
+	w.held = nil
 }
 
 // fresh reports whether line belongs to a record no other source of this wait

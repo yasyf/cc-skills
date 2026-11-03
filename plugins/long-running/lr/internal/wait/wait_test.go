@@ -25,6 +25,8 @@ import (
 
 const armed = 300 * time.Millisecond
 
+func ninePM() time.Time { return time.Date(2026, 11, 3, 21, 0, 0, 0, time.Local) }
+
 type run struct {
 	out, errs bytes.Buffer
 	code      int
@@ -370,7 +372,7 @@ func TestACciSourceFollowsTheDaemonStreamAndReadsThroughCciTail(t *testing.T) {
 	server := httptest.NewServer(s)
 	t.Cleanup(server.Close)
 	runner := &tailRunner{}
-	r := start(t, Options{Seconds: 10, Sources: []string{"cci:dar:landing-desk"}, Runner: runner, Stream: server.URL})
+	r := start(t, Options{Seconds: 10, Sources: []string{"cci:dar:landing-desk"}, Runner: runner, Stream: server.URL, Now: ninePM})
 	time.Sleep(armed)
 
 	runner.deliver("#5 9:00 PM NOTE root -> landing-desk go\n")
@@ -400,7 +402,7 @@ func TestARecordAddressedToTwoSourcesPrintsOnce(t *testing.T) {
 	server := httptest.NewServer(s)
 	t.Cleanup(server.Close)
 	runner := &tailRunner{}
-	r := start(t, Options{Seconds: 10, Sources: []string{"cci:dar:meta", "cci:dar:meta-desk-2"}, Runner: runner, Stream: server.URL})
+	r := start(t, Options{Seconds: 10, Sources: []string{"cci:dar:meta", "cci:dar:meta-desk-2"}, Runner: runner, Stream: server.URL, Now: ninePM})
 	time.Sleep(armed)
 
 	runner.deliver("@9:00 PM\n5 ask root go\n  its body\n#6@ab12 9:00 PM NOTE root seen\n")
@@ -409,6 +411,47 @@ func TestARecordAddressedToTwoSourcesPrintsOnce(t *testing.T) {
 
 	if want := "@9:00 PM\n5 ask root go\n  its body\n#6@ab12 9:00 PM NOTE root seen\n"; r.code != 0 || r.out.String() != want {
 		t.Fatalf("got %d %q, want each record once", r.code, r.out.String())
+	}
+}
+
+func TestARecordFromBeforeTheWaitStaysHeldUntilANewOneWakesIt(t *testing.T) {
+	s := &stream{emit: make(chan struct{}, 1)}
+	server := httptest.NewServer(s)
+	t.Cleanup(server.Close)
+	runner := &tailRunner{}
+	r := start(t, Options{Seconds: 10, Sources: []string{"cci:dar:desk"}, Runner: runner, Stream: server.URL, Now: ninePM})
+	time.Sleep(armed)
+
+	runner.deliver("@8:10 PM\n3 ask sender old ask\n")
+	s.emit <- struct{}{}
+	select {
+	case <-r.done:
+		t.Fatalf("a record from before the wait woke it: %q", r.out.String())
+	case <-time.After(armed):
+	}
+	runner.deliver("@9:00 PM\n5 note api fresh reply\n")
+	s.emit <- struct{}{}
+	r.wait(t)
+
+	if want := "@8:10 PM\n3 ask sender old ask\n@9:00 PM\n5 note api fresh reply\n"; r.code != 0 || r.out.String() != want {
+		t.Fatalf("got %d %q, want the held record and then the one that woke the wait", r.code, r.out.String())
+	}
+}
+
+func TestARecordFromBeforeTheWaitPrintsAtTheDeadline(t *testing.T) {
+	s := &stream{emit: make(chan struct{}, 1)}
+	server := httptest.NewServer(s)
+	t.Cleanup(server.Close)
+	runner := &tailRunner{}
+	r := start(t, Options{Seconds: 1, Sources: []string{"cci:dar:desk"}, Runner: runner, Stream: server.URL, Now: ninePM})
+	time.Sleep(armed)
+
+	runner.deliver("#3 Nov 2 8:10 PM ASK sender -> desk old ask\n")
+	s.emit <- struct{}{}
+	r.wait(t)
+
+	if r.code != 0 || !strings.HasPrefix(r.out.String(), "#3 Nov 2 8:10 PM ASK sender -> desk old ask\nQUIET ") {
+		t.Fatalf("got %d %q, want the held record and then QUIET", r.code, r.out.String())
 	}
 }
 
