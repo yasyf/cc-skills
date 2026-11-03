@@ -1885,6 +1885,7 @@ def test_mac_load_holds_neither_an_incident_launch_nor_a_place_local_launch_besi
     cli(shell, config, "launch", "--key", "R639", "--lane", "other-lane", "--model", "opus", "--effort", "xhigh", "--brief", str(brief))
     shell.launch(LANE, "ctx_n")
     orca_pass(shell, config)
+    orca_pass(shell, config)
     assert sorted(launches(shell)) == sorted([[str(runner_module.LAUNCHER), LANE, "incident", "xhigh", str(brief)], [str(runner_module.LAUNCHER), "other-lane", "opus", "xhigh", str(brief)]])
     assert incident(tmp_path, f"desk-lane-{LANE}").actions["R638"].status == "verified"
     assert watchdog_lines(shell) == [

@@ -3692,7 +3692,7 @@ class Runner:
         return lane_brief.named_files(brief_text(Path(spec["brief"])), self.config.source.parent)
 
     def launched_by(self, lane: str) -> str:
-        """The lane that posted `lane`'s newest launch line, or empty when root or a drive process did, so its questions reach whoever launched it and otherwise the root."""
+        """The lane that posted `lane`'s newest launch line, or empty when the coordinator or a drive process did, so its questions reach whoever launched it and otherwise the coordinator."""
         container = lane_container(lane)
         launches = self.book.actions(container, kind="launch") if self.book.exists(container) else []
         by = json.loads(launches[-1].target).get("by", ROOT) if launches else ROOT
