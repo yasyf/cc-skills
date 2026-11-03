@@ -87,6 +87,7 @@ type Record struct {
 	PRs      []string
 	Topic    string
 	Board    string
+	Attrs    map[string]string
 	Re       int64
 	Resolves []int64
 }

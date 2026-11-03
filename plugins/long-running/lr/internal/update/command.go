@@ -116,7 +116,7 @@ func Command(a *app.App) *cobra.Command {
 		},
 	}
 	status := statusCommand(a, &driveName, cmd)
-	cmd.AddCommand(render, check, status)
+	cmd.AddCommand(render, check, status, pinCommand(&driveName))
 	cmd.Args = cobra.NoArgs
 	cmd.Flags().BoolVar(&rendering, "render", false, "the render verb, under the flag owner_update.py callers name")
 	cmd.Flags().StringVar(&checking, "check", "", "the check verb on this file, under the flag owner_update.py callers name")

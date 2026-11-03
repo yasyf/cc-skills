@@ -12,6 +12,7 @@ type Pin struct {
 	Name     string   `json:"name"`
 	Delivers string   `json:"delivers"`
 	Words    []string `json:"words"`
+	PRs      []int    `json:"prs,omitempty"`
 }
 
 type Entry struct {
