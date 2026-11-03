@@ -92,11 +92,19 @@ def test_a_failing_cc_slack_passes_with_a_reason(root, shipped):  # noqa: F811
 
 def test_a_stop_is_refused_until_the_reply_is_answered(root, shipped):  # noqa: F811
     root.typed("where are we", "2026-10-28T03:53:25.695Z")
-    root.routes[(shipped, "dm-owed")] = json.dumps({"replies": [OWED]})
+    root.routes[(shipped, "dm-owed")] = json.dumps({"replies": [OWED], "holder_session": SESSION})
 
     refused = [result.message for result in fired(root, root.event(StopEvent))]
     assert any("p1793705742180139" in message for message in refused)
 
-    root.routes[(shipped, "dm-owed")] = json.dumps({"replies": []})
+    root.routes[(shipped, "dm-owed")] = json.dumps({"replies": [], "holder_session": SESSION})
+    allowed = [result.message for result in fired(root, root.event(StopEvent))]
+    assert not any("p1793705742180139" in message for message in allowed)
+
+
+def test_a_reply_is_owed_only_by_the_session_holding_the_dm(root, shipped):  # noqa: F811
+    root.typed("where are we", "2026-10-28T03:53:25.695Z")
+    root.routes[(shipped, "dm-owed")] = json.dumps({"replies": [OWED], "holder_session": "another-drive"})
+
     allowed = [result.message for result in fired(root, root.event(StopEvent))]
     assert not any("p1793705742180139" in message for message in allowed)

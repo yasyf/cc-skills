@@ -83,6 +83,7 @@ UNANSWERED = (
     "The owner wrote in Slack and nobody has answered in that thread: {replies}."
     " Reply in each thread with `slack_reply` saying what was done with it, then stop."
 )
+HOLDER = "900424b6-0000"
 OWED_REPLY = {"thread_ts": "1793684147.131059", "ts": "1793705742.180139", "text": "A, but as buttons", "permalink": "https://acme.slack.com/archives/D0B6Z/p1793705742180139"}
 CALM = {"reminder": BinaryAnswer(p_yes=0.02, confidence=0.95), "status_question": BinaryAnswer(p_yes=0.02, confidence=0.95)}
 REMINDED = CALM | {"reminder": BinaryAnswer(p_yes=0.97, confidence=0.94)}
@@ -150,7 +151,7 @@ def owner_return_opens_with_the_update(evt: BaseHookEvent) -> HookResult | None:
 
 
 def owed(replies: str | tuple) -> Input:
-    return Input(transcript=[T.user("where are we"), T.assistant("On it.")], state=[CompactionState(active=True)], env=DRIVE_CONFIG, commands={f"{SHIPPED_CC_SLACK} dm-owed": replies}, decide=CALM)
+    return Input(session_id=HOLDER, transcript=[T.user("where are we"), T.assistant("On it.")], state=[CompactionState(active=True)], env=DRIVE_CONFIG, commands={f"{SHIPPED_CC_SLACK} dm-owed": replies}, decide=CALM)
 
 
 def picked(*calls: dict) -> Input:
@@ -178,8 +179,9 @@ def asked(reply: str, *calls: dict, words: str = HOW_FAR, decide: dict = ASKED) 
     only_if=[Communicator()],
     skip_if=[FromSubagent()],
     tests=communicator_tests({
-        owed(json.dumps({"replies": [OWED_REPLY]})): Block(pattern=r"^The owner wrote in Slack.*p1793705742180139: A, but as buttons.*`slack_reply`"),
-        owed(json.dumps({"replies": []})): Allow(),
+        owed(json.dumps({"replies": [OWED_REPLY], "holder_session": "another-drive"})): Allow(),
+        owed(json.dumps({"replies": [OWED_REPLY], "holder_session": HOLDER})): Block(pattern=r"^The owner wrote in Slack.*p1793705742180139: A, but as buttons.*`slack_reply`"),
+        owed(json.dumps({"replies": [], "holder_session": HOLDER})): Allow(),
         owed((1, "cc-slack can't reach the daemon")): Allow(),
         picked(): Block(pattern=r"^A pick for the owner never sits inline"),
         picked(*T.tool_turn("mcp__plugin_cc-slack_cc-slack__slack_send", result=SENT, channel_id="D0B6Z", text=PICK)): Block(pattern=r"never sits inline.*the `reply` tool, the answers as its `picks`"),
@@ -303,9 +305,12 @@ def unread_cc_slack(evt: BaseHookEvent, verb: str, why: str) -> None:
 
 
 def unanswered_reply(evt: BaseHookEvent) -> str | None:
-    out = cc_slack(evt, "dm-owed")
-    replies = json.loads(out)["replies"] if out else []
-    return UNANSWERED.format(replies="; ".join(f'{reply["permalink"]}: {reply["text"]}' for reply in replies)) if replies else None
+    if not (out := cc_slack(evt, "dm-owed")):
+        return None
+    owed = json.loads(out)
+    if owed["holder_session"] != evt.session_id or not owed["replies"]:
+        return None
+    return UNANSWERED.format(replies="; ".join(f'{reply["permalink"]}: {reply["text"]}' for reply in owed["replies"]))
 
 
 def missing_update(evt: BaseHookEvent, reply: str) -> str | None:
