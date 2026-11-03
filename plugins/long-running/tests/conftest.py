@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import unquote_plus
 
+from long_running import ghdiff
 from long_running import ghread
 from long_running import ledger
 from long_running import release
@@ -517,6 +518,11 @@ class FakeShell(ledger.Shell):
 
     def endpoints(self) -> list[str]:
         return [argv[2] for argv in self.calls if argv[0] == "gh"]
+
+
+@pytest.fixture(autouse=True)
+def gh_has_the_escape_flag(monkeypatch) -> None:
+    monkeypatch.setattr(ghdiff, "gh_usage", lambda: ghdiff.ALLOW_ESCAPES)
 
 
 @pytest.fixture(autouse=True)

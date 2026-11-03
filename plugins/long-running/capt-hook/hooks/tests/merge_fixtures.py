@@ -20,7 +20,7 @@ def check_run(name: str, *annotations: tuple[str, int, str], status: str = "COMP
 def checks_read(*runs: dict, log: str = "") -> dict[str, str]:
     suite = {"app": {"slug": "github-actions"}, "checkRuns": {"nodes": list(runs)}}
     pr = {"files": {"nodes": [{"path": path} for path in OWN_FILES]}, "commits": {"nodes": [{"commit": {"checkSuites": {"nodes": [suite]}}}]}}
-    return {"gh pr view": f"{URL}\n", "gh api graphql": json.dumps({"data": {"resource": pr}}), "gh api repos/acme/app/actions/jobs/7/logs": log}
+    return {"gh pr view": f"{URL}\n", "gh api graphql": json.dumps({"data": {"resource": pr}}), "gh api --help": "--allow-escape-sequences\n", "gh api repos/acme/app/actions/jobs/7/logs": log}
 
 
 OWN_LINT = checks_read(check_run("lr-go", ("lr/internal/lanes/sources.go", 336, "Consider preallocating messages with capacity 1 (prealloc)")))

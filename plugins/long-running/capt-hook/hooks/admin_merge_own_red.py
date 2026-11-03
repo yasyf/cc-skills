@@ -39,6 +39,7 @@ query($url: URI!) {
 }
 """
 GH_TIMEOUT_SECONDS = 60
+ALLOW_ESCAPES = "--allow-escape-sequences"
 WORKFLOW_PATH = ".github"
 PULL_URL = re.compile(r"^https://github\.com/(?P<repo>[\w.-]+/[\w.-]+)/pull/\d+$")
 LOCATION = re.compile(r"(?P<path>[\w.@+-]+(?:/[\w.@+-]+)*\.\w+):(?P<line>\d+)")
@@ -94,7 +95,8 @@ def admin_merge_never_lands_past_its_own_red(evt: BaseHookEvent) -> HookResult |
 
 
 def logged(cwd: str, url: str, job: int) -> list[tuple[str, int, str]]:
-    log = ANSI.sub("", gh(cwd, "api", f"repos/{PULL_URL.match(url)['repo']}/actions/jobs/{job}/logs", "--allow-escape-sequences"))
+    escapes = (ALLOW_ESCAPES,) if ALLOW_ESCAPES in gh(cwd, "api", "--help") else ()
+    log = ANSI.sub("", gh(cwd, "api", f"repos/{PULL_URL.match(url)['repo']}/actions/jobs/{job}/logs", *escapes))
     return [(found["path"], int(found["line"]), LOG_STAMP.sub("", line).strip()) for line in log.splitlines() for found in LOCATION.finditer(line)]
 
 

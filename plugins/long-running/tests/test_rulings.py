@@ -15,6 +15,7 @@ from pathlib import Path
 
 from long_running import ledger
 import pytest
+from long_running import ghdiff
 from long_running import rulings
 from conftest import gateway
 
@@ -452,7 +453,7 @@ class RegisterShell(ledger.Shell):
                 return json.dumps(self.board)
             case ["cc-present", "block", "show", block, "--session", "s-root"] if block in self.blocks:
                 return self.blocks[block]
-            case ["gh", "api", "repos/acme/app/compare/main...cafef00d", "-H", rulings.DIFF_MEDIA, "--allow-escape-sequences"]:
+            case ["gh", "api", "repos/acme/app/compare/main...cafef00d", "-H", ghdiff.MEDIA, "--allow-escape-sequences"]:
                 return self.diff
             case ["git", "-C", "/repo", "ls-remote", "--exit-code", "origin", ref]:
                 return f"{BASE_TIP}\t{ref}\n"
@@ -1766,9 +1767,9 @@ class SiblingBase(RegisterShell):
         match gateway(argv):
             case ["gh", "pr", "view", "12", "--repo", "acme/app", "--json", "baseRefName"]:
                 return json.dumps({"baseRefName": "lane-b"})
-            case ["gh", "api", "repos/acme/app/compare/lane-b...cafef00d", "-H", rulings.DIFF_MEDIA, "--allow-escape-sequences"]:
+            case ["gh", "api", "repos/acme/app/compare/lane-b...cafef00d", "-H", ghdiff.MEDIA, "--allow-escape-sequences"]:
                 return self.diff
-            case ["gh", "api", "repos/acme/app/compare/main...cafef00d", "-H", rulings.DIFF_MEDIA, "--allow-escape-sequences"]:
+            case ["gh", "api", "repos/acme/app/compare/main...cafef00d", "-H", ghdiff.MEDIA, "--allow-escape-sequences"]:
                 raise AssertionError("the required slice compared against main, not the PR's base branch")
         return super().run(argv, stdin, cwd)
 

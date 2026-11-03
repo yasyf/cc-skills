@@ -127,6 +127,7 @@ from .ruling_documents import DocumentIndex, readable
 from . import board_rows
 from . import cci
 from . import drive
+from . import ghdiff
 from . import ghread
 from . import grades
 from . import testfiles
@@ -219,7 +220,6 @@ SLACK_ACTION = re.compile(r"(\{\"type\":\s*\"slack\.action\".*?\})\s*</channel>"
 CARD_FILE = re.compile(r"@(\S+\.json)")
 CARD_ANSWERS = "\nAnswers, newest first:\n"
 CARD_ANSWER = re.compile(r"^\s+\S.*?\s{2}(?P<block>\S+)\s{2}(?P<said>.+)$", re.MULTILINE)
-DIFF_MEDIA = "Accept: application/vnd.github.diff"
 FULL_SHA = re.compile(r"[0-9a-f]{40}")
 HIT_LINE = re.compile(r"^(?:open|deleted|authorized [0-9a-f]+) \S+ \S+:\d+ \S+")
 VERDICT = re.compile(r"\b(?:delete|keep)\b", re.IGNORECASE)
@@ -913,7 +913,7 @@ def root_slice(loaded: Register) -> str:
 
 
 def compare(shell: ledger.Shell, repo: str, base: str, head: str) -> Diff:
-    return parse_diff(shell.run(ghread.read("api", f"repos/{repo}/compare/{base}...{head}", "-H", DIFF_MEDIA, "--allow-escape-sequences")))
+    return parse_diff(shell.run(ghdiff.read(f"repos/{repo}/compare/{base}...{head}")))
 
 
 def pr_diff(args: argparse.Namespace, shell: ledger.Shell, repo: str, base: str, head: str) -> Diff:
