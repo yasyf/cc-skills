@@ -33,25 +33,11 @@ func gateCommand(a *app.App) *cobra.Command {
 }
 
 func runGate(ctx context.Context, a *app.App, args []string, partial bool, stdout io.Writer) error {
-	cfg, err := a.Config()
+	lines, err := gateLines(ctx, a, args, partial)
 	if err != nil {
-		return err
+		fmt.Fprintf(a.Stderr, "Warning, nothing was refused: lr landing gate could not read the drive's pull requests: %v\n", err)
+		return nil
 	}
-	dir := filepath.Dir(a.ConfigPath)
-	s, err := store.Open(filepath.Join(dir, storeFile))
-	if err != nil {
-		return err
-	}
-	defer func() { _ = s.Close() }()
-	snapshot, err := facts.New(a, cfg, s).Snapshot(ctx)
-	if err != nil {
-		return err
-	}
-	g, err := NewGates(a, s, cfg, filepath.Join(dir, runnerFile))
-	if err != nil {
-		return err
-	}
-	lines := g.HandEnqueueLines(ctx, snapshot, args, partial)
 	for _, line := range lines {
 		fmt.Fprintln(stdout, line)
 	}
@@ -59,6 +45,28 @@ func runGate(ctx context.Context, a *app.App, args []string, partial bool, stdou
 		return &wait.ExitError{Code: 1}
 	}
 	return nil
+}
+
+func gateLines(ctx context.Context, a *app.App, args []string, partial bool) ([]string, error) {
+	cfg, err := a.Config()
+	if err != nil {
+		return nil, err
+	}
+	dir := filepath.Dir(a.ConfigPath)
+	s, err := store.Open(filepath.Join(dir, storeFile))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = s.Close() }()
+	snapshot, err := facts.New(a, cfg, s).Snapshot(ctx)
+	if err != nil {
+		return nil, err
+	}
+	g, err := NewGates(a, s, cfg, filepath.Join(dir, runnerFile))
+	if err != nil {
+		return nil, err
+	}
+	return g.HandEnqueueLines(ctx, snapshot, args, partial), nil
 }
 
 func (g *Gates) HandEnqueueLines(ctx context.Context, snapshot []machine.Facts, named []string, partial bool) []string {

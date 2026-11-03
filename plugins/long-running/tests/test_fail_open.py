@@ -31,7 +31,7 @@ UNREAD = "read failed"
 COMMAND, FILE = "command", "file"
 EXITED, TIMED_OUT, NOT_RUN, DENIED = "exited 1", "timed out", "did not start", "denied"
 FAILURES = {COMMAND: (EXITED, TIMED_OUT, NOT_RUN), FILE: (DENIED,)}
-KEPT: dict[str, str] = {}
+KEPT = {"owner_login_verdicts.owner_login_verdicts_cite_the_board": "8c73884"}
 REAL_STUBS = helpers.stubbed_commands
 
 

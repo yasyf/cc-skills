@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 import subprocess
@@ -34,10 +33,9 @@ from captain_hook.annotations import dispatch_pairs
 from captain_hook.cmd import Call
 from captain_hook.util import reqenv
 
-from .compaction_handoff import ccn, Communicator, communicator_tests, CompactionState, Coordinator, coordinator_tests, drive_entry, post_blocker, rulings, script, script_module
+from .compaction_handoff import ccn, Communicator, communicator_tests, CompactionState, Coordinator, coordinator_tests, drive_entry, rulings, script, script_module
 from .judge_metrics import judge_call
 from .nudges import once_per_hour
-from .pr_ledger import lane_name
 from .register_injection import drive_args, incident_spawn, prose
 from .root_context import operand_targets, reads_stdin
 from .tests.board_fixtures import ANSWERS, GLOSSARY, JUDGE, REPO, ROWS, board, judged
@@ -81,7 +79,7 @@ PLAIN_WORDS = (
 QUOTED_TERM = re.compile(r'"([^"\n]+)"')
 SLACK_CARD = "mcp__plugin_cc-slack_cc-slack__slack_dm_status"
 READ_FAILURES = (OSError, subprocess.SubprocessError, ValueError, LookupError)
-CCI_TEXT = 400
+UNREAD = "Warning, nothing was blocked: {hook} could not read what it checks, so this text went unchecked."
 SHOWN = frozenset({"title", "summary", "intro", "md", "prompt", "label", "hint", "value", "pros", "cons", "placeholder", "note", "body", "options"})
 URL = re.compile(r"https?://\S+")
 LINK = re.compile(r"<https?://[^|>\s]+(?:\|[^>\n]*)?>|\[[^\]\n]*\]\(https?://[^)\s]+\)")
@@ -581,10 +579,8 @@ class Reads:
 
         return self.read("the owner's captured words", load)
 
-    def report(self, hook: str) -> None:
-        if self.failures:
-            text = f"{hook}: {'; '.join(self.failures)}"[:CCI_TEXT]
-            post_blocker(self.evt, text, lane=lane_name(self.evt), key=f"{hook}:{hashlib.sha256(text.encode()).hexdigest()[:12]}")
+    def warning(self, hook: str) -> str:
+        return fenced(UNREAD.format(hook=hook), self.failures) if self.failures else ""
 
 
 def judged_plain(reads: Reads, text: str, picked: str) -> list[str]:
@@ -730,8 +726,8 @@ def status_card(phrase: str = "", **card: object) -> Input:
             tool_input={"card": {"title": "Merge the chat-list fix?", "body": "Its checks passed.", "options": ["Merge"]}},
             state=PROGRAM_ACTIVE,
             env=DRIVE_CONFIG,
-            commands={f"{RULINGS} rows": "no register for brook", f"{RULINGS} glossary": GLOSSARY, "cci post": "#1\n", **judged("chat-list")},
-        ): Allow(),
+            commands={f"{RULINGS} rows": "no register for brook", f"{RULINGS} glossary": GLOSSARY, **judged("chat-list")},
+        ): Warn(pattern=r"^Warning, nothing was blocked: plain_words_in_owner_questions could not read what it checks[\s\S]*rulings\.py rows"),
         Input(command="ls", state=PROGRAM_ACTIVE, env=DRIVE_CONFIG, commands=PLAIN_READS): Allow(),
         Input(tool=SLACK_CARD, tool_input={"card": {"title": "Merge the slice?"}}, commands={**PLAIN_READS, **judged("slice")}): Allow(),
         Input(tool=SLACK_CARD, tool_input={"card": {"title": "Merge the slice?"}}, agent_id="a1b2c3", state=PROGRAM_ACTIVE, commands={**PLAIN_READS, **judged("slice")}): Allow(),
@@ -742,10 +738,9 @@ def plain_words_in_owner_questions(evt: BaseHookEvent) -> HookResult | None:
         return None
     reads = Reads(evt, which)
     problems = plain_words([text for _, text in owner_strings(evt, reads)], reads)
-    reads.report("plain_words_in_owner_questions")
-    if reads.failures or not (problems := unsaid(evt, problems)):
-        return None
-    return evt.context(fenced(PLAIN_WORDS, problems))
+    if reads.failures:
+        return evt.context(reads.warning("plain_words_in_owner_questions"))
+    return evt.context(fenced(PLAIN_WORDS, problems)) if (problems := unsaid(evt, problems)) else None
 
 
 def scratch(value: str) -> bool:

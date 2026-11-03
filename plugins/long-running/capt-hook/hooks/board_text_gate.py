@@ -67,6 +67,7 @@ SWEEP_CADENCE = timedelta(hours=1)
 TEXT = "text"
 REFUSAL = "Warning, nothing was blocked: Owner-facing text passes every check before the owner sees it. Fix each problem below, then run the same command again."
 SKIPPED = "Warning, nothing was blocked: board_text_gate skipped text it could not read."
+UNREAD_REGISTER = r"^Warning, nothing was blocked: board_text_gate could not read what it checks[\s\S]*rulings\.py rows"
 BREAKAGE = script_module("long_running.breakage")
 BOARD_CARDS = f"{sys.executable} {script('board_cards.py')}"
 PIPED_SECTION = '{"id":"sec-merge-taps","type":"section","title":"Release plan and merges"}'
@@ -474,8 +475,8 @@ def exits(name: str, **extra: object) -> Input:
         posting(f"cc-present update-block {board('r3-titles.pre-grade.json')} --dry-run"): Allow(),
         update("r3-titles.pre-grade.json", state=[], env={"CLAUDE_LONG_RUNNING_DRIVE": "brook"}): Warn(pattern=r"r3-build: the title does not end"),
         update("r3-titles.pre-grade.json", state=[], env={"CLAUDE_LONG_RUNNING_DRIVE": ""}): Allow(),
-        update("clean-card.json", commands={f"{RULINGS} rows": "no register for brook"}): Allow(),
-        update("r3-titles.pre-grade.json", commands={f"{RULINGS} rows": "no register for brook"}): Allow(),
+        update("clean-card.json", commands={f"{RULINGS} rows": "no register for brook"}): Warn(pattern=UNREAD_REGISTER),
+        update("r3-titles.pre-grade.json", commands={f"{RULINGS} rows": "no register for brook"}): Warn(pattern=UNREAD_REGISTER),
         update("r3-titles.pre-grade.json", commands={"cci grep": "cci: no drive brook"}): Allow(),
         update("clean-card.json", commands={"cci grep": fidelity(sha12("clean-card.json")) + missing(sha12("clean-card.json"))}): Warn(
             pattern=r"verify: a fidelity desk lists rule/5c0e9a1 the card offers a held copy"
@@ -525,10 +526,10 @@ def board_text_gate(evt: BaseHookEvent) -> HookResult | None:
     skipped: list[str] = []
     items = published(evt, reads, skipped)
     problems = [problem for item in items for problem in graded(reads, item)] + (unrechecked(reads) if any(item.verb != "plan" for item in items) else [])
-    reads.report("board_text_gate")
     if problems and not reads.failures:
         return evt.context(fenced(REFUSAL, problems))
-    return evt.context(fenced(SKIPPED, skipped)) if skipped else None
+    notes = [note for note in (reads.warning("board_text_gate"), fenced(SKIPPED, skipped) if skipped else "") if note]
+    return evt.context("\n\n".join(notes)) if notes else None
 
 
 @on(
