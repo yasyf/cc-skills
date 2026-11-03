@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import fcntl
+import dataclasses
 import hashlib
 import importlib.util
 import io
@@ -23,6 +24,7 @@ from typing import Literal
 
 from captain_hook import (
     Allow,
+    Ask,
     Arguments,
     BaseHookEvent,
     CommandSchema,
@@ -47,9 +49,9 @@ from captain_hook.util import reqenv
 from .nudges import queue_nudge
 from .tests.handoff_fixtures import USAGE_262K_FABLE, USAGE_460K, USAGE_800K
 from .turns import threshold, turn_of
-from .window_lane import Coordinator, coordinator_tests
 
 SKILL_NAMES = ("long-running",)
+COORDINATOR_SKILL = "long-running:coordinator"
 PLAN_ARG = re.compile(r"[^\s`'\"]*\.claude/plans/[^\s/`'\"]+\.md")
 POINTER_PREFIX = "- **Progress (read first after any compaction):**"
 SLUG = re.compile(r"progress:([\w.-]+)")
@@ -161,6 +163,51 @@ class CompactionState(WorkflowState):
     register_doc: str | None = None
     register_body: str | None = None
     root_slice: str | None = None
+    coordinator: bool = False
+
+
+class Coordinator:
+    """The root thread of the session that ran `/long-running:coordinator`: every drive-coordination hook acts there and only there."""
+
+    def check(self, evt: BaseHookEvent) -> bool:
+        state = CompactionState.load(evt)
+        return evt.agent_id is None and state.active and state.coordinator
+
+
+class Communicator:
+    """The root thread of the session that ran `/long-running` and not `/long-running:coordinator`, the window the owner types in: every hook on how words reach the human acts there and only there."""
+
+    def check(self, evt: BaseHookEvent) -> bool:
+        state = CompactionState.load(evt)
+        return evt.agent_id is None and state.active and not state.coordinator
+
+
+def switched(case: Input, coordinator: bool) -> Input:
+    states = case.state if isinstance(case.state, list) else [case.state] if case.state else []
+    drive = [state for state in states if isinstance(state, CompactionState)]
+    rest = [state for state in states if not isinstance(state, CompactionState)]
+    compaction = drive[0].model_copy(update={"coordinator": coordinator}) if drive else CompactionState(active=True, coordinator=coordinator)
+    return dataclasses.replace(case, state=[*rest, compaction])
+
+
+def fired(expected: object) -> bool:
+    return not isinstance(expected, Ask) and (not isinstance(expected, Allow) or expected.system_message is not None)
+
+
+def tier_tests(tests: dict, coordinator: bool) -> dict:
+    """`tests` run in the tier's window, plus its first root-thread case, the first that fires when one does, run once in the other window, where the hook returns nothing."""
+    roots = [(case, expected) for case, expected in tests.items() if isinstance(case, Input) and not case.agent_id]
+    other, _ = next(((case, expected) for case, expected in roots if fired(expected)), roots[0])
+    cases = {switched(case, coordinator) if isinstance(case, Input) and not case.agent_id and case.state else case: expected for case, expected in tests.items()}
+    return cases | {switched(other, not coordinator): Ask()}
+
+
+def communicator_tests(tests: dict) -> dict:
+    return tier_tests(tests, False)
+
+
+def coordinator_tests(tests: dict) -> dict:
+    return tier_tests(tests, True)
 
 
 def ccn(cwd: str, *args: str) -> subprocess.CompletedProcess[str]:
@@ -638,12 +685,13 @@ def record(state: CompactionState, evt: BaseHookEvent) -> bool | str:
             tool_input={"skill": "long-running:long-running", "args": "~/.claude/plans/x.md"},
             cwd=str(FIXTURES / "project-600k"),
         ): Allow(),
+        Input(tool="Skill", tool_input={"skill": "long-running:coordinator"}): Allow(),
         Input(tool="Skill", tool_input={"skill": "codex"}): Allow(),
     },
 )
 def activate_on_skill(evt: BaseHookEvent) -> HookResult | None:
-    if (call := evt.as_input(SkillCall)) and skill_name_matches(call.skill, SKILL_NAMES):
-        activate(evt, call.args or "")
+    if (call := evt.as_input(SkillCall)) and (skill_name_matches(call.skill, SKILL_NAMES) or call.skill == COORDINATOR_SKILL):
+        activate(evt, call.args or "", coordinator=call.skill == COORDINATOR_SKILL)
     return None
 
 
@@ -660,13 +708,15 @@ def activate_on_skill(evt: BaseHookEvent) -> HookResult | None:
 )
 def activate_on_command(evt: BaseHookEvent) -> HookResult | None:
     if (prompt := evt.user_prompt or "").startswith("/long-running"):
-        activate(evt, prompt)
+        activate(evt, prompt, coordinator=prompt.startswith(f"/{COORDINATOR_SKILL}"))
     return None
 
 
-def activate(evt: BaseHookEvent, args: str) -> None:
+def activate(evt: BaseHookEvent, args: str, *, coordinator: bool) -> None:
+    """Every drive session activates the drive; only `/long-running:coordinator` arms its root hooks, for the session it runs in."""
     with CompactionState.mutate(evt) as state:
         state.active = True
+        state.coordinator = state.coordinator or coordinator
         if match := PLAN_ARG.search(args):
             state.plan_path = str(Path(match[0]).expanduser())
             state.slug = None
@@ -724,30 +774,30 @@ def unlabelled(title: str, labels: list[str], slug: str) -> bool:
     tests=coordinator_tests({
         Input(
             command='ccn doc add "brook: progress 2026-10-10T2210Z (pre-compact handoff)" --label handoff --body -',
-            state=[CompactionState(active=True, slug="brook")],
+            state=[CompactionState(active=True, coordinator=True, slug="brook")],
         ): Warn(pattern=r"^Warning, nothing was blocked: A progress record for drive `brook` needs the label `progress:brook`"),
         Input(
             tool=DOC_ADD_TOOL,
             tool_input={"title": "brook: handoff addendum", "labels": ["progress:164b13c4"], "body": "x"},
-            state=[CompactionState(active=True, slug="brook")],
+            state=[CompactionState(active=True, coordinator=True, slug="brook")],
         ): Warn(),
         Input(
             tool=DOC_ADD_TOOL,
             tool_input={"title": "brook: progress 2026-10-10T2225Z addendum", "labels": ["progress:brook", "handoff"], "body": "x"},
-            state=[CompactionState(active=True, slug="brook")],
+            state=[CompactionState(active=True, coordinator=True, slug="brook")],
         ): Allow(),
         Input(
             command='ccn -R . doc add "brook: progress" --label progress:brook --when now --body -',
-            state=[CompactionState(active=True, slug="brook")],
+            state=[CompactionState(active=True, coordinator=True, slug="brook")],
         ): Allow(),
-        Input(command='ccn doc add "Release notes" --label release --body -', state=[CompactionState(active=True, slug="brook")]): Allow(),
+        Input(command='ccn doc add "Release notes" --label release --body -', state=[CompactionState(active=True, coordinator=True, slug="brook")]): Allow(),
         Input(
             command='slug=brook; ccn doc add "brook: progress" --label "progress:$slug" --body -',
-            state=[CompactionState(active=True, slug="brook")],
+            state=[CompactionState(active=True, coordinator=True, slug="brook")],
         ): Allow(),
         Input(command='ccn doc add "brook: progress" --body -', state=[CompactionState(slug="brook")]): Allow(),
         Input(
-            command='ccn doc add "lane-a progress" --body -', agent_id="a1b2c3", state=[CompactionState(active=True, slug="brook")]
+            command='ccn doc add "lane-a progress" --body -', agent_id="a1b2c3", state=[CompactionState(active=True, coordinator=True, slug="brook")]
         ): Allow(),
     }),
 )
@@ -776,7 +826,7 @@ def label_progress_records(evt: BaseHookEvent) -> HookResult | None:
             tool_input={"command": "ls"},
             transcript=USAGE_262K_FABLE,
             cwd=str(FIXTURES / "project-600k"),
-            state=[CompactionState(active=True, model="claude-fable-5-1")],
+            state=[CompactionState(active=True, coordinator=True, model="claude-fable-5-1")],
         ): Allow(),
         **{
             Input(
@@ -785,7 +835,7 @@ def label_progress_records(evt: BaseHookEvent) -> HookResult | None:
                 file=FileFixture(home=True, name="brook.md", content="# brook\n"),
                 transcript=FIXTURES / f"usage-{used}k.jsonl",
                 cwd=str(FIXTURES / "project-600k"),
-                state=[CompactionState(active=True, plan_path="~/brook.md")],
+                state=[CompactionState(active=True, coordinator=True, plan_path="~/brook.md")],
             ): Allow()
             for used in (507, 517, 522)
         },
@@ -794,7 +844,7 @@ def label_progress_records(evt: BaseHookEvent) -> HookResult | None:
             tool_input={"command": "ls"},
             transcript=USAGE_800K,
             agent_id="a1b2c3",
-            state=[CompactionState(active=True)],
+            state=[CompactionState(active=True, coordinator=True)],
         ): Allow(),
     }),
 )
@@ -842,14 +892,14 @@ def delivered_since(drive: str, since: str) -> list[str]:
     tests={
         Input(
             source="compact",
-            state=[CompactionState(active=True, plan_path="/p/brook.md", slug="brook", phase="compacting")],
+            state=[CompactionState(active=True, coordinator=True, plan_path="/p/brook.md", slug="brook", phase="compacting")],
         ): Warn(
             pattern=r"^Read `/p/brook\.md` before anything else, then the progress "
             r"doc: `ccn doc list --label progress:brook`, then `ccn doc show <id>`; .*Skill `long-running` .*context\.$"
         ),
         Input(
             source="compact",
-            state=[CompactionState(active=True, plan_path="/p/brook.md", slug="brook", phase="due")],
+            state=[CompactionState(active=True, coordinator=True, plan_path="/p/brook.md", slug="brook", phase="due")],
         ): Warn(
             pattern=r"^Read `/p/brook\.md` .* Your narrative was not written before compaction; "
             r"write a progress record when convenient\.$"
@@ -867,21 +917,21 @@ def delivered_since(drive: str, since: str) -> list[str]:
         ): Allow(),
         Input(
             source="compact",
-            state=[CompactionState(active=True, plan_path="/p/brook.md", slug="brook")]
+            state=[CompactionState(active=True, coordinator=True, plan_path="/p/brook.md", slug="brook")]
         ): Warn(pattern=r"^Read `/p/brook\.md` before anything else"),
-        Input(source="startup", state=[CompactionState(active=True, plan_path="/p/brook.md")]): Allow(),
+        Input(source="startup", state=[CompactionState(active=True, coordinator=True, plan_path="/p/brook.md")]): Allow(),
         Input(source="resume", state=[CompactionState(plan_path="/p/brook.md", slug="brook")]): Allow(),
         Input(
             source="resume",
-            state=[CompactionState(active=True, plan_path="/p/brook.md", slug="brook", store="folder")],
+            state=[CompactionState(active=True, coordinator=True, plan_path="/p/brook.md", slug="brook", store="folder")],
         ): Warn(pattern=r"^Read `/p/brook\.md` before anything else, then the newest file in `/p/brook-progress/`; "),
         Input(
             source="compact",
-            state=[CompactionState(active=True, plan_path="/p/brook.md", slug="brook", digest="Compacted long-running drive `brook`.")],
+            state=[CompactionState(active=True, coordinator=True, plan_path="/p/brook.md", slug="brook", digest="Compacted long-running drive `brook`.")],
         ): Warn(pattern=r"^Compacted long-running drive `brook`\.$"),
         Input(
             source="compact",
-            state=[CompactionState(active=True, plan_path="/p/brook.md", slug="brook", failure="ccn: timed out")],
+            state=[CompactionState(active=True, coordinator=True, plan_path="/p/brook.md", slug="brook", failure="ccn: timed out")],
         ): Warn(pattern=r"The generated handoff failed; write the progress record now\.$"),
     },
 )
@@ -933,24 +983,24 @@ def reground(evt: BaseHookEvent) -> HookResult | None:
         Input(
             tool="Bash",
             tool_input={"command": "ls"},
-            state=[CompactionState(active=True, register_doc="e" * 40, register_body="# Register\n\n1. Pulumi state is the only truth.\n")],
+            state=[CompactionState(active=True, coordinator=True, register_doc="e" * 40, register_body="# Register\n\n1. Pulumi state is the only truth.\n")],
         ): Warn(
             pattern=r"^Standing rules register `eeeeeee`, verbatim; it binds this session and every lane brief, and outranks any summary\.\n"
             r"~{12}\n# Register\n\n1\. Pulumi state is the only truth\.\n~{12}$"
         ),
-        Input(prompt="continue", state=[CompactionState(active=True, register_doc="e" * 40, register_body="1. rule\n" * 2000)]): Warn(
+        Input(prompt="continue", state=[CompactionState(active=True, coordinator=True, register_doc="e" * 40, register_body="1. rule\n" * 2000)]): Warn(
             pattern=r"^Standing rules register `eeeeeee` is over the injection budget and binds this session; "
             r"read it in full with `ccn doc show eeeeeee` before acting\.$"
         ),
-        Input(tool="Bash", tool_input={"command": "ls"}, state=[CompactionState(active=True, root_slice="scope `1e9a64d`: rule\nRun the sweep.")]): Warn(
+        Input(tool="Bash", tool_input={"command": "ls"}, state=[CompactionState(active=True, coordinator=True, root_slice="scope `1e9a64d`: rule\nRun the sweep.")]): Warn(
             pattern=r"^scope `1e9a64d`: rule\nRun the sweep\.$"
         ),
-        Input(tool="Bash", tool_input={"command": "ls"}, state=[CompactionState(active=True)]): Allow(),
+        Input(tool="Bash", tool_input={"command": "ls"}, state=[CompactionState(active=True, coordinator=True)]): Allow(),
         Input(
             tool="Bash",
             tool_input={"command": "ls"},
             agent_id="a1b2c3",
-            state=[CompactionState(active=True, register_doc="e" * 40, register_body="1. rule\n", root_slice="scope `1e9a64d`: rule")],
+            state=[CompactionState(active=True, coordinator=True, register_doc="e" * 40, register_body="1. rule\n", root_slice="scope `1e9a64d`: rule")],
         ): Allow(),
     }),
 )
@@ -998,15 +1048,15 @@ def compact_due(state: CompactionState, evt: BaseHookEvent) -> bool | str:
     transcript_events=1,
     only_if=[Coordinator()],
     tests=coordinator_tests({
-        Input(transcript=USAGE_800K, state=[CompactionState(active=True)]): Allow(),
-        Input(state=[CompactionState(active=True, plan_path="/p/brook.md", slug="brook", phase="written")]): Allow(
+        Input(transcript=USAGE_800K, state=[CompactionState(active=True, coordinator=True)]): Allow(),
+        Input(state=[CompactionState(active=True, coordinator=True, plan_path="/p/brook.md", slug="brook", phase="written")]): Allow(
             system_message=r"^The handoff is recorded, but the hook cannot type `/compact` here\. Run `/compact` now\.$"
         ),
         Input(
-            state=[CompactionState(active=True, plan_path="/p/brook.md", phase="compacting", compacting_since=None)]
+            state=[CompactionState(active=True, coordinator=True, plan_path="/p/brook.md", phase="compacting", compacting_since=None)]
         ): Allow(),
         Input(
-            agent_id="a1b2c3", state=[CompactionState(active=True, plan_path="/p/brook.md", phase="written")]
+            agent_id="a1b2c3", state=[CompactionState(active=True, coordinator=True, plan_path="/p/brook.md", phase="written")]
         ): Allow(),
     }),
 )
@@ -1036,7 +1086,7 @@ def compact_when_idle(evt: BaseHookEvent) -> HookResult | None:
         Input(
             session_id="s1",
             file=FileFixture(home=True, name="brook.md", content="# brook\n"),
-            state=[CompactionState(active=True, plan_path="~/brook.md", slug="brook")],
+            state=[CompactionState(active=True, coordinator=True, plan_path="~/brook.md", slug="brook")],
             commands={f"{sys.executable} {script('handoff.py')} generate": GENERATED_STUB},
         ): Warn(
             pattern=r"^Resume from `~/brook\.md`, then `ccn doc show dddddddd`; keep only in-flight details they lack\. "
@@ -1046,7 +1096,7 @@ def compact_when_idle(evt: BaseHookEvent) -> HookResult | None:
         Input(
             session_id="s1",
             file=FileFixture(home=True, name="brook.md", content="# brook\n"),
-            state=[CompactionState(active=True, plan_path="~/brook.md", slug="brook")],
+            state=[CompactionState(active=True, coordinator=True, plan_path="~/brook.md", slug="brook")],
             commands={f"{sys.executable} {script('handoff.py')} generate": READ_FIRST_STUB},
         ): Warn(
             pattern=r"^Resume from `~/brook\.md`, then `ccn doc show bbbbbbb`, then `ccn doc show cccccccc`; "

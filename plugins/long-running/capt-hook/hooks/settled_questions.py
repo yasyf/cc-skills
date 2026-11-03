@@ -297,9 +297,9 @@ GATE_MESSAGE = (
     " Fix it, or ask it again unchanged if the judge is wrong; the same question re-issued passes."
 )
 FINDING = '{question}\n  {sentence}\n  Asked: "{artifact_phrase}"\n  His words: "{evidence_phrase}"'
-PLAN_ASK = {"tool": "AskUserQuestion", "file": FileFixture(home=True, name="brook.md", content=PLAN), "state": [CompactionState(active=True, plan_path="~/brook.md")]}
+PLAN_ASK = {"tool": "AskUserQuestion", "file": FileFixture(home=True, name="brook.md", content=PLAN), "state": [CompactionState(active=True, coordinator=True, plan_path="~/brook.md")]}
 RULED = judged("Should every chat run its own local replica", "He already ruled one local replica that everything is a client of.")
-DRIVEN = {"cwd": CWD, "env": DRIVE_CONFIG, "state": [CompactionState(active=True)]}
+DRIVEN = {"cwd": CWD, "env": DRIVE_CONFIG, "state": [CompactionState(active=True, coordinator=True)]}
 
 
 @on(
@@ -316,7 +316,7 @@ DRIVEN = {"cwd": CWD, "env": DRIVE_CONFIG, "state": [CompactionState(active=True
             tool="Bash",
             tool_input={"command": "cc-present start --session s --doc ~/owner-board.json --new"},
             file=FileFixture(home=True, name="owner-board.json", content=json.dumps({"blocks": [{"id": "c1", "type": "card", "title": SETTLED_ASK["questions"][0]["question"]}]})),
-            state=[CompactionState(active=True)],
+            state=[CompactionState(active=True, coordinator=True)],
             commands=judged("are some dropped"),
         ): Allow(),
         Input(
@@ -340,7 +340,7 @@ DRIVEN = {"cwd": CWD, "env": DRIVE_CONFIG, "state": [CompactionState(active=True
         Input(tool_input=SLACK_ASK, commands=judged("Post this"), **PLAN_ASK): Allow(),
         Input(tool_input=SLACK_MENTION_ASK, commands=judged("are some dropped"), **PLAN_ASK): Warn(pattern=r"already ruled"),
         Input(tool="AskUserQuestion", tool_input=SETTLED_ASK, commands=judged("are some dropped")): Allow(),
-        Input(tool="Bash", tool_input={"command": "cc-present remove-block o1-card --session s"}, state=[CompactionState(active=True)]): Allow(),
+        Input(tool="Bash", tool_input={"command": "cc-present remove-block o1-card --session s"}, state=[CompactionState(active=True, coordinator=True)]): Allow(),
         Input(tool_input=SETTLED_ASK, agent_id="a1b2c3", commands=judged("are some dropped"), **PLAN_ASK): Allow(),
     }),
 )

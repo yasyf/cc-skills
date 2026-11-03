@@ -19,10 +19,9 @@ from captain_hook import (
 )
 from captain_hook.tasks import Tasks
 
-from .compaction_handoff import CompactionState
+from .compaction_handoff import CompactionState, Coordinator, coordinator_tests
 from .lane_rotation import DriveActive
 from .session_tree import acquire
-from .window_lane import Coordinator, coordinator_tests
 
 ARCHIVE_AGE_SECONDS = 2 * 60 * 60
 STOP_INTERVAL_SECONDS = 30 * 60
@@ -88,8 +87,8 @@ def archive_completed(directory: Path, now: float) -> list[str]:
     only_if=[Coordinator(), DriveActive()],
     skip_if=[FromSubagent()],
     tests=coordinator_tests({
-        Input(source="compact", state=[CompactionState(active=True)]): Allow(),
-        Input(state=[CompactionState(active=True)]): Allow(),
+        Input(source="compact", state=[CompactionState(active=True, coordinator=True)]): Allow(),
+        Input(state=[CompactionState(active=True, coordinator=True)]): Allow(),
         Input(source="resume"): Allow(),
     }),
 )

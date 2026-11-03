@@ -37,7 +37,7 @@ DROPPED = {
     "sentence": "He said a migration never ships behind a flag, and this adds one.",
 }
 CARRIED = {**DROPPED, "verdict": "no", "artifact_phrase": "", "evidence_phrase": "", "sentence": "It does not put a migration behind a flag."}
-ACTIVE = CompactionState(active=True, slug="brook")
+ACTIVE = CompactionState(active=True, coordinator=True, slug="brook")
 ROOT = "main:"
 
 

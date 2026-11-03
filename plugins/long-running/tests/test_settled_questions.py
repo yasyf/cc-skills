@@ -70,7 +70,7 @@ def event(home: Path, tool_name: str, tool_input: dict) -> PreToolUseEvent:
     transcript.write_text("")
     payload = {"session_id": SESSION, "tool_name": tool_name, "tool_input": tool_input, "transcript_path": str(transcript), "cwd": str(home)}
     evt = PreToolUseEvent(_raw=payload, ctx=build_context(transcript_path=transcript, session_dir=home / "session"))
-    CompactionState(active=True, plan_path=str(home / ".claude/plans/brook.md")).save(evt)
+    CompactionState(active=True, coordinator=True, plan_path=str(home / ".claude/plans/brook.md")).save(evt)
     return evt
 
 

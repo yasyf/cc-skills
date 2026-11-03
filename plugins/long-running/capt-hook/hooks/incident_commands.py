@@ -13,7 +13,7 @@ from .owner_facing import incident_sources, open_incidents
 from .tests.incident_fixtures import BARE_INCIDENT, CLOSED_0820, EARLIER_CLOSEOUT, INCIDENT_CLOSED, SAND_NOT_MIGRATED
 from .tests.rulings_consumers import separate
 
-ACTIVE = [CompactionState(active=True)]
+ACTIVE = [CompactionState(active=True, coordinator=True)]
 BUILD_CAUSE = '{"seq": 500210, "kind": "mechanism", "text": "build 4120 carries the delete; cancel it"}'
 SAND_CAUSE = '{"seq": 500210, "kind": "mechanism", "text": "build 905 on sand carries the delete"}'
 PLAN_ANSWER = '{"id": "a9e1075b00", "title": "Approve the plan?", "body": "Approved"}'

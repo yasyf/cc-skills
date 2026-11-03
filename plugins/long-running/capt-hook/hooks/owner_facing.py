@@ -34,7 +34,7 @@ from captain_hook.annotations import dispatch_pairs
 from captain_hook.cmd import Call
 from captain_hook.util import reqenv
 
-from .compaction_handoff import CompactionState, ccn, drive_entry, post_blocker, rulings, script, script_module
+from .compaction_handoff import ccn, Communicator, communicator_tests, CompactionState, Coordinator, coordinator_tests, drive_entry, post_blocker, rulings, script, script_module
 from .judge_metrics import judge_call
 from .nudges import once_per_hour
 from .pr_ledger import lane_name
@@ -54,9 +54,8 @@ from .tests.incident_fixtures import (
     STALE_0820,
 )
 from .tests.rulings_consumers import separate
-from .window_lane import Coordinator, OwnerBridge, bridge_tests, coordinator_tests
 
-ACTIVE = [CompactionState(active=True)]
+ACTIVE = [CompactionState(active=True, coordinator=True)]
 INCIDENT_AUTHORITY = re.compile(r"\bIncident Turn\b")
 FIX_ROLE = "fix"
 INCIDENT_ROUTE = (
@@ -121,7 +120,7 @@ CC_SLACK = CommandSchema(
 )
 RULINGS = f"{sys.executable} {script('rulings.py')}"
 PLAIN_READS = {f"{RULINGS} rows": ROWS, f"{RULINGS} glossary": GLOSSARY, "cci post": "#1\n", f"ccn -R {REPO} answer list": ANSWERS, **judged()}
-PROGRAM_ACTIVE = [CompactionState(active=True, slug="brook")]
+PROGRAM_ACTIVE = [CompactionState(active=True, coordinator=True, slug="brook")]
 INCIDENT_WINDOW = timedelta(hours=6)
 INCIDENT_STORE = [sys.executable, str(script("actions.py")), "list", "--json"]
 INCIDENT_DIGEST = ["cci", "digest", "--json", "--since", "6h", "--budget", "4000000"]
@@ -423,8 +422,8 @@ def last_reply(evt: BaseHookEvent) -> str:
     Event.Stop,
     skip_if=[FromSubagent()],
     transcript_events=REPLY_WINDOW,
-    only_if=[Coordinator()],
-    tests=separate("owner_facing.publish_lines_quote_the_released_record", coordinator_tests({
+    only_if=[Communicator()],
+    tests=separate("owner_facing.publish_lines_quote_the_released_record", communicator_tests({
         Input(transcript=reply_transcript("sand 1437 is published."), state=ACTIVE, commands=incident_sources(OUTAGE_0820)): Warn(
             pattern=r"quote the RELEASED record"
         ),
@@ -736,9 +735,9 @@ def off_incident_question(evt: BaseHookEvent) -> HookResult | None:
 
 @on(
     Event.PreToolUse,
-    only_if=[OwnerBridge(), Tool("AskUserQuestion", "Bash", SLACK_CARD)],
+    only_if=[Communicator(), Tool("AskUserQuestion", "Bash", SLACK_CARD)],
     skip_if=[FromSubagent()],
-    tests=separate("owner_facing.plain_words_in_owner_questions", bridge_tests({
+    tests=separate("owner_facing.plain_words_in_owner_questions", communicator_tests({
         drive_ask("D gate: the plan said dry-run before enqueue. Which gate?", "D gate"): Warn(pattern=r'^Warning, nothing was blocked: Owner-facing text must read in plain words[\s\S]*plain words, "D gate"'),
         drive_ask("Lift the hold?", "G304", description="walker walks the reverted HEAD after G304 lifts"): Warn(pattern=r'plain words, "G304"'),
         drive_ask('Proposed reply to Andrew in #platform-squad: "No design conflict." OK to post?', "Proposed reply to Andrew"): Warn(pattern=r'plain words, "Proposed reply to Andrew"'),
@@ -998,9 +997,9 @@ def authorize(*transcript: object, **call: object) -> Input:
 
 @on(
     Event.PreToolUse,
-    only_if=[Coordinator(), Tool("Bash", "Edit", "Write")],
+    only_if=[Communicator(), Tool("Bash", "Edit", "Write")],
     skip_if=[FromSubagent()],
-    tests=separate("owner_facing.authorizing_lines_wait_for_the_owner_question", coordinator_tests({
+    tests=separate("owner_facing.authorizing_lines_wait_for_the_owner_question", communicator_tests({
         authorize(ROUTING_QUESTION, command=ROUTING_GO): Warn(pattern="later turn"),
         authorize(
             T.assistant(T.tool("Bash", command="cc-present push - <<'EOF'\n{\"blocks\": [{\"title\": \"Should acme routing switch?\"}]}\nEOF")),

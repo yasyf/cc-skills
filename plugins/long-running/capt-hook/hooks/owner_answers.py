@@ -9,11 +9,10 @@ from functools import partial
 from captain_hook import Allow, Annotated, BaseHookEvent, Block, Event, FromSubagent, HookResult, Input, Tool, on
 from captain_hook.util import reqenv
 
-from .compaction_handoff import ROOT_LANE, CompactionState, bus_name, drive_entry, script_module
+from .compaction_handoff import bus_name, Communicator, communicator_tests, CompactionState, Coordinator, coordinator_tests, drive_entry, ROOT_LANE, script_module
 from .owner_facing import CCI_POST, board_bytes, board_sources, posted_text
 from .root_replies import DRIVE_ACTIVE, OWNER_WAITS, PACIFIC, owner_waits
 from .tests.register_fixtures import DRIVE_CONFIG
-from .window_lane import Coordinator, coordinator_tests
 
 READ_SECONDS = 30
 RECORD_BYTES = 4_000_000
@@ -169,8 +168,8 @@ def answered(pr: str, since: datetime, roots: list[dict]) -> bool:
 @on(
     Event.Stop,
     skip_if=[FromSubagent()],
-    only_if=[Coordinator()],
-    tests=coordinator_tests({
+    only_if=[Communicator()],
+    tests=communicator_tests({
         Input(state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={BOARD: board({"card-relay": [{"id": "f1", "text": NOTE}]}), NOTES: noted(30), ROOTS: ""}): Block(pattern=r"card-relay at \d{1,2}:\d{2} [AP]M: “why is the relay slot here at all\?”"),
         Input(state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={BOARD: board({"card-relay": [{"id": "f1", "text": NOTE, "replies": [{"id": "r1", "md": "It carries the session."}]}]}), NOTES: noted(30), ROOTS: ""}): Allow(),
         Input(state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={BOARD: board({"card-relay": [{"id": "f1", "text": NOTE}]}), NOTES: noted(5), ROOTS: ""}): Allow(),

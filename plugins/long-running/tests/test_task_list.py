@@ -55,7 +55,7 @@ class Drive:
         self.activate()
 
     def activate(self) -> None:
-        CompactionState(active=True).save(self.event(PostToolUseEvent, tool_name="Bash", tool_input={"command": "ls"}))
+        CompactionState(active=True, coordinator=True).save(self.event(PostToolUseEvent, tool_name="Bash", tool_input={"command": "ls"}))
 
     def lane(self, name: str, *, behind: timedelta = timedelta(minutes=2), busy: bool = True, prompt: str = "go") -> None:
         subagents = self.root.with_suffix("") / "subagents"

@@ -22,7 +22,7 @@ def unreadable(tmp_path: Path) -> Callable[..., object]:
     transcript.write_text(UNPARSEABLE)
     session_dir = tmp_path / "state"
     raw = {"session_id": "0123456789abcdef", "cwd": str(tmp_path)}
-    CompactionState(active=True).save(PostToolUseEvent(_raw=raw | {"tool_name": "Bash"}, ctx=build_context(session_dir=session_dir)))
+    CompactionState(active=True, coordinator=True).save(PostToolUseEvent(_raw=raw | {"tool_name": "Bash"}, ctx=build_context(session_dir=session_dir)))
 
     def event(cls: type, **fields: object) -> object:
         ctx = build_context(session_dir=session_dir)

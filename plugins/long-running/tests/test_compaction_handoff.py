@@ -87,8 +87,25 @@ def plan(home: Path) -> Path:
 )
 def test_subagent_tool_events_are_skipped(tmp_path: Path, handler: str, tool_name: str, tool_input: dict) -> None:
     entry = next(h for h in _state.hooks if h.handler is getattr(handoff, handler))
+    handoff.CompactionState(active=True, coordinator=True).save(tool_event(tmp_path, tool_name, tool_input))
     assert not matches_conditions(entry.spec, tool_event(tmp_path, tool_name, tool_input, agent_id="a1b2c3"))
     assert matches_conditions(entry.spec, tool_event(tmp_path, tool_name, tool_input))
+
+
+@pytest.mark.parametrize(("skill", "armed"), [("long-running", False), ("long-running:long-running", False), ("long-running:coordinator", True)])
+def test_only_the_coordinator_skill_arms_the_root_hooks(home: Path, skill: str, armed: bool) -> None:
+    session = home / "session"
+    handoff.activate_on_skill(tool_event(session, "Skill", {"skill": skill}))
+    assert (state(session).active, state(session).coordinator) == (True, armed)
+    assert handoff.Coordinator().check(tool_event(session, "Bash", {"command": "ls"})) is armed
+
+
+@pytest.mark.parametrize(("prompt", "armed"), [("/long-running drive the release", False), ("/long-running:coordinator run the drive", True)])
+def test_only_the_coordinator_command_arms_the_root_hooks(home: Path, prompt: str, armed: bool) -> None:
+    session = home / "session"
+    raw = {"session_id": SESSION, "prompt": prompt, "cwd": str(FIXTURES / "project-600k")}
+    handoff.activate_on_command(UserPromptSubmitEvent(_raw=raw, ctx=build_context(session_dir=session)))
+    assert state(session).coordinator is armed
 
 
 @pytest.mark.parametrize("args", ["resume `~/.claude/plans/x.md` now", "resume '~/.claude/plans/x.md'", '"~/.claude/plans/x.md"'])
@@ -236,7 +253,7 @@ def add_register(docs: Path, body: str, program: str = "brook") -> None:
 
 def test_threshold_queues_one_doc_nudge_without_touching_the_plan(home: Path, plan: Path, docs: Path) -> None:
     session = home / "session"
-    handoff.CompactionState(active=True, plan_path=str(plan)).save(bash(session))
+    handoff.CompactionState(active=True, coordinator=True, plan_path=str(plan)).save(bash(session))
 
     for _ in range(3):
         assert handoff.nudge_at_threshold(bash(session)) is None
@@ -273,7 +290,7 @@ def test_the_threshold_nudge_lists_each_open_task_whose_lane_delivered_since_the
         for seq, kind, text, minutes in ((1, "report", "older than the progress doc", 45), (2, "report", "scenario 3 measured", 10)):
             out.write(json.dumps({"seq": seq, "lane": "devbox-explore-7", "kind": kind, "text": text, "at": stamp(minutes), "refs": {}}) + "\n")
     session = home / "session"
-    handoff.CompactionState(active=True, plan_path=str(plan)).save(bash(session))
+    handoff.CompactionState(active=True, coordinator=True, plan_path=str(plan)).save(bash(session))
 
     assert handoff.nudge_at_threshold(bash(session)) is None
 
@@ -285,7 +302,7 @@ def test_the_threshold_nudge_lists_each_open_task_whose_lane_delivered_since_the
 def test_the_slug_comes_from_the_plans_progress_line(home: Path, plan: Path, docs: Path) -> None:
     plan.write_text(f"# brook\n\n{handoff.POINTER_PREFIX} the active doc labelled `progress:release-v3`, now `d473abdd`.\n")
     session = home / "session"
-    handoff.CompactionState(active=True, plan_path=str(plan)).save(bash(session))
+    handoff.CompactionState(active=True, coordinator=True, plan_path=str(plan)).save(bash(session))
 
     handoff.nudge_at_threshold(bash(session))
 
@@ -323,7 +340,7 @@ def test_a_compaction_leaves_a_pointer_naming_the_active_doc_byte_identical(home
     plan, text = breezy_plan(home, pointer)
     (docs / "docs.json").write_text(json.dumps([breezy_doc(PACKAGED_DOC, "2026-10-22T22:33:44Z")]))
     (docs / f"{PACKAGED_DOC}.md").write_text("## Root's next actions\n1. hand off the package\n")
-    handoff.CompactionState(active=True, plan_path=str(plan)).save(bash(session))
+    handoff.CompactionState(active=True, coordinator=True, plan_path=str(plan)).save(bash(session))
 
     handoff.compaction_instructions(precompact(session))
 
@@ -343,7 +360,7 @@ def test_a_new_active_doc_rewrites_the_pointer_without_a_drive_label(home: Path,
         json.dumps([breezy_doc(PACKAGED_DOC, "2026-10-22T22:33:44Z"), breezy_doc(NEWER_DOC, "2026-10-23T04:00:00Z")])
     )
     (docs / f"{NEWER_DOC}.md").write_text("## Root's next actions\n1. resume the rebuild\n")
-    handoff.CompactionState(active=True, plan_path=str(plan)).save(bash(session))
+    handoff.CompactionState(active=True, coordinator=True, plan_path=str(plan)).save(bash(session))
 
     handoff.compaction_instructions(precompact(session))
 
@@ -362,7 +379,7 @@ def test_a_label_free_pointer_takes_the_slug_from_the_doc_it_names(home: Path, d
     plan.parent.mkdir(parents=True)
     plan.write_text(f"# brook\n\n{handoff.POINTER_PREFIX} the active cc-notes progress doc `d473abdd` (`ccn doc show d473abdd`).\n")
     (docs / "docs.json").write_text(json.dumps([doc("d473abdd" + "0" * 32, "2026-10-22T22:00:00Z") | {"tags": ["progress:release-v3"]}]))
-    handoff.CompactionState(active=True, plan_path=str(plan)).save(bash(session))
+    handoff.CompactionState(active=True, coordinator=True, plan_path=str(plan)).save(bash(session))
 
     handoff.nudge_at_threshold(bash(session))
 
@@ -372,7 +389,7 @@ def test_a_label_free_pointer_takes_the_slug_from_the_doc_it_names(home: Path, d
 def test_the_roots_new_doc_gains_the_generated_sections_in_place_and_supersedes_every_other(home: Path, plan: Path, docs: Path) -> None:
     session = home / "session"
     (docs / "docs.json").write_text(json.dumps([doc("a" * 40, "2026-09-30T04:00:00Z")]))
-    handoff.CompactionState(active=True, plan_path=str(plan)).save(bash(session))
+    handoff.CompactionState(active=True, coordinator=True, plan_path=str(plan)).save(bash(session))
     handoff.nudge_at_threshold(bash(session))
     assert state(session).prior == ["a" * 40]
 
@@ -413,7 +430,7 @@ def test_the_roots_new_doc_gains_the_generated_sections_in_place_and_supersedes_
 def test_a_generated_doc_is_never_taken_for_the_roots_narrative(home: Path, plan: Path, docs: Path) -> None:
     session = home / "session"
     (docs / "docs.json").write_text(json.dumps([doc("d" * 40, "2026-09-30T06:00:00Z") | {"title": "brook: progress (generated)"}]))
-    handoff.CompactionState(active=True, plan_path=str(plan), slug="brook", phase="due").save(bash(session))
+    handoff.CompactionState(active=True, coordinator=True, plan_path=str(plan), slug="brook", phase="due").save(bash(session))
 
     assert handoff.compact_when_idle(stop_event(session)) is None
 
@@ -423,7 +440,7 @@ def test_a_generated_doc_is_never_taken_for_the_roots_narrative(home: Path, plan
 
 def test_a_failed_supersede_keeps_the_handoff_due(home: Path, plan: Path, docs: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     session = home / "session"
-    handoff.CompactionState(active=True, plan_path=str(plan), slug="brook", phase="due", prior=["a" * 40]).save(
+    handoff.CompactionState(active=True, coordinator=True, plan_path=str(plan), slug="brook", phase="due", prior=["a" * 40]).save(
         bash(session)
     )
     (docs / "docs.json").write_text(json.dumps([doc("a" * 40, "2026-09-30T04:00:00Z"), doc("b" * 40, "2026-09-30T05:44:08Z")]))
@@ -441,7 +458,7 @@ def test_a_failed_supersede_keeps_the_handoff_due(home: Path, plan: Path, docs: 
 def test_without_cc_notes_the_record_is_a_sibling_folder(home: Path, plan: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PATH", "/usr/bin:/bin")
     session = home / "session"
-    handoff.CompactionState(active=True, plan_path=str(plan)).save(bash(session))
+    handoff.CompactionState(active=True, coordinator=True, plan_path=str(plan)).save(bash(session))
 
     handoff.nudge_at_threshold(bash(session))
 
@@ -479,7 +496,7 @@ def test_nudge_fires_from_a_tail_window_of_an_oversized_transcript(home: Path, d
     big = home / "big.jsonl"
     big.write_bytes(padding * 4500 + source.read_bytes())
     assert big.stat().st_size > 16 * 1024 * 1024
-    handoff.CompactionState(active=True).save(bash(session))
+    handoff.CompactionState(active=True, coordinator=True).save(bash(session))
 
     entry = next(h for h in _state.hooks if h.handler is handoff.nudge_at_threshold)
     assert entry.spec.transcript_events == handoff.TURN_WINDOW
@@ -500,7 +517,7 @@ def test_the_nudge_fires_once_50k_tokens_or_fewer_remain_before_the_threshold(
     home: Path, docs: Path, left: int, phase: str, nudges: int
 ) -> None:
     session = home / "session"
-    handoff.CompactionState(active=True).save(bash(session))
+    handoff.CompactionState(active=True, coordinator=True).save(bash(session))
 
     handoff.nudge_at_threshold(bash(session, transcript_path=str(FIXTURES / f"usage-{THRESHOLD_600K_K - left}k.jsonl")))
 
@@ -509,7 +526,7 @@ def test_the_nudge_fires_once_50k_tokens_or_fewer_remain_before_the_threshold(
 
 def test_fable_without_suffix_uses_the_configured_600k_window(home: Path) -> None:
     session = home / "session"
-    handoff.CompactionState(active=True, model="claude-fable-5-1").save(bash(session))
+    handoff.CompactionState(active=True, coordinator=True, model="claude-fable-5-1").save(bash(session))
 
     handoff.nudge_at_threshold(bash(session, transcript_path=str(FIXTURES / "usage-262k-fable-5-1.jsonl")))
 
@@ -518,7 +535,7 @@ def test_fable_without_suffix_uses_the_configured_600k_window(home: Path) -> Non
 
 def test_legacy_model_fires_at_the_200k_window(home: Path, docs: Path) -> None:
     session = home / "session"
-    handoff.CompactionState(active=True).save(bash(session))
+    handoff.CompactionState(active=True, coordinator=True).save(bash(session))
 
     handoff.nudge_at_threshold(bash(session, transcript_path=str(FIXTURES / "usage-170k-sonnet-4-6.jsonl")))
 
@@ -531,7 +548,7 @@ def test_legacy_model_fires_at_the_200k_window(home: Path, docs: Path) -> None:
 
 def test_plan_write_only_tracks_the_path(home: Path, plan: Path) -> None:
     session = home / "session"
-    handoff.CompactionState(active=True, phase="due").save(bash(session))
+    handoff.CompactionState(active=True, coordinator=True, phase="due").save(bash(session))
 
     handoff.track_plan(tool_event(session, "Write", {"file_path": str(plan), "content": "# brook"}))
 
@@ -549,7 +566,7 @@ def test_stop_after_the_record_spawns_one_compact_job_and_retries_after_30_minut
     spawned = []
     monkeypatch.setattr(handoff.subprocess, "Popen", lambda argv, **kw: spawned.append((argv, kw)))
     session = home / "session"
-    handoff.CompactionState(active=True, plan_path="/p/brook.md", slug="brook", phase="written").save(bash(session))
+    handoff.CompactionState(active=True, coordinator=True, plan_path="/p/brook.md", slug="brook", phase="written").save(bash(session))
 
     assert handoff.compact_when_idle(stop_event(session)) is None
     clock[0] += handoff.COMPACT_RETRY_SECONDS - 1
@@ -577,7 +594,7 @@ def test_stop_after_the_record_spawns_one_compact_job_and_retries_after_30_minut
 
 def test_stop_without_orca_tells_the_owner_once(home: Path) -> None:
     session = home / "session"
-    handoff.CompactionState(active=True, plan_path="/p/brook.md", slug="brook", phase="written").save(bash(session))
+    handoff.CompactionState(active=True, coordinator=True, plan_path="/p/brook.md", slug="brook", phase="written").save(bash(session))
 
     first = handoff.compact_when_idle(stop_event(session))
 
@@ -705,7 +722,7 @@ def test_a_narrative_with_an_uncited_owner_gate_warns_at_the_stop_until_fixed(ho
     (docs / "answers.json").write_text(json.dumps([rule]))
     (docs / "docs.json").write_text(json.dumps([doc("a" * 40, "2026-09-30T04:00:00Z"), doc("b" * 40, "2026-09-30T05:44:08Z")]))
     (docs / ("b" * 40 + ".md")).write_text("## Owner asks\nSoFi release on the owner's word\n")
-    handoff.CompactionState(active=True, plan_path=str(plan), slug="brook", phase="due", prior=["a" * 40]).save(
+    handoff.CompactionState(active=True, coordinator=True, plan_path=str(plan), slug="brook", phase="due", prior=["a" * 40]).save(
         bash(session)
     )
 
@@ -731,7 +748,7 @@ def test_an_uncited_standing_rule_warns_at_the_stop_at_its_record_not_the_doc(ho
     (docs / "docs.json").write_text(json.dumps([doc("b" * 40, "2026-09-30T05:44:08Z")]))
     (docs / ("b" * 40 + ".md")).write_text("## Root's next actions\n1. watch SoFi\n")
     standing_rule(docs, "go", "release on the owner's word")
-    handoff.CompactionState(active=True, plan_path=str(plan), slug="brook", phase="due").save(bash(session))
+    handoff.CompactionState(active=True, coordinator=True, plan_path=str(plan), slug="brook", phase="due").save(bash(session))
 
     warned = handoff.compact_when_idle(stop_event(session))
 
@@ -757,7 +774,7 @@ def test_every_compaction_generates_the_handoff_and_restores_its_digest(home: Pa
     (docs / "docs.json").write_text(json.dumps([doc("a" * 40, "2026-09-30T04:00:00Z")]))
     (docs / ("a" * 40 + ".md")).write_text("## Root's next actions\n1. watch SoFi\n")
     add_register(docs, "# brook register\n\n1. Pulumi state is the only truth.\n")
-    handoff.CompactionState(active=True, plan_path=str(plan), slug="brook").save(bash(session))
+    handoff.CompactionState(active=True, coordinator=True, plan_path=str(plan), slug="brook").save(bash(session))
 
     handoff.compaction_instructions(precompact(session))
 
@@ -779,7 +796,7 @@ def test_the_register_arrives_once_whole_after_a_compaction(home: Path, plan: Pa
     session = home / "session"
     body = "# brook register\n\n" + "".join(f"{n}. Pulumi state is the only truth, rule {n}; ünïcode reason {'x' * 150}\n" for n in range(1, 31))
     add_register(docs, body)
-    handoff.CompactionState(active=True, plan_path=str(plan), slug="brook").save(bash(session))
+    handoff.CompactionState(active=True, coordinator=True, plan_path=str(plan), slug="brook").save(bash(session))
 
     handoff.compaction_instructions(precompact(session))
     register_drive(home, monkeypatch, state_dir=str(home / ".claude" / "scratch" / "brook"))
@@ -801,7 +818,7 @@ def test_a_drive_whose_plan_stem_differs_from_its_program_queues_the_program_reg
 ) -> None:
     register_drive(home, monkeypatch)
     add_register(docs, "# durable-program register\n\n1. Pulumi state is the only truth.\n", program="durable-program")
-    queued = handoff.CompactionState(active=True, slug="brook")
+    queued = handoff.CompactionState(active=True, coordinator=True, slug="brook")
 
     evt = bash(home / "session")
     handoff.queue_register(queued, handoff.RegisterRead(evt, handoff.drive_entry(evt)))
@@ -825,7 +842,7 @@ def test_a_resumed_drive_restores_its_newest_progress_doc_within_budget(home: Pa
     (docs / ("a" * 40 + ".md")).write_text("## Root's next actions\n1. stale\n")
     (docs / ("b" * 40 + ".md")).write_text("## Root's next actions\n1. watch SoFi\n" + "- lane row\n" * 400)
     add_register(docs, "# brook register\n\n1. Pulumi state is the only truth.\n")
-    handoff.CompactionState(active=True, plan_path=str(plan), slug="brook").save(bash(session))
+    handoff.CompactionState(active=True, coordinator=True, plan_path=str(plan), slug="brook").save(bash(session))
 
     restored = handoff.reground(session_start(session, "resume")).message
     assert handoff.deliver_register(bash(session)) is None
@@ -838,7 +855,7 @@ def test_a_resumed_drive_restores_its_newest_progress_doc_within_budget(home: Pa
 
 def test_a_resumed_drive_without_a_progress_doc_points_at_the_label(home: Path, plan: Path, docs: Path) -> None:
     session = home / "session"
-    handoff.CompactionState(active=True, plan_path=str(plan), slug="brook").save(bash(session))
+    handoff.CompactionState(active=True, coordinator=True, plan_path=str(plan), slug="brook").save(bash(session))
 
     restored = handoff.reground(session_start(session, "resume")).message
 
@@ -908,7 +925,7 @@ def test_the_roots_first_context_after_a_compaction_carries_every_scope_row_verb
     asked = stub_slice(monkeypatch, lambda args: sliced)
     register_drive(home, monkeypatch)
     add_register(docs, register, program="durable-program")
-    handoff.CompactionState(active=True, plan_path=str(plan), slug="brook").save(bash(session))
+    handoff.CompactionState(active=True, coordinator=True, plan_path=str(plan), slug="brook").save(bash(session))
 
     handoff.reground(session_start(session, source))
     delivered = handoff.deliver_register(bash(session)).message
@@ -956,7 +973,7 @@ def test_a_failed_root_slice_read_passes_and_posts_one_blocker(
         raise failed
 
     stub_slice(monkeypatch, fail)
-    handoff.CompactionState(active=True, plan_path=str(plan), slug="brook").save(bash(session))
+    handoff.CompactionState(active=True, coordinator=True, plan_path=str(plan), slug="brook").save(bash(session))
 
     restored = handoff.reground(session_start(session, source)).message
     handoff.reground(session_start(session, "compact"))
@@ -984,7 +1001,7 @@ def test_a_failed_root_slice_read_still_restores_the_drive_when_cci_cannot_run(h
         raise subprocess.TimeoutExpired(["rulings.py", *args], 20)
 
     stub_slice(monkeypatch, fail)
-    handoff.CompactionState(active=True, plan_path=str(plan), slug="brook").save(bash(session))
+    handoff.CompactionState(active=True, coordinator=True, plan_path=str(plan), slug="brook").save(bash(session))
 
     restored = handoff.reground(session_start(session, "resume")).message
 
@@ -999,7 +1016,7 @@ def test_a_hand_written_doc_gains_the_generated_sections_and_the_summary_names_i
     record = doc("6" * 40, "2026-10-03T00:42:16Z")
     (docs / "docs.json").write_text(json.dumps([old_generated, record]))
     (docs / ("6" * 40 + ".md")).write_text("## Root's next actions\n1. 12-item plan\n")
-    handoff.CompactionState(active=True, plan_path=str(plan), slug="brook").save(bash(session))
+    handoff.CompactionState(active=True, coordinator=True, plan_path=str(plan), slug="brook").save(bash(session))
 
     instructions = handoff.compaction_instructions(precompact(session)).message
 
@@ -1036,7 +1053,7 @@ def test_a_second_active_doc_after_generation_warns_at_the_stop_and_names_the_fa
     (docs / "docs.json").write_text(json.dumps([doc("a" * 40, "2026-09-30T04:00:00Z"), doc("b" * 40, "2026-09-30T05:44:08Z")]))
     (docs / ("b" * 40 + ".md")).write_text("## Root's next actions\n1. land l11\n")
     monkeypatch.setenv("FAKE_CCN_SUPERSEDE", "fail")
-    handoff.CompactionState(active=True, plan_path=str(plan), slug="brook", phase="due", prior=["a" * 40]).save(bash(session))
+    handoff.CompactionState(active=True, coordinator=True, plan_path=str(plan), slug="brook", phase="due", prior=["a" * 40]).save(bash(session))
 
     warned = handoff.compact_when_idle(stop_event(session))
 
@@ -1054,7 +1071,7 @@ def test_a_second_active_doc_after_generation_warns_at_the_stop_and_names_the_fa
 
 def test_a_stop_generated_handoff_is_not_regenerated_at_compaction(home: Path, plan: Path, docs: Path) -> None:
     session = home / "session"
-    handoff.CompactionState(active=True, plan_path=str(plan), slug="brook", generated_at=handoff.time.time(), digest="kept").save(bash(session))
+    handoff.CompactionState(active=True, coordinator=True, plan_path=str(plan), slug="brook", generated_at=handoff.time.time(), digest="kept").save(bash(session))
 
     handoff.compaction_instructions(precompact(session))
 
@@ -1101,7 +1118,7 @@ def test_a_narrative_edited_into_the_generated_doc_is_the_written_narrative(home
     session = home / "session"
     (docs / "docs.json").write_text(json.dumps([doc("a" * 40, "2026-09-30T04:00:00Z")]))
     (docs / ("a" * 40 + ".md")).write_text("## 10:00 PM dump 1\n\n### Program state\nCensus 200/293.\n")
-    handoff.CompactionState(active=True, plan_path=str(plan), slug="brook").save(bash(session))
+    handoff.CompactionState(active=True, coordinator=True, plan_path=str(plan), slug="brook").save(bash(session))
     handoff.compaction_instructions(precompact(session))
     handoff.reground(session_start(session, "compact"))
     with handoff.CompactionState.mutate(bash(session)) as saved:
@@ -1124,7 +1141,7 @@ def test_a_narrative_edited_into_the_generated_doc_is_the_written_narrative(home
 
 def test_without_a_narrative_the_restore_asks_for_one(home: Path, plan: Path, docs: Path) -> None:
     session = home / "session"
-    handoff.CompactionState(active=True, plan_path=str(plan), slug="brook", phase="due").save(bash(session))
+    handoff.CompactionState(active=True, coordinator=True, plan_path=str(plan), slug="brook", phase="due").save(bash(session))
 
     handoff.compaction_instructions(precompact(session))
 
@@ -1182,7 +1199,7 @@ def test_a_stop_handoff_whose_state_was_lost_still_points_the_compaction_at_the_
     (docs / "docs.json").write_text(json.dumps(entries))
     (docs / ("b" * 40 + ".md")).write_text(FULL_HANDOFF)
     (docs / ("c" * 40 + ".md")).write_text(ADDENDUM)
-    due = handoff.CompactionState(active=True, plan_path=str(plan), slug="brook", phase="due", prior=["a" * 40])
+    due = handoff.CompactionState(active=True, coordinator=True, plan_path=str(plan), slug="brook", phase="due", prior=["a" * 40])
     due.save(bash(session))
 
     assert handoff.compact_when_idle(stop_event(session)).system_message.startswith("The handoff is recorded")

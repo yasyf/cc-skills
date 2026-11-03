@@ -19,7 +19,7 @@ CLI = CommandSchema(
 STATUS_TOPIC = re.compile(r"\b(?:releas(?:e[sd]?|ing)|smoke|flak(?:e[sy]?|y|iness)|progress)\b", re.IGNORECASE)
 CITED = re.compile(r"#(\d{5,})\b")
 READ_SECONDS = 10
-ACTIVE = [CompactionState(active=True)]
+ACTIVE = [CompactionState(active=True, coordinator=True)]
 LANE = {"CLAUDE_LONG_RUNNING_LANE": "release-5"}
 STATUS_REFUSED = (
     "A drive lane writes nothing to Slack about a release, smoke run, flake or progress unless an owner record requests that post."

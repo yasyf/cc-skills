@@ -52,7 +52,7 @@ TESTS_DIFF = "+    assert_eq!(refusal.commands_per_key(), 1);\n"
 DIFF = "git diff --unified=0"
 MATCH = f"{sys.executable} {script('rulings.py')} match"
 MATCHED = "- 8b1048a Does the merge refusal name a next command?\n  > The merge refusal names no next command.\n"
-ACTIVE = [CompactionState(active=True, slug="brook")]
+ACTIVE = [CompactionState(active=True, coordinator=True, slug="brook")]
 STATE = "quiet"
 
 

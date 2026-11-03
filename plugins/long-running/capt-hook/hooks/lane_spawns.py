@@ -6,7 +6,7 @@ from .compaction_handoff import CompactionState
 from .lane_landing import lane_name
 from .lane_rotation import DriveActive
 
-ACTIVE = [CompactionState(active=True)]
+ACTIVE = [CompactionState(active=True, coordinator=True)]
 LANE = "atooling-misc-3-0123456789abcdef"
 SPAWN = {"name": "hook-fix", "description": "fix a hook", "prompt": "Fix the hook."}
 SHIP = "ship-pr"

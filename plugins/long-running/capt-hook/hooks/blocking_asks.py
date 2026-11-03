@@ -3,9 +3,8 @@ from __future__ import annotations
 from captain_hook import Allow, Annotated, BaseHookEvent, Block, Event, FromSubagent, HookResult, Input, T, Tool, on
 from captain_hook.annotations import dispatch_pairs
 
-from .compaction_handoff import CompactionState
+from .compaction_handoff import CompactionState, Coordinator, coordinator_tests
 from .lane_rotation import DriveActive
-from .window_lane import Coordinator, coordinator_tests
 
 LANE_TASKS = frozenset({"subagent", "teammate", "workflow", "cloud session"})
 LANE = {"type": "subagent", "status": "running", "description": "spot-pool lane"}
@@ -23,7 +22,7 @@ def question(text: str, **call: object) -> Input:
 
 
 def live(*background: dict) -> list[CompactionState]:
-    return [CompactionState(active=True, background=list(background))]
+    return [CompactionState(active=True, coordinator=True, background=list(background))]
 
 
 def lanes_live(evt: BaseHookEvent) -> bool:

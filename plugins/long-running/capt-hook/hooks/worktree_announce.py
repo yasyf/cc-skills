@@ -16,7 +16,7 @@ WORKTREES = Path(".claude") / "worktrees"
 WORKTREE_DEPTH = 2
 ANNOUNCE_TIMEOUT_SECONDS = 20
 OUTSIDE_REPO = 3
-ACTIVE = [CompactionState(active=True)]
+ACTIVE = [CompactionState(active=True, coordinator=True)]
 AGENT = "ainc-liam-load-opus-0123456789abcdef"
 WORKTREE = str(Path(__file__).parent / "tests" / "fixtures" / "lane-home" / ".claude" / "worktrees" / "monorepo" / "inc-liam-fork-parent-grant")
 ENV = {"CLAUDE_LONG_RUNNING_DRIVE": "900424b6"}

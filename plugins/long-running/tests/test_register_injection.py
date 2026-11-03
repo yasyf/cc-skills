@@ -62,7 +62,7 @@ def test_every_subagent_helpers_included_receives_the_register_once_at_start(too
     drives = tools / ".claude" / "long-running" / "drives"
     drives.mkdir(parents=True)
     (drives / "b7.json").write_text(json.dumps({"drive": "b7", "sessions": [SESSION], "program": "brook", "state_dir": str(tools / ".claude" / "scratch" / "brook")}))
-    handoff.CompactionState(active=True, slug="users-plan-stem-of-brook").save(PostToolUseEvent(_raw=raw(tool_name="Bash", tool_input={}), ctx=ctx(session)))
+    handoff.CompactionState(active=True, coordinator=True, slug="users-plan-stem-of-brook").save(PostToolUseEvent(_raw=raw(tool_name="Bash", tool_input={}), ctx=ctx(session)))
 
     for agent_type in (
         "long-running:lane",
@@ -108,7 +108,7 @@ def activated(session: Path) -> Path:
     drives = session.parent / ".claude" / "long-running" / "drives"
     drives.mkdir(parents=True)
     (drives / "b7.json").write_text(json.dumps({"drive": "b7", "sessions": [SESSION], "program": "brook", "state_dir": str(session.parent / ".claude" / "scratch" / "brook")}))
-    handoff.CompactionState(active=True, slug="users-plan-stem-of-brook").save(PostToolUseEvent(_raw=raw(tool_name="Bash", tool_input={}), ctx=ctx(session)))
+    handoff.CompactionState(active=True, coordinator=True, slug="users-plan-stem-of-brook").save(PostToolUseEvent(_raw=raw(tool_name="Bash", tool_input={}), ctx=ctx(session)))
     return session
 
 

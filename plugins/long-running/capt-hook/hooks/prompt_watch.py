@@ -8,9 +8,8 @@ from pathlib import Path
 from captain_hook import Allow, BaseHookEvent, Event, FromSubagent, HookResult, Input, Tool, on
 from captain_hook.util import reqenv
 
-from .compaction_handoff import CompactionState, script
+from .compaction_handoff import CompactionState, Coordinator, coordinator_tests, script
 from .lane_rotation import DriveActive
-from .window_lane import Coordinator, coordinator_tests
 
 FIXTURES = Path(__file__).parent / "tests" / "fixtures"
 DRIVE_ENV = {"CLAUDE_LONG_RUNNING_DRIVE": "900424b6", "CLAUDE_CONFIG_DIR": str(FIXTURES / "claude-config")}
@@ -54,7 +53,7 @@ def starts_drive(evt: BaseHookEvent) -> bool:
         Input(
             source="resume",
             session_id="900424b6-0000",
-            state=[CompactionState(active=True)],
+            state=[CompactionState(active=True, coordinator=True)],
         ): Allow(),
         Input(source="startup"): Allow(),
     }),
