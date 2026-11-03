@@ -289,3 +289,38 @@ func TestAReleaseThatShipsALandingResolvesItsBlocker(t *testing.T) {
 	equal(t, bus.posted[2].Text, "LANDED-NOT-LIVE none")
 	equal(t, bus.posted[3].Resolves, int64(2))
 }
+
+func TestLanesThatEndReclaimTheirSpritesInOneOrcaGCAndOnlyOnce(t *testing.T) {
+	s := memory(t)
+	for _, name := range []string{"sprite-a", "sprite-b", "live-c"} {
+		if _, err := s.WantLane(storeLane(name), t0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, name := range []string{"sprite-a", "sprite-b"} {
+		if err := s.SetLaneState(name, store.LaneRetired, t0.Add(mins(1)), "done", ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	bus := &fakeBus{}
+	var gcs [][]string
+	env := Env{Bus: bus, Config: config.Config{Drive: testDrive, OrcaRun: "run_1"}, Local: t.TempDir(), Claude: t.TempDir(), Runner: scripted(func(argv []string) (shell.Result, error) {
+		gcs = append(gcs, argv)
+		return shell.Result{Stdout: "stopped ctx_a\ndestroyed pool-a dispatch ctx_a\ndestroyed=1 stopped=1\n"}, nil
+	})}
+	for name, dispatch := range map[string]string{"sprite-a": "ctx_a", "sprite-b": "ctx_b", "live-c": "ctx_c"} {
+		writeJSON(t, filepath.Join(env.receipts(), name+".json"), map[string]any{"result": map[string]string{"dispatchId": dispatch}})
+	}
+	gc := &SpriteGC{Env: env, Store: s, Log: slog.Default()}
+
+	for _, at := range []time.Time{t0.Add(mins(2)), t0.Add(mins(10))} {
+		if err := gc.Check(context.Background(), at); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	equal(t, len(gcs), 1)
+	equal(t, gcs[0][len(gcs[0])-7:], []string{"--run", "run_1", "--sprites", "--done", "ctx_a", "--done", "ctx_b"})
+	equal(t, len(bus.posted), 1)
+	equal(t, bus.posted[0].Text, "GC Sprites of ended lanes sprite-a, sprite-b: stopped ctx_a | destroyed pool-a dispatch ctx_a | destroyed=1 stopped=1")
+}

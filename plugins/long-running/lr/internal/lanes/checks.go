@@ -37,6 +37,8 @@ const (
 	notLiveSpan  = 24 * time.Hour
 	notLiveEvery = 5 * time.Minute
 	notLiveTopic = "landed-not-live"
+	spriteGCSeen = "sprite-gc"
+	nothingToGC  = "nothing to reclaim"
 	blockerKind  = "blocker"
 )
 
@@ -263,6 +265,57 @@ func (g *FixLiveGC) reclaim(ctx context.Context, lane string, seq int64, heard, 
 	return nil
 }
 
+type SpriteGC struct {
+	Env   Env
+	Store *store.Store
+	Log   *slog.Logger
+	read  time.Time
+}
+
+func (g *SpriteGC) Check(ctx context.Context, now time.Time) error {
+	if !g.read.IsZero() && now.Sub(g.read) < gcEvery {
+		return nil
+	}
+	g.read = now
+	seen, err := g.Store.Cursor(spriteGCSeen)
+	if err != nil {
+		return err
+	}
+	retired, err := g.Store.Lanes(store.LaneRetired)
+	if err != nil {
+		return err
+	}
+	argv := []string{filepath.Join(g.Env.plugin(), "skills", "long-running", "scripts", "orca-gc"), "--run", g.Env.Config.OrcaRun, "--sprites"}
+	var ended []string
+	newest := seen
+	for _, lane := range retired {
+		at := lane.Since.UnixMilli()
+		if at <= seen {
+			continue
+		}
+		newest = max(newest, at)
+		if dispatch := dispatchOf(g.Env.receipts(), lane.Name); dispatch != "" {
+			ended = append(ended, lane.Name)
+			argv = append(argv, "--done", dispatch)
+		}
+	}
+	if len(ended) > 0 {
+		result, err := g.Env.Runner.Run(ctx, shell.Command{Argv: argv, Timeout: gcTimeout})
+		var exit *shell.ExitError
+		if err != nil && !errors.As(err, &exit) {
+			g.Log.Warn("orca-gc --sprites did not run", "lanes", ended, "err", err)
+			return nil
+		}
+		if said := strings.TrimSpace(or(result.Stdout, result.Stderr)); said != nothingToGC {
+			draft := client.Draft{Drive: g.Env.Config.Drive, Lane: Self, Kind: "report", To: []string{Root}, ID: fmt.Sprintf("sprite-gc:%d", newest), Text: fmt.Sprintf("GC Sprites of ended lanes %s: %s", strings.Join(ended, ", "), strings.ReplaceAll(said, "\n", " | "))}
+			if _, err := g.Env.Bus.Post(ctx, draft); err != nil {
+				return fmt.Errorf("%w: cci post: %w", ErrUnread, err)
+			}
+		}
+	}
+	return g.Store.Advance(spriteGCSeen, newest)
+}
+
 type ledgerRow struct {
 	PR        json.Number `json:"pr"`
 	State     string      `json:"state"`
@@ -477,7 +530,7 @@ func (e Env) Checks(s *store.Store, log *slog.Logger) ([]Check, error) {
 		checks = append(checks, Alerts{Env: e, Store: s, Channels: channels, Log: log, Launch: e.incidentLaunch}.Check)
 	}
 	if e.Config.OrcaRun != "" {
-		checks = append(checks, (&FixLiveGC{Env: e, Log: log}).Check)
+		checks = append(checks, (&FixLiveGC{Env: e, Log: log}).Check, (&SpriteGC{Env: e, Store: s, Log: log}).Check)
 	}
 	cli, err := ReleaseCLI(e.State)
 	if err != nil {

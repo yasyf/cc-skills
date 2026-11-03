@@ -172,10 +172,10 @@ class Action:
 
 @dataclass(frozen=True)
 class Pause:
-    resumed: Path
+    resumed: Path | None
 
     def held(self) -> bool:
-        return not self.resumed.exists()
+        return self.resumed is not None and not self.resumed.exists()
 
     def skip(self, target: str, verb: str) -> Action:
         return Action("skip", target, f"{verb}: cleanup paused until {self.resumed} exists")
@@ -413,7 +413,7 @@ class CcRemote:
         hosted: dict[tuple[str, str], Sprite] = {}
         for path in sorted((self.state / "orca").glob("*.json")):
             task = json.loads(path.read_text())
-            if task.get("schemaVersion") != CC_REMOTE_TASK_SCHEMA or task.get("provider") != "sprites" or not task.get("forward"):
+            if task.get("schemaVersion") != CC_REMOTE_TASK_SCHEMA or task.get("provider") != "sprites" or not all(task.get(key) for key in ("forward", "worktreeId", "terminal")):
                 continue
             if not (self.state / "workspaces" / f"{task['workspace']}.json").is_file():
                 continue
@@ -609,14 +609,17 @@ def stop(dispatch: str, dry_run: bool, orca: Orca, pause: Pause, out) -> tuple[A
     return done, None if state is None else detail
 
 
-def gc(run: str, dispatches: set[str], dry_run: bool, orca: Orca, git: Git, cc_remote: CcRemote, pause: Pause, out=sys.stdout, ending: frozenset[str] = frozenset()) -> Counter:
+def gc(run: str, dispatches: set[str], dry_run: bool, orca: Orca, git: Git, cc_remote: CcRemote, pause: Pause, out=sys.stdout, ending: frozenset[str] = frozenset(), sprites_only: bool = False) -> Counter:
     if not dry_run and pause.held():
         skipped = pause.skip(run, "gc")
         print(skipped.line(), file=out, flush=True)
         return Counter({skipped.verb: 1})
+    scope = dispatches | ending
+    if sprites_only:
+        recorded = cc_remote.sprites()
+        ending &= {worker.dispatch for worker in orca.workers(run) if (worker.workspace, worker.terminal) in recorded}
     stops = [stop(dispatch, dry_run, orca, pause, out) for dispatch in sorted(ending)]
     ended = {action.target: detail for action, detail in stops if detail is not None}
-    scope = dispatches | ending
     workers = orca.workers(run)
     settled = {worker.dispatch for worker in workers if worker.settled or worker.dispatch in ended}
     live_terminals = {worker.terminal for worker in workers if worker.dispatch not in settled and worker.terminal}
@@ -625,7 +628,8 @@ def gc(run: str, dispatches: set[str], dry_run: bool, orca: Orca, git: Git, cc_r
     finished = [worker for worker in workers if worker.dispatch in settled and (not scope or worker.dispatch in scope)]
     sprites = cc_remote.sprites() if finished else {}
     hosted = {sprite: worker for worker in finished if (sprite := sprites.get((worker.workspace, worker.terminal)))}
-    finished = [worker for worker in finished if worker not in hosted.values()]
+    finished = [] if sprites_only else [worker for worker in finished if worker not in hosted.values()]
+    sprite_checkouts = {workspace for workspace, _ in sprites}
 
     def report(done: Action) -> Action:
         print(("would " if dry_run and done.verb != "keep" else "") + done.line(), file=out, flush=True)
@@ -645,7 +649,7 @@ def gc(run: str, dispatches: set[str], dry_run: bool, orca: Orca, git: Git, cc_r
         verdicts = [action for action in pool.map(lambda worker: terminal_action(worker, live_terminals, orca, ended), finished) if action]
         closing = {action.target: action for action in verdicts if action.verb in ("close", "end")}
         terminals = list(pool.map(act, [action for action in verdicts if action.target not in closing or action.verb == "end"]))
-        trees = {(worker.environment, worker.worktree) for worker in finished if worker.worktree} - live_worktrees
+        trees = {(worker.environment, worker.worktree) for worker in finished if worker.worktree and worker.workspace not in sprite_checkouts} - live_worktrees
         candidates = sorted(path for environment, path in trees if environment is None)
         paired = sorted((environment, path) for environment, path in trees if environment is not None)
         read = dict(zip(candidates, pool.map(git.checkout, candidates)))
@@ -700,21 +704,24 @@ def main() -> int:
         "--plan takes a dry run's output; gc plans again first and refuses, printing each line the new plan dropped or added, unless the two match. Cleanup is paused until $XDG_STATE_HOME/orca-gc/resumed, default ~/.local/state/orca-gc/resumed, "
         "exists: a paused pass changes nothing, and a pause set mid-pass is read before each candidate and again right before its stop, release, "
         "terminal close, worktree removal, or Sprite destroy, which it skips and names, while an operation already started runs to completion. "
-        "--dry-run reads through a pause. Prints one line per action, skipped action, or kept resource, then the tally."
+        "--dry-run reads through a pause. --sprites limits the pass, and its --done stops, to dispatches a cc-remote Sprite task records, reclaims their Sprites by the same rules, "
+        "and is never paused, since it removes no worktree or terminal on this machine. Prints one line per action, skipped action, or kept resource, then the tally."
     )
     parser.add_argument("--run", required=True, help="the Orca Run id")
     parser.add_argument("--dispatch", action="append", default=[], metavar="CTX", help="only this settled dispatch; repeatable")
     parser.add_argument("--done", action="append", default=[], metavar="CTX", help="worker-stop this dispatch, close its terminal, and reclaim its worktree; repeatable")
     parser.add_argument("--dry-run", action="store_true", help="print what gc would do and change nothing")
+    parser.add_argument("--sprites", action="store_true", help="only Sprite-hosted dispatches, through a pause")
     parser.add_argument("--plan", type=Path, metavar="FILE", help="a dry run's output; gc plans again first and refuses, printing the difference, unless the new plan prints the same lines")
     args = parser.parse_args()
+    pause = Pause(None if args.sprites else RESUMED)
     if args.plan:
         replanned = io.StringIO()
-        gc(args.run, set(args.dispatch), True, Orca(), Git(), CcRemote(), Pause(RESUMED), replanned, ending=frozenset(args.done))
+        gc(args.run, set(args.dispatch), True, Orca(), Git(), CcRemote(), pause, replanned, ending=frozenset(args.done), sprites_only=args.sprites)
         if changed := drift(args.plan.read_text(), replanned.getvalue()):
             print("\n".join(["refused: the plan differs from " + str(args.plan), *changed]))
             return 3
-    tally = gc(args.run, set(args.dispatch), args.dry_run, Orca(), Git(), CcRemote(), Pause(RESUMED), ending=frozenset(args.done))
+    tally = gc(args.run, set(args.dispatch), args.dry_run, Orca(), Git(), CcRemote(), pause, ending=frozenset(args.done), sprites_only=args.sprites)
     print(" ".join(f"{verb}={count}" for verb, count in sorted(tally.items())) or "nothing to reclaim")
     return 0
 
