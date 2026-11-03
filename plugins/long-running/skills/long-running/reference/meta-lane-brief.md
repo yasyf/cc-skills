@@ -32,7 +32,9 @@ read: `cci subscribe --drive <drive> --reader meta`.
    every meta order the owner sends. The communicator names his ledger row as `owner:m47` in a
    `--kind ask --to meta`, and forwards each tooling defect the coordinator reports the
    same way. The coordinator owns drive work only and never takes any of this.
-2. Give each item one implementer, the turn it arrives. Write its brief to
+2. Give each item one implementer, the turn it arrives. A defect reported for meta by the
+   coordinator or any lane becomes a lane with a deliverable and a due time that same turn,
+   never an ask; send back an ask that carries a defect and no lane. Write its brief to
    `<state dir>/<lane>/brief.md` with its `Register slice:`, `Scale:` and `ccx:` lines,
    the owner's words verbatim and the contract below, and launch it with
    `lr launch lane <lane> opus xhigh <brief> --drive <drive> --lane meta`. A
