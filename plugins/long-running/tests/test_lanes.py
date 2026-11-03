@@ -28,9 +28,12 @@ class LaneShell(ledger.Shell):
         self.pulls: dict[str, list[dict]] = {}
         self.heads: dict[str, str] = {}
         self.posts: list[list[str]] = []
+        self.registry: dict[str, dict] = {}
 
     def run(self, argv: list[str], stdin: str | None = None) -> str:
         argv = gateway(argv)
+        if len(argv) > 3 and Path(argv[1]).name == "drive_supervisor.py" and argv[2] == "lanes":
+            return json.dumps(self.registry[argv[3]]) + "\n" if argv[3] in self.registry else ""
         if argv[:2] == ["cci", "tail"]:
             since = argv[argv.index("--since-seq" if "--since-seq" in argv else "--since") + 1]
             kinds = {arg.removeprefix("--kind=") for arg in argv if arg.startswith("--kind=")}
@@ -173,6 +176,37 @@ def test_a_lane_with_no_worktree_says_so_and_exits_nonzero(home, capsys):
     worktree(home, "inc-other-fix", "--detach")
 
     assert lane_status(LaneShell(), LANE, capsys) == (1, f"no worktree found for lane {LANE}, and no in-process teammate of the drive's coordinator sessions\n")
+
+
+def codex_lane(home: Path, monkeypatch: pytest.MonkeyPatch, lane: str) -> None:
+    state = Path(drive.find(None, ROOT_SESSION)["state_dir"])
+    state.mkdir(parents=True, exist_ok=True)
+    (state / "lr.json").write_text("{}")
+    monkeypatch.delenv(drive.SESSION_ENV)
+    monkeypatch.setenv("CODEX_THREAD_ID", "019a4c2e-codex")
+    monkeypatch.setenv(drive.LANE_ENV, lane)
+
+
+def test_a_codex_successor_with_no_session_id_finds_its_drive_through_its_registry_row(home, monkeypatch, capsys):
+    path = worktree(home, LANE, "--detach")
+    codex_lane(home, monkeypatch, LANE)
+    shell = LaneShell()
+    shell.registry[LANE] = {"lane": LANE, "state": "launching", "predecessor": "inc-liam-load-sonnet", "route": LANE}
+
+    code, out = lane_status(shell, LANE, capsys)
+
+    assert code == 0
+    assert out.startswith(f"- monorepo: {path} (git worktree list): HEAD (no branch)")
+
+
+def test_a_lane_no_registry_row_names_is_still_refused(home, monkeypatch, capsys):
+    worktree(home, LANE, "--detach")
+    codex_lane(home, monkeypatch, "unregistered-1")
+    shell = LaneShell()
+    shell.registry[LANE] = {"lane": LANE, "state": "launching", "predecessor": "inc-liam-load-sonnet", "route": LANE}
+
+    with pytest.raises(SystemExit, match="no drive's lane registry has a row for CLAUDE_LONG_RUNNING_LANE"):
+        lane_status(shell, LANE, capsys)
 
 
 def test_worktree_posts_one_record_naming_the_lanes_worktree_and_branch(home, tmp_path):
