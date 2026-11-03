@@ -96,6 +96,7 @@ class FakeShell(runner_module.Shell):
         self.clock = datetime(2026, 10, 1, 18, 0, tzinfo=timezone.utc)
         self.calls: list[list[str]] = []
         self.dispatches: dict[str, dict] = {}
+        self.relay_process = Running()
         self.mailbox: list[dict] = []
         self.delivery: list[dict] = []
         self.arriving: list[dict] = []
@@ -338,6 +339,9 @@ class FakeShell(runner_module.Shell):
         if Path(argv[0]).name == "desk-runner.py":
             self.successors.append((list(argv), out, append))
             return Process()
+        if Path(argv[0]).name == "lr":
+            out.touch()
+            return self.relay_process
         if argv[1:2] == [str(runner_module.STALL_WATCH)]:
             return self.stall_pass
         if len(argv) > 1 and Path(argv[1]).name == "replay.py":
@@ -1768,6 +1772,60 @@ def test_a_quiet_ten_minutes_writes_nothing_and_wakes_no_one(shell, config, tmp_
         shell.sleep(60)
     assert escalations(shell) == []
     assert not [call for call in shell.calls if Path(call[0]).name == "claude"]
+
+
+def hand_to_go(config: Path) -> None:
+    raw = json.loads(config.read_text())
+    raw["orca"]["go_relay"] = True
+    config.write_text(json.dumps(raw))
+
+
+def relay_starts(shell: FakeShell) -> list[list[str]]:
+    return [call for call in shell.calls if Path(call[0]).name == "lr" and call[1:3] == ["relay", "run"]]
+
+
+def test_go_relay_starts_lr_relay_run_and_leaves_it_the_passes_go_owns(shell, config):
+    hand_to_go(config)
+    orca_pass(shell, config)
+    assert relay_starts(shell) == [[str(runner_module.RUNNER_BIN.with_name("lr")), "relay", "run", "--config", str(config.with_name("lr.json"))]]
+    assert not [call for call in shell.calls if call[:3] == ["orca", "orchestration", "check"]]
+
+
+def test_without_go_relay_the_loop_runs_its_own_passes_and_starts_no_relay(shell, config):
+    orca_pass(shell, config)
+    assert relay_starts(shell) == []
+    assert [call for call in shell.calls if call[:3] == ["orca", "orchestration", "check"]]
+
+
+def test_a_relay_that_holds_the_lock_owns_the_flush_and_needs_no_second_start(shell, config, tmp_path):
+    hand_to_go(config)
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    orca_pass(shell, config)
+    shell.calls.clear()
+    runner.escalate("k1", "DECIDE", LANE, "which way")
+    with config.with_name(runner_module.RELAY_LOCK).open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        orca_pass(shell, config)
+        assert escalations(shell) == []
+        assert relay_starts(shell) == []
+    orca_pass(shell, config)
+    assert escalations(shell) == [f"DECIDE k1 {LANE}: which way"]
+
+
+def test_a_relay_that_exits_badly_is_reported_and_restarted_after_the_backoff(shell, config, tmp_path):
+    hand_to_go(config)
+    exited = Running()
+    exited.code = 1
+    shell.relay_process = exited
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    runner.relay_in_go()
+    runner.relay_in_go()
+    assert len(relay_starts(shell)) == 1
+    shell.clock += runner_module.RELAY_RESPAWN
+    runner.relay_in_go()
+    assert len(relay_starts(shell)) == 2
+    runner.flush()
+    assert escalations(shell) == ["LR-RELAY-FAILED lr-relay-failed:exit 1 lr relay run: `lr relay run` exited 1, so no desk order is read until it restarts: exit 1"]
 
 
 def test_a_worker_question_escalates_once_to_root_and_the_runner_never_answers_it(shell, config, tmp_path):

@@ -10,7 +10,7 @@ from .compaction_handoff import CompactionState, Communicator, communicator_test
 ACTIVE = [CompactionState(active=True)]
 LANE_ENV = "CLAUDE_LONG_RUNNING_LANE"
 STANDING = re.compile(r"(?:landing-desk|fidelity-desk|red-sweep|alerts-desk|drive-watchdog|board-refresher)(?:-\d+)?")
-STARTS = {"desk-runner.py": (("run",), ("handoff",), ("supervise", "install")), "desk-creds.py": (("install",),), "lr": (("desk-creds", "install"),)}
+STARTS = {"desk-runner.py": (("run",), ("handoff",), ("supervise", "install")), "desk-creds.py": (("install",),), "lr": (("desk-creds", "install"), ("relay", "run"))}
 
 
 class StartsRunnerOrDesk:
@@ -40,12 +40,14 @@ hook(  # capt-hook: no-escape the coordinator is the one owner of every runner a
         Input(command="lr install roll --runner r.json --desk landing", state=ACTIVE): Block(),
         Input(command="/plugin/bin/lr install 0.7.9 --desk orca --runner r.json", state=ACTIVE): Block(),
         Input(command="lr desk-creds install --config r.json --desk landing", state=ACTIVE): Block(),
+        Input(command="lr relay run --config lr.json", state=ACTIVE): Block(),
         Input(command="desk-launch.py lane landing-desk opus xhigh b.md", state=ACTIVE): Block(),
         Input(command="desk-launch.py lane drive-watchdog-4 opus xhigh b.md", state=ACTIVE): Block(),
         Input(command="lr launch lane landing-desk opus xhigh b.md", state=ACTIVE): Block(),
         Input(command="/plugin/bin/lr launch lane drive-watchdog-4 opus xhigh b.md", state=ACTIVE): Block(),
         Input(command="lr install roll --runner r.json --desk landing", state=ACTIVE, env={LANE_ENV: "tooling-runner-1"}): Allow(),
         Input(command="lr install check --config lr.json", state=ACTIVE): Allow(),
+        Input(command="lr relay rebind --config lr.json", state=ACTIVE): Allow(),
         Input(command="desk-runner.py run --config r.json --desk orca"): Allow(),
         Input(command="desk-launch.py lane signal sonnet low b.md", state=ACTIVE): Allow(),
         Input(command="desk-launch.py lane landing-desk-fix opus xhigh b.md", state=ACTIVE): Allow(),
