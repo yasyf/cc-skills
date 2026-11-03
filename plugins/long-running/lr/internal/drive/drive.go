@@ -100,9 +100,13 @@ func Named(name string) (Entry, error) {
 	if err != nil {
 		return Entry{}, err
 	}
-	for _, entry := range found {
-		if entry.Bus() == name && len(entry.Sessions) > 0 {
-			return entry, nil
+	live := slices.DeleteFunc(found, func(entry Entry) bool { return len(entry.Sessions) == 0 })
+	for _, matches := range []func(Entry) bool{
+		func(entry Entry) bool { return entry.Drive == name },
+		func(entry Entry) bool { return entry.Bus() == name },
+	} {
+		if i := slices.IndexFunc(live, matches); i >= 0 {
+			return live[i], nil
 		}
 	}
 	return Entry{}, fmt.Errorf("no drive registry entry for %s names a coordinator session", name)

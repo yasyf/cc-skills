@@ -113,6 +113,45 @@ func TestTheVerbMarksTheNamedDrivesLedger(t *testing.T) {
 	}
 }
 
+func TestTheVerbMarksTheRowTheHooksLedgerPathHolds(t *testing.T) {
+	config := t.TempDir()
+	drives := filepath.Join(config, "long-running", "drives")
+	if err := os.MkdirAll(drives, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	scratch := t.TempDir()
+	for _, entry := range []map[string]any{
+		{"drive": "aaa", "cci_drive": "brook", "state_dir": filepath.Join(scratch, "other"), "sessions": []string{"s1"}},
+		{"drive": "brook", "state_dir": filepath.Join(scratch, "brook"), "sessions": []string{"s2"}},
+	} {
+		data, err := json.Marshal(entry)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(drives, entry["drive"].(string)+".json"), data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("CLAUDE_CONFIG_DIR", config)
+	ledger := filepath.Join(scratch, "brook", "owner-relay", "owner-ledger.md")
+	if err := os.MkdirAll(filepath.Dir(ledger), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(ledger, []byte(header+"| m1 | Nov 2 8:05 PM | keep the nightly report |  | open |\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cmd := Command(&app.App{Now: func() time.Time { return addedAt }})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"mark", "m1", "addressed", "--drive", "brook"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(t, ledger); !strings.Contains(got, "| m1 | Nov 2 8:05 PM | keep the nightly report |  | addressed |\n") {
+		t.Fatalf("m1 not marked:\n%s", got)
+	}
+}
+
 func TestTheVerbRefusesAnyOtherState(t *testing.T) {
 	got, err := run(t, "mark", "m1", "done")
 	if err == nil || !strings.Contains(err.Error(), "responded or addressed") {

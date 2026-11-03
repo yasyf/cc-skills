@@ -82,7 +82,7 @@ def test_a_prompt_on_the_communicator_adds_a_row_with_its_full_text(communicator
 
     [row] = communicator.rows()
     assert re.fullmatch(r"\| m1 \| \w{3} \d{1,2} \d{1,2}:\d{2} [AP]M \| keep the report \\\| the nightly one<br>and the weekly \|  \| open \|", row)
-    assert f"`{owner_ledger.LR} owner mark m1 responded|addressed [--routed <seq>] --drive brook`" in result.message
+    assert f"`{owner_ledger.LR} owner mark m1 responded|addressed [--routed <seq>] --drive brook-drive`" in result.message
 
 
 def test_rows_continue_the_hand_ledger_and_keep_it(communicator: Window) -> None:
@@ -121,7 +121,7 @@ def test_stop_with_an_open_row_refuses_naming_the_row_and_the_verb(communicator:
     [result] = communicator.stop()
 
     assert result.action == Action.block
-    assert f"`{owner_ledger.LR} owner mark <row> responded|addressed [--routed <seq>] --drive brook`" in result.message
+    assert f"`{owner_ledger.LR} owner mark <row> responded|addressed [--routed <seq>] --drive brook-drive`" in result.message
     assert "m1 Nov 2 8:05 PM: keep the nightly report" in result.message
 
 

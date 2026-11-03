@@ -7,7 +7,7 @@ from pathlib import Path
 
 from captain_hook import Allow, BaseHookEvent, Block, Event, FromSubagent, HookResult, Input, Tool, WorkflowState, hook, on, workflow_state
 
-from .compaction_handoff import Communicator, CompactionState, bus_name, communicator_tests, drive_entry
+from .compaction_handoff import Communicator, CompactionState, communicator_tests, drive_entry
 from .owner_facing import REPLY_WINDOW
 from .register_capture import CREDENTIAL, REDACTED, STAMP, slack_dms
 from .root_context import PACIFIC, OwnerPrompt
@@ -69,7 +69,7 @@ def add_owner_message(evt: BaseHookEvent) -> HookResult | None:
     if not (entry := drive_entry(evt)):
         return None
     row = add_row(ledger_of(entry), datetime.now(UTC), evt.user_prompt or "")
-    return evt.context(NEW_ROW.format(lr=LR, row=row, drive=bus_name(entry)))
+    return evt.context(NEW_ROW.format(lr=LR, row=row, drive=entry["drive"]))
 
 
 @on(
@@ -105,7 +105,7 @@ def add_owner_slack_dms(evt: BaseHookEvent) -> HookResult | None:
 def owner_messages_close_before_stop(evt: BaseHookEvent) -> HookResult | None:
     if not (entry := drive_entry(evt)) or not (rows := open_rows(ledger_of(entry))):
         return None
-    return evt.block(OPEN_ROWS.format(lr=LR, row="<row>", drive=bus_name(entry), rows="\n".join(rows)))
+    return evt.block(OPEN_ROWS.format(lr=LR, row="<row>", drive=entry["drive"], rows="\n".join(rows)))
 
 
 def asked(text: str = "Merge #48401 now?", **call: object) -> Input:
@@ -126,4 +126,3 @@ hook(  # capt-hook: no-escape the owner ruled this tool off the communicator wit
         asked(state=ACTIVE, agent_id="a1b2c3"): Allow(),
     }),
 )
-
