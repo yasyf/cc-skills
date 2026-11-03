@@ -6,7 +6,7 @@
 - [Launch incident lanes directly](#launch-incident-lanes-directly)
 - [Scope before and during incident mode](#scope-before-and-during-incident-mode)
 - [Incident mode on PRs and lanes](#incident-mode-on-prs-and-lanes)
-- [Incident clocks and PR-SILENT](#incident-clocks-and-pr-silent)
+- [Incident clocks](#incident-clocks)
 - [Case lanes for unfixed cases](#case-lanes-for-unfixed-cases)
 - [Take over another drive's stalled fix](#take-over-another-drives-stalled-fix)
 - [What the executor guarantees](#what-the-executor-guarantees)
@@ -122,24 +122,17 @@ A fix that grows into a redesign of a path the plan deletes is a signal to stop,
 - The plan check still holds. The finder and fidelity desks still grade the PR, and `rulings.py check-pr` refuses as it does for any PR (`reference/owner-rulings.md`). The remaining gates are an approving review, green required checks, a plain squash, and zero deletes and zero replaces on apply.
 - The record that resolves the incident ends incident mode.
 
-## Incident clocks and PR-SILENT
+## Incident clocks
 
-**Every incident fix lane aims to be fix-live within 20 minutes of launch.** The root treats a lane past 20 minutes as a miss to act on in that turn. The orca desk runner keeps two clocks on incident fix lanes: the milestone clock (mechanism, opened PR, `ready`) and the `PR-SILENT` clock from mechanism to PR. Their thresholds, the lanes they cover, what stops them, and the `<lane>-opus` fallback are in [orca-desk-brief.md](orca-desk-brief.md#handle-alerts-incident-clocks-and-case-lanes). The root's part:
+**Every incident fix lane aims to be fix-live within 20 minutes of launch.** The root treats a lane past 20 minutes as a miss to act on in that turn. The orca desk runner keeps a milestone clock on incident fix lanes: mechanism, opened PR, `ready`. Its thresholds, the lanes it covers, what stops it, and the `<lane>-opus` fallback are in [orca-desk-brief.md](orca-desk-brief.md#handle-alerts-incident-clocks-and-case-lanes). The root's part:
 
 - **On `INCIDENT-CLOCK <lane> <mechanism|pr|ready>`**, the root posts the line as a `report` to `owner-relay`, ahead of any other work in that turn, and ratifies the fallback the line names. Both lanes keep running, and the first PR wins.
 - **On `INCIDENT-CLOCK <lane> in-process`**, which the runner posts after the Orca launch of `<lane>-opus` failed twice, the root starts `<lane>-opus` that turn in its own session as an `Agent` of type `long-running:lane-ship` on opus in fast mode with the brief the line names, and never retries Orca a third time.
 - **A root `decide` steers a clocked lane and never stops its clock**, so a handoff record cannot switch off the backup. A root `hold` naming the lane, or a `stand-down` or `stopped` to it, does stop it.
-- **On `PR-SILENT <lane> #<seq>`**, the root acts on the code state the line carries, below.
 
-**Act on `PR-SILENT` using `drive.py lane-status <lane>`.** The `PR-SILENT` line embeds the output of:
-
-```bash
-drive.py lane-status <lane>
-```
+**A lane cannot post a mechanism and go silent.** `mechanism` is not a turn end, so `cci hook stop` refuses the lane's stop until it posts `opened` or `blocker`. Read a lane's code state with `drive.py lane-status <lane>`.
 
 `drive.py lane-status <lane>` finds every worktree the lane owns from launch receipts, `WORKTREE` records posted by the `announce_lane_worktree` hook, `git worktree list`, and PR head branches. Each line names the branch, dirty files, commits ahead of trunk, the last commit's age, whether the origin branch holds HEAD, and the PR with its CI state. A lane with no worktree on this Mac, such as an Orca worker on a paired remote server, reads from the drive's Orca Run instead, or `--run <run>` or a `ctx_` dispatch id. It prints one line per dispatch whose task title, display name, or spec names the lane, with its worktree, environment, branch, stage, outcome, liveness, last update and heartbeat, terminal, and last message to the Run. A lane that is an in-process teammate of the drive's root session also gets a line naming its agent type, model, whether it runs or sits idle, its last activity, and when it joined. With none, it prints `no worktree found for lane <lane>` and exits 1.
-
-`desk-runner.py show` lists each waiting lane as `pr-silent <lane>: ...` with the same command. The root reads the code state in the `PR-SILENT` line instead of checking by hand; it orders the lane to push and open the PR, or starts `<lane>-opus` when the line shows no code. A root `--resolves` on the line, or `stand-down` or `stopped` to the lane, ends the repeats. On the lane side, the `incident_lane_ships_its_mechanism` gate refuses an in-process incident lane's stop while its newest mechanism has no `opened` or `blocker` after it and `drive.py lane-status` shows no pushed branch. It prints that status and the commit, push, and submit commands to run, and passes a lane that has neither a worktree nor a name that owes a PR.
 
 ## Case lanes for unfixed cases
 

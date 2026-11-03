@@ -36,7 +36,7 @@ Every item is named, and a full row goes where a decision or blocker lives: pinn
 - **Who is on it right now**: each lane on the work that was heard within two hours, or **nobody**.
 - **What blocks it**: each such lane's open ask or blocker to the coordinator, with its seq and time, or a plan task's wait.
 - **What we are doing to unblock it, and by when**: each lane's newest record, and the time its next record is due by the supervisor's stale line. With nobody on it, it says the coordinator starts a lane this turn.
-- **What went wrong or slowed it**: each open retro-table row its lanes own, with what prevents a repeat, its state and due time; lanes gone quiet; lanes that took over. "None recorded" only when there is none.
+- **What went wrong or slowed it**: each open retro-table row its lanes own, with what prevents a repeat, its state and due time; lanes parked on a gate that has not fired, with the gate; lanes that took over. "None recorded" only when there is none.
 
 ## The coverage check
 

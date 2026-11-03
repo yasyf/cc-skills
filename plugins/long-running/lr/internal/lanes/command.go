@@ -49,6 +49,7 @@ func Command(a *app.App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "lanes [NAME...]",
 		Short: "The drive's one liveness answer: one line per lane in the registry",
+		Args:  cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, names []string) error {
 			s, _, err := opened(a)
 			if err != nil {
@@ -81,6 +82,7 @@ func Command(a *app.App) *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&asJSON, "json", false, "one JSON object per lane")
+	cmd.AddCommand(handoffCommand(a))
 	return cmd
 }
 

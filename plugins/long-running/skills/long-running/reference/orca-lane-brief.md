@@ -99,8 +99,8 @@ Design rulings, verbatim: <each owner ruling on the subsystem this lane touches,
 Design questions: settle each from this brief, the standing rules register, and the
   base branch yourself, and post the choice as a `contract` record with its reason.
   Ask the root (`cci post --kind ask --to root`) only when the choice changes
-  owner-visible behaviour, and keep building the rest while the ask is open. Never
-  end a turn waiting for an answer.
+  owner-visible behaviour, and keep building the rest while the ask is open. With
+  nothing left to build, the open `ask` is what lets the turn end: its answer wakes you.
 Do:
   0. Before designing, name what already grades or handles this signal: monitors,
      the release's Watch, open owner tasks and picks (`ccn task list`,
@@ -239,9 +239,14 @@ GitHub budget: read GitHub only through ccx, with `ccx vcs pr status`, `vcs pr s
 Report short deltas with pointers (file:line, PR number, sha, Slack ts, disk path); never
   paste a diff, log, PR body, or thread into a message. Write it to disk and send the path.
 Finish: a lane with a PR finishes only once its squash `(#N)` is on the base branch.
-  Drive to a terminal state, post the report as a cci `report` record, then
+  Drive to a terminal state, post the report as a cci `done` record, then
   SendMessage <orchestrator> exactly one report, ≤10 lines: verdict | ids | what
-  changed | what is next. That message is your last action. Do not end a turn waiting. Every push to a reported PR re-reports the new
+  changed | what is next. That message is your last action.
+  A turn ends only on a typed record, and `cci hook stop` refuses every other stop:
+  `done`, `stopped`, or an open `ask`, `blocker` or `blocked`. To wait on an event, post
+  `cci post --kind blocked` with `--pr N`, `--target T`, `--lane-ref L`, or a `card-` id in
+  its text, and stop; that event wakes you, and a red PR you parked on wakes you. `done` retires you for good, so post it only when nothing is left. Handing work to
+  another lane is `blocked --lane-ref <it>`, not a sentence. Every push to a reported PR re-reports the new
   head with `ledger.py report --drive <drive>` in the same turn; the desk grades without waiting for it.
 ```
 
@@ -261,7 +266,7 @@ is listed under Escalate stops for the coordinator: use the preamble's
 "capacity reached", use the preamble's `send --type question` or `--type escalation`
 instead. Keep working on everything that does not depend on the answer; the
 runner escalates those messages to the root exactly like an ask.
-Never end a turn waiting and never park. AskUserQuestion is unavailable. A decision
+End a turn on a wait only after posting it as a cci `ask` or `blocked` record. AskUserQuestion is unavailable. A decision
 the brief, the plan, and the owner's answers do not settle stops that item until the
 coordinator answers the ask above; never take a default or a provisional pick (owner
 answers 01736af and 752564a).

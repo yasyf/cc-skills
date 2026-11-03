@@ -20,7 +20,6 @@ PAGE_ROWS = 500
 INTERNED = ("drive", "lane", "kind", "to", "topic", "source", "status")
 CLAIM_KINDS = ("opened", "head")
 INCIDENT_LANE = re.compile(r"^(?:inc|incident|outage)-")
-FIX_LANE = re.compile(r"-(?:fix(?:-\d+)?|opus|case\d+)$")
 INCIDENT_TAG = re.compile(r"\b([A-Z]{2,})(?:-([0-9A-Z]*\d[0-9A-Z]*)|(\d[0-9A-Z]*))\b")
 ANSWER_TEXT = re.compile(r"^(?:OPENED|READY)\b")
 ANSWER_KINDS = frozenset({*CLAIM_KINDS, "ready", "fix-live"})
@@ -401,16 +400,6 @@ def incident_keys(record: dict) -> set[str]:
     text = f"{record.get('topic') or ''} {record.get('text') or ''}"
     tags = {f"tag:{found[1]}{found[2] or found[3]}" for found in INCIDENT_TAG.finditer(text)}
     return tags | ({f"topic:{record['topic']}"} if record.get("topic") else set())
-
-
-def answers_mechanism(record: dict) -> set[str]:
-    """The mechanisms a record answers, as keys `incident_keys` gives a mechanism, `seq:<n>` for one it names with `--re`, or `lane:<name>` for each lane a root ruling is addressed to: a lane's PR, ready, or fix-live, or the root's go, decide, or decision; empty for any other record."""
-    root = record["lane"] == "root"
-    kind = record["kind"]
-    if not (kind in ROOT_ANSWER_KINDS if root else kind in ANSWER_KINDS or (kind in TEXT_KINDS and ANSWER_TEXT.match(record.get("text") or ""))):
-        return set()
-    addressed = {f"lane:{lane}" for lane in record.get("to") or []} if root and kind in ROOT_RULINGS else set()
-    return incident_keys(record) | addressed | ({f"seq:{record['re']}"} if record.get("re") else set())
 
 
 def trunk(records: list[dict]) -> Trunk:

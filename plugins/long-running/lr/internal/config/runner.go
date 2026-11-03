@@ -21,7 +21,6 @@ type RunnerDeadlines struct {
 	IncidentPRMinutes        int `json:"incident_pr_minutes"`
 	IncidentReadyMinutes     int `json:"incident_ready_minutes"`
 	PRSilentMinutes          int `json:"pr_silent_minutes"`
-	PRSilentEveryMinutes     int `json:"pr_silent_every_minutes"`
 }
 
 type RunnerBriefs struct {
@@ -67,7 +66,7 @@ func LoadRunner(path string) (Runner, error) {
 	}{Deadlines: RunnerDeadlines{
 		StartMinutes: 10, LaunchMinutes: 15, EnqueueMinutes: 15, HoldMinutes: 15, ReleaseStartMinutes: 10,
 		IncidentReleaseMinutes: 3, CutMinutes: 4, IncidentMechanismMinutes: 10, IncidentPRMinutes: 15, IncidentReadyMinutes: 20,
-		PRSilentMinutes: 10, PRSilentEveryMinutes: 5,
+		PRSilentMinutes: 10,
 	}}
 	raw.Incident.CaseLanes = 2
 	if err := json.Unmarshal(data, &raw); err != nil {

@@ -10,7 +10,6 @@
     drive.py record  --session ID --lane NAME --cwd DIR [--drive ID] [--opened] --pr [OWNER/NAME#]N[=SHA]...
     drive.py landed  --session ID [--drive ID] --pr N...
     drive.py lane-status LANE|DISPATCH [--drive ID] [--run ID]
-    drive.py pr-owed LANE [--drive ID]
     drive.py digest  [--drive ID] [--quiet-point]
     drive.py reds    [--drive ID]
     drive.py go      [--drive ID] PR...
@@ -64,11 +63,6 @@ A ``ctx_`` lane names that dispatch directly. A lane that is an in-process teamm
 also gets a line from ``lanes.teammate_status``: its agent type, model, whether it runs or sits idle, its last
 activity, and when it joined. With none found it prints ``no worktree found for lane <lane>``
 and exits 1.
-
-``pr-owed`` answers whether a lane still owes a PR for its mechanism, from the drive's records of the last 12 hours.
-It prints ``owed: <mark> #<seq>`` and exits 0 when the lane's newest MECHANISM or CANDIDATE has no settling record of its own
-and no PR, ready, fix-live, or root go from any lane answers it by ``--re``, topic, or incident tag such as ``SAND-5A``.
-Otherwise it prints ``not owed: <why>`` and exits 1, as it does for an evidence, proof, closeout, desk, or audit lane.
 
 ``digest`` prints one line per desk runner from its newest ``<desk> alive`` cci record on the drive: its pid, the plugin
 version it runs, the version its ``runner.json`` pins, the version the install link names, and when it posted. A runner
@@ -161,7 +155,6 @@ DASHBOARD_CONTEXT = Path("dashboard") / "context.json"
 PACK = Path(__file__).resolve().parents[4] / "dashboard"
 PR_SPEC = re.compile(r"^(?:(?P<repo>[\w.-]+/[\w.-]+)#)?(?P<pr>\d+)(?:=(?P<head>[0-9a-f]{7,40}))?$")
 LANE_RECORDS = timedelta(days=1)
-PR_OWED_WINDOW = timedelta(hours=12)
 OUTSIDE_REPO = 3
 CI_WORKFLOW = "long-running CI"
 GITHUB_REPO = re.compile(r"^https://github\.com/(?P<repo>[\w.-]+/[\w.-]+?)(?:\.git)?/?$")
@@ -680,25 +673,6 @@ def cmd_lane_status(args: argparse.Namespace, shell: ledger.Shell) -> int:
     return 0
 
 
-def cmd_pr_owed(args: argparse.Namespace, shell: ledger.Shell) -> int:
-    if (entry := resolve(args)) is None:
-        return 1
-    if lanes.owes_no_pr(Path(entry["state_dir"]), args.lane):
-        print(f"not owed: {args.lane} is an evidence, proof, closeout, desk, or audit lane")
-        return 1
-    since = (datetime.now(timezone.utc) - PR_OWED_WINDOW).strftime("%Y-%m-%dT%H:%M:%SZ")
-    drive = cci_drive(entry)
-    kinds = sorted({*cci.ANSWER_KINDS, *cci.ROOT_ANSWER_KINDS, *cci.TEXT_KINDS})
-    others = cci.records(shell.run, drive, *(f"--kind={kind}" for kind in kinds), since=since)
-    own = cci.records(shell.run, drive, "--lane", args.lane, since=since)
-    records = list({record["seq"]: record for record in [*others, *own] if record["drive"] == drive}.values())
-    if (owed := lanes.owed_mechanism(args.lane, records)) is None:
-        print(f"not owed: no mechanism of {args.lane} waits on a PR")
-        return 1
-    print(f"owed: {cci.mechanism_mark(owed)} #{owed['seq']}")
-    return 0
-
-
 def busy(beats: dict[str, dict | None], now: datetime) -> list[str]:
     """What keeps the drive from a quiet point: each desk whose newest alive record is over `QUIET_BEAT` old, predates the `flight` attr, or names a command or pass in flight."""
     found = []
@@ -917,11 +891,6 @@ def build_parser() -> argparse.ArgumentParser:
     lane_status.add_argument("--drive")
     lane_status.add_argument("--run", help="the Orca run to read a lane with no local worktree from; default the drive's")
     lane_status.set_defaults(handler=cmd_lane_status)
-
-    pr_owed = subparsers.add_parser("pr-owed", help="whether a lane's mechanism still waits on a PR; exit 1 when not")
-    pr_owed.add_argument("lane")
-    pr_owed.add_argument("--drive")
-    pr_owed.set_defaults(handler=cmd_pr_owed)
 
     digest = subparsers.add_parser("digest", help="each desk runner's running version beside the installed one, and each judge kind's verdicts over the last day; exit 1 when a runner is behind or has no heartbeat")
     digest.add_argument("--drive")
