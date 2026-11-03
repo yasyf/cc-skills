@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import dataclasses
 import json
-import re
 import subprocess
 
 from captain_hook import Allow, BaseHookEvent, Event, FromSubagent, HookResult, Input, Tool, WorkflowState, on
@@ -11,7 +10,7 @@ from captain_hook.util import reqenv
 LANE_ENV = "CLAUDE_LONG_RUNNING_LANE"
 ROOT_LANES = frozenset({"root", "main"})
 RELAY_LANE = "owner-relay"
-BINDING_COMMAND = re.compile(r"\bcci\s+(?:announce|subscribe|drive\s+use|post)\b")
+BINDING_VERBS = frozenset({("announce",), ("subscribe",), ("drive", "use")})
 CCI_TIMEOUT_SECONDS = 5
 WHO = "cci who --session"
 BOUND_RELAY = {WHO: '{"agent":"a1b2c3","lane":"bridge-split-1"}\n{"lane":"owner-relay"}\n'}
@@ -98,7 +97,7 @@ def read_window_lane_at_start(evt: BaseHookEvent) -> HookResult | None:
 )
 def read_window_lane_after_a_binding(evt: BaseHookEvent) -> HookResult | None:
     """A `cci announce`, `subscribe` or `drive use` can move this window's binding, and a first `cci post` can make one, so each rereads it; a post once the window is bound moves nothing."""
-    found = BINDING_COMMAND.search(evt._tool_input.get("command") or "")
-    if found and (not found[0].endswith("post") or WindowLane.load(evt).lane is None):
+    verbs = [tuple(call.args[: len(verb)]) for call in evt.command.calls("cci") for verb in (*BINDING_VERBS, ("post",))]
+    if any(verb in BINDING_VERBS for verb in verbs) or ("post",) in verbs and WindowLane.load(evt).lane is None:
         read_window_lane(evt)
     return None
