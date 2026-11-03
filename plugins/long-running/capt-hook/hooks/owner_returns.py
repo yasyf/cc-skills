@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import time
+from itertools import pairwise
 from pathlib import Path
 
 from captain_hook import Allow, AssistantMessage, BaseHookEvent, Block, Event, FromSubagent, HookResult, Input, T, Warn, WorkflowState, on, workflow_state
@@ -19,6 +20,14 @@ MISSING = "A reply to the owner's return opens with the full update, and this on
 NO_LINK = "the dashboard link on its first line"
 NO_TABLE = "the owner table under a feature heading"
 UPDATE = "http://dash.brook.ts.net:8840/\n\n## Durable agents, step Rebuild\n| Row | What it delivers | State | Who is on it right now | What blocks it | What we are doing to unblock it, and by when | What went wrong or slowed it |\n|---|---|---|---|---|---|---|\n| Step 2 | Agents resume | open | fix-3 | nothing recorded | fix-3 lands it | None recorded |"
+LETTERED = re.compile(r"^[ \t>*-]*\(?([A-H])[).:]\**\s|(?<![\w(])\(([A-H])\)\s|(?<![\w(])([A-H])\)\**\s", re.MULTILINE)
+CHOICE = re.compile(r"\b(?i:option) \(?[A-H1-9]\b|(?i:\bpick one\b|\bwhich (?:do you want|would you like|do you prefer|one do you)\b)")
+SLACK_TOOLS = frozenset({"slack_send", "slack_reply", "slack_send_message"})
+SLACK_TS = re.compile(r"\bts\W{1,4}\d{10}\.\d{6}")
+BOARD_VERBS = frozenset({"push", "update-block", "ask"})
+INLINE_PICK = "A pick for the owner never sits inline in this window. Post the options at his Slack DM root with `slack_send`, or draw them as a board card with `cc-present push` or `cc-present update-block`, then stop again."
+PICK = "Two ways to fix the relay:\n\nA) Keep one shared replica\nB) Give each chat its own\n\nWhich do you want?"
+SENT = '{"ok": true, "channel": "D0B6Z", "ts": "1793635190.051179"}'
 
 
 @workflow_state("long_running_owner_returns")
@@ -58,20 +67,58 @@ def owner_return_opens_with_the_update(evt: BaseHookEvent) -> HookResult | None:
     return evt.context(RETURNED.format(minutes=int(gap // 60), steps=Path(drive_entry(evt)["state_dir"]) / STEPS))
 
 
+def picked(*calls: dict) -> Input:
+    return Input(transcript=[T.user("how do we fix the relay"), *calls, T.assistant(PICK)], state=[CompactionState(active=True)])
+
+
 @on(
     Event.Stop,
     only_if=[Communicator()],
     skip_if=[FromSubagent()],
     tests=communicator_tests({
+        picked(): Block(pattern=r"^A pick for the owner never sits inline"),
+        picked(*T.tool_turn("mcp__plugin_cc-slack_cc-slack__slack_send", result=SENT, channel_id="D0B6Z", text=PICK)): Allow(),
+        picked(*T.tool_turn("mcp__plugin_cc-slack_cc-slack__slack_send", result="channel_not_found", is_error=True, channel_id="D0B6Z", text=PICK)): Block(pattern=r"never sits inline"),
+        picked(*T.tool_turn("Bash", result="updated relay-card", command="cc-present update-block relay-card --session s --block -")): Allow(),
+        Input(transcript=[T.user("where are we"), T.assistant("Three things landed:\n\n1. The relay fix merged.\n2. The dashboard shows step 2.\n3. CI is green on main.")], state=[CompactionState(active=True)]): Allow(),
         back("Since you were away, three PRs merged.\n\n" + UPDATE): Block(pattern=r"lacks the dashboard link on its first line\."),
         back("http://dash.brook.ts.net:8840/\n\nThree PRs merged while you were away."): Block(pattern=r"lacks the owner table under a feature heading\."),
         back(UPDATE): Allow(),
         back("Since you were away, three PRs merged.", returned=False): Allow(),
     }),
 )
-def owner_return_reply_leads_with_the_update(evt: BaseHookEvent) -> HookResult | None:
+def communicator_reply_follows_the_owner_rules(evt: BaseHookEvent) -> HookResult | None:
+    reply = AssistantMessage().content(evt) or ""
+    problems = [problem for problem in (missing_update(evt, reply), inline_pick(evt, reply)) if problem]
+    return evt.block(" ".join(problems)) if problems else None
+
+
+def missing_update(evt: BaseHookEvent, reply: str) -> str | None:
     if not OwnerReturns.load(evt).returned:
         return None
-    reply = AssistantMessage().content(evt) or ""
     missing = [gap for gap, found in ((NO_LINK, LINK.search(reply.split("\n", 1)[0])), (NO_TABLE, OWNER_TABLE.search(reply))) if not found]
-    return evt.block(MISSING.format(missing=" and ".join(missing))) if missing else None
+    return MISSING.format(missing=" and ".join(missing)) if missing else None
+
+
+def inline_pick(evt: BaseHookEvent, reply: str) -> str | None:
+    offers = CHOICE.search(reply) or {"A", "B"} <= {letter for found in LETTERED.findall(reply) for letter in found if letter}
+    return INLINE_PICK if offers and not any(shown_outside(use) for use in evt.ctx.turn.tool_calls.items) else None
+
+
+def shown_outside(use: object) -> bool:
+    if use.result is None or use.result.is_error:
+        return False
+    if use.call.name.rsplit("__", 1)[-1] in SLACK_TOOLS:
+        return bool(SLACK_TS.search(use.result.content))
+    return use.call.name == "Bash" and any(drawn(cmd.argv, use.result.content) for cmd in use.call.command_line if len(cmd.argv) > 1)
+
+
+def drawn(argv: list[str], result: str) -> bool:
+    match Path(argv[0]).name, argv[1]:
+        case "cc-slack", "send" | "reply":
+            return bool(SLACK_TS.search(result))
+        case "cc-present", verb:
+            return verb in BOARD_VERBS and "--dry-run" not in argv
+        case "cci", "post":
+            return any(flag == "--attr" and value.startswith("card=") and value != "card=" for flag, value in pairwise(argv))
+    return False
