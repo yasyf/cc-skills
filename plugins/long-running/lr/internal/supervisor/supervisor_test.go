@@ -244,7 +244,7 @@ func TestALanesOnlySupervisorRunsNoPRPass(t *testing.T) {
 	equal(t, len(items), 0)
 }
 
-func TestAnUnreadLanesSourceAndAnUnreadCheckSkipOnlyThemselves(t *testing.T) {
+func TestAnUnreadLanesSourceAndAFailedCheckSkipOnlyThemselves(t *testing.T) {
 	s, c := memory(t), &clock{t0}
 	checked := 0
 	d := Deps{
@@ -257,6 +257,9 @@ func TestAnUnreadLanesSourceAndAnUnreadCheckSkipOnlyThemselves(t *testing.T) {
 			return fmt.Errorf("%w: slack down", lanes.ErrUnread)
 		}, func(context.Context, time.Time) error {
 			checked++
+			return errors.New("cci post: time 1:15 AM in the text names something that has not happened yet")
+		}, func(context.Context, time.Time) error {
+			checked++
 			return nil
 		}},
 	}
@@ -264,7 +267,7 @@ func TestAnUnreadLanesSourceAndAnUnreadCheckSkipOnlyThemselves(t *testing.T) {
 	reports, _ := runLoop(t, s, "0.8.0", 1, d, 2)
 
 	equal(t, len(reports), 2)
-	equal(t, checked, 4)
+	equal(t, checked, 6)
 }
 
 func TestAStoreFailureInALanesTickEndsTheProcess(t *testing.T) {
