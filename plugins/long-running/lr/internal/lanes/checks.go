@@ -539,45 +539,21 @@ func (n *LandedNotLive) targetsOf(ctx context.Context, sha string) ([]string, er
 	if targets, known := n.touched[sha]; known {
 		return targets, nil
 	}
-	checkout := n.Env.Config.Checkout
-	diff, err := n.Env.Runner.Run(ctx, shell.Command{Argv: []string{"git", "-C", checkout, "diff-tree", "--no-commit-id", "--name-only", "-r", sha}, Timeout: readTimeout})
-	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrUnread, err)
-	}
-	request, err := json.Marshal(map[string]any{"body": "", "paths": strings.FieldsFunc(diff.Stdout, func(r rune) bool { return r == '\n' })})
+	paths, err := changedPaths(ctx, n.Env.Runner, n.Env.Config.Checkout, sha)
 	if err != nil {
 		return nil, err
 	}
-	argv := append(slices.Clone(n.ReleaseCLI), "select", "--pr")
-	selected, err := n.Env.Runner.Run(ctx, shell.Command{Argv: argv, Stdin: string(request), Dir: checkout, Timeout: readTimeout})
-	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrUnread, err)
-	}
-	var answer struct {
-		Touched []string `json:"touched"`
-	}
-	if err := json.Unmarshal([]byte(selected.Stdout), &answer); err != nil {
-		return nil, fmt.Errorf("%w: release select --pr: %w", ErrUnread, err)
-	}
-	return answer.Touched, nil
+	return touchedBy(ctx, n.Env.Runner, n.ReleaseCLI, n.Env.Config.Checkout, paths)
 }
 
 func (n *LandedNotLive) running(ctx context.Context) (map[string][]string, error) {
-	argv := append(slices.Clone(n.ReleaseCLI), "live", "--json")
-	result, err := n.Token.Run(ctx, n.Env.Runner, shell.Command{Argv: argv, Dir: n.Env.Config.Checkout, Timeout: readTimeout})
+	deploys, err := readDeploys(ctx, n.Env.Runner, &n.Token, n.ReleaseCLI, n.Env.Config.Checkout)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrUnread, err)
-	}
-	var entries []struct {
-		Target string `json:"target"`
-		Commit string `json:"commit"`
-	}
-	if err := json.Unmarshal([]byte(result.Stdout), &entries); err != nil {
-		return nil, fmt.Errorf("%w: release live: %w", ErrUnread, err)
+		return nil, err
 	}
 	running := map[string][]string{}
-	for _, entry := range entries {
-		running[entry.Target] = append(running[entry.Target], entry.Commit)
+	for _, deploy := range deploys {
+		running[deploy.Target] = append(running[deploy.Target], deploy.Commit)
 	}
 	return running, nil
 }
