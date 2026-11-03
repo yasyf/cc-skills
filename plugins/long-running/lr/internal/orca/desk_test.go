@@ -51,35 +51,36 @@ type fakeProcess struct{ exited bool }
 func (p *fakeProcess) Exited() bool { return p.exited }
 
 type deskWorld struct {
-	t          *testing.T
-	mu         sync.Mutex
-	home       string
-	desk       *Desk
-	now        time.Time
-	records    []client.Record
-	posts      []client.Draft
-	calls      [][]string
-	dispatches map[string]*fakeDispatch
-	runInbox   []orcaMessage
-	handed     []orcaMessage
-	delivery   string
-	mailboxes  map[string][]orcaMessage
-	mail       []orcaMessage
-	unread     map[string][]orcaMessage
-	refusals   map[string]object
-	postError  error
-	coordinate string
-	spawns     []spawned
-	launchOut  map[string]string
-	process    *fakeProcess
-	fired      []lanes.Fired
-	fireErr    error
-	sentID     int
-	busy       string
-	ccnFails   bool
-	release    string
-	refuseTime bool
-	gitReply   func(argv []string) (shell.Result, error)
+	t                *testing.T
+	mu               sync.Mutex
+	home             string
+	desk             *Desk
+	now              time.Time
+	records          []client.Record
+	posts            []client.Draft
+	calls            [][]string
+	dispatches       map[string]*fakeDispatch
+	runInbox         []orcaMessage
+	handed           []orcaMessage
+	delivery         string
+	mailboxes        map[string][]orcaMessage
+	mail             []orcaMessage
+	unread           map[string][]orcaMessage
+	refusals         map[string]object
+	postError        error
+	coordinate       string
+	spawns           []spawned
+	launchOut        map[string]string
+	process          *fakeProcess
+	fired            []lanes.Fired
+	fireErr          error
+	sentID           int
+	busy             string
+	ccnFails         bool
+	release          string
+	refuseTime       bool
+	refuseWithdrawal bool
+	gitReply         func(argv []string) (shell.Result, error)
 }
 
 func newDeskWorld(t *testing.T) *deskWorld {
@@ -207,6 +208,10 @@ func (w *deskWorld) Post(_ context.Context, d client.Draft) (client.Record, erro
 	if w.refuseTime && quotedClock.MatchString(d.Text) {
 		w.mu.Unlock()
 		return client.Record{}, errors.New("time 7:45 AM in the text is 100 minutes after the post time 6:05 AM, so it names something that has not happened yet: write the time it happened")
+	}
+	if w.refuseWithdrawal && quotedWithdrawal.MatchString(d.Text) {
+		w.mu.Unlock()
+		return client.Record{}, errors.New(withdrawalRefused + " record")
 	}
 	w.posts = append(w.posts, d)
 	w.mu.Unlock()
@@ -2807,6 +2812,24 @@ func TestWordsNamingAClockTheBusRefusesStillReachTheReader(t *testing.T) {
 		t.Fatal(posted.Text)
 	}
 	if !strings.Contains(readBrief(posted.Path), "the 7:45 AM stack push") {
+		t.Fatal(readBrief(posted.Path))
+	}
+}
+
+func TestALaneQuotingAWithdrawnGoStillReachesTheReader(t *testing.T) {
+	w := newDeskWorld(t)
+	w.refuseWithdrawal = true
+	line := "REPORT msg_1 go-sweep-9: read; #369767 answered (withdrawn go, tap stands)"
+
+	if _, err := w.desk.postEscalation(context.Background(), line, "root", "escalation:msg_1"); err != nil {
+		t.Fatal(err)
+	}
+
+	posted := w.postOpening("REPORT msg_1 go-sweep-9:")
+	if strings.Contains(posted.Text, "withdrawn go") || !strings.Contains(posted.Text, "([withdrawal], tap stands)") {
+		t.Fatal(posted.Text)
+	}
+	if !strings.Contains(readBrief(posted.Path), "(withdrawn go, tap stands)") {
 		t.Fatal(readBrief(posted.Path))
 	}
 }

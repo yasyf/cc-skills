@@ -414,9 +414,15 @@ func (d *Desk) postEscalation(ctx context.Context, line, to, key string) (client
 	return d.post(ctx, deskPost{Kind: escalationKind(label), Text: line, To: to, Topic: topic, Key: key, Message: string(message), ID: key})
 }
 
-const clockRefused = "names something that has not happened yet"
+const (
+	clockRefused      = "names something that has not happened yet"
+	withdrawalRefused = "a withdrawn go is one withdraw record"
+)
 
-var quotedClock = regexp.MustCompile(`\b\d{1,2}:\d{2}(?::\d{2})? ?[AaPp][Mm]\b`)
+var (
+	quotedClock      = regexp.MustCompile(`\b\d{1,2}:\d{2}(?::\d{2})? ?[AaPp][Mm]\b`)
+	quotedWithdrawal = regexp.MustCompile(`(?i)\bwithdraw(?:s|n|ing)?:?\s+(?:the\s+|root\s+|my\s+)?go(?:s|\s+records?)?\b`)
+)
 
 type deskPost struct {
 	Kind, Text, To, Topic, Key, Message, PR, ID, Lane string
@@ -433,11 +439,11 @@ func clipped(text string, limit int) string {
 
 func (d *Desk) post(ctx context.Context, p deskPost) (client.Record, error) {
 	posted, err := d.postOnce(ctx, p)
-	if err == nil || !strings.Contains(err.Error(), clockRefused) {
+	if err == nil || (!strings.Contains(err.Error(), clockRefused) && !strings.Contains(err.Error(), withdrawalRefused)) {
 		return posted, err
 	}
 	p.Message = strings.TrimSpace(p.Text + "\n\n" + p.Message)
-	p.Text = quotedClock.ReplaceAllString(p.Text, "[clock]")
+	p.Text = quotedWithdrawal.ReplaceAllString(quotedClock.ReplaceAllString(p.Text, "[clock]"), "[withdrawal]")
 	return d.postOnce(ctx, p)
 }
 
