@@ -446,7 +446,7 @@ func foldRegistry(s *store.Store, r Record, row store.Lane, known, fresh bool, a
 		if found := workerDone.FindStringSubmatch(text); found != nil {
 			if ended, ok := laneOf(s, found[1]); ok && ended.State != store.LaneRetired {
 				if out.owesNothing(s, ended.Name, fresh, at) {
-					retire(s, ended.Name, "worker-done", at)
+					retire(s, ended.Name, retiredWorkerDone, at)
 				}
 				return
 			}

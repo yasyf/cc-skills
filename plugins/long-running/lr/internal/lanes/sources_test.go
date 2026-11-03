@@ -174,7 +174,7 @@ func TestAnEndedOrcaDispatchIsAProcessRowThatReadsNotLiveSinceItsLaunch(t *testi
 	calls := 0
 	env.Runner = scripted(func([]string) (shell.Result, error) {
 		calls++
-		return shell.Result{Stdout: `{"ok":true,"result":{"workers":[{"dispatchId":"ctx_1","dispatchStatus":"dispatched"},{"dispatchId":"ctx_2","dispatchStatus":"completed"}],"page":{}}}`}, nil
+		return shell.Result{Stdout: `{"ok":true,"result":{"workers":[{"dispatchId":"ctx_1","dispatchStatus":"dispatched"},{"dispatchId":"ctx_2","dispatchStatus":"completed","workerState":"succeeded"}],"page":{}}}`}, nil
 	})
 
 	rows, err := env.orcaRows(context.Background(), nil)
@@ -183,6 +183,7 @@ func TestAnEndedOrcaDispatchIsAProcessRowThatReadsNotLiveSinceItsLaunch(t *testi
 	}
 
 	equal(t, []any{rows[0].Lane, rows[0].Live, rows[0].Dispatch, rows[1].Lane, rows[1].Live, rows[1].Dispatch}, []any{"sol-done", false, "ctx_2", "sol-fix", true, "ctx_1"})
+	equal(t, []bool{rows[0].Succeeded, rows[1].Succeeded}, []bool{true, false})
 	if !rows[0].SeenAt.Equal(launched) || !rows[1].SeenAt.Equal(t0) || len(rows) != 2 {
 		t.Fatalf("%+v", rows)
 	}

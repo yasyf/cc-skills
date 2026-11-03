@@ -193,6 +193,12 @@ func act(s *store.Store, d Deps, lane store.Lane, found map[string]Peer, taken m
 			}
 			return
 		}
+		if peer != nil && peer.Row.Succeeded && lane.Handoff == "" && lane.Asked.IsZero() {
+			if !refusedOwing(s, d, lane.Name, now) {
+				retire(s, lane.Name, retiredWorkerDone, now)
+			}
+			return
+		}
 		relaunch(s, d, lane, found, verdict.Why, taken, now, out)
 	case AskRotate:
 		do(d.Post(Post{Kind: "ask", To: []string{lane.Name}, Text: fmt.Sprintf("ROTATE: %s is at %s. Write anything not yet in the ledger or cc-notes to a cc-notes doc, post `cci post --lane %s --kind handoff --ccn <doc id> --re <this record>`, then keep working.", lane.Name, verdict.Why, lane.Name)}))
