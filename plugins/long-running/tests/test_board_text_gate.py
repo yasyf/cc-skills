@@ -1,4 +1,4 @@
-"""board_text_gate.py: one refusal names every problem in order, a failed read lets the board through with one blocker, and the recorder starts with each board."""
+"""board_text_gate.py: one refusal names every problem in order, a failed read lets the board through with a warning, and the recorder starts with each board."""
 
 from __future__ import annotations
 
@@ -138,13 +138,24 @@ def test_a_reply_with_no_body_is_not_graded(root: Root) -> None:
         assert gate.board_text_gate(root.event(PreToolUseEvent, "cc-present reply --help")) is None
 
 
-def test_a_failed_register_read_passes_the_board_and_posts_one_blocker(root: Root, posts: Path) -> None:
+def test_a_failed_read_passes_the_board_with_a_warning_and_no_blocker(root: Root, posts: Path) -> None:
     with stubbed_commands(root.reads(rows="no register for brook")):
-        assert gate.board_text_gate(root.event(PreToolUseEvent, f"cc-present update-block {board('clean-card.json')}")) is None
+        result = gate.board_text_gate(root.event(PreToolUseEvent, f"cc-present update-block {board('clean-card.json')}"))
 
-    [post] = posts.read_text().splitlines()
-    assert post.startswith("post --drive brook-bus --lane supervisor --kind blocker --to root --text board_text_gate: rulings.py rows: ")
-    assert " --id board_text_gate:" in post
+    assert result.action == "warn"
+    assert result.message.startswith("Warning, nothing was blocked: board_text_gate could not read what it checks")
+    assert "rulings.py rows: " in result.message
+    assert not posts.exists()
+
+
+def test_a_session_with_no_artifact_passes_the_board_with_a_warning(root: Root, posts: Path) -> None:
+    missing = "cc-present: no cc-present artifact for session; run `cc-present start` first"
+    with stubbed_commands(root.reads() | {"cc-present outcomes": (1, missing)}):
+        result = gate.board_text_gate(root.event(PreToolUseEvent, f"cc-present update-block {board('clean-card.json')}"))
+
+    assert result.action == "warn"
+    assert missing in result.message
+    assert not posts.exists()
 
 
 def test_a_drive_with_no_landing_runner_skips_the_text_grade(root: Root, posts: Path) -> None:

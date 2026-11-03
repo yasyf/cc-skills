@@ -4,13 +4,14 @@ import json
 import re
 import subprocess
 
-from captain_hook import Allow, BaseHookEvent, Block, CommandSchema, Event, HookResult, Input, Operand, Option, Tool, on
+from captain_hook import Allow, BaseHookEvent, Block, CommandSchema, Event, HookResult, Input, Operand, Option, Tool, Warn, on
 from captain_hook.util import reqenv
 
 from .compaction_handoff import CompactionState
 from .gate5_release import OWNER_LANES
 
 CC_SLACK = "mcp__plugin_cc-slack_cc-slack__"
+CITE_UNREAD = "Warning, nothing was blocked: this Slack post cites a record that did not read, so it went out without that check."
 WRITE_TOOLS = (f"{CC_SLACK}slack_send", f"{CC_SLACK}slack_reply", f"{CC_SLACK}slack_edit", f"{CC_SLACK}slack_dm_status", "mcp__slack__slack_send_message")
 WRITE_VERBS = ("send", "reply", "edit", "dm-status")
 CLI = CommandSchema(
@@ -51,11 +52,9 @@ def written(evt: BaseHookEvent) -> str:
 
 def owner_asked(text: str) -> bool:
     for seq in dict.fromkeys(CITED.findall(text)):
-        try:
-            done = subprocess.run(["cci", "grep", f"^#{seq} ", "--json", "-n", "1"], capture_output=True, text=True, timeout=READ_SECONDS)
-        except (OSError, subprocess.TimeoutExpired):
-            continue
-        if done.returncode == 0 and any(owners(json.loads(line)) for line in done.stdout.splitlines() if line.strip()):
+        done = subprocess.run(["cci", "grep", f"^#{seq} ", "--json", "-n", "1"], capture_output=True, text=True, timeout=READ_SECONDS)
+        done.check_returncode()
+        if any(owners(json.loads(line)) for line in done.stdout.splitlines() if line.strip()):
             return True
     return False
 
@@ -99,10 +98,19 @@ def owners(record: dict) -> bool:
             env=LANE,
             commands={"cci grep": ""},
         ): Block(),
+        Input(
+            tool=f"{CC_SLACK}slack_send",
+            tool_input={"channel_id": "C0RELEASES1", "text": "Release 11927 is live, as you asked (#318299)"},
+            env=LANE,
+            commands={"cci grep": (1, "cci: store down")},
+        ): Warn(pattern=r"^Warning, nothing was blocked: this Slack post cites a record"),
         Input(command="cc-slack thread C0RELEASES1/p1 --text release", env=LANE): Allow(),
     },
 )
 def lanes_post_no_release_status(evt: BaseHookEvent) -> HookResult | None:
-    if not drive_lane(evt) or not STATUS_TOPIC.search(text := written(evt)) or owner_asked(text):
+    if not drive_lane(evt) or not STATUS_TOPIC.search(text := written(evt)):
         return None
-    return evt.block(STATUS_REFUSED)
+    try:
+        return None if owner_asked(text) else evt.block(STATUS_REFUSED)
+    except (OSError, subprocess.SubprocessError, ValueError, KeyError):
+        return evt.context(CITE_UNREAD)
