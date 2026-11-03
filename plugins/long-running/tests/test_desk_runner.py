@@ -10394,6 +10394,27 @@ def test_a_relay_to_a_lane_the_root_stood_down_fails_quietly_and_a_relaunch_take
     assert shell.sends() == []
 
 
+def test_a_relay_to_a_successor_whose_brief_quotes_its_stood_down_predecessor_is_sent(shell, config, tmp_path, poster):
+    """Root #365892: the runner refused a relay to the live replicator-spacing-5 as stood down by the stand-down of replicator-spacing-3, a name its brief quotes in a `cci post --lane` command."""
+    clocked_lane(shell, config, tmp_path, header="Read where your predecessor left off: `cci post --lane replicator-spacing-3 --kind note --text read` is how it posted.\n")
+    cci_record(shell, lane=poster, kind="stand-down", to=["replicator-spacing-3"], at=actions.stamp(shell.clock), text=f"replicator-spacing-3 stood down for {LANE}")
+    sent = len(shell.sends())
+    cli(shell, config, "relay", "--key", "R634", "--lane", LANE, "--text", "use evidence.md")
+    orca_pass(shell, config)
+    assert incident(tmp_path, f"desk-lane-{LANE}").actions["R634"].status != "failed"
+    assert len(shell.sends()) == sent + 1
+
+
+def test_a_relay_to_a_live_lane_a_stand_down_copies_is_sent(shell, config, tmp_path, poster):
+    """A stand-down stands down its first --to lane only, as cci reads it; a lane it copies stays live."""
+    shell.launch(LANE, "ctx_a")
+    cci_record(shell, lane=poster, kind="stand-down", to=["replicator-spacing-3", LANE], at=actions.stamp(shell.clock), text="replicator-spacing-3 stands down")
+    cli(shell, config, "relay", "--key", "R635", "--lane", LANE, "--text", "use evidence.md")
+    orca_pass(shell, config)
+    assert incident(tmp_path, f"desk-lane-{LANE}").actions["R635"].status != "failed"
+    assert len(shell.sends()) == 1
+
+
 def test_a_landing_line_to_a_lane_whose_dispatch_refuses_sends_as_inactive_goes_to_cci_after_one_send(shell, config, tmp_path):
     """Coordinator #267150: pod-volume-5's Sprite dispatch ctx_7f337a9b89cc answered dispatch_inactive to every send, and each bot-held and conflict line logged SEND-FAILED after three sends."""
     shell.launch(LANE, "ctx_a")
