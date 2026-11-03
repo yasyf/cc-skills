@@ -11,6 +11,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 )
 
 const nameBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-"
@@ -56,7 +58,7 @@ func about(record map[string]any, wanted []string) bool {
 	for _, to := range addressed {
 		text, _ := to.(string)
 		name, _, _ := strings.Cut(text, "@")
-		if slices.Contains(wanted, name) {
+		if slices.ContainsFunc(wanted, func(lane string) bool { return lanes.Addresses([]string{name}, lane) }) {
 			return true
 		}
 	}

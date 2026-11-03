@@ -97,7 +97,7 @@ func fixedByOrderedLane(rows []client.Record) map[string]int64 {
 		}
 	}
 	for _, row := range rows {
-		if _, seen := fixed[row.Lane]; !seen && row.Kind == landedKind && ordered[row.Lane] {
+		if _, seen := fixed[row.Lane]; !seen && row.Kind == landedKind && (ordered[row.Lane] || ordered[client.Stem(row.Lane)]) {
 			fixed[row.Lane] = row.Seq
 		}
 	}

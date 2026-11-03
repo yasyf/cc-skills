@@ -3,11 +3,11 @@ package incident
 import (
 	"context"
 	"regexp"
-	"slices"
 	"strings"
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 )
 
 const (
@@ -93,7 +93,7 @@ func (c CommsBus) Find(ctx context.Context, event string) (int64, error) {
 		return 0, err
 	}
 	for _, record := range records {
-		if record.Lane == c.Sender && slices.Contains(record.To, c.CommsLane) && strings.HasPrefix(record.Text, prefix) {
+		if record.Lane == c.Sender && lanes.Addresses(record.To, c.CommsLane) && strings.HasPrefix(record.Text, prefix) {
 			return record.Seq, nil
 		}
 	}

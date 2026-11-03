@@ -130,7 +130,7 @@ func (e Env) handoffBody(ctx context.Context, s *store.Store, lane, cwd, transcr
 		}
 	}
 	out.WriteString("\n## Asks and blockers addressed to it\n\n")
-	addressed := slices.DeleteFunc(open, func(r client.Record) bool { return !slices.Contains(r.To, lane) })
+	addressed := slices.DeleteFunc(open, func(r client.Record) bool { return !Addresses(r.To, lane) })
 	if len(addressed) == 0 {
 		out.WriteString("None open.\n")
 	}

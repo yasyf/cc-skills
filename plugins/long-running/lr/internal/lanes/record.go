@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 	_ "time/tzdata"
+
+	"github.com/yasyf/cc-inbox/client"
 )
 
 var pacificZone = func() *time.Location {
@@ -79,6 +81,10 @@ func (r Record) PRs() []int {
 
 func (r Record) Attr(name string) string {
 	return r.Fields.Attrs[name]
+}
+
+func Addresses(to []string, lane string) bool {
+	return slices.Contains(to, lane) || slices.Contains(to, client.Stem(lane))
 }
 
 func (r Record) Addressed() map[string]bool {
