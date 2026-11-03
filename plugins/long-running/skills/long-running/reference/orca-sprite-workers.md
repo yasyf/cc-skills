@@ -92,6 +92,9 @@ replaced by rename, so a running process keeps its old file; a plugin's old
 tree stays where the session loaded it; and a lane in mid-turn sees the new
 hooks at its next hook call, and the new skills only in its next session.
 
+`--probe-only` stops after the `--probe` Sprite, so someone can check a real hook
+there before running the rest.
+
 `lr sprites roll` finds a Sprite through the cc-remote task record of each live
 worker, keyed by worktree and terminal, so a worker on the Mac is never a box.
 
