@@ -406,24 +406,27 @@ func briefFile(t *testing.T, dir, name, text string) string {
 	return path
 }
 
-func TestAnIncidentPairPostsAddressedLaunchLinesKeyedByTheirRecordsSeq(t *testing.T) {
+func TestAnIncidentTrioPostsAddressedLaunchLinesKeyedByTheirRecordsSeq(t *testing.T) {
 	for _, name := range []string{"inc-app-origin", "inc-app-origin-fix"} {
 		t.Run(name, func(t *testing.T) {
 			desk, bus, dir, out := deskFixture(t)
 			desk.Name = name
 			desk.FixBrief = briefFile(t, dir, "fix-brief.md", "fix")
 			desk.EvidenceBrief = briefFile(t, dir, "evidence-brief.md", "evidence")
+			desk.CommsBrief = briefFile(t, dir, "comms-brief.md", "comms")
 			bus.verdicts["R102"] = "LAUNCHED R102 {lane}: dispatch ctx_fix terminal term_fix"
 			bus.verdicts["R104"] = "LAUNCHED R104 {lane}: dispatch ctx_ev terminal term_ev"
+			bus.verdicts["R106"] = "LAUNCHED R106 {lane}: dispatch ctx_co terminal term_co"
 			if err := desk.Run(context.Background()); err != nil {
 				t.Fatal(err)
 			}
-			if len(bus.drafts) != 2 {
+			if len(bus.drafts) != 3 {
 				t.Fatalf("drafts %+v", bus.drafts)
 			}
 			for i, want := range []string{
 				"orca-desk: launch inc-app-origin-fix NOW incident xhigh role=fix brief=" + desk.FixBrief,
 				"orca-desk: launch inc-app-origin-evidence NOW incident xhigh role=evidence brief=" + desk.EvidenceBrief,
+				"orca-desk: launch inc-app-origin-comms NOW incident xhigh role=comms brief=" + desk.CommsBrief,
 			} {
 				draft := bus.drafts[i]
 				if !reflect.DeepEqual(draft.To, []string{deskLane}) || draft.Kind != "go" || draft.Lane != "root" || draft.Topic != "inc-app-origin" {
@@ -436,6 +439,7 @@ func TestAnIncidentPairPostsAddressedLaunchLinesKeyedByTheirRecordsSeq(t *testin
 			for _, want := range []string{
 				"inc-app-origin-fix R102 LAUNCHED R102 inc-app-origin-fix: dispatch ctx_fix terminal term_fix",
 				"inc-app-origin-evidence R104 LAUNCHED R104 inc-app-origin-evidence: dispatch ctx_ev terminal term_ev",
+				"inc-app-origin-comms R106 LAUNCHED R106 inc-app-origin-comms: dispatch ctx_co terminal term_co",
 			} {
 				if !strings.Contains(out.String(), want) {
 					t.Fatalf("output lacks %q:\n%s", want, out)
@@ -598,6 +602,7 @@ func TestARunnerWithNoRecentAliveRecordRefusesNamingTheAgentFallback(t *testing.
 			desk, bus, dir, _ := deskFixture(t)
 			desk.Name, desk.FixBrief = "inc-x", briefFile(t, dir, "fix.md", "fix")
 			desk.EvidenceBrief = briefFile(t, dir, "evidence.md", "evidence")
+			desk.CommsBrief = briefFile(t, dir, "comms.md", "comms")
 			bus.records = slices.DeleteFunc(bus.records, func(record client.Record) bool { return record.Lane == deskRunner })
 			if age > 0 {
 				bus.add(98, newRecord(t, 98, deskRunner, "state", "orca", "orca alive", 0, time.Now().Add(-age)))
@@ -609,7 +614,7 @@ func TestARunnerWithNoRecentAliveRecordRefusesNamingTheAgentFallback(t *testing.
 			if strings.Contains(err.Error(), "(never)") != (age == 0) {
 				t.Fatalf("got %v", err)
 			}
-			if !strings.HasSuffix(err.Error(), "nothing reads orca-desk lines; spawn an Agent named `inc-x-fix` and one named `inc-x-evidence` instead") {
+			if !strings.HasSuffix(err.Error(), "nothing reads orca-desk lines; spawn an Agent named `inc-x-fix` and one named `inc-x-evidence` and one named `inc-x-comms` instead") {
 				t.Fatalf("got %v", err)
 			}
 			if len(bus.drafts) != 0 {

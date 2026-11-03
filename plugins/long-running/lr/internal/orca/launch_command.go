@@ -121,17 +121,20 @@ func incidentCommand(a *app.App) *cobra.Command {
 	var alert string
 	var timeout float64
 	cmd := &cobra.Command{
-		Use:   "incident NAME FIX_BRIEF [EVIDENCE_BRIEF]",
-		Short: "Post NAME-fix and NAME-evidence NOW on the incident route and wait for their verdicts",
+		Use:   "incident NAME FIX_BRIEF [EVIDENCE_BRIEF [COMMS_BRIEF]]",
+		Short: "Post NAME-fix, NAME-evidence and NAME-comms NOW on the incident route and wait for their verdicts",
 		Long:  "With --alert each brief is a template: its Coordinator: lines go, every <lane> becomes that lane's name, its Alert: line becomes Alert: TEXT, and the result is written to <state dir>/<lane>/brief.md. A brief still holding a placeholder the coordinator fills posts nothing.",
-		Args:  cobra.RangeArgs(2, 3),
+		Args:  cobra.RangeArgs(2, 4),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			evidence := ""
-			if len(args) == 3 {
+			evidence, comms := "", ""
+			if len(args) >= 3 {
 				evidence = args[2]
 			}
+			if len(args) == 4 {
+				comms = args[3]
+			}
 			if alert == "" {
-				faults, err := wrongLaneFaults(incidentOrders(args[0], args[1], evidence))
+				faults, err := wrongLaneFaults(incidentOrders(args[0], args[1], evidence, comms))
 				if err != nil {
 					return err
 				}
@@ -144,7 +147,7 @@ func incidentCommand(a *app.App) *cobra.Command {
 				return err
 			}
 			err = incident.DeskLaunch{
-				Bus: incident.CCI{}, Drive: flags.drive, Author: flags.lane, Name: args[0], FixBrief: args[1], EvidenceBrief: evidence, Alert: alert,
+				Bus: incident.CCI{}, Drive: flags.drive, Author: flags.lane, Name: args[0], FixBrief: args[1], EvidenceBrief: evidence, CommsBrief: comms, Alert: alert,
 				Claude: claude, Timeout: seconds(timeout), Poll: verdictPoll, Now: a.Now, Out: cmd.OutOrStdout(),
 			}.Run(cmd.Context())
 			if errors.Is(err, incident.ErrUnsettled) {

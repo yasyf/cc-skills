@@ -171,7 +171,7 @@ Full bus delivery rules, cursor catch-up after compaction, and desk watch comman
 **Mint coordinator commands with `lr launch`.** The coordinator never types an `R<n>` or a clock by hand. `lr launch` posts the line as `cci post --lane <lane> --kind go --to orca-desk --text 'orca-desk: <line>'` and prints the record. A launch's key is `R` and the number every cci node names its record by, such as `R350510` or `R700@8d2775d4`, so two posters on any session or machine never share a key; the relay ignores any `R<n>` a launch line opens with.
 
 ```text
-lr launch incident <name> <fix-brief> [<evidence-brief>] [--alert TEXT]
+lr launch incident <name> <fix-brief> [<evidence-brief> [<comms-brief>]] [--alert TEXT]
 lr launch lane <lane> <model> <effort> <brief> [--now]
 lr relay <lane>[,<lane>...] <text>
 lr launch hold <slug> <owner> <what>

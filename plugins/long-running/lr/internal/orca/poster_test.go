@@ -391,7 +391,7 @@ func TestWhatALaunchOwesFollowsItsLaneItsBriefAndItsModel(t *testing.T) {
 
 func TestAnIncidentBriefInAnotherLanesDirectoryIsRefusedNamingItsLaunch(t *testing.T) {
 	for _, name := range []string{"inc-x", "inc-x-fix"} {
-		faults, err := wrongLaneFaults(incidentOrders(name, "/s/other/brief.md", "/s/inc-x-evidence/brief.md"))
+		faults, err := wrongLaneFaults(incidentOrders(name, "/s/other/brief.md", "/s/inc-x-evidence/brief.md", "/s/inc-x-comms/brief.md"))
 		if err != nil {
 			t.Fatal(err)
 		}
