@@ -14,17 +14,19 @@ import (
 )
 
 const (
-	muteEvery    = time.Minute
-	muteBack     = time.Hour
-	mutePosted   = "MUTE-PUSHBACK"
-	muteKind     = "incident"
-	landedKind   = "landed"
-	beforeMuted  = 40
-	muteTeamWord = `smoke|teams?|monitors?|alerts?|pages?|runs?|failures?|checks?`
+	muteEvery     = time.Minute
+	muteBack      = time.Hour
+	mutePosted    = "MUTE-PUSHBACK"
+	muteKind      = "incident"
+	muteMechanism = "mechanism"
+	muteOpen      = "open"
+	landedKind    = "landed"
+	beforeMuted   = 40
+	muteTeamWord  = `smoke|teams?|monitors?|alerts?|pages?|runs?|failures?|checks?`
 )
 
 var (
-	muteKinds = []string{muteKind, "mechanism", "report", "answer", "stopped", "not-ours"}
+	muteKinds = []string{muteKind, muteMechanism, "report", "answer", "stopped", "not-ours"}
 
 	muteProposed = regexp.MustCompile(`(?i)(?:^|[^\w/-])mut(?:e|ed|es|ing)[^\w/.;\n-][^.;\n]{0,39}?\b(?:` + muteTeamWord + `)\b|\bfalse alarm\b|\b(?:skips?|excludes?|scopes? out)\b[^.\n]{0,60}\b(?:smoke|release[- ]check|teams?)\b`)
 	muteWatched  = regexp.MustCompile(`(?i)\b(?:mut\w*|monitors?|alerts?|pages?|false alarm)\b`)
@@ -45,15 +47,24 @@ func (m *MutePushback) Check(ctx context.Context, now time.Time) error {
 		return nil
 	}
 	m.read = now
-	rows, err := m.Env.Bus.Tail(ctx, client.Query{Drive: m.Env.Config.Drive, Since: now.Add(-muteBack), Kinds: append(slices.Clone(muteKinds), landedKind)})
+	rows, err := m.Env.Bus.Tail(ctx, client.Query{Drive: m.Env.Config.Drive, Since: now.Add(-muteBack)})
 	if err != nil {
 		m.Log.Warn("mute pushback did not read the drive", "err", err)
 		return nil
 	}
+	incidents, err := m.Env.Bus.Open(ctx, m.Env.Config.Drive, muteKind)
+	if err != nil {
+		m.Log.Warn("mute pushback did not read the open incidents", "err", err)
+		return nil
+	}
+	bySeq := make(map[int64]client.Record, len(incidents)+len(rows))
+	for _, row := range slices.Concat(incidents, rows) {
+		bySeq[row.Seq] = row
+	}
 	fixed := fixedByOrderedLane(rows)
 	for _, row := range rows {
 		said := proposedMute(row)
-		if said == "" || m.raised[row.Seq] || row.Lane == Root || (fixed[row.Lane] != 0 && fixed[row.Lane] < row.Seq) {
+		if said == "" || m.raised[row.Seq] || row.Lane == Root || (fixed[row.Lane] != 0 && fixed[row.Lane] < row.Seq) || !watched(row, bySeq) {
 			continue
 		}
 		text := fmt.Sprintf("%s %s: #%d proposes \"%s\" while its mechanism is unfixed; a mute or a monitor that skips the failing teams is never a close, and smoke teams are the canary (owner, 3:04 PM Nov 1) | coordinator: push back where it was proposed, keep the incident open, and name its fix owner", mutePosted, row.Lane, row.Seq, said)
@@ -91,6 +102,22 @@ func fixedByOrderedLane(rows []client.Record) map[string]int64 {
 		}
 	}
 	return fixed
+}
+
+func watched(row client.Record, bySeq map[int64]client.Record) bool {
+	for seen := map[int64]bool{}; !seen[row.Seq]; {
+		seen[row.Seq] = true
+		attrs := row.Fields.Attrs
+		if row.Kind == muteMechanism || (row.Kind == muteKind && row.Status == muteOpen) || attrs["monitor"] != "" || attrs["incident"] != "" || alertURL.MatchString(row.Refs.URL) {
+			return true
+		}
+		parent, known := bySeq[row.Re]
+		if !known {
+			return false
+		}
+		row = parent
+	}
+	return false
 }
 
 func proposedMute(row client.Record) string {
