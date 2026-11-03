@@ -37,7 +37,9 @@ read: `cci subscribe --drive <drive> --reader meta`.
    the owner's words verbatim and the contract below, and launch it with
    `desk-launch.py lane <lane> opus xhigh <brief> --drive <drive> --lane meta`. A
    lane's `Agent` spawn holds its turn, so an implementer is never an in-process
-   subagent. A non-trivial PR gets one finder pass, on `sol`, through the same launch.
+   subagent. An item that designs or mocks anything the owner sees carries the
+   lines of "A design lane's part" in `reference/orca-lane-brief.md`, and you open
+   the live artifact and its design record before recommending any of its mockups. A non-trivial PR gets one finder pass, on `sol`, through the same launch.
 3. End each item in a merged PR with tests. Report the PR URL and merge sha to the communicator
    with "merged, not installed", and name what the drive's one installer must install.
    You never install a pack. The item reads `installed` when the communicator relays that
