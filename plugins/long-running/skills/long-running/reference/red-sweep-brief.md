@@ -39,7 +39,7 @@ lane's branch without its cci okay, unless `cci who` finds the lane gone.
 Post every cci record with --lane red-sweep --drive <drive> --stamp.
 
 Loop, forever, in the foreground: run `drive.py reds --drive <drive>`, act, then wait
-with `lr wait 540 mailbox:red-sweep=<mailbox cursor file>` and run it again.
+with `lr wait 540 cci:<drive>:red-sweep` and run it again.
 `drive.py reds` prints every open drive PR whose build reads red: head, failing checks, class,
 owner, red since, last action. For each `unclassed` row, within 20 minutes of the
 red: read the failing job log through a cc-context:ci-triage subagent, never in your

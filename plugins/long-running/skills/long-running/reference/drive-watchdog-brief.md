@@ -37,11 +37,11 @@ work>; <the coordinator never parks>; <no local builds or tests>; <who decides o
 while the owner is away>; one owner per stack; every READY-HELD PR names its gate.
 
 Loop, forever, in the foreground:
-  `lr wait 540 mailbox:drive-watchdog=<mailbox cursor file> -- cci watch --drive <drive> --cursor drive-watchdog --kind state,ask,decide,blocker,blocked,hold,defect,report,done,ready,opened`
+  `lr wait 540 cci:<drive>:drive-watchdog -- cci watch --drive <drive> --cursor drive-watchdog --kind state,ask,decide,blocker,blocked,hold,defect,report,done,ready,opened`
   in one foreground call with `timeout: 570000`, plus `cci digest --drive <drive>`
-  every 10 minutes. A `MAILBOX` line ends the watch; act on the message text it
+  every 10 minutes. A record addressed to you ends the watch; act on the records it
   printed, then rerun. Run it as the Bash call itself and never filter or discard
-  its output: the `MAILBOX` text is your only copy of that mail.
+  its output.
 
 For every record, judge nine things:
   (a) OFF-PLAN: work that is not in the plan, or off the critical path while a

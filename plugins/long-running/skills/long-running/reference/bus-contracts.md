@@ -55,7 +55,7 @@ The cursor is a cci cursor named for the lane. It survives session compaction an
 
 `--since <seq>` reads after that sequence without reading or advancing the cursor. `--since 0` replays retained records. Omit `--reader` for a drive-wide replay when another lane's thread matters.
 
-Every lane, top-level or in-process, waits with `lr wait 540 cci:<drive>:<lane> [mailbox:<lane>=<cursor file>]` as its foreground Bash call at `timeout: 570000`, and re-runs it when it returns. The call follows the cci daemon's stream and the mailbox file, so it polls nothing; its `<lane>-wake` cursor keeps a wake from advancing the lane's read cursor. No lane arms a `cci watch` Monitor: the `lane_waits` hook warns on one, since each is a process that polls once a second for the life of the lane.
+Every lane waits with `lr wait 540 cci:<drive>:<lane>` as its foreground Bash call at `timeout: 570000`, and re-runs it when it returns; only an in-process teammate adds its mailbox, under I7. The call follows the cci daemon's stream and any file source, so it polls nothing; its `<lane>-wake` cursor keeps a wake from advancing the lane's read cursor. No lane arms a `cci watch` Monitor: the `lane_waits` hook warns on one, since each is a process that polls once a second for the life of the lane.
 
 ## Desk inbox rules (I1-I7)
 
@@ -77,17 +77,17 @@ A lane launched from a `brief.md` takes its directory's name and keeps that name
 
 **I6. Standing rules have durable answers and are never done.** Standing rule registration and supersession rules are in `reference/owner-rulings.md`.
 
-**I7. In-process teammate desks wait in the foreground.** Every Agent-spawned desk is in-process. Every in-process desk and lane names its own team mailbox as the source `mailbox:<lane name>=<cursor file>`. `lr wait` resolves that mailbox on every call from the live team roster in the coordinator process's own `session-<id>` under `~/.claude/teams/`. `inboxes.py mailbox <lane name>` prints that path. A numbered successor names its own lane name, never the one baked into a predecessor's scripts.
+**I7. Desks wait on cci in the foreground.** Every standing desk is an lr-launched lane, and no team roster lists one, so a `mailbox:` source exits `lr wait` 1 with `no team roster lists <desk>` and `lr launch` refuses a brief that waits on its own mailbox. Run one foreground Bash call with `timeout: 570000`:
+`lr wait 540 cci:<drive>:<desk> [<other file>=<cursor file>...]`.
+A foreground watch in the same loop appends `-- <command>` to that call so an addressed record ends the watch.
 
-Run one foreground Bash call with `timeout: 60000`:
-`lr wait 50 cci:<drive>:<desk> mailbox:<desk>=<cursor file> [<other file>=<cursor file>...]`.
-A foreground watch in the same loop appends `-- <command>` to that call so the mailbox ends the watch.
+Only an in-process teammate, a `long-running:lane` or `lane-ship` spawned with `Agent` such as a landing shard, has a team mailbox. It adds the source `mailbox:<lane name>=<cursor file>` to the same call. `lr wait` resolves that mailbox on every call from the live team rosters under `~/.claude/teams/`, and `inboxes.py mailbox <lane name>` prints that path. A numbered successor names its own lane name, never the one baked into a predecessor's scripts.
 
-`lr wait` waits at most 50 seconds and returns on new addressed records, a new line in another watched file, or `MAILBOX <n> unread`, where `n` counts all unread mailbox entries. Each new unread entry follows that line as a `== <from> <timestamp>` header and its full text. `lr wait` clips displayed records and file lines to 400 characters and ends clipped lines with an ellipsis; mailbox text is never clipped. Claude Code delivers an in-process teammate's mail only after its turn ends, never at a tool-call boundary. The printed text is the lane's only copy until then, so the lane acts on it, runs step 0 on the output, and reruns the call in a loop. Run `lr wait` as the Bash call itself, or from a script that passes its whole output through; never use `>/dev/null`, `| tail`, or `| cut`.
+`lr wait` returns on new addressed records, a new line in another watched file, or, on a mailbox source, `MAILBOX <n> unread`, where `n` counts all unread mailbox entries. Each new unread entry follows that line as a `== <from> <timestamp>` header and its full text. `lr wait` clips displayed records and file lines to 400 characters and ends clipped lines with an ellipsis; mailbox text is never clipped. Claude Code delivers an in-process teammate's mail only after its turn ends, never at a tool-call boundary. The printed text is the lane's only copy until then, so the lane acts on it, runs step 0 on the output, and reruns the call in a loop. Run `lr wait` as the Bash call itself, or from a script that passes its whole output through; never use `>/dev/null`, `| tail`, or `| cut`.
 
 The `cci:<drive>:<desk>` source runs `cci tail` for records addressed to the desk past the cci cursor named `<desk>-wake`, advancing `<desk>-wake` and never the desk's own cursor so a broadcast before an addressed record stays in the desk's read. A desk's first wait starts `<desk>-wake` where the desk's own cursor stands, or at the newest record when the desk has none, so it never replays what the desk already read. The script also advances each file's cursor. Act on the printed records and file lines before reading beyond those cursors under I2. Run the 3-minute reconciliation pass, the 30-minute summary, and periodic sources such as `ledger.py watch --drive <drive> ... --once` and `ccx vcs pr watch ... --once` as foreground steps in that same loop between waits, never as background Bash or Monitor.
 
-A top-level session desk runs the same `lr wait` call in the foreground at `timeout: 570000`, never a `cci watch` Monitor, and re-runs it on every return and after compaction.
+A desk never arms a `cci watch` Monitor in place of that call, and re-runs it on every return and after compaction.
 
 ## Lane bus rules (B1-B5)
 
@@ -114,7 +114,7 @@ cci tail --drive "$DRIVE" --cursor pr-plans --reader pr-plans --topic 27510 --to
 **B3. Watch while running.** Landing desks, priority desks, and shards follow I7. Every other lane waits the same way, in the foreground, and reads its lane cursor under B2 when the call returns. A lane keeps no Monitor on the bus; R3 in `SKILL.md` forbids one per build.
 
 ```sh
-lr wait 540 cci:"$DRIVE":pr-plans mailbox:pr-plans=<cursor file>
+lr wait 540 cci:"$DRIVE":pr-plans
 ```
 
 **B4. Withdraw, never overwrite.** A poster retracts a verdict, moves a head, or changes an interface by posting `cci post --drive <drive> --lane <lane> --kind withdraw --re <seq> --text "<reason>"` to the original recipients, then posting the new record. Withdraw only your own records, once, before replacing them. A withdrawal reveals the previous non-withdrawn record in state, if one exists; publish the replacement when it is ready.
@@ -132,15 +132,15 @@ cci tail --drive "$DRIVE" --reader root --since 0
 
 ## The polling loop
 
-Lanes wait in the foreground. The Bash tool caps `timeout` at `600000` ms, so a call budgets about nine minutes and the lane re-runs it until a terminal state. A plain Bash wait never blocks longer than 60 seconds, and a lane never writes a shell loop, backgrounds a process with `&`, `nohup` or `setsid`, wraps a shell in `timeout`, or sleeps a minute or more: the `lane_waits` hook warns on each and `lr wait` ends whatever a guarded command leaves behind, because on Nov 2 2026 one desk's nested `timeout zsh loop.sh` chains reached 513 copies and 3,286 processes and the launch gate refused every lane for an hour. Any longer wait goes through `lr wait` on the lane's own team mailbox so a `SendMessage` ends the call; `lr wait` is one process that follows its sources and exits.
+Lanes wait in the foreground. The Bash tool caps `timeout` at `600000` ms, so a call budgets about nine minutes and the lane re-runs it until a terminal state. A plain Bash wait never blocks longer than 60 seconds, and a lane never writes a shell loop, backgrounds a process with `&`, `nohup` or `setsid`, wraps a shell in `timeout`, or sleeps a minute or more: the `lane_waits` hook warns on each and `lr wait` ends whatever a guarded command leaves behind, because on Nov 2 2026 one desk's nested `timeout zsh loop.sh` chains reached 513 copies and 3,286 processes and the launch gate refused every lane for an hour. Any longer wait goes through `lr wait` on the lane's own cci source so an addressed record ends the call; `lr wait` is one process that follows its sources and exits.
 
-A blocking watch runs after `--`, and the mailbox ends it the moment the message lands. Run it with `timeout: 570000`:
+A blocking watch runs after `--`, and an addressed record ends it the moment it lands. Run it with `timeout: 570000`:
 
 ```sh
-lr wait 540 "mailbox:<lane>=<cursor file>" -- bk build watch <build>
+lr wait 540 cci:<drive>:<lane> -- bk build watch <build>
 ```
 
-`lr wait` passes the command's output and exit status through, and on `MAILBOX` or the deadline it ends the command's process group and prints `MAILBOX <n> unread` or `QUIET`. Wrap read-only watches only, never a ship, push, or apply. On `MAILBOX`, act on the message text it printed before re-running the watch.
+`lr wait` passes the command's output and exit status through, and on a wake or the deadline it ends the command's process group and prints the records that woke it or `QUIET`. Wrap read-only watches only, never a ship, push, or apply. On a wake, act on the records it printed before re-running the watch.
 
 A state with no watch verb is read once per call, never in a loop: query it, then wait, and re-run the call until the state is terminal, covering failure states so a broken build is not re-read until the deadline:
 
@@ -151,7 +151,7 @@ case "$state" in
   failed|broken|canceled|timed_out|ROLLBACK_*|*_FAILED) echo "TERMINAL bad $state"; exit 1 ;;
 esac
 echo "STILL_RUNNING $state"
-lr wait 30 "mailbox:<lane>=<cursor file>"
+lr wait 30 cci:<drive>:<lane>
 ```
 
 Run anything needing an environment token in the lane's Bash call; a Monitor shell does not inherit the environment, so `BUILDKITE_API_TOKEN` and similar variables are empty there. Prefer a CLI with a stored credential over an exported token.

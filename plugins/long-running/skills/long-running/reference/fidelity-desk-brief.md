@@ -125,7 +125,7 @@ Verified facts, do not re-derive:
   register ledger <id> (`register: <program>`); corpus row `corpus/b-tests`: <path>, sha256 <hash>
   plan <absolute path>; live card files <absolute paths>
   sweeps log <id, or "none yet: create it on the first pass">
-  cci drive <drive>; cursor <desk>; mailbox cursor <path>; runner config <path>
+  cci drive <drive>; cursor <desk>; runner config <path>
   standing rules register <doc id>
 
 First: grade the seeded register ledger in text mode. <Sweep desk only: then
@@ -133,9 +133,9 @@ First: grade the seeded register ledger in text mode. <Sweep desk only: then
   record each grade with `ccn note add`.>
 
 Loop, forever, in the foreground:
-  `lr wait 540 mailbox:<desk>=<mailbox cursor file> -- cci watch --drive <drive> --cursor <desk>-watch --reader <desk> --kind opened,head,contract,report`
-  in one foreground call with `timeout: 570000`. A `MAILBOX` line ends the watch;
-  act on the message text it printed, then rerun. Run it as the Bash call itself
+  `lr wait 540 cci:<drive>:<desk> -- cci watch --drive <drive> --cursor <desk>-watch --reader <desk> --kind opened,head,contract,report`
+  in one foreground call with `timeout: 570000`. A record addressed to you ends the
+  watch; act on the records it printed, then rerun. Run it as the Bash call itself
   and never filter or discard its output.
   At every wake, run `cci tail --drive <drive> --cursor <desk> --reader <desk>`
   first and act on each record: grade each head, text, and read-back it names,
