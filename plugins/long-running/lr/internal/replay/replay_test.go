@@ -294,6 +294,47 @@ func TestTheGateRefusesAVersionThatRelaunchesOrRefusesWhatTheOldOneDidNot(t *tes
 	}
 }
 
+func TestTheGatePassesADifferenceOnlyRootAcceptedForTheServingVersion(t *testing.T) {
+	decided := map[string]string{
+		"0.7.820": `{"relaunched":[],"held":[],"refused":[]}`,
+		"0.7.821": `{"relaunched":["b"],"held":[],"refused":[]}`,
+	}
+	accepting := func(lane, serving string) string {
+		line, err := json.Marshal(map[string]any{"seq": 10, "lane": lane, "kind": "decide", "at": iso(now.Add(-time.Minute)), "text": "deliberate", "fields": map[string]any{"attrs": map[string]string{acceptAttr: serving}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(line) + "\n"
+	}
+	cases := map[string]struct {
+		record string
+		code   int
+	}{
+		"root, this serving version":    {accepting(lanes.Root, "0.7.820"), 0},
+		"root, another serving version": {accepting(lanes.Root, "0.7.819"), Refused},
+		"another lane":                  {accepting("meta-desk-3", "0.7.820"), Refused},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			runner := &fakeRunner{records: c.record, decided: decided}
+			var out strings.Builder
+			d := gateDeps(t, runner, &out)
+
+			code, err := d.Gate(context.Background(), "d1", "o/r", "0.7.820", "0.7.821")
+			if err != nil || code != c.code {
+				t.Fatalf("got %d %v", code, err)
+			}
+			text := argAfter(runner.posts()[0], "--text")
+			if c.code == 0 && !strings.Contains(text, "relaunches b, which root accepted in #10") {
+				t.Fatalf("text %q", text)
+			}
+			if c.code == Refused && !strings.Contains(text, "--attr "+acceptAttr+"=0.7.820") {
+				t.Fatalf("text %q", text)
+			}
+		})
+	}
+}
+
 func TestTheGatePassesAVersionThatDecidesNoMoreAndNamesTheClassesItAdds(t *testing.T) {
 	runner := &fakeRunner{
 		records: recordLine(9, now.Add(-time.Hour), "note", "x"),
