@@ -153,6 +153,9 @@ func (d *Desk) deliverRelays(ctx context.Context, container, lane string, relays
 			}); err != nil {
 				return err
 			}
+			if err := d.record("escalation:relay:"+container+"/"+action.ActionID, fmt.Sprintf("RELAY-FAILED %s %s: %s, so nothing was delivered; send it to the lane that took over", action.ActionID, lane, reason)); err != nil {
+				return err
+			}
 			continue
 		}
 		if err := d.postRelay(ctx, container, lane, action, reason); err != nil {

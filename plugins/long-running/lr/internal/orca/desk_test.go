@@ -1092,6 +1092,25 @@ func TestARelayToAStoodDownLaneFailsQuietly(t *testing.T) {
 	if action.Status != incident.ActionFailed || string(action.Reason) != fmt.Sprintf("stood down by #%d", stop.Seq) {
 		t.Fatal(action)
 	}
+	told, err := w.desk.store.Action(deskRunner, "escalation:relay:"+laneBook(testLane)+"/R2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(told.Target, fmt.Sprintf("RELAY-FAILED R2 %s: stood down by #%d", testLane, stop.Seq)) {
+		t.Fatal(told)
+	}
+}
+
+func TestALaneCopiedOnAnotherLanesStandDownStillTakesItsRelay(t *testing.T) {
+	w := newDeskWorld(t)
+	w.lines()
+	w.line("R2 (5:01 PM) orca-desk: relay to lane-a: go")
+	w.lines()
+	w.add(object{"lane": supervisorLane, "kind": kindStandDown, "text": "retired", "to": []string{"another-lane", testLane}})
+	w.step(w.desk.deliver)
+	if action := w.action(testLane, "R2"); action.Status == incident.ActionFailed {
+		t.Fatal(action)
+	}
 }
 
 func TestARelayWaitsForALaunchInFlight(t *testing.T) {
