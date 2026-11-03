@@ -131,6 +131,24 @@ func TestAnItemReachesALaneByName(t *testing.T) {
 	wantRefused(t, err, `never reaches root`)
 }
 
+func TestAnOverdueReachesARoleAsAnEscalationAndALaneAsANote(t *testing.T) {
+	b := bound(t, "supervisor")
+
+	if _, err := b.Post(context.Background(), []string{"grader-appeals-1"}, bus.Overdue("grader-appeals-1", "org/repo#1", "grade overdue")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.Post(context.Background(), []string{"root"}, bus.Overdue("root", "org/repo#1", "grade overdue")); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := bus.Overdue("grader-appeals-1", "org/repo#1", "grade overdue"); got != bus.Body(bus.Note{Text: "org/repo#1 grade overdue"}) {
+		t.Fatalf("to a lane = %+v", got)
+	}
+	if got := bus.Overdue("root", "org/repo#1", "grade overdue"); got != bus.Body(bus.Escalation{Subject: "org/repo#1", Cause: "grade overdue"}) {
+		t.Fatalf("to root = %+v", got)
+	}
+}
+
 func TestASupervisorsOwnRecordIsStoredForItsReaders(t *testing.T) {
 	b := bound(t, "supervisor")
 	tap := bus.Tap{PR: 44989, Head: head, By: "rule", Value: "tapped", Rule: "test-only"}

@@ -182,6 +182,15 @@ func Check(kind string, raw json.RawMessage, to []string) error {
 	return nil
 }
 
+var escalationRoles = []string{"supervisor", "root", "owner"}
+
+func Overdue(to, subject, cause string) Body {
+	if slices.Contains(escalationRoles, to) {
+		return Escalation{Subject: subject, Cause: cause}
+	}
+	return Note{Text: subject + " " + cause}
+}
+
 type Bus struct {
 	Drive string
 	Lane  string

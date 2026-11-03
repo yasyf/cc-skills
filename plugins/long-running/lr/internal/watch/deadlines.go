@@ -72,7 +72,7 @@ func Apply(s *store.Store, namespaces []string, standing []Wait, now time.Time, 
 			continue
 		}
 		escalated = append(escalated, pass.Escalated{Subject: wait.subject(), Cause: wait.Cause, To: wait.To})
-		if err := post([]string{wait.To}, bus.Escalation{Subject: wait.subject(), Cause: wait.Cause}); err != nil {
+		if err := post([]string{wait.To}, bus.Overdue(wait.To, wait.subject(), wait.Cause)); err != nil {
 			return escalated, err
 		}
 	}
