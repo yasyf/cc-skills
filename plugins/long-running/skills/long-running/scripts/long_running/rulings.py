@@ -2997,12 +2997,8 @@ def build_parser(parser_type=argparse.ArgumentParser) -> argparse.ArgumentParser
     anchor.add_argument("--paths", nargs="+", default=[])
     anchor.add_argument("--symbols", nargs="+", default=[])
     anchor.add_argument("--ops", nargs="+", default=[])
-<<<<<<< HEAD
-    narrowed = verb("names", cmd_names, "remove names or wrongly attached repeats from a row, citing the answer that removes them (the coordinator and seed lane only)")
-=======
     anchor.add_argument("--guards", nargs="+", default=[], help="anchors the row guards but does not remove; the owed-deletions check skips them")
-    narrowed = verb("names", cmd_names, "remove names or wrongly attached repeats from a row, citing the answer that removes them (root and seed lane only)")
->>>>>>> c86fdea (long-running: 🐛 the owed-deletion check skips guarded anchors and targets gone from trunk)
+    narrowed = verb("names", cmd_names, "remove names or wrongly attached repeats from a row, citing the answer that removes them (the coordinator and seed lane only)")
     narrowed.add_argument("key")
     narrowed.add_argument("--remove", action="append", default=[], metavar="NAME")
     narrowed.add_argument("--drop-repeat", action="append", default=[], metavar="KEY")
