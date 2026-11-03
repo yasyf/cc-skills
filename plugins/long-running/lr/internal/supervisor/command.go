@@ -28,6 +28,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/replay"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/waste"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/watch"
 )
 
@@ -113,7 +114,13 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 			return Deps{}, err
 		}
 		counter := replay.Deps{Runner: a.Runner, CCX: a.CCX, Installs: installs, Now: a.Now, Stdout: io.Discard}
+		wasteConfig, err := waste.ReadConfig(env.State)
+		if err != nil {
+			return Deps{}, err
+		}
+		report := waste.Poster{Sources: waste.Live(env.Bus, a.Runner, s), Config: wasteConfig, Store: s, Drive: env.Config.Drive, Now: a.Now, Post: post}
 		checks = append(checks,
+			(&background{name: "waste-report", every: wasteEvery, run: report.Pass, store: s, post: post, log: a.Log, to: wasteConfig.Lane}).Check,
 			(&watch.Stalls{Store: s, Drive: env.Config.Drive, Runner: a.Runner, Post: post, Log: a.Log}).Check,
 			(&lanes.MutePushback{Env: env, Log: a.Log}).Check,
 			(&background{name: "recurrence-count", every: recurEvery, run: func(ctx context.Context) error { return counter.Recur(ctx, env.Config.Drive) }, store: s, post: post, log: a.Log}).Check,

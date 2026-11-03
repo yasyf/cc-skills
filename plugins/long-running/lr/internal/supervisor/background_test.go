@@ -39,6 +39,27 @@ func TestAFailedBackgroundPassReachesRootOncePerError(t *testing.T) {
 	equal(t, len(told), 2)
 }
 
+func TestAFailedPassWithItsOwnLaneTellsThatLaneNotRoot(t *testing.T) {
+	var to []string
+	var told bus.Body
+	b := &background{
+		name:  "waste-report",
+		run:   func(context.Context) error { return errors.New("cc-transcript exited 1") },
+		store: memory(t),
+		post: func(lanes []string, body bus.Body) error {
+			to, told = lanes, body
+			return nil
+		},
+		log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		to:  "meta",
+	}
+
+	b.pass(context.Background(), t0)
+
+	equal(t, to, []string{"meta"})
+	equal(t, told.Kind(), "note")
+}
+
 func TestABackgroundPassRunsOnceAPeriodAndNeverOverlapsItself(t *testing.T) {
 	started := make(chan struct{}, 3)
 	release := make(chan struct{})
