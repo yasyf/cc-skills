@@ -142,7 +142,7 @@ func TestAWakeReachesARosterLanesInboxAndAnOrcaLanesDispatch(t *testing.T) {
 func TestAnOrcaWakeFromLaunchdSendsAsTheRunsCoordinator(t *testing.T) {
 	var sent string
 	env := Env{Config: config.Config{OrcaRun: "run_1"}, Now: func() time.Time { return t0 }, Runner: scripted(func(argv []string) (shell.Result, error) {
-		if slices.Contains(argv, "run-show") {
+		if strings.Contains(strings.Join(argv, " "), "run-show") {
 			return shell.Result{Stdout: `{"ok":true,"result":{"run":{"id":"run_1","coordinator_handle":"term_coordinator"}}}`}, nil
 		}
 		sent = strings.Join(argv, " ")
