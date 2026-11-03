@@ -23,14 +23,10 @@ const (
 
 var (
 	buildLink   = regexp.MustCompile(`buildkite\.com/[\w.-]+/[\w.-]+/builds/\d+`)
-	buildFailed = []string{"FAILING", "FAILED"}
-	jobEnded    = []string{"FINISHED", "TIMED_OUT"}
+	buildFailed = []string{"failing", "failed"}
+	buildClosed = []string{"passed", "canceled", "canceling", "skipped", "not_run"}
+	jobFailed   = []string{"failed", "timed_out"}
 )
-
-const releaseBuildFields = `fragment releaseBuild on Build {
-  number state url startedAt
-  jobs(first: 100, type: COMMAND) { edges { node { ... on JobTypeCommand { label state passed softFailed step { key } } } } }
-}`
 
 type ReleaseBuilds struct {
 	Env       Env
@@ -46,20 +42,13 @@ type ReleaseBuilds struct {
 type releaseBuild struct {
 	Number    int       `json:"number"`
 	State     string    `json:"state"`
-	URL       string    `json:"url"`
-	StartedAt time.Time `json:"startedAt"`
-	Jobs      struct {
-		Edges []struct {
-			Node struct {
-				Label      string `json:"label"`
-				State      string `json:"state"`
-				Passed     bool   `json:"passed"`
-				SoftFailed bool   `json:"softFailed"`
-				Step       *struct {
-					Key string `json:"key"`
-				} `json:"step"`
-			} `json:"node"`
-		} `json:"edges"`
+	URL       string    `json:"web_url"`
+	StartedAt time.Time `json:"started_at"`
+	Jobs      []struct {
+		Name       string `json:"name"`
+		StepKey    string `json:"step_key"`
+		State      string `json:"state"`
+		SoftFailed bool   `json:"soft_failed"`
 	} `json:"jobs"`
 	pipeline string
 }
@@ -114,38 +103,19 @@ func (r *ReleaseBuilds) readNames(ctx context.Context, now time.Time) error {
 }
 
 func (r *ReleaseBuilds) builds(ctx context.Context) ([]releaseBuild, error) {
-	variables := map[string]string{}
-	params := make([]string, 0, len(r.Pipelines))
-	fields := make([]string, 0, len(r.Pipelines))
-	for i, slug := range r.Pipelines {
-		variables[fmt.Sprintf("p%d", i)] = slug
-		params = append(params, fmt.Sprintf("$p%d: ID!", i))
-		fields = append(fields, fmt.Sprintf("p%d: pipeline(slug: $p%d) { builds(first: %d) { edges { node { ...releaseBuild } } } }", i, i, buildsRead))
-	}
-	bound, err := json.Marshal(variables)
-	if err != nil {
-		return nil, err
-	}
-	query := fmt.Sprintf("query(%s) { %s }\n%s", strings.Join(params, ", "), strings.Join(fields, " "), releaseBuildFields)
-	argv := append(slices.Clone(r.CLI), "graphql", "-v", string(bound), query)
-	result, err := r.Env.Runner.Run(ctx, shell.Command{Argv: argv, Dir: r.Env.Config.Checkout, Timeout: readTimeout})
-	if err != nil {
-		return nil, err
-	}
-	var answered map[string]struct {
-		Builds struct {
-			Edges []struct {
-				Node releaseBuild `json:"node"`
-			} `json:"edges"`
-		} `json:"builds"`
-	}
-	if err := json.Unmarshal([]byte(result.Stdout), &answered); err != nil {
-		return nil, err
-	}
 	var builds []releaseBuild
-	for i, slug := range r.Pipelines {
-		for _, edge := range answered[fmt.Sprintf("p%d", i)].Builds.Edges {
-			build := edge.Node
+	for _, slug := range r.Pipelines {
+		org, pipeline, _ := strings.Cut(slug, "/")
+		path := fmt.Sprintf("/organizations/%s/pipelines/%s/builds?per_page=%d", org, pipeline, buildsRead)
+		result, err := r.Env.Runner.Run(ctx, shell.Command{Argv: append(slices.Clone(r.CLI), "api", path), Dir: r.Env.Config.Checkout, Timeout: readTimeout})
+		if err != nil {
+			return nil, err
+		}
+		var read []releaseBuild
+		if err := json.Unmarshal([]byte(result.Stdout), &read); err != nil {
+			return nil, err
+		}
+		for _, build := range read {
 			build.pipeline = slug
 			builds = append(builds, build)
 		}
@@ -155,12 +125,11 @@ func (r *ReleaseBuilds) builds(ctx context.Context) ([]releaseBuild, error) {
 
 func (r *ReleaseBuilds) tend(ctx context.Context, build releaseBuild, now time.Time) error {
 	link := buildLink.FindString(build.URL)
-	state := strings.ToLower(build.State)
 	lane, named := r.named[link]
 	age := now.Sub(build.StartedAt)
-	if !build.StartedAt.IsZero() && !named && age >= seenGrace && age < seenWindow {
-		text := fmt.Sprintf("RELEASE-SEEN %d %s %s: no record names %s %d minutes after it started at %s; claim it or name it in a release record", build.Number, build.pipeline, state, build.URL, int(age.Minutes()), pacific(build.StartedAt))
-		if err := r.post(ctx, "release-seen:"+link+":"+state, []string{Root}, text); err != nil {
+	if !build.StartedAt.IsZero() && !named && !slices.Contains(buildClosed, build.State) && age >= seenGrace && age < seenWindow {
+		text := fmt.Sprintf("RELEASE-SEEN %d %s %s: no record names %s %d minutes after it started at %s; claim it or name it in a release record", build.Number, build.pipeline, build.State, build.URL, int(age.Minutes()), pacific(build.StartedAt))
+		if err := r.post(ctx, "release-seen:"+link, []string{Root}, text); err != nil {
 			return err
 		}
 	}
@@ -172,19 +141,18 @@ func (r *ReleaseBuilds) tend(ctx context.Context, build releaseBuild, now time.T
 		to = append(to, lane)
 	}
 	text := fmt.Sprintf("RELEASE-FAILED %d %s %s", build.Number, build.failingStep(), build.URL)
-	return r.post(ctx, "release-failed:"+link+":"+state, to, text)
+	return r.post(ctx, "release-failed:"+link+":"+build.State, to, text)
 }
 
 func (b releaseBuild) failingStep() string {
-	for _, edge := range b.Jobs.Edges {
-		job := edge.Node
-		if job.Passed || job.SoftFailed || !slices.Contains(jobEnded, job.State) {
+	for _, job := range b.Jobs {
+		if job.SoftFailed || !slices.Contains(jobFailed, job.State) {
 			continue
 		}
-		if job.Step != nil && job.Step.Key != "" {
-			return job.Step.Key
+		if job.StepKey != "" {
+			return job.StepKey
 		}
-		return job.Label
+		return job.Name
 	}
 	return "(no command step failed)"
 }
