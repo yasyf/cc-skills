@@ -245,7 +245,7 @@ function stepSheet(s) {
   const prs = [...s.prs].sort((a, b) => RANK[a.state] - RANK[b.state]);
   return `<div class="overlay" data-close="1"><div class="sheet"><button class="btn close" data-close="1">Close</button>
     <div class="kick">${TONE_WORD[s.tone] ?? esc(s.tone)}${s.prs.length ? ` · ${s.landed} of ${s.prs.length} landed` : ''}</div><h2>${esc(s.title)}</h2>
-    <dl class="facts"><dt>Where it is</dt><dd>${inline(s.state)}</dd><dt>Who is on it</dt><dd>${s.who?.length ? esc(s.who.join(', ')) : '<b>Nobody</b>'}</dd><dt>What blocks it</dt><dd>${s.blocker ? inline(s.blocker) : 'Nothing'}</dd><dt>Next</dt><dd>${inline(s.next)}</dd><dt>What went wrong</dt><dd>${inline(s.went_wrong ?? 'Nothing so far')}</dd></dl>
+    <dl class="facts"><dt>Where it is</dt><dd>${inline(s.state)}</dd><dt>What blocks it</dt><dd>${s.blocker ? inline(s.blocker) : 'Nothing'}</dd><dt>Next</dt><dd>${inline(s.next)}</dd></dl>
     ${prs.length ? `<ul class="prlist">${prs.map((p) => `<li><a href="${prHref(p.number)}">${square(p.number)}<b>#${p.number}</b><span>${esc(plainTitle(p.number))}</span><em>${esc(stateWord(p.number))}${driveEntry(p.number)?.worker ? ` · ${esc(driveEntry(p.number).worker.lane)}` : ''}</em></a></li>`).join('')}</ul>` : ''}
     ${s.workers.length ? `<div class="lives">${s.workers.map((w) => `<div class="live"><div class="live-h"><i class="pulse"></i><b>${esc(w.lane)}</b><span class="dim">${agoWords(w.at)}</span></div>${w.pr ? `<div class="live-t">${prLink(w.pr)} ${esc(plainTitle(w.pr))}</div>` : ''}</div>`).join('')}</div>` : ''}
   </div></div>`;
