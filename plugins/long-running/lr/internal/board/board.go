@@ -1,6 +1,8 @@
 package board
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
@@ -8,19 +10,34 @@ import (
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
 const (
-	Merge   = "Merge"
-	Hold    = "Hold"
-	Explain = "Explain more"
+	MergeBlock = "merge-prs"
 
-	tapFact  = "tap"
-	noTap    = "no tap"
-	byOwner  = "owner"
-	shortSHA = 12
+	FactTitle   = "words-title"
+	FactChange  = "words-change"
+	FactPlan    = "words-plan"
+	FactRisk    = "words-risk"
+	FactBlocks  = "words-blocks"
+	FactGroup   = "words-group"
+	FactSummary = "words-summary"
+
+	tapFact   = "tap"
+	notedFact = "words-noted"
+	noTap     = "no tap"
+	byOwner   = "owner"
+	shortSHA  = 12
 )
+
+var ownerFields = []struct{ fact, name string }{
+	{FactChange, "what it changes for a user"},
+	{FactPlan, "what differed from the plan"},
+	{FactRisk, "the risk"},
+	{FactBlocks, "what blocks it"},
+}
 
 type Key struct {
 	PR   int
@@ -31,24 +48,57 @@ type Row struct {
 	PR          int
 	Head        string
 	Kind        string
+	Lane        string
 	Gates       []string
 	CarriedFrom string
+	Words       map[string]string
 }
 
 func (r Row) Key() Key {
 	return Key{r.PR, r.Head}
 }
 
-func (r Row) BlockID() string {
-	return fmt.Sprintf("%s-%d-%s", r.Kind, r.PR, short(r.Head))
+func (r Row) MissingWords() []string {
+	var missing []string
+	for _, field := range ownerFields {
+		if r.Words[field.fact] == "" {
+			missing = append(missing, field.name)
+		}
+	}
+	return missing
+}
+
+func (r Row) word(fact string) string {
+	if said := r.Words[fact]; said != "" {
+		return said
+	}
+	return fmt.Sprintf("missing: %s owes this on its head record", r.Lane)
+}
+
+type PRRow struct {
+	Number  int    `json:"number"`
+	Head    string `json:"head"`
+	Title   string `json:"title"`
+	Change  string `json:"change"`
+	Plan    string `json:"plan"`
+	Risk    string `json:"risk"`
+	Review  string `json:"review"`
+	Blocker string `json:"blocker"`
+}
+
+type Group struct {
+	ID      string  `json:"id"`
+	Title   string  `json:"title"`
+	Summary string  `json:"summary"`
+	PRs     []PRRow `json:"prs"`
 }
 
 type Block struct {
-	ID      string   `json:"id"`
-	Type    string   `json:"type"`
-	Title   string   `json:"title"`
-	Body    string   `json:"body"`
-	Options []string `json:"options"`
+	ID     string  `json:"id"`
+	Type   string  `json:"type"`
+	Repo   string  `json:"repo"`
+	Prompt string  `json:"prompt"`
+	Groups []Group `json:"groups"`
 }
 
 type TapRecord struct {
@@ -61,6 +111,7 @@ type TapRecord struct {
 type Hooks struct {
 	Tap  func(TapRecord) error
 	Hold func(pr int, head string) error
+	Note func(lane, text string) error
 }
 
 func short(head string) string {
@@ -82,29 +133,44 @@ func Rows(s *store.Store, repo string, snapshot map[int]machine.Facts) ([]Row, e
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, Row{item.Number, item.Head, item.Kind, gates.Missing(facts), stored[gates.CarriedFact]})
+		out = append(out, Row{item.Number, item.Head, item.Kind, facts.Lane, gates.Missing(facts), stored[gates.CarriedFact], stored})
 	}
 	return out, nil
 }
 
-func Render(rows []Row, answered map[Key]bool) []Block {
-	blocks := []Block{}
+func Render(repo string, rows []Row, answered map[Key]bool) Block {
+	block := Block{ID: MergeBlock, Type: "pr-groups", Repo: repo, Prompt: "Approve each change?", Groups: []Group{}}
 	for _, row := range rows {
 		if answered[row.Key()] {
 			continue
 		}
-		blocks = append(blocks, Block{
-			ID:      row.BlockID(),
-			Type:    "choice",
-			Title:   fmt.Sprintf("#%d at %s: %s", row.PR, short(row.Head), row.Kind),
-			Body:    body(row),
-			Options: []string{Merge, Hold, Explain},
-		})
+		name := row.Words[FactGroup]
+		if name == "" {
+			name = row.Lane
+		}
+		at := slices.IndexFunc(block.Groups, func(group Group) bool { return group.ID == name })
+		if at < 0 {
+			summary := row.Words[FactSummary]
+			if summary == "" {
+				summary = "From lane " + row.Lane + "."
+			}
+			block.Groups = append(block.Groups, Group{ID: name, Title: name, Summary: summary})
+			at = len(block.Groups) - 1
+		}
+		block.Groups[at].PRs = append(block.Groups[at].PRs, prRow(row))
 	}
-	return blocks
+	return block
 }
 
-func body(row Row) string {
+func prRow(row Row) PRRow {
+	title := row.Words[FactTitle]
+	if title == "" {
+		title = fmt.Sprintf("#%d", row.PR)
+	}
+	return PRRow{row.PR, short(row.Head), title, row.word(FactChange), row.word(FactPlan), row.word(FactRisk), review(row), row.word(FactBlocks)}
+}
+
+func review(row Row) string {
 	waits := slices.DeleteFunc(slices.Clone(row.Gates), func(gate string) bool { return gate == noTap })
 	words := "every other gate is met"
 	if len(waits) > 0 {
@@ -116,17 +182,78 @@ func body(row Row) string {
 	return words
 }
 
-func Answer(s *store.Store, repo string, hooks Hooks, row Row, choice string, at time.Time) error {
-	switch choice {
-	case Merge:
+func Answer(s *store.Store, repo string, hooks Hooks, row Row, verdict string, at time.Time) error {
+	switch verdict {
+	case verdictApproved:
 		if _, err := s.PutFact(repo, row.PR, row.Head, tapFact, string(machine.TapTapped), at); err != nil {
 			return err
 		}
 		return hooks.Tap(TapRecord{row.PR, row.Head, byOwner, machine.TapTapped})
-	case Hold:
+	case verdictRejected:
 		return hooks.Hold(row.PR, row.Head)
-	case Explain:
-		return nil
 	}
-	return fmt.Errorf("not a board answer: %q", choice)
+	return fmt.Errorf("not a board answer: %q", verdict)
+}
+
+type Pass struct {
+	Store   *store.Store
+	Repo    string
+	Runner  shell.Runner
+	Session string
+	Hooks   Hooks
+	Now     func() time.Time
+}
+
+func (p Pass) Run(ctx context.Context, snapshot map[int]machine.Facts) (Block, error) {
+	rows, err := Rows(p.Store, p.Repo, snapshot)
+	if err != nil {
+		return Block{}, err
+	}
+	outcomes, err := ReadOutcomes(ctx, p.Runner, p.Session)
+	if err != nil {
+		return Block{}, err
+	}
+	answered := map[Key]bool{}
+	live := Live{Taps: newestByPR(outcomes.Interactions.Triage)}
+	for _, row := range rows {
+		verdict := live.Decided(MergeRow{PR: fmt.Sprint(row.PR), Head: row.Head})
+		if verdict == "" {
+			continue
+		}
+		if err := Answer(p.Store, p.Repo, p.Hooks, row, verdict, p.Now()); err != nil {
+			return Block{}, err
+		}
+		answered[row.Key()] = true
+	}
+	block := Render(p.Repo, rows, answered)
+	encoded, err := json.Marshal(block)
+	if err != nil {
+		return Block{}, err
+	}
+	if _, err := p.Runner.Run(ctx, shell.Command{Argv: []string{"cc-present", "update-block", "-", "--session", p.Session}, Stdin: string(encoded)}); err != nil {
+		return Block{}, err
+	}
+	return block, p.noteMissing(rows, answered)
+}
+
+func (p Pass) noteMissing(rows []Row, answered map[Key]bool) error {
+	for _, row := range rows {
+		missing := row.MissingWords()
+		if answered[row.Key()] || len(missing) == 0 {
+			continue
+		}
+		fields := strings.Join(missing, ", ")
+		changed, err := p.Store.PutFact(p.Repo, row.PR, row.Head, notedFact, fields, p.Now())
+		if err != nil {
+			return err
+		}
+		if !changed {
+			continue
+		}
+		text := fmt.Sprintf("#%d at %s is on the owner's board without %s; post a head record carrying them.", row.PR, short(row.Head), fields)
+		if err := p.Hooks.Note(row.Lane, text); err != nil {
+			return err
+		}
+	}
+	return nil
 }
