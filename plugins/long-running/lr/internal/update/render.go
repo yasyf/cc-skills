@@ -62,6 +62,7 @@ type Inputs struct {
 	Retro     []Retro
 	Owed      []deletions.Owed
 	Pins      []drive.Pin
+	Programs  []Program
 }
 
 type Need struct {
@@ -75,6 +76,7 @@ type Report struct {
 	Gaps      []string
 	Published Published
 	Snapshot  Snapshot
+	Programs  []Program
 }
 
 type section struct {
@@ -341,11 +343,15 @@ func Render(in Inputs) Report {
 	out = append(out, titled(wordsTitle, words)...)
 	out = append(out, titled(unownedTitle, unownedLines(sections))...)
 	lists := v.listSections(in, lanes, plan.doneLines)
-	needs := make([]Need, 0, 4+len(sections)+len(lists)+len(lanes)+len(open)+len(prs))
+	needs := make([]Need, 0, 5+len(sections)+len(lists)+len(lanes)+len(open)+len(prs))
 	needs = append(needs, Need{sinceTitle, sinceTitle}, Need{fyiTitle, fyiTitle}, Need{wordsTitle, wordsTitle}, Need{unownedTitle, unownedTitle})
 	for _, found := range sections {
 		out = append(out, titled(found.title, found.lines())...)
 		needs = append(needs, Need{found.title, found.title})
+		if found.title == dutiesTitle {
+			out = append(out, titled(toolingTitle, toolingLines(in.Programs))...)
+			needs = append(needs, Need{toolingTitle, toolingTitle})
+		}
 	}
 	for _, found := range lists {
 		out = append(out, titled(found.title, found.lines)...)
@@ -360,6 +366,7 @@ func Render(in Inputs) Report {
 	for _, pr := range prs {
 		needs = append(needs, Need{"#" + strconv.Itoa(pr.Number), pr.Title})
 	}
+	gaps = append(gaps, ToolingLeft(strings.Join(out, "\n"), in.Programs)...)
 	if size := len(strings.Join(out, "\n")); size > updateBytes {
 		gaps = append(gaps, fmt.Sprintf("this update is %d KB, over the %d KB an update may run", size/1000, updateBytes/1000))
 	}
@@ -376,6 +383,7 @@ func Render(in Inputs) Report {
 		Gaps:      gaps,
 		Published: Published{Updated: in.Now, Steps: numbered(slices.Concat(pinnedSteps, plan.steps)), FYI: feed, Now: nowOf(releases)},
 		Snapshot:  takeSnapshot(tracked, in.Now),
+		Programs:  in.Programs,
 	}
 }
 

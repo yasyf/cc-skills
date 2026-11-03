@@ -81,7 +81,7 @@ func Command(a *app.App) *cobra.Command {
 	cmd.PersistentFlags().BoolVar(&sent, "sent", false, "with render: publish, and save this render as the update the owner is sent, which the next one diffs against")
 	check := &cobra.Command{
 		Use:   "check FILE",
-		Short: "Exit 1 naming each section, lane, ask and PR a written update leaves out; - reads stdin",
+		Short: "Exit 1 naming each section, lane, ask, PR and tooling program or blocker a written update leaves out; - reads stdin",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			found, _, err := report(c)
@@ -97,7 +97,7 @@ func Command(a *app.App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return missingError(Missing(string(written), found.Needs))
+			return missingError(append(Missing(string(written), found.Needs), ToolingLeft(string(written), found.Programs)...))
 		},
 	}
 	status := statusCommand(a, &driveName, cmd)

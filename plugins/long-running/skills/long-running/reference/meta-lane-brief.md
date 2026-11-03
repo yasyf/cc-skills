@@ -48,6 +48,12 @@ read: `cci subscribe --drive <drive> --reader meta`.
    columns: item, owner's words with time, lane, state, PR, blocks or next. Refresh it on
    every report. The communicator reads only that file for the owner's updates, so what it
    needs to decide is in the row, in plain words.
+   Keep `<state dir>/meta/programs.md` beside it, one table row per meta program
+   (the cci token cut, the coordinator kept minimal for Fable, hook tiers, the dashboard,
+   Sprites, launch latency, the Go loop and every other), headed exactly
+   `| Program | State | Blocker | Next |`. Every row names its blocker in plain words, or
+   `nothing`. Every owner update's Drive tooling section is that table, and
+   `lr update render` and `lr update check` exit 1 when a program has no row or no blocker.
 5. Stop and report to the communicator with 2 to 4 options and a recommendation when an item
    needs an owner pick his words do not settle.
 ```
