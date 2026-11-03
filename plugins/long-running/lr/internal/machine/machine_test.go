@@ -101,9 +101,9 @@ func TestEveryStateIsReachable(t *testing.T) {
 	}
 }
 
-func TestZeroFactsAreAnOpenUngradedPushedHead(t *testing.T) {
+func TestALanesZeroFactsAreAnOpenUngradedPushedHead(t *testing.T) {
 	want := Verdict{StatePushed, MoverPool, ActionGrade, 10 * time.Minute}
-	if got := Classify(Facts{}); got != want {
+	if got := Classify(Facts{Lane: "lane-7"}); got != want {
 		t.Fatalf("got %+v, want %+v", got, want)
 	}
 }
