@@ -30,11 +30,42 @@ func TestAnOverrideRootWroteThatDoesNotParseComesBackOnce(t *testing.T) {
 	}
 }
 
-func TestAnOverrideQuotingAWordTheAnswerDoesNotHoldComesBackOnce(t *testing.T) {
-	fake := &fakeBus{tail: []client.Record{{Seq: 9, Lane: "root", Kind: "decide", At: t0, Text: `finder-override #47755 at abc1234: 174488. answer 0000000, "anything"`}}}
-	runner := &shelltest.Fake{}
-	runner.Fail(1, "no such answer", "ccn")
-	check := &OverrideRefusals{Env: Env{Bus: fake, Runner: runner, Config: config.Config{Drive: testDrive}}, Store: memory(t)}
+func TestAnOverrideWhoseQuoteDoesNotHoldWarnsRootOnceAndNeverRefuses(t *testing.T) {
+	const override = "finder-override #47755 at abc1234: 174488. "
+	for name, tc := range map[string]struct {
+		text string
+		stub func(*shelltest.Fake)
+		want string
+	}{
+		"words he never said": {override + `answer 0000000, "anything"`, func(runner *shelltest.Fake) { runner.Reply("Go look into it.\n", "ccn") }, "does not say"},
+		"a cut quote":         {override + `answer 0000000, "Go look into it"`, func(runner *shelltest.Fake) { runner.Reply("Go look into it now.\n", "ccn") }, "goes on after"},
+		"ccn is down":         {override + `answer 0000000, "Go look into it"`, func(runner *shelltest.Fake) { runner.Fail(1, "ccn is down", "ccn") }, "could not read"},
+		"no row id":           {override + `The grade says "plan names no field"`, func(*shelltest.Fake) {}, "with no row or answer key"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			fake := &fakeBus{tail: []client.Record{{Seq: 9, Lane: "root", Kind: "decide", At: t0, Text: tc.text}}}
+			runner := &shelltest.Fake{}
+			tc.stub(runner)
+			check := &OverrideRefusals{Env: Env{Bus: fake, Runner: runner, Config: config.Config{Drive: testDrive}}, Store: memory(t)}
+			registerDrive(t)
+
+			if err := check.Check(context.Background(), t0); err != nil {
+				t.Fatal(err)
+			}
+			check.read = t0.Add(-overrideEvery)
+			if err := check.Check(context.Background(), t0); err != nil {
+				t.Fatal(err)
+			}
+
+			if len(fake.posted) != 1 || fake.posted[0].Kind != "note" || !strings.HasPrefix(fake.posted[0].Text, "OVERRIDE-WARNING cci #9 still counts") || !strings.Contains(fake.posted[0].Text, tc.want) {
+				t.Fatalf("posted = %+v", fake.posted)
+			}
+		})
+	}
+}
+
+func registerDrive(t *testing.T) {
+	t.Helper()
 	configDir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", configDir)
 	if err := os.MkdirAll(filepath.Join(configDir, "long-running", "drives"), 0o750); err != nil {
@@ -43,18 +74,6 @@ func TestAnOverrideQuotingAWordTheAnswerDoesNotHoldComesBackOnce(t *testing.T) {
 	entry := fmt.Sprintf(`{"drive":%q,"checkout":"/repo","program":"p","sessions":["s"]}`, testDrive)
 	if err := os.WriteFile(filepath.Join(configDir, "long-running", "drives", "d.json"), []byte(entry), 0o600); err != nil {
 		t.Fatal(err)
-	}
-
-	if err := check.Check(context.Background(), t0); err != nil {
-		t.Fatal(err)
-	}
-	check.read = t0.Add(-overrideEvery)
-	if err := check.Check(context.Background(), t0); err != nil {
-		t.Fatal(err)
-	}
-
-	if len(fake.posted) != 1 || fake.posted[0].To[0] != "root" || !strings.HasPrefix(fake.posted[0].Text, "OVERRIDE-REFUSED cci #9 settles no grade: answer 0000000") {
-		t.Fatalf("posted = %+v", fake.posted)
 	}
 }
 

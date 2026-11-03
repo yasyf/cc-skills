@@ -57,22 +57,19 @@ func Command(a *app.App) *cobra.Command {
 		},
 	}, &cobra.Command{
 		Use:   "quotes",
-		Short: "Read an override on stdin, print each quote its cited row or answer does not contain, and exit 1 when any",
+		Short: "Read an override on stdin, print each quote its cited row or answer does not hold whole, and exit 1 when any; the supervisor warns root the same way",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			text, err := io.ReadAll(cmd.InOrStdin())
 			if err != nil {
 				return err
 			}
-			misquotes, err := quotes.NewReader(a.Runner, driveName).Misquotes(cmd.Context(), string(text))
-			if err != nil {
-				return err
+			warnings := quotes.NewReader(a.Runner, driveName).Check(cmd.Context(), string(text))
+			for _, warning := range warnings {
+				fmt.Fprintf(cmd.OutOrStdout(), "warned: %s\n", warning)
 			}
-			for _, misquote := range misquotes {
-				fmt.Fprintf(cmd.OutOrStdout(), "refused: %s\n", misquote)
-			}
-			if len(misquotes) > 0 {
-				return fmt.Errorf("%d quotes the owner's words do not hold", len(misquotes))
+			if len(warnings) > 0 {
+				return fmt.Errorf("%d quotes to check against the owner's words", len(warnings))
 			}
 			return nil
 		},
