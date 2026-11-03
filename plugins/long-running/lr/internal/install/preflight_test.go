@@ -112,17 +112,6 @@ const parentOfTag = `{"parents":[{"sha":"abcdef0123456789"}]}`
 
 const runsPath = "api repos/o/r/actions/runs?head_sha=abcdef0123456789&per_page=100"
 
-type runnerFunc func(shell.Command) (shell.Result, error)
-
-func (f runnerFunc) Run(_ context.Context, c shell.Command) (shell.Result, error) { return f(c) }
-
-func exited(code int, stdout string, seen *[]string) runnerFunc {
-	return func(c shell.Command) (shell.Result, error) {
-		*seen = c.Argv
-		return shell.Result{Code: code, Stdout: stdout}, &shell.ExitError{Argv: c.Argv, Code: code}
-	}
-}
-
 func TestCIFaultReadsTheNewestAttemptOnTheCommitTheTagWasBumpedFrom(t *testing.T) {
 	cases := map[string]struct {
 		runs string
