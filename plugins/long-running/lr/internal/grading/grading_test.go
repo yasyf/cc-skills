@@ -1,6 +1,8 @@
 package grading
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"testing"
@@ -20,18 +22,36 @@ const (
 var t0 = time.Date(2026, 10, 30, 21, 0, 0, 0, time.UTC)
 
 type fakePool struct {
-	jobs []Dispatched
-	box  string
-	gone map[string]bool
+	jobs    []Dispatched
+	box     string
+	gone    map[string]bool
+	refuse  map[string]error
+	refused []string
+	queued  []int
+	settles int
 }
 
-func (p *fakePool) Dispatch(grader, _ string, number int, head string) (string, error) {
-	p.jobs = append(p.jobs, Dispatched{grader, number, head})
-	return fmt.Sprintf("%s/%s/%d", p.box, grader, number), nil
+func (p *fakePool) Scale(queued int, _ time.Time) error {
+	p.queued = append(p.queued, queued)
+	return nil
 }
 
-func (p *fakePool) Alive(worker string) bool {
-	return !p.gone[worker]
+func (p *fakePool) Settle(_ context.Context, workers []string) (map[string]bool, error) {
+	p.settles++
+	live := make(map[string]bool, len(workers))
+	for _, worker := range workers {
+		live[worker] = !p.gone[worker]
+	}
+	return live, nil
+}
+
+func (p *fakePool) Dispatch(_ context.Context, grader string, f machine.Facts) (string, error) {
+	if err := p.refuse[grader]; err != nil {
+		p.refused = append(p.refused, grader)
+		return "", err
+	}
+	p.jobs = append(p.jobs, Dispatched{grader, f.Number, f.Head})
+	return fmt.Sprintf("%s/%s/%d", p.box, grader, f.Number), nil
 }
 
 func memory(t *testing.T) *store.Store {
@@ -71,7 +91,7 @@ func items(t *testing.T, s *store.Store) []store.Item {
 
 func act(t *testing.T, s *store.Store, pool Pool, open []store.Item, f machine.Facts, at time.Time) []Dispatched {
 	t.Helper()
-	dispatched, err := Act(s, pool, open, map[int]machine.Facts{number: f}, at, 1)
+	dispatched, err := Act(context.Background(), s, pool, open, map[int]machine.Facts{number: f}, at, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -253,5 +273,82 @@ func TestAChangedPatchCarriesNothingAndIsGradedAgain(t *testing.T) {
 	act(t, s, pool, opened(t, s, newer), facts(newer), t0)
 	if got, want := graders(pool.jobs), []string{GraderFinder, GraderFidelity}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("jobs = %v, want %v", got, want)
+	}
+}
+
+func TestAFullGraderStopsOnlyItsOwnDispatchesAndTheOtherGoesOn(t *testing.T) {
+	s, pool := memory(t), &fakePool{box: "sprite-1", refuse: map[string]error{GraderFinder: ErrNoCapacity}}
+	if _, err := s.OpenItem(store.NewItem{Kind: ItemKind, Repo: repo, Number: number + 1, Head: newer, Mover: machine.MoverPool, Deadline: machine.GradeClock}, t0); err != nil {
+		t.Fatal(err)
+	}
+	second := facts(newer, func(f *machine.Facts) { f.Number = number + 1 })
+	open := opened(t, s, head)
+
+	dispatched, err := Act(context.Background(), s, pool, open, map[int]machine.Facts{number: facts(head), number + 1: second}, t0, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got, want := graders(dispatched), []string{GraderFidelity, GraderFidelity}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("dispatched = %v, want %v", got, want)
+	}
+	if want := []string{GraderFinder}; !reflect.DeepEqual(pool.refused, want) {
+		t.Fatalf("refused = %v, want one refusal, %v", pool.refused, want)
+	}
+}
+
+func TestAnAnsweredGraderHoldsNoWorkerAndTheOtherStillRuns(t *testing.T) {
+	s, pool := memory(t), &fakePool{box: "sprite-1", refuse: map[string]error{GraderFinder: ErrAnswered}}
+
+	dispatched := act(t, s, pool, opened(t, s, head), facts(head), t0)
+
+	if got, want := graders(dispatched), []string{GraderFidelity}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("dispatched = %v, want %v", got, want)
+	}
+	if got, want := workerNames(t, s), []string{"sprite-1/fidelity/45489"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("workers = %v, want %v", got, want)
+	}
+}
+
+func TestAnyOtherDispatchFailureStopsThePass(t *testing.T) {
+	broken := errors.New("job not written")
+	s, pool := memory(t), &fakePool{box: "sprite-1", refuse: map[string]error{GraderFinder: broken}}
+
+	_, err := Act(context.Background(), s, pool, opened(t, s, head), map[int]machine.Facts{number: facts(head)}, t0, 1)
+
+	if !errors.Is(err, broken) {
+		t.Fatalf("err = %v, want %v", err, broken)
+	}
+}
+
+func TestALiveWorkerStaysFreshPastTheStaleWindowOfALongPass(t *testing.T) {
+	s, pool := memory(t), &fakePool{box: "sprite-1"}
+	act(t, s, pool, opened(t, s, head), facts(head), t0)
+
+	for minutes := 5; minutes <= 60; minutes += 5 {
+		at := t0.Add(time.Duration(minutes) * time.Minute)
+		act(t, s, pool, items(t, s), facts(head), at)
+		stale, err := s.StaleWorkers(at)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(stale) != 0 {
+			t.Fatalf("at %d minutes stale = %v, want none", minutes, stale)
+		}
+	}
+}
+
+func TestAPassSettlesEveryWorkerInOneCallAndScalesToWhatIsMissing(t *testing.T) {
+	s, pool := memory(t), &fakePool{box: "sprite-1"}
+	onlyFidelity := facts(head, func(f *machine.Facts) { f.Finder = machine.FinderClear })
+
+	act(t, s, pool, opened(t, s, head), onlyFidelity, t0)
+	act(t, s, pool, items(t, s), onlyFidelity, t0.Add(time.Minute))
+
+	if pool.settles != 2 {
+		t.Fatalf("settles = %d, want one per pass", pool.settles)
+	}
+	if want := []int{1, 1}; !reflect.DeepEqual(pool.queued, want) {
+		t.Fatalf("queued = %v, want %v", pool.queued, want)
 	}
 }

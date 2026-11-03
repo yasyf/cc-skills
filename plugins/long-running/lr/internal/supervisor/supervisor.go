@@ -145,7 +145,7 @@ func runPass(ctx context.Context, s *store.Store, generation int64, d Deps, now 
 		for _, facts := range snapshot {
 			byNumber[facts.Number] = facts
 		}
-		dispatched, err := grading.Act(s, d.Pool, items, byNumber, now, generation)
+		dispatched, err := grading.Act(ctx, s, d.Pool, items, byNumber, now, generation)
 		if err != nil {
 			d.Log.Warn("movers stopped mid-pass", "err", err)
 			return report, nil
