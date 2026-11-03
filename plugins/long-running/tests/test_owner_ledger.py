@@ -73,7 +73,7 @@ def communicator(drive: Path) -> Window:
 
 
 def slack_dm(**fields) -> str:
-    payload = {"type": "slack.message", "kind": "dm", "ts": "1793159602.693499", "user": "U05FTPXU8PP", "from_claude": False, "text": "Meant to approve 43807"} | fields
+    payload = {"type": "slack.message", "kind": "dm", "channel_id": "D0DIRECT001", "thread_ts": "1792842193.708029", "ts": "1793159602.693499", "user": "U05FTPXU8PP", "from_claude": False, "text": "Meant to approve 43807"} | fields
     return f'<channel source="plugin:cc-slack:cc-slack" subject_id="50c3b930" type="slack.message">\n{json.dumps(payload)}\n</channel>'
 
 
@@ -165,7 +165,7 @@ def test_an_owner_slack_dm_adds_one_row_with_its_slack_time(communicator: Window
     assert communicator.rows() == ["| m1 | Oct 27 8:53 PM | Meant to approve 43807 |  | open |"]
 
 
-@pytest.mark.parametrize("fields", [{"user": "U01OTHER"}, {"from_claude": True}, {"kind": "thread"}])
+@pytest.mark.parametrize("fields", [{"user": "U01OTHER"}, {"from_claude": True}, {"channel_id": "C0TEAM0001"}])
 def test_a_slack_message_that_is_not_the_owners_dm_adds_no_row(communicator: Window, fields: dict) -> None:
     communicator.queued(slack_dm(**fields))
 

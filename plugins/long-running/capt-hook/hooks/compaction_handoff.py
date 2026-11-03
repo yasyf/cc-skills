@@ -92,6 +92,7 @@ REGISTER_CONTEXT_CHARS = 9000
 REGISTER_FENCE = "~" * 12
 SWEEP_FIRST = "Run `rulings.py sweep --drive {drive}` before the first plan or card edit."
 ROOT_LANE = "root"
+COMMUNICATOR_LANE = "owner-relay"
 ROOT_SLICE_BLOCKERS = "root-slice-blockers"
 DOC_ADD_TOOL = "mcp__plugin_cc-notes_cc-notes__doc_add"
 PROGRESS_TITLE = re.compile(r"\bprogress\b|\bpre-compact\b", re.IGNORECASE)
