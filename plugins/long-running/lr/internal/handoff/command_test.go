@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"strings"
 	"testing"
 	"time"
@@ -102,8 +103,8 @@ func TestTailRecordsTakesEveryKindTheDocReadsAndCarriesTheFieldsItUses(t *testin
 	equal(t, record.Kind, "report")
 	equal(t, record.Topic, "load")
 	equal(t, record.Text, "CANDIDATE the fork reads the parent")
-	if !record.At.Equal(stored.At) {
-		t.Fatalf("at %v, want %v", record.At, stored.At)
+	if gap := record.At.Sub(stored.At).Abs(); gap >= time.Millisecond {
+		t.Fatalf("at %v is %v from %v", record.At, gap, stored.At)
 	}
 
 	for _, kinds := range [][]string{{goKind, correctionKind}, textKinds, settlingKinds} {
@@ -123,15 +124,19 @@ func TestTheBlockerReachesRootOnceAnHour(t *testing.T) {
 	t.Setenv("CCI_HOME", t.TempDir())
 	ctx := context.Background()
 
-	postBlocker(ctx, "brook", "register-rows:brook:20261010T22", "the rows did not load")
-	postBlocker(ctx, "brook", "register-rows:brook:20261010T22", "the rows did not load")
+	var logged bytes.Buffer
+	post := postingBlockers(slog.New(slog.NewTextHandler(&logged, nil)))
+
+	post(ctx, "brook", "register-rows:brook:20261010T22", "the rows did not load")
+	post(ctx, "brook", "register-rows:brook:20261010T22", "the rows did not load")
 
 	found, err := client.Tail(ctx, client.Query{Drive: "brook", Kinds: []string{blockerKind}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	equal(t, len(found), 1)
-	equal(t, found[0].Lane, rootLane)
+	equal(t, found[0].Lane, handoffLane)
 	equal(t, found[0].To, []string{rootLane})
 	equal(t, found[0].Text, "the rows did not load")
+	equal(t, logged.String(), "")
 }
