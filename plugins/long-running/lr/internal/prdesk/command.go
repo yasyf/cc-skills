@@ -13,7 +13,9 @@ import (
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/grading/grader"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
@@ -95,6 +97,9 @@ func serve(ctx context.Context, a *app.App, to []string, origin string) error {
 		Graders: []string{grader.FinderLane, grader.FidelityLane}, GoLanes: cfg.GoLaneNames(),
 		Read: GitHubRead{CCX: a.CCX, Store: s, Repo: cfg.Repo, Author: cfg.Author, Label: cfg.Label}.Read,
 		Tail: client.Tail, Post: client.Post, Now: a.Now, Log: a.Log,
+		Hash: func(ctx context.Context, base, head string) (string, error) {
+			return hashDiff(ctx, a.Runner, cfg.Checkout, base, head)
+		},
 	}.Run(ctx)
 	if cause := context.Cause(ctx); cause != nil && !errors.Is(cause, context.Canceled) {
 		return cause
@@ -130,4 +135,16 @@ func requiredChecks(ctx context.Context, gh ccx.Client, repo, landing string) ([
 		}
 	}
 	return required, nil
+}
+
+func hashDiff(ctx context.Context, runner shell.Runner, checkout, base, head string) (string, error) {
+	tracked := "refs/remotes/origin/" + base
+	if _, err := runner.Run(ctx, shell.Command{Dir: checkout, Argv: []string{"git", "fetch", "--no-write-fetch-head", "-q", "origin", head, "+refs/heads/" + base + ":" + tracked}}); err != nil {
+		return "", err
+	}
+	diff, err := runner.Run(ctx, shell.Command{Dir: checkout, Argv: []string{"git", "diff", "--no-color", "--no-ext-diff", tracked + "..." + head}})
+	if err != nil {
+		return "", err
+	}
+	return gates.DiffHash(diff.Stdout), nil
 }

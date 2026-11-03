@@ -12,6 +12,7 @@ type PRFacts struct {
 	Branch string
 	Base   string
 	Head   string
+	Change string
 	Open   bool
 	Merged bool
 	Landed bool
@@ -38,10 +39,23 @@ type Review struct {
 
 type Tap struct {
 	Repo    string
+	Number  int
+	Head    string
 	Change  string
 	Verdict string
 	Record  string
 	At      time.Time
+}
+
+type Behavior struct {
+	Repo        string
+	Number      int
+	Head        string
+	Since       string
+	Behavior    string
+	WhatChanged string
+	Record      string
+	At          time.Time
 }
 
 type Hold struct {
@@ -64,12 +78,12 @@ type Entry struct {
 	Reason  string
 }
 
-const prFactColumns = "repo, number, branch, base, head, open, merged, landed, at"
+const prFactColumns = "repo, number, branch, base, head, change, open, merged, landed, at"
 
 func (t *Tx) PutPRFacts(f PRFacts) error {
 	_, err := t.tx.Exec(
-		"INSERT INTO pr_facts ("+prFactColumns+") VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?) ON CONFLICT (repo, number) DO UPDATE SET branch = excluded.branch, base = excluded.base, head = excluded.head, open = excluded.open, merged = excluded.merged, at = excluded.at WHERE excluded.at >= pr_facts.at",
-		f.Repo, f.Number, f.Branch, f.Base, f.Head, f.Open, f.Merged, Stamp(f.At),
+		"INSERT INTO pr_facts ("+prFactColumns+") VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?) ON CONFLICT (repo, number) DO UPDATE SET branch = excluded.branch, base = excluded.base, head = excluded.head, change = excluded.change, open = excluded.open, merged = excluded.merged, at = excluded.at WHERE excluded.at >= pr_facts.at",
+		f.Repo, f.Number, f.Branch, f.Base, f.Head, f.Change, f.Open, f.Merged, Stamp(f.At),
 	)
 	return err
 }
@@ -112,7 +126,7 @@ func (t *Tx) onePR(where string, args ...any) (PRFacts, bool, error) {
 
 func scanPRFacts(row interface{ Scan(...any) error }) (PRFacts, error) {
 	var f PRFacts
-	err := row.Scan(&f.Repo, &f.Number, &f.Branch, &f.Base, &f.Head, &f.Open, &f.Merged, &f.Landed, moment{&f.At})
+	err := row.Scan(&f.Repo, &f.Number, &f.Branch, &f.Base, &f.Head, &f.Change, &f.Open, &f.Merged, &f.Landed, moment{&f.At})
 	return f, err
 }
 
@@ -160,19 +174,64 @@ func (t *Tx) Reviews(repo string, number int) ([]Review, error) {
 
 func (t *Tx) PutTap(tap Tap) error {
 	_, err := t.tx.Exec(
-		"INSERT INTO taps (repo, change, verdict, record, at) VALUES (?, ?, ?, ?, ?) ON CONFLICT (repo, change) DO UPDATE SET verdict = excluded.verdict, record = excluded.record, at = excluded.at WHERE excluded.at >= taps.at",
-		tap.Repo, tap.Change, tap.Verdict, tap.Record, Stamp(tap.At),
+		"INSERT INTO taps (repo, number, head, change, verdict, record, at) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (repo, change) DO UPDATE SET number = excluded.number, head = excluded.head, verdict = excluded.verdict, record = excluded.record, at = excluded.at WHERE excluded.at >= taps.at",
+		tap.Repo, tap.Number, tap.Head, tap.Change, tap.Verdict, tap.Record, Stamp(tap.At),
 	)
 	return err
 }
 
-func (t *Tx) Tap(repo, change string) (string, error) {
-	var verdict string
-	err := t.tx.QueryRow("SELECT verdict FROM taps WHERE repo = ? AND change = ?", repo, change).Scan(&verdict)
+func (t *Tx) Tap(repo, change string) (Tap, error) {
+	var tap Tap
+	err := t.tx.QueryRow("SELECT repo, number, head, change, verdict, record, at FROM taps WHERE repo = ? AND change = ?", repo, change).
+		Scan(&tap.Repo, &tap.Number, &tap.Head, &tap.Change, &tap.Verdict, &tap.Record, moment{&tap.At})
+	if errors.Is(err, sql.ErrNoRows) {
+		return Tap{}, nil
+	}
+	return tap, err
+}
+
+func (t *Tx) TappedBefore(repo string, number int, change string) (bool, error) {
+	var found int
+	err := t.tx.QueryRow("SELECT count(*) FROM taps WHERE repo = ? AND number = ? AND change != ? AND verdict IN ('tapped', 'rejected')", repo, number, change).Scan(&found)
+	return found > 0, err
+}
+
+func (t *Tx) PutChange(repo, head, change string) error {
+	if _, err := t.tx.Exec("INSERT INTO changes (repo, head, change) VALUES (?, ?, ?) ON CONFLICT (repo, head) DO UPDATE SET change = excluded.change", repo, head, change); err != nil {
+		return err
+	}
+	if _, err := t.tx.Exec("UPDATE OR IGNORE taps SET change = ? WHERE repo = ? AND change = ?", change, repo, head); err != nil {
+		return err
+	}
+	_, err := t.tx.Exec("UPDATE grades SET change = ? WHERE repo = ? AND head = ? AND change = ''", change, repo, head)
+	return err
+}
+
+func (t *Tx) ChangeOf(repo, head string) (string, error) {
+	var change string
+	err := t.tx.QueryRow("SELECT change FROM changes WHERE repo = ? AND head = ?", repo, head).Scan(&change)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}
-	return verdict, err
+	return change, err
+}
+
+func (t *Tx) PutBehavior(b Behavior) error {
+	_, err := t.tx.Exec(
+		"INSERT INTO behaviors (repo, number, head, since, behavior, what_changed, record, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (repo, number, head) DO UPDATE SET since = excluded.since, behavior = excluded.behavior, what_changed = excluded.what_changed, record = excluded.record, at = excluded.at WHERE excluded.at >= behaviors.at",
+		b.Repo, b.Number, b.Head, b.Since, b.Behavior, b.WhatChanged, b.Record, Stamp(b.At),
+	)
+	return err
+}
+
+func (t *Tx) BehaviorAt(repo string, number int, head string) (Behavior, error) {
+	var b Behavior
+	err := t.tx.QueryRow("SELECT repo, number, head, since, behavior, what_changed, record, at FROM behaviors WHERE repo = ? AND number = ? AND head = ?", repo, number, head).
+		Scan(&b.Repo, &b.Number, &b.Head, &b.Since, &b.Behavior, &b.WhatChanged, &b.Record, moment{&b.At})
+	if errors.Is(err, sql.ErrNoRows) {
+		return Behavior{}, nil
+	}
+	return b, err
 }
 
 func (t *Tx) OpenHold(h Hold) error {

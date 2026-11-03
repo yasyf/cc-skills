@@ -9,7 +9,9 @@ import (
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
 const (
@@ -35,6 +37,7 @@ type Shadow struct {
 	GoLanes []string
 	Read    func(ctx context.Context, at time.Time) ([]Event, error)
 	Tail    func(ctx context.Context, q client.Query) ([]client.Record, error)
+	Hash    func(ctx context.Context, base, head string) (string, error)
 	Post    func(ctx context.Context, d client.Draft) (client.Record, error)
 	Now     func() time.Time
 	Log     *slog.Logger
@@ -45,6 +48,10 @@ func (s Shadow) Run(ctx context.Context) error {
 	defer cancel()
 	wake := make(chan struct{}, 1)
 	apply := func(e Event) error {
+		e, err := s.changed(ctx, e)
+		if err != nil {
+			return err
+		}
 		moved, err := s.Desk.Apply(e)
 		if err != nil {
 			return err
@@ -88,6 +95,27 @@ func (s Shadow) follow(ctx context.Context, apply func(Event) error) error {
 	}
 }
 
+func (s Shadow) changed(ctx context.Context, e Event) (Event, error) {
+	pr, isPR := e.(PullRequest)
+	if !isPR || pr.Change != "" {
+		return e, nil
+	}
+	var stored store.PRFacts
+	if err := s.Desk.Store.Update(func(tx *store.Tx) (err error) {
+		stored, _, err = tx.PRFacts(pr.Repo, pr.Number)
+		return err
+	}); err != nil {
+		return nil, err
+	}
+	if stored.Head == pr.Head && stored.Base == pr.Base && stored.Change != "" || !pr.Open {
+		pr.Change = stored.Change
+		return pr, nil
+	}
+	change, err := s.Hash(ctx, pr.Base, pr.Head)
+	pr.Change = change
+	return pr, err
+}
+
 func (s Shadow) events(r client.Record) []Event {
 	key := r.ID
 	if key == "" {
@@ -117,8 +145,25 @@ func (s Shadow) events(r client.Record) []Event {
 	}
 	facts := bus.LegacyFacts(r, s.Repo, s.GoLanes)
 	events := make([]Event, 0, len(facts))
+	judged := map[string]int{}
+	judgment := func(f bus.Fact) *Behavior {
+		key := fmt.Sprintf("%d %s", f.PR, f.Head)
+		if i, found := judged[key]; found {
+			return events[i].(*Behavior)
+		}
+		judged[key] = len(events)
+		b := &Behavior{Meta: meta, Number: f.PR, Head: f.Head}
+		events = append(events, b)
+		return b
+	}
 	for _, f := range facts {
 		switch f.Kind {
+		case gates.BehaviorFact:
+			judgment(f).Same = f.Value == gates.BehaviorSame
+		case gates.SinceFact:
+			judgment(f).Since = f.Value
+		case gates.ChangedFact:
+			judgment(f).WhatChanged = f.Value
 		case "finder", "fidelity":
 			events = append(events, Grade{meta, f.PR, f.Head, f.Kind, 0, f.Value})
 		case "verdict":

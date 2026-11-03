@@ -5,6 +5,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -145,11 +146,14 @@ func placeOne(tx *store.Tx, repo Repo, f store.PRFacts, beneath *machine.Place, 
 		return machine.Place{}, err
 	}
 	here := machine.Decide(seen.pr, beneath)
+	if here.State == machine.StateAwaitingTap && seen.whatChanged != "" {
+		here.Reason += "; since the tap: " + seen.whatChanged
+	}
 	prev, had, err := tx.State(repo.Name, f.Number)
 	if err != nil {
 		return here, err
 	}
-	change := f.Head
+	change := seen.change
 	waiting := here.State == machine.StateAwaitingTap || here.State == machine.StateHeld && here.Mover == machine.MoverOwner
 	if waiting {
 		if err := tx.OpenAsk(store.Ask{Repo: repo.Name, Number: f.Number, Change: change, Head: f.Head, Opened: at}); err != nil {
@@ -171,6 +175,11 @@ func placeOne(tx *store.Tx, repo Repo, f store.PRFacts, beneath *machine.Place, 
 		return here, err
 	}
 	*moved = append(*moved, Moved{prev, row})
+	if seen.carry != nil {
+		if err := tx.Carry(*seen.carry); err != nil {
+			return here, err
+		}
+	}
 	if had && (!waiting || prev.Change != change) {
 		if err := tx.CloseAsk(repo.Name, f.Number, prev.Change, at); err != nil {
 			return here, err
@@ -224,9 +233,12 @@ func placeOne(tx *store.Tx, repo Repo, f store.PRFacts, beneath *machine.Place, 
 }
 
 type view struct {
-	pr       machine.PR
-	ungraded []string
-	inQueue  bool
+	pr          machine.PR
+	change      string
+	ungraded    []string
+	inQueue     bool
+	carry       *store.Carry
+	whatChanged string
 }
 
 func read(tx *store.Tx, repo Repo, f store.PRFacts) (view, error) {
@@ -234,7 +246,14 @@ func read(tx *store.Tx, repo Repo, f store.PRFacts) (view, error) {
 	if err != nil {
 		return view{}, err
 	}
-	grades, err := tx.Grades(repo.Name, f.Number, f.Head)
+	change := f.Change
+	var grades map[string]store.Grade
+	if change == "" {
+		change = f.Head
+		grades, err = tx.Grades(repo.Name, f.Number, f.Head)
+	} else {
+		grades, err = tx.GradesOfChange(repo.Name, f.Number, change)
+	}
 	if err != nil {
 		return view{}, err
 	}
@@ -242,7 +261,15 @@ func read(tx *store.Tx, repo Repo, f store.PRFacts) (view, error) {
 	if err != nil {
 		return view{}, err
 	}
-	tap, err := tx.Tap(repo.Name, f.Head)
+	judged, err := tx.BehaviorAt(repo.Name, f.Number, f.Head)
+	if err != nil {
+		return view{}, err
+	}
+	before, err := tx.TappedBefore(repo.Name, f.Number, change)
+	if err != nil {
+		return view{}, err
+	}
+	tap, carry, whatChanged, err := tapOf(tx, repo, f, change, grades, judged)
 	if err != nil {
 		return view{}, err
 	}
@@ -267,7 +294,10 @@ func read(tx *store.Tx, repo Repo, f store.PRFacts) (view, error) {
 			Tap:       machine.Tap(tap),
 			TapFree:   repo.TapFree,
 		},
-		inQueue: queued && entry.Outcome == QueueIn,
+		change:      change,
+		inQueue:     queued && entry.Outcome == QueueIn,
+		carry:       carry,
+		whatChanged: whatChanged,
 	}
 	if atHead && entry.Outcome == QueueOut {
 		out.pr.Eviction = machine.Eviction(entry.Reason)
@@ -297,6 +327,9 @@ func read(tx *store.Tx, repo Repo, f store.PRFacts) (view, error) {
 			out.ungraded = append(out.ungraded, grader)
 		}
 	}
+	if before && judged.Behavior == "" && !slices.Contains(out.ungraded, "fidelity") {
+		out.ungraded = append(out.ungraded, "fidelity")
+	}
 	out.pr.Graded = len(out.ungraded) == 0
 	open := grades["finder"].Verdict == string(machine.FinderAsk) || grades["fidelity"].Verdict == string(machine.FidelityFail)
 	switch grades["appeal"].Verdict {
@@ -313,4 +346,41 @@ func read(tx *store.Tx, repo Repo, f store.PRFacts) (view, error) {
 		out.pr.Hold = machine.Hold{Lifter: machine.Mover(holds[0].Lifter), Reason: holds[0].Reason}
 	}
 	return out, nil
+}
+
+func tapOf(tx *store.Tx, repo Repo, f store.PRFacts, change string, grades map[string]store.Grade, b store.Behavior) (string, *store.Carry, string, error) {
+	tap, err := tx.Tap(repo.Name, change)
+	if err != nil {
+		return "", nil, "", err
+	}
+	if tap.Verdict == string(machine.TapConditional) && tap.Head != f.Head {
+		tap = store.Tap{}
+	}
+	carry := func(from store.Tap, proof store.Proof, grade string) *store.Carry {
+		return &store.Carry{Repo: repo.Name, Number: f.Number, FromNumber: from.Number, FromHead: from.Head, ToHead: f.Head, Proof: proof, Grade: grade, At: f.At}
+	}
+	if tap.Verdict != "" {
+		if tap.Head == f.Head {
+			return tap.Verdict, nil, "", nil
+		}
+		return tap.Verdict, carry(tap, store.ProofSameDiff, ""), "", nil
+	}
+	if b.Behavior == "" {
+		return "", nil, "", nil
+	}
+	if b.Behavior != gates.BehaviorSame || grades["fidelity"].Verdict != string(machine.FidelityPass) {
+		return "", nil, b.WhatChanged, nil
+	}
+	since, err := tx.ChangeOf(repo.Name, b.Since)
+	if err != nil {
+		return "", nil, "", err
+	}
+	if since == "" {
+		since = b.Since
+	}
+	tapped, err := tx.Tap(repo.Name, since)
+	if err != nil || tapped.Verdict != string(machine.TapTapped) && tapped.Verdict != string(machine.TapRejected) {
+		return "", nil, "", err
+	}
+	return tapped.Verdict, carry(tapped, store.ProofFidelity, b.Record), "", nil
 }

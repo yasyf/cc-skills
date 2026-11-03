@@ -53,6 +53,7 @@ type Grade struct {
 	Repo    string
 	Number  int
 	Head    string
+	Change  string
 	Grader  string
 	Attempt int
 	Verdict string
@@ -135,19 +136,36 @@ func (t *Tx) Carry(c Carry) error {
 	return err
 }
 
+func (t *Tx) Carries(repo string, number int) ([]Carry, error) {
+	rows, err := t.tx.Query("SELECT repo, number, from_number, from_head, to_head, proof, coalesce(grade, ''), at FROM carries WHERE repo = ? AND number = ? ORDER BY at, to_head", repo, number)
+	return collect(rows, err, func(rows *sql.Rows) (Carry, error) {
+		var c Carry
+		err := rows.Scan(&c.Repo, &c.Number, &c.FromNumber, &c.FromHead, &c.ToHead, &c.Proof, &c.Grade, moment{&c.At})
+		return c, err
+	})
+}
+
 func (t *Tx) PutGrade(g Grade) error {
 	_, err := t.tx.Exec(
-		"INSERT INTO grades (repo, number, head, grader, attempt, verdict, record, posted) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (repo, number, head, grader) DO UPDATE SET attempt = excluded.attempt, verdict = excluded.verdict, record = excluded.record, posted = excluded.posted WHERE excluded.attempt >= grades.attempt",
-		g.Repo, g.Number, g.Head, g.Grader, g.Attempt, g.Verdict, g.Record, Stamp(g.Posted),
+		"INSERT INTO grades (repo, number, head, change, grader, attempt, verdict, record, posted) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (repo, number, head, grader) DO UPDATE SET change = excluded.change, attempt = excluded.attempt, verdict = excluded.verdict, record = excluded.record, posted = excluded.posted WHERE excluded.attempt >= grades.attempt",
+		g.Repo, g.Number, g.Head, g.Change, g.Grader, g.Attempt, g.Verdict, g.Record, Stamp(g.Posted),
 	)
 	return err
 }
 
 func (t *Tx) Grades(repo string, number int, head string) (map[string]Grade, error) {
-	rows, err := t.tx.Query("SELECT repo, number, head, grader, attempt, verdict, record, posted FROM grades WHERE repo = ? AND number = ? AND head = ?", repo, number, head)
+	return t.grades("head = ?", repo, number, head)
+}
+
+func (t *Tx) GradesOfChange(repo string, number int, change string) (map[string]Grade, error) {
+	return t.grades("change = ? ORDER BY posted", repo, number, change)
+}
+
+func (t *Tx) grades(where string, repo string, number int, value string) (map[string]Grade, error) {
+	rows, err := t.tx.Query("SELECT repo, number, head, change, grader, attempt, verdict, record, posted FROM grades WHERE repo = ? AND number = ? AND "+where, repo, number, value)
 	found, err := collect(rows, err, func(rows *sql.Rows) (Grade, error) {
 		var g Grade
-		err := rows.Scan(&g.Repo, &g.Number, &g.Head, &g.Grader, &g.Attempt, &g.Verdict, &g.Record, moment{&g.Posted})
+		err := rows.Scan(&g.Repo, &g.Number, &g.Head, &g.Change, &g.Grader, &g.Attempt, &g.Verdict, &g.Record, moment{&g.Posted})
 		return g, err
 	})
 	if err != nil {

@@ -129,6 +129,12 @@ CREATE TABLE IF NOT EXISTS holds (
 );
 CREATE INDEX IF NOT EXISTS holds_open ON holds (repo, number) WHERE lifted IS NULL;
 CREATE INDEX IF NOT EXISTS holds_until ON holds (repo, until) WHERE lifted IS NULL;
+CREATE TABLE IF NOT EXISTS changes (repo TEXT NOT NULL, head TEXT NOT NULL, change TEXT NOT NULL, PRIMARY KEY (repo, head));
+CREATE TABLE IF NOT EXISTS behaviors (
+  repo TEXT NOT NULL, number INTEGER NOT NULL, head TEXT NOT NULL, since TEXT NOT NULL, behavior TEXT NOT NULL,
+  what_changed TEXT NOT NULL, record TEXT NOT NULL, at TEXT NOT NULL,
+  PRIMARY KEY (repo, number, head)
+);
 CREATE TABLE IF NOT EXISTS queue (
   repo TEXT NOT NULL, number INTEGER NOT NULL, head TEXT NOT NULL, first INTEGER NOT NULL, attempt INTEGER NOT NULL,
   outcome TEXT NOT NULL, reason TEXT NOT NULL,
@@ -148,4 +154,8 @@ var addedColumns = []struct{ table, column, kind string }{
 	{"lanes", "placement", "TEXT"},
 	{"lanes", "stopped_on", "INTEGER"},
 	{"lanes", "launcher", "TEXT"},
+	{"taps", "head", "TEXT NOT NULL DEFAULT ''"},
+	{"taps", "number", "INTEGER NOT NULL DEFAULT 0"},
+	{"grades", "change", "TEXT NOT NULL DEFAULT ''"},
+	{"pr_facts", "change", "TEXT NOT NULL DEFAULT ''"},
 }

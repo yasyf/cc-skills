@@ -106,11 +106,11 @@ func TestANewChangeWaitsOnTheOwnerOnlyOnceItsOwnAskIsOpen(t *testing.T) {
 func TestTheNewestGradeAttemptHoldsTheOneRow(t *testing.T) {
 	s := memory(t)
 	for _, g := range []Grade{
-		{repo, 7, head, "finder", 1, "ask", "#100", t0},
-		{repo, 7, head, "finder", 2, "clear", "#101", t0.Add(time.Minute)},
-		{repo, 7, head, "finder", 1, "ask", "#102", t0.Add(2 * time.Minute)},
-		{repo, 7, head, "finder", 2, "clear", "#103", t0.Add(3 * time.Minute)},
-		{repo, 7, head, "fidelity", 1, "pass", "#104", t0.Add(4 * time.Minute)},
+		{repo, 7, head, "", "finder", 1, "ask", "#100", t0},
+		{repo, 7, head, "", "finder", 2, "clear", "#101", t0.Add(time.Minute)},
+		{repo, 7, head, "", "finder", 1, "ask", "#102", t0.Add(2 * time.Minute)},
+		{repo, 7, head, "", "finder", 2, "clear", "#103", t0.Add(3 * time.Minute)},
+		{repo, 7, head, "", "fidelity", 1, "pass", "#104", t0.Add(4 * time.Minute)},
 	} {
 		if err := s.Update(func(tx *Tx) error { return tx.PutGrade(g) }); err != nil {
 			t.Fatal(err)
@@ -124,8 +124,8 @@ func TestTheNewestGradeAttemptHoldsTheOneRow(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[string]Grade{
-		"finder":   {repo, 7, head, "finder", 2, "clear", "#103", t0.Add(3 * time.Minute)},
-		"fidelity": {repo, 7, head, "fidelity", 1, "pass", "#104", t0.Add(4 * time.Minute)},
+		"finder":   {repo, 7, head, "", "finder", 2, "clear", "#103", t0.Add(3 * time.Minute)},
+		"fidelity": {repo, 7, head, "", "fidelity", 1, "pass", "#104", t0.Add(4 * time.Minute)},
 	}
 	if !reflect.DeepEqual(grades, want) {
 		t.Fatalf("grades = %+v, want the late attempt-1 answer dropped and the repeat of attempt 2 kept once", grades)

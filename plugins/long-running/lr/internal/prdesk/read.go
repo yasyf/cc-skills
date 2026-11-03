@@ -122,7 +122,7 @@ func (g GitHubRead) events(meta Meta, pr openPR) []Event {
 		m.Key, m.At = fmt.Sprintf("%s:%d:%s", key, pr.Number, pr.Head), at
 		return m
 	}
-	events := []Event{PullRequest{keyed("pr", pr.UpdatedAt), pr.Number, pr.Branch, pr.Base, pr.Head, true, false}}
+	events := []Event{PullRequest{keyed("pr", pr.UpdatedAt), pr.Number, pr.Branch, pr.Base, pr.Head, true, false, ""}}
 	for _, r := range pr.Reviews.Nodes {
 		events = append(events, Review{keyed("review:"+r.Author.Login, r.SubmittedAt), pr.Number, r.Author.Login, strings.ToLower(r.State), r.Commit.OID})
 	}
@@ -179,7 +179,7 @@ func (g GitHubRead) gone(ctx context.Context, meta Meta, open map[int]bool) ([]E
 		}
 		m := meta
 		m.Key = fmt.Sprintf("pr:%d:%s:shut", f.Number, f.Head)
-		events = append(events, PullRequest{m, f.Number, f.Branch, f.Base, f.Head, false, state.Merged})
+		events = append(events, PullRequest{m, f.Number, f.Branch, f.Base, f.Head, false, state.Merged, f.Change})
 	}
 	return events, nil
 }
