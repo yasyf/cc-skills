@@ -1,6 +1,7 @@
 package supervisor
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"log/slog"
@@ -15,6 +16,7 @@ import (
 
 const (
 	recurEvery = time.Hour
+	wasteEvery = time.Hour
 	judgeEvery = time.Minute
 	judgeLimit = 15 * time.Minute
 )
@@ -26,6 +28,7 @@ type background struct {
 	store *store.Store
 	post  pass.Post
 	log   *slog.Logger
+	to    string
 	read  time.Time
 	busy  atomic.Bool
 }
@@ -48,9 +51,10 @@ func (b *background) pass(ctx context.Context, now time.Time) {
 		return
 	}
 	cause := fmt.Sprintf("the last %s pass failed, so it posts nothing until a pass succeeds: %v", b.name, failed)
-	raised, err := b.store.Escalate(b.name, cause, lanes.Root, now)
+	to := cmp.Or(b.to, lanes.Root)
+	raised, err := b.store.Escalate(b.name, cause, to, now)
 	if err == nil && raised {
-		err = b.post([]string{lanes.Root}, bus.Escalation{Subject: b.name, Cause: cause})
+		err = b.post([]string{to}, bus.Overdue(to, b.name, cause))
 	}
 	if err != nil {
 		b.log.Warn("a background pass failed and could not say so", "pass", b.name, "failed", failed, "err", err)
