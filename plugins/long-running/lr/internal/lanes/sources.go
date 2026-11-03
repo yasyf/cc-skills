@@ -333,7 +333,7 @@ func appendInbox(inbox string, message map[string]any) (bool, error) {
 		return false, err
 	}
 	defer func() { _ = os.Remove(lock) }()
-	messages := []json.RawMessage{}
+	var messages []json.RawMessage
 	data, err := os.ReadFile(inbox)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return false, err
