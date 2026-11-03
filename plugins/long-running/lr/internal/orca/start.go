@@ -49,7 +49,7 @@ const (
 	terminalListAttempts   = 3
 	terminalCreateAttempts = 3
 	saidEvery              = 30
-	spriteBuildkite        = " tools/ci bk does not run on this Sprite. To read Buildkite, post `cci post --kind ask --to bk-desk \"bk build <pipeline> <number>\"`, or `bk log <pipeline> <number> <job>`, or `bk api <path>`; the answer arrives within seconds and `cci show <seq>` prints its body. Ask once per need, never in a polling loop."
+	spriteBuildkite        = " tools/ci bk does not run on this Sprite. To read Buildkite, post `cci post --kind ask --to bk-desk \"bk build <pipeline> <number>\"`, or `bk log <pipeline> <number> <job>`, or `bk api <path>`; the answer arrives within about two minutes and `cci show <seq>` prints its body. Ask once per need, never in a polling loop."
 	standingDesk           = " Standing desk: loop until rotation; setup and quiet cycles are not done. Send worker_done only at rotation, naming the handoff doc."
 	noPRLine               = " This brief orders no PR: push the work as a branch and never open a PR for it."
 )
