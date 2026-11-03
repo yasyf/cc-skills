@@ -574,7 +574,6 @@ document.addEventListener('keydown', (e) => {
     e.preventDefault();
     $(`#main .pr-drawer.front [data-key="${key}"]`)?.click();
   }
-  if (e.key === 'Enter' && !e.shiftKey && e.target.matches('#ask textarea')) { e.preventDefault(); ask(e.target.value); }
 });
 document.addEventListener('click', (e) => {
   const step = !e.target.closest('a') && e.target.closest('.st-table tr[data-step]');
