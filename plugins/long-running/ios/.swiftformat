@@ -1,0 +1,6 @@
+# SwiftFormat (nicklockwood) — mechanical formatting only; SwiftLint owns the
+# judgment rules. NOT Apple's swift-format: the binary is `swiftformat`
+# (brew install swiftformat) and this config file is `.swiftformat`.
+# --swiftversion is the language mode, not the tools version.
+--swiftversion 6.0
+--indent 4

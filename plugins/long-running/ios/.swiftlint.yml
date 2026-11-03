@@ -1,0 +1,33 @@
+# SwiftLint — default rules plus the STYLEGUIDE's force-unwrap ban. Formatting
+# belongs to SwiftFormat; keep this config minimal, and let violations surface
+# as warnings (nothing here blocks a commit or fails CI on style alone).
+opt_in_rules:
+  - force_unwrapping
+disabled_rules:
+  - todo # the bootstrap prose markers are expected until the fill-in phase clears them
+  - trailing_comma # SwiftFormat owns comma placement; this rule fights its default
+  # optional_data_string_conversion pushes every Data->String through the failable
+  # String(bytes:encoding:), forcing the defensive `?? ""` fallbacks the STYLEGUIDE
+  # bans; the non-optional String(decoding:as:) is the deliberate choice here.
+  - optional_data_string_conversion
+identifier_name:
+  # id is SwiftLint's own default exclusion; md is the wire-contract markdown field,
+  # mirrored field-for-field from the Go and TypeScript schemas.
+  excluded:
+    - id
+    - md
+cyclomatic_complexity:
+  # An exhaustive switch over the block/event enums is not the branching complexity
+  # this rule targets; the case arms carry no hidden control flow.
+  ignores_case_statements: true
+file_length:
+  # Doc comments on every exported type shouldn't count against a file's budget.
+  ignore_comment_only_lines: true
+type_body_length:
+  # The Block enum aggregates the 11 nested wire-payload structs; splitting them out
+  # would break the Block.Section-style namespacing the schema depends on.
+  warning: 300
+excluded:
+  - .build
+  - CcPresentKit/.build # SwiftPM's generated test runner lands here after a build
+  - DerivedData

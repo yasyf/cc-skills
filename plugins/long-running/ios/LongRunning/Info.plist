@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDisplayName</key>
+	<string>Long Running</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.yasyf.long-running.pair</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>longrunning</string>
+			</array>
+		</dict>
+	</array>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_cc-present._tcp</string>
+	</array>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Long Running finds the Macs that run your drives on your local network.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Long Running uses the camera to scan a Mac's pairing QR code.</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+</dict>
+</plist>
