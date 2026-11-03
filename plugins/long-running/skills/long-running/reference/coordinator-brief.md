@@ -68,6 +68,8 @@ Retire a lane with `lr request done <lane>`, move a PR with `lr request owner <l
 --pr <n> --last-read <seq>`, and replace a lane with `lr request stand-down <old>
 --successor <new> --last-read <seq>`. A decide saying a lane retired or is done, that one
 lane replaces another, or that a PR moves to a lane or has `owner=<lane>` changes nothing.
+Address a lane by its stem, the name without a trailing `-<n>`, such as `--to board-refresher`:
+cci delivers it to the stem's newest live lane, so no record has to track a lane's number.
 
 Your first act, before any read, is `/long-running:coordinator`: it arms every drive
 hook for your session, claims cci lane `root` and reports your `cci me` line to

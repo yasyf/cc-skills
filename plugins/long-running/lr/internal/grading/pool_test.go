@@ -205,6 +205,15 @@ func sameStrings(t *testing.T, got, want []string) {
 	}
 }
 
+func TestAGraderJobAddressesEachConfiguredLaneByItsStem(t *testing.T) {
+	f := newPool(t, map[string]any{"finder": map[string]any{"sprite": "dar-1", "to": []string{"board-refresher-3", "board-refresher-7", "landing-desk"}, "checkout": "/srv/checkout"}})
+	post(t, client.Draft{Lane: "lane-7", Kind: kindHead, Text: "#45489 " + head, PRs: []string{pull}})
+
+	f.started(t, GraderFinder)
+
+	sameStrings(t, readJob[grader.FinderJob](t, f.finderDir(jobDir)).To, []string{runnerLane, "lane-7", "board-refresher", "landing-desk"})
+}
+
 func TestAFinderJobCarriesTheHistoryRulingsAndHeadsAPassReads(t *testing.T) {
 	f := newPool(t, map[string]any{"finder": map[string]any{"sprite": "dar-1", "to": []string{"board"}, "checkout": "/srv/checkout", "fast": false}})
 	post(t, client.Draft{Lane: "lane-7", Kind: kindHead, Text: "#45489 " + older, PRs: []string{pull}})

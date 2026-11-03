@@ -117,7 +117,7 @@ A Bash append to `orca-desk.md` in a drive session draws `UNREAD` and the `cci p
     "repo": "Forge-AI/monorepo",
     "ledger": "<ledger id>",
     "checkout": "/absolute/monorepo/worktree",
-    "fidelity_lane": "fidelity-desk",
+    "fidelity_lane": ["fidelity-pipeline", "fidelity-desk", "fidelity-sweep"],
     "merge_mode": "high-risk",
     "high_risk_paths": ["*migrations/*", "*.sql", "*backfill*", "*secret*", "*credential*", "infra/rows/*"],
     "adapter": {"kind": "trunk-stack-enqueue", "script": ".agents/skills/submit-pr/scripts/stack-enqueue"},
