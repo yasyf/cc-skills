@@ -1,0 +1,227 @@
+package bus
+
+import (
+	"context"
+	"os"
+	"regexp"
+	"slices"
+	"strconv"
+	"strings"
+	"time"
+	"unicode/utf8"
+
+	"github.com/yasyf/cc-inbox/client"
+)
+
+const (
+	LegacyCursor = "legacy"
+	legacyWindow = 72 * time.Hour
+	rootLane     = "root"
+)
+
+var (
+	legacyKinds    = []string{"review", "owner", "go", "decide", "decision"}
+	goKinds        = []string{"go", "decide", "decision"}
+	finderDesk     = []string{"finder-desk"}
+	fidelityLanes  = []string{"fidelity-pipeline", "fidelity-desk"}
+	ownerTaps      = map[string]string{"approved": "tapped", "rejected": "withdrawn"}
+	laneNumber     = regexp.MustCompile(`^(.+?)(?:-(\d+))?$`)
+	shortSHA       = regexp.MustCompile(`\b[0-9a-f]{7,40}\b`)
+	finderSays     = regexp.MustCompile(`(?i)\bfinder(?:\s*\[\d+\])?:?\s+(ok|lgtm|major|issues)\b`)
+	finderMajor    = regexp.MustCompile(`(?i)\b[1-9]\d* majors?\b`)
+	finderClean    = regexp.MustCompile(`(?i)\bno (?:majors?|findings)\b|\b0 majors?\b|\bok\b`)
+	exemptClass    = regexp.MustCompile(`(?i)\[exempt:\s*([^\],;\s]+)`)
+	overrideNamed  = regexp.MustCompile(`(?i)\b(?:finder|fidelity)-override\b[^.;\n]*`)
+	overrideForm   = regexp.MustCompile(`(?i)^(?:finder|fidelity)-override\s+#?(\d+)\s+(?:at\s+)?([0-9a-f]{7,40})\b`)
+	clauseStart    = regexp.MustCompile(`(?m)(?:^|[.!?]\s+)(?:\d{1,2}:\d{2} [AP]M\s+)?(?:(?:root|main):\s+)?$`)
+	goPair         = `#\d+\s+at\s+[0-9a-f]{7,40}\b`
+	goClause       = regexp.MustCompile(`(?i)(?:^\s*(?:\d{1,2}:\d{2}\s*[AP]M\s+)?|[.:;!?]\s+)(?:go(?:\s+(?:port|test-only|ci-only))?|merge)\s+(` + goPair + `(?:(?:\s*,\s*|\s*,?\s+and\s+)` + goPair + `)*)`)
+	goHead         = regexp.MustCompile(`(?i)#(\d+)\s+at\s+([0-9a-f]{7,40})\b`)
+	withdrawnGo    = regexp.MustCompile(`(?i)^\s*withdrawn\b`)
+	finderVerdicts = map[string]string{"ok": "clear", "major": "ask"}
+)
+
+type Fact struct {
+	PR    int
+	Head  string
+	Kind  string
+	Value string
+}
+
+func (b Bus) ReadLegacy(ctx context.Context, since int64, now time.Time) ([]client.Record, error) {
+	query := client.Query{Drive: b.Drive, After: since, Kinds: legacyKinds}
+	if since == 0 {
+		query.Since = now.Add(-legacyWindow)
+	}
+	return client.Tail(ctx, query)
+}
+
+func LegacyFacts(record client.Record, repo string, goLanes []string) []Fact {
+	kind := string(record.Kind)
+	switch {
+	case kind == "review" && delegated(record.Lane, finderDesk) && strings.HasPrefix(record.Text, "finder:"):
+		grade, head := finderVerdicts[finderGrade(record.Text)], firstSHA(record.Text)
+		if grade == "" || head == "" {
+			return nil
+		}
+		return factsPerPR(record, repo, head, "finder", grade)
+	case kind == "review" && delegated(record.Lane, fidelityLanes) && (strings.HasPrefix(record.Text, "fidelity: ok") || strings.HasPrefix(record.Text, "fidelity: missing")):
+		grade := "fail"
+		if strings.HasPrefix(record.Text, "fidelity: ok") {
+			grade = "pass"
+		}
+		_, after, _ := strings.Cut(record.Text, ":")
+		head := firstSHA(after)
+		if head == "" {
+			return nil
+		}
+		return factsPerPR(record, repo, head, "fidelity", grade)
+	case kind == "owner":
+		return ownerTap(record)
+	case !delegated(record.Lane, append([]string{rootLane}, goLanes...)):
+		return nil
+	}
+	whole := fullText(record)
+	out := overrides(whole)
+	exempt := exemptClass.FindStringSubmatch(whole)
+	if exempt == nil || !isGo(record) {
+		return out
+	}
+	for _, pair := range goHeads(record.Text) {
+		out = append(out, Fact{pair.PR, pair.Head, "exempt", strings.ToLower(exempt[1])})
+	}
+	return out
+}
+
+func factsPerPR(record client.Record, repo, head, kind, value string) []Fact {
+	var out []Fact
+	for _, pr := range record.Refs.PRs {
+		if pr.Repo == "" || strings.EqualFold(pr.Repo, repo) {
+			out = append(out, Fact{pr.Number, head, kind, value})
+		}
+	}
+	return out
+}
+
+func ownerTap(record client.Record) []Fact {
+	attrs := record.Fields.Attrs
+	value, tap := ownerTaps[attrs["verdict"]]
+	row, err := strconv.Atoi(attrs["row"])
+	if attrs["block"] != "merge-prs" || !tap || attrs["head"] == "" || err != nil {
+		return nil
+	}
+	return []Fact{{row, strings.ToLower(attrs["head"]), "tap", value}}
+}
+
+func delegated(lane string, delegates []string) bool {
+	return slices.ContainsFunc(delegates, func(delegate string) bool {
+		return lane == delegate || succeeds(lane, delegate)
+	})
+}
+
+func succeeds(name, lane string) bool {
+	base, number := laneNumber.FindStringSubmatch(lane), 1
+	other := laneNumber.FindStringSubmatch(name)
+	if base == nil || other == nil || other[1] != base[1] || other[2] == "" {
+		return false
+	}
+	if base[2] != "" {
+		parsed, err := strconv.Atoi(base[2])
+		if err != nil {
+			return false
+		}
+		number = parsed
+	}
+	later, err := strconv.Atoi(other[2])
+	return err == nil && later > number
+}
+
+func firstSHA(text string) string {
+	return shortSHA.FindString(text)
+}
+
+func finderGrade(text string) string {
+	if said := finderSays.FindStringSubmatch(text); said != nil {
+		switch verdict := strings.ToLower(said[1]); verdict {
+		case "issues":
+			return "major"
+		case "lgtm":
+			return "ok"
+		default:
+			return verdict
+		}
+	}
+	if finderMajor.MatchString(text) {
+		return "major"
+	}
+	if finderClean.MatchString(text) {
+		return "ok"
+	}
+	return ""
+}
+
+func fullText(record client.Record) string {
+	if record.Refs.Path == "" {
+		return record.Text
+	}
+	spilled, err := os.ReadFile(record.Refs.Path)
+	if err != nil || !utf8.Valid(spilled) {
+		return record.Text
+	}
+	whole := string(spilled)
+	if clipped, isClipped := strings.CutSuffix(record.Text, "…"); isClipped && !strings.HasPrefix(whole, clipped) {
+		return record.Text
+	}
+	return whole
+}
+
+func overrides(text string) []Fact {
+	var out []Fact
+	for _, span := range overrideNamed.FindAllStringIndex(text, -1) {
+		if !clauseStart.MatchString(text[:span[0]]) {
+			continue
+		}
+		form := overrideForm.FindStringSubmatch(text[span[0]:span[1]])
+		if form == nil {
+			continue
+		}
+		pr, err := strconv.Atoi(form[1])
+		if err != nil {
+			continue
+		}
+		fact := Fact{pr, strings.ToLower(form[2]), "verdict", "accept"}
+		if !slices.Contains(out, fact) {
+			out = append(out, fact)
+		}
+	}
+	return out
+}
+
+func isGo(record client.Record) bool {
+	kind := string(record.Kind)
+	return kind == "go" || slices.Contains(goKinds, kind) && len(goHeads(record.Text)) > 0
+}
+
+type headPair struct {
+	PR   int
+	Head string
+}
+
+func goHeads(text string) []headPair {
+	if withdrawnGo.MatchString(text) {
+		return nil
+	}
+	clause := goClause.FindStringSubmatch(text)
+	if clause == nil {
+		return nil
+	}
+	var pairs []headPair
+	for _, named := range goHead.FindAllStringSubmatch(clause[1], -1) {
+		pr, err := strconv.Atoi(named[1])
+		if err != nil {
+			continue
+		}
+		pairs = append(pairs, headPair{pr, strings.ToLower(named[2])})
+	}
+	return pairs
+}
