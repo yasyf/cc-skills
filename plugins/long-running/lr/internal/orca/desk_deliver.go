@@ -56,8 +56,12 @@ func (d *Desk) deliver(ctx context.Context) error {
 				}
 			}
 		}
-		if len(relays) > 0 {
-			if err := d.deliverRelays(ctx, container, lane, relays); err != nil {
+		owed, err := d.owedRelays(container, lane, relays)
+		if err != nil {
+			return err
+		}
+		if len(owed) > 0 {
+			if err := d.deliverRelays(ctx, container, lane, owed); err != nil {
 				return err
 			}
 		}
@@ -99,6 +103,24 @@ func (d *Desk) transfer(lane string) error {
 		return nil
 	}))
 	return err
+}
+
+func (d *Desk) owedRelays(container, lane string, relays []incident.Action) ([]incident.Action, error) {
+	if len(relays) == 0 {
+		return nil, nil
+	}
+	sends, err := d.store.Actions(container, kindSend, incident.ActionCompleted)
+	if err != nil {
+		return nil, err
+	}
+	dispatch := d.receipt(lane)
+	delivered := map[string]bool{}
+	for _, send := range sends {
+		if dispatch == "" || send.Target == dispatch {
+			delivered[string(send.AuthorityRef)] = true
+		}
+	}
+	return slices.DeleteFunc(relays, func(action incident.Action) bool { return delivered[action.ActionID] }), nil
 }
 
 func (d *Desk) deliverRelays(ctx context.Context, container, lane string, relays []incident.Action) error {

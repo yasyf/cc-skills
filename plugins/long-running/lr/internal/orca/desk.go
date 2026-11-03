@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
@@ -179,6 +180,7 @@ type Desk struct {
 	Now          func() time.Time
 	Sleep        func(time.Duration)
 	Release      func() string
+	AliveTicks   <-chan time.Time
 	Plugin       string
 	Stderr       io.Writer
 	FireIncident func(ctx context.Context, fired lanes.Fired) error
@@ -196,7 +198,8 @@ type Desk struct {
 	unreachable int
 	refused     []time.Time
 	swept       time.Time
-	alive       time.Time
+	pass        atomic.Pointer[passMark]
+	stuckPass   int
 	passes      int
 }
 

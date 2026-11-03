@@ -12,6 +12,7 @@ import (
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/incident"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
 
@@ -19,8 +20,7 @@ const (
 	deskLane        = "orca-desk"
 	deskRunner      = "desk-runner"
 	runnerTopic     = "orca"
-	runnerAlive     = "orca alive"
-	runnerStale     = 5 * time.Minute
+	runnerAlive     = incident.RunnerAlive
 	runnerLookback  = 24 * time.Hour
 	verdictPoll     = 2 * time.Second
 	verdictLaunched = "LAUNCHED"
@@ -84,30 +84,21 @@ func (p Poster) Entry() (*drive.Entry, error) {
 	return nil, fmt.Errorf("no drive in the registry is cci drive %s, so its orca desk runner is unknown and nothing is posted", p.Drive)
 }
 
-func (p Poster) staleRunner(ctx context.Context, bus string) (string, error) {
+func (p Poster) runnerFault(ctx context.Context, bus string) (string, error) {
 	now := p.Now()
 	records, err := p.Bus.Tail(ctx, client.Query{Drive: bus, Since: now.Add(-runnerLookback), Kinds: []string{kindState}, Lanes: []string{deskRunner}})
 	if err != nil {
 		return "", err
 	}
-	for _, record := range slices.Backward(records) {
-		if record.Lane != deskRunner || record.Topic != runnerTopic || !strings.HasPrefix(record.Text, runnerAlive) {
-			continue
-		}
-		if now.Sub(record.At) < runnerStale {
-			return "", nil
-		}
-		return "last at " + record.At.In(pacificTime).Format("3:04 PM"), nil
-	}
-	return "never", nil
+	return incident.RunnerFault(records, bus, now), nil
 }
 
 func (p Poster) requireRunner(ctx context.Context, bus, fallback string) error {
-	last, err := p.staleRunner(ctx, bus)
-	if err != nil || last == "" {
+	fault, err := p.runnerFault(ctx, bus)
+	if err != nil || fault == "" {
 		return err
 	}
-	return fmt.Errorf("refused: no orca desk runner has posted an orca alive record on cci drive %s in the last five minutes (%s), so nothing reads %s lines; %s", bus, last, deskLane, fallback)
+	return fmt.Errorf("refused: %s, so nothing reads %s lines; %s", fault, deskLane, fallback)
 }
 
 func (p Poster) post(ctx context.Context, bus, topic, text string) (client.Record, error) {
@@ -169,15 +160,15 @@ func (p Poster) Launch(ctx context.Context, order Order, timeout time.Duration) 
 	if err != nil || label != "" {
 		return label, err
 	}
-	last, err := p.staleRunner(ctx, bus)
+	fault, err := p.runnerFault(ctx, bus)
 	if err != nil {
 		return "", err
 	}
-	if last == "" {
+	if fault == "" {
 		fmt.Fprintf(p.Out, "%s %s posted with no verdict after %.0fs; the orca runner is alive, so its verdict arrives as a %s record\n", order.Lane, key, timeout.Seconds(), deskRunner)
 		return verdictPosted, nil
 	}
-	fmt.Fprintf(p.Out, "%s %s unsettled after %.0fs: the orca runner has posted no orca alive record in five minutes (%s); check it with `cci tail --drive %s --lane %s --kind state --topic %s -n 1`\n", order.Lane, key, timeout.Seconds(), last, bus, deskRunner, runnerTopic)
+	fmt.Fprintf(p.Out, "%s %s unsettled after %.0fs: %s; check it with `cci tail --drive %s --lane %s --kind state --topic %s -n 1`\n", order.Lane, key, timeout.Seconds(), fault, bus, deskRunner, runnerTopic)
 	return "", nil
 }
 

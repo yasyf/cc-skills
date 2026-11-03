@@ -20,7 +20,9 @@ Restarting the relay never relaunches its workers. No model-operated orca-desk s
 
 **The supervisor's landing pass is the drive's merge queue.** Its checks and rules D3, D14, D16, and D20 are in [reference/landing.md](landing.md). The landing-desk lane keeps the duties in [reference/landing-desk-brief.md](landing-desk-brief.md).
 
-**The relay publishes liveness on cci.** It posts an `orca alive` cci `state` record to `drive-watchdog` at start and once a minute, whatever its pass is doing, reading `orca alive pass <n>` with its pid in the attrs. Every reader reads the newest record from cci, so the relay writes no heartbeat or view file.
+**The relay publishes liveness on cci.** It posts an `orca alive` cci `state` record to `drive-watchdog` at start and once a minute, whatever its pass is doing, reading `orca alive pass <n>` with its pid, `pass_seconds` and `pass_step` in the attrs. A timer posts it, so a long pass cannot read as a dead relay. Every reader reads the newest record from cci, so the relay writes no heartbeat or view file.
+
+**A stuck pass shows two ways.** A frozen process stops the timer, so its alive record goes stale and readers refuse after five minutes. A pass stuck on a hung call keeps the timer running: past 20 minutes in one pass, the relay posts one `blocker` to the coordinator naming the pass and the step, and `lr launch` and `lr relay` refuse with the same words. launchd leaves a live process alone, so the coordinator ends a stuck relay.
 
 **Hooks and readers check the alive record.** A `cci post` that fails stays queued for the next pass instead of stopping the relay. When a `cci post --to orca-desk` finds no orca alive record from the last five minutes, the `desk_liveness` hook answers `LAUNCH-FAILED` and names the logs to read; the supervisor restarts the relay within a minute, and it reads the record from its saved cursor. A cci that does not answer leaves the hook silent.
 

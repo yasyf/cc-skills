@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -31,6 +32,10 @@ const (
 	verdictPoll     = 2 * time.Second
 	verdictLaunched = "LAUNCHED"
 	DefaultTimeout  = 600 * time.Second
+	RunnerAlive     = "orca alive"
+	PassSecondsAttr = "pass_seconds"
+	PassStepAttr    = "pass_step"
+	StuckPass       = 20 * time.Minute
 )
 
 var (
@@ -162,30 +167,41 @@ func (d DeskLaunch) fallback(planned []plannedLane) string {
 	return text + " instead"
 }
 
-func (d DeskLaunch) staleRunner(ctx context.Context, drive string) (string, error) {
+func RunnerFault(records []client.Record, drive string, now time.Time) string {
+	silent := func(last string) string {
+		return fmt.Sprintf("no orca desk runner has posted an orca alive record on cci drive %s in the last five minutes (%s)", drive, last)
+	}
+	for _, record := range slices.Backward(records) {
+		if record.Lane != deskRunner || record.Topic != topicOrca || !strings.HasPrefix(record.Text, RunnerAlive) {
+			continue
+		}
+		if now.Sub(record.At) >= aliveWindow {
+			return silent("last at " + record.At.In(pacificZone).Format("3:04 PM"))
+		}
+		seconds, _ := strconv.Atoi(record.Fields.Attrs[PassSecondsAttr])
+		if running := time.Duration(seconds) * time.Second; running >= StuckPass {
+			return fmt.Sprintf("the orca desk runner on cci drive %s is alive but stuck: %s has run %d minutes, at step %s", drive, strings.TrimSpace(strings.TrimPrefix(record.Text, RunnerAlive)), int(running.Minutes()), record.Fields.Attrs[PassStepAttr])
+		}
+		return ""
+	}
+	return silent("never")
+}
+
+func (d DeskLaunch) runnerFault(ctx context.Context, drive string) (string, error) {
 	now := d.Now()
 	records, err := d.Bus.Tail(ctx, client.Query{Drive: drive, Since: now.Add(-aliveLookback), Kinds: []string{kindState}})
 	if err != nil {
 		return "", err
 	}
-	for _, record := range slices.Backward(records) {
-		if record.Lane != deskRunner || record.Topic != topicOrca {
-			continue
-		}
-		if now.Sub(record.At) < aliveWindow {
-			return "", nil
-		}
-		return "last at " + record.At.In(pacificZone).Format("3:04 PM"), nil
-	}
-	return "never", nil
+	return RunnerFault(records, drive, now), nil
 }
 
 func (d DeskLaunch) requireRunner(ctx context.Context, drive string, planned []plannedLane) error {
-	last, err := d.staleRunner(ctx, drive)
-	if err != nil || last == "" {
+	fault, err := d.runnerFault(ctx, drive)
+	if err != nil || fault == "" {
 		return err
 	}
-	return fmt.Errorf("refused: no orca desk runner has posted an orca alive record on cci drive %s in the last five minutes (%s), so nothing reads %s lines; %s", drive, last, deskLane, d.fallback(planned))
+	return fmt.Errorf("refused: %s, so nothing reads %s lines; %s", fault, deskLane, d.fallback(planned))
 }
 
 func launchDirective(lane plannedLane, brief string) string {
@@ -292,10 +308,10 @@ func (d DeskLaunch) Run(ctx context.Context) error {
 }
 
 func (d DeskLaunch) outcome(ctx context.Context, drive string, keys map[string]string, settled map[string]settledLaunch) error {
-	last := ""
+	fault := ""
 	if len(settled) < len(keys) {
 		var err error
-		if last, err = d.staleRunner(ctx, drive); err != nil {
+		if fault, err = d.runnerFault(ctx, drive); err != nil {
 			return err
 		}
 	}
@@ -303,13 +319,13 @@ func (d DeskLaunch) outcome(ctx context.Context, drive string, keys map[string]s
 		if _, done := settled[key]; done {
 			continue
 		}
-		if last == "" {
+		if fault == "" {
 			fmt.Fprintf(d.Out, "%s %s posted with no verdict after %.0fs; the orca runner is alive, so its verdict arrives as a %s record\n", keys[key], key, d.Timeout.Seconds(), deskRunner)
 			continue
 		}
-		fmt.Fprintf(d.Out, "%s %s unsettled after %.0fs: the orca runner has posted no orca alive record in five minutes (%s); check it with `cci tail --drive %s --lane %s --kind state --topic orca -n 1`\n", keys[key], key, d.Timeout.Seconds(), last, drive, deskRunner)
+		fmt.Fprintf(d.Out, "%s %s unsettled after %.0fs: %s; check it with `cci tail --drive %s --lane %s --kind state --topic orca -n 1`\n", keys[key], key, d.Timeout.Seconds(), fault, drive, deskRunner)
 	}
-	if last != "" {
+	if fault != "" {
 		return ErrUnsettled
 	}
 	for _, key := range slices.Sorted(maps.Keys(keys)) {

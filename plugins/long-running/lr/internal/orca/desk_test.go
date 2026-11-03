@@ -82,6 +82,7 @@ type deskWorld struct {
 	refuseTime       bool
 	refuseWithdrawal bool
 	gitReply         func(argv []string) (shell.Result, error)
+	tails            int
 }
 
 func newDeskWorld(t *testing.T) *deskWorld {
@@ -222,6 +223,7 @@ func (w *deskWorld) Post(_ context.Context, d client.Draft) (client.Record, erro
 func (w *deskWorld) Tail(_ context.Context, q client.Query) ([]client.Record, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	w.tails++
 	var found []client.Record
 	for _, record := range w.records {
 		if record.Seq <= q.After || (!q.Since.IsZero() && record.At.Before(q.Since)) {
@@ -3203,5 +3205,145 @@ func TestTheStoreKeepsWhatTheRelayWrites(t *testing.T) {
 	}
 	if _, found, err := w.desk.factOf(container, "fact"); err != nil || found {
 		t.Fatal(found, err)
+	}
+}
+
+type heldRunner struct {
+	shell.Runner
+	reached chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (h *heldRunner) Run(ctx context.Context, c shell.Command) (shell.Result, error) {
+	if len(c.Argv) > 2 && c.Argv[0] == "orca" && c.Argv[2] == "check" {
+		h.once.Do(func() { close(h.reached) })
+		<-h.release
+	}
+	return h.Runner.Run(ctx, c)
+}
+
+func (w *deskWorld) postsWhere(keep func(client.Draft) bool) []client.Draft {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	var found []client.Draft
+	for _, post := range w.posts {
+		if keep(post) {
+			found = append(found, post)
+		}
+	}
+	return found
+}
+
+func (w *deskWorld) awaitPosts(count int, keep func(client.Draft) bool) []client.Draft {
+	w.t.Helper()
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		if found := w.postsWhere(keep); len(found) >= count {
+			return found
+		}
+		time.Sleep(time.Millisecond)
+	}
+	w.t.Fatalf("no %d posts in %v", count, w.posts)
+	return nil
+}
+
+func (w *deskWorld) advance(by time.Duration) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.now = w.now.Add(by)
+}
+
+func TestALongPassKeepsPostingAliveAndAStuckOneIsNamedOnce(t *testing.T) {
+	w := newDeskWorld(t)
+	held := &heldRunner{Runner: w, reached: make(chan struct{}), release: make(chan struct{})}
+	w.desk.Runner = held
+	ticks := make(chan time.Time)
+	w.desk.AliveTicks = ticks
+	done := make(chan error, 1)
+	go func() { done <- w.desk.Run(context.Background(), true) }()
+	<-held.reached
+
+	alive := func(post client.Draft) bool { return post.Topic == runnerTopic && strings.HasPrefix(post.Text, runnerAlive) }
+	stuck := func(post client.Draft) bool { return post.Kind == kindBlocker && strings.Contains(post.Text, "orca relay pass 1 has run") }
+	started := w.awaitPosts(1, alive)[0]
+	if started.Text != "orca alive pass 1" || started.Attrs[incident.PassSecondsAttr] != "0" {
+		t.Fatal(started)
+	}
+
+	w.advance(7 * time.Minute)
+	ticks <- w.now
+	long := w.awaitPosts(2, alive)[1]
+	if long.Text != "orca alive pass 1" || long.Attrs[incident.PassSecondsAttr] != "420" || long.Attrs[incident.PassStepAttr] != "check" {
+		t.Fatal(long)
+	}
+	if found := w.postsWhere(stuck); len(found) != 0 {
+		t.Fatal(found)
+	}
+
+	w.advance(incident.StuckPass)
+	ticks <- w.now
+	wantContains(t, w.awaitPosts(1, stuck)[0].Text, "27 minutes, at step check")
+	ticks <- w.now
+	w.awaitPosts(4, alive)
+	close(held.release)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if found := w.postsWhere(stuck); len(found) != 1 {
+		t.Fatal(found)
+	}
+}
+
+func TestARelayDeliveredToItsLanesDispatchCostsNoOrcaCallAndNoTailAtAnyN(t *testing.T) {
+	for _, count := range []int{1, 25} {
+		w := newDeskWorld(t)
+		for i := range count {
+			w.live(fmt.Sprintf("lane-%d", i), fmt.Sprintf("ctx_%d", i), fmt.Sprintf("term_%d", i))
+		}
+		if err := w.desk.Run(context.Background(), true); err != nil {
+			t.Fatal(err)
+		}
+		for i := range count {
+			w.line(fmt.Sprintf("R%d (5:01 PM) orca-desk: relay to lane-%d: go", i+2, i))
+		}
+		if err := w.desk.Run(context.Background(), true); err != nil {
+			t.Fatal(err)
+		}
+		if sends := w.orcaCalls("orchestration send"); len(sends) != count {
+			t.Fatal(count, len(sends))
+		}
+		for i := range count {
+			if i%2 == 0 {
+				w.dispatches[fmt.Sprintf("ctx_%d", i)].status = statusCompleted
+			}
+		}
+		w.calls, w.tails = nil, 0
+		if err := w.desk.deliver(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if shows := w.orcaCalls("orchestration worker-show"); len(shows) != 0 || w.tails != 0 {
+			t.Fatal(count, len(shows), w.tails)
+		}
+	}
+}
+
+func TestARelayDeliveredToAnEarlierDispatchGoesToTheLanesNewOne(t *testing.T) {
+	w := newDeskWorld(t)
+	w.live(testLane, testDispatch, testTerminal)
+	if err := w.desk.Run(context.Background(), true); err != nil {
+		t.Fatal(err)
+	}
+	w.line("R2 (5:01 PM) orca-desk: relay to lane-a: go")
+	if err := w.desk.Run(context.Background(), true); err != nil {
+		t.Fatal(err)
+	}
+	w.live(testLane, "ctx_relaunched", "term_relaunched")
+	if err := w.desk.deliver(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	sends := w.orcaCalls("orchestration send")
+	if len(sends) != 2 || !slices.Contains(sends[1], "term_relaunched") {
+		t.Fatal(sends)
 	}
 }
