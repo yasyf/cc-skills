@@ -107,6 +107,15 @@ func (t *Tx) State(repo string, number int) (PRState, bool, error) {
 	return pr, err == nil, err
 }
 
+func (t *Tx) States(repo string) ([]PRState, error) {
+	rows, err := t.tx.Query("SELECT repo, number, branch, base, head, change, stack, state, reason, mover, deadline FROM pr_states WHERE repo = ? ORDER BY number", repo)
+	return collect(rows, err, func(rows *sql.Rows) (PRState, error) {
+		var pr PRState
+		err := rows.Scan(&pr.Repo, &pr.Number, &pr.Branch, &pr.Base, &pr.Head, &pr.Change, &pr.Stack, &pr.State, &pr.Reason, &pr.Mover, moment{&pr.Deadline})
+		return pr, err
+	})
+}
+
 func (t *Tx) PutState(pr PRState) error {
 	_, err := t.tx.Exec(
 		"INSERT INTO pr_states (repo, number, branch, base, head, change, stack, state, reason, mover, deadline) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (repo, number) DO UPDATE SET branch = excluded.branch, base = excluded.base, head = excluded.head, change = excluded.change, stack = excluded.stack, state = excluded.state, reason = excluded.reason, mover = excluded.mover, deadline = excluded.deadline",
@@ -196,6 +205,15 @@ func (t *Tx) Owe(o Owed) error {
 
 func (s *Store) Owed() ([]Owed, error) {
 	rows, err := s.db.Query("SELECT owed.key, owed.repo, owed.stack, owed.action, owed.number, owed.head, owed.created FROM owed JOIN stacks USING (repo, stack, revision) ORDER BY owed.created, owed.key")
+	return collect(rows, err, func(rows *sql.Rows) (Owed, error) {
+		var o Owed
+		err := rows.Scan(&o.Key, &o.Repo, &o.Stack, &o.Action, &o.Number, &o.Head, moment{&o.Created})
+		return o, err
+	})
+}
+
+func (t *Tx) OwedFor(repo string, number int) ([]Owed, error) {
+	rows, err := t.tx.Query("SELECT owed.key, owed.repo, owed.stack, owed.action, owed.number, owed.head, owed.created FROM owed JOIN stacks USING (repo, stack, revision) WHERE owed.repo = ? AND owed.number = ? ORDER BY owed.created, owed.key", repo, number)
 	return collect(rows, err, func(rows *sql.Rows) (Owed, error) {
 		var o Owed
 		err := rows.Scan(&o.Key, &o.Repo, &o.Stack, &o.Action, &o.Number, &o.Head, moment{&o.Created})
