@@ -597,6 +597,7 @@ from __future__ import annotations
 
 import argparse
 import ctypes
+import fcntl
 import hashlib
 import html
 import itertools
@@ -945,6 +946,8 @@ QUOTA_URGENT = 1500
 TOP_CALLERS = 5
 ROTATE_EVERY = timedelta(hours=1)
 STALL_WATCH = SCRIPTS / "stall_watch.py"
+RELAY_LOCK = "relay.lock"
+RELAY_RESPAWN = timedelta(minutes=1)
 JUDGE_WATCH = SCRIPTS / "judge_watch.py"
 REPLAY = SCRIPTS / "replay.py"
 REMOTE_RESTACK = SCRIPTS / "remote-restack.py"
@@ -1675,6 +1678,7 @@ class Config:
     landing: dict | None
     alert_facts: Path | None
     desk_env: dict[str, dict[str, str]]
+    go_relay: bool
 
     @classmethod
     def load(cls, path: Path) -> Config:
@@ -1708,6 +1712,7 @@ class Config:
             landing=raw.get("landing"),
             alert_facts=Path(alert["facts"]).expanduser() if alert.get("facts") else None,
             desk_env={desk: (raw.get(desk) or {}).get("env", {}) for desk in DESKS},
+            go_relay=bool(orca.get("go_relay")),
         )
 
 
@@ -1993,6 +1998,8 @@ class Runner:
         self.raised: dict[str, tuple[str, int]] = {}
         self.alive_posted: dict[str, datetime] = {}
         self.refused: list[datetime] = []
+        self.relay_pass: subprocess.Popen | None = None
+        self.relay_started = datetime.min.replace(tzinfo=timezone.utc)
         self.stall_pass: subprocess.Popen | None = None
         self.judge_pass: subprocess.Popen | None = None
         self.judge_started = datetime.min.replace(tzinfo=timezone.utc)
@@ -2192,6 +2199,29 @@ class Runner:
     def register_lane(self, lane: str) -> None:
         """Post one record as `lane` at start, so cci addresses a record `--to <lane>` on this drive although no session reads that lane (coordinator #226844)."""
         self.cci_post("note", f"{lane} reads its orders through desk-runner pid {os.getpid()} on {RUNNING_VERSION}", self.watchdog, f"alive:{lane}", f"register:{lane}", lane=lane)
+
+    def relay_running(self) -> bool:
+        with self.config.source.with_name(RELAY_LOCK).open("a") as lock:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                return True
+        return False
+
+    def relay_in_go(self) -> None:
+        """Keep one `lr relay run` beside this loop while `orca.go_relay` hands it the cursor, the passes it owns and the flush; it holds `relay.lock` and stops once this runner dies."""
+        if self.relay_running() or self.now() - self.relay_started < RELAY_RESPAWN:
+            return
+        log = self.config.desk_inbox.with_name("lr-relay.log")
+        if self.relay_pass and (code := self.relay_pass.poll()):
+            error = next((line.strip() for line in reversed(log.read_text(errors="replace").splitlines()) if line.strip()), f"exit {code}")
+            self.escalate(f"lr-relay-failed:{error[:200]}", "LR-RELAY-FAILED", "lr relay run", f"`lr relay run` exited {code}, so no desk order is read until it restarts: {error[:300]}")
+        self.relay_started = self.now()
+        self.relay_pass = self.shell.spawn([str(RUNNER_BIN.with_name("lr")), "relay", "run", "--config", str(self.config.source.with_name("lr.json"))], log, {})
+
+    def flush_beside_relay(self) -> None:
+        if not (self.config.go_relay and self.relay_running()):
+            self.flush()
 
     def stall_watch(self) -> None:
         stall = json.loads(self.config.source.read_text()).get("stall")
@@ -10058,6 +10088,7 @@ def run_orca(runner: Runner, once: bool) -> int:
     if failure := runner.resolve_briefs_log():
         runner.escalate(f"briefs-log:{runner.config.briefs_log or 'unset'}", "BRIEFS-LOG-FAILED", "runner", f"the briefs log did not resolve at start: {failure}; each brief attach retries it")
     swept = rotated = datetime.min.replace(tzinfo=timezone.utc)
+    go = runner.config.go_relay
     alive = runner.keep_alive("orca")
     lines = None
     try:
@@ -10072,7 +10103,9 @@ def run_orca(runner: Runner, once: bool) -> int:
                 rotated = runner.now()
             runner.follow_coordinator()
             try:
-                ready = runner.check()
+                if go:
+                    runner.relay_in_go()
+                ready = not go and runner.check()
                 if ready:
                     runner.steps(runner.prompt)
                     if not (once or lines):
@@ -10080,26 +10113,29 @@ def run_orca(runner: Runner, once: bool) -> int:
                     if runner.now() - swept >= SWEEP_EVERY:
                         runner.steps(runner.sweep)
                         swept = runner.now()
-                slow = (runner.deadlines_orca, runner.incident_clock, runner.class_unowned, runner.mute_pushback, runner.in_process, runner.cut_clock, runner.release_coupling)
+                slow = (*(() if go else (runner.deadlines_orca,)), runner.incident_clock, runner.class_unowned, runner.mute_pushback, runner.in_process, runner.cut_clock, runner.release_coupling)
                 runner.steps(*(step for each in slow for step in (each, runner.prompt)) if ready else slow)
             except StopRequested:
-                runner.flush()
+                runner.flush_beside_relay()
                 runner.stop_marker().unlink()
                 return 0
             except OrcaUnreachable as down:
-                runner.orca_down(down)
+                if not go:
+                    runner.orca_down(down)
             except Exception as error:
                 if runner.pass_raised("orca", error):
                     runner.shell.sleep(RAISED_BACKOFF.total_seconds())
                     runner.reexec("orca")
             else:
-                runner.orca_back()
-            runner.aged_holds()
-            runner.stalled_launches()
+                if not go:
+                    runner.orca_back()
+            if not go:
+                runner.aged_holds()
+                runner.stalled_launches()
             runner.stall_watch()
             runner.judge_watch()
             behind = runner.moved()
-            runner.flush()
+            runner.flush_beside_relay()
             runner.timed_pass()
             runner.beat("orca")
             runner.shell.read_cpu()
