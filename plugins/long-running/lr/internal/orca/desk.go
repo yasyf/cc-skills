@@ -415,6 +415,10 @@ func (d *Desk) postEscalation(ctx context.Context, line, to, key string) (client
 	return d.post(ctx, deskPost{Kind: escalationKind(label), Text: line, To: to, Topic: topic, Key: key, Message: string(message), ID: key})
 }
 
+const clockRefused = "names something that has not happened yet"
+
+var quotedClock = regexp.MustCompile(`\b\d{1,2}:\d{2}(?::\d{2})? ?[AaPp][Mm]\b`)
+
 type deskPost struct {
 	Kind, Text, To, Topic, Key, Message, PR, ID, Lane string
 	Attrs                                             map[string]string
@@ -429,6 +433,16 @@ func clipped(text string, limit int) string {
 }
 
 func (d *Desk) post(ctx context.Context, p deskPost) (client.Record, error) {
+	posted, err := d.postOnce(ctx, p)
+	if err == nil || !strings.Contains(err.Error(), clockRefused) {
+		return posted, err
+	}
+	p.Message = strings.TrimSpace(p.Text + "\n\n" + p.Message)
+	p.Text = quotedClock.ReplaceAllString(p.Text, "[clock]")
+	return d.postOnce(ctx, p)
+}
+
+func (d *Desk) postOnce(ctx context.Context, p deskPost) (client.Record, error) {
 	draft := client.Draft{Drive: d.Config.Drive, Lane: p.Lane, Kind: p.Kind, Topic: p.Topic, To: []string{p.To}, ID: p.ID, Attrs: p.Attrs, Text: clipped(p.Text, textLimit)}
 	if draft.Lane == "" {
 		draft.Lane = deskRunner

@@ -78,6 +78,7 @@ type deskWorld struct {
 	ccnFails   bool
 	parent     int
 	release    string
+	refuseTime bool
 }
 
 func newDeskWorld(t *testing.T) *deskWorld {
@@ -201,6 +202,10 @@ func (w *deskWorld) Post(_ context.Context, d client.Draft) (client.Record, erro
 	if w.postError != nil {
 		w.mu.Unlock()
 		return client.Record{}, w.postError
+	}
+	if w.refuseTime && quotedClock.MatchString(d.Text) {
+		w.mu.Unlock()
+		return client.Record{}, errors.New("time 7:45 AM in the text is 100 minutes after the post time 6:05 AM, so it names something that has not happened yet: write the time it happened")
 	}
 	w.posts = append(w.posts, d)
 	w.mu.Unlock()
@@ -2551,6 +2556,36 @@ func TestARelayOrphanedByItsParentStops(t *testing.T) {
 	}
 	if w.desk.passes != 1 {
 		t.Fatal(w.desk.passes)
+	}
+}
+
+func TestWordsNamingAClockTheBusRefusesStillReachTheReader(t *testing.T) {
+	w := newDeskWorld(t)
+	w.refuseTime = true
+	line := "REPORT msg_1 term_1: the conflict named 7cbdeaf, which the 7:45 AM stack push replaced"
+
+	if _, err := w.desk.postEscalation(context.Background(), line, "root", "escalation:msg_1"); err != nil {
+		t.Fatal(err)
+	}
+
+	posted := w.postOpening("REPORT msg_1 term_1:")
+	if strings.Contains(posted.Text, "7:45") || !strings.Contains(posted.Text, "the [clock] stack push") {
+		t.Fatal(posted.Text)
+	}
+	if !strings.Contains(readBrief(posted.Path), "the 7:45 AM stack push") {
+		t.Fatal(readBrief(posted.Path))
+	}
+}
+
+func TestARefusalThatIsNotAboutAClockStaysARefusal(t *testing.T) {
+	w := newDeskWorld(t)
+	w.postError = errors.New("bus down")
+
+	if _, err := w.desk.post(context.Background(), deskPost{Kind: kindReport, Text: "the 7:45 AM push", To: "root", Key: "k"}); err == nil {
+		t.Fatal("no error")
+	}
+	if len(w.posts) != 0 {
+		t.Fatalf("%+v", w.posts)
 	}
 }
 
