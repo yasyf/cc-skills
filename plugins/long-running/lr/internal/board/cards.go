@@ -320,28 +320,56 @@ func (c Cards) Sweep(ctx context.Context, lane string, out io.Writer) error {
 		if outcome == "" {
 			continue
 		}
-		owed, err := c.unrowed(ctx, card)
-		if err != nil {
+		if err := c.close(ctx, lane, card, known[card], outcome, fmt.Sprintf("%s (its end, %s)", outcome, end), out); err != nil {
 			return err
 		}
-		if len(owed) > 0 {
-			fmt.Fprintf(out, "PROBLEM %s: the owner's answer on %s has no ccn answer row; run board_watch.py backfill --session %s --program %s before it leaves the board\n", card, strings.Join(owed, ", "), c.Session, c.Bus)
+	}
+	return nil
+}
+
+func (c Cards) Retire(ctx context.Context, lane, reason string, named []string, out io.Writer) error {
+	known, err := c.ends(ctx)
+	if err != nil {
+		return err
+	}
+	cards, err := c.onBoard(ctx)
+	if err != nil {
+		return err
+	}
+	for _, card := range named {
+		if !slices.Contains(cards, card) {
+			fmt.Fprintf(out, "UNCHANGED %s: not on the owner's board\n", card)
 			continue
 		}
-		if _, err := c.present(ctx, "remove-block", card); err != nil {
+		if err := c.close(ctx, lane, card, known[card], reason, reason, out); err != nil {
 			return err
 		}
-		if err := c.Withdraw(ctx, lane, card, fmt.Sprintf("Withdrew %s from the owner's board: %s (its end, %s).", card, outcome, end)); err != nil {
-			return err
-		}
-		fields := map[string]string{"withdrawn": stamp(now), "outcome": outcome}
-		for name, value := range known[card] {
-			fields[name] = value
-		}
-		if err := c.record(ctx, card, fields); err != nil {
-			return err
-		}
-		fmt.Fprintf(out, "WITHDRAWN %s: %s\n", card, outcome)
 	}
+	return nil
+}
+
+func (c Cards) close(ctx context.Context, lane, card string, prior map[string]string, outcome, why string, out io.Writer) error {
+	owed, err := c.unrowed(ctx, card)
+	if err != nil {
+		return err
+	}
+	if len(owed) > 0 {
+		fmt.Fprintf(out, "PROBLEM %s: the owner's answer on %s has no ccn answer row; run board_watch.py backfill --session %s --program %s before it leaves the board\n", card, strings.Join(owed, ", "), c.Session, c.Bus)
+		return nil
+	}
+	if _, err := c.present(ctx, "remove-block", card); err != nil {
+		return err
+	}
+	if err := c.Withdraw(ctx, lane, card, fmt.Sprintf("Withdrew %s from the owner's board: %s.", card, why)); err != nil {
+		return err
+	}
+	fields := map[string]string{"withdrawn": stamp(c.Now()), "outcome": outcome}
+	for name, value := range prior {
+		fields[name] = value
+	}
+	if err := c.record(ctx, card, fields); err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "WITHDRAWN %s: %s\n", card, outcome)
 	return nil
 }
