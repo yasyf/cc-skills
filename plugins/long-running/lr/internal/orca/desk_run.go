@@ -69,6 +69,9 @@ func (d *Desk) onePass(ctx context.Context) error {
 	if err := d.deadlines(ctx); err != nil {
 		return err
 	}
+	if err := d.clockPass(ctx); err != nil {
+		return err
+	}
 	if !ready {
 		return nil
 	}
@@ -314,8 +317,13 @@ func newDesk(a *app.App) (*Desk, error) {
 	if err != nil {
 		return nil, err
 	}
+	executors, err := incident.DefaultRoot()
+	if err != nil {
+		return nil, err
+	}
 	return &Desk{
 		Config: config, Bus: deskCCI{}, Runner: a.Runner, Spawn: SpawnDetached, Env: os.Getenv, Now: a.Now, Sleep: time.Sleep, Parent: os.Getppid, Plugin: os.Getenv("BINRUN_PLUGIN_ROOT"), Stderr: os.Stderr,
+		Incidents: incident.Store{Root: executors},
 		FireIncident: func(ctx context.Context, fired lanes.Fired) error {
 			_, err := env.IncidentLaunch(ctx, fired)
 			return err
