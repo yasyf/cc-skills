@@ -366,6 +366,9 @@ Do:
      `ccn log show "$(ccn log list --label prod-ops | cut -f1)"`
      An entry on the alert's target inside the onset window is the first mechanism
      to test; quote it with its authorizing answer.
+     Name what lies under the trigger: the order or dependency that let it break
+     this path. A fix that stops the trigger and leaves that order says so and names
+     who owes the rest.
      The moment you know the mechanism, record it for the executor:
      `incident.py note --incident <incident id> --mechanism "<mechanism, one line>"`.
      Also send a status Run message with subject `mechanism: <evidence>`.
