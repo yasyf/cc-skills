@@ -86,6 +86,34 @@ func Command(a *app.App) *cobra.Command {
 	return cmd
 }
 
+func StopSpritesCommand(a *app.App) *cobra.Command {
+	return &cobra.Command{
+		Use:   "stop-sprites",
+		Short: "Stop the Sprite of each lane that ended, once, with cc-remote orca stop; a stop that fails posts one blocker to root",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			cfg, state, err := Loaded(a)
+			if err != nil {
+				return err
+			}
+			remote, err := CcRemoteOf(state)
+			if err != nil || remote == nil || cfg.OrcaRun == "" {
+				return err
+			}
+			s, err := store.Open(filepath.Join(state, StoreFile))
+			if err != nil {
+				return err
+			}
+			defer func() { _ = s.Close() }()
+			env, err := NewEnv(a.Runner, cfg, state, a.Now)
+			if err != nil {
+				return err
+			}
+			return (&SpriteStops{Env: env, Store: s, CcRemote: *remote, Log: a.Log}).Check(cmd.Context(), a.Now())
+		},
+	}
+}
+
 func RouteCommand(a *app.App) *cobra.Command {
 	return &cobra.Command{
 		Use:   "route LANE",

@@ -242,6 +242,36 @@ func (e Env) orcaRows(ctx context.Context, names []string) ([]Row, error) {
 	if len(dispatches) == 0 {
 		return nil, nil
 	}
+	statuses, err := e.dispatchStatuses(ctx)
+	if err != nil {
+		return nil, err
+	}
+	lanes := make([]string, 0, len(dispatches))
+	for lane := range dispatches {
+		lanes = append(lanes, lane)
+	}
+	slices.Sort(lanes)
+	var rows []Row
+	for _, lane := range lanes {
+		status, known := statuses[dispatches[lane]]
+		if !known {
+			continue
+		}
+		live := !slices.Contains(settledDispatch, status)
+		seen := e.Now().UTC()
+		if !live {
+			info, err := os.Stat(filepath.Join(receipts, lane+".json"))
+			if err != nil {
+				return nil, err
+			}
+			seen = info.ModTime().UTC()
+		}
+		rows = append(rows, Row{Lane: lane, Live: live, SeenAt: seen, Dispatch: dispatches[lane]})
+	}
+	return rows, nil
+}
+
+func (e Env) dispatchStatuses(ctx context.Context) (map[string]string, error) {
 	statuses := map[string]string{}
 	var cursor []string
 	for {
@@ -273,33 +303,10 @@ func (e Env) orcaRows(ctx context.Context, names []string) ([]Row, error) {
 			statuses[worker.DispatchID] = worker.DispatchStatus
 		}
 		if page.Result.Page.NextCursor == "" {
-			break
+			return statuses, nil
 		}
 		cursor = []string{"--cursor", page.Result.Page.NextCursor}
 	}
-	lanes := make([]string, 0, len(dispatches))
-	for lane := range dispatches {
-		lanes = append(lanes, lane)
-	}
-	slices.Sort(lanes)
-	var rows []Row
-	for _, lane := range lanes {
-		status, known := statuses[dispatches[lane]]
-		if !known {
-			continue
-		}
-		live := status != "completed" && status != "failed"
-		seen := e.Now().UTC()
-		if !live {
-			info, err := os.Stat(filepath.Join(receipts, lane+".json"))
-			if err != nil {
-				return nil, err
-			}
-			seen = info.ModTime().UTC()
-		}
-		rows = append(rows, Row{Lane: lane, Live: live, SeenAt: seen, Dispatch: dispatches[lane]})
-	}
-	return rows, nil
 }
 
 func appendInbox(inbox string, message map[string]any) (bool, error) {

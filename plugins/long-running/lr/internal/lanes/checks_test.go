@@ -2,13 +2,16 @@ package lanes
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -288,4 +291,110 @@ func TestAReleaseThatShipsALandingResolvesItsBlocker(t *testing.T) {
 	equal(t, len(bus.posted), 4)
 	equal(t, bus.posted[2].Text, "LANDED-NOT-LIVE none")
 	equal(t, bus.posted[3].Resolves, int64(2))
+}
+
+type spriteRun struct {
+	mu       sync.Mutex
+	statuses map[string]string
+	fail     map[string]string
+	stopped  []string
+}
+
+func (r *spriteRun) Run(_ context.Context, c shell.Command) (shell.Result, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if c.Argv[0] == "orca" {
+		workers := []map[string]string{}
+		for dispatch, status := range r.statuses {
+			workers = append(workers, map[string]string{"dispatchId": dispatch, "dispatchStatus": status})
+		}
+		page, err := json.Marshal(map[string]any{"ok": true, "result": map[string]any{"workers": workers, "page": map[string]string{}}})
+		return shell.Result{Stdout: string(page)}, err
+	}
+	lane := c.Argv[3]
+	r.stopped = append(r.stopped, strings.Join(c.Argv, " "))
+	if why, failing := r.fail[lane]; failing {
+		return shell.Result{Code: 1, Stderr: why}, &shell.ExitError{Argv: c.Argv, Code: 1, Stderr: why}
+	}
+	return shell.Result{Stdout: `{"lane":"` + lane + `"}`}, nil
+}
+
+func spriteStops(t *testing.T, run *spriteRun) (*SpriteStops, *fakeBus, *store.Store) {
+	t.Helper()
+	s, err := store.Memory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	bus := &fakeBus{}
+	env := Env{Bus: bus, Config: config.Config{Drive: testDrive, OrcaRun: "run_1"}, Local: t.TempDir(), Claude: t.TempDir(), Runner: run}
+	return &SpriteStops{Env: env, Store: s, CcRemote: CcRemote{Binary: "cc-remote", Config: "/drive/cc-remote.yaml"}, Log: slog.Default()}, bus, s
+}
+
+func (c *SpriteStops) lane(t *testing.T, name, placement string, state store.LaneState, by, dispatch string) {
+	t.Helper()
+	if _, err := c.Store.WantLane(store.Lane{Name: name, Brief: "/briefs/" + name + ".md", Model: "opus", Effort: "xhigh", State: store.LaneDesired, Placement: placement}, t0.Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Store.SetLaneState(name, state, t0.Add(-mins(30)), by, ""); err != nil {
+		t.Fatal(err)
+	}
+	if dispatch != "" {
+		writeJSON(t, filepath.Join(c.Env.receipts(), name+".json"), map[string]any{"result": map[string]string{"dispatchId": dispatch}})
+	}
+}
+
+func stops(lanes ...string) []string {
+	argv := make([]string, 0, len(lanes))
+	for _, lane := range lanes {
+		argv = append(argv, "cc-remote orca stop "+lane+" --config /drive/cc-remote.yaml")
+	}
+	return argv
+}
+
+func TestAnEndedLanesSpriteIsStoppedOnceAndALiveOrUnsettledLanesIsNot(t *testing.T) {
+	run := &spriteRun{statuses: map[string]string{"ctx_done": "completed", "ctx_stood": "failed", "ctx_running": "dispatched", "ctx_live": "completed", "ctx_local": "completed"}}
+	c, bus, _ := spriteStops(t, run)
+	c.lane(t, "done-settled", "sprite", store.LaneRetired, "done", "ctx_done")
+	c.lane(t, "stood-failed", "sprite", store.LaneRetired, "stand-down", "ctx_stood")
+	c.lane(t, "done-unlisted", "sprite", store.LaneRetired, "done", "ctx_gone")
+	c.lane(t, "withdrawn", "sprite", store.LaneRetired, "withdrawn", "")
+	c.lane(t, "done-running", "sprite", store.LaneRetired, "done", "ctx_running")
+	c.lane(t, "live", "sprite", store.LaneDesired, "", "ctx_live")
+	c.lane(t, "held", "sprite", store.LaneHeld, "", "ctx_live")
+	c.lane(t, "relaunched", "sprite", store.LaneRetired, "relaunched-2", "")
+	c.lane(t, "local", "orca", store.LaneRetired, "done", "ctx_local")
+
+	if err := c.Check(context.Background(), t0); err != nil {
+		t.Fatal(err)
+	}
+	slices.Sort(run.stopped)
+	equal(t, run.stopped, stops("done-settled", "done-unlisted", "stood-failed", "withdrawn"))
+
+	run.statuses["ctx_running"] = "completed"
+	if err := c.Check(context.Background(), t0.Add(mins(10))); err != nil {
+		t.Fatal(err)
+	}
+	equal(t, run.stopped[4:], stops("done-running"))
+	equal(t, len(bus.posted), 0)
+}
+
+func TestASpriteStopThatFailsPostsOneBlockerWithItsErrorAndIsNeverRetried(t *testing.T) {
+	why := "cc-remote: suspending sprite stuck: its services stopped, but it still runs 2m0s later, so a session, request, or connection holds it"
+	run := &spriteRun{statuses: map[string]string{"ctx_stuck": "completed"}, fail: map[string]string{"stuck": why}}
+	c, bus, _ := spriteStops(t, run)
+	c.lane(t, "stuck", "sprite", store.LaneRetired, "done", "ctx_stuck")
+
+	for _, at := range []time.Time{t0, t0.Add(mins(10)), t0.Add(mins(20))} {
+		if err := c.Check(context.Background(), at); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	equal(t, run.stopped, stops("stuck"))
+	equal(t, len(bus.posted), 1)
+	posted := bus.posted[0]
+	equal(t, []any{string(posted.Kind), posted.To, posted.ID}, []any{blockerKind, []string{Root}, "sprite-stop:stuck"})
+	contains(t, posted.Text, "SPRITE-STOP-FAILED stuck: its dispatch ctx_stuck is completed")
+	contains(t, posted.Text, why)
 }
