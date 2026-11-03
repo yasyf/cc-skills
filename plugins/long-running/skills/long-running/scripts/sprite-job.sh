@@ -24,7 +24,10 @@ nothing stops the job before it reaches the Sprite, with that error as its resul
 the job runs authenticates through `gh auth git-credential`, the partial clone's
 on-demand object fetches included. A GH_TOKEN also refreshes git's in-memory
 credential cache on the Sprite for an hour, so long-running processes there read
-GitHub between passes.
+GitHub between passes. An installation token dies within the hour and may reach
+the job with five minutes left, while a pass can run longer than an hour, so its
+command runs again for each Sprite every four minutes while a job runs there,
+and the job's gh and ccx take GH_TOKEN from that cache each time they start.
 
 The plugin version holding this script is copied over whenever a file in it was
 added, removed or changed since the Sprite's copy, so a truncated install or a
@@ -65,6 +68,19 @@ no_result() {
   python3 "$results" lost "$dir" "the job on Sprite $sprite ended with status $1 and no result, as when the Sprite restarts mid-pass or cannot be reached"
 }
 trap 'no_result $?' EXIT
+refresh_gh_token() {
+  stamp=$state/gh-token-$sprite
+  [ -z "$(find "$stamp" -mmin -4 2>/dev/null)" ] || return 0
+  touch "$stamp"
+  token=$(python3 -c '
+import json, os, subprocess
+argv = json.loads(os.environ.get("SPRITE_JOB_KEYS") or "{}").get("GH_TOKEN")
+if argv:
+    print(subprocess.run(argv, capture_output=True, text=True).stdout.strip())')
+  [ -n "$token" ] || return 0
+  printf "protocol=https\nhost=github.com\nusername=x-access-token\npassword=%s\n\n" "$token" |
+    sprite exec -s "$sprite" -- git credential-cache --timeout=3900 store
+}
 plugin=$(cd "$here/../../.." && pwd)
 checkout=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["checkout"])' "$dir/job.json")
 drive=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["drive"])' "$dir/job.json")
@@ -165,6 +181,8 @@ sprite exec -s "$sprite" --no-stdin -- sh -c '
   fi
   exec 9>&-
   real=$(readlink "$4")
+  export SPRITE_TOOLS_PATH="$PATH"
+  [ -z "${GH_TOKEN:-}" ] || export PATH="$real/skills/long-running/scripts/sprite-fresh-token:$PATH"
   case "$1" in
     /*) exec flock -s "$real.lock" python3 "$real${1#"$4"}" "$2" ;;
     *) exec flock -s "$real.lock" "$real/bin/lr" grade "$1" "$2" ;;
@@ -177,11 +195,17 @@ job=$!
   done
   exit 1' sh "$dir"
 forwarded=
+ticks=0
 while kill -0 "$job" 2>/dev/null; do
   if [ -z "$forwarded" ] && [ -e "$dir/cancelled" ]; then
     sprite exec -s "$sprite" -- sh -c 'cat >"$1/cancelled"; for run in "$1"/codex-*; do [ -e "$run" ] && codex-ask --cancel "$run"; done; true' sh "$dir" <"$dir/cancelled" || true
     forwarded=1
   fi
+  if [ "$ticks" -eq 0 ]; then
+    refresh_gh_token &
+    ticks=24
+  fi
+  ticks=$((ticks - 1))
   sleep 10
 done
 status=0
