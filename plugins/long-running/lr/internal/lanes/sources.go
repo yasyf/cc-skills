@@ -771,15 +771,35 @@ func (e Env) Deps(ctx context.Context) (Deps, error) {
 		Withdraw: func(name string) error {
 			return detach(filepath.Join(briefs, name+".launch.log"), launcher, "withdraw", name, "--drive", e.Config.Drive, "--lane", Self)
 		},
-		Wake:        waker.Wake,
-		PRStates:    states.states,
-		Held:        func() (map[int]bool, error) { return e.held(ctx) },
-		Desks:       desks.all,
-		OpenWork:    func() ([]Record, error) { return e.openWork(ctx) },
-		Owed:        func() ([]deletions.Owed, error) { return trunk.List(ctx) },
-		Present:     func(rows []deletions.Owed) ([]deletions.Owed, error) { return trunk.Present(ctx, rows) },
-		Gaps:        func() ([]string, error) { return trunk.Gaps(ctx, e.tool("rulings.py"), e.Config.Drive) },
-		RotateAt:    at,
-		RetireAfter: e.Config.RetireSilent,
+		Wake:         waker.Wake,
+		PRStates:     states.states,
+		Held:         func() (map[int]bool, error) { return e.held(ctx) },
+		Desks:        desks.all,
+		OpenWork:     func() ([]Record, error) { return e.openWork(ctx) },
+		Owed:         func() ([]deletions.Owed, error) { return trunk.List(ctx) },
+		Present:      func(rows []deletions.Owed) ([]deletions.Owed, error) { return trunk.Present(ctx, rows) },
+		Gaps:         func() ([]string, error) { return trunk.Gaps(ctx, e.tool("rulings.py"), e.Config.Drive) },
+		RotateAt:     at,
+		RetireAfter:  e.Config.RetireSilent,
+		OpenBranches: func() (map[string][]int, error) { return e.openBranches(ctx) },
 	}, nil
+}
+
+func (e Env) openBranches(ctx context.Context) (map[string][]int, error) {
+	stdout, err := e.Run(ctx, "gh", "pr", "list", "--repo", e.Config.Repo, "--state", "open", "--limit", "5000", "--json", "number,headRefName")
+	if err != nil {
+		return nil, err
+	}
+	var prs []struct {
+		Number int    `json:"number"`
+		Branch string `json:"headRefName"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &prs); err != nil {
+		return nil, fmt.Errorf("%w: gh pr list: %w", ErrUnread, err)
+	}
+	branches := map[string][]int{}
+	for _, pr := range prs {
+		branches[pr.Branch] = append(branches[pr.Branch], pr.Number)
+	}
+	return branches, nil
 }

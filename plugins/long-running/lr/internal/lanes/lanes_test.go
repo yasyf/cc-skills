@@ -78,22 +78,24 @@ func onRoster(row Row) Row {
 }
 
 type fake struct {
-	feed      []Record
-	peers     []Row
-	tokens    map[string]int
-	posts     []Post
-	launches  []string
-	briefs    map[string]string
-	withdrawn []string
-	wakes     []string
-	pages     []map[string]any
-	states    map[int]string
-	holds     map[int]bool
-	desks     map[string]string
-	work      []Record
-	owed      []deletions.Owed
-	gaps      []string
-	deps      Deps
+	feed        []Record
+	peers       []Row
+	tokens      map[string]int
+	posts       []Post
+	launches    []string
+	briefs      map[string]string
+	withdrawn   []string
+	wakes       []string
+	pages       []map[string]any
+	states      map[int]string
+	holds       map[int]bool
+	desks       map[string]string
+	work        []Record
+	owed        []deletions.Owed
+	gaps        []string
+	branches    map[string][]int
+	branchReads int
+	deps        Deps
 }
 
 func newFake(t *testing.T, records []Record, peers []Row) *fake {
@@ -138,14 +140,15 @@ func newFake(t *testing.T, records []Record, peers []Row) *fake {
 			}
 			return out, nil
 		},
-		Held:        func() (map[int]bool, error) { return f.holds, nil },
-		Desks:       func() (map[string]string, error) { return f.desks, nil },
-		OpenWork:    func() ([]Record, error) { return f.work, nil },
-		Owed:        func() ([]deletions.Owed, error) { return slices.Clone(f.owed), nil },
-		Present:     func(rows []deletions.Owed) ([]deletions.Owed, error) { return rows, nil },
-		Gaps:        func() ([]string, error) { return f.gaps, nil },
-		RotateAt:    600_000,
-		RetireAfter: time.Hour,
+		Held:         func() (map[int]bool, error) { return f.holds, nil },
+		Desks:        func() (map[string]string, error) { return f.desks, nil },
+		OpenWork:     func() ([]Record, error) { return f.work, nil },
+		Owed:         func() ([]deletions.Owed, error) { return slices.Clone(f.owed), nil },
+		Present:      func(rows []deletions.Owed) ([]deletions.Owed, error) { return rows, nil },
+		Gaps:         func() ([]string, error) { return f.gaps, nil },
+		RotateAt:     600_000,
+		RetireAfter:  time.Hour,
+		OpenBranches: func() (map[string][]int, error) { f.branchReads++; return f.branches, nil },
 	}
 	return f
 }
@@ -1575,7 +1578,7 @@ func TestALaneWhoseOrcaWorkerFinishedIsRetiredAndNeverRelaunched(t *testing.T) {
 func TestALaneWhoseOrcaWorkerSucceededByItsOutcomeLineIsRetired(t *testing.T) {
 	s := memory(t)
 	f := adopted(t, s, writeBrief(t), "")
-	f.feed = append(f.feed, rec(2, runner, "report", t0.Add(-mins(14)), "OUTCOME msg_b21ededd168d conflicts-2: worker_done succeeded dispatch=ctx_320e271b3112"))
+	f.feed = append(f.feed, rec(2, lane2, "state", t0.Add(-mins(30)), "restacking", Root), rec(3, runner, "report", t0.Add(-mins(14)), "OUTCOME msg_b21ededd168d conflicts-2: worker_done succeeded dispatch=ctx_320e271b3112"))
 	f.peers = []Row{who(lane2, false, t0.Add(-mins(20)))}
 
 	out := tick(t, s, f, t0)
@@ -1597,6 +1600,7 @@ func TestAnOrcaWorkerThatSucceededIsRetiredBeforeItsOutcomeLineArrives(t *testin
 	f := adopted(t, s, writeBrief(t), "")
 	finished := who(lane2, false, t0.Add(-mins(20)))
 	finished.Succeeded = true
+	f.feed = append(f.feed, rec(2, lane2, "state", t0.Add(-mins(30)), "restacking", Root))
 	f.peers = []Row{finished}
 
 	out := tick(t, s, f, t0)

@@ -84,6 +84,8 @@ Liveness comes from the agent, not the dispatch. The tick's one `orca orchestrat
 
 Where: `lanes.orcaRows`, `lanes.Rostered`, `lanes.Classify`, `lanes.act`, `lanes.relaunch`, `config.Load`. Tests: `internal/lanes`: an exited agent with an open PR relaunches once; its second death raises one defect, to root or to the meta launcher; a lane holding nothing retires at the threshold and not before; a parked cold Sprite is left alone while an unparked one with a PR is held; an autostopped lane stays ended; an idle teammate holding nothing retires and one with a PR stays; a tick reads the same at 1 and 1,000 dead lanes, and Orca liveness is one worker-list read at either.
 
+A `worker_done` from a lane none of whose records reached the bus, whether Orca's row or the runner's `OUTCOME` line carries it, never retires the lane: on Nov 3 51 lanes retired that way with their PRs unowned and ungraded (root #364498). The supervisor holds it and raises one blocker to the coordinator naming `lr request done <lane>`. Once per retired lane, the tick reads the open PRs by branch from GitHub in one call and gives the coordinator every open PR no lane owns whose branch is the lane's name, with or without its `-N`, or starts with that name and a `/`, in one `ORPHANED` report.
+
 ## Deleted in this series
 
 | Bandaid | Replaced by |

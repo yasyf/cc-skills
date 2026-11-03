@@ -31,6 +31,7 @@ type folded struct {
 	owing   []owing
 	stood   []stoodDown
 	untyped []int64
+	unheard []string
 	deps    Deps
 }
 
@@ -445,6 +446,13 @@ func foldRegistry(s *store.Store, r Record, row store.Lane, known, fresh bool, a
 	if name == runner {
 		if found := workerDone.FindStringSubmatch(text); found != nil {
 			if ended, ok := laneOf(s, found[1]); ok && ended.State != store.LaneRetired {
+				if ended.Heard.IsZero() {
+					hold(s, ended.Name, unheardDone, at)
+					if !fresh {
+						out.unheard = append(out.unheard, ended.Name)
+					}
+					return
+				}
 				if out.owesNothing(s, ended.Name, fresh, at) {
 					retire(s, ended.Name, retiredWorkerDone, at)
 				}

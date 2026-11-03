@@ -134,3 +134,73 @@ func TestATickOverLanesWithNoProcessReadsTheSameAtOneLaneAndAtAThousand(t *testi
 	}
 	equal(t, counts(1000), counts(1))
 }
+
+func TestAWorkerDoneFromALaneNoRecordOfWhichReachedTheBusIsHeldForRoot(t *testing.T) {
+	for name, done := range map[string]func(f *fake){
+		"its orca row": func(f *fake) {
+			finished := who(lane2, false, t0.Add(-mins(20)))
+			finished.Succeeded = true
+			f.peers = []Row{finished}
+		},
+		"the runner's outcome line": func(f *fake) {
+			f.feed = append(f.feed, rec(2, runner, "report", t0.Add(-mins(1)), "OUTCOME msg_b21ededd168d conflicts-2: worker_done succeeded dispatch=ctx_320e271b3112"))
+			f.peers = []Row{who(lane2, false, t0.Add(-mins(20)))}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := memory(t)
+			f := adopted(t, s, writeBrief(t), "")
+			done(f)
+
+			tick(t, s, f, t0)
+
+			equal(t, row(t, s, lane2).State, store.LaneHeld)
+			blockers := f.ofKind("blocker")
+			equal(t, len(blockers), 1)
+			equal(t, blockers[0].To, []string{Root})
+			contains(t, blockers[0].Text, "held, not retired: it reported worker_done, but none of its records ever reached the bus")
+			contains(t, blockers[0].Text, "`lr request done conflicts-2`")
+		})
+	}
+}
+
+func TestARetiredLanesUnownedOpenPRsOnItsBranchGoToRootOnce(t *testing.T) {
+	s, brief := memory(t), writeBrief(t)
+	f := newFake(t, []Record{spawned(1, "journal-apply-threads-1", brief, t0.Add(-time.Hour), nil), spawned(2, "chat-spin-1", brief, t0.Add(-time.Hour), nil)}, []Row{who("journal-apply-threads-1", true, t0), who("chat-spin-1", true, t0)})
+	tick(t, s, f, t0.Add(-mins(1)))
+	if err := s.SetLanePRs("chat-spin-1", []int{48990}); err != nil {
+		t.Fatal(err)
+	}
+	f.branches = map[string][]int{"journal-apply-threads": {48999}, "journal-apply-threads/restack": {49000}, "journal-apply": {1}, "chat-spin": {48990}}
+	f.feed = append(f.feed, rec(3, "journal-apply-threads-1", "done", t0, "threads pick shipped", Root))
+
+	tick(t, s, f, t0.Add(mins(1)))
+	tick(t, s, f, t0.Add(mins(2)))
+
+	equal(t, owners(t, s, 48999, 49000, 1, 48990), map[int]string{48999: Root, 49000: Root, 48990: "chat-spin-1"})
+	reports := f.ofKind("report")
+	equal(t, len(reports), 1)
+	equal(t, reports[0].PRs, []int{48999, 49000})
+	contains(t, reports[0].Text, "journal-apply-threads-1 left #48999 on journal-apply-threads; journal-apply-threads-1 left #49000 on journal-apply-threads/restack")
+	equal(t, f.branchReads, 1)
+}
+
+func TestTheBranchReadIsOnePerTickAtOneRetiredLaneAndAtAThousand(t *testing.T) {
+	reads := func(n int) int {
+		s := memory(t)
+		f := adopted(t, s, writeBrief(t), "")
+		f.peers = []Row{who(lane2, true, t0)}
+		f.branches = map[string][]int{}
+		for i := range n {
+			name := fmt.Sprintf("ended-%d", i)
+			if _, err := s.WantLane(store.Lane{Name: name, Brief: "/briefs/x.md", Model: "opus", Effort: "xhigh", Role: "lane", State: store.LaneRetired}, t0.Add(-time.Hour)); err != nil {
+				t.Fatal(err)
+			}
+			f.branches[name] = []int{50000 + i}
+		}
+		tick(t, s, f, t0)
+		equal(t, len(f.ofKind("report")[0].PRs), n)
+		return f.branchReads
+	}
+	equal(t, reads(1000), reads(1))
+}

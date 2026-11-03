@@ -52,6 +52,7 @@ type Deps struct {
 	Gaps         func() ([]string, error)
 	RotateAt     int
 	RetireAfter  time.Duration
+	OpenBranches func() (map[string][]int, error)
 }
 
 type Relaunch struct {
@@ -115,6 +116,9 @@ func Tick(s *store.Store, d Deps, now time.Time, generation int64) (out Outcome,
 	said := fold(s, records, adoptable, d.Briefs, d)
 	out.Adopted = append(said.adopted, adoptStanding(s, d, found, now)...)
 	announce(s, d, said)
+	for _, name := range said.unheard {
+		raiseUnheard(s, d, name, now)
+	}
 	ownedWork(s, d, now)
 	for _, name := range said.hand {
 		do(d.Withdraw(name))
@@ -137,6 +141,7 @@ func Tick(s *store.Store, d Deps, now time.Time, generation int64) (out Outcome,
 	for _, lane := range must(s.Lanes(live...)) {
 		act(s, d, lane, found, taken, generation, now, &out)
 	}
+	claimBranches(s, d, now)
 	unownedDuties(s, d, found, now)
 	hourly(s, d, now)
 	return out, nil
@@ -236,6 +241,12 @@ func act(s *store.Store, d Deps, lane store.Lane, found map[string]Peer, taken m
 			return
 		}
 		if peer != nil && peer.Row.Succeeded && lane.Handoff == "" && lane.Asked.IsZero() {
+			if lane.Heard.IsZero() {
+				hold(s, lane.Name, unheardDone, now)
+				raiseUnheard(s, d, lane.Name, now)
+				out.Held = append(out.Held, lane.Name)
+				return
+			}
 			if !refusedOwing(s, d, lane.Name, now) {
 				retire(s, lane.Name, retiredWorkerDone, now)
 			}
@@ -252,6 +263,70 @@ func act(s *store.Store, d Deps, lane store.Lane, found map[string]Peer, taken m
 		do(d.Post(Post{Kind: "ask", To: []string{lane.Name}, Text: fmt.Sprintf("ROTATE: %s is at %s. Write anything not yet in the ledger or cc-notes to a cc-notes doc, post `cci post --lane %s --kind handoff --ccn <doc id> --re <this record>`, then keep working.", lane.Name, verdict.Why, lane.Name)}))
 		do(s.SetLaneAsked(lane.Name, now))
 		out.Asked = append(out.Asked, lane.Name)
+	}
+}
+
+func raiseUnheard(s *store.Store, d Deps, name string, now time.Time) {
+	cause := fmt.Sprintf("held, not retired: it %s, so nothing proves its work landed; read its Sprite or worktree, then post `%s` or relaunch it", unheardDone, Request{Verb: "done", Lane: name}.Command())
+	if must(s.Escalate("lane:"+name, cause, Root, now)) {
+		do(d.Post(Post{Kind: "blocker", To: []string{Root}, LaneRef: name, Text: "lane:" + name + ": " + cause}))
+	}
+}
+
+func branchProbe(lane string) string {
+	return "branches:" + lane
+}
+
+func onBranch(branch string, names ...string) bool {
+	return slices.ContainsFunc(names, func(name string) bool { return branch == name || strings.HasPrefix(branch, name+"/") })
+}
+
+func claimBranches(s *store.Store, d Deps, now time.Time) {
+	probes := must(s.Probes())
+	var unchecked []string
+	for _, lane := range must(s.Lanes(store.LaneRetired)) {
+		if _, checked := probes[branchProbe(lane.Name)]; !checked {
+			unchecked = append(unchecked, lane.Name)
+		}
+	}
+	if len(unchecked) == 0 {
+		return
+	}
+	branches, err := d.OpenBranches()
+	if errors.Is(err, ErrUnread) {
+		return
+	}
+	do(err)
+	owned := map[int]bool{}
+	for _, prs := range must(s.Owners()) {
+		for _, n := range prs {
+			owned[n] = true
+		}
+	}
+	var orphans []int
+	var left []string
+	names := slices.Sorted(maps.Keys(branches))
+	for _, name := range unchecked {
+		base, _ := family(name)
+		for _, branch := range names {
+			if !onBranch(branch, base, name) {
+				continue
+			}
+			for _, n := range branches[branch] {
+				if !owned[n] {
+					owned[n] = true
+					orphans = append(orphans, n)
+					left = append(left, fmt.Sprintf("%s left #%d on %s", name, n, branch))
+				}
+			}
+		}
+	}
+	if len(orphans) > 0 {
+		do(s.Own(Root, orphans))
+		do(d.Post(Post{Kind: "report", To: []string{Root}, PRs: orphans, Text: fmt.Sprintf("ORPHANED PRs now owned by the coordinator, since no lane owned them when their lanes retired: %s. Name an owner with `%s`.", strings.Join(left, "; "), Request{Verb: "owner", Lane: "<lane>", PRs: orphans}.Command())}))
+	}
+	for _, name := range unchecked {
+		do(s.Probe(branchProbe(name), now))
 	}
 }
 

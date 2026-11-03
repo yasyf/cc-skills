@@ -41,6 +41,7 @@ const (
 const (
 	retiredWorkerDone = "worker-done"
 	retiredSilent     = "silent"
+	unheardDone       = "reported worker_done, but none of its records ever reached the bus"
 	workerSucceeded   = "succeeded"
 	agentLive         = "live"
 	agentExited       = "exited"
