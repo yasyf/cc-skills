@@ -151,6 +151,12 @@ label-watch.sh watch "$LIST"
 
 **Batch and cache every GitHub read.** A desk or tool that needs one fact for many PRs reads it in one batched query per pass, never one call per PR. A surface showing a PR caches it by head, revalidates on a floor of one minute or more, and re-reads its files only when its head or base moves. The secondary limit fires on bursts of writes, such as a dozen PR creates in a quarter hour, so a ship storm spaces its creates to avoid the GitHub secondary rate limit. Fix any per-PR loop in the tool itself instead of adding a second reader beside it.
 
+**Bound a poll loop with `bounded.py`, never GNU `timeout`.** `bounded.py <seconds> -- <command>` ends the command's whole process tree at the deadline, when the command exits, or when `bounded.py` itself is killed. The tree includes a nested `timeout`, which starts its own process group, and every orphan reparented to launchd. A command already running in its own ancestry exits 3, so a script that reaches itself through another fails at once instead of stacking one copy per pass. `desk-wait.sh ... -- <command>` ends its command the same way.
+
+**Nested `timeout` calls stacked 474 loops on Nov 2.** landing-desk-3's `cycle.sh` ran `loop3.sh`, which ran `loop.sh`, which ran `cycle.sh`, each under its own `timeout`. The 474 stacked loops and their 3,000 children held the Mac's load at 126 on 32 cores.
+
+**A stopped lane's leftover watchers are reaped.** When a lane stops, the `lane_watchers` hook ends every `timeout`, `sleep`, `tail`, `cci watch` or desk-wait tree the lane left reparented to launchd, and tells the lane what it reaped.
+
 ## Supervise and rotate lanes
 
 **`scripts/drive_supervisor.py` runs under launchd and keeps required lanes alive without root action.** Each tick reads the bus once and `cci who` once. A fresh store adopts only the lanes live at that moment, and a tick whose sources do not all answer acts on nothing. The supervisor never signals a process; a lane leaves only through the record that stands it down.
