@@ -273,3 +273,72 @@ func TestAHeadOutsideTheTreeReadsNoBuild(t *testing.T) {
 		}
 	}
 }
+
+func gateFacts(number int, branch, base string, change func(*machine.Facts)) machine.Facts {
+	return facts(number, func(f *machine.Facts) {
+		f.Repo, f.Head, f.Branch, f.Base = monorepo, gateHead(number), branch, base
+		if change != nil {
+			change(f)
+		}
+	})
+}
+
+func TestAHandEnqueueGateReadsEveryHeadTheEnqueueTakes(t *testing.T) {
+	red := func(f *machine.Facts) { f.CI = machine.CIFailure }
+	snapshot := []machine.Facts{
+		gateFacts(1, "low", "dev", red),
+		gateFacts(2, "mid", "low", red),
+		gateFacts(3, "top", "mid", red),
+		gateFacts(4, "side", "low", red),
+		gateFacts(5, "other", "dev", red),
+	}
+	line := func(number int) string { return "#" + strconv.Itoa(number) + " e718a7434f CI is not green" }
+	for _, test := range []struct {
+		name    string
+		named   []string
+		partial bool
+		want    []string
+	}{
+		{"the whole stack above what it names", []string{"2"}, false, []string{line(1), line(2), line(3), line(4)}},
+		{"partial stops at what it names", []string{"2"}, true, []string{line(1), line(2)}},
+		{"a PR the drive does not hold", []string{"9"}, false, []string{"#9 is no open PR of this drive"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got := newGates(t).gates.HandEnqueueLines(context.Background(), snapshot, test.named, test.partial)
+			if !slices.Equal(got, test.want) {
+				t.Fatalf("lines = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
+func TestAHandEnqueueGateNamesAReservedRowAndABuildBreakAndChangesNothing(t *testing.T) {
+	f := buildGates(t, "go/sand/next/run.go\n", buildAnnotation("go/sand/next/run undefined: Foo"), `[]`)
+	f.tool.refusals[monorepo+"#1"] = "RESERVED-NO-ANSWER reserved/cloud-delete\tNo cloud deletion."
+
+	got := f.gates.HandEnqueueLines(context.Background(), []machine.Facts{gateFacts(1, "one", "dev", nil)}, []string{"1"}, false)
+
+	if len(got) != 2 || got[0] != "#1 e718a7434f RESERVED reserved/cloud-delete: No cloud deletion." || !strings.HasPrefix(got[1], "#1 e718a7434f BUILD-FAILED go/sand/next/run fails to build at e718a7434f on "+gateBuild) {
+		t.Fatalf("lines = %q", got)
+	}
+	for _, kind := range []string{"note", "report", "blocker"} {
+		if records := gateRecords(t, kind); len(records) != 0 {
+			t.Fatalf("%s records = %+v", kind, records)
+		}
+	}
+	kept, err := f.gates.Store.Facts(monorepo, 1, gateHead(1))
+	if err != nil || len(kept) != 0 {
+		t.Fatalf("facts = %v, err = %v", kept, err)
+	}
+}
+
+func TestAHandEnqueueGateDoesNotReadAHeadTheRunnerCleared(t *testing.T) {
+	f := newGates(t)
+	f.admit(t, []pass.Act{enqueueAct(1, "one", "dev")}, 1)
+
+	got := f.gates.HandEnqueueLines(context.Background(), []machine.Facts{gateFacts(1, "one", "dev", nil)}, []string{"1"}, false)
+
+	if len(got) != 0 || f.tool.reads != 1 {
+		t.Fatalf("lines = %q, reads = %d", got, f.tool.reads)
+	}
+}

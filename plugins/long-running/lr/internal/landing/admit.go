@@ -114,13 +114,13 @@ func (g *Gates) Admit(ctx context.Context, acts []pass.Act, snapshot []machine.F
 		byBranch[f.Branch] = f
 	}
 	return slices.DeleteFunc(slices.Clone(acts), func(act pass.Act) bool {
-		return act.Verdict.Action == machine.ActionEnqueue && carriesRefused(act.Facts, byBranch, refused)
+		return act.Verdict.Action == machine.ActionEnqueue && downstackMeets(act.Facts, byBranch, refused)
 	})
 }
 
-func carriesRefused(f machine.Facts, byBranch map[string]machine.Facts, refused map[string]bool) bool {
+func downstackMeets(f machine.Facts, byBranch map[string]machine.Facts, branches map[string]bool) bool {
 	for open := true; open; f, open = byBranch[f.Base] {
-		if refused[f.Branch] {
+		if branches[f.Branch] {
 			return true
 		}
 	}
