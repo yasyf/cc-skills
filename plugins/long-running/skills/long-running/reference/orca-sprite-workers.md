@@ -389,6 +389,20 @@ and the checkout, read over ssh, is clean with its HEAD on origin or landed;
 `--done` skips the idle check. A Sprite with no matching task record is left
 alone.
 
+A lane that ended has its Sprite stopped without the root. Every five minutes
+the lane supervisor runs `lr stop-sprites`, which picks each retired registry lane
+placed on a Sprite whose Orca dispatch reads completed or failed. When the Run
+lists no dispatch for the lane, its `done` record or a withdrawal must have
+retired it. A lane that is live or held, or whose dispatch is unsettled, keeps its
+Sprite.
+
+For each ended lane, lr runs `cc-remote orca stop <lane>` once with the
+`WORKER_CC_REMOTE` and `CC_REMOTE_CONFIG` of `runner.json`'s `orca.sprite.env`.
+That stop closes the forward and stops every service, so the Sprite goes cold
+with its disk kept, and it refuses a warm pool workspace's own name. The gc pause
+below does not hold it. A stop that fails posts one `SPRITE-STOP-FAILED` blocker
+to root with the error, and lr never runs that lane's stop again.
+
 gc is paused until `~/.local/state/orca-gc/resumed` exists, or
 `$XDG_STATE_HOME/orca-gc/resumed` when that variable is set. A paused gc prints
 one `skip` line and changes nothing. Resume it with

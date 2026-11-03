@@ -16,6 +16,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
@@ -31,6 +32,7 @@ const (
 	fixLiveBack  = 6 * time.Hour
 	gcEvery      = 5 * time.Minute
 	gcTimeout    = 10 * time.Minute
+	stopTimeout  = 5 * time.Minute
 	launchWait   = 5 * time.Minute
 	launchMargin = 10 * time.Second
 	incidentBar  = 20 * time.Minute
@@ -264,6 +266,105 @@ func (g *FixLiveGC) reclaim(ctx context.Context, lane string, seq int64, heard, 
 	return nil
 }
 
+type CcRemote struct {
+	Binary string
+	Config string
+}
+
+func CcRemoteOf(state string) (*CcRemote, error) {
+	data, err := os.ReadFile(filepath.Join(state, "runner.json"))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var runner struct {
+		Orca struct {
+			Sprite *struct {
+				Env map[string]string `json:"env"`
+			} `json:"sprite"`
+		} `json:"orca"`
+	}
+	if err := json.Unmarshal(data, &runner); err != nil {
+		return nil, fmt.Errorf("runner.json: %w", err)
+	}
+	if runner.Orca.Sprite == nil {
+		return nil, nil
+	}
+	env := runner.Orca.Sprite.Env
+	tools := filepath.Join(env["WORKER_CHECKOUT"], "tools", "cc-remote")
+	return &CcRemote{Binary: or(env["WORKER_CC_REMOTE"], filepath.Join(tools, "bin", "cc-remote")), Config: or(env["CC_REMOTE_CONFIG"], filepath.Join(tools, "config.yaml"))}, nil
+}
+
+type SpriteStops struct {
+	Env      Env
+	Store    *store.Store
+	CcRemote CcRemote
+	Log      *slog.Logger
+	read     time.Time
+}
+
+func (c *SpriteStops) Check(ctx context.Context, now time.Time) error {
+	if !c.read.IsZero() && now.Sub(c.read) < gcEvery {
+		return nil
+	}
+	c.read = now
+	hosted, err := c.Store.UnstoppedSpriteLanes()
+	if err != nil || len(hosted) == 0 {
+		return err
+	}
+	statuses, err := c.Env.dispatchStatuses(ctx)
+	if err != nil {
+		c.Log.Warn("sprite stops did not read the Run", "err", err)
+		return nil
+	}
+	var ended, why []string
+	for _, lane := range hosted {
+		reason := endedBecause(lane, dispatchOf(c.Env.receipts(), lane.Name), statuses)
+		if reason == "" {
+			continue
+		}
+		first, err := c.Store.StopSprite(lane.Name, now)
+		if err != nil {
+			return err
+		}
+		if first {
+			ended, why = append(ended, lane.Name), append(why, reason)
+		}
+	}
+	stopped := make([]error, len(ended))
+	var wg sync.WaitGroup
+	for i, lane := range ended {
+		wg.Go(func() {
+			_, stopped[i] = c.Env.Runner.Run(ctx, shell.Command{Argv: []string{c.CcRemote.Binary, "orca", "stop", lane, "--config", c.CcRemote.Config}, Timeout: stopTimeout})
+		})
+	}
+	wg.Wait()
+	for i, lane := range ended {
+		if stopped[i] == nil {
+			c.Log.Info("sprite stopped", "lane", lane, "why", why[i])
+			continue
+		}
+		text := fmt.Sprintf("SPRITE-STOP-FAILED %s: %s, so the supervisor ran `cc-remote orca stop %s` once, and it failed: %s | its Sprite still runs and the supervisor does not try again; stop it by hand with `%s orca stop %s --config %s`", lane, why[i], lane, truncated(stopped[i].Error(), 300), c.CcRemote.Binary, lane, c.CcRemote.Config)
+		if _, err := c.Env.Bus.Post(ctx, client.Draft{Drive: c.Env.Config.Drive, Lane: Self, Kind: blockerKind, To: []string{Root}, ID: "sprite-stop:" + lane, Stamp: true, Text: text}); err != nil {
+			return fmt.Errorf("%w: cci post: %w", ErrUnread, err)
+		}
+	}
+	return nil
+}
+
+func endedBecause(lane store.Lane, dispatch string, statuses map[string]string) string {
+	status, known := statuses[dispatch]
+	switch {
+	case known && slices.Contains(settledDispatch, status):
+		return fmt.Sprintf("its dispatch %s is %s", dispatch, status)
+	case !known && (lane.RetiredBy == "done" || lane.RetiredBy == "withdrawn"):
+		return "it was retired by " + lane.RetiredBy
+	}
+	return ""
+}
+
 type ledgerRow struct {
 	PR        json.Number `json:"pr"`
 	State     string      `json:"state"`
@@ -479,6 +580,13 @@ func (e Env) Checks(s *store.Store, log *slog.Logger) ([]Check, error) {
 	}
 	if e.Config.OrcaRun != "" {
 		checks = append(checks, (&FixLiveGC{Env: e, Log: log}).Check)
+	}
+	remote, err := CcRemoteOf(e.State)
+	if err != nil {
+		return nil, err
+	}
+	if e.Config.OrcaRun != "" && remote != nil {
+		checks = append(checks, (&SpriteStops{Env: e, Store: s, CcRemote: *remote, Log: log}).Check)
 	}
 	cli, err := ReleaseCLI(e.State)
 	if err != nil {

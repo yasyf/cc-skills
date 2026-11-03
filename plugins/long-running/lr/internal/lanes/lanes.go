@@ -52,6 +52,8 @@ var (
 	laneEnds    = []string{"done", "stopped", "fix-live"}
 	shipped     = []string{"release", "applied", "fix-live"}
 
+	settledDispatch = []string{"completed", "failed"}
+
 	numbered       = regexp.MustCompile(`^(.+)-(\d{1,2})$`)
 	replaces       = regexp.MustCompile(`\b([\w.-]+) replaces ([\w.-]+)\b`)
 	handedOff      = regexp.MustCompile(`\bhandoff ([\w.-]+): doc ([0-9a-f]{7,40})\b`)

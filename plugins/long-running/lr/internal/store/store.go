@@ -262,6 +262,15 @@ func (s *Store) Escalate(subject, cause, toMover string, at time.Time) (bool, er
 	return changed(result, err)
 }
 
+func (s *Store) UnstoppedSpriteLanes() ([]Lane, error) {
+	return s.registered("WHERE state = ? AND placement = 'sprite' AND name NOT IN (SELECT lane FROM sprite_stops)", string(LaneRetired))
+}
+
+func (s *Store) StopSprite(lane string, at time.Time) (bool, error) {
+	result, err := s.db.Exec("INSERT OR IGNORE INTO sprite_stops (lane, at) VALUES (?, ?)", lane, Stamp(at))
+	return changed(result, err)
+}
+
 func (s *Store) Escalations(subject string) ([]Escalation, error) {
 	rows, err := s.db.Query("SELECT subject, cause, to_mover, raised FROM escalations WHERE ?1 IS NULL OR subject = ?1 ORDER BY raised", text(subject))
 	return collect(rows, err, func(rows *sql.Rows) (Escalation, error) {

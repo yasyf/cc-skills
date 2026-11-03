@@ -26,7 +26,8 @@ With `alert_channels` set, each tick reads those channels' newest top-level mess
 one `ALERT-UNOPENED` blocker to root for a Datadog or Sentry alert no `incident` record names three
 minutes after it fired. With `orca_run` set, every five minutes it ends each Orca lane a FIX-LIVE
 record names once the record and the lane's newest record are 30 minutes old, through
-`orca-gc --done`, and posts what it reclaimed to root.
+`orca-gc --done`, and posts what it reclaimed to root, and every five minutes `lr stop-sprites`
+stops the Sprite of each lane that ended, once.
 """
 
 from __future__ import annotations
@@ -89,6 +90,7 @@ ALERT_READ = 20
 FIX_LIVE_IDLE = timedelta(minutes=30)
 GC_EVERY = timedelta(minutes=5)
 ORCA_GC = SCRIPTS / "orca-gc"
+LR = SCRIPTS.parents[2] / "bin" / "lr"
 GC_SECONDS = 600
 
 
@@ -382,6 +384,22 @@ class FixLiveGc:
         run(["cci", "post", "--drive", self.drive, "--lane", lanes.SELF, "--kind", "report", "--to", "root", "--id", f"fix-live-gc:{dispatch}", "--text", f"GC {lane}: FIX-LIVE #{record['seq']} is 30 minutes old and {lane} has posted nothing since, so `orca-gc --done {dispatch}` ended it: {said}"])
 
 
+class SpriteStops:
+    """Every `GC_EVERY`, `lr stop-sprites` stops the Sprite of each lane that ended, once per lane, with `cc-remote orca stop`; lr decides which lanes ended and posts root one blocker for a stop that fails, and this check prints what it said."""
+
+    def __init__(self, config: Path):
+        self.config = config
+        self.read_at: datetime | None = None
+
+    def __call__(self, now: datetime) -> None:
+        if self.read_at and now - self.read_at < GC_EVERY:
+            return
+        self.read_at = now
+        done = subprocess.run([str(LR), "stop-sprites", "--config", str(self.config)], capture_output=True, text=True, timeout=GC_SECONDS)
+        if said := (done.stdout + done.stderr).strip():
+            print(f"sprite stops: exit {done.returncode}: {said}", file=sys.stderr, flush=True)
+
+
 class Upgrade:
     """Whether the supervisor re-executes into the newest install: only when it is newer than `running` and `replay.py gate` passes it against `running` on the drive's last 24 hours, read once per version. A refusal keeps this version serving, and the gate posts why; a gate that did not finish proves nothing, so the supervisor moves on and posts one warning."""
 
@@ -466,7 +484,7 @@ def cmd_run(config: lr_config.Config, path: Path) -> int:
     running = lr_drive.plugin_manifest()["version"]
     passes = pass_deps(config, path.parent, store) if set(config.movers) & loop.PR_MOVERS else {}
     channels = [channel for channel in config.alert_channels.split(",") if channel]
-    checks = (*((Alerts(config.drive, channels),) if channels else ()), *((FixLiveGc(config.drive, config.orca_run, lr_drive.launch_receipts(config.orca_run)),) if config.orca_run else ()))
+    checks = (*((Alerts(config.drive, channels),) if channels else ()), *((FixLiveGc(config.drive, config.orca_run, lr_drive.launch_receipts(config.orca_run)), SpriteStops(path)) if config.orca_run else ()))
     deps = loop.Deps(movers=frozenset(config.movers), clock=clock, sleep=time.sleep, lane_deps=lanes_deps(config, path.parent) if "lanes" in config.movers else None, stale=Upgrade(config, running), checks=checks, **passes)
     ticks = loop.run(store, config.drive, SCRIPTS.parents[2].name, os.getpid(), deps)
     if not deps.stale():
