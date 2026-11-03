@@ -109,7 +109,8 @@ func (d *Desk) fixLaunch(container string) (*incident.Action, error) {
 		return nil, err
 	}
 	order := Order{Lane: strings.TrimPrefix(container, lanePrefix), Model: spec.Model, Role: spec.Role, Brief: spec.Brief}
-	if !order.incidentFix(readBrief(spec.Brief)) {
+	text := readBrief(spec.Brief)
+	if briefStanding.MatchString(text) || !order.incidentFix(text) {
 		return nil, nil
 	}
 	return &newest, nil
