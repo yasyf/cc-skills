@@ -66,6 +66,14 @@ def now(page):
     page.wait_for_selector(".nw-spine")
 
 
+def open_first_question(page):
+    page.goto(page.url.split("#")[0] + "#/review")
+    row = page.locator("#review-questions details").first
+    if row.get_attribute("open") is None:
+        row.locator("> summary").click()
+    page.wait_for_selector(".bq")
+
+
 def open_work_row(page, item):
     page.locator(f'.nw-live details[data-id="wr-{item}"] > summary').click()
 
@@ -133,9 +141,7 @@ def test_the_needs_you_band_shows_every_word(page):
 
 
 def test_review_frames_each_question_once(page):
-    page.goto(page.url.split("#")[0] + "#/review")
-    page.locator("#review-questions details > summary").first.click()
-    page.wait_for_selector(".bq")
+    open_first_question(page)
     nested = page.evaluate("""() => {
         const framed = (el) => el.matches('section, article, div') && parseFloat(getComputedStyle(el).borderTopWidth) > 0 && parseFloat(getComputedStyle(el).borderTopLeftRadius) > 0;
         return [...document.querySelectorAll('.bq *')].filter((el) => {
@@ -149,9 +155,7 @@ def test_review_frames_each_question_once(page):
 
 
 def test_review_question_headings_are_one_neutral_color(page):
-    page.goto(page.url.split("#")[0] + "#/review")
-    page.locator("#review-questions details > summary").first.click()
-    page.wait_for_selector(".bq")
+    open_first_question(page)
     loud = page.evaluate("""() => [...document.querySelectorAll('.bq > header .mr-t')]
         .filter((h) => h.querySelector('.nmark, a, i') || [...h.querySelectorAll('*')].some((el) => getComputedStyle(el).color !== getComputedStyle(h).color))
         .map((h) => h.textContent)""")
