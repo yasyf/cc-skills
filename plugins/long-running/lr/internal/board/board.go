@@ -126,7 +126,7 @@ func Rows(s *store.Store, repo string, snapshot map[int]machine.Facts) ([]Row, e
 	var out []Row
 	for _, item := range items {
 		facts, found := snapshot[item.Number]
-		if item.Mover != machine.MoverOwner || !found || facts.Head != item.Head || facts.Tapped() {
+		if item.Mover != machine.MoverOwner || !found || facts.Head != item.Head || facts.Tapped() || facts.Hold != "" {
 			continue
 		}
 		stored, err := s.Facts(repo, item.Number, item.Head)
@@ -171,7 +171,7 @@ func prRow(row Row) PRRow {
 }
 
 func review(row Row) string {
-	waits := slices.DeleteFunc(slices.Clone(row.Gates), func(gate string) bool { return gate == noTap })
+	waits := withoutTap(row.Gates)
 	words := "every other gate is met"
 	if len(waits) > 0 {
 		words = strings.Join(waits, ", ")
