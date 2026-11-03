@@ -225,6 +225,7 @@ class FakeShell(runner_module.Shell):
         self.link_out = ""
         self.native: list[str] = []
         self.pr_states: dict[str, str] = {}
+        self.merged_branches: dict[str, str] = {}
         self.bases: dict[str, str] = {}
         self.stack_members: set[str] = set()
         self.async_pending: set[str] = set()
@@ -477,6 +478,9 @@ class FakeShell(runner_module.Shell):
                 return runner_module.Done(1, "", self.kept[argv[5]])
             self.listed = [(path, branch) for path, branch in self.listed if path != argv[5]]
             return runner_module.Done(0, "", "")
+        if argv[:3] == ["gh", "pr", "list"] and "--head" in argv:
+            assert argv[3:] == ["--repo", "Forge-AI/monorepo", "--head", argv[6], "--state", "merged", "--json", "number", "--jq", ".[0].number // empty"]
+            return runner_module.Done(0, f"{self.merged_branches[argv[6]]}\n" if argv[6] in self.merged_branches else "", "")
         if argv[:3] == ["gh", "pr", "list"] and "--author" in argv:
             assert argv[3:] == ["--repo", "Forge-AI/monorepo", "--author", "app/graphite-app", "--state", "all", "--limit", "2", "--json", "createdAt,closedAt"]
             return runner_module.Done(1, "", "HTTP 502") if self.queue_drafts is None else runner_module.Done(0, json.dumps(self.queue_drafts), "")
@@ -2801,6 +2805,23 @@ def test_a_check_that_exits_with_no_verdict_escalates_once_instead_of_passing_si
     lines = escalations(shell)
     assert len(lines) == 1 and "GATE-FAILED" in lines[0] and "#29020" in lines[0] and "unrecognized arguments: 28349" in lines[0]
     assert shell.enqueues() == []
+
+
+@pytest.mark.parametrize("merged", [True, False], ids=["stack-mate-merged", "branch-gone-unmerged"])
+def test_a_check_whose_fetch_lost_a_branch_a_stack_mate_merged_from_checks_again_next_pass_without_failing_the_gate(shell, config, tmp_path, merged):
+    """Root #340289: #48177's check fetched attachment-startup-flush after #48134 merged from it mid-run, and the runner escalated GATE-FAILED to root."""
+    merge_mode(config, "every")
+    gone_green(shell, "#33001 GREEN aaaa111111 graphite READY")
+    shell.gates["33001"] = [(5, "stack-enqueue failed: git fetch failed with exit 128: fatal: couldn't find remote ref refs/heads/g/0\n", "")]
+    shell.queue["33001"] = "not queued"
+    if merged:
+        shell.merged_branches["g/0"] = "32990"
+    landing_pass(shell, config)
+    assert bool([line for line in escalations(shell) if "GATE-FAILED" in line]) != merged
+    assert shell.enqueues() == []
+    if merged:
+        [line] = settled(shell, "REFUSED")
+        assert line.endswith(": GATE-MOVED its graphite-stack-enqueue check fetched g/0, which #32990 deleted when it merged during the check, so the next pass checks the stack without it")
 
 
 def test_a_green_check_in_a_dialect_the_adapter_does_not_read_escalates_instead_of_enqueueing_nothing_silently(shell, config, tmp_path):
