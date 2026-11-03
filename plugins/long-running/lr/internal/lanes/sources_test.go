@@ -248,7 +248,7 @@ func TestOrcaLivenessIsOneWorkerListReadAtOneLaneAndAtAThousand(t *testing.T) {
 	reads := func(n int) int {
 		env := Env{Config: config.Config{OrcaRun: "run_1"}, Local: t.TempDir(), Now: func() time.Time { return t0 }}
 		dispatches := map[string]string{}
-		var workers []string
+		workers := make([]string, 0, n)
 		names := make([]string, 0, n)
 		for i := range n {
 			lane := fmt.Sprintf("lane-%d", i)
