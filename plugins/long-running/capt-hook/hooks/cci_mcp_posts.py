@@ -16,8 +16,8 @@ DROPPED = [*LISTED, {"type": "attachment", "timestamp": "2026-11-03T09:05:00Z", 
 
 class PostTheToolCarries:
     def check(self, evt: BaseHookEvent) -> bool:
-        posts = [values for call in evt.command.calls("cci") if (values := CCI_POST.bind(call).values).get("words", ())[:1] == ("post",)]
-        return bool(posts) and all({name for name, value in values.items() if value} <= CARRIED for values in posts)
+        posts = [args for call in evt.command.calls("cci") if (args := CCI_POST.bind(call)).values.get("words", ())[:1] == ("post",)]
+        return bool(posts) and all(not args.unread and {name for name, value in args.values.items() if value} <= CARRIED for args in posts)
 
 
 class ListsThePostTool:
@@ -37,10 +37,12 @@ hook(
     tests=shared_tests({
         Input(command=POST, transcript=LISTED, state=ACTIVE): Block(pattern=r"^This session lists the cci post tool, so post through `mcp__plugin_cc-inbox_cci__post`"),
         Input(command=f"cci tail --drive d --reader root --since 9 && {POST}", transcript=LISTED, state=ACTIVE): Block(),
+        Input(command="cci post --drive d --lane root --kind report --to owner-relay --path - <<'EOF'\nmerged #9\nEOF", transcript=LISTED, state=ACTIVE): Block(),
         Input(command=POST, state=ACTIVE): Allow(),
         Input(command=POST, transcript=DROPPED, state=ACTIVE): Allow(),
         Input(command="cci tail --drive d --reader root --since 9", transcript=LISTED, state=ACTIVE): Allow(),
         Input(command="cci post --drive d --lane root --kind decide --owned-by desk-runner --to stall-watch --text 'desk-runner owns stall-watch'", transcript=LISTED, state=ACTIVE): Allow(),
+        Input(command="cci post --drive d --lane root --kind report --quiet --text 'merged #9'", transcript=LISTED, state=ACTIVE): Allow(),
         Input(command=POST, transcript=LISTED, state=ACTIVE, agent_id="a1b2c3"): Allow(),
         Input(command=POST, transcript=LISTED): Allow(),
     }),
