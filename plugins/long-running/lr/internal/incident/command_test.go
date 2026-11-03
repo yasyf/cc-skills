@@ -272,8 +272,7 @@ func (f *fakeBus) Post(_ context.Context, d client.Draft) (client.Record, error)
 		return client.Record{}, err
 	}
 	f.records = append(f.records, stored)
-	key, _, _ := strings.Cut(d.Text, " ")
-	if verdict, ok := f.verdicts[key]; ok {
+	if verdict, ok := f.verdicts[fmt.Sprintf("R%d", f.nextSeq)]; ok {
 		_, after, _ := strings.Cut(d.Text, "launch ")
 		lane, _, _ := strings.Cut(after, " ")
 		f.nextSeq++
@@ -413,15 +412,15 @@ func briefFile(t *testing.T, dir, name, text string) string {
 	return path
 }
 
-func TestAnIncidentPairPostsAddressedLaunchLinesUnderTheNextKeys(t *testing.T) {
+func TestAnIncidentPairPostsAddressedLaunchLinesKeyedByTheirRecordsSeq(t *testing.T) {
 	for _, name := range []string{"inc-app-origin", "inc-app-origin-fix"} {
 		t.Run(name, func(t *testing.T) {
 			desk, bus, dir, out := deskFixture(t)
 			desk.Name = name
 			desk.FixBrief = briefFile(t, dir, "fix-brief.md", "fix")
 			desk.EvidenceBrief = briefFile(t, dir, "evidence-brief.md", "evidence")
-			bus.verdicts["R2026"] = "LAUNCHED R2026 {lane}: dispatch ctx_fix terminal term_fix"
-			bus.verdicts["R2027"] = "LAUNCHED R2027 {lane}: dispatch ctx_ev terminal term_ev"
+			bus.verdicts["R102"] = "LAUNCHED R102 {lane}: dispatch ctx_fix terminal term_fix"
+			bus.verdicts["R104"] = "LAUNCHED R104 {lane}: dispatch ctx_ev terminal term_ev"
 			if err := desk.Run(context.Background()); err != nil {
 				t.Fatal(err)
 			}
@@ -429,20 +428,20 @@ func TestAnIncidentPairPostsAddressedLaunchLinesUnderTheNextKeys(t *testing.T) {
 				t.Fatalf("drafts %+v", bus.drafts)
 			}
 			for i, want := range []string{
-				") orca-desk: launch inc-app-origin-fix NOW incident xhigh role=fix brief=" + desk.FixBrief,
-				") orca-desk: launch inc-app-origin-evidence NOW incident xhigh role=evidence brief=" + desk.EvidenceBrief,
+				"orca-desk: launch inc-app-origin-fix NOW incident xhigh role=fix brief=" + desk.FixBrief,
+				"orca-desk: launch inc-app-origin-evidence NOW incident xhigh role=evidence brief=" + desk.EvidenceBrief,
 			} {
 				draft := bus.drafts[i]
-				if !reflect.DeepEqual(draft.To, []string{deskLane}) || draft.Kind != "go" || draft.Lane != "root" || draft.Topic != "inc-app-origin" {
+				if !reflect.DeepEqual(draft.To, []string{deskLane}) || draft.Kind != "go" || draft.Lane != "root" || draft.Topic != "inc-app-origin" || !draft.Stamp {
 					t.Fatalf("draft %+v", draft)
 				}
-				if !strings.HasPrefix(draft.Text, fmt.Sprintf("R%d (", 2026+i)) || !strings.HasSuffix(draft.Text, want) {
+				if draft.Text != want {
 					t.Fatalf("line %q", draft.Text)
 				}
 			}
 			for _, want := range []string{
-				"inc-app-origin-fix R2026 LAUNCHED R2026 inc-app-origin-fix: dispatch ctx_fix terminal term_fix",
-				"inc-app-origin-evidence R2027 LAUNCHED R2027 inc-app-origin-evidence: dispatch ctx_ev terminal term_ev",
+				"inc-app-origin-fix R102 LAUNCHED R102 inc-app-origin-fix: dispatch ctx_fix terminal term_fix",
+				"inc-app-origin-evidence R104 LAUNCHED R104 inc-app-origin-evidence: dispatch ctx_ev terminal term_ev",
 			} {
 				if !strings.Contains(out.String(), want) {
 					t.Fatalf("output lacks %q:\n%s", want, out)
@@ -455,12 +454,12 @@ func TestAnIncidentPairPostsAddressedLaunchLinesUnderTheNextKeys(t *testing.T) {
 func TestALaunchTheRunnerRefusesFailsWithItsLine(t *testing.T) {
 	desk, bus, dir, out := deskFixture(t)
 	desk.Name, desk.FixBrief = "inc-x", briefFile(t, dir, "fix.md", "fix")
-	bus.verdicts["R2026"] = "LAUNCH-FAILED desk-lane-{lane}/R2026 {lane}: orca-launch.sh exited 1"
+	bus.verdicts["R102"] = "LAUNCH-FAILED desk-lane-{lane}/R102 {lane}: orca-launch.sh exited 1"
 	err := desk.Run(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "did not launch") {
 		t.Fatalf("got %v", err)
 	}
-	if want := "inc-x-fix R2026 LAUNCH-FAILED desk-lane-inc-x-fix/R2026 inc-x-fix: orca-launch.sh exited 1"; !strings.Contains(out.String(), want) {
+	if want := "inc-x-fix R102 LAUNCH-FAILED desk-lane-inc-x-fix/R102 inc-x-fix: orca-launch.sh exited 1"; !strings.Contains(out.String(), want) {
 		t.Fatalf("output:\n%s", out)
 	}
 }
@@ -471,7 +470,7 @@ func TestAnUnsettledLaunchFailsAtTheTimeout(t *testing.T) {
 	if err := desk.Run(context.Background()); !errors.Is(err, ErrUnsettled) {
 		t.Fatalf("got %v", err)
 	}
-	if !strings.Contains(out.String(), "slow-fix R2026 unsettled after 0s") {
+	if !strings.Contains(out.String(), "slow-fix R102 unsettled after 0s") {
 		t.Fatalf("output:\n%s", out)
 	}
 }
@@ -493,7 +492,7 @@ func TestAnAlertFillsTheIncidentTemplateIntoTheLanesOwnBrief(t *testing.T) {
 	desk, bus, dir, _ := deskFixture(t)
 	alert := "monitor 339599887 Run queue backlog not draining, 4:46 PM PT. Owner words, verbatim: fix asap"
 	desk.Name, desk.FixBrief, desk.Alert = "run-queue", briefFile(t, dir, "incident-template-fix.md", alertTemplate), alert
-	bus.verdicts["R2026"] = "LAUNCHED R2026 {lane}: dispatch ctx_fix terminal term_fix"
+	bus.verdicts["R102"] = "LAUNCHED R102 {lane}: dispatch ctx_fix terminal term_fix"
 	if err := desk.Run(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -511,7 +510,7 @@ func TestAnAlertHoldingItsOwnAngleBracketsStillFillsAndPosts(t *testing.T) {
 	desk, bus, dir, _ := deskFixture(t)
 	alert := "monitor 339599887 fires on <RUN> for team <X>, 8:40 PM PT"
 	desk.Name, desk.FixBrief, desk.Alert = "run-queue", briefFile(t, dir, "t.md", alertTemplate), alert
-	bus.verdicts["R2026"] = "LAUNCHED R2026 {lane}: dispatch ctx_fix terminal term_fix"
+	bus.verdicts["R102"] = "LAUNCHED R102 {lane}: dispatch ctx_fix terminal term_fix"
 	if err := desk.Run(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -551,7 +550,7 @@ func TestABriefStillHoldingARootPlaceholderPostsNothing(t *testing.T) {
 func TestALanesOwnPlaceholdersPassOnceRootFilledItsOwn(t *testing.T) {
 	desk, bus, dir, _ := deskFixture(t)
 	desk.Name, desk.FixBrief = "run-queue", briefFile(t, dir, "run-queue-fix/brief.md", "# run-queue-fix\n\nAlert: monitor 1, 4:46 PM\n\nPost `CANDIDATE run-queue-fix: <files> <sha>`.\n")
-	bus.verdicts["R2026"] = "LAUNCHED R2026 {lane}: dispatch ctx_fix terminal term_fix"
+	bus.verdicts["R102"] = "LAUNCHED R102 {lane}: dispatch ctx_fix terminal term_fix"
 	if err := desk.Run(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -573,7 +572,7 @@ func TestASessionFindsItsDriveInTheRegistry(t *testing.T) {
 	desk, bus, dir, _ := deskFixture(t)
 	t.Setenv(sessionEnv, "s1")
 	desk.Drive, desk.Name, desk.FixBrief = "", "inc-x", briefFile(t, dir, "fix.md", "fix")
-	bus.verdicts["R2026"] = "LAUNCHED R2026 {lane}: dispatch ctx_fix terminal term_fix"
+	bus.verdicts["R102"] = "LAUNCHED R102 {lane}: dispatch ctx_fix terminal term_fix"
 	if err := desk.Run(context.Background()); err != nil {
 		t.Fatal(err)
 	}

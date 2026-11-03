@@ -12,9 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
-	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
@@ -30,7 +28,6 @@ const (
 	sessionEnv      = "CLAUDE_CODE_SESSION_ID"
 	aliveWindow     = 5 * time.Minute
 	aliveLookback   = 24 * time.Hour
-	keyLookback     = 30 * 24 * time.Hour
 	verdictPoll     = 2 * time.Second
 	verdictLaunched = "LAUNCHED"
 	DefaultTimeout  = 600 * time.Second
@@ -39,8 +36,7 @@ const (
 var (
 	ErrUnsettled = errors.New("a launch has no runner verdict")
 
-	keyLine         = regexp.MustCompile(`^(?:-\s+)?R(\d+)\b`)
-	verdictLine     = regexp.MustCompile(`^(LAUNCHED|LAUNCH-FAILED|LAUNCH-EXPIRED|LAUNCH-HELD|UNVERIFIABLE|SPRITE-UNVERIFIABLE) (?:desk-lane-[\w.-]+/)?(R\d+) ([\w.-]+): `)
+	verdictLine     = regexp.MustCompile(`^(LAUNCHED|LAUNCH-FAILED|LAUNCH-EXPIRED|LAUNCH-HELD|UNVERIFIABLE|SPRITE-UNVERIFIABLE) (?:desk-lane-[\w.-]+/)?(R\d+(?:@\w+)?) ([\w.-]+): `)
 	rootLines       = regexp.MustCompile(`(?m)^Root:.*\n`)
 	alertLine       = regexp.MustCompile(`(?m)^Alert:.*$`)
 	rootPlaceholder = regexp.MustCompile(`<(?:lane|state|\.\.\.)>`)
@@ -158,22 +154,6 @@ func written(entry driveEntry, lane plannedLane, alert string) (string, error) {
 	return path, os.WriteFile(path, []byte(text), 0o600)
 }
 
-func (d DeskLaunch) keyed(fn func() error) error {
-	path := filepath.Join(d.Claude, "scratch", "desk-launch.lock")
-	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-		return err
-	}
-	lock, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
-	if err != nil {
-		return err
-	}
-	defer lock.Close()
-	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
-		return err
-	}
-	return fn()
-}
-
 func (d DeskLaunch) fallback(planned []plannedLane) string {
 	text := fmt.Sprintf("spawn an Agent named `%s`", planned[0].lane)
 	if len(planned) > 1 {
@@ -202,41 +182,17 @@ func (d DeskLaunch) requireRunner(ctx context.Context, drive string, planned []p
 	return fmt.Errorf("refused: no orca desk runner has posted an orca alive record on cci drive %s in the last five minutes (%s), so nothing reads %s lines; %s", drive, last, deskLane, d.fallback(planned))
 }
 
-func (d DeskLaunch) nextKey(ctx context.Context, drive string) (int, error) {
-	records, err := d.Bus.Tail(ctx, client.Query{Drive: drive, Since: d.Now().Add(-keyLookback), Kinds: []string{kindGo}})
-	if err != nil {
-		return 0, err
-	}
-	highest := 0
-	for _, record := range records {
-		if !slices.Contains(record.To, deskLane) || !strings.Contains(record.Text, deskLane+": ") {
-			continue
-		}
-		match := keyLine.FindStringSubmatch(strings.TrimSpace(record.Text))
-		if match == nil {
-			continue
-		}
-		key, err := strconv.Atoi(match[1])
-		if err != nil {
-			return 0, err
-		}
-		highest = max(highest, key)
-	}
-	return highest + 1, nil
-}
-
 func launchDirective(lane plannedLane, brief string) string {
 	return fmt.Sprintf("launch %s NOW %s %s role=%s brief=%s", lane.lane, routeIncident, effortXHigh, lane.role, brief)
 }
 
-func (d DeskLaunch) post(ctx context.Context, drive, topic string, key int, directive string) (int64, error) {
-	line := fmt.Sprintf("R%d (%s) %s: %s", key, d.Now().In(pacificZone).Format("3:04 PM"), deskLane, directive)
-	stored, err := d.Bus.Post(ctx, client.Draft{Drive: drive, Lane: d.Author, Kind: kindGo, To: []string{deskLane}, Topic: topic, Text: line})
+func (d DeskLaunch) post(ctx context.Context, drive, topic, directive string) (client.Record, error) {
+	stored, err := d.Bus.Post(ctx, client.Draft{Drive: drive, Lane: d.Author, Kind: kindGo, To: []string{deskLane}, Topic: topic, Text: deskLane + ": " + directive, Stamp: true})
 	if err != nil {
-		return 0, err
+		return client.Record{}, err
 	}
-	fmt.Fprintf(d.Out, "posted R%d as cci #%d: %s\n", key, stored.Seq, line)
-	return stored.Seq, nil
+	fmt.Fprintf(d.Out, "posted cci %s: %s\n", stored.Name(), stored.Text)
+	return stored, nil
 }
 
 type settledLaunch struct {
@@ -303,34 +259,24 @@ func (d DeskLaunch) Run(ctx context.Context) error {
 			return fmt.Errorf("brief %s for %s still holds a placeholder root fills, so nothing is posted: %s", lane.brief, lane.lane, line)
 		}
 	}
+	if err := d.requireRunner(ctx, drive, planned); err != nil {
+		return err
+	}
 	keys := make(map[string]string, len(planned))
 	first := int64(0)
-	err = d.keyed(func() error {
-		if err := d.requireRunner(ctx, drive, planned); err != nil {
-			return err
-		}
-		next, err := d.nextKey(ctx, drive)
+	for _, lane := range planned {
+		brief, err := filepath.Abs(lane.brief)
 		if err != nil {
 			return err
 		}
-		for offset, lane := range planned {
-			brief, err := filepath.Abs(lane.brief)
-			if err != nil {
-				return err
-			}
-			seq, err := d.post(ctx, drive, strings.TrimSuffix(d.Name, fixAlias), next+offset, launchDirective(lane, brief))
-			if err != nil {
-				return err
-			}
-			keys[fmt.Sprintf("R%d", next+offset)] = lane.lane
-			if first == 0 {
-				first = seq
-			}
+		stored, err := d.post(ctx, drive, strings.TrimSuffix(d.Name, fixAlias), launchDirective(lane, brief))
+		if err != nil {
+			return err
 		}
-		return nil
-	})
-	if err != nil {
-		return err
+		keys["R"+strings.TrimPrefix(stored.Name(), "#")] = lane.lane
+		if first == 0 {
+			first = stored.Seq
+		}
 	}
 	settled, err := d.wait(ctx, drive, first-1, keys)
 	if err != nil {

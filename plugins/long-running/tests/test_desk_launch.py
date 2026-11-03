@@ -5,7 +5,6 @@ from __future__ import annotations
 import contextlib
 import importlib.util
 import json
-import re
 import sys
 import threading
 from datetime import datetime, timedelta, timezone
@@ -38,19 +37,22 @@ class Drive:
         ]
         self.verdicts: dict[str, str] = {}
         self.calls: list[tuple[str, ...]] = []
+        self.node = ""
+        self.launched = False
+        self.allocating = threading.Lock()
 
     def __call__(self, drive: str, *argv: str) -> str:
         self.calls.append((drive, *argv))
-        if argv[0] == "grep":
-            match = (lambda record: flag(argv, "--to") in record.get("to", [])) if "--to" in argv else (lambda record: record["lane"] == flag(argv, "--lane"))
-            return "".join(f"{json.dumps(record)}\n" for record in reversed(self.records) if match(record) and re.search(argv[1], record["text"]))
         if argv[0] == "post":
-            record = {"seq": self.records[-1]["seq"] + 1, "lane": flag(argv, "--lane"), "kind": flag(argv, "--kind"), "to": [flag(argv, "--to")], "text": flag(argv, "--text")}
-            self.records.append(record)
-            key = record["text"].split()[0]
-            if key in self.verdicts:
-                lane = record["text"].split("launch ")[1].split()[0]
-                self.records.append({"seq": record["seq"] + 1, "lane": "desk-runner", "kind": "report", "text": self.verdicts[key].format(lane=lane)})
+            with self.allocating:
+                seq = self.records[-1]["seq"] + 1
+                record = {"seq": seq, "num": f"#{seq}{self.node}", "lane": flag(argv, "--lane"), "kind": flag(argv, "--kind"), "to": [flag(argv, "--to")], "text": flag(argv, "--text")}
+                self.records.append(record)
+                key = f"R{record['num'][1:]}"
+                lane = record["text"].split("launch ")[1].split()[0] if " launch " in f" {record['text']}" else ""
+                verdict = self.verdicts.get(key) or (f"LAUNCHED {key} {{lane}}: dispatch ctx_{lane} terminal term_{lane}" if self.launched and lane else "")
+                if verdict:
+                    self.records.append({"seq": seq + 1, "lane": "desk-runner", "kind": "report", "text": verdict.format(lane=lane)})
             return json.dumps(record)
         assert argv[0] == "tail"
         since = int(flag(argv, "--since-seq"))
@@ -99,51 +101,56 @@ def briefs(tmp_path: Path) -> tuple[Path, Path]:
     return fix, evidence
 
 
-def test_two_launches_started_together_post_different_keys(drive, tmp_path, monkeypatch):
-    monkeypatch.setattr(desk_launch, "KEY_LOCK", tmp_path / "desk-launch.lock")
+def test_two_posters_at_once_with_no_shared_lock_never_share_a_key(drive, tmp_path, monkeypatch, capsys):
+    """Nov 2 8:22-8:57 PM: meta-desk-1 and root each allocated R85115, R85116, R85117, R85119 and R85120 from the last 20 records, and the runner dropped one launch of each pair."""
     fix, _ = briefs(tmp_path)
+    drive.launched = True
     together = threading.Barrier(2, timeout=1)
+    exits: dict[str, int] = {}
 
     def racing(name: str, *argv: str) -> str:
-        if argv[0] == "grep" and "--to" in argv:
+        if argv[0] == "post":
             with contextlib.suppress(threading.BrokenBarrierError):
                 together.wait()
         return drive(name, *argv)
 
     monkeypatch.setattr(desk_launch, "cci", racing)
-    launches = [threading.Thread(target=desk_launch.main, args=(["lane", lane, "sol", "xhigh", str(fix), "--timeout-seconds", "0"],)) for lane in ("lane-a", "lane-b")]
+    launches = [threading.Thread(target=lambda lane=lane: exits.update({lane: desk_launch.main(["lane", lane, "sol", "xhigh", str(fix)])})) for lane in ("lane-a", "lane-b")]
     for launch in launches:
         launch.start()
     for launch in launches:
         launch.join()
 
-    assert sorted(text.split()[0] for text in posted(drive)) == ["R2026", "R2027"]
+    assert exits == {"lane-a": 0, "lane-b": 0}
+    keys = {line.split()[1]: line.split()[0] for line in capsys.readouterr().out.splitlines() if " LAUNCHED " in line}
+    assert len(keys) == 2 and sorted(keys.values()) == ["lane-a", "lane-b"]
 
 
 @pytest.mark.parametrize("name", ["inc-app-origin", "inc-app-origin-fix"])
-def test_an_incident_pair_posts_addressed_launch_lines_under_the_next_keys_and_prints_each_dispatch(drive, tmp_path, capsys, name):
+def test_an_incident_pair_posts_addressed_launch_lines_keyed_by_their_records_and_prints_each_dispatch(drive, tmp_path, capsys, name):
     """Root #279033: `incident takeover-500-fix` launched takeover-500-fix-fix, so the fix lane's name matched no order or brief."""
     fix, evidence = briefs(tmp_path)
     drive.verdicts = {
-        "R2026": "LAUNCHED R2026 {lane}: dispatch ctx_fix terminal term_fix",
-        "R2027": "LAUNCHED R2027 {lane}: dispatch ctx_ev terminal term_ev",
+        "R102": "LAUNCHED R102 {lane}: dispatch ctx_fix terminal term_fix",
+        "R104": "LAUNCHED R104 {lane}: dispatch ctx_ev terminal term_ev",
     }
     assert desk_launch.main(["incident", name, str(fix), str(evidence)]) == 0
     posts = [call for call in drive.calls if call[1] == "post"]
-    assert [flag(call, "--to") for call in posts] == ["orca-desk", "orca-desk"]
-    lines = [flag(call, "--text") for call in posts]
-    assert lines[0].startswith("R2026 (") and lines[0].endswith(f") orca-desk: launch inc-app-origin-fix NOW incident xhigh role=fix brief={fix}")
-    assert lines[1].startswith("R2027 (") and lines[1].endswith(f") orca-desk: launch inc-app-origin-evidence NOW incident xhigh role=evidence brief={evidence}")
+    assert [flag(call, "--to") for call in posts] == ["orca-desk", "orca-desk"] and all("--stamp" in call for call in posts)
+    assert [flag(call, "--text") for call in posts] == [
+        f"orca-desk: launch inc-app-origin-fix NOW incident xhigh role=fix brief={fix}",
+        f"orca-desk: launch inc-app-origin-evidence NOW incident xhigh role=evidence brief={evidence}",
+    ]
     out = capsys.readouterr().out.splitlines()
-    assert "inc-app-origin-fix R2026 LAUNCHED R2026 inc-app-origin-fix: dispatch ctx_fix terminal term_fix" in out
-    assert "inc-app-origin-evidence R2027 LAUNCHED R2027 inc-app-origin-evidence: dispatch ctx_ev terminal term_ev" in out
+    assert "inc-app-origin-fix R102 LAUNCHED R102 inc-app-origin-fix: dispatch ctx_fix terminal term_fix" in out
+    assert "inc-app-origin-evidence R104 LAUNCHED R104 inc-app-origin-evidence: dispatch ctx_ev terminal term_ev" in out
 
 
 def test_a_launch_the_runner_refuses_exits_one_with_its_line(drive, tmp_path, capsys):
     fix, _ = briefs(tmp_path)
-    drive.verdicts = {"R2026": "LAUNCH-FAILED desk-lane-{lane}/R2026 {lane}: orca-launch.sh exited 1"}
+    drive.verdicts = {"R102": "LAUNCH-FAILED desk-lane-{lane}/R102 {lane}: orca-launch.sh exited 1"}
     assert desk_launch.main(["incident", "inc-x", str(fix)]) == 1
-    assert "inc-x-fix R2026 LAUNCH-FAILED desk-lane-inc-x-fix/R2026 inc-x-fix: orca-launch.sh exited 1" in capsys.readouterr().out
+    assert "inc-x-fix R102 LAUNCH-FAILED desk-lane-inc-x-fix/R102 inc-x-fix: orca-launch.sh exited 1" in capsys.readouterr().out
 
 
 def test_an_unsettled_launch_exits_two_at_the_timeout(drive, tmp_path, capsys):
@@ -151,7 +158,7 @@ def test_an_unsettled_launch_exits_two_at_the_timeout(drive, tmp_path, capsys):
     assert desk_launch.main(["lane", "slow-restore", "sol", "xhigh", str(evidence), "--timeout-seconds", "0"]) == 2
     [post] = [call for call in drive.calls if call[1] == "post"]
     assert flag(post, "--text").endswith(f"orca-desk: launch slow-restore sol xhigh brief={evidence}")
-    assert "slow-restore R2026 unsettled after 0s" in capsys.readouterr().out
+    assert "slow-restore R102 unsettled after 0s" in capsys.readouterr().out
 
 
 def test_a_missing_brief_posts_nothing(drive, tmp_path):
@@ -174,7 +181,7 @@ def test_an_alert_fills_the_incident_template_into_the_lanes_own_brief(drive, st
     """Root #299799, Nov 1 4:48 PM: root sed the incident template by hand and run-queue-fix launched on a brief still reading <lane> for 20 seconds."""
     template = tmp_path / "incident-template-fix.md"
     template.write_text(TEMPLATE)
-    drive.verdicts = {"R2026": "LAUNCHED R2026 {lane}: dispatch ctx_fix terminal term_fix"}
+    drive.verdicts = {"R102": "LAUNCHED R102 {lane}: dispatch ctx_fix terminal term_fix"}
     alert = "monitor 339599887 Run queue backlog not draining, 4:46 PM PT. Owner words, verbatim: fix asap"
     assert desk_launch.main(["incident", "run-queue", str(template), "--alert", alert]) == 0
     brief = state / "run-queue-fix" / "brief.md"
@@ -187,7 +194,7 @@ def test_an_alert_holding_its_own_angle_brackets_still_fills_and_posts(drive, st
     """Root #305172: an --alert quoting `<RUN>` and `<X>` read as an unfilled template field, so the incident launched nothing."""
     template = tmp_path / "incident-template-fix.md"
     template.write_text(TEMPLATE)
-    drive.verdicts = {"R2026": "LAUNCHED R2026 {lane}: dispatch ctx_fix terminal term_fix"}
+    drive.verdicts = {"R102": "LAUNCHED R102 {lane}: dispatch ctx_fix terminal term_fix"}
     alert = "monitor 339599887 fires on <RUN> for team <X>, 8:40 PM PT"
     assert desk_launch.main(["incident", "run-queue", str(template), "--alert", alert]) == 0
     assert f"Alert: {alert}\n" in (state / "run-queue-fix" / "brief.md").read_text()
@@ -212,7 +219,7 @@ def test_a_lanes_own_placeholders_pass_once_root_filled_its_own(drive, tmp_path)
     brief = tmp_path / "run-queue-fix" / "brief.md"
     brief.parent.mkdir()
     brief.write_text("# run-queue-fix\n\nAlert: monitor 1, 4:46 PM\n\nPost `CANDIDATE run-queue-fix: <files> <sha>`.\n")
-    drive.verdicts = {"R2026": "LAUNCHED R2026 {lane}: dispatch ctx_fix terminal term_fix"}
+    drive.verdicts = {"R102": "LAUNCHED R102 {lane}: dispatch ctx_fix terminal term_fix"}
     assert desk_launch.main(["incident", "run-queue", str(brief)]) == 0
 
 
@@ -240,25 +247,23 @@ def test_every_fault_of_a_launch_is_named_at_once_before_any_post(drive, tmp_pat
 def test_an_incident_brief_owes_neither_line(drive, tmp_path):
     brief = tmp_path / "plain-brief.md"
     brief.write_text("Fix the outage.\n")
-    drive.verdicts = {"R2026": "LAUNCHED R2026 {lane}: dispatch ctx_fix terminal term_fix"}
+    drive.verdicts = {"R102": "LAUNCHED R102 {lane}: dispatch ctx_fix terminal term_fix"}
     assert desk_launch.main(["incident", "inc-x", str(brief)]) == 0
 
 
 def test_a_brief_carrying_both_lines_posts(drive, tmp_path):
     fix, _ = briefs(tmp_path)
-    drive.verdicts = {"R2026": "LAUNCHED R2026 {lane}: dispatch ctx_l terminal term_l"}
+    drive.verdicts = {"R102": "LAUNCHED R102 {lane}: dispatch ctx_l terminal term_l"}
     assert desk_launch.main(["lane", "new-lane", "opus", "xhigh", str(fix)]) == 0
     assert len(posted(drive)) == 1
 
 
-def test_the_next_key_reads_only_cci_and_never_the_desk_inbox_file(drive, state, tmp_path):
-    inbox = state / "inbox" / "orca-desk.md"
-    (archive := inbox.with_name("orca-desk.md.archive")).mkdir()
-    (archive / "2026-10-16.md").write_text("- R3001 (9:00 PM) orca-desk: relay to a: go\n")
-    inbox.write_text("R2999 (12:38 AM) orca-desk: launch by-hand NOW opus xhigh brief=/b.md\norca-desk: alert m1 https://x :: fired\n")
+def test_a_launch_posted_on_another_node_waits_on_the_key_every_node_names_its_record_by(drive, tmp_path, capsys):
     _, evidence = briefs(tmp_path)
-    desk_launch.main(["lane", "next-lane", "opus", "xhigh", str(evidence), "--timeout-seconds", "0"])
-    assert posted(drive)[0].startswith("R2026 (")
+    drive.node = "@8d2775d4"
+    drive.verdicts = {"R102@8d2775d4": "LAUNCHED desk-lane-{lane}/R102@8d2775d4 {lane}: dispatch ctx_r terminal term_r"}
+    assert desk_launch.main(["lane", "next-lane", "opus", "xhigh", str(evidence)]) == 0
+    assert "next-lane R102@8d2775d4 LAUNCHED desk-lane-next-lane/R102@8d2775d4 next-lane: dispatch ctx_r terminal term_r" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize(
@@ -270,12 +275,11 @@ def test_the_next_key_reads_only_cci_and_never_the_desk_inbox_file(drive, state,
         (["withdraw", "R2025"], "orca-desk: withdraw R2025"),
     ],
 )
-def test_each_keyed_line_posts_under_the_next_key_and_prints_it_without_waiting(drive, capsys, argv, line):
+def test_each_line_posts_with_no_key_of_its_own_under_ccis_stamp_and_prints_its_record_without_waiting(drive, capsys, argv, line):
     assert desk_launch.main(argv) == 0
-    [text] = posted(drive)
-    assert re.fullmatch(rf"R2026 \(\d{{1,2}}:\d\d [AP]M\) {re.escape(line)}", text)
-    assert [call[1] for call in drive.calls] == ["tail", "grep", "post"]
-    assert capsys.readouterr().out == f"posted R2026 as cci #102: {text}\n"
+    assert posted(drive) == [line]
+    assert [call[1] for call in drive.calls] == ["tail", "post"] and "--stamp" in drive.calls[-1]
+    assert capsys.readouterr().out == f"posted cci #102: {line}\n"
 
 
 def test_a_drive_the_registry_lacks_posts_nothing(drive, monkeypatch):
@@ -313,6 +317,6 @@ def test_an_orca_runner_on_another_machine_takes_launches_with_no_heartbeat_file
     """Oct 29: the orca and landing runners must move off this Mac, so a heartbeat file only this Mac reads cannot gate a launch (cci #199401)."""
     _, evidence = briefs(tmp_path)
     assert not list((state / "inbox").glob("*.heartbeat.json"))
-    drive.verdicts = {"R2026": "LAUNCHED R2026 {lane}: dispatch ctx_r terminal term_r"}
+    drive.verdicts = {"R102": "LAUNCHED R102 {lane}: dispatch ctx_r terminal term_r"}
     assert desk_launch.main(["lane", "remote-lane", "opus", "xhigh", str(evidence)]) == 0
-    assert "remote-lane R2026 LAUNCHED R2026 remote-lane: dispatch ctx_r terminal term_r" in capsys.readouterr().out
+    assert "remote-lane R102 LAUNCHED R102 remote-lane: dispatch ctx_r terminal term_r" in capsys.readouterr().out

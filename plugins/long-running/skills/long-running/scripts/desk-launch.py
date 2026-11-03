@@ -2,7 +2,7 @@
 # /// script
 # requires-python = ">=3.13"
 # ///
-"""Post every keyed orca desk line in one command: allocate the next `R<n>`, stamp the clock, post the line to `orca-desk` on cci, and for a launch wait for the runner's verdict.
+"""Post every orca desk line in one command: post the line to `orca-desk` on cci with cci's clock stamp, and for a launch wait for the runner's verdict under its key.
 
     desk-launch.py incident <name> <fix-brief> [<evidence-brief>] [--alert TEXT] [--drive D] [--lane L] [--timeout-seconds S]
     desk-launch.py lane <lane> <model> <effort> <brief> [--now] [--drive D] [--lane L] [--timeout-seconds S]
@@ -23,8 +23,10 @@ any post, a launch runs every check the runner applies, `launch_checks`, and exi
 fault together, so a missing `Register slice:` and `Scale:` line cost one fix and no runner round
 trip. `relay`, `hold`,
 `unhold`, and `withdraw` post the runner's line of that verb and print it without waiting,
-since the runner's verdict reaches the root on cci. The next key is one past the highest
-`R<n>` opening an `orca-desk:` record addressed to `orca-desk` on the drive. A drive whose orca runner posted no `orca alive` record
+since the runner's verdict reaches the root on cci. A launch's key is `R<n>`, `<n>` being the number every cci node names
+its record by, which the bus allocates once, so two posters on any session or machine never share one; no line carries
+an `R<n>` of its own.
+A drive whose orca runner posted no `orca alive` record
 in the last five minutes posts nothing: the command refuses in one line, naming the Agent to spawn
 for a launch. Each line is one
 `cci post --kind go --to orca-desk` record in the runner's grammar, so nothing is posted
@@ -39,14 +41,12 @@ of an unsettled key is `cci post --kind go --to orca-desk --text "orca-desk: wit
 from __future__ import annotations
 
 import argparse
-import fcntl
 import json
 import os
 import re
 import subprocess
 import sys
 import time
-from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -57,15 +57,13 @@ from long_running import drive as registry
 DESK = "orca-desk"
 RUNNER = "desk-runner"
 PACIFIC = ZoneInfo("America/Los_Angeles")
-KEY = re.compile(r"^(?:-\s+)?R(\d+)\b")
-VERDICT = re.compile(r"^(?P<label>LAUNCHED|LAUNCH-FAILED|LAUNCH-EXPIRED|UNVERIFIABLE|SPRITE-UNVERIFIABLE) (?:desk-lane-[\w.-]+/)?(?P<key>R\d+) (?P<lane>[\w.-]+): ")
+VERDICT = re.compile(r"^(?P<label>LAUNCHED|LAUNCH-FAILED|LAUNCH-EXPIRED|UNVERIFIABLE|SPRITE-UNVERIFIABLE) (?:desk-lane-[\w.-]+/)?(?P<key>R\d+(?:@\w+)?) (?P<lane>[\w.-]+): ")
 FIX_ALIAS = "-fix"
 ROOT_LINES = re.compile(r"^Root:.*\n", re.MULTILINE)
 ALERT_LINE = re.compile(r"^Alert:.*$", re.MULTILINE)
 ROOT_PLACEHOLDER = re.compile(r"<(?:lane|state|\.\.\.)>")
 POLL_SECONDS = 2
 BUDGET = "30000"
-KEY_LOCK = Path.home() / ".claude" / "scratch" / "desk-launch.lock"
 
 
 def cci(drive: str, *argv: str) -> str:
@@ -105,21 +103,6 @@ def agent_fallback(args: argparse.Namespace) -> str:
     if args.verb == "lane":
         return f"spawn an Agent named `{args.target}` instead"
     return "nothing was posted"
-
-
-@contextmanager
-def keyed():
-    """Hold the machine-wide key lock while a caller reads the next `R<n>` and posts it, so two launches started together never post the same key."""
-    KEY_LOCK.parent.mkdir(parents=True, exist_ok=True)
-    with KEY_LOCK.open("a") as handle:
-        fcntl.flock(handle, fcntl.LOCK_EX)
-        yield
-
-
-def next_key(drive: str, fallback: str) -> int:
-    require_runner(drive, fallback)
-    posted = [record["text"] for record in records(cci(drive, "grep", f"R[0-9]+ .*{DESK}: ", "--to", DESK, "--json", "--limit", "20", "--budget", BUDGET))]
-    return 1 + max((int(match[1]) for text in posted if (match := KEY.match(text.strip()))), default=0)
 
 
 def directive(args: argparse.Namespace) -> tuple[str, str]:
@@ -170,11 +153,10 @@ def preflight(planned: list[tuple[str, str, str, bool, str, Path]]) -> None:
         sys.exit(f"refused, nothing was posted: {'; '.join(faults)}")
 
 
-def post(drive: str, author: str, topic: str, key: int, text: str) -> int:
-    line = f"R{key} ({datetime.now(PACIFIC).strftime('%-I:%M %p')}) {DESK}: {text}"
-    stored = json.loads(cci(drive, "post", "--lane", author, "--kind", "go", "--to", DESK, "--topic", topic, "--text", line, "--json"))
-    print(f"posted R{key} as cci #{stored['seq']}: {line}", flush=True)
-    return stored["seq"]
+def post(drive: str, author: str, topic: str, text: str) -> dict:
+    stored = json.loads(cci(drive, "post", "--lane", author, "--kind", "go", "--to", DESK, "--topic", topic, "--stamp", "--text", f"{DESK}: {text}", "--json"))
+    print(f"posted cci {stored['num']}: {stored['text']}", flush=True)
+    return stored
 
 
 def wait(drive: str, since: int, lanes: dict[str, str], timeout: float) -> dict[str, tuple[str, str]]:
@@ -225,8 +207,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.verb in ("relay", "hold", "unhold", "withdraw"):
         topic, text = directive(args)
-        with keyed():
-            post(args.drive, args.lane, topic, next_key(args.drive, agent_fallback(args)), text)
+        require_runner(args.drive, agent_fallback(args))
+        post(args.drive, args.lane, topic, text)
         return 0
     planned = launches(args)
     for *_, brief in planned:
@@ -241,11 +223,10 @@ def main(argv: list[str] | None = None) -> int:
                 parser.error(f"brief {brief} for {lane} still holds a placeholder root fills, so nothing is posted: {line}")
     preflight(planned)
     topic = args.name if args.verb == "incident" else args.target
-    with keyed():
-        first = next_key(args.drive, agent_fallback(args))
-        keys = {f"R{first + offset}": lane for offset, (lane, *_) in enumerate(planned)}
-        since = min(post(args.drive, args.lane, topic, first + offset, launch_directive(lane, model, effort, now, role, brief.resolve())) for offset, (lane, model, effort, now, role, brief) in enumerate(planned)) - 1
-    settled = wait(args.drive, since, keys, args.timeout_seconds)
+    require_runner(args.drive, agent_fallback(args))
+    stored = [(post(args.drive, args.lane, topic, launch_directive(lane, model, effort, now, role, brief.resolve())), lane) for lane, model, effort, now, role, brief in planned]
+    keys = {f"R{record['num'].removeprefix('#')}": lane for record, lane in stored}
+    settled = wait(args.drive, stored[0][0]["seq"] - 1, keys, args.timeout_seconds)
     for key, lane in keys.items():
         if key not in settled:
             print(f"{lane} {key} unsettled after {args.timeout_seconds:.0f}s: no runner verdict; check the orca runner's newest alive record with `cci tail --drive {args.drive or '<drive>'} --lane {RUNNER} --kind state --topic orca -n 1`", flush=True)
