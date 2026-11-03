@@ -79,6 +79,7 @@ type deskWorld struct {
 	ccnFails   bool
 	release    string
 	refuseTime bool
+	gitReply   func(argv []string) (shell.Result, error)
 }
 
 func newDeskWorld(t *testing.T) *deskWorld {
@@ -285,6 +286,8 @@ func (w *deskWorld) Run(_ context.Context, c shell.Command) (shell.Result, error
 			return shell.Result{Code: 1, Stderr: "no log"}, &shell.ExitError{Argv: argv, Code: 1}
 		}
 		return shell.Result{Stdout: "[]"}, nil
+	case argv[0] == "git" && w.gitReply != nil:
+		return w.gitReply(argv)
 	case argv[0] == "git":
 		return shell.Result{Stdout: "dev\n"}, nil
 	case filepath.Base(argv[0]) == "prompt_watch.py":
@@ -1399,6 +1402,40 @@ func spriteConfig(w *deskWorld) string {
 	launcher := filepath.Join(w.home, "repo", "worker-launch.sh")
 	w.write(w.desk.Config.Source, fmt.Sprintf(`{"drive":"brook","orca":{"run":"run_1","sprite":{"launcher":%q,"env":{"WORKER_RELAY_SPONSOR":"sponsor-1"},"tools":[%s]}}}`, launcher, deskToolPin))
 	return launcher
+}
+
+func TestASpriteLaunchTakesAPinCheckoutThatMovesOnlyWithAPin(t *testing.T) {
+	for _, tt := range []struct {
+		name, branch, fault string
+		onDev               bool
+	}{
+		{name: "on dev", branch: "dev"},
+		{name: "on a pin branch", branch: "orca-stop-3/cc-remote-0.27.8"},
+		{name: "detached at a commit dev holds", onDev: true},
+		{name: "detached at a commit dev lacks", fault: "on no branch"},
+		{name: "on another branch", branch: "feature", onDev: true, fault: "on branch feature"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			w := newDeskWorld(t)
+			w.write(w.desk.Config.Source, `{"drive":"brook","orca":{"run":"run_1","sprite":{"env":{"WORKER_CC_REMOTE":"/pin/tools/cc-remote/bin/cc-remote"}}}}`)
+			w.gitReply = func(argv []string) (shell.Result, error) {
+				if argv[3] == "branch" {
+					return shell.Result{Stdout: tt.branch + "\n"}, nil
+				}
+				if tt.onDev {
+					return shell.Result{}, nil
+				}
+				return shell.Result{Code: 1}, &shell.ExitError{Argv: argv, Code: 1}
+			}
+			fault, err := w.desk.spriteFault(context.Background(), testLane)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if (tt.fault == "") != (fault == "") || !strings.Contains(fault, tt.fault) {
+				t.Fatalf("fault = %q, want %q", fault, tt.fault)
+			}
+		})
+	}
 }
 
 func TestAWarmSpriteWithNoInstallLogStillSettlesItsLaunch(t *testing.T) {
