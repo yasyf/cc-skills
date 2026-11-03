@@ -90,9 +90,10 @@ func TestEachHeadCarriesOneRecordOfWhatTheQueueSaid(t *testing.T) {
 	refused := machine.Facts{Repo: monorepo, Number: 48476, Head: "9b837a86bbcc", Lane: "ssql-4"}
 	unowned := machine.Facts{Repo: monorepo, Number: 48165, Head: "dde89028ddee"}
 	answers := []landing.Said{
-		{Facts: queued, Text: "exit 0: #48897 QUEUED 1c40b68010 native stack covers #48897"},
-		{Facts: refused, Text: "exit 1: enqueued nothing: no approved green bottom prefix"},
-		{Facts: unowned, Text: "timed out after 300s"},
+		{queued, "QUEUED", "REFUSED", "exit 0: #48897 QUEUED 1c40b68010 native stack covers #48897"},
+		{refused, "QUEUED", "REFUSED", "exit 1: enqueued nothing: no approved green bottom prefix"},
+		{unowned, "QUEUED", "REFUSED", "timed out after 300s"},
+		{refused, "DEQUEUED", "DEQUEUE-REFUSED", "an open hold names it; the queue said exit 0: #48476 DEQUEUED 9b837a86bb"},
 	}
 
 	for range 2 {
@@ -110,9 +111,10 @@ func TestEachHeadCarriesOneRecordOfWhatTheQueueSaid(t *testing.T) {
 		said = append(said, record.To[0]+": "+record.Text)
 	}
 	want := []string{
-		"ssql-3: QUEUED #48897 at 1c40b68010: #48897 QUEUED 1c40b68010 native stack covers #48897",
+		"ssql-3: QUEUED #48897 at 1c40b68010: exit 0: #48897 QUEUED 1c40b68010 native stack covers #48897",
 		"ssql-4: REFUSED #48476 at 9b837a86bb: exit 1: enqueued nothing: no approved green bottom prefix",
 		"root: REFUSED #48165 at dde89028dd: timed out after 300s",
+		"ssql-4: DEQUEUED #48476 at 9b837a86bb: an open hold names it; the queue said exit 0: #48476 DEQUEUED 9b837a86bb",
 	}
 	if !slices.Equal(said, want) {
 		t.Fatalf("got %q, want %q", said, want)

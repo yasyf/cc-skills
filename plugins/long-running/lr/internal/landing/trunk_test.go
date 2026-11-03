@@ -91,7 +91,7 @@ func TestDequeuePassesTheFlag(t *testing.T) {
 	fake := &shelltest.Fake{}
 	fake.Reply("", script)
 
-	if err := trunk(fake).Dequeue(context.Background(), 45744); err != nil {
+	if _, err := trunk(fake).Dequeue(context.Background(), 45744); err != nil {
 		t.Fatal(err)
 	}
 

@@ -76,5 +76,26 @@ func (l Live) Explain(pr int, snapshot map[int]machine.Facts) PRWait {
 		return PRWait{pr, f.Head, true, fmt.Sprintf("%s: waits on your tap on %s, up since %s", subject, wait.Block, wait.Since)}
 	}
 	held := slices.Insert(withoutTap(gates.Missing(f)), 0, l.boardFact(strconv.Itoa(pr), f.Head))
+	if below, stuck := stuckBelow(f, snapshot); stuck {
+		held = append(held, fmt.Sprintf("the PR below it, #%d, cannot land yet: %s", below.Number, strings.Join(gates.Missing(below), "; ")))
+	}
 	return PRWait{pr, f.Head, false, fmt.Sprintf("%s: not waiting on you: %s", subject, strings.Join(held, "; "))}
+}
+
+func stuckBelow(f machine.Facts, snapshot map[int]machine.Facts) (machine.Facts, bool) {
+	byBranch := make(map[string]machine.Facts, len(snapshot))
+	for _, open := range snapshot {
+		byBranch[open.Branch] = open
+	}
+	for range len(snapshot) {
+		below, open := byBranch[f.Base]
+		if !open {
+			return machine.Facts{}, false
+		}
+		if !below.ClearsAbove() {
+			return below, true
+		}
+		f = below
+	}
+	return machine.Facts{}, false
 }
