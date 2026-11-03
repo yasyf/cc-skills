@@ -54,6 +54,11 @@ UNREAD_STATUS = (
 CCI_TOOLS = "mcp__plugin_cc-inbox_cci__"
 SEQ = re.compile(r"#(\d+)\b")
 CLOCK = re.compile(r"\b(?:1[0-2]|0?[1-9]):[0-5]\d\s?[AP]M\b", re.IGNORECASE)
+FILE_PATH = (
+    "The owner never opens a file, so a reply to him names no path under the drive's state dir, a scratch dir or progress-desk."
+    " Link the dashboard section that shows it on the tailnet instead, and say what it shows in plain words."
+)
+SCRATCH_ROOTS = (".claude/scratch/", "progress-desk/")
 CALM = {"reminder": BinaryAnswer(p_yes=0.02, confidence=0.95), "status_question": BinaryAnswer(p_yes=0.02, confidence=0.95)}
 REMINDED = CALM | {"reminder": BinaryAnswer(p_yes=0.97, confidence=0.94)}
 ASKED = CALM | {"status_question": BinaryAnswer(p_yes=0.96, confidence=0.93)}
@@ -111,6 +116,10 @@ def picked(*calls: dict) -> Input:
     return Input(transcript=[T.user("how do we fix the relay"), *calls, T.assistant(PICK)], state=[CompactionState(active=True)], decide=CALM)
 
 
+def pathed(reply: str) -> Input:
+    return Input(transcript=[T.user("where are we"), T.assistant(reply)], state=[CompactionState(active=True)], env=DRIVE_CONFIG, decide=CALM)
+
+
 def reminded(*calls: dict, decide: dict = REMINDED) -> Input:
     return Input(transcript=[T.user(HIS_1_34_AM), *calls, T.assistant("On it.")], state=[CompactionState(active=True)], decide=decide)
 
@@ -152,11 +161,16 @@ def asked(reply: str, *calls: dict, words: str = HOW_FAR, decide: dict = ASKED) 
         asked("relay-fix-2 rebuilds the relay so each chat keeps its own replica.", decide=CALM | {"status_question": BinaryAnswer(p_yes=0.9, confidence=0.3)}): Allow(),
         asked("Launched relay-fix-3 for it.", words="start a second lane on the relay fix", decide=CALM): Allow(),
         asked("relay-fix-2 rebuilds the relay so each chat keeps its own replica.", decide=CALM | {"status_question": Refused()}): Allow(),
+        pathed("The full update is in /s/brook/update-0312.md."): Block(pattern=r"^The owner never opens a file.*Link the dashboard section"),
+        pathed("Notes are at ~/.claude/scratch/relay-notes.md."): Block(pattern=r"never opens a file"),
+        pathed("The rows are in `progress-desk/steps.json`."): Block(pattern=r"never opens a file"),
+        pathed("The relay row is on http://dash.brook.ts.net:8840/progress-desk/#relay."): Allow(),
+        pathed("The fix is in `owner_returns.py`, in `communicator_reply_follows_the_owner_rules`."): Allow(),
     }),
 )
 def communicator_reply_follows_the_owner_rules(evt: BaseHookEvent) -> HookResult | None:
     reply = AssistantMessage().content(evt) or ""
-    problems = [problem for problem in (missing_update(evt, reply), inline_pick(evt, reply), unrouted_reminder(evt), unread_status(evt, reply)) if problem]
+    problems = [problem for problem in (missing_update(evt, reply), inline_pick(evt, reply), unrouted_reminder(evt), unread_status(evt, reply), file_path(evt, reply)) if problem]
     return evt.block(" ".join(problems)) if problems else None
 
 
@@ -216,6 +230,12 @@ def reads_records(use: object) -> bool:
     if use.call.name.startswith(CCI_TOOLS):
         return use.call.name != f"{CCI_TOOLS}post"
     return use.call.name == "Bash" and any(Path(cmd.argv[0]).name == "lr" or (Path(cmd.argv[0]).name == "cci" and cmd.argv[1:2] != ["post"]) for cmd in use.call.command_line if cmd.argv)
+
+
+def file_path(evt: BaseHookEvent, reply: str) -> str | None:
+    prose = LINK.sub("", reply)
+    roots = (*SCRATCH_ROOTS, *((f"{entry['state_dir'].rstrip('/')}/",) if (entry := drive_entry(evt)) else ()))
+    return FILE_PATH if any(root in prose for root in roots) else None
 
 
 def owner_words(evt: BaseHookEvent) -> str:
