@@ -35,11 +35,13 @@ type folded struct {
 	deps    Deps
 }
 
-func takesOver(s *store.Store, name string, old store.Lane, at time.Time) {
+func takesOver(s *store.Store, name string, old store.Lane, at time.Time) string {
 	do(s.Own(name, old.PRs))
 	if _, known := laneOf(s, old.RetiredBy); isLive(old.State) || !known {
 		retire(s, old.Name, name, at)
+		return old.Role
 	}
+	return ""
 }
 
 func grant(s *store.Store, r Record, fresh bool, at time.Time, out *folded) {
@@ -126,10 +128,10 @@ func fold(s *store.Store, records []Record, adoptable map[string]bool, briefs st
 }
 
 func foldSpawn(s *store.Store, r Record, spawn Spawn, adoptable map[string]bool, fresh bool, at time.Time, briefs string, out *folded) {
-	name := spawn.Name
+	name, role := spawn.Name, spawn.Role
 	if spawn.SuccessorOf != "" {
 		if old, found := laneOf(s, spawn.SuccessorOf); found && old.Name != name {
-			takesOver(s, name, old, at)
+			role = or(role, takesOver(s, name, old, at))
 			if !fresh {
 				out.stood = append(out.stood, stoodDown{old.Name, name, old.PRs, r.Seq})
 			}
@@ -138,7 +140,7 @@ func foldSpawn(s *store.Store, r Record, spawn Spawn, adoptable map[string]bool,
 	for _, other := range must(s.Names()) {
 		if succeeds(name, other) {
 			old, _ := laneOf(s, other)
-			takesOver(s, name, old, at)
+			role = or(role, takesOver(s, name, old, at))
 		}
 	}
 	if mine, found := laneOf(s, name); found && mine.State == store.LaneLaunching && mine.Reason != "" && resolvedPath(spawn.Brief) != resolvedPath(filepath.Join(briefs, name+".brief.md")) {
@@ -149,7 +151,7 @@ func foldSpawn(s *store.Store, r Record, spawn Spawn, adoptable map[string]bool,
 		if fresh {
 			state = store.LaneDesired
 		}
-		if must(s.WantLane(store.Lane{Name: name, Brief: spawn.Brief, Model: spawn.Model, Effort: spawn.Effort, Role: spawn.Role, State: state, Placement: spawn.Placement, Launcher: r.Lane}, at)) {
+		if must(s.WantLane(store.Lane{Name: name, Brief: spawn.Brief, Model: spawn.Model, Effort: spawn.Effort, Role: or(role, "lane"), State: state, Placement: spawn.Placement, Launcher: r.Lane}, at)) {
 			out.adopted = append(out.adopted, name)
 		}
 	}

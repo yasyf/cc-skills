@@ -210,7 +210,7 @@ every meta order the owner sends. It reports only to the communicator. The
 coordinator hears from it only one `decide` line with no item number, when it must
 act on a drive lane such as a stand-down or a relaunch. The `meta_records` hook
 refuses any other record a meta lane sends `root`. `lr launch meta` records its role
-as `meta` in the lane registry. The orca runner and the lane supervisor send each
+as `meta` in the lane registry, and a successor keeps it whoever launches it. The orca runner and the lane supervisor send each
 notice about a meta lane to its launcher, and each `HOOK-DRIFT` blocker to the meta
 desk. It keeps `<state dir>/meta/items.md`, one row per item with the owner's words,
 the lane, the state, the PR, what blocks it and its Due, and the communicator reads
