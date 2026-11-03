@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"time"
 )
 
@@ -76,4 +77,20 @@ func (s *Store) LedgerSynced(ledger string) (time.Time, error) {
 	var at time.Time
 	err := s.db.QueryRow("SELECT MAX(synced) FROM ledger_rows WHERE ledger = ?", ledger).Scan(moment{&at})
 	return at, err
+}
+
+func (s *Store) LedgerRow(ledger, key string) (map[string]string, bool, error) {
+	var encoded string
+	err := s.db.QueryRow("SELECT fields FROM ledger_rows WHERE ledger = ? AND key = ?", ledger, key).Scan(&encoded)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	var fields map[string]string
+	if err := json.Unmarshal([]byte(encoded), &fields); err != nil {
+		return nil, false, err
+	}
+	return fields, true, nil
 }
