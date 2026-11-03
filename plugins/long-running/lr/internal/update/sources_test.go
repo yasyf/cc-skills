@@ -14,7 +14,9 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/asks"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/board"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/deletions"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/plans"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
 func src(lanes []Lane, records []Record, tasks []ClaudeTask, boardErr error) Sources {
@@ -39,6 +41,7 @@ func src(lanes []Lane, records []Record, tasks []ClaudeTask, boardErr error) Sou
 		Owed:     func(context.Context) ([]deletions.Owed, error) { return nil, nil },
 		Programs: func() ([]Program, error) { return nil, nil },
 		Rulings:  func(context.Context) ([]PlanRuling, error) { return nil, nil },
+		Overdue:  func(time.Time) ([]store.Item, error) { return nil, nil },
 	}
 }
 
@@ -105,6 +108,58 @@ func TestAnOwedDeletionPastItsDueDayShowsOnTheUpdateWhoeverOwnsIt(t *testing.T) 
 	section := sectionOf(t, Render(in).Text, "Owed deletions past due")
 	if !strings.Contains(section, `task 025443e "Owed deletion: Iris stops reading uploaded"`) || strings.Contains(section, "4ec66f9") {
 		t.Fatalf("past due section:\n%s", section)
+	}
+}
+
+func overdueStore(t *testing.T, items ...store.NewItem) *store.Store {
+	t.Helper()
+	s, err := store.Memory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+	for i, item := range items {
+		if _, err := s.OpenItem(item, ago(60-i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return s
+}
+
+func renderedWith(t *testing.T, s *store.Store) []string {
+	t.Helper()
+	sources := src(nil, nil, nil, nil)
+	sources.Overdue = s.Overdue
+	in, err := Collect(context.Background(), sources, testDrive, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.Split(Render(in).Text, "\n")
+}
+
+func TestTheCoordinatorsOverdueItemsOpenTheUpdateOldestFirstWithOneDueThisMomentCounted(t *testing.T) {
+	s := overdueStore(t,
+		store.NewItem{Kind: "unfinished", Repo: "unfinished", Head: "ask/000001", Mover: machine.MoverRoot, Deadline: time.Hour},
+		store.NewItem{Kind: "ask", Repo: "ask", Number: 12, Mover: machine.MoverRoot, Deadline: 15 * time.Minute},
+		store.NewItem{Kind: "repeat", Repo: "repeat", Head: "grade overdue", Mover: machine.MoverRoot, Deadline: 2 * time.Hour},
+		store.NewItem{Kind: "gate", Repo: "gate", Number: 48401, Head: "ship-2", Mover: machine.MoverLane},
+	)
+
+	lines := renderedWith(t, s)
+
+	want := []string{"", "2 overdue:", "- ask #12, due " + pacific(ago(44)), "- unfinished ask/000001, due " + pacific(now), ""}
+	if !strings.HasPrefix(lines[0], "# Owner update: ") || !reflect.DeepEqual(lines[1:6], want) || !strings.HasPrefix(lines[6], "## "+sinceTitle) {
+		t.Fatalf("the update opens:\n%s", strings.Join(lines[:7], "\n"))
+	}
+}
+
+func TestNothingOverdueAddsNoLine(t *testing.T) {
+	s := overdueStore(t, store.NewItem{Kind: "ask", Repo: "ask", Number: 12, Mover: machine.MoverRoot, Deadline: 2 * time.Hour})
+
+	lines := renderedWith(t, s)
+
+	if lines[1] != "" || !strings.HasPrefix(lines[2], "## "+sinceTitle) {
+		t.Fatalf("the update opens:\n%s", strings.Join(lines[:3], "\n"))
 	}
 }
 
