@@ -74,6 +74,15 @@ def names(use: object, wanted: set[str]) -> bool:
             transcript=[ASKED, T.assistant(T.tool("mcp__plugin_cc-inbox_cci__post", kind="note", to="meta-desk-2", text=f"{LINK} is deleted; answered in the Lookups thread"), timestamp="2026-11-02T18:34:00Z")],
             state=ACTIVE,
         ): Allow(),
+        Input(
+            transcript=[
+                ASKED,
+                T.assistant(T.tool("Agent", name="bugs-comms-1", prompt=f"Follow up in {LINK}"), timestamp="2026-11-02T18:34:00Z"),
+                T.user(f"Stop hook feedback:\n10:33 AM {LINK}", isMeta=True, timestamp="2026-11-02T18:35:00Z"),
+                T.assistant("Routed."),
+            ],
+            state=ACTIVE,
+        ): Allow(),
         Input(transcript=[T.user(f"<teammate-message>{LINK}</teammate-message>", timestamp="2026-11-02T18:33:00Z"), T.assistant("Noted.")], state=ACTIVE): Allow(),
         Input(transcript=[ASKED, T.assistant("Looking into the bug reports.")]): Allow(),
     }),
