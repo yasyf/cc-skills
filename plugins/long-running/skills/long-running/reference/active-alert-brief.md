@@ -322,6 +322,11 @@ Do:
      `ci oncall say <page id> --state <your worktree>/oncall.json --kind request --text "MUTE <ids> until <RFC3339, fix-live estimate plus an hour, at most 24 hours>: <the proof>. The fix is ours; page nobody on these monitors."`.
      The incident stays open until `FIX-LIVE`. A release smoke team, a release check, or
      dev red is never false.
+     You may take an alert over from ai-oncall without asking the owner, at warn
+     or alert level, for any alert this drive's work takes: use the
+     `incident-takeover` skill and post in the incident thread as the commander.
+     That standing grant covers only the Slack posts the takeover itself needs,
+     in the incident channel and the page thread.
      No credential is read from any store, file, SSM parameter or environment unless the
      owner's words in this brief name it; a mute, an ack or a monitor change goes through
      ai-oncall's verb or an ask in the page thread, never a key you fetched.
