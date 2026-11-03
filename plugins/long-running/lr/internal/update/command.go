@@ -45,37 +45,46 @@ func Command(a *app.App) *cobra.Command {
 	var driveName string
 	cmd := &cobra.Command{Use: "update", Short: "The owner update, read from sources, never from memory"}
 	cmd.PersistentFlags().StringVar(&driveName, "drive", os.Getenv("LR_DRIVE"), "the drive's bus name")
-	report := func(c *cobra.Command) (Report, error) {
+	report := func(c *cobra.Command) (Report, string, error) {
 		opened, err := open(a, driveName)
 		if err != nil {
-			return Report{}, err
+			return Report{}, "", err
 		}
 		defer opened.store.Close()
 		in, err := Collect(c.Context(), opened.src, opened.entry.Bus(), a.Now())
 		if err != nil {
-			return Report{}, err
+			return Report{}, "", err
 		}
-		return Render(in), nil
+		return Render(in), opened.entry.StateDir, nil
 	}
-	cmd.AddCommand(&cobra.Command{
+	var publish, sent bool
+	render := &cobra.Command{
 		Use:   "render",
-		Short: "Print the whole owner update and exit 1 naming what it leaves out",
+		Short: "Print the whole owner update and exit 1 naming what it leaves out and each gap",
 		Args:  cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
-			found, err := report(c)
+			found, stateDir, err := report(c)
 			if err != nil {
 				return err
 			}
 			fmt.Fprint(c.OutOrStdout(), found.Text)
-			return missingError(Missing(found.Text, found.Needs))
+			if publish || sent {
+				if err := found.Publish(stateDir, sent); err != nil {
+					return err
+				}
+			}
+			return missingError(append(Missing(found.Text, found.Needs), found.Gaps...))
 		},
-	})
+	}
+	render.Flags().BoolVar(&publish, "publish", false, "write the dashboard's steps.json from the same rows")
+	render.Flags().BoolVar(&sent, "sent", false, "publish, and save this render as the update the owner is sent, which the next one diffs against")
+	cmd.AddCommand(render)
 	cmd.AddCommand(&cobra.Command{
 		Use:   "check FILE",
 		Short: "Exit 1 naming each section, lane, ask and PR a written update leaves out; - reads stdin",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
-			found, err := report(c)
+			found, _, err := report(c)
 			if err != nil {
 				return err
 			}

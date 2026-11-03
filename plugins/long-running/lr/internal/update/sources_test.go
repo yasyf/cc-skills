@@ -29,10 +29,36 @@ func src(lanes []Lane, records []Record, tasks []ClaudeTask, boardErr error) Sou
 			}
 			return out, nil
 		},
-		Plans: func(context.Context) ([]*plans.Plan, error) { return nil, nil },
-		Book:  func(context.Context) (asks.Book, error) { return asks.Book{PRs: map[string]asks.PR{}}, nil },
-		Board: func(context.Context, []board.Snapshot) (board.Live, error) { return board.Live{}, boardErr },
-		Tasks: func() ([]ClaudeTask, error) { return tasks, nil },
+		Plans:  func(context.Context) ([]*plans.Plan, error) { return nil, nil },
+		Book:   func(context.Context) (asks.Book, error) { return asks.Book{PRs: map[string]asks.PR{}}, nil },
+		Board:  func(context.Context, []board.Snapshot) (board.Live, error) { return board.Live{}, boardErr },
+		Tasks:  func() ([]ClaudeTask, error) { return tasks, nil },
+		Before: func() (Snapshot, error) { return Snapshot{}, nil },
+		Retro:  func(context.Context) ([]Retro, error) { return nil, nil },
+	}
+}
+
+func TestCollectReadsRecordsBackToTheLastUpdateAndKeepsTheOtherSectionsToADay(t *testing.T) {
+	stale := record(2, "ship-2", "blocker", "old blocker", 30*60)
+	stale.Status = statusOpen
+	sources := src(nil, []Record{record(1, bridge, "ask", "before the day", 30*60), stale}, nil, nil)
+	sources.Before = func() (Snapshot, error) { return Snapshot{At: ago(40 * 60)}, nil }
+	in, err := Collect(context.Background(), sources, testDrive, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(in.All) != 2 || len(in.Waits) != 0 {
+		t.Fatalf("all = %+v, waits = %+v", in.All, in.Waits)
+	}
+}
+
+func TestAFirstUpdateLooksBackTwoHours(t *testing.T) {
+	in, err := Collect(context.Background(), src(nil, nil, nil, nil), testDrive, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !in.Before.At.Equal(ago(120)) {
+		t.Fatalf("before = %v", in.Before.At)
 	}
 }
 

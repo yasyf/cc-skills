@@ -7,6 +7,12 @@ import (
 	"path/filepath"
 )
 
+type Pin struct {
+	Name     string   `json:"name"`
+	Delivers string   `json:"delivers"`
+	Words    []string `json:"words"`
+}
+
 type Entry struct {
 	Drive    string   `json:"drive"`
 	CCIDrive string   `json:"cci_drive"`
@@ -15,6 +21,7 @@ type Entry struct {
 	Checkout string   `json:"checkout"`
 	StateDir string   `json:"state_dir"`
 	Sessions []string `json:"sessions"`
+	Pinned   []Pin    `json:"pinned_rows"`
 }
 
 func (e Entry) Bus() string {

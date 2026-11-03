@@ -14,6 +14,7 @@ import (
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/asks"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/board"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/plans"
 )
 
@@ -42,6 +43,9 @@ type Sources struct {
 	Book    func(ctx context.Context) (asks.Book, error)
 	Board   func(ctx context.Context, snapshots []board.Snapshot) (board.Live, error)
 	Tasks   func() ([]ClaudeTask, error)
+	Before  func() (Snapshot, error)
+	Retro   func(ctx context.Context) ([]Retro, error)
+	Pins    []drive.Pin
 }
 
 func midnight(now time.Time) time.Time {
@@ -84,12 +88,29 @@ func heldPRs(records []Record) map[string]int64 {
 	return held
 }
 
-func Collect(ctx context.Context, src Sources, drive string, now time.Time) (Inputs, error) {
+func Collect(ctx context.Context, src Sources, bus string, now time.Time) (Inputs, error) {
 	lanes, err := src.Lanes(ctx)
 	if err != nil {
 		return Inputs{}, err
 	}
-	day, err := src.Records(ctx, now.Add(-quietAfter))
+	before, err := src.Before()
+	if err != nil {
+		return Inputs{}, err
+	}
+	if before.At.IsZero() {
+		before.At = now.Add(-defaultSince)
+	}
+	dayStart := now.Add(-quietAfter)
+	window := dayStart
+	if before.At.Before(window) {
+		window = before.At
+	}
+	all, err := src.Records(ctx, window)
+	if err != nil {
+		return Inputs{}, err
+	}
+	day := recordsFrom(all, dayStart)
+	retro, err := src.Retro(ctx)
 	if err != nil {
 		return Inputs{}, err
 	}
@@ -105,7 +126,7 @@ func Collect(ctx context.Context, src Sources, drive string, now time.Time) (Inp
 	if err != nil {
 		return Inputs{}, err
 	}
-	in := Inputs{Drive: drive, Now: now, Lanes: lanes, Plans: list, Book: book, Held: heldPRs(holds), Waits: waitingOnRoot(day), Board: boardLines(ctx, src, day)}
+	in := Inputs{Drive: bus, Now: now, Lanes: lanes, Plans: list, Book: book, Held: heldPRs(holds), Waits: waitingOnRoot(day), Board: boardLines(ctx, src, day), All: all, Before: before, Retro: retro, Pins: src.Pins}
 	named := namesOf(working(lanes, now))
 	start := midnight(now)
 	for _, record := range day {
@@ -258,10 +279,8 @@ func lastWords(record Record, found bool) string {
 }
 
 func newestByLane(records []Record) map[string]Record {
-	ordered := slices.Clone(records)
-	slices.SortStableFunc(ordered, func(one, other Record) int { return int(one.Seq - other.Seq) })
 	newest := map[string]Record{}
-	for _, record := range ordered {
+	for _, record := range bySeq(records) {
 		newest[record.Lane] = record
 	}
 	return newest

@@ -50,6 +50,11 @@ func Wire(a *app.App, entry drive.Entry, s *store.Store) Sources {
 			}
 			return ReadTasks(dir, entry.Root())
 		},
+		Before: func() (Snapshot, error) { return ReadSnapshot(entry.StateDir) },
+		Retro: func(ctx context.Context) ([]Retro, error) {
+			return ReadRetro(ctx, mirror.Source, entry.StateDir)
+		},
+		Pins: entry.Pinned,
 	}
 }
 
@@ -100,7 +105,7 @@ func busRecords(ctx context.Context, bus string, since time.Time, kinds []string
 		for j, pr := range raw.Refs.PRs {
 			prs[j] = fmt.Sprint(pr)
 		}
-		out[i] = Record{Seq: raw.Seq, Drive: raw.Drive, Lane: raw.Lane, Kind: string(raw.Kind), Text: raw.Text, Status: raw.Status, At: raw.At, To: raw.To, PRs: prs, Topic: raw.Topic, Board: raw.Fields.Attrs["board"]}
+		out[i] = Record{Seq: raw.Seq, Drive: raw.Drive, Lane: raw.Lane, Kind: string(raw.Kind), Text: raw.Text, Status: raw.Status, At: raw.At, To: raw.To, PRs: prs, Topic: raw.Topic, Board: raw.Fields.Attrs["board"], Re: raw.Re, Resolves: raw.Closes()}
 	}
 	return out, nil
 }
