@@ -514,13 +514,16 @@ func (w *waiter) follow(ctx context.Context) <-chan error {
 func (w *waiter) stream(ctx context.Context, s cciSource, errs chan<- error) {
 	query := url.Values{"drive": {s.drive}, "to": {s.lane}}
 	address := w.Stream + "?" + query.Encode()
-	started := w.Now()
+	lost := w.Now()
 	for {
-		err := w.readStream(ctx, address)
+		connected, err := w.readStream(ctx, address)
 		if ctx.Err() != nil {
 			return
 		}
-		if w.Now().Sub(started) >= cciGrace {
+		if connected {
+			lost = w.Now()
+		}
+		if w.Now().Sub(lost) >= cciGrace {
 			errs <- fmt.Errorf("the cci daemon at %s gave no stream for %.0f s: %w", w.Stream, cciGrace.Seconds(), err)
 			return
 		}
@@ -532,19 +535,19 @@ func (w *waiter) stream(ctx context.Context, s cciSource, errs chan<- error) {
 	}
 }
 
-func (w *waiter) readStream(ctx context.Context, address string) error {
+func (w *waiter) readStream(ctx context.Context, address string) (bool, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, address, nil)
 	if err != nil {
-		return err
+		return false, err
 	}
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(response.Body, 1024))
-		return fmt.Errorf("stream answered %d: %s", response.StatusCode, strings.TrimSpace(string(body)))
+		return false, fmt.Errorf("stream answered %d: %s", response.StatusCode, strings.TrimSpace(string(body)))
 	}
 	scanner := bufio.NewScanner(response.Body)
 	scanner.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
@@ -557,9 +560,9 @@ func (w *waiter) readStream(ctx context.Context, address string) error {
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		return err
+		return true, err
 	}
-	return errors.New("the stream ended")
+	return true, errors.New("the stream ended")
 }
 
 type recursiveError struct{ command string }

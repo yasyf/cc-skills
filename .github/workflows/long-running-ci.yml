@@ -177,6 +177,38 @@ jobs:
           name: machine-cci-post
           path: machine-cci-post.xml
 
+  lr-wait-daemon:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      UV_PYTHON: "3.14"
+      GOMAXPROCS: "2"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          repository: yasyf/cc-inbox
+          ref: 6288a77ebc3cf8b10957de254d16794467a2e492
+          path: .ci-daemon-cci
+          persist-credentials: false
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: plugins/long-running/lr/go.mod
+          cache-dependency-path: |
+            plugins/long-running/lr/go.sum
+            .ci-daemon-cci/go.sum
+      - uses: astral-sh/setup-uv@v8.2.0
+      - name: build actual cci daemon and lr
+        run: |
+          mkdir -p "$RUNNER_TEMP/daemon-cci"
+          go -C .ci-daemon-cci build -p 2 -o "$RUNNER_TEMP/daemon-cci/cci" ./cmd/cci
+          go -C plugins/long-running/lr build -p 2 -o "$RUNNER_TEMP/lr" ./cmd/lr
+      - name: lr wait survives a real daemon restart
+        env:
+          CCI_DAEMON_BINARY_DIR: ${{ runner.temp }}/daemon-cci
+          LR_BINARY: ${{ runner.temp }}/lr
+        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/lr_wait_daemon_integration.py -q -s
+
   replay-fixture:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
