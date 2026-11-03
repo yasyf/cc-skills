@@ -1953,6 +1953,20 @@ func TestTheLanesVerbAnswersForTheNamedLanesWithTheirNewestRecord(t *testing.T) 
 	equal(t, lines[1], "never-launched-1 unregistered")
 }
 
+func TestAnUnregisteredLaneThatPostsReadsAsPostingWithItsNewestRecord(t *testing.T) {
+	s := memory(t)
+	if err := s.LaneHeard("perf-sweep-1", t0.Add(-time.Minute), "report", 370803); err != nil {
+		t.Fatal(err)
+	}
+
+	lines, err := RegistryLines(s, []string{"perf-sweep-1", "never-launched-1"}, t0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	equal(t, lines, []string{"perf-sweep-1 unregistered posting heard " + pacific(t0.Add(-time.Minute)) + " #370803", "never-launched-1 unregistered"})
+}
+
 func TestRouteFollowsTheSuccessorChainToItsLiveEndOrRoot(t *testing.T) {
 	s, brief := memory(t), writeBrief(t)
 	for name, state := range map[string]store.LaneState{"a-1": store.LaneRetired, "a-2": store.LaneDesired, "b-1": store.LaneRetired} {

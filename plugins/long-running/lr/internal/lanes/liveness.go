@@ -123,10 +123,21 @@ func RegistryLines(s *store.Store, names []string, now time.Time) (lines []strin
 		}
 		lines = append(lines, line.String())
 	}
+	posted := must(s.Heard())
 	for _, name := range names {
-		if _, found := laneOf(s, name); !found {
-			lines = append(lines, name+" "+Unregistered)
+		if _, found := laneOf(s, name); found {
+			continue
 		}
+		at, heard := posted[name]
+		if !heard {
+			lines = append(lines, name+" "+Unregistered)
+			continue
+		}
+		state := "silent"
+		if now.Sub(at) < StaleAfter {
+			state = "posting"
+		}
+		lines = append(lines, fmt.Sprintf("%s %s %s heard %s #%d", name, Unregistered, state, pacific(at), must(s.NewestSeq(name))))
 	}
 	return lines, nil
 }
