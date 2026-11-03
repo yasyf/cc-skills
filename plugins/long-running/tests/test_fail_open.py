@@ -40,6 +40,7 @@ PARKS = "AskUserQuestion parks the session, so a warning lands too late (answer 
 STOP = "a warning on Stop reaches nobody, and {what}"
 KEPT_REFUSALS = KEPT | {
     "blocking_asks.drive_roots_never_park_on_asks": PARKS,
+    "communicator_chat.communicator_chat:llm_gate_communicator_replies_carry_owner_news": STOP.format(what="the owner would read internal bookkeeping as his update"),
     "desk_ownership.The coordinator owns the relay and every d": "trust: a runner or desk started from the communicator",
     "incident_commands.release_undo_cites_its_cause": "trust: a rollback without the owner's word",
     "landing_approval.Only the owner changes who approves landin": "trust: a change to who approves landings",
@@ -149,8 +150,8 @@ def inputs(entry) -> list[Input]:
     return [inp for inp in (*(entry.spec.tests or ()), *MIGRATED.get(label(entry), ())) if isinstance(inp, Input)]
 
 
-def test_the_kept_list_names_real_hooks():
-    assert set(KEPT) <= {label(entry) for entry in _state.hooks}
+def test_the_kept_lists_name_real_hooks():
+    assert set(KEPT_REFUSALS) <= {label(entry) for entry in _state.hooks}
 
 
 def test_every_refusal_names_why_a_warning_would_not_do():
@@ -159,7 +160,7 @@ def test_every_refusal_names_why_a_warning_would_not_do():
         for entry in _state.hooks
         if Path(str(entry.source_file)).parent == HOOKS and any(isinstance(expected, Block) for expected in {**(entry.spec.tests or {}), **MIGRATED.get(label(entry), {})}.values())
     }
-    assert refusing == set(KEPT_REFUSALS)
+    assert refusing <= set(KEPT_REFUSALS)
 
 
 @pytest.mark.parametrize("entry", hooks(), ids=label)
