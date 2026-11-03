@@ -430,3 +430,20 @@ func TestActStartsWholePassesAndRanksThroughTheJobPool(t *testing.T) {
 		t.Fatalf("workers = %v, want the head's pass and one whole pass", workers)
 	}
 }
+
+func TestAPassCarriesTheOwnersCheckedPicksToItsGrader(t *testing.T) {
+	f := newPool(t, map[string]any{"finder": map[string]any{}})
+	if err := f.store.PutRule("rule/abc", "polling is fine here", "2026-11-02", "predicate", "answers:polls every"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.pool.Plan(context.Background(), nil, nil, 0, t0); err != nil {
+		t.Fatal(err)
+	}
+
+	f.started(t, GraderFinder)
+
+	picks := readJob[grader.FinderJob](t, f.finderDir(jobDir)).Picks
+	if len(picks) != 1 || picks[0].ID != "rule/abc" || picks[0].CheckRef != "answers:polls every" {
+		t.Fatalf("picks = %+v", picks)
+	}
+}

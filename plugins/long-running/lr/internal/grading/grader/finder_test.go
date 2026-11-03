@@ -458,6 +458,42 @@ func TestBlockersAndMajorsPostFinderMajorOneClauseEachAndMinorsStayOffTheRecord(
 	holdsAll(t, readText(t, directory, "record.md"), "a name reads oddly")
 }
 
+func ownerPick(id, answers string) map[string]any {
+	return map[string]any{"ID": id, "Words": "the owner's words", "CheckKind": "predicate", "CheckRef": "answers:" + answers}
+}
+
+func TestAMajorAnOwnerPickAnswersStaysOffTheRecordWhichNamesThePick(t *testing.T) {
+	directory := finderJobDir(t, map[string]any{"picks": []any{ownerPick("rule/abc", "polls every 5 s")}})
+	shell, _ := newFinderFake(t, replyOf(
+		findingOf("blocker", "rust/crates/sandsql-journal/src/replica.rs:2947", "registered mounts never record a resubscribe position"),
+		findingOf("major", "go/poll.go:9", "a mount polls every 5 s"),
+	))
+	mustFinder(t, directory, shell)
+	text := shell.posted[0]["--text"]
+	holdsAll(t, text, "finder: major "+shaHead+" 1 open", "replica.rs:2947", `settled by owner picks: rule/abc "the owner's words"`)
+	holdsNone(t, text, "go/poll.go:9")
+}
+
+func TestAHeadWhoseEveryMajorAnOwnerPickAnswersPostsOk(t *testing.T) {
+	directory := finderJobDir(t, map[string]any{"picks": []any{ownerPick("rule/abc", "go/poll.go:9")}})
+	shell, _ := newFinderFake(t, replyOf(findingOf("major", "go/poll.go:9", "a mount polls every 5 s")))
+	mustFinder(t, directory, shell)
+	text := shell.posted[0]["--text"]
+	equal(t, FinderGrade(text), finderPass)
+	holdsAll(t, text, "settled by owner picks: rule/abc")
+}
+
+func TestAPickThatChecksNothingOrAnswersNothingSettlesNothing(t *testing.T) {
+	directory := finderJobDir(t, map[string]any{"picks": []any{
+		map[string]any{"ID": "rule/unchecked", "CheckKind": "manual", "CheckRef": "answers:polls every 5 s"},
+		ownerPick("rule/other", "something else"),
+	}})
+	shell, _ := newFinderFake(t, replyOf(findingOf("major", "go/poll.go:9", "a mount polls every 5 s")))
+	mustFinder(t, directory, shell)
+	holdsAll(t, shell.posted[0]["--text"], "finder: major "+shaHead+" 1 open", "go/poll.go:9")
+	holdsNone(t, shell.posted[0]["--text"], "settled by owner picks")
+}
+
 func TestTheFinderAsksWhatRunsPerItemAtAThousand(t *testing.T) {
 	directory := finderJobDir(t, nil)
 	slow := "slow at N: the chat list reads each chat's settings one at a time, 1,000 reads at 1,000 chats"

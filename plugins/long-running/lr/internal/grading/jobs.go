@@ -76,6 +76,7 @@ func (p *JobPool) baseJob(d desk, facts machine.Facts, sprite string, settled ma
 		Fast:     d.spec.Fast == nil || *d.spec.Fast,
 		Settled:  settled,
 		Sprite:   sprite,
+		Picks:    p.picks,
 	}
 }
 

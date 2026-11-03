@@ -103,6 +103,7 @@ type PoolDeps struct {
 	Workers func() ([]store.Worker, error)
 	Cursors Cursors
 	Ledger  func(ledger string) (map[string]map[string]string, error)
+	Picks   func() ([]store.Rule, error)
 	Now     func() time.Time
 	Log     *slog.Logger
 	Self    string
@@ -121,6 +122,7 @@ type JobPool struct {
 	desks     map[string]desk
 	executors int
 	firsts    map[string]bool
+	picks     []store.Rule
 }
 
 type Spawn func(ctx context.Context, argv []string, env map[string]string, log string) (int, error)

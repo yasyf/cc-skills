@@ -12,7 +12,9 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/grading/grader"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
 const pluginRootEnv = "BINRUN_PLUGIN_ROOT"
@@ -46,18 +48,33 @@ func gradeVerb(a *app.App, name, short string, grade func(context.Context, strin
 	}
 }
 
-func liveDeps(a *app.App) (grader.Deps, error) {
+func pluginRoot() (string, error) {
 	plugin := os.Getenv(pluginRootEnv)
 	if plugin == "" {
-		return grader.Deps{}, errors.New("lr grade runs through the plugin's bin/lr, which sets " + pluginRootEnv)
+		return "", errors.New("lr runs its graders through the plugin's bin/lr, which sets " + pluginRootEnv)
 	}
-	config := os.Getenv("CLAUDE_CONFIG_DIR")
-	if config == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return grader.Deps{}, err
-		}
-		config = filepath.Join(home, ".claude")
+	return plugin, nil
+}
+
+func claudeDir() (string, error) {
+	if dir := os.Getenv("CLAUDE_CONFIG_DIR"); dir != "" {
+		return dir, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".claude"), nil
+}
+
+func liveDeps(a *app.App) (grader.Deps, error) {
+	plugin, err := pluginRoot()
+	if err != nil {
+		return grader.Deps{}, err
+	}
+	claude, err := claudeDir()
+	if err != nil {
+		return grader.Deps{}, err
 	}
 	return grader.Deps{
 		Runner: a.Runner,
@@ -66,6 +83,34 @@ func liveDeps(a *app.App) (grader.Deps, error) {
 		Now:    a.Now,
 		Log:    a.Log,
 		Bin:    filepath.Join(plugin, "bin"),
-		Config: config,
+		Config: claude,
 	}, nil
+}
+
+func NewLivePool(a *app.App, runnerPath string, s *store.Store) (*JobPool, error) {
+	plugin, err := pluginRoot()
+	if err != nil {
+		return nil, err
+	}
+	claude, err := claudeDir()
+	if err != nil {
+		return nil, err
+	}
+	runner, err := config.LoadRunner(runnerPath)
+	if err != nil {
+		return nil, err
+	}
+	return NewJobPool(runner, PoolDeps{
+		Runner:  a.Runner,
+		Spawn:   Detached,
+		Workers: s.Workers,
+		Cursors: s,
+		Ledger:  s.LedgerRows,
+		Picks:   s.CheckedRules,
+		Now:     a.Now,
+		Log:     a.Log,
+		Self:    filepath.Join(plugin, "bin", "lr"),
+		Scripts: filepath.Join(plugin, "skills", "long-running", "scripts"),
+		Config:  claude,
+	})
 }

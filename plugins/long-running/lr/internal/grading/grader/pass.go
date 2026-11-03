@@ -17,6 +17,7 @@ import (
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
 const (
@@ -74,6 +75,7 @@ type Job struct {
 	Fast     bool             `json:"fast"`
 	Settled  map[string]int64 `json:"settled"`
 	Sprite   string           `json:"sprite"`
+	Picks    []store.Rule     `json:"picks"`
 }
 
 func (j *Job) pull() string {
