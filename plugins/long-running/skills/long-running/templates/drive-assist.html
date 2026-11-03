@@ -226,7 +226,6 @@ function aiRetryNote(){if(aiBusyNow)aiBusyNow.querySelector(".ai-wait").textCont
 async function aiOnce(compose,opt){
  const o=opt||{};
  await aiReady;
- if(!AI.key)throw new Error("the assistant is off");
  const messages=compose();
  let effort=null;
  for(;;){
@@ -294,6 +293,23 @@ function search(query){
  words().forEach(w=>{if(hit(w.title+" "+w.text))out.push([w.at,`owner words ${w.id}: ${w.text}`])});
  m.records.forEach(r=>{if(hit(`${r.lane} ${r.kind} ${r.text}`))out.push([r.at,`${r.kind} ${r.lane}: ${r.text}`])});
  return out.sort((a,b)=>String(b[0]).localeCompare(String(a[0]))).slice(0,20).map(([at,t])=>`${at?clock(at)+" ":""}${short(t,400)}`).join("\n")||"no matches";
+}
+async function assistAsk(question,history,onText){
+ await aiReady;
+ if(!AI.endpoint)throw new Error("the assistant is off: the dashboard server has no CEREBRAS_API_KEY, or this device is not the owner's");
+ aiCtxText=digest();
+ const msgs=[{role:"system",content:aiCtxText},...history.slice(-8),{role:"user",content:`It is ${clock(new Date().toISOString())} Pacific.\n\n${question}`}];
+ const signal=new AbortController().signal;
+ for(let round=0;round<AI_ROUNDS;round++){
+  const body=aiBody("chat");
+  if(round===AI_ROUNDS-1){msgs.push({role:"user",content:AI_LAST_TURN});body.tool_choice="none"}
+  body.messages=msgs;
+  const res=await aiStream(body,signal,onText);
+  if(!res.calls.length)return res.text;
+  msgs.push({role:"assistant",content:res.text,tool_calls:res.calls.map(c=>({id:c.id,type:"function",function:{name:c.name,arguments:c.args||"{}"}}))});
+  res.calls.forEach(c=>{let q="";try{q=JSON.parse(c.args||"{}").query||""}catch(e){}msgs.push({role:"tool",tool_call_id:c.id,content:search(q)})});
+ }
+ return "";
 }
 function paintAi(key){
  const a=ai[key];
