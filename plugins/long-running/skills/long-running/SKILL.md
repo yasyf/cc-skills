@@ -466,7 +466,7 @@ include a Datadog monitor, a Sentry alert, an `#outage` report, an on-call page,
 CI or review pipeline, an alert or breakage link from the owner, and an `incident` record
 from ai-oncall's feed. They also include a runner `PAGE` record, a record saying customers are failing or
 about to fail from a change already moving, a failing release smoke team, a red dev build, and
-a failing release check, and a supervisor `ALERT-UNOPENED` blocker. Each is P0 from the moment
+a failing release check, and a supervisor `ALERT-LAUNCHED` spawn or `ALERT-UNOPENED` blocker. Each is P0 from the moment
 it is seen, with no owner round-trip and no wait on ai-oncall: the root opens the incident on
 sight. That turn, before anything else, the root runs
 `incident.py open` with the owner's grants and starts `incident.py run` in the

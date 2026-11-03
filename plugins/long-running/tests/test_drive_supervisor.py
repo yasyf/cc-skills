@@ -192,39 +192,59 @@ def test_a_pr_its_lane_reported_held_at_its_current_head_owes_no_work(monkeypatc
     assert calls == [[sys.executable, str(supervisor.SCRIPTS / "ledger.py"), "-C", "/checkout", "list", "--drive", "durable", "--open", "--json"]]
 
 
+TRIGGERED = "Triggered: runtime-api-next logging errors — plat\nmore <https://app.datadoghq.com/monitors/338724738?group=plat|monitor>"
+
+
+def named(lane: str, kind: str) -> str:
+    return json.dumps({"seq": 7, "lane": lane, "kind": kind, "text": "Datadog 338724738"})
+
+
 @pytest.mark.parametrize(
-    ("text", "minutes", "incident", "posted"),
+    ("text", "minutes", "found", "launched", "outcome"),
     [
-        ("Triggered: runtime-api-next logging errors — plat\nmore <https://app.datadoghq.com/monitors/338724738?group=plat|monitor>", 4, "", True),
-        ("Triggered: runtime-api-next logging errors — plat\nmore <https://app.datadoghq.com/monitors/338724738?group=plat|monitor>", 2, "", False),
-        ("Triggered: runtime-api-next logging errors — plat\nmore <https://app.datadoghq.com/monitors/338724738?group=plat|monitor>", 4, '{"seq": 7, "kind": "incident", "text": "INCIDENT OPEN: Datadog 338724738"}', False),
-        ("Recovered: runtime-api-next logging errors — plat\nmore <https://app.datadoghq.com/monitors/338724738?group=plat|monitor>", 4, "", False),
-        ("the deploy finished", 4, "", False),
+        (TRIGGERED, 4, "", 0, "spawn"),
+        (TRIGGERED, 4, "", 1, "blocker"),
+        (TRIGGERED, 2, "", 0, None),
+        (TRIGGERED, 4, named("alerts-desk", "incident"), 0, None),
+        (TRIGGERED, 4, named("rapi-next-errors-fix", "mechanism"), 0, None),
+        (TRIGGERED, 4, named("supervisor", "blocker"), 0, None),
+        (TRIGGERED.replace("Triggered", "Recovered"), 4, "", 0, None),
+        ("the deploy finished", 4, "", 0, None),
     ],
-    ids=["unopened", "in-grace", "opened", "recovered", "not-an-alert"],
+    ids=["launched", "launch-failed", "in-grace", "opened", "fix-lane-names-it", "already-raised", "recovered", "not-an-alert"],
 )
-def test_an_alert_no_incident_record_names_three_minutes_on_raises_one_blocker_to_root(monkeypatch, text, minutes, incident, posted):
+def test_an_alert_nobody_opens_in_three_minutes_launches_its_lanes_once_and_raises_a_blocker_only_when_that_fails(tmp_path: Path, monkeypatch, text, minutes, found, launched, outcome):
     fired = NOW - timedelta(minutes=minutes)
     message = {"ts": f"{fired.timestamp():.6f}", "user": "", "text": text, "permalink": "https://poetic-technology.slack.com/archives/C0822AHFY3G/p1793668287854899"}
     calls: list[list[str]] = []
+    launches: list[list[str]] = []
 
     def run(argv: list[str]) -> str:
         calls.append(argv)
         if argv[:2] == ["cc-slack", "history"]:
             return json.dumps({"messages": [message]})
         if argv[:2] == ["cci", "grep"]:
-            return incident
+            return found
         return "#9001\n"
 
+    def launch(argv: list[str], **_: object) -> SimpleNamespace:
+        launches.append(argv)
+        return SimpleNamespace(returncode=launched, stdout="dd-338724738-fix R12 LAUNCHED dd-338724738-fix\n", stderr="")
+
     monkeypatch.setattr(supervisor, "run", run)
-    supervisor.Alerts("d1", ["C0822AHFY3G"])(NOW)
+    monkeypatch.setattr(supervisor.subprocess, "run", launch)
+    supervisor.Alerts("d1", ["C0822AHFY3G"], tmp_path)(NOW)
 
     posts = [argv for argv in calls if argv[:2] == ["cci", "post"]]
-    assert bool(posts) is posted
-    if posted:
+    assert len(launches) == (outcome is not None)
+    assert [post[post.index("--kind") + 1] for post in posts] == ([outcome] if outcome else [])
+    if outcome:
+        [argv] = launches
+        assert argv[1:6] == [str(supervisor.DESK_LAUNCH), "incident", "dd-338724738", str(tmp_path / "root" / "incident-template-fix.md"), str(supervisor.EVIDENCE_TEMPLATE)]
+        assert argv[argv.index("--alert") + 1].startswith(f"{message['permalink']}, fired 9:56 AM PT on drive d1: Triggered: runtime-api-next logging errors — plat.")
         [post] = posts
-        assert post[post.index("--to") + 1] == "root" and post[post.index("--kind") + 1] == "blocker"
-        assert post[post.index("--text") + 1].startswith("ALERT-UNOPENED Triggered: runtime-api-next logging errors — plat: no incident record names 338724738 4 min after it fired")
+        assert post[post.index("--to") + 1] == "root"
+        assert post[post.index("--text") + 1].startswith(f"ALERT-{'LAUNCHED' if outcome == 'spawn' else 'UNOPENED'} Triggered: runtime-api-next logging errors — plat: no incident record names 338724738 4 min after it fired")
 
 
 def test_an_alert_channel_that_does_not_read_posts_nothing_and_the_tick_goes_on(monkeypatch):
@@ -232,7 +252,7 @@ def test_an_alert_channel_that_does_not_read_posts_nothing_and_the_tick_goes_on(
         raise supervisor.lanes.Unread("cc-slack history: exited 1")
 
     monkeypatch.setattr(supervisor, "run", run)
-    supervisor.Alerts("d1", ["C0822AHFY3G"])(NOW)
+    supervisor.Alerts("d1", ["C0822AHFY3G"], Path("/state"))(NOW)
 
 
 @pytest.mark.parametrize(("fixed", "quiet", "reclaimed"), [(31, 31, True), (31, 5, False), (12, 31, False)], ids=["idle", "lane-busy", "too-soon"])

@@ -22,11 +22,12 @@ named lanes when it names any, and with `--json` one
 prints, as one JSON object, where mail for a lane goes: the live end of its successor chain in the
 registry, or root. `request` posts the one typed record that asks the supervisor to change a row:
 `stand-down`, `park`, `unpark`, `owner` or `done`; nothing else changes the registry.
-With `alert_channels` set, each tick reads those channels' newest top-level messages and posts
-one `ALERT-UNOPENED` blocker to root for a Datadog or Sentry alert no `incident` record names three
-minutes after it fired. With `orca_run` set, every five minutes it ends each Orca lane a FIX-LIVE
-record names once the record and the lane's newest record are 30 minutes old, through
-`orca-gc --done`, and posts what it reclaimed to root.
+With `alert_channels` set, each tick reads those channels' newest top-level messages, and a
+Datadog or Sentry alert that no `incident` record, launch order or fix lane names three minutes
+after it fired gets its fix and evidence lanes from `desk-launch.py incident`, one `spawn` record
+to root, and a blocker to root only when that launch fails. With `orca_run` set, every five
+minutes it ends each Orca lane a FIX-LIVE record names once the record and the lane's newest
+record are 30 minutes old, through `orca-gc --done`, and posts what it reclaimed to root.
 """
 
 from __future__ import annotations
@@ -43,6 +44,7 @@ import time
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from long_running import cci
 from long_running.grades import names_head
@@ -86,6 +88,11 @@ RECOVERED = re.compile(r"^\W*(?:Recovered|Resolved)\b", re.IGNORECASE)
 ALERT_GRACE = timedelta(minutes=3)
 ALERT_WINDOW = timedelta(hours=1)
 ALERT_READ = 20
+ALERT_HANDLED = frozenset({"incident", "go"})
+FIX_TEMPLATE = Path("root") / "incident-template-fix.md"
+EVIDENCE_TEMPLATE = SCRIPTS.parent / "reference" / "alert-evidence-brief.md"
+LAUNCH_WAIT = 180
+PACIFIC = ZoneInfo("America/Los_Angeles")
 FIX_LIVE_IDLE = timedelta(minutes=30)
 GC_EVERY = timedelta(minutes=5)
 ORCA_GC = SCRIPTS / "orca-gc"
@@ -322,29 +329,38 @@ def lanes_deps(config: lr_config.Config, state: Path) -> lanes.Deps:
 
 
 class Alerts:
-    """Each Datadog or Sentry alert a top-level message in a watched channel posts, in its first hour: once it is `ALERT_GRACE` old and no `incident` record on the drive names its monitor or issue, one `blocker` to root naming it, keyed by the message so it posts once, since the root opens an incident on sight and a missed alert is the supervisor's to raise (Datadog 338724738 fired at 5:10 PM Nov 2 and drew no record for 8 minutes). A channel that does not read logs and is read again next tick."""
+    """Each Datadog or Sentry alert a top-level message in a watched channel posts, in its first hour: once it is `ALERT_GRACE` old and no `incident` or `go` record, fix lane or supervisor record on the drive names its monitor or issue, the supervisor launches its fix and evidence lanes itself and posts one `spawn` to root, or one `blocker` when the launch fails. Its own launch order names the alert, so a launch starts once. A channel that does not read logs and is read again next tick."""
 
-    def __init__(self, drive: str, channels: list[str]):
-        self.drive, self.channels = drive, channels
+    def __init__(self, drive: str, channels: list[str], state: Path):
+        self.drive, self.channels, self.fix_brief = drive, channels, state / FIX_TEMPLATE
 
     def __call__(self, now: datetime) -> None:
         for channel in self.channels:
             try:
                 for message in json.loads(run(["cc-slack", "history", "--channel", channel, "--json", "--limit", str(ALERT_READ)]))["messages"]:
-                    self.raise_unopened(channel, message, now)
+                    self.launch_unopened(channel, message, now)
             except lanes.Unread as unread:
                 print(f"alerts: {channel}: {unread}", file=sys.stderr, flush=True)
 
-    def raise_unopened(self, channel: str, message: dict, now: datetime) -> None:
+    def launch_unopened(self, channel: str, message: dict, now: datetime) -> None:
         fired = datetime.fromtimestamp(float(message["ts"]), UTC)
         if not (found := ALERT_URL.search(message["text"])) or RECOVERED.match(message["text"]) or not ALERT_GRACE <= now - fired < ALERT_WINDOW:
             return
         alert = found[1] or found[2]
-        if run(["cci", "grep", alert, "--drive", self.drive, "--kind", "incident", "--since", fired.isoformat(), "--json", "-n", "1"]).strip():
+        named = [json.loads(line) for line in run(["cci", "grep", alert, "--drive", self.drive, "--since", fired.isoformat(), "--json", "-n", "50"]).splitlines() if line.startswith("{")]
+        if any(record["kind"] in ALERT_HANDLED or record["lane"] == lanes.SELF or record["lane"].endswith("-fix") for record in named):
             return
         headline = " ".join(message["text"].split("\n", 1)[0].split())[:160]
         minutes = int((now - fired).total_seconds() // 60)
-        run(["cci", "post", "--drive", self.drive, "--lane", lanes.SELF, "--kind", "blocker", "--to", "root", "--id", f"alert-unopened:{channel}:{message['ts']}", "--url", message["permalink"], "--text", f"ALERT-UNOPENED {headline}: no incident record names {alert} {minutes} min after it fired | root: open the incident on sight with `incident.py open --kind alert` and launch its fix lane this turn"])
+        name = f"{'dd' if found[1] else 'sentry'}-{alert}"
+        said = f"{message['permalink']}, fired {fired.astimezone(PACIFIC).strftime('%-I:%M %p')} PT on drive {self.drive}: {headline}. Owner words, verbatim: none, the supervisor launched this lane on an alert nobody opened"
+        done = subprocess.run([sys.executable, str(DESK_LAUNCH), "incident", name, str(self.fix_brief), str(EVIDENCE_TEMPLATE), "--alert", said, "--drive", self.drive, "--lane", lanes.SELF, "--timeout-seconds", str(LAUNCH_WAIT)], capture_output=True, text=True, timeout=2 * LAUNCH_WAIT)
+        verdict = " | ".join((done.stdout + done.stderr).strip().splitlines()[-3:]) or f"exit {done.returncode}"
+        unopened = f"no incident record names {alert} {minutes} min after it fired"
+        if done.returncode == 0:
+            run(["cci", "post", "--drive", self.drive, "--lane", lanes.SELF, "--kind", "spawn", "--to", "root", "--id", f"alert-launched:{channel}:{message['ts']}", "--url", message["permalink"], "--text", f"ALERT-LAUNCHED {headline}: {unopened}, so the supervisor launched {name}-fix and {name}-evidence: {verdict} | root: open the incident with `incident.py open --kind alert --adopt fix={name}-fix`"])
+            return
+        run(["cci", "post", "--drive", self.drive, "--lane", lanes.SELF, "--kind", "blocker", "--to", "root", "--id", f"alert-unopened:{channel}:{message['ts']}", "--url", message["permalink"], "--text", f"ALERT-UNOPENED {headline}: {unopened}, and the supervisor's launch of {name}-fix failed: {verdict} | root: open the incident on sight with `incident.py open --kind alert` and launch its fix lane this turn"])
 
 
 class FixLiveGc:
@@ -465,7 +481,7 @@ def cmd_run(config: lr_config.Config, path: Path) -> int:
     running = lr_drive.plugin_manifest()["version"]
     passes = pass_deps(config, path.parent, store) if set(config.movers) & loop.PR_MOVERS else {}
     channels = [channel for channel in config.alert_channels.split(",") if channel]
-    checks = (*((Alerts(config.drive, channels),) if channels else ()), *((FixLiveGc(config.drive, config.orca_run, lr_drive.launch_receipts(config.orca_run)),) if config.orca_run else ()))
+    checks = (*((Alerts(config.drive, channels, path.parent),) if channels else ()), *((FixLiveGc(config.drive, config.orca_run, lr_drive.launch_receipts(config.orca_run)),) if config.orca_run else ()))
     deps = loop.Deps(movers=frozenset(config.movers), clock=clock, sleep=time.sleep, lane_deps=lanes_deps(config, path.parent) if "lanes" in config.movers else None, stale=Upgrade(config, running), checks=checks, **passes)
     ticks = loop.run(store, config.drive, SCRIPTS.parents[2].name, os.getpid(), deps)
     if not deps.stale():
