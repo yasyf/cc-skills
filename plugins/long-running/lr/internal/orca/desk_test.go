@@ -2081,6 +2081,45 @@ func TestAStandingDeskFallsBackToTheMacWithNoSpriteRoute(t *testing.T) {
 	}
 }
 
+func TestTheMacsRunnerAndTheHostsRunnerEachTakeOnlyTheirOwnLaunches(t *testing.T) {
+	coordinatorBrief := "Register slice: lane=root step=all\nScale: no N\nccx: incident=none\n"
+	for _, launches := range []string{launchesMac, launchesSprite} {
+		t.Run(launches, func(t *testing.T) {
+			w := newDeskWorld(t)
+			w.desk.Config.Launches = launches
+			launcher := spriteConfig(w)
+			fable := w.brief(coordinatorLane, coordinatorBrief)
+			lane := w.brief(testLane, testBrief+"ccx: role=build\n")
+			w.lines()
+			w.line("orca-desk: launch " + coordinatorLane + " fable xhigh brief=" + fable)
+			w.line("orca-desk: launch " + testLane + " opus xhigh brief=" + lane)
+			w.line("orca-desk: hold release-1 owner=lane-a :: the release waits on lane-a")
+			w.lines()
+			w.step(w.desk.deliver)
+			if len(w.spawns) != 1 || (w.spawns[0].argv[0] == launcher) != (launches == launchesSprite) {
+				t.Fatal(w.spawns)
+			}
+			holds, err := w.desk.store.Actions(deskRunner, kindHold, incident.ActionAccepted)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if (len(holds) == 1) != (launches == launchesMac) {
+				t.Fatalf("%s runner holds %d", launches, len(holds))
+			}
+		})
+	}
+}
+
+func TestADeskConfigRefusesALaunchesValueNoRunnerTakes(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "runner.json")
+	if err := os.WriteFile(path, []byte(`{"drive":"brook","orca":{"run":"run_9","launches":"linux"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadDeskConfig(path, func(string) string { return "" }); err == nil || !strings.Contains(err.Error(), `orca.launches is "linux"`) {
+		t.Fatal(err)
+	}
+}
+
 func TestTheCoordinatorLaunchesOnTheMacWhileALaneWithNoPlaceTakesASprite(t *testing.T) {
 	coordinatorBrief := "Register slice: lane=root step=all\nScale: no N\nccx: incident=none\n"
 	for _, tt := range []struct {

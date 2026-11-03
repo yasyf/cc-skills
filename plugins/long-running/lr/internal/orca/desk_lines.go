@@ -35,6 +35,8 @@ const (
 	verbRelay       = "relay"
 	verbIncident    = "incident"
 	verbWithdraw    = "withdraw"
+	launchesMac     = "mac"
+	launchesSprite  = "sprite"
 	spawnedFix      = "-fix"
 	spawnedEvidence = "-evidence"
 	lookbackFirst   = 24 * time.Hour
@@ -335,6 +337,9 @@ func (d *Desk) cciLine(ctx context.Context, record client.Record) error {
 			return d.refuseLine(record)
 		}
 	}
+	if !d.takes(parsed) {
+		return nil
+	}
 	if expired, err := d.expiredLine(ctx, parsed, record, key); expired || err != nil {
 		return err
 	}
@@ -592,6 +597,22 @@ type launchTarget struct {
 func launchOf(action incident.Action) (launchTarget, error) {
 	var target launchTarget
 	return target, json.Unmarshal([]byte(action.Target), &target)
+}
+
+func (d *Desk) takes(parsed *directive) bool {
+	if d.Config.Launches == "" || parsed.Verb == verbRelay || parsed.Verb == verbWithdraw {
+		return true
+	}
+	return spriteLaunch(parsed) == (d.Config.Launches == launchesSprite)
+}
+
+func spriteLaunch(parsed *directive) bool {
+	spec := launchSpec.FindStringSubmatch(parsed.Rest)
+	if parsed.Verb != verbLaunch || spec == nil {
+		return false
+	}
+	raw, _ := os.ReadFile(resolved(spec[6]))
+	return !macPinned(spec[1], spec[3], string(raw))
 }
 
 func (d *Desk) launchLine(ctx context.Context, at, key, rest, by string) error {

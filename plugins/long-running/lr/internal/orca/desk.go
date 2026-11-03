@@ -62,6 +62,7 @@ var (
 
 type DeskConfig struct {
 	Source, Store, Drive, DeskInbox, Run, Receipts, BriefsRepo, BriefsLog, GC, AlertFacts, LandingRepo, LandingCheckout string
+	Launches                                                                                                            string
 	LaunchEnv                                                                                                           map[string]string
 	IncidentMechanismMinutes, IncidentPRMinutes, IncidentReadyMinutes                                                   int
 	StartMinutes, LaunchMinutes, HoldMinutes, CaseLanes                                                                 int
@@ -73,6 +74,7 @@ type runnerFile struct {
 	Orca  struct {
 		DeskInbox string `json:"desk_inbox"`
 		Run       string `json:"run"`
+		Launches  string `json:"launches"`
 		Briefs    struct {
 			Repo string `json:"repo"`
 			Log  string `json:"log"`
@@ -148,12 +150,15 @@ func LoadDeskConfig(path string, env func(string) string) (DeskConfig, error) {
 	if state == "" {
 		state = filepath.Join(home, ".local", "state")
 	}
+	if !slices.Contains([]string{"", launchesMac, launchesSprite}, file.Orca.Launches) {
+		return DeskConfig{}, fmt.Errorf("%s: orca.launches is %q; it names %s, %s, or nothing for a runner that takes every launch", path, file.Orca.Launches, launchesMac, launchesSprite)
+	}
 	root := expandHome(file.Store, home)
 	if root == "" {
 		root = filepath.Join(home, ".claude", "long-running", "incidents")
 	}
 	return DeskConfig{
-		Source: resolved(source), Store: root, Drive: file.Drive, DeskInbox: expandHome(file.Orca.DeskInbox, home), Run: file.Orca.Run,
+		Source: resolved(source), Store: root, Drive: file.Drive, DeskInbox: expandHome(file.Orca.DeskInbox, home), Run: file.Orca.Run, Launches: file.Orca.Launches,
 		Receipts:   filepath.Join(state, "long-running", "orca-launch", file.Orca.Run),
 		BriefsRepo: expandHome(file.Orca.Briefs.Repo, home), BriefsLog: file.Orca.Briefs.Log, GC: file.Orca.GC, AlertFacts: expandHome(file.Alert.Facts, home),
 		LandingRepo: file.Landing.Repo, LandingCheckout: file.Landing.Checkout, LaunchEnv: file.Orca.LaunchEnv,
