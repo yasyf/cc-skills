@@ -25,7 +25,10 @@ const (
 	kindRequest = "decide"
 	kindLanded  = "landed"
 	unreadMark  = " down or hand its PRs on, but it "
+	doneParked  = "done"
+	turnDied    = "died"
 	NeedsWork   = "needs-work"
+	Broken      = "broken"
 	Waiting     = "waiting"
 	Closed      = "closed"
 )
@@ -47,6 +50,8 @@ var (
 	carries     = []string{"head", "opened"}
 	waits       = []string{"ask", "blocked", "blocker"}
 	settled     = []string{"handoff", "done", "stand-down", "stopped"}
+	laneEnds    = []string{"done", "stopped", "fix-live"}
+	shipped     = []string{"release", "applied", "fix-live"}
 
 	numbered       = regexp.MustCompile(`^(.+)-(\d{1,2})$`)
 	replaces       = regexp.MustCompile(`\b([\w.-]+) replaces ([\w.-]+)\b`)
@@ -54,6 +59,7 @@ var (
 	verbWord       = regexp.MustCompile(`\b(?:closed|complete|done|park|retired|stop waking|unpark)\b`)
 	followedByWord = regexp.MustCompile(`^\s+\w`)
 	workerDone     = regexp.MustCompile(`^OUTCOME \S+ ([\w.-]+): worker_done succeeded\b`)
+	withdrawnWork  = regexp.MustCompile(`^WITHDRAWN \S+ ([\w.-]+): by \S+; dispatch `)
 	standDownList  = regexp.MustCompile(`(?i)\bstand[ -]?down\s+([^.(;:\n]+)`)
 	laneWord       = regexp.MustCompile(`[\w.-]+`)
 	card           = regexp.MustCompile(`\bcard-[\w.-]*\w`)
@@ -191,15 +197,6 @@ func unreadBy(s *store.Store, r Record, name, cited string) string {
 	return fmt.Sprintf("root's %s #%d would stand %s%s%s", r.Kind, r.Seq, name, unreadMark, read)
 }
 
-func successorNote(s *store.Store, name string) string {
-	probes := must(s.Probes())
-	heir, found := newest(s, name)
-	if found && heir.Name != name && heir.State != store.LaneRetired && probes[heir.Name].Dead.IsZero() {
-		return "its live successor is " + heir.Name
-	}
-	return "it has no live successor"
-}
-
 type Row struct {
 	Lane      string    `json:"lane"`
 	Session   string    `json:"session,omitempty"`
@@ -287,6 +284,9 @@ func Classify(lane store.Lane, peer *Peer, now time.Time, tokens, rotateAt int) 
 		if lane.StoppedOn != 0 {
 			return Verdict{StoodDown, fmt.Sprintf("stopped on root's #%d", lane.StoppedOn)}
 		}
+		if lane.Waiting != 0 {
+			return Verdict{Kind: Ok}
+		}
 		if peer == nil {
 			last := "never"
 			if !heard.IsZero() {
@@ -297,7 +297,7 @@ func Classify(lane store.Lane, peer *Peer, now time.Time, tokens, rotateAt int) 
 		if peer.Row.StoodDown {
 			return Verdict{Kind: StoodDown}
 		}
-		if lane.Waiting != 0 || (!lane.Answered.IsZero() && now.Sub(lane.Answered) < StaleAfter) {
+		if !lane.Answered.IsZero() && now.Sub(lane.Answered) < StaleAfter {
 			return Verdict{Kind: Ok}
 		}
 		return Verdict{Dead, "stopped at " + pacific(heard)}

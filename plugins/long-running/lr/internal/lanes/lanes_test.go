@@ -128,7 +128,7 @@ func newFake(t *testing.T, records []Record, peers []Row) *fake {
 		PRStates: func(numbers []int) (map[int]string, error) {
 			out := map[int]string{}
 			for _, n := range numbers {
-				out[n] = Closed
+				out[n] = Waiting
 				if state, ok := f.states[n]; ok {
 					out[n] = state
 				}
@@ -366,40 +366,15 @@ func TestAnIdleLanePastItsLineIsNeverAskedToRotate(t *testing.T) {
 	}
 }
 
-func TestOnlyASilentRosterLaneNotWaitingOnRootIsWoken(t *testing.T) {
-	cases := map[string]struct {
-		roster  bool
-		seen    time.Duration
-		waiting bool
-		woken   []string
-	}{
-		"silent-roster":   {true, 2 * time.Hour, false, []string{lane2}},
-		"active-roster":   {true, mins(5), false, nil},
-		"not-on-roster":   {false, 2 * time.Hour, false, nil},
-		"waiting-on-root": {true, 2 * time.Hour, true, nil},
-	}
-	for name, c := range cases {
-		t.Run(name, func(t *testing.T) {
-			s := memory(t)
-			f := adopted(t, s, writeBrief(t), "")
-			said := rec(2, lane2, "state", t0.Add(-c.seen), "restacking")
-			if c.waiting {
-				said = rec(2, lane2, "ask", t0.Add(-c.seen), "pick A or B?", Root)
-			}
-			f.feed = append(f.feed, said)
-			peer := who(lane2, true, t0)
-			if c.roster {
-				peer = onRoster(peer)
-			}
-			f.peers = []Row{peer}
+func TestSilenceAloneNeverWakesALane(t *testing.T) {
+	s := memory(t)
+	f := adopted(t, s, writeBrief(t), "")
+	f.feed = append(f.feed, rec(2, lane2, "state", t0.Add(-2*time.Hour), "restacking"))
+	f.peers = []Row{onRoster(who(lane2, true, t0))}
 
-			out := tick(t, s, f, t0)
+	out := tick(t, s, f, t0)
 
-			equal(t, f.wakes, c.woken)
-			equal(t, out.Woken, c.woken)
-			equal(t, len(out.Relaunched)+len(f.launches), 0)
-		})
-	}
+	equal(t, len(f.wakes)+len(out.Woken)+len(out.Relaunched)+len(f.launches)+len(f.posts), 0)
 }
 
 func TestALaneRootParkedIsNeverWokenUntilRootLiftsThePark(t *testing.T) {
@@ -425,27 +400,40 @@ func stall(seq int64, at time.Time, text string, pr int, topic string) Record {
 	return rec(seq, "stall-watch", "blocker", at, text, "conflicts-2@d1").withRefs(prs(pr)).withTopic(topic)
 }
 
-func TestABlockerOnAnIdleRosterLanesPRWakesItOnceThenAsksRootToReassign(t *testing.T) {
+func TestABlockerOnAnIdleLanesPRWakesItOnceThenItGetsASuccessorWithoutAnyoneAsked(t *testing.T) {
 	s := memory(t)
 	f := adopted(t, s, writeBrief(t), "", 46475)
-	f.feed = append(f.feed, stall(2, t0.Add(-mins(30)), "STALL red #46475 at 89f46c3, 659 min", 46475, "red:46475:89f46c3"), stall(3, t0.Add(-mins(20)), "STALL red #999 at abc, 5 min", 999, "red:999:abc"))
+	f.feed = append(f.feed, stall(2, t0.Add(-mins(30)), "STALL red #46475 at 89f46c3, 659 min", 46475, "red:46475:89f46c3"), stall(3, t0.Add(-mins(20)), "STALL red #46475 at 89f46c3, 669 min", 46475, "red:46475:89f46c3"))
 	f.peers = []Row{onRoster(who(lane2, true, t0.Add(-2*time.Hour)))}
 
 	woken := tick(t, s, f, t0)
 	f.feed = append(f.feed, stall(4, t0.Add(mins(5)), "STALL red #46475 at 89f46c3, 689 min", 46475, "red:46475:89f46c3"))
 	quiet := tick(t, s, f, t0.Add(mins(10)))
-	asked := tick(t, s, f, t0.Add(PageAnswer))
-	again := tick(t, s, f, t0.Add(2*PageAnswer))
+	replaced := tick(t, s, f, t0.Add(PageAnswer))
 
 	equal(t, woken.Woken, []string{lane2})
 	equal(t, f.pages[0]["text"], "STALL red #46475 at 89f46c3, 659 min")
-	equal(t, len(quiet.Woken)+len(asked.Woken)+len(again.Woken), 0)
+	equal(t, len(quiet.Woken)+len(replaced.Woken), 0)
 	equal(t, f.wakes, []string{lane2})
-	equal(t, asked.Reassign, []string{lane2})
-	equal(t, len(again.Reassign), 0)
-	equal(t, f.kinds(), []string{"ask:root"})
-	contains(t, f.posts[0].Text, "reassign #46475: conflicts-2 has posted nothing since it was woken")
-	equal(t, len(f.launches), 0)
+	equal(t, len(f.ofKind("ask")), 0)
+	equal(t, replaced.Relaunched[0].Old, lane2)
+	contains(t, replaced.Relaunched[0].Why, "has made no tool call since it was woken")
+	equal(t, f.launches, []string{"conflicts-3"})
+	equal(t, owners(t, s, 46475)[46475], "conflicts-3")
+}
+
+func TestAWokenLaneStillMakingToolCallsIsNeverReplaced(t *testing.T) {
+	s := memory(t)
+	f := adopted(t, s, writeBrief(t), "", 46475)
+	f.feed = append(f.feed, stall(2, t0.Add(-mins(30)), "STALL red #46475", 46475, "red:46475:89f46c3"))
+	f.peers = []Row{onRoster(who(lane2, true, t0.Add(-2*time.Hour)))}
+	tick(t, s, f, t0)
+	f.peers = []Row{onRoster(who(lane2, true, t0.Add(PageAnswer-mins(1))))}
+
+	out := tick(t, s, f, t0.Add(PageAnswer))
+
+	equal(t, len(out.Relaunched)+len(f.launches), 0)
+	equal(t, row(t, s, lane2).State, store.LaneDesired)
 }
 
 func TestALaneThatAnswersItsPageIsNeverAskedAbout(t *testing.T) {
@@ -461,7 +449,7 @@ func TestALaneThatAnswersItsPageIsNeverAskedAbout(t *testing.T) {
 	if row(t, s, lane2).Page != nil {
 		t.Fatal("page kept")
 	}
-	equal(t, len(out.Reassign)+len(f.posts), 0)
+	equal(t, len(out.Relaunched)+len(f.posts), 0)
 }
 
 func TestALiveLaneThatIgnoresRotateIsLeftWorking(t *testing.T) {
@@ -557,7 +545,7 @@ func TestALaneThatEndedItsTurnOnAnAskToRootWaitsAndStopsOnRootsAnswer(t *testing
 func TestALaneNoProcessRowListsIsHeldForRootAndNeverRelaunched(t *testing.T) {
 	s := memory(t)
 	f := adopted(t, s, writeBrief(t), "")
-	f.feed = append(f.feed, rec(2, lane2, "ask", t0, "pick A or B?", Root))
+	f.feed = append(f.feed, rec(2, lane2, "state", t0, "restacking", Root))
 	f.peers = nil
 
 	out := tick(t, s, f, t0.Add(mins(16)))
@@ -611,15 +599,15 @@ func TestALaneThatStoppedOnARootOrderOfAnyKindStandsDownAndIsNeverRelaunched(t *
 	}
 }
 
-func TestADeskWhoseLastRecordIsABlockerToAnotherLaneIsNotWaiting(t *testing.T) {
+func TestAStandingDeskWhoseLastRecordIsABlockerToAnotherLaneIsNotWaiting(t *testing.T) {
 	s := memory(t)
-	f := adopted(t, s, writeBrief(t), "")
-	f.feed = append(f.feed, rec(2, lane2, "blocker", t0, "#46001 red", "p8-lane"))
-	f.peers = []Row{who(lane2, false, t0)}
+	f, _ := standingLane(t, s)
+	f.feed = append(f.feed, rec(2, refresher, "blocker", t0, "#46001 red", "p8-lane"))
+	f.peers = []Row{who(refresher, false, t0)}
 
 	out := tick(t, s, f, t0.Add(mins(16)))
 
-	equal(t, out.Relaunched[0].Old, lane2)
+	equal(t, out.Relaunched[0].Old, refresher)
 }
 
 func TestAFreshStoreAdoptsALiveLaneSilentForHoursAndNeverRelaunchesIt(t *testing.T) {
@@ -897,7 +885,7 @@ func TestALaneAnUnreadStandDownLeftInPlaceIsNeverRelaunchedOnceItStops(t *testin
 		tick(t, s, f, t0)
 		equal(t, row(t, s, lane2).State, store.LaneHeld)
 		if postsAgain {
-			f.feed = append(f.feed, rec(4, lane2, "blocker", t0.Add(mins(1)), "LIVE conflicts-1: nothing to take over"))
+			f.feed = append(f.feed, rec(4, lane2, "state", t0.Add(mins(1)), "LIVE conflicts-1: nothing to take over"))
 			tick(t, s, f, t0.Add(mins(2)))
 			equal(t, row(t, s, lane2).State, store.LaneDesired)
 		}
@@ -1024,9 +1012,9 @@ func TestATickWhoseLivenessSourceDoesNotAnswerActsOnNothing(t *testing.T) {
 	equal(t, row(t, s, lane2).State, store.LaneDesired)
 }
 
-func TestQuietIsNeverDeadOnlyAnUnansweredAskIs(t *testing.T) {
+func TestALaneReadsLiveUntilItsRowEnds(t *testing.T) {
 	s := memory(t)
-	for name, heard := range map[string]time.Time{"fresh-1": t0.Add(-mins(50)), "stale-1": t0.Add(-7 * time.Hour), "gone-1": t0.Add(-mins(5)), "probed-1": t0.Add(-2 * time.Hour)} {
+	for name, heard := range map[string]time.Time{"fresh-1": t0.Add(-mins(50)), "stale-1": t0.Add(-7 * time.Hour), "gone-1": t0.Add(-mins(5))} {
 		lane := store.Lane{Name: name, Brief: "/briefs/x.md", Model: "opus", Effort: "xhigh", Role: "lane", State: store.LaneDesired}
 		if name == "fresh-1" {
 			lane.PRs = []int{46475}
@@ -1039,12 +1027,6 @@ func TestQuietIsNeverDeadOnlyAnUnansweredAskIs(t *testing.T) {
 		}
 	}
 	retire(s, "gone-1", "gone-2", t0)
-	if err := s.Probe("probed-1", t0.Add(-mins(40))); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.ProbeDead("probed-1", t0.Add(-mins(20))); err != nil {
-		t.Fatal(err)
-	}
 
 	rows, err := LivenessRows(s)
 	if err != nil {
@@ -1055,7 +1037,7 @@ func TestQuietIsNeverDeadOnlyAnUnansweredAskIs(t *testing.T) {
 		byName[one.Lane] = one
 	}
 
-	equal(t, []bool{byName["fresh-1"].Live, byName["stale-1"].Live, byName["gone-1"].Live, byName["probed-1"].Live}, []bool{true, true, true, false})
+	equal(t, []bool{byName["fresh-1"].Live, byName["stale-1"].Live, byName["gone-1"].Live}, []bool{true, true, false})
 	equal(t, byName["fresh-1"].PRs, []int{46475})
 	equal(t, *byName["gone-1"].RetiredBy, "gone-2")
 }
@@ -1227,33 +1209,6 @@ func TestALaneWhoseNewestRecordSettlesItIsNeverWoken(t *testing.T) {
 	equal(t, len(out.Woken)+len(f.wakes), 0)
 }
 
-func TestRootNamingALaneThatLeftItsAskUnansweredGetsOneBlockerBack(t *testing.T) {
-	for state, said := range map[store.LaneState]string{store.LaneDesired: "its live successor is conflicts-3", store.LaneRetired: "it has no live successor"} {
-		s, brief := memory(t), writeBrief(t)
-		f := adopted(t, s, brief, "")
-		if _, err := s.WantLane(store.Lane{Name: "conflicts-3", Brief: brief, Model: "opus", Effort: "xhigh", Role: "lane", State: state}, t0.Add(-time.Hour)); err != nil {
-			t.Fatal(err)
-		}
-		retire(s, lane2, "conflicts-3", t0.Add(-time.Hour))
-		if err := s.Probe(lane2, t0.Add(-mins(40))); err != nil {
-			t.Fatal(err)
-		}
-		if err := s.ProbeDead(lane2, t0.Add(-mins(20))); err != nil {
-			t.Fatal(err)
-		}
-		f.feed = append(f.feed, ask(2, "owner", lane2, t0.Add(-mins(1)), []int{46731}, "", nil))
-		f.peers = []Row{who("conflicts-3", true, t0)}
-
-		tick(t, s, f, t0)
-		tick(t, s, f, t0.Add(mins(1)))
-
-		blockers := f.ofKind("blocker")
-		equal(t, len(blockers), 1)
-		contains(t, blockers[0].Text, "conflicts-2 for #46731: root named it owner")
-		contains(t, blockers[0].Text, said)
-	}
-}
-
 func TestARootAskNamingASilentLanesPRPagesItOnce(t *testing.T) {
 	s := memory(t)
 	f := adopted(t, s, writeBrief(t), "", 46869)
@@ -1270,56 +1225,53 @@ func TestARootAskNamingASilentLanesPRPagesItOnce(t *testing.T) {
 	}
 }
 
-func TestAQuietOwnerOfOpenPRsIsAskedFirstAndNamedToRootOnlyIfItNeverAnswers(t *testing.T) {
+func TestAQuietOwnerOfAPRThatNeedsWorkHearsTheFactAndRootHearsNothing(t *testing.T) {
 	s := memory(t)
 	f := adopted(t, s, writeBrief(t), "", 46869, 47079, 46001)
 	if err := s.LaneHeard(lane2, t0.Add(-mins(90)), "state", 0); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Own("quiet-desk", []int{46002}); err != nil {
-		t.Fatal(err)
-	}
-	f.states = map[int]string{46869: NeedsWork, 47079: NeedsWork, 46002: NeedsWork}
-	f.peers = []Row{onRoster(who(lane2, true, t0))}
+	f.states = map[int]string{46869: NeedsWork, 47079: NeedsWork, 46001: Waiting}
+	f.peers = []Row{onRoster(who(lane2, true, t0.Add(-mins(90))))}
 
-	tick(t, s, f, t0)
-	asked := f.ofKind("ask")
-	f.posts = nil
-	tick(t, s, f, t0.Add(mins(5)))
-	early := len(f.posts)
-	tick(t, s, f, t0.Add(StaleAfter))
-	tick(t, s, f, t0.Add(StaleAfter+mins(1)))
+	out := tick(t, s, f, t0)
+	again := tick(t, s, f, t0.Add(mins(5)))
 
-	equal(t, []string{asked[0].To[0], asked[1].To[0]}, []string{lane2, "quiet-desk"})
-	contains(t, asked[0].Text, "you own #46869 #47079, which still need work")
-	equal(t, early, 0)
-	if !slices.Contains(f.wakes, lane2) {
-		t.Fatal(f.wakes)
-	}
-	blockers := f.ofKind("blocker")
-	equal(t, len(blockers), 1)
-	contains(t, blockers[0].Text, "2 lanes own PRs that need work and left the supervisor's direct ask unanswered")
-	contains(t, blockers[0].Text, "quiet-desk (#46002; asked at")
+	equal(t, out.Woken, []string{lane2})
+	equal(t, len(again.Woken), 0)
+	contains(t, pageText(f.pages[0], "why"), "you own #46869 #47079, which still need work")
+	equal(t, len(f.posts), 0)
 }
 
-func TestAnOwnerThatAnswersItsAskIsNeverNamedToRoot(t *testing.T) {
+func TestAQuietOwnerPastItsWakeGetsASuccessorThatTakesItsPRs(t *testing.T) {
 	s := memory(t)
 	f := adopted(t, s, writeBrief(t), "", 46869)
 	if err := s.LaneHeard(lane2, t0.Add(-mins(90)), "state", 0); err != nil {
 		t.Fatal(err)
 	}
 	f.states = map[int]string{46869: NeedsWork}
+	f.peers = []Row{onRoster(who(lane2, true, t0.Add(-mins(90))))}
+
 	tick(t, s, f, t0)
-	f.feed = append(f.feed, rec(2, lane2, "state", t0.Add(mins(4)), "idle: #46869 waits on the owner's tap"))
+	out := tick(t, s, f, t0.Add(PageAnswer))
 
-	tick(t, s, f, t0.Add(StaleAfter+mins(1)))
+	equal(t, out.Relaunched[0].Old, lane2)
+	equal(t, owners(t, s, 46869)[46869], "conflicts-3")
+	equal(t, len(f.ofKind("blocker"))+len(f.ofKind("ask")), 0)
+}
 
-	equal(t, f.kinds(), []string{"ask:conflicts-2"})
-	probes, err := s.Probes()
-	if err != nil {
+func TestAClosedPRLeavesItsQuietOwner(t *testing.T) {
+	s := memory(t)
+	f := adopted(t, s, writeBrief(t), "", 46869)
+	if err := s.LaneHeard(lane2, t0.Add(-mins(90)), "state", 0); err != nil {
 		t.Fatal(err)
 	}
-	equal(t, len(probes), 0)
+	f.states = map[int]string{46869: Closed}
+
+	tick(t, s, f, t0)
+
+	equal(t, owners(t, s, 46869)[46869], "")
+	equal(t, len(f.wakes)+len(f.posts), 0)
 }
 
 func TestASuccessorLaunchTakesItsPredecessorsPRsAndBecomesTheEndOfItsChain(t *testing.T) {
@@ -1402,13 +1354,12 @@ func TestARootStandDownAfterTheLanesOwnDoneStillHandsItsPRsToRoot(t *testing.T) 
 	equal(t, owners(t, s, 45492, 46512), map[int]string{45492: Root, 46512: Root})
 }
 
-func TestANeedsWorkWakeSkipsAHeldPRAPRRootMovedAndALaneThatPostedDone(t *testing.T) {
+func TestANeedsWorkPageSkipsAHeldPRAndAPRRootMoved(t *testing.T) {
 	said := map[string]Record{
-		"hold":   rec(2, Root, "hold", t0.Add(-mins(99)), "hold #46107: held per its earlier root decide; no work owed by any lane until the hold lifts", Self, lane2).withRefs(prs(46107)),
-		"decide": rec(3, Root, "decide", t0.Add(-mins(98)), "root: #47491 moves to p8a-step7 under its existing typed hold; #46107 stays under its typed hold with root as owner until a lane needs it. conflicts-2 is done (registry request filed).", lane2),
-		"done":   rec(4, lane2, "done", t0.Add(-mins(97)), "conflicts-2 retired per root 324090: #46107 is root-owned under typed hold 322779", Root, Self),
+		"hold":   rec(2, Root, "hold", t0.Add(-mins(99)), "hold #46107: held per its earlier root decide; no work owed by any lane until the hold lifts", Self).withRefs(prs(46107)),
+		"decide": rec(3, Root, "decide", t0.Add(-mins(98)), "root: #46107 moves to root under its existing typed hold", Self).withRefs(prs(46107)),
 	}
-	for _, shown := range [][]string{{}, {"hold"}, {"decide"}, {"done"}, {"hold", "decide", "done"}} {
+	for _, shown := range [][]string{{}, {"hold"}, {"decide"}} {
 		s := memory(t)
 		f := adopted(t, s, writeBrief(t), "", 46107)
 		for _, kind := range shown {
@@ -1425,18 +1376,7 @@ func TestANeedsWorkWakeSkipsAHeldPRAPRRootMovedAndALaneThatPostedDone(t *testing
 
 		tick(t, s, f, t0)
 
-		asked := 0
-		for _, p := range f.ofKind("ask") {
-			if p.To[0] == lane2 {
-				asked++
-			}
-		}
-		equal(t, asked > 0, len(shown) == 0)
-		owner := lane2
-		if slices.Contains(shown, "decide") {
-			owner = Root
-		}
-		equal(t, owners(t, s, 46107)[46107], owner)
+		equal(t, slices.Contains(f.wakes, lane2), len(shown) == 0)
 	}
 }
 
@@ -1877,7 +1817,7 @@ func TestAHeldLanesBlockerReachesItsDeskAndNeverRoot(t *testing.T) {
 	f := adopted(t, s, writeBrief(t), "")
 	f.desks = map[string]string{lane2: "meta-desk-1"}
 	registered(t, s, store.Lane{Name: "meta-desk-1"})
-	f.feed = append(f.feed, rec(2, lane2, "ask", t0, "pick A or B?", Root))
+	f.feed = append(f.feed, rec(2, lane2, "state", t0, "restacking", Root))
 	f.peers = []Row{who("meta-desk-1", true, t0.Add(mins(16)))}
 
 	tick(t, s, f, t0.Add(mins(16)))
@@ -1897,49 +1837,6 @@ func TestARelaunchIsReportedToTheDeskThatOwnsTheLane(t *testing.T) {
 
 	equal(t, len(out.Relaunched), 1)
 	equal(t, f.kinds(), []string{"report:meta-desk-1"})
-}
-
-func TestAWokenLaneThatStaysQuietIsTheDesksToReassignWithAVerbTheDeskCanPost(t *testing.T) {
-	s := memory(t)
-	f := adopted(t, s, writeBrief(t), "", 46475)
-	f.desks = map[string]string{lane2: "meta-desk-1"}
-	registered(t, s, store.Lane{Name: "meta-desk-1"})
-	f.feed = append(f.feed, stall(2, t0.Add(-mins(30)), "STALL red #46475 at 89f46c3, 659 min", 46475, "red:46475:89f46c3"))
-	f.peers = []Row{onRoster(who(lane2, true, t0.Add(-2*time.Hour))), who("meta-desk-1", true, t0)}
-
-	tick(t, s, f, t0)
-	asked := tick(t, s, f, t0.Add(PageAnswer))
-
-	equal(t, asked.Reassign, []string{lane2})
-	equal(t, f.kinds(), []string{"ask:meta-desk-1"})
-	contains(t, f.posts[0].Text, "Post `lr request stand-down conflicts-2 --successor <lane>`")
-}
-
-func TestQuietOwnersAreNamedToEachOwnersDeskInOneBlockerAndRootHasTheRest(t *testing.T) {
-	s := memory(t)
-	f := adopted(t, s, writeBrief(t), "", 46869)
-	f.desks = map[string]string{"quiet-desk": "meta-desk-1"}
-	registered(t, s, store.Lane{Name: "meta-desk-1"})
-	if err := s.LaneHeard(lane2, t0.Add(-mins(90)), "state", 0); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.Own("quiet-desk", []int{46002}); err != nil {
-		t.Fatal(err)
-	}
-	f.states = map[int]string{46869: NeedsWork, 46002: NeedsWork}
-	f.peers = []Row{who(lane2, true, t0), who("meta-desk-1", true, t0)}
-
-	tick(t, s, f, t0)
-	asked := f.ofKind("ask")
-	tick(t, s, f, t0.Add(StaleAfter))
-
-	equal(t, []string{asked[0].To[0], asked[1].To[0]}, []string{lane2, "quiet-desk"})
-	contains(t, asked[0].Text, "or root is told you are gone")
-	contains(t, asked[1].Text, "or meta-desk-1 is told you are gone")
-	blockers := f.ofKind("blocker")
-	equal(t, []string{blockers[0].To[0], blockers[1].To[0]}, []string{"meta-desk-1", Root})
-	contains(t, blockers[0].Text, "quiet-desk (#46002;")
-	contains(t, blockers[1].Text, lane2+" (#46869;")
 }
 
 func TestALaneThatPostsStoppedAsAStateIsRetiredAndNeverGetsASuccessor(t *testing.T) {

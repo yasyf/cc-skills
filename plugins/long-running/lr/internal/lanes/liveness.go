@@ -43,7 +43,7 @@ func LivenessRows(s *store.Store) (rows []Liveness, err error) {
 	for _, lane := range must(s.AllLanes()) {
 		registered[lane.Name] = lane
 	}
-	heard, owned, probes := must(s.Heard()), must(s.Owners()), must(s.Probes())
+	heard, owned := must(s.Heard()), must(s.Owners())
 	names := map[string]bool{}
 	for name := range registered {
 		names[name] = true
@@ -55,12 +55,13 @@ func LivenessRows(s *store.Store) (rows []Liveness, err error) {
 		names[name] = true
 	}
 	for _, name := range slices.Sorted(maps.Keys(names)) {
-		row := Liveness{Lane: name, State: Unregistered, Live: probes[name].Dead.IsZero(), PRs: append([]int{}, owned[name]...), Route: routeOf(s, name)}
+		row := Liveness{Lane: name, State: Unregistered, Live: true, PRs: append([]int{}, owned[name]...), Route: routeOf(s, name)}
 		if at, ok := heard[name]; ok {
 			row.Heard = nullable(store.Stamp(at))
 		}
 		if lane, ok := registered[name]; ok {
 			said := must(BriefOf(lane.Brief))
+			row.Live = isLive(lane.State)
 			row.State, row.Step, row.Standing, row.Deliverable = string(lane.State), said.Step, said.Standing, said.Deliverable
 			row.Handoff, row.RetiredBy, row.Placement, row.Predecessor, row.Brief = nullable(lane.Handoff), nullable(lane.RetiredBy), nullable(lane.Placement), nullable(lane.Predecessor), nullable(lane.Brief)
 		}
@@ -71,14 +72,13 @@ func LivenessRows(s *store.Store) (rows []Liveness, err error) {
 
 func RegistryLines(s *store.Store, names []string) (lines []string, err error) {
 	defer recovered(&err)
-	probes := must(s.Probes())
 	for _, lane := range must(s.AllLanes()) {
 		if len(names) > 0 && !slices.Contains(names, lane.Name) {
 			continue
 		}
 		var line strings.Builder
 		state := "silent"
-		if probes[lane.Name].Dead.IsZero() {
+		if isLive(lane.State) {
 			state = "live"
 		}
 		heard := "never"

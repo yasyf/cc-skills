@@ -59,7 +59,6 @@ type Outcome struct {
 	Adopted    []string
 	Withdrawn  []string
 	Woken      []string
-	Reassign   []string
 }
 
 func Tick(s *store.Store, d Deps, now time.Time, generation int64) (out Outcome, err error) {
@@ -95,8 +94,8 @@ func Tick(s *store.Store, d Deps, now time.Time, generation int64) (out Outcome,
 	}
 	said := fold(s, records, adoptable, d.Briefs)
 	out.Adopted = said.adopted
-	announce(s, d, said, now)
-	probeOwners(s, d, found, now)
+	announce(d, said, now)
+	ownedWork(s, d, now)
 	for _, name := range said.hand {
 		do(d.Withdraw(name))
 		out.Withdrawn = append(out.Withdrawn, name)
@@ -123,17 +122,13 @@ func Tick(s *store.Store, d Deps, now time.Time, generation int64) (out Outcome,
 	return out, nil
 }
 
-func announce(s *store.Store, d Deps, said folded, now time.Time) {
+func announce(d Deps, said folded, now time.Time) {
 	for _, one := range said.stood {
 		how := ", its PRs to root"
 		if one.successor != "" {
 			how = " for " + one.successor
 		}
 		do(d.Post(Post{Kind: "stand-down", To: []string{one.name}, Text: fmt.Sprintf("%s %s stood down%s by record #%d.", pacific(now), one.name, how, one.seq), Successor: one.successor, Re: one.seq, PRs: one.prs}))
-	}
-	for _, line := range said.dead {
-		name, _, _ := strings.Cut(line, " ")
-		escalate(s, d, "lane:"+name, line, now)
 	}
 	verbs := slices.Sorted(slices.Values(Verbs))
 	for _, seq := range said.untyped {
@@ -162,8 +157,8 @@ func act(s *store.Store, d Deps, lane store.Lane, found map[string]Peer, taken m
 	if peer != nil && (verdict.Kind == CameUp || (lane.State == store.LaneDesired && (verdict.Kind == Ok || verdict.Kind == AskRotate))) {
 		do(s.Heartbeat(store.Worker{Name: lane.Name, Generation: generation, Heartbeat: newer(peer.Seen, lane.Heard)}))
 	}
-	if verdict.Kind == Ok && lane.State == store.LaneDesired && lane.Waiting == 0 && peer != nil && peer.Row.Roster != "" && silent >= StaleAfter {
-		wake(s, d, lane, *peer, now, out)
+	if verdict.Kind == Ok && lane.State == store.LaneDesired && lane.Waiting == 0 && lane.Page != nil && peer != nil && (peer.Row.Roster != "" || peer.Row.Dispatch != "") {
+		wake(s, d, lane, *peer, found, taken, now, out)
 	}
 	switch verdict.Kind {
 	case CameUp:
@@ -370,8 +365,8 @@ func truncated(text string, limit int) string {
 	return string(runes[:limit])
 }
 
-func wake(s *store.Store, d Deps, lane store.Lane, peer Peer, now time.Time, out *Outcome) {
-	if slices.Contains(settled, lane.Last) {
+func wake(s *store.Store, d Deps, lane store.Lane, peer Peer, found map[string]Peer, taken map[string]bool, now time.Time, out *Outcome) {
+	if lane.Last != "done" && slices.Contains(settled, lane.Last) {
 		return
 	}
 	page := lane.Page
@@ -384,25 +379,16 @@ func wake(s *store.Store, d Deps, lane store.Lane, peer Peer, now time.Time, out
 	if woke == "" {
 		if must(d.Wake(lane.Name, peer.Row, page)) {
 			out.Woken = append(out.Woken, lane.Name)
-			if page != nil {
-				do(s.SetLanePage(lane.Name, with(page, "woke", store.Stamp(now))))
-			}
+			do(s.SetLanePage(lane.Name, with(page, "woke", store.Stamp(now))))
 		}
 		return
 	}
 	wokeAt := must(store.Parse(woke))
-	if pageText(page, "asked") != "" || now.Sub(wokeAt) < PageAnswer {
+	if now.Sub(wokeAt) < PageAnswer || now.Sub(peer.Seen) < PageAnswer {
 		return
 	}
-	owned := or(numberList(prs), lane.Name+"'s work")
-	desk := owningDesk(s, d, lane.Name)
-	how := fmt.Sprintf("Post `<lane> replaces %s` or a decide naming owner=<lane>", lane.Name)
-	if desk != Root {
-		how = fmt.Sprintf("Post `lr request stand-down %s --successor <lane>`", lane.Name)
-	}
-	do(d.Post(Post{Kind: "ask", To: []string{desk}, LaneRef: lane.Name, PRs: prs, Text: fmt.Sprintf("%s reassign %s: %s has posted nothing since it was woken at %s because %s. %s; it is not woken again for that blocker.", pacific(now), owned, lane.Name, pacific(wokeAt), truncated(pageText(page, "why"), 240), how)}))
-	do(s.SetLanePage(lane.Name, with(page, "asked", store.Stamp(now))))
-	out.Reassign = append(out.Reassign, lane.Name)
+	do(s.SetLanePage(lane.Name, nil))
+	relaunch(s, d, lane, found, fmt.Sprintf("has made no tool call since it was woken at %s because %s", pacific(wokeAt), truncated(pageText(page, "why"), 240)), taken, now, out)
 }
 
 func with(page map[string]any, key, value string) map[string]any {
@@ -411,14 +397,8 @@ func with(page map[string]any, key, value string) map[string]any {
 	return changed
 }
 
-func probeOwners(s *store.Store, d Deps, found map[string]Peer, now time.Time) {
+func ownedWork(s *store.Store, d Deps, now time.Time) {
 	heard, probes := must(s.Heard()), must(s.Probes())
-	for name, probe := range probes {
-		if at, ok := heard[name]; ok && at.After(probe.Asked) {
-			do(s.Unprobe(name))
-			delete(probes, name)
-		}
-	}
 	holds, err := d.Held()
 	if errors.Is(err, ErrUnread) {
 		return
@@ -427,6 +407,10 @@ func probeOwners(s *store.Store, d Deps, found map[string]Peer, now time.Time) {
 	retired := map[string]bool{}
 	for _, lane := range must(s.Lanes(store.LaneRetired)) {
 		retired[lane.Name] = true
+	}
+	rows := map[string]store.Lane{}
+	for _, lane := range must(s.Lanes(live...)) {
+		rows[lane.Name] = lane
 	}
 	var unowned, wanted []int
 	quiet := map[string][]int{}
@@ -445,7 +429,7 @@ func probeOwners(s *store.Store, d Deps, found map[string]Peer, now time.Time) {
 			wanted = append(wanted, open...)
 			continue
 		}
-		if since, ok := heard[name]; !ok || now.Sub(since) >= liveWithin {
+		if since, ok := heard[name]; !ok || now.Sub(since) >= liveWithin || waitsOnOwn(rows[name], open) {
 			quiet[name] = open
 			wanted = append(wanted, open...)
 		}
@@ -459,7 +443,7 @@ func probeOwners(s *store.Store, d Deps, found map[string]Peer, now time.Time) {
 	strandedFresh := []int{}
 	for _, n := range unowned {
 		key := fmt.Sprintf("%s:%d", Root, n)
-		if states[n] != NeedsWork {
+		if states[n] != NeedsWork && states[n] != Broken {
 			do(s.Unprobe(key))
 			continue
 		}
@@ -477,44 +461,64 @@ func probeOwners(s *store.Store, d Deps, found map[string]Peer, now time.Time) {
 			do(s.Probe(fmt.Sprintf("%s:%d", Root, n), now))
 		}
 	}
-	lines := map[string][]string{}
 	for _, name := range slices.Sorted(maps.Keys(quiet)) {
-		var work []int
+		var work, gone []int
 		for _, n := range quiet[name] {
-			if states[n] == NeedsWork {
+			switch states[n] {
+			case NeedsWork, Broken:
 				work = append(work, n)
+			case Closed:
+				gone = append(gone, n)
+			}
+		}
+		if len(gone) > 0 {
+			do(s.Disown(gone))
+			settleOwner(s, name, now)
+		}
+		lane, known := rows[name]
+		if !known || lane.Page != nil {
+			continue
+		}
+		if lane.Waiting != 0 {
+			if !waitsOnOwn(lane, quiet[name]) {
+				continue
+			}
+			work = freshlyBroken(s, quiet[name], states, probes, now)
+			if len(work) > 0 {
+				do(s.SetLaneWaiting(name, 0, now, ""))
 			}
 		}
 		if len(work) == 0 {
 			continue
 		}
-		owned := numberList(work)
-		probe, asked := probes[name]
+		text := fmt.Sprintf("you own %s, which still need work", numberList(work))
+		do(s.SetLanePage(name, map[string]any{"topic": "work:" + name, "why": text, "text": text, "prs": work}))
+	}
+}
+
+func waitsOnOwn(lane store.Lane, prs []int) bool {
+	gates := strings.Fields(lane.Awaits)
+	return slices.Contains(gates, doneParked) || slices.ContainsFunc(prs, func(n int) bool { return slices.Contains(gates, fmt.Sprintf("pr:%d", n)) })
+}
+
+func freshlyBroken(s *store.Store, prs []int, states map[int]string, probes map[string]store.Probe, now time.Time) []int {
+	var broken []int
+	for _, n := range prs {
+		key := brokenProbe(n)
+		_, paged := probes[key]
 		switch {
-		case !asked:
-			since := "you were named"
-			if at, ok := heard[name]; ok {
-				since = pacific(at)
-			}
-			text := fmt.Sprintf("%s %s: you own %s, which still need work, and have posted nothing since %s. Post any record within %d minutes, such as your state, or %s is told you are gone.", pacific(now), name, owned, since, int(StaleAfter.Minutes()), owningDesk(s, d, name))
-			do(d.Post(Post{Kind: "ask", To: []string{name}, Text: text}))
-			do(s.Probe(name, now))
-			if peer, ok := found[name]; ok && peer.Row.Roster != "" {
-				must(d.Wake(name, peer.Row, map[string]any{"topic": "probe:" + name, "why": text, "text": text, "prs": work}))
-			}
-		case probe.Dead.IsZero() && now.Sub(probe.Asked) >= StaleAfter:
-			do(s.ProbeDead(name, now))
-			desk := owningDesk(s, d, name)
-			lines[desk] = append(lines[desk], fmt.Sprintf("%s (%s; asked at %s; %s)", name, owned, pacific(probe.Asked), successorNote(s, name)))
+		case states[n] == Broken && !paged:
+			do(s.Probe(key, now))
+			broken = append(broken, n)
+		case states[n] != Broken && paged:
+			do(s.Unprobe(key))
 		}
 	}
-	for _, desk := range slices.Sorted(maps.Keys(lines)) {
-		noun := "lane"
-		if len(lines[desk]) > 1 {
-			noun = "lanes"
-		}
-		do(d.Post(Post{Kind: "blocker", To: []string{desk}, Text: fmt.Sprintf("%s %d %s own PRs that need work and left the supervisor's direct ask unanswered for %d minutes: %s", pacific(now), len(lines[desk]), noun, int(StaleAfter.Minutes()), strings.Join(lines[desk], "; "))}))
-	}
+	return broken
+}
+
+func brokenProbe(n int) string {
+	return fmt.Sprintf("broken:%d", n)
 }
 
 func unownedDuties(s *store.Store, d Deps, found map[string]Peer, now time.Time) {
