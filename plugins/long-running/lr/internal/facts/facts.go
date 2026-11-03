@@ -38,6 +38,7 @@ const (
       pageInfo { hasNextPage endCursor }
       nodes {
         number
+        isDraft
         headRefOid
         headRefName
         author { login }
@@ -334,6 +335,7 @@ type label struct {
 
 type pullRequest struct {
 	Number      int    `json:"number"`
+	IsDraft     bool   `json:"isDraft"`
 	HeadRefOid  string `json:"headRefOid"`
 	HeadRefName string `json:"headRefName"`
 	Author      struct {
@@ -542,6 +544,7 @@ func (s Source) factsOf(row statusRow, pr pullRequest, required []string, stored
 		Branch:      pr.HeadRefName,
 		Base:        row.Base,
 		Lane:        lane,
+		Draft:       pr.IsDraft,
 		Closed:      row.State != "OPEN",
 		Merged:      row.State == "MERGED" || row.Queue == "landed" || row.Queue == "unknown" && pr.labelled(trunkMerged),
 		CI:          ci,

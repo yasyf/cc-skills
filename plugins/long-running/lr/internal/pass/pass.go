@@ -102,7 +102,7 @@ func classifyOne(s *store.Store, f machine.Facts, byBranch map[string]machine.Fa
 	if err := s.PutPR(store.PR{Repo: f.Repo, Number: f.Number, Head: f.Head, Base: f.Base, Lane: f.Lane, State: verdict.State, ReadAt: now}); err != nil {
 		return err
 	}
-	if verdict.State.Terminal() {
+	if !verdict.OpensItem() {
 		_, err := s.CloseItems(f.Repo, f.Number, now, "")
 		return err
 	}

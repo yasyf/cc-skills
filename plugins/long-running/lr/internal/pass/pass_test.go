@@ -161,6 +161,25 @@ func TestAStateChangeClosesTheOldItemAndOpensTheNewOne(t *testing.T) {
 	}
 }
 
+func TestAPRNobodyDrivesLosesItsItemsAndOpensNoneUntilALanePosts(t *testing.T) {
+	s, r := newStore(t), &recorder{}
+	ungraded := func(lane string) func(*machine.Facts) {
+		return func(f *machine.Facts) { f.Lane, f.Finder, f.Fidelity, f.Tap = lane, "", "", "" }
+	}
+	opens := func(at time.Time, lane string, want int) {
+		t.Helper()
+		run(t, s, r, at, all, facts(45583, ungraded(lane)))
+		if open, err := s.OpenItems(repo, 45583); err != nil || len(open) != want {
+			t.Fatalf("with lane %q open = %+v, %v, want %d", lane, open, err, want)
+		}
+	}
+
+	opens(t0, "lane-7", 1)
+	opens(t0.Add(time.Minute), "", 0)
+	opens(t0.Add(2*time.Minute), "", 0)
+	opens(t0.Add(3*time.Minute), "lane-7", 1)
+}
+
 func TestLandedClosesEveryOpenItem(t *testing.T) {
 	s, r := newStore(t), &recorder{}
 
