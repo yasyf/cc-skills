@@ -22,8 +22,10 @@ def posts(evt: BaseHookEvent) -> Iterator[tuple[str, list[str], str, str, bool]]
     """Each cci post in `evt` as its writing lane, recipients, kind, text, and whether that text is one inline line."""
     if evt.tool_name == POST_TOOL:
         given = evt._tool_input
-        text = str(given.get("text") or "")
-        yield str(given.get("lane") or drive_lane(evt) or ""), [str(to) for to in given.get("to") or ()], str(given.get("kind") or ""), text, not given.get("path") and "\n" not in text
+        lane = str(given.get("lane") or drive_lane(evt) or "")
+        for record in [given, *(given.get("records") or ())]:
+            text = str(record.get("text") or "")
+            yield str(record.get("lane") or lane), [str(to) for to in record.get("to") or ()], str(record.get("kind") or ""), text, not record.get("path") and "\n" not in text
         return
     for call in evt.command.calls("cci"):
         values = CCI_POST.bind(call).values
@@ -42,7 +44,7 @@ def one_decide_line(kind: str, text: str, inline: bool) -> bool:
 class MetaRecordToRoot:
     def check(self, evt: BaseHookEvent) -> bool:
         return any(
-            ROOT in (to.split("@", 1)[0] for to in recipients) and not one_decide_line(kind, text, inline) and (found := routed(evt, lane)) is not None and found["meta"]
+            ROOT in (to.split("@", 1)[0] for to in recipients) and not one_decide_line(kind, text, inline) and (found := routed(evt, lane)) is not None and found.get("meta")
             for lane, recipients, kind, text, inline in posts(evt)
         )
 
@@ -66,6 +68,7 @@ hook(  # capt-hook: no-escape the owner ruled that meta records reach root only 
         Input(command=DECIDE.replace("stand down", "M35: stand down"), env=DRIVE_CONFIG, commands=IS_META): Block(),
         Input(command=f"cci post --drive d --lane {META} --kind decide --to root --text - <<'EOF'\nstand down conflicts-2\nwhy: M35\nEOF", env=DRIVE_CONFIG, commands=IS_META): Block(),
         mcp(META, "report", "hook-gate-1 merged #2201", ["root"]): Block(),
+        Input(tool=POST_TOOL, tool_input={"lane": META, "records": [{"kind": "report", "to": ["owner-relay"], "text": "x"}, {"kind": "report", "to": ["root"], "text": "y"}]}, env=DRIVE_CONFIG, commands=IS_META): Block(),
         Input(command=DECIDE, env=DRIVE_CONFIG, commands=IS_META): Allow(),
         mcp(META, "decide", "relaunch conflicts-2 from its handoff", ["root"]): Allow(),
         Input(command=REPORT.replace("--to root", "--to owner-relay"), env=DRIVE_CONFIG, commands=IS_META): Allow(),
