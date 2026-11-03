@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -45,7 +46,7 @@ func graphQLPages(prs []recordedPR) string {
 		page := prs[start:min(start+100, len(prs))]
 		nodes := make([]map[string]any, 0, len(page))
 		for _, pr := range page {
-			labels, commits := []map[string]any{}, []map[string]any{}
+			labels, commits := make([]map[string]any, 0, len(pr.labels)), make([]map[string]any, 0, len(pr.commits))
 			for _, name := range pr.labels {
 				labels = append(labels, map[string]any{"name": name})
 			}
@@ -327,6 +328,22 @@ func TestBusRecordsLandAsFactRowsAndMoveTheCursor(t *testing.T) {
 	cursor, err := h.store.Cursor(facts.BusCursor)
 	if err != nil || cursor == 0 {
 		t.Fatalf("cursor = %d, %v", cursor, err)
+	}
+}
+
+func TestAHeadRecordsTheBoardsWordsAsFactsOnItsHead(t *testing.T) {
+	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
+	post(t, "lane-7", bus.Head{PR: 1, Head: head, Lane: "lane-7", Title: "the title", Change: "what a user sees", Risk: "none"}, "supervisor")
+
+	h.snapshot(t)
+
+	stored, err := h.store.Facts(repo, 1, head)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"lane": "lane-7", "words-title": "the title", "words-change": "what a user sees", "words-risk": "none"}
+	if !maps.Equal(stored, want) {
+		t.Fatalf("facts = %+v, want %+v", stored, want)
 	}
 }
 

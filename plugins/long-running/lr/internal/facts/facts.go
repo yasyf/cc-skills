@@ -23,9 +23,10 @@ import (
 )
 
 const (
-	BusCursor = "bus"
-	caller    = "lr-facts"
-	openQuery = `query($owner: String!, $name: String!, $endCursor: String) {
+	BusCursor   = "bus"
+	caller      = "lr-facts"
+	wordsPrefix = "words-"
+	openQuery   = `query($owner: String!, $name: String!, $endCursor: String) {
   repository(owner: $owner, name: $name) {
     pullRequests(states: OPEN, first: 100, after: $endCursor) {
       pageInfo { hasNextPage endCursor }
@@ -137,9 +138,19 @@ func (s Source) ingestRecord(record bus.Record) error {
 	case bus.Verdict:
 		facts = []bus.Fact{{PR: body.PR, Head: body.Head, Kind: "verdict", Value: body.Verdict}}
 	case bus.Head:
-		facts = []bus.Fact{{PR: body.PR, Head: body.Head, Kind: "lane", Value: body.Lane}}
+		facts = headFacts(body)
 	}
 	return s.putFacts(facts, record.At)
+}
+
+func headFacts(head bus.Head) []bus.Fact {
+	facts := []bus.Fact{{PR: head.PR, Head: head.Head, Kind: "lane", Value: head.Lane}}
+	for name, words := range head.Words() {
+		if words != "" {
+			facts = append(facts, bus.Fact{PR: head.PR, Head: head.Head, Kind: wordsPrefix + name, Value: words})
+		}
+	}
+	return facts
 }
 
 func tapFacts(tap bus.Tap) []bus.Fact {

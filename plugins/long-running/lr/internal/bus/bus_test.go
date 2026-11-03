@@ -84,6 +84,24 @@ func TestAPostStoresATypedBodyWithItsIdentityKeyAndSummary(t *testing.T) {
 	}
 }
 
+func TestAHeadCarriesTheBoardsWordsAndSummarizesWithoutThem(t *testing.T) {
+	b := bound(t, "lane-7")
+	body := bus.Head{PR: 1, Head: head, Lane: "lane-7", Title: "the title", Change: "what a user sees", Plan: "as planned", Risk: "none", Blocks: "nothing", Group: "lr-go", Summary: "one line"}
+
+	record, err := b.Post(context.Background(), []string{"supervisor"}, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if record.Body != bus.Body(body) {
+		t.Fatalf("record = %+v", record)
+	}
+	rows, err := client.Tail(context.Background(), client.Query{Drive: "d", Kinds: []string{"lr.head"}})
+	if err != nil || len(rows) != 1 || rows[0].Text != "head #1 e718a7434fa0 lane-7" {
+		t.Fatalf("Tail = %+v, %v", rows, err)
+	}
+}
+
 func TestATextKindSummarizesAsItsText(t *testing.T) {
 	b := bound(t, "lane-7")
 
