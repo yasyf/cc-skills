@@ -1104,6 +1104,32 @@ func TestASecondFixWhoseBodyNamesTheClassItRemovesOrTheCutoverDeletionStandsOk(t
 	}
 }
 
+func TestACarriedSecondFixMajorIsReadAgainstTheBodyAsItStandsNow(t *testing.T) {
+	graded := "finder: major a269784 1 open over whole 4be7a52^..a269784: go/sand/internal/replica/follow.go:40 " + secondFix + ". #43100 (sand: 🐛 the replica follows) fixed go/sand/internal/replica/follow.go"
+	classLine := "## Summary\nThe class: a resubscribe that reads its position twice. This fix removes it, since one owner holds the position."
+	cleared := "finder: ok %s carried from #149302, whose one major, the second fix, the PR body now answers"
+	for name, c := range map[string]struct {
+		head, body, want, id string
+	}{
+		"a carry whose body names the class":     {"a269784", classLine, cleared, ""},
+		"a carry whose body names no class":      {"a269784", "## Summary\nThe replica resubscribes once.", "finder: major %s carried from #149302", ""},
+		"a body edit at the head the major read": {shaHead[:7], classLine, cleared, ":after-149302"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			directory := finderJobDir(t, map[string]any{"prior": map[string]any{"seq": 149302, "lane": "finder-desk", "head": c.head, "text": graded}})
+			shell, repo := newFinderFake(t)
+			shell.title, shell.body = fixTitle, c.body
+			repo.own[shaBase+".."+shaOld] = []string{shaOldOwn}
+			repo.resolved = map[string]string{"a269784": shaOld}
+			repo.ranges = map[string]string{earlierRange: pairLines("=", "=")}
+			mustFinder(t, directory, shell)
+			equal(t, len(shell.asks()), 0)
+			equal(t, shell.posted[0]["--text"], fmt.Sprintf(c.want, shaHead[:7]))
+			equal(t, shell.posted[0]["--id"], "finder:"+repoName+"#43299:"+shaHead+c.id)
+		})
+	}
+}
+
 func TestADriveLedgerThatDoesNotReadSkipsTheSecondFixCheckInsteadOfFailingThePass(t *testing.T) {
 	directory := finderJobDir(t, nil)
 	shell, _ := newFinderFake(t, replyOf())

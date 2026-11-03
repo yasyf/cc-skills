@@ -423,6 +423,10 @@ Landing desk (PR rows in cc-notes, lane messages in cci, shared by every checkou
   `cci post --kind head --head <pr>=<was>..<sha> --head <pr>=<was>..<sha> ...`, with a
   note after the sha such as `patch-identical` when the range-diff says so, never one record per PR: the supervisor's finder reads that head and posts its `finder:` record to you; fix or rebut each major before you call
   a PR done. On a drive whose runner has no finder, run one finder pass yourself.
+  A `## Body addendum` that answers a second-fix major by naming the class the fix
+  removes posts one `head` record at the unchanged sha, `--head <pr>=<sha>`, with the
+  note `body edit`: the finder reads the body again against that head's major, with no
+  new codex pass, and posts `finder: ok` when the second fix was its one major.
 
 Escalate early, never improvise: scope surprise, an assumption the code refutes, an
 auth or approval gate, or two failed approaches. Ask with 2-4 options.
