@@ -58,7 +58,8 @@ jobs:
             tar -czf "$dist/lr_${VERSION}_$target.tar.gz" -C "$stage" lr
           done
           test "$("$RUNNER_TEMP/darwin_arm64/lr" --version)" = "lr version $VERSION"
-          (cd "$dist" && shasum -a 256 ./*.tar.gz | sed 's| \./| |' > checksums.txt)
+          cp plugins/long-running/lr/internal/deskhost/desk-sync.sh "$dist/desk-sync.sh"
+          (cd "$dist" && shasum -a 256 ./*.tar.gz ./desk-sync.sh | sed 's| \./| |' > checksums.txt)
       - name: Publish the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
