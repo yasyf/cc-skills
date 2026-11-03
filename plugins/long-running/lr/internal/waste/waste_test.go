@@ -1,6 +1,7 @@
 package waste
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -62,9 +63,13 @@ type fakeRunner struct {
 	files map[string]string
 	lists int
 	shows int
+	owed  string
 }
 
 func (r *fakeRunner) Run(_ context.Context, c shell.Command) (shell.Result, error) {
+	if c.Argv[0] == "cc-slack" {
+		return shell.Result{Stdout: cmp.Or(r.owed, `{"replies":[],"holder_session":""}`)}, nil
+	}
 	if c.Argv[1] == "list" {
 		r.lists++
 		var listed strings.Builder
@@ -529,6 +534,27 @@ func TestAnUninstalledMergeRepostsAsItAges(t *testing.T) {
 	equal(t, len(*posts), 2)
 }
 
+func TestAnOwnerReplyWithNoAnswerIsFlaggedAfterTwoMinutes(t *testing.T) {
+	w := newWorld(t)
+	w.bus.peers = []client.Peer{
+		{Session: "s-1", Agent: "aworker-1-abc", Lane: "worker-1"},
+		{Session: "s-1", Lane: "owner-relay"},
+	}
+	reply := func(age time.Duration, text string) map[string]string {
+		sent := t0.Add(-age)
+		return map[string]string{"ts": fmt.Sprintf("%d.%06d", sent.Unix(), 131059), "text": text, "permalink": "https://slack/" + text}
+	}
+	w.runner.owed = encoded(map[string]any{
+		"holder_session": "s-1",
+		"replies":        []map[string]string{reply(time.Minute, "fresh"), reply(10*time.Minute, "oldest"), reply(3*time.Minute, "older")},
+	})
+
+	report := w.read(t, Window)
+
+	equal(t, signal(report, signalOwedReply), []string{"owner-relay 10", "owner-relay 3"})
+	equal(t, report.Findings[0].Detail, `https://slack/oldest "oldest"`)
+}
+
 func TestSignalsRankTogetherByHowFarPastTheirFloor(t *testing.T) {
 	w := newWorld(t)
 	w.cfg.Floors.Dead = 10
@@ -551,7 +577,7 @@ func crowded(t *testing.T, lanes int) *world {
 	t.Helper()
 	w := newWorld(t)
 	w.cfg.Transcripts = 50
-	w.cfg.Floors = Floors{Dead: 1, FanOut: 1, Injected: 1, Skips: 1, Chores: 1, Reads: 1, Cost: 1, Duplicates: 2, Races: 1}
+	w.cfg.Floors = Floors{Dead: 1, FanOut: 1, Injected: 1, Skips: 1, Chores: 1, Reads: 1, Cost: 1, Duplicates: 2, Races: 1, Uninstalled: 30, OwedReplies: 2}
 	everyone := make([]string, lanes)
 	for i := range lanes {
 		lane := fmt.Sprintf("a-lane-with-a-fairly-long-name-%d", i)

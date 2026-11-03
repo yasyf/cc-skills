@@ -218,7 +218,9 @@ opens an item for what it finds, naming the signal; a lane warning about clobber
 racing opens a fix, never a report. A meta task is done only when its change is installed
 where it runs and has been seen working: its `done` record carries `--attr installed=` and
 `--attr proof=`, a lane that only merged posts `landed`, and `lr waste` flags a merged meta
-PR older than 30 minutes with no such record. The `waste` section of `runner.json`
+PR older than 30 minutes with no such record. It also flags an owner Slack reply older
+than two minutes with no in-thread answer, from what `cc-slack dm-owed` has stored. The
+`waste` section of `runner.json`
 holds `lane` (the meta lane's name, default `meta`), `ignore` (recipients that never post
 by design), `growth` (the factor a repeated finding must reach to post again, default 2),
 `fan_out_recipients`, `transcripts` (the most it reads an hour, largest first), `hook_logs`,

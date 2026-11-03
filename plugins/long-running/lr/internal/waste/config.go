@@ -21,6 +21,7 @@ type Floors struct {
 	Duplicates  int64 `json:"duplicates"`
 	Races       int64 `json:"races"`
 	Uninstalled int64 `json:"uninstalled"`
+	OwedReplies int64 `json:"owed_replies"`
 }
 
 type Config struct {
@@ -52,6 +53,7 @@ func defaults() Config {
 			Duplicates:  2,
 			Races:       1,
 			Uninstalled: 30,
+			OwedReplies: 2,
 		},
 	}
 }
