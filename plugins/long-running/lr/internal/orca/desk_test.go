@@ -65,6 +65,7 @@ type deskWorld struct {
 	mail       []orcaMessage
 	unread     map[string][]orcaMessage
 	refusals   map[string]object
+	postError  error
 	coordinate string
 	spawns     []spawned
 	launchOut  map[string]string
@@ -170,6 +171,10 @@ func (w *deskWorld) line(text string) client.Record {
 
 func (w *deskWorld) Post(_ context.Context, d client.Draft) (client.Record, error) {
 	w.mu.Lock()
+	if w.postError != nil {
+		w.mu.Unlock()
+		return client.Record{}, w.postError
+	}
 	w.posts = append(w.posts, d)
 	w.mu.Unlock()
 	return w.add(object{"lane": d.Lane, "kind": d.Kind, "text": d.Text, "to": d.To, "topic": d.Topic}), nil
@@ -1276,6 +1281,7 @@ func TestALaunchThatMayLeaveTheMacStartsOnASpriteAndSettlesFromItsReceipt(t *tes
 	}
 	attempt := spriteAttempt(brief)
 	w.write(filepath.Join(attempt, spriteReceipt), `{"result":{"dispatchId":"ctx_s"}}`)
+	w.write(filepath.Join(attempt, spriteMade), `{"workspace":"pool-1"}`)
 	w.step(w.desk.reap)
 	action := w.action(testLane, key)
 	if action.Status != incident.ActionVerified || string(action.DispatchID) != "ctx_s" {
@@ -1284,6 +1290,97 @@ func TestALaunchThatMayLeaveTheMacStartsOnASpriteAndSettlesFromItsReceipt(t *tes
 	wantContains(t, w.wantEscalation("LAUNCHED "+key), "on Sprite pool-1")
 	if w.desk.receipt(testLane) != "ctx_s" || w.desk.terminal(testLane) != "term_s" {
 		t.Fatal("the receipts were not written")
+	}
+}
+
+const twoDrifts = `{"workspace":"pool-1","captainHookDrift":[{"hook":"hooks.merge_guard","error":"ImportError: cannot import name 'gate'"},{"hook":"hooks.slack_guard","error":"ModuleNotFoundError: No module named 'captain_hook.llm'"}]}`
+
+func (w *deskWorld) settleOnSprite(lane, allocation string) string {
+	w.t.Helper()
+	brief := w.brief(lane, "Register slice: lane="+lane+" step=all\nScale: no N\n")
+	w.lines()
+	line := w.line(launchText(lane, brief))
+	w.launchOut[lane] = `{"task":"t","dispatch":"ctx_` + lane + `","terminal":"term_` + lane + `","worktree":"/box/w","workspace":"pool-1"}` + "\n"
+	w.lines()
+	w.step(w.desk.deliver)
+	attempt := spriteAttempt(brief)
+	w.write(filepath.Join(attempt, spriteReceipt), `{"result":{"dispatchId":"ctx_`+lane+`"}}`)
+	w.write(filepath.Join(attempt, spriteMade), allocation)
+	w.step(w.desk.reap)
+	return "R" + strings.TrimPrefix(line.Name(), "#")
+}
+
+func (w *deskWorld) driftBlockers() []client.Draft {
+	var found []client.Draft
+	for _, post := range w.posts {
+		if strings.HasPrefix(post.ID, "escalation:hook-drift:") {
+			found = append(found, post)
+		}
+	}
+	return found
+}
+
+func TestEachHookASpritesCaptainHookCannotLoadReachesRootAsOneBlockerAcrossLaunches(t *testing.T) {
+	w := newDeskWorld(t)
+	spriteConfig(w)
+	if action := w.action("lane-a", w.settleOnSprite("lane-a", twoDrifts)); action.Status != incident.ActionVerified {
+		t.Fatal(action)
+	}
+	w.step(w.desk.flush)
+	blockers := w.driftBlockers()
+	if len(blockers) != 2 || blockers[0].ID == blockers[1].ID {
+		t.Fatal(w.posts)
+	}
+	for i, want := range []string{"hooks.merge_guard", "hooks.slack_guard"} {
+		if blockers[i].Kind != kindBlocker || !slices.Equal(blockers[i].To, []string{coordinatorLane}) {
+			t.Fatal(blockers[i])
+		}
+		wantContains(t, blockers[i].Text, "hook "+want+" ")
+		wantContains(t, blockers[i].Text, "tools/cc-remote/inventory.yaml")
+	}
+	wantContains(t, blockers[0].Text, "ImportError: cannot import name 'gate'")
+	if action := w.action("lane-b", w.settleOnSprite("lane-b", twoDrifts)); action.Status != incident.ActionVerified {
+		t.Fatal(action)
+	}
+	w.step(w.desk.flush)
+	if again := w.driftBlockers(); len(again) != 2 {
+		t.Fatal(again)
+	}
+}
+
+func TestASpriteWhoseHooksAllLoadPostsNoBlocker(t *testing.T) {
+	w := newDeskWorld(t)
+	spriteConfig(w)
+	w.settleOnSprite(testLane, `{"workspace":"pool-1"}`)
+	w.step(w.desk.flush)
+	w.noEscalation("HOOK-DRIFT ")
+	if blockers := w.driftBlockers(); len(blockers) != 0 {
+		t.Fatal(blockers)
+	}
+}
+
+func TestARefusedDriftPostLeavesTheSpriteLaunchSettled(t *testing.T) {
+	w := newDeskWorld(t)
+	spriteConfig(w)
+	key := w.settleOnSprite(testLane, twoDrifts)
+	w.postError = errors.New("relay down")
+	w.step(w.desk.flush)
+	action := w.action(testLane, key)
+	if action.Status != incident.ActionVerified || string(action.DispatchID) != "ctx_lane-a" {
+		t.Fatal(action)
+	}
+	drifts, err := w.desk.store.Actions(deskRunner, kindEscalation, incident.ActionAccepted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pending := 0
+	for _, drift := range drifts {
+		if strings.HasPrefix(drift.Target, "HOOK-DRIFT ") {
+			pending++
+		}
+	}
+	if pending != 2 {
+		t.Fatal(drifts)
 	}
 }
 

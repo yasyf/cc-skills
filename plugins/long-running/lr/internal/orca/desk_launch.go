@@ -2,6 +2,8 @@ package orca
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -26,6 +28,7 @@ const (
 	launchStall   = 60 * time.Second
 	spriteReceipt = "worker-start.json"
 	spritePrepare = "prepare.status"
+	spriteMade    = "allocation.json"
 	laneEnv       = "CLAUDE_LONG_RUNNING_LANE"
 )
 
@@ -494,7 +497,37 @@ func (d *Desk) settleSprite(ctx context.Context, container, lane string, action 
 			return err
 		}
 	}
-	return d.settleLaunch(ctx, container, lane, action, ready.Workspace)
+	if err := d.settleLaunch(ctx, container, lane, action, ready.Workspace); err != nil {
+		return err
+	}
+	return d.raiseHookDrift(lane, attempt)
+}
+
+func (d *Desk) raiseHookDrift(lane, attempt string) error {
+	raw, err := os.ReadFile(filepath.Join(attempt, spriteMade))
+	if err != nil {
+		return err
+	}
+	var made struct {
+		Drift []struct {
+			Hook  string `json:"hook"`
+			Error string `json:"error"`
+		} `json:"captainHookDrift"`
+	}
+	if err := json.Unmarshal(raw, &made); err != nil {
+		return err
+	}
+	return d.store.Edit(deskRunner, func(tx *incident.Tx) error {
+		for _, drift := range made.Drift {
+			sum := sha256.Sum256([]byte(drift.Hook + "\x00" + drift.Error))
+			key := "hook-drift:" + hex.EncodeToString(sum[:8])
+			text := fmt.Sprintf("hook %s does not load under the Captain Hook the Sprite payload pins, so its guard is off on every Sprite; pin a captainHook build that loads it in tools/cc-remote/inventory.yaml. Import error: %s", drift.Hook, drift.Error)
+			if _, _, err := tx.AcceptDue(escalationPref+key, kindEscalation, escalationLine("HOOK-DRIFT", key, lane, text), deskRunner, d.Now(), time.Time{}); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 func (d *Desk) unsettledSprite(container, lane string, action incident.Action, attempt string, exited bool, out string) error {
