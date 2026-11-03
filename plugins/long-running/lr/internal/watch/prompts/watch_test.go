@@ -954,7 +954,9 @@ func TestALocalWorkerWithNoWaitCostsNoScreenReadAndASettledOneNoShow(t *testing.
 	row := poll(t, f, e, 1)["dispatch:"+local]
 
 	want(t, row.State, Clear)
-	wantSlice(t, f.reads(), rootTerm, remoteTerm)
+	reads := f.reads()
+	slices.Sort(reads)
+	wantSlice(t, reads, rootTerm, remoteTerm)
 	for _, call := range f.calls {
 		if slices.Contains(call, "ctx_b4e069ef5d36") {
 			t.Fatalf("settled worker was read: %q", call)

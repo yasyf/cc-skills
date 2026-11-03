@@ -116,7 +116,7 @@ func Command(a *app.App) *cobra.Command {
 			}
 			err = NewWatch(a, entry.Bus()).Check(cmd.Context(), entry)
 			if errors.Is(err, ErrHeld) {
-				fmt.Fprintf(os.Stderr, "prompt-watch %s: %v\n", entry.Drive, err)
+				fmt.Fprintf(a.Stderr, "prompt-watch %s: %v\n", entry.Drive, err)
 				err = nil
 			}
 			if err != nil {
