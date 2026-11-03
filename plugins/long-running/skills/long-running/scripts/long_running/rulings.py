@@ -10,7 +10,8 @@
     rulings.py classify     [--program SLUG | --drive ID] [--answer ID] [CLASSIFICATION...]
     rulings.py implications [--program SLUG | --drive ID] KEY
     rulings.py confirm      [--program SLUG | --drive ID] KEY --capture DIGEST [--tick N,...|all] [--strike N,...] [--implication TEXT]
-    rulings.py amend        [--program SLUG | --drive ID] KEY [--answer ID ...] [--implication N [--text TEXT] [--direction DIR]]
+    rulings.py amend        [--program SLUG | --drive ID] KEY [--answer ID ...] [--implication N [--text TEXT [--rewrite-ticked]] [--direction DIR]
+                            | --add --text TEXT --direction DIR [--proof REF]]
     rulings.py round        [--program SLUG | --drive ID]
     rulings.py slice        [--program SLUG | --drive ID] (--lane NAME --step N [--paths GLOB]... [--prs [OWNER/NAME#]N]... [--codex] | --root | --refresh BRIEF) [--plan PATH]
     rulings.py slice        [--program SLUG | --drive ID] --required --pr [OWNER/NAME#]N --head SHA [--base REF] [--words]
@@ -60,7 +61,10 @@ capture ``classify`` already put on that row as a repeat, with the capture's wor
 that replaces the one line ``--strike`` names, in that line's direction.
 
 ``amend`` links answer ids to a row and rewrites one implication's text or direction, keeping its state and proof; each edit
-lands on the row's ``amends`` list with its time and, for an implication, the text or direction it replaced. An implication
+lands on the row's ``amends`` list with its time and, for an implication, the text or direction it replaced. It refuses to
+rewrite a ticked line's text unless ``--rewrite-ticked`` is passed: a later correction is ``--add``, which appends a new line
+numbered after the row's last, proposed, or ticked when ``--proof`` names the owner's words behind it: a ccn answer id,
+or ``requirement:root-<seq>`` for a root record on the drive's cci drive; a proof naming neither is refused. An implication
 ``removes`` or ``requires`` binds the moment it is recorded; only a ``permits`` line waits for the owner's tick.
 Each implication line ``classify``, ``confirm --implication`` and ``amend`` write goes to the drive's judge with the owner's
 words on its row verbatim; a line it reads as saying other than his words, binding what they only permit, or leaving
@@ -219,6 +223,7 @@ CLAUSE_ENDS = (";", ". ", "\n")
 AFFIRMATIVE = re.compile(r"^(?:merge|yes|approve|authorize)\b", re.IGNORECASE)
 RIGHT = "right"
 NUMBER = re.compile(r"\b\d+\b")
+ROOT_REQUIREMENT = re.compile(r"requirement:root-(\d+)")
 ANCHOR_SUFFIX = re.compile(r"(?::\d+(?:-\d+)?)?(?:\s+@\s+\S+)?$")
 DATE = re.compile(r"^([A-Z][a-z]{2} \d{1,2})")
 PR_REF = re.compile(r"[\w.-]+/[\w.-]+#\d+")
@@ -1632,8 +1637,14 @@ def confirmed(args: argparse.Namespace, loaded: Register, key: str) -> int:
 
 
 def cmd_amend(args: argparse.Namespace, shell: ledger.Shell) -> int:
-    if (args.implication is None) != (args.text is None and args.direction is None):
+    if args.add and (args.implication is not None or args.text is None or args.direction is None):
+        print("AMEND-USAGE: --add goes with --text and --direction, never --implication", file=args.stdout)
+        return 2
+    if not args.add and (args.implication is None) != (args.text is None and args.direction is None):
         print("AMEND-USAGE: --implication goes with --text, --direction, or both", file=args.stdout)
+        return 2
+    if args.proof is not None and not args.add:
+        print("AMEND-USAGE: --proof goes with --add", file=args.stdout)
         return 2
     with writing(args, shell) as loaded:
         fields = loaded.row(args.key)
@@ -1645,9 +1656,23 @@ def cmd_amend(args: argparse.Namespace, shell: ledger.Shell) -> int:
                 added.append(found)
         implications = listed(fields.get("implications"))
         edits = [{"at": stamp(), "answer": added}] if added else []
+        if args.add:
+            proof = proof_of(args, loaded, args.proof) if args.proof is not None else ""
+            named = numbered([{"text": args.text, "direction": args.direction}], len(implications) + 1, proof)
+            if proof:
+                named[0]["state"] = "ticked"
+            implications += named
+            edits.append({"at": stamp(), "implication": named[0]["n"], "added": args.text, "direction": args.direction})
         if args.implication is not None:
             if not (named := [item for item in implications if item["n"] == args.implication]):
                 print(f"NO-IMPLICATION {args.key}: it carries no implication {args.implication}", file=args.stdout)
+                return 1
+            if args.text is not None and named[0]["state"] == "ticked" and not args.rewrite_ticked:
+                print(
+                    f"TICKED-IMPLICATION {args.key}: implication {args.implication} is ticked; add the new line with --add,"
+                    " or pass --rewrite-ticked to replace its text",
+                    file=args.stdout,
+                )
                 return 1
             edit = {"at": stamp(), "implication": args.implication}
             if args.text is not None:
@@ -1662,9 +1687,19 @@ def cmd_amend(args: argparse.Namespace, shell: ledger.Shell) -> int:
             return 0
         loaded.write(args.key, answer=answers + added, implications=implications, amends=listed(fields.get("amends")) + edits)
         print("\n".join(implication_lines(loaded.rows[args.key])), file=args.stdout)
-    if args.implication is not None:
+    if args.add or args.implication is not None:
         misstated(args, loaded, args.key, named)
     return 0
+
+
+def proof_of(args: argparse.Namespace, loaded: Register, proof: str) -> str:
+    if not (requirement := ROOT_REQUIREMENT.fullmatch(proof)):
+        return ccn(loaded.shell, loaded.repo, "answer", "show", proof)["id"]
+    if not (entry := entry_of(args)):
+        raise SystemExit(f"no drive runs program {loaded.program}; {proof} names a record on its cci drive")
+    if (lane := record_of(loaded.shell, drive.cci_drive(entry), int(requirement[1])).get("lane")) != "root":
+        raise SystemExit(f"PROOF-NOT-ROOT {proof}: cci record #{requirement[1]} is {lane}'s")
+    return proof
 
 
 def plan_path(args: argparse.Namespace, loaded: Register) -> Path | None:
@@ -2888,10 +2923,13 @@ def build_parser(parser_type=argparse.ArgumentParser) -> argparse.ArgumentParser
     confirm.add_argument("--tick", metavar="N,...|all")
     confirm.add_argument("--strike", metavar="N,...")
     confirm.add_argument("--implication", metavar="TEXT", help="the narrowed line that replaces the one line --strike names")
-    amend = verb("amend", cmd_amend, "link answer ids to a row or rewrite one implication's text, each edit recorded on the row's amends")
+    amend = verb("amend", cmd_amend, "link answer ids to a row, add an implication, or rewrite one implication's text, each edit recorded on the row's amends")
     amend.add_argument("key")
     amend.add_argument("--answer", action="append", default=[], metavar="ID")
     amend.add_argument("--implication", type=int, metavar="N")
+    amend.add_argument("--add", action="store_true", help="append --text as a new implication numbered after the row's last")
+    amend.add_argument("--proof", metavar="REF", help="with --add, a ccn answer id or requirement:root-<seq> that ticks the new line; without it the line is proposed")
+    amend.add_argument("--rewrite-ticked", action="store_true", help="replace the text of a ticked implication instead of refusing")
     amend.add_argument("--text", metavar="TEXT", help="the implication's new text")
     amend.add_argument("--direction", choices=DIRECTIONS, help="the implication's new direction: an owner requirement is `requires` and binds at once, like `removes`")
     verb("round", cmd_round, "put at most ten queued ruling cards on the live cc-present board as one round, foundational rows first")
