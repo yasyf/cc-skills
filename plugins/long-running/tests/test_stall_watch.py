@@ -240,7 +240,7 @@ def test_a_stall_reaches_the_live_successor_of_the_lane_that_posted_the_prs_newe
 def test_a_failed_registry_read_runs_the_pass_on_the_last_good_read_with_one_defect_per_cause(config):
     """Root #343297: 0.7.952's supervisor refused lr.json's go_lanes key, and every stall-watch pass died with no alarm."""
     rotated = record(1, "port-memory-1", "head", f"HEAD #101 {HEAD}", 40, "101")
-    shell = FakeShell([rotated, fidelity(2, "101", HEAD, 35), record(3, "port-memory-3", "state", "took over port-memory-1's PRs", 5)], [row("101", test_state="pending")])
+    shell = FakeShell([rotated, fidelity(2, "101", HEAD, 35), record(10, "port-memory-3", "state", "took over port-memory-1's PRs", 5)], [row("101", test_state="pending")])
     shell.successions = {"port-memory-1": "port-memory-3"}
     watch(shell, config)
     shell.successions = {}
