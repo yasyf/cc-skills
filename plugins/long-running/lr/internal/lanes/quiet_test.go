@@ -70,7 +70,7 @@ func TestAParkedLaneWithADeadProcessGetsNoSuccessorUntilItsGateFires(t *testing.
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
 			s := memory(t)
-			f := adopted(t, s, writeBrief(t), "")
+			f := adopted(t, s, writeBrief(t), "", 47001)
 			f.feed = append(f.feed, c.parked)
 			f.peers = []Row{who(lane2, false, t0.Add(-3*time.Hour))}
 
@@ -161,7 +161,7 @@ func TestABlockerOnItsPRResumesAParkedLane(t *testing.T) {
 
 func TestAnAnsweredAskToAnyLaneResumesItsAsker(t *testing.T) {
 	s := memory(t)
-	f := adopted(t, s, writeBrief(t), "")
+	f := adopted(t, s, writeBrief(t), "", 47001)
 	f.feed = append(f.feed, rec(2, lane2, "ask", t0.Add(-time.Hour), "which head?", "meta-desk-1"))
 	f.peers = []Row{who(lane2, false, t0.Add(-time.Hour))}
 

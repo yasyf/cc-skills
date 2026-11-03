@@ -25,7 +25,6 @@ const (
 	hourCursor  = "lanes.hour"
 	owedSubject = "owed-deletions"
 	lateSubject = "owed-deletions-past-due"
-	strikeLimit = 2
 	kindSpawn   = "spawn"
 	kindRequest = "decide"
 	kindLanded  = "landed"
@@ -41,7 +40,11 @@ const (
 
 const (
 	retiredWorkerDone = "worker-done"
+	retiredSilent     = "silent"
 	workerSucceeded   = "succeeded"
+	agentLive         = "live"
+	agentExited       = "exited"
+	agentUnverifiable = "unverifiable"
 )
 
 var sessionIdentity = []string{"CCI_AGENT_ID", "CCI_LANE", "CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID"}
@@ -86,6 +89,7 @@ var (
 	shipped     = []string{"release", "applied", "fix-live"}
 
 	settledDispatch = []string{"completed", "failed"}
+	agentVerdicts   = []string{agentLive, agentExited, agentUnverifiable}
 
 	numbered      = regexp.MustCompile(`^(.+)-(\d{1,2})$`)
 	handedOff     = regexp.MustCompile(`\bhandoff ([\w.-]+): doc ([0-9a-f]{7,40})\b`)
@@ -395,15 +399,17 @@ func unreadBy(s *store.Store, r Record, name, cited string) string {
 }
 
 type Row struct {
-	Lane      string    `json:"lane"`
-	Session   string    `json:"session,omitempty"`
-	Agent     string    `json:"agent,omitempty"`
-	Live      bool      `json:"live"`
-	SeenAt    time.Time `json:"seen_at"`
-	StoodDown bool      `json:"stood_down,omitempty"`
-	Roster    string    `json:"roster,omitempty"`
-	Dispatch  string    `json:"dispatch,omitempty"`
-	Succeeded bool      `json:"succeeded,omitempty"`
+	Lane       string    `json:"lane"`
+	Session    string    `json:"session,omitempty"`
+	Agent      string    `json:"agent,omitempty"`
+	Live       bool      `json:"live"`
+	SeenAt     time.Time `json:"seen_at"`
+	StoodDown  bool      `json:"stood_down,omitempty"`
+	Roster     string    `json:"roster,omitempty"`
+	Idle       bool      `json:"idle,omitempty"`
+	Dispatch   string    `json:"dispatch,omitempty"`
+	Succeeded  bool      `json:"succeeded,omitempty"`
+	Unverified string    `json:"unverified,omitempty"`
 }
 
 type Peer struct {
@@ -485,11 +491,11 @@ func Classify(lane store.Lane, peer *Peer, now time.Time, tokens, rotateAt int) 
 		if lane.Waiting != 0 {
 			return Verdict{Kind: Ok}
 		}
+		heardFor := "was never heard"
+		if !heard.IsZero() {
+			heardFor = fmt.Sprintf("has been quiet for %d min", int(now.Sub(heard).Minutes()))
+		}
 		if peer == nil {
-			heardFor := "was never heard"
-			if !heard.IsZero() {
-				heardFor = fmt.Sprintf("has been quiet for %d min", int(now.Sub(heard).Minutes()))
-			}
 			return Verdict{Unproven, "has no process row in cci who or Orca and " + heardFor + ", so nothing proves it died"}
 		}
 		if peer.Row.StoodDown {
@@ -497,6 +503,9 @@ func Classify(lane store.Lane, peer *Peer, now time.Time, tokens, rotateAt int) 
 		}
 		if !lane.Answered.IsZero() && now.Sub(lane.Answered) < StaleAfter {
 			return Verdict{Kind: Ok}
+		}
+		if peer.Row.Unverified != "" {
+			return Verdict{Unproven, peer.Row.Unverified + " and " + heardFor + ", so nothing proves it died"}
 		}
 		return Verdict{Dead, fmt.Sprintf("stopped, quiet for %d min", int(now.Sub(heard).Minutes()))}
 	}

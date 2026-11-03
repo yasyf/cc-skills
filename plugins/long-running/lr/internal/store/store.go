@@ -97,7 +97,6 @@ type Lane struct {
 	PRs         []int
 	Predecessor string
 	Reason      string
-	Strikes     int
 	Asked       time.Time
 	Flushed     time.Time
 	RetiredBy   string
@@ -423,7 +422,7 @@ func (s *Store) Advance(source string, position int64) error {
 	return err
 }
 
-const laneColumns = "name, brief, model, effort, role, state, since, handoff, predecessor, reason, strikes, asked, flushed, retired_by, waiting, answered, page, awaits, placement, stopped_on, launcher"
+const laneColumns = "name, brief, model, effort, role, state, since, handoff, predecessor, reason, asked, flushed, retired_by, waiting, answered, page, awaits, placement, stopped_on, launcher"
 
 func (s *Store) WantLane(lane Lane, at time.Time) (bool, error) {
 	page, err := encodePage(lane.Page)
@@ -431,9 +430,9 @@ func (s *Store) WantLane(lane Lane, at time.Time) (bool, error) {
 		return false, err
 	}
 	result, err := s.db.Exec(
-		"INSERT INTO lanes ("+laneColumns+") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (name) DO NOTHING",
+		"INSERT INTO lanes ("+laneColumns+") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (name) DO NOTHING",
 		lane.Name, lane.Brief, lane.Model, lane.Effort, lane.Role, string(lane.State), Stamp(at),
-		text(lane.Handoff), text(lane.Predecessor), text(lane.Reason), lane.Strikes, when(lane.Asked), when(lane.Flushed), text(lane.RetiredBy),
+		text(lane.Handoff), text(lane.Predecessor), text(lane.Reason), when(lane.Asked), when(lane.Flushed), text(lane.RetiredBy),
 		whole(lane.Waiting), when(lane.Answered), page, text(lane.Awaits), text(lane.Placement), whole(lane.StoppedOn), text(lane.Launcher),
 	)
 	added, err := changed(result, err)
@@ -506,7 +505,7 @@ func scanLane(rows *sql.Rows) (Lane, error) {
 	var page string
 	err := rows.Scan(
 		&lane.Name, &lane.Brief, &lane.Model, &lane.Effort, &lane.Role, &lane.State, moment{&lane.Since},
-		nullable[string]{&lane.Handoff}, nullable[string]{&lane.Predecessor}, nullable[string]{&lane.Reason}, &lane.Strikes,
+		nullable[string]{&lane.Handoff}, nullable[string]{&lane.Predecessor}, nullable[string]{&lane.Reason},
 		moment{&lane.Asked}, moment{&lane.Flushed}, nullable[string]{&lane.RetiredBy}, nullable[int64]{&lane.Waiting}, moment{&lane.Answered},
 		nullable[string]{&page}, nullable[string]{&lane.Awaits}, nullable[string]{&lane.Placement}, nullable[int64]{&lane.StoppedOn}, nullable[string]{&lane.Launcher},
 	)

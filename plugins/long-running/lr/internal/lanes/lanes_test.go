@@ -138,13 +138,14 @@ func newFake(t *testing.T, records []Record, peers []Row) *fake {
 			}
 			return out, nil
 		},
-		Held:     func() (map[int]bool, error) { return f.holds, nil },
-		Desk:     func(lane string) (string, error) { return f.desks[lane], nil },
-		OpenWork: func() ([]Record, error) { return f.work, nil },
-		Owed:     func() ([]deletions.Owed, error) { return slices.Clone(f.owed), nil },
-		Present:  func(rows []deletions.Owed) ([]deletions.Owed, error) { return rows, nil },
-		Gaps:     func() ([]string, error) { return f.gaps, nil },
-		RotateAt: 600_000,
+		Held:        func() (map[int]bool, error) { return f.holds, nil },
+		Desks:       func() (map[string]string, error) { return f.desks, nil },
+		OpenWork:    func() ([]Record, error) { return f.work, nil },
+		Owed:        func() ([]deletions.Owed, error) { return slices.Clone(f.owed), nil },
+		Present:     func(rows []deletions.Owed) ([]deletions.Owed, error) { return rows, nil },
+		Gaps:        func() ([]string, error) { return f.gaps, nil },
+		RotateAt:    600_000,
+		RetireAfter: time.Hour,
 	}
 	return f
 }
@@ -285,7 +286,7 @@ func TestADeadLaneRelaunchesWithItsHandoffAndStandsDownOnceItsSuccessorIsUp(t *t
 
 func TestARelaunchBriefKeepsTheLaneOnTheMacAndCarriesItsRegisterSlice(t *testing.T) {
 	s := memory(t)
-	f := adopted(t, s, writeBrief(t), "")
+	f := adopted(t, s, writeBrief(t), "", 46001)
 	f.peers = []Row{who(lane2, false, t0.Add(-mins(30)))}
 
 	tick(t, s, f, t0)
@@ -308,7 +309,7 @@ func TestADeadLaneWhoseSuccessorLaunchNamedItIsRetiredNotRelaunched(t *testing.T
 func TestALaneSpawnedByHandUnderAPendingRelaunchsNameWithdrawsTheRelaunch(t *testing.T) {
 	for _, byHand := range []bool{true, false} {
 		s, brief := memory(t), writeBrief(t)
-		f := adopted(t, s, brief, "")
+		f := adopted(t, s, brief, "", 46001)
 		f.peers = []Row{who(lane2, false, t0.Add(-mins(30)))}
 		tick(t, s, f, t0)
 		from := filepath.Join(f.deps.Briefs, "conflicts-3.brief.md")
@@ -328,7 +329,7 @@ func TestALaneSpawnedByHandUnderAPendingRelaunchsNameWithdrawsTheRelaunch(t *tes
 
 func TestADeadLaneWithNoHandoffGetsASuccessorThatWritesOneFromTheTranscript(t *testing.T) {
 	s := memory(t)
-	f := adopted(t, s, writeBrief(t), "")
+	f := adopted(t, s, writeBrief(t), "", 46001)
 	f.peers = []Row{who(lane2, false, t0.Add(-mins(30)))}
 
 	tick(t, s, f, t0)
@@ -475,7 +476,7 @@ func TestALiveLaneThatIgnoresRotateIsLeftWorking(t *testing.T) {
 
 func TestAProtectedSessionIsNeverTouched(t *testing.T) {
 	s := memory(t)
-	f := adopted(t, s, writeBrief(t), "")
+	f := adopted(t, s, writeBrief(t), "", 46001)
 	f.peers = []Row{who(lane2, false, t0.Add(-mins(20))), who(Root, true, t0), who("p8a-step7", true, t0.Add(-2*time.Hour))}
 
 	tick(t, s, f, t0)
@@ -552,7 +553,7 @@ func TestALaneThatEndedItsTurnOnAnAskToRootWaitsAndStopsOnRootsAnswer(t *testing
 
 func TestALaneNoProcessRowListsIsHeldForRootAndNeverRelaunched(t *testing.T) {
 	s := memory(t)
-	f := adopted(t, s, writeBrief(t), "")
+	f := adopted(t, s, writeBrief(t), "", 46001)
 	f.feed = append(f.feed, rec(2, lane2, "state", t0, "restacking", Root))
 	f.peers = nil
 
@@ -591,7 +592,7 @@ func TestALaneThatStoppedOnARootOrderOfAnyKindStandsDownAndIsNeverRelaunched(t *
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
 			s := memory(t)
-			f := adopted(t, s, writeBrief(t), "")
+			f := adopted(t, s, writeBrief(t), "", 46001)
 			f.feed = append(f.feed, c.then...)
 			f.peers = []Row{who(lane2, false, t0.Add(-mins(20)))}
 
@@ -709,7 +710,7 @@ func TestALaneSpawnedAfterAdoptionIsWatchedFromItsLaunch(t *testing.T) {
 
 func TestASuccessorThatNeverComesUpEscalatesOnce(t *testing.T) {
 	s := memory(t)
-	f := adopted(t, s, writeBrief(t), "")
+	f := adopted(t, s, writeBrief(t), "", 46001)
 	f.peers = []Row{who(lane2, false, t0.Add(-mins(20)))}
 	tick(t, s, f, t0)
 	f.posts = nil
@@ -722,24 +723,53 @@ func TestASuccessorThatNeverComesUpEscalatesOnce(t *testing.T) {
 	equal(t, row(t, s, "conflicts-3").State, store.LaneHeld)
 }
 
-func TestASuccessorThatDiesWithinAnIntervalTwiceIsHeld(t *testing.T) {
+func TestALaneTheSupervisorRelaunchedOnceIsHeldWithADefectToRootWhenItDiesAgain(t *testing.T) {
 	s := memory(t)
-	f := adopted(t, s, writeBrief(t), "")
+	f := adopted(t, s, writeBrief(t), "", 46001)
 	life := []struct {
 		lane     string
 		live     bool
 		seen, at int
-	}{{lane2, false, -20, 0}, {"conflicts-3", true, 1, 1}, {"conflicts-3", false, 1, 17}, {"conflicts-4", true, 18, 18}, {"conflicts-4", false, 18, 34}}
+	}{{lane2, false, -20, 0}, {"conflicts-3", true, 1, 1}, {"conflicts-3", false, 1, 90}}
 	for _, step := range life {
 		f.peers = []Row{who(step.lane, step.live, t0.Add(mins(step.seen)))}
 		tick(t, s, f, t0.Add(mins(step.at)))
 	}
 
-	equal(t, f.launches, []string{"conflicts-3", "conflicts-4"})
-	equal(t, row(t, s, "conflicts-4").State, store.LaneHeld)
-	last := f.posts[len(f.posts)-1]
-	equal(t, last.Kind+":"+last.To[0], "blocker:root")
-	contains(t, last.Text, "died within 30 minutes of launch 2 times")
+	equal(t, f.launches, []string{"conflicts-3"})
+	equal(t, row(t, s, "conflicts-3").State, store.LaneHeld)
+	defects := f.ofKind("defect")
+	equal(t, len(defects), 1)
+	equal(t, defects[0].To, []string{Root})
+	contains(t, defects[0].Text, "the supervisor already relaunched it once, when conflicts-2 stopped, quiet for 20 min")
+}
+
+func TestAMetaLanesSecondDeathRaisesItsDefectToItsLaunchersHead(t *testing.T) {
+	s, brief := memory(t), writeBrief(t)
+	registered(t, s, store.Lane{Name: "meta-desk-2", Role: RoleMeta})
+	spawn := spawned(1, "liveness-1", brief, t0.Add(-time.Hour), nil)
+	spawn.Lane = "meta-desk-2"
+	f := newFake(t, []Record{spawn}, []Row{who("liveness-1", true, t0.Add(-mins(1)))})
+	tick(t, s, f, t0.Add(-mins(1)))
+	if err := s.SetLanePRs("liveness-1", []int{46001}); err != nil {
+		t.Fatal(err)
+	}
+	life := []struct {
+		lane     string
+		live     bool
+		seen, at int
+	}{{"liveness-1", false, -20, 0}, {"liveness-2", true, 1, 1}, {"liveness-2", false, 1, 90}}
+	for _, step := range life {
+		f.peers = []Row{who(step.lane, step.live, t0.Add(mins(step.seen))), who("meta-desk-2", true, t0.Add(mins(step.at)))}
+		tick(t, s, f, t0.Add(mins(step.at)))
+	}
+
+	equal(t, row(t, s, "liveness-1").Launcher, "meta-desk-2")
+	equal(t, f.launches, []string{"liveness-2"})
+	equal(t, f.ofKind("report")[0].To, []string{"meta-desk-2"})
+	defects := f.ofKind("defect")
+	equal(t, len(defects), 1)
+	equal(t, defects[0].To, []string{"meta-desk-2"})
 }
 
 func TestDoneAndARootStandDownRetireALane(t *testing.T) {
@@ -902,7 +932,7 @@ func TestALaneReportingAnotherLanesStandDownStaysWatched(t *testing.T) {
 func TestProseNeverRetiresALaneSoOneThatDiesMidTaskGetsASuccessor(t *testing.T) {
 	for _, text := range []string{"2:24 PM conflicts-2: finish #1478 and the release, then stand down; your successor is spawned from 99c1291", "conflicts-2 STAND-DOWN per #265653. Thread names 2 releases"} {
 		s := memory(t)
-		f := adopted(t, s, writeBrief(t), "")
+		f := adopted(t, s, writeBrief(t), "", 46001)
 		f.feed = append(f.feed, rec(2, Root, "decide", t0, text, lane2, "mq-health-6"), rec(3, lane2, "state", t0, "conflicts-2: on #1478"))
 		f.peers = []Row{who(lane2, false, t0)}
 
@@ -967,7 +997,7 @@ func TestAnOwnerDecideInProseMovesNoPR(t *testing.T) {
 func TestALaneAnUnreadStandDownLeftInPlaceIsNeverRelaunchedOnceItStops(t *testing.T) {
 	for _, postsAgain := range []bool{false, true} {
 		s := memory(t)
-		f := adopted(t, s, writeBrief(t), "")
+		f := adopted(t, s, writeBrief(t), "", 46001)
 		f.feed = append(f.feed, rec(2, lane2, "state", t0, "all five stacks restacked"), ask(3, "stand-down", lane2, t0, nil, "", nil))
 		tick(t, s, f, t0)
 		equal(t, row(t, s, lane2).State, store.LaneHeld)
@@ -1006,7 +1036,7 @@ func TestARootStandDownCitingAReadAsNewAsTheLanesNewestRecordRetiresIt(t *testin
 
 func TestTheOwnerHearsOneLineAnHourAndOnlyWhenALaneRestarted(t *testing.T) {
 	s := memory(t)
-	f := adopted(t, s, writeBrief(t), "")
+	f := adopted(t, s, writeBrief(t), "", 46001)
 	f.peers = []Row{who(lane2, false, t0)}
 	tick(t, s, f, t0.Add(mins(16)))
 	f.peers = []Row{who("conflicts-3", true, t0.Add(mins(50)))}
@@ -1057,6 +1087,8 @@ func TestClassify(t *testing.T) {
 		}
 		equal(t, Classify(lane, seen, t0, c.tokens, 600_000).Kind, c.want)
 	}
+	cold := &Peer{Lane: "l-1", Seen: t0.Add(-mins(20)), Row: Row{Unverified: "has an Orca agent that reads unverifiable (host_unavailable)"}}
+	equal(t, Classify(store.Lane{Name: "l-1", State: store.LaneDesired, Since: t0.Add(-mins(30))}, cold, t0, 0, 0), Verdict{Unproven, "has an Orca agent that reads unverifiable (host_unavailable) and has been quiet for 20 min, so nothing proves it died"})
 }
 
 func TestALaunchingLaneThatNeverComesUpIsANoShow(t *testing.T) {
@@ -1575,7 +1607,7 @@ func TestAnOrcaWorkerThatSucceededIsRetiredBeforeItsOutcomeLineArrives(t *testin
 
 func TestALaneWhoseOrcaWorkerFailedStillRelaunches(t *testing.T) {
 	s := memory(t)
-	f := adopted(t, s, writeBrief(t), "")
+	f := adopted(t, s, writeBrief(t), "", 46001)
 	f.feed = append(f.feed, rec(2, runner, "report", t0.Add(-mins(14)), "OUTCOME msg_b21ededd168d conflicts-2: worker_done failed dispatch=ctx_320e271b3112: codex exited 1"))
 	f.peers = []Row{who(lane2, false, t0.Add(-mins(20)))}
 
@@ -1720,7 +1752,7 @@ func TestAStandDownForASuccessorCarriesTheChainPastALaneThatAlreadyStopped(t *te
 
 func TestAStandDownOfARelaunchedLaneKeepsTheSuccessorThatAlreadyPosted(t *testing.T) {
 	s, brief := memory(t), writeBrief(t)
-	f := adopted(t, s, brief, "7d102a9")
+	f := adopted(t, s, brief, "7d102a9", 46001)
 	f.peers = []Row{who(lane2, false, t0.Add(-mins(30)))}
 	tick(t, s, f, t0)
 	equal(t, row(t, s, "conflicts-3").State, store.LaneLaunching)
@@ -2060,7 +2092,7 @@ func TestTheOwningDeskIsTheNewestLiveLaneOfWhoeverLaunchedTheLane(t *testing.T) 
 					retire(s, lane.Name, lane.RetiredBy, t0)
 				}
 			}
-			d := Deps{Desk: func(lane string) (string, error) { return c.desks[lane], nil }}
+			d := Deps{Desks: func() (map[string]string, error) { return c.desks, nil }}
 			equal(t, owningDesk(s, d, c.lanes[0].Name), c.want)
 		})
 	}
@@ -2127,7 +2159,7 @@ func TestAMetaLanesDefectsReachItsLauncherAndADriveLanesReachRoot(t *testing.T) 
 
 func TestAHeldLanesBlockerReachesItsDeskAndNeverRoot(t *testing.T) {
 	s := memory(t)
-	f := adopted(t, s, writeBrief(t), "")
+	f := adopted(t, s, writeBrief(t), "", 46001)
 	f.desks = map[string]string{lane2: "meta-desk-1"}
 	registered(t, s, store.Lane{Name: "meta-desk-1"})
 	f.feed = append(f.feed, rec(2, lane2, "state", t0, "restacking", Root))
@@ -2141,7 +2173,7 @@ func TestAHeldLanesBlockerReachesItsDeskAndNeverRoot(t *testing.T) {
 
 func TestARelaunchIsReportedToTheDeskThatOwnsTheLane(t *testing.T) {
 	s := memory(t)
-	f := adopted(t, s, writeBrief(t), "9f3c2e1")
+	f := adopted(t, s, writeBrief(t), "9f3c2e1", 46001)
 	f.desks = map[string]string{lane2: "meta-desk-1"}
 	registered(t, s, store.Lane{Name: "meta-desk-1"})
 	f.peers = []Row{who(lane2, false, t0.Add(-mins(20))), who("meta-desk-1", true, t0)}
@@ -2210,7 +2242,7 @@ func TestAStandDownAfterARelaunchWasQueuedDropsTheQueuedLaunchAndGivesRootThePRs
 
 func TestAStandDownNamingASuccessorKeepsTheQueuedLaunch(t *testing.T) {
 	s := memory(t)
-	f := adopted(t, s, writeBrief(t), "9f3c2e1")
+	f := adopted(t, s, writeBrief(t), "9f3c2e1", 46001)
 	f.peers = []Row{who(lane2, false, t0.Add(-mins(20)))}
 	heir := tick(t, s, f, t0).Relaunched[0].New
 	f.feed = append(f.feed, ask(2, "stand-down", lane2, t0.Add(mins(1)), nil, "", map[string]string{"successor": "conflicts-9"}))

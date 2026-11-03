@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/deletions"
 )
 
@@ -170,11 +171,12 @@ func decided(t *testing.T, fixture replayFixture) map[string][]any {
 	woken, relaunched, held := map[string]bool{}, map[string]bool{}, map[string]bool{}
 	deps := Deps{
 		Drive: "replay", Checkout: dir, Briefs: filepath.Join(dir, "lanes"),
-		Desk:     func(string) (string, error) { return "", nil },
-		OpenWork: func() ([]Record, error) { return nil, nil },
-		Owed:     func() ([]deletions.Owed, error) { return nil, nil },
-		Present:  func(rows []deletions.Owed) ([]deletions.Owed, error) { return rows, nil },
-		Gaps:     func() ([]string, error) { return nil, nil },
+		Desks:       func() (map[string]string, error) { return nil, nil },
+		RetireAfter: config.RetireSilent,
+		OpenWork:    func() ([]Record, error) { return nil, nil },
+		Owed:        func() ([]deletions.Owed, error) { return nil, nil },
+		Present:     func(rows []deletions.Owed) ([]deletions.Owed, error) { return rows, nil },
+		Gaps:        func() ([]string, error) { return nil, nil },
 		Records: func(since int64) ([]Record, error) {
 			start := shown
 			for shown < len(feed) && !feed[shown].At.After(now) {
@@ -230,7 +232,7 @@ func decided(t *testing.T, fixture replayFixture) map[string][]any {
 		if p.Kind != "defect" {
 			continue
 		}
-		if p.LaneRef != "" {
+		if strings.Contains(p.Text, unreadMark) {
 			result["unread"] = append(result["unread"], p.LaneRef)
 		} else if p.Re != 0 {
 			result["untyped"] = append(result["untyped"], float64(p.Re))

@@ -352,9 +352,9 @@ func TestALaneRoundTripsEveryColumn(t *testing.T) {
 	s := memory(t)
 	want := Lane{
 		Name: "l-2", Brief: "/b.md", Model: "opus", Effort: "xhigh", Role: "lane", State: LaneLaunching, Since: t0,
-		Heard: t0.Add(time.Minute), Handoff: "ccn1", PRs: []int{7, 9}, Predecessor: "l-1", Reason: "rotated", Strikes: 2,
+		Heard: t0.Add(time.Minute), Handoff: "ccn1", PRs: []int{7, 9}, Predecessor: "l-1", Reason: "rotated",
 		Asked: t0.Add(2 * time.Minute), Flushed: t0.Add(3 * time.Minute), RetiredBy: "root", Waiting: 11, Answered: t0.Add(4 * time.Minute),
-		Page: map[string]any{"topic": "owner:1"}, Awaits: "card-1", Last: "state", Placement: "orca", StoppedOn: 12,
+		Page: map[string]any{"topic": "owner:1"}, Awaits: "card-1", Last: "state", Placement: "orca", StoppedOn: 12, Launcher: "meta-desk-2",
 	}
 	if !must[bool](t)(s.WantLane(want, t0)) {
 		t.Fatal("the lane was not added")

@@ -8,12 +8,15 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"time"
 )
 
 const (
 	MoverLanding = "landing"
 	MoverGrading = "grading"
 )
+
+const RetireSilent = time.Hour
 
 var Movers = []string{"lanes", "shadow", MoverLanding, "grading", "items"}
 
@@ -34,6 +37,7 @@ type Config struct {
 	ReleasePipelines string
 	BuildkiteCLI     string
 	Parent           string
+	RetireSilent     time.Duration
 }
 
 func (c Config) GoLaneNames() []string { return listed(c.GoLanes) }
@@ -59,7 +63,7 @@ func Load(path string, warn io.Writer) (Config, error) {
 	if err := json.Unmarshal(data, &raw); err != nil || raw == nil {
 		return Config{}, fmt.Errorf("%s: must be a JSON object", path)
 	}
-	loaded := Config{Trunk: "main"}
+	loaded := Config{Trunk: "main", RetireSilent: RetireSilent}
 	required := map[string]*string{
 		"repo": &loaded.Repo, "drive": &loaded.Drive, "checkout": &loaded.Checkout,
 		"author": &loaded.Author, "label": &loaded.Label,
@@ -72,7 +76,7 @@ func Load(path string, warn io.Writer) (Config, error) {
 	}
 	var unknown []string
 	for _, name := range slices.Sorted(maps.Keys(raw)) {
-		if required[name] == nil && optional[name] == nil && name != "movers" {
+		if required[name] == nil && optional[name] == nil && name != "movers" && name != "retire_silent_minutes" {
 			unknown = append(unknown, name)
 		}
 	}
@@ -106,6 +110,13 @@ func Load(path string, warn io.Writer) (Config, error) {
 				return Config{}, fmt.Errorf("%s: %s must be text", path, name)
 			}
 		}
+	}
+	if value, found := raw["retire_silent_minutes"]; found {
+		var minutes int
+		if err := json.Unmarshal(value, &minutes); err != nil || minutes <= 0 {
+			return Config{}, fmt.Errorf("%s: retire_silent_minutes must be a positive whole number", path)
+		}
+		loaded.RetireSilent = time.Duration(minutes) * time.Minute
 	}
 	if slices.Contains(loaded.Movers, MoverLanding) && strings.TrimSpace(loaded.QueueScript) == "" {
 		return Config{}, fmt.Errorf("%s: the landing mover needs queue_script, the repository's queue script relative to the checkout", path)

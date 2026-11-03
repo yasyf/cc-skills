@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 func good() map[string]any {
@@ -40,7 +41,7 @@ func TestConfigurationLoads(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := Config{Repo: "org/repo", Drive: "d", Checkout: "/srv/checkout", Author: "drive-bot", Label: "drive", Movers: []string{"lanes"}, RemoteBox: "box-1", Trunk: "main"}
+	want := Config{Repo: "org/repo", Drive: "d", Checkout: "/srv/checkout", Author: "drive-bot", Label: "drive", Movers: []string{"lanes"}, RemoteBox: "box-1", Trunk: "main", RetireSilent: time.Hour}
 	if !reflect.DeepEqual(loaded, want) {
 		t.Fatalf("got %+v, want %+v", loaded, want)
 	}
@@ -99,6 +100,8 @@ func TestARefusedFileNamesWhatIsWrong(t *testing.T) {
 		{"movers that are not a list", with(map[string]any{"movers": "lanes"}), "movers must be a list of mover names"},
 		{"the landing mover without its queue script", with(map[string]any{"movers": []string{"lanes", "landing"}}), "landing mover needs queue_script"},
 		{"release pipelines without the Buildkite client", with(map[string]any{"release_pipelines": "org/release"}), "release_pipelines needs buildkite_cli"},
+		{"a retire threshold that is not whole minutes", with(map[string]any{"retire_silent_minutes": "1h"}), "retire_silent_minutes must be a positive whole number"},
+		{"a retire threshold of zero", with(map[string]any{"retire_silent_minutes": 0}), "retire_silent_minutes must be a positive whole number"},
 		{"a file that is not an object", []string{"lanes"}, "must be a JSON object"},
 	}
 	for _, c := range cases {
@@ -138,5 +141,20 @@ func TestReleasePipelinesNameTheSlugsTheSupervisorWatches(t *testing.T) {
 	}
 	if got, want := loaded.ReleasePipelineSlugs(), []string{"org/release", "org/hotfix"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestTheRetireThresholdIsAnHourUnlessTheConfigNamesOne(t *testing.T) {
+	plain, err := Load(write(t, good()), io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var warned bytes.Buffer
+	set, err := Load(write(t, with(map[string]any{"retire_silent_minutes": 90})), &warned)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plain.RetireSilent != time.Hour || set.RetireSilent != 90*time.Minute || warned.Len() != 0 {
+		t.Fatalf("default %v, set %v, warnings %q", plain.RetireSilent, set.RetireSilent, warned.String())
 	}
 }
