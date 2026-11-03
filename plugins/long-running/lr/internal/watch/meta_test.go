@@ -110,10 +110,10 @@ func TestAMetaRowWithNoDateIsDueTheDayTheTableWasWritten(t *testing.T) {
 	s, r := memory(t), &recorder{}
 	dir := t.TempDir()
 	path := filepath.Join(dir, "meta", "items.md")
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(metaTable("| M35 | tokens | coordinator-tokens-1 | blocked | — | relaunch | 11:00 PM |")), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(metaTable("| M35 | tokens | coordinator-tokens-1 | blocked | — | relaunch | 11:00 PM |")), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	written := at(t, "2026-11-03T06:30:00Z")
