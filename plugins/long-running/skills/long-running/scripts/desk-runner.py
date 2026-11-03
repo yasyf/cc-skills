@@ -783,7 +783,8 @@ FINDER_STALL = re.compile(r"finder:(?P<pr>\d+):(?P<head>[0-9a-f]{7,40})(?::quiet
 FINDER_SETTLED = "settled_at"
 FINDER_SKIPS = {"CLOSED": "#{pr} is closed", "NOT_FOUND": "#{pr} is no pull request in {repo}"}
 PROOF_TITLE = re.compile(r"\bproof:|\b(?:red|green) proof\b|\bproof, do not merge\b", re.IGNORECASE)
-PROOF_BODY = re.compile(r"^proof PR\b", re.IGNORECASE | re.MULTILINE)
+PROOF_BODY = re.compile(r"^proof PR(?: for #\d+\b|\b.*\bnever merge)", re.IGNORECASE | re.MULTILINE)
+PROOF_SKIP = "is a proof PR"
 FINDER_STALLED = "stalled"
 FIDELITY = "desk-fidelity"
 REFUSALS_PER_MINUTE = 10
@@ -5036,6 +5037,7 @@ class Runner:
             if (state := live.get(pr)) and (skipped := grading_skip(state, repo, pr, job["head"])):
                 if not self.read_lags(FINDER, action, state):
                     self.finder_settled(action.action_id, {"skipped": skipped})
+                    self.tell_proof_skip(pr, job["head"], rows, skipped)
                 del newest[pr]
         going = self.tapped() | {pr for record in cci.records(self.cci_tail, self.config.drive, "--lane", ROOT, *GO_KIND_FLAGS) if record["lane"] == ROOT and is_go(record) for pr in go_heads(record)}
         history: dict[str, list[actions.Action]] = {}
@@ -5049,6 +5051,13 @@ class Runner:
                 return
             if not self.waiting_on_fix(action):
                 running += self.start_finder(spec, repo, action, rows)
+
+    def tell_proof_skip(self, pr: str, head: str, rows: dict[str, dict], skipped: str) -> None:
+        """Tell the PR's lane once per head that no grader reads a head its title or body marks as a proof PR, since a skip that posts nothing leaves a real change ungraded with no reason (root #348793)."""
+        if PROOF_SKIP not in skipped:
+            return
+        record_id = f"grader-skipped:{pr}:{head}"
+        self.cci_post("note", f"GRADER-SKIPPED #{pr} {head[:12]}: no finder or fidelity pass grades it, because its title or body marks it a proof PR, which never merges; a real change drops those words", rows.get(pr, {}).get("lane") or ROOT, f"grader-skipped:{pr}", record_id, record_id=record_id)
 
     def root_firsts(self) -> set[str]:
         """The PRs a root `decide` of the last `ROOT_FIRST_HORIZON` puts first, such as root #324665's "#48141 at a04386d ... is first in every grading queue": they start ahead of every other head, and only they may take the `reserved` slots of `finder.concurrent` and `fidelity.concurrent` (root #325189)."""
@@ -5349,6 +5358,7 @@ class Runner:
             if (state := live.get(pr)) and (skipped := grading_skip(state, repo, pr, json.loads(action.target)["head"])):
                 if not self.read_lags(FIDELITY, action, state):
                     self.settle(FIDELITY, action.action_id, {"skipped": skipped})
+                    self.tell_proof_skip(pr, json.loads(action.target)["head"], rows, skipped)
                 del newest[pr]
         ranks = {pr: (not self.incident_fix_row(row), int(row.get("priority", DEFAULT_PRIORITY))) for pr, row in rows.items()}
         first = self.root_firsts()

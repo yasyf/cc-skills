@@ -19,9 +19,10 @@ const (
 var carriedKinds = []string{GraderFidelity, GraderFinder, "verdict"}
 
 type Pool interface {
-	Scale(queued int, now time.Time) error
 	Settle(ctx context.Context, workers []string) (map[string]bool, error)
+	Plan(ctx context.Context, items []store.Item, snapshot map[int]machine.Facts, queued int, now time.Time) ([]store.Item, error)
 	Dispatch(ctx context.Context, grader string, facts machine.Facts) (string, error)
+	Whole(ctx context.Context, snapshot map[int]machine.Facts) ([]string, error)
 }
 
 type Dispatched struct {
@@ -58,12 +59,13 @@ func Act(ctx context.Context, s *store.Store, pool Pool, items []store.Item, sna
 	if err != nil {
 		return nil, err
 	}
-	if err := pool.Scale(queued, now); err != nil {
+	ranked, err := pool.Plan(ctx, items, snapshot, queued, now)
+	if err != nil {
 		return nil, err
 	}
 	full := map[string]bool{}
 	var dispatched []Dispatched
-	for _, item := range items {
+	for _, item := range ranked {
 		facts := snapshot[item.Number]
 		if !graded[item.ID] || facts.Head != item.Head || (!gone[item.ID] && item.Worker != "" && item.Deadline.After(now)) {
 			continue
@@ -89,6 +91,15 @@ func Act(ctx context.Context, s *store.Store, pool Pool, items []store.Item, sna
 			dispatched = append(dispatched, Dispatched{grader, facts.Number, facts.Head})
 		}
 	}
+	started, err := pool.Whole(ctx, snapshot)
+	if err != nil {
+		return dispatched, err
+	}
+	for _, name := range started {
+		if err := s.Heartbeat(store.Worker{Name: name, Generation: generation, Heartbeat: now}); err != nil {
+			return dispatched, err
+		}
+	}
 	return dispatched, nil
 }
 
@@ -97,7 +108,7 @@ func settleWorkers(ctx context.Context, s *store.Store, pool Pool, graded map[in
 	if err != nil {
 		return nil, err
 	}
-	workers = slices.DeleteFunc(workers, func(worker store.Worker) bool { return !graded[worker.Item] })
+	workers = slices.DeleteFunc(workers, func(worker store.Worker) bool { return !graded[worker.Item] && !isWhole(worker.Name) })
 	names := make([]string, 0, len(workers))
 	for _, worker := range workers {
 		names = append(names, worker.Name)

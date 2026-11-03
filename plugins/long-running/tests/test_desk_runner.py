@@ -17214,6 +17214,17 @@ def test_a_proof_pr_gets_no_finder_or_fidelity_pass_while_a_pr_naming_a_proof_st
     assert incident(config.parent, "desk-finder").actions[f"finder:43299:{FINDER_OLD}"].response["skipped"] == "#43299 is a proof PR, which never merges and gets no grade"
 
 
+def test_a_pr_whose_body_cites_its_proof_pr_still_gets_both_passes(shell, config):
+    fidelity_config(config)
+    finder_config(config)
+    orca_pass(shell, config)
+    head_record(shell, "43299", FINDER_OLD)
+    shell.pr_heads = {"43299": ("OPEN", FINDER_OLD, "sandsql: 🐛 a real fix", "## Risk\n\nProof PR, red before this fix: linked in a comment once CI grades it.")}
+    orca_pass(shell, config)
+    assert [job["pr"] for job in fidelity_jobs(shell)] == ["43299"]
+    assert [job["pr"] for job in finder_jobs(shell)] == ["43299"]
+
+
 def test_a_runner_with_no_fidelity_config_starts_no_fidelity_pass(shell, config, tmp_path):
     orca_pass(shell, config)
     head_record(shell, "43439", FINDER_HEAD)

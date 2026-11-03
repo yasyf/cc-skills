@@ -121,6 +121,8 @@ func poolAt(t *testing.T, root string, sections map[string]any) *poolFixture {
 		Runner:  f.shell,
 		Spawn:   f.shell.spawn,
 		Workers: f.store.Workers,
+		Cursors: f.store,
+		Ledger:  f.store.LedgerRows,
 		Now:     func() time.Time { return f.now },
 		Log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Self:    "/plugin/bin/lr",
@@ -347,18 +349,39 @@ func TestAProofPRStartsNoPass(t *testing.T) {
 	for name, view := range map[string]string{
 		"title": `{"title":"proof: the red build","body":"","headRefName":"b"}`,
 		"body":  `{"title":"a change","body":"context\nproof PR that never merges","headRefName":"b"}`,
+		"names": `{"title":"a change","body":"Proof PR for #47110. Its build reads red.","headRefName":"b"}`,
 	} {
 		t.Run(name, func(t *testing.T) {
-			f := newPool(t, map[string]any{"finder": map[string]any{}})
+			f := newPool(t, map[string]any{"finder": map[string]any{}, "fidelity": map[string]any{}})
 			f.shell.view = view
 
-			if _, err := f.dispatch(t, GraderFinder); !errors.Is(err, ErrAnswered) {
-				t.Fatalf("err = %v, want ErrAnswered", err)
+			for _, grading := range []string{GraderFinder, GraderFidelity} {
+				if _, err := f.dispatch(t, grading); !errors.Is(err, ErrAnswered) {
+					t.Fatalf("err = %v, want ErrAnswered", err)
+				}
 			}
 			if len(f.shell.spawns) != 0 {
 				t.Fatalf("spawns = %v", f.shell.spawns)
 			}
+			notes, err := client.Tail(context.Background(), client.Query{Drive: testDrive, Kinds: []string{kindNote}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(notes) != 1 || !strings.HasPrefix(notes[0].Text, "GRADER-SKIPPED #45489 ") || !slices.Contains(notes[0].To, "lane-7") {
+				t.Fatalf("notes = %+v, want one telling the lane why", notes)
+			}
 		})
+	}
+}
+
+func TestABodyLineCitingAPRsProofPRIsNoProofPR(t *testing.T) {
+	f := newPool(t, map[string]any{"finder": map[string]any{}})
+	f.shell.view = `{"title":"a real fix","body":"## Risk\n\nProof PR, red before this fix: linked in a comment once CI grades it.","headRefName":"b"}`
+
+	f.started(t, GraderFinder)
+
+	if len(f.shell.spawns) != 1 {
+		t.Fatalf("spawns = %v", f.shell.spawns)
 	}
 }
 
@@ -399,12 +422,12 @@ func TestEachPassGoesToTheSpriteRunningFewestPassesFirstListedOnATie(t *testing.
 		t.Fatal(err)
 	}
 	f.hold(t, "dar-1/fidelity-pipeline/1-aaaaaaaaaaaa", "dar-2/finder-desk/2-bbbbbbbbbbbb", "dar-3/finder-desk/3-cccccccccccc", "dar-3/finder-desk/4-dddddddddddd", "lane-without-a-box")
-	sprite, err := f.pool.place(f.pool.desks[GraderFinder], mustWorkers(t, f))
+	sprite, err := f.pool.place(f.pool.desks[GraderFinder], mustWorkers(t, f), false)
 	if err != nil || sprite != "dar-1" {
 		t.Fatalf("sprite = %q, %v, want the first listed of the two tied", sprite, err)
 	}
 	f.hold(t, "dar-1/fidelity-pipeline/5-eeeeeeeeeeee")
-	sprite, err = f.pool.place(f.pool.desks[GraderFinder], mustWorkers(t, f))
+	sprite, err = f.pool.place(f.pool.desks[GraderFinder], mustWorkers(t, f), false)
 	if err != nil || sprite != "dar-2" {
 		t.Fatalf("sprite = %q, %v, want dar-2", sprite, err)
 	}
@@ -439,7 +462,7 @@ func TestASpriteWhosePassLeftNoResultTakesNoPassWhileAnotherIsSound(t *testing.T
 		t.Fatalf("retry = %q, want dar-2 while dar-1 fails", again)
 	}
 	f.now = f.now.Add(spriteFailingFor)
-	sprite, err := f.pool.place(f.pool.desks[GraderFinder], nil)
+	sprite, err := f.pool.place(f.pool.desks[GraderFinder], nil, false)
 	if err != nil || sprite != "dar-1" {
 		t.Fatalf("sprite = %q, %v, want dar-1 once its failure ages out", sprite, err)
 	}
@@ -448,12 +471,12 @@ func TestASpriteWhosePassLeftNoResultTakesNoPassWhileAnotherIsSound(t *testing.T
 func TestEverySpriteFailingStillTakesThePassOnTheFirstListed(t *testing.T) {
 	f := newPool(t, map[string]any{"finder": map[string]any{"sprite": []string{"dar-1", "dar-2"}}})
 	for _, sprite := range []string{"dar-1", "dar-2"} {
-		if err := f.pool.stampFailure(sprite); err != nil {
+		if err := f.pool.stamp(failuresDir, sprite); err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	sprite, err := f.pool.place(f.pool.desks[GraderFinder], nil)
+	sprite, err := f.pool.place(f.pool.desks[GraderFinder], nil, false)
 	if err != nil || sprite != "dar-1" {
 		t.Fatalf("sprite = %q, %v", sprite, err)
 	}
@@ -495,14 +518,14 @@ func TestTheQueueDecidesHowManyListedSpritesTakePassesAcrossPoolRestarts(t *test
 	if err := f.pool.Scale(1, f.now); err != nil {
 		t.Fatal(err)
 	}
-	if sprite, err := f.pool.place(f.pool.desks[GraderFinder], busy); err != nil || sprite != "dar-1" {
+	if sprite, err := f.pool.place(f.pool.desks[GraderFinder], busy, false); err != nil || sprite != "dar-1" {
 		t.Fatalf("small queue: sprite = %q, %v, want one Sprite taking passes", sprite, err)
 	}
 
 	if err := f.pool.Scale(4, f.now); err != nil {
 		t.Fatal(err)
 	}
-	if sprite, err := f.pool.place(f.pool.desks[GraderFinder], busy); err != nil || sprite != "dar-2" {
+	if sprite, err := f.pool.place(f.pool.desks[GraderFinder], busy, false); err != nil || sprite != "dar-2" {
 		t.Fatalf("burst: sprite = %q, %v, want dar-2 in the same pass", sprite, err)
 	}
 
@@ -510,14 +533,14 @@ func TestTheQueueDecidesHowManyListedSpritesTakePassesAcrossPoolRestarts(t *test
 	if err := restarted.pool.Scale(0, f.now.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
-	if sprite, err := restarted.pool.place(restarted.pool.desks[GraderFinder], busy); err != nil || sprite != "dar-2" {
+	if sprite, err := restarted.pool.place(restarted.pool.desks[GraderFinder], busy, false); err != nil || sprite != "dar-2" {
 		t.Fatalf("lull: sprite = %q, %v, want the size kept", sprite, err)
 	}
 
 	if err := restarted.pool.Scale(0, f.now.Add(time.Minute+time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	if sprite, err := restarted.pool.place(restarted.pool.desks[GraderFinder], busy); err != nil || sprite != "dar-1" {
+	if sprite, err := restarted.pool.place(restarted.pool.desks[GraderFinder], busy, false); err != nil || sprite != "dar-1" {
 		t.Fatalf("after an idle hour: sprite = %q, %v, want one Sprite again", sprite, err)
 	}
 }
