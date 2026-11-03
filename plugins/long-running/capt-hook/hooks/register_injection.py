@@ -30,6 +30,9 @@ SPAWNED_TIMEOUT_SECONDS = 20
 INLINE_BRIEF = "inline-prompt"
 REPLACES = re.compile(r"^Replaces: `?([\w.-]+)`?\s*$", re.MULTILINE)
 LANE_ENV = "CLAUDE_LONG_RUNNING_LANE"
+CLAUDE_PID = "CLAUDE_PID"
+PARENT_SESSION = " CLAUDE_CODE_SESSION_ID="
+STARTED_TIMEOUT_SECONDS = 5
 REGISTERED = "registered at its first command"
 ROOT_THREAD = "root"
 INCIDENT_NAME = re.compile(r"^(?:incident|outage)-")
@@ -364,9 +367,20 @@ def own_role(evt: BaseHookEvent) -> str | None:
     return found[1].lower() if found else None
 
 
+def nested() -> bool:
+    """Whether another Claude session started this one: a session sets `CLAUDE_CODE_SESSION_ID` only for what it runs, so a launcher's window or a desk loop's `claude -p` starts without it; an unread process is not nested."""
+    if not (pid := reqenv.getenv(CLAUDE_PID)):
+        return False
+    try:
+        started = subprocess.run(["ps", "eww", "-o", "command=", "-p", pid], capture_output=True, text=True, timeout=STARTED_TIMEOUT_SECONDS).stdout
+    except UNREAD:
+        return False
+    return PARENT_SESSION in started
+
+
 def own_lane(evt: BaseHookEvent) -> str | None:
     if evt.agent_id is None:
-        return reqenv.getenv(LANE_ENV)
+        return None if nested() else reqenv.getenv(LANE_ENV)
     agent, prompt = own_prompt(evt)
     if helper(agent.meta.get("agentType")):
         return None
@@ -386,6 +400,9 @@ def registers(command: str, lane: str) -> bool:
 
 
 ORCA_LANE = {DRIVE_ENV: "brook-drive", LANE_ENV: "lane-a"}
+CLAUDE_STARTED = "ps eww -o command= -p 4242"
+NESTED_CLAUDE = {CLAUDE_STARTED: "claude -p 'summarize the diff' CLAUDE_LONG_RUNNING_LANE=lane-a CLAUDECODE=1 CLAUDE_CODE_SESSION_ID=6f1d2c3b-0a9e-4b8f-9c7d-1e2f3a4b5c6d\n"}
+DESK_LOOP_CLAUDE = {CLAUDE_STARTED: "claude -p --model claude-sonnet-5-5 'answer the open asks' CLAUDE_LONG_RUNNING_LANE=lane-a HOME=/home/sprite\n"}
 
 
 @on(
@@ -399,6 +416,9 @@ ORCA_LANE = {DRIVE_ENV: "brook-drive", LANE_ENV: "lane-a"}
         Input(command="git status", env=ORCA_LANE, state=[LaneRegistrations(threads=[ROOT_THREAD])]): Allow(),
         Input(command="git status", env={DRIVE_ENV: "brook-drive"}): Allow(),
         Input(command="git status", env={LANE_ENV: "lane-a"}): Allow(),
+        Input(command="git status", env=ORCA_LANE | {CLAUDE_PID: "4242"}, commands=NESTED_CLAUDE): Allow(),
+        Input(command="git status", env=ORCA_LANE | {CLAUDE_PID: "4242"}, commands=DESK_LOOP_CLAUDE): Rewrite("cci announce --lane lane-a >/dev/null && cci post --lane lane-a --kind state 'lane-a: registered at its first command' >/dev/null\ngit status"),
+        Input(command="git status", env=ORCA_LANE | {CLAUDE_PID: "4242"}, commands={CLAUDE_STARTED: (1, "")}): Rewrite("cci announce --lane lane-a >/dev/null && cci post --lane lane-a --kind state 'lane-a: registered at its first command' >/dev/null\ngit status"),
     }),
 )
 def register_lane_at_first_command(evt: BaseHookEvent) -> HookResult | None:
