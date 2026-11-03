@@ -36,7 +36,7 @@ from .judge_metrics import judge_call
 from .owner_facing import CCI_POST, SLACK_CARD, posted_text, shown
 from .register_gates import fenced
 from .register_injection import drive_args
-from .ruling_misread import MATCH, candidate_rows
+from .ruling_judge import MATCH_COMMAND, candidate_rows
 from .tests.board_fixtures import JUDGE, judged
 from .tests.register_fixtures import CWD, DRIVE_CONFIG, STATES
 from .tests.rulings_consumers import separate
@@ -324,17 +324,17 @@ DRIVEN = {"cwd": CWD, "env": DRIVE_CONFIG, "state": [CompactionState(active=True
             commands=judged("are some dropped"),
             **{**PLAN_ASK, "state": [*PLAN_ASK["state"], SettledState(judged=[digest(SETTLED_ASK["questions"][0]["question"])])]},
         ): Allow(),
-        Input(tool=SLACK_CARD, tool_input=RULED_CARD, commands={ROWS: REGISTER, MATCH: MATCHED, **RULED}, **DRIVEN): Warn(pattern=r"He already ruled one local replica"),
-        Input(tool=SLACK_CARD, tool_input=RULED_CARD, commands={ROWS: REGISTER, MATCH: MATCHED, **judged()}, **DRIVEN): Allow(),
-        Input(command="cci post --lane board-refresher-2 --kind note --text 'board ready'", agent_id="a1b2c3", commands={ROWS: REGISTER, MATCH: MATCHED, **RULED}, **DRIVEN): Allow(),
+        Input(tool=SLACK_CARD, tool_input=RULED_CARD, commands={ROWS: REGISTER, MATCH_COMMAND: MATCHED, **RULED}, **DRIVEN): Warn(pattern=r"He already ruled one local replica"),
+        Input(tool=SLACK_CARD, tool_input=RULED_CARD, commands={ROWS: REGISTER, MATCH_COMMAND: MATCHED, **judged()}, **DRIVEN): Allow(),
+        Input(command="cci post --lane board-refresher-2 --kind note --text 'board ready'", agent_id="a1b2c3", commands={ROWS: REGISTER, MATCH_COMMAND: MATCHED, **RULED}, **DRIVEN): Allow(),
         Input(
             command="cci post --lane root --kind decide --to board-refresher-2 --text 'board-refresher-2: card whether everything is a client of one local replica.'",
-            commands={ROWS: REGISTER, MATCH: MATCHED, **RULED},
+            commands={ROWS: REGISTER, MATCH_COMMAND: MATCHED, **RULED},
             **DRIVEN,
         ): Warn(pattern=r"He already ruled one local replica"),
         Input(
             command="cci post --lane root --kind decide --to lane-a --text 'lane-a: every chat keeps its own local replica cache.'",
-            commands={ROWS: REGISTER, MATCH: MATCHED, **RULED},
+            commands={ROWS: REGISTER, MATCH_COMMAND: MATCHED, **RULED},
             **DRIVEN,
         ): Allow(),
         Input(tool_input=SLACK_ASK, commands=judged("Post this"), **PLAN_ASK): Allow(),

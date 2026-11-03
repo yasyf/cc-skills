@@ -21,6 +21,11 @@ CANDIDATE_BYTES = 6000
 MOMENT_CHARS = 2000
 BRIEF_CHARS = 6000
 MATCH_TIMEOUT_SECONDS = 8
+ROWS_PER_ARTIFACT = 2
+MATCH_CHARS = 2000
+MATCH_BYTES = 6000
+ROW_KEY = re.compile(r"\b(?:rule|prompt|exception|design|reserved)/[\w-]+")
+ANSWER_ID = re.compile(r"^- ([0-9a-f]{7}) ", re.MULTILINE)
 DECISION = re.compile(r"\b(?:GO|HOLD|DECIDE)\b")
 BLOCK_ID = re.compile(r"^- ([0-9a-f]{7}) ", re.MULTILINE)
 BLOCK_START = re.compile(r"(?m)^(?=- [0-9a-f]{7} )")
@@ -29,7 +34,8 @@ EVIDENCE = "A durable answer of the owner's: the question it answered, then his 
 WARNING = "Warning, nothing was blocked: this call makes the decision durable owner answer `{answer}` settled without carrying all of it."
 FINDING = '{sentence}\nThe call: "{artifact_phrase}"\nHis answer: "{evidence_phrase}"\n\n{block}'
 CANDIDATE = "- 1984bf6 May a migration ship behind a flag?\n  > No. Delete or replace.\n"
-MATCH = {f"{sys.executable} {script('rulings.py')} match": CANDIDATE}
+MATCH_COMMAND = f"{sys.executable} {script('rulings.py')} match"
+MATCH = {MATCH_COMMAND: CANDIDATE}
 DROPPED = {
     "verdict": "yes",
     "artifact_phrase": "Add a --skip-tenant flag",
@@ -43,6 +49,35 @@ ROOT = "main:"
 
 def answered(verdict: dict) -> dict[str, str]:
     return {"claude -p": json.dumps({"structured_output": verdict, "total_cost_usd": 0.01, "usage": {"input_tokens": 900, "output_tokens": 40}}), **MATCH}
+
+
+def candidate_rows(evt: BaseHookEvent, drive: list[str], text: str) -> tuple[Path, dict[str, dict]]:
+    registered = json.loads(rulings(str(evt.cwd), "rows", *drive, evt=evt))
+    state, rows = Path(registered["state_dir"]), registered["rows"]
+    keys = [key for key in dict.fromkeys(ROW_KEY.findall(text)) if key in rows]
+    if not keys:
+        try:
+            matched = rulings(
+                str(evt.cwd),
+                "match",
+                *drive,
+                "-k",
+                str(ROWS_PER_ARTIFACT),
+                "--budget",
+                str(MATCH_BYTES),
+                stdin=text[:MATCH_CHARS],
+                timeout=reqenv.clamp_timeout(MATCH_TIMEOUT_SECONDS),
+                evt=evt,
+            )
+        except subprocess.TimeoutExpired:
+            return state, {}
+        answers = ANSWER_ID.findall(matched)
+        keys = (
+            [key for key, row in rows.items() if any(str(answer).startswith(tuple(answers)) for answer in json.loads(row.get("answer") or "[]"))]
+            if answers
+            else []
+        )
+    return state, {key: rows[key] for key in keys[:ROWS_PER_ARTIFACT] if rows[key].get("words")}
 
 
 @workflow_state("long_running_ruling_judge")
