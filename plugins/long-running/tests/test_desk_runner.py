@@ -11344,6 +11344,12 @@ def live_runner(shell: FakeShell, config: Path, tmp_path: Path, desk: str) -> tu
     return runner, held
 
 
+def test_a_runner_a_lane_started_drops_that_lanes_name(shell, config, monkeypatch):
+    monkeypatch.setenv("CLAUDE_LONG_RUNNING_LANE", "installer-1")
+    orca_pass(shell, config)
+    assert "CLAUDE_LONG_RUNNING_LANE" not in os.environ
+
+
 def test_handoff_waits_for_the_runner_holding_the_desk_to_exit_and_then_starts_its_successor(shell, config, tmp_path, monkeypatch):
     runner, held = live_runner(shell, config, tmp_path, "orca")
     started = []

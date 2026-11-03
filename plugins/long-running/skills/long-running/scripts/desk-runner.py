@@ -11035,6 +11035,7 @@ def main(argv: list[str] | None = None, shell: Shell | None = None) -> int:
         return 0
     runner = Runner(shell, config, actions.Store(config.store))
     if args.verb == "run":
+        os.environ.pop("CLAUDE_LONG_RUNNING_LANE", None)
         if not (pin := runner.pinned()):
             runner.pin(pin := RUNNING_VERSION)
         if pin != RUNNING_VERSION:
