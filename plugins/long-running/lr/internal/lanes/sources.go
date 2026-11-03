@@ -41,6 +41,7 @@ const (
 var (
 	unsafeName  = regexp.MustCompile(`[^a-zA-Z0-9_-]`)
 	leadingHold = regexp.MustCompile(`(?i)^\W*hold\s+#(\d+)\b`)
+	launchOrder = regexp.MustCompile(`\borca-desk: launch (\S+)`)
 )
 
 type Bus interface {
@@ -333,7 +334,7 @@ func appendInbox(inbox string, message map[string]any) (bool, error) {
 		return false, err
 	}
 	defer func() { _ = os.Remove(lock) }()
-	var messages []json.RawMessage
+	messages := make([]json.RawMessage, 0, 1)
 	data, err := os.ReadFile(inbox)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return false, err
@@ -662,6 +663,32 @@ func detach(log string, argv ...string) error {
 	return cmd.Process.Release()
 }
 
+type deskReader struct {
+	env   Env
+	ctx   context.Context
+	after int64
+	desks map[string]string
+}
+
+func (r *deskReader) desk(lane string) (string, error) {
+	records, err := r.env.Bus.Tail(r.ctx, client.Query{Drive: r.env.Config.Drive, After: r.after, Kinds: []string{"go", "decide"}})
+	if err != nil {
+		return "", fmt.Errorf("%w: cci tail: %w", ErrUnread, err)
+	}
+	for _, raw := range records {
+		r.after = raw.Seq
+		record := recordOf(raw)
+		if owner := record.Attr("owned-by"); owner != "" && len(record.To) > 0 {
+			r.desks[record.To[0]] = owner
+			continue
+		}
+		if found := launchOrder.FindStringSubmatch(record.Text); found != nil && record.Kind == "go" {
+			r.desks[found[1]] = record.Lane
+		}
+	}
+	return r.desks[lane], nil
+}
+
 func (e Env) Deps(ctx context.Context) (Deps, error) {
 	briefs := filepath.Join(e.State, "lanes")
 	if err := os.MkdirAll(briefs, 0o750); err != nil {
@@ -674,6 +701,7 @@ func (e Env) Deps(ctx context.Context) (Deps, error) {
 	projects := filepath.Join(e.Claude, "projects")
 	tokens := &tokenReader{projects: projects, clock: e.Now, measured: map[string]tokenRead{}}
 	states := &prReader{env: e, ctx: ctx, read: map[int]prRead{}}
+	desks := &deskReader{env: e, ctx: ctx, desks: map[string]string{}}
 	waker := &Waker{Drive: e.Config.Drive, Clock: e.Now, Tasks: filepath.Join(e.Claude, "tasks")}
 	launcher := e.tool("desk-launch.py")
 	return Deps{
@@ -699,6 +727,7 @@ func (e Env) Deps(ctx context.Context) (Deps, error) {
 		Wake:     waker.Wake,
 		PRStates: states.states,
 		Held:     func() (map[int]bool, error) { return e.held(ctx) },
+		Desk:     desks.desk,
 		RotateAt: at,
 	}, nil
 }

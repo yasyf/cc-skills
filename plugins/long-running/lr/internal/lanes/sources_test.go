@@ -381,3 +381,28 @@ func TestAnInboxKeepsItsEarlierMessagesVerbatim(t *testing.T) {
 		t.Fatal(string(data))
 	}
 }
+
+func TestALaunchOrderOrAnOwnedByDecideNamesTheDeskThatOwnsALane(t *testing.T) {
+	var records []client.Record
+	feed := `[
+		{"seq":7,"lane":"meta-desk-1","kind":"go","at":"2026-11-02T19:59:00Z","text":"R85032 (7:59 PM) orca-desk: launch board-mirror-1 opus xhigh brief=/b.md","to":["orca-desk"]},
+		{"seq":8,"lane":"root","kind":"go","at":"2026-11-02T19:59:00Z","text":"R85033 (7:59 PM) orca-desk: launch alerts-desk-3 sonnet xhigh brief=/a.md","to":["orca-desk"]},
+		{"seq":9,"lane":"root","kind":"decide","at":"2026-11-02T19:59:00Z","text":"orca-desk: launch quoted-1 opus xhigh","to":["meta-desk-1"]},
+		{"seq":10,"lane":"root","kind":"decide","at":"2026-11-02T19:59:00Z","text":"meta-desk-1 maintains it","to":["stall-watch"],"fields":{"attrs":{"owned-by":"meta-desk-1"}}}
+	]`
+	if err := json.Unmarshal([]byte(feed), &records); err != nil {
+		t.Fatal(err)
+	}
+	bus := &fakeBus{tail: records}
+	reader := &deskReader{env: Env{Bus: bus, Config: config.Config{Drive: "durable"}}, ctx: context.Background(), desks: map[string]string{}}
+
+	for lane, want := range map[string]string{"board-mirror-1": "meta-desk-1", "alerts-desk-3": "root", "stall-watch": "meta-desk-1", "quoted-1": ""} {
+		got, err := reader.desk(lane)
+		if err != nil {
+			t.Fatal(err)
+		}
+		equal(t, got, want)
+	}
+	equal(t, bus.query.After, int64(10))
+	equal(t, bus.query.Kinds, []string{"go", "decide"})
+}
