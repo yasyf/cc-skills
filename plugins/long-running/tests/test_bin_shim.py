@@ -6,6 +6,7 @@ from pathlib import Path
 
 PLUGIN = Path(__file__).resolve().parents[1]
 SHIM = PLUGIN / "scripts" / "bin-shim.sh"
+RUNNER = PLUGIN / "scripts" / "binrun.sh"
 
 
 def plugin_cache(tmp_path: Path, *versions: str) -> Path:
@@ -110,3 +111,41 @@ def test_stays_on_the_version_long_running_pin_names_and_hops_from_any_other(tmp
     pinned = {"PATH": os.environ["PATH"], "CLAUDE_CONFIG_DIR": str(cache.parent / "config"), "LONG_RUNNING_PIN": "0.7.44"}
     assert subprocess.run([str(cache / "0.7.44" / "bin" / "tool.py"), "a"], capture_output=True, text=True, check=True, env=pinned).stdout.strip() == "0.7.44 py a"
     assert subprocess.run([str(cache / "0.7.44" / "bin" / "tool.py"), "a"], capture_output=True, text=True, check=True, env=pinned | {"LONG_RUNNING_PIN": "0.7.9"}).stdout.strip() == "0.7.57 py a"
+
+
+def lr_cache(tmp_path: Path, *versions: str) -> Path:
+    cache = plugin_cache(tmp_path, *versions)
+    for version in versions:
+        root = cache / version
+        runner = root / "scripts" / "binrun.sh"
+        runner.write_text(RUNNER.read_text())
+        runner.chmod(0o755)
+        (root / "bin" / "lr").symlink_to("../scripts/bin-shim.sh")
+    fake = tmp_path / "binrun"
+    fake.write_text('#!/bin/sh\necho "$BINRUN_PLUGIN_ROOT $*"\n')
+    fake.chmod(0o755)
+    return cache
+
+
+def run_lr(tmp_path: Path, cache: Path, version: str, **env: str) -> str:
+    return subprocess.run(
+        [str(cache / version / "bin" / "lr"), "landing", "pass"],
+        capture_output=True,
+        text=True,
+        check=True,
+        env={"PATH": os.environ["PATH"], "CLAUDE_CONFIG_DIR": str(cache.parent / "config"), "BINRUN_BIN": str(tmp_path / "binrun")} | env,
+    ).stdout.strip()
+
+
+def test_lr_runs_the_descriptor_of_its_own_version_and_names_its_plugin_root(tmp_path: Path):
+    cache = lr_cache(tmp_path, "0.7.44")
+    root = (cache / "0.7.44").resolve()
+    assert run_lr(tmp_path, cache, "0.7.44") == f"{root} {root}/bin/lr.binrun landing pass"
+
+
+def test_lr_hops_to_the_install_link_unless_pinned(tmp_path: Path):
+    cache = lr_cache(tmp_path, "0.7.44", "0.7.57")
+    name(cache, "0.7.57")
+    newer, older = (cache / "0.7.57").resolve(), (cache / "0.7.44").resolve()
+    assert run_lr(tmp_path, cache, "0.7.44") == f"{newer} {newer}/bin/lr.binrun landing pass"
+    assert run_lr(tmp_path, cache, "0.7.44", LONG_RUNNING_PIN="0.7.44") == f"{older} {older}/bin/lr.binrun landing pass"
