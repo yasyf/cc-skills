@@ -81,23 +81,43 @@ func (r SpriteRoll) Run(ctx context.Context, run string, env func(string) string
 			boxes = boxes[:1]
 		}
 	}
+	var unreached []string
 	for done, box := range boxes {
 		result, err := r.Runner.Run(ctx, shell.Command{Argv: pins.installArgv(box, nil), Timeout: spriteInstallTimeout})
 		installed := installedTools(result.Stdout)
 		if recorded := r.Store.RecordSpriteTools(box, installed, r.Now()); recorded != nil {
 			return recorded
 		}
+		if err != nil && len(installed) == 0 && neverStarted(result) {
+			if box == probe {
+				return refuse("lr sprites roll: could not reach the probe %s, so %d more Sprites keep what they run: %s", box, len(boxes)-done-1, lastSaid(result))
+			}
+			fmt.Fprintf(r.Out, "lr sprites roll: could not reach %s: %s\n", box, lastSaid(result))
+			unreached = append(unreached, box)
+			continue
+		}
 		if err != nil {
 			return r.failed(box, pins, installed, result, len(boxes)-done-1)
 		}
 		fmt.Fprintf(r.Out, "lr sprites roll: %s runs %s\n", box, censusOf(installed))
 	}
+	if len(unreached) > 0 {
+		fmt.Fprintf(r.Out, "lr sprites roll: never reached: %s\n", strings.Join(unreached, " "))
+	}
 	return nil
 }
 
-func (r SpriteRoll) failed(box string, pins spritePins, installed map[string]string, result shell.Result, left int) error {
+func neverStarted(result shell.Result) bool {
+	return result.Code == shell.CodeTimedOut || strings.Contains(result.Stdout+result.Stderr, "failed to start sprite command")
+}
+
+func lastSaid(result shell.Result) string {
 	said := strings.TrimSpace(result.Stdout + result.Stderr)
-	said = said[strings.LastIndex(said, "\n")+1:]
+	return said[strings.LastIndex(said, "\n")+1:]
+}
+
+func (r SpriteRoll) failed(box string, pins spritePins, installed map[string]string, result shell.Result, left int) error {
+	said := lastSaid(result)
 	failed := slices.IndexFunc(pins.tools, func(tool spriteTool) bool { return installed[tool.Name] != tool.Version })
 	if installed["cci"] == "" || installed["lr"] == "" || failed < 0 {
 		return refuse("lr sprites roll: the cci or lr install failed on %s, so %d more Sprites keep what they run: %s", box, left, said)

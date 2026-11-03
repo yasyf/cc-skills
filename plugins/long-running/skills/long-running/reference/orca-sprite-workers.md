@@ -84,10 +84,13 @@ included, and the desk records them for the Sprite when it settles the launch.
 `lr sprites roll` moves the Sprites already running onto the same pins. It runs
 the launch's install, with no brief check, on each Sprite that hosts a live
 worker of the drive's Run: `--probe <sprite>` first, else the first by name,
-then the rest in name order, one at a time. A failure stops the roll, so every
-later Sprite keeps what it runs, and the pin that failed is marked bad in the
-drive's store; a roll whose pins include a version marked bad refuses before
-it touches any Sprite. A roll does not wait for a lane to go idle. A binary is
+then the rest in name order, one at a time. An install or version failure stops
+the roll, so every later Sprite keeps what it runs, and the pin that failed is
+marked bad in the drive's store; a roll whose pins include a version marked bad
+refuses before it touches any Sprite. A box `sprite exec` cannot reach, or that
+times out having installed nothing, is passed over, and the roll ends by naming
+every such box. A `--probe` it cannot reach stops the roll, since nothing proved
+the pins. A roll does not wait for a lane to go idle. A binary is
 replaced by rename, so a running process keeps its old file; a plugin's old
 tree stays where the session loaded it; and a lane in mid-turn sees the new
 hooks at its next hook call, and the new skills only in its next session.
