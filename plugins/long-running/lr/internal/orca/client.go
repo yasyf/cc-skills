@@ -20,6 +20,9 @@ const (
 type ReplyError struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
+	Data    struct {
+		RequestID string `json:"orchestrationRequestId"`
+	} `json:"data"`
 }
 
 type Reply struct {
@@ -27,6 +30,7 @@ type Reply struct {
 	Result json.RawMessage `json:"result"`
 	Error  ReplyError      `json:"error"`
 	Meta   json.RawMessage `json:"_meta"`
+	Stderr string          `json:"-"`
 }
 
 func (r Reply) Refusal() string {
@@ -70,6 +74,7 @@ func (c Client) Call(ctx context.Context, args ...string) (Reply, error) {
 	if full && reply.OK && reply.Meta == nil {
 		return Reply{}, fmt.Errorf("orca %s printed its concise view, not the full record", strings.Join(args[:2], " "))
 	}
+	reply.Stderr = strings.TrimSpace(result.Stderr)
 	return reply, nil
 }
 

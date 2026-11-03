@@ -457,6 +457,20 @@ func (s Store) Input(id string, fn func(*Tx) error) error {
 	})
 }
 
+func (s Store) Edit(id string, fn func(*Tx) error) error {
+	return s.transact(id, fn)
+}
+
+func (s Store) Fact(id, key string) (any, bool, error) {
+	var value any
+	var found bool
+	err := s.read(id, func(tx *sql.Tx) (err error) {
+		value, found, err = readFact(tx, key)
+		return err
+	})
+	return value, found, err
+}
+
 func (s Store) transact(id string, fn func(*Tx) error) error {
 	return s.locked(id, func(path string) error {
 		if err := s.exists(path, id); err != nil {
@@ -627,10 +641,53 @@ func (t *Tx) change(id string, edit func(*Action) error) (Action, error) {
 	return action, err
 }
 
+func (t *Tx) AcceptDue(id, kind, target, authority string, at, deadline time.Time) (Action, bool, error) {
+	held, err := readAction(t.sql, id)
+	if err == nil {
+		return held, false, nil
+	}
+	if !errors.Is(err, ErrUnknownAction) {
+		return Action{}, false, err
+	}
+	if _, err := t.Accept(id, kind, target, authority, at); err != nil {
+		return Action{}, false, err
+	}
+	action, err := t.change(id, func(action *Action) error {
+		if !deadline.IsZero() {
+			action.Deadline = nullable(store.Stamp(deadline))
+		}
+		return nil
+	})
+	return action, true, err
+}
+
+func (t *Tx) StartBy(id string, at, deadline time.Time, dispatch string) (Action, error) {
+	return t.change(id, func(action *Action) error {
+		if action.Status != ActionAccepted {
+			return &TransitionError{fmt.Sprintf("%s is %s, not accepted", id, action.Status)}
+		}
+		action.Status, action.StartedAt, action.Deadline = ActionStarted, nullable(store.Stamp(at)), ""
+		if !deadline.IsZero() {
+			action.Deadline = nullable(store.Stamp(deadline))
+		}
+		if dispatch != "" {
+			action.DispatchID = nullable(dispatch)
+		}
+		return nil
+	})
+}
+
+func (t *Tx) Respond(id string, response map[string]any) (Action, error) {
+	return t.change(id, func(action *Action) error {
+		action.Response = response
+		return nil
+	})
+}
+
 func (t *Tx) Start(id string, at time.Time, deadline time.Duration) (Action, error) {
 	return t.change(id, func(action *Action) error {
 		if action.Status != ActionAccepted {
-			return fmt.Errorf("%s is %s, not accepted", id, action.Status)
+			return &TransitionError{fmt.Sprintf("%s is %s, not accepted", id, action.Status)}
 		}
 		action.Status, action.StartedAt, action.Deadline = ActionStarted, nullable(store.Stamp(at)), ""
 		if deadline > 0 {
@@ -643,7 +700,7 @@ func (t *Tx) Start(id string, at time.Time, deadline time.Duration) (Action, err
 func (t *Tx) Complete(id string, response map[string]any, dispatch string) (Action, error) {
 	return t.change(id, func(action *Action) error {
 		if action.Status != ActionStarted && action.Status != ActionUnverifiable {
-			return fmt.Errorf("%s is %s, not started", id, action.Status)
+			return &TransitionError{fmt.Sprintf("%s is %s, not started", id, action.Status)}
 		}
 		action.Status, action.Response = ActionCompleted, response
 		if dispatch != "" {
@@ -656,7 +713,7 @@ func (t *Tx) Complete(id string, response map[string]any, dispatch string) (Acti
 func (t *Tx) Verify(id string, receipt map[string]any) (Action, error) {
 	return t.change(id, func(action *Action) error {
 		if action.terminal() {
-			return fmt.Errorf("%s is already %s", id, action.Status)
+			return &TransitionError{fmt.Sprintf("%s is already %s", id, action.Status)}
 		}
 		action.Status, action.VerificationReceipt = ActionVerified, receipt
 		return nil
@@ -666,7 +723,7 @@ func (t *Tx) Verify(id string, receipt map[string]any) (Action, error) {
 func (t *Tx) Fail(id, reason string) (Action, error) {
 	return t.change(id, func(action *Action) error {
 		if action.terminal() {
-			return fmt.Errorf("%s is already %s", id, action.Status)
+			return &TransitionError{fmt.Sprintf("%s is already %s", id, action.Status)}
 		}
 		action.Status, action.Reason = ActionFailed, nullable(reason)
 		return nil
@@ -676,7 +733,7 @@ func (t *Tx) Fail(id, reason string) (Action, error) {
 func (t *Tx) Lose(id string) (Action, error) {
 	return t.change(id, func(action *Action) error {
 		if action.Status != ActionStarted {
-			return fmt.Errorf("%s is %s, not started", id, action.Status)
+			return &TransitionError{fmt.Sprintf("%s is %s, not started", id, action.Status)}
 		}
 		action.Status, action.Reason = ActionUnverifiable, "response lost; settle from external state"
 		return nil
@@ -732,6 +789,27 @@ func (t *Tx) SetFact(key string, value any) error {
 		return err
 	}
 	return setFact(t.sql, "", key, normal)
+}
+
+func (t *Tx) Fact(key string) (any, bool, error) {
+	return readFact(t.sql, key)
+}
+
+func (t *Tx) DropFact(key string) error {
+	return dropFact(t.sql, key)
+}
+
+func (t *Tx) Offer(owner string) {
+	t.PendingOwner = nullable(owner)
+}
+
+func (t *Tx) TakeOver(owner string) error {
+	if string(t.PendingOwner) != owner {
+		return fmt.Errorf("%s has no pending transfer to %s (pending: %s)", t.ID, owner, t.PendingOwner)
+	}
+	t.Owner, t.PendingOwner = owner, ""
+	t.OwnerGeneration++
+	return nil
 }
 
 func (t *Tx) SetChild(parent, key string, value any) error {

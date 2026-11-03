@@ -12,6 +12,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
 var storeNow = time.Date(2026, 10, 1, 17, 20, 0, 0, time.UTC)
@@ -638,5 +640,149 @@ func TestAHeldStoreSeesAnotherWritersCommitsThroughOneConnection(t *testing.T) {
 	}
 	if opened := len(held.held.dbs); opened != 2 {
 		t.Fatalf("a held store opened %d connections, want one reader and one writer", opened)
+	}
+}
+
+func TestAcceptDueAcceptsLikeAcceptWithADeadlineAndKeepsWhatIsHeld(t *testing.T) {
+	s := created(t, nil)
+	deadline := storeNow.Add(time.Hour)
+	err := s.Edit("i1", func(tx *Tx) error {
+		plain, err := tx.Accept("plain", "send", "t", "a", storeNow)
+		if err != nil {
+			return err
+		}
+		due, fresh, err := tx.AcceptDue("due", "send", "t", "a", storeNow, deadline)
+		if err != nil || !fresh {
+			return fmt.Errorf("first accept: fresh=%v: %w", fresh, err)
+		}
+		if due.Status != plain.Status || due.AcceptedAt != plain.AcceptedAt || due.AuthorityRef != plain.AuthorityRef || due.OwnerGeneration != plain.OwnerGeneration {
+			return fmt.Errorf("%+v is not accepted as %+v is", due, plain)
+		}
+		if string(due.Deadline) != store.Stamp(deadline) {
+			return fmt.Errorf("deadline %q", due.Deadline)
+		}
+		undated, fresh, err := tx.AcceptDue("undated", "send", "t", "a", storeNow, time.Time{})
+		if err != nil || !fresh || undated.Deadline != "" {
+			return fmt.Errorf("undated accept: %+v fresh=%v: %w", undated, fresh, err)
+		}
+		held, fresh, err := tx.AcceptDue("due", "other", "other", "b", storeNow.Add(time.Minute), time.Time{})
+		if err != nil || fresh {
+			return fmt.Errorf("second accept: fresh=%v: %w", fresh, err)
+		}
+		if held.Target != "t" || held.Kind != "send" || string(held.Deadline) != store.Stamp(deadline) {
+			return fmt.Errorf("the held action changed: %+v", held)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestStartByMovesAnActionAsStartDoesAndRefusesWithTheSameText(t *testing.T) {
+	s := created(t, nil)
+	deadline := storeNow.Add(time.Minute)
+	err := s.Edit("i1", func(tx *Tx) error {
+		for _, key := range []string{"start", "by"} {
+			if _, err := tx.Accept(key, "send", "t", "", storeNow); err != nil {
+				return err
+			}
+		}
+		started, err := tx.Start("start", storeNow, time.Minute)
+		if err != nil {
+			return err
+		}
+		by, err := tx.StartBy("by", storeNow, deadline, "ctx_1")
+		if err != nil {
+			return err
+		}
+		if by.Status != started.Status || by.StartedAt != started.StartedAt || by.Deadline != started.Deadline || by.DispatchID != "ctx_1" {
+			return fmt.Errorf("%+v did not start as %+v did", by, started)
+		}
+		_, startErr := tx.Start("by", storeNow, 0)
+		_, byErr := tx.StartBy("by", storeNow, time.Time{}, "")
+		var refused *TransitionError
+		if !errors.As(byErr, &refused) || startErr == nil || byErr.Error() != startErr.Error() {
+			return fmt.Errorf("StartBy said %w, Start said %w", byErr, startErr)
+		}
+		if byErr.Error() != "by is started, not accepted" {
+			return byErr
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRespondWritesTheResponseAndMovesNothing(t *testing.T) {
+	s := created(t, nil)
+	err := s.Edit("i1", func(tx *Tx) error {
+		if _, err := tx.Accept("a", "send", "t", "", storeNow); err != nil {
+			return err
+		}
+		_, err := tx.Respond("a", map[string]any{"text": "kept"})
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	action, err := s.Action("i1", "a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if action.Status != ActionAccepted || action.Response["text"] != "kept" {
+		t.Fatalf("%+v", action)
+	}
+	missing := s.Edit("i1", func(tx *Tx) error {
+		_, err := tx.Respond("missing", nil)
+		return err
+	})
+	if !errors.Is(missing, ErrUnknownAction) {
+		t.Fatal(missing)
+	}
+}
+
+func TestTakeOverNeedsTheOfferAndMovesTheGeneration(t *testing.T) {
+	s := created(t, nil)
+	before, err := s.Header("i1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	refused := s.Edit("i1", func(tx *Tx) error {
+		tx.Offer("ctx_1")
+		return tx.TakeOver("ctx_2")
+	})
+	if refused == nil || refused.Error() != "i1 has no pending transfer to ctx_2 (pending: ctx_1)" {
+		t.Fatal(refused)
+	}
+	err = s.Edit("i1", func(tx *Tx) error {
+		tx.Offer("ctx_1")
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	offered, err := s.Header("i1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if offered.PendingOwner != "ctx_1" || offered.Owner != before.Owner || offered.OwnerGeneration != before.OwnerGeneration {
+		t.Fatalf("%+v", offered)
+	}
+	err = s.Edit("i1", func(tx *Tx) error { return tx.TakeOver("ctx_1") })
+	if err != nil {
+		t.Fatal(err)
+	}
+	taken, err := s.Header("i1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if taken.Owner != "ctx_1" || taken.PendingOwner != "" || taken.OwnerGeneration != before.OwnerGeneration+1 {
+		t.Fatalf("%+v", taken)
+	}
+	stale := s.Owned("i1", before.OwnerGeneration, func(*Tx) error { return nil })
+	if !errors.Is(stale, ErrStaleGeneration) {
+		t.Fatal(stale)
 	}
 }
