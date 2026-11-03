@@ -105,7 +105,7 @@ func equal(t *testing.T, got, want any) {
 	}
 }
 
-func run(t *testing.T, s *store.Store, version string, pid int, d Deps, ticks int) ([]Report, Ended) {
+func runLoop(t *testing.T, s *store.Store, version string, pid int, d Deps, ticks int) ([]Report, Ended) {
 	t.Helper()
 	reports, ended, err := Run(context.Background(), s, "d", version, pid, d, ticks)
 	if err != nil {
@@ -118,7 +118,7 @@ func TestATickIsOnePassThatLandsAndGrades(t *testing.T) {
 	s, c, q, p := memory(t), &clock{t0}, &queue{}, &pool{}
 	ungraded := facts(2, func(f *machine.Facts) { f.Finder, f.Fidelity = "", "" })
 
-	reports, _ := run(t, s, "0.8.0", 1, deps(c, q, p, facts(1, nil), ungraded), 1)
+	reports, _ := runLoop(t, s, "0.8.0", 1, deps(c, q, p, facts(1, nil), ungraded), 1)
 
 	r := reports[0]
 	equal(t, []int{r.PRs, r.Enqueued, r.Dispatched, r.Escalated}, []int{2, 1, 2, 0})
@@ -142,7 +142,7 @@ func TestATickIsOnePassThatLandsAndGrades(t *testing.T) {
 func TestTicksAreThirtySecondsApartAndRenewTheLease(t *testing.T) {
 	s, c := memory(t), &clock{t0}
 
-	reports, ended := run(t, s, "0.8.0", 1, deps(c, &queue{}, &pool{}), 3)
+	reports, ended := runLoop(t, s, "0.8.0", 1, deps(c, &queue{}, &pool{}), 3)
 
 	equal(t, ended, EndedTicks)
 	equal(t, []time.Time{reports[0].At, reports[1].At, reports[2].At}, []time.Time{t0, t0.Add(30 * time.Second), t0.Add(time.Minute)})
@@ -166,7 +166,7 @@ func TestASecondSupervisorTakesTheLeaseAndTheFirstExitsOnItsNextTick(t *testing.
 		t.Fatal(err)
 	}
 
-	second, _ := run(t, s, "0.8.1", 202, d, 1)
+	second, _ := runLoop(t, s, "0.8.1", 202, d, 1)
 
 	equal(t, len(second), 1)
 	lease, err := s.Lease("d")
@@ -193,7 +193,7 @@ func TestRunEndsByItselfWhenItsGenerationIsTaken(t *testing.T) {
 		return nil, nil
 	}
 
-	reports, ended := run(t, s, "0.8.0", 101, d, 0)
+	reports, ended := runLoop(t, s, "0.8.0", 101, d, 0)
 
 	equal(t, len(reports), 1)
 	equal(t, ended, EndedGeneration)
@@ -204,7 +204,7 @@ func TestRunEndsAtTheTickBoundaryOnceANewerReleaseIsInstalled(t *testing.T) {
 	d := deps(c, &queue{}, &pool{}, facts(1, nil))
 	d.Stale = func(context.Context) (bool, error) { return true, nil }
 
-	reports, ended := run(t, s, "0.8.0", 101, d, 0)
+	reports, ended := runLoop(t, s, "0.8.0", 101, d, 0)
 
 	equal(t, len(reports), 1)
 	equal(t, ended, EndedRelease)
@@ -219,7 +219,7 @@ func TestALanesOnlySupervisorRunsNoPRPass(t *testing.T) {
 		return lanes.Outcome{}, nil
 	}}
 
-	reports, _ := run(t, s, "0.8.0", 1, d, 1)
+	reports, _ := runLoop(t, s, "0.8.0", 1, d, 1)
 
 	equal(t, ticked, []time.Time{t0})
 	equal(t, reports[0].PRs+reports[0].Enqueued+reports[0].Dispatched, 0)
@@ -247,7 +247,7 @@ func TestAnUnreadLanesSourceAndAnUnreadCheckSkipOnlyThemselves(t *testing.T) {
 		}},
 	}
 
-	reports, _ := run(t, s, "0.8.0", 1, d, 2)
+	reports, _ := runLoop(t, s, "0.8.0", 1, d, 2)
 
 	equal(t, len(reports), 2)
 	equal(t, checked, 4)
@@ -269,7 +269,7 @@ func TestThePRPassRunsEveryThreeMinutesWhileTheLanesTickEveryThirtySeconds(t *te
 	s, c := memory(t), &clock{t0}
 	untapped := facts(1, func(f *machine.Facts) { f.Tap = "" })
 
-	reports, _ := run(t, s, "0.8.0", 1, deps(c, &queue{}, &pool{}, untapped), 7)
+	reports, _ := runLoop(t, s, "0.8.0", 1, deps(c, &queue{}, &pool{}, untapped), 7)
 
 	prs := make([]int, 0, len(reports))
 	for _, r := range reports {
@@ -285,7 +285,7 @@ func TestAPassWhoseSourcesDoNotAnswerActsOnNothing(t *testing.T) {
 		return nil, fmt.Errorf("%w: ccx vcs pr status exited 1", lanes.ErrUnread)
 	}
 
-	reports, _ := run(t, s, "0.8.0", 1, d, 1)
+	reports, _ := runLoop(t, s, "0.8.0", 1, d, 1)
 
 	equal(t, reports[0].PRs+reports[0].Enqueued, 0)
 	equal(t, len(q.enqueued), 0)
@@ -294,7 +294,7 @@ func TestAPassWhoseSourcesDoNotAnswerActsOnNothing(t *testing.T) {
 func TestAQueueThatDoesNotAnswerStopsTheMoversAndNeverTheSupervisor(t *testing.T) {
 	s, c := memory(t), &clock{t0}
 
-	reports, _ := run(t, s, "0.8.0", 1, deps(c, &queue{err: errors.New("git fetch exited 128")}, &pool{}, facts(1, nil)), 2)
+	reports, _ := runLoop(t, s, "0.8.0", 1, deps(c, &queue{err: errors.New("git fetch exited 128")}, &pool{}, facts(1, nil)), 2)
 
 	equal(t, []int{reports[0].PRs, reports[1].PRs}, []int{1, 0})
 	lease, err := s.Lease("d")
@@ -310,7 +310,7 @@ func TestAShadowPassActsOnNothingAndUsesItsOwnStore(t *testing.T) {
 	d.Movers, d.Shadow = []string{"lanes", "shadow"}, shadow
 	d.Lanes = func(time.Time, int64) (lanes.Outcome, error) { return lanes.Outcome{}, nil }
 
-	reports, _ := run(t, s, "0.8.0", 1, d, 1)
+	reports, _ := runLoop(t, s, "0.8.0", 1, d, 1)
 
 	equal(t, reports[0].PRs, 1)
 	equal(t, reports[0].Enqueued, 0)
