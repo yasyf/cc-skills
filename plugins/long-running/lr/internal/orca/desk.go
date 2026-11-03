@@ -405,7 +405,7 @@ func escalationKind(label string) string {
 
 func (d *Desk) postEscalation(ctx context.Context, line, to, key string) (client.Record, error) {
 	words := strings.Fields(line)
-	label, topic := words[0], words[1]
+	label, topic := words[0], strings.TrimSuffix(words[1], ":")
 	message, err := os.ReadFile(d.messageFile(topic))
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return client.Record{}, err

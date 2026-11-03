@@ -71,9 +71,8 @@ On each printed line, in the same turn:
      report as scope, never as a skip. Skip a flap that recovered before your read, a monitor whose
      `dd-<id>-fix` lane is already live, No Data alone, and recovery. To launch,
      post one record to the orca desk:
-     `cci post --drive <drive> --lane alerts-desk --kind go --to orca-desk --text 'orca-desk: incident dd-<id> <link> reported=<HH:MM> :: <what fired>'`,
-     where `reported` is the transition's Pacific time from `at`. In the same turn,
-     post the incident record that names it, so the supervisor raises no
+     `cci post --drive <drive> --lane alerts-desk --kind go --to orca-desk --text 'orca-desk: incident dd-<id> <link> :: <what fired>'`.
+     In the same turn, post the incident record that names it, so the supervisor raises no
      `ALERT-UNOPENED` for it:
      `cci post --drive <drive> --lane alerts-desk --kind incident --to root --url <link> --text 'dd-<id> <what fired>'`
      When a log entry on the monitor's target explains the transition, launch

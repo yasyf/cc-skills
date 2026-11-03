@@ -26,7 +26,7 @@ timeout 1800000, and re-arm it when it exits. For each ask:
    Sprite or Orca count, `orca orchestration worker-release`, or `lr gc --run <run>
    --dispatch <ctx>` for a settled lane.
 2. Answer in at most three lines, with the fact it needs and a path for anything longer:
-   `cci post --lane chores --drive <drive> --stamp --kind answer --re <seq> --to root --text '<answer>'`.
+   `cci post --lane chores --drive <drive> --kind answer --re <seq> --to root --text '<answer>'`.
 
 An ask that needs a decision goes back to the coordinator as an answer naming the decision. A chore
 you run a third time goes to the coordinator as `for meta: lr verb for <chore>`, so it becomes a verb.

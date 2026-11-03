@@ -37,16 +37,21 @@ func TestAPastDueMetaRowPagesTheCommunicatorAndMetaLaneOnceWithItsNextStepAndLat
 
 	want(t, len(first), 1)
 	want(t, first[0].Subject, "meta:M35")
-	for _, words := range []string{"relaunch the coordinator", "11:00 PM Nov 2", "20 minutes late"} {
+	for _, words := range []string{"relaunch the coordinator", "is past its Due", "20 minutes late"} {
 		if !strings.Contains(first[0].Cause, words) {
 			t.Fatalf("cause %q lacks %q", first[0].Cause, words)
 		}
+	}
+	if strings.Contains(first[0].Cause, "11:00 PM") {
+		t.Fatalf("cause %q repeats the Due's clock", first[0].Cause)
 	}
 	want(t, len(r.posts), 1)
 	if !slices.Equal(r.posts[0].to, []string{"owner-relay", "meta"}) {
 		t.Fatalf("to = %v", r.posts[0].to)
 	}
 	want(t, len(second), 0)
+	redated := strings.Replace(items, "| 11:00 PM |", "| 11:10 PM |", 1)
+	want(t, len(paged(t, s, r, redated, written, at(t, "2026-11-03T07:30:00Z"))), 1)
 }
 
 func TestAMetaRowDueLaterIsSilent(t *testing.T) {
@@ -101,7 +106,7 @@ func TestAMetaRowWhoseDueChangesAfterItsPageReArmsWithTheNewDue(t *testing.T) {
 	again := paged(t, s, r, after, written, at(t, "2026-11-03T07:35:00Z"))
 
 	want(t, len(again), 1)
-	if !strings.Contains(again[0].Cause, "11:30 PM Nov 2") {
+	if again[0].Cause != "meta: M35, state relaunching, is past its Due; next: measure; 5 minutes late" {
 		t.Fatalf("cause %q", again[0].Cause)
 	}
 }

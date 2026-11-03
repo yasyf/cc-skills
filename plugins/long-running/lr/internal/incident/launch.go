@@ -187,7 +187,7 @@ func launchDirective(lane plannedLane, brief string) string {
 }
 
 func (d DeskLaunch) post(ctx context.Context, drive, topic, directive string) (client.Record, error) {
-	stored, err := d.Bus.Post(ctx, client.Draft{Drive: drive, Lane: d.Author, Kind: kindGo, To: []string{deskLane}, Topic: topic, Text: deskLane + ": " + directive, Stamp: true})
+	stored, err := d.Bus.Post(ctx, client.Draft{Drive: drive, Lane: d.Author, Kind: kindGo, To: []string{deskLane}, Topic: topic, Text: deskLane + ": " + directive})
 	if err != nil {
 		return client.Record{}, err
 	}

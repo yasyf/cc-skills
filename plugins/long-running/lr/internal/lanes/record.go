@@ -22,13 +22,6 @@ func pacific(at time.Time) string {
 	return at.In(pacificZone).Format("3:04 PM")
 }
 
-func pacificFrom(at, now time.Time) string {
-	if at.In(pacificZone).Format(time.DateOnly) == now.In(pacificZone).Format(time.DateOnly) {
-		return pacific(at)
-	}
-	return at.In(pacificZone).Format("3:04 PM Jan 2")
-}
-
 type PRRef int
 
 func (p *PRRef) UnmarshalJSON(data []byte) error {

@@ -26,7 +26,7 @@ func classCheck(t *testing.T, records ...client.Record) []client.Draft {
 func TestAnIncidentClassWithNoFixOrderReachesRootOnce(t *testing.T) {
 	posted := classCheck(t, client.Record{Seq: 5, Lane: "alerts-desk-3", Kind: "incident", At: t0.Add(-mins(11)), Topic: "dd-325", Text: "monitor 325 fired"})
 
-	if len(posted) != 1 || posted[0].To[0] != "root" || !strings.HasPrefix(posted[0].Text, "CLASS-UNOWNED topic:dd-325 alerts-desk-3: #5 at ") {
+	if len(posted) != 1 || posted[0].To[0] != "root" || !strings.HasPrefix(posted[0].Text, "CLASS-UNOWNED topic:dd-325 alerts-desk-3: #5, 11 min with no fix-lane GO naming ") {
 		t.Fatalf("posted = %+v", posted)
 	}
 }

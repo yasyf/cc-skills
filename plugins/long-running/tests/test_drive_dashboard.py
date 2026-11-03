@@ -113,6 +113,18 @@ def test_a_board_row_waits_on_him_only_at_the_pr_current_head():
     assert {square["number"]: square["state"] for square in drive["prs"]} == {42001: "work", 42002: "you"}
 
 
+def test_a_square_tells_its_workers_time_from_the_record_stamp_whether_the_text_carries_no_clock_or_a_stale_one():
+    prs = {"42001": {"state": "open", "head": "aaaaaaa1", "test_state": "success"}, "42002": {"state": "open", "head": "bbbbbbb1", "test_state": "success"}}
+    records = [
+        {"seq": 7, "lane": "fix-1", "kind": "head", "topic": "", "at": "2026-10-27T07:50:00Z", "text": "pushed #42001"},
+        {"seq": 8, "lane": "fix-2", "kind": "head", "topic": "", "at": "2026-10-27T07:55:00Z", "text": "2:13 AM fix-2: pushed #42002"},
+    ]
+
+    drive = drive_prs(prs, [], records, {}, TREES, None, NOW, {})
+
+    assert {square["number"]: square["worker"] for square in drive["prs"]} == {42001: {"lane": "fix-1", "at": "2026-10-27T07:50:00Z"}, 42002: {"lane": "fix-2", "at": "2026-10-27T07:55:00Z"}}
+
+
 def test_a_head_the_landing_runner_admitted_shows_merging_or_runner_defect_with_its_age_never_waiting_on_him():
     """Coordinator #208560 item 4: "waiting on you" never lists a head the runner has admitted."""
     prs = {"42001": {"state": "open", "head": "aaaaaaa1", "test_state": "success"}, "42002": {"state": "open", "head": "bbbbbbb1", "test_state": "success"}, "42003": {"state": "open", "head": "ccccccc1", "test_state": "success"}}

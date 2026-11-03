@@ -977,7 +977,7 @@ func TestACodexLaneInADriveReadsABriefCopyThatRegistersItFirstAndRecordsItsPROpe
 	h.reply("orchestration worker-start", effectStart("term_a"))
 	h.launchedAs(agentIncident, "xhigh")
 	text := h.readReceipt("lane-a.brief.md")
-	register := "`cci post --drive '900424b6' --lane 'lane-a' --kind state --stamp 'lane-a: registered at its first command'`"
+	register := "`cci post --drive '900424b6' --lane 'lane-a' --kind state 'lane-a: registered at its first command'`"
 	if !strings.HasPrefix(text, "## First command") || strings.Index(text, register) >= strings.Index(text, "# brief\n") {
 		t.Fatal(text)
 	}

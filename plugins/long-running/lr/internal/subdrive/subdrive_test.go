@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -253,6 +254,9 @@ func TestAStartedCoordinatorIsBoundToTheChildDriveAndReportsToTheParent(t *testi
 		if !strings.Contains(text, want) {
 			t.Errorf("brief lacks %q:\n%s", want, text)
 		}
+	}
+	if clock := regexp.MustCompile(`--stamp|\b\d{1,2}:\d{2}\s?[AP]M\b`).FindString(text); clock != "" {
+		t.Errorf("brief asks for a time with %q:\n%s", clock, text)
 	}
 
 	if len(h.bus.posted) != 1 {

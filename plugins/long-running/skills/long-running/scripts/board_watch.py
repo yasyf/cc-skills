@@ -379,7 +379,7 @@ def place(doc: dict | None, block: str) -> str:
 
 
 def announced(event: dict, session: str, doc: dict | None) -> str:
-    return CREDENTIAL.sub(REDACTED, f"Owner on board {session[:8]}, {place(doc, event.get('blockId', ''))}: {told(event, doc)}, at {{at}}")
+    return CREDENTIAL.sub(REDACTED, f"Owner on board {session[:8]}, {place(doc, event.get('blockId', ''))}: {told(event, doc)}")
 
 
 def row_names(row: str) -> list[str]:
@@ -499,7 +499,7 @@ def post_owner(shell: Shell, bus: Bus, key: str, text: str, block: str, names: l
 def add_ledger_row(shell: Shell, bus: Bus, session: str, text: str, answer: str, posted: str) -> None:
     seq = posted.strip().removeprefix("#")
     state = ["--state", "addressed", *(["--routed", seq] if seq.isdigit() else [])] if answer == STRUCTURED else ["--state", "open"]
-    done = shell.lr(["owner", "add", "--drive", bus.drive, *state], text.removesuffix(", at {at}"))
+    done = shell.lr(["owner", "add", "--drive", bus.drive, *state], text)
     if done.returncode:
         print(f"board-watch {session}: the ledger row did not write: {done.stderr.strip()}", flush=True)
 

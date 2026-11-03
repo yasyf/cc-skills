@@ -140,6 +140,11 @@ def pacific(value: str | datetime) -> str:
     return at.astimezone(PACIFIC).strftime("%-I:%M%p").lower()
 
 
+def elapsed(value: str | datetime, now: datetime) -> str:
+    at = parse_stamp(value) if isinstance(value, str) else value
+    return f"{int((now - at).total_seconds() // 60)} min"
+
+
 def assert_route(role: str, model: str) -> None:
     if role in INCIDENT_ROLES and model != INCIDENT:
         raise RouteRefused(f"the {role} lane runs on incident (gpt-6.1-sol, fast tier), never {model}")
@@ -518,7 +523,7 @@ class Runner:
             incident.status = status or incident.status
             incident.facts |= facts or {}
         if fresh:
-            self.world.comms.report(f"{self.incident_id} {name} at {pacific(self.now())}: {text}")
+            self.world.comms.report(f"{self.incident_id} {name}: {text}")
             self.record(name, text)
         return fresh
 
@@ -767,7 +772,7 @@ class Runner:
             text = f"{incident.facts['pipeline']} configuration matches the landed tree (sha256 {receipt['digest'][:12]})"
             fresh = incident.milestone("activated", text, self.now())
         if fresh:
-            self.world.comms.report(f"{self.incident_id} activated at {pacific(self.now())}: {text}")
+            self.world.comms.report(f"{self.incident_id} activated: {text}")
             self.record("activated", text)
 
     def unfinished(self) -> list[int]:
@@ -934,7 +939,7 @@ class Runner:
     def deadlines(self) -> None:
         for action in self.store.actions(self.incident_id, statuses=OPEN):
             if action.overdue(self.now()):
-                self.decide(f"overdue:{action.action_id}", f"{action.kind} {action.target} is overdue: started {pacific(action.started_at)}, due {pacific(action.deadline)}, still {action.status}")
+                self.decide(f"overdue:{action.action_id}", f"{action.kind} {action.target} is overdue: started {elapsed(action.started_at, self.now())} ago, past due by {elapsed(action.deadline, self.now())}, still {action.status}")
 
     def finish(self) -> None:
         if self.store.header(self.incident_id)["status"] != "recovered":

@@ -183,7 +183,7 @@ func (g *ReleaseGates) tend(ctx context.Context, release string, now time.Time) 
 		return nil
 	}
 	job := status.Record.Hold.Job
-	text := fmt.Sprintf("RELEASE-GATE %s: at its approve gate (job %s) since %s, more than five minutes past owner order %s at %s; %s approves it now: `%s approve %s`", release, job, pacific(gate.At), order.answer, pacific(order.at), order.lane, strings.Join(g.ReleaseCLI, " "), release)
+	text := fmt.Sprintf("RELEASE-GATE %s: at its approve gate (job %s) for %d min, more than five minutes past owner order %s; %s approves it now: `%s approve %s`", release, job, int(now.Sub(gate.At).Minutes()), order.answer, order.lane, strings.Join(g.ReleaseCLI, " "), release)
 	return g.raise(ctx, "release-gate:"+release+":"+job, text)
 }
 
@@ -191,7 +191,7 @@ func (g *ReleaseGates) raise(ctx context.Context, key, text string) error {
 	if g.raised[key] {
 		return nil
 	}
-	if _, err := g.Env.Bus.Post(ctx, client.Draft{Drive: g.Env.Config.Drive, Lane: Self, Kind: blockerKind, To: []string{Root}, ID: key, Stamp: true, Text: text}); err != nil {
+	if _, err := g.Env.Bus.Post(ctx, client.Draft{Drive: g.Env.Config.Drive, Lane: Self, Kind: blockerKind, To: []string{Root}, ID: key, Text: text}); err != nil {
 		return fmt.Errorf("%w: cci post: %w", ErrUnread, err)
 	}
 	if g.raised == nil {

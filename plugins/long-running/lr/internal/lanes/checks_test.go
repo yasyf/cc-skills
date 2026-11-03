@@ -275,7 +275,7 @@ func TestALandingATargetDoesNotRunAfterAnHourDrawsOneBlockerNamingItsRelease(t *
 
 	equal(t, len(bus.posted), 2)
 	state, blocker := bus.posted[0], bus.posted[1]
-	equal(t, []string{state.Kind, state.Topic, state.Text}, []string{"state", notLiveTopic, "LANDED-NOT-LIVE sand: #47799 (8:00 AM)"})
+	equal(t, []string{state.Kind, state.Topic, state.Text}, []string{"state", notLiveTopic, "LANDED-NOT-LIVE sand: #47799"})
 	equal(t, blocker.Kind, blockerKind)
 	equal(t, blocker.Text, "LANDED-NOT-LIVE sand: #47799 landed, the oldest 120 minutes ago, and sand runs none of them; start its release: `tools/ci release start --only sand --manual`")
 }
@@ -311,7 +311,7 @@ func TestALandingOwesTheTargetsItsFilesReachNeverItsTitleScope(t *testing.T) {
 	}
 
 	equal(t, len(bus.posted), 2)
-	equal(t, bus.posted[0].Text, "LANDED-NOT-LIVE api: #48377 (8:00 AM)")
+	equal(t, bus.posted[0].Text, "LANDED-NOT-LIVE api: #48377")
 	equal(t, bus.posted[1].Text, "LANDED-NOT-LIVE api: #48377 landed, the oldest 120 minutes ago, and api runs none of them; start its release: `tools/ci release start --only api --manual`")
 }
 

@@ -666,7 +666,7 @@ func (l *launch) writeLaneBrief(text string) error {
 	l.laneBrief = l.path(".brief.md")
 	var copied strings.Builder
 	if l.drive != "" {
-		fmt.Fprintf(&copied, "## First command\n\n%s\n\n", fmt.Sprintf("Codex runs no session hook, so `cci who` lists you only once you post. Before anything else, run `cci post --drive '%s' --lane '%s' --kind state --stamp '%s: registered at its first command'`, so a claim made for you and the lane supervisor's launch check both find your session.", l.drive, l.lane, l.lane))
+		fmt.Fprintf(&copied, "## First command\n\n%s\n\n", fmt.Sprintf("Codex runs no session hook, so `cci who` lists you only once you post. Before anything else, run `cci post --drive '%s' --lane '%s' --kind state '%s: registered at its first command'`, so a claim made for you and the lane supervisor's launch check both find your session.", l.drive, l.lane, l.lane))
 	}
 	copied.WriteString(text)
 	if l.agent == agentIncident {

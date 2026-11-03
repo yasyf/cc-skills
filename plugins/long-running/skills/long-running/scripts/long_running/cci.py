@@ -14,6 +14,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from time import monotonic
+from zoneinfo import ZoneInfo
 
 PAGE_BYTES = 4_000_000
 PAGE_ROWS = 500
@@ -33,20 +34,22 @@ SETTLING_KINDS = frozenset({*CLAIM_KINDS, "ready", "blocker", "blocked", "fix-li
 TRUNK_TOPIC = "dev-red"
 NOT_LIVE_TOPIC = "landed-not-live"
 TRUNK_RUNNERS = frozenset({"desk-runner", "supervisor"})
-TRUNK_STATE = re.compile(r"^(?P<state>DEV-RED|POST-MERGE-RED|DEV-GREEN)\b(?: since (?P<since>\d{1,2}:\d{2} [AP]M))?")
+TRUNK_STATE = re.compile(r"^(?P<state>DEV-RED|POST-MERGE-RED|DEV-GREEN)\b")
 NAMED_PR = re.compile(r"#(\d+)\b")
 NOT_OWNERS = frozenset({"root", "main", "all", ""})
 ENDED_KINDS = frozenset({"stand-down", "handoff", "stopped", "done"})
 OWNER_WINDOW = "2h"
+PACIFIC = ZoneInfo("America/Los_Angeles")
 LEADING_HOLD = re.compile(r"^\W*hold\s+#(\d+)\b", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
 class Trunk:
-    """The trunk's landing state the runner last posted on the `dev-red` topic: `blocked` while a required landing job is red, since the Pacific time its first red commit landed, and the PR named as its fix, or empty."""
+    """The trunk's landing state the runner last posted on the `dev-red` topic: `blocked` while a required landing job is red, the Pacific time and seq of the runner's first red record since its last DEV-GREEN, and the PR named as its fix, or empty."""
 
     blocked: bool
     since: str
+    seq: int
     fix: str
 
 
@@ -383,7 +386,7 @@ def held_by(record: dict) -> list[str]:
 
 
 def mechanism_mark(record: dict) -> str:
-    """MECHANISM or CANDIDATE when a lane's record names its incident's mechanism: a `mechanism` record, or a `report`, `incident`, or `state` whose text starts with either word, after any `--stamp` clock."""
+    """MECHANISM or CANDIDATE when a lane's record names its incident's mechanism: a `mechanism` record, or a `report`, `incident`, or `state` whose text starts with either word, after the clock an older record may open with."""
     if record["kind"] == "mechanism":
         return "MECHANISM"
     found = MECHANISM_TEXT.match(record.get("text") or "") if record["kind"] in TEXT_KINDS else None
@@ -391,7 +394,7 @@ def mechanism_mark(record: dict) -> str:
 
 
 def settles_mechanism(record: dict) -> bool:
-    """Whether a lane's record answers its mechanism: a PR, a blocker, or the lane's end or DONE, by kind or by a text record starting OPENED, BLOCKER, READY, NOT-OURS, DONE, or STOPPED, after the clock `--stamp` puts first (root #305423)."""
+    """Whether a lane's record answers its mechanism: a PR, a blocker, or the lane's end or DONE, by kind or by a text record starting OPENED, BLOCKER, READY, NOT-OURS, DONE, or STOPPED, after the clock an older record may open with (root #305423)."""
     return record["kind"] in SETTLING_KINDS or (record["kind"] in TEXT_KINDS and bool(SETTLING_TEXT.match(record.get("text") or "")))
 
 
@@ -407,11 +410,12 @@ def trunk(records: list[dict]) -> Trunk:
     records = [record for record in records if record.get("topic") == TRUNK_TOPIC]
     states = [(record, found) for record in records if record["lane"] in TRUNK_RUNNERS and (found := TRUNK_STATE.match(record.get("text") or ""))]
     if not states or states[-1][1]["state"] == "DEV-GREEN":
-        return Trunk(False, "", "")
+        return Trunk(False, "", 0, "")
     green = max((record["seq"] for record, found in states if found["state"] == "DEV-GREEN"), default=0)
     fixes = [pr for record in records if record["seq"] > green and record["lane"] not in TRUNK_RUNNERS and record["kind"] != "incident" and (pr := named_pr(record))]
-    newest = states[-1][1]
-    return Trunk(newest["state"] == "DEV-RED", newest["since"] or "", fixes[-1] if fixes else "")
+    first = next(record for record, _ in states if record["seq"] > green)
+    since = datetime.fromisoformat(first["at"]).astimezone(PACIFIC).strftime("%-I:%M %p")
+    return Trunk(states[-1][1]["state"] == "DEV-RED", since, first["seq"], fixes[-1] if fixes else "")
 
 
 def named_pr(record: dict) -> str:

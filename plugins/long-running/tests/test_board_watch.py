@@ -238,13 +238,13 @@ def test_each_owner_interaction_reaches_the_bus_once_with_the_card_and_his_words
     run(tmp_path, shell)
 
     assert shell.posted("--text") == [
-        f"{SHARE}: wrote \u201conly for the team, and only read-only\u201d, at {{at}}",
-        f"{SHARE}: picked \u201cYes, read-only\u201d, at {{at}}",
-        "Owner on board board-1, board-notes: wrote \u201calso check the share menu\u201d, at {at}",
-        f"{SHARE}: noted \u201csay who can open it\u201d, at {{at}}",
-        f"Owner on board board-1, Confirm your words as written? (update-confirm-ok): approved \u201c{CONFIRMED}\u201d, at {{at}}",
-        "Owner on board board-1, banner-ok: rejected noted \u201ckeep the old banner text\u201d, at {at}",
-        f"{SHARE}: picked \u201cYes, read-only\u201d, at {{at}}",
+        f"{SHARE}: wrote \u201conly for the team, and only read-only\u201d",
+        f"{SHARE}: picked \u201cYes, read-only\u201d",
+        "Owner on board board-1, board-notes: wrote \u201calso check the share menu\u201d",
+        f"{SHARE}: noted \u201csay who can open it\u201d",
+        f"Owner on board board-1, Confirm your words as written? (update-confirm-ok): approved \u201c{CONFIRMED}\u201d",
+        "Owner on board board-1, banner-ok: rejected noted \u201ckeep the old banner text\u201d",
+        f"{SHARE}: picked \u201cYes, read-only\u201d",
     ]
     assert {tuple(shell.posted(flag)) for flag in ("--kind", "--lane", "--drive")} == {("owner",) * 7, ("board-watch",) * 7, ("brook",) * 7}
     assert shell.posted("--to") == ["owner-relay", "root,owner-relay", "owner-relay", "owner-relay", "root,owner-relay", "root,owner-relay", "root,owner-relay"]
@@ -258,8 +258,8 @@ def test_two_picks_on_one_card_of_many_questions_each_name_their_own_question() 
     texts = [board_watch.announced({"type": "choice.selected", "blockId": block, "optionIds": [f"{block}-build"]}, "board-1", GROUP_DOC) for block in ("fix-rows", "fix-base")]
 
     assert texts == [
-        "Owner on board board-1, Tooling fixes the watchers propose, 9. Release rows read the release itself (fix-rows): picked \u201cBuild\u201d, at {at}",
-        "Owner on board board-1, Tooling fixes the watchers propose, 2. Stale bases are fixed automatically (fix-base): picked \u201cBuild\u201d, at {at}",
+        "Owner on board board-1, Tooling fixes the watchers propose, 9. Release rows read the release itself (fix-rows): picked \u201cBuild\u201d",
+        "Owner on board board-1, Tooling fixes the watchers propose, 2. Stale bases are fixed automatically (fix-base): picked \u201cBuild\u201d",
     ]
 
 
@@ -268,7 +268,7 @@ def test_a_pick_names_the_head_its_card_asked_about() -> None:
     event = {"type": "choice.selected", "blockId": "fix-rows", "optionIds": ["fix-rows-build"], "heads": {"org/repo#48855": "abc1234"}}
 
     assert board_watch.announced(event, "board-1", GROUP_DOC) == (
-        "Owner on board board-1, Tooling fixes the watchers propose, 9. Release rows read the release itself (fix-rows): picked \u201cBuild\u201d at org/repo#48855 abc1234, at {at}"
+        "Owner on board board-1, Tooling fixes the watchers propose, 9. Release rows read the release itself (fix-rows): picked \u201cBuild\u201d at org/repo#48855 abc1234"
     )
 
 
@@ -308,8 +308,8 @@ def test_a_merge_tap_names_the_head_and_resolves_only_open_asks_on_that_row(tmp_
     run(tmp_path, shell)
 
     assert shell.posted("--text") == [
-        "Owner on board board-1, Merge these? (merge-triage): merge-row-101 approved at abc1234, at {at}",
-        "Owner on board board-1, merge-prs: 202 rejected at 413b38e noted \u201csplit it\u201d, at {at}",
+        "Owner on board board-1, Merge these? (merge-triage): merge-row-101 approved at abc1234",
+        "Owner on board board-1, merge-prs: 202 rejected at 413b38e noted \u201csplit it\u201d",
     ]
     assert shell.posted("--resolves-seq") == ["11", "12"]
     assert [[arg for arg in post if arg.startswith("--pr=")] for post in shell.posts] == [["--pr=101"], ["--pr=202"]]
@@ -648,7 +648,7 @@ def test_a_pack_pick_reaches_the_bus_and_gets_a_row(tmp_path: Path) -> None:
     shell.watch = lambda session: iter(['{"blockId":"doc-fork","payload":{"fork":"b"},"schemaVersion":1,"type":"pack.interaction"}\n'])
     run(tmp_path, shell)
 
-    assert shell.posted("--text") == ['Owner on board board-1, doc-fork: picked \u201c{"fork":"b"}\u201d, at {at}']
+    assert shell.posted("--text") == ['Owner on board board-1, doc-fork: picked \u201c{"fork":"b"}\u201d']
     assert shell.posted("--topic", "ask") == ["needs-lane:doc-fork"]
     assert [row["body"].splitlines()[0] for row in shell.rows] == ['picked \u201c{"fork":"b"}\u201d']
 

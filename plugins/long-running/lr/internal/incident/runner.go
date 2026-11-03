@@ -256,7 +256,7 @@ func (r *Runner) milestone(ctx context.Context, name, text string, status Status
 	if err != nil || !fresh {
 		return false, err
 	}
-	if err := r.World.Comms.Report(ctx, fmt.Sprintf("%s %s at %s: %s", r.ID, name, pacificAt(r.Now()), text)); err != nil {
+	if err := r.World.Comms.Report(ctx, fmt.Sprintf("%s %s: %s", r.ID, name, text)); err != nil {
 		return true, err
 	}
 	return true, r.record(ctx, name, text)
@@ -832,7 +832,7 @@ func (r *Runner) activated(ctx context.Context, id, authority string, receipt ma
 	if err != nil || !fresh {
 		return err
 	}
-	if err := r.World.Comms.Report(ctx, fmt.Sprintf("%s activated at %s: %s", r.ID, pacificAt(r.Now()), message)); err != nil {
+	if err := r.World.Comms.Report(ctx, fmt.Sprintf("%s activated: %s", r.ID, message)); err != nil {
 		return err
 	}
 	return r.record(ctx, "activated", message)
@@ -1294,7 +1294,15 @@ func (r *Runner) deadlines(ctx context.Context) error {
 		if !overdue {
 			continue
 		}
-		message := fmt.Sprintf("%s %s is overdue: started %s, due %s, still %s", action.Kind, action.Target, pacific(string(action.StartedAt)), pacific(string(action.Deadline)), action.Status)
+		started, err := store.Parse(string(action.StartedAt))
+		if err != nil {
+			return err
+		}
+		deadline, err := store.Parse(string(action.Deadline))
+		if err != nil {
+			return err
+		}
+		message := fmt.Sprintf("%s %s is overdue by %d min, started %d min ago, still %s", action.Kind, action.Target, int(r.Now().Sub(deadline).Minutes()), int(r.Now().Sub(started).Minutes()), action.Status)
 		if err := r.decide(ctx, "overdue:"+action.ActionID, message); err != nil {
 			return err
 		}

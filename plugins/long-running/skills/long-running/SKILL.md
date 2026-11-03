@@ -458,7 +458,9 @@ unchanged with its gaps shown, and the dashboard shows the same rows.
 
 ## Records and the task list
 
-Lane messages, decisions, heads, contracts, blockers and asks live on cci. Lane
+Lane messages, decisions, heads, contracts, blockers and asks live on cci. An agent
+never writes a time in a record: cci stamps each one, and a record cites an earlier
+one by its seq. Lane
 liveness, PRs and standing duties live in the supervisor's registry, which the
 coordinator changes only through `lr request`: `done <lane>` retires a lane,
 `owner <lane> --pr <n>` moves a PR, and `stand-down <old> --successor <new>` replaces a

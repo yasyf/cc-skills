@@ -2021,7 +2021,7 @@ def test_an_accepted_launch_with_no_dispatch_a_minute_on_logs_one_launch_stalled
         orca_pass(shell, config)
         shell.sleep(60)
     assert sorted(stalled(shell)) == [
-        f"LAUNCH-STALLED stalled:desk-lane-{lane}/{key} {lane}: {key} accepted at 11:00 has no dispatch 60 s on, with the CPU 34% busy over the last minute;"
+        f"LAUNCH-STALLED stalled:desk-lane-{lane}/{key} {lane}: {key} has no dispatch 60 s after it was accepted, with the CPU 34% busy over the last minute;"
         f" withdraw it with `orca-desk: withdraw {key}`, then launch it by hand: `orca-launch.sh {lane} incident xhigh {brief}`"
         for key, lane in lanes.items()
     ]
@@ -3033,7 +3033,7 @@ def test_a_red_head_trunk_dropped_posts_one_red_to_its_lane_and_root_though_no_c
     landing_pass(shell, config)
     [post] = blockers(shell)
     assert set(post["to"].split(",")) == {"root", LANE}
-    assert post_body(post) == f"#29020 {ONE_ROW['head']}: CI is red: Trunk Merge Queue (dev); the queue dropped it at an unstamped time: Trunk labelled it trunk-failed"
+    assert post_body(post) == f"#29020 {ONE_ROW['head']}: CI is red: Trunk Merge Queue (dev); the queue dropped it: Trunk labelled it trunk-failed"
 
 
 def test_a_pr_this_desk_dequeued_reads_as_dequeued_never_as_a_trunk_eviction(shell, config, tmp_path, monkeypatch):
@@ -3081,7 +3081,7 @@ def test_a_head_trunk_failed_posts_one_red_to_its_lane_and_root_and_leaves_the_q
     landing_pass(shell, config)
     [post] = blockers(shell)
     assert "root" in post["to"].split(",") and LANE in post["to"].split(",")
-    assert post_body(post).startswith("#33001 aaaa111111: Trunk attempt 2026-10-30T23:10:00Z failed: TEST_RUN_REQUIRED_STATUS_FAILED (verification v1); inspect its verification and push a fix or explicitly name this PR with --flake; the queue dropped it at ")
+    assert post_body(post).startswith("#33001 aaaa111111: Trunk attempt 2026-10-30T23:10:00Z failed: TEST_RUN_REQUIRED_STATUS_FAILED (verification v1); inspect its verification and push a fix or explicitly name this PR with --flake; the queue dropped it: ")
     assert post_body(post).endswith(": Trunk labelled it trunk-failed")
     assert len(shell.enqueues()) == 1
 
@@ -4907,14 +4907,14 @@ def test_a_board_tap_carries_itself_to_every_later_head_whatever_changed(shell, 
     lone_green_pr(shell)
     tap(shell, "29020", "aaaa111111")
     landing_pass(shell, config)
-    why = "the owner's tap carries to every later head of a PR he tapped (owner 2:48 AM Oct 31)"
+    why = "the owner's tap carries to every later head of a PR he tapped (owner, Oct 31)"
     assert shell.carries == [{"--session": "s-root", "--block": "merge-rows", "--row": "29020", "--head": "cccc333333", "--note": why}]
     assert shell.board["merge-rows"]["29020"]["head"] == "cccc333333" and shell.board["merge-rows"]["29020"]["carriedFrom"] == "aaaa111111"
     [note] = tap_notes(shell)
     assert note["to"] == "root,board-refresher"
     assert note["text"] == f"TAP-CARRIED #29020: the owner's tap at aaaa111111 on board block merge-rows now stands at cccc333333, since {why}, recorded as a board-write record the board's watch applies; the row asks no new tap"
     [go] = [post for post in shell.posts if post["kind"] == "go"]
-    assert go["text"].startswith("go #29020 at cccc333 TAP-CARRIED: the owner's tap at aaaa111111 carries to cccc333333, since his tap carries to every later head of a PR he tapped (owner 2:48 AM Oct 31); the runner posts this go itself")
+    assert go["text"].startswith("go #29020 at cccc333 TAP-CARRIED: the owner's tap at aaaa111111 carries to cccc333333, since his tap carries to every later head of a PR he tapped (owner, Oct 31); the runner posts this go itself")
     assert [line for line in escalations(shell) if line.startswith("TAP-")] == []
 
 
@@ -5310,7 +5310,7 @@ def test_on_a_board_surface_no_check_or_enqueue_names_a_pr_without_a_root_go_at_
     assert stack_named(shell) == {"29020"}
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
     older = next(record for record in shell.records if record["text"] == "merge #29100 at bbbb222")
-    parent = f"#29100 at eeee555555 (no go names this head; the newest, go #{older['seq']} by root at {datetime.fromisoformat(older['at']).astimezone(runner_module.PACIFIC):%-I:%M %p}, names bbbb222)"
+    parent = f"#29100 at eeee555555 (no go names this head; the newest, go #{older['seq']} by root, names bbbb222)"
     assert escalations(shell) == [ungone_parents("29100", went(shell, ("29101", "ffff666666")), parent, UNGRADED_29100)]
 
 
@@ -5319,7 +5319,7 @@ def went(shell: FakeShell, *heads: tuple[str, str]) -> str:
 
     def said(pr: str, head: str) -> str:
         go = [record for record in shell.records if record["kind"] == "go" and head.startswith(runner_module.go_heads(record).get(pr) or "-")][-1]
-        return f"#{pr} at {head} (go #{go['seq']} by {go['lane']} at {datetime.fromisoformat(go['at']).astimezone(runner_module.PACIFIC):%-I:%M %p})"
+        return f"#{pr} at {head} (go #{go['seq']} by {go['lane']})"
 
     return " and ".join(said(pr, head) for pr, head in heads)
 
@@ -8931,7 +8931,7 @@ def test_a_go_named_head_the_queue_evicted_after_its_enqueue_went_in_draws_go_un
     landing_pass(shell, config)
     landing_pass(shell, config)
     [line] = unqueued(shell)
-    assert "the queue let it go at Oct 30, 1:58 AM UTC after its newest enqueue since the go (" in line and "): the batch it was included in timed out" in line
+    assert "the queue let it go after its newest enqueue since the go (" in line and "1:58 AM" not in line and "): the batch it was included in timed out" in line
 
 
 def test_a_go_named_head_whose_queue_draft_closed_is_dequeued_once_and_never_recovered(shell, config, tmp_path):
@@ -8960,7 +8960,7 @@ def test_a_go_named_head_the_queue_evicted_before_any_enqueue_gets_one_blocker_t
     landing_pass(shell, config)
     [post] = blockers(shell)
     assert "root" in post["to"].split(",") and LANE in post["to"].split(",")
-    assert post_body(post) == "#33001 aaaa111111: graphite EVICTED; run ccx vcs stack submit from the branch's worktree: cd /w/g1 && ccx vcs stack submit; the queue dropped it at Oct 30, 1:42 AM UTC: the batch it was included in timed out"
+    assert post_body(post) == "#33001 aaaa111111: graphite EVICTED; run ccx vcs stack submit from the branch's worktree: cd /w/g1 && ccx vcs stack submit; the queue dropped it: the batch it was included in timed out"
     assert shell.enqueues() == []
 
 
@@ -9306,7 +9306,7 @@ def test_a_stacked_head_on_a_base_the_pass_did_not_admit_reads_below_blocked_nev
     landing_pass(shell, config)
     assert not [line for line in said(shell) if line.startswith("GATE-FAILED")]
     [line] = settled(shell, "BELOW-BLOCKED")
-    assert line.startswith(f"BELOW-BLOCKED above #33000: coordinator gos name #33001 at aaaa111111 (go #{go_of(shell, '33001')} by root at ")
+    assert line.startswith(f"BELOW-BLOCKED above #33000: coordinator gos name #33001 at aaaa111111 (go #{go_of(shell, '33001')} by root), stacked on #33000")
     assert line.endswith("stacked on #33000, which the pass did not admit, so its graphite-stack-enqueue check read no verdict: stack-enqueue: error: #33001's native stack contains an unavailable pull request")
 
 
@@ -9336,7 +9336,7 @@ def test_an_unsettled_heads_trace_keeps_every_step_that_saw_it_and_each_settle_a
     settlement.settle("33001", "bbbb222222", runner_module.Refused("stale"))
     settlement.saw(["33001"], "the dispatch, which left it to worker `33001`, which holds it all")
     trace = settlement.seen["33001"]
-    assert [entry.rsplit(" at ", 1)[0] for entry in trace] == ["the gate's status read", "a settle at bbbb222222, not its admitted head,", "the dispatch, which left it to worker `33001`, which holds it all"]
+    assert trace == ["the gate's status read", "a settle at bbbb222222, not its admitted head", "the dispatch, which left it to worker `33001`, which holds it all"]
     assert "33002" not in settlement.seen and not settlement.settled("33001")
 
 
@@ -9498,7 +9498,7 @@ def test_while_graphite_is_down_an_admitted_chain_waiting_in_the_serial_merge_qu
     shell.sleep(11 * 60)
     landing_pass(shell, config)
     assert direct_merges(shell) == []
-    assert [post for post in shell.posts if post["kind"] == "state" and post["text"].startswith("QUEUE ")]
+    assert [post for post in shell.posts if post["kind"] == "state" and post["text"].startswith("QUEUE: ")]
     assert not [line for line in settled(shell, "REFUSED") if ": unsettled: " in line]
 
 
@@ -9762,12 +9762,12 @@ def test_a_runner_enqueue_posts_queued_and_then_landed_naming_the_go(shell, conf
     go = shell.records[-1]["seq"]
     landing_pass(shell, config)
     [queued] = [post for post in shell.posts if post["text"].startswith("QUEUED")]
-    assert queued["kind"] == "report" and queued["to"].startswith("root") and queued["text"].startswith(f"QUEUED #33001 at aaaa111111 (go #{go}): the landing runner put it in the merge queue at ")
+    assert queued["kind"] == "report" and queued["to"].startswith("root") and queued["text"] == f"QUEUED #33001 at aaaa111111 (go #{go}): the landing runner put it in the merge queue"
     shell.rows[0] |= {"state": "landed", "landed_sha": "dddd444444"}
     landing_pass(shell, config)
     landing_pass(shell, config)
     [landed] = [post for post in shell.posts if post["text"].startswith("LANDED")]
-    assert landed["kind"] == "landed" and landed["text"].startswith("LANDED #33001 as dddd444444: through the merge queue, which the landing runner entered at ")
+    assert landed["kind"] == "landed" and landed["text"].startswith("LANDED #33001 as dddd444444: through the merge queue, which the landing runner entered ")
 
 
 def test_a_pr_the_runner_enqueued_three_times_posts_landed_once_for_its_one_squash_naming_the_newest_entry(shell, config, tmp_path):
@@ -9902,7 +9902,7 @@ def test_a_root_hold_on_a_landed_incident_fix_is_answered_once_and_the_cadence_h
         shell.sleep(3 * 60)
         landing_pass(shell, config)
     held = [line for line in escalations(shell) if line.startswith("RELEASE-HELD-AFTER-LANDING")]
-    assert held == [f"RELEASE-HELD-AFTER-LANDING #36642: landed 5e11a9d0c2 at 11:03; its cut is owed now, the other PR gets its own cut when it lands (coordinator #{seq})"]
+    assert held == [f"RELEASE-HELD-AFTER-LANDING #36642: landed 5e11a9d0c2 3 min earlier; its cut is owed now, the other PR gets its own cut when it lands (coordinator #{seq})"]
     assert [post["text"].split(": ", 1)[1].split(" as ")[0] for post in blockers(shell) if post["text"].startswith("#36642 ")] == ["landed 3 minutes ago", "landed 6 minutes ago"]
 
 
@@ -10171,7 +10171,7 @@ def test_a_landing_its_target_runs_none_of_an_hour_on_draws_one_blocker_to_root_
     [blocker] = not_live(shell)
     assert blocker["to"] == "root" and post_body(blocker) == "LANDED-NOT-LIVE llm-gateway: #48353 landed, the oldest 61 minutes ago, and llm-gateway runs none of them; start its release: `tools/ci release start --only llm-gateway --manual`"
     [state] = [post for post in shell.posts if post["kind"] == "state" and post.get("topic") == "landed-not-live"]
-    assert state["text"].startswith("LANDED-NOT-LIVE llm-gateway: #48353 (")
+    assert state["text"] == "LANDED-NOT-LIVE llm-gateway: #48353"
     shell.sleep(6 * 60)
     landing_pass(shell, config)
     assert len(not_live(shell)) == 1
@@ -11811,13 +11811,12 @@ def test_a_desk_posts_its_alive_record_when_it_starts_before_its_first_pass_ends
     shell.beats.append({"seq": 0, "drive": "d1", "lane": "desk-runner", "kind": "state", "topic": "landing", "at": "2026-10-27T21:58:00Z", "text": "landing alive 2:58 PM pass 9", "fields": {"attrs": {"pid": "1"}}})
     runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store")).keep_alive("landing").set()
     assert heartbeat(shell, "landing")["pid"] == str(os.getpid())
-    assert shell.alive == [f"landing alive {shell.clock.astimezone(runner_module.PACIFIC):%-I:%M %p} pass 0"]
+    assert shell.alive == ["landing alive pass 0"]
 
 
 def test_each_landing_pass_posts_its_own_alive_record(shell, config, tmp_path):
-    started = shell.clock
     landing_pass(shell, config)
-    assert shell.alive[0] == f"landing alive {started.astimezone(runner_module.PACIFIC):%-I:%M %p} pass 0"
+    assert shell.alive[0] == "landing alive pass 0"
     beat = heartbeat(shell, "landing")
     assert beat["pid"] == str(os.getpid())
     assert beat["restart"] == f"nohup desk-runner.py run --config {config.resolve()} --desk landing >> {tmp_path / 'landing-runner.log'} 2>&1 < /dev/null &"
@@ -11839,7 +11838,7 @@ def test_the_alive_record_names_the_command_in_flight_and_how_long_it_has_run(sh
 
     runner.post_alive("landing")
 
-    assert shell.alive == [f"landing alive {shell.clock.astimezone(runner_module.PACIFIC):%-I:%M %p} pass 1 running `stack-enqueue 42627 42676 --check` for 2m05s"]
+    assert shell.alive == ["landing alive pass 1 running `stack-enqueue 42627 42676 --check` for 2m05s"]
 
 
 def test_a_pass_that_raises_posts_a_blocker_and_the_runner_goes_on_until_the_same_raise_twice_in_a_row_then_restarts_itself(shell, config, tmp_path, monkeypatch):
@@ -12429,7 +12428,7 @@ def test_a_class_record_with_no_fix_lane_go_in_ten_minutes_raises_one_blocker(sh
     lines = [line for line in escalations(shell) if line.startswith("CLASS-UNOWNED")]
     assert len(lines) == unowned
     if unowned:
-        assert lines[0].startswith(f"CLASS-UNOWNED tag:SAND5A inc-sand-evidence: #{seq} at ")
+        assert lines[0].startswith(f"CLASS-UNOWNED tag:SAND5A inc-sand-evidence: #{seq}, ")
         assert "no fix-lane GO naming tag:SAND5A" in lines[0]
 
 
@@ -12489,9 +12488,9 @@ def test_a_launch_line_read_over_fifteen_minutes_after_its_record_launches_nothi
     orca_pass(shell, config)
     launch, alert = shell.records[-2]["seq"], shell.records[-1]["seq"]
     assert launches(shell) == []
-    assert [line.partition(", ")[0] for line in escalations(shell) if line.endswith("a launch line is valid for 15; nothing was launched")] == [
-        f"LAUNCH-EXPIRED R{launch} {LANE}: cci #{launch} was posted at 10:44",
-        f"LAUNCH-EXPIRED R{alert} dd-7-fix: cci #{alert} was posted at 10:44",
+    assert [line.partition(";")[0] for line in escalations(shell) if line.endswith("a launch line is valid for 15; nothing was launched")] == [
+        f"LAUNCH-EXPIRED R{launch} {LANE}: cci #{launch} was posted 16 minutes before this read",
+        f"LAUNCH-EXPIRED R{alert} dd-7-fix: cci #{alert} was posted 16 minutes before this read",
     ]
 
 
@@ -12943,7 +12942,7 @@ def test_a_record_to_the_orca_desk_outside_the_grammar_fails_visibly(shell, conf
     orca_pass(shell, config)
     orca_pass(shell, config)
     [line] = escalations(shell)
-    assert line.startswith("DIRECTIVE-FAILED cci#34766 inbox: it opens `launch incident-timeout-fix on the incident route now`, and a record addressed to orca-desk is one `[<H:MM AM|PM>] [R<n> (<clock>)] orca-desk: ")
+    assert line.startswith("DIRECTIVE-FAILED cci#34766 inbox: it opens `launch incident-timeout-fix on the incident route now`, and a record addressed to orca-desk is one `orca-desk: ")
     assert [(post["kind"], post["topic"]) for post in shell.posts] == [("defect", "cci#34766")]
 
 
@@ -12987,7 +12986,7 @@ def test_a_monitor_alert_line_launches_nothing_and_records_the_transition(shell,
     assert launches(shell) == []
     assert shell.entries == []
     [line] = escalations(shell)
-    assert line.startswith("ALERT dd-312516332 ") and "no lane launched; the alerts desk writes `orca-desk: incident" in line
+    assert line.startswith("ALERT dd-312516332: Datadog OK -> Alert Run assignment starved https://app.datadoghq.com/monitors/312516332 | no lane launched; the alerts desk writes `orca-desk: incident <slug> <link> :: <what fired>`")
 
 
 def test_a_briefs_log_that_stops_resolving_mid_drive_repoints_to_the_drives_briefs_log_and_the_incident_still_launches(shell, config, tmp_path):
@@ -12995,7 +12994,7 @@ def test_a_briefs_log_that_stops_resolving_mid_drive_repoints_to_the_drives_brie
     del shell.logs["briefs1"]
     shell.logs["b2"] = "briefs: d1"
     shell.launch_line = "dd-7-fix ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
-    desk_orders(shell, "- orca-desk: incident dd-7 https://app.datadoghq.com/monitors/7 reported=11:10 :: Datadog OK -> Alert api 5xx")
+    desk_orders(shell, "- orca-desk: incident dd-7 https://app.datadoghq.com/monitors/7 :: Datadog OK -> Alert api 5xx")
     orca_pass(shell, config)
     shell.launch("dd-7-fix", "ctx_n")
     orca_pass(shell, config)
@@ -13004,7 +13003,7 @@ def test_a_briefs_log_that_stops_resolving_mid_drive_repoints_to_the_drives_brie
     assert f"ccn -R {tmp_path / 'checkout'} attachment path b2 dd-7-evidence.md" in brief.read_text()
     lines = escalations(shell)
     assert lines[0].startswith("BRIEFS-LOG briefs-log:briefs1 runner: briefs log briefs1 does not resolve") and "briefs now attach to b2 (briefs: d1)" in lines[0]
-    assert lines[1].startswith("INCIDENT dd-7 ") and "fix lane dd-7-fix launching on incident xhigh" in lines[1]
+    assert lines[1].startswith("INCIDENT dd-7: ") and "fix lane dd-7-fix launching on incident xhigh" in lines[1]
 
 
 def test_a_drive_with_no_briefs_log_creates_its_briefs_log_at_start(shell, config):
@@ -13035,11 +13034,12 @@ def test_an_incident_line_attaches_the_brief_to_the_briefs_log_and_launches_the_
     text = brief.read_text()
     assert "Datadog OK -> Alert Run assignment starved" in text and "apply authority: 0 deletes and 0 replaces" in text
     assert "  0. SCOPE FIRST." in text and "SCOPE dd-312516332-fix: active <yes|no:" in text and "     NO ROLLBACK; find the mechanism and fix forward;" in text and "Rollback first" not in text and "{" not in text
-    assert "  - Reported 23:48 PT. The bar is fixed and live within 20 minutes of the\n    report, by 00:08 PT;" in text
+    reported = shell.clock.astimezone(runner_module.PACIFIC)
+    assert f"  - Reported {reported:%H:%M} PT. The bar is fixed and live within 20 minutes of the\n    report, by {reported + timedelta(minutes=20):%H:%M} PT;" in text and "23:48" not in text
     assert f"ccn -R {tmp_path / 'checkout'} attachment path briefs1 dd-312516332-evidence.md" in text
     assert not (tmp_path / "incidents").exists()
     lines = [line for line in escalations(shell)]
-    assert lines[0].startswith("INCIDENT dd-312516332 ") and "fix lane dd-312516332-fix launching on incident xhigh" in lines[0]
+    assert lines[0].startswith("INCIDENT dd-312516332: ") and "fix lane dd-312516332-fix launching on incident xhigh" in lines[0]
     assert lines[1] == f"LAUNCHED R{seq} dd-312516332-fix: dispatch ctx_n terminal term_ctx_n"
 
 
@@ -13120,7 +13120,7 @@ def test_a_repeat_alert_relays_to_the_live_fix_lane_and_keeps_its_brief(shell, c
     orca_pass(shell, config)
     assert launches(shell) == []
     [send] = shell.sends()
-    assert "The alert fired again at" in send[send.index("--body") + 1]
+    assert "The alert fired again: Page #11507 Acme Disputes stuck-case monitor stopped reporting" in send[send.index("--body") + 1]
     assert brief.read_text() == "root-edited brief" and shell.attachments["alerts-runs-1704-fix.full.md"] == brief and shell.entries == []
     [line] = escalations(shell)
     assert line == f"RELAYED inbox@cci#{seq}:again alerts-runs-1704-fix: relay to dispatch ctx_a"
@@ -13156,7 +13156,7 @@ def test_an_incident_whose_brief_fails_to_attach_launches_nothing(shell, config,
     orca_pass(shell, config)
     assert launches(shell) == [] and "dd-8-fix.full.md" not in shell.attachments
     [line] = escalations(shell)
-    assert line.startswith("INCIDENT dd-8 ") and line.endswith("| dd-8-fix not launched: the brief did not attach: error: cc-notes: ref lock held")
+    assert line.startswith("INCIDENT dd-8: ") and line.endswith("| dd-8-fix not launched: the brief did not attach: error: cc-notes: ref lock held")
 
 
 def test_an_incident_whose_attach_dies_silently_launches_nothing(shell, config, tmp_path):
@@ -13231,9 +13231,9 @@ def test_a_silent_incident_lane_gets_one_opus_fallback_and_one_blocker_per_thres
         orca_pass(shell, config)
         orca_pass(shell, config)
     assert clock_lines(shell) == [
-        f"INCIDENT-CLOCK {LANE} mechanism: no mechanism 10 min after its launch at 11:00, limit 10 min; launch to now 10 min | the Opus fallback {backup} is launching on incident-opus xhigh, brief {fallback}",
-        f"INCIDENT-CLOCK {LANE} pr: no PR 15 min after its launch at 11:00, limit 15 min; launch to now 15 min | the Opus fallback {backup} is already launched",
-        f"INCIDENT-CLOCK {LANE} ready: not ready 20 min after its launch at 11:00, limit 20 min; missing mechanism, PR, ready; launch to now 20 min | the Opus fallback {backup} is already launched",
+        f"INCIDENT-CLOCK {LANE} mechanism: no mechanism 10 min after its launch, limit 10 min; launch to now 10 min | the Opus fallback {backup} is launching on incident-opus xhigh, brief {fallback}",
+        f"INCIDENT-CLOCK {LANE} pr: no PR 15 min after its launch, limit 15 min; launch to now 15 min | the Opus fallback {backup} is already launched",
+        f"INCIDENT-CLOCK {LANE} ready: not ready 20 min after its launch, limit 20 min; missing mechanism, PR, ready; launch to now 20 min | the Opus fallback {backup} is already launched",
     ]
     assert [(post["kind"], post["topic"]) for post in shell.posts if post["text"].startswith(f"INCIDENT-CLOCK {LANE} ")] == [("blocker", LANE)] * 3
     assert len(launches(shell)) == 2 and len(shell.entries) == 1
@@ -13346,7 +13346,7 @@ def test_a_mechanism_with_no_pr_launches_the_fallback_at_the_pr_threshold(shell,
     orca_pass(shell, config)
     fallback = written(tmp_path, f"{LANE}-opus")
     assert clock_lines(shell) == [
-        f"INCIDENT-CLOCK {LANE} pr: no PR 15 min after its launch at 11:00, limit 15 min; launch to mechanism 4 min, mechanism to now 11 min | the Opus fallback {LANE}-opus is launching on incident-opus xhigh, brief {fallback}"
+        f"INCIDENT-CLOCK {LANE} pr: no PR 15 min after its launch, limit 15 min; launch to mechanism 4 min, mechanism to now 11 min | the Opus fallback {LANE}-opus is launching on incident-opus xhigh, brief {fallback}"
     ]
     assert [call[1] for call in launches(shell)] == [LANE, f"{LANE}-opus"] and "had posted no PR" in fallback.read_text()
 
@@ -13364,7 +13364,7 @@ def test_a_mechanism_a_case_sibling_posted_stops_the_mechanism_fallback_but_not_
     orca_pass(shell, config)
     orca_pass(shell, config)
     [line] = clock_lines(shell)
-    assert line.startswith(f"INCIDENT-CLOCK {LANE} pr: no PR 15 min after its launch at 11:00, limit 15 min; launch to mechanism 8 min, mechanism to now 7 min")
+    assert line.startswith(f"INCIDENT-CLOCK {LANE} pr: no PR 15 min after its launch, limit 15 min; launch to mechanism 8 min, mechanism to now 7 min")
     assert f"{LANE}-opus" in [call[1] for call in launches(shell)]
 
 
@@ -13661,7 +13661,7 @@ def test_a_manual_release_launch_stalls_sixty_seconds_after_its_acceptance_with_
     shell.clock = actions.parse_stamp(accepted.accepted_at) + timedelta(seconds=60)
     orca_pass(shell, config)
     [line] = stalled(shell)
-    assert line.startswith(f"LAUNCH-STALLED stalled:desk-lane-manual-release-sand/cut:go:{seq} manual-release-sand: cut:go:{seq} accepted at ") and "has no dispatch 60 s on" in line
+    assert line.startswith(f"LAUNCH-STALLED stalled:desk-lane-manual-release-sand/cut:go:{seq} manual-release-sand: cut:go:{seq} has no dispatch 60 s after it was accepted, ")
 
 
 @pytest.mark.parametrize(("kind", "refs"), [("release", {"targets": ["sand"], "builds": ["https://buildkite.com/forge/release/builds/8748"]}), ("refuse", {"targets": ["sand"]})], ids=["cut", "refused"])
@@ -13705,7 +13705,7 @@ def test_an_opened_pr_stops_the_pr_threshold_and_counts_for_the_mechanism(shell,
 
 def test_a_lane_posting_under_the_name_its_brief_gives_reaches_its_milestones_and_its_stand_down(shell, config, tmp_path):
     poster = f"{LANE}-fix"
-    clocked_lane(shell, config, tmp_path, header=f"Post with `cci post --lane {poster} --drive d --stamp --kind mechanism --to root`.\n")
+    clocked_lane(shell, config, tmp_path, header=f"Post with `cci post --lane {poster} --drive d --kind mechanism --to root`.\n")
     shell.sleep(4 * 60)
     lane_record(shell, poster, "mechanism")
     shell.sleep(8 * 60)
@@ -13747,7 +13747,7 @@ def test_a_pr_not_ready_at_the_ready_threshold_gets_the_opus_fallback_and_names_
     orca_pass(shell, config)
     fallback = written(tmp_path, f"{LANE}-opus")
     assert clock_lines(shell) == [
-        f"INCIDENT-CLOCK {LANE} ready: not ready 20 min after its launch at 11:00, limit 20 min; missing ready; launch to mechanism 4 min, mechanism to PR 8 min, PR to now 8 min | the Opus fallback {LANE}-opus is launching on incident-opus xhigh, brief {fallback}"
+        f"INCIDENT-CLOCK {LANE} ready: not ready 20 min after its launch, limit 20 min; missing ready; launch to mechanism 4 min, mechanism to PR 8 min, PR to now 8 min | the Opus fallback {LANE}-opus is launching on incident-opus xhigh, brief {fallback}"
     ]
     assert [call[1] for call in launches(shell)] == [LANE, f"{LANE}-opus"] and "had posted no ready" in fallback.read_text()
 
@@ -13765,7 +13765,7 @@ def test_an_open_incident_naming_the_fix_lane_stands_its_opus_fallback_aside(she
     orca_pass(shell, config)
     assert [call[1] for call in launches(shell)] == [LANE]
     [line] = clock_lines(shell)
-    assert line.endswith(f"no fallback launched for {LANE}-opus: open incident #{scope} names {LANE}, so the drive's clocks warn and stand aside (owner, 2:21 PM Nov 1); the coordinator launches one by hand if the fix lane has missed")
+    assert line.endswith(f"no fallback launched for {LANE}-opus: open incident #{scope} names {LANE}, so the drive's clocks warn and stand aside (owner, Nov 1); the coordinator launches one by hand if the fix lane has missed")
 
 
 def test_an_opus_fallback_lane_is_clocked_and_gets_no_fallback_of_its_own(shell, config, tmp_path):
@@ -13976,12 +13976,12 @@ def test_the_clock_thresholds_come_from_the_configs_deadlines(shell, config, tmp
     clocked_lane(shell, config, tmp_path)
     shell.sleep(3 * 60)
     orca_pass(shell, config)
-    assert [line.split(";", 1)[0] for line in clock_lines(shell)] == [f"INCIDENT-CLOCK {LANE} mechanism: no mechanism 3 min after its launch at 11:00, limit 3 min"]
+    assert [line.split(";", 1)[0] for line in clock_lines(shell)] == [f"INCIDENT-CLOCK {LANE} mechanism: no mechanism 3 min after its launch, limit 3 min"]
     shell.sleep(2 * 60)
     orca_pass(shell, config)
     assert [line.split(";", 1)[0] for line in clock_lines(shell)][1:] == [
-        f"INCIDENT-CLOCK {LANE} pr: no PR 5 min after its launch at 11:00, limit 4 min",
-        f"INCIDENT-CLOCK {LANE} ready: not ready 5 min after its launch at 11:00, limit 5 min",
+        f"INCIDENT-CLOCK {LANE} pr: no PR 5 min after its launch, limit 4 min",
+        f"INCIDENT-CLOCK {LANE} ready: not ready 5 min after its launch, limit 5 min",
     ]
 
 
@@ -14092,7 +14092,7 @@ def unfixed_report(shell: FakeShell, lane: str, kind: str, *cases: str, **fields
 
 
 def incident_lines(shell: FakeShell, lane: str = LANE) -> list[str]:
-    return [line for line in escalations(shell) if line.startswith(f"INCIDENT {lane} ")]
+    return [line for line in escalations(shell) if line.startswith(f"INCIDENT {lane}: ")]
 
 
 @pytest.mark.parametrize("kind", ["ready", "fix-live"])
@@ -14114,10 +14114,10 @@ def test_each_case_an_incident_lane_reports_unfixed_launches_an_incident_lane_in
         assert "Reproduce the case above exactly as written" in text and f"`UNFIXED {lane}: none`" in text
     assert shell.entries == [f"INCIDENT {LANE}: unfixed case brief for {lane}: {case}" for lane, case in zip(lanes, CASES, strict=True)]
     assert incident_lines(shell) == [
-        f"INCIDENT {LANE} 11:01: its fix does not cover: {case} | case lane {lane} launching on incident xhigh, brief {path}; coordinator: ratify, and keep the reporter told that this case is still open"
+        f"INCIDENT {LANE}: its fix does not cover: {case} | case lane {lane} launching on incident xhigh, brief {path}; coordinator: ratify, and keep the reporter told that this case is still open"
         for lane, path, case in zip(lanes, briefs, CASES, strict=True)
     ]
-    assert [post["kind"] for post in shell.posts if post["text"].startswith(f"INCIDENT {LANE} ")] == ["incident", "incident"]
+    assert [post["kind"] for post in shell.posts if post["text"].startswith(f"INCIDENT {LANE}: ")] == ["incident", "incident"]
 
 
 def test_an_unfixed_none_line_launches_nothing(shell, config, tmp_path):
@@ -14208,7 +14208,7 @@ def test_a_withdrawn_lanes_stop_report_launches_no_case_lane_and_its_redispatch_
     assert not [call for call in shell.calls if call[0] == "claude"] and not [line for line in escalations(shell) if line.startswith("DECIDE ")]
     assert [line for line in escalations(shell) if line.startswith(("UNFIXED ", "WITHDRAWN "))] == [
         f"WITHDRAWN {LANE} {LANE}: by R21; dispatch ctx_{LANE} stopped (stopped), and no report of it launches a case lane",
-        f"UNFIXED {LANE} 11:00: Acme mount timeouts x16, alerts desk owns; the coordinator withdrew this fix lane | no case lane launched: the coordinator withdrew {LANE} (R21)",
+        f"UNFIXED {LANE}: Acme mount timeouts x16, alerts desk owns; the coordinator withdrew this fix lane | no case lane launched: the coordinator withdrew {LANE} (R21)",
         f"WITHDRAWN {offer['id']} {LANE}: withdrawn by R21, so it is not dispatched again and its question needs no answer: {offer['subject']}",
     ]
 
@@ -14260,7 +14260,7 @@ def test_a_case_lane_whose_brief_fails_to_attach_is_named_and_launches_on_the_ne
     unfixed_report(shell, LANE, "ready", CASES[0])
     orca_pass(shell, config)
     assert len(launches(shell)) == 1 and "unfixed-cases" not in incident(tmp_path, f"desk-lane-{LANE}").facts
-    assert incident_lines(shell) == [f"INCIDENT {LANE} 11:00: its fix does not cover: {CASES[0]} | case lane {LANE}-case1 not launched: the brief did not attach: error: cc-notes: ref lock held"]
+    assert incident_lines(shell) == [f"INCIDENT {LANE}: its fix does not cover: {CASES[0]} | case lane {LANE}-case1 not launched: the brief did not attach: error: cc-notes: ref lock held"]
     shell.attach_error = ""
     unfixed_report(shell, LANE, "fix-live", CASES[0])
     orca_pass(shell, config)
@@ -14289,7 +14289,7 @@ def test_a_report_after_its_incident_ended_launches_no_case_lane_and_tells_the_r
     orca_pass(shell, config)
     assert len(launches(shell)) == 1 and shell.entries == [] and incident_lines(shell) == []
     assert [line for line in escalations(shell) if line.startswith(("DECIDE ", "UNFIXED "))] == [
-        f"UNFIXED {LANE} 11:02: {CASES[0]}; {CASES[1]} | no case lane launched: the incident ended with #{seq} {kind.upper()} {lane}"
+        f"UNFIXED {LANE}: {CASES[0]}; {CASES[1]} | no case lane launched: the incident ended with #{seq} {kind.upper()} {lane}"
     ]
 
 
@@ -14386,7 +14386,7 @@ def test_the_unfixed_case_brief_renders_with_every_field_filled():
     assert "`UNFIXED dd-7-fix-case1: none`" in text and "`READY dd-7-fix-case1: " in text
 
 
-def test_an_incident_line_with_a_twelve_hour_report_time_sets_the_bar_from_it(shell, config, tmp_path):
+def test_an_incident_line_with_a_typed_twelve_hour_report_time_sets_the_bar_from_its_read_never_the_typed_time(shell, config, tmp_path):
     orca_pass(shell, config)
     shell.launch_line = "runner-refusing-1841-fix ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
     desk_orders(shell, "orca-desk: incident runner-refusing-1841 https://app.datadoghq.com/monitors/333042395 reported=6:41 PM :: Datadog OK -> Alert Runner refusing runs")
@@ -14395,16 +14395,15 @@ def test_an_incident_line_with_a_twelve_hour_report_time_sets_the_bar_from_it(sh
     orca_pass(shell, config)
     brief = written(tmp_path, "runner-refusing-1841-fix")
     assert launches(shell) == [[str(runner_module.LAUNCHER), "runner-refusing-1841-fix", "incident", "xhigh", str(brief)]]
-    assert "  - Reported 18:41 PT. The bar is fixed and live within 20 minutes of the\n    report, by 19:01 PT;" in brief.read_text()
+    reported = shell.clock.astimezone(runner_module.PACIFIC)
+    assert f"  - Reported {reported:%H:%M} PT. The bar is fixed and live within 20 minutes of the\n    report, by {reported + timedelta(minutes=20):%H:%M} PT;" in brief.read_text() and "18:41" not in brief.read_text()
 
 
-def test_an_incident_line_without_the_report_time_launches_nothing(shell, config, tmp_path):
+def test_an_incident_line_without_the_report_time_launches_its_fix_lane(shell, config, tmp_path):
     orca_pass(shell, config)
-    seq = desk_orders(shell, "R44 orca-desk: incident dd-11 https://app.datadoghq.com/monitors/11 :: Datadog OK -> Alert")
+    desk_orders(shell, "orca-desk: incident dd-11 https://app.datadoghq.com/monitors/11 :: Datadog OK -> Alert")
     orca_pass(shell, config)
-    assert launches(shell) == []
-    [line] = escalations(shell)
-    assert line == f"INCIDENT-FAILED R{seq} inbox: one incident per line, in the form `{runner_module.INCIDENT_GRAMMAR}`; nothing was launched"
+    assert launches(shell) == [[str(runner_module.LAUNCHER), "dd-11-fix", "incident", "xhigh", str(written(tmp_path, "dd-11-fix"))]]
 
 
 OWNED_LINE = "- orca-desk: incident dd-7 https://app.datadoghq.com/monitors/7 reported=11:10 :: Datadog OK -> Alert api 5xx"
@@ -15133,7 +15132,7 @@ def test_each_page_during_a_release_and_its_tail_reaches_root_once_as_an_inciden
     orca_pass(shell, config)
     [post] = page_posts(shell)
     assert post["to"] == "root" and post["url"] == first["permalink"] and post["id"] == f"page:C0ONCALL:{first['ts']}"
-    assert post["text"].startswith(f"PAGE 11:02 {first['permalink']} | ") and post["text"].endswith("| Wadsworth:")
+    assert post["text"].startswith(f"PAGE {first['permalink']} | ") and post["text"].endswith("| Wadsworth:")
     assert post["quoted"] == ":rotating_light: *Iris chat list broken* monitor"
     shell.builds["8748"]["finished_at"] = actions.stamp(shell.now())
     orca_pass(shell, config)
@@ -15300,10 +15299,10 @@ def test_a_red_trunk_posts_dev_red_every_half_hour_naming_its_fix_once_named(she
     bus_trunk(shell, "fix-dev", "opened", "opened #29021", pr="29021")
     landing.watch_trunk(OPEN_ROWS)
 
-    red = "DEV-RED since 10:50 AM: dev's buildkite/test is red on https://buildkite.com/forge/test/builds/29019, first red at bbbbbbbbbb, landed by #29019. No PR can land until this is fixed; "
+    red = "dev's buildkite/test is red on https://buildkite.com/forge/test/builds/29019, first red at bbbbbbbbbb, landed by #29019. No PR can land until this is fixed; "
     assert trunk_posts(shell) == [
-        ("incident", "root,drive-watchdog@d1", red + "nothing lands until a fix lands; name it with `cci post --topic dev-red --pr <n>`."),
-        ("incident", "root,drive-watchdog@d1", red + "nothing lands until #29021 fixes it."),
+        ("incident", "root,drive-watchdog@d1", "DEV-RED for 10 min: " + red + "nothing lands until a fix lands; name it with `cci post --topic dev-red --pr <n>`."),
+        ("incident", "root,drive-watchdog@d1", "DEV-RED for 40 min: " + red + "nothing lands until #29021 fixes it."),
     ]
 
 
@@ -15432,16 +15431,18 @@ def test_a_tree_is_checked_only_when_the_pass_is_about_to_enqueue_from_it(shell,
     assert landing.unchecked == (set() if checked else {"29020", "29031"})
 
 
-def test_a_trunk_green_again_posts_dev_green_once(shell, config, tmp_path):
+def test_a_trunk_green_again_posts_dev_green_once_citing_the_red_record_never_its_typed_clock(shell, config, tmp_path):
     landing = trunk_watch(shell, config, tmp_path)
-    bus_trunk(shell, "desk-runner", "incident", "DEV-RED since 10:50 AM: dev's buildkite/test is red. No PR can land until this is fixed.")
+    bus_trunk(shell, "desk-runner", "incident", "DEV-RED since 3:15 AM: dev's buildkite/test is red. No PR can land until this is fixed.")
+    red = shell.records[-1]["seq"]
+    bus_trunk(shell, "desk-runner", "incident", "DEV-RED for 30 min: dev's buildkite/test is red. No PR can land until this is fixed.")
     shell.trunk = [trunk_commit("c", "SUCCESS", "29020", "2026-10-01T17:55:00Z"), trunk_commit("b", "FAILURE", "29019", "2026-10-01T17:50:00Z")]
 
     landing.watch_trunk(OPEN_ROWS)
     bus_trunk(shell, "desk-runner", "report", trunk_posts(shell)[0][2])
     landing.watch_trunk(OPEN_ROWS)
 
-    assert trunk_posts(shell) == [("report", "root,drive-watchdog@d1", "DEV-GREEN dev's buildkite/test passes again; it was red since 10:50 AM.")]
+    assert trunk_posts(shell) == [("report", "root,drive-watchdog@d1", f"DEV-GREEN dev's buildkite/test passes again; it was red from #{red}.")]
 
 
 @pytest.mark.parametrize(
@@ -15485,7 +15486,7 @@ def test_the_alive_record_names_the_passs_own_command_over_a_longer_one_a_worker
 
     runner.post_alive("landing")
 
-    assert shell.alive == [f"landing alive {shell.clock.astimezone(runner_module.PACIFIC):%-I:%M %p} pass 1 running `cci tail --drive d1` for 1m05s"]
+    assert shell.alive == ["landing alive pass 1 running `cci tail --drive d1` for 1m05s"]
 
 
 def fake_cci(posted: list[dict], calls: list[list[str]]) -> Callable[[list[str]], str]:
@@ -15666,7 +15667,7 @@ def test_a_trunk_job_any_open_rows_build_runs_is_a_landing_red_even_when_the_new
     landing.watch_trunk(OPEN_ROWS)
 
     [(kind, _, text)] = trunk_posts(shell)
-    assert kind == "incident" and text.startswith("DEV-RED since 10:50 AM: dev's buildkite/test fails sanddb-http")
+    assert kind == "incident" and text.startswith("DEV-RED for 10 min: dev's buildkite/test fails sanddb-http")
 
 
 def test_a_red_whose_failed_jobs_all_fail_on_a_dev_red_trunk_is_classed_inherited_by_the_runner_and_draws_no_blocker(shell, config, tmp_path):
@@ -15688,7 +15689,7 @@ def test_a_red_whose_failed_jobs_all_fail_on_a_dev_red_trunk_is_classed_inherite
         shell.commit_statuses[head] = shell.combined_statuses[head] = [{"context": "buildkite/test", "state": "failure", "description": f"Build #{number} failed", "target_url": f"https://buildkite.com/forge/test/builds/{number}"}]
     landing_pass(shell, config)
     landing_pass(shell, config)
-    assert [(post["to"], post_body(post)) for post in shell.posts if post["kind"] == "red"] == [(LANE, "class=inherited head=cccc333333 owner=api-fix sanddb-http fails on dev too, red since 10:50 AM; it unblocks once dev's fix lands")]
+    assert [(post["to"], post_body(post)) for post in shell.posts if post["kind"] == "red"] == [(LANE, "class=inherited head=cccc333333 owner=api-fix sanddb-http fails on dev too; it unblocks once dev's fix lands")]
     assert [post_body(post) for post in blockers(shell) if post["to"] == LANE] == ["#29021 dddd444444: CI is red: buildkite/test"]
 
 
@@ -15825,7 +15826,7 @@ def test_two_missed_bus_probes_raise_the_dashboard_alarm_and_the_first_good_read
     runner.probe_bus()
 
     [recovered] = [post for post in shell.posts if post["text"].startswith("BUS-RECOVERED")]
-    assert (recovered["kind"], recovered["to"], recovered["text"]) == ("report", "root", "BUS-RECOVERED cci answers again; it was down from 11:00 AM for 10 min.")
+    assert (recovered["kind"], recovered["to"], recovered["text"]) == ("report", "root", "BUS-RECOVERED cci answers again; it was down for 10 min.")
     assert not alarm.exists()
     assert probes[0][:4] == runner_module.BUS_PROBE and runner_module.time_bound(probes[0]) == 15 and not runner_module.rereadable(probes[0])
 
@@ -16512,7 +16513,7 @@ def test_while_graphite_is_down_the_runner_posts_the_queue_of_admitted_chains_on
     shell.checks |= {pr: [{"name": "buildkite/test", "bucket": "pending"}] for pr in ("29020", "29031")}
 
     def queues():
-        return [post["text"] for post in shell.posts if post["kind"] == "state" and post["text"].startswith("QUEUE ")]
+        return [post["text"] for post in shell.posts if post["kind"] == "state" and post["text"].startswith("QUEUE: ")]
 
     landing_pass(shell, config)
     landing_pass(shell, config)

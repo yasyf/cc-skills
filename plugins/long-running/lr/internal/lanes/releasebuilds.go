@@ -128,7 +128,7 @@ func (r *ReleaseBuilds) tend(ctx context.Context, build releaseBuild, now time.T
 	lane, named := r.named[link]
 	age := now.Sub(build.StartedAt)
 	if !build.StartedAt.IsZero() && !named && !slices.Contains(buildClosed, build.State) && age >= seenGrace && age < seenWindow {
-		text := fmt.Sprintf("RELEASE-SEEN %d %s %s: no record names %s %d minutes after it started at %s; claim it or name it in a release record", build.Number, build.pipeline, build.State, build.URL, int(age.Minutes()), pacific(build.StartedAt))
+		text := fmt.Sprintf("RELEASE-SEEN %d %s %s: no record names %s %d minutes after it started; claim it or name it in a release record", build.Number, build.pipeline, build.State, build.URL, int(age.Minutes()))
 		if err := r.post(ctx, "release-seen:"+link, []string{Root}, text); err != nil {
 			return err
 		}
@@ -161,7 +161,7 @@ func (r *ReleaseBuilds) post(ctx context.Context, key string, to []string, text 
 	if r.posted[key] {
 		return nil
 	}
-	if _, err := r.Env.Bus.Post(ctx, client.Draft{Drive: r.Env.Config.Drive, Lane: Self, Kind: blockerKind, To: to, ID: key, Stamp: true, Text: text}); err != nil {
+	if _, err := r.Env.Bus.Post(ctx, client.Draft{Drive: r.Env.Config.Drive, Lane: Self, Kind: blockerKind, To: to, ID: key, Text: text}); err != nil {
 		return fmt.Errorf("%w: cci post: %w", ErrUnread, err)
 	}
 	if r.posted == nil {

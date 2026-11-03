@@ -95,6 +95,19 @@ func TestWorkIsHeldOnlyByLanesHeardWithinTwoHoursWithTheirNextRecordDueAndRootWa
 	}
 }
 
+func TestARowTellsARecordsTimeFromItsStampWhetherItsTextCarriesNoClockOrAStaleOne(t *testing.T) {
+	v := viewOf(
+		[]Lane{heard("release-5", "desired", 10), heard("relay-6", "desired", 10)},
+		[]Record{record(7, "release-5", "head", "pushed #48700", 25), record(9, "relay-6", "head", "2:13 AM relay-6: pushed #48701", 25)},
+		nil,
+	)
+	for _, lane := range []string{"release-5", "relay-6"} {
+		if got, want := v.workOf([]string{lane}).unblock, lane+": head "+pacific(ago(25))+": "; !strings.HasPrefix(got, want) {
+			t.Fatalf("unblock = %q, want prefix %q", got, want)
+		}
+	}
+}
+
 func TestAPlanWithNoNumberedStepsRowsEachPieceItsTitleListsAndALaneJoinsAPieceByItsWord(t *testing.T) {
 	plan := &plans.Plan{Title: "SandSQL five pieces: ssql-server (two modes), ssql-replicator, ssql-signal; migration R0-R8", Steps: []*plans.Step{{Number: plans.Unmapped, Title: "No step label"}}}
 	if got, want := pieces(plan), []string{"ssql-server", "ssql-replicator", "ssql-signal"}; !reflect.DeepEqual(got, want) {

@@ -94,9 +94,9 @@ func Unfinished(l Ledgers, now time.Time) ([]Wait, error) {
 }
 
 func unfinishedWait(key, what, quiet, text, step string, moved, due, now time.Time) Wait {
-	since, within, state := moved, unmoved, quiet+" since "+moved.In(pacific).Format(clockAndDay)
+	since, within, state := moved, unmoved, quiet+" since "+moved.In(pacific).Format("Jan 2")
 	if !due.IsZero() && due.Before(now) {
-		since, within, state = due, 0, "past due since "+due.In(pacific).Format(clockAndDay)
+		since, within, state = due, 0, "past due since "+due.In(pacific).Format("Jan 2")
 	}
 	return Wait{
 		Kind: unfinishedKind, Repo: UnfinishedNamespace, Head: key, Mover: machine.MoverRoot, Since: since, Within: within, To: root,

@@ -202,7 +202,7 @@ func (m Manager) Start(ctx context.Context, r Request) (string, error) {
 		return "", fmt.Errorf("sub-drive %s is registered but its coordinator did not launch: %w; run `lr drive sub end %s` and start again", r.Name, err, r.Name)
 	}
 	if _, err := m.Env.Bus.Post(ctx, client.Draft{
-		Drive: parent.Drive, Lane: lanes.Root, Kind: "report", To: []string{lanes.OwnerRelay}, ID: "sub-drive-start:" + name, Stamp: true,
+		Drive: parent.Drive, Lane: lanes.Root, Kind: "report", To: []string{lanes.OwnerRelay}, ID: "sub-drive-start:" + name,
 		Text: fmt.Sprintf("Started sub-drive %s: %s. Why it is separate: %s. Its small coordinator reports only to the coordinator, on cci drive %s.", r.Name, r.Objective, r.Reason, name),
 	}); err != nil {
 		return "", err
@@ -343,7 +343,7 @@ func (m Manager) End(ctx context.Context, name string) (string, error) {
 	}
 	parent := m.Env.Config.Drive
 	gc := fmt.Sprintf("Run `lr gc --run %s` once its lanes stop.", entry.OrcaRun)
-	back := client.Draft{Drive: parent, Lane: "sub-drive-" + name, Kind: "report", To: []string{lanes.Root}, ID: "sub-drive-end:" + entry.Drive, Stamp: true, Text: fmt.Sprintf("Sub-drive %s ended with nothing open. %s", name, gc)}
+	back := client.Draft{Drive: parent, Lane: "sub-drive-" + name, Kind: "report", To: []string{lanes.Root}, ID: "sub-drive-end:" + entry.Drive, Text: fmt.Sprintf("Sub-drive %s ended with nothing open. %s", name, gc)}
 	if len(items) > 0 {
 		path, err := writeHandback(entry, name, items)
 		if err != nil {
@@ -361,7 +361,7 @@ func (m Manager) End(ctx context.Context, name string) (string, error) {
 	}
 	if len(live) > 0 {
 		if _, err := m.Env.Bus.Post(ctx, client.Draft{
-			Drive: entry.Drive, Lane: endedBy, Kind: "stand-down", To: live, Stamp: true,
+			Drive: entry.Drive, Lane: endedBy, Kind: "stand-down", To: live,
 			Text: fmt.Sprintf("Sub-drive %s is over: its open work went to root@%s. Stop your desks and end your turn.", name, parent),
 		}); err != nil {
 			return "", err

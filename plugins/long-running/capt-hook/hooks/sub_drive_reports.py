@@ -27,7 +27,7 @@ hook(
     block=True,
     message="A sub-drive reports only to its parent's coordinator. Post with `--to root@<parent drive>`, the address in your brief, and the parent relays what the owner must see.",
     tests={
-        Input(command="cci post --lane root --drive brook--billing --stamp --kind report --to owner-relay 'billing is up'", env=SUB_DRIVE): Block(pattern=r"^A sub-drive reports only"),
+        Input(command="cci post --lane root --drive brook--billing --kind report --to owner-relay 'billing is up'", env=SUB_DRIVE): Block(pattern=r"^A sub-drive reports only"),
         Input(command="cci post --lane root --kind ask --to owner-relay@brook 'tap this PR'", env=SUB_DRIVE): Block(),
         Input(command="cci post --lane invoices --kind ask --to root,owner 'tap this PR'", env=SUB_DRIVE, agent_id="a1b2c3"): Block(),
         Input(command="cci post --lane root --kind report --to owner-relay 'billing is up'  # ccx:raw", env=SUB_DRIVE): Allow(),

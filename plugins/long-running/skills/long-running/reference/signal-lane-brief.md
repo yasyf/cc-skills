@@ -46,7 +46,7 @@ class, a seq you already flagged, or a liveness ping.
 
 Post one record per pass that had anything, never more than one every 60 seconds and
 never a summary:
-`cci post --lane signal --drive <drive> --stamp --kind note --to owner-relay --text "signal: look at <seq>[,<seq>...] (<one to four words naming the kind: decision | mechanism | release | incident | measurement | contradiction | owner | question | odd>)"`
+`cci post --lane signal --drive <drive> --kind note --to owner-relay --text "signal: look at <seq>[,<seq>...] (<one to four words naming the kind: decision | mechanism | release | incident | measurement | contradiction | owner | question | odd>)"`
 Keep the text under 300 characters and batch seqs by kind. A pass with nothing posts
 nothing. Once an hour post one `--kind state --to owner-relay` line with the last seq read
 and the count flagged.

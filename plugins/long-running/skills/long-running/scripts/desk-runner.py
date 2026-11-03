@@ -95,8 +95,8 @@ dispatch and terminal from the Run's receipt directory, `$XDG_STATE_HOME/long-ru
 where orca-launch.sh writes by default, so a lane launched by hand is seen like one the
 runner launched. An `orca-desk: alert <slug> <link> :: <what fired>`
 line, which monitor-watch writes, records the transition and launches nothing. An
-`orca-desk: incident` line in the same form, with `reported=<HH:MM>` or `reported=<H:MM AM|PM>`
-before the `::` naming the first report's Pacific time, which the alerts desk writes when it judges a lane necessary,
+`orca-desk: incident` line in the same form, which the alerts desk writes when it judges a lane necessary and whose
+record time is the report's,
 launches `<slug>-fix` on the incident alias from the alert-fix brief, unless another owner holds the
 incident: the coordinator's `done` resolving a record that names the slug, its `stopped` addressed to
 `<slug>-fix`, or another drive's coordinator `answer` addressed to `root@<this drive>` naming the slug. The
@@ -176,7 +176,7 @@ no lane container holds. A `worker_done` launches nothing. The brief is the
 unfixed-case brief filled with the case verbatim, the reporting lane, the path of that
 lane's brief, and the PRs its cci `opened` records name, attached to the briefs log as
 `<first>-case<n>.full.md`. The runner logs
-`INCIDENT <lane> <time>: its fix does not cover: <case> | case lane <first>-case<n> launching …`
+`INCIDENT <lane>: its fix does not cover: <case> | case lane <first>-case<n> launching …`
 for the coordinator to ratify. Only a line that names the reporting lane counts, and
 `UNFIXED <lane>: none` launches nothing. A case launches once across a lane and its `-opus`
 fallback, however often and by whichever of them it is reported, and a case whose launch is
@@ -191,7 +191,7 @@ lanes are one generation, and each case of a report whose text, or whose lane's 
 to either or to the case lane, and, for a report, at a `stopped` its lane posted before it.
 A report whose subject or first body line opens with `NOT-OURS`, `stood down`, or `Stopped` launches no case
 lane and files no `DECIDE`. A report after the end, or from a lane the coordinator withdrew, logs
-`UNFIXED <lane> <time>: <cases> | no case lane launched: …` and launches nothing, and a
+`UNFIXED <lane>: <cases> | no case lane launched: …` and launches nothing, and a
 case launch still pending at the end fails and logs `WITHDRAWN`. A case already known,
 such as a case lane's own, launches nothing. A case
 lane is an incident fix lane, so the clock covers it.
@@ -309,8 +309,8 @@ backlog, and `OVERFLOW-STALLED` when the overflow thread finished no run in five
 to a stack worker each stack that has stayed green, named at its heads by a coordinator go, unheld, unqueued and unrefused for five minutes,
 so it runs the same check, admission and merge-mode gates a pass runs, never a bare enqueue (owner 9524276, coordinator #245808). Under `graphite-stack-enqueue` only (never `trunk-stack-enqueue`, where Trunk failures stay blocked or `UNKNOWN`), Graphite reads down when no queue
 draft from its app has opened in 15 minutes while the queue read holds a PR, or its two newest drafts are both still open 30 minutes after
-opening, which is how its batches time out; a draft read that fails changes nothing. The pass that sees it posts one `GRAPHITE-DOWN since
-<time>` state record to the coordinator and each `landing.desk_lane`, and one `GRAPHITE-UP` once a draft opens after that time. While down, the
+opening, which is how its batches time out; a draft read that fails changes nothing. The pass that sees it posts one `GRAPHITE-DOWN`
+state record to the coordinator and each `landing.desk_lane`, and one `GRAPHITE-UP` once a draft opens after it. While down, the
 overflow stops and each accepted enqueue merges its prefix straight into the trunk instead (owner b530f5d), one merge in flight at a time, an incident
 squash included (owner 9:00 PM Oct 29): chain by chain, bottom first, a chain behind the latest trunk is first replayed onto its tip in the landing
 checkout with `git replay`, each PR kept only when its own patch is unchanged, pushed in one atomic push leased on the admitted heads, and merged once
@@ -497,8 +497,8 @@ that context over the trunk's last 50 commits in one GraphQL query and posts the
 to the coordinator and drive-watchdog. A red run, skipping commits whose check has not finished, names its first red commit, the PR
 its squash subject names, the newest red build and, through `landing.ci_build`, its failed jobs. When a failed job is one
 any open row's finished PR build of that pipeline runs, or no PR build reads, the record is
-an `incident` reading `DEV-RED since <time>: … No PR can land until this is fixed; nothing lands until #<fix> fixes it`.
-When every failed job is one no PR build runs, it is a `report` reading `POST-MERGE-RED since <time>: … Landing continues;
+an `incident` reading `DEV-RED for <n> min: … No PR can land until this is fixed; nothing lands until #<fix> fixes it`.
+When every failed job is one no PR build runs, it is a `report` reading `POST-MERGE-RED for <n> min: … Landing continues;
 a fix is owed`. The runner holds no row for either: the queue's required checks hold what cannot land. Either posts
 the pass it is first read and again every 30 minutes while red; `DEV-GREEN` posts once when the check passes again. The
 fix is the PR the newest record on the topic by any other lane names, an incident excepted, since the last `DEV-GREEN`:
@@ -555,7 +555,7 @@ once its last pass has exited, logging to `stall-watch.log` beside `orca.desk_in
 `STALL-WATCH-FAILED` to the coordinator per distinct last log line, since a failing pass posts no stall at all.
 It starts `judge_watch.py --config <config>` the same way every `judge.every_minutes` (default 1), logging to
 `judge-watch.log`, and a failing pass posts one `JUDGE-WATCH-FAILED` to the coordinator per distinct last log line.
-Each desk's heartbeat is its `<desk> alive <time> pass <n>` cci `state` record to the drive watchdog, posted when `run`
+Each desk's heartbeat is its `<desk> alive pass <n>` cci `state` record to the drive watchdog, posted when `run`
 starts and then once a minute from a thread whatever the pass is doing, whose attrs name its pid, config, terminal, restart
 command, the plugin version the runner runs, and its `flight`: the command in flight, `landing pass` while a landing pass
 runs, or empty, which `drive.py digest --quiet-point` reads; every reader reads the newest such record, so the runner may run on any
@@ -799,7 +799,7 @@ MERGEABILITY_PENDING = frozenset({"GitHub merge state UNKNOWN", "GitHub still co
 MERGEABILITY_WAIT = timedelta(minutes=10)
 MERGEABILITY_FACT = "mergeability-pending"
 PREFIX_HELD = re.compile(r"^nothing to enqueue: \w+ already holds the green bottom prefix$", re.MULTILINE)
-QUEUE_SAID = "the landing runner put it in the merge queue at {at}"
+QUEUE_SAID = "the landing runner put it in the merge queue"
 UNSETTLED = "unsettled:"
 MISSING_BRANCH = re.compile(r"returned no refs/heads/(\S+)")
 DEQUEUE_ORDERS = "dequeue-orders"
@@ -1006,7 +1006,7 @@ ADMIT_HOW = "the lane that opened it runs ledger.py register --lane <lane> --bra
 RELAY_GRAMMAR = "orca-desk: relay to <lane>[, <lane>…][ and <lane>]: <text>"
 LAUNCH_GRAMMAR = "orca-desk: launch <lane> [NOW] <model> <effort> [role=<role>] brief=<absolute path>"
 ALERT_GRAMMAR = "orca-desk: alert <slug> <link> :: <what fired>"
-INCIDENT_GRAMMAR = "orca-desk: incident <slug> <link> reported=<HH:MM | H:MM AM/PM, Pacific> :: <what fired>"
+INCIDENT_GRAMMAR = "orca-desk: incident <slug> <link> :: <what fired>"
 HOLD_GRAMMAR = "orca-desk: hold <slug> owner=<lane> :: <what is held, and on what>"
 UNHOLD_GRAMMAR = "orca-desk: unhold <slug>"
 WITHDRAW_GRAMMAR = "orca-desk: withdraw <R<n> | unfixed:<msg>:<n> | incident-clock:<dispatch> | lane>"
@@ -1015,7 +1015,7 @@ RELAY_TO = re.compile(r"^ to (?P<lanes>[\w.-]+(?:(?:, (?:and )?| and )[\w.-]+)*)
 LANE_LIST = re.compile(r", (?:and )?| and ")
 LAUNCH_SPEC = re.compile(r"^ (?P<lane>[\w.-]+)(?P<now> NOW)? (?P<model>\S+) (?P<effort>\S+)(?: role=(?P<role>[\w-]+))? brief=(?P<brief>/\S+)$")
 ALERT_SPEC = re.compile(r"^ (?P<slug>[a-z0-9][a-z0-9.-]*) (?P<link>\S+) :: (?P<what>\S.*)$")
-INCIDENT_SPEC = re.compile(r"^ (?P<slug>[a-z0-9][a-z0-9_.-]*) (?P<link>\S+) reported=(?P<reported>(?:[01]?\d|2[0-3]):[0-5]\d|(?:1[0-2]|0?[1-9]):[0-5]\d [AP]M) :: (?P<what>\S.*)$")
+INCIDENT_SPEC = re.compile(r"^ (?P<slug>[a-z0-9][a-z0-9_.-]*) (?P<link>\S+)(?: reported=(?:(?:[01]?\d|2[0-3]):[0-5]\d|(?:1[0-2]|0?[1-9]):[0-5]\d [AP]M))? :: (?P<what>\S.*)$")
 EXPIRING = {"launch": LAUNCH_SPEC, "incident": INCIDENT_SPEC}
 INCIDENT_BAR = timedelta(minutes=20)
 ALERT_TEMPLATE = SCRIPTS.parent / "reference" / "alert-fix-brief.md"
@@ -2056,7 +2056,7 @@ class Runner:
 
     def raised_before(self, key: str, subject: str) -> bool:
         """Whether an escalation under another key already named `subject`."""
-        return any(action.action_id != f"escalation:{key}" and action.target.split()[1] == subject for action in self.book.actions(RUNNER, kind="escalation"))
+        return any(action.action_id != f"escalation:{key}" and action.target.split()[1].removesuffix(":") == subject for action in self.book.actions(RUNNER, kind="escalation"))
 
     def landing_lanes(self, member: str) -> list[str]:
         """The lanes `landing.<member>` names, one or a list, re-read on every use."""
@@ -2064,7 +2064,7 @@ class Runner:
         return [configured] if isinstance(configured, str) else list(configured)
 
     def post_escalation(self, line: str, to: str, action_id: str) -> cci.PostResult:
-        label, topic = line.split()[:2]
+        label, topic = line.split()[0], line.split()[1].removesuffix(":")
         message = self.message_file(topic)
         return self.cci_post(ESCALATION_KINDS.get(label, "defect" if label.endswith("-FAILED") else "report"), line, to, topic, action_id, message.read_text() if message.is_file() else "")
 
@@ -2075,8 +2075,7 @@ class Runner:
         """Count a pass Orca gave no answer to, and log `ORCA-UNREACHABLE` once for the streak it starts or continues."""
         self.unreachable_passes += 1
         streak = self.book.edit(RUNNER, lambda incident: dict(incident.facts.setdefault(UNREACHABLE_FACT, {"since": self.book.stamp(), "error": str(down)})))
-        since = pacific(actions.parse_stamp(streak["since"]))
-        self.escalate(f"orca:{streak['since']}", "ORCA-UNREACHABLE", "runner", f"{streak['error']}; since {since} the runner reads no dispatch as gone and fails no relay, and retries each pass with backoff up to {int(UNREACHABLE_WAIT.total_seconds())}s; ORCA-BACK follows when Orca answers")
+        self.escalate(f"orca:{streak['since']}", "ORCA-UNREACHABLE", "runner", f"{streak['error']}; the runner reads no dispatch as gone and fails no relay, and retries each pass with backoff up to {int(UNREACHABLE_WAIT.total_seconds())}s; ORCA-BACK follows when Orca answers")
 
     def orca_back(self) -> None:
         """End an unreachable streak with one `ORCA-BACK` once a pass Orca answered completes."""
@@ -2086,7 +2085,7 @@ class Runner:
         streak = self.book.edit(RUNNER, lambda incident: incident.facts.pop(UNREACHABLE_FACT, None))
         if streak:
             since = actions.parse_stamp(streak["since"])
-            self.escalate(f"orca-back:{streak['since']}", "ORCA-BACK", "runner", f"Orca answers again; it gave no answer from {pacific(since)} for {whole_minutes(since, self.now())} min ({streak['error']})")
+            self.escalate(f"orca-back:{streak['since']}", "ORCA-BACK", "runner", f"Orca answers again; it gave no answer for {whole_minutes(since, self.now())} min ({streak['error']})")
 
     def pass_wait(self) -> float:
         return min(PASS_SECONDS * 2**self.unreachable_passes, UNREACHABLE_WAIT.total_seconds())
@@ -2186,7 +2185,7 @@ class Runner:
         return f"{WATCHDOG}@{self.config.drive}"
 
     def post_alive(self, desk: str) -> None:
-        """Post the desk's `<desk> alive <time> pass <n>` record to the drive watchdog at most once a minute, naming the command in flight and how long it has run when one is; its attrs carry the runner's pid, version, config, terminal, restart command and flight, the heartbeat every reader reads from cci on whatever machine it runs."""
+        """Post the desk's `<desk> alive pass <n>` record to the drive watchdog at most once a minute, naming the command in flight and how long it has run when one is; its attrs carry the runner's pid, version, config, terminal, restart command and flight, the heartbeat every reader reads from cci on whatever machine it runs."""
         if self.now() - self.alive_posted.get(desk, datetime.min.replace(tzinfo=timezone.utc)) < ALIVE_EVERY:
             return
         self.alive_posted[desk] = self.now()
@@ -2194,7 +2193,7 @@ class Runner:
         doing = f"{self.passes[desk] + 1} running `{flight[0]}` for {int(flight[1]) // 60}m{int(flight[1]) % 60:02d}s" if flight else str(self.passes[desk])
         beat = {"pid": os.getpid(), "version": RUNNING_VERSION, "config": str(self.config.source), "terminal": self.shell.env("ORCA_TERMINAL_HANDLE"), "restart": self.restart_command(desk), "flight": flight[0] if flight else f"{desk} pass" if desk in self.passing else ""}
         attrs = [arg for name, value in beat.items() for arg in ("--attr", f"{name}={value}")]
-        self.cci_post("state", f"{desk} alive {self.now().astimezone(PACIFIC).strftime('%-I:%M %p')} pass {doing}", self.watchdog, desk, f"alive:{desk}", flags=attrs)
+        self.cci_post("state", f"{desk} alive pass {doing}", self.watchdog, desk, f"alive:{desk}", flags=attrs)
 
     def register_lane(self, lane: str) -> None:
         """Post one record as `lane` at start, so cci addresses a record `--to <lane>` on this drive although no session reads that lane (coordinator #226844)."""
@@ -2296,7 +2295,7 @@ class Runner:
         if not alarm.is_file():
             return
         since = actions.parse_stamp(json.loads(alarm.read_text())["since"])
-        if self.cci_post("report", f"BUS-RECOVERED cci answers again; it was down from {kitchen(since)} for {whole_minutes(since, self.now())} min.", ROOT, "bus", f"bus-recovered:{actions.stamp(since)}", record_id=f"bus-recovered:{actions.stamp(since)}").code == 0:
+        if self.cci_post("report", f"BUS-RECOVERED cci answers again; it was down for {whole_minutes(since, self.now())} min.", ROOT, "bus", f"bus-recovered:{actions.stamp(since)}", record_id=f"bus-recovered:{actions.stamp(since)}").code == 0:
             alarm.unlink()
 
     def beat(self, desk: str) -> None:
@@ -2781,7 +2780,7 @@ class Runner:
             return
         if directive and directive["verb"] in EXPIRING and (spec := EXPIRING[directive["verb"]].match(directive["rest"])) and (age := self.now() - actions.parse_stamp(record["at"])) > (window := self.launch_window()):
             lane = spec["lane"] if directive["verb"] == "launch" else f"{spec['slug']}-fix"
-            self.record(f"escalation:launch:cci#{seq}", f"LAUNCH-EXPIRED {line_key(directive, record)} {lane}: cci #{seq} was posted at {pacific(actions.parse_stamp(record['at']))}, {int(age.total_seconds() // 60)} minutes before this read; this runner's longest recent pass took {int(max(self.pass_took, default=timedelta()).total_seconds() // 60)} minutes, and a launch line is valid for {int(window.total_seconds() // 60)}; nothing was launched")
+            self.record(f"escalation:launch:cci#{seq}", f"LAUNCH-EXPIRED {line_key(directive, record)} {lane}: cci #{seq} was posted {int(age.total_seconds() // 60)} minutes before this read; this runner's longest recent pass took {int(max(self.pass_took, default=timedelta()).total_seconds() // 60)} minutes, and a launch line is valid for {int(window.total_seconds() // 60)}; nothing was launched")
             return
         if not self.inbox_line(record, line):
             self.refuse_line(record)
@@ -2797,7 +2796,7 @@ class Runner:
         """Answer a record addressed to the orca desk that is neither a desk line nor a reply this desk acts on, quoting how it opens, so no order to the desk goes unanswered (coordinator #279034: #278863 and #278913 carried `--re`, read as replies, and drew nothing)."""
         seq, line = record["seq"], " ".join(record["text"].split())
         opening = f"{line[:80]}…" if len(line) > 80 else line
-        self.record(f"escalation:cci:{seq}", f"DIRECTIVE-FAILED cci#{seq} inbox: it opens `{opening}`, and a record addressed to {ORCA_DESK} is one `[<H:MM AM|PM>] [R<n> (<clock>)] orca-desk: <relay|launch|alert|incident|hold|unhold|withdraw> …` line, with or without --re, or a coordinator reply this desk acts on: a withdraw of a launch line or an answer to an open question; nothing was done")
+        self.record(f"escalation:cci:{seq}", f"DIRECTIVE-FAILED cci#{seq} inbox: it opens `{opening}`, and a record addressed to {ORCA_DESK} is one `orca-desk: <relay|launch|alert|incident|hold|unhold|withdraw> …` line, with or without --re, or a coordinator reply this desk acts on: a withdraw of a launch line or an answer to an open question; nothing was done")
 
     def inbox_line(self, record: dict, line: str) -> bool:
         directive = INBOX_DIRECTIVE.match(line)
@@ -2952,9 +2951,9 @@ class Runner:
         lane = f"{slug}-fix"
         dispatch = self.orca.show(lane)
         if dispatch and dispatch.status not in INACTIVE:
-            self.relay_to(at, f"{key}:again", lane, f"The alert fired again at {pacific(self.now())}: {what} {link}")
+            self.relay_to(at, f"{key}:again", lane, f"The alert fired again: {what} {link}")
             return
-        self.record(log, f"ALERT {slug} {pacific(self.now())}: {what} {link} | no lane launched; the alerts desk writes `{INCIDENT_GRAMMAR}` when it judges one necessary")
+        self.record(log, f"ALERT {slug}: {what} {link} | no lane launched; the alerts desk writes `{INCIDENT_GRAMMAR}` when it judges one necessary")
 
     def incident_line(self, at: str, key: str, rest: str) -> None:
         """Launch the alert's incident fix lane on a brief freshly attached to the briefs log from the template, or relay a repeat to the lane already on it; the coordinator ratifies from the INCIDENT line."""
@@ -2967,7 +2966,7 @@ class Runner:
         lane = f"{slug}-fix"
         dispatch = self.orca.show(lane)
         if dispatch and dispatch.status not in INACTIVE:
-            self.relay_to(at, f"{key}:again", lane, f"The alert fired again at {pacific(self.now())}: {what} {link}")
+            self.relay_to(at, f"{key}:again", lane, f"The alert fired again: {what} {link}")
             return
         monitors = set(MONITOR_ID.findall(f"{link} {what}"))
         if monitors and (peer := self.incident_lane(monitors, lane)):
@@ -2982,24 +2981,23 @@ class Runner:
             self.escalate(key, "INCIDENT-OWNED", lane, f"incident {slug} owned by {owner}; no launch")
             return
         if refusal := self.launch_refusal(key, lane, INCIDENT_MODEL, "xhigh", ALERT_TEMPLATE):
-            self.record(log, f"INCIDENT {slug} again at {pacific(self.now())}: {what} {link} | {lane} not launched: {refusal}")
+            self.record(log, f"INCIDENT {slug} again: {what} {link} | {lane} not launched: {refusal}")
             return
         incident = "".join(f" incident={monitor}" for monitor in sorted(monitors)[:1])
-        reported = datetime.strptime(spec["reported"], "%I:%M %p" if spec["reported"].endswith("M") else "%H:%M")
         brief, failure = self.attach_brief(
             lane,
             lambda briefs: self.sliced(
                 key,
                 lane,
-                ALERT_TEMPLATE.read_text().format(lane=lane, incident=incident, slug=slug, link=link, what=what, onset=pacific(self.now()), reported=f"{reported:%H:%M}", due=f"{reported + INCIDENT_BAR:%H:%M}", repo=self.config.briefs_repo, log=briefs, facts=self.drive_facts()),
+                ALERT_TEMPLATE.read_text().format(lane=lane, incident=incident, slug=slug, link=link, what=what, onset=pacific(self.now()), reported=pacific(self.now()), due=pacific(self.now() + INCIDENT_BAR), repo=self.config.briefs_repo, log=briefs, facts=self.drive_facts()),
             ),
             f"INCIDENT {slug}: fix brief for {lane}: {what} {link}",
         )
         if brief is None:
-            self.record(log, f"INCIDENT {slug} {pacific(self.now())}: {what} {link} | {lane} not launched: {failure}")
+            self.record(log, f"INCIDENT {slug}: {what} {link} | {lane} not launched: {failure}")
             return
         self.accept_launch(key, lane, INCIDENT_MODEL, "xhigh", str(brief), incident=slug)
-        self.record(log, f"INCIDENT {slug} {pacific(self.now())}: {what} {link} | fix lane {lane} launching on incident xhigh, brief {brief}; coordinator: ratify, spawn the evidence and incident-doc lanes, fence the target, start comms in the affected account channels and #outage")
+        self.record(log, f"INCIDENT {slug}: {what} {link} | fix lane {lane} launching on incident xhigh, brief {brief}; coordinator: ratify, spawn the evidence and incident-doc lanes, fence the target, start comms in the affected account channels and #outage")
 
     def drive_facts(self) -> str:
         return self.config.alert_facts.read_text().strip() if self.config.alert_facts else "none recorded for this drive"
@@ -3031,7 +3029,7 @@ class Runner:
         if not fresh:
             return
         key = f"{UNFIXED_KEY}{message['id']}"
-        unlaunched = f"UNFIXED {lane} {pacific(self.now())}: {'; '.join(case for _, _, case in fresh)} | no case lane launched"
+        unlaunched = f"UNFIXED {lane}: {'; '.join(case for _, _, case in fresh)} | no case lane launched"
         if by := self.withdrawn_by(lane):
             self.record(f"escalation:{key}", f"{unlaunched}: the coordinator withdrew {lane} ({by})")
             return
@@ -3121,7 +3119,7 @@ class Runner:
     def case_lane(self, lane: str, parent: str, launch: actions.Action, case: str, key: str) -> bool:
         """Launch a case lane on the incident alias from the unfixed-case brief, freshly attached to the briefs log, and say whether the launch was taken; the coordinator ratifies from the INCIDENT line."""
         log = f"escalation:{key}"
-        line = f"INCIDENT {parent} {pacific(self.now())}: its fix does not cover: {case}"
+        line = f"INCIDENT {parent}: its fix does not cover: {case}"
         if refusal := self.launch_refusal(key, lane, INCIDENT_MODEL, "xhigh", UNFIXED_TEMPLATE):
             self.record(log, f"{line} | case lane {lane} not launched: {refusal}")
             return False
@@ -3696,7 +3694,7 @@ class Runner:
                     f"stalled:{container}/{action.action_id}",
                     "LAUNCH-STALLED",
                     lane,
-                    f"{action.action_id} accepted at {pacific(since)} has no dispatch {int((self.now() - since).total_seconds())} s on, with the CPU {self.shell.cpu_busy():.0%} busy over the last minute;"
+                    f"{action.action_id} has no dispatch {int((self.now() - since).total_seconds())} s after it was accepted, with the CPU {self.shell.cpu_busy():.0%} busy over the last minute;"
                     f" withdraw it with `orca-desk: withdraw {action.action_id}`, then launch it by hand: `orca-launch.sh {lane} {spec['model']} {spec['effort']} {spec['brief']}`",
                 )
 
@@ -4172,7 +4170,7 @@ class Runner:
                 "launch": "launch never finished" if action.status == "started" else "launch never started",
                 "enqueue": "the enqueue, or the direct merge with its wait on checks, never returned" if action.status == "started" else "enqueue never ran",
             }[action.kind]
-            self.escalate(f"deadline:{container}/{action.action_id}:{action.status}", "DEADLINE", about, f"{action.authority_ref} {action.kind}: {missing}; accepted {pacific(actions.parse_stamp(action.accepted_at))}")
+            self.escalate(f"deadline:{container}/{action.action_id}:{action.status}", "DEADLINE", about, f"{action.authority_ref} {action.kind}: {missing}; accepted {whole_minutes(actions.parse_stamp(action.accepted_at), moment)} min ago")
 
     def beating(self, container: str, action: actions.Action, moment: datetime) -> bool:
         """Whether the lane's heartbeats cover `action`, since a lane answers its mail only between turns: one arrived after `action` was accepted, or one arrived within `HEARTBEAT_GRACE` before it and `action` is not yet `HEARTBEAT_GRACE` old."""
@@ -4292,7 +4290,7 @@ class Runner:
             f"{REFUSED_STOP}:{stop['seq']}",
             "REFUSED-STOP",
             lane,
-            f"#{stop['seq']} scoped the incident out, but a failing {gate} is the release gate and the earliest canary: active yes always, and no customer impact is its scope, never a stop (owner, Nov 1 3:04 PM) | {owner}; coordinator: keep the incident open and name its fix owner",
+            f"#{stop['seq']} scoped the incident out, but a failing {gate} is the release gate and the earliest canary: active yes always, and no customer impact is its scope, never a stop (owner, Nov 1) | {owner}; coordinator: keep the incident open and name its fix owner",
             to=ROOT,
         )
         return f"stop #{stop['seq']} refused: {gate} is a release gate"
@@ -4353,9 +4351,9 @@ class Runner:
                 continue
             phases = clock_phases(launched, reached, self.now())
             if name == "ready":
-                text = f"not ready {elapsed} min after its launch at {pacific(launched)}, limit {limits[name]} min; missing {', '.join(CLOCK_MILESTONES[gap] for gap in missing)}; {phases} | {self.fallback(lane, launch, label, elapsed)}"
+                text = f"not ready {elapsed} min after its launch, limit {limits[name]} min; missing {', '.join(CLOCK_MILESTONES[gap] for gap in missing)}; {phases} | {self.fallback(lane, launch, label, elapsed)}"
             else:
-                text = f"no {label} {elapsed} min after its launch at {pacific(launched)}, limit {limits[name]} min; {phases} | {self.fallback(lane, launch, label, elapsed)}"
+                text = f"no {label} {elapsed} min after its launch, limit {limits[name]} min; {phases} | {self.fallback(lane, launch, label, elapsed)}"
             self.record(log, f"INCIDENT-CLOCK {lane} {label.lower()}: {text}")
 
     def fallback(self, lane: str, launch: actions.Action, missing: str, minutes: int) -> str:
@@ -4365,7 +4363,7 @@ class Runner:
         if lane.endswith(CLOCK_FALLBACK):
             return f"{lane} is itself an Opus fallback, so none is launched for it"
         if incident := incidents.incident_scope(incidents.open_incidents(incidents.incident_records(self.cci_tail.run, self.config.drive)), self.config.drive, "", None, lane):
-            return f"no fallback launched for {backup}: open incident #{incident['seq']} names {lane}, so the drive's clocks warn and stand aside (owner, 2:21 PM Nov 1); the coordinator launches one by hand if the fix lane has missed"
+            return f"no fallback launched for {backup}: open incident #{incident['seq']} names {lane}, so the drive's clocks warn and stand aside (owner, Nov 1); the coordinator launches one by hand if the fix lane has missed"
         if self.book.known(lane_container(backup), key):
             return f"the Opus fallback {backup} is already launched"
         if rival := self.executor_backup(lane):
@@ -4410,7 +4408,7 @@ class Runner:
             named = ", ".join(sorted(keys))
             self.record(
                 log,
-                f"CLASS-UNOWNED {label} {record['lane']}: #{record['seq']} at {pacific(at)}, {whole_minutes(at, self.now())} min with no fix-lane GO naming {named} | coordinator: GO a fix lane for this class",
+                f"CLASS-UNOWNED {label} {record['lane']}: #{record['seq']}, {whole_minutes(at, self.now())} min with no fix-lane GO naming {named} | coordinator: GO a fix lane for this class",
             )
 
     def mute_pushback(self) -> None:
@@ -4437,7 +4435,7 @@ class Runner:
                 f"{MUTE_PUSHBACK}:{record['seq']}",
                 "MUTE-PUSHBACK",
                 record["lane"],
-                f"#{record['seq']} proposes \"{said[0]}\" while its mechanism is unfixed; a mute or a monitor that skips the failing teams is never a close, and smoke teams are the canary (owner, Nov 1 3:04 PM) | coordinator: push back where it was proposed, keep the incident open, and name its fix owner",
+                f"#{record['seq']} proposes \"{said[0]}\" while its mechanism is unfixed; a mute or a monitor that skips the failing teams is never a close, and smoke teams are the canary (owner, Nov 1) | coordinator: push back where it was proposed, keep the incident open, and name its fix owner",
                 to=ROOT,
             )
 
@@ -4597,8 +4595,7 @@ class Runner:
             for message in sorted((m for m in json.loads(done.out)["messages"] if float(m["ts"]) > after and (m["user"] or LIVE_PAGE.match(m["text"]))), key=lambda m: float(m["ts"])):
                 key = f"page:{channel}:{message['ts']}"
                 headline = " ".join(SLACK_LINK.sub(r"\1", message["text"].split("\n", 1)[0]).split())[:160]
-                at = pacific(datetime.fromtimestamp(float(message["ts"]), timezone.utc))
-                text = f"PAGE {at} {message['permalink']} | a drive release is live: open the incident, launch its fix lane and reply in the page thread now, no owner round-trip | {message.get('user_name') or 'someone'}:"
+                text = f"PAGE {message['permalink']} | a drive release is live: open the incident, launch its fix lane and reply in the page thread now, no owner round-trip | {message.get('user_name') or 'someone'}:"
                 posted = self.cci_post("incident", text, ROOT, key, key, record_id=key, flags=["--url", message["permalink"], "--quoted", headline])
                 if posted.code != 0:
                     self.escalate(f"page-post:{key}", "PAGE-POST-FAILED", "runner", f"the page {message['permalink']} did not post: {' '.join((posted.err or posted.out).split())[:200]}; the next pass posts it again")
@@ -4989,7 +4986,7 @@ def queue_state(action: actions.Action) -> str:
     if action.status == "accepted":
         return "waiting its turn"
     if action.status != "completed":
-        return f"merging since {pacific(actions.parse_stamp(action.started_at))}: rebasing, waiting on its checks, or merging"
+        return "merging: rebasing, waiting on its checks, or merging"
     why = " ".join((action.response.get("why") or action.response["out"]).split())[:200]
     if action.response["outcome"] == "failed":
         return f"merge failed, retried within {int(FAILED_RETRY.total_seconds() // 60)} minutes: {why}"
@@ -5359,10 +5356,6 @@ Outcome = Queued | Refused | BelowBlocked | InFlight | Landed
 Posted = Queued | Refused | BelowBlocked
 
 
-def clock() -> str:
-    return datetime.now(timezone.utc).strftime("%H:%M:%SZ")
-
-
 class Settlement:
     """The heads a landing pass admits, each open, the drive's, green, unheld, and named at its ledger head by a coordinator `go` or an exemption, with the outcome a branch of the pass settled it as and the last branch that saw it; every branch that acts on or drops one settles it, and `Landing.close_settlement` posts what changed."""
 
@@ -5377,7 +5370,7 @@ class Settlement:
         """Record `outcome` for `pr` when the pass admits it at `head`, over any earlier one but a below-blocked outcome on the same base, whose first account stands."""
         with self.lock:
             if pr in self.heads and not (head and names_head(head, self.heads[pr])):
-                self.seen.setdefault(pr, []).append(f"a settle at {head[:10] or 'no head'}, not its admitted head, at {clock()}")
+                self.seen.setdefault(pr, []).append(f"a settle at {head[:10] or 'no head'}, not its admitted head")
             if pr not in self.heads or not head or not names_head(head, self.heads[pr]):
                 return
             if isinstance(outcome, BelowBlocked) and isinstance(earlier := self.outcomes.get(pr), BelowBlocked) and earlier.base == outcome.base:
@@ -5388,7 +5381,7 @@ class Settlement:
         with self.lock:
             for pr in prs:
                 if pr in self.heads:
-                    self.seen.setdefault(pr, []).append(f"{branch} at {clock()}")
+                    self.seen.setdefault(pr, []).append(branch)
 
     def carry(self, earlier: "Settlement", prs: set[str]) -> None:
         with earlier.lock:
@@ -5523,7 +5516,7 @@ class Landing:
         self.release_action_proof: tuple[ReleaseActionVersion, tuple[int, ...]] | None = None
         self.bodies: dict[str, tuple[datetime, str]] = {}
         self.trunk_read: tuple[str, datetime, bool, dict] | None = None
-        self.trunk_failing: tuple[str, set[str], str] | None = None
+        self.trunk_failing: tuple[set[str], str] | None = None
         self.trunk_states: dict[str, dict] = {}
         self.branch_commits: dict[tuple[str, str], list[str]] = {}
         self.unchecked: set[str] = set()
@@ -6582,7 +6575,7 @@ class Landing:
             return False
         if TRUNK_UNREAD_FACT in self.book.facts(LANDING, [TRUNK_UNREAD_FACT]) and (streak := self.book.edit(LANDING, lambda incident: incident.facts.pop(TRUNK_UNREAD_FACT, None))):
             since = actions.parse_stamp(streak["since"])
-            self.runner.escalate(f"trunk-read-recovered:{streak['since']}", "TRUNK-READ-RECOVERED", "landing", f"{TRUNK}'s {check} statuses read again; from {pacific(since)} for {whole_minutes(since, self.runner.now())} min no pass gated ({streak['error']})")
+            self.runner.escalate(f"trunk-read-recovered:{streak['since']}", "TRUNK-READ-RECOVERED", "landing", f"{TRUNK}'s {check} statuses read again; for {whole_minutes(since, self.runner.now())} min no pass gated ({streak['error']})")
         self.compare_trunk_builds(target["history"]["nodes"], check, rows)
         self.watch_flakes(target["history"]["nodes"], check, rows)
         self.watch_flaky_notices(rows)
@@ -6591,26 +6584,26 @@ class Landing:
         if red is False:
             return True
         if red is None:
-            if posted.since:
-                self.runner.cci_post("report", f"DEV-GREEN {TRUNK}'s {check} passes again; it was red since {posted.since}.", f"{ROOT},{self.runner.watchdog}", cci.TRUNK_TOPIC, f"dev-green:{self.runner.now():%Y%m%d%H%M}")
+            if posted.seq:
+                self.runner.cci_post("report", f"DEV-GREEN {TRUNK}'s {check} passes again; it was red from #{posted.seq}.", f"{ROOT},{self.runner.watchdog}", cci.TRUNK_TOPIC, f"dev-green:{self.runner.now():%Y%m%d%H%M}")
             return True
         built = BUILD_URL.search(red.build) if "buildkite.com/" in red.build else None
         build = self.build(red.build) if built and self.landing_config.get("ci_build") else None
         jobs = failed_steps(build) if build else []
         landing = self.landing_steps(built["pipeline"], rows) if jobs else None
         blocking = landing is None or bool(set(jobs) & landing)
-        since = red.at.astimezone(PACIFIC).strftime("%-I:%M %p")
+        red_for = whole_minutes(red.at, self.runner.now())
         failing = f"fails {', '.join(jobs)} on {red.build}" if jobs else f"is red on {red.build}"
         origin = f"first red at {red.since[:10]}, landed by #{red.pr}" if red.pr else f"first red at {red.since[:10]}"
         bucket = int((self.runner.now() - red.at) / TRUNK_RED_EVERY)
         if blocking:
-            self.trunk_failing = (since, set(jobs), posted.fix) if jobs else None
+            self.trunk_failing = (set(jobs), posted.fix) if jobs else None
             fix = f"nothing lands until #{posted.fix} fixes it" if posted.fix else "nothing lands until a fix lands; name it with `cci post --topic dev-red --pr <n>`"
-            text = f"DEV-RED since {since}: {TRUNK}'s {check} {failing}, {origin}. No PR can land until this is fixed; {fix}."
+            text = f"DEV-RED for {red_for} min: {TRUNK}'s {check} {failing}, {origin}. No PR can land until this is fixed; {fix}."
             self.runner.cci_post("incident", text, f"{ROOT},{self.runner.watchdog}", cci.TRUNK_TOPIC, f"dev-red:{red.since}:{bucket}", record_id=f"dev-red:{red.since}:{bucket}")
             return True
         owed = f"#{posted.fix} fixes it" if posted.fix else "name the fix with `cci post --topic dev-red --pr <n>`"
-        text = f"POST-MERGE-RED since {since}: {TRUNK}'s {check} {failing}, {origin}; no PR build runs these jobs. Landing continues; a fix is owed: {owed}."
+        text = f"POST-MERGE-RED for {red_for} min: {TRUNK}'s {check} {failing}, {origin}; no PR build runs these jobs. Landing continues; a fix is owed: {owed}."
         self.runner.cci_post("report", text, f"{ROOT},{self.runner.watchdog}", cci.TRUNK_TOPIC, f"post-merge-red:{red.since}:{bucket}", record_id=f"post-merge-red:{red.since}:{bucket}")
         return True
 
@@ -7841,7 +7834,7 @@ class Landing:
         for block, pr, entry in entries:
             if entry["verdict"] == "approved" and pr not in decided:
                 tapped = entry.get("carriedFrom") or entry["head"]
-                if self.carry_tap(entry.get("session", ""), block, pr, tapped, heads[pr], "the owner's tap carries to every later head of a PR he tapped (owner 2:48 AM Oct 31)", self.landing_audience([pr], rows, to)):
+                if self.carry_tap(entry.get("session", ""), block, pr, tapped, heads[pr], "the owner's tap carries to every later head of a PR he tapped (owner, Oct 31)", self.landing_audience([pr], rows, to)):
                     self.go_on_tap(pr, heads[pr], tapped, rows, to)
 
     def question_tap_claims(self, heads: dict[str, str], verdicts: dict[str, dict[str, dict]], rows: dict[str, dict]) -> None:
@@ -7862,8 +7855,8 @@ class Landing:
         key = f"tap-go:{pr}:{head}"
         if self.head_gos(pr, head) or ((posted := self.book.known(LANDING, key)) and posted.status == "completed"):
             return
-        said = f"owner tapped {head[:10]} on the coordinator's board" if names_head(tapped, head) else f"TAP-CARRIED: the owner's tap at {tapped[:10]} carries to {head[:10]}, since his tap carries to every later head of a PR he tapped (owner 2:48 AM Oct 31)"
-        if self.post_record("go", key, self.landing_audience([pr], rows, to), f"go #{pr} at {head[:7]} {said}; the runner posts this go itself, so no coordinator hop (owner, Oct 29 2:06 PM)", pr):
+        said = f"owner tapped {head[:10]} on the coordinator's board" if names_head(tapped, head) else f"TAP-CARRIED: the owner's tap at {tapped[:10]} carries to {head[:10]}, since his tap carries to every later head of a PR he tapped (owner, Oct 31)"
+        if self.post_record("go", key, self.landing_audience([pr], rows, to), f"go #{pr} at {head[:7]} {said}; the runner posts this go itself, so no coordinator hop (owner, Oct 29)", pr):
             self.reread()
 
     def carry_tap(self, session: str, block: str, pr: str, tapped: str, head: str, why: str, to: str, label: str = "TAP-CARRIED") -> bool:
@@ -8073,7 +8066,7 @@ class Landing:
             outcome, out = self.dequeue(key, prefix, rows, late)
         self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": outcome, "out": out, "why": last, "drive": self.runner.config.drive, "version": RUNNING_VERSION, "at": self.book.stamp()}))
         if outcome in BELIEVED_QUEUED:
-            queued = Queued(QUEUE_SAID.format(at=pacific(self.runner.now())))
+            queued = Queued(QUEUE_SAID)
             self.post_settled(heads, queued)
             self.settle(heads, queued)
         else:
@@ -8123,7 +8116,7 @@ class Landing:
         if self.book.known(LANDING, key):
             return
         prs = [pr for _, _, heads, _ in waiting for pr in heads]
-        text = f"QUEUE {pacific(self.runner.now())}: Graphite is down, so the landing runner merges one chain at a time, in this order:\n{body}"
+        text = f"QUEUE: Graphite is down, so the landing runner merges one chain at a time, in this order:\n{body}"
         self.post_record("state", key, ",".join(dict.fromkeys([ROOT, *self.landing_audience(prs, rows, ROOT).split(",")])), text, prs[0])
 
     def go_named(self, pr: str, head: str) -> str:
@@ -8440,7 +8433,7 @@ class Landing:
         if since:
             if opened and opened[0] > since:
                 self.book.edit(LANDING, lambda incident: incident.facts.pop(GRAPHITE_DOWN))
-                self.runner.cci_post("state", f"GRAPHITE-UP: Graphite opened a queue draft at {pacific(opened[0])}, its first batch since {pacific(since)}, so the landing runner enqueues into its queue again", to, GRAPHITE_DOWN, f"graphite-up:{actions.stamp(since)}", record_id=f"graphite-up:{actions.stamp(since)}")
+                self.runner.cci_post("state", f"GRAPHITE-UP: Graphite opened a queue draft, its first batch in {whole_minutes(since, opened[0])} min, so the landing runner enqueues into its queue again", to, GRAPHITE_DOWN, f"graphite-up:{actions.stamp(since)}", record_id=f"graphite-up:{actions.stamp(since)}")
             return
         timed_out = len(drafts) == 2 and all(draft["closedAt"] is None and now - at >= BATCH_TIMEOUT for draft, at in zip(drafts, opened))
         quiet = (not opened or now - opened[0] >= GRAPHITE_QUIET) and QUEUED_STATE in (self.queue_states() or {}).values()
@@ -8449,7 +8442,7 @@ class Landing:
         since = opened[0] if opened else now
         why = "its two newest batches both timed out" if timed_out else f"no batch has started in {int(GRAPHITE_QUIET.total_seconds() // 60)} minutes while PRs are queued"
         self.book.edit(LANDING, lambda incident: incident.facts.update({GRAPHITE_DOWN: actions.stamp(since)}))
-        self.runner.cci_post("state", f"GRAPHITE-DOWN since {pacific(since)}: {why}, so the landing runner squash-merges each admitted stack directly, rebased onto {TRUNK} first, until a batch starts again (owner {DIRECT_RULING})", to, GRAPHITE_DOWN, f"graphite-down:{actions.stamp(since)}", record_id=f"graphite-down:{actions.stamp(since)}")
+        self.runner.cci_post("state", f"GRAPHITE-DOWN: {why}, so the landing runner squash-merges each admitted stack directly, rebased onto {TRUNK} first, until a batch starts again (owner {DIRECT_RULING})", to, GRAPHITE_DOWN, f"graphite-down:{actions.stamp(since)}", record_id=f"graphite-down:{actions.stamp(since)}")
 
     def holding(self, prefix: list[str], accepted_at: datetime) -> dict[str, str]:
         """Why each PR of `prefix` may not be in the queue right now, read fresh: the `hold` label on GitHub, an open cci `hold` record, a `hold` record posted after this enqueue was accepted, or a `hold` record newer than the PR's newest `ready` record. A label read GitHub refuses holds the PR too. An incident fix never reaches here: `stack_trees` keeps each `is_incident` row out of the queue for `squash_incidents`, and an incident record that only mentions a PR holds nothing."""
@@ -8544,7 +8537,7 @@ class Landing:
             landings = [f"{pr}@{sha}" for pr, sha in fresh.items()]
             announced.update(landings)
             landed = ", ".join(f"#{pr} as {sha[:10]}" for pr, sha in fresh.items())
-            text = f"LANDED {landed}: through the merge queue, which the landing runner entered at {pacific(actions.parse_stamp(action.started_at or action.accepted_at))} with {self.queue_line(enqueued_heads(action.action_id))}"
+            text = f"LANDED {landed}: through the merge queue, which the landing runner entered {whole_minutes(actions.parse_stamp(action.started_at or action.accepted_at), self.runner.now())} min earlier with {self.queue_line(enqueued_heads(action.action_id))}"
             self.post_record("landed", LANDED_KEY + ",".join(landings), self.landing_audience(list(fresh), rows, self.queue_audience(list(fresh), rows)), text, list(fresh)[-1])
         for action in self.book.actions(LANDING, kind="enqueue", status="verified"):
             top = action.target.split(",")[-1]
@@ -8717,7 +8710,7 @@ class Landing:
         if (hold := self.standing_holds(self.cci_tail.run).get(pr)) and not (incident := self.in_incident(pr, row.get("lane", ""))):
             return
         if hold:
-            self.runner.escalate(f"incident-hold:{pr}:{view['headRefOid']}:{hold}", "INCIDENT-HOLD-WARNED", f"#{pr}", f"hold record #{hold} names the approved, green incident fix #{pr} at {view['headRefOid'][:10]}, and open incident #{incident['seq']} names it, so the hold warns and the runner merges it (owner, 2:21 PM Nov 1)")
+            self.runner.escalate(f"incident-hold:{pr}:{view['headRefOid']}:{hold}", "INCIDENT-HOLD-WARNED", f"#{pr}", f"hold record #{hold} names the approved, green incident fix #{pr} at {view['headRefOid'][:10]}, and open incident #{incident['seq']} names it, so the hold warns and the runner merges it (owner, Nov 1)")
         self.check_precondition(Graded({pr: view["headRefOid"]}, {pr: row}, self.runner.now(), act=True))
         with DIRECT_MERGING:
             if self.shell.run(ghread.read("pr", "view", pr, "--repo", self.repo, "--json", "state", "--jq", ".state", max_age=ghread.FRESH)).out.strip() != "OPEN":
@@ -8726,7 +8719,7 @@ class Landing:
             if refused:
                 if not self.book.known(LANDING, ask := f"rebase-direct:{pr}@{view['headRefOid']}"):
                     owner = self.owner(pr, row)
-                    self.post_blocker(ask, ",".join(dict.fromkeys([*(self.reach(owner) if owner else []), ROOT])), f"#{pr} {view['headRefOid'][:10]}: the approved, green incident fix is behind the latest {TRUNK}, a merge outside the queue lands only rebased onto it (owner {REBASE_RULING}, 9:00 PM Oct 29), and {refused[1]}. Clear that, a conflict or a changed patch by your own rebase onto {TRUNK}; it merges once approved and green at its head.", pr)
+                    self.post_blocker(ask, ",".join(dict.fromkeys([*(self.reach(owner) if owner else []), ROOT])), f"#{pr} {view['headRefOid'][:10]}: the approved, green incident fix is behind the latest {TRUNK}, a merge outside the queue lands only rebased onto it (owner {REBASE_RULING}), and {refused[1]}. Clear that, a conflict or a changed patch by your own rebase onto {TRUNK}; it merges once approved and green at its head.", pr)
                 return
             self.book.accept(LANDING, key, "squash", json.dumps({"pr": pr, "head": view["headRefOid"]}), f"#{pr} incident", None)
             self.book.attempt(LANDING, lambda incident: incident.start(key, self.runner.now()))
@@ -8794,7 +8787,7 @@ class Landing:
                     why = f"a go never authorizes a reserved row (C224), so it waits on the owner's tap authorizing {', '.join(row for row, _ in reserved)}: {' / '.join(self.owner_state(below, board) for below in dict.fromkeys(below for _, below in reserved))}"
                 elif evicted:
                     after = f" after its newest enqueue since the go ({tried[-1].response['outcome']})" if tried else ", and no enqueue ran since the go"
-                    why = f"the queue let it go at {evicted.get('evicted_at') or 'an unstamped time'}{after}: {evicted.get('evicted') or 'no reason given'}"
+                    why = f"the queue let it go{after}: {evicted.get('evicted') or 'no reason given'}"
                 else:
                     why = f"its newest enqueue since the go ended {tried[-1].response['outcome']}: {' '.join(tried[-1].response.get('out', '').split())[-300:]}"
                 bottom = min(stack, key=lambda member: len(downstack(open_rows, member)))
@@ -9067,9 +9060,9 @@ class Landing:
             for member in members:
                 row = open_rows[member]
                 current = (f"blocker:{member}:{row.get('head', '')[:10]}", f"bot-held:{member}:{row.get('head', '')[:10]}", f"conflict:{member}:{row.get('base', '')}")
-                found += [(actions.parse_stamp(action.accepted_at), member, f"the blocker routed at {pacific(actions.parse_stamp(action.accepted_at))}: {json.loads(action.target)['text']}") for action in routes if action.action_id in current]
+                found += [(actions.parse_stamp(action.accepted_at), member, f"the blocker routed: {json.loads(action.target)['text']}") for action in routes if action.action_id in current]
                 found += [
-                    (when, member, f"{action.target.split()[0]} at {pacific(when)}: {action.target}")
+                    (when, member, f"{action.target.split()[0]}: {action.target}")
                     for action in self.book.escalations_for(RUNNER, member)
                     if action.target.split()[0] in LANDING_REFUSALS and re.search(rf"#{member}\b", action.target) and (when := actions.parse_stamp(action.accepted_at)) >= since
                 ]
@@ -9078,7 +9071,7 @@ class Landing:
                 for record in cci.records(self.cci_tail, self.runner.config.drive, "--kind=blocker", *(arg for desk in desks for arg in ("--lane", desk)), since=actions.stamp(since)):
                     if record["drive"] != self.runner.config.drive or record["kind"] != "blocker" or record["lane"] not in desks or record.get("status") == "closed":
                         continue
-                    found += [(actions.parse_stamp(record["at"]), member, f"{record['lane']}'s blocker #{record['seq']} at {pacific(actions.parse_stamp(record['at']))}: {full_text(record)}") for member in members if re.search(rf"#{member}\b", full_text(record))]
+                    found += [(actions.parse_stamp(record["at"]), member, f"{record['lane']}'s blocker #{record['seq']}: {full_text(record)}") for member in members if re.search(rf"#{member}\b", full_text(record))]
         if not found:
             return None
         _, member, said = max(found)
@@ -9135,7 +9128,7 @@ class Landing:
         for pr, (target, sha, _) in sorted(landed.items(), key=lambda item: int(item[0])):
             if target in running and not any(self.live_holds_sha(commit, sha) for commit in running[target]):
                 owed.setdefault(target, []).append(pr)
-        said = "; ".join(f"{target}: {', '.join(f'#{pr} ({landed[pr][2].astimezone(PACIFIC):%-I:%M %p})' for pr in prs)}" for target, prs in sorted(owed.items()))
+        said = "; ".join(f"{target}: {', '.join(f'#{pr}' for pr in prs)}" for target, prs in sorted(owed.items()))
         if said != self.book.fact(LANDING, cci.NOT_LIVE_TOPIC, "") and self.runner.cci_post("state", f"LANDED-NOT-LIVE {said or 'none'}", self.runner.watchdog, cci.NOT_LIVE_TOPIC, f"landed-not-live:{hashlib.sha1(said.encode()).hexdigest()[:12]}").code == 0:
             self.book.edit(LANDING, lambda incident: incident.facts.update({cci.NOT_LIVE_TOPIC: said}))
         self.not_live_owed = {f"{cci.NOT_LIVE_TOPIC}:{target}:{','.join(prs)}" for target, prs in owed.items()}
@@ -9227,7 +9220,7 @@ class Landing:
             if names_pr(record, pr) or any(owner in lane for lane in record.get("to") or []):
                 self.runner.record(
                     f"escalation:release-held:{pr}:{record['seq']}",
-                    f"RELEASE-HELD-AFTER-LANDING #{pr}: landed {landed['sha'][:10]} at {pacific(since)}; its cut is owed now, the other PR gets its own cut when it lands (coordinator #{record['seq']})",
+                    f"RELEASE-HELD-AFTER-LANDING #{pr}: landed {landed['sha'][:10]} {whole_minutes(since, self.runner.now())} min earlier; its cut is owed now, the other PR gets its own cut when it lands (coordinator #{record['seq']})",
                 )
 
     def publish_line(self, action: actions.Action) -> None:
@@ -9545,7 +9538,7 @@ class Landing:
             return
         status = (self.pr_statuses() or {}).get(pr, {})
         if self.adapter.evicted_only(current) or self.adapter.kind == merge_queue.TrunkStackEnqueue.kind and status.get("queue") == "evicted":
-            self.post_blocker(key, ",".join(dict.fromkeys([ROOT, *(self.reach(owner) if owner else [])])), f"#{pr} {sha}: {blocker.text}; the queue dropped it at {status.get('evicted_at') or 'an unstamped time'}: {status.get('evicted') or 'no reason given'}", pr)
+            self.post_blocker(key, ",".join(dict.fromkeys([ROOT, *(self.reach(owner) if owner else [])])), f"#{pr} {sha}: {blocker.text}; the queue dropped it: {status.get('evicted') or 'no reason given'}", pr)
         elif earlier and (seq := cci.receipt_seq(earlier.response["posted"])) is not None:
             to = ",".join(self.reach(owner)) if owner else json.loads(earlier.target)["lane"]
             self.post_record("note", key, to, f"#{pr} {sha}: the same failure again: {red}", pr, re_seq=str(seq))
@@ -9734,18 +9727,18 @@ class Landing:
                 if why != plain_red or self.red_ours(key, pr, head, why, self.red_cause(pr, head) or why, open_rows[pr], owner):
                     self.route(key, owner, f"#{pr} {head}: {why}{above}", pr)
             elif not self.routed(key := blocker_key(pr, head), owner):
-                self.post_blocker(key, ",".join(dict.fromkeys([ROOT, *(self.reach(owner) if owner else [])])), f"#{pr} {head}: {why}; the queue dropped it at {entry.get('evicted_at') or 'an unstamped time'}: {entry.get('evicted') or 'no reason given'}", pr)
+                self.post_blocker(key, ",".join(dict.fromkeys([ROOT, *(self.reach(owner) if owner else [])])), f"#{pr} {head}: {why}; the queue dropped it: {entry.get('evicted') or 'no reason given'}", pr)
 
     def inherited_red(self, pr: str, head: str, lane: str) -> str:
         """The `red` class record for `pr` at `head` when the trunk reads DEV-RED and every job its red Buildkite builds failed also fails on the trunk, so the red is the trunk's and no lane classes it by hand (improve3); empty otherwise, or when no build of the head reads."""
         if not self.trunk_failing or not self.landing_config.get("ci_build"):
             return ""
-        since, jobs, fix = self.trunk_failing
+        jobs, fix = self.trunk_failing
         failed = {step for url, state, _ in self.ci_builds(head) or [] if state in RED_STATES and (build := self.build(url)) for step in failed_steps(build)}
         if not failed or not failed <= jobs:
             return ""
         unblock = f"#{fix}" if fix else f"{TRUNK}'s fix"
-        return f"class=inherited head={head} owner={lane or ROOT} {', '.join(sorted(failed))} {'fails' if len(failed) == 1 else 'fail'} on {TRUNK} too, red since {since}; it unblocks once {unblock} lands"
+        return f"class=inherited head={head} owner={lane or ROOT} {', '.join(sorted(failed))} {'fails' if len(failed) == 1 else 'fail'} on {TRUNK} too; it unblocks once {unblock} lands"
 
     def restacked(self, pr: str, head: str, lane: str) -> str:
         """Restack a PR a coordinator go names at `head` and GitHub reads as conflicting, with its stack below it, on a Sprite through `remote-restack.py` under its lane's name, as the lane would, once per head: empty when the replay moved the stack, whose new heads carry the go when patch-identical, else what the replay printed, so only a real conflict or a stack already on its base reaches the lane."""

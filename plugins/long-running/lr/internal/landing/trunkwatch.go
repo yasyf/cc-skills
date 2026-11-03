@@ -39,6 +39,7 @@ const (
 var (
 	squashedPR  = regexp.MustCompile(`\(#(\d+)\)$`)
 	buildURL    = regexp.MustCompile(`/([\w.-]+)/builds/(\d+)/?$`)
+	trunkRed    = regexp.MustCompile(`^(?:DEV-RED|POST-MERGE-RED) (?:for|since) `)
 	failedTest  = regexp.MustCompile(`(?m)--- FAIL: ([\w.-]+)|^test (\S+) \.\.\. FAILED|^\s*FAIL \[\s*[\d.]+s\] \S+ (\S+)|^\s*● .+ › (.+?)\s*$`)
 	logControl  = regexp.MustCompile("\x1b(?:_[^\x07]*\x07|\\[[0-9;]*[A-Za-z])|\r")
 	flakyNotice = regexp.MustCompile("> failed (?:`([^`]+)`.*? )?on <(https://buildkite\\.com/[^|>]+)\\|[^>]*> at <[^|>]*/commit/([0-9a-f]+)\\|.*?(?:it looks flaky and|touches what it reads, so) nobody was told")
@@ -577,7 +578,7 @@ func (w *TrunkWatch) reportRed(ctx context.Context, history []trunkCommit) error
 	if id == w.redSaid {
 		return nil
 	}
-	since := first.CommittedDate.In(pacificZone()).Format("3:04 PM")
+	minutes := int(w.Now().Sub(first.CommittedDate).Minutes())
 	jobs, blocking := w.blocking(ctx, newest.TargetURL)
 	failing := "is red on " + newest.TargetURL
 	if len(jobs) > 0 {
@@ -596,14 +597,14 @@ func (w *TrunkWatch) reportRed(ctx context.Context, history []trunkCommit) error
 		if fix != "" {
 			owed = "nothing lands until #" + fix + " fixes it"
 		}
-		text := fmt.Sprintf("DEV-RED since %s: %s's %s %s, %s. No PR can land until this is fixed; %s.", since, w.Trunk, w.Config.Check, failing, origin, owed)
+		text := fmt.Sprintf("DEV-RED for %d min: %s's %s %s, %s. No PR can land until this is fixed; %s.", minutes, w.Trunk, w.Config.Check, failing, origin, owed)
 		return w.postRed(ctx, "incident", id, text)
 	}
 	owed := "name the fix with `cci post --topic dev-red --pr <n>`"
 	if fix != "" {
 		owed = "#" + fix + " fixes it"
 	}
-	text := fmt.Sprintf("POST-MERGE-RED since %s: %s's %s %s, %s; no PR build runs these jobs. Landing continues; a fix is owed: %s.", since, w.Trunk, w.Config.Check, failing, origin, owed)
+	text := fmt.Sprintf("POST-MERGE-RED for %d min: %s's %s %s, %s; no PR build runs these jobs. Landing continues; a fix is owed: %s.", minutes, w.Trunk, w.Config.Check, failing, origin, owed)
 	return w.postRed(ctx, "report", "post-merge-red:"+id, text)
 }
 
@@ -686,24 +687,23 @@ func (w *TrunkWatch) reportGreen(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	red := ""
-	for _, record := range records {
+	var red *client.Record
+	for i, record := range records {
 		if record.Topic != trunkTopic {
 			continue
 		}
 		switch {
 		case strings.HasPrefix(record.Text, "DEV-GREEN"):
-			red = ""
-		case strings.HasPrefix(record.Text, "DEV-RED since "), strings.HasPrefix(record.Text, "POST-MERGE-RED since "):
-			_, after, _ := strings.Cut(record.Text, " since ")
-			red, _, _ = strings.Cut(after, ": ")
+			red = nil
+		case red == nil && trunkRed.MatchString(record.Text):
+			red = &records[i]
 		}
 	}
-	if red == "" {
+	if red == nil {
 		w.calm = true
 		return nil
 	}
-	text := fmt.Sprintf("DEV-GREEN %s's %s passes again; it was red since %s.", w.Trunk, w.Config.Check, red)
+	text := fmt.Sprintf("DEV-GREEN %s's %s passes again; it was red from #%d.", w.Trunk, w.Config.Check, red.Seq)
 	_, err = client.Post(ctx, client.Draft{Drive: w.Drive, Lane: self, Kind: "report", To: []string{rootLane}, Topic: trunkTopic, ID: "dev-green:" + w.Now().UTC().Format("200601021504"), Text: text})
 	if err == nil {
 		w.calm = true

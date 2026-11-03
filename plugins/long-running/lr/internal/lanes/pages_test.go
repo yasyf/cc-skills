@@ -86,7 +86,7 @@ func TestAPageDuringALanesReleaseIsOneIncidentToRoot(t *testing.T) {
 	if len(posted) != 1 || string(posted[0].Kind) != "incident" || !slices.Equal(posted[0].To, []string{"root"}) || posted[0].URL != "https://slack/p1" {
 		t.Fatalf("posted = %+v", posted)
 	}
-	if !strings.HasPrefix(posted[0].Text, "PAGE ") || !strings.HasSuffix(posted[0].Text, "Wadsworth: the api is down") {
+	if !strings.HasPrefix(posted[0].Text, "PAGE https://slack/p1 | a drive release is live") || !strings.HasSuffix(posted[0].Text, "Wadsworth: the api is down") {
 		t.Fatalf("text = %q", posted[0].Text)
 	}
 

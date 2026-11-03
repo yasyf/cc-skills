@@ -540,9 +540,8 @@ def at(record: dict) -> datetime:
     return actions.parse_stamp(record["at"])
 
 
-def pacific(moment: datetime, now: datetime) -> str:
-    local = moment.astimezone(PACIFIC)
-    return local.strftime("%-I:%M %p" if local.date() == now.astimezone(PACIFIC).date() else "%-I:%M %p %b %-d")
+def elapsed(moment: datetime, now: datetime) -> str:
+    return f"{int((now - moment).total_seconds() // 60)} min"
 
 
 def clip(text: str, limit: int = QUOTE) -> str:
@@ -824,7 +823,7 @@ class Pass:
                 print(f"open {stall.line(self.now)}")
                 continue
             if stall.id in last:
-                print(f"held {stall.line(self.now)}: posted at {pacific(actions.parse_stamp(last[stall.id]), self.now)}")
+                print(f"held {stall.line(self.now)}: posted {elapsed(actions.parse_stamp(last[stall.id]), self.now)} ago")
                 continue
             if (posted := POSTED_SEQ.search(saved["open"].get(stall.id, {}).get("posted", ""))) and int(posted[1]) in self.resolved:
                 kept[stall.id] = saved["open"][stall.id]
@@ -853,7 +852,7 @@ class Pass:
                 failed.append(f"cci post exited {done.code} closing {', '.join(cleared)}: {(done.err or done.out).strip()[:300]}")
                 print(failed[-1], file=sys.stderr)
         if alarms:
-            listed = "; ".join(f"{stall.subject} has no {stall.id.split(':', 1)[0]} grade, green since {pacific(stall.since, self.now)}, owner {', '.join(stall.owner)}" for stall in alarms)
+            listed = "; ".join(f"{stall.subject} has no {stall.id.split(':', 1)[0]} grade, green for {elapsed(stall.since, self.now)}, owner {', '.join(stall.owner)}" for stall in alarms)
             done = self.shell.run(["cci", "post", "--drive", self.watch.drive, "--lane", LANE, "--kind", "urgent", "--to", ROOT, "--topic", f"ungraded:{actions.stamp(self.now)}", *(arg for pr in dict.fromkeys(stall.pr for stall in alarms) for arg in ("--pr", f"{self.watch.landing['repo']}#{pr}")), "--text", f"STALL ungraded, {len(alarms)} green head{'' if len(alarms) == 1 else 's'} past {self.watch.minutes['ungraded']} min with no grade: {listed} | each owner heard its own line"])
             if done.code:
                 failed.append(f"cci post exited {done.code} for the ungraded digest: {(done.err or done.out).strip()[:300]}")
@@ -1008,7 +1007,7 @@ class Pass:
         for key, (refusal, owner, head) in standing.items():
             since = at(refusal.record)
             subject, command = f"#{refusal.pr} at {short(head)}", refusal.command(head)
-            what = f"{refusal.record['lane']} refused to queue it at {pacific(since, self.now)} in {refusal.record['num']}: {clip(refusal.said)}; {owner} has posted no HEAD and no answer since"
+            what = f"{refusal.record['lane']} refused to queue it in {refusal.record['num']}: {clip(refusal.said)}; {owner} has posted no HEAD and no answer since"
             if self.now - since >= self.watch.age("refusal"):
                 stalls.append(Stall(f"refusal:{key}", "refusal", since, subject, what, (owner,), f"{owner}: {command}, then post HEAD or `cci post --re {shlex.quote(refusal.record['num'])}`", refusal.pr))
         return stalls
@@ -1129,7 +1128,7 @@ class Pass:
             if tapped and grades.names_head(tapped, head):
                 tapped_at = actions.parse_stamp(tap["at"])
                 if self.now - tapped_at >= self.watch.age("tap"):
-                    stalls.append(Stall(f"tap:{pr}:{short(head)}", "tap", tapped_at, subject, f"the owner approved it on the board at {pacific(tapped_at, self.now)}, and {state.said()}", tuple(dict.fromkeys((self.watch.board_lane, *go_owners))), f"post `go #{pr} at {short(head)}`", pr))
+                    stalls.append(Stall(f"tap:{pr}:{short(head)}", "tap", tapped_at, subject, f"the owner approved it on the board {elapsed(tapped_at, self.now)} ago, and {state.said()}", tuple(dict.fromkeys((self.watch.board_lane, *go_owners))), f"post `go #{pr} at {short(head)}`", pr))
                 continue
             if head_at is None:
                 continue
@@ -1140,23 +1139,23 @@ class Pass:
             ungraded = green is not None and self.now - green >= self.watch.age("ungraded")
             if not finders and ungraded:
                 job = self.queued(FINDER_DESK, pr, head)
-                step = f"run the finder desk's pass on {subject}, {'running' if job.status == 'started' else 'queued'} since {pacific(actions.parse_stamp(job.started_at or job.accepted_at), self.now)}, or say in `desk-runner.py show` why the queue holds it" if job else f"ask finder-desk for `finder: whole` on {subject}"
-                stalls.append(Stall(f"finder:{pr}:{short(head)}", "ungraded", green, subject, f"its build has read green since {pacific(green, self.now)}, and no finder review names this head", (FINDER_LANE if self.desk_runs(FINDER_DESK) else lane,), step, pr))
+                step = f"run the finder desk's pass on {subject}, {'running' if job.status == 'started' else 'queued'} for {elapsed(actions.parse_stamp(job.started_at or job.accepted_at), self.now)}, or say in `desk-runner.py show` why the queue holds it" if job else f"ask finder-desk for `finder: whole` on {subject}"
+                stalls.append(Stall(f"finder:{pr}:{short(head)}", "ungraded", green, subject, f"its build has read green for {elapsed(green, self.now)}, and no finder review names this head", (FINDER_LANE if self.desk_runs(FINDER_DESK) else lane,), step, pr))
             elif not finders and self.now - head_at >= self.watch.age("finder"):
                 if started := self.overran(FINDER_DESK, pr, head):
-                    stalls.append(Stall(f"finder:{pr}:{short(head)}", "finder", started, subject, f"the finder desk's pass on this head has run since {pacific(started, self.now)}", (FINDER_LANE,), f"read `desk-runner.py show`, then stop and requeue the finder pass on {subject}", pr))
+                    stalls.append(Stall(f"finder:{pr}:{short(head)}", "finder", started, subject, f"the finder desk's pass on this head has run for {elapsed(started, self.now)}", (FINDER_LANE,), f"read `desk-runner.py show`, then stop and requeue the finder pass on {subject}", pr))
                 elif not self.finder_holds(pr, head) and self.desk_runs(FINDER_DESK):
-                    stalls.append(Stall(f"finder:{pr}:{short(head)}", "finder", head_at, subject, f"no finder review names this head, and the finder desk holds no pass on it, first named {pacific(head_at, self.now)} in #{announced[0]['seq']}", (FINDER_LANE,), f"read `desk-runner.py show` for why the finder desk queued no pass on {subject} from its head record", pr))
+                    stalls.append(Stall(f"finder:{pr}:{short(head)}", "finder", head_at, subject, f"no finder review names this head, and the finder desk holds no pass on it, first named in #{announced[0]['seq']}", (FINDER_LANE,), f"read `desk-runner.py show` for why the finder desk queued no pass on {subject} from its head record", pr))
                 elif not self.finder_holds(pr, head):
-                    stalls.append(Stall(f"finder:{pr}:{short(head)}", "finder", head_at, subject, f"no finder review names this head, first named {pacific(head_at, self.now)} in #{announced[0]['seq']}", (lane,), f"run the finder (reference/finder-brief.md) on {subject} and post its review", pr))
+                    stalls.append(Stall(f"finder:{pr}:{short(head)}", "finder", head_at, subject, f"no finder review names this head, first named in #{announced[0]['seq']}", (lane,), f"run the finder (reference/finder-brief.md) on {subject} and post its review", pr))
             if not standing and fidelity_lanes and ungraded:
-                stalls.append(Stall(f"fidelity:{pr}:{short(head)}", "ungraded", green, subject, f"its build has read green since {pacific(green, self.now)}, and no fidelity grade names this head", tuple(fidelity_lanes), f"grade {subject} and post its `fidelity: ok` or `fidelity: missing` line", pr))
+                stalls.append(Stall(f"fidelity:{pr}:{short(head)}", "ungraded", green, subject, f"its build has read green for {elapsed(green, self.now)}, and no fidelity grade names this head", tuple(fidelity_lanes), f"grade {subject} and post its `fidelity: ok` or `fidelity: missing` line", pr))
             elif not standing and fidelity_lanes and self.now - head_at >= self.watch.age("fidelity"):
                 if started := self.overran(FIDELITY_DESK, pr, head):
                     claimant = next((record["lane"] for record in reversed(announced) if record["kind"] == "claim" and record["lane"] in fidelity_lanes), FIDELITY_PIPELINE)
-                    stalls.append(Stall(f"fidelity:{pr}:{short(head)}", "fidelity", started, subject, f"the fidelity desk's grade of this head has run since {pacific(started, self.now)}", (claimant,), f"read `desk-runner.py show`, then stop and requeue the fidelity grade of {subject}", pr))
+                    stalls.append(Stall(f"fidelity:{pr}:{short(head)}", "fidelity", started, subject, f"the fidelity desk's grade of this head has run for {elapsed(started, self.now)}", (claimant,), f"read `desk-runner.py show`, then stop and requeue the fidelity grade of {subject}", pr))
                 elif self.queued(FIDELITY_DESK, pr, head) is None:
-                    stalls.append(Stall(f"fidelity:{pr}:{short(head)}", "fidelity", head_at, subject, f"no fidelity grade names this head, and the fidelity desk holds none queued, first named {pacific(head_at, self.now)} in #{announced[0]['seq']}", tuple(fidelity_lanes), f"grade {subject} and post its `fidelity: ok` or `fidelity: missing` line", pr))
+                    stalls.append(Stall(f"fidelity:{pr}:{short(head)}", "fidelity", head_at, subject, f"no fidelity grade names this head, and the fidelity desk holds none queued, first named in #{announced[0]['seq']}", tuple(fidelity_lanes), f"grade {subject} and post its `fidelity: ok` or `fidelity: missing` line", pr))
             try:
                 found = owner_waits.missing(standing, records, lambda pr=pr: self.comments(pr), fidelity_lanes, pr, head)
             except ReadFailed as failed:
@@ -1169,9 +1168,9 @@ class Pass:
             if tapped or (older := state.older):
                 if not board.shows(pr, head) and self.now - head_at >= self.watch.age("carry") and not any(named == pr and grades.names_head(sha, head) for named, sha in carried):
                     if tapped:
-                        stalls.append(Stall(f"carry:{pr}:{short(head)}", "carry", head_at, subject, f"his board tap names {short(tapped)}, and no go names this head, first named {pacific(head_at, self.now)}", tuple(dict.fromkeys((self.watch.board_lane, *go_owners))), f"post `go #{pr} at {short(head)}`: his tap at {short(tapped)} carries to every later head of this PR (owner, Oct 31 2:48 AM); it never goes back to his board", pr))
+                        stalls.append(Stall(f"carry:{pr}:{short(head)}", "carry", head_at, subject, f"his board tap names {short(tapped)}, and no go names this head, first named {elapsed(head_at, self.now)} ago", tuple(dict.fromkeys((self.watch.board_lane, *go_owners))), f"post `go #{pr} at {short(head)}`: his tap at {short(tapped)} carries to every later head of this PR (owner, Oct 31); it never goes back to his board", pr))
                     else:
-                        stalls.append(Stall(f"carry:{pr}:{short(head)}", "carry", head_at, subject, f"go #{older['seq']} by {older['lane']} at {grades.clock(older['at'])} names {short(grades.go_heads(older)[pr])}, the owner never tapped it, and no go names this head, first named {pacific(head_at, self.now)}", tuple(dict.fromkeys((self.watch.board_lane, lane))), f"ask the coordinator for a TAP-REQUIRED `go #{pr} at {short(head)}`; no owner re-ask is owed", pr))
+                        stalls.append(Stall(f"carry:{pr}:{short(head)}", "carry", head_at, subject, f"go #{older['seq']} by {older['lane']} names {short(grades.go_heads(older)[pr])}, the owner never tapped it, and no go names this head, first named {elapsed(head_at, self.now)} ago", tuple(dict.fromkeys((self.watch.board_lane, lane))), f"ask the coordinator for a TAP-REQUIRED `go #{pr} at {short(head)}`; no owner re-ask is owed", pr))
                 continue
             if not row.get("green_at") or not (landing.get("merge_mode") == "every" or waits.get(pr) == f"merge:{pr}:{short(head)}"):
                 continue
@@ -1194,7 +1193,7 @@ class Pass:
             told = f"; the landing desk recorded its card {card} as posted, yet the board holds none" if card in cards else ""
             quiet = self.handled(records, pr)
             if not (quiet and self.watch.board_lane in ROOT_NAMES):
-                boards.setdefault((downstack(rows, row) or [pr])[-1], []).append(Stall(f"board:{pr}:{short(head)}", "board", ready, subject, f"finder ok, fidelity ok and a green build since {pacific(ready, self.now)}, and the owner's board holds no row or card for it at this head{told}", (self.watch.board_lane,), f"put the merge row for {subject} on the owner's board", pr, quiet))
+                boards.setdefault((downstack(rows, row) or [pr])[-1], []).append(Stall(f"board:{pr}:{short(head)}", "board", ready, subject, f"finder ok, fidelity ok and a green build for {elapsed(ready, self.now)}, and the owner's board holds no row or card for it at this head{told}", (self.watch.board_lane,), f"put the merge row for {subject} on the owner's board", pr, quiet))
         stalls += self.probe_line(probes, self.probe_day)
         for group in boards.values():
             first, *rest = sorted(group, key=lambda stall: len(downstack(rows, rows[stall.pr])))
@@ -1230,10 +1229,10 @@ class Pass:
         if red["class"] == "unclassed":
             if self.now - since < self.watch.age("unclassed"):
                 return None
-            return Stall(f"unclassed:{pr}:{sha}", "unclassed", since, subject, f"{red['checks']} red since {pacific(since, self.now)}, and no `red` record classifies it", (red["owner"],), f'classify it: `cci post --kind red --pr {pr} --text "class=<inherited|flake|real|stale> head={sha} owner=<lane> <what was done>"`', pr)
+            return Stall(f"unclassed:{pr}:{sha}", "unclassed", since, subject, f"{red['checks']} red for {elapsed(since, self.now)}, and no `red` record classifies it", (red["owner"],), f'classify it: `cci post --kind red --pr {pr} --text "class=<inherited|flake|real|stale> head={sha} owner=<lane> <what was done>"`', pr)
         if red["class"] != "real" or self.now - (classed := actions.parse_stamp(red["classed_at"])) < self.watch.age("unfixed"):
             return None
-        return Stall(f"unfixed:{pr}:{sha}", "unfixed", classed, subject, f"{red['owner']} classed {red['checks']} a real failure at {pacific(classed, self.now)} and has pushed no new head: {clip(red['action'])}", (red["owner"],), f"the coordinator gives the fix of {subject} to a live lane unless {red['owner']} pushes it now", pr)
+        return Stall(f"unfixed:{pr}:{sha}", "unfixed", classed, subject, f"{red['owner']} classed {red['checks']} a real failure {elapsed(classed, self.now)} ago and has pushed no new head: {clip(red['action'])}", (red["owner"],), f"the coordinator gives the fix of {subject} to a live lane unless {red['owner']} pushes it now", pr)
 
     def live_heads(self, prs: list[str]) -> dict[str, str]:
         """Each of `prs` to the head GitHub reads for it, in one GraphQL query, so a tap or carry stall never judges a ledger head the PR moved past when no lane posted a `head` record for the move (#48166 at 54c36ff, coordinator #326064); a read that fails answers none."""
@@ -1258,7 +1257,7 @@ class Pass:
         """A `fidelity: missing` grade standing at the head: unanswered for `stall.minutes.missing`, a stall to the coordinator and the PR's lane like a red build; answered by a lane record or a PR comment with no grade since for `stall.minutes.regrade`, a stall to the PR's lane and the lane that graded it, or each live fidelity desk for the fidelity pipeline, never the landing desk (coordinator #280150)."""
         grade = found.grade
         graded_at = at(grade)
-        said = f"fidelity grade cci {grade['num']} by {grade['lane']} reads missing since {pacific(graded_at, self.now)}: {clip(grade['text'])}"
+        said = f"fidelity grade cci {grade['num']} by {grade['lane']} reads missing: {clip(grade['text'])}"
         if found.answered_at is None:
             if self.now - graded_at < self.watch.age("missing"):
                 return None
@@ -1266,7 +1265,7 @@ class Pass:
         if self.now - found.answered_at < self.watch.age("regrade"):
             return None
         graders = dict.fromkeys(desk for named in fidelity_lanes if named != owner_waits.PIPELINE and (desk := self.live_lane(named))) if grade["lane"] == owner_waits.PIPELINE else {grade["lane"]: None}
-        return Stall(f"regrade:{pr}:{grade['seq']}", "regrade", found.answered_at, subject, f"{said}; {found.answer} answered it at {pacific(found.answered_at, self.now)}, and no grade has followed", (lane, *graders), f"grade {subject} again against that answer and post its `fidelity: ok` or `fidelity: missing` line", pr)
+        return Stall(f"regrade:{pr}:{grade['seq']}", "regrade", found.answered_at, subject, f"{said}; {found.answer} answered it {elapsed(found.answered_at, self.now)} ago, and no grade has followed", (lane, *graders), f"grade {subject} again against that answer and post its `fidelity: ok` or `fidelity: missing` line", pr)
 
     def red(self, pr: str, row: dict, lane: str) -> Stall | None:
         """The red stall of `pr`'s head: its live owning lane's alone, reposted every `REPEAT`, or the coordinator's once per head when no live lane owns it; a red whose failed job logged only Buildkite's benign 404 probe is a `probe` stall the pass folds into one daily line."""
@@ -1280,7 +1279,7 @@ class Pass:
         job = f" in job {failed['job']}" if failed.get("job") else ""
         error = f": {clip(failed['error'])}" if failed.get("error") else ""
         owned = None if lane in ROOT_NAMES or (last := self.lane_newest.get(lane)) is None or ended(last) else lane
-        what = f"{required} has read failed{job} since {pacific(since, self.now)}{error} ({failed['url']})" + ("" if owned else f"; {lane} has posted nothing live in {int(self.watch.window.total_seconds() // 3600)} h")
+        what = f"{required} has read failed{job} for {elapsed(since, self.now)}{error} ({failed['url']})" + ("" if owned else f"; {lane} has posted nothing live in {int(self.watch.window.total_seconds() // 3600)} h")
         return Stall(f"red:{pr}:{short(row['head'])}{'' if owned else ':root'}", "red", since, subject, what, (owned,) if owned else (ROOT,), f"fix the red build of {subject} and push" if owned else f"assign the red build of {subject} to a live lane", pr)
 
     def probe_line(self, probes: list[Stall], posted: str) -> list[Stall]:
@@ -1338,9 +1337,9 @@ class Pass:
                 continue
             subject = f"#{pr} at {short(found['head'])}"
             if stale and found["state"] == TAP_WAIT:
-                self.tap_waits[f"{pr}:{short(found['head'])}"] = (pr, f"{subject} {TAP_WAIT} since {pacific(since, self.now)}")
+                self.tap_waits[f"{pr}:{short(found['head'])}"] = (pr, f"{subject} {TAP_WAIT} for {elapsed(since, self.now)}")
             elif stale and found["state"].startswith(HELD) and (gates := self.owner_gates(pr, found_by_pr, {pr})):
-                self.tap_waits[f"{pr}:{short(found['head'])}"] = (pr, f"{subject} is held on {', '.join(sorted(gates))}, each waiting on the owner's tap, his board answer, or the merge queue, since {pacific(since, self.now)}")
+                self.tap_waits[f"{pr}:{short(found['head'])}"] = (pr, f"{subject} is held on {', '.join(sorted(gates))}, each waiting on the owner's tap, his board answer, or the merge queue, for {elapsed(since, self.now)}")
             elif stale and pr not in stalled and not found["state"].startswith(HELD):
                 standing[pr] = (found, since, live)
         rows = {found["pr"]: found for found in self.stack}
@@ -1449,7 +1448,7 @@ class Pass:
         """A go'd head that no runner record names and no stack worker holds `stall.minutes.silent` after its go is the runner's own defect, raised to the coordinator and the landing desk beside the runner's `REFUSED unsettled`, so one defect cannot hide itself (owner, 5:16 AM Oct 30; coordinator #208560)."""
         if self.now - since < self.watch.age("silent"):
             return None
-        return pr, (ROOT, RUNNER), f"{SILENT_STEP}the landing runner wrote no QUEUED, MERGED or blocker record for #{pr} at {short(head)} since the go at {pacific(since, self.now)}, and no worker holds its stack, so its loop skipped an admitted head silently"
+        return pr, (ROOT, RUNNER), f"{SILENT_STEP}the landing runner wrote no QUEUED, MERGED or blocker record for #{pr} at {short(head)} in the {elapsed(since, self.now)} since its go, and no worker holds its stack, so its loop skipped an admitted head silently"
 
     def review_title(self, head: str) -> str:
         done = self.shell.run(ghread.read("api", f"repos/{self.watch.landing['repo']}/commits/{head}/check-runs?check_name={grades.REVIEW_BOT_CHECK}", "--jq", ".check_runs | max_by(.started_at) | .output.title // \"\""))
@@ -1485,7 +1484,7 @@ class Pass:
             if not verdict or not verdict.get("pr"):
                 return None
             named = ", ".join(lanes) or "no lane"
-            return Stall(f"order:{order['seq']}", "order", at(order), f"owner order #{order['seq']}", f"the coordinator relayed it at {pacific(at(order), self.now)} and it names a PR to open ({clip(verdict['why'])}), yet no record from {named} cites a PR since", (ROOT,), f"find why {named} has not opened the PR, and have it opened now")
+            return Stall(f"order:{order['seq']}", "order", at(order), f"owner order #{order['seq']}", f"the coordinator relayed it and it names a PR to open ({clip(verdict['why'])}), yet no record from {named} cites a PR since", (ROOT,), f"find why {named} has not opened the PR, and have it opened now")
 
         return Question(f"order:{order['seq']}", {"kind": "order", "order": clip(text, RECORD_CHARS)}, settle)
 
@@ -1511,7 +1510,7 @@ class Pass:
                 "pick",
                 at(asked),
                 f"owner pick {asked['topic'].removeprefix(NEEDS_LANE)}",
-                f"board-watch asked the coordinator for a lane at {pacific(at(asked), self.now)} ({asked['num']}), and no spawn or claim names it: {clip(asked['text'])}",
+                f"board-watch asked the coordinator for a lane in {asked['num']}, and no spawn or claim names it: {clip(asked['text'])}",
                 (ROOT,),
                 f"spawn a lane whose brief names {asked['topic'].removeprefix(NEEDS_LANE)} or {asked['num']}, or have a lane post a `claim` naming it; close it with `cci post --resolves {shlex.quote(asked['num'])}`",
             )
@@ -1544,7 +1543,7 @@ class Pass:
                     moved, due = actions.parse_stamp(row["updated_at"]), fields.get("due")
                     late = bool(due) and actions.parse_stamp(due) < self.now
                     if late or self.now - moved >= UNMOVED:
-                        found.append((row["key"], moved, f"retro row, state {fields.get('state') or 'none'}, owner {fields.get('owner') or 'none'}, {'past due since ' + pacific(actions.parse_stamp(due), self.now) if late else 'unchanged since ' + pacific(moved, self.now)}: {clip(fields.get('failure', ''))}", f"name a live owner and a new due with `retro.py set {row['key']}`, or close it with `retro.py live {row['key']} --record <FIX-LIVE seq>`"))
+                        found.append((row["key"], moved, f"retro row, state {fields.get('state') or 'none'}, owner {fields.get('owner') or 'none'}, {'past due for ' + elapsed(actions.parse_stamp(due), self.now) if late else 'unchanged for ' + elapsed(moved, self.now)}: {clip(fields.get('failure', ''))}", f"name a live owner and a new due with `retro.py set {row['key']}`, or close it with `retro.py live {row['key']} --record <FIX-LIVE seq>`"))
             asks = {row["key"]: row["fields"] for row in self.ledger_rows(self.entry["ledger"])}
             prs = ledger.pull_rows(asks)
             for key, fields in asks.items():
@@ -1553,13 +1552,13 @@ class Pass:
                 moved = actions.parse_stamp((ledger.latest_progress(fields) or {}).get("at") or fields["asked_at"])
                 late = bool(due := fields.get("due")) and actions.parse_stamp(due) < self.now
                 if late or self.now - moved >= UNMOVED:
-                    found.append((key, moved, f"owner ask, worker {fields.get('lane') or 'none'}, {'past due since ' + pacific(actions.parse_stamp(due), self.now) if late else 'no progress since ' + pacific(moved, self.now)}: {clip(fields.get('text', ''))}", f"deliver it, log progress with `ledger.py progress --ask {key}`, or settle it with `ledger.py answer` or `drop`"))
+                    found.append((key, moved, f"owner ask, worker {fields.get('lane') or 'none'}, {'past due for ' + elapsed(actions.parse_stamp(due), self.now) if late else 'no progress for ' + elapsed(moved, self.now)}: {clip(fields.get('text', ''))}", f"deliver it, log progress with `ledger.py progress --ask {key}`, or settle it with `ledger.py answer` or `drop`"))
             if (findings := state / "findings.json").is_file():
                 for row in self.ledger_rows(json.loads(findings.read_text())["ledger"]):
                     fields = row["fields"]
                     moved = actions.parse_stamp(row["updated_at"])
                     if fields.get("state") in FINDING_LIVE and self.now - moved >= UNMOVED:
-                        found.append((row["key"], moved, f"{'owner pick' if fields.get('kind') == 'pick' else 'finding from ' + fields.get('sweep', '?')}, owner {fields.get('owner') or 'none'}, {fields['state']} since {pacific(moved, self.now)}: {clip(fields.get('text', ''))}", f"build it and name #{fields.get('seq')} in the HEAD record, or close it with `findings.py close --why <reason> {fields.get('seq')}`"))
+                        found.append((row["key"], moved, f"{'owner pick' if fields.get('kind') == 'pick' else 'finding from ' + fields.get('sweep', '?')}, owner {fields.get('owner') or 'none'}, {fields['state']} for {elapsed(moved, self.now)}: {clip(fields.get('text', ''))}", f"build it and name #{fields.get('seq')} in the HEAD record, or close it with `findings.py close --why <reason> {fields.get('seq')}`"))
         except (ReadFailed, ValueError) as failed:
             self.warn({"unfinished"}, f"the retro, ask and findings ledgers did not read: {failed}")
             return []
@@ -1572,7 +1571,7 @@ class Pass:
             if not beats or self.now - at(beats[-1]) < self.watch.age("desk"):
                 continue
             restart = beats[-1]["fields"].get("attrs", {}).get("restart") or f"desk-runner.py run --config <runner.json> --desk {desk}"
-            stalls.append(Stall(f"desk:{desk}", "desk", at(beats[-1]), f"{desk} desk runner", f"the {desk} desk runner has posted no `{desk} alive` record since {pacific(at(beats[-1]), self.now)}", (ROOT,), f"restart it from the Run's bound terminal: `{restart}`"))
+            stalls.append(Stall(f"desk:{desk}", "desk", at(beats[-1]), f"{desk} desk runner", f"the {desk} desk runner has posted no `{desk} alive` record since #{beats[-1]['seq']}", (ROOT,), f"restart it from the Run's bound terminal: `{restart}`"))
         return stalls
 
     def gates(self, records: list[dict]) -> list[Stall]:
@@ -1599,7 +1598,7 @@ class Pass:
             hour = (self.now - since - self.watch.age("gate")) // GATE_REPEAT
             stalls.append(Stall(
                 f"gate:{lane}:{pr}:{hour}", "gate", since, f"{lane} on #{pr}",
-                f"{lane} said at cci #{said['seq']} that work waits on #{pr}, and {gate['lane']} posted it {'landed' if gate['kind'] == 'landed' else 'queued'} at cci #{gate['seq']}, {pacific(at(gate), self.now)}; {lane} has posted no OPENED or HEAD since",
+                f"{lane} said at cci #{said['seq']} that work waits on #{pr}, and {gate['lane']} posted it {'landed' if gate['kind'] == 'landed' else 'queued'} at cci #{gate['seq']}; {lane} has posted no OPENED or HEAD since",
                 (lane,), f"open the work that waited on #{pr} and post OPENED or HEAD, or post why it still waits",
             ))
         return stalls
@@ -1618,7 +1617,7 @@ class Pass:
             if after is None or record["seq"] <= after or record["kind"] not in SAYS_KINDS or not ALERT_LANE.fullmatch(record["lane"]) or not (said := dev_health_break(text) if DEV_HEALTH.fullmatch(record["lane"]) and PROD_COUNTS.search(text) else breakage.customer_break(text)):
                 continue
             covered.add(record["seq"])
-            stalls.append(Stall(f"customer:{record['seq']}", "customer", at(record), f"#{record['seq']} from {record['lane']}", f"its {record['kind']} at {pacific(at(record), self.now)} says “{clip(said, RECORD_CHARS)}”", (ROOT,), CUSTOMER_STEP, re=str(record["seq"])))
+            stalls.append(Stall(f"customer:{record['seq']}", "customer", at(record), f"#{record['seq']} from {record['lane']}", f"its {record['kind']} says “{clip(said, RECORD_CHARS)}”", (ROOT,), CUSTOMER_STEP, re=str(record["seq"])))
         return stalls
 
     def acked(self, records: list[dict]) -> dict[str, tuple[Stall, list[tuple[dict, dict]]]]:
@@ -1637,7 +1636,7 @@ class Pass:
             acks = list({ack["seq"]: ack for _, ack in found}.values())
             if len(acks) < self.watch.acks["urgent"]:
                 continue
-            listed = ", ".join(f"#{ack['seq']} at {pacific(at(ack), self.now)}" for ack in acks)
+            listed = ", ".join(f"#{ack['seq']}" for ack in acks)
             what = f"the coordinator acknowledged it {len(acks)} times in {int(ACK_WINDOW.total_seconds() // 3600)} h with no fix PR ({listed}); the newest defect is #{found[-1][0]['seq']}: {clip(found[-1][0].get('text') or '')}"
             step = f"the coordinator launches one fix lane for the class now: `desk-launch.py lane {fix_lane(name)} {' '.join(FIX_MODEL)} <brief>`; at {self.watch.acks['spawn']} the watch launches it"
             stalls[name] = (Stall(f"acked:{CLASS_SLUG.sub('-', name.lower()).strip('-')}", "acked", at(acks[self.watch.acks["urgent"] - 1]), f"defect class {name}", what, (ROOT, WATCHDOG), step), found)
@@ -1718,8 +1717,8 @@ def fix_brief(drive_name: str, lane: str, name: str, found: list[tuple[dict, dic
     return "\n".join([
         f"# Lane {lane}: remove the desk defect class {name}",
         "",
-        f"Drive {drive_name}. Post records with `cci post --lane {lane} --drive {drive_name} --stamp`. The stall watch launched this lane at {pacific(now, now)}:",
-        f"the coordinator acknowledged the class {len(acks)} times in {int(ACK_WINDOW.total_seconds() // 3600)} h and no fix PR followed (owner 9:55 PM Nov 1, cc-notes answer 1f77471).",
+        f"Drive {drive_name}. Post records with `cci post --lane {lane} --drive {drive_name}`. The stall watch launched this lane:",
+        f"the coordinator acknowledged the class {len(acks)} times in {int(ACK_WINDOW.total_seconds() // 3600)} h and no fix PR followed (owner, cc-notes answer 1f77471).",
         "",
         "## Deliverable",
         "Find the mechanism every record below shares, in the code of the desk that posts them, and ship one PR that makes the class impossible,",
@@ -1727,10 +1726,10 @@ def fix_brief(drive_name: str, lane: str, name: str, found: list[tuple[dict, dic
         "to coordinator naming the PR and the installed version, then stand down. Nothing runs on this Mac beyond the pack's daemons restarting; CI grades.",
         "",
         "## Defect records",
-        *(f"- #{defect['seq']} {defect['lane']} {defect['kind']} at {pacific(at(defect), now)}: {clip(defect.get('text') or '', RECORD_CHARS)}" for defect in defects),
+        *(f"- #{defect['seq']} {defect['lane']} {defect['kind']}: {clip(defect.get('text') or '', RECORD_CHARS)}" for defect in defects),
         "",
         "## The coordinator's acknowledgements",
-        *(f"- #{ack['seq']} {ack['kind']} at {pacific(at(ack), now)}: {clip(ack.get('text') or '', RECORD_CHARS)}" for ack in acks),
+        *(f"- #{ack['seq']} {ack['kind']}: {clip(ack.get('text') or '', RECORD_CHARS)}" for ack in acks),
         "",
         "Scale: no N",
         "ccx: incident=none",

@@ -19,7 +19,7 @@ warn_command(
     tests=coordinator_tests({
         Input(command="cci post --lane root --drive d --kind go --pr 48577 --text 'go #48577 at 939f525 on green [exempt: regression]'", state=ACTIVE): Warn(pattern=r"landing\.go_lanes"),
         Input(command="cat > /tmp/coord.zsh <<'EOF'\nP --kind go --to desk-runner --text 'go #1 at abc'\nEOF\nzsh /tmp/coord.zsh", state=ACTIVE): Warn(),
-        Input(command="cci post --lane root --drive d --kind go --to orca-desk --text 'R9 (9:00 PM) orca-desk: launch lane-a NOW opus xhigh brief=/b'", state=ACTIVE): Allow(),
+        Input(command="cci post --lane root --drive d --kind go --to orca-desk --text 'orca-desk: launch lane-a NOW opus xhigh brief=/b'", state=ACTIVE): Allow(),
         Input(command="cci post --lane root --drive d --kind hold --pr 1 --text 'hold #1'", state=ACTIVE): Allow(),
         Input(command="cci post --lane go-sweep-8 --drive d --kind go --pr 1 --text 'go #1'", agent_id="a1b2c3", state=ACTIVE): Allow(),
         Input(command="cci post --lane root --drive d --kind go --pr 1 --text 'go #1'"): Allow(),

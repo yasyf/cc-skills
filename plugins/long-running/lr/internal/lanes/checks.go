@@ -187,7 +187,7 @@ func (a Alerts) raise(ctx context.Context, channel string, message slackMessage,
 	headline, _, _ := strings.Cut(message.Text, "\n")
 	headline = truncated(strings.Join(strings.Fields(headline), " "), 160)
 	minutes := int(now.Sub(fired).Minutes())
-	draft := client.Draft{Drive: a.Env.Config.Drive, Lane: Self, To: []string{Root}, URL: message.Permalink, Stamp: true}
+	draft := client.Draft{Drive: a.Env.Config.Drive, Lane: Self, To: []string{Root}, URL: message.Permalink}
 	brief, launchErr := a.Launch(ctx, Fired{slug, headline, message.Permalink, fired})
 	if launchErr != nil {
 		draft.Kind, draft.ID = blockerKind, "alert-unopened:"+channel+":"+message.TS
@@ -383,7 +383,7 @@ func (c *SpriteStops) Check(ctx context.Context, now time.Time) error {
 			return err
 		}
 		text := fmt.Sprintf("SPRITE-STOP-FAILED %s: %s, so the supervisor ran `cc-remote orca stop %s` %d times, and the last failed: %s | its Sprite still runs and the supervisor does not try again; stop it by hand with `%s orca stop %s --config %s`", lane, why[lane], lane, stopTries, truncated(stopped[i].Error(), 300), c.CcRemote.Binary, lane, c.CcRemote.Config)
-		if _, err := c.Env.Bus.Post(ctx, client.Draft{Drive: c.Env.Config.Drive, Lane: Self, Kind: blockerKind, To: []string{to}, ID: "sprite-stop:" + lane, Stamp: true, Text: text}); err != nil {
+		if _, err := c.Env.Bus.Post(ctx, client.Draft{Drive: c.Env.Config.Drive, Lane: Self, Kind: blockerKind, To: []string{to}, ID: "sprite-stop:" + lane, Text: text}); err != nil {
 			return fmt.Errorf("%w: cci post: %w", ErrUnread, err)
 		}
 	}
@@ -598,7 +598,7 @@ func (n *LandedNotLive) announce(ctx context.Context, landed map[int]landing, ow
 		numbers := owed[target]
 		words := make([]string, 0, len(numbers))
 		for _, number := range numbers {
-			words = append(words, fmt.Sprintf("#%d (%s)", number, pacificFrom(landed[number].at, now)))
+			words = append(words, fmt.Sprintf("#%d", number))
 		}
 		parts = append(parts, target+": "+strings.Join(words, ", "))
 		keys[notLiveKey(target, numbers)] = true
@@ -637,7 +637,7 @@ func (n *LandedNotLive) announce(ctx context.Context, landed map[int]landing, ow
 				oldest = landed[number].at
 			}
 		}
-		stored, err := bus.Post(ctx, client.Draft{Drive: drive, Lane: Self, Kind: blockerKind, To: []string{Root}, ID: key, PRs: []string{strconv.Itoa(numbers[0])}, Stamp: true, Text: fmt.Sprintf("LANDED-NOT-LIVE %s: %s landed, the oldest %d minutes ago, and %s runs none of them; start its release: `%s start --only %s --manual`", target, numberList(numbers), int(now.Sub(oldest).Minutes()), target, cli, target)})
+		stored, err := bus.Post(ctx, client.Draft{Drive: drive, Lane: Self, Kind: blockerKind, To: []string{Root}, ID: key, PRs: []string{strconv.Itoa(numbers[0])}, Text: fmt.Sprintf("LANDED-NOT-LIVE %s: %s landed, the oldest %d minutes ago, and %s runs none of them; start its release: `%s start --only %s --manual`", target, numberList(numbers), int(now.Sub(oldest).Minutes()), target, cli, target)})
 		if err != nil {
 			return fmt.Errorf("%w: cci post: %w", ErrUnread, err)
 		}

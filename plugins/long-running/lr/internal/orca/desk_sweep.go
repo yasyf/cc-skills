@@ -305,7 +305,7 @@ func (d *Desk) overdue(ctx context.Context, container, about string) error {
 		if err != nil {
 			return err
 		}
-		if err := d.escalate(fmt.Sprintf("deadline:%s/%s:%s", container, action.ActionID, action.Status), "DEADLINE", about, fmt.Sprintf("%s %s: %s; accepted %s", action.AuthorityRef, action.Kind, missing, pacificClock(accepted))); err != nil {
+		if err := d.escalate(fmt.Sprintf("deadline:%s/%s:%s", container, action.ActionID, action.Status), "DEADLINE", about, fmt.Sprintf("%s %s: %s; accepted %d min ago", action.AuthorityRef, action.Kind, missing, int(d.Now().Sub(accepted).Minutes()))); err != nil {
 			return err
 		}
 	}

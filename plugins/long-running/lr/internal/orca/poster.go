@@ -104,7 +104,7 @@ func (p Poster) requireRunner(ctx context.Context, bus, fallback string) error {
 }
 
 func (p Poster) post(ctx context.Context, bus, topic, text string) (client.Record, error) {
-	stored, err := p.Bus.Post(ctx, client.Draft{Drive: bus, Lane: p.Author, Kind: kindGo, To: []string{deskLane}, Topic: topic, Text: deskLane + ": " + text, Stamp: true})
+	stored, err := p.Bus.Post(ctx, client.Draft{Drive: bus, Lane: p.Author, Kind: kindGo, To: []string{deskLane}, Topic: topic, Text: deskLane + ": " + text})
 	if err != nil {
 		return client.Record{}, err
 	}

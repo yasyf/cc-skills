@@ -58,6 +58,20 @@ func TestARemarkKeepsTheRoutedRecord(t *testing.T) {
 	}
 }
 
+func TestARowTakesItsTimeFromItsStampAndAMarkKeepsItWhateverClockHisWordsCarry(t *testing.T) {
+	path := staged(t)
+	row, err := Add(path, addedAt, "2:13 AM: keep the nightly report", opened, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Mark(path, row, addressed, 346705); err != nil {
+		t.Fatal(err)
+	}
+	if want := "| m13 | Nov 2 9:10 PM | 2:13 AM: keep the nightly report | 346705 | addressed |\n"; !strings.Contains(read(t, path), want) {
+		t.Fatalf("no %q in:\n%s", want, read(t, path))
+	}
+}
+
 func TestAnUnknownRowIsRefusedAndTheLedgerStaysWhole(t *testing.T) {
 	path := staged(t)
 	before := read(t, path)

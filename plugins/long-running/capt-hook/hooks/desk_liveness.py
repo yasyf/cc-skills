@@ -23,7 +23,7 @@ PACIFIC = ZoneInfo("America/Los_Angeles")
 FENCE = "~" * 12
 START = "nohup desk-runner.py run --config <drive>/runner.json --desk orca >> <drive>/orca-runner.log 2>&1 < /dev/null &"
 APPEND = "STATE=/state/release-v3; echo 'R1 orca-desk: launch inc-fix NOW incident xhigh brief=/b.md' >> \"$STATE/inbox/orca-desk.md\""
-POST = "cci post --lane root --kind go --to orca-desk --text 'R1 (9:00 PM) orca-desk: launch inc-fix NOW incident xhigh brief=/b.md'"
+POST = "cci post --lane root --kind go --to orca-desk --text 'orca-desk: launch inc-fix NOW incident xhigh brief=/b.md'"
 SILENT_CCI = DRIVE_ENV | {"PATH": f"{FIXTURES / 'bin'}:/usr/bin:/bin"}
 UNBOUND_ENV = {"CLAUDE_CONFIG_DIR": str(FIXTURES / "claude-config"), "PATH": SILENT_CCI["PATH"]}
 ADDRESS = re.compile(r"[,@]")

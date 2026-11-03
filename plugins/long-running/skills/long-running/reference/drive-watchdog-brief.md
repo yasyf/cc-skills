@@ -56,7 +56,7 @@ For every record, judge nine things:
   (e) ROOT DRIFT: the coordinator answering acknowledgments, reading logs, or reopening
       decided items.
   (f) DEAD RUNNER: with each digest, `cci state --drive <drive> --lane desk-runner`
-      shows each desk runner's newest `<desk> alive <time> pass <n>` record. One
+      shows each desk runner's newest `<desk> alive pass <n>` record. One
       older than 10 minutes, or a `blocker` from desk-runner saying a pass raised,
       goes to the coordinator at once with the `restart` attr of the desk's newest alive record.
   (g) RED TRUNK: the landing runner's newest `dev-red` record (`cci tail --drive

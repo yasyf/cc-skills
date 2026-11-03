@@ -66,7 +66,7 @@ func TestARelease12192StillAtItsGateFiveMinutesAfterHisOrderDrawsOneBlockerNamin
 	equal(t, blocker.Kind, blockerKind)
 	equal(t, blocker.To, []string{Root})
 	equal(t, blocker.ID, "release-gate:"+gatedRelease+":job-1")
-	for _, named := range []string{gatedRelease, "approve gate (job job-1)", "since 6:32 PM", "owner order d847000 at 6:36 PM", "release-5 approves it now", "tools/ci release approve " + gatedRelease} {
+	for _, named := range []string{gatedRelease, "approve gate (job job-1) for 9 min", "past owner order d847000;", "release-5 approves it now", "tools/ci release approve " + gatedRelease} {
 		if !strings.Contains(blocker.Text, named) {
 			t.Fatalf("%q does not name %q", blocker.Text, named)
 		}

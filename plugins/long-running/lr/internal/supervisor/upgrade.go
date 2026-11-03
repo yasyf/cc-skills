@@ -88,7 +88,7 @@ func (u *Upgrade) Stale(ctx context.Context) (bool, error) {
 		why = lines[len(lines)-1]
 		why = why[:min(whyLimit, len(why))]
 	}
-	_, err = u.Env.Bus.Post(ctx, client.Draft{Drive: drive, Lane: lanes.Self, Kind: "report", To: []string{lanes.Root}, ID: "replay-failed:" + installed, Stamp: true, Text: fmt.Sprintf("the supervisor moves from %s to %s unreplayed: its replay gate exited %d: %s", u.Running, installed, result.Code, why)})
+	_, err = u.Env.Bus.Post(ctx, client.Draft{Drive: drive, Lane: lanes.Self, Kind: "report", To: []string{lanes.Root}, ID: "replay-failed:" + installed, Text: fmt.Sprintf("the supervisor moves from %s to %s unreplayed: its replay gate exited %d: %s", u.Running, installed, result.Code, why)})
 	if err != nil {
 		return false, fmt.Errorf("%w: cci post: %w", lanes.ErrUnread, err)
 	}

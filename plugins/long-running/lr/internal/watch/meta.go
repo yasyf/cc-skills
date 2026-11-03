@@ -58,10 +58,10 @@ func Meta(s *store.Store, items string, written, now time.Time, post pass.Post) 
 			if now.Before(due) {
 				continue
 			}
-			cause = fmt.Sprintf("meta: %s, state %s, was due by %s; next: %s", row.item, orNone(row.state), due.In(pacific).Format(clockAndDay), orNone(row.next))
+			cause = fmt.Sprintf("meta: %s, state %s, is past its Due; next: %s", row.item, orNone(row.state), orNone(row.next))
 			late = fmt.Sprintf("; %d minutes late", int(now.Sub(due).Minutes()))
 		}
-		raised, err := s.Escalate(subject, cause, lanes.OwnerRelay, now)
+		raised, err := s.Escalate(subject, cause+" "+row.due, lanes.OwnerRelay, now)
 		if err != nil {
 			return escalated, err
 		}

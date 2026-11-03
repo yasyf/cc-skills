@@ -33,7 +33,7 @@ from captain_hook.util import reqenv
 
 from .compaction_handoff import bus_name, Communicator, communicator_tests, CompactionState, Coordinator, coordinator_tests, drive_entry, judged, script
 from .nudges import NagClock, once_per_hour
-from .owner_facing import CCI_POST, incident_sources, last_reply, open_incidents, record_text
+from .owner_facing import CCI_POST, incident_sources, last_reply, open_incidents
 from .tests.incident_fixtures import CLOSED_0820, SAND_NOT_MIGRATED
 from .tests.lane_pr_fixtures import DRIVE as LANE_DRIVE
 from .tests.register_fixtures import DRIVE_CONFIG
@@ -329,50 +329,6 @@ def owner_labels_carry_the_turn_stamp(evt: BaseHookEvent) -> HookResult | None:
     if not CompactionState.load(evt).active or not (warning := relabeled(evt, lambda: [last_reply(evt)])):
         return None
     return evt.allow(system_message=warning)
-
-
-@on(
-    Event.PreToolUse,
-    only_if=[Communicator(), Tool("Bash")],
-    skip_if=[FromSubagent()],
-    tests=communicator_tests({
-        Input(
-            command="cci post --drive d --lane root --kind hold --text 'OWNER 7:58 PM: stop all cuts now'",
-            transcript=[owner_said("stop all cuts now", "2026-01-15T00:11:00Z")],
-            state=ACTIVE,
-        ): Warn(pattern=r"^Warning, nothing was blocked[\s\S]*OWNER 4:11 PM"),
-        Input(
-            command="cci post --drive d --lane root --kind hold --text 'OWNER 4:11 PM: stop all cuts now'",
-            transcript=[owner_said("stop all cuts now", "2026-01-15T00:11:00Z")],
-            state=ACTIVE,
-        ): Allow(),
-        Input(command="cci post --drive d --lane root --kind hold --text 'cuts held'", transcript=[owner_said("stop", "2026-01-15T00:11:00Z")], state=ACTIVE): Allow(),
-        Input(
-            command="cci post --drive d --lane root --kind decide --text 'OWNER 12:19 PM: \"also fix that hook timing mismatch\"'",
-            transcript=MID_TURN,
-            state=ACTIVE,
-        ): Allow(),
-        Input(
-            command="cci post --drive d --lane root --kind decide --text 'OWNER 12:09 PM: also fix that hook timing mismatch and stop waiting'",
-            transcript=MID_TURN,
-            state=ACTIVE,
-        ): Warn(pattern=r"OWNER 12:09 PM -> OWNER 12:19 PM\n"),
-        Input(command="cci post --drive d --lane root --kind decide --text 'OWNER 12:30 PM: board is posted'", transcript=MID_TURN, state=ACTIVE): Allow(),
-        Input(
-            command="cci post --drive d --lane root --kind decide --text 'OWNER 12:21 PM \"post the board once the fix lands\"; OWNER 12:09 PM \"pause the batch until the scan lands\"'",
-            transcript=MID_TURN,
-            state=ACTIVE,
-        ): Allow(),
-        Input(command="cci post --drive d --lane root --kind decide --text 'OWNER 12:51 PM: board is posted'", transcript=MID_TURN, state=ACTIVE): Warn(
-            pattern=r"OWNER 12:51 PM -> OWNER 12:21 PM or 12:19 PM"
-        ),
-    }),
-)
-def owner_records_carry_the_turn_stamp(evt: BaseHookEvent) -> HookResult | None:
-    if not CompactionState.load(evt).active:
-        return None
-    posts = [record_text(values) for call in evt.command.calls("cci") if (values := CCI_POST.bind(call).values).get("words", ())[:1] == ("post",)]
-    return evt.context(warning) if (warning := relabeled(evt, lambda: posts)) else None
 
 
 @on(

@@ -293,7 +293,7 @@ type Owner struct {
 
 func (o Owner) Announce(ctx context.Context, n Notice) error {
 	if o.Lane != relay {
-		if _, err := o.Post(ctx, client.Draft{Drive: o.Drive, Lane: o.Lane, Kind: "report", To: []string{relay}, Stamp: true, Text: fmt.Sprintf("one-pager for the owner, %s: %s", n.Title, n.Link)}); err != nil {
+		if _, err := o.Post(ctx, client.Draft{Drive: o.Drive, Lane: o.Lane, Kind: "report", To: []string{relay}, Text: fmt.Sprintf("one-pager for the owner, %s: %s", n.Title, n.Link)}); err != nil {
 			return err
 		}
 	}
@@ -301,7 +301,7 @@ func (o Owner) Announce(ctx context.Context, n Notice) error {
 	if err == nil {
 		return nil
 	}
-	if _, posted := o.Post(ctx, client.Draft{Drive: o.Drive, Lane: o.Lane, Kind: "blocker", To: []string{"root"}, Stamp: true, Text: fmt.Sprintf("lr explain hosted %s but could not post it at the owner's Slack DM root: %v", n.Link, err)}); posted != nil {
+	if _, posted := o.Post(ctx, client.Draft{Drive: o.Drive, Lane: o.Lane, Kind: "blocker", To: []string{"root"}, Text: fmt.Sprintf("lr explain hosted %s but could not post it at the owner's Slack DM root: %v", n.Link, err)}); posted != nil {
 		return errors.Join(err, posted)
 	}
 	return fmt.Errorf("the owner's Slack DM did not get %s, and a blocker to root says so: %w", n.Link, err)

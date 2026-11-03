@@ -62,7 +62,7 @@ func TestARunningReleaseBuildNoRecordNamesPostsOneSeenToTheCoordinatorAtFiveMinu
 	equal(t, seen.Kind, blockerKind)
 	equal(t, seen.To, []string{Root})
 	equal(t, seen.ID, "release-seen:buildkite.com/org/release/builds/12272")
-	contains(t, seen.Text, "RELEASE-SEEN 12272 org/release running: no record names "+promotionURL+" 5 minutes after it started at 11:30 PM")
+	contains(t, seen.Text, "RELEASE-SEEN 12272 org/release running: no record names "+promotionURL+" 5 minutes after it started; claim it")
 
 	feed = buildFeed("blocked", "")
 	watchBuilds(t, check, promotionStarted.Add(seenGrace+time.Minute))

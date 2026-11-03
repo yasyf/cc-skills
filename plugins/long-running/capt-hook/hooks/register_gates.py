@@ -73,14 +73,14 @@ UNROWED_ANSWER = (
     "Classify the owner's words with `rulings.py classify`."
 )
 UNCLASSIFIED = (
-    'Owner capture {digest} ({at}) has no row in register {program}: "{excerpt}". '
+    'Owner capture {digest} has no row in register {program}: "{excerpt}". '
     "Classify it with `rulings.py classify` before the next key moment."
 )
 UNCLASSIFIED_BATCH = (
     "{count} owner captures have no row in register {program}: {captures}. "
     "Classify them with `rulings.py classify` before the next key moment."
 )
-BATCH_ENTRY = '{digest} ({at}) "{excerpt}"'
+BATCH_ENTRY = '{digest} "{excerpt}"'
 BATCH_EXCERPT = 80
 REGISTER_LANE_GONE = " `cci who` lists no live register lane `{lane}` nor a numbered successor of it, so this blocker goes to the coordinator: relaunch the register lane as its next numbered successor from its brief to classify {these}."
 SUCCESSOR_NUMBER = re.compile(r"(?:-\d{1,2})+$")
@@ -274,9 +274,9 @@ def report_unclassified(evt: BaseHookEvent, register: dict) -> None:
     to, note = unclassified_route(evt, len(fresh))
     if len(fresh) == 1:
         [capture] = fresh
-        text = UNCLASSIFIED.format(digest=capture["digest"], at=capture["at"], program=register["program"], excerpt=excerpt(capture, EXCERPT))
+        text = UNCLASSIFIED.format(digest=capture["digest"], program=register["program"], excerpt=excerpt(capture, EXCERPT))
     else:
-        entries = "; ".join(BATCH_ENTRY.format(digest=c["digest"], at=c["at"], excerpt=excerpt(c, BATCH_EXCERPT)) for c in fresh)
+        entries = "; ".join(BATCH_ENTRY.format(digest=c["digest"], excerpt=excerpt(c, BATCH_EXCERPT)) for c in fresh)
         text = UNCLASSIFIED_BATCH.format(count=len(fresh), program=register["program"], captures=entries)
     post_blocker(evt, text + note, to=to)
 

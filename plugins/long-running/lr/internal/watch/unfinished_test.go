@@ -31,7 +31,7 @@ func TestAnOwnerAskNoOneMovedReachesRootOnceAPacificDayAndNeverClearsUntilItIsDo
 	want(t, sweep(Ledgers{Asks: book}, asked.Add(unmoved+time.Hour)), 0)
 	want(t, r.posts[0].to[0], "root")
 	want(t, r.posts[0].body.Subject, "ask/000037")
-	for _, words := range []string{"owner ask, worker slack-bugs-1", "no progress since 12:00 PM Nov 1", "regression tests", "still standing Nov 2", "lr asks progress --ask ask/000037"} {
+	for _, words := range []string{"owner ask, worker slack-bugs-1", "no progress since Nov 1", "regression tests", "still standing Nov 2", "lr asks progress --ask ask/000037"} {
 		if !strings.Contains(r.posts[0].body.Cause, words) {
 			t.Fatalf("cause %q lacks %q", r.posts[0].body.Cause, words)
 		}
@@ -67,7 +67,7 @@ func TestProgressRestartsAnAsksDayAndADuePastStallsItAtOnce(t *testing.T) {
 	want(t, len(waits), 2)
 	want(t, waits[0].overdue(now), false)
 	want(t, waits[1].overdue(now), true)
-	if !strings.Contains(waits[1].Cause, "past due since 11:59 PM Nov 2") {
+	if !strings.Contains(waits[1].Cause, "past due since Nov 2") || strings.Contains(waits[1].Cause, "11:59") {
 		t.Fatalf("cause = %q", waits[1].Cause)
 	}
 }

@@ -84,7 +84,7 @@ func disagreement(f machine.Facts, verdict machine.Verdict, waiting map[string]s
 	if !found || now.Sub(item.Created) < runnerPass {
 		return ""
 	}
-	return fmt.Sprintf("v2 would have queued it at %s; the runner has not", item.Created.UTC().Format("15:04Z"))
+	return fmt.Sprintf("v2 would have queued it as item %d; the runner has not", item.ID)
 }
 
 func itemKey(number int, head string) string {
