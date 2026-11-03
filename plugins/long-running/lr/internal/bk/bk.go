@@ -61,8 +61,8 @@ func LoadSettings(path string) (Settings, error) {
 }
 
 type reply struct {
-	head, body string
-	at         time.Time
+	head, body, url string
+	at              time.Time
 }
 
 type Desk struct {
@@ -137,7 +137,7 @@ func (d *Desk) answer(ctx context.Context, ask client.Record) error {
 	}
 	_, err := client.Post(ctx, client.Draft{
 		Drive: d.Drive, Lane: Lane, Kind: answerKind, Text: read.head, To: []string{ask.Lane},
-		Resolves: ask.Seq, Path: path, Force: true,
+		Resolves: ask.Seq, Path: path, URL: read.url, Force: true,
 	})
 	return err
 }
@@ -279,6 +279,7 @@ func summary(said string) reply {
 	return reply{
 		head: fmt.Sprintf("%s, %d of %d jobs not passed", read.State, scripts-unlisted, scripts),
 		body: firstBytes(lines.String(), replyLimit),
+		url:  read.WebURL,
 	}
 }
 

@@ -281,6 +281,11 @@ func TestABuildReadNamesItsStateAndEveryJobNotPassed(t *testing.T) {
 	if strings.Contains(read.body, "j-pass") || strings.Contains(read.body, "j-wait") {
 		t.Fatalf("body names a job it should not:\n%s", read.body)
 	}
+	ask(t, "bk build test 12")
+	firstPass(t, desk)
+	if found := answers(t); len(found) != 1 || found[0].Refs.URL != "https://buildkite.com/org/test/builds/12" {
+		t.Fatalf("answers = %+v, want one carrying the build's URL", found)
+	}
 }
 
 func TestALogReplyKeepsItsTailWithoutTerminalEscapes(t *testing.T) {
