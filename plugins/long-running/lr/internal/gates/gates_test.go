@@ -1,6 +1,7 @@
 package gates
 
 import (
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -18,6 +19,7 @@ const (
 
 var (
 	t0    = time.Date(2026, 10, 30, 21, 0, 0, 0, time.UTC)
+	same  = map[string]string{oldHead: "p1", newHead: "p1"}
 	green = machine.Facts{Repo: repo, Number: 1, Head: newHead, Base: "dev", Lane: "l", CI: machine.CISuccess, Mergeable: machine.MergeableClean, Approved: true, Finder: machine.FinderClear, Fidelity: machine.FidelityPass, Tap: machine.TapTapped}
 )
 
@@ -98,6 +100,53 @@ func TestATapCarriesOnlyWhenTheNewHeadMeansTheSameAsTheTappedOne(t *testing.T) {
 				t.Fatalf("carried by %q, want %q", got, c.want)
 			}
 		})
+	}
+}
+
+func TestATapCarriesToAPatchIdenticalHeadAndSaysWhereItCameFrom(t *testing.T) {
+	s := withFacts(t, 45744, map[string]string{"tap": "tapped"})
+	carried, err := CarryTap(s, repo, 45744, oldHead, newHead, same, t0)
+	if err != nil || !carried {
+		t.Fatalf("carried %v, err %v", carried, err)
+	}
+	want := map[string]string{"tap": "tapped", CarriedFact: oldHead}
+	if got := factsOn(t, s, 45744, newHead); !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestATapStaysBehind(t *testing.T) {
+	cases := []struct {
+		name  string
+		facts map[string]string
+		ids   map[string]string
+	}{
+		{"when the patch changed", map[string]string{"tap": "tapped"}, map[string]string{oldHead: "p1", newHead: "p2"}},
+		{"when it was withdrawn", map[string]string{"tap": "withdrawn"}, same},
+		{"when a patch id is unknown", map[string]string{"tap": "tapped"}, map[string]string{newHead: "p1"}},
+		{"when it is conditional", map[string]string{"tap": "conditional", "condition": "only if covered"}, same},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := withFacts(t, 45470, c.facts)
+			carried, err := CarryTap(s, repo, 45470, oldHead, newHead, c.ids, t0)
+			if err != nil || carried {
+				t.Fatalf("carried %v, err %v", carried, err)
+			}
+			if got := factsOn(t, s, 45470, newHead); len(got) != 0 {
+				t.Fatalf("the new head gained %v", got)
+			}
+		})
+	}
+}
+
+func TestAnExemptionCarriesWithItsTap(t *testing.T) {
+	s := withFacts(t, 45744, map[string]string{"tap": "tapped", "exempt": "test-only"})
+	if _, err := CarryTap(s, repo, 45744, oldHead, newHead, same, t0); err != nil {
+		t.Fatal(err)
+	}
+	if got := factsOn(t, s, 45744, newHead)["exempt"]; got != "test-only" {
+		t.Fatalf("exempt %q", got)
 	}
 }
 
