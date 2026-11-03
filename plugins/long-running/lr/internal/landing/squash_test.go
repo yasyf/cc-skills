@@ -41,6 +41,9 @@ func newSquash(t *testing.T) *squashFixture {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
+	if _, err := s.WantLane(store.Lane{Name: "incident-api-fix", State: store.LaneDesired}, t0); err != nil {
+		t.Fatal(err)
+	}
 	fake := &shelltest.Fake{}
 	fixture := &squashFixture{fake: fake}
 	fixture.squash = &landing.Squash{

@@ -28,6 +28,8 @@ type Escalated struct {
 
 type Route func(desk string) string
 
+type Owner func(lane string) (string, error)
+
 type Landing struct {
 	Facts    machine.Facts
 	LastOpen time.Time
@@ -85,7 +87,7 @@ func Live(movers []string) []machine.Mover {
 	return live
 }
 
-func Run(s *store.Store, snapshot []machine.Facts, now time.Time, post Post, live []machine.Mover, route Route) (Outcome, error) {
+func Run(s *store.Store, snapshot []machine.Facts, now time.Time, post Post, live []machine.Mover, route Route, owner Owner) (Outcome, error) {
 	out := Outcome{Verdicts: map[int]machine.Verdict{}, Released: map[string][]store.Item{}}
 	now = now.UTC().Truncate(time.Second)
 	tell := func(to []string, body bus.Body) error {
@@ -113,7 +115,7 @@ func Run(s *store.Store, snapshot []machine.Facts, now time.Time, post Post, liv
 			out.Carried = append(out.Carried, f)
 		}
 	}
-	if err := escalateOverdue(s, snapshot, now, tell, live, route, &out); err != nil {
+	if err := escalateOverdue(s, snapshot, now, tell, live, route, owner, &out); err != nil {
 		return out, err
 	}
 	if slices.Contains(live, machine.MoverSupervisor) {
@@ -231,7 +233,7 @@ func closeOthers(s *store.Store, f machine.Facts, keep machine.Action, now time.
 	return nil
 }
 
-func escalateOverdue(s *store.Store, snapshot []machine.Facts, now time.Time, post Post, live []machine.Mover, route Route, out *Outcome) error {
+func escalateOverdue(s *store.Store, snapshot []machine.Facts, now time.Time, post Post, live []machine.Mover, route Route, owner Owner, out *Outcome) error {
 	overdue, err := s.Overdue(now)
 	if err != nil {
 		return err
@@ -250,14 +252,20 @@ func escalateOverdue(s *store.Store, snapshot []machine.Facts, now time.Time, po
 		if err != nil {
 			return err
 		}
-		to := laneOf(snapshot, item)
-		if deskOwns {
+		cause, to := item.Kind+" overdue", root
+		switch lane := laneOf(snapshot, item); {
+		case deskOwns:
 			to = route(desk)
+		case rootOwned, lane == root:
+		default:
+			if to, err = owner(lane); err != nil {
+				return err
+			}
+			if to == root {
+				cause = "UNOWNED, " + lane + " is not running: " + cause
+			}
 		}
-		if rootOwned {
-			to = root
-		}
-		if err := escalate(s, fmt.Sprintf("%s#%d", item.Repo, item.Number), item.Kind+" overdue", said, to, now, post, out); err != nil {
+		if err := escalate(s, fmt.Sprintf("%s#%d", item.Repo, item.Number), cause, said, to, now, post, out); err != nil {
 			return err
 		}
 	}

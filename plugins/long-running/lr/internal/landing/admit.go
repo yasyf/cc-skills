@@ -138,15 +138,19 @@ func (g *Gates) tell(ctx context.Context, f machine.Facts, kind, id, text string
 }
 
 func postToLane(ctx context.Context, s *store.Store, drive string, f machine.Facts, kind, id, text string) error {
-	holder, err := laneHolder(s, drive, f.Lane)
-	if err != nil {
-		return err
-	}
 	to := []string{rootLane}
-	if holder != rootLane {
-		to = []string{holder, rootLane}
+	if f.Lane != "" {
+		holder, err := lanes.Running(s, drive, f.Lane)
+		if err != nil {
+			return err
+		}
+		if holder == rootLane {
+			text = "UNOWNED, " + f.Lane + " is not running: " + text
+		} else {
+			to = []string{holder, rootLane}
+		}
 	}
-	_, err = client.Post(ctx, client.Draft{Drive: drive, Lane: self, Kind: kind, To: to, ID: id, PRs: []string{pullRef(f)}, Text: text})
+	_, err := client.Post(ctx, client.Draft{Drive: drive, Lane: self, Kind: kind, To: to, ID: id, PRs: []string{pullRef(f)}, Text: text})
 	return err
 }
 

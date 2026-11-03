@@ -27,7 +27,7 @@ type Diff struct {
 }
 
 func Shadow(s *store.Store, snapshot []machine.Facts, now time.Time, post Post) ([]Diff, error) {
-	out, err := Run(s, snapshot, now, func([]string, bus.Body) error { return nil }, allMovers, func(desk string) string { return desk })
+	out, err := Run(s, snapshot, now, func([]string, bus.Body) error { return nil }, allMovers, func(desk string) string { return desk }, func(lane string) (string, error) { return lane, nil })
 	if err != nil {
 		return nil, err
 	}

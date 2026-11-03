@@ -12,6 +12,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/facts"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/pass"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/watch"
@@ -72,7 +73,7 @@ func runPass(ctx context.Context, a *app.App, shadow bool, stdout io.Writer) err
 	if err != nil {
 		return err
 	}
-	out, err := pass.Run(s, snapshot, now, post, pass.Live(cfg.Movers), route)
+	out, err := pass.Run(s, snapshot, now, post, pass.Live(cfg.Movers), route, func(lane string) (string, error) { return lanes.Running(s, cfg.Drive, lane) })
 	if err != nil {
 		return err
 	}

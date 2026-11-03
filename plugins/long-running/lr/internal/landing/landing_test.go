@@ -77,7 +77,7 @@ func (r *restacker) Restack(_ context.Context, number int, head, base string) (s
 
 func acts(t *testing.T, s *store.Store, now time.Time, snapshot ...machine.Facts) []pass.Act {
 	t.Helper()
-	out, err := pass.Run(s, snapshot, now, func([]string, bus.Body) error { return nil }, []machine.Mover{machine.MoverSupervisor}, func(desk string) string { return desk })
+	out, err := pass.Run(s, snapshot, now, func([]string, bus.Body) error { return nil }, []machine.Mover{machine.MoverSupervisor}, func(desk string) string { return desk }, func(lane string) (string, error) { return lane, nil })
 	if err != nil {
 		t.Fatal(err)
 	}
