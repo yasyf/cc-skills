@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
@@ -35,6 +36,7 @@ type Shadow struct {
 	Read    func(ctx context.Context, at time.Time) ([]Event, error)
 	Tail    func(ctx context.Context, q client.Query) ([]client.Record, error)
 	Hash    func(ctx context.Context, base, head string) (string, error)
+	Trunk   func(ctx context.Context, number int) (Submitted, error)
 	Post    func(ctx context.Context, d client.Draft) (client.Record, error)
 	Now     func() time.Time
 	Log     *slog.Logger
@@ -59,29 +61,42 @@ func (s Shadow) Run(ctx context.Context) error {
 		}
 		return s.disagree(ctx, moved)
 	}
-	errs := make(chan error, 3)
-	go func() { errs <- s.follow(ctx, apply) }()
+	errs := make(chan error, 4)
+	go func() {
+		errs <- s.tail(ctx, client.Query{Drive: s.Drive}, busSource, func(r client.Record) error {
+			for _, e := range s.events(r) {
+				if err := apply(e); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+	}()
+	go func() {
+		errs <- s.tail(ctx, client.Query{Drive: trunkDrive, Kinds: []string{"queue"}}, trunkSource, func(r client.Record) error {
+			return s.queued(ctx, r, apply)
+		})
+	}()
 	go func() { errs <- s.reads(ctx, apply) }()
 	go func() { errs <- s.timers(ctx, wake, apply) }()
 	return <-errs
 }
 
-func (s Shadow) follow(ctx context.Context, apply func(Event) error) error {
-	after, err := s.Desk.Store.Cursor(busSource)
+func (s Shadow) tail(ctx context.Context, q client.Query, source string, each func(client.Record) error) error {
+	after, err := s.Desk.Store.Cursor(source)
 	if err != nil {
 		return err
 	}
 	for {
-		records, err := s.Tail(ctx, client.Query{Drive: s.Drive, After: after})
+		q.After = after
+		records, err := s.Tail(ctx, q)
 		if err != nil {
 			return err
 		}
 		for _, r := range records {
 			after = r.Seq
-			for _, e := range s.events(r) {
-				if err := apply(e); err != nil {
-					return err
-				}
+			if err := each(r); err != nil {
+				return err
 			}
 		}
 		select {
@@ -90,6 +105,35 @@ func (s Shadow) follow(ctx context.Context, apply func(Event) error) error {
 		case <-time.After(time.Second):
 		}
 	}
+}
+
+func (s Shadow) queued(ctx context.Context, r client.Record, apply func(Event) error) error {
+	for _, pr := range r.Refs.PRs {
+		if !strings.EqualFold(pr.Repo, s.Repo) {
+			continue
+		}
+		read, err := s.Trunk(ctx, pr.Number)
+		if err != nil {
+			s.Log.Warn("a Trunk read failed and changed nothing", "pr", pr.Number, "err", err)
+			continue
+		}
+		var stored store.Entry
+		if err := s.Desk.Store.Update(func(tx *store.Tx) (err error) {
+			stored, _, err = tx.Entry(s.Repo, pr.Number)
+			return err
+		}); err != nil {
+			return err
+		}
+		attempt := stored.Attempt
+		if read.ID != stored.ID {
+			attempt++
+		}
+		outcome, reason := read.outcome()
+		if err := apply(Queue{Meta{Source: trunkSource, Seq: r.Seq, Key: r.ID, At: r.At, Repo: s.Repo}, pr.Number, read.ID, read.Head, attempt, outcome, reason}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s Shadow) changed(ctx context.Context, e Event) (Event, error) {

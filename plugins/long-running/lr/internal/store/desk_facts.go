@@ -71,6 +71,7 @@ type Hold struct {
 type Entry struct {
 	Repo    string
 	Number  int
+	ID      string
 	Head    string
 	First   int
 	Attempt int
@@ -275,16 +276,16 @@ func scanHold(row interface{ Scan(...any) error }) (Hold, error) {
 
 func (t *Tx) PutEntry(e Entry) error {
 	_, err := t.tx.Exec(
-		"INSERT INTO queue (repo, number, head, first, attempt, outcome, reason) VALUES (?1, ?2, ?3, ?4, ?4, ?5, ?6) ON CONFLICT (repo, number) DO UPDATE SET first = iif(queue.head = excluded.head, queue.first, excluded.attempt), head = excluded.head, attempt = excluded.attempt, outcome = excluded.outcome, reason = excluded.reason WHERE excluded.attempt >= queue.attempt",
-		e.Repo, e.Number, e.Head, e.Attempt, e.Outcome, e.Reason,
+		"INSERT INTO queue (repo, number, entry, head, first, attempt, outcome, reason) VALUES (?1, ?2, ?7, ?3, ?4, ?4, ?5, ?6) ON CONFLICT (repo, number) DO UPDATE SET entry = excluded.entry, first = iif(queue.head = excluded.head, queue.first, excluded.attempt), head = excluded.head, attempt = excluded.attempt, outcome = excluded.outcome, reason = excluded.reason WHERE excluded.attempt >= queue.attempt",
+		e.Repo, e.Number, e.Head, e.Attempt, e.Outcome, e.Reason, e.ID,
 	)
 	return err
 }
 
 func (t *Tx) Entry(repo string, number int) (Entry, bool, error) {
 	var e Entry
-	err := t.tx.QueryRow("SELECT repo, number, head, first, attempt, outcome, reason FROM queue WHERE repo = ? AND number = ?", repo, number).
-		Scan(&e.Repo, &e.Number, &e.Head, &e.First, &e.Attempt, &e.Outcome, &e.Reason)
+	err := t.tx.QueryRow("SELECT repo, number, entry, head, first, attempt, outcome, reason FROM queue WHERE repo = ? AND number = ?", repo, number).
+		Scan(&e.Repo, &e.Number, &e.ID, &e.Head, &e.First, &e.Attempt, &e.Outcome, &e.Reason)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Entry{}, false, nil
 	}
