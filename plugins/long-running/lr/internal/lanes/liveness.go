@@ -28,6 +28,7 @@ type Liveness struct {
 	Step        string  `json:"step"`
 	Standing    string  `json:"standing"`
 	Deliverable string  `json:"deliverable"`
+	Woke        *string `json:"woke"`
 }
 
 func nullable(value string) *string {
@@ -64,6 +65,9 @@ func LivenessRows(s *store.Store) (rows []Liveness, err error) {
 			row.Live = isLive(lane.State)
 			row.State, row.Step, row.Standing, row.Deliverable = string(lane.State), said.Step, said.Standing, said.Deliverable
 			row.Handoff, row.RetiredBy, row.Placement, row.Predecessor, row.Brief = nullable(lane.Handoff), nullable(lane.RetiredBy), nullable(lane.Placement), nullable(lane.Predecessor), nullable(lane.Brief)
+			if !lane.Answered.IsZero() {
+				row.Woke = nullable(store.Stamp(lane.Answered))
+			}
 		}
 		rows = append(rows, row)
 	}

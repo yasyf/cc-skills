@@ -110,6 +110,41 @@ func TestAFiredGateWakesALiveParkedLane(t *testing.T) {
 	equal(t, out.Woken, []string{lane2})
 }
 
+func TestARootReplyToTheRunnersDecideLeavesALaneParkedOnItsPRUntilThePRLands(t *testing.T) {
+	s := memory(t)
+	f := adopted(t, s, writeBrief(t), "")
+	f.feed = append(f.feed,
+		rec(2, lane2, "blocked", t0.Add(-mins(10)), "lands after #48099").withRefs(prs(48099)),
+		rec(3, runner, "decide", t0.Add(-mins(9)), "DECIDE msg_s1 conflicts-2: Worker stopped without reporting", Root),
+		rec(4, Root, "answer", t0.Add(-mins(8)), "Known", runner).withRe(3),
+	)
+	f.peers = []Row{{Lane: lane2, Live: true, SeenAt: t0, Dispatch: "ctx_af31953664f5"}}
+	parked := tick(t, s, f, t0)
+
+	equal(t, []any{len(parked.Woken), row(t, s, lane2).Waiting, liveness(t, s, lane2).Woke}, []any{0, int64(2), (*string)(nil)})
+
+	f.feed = append(f.feed, rec(5, runner, kindLanded, t0.Add(mins(1)), "LANDED #48099 as ef104ad", Root).withRefs(prs(48099)))
+	landed := tick(t, s, f, t0.Add(mins(2)))
+
+	equal(t, landed.Woken, []string{lane2})
+	equal(t, *liveness(t, s, lane2).Woke, store.Stamp(t0.Add(mins(1))))
+}
+
+func liveness(t *testing.T, s *store.Store, name string) Liveness {
+	t.Helper()
+	rows, err := LivenessRows(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, one := range rows {
+		if one.Lane == name {
+			return one
+		}
+	}
+	t.Fatalf("%s has no liveness row", name)
+	return Liveness{}
+}
+
 func TestABlockerOnItsPRResumesAParkedLane(t *testing.T) {
 	s := memory(t)
 	f := adopted(t, s, writeBrief(t), "", 48099)
