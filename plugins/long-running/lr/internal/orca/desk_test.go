@@ -2158,7 +2158,7 @@ func TestAnIncidentClockDefersOutsideNoiseUntilItEnds(t *testing.T) {
 }
 
 func TestAConfirmationWithNoActionStaysOnTheBusAndOffTheCoordinator(t *testing.T) {
-	for label, to := range map[string]string{"RELAYED": deskRunner, "LAUNCHED": deskRunner, "ORCA-BACK": deskRunner, "RELAY-FAILED": coordinatorLane, "DECIDE": coordinatorLane, "UNKNOWN-LABEL": coordinatorLane} {
+	for label, to := range map[string]string{"RELAYED": deskRunner, "ORCA-BACK": deskRunner, "LAUNCHED": coordinatorLane, "RELAY-FAILED": coordinatorLane, "DECIDE": coordinatorLane, "UNKNOWN-LABEL": coordinatorLane} {
 		w := newDeskWorld(t)
 		if err := w.desk.escalate("k1", label, testLane, "text"); err != nil {
 			t.Fatal(err)
