@@ -1706,3 +1706,94 @@ func TestNamesVerbReadsAStandDownOnlyWhenNoWordFollowsIt(t *testing.T) {
 		equal(t, namesVerb(text), want)
 	}
 }
+
+func coordinator(t *testing.T, s *store.Store, brief string) *fake {
+	t.Helper()
+	f := newFake(t, []Record{spawned(1, Root, brief, t0.Add(-2*time.Hour), map[string]string{"model": "opus", "effort": "xhigh"})}, []Row{who(Root, true, t0.Add(-time.Hour))})
+	tick(t, s, f, t0.Add(-time.Hour))
+	f.posts = nil
+	return f
+}
+
+func TestADeadCoordinatorRelaunchesFromItsBriefUnderItsOwnNameAndTellsTheBridge(t *testing.T) {
+	s, brief := memory(t), writeBrief(t)
+	f := coordinator(t, s, brief)
+	f.peers = []Row{who(Root, false, t0.Add(-mins(20)))}
+
+	out := tick(t, s, f, t0)
+
+	equal(t, f.launches, []string{Root})
+	equal(t, out.Relaunched, []Relaunch{{Root, Root, "stopped at 9:40 AM"}})
+	equal(t, f.kinds(), []string{"report:" + OwnerRelay})
+	equal(t, row(t, s, Root).State, store.LaneLaunching)
+	if _, found, _ := s.Lane("root-2"); found {
+		t.Fatal("a numbered coordinator")
+	}
+	text := f.briefs[Root]
+	contains(t, text, "You are root, this drive's coordinator, in a new session.")
+	contains(t, text, "root left no handoff")
+	body, _ := os.ReadFile(brief)
+	if !strings.HasSuffix(text, string(body)) {
+		t.Fatal("the brief must end with the coordinator's brief")
+	}
+	f.posts = nil
+	f.peers = []Row{who(Root, true, t0.Add(mins(2)))}
+
+	tick(t, s, f, t0.Add(mins(2)))
+
+	equal(t, row(t, s, Root).State, store.LaneDesired)
+	equal(t, len(f.posts), 0)
+}
+
+func TestACoordinatorThatDiesAgainSoonAfterItsRelaunchIsHeldForTheBridge(t *testing.T) {
+	s := memory(t)
+	f := coordinator(t, s, writeBrief(t))
+	f.peers = []Row{who(Root, false, t0.Add(-mins(20)))}
+	tick(t, s, f, t0)
+	f.peers = []Row{who(Root, true, t0.Add(mins(2)))}
+	tick(t, s, f, t0.Add(mins(2)))
+	f.posts = nil
+	f.peers = []Row{who(Root, false, t0.Add(mins(3)))}
+
+	out := tick(t, s, f, t0.Add(mins(19)))
+
+	equal(t, out.Held, []string{Root})
+	equal(t, f.launches, []string{Root})
+	equal(t, f.kinds(), []string{"blocker:" + OwnerRelay})
+	contains(t, f.posts[0].Text, "it died within 30 minutes of its relaunch")
+}
+
+func TestACoordinatorWithNoProcessRowIsHeldForTheBridge(t *testing.T) {
+	s := memory(t)
+	f := coordinator(t, s, writeBrief(t))
+	f.peers = nil
+
+	out := tick(t, s, f, t0)
+
+	equal(t, out.Held, []string{Root})
+	equal(t, f.kinds(), []string{"blocker:" + OwnerRelay})
+}
+
+func TestACoordinatorsOwnStandDownRecordAboutALaneNeverRetiresTheCoordinator(t *testing.T) {
+	for _, kind := range []string{"stand-down", "stopped", "done", "handoff"} {
+		s, brief := memory(t), writeBrief(t)
+		f := coordinator(t, s, brief)
+		f.feed = append(f.feed, rec(2, Root, kind, t0, "root: other-lane is finished", "other-lane"))
+		f.peers = []Row{who(Root, true, t0)}
+
+		tick(t, s, f, t0)
+
+		equal(t, row(t, s, Root).State, store.LaneDesired)
+	}
+}
+
+func TestACoordinatorHandoffRecordIsTheHandoffItsRelaunchReads(t *testing.T) {
+	s := memory(t)
+	f := coordinator(t, s, writeBrief(t))
+	f.feed = append(f.feed, rec(2, Root, "handoff", t0.Add(-mins(30)), "flushed", OwnerRelay).withRefs(Refs{CCN: "9a1b2c3"}))
+	f.peers = []Row{who(Root, false, t0.Add(-mins(20)))}
+
+	tick(t, s, f, t0)
+
+	contains(t, f.briefs[Root], "doc show 9a1b2c3")
+}
