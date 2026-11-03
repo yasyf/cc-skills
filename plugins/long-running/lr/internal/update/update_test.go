@@ -11,7 +11,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/plans"
 )
 
-const drive = "d1"
+const testDrive = "d1"
 
 var now = time.Date(2026, 11, 2, 19, 0, 0, 0, time.UTC)
 
@@ -20,7 +20,7 @@ func ago(minutes int) time.Time {
 }
 
 func record(seq int64, lane, kind, text string, minutes int) Record {
-	return Record{Seq: seq, Drive: drive, Lane: lane, Kind: kind, Text: text, At: ago(minutes), To: []string{"root"}}
+	return Record{Seq: seq, Drive: testDrive, Lane: lane, Kind: kind, Text: text, At: ago(minutes), To: []string{"root"}}
 }
 
 func heard(name, state string, minutes int) Lane {
@@ -207,7 +207,7 @@ func inputs(t *testing.T) Inputs {
 	ship := heard("ship-2", "desired", 5)
 	ship.Step, ship.Deliverable = "2", "the sealed journal format reaches every reader"
 	return Inputs{
-		Drive:   drive,
+		Drive:   testDrive,
 		Now:     now,
 		Book:    book,
 		Held:    map[string]int64{},
