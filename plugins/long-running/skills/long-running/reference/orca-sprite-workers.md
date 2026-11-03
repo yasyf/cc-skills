@@ -81,6 +81,20 @@ prepare.
 The script prints one `installed <name> <version>` line per tool, cci and lr
 included, and the desk records them for the Sprite when it settles the launch.
 
+`lr sprites roll` moves the Sprites already running onto the same pins. It runs
+the launch's install, with no brief check, on each Sprite that hosts a live
+worker of the drive's Run: `--probe <sprite>` first, else the first by name,
+then the rest in name order, one at a time. A failure stops the roll, so every
+later Sprite keeps what it runs, and the pin that failed is marked bad in the
+drive's store; a roll whose pins include a version marked bad refuses before
+it touches any Sprite. A roll does not wait for a lane to go idle. A binary is
+replaced by rename, so a running process keeps its old file; a plugin's old
+tree stays where the session loaded it; and a lane in mid-turn sees the new
+hooks at its next hook call, and the new skills only in its next session.
+
+`lr sprites` prints, from one store read, each Sprite's tools and versions as
+its last launch or roll installed them.
+
 The same step then checks, once, that the box runs every drive CLI the
 carried brief invokes: `ccn`, `cc-notes`, `cci`, `lr`, `gh` and `ccx`, each
 counted when the brief names it before a space and a lowercase verb. A box
