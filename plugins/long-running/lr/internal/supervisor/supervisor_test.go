@@ -276,6 +276,7 @@ func TestAnUnreadLanesSourceAndAFailedCheckSkipOnlyThemselves(t *testing.T) {
 
 func TestAHungCheckHoldsNeitherTheOtherChecksNorTheTickAndEndsWithTheRun(t *testing.T) {
 	ran := make(chan struct{})
+	started := make(chan struct{})
 	var first sync.Once
 	ended := make(chan struct{})
 	d := Deps{
@@ -285,11 +286,13 @@ func TestAHungCheckHoldsNeitherTheOtherChecksNorTheTickAndEndsWithTheRun(t *test
 				if _, bounded := ctx.Deadline(); !bounded {
 					t.Error("a check runs with no deadline")
 				}
+				close(started)
 				<-ctx.Done()
 				close(ended)
 				return ctx.Err()
 			},
 			func(context.Context, time.Time) error {
+				<-started
 				first.Do(func() { close(ran) })
 				return nil
 			},
