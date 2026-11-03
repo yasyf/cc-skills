@@ -7,7 +7,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from captain_hook import Allow, BaseHookEvent, Block, Event, HookResult, Input, Rewrite, Tool, Warn, on
+from captain_hook import Allow, BaseHookEvent, Block, Event, HookResult, Input, Rewrite, Runs, Tool, Warn, on
 from captain_hook.util import reqenv
 
 from .compaction_handoff import CompactionState, drive_entry, script
@@ -100,3 +100,41 @@ def stand_downs_go_through_the_registry(evt: BaseHookEvent) -> HookResult | None
     if not (lane := stands_down_another(evt)):
         return None
     return evt.block(f"Only the lane supervisor stands a lane down, so its registry and cci's mail routing agree. Ask it for `{lane}` with `drive_supervisor.py request stand-down <lane> --config <state dir>/lr.json --last-read <seq> [--successor <lane>]`, or post `--kind done` to end your own work.")
+
+
+URGENT_KINDS = frozenset({"incident", "decide"})
+NOT_LANES = frozenset({ROOT, MAIN, "all"})
+
+
+def urgent_targets(evt: BaseHookEvent) -> list[str]:
+    targets = []
+    for call in evt.command.calls("cci"):
+        args = list(call.args)
+        if args[:1] != ["post"]:
+            continue
+        flags = dict(itertools.pairwise(args))
+        posted = {arg.split("=", 1)[0]: arg.split("=", 1)[1] for arg in args if arg.startswith("--") and "=" in arg}
+        if (flags.get("--kind") or posted.get("--kind")) not in URGENT_KINDS:
+            continue
+        named = [value for flag, value in itertools.pairwise(args) if flag == "--to"] + [value for flag, value in posted.items() if flag == "--to"]
+        targets += [lane for target in named for name in target.split(",") if (lane := name.split("@", 1)[0]) and lane not in NOT_LANES and not lane.startswith("peer:")]
+    return targets
+
+
+@on(
+    Event.PreToolUse,
+    only_if=[Tool("Bash"), Runs("cci", "post")],
+    tests={
+        Input(tool="Bash", tool_input={"command": "cci post --lane root --kind incident --to s3-errors-2 --text 'litestream respawn'"}, env=DRIVE_CONFIG, commands=route("s3-errors-2", ROOT)): Block(pattern=r"^`s3-errors-2` is stood down in the lane supervisor's registry with no successor"),
+        Input(tool="Bash", tool_input={"command": "cci post --lane root --kind decide --to s3-errors-2@drive,root --text 'x'"}, env=DRIVE_CONFIG, commands=route("s3-errors-2", "s3-errors-3")): Block(pattern=r"its successor `s3-errors-3`"),
+        Input(tool="Bash", tool_input={"command": "cci post --lane root --kind incident --to s3-errors-3 --text 'x'"}, env=DRIVE_CONFIG, commands=route("s3-errors-3", "s3-errors-3", "desired")): Allow(),
+        Input(tool="Bash", tool_input={"command": "cci post --lane root --kind note --to s3-errors-2 --text 'x'"}, env=DRIVE_CONFIG, commands=route("s3-errors-2", ROOT)): Allow(),
+        Input(tool="Bash", tool_input={"command": "cci post --lane root --kind incident --to s3-errors-2 --text 'x'"}): Allow(),
+    },
+)
+def urgent_posts_reach_live_lanes(evt: BaseHookEvent) -> HookResult | None:
+    for lane in urgent_targets(evt):
+        if (found := routed(evt, lane)) and found["route"] != lane:
+            heir = f"its successor `{found['route']}`" if found["route"] != ROOT else "no successor"
+            return evt.block(f"`{lane}` is stood down in the lane supervisor's registry with {heir}, so this incident or decide would sit unread (retro row 139: a 7:33 AM incident routed to a lane that ended at 7:27 AM). Post it to {heir if found['route'] != ROOT else 'a live lane'}, or spawn the successor in this turn and post to it.")
+    return None
