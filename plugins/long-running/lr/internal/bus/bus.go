@@ -10,10 +10,12 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
-	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 )
 
-const namespace = "lr"
+const (
+	namespace  = "lr"
+	OwnerRelay = "owner-relay"
+)
 
 var headRequired = []string{"pr", "head", "lane"}
 
@@ -183,7 +185,7 @@ func Check(kind string, raw json.RawMessage, to []string) error {
 	return nil
 }
 
-var escalationRoles = []string{"supervisor", "root", "owner", lanes.OwnerRelay}
+var escalationRoles = []string{"supervisor", "root", "owner", OwnerRelay}
 
 func Overdue(to, subject, cause string) Body {
 	if slices.Contains(escalationRoles, to) {

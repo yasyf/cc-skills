@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/deletions"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -17,7 +18,7 @@ import (
 const (
 	Self        = "supervisor"
 	Root        = "root"
-	OwnerRelay  = "owner-relay"
+	OwnerRelay  = bus.OwnerRelay
 	runner      = "desk-runner"
 	mainLane    = "main"
 	CursorName  = "lanes"
