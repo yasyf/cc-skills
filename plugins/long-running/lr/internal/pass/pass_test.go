@@ -484,6 +484,9 @@ func TestAnOverdueRedOrRestackGoesToThePRsLaneNeverRoot(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			s, r := newStore(t), &recorder{}
 			pr := facts(45470, given)
+			if _, err := s.WantLane(store.Lane{Name: pr.Lane, State: store.LaneDesired}, t0); err != nil {
+				t.Fatal(err)
+			}
 
 			run(t, s, r, t0, all, pr)
 			run(t, s, r, t0.Add(20*time.Minute), all, pr)
