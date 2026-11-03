@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -31,6 +32,8 @@ const (
 	workerPin       = "9.8.7"
 	testCCIURL      = "https://example.test/cci_linux_amd64.tar.gz"
 	testCCISHA      = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+	testLRURL       = "https://github.com/yasyf/cc-skills/releases/download/lr--v9.9.9/lr_9.9.9_linux_amd64.tar.gz"
+	testLRSHA       = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
 	localWorktree   = "/w/lane-a"
 	localTerminal   = "term_local_1"
 	sponsorBox      = "sponsor-1"
@@ -50,7 +53,7 @@ var (
 	allocationKept = []string{"allocation.json", "brief.md", "prepare.err", "prepare.status", "request.json"}
 	prepareKept    = sorted(allocationKept, "prepared.json")
 	startKept      = []string{"worker-start.err", "worker-start.json", "worker-start.status"}
-	spriteKept     = sorted(prepareKept, slices.Concat(startKept, []string{"cci-install.log"})...)
+	spriteKept     = sorted(prepareKept, slices.Concat(startKept, []string{"install.log"})...)
 	localKept      = sorted(startKept, "request.json")
 )
 
@@ -58,6 +61,16 @@ func sorted(base []string, more ...string) []string {
 	joined := slices.Concat(base, more)
 	slices.Sort(joined)
 	return joined
+}
+
+func lrPin(platform string) string {
+	return "#!/usr/bin/env binrun\n" + rendered(object{"schema": 1, "name": "lr", "kind": "release-binary", "platforms": object{platform: object{
+		"hash":      "sha256",
+		"digest":    testLRSHA,
+		"format":    "tar.gz",
+		"path":      "lr",
+		"providers": []object{{"type": "github-release", "repo": "yasyf/cc-skills", "tag": "lr--v9.9.9", "name": "lr_9.9.9_linux_amd64.tar.gz"}},
+	}}})
 }
 
 func hexSum(text string) string {
@@ -176,6 +189,7 @@ func newWorkerFixture(t *testing.T) *workerFixture {
 	f.write(f.config, "provider: sprites\n", 0o600)
 	f.write(f.payload, rendered(object{"bootstrapHelper": object{"version": workerPin}}), 0o600)
 	f.write(f.brief, workerBrief, 0o600)
+	f.write(filepath.Join(root, "plugin", "bin", "lr.binrun"), lrPin("linux-x86_64"), 0o700)
 	if err := os.MkdirAll(f.home, 0o750); err != nil {
 		t.Fatal(err)
 	}
@@ -185,6 +199,7 @@ func newWorkerFixture(t *testing.T) *workerFixture {
 		"WORKER_CCI_URL":       testCCIURL,
 		"WORKER_CCI_SHA256":    testCCISHA,
 		"ORCA_TERMINAL_HANDLE": "term_coordinator",
+		"BINRUN_PLUGIN_ROOT":   filepath.Join(root, "plugin"),
 		"HOME":                 f.home,
 	}
 	return f
@@ -361,7 +376,7 @@ func (f *workerFixture) prepareCallFor(lane, kind, model, effort string, extra .
 }
 
 func installCall(workspace string) []string {
-	return []string{"sprite", "exec", "-s", workspace, "--no-stdin", "--", "sh", "-c", installCCI, "sh", testCCIURL, testCCISHA}
+	return []string{"sprite", "exec", "-s", workspace, "--no-stdin", "--", "sh", "-c", installTools, "sh", testCCIURL, testCCISHA, testLRURL, testLRSHA, "lr"}
 }
 
 func (f *workerFixture) startCalls(task object) [][]string {
@@ -695,13 +710,63 @@ func TestAFailedRelayJoinWarnsAndStillStartsTheWorker(t *testing.T) {
 	}
 }
 
-func TestAFailedCCIInstallLeavesThePreparedWorkerUnattached(t *testing.T) {
+func TestAFailedToolInstallLeavesThePreparedWorkerUnattached(t *testing.T) {
 	f := newWorkerFixture(t)
 	f.sprite()
 	f.reply("sprite exec", workerReply{code: 1})
-	f.refusedWith(fmt.Sprintf("installing cci from %s on Sprite %s failed; %s/cci-install.log keeps its output, and the prepared worker stays idle and unattached", testCCIURL, workerWorkspace, f.attempt), versionCall, currentRunCall, f.prepareCall(), installCall(workerWorkspace))
-	if kept := f.kept(); !slices.Equal(kept, sorted(prepareKept, "cci-install.log")) {
+	f.refusedWith(fmt.Sprintf("installing cci from %s and lr from %s on Sprite %s failed; %s/install.log keeps its output, and the prepared worker stays idle and unattached", testCCIURL, testLRURL, workerWorkspace, f.attempt), versionCall, currentRunCall, f.prepareCall(), installCall(workerWorkspace))
+	if kept := f.kept(); !slices.Equal(kept, sorted(prepareKept, "install.log")) {
 		t.Fatal(kept)
+	}
+}
+
+func TestAPackWithoutALinuxLRPinRefusesBeforeAnyCall(t *testing.T) {
+	f := newWorkerFixture(t)
+	descriptor := filepath.Join(f.root, "plugin", "bin", "lr.binrun")
+	f.write(descriptor, lrPin("macos-aarch64"), 0o700)
+	f.refusedWith(descriptor + " pins no sha256 tar.gz GitHub release of lr for linux-x86_64; nothing was prepared")
+	f = newWorkerFixture(t)
+	f.env["BINRUN_PLUGIN_ROOT"] = filepath.Join(f.root, "absent")
+	f.refusedWith("no lr pin at " + filepath.Join(f.root, "absent", "bin", "lr.binrun") + " to install on the Sprite; run lr through the pack's bin/lr; nothing was prepared")
+	f.wantNoAttempt()
+}
+
+func TestTheToolInstallPutsThePinnedLROnPathAndRefusesAnotherDigest(t *testing.T) {
+	dir := t.TempDir()
+	archive := func(name, text string) (string, string) {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(text), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		tgz := filepath.Join(dir, name+".tgz")
+		if out, err := exec.Command("tar", "-C", dir, "-czf", tgz, name).CombinedOutput(); err != nil {
+			t.Fatal(string(out), err)
+		}
+		raw, err := os.ReadFile(tgz)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return "file://" + tgz, hexSum(string(raw))
+	}
+	cciURL, cciSHA := archive("cci", "#!/bin/sh\necho cci\n")
+	lrURL, lrSHA := archive("lr", "#!/bin/sh\necho lr 9.9.9\n")
+	install := func(digest string) (string, error) {
+		home := t.TempDir()
+		run := exec.Command("sh", "-c", installTools, "sh", cciURL, cciSHA, lrURL, digest, "lr")
+		run.Env = append(os.Environ(), "HOME="+home)
+		if out, err := run.CombinedOutput(); err != nil {
+			return filepath.Join(home, ".local", "bin", "lr"), fmt.Errorf("%s: %w", out, err)
+		}
+		return filepath.Join(home, ".local", "bin", "lr"), nil
+	}
+	lr, err := install(lrSHA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command(lr).Output(); err != nil || string(out) != "lr 9.9.9\n" {
+		t.Fatal(string(out), err)
+	}
+	if lr, err = install(testLRSHA); err == nil || present(lr) {
+		t.Fatal("an archive off the pinned digest installed lr", err)
 	}
 }
 

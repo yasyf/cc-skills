@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -34,7 +35,8 @@ const (
 	allocationWarm    = "warm"
 	allocationCreated = "created"
 	idleWarning       = "so the prepared worker stays idle and unattached"
-	installCCI        = `curl -fsSL "$1" -o /tmp/cci.tgz && echo "$2  /tmp/cci.tgz" | sha256sum -c - && mkdir -p ~/.local/bin && tar -xzf /tmp/cci.tgz -C ~/.local/bin cci`
+	installTools      = `mkdir -p ~/.local/bin && curl -fsSL "$1" -o /tmp/cci.tgz && echo "$2  /tmp/cci.tgz" | sha256sum -c - && tar -xzf /tmp/cci.tgz -C ~/.local/bin cci && curl -fsSL "$3" -o /tmp/lr.tgz && echo "$4  /tmp/lr.tgz" | sha256sum -c - && tar -xzOf /tmp/lr.tgz "$5" > ~/.local/bin/lr && chmod 755 ~/.local/bin/lr`
+	lrPlatform        = "linux-x86_64"
 	unpackCarried     = `mkdir -p "$1" && tar -xzf - -C "$1"`
 	joinRelay         = `CCI_SERVICE_KEY=$(cat); export CCI_SERVICE_KEY; ~/.local/bin/cci relay join --instance --drive "$1" --url "$2" --ttl 24h --owner "$3" && sprite-env services create cci --cmd "$HOME/.local/bin/cci" --args supervise --no-stream`
 )
@@ -60,6 +62,7 @@ type workerLaunch struct {
 	lane, effort, brief, run, ref, expect, tier   string
 	modelID, kind, route, dir, stem, attempt, sha string
 	checkout, ccURL, ccSHA, ccRemote, config      string
+	lrURL, lrSHA, lrMember                        string
 	terminal, worktree                            string
 	bytes                                         int
 }
@@ -257,6 +260,9 @@ func (w *workerLaunch) checkSprite() error {
 	if w.ccSHA = w.Env("WORKER_CCI_SHA256"); w.ccSHA == "" {
 		return refuse("set WORKER_CCI_SHA256 to the SHA-256 of that archive")
 	}
+	if err := w.pinLR(); err != nil {
+		return err
+	}
 	tools := filepath.Join(w.checkout, "tools", "cc-remote")
 	if w.ccRemote = w.Env("WORKER_CC_REMOTE"); w.ccRemote == "" {
 		w.ccRemote = filepath.Join(tools, "bin", "cc-remote")
@@ -305,6 +311,40 @@ func (w *workerLaunch) checkPin(tools string) error {
 		version = "nothing"
 	}
 	return refuse("%s version printed %s, and %s pins bootstrap helper %s; a Sprite needs the CLI at exactly its helper's release; nothing was prepared", w.ccRemote, version, w.config, pin)
+}
+
+type binrunRelease struct {
+	Type string `json:"type"`
+	Repo string `json:"repo"`
+	Tag  string `json:"tag"`
+	Name string `json:"name"`
+}
+
+func (w *workerLaunch) pinLR() error {
+	descriptor := filepath.Join(w.Env("BINRUN_PLUGIN_ROOT"), "bin", "lr.binrun")
+	var pin struct {
+		Platforms map[string]struct {
+			Hash      string          `json:"hash"`
+			Digest    string          `json:"digest"`
+			Format    string          `json:"format"`
+			Path      string          `json:"path"`
+			Providers []binrunRelease `json:"providers"`
+		} `json:"platforms"`
+	}
+	raw, err := os.ReadFile(descriptor)
+	_, body, _ := bytes.Cut(raw, []byte("\n"))
+	if err != nil || json.Unmarshal(body, &pin) != nil {
+		return refuse("no lr pin at %s to install on the Sprite; run lr through the pack's bin/lr; nothing was prepared", descriptor)
+	}
+	linux := pin.Platforms[lrPlatform]
+	release := slices.IndexFunc(linux.Providers, func(p binrunRelease) bool { return p.Type == "github-release" })
+	if linux.Hash != "sha256" || linux.Format != "tar.gz" || release < 0 {
+		return refuse("%s pins no sha256 tar.gz GitHub release of lr for %s; nothing was prepared", descriptor, lrPlatform)
+	}
+	asset := linux.Providers[release]
+	w.lrURL = "https://github.com/" + asset.Repo + "/releases/download/" + asset.Tag + "/" + asset.Name
+	w.lrSHA, w.lrMember = linux.Digest, linux.Path
+	return nil
 }
 
 func oneDocument(raw string) (json.RawMessage, bool) {
@@ -646,12 +686,12 @@ func (w *workerLaunch) startSprite() (string, error) {
 	if err := w.copyCarried(workspace); err != nil {
 		return "", err
 	}
-	stdout, stderr, code := w.capture("sprite", "exec", "-s", workspace, "--no-stdin", "--", "sh", "-c", installCCI, "sh", w.ccURL, w.ccSHA)
-	if err := w.receipt("cci-install.log", stdout+stderr); err != nil {
+	stdout, stderr, code := w.capture("sprite", "exec", "-s", workspace, "--no-stdin", "--", "sh", "-c", installTools, "sh", w.ccURL, w.ccSHA, w.lrURL, w.lrSHA, w.lrMember)
+	if err := w.receipt("install.log", stdout+stderr); err != nil {
 		return "", err
 	}
 	if code != 0 {
-		return "", refuse("installing cci from %s on Sprite %s failed; %s keeps its output, and the prepared worker stays idle and unattached", w.ccURL, workspace, filepath.Join(w.attempt, "cci-install.log"))
+		return "", refuse("installing cci from %s and lr from %s on Sprite %s failed; %s keeps its output, and the prepared worker stays idle and unattached", w.ccURL, w.lrURL, workspace, filepath.Join(w.attempt, "install.log"))
 	}
 	var relay *string
 	if sponsor := w.Env("WORKER_RELAY_SPONSOR"); sponsor != "" {
