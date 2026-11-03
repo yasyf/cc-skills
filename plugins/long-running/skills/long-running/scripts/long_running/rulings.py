@@ -62,7 +62,10 @@ capture ``classify`` already put on that row as a repeat, with the capture's wor
 that replaces the one line ``--strike`` names, in that line's direction.
 
 ``amend`` links answer ids to a row and rewrites one implication's text or direction, keeping its state and proof; each edit
-lands on the row's ``amends`` list with its time and, for an implication, the text or direction it replaced. It refuses to
+lands on the row's ``amends`` list with its time and, for an implication, the text or direction it replaced. Every answer
+it names, as ``--answer`` or ``--proof``, must be labelled ``from:owner`` or ``slack:owner-words``, else it refuses with
+``NOT-OWNER`` and writes nothing; it takes no tap time, so an answer the owner gave on a board, in Slack or in chat lands
+on any row, an ``exception/`` row included, whose linked answers are what approve it. It refuses to
 rewrite a ticked line's text unless ``--rewrite-ticked`` is passed: a later correction is ``--add``, which appends a new line
 numbered after the row's last, proposed, or ticked when ``--proof`` names the owner's words behind it: a ccn answer id,
 or ``requirement:root-<seq>`` for a root record on the drive's cci drive; a proof naming neither is refused. An implication
@@ -1523,10 +1526,15 @@ def classifiable(loaded: Register, args: argparse.Namespace) -> dict[str, dict]:
     return {sourced["digest"]: sourced}
 
 
-def answer_capture(loaded: Register, identity: str) -> dict:
+def owner_answer(loaded: Register, identity: str) -> dict:
     answer = ccn(loaded.shell, loaded.repo, "answer", "show", identity)
     if not OWNER_SOURCES & set(answer.get("tags") or []):
-        raise SystemExit(f"NOT-OWNER {identity}: classify --answer reads only an answer labelled {' or '.join(sorted(OWNER_SOURCES))}, whose body holds the owner's clicked words or his verbatim Slack replies")
+        raise SystemExit(f"NOT-OWNER {identity}: the register takes only an answer labelled {' or '.join(sorted(OWNER_SOURCES))}, whose body holds the owner's clicked words or his verbatim Slack replies")
+    return answer
+
+
+def answer_capture(loaded: Register, identity: str) -> dict:
+    answer = owner_answer(loaded, identity)
     return {"digest": answer["id"][:DIGEST_CHARS], "at": answer["created_at"], "source": ANSWER_SOURCE, "text": answer["body"], "answer": answer["id"]}
 
 
@@ -1696,7 +1704,7 @@ def cmd_amend(args: argparse.Namespace, shell: ledger.Shell) -> int:
         answers = listed(fields.get("answer"))
         known, added = {str(answer)[:SHORT] for answer in answers}, []
         for identity in args.answer:
-            if (found := ccn(loaded.shell, loaded.repo, "answer", "show", identity)["id"])[:SHORT] not in known:
+            if (found := owner_answer(loaded, identity)["id"])[:SHORT] not in known:
                 known.add(found[:SHORT])
                 added.append(found)
         implications = listed(fields.get("implications"))
@@ -1747,7 +1755,7 @@ def amended_words(args: argparse.Namespace, loaded: Register) -> int:
             return 1
         source, body, at, proof, cited, named = f"capture {args.capture}", capture["text"], capture["at"], f"proof:{capture.get('source', 'prompt')}:{args.capture}", [], {"capture": args.capture}
     else:
-        answer = ccn(loaded.shell, loaded.repo, "answer", "show", args.answer[0])
+        answer = owner_answer(loaded, args.answer[0])
         source, body, at, proof, cited, named = f"answer {answer['id'][:SHORT]}", answer["body"], answer["created_at"], f"proof:answer:{answer['id'][:DIGEST_CHARS]}", [answer["id"]], {"answer": answer["id"]}
     if args.words not in body:
         print(f"NOT-VERBATIM {args.key}: --words must be a verbatim span of {source}", file=args.stdout)
@@ -1772,7 +1780,7 @@ def amended_words(args: argparse.Namespace, loaded: Register) -> int:
 
 def proof_of(args: argparse.Namespace, loaded: Register, proof: str) -> str:
     if not (requirement := ROOT_REQUIREMENT.fullmatch(proof)):
-        return ccn(loaded.shell, loaded.repo, "answer", "show", proof)["id"]
+        return owner_answer(loaded, proof)["id"]
     if not (entry := entry_of(args)):
         raise SystemExit(f"no drive runs program {loaded.program}; {proof} names a record on its cci drive")
     if (lane := record_of(loaded.shell, drive.cci_drive(entry), int(requirement[1])).get("lane")) != "root":
@@ -3003,9 +3011,9 @@ def build_parser(parser_type=argparse.ArgumentParser) -> argparse.ArgumentParser
     confirm.add_argument("--tick", metavar="N,...|all")
     confirm.add_argument("--strike", metavar="N,...")
     confirm.add_argument("--implication", metavar="TEXT", help="the narrowed line that replaces the one line --strike names")
-    amend = verb("amend", cmd_amend, "link answer ids to a row, add an implication, rewrite one implication's text, or grow its words to the owner's whole quote, each edit recorded on the row's amends")
+    amend = verb("amend", cmd_amend, "link the owner's answer ids to a row with no tap time, add an implication, rewrite one implication's text, or grow its words to the owner's whole quote, each edit recorded on the row's amends")
     amend.add_argument("key")
-    amend.add_argument("--answer", action="append", default=[], metavar="ID")
+    amend.add_argument("--answer", action="append", default=[], metavar="ID", help="an answer labelled from:owner or slack:owner-words; any other is refused with NOT-OWNER")
     amend.add_argument("--implication", type=int, metavar="N")
     amend.add_argument("--add", action="store_true", help="append --text as a new implication numbered after the row's last")
     amend.add_argument("--proof", metavar="REF", help="with --add, a ccn answer id or requirement:root-<seq> that ticks the new line; without it the line is proposed")
