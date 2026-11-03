@@ -6,24 +6,136 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/board"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
 const (
-	deskRunner = "desk-runner"
-	onSprite   = "/.sprite"
-	legacyHead = "head"
+	deskRunner      = "desk-runner"
+	onSprite        = "/.sprite"
+	legacyHead      = "head"
+	tapStoreFile    = "lr.sqlite"
+	openPullsMaxAge = "1m"
+	openPullsLimit  = "1000"
+	openPullsFields = "number,title,body,headRefOid,headRefName,baseRefName"
 )
 
 func Command(a *app.App) *cobra.Command {
 	cmd := &cobra.Command{Use: "landing", Short: "Move ready heads into the queue, moved heads out, and conflicts onto their base"}
-	cmd.AddCommand(restackCommand(a))
+	cmd.AddCommand(restackCommand(a), askTapsCommand(a), drawTapsCommand(a))
+	return cmd
+}
+
+func askTapsCommand(a *app.App) *cobra.Command {
+	var runnerPath string
+	cmd := &cobra.Command{
+		Use:   "ask-taps",
+		Short: "Put every PR the desk says waits on the owner's tap on his Slack card, and raise one blocker per PR and head left with none",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			var ask TapAsk
+			if err := json.NewDecoder(cmd.InOrStdin()).Decode(&ask); err != nil {
+				return fmt.Errorf("the desk's verdict on stdin: %w", err)
+			}
+			tapper, closeStore, err := newTapper(a, runnerPath)
+			if err != nil {
+				return err
+			}
+			defer closeStore()
+			report, err := tapper.Ask(cmd.Context(), ask, a.Now())
+			if err != nil {
+				return err
+			}
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(report)
+		},
+	}
+	cmd.Flags().StringVar(&runnerPath, "runner", "", "the drive's runner.json, naming the repository, the drive and landing.owner_thread")
+	if err := cmd.MarkFlagRequired("runner"); err != nil {
+		panic(err)
+	}
+	return cmd
+}
+
+func newTapper(a *app.App, runnerPath string) (Tapper, func(), error) {
+	runner, err := config.LoadRunner(runnerPath)
+	if err != nil {
+		return Tapper{}, nil, err
+	}
+	var section struct {
+		Repo        string `json:"repo"`
+		OwnerThread string `json:"owner_thread"`
+	}
+	if err := json.Unmarshal(runner.Sections["landing"], &section); err != nil {
+		return Tapper{}, nil, fmt.Errorf("%s: landing: %w", runnerPath, err)
+	}
+	if section.OwnerThread == "" {
+		return Tapper{}, nil, fmt.Errorf("%s: landing.owner_thread must name the ts of the owner's Slack DM status thread, so a tap card has a thread to post in", runnerPath)
+	}
+	s, err := store.Open(filepath.Join(filepath.Dir(runnerPath), tapStoreFile))
+	if err != nil {
+		return Tapper{}, nil, err
+	}
+	pulls := func(ctx context.Context) ([]board.Pull, error) {
+		out, err := a.CCX.GH(ctx, openPullsMaxAge, "pr", "list", "--repo", section.Repo, "--state", "open", "--limit", openPullsLimit, "--json", openPullsFields)
+		if err != nil {
+			return nil, err
+		}
+		var pulls []board.Pull
+		err = json.Unmarshal([]byte(out), &pulls)
+		return pulls, err
+	}
+	return Tapper{Store: s, Bus: tapInbox{runner.Drive}, Pulls: pulls, Repo: section.Repo, Thread: section.OwnerThread}, func() { _ = s.Close() }, nil
+}
+
+func drawTapsCommand(a *app.App) *cobra.Command {
+	var drive, session string
+	var write int64
+	cmd := &cobra.Command{
+		Use:   "draw-taps",
+		Short: "On the board's machine, draw the tap card on stdin and record each Slack card it posted against its PR and head",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			var card board.TapCard
+			if err := json.NewDecoder(cmd.InOrStdin()).Decode(&card); err != nil {
+				return fmt.Errorf("the tap card on stdin: %w", err)
+			}
+			links, said, drawErr := DrawTaps(cmd.Context(), a.Runner, session, card)
+			if len(links) > 0 {
+				raw, err := json.Marshal(links)
+				if err != nil {
+					return err
+				}
+				if _, err := client.Post(cmd.Context(), client.Draft{
+					Drive: drive, Lane: boardWatchLane, Kind: appliedKind, To: []string{deskRunner}, ID: fmt.Sprintf("tap-cards:%d", write),
+					Text:  fmt.Sprintf("board write #%d drew %d Slack-carded rows", write, len(links)),
+					Attrs: map[string]string{tapCardsAttr: string(raw)},
+				}); err != nil {
+					return err
+				}
+			}
+			if drawErr != nil {
+				return drawErr
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), said)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&drive, "drive", "", "the drive the board belongs to")
+	cmd.Flags().StringVar(&session, "session", "", "the board's session")
+	cmd.Flags().Int64Var(&write, "write", 0, "the seq of the board-write record this draw answers")
+	for _, name := range []string{"drive", "session", "write"} {
+		if err := cmd.MarkFlagRequired(name); err != nil {
+			panic(err)
+		}
+	}
 	return cmd
 }
 

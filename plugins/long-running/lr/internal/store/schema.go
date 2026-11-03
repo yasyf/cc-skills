@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS facts (
   value TEXT NOT NULL, posted TEXT NOT NULL,
   PRIMARY KEY (repo, number, head, kind)
 );
+CREATE INDEX IF NOT EXISTS facts_kind ON facts (repo, kind);
 CREATE TABLE IF NOT EXISTS escalations (
   subject TEXT NOT NULL, cause TEXT NOT NULL, to_mover TEXT NOT NULL, raised TEXT NOT NULL,
   PRIMARY KEY (subject, cause)

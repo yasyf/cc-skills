@@ -174,6 +174,25 @@ func TestFactsArePerHead(t *testing.T) {
 	}
 }
 
+func TestFactsOfKindReadsOneKindAcrossPRsAndHeadsWithWhenItChanged(t *testing.T) {
+	s := memory(t)
+	must[bool](t)(s.PutFact(repo, 2, head, "row", "on", t0))
+	must[bool](t)(s.PutFact(repo, 1, head, "row", "on", t0))
+	must[bool](t)(s.PutFact(repo, 1, head, "row", "on", t0.Add(time.Minute)))
+	must[bool](t)(s.PutFact(repo, 1, head, "card", "url", t0))
+	must[bool](t)(s.PutFact("org/other", 3, head, "row", "on", t0))
+	got, err := s.FactsOfKind(repo, "row")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].Number != 1 || got[1].Number != 2 || got[0].Value != "on" || got[0].Head != head {
+		t.Fatalf("facts = %+v", got)
+	}
+	if !got[0].Posted.Equal(t0) {
+		t.Fatalf("posted = %v, want the time the value last changed", got[0].Posted)
+	}
+}
+
 func TestAFactKeyedByAShortShaCountsForTheFullHeadAndTheNewestValueWins(t *testing.T) {
 	s := memory(t)
 	must[bool](t)(s.PutFact(repo, 46000, head[:7], "finder", "ask", t0))

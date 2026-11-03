@@ -107,7 +107,7 @@ func ownerTap(record client.Record) []Fact {
 	attrs := record.Fields.Attrs
 	value, tap := ownerTaps[attrs["verdict"]]
 	row, err := strconv.Atoi(attrs["row"])
-	if attrs["block"] != "merge-prs" || !tap || attrs["head"] == "" || err != nil {
+	if !strings.HasPrefix(attrs["block"], "merge-prs") || !tap || attrs["head"] == "" || err != nil {
 		return nil
 	}
 	return []Fact{{row, strings.ToLower(attrs["head"]), "tap", value}}

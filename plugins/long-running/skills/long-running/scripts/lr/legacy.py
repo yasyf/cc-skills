@@ -52,7 +52,7 @@ def facts_of(record: dict, repo: str, go_lanes: tuple[str, ...] = ()) -> list[tu
         return [(int(pr), head, "fidelity", grade) for pr, _ in grades.repo_prs(record, repo)] if head else []
     if kind == "owner":
         attrs = (record.get("fields") or {}).get("attrs") or {}
-        if attrs.get("block") == "merge-prs" and attrs.get("verdict") in TAPS and attrs.get("head") and str(attrs.get("row", "")).isdigit():
+        if str(attrs.get("block", "")).startswith("merge-prs") and attrs.get("verdict") in TAPS and attrs.get("head") and str(attrs.get("row", "")).isdigit():
             return [(int(attrs["row"]), attrs["head"].lower(), "tap", TAPS[attrs["verdict"]])]
         return []
     if not grades.delegated(lane, [grades.ROOT, *go_lanes]):

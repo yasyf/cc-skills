@@ -281,6 +281,8 @@ class FakeShell(runner_module.Shell):
         self.stall_pass = Running()
         self.board: dict[str, dict[str, dict]] = {}
         self.board_rows: list[tuple[str, str]] = []
+        self.lr_calls: list[tuple[list[str], dict]] = []
+        self.lr_done: tuple[int, str, str] = (0, "{}", "")
         self.unknown_blocks: set[str] = set()
         self.carries: list[dict[str, str]] = []
         self.register: dict[str, dict] = {}
@@ -407,6 +409,9 @@ class FakeShell(runner_module.Shell):
             return runner_module.Done(0 if argv[3] in self.keychain else 44, "", "")
         if argv[:2] == ["codex-ask", "--cancel"]:
             return runner_module.Done(0, "", "")
+        if name == "lr":
+            self.lr_calls.append((argv[1:], json.loads(stdin)))
+            return runner_module.Done(*self.lr_done)
         if name == "remote-restack.py":
             self.restacks.append(argv[1:])
             return runner_module.Done(*self.restack_done)
@@ -4936,6 +4941,105 @@ def test_the_runners_own_go_on_a_tap_lifts_no_hold(shell, config, tmp_path):
     assert shell.enqueues() == [] and [note for note in notes(shell) if post_body(note).startswith("HOLD-LIFTED")] == []
 
 
+def a_pr_with_every_gate_and_no_tap(shell: FakeShell, config: Path) -> None:
+    board_surface(config)
+    board_lane(config)
+    lone_green_pr(shell)
+    shell.rows[0]["test_state"] = "success"
+    shell.queue["29020"] = "not queued"
+    shell.pr_status["29020"] = {"verdict": "landable"}
+    shell.github_merge["29020"] = {"headRefOid": "cccc333333", "mergeable": "MERGEABLE", "mergeStateStatus": "CLEAN"}
+    grade(shell, "29020", "ok F307 at cccc333.")
+
+
+WAITS_AT_ITS_HEAD = [{"pr": 29020, "head": "cccc333333"}]
+
+
+def test_the_pass_that_marks_a_pr_waiting_hands_it_to_the_tap_card_verb(shell, config, tmp_path):
+    """Owner 6:57 PM Nov 2: every PR waiting on an owner tap must have reached his Slack, with no separate human step."""
+    a_pr_with_every_gate_and_no_tap(shell, config)
+    landing_pass(shell, config)
+    [(argv, ask)] = shell.lr_calls
+    assert argv == ["landing", "ask-taps", "--runner", str(config)]
+    assert ask == {"session": "s-root", "waiting": WAITS_AT_ITS_HEAD, "tapped": [], "bound": []}
+
+
+def test_a_ruling_in_prose_alone_never_keeps_a_waiting_pr_off_his_card(shell, config, tmp_path):
+    """tap-pipeline-fix-1, 7:25 PM Nov 2: root's `decide` called #48450 exempt and #48646 held in words, so the desk waited on a tap while the refresher drew nothing."""
+    a_pr_with_every_gate_and_no_tap(shell, config)
+    shell.records.append({"seq": 34766 + len(shell.records), "drive": "d1", "lane": "root", "kind": "decide", "to": ["board-refresher"], "refs": {"prs": [29020]}, "text": "#29020 is exempt, a test-only change; hold #29020 off the board", "at": "2026-10-01T17:00:00Z"})
+    landing_pass(shell, config)
+    assert shell.lr_calls[-1][1]["waiting"] == WAITS_AT_ITS_HEAD
+
+
+def test_a_typed_hold_takes_a_pr_off_his_card(shell, config, tmp_path):
+    a_pr_with_every_gate_and_no_tap(shell, config)
+    root_hold(shell, 29020, text="HOLD #29020 until the env teardown applies")
+    landing_pass(shell, config)
+    assert shell.lr_calls[-1][1]["waiting"] == []
+
+
+def test_a_go_marked_exempt_takes_a_pr_off_his_card(shell, config, tmp_path):
+    a_pr_with_every_gate_and_no_tap(shell, config)
+    merge_go(shell, "29020", "go #29020 at cccc333 on green [exempt: dev-red fix, a new-tree regression we caused]")
+    landing_pass(shell, config)
+    assert shell.lr_calls[-1][1]["waiting"] == []
+
+
+def test_his_tap_takes_a_pr_off_his_card_and_names_it_as_landable_for_the_prs_above(shell, config, tmp_path):
+    a_pr_with_every_gate_and_no_tap(shell, config)
+    tap(shell, "29020", "cccc333333")
+    landing_pass(shell, config)
+    ask = shell.lr_calls[-1][1]
+    assert ask["waiting"] == [] and ask["tapped"] == [29020]
+
+
+def test_his_hold_at_this_head_takes_a_pr_off_his_card_and_a_new_head_asks_again(shell, config, tmp_path):
+    a_pr_with_every_gate_and_no_tap(shell, config)
+    shell.board.setdefault("merge-rows", {})["29020"] = {"verdict": "rejected", "head": "cccc333333", "at": "2026-10-01T17:40:00Z"}
+    landing_pass(shell, config)
+    assert shell.lr_calls[-1][1]["waiting"] == []
+    shell.board["merge-rows"]["29020"]["head"] = "bbbb222222"
+    landing_pass(shell, config)
+    assert shell.lr_calls[-1][1]["waiting"] == WAITS_AT_ITS_HEAD
+
+
+def test_a_tap_required_go_asks_for_his_own_tap_at_this_head_though_an_older_tap_stands(shell, config, tmp_path):
+    """Root 321574 and tap-pipeline-fix-1's fourth defect: a TAP-REQUIRED go at a new head of a tapped PR asked for a tap no card offered."""
+    a_pr_with_every_gate_and_no_tap(shell, config)
+    tap(shell, "29020", "bbbb222222")
+    merge_go(shell, "29020", "go #29020 at cccc333 on green [TAP-REQUIRED his tap at this head]")
+    landing_pass(shell, config)
+    assert shell.lr_calls[-1][1]["waiting"] == WAITS_AT_ITS_HEAD
+
+
+def test_a_failed_tap_card_run_logs_once_per_cause_and_tries_again_next_pass(shell, config, tmp_path):
+    a_pr_with_every_gate_and_no_tap(shell, config)
+    shell.lr_done = (1, "", "lr: runner.json: landing.owner_thread must name the ts of the owner's Slack DM status thread\n")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert len(shell.lr_calls) == 2
+    [line] = [line for line in escalations(shell) if line.startswith("TAP-CARD-FAILED")]
+    assert "landing.owner_thread" in line
+
+
+def test_no_board_snapshot_is_one_failure_and_no_tap_card_run(shell, config, tmp_path):
+    a_pr_with_every_gate_and_no_tap(shell, config)
+    shell.no_snapshot = True
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert shell.lr_calls == []
+    assert len([line for line in escalations(shell) if line.startswith("TAP-CARD-FAILED")]) == 1
+
+
+def test_the_slack_surface_posts_its_own_merge_cards_and_never_runs_the_tap_card_verb(shell, config, tmp_path):
+    merge_mode(config, "every")
+    lone_green_pr(shell)
+    shell.rows[0]["test_state"] = "success"
+    landing_pass(shell, config)
+    assert shell.lr_calls == []
+
+
 def test_a_pr_ready_but_for_a_go_is_named_to_root_on_every_passs_landing_state(shell, config, tmp_path):
     """Root #342211: a PR with every gate and no go is reported to root every pass, never skipped in silence."""
     board_surface(config)
@@ -4983,12 +5087,7 @@ def test_a_merge_ask_names_only_a_graded_head_with_a_board_row(shell, config, tm
     landing_pass(shell, config)
     landing_pass(shell, config)
     assert [line for line in escalations(shell) if line.startswith("MERGE-ASK")] == []
-    missing = [note for note in notes(shell) if post_body(note).startswith("BOARD-ROW-MISSING")]
-    if graded:
-        [note] = missing
-        assert note["to"] == "board-refresher" and post_body(note).startswith("BOARD-ROW-MISSING #29020 at cccc333333: graded ok")
-    else:
-        assert missing == []
+    assert [note for note in notes(shell) if post_body(note).startswith("BOARD-ROW-MISSING")] == []
 
 
 def test_a_pass_reads_the_board_from_records_alone_for_its_tap_carries_and_its_rows(shell, config, tmp_path):
@@ -5000,7 +5099,6 @@ def test_a_pass_reads_the_board_from_records_alone_for_its_tap_carries_and_its_r
     grade(shell, "29020", "ok F307 at cccc333.")
     landing_pass(shell, config)
     landing_pass(shell, config)
-    assert [post_body(note).split(":")[0] for note in notes(shell) if post_body(note).startswith("BOARD-ROW-MISSING")] == ["BOARD-ROW-MISSING #29020 at cccc333333"]
     assert [call for call in shell.calls if call[0] == "cc-present"] == []
 
 

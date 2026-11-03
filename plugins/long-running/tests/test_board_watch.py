@@ -400,7 +400,7 @@ def test_the_root_boards_watch_posts_what_the_board_shows_once_until_it_changes(
 
     [post] = shell.posts
     assert (post[post.index("--kind") + 1], post[post.index("--topic") + 1], attrs(post)["session"]) == ("note", "board-rows", SESSION)
-    assert json.loads(attrs(post)["board"]) == {"blocks": ["merge-prs"], "rows": [["202", "413b38e", "2026-10-30T06:00:00Z"]], "merges": [["303", "abcdef1"]], "cards": [["merge:303:abcdef1", [], []], ["card-eviction", ["eviction-route-choice"], ["401"]]]}
+    assert json.loads(attrs(post)["board"]) == {"blocks": ["merge-prs"], "rows": [["202", "413b38e", "2026-10-30T06:00:00Z"]], "merges": [["303", "abcdef1"]], "bound": [], "cards": [["merge:303:abcdef1", [], []], ["card-eviction", ["eviction-route-choice"], ["401"]]]}
     assert board_watch.board_rows.snapshot_of_records(shell.records) == json.loads(attrs(post)["board"]) | {"session": SESSION}
 
 
@@ -452,6 +452,24 @@ def test_the_applier_carries_a_tap_reopening_a_closed_round_and_answers_each_wri
     assert [argv for argv, _ in shell.presented] == [carry_argv, ["cc-present", "update-block", "-", "--round", "current", "--session", SESSION], carry_argv, ["cc-present", "ask", "-", "--session", SESSION]]
     assert json.loads(shell.presented[1][1])["id"] == "merge-prs" and shell.presented[3][1] == '{"id": "merge:303:abcdef1"}'
     assert [(post[post.index("--kind") + 1], post[post.index("--re-seq") + 1], post[post.index("--id") + 1]) for post in shell.posts] == [("applied", "7", "applied:7"), ("applied", "9", "applied:9")]
+
+
+def test_the_applier_hands_a_tap_card_to_lr_and_answers_a_refusal_as_a_defect(tmp_path: Path) -> None:
+    card = '{"id": "card-tap-waiting", "children": []}'
+    drawn = BoardShell(SNAPSHOT_DOC, writes=[write(7, op="cards", block="merge-prs-waiting", card=card)])
+    board_watch.apply_writes(drawn, board_watch.Bus("brook", 0), SESSION)
+    refused = BoardShell(SNAPSHOT_DOC, writes=[write(8, op="cards", block="merge-prs-waiting", card=card)], refusals=["lr: cc-present update-block exited 1: slack refused"])
+    board_watch.apply_writes(refused, board_watch.Bus("brook", 0), SESSION)
+
+    [(argv, stdin)] = drawn.presented
+    assert (Path(argv[0]).name, argv[1:], stdin) == ("lr", ["landing", "draw-taps", "--drive", "brook", "--session", SESSION, "--write", "7"], card)
+    assert [post[post.index("--kind") + 1] for post in drawn.posts] == ["applied"]
+    assert [(post[post.index("--kind") + 1], post[post.index("--to") + 1]) for post in refused.posts] == [("defect", "desk-runner,root")]
+
+
+def test_a_row_on_a_slack_bound_block_is_named_in_the_snapshot_with_its_thread() -> None:
+    doc = {"blocks": [{"id": "merge-prs", "type": "pr-groups", "slack": "1792842193.708029", "groups": [{"id": "g", "prs": [{"number": 202, "head": "413b38e"}]}]}, {"id": "other", "type": "pr-groups", "groups": [{"id": "g", "prs": [{"number": 303, "head": "abcdef1"}]}]}]}
+    assert board_watch.board_rows.snapshot(doc)["bound"] == [{"pr": 202, "head": "413b38e", "block": "merge-prs", "thread": "1792842193.708029"}]
 
 
 def test_a_carry_cc_present_refuses_is_answered_as_a_defect_to_the_runner_and_root(tmp_path: Path) -> None:

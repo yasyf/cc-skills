@@ -600,7 +600,9 @@ so it lands on the root's board and in the root's Slack status thread like every
 PR linked with its live checks, waiting on `merge:<pr>:<short sha>` with `Merge (Recommended)`, `Hold`, `Other`, and `Explain more` (93037c3); a card already
 open for the head is edited in place, never re-posted, and a post that fails
 logs `MERGE-CARD-FAILED` once per head and cause and tries again next pass. With `landing.merge_ask_surface` set to `board`
-(default `slack`), the runner posts and edits no card, and the root asks every merge question on its own board. On that surface each pass
+(default `slack`), each pass hands `lr landing ask-taps` every open PR the merge mode holds for the owner's tap, and that verb draws the one
+tap card, `card-tap-waiting`, through a `board-write` record, `op=cards`, with its rows generated from each PR's title and body and synced to his Slack thread
+`landing.owner_thread`, records each Slack card against its PR and head, and raises one blocker to root per PR and head left with none. On that surface each pass
 carries the owner's board taps: an approval on a `pr-groups` row of the root's board at an older head of an open PR, with no verdict at
 its ledger head, moves to that head through a `board-write` record, `op=carry`, whatever changed between the two, since a PR he tapped
 never returns to his board (owner 2:48 AM Oct 31), with one `TAP-CARRIED` note naming both heads to root and each lane `landing.board_lane`
@@ -728,6 +730,7 @@ from incident import CLAUDE_FAST_MODE, CLOCK_FALLBACK
 
 SCRIPTS = Path(__file__).resolve().parent
 RUNNER_BIN = SCRIPTS.parents[2] / "bin" / "desk-runner.py"
+LR = SCRIPTS.parents[2] / "bin" / "lr"
 PACIFIC = ZoneInfo("America/Los_Angeles")
 LANE_PREFIX = "desk-lane-"
 LANDING = "desk-landing"
@@ -6218,6 +6221,7 @@ class Landing:
         self.grade_tried: set[str] = set()
         self.stacks: dict[str, set[str]] = {}
         self.no_go: set[str] = set()
+        self.holds_read: list[str] = []
         self.below_blocking: set[str] = set()
         self.unchanged: dict[str, tuple[str, str, float, dict[str, tuple[str, Outcome]]]] = {}
         self.reviews_read: dict[str, list[str]] = {}
@@ -8569,16 +8573,12 @@ class Landing:
             )
 
     def askable(self, heads: dict[str, str], asking: list[str], rows: dict[str, dict]) -> list[str]:
-        """The PRs of `asking` the owner can tap now: he has approved no head of the PR, since a PR he tapped never returns to his board (owner 2:48 AM Oct 31), a fidelity ok stands at the head, the finder is clear there, and the root's board holds a row at that head (root #191653). A graded head with no row is told to the board lanes once, so the row goes up in their next pass; an ungraded head already has its grade blocker."""
+        """The PRs of `asking` the owner can tap now: he has approved no head of the PR, since a PR he tapped never returns to his board (owner 2:48 AM Oct 31), a fidelity ok stands at the head, the finder is clear there, and the root's board holds a row at that head (root #191653), which `ask_taps` puts up at the end of the pass; an ungraded head already has its grade blocker."""
         tapped = self.owner_tapped()
         graded = [pr for pr in asking if pr not in tapped and self.fidelity(pr, heads[pr]).ok and self.finder_clear(pr, heads[pr])]
         if not graded or (board := self.board_heads()) is None:
             return []
-        askable = [pr for pr in graded if (pr, heads[pr][:7]) in board]
-        for pr in sorted(set(graded) - set(askable), key=int):
-            if not self.book.known(LANDING, key := f"board-row-missing:{pr}:{heads[pr]}"):
-                self.post_record("note", key, ",".join(self.board_lanes) or ROOT, f"BOARD-ROW-MISSING #{pr} at {heads[pr][:10]}: graded ok with the finder clear, and the root's board holds no row at this head, so nothing asks the owner yet; put its row up, and the runner asks for the tap once it is there (root #191653)", pr)
-        return askable
+        return [pr for pr in graded if (pr, heads[pr][:7]) in board]
 
     def owner_board(self) -> owner_waits.Board | None:
         try:
@@ -9617,6 +9617,41 @@ class Landing:
         thread.start()
         self.overflowing = thread
 
+    def tap_ready(self, pr: str, row: dict) -> bool:
+        """Whether `pr` is green, approved, graded ok and finder clear at its ledger head."""
+        return bool(head := row.get("head")) and row.get("test_state") == "success" and (review := self.reviews_read.get(pr, ["", ""]))[1] == "APPROVED" and names_head(review[0], head) and self.fidelity(pr, head).ok and self.finder_clear(pr, head)
+
+    def needs_tap(self, pr: str, head: str, verdicts: dict[str, dict[str, dict]], newest: dict[str, dict], approved: set[str]) -> bool:
+        """Whether merge mode `every` holds `pr` at `head` for the owner's tap, from typed records alone: not exempt, not rejected at this head, and with no tap that lands it: his own at this head under a `TAP-REQUIRED` go, or his approval at any head otherwise."""
+        if self.exempt_admitted(pr, head)[0]:
+            return False
+        verdict = newest.get(pr) or {}
+        if verdict.get("verdict") == "rejected" and names_head(verdict.get("head") or "-", head):
+            return False
+        if any(TAP_REQUIRED_WORD.search(bracket) for go in self.head_gos(pr, head) for bracket in GO_BRACKET.findall(full_text(go))):
+            return not own_tap_at(verdicts, pr, head)
+        return pr not in approved
+
+    def ask_taps(self, open_rows: dict[str, dict], queued: set[str]) -> None:
+        """Hand `lr landing ask-taps` every open PR the merge mode holds for the owner's tap at its ledger head, so the pass that marks a PR waiting also puts its row on his Slack card, records the card against the PR and head, and raises one blocker per PR and head left with none (owner 6:57 PM Nov 2). It runs once per pass under `landing.merge_ask_surface` `board`, with no row, list or lane in between; a failed run logs one `TAP-CARD-FAILED` per cause and tries again next pass."""
+        if not self.taps_on_board:
+            return
+        try:
+            records = self.runner.board_records()
+        except CciTailFailed:
+            return
+        if not (snapshot := board_rows.snapshot_of_records(records)):
+            self.runner.escalate("tap-cards:unset", "TAP-CARD-FAILED", "landing", "board-watch has posted no `board-rows` snapshot naming the root's board, so no tap card posts | open the root board, whose watch posts it within a minute; the next pass posts the cards")
+            return
+        verdicts = board_rows.verdicts_of_records(records)
+        newest, approved = board_rows.newest_by_pr(verdicts), approved_prs(verdicts)
+        holds = set(self.holds_read)
+        waiting = [{"pr": int(pr), "head": row["head"]} for pr, row in sorted(open_rows.items(), key=lambda item: int(item[0])) if pr not in queued | holds and self.tap_ready(pr, row) and self.needs_tap(pr, row["head"], verdicts, newest, approved)]
+        done = self.shell.run([str(LR), "landing", "ask-taps", "--runner", str(self.runner.config.source)], json.dumps({"session": snapshot["session"], "waiting": waiting, "tapped": sorted(int(pr) for pr in approved), "bound": snapshot["bound"]}))
+        if done.code:
+            why = ((done.err or done.out).strip().splitlines() or [f"exit {done.code}"])[-1]
+            self.runner.escalate(f"tap-cards:{hashlib.sha1(VOLATILE.sub('', why).encode()).hexdigest()[:8]}", "TAP-CARD-FAILED", "landing", f"`lr landing ask-taps` failed: {why}; no PR newly waiting on the owner's tap reaches his Slack until it passes, and the next pass tries again")
+
     def post_state(self, took: float) -> None:
         """Post the pass's one `state` record on topic `landing-state`, which cci delivers newest-only, so root never asks what the runner is doing (owner 9524276): the open rows the queue holds, the green ones a root go names at their heads that are out of it and neither held nor refused, with the oldest stack step in flight, the held, the refused at their heads, the stack workers running, and the pass's seconds. While any PR is ready but for a go, green, approved, graded ok with the finder clear, unheld and named by no go at its head, the record names each with whether the owner's board holds its row and goes to root as well, since it lands only on his tap or on a root go naming its exempt class, and none may wait in silence (root #342211). It logs `OVERFLOW-STALLED` once an hour while the overflow thread has finished no run in `OVERFLOW_STALLED`."""
         open_rows = {pr: row for pr, row in self.ledger_rows.items() if row.get("state", "open") == "open"}
@@ -9629,7 +9664,8 @@ class Landing:
             oldest = min(self.steps.values(), key=lambda entry: entry["since"], default=None)
             running = sum(1 for _, future in self.inflight.values() if not future.done())
         step = f" (oldest #{oldest['root']} {oldest['step']} {whole_minutes(actions.parse_stamp(oldest['since']), now)}m)" if oldest else ""
-        ready = [pr for pr in sorted(self.no_go & open_rows.keys() - queued - held - refused, key=int) if (head := open_rows[pr].get("head")) and open_rows[pr].get("test_state") == "success" and (review := self.reviews_read.get(pr, ["", ""]))[1] == "APPROVED" and names_head(review[0], head) and self.fidelity(pr, head).ok and self.finder_clear(pr, head)]
+        ready = [pr for pr in sorted(self.no_go & open_rows.keys() - queued - held - refused, key=int) if self.tap_ready(pr, open_rows[pr])]
+        self.ask_taps(open_rows, queued)
         board = self.board_heads() if ready else None
         rowed = [f"#{pr} ({'board unread' if board is None else 'board row up' if (pr, open_rows[pr]['head'][:7]) in board else 'no board row yet'})" for pr in ready]
         told = f"; ready but no go: {', '.join(rowed)}, each landing on the owner's tap or a root go naming its exempt class" if ready else ""
@@ -10662,6 +10698,7 @@ class Landing:
             self.trunk_queue(rows)
             self.carry_taps(rows)
             holds = self.held(rows)
+            self.holds_read = holds
             held = holds if advanced and read else None
             self.held_now = held or []
             off = self.gating_off(advanced, read)

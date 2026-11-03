@@ -573,20 +573,21 @@ def answered_of_records(records: list[dict]) -> set[str]:
 
 
 def snapshot(doc: dict) -> dict:
-    """What the runner and the stall watch read of the board's document: each block holding PR rows, each PR row's PR, head and write time, each merge card's PR and head, and each card's choice blocks and PRs."""
+    """What the runner and the stall watch read of the board's document: each block holding PR rows, each PR row's PR, head and write time, each merge card's PR and head, each card's choice blocks and PRs, and each `pr-groups` row whose block is bound to a Slack thread."""
     rows = rows_of(doc)
     return {
         "blocks": sorted({row.block for row in rows}),
         "rows": [[row.pr, row.head, row.text_at] for row in rows if row.head],
         "merges": [[found[1], found[2]] for key in block_ids(doc) if (found := MERGE_CARD.match(key))],
         "cards": [[card["id"], sorted(choice["id"] for choice in typed(card, "choice")), sorted(str(found["number"]) for found in typed(card, "pr"))] for card in typed(doc, "card")],
+        "bound": [{"pr": pr["number"], "head": pr["head"], "block": block["id"], "thread": block["slack"]} for block in typed(doc, PR_GROUPS) if block.get("slack") for group in block["groups"] for pr in group["prs"]],
     }
 
 
 def snapshot_of_records(records: list[dict]) -> dict | None:
     """The newest board snapshot board-watch posted, with the session of the board it shows and empty lists for any part an older board-watch does not post, or None while it has posted none."""
     found = [attrs(record) for record in records if record["lane"] == OWNER_LANE and record.get("topic") == SNAPSHOT_TOPIC and "board" in attrs(record)]
-    return {"blocks": [], "rows": [], "merges": [], "cards": []} | json.loads(found[-1]["board"]) | {"session": found[-1]["session"]} if found else None
+    return {"blocks": [], "rows": [], "merges": [], "cards": [], "bound": []} | json.loads(found[-1]["board"]) | {"session": found[-1]["session"]} if found else None
 
 
 def block_ids(node: object) -> Iterator[str]:

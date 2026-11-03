@@ -70,7 +70,7 @@ from its persisted cursor, so no event is lost or recorded twice. It also applie
 `board-write` whose `session` attribute names this board, read in order from a cci cursor:
 `op=carry` runs `cc-present verdict carry` for its block, row, head and note, re-upserting a block
 that belongs to a closed round into the current round and carrying again; `op=ask` puts the card
-its `card` attribute holds on the board with `cc-present ask`. Each write is answered once, by an
+its `card` attribute holds on the board with `cc-present ask`; `op=cards` hands the tap card its `card` attribute holds to `lr landing draw-taps`, which draws it and records each Slack card against its PR and head. Each write is answered once, by an
 `applied` record, or a `defect` record to the runner and the root naming what cc-present said.
 
 `backfill` posts one `owner` record, to `desk-runner`, for each verdict and pick `cc-present
@@ -136,6 +136,7 @@ GREP_BYTES = 200000
 SNAPSHOT_SECONDS = 60
 SNAPSHOT_FRESH = timedelta(hours=6)
 CLOSED_ROUND = re.compile(r"belongs to closed round")
+LR = Path(__file__).resolve().parents[3] / "bin" / "lr"
 UNKNOWN_BLOCK = re.compile(r'\bunknown block "')
 WATCH_BYTES = 10_000_000
 LANE_TOPIC = "needs-lane"
@@ -557,9 +558,11 @@ def reopened(shell: Shell, session: str, block: str) -> bool:
     return found is not None and shell.present(["cc-present", "update-block", "-", "--round", "current", "--session", session], json.dumps(found)).returncode == 0
 
 
-def apply(shell: Shell, session: str, write: dict[str, str]) -> subprocess.CompletedProcess:
+def apply(shell: Shell, bus: Bus, session: str, write: dict[str, str], seq: int) -> subprocess.CompletedProcess:
     if write["op"] == "ask":
         return shell.present(["cc-present", "ask", "-", "--session", session], write["card"])
+    if write["op"] == "cards":
+        return shell.present([str(LR), "landing", "draw-taps", "--drive", bus.drive, "--session", session, "--write", str(seq)], write["card"])
     argv = ["cc-present", "verdict", "carry", "--session", session, "--block", write["block"], "--row", write["row"], "--head", write["head"], "--note", write.get("note", "")]
     done = shell.present(argv)
     if done.returncode and CLOSED_ROUND.search(done.stderr + done.stdout) and reopened(shell, session, write["block"]):
@@ -573,9 +576,9 @@ def apply_writes(shell: Shell, bus: Bus, session: str) -> None:
             continue
         record = json.loads(line)
         write = board_rows.attrs(record)
-        if record["lane"] != RUNNER or write.get("session") != session or write.get("op") not in ("carry", "ask"):
+        if record["lane"] != RUNNER or write.get("session") != session or write.get("op") not in ("carry", "ask", "cards"):
             continue
-        done = apply(shell, session, write)
+        done = apply(shell, bus, session, write, record["seq"])
         said = ((done.stderr or done.stdout).strip().splitlines() or [f"exit {done.returncode}"])[-1]
         gone = done.returncode != 0 and bool(UNKNOWN_BLOCK.search(done.stderr + done.stdout))
         failed = done.returncode != 0 and not gone
