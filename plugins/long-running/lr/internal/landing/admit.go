@@ -136,13 +136,18 @@ func (g *Gates) refuses(ctx context.Context, f machine.Facts) bool {
 }
 
 func (g *Gates) tell(ctx context.Context, f machine.Facts, kind, id, text string) {
+	if err := postToLane(ctx, g.Drive, f, kind, id, text); err != nil {
+		g.Log.Warn("a gate's refusal went unposted", "pr", f.Number, "err", err)
+	}
+}
+
+func postToLane(ctx context.Context, drive string, f machine.Facts, kind, id, text string) error {
 	to := []string{rootLane}
 	if f.Lane != "" {
 		to = []string{f.Lane, rootLane}
 	}
-	if _, err := client.Post(ctx, client.Draft{Drive: g.Drive, Lane: self, Kind: kind, To: to, ID: id, PRs: []string{pullRef(f)}, Text: text}); err != nil {
-		g.Log.Warn("a gate's refusal went unposted", "pr", f.Number, "err", err)
-	}
+	_, err := client.Post(ctx, client.Draft{Drive: drive, Lane: self, Kind: kind, To: to, ID: id, PRs: []string{pullRef(f)}, Text: text})
+	return err
 }
 
 func pullRef(f machine.Facts) string {

@@ -32,6 +32,12 @@ func (f *Fake) Fail(code int, stderr string, prefix ...string) {
 	f.replies = append(f.replies, reply{prefix, shell.Result{Code: code, Stderr: stderr}})
 }
 
+func (f *Fake) FailOut(code int, stdout string, prefix ...string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.replies = append(f.replies, reply{prefix, shell.Result{Code: code, Stdout: stdout}})
+}
+
 func (f *Fake) Calls() []shell.Command {
 	f.mu.Lock()
 	defer f.mu.Unlock()

@@ -114,6 +114,18 @@ func (d *Desk) fixLaunch(container string) (*incident.Action, error) {
 	return &newest, nil
 }
 
+func FixLanes(a *app.App) (func(lane string) (bool, error), error) {
+	desk, err := newDesk(a)
+	if err != nil {
+		return nil, err
+	}
+	desk.open()
+	return func(lane string) (bool, error) {
+		launch, err := desk.fixLaunch(lanePrefix + lane)
+		return launch != nil, err
+	}, nil
+}
+
 func briefIncidents(text string) []string {
 	return slices.DeleteFunc(submatches(briefIncident, text), func(name string) bool { return name == namesNothing })
 }

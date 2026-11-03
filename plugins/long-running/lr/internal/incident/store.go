@@ -89,6 +89,18 @@ func DefaultRoot() (string, error) {
 	return filepath.Join(home, ".claude", "long-running", "incidents"), nil
 }
 
+func (s Store) IDs() ([]string, error) {
+	paths, err := filepath.Glob(filepath.Join(s.Root, "*"+fileSuffix))
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(paths))
+	for _, path := range paths {
+		ids = append(ids, strings.TrimSuffix(filepath.Base(path), fileSuffix))
+	}
+	return ids, nil
+}
+
 func (s Store) Path(id string) (string, error) {
 	if id == "" || strings.ContainsAny(id, "/\x00") {
 		return "", fmt.Errorf("incident ID %q must be a nonempty filename component", id)

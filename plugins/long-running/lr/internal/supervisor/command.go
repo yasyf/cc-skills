@@ -21,6 +21,9 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/install"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/landing"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/orca"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/pass"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/replay"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
@@ -162,7 +165,17 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 	if err != nil {
 		return Deps{}, err
 	}
-	deps.Admit = gates.Admit
+	fixLanes, err := orca.FixLanes(a)
+	if err != nil {
+		return Deps{}, err
+	}
+	squash, err := landing.NewSquash(a, s, env.Config, restacker, fixLanes)
+	if err != nil {
+		return Deps{}, err
+	}
+	deps.Admit = func(ctx context.Context, acts []pass.Act, snapshot []machine.Facts) []pass.Act {
+		return gates.Admit(ctx, squash.Admit(ctx, acts, snapshot), snapshot)
+	}
 	deps.Trunk = env.Config.Trunk
 	if !slices.Contains(env.Config.Movers, config.MoverGrading) {
 		return deps, nil

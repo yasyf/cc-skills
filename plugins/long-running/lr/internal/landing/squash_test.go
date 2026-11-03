@@ -1,0 +1,274 @@
+package landing_test
+
+import (
+	"context"
+	"io"
+	"log/slog"
+	"slices"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/incident"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/landing"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/pass"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell/shelltest"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
+)
+
+const (
+	squashTool  = "/plugin/bin/rulings.py"
+	squashFirst = "1111111111111111111111111111111111111111"
+	squashMoved = "2222222222222222222222222222222222222222"
+)
+
+type squashFixture struct {
+	squash  *landing.Squash
+	fake    *shelltest.Fake
+	restack []int
+	moved   string
+}
+
+func newSquash(t *testing.T) *squashFixture {
+	t.Helper()
+	t.Setenv("CCI_HOME", t.TempDir())
+	s, err := store.Memory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	fake := &shelltest.Fake{}
+	fixture := &squashFixture{fake: fake}
+	fixture.squash = &landing.Squash{
+		Runner: fake, CCX: ccx.CLI{Runner: fake}, Store: s, Incidents: incident.Store{Root: t.TempDir()}, Drive: "d", Trunk: "dev", Checkout: "/co", Rulings: squashTool,
+		FixLane: func(lane string) (bool, error) { return lane == "dd-1-fix", nil },
+		Restack: func(_ context.Context, number int) (string, error) {
+			fixture.restack = append(fixture.restack, number)
+			return fixture.moved, nil
+		},
+		Now: func() time.Time { return t0 },
+		Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+	fake.Reply("", squashTool, "check-pr")
+	fake.Reply("0\n", "ccx", "vcs", "gh", "--max-age", "0s", "--", "api", "repos/"+monorepo+"/compare/dev..."+squashFirst)
+	fake.Reply("", "gh", "pr", "merge")
+	return fixture
+}
+
+func fixFacts(mutate func(*machine.Facts)) machine.Facts {
+	f := machine.Facts{Repo: monorepo, Number: 7, Head: squashFirst, Branch: "fix", Base: "dev", Lane: "incident-api-fix", CI: machine.CISuccess, Approved: true, Fidelity: machine.FidelityPass}
+	if mutate != nil {
+		mutate(&f)
+	}
+	return f
+}
+
+func (s *squashFixture) merges() []string {
+	var merges []string
+	for _, call := range s.fake.Calls() {
+		if len(call.Argv) > 2 && call.Argv[0] == "gh" && call.Argv[2] == "merge" {
+			merges = append(merges, strings.Join(call.Argv, " "))
+		}
+	}
+	return merges
+}
+
+func (s *squashFixture) admit(facts ...machine.Facts) []int {
+	acts := make([]pass.Act, 0, len(facts))
+	for _, f := range facts {
+		acts = append(acts, pass.Act{Facts: f, Verdict: machine.Verdict{Action: machine.ActionEnqueue}})
+	}
+	kept := []int{}
+	for _, act := range s.squash.Admit(context.Background(), acts, facts) {
+		kept = append(kept, act.Facts.Number)
+	}
+	return kept
+}
+
+func squashPost(t *testing.T, kind, lane, text string, to []string, prs ...string) {
+	t.Helper()
+	if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: lane, Kind: kind, Text: text, To: to, PRs: prs}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAnApprovedGreenIncidentFixSquashesOnceAndTheQueueNeverTakesIt(t *testing.T) {
+	f := newSquash(t)
+	normal := fixFacts(func(row *machine.Facts) { row.Number, row.Lane, row.Branch = 8, "ordinary", "other" })
+
+	if kept := f.admit(fixFacts(nil), normal); !slices.Equal(kept, []int{8}) {
+		t.Fatalf("kept %v", kept)
+	}
+	if kept := f.admit(fixFacts(nil), normal); !slices.Equal(kept, []int{8}) {
+		t.Fatalf("kept %v", kept)
+	}
+
+	want := "gh pr merge 7 --repo " + monorepo + " --squash --match-head-commit " + squashFirst
+	if merges := f.merges(); !slices.Equal(merges, []string{want}) {
+		t.Fatalf("merges = %v, want one %q", merges, want)
+	}
+}
+
+func TestAFixLaneTheRunnerLaunchedSquashesLikeAnIncidentNamedLane(t *testing.T) {
+	f := newSquash(t)
+
+	f.admit(fixFacts(func(row *machine.Facts) { row.Lane = "dd-1-fix" }))
+
+	if len(f.merges()) != 1 {
+		t.Fatalf("merges = %v", f.merges())
+	}
+}
+
+func TestAnIncidentFixThatIsNotReadyStaysOutOfBothThePathAndTheQueue(t *testing.T) {
+	for name, mutate := range map[string]func(*machine.Facts){
+		"not approved":  func(row *machine.Facts) { row.Approved = false },
+		"not green":     func(row *machine.Facts) { row.CI = machine.CIPending },
+		"not graded ok": func(row *machine.Facts) { row.Fidelity = "" },
+		"held":          func(row *machine.Facts) { row.Hold = machine.MoverRoot },
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newSquash(t)
+			if kept := f.admit(fixFacts(mutate)); len(kept) != 0 {
+				t.Fatalf("the queue kept %v", kept)
+			}
+			if merges := f.merges(); len(merges) != 0 {
+				t.Fatalf("merges = %v", merges)
+			}
+		})
+	}
+}
+
+func TestATappedFixNeedsNoFidelityGrade(t *testing.T) {
+	f := newSquash(t)
+
+	f.admit(fixFacts(func(row *machine.Facts) { row.Fidelity, row.Tap = "", machine.TapTapped }))
+
+	if len(f.merges()) != 1 {
+		t.Fatalf("merges = %v", f.merges())
+	}
+}
+
+func TestAFailedRulingCheckBlocksTheMergeAndNeverOnlyWarns(t *testing.T) {
+	f := newSquash(t)
+	refusing := &shelltest.Fake{}
+	refusing.FailOut(1, "RESERVED-NO-ANSWER reserved/cloud-delete\tNo cloud deletion.\n", squashTool, "check-pr")
+	refusing.Reply("0\n", "ccx", "vcs", "gh")
+	refusing.Reply("", "gh", "pr", "merge")
+	f.fake = refusing
+	f.squash.Runner, f.squash.CCX = refusing, ccx.CLI{Runner: refusing}
+
+	f.admit(fixFacts(nil))
+
+	if merges := f.merges(); len(merges) != 0 {
+		t.Fatalf("merged past a failed check: %v", merges)
+	}
+	blockers, err := client.Tail(context.Background(), client.Query{Drive: "d", Kinds: []string{"blocker"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(blockers) != 1 || !strings.Contains(blockers[0].Text, "RULINGS-REFUSED") || !strings.Contains(blockers[0].Text, "reserved/cloud-delete") || !slices.Equal(blockers[0].To, []string{"incident-api-fix", "root"}) {
+		t.Fatalf("blockers = %+v", blockers)
+	}
+}
+
+func TestAHeldFixMergesOnlyWhileAnOpenIncidentNamesItAndSaysSo(t *testing.T) {
+	f := newSquash(t)
+	squashPost(t, "incident", "root", "api is down", []string{"incident-api-fix"})
+
+	f.admit(fixFacts(func(row *machine.Facts) { row.Hold = machine.MoverRoot }))
+
+	if len(f.merges()) != 1 {
+		t.Fatalf("merges = %v", f.merges())
+	}
+	reports, err := client.Tail(context.Background(), client.Query{Drive: "d", Kinds: []string{"report"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reports) != 1 || !strings.HasPrefix(reports[0].Text, "INCIDENT-HOLD-WARNED #7") {
+		t.Fatalf("reports = %+v", reports)
+	}
+}
+
+func TestAClosedIncidentOrARootClearingTakesTheFixOffThePath(t *testing.T) {
+	for name, post := range map[string]func(*testing.T){
+		"closed": func(t *testing.T) {
+			squashPost(t, "decide", "root", "INCIDENT api CLOSED", []string{"incident-api-fix"})
+		},
+		"cleared": func(t *testing.T) {
+			squashPost(t, "decide", "root", "#7 is not an incident fix", []string{"incident-api-fix"}, monorepo+"#"+strconv.Itoa(7))
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newSquash(t)
+			post(t)
+			if kept := f.admit(fixFacts(nil)); !slices.Equal(kept, []int{7}) {
+				t.Fatalf("the queue lost it: %v", kept)
+			}
+			if merges := f.merges(); len(merges) != 0 {
+				t.Fatalf("merges = %v", merges)
+			}
+		})
+	}
+}
+
+func TestAFixBehindTrunkRebasesThenMergesAtItsNewHeadWithoutWaitingOnCI(t *testing.T) {
+	f := newSquash(t)
+	behind := &shelltest.Fake{}
+	behind.Reply("", squashTool, "check-pr")
+	behind.Reply("3\n", "ccx", "vcs", "gh", "--max-age", "0s", "--", "api", "repos/"+monorepo+"/compare/dev..."+squashFirst)
+	behind.Reply("0\n", "ccx", "vcs", "gh", "--max-age", "0s", "--", "api", "repos/"+monorepo+"/compare/dev..."+squashMoved)
+	behind.Reply("", "gh", "pr", "merge")
+	f.fake = behind
+	f.squash.Runner, f.squash.CCX = behind, ccx.CLI{Runner: behind}
+	f.moved = "BASE dev tip\nMOVED fix " + squashFirst + " " + squashMoved + "\n"
+
+	f.admit(fixFacts(nil))
+
+	if !slices.Equal(f.restack, []int{7}) {
+		t.Fatalf("restacks = %v", f.restack)
+	}
+	if merges := f.merges(); len(merges) != 0 {
+		t.Fatalf("merged at the old head: %v", merges)
+	}
+
+	f.admit(fixFacts(func(row *machine.Facts) { row.Head, row.CI, row.Fidelity = squashMoved, machine.CIPending, "" }))
+
+	want := "gh pr merge 7 --repo " + monorepo + " --squash --match-head-commit " + squashMoved
+	if merges := f.merges(); !slices.Equal(merges, []string{want}) {
+		t.Fatalf("merges = %v", merges)
+	}
+}
+
+func TestARebasedFixIsRebasedAgainOnlyWhenTrunkTouchedItsFiles(t *testing.T) {
+	for name, landedFiles := range map[string]string{"another file": "other.go\n", "its own file": "fix.go\n"} {
+		t.Run(name, func(t *testing.T) {
+			f := newSquash(t)
+			if _, err := f.squash.Store.PutFact(monorepo, 7, squashFirst, "rebased-direct", "old", t0); err != nil {
+				t.Fatal(err)
+			}
+			behind := &shelltest.Fake{}
+			behind.Reply("", squashTool, "check-pr")
+			behind.Reply("1\n", "ccx", "vcs", "gh")
+			behind.Reply("tip\trefs/heads/dev\n", "git", "-C", "/co", "ls-remote")
+			behind.Reply("", "git", "-C", "/co", "fetch")
+			behind.Reply("base\n", "git", "-C", "/co", "merge-base")
+			behind.Reply(landedFiles, "git", "-C", "/co", "diff", "--name-only", "base", "tip")
+			behind.Reply("fix.go\n", "git", "-C", "/co", "diff", "--name-only", "base", squashFirst)
+			behind.Reply("", "gh", "pr", "merge")
+			f.fake = behind
+			f.squash.Runner, f.squash.CCX = behind, ccx.CLI{Runner: behind}
+			f.moved = "MOVED fix " + squashFirst + " " + squashMoved + "\n"
+
+			f.admit(fixFacts(nil))
+
+			touched := strings.Contains(landedFiles, "fix.go")
+			if touched != (len(f.restack) == 1) || touched == (len(f.merges()) == 1) {
+				t.Fatalf("restacks = %v, merges = %v", f.restack, f.merges())
+			}
+		})
+	}
+}
