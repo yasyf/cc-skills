@@ -258,7 +258,7 @@ Do:
      first, says what we are doing to prevent recurrence. State work underway
      without claiming an unverified fix. Use plain words and Pacific times;
      @-mention the account's FDEs. Apply step 5's drafting and checks to every post.
-  4. incident.py posts through bus.py onto the same cci drive, opened with
+  4. incident.py posts onto the same cci drive, opened with
      `incident.py open --bus <cci drive>`.
      Loop in foreground units of at most 60 seconds:
      `cci tail --drive <drive> --reader <comms lane> --kind ask --since 0 --json`.

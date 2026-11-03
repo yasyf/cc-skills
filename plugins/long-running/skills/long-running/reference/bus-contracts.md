@@ -17,7 +17,7 @@
 
 Each post is one record, and each lane reads deliveries from its own cci cursor. `SendMessage` can arrive while its reader is idle or mid-poll. A `SendMessage` carries the record's sequence number, and the reader checks `cci` before acting on a message that may be stale.
 
-`incident.py` posts through `bus.py` onto the same cci drive. The coordinator opens an incident with `incident.py open --bus <cci drive>`, and its comms lane reads asks and answers with `cci`:
+`incident.py` posts onto the same cci drive. The coordinator opens an incident with `incident.py open --bus <cci drive>`, and its comms lane reads asks and answers with `cci`:
 
 ```sh
 cci tail --drive <drive> --reader <comms lane> --kind ask --since 0 --json
