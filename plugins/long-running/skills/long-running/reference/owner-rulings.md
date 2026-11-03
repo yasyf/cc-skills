@@ -166,7 +166,7 @@ Core `judge.py` behaviors:
 
 | Judge / Hook | When it runs | What it checks |
 | --- | --- | --- |
-| `ruling_misread` | PR ship | Judges the tests a PR ships the same way `judge_watch.py` judges contracts, checking whether they misread the owner's verbatim words on the register rows the PR cites or on the two rows `rulings.py match` finds. |
+| `ruling_misread` | PR ship | Judges the tests a PR ships the same way `judge_watch.py` judges contracts, checking whether they misread the owner's verbatim words on the rows each opened PR acts on, which `rulings.py slice --required --words` prints: its global, pending and touched rows and the rows it cites, a superseded one replaced by the rows superseding it. The judge reads them in one call, so his newest words on a subject govern, and the warning names the row whose words it quotes. |
 | `refusal_kinds_need_owner_answer` | PR ship | Reads the refusal kinds, retries, clocks, and budgets added by a PR and asks whether the owner's words or the plan name them. |
 | `pr_bodies_name_what_they_defer` | PR open or edit | Asks whether the PR body names the fix its stand-ins put off and why, and states in plain words the rulings the diff builds. |
 | Brief `Scale:` judge | Lane spawn hook and orca desk runner | Requires a `Scale:` line in every lane brief and asks whether it names the `N` that the brief's code paths run at; emits one `SCALE-MISSED` from the orca desk runner on failure. |

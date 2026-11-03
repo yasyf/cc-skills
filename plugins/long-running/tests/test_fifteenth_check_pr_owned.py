@@ -90,7 +90,7 @@ def receipt(argv, cwd, env, timeout, selected, budget):
         assert argv[:3] == ["cc-present", "block", "show"] and timeout <= 10
 
 
-def test_current_source_has_all_fifteen_external_owned_capability_expressions():
+def test_current_source_has_all_sixteen_external_owned_capability_expressions():
     calls = []
     for module in (*CALLERS, "lane_landing"):
         for node in ast.walk(ast.parse((HOOKS / f"{module}.py").read_text())):
@@ -99,7 +99,7 @@ def test_current_source_has_all_fifteen_external_owned_capability_expressions():
                 expected = "reads.evt" if module == "board_text_gate" else "self.evt" if module == "owner_facing" else "evt"
                 assert ast.unparse(event) == expected
                 calls.append(module)
-    assert len(calls) == 15 and calls.count("lane_landing") == 1
+    assert len(calls) == 16 and calls.count("lane_landing") == 1
     assert "refusal_kinds_need_owner_answer" in calls and "narrowed_contracts" not in calls
 
 

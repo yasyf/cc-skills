@@ -31,14 +31,14 @@ class HookShell(RegisterShell):
         return []
 
     def run(self, argv: list[str], stdin: str | None = None, cwd: Path | None = None) -> str:
-        argv = gateway(argv)
-        if argv == ["git", "-C", REPO, "rev-parse", "--abbrev-ref", "HEAD"]:
-            self.calls.append(argv)
+        plain = gateway(argv)
+        if plain == ["git", "-C", REPO, "rev-parse", "--abbrev-ref", "HEAD"]:
+            self.calls.append(plain)
             return "HEAD\n"
-        if argv == ["ccn", "-R", REPO, "answer", "list", "--label", "scope:durable", "--limit", "0", "--label", "program:brook", "--json"]:
+        if plain == ["ccn", "-R", REPO, "answer", "list", "--label", "scope:durable", "--limit", "0", "--label", "program:brook", "--json"]:
             argv = ["ccn", "-R", REPO, "answer", "list", "--label", "scope:durable", "--label", "program:brook", "--limit", "0", "--json"]
-        if argv[:4] == ["cci", "tail", "--drive", "brook-cci"]:
-            self.calls.append(argv)
+        if plain[:4] == ["cci", "tail", "--drive", "brook-cci"]:
+            self.calls.append(plain)
             return "".join(json.dumps(record) + "\n" for record in self.records)
         return super().run(argv, stdin, cwd)
 
@@ -57,7 +57,7 @@ def caller_expressions():
         for node in ast.walk(ast.parse(path.read_text())):
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in {"rulings", "register_of"}:
                 result.append(pytest.param(module, node, id=f"{module}:{node.lineno}"))
-    assert len(result) == 14
+    assert len(result) == 15
     return result
 
 
@@ -86,12 +86,13 @@ def test_all_current_hook_call_expressions_reach_real_dispatch_without_a_python_
         "register_of": lambda cwd, *args, **kwargs: (cwd, ("register", *args), kwargs),
         "evt": evt, "reads": reads, "self": reads, "which": which,
         "flags": [] if module == "board_text_gate" else which,
-        "drive": which if module in {"refusal_kinds_need_owner_answer", "ruling_misread"} else "brook-drive",
+        "drive": which if module in {"refusal_kinds_need_owner_answer", "ruling_misread", "ruling_judge"} else "brook-drive",
         "seq": "8", "text": "owner words", "key": "owner words",
         "lane": "lane-a", "copy": brief, "worker": "brook-drive",
         "CANDIDATES": 3, "CANDIDATE_BYTES": 1024, "excluded": [],
         "MOMENT_CHARS": 1024, "MATCH_TIMEOUT_SECONDS": 2, "reqenv": reqenv,
         "ROWS_PER_ARTIFACT": 2, "MATCH_BYTES": 6000, "MATCH_CHARS": 2000,
+        "spec": "acme/app#12", "head": "cafef00d",
     }
     expression = compile(ast.Expression(copy.deepcopy(node)), str(HOOKS / f"{module}.py"), "eval")
     cwd, args, kwargs = eval(expression, scope)

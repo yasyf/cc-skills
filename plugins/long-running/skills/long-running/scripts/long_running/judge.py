@@ -58,6 +58,7 @@ ENGINEERING = frozenset(
 )
 PLAIN_MARKS = str.maketrans({"\u2018": "'", "\u2019": "'", "\u201c": '"', "\u201d": '"', "\u2013": "-", "\u2014": "-"})
 QUOTE_EDGES = " '\".,;:"
+ROW_HEADING = re.compile(r"^### (\S+) \|", re.MULTILINE)
 SYSTEM = (
     "You review one artifact a coding agent wrote, for an owner who is a terse engineer and types fast."
     " Read his words for what he means, the way a careful colleague would."
@@ -413,6 +414,12 @@ def grounded(verdict: Verdict, evidence: str) -> Verdict:
 
 def plain_text(text: str) -> str:
     return " ".join(text.translate(PLAIN_MARKS).casefold().split()).replace("…", "...")
+
+
+def quoted_row(evidence: str, phrase: str) -> str:
+    piece = plain_text(phrase).split("...")[0].strip(QUOTE_EDGES)
+    starts = [*ROW_HEADING.finditer(evidence)]
+    return next(start[1] for start, end in zip(starts, [*starts[1:], None]) if piece in plain_text(evidence[start.start() : end.start() if end else None]))
 
 
 def decide(backend: Backend, sonnet_ask: Callable[[], Verdict], jev_ask: Callable[[], Verdict]) -> Verdict:

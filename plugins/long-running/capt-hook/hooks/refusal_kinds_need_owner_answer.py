@@ -14,7 +14,8 @@ from captain_hook.util import reqenv
 from .compaction_handoff import CompactionState, drive_entry, judged, rulings, script, script_module
 from .lane_landing import DRIVE_ENV, LANDERS, lane_name, named_repo, without_repo
 from .register_injection import drive_args
-from .ruling_misread import CLAUDE, FLAGGED, MATCH, MATCHED, answer, candidate_rows
+from .ruling_judge import MATCH_COMMAND, candidate_rows
+from .ruling_misread import CLAUDE, FLAGGED, answer
 from .tests.register_fixtures import register
 from .tests.refusal_fixtures import (
     CARD_TERMS,
@@ -106,7 +107,8 @@ BODY_WARNING = (
 CARRIED = {**FLAGGED, "verdict": "no", "artifact_phrase": "", "evidence_phrase": "", "sentence": "It is named."}
 ROWS = f"{sys.executable} {script('rulings.py')} rows --drive 900424b6"
 PLAN = f"{sys.executable} {script('rulings.py')} plan --drive 900424b6"
-JUDGED = {ROWS: register("quiet"), MATCH: MATCHED, PLAN: "", CLAUDE: answer(FLAGGED)}
+MATCHED = "- 8b1048a Does the merge refusal name a next command?\n  > The merge refusal names no next command.\n"
+JUDGED = {ROWS: register("quiet"), MATCH_COMMAND: MATCHED, PLAN: "", CLAUDE: answer(FLAGGED)}
 
 
 @dataclass(frozen=True)
