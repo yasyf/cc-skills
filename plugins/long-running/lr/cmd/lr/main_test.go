@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"slices"
 	"strings"
 	"testing"
 
@@ -34,6 +35,28 @@ func TestAnUnknownVerbIsRefused(t *testing.T) {
 	_, err := run(t, "no-such-verb")
 	if err == nil || !strings.Contains(err.Error(), "no-such-verb") {
 		t.Fatalf("got %v, want a refusal naming the verb", err)
+	}
+}
+
+func TestNoTwoVerbsShareAName(t *testing.T) {
+	seen := map[string]bool{}
+	for _, verb := range root(app.New(&bytes.Buffer{})).Commands() {
+		if seen[verb.Name()] {
+			t.Errorf("two verbs are named %s, and only one of them can ever run", verb.Name())
+		}
+		seen[verb.Name()] = true
+	}
+}
+
+func TestLaunchKeepsTheStandingSessionsBesideItsVerbs(t *testing.T) {
+	cmd := root(app.New(&bytes.Buffer{}))
+	start, _, err := cmd.Find([]string{"launch", "start", "lane-a", "opus", "high", "brief.md"})
+	if err != nil || start.Name() != "start" {
+		t.Fatalf("launch start reached %s, %v", start.Name(), err)
+	}
+	session, args, err := cmd.Find([]string{"launch", "coordinator", "root/brief.md"})
+	if err != nil || session.Name() != "launch" || !slices.Equal(args, []string{"coordinator", "root/brief.md"}) {
+		t.Fatalf("launch coordinator reached %s with %v, %v", session.Name(), args, err)
 	}
 }
 
