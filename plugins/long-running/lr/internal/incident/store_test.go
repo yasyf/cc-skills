@@ -38,11 +38,7 @@ func created(t *testing.T, facts map[string]any) Store {
 func pythonStore(t *testing.T) Store {
 	t.Helper()
 	root := t.TempDir()
-	raw, err := os.ReadFile(filepath.Join("testdata", "python-incident.sqlite3"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "python-1.sqlite3"), raw, 0o600); err != nil {
+	if err := os.CopyFS(root, os.DirFS("testdata")); err != nil {
 		t.Fatal(err)
 	}
 	return Store{Root: root}
