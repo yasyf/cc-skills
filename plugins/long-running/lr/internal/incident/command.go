@@ -212,14 +212,14 @@ func grantCommand() *cobra.Command {
 }
 
 func runCommand(a *app.App) *cobra.Command {
-	var id, owner, alert, fixBrief, evidenceBrief, drive, lane string
+	var id, owner, alert, fixBrief, evidenceBrief, commsBrief, drive, lane string
 	var interval, timeout float64
 	var once bool
 	cmd := &cobra.Command{
 		Use:   "run [slug]",
-		Short: "Own an incident until its final reply posts, or launch a slug's fix and evidence lanes",
+		Short: "Own an incident until its final reply posts, or launch a slug's fix, evidence and comms lanes",
 		Long: "lr incident run --incident ID owns an opened incident until its final reply posts.\n" +
-			"lr incident run SLUG --fix-brief FILE [--evidence-brief FILE] [--alert TEXT] posts SLUG-fix and SLUG-evidence to the orca desk on the incident route and waits for the runner's verdicts.",
+			"lr incident run SLUG --fix-brief FILE [--evidence-brief FILE] [--comms-brief FILE] [--alert TEXT] posts SLUG-fix, SLUG-evidence and SLUG-comms to the orca desk on the incident route and waits for the runner's verdicts.",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 1 {
@@ -231,7 +231,7 @@ func runCommand(a *app.App) *cobra.Command {
 					return err
 				}
 				return DeskLaunch{
-					Bus: CCI{}, Drive: drive, Author: lane, Name: args[0], FixBrief: fixBrief, EvidenceBrief: evidenceBrief, Alert: alert,
+					Bus: CCI{}, Drive: drive, Author: lane, Name: args[0], FixBrief: fixBrief, EvidenceBrief: evidenceBrief, CommsBrief: commsBrief, Alert: alert,
 					Claude: claude, Timeout: time.Duration(timeout * float64(time.Second)), Poll: verdictPoll, Now: a.Now, Out: cmd.OutOrStdout(),
 				}.Run(cmd.Context())
 			}
@@ -249,6 +249,7 @@ func runCommand(a *app.App) *cobra.Command {
 	flags.StringVar(&alert, "alert", "", "the Alert line; each brief is then a template this fills")
 	flags.StringVar(&fixBrief, "fix-brief", "", "the fix lane's brief, or its template with --alert")
 	flags.StringVar(&evidenceBrief, "evidence-brief", "", "the evidence lane's brief, or its template with --alert")
+	flags.StringVar(&commsBrief, "comms-brief", "", "the comms lane's brief, or its template with --alert")
 	flags.StringVar(&drive, "drive", "", "the cci drive the orca runner reads; default the drive bound to this session")
 	flags.StringVar(&lane, "lane", "root", "the lane posting the launch lines")
 	flags.Float64Var(&timeout, "timeout-seconds", DefaultTimeout.Seconds(), "how long to wait for the runner's verdicts")

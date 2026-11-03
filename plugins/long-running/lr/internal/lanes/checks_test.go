@@ -71,7 +71,7 @@ func TestAnAlertNobodyAnsweredThreeMinutesOnLaunchesItsLanes(t *testing.T) {
 			if c.launched {
 				equal(t, []string{launched[0].Slug, launched[0].What, launched[0].Link}, []string{"dd-338724738", "Triggered: runtime-api-next logging errors — plat", "https://slack/p1"})
 				posted := bus.posted[0]
-				equal(t, []any{posted.Kind, posted.To, posted.LaneRefs, posted.Attrs["brief"]}, []any{kindSpawn, []string{Root}, []string{"dd-338724738-fix", "dd-338724738-evidence"}, "/state/lanes/dd-338724738-fix.brief.md"})
+				equal(t, []any{posted.Kind, posted.To, posted.LaneRefs, posted.Attrs["brief"]}, []any{kindSpawn, []string{Root}, []string{"dd-338724738-fix", "dd-338724738-evidence", "dd-338724738-comms"}, "/state/lanes/dd-338724738-fix.brief.md"})
 				contains(t, posted.Text, "ALERT-LAUNCHED Triggered: runtime-api-next logging errors — plat: no incident record named 338724738 4 min after it fired")
 			}
 		})
@@ -715,4 +715,40 @@ func TestACcRemoteOlderThanOrcaStopStopsNothingAndPostsNothingUntilItsPinReaches
 	}
 	equal(t, run.stopped, stops("done"))
 	equal(t, len(bus.posted), 0)
+}
+
+func TestAnUnansweredAlertLaunchesAReadOnlyCommsLaneBesideItsFixLane(t *testing.T) {
+	plugin, err := filepath.Abs(filepath.Join("..", "..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	claude := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(claude, "long-running"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(plugin, filepath.Join(claude, "long-running", "current")); err != nil {
+		t.Fatal(err)
+	}
+	var argv []string
+	env := Env{Config: config.Config{Drive: testDrive, Checkout: "/checkout"}, Claude: claude, State: t.TempDir(), Now: func() time.Time { return t0 }, Runner: scripted(func(args []string) (shell.Result, error) {
+		argv = args
+		return shell.Result{}, nil
+	})}
+
+	if _, err := env.IncidentLaunch(context.Background(), Fired{"dd-1", "it broke", "https://slack/p1", t0.Add(-mins(4))}); err != nil {
+		t.Fatal(err)
+	}
+
+	at := slices.Index(argv, "--comms-brief")
+	if at < 0 {
+		t.Fatalf("argv %q", argv)
+	}
+	text, err := os.ReadFile(argv[at+1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	contains(t, string(text), "# dd-1-comms: draft the comms for the production alert dd-1")
+	contains(t, string(text), "Post nothing to Slack")
+	contains(t, string(text), "card-unreported-exposure-notice")
+	contains(t, string(text), "cci tail --drive d1 --lane dd-1-fix")
 }

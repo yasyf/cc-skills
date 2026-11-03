@@ -16,6 +16,7 @@ import (
 const (
 	RoleFix      = "fix"
 	RoleEvidence = "evidence"
+	RoleComms    = "comms"
 	RoleBackup   = "backup"
 	briefSuffix  = ".full.md"
 	dueAfter     = 20 * time.Minute

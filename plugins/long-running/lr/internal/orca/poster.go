@@ -192,11 +192,14 @@ func (p Poster) settle(ctx context.Context, bus string, since int64, key, lane s
 	return "", nil
 }
 
-func incidentOrders(name, fixBrief, evidenceBrief string) []Order {
+func incidentOrders(name, fixBrief, evidenceBrief, commsBrief string) []Order {
 	stem := strings.TrimSuffix(name, "-"+roleFix)
 	orders := []Order{{Lane: stem + "-" + roleFix, Model: agentIncident, Effort: "xhigh", Role: roleFix, Brief: fixBrief, Now: true}}
 	if evidenceBrief != "" {
 		orders = append(orders, Order{Lane: stem + "-evidence", Model: agentIncident, Effort: "xhigh", Role: "evidence", Brief: evidenceBrief, Now: true})
+	}
+	if commsBrief != "" {
+		orders = append(orders, Order{Lane: stem + "-comms", Model: agentIncident, Effort: "xhigh", Role: "comms", Brief: commsBrief, Now: true})
 	}
 	return orders
 }

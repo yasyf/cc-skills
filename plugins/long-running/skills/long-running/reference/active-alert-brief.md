@@ -70,13 +70,13 @@ A missing grant pauses only the step that needs it. After intake, the coordinato
 
 ## Launch incident lanes directly
 
-**The executor and the coordinator launch incident lanes with `lr launch incident`.** Both fix and evidence lanes run as Orca codex workers on `gpt-6.1-sol`, fast tier, `xhigh`. Only the `incident` alias runs fast, while plain `sol` is the standard tier and never an incident route. The executor refuses Claude for the fix and evidence roles and never uses fable or astra.
+**The executor and the coordinator launch incident lanes with `lr launch incident`.** The fix, evidence and comms lanes all run as Orca codex workers on `gpt-6.1-sol`, fast tier, `xhigh`. Only the `incident` alias runs fast, while plain `sol` is the standard tier and never an incident route. The executor refuses Claude for the fix and evidence roles and never uses fable or astra.
 
 ```sh
-lr launch incident <name> <fix-brief> [<evidence-brief>] [--alert '<link, what fails, owner words>']
+lr launch incident <name> <fix-brief> [<evidence-brief> [<comms-brief>]] [--alert '<link, what fails, owner words>']
 ```
 
-With `--alert`, `lr launch` fills each brief template itself. The script drops the template's `Root:` lines, writes the lane's name for every `<lane>` and the text for the `Alert:` line, and saves `<state dir>/<lane>/brief.md`, so the coordinator never edits a template by hand. Any brief still holding `<lane>`, `<state>`, `<...>`, or a placeholder on its `Alert:` line is refused. `lr launch` posts `<name>-fix` and `<name>-evidence` to `orca-desk` on cci as `NOW incident xhigh` launch lines with `role=fix` and `role=evidence` so the runner's incident clock holds only the fix lane. Each launch's key is `R` and the number cci gives its record.
+With `--alert`, `lr launch` fills each brief template itself. The script drops the template's `Root:` lines, writes the lane's name for every `<lane>` and the text for the `Alert:` line, and saves `<state dir>/<lane>/brief.md`, so the coordinator never edits a template by hand. Any brief still holding `<lane>`, `<state>`, `<...>`, or a placeholder on its `Alert:` line is refused. `lr launch` posts `<name>-fix`, `<name>-evidence` and `<name>-comms` to `orca-desk` on cci as `NOW incident xhigh` launch lines with `role=fix`, `role=evidence` and `role=comms` so the runner's incident clock holds only the fix lane. The comms lane reads and drafts only: until the owner answers card-unreported-exposure-notice it posts nothing outside cci and sends each draft to the coordinator. Each launch's key is `R` and the number cci gives its record.
 
 After posting, `lr launch` waits for `LAUNCHED` or `LAUNCH-FAILED`, prints each lane's dispatch and terminal, and exits 0 when both launched, or when a lane has no verdict yet while the relay's `orca alive` record is fresh, since that verdict arrives as a record; it exits 2 only when the relay's `orca alive` record is over five minutes old. A lane writes its own PR title, body, and commit message. The coordinator answers a lane's question with `cci post --kind answer --to <lane> --re <seq>` on the lane's ask or the runner's `DECIDE`, which the runner relays to the open Orca question (`reference/orca-desk-brief.md`). The coordinator withdraws a launch or lane with `lr launch withdraw <R<n> | unfixed:<msg>:<n> | lane>`.
 
