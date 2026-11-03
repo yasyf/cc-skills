@@ -496,7 +496,7 @@ func Classify(lane store.Lane, peer *Peer, now time.Time, tokens, rotateAt int) 
 		return Verdict{Kind: Ok}
 	}
 	if !aliveNow {
-		if lane.StoppedOn != 0 {
+		if lane.StoppedOn != 0 && peer != nil && peer.Row.Unverified == "" {
 			return Verdict{StoodDown, fmt.Sprintf("stopped on the coordinator's #%d", lane.StoppedOn)}
 		}
 		if lane.Waiting != 0 {
