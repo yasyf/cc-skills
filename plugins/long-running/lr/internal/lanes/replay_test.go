@@ -25,7 +25,7 @@ func jsonInto(text string, into any) error {
 
 type replayRow struct {
 	Row
-	AnnouncedAt string `json:"announced_at"`
+	AnnouncedAt time.Time `json:"announced_at"`
 }
 
 type replayFixture struct {
@@ -67,16 +67,16 @@ func stubBriefs(t *testing.T, records []Record, dir string) []Record {
 				written = words[2]
 			}
 			stub := filepath.Join(dir, "spawned", filepath.Base(filepath.Dir(written)), filepath.Base(written))
-			if err := os.MkdirAll(filepath.Dir(stub), 0o755); err != nil {
+			if err := os.MkdirAll(filepath.Dir(stub), 0o750); err != nil {
 				t.Fatal(err)
 			}
-			if err := os.WriteFile(stub, []byte(fmt.Sprintf("# %s\nRegister slice: lane=%s step=all\n", name, name)), 0o644); err != nil {
+			if err := os.WriteFile(stub, []byte(fmt.Sprintf("# %s\nRegister slice: lane=%s step=all\n", name, name)), 0o600); err != nil {
 				t.Fatal(err)
 			}
 			if !spawn {
 				r.Text = fmt.Sprintf("SPAWNED %s %s", name, stub)
 			}
-			attrs := map[string]any{}
+			attrs := map[string]string{}
 			for key, value := range r.Fields.Attrs {
 				attrs[key] = value
 			}
@@ -94,25 +94,23 @@ type dispatch struct {
 	ended    time.Time
 }
 
-func dispatchesOf(t *testing.T, feed []Record) []dispatch {
-	t.Helper()
+func dispatchesOf(feed []Record) []dispatch {
 	ended := map[string]time.Time{}
 	for _, r := range feed {
 		if found := endedLine.FindStringSubmatch(r.Text); found != nil {
-			ended[found[1]] = parseAt(t, r.At)
+			ended[found[1]] = r.At
 		}
 	}
 	var out []dispatch
 	for _, r := range feed {
 		if found := launchedLine.FindStringSubmatch(r.Text); found != nil {
-			out = append(out, dispatch{found[1], parseAt(t, r.At), ended[found[2]]})
+			out = append(out, dispatch{found[1], r.At, ended[found[2]]})
 		}
 	}
 	return out
 }
 
-func whoAt(t *testing.T, rows []replayRow, orca []dispatch, stoodDown map[string]time.Time, now time.Time) []Row {
-	t.Helper()
+func whoAt(rows []replayRow, orca []dispatch, stoodDown map[string]time.Time, now time.Time) []Row {
 	var out []Row
 	for _, one := range orca {
 		if one.launched.After(now) {
@@ -123,17 +121,21 @@ func whoAt(t *testing.T, rows []replayRow, orca []dispatch, stoodDown map[string
 		if live {
 			seen = now
 		}
-		out = append(out, Row{Lane: one.lane, Live: live, SeenAt: iso(seen)})
+		out = append(out, Row{Lane: one.lane, Live: live, SeenAt: seen})
 	}
 	for _, row := range rows {
-		if parseAt(t, or(row.AnnouncedAt, row.SeenAt)).After(now) {
+		announced := row.AnnouncedAt
+		if announced.IsZero() {
+			announced = row.SeenAt
+		}
+		if announced.After(now) {
 			continue
 		}
 		copied := row.Row
 		at, marked := stoodDown[row.Lane]
 		copied.StoodDown = row.StoodDown && marked && !at.After(now)
-		if parseAt(t, row.SeenAt).After(now) {
-			copied.Live, copied.SeenAt = true, iso(now)
+		if row.SeenAt.After(now) {
+			copied.Live, copied.SeenAt = true, now
 		}
 		out = append(out, copied)
 	}
@@ -151,13 +153,13 @@ func decided(t *testing.T, fixture replayFixture) map[string][]any {
 			for _, to := range r.To {
 				name, _, _ := strings.Cut(to, "@")
 				if _, seen := stoodDown[name]; !seen {
-					stoodDown[name] = parseAt(t, r.At)
+					stoodDown[name] = r.At
 				}
 			}
 		}
 	}
-	orca := dispatchesOf(t, feed)
-	now := parseAt(t, feed[0].At)
+	orca := dispatchesOf(feed)
+	now := feed[0].At.UTC()
 	if fixture.Input.Since != "" && parseAt(t, fixture.Input.Since).After(now) {
 		now = parseAt(t, fixture.Input.Since)
 	}
@@ -168,7 +170,7 @@ func decided(t *testing.T, fixture replayFixture) map[string][]any {
 		Drive: "replay", Checkout: dir, Briefs: filepath.Join(dir, "lanes"),
 		Records: func(since int64) ([]Record, error) {
 			start := shown
-			for shown < len(feed) && !parseAt(t, feed[shown].At).After(now) {
+			for shown < len(feed) && !feed[shown].At.After(now) {
 				shown++
 			}
 			var visible []Record
@@ -179,7 +181,7 @@ func decided(t *testing.T, fixture replayFixture) map[string][]any {
 			}
 			return visible, nil
 		},
-		Who:        func([]string) ([]Row, error) { return whoAt(t, fixture.Input.Who, orca, stoodDown, now), nil },
+		Who:        func([]string) ([]Row, error) { return whoAt(fixture.Input.Who, orca, stoodDown, now), nil },
 		Tokens:     func(Row) int { return 0 },
 		Transcript: func(Row) string { return "" },
 		Post:       func(p Post) error { posts = append(posts, p); return nil },
@@ -196,7 +198,7 @@ func decided(t *testing.T, fixture replayFixture) map[string][]any {
 	if err := s.Advance(CursorName, feed[0].Seq-1); err != nil {
 		t.Fatal(err)
 	}
-	end := parseAt(t, feed[len(feed)-1].At)
+	end := feed[len(feed)-1].At.UTC()
 	for {
 		out, err := Tick(s, deps, now, 1)
 		if err != nil {

@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
@@ -25,27 +26,25 @@ const (
 
 func mins(n int) time.Duration { return time.Duration(n) * time.Minute }
 
-func iso(at time.Time) string { return at.UTC().Format("2006-01-02T15:04:05.000Z") }
-
 func writeBrief(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "brief-conflicts-2.md")
-	if err := os.WriteFile(path, []byte("# conflicts-2: restack the five approved stacks\nRegister slice: lane=conflicts-2 step=tooling\n"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("# conflicts-2: restack the five approved stacks\nRegister slice: lane=conflicts-2 step=tooling\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	return path
 }
 
-func spawned(seq int64, lane, brief string, at time.Time, attrs map[string]any) Record {
-	merged := map[string]any{"brief": brief}
+func spawned(seq int64, lane, brief string, at time.Time, attrs map[string]string) Record {
+	merged := map[string]string{"brief": brief}
 	for key, value := range attrs {
 		merged[key] = value
 	}
-	return Record{Seq: seq, Lane: Root, Kind: "state", At: iso(at), Text: fmt.Sprintf("SPAWNED %s %s", lane, brief), Fields: Fields{Attrs: merged}}
+	return Record{Seq: seq, Lane: Root, Kind: "state", At: at, Text: fmt.Sprintf("SPAWNED %s %s", lane, brief), Fields: Fields{Attrs: merged}}
 }
 
 func rec(seq int64, lane, kind string, at time.Time, text string, to ...string) Record {
-	return Record{Seq: seq, Lane: lane, Kind: kind, At: iso(at), Text: text, To: to}
+	return Record{Seq: seq, Lane: lane, Kind: kind, At: at, Text: text, To: to}
 }
 
 func prs(numbers ...int) Refs {
@@ -61,15 +60,15 @@ func (r Record) withRe(seq int64) Record   { r.Re = seq; return r }
 func (r Record) withTopic(t string) Record { r.Topic = t; return r }
 
 func ask(seq int64, verb, lane string, at time.Time, numbers []int, by string, attrs map[string]string) Record {
-	typed := map[string]any{"verb": verb, "lane": lane}
+	typed := map[string]string{"verb": verb, "lane": lane}
 	for key, value := range attrs {
 		typed[key] = value
 	}
-	return Record{Seq: seq, Lane: or(by, Root), Kind: "decide", At: iso(at), Text: fmt.Sprintf("registry request: %s %s", verb, lane), To: []string{Self}, Refs: prs(numbers...), Fields: Fields{Attrs: typed}}
+	return Record{Seq: seq, Lane: or(by, Root), Kind: "decide", At: at, Text: fmt.Sprintf("registry request: %s %s", verb, lane), To: []string{Self}, Refs: prs(numbers...), Fields: Fields{Attrs: typed}}
 }
 
 func who(lane string, live bool, seen time.Time) Row {
-	return Row{Lane: lane, Live: live, SeenAt: iso(seen), Session: "d50e80e8", Agent: "a" + lane + "-0123456789abcdef"}
+	return Row{Lane: lane, Live: live, SeenAt: seen, Session: "d50e80e8", Agent: "a" + lane + "-0123456789abcdef"}
 }
 
 func onRoster(row Row) Row {
@@ -141,7 +140,7 @@ func newFake(t *testing.T, records []Record, peers []Row) *fake {
 }
 
 func (f *fake) kinds() []string {
-	out := []string{}
+	out := make([]string, 0, len(f.posts))
 	for _, p := range f.posts {
 		out = append(out, p.Kind+":"+p.To[0])
 	}
@@ -183,7 +182,7 @@ func tick(t *testing.T, s *store.Store, f *fake, at time.Time) Outcome {
 
 func adopted(t *testing.T, s *store.Store, brief, handoff string, owned ...int) *fake {
 	t.Helper()
-	f := newFake(t, []Record{spawned(1, lane2, brief, t0.Add(-time.Hour), map[string]any{"model": "opus", "effort": "xhigh"})}, []Row{who(lane2, true, t0.Add(-mins(1)))})
+	f := newFake(t, []Record{spawned(1, lane2, brief, t0.Add(-time.Hour), map[string]string{"model": "opus", "effort": "xhigh"})}, []Row{who(lane2, true, t0.Add(-mins(1)))})
 	tick(t, s, f, t0.Add(-mins(1)))
 	if handoff != "" {
 		if err := s.SetLaneHandoff(lane2, handoff, time.Time{}); err != nil {
@@ -285,7 +284,7 @@ func TestARelaunchBriefKeepsTheLaneOnTheMacAndCarriesItsRegisterSlice(t *testing
 func TestADeadLaneWhoseSuccessorLaunchNamedItIsRetiredNotRelaunched(t *testing.T) {
 	s, brief := memory(t), writeBrief(t)
 	f := adopted(t, s, brief, "")
-	f.feed = append(f.feed, spawned(2, "restack-desk", brief, t0.Add(-mins(1)), map[string]any{"successor-of": lane2}))
+	f.feed = append(f.feed, spawned(2, "restack-desk", brief, t0.Add(-mins(1)), map[string]string{"successor-of": lane2}))
 	f.peers = []Row{who(lane2, false, t0.Add(-mins(30))), who("restack-desk", true, t0)}
 
 	out := tick(t, s, f, t0)
@@ -689,7 +688,7 @@ func TestALaneWhoseHeadsTakeEveryPROfASuccessorThatNeverLaunchedRetiresIt(t *tes
 func TestAFreshStoreAdoptsOnlyTheLanesLiveNow(t *testing.T) {
 	s, brief := memory(t), writeBrief(t)
 	at := t0.Add(-time.Hour)
-	f := newFake(t, []Record{spawned(1, lane2, brief, at, nil), spawned(2, "placement-build-4", brief, at, nil), spawned(3, "slack-read-1", brief, at, map[string]any{"role": "reader"}), spawned(4, "x-handoff", brief, at, nil)}, []Row{who(lane2, true, t0), who("placement-build-4", false, t0.Add(-3*time.Hour)), who("slack-read-1", true, t0), who("x-handoff", true, t0)})
+	f := newFake(t, []Record{spawned(1, lane2, brief, at, nil), spawned(2, "placement-build-4", brief, at, nil), spawned(3, "slack-read-1", brief, at, map[string]string{"role": "reader"}), spawned(4, "x-handoff", brief, at, nil)}, []Row{who(lane2, true, t0), who("placement-build-4", false, t0.Add(-3*time.Hour)), who("slack-read-1", true, t0), who("x-handoff", true, t0)})
 
 	out := tick(t, s, f, t0)
 
@@ -941,7 +940,7 @@ func TestTheOwnerHearsOneLineAnHourAndOnlyWhenALaneRestarted(t *testing.T) {
 	tick(t, s, f, t0.Add(2*time.Hour+mins(1)))
 
 	equal(t, len(f.posts), 1)
-	equal(t, f.posts[0].Attr, "audience=owner")
+	equal(t, f.posts[0].Attrs, map[string]string{"audience": "owner"})
 	equal(t, f.posts[0].Text, "Between 10:00 AM and 11:00 AM the lane supervisor restarted 1 lane with no root action: conflicts-2 stopped at 10:00 AM, so conflicts-3 took over.")
 }
 
@@ -1326,7 +1325,7 @@ func TestASuccessorLaunchTakesItsPredecessorsPRsAndBecomesTheEndOfItsChain(t *te
 		t.Fatal(err)
 	}
 	retire(s, lane2, "conflicts-3", t0.Add(-2*time.Hour))
-	f.feed = append(f.feed, rec(2, "conflicts-3", "done", t0.Add(-time.Hour), "stack handed on"), spawned(3, "conflicts-4", brief, t0.Add(-mins(30)), map[string]any{"successor-of": "conflicts-3"}))
+	f.feed = append(f.feed, rec(2, "conflicts-3", "done", t0.Add(-time.Hour), "stack handed on"), spawned(3, "conflicts-4", brief, t0.Add(-mins(30)), map[string]string{"successor-of": "conflicts-3"}))
 
 	tick(t, s, f, t0)
 
@@ -1354,11 +1353,9 @@ func TestAQuietLaneWhosePRsOnlyWaitOnTheOwnersTapIsNeverAsked(t *testing.T) {
 }
 
 func TestEverySupervisorPostLetsCCIStampItsTimeSoASlowTickIsNeverRefused(t *testing.T) {
-	args := Post{Kind: "report", To: []string{Root}, Text: "x"}.Args(testDrive)
-	if !slices.Contains(args, "--stamp") {
-		t.Fatal(args)
-	}
-	equal(t, args[:9], []string{"post", "--drive", testDrive, "--lane", Self, "--kind", "report", "--to", Root})
+	draft := Post{Kind: "report", To: []string{Root}, Text: "x", LaneRef: "l", PRs: []int{9}, Re: 4, Successor: "s"}.Draft(testDrive)
+
+	equal(t, draft, client.Draft{Drive: testDrive, Lane: Self, Kind: "report", To: []string{Root}, Text: "x", Re: 4, Successor: "s", LaneRefs: []string{"l"}, PRs: []string{"9"}, Stamp: true})
 }
 
 func TestARootStandDownNamingNoSuccessorUnownsTheLanesPRsAndNamesToRootOnceOnlyThoseNeedingWork(t *testing.T) {
@@ -1526,7 +1523,7 @@ func standingBrief(t *testing.T, name string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), name+".brief.md")
 	text := fmt.Sprintf("# %s\nRegister slice: lane=%s step=tooling\nStanding: refresh the owner's board every pass\n\nDeliverable: every board row current at its head\n", name, name)
-	if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	return path
@@ -1692,9 +1689,9 @@ func TestAStandDownOfAStandingLaneWithNoSuccessorIsRefused(t *testing.T) {
 }
 
 func TestARequestPostsOneTypedDecideToTheSupervisor(t *testing.T) {
-	args := Request{Verb: "stand-down", Lane: lane2, Successor: "conflicts-3", LastRead: "7", PRs: []int{1, 2}, By: Root}.Args(testDrive)
+	draft := Request{Verb: "stand-down", Lane: lane2, Successor: "conflicts-3", LastRead: "7", PRs: []int{1, 2}, By: Root}.Draft(testDrive)
 
-	equal(t, args, []string{"post", "--drive", testDrive, "--lane", Root, "--kind", "decide", "--to", Self, "--attr", "verb=stand-down", "--attr", "lane=conflicts-2", "--attr", "successor=conflicts-3", "--attr", "last-read=7", "--pr", "1", "--pr", "2", "--stamp", "--text", "registry request: stand-down conflicts-2 for conflicts-3 last-read=7 #1 #2"})
+	equal(t, draft, client.Draft{Drive: testDrive, Lane: Root, Kind: "decide", To: []string{Self}, Attrs: map[string]string{"verb": "stand-down", "lane": lane2, "successor": "conflicts-3", "last-read": "7"}, PRs: []string{"1", "2"}, Stamp: true, Text: "registry request: stand-down conflicts-2 for conflicts-3 last-read=7 #1 #2"})
 }
 
 func TestBriefParsing(t *testing.T) {

@@ -50,30 +50,22 @@ type Refs struct {
 }
 
 type Fields struct {
-	Attrs map[string]any `json:"attrs,omitempty"`
+	Attrs map[string]string `json:"attrs,omitempty"`
 }
 
 type Record struct {
-	Seq          int64    `json:"seq"`
-	Lane         string   `json:"lane"`
-	Kind         string   `json:"kind"`
-	At           string   `json:"at"`
-	Text         string   `json:"text"`
-	Topic        string   `json:"topic,omitempty"`
-	To           []string `json:"to,omitempty"`
-	Re           int64    `json:"re,omitempty"`
-	Resolves     int64    `json:"resolves,omitempty"`
-	AlsoResolves []int64  `json:"also_resolves,omitempty"`
-	Refs         Refs     `json:"refs"`
-	Fields       Fields   `json:"fields"`
-}
-
-func (r Record) When() (time.Time, error) {
-	at, err := time.Parse(time.RFC3339Nano, r.At)
-	if err != nil {
-		return time.Time{}, fmt.Errorf("record #%d: %w", r.Seq, err)
-	}
-	return at.UTC(), nil
+	Seq          int64     `json:"seq"`
+	Lane         string    `json:"lane"`
+	Kind         string    `json:"kind"`
+	At           time.Time `json:"at"`
+	Text         string    `json:"text"`
+	Topic        string    `json:"topic,omitempty"`
+	To           []string  `json:"to,omitempty"`
+	Re           int64     `json:"re,omitempty"`
+	Resolves     int64     `json:"resolves,omitempty"`
+	AlsoResolves []int64   `json:"also_resolves,omitempty"`
+	Refs         Refs      `json:"refs"`
+	Fields       Fields    `json:"fields"`
 }
 
 func (r Record) PRs() []int {
@@ -85,14 +77,7 @@ func (r Record) PRs() []int {
 }
 
 func (r Record) Attr(name string) string {
-	switch value := r.Fields.Attrs[name].(type) {
-	case nil:
-		return ""
-	case string:
-		return value
-	default:
-		return fmt.Sprint(value)
-	}
+	return r.Fields.Attrs[name]
 }
 
 func (r Record) Addressed() map[string]bool {

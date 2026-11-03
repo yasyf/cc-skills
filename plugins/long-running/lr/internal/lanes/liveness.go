@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strconv"
 	"strings"
 
+	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
@@ -135,22 +137,23 @@ type Request struct {
 	By        string
 }
 
-func (r Request) Args(drive string) []string {
-	args := []string{"post", "--drive", drive, "--lane", r.By, "--kind", kindRequest, "--to", Self, "--attr", "verb=" + r.Verb, "--attr", "lane=" + r.Lane}
+func (r Request) Draft(drive string) client.Draft {
+	attrs := map[string]string{"verb": r.Verb, "lane": r.Lane}
 	words := []string{r.Verb, r.Lane}
 	if r.Successor != "" {
-		args = append(args, "--attr", "successor="+r.Successor)
+		attrs["successor"] = r.Successor
 		words = append(words, "for "+r.Successor)
 	}
 	if r.LastRead != "" {
-		args = append(args, "--attr", "last-read="+r.LastRead)
+		attrs["last-read"] = r.LastRead
 		words = append(words, "last-read="+r.LastRead)
 	}
+	refs := make([]string, 0, len(r.PRs))
 	for _, pr := range r.PRs {
-		args = append(args, "--pr", fmt.Sprint(pr))
+		refs = append(refs, strconv.Itoa(pr))
 		words = append(words, fmt.Sprintf("#%d", pr))
 	}
-	return append(args, "--stamp", "--text", "registry request: "+strings.Join(words, " "))
+	return client.Draft{Drive: drive, Lane: r.By, Kind: kindRequest, To: []string{Self}, Attrs: attrs, PRs: refs, Stamp: true, Text: "registry request: " + strings.Join(words, " ")}
 }
 
 func StandingRefusal(s *store.Store, r Request) (refusal string, err error) {
@@ -168,25 +171,13 @@ func StandingRefusal(s *store.Store, r Request) (refusal string, err error) {
 	return "", nil
 }
 
-func (p Post) Args(drive string) []string {
-	args := []string{"post", "--drive", drive, "--lane", Self, "--kind", p.Kind}
-	for _, to := range p.To {
-		args = append(args, "--to", to)
-	}
-	if p.Successor != "" {
-		args = append(args, "--successor", p.Successor)
-	}
-	if p.Re != 0 {
-		args = append(args, "--re", fmt.Sprint(p.Re))
-	}
+func (p Post) Draft(drive string) client.Draft {
+	draft := client.Draft{Drive: drive, Lane: Self, Kind: p.Kind, To: p.To, Text: p.Text, Re: p.Re, Successor: p.Successor, Attrs: p.Attrs, Stamp: true}
 	if p.LaneRef != "" {
-		args = append(args, "--lane-ref", p.LaneRef)
-	}
-	if p.Attr != "" {
-		args = append(args, "--attr", p.Attr)
+		draft.LaneRefs = []string{p.LaneRef}
 	}
 	for _, pr := range p.PRs {
-		args = append(args, "--pr", fmt.Sprint(pr))
+		draft.PRs = append(draft.PRs, strconv.Itoa(pr))
 	}
-	return append(args, "--stamp", "--text", p.Text)
+	return draft
 }

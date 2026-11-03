@@ -6,7 +6,7 @@ toolchain go1.26.10
 
 require (
 	github.com/spf13/cobra v1.10.2
-	github.com/yasyf/cc-inbox v0.49.30-0.20261103031520-81d713660174
+	github.com/yasyf/cc-inbox v0.49.30-0.20261103032718-5193902989c1
 	modernc.org/sqlite v1.60.1
 )
 

@@ -115,21 +115,18 @@ func grant(s *store.Store, r Record, fresh bool, at time.Time, out *folded) {
 	}
 }
 
-func fold(s *store.Store, records []Record, adoptable map[string]bool, briefs string) (folded, error) {
+func fold(s *store.Store, records []Record, adoptable map[string]bool, briefs string) folded {
 	var out folded
 	fresh := adoptable != nil
 	for _, r := range records {
-		at, err := r.When()
-		if err != nil {
-			return out, err
-		}
+		at := r.At.UTC()
 		if spawn, ok := spawnedBy(r); ok {
 			foldSpawn(s, r, spawn, adoptable, fresh, at, briefs, &out)
 			continue
 		}
 		foldRecord(s, r, fresh, at, &out)
 	}
-	return out, nil
+	return out
 }
 
 func foldSpawn(s *store.Store, r Record, spawn Spawn, adoptable map[string]bool, fresh bool, at time.Time, briefs string, out *folded) {

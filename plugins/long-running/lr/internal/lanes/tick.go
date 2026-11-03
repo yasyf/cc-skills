@@ -21,7 +21,7 @@ type Post struct {
 	Successor string
 	LaneRef   string
 	PRs       []int
-	Attr      string
+	Attrs     map[string]string
 }
 
 type Deps struct {
@@ -65,8 +65,9 @@ func Tick(s *store.Store, d Deps, now time.Time, generation int64) (out Outcome,
 	fresh := cursor == 0
 	var named []string
 	if !fresh {
-		named = []string{}
-		for _, lane := range must(s.Lanes(live...)) {
+		desired := must(s.Lanes(live...))
+		named = make([]string, 0, len(desired))
+		for _, lane := range desired {
 			named = append(named, lane.Name)
 		}
 	}
@@ -74,10 +75,7 @@ func Tick(s *store.Store, d Deps, now time.Time, generation int64) (out Outcome,
 	if err != nil {
 		return out, err
 	}
-	found, err := Peers(rows)
-	if err != nil {
-		return out, err
-	}
+	found := Peers(rows)
 	records, err := d.Records(cursor)
 	if err != nil {
 		return out, err
@@ -91,10 +89,7 @@ func Tick(s *store.Store, d Deps, now time.Time, generation int64) (out Outcome,
 			}
 		}
 	}
-	said, err := fold(s, records, adoptable, d.Briefs)
-	if err != nil {
-		return out, err
-	}
+	said := fold(s, records, adoptable, d.Briefs)
 	out.Adopted = said.adopted
 	announce(s, d, said, now)
 	probeOwners(s, d, found, now)
@@ -234,12 +229,12 @@ func relaunch(s *store.Store, d Deps, old store.Lane, found map[string]Peer, why
 	name := successorName(old.Name, taken)
 	taken[name] = true
 	path := filepath.Join(d.Briefs, name+".brief.md")
-	do(os.MkdirAll(d.Briefs, 0o755))
+	do(os.MkdirAll(d.Briefs, 0o750))
 	transcript := ""
 	if peer, ok := found[old.Name]; ok {
 		transcript = d.Transcript(peer.Row)
 	}
-	do(os.WriteFile(path, []byte(must(successorBrief(old, name, why, d, transcript))), 0o644))
+	do(os.WriteFile(path, []byte(must(successorBrief(old, name, why, d, transcript))), 0o600))
 	retire(s, old.Name, name, now)
 	must(s.WantLane(store.Lane{Name: name, Brief: old.Brief, Model: old.Model, Effort: old.Effort, Role: old.Role, State: store.LaneLaunching, Handoff: old.Handoff, PRs: old.PRs, Predecessor: old.Name, Reason: why, Strikes: strikes}, now))
 	do(d.Launch(name, old.Model, old.Effort, path))
@@ -502,5 +497,5 @@ func hourly(s *store.Store, d Deps, now time.Time) {
 	if len(words) > 1 {
 		noun = "lanes"
 	}
-	do(d.Post(Post{Kind: "report", To: []string{Root}, Attr: "audience=owner", Text: fmt.Sprintf("Between %s and %s the lane supervisor restarted %d %s with no root action: %s.", pacific(start), pacific(end), len(words), noun, strings.Join(words, "; "))}))
+	do(d.Post(Post{Kind: "report", To: []string{Root}, Attrs: map[string]string{"audience": "owner"}, Text: fmt.Sprintf("Between %s and %s the lane supervisor restarted %d %s with no root action: %s.", pacific(start), pacific(end), len(words), noun, strings.Join(words, "; "))}))
 }
