@@ -72,7 +72,7 @@ func TestAnInForceRemovesRowNeedsAnOwedTaskOrAnExceptionForEachThingItNames(t *t
 			gaps := Gaps(register(t, map[string]map[string]any{"order/one-reader": c.row}), owed)
 			named := make([]string, 0, len(gaps))
 			for _, gap := range gaps {
-				if gap.Key != "order/one-reader" {
+				if !slices.Equal(gap.Keys, []string{"order/one-reader"}) {
 					t.Fatalf("gap %+v names another row", gap)
 				}
 				named = append(named, gap.Target)
@@ -95,7 +95,27 @@ func TestAnExceptionRowAnchoredToTheTargetIsItsRecordedReason(t *testing.T) {
 
 	gaps := Gaps(register(t, rows), nil)
 
-	if want := []Gap{{Key: "order/incarnation", Target: "Epoch"}}; !reflect.DeepEqual(gaps, want) {
+	if want := []Gap{{Target: "Epoch", Keys: []string{"order/incarnation"}}}; !reflect.DeepEqual(gaps, want) {
+		t.Fatalf("gaps = %+v, want %+v", gaps, want)
+	}
+}
+
+func TestRowsRemovingTheSameTargetShareOneGap(t *testing.T) {
+	rows := map[string]map[string]any{
+		"order/incarnation":    {"status": "in-force", "implications": removes("proposed"), "symbols": `["journal.Incarnation", "Epoch"]`},
+		"design/one-reader":    {"status": "in-force", "implications": removes("proposed"), "symbols": `["Incarnation", "Incarnation"]`},
+		"order/journal-client": {"status": "in-force", "implications": removes("proposed"), "paths": `["go/sand/next/internal/journal/client.go:10-40"]`},
+		"design/journal":       {"status": "in-force", "implications": removes("proposed"), "paths": `["go/sand/next/internal/journal/client.go @ 9bcde635"]`},
+	}
+
+	gaps := Gaps(register(t, rows), nil)
+
+	want := []Gap{
+		{Target: "Epoch", Keys: []string{"order/incarnation"}},
+		{Target: "Incarnation", Keys: []string{"design/one-reader", "order/incarnation"}},
+		{Target: "go/sand/next/internal/journal/client.go", Keys: []string{"design/journal", "order/journal-client"}},
+	}
+	if !reflect.DeepEqual(gaps, want) {
 		t.Fatalf("gaps = %+v, want %+v", gaps, want)
 	}
 }

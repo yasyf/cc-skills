@@ -203,7 +203,8 @@ type Ruling struct {
 }
 
 type Gap struct {
-	Key, Target string
+	Target string
+	Keys   []string
 }
 
 func (t Trunk) Gaps(ctx context.Context, rulings, drive string) ([]string, error) {
@@ -222,7 +223,7 @@ func (t Trunk) Gaps(ctx context.Context, rulings, drive string) ([]string, error
 	gaps := Gaps(found, owed)
 	lines := make([]string, len(gaps))
 	for i, gap := range gaps {
-		lines[i] = fmt.Sprintf("register row %s removes %s, which no open %s task anchors and no exception row anchors", gap.Key, gap.Target, Label)
+		lines[i] = fmt.Sprintf("%s, removed by %s", gap.Target, strings.Join(gap.Keys, ", "))
 	}
 	return lines, nil
 }
@@ -278,7 +279,7 @@ func anchored(value string) ([]string, error) {
 }
 
 func Gaps(rulings []Ruling, owed []Owed) []Gap {
-	var gaps []Gap
+	keys := map[string][]string{}
 	for _, ruling := range rulings {
 		if ruling.Status != "in-force" || !ruling.Removes {
 			continue
@@ -301,10 +302,17 @@ func Gaps(rulings []Ruling, owed []Owed) []Gap {
 			excused := slices.ContainsFunc(rulings, func(other Ruling) bool {
 				return other.Kind == "exception" && names(other.Paths, other.Symbols)
 			})
-			if !listed && !excused {
-				gaps = append(gaps, Gap{Key: ruling.Key, Target: target})
+			if symbolic {
+				target = tail(target)
+			}
+			if !listed && !excused && !slices.Contains(keys[target], ruling.Key) {
+				keys[target] = append(keys[target], ruling.Key)
 			}
 		}
+	}
+	gaps := make([]Gap, 0, len(keys))
+	for _, target := range slices.Sorted(maps.Keys(keys)) {
+		gaps = append(gaps, Gap{Target: target, Keys: keys[target]})
 	}
 	return gaps
 }

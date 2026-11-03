@@ -2,6 +2,7 @@ package lanes
 
 import (
 	"cmp"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"maps"
@@ -600,12 +601,15 @@ func hourly(s *store.Store, d Deps, now time.Time) {
 		return
 	}
 	gaps, err := d.Gaps()
-	if err != nil {
-		gaps = []string{fmt.Sprintf("the owed-deletions check did not run: %v", err)}
-	}
-	for _, gap := range gaps {
-		if must(s.Escalate(owedSubject, gap, Root, now)) {
-			do(d.Post(Post{Kind: "blocker", To: []string{Root}, Text: fmt.Sprintf("%s %s. Open an owed-deletion task anchored to it, or anchor an exception row to it with `rulings.py anchor`; `lr deletions check` exits 0 once every removes row is covered.", pacific(now), gap)}))
+	switch {
+	case err != nil:
+		if must(s.Escalate(owedSubject, err.Error(), Root, now)) {
+			do(d.Post(Post{Kind: "blocker", To: []string{Root}, Text: fmt.Sprintf("%s the owed-deletions check did not run: %v", pacific(now), err)}))
+		}
+	case len(gaps) > 0:
+		digest := fmt.Sprintf("owed-deletions-%x", sha256.Sum256([]byte(strings.Join(gaps, "\n"))))[:27]
+		if must(s.Escalate(owedSubject, digest, Root, now)) {
+			do(d.Post(Post{Kind: "blocker", To: []string{Root}, Attrs: map[string]string{"digest": digest}, Text: fmt.Sprintf("%s %s: %d removes targets have no open owed-deletion task and no exception row: %s. Open one owed-deletion task per target, or anchor an exception row to it with `rulings.py anchor`; `lr deletions check` exits 0 once every target is covered, and this digest is reposted only when the set changes.", pacific(now), digest, len(gaps), strings.Join(gaps, "; "))}))
 		}
 	}
 	overdue(s, d, now)

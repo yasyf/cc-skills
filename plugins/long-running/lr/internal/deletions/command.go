@@ -11,7 +11,7 @@ func Command(a *app.App) *cobra.Command {
 	cmd := &cobra.Command{Use: "deletions", Short: "Deletions a ruling owes, held to the drive's owed-deletions list"}
 	cmd.AddCommand(&cobra.Command{
 		Use:   "check",
-		Short: "Exit 1 naming each in-force removes row whose path or symbol has no owed-deletions line and no exception row",
+		Short: "Exit 1 naming each path or symbol an in-force removes row names with no owed-deletion task and no exception row, with the rows that remove it",
 		Args:  cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			cfg, err := a.Config()
@@ -26,9 +26,9 @@ func Command(a *app.App) *cobra.Command {
 				fmt.Fprintln(c.OutOrStdout(), gap)
 			}
 			if len(gaps) > 0 {
-				return fmt.Errorf("%d removes targets owe a line in the owed-deletions list or an exception row", len(gaps))
+				return fmt.Errorf("%d removes targets owe an owed-deletion task or an exception row", len(gaps))
 			}
-			fmt.Fprintln(c.OutOrStdout(), "every in-force removes row has an owed-deletions line or an exception row")
+			fmt.Fprintln(c.OutOrStdout(), "every in-force removes row has an owed-deletion task or an exception row")
 			return nil
 		},
 	})
