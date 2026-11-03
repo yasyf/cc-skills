@@ -384,7 +384,7 @@ func TestACciSourceFollowsTheDaemonStreamAndReadsThroughCciTail(t *testing.T) {
 	if len(calls) != 2 {
 		t.Fatalf("cci tail ran %d times", len(calls))
 	}
-	want := []string{"cci", "tail", "--drive", "dar", "--cursor", "landing-desk-wake", "--to", "landing-desk"}
+	want := []string{"cci", "tail", "--drive", "dar", "--cursor", "landing-desk-wake", "--seed", "landing-desk", "--to", "landing-desk"}
 	if strings.Join(calls[1].Argv, " ") != strings.Join(want, " ") {
 		t.Fatalf("got %q", calls[1].Argv)
 	}

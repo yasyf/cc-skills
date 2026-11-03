@@ -479,7 +479,7 @@ func markRead(path string, keys []string, now func() time.Time) error {
 }
 
 func (s cciSource) check(ctx context.Context, w *waiter) (bool, error) {
-	argv := []string{"cci", "tail", "--drive", s.drive, "--cursor", s.lane + "-wake", "--to", s.lane}
+	argv := []string{"cci", "tail", "--drive", s.drive, "--cursor", s.lane + "-wake", "--seed", s.lane, "--to", s.lane}
 	result, err := w.Runner.Run(ctx, shell.Command{Argv: argv, Timeout: readTimeout})
 	if err != nil {
 		if result.Code == shell.CodeMissingBinary {
