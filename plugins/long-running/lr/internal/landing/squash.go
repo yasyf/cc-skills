@@ -1,0 +1,343 @@
+package landing
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"path/filepath"
+	"regexp"
+	"slices"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/incident"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/pass"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
+)
+
+const (
+	squashedFact    = "incident-squash"
+	rebasedFact     = "rebased-direct"
+	incidentKind    = "incident"
+	incidentHorizon = 14 * 24 * time.Hour
+	mergeLimit      = 2 * time.Minute
+	statusOpen      = "open"
+)
+
+var (
+	incidentLane    = regexp.MustCompile(`^(?:incident|outage)-`)
+	incidentClose   = regexp.MustCompile(`\bINCIDENT (?:\S+ CLOSED|CLOSED \S+)\b|\bis a closed incident\b`)
+	incidentCleared = regexp.MustCompile(`(?i)not an incident fix|off the incident path|no release is owed`)
+	clearingKinds   = []string{"go", "hold", "lift", "decide", "decision", "release"}
+	incidentChecks  = []string{"RULINGS-UNCITED", "RESERVED-NO-ANSWER", "TEST-REMOVED"}
+	settledIncident = []string{"closed", "recovered"}
+)
+
+type Squash struct {
+	Runner    shell.Runner
+	CCX       ccx.Client
+	Store     *store.Store
+	Incidents incident.Store
+	Drive     string
+	Trunk     string
+	Checkout  string
+	Rulings   string
+	FixLane   func(lane string) (bool, error)
+	Restack   func(ctx context.Context, number int) (string, error)
+	Now       func() time.Time
+	Log       *slog.Logger
+}
+
+func NewSquash(a *app.App, s *store.Store, cfg config.Config, remote Remote, fixLane func(string) (bool, error)) (*Squash, error) {
+	claude, err := drive.ConfigDir()
+	if err != nil {
+		return nil, err
+	}
+	root, err := incident.DefaultRoot()
+	if err != nil {
+		return nil, err
+	}
+	return &Squash{
+		Runner: a.Runner, CCX: a.CCX, Store: s, Incidents: incident.Store{Root: root}, Drive: cfg.Drive, Trunk: cfg.Trunk, Checkout: cfg.Checkout,
+		Rulings: filepath.Join(claude, "long-running", "current", "bin", "rulings.py"),
+		FixLane: fixLane, Restack: remote.Run, Now: a.Now, Log: a.Log,
+	}, nil
+}
+
+func (q *Squash) Admit(ctx context.Context, acts []pass.Act, snapshot []machine.Facts) []pass.Act {
+	taken, err := q.pass(ctx, snapshot)
+	if err != nil {
+		q.Log.Warn("the incident squash pass did not read", "err", err)
+	}
+	return slices.DeleteFunc(slices.Clone(acts), func(act pass.Act) bool {
+		return act.Verdict.Action == machine.ActionEnqueue && taken[act.Facts.Number]
+	})
+}
+
+func (q *Squash) pass(ctx context.Context, snapshot []machine.Facts) (map[int]bool, error) {
+	named, repairs, err := q.tagged(snapshot)
+	if err != nil || len(named) == 0 {
+		return nil, err
+	}
+	since := q.Now().Add(-incidentHorizon)
+	incidents, err := client.Tail(ctx, client.Query{Drive: q.Drive, Kinds: []string{incidentKind}, Since: since})
+	if err != nil {
+		return nil, err
+	}
+	decides, err := client.Tail(ctx, client.Query{Drive: q.Drive, Kinds: []string{"decide"}, Lanes: []string{rootLane}, Since: since})
+	if err != nil {
+		return nil, err
+	}
+	ended := endedLanes(slices.Concat(incidents, decides))
+	taken := map[int]bool{}
+	for _, f := range named {
+		if _, closed := ended[f.Lane]; closed && !repairs[f.Number] {
+			continue
+		}
+		cleared, err := q.cleared(ctx, f)
+		if err != nil {
+			return taken, err
+		}
+		if cleared {
+			continue
+		}
+		taken[f.Number] = true
+		if err := q.land(ctx, f, openIncident(f, incidents, ended)); err != nil {
+			return taken, err
+		}
+	}
+	return taken, nil
+}
+
+func (q *Squash) tagged(snapshot []machine.Facts) ([]machine.Facts, map[int]bool, error) {
+	repairs, err := q.repairs()
+	if err != nil {
+		return nil, nil, err
+	}
+	var named []machine.Facts
+	for _, f := range snapshot {
+		if f.Base != q.Trunk || f.Closed || f.Merged || f.Draft {
+			continue
+		}
+		fix := incidentLane.MatchString(f.Lane) || repairs[f.Number]
+		if !fix && f.Lane != "" {
+			if fix, err = q.FixLane(f.Lane); err != nil {
+				return nil, nil, err
+			}
+		}
+		if fix {
+			named = append(named, f)
+		}
+	}
+	return named, repairs, nil
+}
+
+func (q *Squash) repairs() (map[int]bool, error) {
+	ids, err := q.Incidents.IDs()
+	if err != nil {
+		return nil, err
+	}
+	repairs := map[int]bool{}
+	for _, id := range ids {
+		facts, err := q.Incidents.Facts(id, "repair_pr", "adopted", "not_ours")
+		if err != nil {
+			q.Log.Warn("an incident's repair did not read", "incident", id, "err", err)
+			continue
+		}
+		if facts.RepairPR == 0 || facts.Adopted == nil || facts.NotOurs != "" {
+			continue
+		}
+		header, err := q.Incidents.Header(id)
+		if err != nil {
+			q.Log.Warn("an incident's status did not read", "incident", id, "err", err)
+			continue
+		}
+		if !slices.Contains(settledIncident, string(header.Status)) {
+			repairs[facts.RepairPR] = true
+		}
+	}
+	return repairs, nil
+}
+
+func endedLanes(records []client.Record) map[string]int64 {
+	ended := map[string]int64{}
+	for _, record := range records {
+		if !closesIncident(record) {
+			continue
+		}
+		for _, lane := range record.To {
+			ended[lane] = max(ended[lane], record.Seq)
+		}
+	}
+	return ended
+}
+
+func closesIncident(record client.Record) bool {
+	return record.Lane == rootLane && incidentClose.MatchString(record.Text)
+}
+
+func openIncident(f machine.Facts, incidents []client.Record, ended map[string]int64) *client.Record {
+	var newest *client.Record
+	number := regexp.MustCompile(`#` + strconv.Itoa(f.Number) + `\b`)
+	for i, record := range incidents {
+		if record.Kind != incidentKind || record.Status != statusOpen || closesIncident(record) || supersededIncident(record, ended) {
+			continue
+		}
+		if namesPull(record, f) || number.MatchString(record.Text) || record.Lane == f.Lane || slices.Contains(record.To, f.Lane) {
+			newest = &incidents[i]
+		}
+	}
+	return newest
+}
+
+func namesPull(record client.Record, f machine.Facts) bool {
+	for _, pr := range record.Refs.PRs {
+		if pr.Number == f.Number && pr.Repo == f.Repo {
+			return true
+		}
+	}
+	return false
+}
+
+func supersededIncident(record client.Record, ended map[string]int64) bool {
+	lanes := slices.DeleteFunc(append([]string{record.Lane}, record.To...), func(lane string) bool { return lane == rootLane })
+	return len(lanes) > 0 && !slices.ContainsFunc(lanes, func(lane string) bool { return ended[lane] <= record.Seq })
+}
+
+func (q *Squash) cleared(ctx context.Context, f machine.Facts) (bool, error) {
+	records, err := client.Tail(ctx, client.Query{Drive: q.Drive, Lanes: []string{rootLane}, PR: pullRef(f)})
+	if err != nil {
+		return false, err
+	}
+	return slices.ContainsFunc(records, func(record client.Record) bool {
+		return slices.Contains(clearingKinds, string(record.Kind)) && incidentCleared.MatchString(record.Text)
+	}), nil
+}
+
+func (q *Squash) land(ctx context.Context, f machine.Facts, open *client.Record) error {
+	facts, err := q.Store.Facts(f.Repo, f.Number, f.Head)
+	if err != nil {
+		return err
+	}
+	rebased := facts[rebasedFact] != ""
+	if facts[squashedFact] != "" || !f.Approved || (!f.Green() && !rebased) {
+		return nil
+	}
+	number := strconv.Itoa(f.Number)
+	if refusals := q.refusals(ctx, f); len(refusals) > 0 {
+		q.tell(ctx, f, "blocker", "rulings:"+number+":"+f.Head, fmt.Sprintf("#%d %s: RULINGS-REFUSED `rulings.py check-pr --incident` names these on the approved, green incident fix, and it does not merge until they clear (45200f2): %s", f.Number, shortHead(f.Head), strings.Join(refusals, "; ")))
+		return nil
+	}
+	if !rebased && f.Fidelity != machine.FidelityPass && !f.Tapped() {
+		return nil
+	}
+	if f.Hold != "" {
+		if open == nil {
+			return nil
+		}
+		q.tell(ctx, f, "report", "incident-hold:"+number+":"+f.Head, fmt.Sprintf("INCIDENT-HOLD-WARNED #%d: a hold names the approved, green incident fix at %s, and open incident #%d names it, so the hold warns and it merges (owner, Nov 1)", f.Number, shortHead(f.Head), open.Seq))
+	}
+	moved, err := q.rebase(ctx, f, rebased)
+	if err != nil {
+		q.tell(ctx, f, "blocker", "rebase-direct:"+number+":"+f.Head, fmt.Sprintf("#%d %s: the approved, green incident fix is behind the latest %s, a merge outside the queue lands only rebased onto it (owner e7170fa), and the rebase did not finish: %v", f.Number, shortHead(f.Head), q.Trunk, err))
+		return nil
+	}
+	if moved {
+		return nil
+	}
+	merged, err := q.Runner.Run(ctx, shell.Command{Argv: []string{"gh", "pr", "merge", number, "--repo", f.Repo, "--squash", "--match-head-commit", f.Head}, Timeout: mergeLimit})
+	outcome := "merged"
+	if err != nil {
+		outcome = strings.TrimSpace(merged.Stderr + merged.Stdout)
+		q.tell(ctx, f, "blocker", "land:"+number+":"+f.Head, fmt.Sprintf("SQUASH-FAILED #%d: gh pr merge --squash refused the approved, green incident fix at %s: %s", f.Number, shortHead(f.Head), outcome))
+	}
+	_, err = q.Store.PutFact(f.Repo, f.Number, f.Head, squashedFact, outcome, q.Now())
+	return err
+}
+
+func (q *Squash) tell(ctx context.Context, f machine.Facts, kind, id, text string) {
+	if err := postToLane(ctx, q.Drive, f, kind, id, text); err != nil {
+		q.Log.Warn("the incident squash went unposted", "pr", f.Number, "err", err)
+	}
+}
+
+func (q *Squash) refusals(ctx context.Context, f machine.Facts) []string {
+	result, err := q.Runner.Run(ctx, shell.Command{
+		Argv:    []string{q.Rulings, "check-pr", "--repo", q.Checkout, "--drive", q.Drive, "--pr", pullRef(f), "--head", f.Head, "--incident"},
+		Timeout: checkPRLimit,
+	})
+	var exit *shell.ExitError
+	if err != nil && (!errors.As(err, &exit) || exit.Code != 1) {
+		q.Log.Warn("the incident ruling checks did not read, so they refuse nothing this pass", "pr", f.Number, "err", err)
+		return nil
+	}
+	var refusals []string
+	for _, line := range strings.Split(result.Stdout, "\n") {
+		if cause, _, _ := strings.Cut(line, " "); slices.Contains(incidentChecks, cause) {
+			refusals = append(refusals, line)
+		}
+	}
+	return refusals
+}
+
+func (q *Squash) rebase(ctx context.Context, f machine.Facts, rebased bool) (bool, error) {
+	behind, err := q.CCX.GH(ctx, ccx.MaxAgeFresh, "api", "repos/"+f.Repo+"/compare/"+q.Trunk+"..."+f.Head, "--jq", ".behind_by")
+	if err == nil && strings.TrimSpace(behind) == "0" {
+		return false, nil
+	}
+	if rebased {
+		touches, err := q.trunkTouches(ctx, f.Head)
+		if err != nil || !touches {
+			return false, err
+		}
+	}
+	out, err := q.Restack(ctx, f.Number)
+	if err != nil {
+		return false, err
+	}
+	for line := range strings.SplitSeq(out, "\n") {
+		if fields := strings.Fields(line); len(fields) == 4 && fields[0] == movedLine {
+			_, err := q.Store.PutFact(f.Repo, f.Number, fields[3], rebasedFact, f.Head, q.Now())
+			return true, err
+		}
+	}
+	return false, nil
+}
+
+func (q *Squash) trunkTouches(ctx context.Context, head string) (bool, error) {
+	git := func(limit time.Duration, args ...string) (string, error) {
+		result, err := q.Runner.Run(ctx, shell.Command{Argv: append([]string{"git", "-C", q.Checkout}, args...), Timeout: limit})
+		return strings.TrimSpace(result.Stdout), err
+	}
+	listed, err := git(gitLimit, "ls-remote", "origin", "refs/heads/"+q.Trunk)
+	if err != nil {
+		return false, err
+	}
+	tip, _, _ := strings.Cut(listed, "\t")
+	if _, err := git(trunkReadLimit, "fetch", "-q", "--no-tags", "origin", tip, head, "--no-write-fetch-head"); err != nil {
+		return false, err
+	}
+	base, err := git(gitLimit, "merge-base", tip, head)
+	if err != nil {
+		return false, err
+	}
+	landed, err := git(gitLimit, "diff", "--name-only", base, tip)
+	if err != nil {
+		return false, err
+	}
+	changed, err := git(gitLimit, "diff", "--name-only", base, head)
+	if err != nil {
+		return false, err
+	}
+	files := strings.Fields(changed)
+	return slices.ContainsFunc(strings.Fields(landed), func(file string) bool { return slices.Contains(files, file) }), nil
+}
