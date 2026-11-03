@@ -12,6 +12,7 @@ import (
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
 const promotionURL = "https://buildkite.com/org/release/builds/12272"
@@ -34,12 +35,17 @@ func namingRecord(t *testing.T, seq int64, lane, text string) client.Record {
 
 func releaseBuilds(t *testing.T, feed *string, rows ...client.Record) (*ReleaseBuilds, *fakeBus) {
 	t.Helper()
+	return releaseBuildsIn(t, memory(t), feed, rows...)
+}
+
+func releaseBuildsIn(t *testing.T, s *store.Store, feed *string, rows ...client.Record) (*ReleaseBuilds, *fakeBus) {
+	t.Helper()
 	bus := &fakeBus{tail: rows}
 	env := Env{Bus: bus, Config: config.Config{Drive: testDrive, Checkout: "/checkout"}, Runner: scripted(func(argv []string) (shell.Result, error) {
 		contains(t, strings.Join(argv, " "), "tools/ci bk api /organizations/org/pipelines/release/builds?per_page=20")
 		return shell.Result{Stdout: *feed}, nil
 	})}
-	return &ReleaseBuilds{Env: env, Pipelines: []string{"org/release"}, CLI: []string{"tools/ci", "bk"}, Log: slog.Default()}, bus
+	return &ReleaseBuilds{Env: env, Store: s, Pipelines: []string{"org/release"}, CLI: []string{"tools/ci", "bk"}, Log: slog.Default()}, bus
 }
 
 func watchBuilds(t *testing.T, check *ReleaseBuilds, at time.Time) {
@@ -102,7 +108,7 @@ func TestAFailedReleaseBuildPostsOneFailedNamingItsStepToTheCoordinatorAndTheRel
 	equal(t, len(bus.posted), 1)
 	failed := bus.posted[0]
 	equal(t, failed.To, []string{Root, "release-5"})
-	equal(t, failed.ID, "release-failed:buildkite.com/org/release/builds/12272:failed")
+	equal(t, failed.ID, "release-failed:buildkite.com/org/release/builds/12272:apply-api--prod")
 	equal(t, failed.Text, "RELEASE-FAILED 12272 apply-api--prod "+promotionURL)
 }
 
@@ -150,4 +156,67 @@ func TestAFailedReleaseBuildWaitsOnItsResumeAndPostsNothingWhenTheResumePasses(t
 	watchBuilds(t, check, promotionStarted.Add(21*time.Minute))
 
 	equal(t, len(bus.posted), 0)
+}
+
+func TestALiveReleaseLaneHearsReleaseAlertsInsteadOfTheCoordinator(t *testing.T) {
+	s := memory(t)
+	registered(t, s, store.Lane{Name: "release-5", Role: roleRelease, State: store.LaneRetired})
+	registered(t, s, store.Lane{Name: "release-6", Role: roleRelease})
+	feed := buildFeed("running", "")
+	check, bus := releaseBuildsIn(t, s, &feed)
+
+	watchBuilds(t, check, promotionStarted.Add(seenGrace))
+	feed = buildFeed("failed", `{"name":"apply","state":"failed","soft_failed":false,"step_key":"apply-api--prod"}`)
+	watchBuilds(t, check, promotionStarted.Add(seenGrace+time.Minute))
+
+	equal(t, len(bus.posted), 2)
+	contains(t, bus.posted[0].Text, "RELEASE-SEEN 12272")
+	equal(t, bus.posted[0].To, []string{"release-6"})
+	equal(t, bus.posted[1].Text, "RELEASE-FAILED 12272 apply-api--prod "+promotionURL)
+	equal(t, bus.posted[1].To, []string{"release-6"})
+}
+
+func TestAFailedBuildAnotherLaneNamedReachesThatLaneBesideTheReleaseLane(t *testing.T) {
+	s := memory(t)
+	registered(t, s, store.Lane{Name: "release-6", Role: roleRelease})
+	feed := buildFeed("failed", `{"name":"apply","state":"failed","soft_failed":false,"step_key":"apply-api--prod"}`)
+	check, bus := releaseBuildsIn(t, s, &feed, namingRecord(t, 1, "hotfix-2", "hotfix started "+promotionURL))
+
+	watchBuilds(t, check, promotionStarted.Add(seenGrace))
+
+	equal(t, len(bus.posted), 1)
+	equal(t, bus.posted[0].To, []string{"release-6", "hotfix-2"})
+}
+
+func TestReleaseAlertsGoToTheCoordinatorWhenNoReleaseLaneIsLive(t *testing.T) {
+	s := memory(t)
+	registered(t, s, store.Lane{Name: "release-6", Role: roleRelease, State: store.LaneRetired})
+	feed := buildFeed("running", "")
+	check, bus := releaseBuildsIn(t, s, &feed)
+
+	watchBuilds(t, check, promotionStarted.Add(seenGrace))
+	feed = buildFeed("failed", `{"name":"apply","state":"failed","soft_failed":false,"step_key":"apply-api--prod"}`)
+	watchBuilds(t, check, promotionStarted.Add(seenGrace+time.Minute))
+
+	equal(t, len(bus.posted), 2)
+	equal(t, bus.posted[0].To, []string{Root})
+	equal(t, bus.posted[1].To, []string{Root})
+}
+
+func TestOneFailingStepAlertsOnceAcrossFailingAndFailedAndASecondStepAlertsAgain(t *testing.T) {
+	apply := `{"name":"apply","state":"failed","soft_failed":false,"step_key":"apply-api--prod"}`
+	verify := `{"name":"verify","state":"timed_out","soft_failed":false,"step_key":"verify-api--prod"}`
+	feed := buildFeed("failing", apply)
+	check, bus := releaseBuilds(t, &feed, namingRecord(t, 1, "release-6", "promotion started "+promotionURL))
+
+	watchBuilds(t, check, promotionStarted.Add(10*time.Minute))
+	feed = buildFeed("failed", apply)
+	watchBuilds(t, check, promotionStarted.Add(12*time.Minute))
+	equal(t, len(bus.posted), 1)
+	equal(t, bus.posted[0].Text, "RELEASE-FAILED 12272 apply-api--prod "+promotionURL)
+
+	feed = buildFeed("failed", apply+","+verify)
+	watchBuilds(t, check, promotionStarted.Add(14*time.Minute))
+	equal(t, len(bus.posted), 2)
+	equal(t, bus.posted[1].Text, "RELEASE-FAILED 12272 verify-api--prod "+promotionURL)
 }
