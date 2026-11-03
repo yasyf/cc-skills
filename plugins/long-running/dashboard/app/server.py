@@ -83,7 +83,6 @@ MODEL_URL = "https://api.cerebras.ai/v1/chat/completions"
 MODEL_NAME = "gpt-oss-120b"
 MODEL_FIELDS = ("messages", "tools", "tool_choice", "parallel_tool_calls", "reasoning_effort", "reasoning_format", "max_completion_tokens", "temperature", "response_format", "prompt_cache_key", "stream", "stream_options")
 ASSIST =HERE.parents[1] / "skills" / "long-running" / "templates" / "drive-assist.html"
-OWNER_LEDGER = "owner-relay/owner-ledger.md"
 BUILD = hashlib.sha1(b"".join(path.read_bytes() for path in sorted([*HERE.iterdir(), ASSIST]) if path.suffix in (".js", ".css", ".html", ".py"))).hexdigest()[:12]
 CLIENT_RECORD = ("seq", "lane", "kind", "at", "text", "refs", "re")
 PR_ROUTE = re.compile(r"/api/pr/(\d+)")
@@ -1322,9 +1321,8 @@ class Drive:
         live = {**live, "version": version}
         lean = {**lean, "version": encoded(version)}
         views = {"lean": lean, "now": self.encode("now", now_view({**view, "version": version}), lean)}
-        ledger = self.owner_ledger()
         for name in SCREENS:
-            views[screen_kind(name)] = self.encode(screen_kind(name), screen_view(name, view, ledger, version))
+            views[screen_kind(name)] = self.encode(screen_kind(name), screen_view(name, view, version))
         served = {"version": version, "sig": sig, "live": live, "views": views, "bodies": {}}
         with self.serving:
             self.live_model = live
@@ -1469,12 +1467,6 @@ class Drive:
         read = self.read_board(self.board_doc)
         answered = {card: {"picked": answer["picked"], "at": max(self.board_times[ask] for ask in answer["asks"])} for card, answer in read["answered"].items()}
         return {**read, "answered": answered, "seq": seq}
-
-    def owner_ledger(self):
-        if "steps" not in self.config:
-            return ""
-        ledger = Path(self.config["steps"]).parents[1] / OWNER_LEDGER
-        return ledger.read_text() if ledger.is_file() else ""
 
     def screens_changed(self, seen):
         history = dict(self.digests)

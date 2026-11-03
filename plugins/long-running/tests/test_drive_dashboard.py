@@ -1516,7 +1516,7 @@ def test_the_lanes_are_read_again_only_after_a_record_arrives(monkeypatch):
 
 
 def publishable_model(**fields):
-    return {"words": [], "records": [], "lanes": [], "prs": {}, "pr_state": {}, "history": {}, "drive": {"prs": []}, **{key: {} for key in server.NOW_DRAWS}, "steps": [], "board": {"rows": [], "cards": []}, **fields}
+    return {"words": [], "records": [], "lanes": [], "prs": {}, "pr_state": {}, "history": {}, "drive": {"prs": []}, **{key: {} for key in server.NOW_DRAWS}, "board": {"rows": [], "cards": []}, "status_tables": [], "step_records": {}, "owner_asks": {"messages": [], "taps": [], "store": []}, **fields}
 
 
 def test_the_now_tab_keeps_its_slice_beside_the_now_screen(tmp_path):
@@ -1529,7 +1529,7 @@ def test_the_now_tab_keeps_its_slice_beside_the_now_screen(tmp_path):
 def test_a_screen_route_serves_its_view_and_the_stream_names_only_what_changed(tmp_path):
     drive = Drive({"board_url": "http://board/p/x"}, None)
     drive.publish(publishable_model(), tmp_path / "served.json.gz")
-    httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.handler(drive))
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.handler(drive, TAILNET_OWNER, {"127.0.0.1"}))
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     base = f"http://127.0.0.1:{httpd.server_port}"
 
@@ -1545,7 +1545,7 @@ def test_a_screen_route_serves_its_view_and_the_stream_names_only_what_changed(t
         assert missing.value.code == 404
         with urllib.request.urlopen(f"{base}/api/stream", timeout=5) as stream:
             assert "status" in next_screens(stream)
-            drive.publish(publishable_model(steps=[{"title": "Gateway", "state": "Holding"}]), tmp_path / "served.json.gz")
+            drive.publish(publishable_model(status_tables=[{"id": "gateway", "rows": [{"step": "Pool", "state": "Holding"}]}]), tmp_path / "served.json.gz")
             assert next_screens(stream) == ["status"]
     finally:
         httpd.shutdown()
