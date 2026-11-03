@@ -34,6 +34,7 @@ type RunnerOrca struct {
 	Briefs    RunnerBriefs      `json:"briefs"`
 	LaunchEnv map[string]string `json:"launch_env"`
 	GC        string            `json:"gc"`
+	GoRelay   bool              `json:"go_relay"`
 }
 
 type Runner struct {
