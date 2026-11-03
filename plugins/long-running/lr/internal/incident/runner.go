@@ -358,6 +358,9 @@ func (r *Runner) exhausted(ctx context.Context) error {
 			continue
 		}
 		text := fmt.Sprintf("%s %s failed %d times: %s", action.Kind, action.Target, maxAttempts, action.Reason)
+		if strings.HasPrefix(action.ActionID, "dispatch:"+RoleBackup) {
+			text += fmt.Sprintf("; start %s in-process now, an Agent of type long-running:lane-ship on opus in fast mode", action.Target)
+		}
 		if err := r.decide(ctx, "exhausted:"+action.ActionID, text); err != nil {
 			return err
 		}
@@ -569,7 +572,7 @@ func (r *Runner) writeBrief(ctx context.Context, facts Facts, role string) (stri
 }
 
 func (r *Runner) dispatch(ctx context.Context) error {
-	facts, err := r.facts("mechanism", "repair_pr", "not_ours")
+	facts, err := r.facts("repair_pr", "not_ours")
 	if err != nil || facts.RepairPR != 0 {
 		return err
 	}
@@ -583,14 +586,11 @@ func (r *Runner) dispatch(ctx context.Context) error {
 	if err != nil || fix == nil || fix.Status != ActionVerified {
 		return err
 	}
-	if facts.Mechanism != "" || facts.NotOurs != "" {
-		return nil
-	}
 	started, err := store.Parse(string(fix.StartedAt))
 	if err != nil {
 		return err
 	}
-	if r.Now().Sub(started) < backupAfter {
+	if facts.NotOurs != "" || r.Now().Sub(started) < backupAfter {
 		return nil
 	}
 	backup, err := r.latest("dispatch:" + RoleBackup)

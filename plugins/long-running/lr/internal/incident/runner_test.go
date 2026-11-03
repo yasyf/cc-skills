@@ -1333,3 +1333,47 @@ func TestRecoveryReadsStayFlatWithHistory(t *testing.T) {
 		t.Fatalf("history %d", len(verified))
 	}
 }
+
+func TestABackupLaunchesWhenAMechanismHasNoPRInFifteenMinutes(t *testing.T) {
+	h := opened(t)
+	h.note("mechanism", "#28934 stopped committing infra/ci/src/generated")
+	h.drive(h.intake(14*time.Minute), nil)
+	if h.launchedBackup() {
+		t.Fatal("a backup launched before the budget")
+	}
+
+	h.drive(h.intake(16*time.Minute), nil)
+
+	if !h.launchedBackup() {
+		t.Fatalf("launches %v", h.fake.launches)
+	}
+}
+
+func TestAnExhaustedBackupTellsRootToStartItInProcess(t *testing.T) {
+	h := opened(t)
+	lane := laneName(h.id, "backup")
+	id := fmt.Sprintf("dispatch:%s#%d", RoleBackup, maxAttempts)
+	if err := h.store.Input(h.id, func(tx *Tx) error {
+		if _, err := tx.Accept(id, "dispatch", lane, "", h.fake.now()); err != nil {
+			return err
+		}
+		_, err := tx.Fail(id, "orca refused")
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := h.runner.exhausted(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	if !slices.ContainsFunc(h.fake.asks, func(text string) bool {
+		return strings.Contains(text, "start "+lane+" in-process now")
+	}) {
+		t.Fatalf("asks %v", h.fake.asks)
+	}
+}
+
+func (h *harness) launchedBackup() bool {
+	return slices.Contains(h.fake.lanes(), laneName(h.id, "backup"))
+}
