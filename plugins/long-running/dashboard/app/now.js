@@ -44,6 +44,7 @@ function nowScreen() {
   const b = m.brief;
   if (!b) return `<div class="nw"><p class="nw-wait">Writing the first summary of the drive. It appears here in about a minute.</p>${diagramSlot()}</div>`;
   const html = `<div class="nw">
+    ${overdueBand()}
     ${band(b)}
     <h1 class="nw-head">${esc(b.headline)}</h1>
     <p class="nw-sub">Written from the drive's records at ${clock(b.at)}. <button class="linkish" data-toggle="nw-why">Why this sentence ›</button></p>
@@ -68,6 +69,12 @@ function fyiFeed() {
   return `<section class="nw-fyi"><h2 class="nw-h">Decided for you, and what changed</h2>${eventList(rows.slice(0, EVENTS_AT_REST))}${earlier > 0 ? `<a class="ev-all" href="#/history">Earlier today ${countPill(earlier)} ›</a>` : ''}</section>`;
 }
 
+function overdueBand() {
+  const items = state.model.coordinator_overdue ?? [];
+  if (!items.length) return '';
+  const rows = newestFirst(items.map((item) => ({ id: `overdue-${item.ask}`, iso: item.at, at: clock(item.at), word: 'Overdue', tone: 'bad', title: item.title, side: spanFor(item.at), more: `<p>${esc(item.text)}</p><p><a href="/record/${item.ask}" target="_blank" rel="noopener">Read the record ↗</a></p>` })));
+  return `<section class="nw-overdue"><h2 class="nw-h">The coordinator owes you ${plural(items.length, 'overdue item')}</h2>${eventList(rows)}</section>`;
+}
 function band(b) {
   const m = state.model;
   const incident = b.band.kind === 'incident' ? `<div class="nw-band incident"><span class="tag">Incident</span><span class="what">${esc(b.band.text)}</span></div>` : '';

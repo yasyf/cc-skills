@@ -318,6 +318,64 @@ function prGroup(text) {
   const hit = PR_GROUPS.find(([pattern]) => pattern.test(text));
   return hit ? hit.slice(1) : [ledgerWords(text), 'Moving', 'acc'];
 }
+const ASK_WORD = { asked: 'Asked', answered: 'Answered', applied: 'Applied', live: 'Live' };
+const ASK_TONE = { asked: 'bad', answered: 'you', applied: 'acc', live: 'ok' };
+const ASKS_AT_REST = 12;
+function askTitle(text) {
+  return firstClause(text.replace(/https?:\/\/\S+/g, '').trim() || 'A message with only a link').replace(/^(.{96}\S*)\s.+$/, '$1…');
+}
+function askRow(ask, state, where, more) {
+  return { ...ask, state, word: ASK_WORD[state], tone: ASK_TONE[state], side: esc(where), more };
+}
+function askMessage(a) {
+  const slack = /slack\.com\/archives\/\w+\/p(\d{10})(\d{6})/.exec(a.text);
+  const pr = a.prs[0];
+  const where = pr ? `PR ${pr}` : slack ? `Slack ${slack[1]}.${slack[2]}` : a.lanes[0] ? workerName(a.lanes[0]) : 'Chat';
+  const facts = [
+    a.lanes.length ? `<dt>Who holds it</dt><dd>${a.lanes.map((lane) => `<a href="#/worker/${encodeURIComponent(lane)}">${esc(workerName(lane))}</a>`).join(', ')}</dd>` : '',
+    a.prs.length ? `<dt>Pull requests</dt><dd>${a.prs.map((ref) => (ref.includes('#') ? esc(ref) : `<a href="#/review/${esc(ref)}">${esc(plainTitle(ref))}</a>`)).join('<br>')}</dd>` : '',
+    a.latest_seq ? `<dt>Latest record</dt><dd><a href="/record/${a.latest_seq}" target="_blank" rel="noopener">${esc(a.latest.slice(0, 160))} ↗</a></dd>` : '',
+  ].join('');
+  return askRow({ id: `ask-m${a.m}`, iso: a.iso, at: clock(a.iso), title: a.title ?? askTitle(a.text) }, a.state, where, `<p>${esc(a.text)}</p>${facts ? `<dl class="pg-facts st-full">${facts}</dl>` : ''}`);
+}
+function askRows() {
+  const data = state.model.owner_asks;
+  const approvals = data.taps.filter((t) => t.pr);
+  const approvalRow = (status, list, title) => {
+    if (!list.length) return [];
+    const iso = list.map((t) => t.iso).sort().at(-1);
+    return [askRow({ id: `ask-approved-${status}`, iso, at: clock(iso), title: `${list.length} ${title}` }, status, `Board, ${list.length} PRs`, `<ul>${list.map((t) => `<li><a href="#/review/${esc(t.pr)}">${esc(plainTitle(t.pr))}</a></li>`).join('')}</ul>`)];
+  };
+  const store = data.store.map((a) => {
+    const [, stamp, words] = /^Owner(?: pick)? (.+?)(?: on card [\w-]+)?: (.*)$/s.exec(a.text) ?? [0, '', a.text];
+    const [, clockTime, day] = /^(\d{1,2}:\d{2} [AP]M) (\w{3} \d+)$/.exec(stamp) ?? /^(\w{3} \d+) (\d{1,2}:\d{2} [AP]M)$/.exec(stamp)?.slice(0).reverse() ?? [];
+    const iso = new Date(`${day ?? 'Nov 3'} 2026 ${clockTime ?? '12:00 AM'} PST`).toISOString();
+    const lost = a.state === 'LOST';
+    return askRow({ id: `ask-${a.key}`, iso, at: clock(iso), title: askTitle(words), why: lost ? 'no progress recorded' : '' }, lost ? 'asked' : 'live', workerName(a.lane), `<p>${esc(a.line)}</p>`);
+  });
+  return newestFirst([
+    ...data.messages.map(askMessage),
+    ...data.taps.filter((t) => !t.pr).map((t) => askRow({ id: `ask-m${t.m}`, iso: t.iso, at: clock(t.iso), title: t.question.replace(/^(.{96}\S*)\s.+$/, '$1…'), why: t.said.replace(/^picked /, 'You picked ') }, t.state, 'Board', `<p><a href="${esc(state.model.board.url)}?block=${encodeURIComponent(t.card)}" target="_blank" rel="noopener">Open the card on your board ↗</a></p>`)),
+    ...approvalRow('applied', approvals.filter((t) => t.state === 'applied'), 'changes you approved have landed'),
+    ...approvalRow('answered', approvals.filter((t) => t.state !== 'applied'), 'changes you approved have not landed yet'),
+    ...store,
+    ...picksRow().map((row) => ({ ...row, state: 'answered', word: 'Answered', tone: 'you' })),
+  ]);
+}
+function openAsks() {
+  return state.model?.owner_asks ? askRows().filter((row) => row.state !== 'live').length : 0;
+}
+function asksScreen(filter = '') {
+  if (!state.model.owner_asks) return writing('Your asks');
+  const rows = askRows();
+  const open = rows.filter((row) => row.state !== 'live');
+  const chips = [['', 'Open', open.length], ...Object.entries(ASK_WORD).map(([id, word]) => [id, word, rows.filter((row) => row.state === id).length])];
+  const nav = `<nav class="pg-filters">${chips.map(([id, word, n]) => `<a href="#/asks${id ? `/${id}` : ''}" class="${id === filter ? 'on' : ''}">${word} <b>${n}</b></a>`).join('')}</nav>`;
+  const shown = filter ? rows.filter((row) => row.state === filter) : open;
+  const rest = filter ? [] : shown.slice(ASKS_AT_REST);
+  const first = filter ? shown : shown.slice(0, ASKS_AT_REST);
+  return `<div class="pg">${pageHead('Your asks')}${nav}${first.length ? eventList(first) : ''}${rest.length ? fold('asks-older', `Older ${countPill(rest.length)}`, eventList(rest)) : ''}</div>`;
+}
 function workScreen() {
   const p = curated('work');
   if (!p) return writing('Work');
