@@ -43,7 +43,6 @@ type Outcome struct {
 
 const (
 	EnqueuedFact = "enqueued"
-	LandingDesk  = "landing-desk"
 	BoardDesk    = "board-refresher"
 	GraderDesk   = "grader-appeals"
 	root         = string(machine.MoverRoot)
@@ -51,15 +50,11 @@ const (
 
 var (
 	deskOf = map[machine.Action]string{
-		machine.ActionEnqueue:    LandingDesk,
-		machine.ActionDequeue:    LandingDesk,
-		machine.ActionWatchQueue: LandingDesk,
-		machine.ActionWaitCI:     LandingDesk,
-		machine.ActionLift:       LandingDesk,
-		machine.ActionTap:        BoardDesk,
-		machine.ActionGrade:      GraderDesk,
-		machine.ActionVerdict:    GraderDesk,
+		machine.ActionTap:     BoardDesk,
+		machine.ActionGrade:   GraderDesk,
+		machine.ActionVerdict: GraderDesk,
 	}
+	rootOwns = []machine.Action{machine.ActionEnqueue, machine.ActionDequeue, machine.ActionWatchQueue, machine.ActionWaitCI, machine.ActionLift}
 	lanesOwn = []machine.Action{machine.ActionFixRed, machine.ActionRestack, machine.ActionReview}
 	samePass = []machine.Action{
 		machine.ActionEnqueue, machine.ActionDequeue, machine.ActionRestack,
@@ -211,7 +206,8 @@ func escalateOverdue(s *store.Store, snapshot []machine.Facts, now time.Time, po
 	for _, item := range overdue {
 		action := machine.Action(item.Kind)
 		desk, deskOwns := deskOf[action]
-		if !deskOwns && !slices.Contains(lanesOwn, action) {
+		rootOwned := slices.Contains(rootOwns, action)
+		if !deskOwns && !rootOwned && !slices.Contains(lanesOwn, action) {
 			continue
 		}
 		if !slices.Contains(live, gateOf(item.Mover)) {
@@ -224,6 +220,9 @@ func escalateOverdue(s *store.Store, snapshot []machine.Facts, now time.Time, po
 		to := laneOf(snapshot, item)
 		if deskOwns {
 			to = route(desk)
+		}
+		if rootOwned {
+			to = root
 		}
 		if err := escalate(s, fmt.Sprintf("%s#%d", item.Repo, item.Number), item.Kind+" overdue", said, to, now, post, out); err != nil {
 			return err

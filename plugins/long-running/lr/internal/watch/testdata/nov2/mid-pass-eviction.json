@@ -1,5 +1,5 @@
 {
- "name": "a PR that leaves the read mid-pass raises nothing and its open item still reaches the desk",
+ "name": "a PR that leaves the read mid-pass raises nothing and its open item still reaches root",
  "cites": [
   "#74934@78db4467",
   "#337653"
@@ -75,7 +75,7 @@
     {
      "Subject": "org/repo#48274",
      "Cause": "watch-queue overdue",
-     "To": "landing-desk-3"
+     "To": "root"
     }
    ]
   }

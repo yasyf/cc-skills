@@ -79,7 +79,7 @@
     {
      "Subject": "org/repo#48000",
      "Cause": "enqueue overdue",
-     "To": "landing-desk-3"
+     "To": "root"
     }
    ]
   }
