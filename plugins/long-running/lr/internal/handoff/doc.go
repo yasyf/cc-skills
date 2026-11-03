@@ -29,6 +29,10 @@ const (
 	retiredChars     = 200
 	shownLimit       = 10
 	incidentWindow   = 6 * time.Hour
+	asksBudget       = 6_000
+	registryBudget   = 12_000
+	updateBudget     = 8_000
+	driveEnv         = "CLAUDE_LONG_RUNNING_DRIVE"
 	secondsStamp     = "2006-01-02T15:04:05Z"
 )
 
@@ -115,6 +119,13 @@ func (d driveEntry) cciName() string {
 	return d.programName()
 }
 
+func (d *progressDoc) busName() string {
+	if d.registry != nil {
+		return d.registry.cciName()
+	}
+	return d.program
+}
+
 type progressDoc struct {
 	program       string
 	plan          string
@@ -131,6 +142,7 @@ type progressDoc struct {
 	monitors      []backgroundTask
 	incidentLanes []string
 	laneRegistry  []string
+	registered    int
 	ownerUpdate   string
 	delivered     []string
 	inboxes       []inbox
@@ -349,7 +361,7 @@ func (d *progressDoc) render() string {
 			d.registry.Drive, cut(d.registry.Ledger, shortID), dash(d.registry.OrcaRun), d.registry.Checkout, strings.Join(sessions, ", ")))
 	}
 	out = append(out, "", "## Open owner asks")
-	out = append(out, noneIfEmpty(bullets(d.asks))...)
+	out = append(out, withinBudget(noneIfEmpty(bullets(d.asks)), asksBudget, "ledger.py show --drive "+d.busName()+" --asks")...)
 	out = append(out, "", "## Open tasks")
 	out = append(out, d.taskLines()...)
 	out = append(out, "", deliveredHeading)
@@ -441,6 +453,6 @@ func (d *progressDoc) digest(doc string) string {
 	return strings.Join([]string{
 		fmt.Sprintf("Compacted long-running drive `%s`. Before acting, %s, then `%s`. Reload Skill `long-running` if its rules are gone.", d.program, first, d.plan),
 		fmt.Sprintf("Register: %d owner-approved rules, %d live standing rules.", ruleCount(d.reg), len(d.standing.rules)),
-		fmt.Sprintf("Open: %d owner asks, %d tasks, %d lanes, %d monitors, %d lint findings.", len(d.asks), len(d.tasks), len(d.lanes), len(d.monitors), len(d.findings)+len(d.planFindings)),
+		fmt.Sprintf("Open: %d owner asks, %d tasks, %d lanes, %d monitors, %d lint findings.", len(d.asks), len(d.tasks), max(len(d.lanes), d.registered), len(d.monitors), len(d.findings)+len(d.planFindings)),
 	}, "\n")
 }

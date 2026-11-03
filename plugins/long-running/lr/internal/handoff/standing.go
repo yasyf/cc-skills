@@ -12,21 +12,23 @@ import (
 )
 
 const (
-	shortID          = 7
-	standingTopic    = "standing"
-	registerHeading  = "## Standing owner rules"
-	narrativeHeading = "## Root narrative"
-	rowsHeading      = "### Scope rows, in the owner's words"
-	quotePrefix      = "  >"
-	continuation     = 4
-	inForce          = "in-force"
-	pendingOwner     = "pending-owner"
-	scopeKind        = "scope"
-	gateKind         = "gate"
-	goKind           = "go"
-	correctionKind   = "correction"
-	touchedWindow    = 24 * time.Hour
-	ruleID           = `(?:[A-Z]{1,2}\d+(?:\.\d+)?|#\d+)`
+	shortID           = 7
+	standingTopic     = "standing"
+	registerHeading   = "## Standing owner rules"
+	narrativeHeading  = "## Root narrative"
+	rowsHeading       = "### Scope rows, in the owner's words"
+	quotePrefix       = "  >"
+	continuation      = 4
+	inForce           = "in-force"
+	pendingOwner      = "pending-owner"
+	scopeKind         = "scope"
+	gateKind          = "gate"
+	goKind            = "go"
+	correctionKind    = "correction"
+	touchedWindow     = 24 * time.Hour
+	touchedBudget     = 12_000
+	unconfirmedBudget = 6_000
+	ruleID            = `(?:[A-Z]{1,2}\d+(?:\.\d+)?|#\d+)`
 )
 
 var (
@@ -361,7 +363,11 @@ func childLines(row registerRow) []string {
 	if evidence == "" {
 		evidence = "none recorded"
 	}
-	return append(lines, "  - names: "+strings.Join(row.names, " | "), "  - evidence: "+evidence)
+	return append(lines, namesLine(row), "  - evidence: "+evidence)
+}
+
+func namesLine(row registerRow) string {
+	return "  - names: " + strings.Join(row.names, " | ")
 }
 
 func continuationLines(row registerRow) []string {
@@ -473,22 +479,35 @@ func noneIfEmpty(lines []string) []string {
 }
 
 func touchedLines(rows *rowSet) []string {
-	var lines []string
 	since := rows.readAt.Add(-touchedWindow)
-	for _, row := range rows.rows {
-		if row.updatedAt == "" || row.updated.Before(since) {
-			continue
+	touched := slices.DeleteFunc(slices.Clone(rows.rows), func(row registerRow) bool {
+		return row.updatedAt == "" || row.updated.Before(since)
+	})
+	slices.SortStableFunc(touched, func(a, b registerRow) int { return b.updated.Compare(a.updated) })
+	var lines []string
+	used := 0
+	for index, row := range touched {
+		entry := touchedEntry(row)
+		for _, line := range entry {
+			used += len(line) + 1
 		}
-		switch {
-		case row.isNo:
-			lines = append(lines, fmt.Sprintf("- `%s` (no ruling, touched %s): %s", row.key, row.updatedAt, row.no))
-		case row.words != "":
-			lines = append(lines, quotedWords(row, fmt.Sprintf("%s, touched %s", row.kind, row.updatedAt))...)
-		default:
-			lines = append(lines, fmt.Sprintf("- `%s` (%s, touched %s): no words", row.key, row.kind, row.updatedAt))
+		if used > touchedBudget {
+			return append(lines, fmt.Sprintf("- %d more rows: run `rulings.py rows --json`", len(touched)-index))
 		}
+		lines = append(lines, entry...)
 	}
 	return lines
+}
+
+func touchedEntry(row registerRow) []string {
+	switch {
+	case row.isNo:
+		return []string{fmt.Sprintf("- `%s` (no ruling, touched %s): %s", row.key, row.updatedAt, row.no)}
+	case row.words != "":
+		return quotedWords(row, fmt.Sprintf("%s, touched %s", row.kind, row.updatedAt))
+	default:
+		return []string{fmt.Sprintf("- `%s` (%s, touched %s): no words", row.key, row.kind, row.updatedAt)}
+	}
 }
 
 func riskLines(rows *rowSet) []string {
@@ -516,7 +535,7 @@ func rowsSection(rows *rowSet) []string {
 	if rows.failure != "" {
 		return []string{fmt.Sprintf("- the register rows did not load (%s); read them with `rulings.py rows --json`", rows.failure), ""}
 	}
-	out := []string{rowsHeading, ""}
+	out := []string{rowsHeading, "", "Each row's implications and their states: `rulings.py rows --json`.", ""}
 	var owed []string
 	for _, row := range rows.current() {
 		if row.kind == scopeKind {
@@ -524,9 +543,8 @@ func rowsSection(rows *rowSet) []string {
 			if said == "" {
 				said = "1"
 			}
-			children := childLines(row)
 			out = append(out, quotedWords(row, fmt.Sprintf("%s, said %s", row.status, said))...)
-			out = append(out, children[:len(children)-1]...)
+			out = append(out, namesLine(row))
 		}
 		if row.kind == gateKind && row.status == inForce {
 			owed = append(owed, quotedWords(row, "owed")...)
@@ -539,7 +557,7 @@ func rowsSection(rows *rowSet) []string {
 	out = append(out, "", "### Rows at risk or broken", "")
 	out = append(out, noneIfEmpty(riskLines(rows))...)
 	out = append(out, "", "### Unconfirmed implications", "")
-	return append(append(out, noneIfEmpty(rows.unconfirmedLines())...), "")
+	return append(append(out, withinBudget(noneIfEmpty(rows.unconfirmedLines()), unconfirmedBudget, "rulings.py rows --json")...), "")
 }
 
 func sectionOf(reg *register, lines []string, narrative string, rows *rowSet) string {

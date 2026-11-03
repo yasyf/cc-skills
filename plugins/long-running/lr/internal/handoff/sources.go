@@ -349,11 +349,11 @@ func onDrive(records []busRecord, drive string) []busRecord {
 }
 
 func (d *deps) readIncidentLanes(ctx context.Context, doc *progressDoc) error {
-	records, err := d.records(ctx, recordQuery{drive: doc.program, since: doc.at.Add(-incidentWindow)})
+	records, err := d.records(ctx, recordQuery{drive: doc.busName(), since: doc.at.Add(-incidentWindow)})
 	if err != nil {
 		return err
 	}
-	doc.incidentLanes = incidentLines(onDrive(records, doc.program), doc.at)
+	doc.incidentLanes = incidentLines(onDrive(records, doc.busName()), doc.at)
 	return nil
 }
 
@@ -363,7 +363,6 @@ type laneRow struct {
 	Heard    string `json:"heard"`
 	Step     string `json:"step"`
 	Standing string `json:"standing"`
-	Brief    string `json:"brief"`
 	PRs      []int  `json:"prs"`
 }
 
@@ -382,9 +381,6 @@ func (r laneRow) line() string {
 	}
 	if r.Standing != "" {
 		line += ", standing: " + r.Standing
-	}
-	if r.Brief != "" {
-		line += ", brief " + r.Brief
 	}
 	return line
 }
@@ -431,12 +427,24 @@ func (d *deps) readOwnerUpdate(ctx context.Context, doc *progressDoc, entry *dri
 		doc.laneRegistry = []string{"- registry unread: " + err.Error()}
 		return
 	}
-	doc.ownerUpdate = rendered
+	doc.ownerUpdate = strings.Join(withinBudget(splitLines(rendered), updateBudget, "lr update --drive "+entry.cciName()+" --render"), "\n")
 	for _, row := range rows {
 		if (row.State != retiredState && row.State != unregisteredState) || row.Standing != "" {
 			doc.laneRegistry = append(doc.laneRegistry, row.line())
 		}
 	}
+	doc.registered = len(doc.laneRegistry)
+	doc.laneRegistry = withinBudget(doc.laneRegistry, registryBudget, "lr lanes --config "+filepath.Join(entry.StateDir, "lr.json"))
+}
+
+func withinBudget(lines []string, budget int, whole string) []string {
+	used := 0
+	for index, line := range lines {
+		if used += len(line) + 1; used > budget {
+			return append(slices.Clone(lines[:index]), fmt.Sprintf("- %d more lines: run `%s`", len(lines)-index, whole))
+		}
+	}
+	return lines
 }
 
 func openTask(task sessionTask) bool {
@@ -498,11 +506,11 @@ func (d *deps) readDeliveries(ctx context.Context, doc *progressDoc, since strin
 	if err != nil {
 		return err
 	}
-	records, err := d.records(ctx, recordQuery{drive: doc.program, kinds: reportedKinds, since: at})
+	records, err := d.records(ctx, recordQuery{drive: doc.busName(), kinds: reportedKinds, since: at})
 	if err != nil {
 		return err
 	}
-	doc.delivered = deliveredLines(doc.tasks, onDrive(records, doc.program), at)
+	doc.delivered = deliveredLines(doc.tasks, onDrive(records, doc.busName()), at)
 	return nil
 }
 
@@ -522,6 +530,7 @@ func findDrive(sessionID string) (*driveEntry, error) {
 	if err != nil {
 		return nil, err
 	}
+	named := os.Getenv(driveEnv)
 	paths, err := filepath.Glob(filepath.Join(dir, "long-running", "drives", "*.json"))
 	if err != nil {
 		return nil, err
@@ -535,7 +544,7 @@ func findDrive(sessionID string) (*driveEntry, error) {
 		if err := json.Unmarshal(data, &entry); err != nil {
 			return nil, fmt.Errorf("%s: %w", path, err)
 		}
-		if slices.Contains(entry.Sessions, sessionID) {
+		if entry.Drive == named || (named == "" && slices.Contains(entry.Sessions, sessionID)) {
 			return &entry, nil
 		}
 	}
