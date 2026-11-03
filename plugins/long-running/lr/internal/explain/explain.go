@@ -305,7 +305,7 @@ type Owner struct {
 }
 
 func (o Owner) Announce(ctx context.Context, n Notice) error {
-	if o.Lane != relay {
+	if o.Lane != "" && o.Lane != relay {
 		if _, err := o.Post(ctx, client.Draft{Drive: o.Drive, Lane: o.Lane, Kind: "report", To: []string{relay}, Text: fmt.Sprintf("one-pager for the owner, %s: %s", n.Title, n.Link)}); err != nil {
 			return err
 		}
