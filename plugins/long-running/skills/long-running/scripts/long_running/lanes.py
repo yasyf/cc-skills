@@ -6,7 +6,9 @@ worktree path in the text of a ``WORKTREE``, ``FIRST-REPORT``, ``started``, or a
 ``git worktree list`` in the drive's checkout, a worktree whose directory or branch is the lane's
 name; and the head branch of each PR the lane's records name. Only paths that exist count.
 ``Worktree.owned`` marks a worktree the lane made, from its receipt, its ``WORKTREE`` attr, or its name,
-apart from one a record's text or a watched PR only names.
+apart from one a record's text or a watched PR only names. A desk's records name dozens of other lanes'
+trees and each `git status` walks a whole checkout, so only the newest ``NAMED_INSPECTED`` trees a record
+only names are inspected and the rest report ``NOT_INSPECTED``.
 A lane with no worktree on this machine, such as an Orca worker on a paired remote server, is
 read from the drive's Orca Run instead: ``orca_status`` matches the lane to the Run's tasks by
 title, display name, or the lane its spec opens with, and reports each matching dispatch. A drive
@@ -40,6 +42,9 @@ WORKERS = 8
 WORKTREE_PATH = re.compile(r"(?<![\w/])(/[\w.~/-]*/(?:worktrees|workspaces)/[\w.-]+(?:/[\w.-]+)*)")
 RECEIPT = "launch receipt"
 OWN_RECORD = "WORKTREE record"
+NAMED_RECORD = "cci record"
+NAMED_INSPECTED = 5
+NOT_INSPECTED = "only named in a record, not inspected"
 LISTED = "git worktree list"
 OWNING = frozenset({RECEIPT, OWN_RECORD, LISTED})
 DIRTY_NAMED = 5
@@ -159,7 +164,7 @@ def record_paths(records: Iterable[dict]) -> list[tuple[str, str]]:
         attr = ((record.get("fields") or {}).get("attrs") or {}).get("worktree")
         if attr:
             paths.append((attr, OWN_RECORD))
-        paths += [(path, "cci record") for path in WORKTREE_PATH.findall(record.get("text") or "") if path != attr]
+        paths += [(path, NAMED_RECORD) for path in WORKTREE_PATH.findall(record.get("text") or "") if path != attr]
     return paths
 
 
@@ -271,7 +276,7 @@ def mark_pushed(worktrees: list[Worktree], run: Run) -> None:
             repos.setdefault(worktree.common, []).append(worktree)
 
     def origin_heads(group: list[Worktree]) -> dict[str, str]:
-        listing = output(run, ["git", "-C", str(group[0].path), "ls-remote", "origin", *dict.fromkeys(f"refs/heads/{worktree.ref}" for worktree in group)]) or ""
+        listing = output(run, ["git", "-C", str(group[0].path), "ls-remote", "--heads", "origin", *dict.fromkeys(f"refs/heads/{worktree.ref}" for worktree in group)]) or ""
         return {ref: sha for sha, _, ref in (line.partition("\t") for line in listing.splitlines())}
 
     for group, remote in zip(repos.values(), concurrently(origin_heads, repos.values())):
@@ -299,7 +304,10 @@ def pull_line(pull: dict) -> str:
 
 
 def lane_status(lane: str, records: list[dict], receipts: Iterable[Path], checkout: Path, repo: str, trunk: str, now: datetime, run: Run, excluded: frozenset[str] = frozenset()) -> list[Worktree]:
-    worktrees = concurrently(lambda worktree: inspect(worktree, trunk, now, run), lane_worktrees(lane, records, receipts, checkout, repo, run, excluded))
+    found = lane_worktrees(lane, records, receipts, checkout, repo, run, excluded)
+    for worktree in [worktree for worktree in found if worktree.sources == [NAMED_RECORD]][:-NAMED_INSPECTED]:
+        worktree.error = NOT_INSPECTED
+    worktrees = concurrently(lambda worktree: worktree if worktree.error else inspect(worktree, trunk, now, run), found)
     mark_pushed(worktrees, run)
     mark_pulls(worktrees, repo, run)
     return worktrees

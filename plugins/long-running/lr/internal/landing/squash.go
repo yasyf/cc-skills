@@ -343,7 +343,7 @@ func (q *Squash) trunkTouches(ctx context.Context, head string) (bool, error) {
 		result, err := q.Runner.Run(ctx, shell.Command{Argv: append([]string{"git", "-C", q.Checkout}, args...), Timeout: limit})
 		return strings.TrimSpace(result.Stdout), err
 	}
-	listed, err := git(gitLimit, "ls-remote", "origin", "refs/heads/"+q.Trunk)
+	listed, err := git(gitLimit, "ls-remote", "--heads", "origin", "refs/heads/"+q.Trunk)
 	if err != nil {
 		return false, err
 	}
