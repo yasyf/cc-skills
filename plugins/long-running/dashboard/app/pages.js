@@ -363,7 +363,7 @@ function askRows() {
   ]);
 }
 function openAsks() {
-  return state.model?.owner_asks ? askRows().filter((row) => row.state !== 'live').length : 0;
+  return state.model?.owner_asks ? askRows().filter((row) => row.state === 'asked').length : 0;
 }
 function asksScreen(filter = '') {
   if (!state.model.owner_asks) return writing('Your asks');
