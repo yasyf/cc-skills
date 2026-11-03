@@ -78,6 +78,27 @@ def test_a_job_keeps_its_own_job_and_pid_files_and_drops_the_empty_refs_a_sprite
     assert not emptied.exists()
 
 
+def test_a_job_named_by_script_path_runs_that_script_for_the_judge(tmp_path: Path) -> None:
+    mac, sprite = tmp_path / "mac", tmp_path / "sprite"
+    checkout, directory, config = mac / "checkout", mac / "judge" / "a1b2c3", mac / "config"
+    job_script = plugin_with_job(mac, "raise SystemExit('lr ran instead of the script')\n")
+    judge_job = job_script.parent / "judge_job.py"
+    executable(judge_job, RESTARTED_JOB)
+    executable(mac / "bin" / "sprite", SPRITE)
+    executable(mac / "bin" / "cci", "#!/bin/sh\n")
+    executable(mac / "bin" / "sleep", "#!/bin/sh\nexec /bin/sleep 0.05\n")
+    directory.mkdir(parents=True)
+    (directory / "job.json").write_text(json.dumps({"drive": "d1", "checkout": str(checkout)}))
+    (config / "long-running" / "drives").mkdir(parents=True)
+    (config / "long-running" / "drives" / "d1.json").write_text(json.dumps({"state_dir": str(mac / "state")}))
+    subprocess.run(["git", "init", "-q", f"{sprite}{checkout}"], check=True)
+
+    env = {**os.environ, "PATH": f"{mac / 'bin'}:{os.environ['PATH']}", "MAC_ROOT": str(mac), "SPRITE_ROOT": str(sprite), "CLAUDE_CONFIG_DIR": str(config)}
+    subprocess.run(["sh", str(job_script), "vet4", str(judge_job), str(directory)], env=env, check=True, capture_output=True, timeout=60)
+
+    assert json.loads((directory / "result.json").read_text()) == {"verdict": "ok"}
+
+
 def test_the_sprite_reads_the_register_from_the_jobs_checkout_never_the_launching_machines(tmp_path: Path) -> None:
     """Coordinator #226668: fleet sprites failed every rulings slice for three minutes because the registry they were sent named this machine's checkout, a path no Sprite holds. Owner 5:19 PM Oct 30 through coordinator #228532: the register itself ships with the job as a snapshot for that checkout, so no Sprite rebuilds it cold."""
     mac, sprite = tmp_path / "mac", tmp_path / "sprite"

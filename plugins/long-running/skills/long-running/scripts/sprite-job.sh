@@ -3,10 +3,11 @@ set -eu
 
 usage() {
   cat >&2 <<'EOF2'
-usage: sprite-job.sh <sprite> <grader> <dir>
+usage: sprite-job.sh <sprite> <job> <dir>
 
-Runs the desk job <dir> through `lr grade <grader>`, finder or fidelity, on the Sprite
-<sprite> at the same absolute paths, so job.json and every path it names read
+Runs the desk job <dir> on the Sprite <sprite> through <job>, either a grader
+name for `lr grade`, finder or fidelity, or the absolute path of a Python script
+in this plugin, at the same absolute paths, so job.json and every path it names read
 the same there. The Sprite mirrors this machine's home at its own path, has
 codex, codex-ask, ccx, ccn and cci installed, is joined to the drive's cci relay,
 and holds a clone at the job's checkout whose remotes fetch the branches and
@@ -57,7 +58,7 @@ EOF2
 
 [ $# -eq 3 ] || usage
 export COPYFILE_DISABLE=1
-sprite=$1 grader=$(basename "$2" .py) dir=$3
+sprite=$1 job=$2 dir=$3
 here=$(cd "$(dirname "$0")" && pwd)
 results=$here/long_running/desk_result.py
 no_result() {
@@ -164,7 +165,10 @@ sprite exec -s "$sprite" --no-stdin -- sh -c '
   fi
   exec 9>&-
   real=$(readlink "$4")
-  exec flock -s "$real.lock" "$real/bin/lr" grade "$1" "$2"' sh "$grader" "$dir" "$checkout" "$plugin" &
+  case "$1" in
+    /*) exec flock -s "$real.lock" python3 "$real${1#"$4"}" "$2" ;;
+    *) exec flock -s "$real.lock" "$real/bin/lr" grade "$1" "$2" ;;
+  esac' sh "$job" "$dir" "$checkout" "$plugin" &
 job=$!
 { [ -z "$keys" ] || printf "%s\n" "$keys"; } | sprite exec -s "$sprite" -- sh -c '
   for _ in $(seq 600); do
