@@ -318,6 +318,11 @@ def test_an_owner_slack_dm_row_posts_its_owner_record(communicator: Window, bus:
     [
         (SEVERAL_ASKS, ["is the old-tree failure the same bug or another one?", "also recap the last hour with an ETA each, and ship the incident fix.", "also if an old-tree Mac chat started the run, why is it in the new format? explain it"]),
         ("ship the relay fix, also fix the stop hook so it waits", ["ship the relay fix", "also fix the stop hook so it waits"]),
+        (
+            "ok so two separate issues, for the first chat explain how a new build started a run on an old runner, then for the second user explain what their issue is",
+            ["ok so two separate issues, for the first chat explain how a new build started a run on an old runner", "then for the second user explain what their issue is"],
+        ),
+        ("two issues here, the relay drops a write, the stop hook waits, and the dashboard lags", ["two issues here, the relay drops a write, the stop hook waits, and the dashboard lags"]),
         ("keep the report | the nightly one\nand the weekly", ["keep the report | the nightly one\nand the weekly"]),
         ("is it live? ok", ["is it live? ok"]),
         ("> why is the old build in the new format?\nyou never answered that one, so answer it now", ["> why is the old build in the new format?\nyou never answered that one, so answer it now"]),

@@ -28,6 +28,9 @@ BEFORE_ALSO = re.compile(
     r"(?:[,;.]\s*|\s+and\s+|\n\s*)(?=also\W+(?:add|build|bring|change|check|close|consider|cut|delete|design|dig|drop|explain|figure|find|fix|get|give|keep|land|let|make|merge|move|mute|put|raise|redesign|release|remove|restore|run|send|ship|show|spin|start|stop|switch|tell|turn|use|write)\b)",
     re.IGNORECASE,
 )
+COUNTED = re.compile(r"\b(two|three|four|five|six|[2-6])\s+(?:\w+\s+)?(?:issues|things|questions|asks|problems|bugs)\b", re.IGNORECASE)
+COUNTS = ("two", "three", "four", "five", "six")
+CLAUSE = re.compile(r"\s*[,;]\s*")
 ASK_WORDS = 4
 MOST_ASKS = 6
 ROW_TIME = "%b %-d %-I:%M %p"
@@ -60,8 +63,24 @@ def continues(before: str, piece: str) -> bool:
     return min(len(before.split()), len(piece.split())) < ASK_WORDS or before.startswith(">") or before.count("(") > before.count(")")
 
 
+def issues(piece: str) -> list[str]:
+    clauses = CLAUSE.split(piece)
+    if not (named := next(((at, found[1]) for at, clause in enumerate(clauses) if (found := COUNTED.search(clause))), None)):
+        return [piece]
+    at, count = named[0], int(named[1]) if named[1].isdigit() else COUNTS.index(named[1].lower()) + 2
+    if len(clauses) - at - 1 != count:
+        return [piece]
+    return [", ".join(clauses[: at + 2]), *clauses[at + 2 :]]
+
+
 def asks(text: str) -> list[str]:
-    pieces = [piece.strip() for paragraph in PARAGRAPH.split(text.strip()) for question in AFTER_QUESTION.split(paragraph) for piece in BEFORE_ALSO.split(question)]
+    pieces = [
+        issue.strip()
+        for paragraph in PARAGRAPH.split(text.strip())
+        for question in AFTER_QUESTION.split(paragraph)
+        for piece in BEFORE_ALSO.split(question)
+        for issue in issues(piece)
+    ]
     merged: list[str] = []
     for piece in filter(None, pieces):
         if merged and continues(merged[-1], piece):
