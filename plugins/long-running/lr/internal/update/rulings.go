@@ -2,9 +2,6 @@ package update
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
-	"slices"
 	"strings"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ledger"
@@ -12,11 +9,10 @@ import (
 )
 
 const (
-	registerLabel = "register"
-	statusField   = "status"
-	inForce       = "in-force"
-	planWasField  = "plan_was"
-	planNowField  = "plan_now"
+	statusField  = "status"
+	inForce      = "in-force"
+	planWasField = "plan_was"
+	planNowField = "plan_now"
 )
 
 type PlanRuling struct {
@@ -24,25 +20,8 @@ type PlanRuling struct {
 	Now string
 }
 
-type registerLedger struct {
-	ID        string `json:"id"`
-	UpdatedAt string `json:"updated_at"`
-}
-
 func ReadRulings(ctx context.Context, ccn plans.Ccn, source ledger.Store, program string) ([]PlanRuling, error) {
-	listed, err := ccn(ctx, "ledger", "list", "--label", registerLabel, "--label", "program:"+program, "--json")
-	if err != nil {
-		return nil, err
-	}
-	var registers []registerLedger
-	if err := json.Unmarshal([]byte(listed), &registers); err != nil {
-		return nil, fmt.Errorf("register ledgers: %w", err)
-	}
-	if len(registers) == 0 {
-		return nil, nil
-	}
-	newest := slices.MaxFunc(registers, func(one, other registerLedger) int { return strings.Compare(one.UpdatedAt, other.UpdatedAt) })
-	rows, err := source.Rows(ctx, newest.ID)
+	rows, err := ledger.Register(ctx, ccn, source, program)
 	if err != nil {
 		return nil, err
 	}

@@ -1,0 +1,410 @@
+package board
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"regexp"
+	"slices"
+	"strconv"
+	"strings"
+	"sync"
+
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ledger"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
+)
+
+const (
+	communicator = "owner-relay"
+	premiseKind  = "premise"
+	decidedKind  = "decided"
+	movedTopic   = "cards-moved"
+	inForce      = "in-force"
+)
+
+var prCited = regexp.MustCompile(`(?:#|/pull/)(\d+)\b`)
+
+type Judgment struct {
+	Verdict        string `json:"verdict"`
+	ArtifactPhrase string `json:"artifact_phrase"`
+	EvidencePhrase string `json:"evidence_phrase"`
+	Sentence       string `json:"sentence"`
+}
+
+type Judge func(ctx context.Context, kind, evidence, artifact string) (*Judgment, error)
+
+type Moved struct {
+	Card store.CardRef
+	How  string
+	Why  string
+}
+
+func (m Moved) Line() string {
+	switch m.How {
+	case "withdrew":
+		return fmt.Sprintf("withdrew %s, because %s", m.Card.Card, m.Why)
+	case "redrew":
+		return fmt.Sprintf("redrew %s on the new premise: %s", m.Card.Card, m.Why)
+	}
+	return fmt.Sprintf("kept %s and flagged it to %s: %s", m.Card.Card, laneOr(m.Card.Lane), m.Why)
+}
+
+func laneOr(lane string) string {
+	if lane == "" {
+		return "no owner lane, since none registered it"
+	}
+	return lane
+}
+
+func prKey(number string) string { return "#" + number }
+
+func cardKey(card string) string { return "card:" + card }
+
+func termKey(term string) string { return strings.ToLower(strings.TrimSpace(term)) }
+
+func listed(value string) ([]string, error) {
+	if value == "" {
+		return nil, nil
+	}
+	if !strings.HasPrefix(value, "[") {
+		return []string{value}, nil
+	}
+	var out []string
+	return out, json.Unmarshal([]byte(value), &out)
+}
+
+func rulingTerms(fields map[string]string) ([]string, error) {
+	var terms []string
+	for _, field := range []string{"names", "surfaces"} {
+		values, err := listed(fields[field])
+		if err != nil {
+			return nil, fmt.Errorf("register %s %q: %w", field, fields[field], err)
+		}
+		terms = append(terms, values...)
+	}
+	return slices.DeleteFunc(terms, func(term string) bool { return strings.TrimSpace(term) == "" }), nil
+}
+
+func rulingDeps(fields map[string]string) ([]string, error) {
+	terms, err := rulingTerms(fields)
+	if err != nil {
+		return nil, err
+	}
+	deps := map[string]bool{}
+	for _, term := range terms {
+		deps[termKey(term)] = true
+	}
+	for _, cited := range prCited.FindAllStringSubmatch(fields["words"]+" "+fields["names"]+" "+fields["surfaces"], -1) {
+		deps[prKey(cited[1])] = true
+	}
+	return sortedKeys(deps), nil
+}
+
+func cardDeps(card json.RawMessage, terms, explicit []string) ([]string, error) {
+	var tree any
+	if err := json.Unmarshal(card, &tree); err != nil {
+		return nil, err
+	}
+	deps := map[string]bool{}
+	var text strings.Builder
+	var walk func(node any)
+	walk = func(node any) {
+		switch value := node.(type) {
+		case map[string]any:
+			if number, ok := value["number"].(float64); ok && value["type"] == "pr" {
+				deps[prKey(strconv.Itoa(int(number)))] = true
+			}
+			for _, child := range value {
+				walk(child)
+			}
+		case []any:
+			for _, child := range value {
+				walk(child)
+			}
+		case string:
+			text.WriteString(value)
+			text.WriteString("\n")
+		}
+	}
+	walk(tree)
+	said := text.String()
+	for _, cited := range prCited.FindAllStringSubmatch(said, -1) {
+		deps[prKey(cited[1])] = true
+	}
+	for _, term := range terms {
+		if termPattern(term).MatchString(said) {
+			deps[termKey(term)] = true
+		}
+	}
+	for _, dep := range explicit {
+		deps[termKey(dep)] = true
+	}
+	return sortedKeys(deps), nil
+}
+
+func termPattern(term string) *regexp.Regexp {
+	return regexp.MustCompile(`(?i)(?:^|[^\w-])` + regexp.QuoteMeta(strings.TrimSpace(term)) + `(?:[^\w-]|$)`)
+}
+
+func sortedKeys(set map[string]bool) []string {
+	out := make([]string, 0, len(set))
+	for key := range set {
+		out = append(out, key)
+	}
+	slices.Sort(out)
+	return out
+}
+
+func (c Cards) register(ctx context.Context) ([]ledger.Row, error) {
+	return ledger.Register(ctx, c.ccn, c.Ledger, c.Program)
+}
+
+func (c Cards) card(ctx context.Context, card string) (json.RawMessage, bool, error) {
+	shown, err := c.present(ctx, "outcomes", "--block", card)
+	if err != nil {
+		return nil, false, err
+	}
+	var outcomes struct {
+		OnBoard bool `json:"onBoard"`
+		Doc     struct {
+			Blocks []json.RawMessage `json:"blocks"`
+		} `json:"doc"`
+	}
+	if err := json.Unmarshal([]byte(shown), &outcomes); err != nil {
+		return nil, false, fmt.Errorf("cc-present outcomes --block %s: %w", card, err)
+	}
+	for _, block := range outcomes.Doc.Blocks {
+		var top struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(block, &top); err != nil {
+			return nil, false, err
+		}
+		if top.ID == card {
+			return block, outcomes.OnBoard, nil
+		}
+	}
+	return nil, false, nil
+}
+
+func (c Cards) Depend(ctx context.Context, card, lane string, explicit []string) ([]string, error) {
+	shown, onBoard, err := c.card(ctx, card)
+	if err != nil {
+		return nil, err
+	}
+	if !onBoard {
+		return nil, fmt.Errorf("%s is not on board %s yet: push it, then run until again so its dependencies are read from what the board shows", card, c.Session)
+	}
+	rows, err := c.register(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var terms []string
+	for _, row := range rows {
+		if row.Fields["status"] != inForce {
+			continue
+		}
+		named, err := rulingTerms(row.Fields)
+		if err != nil {
+			return nil, err
+		}
+		terms = append(terms, named...)
+	}
+	deps, err := cardDeps(shown, terms, explicit)
+	if err != nil {
+		return nil, err
+	}
+	return deps, c.Store.PutCardDeps(store.CardRef{Session: c.Session, Card: card, Lane: lane}, deps)
+}
+
+type Recheck struct {
+	Cards Cards
+	Lane  string
+	Judge Judge
+}
+
+func (r Recheck) Ruling(ctx context.Context, keys []string) ([]Moved, error) {
+	rows, err := r.Cards.register(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var deps, evidence []string
+	for _, key := range keys {
+		i := slices.IndexFunc(rows, func(row ledger.Row) bool { return row.Key == key })
+		if i < 0 {
+			return nil, fmt.Errorf("no register row %s", key)
+		}
+		fields := rows[i].Fields
+		named, err := rulingDeps(fields)
+		if err != nil {
+			return nil, err
+		}
+		deps = append(deps, named...)
+		evidence = append(evidence, fmt.Sprintf("His ruling, just recorded (%s), in his words: %s", fields["kind"], fields["words"]))
+	}
+	refs, err := r.Cards.Store.CardsDependingOn(deps)
+	if err != nil {
+		return nil, err
+	}
+	return r.move(ctx, refs, strings.Join(evidence, "\n\n"), "his ruling "+strings.Join(keys, ", "))
+}
+
+func (r Recheck) Pick(ctx context.Context, card, said string) ([]Moved, error) {
+	picked := store.CardRef{Session: r.Cards.Session, Card: card}
+	deps, err := r.Cards.Store.CardDeps(picked)
+	if err != nil {
+		return nil, err
+	}
+	refs, err := r.Cards.Store.CardsDependingOn(append(deps, cardKey(card)))
+	if err != nil {
+		return nil, err
+	}
+	refs = slices.DeleteFunc(refs, func(ref store.CardRef) bool { return ref.Session == picked.Session && ref.Card == card })
+	return r.move(ctx, refs, fmt.Sprintf("His pick, just made on another card of his board: %s", said), "his pick on "+card)
+}
+
+func (r Recheck) move(ctx context.Context, refs []store.CardRef, evidence, cause string) ([]Moved, error) {
+	checked := make([]judged, len(refs))
+	failed := make([]error, len(refs))
+	var wg sync.WaitGroup
+	for i, ref := range refs {
+		wg.Go(func() { checked[i], failed[i] = r.judge(ctx, ref, evidence) })
+	}
+	wg.Wait()
+	if err := errors.Join(failed...); err != nil {
+		return nil, err
+	}
+	var moved []Moved
+	for _, one := range checked {
+		done, err := r.apply(ctx, one)
+		if err != nil {
+			return nil, err
+		}
+		if done == nil {
+			continue
+		}
+		if done.How == "flagged" && one.ref.Lane != "" {
+			if err := r.Cards.Report(ctx, r.Lane, []string{one.ref.Lane}, one.ref.Card, fmt.Sprintf("Card %s stays on the owner's board for you to redraw or withdraw: %s may change it, and the judge could not settle how (%s).", one.ref.Card, cause, done.Why)); err != nil {
+				return nil, err
+			}
+		}
+		moved = append(moved, *done)
+	}
+	if len(moved) == 0 {
+		return nil, nil
+	}
+	lines := make([]string, len(moved))
+	for i, one := range moved {
+		lines[i] = one.Line()
+	}
+	return moved, r.Cards.Report(ctx, r.Lane, []string{communicator}, movedTopic, fmt.Sprintf("%s moved %d card(s) on the owner's board: %s.", cause, len(moved), strings.Join(lines, "; ")))
+}
+
+type judged struct {
+	ref     store.CardRef
+	cards   Cards
+	shown   json.RawMessage
+	gone    bool
+	premise *Judgment
+	decided *Judgment
+}
+
+func (r Recheck) judge(ctx context.Context, ref store.CardRef, evidence string) (judged, error) {
+	cards := r.Cards
+	cards.Session = ref.Session
+	shown, onBoard, err := cards.card(ctx, ref.Card)
+	if err != nil || !onBoard {
+		return judged{ref: ref, cards: cards, gone: true}, err
+	}
+	one := judged{ref: ref, cards: cards, shown: shown}
+	if one.premise, err = r.Judge(ctx, premiseKind, evidence, string(shown)); err != nil || verdictOf(one.premise) != "yes" {
+		return one, err
+	}
+	one.decided, err = r.Judge(ctx, decidedKind, evidence, string(shown))
+	return one, err
+}
+
+func (r Recheck) apply(ctx context.Context, one judged) (*Moved, error) {
+	if one.gone {
+		return nil, one.cards.Store.DropCardDeps(one.ref)
+	}
+	switch verdictOf(one.premise) {
+	case "no":
+		return nil, nil
+	case "unsure":
+		return &Moved{one.ref, "flagged", sentenceOf(one.premise)}, nil
+	}
+	switch verdictOf(one.decided) {
+	case "yes":
+		return r.withdraw(ctx, one.cards, one.ref, one.decided.Sentence)
+	case "no":
+		return r.redraw(ctx, one.cards, one.ref, one.shown, one.premise.Sentence)
+	}
+	return &Moved{one.ref, "flagged", sentenceOf(one.decided)}, nil
+}
+
+func verdictOf(v *Judgment) string {
+	if v == nil {
+		return "unsure"
+	}
+	return v.Verdict
+}
+
+func sentenceOf(v *Judgment) string {
+	if v == nil {
+		return "the judge did not answer"
+	}
+	return v.Sentence
+}
+
+func (r Recheck) withdraw(ctx context.Context, cards Cards, ref store.CardRef, why string) (*Moved, error) {
+	owed, err := cards.unrowed(ctx, ref.Card)
+	if err != nil {
+		return nil, err
+	}
+	if len(owed) > 0 {
+		return &Moved{ref, "flagged", fmt.Sprintf("%s, but the owner's answer on %s has no ccn answer row yet, so it stays", why, strings.Join(owed, ", "))}, nil
+	}
+	if _, err := cards.present(ctx, "remove-block", ref.Card); err != nil {
+		return refused(ref, err)
+	}
+	if err := cards.Withdraw(ctx, r.Lane, ref.Card, fmt.Sprintf("Withdrew %s from the owner's board: %s.", ref.Card, why)); err != nil {
+		return nil, err
+	}
+	if err := cards.record(ctx, ref.Card, map[string]string{"withdrawn": stamp(cards.Now()), "outcome": why}); err != nil {
+		return nil, err
+	}
+	return &Moved{ref, "withdrew", why}, cards.Store.DropCardDeps(ref)
+}
+
+func (r Recheck) redraw(ctx context.Context, cards Cards, ref store.CardRef, shown json.RawMessage, premise string) (*Moved, error) {
+	var card map[string]any
+	if err := json.Unmarshal(shown, &card); err != nil {
+		return nil, err
+	}
+	note := map[string]any{"id": ref.Card + "-premise", "type": "markdown", "md": "**What changed since this card was drawn:** " + premise}
+	children, _ := card["children"].([]any)
+	children = slices.DeleteFunc(children, func(child any) bool {
+		block, _ := child.(map[string]any)
+		return block["id"] == note["id"]
+	})
+	card["children"] = append([]any{note}, children...)
+	encoded, err := json.Marshal(card)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := cards.run(ctx, shell.Command{Argv: []string{"cc-present", "update-block", "-", "--session", cards.Session}, Stdin: string(encoded)}); err != nil {
+		return refused(ref, err)
+	}
+	return &Moved{ref, "redrew", premise}, nil
+}
+
+func refused(ref store.CardRef, err error) (*Moved, error) {
+	var exit *shell.ExitError
+	if !errors.As(err, &exit) {
+		return nil, err
+	}
+	return &Moved{ref, "flagged", "cc-present refused the change: " + strings.TrimSpace(exit.Stderr)}, nil
+}

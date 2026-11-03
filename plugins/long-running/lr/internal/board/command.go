@@ -21,6 +21,7 @@ import (
 	lrfacts "github.com/yasyf/cc-skills/plugins/long-running/lr/internal/facts"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ledger"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
@@ -30,6 +31,7 @@ const (
 	boardTopic     = "board-rows"
 	snapshotWindow = 24 * time.Hour
 	configFile     = "lr.json"
+	judgeTimeout   = 2 * time.Minute
 )
 
 func Snapshots(ctx context.Context, bus string, since time.Time) ([]Snapshot, error) {
@@ -86,14 +88,22 @@ func Command(a *app.App) *cobra.Command {
 		}
 		return entry, entry.Root(), nil
 	}
-	cards := func() (Cards, error) {
+	cards := func() (Cards, func(), error) {
 		entry, board, err := opened()
 		if err != nil {
-			return Cards{}, err
+			return Cards{}, nil, err
+		}
+		s, err := store.Open(entry.Store())
+		if err != nil {
+			return Cards{}, nil, err
+		}
+		program := entry.Program
+		if program == "" {
+			program = filepath.Base(entry.StateDir)
 		}
 		return Cards{
 			Runner: a.Runner, Ledger: ledger.CLI{Runner: a.Runner, Repo: entry.Checkout}, CCX: a.CCX,
-			Bus: entry.Bus(), Checkout: entry.Checkout, Session: board, StateDir: entry.StateDir, Now: a.Now,
+			Bus: entry.Bus(), Checkout: entry.Checkout, Session: board, StateDir: entry.StateDir, Program: program, Store: s, Now: a.Now,
 			Closed: func(ctx context.Context, seqs []string) (map[string]bool, error) {
 				return closedRecords(ctx, entry.Bus(), seqs)
 			},
@@ -101,9 +111,13 @@ func Command(a *app.App) *cobra.Command {
 				_, err := client.Post(ctx, client.Draft{Drive: entry.Bus(), Lane: lane, Kind: "withdraw", Topic: card, To: []string{"root"}, Text: text})
 				return err
 			},
-		}, nil
+			Report: func(ctx context.Context, lane string, to []string, topic, text string) error {
+				_, err := client.Post(ctx, client.Draft{Drive: entry.Bus(), Lane: lane, Kind: "report", Topic: topic, To: to, Text: text})
+				return err
+			},
+		}, func() { _ = s.Close() }, nil
 	}
-	cmd.AddCommand(waitsCommand(a, opened), cardsCommand(cards), passCommand(a, opened), classifyCommand())
+	cmd.AddCommand(waitsCommand(a, opened), cardsCommand(cards, packJudge(a.Runner)), passCommand(a, opened), classifyCommand())
 	return cmd
 }
 
@@ -262,36 +276,76 @@ func waitsCommand(a *app.App, opened func() (drive.Entry, string, error)) *cobra
 	return waits
 }
 
-func cardsCommand(cards func() (Cards, error)) *cobra.Command {
-	var until, lane string
-	cmd := &cobra.Command{Use: "cards", Short: "The event that ends each question card on the owner's board"}
+func cardsCommand(cards func() (Cards, func(), error), judge Judge) *cobra.Command {
+	var until, owner, lane, pick, said string
+	var on []string
+	cmd := &cobra.Command{Use: "cards", Short: "The event that ends each question card on the owner's board, and what each card depends on"}
 	record := &cobra.Command{
 		Use:   "until CARD",
-		Short: "Record the event that ends a card, refusing a missing, malformed or past condition",
+		Short: "Record the event that ends a card, refusing a missing, malformed or past condition, and the PRs and objects the card depends on",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
-			board, err := cards()
+			board, done, err := cards()
 			if err != nil {
 				return err
 			}
+			defer done()
 			end, err := board.Until(c.Context(), args[0], until)
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(c.OutOrStdout(), "%s ends at %s\n", args[0], end)
+			deps, err := board.Depend(c.Context(), args[0], owner, on)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(c.OutOrStdout(), "%s ends at %s and depends on %s\n", args[0], end, strings.Join(deps, ", "))
 			return nil
 		},
 	}
 	record.Flags().StringVar(&until, "until", "", "at:TIME, pr:N, release:STACK@ENV:COMMIT or record:SEQ")
+	record.Flags().StringVar(&owner, "lane", os.Getenv("CC_PRESENT_LANE"), "the lane that owns the card, told when a ruling may change it")
+	record.Flags().StringArrayVar(&on, "on", nil, "an object or card:ID the card rests on beyond the PRs and register names it cites, repeatable")
+	recheck := &cobra.Command{
+		Use:   "recheck [RULING...]",
+		Short: "Re-judge each open card resting on what these register rows or --pick just landed on: redraw it on the new premise, withdraw it, or flag it to its lane, and tell the communicator",
+		RunE: func(c *cobra.Command, args []string) error {
+			if (pick == "") == (len(args) == 0) {
+				return fmt.Errorf("name the register rows that landed or --pick CARD, not both")
+			}
+			board, done, err := cards()
+			if err != nil {
+				return err
+			}
+			defer done()
+			r := Recheck{Cards: board, Lane: lane, Judge: judge}
+			var moved []Moved
+			if pick != "" {
+				moved, err = r.Pick(c.Context(), pick, said)
+			} else {
+				moved, err = r.Ruling(c.Context(), args)
+			}
+			for _, one := range moved {
+				fmt.Fprintln(c.OutOrStdout(), one.Line())
+			}
+			return err
+		},
+	}
+	recheck.Flags().StringVar(&lane, "lane", "", "the lane the records post as")
+	recheck.Flags().StringVar(&pick, "pick", "", "the card the owner just answered")
+	recheck.Flags().StringVar(&said, "said", "", "what he picked or wrote on it")
+	if err := recheck.MarkFlagRequired("lane"); err != nil {
+		panic(err)
+	}
 	sweep := &cobra.Command{
 		Use:   "sweep",
 		Short: "Withdraw every card whose end has happened and name each card with none",
 		Args:  cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
-			board, err := cards()
+			board, done, err := cards()
 			if err != nil {
 				return err
 			}
+			defer done()
 			return board.Sweep(c.Context(), lane, c.OutOrStdout())
 		},
 	}
@@ -303,10 +357,11 @@ func cardsCommand(cards func() (Cards, error)) *cobra.Command {
 		Use:   "missing [CARD...]",
 		Short: "Print each named card, or each card on the board, with no recorded end",
 		RunE: func(c *cobra.Command, args []string) error {
-			board, err := cards()
+			board, done, err := cards()
 			if err != nil {
 				return err
 			}
+			defer done()
 			missing, err := board.Missing(c.Context(), args)
 			if err != nil {
 				return err
@@ -316,6 +371,41 @@ func cardsCommand(cards func() (Cards, error)) *cobra.Command {
 			}
 			return nil
 		},
-	}, sweep)
+	}, sweep, recheck)
 	return cmd
+}
+
+func packJudge(runner shell.Runner) Judge {
+	return func(ctx context.Context, kind, evidence, artifact string) (*Judgment, error) {
+		dir, err := os.MkdirTemp("", "lr-judge-")
+		if err != nil {
+			return nil, err
+		}
+		defer func() { _ = os.RemoveAll(dir) }()
+		job, err := json.Marshal(map[string]string{"kind": kind, "evidence": evidence, "artifact": artifact})
+		if err != nil {
+			return nil, err
+		}
+		if err := os.WriteFile(filepath.Join(dir, "job.json"), job, 0o600); err != nil {
+			return nil, err
+		}
+		config, err := drive.ConfigDir()
+		if err != nil {
+			return nil, err
+		}
+		if _, err := runner.Run(ctx, shell.Command{Argv: []string{filepath.Join(config, "long-running", "current", "bin", "judge_job.py"), dir}, Timeout: judgeTimeout}); err != nil {
+			return nil, err
+		}
+		data, err := os.ReadFile(filepath.Join(dir, "result.json"))
+		if err != nil {
+			return nil, err
+		}
+		var result struct {
+			Verdict *Judgment `json:"verdict"`
+		}
+		if err := json.Unmarshal(data, &result); err != nil {
+			return nil, fmt.Errorf("the judge's result: %w", err)
+		}
+		return result.Verdict, nil
+	}
 }
