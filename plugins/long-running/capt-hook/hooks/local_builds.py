@@ -35,7 +35,6 @@ VALUE_FLAGS = {
 LAUNCHERS = frozenset({"npx", "bunx", "uvx"})
 INFO_FLAGS = frozenset({"--version", "-v", "-V", "--help", "-h"})
 VERBOSE_V = frozenset({"pytest"})
-RELEASE_CLI = "tools/ci"
 LANE_ENV = {"CLAUDE_LONG_RUNNING_LANE": "lane-b", "CLAUDE_LONG_RUNNING_DRIVE": "leftovers-oct-18"}
 ROOT = [CompactionState(active=True, coordinator=True)]
 REFUSAL = (
@@ -86,8 +85,6 @@ def runs(name: str, args: tuple[str, ...]) -> bool:
 
 
 def builds(call: Call) -> bool:
-    if call.name == "ci" and words(call.name, call.args)[:2] == ["release", "plan"]:
-        return call.command.executable.endswith(RELEASE_CLI)
     return runs(call.name, call.args)
 
 
@@ -123,7 +120,6 @@ def in_drive(evt: BaseHookEvent) -> bool:
         Input(command="make -j8 all", env=LANE_ENV): Block(),
         Input(command="make", env=LANE_ENV): Block(),
         Input(command="swift build -c release", env=LANE_ENV): Block(),
-        Input(command="tools/ci release plan --target sand", env=LANE_ENV): Block(),
         Input(command="pytest tests/", env=LANE_ENV): Block(),
         Input(command="python -m pytest tests/ -q", env=LANE_ENV): Block(),
         Input(command="uv run --project plugins/long-running pytest plugins/long-running/tests -q", env=LANE_ENV): Block(),
@@ -157,6 +153,7 @@ def in_drive(evt: BaseHookEvent) -> bool:
         Input(command="buck2 targets //go/...", env=LANE_ENV): Allow(),
         Input(command="tools/ci release status", env=LANE_ENV): Allow(),
         Input(command="ci release plan", env=LANE_ENV): Allow(),
+        Input(command="tools/ci release plan --target sand", env=LANE_ENV): Allow(),
         Input(command="python -m http.server", env=LANE_ENV): Allow(),
         Input(command="python scripts/pytest_report.py", env=LANE_ENV): Allow(),
         Input(command="python3 -m py_compile scripts/x.py", env=LANE_ENV): Allow(),
