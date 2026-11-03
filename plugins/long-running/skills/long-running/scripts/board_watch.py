@@ -429,6 +429,9 @@ def announce(event: dict, line: str, session: str, doc: dict | None, shell: Shel
     answer = answer_of(event, session, shell)
     answered = post_owner(shell, bus, key, announced(event, session, doc), block, named(event, doc), [], fields, answer)
     register(event, key, session, doc, shell, bus.drive)
+    if answer_rows.answered(event) and (card := (card_of(doc, block) or {}).get("id")):
+        if (done := shell.lr(["board", "cards", "recheck", "--drive", bus.drive, "--session", session, "--lane", BUS_LANE, "--pick", card, "--said", CREDENTIAL.sub(REDACTED, told(event, doc))], "")).returncode:
+            print(f"board-watch {session}: the cards resting on {card} were not re-checked: {done.stderr.strip()}", flush=True)
     if answer == STRUCTURED and event["type"] in LANE_PICKS and shell.root_session(bus.drive) in (None, session) and all(record["lane"] in ROOT_LANES for record in answered):
         ask_lane(event, key, session, doc, shell, bus)
     return [f"{place(doc, block)}: {told(event, doc)}"] if answer == STRUCTURED else []

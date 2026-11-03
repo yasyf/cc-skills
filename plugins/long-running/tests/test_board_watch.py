@@ -48,11 +48,15 @@ class RecordedShell(board_watch.Shell):
         self.root = SESSION
         self.seq = ""
         self.ledger: list[tuple[list[str], str]] = []
+        self.rechecks: list[list[str]] = []
         self.classifies = True
 
     def lr(self, argv: list[str], stdin: str) -> subprocess.CompletedProcess:
         if argv[:2] == ["board", "classify"]:
             return subprocess.CompletedProcess(argv, 0 if self.classifies else 1, answer_kind(json.loads(stdin)) + "\n", "" if self.classifies else "unknown command")
+        if argv[:3] == ["board", "cards", "recheck"]:
+            self.rechecks.append(argv)
+            return subprocess.CompletedProcess(argv, 0, "", "")
         self.ledger.append((argv, stdin))
         return subprocess.CompletedProcess(argv, 0, "m1\n", "")
 
@@ -409,7 +413,15 @@ def test_a_verdict_with_a_note_acts_at_once_and_still_opens_a_row_for_the_note(t
 def test_a_submit_reaches_root_and_adds_no_row(tmp_path: Path) -> None:
     shell = streamed(tmp_path, SUBMIT)
 
-    assert (shell.posted("--to"), shell.ledger) == (["root"], [])
+    assert (shell.posted("--to"), shell.ledger, shell.rechecks) == (["root"], [], [])
+
+
+def test_a_pick_rechecks_the_cards_resting_on_the_card_it_answers_the_same_event(tmp_path: Path) -> None:
+    shell = streamed(tmp_path, TAP)
+    event = json.loads(TAP)
+    card = board_watch.card_of(shell.doc, event["blockId"])["id"]
+
+    assert shell.rechecks == [["board", "cards", "recheck", "--drive", "brook", "--session", SESSION, "--lane", board_watch.BUS_LANE, "--pick", card, "--said", board_watch.told(event, shell.doc)]]
 
 
 def test_an_answer_lr_cannot_classify_goes_to_owner_relay_with_an_open_row(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
