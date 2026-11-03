@@ -29,10 +29,16 @@ overrides it. A second watch of the same board exits at once.
 
 Each decision.created, choice.selected, input.submitted, feedback.created, pack.interaction,
 triage.decided and submit also reaches the drive's bus the moment it arrives, so no lane waits on a root to relay a
-tap: one `cci post --kind owner --to all` from lane `board-watch` names the card title and block
+tap: one `cci post --kind owner` from lane `board-watch` names the card title and block
 id, the verdict, picked option labels or the owner's text verbatim, each merge row's head, and the
-time, and resolves every open `ask`, `blocker` or `hold` whose text names the block, its card, or
-the merge row (`merge-row-<pr>` or `merge:<pr>`). Its idempotency key is the event's line number
+time. `lr board classify` routes it, and its `answer` attribute says which way: `structured` (an
+option tap, an approval or rejection, a merge-row verdict) and `noted` (a verdict with a note) go to
+all and to `owner-relay`, and resolve every open `ask`, `blocker` or `hold` whose text names the
+block, its card, or the merge row (`merge-row-<pr>` or `merge:<pr>`); `free-text` (a write-in, a
+note, an input, a pack reply) goes to `owner-relay` alone and resolves nothing, since the
+communicator routes it; `none` (a submit, an emptied choice) goes to all. Each answer also adds a row
+to the communicator's owner ledger with `lr owner add`: `addressed` at its record for `structured`,
+`open` for `noted` and `free-text`. Its idempotency key is the event's line number
 in the events file plus a hash of the line, so a restart that resumes from the watch's cursor
 never posts an event twice. Each record carries attributes a reader takes without parsing the
 text: `event`, `session` and `block`; a decision's `verdict`; a pick's `picked` option ids and
@@ -51,8 +57,8 @@ A pick, write-in or pack pick that no `decide` or `claim` names by block id 30 m
 owner record is posted again as an `ask` to all on topic `uncited:<block>`, and at 60 minutes as a
 `blocker` to root, each once, keyed `uncited:<seq>` and `uncited-blocker:<seq>`.
 
-Each pick and write-in on the drive root's newest board, a choice.selected with option ids or
-`other` and an input.submitted with text, also asks root for a lane at once, unless it answers an
+Each structured pick on the drive root's newest board, a choice.selected with option ids and no
+`other`, also asks root for a lane at once, unless it answers an
 open ask a lane other than root posted, since that lane already waits on it: one `ccn task add`
 on the backlog of the drive's checkout, labelled `program:<program>` and `needs-lane`, and one
 `cci post --kind ask --to root` from `board-watch` on topic `needs-lane:<block>`, keyed by the
@@ -140,6 +146,13 @@ UNKNOWN_BLOCK = re.compile(r'\bunknown block "')
 WATCH_BYTES = 10_000_000
 LANE_TOPIC = "needs-lane"
 ROOT_LANES = frozenset({"root", "main", BUS_LANE, RUNNER})
+RELAY_LANE = "owner-relay"
+LR = Path(__file__).resolve().parents[3] / "bin" / "lr"
+STRUCTURED = "structured"
+NOTED = "noted"
+FREE_TEXT = "free-text"
+NO_ANSWER = "none"
+ANSWER_TO = {STRUCTURED: f"all,{RELAY_LANE}", NOTED: f"all,{RELAY_LANE}", FREE_TEXT: RELAY_LANE, NO_ANSWER: "all"}
 WORDS_CHARS = 300
 CCN_SECONDS = 60
 
@@ -230,6 +243,9 @@ class Shell:
 
     def cci(self, argv: list[str]) -> subprocess.CompletedProcess:
         return subprocess.run(["cci", *argv], capture_output=True, text=True)
+
+    def lr(self, argv: list[str], stdin: str) -> subprocess.CompletedProcess:
+        return subprocess.run([str(LR), *argv], input=stdin, capture_output=True, text=True)
 
     def now(self) -> datetime:
         return datetime.now(UTC)
@@ -396,27 +412,25 @@ def announce(event: dict, line: str, session: str, doc: dict | None, shell: Shel
         for row, entry in event["verdicts"].items():
             single = dict(event, verdicts={row: entry})
             pr = board_rows.pr_of(row)
-            post_owner(shell, bus, f"{key}:{row}", announced(single, session, doc), block, named(single, doc), [pr] if pr else [], fields | {"row": row, "verdict": entry["verdict"], "head": entry.get("head") or heads.get(row) or ""})
+            post_owner(shell, bus, f"{key}:{row}", announced(single, session, doc), block, named(single, doc), [pr] if pr else [], fields | {"row": row, "verdict": entry["verdict"], "head": entry.get("head") or heads.get(row) or ""}, answer_of(single, session, shell))
         return
     if event["type"] == "decision.created":
         fields["verdict"] = event.get("verdict", "")
     if event["type"] == "choice.selected":
         fields |= {"picked": ",".join(event.get("optionIds") or []), "other": "1" if event.get("other") else ""}
-    answered = post_owner(shell, bus, key, announced(event, session, doc), block, named(event, doc), [], fields)
+    answer = answer_of(event, session, shell)
+    answered = post_owner(shell, bus, key, announced(event, session, doc), block, named(event, doc), [], fields, answer)
     register(event, key, session, doc, shell, bus.drive)
-    if wants_lane(event) and shell.root_session(bus.drive) in (None, session) and all(record["lane"] in ROOT_LANES for record in answered):
+    if answer == STRUCTURED and event["type"] == "choice.selected" and shell.root_session(bus.drive) in (None, session) and all(record["lane"] in ROOT_LANES for record in answered):
         ask_lane(event, key, session, doc, shell, bus)
 
 
-def wants_lane(event: dict) -> bool:
-    match event:
-        case {"type": "choice.selected"}:
-            return bool(event.get("optionIds") or event.get("other"))
-        case {"type": "input.submitted"}:
-            return bool(event.get("text"))
-        case {"type": "pack.interaction"}:
-            return bool(event.get("payload"))
-    return False
+def answer_of(event: dict, session: str, shell: Shell) -> str:
+    done = shell.lr(["board", "classify"], json.dumps(event))
+    if done.returncode:
+        print(f"board-watch {session}: lr board classify did not run, so this answer goes to {RELAY_LANE} first: {done.stderr.strip()}", flush=True)
+        return FREE_TEXT
+    return done.stdout.strip()
 
 
 def register(event: dict, key: str, session: str, doc: dict | None, shell: Shell, drive_name: str, moment: datetime | None = None) -> None:
@@ -464,19 +478,29 @@ def attr_args(fields: dict[str, str]) -> list[str]:
     return [arg for name, value in fields.items() if value for arg in ("--attr", f"{name}={value}")]
 
 
-def post_owner(shell: Shell, bus: Bus, key: str, text: str, block: str, names: list[str], prs: list[str], fields: dict[str, str]) -> list[dict]:
-    resolves = open_asks(shell, bus, names)
+def post_owner(shell: Shell, bus: Bus, key: str, text: str, block: str, names: list[str], prs: list[str], fields: dict[str, str], answer: str) -> list[dict]:
+    resolves = [] if answer == FREE_TEXT else open_asks(shell, bus, names)
     argv = [
-        "post", "--drive", bus.drive, "--lane", BUS_LANE, "--kind", "owner", "--to", "all", "--id", key, "--text", text,
+        "post", "--drive", bus.drive, "--lane", BUS_LANE, "--kind", "owner", "--to", ANSWER_TO[answer], "--id", key, "--text", text,
         *(["--topic", block] if block else []),
         *(f"--pr={pr}" for pr in prs),
-        *attr_args(fields),
+        *attr_args(fields | {"answer": answer}),
         *(["--resolves-seq", ",".join(str(record["seq"]) for record in resolves)] if resolves else []),
     ]
     done = shell.cci(argv)
     if done.returncode:
         print(f"board-watch {fields['session']}: cci post {key} failed: {done.stderr.strip()}", flush=True)
+    if answer != NO_ANSWER:
+        add_ledger_row(shell, bus, fields["session"], text, answer, done.stdout)
     return resolves
+
+
+def add_ledger_row(shell: Shell, bus: Bus, session: str, text: str, answer: str, posted: str) -> None:
+    seq = posted.strip().removeprefix("#")
+    state = ["--state", "addressed", *(["--routed", seq] if seq.isdigit() else [])] if answer == STRUCTURED else ["--state", "open"]
+    done = shell.lr(["owner", "add", "--drive", bus.drive, *state], text.removesuffix(", at {at}"))
+    if done.returncode:
+        print(f"board-watch {session}: the ledger row did not write: {done.stderr.strip()}", flush=True)
 
 
 def bus_records(shell: Shell, drive_name: str, *filters: str, since: int | str = 0) -> list[dict]:

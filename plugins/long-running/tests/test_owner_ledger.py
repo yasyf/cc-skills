@@ -161,6 +161,7 @@ def test_the_rows_lr_marks_are_the_rows_the_stop_hook_reads() -> None:
         "m12 Nov 2 8:07 PM: release everything",
     ]
     assert owner_ledger.open_rows(TESTDATA / "marked.md") == ["m12 Nov 2 8:07 PM: release everything"]
+    assert owner_ledger.open_rows(TESTDATA / "added.md")[-1] == r"m13 Nov 2 9:10 PM: a pick \| on the board<br>and a line"
 
 
 def test_an_owner_slack_dm_adds_one_row_with_its_slack_time(communicator: Window) -> None:

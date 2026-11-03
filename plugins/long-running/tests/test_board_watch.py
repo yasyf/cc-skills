@@ -19,6 +19,19 @@ ARRIVED = datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
 CONFIRMED = "download the update in the background, show the banner, and only restart when i click it"
 
 
+def answer_kind(event: dict) -> str:
+    match event["type"]:
+        case "choice.selected":
+            return "free-text" if event.get("other") else "structured" if event.get("optionIds") else "none"
+        case "decision.created":
+            return "noted" if event.get("note") else "structured"
+        case "triage.decided":
+            return "noted" if any(row.get("note") for row in event["verdicts"].values()) else "structured"
+        case "submit":
+            return "none"
+    return "free-text"
+
+
 class RecordedShell(board_watch.Shell):
     def __init__(self, bus: list[dict] | None = None, doc: dict | None = None, refused: bool = False) -> None:
         super().__init__()
@@ -30,6 +43,15 @@ class RecordedShell(board_watch.Shell):
         self.rows: list[dict] = []
         self.answers: dict[str, list[dict]] = {}
         self.root = SESSION
+        self.seq = ""
+        self.ledger: list[tuple[list[str], str]] = []
+        self.classifies = True
+
+    def lr(self, argv: list[str], stdin: str) -> subprocess.CompletedProcess:
+        if argv[:2] == ["board", "classify"]:
+            return subprocess.CompletedProcess(argv, 0 if self.classifies else 1, answer_kind(json.loads(stdin)) + "\n", "" if self.classifies else "unknown command")
+        self.ledger.append((argv, stdin))
+        return subprocess.CompletedProcess(argv, 0, "m1\n", "")
 
     def watch(self, session: str):
         assert session == SESSION
@@ -48,7 +70,7 @@ class RecordedShell(board_watch.Shell):
         if argv[0] == "grep":
             return subprocess.CompletedProcess(argv, 0, "".join(json.dumps(record) + "\n" for record in self.bus), "")
         self.posts.append(argv)
-        return subprocess.CompletedProcess(argv, 1 if self.refused else 0, "", "refused" if self.refused else "")
+        return subprocess.CompletedProcess(argv, 1 if self.refused else 0, self.seq, "refused" if self.refused else "")
 
     def now(self) -> datetime:
         return ARRIVED
@@ -211,7 +233,8 @@ def test_each_owner_interaction_reaches_the_bus_once_with_the_card_and_his_words
         "Owner on board board-1, banner-ok: rejected noted \u201ckeep the old banner text\u201d, at {at}",
         f"{SHARE}: picked \u201cYes, read-only\u201d, at {{at}}",
     ]
-    assert {tuple(shell.posted(flag)) for flag in ("--kind", "--to", "--lane", "--drive")} == {("owner",) * 7, ("all",) * 7, ("board-watch",) * 7, ("brook",) * 7}
+    assert {tuple(shell.posted(flag)) for flag in ("--kind", "--lane", "--drive")} == {("owner",) * 7, ("board-watch",) * 7, ("brook",) * 7}
+    assert shell.posted("--to") == ["owner-relay", "all,owner-relay", "owner-relay", "owner-relay", "all,owner-relay", "all,owner-relay", "all,owner-relay"]
 
 
 GROUP_DOC = {"blocks": [{"id": "card-fixes", "type": "card", "title": "Tooling fixes the watchers propose", "children": [{"id": "fix-rows", "type": "choice", "prompt": "9. Release rows read the release itself", "options": [{"id": "fix-rows-build", "label": "Build"}]}, {"id": "fix-base", "type": "choice", "prompt": "2. Stale bases are fixed automatically", "options": [{"id": "fix-base-build", "label": "Build"}]}]}]}
@@ -275,31 +298,30 @@ def test_a_tap_resolves_open_asks_naming_its_block_or_card_but_not_a_longer_id(t
     shell = RecordedShell(bus)
     run(tmp_path, shell)
 
-    assert shell.posted("--resolves-seq") == ["21,22"] * 4
+    assert shell.posted("--resolves-seq") == ["21,22"] * 2
 
 
-def test_each_pick_and_write_in_on_the_roots_board_asks_root_for_a_lane_and_files_a_task(tmp_path: Path) -> None:
-    """Root #225532: three owner picks sat two hours with no lane, so each pick and write-in asks root for one the moment it lands."""
+def test_each_structured_pick_on_the_roots_board_asks_root_for_a_lane_and_files_a_task(tmp_path: Path) -> None:
+    """Root #225532: three owner picks sat two hours with no lane, so each pick asks root for one the moment it lands; a write-in goes to the communicator first."""
     shell = RecordedShell()
     run(tmp_path, shell)
 
-    assert shell.posted("--topic", "ask") == ["needs-lane:share-open-pick", "needs-lane:share-open-pick", "needs-lane:board-notes", "needs-lane:share-open-pick"]
-    assert shell.posted("--to", "ask") == ["root"] * 4
-    assert shell.posted("--id", "ask") == [f"needs-lane:{key}" for key in shell.posted("--id") if key.split(":")[2] in ("2", "3", "4", "8")]
-    assert shell.posted("--text", "ask")[0] == "NEEDS-LANE Should a shared note open in the browser? (share-open-pick) on board board-1: the owner wrote \u201conly for the team, and only read-only\u201d. Spawn a lane whose brief names share-open-pick, or have a lane post a claim naming it; task task1ab"
-    assert shell.posted("--text", "ask")[2].startswith("NEEDS-LANE board-notes on board board-1: the owner wrote \u201calso check the share menu\u201d.")
+    assert shell.posted("--topic", "ask") == ["needs-lane:share-open-pick", "needs-lane:share-open-pick"]
+    assert shell.posted("--to", "ask") == ["root"] * 2
+    assert shell.posted("--id", "ask") == [f"needs-lane:{key}" for key in shell.posted("--id") if key.split(":")[2] in ("3", "8")]
+    assert shell.posted("--text", "ask")[0].startswith("NEEDS-LANE Should a shared note open in the browser? (share-open-pick) on board board-1: the owner picked \u201cYes, read-only\u201d.")
     assert [attrs(post) for post in shell.posts if post[post.index("--kind") + 1] == "ask"][1] == {"session": SESSION, "block": "share-open-pick", "task": "task2abcdef"}
     checkout, argv = shell.tasks[0]
     assert (checkout, argv[:3]) == ("/checkouts/brook", ["task", "add", "Give the owner's pick on Should a shared note open in the browser? (share-open-pick) a lane"])
     assert (argv[3], argv[5:]) == ("--body", ["--backlog", "--label", "program:brook", "--label", "needs-lane", "--json"])
-    assert len(shell.tasks) == 4
+    assert len(shell.tasks) == 2
 
 
 @pytest.mark.parametrize(
     ("bus", "root", "topics"),
     [
-        ([ask(21, "parked on share-open-pick", lane="api-lane")], SESSION, ["needs-lane:board-notes"]),
-        ([ask(21, "share-open-pick needs a lane", lane="root")], SESSION, ["needs-lane:share-open-pick", "needs-lane:share-open-pick", "needs-lane:board-notes", "needs-lane:share-open-pick"]),
+        ([ask(21, "parked on share-open-pick", lane="api-lane")], SESSION, []),
+        ([ask(21, "share-open-pick needs a lane", lane="root")], SESSION, ["needs-lane:share-open-pick", "needs-lane:share-open-pick"]),
         ([], "lane-board", []),
     ],
 )
@@ -310,6 +332,59 @@ def test_a_pick_that_answers_a_lanes_own_ask_or_lands_on_a_lanes_board_already_h
 
     assert shell.posted("--topic", "ask") == topics
     assert len(shell.tasks) == len(topics)
+
+
+TAP = '{"blockId":"share-open-pick","optionIds":["yes"],"schemaVersion":1,"type":"choice.selected"}\n'
+WRITE_IN = '{"blockId":"share-open-pick","optionIds":[],"other":"only for the team","schemaVersion":1,"type":"choice.selected"}\n'
+NOTED_VERDICT = '{"blockId":"banner-ok","note":"keep the old banner text","schemaVersion":1,"type":"decision.created","verdict":"rejected"}\n'
+SUBMIT = '{"revision":3,"schemaVersion":1,"type":"submit"}\n'
+QUESTION = "Owner on board board-1, Should a shared note open in the browser? (share-open-pick)"
+
+
+def streamed(tmp_path: Path, line: str, bus: list[dict] | None = None, **attributes: object) -> RecordedShell:
+    shell = RecordedShell(bus)
+    for name, value in attributes.items():
+        setattr(shell, name, value)
+    shell.watch = lambda session: iter([line])
+    run(tmp_path, shell)
+    return shell
+
+
+def test_a_structured_tap_reaches_the_asking_lane_as_an_owner_record_with_a_copy_to_owner_relay_and_a_closed_row(tmp_path: Path) -> None:
+    shell = streamed(tmp_path, TAP, [ask(21, "parked on share-open-pick", lane="api-lane")], seq="#77\n")
+
+    assert (shell.posted("--to"), shell.posted("--kind"), shell.posted("--resolves-seq")) == (["all,owner-relay"], ["owner"], ["21"])
+    assert attrs(shell.posts[0])["answer"] == "structured"
+    assert shell.ledger == [(["owner", "add", "--drive", "brook", "--state", "addressed", "--routed", "77"], f"{QUESTION}: picked \u201cYes, read-only\u201d")]
+
+
+def test_a_write_in_reaches_owner_relay_alone_resolves_nothing_and_opens_a_row(tmp_path: Path) -> None:
+    shell = streamed(tmp_path, WRITE_IN, [ask(21, "parked on share-open-pick", lane="api-lane")], seq="#77\n")
+
+    assert (shell.posted("--to"), shell.posted("--resolves-seq"), shell.posted("--topic", "ask")) == (["owner-relay"], [], [])
+    assert attrs(shell.posts[0])["answer"] == "free-text"
+    assert shell.ledger == [(["owner", "add", "--drive", "brook", "--state", "open"], f"{QUESTION}: wrote \u201conly for the team\u201d")]
+
+
+def test_a_verdict_with_a_note_acts_at_once_and_still_opens_a_row_for_the_note(tmp_path: Path) -> None:
+    shell = streamed(tmp_path, NOTED_VERDICT, [ask(21, "parked on banner-ok")])
+
+    assert (shell.posted("--to"), shell.posted("--resolves-seq")) == (["all,owner-relay"], ["21"])
+    assert [argv[-1] for argv, _ in shell.ledger] == ["open"]
+
+
+def test_a_submit_reaches_every_lane_and_adds_no_row(tmp_path: Path) -> None:
+    shell = streamed(tmp_path, SUBMIT)
+
+    assert (shell.posted("--to"), shell.ledger) == (["all"], [])
+
+
+def test_an_answer_lr_cannot_classify_goes_to_owner_relay_with_an_open_row(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    shell = streamed(tmp_path, TAP, classifies=False)
+
+    assert shell.posted("--to") == ["owner-relay"]
+    assert [argv[-1] for argv, _ in shell.ledger] == ["open"]
+    assert "lr board classify did not run" in capsys.readouterr().out
 
 
 def test_a_refused_post_is_reported_and_the_watch_keeps_recording(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -325,8 +400,8 @@ def test_a_triage_tap_posts_one_record_per_row_with_its_block_row_verdict_and_he
     run(tmp_path, shell)
 
     assert [attrs(post) for post in shell.posts] == [
-        {"event": "triage.decided", "session": SESSION, "block": "merge-prs", "row": "202", "verdict": "approved", "head": "413b38e"},
-        {"event": "triage.decided", "session": SESSION, "block": "merge-prs", "row": "merge-row-101", "verdict": "rejected", "head": "abc1234"},
+        {"event": "triage.decided", "session": SESSION, "block": "merge-prs", "row": "202", "verdict": "approved", "head": "413b38e", "answer": "structured"},
+        {"event": "triage.decided", "session": SESSION, "block": "merge-prs", "row": "merge-row-101", "verdict": "rejected", "head": "abc1234", "answer": "structured"},
     ]
     assert [[arg for arg in post if arg.startswith("--pr=")] for post in shell.posts] == [["--pr=202"], ["--pr=101"]]
     assert sorted(shell.spawned) == ["apply_writes", "keep_snapshot"]
