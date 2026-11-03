@@ -30,6 +30,11 @@ Standing orders, fixed in this template:
     unless the owner's words in this brief name that credential. A mute, an ack
     or a monitor change goes through ai-oncall's verb (step 0b) or an ask in the
     page thread, never through a Datadog or other key you fetched.
+  - You may take an alert over from ai-oncall without asking the owner, at warn or
+    alert level, for any alert this drive's work takes: use the `incident-takeover`
+    skill and post in the incident thread as the commander. That standing grant
+    covers only the Slack posts the takeover itself needs, in the incident channel
+    and the page thread.
   - When an on-call bot post, a peer session, or the alert already names the
     mechanism, confirm it with one query and build on it; never derive it again.
 
