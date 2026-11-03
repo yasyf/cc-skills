@@ -1,0 +1,296 @@
+package install
+
+import (
+	"context"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+
+	"github.com/spf13/cobra"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx/ccxtest"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell/shelltest"
+)
+
+func git(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-C", dir, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"}, args...)...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %v: %s", args, err, out)
+	}
+	return string(out)
+}
+
+func write(t *testing.T, path, text string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func releasedTree(t *testing.T) (origin, install string) {
+	t.Helper()
+	origin, install = t.TempDir(), t.TempDir()
+	git(t, origin, "init", "-q")
+	for _, root := range []string{filepath.Join(origin, "plugins", "p"), install} {
+		write(t, filepath.Join(root, "a.txt"), "a\n")
+		write(t, filepath.Join(root, "sub", "b.txt"), "b\n")
+		if err := os.Symlink("a.txt", filepath.Join(root, "link")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	git(t, origin, "add", ".")
+	git(t, origin, "commit", "-q", "-m", "release")
+	git(t, origin, "tag", "p--v1")
+	return origin, install
+}
+
+func faultsOf(t *testing.T, origin, install string) []string {
+	t.Helper()
+	faults, err := treeFaults(context.Background(), shell.Exec{}, install, origin, "p--v1", "plugins/p", filepath.Join(t.TempDir(), "releases.git"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return faults
+}
+
+func TestAnInstallThatMatchesItsTagHasNoFaultsAndMarkersAreIgnored(t *testing.T) {
+	origin, install := releasedTree(t)
+	write(t, filepath.Join(install, ".in_use"), "")
+	write(t, filepath.Join(install, "sub", "__pycache__", "b.pyc"), "x")
+
+	if faults := faultsOf(t, origin, install); len(faults) != 0 {
+		t.Fatalf("faults %v", faults)
+	}
+}
+
+func TestEveryWayAnInstallDiffersFromItsTagIsNamed(t *testing.T) {
+	origin, install := releasedTree(t)
+	write(t, filepath.Join(install, "a.txt"), "edited in place\n")
+	write(t, filepath.Join(install, "extra.txt"), "added past the tag\n")
+	if err := os.Remove(filepath.Join(install, "sub", "b.txt")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(install, "link")); err != nil {
+		t.Fatal(err)
+	}
+
+	got := strings.Join(faultsOf(t, origin, install), "\n")
+
+	for _, want := range []string{"the install holds 2 files where the release holds 3", "link is missing", "sub/b.txt is missing", "extra.txt is not in the release", "a.txt differs from the release"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("no %q in:\n%s", want, got)
+		}
+	}
+}
+
+func TestATagThatWillNotFetchIsAFaultNotACrash(t *testing.T) {
+	origin, install := releasedTree(t)
+	faults, err := treeFaults(context.Background(), shell.Exec{}, install, origin, "p--v9", "plugins/p", filepath.Join(t.TempDir(), "releases.git"))
+	if err != nil || len(faults) != 1 || !strings.HasPrefix(faults[0], "the release tag p--v9 did not fetch from ") {
+		t.Fatalf("got %v %v", faults, err)
+	}
+}
+
+func cachedChecks(t *testing.T, gh map[string]string) Checks {
+	t.Helper()
+	plugins := t.TempDir()
+	write(t, filepath.Join(plugins, "marketplaces", "skills", ".claude-plugin", "marketplace.json"),
+		`{"plugins":[{"name":"long-running","source":{"url":"https://github.com/o/r.git","path":"plugins/long-running"}}]}`)
+	return Checks{CCX: &ccxtest.Fake{GHOut: gh}, Installs: filepath.Join(plugins, "cache", "skills", "long-running"), Claude: t.TempDir()}
+}
+
+const parentOfTag = `{"parents":[{"sha":"abcdef0123456789"}]}`
+
+const runsPath = "api repos/o/r/actions/runs?head_sha=abcdef0123456789&per_page=100"
+
+type runnerFunc func(shell.Command) (shell.Result, error)
+
+func (f runnerFunc) Run(_ context.Context, c shell.Command) (shell.Result, error) { return f(c) }
+
+func exited(code int, stdout string, seen *[]string) runnerFunc {
+	return func(c shell.Command) (shell.Result, error) {
+		*seen = c.Argv
+		return shell.Result{Code: code, Stdout: stdout}, &shell.ExitError{Argv: c.Argv, Code: code}
+	}
+}
+
+func TestCIFaultReadsTheNewestAttemptOnTheCommitTheTagWasBumpedFrom(t *testing.T) {
+	cases := map[string]struct {
+		runs string
+		want string
+	}{
+		"passed":      {`{"workflow_runs":[{"name":"long-running CI","run_attempt":1,"status":"completed","conclusion":"failure","html_url":"u1"},{"name":"long-running CI","run_attempt":2,"status":"completed","conclusion":"success","html_url":"u2"}]}`, ""},
+		"none":        {`{"workflow_runs":[{"name":"Autobump","run_attempt":1,"status":"completed","conclusion":"success"}]}`, "no long-running CI run on main has started for abcdef0123"},
+		"in progress": {`{"workflow_runs":[{"name":"long-running CI","run_attempt":1,"status":"in_progress","html_url":"u"}]}`, "is in_progress: u"},
+		"red":         {`{"workflow_runs":[{"name":"long-running CI","run_attempt":1,"status":"completed","conclusion":"failure","html_url":"u"}]}`, "ended failure: u"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			checks := cachedChecks(t, map[string]string{"api repos/o/r/commits/long-running--v1.2.3": parentOfTag, runsPath: tc.runs})
+			got := checks.CIFault(context.Background(), "1.2.3")
+			if tc.want == "" && got != "" || tc.want != "" && !strings.Contains(got, tc.want) {
+				t.Fatalf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestAnUncachedInstallHasNoReleaseToCompare(t *testing.T) {
+	checks := Checks{Installs: t.TempDir()}
+	if faults := checks.ReleaseFaults(context.Background(), "1.2.3"); faults != nil {
+		t.Fatalf("faults %v", faults)
+	}
+	if fault := checks.CIFault(context.Background(), "1.2.3"); fault != "" {
+		t.Fatalf("fault %q", fault)
+	}
+}
+
+func TestAMissingInstallIsNamed(t *testing.T) {
+	checks := cachedChecks(t, nil)
+	faults := checks.ReleaseFaults(context.Background(), "1.2.3")
+	if len(faults) != 1 || !strings.HasSuffix(faults[0], "holds no install of 1.2.3") {
+		t.Fatalf("faults %v", faults)
+	}
+}
+
+func TestATargetBinaryThatRefusesCarriesItsOwnWords(t *testing.T) {
+	fake := &shelltest.Fake{}
+	fake.Fail(1, "lr: /state/lr.json names go-sweep, which never registered on drive d\n", "/i/1.2.3/bin/lr")
+	checks := Checks{Runner: fake, Installs: "/i"}
+
+	fault := checks.TargetFault(context.Background(), "1.2.3", "/state/lr.json")
+
+	if !strings.Contains(fault, "names go-sweep, which never registered on drive d") {
+		t.Fatalf("fault %q", fault)
+	}
+	call := fake.Calls()[0]
+	if !slices.Equal(call.Argv, []string{"/i/1.2.3/bin/lr", "install", "check", "--config", "/state/lr.json"}) || !slices.Equal(call.Env, []string{"LONG_RUNNING_PIN=1.2.3"}) {
+		t.Fatalf("call %+v", call)
+	}
+}
+
+func TestADeskThatWouldRefuseCarriesItsWhy(t *testing.T) {
+	var argv []string
+	checks := Checks{Runner: exited(3, `{"why":"runner.json names go-sweep, which never registered on drive d"}`, &argv), Installs: "/i"}
+
+	fault := checks.DeskFault(context.Background(), "1.2.3", "/s/runner.json", "landing")
+
+	if fault != "the landing desk on 1.2.3 would refuse: runner.json names go-sweep, which never registered on drive d" {
+		t.Fatalf("fault %q", fault)
+	}
+	if !slices.Equal(argv, []string{"/i/1.2.3/bin/desk-runner.py", "preflight", "--config", "/s/runner.json", "--desk", "landing", "--json"}) {
+		t.Fatalf("argv %v", argv)
+	}
+}
+
+func TestTheGateRefusesOnThreeWarnsOnAnythingElseAndSkipsWithNoServingVersion(t *testing.T) {
+	var argv []string
+	refusing := exited(3, "1.2.3 replayed 900 records against 1.2.2 and relaunches a, which 1.2.2 did not\n", &argv)
+	fault, warning := Checks{Runner: refusing, Installs: "/i"}.GateFault(context.Background(), "d", "o/r", "1.2.2", "1.2.3")
+	if !strings.Contains(fault, "relaunches a") || warning != "" {
+		t.Fatalf("got %q %q", fault, warning)
+	}
+	if !slices.Equal(argv, []string{"/i/1.2.3/bin/replay.py", "gate", "--drive", "d", "--repo", "o/r", "--old", "1.2.2", "--new", "1.2.3"}) {
+		t.Fatalf("argv %v", argv)
+	}
+
+	broken := &shelltest.Fake{}
+	broken.Fail(1, "boom\n", "/i/1.2.3/bin/replay.py")
+	fault, warning = Checks{Runner: broken, Installs: "/i"}.GateFault(context.Background(), "d", "o/r", "1.2.2", "1.2.3")
+	if fault != "" || !strings.Contains(warning, "unreplayed") || !strings.Contains(warning, "boom") {
+		t.Fatalf("got %q %q", fault, warning)
+	}
+
+	idle := &shelltest.Fake{}
+	for _, serving := range []string{"", "1.2.3"} {
+		if fault, warning := (Checks{Runner: idle, Installs: "/i"}).GateFault(context.Background(), "d", "o/r", serving, "1.2.3"); fault != "" || warning != "" {
+			t.Fatalf("got %q %q", fault, warning)
+		}
+	}
+	if len(idle.Calls()) != 0 {
+		t.Fatalf("calls %v", idle.Calls())
+	}
+}
+
+func TestAnUnregisteredGoLaneRefusesTheRollAsItKilledTheLandingDesk(t *testing.T) {
+	fake := &shelltest.Fake{}
+	fake.Reply(`{"lane":"go-sweep-1"}`+"\n", "cci", "who", "--drive", "d", "--lane", "go-sweep-1")
+	fake.Reply("", "cci", "who", "--drive", "d", "--lane", "go-sweep")
+	fake.Reply("", "cci", "tail", "--drive", "d", "--lane", "go-sweep")
+	cfg := config.Config{Drive: "d", GoLanes: "go-sweep-1, go-sweep"}
+
+	got := lanesFaults(context.Background(), fake, cfg, "/s/lr.json")
+
+	if !slices.Equal(got, []string{"/s/lr.json names go-sweep, which never registered on drive d; start each lane or remove it from the config"}) {
+		t.Fatalf("got %v", got)
+	}
+}
+
+func TestALaneThatOnlyPostedCountsAsRegistered(t *testing.T) {
+	fake := &shelltest.Fake{}
+	fake.Reply("", "cci", "who")
+	fake.Reply(`{"seq":1}`+"\n", "cci", "tail")
+	if got := lanesFaults(context.Background(), fake, config.Config{Drive: "d", GoLanes: "remote-lane"}, "/s/lr.json"); len(got) != 0 {
+		t.Fatalf("got %v", got)
+	}
+}
+
+func TestLocalEditsInTheCheckoutRefuse(t *testing.T) {
+	fake := &shelltest.Fake{}
+	fake.Reply(" M go/a.go\nM  go/b.go\n", "git", "-C", "/co", "status")
+	got := checkoutFault(context.Background(), fake, config.Config{Checkout: "/co", Trunk: "main"})
+	if got != "/co has local edits to go/a.go, go/b.go, so no pass can fast-forward it to origin/main" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestAShimNamingAVerbTheBinaryLacksIsNamed(t *testing.T) {
+	root := &cobra.Command{Use: "lr", Args: cobra.NoArgs, RunE: func(*cobra.Command, []string) error { return nil }}
+	landing := &cobra.Command{Use: "landing"}
+	landing.AddCommand(&cobra.Command{Use: "restack", RunE: func(*cobra.Command, []string) error { return nil }})
+	root.AddCommand(landing)
+	script := `case "$TOOL" in
+  lr)
+    exec "$ROOT/scripts/binrun.sh" "$ROOT/bin/lr.binrun" "$@"
+    ;;
+  remote-restack.py) exec "$ROOT/bin/lr" landing restack "$@" ;;
+  finder.py) exec "$ROOT/bin/lr" grade finder "$@" ;;
+  mq.py) exec "$ROOT/bin/lr" landing queue "$@" ;;
+esac`
+
+	got := ShimFaults(root, script)
+
+	if !slices.Equal(got, []string{"the finder.py shim runs lr grade finder, which this binary lacks", "the mq.py shim runs lr landing queue, which this binary lacks"}) {
+		t.Fatalf("got %v", got)
+	}
+}
+
+func TestPromoteMovesTheLinkOnlyUp(t *testing.T) {
+	claude := t.TempDir()
+	installs := t.TempDir()
+	for _, version := range []string{"0.7.9", "0.7.44", "0.7.57"} {
+		if err := os.Mkdir(filepath.Join(installs, version), 0o750); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, step := range []struct{ promote, want string }{{"0.7.44", "0.7.44"}, {"0.7.9", "0.7.44"}, {"0.7.57", "0.7.57"}} {
+		if err := Promote(claude, filepath.Join(installs, step.promote)); err != nil {
+			t.Fatal(err)
+		}
+		if got := Installed(claude); got != step.want {
+			t.Fatalf("after %s the link names %s, want %s", step.promote, got, step.want)
+		}
+	}
+	if err := Promote(claude, filepath.Join(installs, "long-running")); err == nil {
+		t.Fatal("promoted a directory that is no version")
+	}
+}

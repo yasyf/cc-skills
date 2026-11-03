@@ -120,7 +120,9 @@ jobs:
           done
           echo "::error::could not push the descriptor after 5 attempts"
           exit 1
-      - name: Bump the plugin onto the new descriptor
+      - name: Grade the descriptor commit and bump the plugin onto it
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh workflow run autobump.yml --ref main
+        run: |
+          gh workflow run long-running-ci.yml --ref main
+          gh workflow run autobump.yml --ref main
