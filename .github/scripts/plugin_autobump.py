@@ -7,13 +7,18 @@ cache only re-pulls on a version move, so content shipped without a bump goes
 stale on every consumer. The bump commit also pins the plugin's marketplace
 entry to that tag, so Claude Code installs the tagged tree rather than whatever
 the default branch holds when it copies. Guarded plugins (binary-pinned) get a
-drift warning instead of a bump.
+drift warning instead of a bump. A plugin in lockstep with a binary it builds and
+pins waits, unbumped, while a commit newer than the pinned build changes both the
+binary's source and the rest of the plugin; the run its pin commit starts bumps it.
 
 Env contract:
   AUTOBUMP_DRY_RUN   "true"/"false" — plan only, never write/commit/push
   AUTOBUMP_GUARD     space-separated plugin `name` values to warn (not bump)
   AUTOBUMP_EXCLUDES  newline-separated repo-relative pathspecs to ignore
   AUTOBUMP_STRICT    "true"/"false" — guarded drift becomes an error + exit 1
+  AUTOBUMP_LOCKSTEP  newline-separated `<descriptor> <source dir>` pairs: a binrun
+                     descriptor whose release tag names the commit it was built
+                     from, and the directory that binary is built from
   AUTOBUMP_FORCE     "1" to allow mutation outside CI (deliberate local use)
   GITHUB_ACTIONS     "true" in CI; mutation needs this or AUTOBUMP_FORCE
   GITHUB_STEP_SUMMARY  optional path to append the summary table
@@ -148,7 +153,7 @@ class Result:
     manifest: str
     version: str | None
     baseline: str | None
-    verdict: str  # clean | exempt | bump | guarded | error
+    verdict: str  # clean | exempt | bump | guarded | waiting | error
     new_version: str | None = None
     message: str | None = None
     new_text: str | None = None
@@ -159,7 +164,26 @@ def _nested_roots(root: str, roots: list[str]) -> list[str]:
     return [r for r in roots if r != root and (root == "." or r.startswith(f"{root}/"))]
 
 
-def analyze(repo: Path, guard: set[str], excludes: list[str]) -> list[Result]:
+def release_commit(repo: Path, descriptor: str) -> str:
+    data = json.loads(_git_out(repo, "show", f"HEAD:{descriptor}").partition("\n")[2])
+    (tag,) = {provider["tag"] for platform in data["platforms"].values() for provider in platform["providers"]}
+    return _git_out(repo, "rev-list", "-n", "1", tag).strip()
+
+
+def wait_reason(repo: Path, root: str, lockstep: tuple[tuple[str, str], ...]) -> str | None:
+    prefix = "" if root == "." else f"{root}/"
+    for descriptor, source in lockstep:
+        if not descriptor.startswith(prefix):
+            continue
+        built = release_commit(repo, descriptor)
+        for sha in _git_out(repo, "log", "--format=%H", f"{built}..HEAD", "--", source).split():
+            changed = _git_out(repo, "show", "--format=", "--name-only", sha, "--", root).split()
+            if any(not path.startswith(f"{source}/") for path in changed):
+                return f"{sha[:7]} changes {source} and the rest of the plugin after {built[:7]}, the build {descriptor} pins"
+    return None
+
+
+def analyze(repo: Path, guard: set[str], excludes: list[str], lockstep: tuple[tuple[str, str], ...] = ()) -> list[Result]:
     manifests = discover_manifests(repo)
     roots = [plugin_root(m) for m in manifests]
     results = []
@@ -186,6 +210,8 @@ def analyze(repo: Path, guard: set[str], excludes: list[str]) -> list[Result]:
             results.append(Result(name, root, manifest, version, baseline, "clean"))
         elif name in guard:
             results.append(Result(name, root, manifest, version, baseline, "guarded"))
+        elif reason := wait_reason(repo, root, lockstep):
+            results.append(Result(name, root, manifest, version, baseline, "waiting", message=reason))
         else:
             try:
                 new = bump_patch(version)
@@ -202,6 +228,7 @@ def _verdict_cell(r: Result) -> str:
         "clean": "clean",
         "exempt": "exempt (no version)",
         "guarded": "guarded drift",
+        "waiting": f"waits: {r.message}",
         "bump": f"bump → {r.new_version}",
         "error": f"ERROR: {r.message}",
     }[r.verdict]
@@ -241,7 +268,7 @@ def pin_marketplace(repo: Path, bumps: list[Result]) -> list[str]:
     return [str(MARKETPLACE)]
 
 
-def commit_and_push(repo: Path, bumps: list[Result], branch: str) -> bool:
+def commit_and_push(repo: Path, bumps: list[Result], branch: str, lockstep: tuple[tuple[str, str], ...] = ()) -> bool:
     for r in bumps:
         (repo / r.manifest).write_text(r.new_text, encoding="utf-8")  # precomputed + validated in analyze
     _git_out(repo, "add", *(r.manifest for r in bumps), *pin_marketplace(repo, bumps))
@@ -265,8 +292,11 @@ def commit_and_push(repo: Path, bumps: list[Result], branch: str) -> bool:
     for _ in range(3):
         # env carries the bot identity: rebase creates commits too, and a bare
         # runner has none — without it every retry dies on "empty ident name".
-        pull = subprocess.run(["git", "pull", "--rebase", "origin", branch], cwd=repo, env=env)
+        pull = subprocess.run(["git", "pull", "--rebase", "--tags", "origin", branch], cwd=repo, env=env)
         if pull.returncode == 0:
+            if waits := [f"{r.name}: {reason}" for r in bumps if (reason := wait_reason(repo, r.root, lockstep))]:
+                print(f"::error::a commit its pin does not carry yet landed under this run, so nothing is pushed; that commit's own run bumps: {'; '.join(waits)}")
+                return False
             push = subprocess.run(["git", "push", "origin", f"HEAD:{branch}"], cwd=repo, env=env)
             if push.returncode == 0:
                 return True
@@ -297,17 +327,20 @@ def main() -> int:
     strict = os.environ.get("AUTOBUMP_STRICT", "false").strip().lower() == "true"
     guard = set(os.environ.get("AUTOBUMP_GUARD", "").split())
     excludes = [line.strip() for line in os.environ.get("AUTOBUMP_EXCLUDES", "").splitlines() if line.strip()]
+    lockstep = tuple(tuple(line.split()) for line in os.environ.get("AUTOBUMP_LOCKSTEP", "").splitlines() if line.strip())
     branch = os.environ.get("GITHUB_REF_NAME") or "main"
     in_ci = os.environ.get("GITHUB_ACTIONS", "").strip().lower() == "true"
     forced = os.environ.get("AUTOBUMP_FORCE", "").strip() == "1"
 
-    results = analyze(repo, guard, excludes)
+    results = analyze(repo, guard, excludes, lockstep)
 
     for r in results:
         if r.verdict == "guarded":
             print(f"::warning::plugin {r.name} drifted but is guarded (binary-pinned); not bumping")
             if strict:
                 print(f"::error::guarded plugin {r.name} drifted (strict)")
+        elif r.verdict == "waiting":
+            print(f"::notice::plugin {r.name} drifted but waits for its pin: {r.message}")
         elif r.verdict == "error":
             print(f"::error::plugin {r.name}: {r.message}")
 
@@ -317,9 +350,9 @@ def main() -> int:
     bumps = [r for r in results if r.verdict == "bump"]
     push_failed = False
     if bumps and not dry_run and not report_only:
-        push_failed = not commit_and_push(repo, bumps, branch)
+        push_failed = not commit_and_push(repo, bumps, branch, lockstep)
         if push_failed:
-            print("::error::autobump commit push failed after 3 retries")
+            print("::error::autobump commit was not pushed")
         elif not tag_bumps(repo, bumps):
             push_failed = True
             print("::error::autobump tag push failed")

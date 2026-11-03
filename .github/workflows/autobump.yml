@@ -23,44 +23,10 @@ permissions:
   contents: write
 
 jobs:
-  lr-pin:
-    runs-on: ubuntu-latest
-    permissions:
-      actions: read
-      contents: read
-    outputs:
-      excludes: ${{ steps.hold.outputs.excludes }}
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-      - name: Hold long-running until the lr pin carries a change that spans Go and the pack
-        id: hold
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          pack=plugins/long-running
-          pin="$(tail -n +2 "$pack/bin/lr.binrun" | jq -r .version.static)"
-          spanning=""
-          for sha in $(git log --format=%H "lr--v$pin..HEAD" -- "$pack/lr"); do
-            if git show --format= --name-only "$sha" -- "$pack" | grep -qv "^$pack/lr/"; then
-              spanning="$sha"
-            fi
-          done
-          [ -n "$spanning" ] || exit 0
-          newest="$(gh run list --workflow long-running-lr-release.yml --branch main --limit 1 --json conclusion --jq '.[0].conclusion')"
-          if [ "$newest" = failure ]; then
-            echo "::warning::$spanning changes Go and the pack, lr $pin predates it, and the newest lr release failed, so long-running bumps on a stale lr"
-            exit 0
-          fi
-          echo "excludes=$pack" >> "$GITHUB_OUTPUT"
-
   autobump:
-    needs: lr-pin
     uses: ./.github/workflows/plugin-autobump.yml
     with:
       dry-run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
       strict: ${{ github.event_name == 'workflow_dispatch' && inputs.strict || false }}
       guard-plugins: "codex slop-cop"
-      exclude-paths: ${{ needs.lr-pin.outputs.excludes }}
+      lockstep: "plugins/long-running/bin/lr.binrun plugins/long-running/lr"
