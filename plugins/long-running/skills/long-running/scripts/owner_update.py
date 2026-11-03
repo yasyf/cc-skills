@@ -124,6 +124,8 @@ INCIDENTS = "Incidents today"
 LANES_ON_NO_STEP = "Lanes on no plan step"
 UPDATE_BYTES = 40_000
 TITLE_CHARS = 60
+CELL_CHARS = 100
+NONE_RECORDED = "None recorded"
 
 Runner = Callable[..., subprocess.CompletedProcess]
 
@@ -345,11 +347,12 @@ class Sources:
             for row in self.retro
             if row.get("owner") in lanes and row.get("state") != "live"
         ]
-        return ", ".join(on) or NOBODY, blocks, unblock, "; ".join([*failed, *quiet, *took]) or "None recorded"
+        return ", ".join(on) or NOBODY, blocks, unblock, "; ".join([*failed, *quiet, *took]) or NONE_RECORDED
 
 
 def cell(text: str) -> str:
-    return owner_waits.clip(text).replace("|", "/")
+    clipped = " ".join(text.split())
+    return (clipped if len(clipped) <= CELL_CHARS else clipped[: CELL_CHARS - 1] + "…").replace("|", "/")
 
 
 def table(rows: list[Row]) -> list[str]:
@@ -562,16 +565,20 @@ def lane_table(title: str) -> bool:
     return title == LANES_ON_NO_STEP or title.startswith("Workstream ")
 
 
-def rendered(title: str, found: list[Row]) -> list[str]:
-    """A section's rows as the owner reads them: a full row for work someone is on or that is open, one line naming the quiet lanes and the closed incidents, and one line per state naming its PRs, so every name is there and the detail goes where it matters."""
+def rendered(title: str, found: list[Row], step: bool = False) -> list[str]:
+    """A section's rows as the owner reads them: a full row where a decision or blocker lives, one line for the rest, every name present. A step table shows its step row and only its blocked lanes, since the step row names the rest; a lane table shows blocked lanes in full, live ones as one line each and quiet ones in one line; incidents closed today share one line; PRs are one line per state."""
     if title == OPEN_PRS:
         groups: dict[str, list[Row]] = {}
         for row in found:
             groups.setdefault(row.state, []).append(row)
         return [f"- {state} ({len(rows)}): " + "; ".join(f"{row.name} {owner_waits.clip(row.delivers)[:TITLE_CHARS]}" + (f" [{row.who}]" if row.who != NOBODY else "") for row in rows) for state, rows in groups.items()] or [NOTHING]
-    quiet = [row for row in found if lane_table(title) and row.who == NOBODY or title == INCIDENTS and row.done]
-    full = [row for row in found if row not in quiet]
+    lanes = found[1:] if step else found if lane_table(title) else []
+    quiet = [row for row in lanes if row.who == NOBODY] + [row for row in found if title == INCIDENTS and row.done]
+    notable = [row for row in lanes if row not in quiet and (row.blocks != NOTHING_RECORDED or row.wrong != NONE_RECORDED)]
+    brief = [] if step else [row for row in lanes if row not in quiet and row not in notable]
+    full = [*(found[:1] if step else (row for row in found if row not in lanes and row not in quiet)), *notable]
     lines = table(full) if full else []
+    lines += [f"- {row.name}: {cell(row.unblock)}" for row in brief]
     if quiet:
         lines += ["", ("Closed today: " if title == INCIDENTS else "Quiet over 2 h, nobody on them now: ") + "; ".join(f"{row.name} ({owner_waits.clip(row.state)[:TITLE_CHARS]})" for row in quiet)]
     return lines or [NOTHING]
@@ -602,6 +609,7 @@ def report(drive_name: str, runner: Runner, now: datetime | None = None) -> tupl
     snapshot = Path(entry["state_dir"]) / SNAPSHOT
     before = json.loads(snapshot.read_text()) if snapshot.is_file() else {"at": (now - DEFAULT_SINCE).isoformat(), "rows": {}}
     steps: list[dict] = []
+    step_tables: set[str] = set()
     progress = plans.read(lambda *argv: runner(["ccn", "-R", entry["checkout"], *argv]).stdout, entry.get("program"))
     asks = ask_rows(runner, entry["checkout"], entry["ledger"], latest)
     board = board_rows(runner, drive_name, entry["sessions"][-1])
@@ -618,11 +626,13 @@ def report(drive_name: str, runner: Runner, now: datetime | None = None) -> tupl
                 placed |= {lane["lane"] for lane in mine}
                 tables.append((title := f"{owner_waits.clip(plan.title)}, {piece}", [step_row(piece, f"the {piece} piece of {owner_waits.clip(plan.title)}", [], mine, sources), *(lane_row(lane, sources) for lane in mine)]))
                 steps.append(step_entry(len(steps), piece, title, tables[-1][1][0], mine))
+                step_tables.add(title)
             continue
         mine = [lane for lane in lanes if on_step(lane, step)]
         placed |= {lane["lane"] for lane in mine}
         tables.append((title := f"{owner_waits.clip(plan.title)}, step {owner_waits.clip(step.title)}", [step_row(f"Step {step.number}", step.title, step.tasks, mine, sources), *(lane_row(lane, sources) for lane in mine)]))
         steps.append(step_entry(len(steps), step.title, title, tables[-1][1][0], mine))
+        step_tables.add(title)
     rest = [lane for lane in lanes if lane["lane"] not in placed]
     tables += [(f"Workstream {step}", [lane_row(lane, sources) for lane in rest if step_of(lane) == step]) for step in sorted({step_of(lane) for lane in rest} - {""})]
     tables += [
@@ -651,7 +661,7 @@ def report(drive_name: str, runner: Runner, now: datetime | None = None) -> tupl
         f"# Owner update: {drive_name}, {owner_waits.pacific(now)}",
         *(text for title, found in opening for text in section(title, found)),
         *section(UNOWNED, head),
-        *(text for title, found in tables for text in section(title, rendered(title, found))),
+        *(text for title, found in tables for text in section(title, rendered(title, found, title in step_tables))),
         *(text for title, found in lists for text in section(title, found)),
     ]
     if (size := len("\n".join(out).encode())) > UPDATE_BYTES:

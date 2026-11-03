@@ -376,18 +376,21 @@ def test_a_pinned_row_is_held_by_every_working_lane_its_words_name_and_by_nobody
     assert (gateway.who, gateway.unowned, none) == ("**nobody**", True, [])
 
 
-def test_quiet_lanes_closed_incidents_and_prs_render_as_lines_naming_each_while_live_work_keeps_its_row():
-    live = owner_update.Row("red-sweep-3", "reds", "desired", "red-sweep-3", "nothing recorded", "red-sweep-3: state 6:01 PM", "None recorded")
-    quiet = owner_update.Row("old-lane-1", "x", "desired, last report 2:38 PM", "**nobody**", "nothing recorded", "nobody is on it", "None recorded")
+def test_a_full_row_only_where_a_blocker_or_a_failure_lives_and_one_line_naming_the_rest():
+    blocked = owner_update.Row("red-sweep-3", "reds", "desired", "red-sweep-3", "red-sweep-3 waits on root's answer to ask #9", "red-sweep-3: state 6:01 PM", "None recorded")
+    plain = owner_update.Row("flake-1", "flakes", "desired", "flake-1", "nothing recorded", "flake-1: state 6:05 PM: fixed", "None recorded")
+    quiet = owner_update.Row("old-lane-1", "x", "desired, last report 2:38 PM", "**nobody**", "nothing recorded", "nobody is on it", "old-lane-1 quiet since 2:38 PM")
+    step = owner_update.Row("Step 3", "3. The writer", "0 of 2 tasks done", "flake-1, red-sweep-3", "nothing recorded", "-", "None recorded")
     closed = owner_update.Row("user-creds", "creds", "closed since 1:15 AM", "**nobody**", "nothing recorded", "-", "-", done=True)
     red = owner_update.Row("#46107", "sand: unarchive a chat", "red", "**nobody**", "held by cci #1", "-", "its head is red")
     held = owner_update.Row("#45623", "iris: a model pick", "red", "p8a-step7", "held by cci #2", "-", "-")
 
-    lanes = owner_update.rendered(owner_update.LANES_ON_NO_STEP, [live, quiet])
-    incidents = owner_update.rendered(owner_update.INCIDENTS, [closed])
-    prs = owner_update.rendered(owner_update.OPEN_PRS, [red, held])
+    lanes = owner_update.rendered(owner_update.LANES_ON_NO_STEP, [blocked, plain, quiet])
+    steps = owner_update.rendered("Plan, step 3", [step, blocked, plain, quiet], step=True)
 
-    assert lanes[2].startswith("| red-sweep-3 |") and lanes[-1] == "Quiet over 2 h, nobody on them now: old-lane-1 (desired, last report 2:38 PM)"
-    assert incidents == ["", "Closed today: user-creds (closed since 1:15 AM)"]
-    assert prs == ["- red (2): #46107 sand: unarchive a chat; #45623 iris: a model pick [p8a-step7]"]
+    assert [line.split(" |")[0] for line in lanes[2:]] == ["| red-sweep-3", "- flake-1: flake-1: state 6:05 PM: fixed", "", "Quiet over 2 h, nobody on them now: old-lane-1 (desired, last report 2:38 PM)"]
+    assert [line.split(" |")[0] for line in steps[2:]] == ["| Step 3", "| red-sweep-3", "", "Quiet over 2 h, nobody on them now: old-lane-1 (desired, last report 2:38 PM)"]
+    assert owner_update.rendered(owner_update.INCIDENTS, [closed]) == ["", "Closed today: user-creds (closed since 1:15 AM)"]
+    assert owner_update.rendered(owner_update.OPEN_PRS, [red, held]) == ["- red (2): #46107 sand: unarchive a chat; #45623 iris: a model pick [p8a-step7]"]
     assert owner_update.unowned_lines([(owner_update.OPEN_PRS, [red, held]), (owner_update.INCIDENTS, [closed])]) == ["- Open PRs (1): #46107"]
+    assert owner_update.cell("x" * 150) == "x" * 99 + "…"

@@ -24,6 +24,10 @@ Every update the owner gets, whether a status answer, a milestone report or the 
 10. Registry lanes quiet over a day, what waits on the coordinator, board picks, and what lanes delivered in the last two hours.
 11. **Gaps in this update.** Present only when a message of his has no record carrying it.
 
+## Detail where it matters
+
+Every item is named, and a full row goes where a decision or blocker lives: pinned rows, plan steps and pieces, standing duties, open incidents, and any lane that is blocked or carries a failure. A step's other live lanes appear in its Who. A live lane on no step with nothing blocking it is one line, its newest record. Lanes quiet over two hours, incidents closed today, and open PRs grouped by state are one line each, naming every item. Unowned work names each row once per section. Cells clip at 100 characters, and an update over 40 KB lists its size as a gap. The dashboard's drill-ins hold the rest.
+
 ## The row
 
 | Row | What it delivers | State | Who is on it right now | What blocks it | What we are doing to unblock it, and by when | What went wrong or slowed it |
