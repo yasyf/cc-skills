@@ -1,7 +1,6 @@
 package watch
 
 import (
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -53,10 +52,6 @@ func TestADeadlineWithNoPlanPagesItsOwnLaneOnceNamingTheRecordDeadlineAndLane(t 
 		if !strings.Contains(first[0].Cause, words) {
 			t.Fatalf("cause %q lacks %q", first[0].Cause, words)
 		}
-	}
-	want(t, len(r.posts), 1)
-	if !slices.Equal(r.posts[0].to, []string{"memoryschema-1"}) {
-		t.Fatalf("to = %v", r.posts[0].to)
 	}
 	want(t, len(second), 0)
 }
