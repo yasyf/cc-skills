@@ -47,10 +47,13 @@ class Fake:
         self.range_diff = f"1:  {OLD_OWN[:7]} ! 1:  {OWN[:7]} resubscribe\n"
         self.shows = {OLD_OWN[:7]: "diff --git a/f.go b/f.go\n+old\n", OWN[:7]: "diff --git a/f.go b/f.go\n+new\n"}
         self.posted: list[dict] = []
+        self.earlier: list[dict] = []
 
     def run(self, argv: list[str], cwd: Path | None = None, timeout: int = finder.READ_SECONDS) -> str:
         argv = gateway(argv)
         self.calls.append(argv)
+        if argv[:2] == ["cci", "tail"]:
+            return "".join(json.dumps(record) + "\n" for record in self.earlier)
         if argv[:3] == ["gh", "pr", "view"]:
             head = self.heads.pop(0) if len(self.heads) > 1 else self.heads[0]
             comments = self.comments.pop(0) if len(self.comments) > 1 else self.comments[0]
@@ -318,6 +321,27 @@ def test_a_reworded_point_a_root_ruling_settled_is_dropped_by_the_ruling_the_rep
     fidelity.main([str(directory)], shell)
     assert shell.texts()[0] == posted
     assert "- root #265587: 2:07 PM #43299: the census route refusing an unproven head is the plan's behavior; settled." in (directory / "question-1.md").read_text()
+
+@pytest.mark.parametrize("earlier", [True, False], ids=["regrade-at-the-same-head", "first-grade"])
+def test_a_second_grade_at_a_head_the_pipeline_already_graded_names_the_grade_it_supersedes(tmp_path, earlier):
+    """Root #332145: the pipeline posted ok 30544 then missing 39433 at #48335 03e672a, and neither said which stood, so readers disagreed."""
+    directory = job(tmp_path)
+    shell = Fake(tmp_path, [reply(verdict="missing", missing=({"key": "plan:811", "line": "the census route refuses an unproven head"},))], {(f"{OWN}^", HEAD): "5f1e", (f"{OLD}~1", OLD): "77aa"})
+    if earlier:
+        shell.earlier = [
+            {"seq": 30544, "drive": "d1", "lane": fidelity.LANE, "kind": "review", "text": f"fidelity: ok {HEAD[:7]} Resubscribes.", "refs": {"prs": [f"{REPO}#43299"]}},
+            {"seq": 30600, "drive": "d1", "lane": fidelity.LANE, "kind": "review", "text": f"old-app: unchanged {HEAD[:7]} baseline {BASELINE}", "refs": {"prs": [f"{REPO}#43299"]}},
+            {"seq": 30100, "drive": "d1", "lane": fidelity.LANE, "kind": "review", "text": f"fidelity: ok {OLD[:7]} older head", "refs": {"prs": [f"{REPO}#43299"]}},
+        ]
+
+    fidelity.main([str(directory)], shell)
+
+    posts = [argv for argv in shell.calls if argv[:2] == ["cci", "post"]]
+    assert posts
+    for argv in posts:
+        attrs = [argv[index + 1] for index, arg in enumerate(argv) if arg == "--attr"]
+        assert attrs == (["class=supersedes", "supersedes=30544"] if earlier else [])
+
 
 @pytest.mark.parametrize(
     ("grades", "patches"),
