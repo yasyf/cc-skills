@@ -36,7 +36,14 @@ type ReleaseGates struct {
 	read       time.Time
 	after      int64
 	orders     map[string]releaseOrder
+	cuts       map[string]orderedCut
 	raised     map[string]bool
+}
+
+type orderedCut struct {
+	seq  int64
+	lane string
+	at   time.Time
 }
 
 type gateStatus struct {
@@ -75,7 +82,36 @@ func (g *ReleaseGates) Check(ctx context.Context, now time.Time) error {
 			return err
 		}
 	}
+	for _, answer := range slices.Sorted(maps.Keys(g.cuts)) {
+		if err := g.tendCut(ctx, answer, now); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+func (g *ReleaseGates) tendCut(ctx context.Context, answer string, now time.Time) error {
+	cut := g.cuts[answer]
+	waited := now.Sub(cut.at)
+	if waited < gateGrace {
+		return nil
+	}
+	text := fmt.Sprintf("CUT-SILENT %s: no release record carries owner order %s %d minutes after it; an owner-ordered release with no build is a blocker, never a wait. Start it now: `%s start --manual <component> --order %s`, or resolve #%d if the order no longer stands.", cut.lane, answer, int(waited.Minutes()), strings.Join(g.ReleaseCLI, " "), answer, cut.seq)
+	if err := g.raise(ctx, "cut-silent:"+answer, text); err != nil {
+		return err
+	}
+	delete(g.cuts, answer)
+	return nil
+}
+
+func (g *ReleaseGates) closeCuts(row client.Record) {
+	for answer, cut := range g.cuts {
+		refused := row.Kind == "refuse" && row.Lane == cut.lane
+		resolved := row.Lane == Root && (row.Resolves == cut.seq || slices.Contains(row.AlsoResolves, cut.seq))
+		if refused || resolved {
+			delete(g.cuts, answer)
+		}
+	}
 }
 
 func (g *ReleaseGates) readOrders(ctx context.Context, now time.Time) error {
@@ -89,15 +125,24 @@ func (g *ReleaseGates) readOrders(ctx context.Context, now time.Time) error {
 	}
 	if g.orders == nil {
 		g.orders = map[string]releaseOrder{}
+		g.cuts = map[string]orderedCut{}
 	}
 	for _, row := range rows {
 		g.after = max(g.after, row.Seq)
 		attrs := row.Fields.Attrs
 		release, answer := attrs["release"], attrs["order"]
-		if release == "" || answer == "" {
+		g.closeCuts(row)
+		if answer == "" {
 			continue
 		}
 		at := orderedAt(attrs["ordered_at"], row.At.UTC())
+		if release == "" {
+			if row.Lane == Root && attrs["lane"] != "" {
+				g.cuts[answer] = orderedCut{row.Seq, attrs["lane"], at}
+			}
+			continue
+		}
+		delete(g.cuts, answer)
 		if known, seen := g.orders[release]; seen && !at.Before(known.at) {
 			continue
 		}
