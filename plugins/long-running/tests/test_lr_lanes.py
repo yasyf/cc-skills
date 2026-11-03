@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import dataclasses
+
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -672,6 +674,26 @@ def test_the_owner_hears_one_line_an_hour_and_only_when_a_lane_restarted(tmp_pat
     [line] = fake.posts
     assert line[line.index("--attr") + 1] == "audience=owner"
     assert line[-1] == "Between 10:00 AM and 11:00 AM the lane supervisor restarted 1 lane with no root action: conflicts-2 stopped at 10:00 AM, so conflicts-3 took over."
+
+
+def test_the_hourly_report_names_each_lanes_open_defects_asks_and_blockers_deepest_first(tmp_path, brief):
+    """Retro row 133: tooling items piled up in one lane's queue all evening and nobody saw its depth."""
+    store = Store.memory()
+    fake = adopted(tmp_path, brief, store)
+    work = [
+        record(10, "root", "defect", T0 - timedelta(hours=3), "fix the gate", ("tooling-1",)),
+        record(11, "root", "ask", T0 - timedelta(hours=1), "due time?", ("tooling-1@drive",)),
+        record(12, "root", "defect", T0 - timedelta(minutes=30), "and this", ("tooling-1", "root")),
+        record(13, "desk-runner", "blocker", T0 - timedelta(hours=2), "stuck", ("desk-3",)),
+        record(14, "lane-x", "ask", T0, "root only", ("root",)),
+    ]
+    fake.deps = dataclasses.replace(fake.deps, open_work=lambda: work)
+    fake.peers = [who("conflicts-2", True, T0 + timedelta(hours=1, minutes=1))]
+
+    lanes.tick(store, fake.deps, T0 + timedelta(hours=1, minutes=1), 1)
+
+    [line] = fake.posts
+    assert line[-1] == "11:01 AM open work by lane, so no queue grows unseen (retro row 133): tooling-1 2 defects, 1 ask (oldest 7:00 AM); desk-3 1 blocker (oldest 8:00 AM)."
 
 
 @pytest.mark.parametrize(

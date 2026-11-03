@@ -318,6 +318,7 @@ def lanes_deps(config: lr_config.Config, state: Path) -> lanes.Deps:
         pr_states=PrStates(config.repo, clock),
         held=lambda: {int(pr) for pr in cci.held_prs(run, config.drive)} | reported_held(config),
         rotate_at=rotate_at(),
+        open_work=lambda: [record for line in run(["cci", "tail", "--drive", config.drive, "--since", "24h", "--kind", "defect", "--kind", "ask", "--kind", "blocker", "--json", "--budget", "0"]).splitlines() if line.startswith("{") and (record := json.loads(line))["status"] == "open"],
     )
 
 

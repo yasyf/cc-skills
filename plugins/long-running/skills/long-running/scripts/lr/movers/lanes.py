@@ -114,6 +114,7 @@ class Deps:
     pr_states: Callable[[list[int]], dict[int, str]]
     rotate_at: int
     held: Callable[[], set[int]] = set
+    open_work: Callable[[], list[dict]] = list
 
 
 @dataclass
@@ -671,10 +672,27 @@ def hourly(store: Store, deps: Deps, now: datetime) -> None:
         return
     start = datetime.fromtimestamp((hour - 1) * 3600, UTC)
     restarted = [lane for lane in store.all_lanes() if lane.predecessor and lane.reason and start <= lane.since < start + timedelta(hours=1)]
-    if not restarted:
+    if restarted:
+        words = "; ".join(f"{lane.predecessor} {lane.reason}, so {lane.name} took over" for lane in restarted)
+        post(deps, "report", ROOT, f"Between {pacific(start)} and {pacific(start + timedelta(hours=1))} the lane supervisor restarted {len(restarted)} lane{'s' if len(restarted) > 1 else ''} with no root action: {words}.", "--attr", "audience=owner")
+    try:
+        records = deps.open_work()
+    except Unread:
         return
-    words = "; ".join(f"{lane.predecessor} {lane.reason}, so {lane.name} took over" for lane in restarted)
-    post(deps, "report", ROOT, f"Between {pacific(start)} and {pacific(start + timedelta(hours=1))} the lane supervisor restarted {len(restarted)} lane{'s' if len(restarted) > 1 else ''} with no root action: {words}.", "--attr", "audience=owner")
+    if depth := queue_depth(records):
+        post(deps, "report", ROOT, f"{pacific(now)} open work by lane, so no queue grows unseen (retro row 133): {depth}.")
+
+
+def queue_depth(records: list[dict]) -> str:
+    queues: dict[str, list[dict]] = {}
+    for record in records:
+        for lane in {name.split("@", 1)[0] for name in record.get("to") or []} - {ROOT, "main", "all", SELF}:
+            queues.setdefault(lane, []).append(record)
+    lines = []
+    for lane, queue in sorted(queues.items(), key=lambda item: (-len(item[1]), item[0])):
+        counts = ", ".join(f"{count} {kind}{'s' if count > 1 else ''}" for kind in ("defect", "ask", "blocker") if (count := sum(record["kind"] == kind for record in queue)))
+        lines.append(f"{lane} {counts} (oldest {pacific(min(parse(record['at']) for record in queue))})")
+    return "; ".join(lines)
 
 
 def tick(store: Store, deps: Deps, now: datetime, generation: int) -> Outcome:
