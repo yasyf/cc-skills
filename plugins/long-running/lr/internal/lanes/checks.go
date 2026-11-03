@@ -32,6 +32,7 @@ const (
 	gcEvery      = 5 * time.Minute
 	gcTimeout    = 10 * time.Minute
 	launchWait   = 5 * time.Minute
+	launchMargin = 10 * time.Second
 	incidentBar  = 20 * time.Minute
 	notLiveOwed  = time.Hour
 	notLiveSpan  = 24 * time.Hour
@@ -96,11 +97,11 @@ func (e Env) incidentLaunch(ctx context.Context, fired Fired) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	argv := []string{e.tool("desk-launch.py"), "incident", fired.Slug, fix}
+	argv := []string{e.tool("lr"), "incident", "run", fired.Slug, "--fix-brief", fix, "--timeout-seconds", strconv.Itoa(int((launchWait - launchMargin).Seconds()))}
 	evidence, err := e.incidentBrief(fired.Slug+"-evidence", "alert-evidence-brief.md", fired)
 	switch {
 	case err == nil:
-		argv = append(argv, evidence)
+		argv = append(argv, "--evidence-brief", evidence)
 	case !errors.Is(err, fs.ErrNotExist):
 		return "", err
 	}

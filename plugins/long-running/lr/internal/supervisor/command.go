@@ -7,15 +7,22 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/facts"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/landing"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
+
+const runnerFile = "runner.json"
 
 func Command(a *app.App) *cobra.Command {
 	cmd := &cobra.Command{Use: "supervisor", Short: "The drive's one leased process, kept alive by launchd"}
@@ -38,8 +45,8 @@ func run(ctx context.Context, a *app.App) error {
 	if err != nil {
 		return err
 	}
-	if runsPass(cfg.Movers) {
-		return fmt.Errorf("movers %s need the facts read, which this build does not link yet; keep lr.json at [lanes] until the cutover", strings.Join(cfg.Movers, ", "))
+	if unwired := slices.DeleteFunc(slices.Clone(cfg.Movers), func(mover string) bool { return mover == moverLanes || mover == config.MoverLanding }); len(unwired) > 0 {
+		return fmt.Errorf("lr supervisor run wires the lanes and landing movers, not %s", strings.Join(unwired, ", "))
 	}
 	s, err := store.Open(filepath.Join(state, lanes.StoreFile))
 	if err != nil {
@@ -50,7 +57,7 @@ func run(ctx context.Context, a *app.App) error {
 	if err != nil {
 		return err
 	}
-	deps, err := wired(ctx, a.Log, env, s)
+	deps, err := wired(ctx, a, env, s)
 	if err != nil {
 		return err
 	}
@@ -68,8 +75,8 @@ func run(ctx context.Context, a *app.App) error {
 	return nil
 }
 
-func wired(ctx context.Context, log *slog.Logger, env lanes.Env, s *store.Store) (Deps, error) {
-	checks, err := env.Checks(s, log)
+func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps, error) {
+	checks, err := env.Checks(s, a.Log)
 	if err != nil {
 		return Deps{}, err
 	}
@@ -77,7 +84,7 @@ func wired(ctx context.Context, log *slog.Logger, env lanes.Env, s *store.Store)
 	if err != nil {
 		return Deps{}, err
 	}
-	return Deps{
+	deps := Deps{
 		Movers: env.Config.Movers,
 		Clock:  env.Now,
 		Sleep:  time.Sleep,
@@ -85,8 +92,24 @@ func wired(ctx context.Context, log *slog.Logger, env lanes.Env, s *store.Store)
 			return lanes.Tick(s, laneDeps, now, generation)
 		},
 		Checks: checks,
-		Log:    log,
-	}, nil
+		Log:    a.Log,
+	}
+	if !slices.Contains(env.Config.Movers, config.MoverLanding) {
+		return deps, nil
+	}
+	restacker, err := landing.NewRemote(a, filepath.Join(env.State, runnerFile), lanes.Self, "")
+	if err != nil {
+		return Deps{}, err
+	}
+	sender := bus.Bus{Drive: env.Config.Drive, Lane: lanes.Self}
+	deps.Snapshot = facts.New(a, env.Config, s).Snapshot
+	deps.Post = func(to []string, body bus.Body) error {
+		_, err := sender.Post(ctx, to, body)
+		return err
+	}
+	deps.Queue = landing.Trunk{Runner: a.Runner, Checkout: env.Config.Checkout, Branch: env.Config.Trunk, Script: env.Config.QueueScript, KeyCommand: env.Config.QueueKey}
+	deps.Restacker = restacker
+	return deps, nil
 }
 
 func launchd(a *app.App, out *cobra.Command) (Launchd, error) {

@@ -172,7 +172,7 @@ func StandingRefusal(s *store.Store, r Request) (refusal string, err error) {
 }
 
 func (p Post) Draft(drive string) client.Draft {
-	draft := client.Draft{Drive: drive, Lane: Self, Kind: p.Kind, To: p.To, Text: p.Text, Re: p.Re, Successor: p.Successor, Attrs: p.Attrs, Stamp: true}
+	draft := client.Draft{Drive: drive, Lane: Self, Kind: p.Kind, To: p.To, Text: p.Text, Re: p.Re, Successor: p.Successor, Attrs: p.Attrs, Stamp: true, Force: true}
 	if p.LaneRef != "" {
 		draft.LaneRefs = []string{p.LaneRef}
 	}
