@@ -88,6 +88,7 @@ type landing struct {
 	FidelityLane names    `json:"fidelity_lane"`
 	PortPhrase   string   `json:"port_phrase"`
 	ExemptGrades []string `json:"exempt_grades"`
+	GoClasses    []string `json:"go_classes"`
 }
 
 type desk struct {

@@ -107,8 +107,9 @@ Answer in the schema:
 - `touches`: the key of every reserved row the head touches, whatever the verdict.
 - `exempt`: `port` only when the PR ports an old-tree PR its body names by number, line for
   line, and touches no code or behavior the plan's steps changed or own ("{port}");
-  `test-only` only when every file it changes is a test or CI configuration ("{test_only}");
   any other class among {classes} only when the head is what its words say; `none` otherwise.
+  A class the changed paths alone decide, such as test-only or ci-tooling, is not yours to
+  name: the pass reads it from the diff's files.
 - `old_app`: what the head changes for a user of the live old app, against {baseline}:
   `unchanged` when it touches nothing the old app runs, `bug fix` when it only fixes a defect
   in what the old app does, `changes` otherwise; `why` names the paths or behavior that

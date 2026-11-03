@@ -1,4 +1,4 @@
-package replay
+package gates
 
 import (
 	"path"
@@ -11,6 +11,7 @@ var (
 	testFile = regexp.MustCompile(`(?:^|/)(?:tests?|testing|testdata|fixtures|__snapshots__|__mocks__|e2e|evals|fakes?|mocks?|testkit|testutils?|test-scripts|vcr)/|(?:^|/)[a-z0-9_-]+(?:test|testkit|testutils?|harness)/|(?:^|/)[a-z0-9]+ForTests?/` +
 		`|(?:^|/)tests?\.\w+$|(?:^|/)test_[^/]*$|_test\.\w+$|\.(?:test|spec|e2e)\.\w+$|(?:^|/)(?:fake|mock)s?_[^/]*$|_(?:fake|mock)s?\.\w+$|(?:^|/)[^/]*test-timings\.json$`)
 	toolingGlobs = regexp.MustCompile(`^(?:\.agents/skills/.*/scripts/.*|\.agents/skills/.*/tests/.*|\.agents/skills/.*\.md|\.config/nextest.*|.*/\.config/nextest.*)$`)
+	devTooling   = regexp.MustCompile(`^(?:go/remote-builder/|tools/remote-builder/|tools/cc-remote/)|^(?:mise\.toml|tools/versions\.toml)$`)
 	tomlSection  = regexp.MustCompile(`^\s*\[+([^\]]+)\]+\s*$`)
 	jsonSection  = regexp.MustCompile(`^\s*"([^"]+)":\s*\{\s*$`)
 	jsonClose    = regexp.MustCompile(`^\s*\},?\s*$`)
@@ -21,7 +22,44 @@ var (
 	manifests      = []string{"Cargo.toml", "package.json"}
 	lockfiles      = []string{"Cargo.lock", "yarn.lock", "package-lock.json", "pnpm-lock.yaml"}
 	sourceSuffixes = []string{".go", ".rs", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".py", ".swift", ".kt", ".java", ".c", ".cc", ".cpp", ".h", ".hpp", ".m", ".mm", ".sql", ".proto", ".sand", ".sh", ".css", ".scss", ".html"}
+
+	pathClasses = map[string]func(string) bool{
+		ClassOf(TestOnlyGrade): testOrCIFile,
+		"test-only":            testOrCIFile,
+		"ci-only":              testOrCIFile,
+		"ci-tooling":           func(name string) bool { return testOrCIFile(name) || devTooling.MatchString(name) },
+	}
 )
+
+func PathClass(files, grades []string) string {
+	for _, phrase := range grades {
+		if covers, found := pathClasses[ClassOf(phrase)]; found && len(files) > 0 && !slices.ContainsFunc(files, func(name string) bool { return !covers(name) }) {
+			return phrase
+		}
+	}
+	return ""
+}
+
+func PathDecided(phrase string) bool {
+	_, found := pathClasses[ClassOf(phrase)]
+	return found
+}
+
+func Manifest(name string) bool {
+	return slices.Contains(manifests, path.Base(name))
+}
+
+func Lockfile(name string) bool {
+	return slices.Contains(lockfiles, path.Base(name))
+}
+
+func SectionLine(body string) bool {
+	return tomlSection.MatchString(body) || jsonSection.MatchString(body) || jsonClose.MatchString(body)
+}
+
+func testOrCIFile(name string) bool {
+	return isTestOrCI(name) || slices.Contains(lintConfigs, path.Base(name))
+}
 
 func isTestOrCI(name string) bool {
 	if slices.ContainsFunc(ciPrefixes, func(prefix string) bool { return strings.HasPrefix(name, prefix) }) {
@@ -90,7 +128,7 @@ func removesNothing(patch *string) bool {
 	return !slices.ContainsFunc(strings.Split(*patch, "\n"), func(line string) bool { return strings.HasPrefix(line, "-") })
 }
 
-func testOnlyOffender(patches map[string]*string) string {
+func TestOnlyOffender(patches map[string]*string) string {
 	names := make([]string, 0, len(patches))
 	for name := range patches {
 		names = append(names, name)

@@ -11,6 +11,7 @@ import (
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/deletions"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/owner"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
@@ -64,7 +65,7 @@ func Decide(given Input) (Decided, error) {
 func refusals(prs []PR) []int {
 	refused := make([]int, 0, len(prs))
 	for _, entry := range prs {
-		if testOnlyOffender(entry.Patches) != "" {
+		if gates.TestOnlyOffender(entry.Patches) != "" {
 			refused = append(refused, entry.PR)
 		}
 	}
