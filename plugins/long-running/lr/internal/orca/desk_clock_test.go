@@ -118,8 +118,8 @@ func TestWhatEndsAClockEndsItWithNoLine(t *testing.T) {
 		record object
 		ended  string
 	}{
-		"fix live":         {object{"lane": clockLane, "kind": "fix-live", "text": "live"}, "fix-live"},
-		"a root hold":      {object{"kind": kindHold, "to": []string{clockLane}, "text": "wait"}, "held by #"},
+		"fix live":          {object{"lane": clockLane, "kind": "fix-live", "text": "live"}, "fix-live"},
+		"a root hold":       {object{"kind": kindHold, "to": []string{clockLane}, "text": "wait"}, "held by #"},
 		"a closed incident": {object{"kind": "decide", "to": []string{clockLane}, "text": "INCIDENT api CLOSED"}, "incident closed by #"},
 	} {
 		t.Run(name, func(t *testing.T) {

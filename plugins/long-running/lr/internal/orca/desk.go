@@ -61,7 +61,7 @@ var (
 type DeskConfig struct {
 	Source, Store, Drive, DeskInbox, Run, Receipts, BriefsRepo, BriefsLog, GC, AlertFacts, LandingRepo, LandingCheckout string
 	LaunchEnv                                                                                                           map[string]string
-	IncidentMechanismMinutes, IncidentPRMinutes, IncidentReadyMinutes int
+	IncidentMechanismMinutes, IncidentPRMinutes, IncidentReadyMinutes                                                   int
 	StartMinutes, LaunchMinutes, HoldMinutes, CaseLanes                                                                 int
 }
 
