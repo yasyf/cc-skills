@@ -55,7 +55,7 @@ func Act(ctx context.Context, s *store.Store, pool Pool, items []store.Item, sna
 			queued += len(Missing(facts))
 		}
 	}
-	gone, err := settleWorkers(ctx, s, pool, graded, now, generation)
+	gone, err := settleWorkers(ctx, s, pool, now, generation)
 	if err != nil {
 		return nil, err
 	}
@@ -103,12 +103,12 @@ func Act(ctx context.Context, s *store.Store, pool Pool, items []store.Item, sna
 	return dispatched, nil
 }
 
-func settleWorkers(ctx context.Context, s *store.Store, pool Pool, graded map[int64]bool, now time.Time, generation int64) (map[int64]bool, error) {
+func settleWorkers(ctx context.Context, s *store.Store, pool Pool, now time.Time, generation int64) (map[int64]bool, error) {
 	workers, err := s.Workers()
 	if err != nil {
 		return nil, err
 	}
-	workers = slices.DeleteFunc(workers, func(worker store.Worker) bool { return !graded[worker.Item] && !isWhole(worker.Name) })
+	workers = slices.DeleteFunc(workers, func(worker store.Worker) bool { return refOf(worker.Name).lane == "" })
 	names := make([]string, 0, len(workers))
 	for _, worker := range workers {
 		names = append(names, worker.Name)

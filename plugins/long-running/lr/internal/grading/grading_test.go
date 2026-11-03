@@ -386,6 +386,38 @@ func TestTheOrderThePoolRanksIsTheOrderItemsTakeSlots(t *testing.T) {
 	}
 }
 
+func TestAJobWhoseItemClosedStillSettlesAndFreesItsSlot(t *testing.T) {
+	s, pool := memory(t), &fakePool{box: "sprite-1", gone: map[string]bool{}}
+	act(t, s, pool, opened(t, s, head), facts(head), t0)
+	for _, item := range items(t, s) {
+		if err := s.CloseItem(item.ID, t0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, name := range workerNames(t, s) {
+		pool.gone[name] = true
+	}
+
+	act(t, s, pool, nil, facts(head), t0.Add(3*time.Minute))
+
+	if got := workerNames(t, s); len(got) != 0 {
+		t.Fatalf("workers = %v, want both jobs settled once their item closed", got)
+	}
+}
+
+func TestALaneRowIsNoGraderJobAndKeepsItsRow(t *testing.T) {
+	s, pool := memory(t), &fakePool{box: "sprite-1", gone: map[string]bool{"lane-7": true}}
+	if err := s.Heartbeat(store.Worker{Name: "lane-7", Generation: 1, Heartbeat: t0}); err != nil {
+		t.Fatal(err)
+	}
+
+	act(t, s, pool, nil, facts(head), t0)
+
+	if got := workerNames(t, s); !reflect.DeepEqual(got, []string{"lane-7"}) {
+		t.Fatalf("workers = %v, want the lane's row kept", got)
+	}
+}
+
 func TestAWholePassHoldsAWorkerWithNoItemUntilItsJobEnds(t *testing.T) {
 	s, pool := memory(t), &fakePool{box: "sprite-1"}
 	name := "sprite-1/finder-desk/45489-whole-300001"
