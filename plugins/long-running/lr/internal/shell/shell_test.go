@@ -35,6 +35,16 @@ func TestARunCarriesStdinDirAndEnvAndCapturesBothStreams(t *testing.T) {
 	}
 }
 
+func TestARunWithAStdoutWriterStreamsThereInsteadOfCapturing(t *testing.T) {
+	var streamed strings.Builder
+
+	result, err := Exec{}.Run(context.Background(), Command{Argv: []string{"sh", "-c", "echo out; echo said >&2"}, Stdout: &streamed})
+
+	if err != nil || result.Stdout != "" || result.Stderr != "said\n" || streamed.String() != "out\n" {
+		t.Fatalf("result %+v, streamed %q, err %v", result, streamed.String(), err)
+	}
+}
+
 func TestANonZeroExitReturnsItsCodeAndStderr(t *testing.T) {
 	result, err := Exec{}.Run(context.Background(), Command{Argv: []string{"sh", "-c", "echo out; echo refused >&2; exit 3"}})
 	var exit *ExitError

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"regexp"
@@ -30,6 +31,7 @@ type Command struct {
 	Env        []string
 	Timeout    time.Duration
 	Idempotent bool
+	Stdout     io.Writer
 }
 
 type Result struct {
@@ -89,6 +91,9 @@ func once(ctx context.Context, c Command) (Result, error) {
 	cmd.Dir = c.Dir
 	cmd.Stdin = strings.NewReader(c.Stdin)
 	cmd.Stdout = &stdout
+	if c.Stdout != nil {
+		cmd.Stdout = c.Stdout
+	}
 	cmd.Stderr = &stderr
 	cmd.WaitDelay = killGrace
 	if len(c.Env) > 0 {
