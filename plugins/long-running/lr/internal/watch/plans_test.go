@@ -30,7 +30,7 @@ func TestAPlanlessPageSaysByBeforeItsClockSoTheBusTakesAClockStillAhead(t *testi
 	deadline := client.Record{Seq: 41, Lane: "lane-a", Kind: "report", At: said, Text: "the plan"}
 	deadline.Fields.Attrs = map[string]string{"deadline": "6:00 AM"}
 
-	waits := Unplanned([]client.Record{deadline})
+	waits := Unplanned([]client.Record{deadline}, said)
 
 	want(t, len(waits), 1)
 	if !strings.Contains(waits[0].Cause, "a deadline by 6:00 AM") {
@@ -38,7 +38,7 @@ func TestAPlanlessPageSaysByBeforeItsClockSoTheBusTakesAClockStillAhead(t *testi
 	}
 }
 
-func TestADeadlineWithNoPlanPagesTheCommunicatorOnceNamingTheRecordDeadlineAndLane(t *testing.T) {
+func TestADeadlineWithNoPlanPagesItsOwnLaneOnceNamingTheRecordDeadlineAndLane(t *testing.T) {
 	s, r := memory(t), &recorder{}
 	said := at(t, "2026-11-03T10:00:00Z")
 	deadline := client.Record{Seq: 40, Lane: "memoryschema-1", Kind: "report", At: said, Text: "schema migration lands by 3:10 AM"}
@@ -48,14 +48,14 @@ func TestADeadlineWithNoPlanPagesTheCommunicatorOnceNamingTheRecordDeadlineAndLa
 
 	want(t, len(first), 1)
 	want(t, first[0].Subject, "deadline#40")
-	want(t, first[0].To, "owner-relay")
+	want(t, first[0].To, "memoryschema-1")
 	for _, words := range []string{"deadline with no plan", "#40", "memoryschema-1", "3:10 AM"} {
 		if !strings.Contains(first[0].Cause, words) {
 			t.Fatalf("cause %q lacks %q", first[0].Cause, words)
 		}
 	}
 	want(t, len(r.posts), 1)
-	if !slices.Equal(r.posts[0].to, []string{"owner-relay"}) {
+	if !slices.Equal(r.posts[0].to, []string{"memoryschema-1"}) {
 		t.Fatalf("to = %v", r.posts[0].to)
 	}
 	want(t, len(second), 0)
@@ -120,4 +120,21 @@ func TestTheDeskRunnersRelayOfAnOrderPagesNothing(t *testing.T) {
 	relay := client.Record{Seq: 40, Lane: "desk-runner", Kind: "note", At: said, Text: "relay: land it by 5:00 AM"}
 
 	want(t, len(planSweep(t, s, r, said.Add(time.Minute), relay)), 0)
+}
+
+func TestTheSupervisorsOwnEscalationQuotingADeadlinePagesNothing(t *testing.T) {
+	s, r := memory(t), &recorder{}
+	said := at(t, "2026-11-03T10:00:00Z")
+	escalation := client.Record{Seq: 40, Lane: "supervisor", Kind: "lr.escalation", At: said, Text: "escalation deadline#39 deadline with no plan: #39 names a deadline by 10:51 AM"}
+
+	want(t, len(planSweep(t, s, r, said.Add(time.Minute), escalation)), 0)
+}
+
+func TestARestartPagesNothingForADeadlineOlderThanThePlanWindow(t *testing.T) {
+	s, r := memory(t), &recorder{}
+	said := at(t, "2026-11-03T10:00:00Z")
+	stale := client.Record{Seq: 40, Lane: "lane-a", Kind: "state", At: said, Text: "watching; next state by 10:02 AM"}
+
+	want(t, len(planSweep(t, s, r, said.Add(planWindow+time.Minute), stale)), 0)
+	want(t, len(r.posts), 0)
 }
