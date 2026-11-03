@@ -526,7 +526,7 @@ every mode for a head `check-pr` reads as touching a reserved row no answer auth
 that would enqueue posts one PR card per waiting PR and head instead, logs one `MERGE-ASK` naming it, which with a blocker to the PR's lane quotes a `title: stale` line from the PR's newest fidelity grade, and enqueues once a coordinator `go` record names each
 waiting PR and its head by a short sha in a `go` or `merge` clause, `go #<n> at <sha>`, wherever in the text that clause
 starts, or carries one: a fidelity desk's `fidelity: ok <head>` grade naming the earlier head whose first sentence says patch-identical, tap carries, no new behavior, test-only, or pure replay, on a PR whose go names the earlier head, is a go at the new head, and a carried grade for added behavior carries nothing; a clause ending `with #<a> #<b>` binds its PRs and those into one batch that enqueues whole or not at all, one `BATCH-WAITS` line to coordinator naming the PRs a partial batch keeps out; `show` names the `merge:<pr>:<short sha>` key each ready head still waits on. The card is a `board-write` record, `op=ask`, naming the session of board-watch's newest `board-rows` snapshot, which that board's watch applies with `cc-present ask`,
-so it lands on the coordinator's board and in the coordinator's Slack status thread like every other card: the question, the PR's title, author, size, and review state, the
+so it lands on the coordinator's board and at the root of the owner's Slack DM like every other card: the question, the PR's title, author, size, and review state, the
 PR linked with its live checks, waiting on `merge:<pr>:<short sha>` with `Merge (Recommended)`, `Hold`, `Other`, and `Explain more` (93037c3); a card already
 open for the head is edited in place, never re-posted, and a post that fails
 logs `MERGE-CARD-FAILED` once per head and cause and tries again next pass. With `landing.merge_ask_surface` set to `board`
@@ -5664,7 +5664,7 @@ class Landing:
             done = Done(127, "", f"cc-slack did not start: {error}")
         if done.code:
             why = (done.err or done.out).strip()
-            self.runner.escalate(f"card:{hashlib.sha1(why.encode()).hexdigest()[:8]}", "CARD-FAILED", "landing", f"the drive coordinator card was not redrawn: {why} | post one status card with slack_dm_status, and the next pass redraws its coordinator")
+            self.runner.escalate(f"card:{hashlib.sha1(why.encode()).hexdigest()[:8]}", "CARD-FAILED", "landing", f"the drive coordinator card was not redrawn: {why} | the next pass redraws it")
             return
         self.card_drawn = card
 
@@ -7748,7 +7748,7 @@ class Landing:
         return {pr: asks[pr] for pr in self.waiting_on_owner(heads, list(asks))}
 
     def merge_card(self, pr: str, head: str, detail: str) -> str | None:
-        """Ask the merge question for `pr` at `head` as a `board-write` record whose `op=ask` the coordinator board's watch puts on the board and in the coordinator's Slack status thread like every other card, waiting on `merge:<pr>:<short sha>` with Merge recommended and Hold; asking again under the same id edits the card in place. Where the ask stands, `cci #<seq>`, or None when it did not post, which logs one `MERGE-CARD-FAILED` per error and tries again next pass."""
+        """Ask the merge question for `pr` at `head` as a `board-write` record whose `op=ask` the coordinator board's watch puts on the board and at the root of the owner's Slack DM like every other card, waiting on `merge:<pr>:<short sha>` with Merge recommended and Hold; asking again under the same id edits the card in place. Where the ask stands, `cci #<seq>`, or None when it did not post, which logs one `MERGE-CARD-FAILED` per error and tries again next pass."""
         waits = f"merge:{pr}:{head[:7]}"
         posted = self.book.fact_path(LANDING, [MERGE_CARDS, waits], None)
         if posted and posted["question"] == detail:
