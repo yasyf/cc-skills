@@ -19,6 +19,7 @@ const (
 	seenWindow  = time.Hour
 	buildsEvery = time.Minute
 	buildsRead  = 20
+	dryRunMode  = "dry-run"
 )
 
 var (
@@ -57,6 +58,7 @@ type releaseBuild struct {
 		SoftFailed bool   `json:"soft_failed"`
 	} `json:"jobs"`
 	pipeline string
+	mode     string
 	resumes  string
 }
 
@@ -126,12 +128,13 @@ func (r *ReleaseBuilds) builds(ctx context.Context) ([]releaseBuild, error) {
 			build.pipeline = slug
 			if build.Env.Start != "" {
 				var start struct {
+					Mode    string `json:"mode"`
 					Replans string `json:"replans"`
 				}
 				if err := json.Unmarshal([]byte(build.Env.Start), &start); err != nil {
 					return nil, fmt.Errorf("build %d RELEASE_START: %w", build.Number, err)
 				}
-				build.resumes = start.Replans
+				build.mode, build.resumes = start.Mode, start.Replans
 			}
 			builds = append(builds, build)
 		}
@@ -143,7 +146,7 @@ func (r *ReleaseBuilds) tend(ctx context.Context, build releaseBuild, builds []r
 	link := buildLink.FindString(build.URL)
 	lane, named := r.named[link]
 	age := now.Sub(build.StartedAt)
-	if !build.StartedAt.IsZero() && !named && !build.automatic() && !slices.Contains(buildClosed, build.State) && age >= seenGrace && age < seenWindow {
+	if !build.StartedAt.IsZero() && !named && !build.automatic() && build.mode != dryRunMode && !slices.Contains(buildClosed, build.State) && age >= seenGrace && age < seenWindow {
 		text := fmt.Sprintf("RELEASE-SEEN %d %s %s: no record names %s %d minutes after it started; claim it or name it in a release record", build.Number, build.pipeline, build.State, build.URL, int(age.Minutes()))
 		if err := r.post(ctx, "release-seen:"+link, []string{Root}, text); err != nil {
 			return err
