@@ -2756,6 +2756,24 @@ def test_amend_words_takes_only_a_span_of_the_named_answer(home: Path, package: 
     assert shell.rows["rule/aaaaaaa"] == before
 
 
+def test_amend_words_grows_a_row_to_the_prompt_capture_it_was_cut_from(home: Path, package: Path, state: Path, capsys, judged: Judge) -> None:
+    whole = "> the card said this\n\nkeep the slow job out of CI, and tell me what broke"
+    captured(state, {"digest": "c" * 16, "at": "2026-10-22T05:00:10Z", "source": "prompt", "text": whole})
+    shell = RegisterShell(seeded(package))
+    shell.rows["rule/aaaaaaa"]["words"] = "keep the slow job out of CI"
+    answers = shell.rows["rule/aaaaaaa"].get("answer")
+
+    assert ran(capsys, shell, "amend", "rule/aaaaaaa", "--capture", "c" * 16, "--words", "the owner meant the slow job")[0] == 1
+    assert ran(capsys, shell, "amend", "rule/aaaaaaa", "--capture", "d" * 16, "--words", whole)[0] == 1
+    assert ran(capsys, shell, "amend", "rule/aaaaaaa", "--capture", "c" * 16, "--words", whole)[0] == 0
+
+    row = shell.rows["rule/aaaaaaa"]
+    assert row["words"] == whole
+    assert row.get("answer") == answers
+    [edit] = json.loads(row["amends"])
+    assert (edit["capture"], edit["words_was"]) == ("c" * 16, ["keep the slow job out of CI"])
+
+
 def answer_onto(tmp_path: Path, key: str) -> Path:
     path = tmp_path / "onto.json"
     path.write_text(json.dumps([{"extends": key, "words": APPROVED}]))
