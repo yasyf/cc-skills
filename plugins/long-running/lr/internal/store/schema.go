@@ -103,6 +103,37 @@ CREATE TABLE IF NOT EXISTS due (
   key TEXT PRIMARY KEY, repo TEXT NOT NULL, number INTEGER NOT NULL, kind TEXT NOT NULL, at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS due_at ON due (at);
+CREATE TABLE IF NOT EXISTS pr_facts (
+  repo TEXT NOT NULL, number INTEGER NOT NULL, branch TEXT NOT NULL, base TEXT NOT NULL, head TEXT NOT NULL,
+  open INTEGER NOT NULL, merged INTEGER NOT NULL, landed INTEGER NOT NULL DEFAULT 0, at TEXT NOT NULL,
+  PRIMARY KEY (repo, number)
+);
+CREATE INDEX IF NOT EXISTS pr_facts_branch ON pr_facts (repo, branch);
+CREATE INDEX IF NOT EXISTS pr_facts_base ON pr_facts (repo, base);
+CREATE INDEX IF NOT EXISTS pr_facts_head ON pr_facts (repo, head);
+CREATE TABLE IF NOT EXISTS checks (
+  repo TEXT NOT NULL, sha TEXT NOT NULL, name TEXT NOT NULL, conclusion TEXT NOT NULL, at TEXT NOT NULL, id INTEGER NOT NULL,
+  PRIMARY KEY (repo, sha, name)
+);
+CREATE TABLE IF NOT EXISTS reviews (
+  repo TEXT NOT NULL, number INTEGER NOT NULL, reviewer TEXT NOT NULL, state TEXT NOT NULL, head TEXT NOT NULL, at TEXT NOT NULL,
+  PRIMARY KEY (repo, number, reviewer)
+);
+CREATE TABLE IF NOT EXISTS taps (
+  repo TEXT NOT NULL, change TEXT NOT NULL, verdict TEXT NOT NULL, record TEXT NOT NULL, at TEXT NOT NULL,
+  PRIMARY KEY (repo, change)
+);
+CREATE TABLE IF NOT EXISTS holds (
+  key TEXT PRIMARY KEY, repo TEXT NOT NULL, number INTEGER NOT NULL, lifter TEXT NOT NULL, reason TEXT NOT NULL,
+  until TEXT NOT NULL, opened TEXT NOT NULL, lifted TEXT
+);
+CREATE INDEX IF NOT EXISTS holds_open ON holds (repo, number) WHERE lifted IS NULL;
+CREATE INDEX IF NOT EXISTS holds_until ON holds (repo, until) WHERE lifted IS NULL;
+CREATE TABLE IF NOT EXISTS queue (
+  repo TEXT NOT NULL, number INTEGER NOT NULL, head TEXT NOT NULL, first INTEGER NOT NULL, attempt INTEGER NOT NULL,
+  outcome TEXT NOT NULL, reason TEXT NOT NULL,
+  PRIMARY KEY (repo, number)
+);
 `
 
 var addedColumns = []struct{ table, column, kind string }{

@@ -1,0 +1,306 @@
+package prdesk
+
+import (
+	"fmt"
+	"slices"
+	"time"
+
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
+)
+
+const (
+	QueueIn  = "queued"
+	QueueOut = "evicted"
+
+	holdDue     = "hold"
+	deadlineDue = "deadline"
+)
+
+var (
+	graders = []string{"finder", "fidelity"}
+	passing = []string{"success", "neutral", "skipped"}
+)
+
+type Repo struct {
+	Name     string
+	Landing  string
+	Required []string
+	TapFree  bool
+}
+
+type Desk struct {
+	Store *store.Store
+	Repos map[string]Repo
+}
+
+func (d Desk) Apply(e Event) error {
+	m := e.meta()
+	repo, found := d.Repos[m.Repo]
+	if !found {
+		return fmt.Errorf("%s %s: %s is not one of this desk's repos", m.Source, m.Key, m.Repo)
+	}
+	return d.Store.Update(func(tx *store.Tx) error {
+		touched, err := e.record(tx)
+		if err != nil {
+			return fmt.Errorf("%s %s: %w", m.Source, m.Key, err)
+		}
+		placed := map[string]bool{}
+		for _, number := range touched {
+			if err := place(tx, repo, number, m.At, placed); err != nil {
+				return fmt.Errorf("%s %s: #%d: %w", m.Source, m.Key, number, err)
+			}
+		}
+		return tx.Advance(m.Source, m.Seq)
+	})
+}
+
+func place(tx *store.Tx, repo Repo, number int, at time.Time, placed map[string]bool) error {
+	f, found, err := tx.PRFacts(repo.Name, number)
+	if err != nil || !found {
+		return err
+	}
+	if !f.Open {
+		if err := placeStack(tx, repo, f, nil, at); err != nil {
+			return err
+		}
+		above, err := tx.Above(repo.Name, f.Branch)
+		if err != nil {
+			return err
+		}
+		for _, child := range above {
+			if err := place(tx, repo, child.Number, at, placed); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	bottom, beneath := f, (*machine.Place)(nil)
+	for bottom.Base != repo.Landing {
+		parent, found, err := tx.OnBranch(repo.Name, bottom.Base)
+		if err != nil {
+			return err
+		}
+		if !found {
+			break
+		}
+		if !parent.Open {
+			if beneath, err = stored(tx, parent); err != nil {
+				return err
+			}
+			break
+		}
+		bottom = parent
+	}
+	if placed[bottom.Branch] {
+		return nil
+	}
+	placed[bottom.Branch] = true
+	return placeStack(tx, repo, bottom, beneath, at)
+}
+
+func placeStack(tx *store.Tx, repo Repo, bottom store.PRFacts, beneath *machine.Place, at time.Time) error {
+	if err := tx.Raise(repo.Name, bottom.Branch); err != nil {
+		return err
+	}
+	var climb func(f store.PRFacts, beneath *machine.Place) error
+	climb = func(f store.PRFacts, beneath *machine.Place) error {
+		here, err := placeOne(tx, repo, f, beneath, bottom.Branch, at)
+		if err != nil || !f.Open {
+			return err
+		}
+		above, err := tx.Above(repo.Name, f.Branch)
+		if err != nil {
+			return err
+		}
+		for _, child := range above {
+			if err := climb(child, &here); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	return climb(bottom, beneath)
+}
+
+func stored(tx *store.Tx, f store.PRFacts) (*machine.Place, error) {
+	row, found, err := tx.State(f.Repo, f.Number)
+	if err != nil || !found {
+		return nil, err
+	}
+	return &machine.Place{State: row.State, Mover: row.Mover, Reason: row.Reason}, nil
+}
+
+func placeOne(tx *store.Tx, repo Repo, f store.PRFacts, beneath *machine.Place, stack string, at time.Time) (machine.Place, error) {
+	seen, err := read(tx, repo, f)
+	if err != nil {
+		return machine.Place{}, err
+	}
+	here := machine.Decide(seen.pr, beneath)
+	prev, had, err := tx.State(repo.Name, f.Number)
+	if err != nil {
+		return here, err
+	}
+	change := f.Head
+	waiting := here.State == machine.StateAwaitingTap || here.State == machine.StateHeld && here.Mover == machine.MoverOwner
+	if waiting {
+		if err := tx.OpenAsk(store.Ask{Repo: repo.Name, Number: f.Number, Change: change, Head: f.Head, Opened: at}); err != nil {
+			return here, err
+		}
+	}
+	deadline := prev.Deadline
+	if !had || prev.State != here.State || prev.Mover != here.Mover || prev.Head != f.Head {
+		deadline = time.Time{}
+		if here.Deadline > 0 {
+			deadline = at.Add(here.Deadline)
+		}
+	}
+	if err := tx.PutState(store.PRState{
+		Repo: repo.Name, Number: f.Number, Branch: f.Branch, Base: f.Base, Head: f.Head, Change: change, Stack: stack,
+		State: here.State, Reason: here.Reason, Mover: here.Mover, Deadline: deadline,
+	}); err != nil {
+		return here, err
+	}
+	if had && (!waiting || prev.Change != change) {
+		if err := tx.CloseAsk(repo.Name, f.Number, prev.Change, at); err != nil {
+			return here, err
+		}
+	}
+	owe := func(action string) error {
+		return tx.Owe(store.Owed{
+			Key:  fmt.Sprintf("%s:%s:%s#%d:%s", action, here.State, repo.Name, f.Number, f.Head),
+			Repo: repo.Name, Stack: stack, Action: action, Number: f.Number, Head: f.Head, Created: at,
+		})
+	}
+	var actions []string
+	switch {
+	case here.State == machine.StateGrading:
+		for _, grader := range seen.ungraded {
+			actions = append(actions, "grade-"+grader)
+		}
+	case here.State == machine.StateReady:
+		actions = append(actions, "enqueue")
+	case here.State == machine.StateEvicted && seen.pr.Eviction == machine.EvictionConflict:
+		actions = append(actions, "restack")
+	case here.State == machine.StateEvicted:
+		actions = append(actions, "reenter")
+	case here.State == machine.StateAppeal && here.Mover == machine.MoverAppeals:
+		actions = append(actions, "appeal")
+	case here.State == machine.StateNeedsFix || here.State == machine.StateRejected || here.State == machine.StateAppeal:
+		actions = append(actions, "tell")
+	}
+	if seen.inQueue && !slices.Contains([]machine.State{machine.StateQueued, machine.StateLanded, machine.StateReleased, machine.StateLive, machine.StateClosed}, here.State) {
+		actions = append(actions, "dequeue")
+	}
+	key := fmt.Sprintf("%s:%s#%d", deadlineDue, repo.Name, f.Number)
+	switch {
+	case deadline.IsZero():
+		err = tx.ClearDue(key)
+	case at.Before(deadline):
+		err = tx.SetDue(store.Due{Key: key, Repo: repo.Name, Number: f.Number, Kind: deadlineDue, At: deadline})
+	default:
+		actions = append(actions, "overdue")
+		err = tx.ClearDue(key)
+	}
+	if err != nil {
+		return here, err
+	}
+	for _, action := range actions {
+		if err := owe(action); err != nil {
+			return here, err
+		}
+	}
+	return here, nil
+}
+
+type view struct {
+	pr       machine.PR
+	ungraded []string
+	inQueue  bool
+}
+
+func read(tx *store.Tx, repo Repo, f store.PRFacts) (view, error) {
+	checks, err := tx.Checks(repo.Name, f.Head)
+	if err != nil {
+		return view{}, err
+	}
+	grades, err := tx.Grades(repo.Name, f.Number, f.Head)
+	if err != nil {
+		return view{}, err
+	}
+	reviews, err := tx.Reviews(repo.Name, f.Number)
+	if err != nil {
+		return view{}, err
+	}
+	tap, err := tx.Tap(repo.Name, f.Head)
+	if err != nil {
+		return view{}, err
+	}
+	holds, err := tx.Holds(repo.Name, f.Number)
+	if err != nil {
+		return view{}, err
+	}
+	entry, queued, err := tx.Entry(repo.Name, f.Number)
+	if err != nil {
+		return view{}, err
+	}
+	landing := f.Merged && f.Base == repo.Landing
+	atHead := queued && entry.Head == f.Head
+	out := view{
+		pr: machine.PR{
+			Closed:    !f.Open && !landing,
+			Merged:    landing && !f.Landed,
+			Landed:    f.Landed,
+			Queued:    atHead && entry.Outcome == QueueIn,
+			Reentered: atHead && entry.Attempt > entry.First,
+			Checks:    machine.CISuccess,
+			Tap:       machine.Tap(tap),
+			TapFree:   repo.TapFree,
+		},
+		inQueue: queued && entry.Outcome == QueueIn,
+	}
+	if atHead && entry.Outcome == QueueOut {
+		out.pr.Eviction = machine.Eviction(entry.Reason)
+	}
+	for _, name := range repo.Required {
+		conclusion, reported := checks[name]
+		switch {
+		case !reported:
+			if out.pr.Checks == machine.CISuccess {
+				out.pr.Checks = machine.CIPending
+			}
+		case !slices.Contains(passing, conclusion):
+			out.pr.Checks = machine.CIFailure
+			out.pr.Failing = append(out.pr.Failing, name)
+		}
+	}
+	for _, r := range reviews {
+		switch {
+		case r.State == "changes_requested":
+			out.pr.Review = machine.ReviewChanges
+		case r.State == "approved" && r.Head == f.Head && out.pr.Review == "":
+			out.pr.Review = machine.ReviewApproved
+		}
+	}
+	for _, grader := range graders {
+		if _, graded := grades[grader]; !graded {
+			out.ungraded = append(out.ungraded, grader)
+		}
+	}
+	out.pr.Graded = len(out.ungraded) == 0
+	open := grades["finder"].Verdict == string(machine.FinderAsk) || grades["fidelity"].Verdict == string(machine.FidelityFail)
+	switch grades["appeal"].Verdict {
+	case "uphold":
+		out.pr.Finding = machine.FindingUpheld
+	case "conflict":
+		out.pr.Finding = machine.FindingConflict
+	case "":
+		if open {
+			out.pr.Finding = machine.FindingOpen
+		}
+	}
+	if len(holds) > 0 {
+		out.pr.Hold = machine.Hold{Lifter: machine.Mover(holds[0].Lifter), Reason: holds[0].Reason}
+	}
+	return out, nil
+}
