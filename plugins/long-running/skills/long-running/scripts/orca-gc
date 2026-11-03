@@ -413,7 +413,7 @@ class CcRemote:
         hosted: dict[tuple[str, str], Sprite] = {}
         for path in sorted((self.state / "orca").glob("*.json")):
             task = json.loads(path.read_text())
-            if task.get("schemaVersion") != CC_REMOTE_TASK_SCHEMA or task.get("provider") != "sprites" or not task.get("forward"):
+            if task.get("schemaVersion") != CC_REMOTE_TASK_SCHEMA or task.get("provider") != "sprites" or not all(task.get(key) for key in ("forward", "worktreeId", "terminal")):
                 continue
             if not (self.state / "workspaces" / f"{task['workspace']}.json").is_file():
                 continue
@@ -626,6 +626,7 @@ def gc(run: str, dispatches: set[str], dry_run: bool, orca: Orca, git: Git, cc_r
     sprites = cc_remote.sprites() if finished else {}
     hosted = {sprite: worker for worker in finished if (sprite := sprites.get((worker.workspace, worker.terminal)))}
     finished = [worker for worker in finished if worker not in hosted.values()]
+    sprite_checkouts = {workspace for workspace, _ in sprites}
 
     def report(done: Action) -> Action:
         print(("would " if dry_run and done.verb != "keep" else "") + done.line(), file=out, flush=True)
@@ -645,7 +646,7 @@ def gc(run: str, dispatches: set[str], dry_run: bool, orca: Orca, git: Git, cc_r
         verdicts = [action for action in pool.map(lambda worker: terminal_action(worker, live_terminals, orca, ended), finished) if action]
         closing = {action.target: action for action in verdicts if action.verb in ("close", "end")}
         terminals = list(pool.map(act, [action for action in verdicts if action.target not in closing or action.verb == "end"]))
-        trees = {(worker.environment, worker.worktree) for worker in finished if worker.worktree} - live_worktrees
+        trees = {(worker.environment, worker.worktree) for worker in finished if worker.worktree and worker.workspace not in sprite_checkouts} - live_worktrees
         candidates = sorted(path for environment, path in trees if environment is None)
         paired = sorted((environment, path) for environment, path in trees if environment is not None)
         read = dict(zip(candidates, pool.map(git.checkout, candidates)))
