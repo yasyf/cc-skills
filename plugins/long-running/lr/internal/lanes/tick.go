@@ -153,7 +153,7 @@ func announce(d Deps, said folded, now time.Time) {
 	}
 	verbs := slices.Sorted(slices.Values(Verbs))
 	for _, seq := range said.untyped {
-		do(d.Post(Post{Kind: "defect", To: []string{Root}, Text: fmt.Sprintf("%s the coordinator's decide #%d reaches the supervisor with no registry request, so the registry is unchanged and its lanes are still woken while their tasks read in progress; post `%s` for each lane it names.", pacific(now), seq, Request{Verb: "<" + strings.Join(verbs, "|") + ">", Lane: "<lane>"}.Command()), Re: seq}))
+		do(d.Post(Post{Kind: "defect", To: []string{Root}, Text: fmt.Sprintf("%s the coordinator's decide #%d carries a verb but is no registry request, so the registry is unchanged; post `%s` instead.", pacific(now), seq, Request{Verb: "<" + strings.Join(verbs, "|") + ">", Lane: "<lane>"}.Command()), Re: seq}))
 	}
 	for _, one := range said.unread {
 		do(d.Post(Post{Kind: "defect", To: []string{Root, one.name}, LaneRef: one.name, Text: fmt.Sprintf("%s %s, so the supervisor refused it and holds %s with its PRs, never relaunched or retired, until %s posts again; %s, keep working. Coordinator: read %s with `cci tail --lane %s --since <its wake seq> --oldest` and the registry's heard time, then post it again citing last-read=<seq>.", pacific(now), one.why, one.name, one.name, one.name, one.name, one.name)}))

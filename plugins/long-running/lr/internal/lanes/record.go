@@ -3,7 +3,6 @@ package lanes
 import (
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -151,20 +150,6 @@ func spawnedBy(r Record) (Spawn, bool) {
 
 func isRequest(r Record) bool {
 	return r.Kind == kindRequest && r.Addressed()[Self] && slices.Contains(Verbs, r.Attr("verb")) && r.Attr("lane") != ""
-}
-
-var standDownWord = regexp.MustCompile(`\bstand-down\b`)
-
-func namesVerb(text string) bool {
-	if verbWord.MatchString(text) {
-		return true
-	}
-	for _, at := range standDownWord.FindAllStringIndex(text, -1) {
-		if !followedByWord.MatchString(text[at[1]:]) {
-			return true
-		}
-	}
-	return false
 }
 
 func citedIn(r Record) string {

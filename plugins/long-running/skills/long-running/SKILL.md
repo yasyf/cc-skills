@@ -409,7 +409,10 @@ unchanged with its gaps shown, and the dashboard shows the same rows.
 ## Records and the task list
 
 Lane messages, decisions, heads, contracts, blockers and asks live on cci. Lane
-liveness, PRs and standing duties live in the supervisor's registry. Owner asks,
+liveness, PRs and standing duties live in the supervisor's registry, which the
+coordinator changes only through `lr request`: `done <lane>` retires a lane,
+`owner <lane> --pr <n>` moves a PR, and `stand-down <old> --successor <new>` replaces a
+lane. A decide's prose changes no row. Owner asks,
 PR rows, holds and landings live in the ledger. Findings, notes, docs and logs live
 in cc-notes, standing owner rules in the register doc, production operations in
 the `production-operations` log, progress and handoffs in generated progress docs,
