@@ -1,5 +1,7 @@
 # A quiet lane cannot happen
 
+Before `lr supervisor install`, set `alert_channels` in `lr.json` to the comma-separated Slack channel ids that carry the drive's alerts, the releases channel among them; with none set, no alert opens its own lanes.
+
 The owner ordered this on Nov 2 2026: find why lanes go quiet and make that state impossible with structural fixes, rather than reporting quiet lanes and bumping them. On Oct 31 the owner also ruled that liveness, restart, successor and stall needs go into one supervisor, and that the hacks it replaces are deleted.
 
 This section maps to rev 7's supervisor section (Forge-AI/design-docs#265).

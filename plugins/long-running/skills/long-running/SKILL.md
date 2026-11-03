@@ -519,10 +519,6 @@ lr launch signal <state dir>/signal/brief.md
 lr launch chores <state dir>/chores/brief.md
 ```
 
-Before `lr supervisor install`, set `alert_channels` in `lr.json` to the comma-separated
-Slack channel ids that carry the drive's alerts, the releases channel among them; with
-none set, no alert opens its own lanes.
-
 | Session | Lane | Model and effort | Brief |
 |---|---|---|---|
 | `coordinator` | `root` | `fable xhigh` | [coordinator-brief.md](reference/coordinator-brief.md) |
