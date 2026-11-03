@@ -132,7 +132,7 @@ First: grade the seeded register ledger in text mode. <Sweep desk only: then
   record each grade with `ccn note add`.>
 
 Loop, forever, in the foreground:
-  `desk-wait.sh 540 mailbox:<desk>=<mailbox cursor file> -- cci watch --drive <drive> --cursor <desk>-watch --reader <desk> --kind opened,head,contract,report`
+  `lr wait 540 mailbox:<desk>=<mailbox cursor file> -- cci watch --drive <drive> --cursor <desk>-watch --reader <desk> --kind opened,head,contract,report`
   in one foreground call with `timeout: 570000`. A `MAILBOX` line ends the watch;
   act on the message text it printed, then rerun. Run it as the Bash call itself
   and never filter or discard its output.

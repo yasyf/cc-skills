@@ -13,7 +13,7 @@ TIMEOUT_SHELL = r"\btimeout\s+(?:-\S+\s+)*\d+[smhd]?\s+(?:\S*/)?(?:zsh|bash|sh|f
 BACKGROUND = r"\b(?:nohup|setsid|disown)\b|(?<![&|>])&(?!&)(?=\s*(?:\Z|;|\n|\)))"
 LONG_SLEEP = r"\bsleep\s+(?:[6-9]\d|\d{3,})(?!\d)"
 WATCHER = r"\bdesk-wait\.sh\b|\bcci\s+watch\b"
-GUARDED = r"\s*lr\s+wait\b.*\s--\s"
+GUARDED = r"\s*(?:\S*/)?lr\s+wait\b.*\s--\s"
 SHELL_WAIT = rf"(?s)\A(?!{GUARDED}).*?(?:{LOOP}|{TIMEOUT_SHELL}|{BACKGROUND}|{LONG_SLEEP}|{WATCHER})"
 
 
@@ -43,6 +43,7 @@ warn_command(
         Input(command="cci watch --drive d --cursor x --to x", env={"CLAUDE_LONG_RUNNING_LANE": "orca-lane-2"}, state=ACTIVE): Warn(),
         Input(command="lr wait 540 mailbox:landing-desk-3=/c -- bk build watch 12", agent_id=LANE, state=ACTIVE): Allow(),
         Input(command="lr wait 540 mailbox:drive-watchdog=/c -- cci watch --drive d --cursor drive-watchdog --kind state,ask", agent_id=LANE, state=ACTIVE): Allow(),
+        Input(command="/h/.claude/long-running/current/bin/lr wait 540 mailbox:drive-watchdog=/c -- cci watch --drive d --cursor drive-watchdog", agent_id=LANE, state=ACTIVE): Allow(),
         Input(command="git status && git log --oneline -3 2>&1", agent_id=LANE, state=ACTIVE): Allow(),
         Input(command="sleep 5; cci tail --drive d --to x", agent_id=LANE, state=ACTIVE): Allow(),
         Input(command="cci post --kind note --text 'R & D; do it for every lane'", agent_id=LANE, state=ACTIVE): Allow(),

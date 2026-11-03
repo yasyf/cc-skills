@@ -119,8 +119,7 @@ type child struct {
 }
 
 // Run blocks until a source wakes it, its guarded command exits, or the
-// deadline passes, printing what desk-wait.sh printed, and returns the exit
-// code desk-wait.sh returned.
+// deadline passes, printing what woke it, and returns the exit code.
 func Run(ctx context.Context, o Options) int {
 	w := &waiter{Options: o, wake: make(chan struct{}, 1)}
 	if w.Now == nil {

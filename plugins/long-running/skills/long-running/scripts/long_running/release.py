@@ -16,6 +16,7 @@ from pathlib import Path
 VERSION = re.compile(r"\d+(?:\.\d+)*")
 VERSION_PART = re.compile(r"\d+")
 SHIMS = {"cci": "cc-inbox", "ccx": "cc-context"}
+LR_ON_PATH = '#!/bin/sh\nexec "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/long-running/current/bin/lr" "$@"\n'
 
 
 def config_dir() -> Path:
@@ -43,10 +44,23 @@ def current(own: Path) -> Path:
     return (held() or own) if VERSION.fullmatch(own.name) else own
 
 
+def publish_lr() -> None:
+    """Put `lr` in ~/.local/bin once: a session's PATH holds the plugin version it started on, and a version from before `lr` has no such command."""
+    target = Path.home() / ".local" / "bin" / "lr"
+    if target.exists():
+        return
+    staged = target.with_name(f"lr.{uuid.uuid4().hex}")
+    staged.parent.mkdir(parents=True, exist_ok=True)
+    staged.write_text(LR_ON_PATH)
+    staged.chmod(0o755)
+    os.replace(staged, target)
+
+
 def promote(own: Path) -> None:
     """Name `own` in the link when it is a version directory above the one the link names, or the link names none."""
     if not VERSION.fullmatch(own.name):
         return
+    publish_lr()
     named = held()
     if named is not None and version_key(named.name) >= version_key(own.name):
         return

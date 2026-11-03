@@ -195,6 +195,9 @@ def digest(paths: list[Path], state: Path | None, cap: int, budget: int) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
+    if argv[:1] == ["wait"]:
+        lr = Path(__file__).resolve().parents[3] / "bin" / "lr"
+        os.execv(lr, [str(lr), *argv])
     parser = argparse.ArgumentParser(prog="inboxes.py", description=__doc__)
     verbs = parser.add_subparsers(dest="verb", required=True)
     summary = verbs.add_parser("digest")
