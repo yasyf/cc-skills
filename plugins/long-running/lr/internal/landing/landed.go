@@ -17,8 +17,6 @@ const (
 	rootLane   = "root"
 )
 
-// Announce posts one landed record per newly merged PR no record since its last
-// open read already names, whichever lane or runner merged it.
 func Announce(ctx context.Context, drive, trunk string, landings []pass.Landing, route pass.Route) error {
 	if len(landings) == 0 {
 		return nil
