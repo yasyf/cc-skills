@@ -88,7 +88,7 @@ func (e Env) incidentBrief(lane, template string, fired Fired) (string, error) {
 	rendered := strings.NewReplacer(
 		"{{", "{", "}}", "}", "{lane}", lane, "{incident}", fired.Slug, "{slug}", fired.Slug, "{link}", fired.Link, "{what}", fired.What,
 		"{onset}", pacific(fired.At), "{reported}", reported.Format("15:04"), "{due}", reported.Add(incidentBar).Format("15:04"),
-		"{repo}", e.Config.Checkout, "{log}", "incident-"+fired.Slug, "{facts}", "drive "+e.Config.Drive,
+		"{repo}", e.Config.Checkout, "{drive}", e.Config.Drive, "{facts}", "drive "+e.Config.Drive,
 	).Replace(string(text))
 	dir := filepath.Join(e.State, "lanes")
 	if err := os.MkdirAll(dir, 0o750); err != nil {

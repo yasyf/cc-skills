@@ -6,11 +6,10 @@ Alert: {what}
 Link: {link}
 
 You are the fix lane on the incident route: gpt-6.1-sol, fast tier, xhigh, launched by
-the relay when the incident line arrived; this brief is the `{lane}.full.md`
-attachment on the drive's briefs log `{log}`. The coordinator ratifies the launch, starts an
-evidence lane that attaches `{slug}-evidence.md` to that log and an incident-doc lane,
-and starts the comms lane. Read the evidence as it grows with
-`ccn -R {repo} attachment path {log} {slug}-evidence.md`; never wait for it to start.
+the relay when the incident line arrived. The coordinator ratifies the launch, starts an
+evidence lane `{slug}-evidence` and an incident-doc lane, and starts the comms lane. Read
+the evidence as it grows with `cci tail --drive {drive} --lane {slug}-evidence`; never wait
+for it to start.
 
 Drive facts:
 {facts}
