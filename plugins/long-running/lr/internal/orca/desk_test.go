@@ -1897,6 +1897,49 @@ func TestASpriteWhoseHooksAllLoadPostsNoBlocker(t *testing.T) {
 	}
 }
 
+func TestASpriteThatInstalledOnlineReachesTheMetaDeskOnceForEachSetOfDifferences(t *testing.T) {
+	w := newDeskWorld(t)
+	spriteConfig(w)
+	w.register(store.Lane{Name: "meta-desk-2", Role: lanes.RoleMeta})
+	offline := "cc-remote: the resident packages did not install offline, so they install online once, and the packages on this machine differ from the base its payload captured them against (-payload +machine); rebuild the payload on this base:\n"
+	baseDrifts := func() []client.Draft {
+		var found []client.Draft
+		for _, post := range w.posts {
+			if strings.HasPrefix(post.ID, "escalation:base-drift:") {
+				found = append(found, post)
+			}
+		}
+		return found
+	}
+	launch := func(lane, said string) {
+		w.write(filepath.Join(spriteAttempt(w.brief(lane, "Register slice: lane="+lane+" step=all\nScale: no N\n")), "prepare.err"), said)
+		w.settleOnSprite(lane, `{"workspace":"pool-1"}`)
+		w.step(w.desk.flush)
+	}
+	launch("lane-a", "time=now level=INFO msg=timing\n")
+	if found := baseDrifts(); len(found) != 0 {
+		t.Fatal("a launch that installed offline raised", found)
+	}
+	skew := offline + "+tmux=3.6a-2ubuntu0.1\n-tmux=3.6a-2ubuntu0.2\ntime=now level=INFO msg=timing\n"
+	launch("lane-b", skew)
+	found := baseDrifts()
+	if len(found) != 1 || found[0].Kind != kindBlocker || !slices.Equal(found[0].To, []string{"meta-desk-2"}) {
+		t.Fatal(found)
+	}
+	wantContains(t, found[0].Text, "+tmux=3.6a-2ubuntu0.1 -tmux=3.6a-2ubuntu0.2")
+	if strings.Contains(found[0].Text, "msg=timing") {
+		t.Fatal("the differences ran on into the log lines after them:", found[0].Text)
+	}
+	launch("lane-c", skew)
+	if again := baseDrifts(); len(again) != 1 {
+		t.Fatal("the same differences posted twice", again)
+	}
+	launch("lane-d", offline+"+zlib1g=1\n-zlib1g=2\n")
+	if more := baseDrifts(); len(more) != 2 {
+		t.Fatal("other differences were not posted", more)
+	}
+}
+
 func TestARefusedDriftPostLeavesTheSpriteLaunchSettled(t *testing.T) {
 	w := newDeskWorld(t)
 	spriteConfig(w)

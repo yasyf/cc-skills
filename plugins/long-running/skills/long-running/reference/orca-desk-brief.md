@@ -371,6 +371,7 @@ Landing restack routes sent through cci use `--kind blocker --to <lane> --topic 
 | `UNVERIFIABLE` | Reconcile the missing external receipt; never repeat the mutation blindly. |
 | `SPRITE-UNVERIFIABLE` | Inspect the named `.worker` receipt directory and any Task or Dispatch before relaunching; a remote worker may be running. |
 | `HOOK-DRIFT` | Pin a `captainHook` build that loads the named hook in the monorepo's `tools/cc-remote/inventory.yaml`; until it ships, that hook's guard is off on every Sprite. |
+| `BASE-DRIFT` | A new Sprite's packages differ from the base its payload captured, so they installed online once and the launch took longer; rebuild the payload on that base. |
 | `OUTCOME` | Consume the worker's `worker_done` result. |
 | `FIX-LIVE`, `MECHANISM`, `READY` | Read the lane's status milestone by message id; the line includes the subject and up to 300 body characters. |
 | `PROMPT-WATCH-DOWN` | The supervisor runs the watch, so read the supervisor's log, then run the line's `lr watch prompts` command. |
