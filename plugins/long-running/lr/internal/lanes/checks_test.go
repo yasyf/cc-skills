@@ -304,7 +304,7 @@ func (r *spriteRun) Run(_ context.Context, c shell.Command) (shell.Result, error
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if c.Argv[0] == "orca" {
-		workers := []map[string]string{}
+		workers := make([]map[string]string, 0, len(r.statuses))
 		for dispatch, status := range r.statuses {
 			workers = append(workers, map[string]string{"dispatchId": dispatch, "dispatchStatus": status})
 		}
