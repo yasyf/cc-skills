@@ -91,7 +91,7 @@ func (w *pinWorld) pinned(tools ...spriteTool) {
 	if err != nil {
 		w.t.Fatal(err)
 	}
-	if err := os.WriteFile(w.runner, raw, 0o640); err != nil {
+	if err := os.WriteFile(w.runner, raw, 0o400); err != nil {
 		w.t.Fatal(err)
 	}
 }
@@ -155,7 +155,7 @@ func TestAPinMovesToWhatTheMacRunsOnceItsDigestMatchesAndEveryOtherKeyStays(t *t
 		t.Fatalf("a key moved: %s", raw)
 	}
 	info, err := os.Stat(w.runner)
-	if err != nil || info.Mode().Perm() != 0o640 {
+	if err != nil || info.Mode().Perm() != 0o400 {
 		t.Fatal(info.Mode(), err)
 	}
 	left, err := filepath.Glob(w.runner + ".*")
