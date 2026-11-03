@@ -267,16 +267,22 @@ def test_since_you_last_looked_names_new_rows_and_what_moved_and_nothing_that_st
     assert owner_update.since_lines(before, before) == []
 
 
-def test_a_dashboard_step_carries_the_same_who_blocker_unblock_and_went_wrong_as_the_update_row():
+def test_a_dashboard_step_says_its_blocker_next_step_and_failures_in_plain_words_and_keeps_the_rows_cells_for_the_drill_in():
     row = owner_update.Row("Step 3", "3. Switch the chat writer", "1 of 2 tasks done, 1 in progress, 0 blocked", "chat-1, chat-2", "chat-1 waits on root's answer to ask #9", "chat-1: head 6:01 PM: pushed; next record due by 6:31 PM", "None recorded")
-    lanes = [lane("chat-1", "desired", 5, prs=[48700, 48701]), lane("chat-2", "desired", 5, prs=[48701])]
+    lanes = [lane("chat-1", "desired", 5, prs=[48700, 48701]), lane("chat-2", "desired", 15, prs=[48701])]
+    wait = record(9, "chat-1", "ask", "which writer?", 20)
+    found = owner_update.Sources({item["lane"]: item for item in lanes}, {}, {"chat-1": wait}, NOW, ({"owner": "chat-2", "failure": "The writer shipped a layout no reader knew.", "mechanism": "readers first", "state": "building"},))
 
-    step = owner_update.step_entry(4, "3. Switch the chat writer", "Plan, step 3", row, lanes)
+    step = owner_update.step_entry(4, "3. Switch the chat writer", "Plan, step 3", row, lanes, found)
 
+    due = owner_update.owner_waits.pacific(NOW - timedelta(minutes=15) + owner_update.STALE_AFTER)
     assert (step["id"], step["label"], step["tone"], step["who"], step["prs"], step["lanes"]) == ("s4", "3. Switch", "moving", ["chat-1", "chat-2"], [48700, 48701], ["chat-1", "chat-2"])
-    assert (step["blocker"], step["next"], step["unblocking"], step["went_wrong"]) == (row.blocks, row.unblock, row.unblock, "None recorded")
-    nobody = owner_update.step_entry(0, "x", "s", owner_update.Row("x", "", "", "**nobody**", "nothing recorded", "", ""), [])
-    assert (nobody["tone"], nobody["who"], nobody["blocker"]) == ("later", [], None)
+    assert step["blocker"] == f"Waiting on a coordinator decision since {owner_update.when(wait)}."
+    assert step["next"] == step["unblocking"] == f"2 workers are on it; the next word is due by {due}."
+    assert step["went_wrong"] == "The writer shipped a layout no reader knew. Prevention: readers first."
+    assert step["detail"] == {"blocker": row.blocks, "next": row.unblock, "went_wrong": "None recorded"}
+    nobody = owner_update.step_entry(0, "x", "s", owner_update.Row("x", "", "", "**nobody**", "nothing recorded", "", ""), [], found)
+    assert (nobody["tone"], nobody["who"], nobody["blocker"], nobody["next"]) == ("later", [], None, "Nobody is on it; the coordinator puts someone on it next.")
 
 
 class DriveRunner:
