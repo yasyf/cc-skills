@@ -46,7 +46,7 @@ type Sources struct {
 	Tasks   func() ([]ClaudeTask, error)
 	Before  func() (Snapshot, error)
 	Retro   func(ctx context.Context) ([]Retro, error)
-	Owed    func(ctx context.Context, owns func(lane string) bool) ([]deletions.Owed, error)
+	Owed    func(ctx context.Context) ([]deletions.Owed, error)
 	Pins    []drive.Pin
 }
 
@@ -128,8 +128,7 @@ func Collect(ctx context.Context, src Sources, bus string, now time.Time) (Input
 	if err != nil {
 		return Inputs{}, err
 	}
-	registry := newView(lanes, nil, nil, now)
-	owed, err := src.Owed(ctx, func(owner string) bool { return !registry.liveHead(owner) })
+	owed, err := src.Owed(ctx)
 	if err != nil {
 		return Inputs{}, err
 	}

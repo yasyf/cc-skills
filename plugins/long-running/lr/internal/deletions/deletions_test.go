@@ -174,7 +174,7 @@ func write(t *testing.T, dir string, files map[string]string) {
 	}
 }
 
-func TestOwedKeepsTheOwnersOpenTasksWhoseCodeIsStillOnTrunk(t *testing.T) {
+func TestPresentKeepsTheOpenTasksWhoseCodeIsStillOnTrunk(t *testing.T) {
 	root := t.TempDir()
 	write(t, root, map[string]string{"gitconfig": "[user]\n\tname = Lane\n\temail = lane@example.com\n[init]\n\tdefaultBranch = main\n"})
 	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(root, "gitconfig"))
@@ -214,7 +214,11 @@ func TestOwedKeepsTheOwnersOpenTasksWhoseCodeIsStillOnTrunk(t *testing.T) {
 	}
 	trunk := Trunk{Runner: notes{tasks}, Checkout: checkout, Branch: "main"}
 
-	owed, err := trunk.Owed(context.Background(), func(lane string) bool { return lane == owner })
+	listed, err := trunk.List(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	owed, err := trunk.Present(context.Background(), slices.DeleteFunc(listed, func(row Owed) bool { return row.Owner != owner }))
 	if err != nil {
 		t.Fatal(err)
 	}

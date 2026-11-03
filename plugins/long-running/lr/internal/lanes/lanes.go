@@ -23,6 +23,7 @@ const (
 	CursorName  = "lanes"
 	hourCursor  = "lanes.hour"
 	owedSubject = "owed-deletions"
+	lateSubject = "owed-deletions-past-due"
 	strikeLimit = 2
 	kindSpawn   = "spawn"
 	kindRequest = "decide"
@@ -217,19 +218,46 @@ type owing struct {
 	err  error
 }
 
-func owingOf(s *store.Store, owed func(owns func(lane string) bool) ([]deletions.Owed, error), name string) (owing, bool) {
-	rows, err := owed(func(owner string) bool {
-		head, found := newest(s, owner)
-		return found && head.Name == name
+func owingOf(s *store.Store, d Deps, name string) (owing, bool) {
+	listed, err := d.Owed()
+	if err != nil {
+		return owing{name: name, err: err}, true
+	}
+	owned := slices.DeleteFunc(listed, func(row deletions.Owed) bool {
+		head, found := newest(s, row.Owner)
+		return !found || head.Name != name
 	})
+	rows, err := d.Present(owned)
 	return owing{name: name, rows: rows, err: err}, err != nil || len(rows) > 0
+}
+
+func overdue(s *store.Store, d Deps, now time.Time) {
+	late, err := d.Owed()
+	if err == nil {
+		late, err = d.Present(slices.DeleteFunc(late, func(row deletions.Owed) bool { return !row.Overdue(now) }))
+	}
+	if err != nil {
+		if must(s.Escalate(lateSubject, err.Error(), Root, now)) {
+			do(d.Post(Post{Kind: "blocker", To: []string{Root}, Text: fmt.Sprintf("%s the past-due owed-deletion check did not run: %v", pacific(now), err)}))
+		}
+		return
+	}
+	for _, row := range late {
+		to := Root
+		if head, found := newest(s, row.Owner); found && isLive(head.State) {
+			to = head.Name
+		}
+		if must(s.Escalate(lateSubject, row.ID, to, now)) {
+			do(d.Post(Post{Kind: "blocker", To: []string{to}, LaneRef: row.Owner, Text: fmt.Sprintf("%s %s is past due with its code still on trunk. Delete the code, or change its due: label with `ccn task edit` and name the decision that moves the date.", pacific(now), row)}))
+		}
+	}
 }
 
 func (out *folded) owesNothing(s *store.Store, name string, fresh bool, at time.Time) bool {
 	if fresh {
 		return true
 	}
-	one, owes := owingOf(s, out.owed, name)
+	one, owes := owingOf(s, out.deps, name)
 	if owes {
 		hold(s, name, one.owes(), at)
 		out.owing = append(out.owing, one)
@@ -238,7 +266,7 @@ func (out *folded) owesNothing(s *store.Store, name string, fresh bool, at time.
 }
 
 func refusedOwing(s *store.Store, d Deps, name string, now time.Time) bool {
-	one, owes := owingOf(s, d.Owed, name)
+	one, owes := owingOf(s, d, name)
 	if owes {
 		hold(s, name, one.owes(), now)
 		one.post(d, now)

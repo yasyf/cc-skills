@@ -36,7 +36,7 @@ func src(lanes []Lane, records []Record, tasks []ClaudeTask, boardErr error) Sou
 		Tasks:  func() ([]ClaudeTask, error) { return tasks, nil },
 		Before: func() (Snapshot, error) { return Snapshot{}, nil },
 		Retro:  func(context.Context) ([]Retro, error) { return nil, nil },
-		Owed:   func(context.Context, func(string) bool) ([]deletions.Owed, error) { return nil, nil },
+		Owed:   func(context.Context) ([]deletions.Owed, error) { return nil, nil },
 	}
 }
 
@@ -67,26 +67,14 @@ func TestAnOwedDeletionWhoseOwnerHasNoLiveLaneShowsOnTheUpdate(t *testing.T) {
 		{ID: "c4015d76", Title: "Owed deletion: the old follower", Owner: "one-reader-delete-1", Dirs: []string{"go/sandsql-follower"}},
 	}
 	sources := src([]Lane{heard("one-reader-1", "desired", 5), alone, handed, heard("new-reader-3", "desired", 5)}, nil, nil, nil)
-	sources.Owed = func(_ context.Context, owns func(string) bool) ([]deletions.Owed, error) {
-		var owed []deletions.Owed
-		for _, row := range rows {
-			if owns(row.Owner) {
-				owed = append(owed, row)
-			}
-		}
-		return owed, nil
-	}
+	sources.Owed = func(context.Context) ([]deletions.Owed, error) { return rows, nil }
 
 	in, err := Collect(context.Background(), sources, testDrive, now)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	_, after, found := strings.Cut(Render(in).Text, "## Owed deletions with no live owner\n")
-	if !found {
-		t.Fatal("the update has no owed deletions section")
-	}
-	section, _, _ := strings.Cut(after, "\n## ")
+	section := sectionOf(t, Render(in).Text, "Owed deletions with no live owner")
 	for _, shown := range []string{`task a1b2c3d "Owed deletion: the incarnation" (go/sand/next, #Incarnation; owner old-reader-1, due 2026-11-09)`, "(go/sand/next/internal/sandsql/local/lifecycle.go, #Sync; owner nobody, due 2026-11-09)", "(go/sandsql-follower; owner one-reader-delete-1, no due date)"} {
 		if !strings.Contains(section, shown) {
 			t.Errorf("section lacks %s:\n%s", shown, section)
@@ -97,6 +85,35 @@ func TestAnOwedDeletionWhoseOwnerHasNoLiveLaneShowsOnTheUpdate(t *testing.T) {
 			t.Errorf("section names %s, whose owner's line is live:\n%s", hidden, section)
 		}
 	}
+}
+
+func TestAnOwedDeletionPastItsDueDayShowsOnTheUpdateWhoeverOwnsIt(t *testing.T) {
+	rows := []deletions.Owed{
+		{ID: "025443e4", Title: "Owed deletion: Iris stops reading uploaded", Owner: "journal-positions-trim-1", Paths: []string{"go/sand/next/internal/journal/client.go"}, Symbols: []string{"Uploaded"}, Due: time.Date(2026, 10, 31, 0, 0, 0, 0, time.UTC)},
+		{ID: "4ec66f9b", Title: "Owed deletion: epoch fields", Owner: "journal-positions-trim-1", Paths: []string{"go/sand/next/cmd/iris_serve_share.go"}, Symbols: []string{"Epoch"}, Due: time.Date(2026, 11, 2, 0, 0, 0, 0, time.UTC)},
+	}
+	sources := src([]Lane{heard("journal-positions-trim-1", "desired", 5)}, nil, nil, nil)
+	sources.Owed = func(context.Context) ([]deletions.Owed, error) { return rows, nil }
+
+	in, err := Collect(context.Background(), sources, testDrive, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	section := sectionOf(t, Render(in).Text, "Owed deletions past due")
+	if !strings.Contains(section, `task 025443e "Owed deletion: Iris stops reading uploaded"`) || strings.Contains(section, "4ec66f9") {
+		t.Fatalf("past due section:\n%s", section)
+	}
+}
+
+func sectionOf(t *testing.T, text, title string) string {
+	t.Helper()
+	_, after, found := strings.Cut(text, "## "+title+"\n")
+	if !found {
+		t.Fatalf("the update has no %q section", title)
+	}
+	section, _, _ := strings.Cut(after, "\n## ")
+	return section
 }
 
 func TestAFirstUpdateLooksBackTwoHours(t *testing.T) {

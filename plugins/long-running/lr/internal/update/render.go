@@ -401,9 +401,14 @@ func (v view) listSections(in Inputs, lanes []Lane, doneLines []string) []listSe
 	for i, wait := range in.Waits {
 		waiting[i] = recordLine(wait)
 	}
-	owed := make([]string, len(in.Owed))
-	for i, row := range in.Owed {
-		owed[i] = "- " + row.String()
+	var orphaned, late []string
+	for _, row := range in.Owed {
+		if !v.liveHead(row.Owner) {
+			orphaned = append(orphaned, "- "+row.String())
+		}
+		if row.Overdue(in.Now) {
+			late = append(late, "- "+row.String())
+		}
 	}
 	board := make([]string, len(in.Board))
 	for i, line := range in.Board {
@@ -426,7 +431,8 @@ func (v view) listSections(in Inputs, lanes []Lane, doneLines []string) []listSe
 	return []listSection{
 		{fmt.Sprintf("Registry lanes quiet over %d h", int(quietAfter.Hours())), quietLines},
 		{"Waiting on root", waiting},
-		{"Owed deletions with no live owner", owed},
+		{"Owed deletions with no live owner", orphaned},
+		{"Owed deletions past due", late},
 		{"Board picks", board},
 		{fmt.Sprintf("Delivered in the last %d h", int(heardWithin.Hours())), deliveredLines},
 		{"Done plan steps", doneLines},

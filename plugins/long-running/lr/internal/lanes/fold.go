@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/deletions"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
@@ -32,7 +31,7 @@ type folded struct {
 	owing   []owing
 	stood   []stoodDown
 	untyped []int64
-	owed    func(owns func(lane string) bool) ([]deletions.Owed, error)
+	deps    Deps
 }
 
 func takesOver(s *store.Store, name string, old store.Lane, at time.Time) {
@@ -116,8 +115,8 @@ func grant(s *store.Store, r Record, fresh bool, at time.Time, out *folded) {
 	}
 }
 
-func fold(s *store.Store, records []Record, adoptable map[string]bool, briefs string, owed func(owns func(lane string) bool) ([]deletions.Owed, error)) folded {
-	out := folded{owed: owed}
+func fold(s *store.Store, records []Record, adoptable map[string]bool, briefs string, d Deps) folded {
+	out := folded{deps: d}
 	fresh := adoptable != nil
 	for _, r := range records {
 		at := r.At.UTC()

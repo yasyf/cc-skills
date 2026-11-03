@@ -743,7 +743,8 @@ func (e Env) Deps(ctx context.Context) (Deps, error) {
 		Held:     func() (map[int]bool, error) { return e.held(ctx) },
 		Desk:     desks.desk,
 		OpenWork: func() ([]Record, error) { return e.openWork(ctx) },
-		Owed:     func(owns func(lane string) bool) ([]deletions.Owed, error) { return trunk.Owed(ctx, owns) },
+		Owed:     func() ([]deletions.Owed, error) { return trunk.List(ctx) },
+		Present:  func(rows []deletions.Owed) ([]deletions.Owed, error) { return trunk.Present(ctx, rows) },
 		Gaps:     func() ([]string, error) { return trunk.Gaps(ctx, e.tool("rulings.py"), e.Config.Drive) },
 		RotateAt: at,
 	}, nil

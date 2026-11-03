@@ -172,7 +172,8 @@ func decided(t *testing.T, fixture replayFixture) map[string][]any {
 		Drive: "replay", Checkout: dir, Briefs: filepath.Join(dir, "lanes"),
 		Desk:     func(string) (string, error) { return "", nil },
 		OpenWork: func() ([]Record, error) { return nil, nil },
-		Owed:     func(func(string) bool) ([]deletions.Owed, error) { return nil, nil },
+		Owed:     func() ([]deletions.Owed, error) { return nil, nil },
+		Present:  func(rows []deletions.Owed) ([]deletions.Owed, error) { return rows, nil },
 		Gaps:     func() ([]string, error) { return nil, nil },
 		Records: func(since int64) ([]Record, error) {
 			start := shown
