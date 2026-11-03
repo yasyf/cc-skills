@@ -2,6 +2,7 @@ package grading
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -9,9 +10,12 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/grading/grader"
 )
+
+const pluginRootEnv = "BINRUN_PLUGIN_ROOT"
 
 func Command(a *app.App) *cobra.Command {
 	cmd := &cobra.Command{Use: "grade", Short: "Grade one drive head, from the job a desk wrote to DIR"}
@@ -43,9 +47,9 @@ func gradeVerb(a *app.App, name, short string, grade func(context.Context, strin
 }
 
 func liveDeps(a *app.App) (grader.Deps, error) {
-	binary, err := os.Executable()
-	if err != nil {
-		return grader.Deps{}, err
+	plugin := os.Getenv(pluginRootEnv)
+	if plugin == "" {
+		return grader.Deps{}, errors.New("lr grade runs through the plugin's bin/lr, which sets " + pluginRootEnv)
 	}
 	config := os.Getenv("CLAUDE_CONFIG_DIR")
 	if config == "" {
@@ -57,10 +61,11 @@ func liveDeps(a *app.App) (grader.Deps, error) {
 	}
 	return grader.Deps{
 		Runner: a.Runner,
+		Post:   client.Post,
 		Sleep:  time.Sleep,
 		Now:    a.Now,
 		Log:    a.Log,
-		Bin:    filepath.Dir(binary),
+		Bin:    filepath.Join(plugin, "bin"),
 		Config: config,
 	}, nil
 }

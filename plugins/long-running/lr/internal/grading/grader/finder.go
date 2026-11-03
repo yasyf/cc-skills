@@ -17,7 +17,7 @@ import (
 
 const (
 	FinderLane    = "finder-desk"
-	cancelledFile = "cancelled"
+	CancelledFile = "cancelled"
 	wholeRead     = "over whole "
 	censusPrefix  = "census:"
 	bigSlice      = 150
@@ -52,7 +52,7 @@ var (
 	finderClean  = regexp.MustCompile(`(?i)\bno (?:majors?|findings)\b|\b0 majors?\b|\bok\b`)
 )
 
-type record struct {
+type Record struct {
 	Seq  int64  `json:"seq"`
 	Lane string `json:"lane"`
 	Head string `json:"head"`
@@ -60,13 +60,13 @@ type record struct {
 	Path string `json:"path"`
 }
 
-type finderJob struct {
-	job
+type FinderJob struct {
+	Job
 	Since    string   `json:"since"`
-	Prior    *record  `json:"prior"`
+	Prior    *Record  `json:"prior"`
 	Previous string   `json:"previous"`
-	History  []record `json:"history"`
-	Ruled    []record `json:"ruled"`
+	History  []Record `json:"history"`
+	Ruled    []Record `json:"ruled"`
 	Full     bool     `json:"full"`
 }
 
@@ -100,7 +100,7 @@ func (s *superseded) Error() string {
 
 type finderPassState struct {
 	*pass
-	job *finderJob
+	job *FinderJob
 }
 
 func Finder(ctx context.Context, dir string, deps Deps) error {
@@ -113,15 +113,15 @@ func Finder(ctx context.Context, dir string, deps Deps) error {
 }
 
 func runFinder(ctx context.Context, dir string, deps Deps) (FinderOutcome, error) {
-	data, err := os.ReadFile(filepath.Join(dir, jobFile))
+	data, err := os.ReadFile(filepath.Join(dir, JobFile))
 	if err != nil {
 		return FinderOutcome{}, err
 	}
-	var spec finderJob
+	var spec FinderJob
 	if err := json.Unmarshal(data, &spec); err != nil {
 		return FinderOutcome{}, err
 	}
-	state := &finderPassState{&pass{Deps: deps, ctx: ctx, dir: dir, job: &spec.job}, &spec}
+	state := &finderPassState{&pass{Deps: deps, ctx: ctx, dir: dir, job: &spec.Job}, &spec}
 	return state.grade()
 }
 
@@ -237,7 +237,7 @@ func (s *finderPassState) grade() (FinderOutcome, error) {
 	if err := os.WriteFile(questionPath, []byte(question), 0o600); err != nil {
 		return FinderOutcome{}, err
 	}
-	if said, err := os.ReadFile(filepath.Join(s.dir, cancelledFile)); err == nil {
+	if said, err := os.ReadFile(filepath.Join(s.dir, CancelledFile)); err == nil {
 		return FinderOutcome{Skipped: fmt.Sprintf("%s at %s was superseded by %s before codex read it", pull, short(head, 12), short(strings.TrimSpace(string(said)), 12))}, nil
 	}
 	reply, parsed, err := s.askUntilSound(questionPath, question, keys)
@@ -282,10 +282,10 @@ func (s *finderPassState) replayed(view pullRequest, last string) (FinderOutcome
 	head := spec.Head
 	said := fmt.Sprintf("%s at %s replays every own commit of %s, patch for patch or dropping only hunks %s carries", spec.pull(), short(head, 12), short(last, 12), view.BaseRefName)
 	earlier := spec.Prior
-	if earlier == nil || !namesHead(earlier.Head, last) {
+	if earlier == nil || !NamesHead(earlier.Head, last) {
 		return FinderOutcome{Skipped: said, Ungraded: true}, nil
 	}
-	grade := finderGrade(earlier.Text)
+	grade := FinderGrade(earlier.Text)
 	text := fmt.Sprintf("finder: %s %s carried from #%d", grade, short(head, 7), earlier.Seq)
 	if root := s.settledBy(earlier); grade != finderPass && root != 0 {
 		text = fmt.Sprintf("finder: %s %s carried from #%d, settled by root #%d", finderPass, short(head, 7), earlier.Seq, root)
@@ -331,7 +331,7 @@ func (s *finderPassState) askFinder(question string, attempt int) (string, finde
 	spec := s.job
 	asked := func(model, lane string) (string, error) {
 		return s.rateLimited(func(retry int) (string, error) {
-			if said, err := os.ReadFile(filepath.Join(s.dir, cancelledFile)); err == nil {
+			if said, err := os.ReadFile(filepath.Join(s.dir, CancelledFile)); err == nil {
 				return "", &superseded{fmt.Sprintf("%s at %s was superseded by %s while codex retried", spec.pull(), short(spec.Head, 12), short(strings.TrimSpace(string(said)), 12))}
 			}
 			session := lane
@@ -409,7 +409,7 @@ func (s *finderPassState) recordText(own []string, last string, findings []findi
 	return fmt.Sprintf("finder: %s %s %d open %s: %s", finderFail, head, len(opened), read, strings.Join(opened, "; "))
 }
 
-func listed(records []record) string {
+func listed(records []Record) string {
 	var text strings.Builder
 	for _, r := range records {
 		fmt.Fprintf(&text, "- cci #%d from %s: %s", r.Seq, r.Lane, r.Text)
@@ -541,8 +541,8 @@ func (s *finderPassState) recordCensus(census []finding) (string, error) {
 	return s.posted([]string{"cci", "post", "--drive", spec.Drive, "--lane", FinderLane, "--kind", "note", "--to", s.audience(), "--pr", spec.pull(), "--id", "finder-census:" + spec.pull() + ":" + spec.Head, "--text", text, "--json"})
 }
 
-func (s *finderPassState) settledBy(from *record) int64 {
-	bySeq := make(map[int64]*record, len(s.job.History))
+func (s *finderPassState) settledBy(from *Record) int64 {
+	bySeq := make(map[int64]*Record, len(s.job.History))
 	for index := range s.job.History {
 		bySeq[s.job.History[index].Seq] = &s.job.History[index]
 	}
@@ -560,7 +560,7 @@ func (s *finderPassState) settledBy(from *record) int64 {
 	return 0
 }
 
-func finderGrade(text string) string {
+func FinderGrade(text string) string {
 	if said := finderSays.FindStringSubmatch(text); said != nil {
 		switch word := strings.ToLower(said[1]); word {
 		case "issues":
@@ -698,13 +698,14 @@ func ledgerPR(key, repo string) (string, string, bool) {
 }
 
 type driveEntry struct {
-	Drive    string `json:"drive"`
-	CCIDrive string `json:"cci_drive"`
-	Program  string `json:"program"`
-	StateDir string `json:"state_dir"`
-	Repo     string `json:"repo"`
-	Checkout string `json:"checkout"`
-	Ledger   string `json:"ledger"`
+	Drive    string   `json:"drive"`
+	CCIDrive string   `json:"cci_drive"`
+	Program  string   `json:"program"`
+	StateDir string   `json:"state_dir"`
+	Repo     string   `json:"repo"`
+	Checkout string   `json:"checkout"`
+	Ledger   string   `json:"ledger"`
+	Sessions []string `json:"sessions"`
 }
 
 func (e driveEntry) cciDrive() string {
@@ -738,4 +739,15 @@ func driveOf(config, drive string) (driveEntry, error) {
 		}
 	}
 	return driveEntry{}, fmt.Errorf("%w: %s", errNoDrive, drive)
+}
+
+func RootSession(config, drive string) (string, error) {
+	entry, err := driveOf(config, drive)
+	if errors.Is(err, errNoDrive) {
+		return "", nil
+	}
+	if err != nil || len(entry.Sessions) == 0 {
+		return "", err
+	}
+	return entry.Sessions[len(entry.Sessions)-1], nil
 }

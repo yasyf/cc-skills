@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
 
@@ -95,8 +96,6 @@ func (f *fakeShell) route(command Command) (string, error) {
 		return planPath + "\n", nil
 	case argv[0] == "codex-ask":
 		return f.codex(argv)
-	case argv[0] == "cci":
-		return f.post(argv)
 	case argv[0] == "ccn":
 		if f.ledgerBy != nil {
 			return "", f.ledgerBy
@@ -155,23 +154,31 @@ func (f *fakeShell) codex(argv []string) (string, error) {
 	return fmt.Sprintf("REPLY_FILE: %s\nLOG_FILE: %s.log\nAWAIT: codex-ask --await %s\n", path, path, argv[slices.Index(argv, "-s")+1]), nil
 }
 
-func (f *fakeShell) post(argv []string) (string, error) {
-	flags := slices.DeleteFunc(slices.Clone(argv[2:]), func(word string) bool { return word == "--json" })
-	post := map[string]string{}
-	for index := 0; index+1 < len(flags); index += 2 {
-		post[flags[index]] = flags[index+1]
+func (f *fakeShell) post(_ context.Context, draft client.Draft) (client.Record, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	post := map[string]string{"--drive": draft.Drive, "--lane": draft.Lane, "--kind": draft.Kind, "--id": draft.ID, "--text": draft.Text}
+	if len(draft.PRs) > 0 {
+		post["--pr"] = draft.PRs[0]
+	}
+	if len(draft.To) > 0 {
+		post["--to"] = strings.Join(draft.To, ",")
+	}
+	if draft.Path != "" {
+		post["--path"] = draft.Path
 	}
 	f.posted = append(f.posted, post)
-	seq := 150001
+	seq := int64(150001)
 	if f.counting {
-		seq += len(f.posted)
+		seq += int64(len(f.posted))
 	}
-	return fmt.Sprintf("{\"seq\": %d, \"num\": \"#7@fixture\"}\n", seq), nil
+	return client.Record{Seq: seq}, nil
 }
 
 func (f *fakeShell) deps() Deps {
 	return Deps{
 		Runner: f,
+		Post:   f.post,
 		Sleep:  func(pause time.Duration) { f.mu.Lock(); defer f.mu.Unlock(); f.slept = append(f.slept, pause) },
 		Now:    func() time.Time { return t0 },
 		Log:    slog.New(slog.NewTextHandler(io.Discard, nil)),
@@ -230,7 +237,7 @@ func writeJob(t *testing.T, directory string, spec map[string]any, changes map[s
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(directory, jobFile), data, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(directory, JobFile), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	return directory
@@ -238,7 +245,7 @@ func writeJob(t *testing.T, directory string, spec map[string]any, changes map[s
 
 func resultOf(t *testing.T, directory string) map[string]any {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(directory, resultFile))
+	data, err := os.ReadFile(filepath.Join(directory, ResultFile))
 	if err != nil {
 		t.Fatal(err)
 	}

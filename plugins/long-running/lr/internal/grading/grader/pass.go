@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -14,13 +15,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
 
 const (
-	jobFile     = "job.json"
-	postsFile   = "posts.jsonl"
-	resultFile  = "result.json"
+	JobFile     = "job.json"
+	PostsFile   = "posts.jsonl"
+	ResultFile  = "result.json"
 	bodyFile    = "record.md"
 	rowsFile    = "rows.md"
 	readTimeout = 120 * time.Second
@@ -52,6 +54,7 @@ var (
 
 type Deps struct {
 	Runner shell.Runner
+	Post   func(context.Context, client.Draft) (client.Record, error)
 	Sleep  func(time.Duration)
 	Now    func() time.Time
 	Log    *slog.Logger
@@ -59,7 +62,7 @@ type Deps struct {
 	Config string
 }
 
-type job struct {
+type Job struct {
 	Drive    string           `json:"drive"`
 	Repo     string           `json:"repo"`
 	PR       string           `json:"pr"`
@@ -70,9 +73,10 @@ type job struct {
 	Model    string           `json:"model"`
 	Fast     bool             `json:"fast"`
 	Settled  map[string]int64 `json:"settled"`
+	Sprite   string           `json:"sprite"`
 }
 
-func (j *job) pull() string {
+func (j *Job) pull() string {
 	return j.Repo + "#" + j.PR
 }
 
@@ -126,7 +130,7 @@ type pass struct {
 	Deps
 	ctx context.Context
 	dir string
-	job *job
+	job *Job
 }
 
 type future[T any] struct {
@@ -538,7 +542,7 @@ func (p *pass) logged(argv []string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	posts, err := os.OpenFile(filepath.Join(p.dir, postsFile), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	posts, err := os.OpenFile(filepath.Join(p.dir, PostsFile), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return nil, err
 	}
@@ -548,18 +552,75 @@ func (p *pass) logged(argv []string) ([]string, error) {
 }
 
 func (p *pass) posted(argv []string) (string, error) {
-	out, err := p.run(argv, "", readTimeout)
+	draft, err := draftOf(argv)
 	if err != nil {
 		return "", err
 	}
-	first, _, _ := strings.Cut(out, "\n")
-	var record struct {
-		Seq int64 `json:"seq"`
+	stored, err := p.Post(p.ctx, draft)
+	if err != nil {
+		return "", err
 	}
-	if err := json.Unmarshal([]byte(first), &record); err != nil {
-		return "", fmt.Errorf("cci post printed %q: %w", first, err)
+	return "#" + strconv.FormatInt(stored.Seq, 10), nil
+}
+
+func draftOf(argv []string) (client.Draft, error) {
+	var draft client.Draft
+	for index := 2; index < len(argv); index++ {
+		flag := argv[index]
+		if flag == "--json" {
+			continue
+		}
+		index++
+		value := argv[index]
+		switch flag {
+		case "--drive":
+			draft.Drive = value
+		case "--lane":
+			draft.Lane = value
+		case "--kind":
+			draft.Kind = value
+		case "--pr":
+			draft.PRs = []string{value}
+		case "--id":
+			draft.ID = value
+		case "--path":
+			draft.Path = value
+		case "--to":
+			draft.To = strings.Split(value, ",")
+		case "--text":
+			draft.Text = value
+		default:
+			return client.Draft{}, fmt.Errorf("a desk post names %s, which no grader writes", flag)
+		}
 	}
-	return "#" + strconv.FormatInt(record.Seq, 10), nil
+	return draft, nil
+}
+
+func Repost(ctx context.Context, dir string, post func(context.Context, client.Draft) (client.Record, error)) error {
+	data, err := os.ReadFile(filepath.Join(dir, PostsFile))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var failures []error
+	for line := range strings.Lines(string(data)) {
+		var argv []string
+		if err := json.Unmarshal([]byte(line), &argv); err != nil {
+			failures = append(failures, err)
+			continue
+		}
+		draft, err := draftOf(argv)
+		if err != nil {
+			failures = append(failures, err)
+			continue
+		}
+		if _, err := post(ctx, draft); err != nil {
+			failures = append(failures, err)
+		}
+	}
+	return errors.Join(failures...)
 }
 
 func (p *pass) ask(model, schema, session, question string, timeout time.Duration) (string, error) {
@@ -593,7 +654,7 @@ func writeResult(dir string, outcome any) error {
 	if err != nil {
 		return err
 	}
-	staged := filepath.Join(dir, fmt.Sprintf(".%s.%d", resultFile, os.Getpid()))
+	staged := filepath.Join(dir, fmt.Sprintf(".%s.%d", ResultFile, os.Getpid()))
 	file, err := os.Create(staged)
 	if err != nil {
 		return err
@@ -605,7 +666,7 @@ func writeResult(dir string, outcome any) error {
 	if err := file.Sync(); err != nil {
 		return err
 	}
-	return os.Rename(staged, filepath.Join(dir, resultFile))
+	return os.Rename(staged, filepath.Join(dir, ResultFile))
 }
 
 type failedResult struct {
@@ -638,7 +699,7 @@ func dated(at time.Time) string {
 	return at.Format("2006-01-02")
 }
 
-func namesHead(named, sha string) bool {
+func NamesHead(named, sha string) bool {
 	return sha != "" && (strings.HasPrefix(sha, named) || strings.HasPrefix(named, sha))
 }
 

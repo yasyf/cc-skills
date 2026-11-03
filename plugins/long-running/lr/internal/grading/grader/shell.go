@@ -18,7 +18,7 @@ const (
 )
 
 var (
-	shims     = map[string]string{"cci": "cc-inbox", "ccx": "cc-context"}
+	shims     = map[string]string{"ccx": "cc-context"}
 	shellSafe = regexp.MustCompile(`^[\w@%+=:,./-]+$`)
 )
 
