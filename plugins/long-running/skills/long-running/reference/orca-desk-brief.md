@@ -42,6 +42,7 @@ A Bash append to `orca-desk.md` in a drive session draws `UNREAD` and the `cci p
 | `incident.case_lanes` | Cap on case lanes launched per incident; default `2`. |
 | `tooling_lane` | Lane told once an hour per cause when a grader pass dies on a tooling error rather than a verdict. Set it to the meta lane, `meta`. |
 | `orca.run` | Orca Run id. Match it to the launch environment. |
+| `orca.launches` | Which launches this runner takes when two runners share the drive: `mac` takes Mac-pinned launches (the coordinator, Fable, incident agents, and `place=local` briefs) and every alert, incident, and hold line; `sprite` takes only launches that start on a Sprite. Empty takes everything. Relay and withdraw lines reach both. Any other value refuses at start. |
 | `orca.desk_inbox` | Required path to the drive's `inbox/orca-desk.md`. Anchors runner logs and state; the relay never reads this file. |
 | `orca.briefs.repo` | Drive checkout path for cc-notes brief attachments. |
 | `orca.briefs.log` | Briefs log id for generated fix briefs. Checked at start and before every attachment; if unset or unresolvable, the relay switches to or creates `briefs: <drive>` and logs `BRIEFS-LOG` with the new id. |
