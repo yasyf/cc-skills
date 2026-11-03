@@ -914,25 +914,19 @@ func TestAPluginNewToAMarketplaceThePayloadHoldsJoinsAWritableCopyOfIt(t *testin
 	orcaURL, orcaSHA := tarball(t, dir, "orca.tgz", map[string]string{".claude-plugin/plugin.json": `{"version":"0.1.0"}`, "skills/orca.md": "orca\n"})
 	home, baked := t.TempDir(), t.TempDir()
 	listing := `{"name":"skills","plugins":[{"name":"long-running","source":"./plugins/long-running"}]}`
-	for path, content := range map[string]string{
-		filepath.Join(baked, ".claude-plugin", "marketplace.json"):  listing,
-		filepath.Join(baked, "plugins", "long-running", "SKILL.md"): "pack\n",
-		filepath.Join(home, ".claude", "plugins", "installed_plugins.json"): `{"version":2,"plugins":{"long-running@skills":[{"scope":"user","installPath":"/payload/long-running/0.7.692","version":"0.7.692"}]}}`,
-		filepath.Join(home, ".claude", "plugins", "known_marketplaces.json"): `{}`,
-		filepath.Join(home, ".claude", "settings.json"):                      `{"enabledPlugins":{"long-running@skills":true}}`,
-	} {
+	write := func(path, content string) {
 		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(path, []byte(content), 0o400); err != nil {
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
-	for _, name := range []string{"installed_plugins.json", "known_marketplaces.json"} {
-		if err := os.Chmod(filepath.Join(home, ".claude", "plugins", name), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
+	write(filepath.Join(baked, ".claude-plugin", "marketplace.json"), listing)
+	write(filepath.Join(baked, "plugins", "long-running", "SKILL.md"), "pack\n")
+	write(filepath.Join(home, ".claude", "plugins", "installed_plugins.json"), `{"version":2,"plugins":{"long-running@skills":[{"scope":"user","installPath":"/payload/long-running/0.7.692","version":"0.7.692"}]}}`)
+	write(filepath.Join(home, ".claude", "plugins", "known_marketplaces.json"), `{}`)
+	write(filepath.Join(home, ".claude", "settings.json"), `{"enabledPlugins":{"long-running@skills":true}}`)
 	tree := filepath.Join(home, ".local", "share", "cc-remote", "marketplaces", "skills")
 	if err := os.MkdirAll(filepath.Dir(tree), 0o750); err != nil {
 		t.Fatal(err)
