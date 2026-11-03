@@ -189,17 +189,20 @@ func TestLoadRefusesARunnerThatNamesNoServer(t *testing.T) {
 
 func stub(t *testing.T, bin, name, body string) {
 	t.Helper()
-	if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\n"+body+"\n"), 0o700); err != nil {
+	if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\n"+body+"\n"), 0o700); err != nil { //nolint:gosec // the stub has to execute
 		t.Fatal(err)
 	}
 }
 
-func serveUpIn(t *testing.T, others, services string) (string, string, error) {
+func serveUpIn(t *testing.T, others, services string, orca bool) (string, string, error) {
 	t.Helper()
 	root := t.TempDir()
 	bin, dir := filepath.Join(root, "bin"), filepath.Join(root, "run-host")
 	if err := os.Mkdir(bin, 0o700); err != nil {
 		t.Fatal(err)
+	}
+	if orca {
+		stub(t, bin, "orca", "")
 	}
 	left := readyLine("0.0.9+stale")
 	if strings.Contains(services, Service) {
@@ -218,7 +221,7 @@ create) echo "$@" >>"$CREATED"; printf '%s\n' "$READY" >"$SERVE_DIR/serve.json" 
 esac`)
 	created := filepath.Join(root, "created")
 	cmd := exec.Command("sh", "-c", serveUp, "sh", dir, "7300", "5", Service)
-	cmd.Env = append(os.Environ(), "PATH="+bin+":/usr/bin:/bin", "PGREP_SAYS="+others, "SERVICES="+services, "CREATED="+created, "SERVE_DIR="+dir, "READY="+strings.TrimSpace(readyLine("0.1.0+15ec2904eb00")))
+	cmd.Env = append(os.Environ(), "HOME="+root, "PATH="+bin+":/usr/bin:/bin", "PGREP_SAYS="+others, "SERVICES="+services, "CREATED="+created, "SERVE_DIR="+dir, "READY="+strings.TrimSpace(readyLine("0.1.0+15ec2904eb00")))
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
@@ -226,8 +229,8 @@ esac`)
 	return string(out), string(creates) + stderr.String(), err
 }
 
-func TestTheHostScriptStartsOneServerAndRefusesBesideAnother(t *testing.T) {
-	printed, said, err := serveUpIn(t, "", "[]")
+func TestTheHostScriptStartsOneServerAndRefusesBesideAnotherOrWithoutOrca(t *testing.T) {
+	printed, said, err := serveUpIn(t, "", "[]", true)
 	if err != nil || !strings.Contains(said, "services create "+Service) {
 		t.Fatalf("err %v, said %q", err, said)
 	}
@@ -235,7 +238,7 @@ func TestTheHostScriptStartsOneServerAndRefusesBesideAnother(t *testing.T) {
 		t.Fatalf("a new service read an earlier server's ready event: %+v %v", up, err)
 	}
 
-	printed, said, err = serveUpIn(t, "", `[{"name":"`+Service+`","state":{"status":"running"}}]`)
+	printed, said, err = serveUpIn(t, "", `[{"name":"`+Service+`","state":{"status":"running"}}]`, true)
 	if err != nil || strings.Contains(said, "services create") {
 		t.Fatalf("a running service was created again: err %v, said %q", err, said)
 	}
@@ -243,13 +246,18 @@ func TestTheHostScriptStartsOneServerAndRefusesBesideAnother(t *testing.T) {
 		t.Fatalf("the running server's ready event: %v", err)
 	}
 
-	_, said, err = serveUpIn(t, "41 orca-ide serve --port 54749 --pairing-address 127.0.0.1 --json", "[]")
+	_, said, err = serveUpIn(t, "41 orca-ide serve --port 54749 --pairing-address 127.0.0.1 --json", "[]", true)
 	if err == nil || !strings.Contains(said, "another Orca server runs on this host") || strings.Contains(said, "services create") {
 		t.Fatalf("err %v, said %q", err, said)
 	}
 
-	_, said, err = serveUpIn(t, "41 orca serve --port 7300 --pairing-address 127.0.0.1 --json", "[]")
+	_, said, err = serveUpIn(t, "41 orca serve --port 7300 --pairing-address 127.0.0.1 --json", "[]", true)
 	if err != nil || !strings.Contains(said, "services create") {
 		t.Fatalf("its own server refused it: err %v, said %q", err, said)
+	}
+
+	_, said, err = serveUpIn(t, "", "[]", false)
+	if err == nil || !strings.Contains(said, "this host has no orca CLI") || strings.Contains(said, "services create") {
+		t.Fatalf("a host with no Orca got a service: err %v, said %q", err, said)
 	}
 }

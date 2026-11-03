@@ -27,6 +27,7 @@ const (
 	serveUp      = `dir=$1 port=$2 wait=$3 service=$4
 others=$(pgrep -af '[ ]serve --port ' | grep -v -- " serve --port $port " || true)
 if [ -n "$others" ]; then printf 'another Orca server runs on this host, and two would share its state:\n%s\n' "$others" >&2; exit 3; fi
+(PATH="$HOME/.config/orca/cli/bin:$HOME/.local/bin:$PATH"; command -v orca) >/dev/null || { echo "this host has no orca CLI; install Orca's Linux runtime and CLI on it first" >&2; exit 5; }
 mkdir -p "$dir"
 cat >"$dir/serve.sh" <<'EOF'
 #!/bin/sh
