@@ -41,6 +41,15 @@ def test_key_moments_are_recognized_structurally(tmp_path: Path, tool_name: str,
     assert judge.moment(pre(tmp_path, tool_name, tool_input)) == expected
 
 
+def test_lr_launch_start_reads_its_brief(tmp_path: Path) -> None:
+    brief = tmp_path / "brief.md"
+    brief.write_text("Lane brief: retire valkey with a migration script.")
+
+    found = judge.moment(pre(tmp_path, "Bash", {"command": f"lr launch start valkey-fold opus xhigh {brief}"}))
+
+    assert found == ("a lane spawn", "Lane brief: retire valkey with a migration script.")
+
+
 def test_an_orca_launch_reads_its_brief(tmp_path: Path) -> None:
     brief = tmp_path / "brief.md"
     brief.write_text("Lane brief: retire valkey with a migration script.")

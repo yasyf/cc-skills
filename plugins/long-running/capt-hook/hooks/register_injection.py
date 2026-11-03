@@ -7,6 +7,7 @@ import shlex
 import subprocess
 import sys
 import tempfile
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -132,13 +133,21 @@ def agent_spawn(call: TaskCall) -> Spawn | None:
     return Spawn(call.agent_name or (sliced[1] if sliced else "lane"), incident_spawn(call, prose(call)[:1]), text, brief, inline, prompt)
 
 
+def start_operands(name: str, args: Sequence[str]) -> list[str]:
+    if name == "orca-launch.sh":
+        return list(args)
+    if name == "lr" and tuple(args[:2]) == ("launch", "start"):
+        return list(args[2:])
+    return []
+
+
 def launch_spawn(evt: BaseHookEvent) -> Spawn | None:
     for call in evt.command.calls():
         name, args = Path(call.name).name, list(call.args)
         if not args or not os.path.isfile(brief := Path(args[-1]).expanduser()):
             continue
-        if name == "orca-launch.sh" and len(args) >= 4:
-            return Spawn(args[0], args[1] == "incident", brief.read_text(), brief, inline=False)
+        if len(started := start_operands(name, args)) >= 4:
+            return Spawn(started[0], started[1] == "incident", brief.read_text(), brief, inline=False)
         if name == "codex-ask" and (flag := next((flag for flag in LANE_FLAGS if flag in args[:-1]), None)):
             return Spawn(args[args.index(flag) + 1].rsplit("/", 1)[-1], "--incident" in args, brief.read_text(), brief, inline=False)
     return None
@@ -190,6 +199,10 @@ def judge_answer(verdict: dict) -> str:
         Input(command=f"orca-launch.sh lane-a sol xhigh {BRIEFS / 'sliced.md'}", state=[ACTIVE], env=DRIVE_CONFIG, commands=FRESH_SLICE | {"claude -p": judge_answer(MISSED)}): Warn(
             pattern=r"sliced\.md as missing the N"
         ),
+        Input(command=f"lr launch start lane-a sol xhigh {BRIEFS / 'sliced.md'}", state=[ACTIVE], env=DRIVE_CONFIG, commands=FRESH_SLICE | {"claude -p": judge_answer(MISSED)}): Warn(
+            pattern=r"sliced\.md as missing the N"
+        ),
+        Input(command=f"lr launch lane lane-a sol xhigh {BRIEFS / 'sliced.md'}", state=[ACTIVE], env=DRIVE_CONFIG, commands=FRESH_SLICE | {"claude -p": judge_answer(MISSED)}): Allow(),
         spawn("lane-a", f"Your brief is {BRIEFS / 'sliced.md'}; read it.", commands=FRESH_SLICE): Allow(),
         spawn("lane-a", f"Your brief is {BRIEFS / 'unsliced.md'}; read it."): Warn(pattern=r"--refresh \S*unsliced\.md"),
         spawn("lane-a", "Find every caller of drain.", agent_type="Explore"): Allow(),

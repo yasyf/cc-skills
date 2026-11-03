@@ -12,7 +12,7 @@ from captain_hook.util import reqenv
 
 from .compaction_handoff import REGISTER_FENCE, CompactionState, rulings, script, script_module
 from .judge_metrics import judge_call
-from .register_injection import SLICE_HEADER, drive_args
+from .register_injection import SLICE_HEADER, drive_args, start_operands
 from .tests.register_fixtures import DRIVE_CONFIG
 from .tests.rulings_consumers import separate
 
@@ -58,7 +58,7 @@ def bash_moment(evt: BaseHookEvent) -> tuple[str, str] | None:
                 return "a GO, HOLD or DECIDE line", text
         if name in ("ccx", "gh") and tuple(args[:2]) in PR_VERBS:
             return "a pull request", " ".join(args)
-        if name == "orca-launch.sh" and args and Path(args[-1]).expanduser().is_file():
+        if start_operands(name, args) and Path(args[-1]).expanduser().is_file():
             return "a lane spawn", Path(args[-1]).expanduser().read_text()
     return None
 
