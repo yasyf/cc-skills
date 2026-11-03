@@ -45,7 +45,10 @@ HOOK_DAEMON = "capt-hookd serve"
 HOOK_WORKER = "-m captain_hook.worker"
 PANE_KEY = re.compile(r"\bORCA_PANE_KEY=(\S+)")
 SQUASH = re.compile(r" \(#(?P<number>\d+)\)$")
-CC_REMOTE = os.environ.get("WORKER_CC_REMOTE") or "cc-remote"
+REPO_VALUES = json.loads(Path(".orca.json").read_text()) if Path(".orca.json").is_file() else {}
+CC_REMOTE = os.environ.get("WORKER_CC_REMOTE") or REPO_VALUES.get("ccRemote") or "cc-remote"
+if "ccRemoteConfig" in REPO_VALUES:
+    os.environ.setdefault("CC_REMOTE_CONFIG", str(Path(REPO_VALUES["ccRemoteConfig"]).resolve()))
 STATE_HOME = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state")
 CC_REMOTE_STATE = STATE_HOME / "cc-remote"
 RESUMED = STATE_HOME / "orca-gc" / "resumed"
@@ -657,7 +660,7 @@ def main() -> int:
         "removal through that server's --environment; its tree's HEAD is read from Orca, its cleanliness is left to orca worktree rm, which runs "
         "git worktree remove without --force and so refuses modified or untracked files, and no Mac process scan applies. "
         "A settled dispatch whose worktree and terminal a cc-remote Sprite task records, with the workspace still recorded, has its Sprite destroyed "
-        "with cc-remote destroy, WORKER_CC_REMOTE or cc-remote on PATH under the CC_REMOTE_CONFIG it inherits, which refuses a machine without that workspace's label, and its Orca environment removed, once no unsettled dispatch "
+        "with cc-remote destroy, WORKER_CC_REMOTE, else ccRemote in the working directory's .orca.json, else cc-remote on PATH, under the CC_REMOTE_CONFIG it inherits, else ccRemoteConfig in that .orca.json, which refuses a machine without that workspace's label, and its Orca environment removed, once no unsettled dispatch "
         "shares the workspace, its terminal reads idle twice (skipped under --done), and its checkout, read over ssh, is clean with its HEAD on origin "
         "or landed. A removal Orca answers with an error, such as runtime_unavailable when the runtime drops the connection, still counts as removed when "
         "the worktree's directory is gone afterwards, and the Orca error follows on its own error line. A worktree Orca answers selector_not_found for, because it "

@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-SCRIPT = Path(__file__).resolve().parents[1] / "skills/long-running/scripts/orca-worker-launch.sh"
+SCRIPT = Path(__file__).resolve().parents[1] / "bin/orca-worker-launch.sh"
 RUN = "run_1"
 LANE = "lane-a"
 WORKSPACE = "pool-spare"
@@ -457,7 +457,7 @@ class SpriteTest(LaunchTest):
 
     def test_a_sprite_launch_without_a_config_refuses_before_any_call(self):
         self.launch.sprite()
-        self.assert_refused(self.launch, self.launch.run(CC_REMOTE_CONFIG=""), "set CC_REMOTE_CONFIG to the cc-remote config that names the repository a Sprite checks out; nothing was prepared", [])
+        self.assert_refused(self.launch, self.launch.run(CC_REMOTE_CONFIG=""), "set CC_REMOTE_CONFIG, or ccRemoteConfig in .orca.json, to the cc-remote config that names the repository a Sprite checks out; nothing was prepared", [])
 
     def test_an_explicit_cli_runs_against_the_checkouts_config_at_the_helper_pin(self):
         selected = fake(self.launch.root / "selected" / "cc-remote")
@@ -727,8 +727,8 @@ class LocalTest(LaunchTest):
 
     def test_the_local_route_needs_its_repository_and_base(self):
         for env, line in (
-            ({"WORKER_REPO": ""}, "set WORKER_REPO to the Orca repository the local route adds its worktree to; nothing launched"),
-            ({"WORKER_BASE_BRANCH": ""}, "set WORKER_BASE_BRANCH to the branch a local worktree starts from; nothing launched"),
+            ({"WORKER_REPO": ""}, "set WORKER_REPO, or repo in .orca.json, to the Orca repository the local route adds its worktree to; nothing launched"),
+            ({"WORKER_BASE_BRANCH": ""}, "set WORKER_BASE_BRANCH, or baseBranch in .orca.json, to the branch a local worktree starts from; nothing launched"),
         ):
             with self.subTest(env=env):
                 launch = self.fresh()
@@ -787,6 +787,31 @@ class LocalTest(LaunchTest):
         self.launch.local()
         self.launch.reply("orca orchestration run-current", {"out": {"ok": True, "result": {"run": {"id": "run_2"}}}})
         self.assert_refused(self.launch, self.launch.run(model="fable", WORKER_LOCAL="1"), f"terminal term_coordinator coordinates run_2, not {RUN}, so nothing launched; launch from the coordinator that already owns Run {RUN}", [CURRENT])
+
+
+    def test_a_checkouts_orca_json_names_the_cc_remote_pair_the_environment_leaves_unset(self):
+        selected = fake(self.launch.checkout / "tools" / "cc-remote")
+        (self.launch.checkout / ".orca.json").write_text(json.dumps({"ccRemote": "tools/cc-remote", "ccRemoteConfig": "cc-remote/config.yaml"}))
+        self.launch.sprite()
+        result = self.launch.run(cwd=self.launch.checkout, CC_REMOTE_CONFIG="")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.launch.cc_remote(), {(str(selected), str(self.launch.config))})
+        self.assertEqual(self.launch.calls(), [VERSION, CURRENT, self.launch.prepare(), self.launch.start()])
+
+    def test_the_environment_outranks_a_checkouts_orca_json(self):
+        fake(self.launch.checkout / "tools" / "cc-remote")
+        (self.launch.checkout / ".orca.json").write_text(json.dumps({"ccRemote": "tools/cc-remote", "ccRemoteConfig": "missing.yaml"}))
+        self.launch.sprite()
+        result = self.launch.run(cwd=self.launch.checkout, WORKER_CC_REMOTE=str(self.launch.cli))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.launch.cc_remote(), {(str(self.launch.cli), str(self.launch.config))})
+
+    def test_a_checkouts_orca_json_names_the_local_repository_and_base_and_leads_the_cone(self):
+        (self.launch.checkout / ".orca.json").write_text(json.dumps({"repo": REPO, "baseBranch": BASE_BRANCH, "sparse": ["src"]}))
+        self.launch.local()
+        result = self.launch.run(model="fable", cwd=self.launch.checkout, WORKER_LOCAL="1", WORKER_REPO="", WORKER_BASE_BRANCH="", WORKER_SPARSE="docs")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.launch.calls(), self.launch.local_calls(cone=CONE))
 
 
 if __name__ == "__main__":
