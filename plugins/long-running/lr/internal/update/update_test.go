@@ -1,0 +1,271 @@
+package update
+
+import (
+	"reflect"
+	"slices"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/asks"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/plans"
+)
+
+const drive = "d1"
+
+var now = time.Date(2026, 11, 2, 19, 0, 0, 0, time.UTC)
+
+func ago(minutes int) time.Time {
+	return now.Add(-time.Duration(minutes) * time.Minute)
+}
+
+func record(seq int64, lane, kind, text string, minutes int) Record {
+	return Record{Seq: seq, Drive: drive, Lane: lane, Kind: kind, Text: text, At: ago(minutes), To: []string{"root"}}
+}
+
+func heard(name, state string, minutes int) Lane {
+	return Lane{Name: name, State: state, Heard: ago(minutes), Brief: "/b/" + name + ".md"}
+}
+
+func viewOf(lanes []Lane, latest []Record, waits []Record) view {
+	return newView(lanes, latest, waits, now)
+}
+
+func TestTheUpdateNamesEveryLanePostingWithinADayRegisteredOrNotAndEveryStandingOne(t *testing.T) {
+	memory := heard("memory-siblings-2", "desired", 60)
+	memory.Step = "memory"
+	perf := Lane{Name: "devbox-perf-1", State: "launching", Standing: "devbox perf and bug hunting"}
+	explore := heard("devbox-explore-7", "retired", 600)
+	explore.Standing = "devbox perf and bug hunting"
+	lanes := []Lane{memory, heard("red-sweep-3", "unregistered", 30), heard("root", "unregistered", 1), heard("cohort-flag-1", "desired", 30*60), perf, explore, heard("old-lane-1", "retired", 5)}
+	want := []string{"memory-siblings-2", "red-sweep-3", "devbox-perf-1"}
+	if got := namesOf(working(lanes, now)); !reflect.DeepEqual(got, want) {
+		t.Fatalf("working = %v", got)
+	}
+}
+
+func TestALaneSitsUnderThePlanStepItsBriefNamesByNumberAndItsSubSteps(t *testing.T) {
+	step := &plans.Step{Number: "7", Title: "7. B3: the reader and writer"}
+	for named, want := range map[string]bool{"7": true, "7.7": true, "17": false, "reader": false, "all": false, "": false} {
+		if got := onStep(Lane{Step: named}, step); got != want {
+			t.Errorf("step %q = %v, want %v", named, got, want)
+		}
+	}
+}
+
+func TestAStandingDutyReadsTheEndOfItsSuccessorChainAndNoSuccessorOnceThatEndRetiredAlone(t *testing.T) {
+	devbox := heard("devbox-explore-7", "retired", 600)
+	devbox.Standing, devbox.RetiredBy = "devbox perf and bug hunting", "done"
+	old := heard("board-refresher-6", "retired", 90)
+	old.Standing, old.RetiredBy = "refresh the board", "board-refresher-7"
+	fresh := heard("board-refresher-7", "desired", 2)
+	fresh.Standing = "refresh the board"
+	rows := viewOf([]Lane{devbox, old, fresh}, nil, nil).dutyRows()
+	if len(rows) != 2 {
+		t.Fatalf("rows = %+v", rows)
+	}
+	first, second := rows[0], rows[1]
+	if first.Who != nobody || first.Blocks != "devbox-explore-7 retired by done with no successor" || first.Unblock != "root launches its successor from /b/devbox-explore-7.md this turn" || !first.unowned() {
+		t.Fatalf("devbox row = %+v", first)
+	}
+	if second.Name != "refresh the board" || second.Who != "board-refresher-7" || second.unowned() {
+		t.Fatalf("board row = %+v", second)
+	}
+}
+
+func TestWorkIsHeldOnlyByLanesHeardWithinTwoHoursWithTheirNextRecordDueAndRootWaitsNamed(t *testing.T) {
+	v := viewOf(
+		[]Lane{heard("release-5", "desired", 10), heard("old-desk-1", "desired", 300), heard("root", "unregistered", 1)},
+		[]Record{record(7, "release-5", "head", "pushed #48700", 10)},
+		[]Record{record(8, "release-5", "blocker", "needs the owner's word on deletes", 5)},
+	)
+	w := v.workOf([]string{"release-5", "old-desk-1", "root"})
+	if w.who != "release-5" || !strings.HasPrefix(w.blocks, "release-5 waits on root's answer to blocker #8 since ") {
+		t.Fatalf("work = %+v", w)
+	}
+	if !strings.HasPrefix(w.unblock, "release-5: head ") || !strings.Contains(w.unblock, "; next record due by ") {
+		t.Fatalf("unblock = %q", w.unblock)
+	}
+	if !strings.HasPrefix(w.wrong, "old-desk-1 quiet since ") {
+		t.Fatalf("wrong = %q", w.wrong)
+	}
+	idle := v.workOf([]string{"old-desk-1", "root"})
+	if idle.who != nobody || idle.unblock != "nobody is on it, so root starts a lane on it this turn" {
+		t.Fatalf("idle = %+v", idle)
+	}
+}
+
+func TestAPlanWithNoNumberedStepsRowsEachPieceItsTitleListsAndALaneJoinsAPieceByItsWord(t *testing.T) {
+	plan := &plans.Plan{Title: "SandSQL five pieces: ssql-server (two modes), ssql-replicator, ssql-signal; migration R0-R8", Steps: []*plans.Step{{Number: plans.Unmapped, Title: "No step label"}}}
+	if got, want := pieces(plan), []string{"ssql-server", "ssql-replicator", "ssql-signal"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("pieces = %v", got)
+	}
+	if !onPiece(Lane{Name: "uploads-to-replicator-1"}, "ssql-replicator") || !onPiece(Lane{Name: "x-1", Deliverable: "read the sandsql-server supervisor"}, "ssql-server") {
+		t.Fatal("a lane did not join its piece")
+	}
+	if onPiece(Lane{Name: "signal-valkey-2"}, "ssql-replicator") {
+		t.Fatal("a lane joined another piece")
+	}
+}
+
+func TestAStepWithEveryTaskDoneIsNeverUnownedAndAnOpenOneWithNobodyIs(t *testing.T) {
+	v := viewOf(nil, nil, nil)
+	done := v.stepRow("Step 2", "2. Data", &plans.Step{Tasks: []plans.Task{{Title: "Port the consumer", State: plans.Done}}}, nil)
+	open := v.stepRow("Step 0", "0. The base", &plans.Step{Tasks: []plans.Task{{Title: "Port the consumer", State: plans.Done}, {Title: "Port the consumer", State: plans.Blocked, Waiting: "#45723 review"}}}, nil)
+	if done.unowned() || !open.unowned() {
+		t.Fatalf("done = %+v, open = %+v", done, open)
+	}
+	if open.State != "1 of 2 tasks done, 0 in progress, 1 blocked" || open.Blocks != "task Port the consumer waits on #45723 review" {
+		t.Fatalf("open = %+v", open)
+	}
+}
+
+func TestATableCellNeverBreaksItsRow(t *testing.T) {
+	got := table([]Row{{"#48401", "a | b", "red", nobody, "waits: red", "x", "its head is red", false}})[2]
+	if want := "| #48401 | a / b | red | **nobody** | waits: red | x | its head is red |"; got != want {
+		t.Fatalf("row = %q", got)
+	}
+}
+
+func TestAnIncidentRecordIsFiledUnderTheSlugItOpensElseItsLaneElseTheLaneACoordinatorAddresses(t *testing.T) {
+	cases := []struct {
+		lane, text string
+		to         []string
+		want       string
+	}{
+		{"root", "6:11 PM root INCIDENT OPEN ssql-cred-rotation: prod errors", []string{"dev-health-desk-1"}, "ssql-cred-rotation"},
+		{"root", "6:25 AM root: user-creds closed", []string{"drive-watchdog-2@d1"}, "drive-watchdog-2"},
+		{"run-creds-fix-2", "PR up", []string{"root"}, "run-creds-fix-2"},
+	}
+	for _, c := range cases {
+		if got := incidentName(Record{Lane: c.lane, Text: c.text, To: c.to}); got != c.want {
+			t.Errorf("%q = %q, want %q", c.text, got, c.want)
+		}
+	}
+}
+
+func TestARootCloseEndsAnIncidentOnlyForTheRecordsBeforeIt(t *testing.T) {
+	first := Record{Seq: 1, Lane: "api-fix", Kind: "incident", Status: "open", To: []string{"root"}}
+	closing := Record{Seq: 2, Lane: "root", Kind: "decide", Text: "INCIDENT api CLOSED", To: []string{"api-fix"}}
+	later := Record{Seq: 3, Lane: "api-fix", Kind: "incident", Status: "open", To: []string{"root"}}
+	got := openIncidents([]Record{first, closing, later})
+	if got[1] || !got[3] {
+		t.Fatalf("open = %v", got)
+	}
+}
+
+func TestAPRRowsOwnerIsTheNewestLaneRecordNamingItEvenWhenTheLedgerNamesAnother(t *testing.T) {
+	v := viewOf(
+		[]Lane{heard("stale-1", "desired", 300), heard("ship-2", "desired", 5), heard("older-3", "desired", 5)},
+		[]Record{record(1, "older-3", "head", "#48401 at abc", 30), record(2, "ship-2", "report", "landed nothing; #48401 is rebased", 10), record(3, "root", "decide", "#48401 goes", 1), record(4, "ship-2", "note", "other work on #484010", 1)},
+		nil,
+	)
+	row := v.prRow(asks.PR{Number: 48401, Lane: "stale-1", State: "open", Title: "the title"}, nil)
+	if row.Who != "ship-2" {
+		t.Fatalf("who = %q", row.Who)
+	}
+	if !strings.HasPrefix(row.Wrong, "stale-1 quiet since ") {
+		t.Fatalf("wrong = %q", row.Wrong)
+	}
+}
+
+func TestAPRRowSaysWhatHoldsIt(t *testing.T) {
+	v := viewOf(nil, nil, nil)
+	held := v.prRow(asks.PR{Number: 7, State: "open", Registered: true, TestState: "failure"}, map[string]int64{"7": 91})
+	if held.Blocks != "held by cci #91" || held.State != "red" || held.Wrong != "its head is red" {
+		t.Fatalf("held = %+v", held)
+	}
+	red := v.prRow(asks.PR{Number: 8, State: "open", Registered: true, TestState: "failure"}, nil)
+	if red.Blocks != "waits: red" {
+		t.Fatalf("red = %+v", red)
+	}
+	labelled := v.prRow(asks.PR{Number: 9, State: "open", Labels: "merge"}, nil)
+	if labelled.State != queueLabelled || !labelled.Done || labelled.unowned() {
+		t.Fatalf("labelled = %+v", labelled)
+	}
+}
+
+func TestAStepsOwnerIsTheNewestLaneRecordNamingTheStep(t *testing.T) {
+	v := viewOf([]Lane{heard("ship-2", "desired", 5)}, []Record{record(1, "ship-2", "report", "Step 7.2 landed; step 17 next", 10)}, nil)
+	if owner := v.ownerOfStep("7"); owner != "ship-2" {
+		t.Fatalf("owner of 7 = %q", owner)
+	}
+	if owner := v.ownerOfStep("1"); owner != "" {
+		t.Fatalf("owner of 1 = %q", owner)
+	}
+}
+
+func inputs(t *testing.T) Inputs {
+	t.Helper()
+	book, err := asks.Read(map[string]map[string]string{
+		"ask/000001": {"lane": "ship-2", "text": "measure idle resources across every worker", "asked_at": ago(300).Format(time.RFC3339)},
+		"48401":      {"lane": "ship-2", "title": "journal readers move to the sealed format", "reported_head": "abc"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ship := heard("ship-2", "desired", 5)
+	ship.Step, ship.Deliverable = "2", "the sealed journal format reaches every reader"
+	return Inputs{
+		Drive:   drive,
+		Now:     now,
+		Book:    book,
+		Held:    map[string]int64{},
+		Lanes:   []Lane{ship, heard("quiet-9", "desired", 30*60)},
+		Records: []Record{record(5, "ship-2", "report", "readers ported", 10)},
+		Plans: []*plans.Plan{{Title: "The rebuild", Steps: []*plans.Step{
+			{Number: "1", Title: "1. The base", Tasks: []plans.Task{{Title: "Base", State: plans.Done}}},
+			{Number: "2", Title: "2. The readers", Tasks: []plans.Task{{Title: "Readers", State: plans.InProgress}}},
+			{Number: "3", Title: "3. The writers", Tasks: []plans.Task{{Title: "Writers", State: plans.Open}}},
+		}}},
+	}
+}
+
+func TestADoneStepFoldsIntoOneLineAndAnOpenOneWithNobodyLeadsAsUnowned(t *testing.T) {
+	report := Render(inputs(t))
+	if strings.Contains(report.Text, "step 1. The base") {
+		t.Fatalf("a done step keeps its section:\n%s", report.Text)
+	}
+	if !strings.Contains(report.Text, "## Done plan steps\n- The rebuild: 1. The base") {
+		t.Fatalf("a done step is gone from the update:\n%s", report.Text)
+	}
+	unowned := report.Text[strings.Index(report.Text, "## Unowned work"):strings.Index(report.Text, "## Standing duties")]
+	if !strings.Contains(unowned, "Step 3") || strings.Contains(unowned, "Step 2") {
+		t.Fatalf("unowned = %s", unowned)
+	}
+}
+
+func TestTheRenderCoversEveryNeedItDerives(t *testing.T) {
+	report := Render(inputs(t))
+	if left := Missing(report.Text, report.Needs); len(left) != 0 {
+		t.Fatalf("missing = %v in\n%s", left, report.Text)
+	}
+	ids := make([]string, len(report.Needs))
+	for i, need := range report.Needs {
+		ids[i] = need.ID
+	}
+	for _, want := range []string{"ship-2", "ask/000001", "#48401", "Open PRs", "Unowned work"} {
+		if !slices.Contains(ids, want) {
+			t.Errorf("needs lack %q: %v", want, ids)
+		}
+	}
+	if slices.Contains(ids, "quiet-9") {
+		t.Errorf("a lane quiet over a day is a need: %v", ids)
+	}
+}
+
+func TestAWrittenUpdateMissesEachIdItDoesNotNameWhole(t *testing.T) {
+	needs := []Need{{"tooling-codify-1", ""}, {"release-5", ""}, {"ask:abc123", ""}, {"#48401", ""}, {"tooling-codify-1", ""}}
+	got := Missing("tooling-codify-1 landed #48401; release-5-2 still runs", needs)
+	if want := []string{"release-5", "ask:abc123"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("missing = %v", got)
+	}
+}
+
+func TestAPlainWordsUpdatePassesOnItsSubjectsWithNoRawIds(t *testing.T) {
+	needs := []Need{{"#48401", "journal readers move to the sealed format"}, {"ask/000001", "measure idle resources across every worker"}, {"#48402", "billing export learns another column"}}
+	written := "The journal readers are moving to the sealed format. We are measuring idle resources across every worker: measure is half done."
+	if got, want := Missing(written, needs), []string{"#48402"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("missing = %v", got)
+	}
+}
