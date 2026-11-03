@@ -47,7 +47,16 @@ prepared.
 
 Before `worker-start`, the script installs cci on the Sprite from
 `WORKER_CCI_URL` and checks it against `WORKER_CCI_SHA256`. A failed install
-leaves the prepared worker idle. With `WORKER_RELAY_SPONSOR` set to a Sprite
+leaves the prepared worker idle, and `install.log` in the attempt directory
+keeps its output.
+
+The same step installs into `~/.local/bin` on the Sprite the `linux-x86_64` `lr`
+release that this pack's `bin/lr.binrun` pins, checked against that file's
+SHA-256, so a Sprite lane runs the `lr` the launching drive runs. A pack whose
+`bin/lr.binrun` pins no sha256 tar.gz GitHub release for `linux-x86_64` refuses
+before prepare.
+
+With `WORKER_RELAY_SPONSOR` set to a Sprite
 that holds an enrolled cci service key, the script then joins the new Sprite to
 this Mac's default relay mesh for the mesh's routed drives, with a 24-hour
 delegation and this Mac's node as owner, and starts `cci supervise` as a Sprite

@@ -156,7 +156,7 @@ func workerCommand(a *app.App) *cobra.Command {
 	return &cobra.Command{
 		Use:   "worker LANE MODEL EFFORT BRIEF",
 		Short: "Prepare one Sprite and start a worker on it, or a local worktree with WORKER_LOCAL=1, and print one JSON line",
-		Long: `Prepare one Sprite through cc-remote, copy what the brief names to it, install cci, and start a worker. Print one JSON line naming the task, dispatch, terminal and worktree. A failure prints one line on stderr, exit 1, and keeps what it made in BRIEF's .worker directory. A brief gets one attempt at worker-start.
+		Long: `Prepare one Sprite through cc-remote, copy what the brief names to it, install cci and the lr this pack pins for linux-x86_64 in bin/lr.binrun into the Sprite's ~/.local/bin, and start a worker. Print one JSON line naming the task, dispatch, terminal and worktree. A failure prints one line on stderr, exit 1, and keeps what it made in BRIEF's .worker directory. A brief gets one attempt at worker-start.
 
   WORKER_RUN            the Orca Run id, required
   WORKER_CHECKOUT       the checkout whose tools/cc-remote starts Sprites, required
