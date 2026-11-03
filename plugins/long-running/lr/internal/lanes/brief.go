@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/owner"
 )
 
 var (
@@ -20,6 +22,7 @@ type Brief struct {
 	Step        string
 	Standing    string
 	Deliverable string
+	Orders      []string
 }
 
 type cachedBrief struct {
@@ -43,6 +46,7 @@ func parseBrief(text string) Brief {
 	if found := deliverable.FindStringSubmatch(text); found != nil {
 		said.Deliverable = strings.TrimSpace(or(found[1], found[2]))
 	}
+	said.Orders = owner.Orders(text)
 	return said
 }
 

@@ -185,7 +185,7 @@ func groupLines(sections []section, f folding) (lines []string, stepLines int) {
 }
 
 func (d draft) lines(f folding) ([]string, int) {
-	out := append([]string{d.header}, d.overdue...)
+	out := slices.Concat([]string{d.header}, d.overdue, d.orders)
 	moved := d.moved(f)
 	out = append(out, titled(d.sinceTitle, moved)...)
 	perGroup := 0

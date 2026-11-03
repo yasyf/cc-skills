@@ -17,6 +17,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ledger"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/owner"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/plans"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
@@ -83,7 +84,10 @@ func Wire(a *app.App, entry drive.Entry, s *store.Store) Sources {
 			return ReadRulings(ctx, ccn, mirror.Source, entry.Program)
 		},
 		Overdue: s.Overdue,
-		Pins:    entry.Pinned,
+		Orders: func(ctx context.Context) ([]owner.Row, error) {
+			return lanes.OpenOrders(ctx, lanes.CCI{}, s, entry.Bus(), entry.Repo, entry.StateDir)
+		},
+		Pins: entry.Pinned,
 	}
 }
 

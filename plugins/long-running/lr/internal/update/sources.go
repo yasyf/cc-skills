@@ -17,6 +17,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/deletions"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/owner"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/plans"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -51,6 +52,7 @@ type Sources struct {
 	Programs func() ([]Program, error)
 	Rulings  func(ctx context.Context) ([]PlanRuling, error)
 	Overdue  func(now time.Time) ([]store.Item, error)
+	Orders   func(ctx context.Context) ([]owner.Row, error)
 	Pins     []drive.Pin
 }
 
@@ -144,7 +146,11 @@ func Collect(ctx context.Context, src Sources, bus string, now time.Time) (Input
 	if err != nil {
 		return Inputs{}, err
 	}
-	in := Inputs{Drive: bus, Now: now, Lanes: lanes, Plans: list, Book: book, Held: heldPRs(holds), Waits: waitingOnRoot(day), Board: boardLines(ctx, src, day), All: all, Before: before, Retro: retro, Owed: owed, Pins: src.Pins, Programs: programs, Rulings: rulings, Overdue: slices.DeleteFunc(overdue, func(item store.Item) bool { return item.Mover != machine.MoverRoot })}
+	orders, err := src.Orders(ctx)
+	if err != nil {
+		return Inputs{}, err
+	}
+	in := Inputs{Drive: bus, Now: now, Lanes: lanes, Plans: list, Book: book, Held: heldPRs(holds), Waits: waitingOnRoot(day), Board: boardLines(ctx, src, day), All: all, Before: before, Retro: retro, Owed: owed, Pins: src.Pins, Programs: programs, Rulings: rulings, Overdue: slices.DeleteFunc(overdue, func(item store.Item) bool { return item.Mover != machine.MoverRoot }), Orders: orders}
 	named := namesOf(working(lanes, now))
 	start := midnight(now)
 	for _, record := range day {

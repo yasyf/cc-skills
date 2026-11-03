@@ -26,6 +26,7 @@ const (
 	opened    = "open"
 	responded = "responded"
 	addressed = "addressed"
+	noOrder   = "no-order"
 	lockFile  = ".owner-ledger.lock"
 	header    = "| id | time | message | routed | state |\n|---|---|---|---|---|\n"
 	rowTime   = "Jan 2 3:04 PM"
@@ -45,7 +46,7 @@ var batchedKinds = []string{"report", "note", "answer", "done", "head", "state",
 
 var (
 	rowID     = regexp.MustCompile(`(?m)^\| m(\d+) \|`)
-	rowState  = regexp.MustCompile(`(?m)^\| m\d+ \| .* \| (open|responded|addressed) \|$`)
+	rowState  = regexp.MustCompile(`(?m)^\| m\d+ \| .* \| (open|responded|addressed|no-order) \|$`)
 	cellBreak = strings.NewReplacer("|", `\|`, "\r\n", "<br>", "\n", "<br>", "\r", "<br>")
 	pacific   = mustZone("America/Los_Angeles")
 )
@@ -58,8 +59,8 @@ func mustZone(name string) *time.Location {
 	return zone
 }
 
-func Ledger(entry drive.Entry) string {
-	return filepath.Join(entry.StateDir, "owner-relay", "owner-ledger.md")
+func Ledger(state string) string {
+	return filepath.Join(state, communicator, "owner-ledger.md")
 }
 
 func locked(path string, fn func() error) error {
@@ -118,7 +119,7 @@ func Mark(path, row, state string, routed int) error {
 		if err != nil {
 			return err
 		}
-		found := regexp.MustCompile(`(?m)^\| ` + regexp.QuoteMeta(row) + ` \| .* \| ([^|]*) \| (?:open|responded|addressed) \|$`).FindSubmatchIndex(ledger)
+		found := regexp.MustCompile(`(?m)^\| ` + regexp.QuoteMeta(row) + ` \| .* \| ([^|]*) \| (?:open|responded|addressed|no-order) \|$`).FindSubmatchIndex(ledger)
 		if found == nil {
 			return fmt.Errorf("no row %s in %s", row, path)
 		}
@@ -145,7 +146,7 @@ func Rows(path string, all bool) ([]string, error) {
 	}
 	var rows []string
 	for _, found := range rowState.FindAllSubmatch(ledger, -1) {
-		if all || string(found[1]) != addressed {
+		if all || (string(found[1]) != addressed && string(found[1]) != noOrder) {
 			rows = append(rows, string(found[0]))
 		}
 	}
@@ -182,19 +183,19 @@ func Command(a *app.App) *cobra.Command {
 	owner := &cobra.Command{Use: "owner", Short: "The communicator's ledger of every owner message"}
 	owner.PersistentFlags().StringVar(&driveName, "drive", os.Getenv("LR_DRIVE"), "the drive's bus name")
 	mark := &cobra.Command{
-		Use:   "mark ROW responded|addressed",
-		Short: "Mark one ledger row, so the communicator's turn can end",
+		Use:   "mark ROW responded|addressed|no-order",
+		Short: "Mark one ledger row, so the communicator's turn can end; no-order takes a question or remark off lr owner audit",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			row, state := args[0], args[1]
-			if state != responded && state != addressed {
-				return fmt.Errorf("mark %s responded or addressed, not %s", row, state)
+			if state != responded && state != addressed && state != noOrder {
+				return fmt.Errorf("mark %s responded, addressed or no-order, not %s", row, state)
 			}
 			entry, err := drive.Named(driveName)
 			if err != nil {
 				return err
 			}
-			if err := Mark(Ledger(entry), row, state, routed); err != nil {
+			if err := Mark(Ledger(entry.StateDir), row, state, routed); err != nil {
 				return err
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", row, state)
@@ -218,7 +219,7 @@ func Command(a *app.App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			row, err := Add(Ledger(entry), a.Now(), string(text), addState, addRouted)
+			row, err := Add(Ledger(entry.StateDir), a.Now(), string(text), addState, addRouted)
 			if err != nil {
 				return err
 			}
@@ -230,14 +231,14 @@ func Command(a *app.App) *cobra.Command {
 	add.Flags().IntVar(&addRouted, "routed", 0, "the seq of the cci record that routed the message")
 	list := &cobra.Command{
 		Use:   "list",
-		Short: "Print the ledger's rows not yet addressed, oldest first, or every row with --all",
+		Short: "Print the ledger's rows not yet addressed or marked no-order, oldest first, or every row with --all",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			entry, err := drive.Named(driveName)
 			if err != nil {
 				return err
 			}
-			rows, err := Rows(Ledger(entry), listAll)
+			rows, err := Rows(Ledger(entry.StateDir), listAll)
 			if err != nil {
 				return err
 			}
@@ -247,7 +248,7 @@ func Command(a *app.App) *cobra.Command {
 			return nil
 		},
 	}
-	list.Flags().BoolVar(&listAll, "all", false, "print addressed rows too")
+	list.Flags().BoolVar(&listAll, "all", false, "print addressed and no-order rows too")
 	start := &cobra.Command{
 		Use:   "start",
 		Short: "Subscribe this window as the communicator, with routine records batched, and lower its compaction ceiling",

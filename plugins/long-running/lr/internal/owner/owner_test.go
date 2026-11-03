@@ -196,8 +196,8 @@ func TestTheVerbMarksTheRowTheHooksLedgerPathHolds(t *testing.T) {
 
 func TestTheVerbRefusesAnyOtherState(t *testing.T) {
 	got, err := run(t, "mark", "m1", "done")
-	if err == nil || !strings.Contains(err.Error(), "responded or addressed") {
-		t.Fatalf("got %v, want a refusal naming the two states", err)
+	if err == nil || !strings.Contains(err.Error(), "responded, addressed or no-order") {
+		t.Fatalf("got %v, want a refusal naming the three states", err)
 	}
 	if !strings.Contains(got, "| m1 | Nov 2 8:05 PM | keep the nightly report |  | open |\n") {
 		t.Fatalf("m1 changed:\n%s", got)
@@ -292,5 +292,26 @@ func TestStartBatchesRoutineRecordsAndNeverWhatTheOwnerSentOrTapped(t *testing.T
 	}
 	if written["autoCompactWindow"] != float64(280000) || written["permissions"] == nil {
 		t.Fatalf("settings = %v, want the window set and the rest kept", written)
+	}
+}
+
+func TestANoOrderRowLeavesTheWaitingListAndStillCountsTowardTheNextID(t *testing.T) {
+	path := staged(t)
+	if err := Mark(path, "m2", noOrder, 0); err != nil {
+		t.Fatal(err)
+	}
+	waiting, err := Rows(path, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.ContainsFunc(waiting, func(row string) bool { return strings.HasPrefix(row, "| m2 |") }) {
+		t.Fatalf("waiting %q", waiting)
+	}
+	if err := Mark(path, "m2", responded, 0); err != nil {
+		t.Fatal(err)
+	}
+	row, err := Add(path, addedAt, "next", opened, 0)
+	if err != nil || row != "m13" {
+		t.Fatalf("row %s, err %v", row, err)
 	}
 }

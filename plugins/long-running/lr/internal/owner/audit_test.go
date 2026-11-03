@@ -1,0 +1,102 @@
+package owner
+
+import (
+	"reflect"
+	"testing"
+
+	"github.com/yasyf/cc-inbox/client"
+)
+
+const auditLedger = `| id | time | message | routed | state |
+|---|---|---|---|---|
+| m1 | Nov 3 4:50 AM | build the phone app for approvals | 362808 | addressed |
+| m2 | Nov 3 4:51 AM | redesign the wire format |  | responded |
+| m3 | Nov 3 4:52 AM | mute that monitor for two days |  | addressed |
+| m4 | Nov 3 4:53 AM | why does it need Touch ID? |  | responded |
+| m5 | Nov 3 4:54 AM | shouldn’t you be fixing that watchdog issue? |  | responded |
+| m6 | Nov 3 4:55 AM | Owner on board d50e80e8, Which open pull requests may merge now? (merge-prs): 48201 approved at 1ffd915 |  | addressed |
+| m7 | Nov 3 4:56 AM | if the regression is in the new build, how are people hitting it |  | no-order |
+| m8 | Nov 3 4:57 AM | is this live yet?<br>also fix the stop hook |  | responded |
+| m9 | Nov 3 4:58 AM | close it out and never reopen it \| same cause |  | addressed |
+`
+
+func ids(rows []Row) []string {
+	out := make([]string, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, row.ID)
+	}
+	return out
+}
+
+func TestEveryOrderNothingDeliversIsListedAndAReplyAloneDeliversNothing(t *testing.T) {
+	rows := Parse([]byte(auditLedger))
+
+	got := ids(Undelivered(rows, nil, nil))
+
+	if want := []string{"m1", "m2", "m3", "m5", "m8", "m9"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestALiveLaneWhoseBriefNamesTheOrderDeliversItAndARetiredOneDoesNot(t *testing.T) {
+	rows := Parse([]byte(auditLedger))
+	lanes := []Lane{{Name: "phone-app-1", Working: true, Orders: []string{"m1"}}, {Name: "wire-1", Orders: []string{"m2"}}}
+
+	got := ids(Undelivered(rows, lanes, nil))
+
+	if want := []string{"m2", "m3", "m5", "m8", "m9"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestALandedOrDoneRecordDeliversTheOrderItNamesOrItsLaneCarries(t *testing.T) {
+	rows := Parse([]byte(auditLedger))
+	lanes := []Lane{{Name: "wire-1", Orders: []string{"m2"}}, {Name: "mute-1", Orders: []string{"m3"}}}
+	installed := client.Record{Lane: "install-desk-1", Kind: "done", Text: "installed and seen working"}
+	installed.Refs.Lanes = []string{"mute-1"}
+	proofs := []client.Record{{Lane: "wire-1", Kind: "landed", Text: "wire-1: merged, not installed"}, installed, {Lane: "fix-9", Kind: "landed", Text: "owner:m9 closed out for good"}}
+
+	got := ids(Undelivered(rows, lanes, proofs))
+
+	if want := []string{"m1", "m5", "m8"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestOnlyADeliveredAttrMakesAReportProofAndAReplyNamingTheRowIsNot(t *testing.T) {
+	rows := Parse([]byte(auditLedger))
+	delivered := client.Record{Lane: "owner-relay", Kind: "report", Text: "he picked B on the options"}
+	delivered.Fields.Attrs = map[string]string{"delivered": "owner:m2 owner:m3"}
+	acknowledged := client.Record{Lane: "owner-relay", Kind: "note", Text: "owner:m1 routed to a lane"}
+
+	got := ids(Undelivered(rows, []Lane{{Name: "owner-relay", Orders: []string{"m5"}}}, []client.Record{delivered, acknowledged}))
+
+	if want := []string{"m1", "m5", "m8", "m9"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestABoardTapABareQuestionAndANoOrderMarkAreNotOrders(t *testing.T) {
+	for _, row := range Parse([]byte(auditLedger)) {
+		want := row.ID != "m4" && row.ID != "m6" && row.ID != "m7"
+		if row.Order() != want {
+			t.Errorf("%s %q: order %v, want %v", row.ID, row.Text, row.Order(), want)
+		}
+	}
+}
+
+func TestParseUnescapesTheMessageCell(t *testing.T) {
+	rows := Parse([]byte(auditLedger))
+
+	if rows[7].Text != "is this live yet? also fix the stop hook" || rows[8].Text != "close it out and never reopen it | same cause" || rows[0].At != "Nov 3 4:50 AM" || rows[6].State != noOrder {
+		t.Fatalf("rows %+v", rows)
+	}
+}
+
+func TestOrdersReadsEachOwnerTokenOnce(t *testing.T) {
+	got := Orders("carry owner:m85 and owner:m142; owner:m85 again, not m140 or owner ledger m143")
+
+	if want := []string{"m85", "m142"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}

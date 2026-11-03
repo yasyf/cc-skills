@@ -40,7 +40,8 @@ any read: `cci subscribe --drive <drive> --reader meta`.
    coordinator or any lane becomes a lane with a deliverable and a due time that same turn,
    never an ask; send back an ask that carries a defect and no lane. Write its brief to
    `<state dir>/<lane>/brief.md` with its `Register slice:`, `Scale:` and `ccx:` lines,
-   the owner's words verbatim and the contract below, and launch it with
+   each owner order it delivers as its `owner:m<row>` token, the owner's words verbatim
+   and the contract below, and launch it with
    `lr launch lane <lane> opus xhigh <brief> --drive <drive> --lane meta`. A
    lane's `Agent` spawn holds its turn, so an implementer is never an in-process
    subagent. A question over transcripts, records or logs too big for your window goes

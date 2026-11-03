@@ -139,6 +139,14 @@ def test_rows_continue_the_hand_ledger_and_keep_it(communicator: Window) -> None
     assert [row.split(" | ")[0] for row in communicator.rows()] == ["| m1", "| m2"]
 
 
+def test_a_row_marked_no_order_still_holds_its_id(communicator: Window) -> None:
+    communicator.seed(owner_ledger.HEADER + "| m1 | Nov 2 8:05 PM | why does it need Touch ID? |  | no-order |\n")
+
+    communicator.prompt("next")
+
+    assert [row.split(" | ")[0] for row in communicator.rows()] == ["| m1", "| m2"]
+
+
 def test_a_credential_in_a_prompt_never_reaches_the_ledger(communicator: Window) -> None:
     communicator.prompt("use ghp_abcdefghijklmnopqrstuvwxyz0123 for this")
 
