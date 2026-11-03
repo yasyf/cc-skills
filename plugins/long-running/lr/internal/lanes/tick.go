@@ -238,7 +238,7 @@ func act(s *store.Store, d Deps, lane store.Lane, found map[string]Peer, taken m
 			return
 		}
 		hold(s, lane.Name, verdict.Why, now)
-		blockRoot(s, d, lane.Name, fmt.Sprintf("held, not relaunched or retired: it %s; brief %s", verdict.Why, lane.Brief), now)
+		escalate(s, d, "lane:"+lane.Name, fmt.Sprintf("held, not relaunched or retired: it %s; brief %s", verdict.Why, lane.Brief), now)
 		out.Held = append(out.Held, lane.Name)
 	case StoodDown:
 		if !refusedOwing(s, d, lane.Name, now) {
@@ -278,10 +278,7 @@ func act(s *store.Store, d Deps, lane store.Lane, found map[string]Peer, taken m
 }
 
 func raiseUnheard(s *store.Store, d Deps, name string, now time.Time) {
-	blockRoot(s, d, name, fmt.Sprintf("held, not retired: it %s, so nothing proves its work landed; read its Sprite or worktree, then post `%s` or relaunch it", unheardDone, Request{Verb: "done", Lane: name}.Command()), now)
-}
-
-func blockRoot(s *store.Store, d Deps, name, cause string, now time.Time) {
+	cause := fmt.Sprintf("held, not retired: it %s, so nothing proves its work landed; read its Sprite or worktree, then post `%s` or relaunch it", unheardDone, Request{Verb: "done", Lane: name}.Command())
 	if must(s.Escalate("lane:"+name, cause, Root, now)) {
 		do(d.Post(Post{Kind: "blocker", To: []string{Root}, LaneRef: name, Text: "lane:" + name + ": " + cause}))
 	}
