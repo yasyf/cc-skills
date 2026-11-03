@@ -15,6 +15,9 @@ on:
       strict:
         type: boolean
         default: false
+      lockstep:
+        type: string
+        default: ""
       script-ref:
         type: string
         default: "plugin-v1"
@@ -63,4 +66,5 @@ jobs:
           AUTOBUMP_GUARD: ${{ inputs.guard-plugins }}
           AUTOBUMP_EXCLUDES: ${{ inputs.exclude-paths }}
           AUTOBUMP_STRICT: ${{ github.event_name == 'schedule' || inputs.strict }}
+          AUTOBUMP_LOCKSTEP: ${{ inputs.lockstep }}
         run: uv run .autobump-src/.github/scripts/plugin_autobump.py

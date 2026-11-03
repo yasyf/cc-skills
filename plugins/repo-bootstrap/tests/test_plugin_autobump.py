@@ -77,6 +77,7 @@ def _set_env(monkeypatch, repo, **kw):
     monkeypatch.setenv("AUTOBUMP_GUARD", kw.get("guard", ""))
     monkeypatch.setenv("AUTOBUMP_EXCLUDES", kw.get("excludes", ""))
     monkeypatch.setenv("AUTOBUMP_STRICT", kw.get("strict", "false"))
+    monkeypatch.setenv("AUTOBUMP_LOCKSTEP", kw.get("lockstep", ""))
     if "force" in kw:
         monkeypatch.setenv("AUTOBUMP_FORCE", kw["force"])
     if "ci" in kw:
@@ -540,3 +541,66 @@ def test_a_batch_overtaken_by_another_version_refuses_obsolete_tag_publication(r
     assert not autobump.tag_bumps(repo, bumps)
     assert _out(repo, "tag", "--list") == ""
     assert _out(remote, "tag", "--list") == ""
+
+
+LOCKSTEP = (("plugins/a/bin/x.binrun", "plugins/a/x"),)
+
+
+def _descriptor(tag: str) -> str:
+    platform = {"providers": [{"type": "github-release", "repo": "o/r", "tag": tag, "name": "x.tar.gz"}]}
+    return "#!/usr/bin/env binrun\n" + json.dumps({"schema": 1, "name": "x", "platforms": {"linux-x86_64": platform, "macos-aarch64": platform}}) + "\n"
+
+
+def _pinned_plugin(repo: Path) -> None:
+    _write(repo, _manifest_path("plugins/a"), _manifest_text("a", "0.1.0"))
+    _write(repo, "plugins/a/x/main.go", "package main\n")
+    _write(repo, "plugins/a/bin/x.binrun", _descriptor("x--v1"))
+    _run(repo, "tag", "x--v1", _commit(repo, "create a, its binary pinned at x--v1"))
+
+
+def test_a_commit_changing_a_pinned_binary_and_its_plugin_waits_for_the_pin_that_carries_it(repo):
+    _pinned_plugin(repo)
+    _write(repo, "plugins/a/x/main.go", "package main // verb\n")
+    _write(repo, "plugins/a/hook.py", "VERB = 'x verb'\n")
+    spanning = _commit(repo, "a verb and the hook naming it")
+
+    waiting = _by_name(autobump.analyze(repo, set(), [], LOCKSTEP), "a")
+    assert waiting.verdict == "waiting"
+    assert spanning[:7] in waiting.message
+
+    _run(repo, "tag", "x--v2", spanning)
+    _write(repo, "plugins/a/bin/x.binrun", _descriptor("x--v2"))
+    _commit(repo, "pin x--v2")
+    assert _by_name(autobump.analyze(repo, set(), [], LOCKSTEP), "a").verdict == "bump"
+
+
+@pytest.mark.parametrize("path", ["plugins/a/x/main.go", "plugins/a/hook.py"])
+def test_a_commit_on_one_side_of_a_pinned_binary_bumps_on_the_pin_it_has(repo, path):
+    _pinned_plugin(repo)
+    _write(repo, path, "changed\n")
+    _commit(repo, "one side")
+
+    assert _by_name(autobump.analyze(repo, set(), [], LOCKSTEP), "a").verdict == "bump"
+
+
+def test_a_spanning_commit_that_lands_under_the_run_is_never_pushed_on_the_old_pin(repo, tmp_path, monkeypatch):
+    _pinned_plugin(repo)
+    _write(repo, "plugins/a/hook.py", "VERB = 'x'\n")
+    _commit(repo, "hook")
+    remote, other = tmp_path / "remote.git", tmp_path / "other"
+    _run(tmp_path, "init", "--bare", str(remote))
+    _run(repo, "remote", "add", "origin", str(remote))
+    _run(repo, "push", "-u", "origin", "main", "--tags")
+    _run(tmp_path, "clone", "--branch", "main", str(remote), str(other))
+    _run(other, "config", "user.name", "Test")
+    _run(other, "config", "user.email", "test@example.com")
+    _run(other, "config", "commit.gpgsign", "false")
+    _write(other, "plugins/a/x/main.go", "package main // verb\n")
+    _write(other, "plugins/a/hook.py", "VERB = 'x verb'\n")
+    spanning = _commit(other, "a verb and the hook naming it")
+    _run(other, "push", "origin", "main")
+
+    _set_env(monkeypatch, repo, dry_run="false", force="1", lockstep="plugins/a/bin/x.binrun plugins/a/x")
+    assert autobump.main() == 1
+    assert _out(remote, "rev-parse", "main") == spanning
+    assert _out(remote, "tag", "--list") == "x--v1"
