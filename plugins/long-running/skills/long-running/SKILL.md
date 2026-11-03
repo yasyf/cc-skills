@@ -78,7 +78,8 @@ session that runs it. Shared hooks (context discipline: `root_context`, `root_re
 act in both windows. Coordinator hooks (asks, retro rows, coverage, landing, launch,
 incident checks, the task list, the compaction handoff) act only in the session that
 ran `/long-running:coordinator`. Communicator hooks (plain words, owner words and picks,
-claims to the owner, confirm-back) act only in the window that ran `/long-running`
+claims to the owner, confirm-back, failure reports that name what stops a
+recurrence) act only in the window that ran `/long-running`
 alone. The coordinator skill also claims cci lane `root` with `cci announce --lane
 root`, so cci's stop check and injections follow it; the communicator claims
 `owner-relay` with its subscribe line. A lane's window, the meta and signal lanes' included, is bound to its lane name and gets the lane hooks. Hooks are window-scoped,
