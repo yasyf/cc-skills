@@ -192,4 +192,4 @@ The coordinator's digest keeps the blocker open until an explicit closure, even 
 
 ## What stays on SendMessage
 
-A lane reports through a `cci` record first, such as a report, `head`, `handoff`, `fix-live`, or `done` record, and then sends one `SendMessage`. Sending a report only by `SendMessage` is a defect because messages are lost across compaction. Everything with a body goes on `cci` first. `SendMessage` carries only a one-line wake saying `bus #n` or `read the bus`, or a `RULING NEEDED` line to the coordinator. It also carries the lane report to the desk under D1 in `reference/landing.md`, which the desk records in the ledger.
+A lane has no `SendMessage`: it reports through a `cci` record, such as a report, `head`, `handoff`, `fix-live`, or `done` record, and the record's `--to` reaches its reader. Everything with a body goes on `cci`. Only the coordinator and the communicator hold the tool, and they use it for a one-line wake saying `bus #n` or `read the bus`.

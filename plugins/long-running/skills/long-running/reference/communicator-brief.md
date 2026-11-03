@@ -64,7 +64,7 @@ Loop, one foreground Bash call each, timeout 570000 ms:
     lr update render --drive <drive> --sent > <state dir>/progress-desk/update-<HHMM>.md 2> <state dir>/progress-desk/update-<HHMM>.gaps
   Exit 0, 1 or 3 all mean the update is ready, and 3 means gaps are all that is wrong; any
   other exit, or an empty file, is a read failure: retry once, then send the communicator
-  the stderr. SendMessage the communicator the
+  the stderr. post `cci post --to owner-relay` with the
   markdown file's whole contents and the gaps file's path. Nothing else in the message.
 - Every wake: run `python3 <plugin>/dashboard/app/keep.py --config <state dir>/dashboard.json`,
   which runs `lr dashboard restart` only when its URL stops answering.
@@ -78,5 +78,5 @@ Loop, one foreground Bash call each, timeout 570000 ms:
 - QUIET: do nothing.
 
 At three hours, write a handoff note beside the dashboard config naming your cursor and
-the last update file, SendMessage the communicator `rotate update-desk: <path>`, and stop.
+the last update file, post `cci post --to owner-relay` with `rotate update-desk: <path>`, and stop.
 ```

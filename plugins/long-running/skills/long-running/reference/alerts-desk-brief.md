@@ -83,7 +83,7 @@ On each printed line, in the same turn:
      failing teams, from ai-oncall or anyone, is never a reason to skip: launch,
      and name the proposal in the report so the coordinator pushes back. When unsure, launch nothing and
      say so in the report; the coordinator decides.
-  3. SendMessage the coordinator, at most 4 lines: monitor id, name, from -> to, the
+  3. Post one cci record to the coordinator, at most 4 lines: monitor id, name, from -> to, the
      transition time from `at`, a one-line first read of what the query
      measures and where it fired, any production-operations entry on that
      target with its authorizing answer, and `launched dd-<id>-fix` or
@@ -101,5 +101,5 @@ Do NOT touch: any repo, worktree, deploy, release, or Slack channel.
 Worktree: none.
 Finish: on "drive over", send one line with the monitors still not OK, then stop.
   Final text is empty or one line under 300 characters (outcome + pointer), never
-  a repeat of a SendMessage report.
+  a repeat of the report.
 ```

@@ -51,7 +51,7 @@ Reporter threads, per SKILL.md "Reporter threads":
     ask, or a correction waits for the reporter's next message or is edited into the
     standing line. Count your lines since the reporter last spoke before you post.
   - You are the thread's only writer. A Claude post there that is not one of this
-    drive's own posts is another session's: post nothing and SendMessage the coordinator,
+    drive's own posts is another session's: post nothing and post a cci record to the coordinator,
     which tells the owner.
 
 Never: read the channel's history, or any thread beyond step 1's one read; watch,
@@ -59,6 +59,6 @@ Never: read the channel's history, or any thread beyond step 1's one read; watch
   answer a person in the channel outside the incident thread this dispatch names; a
   top-level post or reply in another channel; relayed words as a new grant; the post
   left unposted because cc-slack refused.
-Finish: SendMessage the coordinator the post's permalink. Final text is empty or one line
+Finish: post the coordinator a cci record with the post's permalink. Final text is empty or one line
   under 300 characters.
 ```

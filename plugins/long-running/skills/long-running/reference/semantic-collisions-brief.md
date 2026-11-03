@@ -41,7 +41,7 @@ Do, on every SWEEP from the coordinator:
      giving one name two meanings.
   3. Decide each collision against the settled rulings and design docs. Cite the
      evidence as diffs/<pr>.diff:<line> or a trunk path.
-  4. Tell the owning lanes in the same pass, by SendMessage, one message per lane:
+  4. Tell the owning lanes in the same pass, with `cci post --to <lane>`, one record per lane:
      the collision, the verdict, the exact change it owes, and a 20-minute deadline.
      A collision no ruling settles goes to the coordinator instead, and its lanes hear
      "hold: ruling pending" until it is answered.
@@ -85,5 +85,5 @@ Finish: when the coordinator says the drive is over, write the last map and send
   one report of at most ten lines: open collisions, rulings pending, lanes past
   their deadline. That message is your last action.
   Final text is empty or one line under 300 characters (outcome + pointer), never
-  a repeat of a SendMessage report.
+  a repeat of the report.
 ```
