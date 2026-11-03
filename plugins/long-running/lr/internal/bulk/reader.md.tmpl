@@ -56,7 +56,7 @@ Write `{{.Findings}}`, appending each claim the moment you have confirmed it, so
 {{.Binary}} bulk triage {{.JobPath}}
 ```
 
-It refuses a claim with no cite, or a cite outside the corpus, naming each line: fix those lines and run it again. It launches {{.Triage}} on Opus and prints the runner's verdict. Then:
+It refuses a claim with no cite, or a cite outside the corpus, naming each line: fix those lines and run it again. It launches {{.Triage}} on Opus and prints the runner's verdict. If it refuses because no orca runner is alive, ignore its advice to spawn an Agent: arm a Monitor on `cci watch --drive {{.Drive}} --lane desk-runner --kind state --topic orca`, and at its first line run the step again. Then:
 
 ```sh
 cci post --lane {{.Reader}} --drive {{.Drive}} --kind done --to {{.Triage}} "findings in {{.Findings}}"

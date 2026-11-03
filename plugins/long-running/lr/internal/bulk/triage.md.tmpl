@@ -35,7 +35,7 @@ Read `{{.Findings}}` in full. Do not read the corpus again. Check a claim at its
 3. **The one-pager**, `{{.OnePager}}`: `# Title`, then one paragraph that leads with the answer, then `##` sections. In plain words for someone who has not read the findings: what was asked, what was found, each lane and what it changes for a user, and what needs no work. Publish it:
 
    ```sh
-   {{.Binary}} explain "<topic>" --from {{.OnePager}}
+   {{.Binary}} explain "<topic>" --from {{.OnePager}} --config {{.State}}/lr.json
    ```
 
    It hosts the page on the tailnet, tells the owner and prints the link.
