@@ -23,7 +23,7 @@ const (
 
 func Command(a *app.App) *cobra.Command {
 	cmd := &cobra.Command{Use: "landing", Short: "Move ready heads into the queue, moved heads out, and conflicts onto their base"}
-	cmd.AddCommand(restackCommand(a))
+	cmd.AddCommand(passCommand(a), restackCommand(a))
 	return cmd
 }
 
