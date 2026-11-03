@@ -103,7 +103,7 @@ func Command(a *app.App) *cobra.Command {
 			},
 		}, nil
 	}
-	cmd.AddCommand(waitsCommand(a, opened), cardsCommand(cards), passCommand(a, opened))
+	cmd.AddCommand(waitsCommand(a, opened), cardsCommand(cards), passCommand(a, opened), classifyCommand())
 	return cmd
 }
 

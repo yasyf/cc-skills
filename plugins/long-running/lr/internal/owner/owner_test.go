@@ -7,9 +7,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 )
+
+var addedAt = time.Date(2026, 11, 3, 5, 10, 0, 0, time.UTC)
 
 func read(t *testing.T, path string) string {
 	t.Helper()
@@ -91,7 +94,8 @@ func run(t *testing.T, args ...string) (string, error) {
 	if err := os.WriteFile(ledger, []byte(read(t, filepath.Join("testdata", "ledger.md"))), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	cmd := Command(&app.App{})
+	cmd := Command(&app.App{Now: func() time.Time { return addedAt }})
+	cmd.SetIn(strings.NewReader("a pick | on the board\nand a line\n"))
 	cmd.SetOut(io.Discard)
 	cmd.SetErr(io.Discard)
 	cmd.SetArgs(append(args, "--drive", "brook"))
@@ -116,5 +120,52 @@ func TestTheVerbRefusesAnyOtherState(t *testing.T) {
 	}
 	if !strings.Contains(got, "| m1 | Nov 2 8:05 PM | keep the nightly report |  | open |\n") {
 		t.Fatalf("m1 changed:\n%s", got)
+	}
+}
+
+func TestAddContinuesTheRowsAndKeepsOneRowPerLine(t *testing.T) {
+	path := staged(t)
+	first, err := Add(path, addedAt, "a pick | on the board\nand a line\n", opened, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := Add(path, addedAt, "picked \u201cYes\u201d", addressed, 346705)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first != "m13" || second != "m14" {
+		t.Fatalf("got rows %s and %s", first, second)
+	}
+	if got, want := read(t, path), read(t, filepath.Join("testdata", "added.md")); got != want {
+		t.Fatalf("got:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestTheFirstAddStartsTheTableUnderAHandLedger(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "owner-relay", "owner-ledger.md")
+	if _, err := Add(path, addedAt, "first", opened, 0); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := read(t, path), "\n"+header+"| m1 | Nov 2 9:10 PM | first |  | open |\n"; got != want {
+		t.Fatalf("got:\n%s\nwant:\n%s", got, want)
+	}
+	if err := Mark(path, "m1", responded, 0); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTheAddVerbWritesTheNamedDrivesLedger(t *testing.T) {
+	got, err := run(t, "add", "--state", "addressed", "--routed", "346705")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "| m13 | Nov 2 9:10 PM | a pick \\| on the board<br>and a line | 346705 | addressed |\n"; !strings.Contains(got, want) {
+		t.Fatalf("no %q in:\n%s", want, got)
+	}
+}
+
+func TestTheAddVerbRefusesAResponseItCannotHaveMade(t *testing.T) {
+	if _, err := run(t, "add", "--state", "responded"); err == nil || !strings.Contains(err.Error(), "open or addressed") {
+		t.Fatalf("got %v, want a refusal naming the two states", err)
 	}
 }
