@@ -5,16 +5,26 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"slices"
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ledger"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
-const mirrorFresh = 10 * time.Minute
+const (
+	mirrorFresh = 10 * time.Minute
+	ownerWindow = 2 * time.Hour
+)
+
+var (
+	notOwners  = []string{"root", "main", "all", ""}
+	endedKinds = []string{"stand-down", "handoff", "stopped", "done"}
+)
 
 type Mirror struct {
 	Source ledger.Store
@@ -128,5 +138,136 @@ func Command(a *app.App) *cobra.Command {
 			return nil
 		},
 	})
+	cmd.AddCommand(writeCommands(a, &driveName)...)
 	return cmd
+}
+
+func refusal(now time.Time, bus string) func(ctx context.Context, lane string) (string, error) {
+	return func(ctx context.Context, lane string) (string, error) {
+		if slices.Contains(notOwners, lane) {
+			return fmt.Sprintf("%s is the coordinator, not a worker; name the worker that builds it, or ask root to spawn one", lane), nil
+		}
+		found, err := client.Tail(ctx, client.Query{Drive: bus, Since: now.Add(-ownerWindow)})
+		if err != nil {
+			return "", err
+		}
+		kind := ""
+		posted := false
+		for _, record := range found {
+			if record.Lane == lane {
+				posted, kind = true, string(record.Kind)
+			}
+		}
+		switch {
+		case !posted:
+			return fmt.Sprintf("%s has posted nothing on %s in 2h; name a live worker, or ask root to spawn one", lane, bus), nil
+		case slices.Contains(endedKinds, kind):
+			return fmt.Sprintf("%s has posted nothing on %s in 2h since its %s; name a live worker, or ask root to spawn one", lane, bus, kind), nil
+		}
+		return "", nil
+	}
+}
+
+func writeCommands(a *app.App, driveName *string) []*cobra.Command {
+	opened := func(run func(cmd *cobra.Command, entry drive.Entry, mirror Mirror) error) func(*cobra.Command, []string) error {
+		return func(cmd *cobra.Command, _ []string) error {
+			entry, err := drive.Named(*driveName)
+			if err != nil {
+				return err
+			}
+			mirror, err := OpenMirror(a, entry)
+			if err != nil {
+				return err
+			}
+			defer mirror.Store.Close()
+			return run(cmd, entry, mirror)
+		}
+	}
+	var add NewAsk
+	addCmd := &cobra.Command{
+		Use:   "add",
+		Short: "Record an owner ask verbatim with its live owner lane, acceptance check and due time",
+		Args:  cobra.NoArgs,
+		RunE: opened(func(cmd *cobra.Command, entry drive.Entry, m Mirror) error {
+			line, held, err := m.Add(cmd.Context(), add, refusal(a.Now(), entry.Bus()))
+			if err != nil {
+				return err
+			}
+			if held != "" {
+				fmt.Fprintf(cmd.ErrOrStderr(), "%s already holds this ask; the repeat is a progress entry on it, not a new row\n", held)
+				return nil
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), line)
+			return nil
+		}),
+	}
+	addCmd.Flags().StringVar(&add.Text, "text", "", "the owner's words, verbatim")
+	addCmd.Flags().StringVar(&add.Lane, "lane", "", "the live lane that delivers it")
+	addCmd.Flags().StringVar(&add.Accept, "accept", "", "the check that says it is done")
+	addCmd.Flags().StringVar(&add.Due, "due", "", "an ISO 8601 time or a span such as 4h")
+	addCmd.Flags().IntVar(&add.Standing, "standing", 0, "an ask that is never done: in progress while its newest entry is under this many hours old")
+	required(addCmd, "text", "lane", "accept", "due")
+
+	var ask, state, note, reason, text, at string
+	var artifacts []string
+	var hours int
+	keyed := func(run func(cmd *cobra.Command, m Mirror, key string) error) func(*cobra.Command, []string) error {
+		return opened(func(cmd *cobra.Command, _ drive.Entry, m Mirror) error {
+			key, err := Key(ask)
+			if err != nil {
+				return err
+			}
+			return run(cmd, m, key)
+		})
+	}
+	stateCmd := &cobra.Command{Use: "state", Short: "Override an ask's computed state; open restores it", Args: cobra.NoArgs, RunE: keyed(func(cmd *cobra.Command, m Mirror, key string) error {
+		return m.SetState(cmd.Context(), key, state, note)
+	})}
+	stateCmd.Flags().StringVar(&state, "state", "", "backlog, live, lost or open")
+	stateCmd.Flags().StringVar(&note, "note", "", "why")
+	standingCmd := &cobra.Command{Use: "standing", Short: "Make an ask standing", Args: cobra.NoArgs, RunE: keyed(func(cmd *cobra.Command, m Mirror, key string) error {
+		return m.SetStanding(cmd.Context(), key, hours)
+	})}
+	standingCmd.Flags().IntVar(&hours, "hours", StandingDefault, "hours since its newest entry before it reads stale")
+	progressCmd := &cobra.Command{Use: "progress", Short: "Append a progress entry, restarting its 30-minute lost clock", Args: cobra.NoArgs, RunE: keyed(func(cmd *cobra.Command, m Mirror, key string) error {
+		words, err := m.Progress(cmd.Context(), key, note, artifacts)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "%s progress: %s\n", key, words)
+		return nil
+	})}
+	progressCmd.Flags().StringVar(&note, "note", "", "what moved")
+	progressCmd.Flags().StringArrayVar(&artifacts, "artifact", nil, "a permalink or id the progress produced, repeatable")
+	dropCmd := &cobra.Command{Use: "drop", Short: "Terminal: the owner withdrew this ask", Args: cobra.NoArgs, RunE: keyed(func(cmd *cobra.Command, m Mirror, key string) error {
+		return m.Drop(cmd.Context(), key, reason)
+	})}
+	dropCmd.Flags().StringVar(&reason, "reason", "", "his words")
+	answerCmd := &cobra.Command{Use: "answer", Short: "Terminal: this ask was a question, now answered", Args: cobra.NoArgs, RunE: keyed(func(cmd *cobra.Command, m Mirror, key string) error {
+		return m.Answer(cmd.Context(), key, text)
+	})}
+	answerCmd.Flags().StringVar(&text, "text", "", "the answer")
+	for _, command := range []*cobra.Command{stateCmd, standingCmd, progressCmd, dropCmd, answerCmd} {
+		command.Flags().StringVar(&ask, "ask", "", "the ask's id")
+		required(command, "ask")
+	}
+	required(stateCmd, "state")
+	required(progressCmd, "note")
+	required(dropCmd, "reason")
+	required(answerCmd, "text")
+	liveCmd := &cobra.Command{Use: "live", Short: "Record when the pipeline that ships our lanes' PRs last ran, so a delivered ask can grade live", Args: cobra.NoArgs, RunE: opened(func(cmd *cobra.Command, _ drive.Entry, m Mirror) error {
+		return m.Live(cmd.Context(), at, text)
+	})}
+	liveCmd.Flags().StringVar(&at, "at", "", "an RFC 3339 time")
+	liveCmd.Flags().StringVar(&text, "text", "", "what ran")
+	required(liveCmd, "at")
+	return []*cobra.Command{addCmd, stateCmd, standingCmd, progressCmd, dropCmd, answerCmd, liveCmd}
+}
+
+func required(cmd *cobra.Command, names ...string) {
+	for _, name := range names {
+		if err := cmd.MarkFlagRequired(name); err != nil {
+			panic(err)
+		}
+	}
 }

@@ -55,6 +55,13 @@ func TestOneRowWritesThroughAndAnUnsyncedLedgerHasNoTime(t *testing.T) {
 	if got, want := read(t, s, "one"), (map[string]map[string]string{"7": {"head": "def"}}); !reflect.DeepEqual(got, want) {
 		t.Fatalf("one = %v", got)
 	}
+	fields, found, err := s.LedgerRow("one", "7")
+	if err != nil || !found || fields["head"] != "def" {
+		t.Fatalf("row = %v, %v, %v", fields, found, err)
+	}
+	if _, found, err := s.LedgerRow("one", "8"); err != nil || found {
+		t.Fatalf("an absent row read: %v, %v", found, err)
+	}
 }
 
 func read(t *testing.T, s *Store, ledger string) map[string]map[string]string {
