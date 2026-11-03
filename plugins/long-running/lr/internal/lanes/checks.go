@@ -603,11 +603,16 @@ func (n *LandedNotLive) Check(ctx context.Context, now time.Time) error {
 			n.Log.Warn("landed-not-live did not read the release", "err", err)
 			return nil
 		}
+		withheld, err := n.withheld(ctx, now)
+		if err != nil {
+			n.Log.Warn("landed-not-live did not read the holds", "err", err)
+			return nil
+		}
 		for _, number := range slices.Sorted(maps.Keys(landed)) {
 			entry := landed[number]
 			for _, target := range entry.targets {
 				commits, known := running[target]
-				if !known || slices.ContainsFunc(commits, func(commit string) bool { return n.holdsSHA(ctx, commit, entry.sha) }) {
+				if !known || withheld[target] || slices.ContainsFunc(commits, func(commit string) bool { return n.holdsSHA(ctx, commit, entry.sha) }) {
 					continue
 				}
 				owed[target] = append(owed[target], number)
@@ -615,6 +620,33 @@ func (n *LandedNotLive) Check(ctx context.Context, now time.Time) error {
 		}
 	}
 	return n.announce(ctx, landed, owed, now)
+}
+
+func (n *LandedNotLive) withheld(ctx context.Context, now time.Time) (map[string]bool, error) {
+	records, err := n.Env.Bus.Open(ctx, n.Env.Config.Drive, "hold")
+	if err != nil {
+		return nil, fmt.Errorf("%w: cci open holds: %w", ErrUnread, err)
+	}
+	withheld := map[string]bool{}
+	for _, open := range records {
+		hold := recordOf(open)
+		if hold.Lane != Root {
+			continue
+		}
+		if until := hold.Attr("until"); until != "" {
+			end, err := time.Parse(time.RFC3339, until)
+			if err != nil {
+				return nil, fmt.Errorf("hold #%d until: %w", hold.Seq, err)
+			}
+			if !now.Before(end) {
+				continue
+			}
+		}
+		for _, target := range hold.Refs.Targets {
+			withheld[target] = true
+		}
+	}
+	return withheld, nil
 }
 
 func (n *LandedNotLive) announce(ctx context.Context, landed map[int]landing, owed map[string][]int, now time.Time) error {
