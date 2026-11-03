@@ -14,7 +14,7 @@ from spawnllm import Binary, BinaryAnswer, Refused
 from captain_hook import Allow, AssistantMessage, BaseHookEvent, Block, Event, FromSubagent, HookResult, Input, T, Tool, Warn, WorkflowState, on, workflow_state
 from captain_hook.util import reqenv
 
-from .compaction_handoff import bus_name, Communicator, COMMUNICATOR_LANE, communicator_tests, CompactionState, drive_entry
+from .compaction_handoff import bus_name, Communicator, COMMUNICATOR_LANE, communicator_tests, CompactionState, drive_entry, ROOT_LANE
 from .owner_answers import read, RECORD_BYTES
 from .lane_slack_status import CC_SLACK, CLI, WRITE_TOOLS
 from .register_capture import slack_dms
@@ -55,7 +55,7 @@ REMINDER = Binary(
 )
 UNROUTED_REMINDER = (
     "Every owner reminder or correction spawns a meta tooling lane that makes the behaviour automatic."
-    " Before stopping, post one ask to meta naming his ledger row, `owner:m47` plus your one-line order, or launch the lane with `lr launch`."
+    " Before stopping, post one ask to meta naming his ledger row, `owner:m<row>` plus your one-line order, or launch the lane with `lr launch`."
 )
 STATUS_QUESTION = Binary(
     "The owner's words this turn are below; his typos are his, so read through them."
@@ -95,7 +95,7 @@ HIS_1_34_AM = (
     "every tjme i need to remknd you to do skemtjjng, hou need to spawn a meta tooling lane foe thay (includkng tbis)."
     " uou did tjay for the ildate after being away a long tome, so good job, but make sure thay is durable behavior not just this session."
 )
-ASKS = "cci tail --drive brook-drive --lane owner-relay"
+ASKS = "cci tail --drive brook-drive --lane owner-relay --lane root"
 SENT = '{"ok": true, "channel": "D0B6Z", "ts": "1793635190.051179"}'
 CARDED = '{"channel_id": "D0B6Z", "thread_ts": "1793635190.051179", "ts": "1793635190.051179"}'
 RELAY_CARD = {"title": "How do we fix the relay?", "body": "Each chat keeps its own replica, or they share one.", "options": ["Keep one shared replica", "Give each chat its own"], "recommended": "Give each chat its own"}
@@ -200,7 +200,7 @@ def asked(reply: str, *calls: dict, words: str = HOW_FAR, decide: dict = ASKED) 
         back("http://dash.brook.ts.net:8840/\n\nThree PRs merged while you were away."): Block(pattern=r"lacks the owner table under a feature heading\."),
         back(UPDATE): Allow(),
         back("Since you were away, three PRs merged.", returned=False): Allow(),
-        reminded(): Block(pattern=r"^Every owner reminder or correction spawns a meta tooling lane.*owner:m47"),
+        reminded(): Block(pattern=r"^Every owner reminder or correction spawns a meta tooling lane.*owner:m<row>"),
         reminded(asks=ask_to("meta", "meta-desk-2", "root")): Allow(),
         reminded(asks=ask_to("meta-desk-2")): Allow(),
         reminded(asks=ask_to("root")): Block(pattern=r"meta tooling lane"),
@@ -304,10 +304,13 @@ def unread_cc_slack(evt: BaseHookEvent, verb: str, why: str) -> None:
     blocker(evt, f"cc-slack:{verb}", CC_SLACK_UNREAD.format(verb=verb, why=why), to="meta")
 
 
+def dm_owed(evt: BaseHookEvent) -> dict:
+    out = cc_slack(evt, "dm-owed")
+    return json.loads(out) if out else {"replies": [], "holder_session": ""}
+
+
 def unanswered_reply(evt: BaseHookEvent) -> str | None:
-    if not (out := cc_slack(evt, "dm-owed")):
-        return None
-    owed = json.loads(out)
+    owed = dm_owed(evt)
     if owed["holder_session"] != evt.session_id or not owed["replies"]:
         return None
     return UNANSWERED.format(replies="; ".join(f'{reply["permalink"]}: {reply["text"]}' for reply in owed["replies"]))
@@ -389,12 +392,14 @@ def file_path(evt: BaseHookEvent, reply: str) -> str | None:
 def owner_words(evt: BaseHookEvent) -> str:
     events = list(evt.ctx.turn.events)
     typed = [text for event in events if (text := owner_text(event)) and not text.lstrip().startswith(SYSTEM_PREFIXES)]
-    return "\n\n".join([*typed, *(dm["text"] for dm in slack_dms(evt, events))])
+    dms = slack_dms(evt, events)
+    held = bool(dms) and dm_owed(evt)["holder_session"] == evt.session_id
+    return "\n\n".join([*typed, *(dm["text"] for dm in dms if held)])
 
 
 def forwarded(evt: BaseHookEvent) -> bool:
     since = next(iter(evt.ctx.turn.events)).meta.timestamp.isoformat()
-    out = read(["cci", "tail", "--drive", bus_name(drive_entry(evt)), "--lane", COMMUNICATOR_LANE, "--kind", "ask", "--since", since, "--budget", str(RECORD_BYTES), "--json"])
+    out = read(["cci", "tail", "--drive", bus_name(drive_entry(evt)), "--lane", COMMUNICATOR_LANE, "--lane", ROOT_LANE, "--kind", "ask", "--since", since, "--budget", str(RECORD_BYTES), "--json"])
     return out is None or any(to.startswith("meta") for line in out.splitlines() if line.strip() for to in json.loads(line).get("to") or ())
 
 
