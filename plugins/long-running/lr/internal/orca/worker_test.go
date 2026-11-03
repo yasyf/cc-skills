@@ -900,6 +900,12 @@ func TestAToolPinInstallsOnlyTheArchiveWithItsDigestAndVersion(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(plugins, "installed_plugins.json"), []byte(baked), 0o600); err != nil {
 			t.Fatal(err)
 		}
+		if err := os.WriteFile(filepath.Join(plugins, "known_marketplaces.json"), []byte(`{"skills":{"installLocation":"/payload/skills"}}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(home, ".claude", "settings.json"), []byte(`{"enabledPlugins":{"long-running@skills":true},"model":"opus"}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
 		run := exec.Command("sh", slices.Concat([]string{"-c", installTools, "sh", cciURL, cciSHA, lrURL, lrSHA, "lr"}, tools, []string{"--"})...)
 		run.Env = append(os.Environ(), "HOME="+home)
 		if out, err := run.CombinedOutput(); err != nil {
@@ -948,6 +954,39 @@ func TestAToolPinInstallsOnlyTheArchiveWithItsDigestAndVersion(t *testing.T) {
 	}
 	if err := install("plugin", "long-running@skills", packURL, packSHA, "0.7.1200"); err == nil || recorded() != baked {
 		t.Fatal("a pack archive of another version moved the install", err, recorded())
+	}
+
+	inboxURL, inboxSHA := tarball(t, dir, "inbox.tgz", map[string]string{".claude-plugin/plugin.json": `{"name":"cc-inbox","version":"0.49.47"}`, "hooks/hooks.json": "{}\n"})
+	if err := install("plugin", "cc-inbox@cc-inbox", inboxURL, inboxSHA, "0.49.47"); err != nil {
+		t.Fatal(err)
+	}
+	var added struct {
+		Plugins map[string][]struct {
+			Scope       string `json:"scope"`
+			InstallPath string `json:"installPath"`
+			Version     string `json:"version"`
+			InstalledAt string `json:"installedAt"`
+		} `json:"plugins"`
+	}
+	if err := json.Unmarshal([]byte(recorded()), &added); err != nil {
+		t.Fatal(err)
+	}
+	inbox := filepath.Join(home, ".claude", "plugins", "cache", "cc-inbox", "cc-inbox", "0.49.47")
+	if entry := added.Plugins["cc-inbox@cc-inbox"]; len(entry) != 1 || entry[0].Scope != "user" || entry[0].InstallPath != inbox || entry[0].Version != "0.49.47" || entry[0].InstalledAt == "" || len(added.Plugins["long-running@skills"]) != 1 {
+		t.Fatal(recorded())
+	}
+	tree := filepath.Join(home, ".local", "share", "cc-remote", "marketplaces", "cc-inbox")
+	marketplace, err := os.ReadFile(filepath.Join(tree, ".claude-plugin", "marketplace.json"))
+	if err != nil || !strings.Contains(string(marketplace), `"source": "./cc-inbox"`) || !present(filepath.Join(tree, "cc-inbox", "hooks", "hooks.json")) {
+		t.Fatal(string(marketplace), err)
+	}
+	known, err := os.ReadFile(filepath.Join(home, ".claude", "plugins", "known_marketplaces.json"))
+	if err != nil || !strings.Contains(string(known), `"path": "`+tree+`"`) || !strings.Contains(string(known), `/payload/skills`) {
+		t.Fatal(string(known), err)
+	}
+	settings, err := os.ReadFile(filepath.Join(home, ".claude", "settings.json"))
+	if err != nil || !strings.Contains(string(settings), `"cc-inbox@cc-inbox": true`) || !strings.Contains(string(settings), `"model": "opus"`) {
+		t.Fatal(string(settings), err)
 	}
 
 	host := `#!/bin/sh

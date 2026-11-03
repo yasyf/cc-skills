@@ -68,7 +68,20 @@ while [ "$1" != -- ]; do
       fi
       mv "$dir.new" "$dir"
     fi
-    jq -e --arg id "$name" --arg dir "$dir" --arg version "$version" '.plugins[$id] |= map(.installPath = $dir | .version = $version)' "$plugins/installed_plugins.json" > "$plugins/installed_plugins.json.new"
+    now=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)
+    if ! jq -e --arg id "$name" '.plugins | has($id)' "$plugins/installed_plugins.json" > /dev/null; then
+      plugin=${name%@*} marketplace=${name#*@}
+      tree="$HOME/.local/share/cc-remote/marketplaces/$marketplace"
+      mkdir -p "$tree/.claude-plugin"
+      rm -rf "${tree:?}/$plugin"
+      cp -R "$dir" "$tree/$plugin"
+      jq -n --arg marketplace "$marketplace" --arg plugin "$plugin" '{name: $marketplace, owner: {name: $marketplace}, plugins: [{name: $plugin, source: ("./" + $plugin)}]}' > "$tree/.claude-plugin/marketplace.json"
+      jq --arg marketplace "$marketplace" --arg tree "$tree" --arg now "$now" '.[$marketplace] = {source: {source: "directory", path: $tree}, installLocation: $tree, lastUpdated: $now}' "$plugins/known_marketplaces.json" > "$plugins/known_marketplaces.json.new"
+      mv "$plugins/known_marketplaces.json.new" "$plugins/known_marketplaces.json"
+      jq --arg id "$name" '.enabledPlugins[$id] = true' "$HOME/.claude/settings.json" > "$HOME/.claude/settings.json.new"
+      mv "$HOME/.claude/settings.json.new" "$HOME/.claude/settings.json"
+    fi
+    jq -e --arg id "$name" --arg dir "$dir" --arg version "$version" --arg now "$now" '.plugins[$id] = ((.plugins[$id] // [{scope: "user", installedAt: $now, lastUpdated: $now}]) | map(.installPath = $dir | .version = $version))' "$plugins/installed_plugins.json" > "$plugins/installed_plugins.json.new"
     mv "$plugins/installed_plugins.json.new" "$plugins/installed_plugins.json"
     ;;
   esac
