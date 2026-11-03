@@ -60,32 +60,18 @@ func TestAFailedPassWithItsOwnLaneTellsThatLaneNotRoot(t *testing.T) {
 	equal(t, told.Kind(), "note")
 }
 
-func TestABackgroundPassRunsOnceAPeriodAndNeverOverlapsItself(t *testing.T) {
-	started := make(chan struct{}, 3)
-	release := make(chan struct{})
+func TestABackgroundPassRunsOnceAPeriod(t *testing.T) {
+	passes := 0
 	b := &background{name: "p", every: time.Hour, run: func(context.Context) error {
-		started <- struct{}{}
-		<-release
+		passes++
 		return nil
 	}}
 
-	check := func(at time.Time) {
-		t.Helper()
+	for _, at := range []time.Time{t0, t0.Add(time.Minute), t0.Add(time.Hour)} {
 		if err := b.Check(context.Background(), at); err != nil {
 			t.Fatal(err)
 		}
 	}
-	check(t0)
-	<-started
-	check(t0.Add(time.Minute))
-	check(t0.Add(2 * time.Hour))
-	equal(t, len(started), 0)
 
-	release <- struct{}{}
-	for b.busy.Load() {
-		time.Sleep(time.Millisecond)
-	}
-	check(t0.Add(3 * time.Hour))
-	<-started
-	release <- struct{}{}
+	equal(t, passes, 2)
 }

@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"sync/atomic"
 	"time"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
@@ -30,18 +29,14 @@ type background struct {
 	log   *slog.Logger
 	to    string
 	read  time.Time
-	busy  atomic.Bool
 }
 
 func (b *background) Check(ctx context.Context, now time.Time) error {
-	if (!b.read.IsZero() && now.Sub(b.read) < b.every) || !b.busy.CompareAndSwap(false, true) {
+	if !b.read.IsZero() && now.Sub(b.read) < b.every {
 		return nil
 	}
 	b.read = now
-	go func() {
-		defer b.busy.Store(false)
-		b.pass(ctx, now)
-	}()
+	b.pass(ctx, now)
 	return nil
 }
 

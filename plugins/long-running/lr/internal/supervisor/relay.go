@@ -18,12 +18,11 @@ import (
 )
 
 const (
-	relayCheckEvery = 30 * time.Second
-	relayDownAfter  = 2 * time.Minute
-	relayLane       = "desk-runner"
-	relayLockFile   = "relay.lock"
-	relayLogFile    = "lr-relay.log"
-	failureLimit    = 300
+	relayDownAfter = 2 * time.Minute
+	relayLane      = "desk-runner"
+	relayLockFile  = "relay.lock"
+	relayLogFile   = "lr-relay.log"
+	failureLimit   = 300
 )
 
 type RelayKeeper struct {
@@ -44,19 +43,7 @@ func relayLog(inbox string) string {
 	return filepath.Join(filepath.Dir(inbox), relayLogFile)
 }
 
-func (k *RelayKeeper) Keep(ctx context.Context, clock func() time.Time) {
-	for ctx.Err() == nil {
-		if err := k.Check(clock()); err != nil {
-			k.Logger.Warn("relay check skipped", "err", err)
-		}
-		select {
-		case <-ctx.Done():
-		case <-time.After(relayCheckEvery):
-		}
-	}
-}
-
-func (k *RelayKeeper) Check(now time.Time) error {
+func (k *RelayKeeper) Check(_ context.Context, now time.Time) error {
 	held, err := lockHeld(k.Lock)
 	if err != nil {
 		return err

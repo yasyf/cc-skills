@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -246,29 +248,58 @@ func TestALanesOnlySupervisorRunsNoPRPass(t *testing.T) {
 }
 
 func TestAnUnreadLanesSourceAndAFailedCheckSkipOnlyThemselves(t *testing.T) {
-	s, c := memory(t), &clock{t0}
-	checked := 0
+	var ran sync.WaitGroup
+	ran.Add(3)
+	once := func(err error) lanes.Check {
+		var first sync.Once
+		return func(context.Context, time.Time) error {
+			first.Do(ran.Done)
+			return err
+		}
+	}
 	d := Deps{
-		Movers: []string{"lanes"}, Clock: c.read, Sleep: c.sleep, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Movers: []string{"lanes"}, Clock: func() time.Time { return t0 }, Sleep: func(time.Duration) { ran.Wait() }, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Lanes: func(time.Time, int64) (lanes.Outcome, error) {
 			return lanes.Outcome{}, fmt.Errorf("%w: orca refused", lanes.ErrUnread)
 		},
-		Checks: []lanes.Check{func(context.Context, time.Time) error {
-			checked++
-			return fmt.Errorf("%w: slack down", lanes.ErrUnread)
-		}, func(context.Context, time.Time) error {
-			checked++
-			return errors.New("cci post: time 1:15 AM in the text names something that has not happened yet")
-		}, func(context.Context, time.Time) error {
-			checked++
-			return nil
-		}},
+		Checks: []lanes.Check{
+			once(fmt.Errorf("%w: slack down", lanes.ErrUnread)),
+			once(errors.New("cci post: time 1:15 AM in the text names something that has not happened yet")),
+			once(nil),
+		},
 	}
 
-	reports, _ := runLoop(t, s, "0.8.0", 1, d, 2)
+	reports, _ := runLoop(t, memory(t), "0.8.0", 1, d, 2)
 
 	equal(t, len(reports), 2)
-	equal(t, checked, 6)
+}
+
+func TestAHungCheckHoldsNeitherTheOtherChecksNorTheTickAndEndsWithTheRun(t *testing.T) {
+	ran := make(chan struct{})
+	var first sync.Once
+	var ended atomic.Bool
+	d := Deps{
+		Clock: func() time.Time { return t0 }, Sleep: func(time.Duration) { <-ran }, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Checks: []lanes.Check{
+			func(ctx context.Context, _ time.Time) error {
+				if _, bounded := ctx.Deadline(); !bounded {
+					t.Error("a check runs with no deadline")
+				}
+				<-ctx.Done()
+				ended.Store(true)
+				return ctx.Err()
+			},
+			func(context.Context, time.Time) error {
+				first.Do(func() { close(ran) })
+				return nil
+			},
+		},
+	}
+
+	reports, _ := runLoop(t, memory(t), "0.8.0", 1, d, 1)
+
+	equal(t, len(reports), 1)
+	equal(t, ended.Load(), true)
 }
 
 func TestAStoreFailureInALanesTickEndsTheProcess(t *testing.T) {
