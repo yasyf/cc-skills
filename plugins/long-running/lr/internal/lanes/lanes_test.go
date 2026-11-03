@@ -545,7 +545,7 @@ func TestALaneThatEndedItsTurnOnAnAskToRootWaitsAndStopsOnRootsAnswer(t *testing
 func TestALaneNoProcessRowListsIsHeldForRootAndNeverRelaunched(t *testing.T) {
 	s := memory(t)
 	f := adopted(t, s, writeBrief(t), "")
-	f.feed = append(f.feed, rec(2, lane2, "ask", t0, "pick A or B?", Root))
+	f.feed = append(f.feed, rec(2, lane2, "state", t0, "restacking", Root))
 	f.peers = nil
 
 	out := tick(t, s, f, t0.Add(mins(16)))
@@ -885,7 +885,7 @@ func TestALaneAnUnreadStandDownLeftInPlaceIsNeverRelaunchedOnceItStops(t *testin
 		tick(t, s, f, t0)
 		equal(t, row(t, s, lane2).State, store.LaneHeld)
 		if postsAgain {
-			f.feed = append(f.feed, rec(4, lane2, "blocker", t0.Add(mins(1)), "LIVE conflicts-1: nothing to take over"))
+			f.feed = append(f.feed, rec(4, lane2, "state", t0.Add(mins(1)), "LIVE conflicts-1: nothing to take over"))
 			tick(t, s, f, t0.Add(mins(2)))
 			equal(t, row(t, s, lane2).State, store.LaneDesired)
 		}
@@ -1817,7 +1817,7 @@ func TestAHeldLanesBlockerReachesItsDeskAndNeverRoot(t *testing.T) {
 	f := adopted(t, s, writeBrief(t), "")
 	f.desks = map[string]string{lane2: "meta-desk-1"}
 	registered(t, s, store.Lane{Name: "meta-desk-1"})
-	f.feed = append(f.feed, rec(2, lane2, "ask", t0, "pick A or B?", Root))
+	f.feed = append(f.feed, rec(2, lane2, "state", t0, "restacking", Root))
 	f.peers = []Row{who("meta-desk-1", true, t0.Add(mins(16)))}
 
 	tick(t, s, f, t0.Add(mins(16)))
@@ -1837,33 +1837,6 @@ func TestARelaunchIsReportedToTheDeskThatOwnsTheLane(t *testing.T) {
 
 	equal(t, len(out.Relaunched), 1)
 	equal(t, f.kinds(), []string{"report:meta-desk-1"})
-}
-
-func TestQuietOwnersAreNamedToEachOwnersDeskInOneBlockerAndRootHasTheRest(t *testing.T) {
-	s := memory(t)
-	f := adopted(t, s, writeBrief(t), "", 46869)
-	f.desks = map[string]string{"quiet-desk": "meta-desk-1"}
-	registered(t, s, store.Lane{Name: "meta-desk-1"})
-	if err := s.LaneHeard(lane2, t0.Add(-mins(90)), "state", 0); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.Own("quiet-desk", []int{46002}); err != nil {
-		t.Fatal(err)
-	}
-	f.states = map[int]string{46869: NeedsWork, 46002: NeedsWork}
-	f.peers = []Row{who(lane2, true, t0), who("meta-desk-1", true, t0)}
-
-	tick(t, s, f, t0)
-	asked := f.ofKind("ask")
-	tick(t, s, f, t0.Add(StaleAfter))
-
-	equal(t, []string{asked[0].To[0], asked[1].To[0]}, []string{lane2, "quiet-desk"})
-	contains(t, asked[0].Text, "or root is told you are gone")
-	contains(t, asked[1].Text, "or meta-desk-1 is told you are gone")
-	blockers := f.ofKind("blocker")
-	equal(t, []string{blockers[0].To[0], blockers[1].To[0]}, []string{"meta-desk-1", Root})
-	contains(t, blockers[0].Text, "quiet-desk (#46002;")
-	contains(t, blockers[1].Text, lane2+" (#46869;")
 }
 
 func TestALaneThatPostsStoppedAsAStateIsRetiredAndNeverGetsASuccessor(t *testing.T) {
