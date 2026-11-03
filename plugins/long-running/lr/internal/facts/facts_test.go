@@ -46,7 +46,7 @@ func graphQLPages(prs []recordedPR) string {
 		page := prs[start:min(start+100, len(prs))]
 		nodes := make([]map[string]any, 0, len(page))
 		for _, pr := range page {
-			labels, commits := []map[string]any{}, []map[string]any{}
+			labels, commits := make([]map[string]any, 0, len(pr.labels)), make([]map[string]any, 0, len(pr.commits))
 			for _, name := range pr.labels {
 				labels = append(labels, map[string]any{"name": name})
 			}
