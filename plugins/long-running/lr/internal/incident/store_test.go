@@ -609,3 +609,34 @@ func TestReadsRefuseAnotherSchemaVersion(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 }
+
+func TestAHeldStoreSeesAnotherWritersCommitsThroughOneConnection(t *testing.T) {
+	s := created(t, map[string]any{"mechanism": nil})
+	held, release := s.Held()
+	defer release()
+	for _, want := range []string{"first", "second"} {
+		if err := s.Input("i1", func(tx *Tx) error { return tx.SetFact("mechanism", want) }); err != nil {
+			t.Fatal(err)
+		}
+		facts, err := held.Facts("i1", "mechanism")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if facts.Mechanism != want {
+			t.Fatalf("mechanism %q, want %q", facts.Mechanism, want)
+		}
+	}
+	if err := held.Input("i1", func(tx *Tx) error { return tx.SetFact("mechanism", "third") }); err != nil {
+		t.Fatal(err)
+	}
+	facts, err := s.Facts("i1", "mechanism")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if facts.Mechanism != "third" {
+		t.Fatalf("mechanism %q", facts.Mechanism)
+	}
+	if opened := len(held.held.dbs); opened != 2 {
+		t.Fatalf("a held store opened %d connections, want one reader and one writer", opened)
+	}
+}

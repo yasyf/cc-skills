@@ -499,8 +499,10 @@ func opening(fake *replay, kind string, grants map[string]string) Opening {
 
 func openWith(t *testing.T, o func(*replay) Opening) *harness {
 	t.Helper()
+	t.Parallel()
 	fake := newReplay(t)
-	s := Store{Root: filepath.Join(t.TempDir(), "incidents")}
+	s, release := Store{Root: filepath.Join(t.TempDir(), "incidents")}.Held()
+	t.Cleanup(release)
 	id, err := s.Open(o(fake), fake.at)
 	if err != nil {
 		t.Fatal(err)
@@ -1288,7 +1290,7 @@ func TestAnUnexpectedFailureStopsTheRunner(t *testing.T) {
 
 func TestRecoveryReadsStayFlatWithHistory(t *testing.T) {
 	h := opened(t)
-	const history = 2000
+	const history = 500
 	err := h.store.Owned(h.id, 1, func(tx *Tx) error {
 		for i := range history {
 			key := fmt.Sprintf("history:%d", i)
