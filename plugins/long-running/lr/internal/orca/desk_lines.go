@@ -389,8 +389,10 @@ func (d *Desk) warnUnheard(ctx context.Context, at, key, lane, sender string) er
 	if err != nil || dispatch.active() {
 		return err
 	}
-	row, found, err := d.Registry.Lane(lane)
-	if err != nil || (found && row.State != store.LaneRetired) {
+	rows, err := d.Registry.AllLanes()
+	if err != nil || slices.ContainsFunc(rows, func(row store.Lane) bool {
+		return row.State != store.LaneRetired && lanes.Stem(row.Name) == lanes.Stem(lane)
+	}) {
 		return err
 	}
 	return d.recordTo(ctx, "escalation:relay-unheard:"+at+":"+lane, fmt.Sprintf("RELAY-UNHEARD %s %s: no live dispatch and no live lane row, so nothing reads it; relaunch %s or send it to the lane that took over", key, lane, lane), sender)
