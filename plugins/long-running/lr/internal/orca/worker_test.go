@@ -25,7 +25,7 @@ const (
 	workerRun       = "run_1"
 	workerLane      = "lane-a"
 	workerWorkspace = "pool-spare"
-	notesToken      = "a-github-token\n"
+	macGitLogin      = "a-github-login\n"
 	remoteTerminal  = "term_remote_1"
 	remoteRoot      = "/home/sprite/monorepo"
 	remoteBase      = "1111111111111111111111111111111111111111"
@@ -235,7 +235,7 @@ func (f *workerFixture) spriteWith(task any) {
 }
 
 func (f *workerFixture) spriteAllocated(response any) {
-	f.reply("gh auth token", workerReply{out: notesToken})
+	f.reply("gh auth token", workerReply{out: macGitLogin})
 	f.reply("cc-remote version", workerReply{err: workerPin + "\n"})
 	f.reply("orca orchestration run-current", boundWorker)
 	f.reply("cc-remote orca prepare", workerReply{out: response, err: "prepared on sprites\n"})
@@ -1330,11 +1330,11 @@ func TestTheNotesFetchTakesTheMacsTokenOnStdinAndWritesItNowhere(t *testing.T) {
 	if err != nil || failed != "" {
 		t.Fatal(failed, err)
 	}
-	if got := f.stdins[strings.Join(notesCall(workerWorkspace), " ")]; got != notesToken {
+	if got := f.stdins[strings.Join(notesCall(workerWorkspace), " ")]; got != macGitLogin {
 		t.Fatalf("the fetch read %q on stdin", got)
 	}
 	for _, call := range f.calls {
-		if strings.Contains(strings.Join(call, " "), notesToken) {
+		if strings.Contains(strings.Join(call, " "), macGitLogin) {
 			t.Fatal("a command line holds the token:", call)
 		}
 	}
@@ -1349,7 +1349,7 @@ func TestTheNotesFetchHandsGitTheTokenThroughACredentialHelperItsArgumentsDoNotH
 	fake := "#!/bin/sh\nprintf '%s\\n' \"$@\" > " + logged + "\nprintf 'env=%s\\n' \"$NOTES_TOKEN\" >> " + logged + "\n"
 	newWorkerFixture(t).write(filepath.Join(dir, "git"), fake, 0o700)
 	run := exec.Command("sh", "-c", fetchNotesScript, "sh", "/box/root", notesRefs)
-	run.Stdin = strings.NewReader(notesToken)
+	run.Stdin = strings.NewReader(macGitLogin)
 	run.Env = append(os.Environ(), "PATH="+dir+":"+os.Getenv("PATH"))
 	if out, err := run.CombinedOutput(); err != nil {
 		t.Fatal(string(out), err)
@@ -1359,10 +1359,10 @@ func TestTheNotesFetchHandsGitTheTokenThroughACredentialHelperItsArgumentsDoNotH
 		t.Fatal(err)
 	}
 	args, env, _ := strings.Cut(string(raw), "env=")
-	if strings.Contains(args, strings.TrimSpace(notesToken)) {
+	if strings.Contains(args, strings.TrimSpace(macGitLogin)) {
 		t.Fatal("git's arguments hold the token:", args)
 	}
-	if strings.TrimSpace(env) != strings.TrimSpace(notesToken) {
+	if strings.TrimSpace(env) != strings.TrimSpace(macGitLogin) {
 		t.Fatalf("git's environment holds %q", env)
 	}
 	for _, want := range []string{"credential.helper=\n", "password=$NOTES_TOKEN", "/box/root\nfetch\n--quiet\norigin\n" + notesRefs} {
