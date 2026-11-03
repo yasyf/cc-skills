@@ -319,7 +319,7 @@ func (r *spriteRun) Run(_ context.Context, c shell.Command) (shell.Result, error
 	return shell.Result{Stdout: `{"lane":"` + lane + `"}`}, nil
 }
 
-func spriteStops(t *testing.T, run *spriteRun) (*SpriteStops, *fakeBus, *store.Store) {
+func spriteStops(t *testing.T, run *spriteRun) (*SpriteStops, *fakeBus) {
 	t.Helper()
 	s, err := store.Memory()
 	if err != nil {
@@ -328,7 +328,7 @@ func spriteStops(t *testing.T, run *spriteRun) (*SpriteStops, *fakeBus, *store.S
 	t.Cleanup(func() { _ = s.Close() })
 	bus := &fakeBus{}
 	env := Env{Bus: bus, Config: config.Config{Drive: testDrive, OrcaRun: "run_1"}, Local: t.TempDir(), Claude: t.TempDir(), Runner: run}
-	return &SpriteStops{Env: env, Store: s, CcRemote: CcRemote{Binary: "cc-remote", Config: "/drive/cc-remote.yaml"}, Log: slog.Default()}, bus, s
+	return &SpriteStops{Env: env, Store: s, CcRemote: CcRemote{Binary: "cc-remote", Config: "/drive/cc-remote.yaml"}, Log: slog.Default()}, bus
 }
 
 func (c *SpriteStops) lane(t *testing.T, name, placement string, state store.LaneState, by, dispatch string) {
@@ -354,7 +354,7 @@ func stops(lanes ...string) []string {
 
 func TestAnEndedLanesSpriteIsStoppedOnceAndALiveOrUnsettledLanesIsNot(t *testing.T) {
 	run := &spriteRun{statuses: map[string]string{"ctx_done": "completed", "ctx_stood": "failed", "ctx_running": "dispatched", "ctx_live": "completed", "ctx_local": "completed"}}
-	c, bus, _ := spriteStops(t, run)
+	c, bus := spriteStops(t, run)
 	c.lane(t, "done-settled", "sprite", store.LaneRetired, "done", "ctx_done")
 	c.lane(t, "stood-failed", "sprite", store.LaneRetired, "stand-down", "ctx_stood")
 	c.lane(t, "done-unlisted", "sprite", store.LaneRetired, "done", "ctx_gone")
@@ -382,7 +382,7 @@ func TestAnEndedLanesSpriteIsStoppedOnceAndALiveOrUnsettledLanesIsNot(t *testing
 func TestASpriteStopThatFailsPostsOneBlockerWithItsErrorAndIsNeverRetried(t *testing.T) {
 	why := "cc-remote: suspending sprite stuck: its services stopped, but it still runs 2m0s later, so a session, request, or connection holds it"
 	run := &spriteRun{statuses: map[string]string{"ctx_stuck": "completed"}, fail: map[string]string{"stuck": why}}
-	c, bus, _ := spriteStops(t, run)
+	c, bus := spriteStops(t, run)
 	c.lane(t, "stuck", "sprite", store.LaneRetired, "done", "ctx_stuck")
 
 	for _, at := range []time.Time{t0, t0.Add(mins(10)), t0.Add(mins(20))} {
