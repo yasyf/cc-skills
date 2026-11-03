@@ -96,6 +96,7 @@ const (
 	strikeWindow = 2 * StaleAfter
 	PageAnswer   = 2 * StaleAfter
 	liveWithin   = 4 * StaleAfter
+	branchPRDue  = 15 * time.Minute
 )
 
 var (

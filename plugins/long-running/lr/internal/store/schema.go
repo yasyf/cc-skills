@@ -59,6 +59,10 @@ CREATE TABLE IF NOT EXISTS ledger_rows (
   ledger TEXT NOT NULL, key TEXT NOT NULL, fields TEXT NOT NULL, synced TEXT NOT NULL,
   PRIMARY KEY (ledger, key)
 );
+CREATE TABLE IF NOT EXISTS branch_cards (
+  lane TEXT NOT NULL, card TEXT NOT NULL, answered TEXT, ordered TEXT, held TEXT,
+  PRIMARY KEY (lane, card)
+);
 CREATE TABLE IF NOT EXISTS card_deps (
   dep TEXT NOT NULL, session TEXT NOT NULL, card TEXT NOT NULL, lane TEXT NOT NULL,
   PRIMARY KEY (dep, session, card)
