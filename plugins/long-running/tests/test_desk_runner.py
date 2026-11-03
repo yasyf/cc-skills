@@ -14927,13 +14927,13 @@ def test_the_landing_desk_redraws_the_drive_root_card_from_the_ledger_only_when_
     assert {lane["name"]: (lane["status"], lane.get("detail")) for lane in card["rollup"]["lanes"]} == {"artifact-retry": ("1 open PR", "#29016"), LANE: ("1 open PR", "#29020")}
     assert {fact["label"]: fact["value"] for fact in card["facts"]} == {"Open PRs": "2", "Queued": "0", "Held": "1", "Landed": "1"}
     rows["29016"] = dict(rows["29016"], state="landed")
-    shell.card_error = "cc-slack: dm-status root_only needs this session's status thread; post a card first"
+    shell.card_error = "cc-slack: slack refused the card"
     landing.draw_card(rows)
     landing.draw_card(rows)
     runner.flush()
     assert [card["progress"]["step"] for card in shell.cards] == [1, 2, 2]
     failed = [line for line in escalations(shell) if "CARD-FAILED" in line]
-    assert len(failed) == 1 and "post a card first" in failed[0]
+    assert len(failed) == 1 and "slack refused the card" in failed[0]
 
 
 def test_the_drive_root_card_stays_inside_cc_slacks_limits_on_a_large_ledger(shell, config, tmp_path):

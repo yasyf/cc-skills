@@ -41,7 +41,7 @@ when the prompt is still open ten minutes later. A question on the coordinator's
 is the coordinator asking the owner there, so it raises no record. The coordinator cannot be
 woken by its own approval, so its approval is a `blocker` to the registered supervisor desk
 while that desk's own terminal reads clear or stale. In a drive started with `--slack-cards`, it is a
-`needs_you` card in the owner's DM, posted with `cc-slack dm-status` into the status thread of the
+`needs_you` card at the root of the owner's DM, posted with `cc-slack dm-status` for the
 drive's newest coordinator session, when no supervisor is registered, when the supervisor is itself at a prompt, unknown, or
 unreachable, and when the prompt is still open five minutes after the supervisor was told.
 A supervisor that holds a foreground wait is never idle, so it keeps
