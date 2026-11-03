@@ -25,6 +25,7 @@ func LaunchCommand(a *app.App) *cobra.Command {
 	cmd := lanes.LaunchCommand(a)
 	cmd.AddCommand(
 		startCommand(a),
+		workerCommand(a),
 		laneCommand(a),
 		incidentCommand(a),
 		RelayCommand(a),
@@ -143,6 +144,45 @@ func incidentCommand(a *app.App) *cobra.Command {
 	cmd.Flags().StringVar(&alert, "alert", "", "the Alert line: the monitor or Slack link, what fails where, and the owner's words")
 	cmd.Flags().Float64Var(&timeout, "timeout-seconds", defaultTimeout, "how long to wait for the runner's verdicts")
 	return cmd
+}
+
+func workerCommand(a *app.App) *cobra.Command {
+	return &cobra.Command{
+		Use:   "worker LANE MODEL EFFORT BRIEF",
+		Short: "Prepare one Sprite and start a worker on it, or a local worktree with WORKER_LOCAL=1, and print one JSON line",
+		Long: `Prepare one Sprite through cc-remote, copy what the brief names to it, install cci, and start a worker. Print one JSON line naming the task, dispatch, terminal and worktree. A failure prints one line on stderr, exit 1, and keeps what it made in BRIEF's .worker directory. A brief gets one attempt at worker-start.
+
+  WORKER_RUN            the Orca Run id, required
+  WORKER_CHECKOUT       the checkout whose tools/cc-remote starts Sprites, required
+  WORKER_CCI_URL        the cci linux_amd64 release archive a Sprite installs, required
+  WORKER_CCI_SHA256     the SHA-256 of that archive, required
+  WORKER_CC_REMOTE      the cc-remote command, default the checkout's own
+  CC_REMOTE_CONFIG      the cc-remote config, default the checkout's own
+  WORKER_NOTES_REPO     the checkout ccn reads docs and tasks from, default WORKER_CHECKOUT
+  WORKER_REF            the branch or tag a Sprite checks out
+  WORKER_EXPECT_BASE    the full commit that checkout must be at
+  WORKER_SERVICE_TIER   a codex service tier; fast needs WORKER_INCIDENT=1
+  WORKER_MCP_CONFIG     the agent's MCP config
+  WORKER_RELAY_SPONSOR  the Sprite whose service key joins this one to the cci relay
+  WORKER_LOCAL          1 starts a local worktree and claude instead
+  WORKER_REPO           the Orca repository of a local worktree, required with WORKER_LOCAL=1
+  WORKER_BASE_BRANCH    the base of a local worktree, default origin/dev`,
+		Args: cobra.ExactArgs(4),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			starter := &WorkerStarter{Runner: a.Runner, Env: os.Getenv, Sleep: time.Sleep, Stderr: cmd.ErrOrStderr()}
+			line, err := starter.Run(cmd.Context(), args[0], args[1], args[2], args[3])
+			var failed *Failed
+			if errors.As(err, &failed) {
+				fmt.Fprintln(cmd.ErrOrStderr(), failed.Line)
+				return &wait.ExitError{Code: failedExit}
+			}
+			if err != nil {
+				return err
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), line)
+			return nil
+		},
+	}
 }
 
 func startCommand(a *app.App) *cobra.Command {
