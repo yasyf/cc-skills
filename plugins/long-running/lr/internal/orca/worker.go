@@ -40,6 +40,8 @@ const (
 	lrPlatform        = "linux-x86_64"
 	toolsMissing      = 3
 	beforeWorker      = "before-worker.sh"
+	notesRefs         = "+refs/cc-notes/*:refs/cc-notes/*"
+	notesReceipt      = "notes.log"
 	unpackCarried     = `mkdir -p "$1" && tar -xzf - -C "$1"`
 	joinRelay         = `CCI_SERVICE_KEY=$(cat); export CCI_SERVICE_KEY; ~/.local/bin/cci relay join --instance --drive "$1" --url "$2" --ttl 24h --owner "$3" && sprite-env services create cci --cmd "$HOME/.local/bin/cci" --args supervise --no-stream`
 )
@@ -617,6 +619,17 @@ func (w *workerLaunch) copyCarried(workspace string) error {
 	return nil
 }
 
+func (w *workerLaunch) fetchNotes(workspace string) error {
+	fetched, err := w.Runner.Run(w.ctx, shell.Command{Argv: []string{"sprite", "exec", "-s", workspace, "--", "git", "-C", w.worktree, "fetch", "--quiet", "origin", notesRefs}})
+	if written := w.receipt(notesReceipt, fetched.Stdout+fetched.Stderr); written != nil {
+		return written
+	}
+	if err != nil {
+		return refuse("Sprite %s did not fetch the cc-notes refs into %s, so the lane's ccn would read none of his answers; %s keeps the output, %s", workspace, w.worktree, filepath.Join(w.attempt, notesReceipt), idleWarning)
+	}
+	return nil
+}
+
 func (w *workerLaunch) join(workspace, sponsor string) (string, error) {
 	var log bytes.Buffer
 	status, errs, code := w.capture("cci", "relay", "status", "--json")
@@ -690,6 +703,10 @@ func (w *workerLaunch) startSprite() (string, error) {
 	if err := w.receipt("install.log", installed); err != nil {
 		return "", err
 	}
+	w.worktree, _ = textOf(task["projectRoot"])
+	if err := w.fetchNotes(workspace); err != nil {
+		return "", err
+	}
 	sponsor := w.Env(sponsorEnv)
 	log, joinErr := w.join(workspace, sponsor)
 	if err := w.receipt(joinReceipt, log); err != nil {
@@ -699,7 +716,6 @@ func (w *workerLaunch) startSprite() (string, error) {
 		return "", refuse("Sprite %s did not join the cci relay with %s's service key: %v; nothing started, because a worker with no relay posts nothing anyone reads; %s keeps the output, and the prepared worker stays idle and unattached", workspace, sponsor, joinErr, filepath.Join(w.attempt, joinReceipt))
 	}
 	w.terminal, _ = textOf(task["terminal"])
-	w.worktree, _ = textOf(task["projectRoot"])
 	desk := ""
 	if briefDesk.Match(raw) {
 		desk = standingDesk
