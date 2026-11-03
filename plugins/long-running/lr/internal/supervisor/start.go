@@ -2,7 +2,6 @@ package supervisor
 
 import (
 	"context"
-	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -26,14 +25,14 @@ func missing(ctx context.Context, runner shell.Runner, look func(string) (string
 			gone = append(gone, tool+" is not on PATH")
 		}
 	}
-	keys := map[string]string{"the GitHub token": "gh auth token"}
+	reads := []struct{ what, command string }{{"the gh sign-in", "gh auth token"}}
 	if slices.Contains(cfg.Movers, config.MoverLanding) && cfg.QueueKey != "" {
-		keys["the queue key"] = cfg.QueueKey
+		reads = append(reads, struct{ what, command string }{"the queue key", cfg.QueueKey})
 	}
-	for _, key := range slices.Sorted(maps.Keys(keys)) {
-		result, err := runner.Run(ctx, shell.Command{Argv: []string{"sh", "-c", keys[key]}, Timeout: keyTimeout})
+	for _, read := range reads {
+		result, err := runner.Run(ctx, shell.Command{Argv: []string{"sh", "-c", read.command}, Timeout: keyTimeout})
 		if err != nil || strings.TrimSpace(result.Stdout) == "" {
-			gone = append(gone, key+" is unreadable: `"+keys[key]+"` printed nothing")
+			gone = append(gone, read.what+" is unreadable: `"+read.command+"` printed nothing")
 		}
 	}
 	return gone
