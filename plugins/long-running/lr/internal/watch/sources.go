@@ -191,7 +191,7 @@ func Repeats(escalations []store.Escalation, now time.Time) []Wait {
 	var classes []string
 	for _, escalation := range escalations {
 		class := classOf(escalation.Cause)
-		if class == repeatKind || class == unfinishedKind || now.Sub(escalation.Raised) >= repeatWindow || strings.HasPrefix(escalation.Subject, RepeatNamespace) {
+		if class == repeatKind || class == unfinishedKind || class == metaKind || now.Sub(escalation.Raised) >= repeatWindow || strings.HasPrefix(escalation.Subject, RepeatNamespace) {
 			continue
 		}
 		if subjects[class] == nil {

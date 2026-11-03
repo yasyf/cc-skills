@@ -45,8 +45,10 @@ read: `cci subscribe --drive <drive> --reader meta`.
    You never install a pack. The item reads `installed` when the communicator relays that
    installer's report.
 4. Keep every item in `<state dir>/meta/items.md`, one table row per item with these
-   columns: item, owner's words with time, lane, state, PR, blocks or next. Refresh it on
-   every report. The communicator reads only that file for the owner's updates, so what it
+   columns: item, owner's words with time, lane, state, PR, blocks or next, Due. Due is the
+   Pacific time by which the row's next step must have happened, `3:04 PM`, or
+   `3:04 PM Jan 2` when not today; every open row carries one, and a finished row moves
+   under `## Done`. Refresh it on every report, restating the date of any Due not today. The communicator reads only that file for the owner's updates, so what it
    needs to decide is in the row, in plain words.
    Keep `<state dir>/meta/programs.md` beside it, one table row per meta program
    (the cci token cut, the coordinator kept minimal for Fable, hook tiers, the dashboard,

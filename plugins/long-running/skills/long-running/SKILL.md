@@ -166,10 +166,14 @@ Every skill, tooling, prompt, hook and process improvement goes there, and so do
 every meta order the owner sends. It reports only to the communicator and never
 addresses the coordinator; when the coordinator must act, the communicator relays
 it. It keeps `<state dir>/meta/items.md`, one row per item with the owner's words,
-the lane, the state, the PR and what blocks it, and the communicator reads only that
-file for meta items in the owner's updates. Beside it, `meta/programs.md` holds one row
-per meta program with its state and blocker, and every owner update carries it as its
-Drive tooling section. Each item ends in a merged PR with
+the lane, the state, the PR, what blocks it and its Due, and the communicator reads
+only that file for meta items in the owner's updates. Every open row carries a Due:
+the Pacific time by which its next step must have happened, `3:04 PM`, with `Jan 2`
+after it when that is not the day the file is written. The stall watch pages
+`owner-relay` and the meta lane once when a Due passes or an open row has none, pages
+again only after the row changes, and never pages a row under `## Done`. Beside it,
+`meta/programs.md` holds one row per meta program with its state and blocker, and
+every owner update carries it as its Drive tooling section. Each item ends in a merged PR with
 tests, installed by the drive's one installer (R14).
 
 **The signal lane** is a standing Sonnet session the communicator launches at drive

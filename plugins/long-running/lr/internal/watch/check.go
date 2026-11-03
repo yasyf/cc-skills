@@ -80,7 +80,16 @@ func Check(ctx context.Context, s *store.Store, entry drive.Entry, runner shell.
 	if err != nil {
 		return nil, err
 	}
-	return Sweep(s, records, open, unfinished, now, post)
+	escalated, err := Sweep(s, records, open, unfinished, now, post)
+	if err != nil {
+		return escalated, err
+	}
+	items, written, err := ReadMeta(entry.StateDir)
+	if err != nil {
+		return escalated, err
+	}
+	paged, err := Meta(s, items, written, now, post)
+	return append(escalated, paged...), err
 }
 
 type Stalls struct {
