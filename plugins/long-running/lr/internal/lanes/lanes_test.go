@@ -791,21 +791,28 @@ func TestALaneRetiresWhenEveryOwedDeletionIsAnotherLanes(t *testing.T) {
 	equal(t, len(f.ofKind("defect")), 0)
 }
 
-func TestTheHourlyTickPostsEachOwedDeletionGapToRootOnce(t *testing.T) {
+func TestTheHourlyTickPostsOneOwedDeletionDigestPerChangedSetOfGaps(t *testing.T) {
 	s := memory(t)
 	f := adopted(t, s, writeBrief(t), "")
-	gap := "register row order/incarnation removes Incarnation, which no open owed-deletion task anchors and no exception row anchors"
-	f.gaps = []string{gap}
+	incarnation := "Incarnation, removed by design/one-reader, order/incarnation"
+	client := "go/sand/next/internal/journal/client.go, removed by order/journal-client"
+	sets := [][]string{{incarnation, client}, {incarnation, client}, {incarnation}}
 
-	for _, at := range []time.Time{t0.Add(mins(61)), t0.Add(mins(121))} {
+	for i, gaps := range sets {
+		at := t0.Add(mins(61 + 60*i))
+		f.gaps = gaps
 		f.peers = []Row{who(lane2, true, at)}
 		tick(t, s, f, at)
 	}
 
 	blockers := f.ofKind("blocker")
-	equal(t, len(blockers), 1)
+	equal(t, len(blockers), 2)
 	equal(t, blockers[0].To, []string{Root})
-	contains(t, blockers[0].Text, gap)
+	contains(t, blockers[0].Text, "2 removes targets have no open owed-deletion task and no exception row: "+incarnation+"; "+client)
+	contains(t, blockers[1].Text, "1 removes targets have no open owed-deletion task and no exception row: "+incarnation+".")
+	if blockers[0].Attrs["digest"] == blockers[1].Attrs["digest"] {
+		t.Fatalf("two different sets of gaps share digest %s", blockers[0].Attrs["digest"])
+	}
 }
 
 func TestAnOwedDeletionPastItsDueDayDrawsOneBlockerToItsOwnerLane(t *testing.T) {

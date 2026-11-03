@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,6 +16,15 @@ import (
 )
 
 func register(t *testing.T, rows map[string]map[string]any) []Ruling {
+	t.Helper()
+	rulings, err := ParseRulings(string(encoded(t, rows)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return rulings
+}
+
+func encoded(t *testing.T, rows map[string]map[string]any) []byte {
 	t.Helper()
 	stored := map[string]map[string]string{}
 	for key, fields := range rows {
@@ -35,11 +45,7 @@ func register(t *testing.T, rows map[string]map[string]any) []Ruling {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rulings, err := ParseRulings(string(raw))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return rulings
+	return raw
 }
 
 func removes(state string) []map[string]any {
@@ -72,7 +78,7 @@ func TestAnInForceRemovesRowNeedsAnOwedTaskOrAnExceptionForEachThingItNames(t *t
 			gaps := Gaps(register(t, map[string]map[string]any{"order/one-reader": c.row}), owed)
 			named := make([]string, 0, len(gaps))
 			for _, gap := range gaps {
-				if gap.Key != "order/one-reader" {
+				if !slices.Equal(gap.Keys, []string{"order/one-reader"}) {
 					t.Fatalf("gap %+v names another row", gap)
 				}
 				named = append(named, gap.Target)
@@ -95,8 +101,94 @@ func TestAnExceptionRowAnchoredToTheTargetIsItsRecordedReason(t *testing.T) {
 
 	gaps := Gaps(register(t, rows), nil)
 
-	if want := []Gap{{Key: "order/incarnation", Target: "Epoch"}}; !reflect.DeepEqual(gaps, want) {
+	if want := []Gap{{Target: "Epoch", Symbol: true, Keys: []string{"order/incarnation"}}}; !reflect.DeepEqual(gaps, want) {
 		t.Fatalf("gaps = %+v, want %+v", gaps, want)
+	}
+}
+
+func TestRowsRemovingTheSameTargetShareOneGap(t *testing.T) {
+	rows := map[string]map[string]any{
+		"order/incarnation":    {"status": "in-force", "implications": removes("proposed"), "symbols": `["journal.Incarnation", "Epoch"]`},
+		"design/one-reader":    {"status": "in-force", "implications": removes("proposed"), "symbols": `["Incarnation", "Incarnation"]`},
+		"order/journal-client": {"status": "in-force", "implications": removes("proposed"), "paths": `["go/sand/next/internal/journal/client.go:10-40"]`},
+		"design/journal":       {"status": "in-force", "implications": removes("proposed"), "paths": `["go/sand/next/internal/journal/client.go @ 9bcde635"]`},
+	}
+
+	gaps := Gaps(register(t, rows), nil)
+
+	want := []Gap{
+		{Target: "Epoch", Symbol: true, Keys: []string{"order/incarnation"}},
+		{Target: "Incarnation", Symbol: true, Keys: []string{"design/one-reader", "order/incarnation"}},
+		{Target: "go/sand/next/internal/journal/client.go", Keys: []string{"design/journal", "order/journal-client"}, Paths: []string{"go/sand/next/internal/journal/client.go"}},
+	}
+	if !reflect.DeepEqual(gaps, want) {
+		t.Fatalf("gaps = %+v, want %+v", gaps, want)
+	}
+}
+
+func TestAnAnchorARowGuardsOwesNoDeletion(t *testing.T) {
+	rows := map[string]map[string]any{
+		"rule/no-rollback": {"status": "in-force", "implications": removes("proposed"), "symbols": `["Sources.crosses", "rollbackNow"]`, "guards": `["Sources.crosses"]`},
+		"rule/no-polling":  {"status": "in-force", "implications": removes("proposed"), "paths": `["go/follower/poll.go:12 @ 2a00d64", "go/follower/watch.go"]`, "guards": `["go/follower/watch.go"]`},
+		"rule/other-row":   {"status": "in-force", "implications": removes("proposed"), "symbols": `["crosses"]`},
+	}
+
+	gaps := Gaps(register(t, rows), nil)
+
+	targets := make([]string, 0, len(gaps))
+	for _, gap := range gaps {
+		targets = append(targets, gap.Target+" "+strings.Join(gap.Keys, ","))
+	}
+	if want := []string{"crosses rule/other-row", "go/follower/poll.go rule/no-polling", "rollbackNow rule/no-rollback"}; !slices.Equal(targets, want) {
+		t.Fatalf("gaps = %v, want %v", targets, want)
+	}
+}
+
+func TestATargetGoneFromTrunkOwesNoDeletion(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, map[string]string{"gitconfig": "[user]\n\tname = Lane\n\temail = lane@example.com\n[init]\n\tdefaultBranch = main\n"})
+	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(root, "gitconfig"))
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	origin, work, checkout := filepath.Join(root, "origin.git"), filepath.Join(root, "work"), filepath.Join(root, "checkout")
+	git(t, root, "init", "-q", "--bare", origin)
+	git(t, root, "clone", "-q", origin, work)
+	write(t, work, map[string]string{
+		"rust/admin.rs":           "impl AdminState {\n    fn positions() {}\n}\n",
+		"go/run/storage.go":       "func closeStore() {}\n",
+		"go/run/takeover.go":      "func TakeOverRun() {}\n",
+		"go/run/takeover_test.go": "func onlyInTest() {}\n",
+		"go/old/main.go":          "package main\n",
+	})
+	git(t, work, "add", ".")
+	git(t, work, "commit", "-q", "-m", "tree")
+	git(t, work, "push", "-q", "origin", "HEAD:main")
+	git(t, root, "clone", "-q", origin, checkout)
+	git(t, work, "rm", "-q", "go/old/main.go")
+	git(t, work, "commit", "-q", "-m", "gone")
+	git(t, work, "push", "-q", "origin", "HEAD:main")
+	rows := encoded(t, map[string]map[string]any{
+		"rule/seal":       {"status": "in-force", "implications": removes("proposed"), "symbols": `["AdminState::positions", "runStorage.closeStore", "Restore::plan"]`, "paths": `["rust/admin.rs:191 @ 19dd3ce", "go/run/storage.go", "rust/restore.rs:735 @ 2a00d64"]`},
+		"rule/takeover":   {"status": "in-force", "implications": removes("proposed"), "symbols": `["CloudHost.TakeOverRun", "onlyInTest"]`, "paths": `["go/run/takeover.go", "go/run/takeover_test.go"]`},
+		"rule/old-main":   {"status": "in-force", "implications": removes("proposed"), "paths": `["go/old/main.go"]`},
+		"rule/run-dir":    {"status": "in-force", "implications": removes("proposed"), "paths": `["go/run"]`},
+		"rule/unanchored": {"status": "in-force", "implications": removes("proposed"), "symbols": `["Floating"]`},
+	})
+	trunk := Trunk{Runner: notes{rows: rows}, Checkout: checkout, Branch: "main"}
+
+	gaps, err := trunk.Gaps(context.Background(), "rulings.py", "durable-agents-rebuild")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := []string{
+		"AdminState::positions, removed by rule/seal",
+		"Floating, removed by rule/unanchored",
+		"TakeOverRun, removed by rule/takeover",
+		"closeStore, removed by rule/seal",
+		"go/run, removed by rule/run-dir",
+	}
+	if !slices.Equal(gaps, want) {
+		t.Fatalf("gaps = %q, want %q", gaps, want)
 	}
 }
 
@@ -119,9 +211,13 @@ func TestAnOwedDeletionIsOverdueOnceItsDueDayHasPassed(t *testing.T) {
 
 type notes struct {
 	tasks map[string]string
+	rows  []byte
 }
 
 func (n notes) Run(ctx context.Context, c shell.Command) (shell.Result, error) {
+	if c.Argv[0] == "rulings.py" {
+		return shell.Result{Stdout: string(n.rows)}, nil
+	}
 	if c.Argv[0] != "ccn" {
 		return shell.Exec{}.Run(ctx, c)
 	}
@@ -212,7 +308,7 @@ func TestPresentKeepsTheOpenTasksWhoseCodeIsStillOnTrunk(t *testing.T) {
 		"never":         shown(t, "never", owner, map[string]string{"go/next/cmd/never.go": "path"}),
 		"another-lane":  shown(t, "another-lane", "other-lane-2", map[string]string{"go/follower": "dir"}),
 	}
-	trunk := Trunk{Runner: notes{tasks}, Checkout: checkout, Branch: "main"}
+	trunk := Trunk{Runner: notes{tasks: tasks}, Checkout: checkout, Branch: "main"}
 
 	listed, err := trunk.List(context.Background())
 	if err != nil {
