@@ -1530,12 +1530,20 @@ class Drive:
         return {"rows": rows, "cards": cards, "answered": answered, "merge": merge, "url": self.config["board_url"]}
 
 
-def handler(drive, tailnet_owner):
+def own_names(host):
+    me = json.loads(run(["tailscale", "status", "--json"]))["Self"]
+    name = me["DNSName"].rstrip(".").lower()
+    return {host, name, name.split(".")[0], *me["TailscaleIPs"]}
+
+
+def handler(drive, tailnet_owner, names):
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
             pass
 
         def owner_calling(self):
+            if urllib.parse.urlsplit(f"//{self.headers.get('Host', '')}").hostname not in names:
+                return False
             try:
                 who = json.loads(run(["tailscale", "whois", "--json", self.client_address[0]]))
                 return not who["Node"].get("Tags") and who["UserProfile"]["LoginName"] == tailnet_owner
@@ -1547,7 +1555,7 @@ def handler(drive, tailnet_owner):
 
         def do_GET(self):
             path = self.path.split("?", 1)[0]
-            if (REVIEW_ROUTE.fullmatch(path) or STORY_ROUTE.fullmatch(path)) and not self.owner_calling():
+            if STORY_ROUTE.fullmatch(path) and not self.owner_calling():
                 return self.refuse()
             if path in STATIC:
                 name, kind = STATIC[path]
@@ -1571,12 +1579,6 @@ def handler(drive, tailnet_owner):
                 return self.send(200, "application/json", json.dumps(words).encode())
             if path == "/api/stream":
                 return self.stream()
-            if found := REVIEW_ROUTE.fullmatch(path):
-                try:
-                    url = drive.review_url(int(found[1]))
-                except subprocess.CalledProcessError as error:
-                    return self.send(502, "application/json", json.dumps({"error": (error.stderr or error.stdout).strip()}).encode())
-                return self.send(200, "application/json", json.dumps({"url": url, "assistant": int(found[1]) in drive.assistant.watching, "stale": int(found[1]) in drive.assistant.stale}).encode())
             if found := STORY_ROUTE.fullmatch(path):
                 return self.story(found[1])
             if found := TRANSCRIPT_ROUTE.fullmatch(path):
@@ -1611,13 +1613,20 @@ def handler(drive, tailnet_owner):
             self.send(404, "text/plain", b"not found")
 
         def do_POST(self):
-            if self.path not in (MODEL_ROUTE, "/api/verdict", "/api/answer", "/api/asked", "/api/change"):
+            review = REVIEW_ROUTE.fullmatch(self.path)
+            if not review and self.path not in (MODEL_ROUTE, "/api/verdict", "/api/answer", "/api/asked", "/api/change"):
                 return self.send(404, "text/plain", b"not found")
             if self.headers.get_content_type() != "application/json":
                 return self.send(415, "text/plain", b"Content-Type must be application/json")
             raw = self.rfile.read(int(self.headers["Content-Length"]))
             if not self.owner_calling():
                 return self.refuse()
+            if review:
+                try:
+                    url = drive.review_url(int(review[1]))
+                except subprocess.CalledProcessError as error:
+                    return self.send(502, "application/json", json.dumps({"error": (error.stderr or error.stdout).strip()}).encode())
+                return self.send(200, "application/json", json.dumps({"url": url, "assistant": int(review[1]) in drive.assistant.watching, "stale": int(review[1]) in drive.assistant.stale}).encode())
             body = json.loads(raw)
             if self.path == MODEL_ROUTE:
                 call = {name: body[name] for name in MODEL_FIELDS if name in body} | {"model": MODEL_NAME}
@@ -1761,7 +1770,7 @@ def main():
     writers = [(drive.follow_mirror, ())] if "mirror" in config else [(curator.loop, ()) for curator in drive.curators]
     for target, rest in ((drive.follow_code, ()), *writers, (drive.follow_records, (after,)), (drive.follow_board, ()), (drive.follow_steps, ()), (drive.follow_status, ()), (drive.refresh_loop, (snapshot,)), (drive.follow_paths, ())):
         threading.Thread(target=target, args=rest, daemon=True).start()
-    server = ThreadingHTTPServer((config["host"], config["port"]), handler(drive, config["tailnet_owner"]))
+    server = ThreadingHTTPServer((config["host"], config["port"]), handler(drive, config["tailnet_owner"], own_names(config["host"])))
     server.daemon_threads = True
     print(f"http://{config['host']}:{config['port']}/", flush=True)
     server.serve_forever()

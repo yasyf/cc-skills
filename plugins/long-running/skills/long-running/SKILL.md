@@ -3151,8 +3151,16 @@ Every route that changes state, starts a process or spends model tokens
 (`/api/verdict`, `/api/answer`, `/api/asked`, `/api/change`, `/api/review/<n>`,
 `/api/story/<item>`, `/ai/chat/completions`) answers only `tailnet_owner`: the server
 runs `tailscale whois` on the caller's address and refuses a tagged device, another
-login, or a failed lookup. The server therefore binds its tailnet address directly,
+login, or a failed lookup, and refuses a `Host` that does not name this Mac, which is
+what a DNS-rebinding page sends. Opening a review is a `POST`, so a link or image on
+another site cannot start one. The server therefore binds its tailnet address directly,
 never behind a local proxy. Other reads stay open to the tailnet and carry no secret.
+The review assistant reads text a PR's author wrote, so its `claude -p` runs in
+`dontAsk` with only the cc-review tools, `Agent`, reads of the review's own files, and
+the `cci` and `rulings.py` commands its prompt names. It also runs `--restricted`,
+because `--allowedTools` adds to the user's settings rather than replacing them: their
+allow rules and hooks would otherwise still apply. Those settings are what enable
+plugins, so it loads cc-review alone with `--plugin-dir`.
 
 The assistant runs in the browser on the design-doc client (`_shared/html/ai-core.js`),
 calling `POST /ai/chat/completions`. The server adds `CEREBRAS_API_KEY`, fixes the

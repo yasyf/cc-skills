@@ -913,7 +913,7 @@ def test_the_model_request_serves_the_prebuilt_view_and_never_builds_it(tmp_path
     snapshot = tmp_path / "served.json.gz"
     snapshot.write_bytes(gzip.compress(body))
     drive.restore(snapshot)
-    httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.handler(drive, TAILNET_OWNER))
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.handler(drive, TAILNET_OWNER, {"127.0.0.1"}))
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     try:
         assert urllib.request.urlopen(f"http://127.0.0.1:{httpd.server_port}/api/model", timeout=5).read() == body
@@ -1104,7 +1104,7 @@ def test_a_change_request_the_record_tool_cannot_post_answers_with_the_reason(mo
         raise FileNotFoundError(2, "No such file or directory", "cci")
 
     monkeypatch.setattr(server, "run", record_tool_missing)
-    httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.handler(drive, TAILNET_OWNER))
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.handler(drive, TAILNET_OWNER, {"127.0.0.1"}))
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     request = urllib.request.Request(f"http://127.0.0.1:{httpd.server_port}/api/change", data=json.dumps({"number": 7, "head": "abc", "text": "no lock"}).encode(), headers={"Content-Type": "application/json"})
     try:
@@ -1152,7 +1152,7 @@ def dashboard(monkeypatch):
     drive.review_url = lambda number: drive.acted.append("review_url") or "http://review/"
     drive.assistant = SimpleNamespace(watching={}, stale=set())
     drive.work = lambda item: drive.acted.append("work")
-    httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.handler(drive, TAILNET_OWNER))
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.handler(drive, TAILNET_OWNER, {"127.0.0.1"}))
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     try:
         yield SimpleNamespace(url=f"http://127.0.0.1:{httpd.server_port}", drive=drive)
@@ -1174,8 +1174,8 @@ def whois_answers(monkeypatch, answer):
     return asked
 
 
-def call(url, path, body=None):
-    request = urllib.request.Request(url + path, data=None if body is None else json.dumps(body).encode(), headers={"Content-Type": "application/json", "Authorization": "Bearer from-the-page"})
+def call(url, path, body=None, host=None):
+    request = urllib.request.Request(url + path, data=None if body is None else json.dumps(body).encode(), headers={**({"Host": host} if host else {}), "Content-Type": "application/json", "Authorization": "Bearer from-the-page"})
     try:
         with urllib.request.urlopen(request, timeout=5) as reply:
             return reply.status, reply.read(), reply.headers
@@ -1260,18 +1260,75 @@ def test_a_write_from_the_owner_lands_and_the_lookup_names_the_callers_address(d
     assert asked == [["tailscale", "whois", "--json", "127.0.0.1"]]
 
 
-@pytest.mark.parametrize("path", ["/api/review/7", "/api/story/some-work"])
-def test_a_tagged_device_cannot_start_a_review_or_a_story(dashboard, monkeypatch, path):
+@pytest.mark.parametrize(("path", "body"), [("/api/review/7", {}), ("/api/story/some-work", None)])
+def test_a_tagged_device_cannot_start_a_review_or_a_story(dashboard, monkeypatch, path, body):
     whois_answers(monkeypatch, json.dumps(TAGGED_WHOIS))
-    assert call(dashboard.url, path)[0] == 403
+    assert call(dashboard.url, path, body)[0] == 403
     assert dashboard.drive.acted == []
 
 
 def test_the_owner_still_opens_a_review(dashboard, monkeypatch):
     whois_answers(monkeypatch, json.dumps(OWNER_WHOIS))
-    status, body, _ = call(dashboard.url, "/api/review/7")
+    status, body, _ = call(dashboard.url, "/api/review/7", {})
     assert status == 200 and json.loads(body)["url"] == "http://review/"
     assert dashboard.drive.acted == ["review_url"]
+
+
+def test_a_link_or_image_on_another_site_cannot_start_a_review(dashboard, monkeypatch):
+    asked = whois_answers(monkeypatch, json.dumps(OWNER_WHOIS))
+    assert call(dashboard.url, "/api/review/7")[0] == 404
+    assert dashboard.drive.acted == []
+    assert asked == []
+
+
+@pytest.mark.parametrize(("path", "body"), [(route, WRITES[route]) for route in WRITES] + [("/api/review/7", {}), ("/api/story/some-work", None)])
+def test_a_rebinding_page_is_refused_though_the_owner_s_device_carries_it(dashboard, monkeypatch, path, body):
+    asked = whois_answers(monkeypatch, json.dumps(OWNER_WHOIS))
+    assert call(dashboard.url, path, body, host="evil.example:61210")[0] == 403
+    assert dashboard.drive.acted == []
+    assert asked == []
+
+
+def test_the_names_the_owner_may_use_are_this_macs_own(monkeypatch):
+    status = {"Self": {"DNSName": "Studio.tail.ts.net.", "TailscaleIPs": ["100.1.2.3", "fd7a::1"]}}
+    monkeypatch.setattr(server, "run", lambda argv, cwd=None: json.dumps(status))
+    assert server.own_names("100.1.2.3") == {"studio.tail.ts.net", "studio", "100.1.2.3", "fd7a::1"}
+
+
+def test_the_review_assistant_never_runs_with_permissions_bypassed(tmp_path, monkeypatch):
+    class Stop(Exception):
+        pass
+
+    def run(argv, **_):
+        ran.append(argv)
+        raise Stop
+
+    ran = []
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setattr("subprocess.run", run)
+    (tmp_path / "plugins").mkdir()
+    (tmp_path / "plugins" / "installed_plugins.json").write_text(json.dumps({"plugins": {"cc-review@cc-review": [{"installPath": "/cc-review/0.46.1"}]}}))
+    assistant = ReviewAssistant({"repo": "a/b", "drive": "d"}, tmp_path, "http://model")
+    assistant.queues[7] = queue.Queue()
+    assistant.scope(7).mkdir(parents=True)
+    assistant.queues[7].put({"type": "ai.request.created", "request": {"id": "1", "source": "system"}})
+    monkeypatch.setattr(assistant, "board_row", lambda number: [{"number": number, "head": "abc"}])
+    with pytest.raises(Stop):
+        assistant.serve(7)
+    argv = ran[0]
+    assert "bypassPermissions" not in argv and argv[argv.index("--permission-mode") + 1] == "dontAsk"
+    assert "--restricted" in argv and argv[argv.index("--plugin-dir") + 1] == "/cc-review/0.46.1"
+    assert not {"Write", "Edit", "WebFetch", "WebSearch"} & set(argv[argv.index("--tools") + 1].split(","))
+    assert set(assistant.allowed_tools(7)) <= set(argv)
+    assert not {"Bash", "Read", "Write", "Edit"} & set(argv)
+    assert "curl" not in argv[2] and '"head": "abc"' in argv[2]
+
+
+def test_the_review_assistant_reads_its_row_and_runs_on_without_one(tmp_path):
+    model = tmp_path / "model.json"
+    model.write_text(json.dumps({"board": {"rows": [{"number": 7, "head": "abc"}, {"number": 8, "head": "def"}]}}))
+    assert ReviewAssistant({"repo": "a/b", "drive": "d"}, tmp_path, model.as_uri()).board_row(7) == [{"number": 7, "head": "abc"}]
+    assert ReviewAssistant({"repo": "a/b", "drive": "d"}, tmp_path, (tmp_path / "gone.json").as_uri()).board_row(7) == []
 
 
 def test_a_read_stays_open_and_asks_nobody_who_is_calling(dashboard, monkeypatch):
