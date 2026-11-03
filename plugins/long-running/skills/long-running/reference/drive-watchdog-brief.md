@@ -29,6 +29,9 @@ Keep cci text under 400 characters; attach longer bodies with --path.
 Never say a PR is tapped or approved without the board verdict id: read
 `cc-present outcomes --no-doc --session <coordinator session>` for that PR and head and cite
 its block, row and head; an empty tap list or a coordinator go is no tap.
+`lr approved [--since <seq>]` lists the PRs the board approved, split into not open
+and still open, from one record read and one batched PR read; never rebuild that list
+from records.
 
 Mandate: <the plan's number-one outcome, in the owner's words>. Plan <plan id>
 (`ccn plan show <plan id>`); owner table doc <table doc id> (`ccn doc show <id>`).
