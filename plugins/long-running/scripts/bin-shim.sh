@@ -39,6 +39,7 @@ case "$TOOL" in
     ;;
   incident.py) exec "$ROOT/bin/lr" incident "$@" ;;
   replay.py) exec "$ROOT/bin/lr" replay "$@" ;;
+  remote-restack.py) exec "$ROOT/bin/lr" landing restack "$@" ;;
   desk-creds.py) exec "$ROOT/bin/lr" desk-creds "$@" ;;
   owner_waits.py) exec "$ROOT/bin/lr" board waits "$@" ;;
   owner_update.py) exec "$ROOT/bin/lr" update "$@" ;;

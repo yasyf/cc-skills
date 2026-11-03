@@ -189,7 +189,7 @@ Stack shape, under D19: put each shared-file edit in the smallest additive first
   your stack, in the file's declared order. When a file you change is in another open
   PR, stack on that PR instead of racing it. Open your PR as soon as its parent's PR
   exists, never once it lands: ship on the parent branch, then restack after the parent
-  lands with `remote-restack.py --config <runner config> --lane <lane> <top PR>`, which
+  lands with `lr landing restack --runner <runner config> --lane <lane> <top PR>`, which
   replays the stack on a Sprite, pushes, and posts each new head. No rebase runs here.
   Resolve by hand only a conflict it reports, on the branch and commit it names. Never commit a generated output; the build
   generates it. A stack that still carries a regenerated artifact rebases and
@@ -201,7 +201,7 @@ Holds file: <path>, coordinator-owned. Never enqueue, merge, or add a `merge` or
   approved, unheld bottom prefix against the open cci `hold` records. A held PR
   gets `held` on your tip with the held PR named; release is the coordinator's.
   Keep `ccx vcs pr watch` on the stack; on ejection or conflict, restack at once with
-  `remote-restack.py`. After the prefix lands, restack the PRs above it the same way.
+  `lr landing restack`. After the prefix lands, restack the PRs above it the same way.
 Ledger: <id>. Register your branch prefix when spawned:
   `ledger.py register --ledger <id> --lane <name> --repo <owner/name> --branch-prefix <prefix>`.
 Report every PR open, push, enqueue, and READY yourself, in this one shape:
