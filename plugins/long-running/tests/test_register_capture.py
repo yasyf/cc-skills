@@ -180,7 +180,7 @@ def test_a_queued_prompt_carrying_a_screenshot_lands_at_the_next_hook_with_the_t
 
 
 def slack_message(**fields) -> str:
-    payload = {"type": "slack.message", "watch_id": 18, "kind": "dm", "channel_id": "D0DIRECT001", "thread_ts": "1792842193.708029", "ts": "1793159602.693499", "user": "U0PERSON002", "user_name": "Yasyf", "from_claude": False, "text": "Meant to approve 43807"} | fields
+    payload = {"type": "slack.message", "watch_id": 18, "kind": "dm", "channel_id": "D0DIRECT001", "thread_ts": "1792842193.708029", "ts": "1793159602.693499", "user": register_capture.OPERATOR, "user_name": "Yasyf", "from_claude": False, "text": "Meant to approve 43807"} | fields
     return f'<channel source="plugin:cc-slack:cc-slack" subject_id="50c3b930" type="slack.message">\n{json.dumps(payload)}\n</channel>'
 
 
