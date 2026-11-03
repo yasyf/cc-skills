@@ -83,7 +83,7 @@ func (g GitHubRead) Read(ctx context.Context, at time.Time) ([]Event, error) {
 	if err != nil {
 		return nil, err
 	}
-	meta := Meta{Source: readSource, Seq: at.Unix(), At: at, Repo: g.Repo}
+	meta := Meta{Source: readSource, At: at, Repo: g.Repo}
 	var events []Event
 	open := map[int]bool{}
 	dec := json.NewDecoder(strings.NewReader(out))

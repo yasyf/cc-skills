@@ -86,7 +86,7 @@ def carries_sand_next(flags: dict[str, list[str]]) -> bool:
 def released_commit(flags: dict[str, list[str]], cwd: str) -> tuple[str, str]:
     ref = (flags.get("commit") or flags.get("from") or [""])[-1]
     if not ref and "manual" not in flags and "local" not in flags:
-        dev = read(["git", "ls-remote", "origin", "refs/heads/dev"], cwd).split()
+        dev = read(["git", "ls-remote", "--heads", "origin", "refs/heads/dev"], cwd).split()
         if not dev:
             raise Unread("origin has no dev branch")
         return dev[0].lower(), "origin dev's tip"

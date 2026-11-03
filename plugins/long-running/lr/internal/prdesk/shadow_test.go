@@ -131,6 +131,39 @@ func TestTheMinuteReadMakesOneGitHubCallAtAnyNumberOfOpenPRs(t *testing.T) {
 	}
 }
 
+func TestAReadOfTheSameFactsAppliesNothingAndAMovedFactAppliesOnce(t *testing.T) {
+	read := GitHubRead{CCX: &pages{open: 3}, Store: memory(t).Store, Repo: repo, Author: "yasyf"}
+	first, err := read.Read(context.Background(), t0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fresh, seen := unseen(nil, first)
+	if len(fresh) != 3 {
+		t.Fatalf("the first read applied %d events, want all 3", len(fresh))
+	}
+	second, err := read.Read(context.Background(), t0.Add(ReadEvery))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fresh, seen = unseen(seen, second)
+	if len(fresh) != 0 {
+		t.Fatalf("a read of the same facts a minute later applied %v, want nothing", fresh)
+	}
+	pushed := second[0].(PullRequest)
+	pushed.Head = h2
+	second[0] = pushed
+	fresh, seen = unseen(seen, second)
+	if len(fresh) != 1 || fresh[0] != Event(pushed) {
+		t.Fatalf("a moved head applied %v, want only the moved pull request", fresh)
+	}
+	if fresh, _ = unseen(seen, nil); len(fresh) != 0 {
+		t.Fatalf("a failed read applied %v, want nothing", fresh)
+	}
+	if fresh, _ = unseen(seen, second); len(fresh) != 0 {
+		t.Fatalf("a failed read forgot what the last read saw and applied %v", fresh)
+	}
+}
+
 func TestAHoldRecordHoldsItsPRsUntilItsOwnLifterResolvesIt(t *testing.T) {
 	s, c := shadowOf(t, &[]client.Draft{}), &clock{}
 	apply(t, s.Desk, append(clean(c, 0, 7, "lane/a", landing, h1), Tap{c.at(1), 7, h1, machine.TapTapped})...)

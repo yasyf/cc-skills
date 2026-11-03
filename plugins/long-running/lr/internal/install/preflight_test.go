@@ -112,17 +112,6 @@ const parentOfTag = `{"parents":[{"sha":"abcdef0123456789"}]}`
 
 const runsPath = "api repos/o/r/actions/runs?head_sha=abcdef0123456789&per_page=100"
 
-type runnerFunc func(shell.Command) (shell.Result, error)
-
-func (f runnerFunc) Run(_ context.Context, c shell.Command) (shell.Result, error) { return f(c) }
-
-func exited(code int, stdout string, seen *[]string) runnerFunc {
-	return func(c shell.Command) (shell.Result, error) {
-		*seen = c.Argv
-		return shell.Result{Code: code, Stdout: stdout}, &shell.ExitError{Argv: c.Argv, Code: code}
-	}
-}
-
 func TestCIFaultReadsTheNewestAttemptOnTheCommitTheTagWasBumpedFrom(t *testing.T) {
 	cases := map[string]struct {
 		runs string
@@ -178,32 +167,16 @@ func TestATargetBinaryThatRefusesCarriesItsOwnWords(t *testing.T) {
 	}
 }
 
-func TestTheGateRefusesOnThreeWarnsOnAnythingElseAndSkipsWithNoServingVersion(t *testing.T) {
-	var argv []string
-	refusing := exited(3, "1.2.3 replayed 900 records against 1.2.2 and relaunches a, which 1.2.2 did not\n", &argv)
-	fault, warning := Checks{Runner: refusing, Installs: "/i"}.GateFault(context.Background(), "d", "o/r", "1.2.2", "1.2.3")
-	if !strings.Contains(fault, "relaunches a") || warning != "" {
-		t.Fatalf("got %q %q", fault, warning)
+func TestInstallPreflightDoesNotReadOrReplayDriveHistory(t *testing.T) {
+	fake := &shelltest.Fake{}
+	fake.Reply("", "/i/1.2.3/bin/lr", "install", "check")
+	faults := preflight(context.Background(), Checks{Runner: fake, Installs: "/i"}, "/state/lr.json", "1.2.3", options{ciRedOK: "owner requested immediate installation"})
+	if len(faults) != 0 {
+		t.Fatal(faults)
 	}
-	if !slices.Equal(argv, []string{"/i/1.2.3/bin/replay.py", "gate", "--drive", "d", "--repo", "o/r", "--old", "1.2.2", "--new", "1.2.3"}) {
-		t.Fatalf("argv %v", argv)
-	}
-
-	broken := &shelltest.Fake{}
-	broken.Fail(1, "boom\n", "/i/1.2.3/bin/replay.py")
-	fault, warning = Checks{Runner: broken, Installs: "/i"}.GateFault(context.Background(), "d", "o/r", "1.2.2", "1.2.3")
-	if fault != "" || !strings.Contains(warning, "unreplayed") || !strings.Contains(warning, "boom") {
-		t.Fatalf("got %q %q", fault, warning)
-	}
-
-	idle := &shelltest.Fake{}
-	for _, serving := range []string{"", "1.2.3"} {
-		if fault, warning := (Checks{Runner: idle, Installs: "/i"}).GateFault(context.Background(), "d", "o/r", serving, "1.2.3"); fault != "" || warning != "" {
-			t.Fatalf("got %q %q", fault, warning)
-		}
-	}
-	if len(idle.Calls()) != 0 {
-		t.Fatalf("calls %v", idle.Calls())
+	calls := fake.Calls()
+	if len(calls) != 1 || !slices.Equal(calls[0].Argv, []string{"/i/1.2.3/bin/lr", "install", "check", "--config", "/state/lr.json"}) {
+		t.Fatalf("preflight commands: %+v", calls)
 	}
 }
 

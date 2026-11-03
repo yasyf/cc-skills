@@ -2,7 +2,7 @@
 
 Contents:
 - [Roles and architecture](#roles-and-architecture)
-- [Rules D1 to D22](#rules-d1-to-d22)
+- [Rules D1 to D23](#rules-d1-to-d23)
 - [Queue adapters and runner passes](#queue-adapters-and-runner-passes)
 - [The check registry](#the-check-registry)
 - [Fidelity, finder, and rulings checks](#fidelity-finder-and-rulings-checks)
@@ -27,7 +27,7 @@ Scripts are on `PATH` by name, as SKILL.md describes.
 
 The desk grades, lands, and tracks only through `ledger.py`, never scripts of its own; a gap in `ledger.py` is a `RULING NEEDED`, not a workaround. `reference/landing-desk-brief.md` is the desk's spawn brief.
 
-## Rules D1 to D22
+## Rules D1 to D23
 
 **D1. The landing desk is the only enqueuer; lanes report; the coordinator owns holds and priority PRs.** A lane never runs `stack-enqueue` outside `--check` and `--status`, `gt merge`, `gh pr merge`, or `ledger.py label`, and never adds a `merge` or `merge-fast` label. The pack's `lane_landing` hook reads the drive registry and warns on those commands against the drive's repo without blocking them from every lane except `landing-desk`, its shards, priority desks, `desk-runner`, `merge-train` lanes, and incident lanes. An incident lane is named `incident-` or `outage-`, briefed with `ccx: incident=<id>` other than `none`, or named `<x>-fix` and briefed with `Register slice: lane=<x>-fix step=incident`; the hook warns it only on `stack-enqueue` and `gh pr merge --admin` and lets it run `gh pr merge <n> --squash`. The same pack warns on `tools/ci trunk dequeue`, `restart`, and `prioritize` from every lane, desks included, because only the coordinator steers the queue. A tooling lane merges its own PRs in other repos.
 
@@ -89,7 +89,9 @@ The runner re-runs the gate immediately before creating the route and suppresses
 
 **D21. A format change lands readers first.** A PR that changes a format another build reads, such as a journal, seal, session, manifest, stored file, or row, is a writer. Ship its readers first in their own PR, and wait until that reader release is live on every reading client, including any browser bundle, desktop app, local daemon, or server, before enqueueing the writer. A client that never restarts on its own counts until it refuses the old build. The writer's body must carry `Readers-First: #<reader PR> live in <release>` for each reader and never a `Release-With` pairing it with its reader. The writer's lane posts `cci post --kind hold --pr <writer> --text "readers-first: #<reader> not live on every client"` when opening the writer, which holds it under D1 until the coordinator lifts it with `lift --resolves <seq>` naming the release and its live read-back. The landing desk grades each tracked PR's diff for a format change and posts a hold with reason `"readers-first: no reader named"` on any writer lacking a `Readers-First:` line.
 
-**D22. A PR whose release must avoid a time window is enqueued only when the window allows it, or under a release hold.** Hold the PR out of the queue until a release lands outside the window. Otherwise, first post `cci post --drive <release owner's drive> --lane <lane> --kind hold --pr <n> --to <release owner> --text "release <component> only after <time>, <reason>"` on the drive `cci who` names so the release owner leaves that PR out of every release until then. A hold in a lane's brief binds no other session's release train, and a hold on the lane's own drive refuses the enqueue under D1.
+**D22. A PR whose release must avoid a time window stays out of the queue until a release outside the window can carry it.** Every merged change ships in the next release anyone cuts. No hold record on any drive reaches another person's release. Hold the PR with `cci post --kind hold --pr <n>`, which refuses the enqueue under D1, until a release outside the window can carry it, or land it behind a code gate or feature flag that keeps it inert until then.
+
+**D23. A PR that waits to go live names how it is safe on dev.** Its body may say it waits for a card, a later tap, a release, or a hold before it goes live, such as `lands only after #<n> is live`. That body must also name a code gate, a feature flag, or that the change is inert until a named caller lands, as in `nothing calls <verb> yet`. Without one, the landing pass refuses it with `UNSAFE-ON-DEV` to its lane and the coordinator, `lr landing go` and `lr landing gate` print the same reason, and its tap card lists it. The lane adds the gate to the code and names it in the body, or drops a wait that no longer holds.
 
 ## Queue adapters and runner passes
 

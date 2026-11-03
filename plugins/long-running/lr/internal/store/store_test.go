@@ -575,3 +575,41 @@ func TestStampsAreUTCSecondsAndParseOffsets(t *testing.T) {
 		t.Fatalf("parsed %s", parsed)
 	}
 }
+
+func TestAScopedLaneReadCarriesOnlyItsOwnHeardAndPRs(t *testing.T) {
+	s := memory(t)
+	for _, name := range []string{"l-1", "l-2"} {
+		must[bool](t)(s.WantLane(Lane{Name: name, Brief: "/b.md", Model: "opus", Effort: "xhigh", Role: "lane", State: LaneDesired}, t0))
+	}
+	must[bool](t)(s.WantLane(Lane{Name: "l-3", Brief: "/b.md", Model: "opus", Effort: "xhigh", Role: "lane", State: LaneRetired}, t0))
+	ok(t, s.LaneHeard("l-1", t0.Add(time.Minute), "state", 5))
+	ok(t, s.LaneHeard("l-3", t0.Add(2*time.Minute), "done", 6))
+	ok(t, s.Own("l-1", []int{7, 9}))
+	ok(t, s.Own("l-3", []int{11}))
+
+	one, found, err := s.Lane("l-1")
+	if err != nil || !found {
+		t.Fatalf("found %v, err %v", found, err)
+	}
+	if !one.Heard.Equal(t0.Add(time.Minute)) || one.Last != "state" || !slices.Equal(one.PRs, []int{7, 9}) {
+		t.Fatalf("heard %v, last %q, PRs %v", one.Heard, one.Last, one.PRs)
+	}
+
+	silent, found, err := s.Lane("l-2")
+	if err != nil || !found {
+		t.Fatalf("found %v, err %v", found, err)
+	}
+	if !silent.Heard.IsZero() || len(silent.PRs) != 0 {
+		t.Fatalf("heard %v, PRs %v", silent.Heard, silent.PRs)
+	}
+
+	retired := must[[]Lane](t)(s.Lanes(LaneRetired))
+	if len(retired) != 1 || retired[0].Name != "l-3" || retired[0].Last != "done" || !slices.Equal(retired[0].PRs, []int{11}) {
+		t.Fatalf("retired %+v", retired)
+	}
+
+	missing, found, err := s.Lane("l-9")
+	if err != nil || found {
+		t.Fatalf("lane %+v, found %v, err %v", missing, found, err)
+	}
+}

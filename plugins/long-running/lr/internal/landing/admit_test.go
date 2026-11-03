@@ -257,6 +257,19 @@ func TestABuildBreakInTheSoftFailedTreeStaysOutOfTheQueue(t *testing.T) {
 	}
 }
 
+func TestAHeadWhoseBodyWaitsToGoLiveUnsafeOnDevStaysOutOfTheQueueWithItsStack(t *testing.T) {
+	f := newGates(t)
+	unsafe := enqueueAct(1, "one", "dev")
+	unsafe.Facts.UnsafeWait = "this lands only after #46014 is live on every cluster"
+
+	f.admit(t, []pass.Act{unsafe, enqueueAct(2, "two", "one"), enqueueAct(3, "three", "dev")}, 3)
+
+	got := gateRecords(t, "blocker")
+	if len(got) != 1 || !strings.HasPrefix(got[0].Text, "UNSAFE-ON-DEV #1 at e718a7434f stays out of the queue: its body waits to go live") || !slices.Equal(got[0].To, []string{"lane-7", "root"}) {
+		t.Fatalf("blockers = %+v", got)
+	}
+}
+
 func TestTheBuildGateReadsAnnotationsWithTheReadToken(t *testing.T) {
 	f := buildGates(t, "go/sand/next/run.go\n", buildAnnotation("go/sand/next/run undefined: Foo"), `[]`)
 

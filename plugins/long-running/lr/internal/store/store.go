@@ -503,10 +503,11 @@ func (s *Store) Names() ([]string, error) {
 func (s *Store) registered(where string, args ...any) ([]Lane, error) {
 	rows, err := s.db.Query("SELECT "+laneColumns+" FROM lanes "+where+" ORDER BY name", args...)
 	lanes, err := collect(rows, err, scanLane)
-	if err != nil {
-		return nil, err
+	if err != nil || len(lanes) == 0 {
+		return lanes, err
 	}
-	rows, err = s.db.Query("SELECT lane, at, kind, node, late_seconds FROM heard")
+	scope := "WHERE lane IN (SELECT name FROM lanes " + where + ")"
+	rows, err = s.db.Query("SELECT lane, at, kind, node, late_seconds FROM heard "+scope, args...)
 	type heardRow struct {
 		lane, kind, node string
 		at               time.Time
@@ -524,7 +525,7 @@ func (s *Store) registered(where string, args ...any) ([]Lane, error) {
 	for _, row := range heard {
 		byLane[row.lane] = row
 	}
-	owned, err := s.Owners()
+	owned, err := s.owned(scope, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -574,7 +575,11 @@ func (s *Store) Heard() (map[string]time.Time, error) {
 }
 
 func (s *Store) Owners() (map[string][]int, error) {
-	rows, err := s.db.Query("SELECT pr, lane FROM owners ORDER BY pr")
+	return s.owned("")
+}
+
+func (s *Store) owned(scope string, args ...any) (map[string][]int, error) {
+	rows, err := s.db.Query("SELECT pr, lane FROM owners "+scope+" ORDER BY pr", args...)
 	type row struct {
 		pr   int
 		lane string

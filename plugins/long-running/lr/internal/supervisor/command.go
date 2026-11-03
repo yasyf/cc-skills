@@ -91,14 +91,19 @@ func run(ctx context.Context, a *app.App) error {
 	if err != nil {
 		return err
 	}
+	if stop, err := serveProfiles(filepath.Join(state, profileFile), a.Log); err != nil {
+		a.Log.Warn("the supervisor serves no profiles", "err", err)
+	} else {
+		defer stop()
+	}
 	version := Installed(env.Claude)
 	upgrade := &Upgrade{Env: env, Running: version, Read: read}
 	deps.Stale = upgrade.Stale
-	reports, ended, err := Run(ctx, s, cfg.Drive, version, os.Getpid(), deps, 0)
+	_, ended, err := Run(ctx, s, cfg.Drive, version, os.Getpid(), deps, 0)
 	if err != nil {
 		return err
 	}
-	a.Log.Info("supervisor ended", "how", string(ended), "ticks", len(reports))
+	a.Log.Info("supervisor ended", "how", string(ended))
 	if ended == EndedRelease {
 		return Reexec(env.Claude, syscall.Exec)
 	}
@@ -174,8 +179,9 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 		Lanes: func(now time.Time, generation int64) (lanes.Outcome, error) {
 			return lanes.Tick(s, laneDeps, now, generation)
 		},
-		Checks: checks,
-		Log:    a.Log,
+		Checks:  checks,
+		Stagger: checkStagger,
+		Log:     a.Log,
 	}
 	if !slices.Contains(env.Config.Movers, config.MoverLanding) {
 		return deps, nil

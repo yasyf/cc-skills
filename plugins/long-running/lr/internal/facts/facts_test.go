@@ -43,6 +43,7 @@ type recordedPR struct {
 	merge   string
 	draft   bool
 	diff    string
+	body    string
 }
 
 func graphQLPages(prs []recordedPR) string {
@@ -59,7 +60,7 @@ func graphQLPages(prs []recordedPR) string {
 				commits = append(commits, map[string]any{"commit": map[string]any{"oid": oid}})
 			}
 			nodes = append(nodes, map[string]any{
-				"number": pr.number, "isDraft": pr.draft, "headRefOid": pr.head, "author": map[string]any{"login": pr.login},
+				"number": pr.number, "isDraft": pr.draft, "headRefOid": pr.head, "body": pr.body, "author": map[string]any{"login": pr.login},
 				"labels": map[string]any{"nodes": labels}, "commits": map[string]any{"nodes": commits},
 			})
 		}
@@ -206,6 +207,19 @@ func TestAPRAnotherPersonWroteReadsWithTheirLoginWhetherALabelOrAnOpenItemKeepsI
 	}
 	if want := map[int]string{1: "", 47613: "teammate", 47615: "teammate"}; !maps.Equal(authors, want) {
 		t.Fatalf("foreign authors = %v, want %v", authors, want)
+	}
+}
+
+func TestTheOpenListReadNamesTheWaitEachDrivePRsBodyLeavesUnsafeOnDev(t *testing.T) {
+	h := newHarness(t, []recordedPR{
+		{number: 1, head: head, login: "drive-bot", body: "## Risk\n\nThis goes live only after #46014 is live on every cluster.\n"},
+		{number: 2, head: head2, login: "drive-bot", body: "Nothing calls this yet. It goes live only after #46014 is live.\n"},
+	}, status(1), status(2))
+
+	got := h.snapshot(t)
+
+	if got[1].UnsafeWait != "This goes live only after #46014 is live on every cluster" || got[2].UnsafeWait != "" {
+		t.Fatalf("waits = %q, %q", got[1].UnsafeWait, got[2].UnsafeWait)
 	}
 }
 

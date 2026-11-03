@@ -28,9 +28,10 @@ import (
 )
 
 const (
-	alertGrace   = 3 * time.Minute
 	alertWindow  = time.Hour
+	alertJoin    = 24 * time.Hour
 	alertRead    = 20
+	threadRead   = 200
 	fixLiveIdle  = 30 * time.Minute
 	fixLiveBack  = 6 * time.Hour
 	gcEvery      = 5 * time.Minute
@@ -51,14 +52,22 @@ const (
 var (
 	alertURL       = regexp.MustCompile(`app\.datadoghq\.com/monitors/(\d+)|sentry\.io/\S*?issues/(\d+)`)
 	recoveredAlert = regexp.MustCompile(`(?i)^\W*(?:Recovered|Resolved)\b`)
+	redWatch       = regexp.MustCompile(`The Watch failed for (.+?) on (\S+?): "([^"]+)" crossed`)
+	redSmoke       = regexp.MustCompile(`(\S+) is live, but (.+?) on (\S+?) went red`)
+	watchRelease   = regexp.MustCompile(`Nothing else in (\S+) waits on it`)
+	releaseAuthor  = regexp.MustCompile(`<@(U[A-Z0-9]+)>`)
+	jobLink        = regexp.MustCompile(`<(https://buildkite\.com/[^|>]+)`)
+	notSlug        = regexp.MustCompile(`[^a-z0-9]+`)
 )
 
 type Check func(ctx context.Context, now time.Time) error
 
 type slackMessage struct {
-	TS        string `json:"ts"`
-	Text      string `json:"text"`
-	Permalink string `json:"permalink"`
+	TS          string `json:"ts"`
+	Text        string `json:"text"`
+	Permalink   string `json:"permalink"`
+	ReplyCount  int    `json:"reply_count"`
+	LatestReply string `json:"latest_reply"`
 }
 
 type Alerts struct {
@@ -67,13 +76,21 @@ type Alerts struct {
 	Channels []string
 	Log      *slog.Logger
 	Launch   func(ctx context.Context, fired Fired) (string, error)
+	threads  map[string]string
 }
 
 type Fired struct {
-	Slug string
-	What string
-	Link string
-	At   time.Time
+	Slug  string
+	What  string
+	Link  string
+	At    time.Time
+	Facts []string
+}
+
+type alert struct {
+	name  string
+	slug  string
+	facts []string
 }
 
 func (e Env) incidentBrief(lane, template string, fired Fired) (string, error) {
@@ -88,7 +105,7 @@ func (e Env) incidentBrief(lane, template string, fired Fired) (string, error) {
 	rendered := strings.NewReplacer(
 		"{{", "{", "}}", "}", "{lane}", lane, "{incident}", fired.Slug, "{slug}", fired.Slug, "{link}", fired.Link, "{what}", fired.What,
 		"{onset}", pacific(fired.At), "{reported}", reported.Format("15:04"), "{due}", reported.Add(incidentBar).Format("15:04"),
-		"{repo}", e.Config.Checkout, "{drive}", e.Config.Drive, "{facts}", "drive "+e.Config.Drive,
+		"{repo}", e.Config.Checkout, "{drive}", e.Config.Drive, "{facts}", strings.Join(append([]string{"drive " + e.Config.Drive}, fired.Facts...), "\n"),
 	).Replace(string(text))
 	dir := filepath.Join(e.State, "lanes")
 	if err := os.MkdirAll(dir, 0o750); err != nil {
@@ -115,38 +132,108 @@ func (e Env) IncidentLaunch(ctx context.Context, fired Fired) (string, error) {
 	return fix, err
 }
 
-func (a Alerts) Check(ctx context.Context, now time.Time) error {
+func (a *Alerts) Check(ctx context.Context, now time.Time) error {
+	threads := map[string]string{}
 	for _, channel := range a.Channels {
-		stdout, err := a.Env.Run(ctx, "cc-slack", "history", "--channel", channel, "--json", "--limit", strconv.Itoa(alertRead))
-		if err != nil {
-			a.Log.Warn("alert channel did not read", "channel", channel, "err", err)
-			continue
-		}
 		var history struct {
 			Messages []slackMessage `json:"messages"`
 		}
-		if err := json.Unmarshal([]byte(stdout), &history); err != nil {
-			a.Log.Warn("alert channel did not parse", "channel", channel, "err", err)
+		if !a.read(ctx, &history, "history", "--channel", channel, "--json", "--limit", strconv.Itoa(alertRead)) {
 			continue
 		}
-		for _, message := range history.Messages {
-			if err := a.raise(ctx, channel, message, now); err != nil {
+		for _, card := range history.Messages {
+			if err := a.raise(ctx, channel, card, card, now); err != nil {
 				return err
+			}
+			if card.ReplyCount == 0 {
+				continue
+			}
+			latest, err := firedAt(card.LatestReply)
+			if err != nil {
+				return err
+			}
+			if now.Sub(latest) >= alertWindow {
+				continue
+			}
+			key, moved := channel+":"+card.TS, strconv.Itoa(card.ReplyCount)+" "+card.LatestReply
+			if a.threads[key] == moved {
+				threads[key] = moved
+				continue
+			}
+			var thread struct {
+				Messages []slackMessage `json:"messages"`
+			}
+			if !a.read(ctx, &thread, "thread", "--url", card.Permalink, "--limit", strconv.Itoa(threadRead)) {
+				continue
+			}
+			threads[key] = moved
+			for _, reply := range thread.Messages {
+				if reply.TS == card.TS {
+					continue
+				}
+				if err := a.raise(ctx, channel, card, reply, now); err != nil {
+					return err
+				}
 			}
 		}
 	}
+	a.threads = threads
 	return nil
 }
 
-func alertOf(message slackMessage) (alert, slug string, ok bool) {
-	found := alertURL.FindStringSubmatch(message.Text)
-	if found == nil || recoveredAlert.MatchString(message.Text) {
-		return "", "", false
+func (a *Alerts) read(ctx context.Context, into any, argv ...string) bool {
+	stdout, err := a.Env.Run(ctx, append([]string{"cc-slack"}, argv...)...)
+	if err == nil {
+		err = json.Unmarshal([]byte(stdout), into)
 	}
-	if found[1] != "" {
-		return found[1], "dd-" + found[1], true
+	if err != nil {
+		a.Log.Warn("alert channel did not read", "read", argv[0], "err", err)
 	}
-	return found[2], "sentry-" + found[2], true
+	return err == nil
+}
+
+func alertOf(card, message slackMessage) (alert, bool) {
+	if recoveredAlert.MatchString(message.Text) {
+		return alert{}, false
+	}
+	if found := alertURL.FindStringSubmatch(message.Text); found != nil {
+		if found[1] != "" {
+			return alert{name: found[1], slug: "dd-" + found[1]}, true
+		}
+		return alert{name: found[2], slug: "sentry-" + found[2]}, true
+	}
+	author, job := submatch(releaseAuthor, message.Text+"\n"+card.Text), submatch(jobLink, message.Text)
+	if found := redWatch.FindStringSubmatch(message.Text); found != nil {
+		monitor := sha256.Sum256([]byte(found[3]))
+		slug := slugOf("watch", found[1], found[2]) + "-" + hex.EncodeToString(monitor[:3])
+		return alert{slug, slug, factsOf("component", found[1], "env", found[2], "monitor", found[3], "release", submatch(watchRelease, message.Text), "released by", author, "job", job)}, true
+	}
+	if found := redSmoke.FindStringSubmatch(message.Text); found != nil {
+		slug := slugOf("smoke", found[2], found[3])
+		return alert{slug, slug, factsOf("component", found[2], "env", found[3], "monitor", found[2], "release", found[1], "released by", author, "job", job)}, true
+	}
+	return alert{}, false
+}
+
+func submatch(pattern *regexp.Regexp, text string) string {
+	if found := pattern.FindStringSubmatch(text); found != nil {
+		return found[1]
+	}
+	return ""
+}
+
+func slugOf(kind string, parts ...string) string {
+	return kind + "-" + strings.Trim(notSlug.ReplaceAllString(strings.ToLower(strings.Join(parts, " ")), "-"), "-")
+}
+
+func factsOf(pairs ...string) []string {
+	var facts []string
+	for pair := range slices.Chunk(pairs, 2) {
+		if pair[1] != "" {
+			facts = append(facts, pair[0]+" "+pair[1])
+		}
+	}
+	return facts
 }
 
 func firedAt(ts string) (time.Time, error) {
@@ -157,8 +244,8 @@ func firedAt(ts string) (time.Time, error) {
 	return time.Unix(0, int64(seconds*float64(time.Second))).UTC(), nil
 }
 
-func (a Alerts) raise(ctx context.Context, channel string, message slackMessage, now time.Time) error {
-	alert, slug, ok := alertOf(message)
+func (a *Alerts) raise(ctx context.Context, channel string, card, message slackMessage, now time.Time) error {
+	alert, ok := alertOf(card, message)
 	if !ok {
 		return nil
 	}
@@ -166,7 +253,27 @@ func (a Alerts) raise(ctx context.Context, channel string, message slackMessage,
 	if err != nil {
 		return err
 	}
-	if age := now.Sub(fired); age < alertGrace || age >= alertWindow {
+	if now.Sub(fired) >= alertWindow {
+		return nil
+	}
+	headline, _, _ := strings.Cut(message.Text, "\n")
+	headline = truncated(strings.Join(strings.Fields(headline), " "), 160)
+	minutes := int(now.Sub(fired).Minutes())
+	draft := client.Draft{Drive: a.Env.Config.Drive, Lane: Self, To: []string{Root}, URL: card.Permalink}
+	lane, found, err := a.Store.Lane(alert.slug + "-fix")
+	if err != nil || found && (lane.State == store.LaneRetired || now.Sub(lane.Since) >= alertJoin) {
+		return err
+	}
+	if found {
+		first, err := a.Store.Escalate("alert:"+channel+":"+message.TS, "launch", Root, now)
+		if err != nil || !first {
+			return err
+		}
+		draft.Kind, draft.ID, draft.To = "note", "alert-joined:"+channel+":"+message.TS, []string{lane.Name}
+		draft.Text = fmt.Sprintf("ALERT-AGAIN %s: %s fired again %d min ago, so the supervisor told %s and launched nothing new", headline, alert.name, minutes, lane.Name)
+		if _, err := a.Env.Bus.Post(ctx, draft); err != nil {
+			return fmt.Errorf("%w: cci post: %w", ErrUnread, err)
+		}
 		return nil
 	}
 	incidents, err := a.Env.Bus.Tail(ctx, client.Query{Drive: a.Env.Config.Drive, Since: fired, Kinds: []string{"incident"}})
@@ -174,37 +281,31 @@ func (a Alerts) raise(ctx context.Context, channel string, message slackMessage,
 		return fmt.Errorf("%w: cci tail incident: %w", ErrUnread, err)
 	}
 	for _, incident := range incidents {
-		if strings.Contains(incident.Text, alert) {
+		if strings.Contains(incident.Text, alert.name) {
 			return nil
 		}
-	}
-	if _, found, err := a.Store.Lane(slug + "-fix"); err != nil || found {
-		return err
 	}
 	first, err := a.Store.Escalate("alert:"+channel+":"+message.TS, "launch", Root, now)
 	if err != nil || !first {
 		return err
 	}
-	holder, launchErr := a.Env.MonitorLane(ctx, alert, slug+"-fix")
+	holder, launchErr := a.Env.MonitorLane(ctx, alert.name, alert.slug+"-fix")
 	if holder != "" {
 		return nil
 	}
-	headline, _, _ := strings.Cut(message.Text, "\n")
-	headline = truncated(strings.Join(strings.Fields(headline), " "), 160)
-	minutes := int(now.Sub(fired).Minutes())
-	draft := client.Draft{Drive: a.Env.Config.Drive, Lane: Self, To: []string{Root}, URL: message.Permalink}
 	var brief string
 	if launchErr == nil {
-		brief, launchErr = a.Launch(ctx, Fired{slug, headline, message.Permalink, fired})
+		brief, launchErr = a.Launch(ctx, Fired{alert.slug, headline, card.Permalink, fired, alert.facts})
 	}
 	if launchErr != nil {
 		draft.Kind, draft.ID = blockerKind, "alert-unopened:"+channel+":"+message.TS
-		draft.Text = fmt.Sprintf("ALERT-UNOPENED %s: no incident record names %s %d min after it fired, and the supervisor's launch of %s-fix failed: %s | coordinator: open the incident on sight with `lr incident open --kind alert` and launch its fix lane this turn", headline, alert, minutes, slug, truncated(launchErr.Error(), 200))
+		failure := []rune(launchErr.Error())
+		draft.Text = fmt.Sprintf("ALERT-UNOPENED %s: no incident record names %s %d min after it fired, and the supervisor's launch of %s-fix failed: %s | coordinator: open the incident on sight with `lr incident open --kind alert` and launch its fix lane this turn", headline, alert.name, minutes, alert.slug, string(failure[max(0, len(failure)-200):]))
 	} else {
 		draft.Kind, draft.ID = kindSpawn, "alert-launched:"+channel+":"+message.TS
-		draft.LaneRefs = []string{slug + "-fix", slug + "-evidence"}
+		draft.LaneRefs = []string{alert.slug + "-fix"}
 		draft.Attrs = map[string]string{"brief": brief, "role": "fix", "model": "incident", "effort": "xhigh"}
-		draft.Text = fmt.Sprintf("ALERT-LAUNCHED %s: no incident record named %s %d min after it fired, so the supervisor launched %s-fix and %s-evidence", headline, alert, minutes, slug, slug)
+		draft.Text = fmt.Sprintf("ALERT-LAUNCHED %s: no incident record named %s %d min after it fired, so the supervisor launched %s-fix and %s-evidence", headline, alert.name, minutes, alert.slug, alert.slug)
 	}
 	if _, err := a.Env.Bus.Post(ctx, draft); err != nil {
 		return fmt.Errorf("%w: cci post: %w", ErrUnread, err)
@@ -778,7 +879,7 @@ func (e Env) Checks(s *store.Store, log *slog.Logger) ([]Check, error) {
 		}
 	}
 	if len(channels) > 0 {
-		checks = append(checks, Alerts{Env: e, Store: s, Channels: channels, Log: log, Launch: e.IncidentLaunch}.Check)
+		checks = append(checks, (&Alerts{Env: e, Store: s, Channels: channels, Log: log, Launch: e.IncidentLaunch}).Check)
 	}
 	checks = append(checks, (&OverrideRefusals{Env: e, Store: s}).Check)
 	landing, err := ReadRunnerLanding(e.State)

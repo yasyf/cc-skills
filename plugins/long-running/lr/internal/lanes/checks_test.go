@@ -37,7 +37,6 @@ func TestAnAlertNobodyAnsweredThreeMinutesOnLaunchesItsLanes(t *testing.T) {
 		launched bool
 	}{
 		"unopened":     {triggered, 4, "", true},
-		"in-grace":     {triggered, 1, "", false},
 		"too-old":      {triggered, 61, "", false},
 		"opened":       {triggered, 4, "INCIDENT OPEN: Datadog 338724738", false},
 		"recovered":    {"Recovered: runtime-api-next logging errors — plat\n" + monitorLink, 4, "", false},
@@ -71,7 +70,7 @@ func TestAnAlertNobodyAnsweredThreeMinutesOnLaunchesItsLanes(t *testing.T) {
 			if c.launched {
 				equal(t, []string{launched[0].Slug, launched[0].What, launched[0].Link}, []string{"dd-338724738", "Triggered: runtime-api-next logging errors — plat", "https://slack/p1"})
 				posted := bus.posted[0]
-				equal(t, []any{posted.Kind, posted.To, posted.LaneRefs, posted.Attrs["brief"]}, []any{kindSpawn, []string{Root}, []string{"dd-338724738-fix", "dd-338724738-evidence"}, "/state/lanes/dd-338724738-fix.brief.md"})
+				equal(t, []any{posted.Kind, posted.To, posted.LaneRefs, posted.Attrs["brief"]}, []any{kindSpawn, []string{Root}, []string{"dd-338724738-fix"}, "/state/lanes/dd-338724738-fix.brief.md"})
 				contains(t, posted.Text, "ALERT-LAUNCHED Triggered: runtime-api-next logging errors — plat: no incident record named 338724738 4 min after it fired")
 			}
 		})
@@ -133,7 +132,9 @@ func TestAFailedAlertLaunchRaisesOneBlockerToRoot(t *testing.T) {
 	env := Env{Bus: bus, Config: config.Config{Drive: testDrive}, MonitorLane: noMonitorLane, Runner: scripted(func([]string) (shell.Result, error) {
 		return shell.Result{Stdout: slackHistory(t0.Add(-mins(4)), "Triggered: x\n"+monitorLink)}, nil
 	})}
-	check := Alerts{Env: env, Store: s, Channels: []string{"C1"}, Log: slog.Default(), Launch: func(context.Context, Fired) (string, error) { return "", errors.New("desk-launch exited 2") }}
+	check := Alerts{Env: env, Store: s, Channels: []string{"C1"}, Log: slog.Default(), Launch: func(context.Context, Fired) (string, error) {
+		return "", errors.New(strings.Repeat("--flag ", 40) + "desk-launch exited 2")
+	}}
 
 	for range 2 {
 		if err := check.Check(context.Background(), t0); err != nil {
@@ -143,10 +144,11 @@ func TestAFailedAlertLaunchRaisesOneBlockerToRoot(t *testing.T) {
 
 	equal(t, len(bus.posted), 1)
 	equal(t, bus.posted[0].Kind, blockerKind)
-	contains(t, bus.posted[0].Text, "ALERT-UNOPENED Triggered: x: no incident record names 338724738 4 min after it fired, and the supervisor's launch of dd-338724738-fix failed: desk-launch exited 2")
+	contains(t, bus.posted[0].Text, "ALERT-UNOPENED Triggered: x: no incident record names 338724738 4 min after it fired, and the supervisor's launch of dd-338724738-fix failed: ")
+	contains(t, bus.posted[0].Text, "desk-launch exited 2")
 }
 
-func TestAnAlertWithAFixLaneNamingItIsNotLaunchedAgain(t *testing.T) {
+func TestAnAlertWithAFixLaneNamingItJoinsThatLaneAndLaunchesNothing(t *testing.T) {
 	s := memory(t)
 	if _, err := s.WantLane(storeLane("dd-338724738-fix"), t0); err != nil {
 		t.Fatal(err)
@@ -160,11 +162,15 @@ func TestAnAlertWithAFixLaneNamingItIsNotLaunchedAgain(t *testing.T) {
 		return "", nil
 	}}
 
-	if err := check.Check(context.Background(), t0); err != nil {
-		t.Fatal(err)
+	for range 2 {
+		if err := check.Check(context.Background(), t0); err != nil {
+			t.Fatal(err)
+		}
 	}
 
-	equal(t, len(bus.posted), 0)
+	equal(t, len(bus.posted), 1)
+	equal(t, bus.posted[0].To, []string{"dd-338724738-fix"})
+	contains(t, bus.posted[0].Text, "ALERT-AGAIN Triggered: x: 338724738 fired again 4 min ago")
 }
 
 func storeLane(name string) store.Lane {
@@ -184,7 +190,7 @@ func TestAnIncidentBriefFillsEveryPlaceholderAndFallsBackToTheDrivesCopy(t *test
 	if err := os.WriteFile(filepath.Join(state, "alert-evidence-brief.md"), []byte("evidence {lane}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	fired := Fired{"dd-1", "it broke", "https://slack/p1", t0.Add(-mins(4))}
+	fired := Fired{"dd-1", "it broke", "https://slack/p1", t0.Add(-mins(4)), nil}
 
 	fix, err := env.incidentBrief("dd-1-fix", "alert-fix-brief.md", fired)
 	if err != nil {

@@ -23,18 +23,18 @@ With `landing.applying` set, the runner polls each tracked build every 15 second
 
 **The runner relays on-call pages during and 30 minutes after a release.** With `landing.pages` set, the orca runner watches each release build named by a lane's `release` record through `--build` or a Buildkite URL in the text. The watch runs from the record's time until 30 minutes after the last such build finishes. Every 15 seconds during that window, it reads the newest top-level messages in `landing.pages.channels` and posts each new one to the coordinator once as an `incident` record with `--url <permalink>`. The coordinator treats each record as an active alert link and opens the incident in that turn with no owner round-trip (`reference/active-alert-brief.md`). Outside that window, the runner reads no channel.
 
-## Own every freeze you set
+## Own the rollback freeze
 
-**Include `<lane>@<drive>` in every freeze reason and post a `hold` record.** Put `--until` at the end of the guarded step in RFC 3339 format and freeze again to extend it:
+**A lane never freezes a component or holds a release target to keep a change from going live.** A freeze stops every person's release of that component, and a `hold` record with `--target` reaches no one outside the drive. A merged change the drive does not want live is reverted or put behind a code gate on dev itself.
+
+The one freeze a lane owns is the `rollback-<build>` freeze its rollback writes. Post a `hold` record naming it:
 
 ```sh
-<release cli> freeze <component> --until <end of the guarded step> \
-  --reason "<why>; owner <lane>@<drive>"
 cci post --drive <drive> --lane <lane> --kind hold --target <component> --to root \
-  --text "froze <component> until <RFC 3339 time> as freeze <id>: <why>"
+  --text "rollback froze <component> as freeze <id>: <why>"
 ```
 
-A rollback writes a `rollback-<build>` freeze; the lane that ran the rollback owns it the same way and posts the same `hold` record. To lift a freeze, run `<release cli> unfreeze <id>` and close the hold record with `cci post --drive <drive> --lane <lane> --kind lift --resolves <hold seq> --target <component>`. While the hold record is open, the runner posts a lift ask to the lane once `--until` passes, and to the coordinator once the lane has no live session. Anyone needing a freeze lifted posts an `ask` to the `<lane>@<drive>` named in its reason.
+To lift it, run `<release cli> unfreeze <id>` and close the hold record with `cci post --drive <drive> --lane <lane> --kind lift --resolves <hold seq> --target <component>`. While the hold record is open, the runner posts a lift ask to the lane once its `--until` passes, and to the coordinator once the lane has no live session. Anyone needing the freeze lifted posts an `ask` to the lane that ran the rollback.
 
 ## Approve an ordered release yourself
 

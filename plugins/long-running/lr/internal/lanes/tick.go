@@ -169,7 +169,7 @@ func Tick(s *store.Store, d Deps, now time.Time, generation int64) (out Outcome,
 	openAnswered(s, d, found, taken, now, &out)
 	unownedDuties(s, d, found, now)
 	hourly(s, d, now)
-	woken, err := chaseUnread(s, d, found, now)
+	woken, err := chaseUnread(s, d, found, out.Woken, now)
 	if err != nil {
 		slog.Warn("unread orders not chased this tick", "err", err)
 	}
@@ -600,7 +600,7 @@ func wake(s *store.Store, d Deps, lane store.Lane, peer Peer, found map[string]P
 	relaunch(s, d, lane, found, fmt.Sprintf("has made no tool call in the %d min since it was woken because %s", int(now.Sub(wokeAt).Minutes()), truncated(pageText(page, "why"), 240)), taken, now, out)
 }
 
-func chaseUnread(s *store.Store, d Deps, found map[string]Peer, now time.Time) (woken []string, err error) {
+func chaseUnread(s *store.Store, d Deps, found map[string]Peer, already []string, now time.Time) (woken []string, err error) {
 	defer recovered(&err)
 	do(s.KeepUnread(live...))
 	held := map[string][]store.Unread{}
@@ -616,7 +616,9 @@ func chaseUnread(s *store.Store, d Deps, found map[string]Peer, now time.Time) (
 		read := newer(peer.LastCall, lane.Heard)
 		do(s.ReadUnread(lane.Name, read))
 		orders := slices.DeleteFunc(held[lane.Name], func(order store.Unread) bool { return order.At.Before(read.Truncate(time.Second)) })
-		if wakeOnOrders(s, d, lane, peer, orders, now) {
+		if slices.Contains(already, lane.Name) {
+			do(s.MarkUnreadWoken(lane.Name))
+		} else if wakeOnOrders(s, d, lane, peer, orders, now) {
 			woken = append(woken, lane.Name)
 		}
 		pastDue := slices.DeleteFunc(slices.Clone(orders), func(order store.Unread) bool { return order.Raised || now.Sub(order.At) < unreadAfter })
@@ -639,8 +641,15 @@ func wakeOnOrders(s *store.Store, d Deps, lane store.Lane, peer Peer, orders []s
 	if !peer.Live || (peer.Row.Roster == "" && peer.Row.Dispatch == "") || settledLane(lane) {
 		return false
 	}
-	due := slices.DeleteFunc(slices.Clone(orders), func(order store.Unread) bool { return order.Woke || now.Sub(order.At) < wakeAfter })
-	if len(due) == 0 || !isStanding(lane) || !must(d.Wake(lane.Name, peer.Row, map[string]any{"why": fmt.Sprintf("orders addressed to you are unread: %s.", orderWords(due))})) {
+	patience := wakeAfter
+	if !isStanding(lane) {
+		if lane.Awaits != "" {
+			return false
+		}
+		patience = unreadAfter / 2
+	}
+	due := slices.DeleteFunc(slices.Clone(orders), func(order store.Unread) bool { return order.Woke || now.Sub(order.At) < patience })
+	if len(due) == 0 || !must(d.Wake(lane.Name, peer.Row, map[string]any{"why": fmt.Sprintf("orders addressed to you are unread: %s.", orderWords(due))})) {
 		return false
 	}
 	do(s.MarkUnreadWoken(lane.Name))

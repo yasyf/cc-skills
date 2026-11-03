@@ -38,9 +38,10 @@ func TestAFailedBackgroundPassReachesRootOncePerError(t *testing.T) {
 	failure = nil
 	b.pass(context.Background(), t0.Add(3*recurEvery))
 	equal(t, len(told), 3)
-	equal(t, told[2].Kind(), "note")
-	if text := told[2].(bus.Note).Text; !strings.Contains(text, "recurrence-count recovered") || !strings.Contains(text, "a fixture class is gone") {
-		t.Fatalf("recovery said %q", text)
+	equal(t, told[2].Kind(), "escalation")
+	recovered := told[2].(bus.Escalation)
+	if !strings.Contains(recovered.Subject, "recurrence-count recovered") || !strings.Contains(recovered.Cause, "a fixture class is gone") {
+		t.Fatalf("recovery said %+v", recovered)
 	}
 
 	b.pass(context.Background(), t0.Add(4*recurEvery))
@@ -67,7 +68,7 @@ func TestARecoveryIsSaidAfterASupervisorRestart(t *testing.T) {
 	started(nil).pass(context.Background(), t0.Add(recurEvery))
 
 	equal(t, len(told), 2)
-	equal(t, told[1].Kind(), "note")
+	equal(t, told[1].Kind(), "escalation")
 }
 
 func TestAPassTheSupervisorsShutdownCancelledReachesNobody(t *testing.T) {
@@ -117,6 +118,25 @@ func TestABackgroundPassRunsOnceAPeriod(t *testing.T) {
 
 	for _, at := range []time.Time{t0, t0.Add(time.Minute), t0.Add(time.Hour)} {
 		if err := b.Check(context.Background(), at); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	equal(t, passes, 2)
+}
+
+func TestABackgroundPassKeepsItsPeriodAcrossARestart(t *testing.T) {
+	s := memory(t)
+	passes := 0
+	started := func() *background {
+		return &background{name: "p", every: time.Hour, store: s, run: func(context.Context) error {
+			passes++
+			return nil
+		}}
+	}
+
+	for _, at := range []time.Time{t0, t0.Add(time.Minute), t0.Add(time.Hour)} {
+		if err := started().Check(context.Background(), at); err != nil {
 			t.Fatal(err)
 		}
 	}
