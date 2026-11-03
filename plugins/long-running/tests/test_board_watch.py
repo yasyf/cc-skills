@@ -236,7 +236,7 @@ def test_each_owner_interaction_reaches_the_bus_once_with_the_card_and_his_words
         f"{SHARE}: picked \u201cYes, read-only\u201d, at {{at}}",
     ]
     assert {tuple(shell.posted(flag)) for flag in ("--kind", "--lane", "--drive")} == {("owner",) * 7, ("board-watch",) * 7, ("brook",) * 7}
-    assert shell.posted("--to") == ["owner-relay", "all,owner-relay", "owner-relay", "owner-relay", "all,owner-relay", "all,owner-relay", "all,owner-relay"]
+    assert shell.posted("--to") == ["owner-relay", "root,owner-relay", "owner-relay", "owner-relay", "root,owner-relay", "root,owner-relay", "root,owner-relay"]
 
 
 GROUP_DOC = {"blocks": [{"id": "card-fixes", "type": "card", "title": "Tooling fixes the watchers propose", "children": [{"id": "fix-rows", "type": "choice", "prompt": "9. Release rows read the release itself", "options": [{"id": "fix-rows-build", "label": "Build"}]}, {"id": "fix-base", "type": "choice", "prompt": "2. Stale bases are fixed automatically", "options": [{"id": "fix-base-build", "label": "Build"}]}]}]}
@@ -355,7 +355,7 @@ def streamed(tmp_path: Path, line: str, bus: list[dict] | None = None, **attribu
 def test_a_structured_tap_reaches_the_asking_lane_as_an_owner_record_with_a_copy_to_owner_relay_and_a_closed_row(tmp_path: Path) -> None:
     shell = streamed(tmp_path, TAP, [ask(21, "parked on share-open-pick", lane="api-lane")], seq="#77\n")
 
-    assert (shell.posted("--to"), shell.posted("--kind"), shell.posted("--resolves-seq")) == (["all,owner-relay"], ["owner"], ["21"])
+    assert (shell.posted("--to"), shell.posted("--kind"), shell.posted("--resolves-seq")) == (["root,owner-relay"], ["owner"], ["21"])
     assert attrs(shell.posts[0])["answer"] == "structured"
     assert shell.ledger == [(["owner", "add", "--drive", "brook", "--state", "addressed", "--routed", "77"], f"{QUESTION}: picked \u201cYes, read-only\u201d")]
 
@@ -371,14 +371,14 @@ def test_a_write_in_reaches_owner_relay_alone_resolves_nothing_and_opens_a_row(t
 def test_a_verdict_with_a_note_acts_at_once_and_still_opens_a_row_for_the_note(tmp_path: Path) -> None:
     shell = streamed(tmp_path, NOTED_VERDICT, [ask(21, "parked on banner-ok")])
 
-    assert (shell.posted("--to"), shell.posted("--resolves-seq")) == (["all,owner-relay"], ["21"])
+    assert (shell.posted("--to"), shell.posted("--resolves-seq")) == (["root,owner-relay"], ["21"])
     assert [argv[-1] for argv, _ in shell.ledger] == ["open"]
 
 
-def test_a_submit_reaches_every_lane_and_adds_no_row(tmp_path: Path) -> None:
+def test_a_submit_reaches_root_and_adds_no_row(tmp_path: Path) -> None:
     shell = streamed(tmp_path, SUBMIT)
 
-    assert (shell.posted("--to"), shell.ledger) == (["all"], [])
+    assert (shell.posted("--to"), shell.ledger) == (["root"], [])
 
 
 def test_an_answer_lr_cannot_classify_goes_to_owner_relay_with_an_open_row(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

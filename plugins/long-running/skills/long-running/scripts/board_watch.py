@@ -33,10 +33,10 @@ tap: one `cci post --kind owner` from lane `board-watch` names the card title an
 id, the verdict, picked option labels or the owner's text verbatim, each merge row's head, and the
 time. `lr board classify` routes it, and its `answer` attribute says which way: `structured` (an
 option tap, a pack pick, an approval or rejection, a merge-row verdict) and `noted` (a verdict with a
-note) go to all and to `owner-relay`, and resolve every open `ask`, `blocker` or `hold` whose text
+note) go to root and to `owner-relay`, and resolve every open `ask`, `blocker` or `hold` whose text
 names the block, its card, or the merge row (`merge-row-<pr>` or `merge:<pr>`); `free-text` (a
 write-in, a note, an input, any other reply) goes to `owner-relay` alone and resolves nothing, since
-the communicator routes it; `none` (a submit, an emptied choice) goes to all. Each answer also adds a row
+the communicator routes it; `none` (a submit, an emptied choice) goes to root. Each answer also adds a row
 to the communicator's owner ledger with `lr owner add`: `addressed` at its record for `structured`,
 `open` for `noted` and `free-text`. Its idempotency key is the event's line number
 in the events file plus a hash of the line, so a restart that resumes from the watch's cursor
@@ -153,7 +153,7 @@ NOTED = "noted"
 FREE_TEXT = "free-text"
 NO_ANSWER = "none"
 LANE_PICKS = frozenset({"choice.selected", "pack.interaction"})
-ANSWER_TO = {STRUCTURED: f"all,{RELAY_LANE}", NOTED: f"all,{RELAY_LANE}", FREE_TEXT: RELAY_LANE, NO_ANSWER: "all"}
+ANSWER_TO = {STRUCTURED: f"root,{RELAY_LANE}", NOTED: f"root,{RELAY_LANE}", FREE_TEXT: RELAY_LANE, NO_ANSWER: "root"}
 WORDS_CHARS = 300
 CCN_SECONDS = 60
 
