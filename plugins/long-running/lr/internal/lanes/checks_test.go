@@ -217,6 +217,24 @@ func TestAnOrcaFixLaneIdleThirtyMinutesPastFixLiveIsReclaimedWithOneReportToRoot
 	}
 }
 
+func TestOnlyARecordAnnouncingFixLiveCounts(t *testing.T) {
+	cases := map[string]struct {
+		record client.Record
+		want   bool
+	}{
+		"kind":            {client.Record{Kind: "fix-live", Text: "retro/000003 read by retro.py"}, true},
+		"opening line":    {client.Record{Kind: "decide", Text: "FIX-LIVE rapi-next-errors"}, true},
+		"stamped line":    {client.Record{Kind: "decide", Text: "9:14 AM FIX-LIVE rapi-next-errors"}, true},
+		"handoff denying": {client.Record{Kind: "ask", Text: "HANDOFF ASK: repair incomplete and no READY/FIX-LIVE"}, false},
+		"quoted rule":     {client.Record{Kind: "blocker", Text: "post refused: a resolution naming no FIX-LIVE"}, false},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			equal(t, announcesFixLive(c.record), c.want)
+		})
+	}
+}
+
 type commanded func(c shell.Command) (shell.Result, error)
 
 func (f commanded) Run(_ context.Context, c shell.Command) (shell.Result, error) {
