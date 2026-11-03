@@ -180,6 +180,9 @@ func (p *JobPool) fidelityJob(ctx context.Context, d desk, facts machine.Facts, 
 		ExemptGrades: p.exemptGrades(),
 		Baseline:     d.spec.Baseline,
 	}
+	if !facts.Tapped() {
+		spec.Since = facts.TapFrom
+	}
 	if sources != "" {
 		spec.Sources = filepath.Join(directory, sourcesFile)
 	}

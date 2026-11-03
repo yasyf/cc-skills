@@ -327,6 +327,29 @@ func TestAHeadAFidelityGradeOrAReaderHandoffAlreadyNamesStartsNoPass(t *testing.
 	}
 }
 
+func TestAFidelityJobNamesTheHeadHeTappedOnlyWhileHisTapAwaitsProofThere(t *testing.T) {
+	for name, c := range map[string]struct {
+		change func(*machine.Facts)
+		since  string
+	}{
+		"his tap awaits proof": {func(f *machine.Facts) { f.Tap, f.TapFrom = "", older }, older},
+		"his tap carried":      {func(f *machine.Facts) { f.TapFrom, f.CarriedBy = older, "same-diff" }, ""},
+		"tapped at this head":  {func(*machine.Facts) {}, ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newPool(t, map[string]any{"landing": map[string]any{"checkout": "/srv/main", "fidelity_lane": "fidelity-desk-4"}, "fidelity": map[string]any{"baseline": "base-1"}})
+
+			if _, err := f.pool.Dispatch(context.Background(), GraderFidelity, facts(head, c.change)); err != nil {
+				t.Fatal(err)
+			}
+
+			if since := readJob[grader.FidelityJob](t, filepath.Join(f.pool.root, grader.FidelityLane, jobDir)).Since; since != c.since {
+				t.Errorf("since = %q, want %q", since, c.since)
+			}
+		})
+	}
+}
+
 func TestAGradeFromANumberedSuccessorOfAConfiguredDeskStartsNoPass(t *testing.T) {
 	f := newPool(t, map[string]any{
 		"landing":  map[string]any{"fidelity_lane": []string{"fidelity-desk", "fidelity-desk-21"}},

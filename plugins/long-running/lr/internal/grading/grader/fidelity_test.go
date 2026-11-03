@@ -609,6 +609,55 @@ func TestAReplyThatBreaksTheGradeContractIsAskedOnceMoreAndASecondFailsTheJob(t 
 	}
 }
 
+func TestAHeadPastHisTapIsReadByCodexEvenWhenPatchIdenticalAndPostsWhetherItMeansWhatTheTappedHeadMeant(t *testing.T) {
+	tapped := shaOld[:12]
+	for name, c := range map[string]struct {
+		reply map[string]any
+		line  string
+	}{
+		"same":    {map[string]any{"behavior": "same"}, "behavior: same " + shaHead + " since " + tapped},
+		"changed": {map[string]any{"behavior": "changed", "what_changed": "it now resubscribes from the start"}, "behavior: changed " + shaHead + " since " + tapped + ": it now resubscribes from the start"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			directory := fidelityDir(t, map[string]any{"since": tapped})
+			shell, _ := newFidelityFake(t, samePatch, fidelityReplyOf(c.reply))
+			mustFidelity(t, directory, shell)
+			equal(t, len(shell.asks()), 1)
+			if !slices.Contains(shell.texts(), c.line) {
+				t.Errorf("posted %q, want %q among them", shell.texts(), c.line)
+			}
+			holdsAll(t, readText(t, directory, "question-1.md"), "the owner tapped this PR at "+tapped, "Judge\n  against "+tapped+" itself")
+		})
+	}
+}
+
+func TestAHeadWithNoTapBeforeItPostsNoBehaviorLine(t *testing.T) {
+	directory := fidelityDir(t, map[string]any{"grades": []any{}})
+	shell, _ := newFidelityFake(t, samePatch, fidelityReplyOf(map[string]any{"behavior": "none"}))
+	mustFidelity(t, directory, shell)
+	for _, text := range shell.texts() {
+		if strings.HasPrefix(text, "behavior:") {
+			t.Errorf("posted %q", text)
+		}
+	}
+	holdsAll(t, readText(t, directory, "question-1.md"), "the owner tapped this PR at none")
+}
+
+func TestAReplyThatJudgesNoBehaviorAgainstHisTapOrNamesNoChangeIsAskedOnceMore(t *testing.T) {
+	for name, bad := range map[string]map[string]any{
+		"no behavior":     fidelityReplyOf(map[string]any{"behavior": "none"}),
+		"no what_changed": fidelityReplyOf(map[string]any{"behavior": "changed"}),
+	} {
+		t.Run(name, func(t *testing.T) {
+			directory := fidelityDir(t, map[string]any{"since": shaOld[:12]})
+			shell, _ := newFidelityFake(t, samePatch, bad, fidelityReplyOf(map[string]any{"behavior": "same"}))
+			mustFidelity(t, directory, shell)
+			equal(t, len(shell.asks()), 2)
+			holdsAll(t, readText(t, directory, "question-2.md"), "Your last reply gave")
+		})
+	}
+}
+
 func TestAClosedPROrAHeadThatMovedPostsNothing(t *testing.T) {
 	cases := []struct {
 		name  string

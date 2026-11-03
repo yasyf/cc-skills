@@ -116,7 +116,7 @@ func Run(s *store.Store, snapshot []machine.Facts, now time.Time, post Post, liv
 		if row, seen := known[f.Number]; seen && row.State != machine.StateLanded && out.Verdicts[f.Number].State == machine.StateLanded {
 			out.Landed = append(out.Landed, Landing{f, row.ReadAt})
 		}
-		if f.TapFrom != "" && !out.Verdicts[f.Number].State.Terminal() {
+		if f.CarriedBy != "" && !out.Verdicts[f.Number].State.Terminal() {
 			out.Carried = append(out.Carried, f)
 		}
 	}

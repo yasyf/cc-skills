@@ -22,6 +22,7 @@ const (
 	fidelityOK      = "fidelity: ok"
 	fidelityMissing = "fidelity: missing"
 	fidelityReader  = "fidelity: reader"
+	behaviorLine    = "behavior:"
 	findingChars    = 160
 	fidelityTimeout = 3600 * time.Second
 	deletionKey     = "owner/deletion"
@@ -78,6 +79,7 @@ type FidelityJob struct {
 	Exempt       map[string]string `json:"exempt"`
 	ExemptGrades []string          `json:"exempt_grades"`
 	Baseline     string            `json:"baseline"`
+	Since        string            `json:"since,omitempty"`
 }
 
 type missingEntry struct {
@@ -92,17 +94,19 @@ type fidelityOldApp struct {
 }
 
 type fidelityReply struct {
-	Verdict string         `json:"verdict"`
-	Summary string         `json:"summary"`
-	Swept   string         `json:"swept"`
-	Checked []string       `json:"checked"`
-	Names   []string       `json:"names"`
-	Missing []missingEntry `json:"missing"`
-	Touches []string       `json:"touches"`
-	Exempt  string         `json:"exempt"`
-	Reader  string         `json:"reader"`
-	OldApp  fidelityOldApp `json:"old_app"`
-	picks   string
+	Verdict     string         `json:"verdict"`
+	Summary     string         `json:"summary"`
+	Swept       string         `json:"swept"`
+	Checked     []string       `json:"checked"`
+	Names       []string       `json:"names"`
+	Missing     []missingEntry `json:"missing"`
+	Touches     []string       `json:"touches"`
+	Exempt      string         `json:"exempt"`
+	Reader      string         `json:"reader"`
+	OldApp      fidelityOldApp `json:"old_app"`
+	Behavior    string         `json:"behavior"`
+	WhatChanged string         `json:"what_changed"`
+	picks       string
 }
 
 type FidelityOutcome struct {
@@ -166,7 +170,10 @@ func (s *fidelityPassState) grade() (FidelityOutcome, error) {
 	if len(found) > 0 {
 		return s.postOnly(findingsLine(head, found))
 	}
-	heads := s.candidates()
+	var heads []candidate
+	if spec.Since == "" {
+		heads = s.candidates()
+	}
 	var slicing *future[string]
 	if len(heads) == 0 {
 		slicing = s.sliceRows(head, view.BaseRefName, "--words")
@@ -642,6 +649,7 @@ func (s *fidelityPassState) prompt(view pullRequest, frame promptFrame) (string,
 		"rulings":      view.authorComments(),
 		"settled":      orNone(settled.String()),
 		"root_rulings": orNone(rulings.String()),
+		"since":        cmp.Or(spec.Since, "none"),
 	}), nil
 }
 
@@ -842,7 +850,7 @@ func grounded(keys []string, key string) bool {
 	return planLine.MatchString(key) || agentsLine.MatchString(key) || (slices.Contains(keys, key) && !strings.HasPrefix(key, "design/"))
 }
 
-func fidelityShortfalls(keys []string, reply fidelityReply) []string {
+func fidelityShortfalls(keys []string, since string, reply fidelityReply) []string {
 	var gaps []string
 	var unchecked, ungrounded []string
 	for _, key := range keys {
@@ -866,6 +874,12 @@ func fidelityShortfalls(keys []string, reply fidelityReply) []string {
 	}
 	if reply.Verdict == "reader" && strings.TrimSpace(reply.Reader) == "" {
 		gaps = append(gaps, "verdict reader with no reason in `reader`")
+	}
+	if since != "" && reply.Behavior != "same" && reply.Behavior != "changed" {
+		gaps = append(gaps, "no `behavior` judged against the tapped head "+since)
+	}
+	if reply.Behavior == "changed" && strings.TrimSpace(reply.WhatChanged) == "" {
+		gaps = append(gaps, "behavior changed with no `what_changed`")
 	}
 	if len(strings.Fields(reply.Swept)) < reasonWords {
 		gaps = append(gaps, reasonless)
@@ -915,7 +929,7 @@ func (s *fidelityPassState) askUntilSound(view pullRequest, frame promptFrame, k
 	if err != nil {
 		return fidelityReply{}, err
 	}
-	gaps := fidelityShortfalls(keys, reply)
+	gaps := fidelityShortfalls(keys, s.job.Since, reply)
 	if len(gaps) == 0 {
 		return reply, nil
 	}
@@ -926,7 +940,7 @@ func (s *fidelityPassState) askUntilSound(view pullRequest, frame promptFrame, k
 	if reply, err = s.askFidelity(retry, attempt+1); err != nil {
 		return fidelityReply{}, err
 	}
-	if gaps = fidelityShortfalls(keys, reply); len(gaps) > 0 {
+	if gaps = fidelityShortfalls(keys, s.job.Since, reply); len(gaps) > 0 {
 		return fidelityReply{}, &JobFailed{"two replies gave " + strings.Join(gaps, "; and ")}
 	}
 	return reply, nil
@@ -965,6 +979,13 @@ func (s *fidelityPassState) gradedLines(reply fidelityReply) []gradeLine {
 	}
 	for _, key := range reply.Touches {
 		lines = append(lines, gradeLine{text: "touches " + key})
+	}
+	switch {
+	case spec.Since == "":
+	case reply.Behavior == "same":
+		lines = append(lines, gradeLine{text: fmt.Sprintf("%s same %s since %s", behaviorLine, head, spec.Since)})
+	default:
+		lines = append(lines, gradeLine{text: fmt.Sprintf("%s changed %s since %s: %s", behaviorLine, head, spec.Since, squeezed(reply.WhatChanged))})
 	}
 	grade := reply.OldApp.Grade
 	if grade == "changes" {

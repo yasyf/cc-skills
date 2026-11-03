@@ -1,8 +1,8 @@
 package gates
 
 import (
-	"reflect"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -18,7 +18,6 @@ const (
 
 var (
 	t0    = time.Date(2026, 10, 30, 21, 0, 0, 0, time.UTC)
-	same  = map[string]string{oldHead: "p1", newHead: "p1"}
 	green = machine.Facts{Repo: repo, Number: 1, Head: newHead, Base: "dev", Lane: "l", CI: machine.CISuccess, Mergeable: machine.MergeableClean, Approved: true, Finder: machine.FinderClear, Fidelity: machine.FidelityPass, Tap: machine.TapTapped}
 )
 
@@ -46,50 +45,59 @@ func factsOn(t *testing.T, s *store.Store, number int, head string) map[string]s
 	return facts
 }
 
-func TestATapCarriesToAPatchIdenticalHeadAndSaysWhereItCameFrom(t *testing.T) {
-	s := withFacts(t, 45744, map[string]string{"tap": "tapped"})
-	carried, err := CarryTap(s, repo, 45744, oldHead, newHead, same, t0)
-	if err != nil || !carried {
-		t.Fatalf("carried %v, err %v", carried, err)
-	}
-	want := map[string]string{"tap": "tapped", CarriedFact: oldHead}
-	if got := factsOn(t, s, 45744, newHead); !reflect.DeepEqual(got, want) {
-		t.Fatalf("got %v, want %v", got, want)
+const tappedDiff = `diff --git a/list.go b/list.go
+index 1111111..2222222 100644
+--- a/list.go
++++ b/list.go
+@@ -10,6 +10,7 @@ func List() {
+ 	rows := read()
++	rows = live(rows, "a b")
+ 	return rows
+`
+
+func TestTheSameOwnDiffOnAMovedBaseHashesTheSame(t *testing.T) {
+	moved := strings.NewReplacer("1111111..2222222", "3333333..4444444", "-10,6 +10,7", "-42,6 +44,7").Replace(tappedDiff)
+	if DiffHash(moved) != DiffHash(tappedDiff) {
+		t.Fatal("a diff that moved only its line numbers and blobs hashed differently")
 	}
 }
 
-func TestATapStaysBehind(t *testing.T) {
-	cases := []struct {
-		name  string
-		facts map[string]string
-		ids   map[string]string
-	}{
-		{"when the patch changed", map[string]string{"tap": "tapped"}, map[string]string{oldHead: "p1", newHead: "p2"}},
-		{"when it was withdrawn", map[string]string{"tap": "withdrawn"}, same},
-		{"when a patch id is unknown", map[string]string{"tap": "tapped"}, map[string]string{newHead: "p1"}},
-		{"when it is conditional", map[string]string{"tap": "conditional", "condition": "only if covered"}, same},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			s := withFacts(t, 45470, c.facts)
-			carried, err := CarryTap(s, repo, 45470, oldHead, newHead, c.ids, t0)
-			if err != nil || carried {
-				t.Fatalf("carried %v, err %v", carried, err)
-			}
-			if got := factsOn(t, s, 45470, newHead); len(got) != 0 {
-				t.Fatalf("the new head gained %v", got)
+func TestAnyOtherChangeToTheDiffHashesDifferently(t *testing.T) {
+	for name, changed := range map[string]string{
+		"whitespace inside a line": strings.Replace(tappedDiff, `"a b"`, `"ab"`, 1),
+		"an added line":            tappedDiff + "+\tlog(rows)\n",
+		"its function context":     strings.Replace(tappedDiff, "func List()", "func Lists()", 1),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if DiffHash(changed) == DiffHash(tappedDiff) {
+				t.Fatal("hashed the same")
 			}
 		})
 	}
 }
 
-func TestAnExemptionCarriesWithItsTap(t *testing.T) {
-	s := withFacts(t, 45744, map[string]string{"tap": "tapped", "exempt": "test-only"})
-	if _, err := CarryTap(s, repo, 45744, oldHead, newHead, same, t0); err != nil {
-		t.Fatal(err)
+func TestATapCarriesOnlyWhenTheNewHeadMeansTheSameAsTheTappedOne(t *testing.T) {
+	tapped := map[string]string{DiffFact: DiffHash(tappedDiff)}
+	judged := func(behavior, since, fidelity string) map[string]string {
+		return map[string]string{DiffFact: "other", BehaviorFact: behavior, SinceFact: since, fidelityFact: fidelity}
 	}
-	if got := factsOn(t, s, 45744, newHead)["exempt"]; got != "test-only" {
-		t.Fatalf("exempt %q", got)
+	for name, c := range map[string]struct {
+		atTap, atHead map[string]string
+		want          string
+	}{
+		"the same diff":                       {tapped, map[string]string{DiffFact: DiffHash(tappedDiff)}, BySameDiff},
+		"fidelity judged it the same":         {tapped, judged(BehaviorSame, oldHead, "pass"), ByFidelity},
+		"fidelity judged it changed":          {tapped, judged(BehaviorChanged, oldHead, "pass"), ""},
+		"the same since a later carried head": {tapped, judged(BehaviorSame, "bb22cc33dd44", "pass"), ""},
+		"the same but a plan line is missing": {tapped, judged(BehaviorSame, oldHead, "fail"), ""},
+		"a different diff not judged yet":     {tapped, map[string]string{DiffFact: "other", fidelityFact: "pass"}, ""},
+		"no diff recorded at the tapped head": {map[string]string{}, map[string]string{DiffFact: ""}, ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := CarriedBy(oldHead, c.atTap, c.atHead); got != c.want {
+				t.Fatalf("carried by %q, want %q", got, c.want)
+			}
+		})
 	}
 }
 

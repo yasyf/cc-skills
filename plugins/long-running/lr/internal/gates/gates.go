@@ -1,45 +1,48 @@
 package gates
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
-	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
 const (
-	tapFact     = "tap"
-	exemptFact  = "exempt"
-	CarriedFact = "carried-from"
+	DiffFact     = "diff"
+	BehaviorFact = "behavior"
+	SinceFact    = "behavior-since"
+	ChangedFact  = "what-changed"
+	fidelityFact = "fidelity"
+
+	BehaviorSame    = "same"
+	BehaviorChanged = "changed"
+
+	BySameDiff = "same-diff"
+	ByFidelity = "fidelity"
 )
 
-func CarryTap(s *store.Store, repo string, number int, oldHead, newHead string, patchIDs map[string]string, at time.Time) (bool, error) {
-	if oldHead == newHead || patchIDs[oldHead] == "" || patchIDs[oldHead] != patchIDs[newHead] {
-		return false, nil
+var (
+	hunkLines = regexp.MustCompile(`(?m)^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@`)
+	blobLine  = regexp.MustCompile(`(?m)^index [0-9a-f]+\.\.[0-9a-f]+(?: \d+)?\n`)
+)
+
+func DiffHash(diff string) string {
+	sum := sha256.Sum256([]byte(blobLine.ReplaceAllString(hunkLines.ReplaceAllString(diff, "@@"), "")))
+	return hex.EncodeToString(sum[:])
+}
+
+func CarriedBy(tapped string, atTap, atHead map[string]string) string {
+	if atTap[DiffFact] != "" && atTap[DiffFact] == atHead[DiffFact] {
+		return BySameDiff
 	}
-	old, err := s.Facts(repo, number, oldHead)
-	if err != nil {
-		return false, err
+	if atHead[SinceFact] == tapped && atHead[BehaviorFact] == BehaviorSame && atHead[fidelityFact] == string(machine.FidelityPass) {
+		return ByFidelity
 	}
-	if old[tapFact] != string(machine.TapTapped) {
-		return false, nil
-	}
-	changed, err := s.PutFact(repo, number, newHead, tapFact, string(machine.TapTapped), at)
-	if err != nil {
-		return false, err
-	}
-	if _, err := s.PutFact(repo, number, newHead, CarriedFact, oldHead, at); err != nil {
-		return false, err
-	}
-	if exempt, found := old[exemptFact]; found {
-		if _, err := s.PutFact(repo, number, newHead, exemptFact, exempt, at); err != nil {
-			return false, err
-		}
-	}
-	return changed, nil
+	return ""
 }
 
 const NoTap = "no tap"

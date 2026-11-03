@@ -146,14 +146,14 @@ func TestAPRTheStoreSawOpenIsLandedOnceWhenItReadsMerged(t *testing.T) {
 	}
 }
 
-func TestACarriedTapIsReportedOnlyWhileThePRIsOpen(t *testing.T) {
+func TestACarriedTapIsReportedOnlyOnceProvenAndWhileThePRIsOpen(t *testing.T) {
 	s := newStore(t)
-	carried := func(f *machine.Facts) { f.TapFrom = "a28ab62" }
+	carried := func(f *machine.Facts) { f.TapFrom, f.CarriedBy = "a28ab62", "same-diff" }
 
 	out := run(t, s, &recorder{}, t0, nil, facts(7, carried), facts(8, func(f *machine.Facts) {
 		carried(f)
 		f.Merged = true
-	}))
+	}), facts(9, func(f *machine.Facts) { f.Tap, f.TapFrom = "", "a28ab62" }))
 
 	if len(out.Carried) != 1 || out.Carried[0].Number != 7 {
 		t.Fatalf("carried = %+v, want #7 alone", out.Carried)

@@ -18,6 +18,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
@@ -127,7 +128,7 @@ func (s Source) Snapshot(ctx context.Context) ([]machine.Facts, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read holds: %w", err)
 	}
-	return s.assemble(rows, open, required, held)
+	return s.assemble(ctx, rows, open, required, held)
 }
 
 type ciRead struct {
@@ -528,7 +529,7 @@ func (s Source) holds(ctx context.Context) (map[int]hold, error) {
 	return held, nil
 }
 
-func (s Source) assemble(rows []statusRow, open openRead, required []string, held map[int]hold) ([]machine.Facts, error) {
+func (s Source) assemble(ctx context.Context, rows []statusRow, open openRead, required []string, held map[int]hold) ([]machine.Facts, error) {
 	if len(rows) == 0 {
 		return nil, nil
 	}
@@ -555,18 +556,54 @@ func (s Source) assemble(rows []statusRow, open openRead, required []string, hel
 			return nil, err
 		}
 		f.Hold, f.HoldSeq, f.Carries = held[row.Number].by, held[row.Number].seq, open.carries[row.Number]
-		if f.Tap == "" {
-			f.TapFrom, err = s.Store.StandingTap(s.Repo, row.Number)
-			if err != nil {
-				return nil, err
-			}
-			if f.TapFrom != "" {
-				f.Tap = machine.TapTapped
-			}
+		if err := s.carryTap(ctx, &f, stored); err != nil {
+			return nil, fmt.Errorf("#%d tap: %w", row.Number, err)
 		}
 		out = append(out, f)
 	}
 	return out, nil
+}
+
+func (s Source) carryTap(ctx context.Context, f *machine.Facts, stored map[string]string) error {
+	if f.Closed || f.Tap != "" && f.Tap != machine.TapTapped {
+		return nil
+	}
+	tapped := f.Head
+	if f.Tap == "" {
+		var err error
+		if tapped, err = s.Store.StandingTap(s.Repo, f.Number); err != nil || tapped == "" {
+			return err
+		}
+	}
+	if err := s.hashDiff(ctx, *f, stored); err != nil || tapped == f.Head {
+		return err
+	}
+	atTap, err := s.Store.Facts(s.Repo, f.Number, tapped)
+	if err != nil {
+		return err
+	}
+	f.TapFrom, f.CarriedBy = tapped, gates.CarriedBy(tapped, atTap, stored)
+	if f.CarriedBy != "" {
+		f.Tap = machine.TapTapped
+	}
+	return nil
+}
+
+func (s Source) hashDiff(ctx context.Context, f machine.Facts, stored map[string]string) error {
+	if stored[gates.DiffFact] != "" {
+		return nil
+	}
+	base := "refs/remotes/origin/" + f.Base
+	if _, err := s.Runner.Run(ctx, shell.Command{Argv: []string{"git", "fetch", "--no-write-fetch-head", "-q", "origin", f.Head, "+refs/heads/" + f.Base + ":" + base}}); err != nil {
+		return err
+	}
+	diff, err := s.Runner.Run(ctx, shell.Command{Argv: []string{"git", "diff", "--no-color", "--no-ext-diff", base + "..." + f.Head}})
+	if err != nil {
+		return err
+	}
+	stored[gates.DiffFact] = gates.DiffHash(diff.Stdout)
+	_, err = s.Store.PutFact(s.Repo, f.Number, f.Head, gates.DiffFact, stored[gates.DiffFact], s.Now())
+	return err
 }
 
 func (s Source) factsOf(row statusRow, pr pullRequest, required []string, stored map[string]string, owner string) (machine.Facts, error) {

@@ -54,6 +54,8 @@ func TestEachGradeTapAndExemptionBecomesOneFact(t *testing.T) {
 		{"coordinator go names an exempt class", legacyRecord(t, "go", "root", "5:26 PM go #9 at e718a74 on green [exempt: regression]", []int{9}, nil), []bus.Fact{{PR: 9, Head: "e718a74", Kind: "exempt", Value: "regression"}}},
 		{"a finder override", legacyRecord(t, "decide", "root", "finder-override #9 at e718a74: the finding reads a deleted file", []int{9}, nil), []bus.Fact{{PR: 9, Head: "e718a74", Kind: "verdict", Value: "accept"}}},
 		{"an override after a clock and a root label", legacyRecord(t, "decide", "root", "5:26 PM root: fidelity-override 9 e718a74", []int{9}, nil), []bus.Fact{{PR: 9, Head: "e718a74", Kind: "verdict", Value: "accept"}}},
+		{"fidelity judged a head the same as the tapped one", legacyRecord(t, "review", "fidelity-pipeline", "behavior: same "+head+" since a28ab62c0ffe", []int{1}, nil), []bus.Fact{{PR: 1, Head: head, Kind: "behavior", Value: "same"}, {PR: 1, Head: head, Kind: "behavior-since", Value: "a28ab62c0ffe"}}},
+		{"fidelity judged a head changed since the tapped one", legacyRecord(t, "review", "fidelity-pipeline", "behavior: changed "+head+" since a28ab62c0ffe: a cold list now finds its team by lineage", []int{1}, nil), []bus.Fact{{PR: 1, Head: head, Kind: "behavior", Value: "changed"}, {PR: 1, Head: head, Kind: "behavior-since", Value: "a28ab62c0ffe"}, {PR: 1, Head: head, Kind: "what-changed", Value: "a cold list now finds its team by lineage"}}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := bus.LegacyFacts(tt.record, repo, nil); !reflect.DeepEqual(got, tt.want) {
@@ -70,6 +72,7 @@ func TestARecordThatGradesTapsOrExemptsNothingWritesNothing(t *testing.T) {
 	}{
 		{"a lane's own view of the finder", legacyRecord(t, "review", "lane-7", "finder: ok "+head+" my own view of the finder", []int{1}, nil)},
 		{"a line that is no grade", legacyRecord(t, "review", "fidelity-desk-22", "old-app: unchanged "+head[:7]+" baseline", []int{1}, nil)},
+		{"a lane's own behavior line", legacyRecord(t, "review", "lane-7", "behavior: same "+head+" since a28ab62c0ffe", []int{1}, nil)},
 		{"a finder line that says nothing", legacyRecord(t, "review", "finder-desk", "finder: running on "+head[:7], []int{1}, nil)},
 		{"a finder line with no head", legacyRecord(t, "review", "finder-desk", "finder: ok", []int{1}, nil)},
 		{"an exempt go by a lane", legacyRecord(t, "go", "lane-7", "go #9 at e718a74 [exempt: test-only]", []int{9}, nil)},

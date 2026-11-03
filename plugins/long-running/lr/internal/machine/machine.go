@@ -138,6 +138,7 @@ type Facts struct {
 	Verdict     bool
 	Tap         Tap
 	TapFrom     string
+	CarriedBy   string
 	Exempt      bool
 	Hold        Mover
 	HoldSeq     int64

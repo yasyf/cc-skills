@@ -19,6 +19,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/facts"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell/shelltest"
@@ -41,6 +42,7 @@ type recordedPR struct {
 	rollup  string
 	merge   string
 	draft   bool
+	diff    string
 }
 
 func graphQLPages(prs []recordedPR) string {
@@ -133,6 +135,10 @@ func newHarness(t *testing.T, prs []recordedPR, rows ...statusRow) harness {
 	runner.Reply(settleReply(prs), "ccx", "vcs", "gh", "--max-age", "0s", "--", "api", "graphql")
 	runner.Reply(branchRules, "ccx", "vcs", "gh", "--max-age", "5m")
 	runner.Reply(string(statuses), "ccx", "vcs", "pr", "status")
+	runner.Reply("", "git", "fetch")
+	for _, pr := range prs {
+		runner.Reply(pr.diff, "git", "diff", "--no-color", "--no-ext-diff", "refs/remotes/origin/dev..."+pr.head)
+	}
 	cfg := config.Config{Repo: repo, Drive: "d", Checkout: "/checkouts/repo", Author: "drive-bot", Label: "drive", Trunk: "dev"}
 	a := app.New(io.Discard)
 	a.Runner = runner
@@ -580,56 +586,232 @@ func TestTrunkLabelsAnswerWhereTheStatusReadCannot(t *testing.T) {
 	}
 }
 
-func TestTheOwnersTapCarriesToEveryLaterHeadUntilHeWithdrawsIt(t *testing.T) {
+const (
+	tapped45744 = "ddfd67265057900f2b400e70d7ba633948ff4e40"
+	landed45744 = "23c548f7a846054a78609264606668e80b4f716b"
+	ownDiff     = "diff --git a/list.go b/list.go\nindex 1111111..2222222 100644\n--- a/list.go\n+++ b/list.go\n@@ -10,3 +10,4 @@ func List() {\n \trows := read()\n+\trows = live(rows, \"a b\")\n \treturn rows\n"
+)
+
+var tappedAt = time.Date(2026, 11, 2, 9, 29, 0, 0, time.UTC)
+
+func TestATapStandsOnlyAsTheOwnerLeftIt(t *testing.T) {
 	const older = "a28ab62"
-	at := time.Date(2026, 11, 2, 9, 29, 0, 0, time.UTC)
 	for name, tc := range map[string]struct {
-		put     func(t *testing.T, s *store.Store)
-		tap     machine.Tap
-		tapFrom string
+		put func(t *testing.T, s *store.Store)
+		tap machine.Tap
 	}{
-		"tapped at an older head": {
-			put: func(t *testing.T, s *store.Store) { putTap(t, s, older, "tapped", at) },
-			tap: machine.TapTapped, tapFrom: older,
-		},
 		"tapped at this head": {
 			put: func(t *testing.T, s *store.Store) {
-				putTap(t, s, older, "tapped", at)
-				putTap(t, s, head, "tapped", at.Add(time.Hour))
+				putFact(t, s, 1, older, "tap", "tapped", tappedAt)
+				putFact(t, s, 1, head, "tap", "tapped", tappedAt.Add(time.Hour))
 			},
 			tap: machine.TapTapped,
 		},
 		"withdrawn at this head": {
 			put: func(t *testing.T, s *store.Store) {
-				putTap(t, s, older, "tapped", at)
-				putTap(t, s, head, "withdrawn", at.Add(time.Hour))
+				putFact(t, s, 1, older, "tap", "tapped", tappedAt)
+				putFact(t, s, 1, head, "tap", "withdrawn", tappedAt.Add(time.Hour))
 			},
 			tap: machine.TapWithdrawn,
 		},
 		"withdrawn at an older head, after the tap": {
 			put: func(t *testing.T, s *store.Store) {
-				putTap(t, s, "b1b2b3b", "tapped", at)
-				putTap(t, s, older, "withdrawn", at.Add(time.Hour))
+				putFact(t, s, 1, "b1b2b3b", "tap", "tapped", tappedAt)
+				putFact(t, s, 1, older, "tap", "withdrawn", tappedAt.Add(time.Hour))
+			},
+		},
+		"given with a condition at an older head": {
+			put: func(t *testing.T, s *store.Store) {
+				putFact(t, s, 1, older, "tap", "conditional", tappedAt)
+				putFact(t, s, 1, older, "condition", "only if the finding is superseded", tappedAt)
 			},
 		},
 		"never tapped": {put: func(*testing.T, *store.Store) {}},
 	} {
 		t.Run(name, func(t *testing.T) {
-			h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
+			h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot", diff: ownDiff}}, status(1))
 			tc.put(t, h.store)
 
 			row := h.snapshot(t)[1]
 
-			if row.Tap != tc.tap || row.TapFrom != tc.tapFrom {
-				t.Fatalf("tap = %q from %q, want %q from %q", row.Tap, row.TapFrom, tc.tap, tc.tapFrom)
+			if row.Tap != tc.tap || row.TapFrom != "" || row.CarriedBy != "" {
+				t.Fatalf("tap = %q from %q by %q, want %q standing where he left it", row.Tap, row.TapFrom, row.CarriedBy, tc.tap)
 			}
 		})
 	}
 }
 
-func putTap(t *testing.T, s *store.Store, at, value string, posted time.Time) {
+func TestATapTheOldCarryLeftOnTheCurrentHeadStandsThereAndAnchorsTheNextHead(t *testing.T) {
+	s := memory(t)
+	putFact(t, s, 1, head2, "tap", "tapped", tappedAt)
+	putFact(t, s, 1, head, "tap", "tapped", tappedAt.Add(time.Minute))
+
+	live := on(t, s, recordedPR{number: 1, head: head, login: "drive-bot", diff: ownDiff}).snapshot(t)[1]
+	next := on(t, s, recordedPR{number: 1, head: head3, login: "drive-bot", diff: strings.Replace(ownDiff, "-10,3 +10,4", "-40,3 +40,4", 1)}).snapshot(t)[1]
+
+	if live.Tap != machine.TapTapped || live.TapFrom != "" {
+		t.Fatalf("at go-live: tap %q from %q, want his tap standing at the head it is on", live.Tap, live.TapFrom)
+	}
+	if next.Tap != machine.TapTapped || next.TapFrom != head || next.CarriedBy != gates.BySameDiff {
+		t.Fatalf("next head: tap %q from %q by %q, want carried from %s by the same diff", next.Tap, next.TapFrom, next.CarriedBy, head)
+	}
+}
+
+func TestATapCarriesToANewHeadOnlyWhenItMeansWhatTheTappedHeadMeant(t *testing.T) {
+	restacked := strings.NewReplacer("1111111..2222222", "3333333..4444444", "-10,3 +10,4", "-42,3 +44,4").Replace(ownDiff)
+	respaced := strings.Replace(ownDiff, `"a b"`, `"ab"`, 1)
+	judged := func(behavior string, since string) map[string]string {
+		return map[string]string{"fidelity": "pass", gates.BehaviorFact: behavior, gates.SinceFact: since, gates.ChangedFact: "the list now drops archived chats"}
+	}
+	for name, tc := range map[string]struct {
+		diff   string
+		graded map[string]string
+		by     string
+	}{
+		"a restack whose own diff is the same":       {diff: restacked, by: gates.BySameDiff},
+		"whitespace changed inside a line, ungraded": {diff: respaced},
+		"fidelity judged the new head the same":      {diff: respaced, graded: judged(gates.BehaviorSame, head2), by: gates.ByFidelity},
+		"fidelity judged the new head changed":       {diff: respaced, graded: judged(gates.BehaviorChanged, head2)},
+		"fidelity judged it against another head":    {diff: respaced, graded: judged(gates.BehaviorSame, head3)},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := memory(t)
+			putFact(t, s, 1, head2, "tap", "tapped", tappedAt)
+			on(t, s, recordedPR{number: 1, head: head2, login: "drive-bot", diff: ownDiff}).snapshot(t)
+			for kind, value := range tc.graded {
+				putFact(t, s, 1, head, kind, value, tappedAt.Add(time.Hour))
+			}
+
+			row := on(t, s, recordedPR{number: 1, head: head, login: "drive-bot", diff: tc.diff}).snapshot(t)[1]
+
+			if row.TapFrom != head2 || row.CarriedBy != tc.by || row.Tapped() != (tc.by != "") {
+				t.Fatalf("tap %q from %q by %q, want from %s by %q", row.Tap, row.TapFrom, row.CarriedBy, head2, tc.by)
+			}
+		})
+	}
+}
+
+func TestEachNewHeadIsJudgedAgainstTheHeadHeTappedNeverTheLastCarriedOne(t *testing.T) {
+	s := memory(t)
+	putFact(t, s, 1, head2, "tap", "tapped", tappedAt)
+	on(t, s, recordedPR{number: 1, head: head2, login: "drive-bot", diff: ownDiff}).snapshot(t)
+	putFact(t, s, 1, head, "fidelity", "pass", tappedAt.Add(time.Hour))
+	putFact(t, s, 1, head, gates.BehaviorFact, gates.BehaviorSame, tappedAt.Add(time.Hour))
+	putFact(t, s, 1, head, gates.SinceFact, head2, tappedAt.Add(time.Hour))
+	carried := on(t, s, recordedPR{number: 1, head: head, login: "drive-bot", diff: ownDiff + "+\tlog(rows)\n"}).snapshot(t)[1]
+
+	next := on(t, s, recordedPR{number: 1, head: head3, login: "drive-bot", diff: ownDiff + "+\tlog(rows)\n"}).snapshot(t)[1]
+
+	if carried.CarriedBy != gates.ByFidelity {
+		t.Fatalf("first new head carried by %q, want fidelity", carried.CarriedBy)
+	}
+	if next.Tapped() || next.TapFrom != head2 {
+		t.Fatalf("second new head: tap %q from %q, want it judged against %s, so the same diff as the carried head proves nothing", next.Tap, next.TapFrom, head2)
+	}
+}
+
+func TestRetroRow47ContentPushedOnto45744AfterHisTapGoesBackToHimInsteadOfLanding(t *testing.T) {
+	s := memory(t)
+	putFact(t, s, 45744, tapped45744[:12], "tap", "tapped", time.Date(2026, 10, 31, 1, 50, 0, 0, time.UTC))
+	on(t, s, recordedPR{number: 45744, head: tapped45744, login: "drive-bot", diff: ownDiff}).snapshot(t)
+	putFact(t, s, 45744, landed45744, "lane", "sandsql-journal-next-2", time.Date(2026, 10, 31, 2, 41, 45, 0, time.UTC))
+	h := on(t, s, recordedPR{number: 45744, head: landed45744, login: "drive-bot", diff: ownDiff + "+\tdropRacyTick()\n"})
+	review(t, "finder-desk", "finder: ok "+landed45744+" no majors", 45744)
+	review(t, "fidelity-pipeline", "fidelity: ok "+landed45744+" stays in scope", 45744)
+	review(t, "fidelity-pipeline", "behavior: changed "+landed45744+" since "+tapped45744[:12]+": drops the racy-tick re-read and finds an evicted chat's team another way", 45744)
+
+	row := h.snapshot(t)[45744]
+
+	if row.Tapped() || row.TapFrom != tapped45744[:12] {
+		t.Fatalf("tap %q from %q, want his tap at %s left behind", row.Tap, row.TapFrom, tapped45744[:12])
+	}
+	if verdict := machine.Classify(row); verdict.State != machine.StateAwaitingTap || verdict.Mover != machine.MoverOwner {
+		t.Fatalf("verdict = %+v, want the PR back waiting on him", verdict)
+	}
+	if said := stored(t, s, 45744, landed45744)[gates.ChangedFact]; said != "drops the racy-tick re-read and finds an evicted chat's team another way" {
+		t.Fatalf("what changed = %q", said)
+	}
+}
+
+func TestRetroRow98ThreeNewHeadsWithNoVerdictAtTheirVersionWaitOnHimWhileTheSameDiffLands(t *testing.T) {
+	s := memory(t)
+	prs := []int{1, 2, 3, 4}
+	tapped := func(number int) string { return strings.Repeat(strconv.Itoa(number), 40) }
+	moved := func(number int) string { return strings.Repeat("a"+strconv.Itoa(number), 20) }
+	var before, after []recordedPR
+	for _, number := range prs {
+		putFact(t, s, number, tapped(number), "tap", "tapped", tappedAt)
+		before = append(before, recordedPR{number: number, head: tapped(number), login: "drive-bot", diff: ownDiff})
+	}
+	onAll(t, s, before).snapshot(t)
+	for _, number := range prs {
+		diff := ownDiff + fmt.Sprintf("+\tchange%d()\n", number)
+		if number == 4 {
+			diff = ownDiff
+		}
+		for kind, value := range map[string]string{"lane": "lane-7", "finder": "clear", "fidelity": "pass"} {
+			putFact(t, s, number, moved(number), kind, value, tappedAt.Add(time.Hour))
+		}
+		after = append(after, recordedPR{number: number, head: moved(number), login: "drive-bot", diff: diff})
+	}
+
+	rows := onAll(t, s, after).snapshot(t)
+
+	for _, number := range prs[:3] {
+		if verdict := machine.Classify(rows[number]); rows[number].Tapped() || verdict.Action != machine.ActionTap {
+			t.Fatalf("#%d: tap %q, verdict %+v, want it waiting on his tap", number, rows[number].Tap, verdict)
+		}
+	}
+	if verdict := machine.Classify(rows[4]); rows[4].CarriedBy != gates.BySameDiff || verdict.Action != machine.ActionEnqueue {
+		t.Fatalf("#4 carried by %q, verdict %+v, want the same diff to land on his tap", rows[4].CarriedBy, verdict)
+	}
+}
+
+func memory(t *testing.T) *store.Store {
 	t.Helper()
-	if _, err := s.PutFact(repo, 1, at, "tap", value, posted); err != nil {
+	s, err := store.Memory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	return s
+}
+
+func on(t *testing.T, s *store.Store, pr recordedPR) harness {
+	t.Helper()
+	return onAll(t, s, []recordedPR{pr})
+}
+
+func onAll(t *testing.T, s *store.Store, prs []recordedPR) harness {
+	t.Helper()
+	rows := make([]statusRow, 0, len(prs))
+	for _, pr := range prs {
+		rows = append(rows, status(pr.number, func(row *statusRow) { row.Head = pr.head }))
+	}
+	h := newHarness(t, prs, rows...)
+	h.source.Store, h.store = s, s
+	return h
+}
+
+func putFact(t *testing.T, s *store.Store, number int, at, kind, value string, posted time.Time) {
+	t.Helper()
+	if _, err := s.PutFact(repo, number, at, kind, value, posted); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func stored(t *testing.T, s *store.Store, number int, at string) map[string]string {
+	t.Helper()
+	found, err := s.Facts(repo, number, at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return found
+}
+
+func review(t *testing.T, lane, text string, number int) {
+	t.Helper()
+	if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: lane, Kind: "review", Text: text, PRs: []string{fmt.Sprintf("%s#%d", repo, number)}}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -819,7 +1001,7 @@ func TestAHoldNamesWhoLiftsItAndALiftedOneHoldsNothing(t *testing.T) {
 	}
 }
 
-func TestGradesBelongToAHeadSoANewPushStartsUngradedWithItsTapCarried(t *testing.T) {
+func TestGradesBelongToAHeadSoANewPushStartsUngradedWithItsTapAwaitingProof(t *testing.T) {
 	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
 	at := time.Date(2026, 10, 30, 21, 0, 0, 0, time.UTC)
 	for kind, value := range map[string]string{"finder": "clear", "tap": "tapped"} {
@@ -830,7 +1012,7 @@ func TestGradesBelongToAHeadSoANewPushStartsUngradedWithItsTapCarried(t *testing
 
 	row := h.snapshot(t)[1]
 
-	if row.Finder != "" || row.Graded() || row.Tap != machine.TapTapped || row.TapFrom != head2 {
+	if row.Finder != "" || row.Graded() || row.Tapped() || row.TapFrom != head2 {
 		t.Fatalf("row = %+v", row)
 	}
 }
