@@ -30,7 +30,10 @@ type transcript struct {
 	Modified float64 `json:"mtime"`
 	Size     int64   `json:"size"`
 	lane     string
+	owner    string
 }
+
+type binding struct{ session, agent string }
 
 func (t transcript) session() string {
 	if dir := filepath.Dir(t.Path); filepath.Base(dir) == "subagents" {
@@ -39,14 +42,21 @@ func (t transcript) session() string {
 	return strings.TrimSuffix(filepath.Base(t.Path), ".jsonl")
 }
 
+func (t transcript) agent() string {
+	if filepath.Base(filepath.Dir(t.Path)) != "subagents" {
+		return ""
+	}
+	return strings.TrimPrefix(strings.TrimSuffix(filepath.Base(t.Path), ".jsonl"), "agent-")
+}
+
 func changedTranscripts(ctx context.Context, runner shell.Runner, cfg Config, peers []client.Peer, since time.Time) ([]transcript, int, error) {
 	listed, err := runner.Run(ctx, shell.Command{Argv: []string{transcriptTool, "list", "--all", "--json"}, Timeout: readLimit})
 	if err != nil {
 		return nil, 0, err
 	}
-	laneOf := make(map[string]string, len(peers))
+	laneOf := make(map[binding]string, len(peers))
 	for _, peer := range peers {
-		laneOf[peer.Session] = peer.Lane
+		laneOf[binding{peer.Session, peer.Agent}] = peer.Lane
 	}
 	var files []transcript
 	decoder := json.NewDecoder(strings.NewReader(listed.Stdout))
@@ -55,9 +65,13 @@ func changedTranscripts(ctx context.Context, runner shell.Runner, cfg Config, pe
 		if err := decoder.Decode(&file); err != nil {
 			return nil, 0, fmt.Errorf("%s list printed a row that does not parse: %w", transcriptTool, err)
 		}
-		lane, bound := laneOf[file.session()]
+		owner, owned := laneOf[binding{file.session(), ""}]
+		lane, bound := laneOf[binding{file.session(), file.agent()}]
+		if !bound {
+			lane, bound = owner, owned
+		}
 		if bound && file.Modified >= float64(since.Unix()) {
-			file.lane = lane
+			file.lane, file.owner = lane, cmp.Or(owner, lane)
 			files = append(files, file)
 		}
 	}

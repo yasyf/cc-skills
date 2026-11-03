@@ -21,14 +21,16 @@ var (
 )
 
 func deadRecipients(ctx context.Context, src Sources, cfg Config, drive string, records []client.Record) ([]Finding, error) {
-	posted := map[string]bool{}
+	lastPost := map[string]time.Time{}
 	for _, record := range records {
-		posted[record.Lane] = true
+		if record.At.After(lastPost[record.Lane]) {
+			lastPost[record.Lane] = record.At
+		}
 	}
 	silent := map[string]bool{}
 	for _, record := range records {
 		for _, to := range record.To {
-			if !posted[to] && !slices.Contains(cfg.Ignore, to) {
+			if _, posted := lastPost[to]; !posted && !slices.Contains(cfg.Ignore, to) {
 				silent[to] = true
 			}
 		}
@@ -54,7 +56,8 @@ func deadRecipients(ctx context.Context, src Sources, cfg Config, drive string, 
 	for _, record := range records {
 		for _, to := range record.To {
 			at, gone := retired[to]
-			if to == record.Lane || slices.Contains(cfg.Ignore, to) || !silent[to] && (!gone || record.At.Before(at)) {
+			stoodDown := gone && !record.At.Before(at) && !lastPost[to].After(at)
+			if to == record.Lane || slices.Contains(cfg.Ignore, to) || !silent[to] && !stoodDown {
 				continue
 			}
 			if deliveries[to] == nil {

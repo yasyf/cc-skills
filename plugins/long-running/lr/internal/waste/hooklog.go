@@ -40,7 +40,7 @@ func hookSkips(cfg Config, files []transcript, since time.Time) ([]Finding, erro
 			size += count
 		}
 		if size >= cfg.Floors.Skips {
-			findings = append(findings, Finding{signalSkips, signalSkips + "/" + session, size, "skips", file.lane, fmt.Sprintf("session %s, %s", session[:min(8, len(session))], ranked(hooks, 2)), cfg.Floors.Skips})
+			findings = append(findings, Finding{signalSkips, signalSkips + "/" + session, size, "skips", file.owner, fmt.Sprintf("session %s, %s", session[:min(8, len(session))], ranked(hooks, 2)), cfg.Floors.Skips})
 		}
 	}
 	return findings, nil
