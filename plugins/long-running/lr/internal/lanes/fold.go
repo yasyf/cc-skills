@@ -338,7 +338,7 @@ func gatesOf(r Record) []string {
 	return gates
 }
 
-func firedBy(r Record) []string {
+func firedBy(s *store.Store, r Record) []string {
 	var gates []string
 	if r.Kind == kindLanded {
 		for _, n := range r.PRs() {
@@ -350,14 +350,19 @@ func firedBy(r Record) []string {
 			gates = append(gates, "target:"+target)
 		}
 	}
-	if slices.Contains(laneEnds, r.Kind) {
+	if slices.Contains(laneEnds, r.Kind) && !closesAnItem(s, r) {
 		gates = append(gates, "lane:"+r.Lane)
 	}
 	return gates
 }
 
+func closesAnItem(s *store.Store, r Record) bool {
+	lane, known := laneOf(s, r.Lane)
+	return r.Kind == "done" && known && isStanding(lane)
+}
+
 func foldGates(s *store.Store, r Record, fresh bool, at time.Time) {
-	fired := firedBy(r)
+	fired := firedBy(s, r)
 	if len(fired) == 0 {
 		return
 	}
