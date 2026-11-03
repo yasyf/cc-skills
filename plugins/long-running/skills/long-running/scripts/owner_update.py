@@ -349,6 +349,18 @@ class Sources:
         ]
         return ", ".join(on) or NOBODY, blocks, unblock, "; ".join([*failed, *quiet, *took]) or NONE_RECORDED
 
+    def plain(self, lanes: list[str], row: Row) -> tuple[str | None, str, str]:
+        """What blocks a piece of work, what happens next and what went wrong, in words the owner reads without the drive's vocabulary: no lane names, seqs, record kinds or desk states."""
+        if row.done:
+            return None, "Done.", "Nothing open."
+        on = [lane for lane in dict.fromkeys(lanes) if self.live(lane)]
+        waiting = sorted(owner_waits.at(wait) for lane in on if (wait := self.waits.get(lane)))
+        blocker = f"Waiting on a coordinator decision since {owner_waits.pacific(waiting[0])}." if waiting else "A planned task is waiting on other work." if row.blocks != NOTHING_RECORDED else None
+        due = min((heard for lane in on if (heard := heard_at(self.by_lane[lane]))), default=None)
+        after = f"{len(on)} {'worker is' if len(on) == 1 else 'workers are'} on it; the next word is due by {owner_waits.pacific(due + STALE_AFTER)}." if due else "Nobody is on it; the coordinator puts someone on it next."
+        failed = " ".join(f"{retro.get('failure', '').rstrip('.')}. Prevention: {retro.get('mechanism') or 'none yet'}." for retro in self.retro if retro.get("owner") in lanes and retro.get("state") != "live")
+        return blocker, after, failed or "Nothing so far."
+
 
 def cell(text: str) -> str:
     clipped = " ".join(text.split())
@@ -498,8 +510,9 @@ def since_lines(now: dict[str, list[str]], before: dict[str, list[str]]) -> list
     return out
 
 
-def step_entry(index: int, title: str, section_title: str, row: Row, lanes: list[dict]) -> dict:
-    """One dashboard step, from the same row the update renders, under the keys the dashboard and `drive.py overview` read."""
+def step_entry(index: int, title: str, section_title: str, row: Row, lanes: list[dict], sources: Sources) -> dict:
+    """One dashboard step, from the same row the update renders, under the keys the dashboard and `drive.py overview` read: its blocker, next step and failures in plain words, the row's own cells under `detail` for the drill-in."""
+    blocker, after, failed = sources.plain([lane["lane"] for lane in lanes], row)
     return {
         "id": f"s{index}",
         "label": " ".join(title.split()[:2]),
@@ -509,10 +522,11 @@ def step_entry(index: int, title: str, section_title: str, row: Row, lanes: list
         "tone": "done" if row.done else "later" if row.who == NOBODY else "moving",
         "delivers": row.delivers,
         "who": [] if row.who == NOBODY else row.who.split(", "),
-        "blocker": None if row.blocks == NOTHING_RECORDED else row.blocks,
-        "next": row.unblock,
-        "unblocking": row.unblock,
-        "went_wrong": row.wrong,
+        "blocker": blocker,
+        "next": after,
+        "unblocking": after,
+        "went_wrong": failed,
+        "detail": {"blocker": row.blocks, "next": row.unblock, "went_wrong": row.wrong},
         "prs": sorted({int(pr) for lane in lanes for pr in lane.get("prs") or []}),
         "lanes": [lane["lane"] for lane in lanes],
     }
@@ -614,7 +628,7 @@ def report(drive_name: str, runner: Runner, now: datetime | None = None) -> tupl
     asks = ask_rows(runner, entry["checkout"], entry["ledger"], latest)
     board = board_rows(runner, drive_name, entry["sessions"][-1])
     pins = pinned_rows(entry, lanes, sources)
-    steps += [step_entry(index, row.name, PINNED, row, mine) for index, (row, mine) in enumerate(pins)]
+    steps += [step_entry(index, row.name, PINNED, row, mine, sources) for index, (row, mine) in enumerate(pins)]
     tables: list[tuple[str, list[Row]]] = [(PINNED, [row for row, _ in pins]), ("Standing duties", duty_rows(sources))]
     placed: set[str] = set()
     for plan, step in progress.steps():
@@ -625,13 +639,13 @@ def report(drive_name: str, runner: Runner, now: datetime | None = None) -> tupl
                 mine = [lane for lane in lanes if on_piece(lane, piece)]
                 placed |= {lane["lane"] for lane in mine}
                 tables.append((title := f"{owner_waits.clip(plan.title)}, {piece}", [step_row(piece, f"the {piece} piece of {owner_waits.clip(plan.title)}", [], mine, sources), *(lane_row(lane, sources) for lane in mine)]))
-                steps.append(step_entry(len(steps), piece, title, tables[-1][1][0], mine))
+                steps.append(step_entry(len(steps), piece, title, tables[-1][1][0], mine, sources))
                 step_tables.add(title)
             continue
         mine = [lane for lane in lanes if on_step(lane, step)]
         placed |= {lane["lane"] for lane in mine}
         tables.append((title := f"{owner_waits.clip(plan.title)}, step {owner_waits.clip(step.title)}", [step_row(f"Step {step.number}", step.title, step.tasks, mine, sources), *(lane_row(lane, sources) for lane in mine)]))
-        steps.append(step_entry(len(steps), step.title, title, tables[-1][1][0], mine))
+        steps.append(step_entry(len(steps), step.title, title, tables[-1][1][0], mine, sources))
         step_tables.add(title)
     rest = [lane for lane in lanes if lane["lane"] not in placed]
     tables += [(f"Workstream {step}", [lane_row(lane, sources) for lane in rest if step_of(lane) == step]) for step in sorted({step_of(lane) for lane in rest} - {""})]
