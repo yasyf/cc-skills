@@ -125,6 +125,17 @@ KINDS: dict[str, tuple[str, str]] = {
         f"{MISREAD}\nFor tests, ask whether they assert his invariant, or a different one that still passes while his invariant fails.",
     ),
     "pr": ("a pull request's summary of what its diff changes", MISREAD),
+    "premise": (
+        "a card still open on his board, drawn before the ruling or pick the evidence shows, that asks him to decide",
+        f"""Do his words in the evidence change what this card asks him, or a premise its question or options rest on, so that answering it as drawn would answer a question his words have since changed? A card his words do not bear on, or only repeat, is a no.
+{CORRECTED}
+Answer "yes" when they change it, and make your sentence the premise the card should now state, in plain words he reads without the drive's vocabulary.""",
+    ),
+    "decided": (
+        "a card still open on his board, drawn before the ruling or pick the evidence shows, that asks him to decide",
+        """Do his words in the evidence already decide everything this card asks, so that nothing on it is left for him to decide? A card that still asks something his words leave open is a no, even when they change its premise.
+Answer "yes" when nothing is left, and say in your sentence which of his words decide it.""",
+    ),
     "implication": (
         "one line an agent wrote into the register as what his words imply, marked removes, requires or permits; removes and requires bind every lane at once, permits waits for his tick",
         """Does this line misstate his words? It misstates them in one of three ways.

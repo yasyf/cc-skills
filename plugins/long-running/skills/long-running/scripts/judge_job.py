@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from dataclasses import asdict
 from pathlib import Path
@@ -12,7 +13,7 @@ from long_running import desk_result, judge
 
 def main(directory: Path) -> int:
     job = json.loads((directory / "job.json").read_text())
-    call = judge.ask(job["kind"], job["evidence"], job["artifact"], backend=job["backend"], timeout=judge.JUDGE_SECONDS, env=None)
+    call = judge.ask(job["kind"], job["evidence"], job["artifact"], backend=job.get("backend") or judge.backend_from(os.environ), timeout=judge.JUDGE_SECONDS, env=None)
     desk_result.write(directory, json.dumps({"verdict": asdict(call.verdict) if call.verdict else None, "summary": call.summary()}) + "\n")
     return 0
 

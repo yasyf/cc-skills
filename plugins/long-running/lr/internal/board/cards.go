@@ -16,6 +16,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ledger"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
 const (
@@ -34,9 +35,12 @@ type Cards struct {
 	Checkout string
 	Session  string
 	StateDir string
+	Program  string
+	Store    *store.Store
 	Now      func() time.Time
 	Closed   func(ctx context.Context, seqs []string) (map[string]bool, error)
 	Withdraw func(ctx context.Context, lane, card, text string) error
+	Report   func(ctx context.Context, lane string, to []string, topic, text string) error
 }
 
 func (c Cards) run(ctx context.Context, command shell.Command) (string, error) {
