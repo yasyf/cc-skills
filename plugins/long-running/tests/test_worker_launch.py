@@ -509,6 +509,16 @@ class SpriteTest(LaunchTest):
         self.assertEqual(self.launch.calls(), [VERSION, CURRENT, self.launch.prepare(), *self.launch.start()])
         self.assertEqual(self.launch.kept(), SPRITE_KEPT)
 
+    def test_a_standing_desk_brief_carries_the_desk_contract_into_the_sprite_spec(self):
+        text = "# Lane A\nccx: role=desk place=remote\nRun the loop until rotation.\n"
+        self.launch.brief.write_text(text)
+        self.launch.sprite({**PREPARED, "brief": {**PREPARED["brief"], "sha256": hashlib.sha256(text.encode()).hexdigest(), "bytes": len(text.encode())}})
+        result = self.launch.run()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        start = next(call for call in self.launch.calls() if call[:3] == ["orca", "orchestration", "worker-start"])
+        spec = start[start.index("--spec") + 1]
+        self.assertTrue(spec.endswith("then follow it exactly. Standing desk: loop until rotation; setup and quiet cycles are not done. Send worker_done only at rotation, naming the handoff doc."), spec)
+
     def test_a_relay_sponsor_joins_the_sprite_to_the_macs_default_mesh_before_the_worker_starts(self):
         self.launch.sprite()
         self.launch.relay()

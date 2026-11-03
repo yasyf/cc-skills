@@ -251,13 +251,12 @@ that launches it by hand, whatever held it; no incident clock defers it. `rebind
 `orca orchestration run-use` from the current terminal and records it; `show` prints the
 binding first. Mac load queues and refuses no launch. While the cores busy, the sum of every
 process's `ps` CPU share, are above the core count, each ten minutes of it logs one `LOAD-HIGH` blocker telling the drive watchdog to
-move the load, a `role=desk` or `role=watch` launch starts on a Sprite at once, its `LAUNCHED`
-line naming the box, and a launch that may run only on the Mac starts there anyway: a brief
+move the load, and a launch that may run only on the Mac starts there anyway: a brief
 whose `ccx:` line says `place=local`, a Fable or incident launch, and an incident clock fallback.
 An incident launch also logs one `LOAD-INCIDENT` report naming the load. A desk with no usable
 Sprite route, or whose brief names a file under this home outside the drive directory, which no
-box receives, starts on the Mac too. Every other launch runs
-`orca.sprite.launcher`, the repository's worker-launch.sh, on a Sprite and never reads Mac
+box receives, starts on the Mac too. Every other launch, a `role=desk` or `role=watch` one
+included, runs `orca.sprite.launcher`, the repository's worker-launch.sh, on a Sprite and never reads Mac
 load; the files a brief names under the drive directory, the directory holding this config,
 reach the box beside the brief at the same relative path. The runner counts no Sprites
 and sets no limit: the provider admits or refuses each one. A Sprite launch fails at once
@@ -3696,7 +3695,6 @@ class Runner:
         remote = refusal is None
         if not remote and (held := self.mac_over_load()):
             self.move_load(held)
-            remote = not mac_pinned(spec) and not self.brief_files(spec)[1] and self.sprite_fault(lane) is None
             if spec["model"] == INCIDENT_MODEL:
                 self.escalate(f"{container}/{action.action_id}:load", "LOAD-INCIDENT", lane, f"{action.action_id} launches on {held}: an incident fix lane is never held for load", to=self.watchdog)
         if not self.book.attempt(container, lambda incident: incident.start(action.action_id, self.now(), deadline=actions.parse_stamp(action.deadline))):
@@ -3740,9 +3738,12 @@ class Runner:
 
     def sprite_refusal(self, lane: str, spec: dict) -> str | None:
         """Empty when the launch takes the Mac route for now, None when it takes a Sprite, or why the Sprite route it must take cannot start it."""
-        if mac_pinned(spec) or STANDING_DESK.search(brief_text(Path(spec["brief"]))):
+        if mac_pinned(spec):
             return ""
-        return self.sprite_fault(lane)
+        fault = self.sprite_fault(lane)
+        if STANDING_DESK.search(brief_text(Path(spec["brief"]))):
+            return "" if fault is not None or self.brief_files(spec)[1] else None
+        return fault
 
     def sprite_fault(self, lane: str) -> str | None:
         if not (sprite := self.sprite()):

@@ -192,7 +192,10 @@ if [ "$route" = sprite ]; then
 
   terminal=$(jq -r .terminal "$attempt/prepared.json")
   wt=$(jq -r .projectRoot "$attempt/prepared.json")
-  start_worker "Lane $lane: read the whole brief at $(jq -r .brief.path "$attempt/prepared.json"), verify its SHA-256 is $sha and its size is $bytes bytes, then follow it exactly." \
+  desk=
+  ! grep -qE '^ccx:(.* )?role=(desk|watch)([[:space:]]|$)' "$brief" ||
+    desk=" Standing desk: loop until rotation; setup and quiet cycles are not done. Send worker_done only at rotation, naming the handoff doc."
+  start_worker "Lane $lane: read the whole brief at $(jq -r .brief.path "$attempt/prepared.json"), verify its SHA-256 is $sha and its size is $bytes bytes, then follow it exactly.$desk" \
     --on "$(jq -r .environment "$attempt/prepared.json")" --worktree "id:$(jq -r .worktreeId "$attempt/prepared.json")" --terminal "$terminal"
   jq -c --arg terminal "$terminal" --arg worktree "$wt" --arg relay "$relay" --slurpfile allocation "$attempt/allocation.json" \
     '{state: .result.state, task: .result.taskId, dispatch: .result.dispatchId, $terminal, $worktree,

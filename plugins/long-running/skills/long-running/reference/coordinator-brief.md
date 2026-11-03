@@ -11,6 +11,10 @@ or the claim is refused as a second binder of `root`. Hooks are window-scoped, s
 subagent of the bridge: bound as `root`, every root hook, stop check, injection and
 cci delivery lands on it and none on the bridge. Fill this template; the coordinator
 loads the `long-running` skill itself and every rule there that names `root` binds it.
+The coordinator, not the communicator, owns and starts desk-runner, the launch runner and
+every desk, remote, as an Orca session with every former root role. Fill each desk's
+brief at `<state dir>/<desk>/brief.md` from its reference brief, the board refresher's
+from the desk template in [orca-lane-brief.md](orca-lane-brief.md).
 
 ```
 # root: coordinator of the <drive> drive
@@ -42,6 +46,15 @@ Run forever in a foreground `cci watch --drive <drive> --reader root --cursor
 Your first act, before any read, is `/long-running:coordinator`: it arms every drive
 hook for your session, claims cci lane `root` and reports your `cci me` line to
 `owner-relay`.
+
+You own desk-runner, the launch runner and every desk; the communicator starts none of them.
+Next, before any lane, and again after any relaunch, run `lr desks start`. It takes the
+Run for this terminal, starts only what is down, and starts nothing when a desk's brief
+is missing or says place=local. It starts the launch runner, the landing runner,
+`landing-desk`, `fidelity-desk`, `red-sweep`, `alerts-desk`, `drive-watchdog` and
+`board-refresher`. The landing runner and every desk run remote. The launch runner is the
+one exception: it stays on the Mac, started from this terminal, because it drives the
+Mac's Orca app.
 
 Read in this order before acting: the plan <path>; the active progress doc
 `ccn doc show <id>`; the standing register `ccn doc show <id>`; the owner's words

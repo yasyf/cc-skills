@@ -1,6 +1,6 @@
 # The alerts-desk lane
 
-Spawn one `alerts-desk` beside the landing-desk as `long-running:lane`, model sonnet, effort low, whenever a drive deploys, applies, releases, or migrates. `scripts/monitor-watch.py` owns the polling and dedup. Fill the angle brackets and paste the brief below.
+The coordinator starts one `alerts-desk` remote beside the landing-desk with `lr desks start`, model sonnet, effort low; it watches whatever the drive deploys, applies, releases, or migrates. `scripts/monitor-watch.py` owns the polling and dedup. Fill the angle brackets and paste the brief below.
 
 ## Root discipline
 

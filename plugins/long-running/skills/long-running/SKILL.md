@@ -62,7 +62,7 @@ single-lane investigation is one subagent in direct mode, not a drive.
 - A tooling refusal goes to the meta lane the same turn and the work proceeds on the
   hand path; it is never an excuse and never a question for the owner.
 - Hooks warn. They block only on trust: a merge without the owner's approval, a
-  change to who approves landings, a revert without his word, hook-file edits and
+  change to who approves landings, a revert without his word, a runner or desk started from the communicator, hook-file edits and
   the session-protection guards.
 
 ## Phase 0: the standing sessions
@@ -127,7 +127,12 @@ since the first draws a nudge ([owner-bridge-brief.md](reference/owner-bridge-br
 **The coordinator** reads reader `root`, posts as `root`, runs in a foreground
 `cci watch` loop for the life of the drive, and holds everything a root holds:
 lanes, gos, holds, incidents, the task list, progress docs and the register. It
-launches lanes through the supervisor and Orca (`lr launch`), never with `Agent`.
+launches lanes through the supervisor and Orca (`lr launch`), never with `Agent`. It
+owns and starts desk-runner, the launch runner and every desk (`lr desks start`), each
+remote as an Orca session, and the communicator starts none of them: the verbs that start a
+runner or desk refuse it. The launch runner is the one
+exception to remote: the coordinator starts it from its own Orca binding on the Mac,
+because it drives the Mac's Orca app and cuts Mac worktrees.
 It never posts to Slack or the board and never speaks to the owner; everything he
 must see is a `report` to `owner-relay`. Its records are for machines and the communicator:
 terse, jargon-heavy, ids and lane names included, in no format it owes anyone. The
@@ -376,7 +381,7 @@ mechanism.
 
 A lane that ships a PR or calls a skill is `long-running:lane-ship`; any other lane
 or desk is `long-running:lane`; a lane that posts to Slack is `general-purpose` on
-opus. Implementation lanes run on Sprites. A brief whose duty the drive keeps for
+opus. Implementation lanes and every desk run on Sprites. A brief whose duty the drive keeps for
 good carries `Standing: <duty>`. A lane never spawns with `Agent`; it writes the
 brief and posts `cci post --kind ask --to root --text 'spawn <name> brief=<path> model=<model>'`.
 The meta lane, which never addresses root, launches its own implementers with
@@ -384,11 +389,11 @@ The meta lane, which never addresses root, launches its own implementers with
 
 | Desk or lane | Does | Brief |
 |---|---|---|
-| Coordinator | Everything in [Phase 0](#phase-0-the-standing-sessions) | [coordinator-brief.md](reference/coordinator-brief.md) |
+| Coordinator | Everything in [Phase 0](#phase-0-the-standing-sessions), every former root role, and every runner and desk in this table but `update-desk`, which it starts with `lr desks start` | [coordinator-brief.md](reference/coordinator-brief.md) |
 | Meta lane, the communicator's | Every skill, tooling, prompt, hook and process improvement, and every meta order the owner sends; `items.md`; one implementer per item | [meta-lane-brief.md](reference/meta-lane-brief.md) |
 | Signal lane, the communicator's | Tails the coordinator's feed and posts the communicator pointers, never summaries | [signal-lane-brief.md](reference/signal-lane-brief.md) |
-| Landing runner and `landing-desk` | The merge queue, lane reports, the ledger | [landing.md](reference/landing.md), [landing-desk-brief.md](reference/landing-desk-brief.md) |
-| Orca runner | Launches and relays to Orca workers, starts grading jobs | [orca-desk-brief.md](reference/orca-desk-brief.md) |
+| Landing runner and `landing-desk` | The merge queue, lane reports, the ledger; both remote | [landing.md](reference/landing.md), [landing-desk-brief.md](reference/landing-desk-brief.md) |
+| Orca runner, the launch runner | Launches and relays to Orca workers, starts grading jobs; on the Mac, the one desk that is not remote | [orca-desk-brief.md](reference/orca-desk-brief.md) |
 | Lane supervisor | Liveness, relaunch, rotation, standing duties, alert launch, landed-not-live | [watchers.md](reference/watchers.md) |
 | Incident executor, `alerts-desk` | One incident from intake to final reply; monitor transitions as records | [active-alert-brief.md](reference/active-alert-brief.md), [alerts-desk-brief.md](reference/alerts-desk-brief.md) |
 | `update-desk`, the bridge's one helper | Renders the owner update the bridge sends, writes the dashboard's rows from it, keeps the dashboard app up | [owner-bridge-brief.md](reference/owner-bridge-brief.md), [owner-report-table.md](reference/owner-report-table.md) |
@@ -448,14 +453,16 @@ lr launch signal <state dir>/signal/brief.md
 The communicator fills each brief, then launches the three as sibling Orca sessions, each
 bound to its own lane. `lr launch` posts to the orca runner when one is up and otherwise
 launches from the communicator's terminal, which coordinates the Run, since the coordinator
-has not started a runner yet. The coordinator runs its own subscribe line (R9), starts the orca runner before the
-first Orca worker, the landing desk and runner before any lane opens a PR, and the
-standing desks each with a `Standing:` line. Every lane registers its branch prefix
+has not started a runner yet. The coordinator runs its own subscribe line (R9), then
+`lr desks start` before any lane: the launch runner, the landing runner and every
+standing desk, which its [brief](reference/coordinator-brief.md) names, each desk with a
+`Standing:` line. The communicator's lines above start no runner and no desk. Every lane registers its branch prefix
 at spawn with `ledger.py register`.
 
 A resumed communicator joins with `drive.py start --drive <id> --ledger <id>` and checks
 the three with `lr lanes root meta signal`. A resumed or relaunched coordinator catches
-up with `cci digest`, `cci tail --cursor root` and `lr lanes`, and after a
+up with `cci digest`, `cci tail --cursor root` and `lr lanes`, runs `lr desks start`,
+which takes the Run and starts only what is down, and after a
 compaction answers every unresolved record from
 `cci tail --since <seq> --reader root --kind decide,ask,blocker,hold,incident`
 before any other work. Every script is on PATH through the plugin's `bin/`; a

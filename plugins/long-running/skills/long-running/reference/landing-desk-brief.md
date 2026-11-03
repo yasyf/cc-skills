@@ -1,6 +1,6 @@
 # The landing-desk lane
 
-Spawn one `landing-desk` lane as `long-running:lane`, model opus, before the first lane that opens a PR. It is the message queue and landing coordinator for the drive, while `desk-runner.py run --desk landing` is the drive's merge queue and owns D3, D14, D16, and D20. Every landing rule (D1 to D22), check registry detail, merge mode rule, `ledger.py` and `mq.py` verb, and message contract lives in `reference/landing.md`. For desk inbox rules (I1 to I7) see `reference/bus-contracts.md` and `SKILL.md`; for standing rules (I6) see `reference/owner-rulings.md`.
+The coordinator starts one `landing-desk` lane remote with `lr desks start`, model opus, before the first lane that opens a PR. It is the message queue and landing coordinator for the drive, while `desk-runner.py run --desk landing` is the drive's merge queue and owns D3, D14, D16, and D20. Every landing rule (D1 to D22), check registry detail, merge mode rule, `ledger.py` and `mq.py` verb, and message contract lives in `reference/landing.md`. For desk inbox rules (I1 to I7) see `reference/bus-contracts.md` and `SKILL.md`; for standing rules (I6) see `reference/owner-rulings.md`.
 
 The brief below is ready to paste; fill the angle brackets.
 

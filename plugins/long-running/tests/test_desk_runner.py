@@ -5998,7 +5998,7 @@ def test_an_unchanged_refused_tree_reuses_its_check_until_its_print_trunk_or_int
     landing.remember("29031", "print-1", {"29020", "29031"}, [])
     assert not landing.reuse(["29031"], "print-2", rows) and "29031" not in landing.unchanged
     landing.remember("29031", "print-1", {"29020", "29031"}, [])
-    expired = landing.unchanged["29031"][2] + runner_module.UNCHANGED_FOR.total_seconds()
+    expired = landing.unchanged["29031"][2] + runner_module.UNCHANGED_FOR.total_seconds() + 1
     monkeypatch.setattr(runner_module.time, "monotonic", lambda: expired)
     assert not landing.reuse(["29031"], "print-1", rows)
 
@@ -14423,6 +14423,16 @@ def test_a_selected_remote_lane_clears_only_the_local_route_override(shell, conf
     assert spawned == [""]
 
 
+@pytest.mark.parametrize("header", ["ccx: role=desk", "ccx: role=desk place=remote", "ccx: role=watch cpu=high"])
+def test_a_standing_desk_launches_on_a_sprite(shell, config, tmp_path, header):
+    with_sprites(config)
+    brief = lane_brief(tmp_path, header)
+    cli(shell, config, "launch", "--key", "R638", "--lane", LANE, "--model", "opus", "--effort", "xhigh", "--brief", str(brief))
+    orca_pass(shell, config)
+    assert sprite_launches(shell) == [[LAUNCHER, LANE, "claude-opus-5-5", "xhigh", str(brief)]]
+    assert launches(shell) == []
+
+
 def test_a_running_orca_desk_launches_with_the_sprite_config_on_disk_at_launch_time(shell, config, tmp_path):
     """Nov 2 6:10 AM: `config set orca.sprite.env.WORKER_RELAY_SPONSOR` never reached noop-launch-4, since the live desk held the config it loaded at 5:42 AM."""
     with_sprites(config)
@@ -14633,8 +14643,6 @@ def test_an_ordinary_lane_with_no_sprite_config_fails_at_once_and_never_launches
         ("ccx: role=build place=remote", "claude-fable-5-1"),
         ("ccx: role=fix cpu=high", "incident"),
         ("ccx: role=fix place=remote", "incident"),
-        ("ccx: role=desk place=remote", "opus"),
-        ("ccx: role=watch cpu=high place=remote", "sonnet"),
     ],
 )
 def test_a_lane_placed_or_forced_local_never_leaves_the_mac(shell, config, tmp_path, header, model, sprites):
@@ -14673,15 +14681,6 @@ def test_a_desk_launch_the_mac_cannot_take_starts_on_a_sprite_at_once_and_its_re
     assert escalations(shell) == [f"LAUNCHED R638 {LANE}: dispatch ctx_s terminal term_s on Sprite {LANE}"]
     assert incident(tmp_path, f"desk-lane-{LANE}").actions["R638"].status == "verified"
     assert shell.spawned_rows == [["--lane", LANE, "--brief", str(brief), "--model", "opus", "--effort", "xhigh", "--placement", "sprite", "--by", "desk-runner"]]
-
-
-def test_a_desk_launch_under_load_starts_on_the_mac(shell, config, tmp_path):
-    with_sprites(config)
-    brief = lane_brief(tmp_path, "ccx: role=watch")
-    cli(shell, config, "launch", "--key", "R638", "--lane", LANE, "--model", "opus", "--effort", "xhigh", "--brief", str(brief))
-    orca_pass(shell, config)
-    assert launches(shell) == [[str(runner_module.LAUNCHER), LANE, "opus", "xhigh", str(brief)]]
-    assert sprite_launches(shell) == []
 
 
 @pytest.mark.parametrize(
