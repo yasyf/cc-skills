@@ -115,6 +115,22 @@ func TestAnAutomaticStagingPromotionNeedsNoClaim(t *testing.T) {
 	equal(t, len(bus.posted), 0)
 }
 
+func TestADryRunNeedsNoClaimAndARealReleaseStillDoes(t *testing.T) {
+	for mode, want := range map[string]int{"dry-run": 0, "release": 1} {
+		t.Run(mode, func(t *testing.T) {
+			start, err := json.Marshal(map[string]string{"mode": mode})
+			if err != nil {
+				t.Fatal(err)
+			}
+			feed := fmt.Sprintf(`[{"number":12272,"state":"running","web_url":%q,"message":"release check of dev","started_at":%q,"env":{"RELEASE_START":%q},"jobs":[]}]`, promotionURL, promotionStarted.Format(time.RFC3339), start)
+			check, bus := releaseBuilds(t, &feed)
+
+			watchBuilds(t, check, promotionStarted.Add(seenGrace))
+			equal(t, len(bus.posted), want)
+		})
+	}
+}
+
 func TestAFailedReleaseBuildWaitsOnItsResumeAndPostsNothingWhenTheResumePasses(t *testing.T) {
 	resume := func(state string) string {
 		start, err := json.Marshal(map[string]string{"mode": "release", "replans": "releases/2026-11-02/3"})
