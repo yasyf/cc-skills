@@ -13,7 +13,7 @@ Contents:
 
 ## Dashboard app startup
 
-From the drive's first plan, the root runs the app in `dashboard/app/` with `python3 dashboard/app/server.py --config <state dir>/dashboard.json`. The config names the drive, ledger, board session and URL, repo, progress-doc label, release doc, story file, host, port, and keeper lane `dashboard-keeper`, briefed from [dashboard-keeper-brief.md](dashboard-keeper-brief.md).
+From the drive's first plan, the root runs the app in `dashboard/app/` with `python3 dashboard/app/server.py --config <state dir>/dashboard.json`. The config names the drive, ledger, board session and URL, repo, progress-doc label, release doc, story file, host, port, and keeper lane `update-desk`, the bridge's helper briefed from [owner-bridge-brief.md](owner-bridge-brief.md).
 
 `python3 dashboard/app/keep.py --config <state dir>/dashboard.json` starts the app detached when it is not answering, logs to `server.log` beside the config, and tells root. The root hands the owner its tailnet URL once, and never hands him a cc-present board in its place. A build failure posts one `defect` record to root.
 
@@ -82,7 +82,7 @@ A worker's five-minute box takes the most severe record kind it posted in that w
 
 `dashboard.json` carries the drive's `parts`, where each part has a key, a one-word name, a home in the cloud, the Mac, or tools, the one line it becomes when done, and the PR title scopes that belong to it. A title's scope is the text before its first colon. A PR in the old tree sits in its home's "old, kept" band instead of a part.
 
-The progress desk rewrites `<state dir>/progress-desk/steps.json` atomically on every pass with no counts. That file lists `steps[]` in plan order, each with an `id`, a label of at most two words, a plain title with no PR numbers, its `state`, and `blocker`, which is `null` when nothing blocks it. Each step entry also includes `next`, every open or landed PR of the step, and the lanes working on it. Beside the steps, `now.release` and `now.releases[]` describe the next release and every release with the parts it ships, in plain words. The `now.blocker` field holds a drive-wide stop only, such as a red trunk or a dead merge queue, with its start time, or `null` otherwise. A step's own blocker stays on the step.
+`owner_update.py --render --publish` (or `--sent`) rewrites `<state dir>/progress-desk/steps.json` atomically from the same rows as the owner update, with no counts, so the dashboard and the update never disagree; [owner-report-table.md](owner-report-table.md) lists its row fields. That file lists `steps[]` in plan order, each with an `id`, a label of at most two words, a plain title with no PR numbers, its `state`, and `blocker`, which is `null` when nothing blocks it. Each step entry also includes `next`, every open or landed PR of the step, and the lanes working on it. Beside the steps, `now.release` and `now.releases[]` describe the next release and every release with the parts it ships, in plain words. The `now.blocker` field holds a drive-wide stop only, such as a red trunk or a dead merge queue, with its start time, or `null` otherwise. A step's own blocker stays on the step.
 
 `drive.py overview` (alias `plan-status`) prints the owner's plan report from `steps.json` in about a tenth of a second. The report follows [owner-report-table.md](owner-report-table.md), one row per step and per milestone. Below the rows, it lists everything left until completion with the gate each item waits on. A step's state counts its changes from `pr_state`; change numbers fold into "a change," lane names into "a worker," and drive words into their plain names. `--json` serves tools, `--step <id>` prints one row by id, label, title, or milestone number, and `--since <90m|7:05 PM|ISO>` keeps the rows that moved and says what moved. The root answers "where does the plan stand" with `drive.py overview`, never by parsing `/api/model` by hand.
 
@@ -127,7 +127,7 @@ Keep its state current:
 
 ## Plan table
 
-The Plan table panel is a `view` card over `plan-table.md` in the dashboard dir. It shows the owner report table with each row's PR states refreshed and the watchdog's newest retro line appended. `scripts/plan-table.py` regenerates the file from the `owner-table` doc, as [owner-report-table.md](owner-report-table.md) describes. Until the first run the panel says nothing matches yet. A drive seeded before the preset carried the panel adds this card to its In flight section:
+The Plan table panel is a `view` card over `plan-table.md` in the dashboard dir. It shows the owner report table with each row's PR states refreshed and the watchdog's newest retro line appended. `scripts/plan-table.py --doc <table doc id> --retro-log <watchdog log id> --repo <checkout> --out <dashboard dir>/plan-table.md` regenerates the file from the owner table doc, refreshing each row's PR states in one batched `ccx vcs pr status` call. Until the first run the panel says nothing matches yet. A drive seeded before the preset carried the panel adds this card to its In flight section:
 
 ```
 - {use: view, id: plan-table, title: Plan table, width: 3, with: {file: plan-table.md, table: Plan table, columns: [step, what_it_delivers, state, what_blocks_it, what_we_are_doing_to_unblock_it, what_went_wrong_or_slowed_it_so_far]}}

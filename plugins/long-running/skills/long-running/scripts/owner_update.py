@@ -5,7 +5,7 @@
 """What the owner's next update must cover, read from the lane registry, the PR ledger, the board and cci, never from memory.
 
     owner_update.py --drive D [--since TIME] [--kind KIND]... [--only SECTION]... [--json]
-    owner_update.py --drive D --render
+    owner_update.py --drive D --render [--publish | --sent]
     owner_update.py --drive D --check FILE|-
 
 STDLIB ONLY. The drive's root is its newest registry session; its task list is
@@ -47,10 +47,16 @@ step or piece, lane, owner ask, incident, release or PR, carries the owner repor
 columns (`reference/owner-report-table.md`): what it delivers, state, who is on it right now
 (a lane heard within 2 h, or **nobody**), what blocks it, what is being done to unblock it
 and by when (each lane's newest record and its next record due by the supervisor's stale
-line), and what went wrong; every open row with nobody on it also leads the update as
-unowned work. A section with nothing says so in
-one line. It exits 1 printing to stderr `missing: <count>` and then, one per line, each section,
-working lane, open ask and open PR the render left out. `--check` reads an update the root wrote and exits 1 naming each of those it
+line), and what went wrong with each open retro-table row's prevention; every open row with
+nobody on it also leads the update as unowned work. Before it come what moved since the
+last update the owner was sent (each row new, or whose owner, blocker or doneness changed)
+and his words the bridge queued since then, each with the record that carries it. A section
+with nothing says so in one line. It exits 1 printing to stderr `missing: <count>` and then,
+one per line, each section, working lane, open ask and open PR the render left out, and each
+of his messages no record carries, which also print as the update's last section.
+`--publish` writes `<state dir>/progress-desk/steps.json`, the dashboard's step rows, from
+the same plan-step and piece rows; `--sent` publishes and saves the snapshot the next
+update diffs against. `--check` reads an update the root wrote and exits 1 naming each of those it
 leaves out, which the root's Stop hook turns into a nudge; the compaction hook adds the
 render to the progress record so the root after compaction inherits every lane.
 """
@@ -101,6 +107,12 @@ COLUMNS = "| Row | What it delivers | State | Who is on it right now | What bloc
 PARENTHETICAL = re.compile(r"\([^)]*\)")
 ASK_WRONG = {ledger.ASK_LOST: "no PR and no record carry it", ledger.ASK_STALE: "no progress past its due time", ledger.ASK_LANDED_NOT_LIVE: "landed but not live for users"}
 PR_WRONG = {"red": "its head is red", "refused": "the landing gate refused its head", "held": "a hold stops it"}
+NOTHING_RECORDED = "nothing recorded"
+BRIDGE = "owner-relay"
+STEPS = Path("progress-desk") / "steps.json"
+SNAPSHOT = Path("progress-desk") / "owner-update.json"
+SINCE = "Since you last looked"
+WORDS = "Your words since the last update"
 
 Runner = Callable[..., subprocess.CompletedProcess]
 
@@ -301,6 +313,7 @@ class Sources:
     latest: dict[str, dict]
     waits: dict[str, dict]
     now: datetime
+    retro: tuple[dict, ...] = ()
 
     def live(self, lane: str) -> bool:
         return lane not in SELVES and (row := self.by_lane.get(lane)) is not None and row["state"] in POSTING and (heard := heard_at(row)) is not None and self.now - heard < DEFAULT_SINCE
@@ -308,7 +321,7 @@ class Sources:
     def work(self, lanes: list[str]) -> tuple[str, str, str, str]:
         """Who is on a piece of work held by `lanes`, what blocks it, what they are doing about it and by when, and what slowed it: every lane heard within `DEFAULT_SINCE` is on it, and nobody else."""
         on = [lane for lane in dict.fromkeys(lanes) if self.live(lane)]
-        blocks = "; ".join(f"{lane} waits on root's answer to {wait['kind']} #{wait['seq']} since {when(wait)}: {owner_waits.clip(wait.get('text') or '')}" for lane in on if (wait := self.waits.get(lane))) or "nothing recorded"
+        blocks = "; ".join(f"{lane} waits on root's answer to {wait['kind']} #{wait['seq']} since {when(wait)}: {owner_waits.clip(wait.get('text') or '')}" for lane in on if (wait := self.waits.get(lane))) or NOTHING_RECORDED
         unblock = "; ".join(
             f"{lane}: {last['kind']} {when(last)}: {owner_waits.clip(last.get('text') or '')}; next record due by {owner_waits.pacific(heard_at(self.by_lane[lane]) + STALE_AFTER)}"
             for lane in on
@@ -316,7 +329,12 @@ class Sources:
         ) or ("nobody is on it, so root starts a lane on it this turn" if not on else "; ".join(f"{lane}: no record in a day" for lane in on))
         quiet = [f"{lane} quiet since {owner_waits.pacific_text(self.by_lane[lane].get('heard') or '')}" for lane in dict.fromkeys(lanes) if lane in self.by_lane and lane not in SELVES and not self.live(lane)]
         took = [f"{lane} took over from {row['predecessor']}" for lane in on if (row := self.by_lane[lane]).get("predecessor")]
-        return ", ".join(on) or NOBODY, blocks, unblock, "; ".join([*quiet, *took]) or "None recorded"
+        failed = [
+            f"{row.get('failure', '')}, prevented by {row.get('mechanism') or 'no prevention yet'} ({row.get('state', '?')}, due {owner_waits.pacific_text(row.get('due') or '')})"
+            for row in self.retro
+            if row.get("owner") in lanes and row.get("state") != "live"
+        ]
+        return ", ".join(on) or NOBODY, blocks, unblock, "; ".join([*failed, *quiet, *took]) or "None recorded"
 
 
 def cell(text: str) -> str:
@@ -345,7 +363,7 @@ def step_row(name: str, delivers: str, tasks: list[plans.Task], lanes: list[dict
     counts = {state: sum(1 for task in tasks if task.state == state) for state in plans.STATES}
     state = f"{counts['done']} of {len(tasks)} tasks done, {counts['in_progress']} in progress, {counts['blocked']} blocked" if tasks else f"no tasks; {len(lanes)} lanes name it"
     waiting = "; ".join(f"task {owner_waits.clip(task.title)} waits on {task.waiting}" for task in tasks if task.state == "blocked" and task.waiting)
-    return Row(name, delivers, state, who, "; ".join(filter(None, [waiting, blocks if blocks != "nothing recorded" else ""])) or blocks, unblock, wrong, done=bool(tasks) and counts["done"] == len(tasks))
+    return Row(name, delivers, state, who, "; ".join(filter(None, [waiting, blocks if blocks != NOTHING_RECORDED else ""])) or blocks, unblock, wrong, done=bool(tasks) and counts["done"] == len(tasks))
 
 
 def pieces(plan: plans.Plan) -> list[str]:
@@ -423,8 +441,79 @@ def pr_rows(runner: Runner, entry: dict, drive_name: str, sources: Sources) -> l
     return out
 
 
-def report(drive_name: str, runner: Runner, now: datetime | None = None) -> tuple[str, list[str]]:
-    """The owner update as markdown from sources only, every row in the owner report table's columns and unowned rows first, and every name it must mention: each section, working lane, open ask key and open PR."""
+
+def retro_rows(runner: Runner, entry: dict) -> tuple[dict, ...]:
+    """The drive's retro table rows, as `retro.py rows` reads them, or none before its first row."""
+    path = Path(entry["state_dir"]) / "retro.json"
+    if not path.is_file() or not (found := json.loads(path.read_text()).get("ledger")):
+        return ()
+    done = runner(["ccn", "-R", entry["checkout"], "ledger", "show", found, "--json"])
+    if done.returncode:
+        raise owner_waits.ReadFailed(f"ccn ledger show exited {done.returncode}: {(done.stderr or done.stdout).strip()[:200]}")
+    return tuple(row["fields"] for row in json.loads(done.stdout)["rows"] if row["key"].startswith("retro/") and not row["fields"].get("dup_of"))
+
+
+def owner_words(records: list[dict]) -> tuple[list[str], list[str]]:
+    """Each owner message the bridge queued, quoted with the record that carries it (an answer, a resolution, or a later record naming its seq), and the seqs nothing carries."""
+    lines, loose = [], []
+    for record in records:
+        if record["lane"] != BRIDGE or record["kind"] != "ask":
+            continue
+        carried = next((other for other in records if other["seq"] > record["seq"] and (other.get("re") == record["seq"] or record["seq"] in (other.get("resolves") or []) or re.search(rf"#{record['seq']}\b", other.get("text") or ""))), None)
+        lines.append(f"- {when(record)}: \"{owner_waits.clip(record.get('text') or '')}\" | " + (f"carried by {carried['lane']} #{carried['seq']}" if carried else "**no record carries this yet**"))
+        if not carried:
+            loose.append(f"owner words no record carries: #{record['seq']}")
+    return lines, loose
+
+
+def snapshot_of(tables: list[tuple[str, list[Row]]]) -> dict[str, list[str]]:
+    return {f"{title}|{row.name}": [row.who, row.blocks, "done" if row.done else "open"] for title, found in tables for row in found}
+
+
+def since_lines(now: dict[str, list[str]], before: dict[str, list[str]]) -> list[str]:
+    """Each row that is new or whose owner, blocker or doneness moved since the snapshot of the last update the owner was sent."""
+    out = []
+    for key, current in now.items():
+        name = key.split("|", 1)[1]
+        if key not in before:
+            out.append(f"- new: {name}")
+            continue
+        moved = [f"{what} {owner_waits.clip(old)} -> {owner_waits.clip(new)}" for what, old, new in zip(("who", "blocker", "state"), before[key], current, strict=True) if old != new]
+        if moved:
+            out.append(f"- {name}: {'; '.join(moved)}")
+    return out
+
+
+def step_entry(index: int, title: str, section_title: str, row: Row, lanes: list[dict]) -> dict:
+    """One dashboard step, from the same row the update renders, under the keys the dashboard and `drive.py overview` read."""
+    return {
+        "id": f"s{index}",
+        "label": " ".join(title.split()[:2]),
+        "title": title,
+        "section": section_title,
+        "state": row.state,
+        "tone": "done" if row.done else "later" if row.who == NOBODY else "moving",
+        "delivers": row.delivers,
+        "who": [] if row.who == NOBODY else row.who.split(", "),
+        "blocker": None if row.blocks == NOTHING_RECORDED else row.blocks,
+        "next": row.unblock,
+        "unblocking": row.unblock,
+        "went_wrong": row.wrong,
+        "prs": sorted({int(pr) for lane in lanes for pr in lane.get("prs") or []}),
+        "lanes": [lane["lane"] for lane in lanes],
+    }
+
+
+def publish(model: dict, sent: bool) -> None:
+    """Write the dashboard's steps atomically and, for an update the owner is sent, the snapshot the next update's "since you last looked" diffs against."""
+    root = Path(model["state_dir"])
+    drive.write_atomic(root / STEPS, model["steps"])
+    if sent:
+        drive.write_atomic(root / SNAPSHOT, model["snapshot"])
+
+
+def report(drive_name: str, runner: Runner, now: datetime | None = None) -> tuple[str, list[str], dict]:
+    """The owner update as markdown from sources only, every row in the owner report table's columns and unowned rows first; every name it must mention: each section, working lane, open ask key and open PR; and the model `publish` writes: the dashboard's steps from the same rows, the snapshot, and the update's gaps."""
     now = now or datetime.now(timezone.utc)
     midnight = now.astimezone(owner_waits.PACIFIC).replace(hour=0, minute=0, second=0, microsecond=0)
     entry = next(entry for entry in drive.drives() if drive.cci_drive(entry) == drive_name and entry.get("sessions"))
@@ -434,7 +523,10 @@ def report(drive_name: str, runner: Runner, now: datetime | None = None) -> tupl
     records = cci.records(owner_waits.tail(runner), drive_name, *(f"--lane={name}" for name in names), since=(now - QUIET_AFTER).isoformat()) if names else []
     latest = newest_by_lane(records)
     waits = {record["lane"]: record for record in waiting_on_root(runner, drive_name)}
-    sources = Sources({row["lane"]: row for row in rows}, latest, waits, now)
+    sources = Sources({row["lane"]: row for row in rows}, latest, waits, now, retro_rows(runner, entry))
+    snapshot = Path(entry["state_dir"]) / SNAPSHOT
+    before = json.loads(snapshot.read_text()) if snapshot.is_file() else {"at": (now - DEFAULT_SINCE).isoformat(), "rows": {}}
+    steps: list[dict] = []
     progress = plans.read(lambda *argv: runner(["ccn", "-R", entry["checkout"], *argv]).stdout, entry.get("program"))
     asks = ask_rows(runner, entry["checkout"], entry["ledger"], latest)
     board = board_rows(runner, drive_name, entry["sessions"][-1])
@@ -447,11 +539,13 @@ def report(drive_name: str, runner: Runner, now: datetime | None = None) -> tupl
             for piece in pieces(plan):
                 mine = [lane for lane in lanes if on_piece(lane, piece)]
                 placed |= {lane["lane"] for lane in mine}
-                tables.append((f"{owner_waits.clip(plan.title)}, {piece}", [step_row(piece, f"the {piece} piece of {owner_waits.clip(plan.title)}", [], mine, sources), *(lane_row(lane, sources) for lane in mine)]))
+                tables.append((title := f"{owner_waits.clip(plan.title)}, {piece}", [step_row(piece, f"the {piece} piece of {owner_waits.clip(plan.title)}", [], mine, sources), *(lane_row(lane, sources) for lane in mine)]))
+                steps.append(step_entry(len(steps), piece, title, tables[-1][1][0], mine))
             continue
         mine = [lane for lane in lanes if on_step(lane, step)]
         placed |= {lane["lane"] for lane in mine}
-        tables.append((f"{owner_waits.clip(plan.title)}, step {owner_waits.clip(step.title)}", [step_row(f"Step {step.number}", step.title, step.tasks, mine, sources), *(lane_row(lane, sources) for lane in mine)]))
+        tables.append((title := f"{owner_waits.clip(plan.title)}, step {owner_waits.clip(step.title)}", [step_row(f"Step {step.number}", step.title, step.tasks, mine, sources), *(lane_row(lane, sources) for lane in mine)]))
+        steps.append(step_entry(len(steps), step.title, title, tables[-1][1][0], mine))
     rest = [lane for lane in lanes if lane["lane"] not in placed]
     tables += [(f"Workstream {step}", [lane_row(lane, sources) for lane in rest if step_of(lane) == step]) for step in sorted({step_of(lane) for lane in rest} - {""})]
     tables += [
@@ -470,10 +564,27 @@ def report(drive_name: str, runner: Runner, now: datetime | None = None) -> tupl
         (f"Delivered in the last {DEFAULT_SINCE.seconds // 3600} h", [f"- {record['lane']} {record['kind']} #{record['seq']} {when(record)}: {owner_waits.clip(record.get('text') or '')}" for record in newest_by_lane([record for record in records if record["kind"] in DELIVERED_KINDS and now - owner_waits.at(record) < DEFAULT_SINCE]).values()]),
     ]
     head = [f"{len(unowned)} rows have nobody on them; each also sits in its own section below.", "", *table(unowned)] if unowned else []
-    out = [f"# Owner update: {drive_name}, {owner_waits.pacific(now)}", *section(UNOWNED, head), *(text for title, found in tables for text in section(title, table(found))), *(text for title, found in lists for text in section(title, found))]
-    titles = [UNOWNED, *(title for title, _ in tables), *(title for title, _ in lists)]
+    words, gaps = owner_words(cci.records(owner_waits.tail(runner), drive_name, since=before["at"]))
+    current = snapshot_of(tables)
+    opening = [(f"{SINCE} ({owner_waits.pacific_text(before['at'])})", since_lines(current, before["rows"])), (WORDS, words)]
+    out = [
+        f"# Owner update: {drive_name}, {owner_waits.pacific(now)}",
+        *(text for title, found in opening for text in section(title, found)),
+        *section(UNOWNED, head),
+        *(text for title, found in tables for text in section(title, table(found))),
+        *(text for title, found in lists for text in section(title, found)),
+        *(section("Gaps in this update", [f"- {gap}" for gap in gaps]) if gaps else []),
+    ]
+    titles = [SINCE, WORDS, UNOWNED, *(title for title, _ in tables), *(title for title, _ in lists)]
     prs = next(found for title, found in tables if title == OPEN_PRS)
-    return "\n".join(out) + "\n", [*titles, *names, *(item["key"] for item in asks), *(row.name for row in prs)]
+    releases = [{"name": row.name, "state": row.state} for row in next(found for title, found in tables if title == "Releases today")]
+    model = {
+        "state_dir": entry["state_dir"],
+        "steps": {"updated": now.isoformat(), "steps": steps, "now": {"blocker": None, "release": releases[-1] if releases else None, "releases": releases}},
+        "snapshot": {"at": now.isoformat(), "rows": current},
+        "gaps": gaps,
+    }
+    return "\n".join(out) + "\n", [*titles, *names, *(item["key"] for item in asks), *(row.name for row in prs)], model
 
 
 def missing(text: str, names: list[str]) -> list[str]:
@@ -487,19 +598,23 @@ def main(argv: list[str] | None = None, runner: Runner = owner_waits.run) -> int
     parser.add_argument("--kind", action="append", help="a record kind that counts as a delivery, repeatable (default: report, done, fix-live, handoff)")
     parser.add_argument("--only", action="append", choices=SECTIONS, help="read only this section, repeatable (default: every section)")
     parser.add_argument("--json", action="store_true")
-    parser.add_argument("--render", action="store_true", help="print the whole owner update as markdown and exit 1 naming what it leaves out")
+    parser.add_argument("--render", action="store_true", help="print the whole owner update as markdown and exit 1 naming what it leaves out and each gap")
+    parser.add_argument("--publish", action="store_true", help="with --render: write the dashboard's steps.json from the same rows")
+    parser.add_argument("--sent", action="store_true", help="with --render: publish, and save this render as the update the owner is sent, which the next one diffs against")
     parser.add_argument("--check", metavar="FILE", help="exit 1 naming each live lane, open ask and open PR this written update leaves out; - reads stdin")
     args = parser.parse_args(argv)
     if args.render or args.check:
         try:
-            text, names = report(args.drive, runner)
+            text, names, model = report(args.drive, runner)
         except owner_waits.ReadFailed as failed:
             print(f"owner-update: {failed}", file=sys.stderr)
             return 1
         if args.render:
             print(text, end="")
+        if args.render and (args.publish or args.sent):
+            publish(model, args.sent)
         written = text if args.render else sys.stdin.read() if args.check == "-" else Path(args.check).read_text()
-        if left := missing(written, names):
+        if left := missing(written, names) + (model["gaps"] if args.render else []):
             print(f"missing: {len(left)}", *left, sep="\n", file=sys.stderr)
             return 1
         return 0

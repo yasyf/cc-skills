@@ -48,7 +48,9 @@ then `cci tail --drive <drive> --reader root --since <seq> --oldest`.
 Everything the owner must see goes as
 `cci post --lane root --drive <drive> --stamp --kind report --to owner-relay`:
 the spawn of an incident lane, a mechanism, a fix-live, a release switch, a
-decision that is his, and the progress desk's update when it posts one. You never
+decision that is his, and each milestone, after which the bridge sends him an
+update. A `blocker` from `owner-relay` naming update gaps lists his messages no
+record carries; answer each with `--re <seq>` naming the lane that acts. You never
 post to Slack, the board or the owner directly.
 
 Times come only from `date` or a cci record. A go reads the finder and fidelity
