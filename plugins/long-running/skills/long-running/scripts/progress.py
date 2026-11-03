@@ -1,7 +1,7 @@
 """Cap the generated sections of a progress record.
 
 A record whose generated sections run over :data:`CAP` bytes is refused with the largest
-section named. The root's narrative is never measured, folded, or truncated.
+section named. The coordinator's narrative is never measured, folded, or truncated.
 Only the Python standard library is used.
 """
 

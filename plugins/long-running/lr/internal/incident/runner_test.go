@@ -602,7 +602,7 @@ func TestReplayReachesTheFinalReplyWithNoRootTurn(t *testing.T) {
 		t.Fatalf("status %s", incident.Status)
 	}
 	if len(fake.asks) != 0 {
-		t.Fatalf("the root was asked: %v", fake.asks)
+		t.Fatalf("the coordinator was asked: %v", fake.asks)
 	}
 	want := []launched{{"incident-" + h.id + "-fix", "incident", "xhigh"}, {"incident-" + h.id + "-evidence", "incident", "xhigh"}}
 	if !reflect.DeepEqual(fake.launches, want) {

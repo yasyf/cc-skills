@@ -114,7 +114,7 @@ def test_a_board_row_waits_on_him_only_at_the_pr_current_head():
 
 
 def test_a_head_the_landing_runner_admitted_shows_merging_or_runner_defect_with_its_age_never_waiting_on_him():
-    """Root #208560 item 4: "waiting on you" never lists a head the runner has admitted."""
+    """Coordinator #208560 item 4: "waiting on you" never lists a head the runner has admitted."""
     prs = {"42001": {"state": "open", "head": "aaaaaaa1", "test_state": "success"}, "42002": {"state": "open", "head": "bbbbbbb1", "test_state": "success"}, "42003": {"state": "open", "head": "ccccccc1", "test_state": "success"}}
     rows = [{"number": 42001, "head": "aaaaaaa1", "state": "you"}, {"number": 42002, "head": "bbbbbbb1", "state": "you"}, {"number": 42003, "head": "ccccccc1", "state": "you"}]
     admitted = {"42001": {"head": "aaaaaaa1", "since": "2026-10-27T07:40:00Z", "state": "merging"}, "42002": {"head": "bbbbbbb1", "since": "2026-10-27T07:20:00Z", "state": "defect", "why": "no branch recorded"}, "42003": {"head": "0000000", "since": "2026-10-27T07:20:00Z", "state": "merging"}}
@@ -231,7 +231,7 @@ def test_a_cc_notes_doc_is_read_once_until_its_ref_moves(monkeypatch):
 
 
 def test_the_bus_alarm_beside_the_steps_is_the_drive_wide_stop_until_the_runner_clears_it(tmp_path, monkeypatch):
-    """4:31 to 4:40 PM Oct 29 the bus hung and nothing on the dashboard said so (root #190549)."""
+    """4:31 to 4:40 PM Oct 29 the bus hung and nothing on the dashboard said so (coordinator #190549)."""
     steps = tmp_path / "progress-desk" / "steps.json"
     steps.parent.mkdir()
     steps.write_text(json.dumps({"updated": "2026-10-30T13:00:00Z", "steps": [], "now": {"blocker": None, "release": {"name": "New code in the cloud"}}}))
@@ -260,7 +260,7 @@ def test_a_build_failure_is_a_defect_only_when_the_next_build_fails_the_same_way
 
 
 def test_the_serving_dashboard_replaces_a_retired_servers_record_with_its_own(tmp_path):
-    """Root #285830: dashboard/server.json still named the retired Oct 23 page on 127.0.0.1:8958 while the launchd dashboard served on 61210."""
+    """Coordinator #285830: dashboard/server.json still named the retired Oct 23 page on 127.0.0.1:8958 while the launchd dashboard served on 61210."""
     record = tmp_path / ".claude" / "scratch" / "d1" / "dashboard" / "server.json"
     record.parent.mkdir(parents=True)
     record.write_text(json.dumps({"drive": "d1", "pid": 68257, "host": "127.0.0.1", "port": 8958, "url": "http://127.0.0.1:8958/", "token": "old"}))

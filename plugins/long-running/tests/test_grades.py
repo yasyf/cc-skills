@@ -127,7 +127,7 @@ def test_carry_rechecks_rejected_lands_on_the_next_wave_and_stops_at_cycles():
 
 
 def test_the_go_state_names_the_newest_go_at_the_head_the_carry_that_reached_it_or_the_newest_go_at_an_older_head():
-    """10:47 PM Oct 29 the watchdog told the merger a go was withdrawn seven minutes after root re-granted it at the new head (retro step 447)."""
+    """10:47 PM Oct 29 the watchdog told the merger a go was withdrawn seven minutes after coordinator re-granted it at the new head (retro step 447)."""
 
     def go(seq: int, at: str, text: str) -> dict:
         return {"seq": seq, "at": at, "drive": "d1", "lane": "root", "kind": "go", "text": text, "voided": set()}
@@ -237,7 +237,7 @@ def test_a_multi_head_record_moves_each_pr_by_its_own_entry_and_note():
     ids=["bare-pr", "mid-text", "id-at-origin", "drive-copy-seq", "no-id"],
 )
 def test_a_root_finder_override_in_each_accepted_form_settles_the_major_at_its_head(text):
-    """Root posted `finder-override 46153 at 0fdda4f: 283952 (finder 171507)` with no `#` before the PR, and the runner read nothing."""
+    """The coordinator posted `finder-override 46153 at 0fdda4f: 283952 (finder 171507)` with no `#` before the PR, and the runner read nothing."""
     major = {"seq": 30, "origin_seq": 171507, "lane": "finder-desk", "kind": "review", "text": "finder: major 0fdda4f012 1 open over delta"}
     override = {"seq": 31, "lane": "root", "kind": "decide", "text": text}
     assert grades.root_settles_finder([major, override], "46153", "0fdda4f0123456", major)

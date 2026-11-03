@@ -243,7 +243,7 @@ ADMIN_RETIRE = dict(RESERVED, words="Your tap on the eviction release's merge ca
 
 
 def test_a_reserved_delete_row_matches_a_delete_in_its_paths_never_a_domain_word_beside_it(package: Path, state: Path, registered: Path, capsys) -> None:
-    """Root #270259: #46994 named pinned or busy in a refused decommission's 503 in admin.rs and drew RESERVED-NO-ANSWER for rule/812d4c5, which reserves deleting chat files on Macs; it deletes nothing."""
+    """Coordinator #270259: #46994 named pinned or busy in a refused decommission's 503 in admin.rs and drew RESERVED-NO-ANSWER for rule/812d4c5, which reserves deleting chat files on Macs; it deletes nothing."""
     rows = pinned(package) | {"rule/812d4c5": ADMIN_RETIRE}
     refused = (1, ["RESERVED-NO-ANSWER rule/812d4c5\tYour tap on the eviction release's merge card is also its authorization to delete chat files on Macs."])
 
@@ -474,7 +474,7 @@ SYNC_HIT = "NAME-HIT rule/7c7c7c7 src/relay/pool.rs:2 sync"
     ],
 )
 def test_a_scope_name_in_an_import_line_or_a_std_path_is_no_hit(package: Path, state: Path, registered: Path, capsys, line: str, refusals: list[str]) -> None:
-    """Root #298792: NAME-HIT 'sync' on #47453's clock modules matched their std::sync imports."""
+    """Coordinator #298792: NAME-HIT 'sync' on #47453's clock modules matched their std::sync imports."""
     rows = pinned(package) | {"rule/7c7c7c7": dict(SYNC_ROW)}
     assert check(capsys, CheckShell(rows, diff=DIFF.replace("+    self.drain();", line))) == (1 if refusals else 0, refusals)
 
@@ -600,7 +600,7 @@ def test_accepted_names_a_lane_only_once_a_desk_graded_its_current_slice_ok(pack
 
 
 def test_a_numbered_successor_keeps_the_read_back_a_desk_accepted_for_the_lane_it_replaced(package: Path, state: Path, registered: Path, capsys) -> None:
-    """Root #241130: fidelity-desk-11 graded fuzzy-match-4's read-back ok as "readback ok fuzzy-match-4: ...", which no grade form read, and fuzzy-match-4 was rotating to fuzzy-match-5."""
+    """Coordinator #241130: fidelity-desk-11 graded fuzzy-match-4's read-back ok as "readback ok fuzzy-match-4: ...", which no grade form read, and fuzzy-match-4 was rotating to fuzzy-match-5."""
     rows = pinned(package)
     grade = dict(graded(current_stamp(rows, None)), text="readback ok lane-a: every row carries the graded contract")
 

@@ -28,7 +28,7 @@ deliverable, your authority, your worktree, and who hears your report. Stay insi
   new order, so do it before you report.
 - You carry the Sentry tools and the Datadog read tools, loaded at start with no
   ToolSearch. Read the alert, issue, logs, traces, spans, and metrics yourself
-  instead of asking the root to fetch them.
+  instead of asking the coordinator to fetch them.
 - Write findings to cc-notes with the `ccn` CLI or to the ledger, never into a message.
 - Post and read cci records through the cci tools on your allowlist, never Bash
   `cci`: `post` with structured fields (`records` posts several), `read` for seqs,
@@ -42,7 +42,7 @@ deliverable, your authority, your worktree, and who hears your report. Stay insi
   gives>` with its outcome; the lane supervisor relaunches any lane that stops without
   one. Your last action is one `SendMessage` to that name, then no text
   or one line under 300 characters (outcome + pointer), never the report again.
-  The harness forwards final text to the root as an idle notification on every stop;
+  The harness forwards final text to the coordinator as an idle notification on every stop;
   a hook refuses longer text.
 - On the supervisor's `ROTATE` record, write your state to a cc-notes doc and post
   `cci post --kind handoff --ccn <doc id> --re <its seq>`, then keep working; the

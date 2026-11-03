@@ -167,7 +167,7 @@ class CompactionState(WorkflowState):
 
 
 class Coordinator:
-    """The root thread of the session that ran `/long-running:coordinator`: every drive-coordination hook acts there and only there."""
+    """The coordinator thread of the session that ran `/long-running:coordinator`: every drive-coordination hook acts there and only there."""
 
     def check(self, evt: BaseHookEvent) -> bool:
         state = CompactionState.load(evt)
@@ -175,7 +175,7 @@ class Coordinator:
 
 
 class Communicator:
-    """The root thread of the session that ran `/long-running` and not `/long-running:coordinator`, the window the owner types in: every hook on how words reach the human acts there and only there."""
+    """The coordinator thread of the session that ran `/long-running` and not `/long-running:coordinator`, the window the owner types in: every hook on how words reach the human acts there and only there."""
 
     def check(self, evt: BaseHookEvent) -> bool:
         state = CompactionState.load(evt)
@@ -590,7 +590,7 @@ def queue_root_slice(state: CompactionState, evt: BaseHookEvent, reader: Registe
             return
         post_blocker(
             evt,
-            f"The root's register slice did not load at SessionStart {evt.source}: {failure_of(failed)}. "
+            f"The coordinator's register slice did not load at SessionStart {evt.source}: {failure_of(failed)}. "
             f"Run `rulings.py slice --root --drive {entry['drive']}` and read it before the first plan or card edit.",
         )
         return
@@ -719,7 +719,7 @@ def activate_on_command(evt: BaseHookEvent) -> HookResult | None:
 
 
 def activate(evt: BaseHookEvent, args: str, *, coordinator: bool) -> None:
-    """Every drive session activates the drive; only `/long-running:coordinator` arms its root hooks, for the session it runs in."""
+    """Every drive session activates the drive; only `/long-running:coordinator` arms its coordinator hooks, for the session it runs in."""
     with CompactionState.mutate(evt) as state:
         state.active = True
         state.coordinator = state.coordinator or coordinator

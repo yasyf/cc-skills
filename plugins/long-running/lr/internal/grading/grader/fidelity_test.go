@@ -23,7 +23,7 @@ const (
 	openPoint     = "replica.go:452 rejects a stopped share below its stop"
 	permissions   = "dashboard/src/iris/lib/IrisPermissionsContext.tsx"
 	graphiqlTitle = "api: 🔥 delete the /graphiql page, which loaded GraphiQL and React from esm.sh at view time"
-	graphiqlBody  = "## Motivation\n\nOwner, Nov 1 10:41 AM: \"remove entirely the code that installs litestream at runtime ... any other similar things?\" Root's ruling (cci #289128) was to delete this page as the third of three rows under one line: nothing we ship loads code from a third-party CDN at run time.\n"
+	graphiqlBody  = "## Motivation\n\nOwner, Nov 1 10:41 AM: \"remove entirely the code that installs litestream at runtime ... any other similar things?\" The coordinator's ruling (cci #289128) was to delete this page as the third of three rows under one line: nothing we ship loads code from a third-party CDN at run time.\n"
 )
 
 var (
@@ -264,7 +264,7 @@ func TestACarryTakesItsClassFromARootCorrectionThenTheNewestDeskGradeThenItsOwnP
 }
 
 func TestAPatchIdenticalHeadCarriesAMissingRootSettledAsOkNamingTheDecide(t *testing.T) {
-	carriedGrade := gradeOf(170008, FidelityLane, "fidelity: ok "+shaOld+" carried from "+shaMoved[:7]+" (cci #170006), patch-identical by git patch-id over its own commits, settled by root #170007.")
+	carriedGrade := gradeOf(170008, FidelityLane, "fidelity: ok "+shaOld+" carried from "+shaMoved[:7]+" (cci #170006), patch-identical by git patch-id over its own commits, settled by coordinator #170007.")
 	moved := gradeOf(170006, FidelityLane, strings.ReplaceAll(pipelineMissing["text"].(string), shaOld, shaMoved))
 	settled := map[string]int{"170006": 170007}
 	cases := []struct {
@@ -287,7 +287,7 @@ func TestAPatchIdenticalHeadCarriesAMissingRootSettledAsOkNamingTheDecide(t *tes
 				return
 			}
 			equal(t, len(shell.asks()), 0)
-			equal(t, shell.texts()[0], fmt.Sprintf("fidelity: ok %s carried from %s (cci #%d), patch-identical by git patch-id over its own commits, settled by root #170007.", shaHead, shaOld[:7], c.carried))
+			equal(t, shell.texts()[0], fmt.Sprintf("fidelity: ok %s carried from %s (cci #%d), patch-identical by git patch-id over its own commits, settled by coordinator #170007.", shaHead, shaOld[:7], c.carried))
 		})
 	}
 }
@@ -308,7 +308,7 @@ func TestASettledMissingCarriesOnlyWhileRangeDiffFindsNoOwnCommitChanged(t *test
 	repo.shows = realigned
 	mustFidelity(t, directory, shell)
 	equal(t, len(shell.asks()), 0)
-	equal(t, shell.texts()[0], "fidelity: ok "+shaHead+" carried from "+shaOld[:7]+" (cci #170006), patch-identical by git range-diff over its own commits, settled by root #170007.")
+	equal(t, shell.texts()[0], "fidelity: ok "+shaHead+" carried from "+shaOld[:7]+" (cci #170006), patch-identical by git range-diff over its own commits, settled by coordinator #170007.")
 	outcome := resultOf(t, directory)
 	if !reflect.DeepEqual(outcome, map[string]any{"verdict": "carried", "from": shaOld, "posted": []any{"#150002", "#150003"}}) {
 		t.Errorf("outcome = %v", outcome)
@@ -319,7 +319,7 @@ func TestASettledMissingCarriesOnlyWhileRangeDiffFindsNoOwnCommitChanged(t *test
 	repo.shows = waits
 	mustFidelity(t, read, shell)
 	equal(t, len(shell.asks()), 1)
-	holdsAll(t, readText(t, read, "question-1.md"), "An earlier head, "+shaOld+", was reviewed.", "only the hunks the range-diff shows for its pair ("+shaOwn[:7]+")", "- "+settledPt+" (root #170007)")
+	holdsAll(t, readText(t, read, "question-1.md"), "An earlier head, "+shaOld+", was reviewed.", "only the hunks the range-diff shows for its pair ("+shaOwn[:7]+")", "- "+settledPt+" (coordinator #170007)")
 }
 
 func TestARestackWhoseCommitsRangeDiffEqualCarriesASettledMissingBesideADeskOk(t *testing.T) {
@@ -329,7 +329,7 @@ func TestARestackWhoseCommitsRangeDiffEqualCarriesASettledMissingBesideADeskOk(t
 	repo.rangeDiff = fmt.Sprintf("1:  %s = 1:  %s resubscribe\n", shaOldOwn[:7], shaOwn[:7])
 	mustFidelity(t, directory, shell)
 	equal(t, len(shell.asks()), 0)
-	equal(t, shell.texts()[0], "fidelity: ok "+shaHead+" carried from "+shaOld[:7]+" (cci #170006), patch-identical by git range-diff over its own commits, settled by root #170007.")
+	equal(t, shell.texts()[0], "fidelity: ok "+shaHead+" carried from "+shaOld[:7]+" (cci #170006), patch-identical by git range-diff over its own commits, settled by coordinator #170007.")
 }
 
 func TestANewHeadsMissingPointThatRepeatsASettledOneWordForWordIsDropped(t *testing.T) {
@@ -341,7 +341,7 @@ func TestANewHeadsMissingPointThatRepeatsASettledOneWordForWordIsDropped(t *test
 		posted  string
 	}{
 		{"unsettled-point-kept", []string{settledPt, openPoint}, map[string]int{}, "fidelity: missing " + shaHead + " plan:811 " + settledPt + "; " + openPoint},
-		{"all-settled", []string{settledPt}, map[string]int{"170006": 170007}, "fidelity: ok " + shaHead + " Resubscribes from the fetched position after a cut. Every missing point is one root settled at #170007."},
+		{"all-settled", []string{settledPt}, map[string]int{"170006": 170007}, "fidelity: ok " + shaHead + " Resubscribes from the fetched position after a cut. Every missing point is one coordinator settled at #170007."},
 		{"settled-dropped", []string{"  " + settledPt + " ", "a new point"}, map[string]int{"170006": 170007}, "fidelity: missing " + shaHead + " plan:811 a new point"},
 	}
 	for _, c := range cases {
@@ -355,7 +355,7 @@ func TestANewHeadsMissingPointThatRepeatsASettledOneWordForWordIsDropped(t *test
 			mustFidelity(t, directory, shell)
 			equal(t, shell.texts()[0], c.posted)
 			if len(c.settled) > 0 {
-				holdsAll(t, readText(t, directory, "question-1.md"), "- "+settledPt+" (root #170007)")
+				holdsAll(t, readText(t, directory, "question-1.md"), "- "+settledPt+" (coordinator #170007)")
 			}
 		})
 	}
@@ -368,7 +368,7 @@ func TestARewordedPointOnCodeLinesASettledPointCitesIsDroppedUnlessTheChangeSinc
 		raised string
 		posted string
 	}{
-		{"same-lines-reworded", permissions + ":123–153 adds copying Relay's isPlatformPreviewer result into provider state through an effect", "fidelity: ok " + shaHead + " Resubscribes from the fetched position after a cut. Every missing point is one root settled at #170007."},
+		{"same-lines-reworded", permissions + ":123–153 adds copying Relay's isPlatformPreviewer result into provider state through an effect", "fidelity: ok " + shaHead + " Resubscribes from the fetched position after a cut. Every missing point is one coordinator settled at #170007."},
 		{"lines-the-change-touched", "go/sand/next/replica/follow.go:41 still resubscribes from zero", "fidelity: missing " + shaHead + " dashboard/AGENTS.md:37 go/sand/next/replica/follow.go:41 still resubscribes from zero"},
 		{"another-file", "dashboard/src/iris/lib/IrisShell.tsx:126 copies the flag into state", "fidelity: missing " + shaHead + " dashboard/AGENTS.md:37 dashboard/src/iris/lib/IrisShell.tsx:126 copies the flag into state"},
 	}
@@ -388,7 +388,7 @@ func TestARewordedPointARootRulingSettledIsDroppedByTheRulingTheReplyNames(t *te
 		settled int
 		posted  string
 	}{
-		{"a-carried-ruling", 265587, "fidelity: ok " + shaHead + " Resubscribes from the fetched position after a cut. Every missing point is one root settled at #265587."},
+		{"a-carried-ruling", 265587, "fidelity: ok " + shaHead + " Resubscribes from the fetched position after a cut. Every missing point is one coordinator settled at #265587."},
 		{"a-number-the-job-never-carried", 999, "fidelity: missing " + shaHead + " plan:811 the census route refuses an unproven head"},
 	}
 	for _, c := range cases {
@@ -399,7 +399,7 @@ func TestARewordedPointARootRulingSettledIsDroppedByTheRulingTheReplyNames(t *te
 			shell, _ := newFidelityFake(t, otherPatch, fidelityReplyOf(map[string]any{"verdict": "missing", "missing": []any{entry}}))
 			mustFidelity(t, directory, shell)
 			equal(t, shell.texts()[0], c.posted)
-			holdsAll(t, readText(t, directory, "question-1.md"), "- root #265587: 2:07 PM #43299: the census route refusing an unproven head is the plan's behavior; settled.")
+			holdsAll(t, readText(t, directory, "question-1.md"), "- coordinator #265587: 2:07 PM #43299: the census route refusing an unproven head is the plan's behavior; settled.")
 		})
 	}
 }
@@ -694,5 +694,5 @@ func TestTheGraderReadsThePlanGroundsRootAcceptedOutsideThePackageFromTheJobsSou
 	directory := fidelityDir(t, map[string]any{"sources": sources})
 	shell, _ := newFidelityFake(t, otherPatch, fidelityReplyOf(nil))
 	mustFidelity(t, directory, shell)
-	holdsAll(t, readText(t, directory, "question-1.md"), "Plan grounds root accepted outside the package, such as a class-fix inventory or a lane's\naccepted design contract: "+sources+".")
+	holdsAll(t, readText(t, directory, "question-1.md"), "Plan grounds the coordinator accepted outside the package, such as a class-fix inventory or a lane's\naccepted design contract: "+sources+".")
 }

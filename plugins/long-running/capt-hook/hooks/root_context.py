@@ -495,7 +495,7 @@ root_warning(
 )
 
 root_warning(
-    message="Warning, nothing was blocked: Lane artifacts are read by a lane, not the drive root. Delegate with `Agent` using `Explore` and `model: sonnet`.",
+    message="Warning, nothing was blocked: Lane artifacts are read by a lane, not the drive coordinator. Delegate with `Agent` using `Explore` and `model: sonnet`.",
     only_if=[ReadsLaneArtifact()],
     tests={
         Input(tool="Read", file=FileFixture(name="matrix.md", content="a\n"), state=ACTIVE): Warn(
@@ -507,7 +507,7 @@ root_warning(
 )
 
 root_warning(
-    message="Warning, nothing was blocked: A read this large belongs to a lane, not the drive root. Read a window with `offset` and `limit`.",
+    message="Warning, nothing was blocked: A read this large belongs to a lane, not the drive coordinator. Read a window with `offset` and `limit`.",
     only_if=[ReadsOversizeWindow()],
     tests={
         Input(tool="Read", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE): Warn(
@@ -523,7 +523,7 @@ root_warning(
 )
 
 root_warning(
-    message="Warning, nothing was blocked: File reads belong to a lane, not the drive root. Delegate with `Agent` using `Explore` and `model: sonnet`.",
+    message="Warning, nothing was blocked: File reads belong to a lane, not the drive coordinator. Delegate with `Agent` using `Explore` and `model: sonnet`.",
     only_if=[ReadsRepoFiles()],
     tests={
         Input(command=f"cat {SOURCE}", state=ACTIVE): Warn(pattern=r"File reads"),
@@ -570,7 +570,7 @@ root_warning(
 )
 
 root_warning(
-    message="Warning, nothing was blocked: Searches belong to a lane, not the drive root. Delegate with `Agent` using `Explore` and `model: sonnet`.",
+    message="Warning, nothing was blocked: Searches belong to a lane, not the drive coordinator. Delegate with `Agent` using `Explore` and `model: sonnet`.",
     only_if=[SearchesRepo()],
     tests={
         Input(command="rg -n LAUNCH plugins", state=ACTIVE): Warn(pattern=r"^Warning, nothing was blocked: Searches belong"),
@@ -587,7 +587,7 @@ root_warning(
 )
 
 root_warning(
-    message="Warning, nothing was blocked: Git history reads belong to a lane, not the drive root. Delegate with `Agent` using `Explore` and `model: sonnet`.",
+    message="Warning, nothing was blocked: Git history reads belong to a lane, not the drive coordinator. Delegate with `Agent` using `Explore` and `model: sonnet`.",
     only_if=[runs_verb(GIT, ("log",), ("show",), ("diff",), ("blame",), ("grep",), ("reflog",))],
     tests={
         Input(command="git log --oneline -20", state=ACTIVE): Warn(pattern=r"Git history"),
@@ -600,7 +600,7 @@ root_warning(
 )
 
 root_warning(
-    message="Warning, nothing was blocked: Code and repo reads belong to a lane, not the drive root. Delegate with `Agent` using `Explore` and `model: sonnet`.",
+    message="Warning, nothing was blocked: Code and repo reads belong to a lane, not the drive coordinator. Delegate with `Agent` using `Explore` and `model: sonnet`.",
     only_if=[
         Or(ReadsCode(), ReadsCodeTool())
     ],
@@ -623,7 +623,7 @@ root_warning(
 )
 
 root_warning(
-    message="Warning, nothing was blocked: Web page reads belong to a lane, not the drive root. Delegate with `Agent` using `cc-context:web-fetch`.",
+    message="Warning, nothing was blocked: Web page reads belong to a lane, not the drive coordinator. Delegate with `Agent` using `cc-context:web-fetch`.",
     only_if=[runs_verb(CCX, ("web",))],
     tests={
         Input(command="ccx web read https://example.com/docs", state=ACTIVE): Warn(pattern=r"Web page reads"),
@@ -632,7 +632,7 @@ root_warning(
 )
 
 root_warning(
-    message="Warning, nothing was blocked: PR and review reads belong to a lane, not the drive root. Delegate with `Agent` using `cc-context:pr-review-triage`.",
+    message="Warning, nothing was blocked: PR and review reads belong to a lane, not the drive coordinator. Delegate with `Agent` using `cc-context:pr-review-triage`.",
     only_if=[Or(runs_verb(GH, ("pr", "view"), ("pr", "diff")), runs_verb(CCX, ("vcs", "reviews")))],
     tests={
         Input(command="gh pr view 28797 --json body", state=ACTIVE): Warn(pattern=r"PR and review reads"),
@@ -644,7 +644,7 @@ root_warning(
 )
 
 root_warning(
-    message="Warning, nothing was blocked: CI log reads belong to a lane, not the drive root. Delegate with `Agent` using `cc-context:ci-triage`.",
+    message="Warning, nothing was blocked: CI log reads belong to a lane, not the drive coordinator. Delegate with `Agent` using `cc-context:ci-triage`.",
     only_if=[runs_verb(GH, ("run", "view"))],
     tests={
         Input(command="gh run view 123 --log-failed", state=ACTIVE): Warn(pattern=r"CI log reads"),
@@ -653,7 +653,7 @@ root_warning(
 )
 
 root_warning(
-    message="Warning, nothing was blocked: Issue reads belong to a lane, not the drive root. Delegate with `Agent` using `long-running:lane` and `model: sonnet`.",
+    message="Warning, nothing was blocked: Issue reads belong to a lane, not the drive coordinator. Delegate with `Agent` using `long-running:lane` and `model: sonnet`.",
     only_if=[runs_verb(GH, ("issue", "view"))],
     tests={
         Input(command="gh issue view 148", state=ACTIVE): Warn(pattern=r"Issue reads"),
@@ -662,7 +662,7 @@ root_warning(
 )
 
 root_warning(
-    message="Warning, nothing was blocked: Slack reads belong to a lane, not the drive root. Delegate with `Agent` using `cc-slack:slack-triage`.",
+    message="Warning, nothing was blocked: Slack reads belong to a lane, not the drive coordinator. Delegate with `Agent` using `cc-slack:slack-triage`.",
     only_if=[Or(runs_verb(CC_SLACK, ("thread",), ("history",)), Tool(*SLACK_READ_TOOLS))],
     tests={
         Input(command="cc-slack thread C0B/p1790815593712039", state=ACTIVE): Warn(pattern=r"Slack reads"),
@@ -682,7 +682,7 @@ root_warning(
 )
 
 root_warning(
-    message="Warning, nothing was blocked: This fetch is too large for the drive root. Delegate with `Agent` using `long-running:lane` and `model: sonnet`.",
+    message="Warning, nothing was blocked: This fetch is too large for the drive coordinator. Delegate with `Agent` using `long-running:lane` and `model: sonnet`.",
     only_if=[Or(Tool(*DOC_TOOLS), OversizedTool())],
     tests={
         Input(tool="mcp__plugin_datadog_mcp__get_datadog_notebook", tool_input={"id": 1}, state=ACTIVE): Warn(
@@ -715,7 +715,7 @@ root_warning(
     only_if=[DriveActive()],
     skip_if=[FromSubagent()],
     tests={
-        Input(tool="mcp__linear__get_issue", output="x" * 9000, state=ACTIVE): Warn(pattern=r"overflowed the drive root"),
+        Input(tool="mcp__linear__get_issue", output="x" * 9000, state=ACTIVE): Warn(pattern=r"overflowed the drive coordinator"),
         Input(tool="mcp__linear__get_issue", output="small", state=ACTIVE): Allow(),
         Input(tool="mcp__plugin_cc-notes_cc-notes__doc_show", output="x" * 9000, state=ACTIVE): Allow(),
         Input(tool="mcp__linear__get_issue", output="x" * 9000): Allow(),
@@ -732,7 +732,7 @@ def learn_oversized_mcp(evt: BaseHookEvent) -> HookResult | None:
     with RootContextState.mutate(evt) as state:
         state.oversized[name] = size
     return evt.context(
-        "That MCP response overflowed the drive root. "
+        "That MCP response overflowed the drive coordinator. "
         "Delegate the next call with `Agent` using `long-running:lane` and `model: sonnet`."
     )
 

@@ -39,7 +39,7 @@ def executable(path: Path, text: str) -> None:
 
 @pytest.mark.parametrize("relay", ["#!/bin/sh\n", "#!/bin/sh\necho 'cci: database is locked (5) (SQLITE_BUSY)' >&2\nexit 1\n"], ids=["relay-pushes", "relay-locked"])
 def test_a_job_keeps_its_own_job_and_pid_files_and_drops_the_empty_refs_a_sprite_restart_left(tmp_path: Path, relay: str) -> None:
-    """Root #220372, #220831: a Sprite restart emptied its copies of a job's files and three loose refs, the copy back emptied job.json and pid here, and every fetch on the Sprite read the zero object. Root #222905: a relay push that failed on SQLITE_BUSY exited before result.json came back, so the runner never settled the pass."""
+    """Coordinator #220372, #220831: a Sprite restart emptied its copies of a job's files and three loose refs, the copy back emptied job.json and pid here, and every fetch on the Sprite read the zero object. Coordinator #222905: a relay push that failed on SQLITE_BUSY exited before result.json came back, so the runner never settled the pass."""
     mac, sprite = tmp_path / "mac", tmp_path / "sprite"
     checkout, directory, config = mac / "checkout", mac / "finder-desk" / "45682-c051a2816b25", mac / "config"
     script = mac / "plugin" / "skills" / "long-running" / "scripts" / "finder.py"
@@ -70,7 +70,7 @@ def test_a_job_keeps_its_own_job_and_pid_files_and_drops_the_empty_refs_a_sprite
 
 
 def test_the_sprite_reads_the_register_from_the_jobs_checkout_never_the_launching_machines(tmp_path: Path) -> None:
-    """Root #226668: fleet sprites failed every rulings slice for three minutes because the registry they were sent named this machine's checkout, a path no Sprite holds. Owner 5:19 PM Oct 30 through root #228532: the register itself ships with the job as a snapshot for that checkout, so no Sprite rebuilds it cold."""
+    """Coordinator #226668: fleet sprites failed every rulings slice for three minutes because the registry they were sent named this machine's checkout, a path no Sprite holds. Owner 5:19 PM Oct 30 through coordinator #228532: the register itself ships with the job as a snapshot for that checkout, so no Sprite rebuilds it cold."""
     mac, sprite = tmp_path / "mac", tmp_path / "sprite"
     checkout, directory, config = mac / "checkout", mac / "fidelity-pipeline" / "46097-48963ab63767-226305", mac / "config"
     script = mac / "plugin" / "skills" / "long-running" / "scripts" / "fidelity.py"
@@ -151,7 +151,7 @@ def test_a_job_keeps_fetch_start_freshness_without_running_pack_maintenance(tmp_
 
 
 def test_a_sprite_whose_plugin_copy_is_missing_files_gets_the_whole_copy_again(tmp_path: Path) -> None:
-    """Root #234076, tooling-misc-3 #234214: long-running 0.7.701 installed truncated on this machine from 8:04 to 8:14 PM Oct 30, and a Sprite copied the plugin only when it lacked the version's directory, so a Sprite that copied the truncated install kept it after the reinstall."""
+    """Coordinator #234076, tooling-misc-3 #234214: long-running 0.7.701 installed truncated on this machine from 8:04 to 8:14 PM Oct 30, and a Sprite copied the plugin only when it lacked the version's directory, so a Sprite that copied the truncated install kept it after the reinstall."""
     mac, sprite = tmp_path / "mac", tmp_path / "sprite"
     checkout, directory, config = mac / "checkout", mac / "finder-desk" / "46075-decdc3400000", mac / "config"
     script = mac / "plugin" / "skills" / "long-running" / "scripts" / "finder.py"
@@ -243,7 +243,7 @@ def test_a_job_that_dies_with_its_sprite_leaves_an_error_result_so_the_runner_fa
 
 @pytest.mark.parametrize("kept", ["", '{"verdict": '], ids=["empty", "cut"])
 def test_a_result_the_sprite_kept_empty_or_cut_leaves_an_error_result_so_the_runner_requeues_the_pass(tmp_path: Path, kept: str) -> None:
-    """Root #262758, 12:03 PM Oct 31: fidelity #46811 c9e543f wrote result.json on dar-fleet-10, the Sprite hibernated before the write reached its disk, the copy back brought an empty file, and every orca runner pass from 12:02 raised JSONDecodeError reading it."""
+    """Coordinator #262758, 12:03 PM Oct 31: fidelity #46811 c9e543f wrote result.json on dar-fleet-10, the Sprite hibernated before the write reached its disk, the copy back brought an empty file, and every orca runner pass from 12:02 raised JSONDecodeError reading it."""
     mac, sprite = tmp_path / "mac", tmp_path / "sprite"
     checkout, directory, config = mac / "checkout", mac / "fidelity-pipeline" / "46811-c9e543fabd46-262490", mac / "config"
     script = mac / "plugin" / "skills" / "long-running" / "scripts" / "fidelity.py"

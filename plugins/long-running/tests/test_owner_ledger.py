@@ -16,7 +16,7 @@ from hooks.compaction_handoff import CompactionState
 
 SESSION = "0123456789abcdef"
 TESTDATA = Path(__file__).parents[1] / "lr" / "internal" / "owner" / "testdata"
-HAND_LEDGER = "# Owner message ledger (bridge).\n| time | message (short) | routed | replied |\n|---|---|---|---|\n| 7:32 PM | a hand row | coordinator 346167 | yes 7:33 |\n"
+HAND_LEDGER = "# Owner message ledger (communicator).\n| time | message (short) | routed | replied |\n|---|---|---|---|\n| 7:32 PM | a hand row | coordinator 346167 | yes 7:33 |\n"
 OPEN = "| m1 | Nov 2 8:05 PM | keep the nightly report |  | open |\n"
 MARKED = "| m1 | Nov 2 8:05 PM | keep the nightly report | 346705 | responded |\n"
 ASKED = {"questions": [{"question": "Merge #48401 now?", "header": "Ask", "options": [{"label": "Go"}, {"label": "Hold"}], "multiSelect": False}]}

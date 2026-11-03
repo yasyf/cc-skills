@@ -182,7 +182,7 @@ def answered(pr: str, since: datetime, roots: list[dict]) -> bool:
     }),
 )
 def owner_notes_get_answers(evt: BaseHookEvent) -> HookResult | None:
-    """The root stops only once every owner note on its board from the last day that is over 10 minutes old has an answer: a board note gets a reply in its thread, and a merge-row note a board reply or a root record naming its PR. A board or bus that does not read blocks nothing."""
+    """The coordinator stops only once every owner note on its board from the last day that is over 10 minutes old has an answer: a board note gets a reply in its thread, and a merge-row note a board reply or a coordinator record naming its PR. A board or bus that does not read blocks nothing."""
     if not CompactionState.load(evt).active or not (entry := drive_entry(evt)):
         return None
     drive = bus_name(entry)
@@ -208,7 +208,7 @@ def owner_notes_get_answers(evt: BaseHookEvent) -> HookResult | None:
     }),
 )
 def board_rows_skip_approved_prs(evt: BaseHookEvent) -> HookResult | None:
-    """A root order that asks for board rows on PRs the owner already approved at their current heads goes back with those PRs (owner, 2:48 AM Oct 31). A read that fails blocks nothing."""
+    """A coordinator order that asks for board rows on PRs the owner already approved at their current heads goes back with those PRs (owner, 2:48 AM Oct 31). A read that fails blocks nothing."""
     if not CompactionState.load(evt).active or not (entry := drive_entry(evt)):
         return None
     texts = [posted_text(values) for call in evt.command.calls("cci") if (values := CCI_POST.bind(call).values).get("words", ())[:1] == ("post",) and (values.get("lane") or (ROOT_LANE,))[0] in (ROOT_LANE, "main")]

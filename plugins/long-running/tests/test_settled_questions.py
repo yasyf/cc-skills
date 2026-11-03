@@ -150,7 +150,7 @@ def test_a_confirm_card_restating_a_settled_answer_is_not_asked(home: Path, judg
 
 
 def test_his_earlier_picks_reach_the_judge_with_what_each_answered_and_which_a_later_answer_replaced(home: Path, judge: Judge) -> None:
-    """Root #211144: the Oct 29 card on one upload process per Mac or per chat never showed his Oct 22 picks, one of which pointed the other way."""
+    """Coordinator #211144: the Oct 29 card on one upload process per Mac or per chat never showed his Oct 22 picks, one of which pointed the other way."""
     untagged = {key: value for key, value in SOMEONE_ELSES.items() if key != "tags"}
     (home / "answers.json").write_text(json.dumps([UPLOAD_PICK, PER_CHAT_PICK, LIGHTER_JOURNAL, SOMEONE_ELSES, untagged]))
     judge.verdict = "no"

@@ -74,7 +74,7 @@ def states(shell: FakeShell) -> dict[str, tuple[str, str]]:
     ids=["unanswered", "answered", "answered-then-head", "landed", "resolved-to-wait-on-a-card", "head-on-another-pr", "opened"],
 )
 def test_a_finding_stays_open_until_a_head_or_landed_names_its_pr(entry, later, state):
-    """Owner 3:06 AM Oct 30: sweep findings got lost; a finding is fixed only when a HEAD or LANDED names it (root #205185)."""
+    """Owner 3:06 AM Oct 30: sweep findings got lost; a finding is fixed only when a HEAD or LANDED names it (coordinator #205185)."""
     shell = FakeShell([record(10, "defect", FINDING, lane="merge-audit-1"), *later])
 
     assert findings.main(["sync"], shell) == 0

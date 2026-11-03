@@ -23,7 +23,7 @@ def earlier(*calls) -> list:
 
 
 root_warning(
-    message="Warning, nothing was blocked: The drive root reads one source per owner ask. Relay the progress desk's newest update path unchanged, and hand any further read to a lane with `Agent`.",
+    message="Warning, nothing was blocked: The drive coordinator reads one source per owner ask. Relay the progress desk's newest update path unchanged, and hand any further read to a lane with `Agent`.",
     only_if=[Or(Tool(READ_TOOLS), *(Runs(*argv) for argv in READ_COMMANDS)), Or(UsedTool(READ_TOOLS, subagents=False), *(RanCommand(*argv) for argv in READ_COMMANDS))],
     tests={
         Input(tool="Read", tool_input={"file_path": STATUS}, state=ACTIVE, transcript=earlier(T.tool("Bash", command="cci tail --drive d --since 342000"))): Warn(pattern=r"one source per owner ask"),

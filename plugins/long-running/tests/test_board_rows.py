@@ -228,7 +228,7 @@ def test_a_pr_github_no_longer_holds_open_fails(tmp_path: Path, shell: FakeShell
 
 
 def test_a_root_ruling_that_supersedes_the_pr_warns_with_that_seq_and_never_refuses_the_row(tmp_path: Path, shell: FakeShell, capsys: pytest.CaptureFixture[str]) -> None:
-    """#281149 reopened #47188 after #280149 closed it, and the gate kept refusing its row on the close it parsed from root's prose (board-refresher-6, #281366)."""
+    """#281149 reopened #47188 after #280149 closed it, and the gate kept refusing its row on the close it parsed from the coordinator's prose (board-refresher-6, #281366)."""
     seq = shell.post("go", "root", "withdrawn: go for #42590 35aa930 (#131549). My own #130667 ruled it superseded…", path="/blobs/a.txt")
     shell.blobs["/blobs/a.txt"] = "withdrawn: go for #42590 35aa930 (#131549). My own #130667 ruled it superseded by the repeat list's deletion. p8b-step10 closes #42590 now."
 
@@ -454,7 +454,7 @@ def test_a_github_or_board_outage_warns_and_fails_no_row_on_what_it_could_not_re
 
 
 def test_a_grade_from_a_successor_fidelity_desk_counts_with_no_config_edit(tmp_path: Path, shell: FakeShell, capsys: pytest.CaptureFixture[str]) -> None:
-    """Root #200233: fidelity-desk-13 succeeded a listed desk, and the gate read its grades as missing until root edited runner.json."""
+    """Coordinator #200233: fidelity-desk-13 succeeded a listed desk, and the gate read its grades as missing until coordinator edited runner.json."""
     shell.pull("42590")
     shell.post("review", "fidelity-desk-13", f"fidelity: ok {HEAD[:7]} checked rule/1", "42590")
     shell.post("review", "finder-desk", f"finder: ok {HEAD[:7]} no majors", "42590")
@@ -709,7 +709,7 @@ def test_a_row_root_approved_at_its_head_fails_until_the_board_holds_the_approva
 
 
 def test_a_root_withdraw_naming_the_go_in_its_text_clears_the_approval_check(tmp_path: Path, shell: FakeShell) -> None:
-    """board-refresher-2 #199137: root's WITHDRAW #198682 answered #198673 by --re and named the go only as 'withdraws go #198635', so the gate kept refusing the row it ordered."""
+    """board-refresher-2 #199137: the coordinator's WITHDRAW #198682 answered #198673 by --re and named the go only as 'withdraws go #198635', so the gate kept refusing the row it ordered."""
     seq = shell.post("go", "root", f"go #42590 at {HEAD[:7]} (owner tap 9:12 PM)", "42590")
     asked = shell.post("decide", "root", "row #42590 at its head with his 1:00 PM words")
     assert gate(tmp_path, shell, groups(pr_row("42590")), "--check") == 1
@@ -719,7 +719,7 @@ def test_a_root_withdraw_naming_the_go_in_its_text_clears_the_approval_check(tmp
 
 
 def test_a_newer_tap_required_go_at_the_same_head_overrides_an_older_exempt_go(tmp_path: Path, shell: FakeShell) -> None:
-    """#46598 at bcf89da failed on an Oct 31 exempt go (#251254) though root's newer go #281042 at that head was TAP-REQUIRED (board-refresher-6, #282335)."""
+    """#46598 at bcf89da failed on an Oct 31 exempt go (#251254) though the coordinator's newer go #281042 at that head was TAP-REQUIRED (board-refresher-6, #282335)."""
     shell.post("go", "root", f"go #42590 at {HEAD[:7]} on green [exempt: ci-tooling]", "42590")
     assert gate(tmp_path, shell, groups(pr_row("42590")), "--check") == 1
     shell.post("go", "root", f"go #42590 at {HEAD[:7]} on green [TAP-REQUIRED first-ask row]", "42590")
@@ -828,7 +828,7 @@ def kept(pr: str) -> str:
 
 @pytest.mark.parametrize(("lane", "head"), [("desk-runner", HEAD), ("root", HEAD), ("desk-runner", NEW_HEAD)], ids=["runner-at-head", "root-words", "runner-at-another-head"])
 def test_a_row_at_a_head_he_did_not_approve_waits_until_the_landing_runner_finds_it_changes_what_he_approved(tmp_path: Path, shell: FakeShell, capsys: pytest.CaptureFixture[str], lane: str, head: str) -> None:
-    """board-refresher-2 (root #213579): a re-ask rests on the runner's tap judge, never on a phrase in a root record."""
+    """board-refresher-2 (coordinator #213579): a re-ask rests on the runner's tap judge, never on a phrase in a coordinator record."""
     shell.verdicts = {"merge-prs": {"42590": approved("42590", NEW_HEAD)}}
     shell.post("decide", "root", f"#42590 {HEAD[:7]} adds a retry he has not seen: the row re-asks his tap", "42590")
 
@@ -841,7 +841,7 @@ def test_a_row_at_a_head_he_did_not_approve_waits_until_the_landing_runner_finds
 
 @pytest.mark.parametrize("since", [None, {"changed": "the upload now retries twice"}, {"changed": " ", "because": "a failed upload retries"}])
 def test_a_re_asked_row_without_what_changed_since_his_tap_fails(tmp_path: Path, shell: FakeShell, capsys: pytest.CaptureFixture[str], since: dict | None) -> None:
-    """Owner 6:59 PM Oct 29 (root #194315): 'if ur asking for a PR tap that Ive alrady apporiove dyou ned to tell me whats changed / why ur showing it gain'."""
+    """Owner 6:59 PM Oct 29 (coordinator #194315): 'if ur asking for a PR tap that Ive alrady apporiove dyou ned to tell me whats changed / why ur showing it gain'."""
     shell.verdicts = {"merge-prs": {"42590": approved("42590", NEW_HEAD)}}
     shell.post("note", "desk-runner", changed("42590"), "42590")
 
@@ -970,7 +970,7 @@ def stack_rows() -> dict:
 
 
 def test_a_stack_of_re_asked_review_fixes_pushes_as_one_row_his_one_tap_decides(tmp_path: Path, shell: FakeShell) -> None:
-    """Owner 7:00 PM Oct 29 (root #194387), on land-faster: one board row per stack when every change in it is a pure review fix or patch-identical replay."""
+    """Owner 7:00 PM Oct 29 (coordinator #194387), on land-faster: one board row per stack when every change in it is a pure review fix or patch-identical replay."""
     stacked(shell)
 
     assert gate(tmp_path, shell, stack_rows(), "--", "cc-present", "update-block") == 0

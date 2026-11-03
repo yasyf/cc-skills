@@ -42,7 +42,7 @@ QUOTE_CHARS = 12
 QUOTED = re.compile(rf'^>\s?(?P<line>.+)$|["“](?P<inner>[^"”\n]{{{QUOTE_CHARS},}})["”]', re.MULTILINE)
 RELAY = re.compile(r'<cross-session-message\s+from="(?P<sender>[^"]*)"(?:\s+from-name="(?P<name>[^"]*)")?[^>]*>(?P<body>.*?)</cross-session-message>', re.DOTALL)
 OWNER = re.compile(r"\b(?:owner|yasyf)\b", re.IGNORECASE)
-RELAYED = 'From the ai-oncall root, relaying what the owner said, verbatim: "we shouldnt need a pin PR before cutover"'
+RELAYED = 'From the ai-oncall coordinator, relaying what the owner said, verbatim: "we shouldnt need a pin PR before cutover"'
 SENTENCE = re.compile(r"(?<=[.?!])\s+|\n+")
 CREDENTIAL = re.compile(
     r"\b(?:sk|pk|rk)-[\w-]{16,}"

@@ -1,4 +1,4 @@
-# Owner message ledger (bridge). Every owner message: time, routed to, replied in chat.
+# Owner message ledger (communicator). Every owner message: time, routed to, replied in chat.
 | time | message (short) | routed | replied |
 |---|---|---|---|
 | 7:32 PM | a hand row | coordinator 346167 | yes 7:33 |

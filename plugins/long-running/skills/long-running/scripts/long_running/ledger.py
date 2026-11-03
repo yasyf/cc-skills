@@ -818,7 +818,7 @@ def cache_banner(exhausted: QuotaExhausted, refreshed: str, moment: datetime) ->
 
 
 def failing_checks(contexts: list[dict], repo: str) -> str:
-    """Each check whose newest run on the head failed, as a JSON list of its name and URL, off the rollup the row's test_state comes from, so a reader names the red check without a GitHub call (root #145266)."""
+    """Each check whose newest run on the head failed, as a JSON list of its name and URL, off the rollup the row's test_state comes from, so a reader names the red check without a GitHub call (coordinator #145266)."""
     newest = {node.get("name") or node.get("context"): node for node in contexts}
     return json.dumps([
         {"name": name, "url": f"https://github.com/{repo}/runs/{node['databaseId']}" if node["__typename"] == "CheckRun" else node.get("targetUrl") or ""}
@@ -828,7 +828,7 @@ def failing_checks(contexts: list[dict], repo: str) -> str:
 
 
 def with_errors(shell: Shell, checks: str, stored: str | None) -> str:
-    """Each failing check with `job`, the name of its failed Buildkite job, `error`, that job's first error line, and `probe`, whether that line is only Buildkite's benign step-export or meta-data 404 probe, read once per check URL and kept from the stored row after that; a check outside Buildkite, or whose log read fails or names no failed job, carries neither and is read again on the next refresh (root #148571)."""
+    """Each failing check with `job`, the name of its failed Buildkite job, `error`, that job's first error line, and `probe`, whether that line is only Buildkite's benign step-export or meta-data 404 probe, read once per check URL and kept from the stored row after that; a check outside Buildkite, or whose log read fails or names no failed job, carries neither and is read again on the next refresh (coordinator #148571)."""
     known = {check["url"]: check for check in json.loads(stored or "[]") if "probe" in check}
     enriched = []
     for check in json.loads(checks):
@@ -1341,7 +1341,7 @@ def cmd_init(args: argparse.Namespace, shell: Shell) -> int:
 def cmd_report(args: argparse.Namespace, shell: Shell) -> int:
     if args.verdict == "clean" and (review := latest_ai_review(Github(shell, args.repo), args.head)) and review["conclusion"] == AI_REVIEW_HELD:
         finding = (review.get("output") or {}).get("title")
-        raise SystemExit(f"#{args.pr} at {args.head[:9]} is not clean: ai-review holds a blocking finding{f' ({finding})' if finding else ''}; report it held, or settle the finding and report again (root #336613)")
+        raise SystemExit(f"#{args.pr} at {args.head[:9]} is not clean: ai-review holds a blocking finding{f' ({finding})' if finding else ''}; report it held, or settle the finding and report again (coordinator #336613)")
     notes = Notes(shell, args.ledger, args.scope)
     key = notes.key(args.pr)
     if args.ask:
@@ -2109,7 +2109,7 @@ def route_refused(notes: Notes, gh: Github, rows: dict[str, dict[str, str]], ref
         if not is_tracked(fields) or reason.kind in UNROUTED_REFUSALS or needs_route(fields):
             continue
         if fields["lane"] in gone:
-            print(f"#{pr} {fields['lane']} is gone; its refusal goes to the root, not the lane")
+            print(f"#{pr} {fields['lane']} is gone; its refusal goes to the coordinator, not the lane")
             continue
         job = f"new head {head[:9]}: {reason}"
         if route_one(notes, gh, pr, dict(fields, head=head), job, None, dry_run):
@@ -2220,7 +2220,7 @@ def pull_records(gh: Github, prs: list[str]) -> dict[str, dict]:
 
 
 def settle_row(trunk: str, pr: str, record: dict, was: dict[str, str], read: Future | None, squashes: Callable[[], dict[str, tuple[str, str]]]) -> tuple[dict[str, str], str]:
-    """One row's settled fields and line, against the trunk, never against the PR's own base: the queue deletes a stacked PR's base branch when it lands, so that ref is often gone. Only a PR GitHub reads merged lands; a closed one whose files match the trunk delivered nothing (root #283091). A row settling into `closed-without-squash` is stamped `last_refresh`, so `refresh` re-reads it for `REOPEN_WINDOW` from the close even when this settle beat any refresh to it; one already there keeps its stamp, so a later settle neither rewrites the row nor reopens the window."""
+    """One row's settled fields and line, against the trunk, never against the PR's own base: the queue deletes a stacked PR's base branch when it lands, so that ref is often gone. Only a PR GitHub reads merged lands; a closed one whose files match the trunk delivered nothing (coordinator #283091). A row settling into `closed-without-squash` is stamped `last_refresh`, so `refresh` re-reads it for `REOPEN_WINDOW` from the close even when this settle beat any refresh to it; one already there keeps its stamp, so a later settle neither rewrites the row nor reopens the window."""
     if record["state"] == "OPEN":
         ejected = read.result()
         if not ejected:
@@ -2647,7 +2647,7 @@ def build_parser() -> argparse.ArgumentParser:
     ask = subparsers.add_parser("ask", help="record an owner ask verbatim with its live owner lane, acceptance check and due time, or mark an ask's state with --state; a repeat of an open ask's text becomes a progress entry on it")
     add_ledger(ask)
     ask.add_argument("--text")
-    ask.add_argument("--lane", help="the live lane that delivers it; root, or a lane silent for two hours, is refused")
+    ask.add_argument("--lane", help="the live lane that delivers it; the coordinator, or a lane silent for two hours, is refused")
     ask.add_argument("--accept", metavar="CHECK")
     ask.add_argument("--due", type=due_time, metavar="TIME", help="when it is due: an ISO 8601 time or a span such as 4h")
     ask.add_argument("--state", choices=ASK_STATES, help="override the computed state of --ask; open restores it")
@@ -2727,7 +2727,7 @@ def build_parser() -> argparse.ArgumentParser:
     enqueue_cmd.add_argument("--text", required=True)
     enqueue_cmd.set_defaults(handler=cmd_enqueue)
 
-    ruling = subparsers.add_parser("ruling", help="record a question only the root can answer and print the RULING NEEDED line")
+    ruling = subparsers.add_parser("ruling", help="record a question only the coordinator can answer and print the RULING NEEDED line")
     add_ledger(ruling, repo=True, drive=True)
     ruling.add_argument("--lane", required=True)
     ruling.add_argument("--text", required=True)

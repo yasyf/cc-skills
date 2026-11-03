@@ -68,7 +68,7 @@ unbound what they demand prints one ``WARN`` line on stderr naming the ``amend``
 
 ``--program`` uses ``~/.claude/scratch/<program>`` as the state directory. ``--drive``
 resolves the program and the state directory from the drive registry. With neither, the drive is the
-session's: the one ``CLAUDE_LONG_RUNNING_DRIVE`` names, else the one whose root sessions hold
+session's: the one ``CLAUDE_LONG_RUNNING_DRIVE`` names, else the one whose coordinator sessions hold
 ``CLAUDE_CODE_SESSION_ID``; a session in no drive must name one. The register is read
 from the checkout the drive's registry entry names; ``--repo``, which defaults to the current
 directory, names it only when no drive runs the program. ``check-pr`` reads the register only
@@ -81,7 +81,7 @@ carries, a superseded row's key standing for the rows superseding it, and names 
 unknown to the register.
 ``slice --required --words`` prints each row as fidelity.py's grader reads it: the owner's words and repeats verbatim,
 oldest first, each board tap with the card it answered as ``cc-present block show`` prints it, a design row's or
-exception's plan text labelled as the root's, and none of the register's implications or summaries.
+exception's plan text labelled as the coordinator's, and none of the register's implications or summaries.
 ``readback --words`` prints the live rows a lane's contract acts on, as ``slice --required --words`` prints a row: the rows
 its slice carries for its lane, step, PRs and paths, then the rows it cites, each superseded row it cites replaced by the rows
 superseding it, and nothing when it acts on no row. A row that supersedes another says so, so its reader takes the older row as
@@ -98,7 +98,7 @@ added line that matches a shape in ``MECHANISM_SHAPES`` or opens a migration fil
 needs each one grounded by ``--ground`` or set aside by ``--not-a-mechanism``; an ``ID`` may be an fnmatch glob.
 A ground is ``plan:<line>`` or ``plan:<a>-<b>``, printed beside the plan's own words, or an owner row of the register:
 a ``rule/`` or ``prompt/`` row with words, an ``exception/`` row the owner's answers approve, or a pick. A cci seq,
-a root note, a ``design/`` row and any other row is a root ruling, and grounds nothing. The grade is
+a coordinator note, a ``design/`` row and any other row is a coordinator ruling, and grounds nothing. The grade is
 ``fidelity: ok`` only when every mechanism is grounded and no ``--missing`` row was named.
 Standard library only.
 """
@@ -234,7 +234,7 @@ HIT_LINE = re.compile(r"^(?:open|deleted|authorized [0-9a-f]+) \S+ \S+:\d+ \S+")
 VERDICT = re.compile(r"\b(?:delete|keep)\b", re.IGNORECASE)
 CCI_TEXT = 400
 READ_ERRORS = (OSError, ValueError, KeyError, subprocess.SubprocessError, SystemExit)
-ROOT_GROUNDS = "root rulings are not grounds; put it on the owner's board"
+ROOT_GROUNDS = "coordinator rulings are not grounds; put it on the owner's board"
 PLAN_GROUND = re.compile(r"plan:(?P<start>\d+)(?:-(?P<end>\d+))?")
 MIGRATION_FILE = re.compile(r"(?:^|/)migrations?/|migration[^/]*$|\.sql$", re.IGNORECASE)
 COMMENT_STARTS = ("//", "/*", "*", "--", "#")
@@ -543,14 +543,14 @@ class Register:
 
 
 def worded_row(key: str, fields: dict[str, str], state: Path) -> list[str]:
-    """A row as a grader of his words reads it: his words and repeats verbatim, each tap with the card it answered, and the plan's text of a design row or exception labelled as the root's; never the register's implications or summaries."""
+    """A row as a grader of his words reads it: his words and repeats verbatim, each tap with the card it answered, and the plan's text of a design row or exception labelled as the coordinator's; never the register's implications or summaries."""
     if fields.get("kind") in PLAN_KINDS:
-        lines = [row_heading(key, fields), "The plan's text for this row, the root's words his answers approve, not his own:", *(f"> {line}" for line in (fields.get("words") or "").splitlines())]
+        lines = [row_heading(key, fields), "The plan's text for this row, the coordinator's words his answers approve, not his own:", *(f"> {line}" for line in (fields.get("words") or "").splitlines())]
     else:
         lines = [row_heading(key, fields), judge.owner_words(key, judge.said(fields, state))]
     lines += [f"This row supersedes {old}, which no longer binds." for old in listed(fields.get("supersedes"))]
     if anchors := row_anchors(fields):
-        lines += ["The root's reading of where this row bears, not his words:", *anchors]
+        lines += ["The coordinator's reading of where this row bears, not his words:", *anchors]
     return lines
 
 
@@ -699,7 +699,7 @@ class Sweeper:
         return [Hit(hit_status(text, name, self.authorizers, removed), key, file, number, name) for key, file, number, name, text, removed in found]
 
     def named_lines(self, diff: Diff) -> list[list]:
-        """Each `[key, file, line, name, text, removed]` where a wanted name is on a changed line other than an import. Added lines are read through an index from each word to the names it can start, so a line checks only the names its own words can match; a path such as `std::sync::Arc` or `src/sync.rs` names nothing (root #298792)."""
+        """Each `[key, file, line, name, text, removed]` where a wanted name is on a changed line other than an import. Added lines are read through an index from each word to the names it can start, so a line checks only the names its own words can match; a path such as `std::sync::Arc` or `src/sync.rs` names nothing (coordinator #298792)."""
         wanted = [(key, name) for key, name in self.wanted if not absent(name, diff)]
         starts: dict[str, list[int]] = {}
         for index, (_, name) in enumerate(wanted):
@@ -1760,7 +1760,7 @@ def brief_slice(loaded: Register, seq: int, lane: str, step: str | None, plan: P
     if step is None:
         return (
             f"READBACK-NO-SLICE #{seq}: neither the read-back nor {named or f'a brief under {loaded.state}'} names a `{SLICE_LINE} lane={lane} step=<n>` line; "
-            f"the root runs `rulings.py readback {selector} --lane {lane} --contract {seq} --step <the lane's plan step>`"
+            f"the coordinator runs `rulings.py readback {selector} --lane {lane} --contract {seq} --step <the lane's plan step>`"
         )
     want = Want(lane, step, [], False)
     if named is None:
@@ -2161,7 +2161,7 @@ def board_proof(args: argparse.Namespace, loaded: Register, shell: ledger.Shell,
         if tap.get("at") == args.action and (pr := board_rows.pr_of(row_id))
     ]
     if not taps:
-        print(f"AUTHORIZE-NO-TAP {key}: neither the root transcript nor board {session[:8]} holds a tap at {args.action}; a root go is no authorization", file=args.stdout)
+        print(f"AUTHORIZE-NO-TAP {key}: neither the coordinator transcript nor board {session[:8]} holds a tap at {args.action}; a coordinator go is no authorization", file=args.stdout)
         return None
     approved = [tap for tap in taps if tap[2].get("verdict") == "approved"]
     if not approved:
@@ -2191,7 +2191,7 @@ def card_proof(args: argparse.Namespace, loaded: Register, shell: ledger.Shell, 
         shown = ""
     card, _, answers = shown.partition(CARD_ANSWERS)
     if not (newest := next((said["said"] for said in CARD_ANSWER.finditer(answers) if said["block"] == args.block), None)):
-        print(f"AUTHORIZE-NO-TAP {key}: board {session[:8]} holds no answer on block {args.block}; a root go is no authorization", file=args.stdout)
+        print(f"AUTHORIZE-NO-TAP {key}: board {session[:8]} holds no answer on block {args.block}; a coordinator go is no authorization", file=args.stdout)
         return None
     if args.option:
         picked = re.search(rf"^\s+- {re.escape(args.option)}: (.+)$", card, re.MULTILINE)
@@ -2220,7 +2220,7 @@ def cmd_authorize(args: argparse.Namespace, shell: ledger.Shell) -> int:
         return 1
     fields = loaded.rows[key]
     if not (entry := entry_of(args)):
-        raise SystemExit(f"no drive runs program {loaded.program}; authorize reads its root transcript")
+        raise SystemExit(f"no drive runs program {loaded.program}; authorize reads its coordinator transcript")
     entries = transcript_entries(entry, args.runtime.drives.parent.parent / "projects")
     owner = answers_for(loaded, f"program:{loaded.program}", "from:owner")
     if args.action:
@@ -2238,7 +2238,7 @@ def cmd_authorize(args: argparse.Namespace, shell: ledger.Shell) -> int:
             return 1
         said = capture.get("text") if board else replied_to(entries, capture["text"]) if capture else None
         if said is None or not quotes_row(said, key, fields):
-            print(f"AUTHORIZE-PROMPT-NAMES-NO-ROW {key}: capture {args.prompt} is no board approval quoting {key} and its words, and replies to no root message that does", file=args.stdout)
+            print(f"AUTHORIZE-PROMPT-NAMES-NO-ROW {key}: capture {args.prompt} is no board approval quoting {key} and its words, and replies to no coordinator message that does", file=args.stdout)
             return 1
         if board and (pr_head := untouched(args, shell, fields, capture.get("block") or "")):
             print(f"AUTHORIZE-ROW-UNTOUCHED {key}: {pr_head} changes nothing {key} covers, so the approval authorizes nothing", file=args.stdout)
@@ -2397,7 +2397,7 @@ def op_count(op: str, text: str) -> int:
 
 
 def reserved_hit(fields: dict[str, str], diff: Diff) -> bool:
-    """Whether the diff newly does what one of the row's ops names. A path glob never hits on its own: it scopes the row's identifier ops to the files it names. A row any of whose ops names a delete reserves that delete, so only those ops hit and a domain word beside them, such as `retire` or `Decommission`, never does (root #270259)."""
+    """Whether the diff newly does what one of the row's ops names. A path glob never hits on its own: it scopes the row's identifier ops to the files it names. A row any of whose ops names a delete reserves that delete, so only those ops hit and a domain word beside them, such as `retire` or `Decommission`, never does (coordinator #270259)."""
     ops = [op for op in map(str, listed(fields.get("ops"))) if op not in UNANCHORED]
     paths = [op for op in ops if "/" in op and not any(char.isspace() for char in op)]
     named = [op for op in ops if op not in paths]
@@ -2530,7 +2530,7 @@ def check_pr(loaded: Register, args: argparse.Namespace, head: Head, findings: F
         return
     findings.refusals += shape_untested(loaded, args, head)
     if records is not None and (major := finder_major(records, head.sha)):
-        later = findings.read("root's rulings after the finder major", lambda: cci.records(loaded.shell.run, bus, since=major["seq"]))
+        later = findings.read("the coordinator's rulings after the finder major", lambda: cci.records(loaded.shell.run, bus, since=major["seq"]))
         if later is None or not grades.root_settles_finder(later, head.number, head.sha, major):
             findings.refusals.append(f"FINDER-MAJOR {head.sha[:SHORT]}")
     authorizers, scope = loaded.answer_words(), loaded.scope()
@@ -2895,7 +2895,7 @@ def build_parser(parser_type=argparse.ArgumentParser) -> argparse.ArgumentParser
     amend.add_argument("--text", metavar="TEXT", help="the implication's new text")
     amend.add_argument("--direction", choices=DIRECTIONS, help="the implication's new direction: an owner requirement is `requires` and binds at once, like `removes`")
     verb("round", cmd_round, "put at most ten queued ruling cards on the live cc-present board as one round, foundational rows first")
-    sliced = verb("slice", cmd_slice, "print the rows a lane, the root, or a head's grade must carry, verbatim")
+    sliced = verb("slice", cmd_slice, "print the rows a lane, the coordinator, or a head's grade must carry, verbatim")
     sliced.add_argument("--lane")
     sliced.add_argument("--step")
     sliced.add_argument("--paths", action="append", default=[], metavar="GLOB")
@@ -2946,8 +2946,8 @@ def build_parser(parser_type=argparse.ArgumentParser) -> argparse.ArgumentParser
     authorize = verb("authorize", cmd_authorize, "label the owner's answer authorizes:<key> from a Slack tap, a board merge-row approval, a board card pick or approval, or a reply quoting the row")
     authorize.add_argument("--row", required=True, metavar="KEY")
     tap = authorize.add_mutually_exclusive_group(required=True)
-    tap.add_argument("--action", metavar="TS", help="a Slack action_ts, or the time (at) of an approved merge row on the root's board, carried or not")
-    tap.add_argument("--block", metavar="ID", help="a choice or approval block on the root's board whose card quotes the row's words")
+    tap.add_argument("--action", metavar="TS", help="a Slack action_ts, or the time (at) of an approved merge row on the coordinator's board, carried or not")
+    tap.add_argument("--block", metavar="ID", help="a choice or approval block on the coordinator's board whose card quotes the row's words")
     tap.add_argument("--prompt", metavar="DIGEST")
     authorize.add_argument("--option", metavar="ID", help="the option of --block the owner picked; without it, the block's approval")
     status = verb("status", cmd_status, "set a row's status with the evidence behind it (graders only)")
@@ -2959,7 +2959,7 @@ def build_parser(parser_type=argparse.ArgumentParser) -> argparse.ArgumentParser
     anchor.add_argument("--paths", nargs="+", default=[])
     anchor.add_argument("--symbols", nargs="+", default=[])
     anchor.add_argument("--ops", nargs="+", default=[])
-    narrowed = verb("names", cmd_names, "remove names or wrongly attached repeats from a row, citing the answer that removes them (root and seed lane only)")
+    narrowed = verb("names", cmd_names, "remove names or wrongly attached repeats from a row, citing the answer that removes them (the coordinator and seed lane only)")
     narrowed.add_argument("key")
     narrowed.add_argument("--remove", action="append", default=[], metavar="NAME")
     narrowed.add_argument("--drop-repeat", action="append", default=[], metavar="KEY")

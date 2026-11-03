@@ -37,7 +37,7 @@ REGISTER_DOC = "c" * 40
 REGISTER_BODY = "# brook register\n\n1. Release as it merges, never on the owner's word (4ffc9a5).\n2. Pulumi state is the only truth (ec2881e).\n"
 PRE_COMPACT = """# ssql drive: pre-compact handoff 2026-10-10T2215Z (supersedes a3f05a3)
 
-Read first after the plan. Drive ssql-hacks, root session b577ef71.
+Read first after the plan. Drive ssql-hacks, coordinator session b577ef71.
 
 ## Standing owner rules
 
@@ -197,11 +197,11 @@ def drive_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     inbox = tmp_path / ".claude" / "scratch" / "brook" / "inbox"
     inbox.mkdir(parents=True)
     (inbox / "orca-desk.md").write_text(
-        "- R1 (root) → desk: launch l01\n"
-        "- R3 (root) → desk: launch l02\n"
+        "- R1 (the coordinator) → desk: launch l01\n"
+        "- R3 (the coordinator) → desk: launch l02\n"
     )
     (inbox / "orca-desk.md.cursor").write_text("R2\n")
-    (inbox / "landing-desk.md").write_text("- L1 (root) → desk: hold #1\n")
+    (inbox / "landing-desk.md").write_text("- L1 (the coordinator) → desk: hold #1\n")
     plan = tmp_path / ".claude" / "plans" / "brook.md"
     plan.parent.mkdir()
     plan.write_text(
@@ -244,7 +244,7 @@ def generated_record(narrative: str) -> str:
 
 def shell_with(narrative: str = "", register: bool = True, rows: list[dict] | None = None) -> FakeCcn:
     rows = rows or [ask("000001"), ask("000002", dropped_at="2026-10-01T01:00:00Z"), ask("000003", answered_at="2026-10-01T01:00:00Z")]
-    shell = FakeCcn([RULE, OLD_RULE, OTHER], {"a" * 40: generated_record(narrative or "## Root's next actions\n1. watch Acme")}, rows)
+    shell = FakeCcn([RULE, OLD_RULE, OTHER], {"a" * 40: generated_record(narrative or "## The coordinator's next actions\n1. watch Acme")}, rows)
     shell.titles["a" * 40] = "brook: progress 2026-10-01T0000Z (generated)"
     if register:
         shell.docs[REGISTER_DOC] = REGISTER_BODY
@@ -271,17 +271,17 @@ def test_generate_writes_every_source_into_the_active_generated_doc(drive_home: 
         "## Open tasks\n- none in progress\n- 1 pending in `TaskList`\n",
         "- teammate: orca-desk-6",
         "- monitor: batches.jsonl grep",
-        "- orca-desk.md: head R3, cursor R2: - R3 (root) → desk: launch l02",
-        "- landing-desk.md: head L1, cursor -: - L1 (root) → desk: hold #1",
+        "- orca-desk.md: head R3, cursor R2: - R3 (the coordinator) → desk: launch l02",
+        "- landing-desk.md: head L1, cursor -: - L1 (the coordinator) → desk: hold #1",
         "- plan owner-gate line cites no live answer: brook.md:3: - Acme release on the owner's word",
-        "- Drive `d1`: ledger `1a2b3c4`, Orca run `run_1`, checkout `/repo`, root sessions s-root\n\n## Open owner asks\n",
+        "- Drive `d1`: ledger `1a2b3c4`, Orca run `run_1`, checkout `/repo`, coordinator sessions s-root\n\n## Open owner asks\n",
     ):
         assert line in body
     assert handoff.CATCH_UP.format(drive="brook") in body
     assert "Unrelated" not in body
     assert "000002" not in body and "000003" not in body
     assert "never on the owner's word" not in body.split("## Lint findings")[1]
-    assert body.split("## Root narrative\n")[1].strip() == "_From doc aaaaaaa, carried forward._\n\n## Root's next actions\n1. watch Acme"
+    assert body.split("## Root narrative\n")[1].strip() == "_From doc aaaaaaa, carried forward._\n\n## The coordinator's next actions\n1. watch Acme"
 
 
 def test_generate_reads_the_register_of_the_drives_program_not_the_plan_stem(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -311,7 +311,7 @@ def test_the_handoff_names_no_dashboard_even_when_one_is_serving(drive_home: Pat
 
 def test_the_roots_doc_gains_the_generated_sections_in_place_and_supersedes_the_rest(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
     shell = shell_with()
-    shell.write("b" * 40, "## Root's next actions\n1. land l11")
+    shell.write("b" * 40, "## The coordinator's next actions\n1. land l11")
 
     out = generate(drive_home, shell, capsys=capsys)
 
@@ -321,7 +321,7 @@ def test_the_roots_doc_gains_the_generated_sections_in_place_and_supersedes_the_
     assert ["ccn", "-R", REPO, "doc", "supersede", "a" * 40, "--by", "b" * 40] in shell.calls
     body = shell.docs["b" * 40]
     assert body.count("## Standing owner rules") == 1
-    assert body.endswith("_From doc bbbbbbb._\n\n## Root's next actions\n1. land l11\n")
+    assert body.endswith("_From doc bbbbbbb._\n\n## The coordinator's next actions\n1. land l11\n")
     assert "Then read the progress doc `ccn doc show bbbbbbb`" in out["digest"]
 
 
@@ -329,7 +329,7 @@ def test_a_hand_written_doc_is_augmented_whichever_session_wrote_it_and_carried_
     drive_home: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     shell = shell_with()
-    shell.write("b" * 40, "## Root's next actions\n1. land l11")
+    shell.write("b" * 40, "## The coordinator's next actions\n1. land l11")
 
     first = generate(drive_home, shell, capsys=capsys)
     second = generate(drive_home, shell, capsys=capsys)
@@ -340,7 +340,7 @@ def test_a_hand_written_doc_is_augmented_whichever_session_wrote_it_and_carried_
     assert shell.titles["b" * 40] == "brook: progress"
     body = shell.docs["b" * 40]
     assert body.count("## Standing owner rules") == 1 and body.count("_From ") == 1
-    assert body.endswith("_From doc bbbbbbb, carried forward._\n\n## Root's next actions\n1. land l11\n")
+    assert body.endswith("_From doc bbbbbbb, carried forward._\n\n## The coordinator's next actions\n1. land l11\n")
     assert first["narrative"] == second["narrative"] == "bbbbbbb"
 
 
@@ -361,13 +361,13 @@ def test_a_hand_written_pre_compact_handoff_stays_verbatim_under_the_generated_s
     assert carried.split(f"{handoff.NARRATIVE}\n")[1] == f"\n_From doc bbbbbbb, carried forward._\n\n{PRE_COMPACT}\n"
     assert "## Folded narrative" not in carried and "## Carried binding sections" not in carried
     assert standing.section(carried)[:1] == [
-        "- no `standing-rules` register doc; the root's own `## Standing owner rules` follows verbatim under `## Root narrative`"
+        "- no `standing-rules` register doc; the coordinator's own `## Standing owner rules` follows verbatim under `## Root narrative`"
     ]
 
 
 def test_generate_fails_loudly_when_another_progress_doc_stays_active(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
     shell = shell_with()
-    shell.write("b" * 40, "## Root's next actions\n1. land l11")
+    shell.write("b" * 40, "## The coordinator's next actions\n1. land l11")
     shell.stuck.add("a" * 40)
     argv = ["generate", "--program", "brook", "--plan", str(drive_home / ".claude/plans/brook.md"), "--repo", REPO]
 
@@ -402,7 +402,7 @@ def test_with_no_active_progress_doc_generation_adds_one(drive_home: Path, capsy
 
     assert shell.active == [out["id"]] and shell.added[out["id"]].endswith(" (generated)")
     assert not any(call[3:5] == ["doc", "edit"] for call in shell.calls)
-    assert shell.docs[out["id"]].endswith("## Root narrative\n\n_The root has written no narrative yet._\n")
+    assert shell.docs[out["id"]].endswith("## Root narrative\n\n_The coordinator has written no narrative yet._\n")
 
 
 def test_a_carried_narrative_is_only_the_previous_narrative_section(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -478,7 +478,7 @@ def test_lint_flags_the_plans_uncited_owner_gate_lines(drive_home: Path, capsys:
 
 def test_strict_refuses_a_narrative_with_an_uncited_owner_gate(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
     shell = shell_with()
-    shell.write("b" * 40, "## Root's next actions\n1. ship sanddb on Acme on the owner's word")
+    shell.write("b" * 40, "## The coordinator's next actions\n1. ship sanddb on Acme on the owner's word")
     argv = ["generate", "--program", "brook", "--plan", str(drive_home / ".claude/plans/brook.md"), "--repo", REPO, "--strict"]
 
     assert handoff.main(argv, shell) == 3
@@ -520,7 +520,7 @@ def test_strict_names_an_uncited_standing_rule_until_a_cited_record_replaces_it(
     drive_home: Path, capsys: pytest.CaptureFixture[str], fix: tuple[str, str, dict]
 ) -> None:
     shell = shell_with()
-    shell.write("b" * 40, "## Root's next actions\n1. land l11")
+    shell.write("b" * 40, "## The coordinator's next actions\n1. land l11")
     shell.rule("go", "every release ships on the owner's word only once")
 
     assert strict(drive_home, shell) == 3
@@ -539,7 +539,7 @@ def test_strict_names_an_uncited_standing_rule_until_a_cited_record_replaces_it(
 
 def test_strict_names_the_narrative_line_and_its_edit(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
     shell = shell_with()
-    shell.write("b" * 40, "## Root's next actions\n1. land l11\n2. ship sanddb on Acme on the owner's word")
+    shell.write("b" * 40, "## The coordinator's next actions\n1. land l11\n2. ship sanddb on Acme on the owner's word")
 
     assert strict(drive_home, shell) == 3
 
@@ -550,10 +550,10 @@ def test_strict_names_the_narrative_line_and_its_edit(drive_home: Path, capsys: 
 
 
 def test_strict_lints_only_the_newest_hand_written_record_never_the_ones_it_supersedes(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    """Root #287923: the Stop hook flagged owner-gate lines in six superseded progress docs from Oct 30 and 31 on every stop."""
+    """Coordinator #287923: the Stop hook flagged owner-gate lines in six superseded progress docs from Oct 30 and 31 on every stop."""
     shell = shell_with()
-    shell.write("b" * 40, "## Root's next actions\n1. ship sanddb on Acme on the owner's word", supersedes=("a" * 40,))
-    shell.write("d" * 40, "## Root's next actions\n1. land l11", supersedes=("b" * 40,))
+    shell.write("b" * 40, "## The coordinator's next actions\n1. ship sanddb on Acme on the owner's word", supersedes=("a" * 40,))
+    shell.write("d" * 40, "## The coordinator's next actions\n1. land l11", supersedes=("b" * 40,))
 
     out = generate(drive_home, shell, "--strict", capsys=capsys)
 
@@ -620,7 +620,7 @@ ADDENDUM = (
     "## Owner rulings since bbbbbbb\n\n- **824f65f**: the version-qualified PC replace is routine (consistent with 363cc69).\n\n"
     "## Results since bbbbbbb\n\n- **Retro DONE**: ccn doc **8bcade3** supersedes 21961bb, with the catalog in the appendix.\n\n"
     "## Live lanes\n\n- oncall-ic-dual-3 (124), oncall-credential-durability-2 (122, 123), oncall-card-domain (129, 115, 128)\n\n"
-    "## Next actions for the root\n\n1. Keep the freeze until the release-v3 drive or the owner lifts it.\n"
+    "## Next actions for the coordinator\n\n1. Keep the freeze until the release-v3 drive or the owner lifts it.\n"
 )
 
 
@@ -653,7 +653,7 @@ def test_generate_reads_the_whole_progress_lineage_in_one_listing_whatever_its_l
         shell = shell_with()
         chain = [str(n) * 40 for n in range(1, length + 1)]
         for older, doc in zip(["a" * 40, *chain], chain):
-            shell.write(doc, f"## Root's next actions\n1. land {doc[:7]}", supersedes=(older,))
+            shell.write(doc, f"## The coordinator's next actions\n1. land {doc[:7]}", supersedes=(older,))
 
         out = generate(drive_home, shell, capsys=capsys)
 
@@ -675,7 +675,7 @@ def stored(key: str, *, by: str = "", label: str = PROGRESS, deleted: bool = Fal
     return {
         "id": key * 40,
         "tags": [label],
-        "body": generated_record(f"## Root's next actions\n1. {key}") if made else f"## Root's next actions\n1. {key}",
+        "body": generated_record(f"## The coordinator's next actions\n1. {key}") if made else f"## The coordinator's next actions\n1. {key}",
         "superseded_by": [newer * 40 for newer in by],
         "deleted": deleted,
         "created_at": updated,
@@ -947,8 +947,8 @@ def test_generate_clears_a_cursor_from_before_the_drive_that_no_line_sits_past_a
 
     assert not stale.exists() and behind.read_text() == "R2\n"
     for line in (
-        "- orca-desk.md: head R3, cursor R2: - R3 (root) → desk: launch l02",
-        "- landing-desk.md: head L1, cursor -: - L1 (root) → desk: hold #1",
+        "- orca-desk.md: head R3, cursor R2: - R3 (the coordinator) → desk: launch l02",
+        "- landing-desk.md: head L1, cursor -: - L1 (the coordinator) → desk: hold #1",
         "- cleared stale cursor landing-desk.md.cursor at L1, written before the drive started at 2026-10-20T00:00:00Z",
     ):
         assert line in body
@@ -958,7 +958,7 @@ def test_generate_keeps_an_old_cursor_at_the_newest_ruling_when_a_line_follows_i
     registry = drive_home / ".claude/long-running/drives/d1.json"
     registry.write_text(json.dumps(json.loads(registry.read_text()) | {"started_at": "2026-10-20T00:00:00Z"}))
     inbox = drive_home / ".claude/scratch/brook/inbox"
-    (inbox / "landing-desk.md").write_text("- L1 (root) → desk: hold #1\nMONITOR alert fired: queue stalled\n")
+    (inbox / "landing-desk.md").write_text("- L1 (the coordinator) → desk: hold #1\nMONITOR alert fired: queue stalled\n")
     cursor = inbox / "landing-desk.md.cursor"
     cursor.write_text("L1\n")
     written = datetime(2026, 10, 1, tzinfo=timezone.utc).timestamp()

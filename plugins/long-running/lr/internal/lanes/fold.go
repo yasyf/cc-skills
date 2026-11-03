@@ -52,7 +52,7 @@ func grant(s *store.Store, r Record, fresh bool, at time.Time, out *folded) {
 			do(s.SetLaneWaiting(name, 0, at, ""))
 			return
 		}
-		resume(s, name, fmt.Sprintf("unpark:%d", r.Seq), "root lifted your park", r, at)
+		resume(s, name, fmt.Sprintf("unpark:%d", r.Seq), "the coordinator lifted your park", r, at)
 	case verb == "done" && known && row.State != store.LaneRetired:
 		if out.owesNothing(s, name, fresh, at) {
 			retire(s, name, "done", at)
@@ -390,7 +390,7 @@ func foldPage(s *store.Store, r Record, name string, addressed map[string]bool) 
 			continue
 		}
 		topic := or(r.Topic, strconv.FormatInt(r.Seq, 10))
-		what := "root ask"
+		what := "coordinator ask"
 		if r.Kind == "blocker" {
 			what = "blocker"
 		}

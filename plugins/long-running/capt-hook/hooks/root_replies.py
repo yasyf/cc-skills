@@ -822,7 +822,7 @@ RETRO_FAILED = "The Stop hook's `retro.py --drive {drive} check` failed, so the 
     }),
 )
 def retro_rows_hold(evt: BaseHookEvent) -> HookResult | None:
-    """The root stops only while `retro.py check` finds every retro row whole: a live owner, a state from the closed set, a due time and a mechanism, no repeat of another row's failure, and none past due and not live; its lines go back to the root (owner 10:26 PM Nov 1, retro-close-1 contract #308142). The check names the drive by its registry entry, the one `drive.py current` resolves for the session; a check that fails without PROBLEM rows blocks nothing and is reported once an hour."""
+    """The coordinator stops only while `retro.py check` finds every retro row whole: a live owner, a state from the closed set, a due time and a mechanism, no repeat of another row's failure, and none past due and not live; its lines go back to the coordinator (owner 10:26 PM Nov 1, retro-close-1 contract #308142). The check names the drive by its registry entry, the one `drive.py current` resolves for the session; a check that fails without PROBLEM rows blocks nothing and is reported once an hour."""
     if not CompactionState.load(evt).active or not (entry := drive_entry(evt)):
         return None
     try:

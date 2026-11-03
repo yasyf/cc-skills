@@ -7,7 +7,7 @@
     standing.py live   --drive DRIVE
     standing.py lint   (--doc ID | --file PATH) --program SLUG [--previous-doc ID | --previous-file PATH] [--repo PATH]
 
-A standing rule is a cci ``go`` record with topic ``standing``. The root addresses it
+A standing rule is a cci ``go`` record with topic ``standing``. The coordinator addresses it
 to a desk and cites its durable answer with ``--ccn <answer id>``. It is never done.
 Only a later ``correction`` record with ``--topic standing --re <seq>`` and a later
 answer replaces it. Rule ids are ``#<seq>``. ``live`` prints each live rule's id, text,
@@ -23,7 +23,7 @@ through ``rulings.py rows --json``, a bullet that leads with a register row's an
 or key must carry that row's words verbatim: an id alone, or a quotation that differs
 from the words, is a finding. The sentence "no standing-rules register doc" is always a
 finding. A failed register read skips the row checks and posts one ``blocker`` to the
-root on cci. ``lint`` exits 3 on a finding.
+coordinator on cci. ``lint`` exits 3 on a finding.
 Both commands use only the Python standard library.
 """
 
@@ -355,7 +355,7 @@ def section_of(register: dict | None, lines: list[str], narrative: str = "", row
     if register:
         out += [pointer(register), ""]
     elif rows is None or rows.failure:
-        own = f"; the root's own `{REGISTER_HEADING}` follows verbatim under `## Root narrative`" if OWN_RULES.search(narrative) else ""
+        own = f"; the coordinator's own `{REGISTER_HEADING}` follows verbatim under `## Root narrative`" if OWN_RULES.search(narrative) else ""
         out += [f"- no `standing-rules` register doc{own}", ""]
     if rows is None:
         return "\n".join(out + lines) + "\n"

@@ -145,7 +145,7 @@ func Command(a *app.App) *cobra.Command {
 func refusal(now time.Time, bus string) func(ctx context.Context, lane string) (string, error) {
 	return func(ctx context.Context, lane string) (string, error) {
 		if slices.Contains(notOwners, lane) {
-			return fmt.Sprintf("%s is the coordinator, not a worker; name the worker that builds it, or ask root to spawn one", lane), nil
+			return fmt.Sprintf("%s is the coordinator, not a worker; name the worker that builds it, or ask the coordinator to spawn one", lane), nil
 		}
 		found, err := client.Tail(ctx, client.Query{Drive: bus, Since: now.Add(-ownerWindow)})
 		if err != nil {
@@ -160,9 +160,9 @@ func refusal(now time.Time, bus string) func(ctx context.Context, lane string) (
 		}
 		switch {
 		case !posted:
-			return fmt.Sprintf("%s has posted nothing on %s in 2h; name a live worker, or ask root to spawn one", lane, bus), nil
+			return fmt.Sprintf("%s has posted nothing on %s in 2h; name a live worker, or ask the coordinator to spawn one", lane, bus), nil
 		case slices.Contains(endedKinds, kind):
-			return fmt.Sprintf("%s has posted nothing on %s in 2h since its %s; name a live worker, or ask root to spawn one", lane, bus, kind), nil
+			return fmt.Sprintf("%s has posted nothing on %s in 2h since its %s; name a live worker, or ask the coordinator to spawn one", lane, bus, kind), nil
 		}
 		return "", nil
 	}

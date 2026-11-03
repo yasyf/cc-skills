@@ -128,7 +128,7 @@ func Tick(s *store.Store, d Deps, now time.Time, generation int64) (out Outcome,
 
 func announce(d Deps, said folded, now time.Time) {
 	for _, one := range said.stood {
-		how := ", its PRs to root"
+		how := ", its PRs to the coordinator"
 		if one.successor != "" {
 			how = " for " + one.successor
 		}
@@ -136,10 +136,10 @@ func announce(d Deps, said folded, now time.Time) {
 	}
 	verbs := slices.Sorted(slices.Values(Verbs))
 	for _, seq := range said.untyped {
-		do(d.Post(Post{Kind: "defect", To: []string{Root}, Text: fmt.Sprintf("%s root's decide #%d reaches the supervisor with no registry request, so the registry is unchanged and its lanes are still woken while their tasks read in progress; post `%s` for each lane it names.", pacific(now), seq, Request{Verb: "<" + strings.Join(verbs, "|") + ">", Lane: "<lane>"}.Command()), Re: seq}))
+		do(d.Post(Post{Kind: "defect", To: []string{Root}, Text: fmt.Sprintf("%s the coordinator's decide #%d reaches the supervisor with no registry request, so the registry is unchanged and its lanes are still woken while their tasks read in progress; post `%s` for each lane it names.", pacific(now), seq, Request{Verb: "<" + strings.Join(verbs, "|") + ">", Lane: "<lane>"}.Command()), Re: seq}))
 	}
 	for _, one := range said.unread {
-		do(d.Post(Post{Kind: "defect", To: []string{Root, one.name}, LaneRef: one.name, Text: fmt.Sprintf("%s %s, so the supervisor refused it and holds %s with its PRs, never relaunched or retired, until %s posts again; %s, keep working. Root: read %s with `cci tail --lane %s --since <its wake seq> --oldest` and the registry's heard time, then post it again citing last-read=<seq>.", pacific(now), one.why, one.name, one.name, one.name, one.name, one.name)}))
+		do(d.Post(Post{Kind: "defect", To: []string{Root, one.name}, LaneRef: one.name, Text: fmt.Sprintf("%s %s, so the supervisor refused it and holds %s with its PRs, never relaunched or retired, until %s posts again; %s, keep working. Coordinator: read %s with `cci tail --lane %s --since <its wake seq> --oldest` and the registry's heard time, then post it again citing last-read=<seq>.", pacific(now), one.why, one.name, one.name, one.name, one.name, one.name)}))
 	}
 	for _, one := range said.owing {
 		one.post(d, now)
@@ -622,7 +622,7 @@ func hourly(s *store.Store, d Deps, now time.Time) {
 		if len(words) > 1 {
 			noun = "lanes"
 		}
-		do(d.Post(Post{Kind: "report", To: []string{Root}, Attrs: map[string]string{"audience": "owner"}, Text: fmt.Sprintf("Between %s and %s the lane supervisor restarted %d %s with no root action: %s.", pacific(start), pacific(end), len(words), noun, strings.Join(words, "; "))}))
+		do(d.Post(Post{Kind: "report", To: []string{Root}, Attrs: map[string]string{"audience": "owner"}, Text: fmt.Sprintf("Between %s and %s the lane supervisor restarted %d %s with no coordinator action: %s.", pacific(start), pacific(end), len(words), noun, strings.Join(words, "; "))}))
 	}
 	records, err := d.OpenWork()
 	if errors.Is(err, ErrUnread) {

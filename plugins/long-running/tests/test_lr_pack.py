@@ -143,7 +143,7 @@ def test_an_owner_decision_stays_open_until_its_lane_moves_on():
         decide_line("2026-10-05T04:30:00Z", None, "21:30 DECIDE msg_ab12 alerts-api-0803-fix: rollback or forward? needs the owner"),
         decide_line("2026-10-05T04:00:00Z", "merge-walker", "DECIDE merge-walker (9:00 PM PT) A or B, needs the owner"),
         decide_line("2026-10-05T03:00:00Z", "valkey-fold-2", "DECIDE valkey-fold-2 (8:00 PM PT) runbook cannot run as written, ask the owner"),
-        decide_line("2026-10-05T02:00:00Z", "other", "DECIDE other (7:00 PM PT) routine pick for the root"),
+        decide_line("2026-10-05T02:00:00Z", "other", "DECIDE other (7:00 PM PT) routine pick for the coordinator"),
         decide_line("2026-10-01T02:00:00Z", "old", "DECIDE old (7:00 PM PT) stale, needs the owner"),
     ]
     waiting = pack.open_decisions(lines, "2026-10-04T00:00:00Z")
@@ -289,7 +289,7 @@ class Bus(Context):
             return {"open_asks": [
                 {"seq": 50, "kind": "decide", "lane": "merge-walker", "at": "2026-10-06T05:00:00Z", "text": "pick A or B", "to": ["owner"]},
                 {"seq": 51, "kind": "ask", "lane": "sweep", "at": "2026-10-06T05:10:00Z", "text": "grant write", "to": ["owner"]},
-                {"seq": 52, "kind": "decide", "lane": "desk", "at": "2026-10-06T05:20:00Z", "text": "root's call", "to": ["main"]},
+                {"seq": 52, "kind": "decide", "lane": "desk", "at": "2026-10-06T05:20:00Z", "text": "the coordinator's call", "to": ["main"]},
             ]}
         return [{"seq": 53, "kind": "answer", "lane": "owner", "at": "2026-10-06T06:00:00Z", "text": "A", "re": 50}] if params.get("since") is None else []
 

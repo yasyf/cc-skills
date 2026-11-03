@@ -23,7 +23,7 @@ ACTIVE = [CompactionState(active=True, coordinator=True)]
 LANE = {"CLAUDE_LONG_RUNNING_LANE": "release-5"}
 STATUS_REFUSED = (
     "A drive lane writes nothing to Slack about a release, smoke run, flake or progress unless an owner record requests that post."
-    " Report it to root on cci instead, or cite that owner record's seq in the post."
+    " Report it to the coordinator on cci instead, or cite that owner record's seq in the post."
 )
 
 

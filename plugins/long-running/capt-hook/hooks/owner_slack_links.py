@@ -74,7 +74,7 @@ def names(use: object, wanted: set[str]) -> bool:
     }),
 )
 def owner_slack_links_get_routed(evt: BaseHookEvent) -> HookResult | None:
-    """The drive root stops only once every Slack thread the owner linked has a reply posted there or a handoff that names the thread: an Agent prompt, a SendMessage, a status file write, a `cci post` or a `cc-slack reply`."""
+    """The drive coordinator stops only once every Slack thread the owner linked has a reply posted there or a handoff that names the thread: an Agent prompt, a SendMessage, a status file write, a `cci post` or a `cc-slack reply`."""
     if not CompactionState.load(evt).active:
         return None
     calls = evt.ctx.t.tool_calls.items

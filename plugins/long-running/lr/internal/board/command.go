@@ -75,7 +75,7 @@ func Command(a *app.App) *cobra.Command {
 	var driveName, session string
 	cmd := &cobra.Command{Use: "board", Short: "The owner's board: what waits on him and when each card ends"}
 	cmd.PersistentFlags().StringVar(&driveName, "drive", os.Getenv("LR_DRIVE"), "the drive's bus name")
-	cmd.PersistentFlags().StringVar(&session, "session", "", "the board's session (default: the drive's root)")
+	cmd.PersistentFlags().StringVar(&session, "session", "", "the board's session (default: the drive's coordinator)")
 	opened := func() (drive.Entry, string, error) {
 		entry, err := drive.Named(driveName)
 		if err != nil {

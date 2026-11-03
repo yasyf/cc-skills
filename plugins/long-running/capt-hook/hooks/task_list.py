@@ -164,7 +164,7 @@ def lanes_leave_root_tasks_open(evt: BaseHookEvent) -> HookResult | None:
         return None
     if (task := evt.task(call.task_id)) and (lane := lane_of(task)) and own_role(evt) != MAINTENANCE:
         return evt.context(
-            f"Warning, nothing was blocked: Task #{task.id} is the root's record of lane {lane}; the root completes it once it has consumed "
+            f"Warning, nothing was blocked: Task #{task.id} is the coordinator's record of lane {lane}; the coordinator completes it once it has consumed "
             "your deliverable. SendMessage team-lead the deliverable instead and leave the task open."
         )
     return None

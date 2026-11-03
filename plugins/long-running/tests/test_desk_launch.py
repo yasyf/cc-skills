@@ -103,7 +103,7 @@ def briefs(tmp_path: Path) -> tuple[Path, Path]:
 
 
 def test_two_posters_at_once_with_no_shared_lock_never_share_a_key(drive, tmp_path, monkeypatch, capsys):
-    """Nov 2 8:22-8:57 PM: meta-desk-1 and root each allocated R85115, R85116, R85117, R85119 and R85120 from the last 20 records, and the runner dropped one launch of each pair."""
+    """Nov 2 8:22-8:57 PM: meta-desk-1 and coordinator each allocated R85115, R85116, R85117, R85119 and R85120 from the last 20 records, and the runner dropped one launch of each pair."""
     fix, _ = briefs(tmp_path)
     drive.launched = True
     together = threading.Barrier(2, timeout=1)
@@ -129,7 +129,7 @@ def test_two_posters_at_once_with_no_shared_lock_never_share_a_key(drive, tmp_pa
 
 @pytest.mark.parametrize("name", ["inc-app-origin", "inc-app-origin-fix"])
 def test_an_incident_pair_posts_addressed_launch_lines_keyed_by_their_records_and_prints_each_dispatch(drive, tmp_path, capsys, name):
-    """Root #279033: `incident takeover-500-fix` launched takeover-500-fix-fix, so the fix lane's name matched no order or brief."""
+    """Coordinator #279033: `incident takeover-500-fix` launched takeover-500-fix-fix, so the fix lane's name matched no order or brief."""
     fix, evidence = briefs(tmp_path)
     drive.verdicts = {
         "R102": "LAUNCHED R102 {lane}: dispatch ctx_fix terminal term_fix",
@@ -179,7 +179,7 @@ Alert: <monitor or Slack link, times PT, what fails where>. Owner words, verbati
 
 
 def test_an_alert_fills_the_incident_template_into_the_lanes_own_brief(drive, state, tmp_path):
-    """Root #299799, Nov 1 4:48 PM: root sed the incident template by hand and run-queue-fix launched on a brief still reading <lane> for 20 seconds."""
+    """Coordinator #299799, Nov 1 4:48 PM: the coordinator sed the incident template by hand and run-queue-fix launched on a brief still reading <lane> for 20 seconds."""
     template = tmp_path / "incident-template-fix.md"
     template.write_text(TEMPLATE)
     drive.verdicts = {"R102": "LAUNCHED R102 {lane}: dispatch ctx_fix terminal term_fix"}
@@ -192,7 +192,7 @@ def test_an_alert_fills_the_incident_template_into_the_lanes_own_brief(drive, st
 
 
 def test_an_alert_holding_its_own_angle_brackets_still_fills_and_posts(drive, state, tmp_path):
-    """Root #305172: an --alert quoting `<RUN>` and `<X>` read as an unfilled template field, so the incident launched nothing."""
+    """Coordinator #305172: an --alert quoting `<RUN>` and `<X>` read as an unfilled template field, so the incident launched nothing."""
     template = tmp_path / "incident-template-fix.md"
     template.write_text(TEMPLATE)
     drive.verdicts = {"R102": "LAUNCHED R102 {lane}: dispatch ctx_fix terminal term_fix"}

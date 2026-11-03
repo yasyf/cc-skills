@@ -24,7 +24,7 @@ fault together, so a missing `Register slice:` and `Scale:` line cost one fix an
 trip. A launch not pinned to the Mac also runs `lr carry` against the drive's checkout, so a brief
 naming a path or ccn entity no Sprite can receive is refused here, naming each one. `relay`, `hold`,
 `unhold`, and `withdraw` post the runner's line of that verb and print it without waiting,
-since the runner's verdict reaches the root on cci. A launch's key is `R<n>`, `<n>` being the number every cci node names
+since the runner's verdict reaches the coordinator on cci. A launch's key is `R<n>`, `<n>` being the number every cci node names
 its record by, which the bus allocates once, so two posters on any session or machine never share one; no line carries
 an `R<n>` of its own.
 A drive whose orca runner posted no `orca alive` record
@@ -129,7 +129,7 @@ def filled(template: str, lane: str, alert: str) -> str:
 
 
 def unfilled(text: str, alert: str) -> str:
-    """The first line of `text` still holding a placeholder root fills, never the Alert line `--alert` wrote, whose words are root's own (root #305172)."""
+    """The first line of `text` still holding a placeholder the coordinator fills, never the Alert line `--alert` wrote, whose words are the coordinator's own (coordinator #305172)."""
     return next((line.strip() for line in text.splitlines() if line != f"Alert: {alert}" and (ROOT_PLACEHOLDER.search(line) or (line.startswith("Alert:") and re.search(r"<[^>]+>", line)))), "")
 
 
@@ -221,7 +221,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.verb == "incident":
         for lane, *_, brief in planned:
             if line := unfilled(brief.read_text(), args.alert):
-                parser.error(f"brief {brief} for {lane} still holds a placeholder root fills, so nothing is posted: {line}")
+                parser.error(f"brief {brief} for {lane} still holds a placeholder the coordinator fills, so nothing is posted: {line}")
     preflight(planned, drive_entry(args.drive)["checkout"])
     topic = args.name if args.verb == "incident" else args.target
     require_runner(args.drive, agent_fallback(args))

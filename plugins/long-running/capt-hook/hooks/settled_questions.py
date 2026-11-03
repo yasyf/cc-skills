@@ -345,7 +345,7 @@ DRIVEN = {"cwd": CWD, "env": DRIVE_CONFIG, "state": [CompactionState(active=True
     }),
 )
 def check_settled_before_asking(evt: BaseHookEvent) -> HookResult | None:
-    """Warn an asking call a judge reads as asking the owner what he already ruled, or as offering an option that misreads his words (root #211144)."""
+    """Warn an asking call a judge reads as asking the owner what he already ruled, or as offering an option that misreads his words (coordinator #211144)."""
     if not (asking := asked(evt)):
         return None
     drive = CompactionState.load(evt)

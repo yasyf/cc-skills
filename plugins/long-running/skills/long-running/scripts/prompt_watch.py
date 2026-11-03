@@ -42,12 +42,12 @@ is the coordinator asking the owner there, so it raises no record. The coordinat
 woken by its own approval, so its approval is a `blocker` to the registered supervisor desk
 while that desk's own terminal reads clear or stale. In a drive started with `--slack-cards`, it is a
 `needs_you` card in the owner's DM, posted with `cc-slack dm-status` into the status thread of the
-drive's newest root session, when no supervisor is registered, when the supervisor is itself at a prompt, unknown, or
+drive's newest coordinator session, when no supervisor is registered, when the supervisor is itself at a prompt, unknown, or
 unreachable, and when the prompt is still open five minutes after the supervisor was told.
 A supervisor that holds a foreground wait is never idle, so it keeps
 `cci watch --drive <cci drive> --to <its lane> --for 0` in that wait and the record ends it,
-as the root's Monitor does for `root`. A terminal unknown or unreachable for three polls in a row is one `report` to `desk-runner`,
-never to root, whose window each record lands in, and three polls in a row that read it again are one `READABLE` report to the same lane. A shorter read posts nothing, so a terminal
+as the coordinator's Monitor does for `root`. A terminal unknown or unreachable for three polls in a row is one `report` to `desk-runner`,
+never to the coordinator, whose window each record lands in, and three polls in a row that read it again are one `READABLE` report to the same lane. A shorter read posts nothing, so a terminal
 or `worker-list` that flaps under load raises no second record for the same unread state.
 When every watched terminal reads `runtime_unavailable` or `timeout`, the Orca app itself is down: no terminal
 reports alone, and the `orca (runtime)` row reports once after three polls only when the last answered `worker-list`

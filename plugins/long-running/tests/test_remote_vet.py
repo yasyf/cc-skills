@@ -102,9 +102,9 @@ def lane_change(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failing: str, p
 
 @pytest.mark.parametrize("failing", ["", "vet m"], ids=["touched-packages-pass", "a-failure-still-runs-the-rest"])
 def test_a_remote_vet_builds_the_lanes_uncommitted_change_on_the_sprite_for_only_the_packages_and_crates_it_touches(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failing: str) -> None:
-    """Root #221365, under the owner's 11:52 AM Oct 30 order to move grading load off this machine: a lane ships its diff to a Sprite, which runs go build, go vet and cargo check on the touched packages and returns the result.
+    """Coordinator #221365, under the owner's 11:52 AM Oct 30 order to move grading load off this machine: a lane ships its diff to a Sprite, which runs go build, go vet and cargo check on the touched packages and returns the result.
 
-    Root #235301, from team-credential-4's #235284: no Sprite has sccache, so cargo runs with RUSTC_WRAPPER cleared, and with --tests so a test-only change compiles. Root #235223: the partial clone's lazy fetches authenticate, so every git command on the Sprite carries the credential helper. remote-desks-5, 10:50 PM Oct 30: dar-vet-1 and dar-fleet-14 to 16, 8 GB with no swap, restarted mid-build under go's default parallelism, so builds run at most three compile jobs."""
+    Coordinator #235301, from team-credential-4's #235284: no Sprite has sccache, so cargo runs with RUSTC_WRAPPER cleared, and with --tests so a test-only change compiles. Coordinator #235223: the partial clone's lazy fetches authenticate, so every git command on the Sprite carries the credential helper. remote-desks-5, 10:50 PM Oct 30: dar-vet-1 and dar-fleet-14 to 16, 8 GB with no swap, restarted mid-build under go's default parallelism, so builds run at most three compile jobs."""
     mac, sprite, work, config, log, env = lane_change(tmp_path, monkeypatch, failing, "echo generated > prepared.txt && git config --get-all credential.helper > helper.txt || true")
 
     done = subprocess.run([sys.executable, str(SCRIPT), "--config", str(config), "--lane", "l1", str(work)], env=env, capture_output=True, text=True)
@@ -125,7 +125,7 @@ def test_a_remote_vet_builds_the_lanes_uncommitted_change_on_the_sprite_for_only
 
 
 def test_a_remote_vet_formats_the_touched_go_and_rust_on_the_sprite_and_brings_the_formatting_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Owner card improve7-format-on-sprite (root #277422): a worker formats and lints its Rust and Go changes on a build machine before it pushes, never with a local toolchain. The Sprite formats the touched files, and the formatting comes back as a patch applied to the lane's worktree, so the lane commits formatted code without gofmt or cargo fmt on the Mac."""
+    """Owner card improve7-format-on-sprite (coordinator #277422): a worker formats and lints its Rust and Go changes on a build machine before it pushes, never with a local toolchain. The Sprite formats the touched files, and the formatting comes back as a patch applied to the lane's worktree, so the lane commits formatted code without gofmt or cargo fmt on the Mac."""
     mac, sprite, work, config, log, env = lane_change(tmp_path, monkeypatch, "", "")
 
     done = subprocess.run([sys.executable, str(SCRIPT), "--config", str(config), "--lane", "l1", str(work)], env=env, capture_output=True, text=True)
@@ -150,7 +150,7 @@ def test_a_remote_vet_that_hangs_stops_at_its_timeout_and_names_the_stage(tmp_pa
 
 
 def test_a_remote_vet_refuses_when_every_vet_sprite_is_over_load_so_the_lane_pushes_for_ci(tmp_path: Path) -> None:
-    """progress-build-6 #230992, root #231006: two vets ran go build for 30+ min at Sprite load 39 against a 2-minute target, so the lane waited instead of pushing."""
+    """progress-build-6 #230992, coordinator #231006: two vets ran go build for 30+ min at Sprite load 39 against a 2-minute target, so the lane waited instead of pushing."""
     mac, work = tmp_path / "mac", tmp_path / "work"
     subprocess.run(["git", "init", "-q", str(work)], check=True)
     config = tmp_path / "runner.json"
@@ -187,7 +187,7 @@ def test_a_vet_sprite_that_cannot_start_a_command_is_passed_over_instead_of_fail
 
 @pytest.mark.parametrize("vet", [{}, {"vet": {"prepare": "true"}}, {"vet": {"sprite": []}}], ids=["no-vet", "no-sprite", "empty-sprite"])
 def test_a_remote_vet_with_no_build_sprite_refuses_and_never_falls_back_to_a_grading_sprite(tmp_path: Path, vet: dict) -> None:
-    """Root #240536: remote-vet never runs on a grading box, and refuses when no BUILD Sprite is registered."""
+    """Coordinator #240536: remote-vet never runs on a grading box, and refuses when no BUILD Sprite is registered."""
     mac, work = tmp_path / "mac", tmp_path / "work"
     subprocess.run(["git", "init", "-q", str(work)], check=True)
     config = tmp_path / "runner.json"

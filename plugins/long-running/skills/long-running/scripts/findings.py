@@ -2,7 +2,7 @@
 # /// script
 # requires-python = ">=3.13"
 # ///
-"""Keep every sweep finding and every owner pick on a board card in one cc-notes ledger per drive, open until a HEAD or LANDED record names its fix, so none is lost (owner, 3:06 AM Oct 30; root #205185).
+"""Keep every sweep finding and every owner pick on a board card in one cc-notes ledger per drive, open until a HEAD or LANDED record names its fix, so none is lost (owner, 3:06 AM Oct 30; coordinator #205185).
 
     findings.py post  [--drive ID] --sweep LANE --owner LANE --verdict WORD [--pr N] [--line PATH:LINE] TEXT
     findings.py sync  [--drive ID] [--since SEQ|DURATION]

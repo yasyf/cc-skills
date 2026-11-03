@@ -28,7 +28,7 @@ class Registry:
         return (self.rows.get(lane) or {}).get("state") == "retired"
 
     def route(self, lane: str) -> str:
-        """Where mail for `lane` goes: the end of its successor chain, root when that end retired with no successor, and `lane` itself when no row names it."""
+        """Where mail for `lane` goes: the end of its successor chain, the coordinator when that end retired with no successor, and `lane` itself when no row names it."""
         return (self.rows.get(lane) or {}).get("route") or lane
 
     def lineage(self, lane: str) -> set[str]:

@@ -257,7 +257,7 @@ def test_oversized_mcp_response_warns_on_its_next_call(root: Root) -> None:
 
     warning = root.post("mcp__linear__get_issue", {"id": "ENG-1"}, [{"type": "text", "text": "x" * 9000}])
 
-    assert warning is not None and "overflowed the drive root" in warning
+    assert warning is not None and "overflowed the drive coordinator" in warning
     assert "fetch is too large" in (root.pre("mcp__linear__get_issue", {"id": "ENG-2"}) or "")
 
 

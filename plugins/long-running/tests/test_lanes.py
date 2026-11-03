@@ -99,7 +99,7 @@ def test_a_detached_worktree_named_for_the_lane_reports_its_dirty_files_and_that
 
 
 def test_a_worktree_a_lane_only_names_is_found_but_not_owned(home):
-    """Nov 2: root and the shepherd lanes name other lanes' trees and PRs, and the desk refused four launches as their duplicates (#347883, #347614, #347609, #348497)."""
+    """Nov 2: the coordinator and the shepherd lanes name other lanes' trees and PRs, and the desk refused four launches as their duplicates (#347883, #347614, #347609, #348497)."""
     own = worktree(home, "scratch-1", "-b", "scratch-1")
     mentioned = worktree(home, "ssql-replicator-1-step4", "-b", "ssql-replicator-1-step4")
     watched = worktree(home, "send-cred-decouple-fix-1", "-b", "send-cred-decouple-fix-1")
@@ -172,7 +172,7 @@ def test_a_lane_worktree_in_another_pool_repo_is_found_and_the_runner_checkout_n
 def test_a_lane_with_no_worktree_says_so_and_exits_nonzero(home, capsys):
     worktree(home, "inc-other-fix", "--detach")
 
-    assert lane_status(LaneShell(), LANE, capsys) == (1, f"no worktree found for lane {LANE}, and no in-process teammate of the drive's root sessions\n")
+    assert lane_status(LaneShell(), LANE, capsys) == (1, f"no worktree found for lane {LANE}, and no in-process teammate of the drive's coordinator sessions\n")
 
 
 def test_worktree_posts_one_record_naming_the_lanes_worktree_and_branch(home, tmp_path):

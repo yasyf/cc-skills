@@ -51,11 +51,11 @@ PINNED_MERGE = "gh pr merge 44717 --squash --match-head-commit 0123456789abcdef0
 ENQUEUE = "~/monorepo/.agents/skills/submit-pr/scripts/stack-enqueue 36023 --hold 30082"
 REFUSAL = (
     "Warning, nothing was blocked: Lanes never enqueue: the landing desk is the only enqueuer, so lane `{lane}` may not run `{verb}`. "
-    "Report the PR with `ledger.py report --drive <drive>`, and the landing desk enqueues it against the root's holds."
+    "Report the PR with `ledger.py report --drive <drive>`, and the landing desk enqueues it against the coordinator's holds."
 )
 STEERING_REFUSAL = (
-    "Warning, nothing was blocked: Only the root steers the merge queue, so lane `{lane}` may not run `mq.py {verb}`. "
-    "Send the root a `RULING NEEDED` line naming the PR and the verb, and read the queue with `mq.py why <n>`."
+    "Warning, nothing was blocked: Only the coordinator steers the merge queue, so lane `{lane}` may not run `mq.py {verb}`. "
+    "Send the coordinator a `RULING NEEDED` line naming the PR and the verb, and read the queue with `mq.py why <n>`."
 )
 RULINGS_ADVICE = (
     "`rulings.py check-pr` names {causes} for #{pr} at {head}. These are warnings: the landing desk holds no head for them (4236611), "
@@ -75,8 +75,8 @@ HAND_ENQUEUE_WARNING = (
     "Clear each one before you enqueue, with a grade naming the head, a fidelity ok, or the owner's go."
 )
 HAND_ENQUEUE_TAP_REFUSAL = (
-    "Warning, nothing was blocked: A hand `stack-enqueue` lands nothing the landing runner refuses for the owner's tap, and these heads have no approval on the root's board: {lines}. "
-    "A root go is no tap: wait for his approval on the board row at that head, then enqueue."
+    "Warning, nothing was blocked: A hand `stack-enqueue` lands nothing the landing runner refuses for the owner's tap, and these heads have no approval on the coordinator's board: {lines}. "
+    "A coordinator go is no tap: wait for his approval on the board row at that head, then enqueue."
 )
 TAP_REFUSAL = "TAP-REQUIRED"
 ADMIN_MERGE_REFUSAL = (
@@ -481,7 +481,7 @@ def rulings_at_merge(evt: BaseHookEvent) -> HookResult | None:
     Event.PreToolUse,
     only_if=[Tool("Bash")],
     tests={
-        Input(command="mq.py --config ~/d/runner.json dequeue 36023 --reason pulled", agent_id=LANE, state=ACTIVE): Warn(pattern=r"^Warning, nothing was blocked: Only the root steers the merge queue, so lane `lane-a` may not run `mq.py dequeue`\."),
+        Input(command="mq.py --config ~/d/runner.json dequeue 36023 --reason pulled", agent_id=LANE, state=ACTIVE): Warn(pattern=r"^Warning, nothing was blocked: Only the coordinator steers the merge queue, so lane `lane-a` may not run `mq.py dequeue`\."),
         Input(command="python3 skills/long-running/scripts/mq.py --config=r.json requeue 36023", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`mq.py requeue`"),
         Input(command="mq.py --config r.json priority 36023 0", agent_id=DESK, state=ACTIVE): Warn(pattern=r"lane `landing-desk` may not run `mq.py priority`"),
         Input(command="mq.py --config r.json recover 36023", agent_id="adesk-runner-0123456789abcdef", state=ACTIVE): Warn(pattern=r"`mq.py recover`"),
@@ -508,7 +508,7 @@ def only_the_root_steers_the_queue(evt: BaseHookEvent) -> HookResult | None:
     for call in evt.cmd.calls():
         run = program((call.name, *call.args))
         if len(run) > 2 and Path(run[0]).name == "ci" and run[1] == "trunk" and run[2] in ("dequeue", "restart", "prioritize"):
-            return evt.context(f"Only the root steers the merge queue, so lane `{lane or 'unnamed'}` may not run `ci trunk {run[2]}`. Ask the root and read the queue with `mq.py why <n>`.")
+            return evt.context(f"Only the coordinator steers the merge queue, so lane `{lane or 'unnamed'}` may not run `ci trunk {run[2]}`. Ask the coordinator and read the queue with `mq.py why <n>`.")
     return None
 
 
@@ -517,7 +517,7 @@ def option(args: tuple[str, ...], name: str) -> list[str]:
 
 
 def green_except(call: Call) -> str | None:
-    """The phrase in a lane's READY report or a root ruling that grades a red head green: `ledger.py report`'s text, a `cci post` report whose text opens READY, or any `cci post` text of a kind that rules on a head."""
+    """The phrase in a lane's READY report or a coordinator ruling that grades a red head green: `ledger.py report`'s text, a `cci post` report whose text opens READY, or any `cci post` text of a kind that rules on a head."""
     run = program((call.name, *call.args))
     if not run:
         return None

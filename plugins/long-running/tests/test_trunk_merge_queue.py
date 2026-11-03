@@ -149,7 +149,7 @@ def test_failed_verification_is_not_guessed_to_be_a_flake_or_an_own_red():
 
 
 def test_a_failed_trunk_attempt_is_a_blocker_but_never_a_bare_eviction_a_down_queue_lands_directly():
-    """Root #228786: stack-enqueue prints `Trunk attempt <time> failed: <reason>` for a failed head, and the adapter routed none of it."""
+    """Coordinator #228786: stack-enqueue prints `Trunk attempt <time> failed: <reason>` for a failed head, and the adapter routed none of it."""
     queue = adapter(Shell())
     failed = verdict("Trunk attempt 2026-10-30T23:10:00Z failed: TEST_RUN_REQUIRED_STATUS_FAILED (verification v1); inspect its verification and push a fix or explicitly name this PR with --flake")
     assert queue.blocker(failed, {"20"}, False) == merge_queue.Blocker(failed["detail"], False)
@@ -216,7 +216,7 @@ def test_legacy_dequeue_retains_its_existing_exit_one_contract():
 
 
 def test_a_tls_handshake_timeout_reaching_trunk_is_retried_instead_of_failing_the_check():
-    """Root #222205: ci trunk TLS handshake timeouts under load read as GATE-FAILED with no retry."""
+    """Coordinator #222205: ci trunk TLS handshake timeouts under load read as GATE-FAILED with no retry."""
     timeout = done(err='stack-enqueue failed: ci trunk: Get "https://api.trunk.io/v2/merge-queues?limit=100": net/http: TLS handshake timeout\n', code=5)
     shell = Shell(timeout, done("#10 GREEN aaaa111111 Trunk notSubmitted\nwould enqueue native stack through #10: #10\n"))
     gate = adapter(shell).check(["10"], False, {}, False)

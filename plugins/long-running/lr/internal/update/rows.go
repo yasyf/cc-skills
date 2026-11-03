@@ -307,7 +307,7 @@ func (v view) workOf(lanes []string) work {
 	var blocks, unblock, wrong []string
 	for _, lane := range on {
 		if wait, found := v.waits[lane]; found {
-			blocks = append(blocks, fmt.Sprintf("%s waits on root's answer to %s #%d since %s: %s", lane, wait.Kind, wait.Seq, pacific(wait.At), clip(wait.Text)))
+			blocks = append(blocks, fmt.Sprintf("%s waits on the coordinator's answer to %s #%d since %s: %s", lane, wait.Kind, wait.Seq, pacific(wait.At), clip(wait.Text)))
 		}
 		if last, found := v.latest[lane]; found {
 			unblock = append(unblock, fmt.Sprintf("%s: %s %s: %s; next record due by %s", lane, last.Kind, pacific(last.At), clip(last.Text), pacific(v.byLane[lane].Heard.Add(store.StaleAfter))))
@@ -315,7 +315,7 @@ func (v view) workOf(lanes []string) work {
 	}
 	if len(unblock) == 0 {
 		if len(on) == 0 {
-			unblock = []string{"nobody is on it, so root starts a lane on it this turn"}
+			unblock = []string{"nobody is on it, so the coordinator starts a lane on it this turn"}
 		}
 		for _, lane := range on {
 			unblock = append(unblock, lane+": no record in a day")
@@ -379,7 +379,7 @@ func (v view) dutyRows() []Row {
 		w := v.workOf([]string{name})
 		if head.State == retired {
 			w.blocks = fmt.Sprintf("%s retired by %s with no successor", name, orWord(head.RetiredBy, "nobody"))
-			w.unblock = fmt.Sprintf("root launches its successor from %s this turn", orWord(head.Brief, "its brief"))
+			w.unblock = fmt.Sprintf("the coordinator launches its successor from %s this turn", orWord(head.Brief, "its brief"))
 		}
 		out = append(out, Row{duty, duty, fmt.Sprintf("%s %s, heard %s", name, head.State, pacificText(head.Heard)), w.who, w.blocks, w.unblock, w.wrong, false})
 	}

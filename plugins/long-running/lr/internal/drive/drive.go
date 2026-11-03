@@ -105,7 +105,7 @@ func Named(name string) (Entry, error) {
 			return entry, nil
 		}
 	}
-	return Entry{}, fmt.Errorf("no drive registry entry for %s names a root session", name)
+	return Entry{}, fmt.Errorf("no drive registry entry for %s names a coordinator session", name)
 }
 
 func Children(parent string) ([]Entry, error) {
