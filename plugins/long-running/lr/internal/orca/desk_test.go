@@ -2105,6 +2105,41 @@ func TestFlushPostsEachEscalationOnceWithItsKindAndWholeMessage(t *testing.T) {
 	}
 }
 
+func TestFlushPostsOneRecordPerClassWithEveryIDInItsBody(t *testing.T) {
+	w := newDeskWorld(t)
+	for _, n := range []string{"1", "2", "3"} {
+		if err := w.desk.escalate("launch:R"+n, "LAUNCH-FAILED", testLane, "R"+n+" never started"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, id := range []string{"msg_a", "msg_b"} {
+		if err := w.desk.escalate(id, "DECIDE", testLane, id+": which way"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	w.step(w.desk.flush)
+	w.step(w.desk.flush)
+	if len(w.posts) != 3 {
+		t.Fatal(w.posts)
+	}
+	failed := w.posts[0]
+	if failed.Kind != kindDefect || failed.Path == "" || !strings.HasPrefix(failed.Text, "LAUNCH-FAILED 3 escalations") {
+		t.Fatal(failed)
+	}
+	body := readBrief(failed.Path)
+	for _, n := range []string{"1", "2", "3"} {
+		wantContains(t, body, "escalation:launch:R"+n+"\nLAUNCH-FAILED launch:R"+n+" "+testLane+": R"+n+" never started")
+	}
+	if w.posts[1].Topic != "msg_a" || w.posts[2].Topic != "msg_b" {
+		t.Fatal(w.posts[1:])
+	}
+	for _, id := range []string{"escalation:launch:R1", "escalation:launch:R2", "escalation:launch:R3"} {
+		if action, err := w.desk.store.Action(deskRunner, id); err != nil || action.Status != incident.ActionCompleted {
+			t.Fatal(id, action, err)
+		}
+	}
+}
+
 func TestAnIncidentClockDefersOutsideNoiseUntilItEnds(t *testing.T) {
 	w := newDeskWorld(t)
 	fixedLane(t, w, "api-fix")

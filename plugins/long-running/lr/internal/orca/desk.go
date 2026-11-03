@@ -506,6 +506,8 @@ func (d *Desk) flush(ctx context.Context) error {
 		return err
 	}
 	var failures []string
+	var order []escalationClass
+	classes := map[escalationClass][]incident.Action{}
 	for _, action := range pending {
 		words := strings.Fields(action.Target)
 		to, err := lanes.NoticeTo(d.Registry, strings.TrimSuffix(words[2], ":"))
@@ -524,17 +526,32 @@ func (d *Desk) flush(ctx context.Context) error {
 			}
 			continue
 		}
-		posted, err := d.postEscalation(ctx, action.Target, to, action.ActionID)
+		class := escalationClass{words[0], to}
+		if words[0] == "DECIDE" {
+			class.label = action.ActionID
+		}
+		if classes[class] == nil {
+			order = append(order, class)
+		}
+		classes[class] = append(classes[class], action)
+	}
+	for _, class := range order {
+		actions := classes[class]
+		posted, err := d.postClass(ctx, actions, class.to)
 		if err != nil {
 			failures = append(failures, err.Error())
 			continue
 		}
 		if _, err := d.attempt(deskRunner, func(tx *incident.Tx) error {
-			if _, err := tx.StartBy(action.ActionID, d.Now(), time.Time{}, ""); err != nil {
-				return err
+			for _, action := range actions {
+				if _, err := tx.StartBy(action.ActionID, d.Now(), time.Time{}, ""); err != nil {
+					return err
+				}
+				if _, err := tx.Complete(action.ActionID, map[string]any{"at": d.stamp(), "posted": seqReceipt(posted.Seq)}, ""); err != nil {
+					return err
+				}
 			}
-			_, err := tx.Complete(action.ActionID, map[string]any{"at": d.stamp(), "posted": seqReceipt(posted.Seq)}, "")
-			return err
+			return nil
 		}); err != nil {
 			return err
 		}
@@ -543,6 +560,28 @@ func (d *Desk) flush(ctx context.Context) error {
 		fmt.Fprintf(d.Stderr, "%d escalation(s) left for the next pass; %.300s\n", len(failures), failures[0])
 	}
 	return nil
+}
+
+type escalationClass struct{ label, to string }
+
+func (d *Desk) postClass(ctx context.Context, actions []incident.Action, to string) (client.Record, error) {
+	if len(actions) == 1 {
+		return d.postEscalation(ctx, actions[0].Target, to, actions[0].ActionID)
+	}
+	label := strings.Fields(actions[0].Target)[0]
+	ids := make([]string, len(actions))
+	lines := make([]string, len(actions))
+	for i, action := range actions {
+		message, err := os.ReadFile(d.messageFile(strings.Fields(action.Target)[1]))
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return client.Record{}, err
+		}
+		ids[i] = action.ActionID
+		lines[i] = strings.TrimSpace(action.ActionID + "\n" + action.Target + "\n" + string(message))
+	}
+	sum := sha256.Sum256([]byte(strings.Join(ids, "\n")))
+	key := escalationPref + "class:" + label + ":" + hex.EncodeToString(sum[:])[:16]
+	return d.post(ctx, deskPost{Kind: escalationKind(label), Text: fmt.Sprintf("%s %d escalations; the body names each id and its line", label, len(actions)), To: to, Topic: strings.ToLower(label), Key: key, Message: strings.Join(lines, "\n\n"), ID: key})
 }
 
 func (d *Desk) deferredIDs() ([]string, error) {
