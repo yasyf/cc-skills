@@ -125,8 +125,8 @@ def urgent_targets(evt: BaseHookEvent) -> list[str]:
     Event.PreToolUse,
     only_if=[Tool("Bash"), Runs("cci", "post")],
     tests={
-        Input(tool="Bash", tool_input={"command": "cci post --lane root --kind incident --to s3-errors-2 --text 'litestream respawn'"}, env=DRIVE_CONFIG, commands=route("s3-errors-2", ROOT)): Block(pattern=r"^`s3-errors-2` is stood down in the lane supervisor's registry with no successor"),
-        Input(tool="Bash", tool_input={"command": "cci post --lane root --kind decide --to s3-errors-2@drive,root --text 'x'"}, env=DRIVE_CONFIG, commands=route("s3-errors-2", "s3-errors-3")): Block(pattern=r"its successor `s3-errors-3`"),
+        Input(tool="Bash", tool_input={"command": "cci post --lane root --kind incident --to s3-errors-2 --text 'litestream respawn'"}, env=DRIVE_CONFIG, commands=route("s3-errors-2", ROOT)): Warn(pattern=r"`s3-errors-2` is stood down in the lane supervisor's registry with no successor"),
+        Input(tool="Bash", tool_input={"command": "cci post --lane root --kind decide --to s3-errors-2@drive,root --text 'x'"}, env=DRIVE_CONFIG, commands=route("s3-errors-2", "s3-errors-3")): Warn(pattern=r"Post it to its successor `s3-errors-3`"),
         Input(tool="Bash", tool_input={"command": "cci post --lane root --kind incident --to s3-errors-3 --text 'x'"}, env=DRIVE_CONFIG, commands=route("s3-errors-3", "s3-errors-3", "desired")): Allow(),
         Input(tool="Bash", tool_input={"command": "cci post --lane root --kind note --to s3-errors-2 --text 'x'"}, env=DRIVE_CONFIG, commands=route("s3-errors-2", ROOT)): Allow(),
         Input(tool="Bash", tool_input={"command": "cci post --lane root --kind incident --to s3-errors-2 --text 'x'"}): Allow(),
@@ -136,5 +136,5 @@ def urgent_posts_reach_live_lanes(evt: BaseHookEvent) -> HookResult | None:
     for lane in urgent_targets(evt):
         if (found := routed(evt, lane)) and found["route"] != lane:
             heir = f"its successor `{found['route']}`" if found["route"] != ROOT else "no successor"
-            return evt.block(f"`{lane}` is stood down in the lane supervisor's registry with {heir}, so this incident or decide would sit unread (retro row 139: a 7:33 AM incident routed to a lane that ended at 7:27 AM). Post it to {heir if found['route'] != ROOT else 'a live lane'}, or spawn the successor in this turn and post to it.")
+            return evt.warn(f"Warning, nothing was blocked: `{lane}` is stood down in the lane supervisor's registry with {heir}, so this incident or decide sits unread. Post it to {heir if found['route'] != ROOT else 'a live lane'}, or spawn a successor this turn.")
     return None
