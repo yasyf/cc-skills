@@ -47,6 +47,12 @@ type Link struct {
 	URL   string `json:"url"`
 }
 
+type Build struct {
+	Repo   string `json:"repo,omitempty"`
+	Branch string `json:"branch,omitempty"`
+	None   string `json:"none,omitempty"`
+}
+
 type Reply struct {
 	ID          string   `json:"id"`
 	Title       string   `json:"title"`
@@ -54,6 +60,7 @@ type Reply struct {
 	Status      string   `json:"status,omitempty"`
 	Picks       []string `json:"picks,omitempty"`
 	Recommended string   `json:"recommended,omitempty"`
+	Build       *Build   `json:"build,omitempty"`
 	Links       []Link   `json:"links,omitempty"`
 	PRs         []string `json:"prs,omitempty"`
 }
@@ -97,6 +104,8 @@ func (r Reply) check() error {
 		return errors.New("recommended names one of picks, and this reply has none")
 	case len(r.Picks) > 0 && !slices.Contains(r.Picks, r.Recommended):
 		return fmt.Errorf("recommended %q is not one of picks", r.Recommended)
+	case r.Build != nil && r.Recommended == "":
+		return errors.New("build names what the recommended pick is built on, and this reply recommends none")
 	case len(slices.Compact(slices.Sorted(slices.Values(r.Picks)))) != len(r.Picks):
 		return errors.New("each pick is a different answer")
 	case len(r.Links) > maxLinks:
@@ -128,8 +137,14 @@ func (r Reply) markdown() string {
 		lines = append(lines, "")
 	}
 	for _, pick := range r.Picks {
-		if pick == r.Recommended {
+		switch {
+		case pick != r.Recommended:
+		case r.Build == nil:
 			pick += " (recommended)"
+		case r.Build.None != "":
+			pick += " (recommended; nothing to build: " + r.Build.None + ")"
+		default:
+			pick += " (recommended; built on " + r.Build.Repo + " " + r.Build.Branch + ")"
 		}
 		lines = append(lines, "- "+pick)
 	}
@@ -155,6 +170,9 @@ func (f Fanout) board(ctx context.Context, r Reply, _ []Outcome) []Outcome {
 		options[n] = map[string]any{"id": fmt.Sprintf("%s-%d", r.ID, n+1), "label": pick}
 		if pick == r.Recommended {
 			options[n]["recommended"] = true
+			if r.Build != nil {
+				options[n]["build"] = r.Build
+			}
 		}
 	}
 	prose := strings.TrimSpace(r.MD)

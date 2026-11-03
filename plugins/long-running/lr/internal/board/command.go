@@ -371,6 +371,25 @@ func cardsCommand(cards func() (Cards, func(), error), judge Judge) *cobra.Comma
 			}
 			return nil
 		},
+	}, &cobra.Command{
+		Use:   "drawn CARD...",
+		Short: "Print when each card was first drawn, stamping now for a card never drawn or drawn again after its withdrawal",
+		Args:  cobra.MinimumNArgs(1),
+		RunE: func(c *cobra.Command, args []string) error {
+			board, done, err := cards()
+			if err != nil {
+				return err
+			}
+			defer done()
+			drawn, err := board.Drawn(c.Context(), args)
+			if err != nil {
+				return err
+			}
+			for _, card := range args {
+				fmt.Fprintln(c.OutOrStdout(), card, stamp(drawn[card]))
+			}
+			return nil
+		},
 	}, sweep, recheck)
 	return cmd
 }

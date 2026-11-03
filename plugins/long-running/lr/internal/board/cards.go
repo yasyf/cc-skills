@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -95,21 +96,30 @@ func (c Cards) ledgerID(ctx context.Context) (string, error) {
 	return state.Ledger, os.Rename(scratch, path)
 }
 
-func (c Cards) ends(ctx context.Context) (map[string]map[string]string, error) {
+func (c Cards) rows(ctx context.Context) (string, map[string]map[string]string, error) {
 	id, err := c.ledgerID(ctx)
 	if err != nil {
-		return nil, err
+		return "", nil, err
 	}
 	rows, err := c.Ledger.Rows(ctx, id)
 	if err != nil {
-		return nil, err
+		return "", nil, err
 	}
 	known := map[string]map[string]string{}
 	for _, row := range rows {
-		if strings.HasPrefix(row.Key, cardPrefix) && row.Fields["withdrawn"] == "" {
+		if strings.HasPrefix(row.Key, cardPrefix) {
 			known[strings.TrimPrefix(row.Key, cardPrefix)] = row.Fields
 		}
 	}
+	return id, known, nil
+}
+
+func (c Cards) ends(ctx context.Context) (map[string]map[string]string, error) {
+	_, known, err := c.rows(ctx)
+	if err != nil {
+		return nil, err
+	}
+	maps.DeleteFunc(known, func(_ string, fields map[string]string) bool { return fields["withdrawn"] != "" })
 	return known, nil
 }
 
@@ -176,6 +186,32 @@ func (c Cards) Missing(ctx context.Context, named []string) ([]string, error) {
 		_, recorded := known[card]
 		return recorded
 	}), nil
+}
+
+func (c Cards) Drawn(ctx context.Context, named []string) (map[string]time.Time, error) {
+	id, known, err := c.rows(ctx)
+	if err != nil {
+		return nil, err
+	}
+	now := stamp(c.Now())
+	drawn := make(map[string]time.Time, len(named))
+	var fresh []ledger.Row
+	for _, card := range named {
+		at := known[card]["drawn"]
+		if at == "" || known[card]["withdrawn"] > at {
+			at = now
+			fresh = append(fresh, ledger.Row{Key: cardPrefix + card, Fields: map[string]string{"drawn": at}})
+		}
+		parsed, err := time.Parse(stampForm, at)
+		if err != nil {
+			return nil, fmt.Errorf("card %s drawn %q: %w", card, at, err)
+		}
+		drawn[card] = parsed
+	}
+	if len(fresh) == 0 {
+		return drawn, nil
+	}
+	return drawn, c.Ledger.Sync(ctx, id, fresh)
 }
 
 func (c Cards) facts(ctx context.Context, waiting map[string]End) (EndFacts, error) {

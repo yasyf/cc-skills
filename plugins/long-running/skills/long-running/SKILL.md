@@ -442,7 +442,11 @@ he exempted land on a go, nothing new joins them without his word, and the
 never comes back: the tap carries to every later head, and a tapped PR takes no
 behavior change. A stale PR or a draft never reaches his board. Every other owner
 ask is a question card from `drive.py ask-owner` with two to four answers and one
-recommended; a settled question never reaches the board; a card he touched stays
+recommended. The recommended answer is built on a branch as soon as the question is
+asked, with no PR until he answers, so he tries the thing itself. Its option's
+`build` names the branch (`--branch OWNER/NAME:BRANCH`), or `build.none` says why a
+pick such as a process choice has nothing to build. `board_text_gate` refuses a card
+naming neither an hour after its first draw, and a branch he rejects is deleted. A settled question never reaches the board; a card he touched stays
 until he submits the round; nobody calls `AskUserQuestion`, and an urgent yes/no is
 the same card sent to his Slack with `cc-present ask`. A card proposing a change to
 an existing artifact sets its `design`, carrying a screenshot of the live artifact,

@@ -62,6 +62,7 @@ AMENDED = re.compile(r"\[AMENDED [^\]]*\]?")
 RULING_TEXT = re.compile(r"\bAMENDED markers?\b")
 RECHECK_TOPIC = "card-recheck"
 RECHECK_DUE = timedelta(hours=1)
+BUILD_DUE = timedelta(hours=1)
 SWEEP_CADENCE = timedelta(hours=1)
 TEXT = "text"
 REFUSAL = "Warning, nothing was blocked: Owner-facing text passes every check before the owner sees it. Fix each problem below, then run the same command again."
@@ -229,6 +230,25 @@ def unended(reads: Reads, item: Published, found: list[tuple[dict, dict | None]]
     return [f"{card}: no end condition, so nothing takes it down once its event passes; once it is on the board, run `board_cards.py until {card} --until <at:TIME|pr:N|release:STACK@ENV:COMMIT|record:SEQ> --lane <your lane>`, which also records the PRs and register names it rests on" for card in missing or []]
 
 
+def unbuilt(reads: Reads, item: Published, found: list[tuple[dict, dict | None]]) -> list[str]:
+    owed = {
+        card["id"]: option["label"]
+        for block, card in found
+        if card is not None and block["type"] == "choice" and not block.get("multi")
+        for option in block.get("options", [])
+        if option.get("recommended") and not option.get("build")
+    }
+    if not owed:
+        return []
+    drawn = reads.read("the cards' first draws", lambda: ran([sys.executable, str(script("board_cards.py")), "drawn", *owed, *reads.which, "--session", item.session]).splitlines())
+    now = datetime.now(UTC)
+    return [
+        f'{card}: recommends "{owed[card]}" with no branch {int(age.total_seconds() // 60)} minutes after the card was first drawn; build it on a branch and name it on that option as "build": {{"repo": "OWNER/NAME", "branch": "NAME"}}, or give "build": {{"none": "<why it has nothing to build>"}}'
+        for card, at in (line.split() for line in drawn or [])
+        if (age := now - datetime.fromisoformat(at)) >= BUILD_DUE
+    ]
+
+
 def sweep(reads: Reads, *artifacts: Path) -> list[re.Match[str]] | None:
     flags = [arg for artifact in artifacts for arg in ("--artifact", str(artifact))]
     lines = reads.read(f"rulings.py sweep {' '.join(map(str, artifacts)) or 'default'}", lambda: rulings(reads.repo, "sweep", *reads.which, *flags, evt=reads.evt))
@@ -328,6 +348,7 @@ def graded(reads: Reads, item: Published) -> list[str]:
         *titles(found),
         *strikes(item, found, reads),
         *unended(reads, item, found),
+        *unbuilt(reads, item, found),
         *amended(reads, found),
         *(f"{where}: names a deadline with no lane; name the lane that owns it beside the time, as <lane>-<n> or lane=<name>" for where, text in shown(item.doc) if unowned_deadline(text)),
     ]
@@ -410,6 +431,10 @@ def rechecked(minutes: int) -> str:
     return json.dumps({"seq": 9, "lane": "board-refresher-6", "kind": "state", "topic": RECHECK_TOPIC, "at": at, "text": "Card re-check: nothing open answers #7"}) + "\n"
 
 
+def drawn(minutes: int) -> dict[str, str]:
+    return {f"{BOARD_CARDS} drawn": f"share-open {(datetime.now(UTC) - timedelta(minutes=minutes)).strftime('%Y-%m-%dT%H:%M:%SZ')}\n"}
+
+
 def update(name: str, **extra: object) -> Input:
     return posting(f"cc-present update-block {board(name)}", reviewed=(sha12(name),), **extra)
 
@@ -475,6 +500,10 @@ def exits(name: str, **extra: object) -> Input:
         ),
         update("clean-card.json", commands={"cci grep": fidelity(sha12("clean-card.json")) + ruled(90) + rechecked(30)}): Allow(),
         update("clean-card.json", commands={"cci grep": fidelity(sha12("clean-card.json")) + ruled(40)}): Allow(),
+        update("recommended-card.json", commands=drawn(90)): Warn(pattern=r'share-open: recommends "Yes, read-only" with no branch 9\d minutes after the card was first drawn'),
+        update("recommended-card.json", commands=drawn(30)): Allow(),
+        update("recommended-built.json", commands=drawn(90)): Allow(),
+        update("recommended-none.json", commands=drawn(90)): Allow(),
         posting("ls -la"): Allow(),
         posting(f"echo '{PIPED_SECTION}' | cc-present update-block -", reviewed=(hashlib.sha256(f"{PIPED_SECTION}\n".encode()).hexdigest()[:12],)): Allow(),
         posting(f"echo '{PIPED_SECTION}' | cc-present update-block -"): Warn(pattern=r"no fidelity desk review names -"),
