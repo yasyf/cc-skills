@@ -6,7 +6,6 @@ import subprocess
 from pathlib import Path
 
 import inboxes
-import pytest
 from long_running.roster_service import retire
 
 PLUGIN = Path(__file__).resolve().parents[1]
@@ -172,22 +171,6 @@ def test_the_rotate_command_records_a_mark_and_leaves_young_lines(tmp_path):
     assert end == path.stat().st_size
 
 
-@pytest.mark.parametrize("script", [PLUGIN / "skills/long-running/scripts/desk-wait.sh", PLUGIN / "bin/desk-wait.sh"])
-def test_a_desk_wait_cursor_counts_archived_lines(tmp_path, script):
-    path = tmp_path / "landing-desk.md"
-    cursor = tmp_path / "landing-desk.cursor"
-    path.write_text("")
-    rotated(path, "L1 read", "L2 read")
-    cursor.write_text("3\n")
-    append(path, "L3 new")
-
-    result = subprocess.run([str(script), "3", f"{path}={cursor}"], capture_output=True, text=True, timeout=5)
-
-    assert result.returncode == 0, result.stderr
-    assert result.stdout == "L3 new\n"
-    assert cursor.read_text() == "4\n"
-
-
 def roster(teams: Path, team: str, *members: tuple[str, int]) -> None:
     (teams / team).mkdir(parents=True)
     (teams / team / "config.json").write_text(json.dumps({"members": [{"name": name, "joinedAt": at} for name, at in members]}))
@@ -204,14 +187,3 @@ def test_mailbox_names_the_newest_roster_entry_for_the_lane(tmp_path, monkeypatc
         assert inboxes.mailbox_of("desk-3") is None
     finally:
         retire(tmp_path)
-
-
-def test_a_cursor_holding_a_count_and_mailbox_keys_reads_as_either(tmp_path: Path):
-    """p8a-step7 #233982: an older desk-wait.sh wrote a line count, a newer one appended mailbox keys under it, and the next wait died parsing the whole file as a count."""
-    cursor = tmp_path / "mailbox.cursor"
-    cursor.write_text("1\n0f2e6c1a-8b7d-4c3e-9a21-5d4b3c2a1f00\n9c8b7a6f-5e4d-4c3b-8a29-1f0e9d8c7b6a\n")
-
-    assert inboxes.seen_count(cursor) == 1
-    assert inboxes.seen_keys(cursor) == ["0f2e6c1a-8b7d-4c3e-9a21-5d4b3c2a1f00", "9c8b7a6f-5e4d-4c3b-8a29-1f0e9d8c7b6a"]
-    cursor.write_text("0f2e6c1a-8b7d-4c3e-9a21-5d4b3c2a1f00\n")
-    assert inboxes.seen_count(cursor) == 0

@@ -281,7 +281,7 @@ file, up to 150 lines, is allowed.
 foreground loops to a terminal state and report once. Never a Monitor per build.
 
 **R4.** Never re-brief a lane, never answer a duplicate. A `SendMessage` to a
-finished agent re-runs its brief. `desk-wait.sh` marks printed mail read.
+finished agent re-runs its brief. `lr wait` marks printed mail read.
 
 **R5.** Write it down, do not hold it: findings to cc-notes from the lane that
 found them, briefs as attachments on the `briefs: <slug>` log, nothing hand-made

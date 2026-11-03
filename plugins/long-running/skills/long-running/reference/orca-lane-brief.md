@@ -131,10 +131,10 @@ Plan task: register your unit at spawn so the progress record's plan counts incl
 Worktree: <absolute path, exclusive to this lane>. If the launch made it sparse, widen with
   `git sparse-checkout add <dir>` before reading outside it.
   In a repo with tools/hooks/warm-lane.sh, node_modules is a shared symlink farm; never run yarn install, ask warm-lane to rebuild for a changed lockfile.
-Mailbox: `mailbox:<lane>=<cursor file>` in every desk-wait call, <lane> being your own
-  name; desk-wait resolves it from the live team roster. Claude Code delivers your mail
-  only after your turn ends; on `MAILBOX`, act on the text desk-wait prints with it.
-  Run desk-wait as the Bash call itself and never filter or discard its output.
+Mailbox: `mailbox:<lane>=<cursor file>` in every lr wait call, <lane> being your own
+  name; lr wait resolves it from the live team roster. Claude Code delivers your mail
+  only after your turn ends; on `MAILBOX`, act on the text lr wait prints with it.
+  Run lr wait as the Bash call itself and never filter or discard its output.
 Keep record text to one line; `cci post` spills text over 400 characters to a file, posts its first line, and prints the path. Attach a body you wrote with `--path` or `--ccn`. Orient with `cci digest --drive <drive>` when starting a new lane.
 Address `head` and `state` records `--to desk-runner,fidelity-pipeline,finder-desk,landing-desk`, never to root;
   root hears asks, decides, blockers, defects, incidents, corrections and withdraws.
@@ -199,8 +199,8 @@ Bus: cci drive <drive>; CLI cci, on PATH by name.
   Subscribe: --topic <each PR, branch prefix, and contract you own or consume> --kind decision.
   First call on every wake, and before every decision, report, or ask:
     `cci tail --drive <drive> --cursor <name> --reader <name> <subscription>`; act on a message only after reading cci.
-  While running: one Monitor on `cci watch --drive <drive> --cursor <name>-watch --reader <name> <subscription>`,
-    timeout 1800000, re-armed on expiry.
+  While running: wait in the foreground with `lr wait 540 cci:<drive>:<name>` at
+    `timeout: 570000`, rerun on every return; never a `cci watch` Monitor.
   Use `cci post --drive <drive> --lane <name> --kind <kind> --topic <topic> --text "<text>"`:
     a `head` after every push, a `contract` for anything another lane consumes, a
     `decision` another lane could build on, a `blocker` or `ask` addressed `--to` the lane
@@ -271,15 +271,10 @@ apply the answer, cite it, and never put it in an ask or in an owner-question li
 An owner-question list you write marks, for every item, which authorities you checked
 (plan section, durable answer id, memory) and holds only items none of them settles.
 
-Never end a turn without a Monitor on your own messages. Re-arm it after compaction.
-  Poll `orca orchestration check --terminal "$ORCA_TERMINAL_HANDLE" --all --json`
-  every 60 s; dedupe on message id in a seen file and print
-  `NEW <id> <type> <subject>` for each new id. Create the seen file once; keep it
-  across compaction. Run:
-
-  while :; do orca orchestration check --terminal "$ORCA_TERMINAL_HANDLE" --all --json 2>/dev/null | jq -r '.result.messages[]? | "\(.id) \(.type) \(.subject)"' | while read -r id rest; do grep -qx "$id" <seen file> || { echo "$id" >> <seen file>; echo "NEW $id $rest"; }; done; sleep 60; done
-
-Orca messages are pull-only; idle sessions wake only on terminal input or Monitor events.
+Never end a turn waiting, and never loop over `orca orchestration check`: Orca
+  delivers its mail into your terminal, and `lr wait 540 cci:<drive>:<name> -- orca
+  orchestration check --terminal "$ORCA_TERMINAL_HANDLE" --wait --timeout-ms 540000 --json`
+  blocks on Orca's own long poll and on the bus in one foreground call.
 
 Runner actions: every guidance relay names its key and thread id. Before acting,
 send the preamble's status command with your own dispatch and that thread:
@@ -488,7 +483,7 @@ One sequencer lane owns a whole wait-then-do chain and sends one message at the 
 Do:
   1. gh pr edit <n> --repo <repo> --add-label merge
   2. Poll origin/dev for the squash commit "(#<n>)" until it appears or 40 min pass,
-     waiting between polls with `desk-wait.sh 30 mailbox:<lane>=<cursor file>`.
+     waiting between polls with `lr wait 30 mailbox:<lane>=<cursor file>`.
      A queue-merged PR reads state=CLOSED, mergedAt=null; the commit is the truth.
   3. On landing, <the dependent step this chain exists to trigger>.
 Finish: one report - landed sha, dependent step result, or the blocking state.

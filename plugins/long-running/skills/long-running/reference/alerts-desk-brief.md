@@ -4,7 +4,7 @@ The coordinator starts one `alerts-desk` remote beside the landing-desk with `lr
 
 ## Root discipline
 
-**A1. Report monitor transitions, and nothing else.** The desk runs `monitor-watch.py watch --alert-drive <drive>` in the foreground under `desk-wait.sh` over the drive's monitors by tag glob such as `release-target:*` and by named id. It messages the root only on a move into Alert, Warn, or No Data, or a recovery to OK. Each message includes the monitor id, name, transition time, a one-line first read, any `production-operations` entry from the last 24 hours on the monitor's target (SKILL.md R24), and its launch decision. It never messages on an unchanged state or a timer tick, owns no fixes, and posts nothing to Slack.
+**A1. Report monitor transitions, and nothing else.** The desk runs `monitor-watch.py watch --alert-drive <drive>` in the foreground under `lr wait` over the drive's monitors by tag glob such as `release-target:*` and by named id. It messages the root only on a move into Alert, Warn, or No Data, or a recovery to OK. Each message includes the monitor id, name, transition time, a one-line first read, any `production-operations` entry from the last 24 hours on the monitor's target (SKILL.md R24), and its launch decision. It never messages on an unchanged state or a timer tick, owns no fixes, and posts nothing to Slack.
 
 **A2. A run-binding watch proves a new run starts and finishes.** After an apply or release of `executor`, `api`, `runtime-v2`, or `restate-worker`, the watch or bake records a newly bound run, its start, and its completion. Crash and storage health alone cannot pass the watch.
 
@@ -37,7 +37,7 @@ At spawn, run once and report every line it prints as one message:
   python3 <scripts>/monitor-watch.py once --state <state file> \
     $(cat <monitors file>)
 Then run the watch in the foreground, one Bash call with `timeout: 570000`:
-  desk-wait.sh 540 cci:<drive>:alerts-desk mailbox:alerts-desk=<mailbox cursor file> -- \
+  lr wait 540 cci:<drive>:alerts-desk mailbox:alerts-desk=<mailbox cursor file> -- \
     python3 <scripts>/monitor-watch.py watch --state <state file> \
     --alert-drive <drive> $(cat <monitors file>)
   and rerun it on every return. Re-read the monitors file at every rerun. The watch

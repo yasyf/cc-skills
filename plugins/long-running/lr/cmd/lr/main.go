@@ -1,11 +1,13 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/wait"
 )
 
 var (
@@ -38,6 +40,10 @@ func root(a *app.App) *cobra.Command {
 
 func main() {
 	if err := root(app.New(os.Stderr)).Execute(); err != nil {
+		var exit *wait.ExitError
+		if errors.As(err, &exit) {
+			os.Exit(exit.Code)
+		}
 		fmt.Fprintln(os.Stderr, "lr:", err)
 		os.Exit(1)
 	}

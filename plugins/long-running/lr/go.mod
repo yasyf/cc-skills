@@ -5,6 +5,7 @@ go 1.26.5
 toolchain go1.26.10
 
 require (
+	github.com/fsnotify/fsnotify v1.10.1
 	github.com/spf13/cobra v1.10.2
 	github.com/yasyf/cc-inbox v0.49.32-0.20261103054619-702436be2f98
 	modernc.org/sqlite v1.60.1
@@ -14,7 +15,6 @@ require (
 	github.com/brutella/dnssd v1.2.14 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/ebitengine/purego v0.10.1 // indirect
-	github.com/fsnotify/fsnotify v1.10.1 // indirect
 	github.com/go-ole/go-ole v1.2.6 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
