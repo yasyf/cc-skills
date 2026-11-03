@@ -46,6 +46,7 @@ KEPT_REFUSALS = KEPT | {
     "landing_approval.Only the owner changes who approves landin": "trust: a change to who approves landings",
     "lane_rotation.stand_downs_go_through_the_registry": "trust: session protection",
     "lane_slack_status.lanes_post_no_release_status": "a Slack post cannot be unsent, and the Slack permission rule stays (answer 8f1682a)",
+    "lane_landing.hand_landings_meet_the_runner_checks": "card-hand-merge-rule (answer fd9233e): the owner picked a block for a hand landing with no tap at its head, since a merge cannot be recalled",
     "lane_spawns.lanes_never_spawn": "the lane waits inside the Agent call, so a warning lands too late",
     "local_builds.no_local_builds_in_a_drive": "the run already saturates the Mac when a warning lands (answer 7e82747)",
     "merge_own_red.merge_never_lands_past_its_own_red": "a merge cannot be recalled",

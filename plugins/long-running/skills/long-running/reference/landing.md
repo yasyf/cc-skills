@@ -183,7 +183,7 @@ An owner word that approves the whole board, such as "every pending PR on the bo
 
 **Dequeue and hand enqueue.** To take a PR out of the queue, the coordinator posts a `hold` on it: the next pass pulls it and every PR above it and posts `DEQUEUED`, or `DEQUEUE-REFUSED` with what the queue said. Resolving the hold lets it enter again. A queue cancel after a pull reads as that pull, never as an eviction.
 
-A hand `stack-enqueue --dequeue` records nothing and draws a warning naming `cci post --kind hold`. A hand `stack-enqueue` runs `lr landing gate <n>...` by using the `lane_landing` hook, warns on failing checks, and is refused outright on `TAP-REQUIRED`, so never wrap `stack-enqueue` in a custom script.
+A hand `stack-enqueue --dequeue` records nothing and draws a warning naming `cci post --kind hold`. A hand `stack-enqueue` runs `lr landing gate <n>...` by using the `lane_landing` hook and warns on failing checks, so never wrap `stack-enqueue` in a custom script. In a Forge-AI/monorepo drive, every hand landing, whether `gh pr merge`, `ccx vcs merge`, `gh stack merge`, `stack-enqueue`, `ci trunk submit`, or a `merge` label, is blocked when that gate prints `TAP-REQUIRED`, the same tap read the runner makes, so a carried or standing tap counts. The refusal names the PR and head and points to a card asking the owner's tap, or to the runner. `desk-runner`, `merge-train`, and desk landings, an incident lane's plain squash, and merges in other repos such as yasyf/* are not hand landings. A gate that does not read warns, names the failure, and lets the landing through.
 
 ## Five-minute go-to-queue and overflow
 
