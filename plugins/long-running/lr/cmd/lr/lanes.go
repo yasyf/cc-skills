@@ -6,4 +6,5 @@ func init() {
 	register(lanes.Command)
 	register(lanes.RouteCommand)
 	register(lanes.RequestCommand)
+	register(lanes.LaunchCommand)
 }

@@ -41,6 +41,7 @@ A Bash append to `orca-desk.md` in a drive session draws `UNREAD` and the `cci p
 | `version` | Top-level plugin version pin written on the drive's first `run`. A plugin update never moves a running desk. |
 | `alert.facts` | File path whose contents go into each generated brief. The file lists drive checkout, apply authority, target facts, and the drive's deploy inbox for `MECHANISM`, `FIX-LIVE`, and `NOT-OURS` lines. |
 | `incident.case_lanes` | Cap on case lanes launched per incident; default `2`. |
+| `tooling_lane` | Lane told once an hour per cause when a grader pass dies on a tooling error rather than a verdict. Set it to the meta lane, `meta`. |
 | `orca.run` | Orca Run id. Match it to the launch environment. |
 | `orca.desk_inbox` | Required path to the drive's `inbox/orca-desk.md`. Anchors runner logs and state; the runner never reads this file. |
 | `orca.briefs.repo` | Drive checkout path for cc-notes brief attachments. |

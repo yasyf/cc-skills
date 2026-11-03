@@ -23,7 +23,8 @@ Standing orders, fixed in this template:
   - Verification: no local test runs, builds, typechecks or lint; CI grades; a red CI step is read from its log, fixed, and pushed.
   - Any repair pass or backfill runs on in-region EC2, never on
     this Mac.
-  - A tooling failure gets a same-turn tooling lane plus the hand path; it never
+  - A tooling failure goes to the meta lane the same turn, as one `defect` record to
+    root opening `for meta:` with any refusal verbatim, plus the hand path; it never
     stops the fix.
   - No credential is read from any store, file, SSM parameter or environment
     unless the owner's words in this brief name that credential. A mute, an ack

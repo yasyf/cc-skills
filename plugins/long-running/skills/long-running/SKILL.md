@@ -1,6 +1,6 @@
 ---
 name: long-running
-description: How a multi-lane drive runs without a root as its bottleneck. The session the owner types in is the owner bridge; a sibling Orca session bound as lane root is the coordinator that runs the drive; every question has a verb of the drive tool lr; landing, grading, lane liveness, incident spawn, release tracking and owner updates run as processes that reach the coordinator only with a decision to make. Use when orchestrating multi-lane work, driving a CI or infra bring-up, running a migration or audit across many units, supervising background agents or PR landings, tracking more than ten open PRs, landing PRs through a merge queue from many lanes, or on any task that will plainly exceed one context window.
+description: How a multi-lane drive runs without a root as its bottleneck. The session the owner types in is the owner bridge; a sibling Orca session bound as lane root is the coordinator that runs the drive; a standing meta lane takes every skill, tooling and process improvement, and a standing signal lane points the communicator at what matters in the coordinator's feed; every question has a verb of the drive tool lr; landing, grading, lane liveness, incident spawn, release tracking and owner updates run as processes that reach the coordinator only with a decision to make. Use when orchestrating multi-lane work, driving a CI or infra bring-up, running a migration or audit across many units, supervising background agents or PR landings, tracking more than ten open PRs, landing PRs through a merge queue from many lanes, or on any task that will plainly exceed one context window.
 ---
 
 # Long-running orchestration
@@ -18,8 +18,11 @@ The root is two sessions, and the whole skill is built around that split. The
 **coordinator** is a sibling Orca session the bridge launches at drive start,
 bound as lane `root`, and it does the three things a root does: it spawns a lane
 for every ask with a body the turn it arrives, it decides what a process
-escalated, and it relays what the desks produce. Everything else is a verb of the
-drive tool `lr` or a process that runs without either session. A rule here names
+escalated, and it relays what the desks produce. Two standing lanes start beside
+them: the **meta lane** takes every improvement to this skill and its tooling, so the
+coordinator owns drive work only, and the **signal lane** tails the coordinator, so
+the communicator (the owner bridge) never has to. Everything else is a verb of the drive tool `lr` or a
+process that runs without any of them. A rule here names
 the verb or the process that makes a failure impossible; a rule with neither is a
 defect to fix in the pack.
 
@@ -33,7 +36,7 @@ it replaces kept only until each verb goes live
 | Landing and the merge queue, D1 to D22 | [reference/landing.md](reference/landing.md) |
 | Grading heads, landings and plans | [reference/grading-principles.md](reference/grading-principles.md) |
 | The orca runner and Orca workers | [reference/orca-desk-brief.md](reference/orca-desk-brief.md), [reference/orca-workers.md](reference/orca-workers.md) |
-| Writing a lane brief; the coordinator's brief | [reference/orca-lane-brief.md](reference/orca-lane-brief.md), [reference/coordinator-brief.md](reference/coordinator-brief.md) |
+| Writing a lane brief; the briefs of the coordinator, the meta lane and the signal lane | [reference/orca-lane-brief.md](reference/orca-lane-brief.md), [reference/coordinator-brief.md](reference/coordinator-brief.md), [reference/meta-lane-brief.md](reference/meta-lane-brief.md), [reference/signal-lane-brief.md](reference/signal-lane-brief.md) |
 | cci records and the lane bus | [reference/bus-contracts.md](reference/bus-contracts.md) |
 | Incidents, releases, Slack | [reference/active-alert-brief.md](reference/active-alert-brief.md), [reference/release-lanes.md](reference/release-lanes.md), [reference/slack-lane-brief.md](reference/slack-lane-brief.md) |
 | Owner rulings, the register, judges | [reference/owner-rulings.md](reference/owner-rulings.md) |
@@ -56,13 +59,13 @@ single-lane investigation is one subagent in direct mode, not a drive.
   earlier. Before acting on one, read the register's rows on that subject.
 - An owner repeat is a defect report about the first reading: fix every place
   the earlier reading survived, that turn.
-- A tooling refusal is fixed forward in a side lane the same turn, never an excuse
-  and never a question for the owner.
+- A tooling refusal goes to the meta lane the same turn and the work proceeds on the
+  hand path; it is never an excuse and never a question for the owner.
 - Hooks warn. They block only on trust: a merge without the owner's approval, a
   change to who approves landings, a revert without his word, hook-file edits and
   the session-protection guards.
 
-## Phase 0: the two sessions
+## Phase 0: the standing sessions
 
 **Binding.** Every session of a drive is bound to one lane name, and every hook,
 stop check, injection and cci delivery keys on that binding and nothing else. The
@@ -75,7 +78,7 @@ from cci's binding of the window's root thread, reread at session start and afte
 each `cci announce`, `subscribe` or `drive use`. The bridge keeps only its own
 set: the hooks that record the owner's words and picks and the ones that check
 what it asks and tells him. A window bound to no lane, a drive that never split, gets
-both sets. A lane's window is bound to its lane name and gets the lane hooks. Hooks are window-scoped,
+both sets. A lane's window, the meta and signal lanes' included, is bound to its lane name and gets the lane hooks. Hooks are window-scoped,
 so the coordinator is never an in-process subagent of the bridge: it is a sibling
 Orca session, launched by the bridge, that the bridge never `SendMessage`s and that
 never `SendMessage`s the bridge. The bus is the only channel between them, because
@@ -87,6 +90,9 @@ time from `date`. It appends his words verbatim to the drive's rulings file and
 posts them to the coordinator as one
 `cci post --lane owner-relay --kind ask --to root` per message or batch, so the
 coordinator reads them at its next tool call and its thought is never interrupted.
+A message about the skill, its tooling, a prompt, a hook or the process goes to the
+meta lane instead, verbatim, as `--kind ask --to meta`, and so does a tooling defect the
+coordinator reports.
 It is the drive's presentation layer: it reads what the coordinator addresses to it
 (`--kind report --to owner-relay`) the moment it arrives and synthesizes what he
 would want from it, and it never forwards the coordinator's text as written. Only
@@ -97,9 +103,9 @@ the human layer before the agent layer
 one generator (`lr update render`) feeds both from the same rows, run by its one
 standing helper `update-desk`, in the format the owner's words on updates, work
 tracking and blockers set ([owner-report-table.md](reference/owner-report-table.md),
-[owner-bridge-brief.md](reference/owner-bridge-brief.md)). The bridge talks only to
-the coordinator and to helpers it spawned itself for its own work; it never addresses the coordinator's children, and it posts no `go`, `hold`,
-`decide` or `launch`. Every owner message lands in the bridge's message ledger as it
+[owner-bridge-brief.md](reference/owner-bridge-brief.md)). The communicator talks only to
+the coordinator, the meta and signal lanes and helpers it spawned itself for its own work; it never addresses the coordinator's children or the meta lane's, and beyond
+the three launches at drive start it posts no `go`, `hold`, `decide` or `launch`. Every owner message lands in the bridge's message ledger as it
 arrives, and the bridge's turn cannot end while a row is not marked responded or
 addressed (`lr owner mark <id>`). The bridge also proposes: when what it relays shows
 a structural fault, such as PRs queued behind one coordinator decision, it brings him
@@ -116,7 +122,12 @@ must see is a `report` to `owner-relay`. Its records are for machines and the co
 terse, jargon-heavy, ids and lane names included, in no format it owes anyone. The
 same holds for a lane's records to it. When it dies the supervisor relaunches it
 from its brief and newest handoff like any lane, and the bridge keeps answering the
-owner meanwhile. It decides five things and nothing else:
+owner meanwhile. It owns drive work only: it never takes a skill, tooling, prompt, hook
+or process improvement and never spawns a lane for one. Its one duty there is to report a
+tooling defect that it or a lane hits, as
+`cci post --lane root --kind report --to owner-relay --text 'for meta: <the defect, any refusal verbatim>'`,
+which the communicator forwards to the meta lane, and to keep the work moving on the hand
+path meanwhile. It decides five things and nothing else:
 
 1. **A new ask gets a lane** the turn it arrives, with a ledger row and a task
    (R6, R8). A lane holding more than two unstarted items is split.
@@ -140,8 +151,25 @@ waits are each a defect the hooks name, and so is a queue of PRs waiting on one 
 its decisions: a decision the owner's picks already settle moves to a package that
 applies them by rule, and one they do not settle is his, on the board. Every escalation target, brief, template,
 handoff, task list, incident checklist and dashboard in the pack names the
-coordinator where it once named the root, and names `owner-relay` where the owner
-must see something.
+coordinator where it once named the root, names `owner-relay` where the owner
+must see something, and names the meta lane where a skill or tooling fix is owed.
+
+**The meta lane** is a standing session the communicator launches at drive start from
+[meta-lane-brief.md](reference/meta-lane-brief.md), bound to its own lane `meta`,
+neither `root` nor `owner-relay`. Every skill, tooling, prompt, hook and process
+improvement goes there, and so does every meta order the owner sends. It reports only to
+the communicator and never addresses the coordinator; when the coordinator must act, it
+says so and the communicator relays it. It keeps `<state dir>/meta/items.md`, one row per item: the
+item, the owner's words with their time, the lane, the state, the PR, and what blocks it
+or comes next. The communicator reads only that file for meta items in the owner's updates. The
+meta lane launches one implementer per item, and each item ends in a merged PR with tests,
+installed by the drive's one installer (R14).
+
+**The signal lane** is a standing Sonnet session the communicator launches at drive start from
+[signal-lane-brief.md](reference/signal-lane-brief.md), bound to its own lane `signal`.
+It tails the coordinator's whole cci feed and posts the communicator pointers to it, seqs and
+transcript offsets, never summaries. The communicator reads what they point at and does the
+synthesis.
 
 ## Ask the verb, never read
 
@@ -179,8 +207,8 @@ ask, and on a lane's records piped through `tail` or `grep`.
 | The handoff (`lr handoff generate`) | The pre-compaction doc with the lane registry and the rendered update | Nothing but the coordinator's own narrative |
 
 A mechanism that does not run is a defect of the drive, never a chore for a root.
-When either session does a row's work by hand, that turn's deliverable is the fix
-to the process (R14).
+When either session does a row's work by hand, it sends the defect to the meta lane
+that turn (R14).
 
 ## The rules
 
@@ -248,7 +276,8 @@ deadline; a red with no live owner gets a lane.
 
 **R14.** A process fix is a PR the turn it is adopted, driven to merge, release
 and install by its lane, proven on the record that reported the defect. A tooling
-defect, refusal or repeated chore gets a tooling lane that turn. One lane installs
+defect, refusal or repeated chore goes to the meta lane that turn, which gives it an
+implementer; the coordinator never spawns one. One lane installs
 per night, at `drive.py digest --quiet-point`. No new Python enters the pack; a fix
 to a Python script is a Go verb.
 
@@ -299,10 +328,14 @@ or desk is `long-running:lane`; a lane that posts to Slack is `general-purpose` 
 opus. Implementation lanes run on Sprites. A brief whose duty the drive keeps for
 good carries `Standing: <duty>`. A lane never spawns with `Agent`; it writes the
 brief and posts `cci post --kind ask --to root --text 'spawn <name> brief=<path> model=<model>'`.
+The meta lane, which never addresses root, launches its own implementers with
+`desk-launch.py lane <name> opus xhigh <brief> --lane meta`.
 
 | Desk or lane | Does | Brief |
 |---|---|---|
-| Coordinator | Everything in [Phase 0](#phase-0-the-two-sessions) | [coordinator-brief.md](reference/coordinator-brief.md) |
+| Coordinator | Everything in [Phase 0](#phase-0-the-standing-sessions) | [coordinator-brief.md](reference/coordinator-brief.md) |
+| Meta lane, the communicator's | Every skill, tooling, prompt, hook and process improvement, and every meta order the owner sends; `items.md`; one implementer per item | [meta-lane-brief.md](reference/meta-lane-brief.md) |
+| Signal lane, the communicator's | Tails the coordinator's feed and posts the communicator pointers, never summaries | [signal-lane-brief.md](reference/signal-lane-brief.md) |
 | Landing runner and `landing-desk` | The merge queue, lane reports, the ledger | [landing.md](reference/landing.md), [landing-desk-brief.md](reference/landing-desk-brief.md) |
 | Orca runner | Launches and relays to Orca workers, starts grading jobs | [orca-desk-brief.md](reference/orca-desk-brief.md) |
 | Lane supervisor | Liveness, relaunch, rotation, standing duties, alert launch, landed-not-live | [watchers.md](reference/watchers.md) |
@@ -336,7 +369,8 @@ Lane messages, decisions, heads, contracts, blockers and asks live on cci. Lane
 liveness, PRs and standing duties live in the supervisor's registry. Owner asks,
 PR rows, holds and landings live in the ledger. Findings, notes, docs and logs live
 in cc-notes, standing owner rules in the register doc, production operations in
-the `production-operations` log, progress and handoffs in generated progress docs.
+the `production-operations` log, progress and handoffs in generated progress docs,
+and meta items in the meta lane's `items.md`.
 The task list is the coordinator's: it runs `TaskCreate` the turn it spawns a lane
 or an ask arrives, completes a task only after consuming the deliverable, and
 reconciles the list against the registry at every handoff.
@@ -345,21 +379,31 @@ reconciles the list against the registry at every handoff.
 
 ```sh
 LEDGER=$(ledger.py init --title "desk: $DRIVE")
-drive.py start --ledger "$LEDGER" [--orca-run <run>] [--state-dir ~/.claude/scratch/<slug>] [--program <plan slug>]
+drive.py start --ledger "$LEDGER" --orca-run <run> [--state-dir ~/.claude/scratch/<slug>] [--program <plan slug>]
 cci subscribe --drive <drive> --reader owner-relay --kind report,ask
 drive_supervisor.py install --config <state dir>/lr.json
-lr coordinator start   # today: desk-launch.py lane root opus xhigh <state dir>/root/brief.md
+export LR_CONFIG=<state dir>/lr.json
+lr launch coordinator <state dir>/root/brief.md
+lr launch meta <state dir>/meta/brief.md
+lr launch signal <state dir>/signal/brief.md
 ```
 
-The bridge launches the coordinator as a sibling Orca session bound as lane `root`
-from [reference/coordinator-brief.md](reference/coordinator-brief.md); the
-coordinator runs its own subscribe line (R9), starts the orca runner before the
+| Session | Lane | Model and effort | Brief |
+|---|---|---|---|
+| `coordinator` | `root` | `opus xhigh` | [coordinator-brief.md](reference/coordinator-brief.md) |
+| `meta` | `meta` | `opus xhigh` | [meta-lane-brief.md](reference/meta-lane-brief.md) |
+| `signal` | `signal` | `sonnet low` | [signal-lane-brief.md](reference/signal-lane-brief.md) |
+
+The communicator fills each brief, then launches the three as sibling Orca sessions, each
+bound to its own lane. `lr launch` posts to the orca runner when one is up and otherwise
+launches from the communicator's terminal, which coordinates the Run, since the coordinator
+has not started a runner yet. The coordinator runs its own subscribe line (R9), starts the orca runner before the
 first Orca worker, the landing desk and runner before any lane opens a PR, and the
 standing desks each with a `Standing:` line. Every lane registers its branch prefix
 at spawn with `ledger.py register`.
 
-A resumed bridge joins with `drive.py start --drive <id> --ledger <id>` and checks
-the coordinator with `lr lanes root`. A resumed or relaunched coordinator catches
+A resumed communicator joins with `drive.py start --drive <id> --ledger <id>` and checks
+the three with `lr lanes root meta signal`. A resumed or relaunched coordinator catches
 up with `cci digest`, `cci tail --cursor root` and `lr lanes`, and after a
 compaction answers every unresolved record from
 `cci tail --since <seq> --reader root --kind decide,ask,blocker,hold,incident`
@@ -372,10 +416,11 @@ is read by every installed version.
 Is there a verb for this? Run it. Does it have a body? Spawn the lane with its task
 and ledger row. Is it a wait? Fold it into the lane that acts. Is it status? The communicator
 sends the update desk's render; the coordinator sends nothing. Is it an owner message? The communicator
-records the words and queues them; the coordinator applies the ruling everywhere.
+records the words and queues them; the coordinator applies the ruling everywhere, and
+a meta order goes to the meta lane.
 Is it an alert the supervisor has not answered? `lr incident open` and `run` now.
-Did a tool refuse, or did something go wrong twice? The fix is this turn's
-deliverable, in Go. Am I about to approve, hold, start or cancel something? The
+Did a tool refuse, or did something go wrong twice? It goes to the meta lane this
+turn, where the fix is a Go verb, and the work proceeds. Am I about to approve, hold, start or cancel something? The
 owner's order carries it or a lane owns it. Finished agents stopped, production
 operations logged, nothing called done that is not live and checked.
 
