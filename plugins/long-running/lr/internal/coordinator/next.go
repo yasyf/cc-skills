@@ -1,19 +1,17 @@
 package coordinator
 
 import (
-	"bufio"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 )
@@ -22,8 +20,6 @@ const (
 	defaultEvery = 5 * time.Minute
 	longestWait  = 570 * time.Second
 	settle       = 2 * time.Second
-	killGrace    = 5 * time.Second
-	maxRecord    = 16 << 20
 	bodyShown    = 4000
 	cutMark      = "…"
 	stallWatch   = "stall-watch"
@@ -40,17 +36,17 @@ func mustZone(name string) *time.Location {
 }
 
 type record struct {
-	Seq   int64     `json:"seq"`
-	Lane  string    `json:"lane"`
-	Kind  string    `json:"kind"`
-	At    time.Time `json:"at"`
-	Text  string    `json:"text"`
-	Topic string    `json:"topic"`
-	To    []string  `json:"to"`
-	Re    int64     `json:"re"`
+	Seq   int64
+	Lane  string
+	Kind  string
+	At    time.Time
+	Text  string
+	Topic string
+	To    []string
+	Re    int64
 	Refs  struct {
-		Path string `json:"path"`
-	} `json:"refs"`
+		Path string
+	}
 }
 
 func Command(*app.App) *cobra.Command {
@@ -71,7 +67,7 @@ func nextCommand() *cobra.Command {
 		Short: "Block until the coordinator's next batch of records is due, print it, and advance its cursor",
 		Long: `Block until the coordinator's next batch of records is due, print it, and advance its cursor.
 
-The batch closes every --every. Anything from the communicator, an incident, a mechanism, a fix-live or an urgent closes it at once. A stall-watch urgent waits for the window, and repeats of one stall-watch alarm print as one line. A window with no records keeps waiting, for at most 570 s, so one Bash call of 590000 ms always covers it.`,
+Every kind addressed to the coordinator prints, holds first. The batch closes every --every. Anything from the communicator, an incident, a mechanism, a fix-live or an urgent closes it at once. A stall-watch urgent waits for the window, and repeats of one stall-watch alarm print as one line. A window with no records keeps waiting, for at most 570 s, so one Bash call of 590000 ms always covers it.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			since, err := readCursor(cursor)
@@ -80,10 +76,7 @@ The batch closes every --every. Anything from the communicator, an incident, a m
 			}
 			ctx, stop := context.WithCancel(cmd.Context())
 			defer stop()
-			records, failure, err := follow(ctx, driveName, since)
-			if err != nil {
-				return err
-			}
+			records, failure := follow(ctx, driveName, since)
 			batch := collect(ctx, records, every, longestWait, settle)
 			stop()
 			printBatch(cmd.OutOrStdout(), batch)
@@ -119,51 +112,27 @@ func saveCursor(path string, batch []record) error {
 	return os.WriteFile(path, []byte(strconv.FormatInt(batch[len(batch)-1].Seq, 10)+"\n"), 0o600)
 }
 
-func follow(ctx context.Context, driveName string, since int64) (<-chan record, <-chan error, error) {
-	argv := []string{"watch", "--drive", driveName, "--reader", lanes.Root, "--kind", "incident", "--json", "--for", (longestWait + time.Minute).String()}
-	if since > 0 {
-		argv = append(argv, "--since", strconv.FormatInt(since, 10))
-	}
-	cmd := exec.CommandContext(ctx, "cci", argv...)
-	cmd.Stderr = os.Stderr
-	cmd.WaitDelay = killGrace
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, nil, err
-	}
-	if err := cmd.Start(); err != nil {
-		return nil, nil, err
-	}
+func follow(ctx context.Context, driveName string, since int64) (<-chan record, <-chan error) {
 	records := make(chan record)
 	failure := make(chan error, 1)
 	go func() {
-		bad := read(ctx, stdout, records)
-		err := cmd.Wait()
+		defer close(records)
+		err := client.Follow(ctx, client.Watch{Drive: driveName, Reader: lanes.Root, After: since, Kinds: []string{"incident"}}, func(r client.Record) error {
+			next := record{Seq: r.Seq, Lane: r.Lane, Kind: string(r.Kind), At: r.At, Text: r.Text, Topic: r.Topic, To: r.To, Re: r.Re}
+			next.Refs.Path = r.Refs.Path
+			select {
+			case records <- next:
+				return nil
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		})
 		if ctx.Err() != nil {
 			err = nil
 		}
-		failure <- errors.Join(bad, err)
-		close(records)
+		failure <- err
 	}()
-	return records, failure, nil
-}
-
-func read(ctx context.Context, stdout io.Reader, records chan<- record) error {
-	lines := bufio.NewScanner(stdout)
-	lines.Buffer(nil, maxRecord)
-	var bad []error
-	for lines.Scan() {
-		var r record
-		if err := json.Unmarshal(lines.Bytes(), &r); err != nil {
-			bad = append(bad, fmt.Errorf("cci watch printed %q: %w", lines.Text(), err))
-			continue
-		}
-		select {
-		case records <- r:
-		case <-ctx.Done():
-		}
-	}
-	return errors.Join(append(bad, lines.Err())...)
+	return records, failure
 }
 
 func collect(ctx context.Context, records <-chan record, every, limit, soon time.Duration) []record {
@@ -239,8 +208,13 @@ func printBatch(w io.Writer, batch []record) {
 		_, _ = fmt.Fprintln(w, "no records; run lr coordinator next again")
 		return
 	}
-	for _, l := range fold(batch) {
-		_, _ = fmt.Fprintln(w, l.render())
+	lines := fold(batch)
+	for _, holds := range []bool{true, false} {
+		for _, l := range lines {
+			if (l.Kind == "hold") == holds {
+				_, _ = fmt.Fprintln(w, l.render())
+			}
+		}
 	}
 }
 
