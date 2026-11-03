@@ -245,6 +245,7 @@ its own; `lr drive sub start` refuses without each fact
 | What waits on the owner | `cci owner-waits --drive <drive>` |
 | Which sub-drives are open and what each still holds | `lr drive sub list` |
 | The state of PRs it must name | `ccx vcs pr status <n1> <n2> ...`, batched |
+| Which PRs the owner approved on the board, and which of them are still open | `lr approved [--since <seq>]`, backfilled verdicts excluded |
 | Every open ask, and what is landed but not live | `lr asks` |
 | The owner update, complete and from sources | `lr update render`, run by the communicator's `update-desk` |
 | What an incident is doing | `lr incident status <slug>` |
