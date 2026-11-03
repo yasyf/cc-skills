@@ -30,17 +30,16 @@ ROUTE = f"{LR} route {GATE_LANE}"
 GREP = "cci grep"
 
 UNGATED = (
-    "GATE5: this release carries sand-next at {sha}, and no record in drive durable-agents-rebuild from switch-drive-1 or its successor"
-    " in the last 12 hours starts `GATE5 PASS <sha>` with that commit. Ask switch-drive-1 for a gate run on {sha},"
-    " or start the release with `--without sand-next`."
+    "GATE5: this release carries sand-next at {sha}, and switch-drive-1 has posted no `GATE5 PASS {sha}` on drive durable-agents-rebuild"
+    " in the last 12 hours. Ask switch-drive-1 for a gate run on {sha}, or start the release with `--without sand-next`."
 )
 UNCHECKABLE = (
     "GATE5: a {what} that carries sand-next names no commit the gate can check against switch-drive-1's `GATE5 PASS <sha>` records."
     " Start it with `--without sand-next`, or start a release that names its commit with `--from <sha>` once switch-drive-1 posts `GATE5 PASS <sha>` for it."
 )
 UNREAD = (
-    "GATE5: this release carries sand-next, and the gate could not read whether switch-drive-1 passed its commit ({why}), so it fails closed."
-    " Fix the read and retry, start the release with `--without sand-next`, or ask switch-drive-1 for a gate run."
+    "GATE5 fails closed: it could not read whether switch-drive-1 passed this sand-next release ({why})."
+    " Fix the read and retry, or start the release with `--without sand-next`."
 )
 NOT_OWNER = "GATE5: {OVERRIDE}={seq} names a record from `{lane}`, and only an owner record from `owner` or `owner-relay` overrides the gate."
 OVERRIDDEN = "GATE5 OVERRIDE: `{command}` carries sand-next without a gate pass, under owner record #{seq}."
@@ -52,11 +51,12 @@ class Unread(Exception):
 
 def read(argv: list[str], cwd: str | None = None) -> str:
     try:
-        return subprocess.run(argv, capture_output=True, text=True, timeout=READ_SECONDS, cwd=cwd, env=dict(reqenv.env_map()), check=True).stdout
-    except subprocess.CalledProcessError as failed:
-        raise Unread(f"`{' '.join(argv[:2])}` exited {failed.returncode}: {failed.stderr.strip()}") from failed
+        done = subprocess.run(argv, capture_output=True, text=True, timeout=READ_SECONDS, cwd=cwd, env=dict(reqenv.env_map()))
     except (OSError, subprocess.TimeoutExpired) as failed:
         raise Unread(f"`{' '.join(argv[:2])}`: {failed}") from failed
+    if done.returncode:
+        raise Unread(f"`{' '.join(argv[:2])}` exited {done.returncode}: {done.stderr.strip()}")
+    return done.stdout
 
 
 def release_flags(args: tuple[str, ...]) -> dict[str, list[str]]:
@@ -125,7 +125,7 @@ def gated(call: Call, cwd: str) -> str | None:
     if call.args[1] == "hotfix" or "green" in flags:
         return UNCHECKABLE.format(what="hotfix" if call.args[1] == "hotfix" else "`--green` release")
     sha = released_commit(flags, cwd)
-    return None if gate_passed(sha) else UNGATED.format(sha=sha)
+    return None if gate_passed(sha) else UNGATED.format(sha=sha[:12])
 
 
 
@@ -153,16 +153,16 @@ def release(command: str, said: str | tuple[int, str] = "", routed: str = GATE_L
         Input(command="tools/ci release start --manual --stack api/plat-usw2-prod --commit dc94738"): Allow(),
         Input(command="tools/ci release hotfix 48885 --without sand-next"): Allow(),
         Input(command="tools/ci release status"): Allow(),
-        release("tools/ci release start sand"): Block(pattern=r"^GATE5: this release carries sand-next at dc94738e5a1f0b2c3d4e5f60718293a4b5c6d7e8, and no record"),
+        release("tools/ci release start sand"): Block(pattern=r"^GATE5: this release carries sand-next at dc94738e5a1f, and switch-drive-1 has posted no"),
         release("./tools/ci release start sand --without sand-next/core-usw2-auto"): Block(pattern=r"Ask switch-drive-1 for a gate run"),
         release("tools/ci release start sand", passes(SHA)): Allow(),
         release("cd /repo && ci release start --targets sand --from dc94738", passes(SHA)): Allow(),
         release("tools/ci release start sand", passes(OTHER)): Block(pattern=r"^GATE5: this release carries sand-next"),
         release("tools/ci release start sand", passes(SHA, "switch-drive-2"), routed="switch-drive-2"): Allow(),
         release("tools/ci release start sand", passes(SHA), routed=ROOT_LANE): Allow(),
-        release("tools/ci release start --manual --stack sand-next/core-usw2-auto", passes(OTHER)): Block(pattern=r"^GATE5: this release carries sand-next at dc94738"),
-        release("tools/ci release start sand", (1, "cci: daemon unavailable")): Block(pattern=r"^GATE5: this release carries sand-next, and the gate could not read[\s\S]*daemon unavailable"),
-        release("tools/ci release start sand", **{"git ls-remote": (128, "fatal: could not read from remote")}): Block(pattern=r"could not read[\s\S]*fails closed"),
+        release("tools/ci release start --manual --stack sand-next/core-usw2-auto", passes(OTHER)): Block(pattern=r"^GATE5: this release carries sand-next at dc94738e5a1f,"),
+        release("tools/ci release start sand", (1, "cci: daemon unavailable")): Block(pattern=r"^GATE5 fails closed: it could not read[\s\S]*daemon unavailable"),
+        release("tools/ci release start sand", **{"git ls-remote": (128, "fatal: could not read from remote")}): Block(pattern=r"^GATE5 fails closed[\s\S]*could not read from remote"),
         release("tools/ci release start sand", env={"CLAUDE_CONFIG_DIR": "/nonexistent"}): Block(pattern=r"no drive durable-agents-rebuild is registered"),
         release("ci release hotfix 48885"): Block(pattern=r"^GATE5: a hotfix that carries sand-next names no commit"),
         release("tools/ci release start sand --green"): Block(pattern=r"^GATE5: a `--green` release"),
