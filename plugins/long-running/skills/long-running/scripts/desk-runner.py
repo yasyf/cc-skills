@@ -457,7 +457,7 @@ later commit running, for one of its components when it names any. Each record c
 `--id release:<pr>:<step>`, so a repost after a crash returns the stored record and no step is posted twice. A record cci refuses,
 or a post that prints no `#<seq>`, is posted again on the next pass and escalated to root as `RELEASE-FAILED`, once per
 `deadlines.release_start_minutes` step. Every landing owes a release of the target its title's scope names, among those
-`<landing.release_cli> live --json` lists: at most every five minutes the runner reads which of the last day's landings each
+`<landing.release_cli> live --json` lists: each pass the runner reads which of the last day's landings each
 target runs none of an hour after landing, posts that set as one `state` record on topic `landed-not-live`, which
 `ledger.py summary` prints, and raises one `LANDED-NOT-LIVE` blocker to root per target, naming the PRs and the
 `<landing.release_cli> start --only <target> --manual` line that ships them; a change in that set resolves the old blocker
@@ -886,7 +886,6 @@ RELEASE_WITH = re.compile(r"^Release-With:[ \t]*(\S.*)$", re.MULTILINE)
 RELEASE_READ = "release-read"
 NOT_LIVE_WINDOW = timedelta(hours=24)
 NOT_LIVE_OWED = timedelta(minutes=60)
-NOT_LIVE_READ_EVERY = timedelta(minutes=5)
 TITLE_SCOPE = re.compile(r"^\s*([\w./-]+):")
 LANDED_READ = "landed-read"
 CARRIED_READ = "carried-read"
@@ -6223,7 +6222,6 @@ class Landing:
         self.reviews_read: dict[str, list[str]] = {}
         self.merge_states: dict[str, tuple[str, str, str]] = {}
         self.rollups: dict[str, tuple[str, str]] = {}
-        self.live_read = datetime.min.replace(tzinfo=timezone.utc)
         self.live_holds: dict[tuple[str, str], bool] = {}
         self.not_live_owed: set[str] | None = None
         self.about: dict[str, int] = {}
@@ -9766,18 +9764,15 @@ class Landing:
         self.release_action_proof = version, tuple(active)
 
     def landed_not_live(self, rows: dict[str, dict]) -> None:
-        """Name each PR that landed between `NOT_LIVE_OWED` and `NOT_LIVE_WINDOW` ago whose release target runs no commit holding its squash, by `<release_cli> live --json` read at most every `NOT_LIVE_READ_EVERY`; a PR's target is the one its title's scope names. Whenever that set changes it posts as one `state` record on topic `landed-not-live`, which `ledger.py summary` prints, and each target in it draws one blocker to root naming its PRs and the release line that ships them, again whenever its set of PRs changes (root #342171: #48353 landed at 2:31 PM, and llm-gateway shipped nothing for three hours)."""
+        """Name each PR that landed between `NOT_LIVE_OWED` and `NOT_LIVE_WINDOW` ago whose release target runs no commit holding its squash, by `<release_cli> live --json` read on each pass that holds such a landing, the read sitting on the side worker; a PR's target is the one its title's scope names. Whenever that set changes it posts as one `state` record on topic `landed-not-live`, which `ledger.py summary` prints, and each target in it draws one blocker to root naming its PRs and the release line that ships them, again whenever its set of PRs changes (root #342171: #48353 landed at 2:31 PM, and llm-gateway shipped nothing for three hours)."""
         now = self.runner.now()
         landed = {pr: (scope[1].lower(), row["landed_sha"], actions.parse_stamp(row["landed_at"])) for pr, row in rows.items() if row.get("state") == "landed" and row.get("landed_sha") and row.get("landed_at") and NOT_LIVE_OWED <= now - actions.parse_stamp(row["landed_at"]) < NOT_LIVE_WINDOW and (scope := TITLE_SCOPE.match(row.get("title", "")))}
-        if now - self.live_read < NOT_LIVE_READ_EVERY:
-            return
         running: dict[str, set[str]] = {}
         if landed:
             if (done := self.shell.run([*self.release_cli, "live", "--json"])).code != 0:
                 return
             for entry in json.loads(done.out):
                 running.setdefault(entry["target"], set()).add(entry["commit"])
-        self.live_read = now
         owed: dict[str, list[str]] = {}
         for pr, (target, sha, _) in sorted(landed.items(), key=lambda item: int(item[0])):
             if target in running and not any(self.live_holds_sha(commit, sha) for commit in running[target]):
