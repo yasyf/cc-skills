@@ -140,3 +140,29 @@ def test_a_fresh_store_acts_on_every_landable_head_in_its_first_pass(store):
 
     assert sorted(f.number for f, v in out.acts if v.action == "enqueue") == list(range(1, 11))
     assert len(store.open_items(REPO)) == 10
+
+
+def test_a_mover_not_yet_cut_over_keeps_its_items_in_the_store_and_silent(store):
+    posts = Posts()
+    run_pass(store, [facts(number=45470, finder="ask"), facts(number=45471, tap=None)], T0, posts, live=frozenset({Mover.SUPERVISOR}))
+    run_pass(store, [facts(number=45470, finder="ask"), facts(number=45471, tap=None)], T0 + timedelta(days=1), posts, live=frozenset({Mover.SUPERVISOR}))
+
+    assert {item.kind for item in store.open_items(REPO)} == {"verdict", "tap"}
+    assert posts == [] and store.escalations() == []
+
+
+def test_a_lane_item_for_a_pr_no_lane_owns_waits_for_its_deadline_to_reach_root(store):
+    posts = Posts()
+    run_pass(store, [facts(number=45470, finder="ask", lane="")], T0, posts)
+    run_pass(store, [facts(number=45470, finder="ask", lane="")], T0 + timedelta(minutes=20), posts)
+
+    assert posts == [("escalation", ("root",), dict(subject=f"{REPO}#45470", cause="verdict overdue"))]
+
+
+def test_an_overdue_enqueue_names_what_the_queue_said(store):
+    posts = Posts()
+    run_pass(store, [facts()], T0, posts)
+    store.put_fact(REPO, 45583, HEAD, "enqueued", "exit 1: #45583 BLOCKED required check pending", T0)
+    run_pass(store, [facts()], T0 + timedelta(minutes=10), posts)
+
+    assert posts == [("escalation", ("root",), dict(subject=f"{REPO}#45583", cause="enqueue overdue; the queue said exit 1: #45583 BLOCKED required check pending"))]

@@ -166,3 +166,12 @@ def test_a_grade_the_finder_posted_as_a_review_line_counts_for_the_full_head_it_
 
     assert (row.finder, row.fidelity, row.cleared) == ("clear", "pass", True)
     assert store.cursor("legacy") == 12
+
+
+def test_a_pr_with_no_head_record_belongs_to_the_lane_the_registry_names():
+    store = Store.memory()
+    store.own("lane-9", [1])
+
+    [row] = facts.assemble(store, REPO, [status(1)], {}, {})
+
+    assert row.lane == "lane-9"

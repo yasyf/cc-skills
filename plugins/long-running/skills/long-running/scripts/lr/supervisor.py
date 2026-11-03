@@ -36,7 +36,8 @@ def audience(verdict: Verdict, facts: Facts) -> str:
     return facts.lane if verdict.mover is Mover.LANE else str(verdict.mover)
 
 
-def run_pass(store: Store, snapshot: Iterable[Facts], now: datetime, post: Post) -> Outcome:
+def run_pass(store: Store, snapshot: Iterable[Facts], now: datetime, post: Post, live: frozenset[Mover] = frozenset(Mover)) -> Outcome:
+    """One pass; items and escalations reach the bus only for the movers in `live`, so a mover not yet cut over keeps its items in the store and silent."""
     out = Outcome()
     now = parse(stamp(now))
     for facts in snapshot:
@@ -50,17 +51,20 @@ def run_pass(store: Store, snapshot: Iterable[Facts], now: datetime, post: Post)
         item = store.open_item(str(verdict.action), facts.repo, facts.number, facts.head, str(verdict.mover), now, verdict.deadline)
         if item.created == now:
             out.opened.append(item)
-            if verdict.mover is not Mover.SUPERVISOR:
+            if verdict.mover is not Mover.SUPERVISOR and verdict.mover in live and audience(verdict, facts):
                 post("item", to=[audience(verdict, facts)], item=item.id, action=str(verdict.action), pr=facts.number, head=facts.head, mover=str(verdict.mover), deadline=stamp(item.deadline))
         if verdict.mover is Mover.SUPERVISOR and verdict.action in SAME_PASS:
             out.acts.append((facts, verdict))
     for item in store.overdue(now):
+        if Mover(item.mover) not in live:
+            continue
         to = ESCALATES_TO[Mover(item.mover)]
-        subject, cause = f"{item.repo}#{item.number}", f"{item.kind} overdue"
+        said = store.facts(item.repo, item.number, item.head).get("enqueued") if item.kind == Action.ENQUEUE else None
+        subject, cause = f"{item.repo}#{item.number}", f"{item.kind} overdue" + (f"; the queue said {said}" if said else "")
         if store.escalate(subject, cause, to, now):
             out.escalated.append((subject, cause, to))
             post("escalation", to=[str(to)], subject=subject, cause=cause)
-    for name in store.stale_workers(now):
+    for name in store.stale_workers(now) if Mover.POOL in live else ():
         out.released[name] = store.release_worker(name)
         subject, cause = f"worker:{name}", "silent 15 minutes"
         if store.escalate(subject, cause, Mover.ROOT, now):

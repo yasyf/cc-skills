@@ -149,3 +149,15 @@ def test_a_pass_whose_sources_do_not_answer_acts_on_nothing():
     [tick] = loop.run(store, "d", "0.8.0", 1, replace(deps(clock, [], queue), snapshot=unread), ticks=1)
 
     assert (tick.prs, tick.enqueued) == (0, 0) and queue.enqueued == []
+
+
+def test_a_queue_that_does_not_answer_stops_the_movers_and_never_the_supervisor():
+    store, clock = Store.memory(), Clock()
+
+    class Down(Queue):
+        def enqueue(self, number, head):
+            raise loop.lanes.Unread("git fetch exited 128")
+
+    ticks = loop.run(store, "d", "0.8.0", 1, deps(clock, [facts(1)], Down()), ticks=2)
+
+    assert [t.prs for t in ticks] == [1, 0] and store.lease("d").generation == 1
