@@ -20,7 +20,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
-const testDrive = "brook"
+const testDrive = "durable-agents-rebuild"
 
 var (
 	t0            = time.Date(2026, 11, 2, 19, 0, 0, 0, time.UTC)
@@ -246,7 +246,7 @@ func TestADownDeskNeverTakesANameAnotherLanePostedUnder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.LaneHeard("red-sweep-3", t0, "note", 7); err != nil {
+	if err := s.LaneHeard("red-sweep-3", t0.Add(-time.Hour), "note", 7); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Close(); err != nil {
@@ -257,6 +257,52 @@ func TestADownDeskNeverTakesANameAnotherLanePostedUnder(t *testing.T) {
 	}
 	if launched := m.lines("desk-launch.py lane red-sweep"); len(launched) != 1 || !strings.HasPrefix(launched[0], "desk-launch.py lane red-sweep-4 ") {
 		t.Fatalf("got %q, want red-sweep-4 launched once", launched)
+	}
+}
+
+func posted(t *testing.T, state, name string, at time.Time, seq int64) {
+	t.Helper()
+	s, err := store.Open(filepath.Join(state, lanes.StoreFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if err := s.LaneHeard(name, at, "report", seq); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestARoleWhoseHolderPostsUnderAnyNameLaunchesNoSecondWriter(t *testing.T) {
+	for _, tc := range []struct {
+		name, holder string
+		state        store.LaneState
+	}{
+		{"its registry row is live", "board-refresher-7", store.LaneDesired},
+		{"its registry row is held while it posts", "board-refresher-7", store.LaneHeld},
+		{"its registry row carries its Orca workspace name", "dar-board-refresher-7", store.LaneRetired},
+		{"it posts with no registry row", "dar-board-refresher-7", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a, m, state := newDrive(t, lanes.Root, everyDesk...)
+			a.Now = func() time.Time { return t0.Add(time.Minute) }
+			wantLane(t, state, "board-refresher-5", recordedBrief(t), store.LaneRetired)
+			wantLane(t, state, "board-refresher-6", recordedBrief(t), store.LaneRetired)
+			if tc.state != "" {
+				wantLane(t, state, tc.holder, recordedBrief(t), tc.state)
+			}
+			posted(t, state, tc.holder, t0.Add(30*time.Second), 360698)
+			var out bytes.Buffer
+			if err := start(context.Background(), a, &out); err != nil {
+				t.Fatal(err)
+			}
+			if launched := m.lines("desk-launch.py lane board-refresher"); len(launched) != 0 {
+				t.Fatalf("launched a second board writer: %q", launched)
+			}
+			want := "board-refresher is up as board-refresher-7, newest record #360698; launching another takes `lr request stand-down board-refresher-7 --successor <lane>` first"
+			if !strings.Contains(out.String(), want) {
+				t.Fatalf("got %q, want %q", out.String(), want)
+			}
+		})
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
@@ -74,7 +75,7 @@ func LivenessRows(s *store.Store) (rows []Liveness, err error) {
 	return rows, nil
 }
 
-func RegistryLines(s *store.Store, names []string) (lines []string, err error) {
+func RegistryLines(s *store.Store, names []string, now time.Time) (lines []string, err error) {
 	defer recovered(&err)
 	for _, lane := range must(s.AllLanes()) {
 		if len(names) > 0 && !slices.Contains(names, lane.Name) {
@@ -82,8 +83,11 @@ func RegistryLines(s *store.Store, names []string) (lines []string, err error) {
 		}
 		var line strings.Builder
 		state := "silent"
-		if isLive(lane.State) {
+		switch {
+		case isLive(lane.State):
 			state = "live"
+		case now.Sub(lane.Heard) < StaleAfter:
+			state = "posting"
 		}
 		heard := "never"
 		if !lane.Heard.IsZero() {

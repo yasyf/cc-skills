@@ -1637,6 +1637,116 @@ func TestAStandingLaneStoodDownForALiveSuccessorRaisesNothing(t *testing.T) {
 	equal(t, row(t, s, "board-refresher-7").State, store.LaneDesired)
 }
 
+func TestAStandDownChainEndsAtTheSuccessorThatPostsUnderAnyName(t *testing.T) {
+	for _, tc := range []struct {
+		name, poster string
+		listed       bool
+	}{
+		{"registered by its lane name", "board-refresher-7", true},
+		{"registered by its Orca workspace name", "dar-board-refresher-7", true},
+		{"posting with no process row", "board-refresher-7", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := memory(t)
+			path := standingBrief(t, "board-refresher-5")
+			f := newFake(t, []Record{spawned(1, "board-refresher-5", path, t0.Add(-3*time.Hour), nil)}, []Row{who("board-refresher-5", true, t0.Add(-2*time.Hour))})
+			f.deps.Drive = "durable-agents-rebuild"
+			tick(t, s, f, t0.Add(-2*time.Hour))
+			f.feed = append(f.feed, ask(2, "stand-down", "board-refresher-5", t0.Add(-time.Hour), nil, "", map[string]string{"successor": "board-refresher-6", "last-read": "1"}))
+			f.peers = []Row{who("board-refresher-6", true, t0.Add(-time.Hour))}
+			tick(t, s, f, t0.Add(-time.Hour))
+			f.feed = append(f.feed, ask(3, "stand-down", "board-refresher-6", t0.Add(-mins(30)), nil, "", map[string]string{"successor": "board-refresher-7", "last-read": "2"}))
+			for i, later := range []int{-29, -15, 0, 15, 30} {
+				at := t0.Add(mins(later))
+				f.feed = append(f.feed, rec(int64(4+i), tc.poster, "report", at, "board pass done", Root))
+				f.peers = nil
+				if tc.listed {
+					f.peers = []Row{who(tc.poster, true, at)}
+				}
+				tick(t, s, f, at)
+			}
+
+			equal(t, row(t, s, "board-refresher-7").State, store.LaneDesired)
+			equal(t, []string{row(t, s, "board-refresher-5").RetiredBy, row(t, s, "board-refresher-6").RetiredBy}, []string{"board-refresher-6", "board-refresher-7"})
+			route, err := Route(s, "board-refresher-5")
+			if err != nil {
+				t.Fatal(err)
+			}
+			equal(t, route, "board-refresher-7")
+			if _, found, err := s.Lane("dar-board-refresher-7"); err != nil || found {
+				t.Fatalf("the Orca workspace name has its own registry row: found=%v err=%v", found, err)
+			}
+			equal(t, len(f.launches), 0)
+			equal(t, len(f.ofKind("blocker")), 0)
+		})
+	}
+}
+
+func TestARootStandDownRetiresOnlyTheLaneItNamesNeverItsSuccessor(t *testing.T) {
+	for _, text := range []string{"stand down conflicts-2, conflicts-3 holds the stacks now", "stand down conflicts-2 for conflicts-3"} {
+		t.Run(text, func(t *testing.T) {
+			s := memory(t)
+			f := adopted(t, s, writeBrief(t), "")
+			f.feed = append(f.feed, ask(2, "stand-down", lane2, t0, nil, "", map[string]string{"successor": "conflicts-3", "last-read": "1"}))
+			f.peers = []Row{who("conflicts-3", true, t0)}
+			tick(t, s, f, t0)
+			f.feed = append(f.feed, rec(3, Root, "stand-down", t0.Add(mins(1)), text))
+
+			tick(t, s, f, t0.Add(mins(2)))
+
+			equal(t, row(t, s, "conflicts-3").State, store.LaneDesired)
+			equal(t, len(f.ofKind("defect")), 0)
+		})
+	}
+}
+
+func TestAStandDownForASuccessorCarriesTheChainPastALaneThatAlreadyStopped(t *testing.T) {
+	s := memory(t)
+	f := adopted(t, s, writeBrief(t), "")
+	f.feed = append(f.feed, rec(2, lane2, "stopped", t0, "stopped on the coordinator's order"), ask(3, "stand-down", lane2, t0.Add(mins(1)), nil, "", map[string]string{"successor": "conflicts-3", "last-read": "2"}))
+	f.peers = []Row{who("conflicts-3", true, t0.Add(mins(1)))}
+
+	tick(t, s, f, t0.Add(mins(2)))
+
+	equal(t, row(t, s, lane2).RetiredBy, "conflicts-3")
+	route, err := Route(s, lane2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	equal(t, route, "conflicts-3")
+}
+
+func TestAStandDownOfARelaunchedLaneKeepsTheSuccessorThatAlreadyPosted(t *testing.T) {
+	s, brief := memory(t), writeBrief(t)
+	f := adopted(t, s, brief, "7d102a9")
+	f.peers = []Row{who(lane2, false, t0.Add(-mins(30)))}
+	tick(t, s, f, t0)
+	equal(t, row(t, s, "conflicts-3").State, store.LaneLaunching)
+	f.feed = append(f.feed, rec(2, "conflicts-3", "report", t0.Add(mins(1)), "picked up the stacks from the handoff"), ask(3, "stand-down", lane2, t0.Add(mins(1)), nil, "", nil))
+
+	tick(t, s, f, t0.Add(mins(2)))
+
+	equal(t, row(t, s, "conflicts-3").State, store.LaneDesired)
+	equal(t, len(f.withdrawn), 0)
+}
+
+func TestARetiredLaneThatStillPostsReadsAsPostingNotSilent(t *testing.T) {
+	s := memory(t)
+	if _, err := s.WantLane(store.Lane{Name: "board-refresher-7", Brief: "/briefs/board-refresher-7.md", State: store.LaneRetired, RetiredBy: Root}, t0.Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.LaneHeard("board-refresher-7", t0.Add(-mins(2)), "report", 360698); err != nil {
+		t.Fatal(err)
+	}
+
+	lines, err := RegistryLines(s, []string{"board-refresher-7"}, t0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	contains(t, lines[0], "board-refresher-7 retired posting heard ")
+}
+
 func TestAStandingLaneDeadWhileItWaitsOnRootReachesRootWithItsBrief(t *testing.T) {
 	s := memory(t)
 	f, _ := standingLane(t, s)
@@ -1697,7 +1807,7 @@ func TestTheLanesVerbAnswersForTheNamedLanesWithTheirNewestRecord(t *testing.T) 
 		t.Fatal(err)
 	}
 
-	lines, err := RegistryLines(s, []string{"gateway-gemini-1", "never-launched-1"})
+	lines, err := RegistryLines(s, []string{"gateway-gemini-1", "never-launched-1"}, t0)
 	if err != nil {
 		t.Fatal(err)
 	}

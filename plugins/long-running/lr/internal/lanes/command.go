@@ -54,13 +54,16 @@ func Command(a *app.App) *cobra.Command {
 			if idle {
 				return idleCensus(cmd, a)
 			}
-			s, _, err := opened(a)
+			s, cfg, err := opened(a)
 			if err != nil {
 				return err
 			}
 			defer func() { _ = s.Close() }()
+			for i := range names {
+				names[i] = Canonical(cfg.Drive, names[i])
+			}
 			if !asJSON {
-				lines, err := RegistryLines(s, names)
+				lines, err := RegistryLines(s, names, a.Now())
 				if err != nil {
 					return err
 				}
@@ -137,7 +140,7 @@ func DoneCheckCommand(a *app.App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			refusal, err := DoneRefusal(s, args[0], (&prReader{env: env, ctx: cmd.Context(), read: map[int]prRead{}}).states)
+			refusal, err := DoneRefusal(s, Canonical(cfg.Drive, args[0]), (&prReader{env: env, ctx: cmd.Context(), read: map[int]prRead{}}).states)
 			if err != nil || refusal == "" {
 				return err
 			}
@@ -153,12 +156,12 @@ func RouteCommand(a *app.App) *cobra.Command {
 		Short: "Where mail for a lane goes: the live end of its successor chain, or the coordinator",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			s, _, err := opened(a)
+			s, cfg, err := opened(a)
 			if err != nil {
 				return err
 			}
 			defer func() { _ = s.Close() }()
-			answer, err := AnswerRoute(s, args[0])
+			answer, err := AnswerRoute(s, Canonical(cfg.Drive, args[0]))
 			if err != nil {
 				return err
 			}
@@ -183,6 +186,7 @@ func RequestCommand(a *app.App) *cobra.Command {
 				return err
 			}
 			defer func() { _ = s.Close() }()
+			request.Lane, request.Successor = Canonical(cfg.Drive, request.Lane), Canonical(cfg.Drive, request.Successor)
 			refusal, err := StandingRefusal(s, request)
 			if err != nil {
 				return err

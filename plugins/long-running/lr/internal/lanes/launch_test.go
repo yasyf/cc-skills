@@ -216,7 +216,7 @@ func TestAStandingLaneLaunchedBeforeItCouldRegisterIsAdoptedAndListedByItsLaneNa
 	equal(t, out.Adopted, []string{"chores"})
 	equal(t, len(f.launches), 0)
 	equal(t, row(t, s, "chores").Brief, brief)
-	lines, err := RegistryLines(s, []string{"chores", "meta", "signal"})
+	lines, err := RegistryLines(s, []string{"chores", "meta", "signal"}, t0)
 	if err != nil {
 		t.Fatal(err)
 	}
