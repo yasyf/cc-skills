@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import re
+import subprocess
+import tempfile
 from pathlib import Path
 
 import lane_brief
@@ -17,6 +19,9 @@ INCIDENT_ANNOTATION = re.compile(r"^ccx:.*\bincident=([\w.-]+)", re.MULTILINE)
 NAMES_NOTHING = "none"
 ROLE = re.compile(r"^ccx:(?:.*[ \t])?role=([\w-]+)", re.MULTILINE)
 FIX_ROLES = frozenset({"fix", INCIDENT_MODEL})
+CCX_KEY = r"^ccx:(?:.*[ \t])?{}(?:\s|$)"
+PLACE = re.compile(CCX_KEY.format("place=(remote|local)"), re.MULTILINE)
+FABLE_MODEL = re.compile(r"(^|[-_.])fable([-_.0-9]|$)", re.IGNORECASE)
 
 
 def brief_incidents(brief: Path) -> set[str]:
@@ -60,11 +65,26 @@ def scale_fault(lane: str, model: str, brief: Path, role: str = "") -> str:
     return lane_brief.no_scale(brief)
 
 
-def preflight_faults(lane: str, model: str, effort: str, now: bool, role: str, brief: Path) -> list[str]:
-    """All of a launch's faults at once, so a brief author fixes every missing line in one round."""
+def mac_pinned(model: str, brief_text: str, fast: bool = False) -> bool:
+    """Whether a launch runs only on the Mac at any load: Fable and the fast and incident routes, which no Sprite starts, and a brief whose author wrote `place=local`."""
+    placed = PLACE.search(brief_text)
+    return bool(FABLE_MODEL.search(model) or model == INCIDENT_MODEL or fast or (placed and placed[1] == "local"))
+
+
+def carry_fault(brief: Path, repo: str) -> str:
+    """Why a Sprite cannot receive a file or ccn entity `brief` names, from the `lr carry` that `worker-launch.sh` runs before it prepares one, or empty."""
+    with tempfile.TemporaryDirectory() as into:
+        done = subprocess.run(["lr", "carry", str(brief), "--into", into, "--box", into, "--repo", repo], capture_output=True, text=True)
+    return done.stderr.strip().removeprefix("lr: ") if done.returncode else ""
+
+
+def preflight_faults(lane: str, model: str, effort: str, now: bool, role: str, brief: Path, repo: str) -> list[str]:
+    """All of a launch's faults at once, so a brief author fixes every missing line, and every reference no Sprite can receive, in one round."""
     faults = launch_faults(lane, model, effort, brief, role)
     if wrong := wrong_lane_fault(lane, model, effort, now, role, brief):
         faults.append(wrong)
     if brief.is_file() and (scale := scale_fault(lane, model, brief, role)):
         faults.append(scale)
+    if brief.is_file() and not mac_pinned(model, brief.read_text()) and (carry := carry_fault(brief, repo)):
+        faults.append(carry)
     return faults

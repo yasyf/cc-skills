@@ -55,7 +55,7 @@ PREPARED = {
     "baseCommit": BASE,
 }
 RECEIPT = {"ok": True, "result": {"runId": RUN, "taskId": "task_a", "dispatchId": "ctx_a", "state": "ready", "stage": "remote_input_accepted"}}
-ALLOCATION_KEPT = ["allocation.json", "prepare.err", "prepare.status", "request.json"]
+ALLOCATION_KEPT = ["allocation.json", "brief.md", "prepare.err", "prepare.status", "request.json"]
 PREPARE_KEPT = sorted([*ALLOCATION_KEPT, "prepared.json"])
 START_KEPT = ["worker-start.err", "worker-start.json", "worker-start.status"]
 SPRITE_KEPT = sorted([*PREPARE_KEPT, "cci-install.log", *START_KEPT])
@@ -80,9 +80,24 @@ sys.stderr.write(reply.get("err", ""))
 sys.exit(reply.get("rc", 0))
 """
 
-def fake(path: Path) -> Path:
+CARRY_NOTHING = """#!/bin/sh
+exec cat "$2"
+"""
+
+CARRY = """#!/usr/bin/env python3
+import os, sys
+args = sys.argv[1:]
+into, box = args[args.index("--into") + 1], args[args.index("--box") + 1]
+for rel, text in (("Users/me/.claude/scratch/plan.md", "the plan\\n"), ("ccn/doc-c3230a2.md", "register rows\\n")):
+    os.makedirs(os.path.dirname(os.path.join(into, rel)), exist_ok=True)
+    open(os.path.join(into, rel), "w").write(text)
+sys.stdout.write(f"Read {box}/Users/me/.claude/scratch/plan.md, then {box}/ccn/doc-c3230a2.md.\\n")
+"""
+
+
+def fake(path: Path, script: str = FAKE) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(FAKE)
+    path.write_text(script)
     path.chmod(0o755)
     return path
 
@@ -108,6 +123,7 @@ class Launch:
         self.bin = root / "bin"
         for tool in TOOLS:
             fake(self.bin / tool)
+        fake(self.bin / "lr", CARRY_NOTHING)
         self.root = root
         self.checkout = root / "checkout"
         self.script = SCRIPT
@@ -183,7 +199,7 @@ class Launch:
         return {(record["real"], record["env"]["CC_REMOTE_CONFIG"]) for record in self.records() if record["argv"][0] == "cc-remote"}
 
     def prepare(self, *extra: str, model: str = "claude-opus-5-5", kind: str = "claude", effort: str = "xhigh", lane: str = LANE) -> list[str]:
-        return ["cc-remote", "orca", "prepare", lane, "--warm", "--provider", "sprites", "--profile", "agents", "--agent", kind, "--model", model, "--effort", effort, "--brief-file", str(self.brief), *extra]
+        return ["cc-remote", "orca", "prepare", lane, "--warm", "--provider", "sprites", "--profile", "agents", "--agent", kind, "--model", model, "--effort", effort, "--brief-file", str(self.attempt / "brief.md"), *extra]
 
     def install(self, workspace: str = WORKSPACE) -> list[str]:
         script = 'curl -fsSL "$1" -o /tmp/cci.tgz && echo "$2  /tmp/cci.tgz" | sha256sum -c - && mkdir -p ~/.local/bin && tar -xzf /tmp/cci.tgz -C ~/.local/bin cci'
@@ -450,51 +466,41 @@ if "--no-stdin" not in args:
 """
 
 
-class BriefInputsTest(LaunchTest):
-    def launched(self, drive: Path, named: str) -> subprocess.CompletedProcess[str]:
-        contract = drive / "meta" / "contract.md"
-        contract.parent.mkdir(parents=True)
-        contract.write_text("the contract\n")
-        self.launch.brief.write_text(f"# Lane A\n\nRead {named} first.\n")
-        prepared = {**PREPARED, "brief": {**PREPARED["brief"], "sha256": hashlib.sha256(self.SENT.encode()).hexdigest(), "bytes": len(self.SENT.encode())}}
-        self.launch.sprite(prepared)
-        (self.launch.bin / "sprite").write_text(UNPACKING_SPRITE)
-        return self.launch.run(WORKER_DRIVE_DIR=str(drive), WORKER_BRIEF_INPUTS="meta/contract.md", FAKE_BOX=str(self.launch.root / "box"))
+class CarryTest(LaunchTest):
+    SENT = "Read /home/sprite/drive/carried/Users/me/.claude/scratch/plan.md, then /home/sprite/drive/carried/ccn/doc-c3230a2.md.\n"
 
-    SENT = "# Lane A\n\nRead /home/sprite/drive/meta/contract.md first.\n"
+    def carrying(self, sprite: str = UNPACKING_SPRITE) -> subprocess.CompletedProcess[str]:
+        fake(self.launch.bin / "lr", CARRY)
+        self.launch.sprite({**PREPARED, "brief": {**PREPARED["brief"], "sha256": hashlib.sha256(self.SENT.encode()).hexdigest(), "bytes": len(self.SENT.encode())}})
+        (self.launch.bin / "sprite").write_text(sprite)
+        return self.launch.run(FAKE_BOX=str(self.launch.root / "box"))
 
-    def assert_delivered(self, result: subprocess.CompletedProcess[str]) -> None:
+    def test_a_mac_file_and_a_ccn_doc_the_brief_names_are_on_the_box_at_the_paths_the_worker_reads_before_it_starts(self):
+        result = self.carrying()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual((self.launch.root / "box" / "drive" / "meta" / "contract.md").read_text(), "the contract\n")
+        for named, text in (("Users/me/.claude/scratch/plan.md", "the plan\n"), ("ccn/doc-c3230a2.md", "register rows\n")):
+            self.assertIn(f"/home/sprite/drive/carried/{named}", self.SENT)
+            self.assertEqual((self.launch.root / "box" / "drive" / "carried" / named).read_text(), text)
         self.assertEqual((self.launch.attempt / "brief.md").read_text(), self.SENT)
         calls = self.launch.calls()
-        prepare = next(call for call in calls if call[:3] == ["cc-remote", "orca", "prepare"])
-        self.assertEqual(prepare[prepare.index("--brief-file") + 1], str(self.launch.attempt / "brief.md"))
         copied = next(index for index, call in enumerate(calls) if call[0] == "sprite" and "--no-stdin" not in call)
         started = next(index for index, call in enumerate(calls) if call[:3] == ["orca", "orchestration", "worker-start"])
+        self.assertLess(calls.index(self.launch.prepare()), copied)
         self.assertLess(copied, started)
         self.assertIn(hashlib.sha256(self.SENT.encode()).hexdigest(), calls[started][calls[started].index("--spec") + 1])
 
-    def test_a_drive_file_the_brief_names_reaches_the_box_at_the_same_relative_path_before_the_worker_starts(self):
-        drive = self.launch.root / "drive"
-        self.assert_delivered(self.launched(drive, f"{drive}/meta/contract.md"))
-
-    def test_a_home_relative_path_to_a_drive_file_is_rewritten_too(self):
-        drive = self.launch.home / "scratch" / "program"
-        self.assert_delivered(self.launched(drive, "~/scratch/program/meta/contract.md"))
+    def test_a_brief_naming_what_no_sprite_can_receive_is_refused_naming_it_and_prepares_nothing(self):
+        fake(self.launch.bin / "lr", f"#!/bin/sh\necho 'lr: brief {self.launch.brief} names what no Sprite can receive: /Users/me/gone.md does not exist on this Mac' >&2\nexit 1\n")
+        self.launch.sprite()
+        result = self.launch.run()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(f"brief {self.launch.brief} names what no Sprite can receive: /Users/me/gone.md does not exist on this Mac; nothing was prepared", result.stderr)
+        self.assertEqual(self.launch.calls(), [VERSION, CURRENT])
 
     def test_a_failed_copy_leaves_the_worker_idle(self):
-        drive = self.launch.root / "drive"
-        contract = drive / "meta" / "contract.md"
-        contract.parent.mkdir(parents=True)
-        contract.write_text("the contract\n")
-        self.launch.brief.write_text(f"Read {contract} first.\n")
-        sent = "Read /home/sprite/drive/meta/contract.md first.\n"
-        self.launch.sprite({**PREPARED, "brief": {**PREPARED["brief"], "sha256": hashlib.sha256(sent.encode()).hexdigest(), "bytes": len(sent.encode())}})
-        (self.launch.bin / "sprite").write_text("#!/bin/sh\ncat >/dev/null\nexit 1\n")
-        result = self.launch.run(WORKER_DRIVE_DIR=str(drive), WORKER_BRIEF_INPUTS="meta/contract.md")
+        result = self.carrying("#!/bin/sh\ncat >/dev/null\nexit 1\n")
         self.assertEqual(result.returncode, 1)
-        self.assertIn("copying the brief's drive files", result.stderr)
+        self.assertIn("copying the files the brief names", result.stderr)
         self.assertFalse((self.launch.attempt / "worker-start.json").exists())
 
 
@@ -571,7 +577,7 @@ class SpriteTest(LaunchTest):
                 "agent": {**AGENT, "serviceTier": None},
                 "ref": None,
                 "expectBase": None,
-                "brief": {"path": str(self.launch.brief), "sha256": SHA, "bytes": BYTES},
+                "brief": {"path": str(self.launch.attempt / "brief.md"), "sha256": SHA, "bytes": BYTES},
             },
         )
 

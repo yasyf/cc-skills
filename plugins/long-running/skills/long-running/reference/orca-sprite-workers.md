@@ -34,6 +34,17 @@ copies the complete brief to the VM and records its hash, length, and actual
 checkout HEAD. The first task is a pointer telling the worker to read and
 verify that file.
 
+Before prepare, the script runs `lr carry` on the brief. Each file or
+directory under this Mac's home that the brief names, and each
+`ccn doc show <id>` or `ccn task show <id>` it names, rendered from the
+checkout `WORKER_NOTES_REPO` names or else `WORKER_CHECKOUT`, is copied to
+`<brief>.worker/carried`. The brief that prepare copies names those copies
+under `/home/sprite/drive/carried`, where they land before `worker-start`. A
+path that does not exist, a credential path under `~/.ssh`, `~/.aws`,
+`~/.gnupg`, `~/.config/gh` or `~/.netrc`, a path over 64 MiB, or a ccn entity
+that does not render refuses the launch, naming each one, and nothing is
+prepared.
+
 Before `worker-start`, the script installs cci on the Sprite from
 `WORKER_CCI_URL` and checks it against `WORKER_CCI_SHA256`. A failed install
 leaves the prepared worker idle. With `WORKER_RELAY_SPONSOR` set to a Sprite

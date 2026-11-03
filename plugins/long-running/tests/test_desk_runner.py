@@ -12722,6 +12722,21 @@ def test_a_relay_record_spanning_lines_is_relayed_with_every_line_after_its_dire
     assert escalations(shell) == [f"RELAYED R21 {LANE}: relay to dispatch ctx_a"]
 
 
+def test_a_relay_record_cci_cut_at_a_word_is_relayed_whole_from_its_file(shell, config, tmp_path):
+    """Nov 2 10:50 PM (root 352931): lr-go-ref-sweep-1 got R86064 cut at `cc-skills#2066 renames…`, the excerpt cci keeps of a spilled record: its whitespace collapsed and cut at a word short of the limit."""
+    shell.launch(LANE, "ctx_a")
+    orca_pass(shell, config)
+    whole = f"R21 orca-desk: relay to {LANE}:\n{PARAGRAPHS}"
+    record = spilled(tmp_path, whole)
+    record["text"] = " ".join(whole.split())[: runner_module.CCI_TEXT - 1].rsplit(" ", 1)[0] + "…"
+    assert len(record["text"]) < runner_module.CCI_TEXT
+    cci_record(shell, to=["orca-desk"], **record)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    [send] = shell.sends()
+    assert send[send.index("--body") + 1].startswith(f"{PARAGRAPHS}\n\nReply on thread ")
+
+
 def test_a_relay_record_naming_a_file_that_is_not_its_text_relays_the_records_own_text(shell, config, tmp_path):
     shell.launch(LANE, "ctx_a")
     orca_pass(shell, config)
@@ -14833,36 +14848,6 @@ def test_a_desk_launch_over_load_with_no_sprite_route_starts_on_the_mac(shell, c
     orca_pass(shell, config)
     assert launches(shell) == [[str(runner_module.LAUNCHER), LANE, "opus", "xhigh", str(brief)]]
     assert not [line for line in escalations(shell) if line.startswith("LAUNCH-FAILED")]
-
-
-def test_a_sprite_launch_carries_the_drive_files_its_brief_names(shell, config, tmp_path):
-    """Nov 2: five lanes launched on Sprites stopped because their briefs named Mac paths, among them 345904 and 345905 on meta-desk-1/helper-contract.md."""
-    with_sprites(config)
-    contract = config.resolve().parent / "meta-desk-1" / "helper-contract.md"
-    contract.parent.mkdir()
-    contract.write_text("the contract\n")
-    brief = lane_brief(tmp_path, f"ccx: role=build\nRead {contract} first.")
-    spilled_launch(shell, config, brief)
-    env = shell.spawned_env["worker-launch.sh"]
-    assert (env["WORKER_DRIVE_DIR"], env["WORKER_BRIEF_INPUTS"]) == (str(config.resolve().parent), "meta-desk-1/helper-contract.md")
-
-
-def test_a_brief_naming_nothing_on_this_machine_sends_no_drive_files(shell, config, tmp_path):
-    with_sprites(config)
-    brief = lane_brief(tmp_path, f"ccx: role=build\nRead {tmp_path}/missing.md first.")
-    spilled_launch(shell, config, brief)
-    assert "WORKER_BRIEF_INPUTS" not in shell.spawned_env["worker-launch.sh"]
-
-
-def test_a_desk_over_load_whose_brief_names_a_home_file_no_box_receives_stays_on_the_mac(shell, config, tmp_path, monkeypatch):
-    with_sprites(config)
-    monkeypatch.setattr(runner_module.lane_brief, "named_files", lambda text, drive_dir: ([], ["/home/me/.claude/plans/x.md"]))
-    brief = lane_brief(tmp_path, "ccx: role=watch")
-    shell.busy = 0.95
-    cli(shell, config, "launch", "--key", "R638", "--lane", LANE, "--model", "opus", "--effort", "xhigh", "--brief", str(brief))
-    orca_pass(shell, config)
-    assert launches(shell) == [[str(runner_module.LAUNCHER), LANE, "opus", "xhigh", str(brief)]]
-    assert sprite_launches(shell) == []
 
 
 def test_the_landing_desk_redraws_the_drive_root_card_from_the_ledger_only_when_it_changes(shell, config, tmp_path):

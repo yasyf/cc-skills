@@ -75,7 +75,7 @@ def state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     directory = tmp_path / "prog"
     (directory / "inbox").mkdir(parents=True)
     monkeypatch.setenv(desk_launch.registry.SESSION_ENV, "s1")
-    monkeypatch.setattr(desk_launch.registry, "drives", lambda: [{"drive": "prog", "sessions": ["s1"], "state_dir": str(directory)}])
+    monkeypatch.setattr(desk_launch.registry, "drives", lambda: [{"drive": "prog", "sessions": ["s1"], "state_dir": str(directory), "checkout": "/prog/checkout"}])
     return directory
 
 
@@ -84,6 +84,7 @@ def drive(monkeypatch: pytest.MonkeyPatch, state: Path) -> Drive:
     fake = Drive()
     monkeypatch.setattr(desk_launch, "cci", fake)
     monkeypatch.setattr(desk_launch.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(desk_launch.launch_checks, "carry_fault", lambda brief, repo: "")
     return fake
 
 
@@ -231,6 +232,28 @@ def test_a_brief_missing_both_lines_is_refused_before_any_post_naming_both(drive
         desk_launch.main(["lane", "new-lane", "opus", "xhigh", str(brief)])
     assert "`Register slice: lane=<name> step=<n>`" in str(refused.value) and "`Scale:`" in str(refused.value)
     assert drive.calls == []
+
+
+def test_a_brief_naming_what_no_sprite_can_receive_is_refused_before_any_post_naming_it(drive, tmp_path, monkeypatch):
+    """Coordinator 10:43 PM Nov 2 (cci 352724): briefs naming Mac paths landed on Sprites that could not read them."""
+    fix, _ = briefs(tmp_path)
+    carried: list[tuple[Path, str]] = []
+    monkeypatch.setattr(desk_launch.launch_checks, "carry_fault", lambda brief, repo: carried.append((brief, repo)) or f"brief {brief} names what no Sprite can receive: /Users/me/gone.md does not exist on this Mac")
+    with pytest.raises(SystemExit) as refused:
+        desk_launch.main(["lane", "new-lane", "opus", "xhigh", str(fix)])
+    assert "/Users/me/gone.md does not exist on this Mac" in str(refused.value)
+    assert carried == [(fix.resolve(), "/prog/checkout")]
+    assert drive.calls == []
+
+
+def test_a_launch_pinned_to_the_mac_carries_nothing(drive, tmp_path, monkeypatch):
+    fix, _ = briefs(tmp_path)
+    local = tmp_path / "local-brief.md"
+    local.write_text(f"ccx: role=build place=local\n{BRIEF_LINES}")
+    monkeypatch.setattr(desk_launch.launch_checks, "carry_fault", lambda brief, repo: pytest.fail(f"carried {brief} for a launch that stays on the Mac"))
+    drive.launched = True
+    assert desk_launch.main(["lane", "mac-lane", "opus", "xhigh", str(local)]) == 0
+    assert desk_launch.main(["lane", "fable-lane", "fable", "xhigh", str(fix)]) == 0
 
 
 def test_every_fault_of_a_launch_is_named_at_once_before_any_post(drive, tmp_path):

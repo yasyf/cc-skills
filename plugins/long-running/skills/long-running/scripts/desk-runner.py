@@ -233,11 +233,11 @@ counts every sleeping shell, each ten minutes of it logs one `LOAD-HIGH` blocker
 move the load, and a launch that may run only on the Mac starts there anyway: a brief
 whose `ccx:` line says `place=local`, a Fable or incident launch, and an incident clock fallback.
 An incident launch also logs one `LOAD-INCIDENT` report naming the load. A desk with no usable
-Sprite route, or whose brief names a file under this home outside the drive directory, which no
-box receives, starts on the Mac too. Every other launch, a `role=desk` or `role=watch` one
+Sprite route starts on the Mac too. Every other launch, a `role=desk` or `role=watch` one
 included, runs `orca.sprite.launcher`, the repository's worker-launch.sh, on a Sprite and never reads Mac
-load; the files a brief names under the drive directory, the directory holding this config,
-reach the box beside the brief at the same relative path. The runner counts no Sprites
+load; worker-launch.sh carries each file under this home and each ccn doc or task the brief names,
+rendered from `orca.briefs.repo`, onto the box with `lr carry`, and a brief naming one that cannot
+travel fails as `LAUNCH-FAILED` naming it. The runner counts no Sprites
 and sets no limit: the provider admits or refuses each one. A Sprite launch fails at once
 with `LAUNCH-FAILED` when no `orca.sprite` is configured, when a Sprite refuses its lane
 name, or when its receipts prove worker-start never ran, a provider refusal among them;
@@ -635,7 +635,6 @@ from long_running import ghdiff
 from long_running import ghread
 import incident
 import inboxes
-import lane_brief
 from launch_checks import EFFORTS, INCIDENT_MODEL, MODELS, NAMES_NOTHING, SLICE_HEADER, SLICE_LINE, brief_incidents, incident_fix, not_a_model
 import launch_checks
 from long_running import incidents, lanes
@@ -1080,9 +1079,7 @@ Wherever the brief below tells its lane to post or report as `{lane}`, post as
 The brief `{lane}` was launched on follows, unchanged.
 
 {brief}"""
-CCX_KEY = r"^ccx:(?:.*[ \t])?{}(?:\s|$)"
-PLACE = re.compile(CCX_KEY.format("place=(remote|local)"), re.MULTILINE)
-STANDING_DESK = re.compile(CCX_KEY.format("role=(?:desk|watch)"), re.MULTILINE)
+STANDING_DESK = re.compile(launch_checks.CCX_KEY.format("role=(?:desk|watch)"), re.MULTILINE)
 SPRITE_LANE = re.compile(r"[a-z0-9][a-z0-9-]{0,54}")
 PIN_BRANCH = re.compile(r"dev|(?:[\w.-]+/)*cc-remote-\d+\.\d+\.\d+")
 SPRITE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
@@ -1090,7 +1087,6 @@ SPRITE_IDS = {"task": "taskId", "dispatch": "dispatchId"}
 SPRITE_PREPARED = "prepare.status"
 SPRITE_RECEIPT = "worker-start.json"
 SPRITE_MODELS = {"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5", "sol": "gpt-6.1-sol", "codex": "gpt-6.1-sol", "astra": "gpt-6-astra"}
-FABLE_MODEL = re.compile(r"(^|[-_.])fable([-_.0-9]|$)", re.IGNORECASE)
 LAUNCHER = SCRIPTS.parents[2] / "bin" / "orca-launch.sh"
 HOLD_SPEC = re.compile(r"^ (?P<slug>[a-z0-9][a-z0-9.-]*) owner=(?P<owner>[\w.-]+) :: (?P<what>\S.*)$")
 UNHOLD_SPEC = re.compile(r"^ (?P<slug>[a-z0-9][a-z0-9.-]*)$")
@@ -1531,12 +1527,6 @@ def brief_text(brief: Path) -> str:
     return brief.read_text() if brief.is_file() else ""
 
 
-def mac_pinned(spec: dict) -> bool:
-    """Whether a launch runs only on the Mac at any load: Fable and the fast and incident routes, which no Sprite starts, and a brief whose author wrote `place=local`."""
-    placed = PLACE.search(brief_text(Path(spec["brief"])))
-    return bool(FABLE_MODEL.search(spec["model"]) or spec["model"] == INCIDENT_MODEL or spec.get("fast") or (placed and placed[1] == "local"))
-
-
 def sprite_model(model: str) -> str:
     return SPRITE_MODELS.get(model, model)
 
@@ -1932,8 +1922,9 @@ def asking(terminal: dict) -> bool:
     return bool(said) and said[-1].endswith("?")
 
 
-def clipped_by_cci(text: str) -> bool:
-    return len(text) == CCI_TEXT and text.endswith("…")
+def clipped_by_cci(kept: str, written: str) -> bool:
+    """Whether `kept` is cci's excerpt of the `written` file: its first `CCI_TEXT` characters, or since cci keeps a word-cut excerpt, the start of its whitespace-collapsed text cut at a word, either ending in `…`."""
+    return kept.endswith("…") and (len(kept) == CCI_TEXT or " ".join(written.split()).startswith(kept.removesuffix("…").rstrip()))
 
 
 def kept_by_cci(text: str) -> str:
@@ -2738,7 +2729,7 @@ class Runner:
         except OSError:
             self.record(f"escalation:relay:{at}", f"RELAY-FAILED {key} {about}: the record's full text at {path} is not readable here; nothing was relayed; post it again on the machine this runner runs on")
             return ""
-        return written if clipped_by_cci(kept) or kept_by_cci(written) == kept else kept
+        return written if clipped_by_cci(kept, written) or kept_by_cci(written) == kept else kept
 
     def cci_read(self, argv: list[str]) -> str:
         done = self.shell.cci_query(argv)
@@ -3607,14 +3598,10 @@ class Runner:
         spec = json.loads(action.target)
         sprite = self.sprite() or {}
         argv = [sprite["launcher"], lane, sprite_model(spec["model"]), spec["effort"], spec["brief"]]
-        inputs = self.brief_files(spec)[0]
-        env = {**self.config.launch_env, **self.orca.sender, "WORKER_RUN": self.config.run, **sprite.get("env", {}), "WORKER_LOCAL": "", **({"WORKER_DRIVE_DIR": str(self.config.source.parent), "WORKER_BRIEF_INPUTS": "\n".join(inputs)} if inputs else {})}
+        env = {**self.config.launch_env, **self.orca.sender, "WORKER_RUN": self.config.run, **sprite.get("env", {}), "WORKER_LOCAL": "", "WORKER_NOTES_REPO": self.config.briefs_repo}
         key = f"{container}/{action.action_id}"
         self.launching[key] = self.shell.spawn(argv, self.sprite_log(container, action.action_id), env)
         self.sprites.add(key)
-
-    def brief_files(self, spec: dict) -> tuple[list[str], list[str]]:
-        return lane_brief.named_files(brief_text(Path(spec["brief"])), self.config.source.parent)
 
     def launched_by(self, lane: str) -> str:
         """The lane that posted `lane`'s newest launch line, or empty when the coordinator or a drive process did, so its questions reach whoever launched it and otherwise the coordinator."""
@@ -3625,11 +3612,12 @@ class Runner:
 
     def sprite_refusal(self, lane: str, spec: dict) -> str | None:
         """Empty when the launch takes the Mac route for now, None when it takes a Sprite, or why the Sprite route it must take cannot start it."""
-        if mac_pinned(spec):
+        text = brief_text(Path(spec["brief"]))
+        if launch_checks.mac_pinned(spec["model"], text, bool(spec.get("fast"))):
             return ""
         fault = self.sprite_fault(lane)
-        if STANDING_DESK.search(brief_text(Path(spec["brief"]))):
-            return "" if fault is not None or self.brief_files(spec)[1] else None
+        if STANDING_DESK.search(text):
+            return "" if fault is not None else None
         return fault
 
     def sprite_fault(self, lane: str) -> str | None:
