@@ -135,4 +135,3 @@ func (r *revShell) Run(ctx context.Context, c shell.Command) (shell.Result, erro
 	r.landed = max(r.landed, 40) + 1
 	return shell.Result{Stdout: fmt.Sprintf("rev: %d\n", r.landed)}, nil
 }
-
