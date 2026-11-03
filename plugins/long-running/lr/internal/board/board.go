@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -235,7 +236,7 @@ func (p Pass) Run(ctx context.Context, snapshot map[int]machine.Facts) (Block, e
 	if err != nil {
 		return Block{}, err
 	}
-	if _, err := p.Runner.Run(ctx, shell.Command{Argv: []string{"cc-present", "update-block", "-", "--session", p.Session}, Stdin: string(encoded)}); err != nil {
+	if _, err := p.Runner.Run(ctx, shell.Command{Argv: []string{"cc-present", "update-block", "-", "--session", p.Session, "--rev", strconv.FormatInt(outcomes.Rev, 10)}, Stdin: string(encoded)}); err != nil && !writeRefused(err) {
 		return Block{}, err
 	}
 	return block, p.noteMissing(rows, answered)
