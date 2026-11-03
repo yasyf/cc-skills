@@ -54,6 +54,7 @@ type Deps struct {
 	RotateAt     int
 	RetireAfter  time.Duration
 	OpenBranches func() (map[string][]int, error)
+	Hosts        func(lanes []string) map[string]Host
 }
 
 type Relaunch struct {
@@ -146,8 +147,10 @@ func Tick(s *store.Store, d Deps, now time.Time, generation int64) (out Outcome,
 	for name := range found {
 		taken[name] = true
 	}
-	for _, lane := range must(s.Lanes(live...)) {
-		act(s, d, lane, found, taken, generation, now, &out)
+	desired := must(s.Lanes(live...))
+	proven := proofs(s, d, desired, found, now)
+	for _, lane := range desired {
+		act(s, d, lane, found, proven, taken, generation, now, &out)
 	}
 	retiredTo := map[string][]string{}
 	for _, one := range out.Retired {
@@ -202,16 +205,9 @@ func announce(s *store.Store, d Deps, said folded) {
 	}
 }
 
-func act(s *store.Store, d Deps, lane store.Lane, found map[string]Peer, taken map[string]bool, generation int64, now time.Time, out *Outcome) {
-	var peer *Peer
-	if known, ok := found[lane.Name]; ok {
-		peer = &known
-	}
-	last := lane.Heard
-	if last.IsZero() {
-		last = lane.Since
-	}
-	silent := now.Sub(last)
+func act(s *store.Store, d Deps, lane store.Lane, found map[string]Peer, proven map[string]Verdict, taken map[string]bool, generation int64, now time.Time, out *Outcome) {
+	peer := peerOf(found, lane.Name)
+	silent := silence(lane, now)
 	tokens := 0
 	if lane.State == store.LaneDesired && lane.Asked.IsZero() && peer != nil && peer.Live && silent < StaleAfter && !settledLane(lane) {
 		tokens = d.Tokens(peer.Row)
@@ -240,46 +236,57 @@ func act(s *store.Store, d Deps, lane store.Lane, found map[string]Peer, taken m
 		escalate(s, d, "lane:"+lane.Name, fmt.Sprintf("%s; brief %s", verdict.Why, filepath.Join(d.Briefs, lane.Name+".brief.md")), now)
 		out.Held = append(out.Held, lane.Name)
 	case Unproven:
-		if holdsNothing(lane) && silent < d.RetireAfter {
+		if !needsProof(lane, silent, d.RetireAfter) {
 			return
 		}
-		hold(s, lane.Name, verdict.Why, now)
-		escalate(s, d, "lane:"+lane.Name, fmt.Sprintf("held, not relaunched or retired: it %s; brief %s", verdict.Why, lane.Brief), now)
-		out.Held = append(out.Held, lane.Name)
+		proof, settled := proven[lane.Name]
+		if !settled {
+			hold(s, lane.Name, verdict.Why, now)
+			escalateTo(s, d, "lane:"+lane.Name, fmt.Sprintf("held, not relaunched or retired: it %s, and it runs on no Sprite whose probe answered; brief %s", verdict.Why, lane.Brief), residueTo(s, d, lane.Name), now)
+			out.Held = append(out.Held, lane.Name)
+			return
+		}
+		if proof.Kind == Dead {
+			died(s, d, lane, peer, found, proof, silent, taken, now, out)
+		}
 	case StoodDown:
 		if !refusedOwing(s, d, lane.Name, now) {
 			retire(s, lane.Name, "stand-down", now)
 		}
 	case Dead:
-		if lane.Last == kindLanded {
-			if !refusedOwing(s, d, lane.Name, now) {
-				retire(s, lane.Name, kindLanded, now)
-			}
-			return
-		}
-		if peer != nil && peer.Row.Succeeded && lane.Handoff == "" && lane.Asked.IsZero() {
-			if lane.Heard.IsZero() {
-				hold(s, lane.Name, unheardDone, now)
-				raiseUnheard(s, d, lane.Name, now)
-				out.Held = append(out.Held, lane.Name)
-				return
-			}
-			if !refusedOwing(s, d, lane.Name, now) {
-				retire(s, lane.Name, retiredWorkerDone, now)
-			}
-			return
-		}
-		if !holdsNothing(lane) {
-			relaunch(s, d, lane, found, verdict.Why, taken, now, out)
-			return
-		}
-		if silent >= d.RetireAfter {
-			retireSilent(s, d, lane, verdict.Why, now, out)
-		}
+		died(s, d, lane, peer, found, verdict, silent, taken, now, out)
 	case AskRotate:
 		do(d.Post(Post{Kind: "ask", To: []string{lane.Name}, Text: fmt.Sprintf("ROTATE: %s is at %s. Write anything not yet in the ledger or cc-notes to a cc-notes doc, post `cci post --lane %s --kind handoff --ccn <doc id> --re <this record>`, then keep working.", lane.Name, verdict.Why, lane.Name)}))
 		do(s.SetLaneAsked(lane.Name, now))
 		out.Asked = append(out.Asked, lane.Name)
+	}
+}
+
+func died(s *store.Store, d Deps, lane store.Lane, peer *Peer, found map[string]Peer, verdict Verdict, silent time.Duration, taken map[string]bool, now time.Time, out *Outcome) {
+	if lane.Last == kindLanded {
+		if !refusedOwing(s, d, lane.Name, now) {
+			retire(s, lane.Name, kindLanded, now)
+		}
+		return
+	}
+	if peer != nil && peer.Row.Succeeded && lane.Handoff == "" && lane.Asked.IsZero() {
+		if lane.Heard.IsZero() {
+			hold(s, lane.Name, unheardDone, now)
+			raiseUnheard(s, d, lane.Name, now)
+			out.Held = append(out.Held, lane.Name)
+			return
+		}
+		if !refusedOwing(s, d, lane.Name, now) {
+			retire(s, lane.Name, retiredWorkerDone, now)
+		}
+		return
+	}
+	if !holdsNothing(lane) {
+		relaunch(s, d, lane, found, verdict.Why, taken, now, out)
+		return
+	}
+	if silent >= d.RetireAfter {
+		retireSilent(s, d, lane, verdict.Why, now, out)
 	}
 }
 
@@ -380,8 +387,12 @@ func escalate(s *store.Store, d Deps, subject, cause string, now time.Time) {
 	if lane == Root {
 		to = d.coordinatorReportsTo()
 	}
+	escalateTo(s, d, subject, cause, to, now)
+}
+
+func escalateTo(s *store.Store, d Deps, subject, cause, to string, now time.Time) {
 	if must(s.Escalate(subject, cause, to, now)) {
-		do(d.Post(Post{Kind: "blocker", To: []string{to}, Text: fmt.Sprintf("%s: %s", subject, cause), LaneRef: lane}))
+		do(d.Post(Post{Kind: "blocker", To: []string{to}, Text: fmt.Sprintf("%s: %s", subject, cause), LaneRef: strings.TrimPrefix(subject, "lane:")}))
 	}
 }
 
