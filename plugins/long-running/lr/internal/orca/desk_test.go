@@ -983,7 +983,7 @@ func TestAnIncidentLineNamingNoReportTimeLaunchesAndPostsItsIncidentWithNoClock(
 			posted = append(posted, post)
 		}
 	}
-	if len(posted) != 1 || posted[0].Topic != "api-500" || !strings.HasPrefix(posted[0].Text, "INCIDENT api-500: errors https://dd/1 | fix lane api-500-fix launching") {
+	if len(posted) != 1 || posted[0].Topic != "api-500" || posted[0].Text != "INCIDENT api-500: errors https://dd/1 | fix lane api-500-fix launching on incident xhigh with forward-fix authority, evidence lane api-500-evidence beside it; root: ratify" {
 		t.Fatal(w.posts)
 	}
 }

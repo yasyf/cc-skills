@@ -14,7 +14,6 @@ const (
 	kindAsk      = "ask"
 	kindAnswer   = "answer"
 	kindDecision = "decision"
-	topicFence   = "fence"
 )
 
 var postedTS = regexp.MustCompile(`\bts=(\d+\.\d+)`)
@@ -124,10 +123,5 @@ func (c CommsBus) AskRoot(ctx context.Context, text string) error {
 
 func (c CommsBus) Report(ctx context.Context, text string) error {
 	_, err := c.post(ctx, kindDecision, text, c.Topic, c.RootLane)
-	return err
-}
-
-func (c CommsBus) Fence(ctx context.Context, text string) error {
-	_, err := c.post(ctx, kindDecision, text, topicFence)
 	return err
 }

@@ -94,7 +94,6 @@ type Comms interface {
 	Posted(ctx context.Context, seq int64) (string, error)
 	AskRoot(ctx context.Context, text string) error
 	Report(ctx context.Context, text string) error
-	Fence(ctx context.Context, text string) error
 }
 
 type Records interface {

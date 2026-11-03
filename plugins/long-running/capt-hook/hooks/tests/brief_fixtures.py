@@ -30,5 +30,5 @@ INCIDENT_TURN = """ccx: tooling-lane=lane-failing role=fix
 Datadog 100000001 "replication lane failing" OK → ALERT. orca-desk: launch lane-failing-fix NOW.
 Authority: Incident Turn — start at the monitor's query, then the handoff in flight at that minute.
 If a lane is genuinely failing: mitigation per the monitor runbook as a PR/apply at 0d/0r pre-authorized with counts in
-the runbook. Evidence lane: lane-failing-evidence. FENCE: the deploy desk pauses further pod rolls until the fix lane
-reports mechanism."""
+the runbook. Evidence lane: lane-failing-evidence. Fix forward: the fix ships as a new release while other releases
+keep flowing."""

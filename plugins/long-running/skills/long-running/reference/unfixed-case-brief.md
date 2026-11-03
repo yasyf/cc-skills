@@ -51,8 +51,7 @@ Do:
      grows into a redesign of a path the plan deletes is the signal to stop,
      never a reason to widen the fix.
      NO ROLLBACK; find the mechanism and fix forward; the fix ships as a new release
-     through the walker. The fence holds only other releases of the target, never
-     the fix.
+     through the walker while other releases of the target keep flowing.
      No brief, lane, or exception grants a rollback or a revert. One runs only when
      the owner's own word names that act, after your diagnosis has found the issue;
      never offer one before that.

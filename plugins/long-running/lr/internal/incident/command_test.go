@@ -331,16 +331,10 @@ func TestCommsPostsToTheLaneAndReadsItsPostedTS(t *testing.T) {
 	}
 }
 
-func TestCommsFindSkipsTheFenceBroadcastAndATruncatedPostStillMatches(t *testing.T) {
+func TestCommsFindMatchesOnlyItsOwnEventsAndATruncatedPostStillMatches(t *testing.T) {
 	bus := &fakeBus{}
 	comms := CommsBus{Bus: bus, Drive: "bus1", Sender: "incident-x", CommsLane: "incident-comms", RootLane: "r", Topic: "incident:x"}
 	ctx := context.Background()
-	if err := comms.Fence(ctx, "fence api from applies and deploys except incident-x-fix"); err != nil {
-		t.Fatal(err)
-	}
-	if fence := bus.drafts[0]; fence.Kind != "decision" || fence.Topic != "fence" || len(fence.To) != 0 {
-		t.Fatalf("fence %+v", fence)
-	}
 	seq, err := comms.Event(ctx, "ack", map[string]any{"surface": "thread"}, "g")
 	if err != nil {
 		t.Fatal(err)
