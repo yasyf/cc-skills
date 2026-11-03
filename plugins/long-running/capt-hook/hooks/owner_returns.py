@@ -39,7 +39,7 @@ SLACK_POSTED = re.compile(r"\bts\W{1,4}\d{10}\.\d{6}|/archives/\w+/p\d{16}")
 BOARD_VERBS = frozenset({"push", "update-block", "ask", "send"})
 INLINE_PICK = "A pick for the owner never sits inline or in plain Slack text; he answers with a button. Post it as a `slack_dm_status` card whose `options` are the answers, or as a `cc-present ask` card, then stop again."
 PLAIN_PICK = "A pick for the owner is never plain text in his Slack DM; he taps a button, and a thread reply is for notes. Send a `slack_dm_status` card whose `options` are the answers, or a `cc-present ask` card."
-ASKS = re.compile(r"\?(?=\s|$)")
+QUESTION = re.compile(r"\?(?=\s|$)")
 PR_NAMED = re.compile(r"github\.com/[\w.-]+/[\w.-]+/pull/\d+|[\w.-]+/[\w.-]+#\d+|\b(?i:PR|pull request) #?\d+\b")
 PR_CARD = "An ask to the owner about a pull request carries its PR card, never only the link. List each PR in the card's `refs` as `{\"url\", \"label\"}`, or ask with `drive.py ask-owner`, which attaches it."
 PICK = "Two ways to fix the relay:\n\nA) Keep one shared replica\nB) Give each chat its own\n\nWhich do you want?"
@@ -224,7 +224,7 @@ def dm(tool: str = DM_CARD, **given: object) -> Input:
 def owner_asks_post_as_cards(evt: BaseHookEvent) -> HookResult | None:
     problems = dict.fromkeys(problem for words, posted in dm_posts(evt) for problem, found in (
         (PLAIN_PICK, offers_pick(words) and not posted.get("options")),
-        (PR_CARD, (offers_pick(words) or ASKS.search(words)) and PR_NAMED.search(words) and not posted.get("refs")),
+        (PR_CARD, (offers_pick(words) or QUESTION.search(words)) and PR_NAMED.search(words) and not posted.get("refs")),
     ) if found)
     return evt.block(" ".join(problems)) if problems else None
 
