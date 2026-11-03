@@ -13,7 +13,7 @@ FIX_IS_WRONG = re.compile(r"#\s*fix-is-wrong:\s*(?P<slug>\S+)\s*")
 FIX_LANE = "ashared-open-fix-0123456789abcdef"
 INCIDENT = sliced_brief("shared-open-fix", "incident")
 HEAD = "e5ef5c82b64c06a83370146a56e6a47c3ae2d674"
-OPEN = {"gh pr view": f"OPEN {HEAD}\n", "git diff --quiet": (1, "")}
+OPEN = {"gh pr view": f"OPEN {HEAD}\n", "git diff --name-only": "shared-open/retry.test.ts\n"}
 RUNNING = OPEN | {"gh pr checks": "pending\npass\n"}
 RED = OPEN | {"gh pr checks": "fail\npass\n"}
 POLISH = "ccx vcs ship -m 'shared-open: 🧪 capture the exact first retry backoff'"
@@ -35,8 +35,8 @@ def restarts_green_ci(evt: BaseHookEvent, call: Call) -> bool:
     if viewed is None or (state := viewed.stdout.split())[:1] != ["OPEN"] or len(state) != 2:
         return False
     worktree = call.verb_argv[:3] == ("ccx", "vcs", "ship") and not branch and "--no-commit" not in call.args
-    diffed = run_quietly(["git", "diff", "--quiet", state[1], *([] if worktree else branch or ["HEAD"])], cwd)
-    if diffed is None or diffed.returncode != 1:
+    diffed = run_quietly(["git", "diff", "--name-only", state[1], *([] if worktree else branch or ["HEAD"])], cwd)
+    if diffed is None or diffed.returncode or not diffed.stdout.strip():
         return False
     checks = run_quietly(["gh", "pr", "checks", *branch, "--required", "--json", "bucket", "--jq", ".[].bucket"], cwd)
     buckets = checks.stdout.split() if checks and checks.returncode == 0 else []
@@ -55,9 +55,9 @@ def restarts_green_ci(evt: BaseHookEvent, call: Call) -> bool:
         Input(command=f"{POLISH}  # fix-is-wrong: retry-test-misses-first-backoff", agent_id=FIX_LANE, transcript=INCIDENT, commands=RUNNING): Warn(pattern=r"^Finding `retry-test-misses-first-backoff` says"),
         Input(command="ccx vcs ship --new-branch shared-open/fix -m 'shared-open: 🐛 fix'", agent_id=FIX_LANE, transcript=INCIDENT, commands=RUNNING): Allow(),
         Input(command="ccx vcs ship -m 'shared-open: 🐛 fix'", agent_id=FIX_LANE, transcript=INCIDENT, commands={"gh pr view": (1, "no pull requests found")}): Allow(),
-        Input(command="ccx vcs ship --tip-only --no-commit", agent_id=FIX_LANE, transcript=INCIDENT, commands=RUNNING | {"git diff --quiet": ""}): Allow(),
+        Input(command="ccx vcs ship --tip-only --no-commit", agent_id=FIX_LANE, transcript=INCIDENT, commands=RUNNING | {"git diff --name-only": ""}): Allow(),
         Input(command=POLISH, agent_id=FIX_LANE, transcript=INCIDENT, commands=OPEN | {"gh pr checks": (1, "no required checks reported")}): Allow(),
-        Input(command=POLISH, agent_id=FIX_LANE, transcript=INCIDENT, commands=RUNNING | {"git diff --quiet": (128, "fatal: bad object")}): Allow(),
+        Input(command=POLISH, agent_id=FIX_LANE, transcript=INCIDENT, commands=RUNNING | {"git diff --name-only": (128, "fatal: bad object")}): Allow(),
         Input(command="git push --dry-run", agent_id=FIX_LANE, transcript=INCIDENT, commands=RUNNING): Allow(),
     },
 )
