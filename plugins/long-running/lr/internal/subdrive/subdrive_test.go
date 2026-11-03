@@ -352,6 +352,32 @@ func TestEndHandsEveryOpenItemBackToTheParentAndClosesTheChild(t *testing.T) {
 	}
 }
 
+func TestASubDriveStartedAgainUnderAnEndedNameRelaunchesNoneOfItsOldLanes(t *testing.T) {
+	h := newHarness(t)
+	if _, err := h.Start(context.Background(), complete()); err != nil {
+		t.Fatal(err)
+	}
+	state := filepath.Join(h.state, "sub", "billing")
+	seedOpenWork(t, h, state)
+
+	if _, err := h.End(context.Background(), "billing"); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := store.Open(filepath.Join(state, lanes.StoreFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	live, err := s.Lanes(store.LaneLaunching, store.LaneDesired, store.LaneHeld)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(live) != 0 {
+		t.Fatalf("the new supervisor would relaunch %+v", live)
+	}
+}
+
 func TestEndingWithNothingOpenOnlyReports(t *testing.T) {
 	h := newHarness(t)
 	if _, err := h.Start(context.Background(), complete()); err != nil {

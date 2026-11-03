@@ -370,10 +370,27 @@ func (m Manager) End(ctx context.Context, name string) (string, error) {
 	if err := m.Unsupervise(filepath.Join(entry.StateDir, configFile)); err != nil {
 		return "", err
 	}
+	if err := retire(entry, live, m.Env.Now()); err != nil {
+		return "", err
+	}
 	if err := drive.Remove(entry.Drive); err != nil {
 		return "", err
 	}
 	return back.Text, nil
+}
+
+func retire(entry drive.Entry, live []string, at time.Time) (err error) {
+	s, err := store.Open(entry.Store())
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, s.Close()) }()
+	for _, lane := range live {
+		if err := s.SetLaneState(lane, store.LaneRetired, at, endedBy, "the sub-drive ended"); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func writeHandback(entry drive.Entry, name string, items []item) (string, error) {
