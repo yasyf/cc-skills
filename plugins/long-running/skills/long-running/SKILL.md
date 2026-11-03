@@ -107,7 +107,9 @@ open row, and the communicator routes it to the lane that asked. It also propose
 when what it relays shows a structural fault, such as PRs queued behind one
 coordinator decision, it brings him the split as an option, not only the symptom.
 It never calls `AskUserQuestion`: a pick goes on his board, and an urgent yes/no
-goes to his Slack as an ask card with buttons (`cc-present ask`). Every message it
+goes to his Slack as an ask card with buttons (`cc-present ask`). Options it offers
+him never sit only in this window: the same turn posts them at his Slack DM root
+or draws them as a board card, or its Stop refuses the reply. Every message it
 sends is addressed to him in second person and carries only what changed for him
 or what he must decide; ledger rows, hook mechanics, lane acks and "nothing new"
 never appear in chat, a turn with nothing for him ends with no text, and its Stop
