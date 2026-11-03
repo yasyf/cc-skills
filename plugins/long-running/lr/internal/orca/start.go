@@ -121,6 +121,7 @@ type launch struct {
 	waitStart, said               int64
 	listed, before                []string
 	startCode                     int
+	startTries                    int
 }
 
 type repoRecord struct {
@@ -1365,20 +1366,29 @@ func (l *launch) callWorkerStart(args []string) (string, string, error) {
 	if l.agent == agentClaude {
 		timeout = workerStartClaudeMS
 	}
-	argv := append(append([]string{"orca", orchestration, "worker-start", "--run", l.run}, args...), "--worktree", "path:"+l.wt, "--timeout-ms", timeout, "--full", "--json")
+	base := append(append([]string{"orca", orchestration, "worker-start", "--run", l.run}, args...), "--worktree", "path:"+l.wt, "--timeout-ms", timeout, "--full", "--json")
+	argv := base
 	for waited := 0; ; waited += int(startPoll / time.Second) {
 		stdout, stderr, code := l.exec(shell.Command{Argv: argv})
 		l.startCode = code
+		l.startTries++
 		if err := os.WriteFile(l.receipt+".new", []byte(stdout), 0o600); err != nil {
 			return "", "", l.fail("worker receipt: %v", err)
 		}
 		if err := os.WriteFile(l.path(".worker.err"), []byte(stderr), 0o600); err != nil {
 			return "", "", l.fail("worker receipt: %v", err)
 		}
-		if code == 0 || refusalOf(stdout) != refusalUnconfigured || waited >= l.boot {
+		request := replayable(stdout)
+		if code == 0 || (request == "" && refusalOf(stdout) != refusalUnconfigured) || waited >= l.boot {
 			return stdout, stderr, nil
 		}
-		if err := l.pause("worker-start refuses terminal " + l.terminal + " as agent_unconfigured"); err != nil {
+		argv = base
+		reason := "worker-start refuses terminal " + l.terminal + " as agent_unconfigured"
+		if request != "" {
+			argv = slices.Concat(base, []string{"--retry-request", request})
+			reason = "the Orca runtime did not answer worker-start request " + request
+		}
+		if err := l.pause(reason); err != nil {
 			return "", "", err
 		}
 	}
@@ -1458,6 +1468,9 @@ func (l *launch) startWorker() (string, error) {
 		named := ""
 		if l.terminal != "" {
 			named = " terminal=" + l.terminal
+		}
+		if l.startTries > 1 {
+			named += fmt.Sprintf(" after %d tries", l.startTries)
 		}
 		return "", l.fail("worker-start%s: %s%s", named, orcaError(stdout, stderr), fenced)
 	}

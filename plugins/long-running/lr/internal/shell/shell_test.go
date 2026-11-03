@@ -3,8 +3,11 @@ package shell
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -61,5 +64,82 @@ func TestATimeoutIsCode124AndKillsTheCommand(t *testing.T) {
 	}
 	if elapsed := time.Since(started); elapsed > 10*time.Second {
 		t.Fatalf("the run took %s", elapsed)
+	}
+}
+
+func failingFirst(t *testing.T, failures int, stderr string) (Command, func() int) {
+	t.Helper()
+	waits := retryWaits
+	retryWaits = make([]time.Duration, len(waits))
+	t.Cleanup(func() { retryWaits = waits })
+	count := filepath.Join(t.TempDir(), "runs")
+	script := `echo x >> "$1"; [ "$(wc -l < "$1")" -gt "$2" ] && { echo ok; exit 0; }; echo "$3" >&2; exit 1`
+	runs := func() int {
+		raw, err := os.ReadFile(count)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.Count(string(raw), "\n")
+	}
+	return Command{Argv: []string{"sh", "-c", script, "sh", count, strconv.Itoa(failures), stderr}, Idempotent: true}, runs
+}
+
+func TestAnIdempotentReadBuildkiteAnswersOverloadedIsRetriedUntilItPasses(t *testing.T) {
+	read, runs := failingFirst(t, 2, "ci bk: GET /pipelines/release/builds failed: 503 envoy overloaded")
+
+	result, err := Exec{}.Run(context.Background(), read)
+
+	if err != nil || result.Stdout != "ok\n" || runs() != 3 {
+		t.Fatalf("result %+v, err %v, runs %d; want the third run's ok", result, err, runs())
+	}
+}
+
+func TestEachTransientAnswerIsRetried(t *testing.T) {
+	for _, said := range []string{
+		"failed: 429 Too Many Requests",
+		"HTTP 502: Bad Gateway (https://api.github.com/graphql)",
+		"read: connection reset by peer",
+		"dial tcp: i/o timeout",
+		"You have exceeded a secondary rate limit",
+		`{"ok":false,"error":{"code":"runtime_timeout","message":"Timed out waiting for the remote Orca runtime to respond."}}`,
+		`{"ok":false,"error":{"code":"remote_runtime_unavailable"}}`,
+	} {
+		read, runs := failingFirst(t, 1, said)
+		if _, err := (Exec{}).Run(context.Background(), read); err != nil || runs() != 2 {
+			t.Fatalf("%q: err %v after %d runs, want a pass on the retry", said, err, runs())
+		}
+	}
+}
+
+func TestARefusalThatMeansNoIsNeverRetried(t *testing.T) {
+	for _, said := range []string{"failed: 401 {\"message\":\"Authentication required.\"}", "HTTP 404: Not Found", "HTTP 422: Validation Failed"} {
+		read, runs := failingFirst(t, 1, said)
+		if _, err := (Exec{}).Run(context.Background(), read); err == nil || runs() != 1 {
+			t.Fatalf("%q: err %v after %d runs, want one failed run", said, err, runs())
+		}
+	}
+}
+
+func TestACommandNotMarkedIdempotentRunsOnce(t *testing.T) {
+	write, runs := failingFirst(t, 1, "HTTP 503: Service Unavailable")
+	write.Idempotent = false
+
+	if _, err := (Exec{}).Run(context.Background(), write); err == nil || runs() != 1 {
+		t.Fatalf("err %v after %d runs, want one failed run", err, runs())
+	}
+}
+
+func TestARetriedReadThatStillFailsNamesItsTriesAndLastError(t *testing.T) {
+	read, runs := failingFirst(t, 99, "failed: 503 envoy overloaded")
+
+	_, err := Exec{}.Run(context.Background(), read)
+
+	var exit *ExitError
+	want := len(retryWaits) + 1
+	if !errors.As(err, &exit) || exit.Tries != want || runs() != want {
+		t.Fatalf("err %v after %d runs, want an ExitError after %d tries", err, runs(), want)
+	}
+	if said := err.Error(); !strings.Contains(said, fmt.Sprintf("exited 1 after %d tries: failed: 503 envoy overloaded", want)) {
+		t.Fatalf("the error %q does not name its tries and last error", said)
 	}
 }

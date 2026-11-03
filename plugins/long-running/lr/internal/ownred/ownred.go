@@ -349,7 +349,7 @@ func (g Guard) logged(ctx context.Context, repo string, job int64) ([]finding, e
 	if strings.Contains(usage.Stdout, allowEscapes) {
 		argv = append(argv, allowEscapes)
 	}
-	done, err := g.Runner.Run(ctx, shell.Command{Argv: argv, Timeout: readTimeout})
+	done, err := g.Runner.Run(ctx, shell.Command{Argv: argv, Timeout: readTimeout, Idempotent: true})
 	if err != nil {
 		return nil, err
 	}
@@ -374,7 +374,7 @@ func changed(path string, files []string) string {
 }
 
 func (g Guard) read(ctx context.Context, into any, argv ...string) error {
-	done, err := g.Runner.Run(ctx, shell.Command{Argv: argv, Timeout: readTimeout})
+	done, err := g.Runner.Run(ctx, shell.Command{Argv: argv, Timeout: readTimeout, Idempotent: true})
 	if err != nil {
 		return err
 	}

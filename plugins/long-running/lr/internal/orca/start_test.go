@@ -1414,6 +1414,18 @@ func TestAnIdleAgentOrcaDoesNotRecognizeYetIsStartedAgain(t *testing.T) {
 	}
 }
 
+func TestAWorkerStartTheRuntimeDidNotAnswerIsReplayedUnderItsRequestID(t *testing.T) {
+	h := newHarness(t)
+	h.healthyClaude()
+	unanswered := reply{rc: 1, out: object{"ok": false, "error": object{"code": "runtime_timeout", "message": "Timed out waiting for the Orca runtime to respond.", "data": object{"orchestrationRequestId": "req-7"}}}}
+	h.reply("orchestration worker-start", unanswered, okResult(object{"state": "ready", "taskId": "task_a", "dispatchId": "ctx_a"}))
+	h.launched()
+	starts := h.orcaCalls("orchestration worker-start")
+	if len(starts) != 2 || !slices.Equal(starts[1], slices.Concat(starts[0], []string{"--retry-request", "req-7"})) {
+		t.Fatalf("worker-start calls %q, want the first replayed under its request id", starts)
+	}
+}
+
 func TestAnAgentOrcaNeverRecognizesRollsBackAtTheBootCeiling(t *testing.T) {
 	h := newHarness(t)
 	h.healthyClaude()

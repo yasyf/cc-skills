@@ -31,6 +31,7 @@ func (t *Token) Run(ctx context.Context, runner shell.Runner, read shell.Command
 		t.value = value
 	}
 	read.Env = append(slices.Clone(read.Env), "BUILDKITE_TOKEN="+t.value)
+	read.Idempotent = true
 	result, err := runner.Run(ctx, read)
 	if err != nil && refused401.MatchString(err.Error()) {
 		t.value = ""

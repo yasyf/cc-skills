@@ -366,6 +366,29 @@ func TestAFailedReadKeepsErrorTextOutOfTheRecordLine(t *testing.T) {
 	}
 }
 
+func TestAReadThatStayedOverloadedAnswersWithItsTriesAndLastError(t *testing.T) {
+	said := "ci bk: GET /pipelines/release/builds/12379 failed: 503 envoy overloaded"
+	runner := &fakeRunner{
+		reply: shell.Result{Stderr: said},
+		fail:  &shell.ExitError{Argv: []string{"tools/ci"}, Code: 1, Stderr: said, Tries: 5},
+	}
+	desk, _ := newDesk(t, runner)
+	ask(t, "bk build release 12379")
+
+	firstPass(t, desk)
+
+	found := answers(t)
+	if len(found) != 1 || !strings.Contains(found[0].Text, "the read exited 1 after 5 tries") {
+		t.Fatalf("answers = %+v, want one naming the tries", found)
+	}
+	if body := bodyOf(t, found[0]); body != said {
+		t.Fatalf("body = %q, want the last error", body)
+	}
+	if !runner.calls[0].Idempotent {
+		t.Fatal("the read is not marked idempotent, so a transient refusal is not retried")
+	}
+}
+
 func TestTheTokenReachesOnlyTheClientsEnvironment(t *testing.T) {
 	runner := &fakeRunner{reply: shell.Result{Stdout: "{}"}}
 	desk, _ := newDesk(t, runner)

@@ -412,6 +412,15 @@ func (w *workerLaunch) writeRequest() error {
 func (w *workerLaunch) startWorker(spec string, placement ...string) (string, string, error) {
 	argv := append(append([]string{"orca", orchestration, "worker-start", "--run", w.run, "--spec", spec, "--task-title", w.lane}, placement...), "--timeout-ms", workerStartMS, "--full", "--json")
 	stdout, stderr, code := w.capture(argv...)
+	tries := 1
+	for ; code != 0 && tries <= len(joinWaits); tries++ {
+		request := replayable(stdout)
+		if request == "" {
+			break
+		}
+		w.Sleep(joinWaits[tries-1])
+		stdout, stderr, code = w.capture(append(slices.Clone(argv), "--retry-request", request)...)
+	}
 	for name, text := range map[string]string{"worker-start.json": stdout, "worker-start.err": stderr, "worker-start.status": strconv.Itoa(code) + "\n"} {
 		if err := w.receipt(name, text); err != nil {
 			return "", "", err
@@ -429,7 +438,11 @@ func (w *workerLaunch) startWorker(spec string, placement ...string) (string, st
 		if json.Unmarshal([]byte(stdout), &refusal) == nil && refusal.OK != nil && !*refusal.OK {
 			said = ": " + refusal.Error.Code + ": " + refusal.Error.Message
 		}
-		return "", "", refuse("orca orchestration worker-start exited %d%s; kept terminal %s, worktree %s, and the receipt in %s", code, said, w.terminal, w.worktree, w.attempt)
+		replayed := ""
+		if tries > 1 {
+			replayed = fmt.Sprintf(" after %d tries", tries)
+		}
+		return "", "", refuse("orca orchestration worker-start exited %d%s%s; kept terminal %s, worktree %s, and the receipt in %s", code, replayed, said, w.terminal, w.worktree, w.attempt)
 	}
 	unready := refuse("orca orchestration worker-start exited 0 without a ready receipt for Run %s; kept terminal %s, worktree %s, and the receipt in %s", w.run, w.terminal, w.worktree, w.attempt)
 	doc, single := oneDocument(stdout)

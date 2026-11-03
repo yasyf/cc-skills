@@ -1404,3 +1404,60 @@ func TestALocalIdleTimeoutKeepsItsTerminalAndWorktree(t *testing.T) {
 		t.Fatal(kept)
 	}
 }
+
+func runtimeRefusal(code string) workerReply {
+	return workerReply{code: 1, out: object{"ok": false, "error": object{"code": code, "message": "Timed out waiting for the remote Orca runtime to respond.", "data": object{"orchestrationRequestId": "req_start"}}}}
+}
+
+func (f *workerFixture) workerStarts() [][]string {
+	var starts [][]string
+	for _, call := range f.calls {
+		if len(call) > 2 && call[2] == "worker-start" {
+			starts = append(starts, call)
+		}
+	}
+	return starts
+}
+
+func TestAWorkerStartTheRemoteRuntimeTimedOutReplaysTheSameRequestAndStarts(t *testing.T) {
+	f := newWorkerFixture(t)
+	f.sprite()
+	f.reply("orca orchestration worker-start", runtimeRefusal("runtime_timeout"), workerReply{out: startedReceipt})
+
+	f.launched()
+
+	starts := f.workerStarts()
+	if len(starts) != 2 || !slices.Equal(starts[1], slices.Concat(starts[0], []string{"--retry-request", "req_start"})) {
+		t.Fatalf("worker-start calls %q, want the first replayed under its request id", starts)
+	}
+	if !slices.Equal(f.slept, joinWaits[:1]) {
+		t.Fatal(f.slept)
+	}
+}
+
+func TestAWorkerStartTheRuntimeKeepsRefusingFailsNamingItsTriesAndLastError(t *testing.T) {
+	f := newWorkerFixture(t)
+	f.sprite()
+	f.reply("orca orchestration worker-start", runtimeRefusal("remote_runtime_unavailable"), runtimeRefusal("remote_runtime_unavailable"), runtimeRefusal("remote_runtime_unavailable"), runtimeRefusal("remote_runtime_unavailable"))
+
+	_, failed, err := f.launch(workerLane, "opus", "xhigh")
+
+	if err != nil || !strings.Contains(failed, "worker-start exited 1 after 4 tries: remote_runtime_unavailable: Timed out") {
+		t.Fatalf("failed %q, err %v", failed, err)
+	}
+	if len(f.workerStarts()) != 4 || !slices.Equal(f.slept, joinWaits) {
+		t.Fatalf("%d worker-starts, slept %v", len(f.workerStarts()), f.slept)
+	}
+}
+
+func TestAWorkerStartRefusalThatMeansNoIsNeverReplayed(t *testing.T) {
+	f := newWorkerFixture(t)
+	f.sprite()
+	f.reply("orca orchestration worker-start", runtimeRefusal(CodeFenced))
+
+	_, failed, err := f.launch(workerLane, "opus", "xhigh")
+
+	if err != nil || !strings.Contains(failed, "worker-start exited 1: dispatch_inactive") || len(f.workerStarts()) != 1 || len(f.slept) != 0 {
+		t.Fatalf("failed %q, err %v, %d worker-starts, slept %v", failed, err, len(f.workerStarts()), f.slept)
+	}
+}

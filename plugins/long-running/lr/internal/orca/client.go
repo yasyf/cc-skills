@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
@@ -17,6 +18,8 @@ const (
 	CodeRuntimeDown  = "remote_runtime_unavailable"
 	orchestration    = "orchestration"
 )
+
+var replayableCodes = []string{"runtime_unavailable", CodeRuntimeDown, "runtime_timeout", "invalid_runtime_response"}
 
 type ReplyError struct {
 	Code    string `json:"code"`
@@ -39,6 +42,14 @@ func (r Reply) Refusal() string {
 		return r.Error.Code
 	}
 	return r.Error.Code + ": " + r.Error.Message
+}
+
+func replayable(said string) string {
+	var reply Reply
+	if json.Unmarshal([]byte(said), &reply) != nil || reply.OK || !slices.Contains(replayableCodes, reply.Error.Code) {
+		return ""
+	}
+	return reply.Error.Data.RequestID
 }
 
 func (r Reply) Into(target any) error {
