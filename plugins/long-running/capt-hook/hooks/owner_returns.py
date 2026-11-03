@@ -294,8 +294,8 @@ def asked(reply: str, *calls: dict, words: str = HOW_FAR, decide: dict = ASKED) 
         explained(WHY, mechanism=Refused()): Allow(),
         explained("Looking into the signal server now.", mechanism=NO, due=True): Block(pattern=r"carries a hosted one-pager"),
         explained(f"The signal server picks the replica by chat id: {PAGE}", mechanism=NO, due=True): Allow(),
-        stated("yasyf/cc-skills#2196 merged, so the relay keeps one replica per chat."): Block(pattern=r"^A reply that calls a PR stale, merged, queued, red or green.*Read #2196 with `ccx vcs pr status <n>`"),
-        stated(f"{RELAY_PR} is queued.", *TAILED): Block(pattern=r"Read #2196 with"),
+        stated("yasyf/cc-skills#2196 merged, so the relay keeps one replica per chat."): Block(pattern=r"^A reply that calls a PR stale, merged, queued, red or green.*Read PR 2196 with `ccx vcs pr status <n>`"),
+        stated(f"{RELAY_PR} is queued.", *TAILED): Block(pattern=r"Read PR 2196 with"),
         stated("PR 2196 is green.", *T.tool_turn("Bash", result="#2196 MERGED at 3:10 AM", command="ccx vcs pr status 2196")): Allow(),
         stated("#2196 is red.", *T.tool_turn(f"{CCI_TOOLS}tail", result="#361807 REPORT relay-fix-2 yasyf/cc-skills#2196 CI red", lane="relay-fix-2")): Allow(),
         stated("The relay dashboard is green again, and the queue is empty."): Allow(),
@@ -452,7 +452,7 @@ def unread_pr_state(evt: BaseHookEvent, reply: str) -> str | None:
     claimed = {pr for sentence in SENTENCE_END.split(reply) if PR_STATE.search(LINK.sub("", sentence)) for found in PR_REF.findall(sentence) for pr in found if pr}
     read = "\n".join(f"{json.dumps(use.call.raw)}\n{use.result.content}" for use in evt.ctx.turn.tool_calls.items if reads_records(use, "ccx"))
     unread = sorted(pr for pr in claimed if not re.search(rf"(?<!\d){pr}(?!\d)", read))
-    return UNREAD_PR.format(prs=", ".join(f"#{pr}" for pr in unread)) if unread else None
+    return UNREAD_PR.format(prs=", ".join(f"PR {pr}" for pr in unread)) if unread else None
 
 
 def reads_records(use: object, reader: str = "lr") -> bool:
