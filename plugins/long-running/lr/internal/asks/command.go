@@ -60,7 +60,7 @@ func OpenMirror(a *app.App, entry drive.Entry) (Mirror, error) {
 	return Mirror{ledger.CLI{Runner: a.Runner, Repo: entry.Checkout}, s, entry.Ledger, a.Now}, nil
 }
 
-func (g Graded) Line(now time.Time) string {
+func (g Graded) Status(now time.Time) string {
 	line := fmt.Sprintf("%s %s", g.State, g.Ask.Line())
 	if g.Newest != nil {
 		line += fmt.Sprintf(" | progress %dm: %s", int(now.Sub(g.Newest.At).Minutes()), g.Newest.Note)
@@ -93,13 +93,13 @@ func Command(a *app.App) *cobra.Command {
 			open := book.Open(now)
 			if !asJSON {
 				for _, graded := range open {
-					fmt.Fprintln(cmd.OutOrStdout(), graded.Line(now))
+					fmt.Fprintln(cmd.OutOrStdout(), graded.Status(now))
 				}
 				return nil
 			}
 			out := make([]map[string]string, len(open))
 			for i, graded := range open {
-				out[i] = map[string]string{"key": graded.Key, "lane": graded.Lane, "state": string(graded.State), "text": graded.Text, "line": graded.Line(now)}
+				out[i] = map[string]string{"key": graded.Key, "lane": graded.Lane, "state": string(graded.State), "text": graded.Text, "line": graded.Status(now)}
 			}
 			return json.NewEncoder(cmd.OutOrStdout()).Encode(out)
 		},

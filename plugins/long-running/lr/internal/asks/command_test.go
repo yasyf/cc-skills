@@ -52,7 +52,7 @@ func TestAFreshMirrorAnswersWithNoLedgerReadAndAStaleOneResyncsFirst(t *testing.
 
 func TestAGradedLineLeadsWithItsStateAndNamesItsProgress(t *testing.T) {
 	graded := Graded{Ask{Key: "ask/000001", Lane: "a", Text: "t", Newest: &Progress{At: now.Add(-3 * time.Minute), Note: "halfway"}}, InProgress}
-	if line := graded.Line(now); line != "IN-PROGRESS ask/000001 a: t | progress 3m: halfway" {
+	if line := graded.Status(now); line != "IN-PROGRESS ask/000001 a: t | progress 3m: halfway" {
 		t.Fatalf("line = %q", line)
 	}
 }
