@@ -38,16 +38,17 @@ var (
 )
 
 type Sources struct {
-	Lanes   func(ctx context.Context) ([]Lane, error)
-	Records func(ctx context.Context, since time.Time, kinds ...string) ([]Record, error)
-	Plans   func(ctx context.Context) ([]*plans.Plan, error)
-	Book    func(ctx context.Context) (asks.Book, error)
-	Board   func(ctx context.Context, snapshots []board.Snapshot) (board.Live, error)
-	Tasks   func() ([]ClaudeTask, error)
-	Before  func() (Snapshot, error)
-	Retro   func(ctx context.Context) ([]Retro, error)
-	Owed    func(ctx context.Context) ([]deletions.Owed, error)
-	Pins    []drive.Pin
+	Lanes    func(ctx context.Context) ([]Lane, error)
+	Records  func(ctx context.Context, since time.Time, kinds ...string) ([]Record, error)
+	Plans    func(ctx context.Context) ([]*plans.Plan, error)
+	Book     func(ctx context.Context) (asks.Book, error)
+	Board    func(ctx context.Context, snapshots []board.Snapshot) (board.Live, error)
+	Tasks    func() ([]ClaudeTask, error)
+	Before   func() (Snapshot, error)
+	Retro    func(ctx context.Context) ([]Retro, error)
+	Owed     func(ctx context.Context) ([]deletions.Owed, error)
+	Programs func() ([]Program, error)
+	Pins     []drive.Pin
 }
 
 func midnight(now time.Time) time.Time {
@@ -132,7 +133,11 @@ func Collect(ctx context.Context, src Sources, bus string, now time.Time) (Input
 	if err != nil {
 		return Inputs{}, err
 	}
-	in := Inputs{Drive: bus, Now: now, Lanes: lanes, Plans: list, Book: book, Held: heldPRs(holds), Waits: waitingOnRoot(day), Board: boardLines(ctx, src, day), All: all, Before: before, Retro: retro, Owed: owed, Pins: src.Pins}
+	programs, err := src.Programs()
+	if err != nil {
+		return Inputs{}, err
+	}
+	in := Inputs{Drive: bus, Now: now, Lanes: lanes, Plans: list, Book: book, Held: heldPRs(holds), Waits: waitingOnRoot(day), Board: boardLines(ctx, src, day), All: all, Before: before, Retro: retro, Owed: owed, Pins: src.Pins, Programs: programs}
 	named := namesOf(working(lanes, now))
 	start := midnight(now)
 	for _, record := range day {

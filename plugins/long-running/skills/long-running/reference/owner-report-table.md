@@ -18,11 +18,12 @@ Every update the owner gets, whether a status answer, a milestone report or the 
 4. **Unowned work.** Every open row with nobody on it, as a table. Each also sits in its own section.
 5. **Pinned for you.** One row per entry of the drive entry's `pinned_rows`, each a `name`, a `delivers` line and the `words` that pick its lanes by name, step or deliverable. It is on every update, with **nobody** when no lane holds it. For durable-agents-rebuild that is devbox speed and bug hunting, and the next build.
 6. **Standing duties.** One row per duty at the newest lane of its successor chain.
-7. **The plan.** One table per plan step, its step row first and then its lanes. A plan with no numbered steps whose title lists pieces, such as the five services, gets one table per piece, so no piece can drop out.
-8. **Workstreams and lanes.** One table per other step a brief names, then the lanes on no step.
-9. **Owner asks, Incidents today, Releases today, Open PRs.** One row each; landed-but-not-live asks come first.
-10. Registry lanes quiet over a day, what waits on the coordinator, board picks, and what lanes delivered in the last two hours.
-11. **Gaps in this update.** Present only when a message of his has no record carrying it.
+7. **Drive tooling.** One row per meta program (the cci token cut, the coordinator kept minimal for Fable, hook tiers, the dashboard, Sprites, launch latency, the Go loop and any other) with its state, its blocker and what comes next, in plain words. The rows come only from the meta lane's `<state dir>/meta/programs.md`, a table headed `| Program | State | Blocker | Next |`, one row per program; a program nothing blocks says `nothing`.
+8. **The plan.** One table per plan step, its step row first and then its lanes. A plan with no numbered steps whose title lists pieces, such as the five services, gets one table per piece, so no piece can drop out.
+9. **Workstreams and lanes.** One table per other step a brief names, then the lanes on no step.
+10. **Owner asks, Incidents today, Releases today, Open PRs.** One row each; landed-but-not-live asks come first.
+11. Registry lanes quiet over a day, what waits on the coordinator, board picks, and what lanes delivered in the last two hours.
+12. **Gaps in this update.** Present only when a message of his has no record carrying it, a tooling program has no blocker, or the meta lane's list has no programs.
 
 ## Detail where it matters
 
@@ -40,7 +41,7 @@ Every item is named, and a full row goes where a decision or blocker lives: pinn
 
 ## The coverage check
 
-The render exits 1 and prints to stderr each section, working lane, open ask and open PR it lacks. It also prints each message of his that no record carries, and that list is the update's last section, so the owner sees the gap and the coordinator gets it as a `blocker` from the communicator. `--check FILE` reads an update someone else wrote and exits 1 naming each section, lane, ask and PR it leaves out.
+The render exits 1 and prints to stderr each section, working lane, open ask and open PR it lacks. It also prints each message of his that no record carries, each tooling program with an empty Blocker cell as `<program>: no blocker line`, and a missing or empty `meta/programs.md`; that list is the update's last section, so the owner sees the gap and the coordinator gets it as a `blocker` from the communicator. `lr update check FILE` reads an update someone else wrote and exits 1 naming each section, lane, ask and PR it leaves out, each tooling program it never names, and each program whose blocker is on no line that names it; the coordinator's Stop hook runs it on every long reply to the owner.
 
 ## The dashboard reads the same rows
 

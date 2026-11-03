@@ -165,7 +165,9 @@ every meta order the owner sends. It reports only to the communicator and never
 addresses the coordinator; when the coordinator must act, the communicator relays
 it. It keeps `<state dir>/meta/items.md`, one row per item with the owner's words,
 the lane, the state, the PR and what blocks it, and the communicator reads only that
-file for meta items in the owner's updates. Each item ends in a merged PR with
+file for meta items in the owner's updates. Beside it, `meta/programs.md` holds one row
+per meta program with its state and blocker, and every owner update carries it as its
+Drive tooling section. Each item ends in a merged PR with
 tests, installed by the drive's one installer (R14).
 
 **The signal lane** is a standing Sonnet session the communicator launches at drive

@@ -45,14 +45,14 @@ Loop, one foreground Bash call each, timeout 570000 ms:
   lr wait 560 cci:<drive>:update-desk mailbox:update-desk=<state dir>/update-desk.cursor
 
 - MAILBOX `render` from the communicator: run
-    owner_update.py --drive <drive> --render --sent > <state dir>/progress-desk/update-<HHMM>.md 2> <state dir>/progress-desk/update-<HHMM>.gaps
+    lr update render --drive <drive> --sent > <state dir>/progress-desk/update-<HHMM>.md 2> <state dir>/progress-desk/update-<HHMM>.gaps
   Exit 0 or 1 both mean the update is ready; any other exit, or an empty file, is a
   read failure: retry once, then send the communicator the stderr. SendMessage the communicator the
   markdown file's whole contents and the gaps file's path. Nothing else in the message.
 - Every wake: run `python3 <plugin>/dashboard/app/keep.py --config <state dir>/dashboard.json`,
   which restarts the dashboard app only when its URL stops answering.
 - Every 10 minutes without a render: run
-    owner_update.py --drive <drive> --render --publish > /dev/null 2>&1
+    lr update render --drive <drive> --publish > /dev/null 2>&1
   so the dashboard's rows stay current between updates. Only a render the communicator asked
   for is `--sent`.
 - A `defect` the app posts about its build: read `server.log` beside the config. A cause

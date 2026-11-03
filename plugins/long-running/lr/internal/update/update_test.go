@@ -225,6 +225,7 @@ func inputs(t *testing.T) Inputs {
 			{Number: "2", Title: "2. The readers", Tasks: []plans.Task{{Title: "Readers", State: plans.InProgress}}},
 			{Number: "3", Title: "3. The writers", Tasks: []plans.Task{{Title: "Writers", State: plans.Open}}},
 		}}},
+		Programs: []Program{{"cci token cut", "building", "nothing", "lands tonight"}},
 	}
 }
 

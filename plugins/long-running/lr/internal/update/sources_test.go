@@ -30,13 +30,14 @@ func src(lanes []Lane, records []Record, tasks []ClaudeTask, boardErr error) Sou
 			}
 			return out, nil
 		},
-		Plans:  func(context.Context) ([]*plans.Plan, error) { return nil, nil },
-		Book:   func(context.Context) (asks.Book, error) { return asks.Book{PRs: map[string]asks.PR{}}, nil },
-		Board:  func(context.Context, []board.Snapshot) (board.Live, error) { return board.Live{}, boardErr },
-		Tasks:  func() ([]ClaudeTask, error) { return tasks, nil },
-		Before: func() (Snapshot, error) { return Snapshot{}, nil },
-		Retro:  func(context.Context) ([]Retro, error) { return nil, nil },
-		Owed:   func(context.Context) ([]deletions.Owed, error) { return nil, nil },
+		Plans:    func(context.Context) ([]*plans.Plan, error) { return nil, nil },
+		Book:     func(context.Context) (asks.Book, error) { return asks.Book{PRs: map[string]asks.PR{}}, nil },
+		Board:    func(context.Context, []board.Snapshot) (board.Live, error) { return board.Live{}, boardErr },
+		Tasks:    func() ([]ClaudeTask, error) { return tasks, nil },
+		Before:   func() (Snapshot, error) { return Snapshot{}, nil },
+		Retro:    func(context.Context) ([]Retro, error) { return nil, nil },
+		Owed:     func(context.Context) ([]deletions.Owed, error) { return nil, nil },
+		Programs: func() ([]Program, error) { return nil, nil },
 	}
 }
 

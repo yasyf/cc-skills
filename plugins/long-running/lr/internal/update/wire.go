@@ -78,7 +78,8 @@ func Wire(a *app.App, entry drive.Entry, s *store.Store) Sources {
 			}
 			return trunk.Present(ctx, listed)
 		},
-		Pins: entry.Pinned,
+		Programs: func() ([]Program, error) { return ReadPrograms(filepath.Join(entry.StateDir, toolingList)) },
+		Pins:     entry.Pinned,
 	}
 }
 
