@@ -159,6 +159,15 @@ Every verdict is read live from the cc-present store through `cc-present outcome
 - A test-only or CI-only claim keeps the tap on any file not recognized as a test file by `testfiles.py` or under `__tests__/`, `testdata/`, `fixtures/`, `docs/`, `.buildkite/`, `.github/`, `tools/ci/`, `infra/ci/`, `.agents/skills/*/scripts/`, `.agents/skills/*/tests/`, or buildkite yaml. It opens the `TAP-REQUIRED` blocker with `TEST-ONLY-MISMATCH` naming the first such file.
 - A port claim keeps the tap on any file outside `go/sand/next/`, opening the blocker with `PORT-MISMATCH` naming the file, unless a PR comment under `## Rulings` names the interaction and cites `# owner: <answer id>`.
 
+**Exempt go gate.** A lane posts an exempt go only through `lr landing go <pr>... --lane <lane>`, never by hand or from its own script; without `--lane` the pass is dry. It reads each PR's records once and posts only when all of these hold at the PR's current head on GitHub:
+
+- The finder-desk's newest grade is `ok`, or a coordinator `decide` on lane `root` reads `finder-override #<n> at <sha>: <seq>` citing a record that exists.
+- Every fidelity lane's newest grade is `ok`, or a coordinator `decide` reads `fidelity-override #<n> at <sha>`, and some `ok` grade names one of `landing.exempt_grades`, which becomes the go's class.
+- No typed `hold` record holds the PR, and no open card or tap row on the owner's board names it.
+- No `landing.tap_rules` glob matches a changed file, and no live go already names the head.
+
+A refused PR prints every reason and posts nothing. Text in an ask, answer, note, or blocker is never an override or a pick. A hold the coordinator writes as prose stops nothing, so it posts every hold as a `hold` record. `lr landing go <pr> --head <sha> --before <seq>` replays a past go over the records before it.
+
 **Reserved rows.** A head whose own diff matches a reserved row's `ops` waits for the owner in every mode; a grader's `touches <key>` line alone never holds a head, and a coordinator `go` never covers a reserved row. Its `MERGE-ASK` card or board row quotes the row's key and the first sentence of its words. After an affirmative tap or pick, the coordinator runs `rulings.py authorize --drive <drive> --row <key> --action <tap ts>` with the Slack `action_ts` or board row `at`, `--block <choice block> --option <picked option>`, or `--block <approval block>`, which records an `authorizes:<key>` answer so `check-pr` stops naming the row.
 
 **Slack merge cards (`landing.merge_ask_surface`: `slack`, default).** For each waiting PR and head, the runner posts or edits in place one merge card by using `cc-present ask --session <coordinator's newest session in drive registry>`, logging `MERGE-ASK` or `MERGE-CARD-FAILED` to retry next pass. The card carries the question in plain words, title, author, size, review state, live checks hyperlink, and buttons `Merge (Recommended)`, `Hold`, `Other`, and `Explain more` waiting on `merge:<n>:<short sha>`, never an `AskUserQuestion`, and is never hand-written by the coordinator. On a `slack.action` directive, `Merge`, `Hold`, `Other`, and `Explain more` act as follows:
