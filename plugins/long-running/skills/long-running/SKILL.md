@@ -59,10 +59,7 @@ single-lane investigation is one subagent in direct mode, not a drive.
   the hand path; it is never an excuse and never a question for the owner.
 - Hooks warn. They block only on trust: a merge without the owner's approval, a
   change to who approves landings, a revert without his word, a runner or desk
-  started from the communicator, hook-file edits and the session-protection guards.
-  A read that fails never blocks: the hook warns and the call goes through. CI
-  enforces this with `tests/test_fail_open.py` and `lr/cmd/lr/fail_open_test.go`, whose
-  allow lists name the owner answer behind each gate that stays blocking.
+  started from the communicator, hook-file edits and the session-protection guards. A failed read only warns; `tests/test_fail_open.py` enforces it and lists the exceptions.
 
 ## Phase 0: the standing sessions
 
