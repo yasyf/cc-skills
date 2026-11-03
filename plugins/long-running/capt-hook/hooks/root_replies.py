@@ -759,6 +759,7 @@ def mentioned(text: str, item: dict) -> bool:
         lane in text
         or LANE_SUFFIX.sub("", lane) in text
         or any(pr in said for pr in item.get("prs", []))
+        or any(str(item[key]) in said for key in ("task", "seq") if item.get(key))
         or bool(subject) and len(subject & said) >= min(SUBJECT_WORDS, len(subject))
     )
 
@@ -784,7 +785,7 @@ def update_found(delivered: list[dict] = (), in_flight: list[dict] = ()) -> str:
     return json.dumps({"since": "2026-01-15T18:00:00+00:00", "asks": [], "in_flight": list(in_flight), "delivered": list(delivered), "board": [], "incidents": []})
 
 
-DELIVERY = {"task": "1815", "lane": "devbox-explore-7", "subject": "perf worker next scenarios: single-chat latency, idle resources", "prs": ["47525"], "line": "delivered #1815 devbox-explore-7: perf worker next scenarios | report #305141 8:45 PM: scenario 3 measured"}
+DELIVERY = {"task": "1815", "lane": "devbox-explore-7", "subject": "perf worker next scenarios: single-chat latency, idle resources", "prs": ["47525"], "seq": 305141, "line": "delivered #1815 devbox-explore-7: perf worker next scenarios | report #305141 8:45 PM: scenario 3 measured"}
 FLYING = {"task": "952", "lane": "next-build-tester-2", "subject": "tester round on every next build", "prs": [], "last": {"kind": "head", "at": datetime.now(UTC).isoformat()}, "line": "in flight #952 next-build-tester-2: tester round on every next build | last head 10:01 PM"}
 
 
@@ -799,6 +800,7 @@ FLYING = {"task": "952", "lane": "next-build-tester-2", "subject": "tester round
         ),
         Input(transcript=[T.user("status?"), T.assistant("The perf worker measured scenario 3: single-chat latency holds and idle resources are flat.")], state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={UPDATE_DRIVE: update_found([DELIVERY])}): Allow(),
         Input(transcript=[T.user("status?"), T.assistant("#47525 has its scenario 3 numbers.")], state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={UPDATE_DRIVE: update_found([DELIVERY])}): Allow(),
+        Input(transcript=[T.user("status?"), T.assistant("Task #1815 delivered in record 305141.")], state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={UPDATE_DRIVE: update_found([DELIVERY])}): Allow(),
         Input(transcript=[T.user("where are we?"), T.assistant("The tester round on every next build has not started.")], state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={UPDATE_DRIVE: update_found(in_flight=[FLYING])}): Block(
             pattern=r"in flight, not 'not started'"
         ),
