@@ -143,6 +143,62 @@ func TestTheRouteVerbPrintsOneObjectTheHooksRead(t *testing.T) {
 	equal(t, strings.TrimSpace(text), `{"lane":"desk-1","route":"root","state":"retired","standing":"","meta":false}`)
 }
 
+func TestEveryVerbTakesAStemForTheLaneThatHoldsIt(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	a, s := driveState(t)
+	for _, lane := range []string{"desk-2", "desk-3"} {
+		if _, err := s.WantLane(storeLane(lane), t0); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := client.Post(context.Background(), client.Draft{Drive: testDrive, Lane: lane, Kind: "state", Text: lane + " up"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	route, err := execute(t, RouteCommand(a), "desk")
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed, err := execute(t, Command(a), "desk")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := execute(t, RequestCommand(a), "park", "desk", "--by", "coordinator"); err != nil {
+		t.Fatal(err)
+	}
+
+	equal(t, strings.TrimSpace(route), `{"lane":"desk","route":"desk-3","state":"desired","standing":"","meta":false}`)
+	if !strings.HasPrefix(listed, "desk-3 ") || strings.Contains(listed, "desk-2") {
+		t.Fatalf("lr lanes desk = %q; want desk-3's line alone", listed)
+	}
+	records, err := client.Tail(context.Background(), client.Query{Drive: testDrive, Kinds: []string{"decide"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	equal(t, len(records), 1)
+	equal(t, recordOf(records[0]).Attr("lane"), "desk-3")
+}
+
+func TestANumberedLaneStaysItselfThoughANewerLaneHoldsItsStem(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	a, s := driveState(t)
+	for _, lane := range []string{"desk-2", "desk-3"} {
+		if _, err := s.WantLane(storeLane(lane), t0); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := client.Post(context.Background(), client.Draft{Drive: testDrive, Lane: lane, Kind: "state", Text: lane + " up"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	route, err := execute(t, RouteCommand(a), "desk-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	equal(t, strings.TrimSpace(route), `{"lane":"desk-2","route":"desk-2","state":"desired","standing":"","meta":false}`)
+}
+
 func TestTheRequestVerbPostsOneTypedRecordAndRefusesAStandingLaneAlone(t *testing.T) {
 	t.Setenv("CCI_HOME", t.TempDir())
 	t.Setenv(LaneEnv, Root)

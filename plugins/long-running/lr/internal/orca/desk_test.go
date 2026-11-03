@@ -87,6 +87,7 @@ type deskWorld struct {
 
 func newDeskWorld(t *testing.T) *deskWorld {
 	t.Helper()
+	t.Setenv("CCI_HOME", t.TempDir())
 	home := t.TempDir()
 	w := &deskWorld{
 		t: t, home: home, now: time.Date(2026, 11, 3, 8, 0, 0, 0, time.UTC),
@@ -496,6 +497,22 @@ func TestTheFirstReadSavesTheNewestRecordAndActsOnNothing(t *testing.T) {
 	if action := w.action(testLane, "R2"); action.Kind != kindRelay {
 		t.Fatal(action)
 	}
+}
+
+func TestARelayToAStemIsSentOnTheThreadOfTheLaneHoldingIt(t *testing.T) {
+	w := newDeskWorld(t)
+	for _, lane := range []string{"desk-2", "desk-3"} {
+		if _, err := client.Post(context.Background(), client.Draft{Drive: testDrive, Lane: lane, Kind: "state", Text: lane + " up"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	w.live("desk-3", "ctx_d", "term_d")
+	w.lines()
+
+	w.line("R2 (5:01 PM) orca-desk: relay to desk: restack onto dev")
+	w.lines()
+
+	wantContains(t, w.wantEscalation("RELAYED R2 desk-3"), "relay to dispatch ctx_d")
 }
 
 func TestARelayToALiveLaneIsSentOnItsThreadAndWakesTheLane(t *testing.T) {

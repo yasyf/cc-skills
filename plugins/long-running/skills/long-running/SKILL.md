@@ -264,7 +264,7 @@ its own; `lr drive sub start` refuses without each fact
 | Every open ask, and what is landed but not live | `lr asks` |
 | The owner update, complete and from sources | `lr update render`, run by the communicator's `update-desk` |
 | What an incident is doing | `lr incident status <slug>` |
-| Where a lane's mail goes | `lr route <lane>` |
+| Where a lane's mail goes; every `lr` verb takes a stem, `meta-desk`, for its newest live lane | `lr route <lane>` |
 
 A read the table lacks belongs to a lane: a PR, a diff, a CI log, a Slack thread,
 a plan artifact, a long file, a cloud listing, a build page. The coordinator spawns

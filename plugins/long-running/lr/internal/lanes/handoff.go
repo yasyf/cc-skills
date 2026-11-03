@@ -44,7 +44,11 @@ func handoffCommand(a *app.App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			id, err := env.WriteHandoff(cmd.Context(), s, args[0], cwd, transcript)
+			lane, err := Resolve(cmd.Context(), cfg.Drive, args[0])
+			if err != nil {
+				return err
+			}
+			id, err := env.WriteHandoff(cmd.Context(), s, lane, cwd, transcript)
 			if err != nil {
 				return err
 			}
