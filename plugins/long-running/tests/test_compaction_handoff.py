@@ -262,32 +262,27 @@ def test_threshold_queues_one_doc_nudge_without_touching_the_plan(home: Path, pl
     assert pending(session) == []
 
 
-def test_the_threshold_nudge_lists_each_open_task_whose_lane_delivered_since_the_last_progress_doc(home: Path, plan: Path, docs: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    now = datetime.now(timezone.utc)
-
-    def stamp(minutes: int) -> str:
-        return (now - timedelta(minutes=minutes)).strftime("%Y-%m-%dT%H:%M:%SZ")
-
+def test_the_threshold_nudge_lists_what_lr_update_says_was_delivered_since_the_last_progress_doc(home: Path, plan: Path, docs: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    updated = "2026-11-03T08:00:00Z"
     monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
     monkeypatch.delenv("CLAUDE_LONG_RUNNING_DRIVE", raising=False)
-    (docs / "docs.json").write_text(json.dumps([{"id": "a" * 40, "title": "brook: progress", "tags": ["progress:brook"], "updated_at": stamp(30)}]))
+    (docs / "docs.json").write_text(json.dumps([{"id": "a" * 40, "title": "brook: progress", "tags": ["progress:brook"], "updated_at": updated}]))
     drives = home / ".claude" / "long-running" / "drives"
     drives.mkdir(parents=True)
     (drives / "d1.json").write_text(json.dumps({"drive": "d1", "cci_drive": "d1", "sessions": [SESSION], "state_dir": str(home / "state"), "checkout": str(home), "ledger": "abc"}))
-    tasks = home / ".claude" / "tasks" / f"session-{SESSION[:8]}"
-    tasks.mkdir(parents=True)
-    (tasks / "11.json").write_text(json.dumps({"id": "11", "status": "in_progress", "subject": "Perf worker scenarios", "owner": "devbox-explore-7"}))
-    with (docs / "cci.jsonl").open("w") as out:
-        for seq, kind, text, minutes in ((1, "report", "older than the progress doc", 45), (2, "report", "scenario 3 measured", 10)):
-            out.write(json.dumps({"seq": seq, "lane": "devbox-explore-7", "kind": kind, "text": text, "at": stamp(minutes), "refs": {}}) + "\n")
+    asked, line = docs / "lr-args", "delivered #11 devbox-explore-7: Perf worker scenarios | report #2 "
+    lr = home / "bin" / "lr"
+    lr.write_text(f"#!/bin/sh\necho \"$@\" > {asked}\necho '{json.dumps({'delivered': [{'line': line}]})}'\n")
+    lr.chmod(0o755)
+    monkeypatch.setattr(handoff, "LR", lr)
     session = home / "session"
     handoff.CompactionState(active=True, coordinator=True, plan_path=str(plan)).save(bash(session))
 
     assert handoff.nudge_at_threshold(bash(session)) is None
 
     [_, listed] = pending(session)
-    assert "delivered #11 devbox-explore-7: Perf worker scenarios | report #2 " in listed
-    assert "older than the progress doc" not in listed
+    assert line in listed
+    assert asked.read_text().startswith(f"update --drive d1 --json --only delivered --since {updated} --kind report")
 
 
 def test_the_slug_comes_from_the_plans_progress_line(home: Path, plan: Path, docs: Path) -> None:
