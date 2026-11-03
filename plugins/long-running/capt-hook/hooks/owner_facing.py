@@ -248,6 +248,9 @@ def read_beside(name: str, prompt: str, *siblings: object, earlier: tuple[object
         read_beside("outage-reader", OUTAGE_READ, T.tool("Bash", command=FIX_LAUNCH)): Allow(),
         read_beside("outage-reader", OUTAGE_READ, T.tool("Bash", command=ORCA_GO)): Allow(),
         read_beside("outage-reader", OUTAGE_READ, T.tool("Bash", command="orca-launch.sh api-outage-fix incident xhigh /b.md")): Allow(),
+        read_beside("outage-reader", OUTAGE_READ, T.tool("Bash", command="lr launch start api-outage-fix incident xhigh /b.md")): Allow(),
+        read_beside("outage-reader", OUTAGE_READ, T.tool("Bash", command="lr launch incident api-outage-fix /b.md")): Allow(),
+        read_beside("outage-reader", OUTAGE_READ, T.tool("Bash", command="lr launch start api-outage-fix opus xhigh /b.md")): Warn(),
         read_beside("outage-reader", OUTAGE_READ, T.tool("Agent", name="api-outage-fix", prompt="Fix it.")): Allow(),
         read_beside("outage-reader", OUTAGE_READ, T.tool("Agent", name="api-patch", prompt="ccx: role=fix\nFix it.")): Allow(),
         read_beside("dm-reader", "ccx: role=reader\nRead the owner's DM about lane names."): Allow(),
@@ -287,6 +290,10 @@ def fix_command(argv: list[str]) -> bool:
         return True
     if "orca-launch.sh" in names and len(argv) > (at := names.index("orca-launch.sh")) + 2 and argv[at + 2] == "incident":
         return True
+    if "lr" in names:
+        verb = tuple(argv[names.index("lr") + 1 : names.index("lr") + 5])
+        if verb[:2] == ("launch", "incident") or (verb[:2] == ("launch", "start") and verb[3:] == ("incident",)):
+            return True
     return names[0] == "cci" and "post" in argv and any("orca-desk: launch" in word and " incident " in word for word in argv)
 
 

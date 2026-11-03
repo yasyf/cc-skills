@@ -166,6 +166,17 @@ def test_an_incident_launch_by_hand_gets_its_slice_written_into_the_brief(tools:
     assert brief.read_text() == "Fix the api outage.\n\nRegister slice: lane=incident-api-1n80-fix step=incident\n> words\nslice-hash: 0123456789ab\n"
 
 
+def test_an_incident_lr_launch_start_gets_its_slice_written_into_the_brief(tools: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(injection, "rulings", slicing([]))
+    brief = tools / "fix-brief.md"
+    brief.write_text("Fix the api outage.\n")
+
+    result = injection.slice_on_spawn(spawned(activated(tools / "session"), "Bash", {"command": f"lr launch start incident-api-1n80-fix incident xhigh {brief}"}))
+
+    assert result is None
+    assert brief.read_text() == "Fix the api outage.\n\nRegister slice: lane=incident-api-1n80-fix step=incident\n> words\nslice-hash: 0123456789ab\n"
+
+
 def test_a_slice_that_does_not_read_passes_the_spawn_and_posts_one_blocker(tools: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     def broken(cwd: str, *args: str, **_: object) -> str:
         raise subprocess.CalledProcessError(1, ["rulings.py", *args], stderr="no register for brook\n")

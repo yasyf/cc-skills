@@ -227,7 +227,7 @@ def captures(register: dict) -> Path:
 
 
 def launches(evt: BaseHookEvent) -> list[tuple[Call, tuple[str, ...]]]:
-    return [(call, run) for call in evt.command.calls() if (run := program((call.name, *call.args))) and Path(run[0]).name in BRIEF_LAUNCHERS]
+    return [(call, run) for call in evt.command.calls() if (run := program((call.name, *call.args))) and (Path(run[0]).name in BRIEF_LAUNCHERS or (Path(run[0]).name == "lr" and run[1:3] == ("launch", "start")))]
 
 
 def key_moment(evt: BaseHookEvent) -> str | None:
@@ -439,6 +439,8 @@ def asks(name: str, prompt: str, state: str, **extra: object) -> Input:
         ),
         question(reply("c7-timers", "Every 30 s a worker asks the server for new jobs."), "question-timers"): Warn(pattern=r"touches it without quoting it"),
         question(f"orca-launch.sh roster-writer standard xhigh {OWNER_QUESTION / 'brief-roster.md'}", "question-timers"): Warn(pattern=r"roster refresh"),
+        question(f"lr launch start roster-writer standard xhigh {OWNER_QUESTION / 'brief-roster.md'}", "question-timers"): Warn(pattern=r"roster refresh"),
+        question(f"lr launch hold roster-writer {OWNER_QUESTION / 'brief-roster.md'}", "question-timers"): Allow(),
         question(f"codex-ask -m sol {OWNER_QUESTION / 'brief-158695.md'}", "question-timers"): Allow(),
         asks("lane-x", ROSTER, "question-closed"): Allow(),
         asks("lane-x", ROSTER, "quiet"): Allow(),
