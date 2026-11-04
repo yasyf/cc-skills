@@ -4,10 +4,11 @@ import datetime as dt
 import hashlib
 import json
 import re
+from pathlib import Path
 
 import milestones
 import plainwords
-from brief import COORDINATORS, PACIFIC, RULES, SCHEMA, Page, at, unchecked, change_records, clip, clock, listing, mentioned, open_changes, owner_asks, pr_stages, rulings, said, strict, string, trouble, unasked
+from brief import COORDINATORS, PACIFIC, RULES, SCHEMA, Page, at, unchecked, change_records, clip, clock, listing, mentioned, open_changes, owner_asks, strict, string, pr_stages, rulings, said, strict, string, trouble, unasked
 
 WORK_WINDOW = dt.timedelta(hours=12)
 MIN_DAY = dt.timedelta(hours=8)
@@ -353,9 +354,112 @@ def review_digest(model, config, previous, now):
         return None
     return {"now": clock(now), "rows": rows, "groups": groups, "cards": cards, "open_changes": open_changes(model, change_records(model, now)), "worker_names": list(lanes)}
 
+REPLIES_WINDOW = dt.timedelta(hours=24)
+REPLIES_TAPS = 12
+CARD_NAME = re.compile(r"\bcard-[a-z0-9-]+")
+UNLISTED_LANES = re.compile(r"^Live lanes in no workstream:.*\n?", re.M)
+CLOCK_TIME = re.compile(r"\b\d{1,2}:\d{2} [AP]M\b")
+WORKER_RECORD_KINDS = {"blocker", "report", "ask", "state"}
+REPLIES_SCHEMA = strict({
+    "headline": string("at most 25 words: the one thing to do first, or that nothing needs the owner"),
+    "replies": listing(strict({
+        "id": string("the reply's id, copied"),
+        "topic": string("lowercase words joined by dashes, the same for every reply on one subject; \"update\" for a reply that is a whole-drive status update"),
+        "line": string("at most 20 words"),
+        "needs": {"enum": ["incident", "do", "none"]},
+    })),
+    "taps": listing(strict({
+        "card": string("an open card's id, copied"),
+        "urgent": {"type": "boolean"},
+        "line": string("at most 20 words: the question"),
+        "frees": string("at most 8 words: what this answer frees, with its count, empty when the facts state none"),
+        "count": {"type": "integer"},
+        "answers": listing(string("at most 8 words: this answer, one per option, same order")),
+    })),
+    "update": listing(strict({
+        "group": string("at most 4 words, the same for every area under one heading"),
+        "area": string("at most 8 words"),
+        "line": string("at most 20 words"),
+        "do": string("at most 16 words, or empty"),
+        "changed": string("at most 16 words, or empty"),
+        "blocks": string("at most 16 words, or empty"),
+    })),
+})
+REPLIES_PROMPT = PAGE_PROMPT.format(what="the Replies page of a live dashboard, the one page its owner uses to act on the drive. Every line tells the owner what to do or what changed for a user, and nothing else.", fields="""- headline: the first thing to do, from taps and incidents.
+- replies: one entry per reply in replies; a reply with an empty body already has its line in previous_brief, so keep that line, topic and needs unless a newer reply changes them. line says what to do, or what changed for a user, in plain words; it replaces the reply's title, so never copy a title that carries a number, a hash or a worker's name. needs is incident only for a reply about a customer-facing problem whose newest reply on that topic says it is still open with no fix live; do only when the reply needs the owner's own words and has no card to tap; none otherwise, which is most replies. Replies on one subject share one topic, even with different titles.
+- taps: at most 12 open cards, the ones that free the most work first. urgent is true only for a card deciding an open customer-facing incident. Skip a card whose subject the newest replies show is settled. count is how many pull requests, workers or customers the answer frees, read only from waiting and from what the replies and the update state about that card; 0 when they state none. Never guess a count. frees starts with Frees or Unblocks and says what becomes possible for users or which work moves, in words a newcomer follows, never a project nickname. answers shortens each option so it fits a button, keeping what it does.
+- update: the whole holistic update, so the owner never needs another page: every plan step in steps, every area in status_table, the services, signal, chats, releases and apps. One entry per item, grouped under short headings such as Plan, Five services, Signal, Chats, Releases, Apps. line is where it stands for users today, with its count when the facts state one. do is what the owner must do, empty when nothing. changed is what changed for a user since they last looked. blocks is what stands in its way. Leave out the drive's own tooling and desks unless the owner must act on them, and any item whose state is not known.""")
+
+
+def replies_slot(path):
+    if path[0] == "headline":
+        return "headline"
+    if path[0] == "replies":
+        return "line" if path[2] == "line" else None
+    if path[0] == "taps":
+        return {"line": "line", "frees": "title", "answers": "title"}.get(path[2])
+    if path[0] == "update":
+        return {"area": "title", "line": "line", "do": "latest", "changed": "latest", "blocks": "latest"}.get(path[2])
+    return None
+
+
+def card_waiters(model, cards):
+    waiting = {card["id"]: {"pull_requests": set(), "workers": set()} for card in cards}
+    for row in model["drive"]["prs"]:
+        if row["state"] != "landed":
+            for card in CARD_NAME.findall(json.dumps([row["blocker"], row["next"]])):
+                if card in waiting:
+                    waiting[card]["pull_requests"].add(row["number"])
+    for record in model["records"]:
+        if record["kind"] in WORKER_RECORD_KINDS and not COORDINATORS.search(record["lane"]):
+            for card in CARD_NAME.findall(record["text"]):
+                if card in waiting:
+                    waiting[card]["workers"].add(record["lane"])
+    return {card: {"pull_requests": len(found["pull_requests"]), "workers": len(found["workers"])} for card, found in waiting.items() if found["pull_requests"] or found["workers"]}
+
+
+def update_sections(render):
+    kept = (section for section in render.split("\n## ")[1:] if section.startswith(("Workstreams", "Since you last looked", "Decisions made for you")))
+    return ["## " + UNLISTED_LANES.sub("", section)[:9000] for section in kept]
+
+
+def replies_digest(model, config, previous, now):
+    recent = [entry for entry in model["replies"] if now - at(entry["at"]) < REPLIES_WINDOW]
+    cards = [card for card in model["board"]["cards"] if card["decides"]]
+    open_ids = {card["id"] for card in cards}
+    sections = update_sections(model["update_render"])
+    table = Path(config["status_table"]).read_text()
+    steps = [{key: step[key] for key in ("title", "state", "left", "blocker", "next")} for step in json.loads(Path(config["steps"]).read_text())["steps"]]
+    source = source_key([[entry["reply"]["id"], entry["reply"].get("status")] for entry in recent], sorted(open_ids), [CLOCK_TIME.sub("", section) for section in sections], table, steps, model["status_now"])
+    if previous and previous["source"] == source:
+        return None
+    written = {line["id"] for line in (previous or {}).get("replies", [])}
+    return {
+        "now": clock(now),
+        "source": source,
+        "replies": [{"id": entry["reply"]["id"], "at": clock(at(entry["at"])), "status": entry["reply"].get("status", "info"), "title": entry["reply"]["title"], "body": "" if entry["reply"]["id"] in written else clip(entry["reply"]["md"], 1500), "has_open_card": f"card-{entry['reply']['id']}" in open_ids} for entry in recent],
+        "open_cards": [{"id": card["id"], "title": card["title"], "answers": [option["label"] for option in card["options"]], "recommended": card["recommended"]} for card in cards],
+        "waiting": card_waiters(model, cards),
+        "update": sections,
+        "status_table": clip(table, 16000),
+        "steps": steps,
+        "status_paragraphs": model["status_now"],
+        "status_tables": [{"title": table["title"], "as_of": table["as_of"], "short": table["short"]} for table in model["status_tables"]],
+        "previous_brief": previous_of(previous, REPLIES_SCHEMA),
+        "worker_names": worker_names(model),
+    }
+
+
+def replies_settle(brief, facts):
+    known = {card["id"] for card in facts["open_cards"]}
+    brief["taps"] = sorted((tap for tap in brief["taps"] if tap["card"] in known), key=lambda tap: (not tap["urgent"], -tap["count"]))[:REPLIES_TAPS]
+    brief["source"] = facts["source"]
+
+
 PAGES = (
     Page("plan", PLAN_PROMPT, PLAN_SCHEMA, plan_digest, plan_slot, frozenset({"blocker", "ask", "answer", "decide", "go", "landed", "release", "incident", "mechanism", "fix-live", "hold", "lift", "defect"}), 180, unchecked, plan_settle),
     Page("work", WORK_PROMPT, WORK_SCHEMA, work_digest, work_slot, frozenset({*WORK_KINDS, "head", "review", "defect", "fix-live", "go", "decide", "hold", "lift", "answer", "evidence"}), 180, work_checks, work_settle),
     Page("history", HISTORY_PROMPT, HISTORY_SCHEMA, history_digest, history_slot, frozenset({*HISTORY_KINDS, "go", "landed"}), 300),
     Page("review", REVIEW_PROMPT, REVIEW_SCHEMA, review_digest, review_slot, frozenset({"review", "head", "go", "report"}), 60),
+    Page("replies", REPLIES_PROMPT, REPLIES_SCHEMA, replies_digest, replies_slot, frozenset({"report", "owner", "answer", "incident", "mechanism", "fix-live", "hold", "lift", "blocker"}), 300, unchecked, replies_settle),
 )

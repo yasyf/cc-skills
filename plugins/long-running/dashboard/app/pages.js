@@ -540,11 +540,7 @@ document.addEventListener('click', (e) => {
   if (row) decide(row, 'rejected', '', false);
 });
 
-const REPLY_WORD = { info: ['Note', ''], progress: ['Progress', 'acc'], needs_you: ['Needs you', 'you'], incident: ['Incident', 'bad'], done: ['Done', 'ok'] };
-const SURFACE_WORD = { board: 'Board', slack: 'Slack', record: 'Record' };
-const REPLIES_AT_REST = 12;
-const collate = new Intl.Collator('en', { numeric: true, sensitivity: 'base' }).compare;
-const rp = { sent: new Map(), sort: new Map() };
+const REPLIES_AT_REST = 8;
 const NOISE = [
   [/\s*\([^()]*\b(?:records?|owner table|card-[a-z0-9-]+)\b[^()]*\)/gi, ''],
   [/\brecords?\s+#*\d[\dx]*\b/gi, ''],
@@ -554,6 +550,8 @@ const NOISE = [
   [/\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b/g, ''],
   [/\b[\w.-]+(?:\/[\w.-]+)?#\d+\b/g, 'a tooling change'],
 ];
+const collate = new Intl.Collator('en', { numeric: true, sensitivity: 'base' }).compare;
+const rp = { sent: new Map(), sort: new Map() };
 function plain(text) {
   const workers = (state.model.lanes ?? []).map((row) => row.lane).filter((lane) => lane && /-/.test(lane) && /\d/.test(lane));
   const scrubbed = NOISE.reduce((out, [pattern, word]) => out.replace(pattern, word), text);
@@ -568,13 +566,30 @@ function namedChanges(md) {
 function replyCard(r) {
   return state.model.board.cards.find((c) => c.id === `card-${r.id}`);
 }
-function replyState(r) {
-  if (state.model.board.answered[`card-${r.id}`]) return ['Answered', 'ok'];
-  if (replyCard(r)) return ['Asks you', 'you'];
-  return REPLY_WORD[r.status ?? 'info'];
+function replyLines() {
+  const said = new Map((curated('replies')?.replies ?? []).map((line) => [line.id, line]));
+  const leads = new Map();
+  for (const entry of state.model.replies) {
+    const r = entry.reply;
+    const line = said.get(r.id);
+    const row = { entry, id: r.id, topic: line?.topic ?? (/^(?:\d{1,2}:\d{2} [AP]M )?(?:holistic |overall )?update\b/i.test(r.title) ? 'update' : r.id), line: line?.line ?? plain(r.title).replace(/#\d{4,5}\b,? ?/g, ''), needs: line?.needs ?? ({ incident: 'incident', needs_you: 'do' }[r.status] ?? 'none'), earlier: [] };
+    if (leads.has(row.topic)) leads.get(row.topic).earlier.push(row);
+    else leads.set(row.topic, row);
+  }
+  leads.delete('update');
+  return [...leads.values()].filter((row) => !replyCard(row.entry.reply));
 }
-function openReplies() {
-  return state.model?.replies ? state.model.replies.filter((entry) => replyCard(entry.reply)).length : 0;
+function replyTaps() {
+  const brief = curated('replies');
+  const open = new Map(state.model.board.cards.filter((c) => c.decides).map((c) => [c.id, c]));
+  const picked = (brief?.taps ?? []).filter((tap) => open.has(tap.card)).map((tap) => ({ ...tap, c: open.get(tap.card) }));
+  const named = new Set(picked.map((tap) => tap.card));
+  const others = [...open.values()].filter((c) => !named.has(c.id)).map((c) => ({ card: c.id, c, line: plain(c.title), frees: '', count: 0, answers: [], urgent: false }));
+  return { taps: picked, others };
+}
+function waitingOnYou() {
+  if (!state.model?.replies) return 0;
+  return replyTaps().taps.length + replyLines().filter((row) => row.needs === 'incident' || row.needs === 'do').length;
 }
 function sortableTable(key, lines) {
   const cells = (line) => line.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim());
@@ -611,48 +626,72 @@ function replyMarkdown(id, md) {
   flush();
   return out.join('');
 }
-function replyPicks(r) {
-  const answered = state.model.board.answered[`card-${r.id}`];
-  if (answered) return `<p class="rp-picked">You picked <b>${esc(answered.picked)}</b> on your board.</p>`;
-  const card = replyCard(r);
-  const busy = card && sending(card.choice) ? ' disabled' : '';
-  const built = !r.build ? '' : r.build.none ? `; nothing to build: ${esc(r.build.none)}` : `; built on ${esc(r.build.repo)} ${esc(r.build.branch)}`;
-  const pick = (label, n) => {
-    const lead = label === r.recommended;
-    const face = card ? `<button class="btn${lead ? ' pri' : ''}" data-choose="${esc(`${r.id}-${n + 1}`)}" data-choice="${esc(card.choice)}"${busy}>${esc(label)}</button>` : `<span class="rp-pick${lead ? ' pri' : ''}">${esc(label)}</span>`;
-    return `<li>${face}${lead ? `<small>Recommended${built}</small>` : ''}</li>`;
-  };
-  return `<ul class="rp-picks">${r.picks.map(pick).join('')}</ul>${card ? sentNote(card.choice) : '<p class="pg-none">Your board has no open card for these picks, so answer in the box below.</p>'}`;
-}
 function replyPR(url) {
   const [, repo, n] = /github\.com\/([\w.-]+\/[\w.-]+)\/pull\/(\d+)$/.exec(url);
-  return `<a class="prc" href="${esc(url)}" target="_blank" rel="noopener">${repo === state.model.repo ? esc(changeWords(n)) : 'A tooling change'} ↗</a>`;
+  return repo === state.model.repo ? prLink(n) : `<a class="prc" href="${esc(url)}" target="_blank" rel="noopener">${esc(repo)}#${n} ↗</a>`;
 }
 function replyBox(id) {
   const sent = rp.sent.get(id);
   const waiting = sent && !sent.seq && !sent.error;
-  const note = !sent ? '' : sent.error ? `<em class="nsent bad">Not sent: ${esc(sent.error)}. Try again.</em>` : sent.seq ? '<em class="nsent">✓ Sent to the communicator</em>' : '<em class="nsent">Sending…</em>';
-  return `<form class="ask rp-ask" data-reply-back="${esc(id)}"><textarea name="reply" data-draft="${esc(id)}" rows="2" placeholder="${id ? 'Answer this reply' : 'Message the communicator'}"${waiting ? ' disabled' : ''}>${sent?.error ? esc(sent.text) : ''}</textarea><button class="btn pri"${waiting ? ' disabled' : ''}>Send</button></form>${note}`;
+  const note = !sent ? '' : sent.error ? `<em class="nsent bad">Not sent: ${esc(sent.error)}. Try again.</em>` : sent.seq ? '<em class="nsent">✓ Sent</em>' : '<em class="nsent">Sending…</em>';
+  return `<form class="ask rp-ask" data-reply-back="${esc(id)}"><textarea name="reply" data-draft="${esc(id)}" rows="1" placeholder="${id ? 'Answer this' : 'Tell the drive something'}"${waiting ? ' disabled' : ''}>${sent?.error ? esc(sent.text) : ''}</textarea><button class="btn"${waiting ? ' disabled' : ''}>Send</button></form>${note}`;
 }
-function replyMore(entry) {
+function replyBody(entry) {
   const r = entry.reply;
-  const failed = entry.surfaces.filter((s) => s.error).map((s) => `<li class="bad">${SURFACE_WORD[s.surface]} failed: ${esc(s.error)}</li>`).join('');
-  return `<div class="rp-md prose">${replyMarkdown(r.id, plain(namedChanges(r.md)))}</div>${r.picks ? replyPicks(r) : ''}
+  const failed = entry.surfaces.filter((s) => s.error).map((s) => `<li class="bad">Could not reach your ${esc(s.surface)}: ${esc(s.error)}</li>`).join('');
+  return `<div class="rp-md prose">${replyMarkdown(r.id, plain(namedChanges(r.md)))}</div>
     ${r.links?.length ? `<ul class="rp-links">${r.links.map((l) => `<li><a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(plain(l.label).replace(/^#(\d{5})$/, (_, n) => changeWords(n)))} ↗</a></li>`).join('')}</ul>` : ''}
-    ${r.prs?.length ? `<p class="rp-prs">${r.prs.map(replyPR).join(' ')}</p>` : ''}
-    ${failed ? `<ul class="rp-went">${failed}</ul>` : ''}${replyBox(r.id)}`;
+    ${r.prs?.length ? `<p class="rp-prs">${r.prs.map(replyPR).join(' ')}</p>` : ''}${failed ? `<ul class="rp-went">${failed}</ul>` : ''}`;
 }
-function replyRow(entry) {
-  const [word, tone] = replyState(entry.reply);
-  const failed = entry.surfaces.filter((s) => s.error).map((s) => SURFACE_WORD[s.surface]);
-  return { id: `rp-${entry.reply.id}`, iso: entry.at, at: clock(entry.at), word, tone, title: plain(entry.reply.title).replace(/#\d{4,5}\b,? ?/g, ''), why: failed.length ? `${failed.join(' and ')} failed` : '', more: replyMore(entry) };
+function replyRow(row, tone, act = '') {
+  const earlier = row.earlier.length ? `<details class="rl-earlier" data-id="rl-e-${esc(row.id)}"${state.open.has(`rl-e-${row.id}`) ? ' open' : ''}><summary>${row.earlier.length} earlier on this</summary>${row.earlier.map((e) => `<h4>${esc(clock(e.entry.at))}</h4>${replyBody(e.entry)}`).join('')}</details>` : '';
+  const id = `rp-${row.id}`;
+  return `<li class="rl ${tone}"><details data-id="${esc(id)}"${state.open.has(id) ? ' open' : ''}><summary><span class="rl-t">${esc(row.line)}</span><time>${esc(clock(row.entry.at))}</time></summary><div class="rl-more">${replyBody(row.entry)}${earlier}${replyBox(row.id)}</div></details>${act}</li>`;
+}
+function tapRow(tap) {
+  const { c } = tap;
+  const busy = sending(c.choice) ? ' disabled' : '';
+  const lead = (o) => o.recommended || o.label === c.recommended;
+  const button = (o, i) => `<button class="btn${lead(o) ? ' pri' : ''}" data-choose="${esc(o.id)}" data-choice="${esc(c.choice)}"${busy}>${esc(tap.answers[i] ?? plain(o.label))}</button>`;
+  const buttons = c.choice ? [...c.options.map((o, i) => [o, i])].sort(([a], [b]) => lead(b) - lead(a)).map(([o, i]) => button(o, i)).join('') : `<a class="btn" href="${esc(state.model.board.url)}?block=${encodeURIComponent(c.id)}" target="_blank" rel="noopener">Answer on your board ↗</a>`;
+  const reply = state.model.replies.find((entry) => `card-${entry.reply.id}` === c.id);
+  const id = `tap-${c.id}`;
+  return `<li class="rl ${tap.urgent ? 'bad' : 'you'} rl-tap"><details data-id="${esc(id)}"${state.open.has(id) ? ' open' : ''}><summary><span class="rl-t">${esc(tap.line)}</span>${tap.frees ? `<span class="rl-frees">${esc(tap.frees)}</span>` : ''}</summary><div class="rl-more"><div class="rl-acts">${buttons}${sentNote(c.choice)}</div>${reply ? replyBody(reply) : `<div class="rp-md prose">${markdown(plain(c.summary || c.title))}</div>`}</div></details></li>`;
+}
+function updateRow(row) {
+  const id = `up-${row.area}`;
+  const more = [['You', row.do], ['What changed', row.changed], ['In its way', row.blocks]].filter(([, text]) => text);
+  const head = `<span class="rl-area">${esc(row.area)}</span><span class="rl-t">${esc(row.line)}</span>`;
+  return `<li class="rl ${row.do ? 'you' : ''}">${more.length ? `<details data-id="${esc(id)}"${state.open.has(id) ? ' open' : ''}><summary>${head}</summary><dl class="rl-more rl-facts">${more.map(([k, text]) => `<dt>${k}</dt><dd>${esc(text)}</dd>`).join('')}</dl></details>` : `<div class="rl-plain">${head}</div>`}</li>`;
+}
+function updateSection(rows) {
+  return groupBy(rows, (row) => row.group).map(([group, items]) => {
+    const done = items.filter((row) => /^done\b/i.test(row.line));
+    const left = items.filter((row) => !done.includes(row));
+    return `<h3 class="rl-g">${esc(group)}</h3><ol class="rl-list">${left.map(updateRow).join('')}</ol>${done.length ? fold(`up-done-${group}`, `${done.length} done`, `<ol class="rl-list">${done.map(updateRow).join('')}</ol>`) : ''}`;
+  }).join('');
+}
+function replySection(title, count, body, note = '') {
+  return body ? `<section class="rl-s"><h2>${title}${count ? ` <span class="pg-n">${count}</span>` : ''}${note ? `<small>${note}</small>` : ''}</h2><ol class="rl-list">${body}</ol></section>` : '';
 }
 function repliesScreen() {
-  const rows = state.model.replies.map(replyRow);
-  const first = rows.slice(0, REPLIES_AT_REST);
-  const rest = rows.slice(REPLIES_AT_REST);
-  const lead = rows.length ? 'What the communicator sent you, newest first. Open one to read it whole, tap a pick, or answer it.' : 'The communicator has sent you no replies yet.';
-  return `<div class="pg">${pageHead('Replies')}<p class="pg-lead">${lead}</p>${replyBox('')}${first.length ? eventList(first) : ''}${rest.length ? fold('rp-older', `Older ${countPill(rest.length)}`, eventList(rest)) : ''}</div>`;
+  const brief = curated('replies');
+  const rows = replyLines();
+  const { taps, others } = replyTaps();
+  const incidents = rows.filter((row) => row.needs === 'incident');
+  const words = rows.filter((row) => row.needs === 'do');
+  const changed = rows.filter((row) => row.needs === 'none');
+  const urgent = taps.filter((tap) => tap.urgent);
+  const rest = taps.filter((tap) => !tap.urgent);
+  const lead = brief?.headline ?? (taps.length || incidents.length ? `${incidents.length} incidents and ${taps.length} answers wait on you.` : 'Nothing needs you.');
+  return `<div class="pg rl-pg"><header class="rl-h"><h1>${esc(lead)}</h1>${brief ? `<span class="pg-at">As of ${clock(brief.at)}</span>` : ''}</header>
+    ${replySection('Urgent', urgent.length + incidents.length, [...urgent.map(tapRow), ...incidents.map((row) => replyRow(row, 'bad'))].join(''))}
+    ${replySection('Your answers', rest.length + words.length, [...rest.map(tapRow), ...words.map((row) => replyRow(row, 'you'))].join(''), rest.some((tap) => tap.count) ? 'most work freed first' : '')}
+    ${others.length ? `<p class="rl-rest"><a href="#/asks">${others.length} more questions on Your asks</a></p>` : ''}
+    ${brief?.update?.length ? `<section class="rl-s"><h2>Where everything stands</h2>${updateSection(brief.update)}</section>` : ''}
+    ${replySection('What changed', 0, changed.slice(0, REPLIES_AT_REST).map((row) => replyRow(row, '')).join(''))}
+    ${changed.length > REPLIES_AT_REST ? fold('rp-older', `Earlier ${countPill(changed.length - REPLIES_AT_REST)}`, `<ol class="rl-list">${changed.slice(REPLIES_AT_REST).map((row) => replyRow(row, '')).join('')}</ol>`) : ''}
+    <div class="rl-send">${replyBox('')}</div></div>`;
 }
 async function replyBack(id, text) {
   if (!text.trim() || (rp.sent.get(id) && !rp.sent.get(id).seq && !rp.sent.get(id).error)) return;
@@ -686,7 +725,7 @@ function noticeReplies(alerts) {
     const notice = new Notification(a.incident && !/^incident/i.test(a.title) ? `Incident: ${plain(a.title)}` : plain(a.title), { body: a.picks.join(' · '), tag: a.id, requireInteraction: a.incident });
     notice.onclick = () => {
       window.focus();
-      state.open.add(`rp-${a.id}`);
+      state.open.add(`rp-${a.id}`).add(`tap-card-${a.id}`);
       location.hash = '#/replies';
       render();
     };

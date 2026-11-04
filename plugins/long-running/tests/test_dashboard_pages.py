@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 from brief import Curator
 from pages import PAGES, REVIEW_SCHEMA, open_question, plan_slot, review_digest, review_slot, stamp, waiting_since
+from pages import card_waiters, replies_settle, update_sections
 from server import ALERTS_SENT, bot_words, drawable, reply_alerts, stored_replies, unanswered
 
 NOW = dt.datetime(2026, 10, 27, 23, 0, tzinfo=dt.timezone.utc)
@@ -219,3 +220,34 @@ def test_alerts_carry_each_reply_that_needs_him_and_no_other():
 def test_alerts_keep_the_newest_when_many_wait():
     replies = [reply_entry(f"r{n}", status="needs_you") for n in range(ALERTS_SENT + 5)]
     assert [alert["id"] for alert in reply_alerts(replies)] == [f"r{n}" for n in range(ALERTS_SENT)]
+
+
+def test_taps_order_by_work_freed_and_drop_a_card_no_longer_open():
+    brief = {"taps": [{"card": "card-a", "count": 1, "urgent": False}, {"card": "card-gone", "count": 50, "urgent": False}, {"card": "card-b", "count": 9, "urgent": False}, {"card": "card-c", "count": 0, "urgent": True}]}
+    replies_settle(brief, {"source": "abc", "open_cards": [{"id": "card-a"}, {"id": "card-b"}, {"id": "card-c"}]})
+    assert [tap["card"] for tap in brief["taps"]] == ["card-c", "card-b", "card-a"]
+    assert brief["source"] == "abc"
+
+
+def test_waiters_count_open_pull_requests_and_working_lanes_naming_a_card():
+    model = {
+        "drive": {"prs": [
+            {"number": 1, "state": "open", "blocker": "parked on card-a", "next": None},
+            {"number": 2, "state": "open", "blocker": None, "next": "tap card-a, then land"},
+            {"number": 3, "state": "landed", "blocker": "parked on card-a", "next": None},
+            {"number": 4, "state": "open", "blocker": "parked on card-unknown", "next": None},
+        ]},
+        "records": [
+            {"kind": "blocker", "lane": "fix-1", "text": "waits on card-a"},
+            {"kind": "blocker", "lane": "fix-1", "text": "still on card-a"},
+            {"kind": "note", "lane": "fix-2", "text": "mentions card-a"},
+            {"kind": "report", "lane": "board-refresher-7", "text": "redrew card-a"},
+            {"kind": "report", "lane": "fix-3", "text": "on card-b"},
+        ],
+    }
+    assert card_waiters(model, [{"id": "card-a"}, {"id": "card-b"}, {"id": "card-c"}]) == {"card-a": {"pull_requests": 2, "workers": 1}, "card-b": {"pull_requests": 0, "workers": 1}}
+
+
+def test_update_sections_keep_what_the_owner_reads_and_drop_the_rest():
+    render = "# Owner update\n\n74 overdue:\n- ask #1\n\n## Workstreams\n| a |\nLive lanes in no workstream: x, y\n\n## Unowned work\nnoise\n\n## Since you last looked (4:40 PM)\n- new\n\n## Gaps in this update\n- gap"
+    assert update_sections(render) == ["## Workstreams\n| a |\n", "## Since you last looked (4:40 PM)\n- new\n"]
