@@ -760,7 +760,7 @@ def activate(evt: BaseHookEvent, args: str, *, coordinator: bool) -> None:
         state.active = True
         state.coordinator = state.coordinator or coordinator
         if match := PLAN_ARG.search(args):
-            state.plan_path = str(Path(match[0]).expanduser())
+            state.plan_path = str(Path(match[0].removeprefix("@")).expanduser())
             state.slug = None
             resolve_record(state, evt.cwd)
 

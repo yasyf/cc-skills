@@ -126,7 +126,11 @@ def test_quoted_plan_arg_records_bare_path(home: Path, args: str) -> None:
 
 @pytest.mark.parametrize(
     "prompt",
-    ["/long-running:long-running Continue the plan at ~/.claude/plans/x.md", "/long-running `~/.claude/plans/x.md`"],
+    [
+        "/long-running:long-running Continue the plan at ~/.claude/plans/x.md",
+        "/long-running `~/.claude/plans/x.md`",
+        "/long-running:long-running @~/.claude/plans/x.md",
+    ],
 )
 def test_slash_command_records_plan_path(home: Path, prompt: str) -> None:
     session = home / "session"
