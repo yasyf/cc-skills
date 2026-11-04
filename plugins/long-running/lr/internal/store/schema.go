@@ -1,6 +1,9 @@
 package store
 
 const schema = `
+CREATE TABLE IF NOT EXISTS release_targets (
+  sha TEXT PRIMARY KEY, targets TEXT NOT NULL, landed TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS prs (
   repo TEXT NOT NULL, number INTEGER NOT NULL, head TEXT NOT NULL, base TEXT NOT NULL,
   lane TEXT NOT NULL, state TEXT NOT NULL, read_at TEXT NOT NULL,
