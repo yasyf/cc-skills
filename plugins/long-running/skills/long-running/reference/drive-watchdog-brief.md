@@ -16,10 +16,13 @@ The coordinator starts `drive-watchdog` remote with `lr desks start`, model opus
 **W2. The watchdog keeps the retro.** Its cc-notes log feeds the owner table's last column ([owner-report-table.md](owner-report-table.md)). It feeds no dashboard.
 
 **W3. No sweep finding or owner pick is lost.**
-- A sweep or audit lane posts each finding with `bin/findings.py post --sweep <lane> --owner <lane> --verdict <word> [--pr N] [--line path:line] <text>`. That posts a cci `defect` opening with `[finding:<lane>]`, addressed to the lane that owns the fix.
-- `findings.py sync` keeps every finding, and every pick or write-in the owner gives on a board card, as a row of the drive's findings ledger (`findings.json` in the state dir).
-- A row stays open until a later `head` or `landed` record names its PR or seq, or a pick's card, which marks it fixed. An answer or a resolve without a fix marks it routed and still live, because a finding never waits on a card.
-- `findings.py open` prints the open and routed rows by sweep. `findings.py track <seq>` adds an older record. `findings.py close --why` settles a one-shot pick no lane builds.
+- A sweep or audit lane posts each finding with `lr findings post --sweep <lane> --owner <lane> --verdict <word> [--pr N] [--line path:line] <text>`. That posts a cci `defect` opening with `[finding:<lane>]`, addressed to the lane that owns the fix.
+- The supervisor's `findings` pass, every 5 minutes, keeps every finding, and every pick or write-in the owner gives on a board card, as a row of the drive's findings ledger (`findings.json` in the state dir). It reads the records after its cursor once for all rows.
+- A finding stays open until a later `head` or `landed` record names its PR or seq, which marks it fixed.
+- A pick ends the same way on its card's name, its box id or its seq, and also on a `claim`, on root's `decide`, and on a record whose `delivered=owner:<row>` attr names the owner ledger row of that pick. `undelivered=owner:<row>` reopens it. Another lane's `decide` does not end a pick, because it only relays or asks.
+- An answer or a resolve without a fix marks a row routed and still live, because a finding never waits on a card.
+- `lr findings cited <seq>=<box>` answers whether any record, of any kind and from anyone but board-watch, has named a pick since. `board_watch.py` asks it before repeating an UNCITED pick, so naming the card in a report stops the repeats without ending the row.
+- `lr findings open` prints the open and routed rows by sweep. `lr findings track <seq>` adds an older record. `lr findings sync --since <seq>` settles the live rows against an older window. `lr findings close --why` settles a one-shot pick no lane builds.
 - A lane that builds a pick names the pick's seq or card in its `HEAD` record.
 - The fidelity pipeline ([fidelity-desk-brief.md](fidelity-desk-brief.md)) grades a head `missing` with no model call while its PR has an open finding.
 - `drive-watchdog` raises a finding open two hours with no fix head to the coordinator. The dashboard's What failed section lists the open rows per sweep.

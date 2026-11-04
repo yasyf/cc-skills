@@ -785,15 +785,18 @@ def test_a_pack_pick_reaches_the_bus_and_gets_a_row(tmp_path: Path) -> None:
 
 
 class CiteShell(RecordedShell):
-    def __init__(self, owners: list[dict], cites: list[dict]) -> None:
+    def __init__(self, owners: list[dict], cites: list[int]) -> None:
         super().__init__()
-        self.owners, self.cites = owners, cites
+        self.owners, self.cites, self.asked = owners, cites, []
+        self.answer = subprocess.CompletedProcess([], 0, "".join(f"{seq}\n" for seq in cites), "")
+
+    def lr(self, argv: list[str], stdin: str) -> subprocess.CompletedProcess:
+        self.asked.append(argv)
+        return self.answer
 
     def cci(self, argv: list[str]) -> subprocess.CompletedProcess:
         if argv[0] == "tail":
             return subprocess.CompletedProcess(argv, 0, "".join(json.dumps(record) + "\n" for record in self.owners), "")
-        if argv[0] == "grep":
-            return subprocess.CompletedProcess(argv, 0, "".join(json.dumps(record) + "\n" for record in self.cites if argv[1] in record["text"]), "")
         self.posts.append(argv)
         return subprocess.CompletedProcess(argv, 0, "#40\n", "")
 
@@ -803,25 +806,33 @@ def pick(seq: int, block: str, minutes: int, event: str = "choice.selected", ses
     return {"seq": seq, "drive": "brook", "lane": "board-watch", "kind": "owner", "at": at, "text": f"Owner on board {session[:8]}, {block}: picked \u201cYes\u201d, at {at}", "fields": {"attrs": {"event": event, "session": session, "block": block, "picked": "yes"}}}
 
 
-def test_an_owner_pick_no_decide_or_claim_cites_is_reposted_at_30_minutes_and_escalated_at_60() -> None:
+def test_an_owner_pick_no_record_names_is_reposted_at_30_minutes_and_escalated_at_60_asking_lr_once_a_pass() -> None:
     """Coordinator 2:42 PM Nov 2 (board-audit-1): a pick no lane picks up is re-posted at 30 minutes and goes to the coordinator as a blocker at 60."""
     owners = [pick(5, "q-thirty", 35), pick(6, "q-sixty", 65), pick(7, "q-cited", 65), pick(8, "q-fresh", 10), pick(9, "q-other", 65, session="other-board"), pick(10, "q-pack", 40, event="pack.interaction"), pick(11, "q-seq", 40)]
-    cites = [
-        {"seq": 12, "drive": "brook", "kind": "decide", "lane": "root", "text": "api-lane: build q-cited as picked"},
-        {"seq": 3, "drive": "brook", "kind": "claim", "lane": "api-lane", "text": "claim q-thirty"},
-        {"seq": 14, "drive": "brook", "kind": "decide", "lane": "root", "text": "api-lane: build what the owner tapped in #11"},
-    ]
-    shell, reposted = CiteShell(owners, cites), set()
+    shell, reposted = CiteShell(owners, [7, 11]), set()
     bus = board_watch.Bus("brook", 0)
     board_watch.repost_uncited(shell, bus, SESSION, reposted)
     board_watch.repost_uncited(shell, bus, SESSION, reposted)
 
+    assert shell.asked == [
+        ["findings", "--drive", "brook", "cited", "5=q-thirty", "6=q-sixty", "7=q-cited", "10=q-pack", "11=q-seq"],
+        ["findings", "--drive", "brook", "cited", "7=q-cited", "11=q-seq"],
+    ]
     assert [(post[post.index("--kind") + 1], post[post.index("--to") + 1], post[post.index("--id") + 1], post[post.index("--re-seq") + 1]) for post in shell.posts] == [
         ("ask", "meta-desk", "uncited:5", "5"),
         ("blocker", "meta-desk", "uncited-blocker:6", "6"),
         ("ask", "meta-desk", "uncited:10", "10"),
     ]
-    assert shell.posts[1][shell.posts[1].index("--text") + 1].startswith("UNCITED owner pick #6 on board board-1: no decide or claim names q-sixty 65 minutes after it.")
+    assert shell.posts[1][shell.posts[1].index("--text") + 1].startswith("UNCITED owner pick #6 on board board-1: no record names q-sixty 65 minutes after it.")
+
+
+def test_a_failed_cited_read_reposts_nothing_and_says_so(capsys: pytest.CaptureFixture[str]) -> None:
+    shell = CiteShell([pick(5, "q-thirty", 35)], [])
+    shell.answer = subprocess.CompletedProcess([], 1, "", "no drive")
+    board_watch.repost_uncited(shell, board_watch.Bus("brook", 0), SESSION, set())
+
+    assert shell.posts == []
+    assert "lr findings cited failed, so no pick is re-posted this pass: no drive" in capsys.readouterr().out
 
 
 TIMED = {"type": "choice.selected", "origin": "human", "at": "2026-10-27T02:00:00-07:00", "round": 3, "payload": {"blockId": "eviction-route-choice", "optionIds": ["eviction-route-app"], "type": "choice.selected", "schemaVersion": 1}}
