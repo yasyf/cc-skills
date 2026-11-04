@@ -120,8 +120,24 @@ func TestTailRecordsTakesEveryKindTheDocReadsAndCarriesTheFieldsItUses(t *testin
 	equal(t, len(later), 0)
 }
 
+func TestTheBlockerPostsAsTheWindowsOwnLane(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	t.Setenv(laneEnv, "release-6")
+	ctx := context.Background()
+
+	postingBlockers(slog.Default())(ctx, "brook", "register-rows:brook:20261010T22", "the rows did not load")
+
+	found, err := client.Tail(ctx, client.Query{Drive: "brook", Kinds: []string{blockerKind}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	equal(t, len(found), 1)
+	equal(t, found[0].Lane, "release-6")
+}
+
 func TestTheBlockerReachesRootOnceAnHour(t *testing.T) {
 	t.Setenv("CCI_HOME", t.TempDir())
+	t.Setenv(laneEnv, "")
 	ctx := context.Background()
 
 	var logged bytes.Buffer

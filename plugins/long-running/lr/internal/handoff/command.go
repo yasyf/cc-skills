@@ -1,6 +1,7 @@
 package handoff
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"log/slog"
@@ -16,6 +17,7 @@ import (
 const (
 	rootLane    = "root"
 	handoffLane = "lr-handoff"
+	laneEnv     = "CLAUDE_LONG_RUNNING_LANE"
 	blockerKind = "blocker"
 )
 
@@ -87,7 +89,7 @@ func tailRecords(ctx context.Context, q recordQuery) ([]busRecord, error) {
 
 func postingBlockers(log *slog.Logger) blockerPoster {
 	return func(ctx context.Context, drive, id, text string) {
-		draft := client.Draft{Drive: drive, Lane: handoffLane, Kind: blockerKind, ID: id, To: []string{rootLane}, Text: text}
+		draft := client.Draft{Drive: drive, Lane: cmp.Or(os.Getenv(laneEnv), handoffLane), Kind: blockerKind, ID: id, To: []string{rootLane}, Text: text}
 		if _, err := client.Post(ctx, draft); err != nil {
 			log.Warn("the handoff blocker did not post", "drive", drive, "id", id, "error", err)
 		}
