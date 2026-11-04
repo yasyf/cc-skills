@@ -12,8 +12,10 @@ import (
 )
 
 const (
-	parityAttempts     = 3
-	parityEnvironments = 3
+	parityAttempts        = 3
+	parityEnvironments    = 3
+	parityMissingWorktree = "path:/orcarpc-parity-missing"
+	parityMissingTerminal = "term_orcarpc-parity-missing"
 )
 
 var errParityDiffers = errors.New("orcarpc parity: output differs")
@@ -34,7 +36,13 @@ func Parity(ctx context.Context, client *Client, cli shell.Runner) error {
 }
 
 func parityForms(ctx context.Context, client *Client) ([][]string, error) {
-	forms := [][]string{{"status", "--json"}, {"terminal", "list", "--limit", "1", "--json"}}
+	forms := [][]string{
+		{"status", "--json"},
+		{"terminal", "list", "--limit", "1", "--json"},
+		{"environment", "list", "--json"},
+		{"worktree", "show", "--worktree", parityMissingWorktree, "--json"},
+		{"terminal", "show", "--terminal", parityMissingTerminal, "--json"},
+	}
 	listed, ok := client.Serve(ctx, forms[1])
 	if !ok {
 		return nil, fmt.Errorf("orcarpc parity: terminal list was not served")
@@ -129,7 +137,8 @@ func (c *Client) parityOf(ctx context.Context, cli shell.Runner, form []string) 
 			return nil
 		}
 		said, err := cli.Run(ctx, shell.Command{Argv: append([]string{"orca"}, form...), Timeout: statusRequestTimeout * 60})
-		if err != nil {
+		var exit *shell.ExitError
+		if err != nil && (!errors.As(err, &exit) || exit.Code != served.Code) {
 			return fmt.Errorf("orcarpc parity: orca %s: %w", strings.Join(form, " "), err)
 		}
 		difference = sameShape(form, served.Stdout, []byte(said.Stdout))

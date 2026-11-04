@@ -106,6 +106,7 @@ type verb struct {
 	allowed  []string
 	required []string
 	remote   bool
+	offline  func(*Client) (Response, bool)
 	build    func(*Client, invocation) (call, bool)
 	finish   func(*Client, *Conn, invocation, json.RawMessage) (json.RawMessage, int, bool)
 }
@@ -194,6 +195,11 @@ var verbs = map[string]verb{
 		build: func(_ *Client, in invocation) (call, bool) {
 			return call{method: "worktree.show", params: map[string]string{flagWorktree: in.flags[flagWorktree]}}, plainSelector(in.flags[flagWorktree])
 		},
+	},
+	"environment list": {
+		allowed:  []string{flagJSON},
+		required: []string{flagJSON},
+		offline:  (*Client).environmentList,
 	},
 	"worktree list": {
 		allowed:  []string{"repo", flagLimit, flagJSON},
@@ -436,17 +442,17 @@ func finishHostScope(c *Client, _ *Conn, _ invocation, result json.RawMessage) (
 	return result, 0, true
 }
 
-type field struct {
+type jsonField struct {
 	name  string
 	value json.RawMessage
 }
 
-func orderedFields(object json.RawMessage) ([]field, error) {
+func orderedFields(object json.RawMessage) ([]jsonField, error) {
 	decoder := json.NewDecoder(bytes.NewReader(object))
 	if _, err := decoder.Token(); err != nil {
 		return nil, err
 	}
-	var fields []field
+	var fields []jsonField
 	for decoder.More() {
 		name, err := decoder.Token()
 		if err != nil {
@@ -456,12 +462,12 @@ func orderedFields(object json.RawMessage) ([]field, error) {
 		if err := decoder.Decode(&value); err != nil {
 			return nil, err
 		}
-		fields = append(fields, field{name: name.(string), value: value})
+		fields = append(fields, jsonField{name: name.(string), value: value})
 	}
 	return fields, nil
 }
 
-func joinFields(fields []field) (json.RawMessage, error) {
+func joinFields(fields []jsonField) (json.RawMessage, error) {
 	var out bytes.Buffer
 	out.WriteByte('{')
 	for index, field := range fields {

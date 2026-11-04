@@ -21,6 +21,7 @@ import (
 
 const (
 	environmentStore     = "orca-environments.json"
+	environmentSidecar   = "orca-environment-sidecar.json"
 	flagEnvironment      = "environment"
 	remoteConnectTimeout = 12 * time.Second
 	remoteFrameLimit     = 64 << 20
@@ -49,12 +50,6 @@ var remoteCapabilities = []string{
 	"agent.launch.v2",
 }
 
-var plainRemoteRefusals = map[string]bool{
-	"dispatch_not_found":         true,
-	"remote_runtime_unavailable": true,
-	"terminal_handle_stale":      true,
-}
-
 type storedEndpoint struct {
 	ID          string `json:"id"`
 	Kind        string `json:"kind"`
@@ -70,6 +65,15 @@ type storedEnvironment struct {
 	LastUsed  int64            `json:"lastUsedAt"`
 	Preferred string           `json:"preferredEndpointId"`
 	Endpoints []storedEndpoint `json:"endpoints"`
+}
+
+func (c *Client) storeFile(name string) ([]byte, bool) {
+	dir, err := c.userDataPath()
+	if err != nil {
+		return nil, false
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, name))
+	return raw, err == nil
 }
 
 func (c *Client) environments() ([]storedEnvironment, error) {
@@ -319,7 +323,7 @@ func (r *remoteConn) call(ctx context.Context, method string, params any, timeou
 	}
 }
 
-func (c *Client) serveRemote(ctx context.Context, selector string, spec verb, in invocation, request call) (Served, bool) {
+func (c *Client) serveRemote(ctx context.Context, selector, path string, spec verb, in invocation, request call) (Served, bool) {
 	if c.refuseRemote() != nil {
 		return Served{}, false
 	}
@@ -356,10 +360,7 @@ func (c *Client) serveRemote(ctx context.Context, selector string, spec verb, in
 		return Served{}, false
 	}
 	if !reply.OK {
-		if reply.Error == nil || !plainRemoteRefusals[reply.Error.Code] {
-			return Served{}, false
-		}
-		return rendered(reply, 1)
+		return refusal(path, in, reply, true)
 	}
 	code := 0
 	if spec.finish != nil {
