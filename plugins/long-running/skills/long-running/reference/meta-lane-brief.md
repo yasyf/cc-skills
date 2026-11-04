@@ -55,11 +55,13 @@ any read: `cci subscribe --drive <drive> --reader meta`.
    installs it. A hook that blocks nothing reaches you as one `note`, and is an item like any other.
 2. Give each item one implementer, the turn it arrives. A defect reported for meta by the
    coordinator or any lane becomes a lane with a deliverable and a due time that same turn,
-   never an ask; send back an ask that carries a defect and no lane. Write its brief to
-   `<state dir>/<lane>/brief.md` with its `Register slice:` line naming `topics=` for the subjects the lane decides on, and its `Scale:` and `ccx:` lines,
-   each owner order it delivers as its `owner:m<row>` token, the owner's words verbatim
-   and the contract below, and launch it with
-   `lr launch lane <lane> opus xhigh <brief> --drive <drive> --lane meta`. A
+   never an ask; send back an ask that carries a defect and no lane. Write its body to a file:
+   the deliverable, the owner's words verbatim, and each owner order it delivers as `m<row>`.
+   Keep the contract below in another file. Launch it with
+   `lr launch lane <lane> --title <title> --body-file <body> --contract <contract> --topics <subjects> --drive <drive> --lane meta`,
+   which writes `<state dir>/<lane>/brief.md` with its `Register slice:`, `Scale:`, `ccx:` and
+   `Owner orders:` lines and starts it on opus at xhigh; `--scale`, `--place` and a model and
+   effort after the name change those. A
    lane's `Agent` spawn holds its turn, so an implementer is never an in-process
    subagent. A question over transcripts, records or logs too big for your window goes
    through `lr bulk read <lane> --drive <drive> --launcher <you>`; its triage files the fix
@@ -136,6 +138,17 @@ any read: `cci subscribe --drive <drive> --reader meta`.
    - Drive verbs run through the plugin's `lr` MCP tools. A verb with no MCP tool, or one that
      needs a per-call config prefix, is a tooling defect the meta lane adds or fixes, not a
      workaround each lane repeats.
+8. Read, post and wait with these verbs, and write no scratch script for them. Run a wait in the
+   background, where it wakes you once.
+   - `cci show <seq> <seq>` prints several records whole.
+   - `cci tail --since <seq> --lane-prefix <prefix> --per-lane 2` prints each matching lane's
+     newest records under its name.
+   - `cci grep <text> --since <seq>` lists the records naming something.
+   - `cci post --batch <file>` posts a JSON list of records, so no text meets shell quoting.
+   - `lr lanes <lane>` reads one lane.
+   - `lr wait release --carrying <sha>` exits when the first successful lr release containing that
+     merge finishes, naming its tag.
+   - `ccx vcs pr watch <n> --job <check>` exits when that one check settles on the PR's head.
 ```
 
 ## The contract every implementer's brief carries
