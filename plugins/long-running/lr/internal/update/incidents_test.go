@@ -143,6 +143,8 @@ func TestAnIncidentIsDescribedByItsOwnRecordsTheCoordinatorsWordsFirst(t *testin
 		{"a go line loses its lead", []Record{launch, goLine, mechanism}, "retries exhaust the pool; cap them"},
 		{"its fix lane's mechanism when the coordinator only launched it", []Record{launch, scope, mechanism}, "each retry opens a second connection"},
 		{"nothing when only a launch and a scope name it", []Record{launch, scope, other}, ""},
+		{"a sentence about the work on it gives way to the cause", []Record{topic(record(8, root, "report", "New evidence lane pool-evidence reads the object.", 70), "pool"), mechanism}, "each retry opens a second connection"},
+		{"a clock and a lower-case incident lead go", []Record{opened(9, root, "20:54: incident pool: 5xx on runs | fix lane pool-fix", 90, "pool-fix")}, "5xx on runs"},
 	} {
 		if got := describeIncident(tt.records, "pool"); got != tt.want {
 			t.Errorf("%s: got %q, want %q", tt.name, got, tt.want)
