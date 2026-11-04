@@ -105,6 +105,7 @@ type call struct {
 type verb struct {
 	allowed  []string
 	required []string
+	remote   bool
 	build    func(*Client, invocation) (call, bool)
 	finish   func(*Client, *Conn, invocation, json.RawMessage) (json.RawMessage, int, bool)
 }
@@ -148,6 +149,7 @@ var verbs = map[string]verb{
 		finish: finishTaskList,
 	},
 	"terminal list": {
+		remote:   true,
 		allowed:  []string{flagWorktree, flagLimit, flagJSON},
 		required: []string{flagJSON},
 		build: func(_ *Client, in invocation) (call, bool) {
@@ -157,6 +159,7 @@ var verbs = map[string]verb{
 		finish: finishHostScope,
 	},
 	"terminal show": {
+		remote:   true,
 		allowed:  []string{flagTerminal, flagJSON},
 		required: []string{flagTerminal, flagJSON},
 		build: func(_ *Client, in invocation) (call, bool) {
@@ -164,12 +167,14 @@ var verbs = map[string]verb{
 		},
 	},
 	"terminal read": {
+		remote:   true,
 		allowed:  []string{flagTerminal, flagScreen, "cursor", flagLimit, flagJSON},
 		required: []string{flagTerminal, flagJSON},
 		build:    buildTerminalRead,
 		finish:   finishTerminalRead,
 	},
 	"terminal wait": {
+		remote:   true,
 		allowed:  []string{flagTerminal, "for", flagTimeoutMS, flagJSON},
 		required: []string{flagTerminal, "for", flagTimeoutMS, flagJSON},
 		build: func(_ *Client, in invocation) (call, bool) {
@@ -183,6 +188,7 @@ var verbs = map[string]verb{
 		finish: finishTerminalWait,
 	},
 	"worktree show": {
+		remote:   true,
 		allowed:  []string{flagWorktree, flagJSON},
 		required: []string{flagWorktree, flagJSON},
 		build: func(_ *Client, in invocation) (call, bool) {
@@ -244,7 +250,7 @@ func parseInvocation(args []string) (string, invocation, bool) {
 
 func (v verb) accepts(in invocation) bool {
 	for name := range in.flags {
-		if !contains(v.allowed, name) {
+		if !contains(v.allowed, name) && (name != flagEnvironment || !v.remote) {
 			return false
 		}
 	}
