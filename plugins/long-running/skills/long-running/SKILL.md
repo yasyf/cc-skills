@@ -547,13 +547,7 @@ reach it together, at most every five minutes and at once ahead of any other rec
 
 A resumed communicator joins with `drive.py start --drive <id> --ledger <id>` and checks the standing sessions with `lr lanes root meta signal`; SessionStart brings back any lane's
 own subscription and watches, says so, and lists its other live tasks ([compaction.md](reference/compaction.md)). A resumed or
-relaunched coordinator catches up with `cci digest`, `cci tail --cursor root` and
-`lr lanes`, runs `lr desks start`, which takes the Run and starts only what is
-down, and after a compaction answers every unresolved record from
-`cci tail --since <seq> --reader root --kind decide,ask,blocker,hold,incident`
-before any other work. Every script is on PATH through the plugin's `bin/`; a
-script run by path from an older version re-runs the installed copy, and `lr.json`
-is read by every installed version.
+relaunched coordinator follows its catch-up there before any other work.
 
 ## Before every tool call
 

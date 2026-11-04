@@ -136,6 +136,8 @@ When `Read first` records exist, the quote opens `hand-written handoff <id7>, ..
 
 ## Restore context after compaction or resume
 
+**Catch up the coordinator.** A resumed or relaunched coordinator catches up with `cci digest`, `cci tail --cursor root` and `lr lanes`, runs `lr desks start`, which takes the Run and starts only what is down, and after a compaction answers every unresolved record from `cci tail --since <seq> --reader root --kind decide,ask,blocker,hold,incident` before any other work. Every script is on PATH through the plugin's `bin/`; a script run by path from an older version re-runs the installed copy, and `lr.json` is read by every installed version.
+
 **Read the register, hand-written handoffs, progress doc, and plan after compaction.** On `SessionStart` with source `compact`, the hook injects the compact digest from `generate`. This digest stays under Claude Code's 10,000-character `SessionStart` truncation limit alongside `cc-notes`'s 7,500-byte restore budget of 4,500 bytes for answers and 3,000 bytes for touched records.
 - Line one names `ccn doc show <register id>` when a register exists; without a register, the digest starts with the `Read first` records.
 - Line two reads `Register: N owner-approved rules, M live standing rules.`.
