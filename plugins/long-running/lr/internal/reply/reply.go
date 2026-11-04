@@ -17,7 +17,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/dashboard"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
@@ -343,7 +342,7 @@ func (f Fanout) fit(body string) (string, error) {
 	if utf8.RuneCountInString(body) <= maxSlackBody {
 		return body, nil
 	}
-	url, err := dashboard.Service{State: f.Entry.StateDir}.URL()
+	url, err := drive.DashboardURL(f.Entry.StateDir)
 	if err != nil {
 		return "", fmt.Errorf("the reply is longer than a Slack card and its dashboard link did not read: %w", err)
 	}

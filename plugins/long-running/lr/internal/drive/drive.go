@@ -197,3 +197,19 @@ func Remove(name string) error {
 	}
 	return os.Remove(filepath.Join(dir, name+".json"))
 }
+
+func DashboardURL(state string) (string, error) {
+	path := filepath.Join(state, "dashboard.json")
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	var config struct {
+		Host string `json:"host"`
+		Port int    `json:"port"`
+	}
+	if err := json.Unmarshal(body, &config); err != nil {
+		return "", fmt.Errorf("%s: %w", path, err)
+	}
+	return fmt.Sprintf("http://%s:%d/", config.Host, config.Port), nil
+}

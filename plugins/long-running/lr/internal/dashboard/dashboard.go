@@ -2,7 +2,6 @@ package dashboard
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -15,6 +14,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/launchd"
 )
@@ -48,18 +48,7 @@ func (s Service) Job() launchd.Job {
 }
 
 func (s Service) URL() (string, error) {
-	body, err := os.ReadFile(s.config())
-	if err != nil {
-		return "", err
-	}
-	var config struct {
-		Host string `json:"host"`
-		Port int    `json:"port"`
-	}
-	if err := json.Unmarshal(body, &config); err != nil {
-		return "", fmt.Errorf("%s: %w", s.config(), err)
-	}
-	return fmt.Sprintf("http://%s:%d/", config.Host, config.Port), nil
+	return drive.DashboardURL(s.State)
 }
 
 func Restart(ctx context.Context, agents launchd.Launchd, s Service, answers func(string) bool) (string, error) {
