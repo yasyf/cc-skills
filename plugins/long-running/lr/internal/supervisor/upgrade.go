@@ -13,6 +13,7 @@ import (
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/orca"
 )
 
 var versionPart = regexp.MustCompile(`\d+`)
@@ -43,12 +44,25 @@ func Installed(claude string) string {
 }
 
 type Upgrade struct {
-	Env     lanes.Env
-	Running string
-	Binary  string
-	Read    time.Time
-	Holding func() bool
-	Serve   func(version string) error
+	Env      lanes.Env
+	Running  string
+	Binary   string
+	Read     time.Time
+	Settings map[string]string
+	Holding  func() bool
+	Serve    func(version string) error
+}
+
+func readSettings(state string) (map[string]string, error) {
+	settings := map[string]string{}
+	for _, name := range []string{configFile, runnerFile} {
+		read, err := orca.Settings(filepath.Join(state, name))
+		if err != nil {
+			return nil, err
+		}
+		settings[name] = read
+	}
+	return settings, nil
 }
 
 func (u *Upgrade) Stale(ctx context.Context) (bool, error) {
@@ -73,12 +87,24 @@ func (u *Upgrade) Stale(ctx context.Context) (bool, error) {
 }
 
 func (u *Upgrade) configChanged(ctx context.Context) (bool, error) {
+	checked := u.Read
 	for _, name := range []string{configFile, runnerFile} {
-		info, err := os.Stat(filepath.Join(u.Env.State, name))
+		path := filepath.Join(u.Env.State, name)
+		info, err := os.Stat(path)
 		if err != nil {
 			return false, err
 		}
 		if !info.ModTime().After(u.Read) {
+			continue
+		}
+		settings, err := orca.Settings(path)
+		if err != nil {
+			return false, err
+		}
+		if settings == u.Settings[name] {
+			if info.ModTime().After(checked) {
+				checked = info.ModTime()
+			}
 			continue
 		}
 		_, err = u.Env.Bus.Post(ctx, client.Draft{Drive: u.Env.Config.Drive, Lane: lanes.Self, Kind: "report", To: []string{lanes.Root}, ID: fmt.Sprintf("config-changed:%s:%d", name, info.ModTime().Unix()), Text: "CONFIG-CHANGED " + name + " changed after the supervisor read it, so the supervisor restarts to read it fresh"})
@@ -87,6 +113,7 @@ func (u *Upgrade) configChanged(ctx context.Context) (bool, error) {
 		}
 		return true, nil
 	}
+	u.Read = checked
 	return false, nil
 }
 

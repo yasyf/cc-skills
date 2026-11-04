@@ -595,23 +595,47 @@ func configs(t *testing.T) string {
 	return state
 }
 
-func TestAConfigWrittenAfterTheSupervisorReadItRestartsItAndTellsRoot(t *testing.T) {
+func rewriteRunner(t *testing.T, state, text string, at time.Time) {
+	t.Helper()
+	path := filepath.Join(state, runnerFile)
+	if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(path, at, at); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAMovedPinOrTheSameBytesNeverRestartTheSupervisorAndAChangedSettingDoes(t *testing.T) {
+	const pinned = `{"deadlines":{"hold_minutes":%d},"orca":{"sprite":{"env":{"WORKER_CCI_SHA256":%q,"WORKER_CCI_URL":%q,"WORKER_CHECKOUT":"/repo"},"tools":[{"name":"long-running@skills","version":%q}]}}}`
 	b := &recordingBus{}
 	state := configs(t)
 	read := time.Now()
-	upgrade := &Upgrade{Env: lanes.Env{Bus: b, Claude: t.TempDir(), State: state, Config: config.Config{Drive: "d1"}}, Running: "0.7.820", Read: read, Holding: nothingHolds}
-
-	stale, err := upgrade.Stale(context.Background())
+	rewriteRunner(t, state, fmt.Sprintf(pinned, 15, "s1", "u1", "0.7.1"), read.Add(-time.Minute))
+	settings, err := readSettings(state)
 	if err != nil {
 		t.Fatal(err)
 	}
-	equal(t, stale, false)
+	upgrade := &Upgrade{Env: lanes.Env{Bus: b, Claude: t.TempDir(), State: state, Config: config.Config{Drive: "d1"}}, Running: "0.7.820", Read: read, Settings: settings, Holding: nothingHolds}
 
-	later := read.Add(time.Minute)
-	if err := os.Chtimes(filepath.Join(state, runnerFile), later, later); err != nil {
-		t.Fatal(err)
+	for minutes, text := range []string{
+		fmt.Sprintf(pinned, 15, "s1", "u1", "0.7.1"),
+		fmt.Sprintf(pinned, 15, "s1", "u1", "0.7.2"),
+		fmt.Sprintf(pinned, 15, "s2", "u2", "0.7.2"),
+	} {
+		at := read.Add(time.Duration(minutes+1) * time.Minute)
+		rewriteRunner(t, state, text, at)
+		stale, err := upgrade.Stale(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		equal(t, stale, false)
+		equal(t, upgrade.Read.Unix(), at.Unix())
 	}
-	stale, err = upgrade.Stale(context.Background())
+	equal(t, len(b.posted), 0)
+
+	rewriteRunner(t, state, fmt.Sprintf(pinned, 16, "s2", "u2", "0.7.2"), read.Add(time.Hour))
+	stale, err := upgrade.Stale(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
