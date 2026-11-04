@@ -15,13 +15,14 @@ import (
 )
 
 const (
-	recurEvery  = time.Hour
-	rejoinEvery = 5 * time.Minute
-	wasteEvery  = time.Hour
-	judgeEvery  = time.Minute
-	judgeLimit  = 15 * time.Minute
-	choiceEvery = 10 * time.Minute
-	sweepEvery  = 5 * time.Minute
+	recurEvery    = time.Hour
+	rejoinEvery   = 5 * time.Minute
+	wasteEvery    = time.Hour
+	judgeEvery    = time.Minute
+	judgeLimit    = 15 * time.Minute
+	choiceEvery   = 10 * time.Minute
+	sweepEvery    = 5 * time.Minute
+	findingsEvery = 5 * time.Minute
 
 	recoveredCursor = "background-recovered:"
 	startedCursor   = "background-started:"

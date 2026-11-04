@@ -87,7 +87,7 @@ func Unfinished(l Ledgers, now time.Time) ([]Wait, error) {
 			what = "owner pick"
 		}
 		what += ", owner " + orNone(row.Fields["owner"])
-		step := fmt.Sprintf("build it and name #%s in the HEAD record, or close it with `findings.py close --why <reason> %s`", row.Fields["seq"], row.Fields["seq"])
+		step := fmt.Sprintf("build it and name #%s in the HEAD record, or close it with `lr findings close --why <reason> %s`", row.Fields["seq"], row.Fields["seq"])
 		waits = append(waits, unfinishedWait(row.Key, what, row.Fields["state"], row.Fields["text"], step, row.Updated, time.Time{}, now))
 	}
 	return waits, nil

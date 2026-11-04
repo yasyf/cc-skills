@@ -23,6 +23,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	prfacts "github.com/yasyf/cc-skills/plugins/long-running/lr/internal/facts"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/findings"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/grading"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/install"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/landing"
@@ -202,6 +203,7 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 				(&background{name: "card-sweep", every: sweepEvery, run: func(ctx context.Context) error {
 					return cards.Pass(ctx, lanes.Self, board.PackJudge(a.Runner), sweepLog{a.Log, "card sweep"})
 				}, store: s, post: post, log: a.Log}).Check,
+				(&background{name: "findings", every: findingsEvery, run: findings.New(a, entry).Pass, store: s, post: post, log: a.Log}).Check,
 			)
 		}
 		orcaRunner, err := config.LoadRunner(filepath.Join(env.State, runnerFile))
