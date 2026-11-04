@@ -12,6 +12,7 @@ import (
 	_ "time/tzdata"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
 const (
@@ -26,7 +27,6 @@ const (
 var (
 	pacificZone = mustZone("America/Los_Angeles")
 	rowID       = regexp.MustCompile(`^merge-row-(\d+)(?:-[0-9a-f]{7,40})?$`)
-	rowHead     = regexp.MustCompile(`\bcommit ([0-9a-f]{7,40})\b`)
 	digits      = regexp.MustCompile(`^\d+$`)
 )
 
@@ -56,7 +56,7 @@ type Wait struct {
 
 func (w Wait) Line() string {
 	if w.Kind == "tap" {
-		return fmt.Sprintf("tap %s #%s at %s, up since %s", w.Block, w.PR, abbreviate(w.Head), w.Since)
+		return fmt.Sprintf("tap #%s at %s, head since %s: %s", w.PR, abbreviate(w.Head), w.Since, w.Title)
 	}
 	return fmt.Sprintf("pick %s %s: %s, up since %s", w.Block, w.Subject, w.Title, w.Since)
 }
@@ -69,14 +69,8 @@ type OpenCard struct {
 	URL   string
 }
 
-type MergeRow struct {
-	Block string
-	PR    string
-	Head  string
-}
-
 type Live struct {
-	Rows  []MergeRow
+	Ready []Wait
 	Taps  map[string]Verdict
 	Picks []Wait
 	Shown map[string]time.Time
@@ -169,31 +163,6 @@ func prNumber(entry map[string]any) string {
 	return ""
 }
 
-func mergeRows(doc map[string]any) []MergeRow {
-	var rows []MergeRow
-	for _, block := range typed(doc, "triage") {
-		for _, item := range listOf(block, "items") {
-			named := rowID.FindStringSubmatch(text(item, "id"))
-			if named == nil {
-				continue
-			}
-			head := ""
-			if found := rowHead.FindStringSubmatch(text(item, "hint")); found != nil {
-				head = found[1]
-			}
-			rows = append(rows, MergeRow{text(block, "id"), named[1], head})
-		}
-	}
-	for _, block := range typed(doc, "pr-groups") {
-		for _, group := range listOf(block, "groups") {
-			for _, pr := range listOf(group, "prs") {
-				rows = append(rows, MergeRow{text(block, "id"), prNumber(pr), text(pr, "head")})
-			}
-		}
-	}
-	return rows
-}
-
 func prOf(id string) string {
 	if digits.MatchString(id) {
 		return id
@@ -223,7 +192,6 @@ func firstShown(snapshots []Snapshot) (map[string]time.Time, error) {
 	shown := map[string]time.Time{}
 	for _, snapshot := range ordered {
 		var board struct {
-			Rows  [][]any `json:"rows"`
 			Cards [][]any `json:"cards"`
 		}
 		if err := json.Unmarshal([]byte(snapshot.Board), &board); err != nil {
@@ -237,11 +205,6 @@ func firstShown(snapshots []Snapshot) (map[string]time.Time, error) {
 				next[key] = snapshot.At
 			}
 		}
-		for _, row := range board.Rows {
-			if len(row) >= 2 {
-				mark(fmt.Sprintf("row:%s:%s", prText(row[0]), abbreviate(fmt.Sprint(row[1]))))
-			}
-		}
 		for _, card := range board.Cards {
 			if len(card) >= 1 {
 				mark(fmt.Sprintf("card:%v", card[0]))
@@ -252,19 +215,12 @@ func firstShown(snapshots []Snapshot) (map[string]time.Time, error) {
 	return shown, nil
 }
 
-func prText(value any) string {
-	if whole, isNumber := value.(float64); isNumber {
-		return strconv.FormatInt(int64(whole), 10)
-	}
-	return fmt.Sprint(value)
-}
-
-func LiveOf(outcomes Outcomes, snapshots []Snapshot) (Live, error) {
+func LiveOf(outcomes Outcomes, snapshots []Snapshot, rows []store.ReviewRow) (Live, error) {
 	shown, err := firstShown(snapshots)
 	if err != nil {
 		return Live{}, err
 	}
-	live := Live{Rows: mergeRows(outcomes.Doc), Taps: newestByPR(outcomes.Interactions.Triage), Shown: shown}
+	live := Live{Ready: readyWaits(rows), Taps: newestByPR(outcomes.Interactions.Triage), Shown: shown}
 	for _, card := range typed(outcomes.Doc, "card") {
 		for _, choice := range typed(card, "choice") {
 			if outcomes.answered(choice) {
@@ -306,43 +262,29 @@ func (l Live) since(key string) string {
 	return justNow
 }
 
-func (l Live) Decided(row MergeRow) string {
-	entry := l.Taps[row.PR]
+func (l Live) Decided(pr, head string) string {
+	entry := l.Taps[pr]
 	for _, verdict := range []string{verdictApproved, verdictRejected} {
-		if atHead(entry, verdict, row.Head) {
+		if atHead(entry, verdict, head) {
 			return verdict
 		}
 	}
 	return ""
 }
 
-func (l Live) OpenTaps() []Wait {
+func readyWaits(rows []store.ReviewRow) []Wait {
 	var waits []Wait
-	for _, row := range l.Rows {
-		if row.Head != "" && l.Decided(row) == "" {
-			waits = append(waits, Wait{Kind: "tap", Block: row.Block, Subject: "#" + row.PR, PR: row.PR, Head: row.Head, Since: l.since(fmt.Sprintf("row:%s:%s", row.PR, abbreviate(row.Head)))})
+	for _, row := range rows {
+		if row.ReadyForTap && !row.Tapped {
+			pr := strconv.Itoa(row.Number)
+			waits = append(waits, Wait{Kind: "tap", Subject: "#" + pr, PR: pr, Head: row.Head, Since: pacificStamp(row.HeadAt), Title: clip(row.Title)})
 		}
 	}
 	return waits
 }
 
 func (l Live) Waits() []Wait {
-	return append(l.OpenTaps(), l.Picks...)
-}
-
-func (l Live) Lines() []string {
-	var lines []string
-	for _, row := range l.Rows {
-		if row.Head == "" {
-			continue
-		}
-		line := fmt.Sprintf("board #%s at %s", row.PR, abbreviate(row.Head))
-		if decided := l.Decided(row); decided != "" {
-			line += ": " + decided
-		}
-		lines = append(lines, line)
-	}
-	return lines
+	return slices.Concat(l.Ready, l.Picks)
 }
 
 func ReadOutcomes(ctx context.Context, runner shell.Runner, session string) (Outcomes, error) {

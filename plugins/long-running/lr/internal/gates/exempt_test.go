@@ -165,15 +165,6 @@ func TestATapRuleMatchingAChangedFileHoldsTheHeadForHisTap(t *testing.T) {
 	refusedWith(t, text, refusals, "tap rule rule/82317b0 names go/sand/next/internal/vm/run.go")
 }
 
-func TestAnOpenTapRowOnHisBoardHoldsTheHead(t *testing.T) {
-	read := Read{Records: recordsBefore(t, "48375", 356113), Exempt: driveClasses, TapRows: []TapRow{{PR: 48375, Head: "71bd0ab1c2dc27453798cbc7fb75db730f59bf84"}, {PR: 48377, Head: "1438dc2"}}}
-	text, refusals := ExemptGo(Claim{Repo: monorepo, PR: 48375, Head: "71bd0ab1c2dc27453798cbc7fb75db730f59bf84"}, read)
-	refusedWith(t, text, refusals, "his tap row for #48375 at 71bd0ab is open on the board")
-	if len(refusals) != 1 {
-		t.Fatalf("only #48375's own row holds it, got %q", refusals)
-	}
-}
-
 func TestAnExemptGoIsRefusedForABodyThatWaitsToGoLiveWithNoWayItIsSafeOnDev(t *testing.T) {
 	read := Read{Records: recordsBefore(t, "48375", 356113), GoLanes: goLanes, Exempt: driveClasses, TapRules: driveTaps, Files: []string{"dashboard/src/iris/x.ts"}, Body: pr46018 + "\nHold this PR until that release is live.\n"}
 	text, refusals := ExemptGo(Claim{Repo: monorepo, PR: 48375, Head: "71bd0ab1c2dc27453798cbc7fb75db730f59bf84"}, read)

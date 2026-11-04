@@ -56,12 +56,6 @@ func TestAPRWaitsOnHisTapOnlyWhenItsRecordSaysReadyElseItNamesWhatHoldsIt(t *tes
 			change: func(f *machine.Facts) { f.CI = machine.CIFailure },
 			line:   "#45583 at e718a74: not waiting on you: its row in lr board rows waits on: fidelity grade missing at head",
 		},
-		{
-			name: "a merge-prs row on the board with no ready record never waits",
-			live: Live{Rows: []MergeRow{{MergeBlock, pr, head}}},
-			rows: unready,
-			line: "#45583 at e718a74: not waiting on you: its row in lr board rows waits on: fidelity grade missing at head",
-		},
 	}
 	for _, c := range cases {
 		got := c.live.Explain(number, facts(c.change), c.rows)

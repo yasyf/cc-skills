@@ -154,7 +154,7 @@ func Collect(ctx context.Context, src Sources, bus string, now time.Time) (Input
 		return Inputs{}, err
 	}
 	in := Inputs{Drive: bus, Now: now, Lanes: lanes, Plans: list, Book: book, Held: heldPRs(holds), Waits: waitingOnRoot(day), All: all, Before: before, Retro: retro, Owed: owed, Pins: src.Pins, Programs: programs, Rulings: rulings, Overdue: slices.DeleteFunc(overdue, func(item store.Item) bool { return item.Mover != machine.MoverRoot }), Orders: orders}
-	in.Board, in.Cards, in.Unboarded = boardOf(ctx, src, day)
+	in.Cards, in.Unboarded = boardOf(ctx, src, day)
 	if in.TapQueue, err = src.TapQueue(); err != nil {
 		return Inputs{}, err
 	}
@@ -192,12 +192,12 @@ func snapshotsOf(records []Record) []board.Snapshot {
 	return snapshots
 }
 
-func boardOf(ctx context.Context, src Sources, records []Record) ([]string, []board.Wait, error) {
+func boardOf(ctx context.Context, src Sources, records []Record) ([]board.Wait, error) {
 	live, err := src.Board(ctx, snapshotsOf(records))
 	if err != nil {
-		return []string{fmt.Sprintf("board unread: %v", err)}, nil, err
+		return nil, err
 	}
-	return live.Lines(), live.Waits(), nil
+	return live.Waits(), nil
 }
 
 type ClaudeTask struct {
@@ -270,10 +270,9 @@ type Delivered struct {
 }
 
 type BoardLine struct {
-	PR      string `json:"pr"`
-	Head    string `json:"head"`
-	Verdict string `json:"verdict"`
-	Line    string `json:"line"`
+	PR   string `json:"pr"`
+	Head string `json:"head"`
+	Line string `json:"line"`
 }
 
 type IncidentLine struct {
@@ -407,15 +406,8 @@ func statusBoard(ctx context.Context, src Sources, records []Record) []BoardLine
 		return []BoardLine{{Line: fmt.Sprintf("board unread: %v", err)}}
 	}
 	out := []BoardLine{}
-	for _, row := range live.Rows {
-		if row.Head != "" {
-			decided := live.Decided(row)
-			line := fmt.Sprintf("board #%s at %s", row.PR, row.Head[:min(7, len(row.Head))])
-			if decided != "" {
-				line += ": " + decided
-			}
-			out = append(out, BoardLine{row.PR, row.Head, decided, line})
-		}
+	for _, wait := range live.Ready {
+		out = append(out, BoardLine{wait.PR, wait.Head, wait.Line()})
 	}
 	return out
 }

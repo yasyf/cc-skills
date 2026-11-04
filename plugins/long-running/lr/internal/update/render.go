@@ -66,7 +66,6 @@ type Inputs struct {
 	Held      map[string]int64
 	Incidents []Record
 	Releases  []Record
-	Board     []string
 	Cards     []board.Wait
 	Unboarded error
 	TapQueue  string

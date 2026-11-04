@@ -30,7 +30,6 @@ const (
 
 type gateInputs struct {
 	Cards    []gates.Card        `json:"cards"`
-	Taps     []gates.TapRow      `json:"taps"`
 	TapRules map[string][]string `json:"tap_rules"`
 	Exempt   []string            `json:"exempt"`
 	GoLanes  []string            `json:"go_lanes"`
@@ -65,7 +64,7 @@ func (p *InputsPublisher) Pass(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	live, err := board.LiveOf(outcomes, nil)
+	live, err := board.LiveOf(outcomes, nil, nil)
 	if err != nil {
 		return err
 	}
@@ -99,16 +98,19 @@ func (p *InputsPublisher) Pass(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	cards, taps := ownerWaits(live)
+	cards := make([]gates.Card, 0, len(live.Picks))
+	for _, pick := range live.Picks {
+		cards = append(cards, gates.Card{ID: pick.Block, Title: pick.Title})
+	}
 	mirrored := mirroredLanes(all, fixes)
-	encoded, err := json.Marshal(gateInputs{Cards: cards, Taps: taps, TapRules: landing.TapRules, Exempt: landing.ExemptGrades, GoLanes: cfg.GoLaneNames(), Lanes: mirrored, FixLanes: fixes, Clocks: clocks, Session: p.Session})
+	encoded, err := json.Marshal(gateInputs{Cards: cards, TapRules: landing.TapRules, Exempt: landing.ExemptGrades, GoLanes: cfg.GoLaneNames(), Lanes: mirrored, FixLanes: fixes, Clocks: clocks, Session: p.Session})
 	if err != nil {
 		return err
 	}
 	if string(encoded) == p.posted && now.Sub(p.at) < inputsRepost {
 		return nil
 	}
-	text := fmt.Sprintf("What landing reads off the lanes machine: %d open cards, %d open tap rows, %d mirrored lanes, %d fix lanes, %d live incident clocks", len(cards), len(taps), len(mirrored), len(fixes), len(clocks))
+	text := fmt.Sprintf("What landing reads off the lanes machine: %d open cards, %d mirrored lanes, %d fix lanes, %d live incident clocks", len(cards), len(mirrored), len(fixes), len(clocks))
 	if _, err := client.Post(ctx, client.Draft{Drive: cfg.Drive, Lane: self, Kind: "note", Topic: gateInputsTopic, ID: fmt.Sprintf("%s:%d", gateInputsTopic, now.UnixMilli()), To: []string{gateInputsReader}, Text: text, Attrs: map[string]string{gateInputsAttr: string(encoded)}}); err != nil {
 		return err
 	}
@@ -192,5 +194,5 @@ func readGateInputs(ctx context.Context, drive string, now time.Time) (gateInput
 		}
 		return inputs, nil
 	}
-	return gateInputs{}, fmt.Errorf("the supervisor has posted no %s record in %s, so the board's open cards and tap rows are unread and nothing is gated", gateInputsTopic, inputsStale)
+	return gateInputs{}, fmt.Errorf("the supervisor has posted no %s record in %s, so the board's open cards are unread and nothing is gated", gateInputsTopic, inputsStale)
 }

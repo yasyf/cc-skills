@@ -40,11 +40,6 @@ type Card struct {
 	Title string
 }
 
-type TapRow struct {
-	PR   int
-	Head string
-}
-
 type Read struct {
 	Records  []client.Record
 	GoLanes  []string
@@ -52,7 +47,6 @@ type Read struct {
 	TapRules map[string][]string
 	Files    []string
 	Cards    []Card
-	TapRows  []TapRow
 	Lifts    map[int64]bool
 	Body     string
 }
@@ -65,7 +59,7 @@ type standingGrade struct {
 func ExemptGo(c Claim, r Read) (string, []string) {
 	finder, finderRefusal := finderCite(c, r.Records)
 	class, fidelity, fidelityRefusals := fidelityCite(c, r.Records, r.Exempt)
-	refusals := slices.Concat(nonEmpty(finderRefusal), fidelityRefusals, openHolds(c, r.Records, r.Lifts), ownerWaits(c, r), tapRules(r.TapRules, r.Files), standingGos(c, r), nonEmpty(UnsafeOnDev(UnsafeWait(r.Body))))
+	refusals := slices.Concat(nonEmpty(finderRefusal), fidelityRefusals, openHolds(c, r.Records, r.Lifts), openCards(c, r), tapRules(r.TapRules, r.Files), standingGos(c, r), nonEmpty(UnsafeOnDev(UnsafeWait(r.Body))))
 	if len(refusals) > 0 {
 		return "", refusals
 	}
@@ -192,17 +186,12 @@ func openHolds(c Claim, records []client.Record, lifts map[int64]bool) []string 
 	return out
 }
 
-func ownerWaits(c Claim, r Read) []string {
+func openCards(c Claim, r Read) []string {
 	names := regexp.MustCompile(`(?:^|\D)` + strconv.Itoa(c.PR) + `(?:\D|$)`)
 	var out []string
 	for _, card := range r.Cards {
 		if names.MatchString(card.ID) || names.MatchString(card.Title) {
 			out = append(out, fmt.Sprintf("owner card %s is open", card.ID))
-		}
-	}
-	for _, row := range r.TapRows {
-		if row.PR == c.PR {
-			out = append(out, fmt.Sprintf("his tap row for #%d at %s is open on the board", row.PR, short(row.Head)))
 		}
 	}
 	return out

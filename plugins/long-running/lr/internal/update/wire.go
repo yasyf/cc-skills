@@ -47,7 +47,11 @@ func Wire(a *app.App, entry drive.Entry, s *store.Store) Sources {
 			if err != nil {
 				return board.Live{}, err
 			}
-			return board.LiveOf(outcomes, snapshots)
+			rows, err := s.ReviewRows(entry.Repo)
+			if err != nil {
+				return board.Live{}, err
+			}
+			return board.LiveOf(outcomes, snapshots, rows)
 		},
 		Tasks: func() ([]ClaudeTask, error) {
 			dir, err := drive.ConfigDir()
