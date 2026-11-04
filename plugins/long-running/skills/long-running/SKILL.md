@@ -478,8 +478,9 @@ the card without them ("A design lane's part" in
 tap as an `owner` record and a cc-notes answer. Every `gh` write posts under his
 GitHub login, so an approval or a tap verdict a drive posts cites
 `board verdict #<seq>`, the `owner` record of his verdict on that PR's row at its
-current head, or the `owner_login_verdicts` hook refuses it. What waits on him is what
-`cci owner-waits` prints, never a runner note. The drive writes one automated Slack
+current head, or the `owner_login_verdicts` hook refuses it. A PR waits on him only when its
+row in `lr board rows --json` says `ready_for_tap`, and a reply, card or record saying otherwise is refused; anything
+else waiting on him is what `cci owner-waits` prints, never a runner note. The drive writes one automated Slack
 message, the merge card, posted at the root of his DM with its own thread; everything else is a
 post he named. Every update he gets is `lr update render`, sent by the communicator
 unchanged with its gaps shown, and the dashboard shows the same rows.

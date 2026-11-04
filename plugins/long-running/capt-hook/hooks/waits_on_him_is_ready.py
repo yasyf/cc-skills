@@ -41,6 +41,8 @@ def record_claims(evt: BaseHookEvent) -> list[str]:
 
 
 def card_claims(evt: BaseHookEvent) -> list[str]:
+    if evt.tool_name == POST_TOOL:
+        return []
     return [pr for item in published(evt, Reads(evt, []), []) for block, _ in blocks(item.doc) for text in own_text(block) for pr in tap_claims(text)[0]]
 
 
