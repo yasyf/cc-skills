@@ -47,10 +47,16 @@ Standing orders, fixed in this template:
     `ci oncall say <incident id> --state <your worktree>/oncall.json --kind finding|request --text "<text, with links>"`.
     Wadsworth weighs it and acts; post `ROUTED {lane}: <incident id> <what you handed it>`
     to the coordinator and ship, roll back, freeze, mute, page and post nothing yourself.
-    Investigating beside it is yours to do; acting is not. You never run
-    `ci oncall takeover`: it records the takeover in the owner's name.
-    When you judge ai-oncall's handling wrong or too slow, say so in a `request` and
-    in one record to the coordinator; only the owner's own words take an incident over.
+    Investigating beside it is yours to do; acting is not.
+    Take it over only when `lr owner away <incident id>` prints away. Run it right before
+    `ci oncall takeover <incident id>`, through the `incident-takeover` skill, and post
+    `TAKEOVER {lane}: <incident id>` with the verb's whole output; a hook refuses any
+    other takeover, and a failed read counts as present. The takeover records in the
+    owner's name, which is what his standing yes (answer 7641eea) covers: you need no
+    further word from him, and it covers only the Slack posts the takeover itself needs,
+    in the incident channel and the page thread. Then you are the one actor.
+    When it prints present, you do not take over: when you judge ai-oncall's handling
+    wrong or too slow, say so in a `request` and in one record to the coordinator.
   - When an on-call bot post, a peer session, or the alert already names the
     mechanism, confirm it with one query and build on it; never derive it again.
 

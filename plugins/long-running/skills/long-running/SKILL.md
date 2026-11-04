@@ -216,8 +216,8 @@ launches the fix and evidence lanes for an alert nobody answered in three minute
 reaches the coordinator first gets `lr incident run <slug> --fix-brief <file>` before anything
 else, with no real-or-not verdict and no mute treated as resolution. Fixes land forward; a rollback
 runs only on the owner's own word, and only his explicit order mutes an alert. Each incident has
-one actor: beside an open ai-oncall incident a lane hands findings to its commander and never
-takes it over. The full rule is in [active-alert-brief.md](reference/active-alert-brief.md).
+one actor: beside an open ai-oncall incident a lane hands findings to its commander, and takes it
+over only when `lr owner away <incident id>` prints away. The full rule is in [active-alert-brief.md](reference/active-alert-brief.md).
 
 **R17.** An owner routing instruction applies to the next spawn and to every live lane on that
 problem, the turn it arrives.
