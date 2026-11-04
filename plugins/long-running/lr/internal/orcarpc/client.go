@@ -255,7 +255,7 @@ func (c *Conn) call(ctx context.Context, method string, params any, timeout time
 }
 
 func (c *Conn) exchange(ctx context.Context, outgoing request, timeout time.Duration) (Response, error) {
-	frame, err := json.Marshal(outgoing)
+	frame, err := json.Marshal(outgoing) //nolint:gosec // the frame carries the runtime token the Orca protocol requires
 	if err != nil {
 		return Response{}, err
 	}
@@ -377,7 +377,7 @@ func canonical(path string) string {
 
 func (c *Client) evidence() map[string]any {
 	evidence := map[string]any{}
-	for field, name := range map[string]string{
+	for field, name := range map[string]string{ //nolint:gosec // environment variable names, not credentials
 		"terminalHandle": "ORCA_TERMINAL_HANDLE",
 		"paneKey":        "ORCA_PANE_KEY",
 		"launchToken":    "ORCA_AGENT_LAUNCH_TOKEN",

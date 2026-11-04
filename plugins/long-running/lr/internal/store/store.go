@@ -449,6 +449,11 @@ func (s *Store) RenewLease(drive string, generation int64, at time.Time) error {
 	return fmt.Errorf("%w: %s: generation %d is behind %d", ErrStaleGeneration, drive, generation, current.Generation)
 }
 
+func (s *Store) ServeVersion(drive string, pid int, version string) error {
+	_, err := s.db.Exec("UPDATE lease SET version = ? WHERE drive = ? AND pid = ?", version, drive, pid)
+	return err
+}
+
 func (s *Store) Lease(drive string) (Lease, error) {
 	var lease Lease
 	err := s.db.QueryRow("SELECT drive, generation, version, pid, renewed FROM lease WHERE drive = ?", drive).Scan(&lease.Drive, &lease.Generation, &lease.Version, &lease.PID, moment{&lease.Renewed})

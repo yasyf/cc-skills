@@ -464,6 +464,55 @@ func TestTheSupervisorMovesToANewerInstallWithoutReadingOrReplayingHistory(t *te
 	equal(t, len(b.posted), 0)
 }
 
+func TestABumpThatKeepsTheBinaryMovesTheLeaseWithoutARestart(t *testing.T) {
+	claude := t.TempDir()
+	pin := func(version, binary string) {
+		link(t, claude, version)
+		dir := filepath.Join(claude, "long-running", version, "bin")
+		if err := os.MkdirAll(dir, 0o750); err != nil {
+			t.Fatal(err)
+		}
+		descriptor := `#!/usr/bin/env binrun
+{"schema": 1, "name": "lr", "version": {"static": "` + binary + `"}}
+`
+		if err := os.WriteFile(filepath.Join(dir, "lr.binrun"), []byte(descriptor), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s, err := store.Open(filepath.Join(t.TempDir(), "lr.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if _, err := s.AcquireLease("d", "0.7.820", 42, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	upgrade := &Upgrade{
+		Env: lanes.Env{Bus: &recordingBus{}, Claude: claude, State: configs(t)}, Running: "0.7.820", Binary: "0.390.1", Read: time.Now(), Holding: nothingHolds,
+		Serve: func(version string) error { return s.ServeVersion("d", 42, version) },
+	}
+
+	pin("0.7.821", "0.390.1")
+	stale, err := upgrade.Stale(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	equal(t, stale, false)
+	lease, err := s.Lease("d")
+	if err != nil {
+		t.Fatal(err)
+	}
+	equal(t, lease.Version, "0.7.821")
+	equal(t, lease.Generation, int64(1))
+
+	pin("0.7.822", "0.391.1")
+	stale, err = upgrade.Stale(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	equal(t, stale, true)
+}
+
 func nothingHolds() bool {
 	return false
 }
