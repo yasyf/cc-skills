@@ -91,9 +91,9 @@ Paste and fill this template for an Agent-tool subagent:
 ```
 ccx: role=<role> [cpu=high] [place=remote|local] [paths=<dir>,<dir>] [pr=none] [monitor=<Datadog monitor id>] tooling-lane=<key, for a tooling lane only>
 Standing: <the duty the drive keeps for good, such as "devbox perf and bug hunting"; only
-  on a lane whose work never ends. The supervisor raises a blocker when a standing duty
-  has no live owner for ten minutes, so a dead or stood-down standing lane is never
-  silent. Omit the line on a one-shot lane.>
+  on a lane whose work never ends. The supervisor relaunches a standing lane it proves
+  gone after ten quiet minutes, and raises one blocker for one stood down on an order or
+  dead three times in an hour. Omit the line on a one-shot lane.>
 Authority: <what you do without asking; what stops for the owner>.
 Verified facts, do not re-derive: <ids, shas, URLs, state already confirmed>.
 Design rulings, verbatim: <each owner ruling on the subsystem this lane touches, quoted
@@ -184,8 +184,9 @@ Scale: <the N each path this lane changes runs at: chats, teams, sessions, or ru
   paths run at.
 Standing: <only for a duty the drive keeps for good, such as a desk, a sweep, or bug
   hunting: what it keeps doing>. The lane supervisor reads it; once the newest lane on
-  the duty has had no live owner for 10 minutes, the coordinator hears one blocker naming the lane
-  and this brief. Stand such a lane down only with a successor; a hook warns on a
+  the duty is proved gone after 10 quiet minutes, it relaunches the lane from this brief and
+  logs one record to the meta desk. Name a helper in this brief by path or through a variable
+  such as `$DRIVE_DIR/<lane>/tool.py`, and it travels to a Sprite. Stand such a lane down only with a successor; a hook warns on a
   stand-down that names none. Deleting the line ends
   the duty.
 Standing rules served: <`#<seq>` ids with their answer ids, each with the owner's

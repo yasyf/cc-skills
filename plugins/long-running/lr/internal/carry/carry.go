@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -23,16 +24,20 @@ const (
 	pathStop = `\s` + "`" + `'"<>()\[\]{},;:|*?$`
 	template = "<{$*"
 	joined   = `\w./~-`
+
+	DriveDir = "DRIVE_DIR"
 )
 
 var (
-	reference   = regexp.MustCompile(`ccn (doc|plan|task) show ([0-9A-Za-z][\w-]*)|(?:~/|/)[^` + pathStop + `]+`)
+	reference   = regexp.MustCompile(`ccn (doc|plan|task) show ([0-9A-Za-z][\w-]*)|\$\{?([A-Z_][A-Z0-9_]*)\}?/[^` + pathStop + `]+|(?:~/|/)[^` + pathStop + `]+`)
+	assigned    = regexp.MustCompile(`(?m)(?:^|[\s;` + "`" + `])(?:export )?([A-Z_][A-Z0-9_]*)=["']?((?:~/|/)[^` + pathStop + `]+)`)
 	joinedByte  = regexp.MustCompile(`[` + joined + `]`)
 	credentials = []string{".ssh", ".aws", ".gnupg", ".config/gh", ".netrc"}
 )
 
 type source struct {
 	kind, id string
+	variable bool
 }
 
 type Carrier struct {
@@ -41,10 +46,11 @@ type Carrier struct {
 	Repo   string
 	Into   string
 	Box    string
+	Vars   map[string]string
 }
 
 func Command(a *app.App) *cobra.Command {
-	c := Carrier{Runner: a.Runner}
+	c := Carrier{Runner: a.Runner, Vars: map[string]string{}}
 	cmd := &cobra.Command{
 		Use:   "carry BRIEF",
 		Short: "Copy each file under this home and each ccn doc, plan or task a brief names into --into, which lands at --box on a Sprite, and print the brief with every reference rewritten to its copy",
@@ -56,6 +62,9 @@ func Command(a *app.App) *cobra.Command {
 			}
 			if c.Home, err = os.UserHomeDir(); err != nil {
 				return err
+			}
+			if config, err := a.ConfigFile(); err == nil {
+				c.Vars[DriveDir] = filepath.Dir(config)
 			}
 			rewritten, err := c.Carry(cmd.Context(), string(brief))
 			if err != nil {
@@ -79,8 +88,9 @@ func (c Carrier) Carry(ctx context.Context, brief string) (string, error) {
 	copies := map[source]string{}
 	var faults []string
 	last := 0
+	vars := c.varsOf(brief)
 	for _, match := range reference.FindAllStringSubmatchIndex(brief, -1) {
-		named, end, ok := c.named(brief, match)
+		named, end, ok := c.named(brief, match, vars)
 		if !ok {
 			continue
 		}
@@ -101,9 +111,21 @@ func (c Carrier) Carry(ctx context.Context, brief string) (string, error) {
 	return rewritten.String() + brief[last:], nil
 }
 
-func (c Carrier) named(brief string, match []int) (source, int, bool) {
+func (c Carrier) varsOf(brief string) map[string]string {
+	vars := map[string]string{"HOME": c.Home}
+	maps.Copy(vars, c.Vars)
+	for _, found := range assigned.FindAllStringSubmatch(brief, -1) {
+		vars[found[1]] = found[2]
+		if rest, ok := strings.CutPrefix(found[2], "~/"); ok {
+			vars[found[1]] = c.Home + "/" + rest
+		}
+	}
+	return vars
+}
+
+func (c Carrier) named(brief string, match []int, vars map[string]string) (source, int, bool) {
 	if match[2] >= 0 {
-		return source{brief[match[2]:match[3]], brief[match[4]:match[5]]}, match[1], true
+		return source{kind: brief[match[2]:match[3]], id: brief[match[4]:match[5]]}, match[1], true
 	}
 	start, end := match[0], match[1]
 	token := brief[start:end]
@@ -115,18 +137,28 @@ func (c Carrier) named(brief string, match []int) (source, int, bool) {
 	}
 	token = strings.TrimSuffix(token, ".")
 	name := token
-	if rest, ok := strings.CutPrefix(token, "~/"); ok {
+	variable := match[6] >= 0
+	if variable {
+		value, known := vars[brief[match[6]:match[7]]]
+		if !known {
+			return source{}, 0, false
+		}
+		name = value + token[strings.Index(token, "/"):]
+	} else if rest, ok := strings.CutPrefix(token, "~/"); ok {
 		name = c.Home + "/" + rest
 	}
 	if !strings.HasPrefix(name, c.Home+"/") || name == c.Home+"/" {
 		return source{}, 0, false
 	}
-	return source{id: name}, start + len(token), true
+	return source{id: name, variable: variable}, start + len(token), true
 }
 
 func (c Carrier) carry(ctx context.Context, named source) (string, error) {
 	if named.kind != "" {
 		return c.note(ctx, named.kind, named.id)
+	}
+	if _, err := os.Lstat(named.id); named.variable && errors.Is(err, fs.ErrNotExist) {
+		return c.Box + named.id, nil
 	}
 	return c.file(named.id)
 }

@@ -96,14 +96,16 @@ func Adopt(lane string) error {
 }
 
 const (
-	StaleAfter   = store.StaleAfter
-	unownedAfter = 10 * time.Minute
-	unreadAfter  = 10 * time.Minute
-	wakeAfter    = 30 * time.Second
-	strikeWindow = 2 * StaleAfter
-	PageAnswer   = 2 * StaleAfter
-	liveWithin   = 4 * StaleAfter
-	branchPRDue  = 15 * time.Minute
+	StaleAfter       = store.StaleAfter
+	unownedAfter     = 10 * time.Minute
+	unreadAfter      = 10 * time.Minute
+	wakeAfter        = 30 * time.Second
+	strikeWindow     = 2 * StaleAfter
+	deskStrikes      = 3
+	deskStrikeWindow = time.Hour
+	PageAnswer       = 2 * StaleAfter
+	liveWithin       = 4 * StaleAfter
+	branchPRDue      = 15 * time.Minute
 )
 
 var (
@@ -578,7 +580,8 @@ func Classify(lane store.Lane, peer *Peer, now time.Time, tokens, rotateAt int) 
 	if peer != nil {
 		heard = newer(peer.Seen, lane.Heard)
 	}
-	aliveNow := alive(peer, heard, now)
+	duty := must(BriefOf(lane.Brief)).Standing
+	aliveNow := alive(peer, heard, now) && (duty == "" || peer != nil && peer.Live || now.Sub(heard) < unownedAfter)
 	if lane.State == store.LaneLaunching {
 		if aliveNow && (peer != nil || lane.Heard.After(lane.Since)) {
 			return Verdict{Kind: CameUp}
@@ -592,7 +595,7 @@ func Classify(lane store.Lane, peer *Peer, now time.Time, tokens, rotateAt int) 
 		if lane.StoppedOn != 0 && peer != nil && peer.Row.Unverified == "" {
 			return Verdict{StoodDown, fmt.Sprintf("stopped on the coordinator's #%d", lane.StoppedOn)}
 		}
-		if lane.Waiting != 0 {
+		if lane.Waiting != 0 && duty == "" {
 			return Verdict{Kind: Ok}
 		}
 		heardFor := "was never heard"

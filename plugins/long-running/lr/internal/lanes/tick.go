@@ -171,7 +171,7 @@ func Tick(s *store.Store, d Deps, now time.Time, generation int64) (out Outcome,
 	}
 	claimBranches(s, d, now)
 	openAnswered(s, d, found, taken, now, &out)
-	unownedDuties(s, d, found, now)
+	keepDuties(s, d, found, taken, now, &out)
 	hourly(s, d, now)
 	woken, err := chaseUnread(s, d, found, out.Woken, now)
 	if err != nil {
@@ -272,6 +272,9 @@ func act(s *store.Store, d Deps, lane store.Lane, found map[string]Peer, proven 
 			return
 		}
 		if !settled {
+			if lane.Placement == placedOnSprite && isStanding(lane) {
+				return
+			}
 			hold(s, lane.Name, verdict.Why, now)
 			escalateTo(s, d, "lane:"+lane.Name, fmt.Sprintf("held, not relaunched or retired: it %s, and it runs on no Sprite whose probe answered; brief %s", verdict.Why, lane.Brief), residueTo(s, d, lane.Name), now)
 			out.Held = append(out.Held, lane.Name)
@@ -329,10 +332,10 @@ func lost(s *store.Store, d Deps, lane store.Lane, found map[string]Peer, verdic
 	report := func(outcome string) {
 		do(d.Post(Post{Kind: "report", To: to, LaneRef: lane.Name, Text: fmt.Sprintf("LANE-LOST %s: it %s, and its dispatch never settled; %s.", lane.Name, verdict.Why, outcome)}))
 	}
-	if lane.Predecessor != "" && lane.Reason != "" {
+	if spent := spentRelaunches(s, lane, verdict.Why, now); spent != "" {
 		hold(s, lane.Name, verdict.Why, now)
 		out.Held = append(out.Held, lane.Name)
-		report(fmt.Sprintf("held, not relaunched: the supervisor already relaunched it once, when %s %s", lane.Predecessor, lane.Reason))
+		report("held, not relaunched: " + spent)
 		return
 	}
 	newestSeq := "none"
@@ -544,12 +547,19 @@ func relaunch(s *store.Store, d Deps, old store.Lane, found map[string]Peer, why
 		out.Held = append(out.Held, old.Name)
 		return ""
 	}
-	if old.Predecessor != "" && old.Reason != "" {
+	if spent := spentRelaunches(s, old, why, now); spent != "" {
 		hold(s, old.Name, why, now)
 		to := noticeTo(s, old.Name)
-		cause := fmt.Sprintf("held, not relaunched: the supervisor already relaunched it once, when %s %s, and now it %s; brief %s", old.Predecessor, old.Reason, why, old.Brief)
+		if isStanding(old) {
+			to = must(MetaDesk(s))
+		}
+		cause := "held, not relaunched: " + spent
 		if must(s.Escalate("lane:"+old.Name, cause, to, now)) {
-			do(d.Post(Post{Kind: "defect", To: []string{to}, LaneRef: old.Name, Text: fmt.Sprintf("lane:%s: %s", old.Name, cause)}))
+			kind := "defect"
+			if isStanding(old) {
+				kind = "blocker"
+			}
+			do(d.Post(Post{Kind: kind, To: []string{to}, LaneRef: old.Name, Text: fmt.Sprintf("lane:%s: %s", old.Name, cause)}))
 		}
 		out.Held = append(out.Held, old.Name)
 		return ""
@@ -569,9 +579,13 @@ func relaunch(s *store.Store, d Deps, old store.Lane, found map[string]Peer, why
 		out.Held = append(out.Held, old.Name)
 		return ""
 	}
+	to := owningDesk(s, d, old.Name)
+	if isStanding(old) {
+		to = must(MetaDesk(s))
+	}
 	retire(s, old.Name, name, now)
 	must(s.WantLane(store.Lane{Name: name, Brief: old.Brief, Model: old.Model, Effort: old.Effort, Role: old.Role, State: store.LaneLaunching, Handoff: old.Handoff, PRs: old.PRs, Predecessor: old.Name, Reason: why, Placement: old.Placement, Launcher: old.Launcher}, now))
-	do(d.Post(Post{Kind: "report", To: []string{owningDesk(s, d, old.Name)}, LaneRef: name, Text: fmt.Sprintf("RELAUNCHED %s as %s: it %s; handoff %s; PRs %s; brief %s", old.Name, name, why, or(old.Handoff, "none, the successor writes it"), or(numberList(old.PRs), "none"), path)}))
+	do(d.Post(Post{Kind: "report", To: []string{to}, LaneRef: name, Text: fmt.Sprintf("RELAUNCHED %s as %s: it %s; handoff %s; PRs %s; brief %s", old.Name, name, why, or(old.Handoff, "none, the successor writes it"), or(numberList(old.PRs), "none"), path)}))
 	out.Relaunched = append(out.Relaunched, Relaunch{old.Name, name, why})
 	return name
 }
@@ -888,54 +902,56 @@ func brokenProbe(n int) string {
 	return fmt.Sprintf("broken:%d", n)
 }
 
-func unownedDuties(s *store.Store, d Deps, found map[string]Peer, now time.Time) {
+func keepDuties(s *store.Store, d Deps, found map[string]Peer, taken map[string]bool, now time.Time, out *Outcome) {
 	heard := must(s.Heard())
 	heads := map[string]store.Lane{}
 	for _, lane := range must(s.AllLanes()) {
 		if must(BriefOf(lane.Brief)).Standing == "" {
 			continue
 		}
-		if head, ok := newest(s, lane.Name); ok {
+		if head, ok := newest(s, lane.Name); ok && head.State == store.LaneRetired && must(BriefOf(head.Brief)).Standing != "" {
 			heads[head.Name] = head
 		}
 	}
 	for _, name := range slices.Sorted(maps.Keys(heads)) {
 		head := heads[name]
-		var since time.Time
-		var why string
-		var peer *Peer
 		last := head.Heard
-		if known, ok := found[name]; ok {
-			peer = &known
-			last = newer(known.Seen, head.Heard)
+		peer := peerOf(found, name)
+		if peer != nil {
+			last = newer(peer.Seen, head.Heard)
 		}
-		switch head.State {
-		case store.LaneHeld, store.LaneLaunching:
+		if alive(peer, last, now) || now.Sub(head.Since) < unownedAfter {
 			continue
-		case store.LaneDesired:
-			if alive(peer, last, now) {
-				continue
-			}
-			since, why = head.Since, "is neither live nor heard since its launch"
-			if !last.IsZero() {
-				since, why = last, "is neither live nor heard"
-				if seq := must(s.NewestSeq(name)); seq != 0 {
-					why = fmt.Sprintf("is neither live nor heard since its record #%d", seq)
-				}
-			}
-		default:
-			if alive(peer, last, now) {
-				continue
-			}
-			if at, ok := heard[head.RetiredBy]; ok && succeeds(head.RetiredBy, name) && now.Sub(at) < StaleAfter {
-				continue
-			}
-			since, why = head.Since, fmt.Sprintf("was retired by %s with no successor", or(head.RetiredBy, "nobody"))
 		}
-		if now.Sub(since) >= unownedAfter {
-			escalate(s, d, "lane:"+name, fmt.Sprintf("standing lane %s (%s) has had no live owner for over %d min: it %s. Launch its successor from %s, or post `lr request stand-down %s --successor <lane> --open '<items>'`; deleting the brief's `Standing:` line ends the duty.", name, must(BriefOf(head.Brief)).Standing, int(unownedAfter.Minutes()), why, head.Brief, name), now)
+		if at, ok := heard[head.RetiredBy]; ok && succeeds(head.RetiredBy, name) && now.Sub(at) < StaleAfter {
+			continue
 		}
+		why := fmt.Sprintf("was retired by %s with no successor", or(head.RetiredBy, "nobody"))
+		if head.RetiredBy == "stand-down" || head.Reason != "" && head.RetiredBy == "done" {
+			escalate(s, d, "lane:"+name, fmt.Sprintf("standing lane %s (%s) has had no live owner for over %d min: it %s, on an order or as a relaunched lane that read its duty as finished, so the supervisor does not relaunch it. Launch its successor from %s, or delete the brief's `Standing:` line to end the duty.", name, must(BriefOf(head.Brief)).Standing, int(unownedAfter.Minutes()), why, head.Brief), now)
+			continue
+		}
+		relaunch(s, d, head, found, why, "", taken, now, out)
 	}
+}
+
+func spentRelaunches(s *store.Store, lane store.Lane, why string, now time.Time) string {
+	if !isStanding(lane) {
+		if lane.Predecessor != "" && lane.Reason != "" {
+			return fmt.Sprintf("the supervisor already relaunched it once, when %s %s, and now it %s; brief %s", lane.Predecessor, lane.Reason, why, lane.Brief)
+		}
+		return ""
+	}
+	strikes := 0
+	seen := map[string]bool{}
+	for at, known := lane, true; known && !seen[at.Name] && at.Predecessor != "" && at.Reason != "" && now.Sub(at.Since) < deskStrikeWindow; at, known = laneOf(s, at.Predecessor) {
+		seen[at.Name] = true
+		strikes++
+	}
+	if strikes < deskStrikes {
+		return ""
+	}
+	return fmt.Sprintf("it came back from the supervisor's relaunch and died %d times within %d min, and now it %s; read why before launching its successor from %s", strikes, int(deskStrikeWindow.Minutes()), why, lane.Brief)
 }
 
 func unsaid(s *store.Store, orders []owner.Row) []owner.Row {

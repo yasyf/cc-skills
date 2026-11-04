@@ -196,7 +196,7 @@ func (d *Desk) launchSprite(container, lane string, action incident.Action, spec
 	if err != nil {
 		return err
 	}
-	env = append(env, "WORKER_LOCAL=", "WORKER_NOTES_REPO="+d.Config.BriefsRepo, "WORKER_TOOLS="+string(tools))
+	env = append(env, "WORKER_LOCAL=", "WORKER_NOTES_REPO="+d.Config.BriefsRepo, "WORKER_TOOLS="+string(tools), workerDriveDir+"="+filepath.Dir(d.Config.Source))
 	model := spec.Model
 	if mapped, found := spriteModels[model]; found {
 		model = mapped
