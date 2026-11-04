@@ -243,6 +243,51 @@ func TestACCIAtOrPastThePackFloorPassesAndADriveWithoutSpritesChecksOnlyThisMach
 	}
 }
 
+func toolPack(t *testing.T) string {
+	t.Helper()
+	plugin := t.TempDir()
+	write(t, filepath.Join(plugin, toolFloorsFile), `[{"package":"cc-notes","tool":"ccn","version":"0.75.18"},{"package":"cc-slack","tool":"cc-slack","version":"0.4.80"}]`)
+	return plugin
+}
+
+func TestAPackRefusesAToolBehindItsFloorAndChecksOnlyTheToolsItNames(t *testing.T) {
+	fake := &shelltest.Fake{}
+	fake.Reply("v0.75.17 (33165ba92bf7d19a85723679f52edbfddc826068)\n", "ccn", "--version")
+	fake.Reply("cc-slack version 0.4.80\n", "cc-slack", "--version")
+
+	got := toolFaults(context.Background(), fake, toolPack(t))
+
+	want := []string{`this machine's ccn is "v0.75.17 (33165ba92bf7d19a85723679f52edbfddc826068)", and the pack needs cc-notes 0.75.18 or later; install that first`}
+	if !slices.Equal(got, want) {
+		t.Fatalf("got %v", got)
+	}
+}
+
+func TestAToolAtOrPastItsFloorPassesInEitherVersionFormat(t *testing.T) {
+	fake := &shelltest.Fake{}
+	fake.Reply("v0.75.18 (5b680988491296a994b747254f6b5454c6bf6d61)\n", "ccn", "--version")
+	fake.Reply("cc-slack version 0.4.100\n", "cc-slack", "--version")
+	if got := toolFaults(context.Background(), fake, toolPack(t)); len(got) != 0 {
+		t.Fatalf("got %v", got)
+	}
+}
+
+func TestAPackWithNoToolFloorsChecksNoTools(t *testing.T) {
+	if got := toolFaults(context.Background(), &shelltest.Fake{}, t.TempDir()); len(got) != 0 {
+		t.Fatalf("got %v", got)
+	}
+}
+
+func TestAToolThatDoesNotAnswerRefusesTheInstall(t *testing.T) {
+	fake := &shelltest.Fake{}
+	fake.Fail(127, "ccn: not found", "ccn", "--version")
+	fake.Reply("cc-slack version 0.4.80\n", "cc-slack", "--version")
+	got := toolFaults(context.Background(), fake, toolPack(t))
+	if len(got) != 1 || !strings.Contains(got[0], "ccn --version failed, and the pack needs cc-notes 0.75.18 or later") {
+		t.Fatalf("got %v", got)
+	}
+}
+
 func TestLocalEditsInTheCheckoutRefuseOnlyWhenTheLandingMoverRuns(t *testing.T) {
 	fake := &shelltest.Fake{}
 	fake.Reply(" M go/a.go\nM  go/b.go\n M go/untouched.go\n", "git", "-C", "/co", "status")

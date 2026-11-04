@@ -16,7 +16,12 @@ import (
 	"golang.org/x/mod/semver"
 )
 
-var releaseVersion = regexp.MustCompile(`/download/v([^/]+)/`)
+const toolFloorsFile = "tool-floors.json"
+
+var (
+	releaseVersion = regexp.MustCompile(`/download/v([^/]+)/`)
+	toolVersion    = regexp.MustCompile(`\d+\.\d+\.\d+`)
+)
 
 type dependency struct {
 	Name    string `json:"name"`
@@ -45,6 +50,32 @@ func cciFaults(ctx context.Context, runner shell.Runner, plugin, state string) [
 	}
 	if found := releaseVersion.FindStringSubmatch(url); found == nil || semver.Compare("v"+found[1], "v"+floor) < 0 {
 		faults = append(faults, fmt.Sprintf("runner.json's WORKER_CCI_URL %s is no cc-inbox %s or later release, so every Sprite worker would install a cci this pack outruns", url, floor))
+	}
+	return faults
+}
+
+func toolFaults(ctx context.Context, runner shell.Runner, plugin string) []string {
+	data, err := os.ReadFile(filepath.Join(plugin, toolFloorsFile))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return []string{err.Error()}
+	}
+	var floors []struct{ Package, Tool, Version string }
+	if err := json.Unmarshal(data, &floors); err != nil {
+		return []string{fmt.Sprintf("%s: %v", toolFloorsFile, err)}
+	}
+	var faults []string
+	for _, floor := range floors {
+		result, err := runner.Run(ctx, shell.Command{Argv: []string{floor.Tool, "--version"}, Timeout: readTimeout})
+		if err != nil {
+			faults = append(faults, fmt.Sprintf("%s --version failed, and the pack needs %s %s or later: %s", floor.Tool, floor.Package, floor.Version, lastLine(err)))
+			continue
+		}
+		if have := toolVersion.FindString(result.Stdout); semver.Compare("v"+have, "v"+floor.Version) < 0 {
+			faults = append(faults, fmt.Sprintf("this machine's %s is %q, and the pack needs %s %s or later; install that first", floor.Tool, strings.TrimSpace(result.Stdout), floor.Package, floor.Version))
+		}
 	}
 	return faults
 }
