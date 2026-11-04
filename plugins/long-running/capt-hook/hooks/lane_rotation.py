@@ -47,6 +47,7 @@ def mentions_stand_down(message: object) -> bool:
     only_if=[Tool("SendMessage")],
     tests={
         Input(tool="SendMessage", tool_input={"to": "desk", "message": "status?"}, env=DRIVE_CONFIG, commands=route("desk", "restack-desk")): Rewrite(None, to="restack-desk"),
+        Input(tool="SendMessage", tool_input={"to": "desk", "message": "status?"}, env=DRIVE_CONFIG, commands=route("desk", "desk-3", "desired")): Rewrite(None, to="desk-3"),
         Input(tool="SendMessage", tool_input={"to": "desk", "message": "done: #12 merged"}, agent_id="a1b2c3", env=DRIVE_CONFIG, commands=route("desk", "desk-3")): Rewrite(None, to="desk-3"),
         Input(tool="SendMessage", tool_input={"to": "desk", "message": "done: #12 merged"}, agent_id="a1b2c3", env=DRIVE_CONFIG, commands=route("desk", ROOT)): Rewrite(None, to=MAIN),
         Input(tool="SendMessage", tool_input={"to": "desk", "message": "status?"}, env=DRIVE_CONFIG, commands=route("desk", ROOT)): Warn(pattern=r"^Warning, nothing was blocked: `desk` is stood down with no successor"),
@@ -61,6 +62,8 @@ def redirect_retired_lanes(evt: BaseHookEvent) -> HookResult | None:
     if not (to := raw.get("to")) or not (found := routed(evt, to)) or found["route"] == found["lane"]:
         return None
     target = MAIN if found["route"] == ROOT else found["route"]
+    if re.sub(r"-\d+$", "", target) == to and found["state"] in {"desired", "launching"}:
+        return evt.rewrite(raw | {"to": target}, note=f"`{to}` is the stem `{target}` holds, so this message went to it.")
     if mentions_stand_down(raw.get("message")):
         return evt.context(f"Warning, nothing was blocked: `{to}` is already stood down{f' for `{target}`' if target != MAIN else ''}, and this message resumes it on its stale brief. `TaskStop` `{to}` instead.")
     if target == MAIN and evt.agent_id is None:

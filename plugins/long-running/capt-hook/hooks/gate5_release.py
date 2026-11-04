@@ -12,7 +12,7 @@ from .compaction_handoff import bus_name
 
 LR = Path(__file__).parents[2] / "bin" / "lr"
 DRIVE = "durable-agents-rebuild"
-GATE_LANE = "switch-drive-1"
+GATE_LANE = "switch-drive"
 ROOT_LANE = "root"
 NOTE_LANE = "gate5"
 OVERRIDE = "GATE5_OWNER_OVERRIDE"
@@ -30,15 +30,15 @@ ROUTE = f"{LR} route {GATE_LANE}"
 GREP = "cci grep"
 
 UNGATED = (
-    "GATE5: this release carries sand-next at {commit}, and switch-drive-1 has posted no `GATE5 PASS <sha>` for that commit"
-    " on drive durable-agents-rebuild in the last 12 hours. Ask switch-drive-1 for a gate run on it, or start the release with `--without sand-next`."
+    "GATE5: this release carries sand-next at {commit}, and switch-drive has posted no `GATE5 PASS <sha>` for that commit"
+    " on drive durable-agents-rebuild in the last 12 hours. Ask switch-drive for a gate run on it, or start the release with `--without sand-next`."
 )
 UNCHECKABLE = (
-    "GATE5: a {what} that carries sand-next names no commit the gate can check against switch-drive-1's `GATE5 PASS <sha>` records."
-    " Start it with `--without sand-next`, or start a release that names its commit with `--from <sha>` once switch-drive-1 posts `GATE5 PASS <sha>` for it."
+    "GATE5: a {what} that carries sand-next names no commit the gate can check against switch-drive's `GATE5 PASS <sha>` records."
+    " Start it with `--without sand-next`, or start a release that names its commit with `--from <sha>` once switch-drive posts `GATE5 PASS <sha>` for it."
 )
 UNREAD = (
-    "GATE5 fails closed: it could not read whether switch-drive-1 passed this sand-next release ({why})."
+    "GATE5 fails closed: it could not read whether switch-drive passed this sand-next release ({why})."
     " Fix the read and retry, or start the release with `--without sand-next`."
 )
 NOT_OWNER = "GATE5: {OVERRIDE}={seq} names a record from `{lane}`, and only an owner record from `owner` or `owner-relay` overrides the gate."
@@ -154,8 +154,8 @@ def release(command: str, said: str | tuple[int, str] = "", routed: str = GATE_L
         Input(command="tools/ci release start --manual --stack api/plat-usw2-prod --commit dc94738"): Allow(),
         Input(command="tools/ci release hotfix 48885 --without sand-next"): Allow(),
         Input(command="tools/ci release status"): Allow(),
-        release("tools/ci release start sand"): Block(pattern=r"^GATE5: this release carries sand-next at origin dev's tip, and switch-drive-1 has posted no"),
-        release("./tools/ci release start sand --without sand-next/core-usw2-auto"): Block(pattern=r"Ask switch-drive-1 for a gate run"),
+        release("tools/ci release start sand"): Block(pattern=r"^GATE5: this release carries sand-next at origin dev's tip, and switch-drive has posted no"),
+        release("./tools/ci release start sand --without sand-next/core-usw2-auto"): Block(pattern=r"Ask switch-drive for a gate run"),
         release("tools/ci release start sand", passes(SHA)): Allow(),
         release("cd /repo && ci release start --targets sand --from dc94738", passes(SHA)): Allow(),
         release("tools/ci release start sand", passes(OTHER)): Block(pattern=r"^GATE5: this release carries sand-next"),
