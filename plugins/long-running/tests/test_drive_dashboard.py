@@ -88,7 +88,7 @@ def stored_row(number, head, **change):
     return {
         "number": number, "head": head, "lane": "lane-7", "title": "T", "for_users": "Chats open faster.", "plan_row": "Plan step 7.", "risk": "Low.", "review": "approved by a bot", "waits_on": "Only your approval.",
         "ready_for_tap": 1, "tapped": 0, "state": "open", "written_at": "2026-11-04T09:40:00Z", "description": "D", "ci": "green", "approvers": "a bot", "grade": "pass", "grade_findings": "none", "mergeable": "clean", "queue": "none",
-        "hold": "none", "superseded_by": "none", "branch": "b", "parent": "none", "tapped_at": "not yet", "tapped_by": "not yet", "tap_refused": "", "landed_at": "not yet",
+        "hold": "none", "superseded_by": "none", "branch": "b", "parent": "none", "tapped_at": "not yet", "tapped_by": "not yet", "tap_refused": "none", "landed_at": "not yet",
         **change,
     }
 
@@ -125,6 +125,14 @@ def test_a_stored_tap_reads_approved_without_a_board_verdict():
 
     assert [row["state"] for row in rows] == ["approved", "you", "not-ready"]
     assert [item["prs"][0]["number"] for item in server.merge_needs(rows, "http://board") if item["prs"]] == [4]
+
+
+def test_a_row_with_no_refusal_keeps_his_click_whether_the_field_says_none_or_is_not_yet_written():
+    clicked = {"merge-prs": {"1": {"verdict": "approved", "head": "aaaaaaa"}}}
+
+    for word in ("none", ""):
+        row = server.review_rows([stored_row(1, "aaaaaaa", ready_for_tap=0, waits_on="CI is not green", tap_refused=word)], clicked)[0]
+        assert row["verdict"] == clicked["merge-prs"]["1"] and row["blocker"] == "CI is not green"
 
 
 def test_a_refused_tap_says_why_and_drops_his_click_so_the_row_asks_again():
