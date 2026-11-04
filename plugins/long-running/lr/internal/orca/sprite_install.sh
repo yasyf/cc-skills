@@ -19,8 +19,9 @@ fetch "$1" "$2" /tmp/cci.tgz
 tar -xzf /tmp/cci.tgz -C "$bin" --exclude='*.md'
 echo "installed cci $(said "$bin/cci")"
 fetch "$3" "$4" /tmp/lr.tgz
-tar -xzOf /tmp/lr.tgz "$5" > "$bin/lr"
-chmod 755 "$bin/lr"
+tar -xzOf /tmp/lr.tgz "$5" > "$bin/lr.new"
+chmod 755 "$bin/lr.new"
+mv -f "$bin/lr.new" "$bin/lr"
 echo "installed lr $(said "$bin/lr")"
 shift 5
 while [ "$1" != -- ]; do
@@ -102,7 +103,9 @@ while [ "$1" != -- ]; do
     if [ -L "$current" ]; then
       ln -sfn "$dir" "$current"
       if [ -e "$current/bin/lr" ]; then
-        printf '#!/bin/sh\nexec "%s/bin/lr" "$@"\n' "$current" > "$bin/lr"
+        printf '#!/bin/sh\nexec "%s/bin/lr" "$@"\n' "$current" > "$bin/lr.new"
+        chmod 755 "$bin/lr.new"
+        mv -f "$bin/lr.new" "$bin/lr"
       fi
     fi
     ;;
