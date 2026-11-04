@@ -3,9 +3,9 @@ package lanes
 import (
 	"context"
 	"errors"
-	"slices"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
