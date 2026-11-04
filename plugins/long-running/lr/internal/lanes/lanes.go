@@ -25,6 +25,7 @@ const (
 	orcaDesk        = "orca-desk"
 	progressDesk    = "progress-desk"
 	RoleMeta        = "meta"
+	roleDesk        = "desk"
 	roleRelease     = "release"
 	runner          = "desk-runner"
 	mainLane        = "main"
@@ -121,7 +122,7 @@ var (
 
 	settledDispatch = []string{"completed", "failed"}
 	agentVerdicts   = []string{agentLive, agentExited, agentUnverifiable}
-	standingRoles   = []string{"desk", RoleMeta, roleRelease}
+	standingRoles   = []string{roleDesk, RoleMeta, roleRelease}
 
 	numbered      = regexp.MustCompile(`^(.+)-(\d{1,2})$`)
 	handedOff     = regexp.MustCompile(`\bhandoff ([\w.-]+): doc ([0-9a-f]{7,40})\b`)
@@ -302,10 +303,21 @@ func noticeTo(s *store.Store, name string) string {
 		return Root
 	}
 	lane, _ := laneOf(s, name)
-	if head, found := newest(s, lane.Launcher); found && isLive(head.State) && lane.Role != RoleMeta {
+	if lane.Role == RoleMeta {
+		return OwnerRelay
+	}
+	if head, found := newest(s, lane.Launcher); found && isLive(head.State) {
 		return head.Name
 	}
-	return OwnerRelay
+	if lane.Role == roleDesk {
+		return Root
+	}
+	for _, row := range must(s.AllLanes()) {
+		if row.Role == RoleMeta && isLive(row.State) {
+			return row.Name
+		}
+	}
+	return Root
 }
 
 func isMeta(s *store.Store, name string) bool {
