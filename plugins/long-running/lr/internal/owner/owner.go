@@ -301,5 +301,6 @@ func Command(a *app.App) *cobra.Command {
 		},
 	}
 	owner.AddCommand(mark, add, list, start)
+	owner.AddCommand(questionCommands(a, &driveName)...)
 	return owner
 }
