@@ -4,8 +4,8 @@ The communicator launches one coordinator per drive at drive start as a sibling
 Orca session bound as lane `root` (`lr launch coordinator <state dir>/root/brief.md`,
 which refuses a brief whose directory is not named for the lane), and the lane supervisor
 relaunches it when it dies. The launch sets `CLAUDE_CODE_PROMPT_CACHE_TTL=1h` and
-`CLAUDE_CODE_AUTO_COMPACT_WINDOW=210000`, so a batch wait never rewrites the context and it
-compacts near 177k tokens, denies it `Workflow`, `ScheduleWakeup`, `ReportFindings`, `ListAgents`,
+`CLAUDE_CODE_AUTO_COMPACT_WINDOW=400000`, so a batch wait never rewrites the context and it
+compacts near 367k tokens, denies it `Workflow`, `ScheduleWakeup`, `ReportFindings`, `ListAgents`,
 `Monitor`, `SendMessage` and `TaskGet`, shrinks the skill listing to names, and sets
 `CLAUDE_LONG_RUNNING_LANE=root`, and the pack's
 first-command hook claims that lane with `cci announce --lane root` before the

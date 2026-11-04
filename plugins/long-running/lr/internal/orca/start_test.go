@@ -531,7 +531,7 @@ func TestOnlyTheCoordinatorLaunchesOnTheLongCacheUnderALowCompactionCeiling(t *t
 	h.launched()
 	creates := h.orcaCalls("terminal create")
 	command := flag(creates[0], "--command")
-	if !strings.HasPrefix(command, "env CLAUDE_LONG_RUNNING_LANE=root "+claudeLaneEnv+" CLAUDE_CODE_PROMPT_CACHE_TTL=1h CLAUDE_CODE_AUTO_COMPACT_WINDOW=210000 claude ") {
+	if !strings.HasPrefix(command, "env CLAUDE_LONG_RUNNING_LANE=root "+claudeLaneEnv+" CLAUDE_CODE_PROMPT_CACHE_TTL=1h CLAUDE_CODE_AUTO_COMPACT_WINDOW=400000 claude ") {
 		t.Fatal(command)
 	}
 	for _, want := range []string{"--disallowedTools " + laneDeniedTools + coordinatorDenied + " ", `,"skillListingBudgetFraction":0.001}'`} {
