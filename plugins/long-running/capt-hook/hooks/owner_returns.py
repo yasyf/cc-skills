@@ -53,6 +53,7 @@ UNROUTED_REMINDER = (
     " Before stopping, post one ask to meta naming his ledger row, `owner:m<row>` plus your one-line order, or launch the lane with `lr launch`."
 )
 WAIT_TOOLS = frozenset({"Agent", "Task", "Monitor"})
+SUBAGENT_TOOLS = frozenset({"Agent", "Task"})
 FILE_PATH = (
     "The owner never opens a file, so a reply to him names no path under the drive's state dir, a scratch dir or progress-desk."
     " Link the dashboard section that shows it on the tailnet instead, and say what it shows in plain words."
@@ -64,7 +65,7 @@ SHIPPED_CC_SLACK = Path(DRIVE_CONFIG["CLAUDE_CONFIG_DIR"]) / CC_SLACK_CACHE / "0
 CC_SLACK_UNREAD = "The communicator could not run `cc-slack {verb}` from the plugin ({why}), so the owner's DM replies go unwatched or unchecked until it works."
 UNANSWERED = (
     "An owner Slack message has no answer, and a mark or a lane does not answer a message in a thread."
-    " Answer each now with the `reply` tool, which posts in his thread, or `slack_react` `+1` when it needs nothing back.\n```\n{replies}\n```"
+    " Spawn the subagent that answers each one, or answer it now with the `reply` tool, which posts in his thread, or `slack_react` `+1` when it needs nothing back.\n```\n{replies}\n```"
 )
 ACK_AFTER_SECONDS = 30
 UNACKED = "An owner Slack message has waited over 30 seconds with no thread reply. Answer before any routing with the `reply` tool, or `slack_react` `+1` with `url` {permalink} when it needs nothing back."
@@ -352,7 +353,9 @@ OWES_THE_ROOT = json.dumps({"replies": [AT_THE_ROOT], "holder_session": HOLDER})
         owed(OWES_HIM, *T.tool_turn(OWNER_MARK, result="m447 responded", row="m447", state="responded")): Block(pattern=r"^An owner Slack message has no answer"),
         owed(OWES_HIM, *T.tool_turn("Bash", result="m447 due Nov 3 11:30 PM", command="lr owner mark m447 due --by '11:30 PM' --routed 400803")): Block(),
         owed(OWES_HIM, *T.tool_turn(REPLY, result="Designing.\n\nReply rp; pass this id to edit it on every surface.\n- record: #12@2479ec97\n- ledger: m447 due Nov 3 11:30 PM", title="Vector search", md="Designing.", status="progress", order="m447", by="11:30 PM")): Block(),
-        owed(OWES_HIM, *T.tool_turn("Agent", result="started", description="status", prompt="read every lane")): Block(),
+        owed(OWES_HIM, *T.tool_turn("Agent", result="started", description="status", prompt="read every lane")): Allow(),
+        owed(OWES_HIM, tasks=[*WATCHING, {"id": "a1", "type": "subagent", "status": "running", "description": "answer his thread"}]): Allow(),
+        owed(OWES_HIM, tasks=[*WATCHING, {"id": "a2", "type": "subagent", "status": "completed", "description": "answer his thread"}]): Block(pattern=r"^An owner Slack message has no answer"),
         owed(OWES_HIM, *T.tool_turn("Monitor", result="armed", description="status read", timeout_ms=1000)): Block(),
         owed(OWES_HIM, *T.tool_turn("Bash", result="started", command="zsh read.zsh", run_in_background=True)): Block(),
         owed(OWES_HIM, *T.tool_turn("Bash", result="launched", command="lr ask-lane 'how far along is relay-fix-2'")): Block(),
@@ -497,6 +500,8 @@ def unanswered_reply(evt: BaseHookEvent) -> str | None:
     if owed is None or owed["holder_session"] != evt.session_id or not owed["replies"]:
         return None
     calls = evt.ctx.turn.tool_calls.items
+    if any(use.call.name in SUBAGENT_TOOLS for use in calls) or any(task.type == "subagent" and task.status == "running" for task in evt.background_tasks):
+        return None
     with OwnerReturns.mutate(evt) as state:
         if any(marked(use) for use in calls):
             state.marked_replies = sorted({*state.marked_replies, *(reply["ts"] for reply in owed["replies"])})
