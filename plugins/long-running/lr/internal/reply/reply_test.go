@@ -1469,18 +1469,50 @@ func TestAPickReplyInHisThreadEditsItsThreadCopyAcrossEdits(t *testing.T) {
 	}
 }
 
-func TestAMessageThatGainsPicksPointsAtItsCardInsteadOfStayingStale(t *testing.T) {
+func replacedBy(t *testing.T, c shell.Command) string {
+	t.Helper()
+	var card struct {
+		Replaces string `json:"replaces"`
+	}
+	if err := json.Unmarshal([]byte(c.Stdin), &card); err != nil {
+		t.Fatal(err)
+	}
+	return card.Replaces
+}
+
+func TestAMessageThatGainsPicksBecomesItsCardAndPostsNothing(t *testing.T) {
 	fake := threadedFake()
 	f := fanout(t, fake)
 	f.Send(context.Background(), Reply{ID: "r8", Title: "t", MD: "first", Thread: hisThread})
-	sent := f.Send(context.Background(), Reply{ID: "r8", Title: "Land?", MD: "Pick one.", Picks: []string{"Land", "Hold"}, Recommended: "Land", Thread: hisThread})
+	ask := Reply{ID: "r8", Title: "Land?", MD: "Pick one.", Picks: []string{"Land", "Hold"}, Recommended: "Land", Thread: hisThread}
+	sent := f.Send(context.Background(), ask)
 
-	posted := calls(fake, "cc-slack")
-	if len(posted) != 2 || slack(t, posted[1]).Replaces != threadCopy || !strings.Contains(slack(t, posted[1]).Body, cardCopy) {
-		t.Fatalf("cc-slack calls = %+v, want the first message edited to link the card", posted)
+	drawn := calls(fake, "cc-present")
+	if len(drawn) != 1 || replacedBy(t, drawn[0]) != threadCopy {
+		t.Fatalf("board writes = %+v, want the card to replace %s", drawn, threadCopy)
 	}
-	if surface(sent, "slack").Ref != cardCopy || surface(sent, "slack thread").Ref != threadCopy {
-		t.Fatalf("outcomes = %+v", sent)
+	if posted := calls(fake, "cc-slack"); len(posted) != 1 {
+		t.Fatalf("cc-slack calls = %+v, want only the first post", posted)
+	}
+	if surface(sent, "slack").Ref != cardCopy || surface(sent, "slack thread").Surface != "" {
+		t.Fatalf("outcomes = %+v, want the one card and no thread copy", sent)
+	}
+
+	ask.MD = "Pick one, please."
+	f.Send(context.Background(), ask)
+	if drawn = calls(fake, "cc-present"); len(drawn) != 2 || replacedBy(t, drawn[1]) != cardCopy {
+		t.Fatalf("board writes = %+v, want the next edit to stay on %s", drawn, cardCopy)
+	}
+	if posted := calls(fake, "cc-slack"); len(posted) != 1 {
+		t.Fatalf("cc-slack calls = %+v, want nothing new on the next edit", posted)
+	}
+}
+
+func TestANewPickReplyReplacesNothing(t *testing.T) {
+	fake := threadedFake()
+	fanout(t, fake).Send(context.Background(), Reply{ID: "r17", Title: "Land?", MD: "Pick one.", Picks: []string{"Land", "Hold"}, Recommended: "Land"})
+	if got := replacedBy(t, calls(fake, "cc-present")[0]); got != "" {
+		t.Fatalf("a new card replaces %q", got)
 	}
 }
 
