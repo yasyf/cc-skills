@@ -614,52 +614,67 @@ def test_an_incident_tap_leads_needs_me_even_with_nothing_waiting_on_it(page):
     now(page)
 
 
-def replies_box(page):
+def chat_box(page):
     now(page)
-    page.evaluate("() => { state.model.replies = []; location.hash = '#/replies'; }")
-    page.wait_for_selector("textarea[name=reply]")
-    return page.locator("textarea[name=reply]")
+    page.evaluate("() => { state.model.replies = []; state.model.chat_lines = []; state.model.owner_asks ??= { messages: [], taps: [], store: [] }; location.hash = '#/replies'; }")
+    page.wait_for_selector(".ct-foot textarea")
+    return page.locator(".ct-foot textarea")
 
 
-def test_a_refresh_waits_while_a_box_has_focus_and_a_draft_survives_a_redraw_and_a_reload(page):
-    box = replies_box(page)
+def test_a_chat_box_stays_the_same_element_through_a_refresh_and_a_draft_survives_a_reload(page):
+    """Owner 10:12 PM Nov 3: every refresh deleted what he was typing."""
+    box = chat_box(page)
     box.click()
-    assert page.evaluate("""() => {
-      const el = document.querySelector('textarea[name=reply]');
-      refresh();
-      return document.querySelector('textarea[name=reply]') === el && state.owed;
-    }""")
     page.keyboard.type("half a thought")
-    page.evaluate("render()")
-    assert box.input_value() == "half a thought"
-    assert page.evaluate("document.activeElement.name") == "reply"
+    assert page.evaluate("""() => {
+      const el = document.querySelector('.ct-foot textarea');
+      refresh();
+      render();
+      return document.querySelector('.ct-foot textarea') === el && document.activeElement === el && !state.owed;
+    }""")
     page.keyboard.type(" more")
     assert box.input_value() == "half a thought more"
-    page.evaluate("document.activeElement.blur()")
-    page.wait_for_function("!state.owed")
+    page.evaluate("document.activeElement.blur(); render()")
     assert box.input_value() == "half a thought more"
     page.reload()
-    assert replies_box(page).input_value() == "half a thought more"
-    page.evaluate("localStorage.removeItem('draft:reply::')")
+    assert chat_box(page).input_value() == "half a thought more"
+    page.evaluate("localStorage.removeItem('draft:chat::')")
     now(page)
 
 
-def test_a_failed_reply_keeps_its_draft_and_a_sent_one_clears_it(page):
-    box = replies_box(page)
+def test_a_refresh_waits_while_any_other_box_has_focus(page):
+    now(page)
+    page.evaluate("""() => {
+      document.querySelector('#main').insertAdjacentHTML('beforeend', '<form id="probe"><textarea name="probe"></textarea></form>');
+      document.querySelector('#probe textarea').focus();
+    }""")
+    assert page.evaluate("""() => {
+      const el = document.querySelector('#probe textarea');
+      refresh();
+      return document.querySelector('#probe textarea') === el && state.owed;
+    }""")
+    page.evaluate("document.activeElement.blur()")
+    page.wait_for_function("!state.owed")
+    now(page)
+
+
+def test_a_failed_chat_line_returns_to_its_box_and_a_sent_one_clears_it(page):
+    box = chat_box(page)
     box.click()
     page.keyboard.type("send me")
     page.route("**/api/reply", lambda route: route.fulfill(status=502, json={"error": "the records were down"}))
-    page.evaluate("document.querySelector('.rp-ask').requestSubmit()")
-    page.wait_for_function("rp.sent.get('')?.error")
+    page.evaluate("document.querySelector('.ct-foot form').requestSubmit()")
+    page.wait_for_function("rp.failed.get('')")
     assert box.input_value() == "send me"
+    assert page.evaluate("localStorage.getItem('draft:chat::')") == "send me"
     page.unroute("**/api/reply")
     page.route("**/api/reply", lambda route: route.fulfill(json={"seq": 5}))
-    page.evaluate("document.querySelector('.rp-ask').requestSubmit()")
-    page.wait_for_function("rp.sent.get('')?.seq === 5")
+    page.evaluate("document.querySelector('.ct-foot form').requestSubmit()")
+    page.wait_for_function("rp.sent.at(-1)?.seq === 5")
     assert box.input_value() == ""
-    assert page.evaluate("localStorage.getItem('draft:reply::')") is None
+    assert page.evaluate("localStorage.getItem('draft:chat::')") is None
     page.unroute("**/api/reply")
-    page.evaluate("rp.sent.delete('')")
+    page.evaluate("rp.sent.length = 0; rp.failed.clear()")
     now(page)
 
 
@@ -689,3 +704,68 @@ def test_a_tap_on_needs_me_goes_down_the_boards_path_and_drops_its_row_at_once(p
     page.unroute("**/api/verdict")
     page.unroute("**/api/answer")
     now(page)
+
+
+CHAT_MODEL = """(n) => {
+  const reply = (id, extra) => ({ reply: { id, title: `Title ${id}`, md: `Body ${id}`, ...extra }, at: '2026-11-03T20:00:00Z', surfaces: [] });
+  const card = (id, labels) => ({ id: `card-${id}`, title: id, summary: 'Why', chips: [], prs: [], choice: `${id}-choice`, options: labels.map((label, i) => ({ id: `${id}-${i + 1}`, label, recommended: i === 0 })) });
+  state.model.replies = [
+    reply('open3', { status: 'needs_you', picks: ['a', 'b', 'c'] }),
+    reply('open2', { status: 'needs_you', picks: ['Yes', 'No'] }),
+    reply('plain', { status: 'needs_you' }),
+    reply('old', { status: 'needs_you', picks: ['x', 'y'] }),
+    ...Array.from({ length: n }, (_, i) => ({ ...reply(`r${i}`, {}), at: '2026-11-03T19:00:00Z' })),
+  ];
+  state.model.board.cards = [card('open2', ['Yes', 'No']), card('open3', ['a', 'b', 'c'])];
+  state.model.owner_asks = { messages: [{ m: 7, iso: '2026-11-03T21:00:00-08:00', text: 'my line', state: 'asked', lanes: ['a-1'], prs: [] }], taps: [], store: [] };
+  state.model.chat_lines = [];
+  render();
+}"""
+
+
+def open_chat(page, n=0):
+    now(page)
+    page.evaluate(CHAT_MODEL, n)
+    page.evaluate("location.hash = '#/replies'")
+    page.wait_for_selector(".ct-foot .ct-box")
+
+
+def test_a_thread_reply_names_its_parent_and_shows_under_it(page):
+    """Owner 10:07 PM Nov 3: any message threads, and Claude gets the line knowing what it hangs on."""
+    open_chat(page)
+    line = page.locator(".ct-you", has_text="my line")
+    assert "Routed" in line.locator(".ct-from").first.inner_text()
+    page.route("**/api/reply", lambda route: route.fulfill(json={"seq": 42}))
+    line.locator("[data-chat-thread]").click()
+    line.locator(".ct-thread textarea").fill("on that")
+    with page.expect_request("**/api/reply") as sent:
+        line.locator(".ct-thread textarea").press("Enter")
+    body = sent.value.post_data_json
+    assert body["on"] == "line:m7" and body["text"] == "on that" and "m7" in body["about"]
+    page.evaluate("state.model.chat_lines = [{ seq: 42, at: '2026-11-04T06:00:00Z', on: 'line:m7', text: 'on that' }]; render()")
+    assert line.locator(".ct-thread .ct-bubble").inner_text() == "on that"
+    assert page.locator(".ct-flow > .ct-you", has_text="on that").count() == 0
+    page.unroute("**/api/reply")
+    now(page)
+
+
+def test_a_yes_no_answers_inline_and_anything_else_opens_the_task(page):
+    """Owner 10:07 PM Nov 3: a button inline if simple yes/no, a modal to the proper task otherwise."""
+    open_chat(page)
+    assert page.locator("#rp-open2 .ct-acts [data-choose]").all_inner_texts() == ["Yes", "No"]
+    assert page.locator("#rp-old [data-choose]").count() == 0
+    assert page.locator("#rp-old .ct-closed").count() == 1
+    assert page.locator("#rp-plain [data-chat-done]").count() == 1
+    page.locator("#rp-open3 [data-chat-modal]").click()
+    assert page.locator("#chatmodal [data-choose]").count() == 3
+    page.locator("#chatmodal [data-chat-close]").click()
+    assert not page.evaluate("document.querySelector('#chatmodal').open")
+    now(page)
+
+
+@pytest.mark.parametrize("n", [1, 1000])
+def test_the_chat_draws_a_bounded_window_at_any_length(page, n):
+    open_chat(page, n)
+    assert page.locator(".ct-flow > .ct-turn").count() <= 60
+    now(page)
+

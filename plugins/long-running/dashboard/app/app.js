@@ -231,8 +231,8 @@ function syncCardEmbed(r) {
   host.innerHTML = `<header><b>${inline(card.title)}</b><button class="btn ghost" data-embed-close>Close</button></header><iframe title="${esc(card.title)}" src="${esc(framedUrl(card.embed))}"></iframe>`;
 }
 window.addEventListener('message', (e) => {
-  const frame = $('#cardembed iframe');
-  if (e.data?.type === 'cc-present.height' && frame && e.source === frame.contentWindow) frame.style.height = `${e.data.px}px`;
+  const frame = [...document.querySelectorAll('#cardembed iframe, #chatmodal iframe')].find((el) => el.contentWindow === e.source);
+  if (e.data?.type === 'cc-present.height' && frame) frame.style.height = `${e.data.px}px`;
 });
 
 
@@ -268,7 +268,7 @@ async function ask(question) {
 
 const DRAWER = /^(?:review\/\d+(?:\/code)?|plan\/[^/~]+|status\/s\d+|(?:work|story|worker|blocker|question)\/[^/~]+)$/;
 const NATURAL = { review: '#/review', plan: '#/plan', status: '#/status', work: '#/work', worker: '#/work' };
-const BASE_WORD = { overview: 'Now', needs: 'Needs me', plan: 'Plan', status: 'Status', work: 'Work', review: 'Review', asks: 'Your asks', replies: 'Replies', history: 'History', ask: 'Ask' };
+const BASE_WORD = { overview: 'Now', needs: 'Needs me', plan: 'Plan', status: 'Status', work: 'Work', review: 'Review', asks: 'Your asks', replies: 'Chat', history: 'History', ask: 'Ask' };
 function drawerSeg(href) {
   const path = String(href ?? '').replace(/^#\/?/, '');
   return DRAWER.test(path) ? path.replace(/^story\//, 'work/') : null;
@@ -306,16 +306,8 @@ function restoreBoxes() {
     if (kept) el.value = kept;
   }
 }
-function sentDraft(name, draft) {
-  localStorage.removeItem(`draft:${name}:${draft}:`);
-  for (const el of document.querySelectorAll(`#main [name="${name}"]`)) {
-    if (el.dataset.draft !== draft) continue;
-    el.value = '';
-    el.blur();
-  }
-}
 function refresh() {
-  if (state.pressing || document.activeElement?.matches(BOX)) state.owed = true;
+  if (state.pressing || (document.activeElement?.matches(BOX) && document.activeElement.name !== 'chat')) state.owed = true;
   else render();
 }
 document.addEventListener('input', (e) => {
@@ -329,7 +321,7 @@ document.addEventListener('focusout', (e) => {
   setTimeout(refresh);
 });
 document.addEventListener('submit', (e) => {
-  if (e.target.matches('.rp-ask')) return;
+  if (e.target.matches('.ct-box')) return;
   for (const el of e.target.elements) if (el.name) localStorage.removeItem(boxKey(el));
 }, true);
 function render() {
@@ -345,7 +337,7 @@ function render() {
   const stack = stackOf();
   document.title = m.title;
   $('.brand').textContent = m.title;
-  const tabs = [['overview', 'Now'], ['needs', 'Needs me', openTaps().length], ['plan', 'Plan'], ['status', 'Status'], ['work', 'Work'], ['review', 'Review', needsTotal()], ['asks', 'Your asks', openAsks()], ['replies', 'Replies', openReplies()], ['history', 'History']];
+  const tabs = [['overview', 'Now'], ['needs', 'Needs me', openTaps().length], ['plan', 'Plan'], ['status', 'Status'], ['work', 'Work'], ['review', 'Review', needsTotal()], ['asks', 'Your asks', openAsks()], ['replies', 'Chat', openReplies()], ['history', 'History']];
   $('#kbtn').classList.toggle('on', p.screen === 'jump');
   const typing = document.activeElement?.matches('#main input, #main textarea') ? document.activeElement : null;
   const caret = typing && [typing.name, typing.dataset.draft ?? '', typing.selectionStart, typing.selectionEnd];
@@ -362,7 +354,9 @@ function render() {
     console.error(error);
     screen = `<div class="pg"><p class="pg-fail">This page could not be drawn from the drive's data: ${esc(error)}. The other tabs still work.</p></div>`;
   }
+  const chatBoxes = liveChatBoxes();
   $('#main').innerHTML = screen + drawers(stack) + `<div class="foot">${m.errors && Object.keys(m.errors).length ? `Some sources could not be read just now (${esc(Object.keys(m.errors).join(', '))}). ` : ''}All times Pacific.</div>`;
+  keepChatBoxes(chatBoxes);
   for (const el of $('#main').children) el.inert = stack.length > 0 && !el.matches('.pr-scrim, .pr-drawer');
   if (stack.length > (state.depth ?? 0)) $('#main .pr-drawer.front')?.classList.add('in');
   state.depth = stack.length;
@@ -381,6 +375,8 @@ function render() {
   if (again) { again.focus(); again.setSelectionRange(caret[2], caret[3]); }
   if (spot) refocus(spot, spotRoot);
   window.scrollTo(0, y);
+  if (p.screen === 'replies') chatScroll();
+  syncChatModal();
   for (const [id, left, top] of kept) { const el = document.querySelector(`[data-keep-scroll="${id}"]`); if (el) [el.scrollLeft, el.scrollTop] = [left, top]; }
   syncReviewEmbed(route());
   placeEmbed();
