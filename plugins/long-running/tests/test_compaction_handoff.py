@@ -103,6 +103,8 @@ def test_only_lr_owner_start_arms_the_communicator_hooks(home: Path) -> None:
     read = tool_event(session, "Bash", {"command": "ls"})
     handoff.activate_on_skill(tool_event(session, "Skill", {"skill": "long-running"}))
     assert not handoff.Communicator().check(read)
+    handoff.arm_communicator(tool_event(session, "Bash", {"command": "lr owner start --help"}))
+    assert not handoff.Communicator().check(read)
     handoff.arm_communicator(tool_event(session, "Bash", {"command": "lr owner start --drive d"}))
     assert handoff.Communicator().check(read)
 
