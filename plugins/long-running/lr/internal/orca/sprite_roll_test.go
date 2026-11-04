@@ -275,6 +275,17 @@ func TestAFailureBeforeAnyPinMarksNothingBad(t *testing.T) {
 	}
 }
 
+func TestAnInstallThatRunsOutOfTimeMarksNoPinBad(t *testing.T) {
+	w := newRollWorld(t)
+	w.replies["pool-a"] = shell.Result{Code: shell.CodeTimedOut, Stdout: "installed cci 0.49.36\ninstalled lr 9.9.9\n"}
+	if refused := w.roll(""); refused != "lr sprites roll: the install ran out of time on pool-a, so 2 more Sprites keep what they run and no pin is marked bad: installed lr 9.9.9" {
+		t.Fatal(refused)
+	}
+	if why, err := w.store.BadTool("ccx", rollCCX); err != nil || why != "" {
+		t.Fatal(why, err)
+	}
+}
+
 const unreachableSprite = "Error: failed to start sprite command: failed to connect: read tcp [::1]:49823->[::2]:443: i/o timeout\n"
 
 func TestABoxTheRollCannotReachIsPassedOverAndNamedAtTheEnd(t *testing.T) {

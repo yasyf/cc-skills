@@ -204,6 +204,9 @@ func lastSaid(result shell.Result) string {
 
 func (r SpriteRoll) failed(box string, pins spritePins, installed map[string]string, result shell.Result, left int) error {
 	said := lastSaid(result)
+	if result.Code == shell.CodeTimedOut {
+		return refuse("lr sprites roll: the install ran out of time on %s, so %d more Sprites keep what they run and no pin is marked bad: %s", box, left, said)
+	}
 	failed := slices.IndexFunc(pins.tools, func(tool spriteTool) bool { return installed[tool.Name] != tool.Version })
 	if installed["cci"] == "" || installed["lr"] == "" || failed < 0 {
 		return refuse("lr sprites roll: the cci or lr install failed on %s, so %d more Sprites keep what they run: %s", box, left, said)
