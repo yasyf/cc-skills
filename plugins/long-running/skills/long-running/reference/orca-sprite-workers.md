@@ -249,9 +249,9 @@ Once `worker-start` succeeds, the launch creates the `worker-awake` Sprite servi
 
 **Samples.** The same service appends one JSON line every 10 seconds to `/tmp/cc-remote-samples.log`, fsynced, because a stop can reboot the kernel and wipe its counters. `/tmp` is the Sprite's local disk, which survives a stop. Home is `nbd0`, a network disk whose connection can die, and a write to it hangs first, so a sample written there stops before the event it should record.
 
-- Each line has the time, kernel uptime, `MemAvailable`, swap in use, the balloon's net size, the kernel's `oom_kill` count, `/proc/loadavg`, the count of processes waiting on a disk, the top 3 processes by RSS with their command lines, each `claude` or `codex` with its parent, `memory.events` when readable, and any new kernel lines naming `nbd0`.
-- The service checks the kernel log every second, and a new `nbd0` line writes a sample at once, so an error just before a stop reaches `/tmp` rather than waiting out the 10 seconds.
-- `cci post` cannot carry these off the box when it matters, because cci's store is on home and hangs with it. The supervisor reads the file instead: its `LANE-LOST` for a stopped Sprite states the last sample before the stop and any kernel error on `nbd0`, from one `sprite exec`.
+- Each line has the time, kernel uptime, `MemAvailable`, swap in use, the balloon's net size, the kernel's `oom_kill` count, `/proc/loadavg`, the count of processes waiting on a disk, the top 3 processes by RSS with their command lines, each `claude` or `codex` with its parent, `memory.events` when readable, and any new kernel line at error level or naming `nbd0`.
+- The service checks the kernel log every second, and a new such line writes a sample at once, so an error just before a stop reaches `/tmp` rather than waiting out the 10 seconds.
+- `cci post` cannot carry these off the box when it matters, because cci's store is on home and hangs with it. The supervisor reads the file instead: its `LANE-LOST` for a stopped Sprite states the last sample before the stop and any kernel error, from one `sprite exec`.
 - The file keeps about 2 hours. A failed read writes no line, warns, and leaves the hold running.
 - To tell which went first, compare the last line naming an agent with the last line of the kernel's uptime: an agent gone while uptime keeps climbing means the agent died before the box.
 

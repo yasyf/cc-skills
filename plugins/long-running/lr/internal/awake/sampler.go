@@ -32,7 +32,10 @@ const (
 	argsKeep    = 200
 )
 
-var kernelStamp = regexp.MustCompile(`^<\d+>\[\s*(\d+\.\d+)\]`)
+var (
+	kernelStamp = regexp.MustCompile(`^<\d+>\[\s*(\d+\.\d+)\]`)
+	kernelError = regexp.MustCompile(`^<[0-3]>`)
+)
 
 type Sampler struct {
 	Proc   string
@@ -278,7 +281,7 @@ func (s *Sampler) kernelLines() []string {
 	var fresh []string
 	for line := range strings.Lines(string(raw)) {
 		stamp := kernelStamp.FindStringSubmatch(line)
-		if stamp == nil || !strings.Contains(line, homeDisk) {
+		if stamp == nil || (!strings.Contains(line, homeDisk) && !kernelError.MatchString(line)) {
 			continue
 		}
 		at, err := strconv.ParseFloat(stamp[1], 64)
