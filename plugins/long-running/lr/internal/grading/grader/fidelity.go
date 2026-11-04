@@ -16,6 +16,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 )
 
 const (
@@ -129,6 +131,7 @@ type fidelityPassState struct {
 	*pass
 	job     *FidelityJob
 	touches []string
+	class   string
 }
 
 func Fidelity(ctx context.Context, dir string, deps Deps) error {
@@ -195,6 +198,11 @@ func (s *fidelityPassState) grade() (FidelityOutcome, error) {
 		return FidelityOutcome{Skipped: fmt.Sprintf("%s at %s carries no commit %s lacks", pull, short(head, 12), view.BaseRefName)}, nil
 	}
 	s.touches = s.serviceTouches(own[0] + "^")
+	paths, err := s.git("diff", "--name-only", "--no-renames", own[0]+"^", head)
+	if err != nil {
+		return FidelityOutcome{}, err
+	}
+	s.class = gates.PathClass(strings.Fields(paths), spec.ExemptGrades)
 	if len(heads) > 0 {
 		match, err := s.carry(own, heads)
 		if err != nil {
@@ -528,6 +536,9 @@ func (s *fidelityPassState) exemptPhrases(text string) []string {
 }
 
 func (s *fidelityPassState) carriedClass(grade Record) string {
+	if s.class != "" {
+		return s.class + ": "
+	}
 	if slices.ContainsFunc(s.chain(grade), func(seq int64) bool { return slices.Contains(s.job.Corrected, seq) }) {
 		return ""
 	}
@@ -647,7 +658,6 @@ func (s *fidelityPassState) prompt(view pullRequest, frame promptFrame) (string,
 		"hunks":        frame.diff.lines(),
 		"rows":         frame.rows,
 		"port":         spec.Exempt["port"],
-		"test_only":    spec.Exempt["test-only"],
 		"classes":      s.classList(),
 		"baseline":     s.baseline(),
 		"plan":         plan,
@@ -961,7 +971,7 @@ func (s *fidelityPassState) classGaps(reply fidelityReply) (wrong, unnamed []str
 	if _, known := s.job.Exempt[reply.Exempt]; reply.Exempt != "none" && !known {
 		wrong = append(wrong, fmt.Sprintf("`exempt` %q, which names no class; the classes are %s", reply.Exempt, s.classList()))
 	}
-	if len(s.job.Claims) > 0 && reply.Verdict == "ok" && reply.Exempt == "none" {
+	if len(s.job.Claims) > 0 && reply.Verdict == "ok" && reply.Exempt == "none" && s.class == "" {
 		unnamed = append(unnamed, fmt.Sprintf("an ok that names no class, though a lane claims %s for this head; the classes are %s, and `none` stays right when the head is none of them", strings.Join(s.job.Claims, ", "), s.classList()))
 	}
 	return wrong, unnamed
@@ -970,6 +980,9 @@ func (s *fidelityPassState) classGaps(reply fidelityReply) (wrong, unnamed []str
 func (s *fidelityPassState) classList() string {
 	classes := make([]string, 0, len(s.job.Exempt))
 	for _, class := range slices.Sorted(maps.Keys(s.job.Exempt)) {
+		if gates.PathDecided(s.job.Exempt[class]) {
+			continue
+		}
 		classes = append(classes, fmt.Sprintf("`%s` (\"%s\")", class, s.job.Exempt[class]))
 	}
 	return strings.Join(classes, ", ")
@@ -983,8 +996,11 @@ func (s *fidelityPassState) gradedLines(reply fidelityReply) []gradeLine {
 	switch reply.Verdict {
 	case "ok":
 		said := ""
-		if reply.Exempt != "none" {
-			said = spec.Exempt[reply.Exempt] + ": "
+		switch phrase := spec.Exempt[reply.Exempt]; {
+		case s.class != "":
+			said = s.class + ": "
+		case reply.Exempt != "none" && !gates.PathDecided(phrase):
+			said = phrase + ": "
 		}
 		lines = append(lines, gradeLine{text: fmt.Sprintf("%s %s %s%s", fidelityOK, head, said, squeezed(reply.Summary))})
 	case "missing":

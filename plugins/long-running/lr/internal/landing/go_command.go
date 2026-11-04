@@ -147,13 +147,7 @@ func landingSection(path string) (landingConfig, error) {
 	if err := json.Unmarshal(runner.Sections["landing"], &section); err != nil {
 		return landingConfig{}, fmt.Errorf("%s: landing: %w", path, err)
 	}
-	if section.ExemptGrades == nil {
-		section.ExemptGrades = slices.Clone(gates.DefaultExemptGrades)
-		if section.PortPhrase != "" {
-			section.ExemptGrades[0] = section.PortPhrase
-		}
-	}
-	section.ExemptGrades = append(section.ExemptGrades, section.GoClasses...)
+	section.ExemptGrades = gates.Grades(section.ExemptGrades, section.GoClasses, section.PortPhrase)
 	return section, nil
 }
 

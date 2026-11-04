@@ -160,34 +160,6 @@ func TestARowReadsAsItStoodAtEachTick(t *testing.T) {
 	}
 }
 
-func patchOf(text string) *string { return &text }
-
-func TestTheClassCheckNamesWhatMakesAChangeCode(t *testing.T) {
-	devManifest := "@@ -1,1 +1,2 @@\n [dev-dependencies]\n+a = \"1\"\n"
-	production := "@@ -1,1 +1,2 @@\n [dependencies]\n+a = \"1\"\n"
-	cases := []struct {
-		name    string
-		patches map[string]*string
-		want    string
-	}{
-		{"tests and CI", map[string]*string{"go/a_test.go": nil, ".github/workflows/x.yml": nil, "docs/a.go": nil}, ""},
-		{"source", map[string]*string{"go/a_test.go": nil, "go/a.go": nil}, "go/a.go"},
-		{"an unread file stands", map[string]*string{"README.md": nil}, ""},
-		{"a dev manifest and its lockfile", map[string]*string{"go/Cargo.toml": patchOf(devManifest), "Cargo.lock": patchOf("@@\n+x\n")}, ""},
-		{"a production manifest", map[string]*string{"go/Cargo.toml": patchOf(production)}, "go/Cargo.toml"},
-		{"a lockfile that removes", map[string]*string{"go/Cargo.toml": patchOf(devManifest), "Cargo.lock": patchOf("@@\n-x\n")}, "Cargo.lock"},
-		{"a lint config", map[string]*string{".golangci.yml": nil}, ""},
-		{"tooling", map[string]*string{".agents/skills/x/scripts/a.py": nil}, ""},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := testOnlyOffender(tc.patches); got != tc.want {
-				t.Fatalf("got %q, want %q", got, tc.want)
-			}
-		})
-	}
-}
-
 type fakeRunner struct {
 	calls   [][]string
 	records string

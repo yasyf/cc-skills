@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 )
 
 var (
@@ -120,8 +122,7 @@ func scrubbed(record map[string]any) map[string]any {
 }
 
 func scrubbedPatch(name string, patch *string) *string {
-	base := path.Base(name)
-	if patch == nil || (!slices.Contains(manifests, base) && !slices.Contains(lockfiles, base)) {
+	if patch == nil || (!gates.Manifest(name) && !gates.Lockfile(name)) {
 		return nil
 	}
 	lines := strings.Split(strings.TrimRight(*patch, "\n"), "\n")
@@ -131,7 +132,7 @@ func scrubbedPatch(name string, patch *string) *string {
 		switch {
 		case strings.HasPrefix(line, "@@"):
 			out = append(out, "@@")
-		case slices.Contains(manifests, base) && (tomlSection.MatchString(body) || jsonSection.MatchString(body) || jsonClose.MatchString(body)):
+		case gates.Manifest(name) && gates.SectionLine(body):
 			out = append(out, line)
 		default:
 			out = append(out, line[:min(1, len(line))]+"x")
