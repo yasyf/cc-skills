@@ -18,9 +18,14 @@ type box struct {
 	probes    []string
 	refreshes []error
 	puts      [][]string
+	deletes   [][]string
 }
 
 func (b *box) Run(ctx context.Context, c shell.Command) (shell.Result, error) {
+	if slices.Contains(c.Argv, "DELETE") {
+		b.deletes = append(b.deletes, c.Argv)
+		return shell.Result{}, nil
+	}
 	if ctx.Err() != nil {
 		return shell.Result{Stdout: "none\n"}, nil
 	}
@@ -103,5 +108,14 @@ func TestAFailedAgentReadWarnsHoldsNothingThatTickAndReadsAgain(t *testing.T) {
 	}
 	if !strings.Contains(log, "level=WARN") || !strings.Contains(log, "the probe failed") {
 		t.Fatal(log)
+	}
+}
+
+func TestAStoppedHolderReleasesItsTaskOnce(t *testing.T) {
+	b := &box{probes: []string{"running"}}
+	held(t, b, WorkerAlive)
+	want := []string{"/.sprite/bin/sprite-env", "curl", "-sSf", "-X", "DELETE", "/v1/tasks/lane"}
+	if len(b.deletes) != 1 || !slices.Equal(b.deletes[0], want) {
+		t.Fatal(b.deletes)
 	}
 }
