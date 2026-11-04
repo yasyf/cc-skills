@@ -69,6 +69,7 @@ type deskWorld struct {
 	unread           map[string][]orcaMessage
 	refusals         map[string]object
 	busyScreen       bool
+	codexScreen      bool
 	postError        error
 	coordinate       string
 	spawns           []spawned
@@ -313,6 +314,9 @@ func (w *deskWorld) Run(_ context.Context, c shell.Command) (shell.Result, error
 
 func (w *deskWorld) terminalReply(argv []string) (shell.Result, error) {
 	if argv[2] == "read" {
+		if w.codexScreen {
+			return orcaOK(object{"terminal": object{"source": "screen", "tail": []string{"  Worked for 5m 38s • 11:33 AM", "  1 background terminal running · /ps to view · /stop to close", "› Ask Codex to do anything", "  GPT-6.1-Sol xhigh fast · ~/w"}}}), nil
+		}
 		if w.busyScreen {
 			return orcaOK(object{"terminal": object{"source": "screen", "tail": []string{"working"}}}), nil
 		}
@@ -3798,6 +3802,16 @@ func TestAnOverdueRelayIsPolledOncePerSweepInterval(t *testing.T) {
 	w.unread[testTerminal] = nil
 	w.step(w.desk.deadlines)
 	wantContains(t, w.wantEscalation("DEADLINE "), "no started reply")
+}
+
+func TestARelayWakesACodexLaneAtItsComposer(t *testing.T) {
+	w := newDeskWorld(t)
+	w.live(testLane, testDispatch, testTerminal)
+	w.codexScreen = true
+	w.sentRelay("R2", "")
+	if sends := w.typed(); len(sends) != 1 || flag(sends[0], "--terminal") != testTerminal {
+		t.Fatal(sends)
+	}
 }
 
 func TestAWakeThatDidNotLandRetriesWithinAMinute(t *testing.T) {
