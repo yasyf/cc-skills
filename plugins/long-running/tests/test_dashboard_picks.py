@@ -33,7 +33,8 @@ def by_id(parts):
 
 def test_an_option_table_moves_into_its_options_and_leaves_the_context():
     parts = picks.fold_picks([page(TABLE), three()])
-    assert parts[0]["md"] == "**From:** the coordinator.\n\nThis also decides when the run reader lands."
+    assert parts[0]["md"] == "This also decides when the run reader lands."
+    assert parts[-1] == {"kind": "from", "id": "from", "text": "the coordinator."}
     options = by_id(parts)
     assert options["a"]["facts"] == [{"label": "For", "value": "One mint per team.", "tone": "good"}, {"label": "Against", "value": "A client bug could overwrite a run.", "tone": "bad"}]
     assert options["a"]["hint"] == ""
@@ -87,3 +88,23 @@ def test_a_summary_drops_its_recommended_sentence_only_when_a_badge_carries_it()
     summary = "One permission per credential. Recommended: the 1.5 s read, as you said. This replaces the earlier question."
     assert picks.context_summary(summary, badge) == "One permission per credential. This replaces the earlier question."
     assert picks.context_summary(summary, [{"recommended": False}]) == summary
+
+
+def test_a_record_holding_only_where_it_came_from_becomes_the_quiet_line():
+    record = {"kind": "record", "id": "bg", "title": "Background", "facts": [{"label": "From:", "value": "Your Nov 2 answer."}]}
+    assert picks.fold_picks([record, choice(option("x", "Land it"))])[-1]["text"] == "Your Nov 2 answer."
+    assert all(part["kind"] != "record" for part in picks.fold_picks([record, choice(option("x", "Land it"))]))
+
+
+def test_a_record_keeps_its_other_facts_when_its_from_line_leaves():
+    record = {"kind": "record", "id": "bg", "title": "Background", "facts": [{"label": "From:", "value": "New."}, {"label": "Seen in:", "value": "CI build 7"}]}
+    kept = picks.fold_picks([record])
+    assert kept[0]["facts"] == [{"label": "Seen in:", "value": "CI build 7"}]
+    assert kept[1]["text"] == "New."
+
+
+def test_a_source_window_shows_the_cited_lines_with_their_neighbours_and_stops_at_the_file():
+    lines = [f"line {n}" for n in range(1, 11)]
+    assert [row["n"] for row in picks.source_window(lines, 5, 5)] == [2, 3, 4, 5, 6, 7, 8]
+    assert picks.source_window(lines, 2, 3)[0] == {"n": 1, "text": "line 1"}
+    assert picks.source_window(lines, 10, 10)[-1] == {"n": 10, "text": "line 10"}

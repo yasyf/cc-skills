@@ -128,12 +128,17 @@ function words(text) {
   const rels = state.model?.now?.releases ?? [];
   return String(text ?? '').replace(/\bR(\d{1,2})\b ?/g, (all, n, at, whole) => {
     const r = rels.find((x) => x.id === `R${n}`);
-    if (!r) return all;
-    return whole.startsWith(r.name, at + all.length) ? '' : `the “${r.name}” release${all.endsWith(' ') ? ' ' : ''}`;
+    return r && whole.startsWith(r.name, at + all.length) ? '' : all;
   });
+}
+const SOURCE_CITE = /(^|[^\w/.@`-])`?((?:[\w.@-]+\/)+[\w.@-]+\.[A-Za-z][A-Za-z0-9]*):(\d+)(?:-(\d+))?`?(?![\w-]|[./]\w)/g;
+function sourceLink(all, pre, path, from, to) {
+  const span = `${from}${to ? `-${to}` : ''}`;
+  return `${pre}<a class="ln-src" href="https://github.com/${state.model.repo}/blob/HEAD/${path}#L${from}${to ? `-L${to}` : ''}" target="_blank" rel="noopener" data-ghfile="${path}" data-line="${from}" data-to="${to ?? from}">${path.split('/').pop()}:${span}</a>`;
 }
 function inline(md) {
   return esc(words(md))
+    .replace(SOURCE_CITE, sourceLink)
     .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
     .replace(/`([^`]+)`/g, '<code>$1</code>')
     .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
@@ -206,7 +211,7 @@ function boardCard(item) {
   const said = rewritten('cards', c.key);
   const answers = c.embed ? `<div class="bq-acts"><button class="btn" data-embed-card="${esc(c.id)}">${ov.embedCard === c.id ? 'Showing the card' : 'Answer it here'}</button></div>` : pickSet(c, { said, other: true });
   return `<article class="mr bq" id="card-${esc(c.id)}"><header><span class="mr-t">${esc(said?.question ?? words(c.title))}</span></header>
-    ${c.summary ? `<p class="mr-why">${inline(c.summary)}</p>` : said ? `<p class="mr-why">${esc(said.means)}</p>` : ''}${answers}<div class="pk-more">${c.parts.map(cardPart).join('')}${cardAsk(c)}</div></article>`;
+    ${c.summary ? `<p class="mr-why">${inline(c.summary)}</p>` : said ? `<p class="mr-why">${esc(said.means)}</p>` : ''}${answers}${explainMore(c)}${cardAsk(c)}</article>`;
 }
 const RECOMMENDED_LABEL = /\s*\(Recommended\)\s*$/i;
 const PLAIN_FROM_ITS_MARK = /^(?:for|against|good|bad)$/i;
@@ -251,12 +256,59 @@ function keptWords(id) {
 }
 function cardPart(p) {
   if (p.kind === 'page') return p.md ? `<div class="md bq-part">${markdown(p.md)}</div>` : '';
+  if (p.kind === 'from') return `<p class="pk-from">From ${inline(plain(p.text))}</p>`;
   if (p.kind === 'record') return `<section class="bq-part bq-bg">${p.title ? `<h4>${esc(p.title)}</h4>` : ''}<dl class="bq-facts">${p.facts.map((f) => `<dt>${esc(f.label)}</dt><dd>${inline(String(f.value))}</dd>`).join('')}</dl></section>`;
   if (p.kind === 'image') return `<figure class="bq-part bq-fig"><img src="${esc(p.src)}" alt="${esc(p.alt)}" loading="lazy">${p.alt ? `<figcaption>${esc(p.alt)}</figcaption>` : ''}</figure>`;
   if (p.kind === 'pr') return `<p class="bq-part">${p.repo === state.model.repo ? `<a href="#/review/${esc(p.number)}">${esc(plainTitle(p.number))}</a>` : `<a href="https://github.com/${esc(p.repo)}/pull/${esc(p.number)}" target="_blank" rel="noopener">${esc(p.repo)}#${esc(p.number)} ↗</a>`}</p>`;
   if (p.kind === 'table') return `<div class="tablewrap bq-part"><table><thead><tr>${p.columns.map((col) => `<th>${esc(col.label)}</th>`).join('')}</tr></thead><tbody>${p.rows.map((row) => `<tr>${p.columns.map((col) => `<td data-h="${esc(col.label)}">${inline(String(row[col.key] ?? ''))}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
   return '';
 }
+function explainMore(c, ask = '') {
+  const body = (c.parts ?? []).map(cardPart).join('');
+  if (!body && !ask) return '';
+  const id = `explain-${c.id}`;
+  return `<details class="fm-thread pk-more" data-id="${esc(id)}"${state.open.has(id) || (ask && c.thread?.length) ? ' open' : ''}><summary>Explain more</summary><div class="fm-open">${body}${ask}</div></details>`;
+}
+const sourceSeen = new Map();
+function sourceRows(a, found) {
+  const head = `<header>${esc(state.model.repo)} · ${esc(a.dataset.ghfile)}</header>`;
+  if (!found) return `${head}<p>Reading the line from GitHub…</p>`;
+  if (found.error) return `${head}<p>${esc(found.error)}</p>`;
+  return `${head}<pre>${found.lines.map((l) => `<span class="${l.n >= Number(a.dataset.line) && l.n <= Number(a.dataset.to) ? 'hl' : ''}"><i>${l.n}</i>${esc(l.text)}</span>`).join('')}</pre>`;
+}
+function hideSource() {
+  const tip = $('#srctip');
+  if (tip.matches(':popover-open')) tip.hidePopover();
+}
+function showSource(a) {
+  const tip = $('#srctip');
+  const key = `${a.dataset.ghfile}:${a.dataset.line}:${a.dataset.to}`;
+  tip.dataset.key = key;
+  tip.innerHTML = sourceRows(a, sourceSeen.get(key));
+  if (!tip.matches(':popover-open')) tip.showPopover();
+  const box = a.getBoundingClientRect();
+  tip.style.left = `${Math.max(8, Math.min(innerWidth - tip.offsetWidth - 8, box.left))}px`;
+  tip.style.top = `${box.bottom + 6 + tip.offsetHeight > innerHeight ? Math.max(8, box.top - tip.offsetHeight - 6) : box.bottom + 6}px`;
+  if (sourceSeen.has(key)) return;
+  fetch(`/api/source?${new URLSearchParams({ path: a.dataset.ghfile, line: a.dataset.line, to: a.dataset.to })}`)
+    .then((res) => res.json())
+    .catch((failure) => ({ error: `Could not reach the dashboard server (${failure.message}).` }))
+    .then((found) => {
+      sourceSeen.set(key, found);
+      if (tip.dataset.key === key && a.isConnected && tip.matches(':popover-open')) showSource(a);
+    });
+}
+document.addEventListener('mouseover', (e) => {
+  const a = e.target.closest('a[data-ghfile]');
+  if (a) showSource(a);
+  else hideSource();
+});
+document.addEventListener('focusin', (e) => {
+  if (e.target.matches('a[data-ghfile]')) showSource(e.target);
+});
+document.addEventListener('focusout', (e) => {
+  if (e.target.matches('a[data-ghfile]')) hideSource();
+});
 function cardAsk(c) {
   const sent = ov.sent.get(c.id);
   const note = !sent ? '' : sent.error ? `<em class="nsent bad">Not sent: ${esc(sent.error)}. Try again.</em>` : `<em class="nsent">${sent.recorded ? '✓ Sent. The answer lands on this card.' : 'Sending…'}</em>`;

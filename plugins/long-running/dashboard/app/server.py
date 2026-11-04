@@ -1776,6 +1776,20 @@ def handler(drive, tailnet_owner, names):
         def refuse(self):
             return self.send(403, "application/json", json.dumps({"error": "only the drive's owner can do this, and this device is not signed in as them"}).encode())
 
+        def source(self):
+            if not self.owner_calling():
+                return self.refuse()
+            query = dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(self.path).query))
+            path, line, to = query.get("path", ""), query.get("line", ""), query.get("to", "")
+            if not picks.SOURCE_PATH.fullmatch(path) or ".." in path.split("/") or not line.isdecimal() or not to.isdecimal():
+                return self.send(400, "application/json", json.dumps({"error": "That is not a file and line in the repo."}).encode())
+            repo = drive.config["repo"]
+            try:
+                lines = gh(repo, "api", f"repos/{repo}/contents/{urllib.parse.quote(path)}", "-H", "Accept: application/vnd.github.raw+json").split("\n")
+            except (OSError, subprocess.SubprocessError):
+                return self.send(200, "application/json", json.dumps({"error": f"GitHub has no {path} on {repo}'s default branch, or could not be reached."}).encode())
+            return self.send(200, "application/json", json.dumps({"lines": picks.source_window(lines, int(line), int(to))}).encode())
+
         def do_GET(self):
             path = self.path.split("?", 1)[0]
             if STORY_ROUTE.fullmatch(path) and not self.owner_calling():
@@ -1812,6 +1826,8 @@ def handler(drive, tailnet_owner, names):
                 with drive.lock:
                     words = drive.model.get("words", [])
                 return self.send(200, "application/json", json.dumps(words).encode())
+            if path == "/api/source":
+                return self.source()
             if path == "/api/stream":
                 return self.stream()
             if path == "/api/alerts":

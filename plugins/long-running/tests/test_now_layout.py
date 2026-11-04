@@ -721,6 +721,7 @@ def drop_whole_card(page):
 def test_a_card_renders_whole_on_the_dashboard_with_no_link_to_the_board(page):
     whole_card(page)
     card = page.locator("#card-card-whole")
+    card.locator(".pk-more > summary").click()
     words = card.inner_text().lower()
     for said in ("One credential covers it.", "Background", "one per team", "Runs live in the bucket.", "One credential", "One mint a team", "what does it risk?", "A client bug could overwrite a run."):
         assert said.lower() in words
@@ -910,6 +911,38 @@ def test_a_pick_card_shows_each_option_once_and_the_block_is_the_tap_target(page
     assert "Two credentials" in row.locator(".pk-picked").inner_text()
     assert page.locator(".fd-h h1").inner_text() == "Nothing waits on your tap."
     drop_folded(page)
+
+
+def test_a_file_and_line_on_a_card_hovers_the_line_from_github(page):
+    page.route("**/api/source*", lambda route: route.fulfill(json={"lines": [{"n": 55, "text": "const before = 1"}, {"n": 56, "text": "const cited = 2"}]}))
+    row = folded_screen(page)
+    page.evaluate("""() => {
+      state.model.board.cards.find((card) => card.id === 'card-fold').parts[0].md = 'One permission (`api/src/modules/r2.ts:56`).';
+      render();
+    }""")
+    row.locator(".pk-more > summary").click()
+    cite = row.locator(".ln-src")
+    assert cite.inner_text() == "r2.ts:56"
+    assert cite.get_attribute("href").endswith("/blob/HEAD/api/src/modules/r2.ts#L56")
+    with page.expect_request("**/api/source*") as asked:
+        cite.hover()
+    assert "path=api%2Fsrc%2Fmodules%2Fr2.ts" in asked.value.url and "line=56" in asked.value.url
+    page.wait_for_selector("#srctip .hl")
+    assert page.locator("#srctip .hl").inner_text().endswith("const cited = 2")
+    page.mouse.move(0, 0)
+    page.wait_for_function("!document.querySelector('#srctip').matches(':popover-open')")
+    page.unroute("**/api/source*")
+    drop_folded(page)
+
+
+def test_a_release_id_becomes_its_name_only_beside_that_name(page):
+    now(page)
+    assert page.evaluate("""() => {
+      state.model.now.releases.push({ id: 'R9', name: 'Desktop app', parts: [], state: '' });
+      const said = [words('R9 Desktop app ships'), words('On R9, one credential carries one permission')];
+      state.model.now.releases.pop();
+      return said;
+    }""") == ["Desktop app ships", "On R9, one credential carries one permission"]
 
 
 def test_an_answer_the_server_refuses_leaves_the_blocks_tappable_with_the_reason(page):

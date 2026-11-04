@@ -456,7 +456,16 @@ body #pal .it.on { background: color-mix(in srgb, var(--ok) 9%, transparent); bo
 .ct-acts .pk-set { flex: 1 1 100%; margin-top: 0; }
 .fm-open-q { color: inherit; text-decoration: none; }
 .fm-open-q:hover { color: var(--accent); }
-.fm-frees-why { display: block; margin-top: 3px; color: var(--ink-3); font-size: 12.5px; }
+.pk-from { margin: 10px 0 0; color: var(--ink-3); font-size: 12.5px; line-height: 1.4; }
+.ln-src { color: inherit; font: .92em var(--mono); text-decoration: underline dotted var(--ink-3); text-underline-offset: 3px; }
+.ln-src:hover { color: var(--accent); }
+.srctip { position: fixed; inset: auto; margin: 0; width: min(680px, calc(100vw - 16px)); padding: 8px 0 6px; border: 1px solid var(--surface-3); border-radius: 6px; background: var(--surface-2); color: var(--ink); box-shadow: 0 8px 28px rgba(0, 0, 0, .55); pointer-events: none; }
+.srctip header { padding: 0 10px 6px; color: var(--ink-3); font-size: 12px; overflow-wrap: anywhere; }
+.srctip p { margin: 0; padding: 0 10px 2px; color: var(--ink-2); font-size: 13px; }
+.srctip pre { margin: 0; overflow: hidden; font: 12.5px/1.5 var(--mono); }
+.srctip pre span { display: block; padding: 0 10px; white-space: pre; overflow: hidden; text-overflow: ellipsis; }
+.srctip pre .hl { background: color-mix(in srgb, var(--accent) 20%, transparent); }
+.srctip pre i { display: inline-block; min-width: 42px; color: var(--ink-3); font-style: normal; }
 .fm.done { opacity: .85; }
 .fm.done .fm-icon { background: color-mix(in srgb, var(--ok) 18%, var(--surface)); color: var(--ok); }
 @media (hover: none) { .pk[data-n]::after { display: none; } .pk-head { padding-right: 0; } .pk-other .btn { margin-right: 0; } }

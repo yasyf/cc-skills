@@ -543,17 +543,16 @@ function tapRow(t, at) {
   const title = esc(tapWords(said?.question ?? t.title));
   const lead = t.subject ? title : `<a class="fm-open-q" href="${question}">${title}</a>`;
   const summary = t.kind === 'pick' ? c.summary || said?.means : null;
-  const why = summary ? `${inline(tapWords(summary))}${t.frees ? `<small class="fm-frees-why">${esc(tapWords(t.line))}</small>` : ''}` : esc(tapWords(t.line));
+  const why = summary ? inline(tapWords(summary)) : esc(tapWords(t.line));
   const pick = c.embed || (!c.choice && !kept) ? `<div class="fm-acts"><a class="btn pri" href="${question}">Answer it</a></div>` : pickSet(c, { said, subject: t.subject, other: !t.subject });
   const textId = `tap-text-${t.id}`;
   const post = t.text ? `<details class="fm-thread" data-id="${esc(textId)}"${state.open.has(textId) ? ' open' : ''}><summary>Read the post</summary><div class="fm-open fm-post">${esc(t.text)}</div></details>` : '';
-  const moreId = `tap-more-${t.id}`;
-  const more = t.subject || kept ? '' : `<details class="fm-thread pk-more" data-id="${esc(moreId)}"${state.open.has(moreId) ? ' open' : ''}><summary>Explain more</summary><div class="fm-open">${(c.parts ?? []).map(cardPart).join('')}${cardAsk(c)}</div></details>`;
+  const more = t.subject || kept ? '' : explainMore(c, cardAsk(c));
   return tapShell(t, at, lead, why, `${pick}${post}${more}`, kept);
 }
 function tapShell(t, at, lead, why, body, kept) {
   return `<article class="fm${kept ? ' done' : t.urgent ? ' bad' : t.frees ? ' you' : ''}" data-tap="${esc(t.id)}"><span class="fm-icon">${kept ? '✓' : at + 1}</span><div class="fm-main">
-    <header><b>${TAP_WORD[t.kind]}</b>${t.frees && !kept ? `<span class="fm-frees">Frees ${t.frees}</span>` : ''}</header>
+    <header><b>${TAP_WORD[t.kind]}</b>${t.frees && !kept ? `<span class="fm-frees" title="${esc(tapWords(t.line))}">Frees ${t.frees}</span>` : ''}</header>
     <p class="fm-lead">${lead}</p>
     ${kept ? '' : `<p class="fm-why">${why}</p>`}${body}</div></article>`;
 }

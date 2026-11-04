@@ -11,6 +11,9 @@ RECOMMENDED_SENTENCE = re.compile(r"\s*Recommended: .*?\.(?=\s|$)")
 BULLET = re.compile(r"^\s*(?:[-*]|\d+\.)\s+(.*)$")
 WORD = re.compile(r"[a-z0-9]+")
 MOST_MATCHED_OPTIONS = 6
+FROM_PARAGRAPH = re.compile(r"^\*\*From:\*\*\s*(.+?)(?:\n\s*\n|\Z)", re.M | re.S)
+SOURCE_PATH = re.compile(r"[\w.@-]+(?:/[\w.@-]+)+")
+SOURCE_CONTEXT = 3
 
 
 def cells(line):
@@ -93,12 +96,36 @@ def context_only(md, choices):
     return re.sub(r"\n{3,}", "\n\n", "\n".join(kept)).strip()
 
 
+def is_from(fact):
+    return fact["label"].rstrip(":") == "From"
+
+
+def quiet_provenance(parts):
+    said = []
+    for part in parts:
+        if part["kind"] == "page" and (found := FROM_PARAGRAPH.search(part["md"])):
+            said.append(found[1].strip())
+            part["md"] = (part["md"][:found.start()] + part["md"][found.end():]).strip()
+        if part["kind"] == "record":
+            said += [str(fact["value"]) for fact in part["facts"] if is_from(fact)]
+    kept = [part for part in parts if part["kind"] != "record" or not part["facts"] or not all(map(is_from, part["facts"]))]
+    for part in kept:
+        if part["kind"] == "record":
+            part["facts"] = [fact for fact in part["facts"] if not is_from(fact)]
+    return [*kept, {"kind": "from", "id": "from", "text": " ".join(said)}] if said else kept
+
+
 def fold_picks(parts):
     choices = [part for part in parts if part["kind"] == "choice"]
     for part in parts:
         if part["kind"] == "page":
             part["md"] = context_only(part["md"], choices)
-    return parts
+    return quiet_provenance(parts)
+
+
+def source_window(lines, line, to):
+    first, last = max(1, line - SOURCE_CONTEXT), min(len(lines), to + SOURCE_CONTEXT)
+    return [{"n": n, "text": lines[n - 1]} for n in range(first, last + 1)]
 
 
 def context_summary(summary, options):
