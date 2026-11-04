@@ -1122,6 +1122,45 @@ func TestThePathLRRunsThePackTheCurrentLinkNamesAcrossPackMoves(t *testing.T) {
 	}
 }
 
+func TestAnInstallReplacesAnLRThatIsRunning(t *testing.T) {
+	dir := t.TempDir()
+	cciURL, cciSHA := tarball(t, dir, "cci.tgz", map[string]string{"cci": "#!/bin/sh\necho 0.49.36\n"})
+	lrURL, lrSHA := tarball(t, dir, "lr.tgz", map[string]string{"lr": "#!/bin/sh\necho lr version 9.9.9\n"})
+	home := t.TempDir()
+	lr := filepath.Join(home, ".local", "bin", "lr")
+	if err := os.MkdirAll(filepath.Dir(lr), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	sleep, err := exec.LookPath("sleep")
+	if err != nil {
+		t.Fatal(err)
+	}
+	binary, err := os.ReadFile(sleep)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(lr, binary, 0o700); err != nil { //nolint:gosec
+		t.Fatal(err)
+	}
+	running := exec.Command(lr, "60")
+	if err := running.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = running.Process.Kill()
+		_ = running.Wait()
+	})
+	install := exec.Command("sh", "-c", installTools, "sh", cciURL, cciSHA, lrURL, lrSHA, "lr", "--")
+	install.Env = append(os.Environ(), "HOME="+home)
+	if out, err := install.CombinedOutput(); err != nil {
+		t.Fatal(string(out), err)
+	}
+	said, err := exec.Command(lr, "--version").Output()
+	if err != nil || strings.TrimSpace(string(said)) != "lr version 9.9.9" {
+		t.Fatalf("the PATH lr said %q: %v", said, err)
+	}
+}
+
 func TestAToolPinInstallsOnlyTheArchiveWithItsDigestAndVersion(t *testing.T) {
 	dir := t.TempDir()
 	cciURL, cciSHA := tarball(t, dir, "cci.tgz", map[string]string{"cci": "#!/bin/sh\necho 0.49.36\n"})
