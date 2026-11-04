@@ -68,6 +68,7 @@ type deskWorld struct {
 	mail             []orcaMessage
 	unread           map[string][]orcaMessage
 	refusals         map[string]object
+	busyScreen       bool
 	postError        error
 	coordinate       string
 	spawns           []spawned
@@ -312,6 +313,9 @@ func (w *deskWorld) Run(_ context.Context, c shell.Command) (shell.Result, error
 
 func (w *deskWorld) terminalReply(argv []string) (shell.Result, error) {
 	if argv[2] == "read" {
+		if w.busyScreen {
+			return orcaOK(object{"terminal": object{"source": "screen", "tail": []string{"working"}}}), nil
+		}
 		return orcaOK(idleTail), nil
 	}
 	return orcaOK(object{}), nil
@@ -3780,6 +3784,43 @@ func TestAnOverdueRelayIsPolledOncePerSweepInterval(t *testing.T) {
 	w.unread[testTerminal] = nil
 	w.step(w.desk.deadlines)
 	wantContains(t, w.wantEscalation("DEADLINE "), "no started reply")
+}
+
+func TestAWakeThatDidNotLandRetriesWithinAMinute(t *testing.T) {
+	w := newDeskWorld(t)
+	w.live(testLane, testDispatch, testTerminal)
+	thread := w.sentRelay("R2", "")
+	w.unread[testTerminal] = []orcaMessage{{ID: "relay_held", ThreadID: thread}}
+	w.busyScreen = true
+	w.now = w.now.Add(11 * time.Minute)
+	w.step(w.desk.deadlines)
+	if sends := w.typed(); len(sends) != 0 {
+		t.Fatal(sends)
+	}
+	w.busyScreen = false
+	w.step(w.desk.deadlines)
+	if sends := w.typed(); len(sends) != 0 {
+		t.Fatalf("retried inside the minute: %v", sends)
+	}
+	w.now = w.now.Add(wakeRetryEvery)
+	w.step(w.desk.deadlines)
+	if sends := w.typed(); len(sends) != 1 {
+		t.Fatal(sends)
+	}
+}
+
+func TestARelaunchedLanesRelayIsCheckedAgainstItsNewDispatch(t *testing.T) {
+	w := newDeskWorld(t)
+	w.live(testLane, testDispatch, testTerminal)
+	thread := w.sentRelay("R2", "")
+	w.dispatches[testDispatch].status = statusCompleted
+	w.now = w.now.Add(11 * time.Minute)
+	w.step(w.desk.deadlines)
+	w.noEscalation("NOT-DELIVERED ")
+	w.live(testLane, "ctx_new", "term_new")
+	w.unread["term_new"] = []orcaMessage{{ID: "relay_held", ThreadID: thread}}
+	w.step(w.desk.deadlines)
+	w.wantEscalation("NOT-DELIVERED ")
 }
 
 func TestARelayToASettledWorkerIsNamedWithoutReadingTheWorker(t *testing.T) {

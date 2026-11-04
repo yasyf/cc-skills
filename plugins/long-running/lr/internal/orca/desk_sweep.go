@@ -17,6 +17,7 @@ import (
 
 const (
 	staleMail      = 10 * time.Minute
+	wakeRetryEvery = time.Minute
 	reclaimNamed   = 10
 	heartbeatGrace = 30 * time.Minute
 	kindWake       = "wake"
@@ -333,22 +334,34 @@ func (d *Desk) overdue(ctx context.Context, container, about string) error {
 
 type unreadCheck struct {
 	at     time.Time
+	again  time.Duration
 	unread bool
 }
 
 func (d *Desk) reportUnread(ctx context.Context, container, about string, action incident.Action) (bool, error) {
-	key := container + "/" + action.ActionID
-	if last, checked := d.unreadSeen[key]; checked && d.Now().Sub(last.at) < sweepEvery {
+	thread := threadOf(container, action.ActionID)
+	key := thread + "/" + d.receipt(about)
+	if last, checked := d.unreadSeen[key]; checked && d.Now().Sub(last.at) < last.again {
 		return last.unread, nil
 	}
 	unread, err := d.checkUnread(ctx, container, about, action)
 	if err != nil {
 		return false, err
 	}
+	again := sweepEvery
+	if unread {
+		woken, err := d.known(deskRunner, "wake:"+thread)
+		if err != nil {
+			return false, err
+		}
+		if woken == nil {
+			again = wakeRetryEvery
+		}
+	}
 	if d.unreadSeen == nil {
 		d.unreadSeen = map[string]unreadCheck{}
 	}
-	d.unreadSeen[key] = unreadCheck{at: d.Now(), unread: unread}
+	d.unreadSeen[key] = unreadCheck{at: d.Now(), again: again, unread: unread}
 	return unread, nil
 }
 
