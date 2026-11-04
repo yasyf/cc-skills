@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -48,7 +49,22 @@ func titleOf(f machine.Facts) string {
 }
 
 func WriteReviewRows(s *store.Store, repo string, snapshot []machine.Facts, at time.Time) error {
-	return s.PutReviewRows(repo, ReviewRows(snapshot), at)
+	withdrawn, err := s.FactsOfKind(repo, FactWithdrawn)
+	if err != nil {
+		return err
+	}
+	return s.PutReviewRows(repo, ReviewRows(withoutWithdrawn(snapshot, withdrawn)), at)
+}
+
+func withoutWithdrawn(snapshot []machine.Facts, withdrawn map[store.FactKey]time.Time) []machine.Facts {
+	return slices.DeleteFunc(slices.Clone(snapshot), func(f machine.Facts) bool {
+		for key := range withdrawn {
+			if key.Number == f.Number && namesHead(key.Head, f.Head) {
+				return true
+			}
+		}
+		return false
+	})
 }
 
 func rowsCommand(opened func() (drive.Entry, string, error)) *cobra.Command {
