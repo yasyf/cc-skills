@@ -357,7 +357,7 @@ The coordinator's brief lists every desk it starts and what each does.
 - A line to him that names something breaking names the plan to fix it beside it, and a card option is
   never drawn with a loss and no fix.
 - A change to anything he sees, a card, status line, board row, Slack post or dashboard, is designed for how he reads and
-  taps it on his phone before it ships; the fastest edit is not the bar. A bare link where he expects a preview is a defect.
+  taps it on his phone before it ships; the fastest edit is not the bar. A Slack message link is posted as its permalink and Slack draws its preview; nothing hand-draws one. A PR link shows the preview cc-slack draws from the PR ledger.
 - Nobody calls `AskUserQuestion`; an urgent yes/no is the same card sent to his Slack with `cc-present ask`.
 - Every `gh` write posts under his GitHub login, so an approval or a tap verdict cites `board verdict #<seq>`
   or the `owner_login_verdicts` hook refuses it.
