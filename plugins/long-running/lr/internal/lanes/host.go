@@ -141,6 +141,9 @@ func hostProofs(s *store.Store, d Deps, lanes []store.Lane, found map[string]Pee
 				if !sprite.LastRunning.IsZero() {
 					why += " and last ran at " + pacific(sprite.LastRunning)
 				}
+				if words := d.LastWords(sprite.Name); words != "" {
+					why += "; " + words
+				}
 				proven[lane.Name] = Verdict{Lost, why}
 			}
 			continue
@@ -279,6 +282,14 @@ func (e Env) hosts(ctx context.Context, lanes []string, sprites map[string]Sprit
 		}
 	}
 	return hosts
+}
+
+func (e Env) lastWords(ctx context.Context, sprite string) string {
+	result, err := e.Runner.Run(ctx, shell.Command{Argv: []string{"sprite", "exec", "-s", sprite, "--no-stdin", "--", "cat", awake.SamplePath}, Timeout: readTimeout})
+	if err != nil {
+		return "its samples did not read: " + err.Error()
+	}
+	return awake.LastWords(result.Stdout)
 }
 
 func (e Env) host(ctx context.Context, sprite string) (Host, error) {

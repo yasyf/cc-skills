@@ -230,7 +230,7 @@ D24 sits at the end of this section.
 
 | The row | Clock | Who it names |
 |---|---|---|
-| `waits_on` reads `not graded at this head`, so every gate before the grade is clear | 30 minutes | The live `finder-desk` or `fidelity-desk` for each grade missing |
+| `waits_on` reads `not graded at this head`, so every gate before the grade is clear | 30 minutes | The live `finder-desk` or `fidelity-desk` for each grade missing, and the pass running or that none is left |
 | Open and not ready for a tap, with no hold and no open parent, its lane gone | 1 hour | Root, with the command that names an owner |
 | `waits_on` reads red, and its newest `red` record at this head reads `class=inherited` | 1 hour | The first other `#<n>` in that record as the PR that broke it, and the class's `owner` |
 
@@ -310,10 +310,10 @@ Every prefix passes the check registry before it enqueues. `landing.checks` list
 
 **Both pipelines.**
 - Each `to` lane is addressed by its stem, the name without a trailing `-<n>`, so a stale number in the config still reaches that lane's current generation.
-- A pass that dies tells the PR's lane `GRADER-FAILED #<n>` once per head, at its first failure.
+- A pass that dies tells the PR's lane `GRADER-FAILED #<n>` once per head, at its first failure. A pass lost with its Sprite, which ends with no result, tells it `GRADER-LOST #<n>` the same way, and the pool runs it again.
 - Both compare patches with lazy fetches off, after one fetch of every blob on both sides of each diff they compare, so a blobless checkout answers in seconds and a missing blob fails the pass at once.
 - A pass skipped because the PR moved does not answer its head: if the PR returns to that SHA, the next pass runs a new attempt. A settled pass whose head still has no grade reposts its logged records once, in case the store refused them while it ran.
-- A grade item never sits unclaimed. Once an item is past its deadline, if ten more minutes pass and every grader it is missing has nothing left to run, the runner posts one `GRADE-STOPPED` report to `grader-appeals`, `tooling_lane` and the PR's lane, naming why for each grader. It then records `grade-stopped` on the head, which closes the grade item and opens a verdict item for the lane on the lane's clock. Any grade posted at that head still clears it, and a new head starts over.
+- A grade item never sits unclaimed. Once an item is past its deadline, if ten more minutes pass and every grader it is missing has nothing left to run, the runner posts one `GRADE-STOPPED` report to `grader-appeals`, `tooling_lane` and the PR's lane, naming why for each grader. It then records `grade-stopped` on the head, which closes the grade item and opens a verdict item for the lane on the lane's clock. Any grade posted at that head still clears it, a coordinator `fidelity-override` or `finder-override` at that head counts as the stopped grader's grade, and a new head starts over.
 - A slow pass is not a dead one. A worker that dies is seen in minutes, since its `sprite exec` returns and the wrapper writes `no_result`. The `timeout_minutes` deadline fires only on a live worker and cancels it through the same `cancelled` mark a superseded head uses, so an attempt never starts beside the one it replaces.
 - A Sprite's home is a network disk whose writes run hundreds of times slower than its local `/tmp`. So `lr grade` on a Sprite moves the clone's `.git` to `/tmp/lr-git/<hash of the checkout>` on the first pass that finds it on home, under the same lock as the fetch, and leaves a link behind. `/tmp` survives a Sprite's restart.
 - A grader's git never touches the clone's worktree on home, where one lookup can take seconds and a copy search walks every directory. `lr grade` sets `attr.tree=HEAD` on the clone, so attributes come from objects on `/tmp`, and the pass's git calls and the rulings diff run with `GIT_INDEX_FILE` on an absent path, so git stats no worktree file to reuse it for a blob.

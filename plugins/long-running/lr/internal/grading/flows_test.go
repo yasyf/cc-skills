@@ -468,6 +468,29 @@ func TestAToolingFailureTellsTheToolingLaneOncePerCauseAndHour(t *testing.T) {
 	}
 }
 
+func TestALostPassTellsItsPRsLaneOnceThatItRunsAgain(t *testing.T) {
+	f := newPool(t, map[string]any{"finder": map[string]any{}})
+	f.now = time.Now()
+	name := f.started(t, GraderFinder)
+	f.shell.exitAll()
+
+	for range 2 {
+		if _, err := f.pool.Settle(context.Background(), []string{name}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var lost []string
+	for _, note := range recordsOf(t, kindNote) {
+		if strings.HasPrefix(note.Text, "GRADER-LOST ") {
+			lost = append(lost, note.Text)
+		}
+	}
+	if len(lost) != 1 || !strings.Contains(lost[0], "the pool runs it again, up to 3 attempts") {
+		t.Fatalf("lost = %q", lost)
+	}
+}
+
 func TestAFailedPassTellsItsPRsLaneOnceAtItsFirstFailure(t *testing.T) {
 	f := newPool(t, map[string]any{"finder": map[string]any{}})
 	f.now = time.Now()

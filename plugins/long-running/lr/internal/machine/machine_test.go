@@ -177,3 +177,22 @@ func TestLandableReadsEveryGate(t *testing.T) {
 		}
 	}
 }
+
+func TestAnOverrideCountsAsAGradeOnlyForTheGraderThatStoppedAtItsHead(t *testing.T) {
+	stopped := map[string]string{"finder": "clear", GradeStoppedFact: "fidelity: its pass ended without a grade", OverrideFact("fidelity"): "accept"}
+	if finder, fidelity := GradesOf(stopped); finder != FinderClear || fidelity != FidelityPass {
+		t.Errorf("stopped and overridden read %q and %q", finder, fidelity)
+	}
+	for name, stored := range map[string]map[string]string{
+		"no stop":              {"finder": "clear", OverrideFact("fidelity"): "accept"},
+		"no override":          {"finder": "clear", GradeStoppedFact: "fidelity"},
+		"the other's override": {"finder": "clear", GradeStoppedFact: "fidelity", OverrideFact("finder"): "accept"},
+	} {
+		if _, fidelity := GradesOf(stored); fidelity != "" {
+			t.Errorf("%s: fidelity reads %q", name, fidelity)
+		}
+	}
+	if _, fidelity := GradesOf(map[string]string{"fidelity": "fail", GradeStoppedFact: "fidelity", OverrideFact("fidelity"): "accept"}); fidelity != FidelityFail {
+		t.Errorf("an override rewrote a failing grade to %q", fidelity)
+	}
+}

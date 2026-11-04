@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -96,7 +97,19 @@ func gradeWaitLine(read rowRead) string {
 	if facts["fidelity"] == "" {
 		owed = append(owed, must(Holder(read.s, read.d.Drive, fidelityDesk)))
 	}
-	return fmt.Sprintf("on a grade alone, with every other gate clear; it is owed by %s", strings.Join(owed, " and "))
+	return fmt.Sprintf("on a grade alone, with every other gate clear; it is owed by %s; %s", strings.Join(owed, " and "), passWords(read, facts))
+}
+
+func passWords(read rowRead, facts map[string]string) string {
+	if stopped := facts[machine.GradeStoppedFact]; stopped != "" {
+		return "no pass is left to run: " + stopped
+	}
+	for _, item := range must(read.s.OpenItems(read.row.Repo, read.row.Number)) {
+		if item.Kind == string(machine.ActionGrade) && item.Head == read.row.Head && item.Worker != "" {
+			return "its pass is " + item.Worker
+		}
+	}
+	return "no pass is running for it now"
 }
 
 func noLiveLane(read rowRead) bool {

@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -81,6 +82,20 @@ func TestAGradeAlarmNamesOnlyTheDeskStillOwing(t *testing.T) {
 	tick(t, s, f, t0.Add(mins(30)))
 
 	contains(t, alarms(f)[0].Text, "it is owed by fidelity-desk")
+}
+
+func TestAGradeAlarmSaysWhetherAnyPassIsLeft(t *testing.T) {
+	s := memory(t)
+	f := waitFake(t, s)
+	putRows(t, s, waitingRow(50125, lane2, nil))
+	if _, err := s.PutFact(waitRepo, 50125, waitHead, machine.GradeStoppedFact, "fidelity: its pass ended without a grade on all 3 attempts", t0); err != nil {
+		t.Fatal(err)
+	}
+
+	tick(t, s, f, t0)
+	tick(t, s, f, t0.Add(mins(30)))
+
+	contains(t, alarms(f)[0].Text, "no pass is left to run: fidelity: its pass ended without a grade on all 3 attempts")
 }
 
 func TestANewHeadRestartsAWaitClockAndAlarmsAgainForItsOwnHead(t *testing.T) {

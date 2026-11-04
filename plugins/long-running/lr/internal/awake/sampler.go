@@ -17,6 +17,7 @@ import (
 
 const (
 	SampleEvery = 10 * time.Second
+	KernelEvery = time.Second
 	SamplePath  = "/tmp/cc-remote-samples.log"
 	sampleKeep  = 720
 	trimEvery   = 60
@@ -42,6 +43,7 @@ type Sampler struct {
 	Now    func() time.Time
 	Log    *slog.Logger
 	since  float64
+	unsaid []string
 }
 
 type Process struct {
@@ -92,10 +94,31 @@ func (s *Sampler) Run(ctx context.Context) {
 				s.Log.Warn("the sample file was not trimmed", "path", s.Path, "err", err)
 			}
 		}
+		if !s.waitOut(ctx) {
+			return
+		}
+	}
+}
+
+func (s *Sampler) waitOut(ctx context.Context) bool {
+	next := time.After(s.Every)
+	check := time.NewTicker(KernelEvery)
+	defer check.Stop()
+	for {
 		select {
 		case <-ctx.Done():
-			return
-		case <-time.After(s.Every):
+			return false
+		case <-next:
+			return true
+		case <-check.C:
+			fresh := s.kernelLines()
+			if len(fresh) == 0 {
+				continue
+			}
+			s.unsaid = append(s.unsaid, fresh...)
+			if err := s.append(); err != nil {
+				s.Log.Warn("no sample was written", "path", s.Path, "err", err)
+			}
 		}
 	}
 }
@@ -146,6 +169,8 @@ func (s *Sampler) read() (Sample, error) {
 		return Sample{}, err
 	}
 	events, _ := counters(s.Events)
+	kernel := append(s.unsaid, s.kernelLines()...)
+	s.unsaid = nil
 	return Sample{
 		Time:           s.Now().UTC().Format(time.RFC3339),
 		UptimeSeconds:  seconds,
@@ -158,7 +183,7 @@ func (s *Sampler) read() (Sample, error) {
 		Top:            s.largest(processes),
 		Agents:         agents(processes),
 		MemoryEvents:   events,
-		Kernel:         s.kernelLines(),
+		Kernel:         kernel,
 	}, nil
 }
 

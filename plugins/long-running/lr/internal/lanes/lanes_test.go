@@ -79,6 +79,7 @@ func onRoster(row Row) Row {
 }
 
 type fake struct {
+	lastWords   string
 	feed        []Record
 	peers       []Row
 	tokens      map[string]int
@@ -167,6 +168,7 @@ func newFake(t *testing.T, records []Record, peers []Row) *fake {
 			}
 			return out, f.spritesFail
 		},
+		LastWords: func(string) string { return f.lastWords },
 		Hosts: func(names []string, _ map[string]Sprite) map[string]Host {
 			f.hostReads++
 			out := map[string]Host{}
