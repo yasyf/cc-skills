@@ -26,6 +26,7 @@ const (
 	mergeTriage   = "card-merge-triage"
 	answerRow     = "board-answer"
 	blockLabel    = "board-block:"
+	pathsField    = "paths"
 )
 
 type Cards struct {
@@ -160,7 +161,7 @@ func (c Cards) onBoard(ctx context.Context) ([]string, error) {
 	return cards, nil
 }
 
-func (c Cards) Until(ctx context.Context, card, condition string) (End, error) {
+func (c Cards) Until(ctx context.Context, card, condition string, paths ...string) (End, error) {
 	now := c.Now()
 	if why := Refusal(condition, now); why != "" {
 		return End{}, fmt.Errorf("refused: %s", why)
@@ -169,7 +170,29 @@ func (c Cards) Until(ctx context.Context, card, condition string) (End, error) {
 	if err != nil {
 		return End{}, err
 	}
-	return end, c.record(ctx, card, map[string]string{"until": end.String(), "set": stamp(now)})
+	fields := map[string]string{"until": end.String(), "set": stamp(now)}
+	if len(paths) > 0 {
+		fields[pathsField] = strings.Join(paths, ",")
+	}
+	return end, c.record(ctx, card, fields)
+}
+
+func (c Cards) Paths(ctx context.Context) (map[string][]string, error) {
+	known, err := c.ends(ctx)
+	if err != nil {
+		return nil, err
+	}
+	cards, err := c.onBoard(ctx)
+	if err != nil {
+		return nil, err
+	}
+	gated := map[string][]string{}
+	for _, card := range cards {
+		if paths := known[card][pathsField]; paths != "" {
+			gated[card] = strings.Split(paths, ",")
+		}
+	}
+	return gated, nil
 }
 
 func (c Cards) Missing(ctx context.Context, named []string) ([]string, error) {
