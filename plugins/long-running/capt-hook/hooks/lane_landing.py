@@ -32,6 +32,7 @@ PULL = re.compile(r"(?:https://github\.com/[\w.-]+/[\w.-]+/pull/)?(?P<pr>\d+)/?"
 CHECK_PR_CAUSES = frozenset({"RULINGS-UNCITED", "RESERVED-NO-ANSWER", "TEST-REMOVED", "SHAPE-UNTESTED", "FINDER-MAJOR", "MECHANISM-BANNED", "NAME-HIT", "LANE-DECIDED", "STORE-UNCOUNTED", "CONTRACT-MISSING", "TESTS-CORPUS"})
 INCIDENT_CAUSES = frozenset({"RULINGS-UNCITED", "RESERVED-NO-ANSWER", "TEST-REMOVED"})
 CHECK_PR_TIMEOUT_SECONDS = 60
+LANDING_READ_SECONDS = 15
 GREEN_EXCEPT = re.compile(r"\bgreen (?:except|apart from|other than|save for|but for)\b|\bknown[- ]red\b|\bred[- ]by[- ]design\b|\bdesign[- ]red\b", re.IGNORECASE)
 RULING_KINDS = frozenset({"ready", "go", "decide", "decision"})
 READY_TEXT = re.compile(r"^\W*READY\b")
@@ -475,7 +476,7 @@ def merged_pr(call: Call, repo: str, cwd: str) -> tuple[str, str] | None:
 
 def run_quietly(argv: list[str], cwd: str) -> subprocess.CompletedProcess[str] | None:
     try:
-        return run_script(argv, CHECK_PR_TIMEOUT_SECONDS, cwd)
+        return run_script(argv, LANDING_READ_SECONDS, cwd)
     except (OSError, subprocess.TimeoutExpired):
         return None
 

@@ -50,6 +50,7 @@ from .nudges import queue_nudge
 from .tests.handoff_fixtures import USAGE_262K_FABLE, USAGE_460K, USAGE_800K
 from .turns import threshold, turn_of
 
+FOREGROUND_JUDGE_SECONDS = 15
 SKILL_NAMES = ("long-running",)
 COORDINATOR_SKILL = "long-running:coordinator"
 PLAN_ARG = re.compile(r"[^\s`'\"]*\.claude/plans/[^\s/`'\"]+\.md")
@@ -139,7 +140,7 @@ release_module().promote(OWN)
 def judged(kind: str, evidence: str, artifact: str, drive: str | None) -> str | None:
     """The fenced finding a judge returns when it flags `artifact`; None when it clears it or its call fails, so the caller adds nothing."""
     judge, env = script_module("long_running/judge"), reqenv.env_map()
-    found = judge.judge(kind, evidence, artifact, backend=judge.backend_from(env), drive=drive, timeout=reqenv.clamp_timeout(judge.JUDGE_SECONDS), env=env)
+    found = judge.judge(kind, evidence, artifact, backend=judge.backend_from(env), drive=drive, timeout=reqenv.clamp_timeout(FOREGROUND_JUDGE_SECONDS), env=env)
     if found is None or not found.flagged:
         return None
     return f'{REGISTER_FENCE}\n{found.sentence}\nArtifact: "{found.artifact_phrase}"\nEvidence: "{found.evidence_phrase}"\n{REGISTER_FENCE}'

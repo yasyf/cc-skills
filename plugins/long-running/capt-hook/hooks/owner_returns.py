@@ -250,8 +250,8 @@ def pathed(reply: str) -> Input:
     return Input(transcript=[T.user("where are we"), T.assistant(reply)], state=[CompactionState(active=True, communicator=True)], env=DRIVE_CONFIG, decide=CALM)
 
 
-def reminded(*calls: dict, decide: dict = REMINDED, asks: str | tuple = "") -> Input:
-    return Input(transcript=[T.user(HIS_1_34_AM), *calls, T.assistant("On it.")], state=[CompactionState(active=True, communicator=True)], env=DRIVE_CONFIG, commands={ASKS: asks}, decide=decide)
+def reminded(*calls: dict, decide: dict = REMINDED, asks: str | tuple = "", opening: tuple = ()) -> Input:
+    return Input(transcript=[*opening, T.user(HIS_1_34_AM), *calls, T.assistant("On it.")], state=[CompactionState(active=True, communicator=True)], env=DRIVE_CONFIG, commands={ASKS: asks}, decide=decide)
 
 
 def woken(*said: dict) -> Input:
@@ -300,6 +300,7 @@ def asked(reply: str, *calls: dict, words: str = HOW_FAR, decide: dict = ASKED) 
         reminded(asks=ask_to("meta", "meta-desk-2", "root")): Allow(),
         reminded(asks=ask_to("meta-desk-2")): Allow(),
         reminded(asks=ask_to("root")): Block(pattern=r"meta tooling lane"),
+        reminded(asks=ask_to("root"), opening=({"type": "attachment", "attachment": {"type": "skill_listing"}},)): Block(pattern=r"meta tooling lane"),
         reminded(asks=(1, "bus down")): Allow(),
         reminded(*T.tool_turn("Bash", result="R1", command="lr launch meta /drive/meta/brief.md")): Allow(),
         reminded(*T.tool_turn("Bash", result="R1", command="bash ~/.claude/long-running/current/bin/orca-launch.sh /drive/fix-3 brief.md")): Allow(),
@@ -444,8 +445,11 @@ def owner_reply_gets_a_fast_ack(evt: BaseHookEvent) -> HookResult | None:
 
 
 def dm_owed(evt: BaseHookEvent) -> dict:
-    out = cc_slack(evt, "dm-owed")
-    return json.loads(out) if out else {"replies": [], "holder_session": ""}
+    def read_owed() -> dict:
+        out = cc_slack(evt, "dm-owed")
+        return json.loads(out) if out else {"replies": [], "holder_session": ""}
+
+    return reqenv.shared("long_running.dm_owed", read_owed)
 
 
 def unanswered_reply(evt: BaseHookEvent) -> str | None:
@@ -546,10 +550,14 @@ def unexplained(evt: BaseHookEvent, reply: str) -> str | None:
     return None
 
 
+def turn_started(evt: BaseHookEvent) -> str:
+    return next(event.meta.timestamp for event in evt.ctx.turn.events if hasattr(event, "meta")).isoformat()
+
+
 def explain_failed(evt: BaseHookEvent) -> bool:
     if not any(use.call.name == "Bash" and any(Path(cmd.argv[0]).name == "lr" and "explain" in cmd.argv[1:2] for cmd in use.call.command_line if cmd.argv) for use in evt.ctx.turn.tool_calls.items):
         return False
-    since = next(iter(evt.ctx.turn.events)).meta.timestamp.isoformat()
+    since = turn_started(evt)
     out = read(["cci", "tail", "--drive", bus_name(drive_entry(evt)), "--lane", COMMUNICATOR_LANE, "--kind", "defect", "--topic", EXPLAIN_TOPIC, "--since", since, "--budget", str(RECORD_BYTES), "--json"])
     return out is None or bool(out.strip())
 
@@ -563,7 +571,7 @@ def owner_words(evt: BaseHookEvent) -> str:
 
 
 def forwarded(evt: BaseHookEvent) -> bool:
-    since = next(iter(evt.ctx.turn.events)).meta.timestamp.isoformat()
+    since = turn_started(evt)
     out = read(["cci", "tail", "--drive", bus_name(drive_entry(evt)), "--lane", COMMUNICATOR_LANE, "--lane", ROOT_LANE, "--kind", "ask", "--since", since, "--budget", str(RECORD_BYTES), "--json"])
     return out is None or any(to.startswith("meta") for line in out.splitlines() if line.strip() for to in json.loads(line).get("to") or ())
 
