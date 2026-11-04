@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"maps"
-	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -14,19 +13,14 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
 const (
-	redKind      = "red"
-	redWindow    = 7 * 24 * time.Hour
-	unclassed    = "unclassed"
-	shortestHead = 7
-)
-
-var (
-	redField   = regexp.MustCompile(`\b(class|head|owner)=(\S+)`)
-	redClasses = []string{"inherited", "flake", "real", "stale"}
+	redKind   = "red"
+	redWindow = 7 * 24 * time.Hour
+	unclassed = "unclassed"
 )
 
 type Red struct {
@@ -53,7 +47,7 @@ func (r Red) Line() string {
 	if r.Author != "" {
 		owner += ", by " + r.Author
 	}
-	return fmt.Sprintf("#%d %s | %s | %s | %s | red since %s | %s", r.Number, r.Head[:min(shortestHead, len(r.Head))], r.Checks, r.Class, owner, since, action)
+	return fmt.Sprintf("#%d %s | %s | %s | %s | red since %s | %s", r.Number, r.Head[:min(prrow.ShortestRedHead, len(r.Head))], r.Checks, r.Class, owner, since, action)
 }
 
 func Reds(snapshot map[int]machine.Facts, classes []client.Record, since func(machine.Facts) time.Time) []Red {
@@ -68,16 +62,13 @@ func Reds(snapshot map[int]machine.Facts, classes []client.Record, since func(ma
 			red.Checks = "a required check"
 		}
 		for _, record := range slices.Backward(classes) {
-			fields := map[string]string{}
-			for _, match := range redField.FindAllStringSubmatch(record.Text, -1) {
-				fields[match[1]] = match[2]
-			}
-			if !slices.Contains(redClasses, fields["class"]) || len(fields["head"]) < shortestHead || !strings.HasPrefix(f.Head, fields["head"]) {
+			class, ok := prrow.ParseRedClass(record.Text)
+			if !ok || !strings.HasPrefix(f.Head, class.Head) {
 				continue
 			}
-			red.Class, red.Action = fields["class"], strings.Join(strings.Fields(redField.ReplaceAllString(record.Text, "")), " ")
-			if owner := fields["owner"]; owner != "" {
-				red.Owner = owner
+			red.Class, red.Action = class.Class, class.Action
+			if class.Owner != "" {
+				red.Owner = class.Owner
 			}
 			break
 		}

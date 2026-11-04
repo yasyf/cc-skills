@@ -256,6 +256,9 @@ func foldRecord(s *store.Store, r Record, late time.Duration, fresh bool, at tim
 	if !fresh && (kind == "ask" || kind == "lr.ask" || kind == kindRequest || failedGrade(kind, text)) {
 		foldOrder(s, r, addressed, at)
 	}
+	if kind == "red" {
+		foldRedClass(s, r, out.deps.Repo, at)
+	}
 	foldGates(s, r, fresh, at)
 	resolved := r.resolved()
 	if len(resolved) > 0 {

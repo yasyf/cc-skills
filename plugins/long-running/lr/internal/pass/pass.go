@@ -484,7 +484,7 @@ func tellUngraded(s *store.Store, f machine.Facts, waited time.Duration, now tim
 	subject := fmt.Sprintf("%s#%d at %s", f.Repo, f.Number, f.Head[:min(10, len(f.Head))])
 	detail := ": no " + strings.Join(grading.Missing(f), " or ") + " grade"
 	switch {
-	case waited >= ungradedRoot:
+	case waited >= ungradedRoot && !f.Approved:
 		return escalate(s, subject, fmt.Sprintf("green and ungraded for %d minutes", int(ungradedRoot.Minutes())), detail, root, now, post, out)
 	case waited >= ungradedLane:
 		lane, err := owner(f.Lane, f.Number)

@@ -257,7 +257,11 @@ printf '%s\n' "$files" | tr '\n' '\0' |
 
 ## Run the grading fleet
 
-Grading capacity is never a reason for a wait. The fleet is provisioned to demand without asking, so every head's finder and fidelity passes start within two minutes of its head record and finish within ten.
+Grading is the last wait between a green, approved PR and the owner's tap, and capacity is never a reason for it. Graders scale with the number of PRs waiting, without asking: every head's finder and fidelity passes start within two minutes of its head record and finish within ten, and the coordinator adds shards whenever a pass queues.
+
+More passes on one Sprite do not always add speed: its home disk is the limit per box, so add boxes before adding passes per box, and raise a disk stall to the meta desk rather than adding either.
+
+The owner's critical path goes first. The pool ranks a coordinator `ask` or `decide` naming the PRs (`#<n> first`, or `first: #<n>, #<n>`) above everything, then incident lanes, then rows green and approved, then the ledger's priority and tapped rows. A row that waits on a grade alone for 30 minutes alarms; see [Row waits](landing.md#row-waits).
 
 Fidelity grading runs on Sprites like the finder, and may use a smaller model or lower effort when sampled results stay sound.
 

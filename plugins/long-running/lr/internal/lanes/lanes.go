@@ -99,6 +99,7 @@ const (
 	StaleAfter       = store.StaleAfter
 	unownedAfter     = 10 * time.Minute
 	unreadAfter      = 10 * time.Minute
+	deskLostAfter    = 30 * time.Minute
 	wakeAfter        = 30 * time.Second
 	strikeWindow     = 2 * StaleAfter
 	deskStrikes      = 3

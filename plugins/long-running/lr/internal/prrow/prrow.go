@@ -37,6 +37,9 @@ const (
 	ParentClosed  = "closed"
 	ParentUnknown = "unknown"
 
+	NotGraded = "not graded at this head"
+	RedAtHead = "CI is red at this head"
+
 	onlyHim     = "Only your approval."
 	tappedWaits = "You approved it; the landing desk lands it next."
 	fieldChars  = 700
@@ -130,13 +133,13 @@ func firstUnmet(row store.ReviewRow) string {
 	case row.Head == "":
 		return "no record names its head yet"
 	case row.CI == CIRed:
-		return "CI is red at this head"
+		return RedAtHead
 	case row.CI != CIGreen:
 		return "CI is running or not read yet at this head"
 	case row.Approvers == None:
 		return "no approving review at this head"
 	case row.Grade == GradePending:
-		return "not graded at this head"
+		return NotGraded
 	case row.Grade != GradePass:
 		return "a grade needs a verdict: " + row.GradeFindings
 	case row.Mergeable != string(machine.MergeableClean):

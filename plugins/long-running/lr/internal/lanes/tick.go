@@ -32,6 +32,7 @@ type Post struct {
 
 type Deps struct {
 	Drive                 string
+	Repo                  string
 	Parent                string
 	Checkout              string
 	State                 string
@@ -173,7 +174,8 @@ func Tick(s *store.Store, d Deps, now time.Time, generation int64) (out Outcome,
 	openAnswered(s, d, found, taken, now, &out)
 	keepDuties(s, d, found, taken, now, &out)
 	hourly(s, d, now)
-	woken, err := chaseUnread(s, d, found, out.Woken, now)
+	alarmRowWaits(s, d, now)
+	woken, err := chaseUnread(s, d, found, out.Woken, taken, now, &out)
 	if err != nil {
 		slog.Warn("unread orders not chased this tick", "err", err)
 	}
@@ -733,7 +735,7 @@ func wake(s *store.Store, d Deps, lane store.Lane, peer Peer, found map[string]P
 	relaunch(s, d, lane, found, fmt.Sprintf("has made no tool call in the %d min since it was woken because %s", int(now.Sub(wokeAt).Minutes()), truncated(pageText(page, "why"), 240)), "", taken, now, out)
 }
 
-func chaseUnread(s *store.Store, d Deps, found map[string]Peer, already []string, now time.Time) (woken []string, err error) {
+func chaseUnread(s *store.Store, d Deps, found map[string]Peer, already []string, taken map[string]bool, now time.Time, out *Outcome) (woken []string, err error) {
 	defer recovered(&err)
 	do(s.KeepUnread(live...))
 	held := map[string][]store.Unread{}
@@ -753,11 +755,21 @@ func chaseUnread(s *store.Store, d Deps, found map[string]Peer, already []string
 		} else if wakeOnOrders(s, d, lane, peer, orders, now) {
 			woken = append(woken, lane.Name)
 		}
-		pastDue := slices.DeleteFunc(slices.Clone(orders), func(order store.Unread) bool { return order.Raised || now.Sub(order.At) < unreadAfter })
-		if len(pastDue) > 0 && lane.Placement != placedOnSprite {
-			do(d.Post(Post{Kind: "go", To: []string{orcaDesk}, Text: fmt.Sprintf("%s: relay to %s: Orders addressed to you are unread: %s, the oldest for %d min. Read them with `cci tail --mail` and act on them.", orcaDesk, lane.Name, orderWords(pastDue), int(now.Sub(pastDue[0].At).Minutes()))}))
-			do(s.MarkUnreadRaised(lane.Name))
+		if isStanding(lane) && lane.Role != RoleMeta && len(orders) > 0 && now.Sub(orders[0].At) >= deskLostAfter {
+			lost(s, d, lane, found, Verdict{Lost, fmt.Sprintf("is a standing desk that took none of its %d orders, %s, the oldest for %d min", len(orders), orderWords(orders), int(now.Sub(orders[0].At).Minutes()))}, taken, now, out)
+			continue
 		}
+		pastDue := slices.DeleteFunc(slices.Clone(orders), func(order store.Unread) bool { return order.Raised || now.Sub(order.At) < unreadAfter })
+		if len(pastDue) == 0 {
+			continue
+		}
+		oldest := int(now.Sub(pastDue[0].At).Minutes())
+		if lane.Placement == placedOnSprite {
+			do(d.Post(Post{Kind: "report", To: []string{noticeTo(s, lane.Name)}, LaneRef: lane.Name, Text: fmt.Sprintf("%s on a Sprite has not read %s, the oldest for %d min, and no relay reaches a Sprite: read its Sprite or relaunch it.", lane.Name, orderWords(pastDue), oldest)}))
+		} else {
+			do(d.Post(Post{Kind: "go", To: []string{orcaDesk}, Text: fmt.Sprintf("%s: relay to %s: Orders addressed to you are unread: %s, the oldest for %d min. Read them with `cci tail --mail` and act on them.", orcaDesk, lane.Name, orderWords(pastDue), oldest)}))
+		}
+		do(s.MarkUnreadRaised(lane.Name))
 	}
 	return woken, nil
 }

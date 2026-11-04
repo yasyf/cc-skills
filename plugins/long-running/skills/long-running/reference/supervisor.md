@@ -159,10 +159,11 @@ A coordinator reading unverifiable, and a lane with no process row, are held wit
 **A lost Sprite lane.** An unproven Sprite lane that has not settled, whose Sprite has not run for 5 minutes, is lost, whatever it holds and however long it has been quiet.
 - The supervisor posts one `LANE-LOST` report, naming the Sprite and when it last ran, to the lane that launched it and to the meta desk. It relaunches the lane from its brief as the next `<stem>-N`, whose brief opens with a `Partial work:` line naming what the lost lane left.
 - A lost lane the supervisor already relaunched once is held, and its report says so.
-- The same loss covers a Sprite lane whose host Orca has reported `host_unavailable` for 10 minutes, and one with no record 15 minutes after its launch that Orca does not report live. A quiet lane Orca reports live is left alone.
+- The same loss covers a Sprite lane whose host Orca has reported `host_unavailable` for 10 minutes, and one with no record 15 minutes after its launch that Orca does not report live. A quiet lane Orca reports live is left alone, unless it is a standing desk with an order unread for 30 minutes.
 - A lane that recovers before the relaunch is never relaunched. One that recovers after is stood down for its successor, so the stem's newest lane wins.
 - A Sprite successor's brief carries only what the bus holds: its predecessor's records, handoff and pushed PRs, never a path on the lost box or the Mac.
-- Unread orders on a Sprite lane raise no blocker, since the supervisor sees no tool calls from a Sprite.
+- Unread orders on a Sprite lane go to its notice lane once at 10 minutes, since no relay reaches a Sprite and the supervisor sees no tool calls from one.
+- A standing desk other than the meta lane, anywhere, with an order unread for 30 minutes and no record or tool call since is lost whatever Orca reports: the same `LANE-LOST` report and relaunch as above. A live row alone proves nothing about a desk, because a desk idle at its prompt after its wake died reads live.
 
 **A refused launch** (before it posts, or by a runner verdict such as `LAUNCH-DUPLICATE`) is retried once. A second refusal holds the lane with one blocker to the meta desk naming it. No `RELAUNCHED` report goes out for a launch the launcher did not post.
 
