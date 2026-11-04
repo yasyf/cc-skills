@@ -118,6 +118,23 @@ func TestACardAnswerForAMovedHeadOrAnotherLabelIsRefused(t *testing.T) {
 	}
 }
 
+func TestARefusedCardAnswerLeavesARecordNamingWhy(t *testing.T) {
+	s, hooks := withLedger(t, readyRow(nil)), &recorded{}
+	found, err := ledgerRows(s, repo, []int{number})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Respond(s, repo, hooks.hooks(), found, number, MergeWaits(number, moved), "Approve", t0); err == nil {
+		t.Fatal("a tap on a moved head was not refused")
+	}
+	if err := Respond(s, repo, hooks.hooks(), nil, number, MergeWaits(number, head), "Approve", t0); err == nil {
+		t.Fatal("a tap on a PR with no row was not refused")
+	}
+	if len(hooks.refused) != 2 || !strings.Contains(hooks.refused[0], "moved to") || !strings.Contains(hooks.refused[1], "no row") {
+		t.Fatalf("refused = %+v", hooks.refused)
+	}
+}
+
 func TestABareNumberNamesEveryDrivePRHoldingItAndNoOther(t *testing.T) {
 	s := withLedger(t, store.ReviewRow{Repo: "yasyf/cc-skills", Number: 2475, Head: head}, store.ReviewRow{Repo: "yasyf/cc-slack", Number: 66, Head: head}, store.ReviewRow{Repo: "Forge-AI/monorepo", Number: 66, Head: head}, store.ReviewRow{Repo: "Forge-AI/monorepo", Number: 49032, Head: head})
 	held, err := Holders(s, []int{2475, 66, 7}, []SlackPR{{"yasyf/cc-skills", 2475}})

@@ -232,6 +232,27 @@ func TestAPickItsBoardCouldNotLabelEscalatesOnceAndWritesNoOrder(t *testing.T) {
 	}
 }
 
+func TestALandPickNamingNoOnePREscalatesOnceAndOtherPicksDoNot(t *testing.T) {
+	h := surfaceHarness(t)
+	ownerRecord(t, "Owner on board b, Land the invite fix? (no-pr): picked “Land the fix now”", map[string]string{"event": "choice.selected", "block": "no-pr", "picked": "no-pr-1"})
+	ownerRecord(t, "Owner on board b, Land #4242 or #4243? (two-prs): picked “Land both”", map[string]string{"event": "choice.selected", "block": "two-prs", "picked": "two-prs-1"})
+	ownerRecord(t, "Owner on board b, Which? (not-land): picked “Keep the 30-day rule”", map[string]string{"event": "choice.selected", "block": "not-land", "picked": "not-land-1"})
+
+	writeOrders(t, h)
+	writeOrders(t, h)
+
+	found, err := client.Tail(context.Background(), client.Query{Drive: "d", Kinds: []string{"blocker"}, Lanes: []string{facts.OrderLane}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	said := func(block string) bool {
+		return slices.ContainsFunc(found, func(r client.Record) bool { return strings.Contains(r.Text, "("+block+")") })
+	}
+	if len(found) != 2 || !said("no-pr") || !said("two-prs") || len(orders(t)) != 0 {
+		t.Fatalf("escalated = %+v, orders = %+v", found, orders(t))
+	}
+}
+
 func TestATapWithNoOrderAfterAMinuteEscalatesOnceAndBlocksNothing(t *testing.T) {
 	h := surfaceHarness(t)
 	h.source.CCX = &statusDown{Client: h.source.CCX, down: true}

@@ -111,6 +111,16 @@ func UnreadPick(record client.Record) bool {
 	return string(record.Kind) == ownerKind && attrs["event"] == "choice.selected" && attrs["picked"] != "" && !pickedLabel.MatchString(record.Text)
 }
 
+// UnnamedLand says a pick reads as a land or hold order but its card names no one PR, so no order can come from it.
+func UnnamedLand(record client.Record, repo string) bool {
+	attrs := record.Fields.Attrs
+	if string(record.Kind) != ownerKind || attrs["event"] != "choice.selected" || cardValue(attrs, record.Text) == "" {
+		return false
+	}
+	_, ordered := OrderOf(record, repo)
+	return !ordered
+}
+
 func cardValue(attrs map[string]string, text string) string {
 	switch attrs["event"] {
 	case "decision.created":

@@ -45,6 +45,9 @@ func (s Source) WriteOrders(ctx context.Context) error {
 		if bus.UnreadPick(record) {
 			s.escalate(ctx, record, nil, fmt.Sprintf("Owner pick %s (%s, option %s) was recorded with no label because its board could not be read, so no land order can come from it. Nothing was blocked; read what that option said and write the order if it lands a PR.", record.Name(), record.Fields.Attrs["block"], record.Fields.Attrs["picked"]))
 		}
+		if bus.UnnamedLand(record, s.Repo) {
+			s.escalate(ctx, record, nil, fmt.Sprintf("Owner pick %s (%s) reads as a land or hold order, but its card names no one PR, so no land order can come from it. Nothing was blocked; name the PR in a record and carry it with lr landing order.", record.Name(), record.Fields.Attrs["block"]))
+		}
 		if tap, ordered := bus.OrderOf(record, s.Repo); ordered {
 			age := now.Sub(record.At)
 			if failed := s.writeOrder(ctx, record, tap, age); failed != nil {
