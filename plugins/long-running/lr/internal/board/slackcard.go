@@ -47,6 +47,8 @@ type SlackPRRow struct {
 	Blocks string `json:"blocks"`
 
 	Description string `json:"description,omitempty"`
+
+	Row *store.ReviewRow `json:"row,omitempty"`
 }
 
 type SlackPR struct {
@@ -75,7 +77,7 @@ func Card(repo string, row store.ReviewRow) SlackCard {
 		Status: "info", Title: fmt.Sprintf("#%d at %s", row.Number, at),
 		PRs: []SlackPRRow{{
 			URL: fmt.Sprintf("https://github.com/%s/pull/%d", repo, row.Number), Title: row.Title, Head: row.Head, Review: Standing(row),
-			Change: row.ForUsers, Plan: PlanWords(row), Risk: row.Risk, Blocks: row.WaitsOn, Description: row.Description,
+			Change: row.ForUsers, Plan: PlanWords(row), Risk: row.Risk, Blocks: row.WaitsOn, Description: row.Description, Row: &row,
 		}},
 	}
 	if row.State == prrow.StateLanded {

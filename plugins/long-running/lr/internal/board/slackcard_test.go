@@ -24,16 +24,17 @@ import (
 )
 
 func TestTheApproveCardIsTheLedgerRowWithApproveAndHold(t *testing.T) {
+	row := readyRow(nil)
 	want := SlackCard{
 		Status: "needs_you", Title: "Approve #45583 at e718a74?",
 		PRs: []SlackPRRow{{
 			URL: "https://github.com/org/repo/pull/45583", Title: "sand: faster chats", Head: head,
 			Review: "CI green; approved by poetic-svc; grade pass, findings none; mergeable clean; lane lane-7, branch lane-7/fast, parent none",
-			Change: "chats load faster", Plan: "checked against the plan", Risk: "one cache key", Blocks: "Only your approval.", Description: "## Context",
+			Change: "chats load faster", Plan: "checked against the plan", Risk: "one cache key", Blocks: "Only your approval.", Description: "## Context", Row: &row,
 		}},
 		Options: []string{"Approve", "Hold"}, Recommended: "Approve", Waits: MergeWaits(number, head),
 	}
-	if card := Card(repo, readyRow(nil)); !reflect.DeepEqual(card, want) {
+	if card := Card(repo, row); !reflect.DeepEqual(card, want) {
 		t.Fatalf("card = %+v, want %+v", card, want)
 	}
 }

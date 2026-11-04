@@ -15,6 +15,7 @@ import (
 	"github.com/yasyf/cc-inbox/client"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -123,13 +124,17 @@ func (w Waker) asker(ctx context.Context, a CardAnswer) (string, error) {
 }
 
 func (w Waker) routed(ctx context.Context, a CardAnswer) (bool, error) {
-	records, err := w.Tail(ctx, client.Query{Drive: w.Cards.Bus, Kinds: []string{wakeKind, claimKind}, After: a.OwnerSeq, Since: w.Cards.Now().Add(-wakeWindow)})
+	records, err := w.Tail(ctx, client.Query{Drive: w.Cards.Bus, Kinds: []string{wakeKind, claimKind, ownerKind}, After: a.OwnerSeq - 1, Since: w.Cards.Now().Add(-wakeWindow)})
 	if err != nil {
 		return false, err
 	}
 	naming := namesAny(a.Card, a.Block)
 	return slices.ContainsFunc(records, func(record client.Record) bool {
-		return record.Lane != w.Lane && naming.MatchString(record.Text)
+		if record.Seq == a.OwnerSeq {
+			_, ordered := bus.OrderOf(record, "")
+			return ordered
+		}
+		return string(record.Kind) != ownerKind && record.Lane != w.Lane && naming.MatchString(record.Text)
 	}), nil
 }
 

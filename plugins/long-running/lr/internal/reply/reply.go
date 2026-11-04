@@ -91,11 +91,12 @@ type Lines struct {
 
 // prCard is one PR a pick card draws, with its lines read from the PR ledger.
 type prCard struct {
-	URL         string `json:"url"`
-	Head        string `json:"head,omitempty"`
-	Title       string `json:"title,omitempty"`
-	Review      string `json:"review,omitempty"`
+	URL    string `json:"url"`
+	Head   string `json:"head,omitempty"`
+	Title  string `json:"title,omitempty"`
+	Review string `json:"review,omitempty"`
 	Lines
+	Row *store.ReviewRow `json:"row,omitempty"`
 }
 
 type Reply struct {
@@ -458,7 +459,7 @@ func (f Fanout) withPRCards(r Reply) (Reply, string) {
 		if len(r.Picks) == 0 && (!row.ReadyForTap || row.Tapped) {
 			continue
 		}
-		card := prCard{URL: pr, Head: row.Head, Title: row.Title, Review: board.Standing(row), Lines: Lines{row.ForUsers, board.PlanWords(row), row.Risk, row.WaitsOn}}
+		card := prCard{URL: pr, Head: row.Head, Title: row.Title, Review: board.Standing(row), Lines: Lines{row.ForUsers, board.PlanWords(row), row.Risk, row.WaitsOn}, Row: &row}
 		var missing []string
 		for _, field := range []struct{ said, name string }{{row.ForUsers, "what it changes for a user"}, {row.PlanRow, "the plan row"}, {row.Risk, "the risk"}} {
 			if field.said == "" {
@@ -505,6 +506,9 @@ func (r Reply) prChild(id, pr string) map[string]any {
 	}
 	if len(summary) > 0 {
 		child["summary"] = strings.Join(summary, "\n\n")
+	}
+	if card.Row != nil {
+		child["row"] = card.Row
 	}
 	if card.Head != "" {
 		child["head"] = card.Head
