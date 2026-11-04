@@ -3,6 +3,7 @@ package bus
 import (
 	"cmp"
 	"context"
+	"fmt"
 	"os"
 	"regexp"
 	"slices"
@@ -213,6 +214,14 @@ type Override struct {
 	Cites  string
 }
 
+func (o Override) Line(why string) string {
+	cited := ""
+	if o.Cites != "" {
+		cited = ": " + o.Cites
+	}
+	return fmt.Sprintf("%s-override #%d at %s%s. %s", o.Grader, o.PR, o.Head, cited, why)
+}
+
 func Overrides(record client.Record) []Override {
 	return overridesIn(fullText(record))
 }
@@ -238,10 +247,6 @@ func overridesIn(text string) []Override {
 
 func Appeal(record client.Record) bool {
 	return string(record.Kind) == "decide" && client.Stem(record.Lane) == AppealsLane && len(Overrides(record)) > 0
-}
-
-func AppealFacts(record client.Record) []Fact {
-	return overrides(fullText(record))
 }
 
 func UnreadOverrides(record client.Record) []string {

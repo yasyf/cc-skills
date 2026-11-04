@@ -63,6 +63,9 @@ func (o *OverrideRefusals) Check(ctx context.Context, now time.Time) error {
 				o.quoted = record.Seq
 				continue
 			}
+			if err := o.count(ctx, record, now); err != nil {
+				return err
+			}
 		}
 		if err := o.tellOwners(ctx, record, now); err != nil {
 			return err
@@ -74,6 +77,24 @@ func (o *OverrideRefusals) Check(ctx context.Context, now time.Time) error {
 			}
 		}
 		o.quoted = record.Seq
+	}
+	return nil
+}
+
+func (o *OverrideRefusals) count(ctx context.Context, record client.Record, now time.Time) error {
+	for _, override := range bus.Overrides(record) {
+		key := fmt.Sprintf("appeal-counted:%d:%s:%d", record.Seq, override.Grader, override.PR)
+		first, err := o.Store.Escalate(key, "appeal-counted", Root, now)
+		if err != nil {
+			return err
+		}
+		if !first {
+			continue
+		}
+		text := override.Line(fmt.Sprintf("Counted from %s's cci #%d, whose owner rows exist.", record.Lane, record.Seq))
+		if _, err := o.Env.Bus.Post(ctx, client.Draft{Drive: o.Env.Config.Drive, Lane: Self, Kind: "decide", ID: key, PRs: []string{strconv.Itoa(override.PR)}, Text: text}); err != nil {
+			return fmt.Errorf("%w: cci post: %w", ErrUnread, err)
+		}
 	}
 	return nil
 }

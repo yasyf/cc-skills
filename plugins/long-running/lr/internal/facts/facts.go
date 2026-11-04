@@ -20,7 +20,6 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
-	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/quotes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -53,7 +52,6 @@ type Source struct {
 	Store   *store.Store
 	Log     *slog.Logger
 	Now     func() time.Time
-	Grounds func(context.Context, client.Record) (bool, error)
 }
 
 func New(a *app.App, cfg config.Config, s *store.Store) Source {
@@ -71,9 +69,6 @@ func New(a *app.App, cfg config.Config, s *store.Store) Source {
 		Store:   s,
 		Log:     a.Log,
 		Now:     a.Now,
-		Grounds: func(ctx context.Context, record client.Record) (bool, error) {
-			return quotes.NewReader(runner, cfg.Drive).Grounded(ctx, record)
-		},
 	}
 }
 
@@ -418,16 +413,6 @@ func (s Source) ingestLegacy(ctx context.Context) error {
 	}
 	for _, record := range records {
 		facts := bus.LegacyFacts(record, s.Repo, s.GoLanes)
-		if bus.Appeal(record) {
-			grounded, err := s.Grounds(ctx, record)
-			if err != nil {
-				s.Log.Warn("an appeal's owner rows went unread, so it and later records wait for the next pass", "seq", record.Seq, "error", err)
-				return nil
-			}
-			if grounded {
-				facts = append(facts, bus.AppealFacts(record)...)
-			}
-		}
 		if err := s.putFacts(append(facts, graderWords(facts, record.Text)...), record.At.UTC()); err != nil {
 			return err
 		}

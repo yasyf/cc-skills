@@ -17,7 +17,6 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/grading/grader"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
-	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/quotes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
 
@@ -108,7 +107,7 @@ func (p *JobPool) finderJob(ctx context.Context, d desk, facts machine.Facts, sp
 	for _, r := range reviews {
 		named = append(named, r.Record)
 	}
-	settled, err := rootSettled(ctx, p.drive, facts.Repo, pr, named, p.grounded)
+	settled, err := rootSettled(ctx, p.drive, facts.Repo, pr, named)
 	if err != nil {
 		return job{}, err
 	}
@@ -161,7 +160,7 @@ func (p *JobPool) fidelityJob(ctx context.Context, d desk, facts machine.Facts, 
 	if err != nil {
 		return job{}, err
 	}
-	settled, err := rootSettled(ctx, p.drive, facts.Repo, pr, grades, p.grounded)
+	settled, err := rootSettled(ctx, p.drive, facts.Repo, pr, grades)
 	if err != nil {
 		return job{}, err
 	}
@@ -228,10 +227,6 @@ func claimedClasses(gos []client.Record, facts machine.Facts) []string {
 		}
 	}
 	return claims
-}
-
-func (p *JobPool) grounded(ctx context.Context, record client.Record) (bool, error) {
-	return quotes.NewReader(p.Runner, p.drive).Grounded(ctx, record)
 }
 
 func (p *JobPool) exemptGrades() []string {

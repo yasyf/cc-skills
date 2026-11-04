@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 )
 
 const monorepo = "Forge-AI/monorepo"
@@ -305,20 +306,21 @@ func TestAFlakeRecordDoesNotExcuseAMissingFidelityGrade(t *testing.T) {
 	refusedWith(t, text, refusals, "fidelity: no ok grade at abc1234 names an exempt class")
 }
 
-func TestAnAppealSettlesTheFinderOnlyWhenItsRowWasFound(t *testing.T) {
+func TestOnlyTheCountedRecordSettlesTheFinderNeverTheAppealItself(t *testing.T) {
 	records := recordsBefore(t, "48375", 355825)
 	cite := strconv.FormatInt(records[0].Seq, 10)
-	records = append(records, client.Record{Seq: 355824, Lane: "grader-appeals-1", Kind: "decide", Text: "finder-override #48375 at 71bd0ab: " + cite + ". Row rule/4236611 grounds it"})
 	const at = "71bd0ab1c2dc27453798cbc7fb75db730f59bf84"
 	claim := Claim{Repo: monorepo, PR: 48375, Head: at}
 	finder := func(refusal string) bool { return strings.HasPrefix(refusal, "finder:") }
+	appealed := append(records, client.Record{Seq: 355824, Lane: "grader-appeals-1", Kind: "decide", Text: "finder-override #48375 at 71bd0ab: " + cite + ". Row rule/4236611 grounds it"})
 
-	_, unfound := ExemptGo(claim, Read{Records: records, GoLanes: goLanes, Exempt: driveClasses})
-	if !slices.ContainsFunc(unfound, finder) {
-		t.Fatalf("an appeal whose row was not found settled the finder: %q", unfound)
+	_, alone := ExemptGo(claim, Read{Records: appealed, GoLanes: goLanes, Exempt: driveClasses})
+	if !slices.ContainsFunc(alone, finder) {
+		t.Fatalf("an appeal nothing has counted settled the finder: %q", alone)
 	}
-	_, found := ExemptGo(claim, Read{Records: records, Grounded: map[int64]bool{355824: true}, GoLanes: goLanes, Exempt: driveClasses})
-	if slices.ContainsFunc(found, finder) {
-		t.Fatalf("an appeal whose row exists left the finder refused: %q", found)
+	counted := append(appealed, client.Record{Seq: 355830, Lane: bus.SweepLane, Kind: "decide", Text: "finder-override #48375 at 71bd0ab: " + cite + ". Counted from grader-appeals-1's cci #355824, whose owner rows exist."})
+	_, read := ExemptGo(claim, Read{Records: counted, GoLanes: goLanes, Exempt: driveClasses})
+	if slices.ContainsFunc(read, finder) {
+		t.Fatalf("a counted override left the finder refused: %q", read)
 	}
 }

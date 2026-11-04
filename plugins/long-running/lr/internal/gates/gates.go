@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -105,11 +106,10 @@ func CarriedOverrides(atFrom, atHead map[string]string) []string {
 }
 
 func CarriedOverride(number int, head, from, grader, cites string) string {
-	cited := ""
-	if cites != "accept" {
-		cited = ": " + cites
+	if cites == "accept" {
+		cites = ""
 	}
-	return fmt.Sprintf("%s-override #%d at %s%s. Carried from %s, whose own diff is the same.", grader, number, head, cited, short(from))
+	return bus.Override{Grader: grader, PR: number, Head: head, Cites: cites}.Line(fmt.Sprintf("Carried from %s, whose own diff is the same.", short(from)))
 }
 
 func OverrideHeads(facts []store.HeadFact, head string) []string {

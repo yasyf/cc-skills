@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -189,5 +190,29 @@ func TestAnotherLanesDecideNamingAnOverrideDrawsNothing(t *testing.T) {
 
 	if len(fake.posted) != 0 {
 		t.Fatalf("posted = %+v", fake.posted)
+	}
+}
+
+func TestAnAppealCitingARealRowIsCountedOnceByTheLanesMachine(t *testing.T) {
+	fake := &fakeBus{tail: []client.Record{{Seq: 9, Lane: "grader-appeals-1", Kind: "decide", At: t0, Text: "finder-override #47755 at abc1234: 174488. Answer 7f54b1d grounds it"}}}
+	runner := &shelltest.Fake{}
+	runner.Reply("the owner's words\n", "ccn")
+	check := &OverrideRefusals{Env: Env{Bus: fake, Runner: runner, Config: config.Config{Drive: testDrive}}, Store: memory(t)}
+	registerDrive(t)
+
+	if err := check.Check(context.Background(), t0); err != nil {
+		t.Fatal(err)
+	}
+	check.read, check.quoted = t0.Add(-overrideEvery), 0
+	if err := check.Check(context.Background(), t0); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(fake.posted) != 1 {
+		t.Fatalf("posted = %+v, want one counted record", fake.posted)
+	}
+	counted := fake.posted[0]
+	if counted.Lane != Self || counted.Kind != "decide" || !slices.Equal(counted.PRs, []string{"47755"}) || !strings.HasPrefix(counted.Text, "finder-override #47755 at abc1234: 174488. Counted from grader-appeals-1's cci #9") {
+		t.Fatalf("counted = %+v", counted)
 	}
 }
