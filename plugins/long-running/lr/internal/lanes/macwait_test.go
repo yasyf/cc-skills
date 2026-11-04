@@ -22,7 +22,7 @@ type macRig struct {
 }
 
 func macJobs(runnable ...time.Time) string {
-	var edges []string
+	edges := make([]string, 0, len(runnable))
 	for i, at := range runnable {
 		edges = append(edges, fmt.Sprintf(`{"node":{"label":"mac job %d","runnableAt":%q,"build":{"url":"https://buildkite.com/org/test/builds/%d"}}}`, i+1, at.Format(time.RFC3339), i+1))
 	}
