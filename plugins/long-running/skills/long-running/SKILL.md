@@ -257,7 +257,6 @@ its own; `lr drive sub start` refuses without each fact
 | The state of PRs it must name | `ccx vcs pr status <n1> <n2> ...`, batched |
 | Which PRs the owner approved on the board, and which of them are still open | `lr approved [--since <seq>]`, backfilled verdicts excluded |
 | Every open ask, and what is landed but not live | `lr asks` |
-| Every dashboard order: live, in a PR, or its lane and due time, UNOWNED plainly | `lr asks --surface dashboard` |
 | The owner update, complete and from sources | `lr update render`, run by the communicator's `update-desk` |
 | What an incident is doing | `lr incident status <slug>` |
 | Where a lane's mail goes; every `lr` verb takes a stem, `meta-desk`, for its newest live lane | `lr route <lane>` |
