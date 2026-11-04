@@ -191,6 +191,38 @@ func TestRollHostLeavesAHostAlreadyOnThePinsAlone(t *testing.T) {
 	}
 }
 
+func TestRollGradersInstallsCodexAskOnEachGraderSpriteUntilItRunsThePin(t *testing.T) {
+	w := newRollWorld(t)
+	t.Setenv("BINRUN_PLUGIN_ROOT", w.env["BINRUN_PLUGIN_ROOT"])
+	roll := func(tools string) {
+		t.Helper()
+		runner := filepath.Join(t.TempDir(), "runner.json")
+		raw := `{"finder":{"sprite":["fleet-2","fleet-1"]},"fidelity":{"sprite":"fleet-2"},"orca":{"sprite":{"env":{"WORKER_CCI_URL":"` + testCCIURL + `","WORKER_CCI_SHA256":"` + testCCISHA + `"},"tools":` + tools + `}}}`
+		if err := os.WriteFile(runner, []byte(raw), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := RollGraders(context.Background(), w, w.store, runner, func() time.Time { return time.Date(2026, 11, 4, 9, 0, 0, 0, time.UTC) }, &w.out); err != nil {
+			t.Fatal(err)
+		}
+	}
+	roll(rollTools)
+	if len(w.boxes) != 0 {
+		t.Fatal("a drive with no codex-ask pin installed on a grader", w.boxes)
+	}
+	pinned := `[{"kind":"binary","name":"codex-ask","url":"https://example.test/c.tgz","sha256":"` + testCCISHA + `","version":"1.14.29"}]`
+	for _, box := range []string{"fleet-1", "fleet-2"} {
+		w.replies[box] = shell.Result{Stdout: "installed codex-ask 1.14.29\n"}
+	}
+	roll(pinned)
+	if !slices.Equal(w.boxes, []string{"fleet-1", "fleet-2"}) {
+		t.Fatal(w.boxes)
+	}
+	roll(pinned)
+	if len(w.boxes) != 2 {
+		t.Fatal("a grader already on the pin installed again", w.boxes)
+	}
+}
+
 func TestRollHostInstallsOnlyOnTheDeskHost(t *testing.T) {
 	w := newRollWorld(t)
 	t.Setenv("BINRUN_PLUGIN_ROOT", w.env["BINRUN_PLUGIN_ROOT"])

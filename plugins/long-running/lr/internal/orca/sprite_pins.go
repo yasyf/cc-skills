@@ -30,7 +30,9 @@ type spriteTool struct {
 	Follows string `json:"follows,omitempty"`
 }
 
-var hostTools = []string{"long-running@skills", "ccx"}
+const graderTool = "codex-ask"
+
+var hostTools = []string{"long-running@skills", "ccx", graderTool}
 
 type spritePins struct {
 	ccURL, ccSHA, lrURL, lrSHA, lrMember string
@@ -101,7 +103,11 @@ func (p *spritePins) pinTools(raw string) error {
 }
 
 func (p spritePins) forHost() spritePins {
-	p.tools = slices.DeleteFunc(slices.Clone(p.tools), func(tool spriteTool) bool { return !slices.Contains(hostTools, tool.Name) })
+	return p.only(hostTools...)
+}
+
+func (p spritePins) only(names ...string) spritePins {
+	p.tools = slices.DeleteFunc(slices.Clone(p.tools), func(tool spriteTool) bool { return !slices.Contains(names, tool.Name) })
 	return p
 }
 

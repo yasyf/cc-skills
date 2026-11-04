@@ -110,6 +110,23 @@ type runnerFile struct {
 	Host struct {
 		Sprite string `json:"sprite"`
 	} `json:"host"`
+	Finder   graderRoute `json:"finder"`
+	Fidelity graderRoute `json:"fidelity"`
+}
+
+type graderRoute struct {
+	Sprite spriteNames `json:"sprite"`
+}
+
+type spriteNames []string
+
+func (n *spriteNames) UnmarshalJSON(data []byte) error {
+	var one string
+	if err := json.Unmarshal(data, &one); err == nil {
+		*n = spriteNames{one}
+		return nil
+	}
+	return json.Unmarshal(data, (*[]string)(n))
 }
 
 type spriteRoute struct {

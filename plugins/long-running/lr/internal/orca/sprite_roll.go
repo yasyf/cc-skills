@@ -55,7 +55,45 @@ func FollowPins(ctx context.Context, runner shell.Runner, s *store.Store, claude
 	if err != nil {
 		return err
 	}
-	return RollHost(ctx, runner, s, path, now, out)
+	return errors.Join(RollHost(ctx, runner, s, path, now, out), RollGraders(ctx, runner, s, path, now, out))
+}
+
+func RollGraders(ctx context.Context, runner shell.Runner, s *store.Store, path string, now func() time.Time, out io.Writer) error {
+	file, err := readRunnerFile(path)
+	if err != nil {
+		return err
+	}
+	graders := slices.Compact(slices.Sorted(slices.Values(slices.Concat(file.Finder.Sprite, file.Fidelity.Sprite))))
+	if len(graders) == 0 {
+		return nil
+	}
+	env, err := runnerEnv(path)
+	if err != nil {
+		return err
+	}
+	pins, err := readPins(env)
+	if err != nil {
+		return err
+	}
+	pins = pins.only(graderTool)
+	roll := SpriteRoll{Runner: runner, Store: s, Now: now, Out: out}
+	if len(pins.tools) == 0 {
+		return nil
+	}
+	if err := roll.notBad(pins); err != nil {
+		return err
+	}
+	var behind []string
+	for _, box := range graders {
+		level, err := roll.runs(box, pins)
+		if err != nil {
+			return err
+		}
+		if !level {
+			behind = append(behind, box)
+		}
+	}
+	return roll.install(ctx, pins, behind, "")
 }
 
 func RollHost(ctx context.Context, runner shell.Runner, s *store.Store, path string, now func() time.Time, out io.Writer) error {
