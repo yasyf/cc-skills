@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -17,8 +16,6 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
-	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
-	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
@@ -70,29 +67,28 @@ type SlackPRCard struct {
 	Card SlackCard `json:"card"`
 }
 
-func Card(repo string, rows []Row, number int) (SlackCard, bool) {
-	at := slices.IndexFunc(rows, func(row Row) bool { return row.PR == number })
-	if at < 0 {
-		return SlackCard{}, false
-	}
-	row := prRow(rows[at])
-	title := row.Title
-	if title == fmt.Sprintf("#%d", number) {
-		title = ""
-	}
+func Card(repo string, row store.ReviewRow) SlackCard {
 	return SlackCard{
-		Status: "needs_you", Title: fmt.Sprintf("Approve #%d at %s?", number, rows[at].Head[:min(waitsSHA, len(rows[at].Head))]),
+		Status: "needs_you", Title: fmt.Sprintf("Approve #%d at %s?", row.Number, row.Head[:min(waitsSHA, len(row.Head))]),
 		PRs: []SlackPRRow{{
-			URL: fmt.Sprintf("https://github.com/%s/pull/%d", repo, number), Title: title, Head: rows[at].Head, Review: row.Review,
-			Change: row.Change, Plan: row.Plan, Risk: row.Risk, Blocks: row.Blocker, Description: rows[at].Words[factDescription],
+			URL: fmt.Sprintf("https://github.com/%s/pull/%d", repo, row.Number), Title: row.Title, Head: row.Head, Review: standing(row),
+			Change: row.ForUsers, Plan: PlanWords(row), Risk: row.Risk, Blocks: row.WaitsOn, Description: row.Description,
 		}},
-		Options: []string{approveLabel, holdLabel}, Recommended: approveLabel, Waits: MergeWaits(number, rows[at].Head),
-	}, true
+		Options: []string{approveLabel, holdLabel}, Recommended: approveLabel, Waits: MergeWaits(row.Number, row.Head),
+	}
 }
 
-// Waiting is the rows of the numbered PRs that wait on the owner's tap on this
-// drive, under the repo its config names.
-func Waiting(entry drive.Entry, numbers []int) (string, []Row, error) {
+// PlanWords is the row's plan line and plan row, a sentence they share said once.
+func PlanWords(row store.ReviewRow) string {
+	if row.PlanLine == row.PlanRow {
+		return row.PlanLine
+	}
+	return strings.TrimSpace(row.PlanLine + " " + row.PlanRow)
+}
+
+// Rows reads the numbered PRs' rows from the drive's PR ledger, under the repo
+// its config names.
+func Rows(entry drive.Entry, numbers []int) (string, []store.ReviewRow, error) {
 	cfg, err := config.Load(filepath.Join(entry.StateDir, configFile), io.Discard)
 	if err != nil {
 		return "", nil, err
@@ -102,75 +98,22 @@ func Waiting(entry drive.Entry, numbers []int) (string, []Row, error) {
 		return "", nil, err
 	}
 	defer func() { _ = s.Close() }()
-	rows, err := StoredRows(s, cfg.Repo, numbers)
+	rows, err := ledgerRows(s, cfg.Repo, numbers)
 	return cfg.Repo, rows, err
 }
 
-// MissingOf names the owner's lines a set of head-record words lacks.
-func MissingOf(words map[string]string) []string {
-	return Row{Words: words}.MissingWords()
+func ledgerRows(s *store.Store, repo string, numbers []int) ([]store.ReviewRow, error) {
+	all, err := s.ReviewRows(repo)
+	return slices.DeleteFunc(all, func(row store.ReviewRow) bool { return !slices.Contains(numbers, row.Number) }), err
 }
 
-func StoredRows(s *store.Store, repo string, numbers []int) ([]Row, error) {
-	open, err := s.OpenRows(repo, string(machine.ActionTap), machine.MoverOwner, numbers)
-	if err != nil {
-		return nil, err
-	}
-	ledger, err := s.ReviewRows(repo)
-	if err != nil {
-		return nil, err
-	}
-	recorded := make(map[int]store.ReviewRow, len(ledger))
-	for _, row := range ledger {
-		recorded[row.Number] = row
-	}
-	var out []Row
-	for _, row := range open {
-		_, exempt := row.Facts["exempt"]
-		if (machine.Facts{Tap: machine.Tap(row.Facts[tapFact]), Exempt: exempt}).Tapped() || row.Facts[FactWithdrawn] != "" {
-			continue
-		}
-		var missing []string
-		if said := row.Facts[gates.MissingFact]; said != "" {
-			if err := json.Unmarshal([]byte(said), &missing); err != nil {
-				return nil, fmt.Errorf("#%d at %s: the gates its pass stored: %w", row.Number, short(row.Head), err)
-			}
-		}
-		out = append(out, Row{row.Number, row.Head, row.Kind, row.Lane, missing, withLedger(row.Facts, recorded[row.Number])})
-	}
-	return out, nil
-}
-
-func withLedger(facts map[string]string, row store.ReviewRow) map[string]string {
-	words := make(map[string]string, len(facts)+7)
-	maps.Copy(words, facts)
-	for kind, value := range map[string]string{
-		FactTitle: row.Title, FactChange: row.ForUsers, FactPlan: planWords(row), FactRisk: row.Risk,
-		FactBlocks: row.WaitsOn, factDescription: row.Description, factStanding: standing(row),
-	} {
-		if value != "" {
-			words[kind] = value
-		}
-	}
-	return words
-}
-
-func planWords(row store.ReviewRow) string {
-	if row.PlanLine == row.PlanRow {
-		return row.PlanLine
-	}
-	return strings.TrimSpace(row.PlanLine + " " + row.PlanRow)
-}
-
-func standing(row store.ReviewRow) string {
-	if row.Review == "" {
-		return ""
-	}
-	return fmt.Sprintf("%s; grade %s, findings %s; mergeable %s; lane %s, branch %s, parent %s", row.Review, row.Grade, row.GradeFindings, row.Mergeable, row.Lane, row.Branch, row.Parent)
+func waitingRows(s *store.Store, repo string, numbers []int) ([]store.ReviewRow, error) {
+	rows, err := ledgerRows(s, repo, numbers)
+	return slices.DeleteFunc(rows, func(row store.ReviewRow) bool { return !row.ReadyForTap || row.Tapped }), err
 }
 
 func Holders(s *store.Store, numbers []int, held []SlackPR) ([]SlackPR, error) {
-	prs, err := s.NumberedPRs(numbers)
+	prs, err := s.NumberedReviewRows(numbers)
 	if err != nil {
 		return nil, err
 	}
@@ -182,14 +125,14 @@ func Holders(s *store.Store, numbers []int, held []SlackPR) ([]SlackPR, error) {
 	return held, nil
 }
 
-func Respond(s *store.Store, repo string, hooks Hooks, rows []Row, number int, waits, label string, at time.Time) error {
+func Respond(s *store.Store, repo string, hooks Hooks, rows []store.ReviewRow, number int, waits, label string, at time.Time) error {
 	verdict, known := map[string]string{approveLabel: verdictApproved, mergeLabel: verdictApproved, holdLabel: verdictRejected}[label]
 	if !known {
 		return fmt.Errorf("a merge card answers %s or %s, not %q", approveLabel, holdLabel, label)
 	}
-	found := slices.IndexFunc(rows, func(row Row) bool { return row.PR == number })
+	found := slices.IndexFunc(rows, func(row store.ReviewRow) bool { return row.Number == number })
 	if found < 0 {
-		return fmt.Errorf("#%d no longer waits on the owner's tap", number)
+		return fmt.Errorf("#%d has no row in the PR ledger", number)
 	}
 	if now := MergeWaits(number, rows[found].Head); now != waits {
 		return fmt.Errorf("#%d moved to %s since the card asked %s; its new card asks again", number, short(rows[found].Head), waits)
@@ -217,7 +160,7 @@ func slackCardCommand(a *app.App) *cobra.Command {
 				if at < 0 {
 					return fmt.Errorf("no live drive holds %s#%d", k.Repo, k.Number)
 				}
-				return withRows(c, live[at], []int{k.Number}, func(s *store.Store, repository string, rows []Row) error {
+				return withRows(c, live[at], []int{k.Number}, ledgerRows, func(s *store.Store, repository string, rows []store.ReviewRow) error {
 					return Respond(s, repository, postHooks(c.Context(), live[at].Bus(), lane, repository), rows, k.Number, k.Waits, k.Label, a.Now())
 				})
 			}
@@ -246,10 +189,10 @@ func slackCardCommand(a *app.App) *cobra.Command {
 				for i, pr := range held {
 					numbers[i] = pr.Number
 				}
-				if err := withRows(c, entry, numbers, func(_ *store.Store, repository string, rows []Row) error {
+				if err := withRows(c, entry, numbers, waitingRows, func(_ *store.Store, repository string, rows []store.ReviewRow) error {
 					for _, pr := range held {
-						if card, ok := Card(repository, rows, pr.Number); ok {
-							cards = append(cards, SlackPRCard{pr, card})
+						if at := slices.IndexFunc(rows, func(row store.ReviewRow) bool { return row.Number == pr.Number }); at >= 0 {
+							cards = append(cards, SlackPRCard{pr, Card(repository, rows[at])})
 						}
 					}
 					return nil
@@ -282,7 +225,7 @@ func cardDrives(name string) ([]drive.Entry, error) {
 	}), nil
 }
 
-func withRows(c *cobra.Command, entry drive.Entry, numbers []int, use func(*store.Store, string, []Row) error) error {
+func withRows(c *cobra.Command, entry drive.Entry, numbers []int, read func(*store.Store, string, []int) ([]store.ReviewRow, error), use func(*store.Store, string, []store.ReviewRow) error) error {
 	cfg, err := config.Load(filepath.Join(entry.StateDir, configFile), c.ErrOrStderr())
 	if err != nil {
 		return err
@@ -292,7 +235,7 @@ func withRows(c *cobra.Command, entry drive.Entry, numbers []int, use func(*stor
 		return err
 	}
 	defer func() { _ = s.Close() }()
-	rows, err := StoredRows(s, cfg.Repo, numbers)
+	rows, err := read(s, cfg.Repo, numbers)
 	if err != nil {
 		return err
 	}

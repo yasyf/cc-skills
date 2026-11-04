@@ -174,16 +174,7 @@ func snapshotOf(ctx context.Context, a *app.App, entry drive.Entry, s *store.Sto
 	return cfg.Repo, byNumber, nil
 }
 
-func explainPRs(c *cobra.Command, a *app.App, entry drive.Entry, live Live, stored []store.ReviewRow, prs []string, asJSON bool) error {
-	s, err := store.Memory()
-	if err != nil {
-		return err
-	}
-	defer func() { _ = s.Close() }()
-	_, snapshot, err := snapshotOf(c.Context(), a, entry, s, c.ErrOrStderr())
-	if err != nil {
-		return err
-	}
+func explainPRs(c *cobra.Command, live Live, stored []store.ReviewRow, prs []string, asJSON bool) error {
 	rows := make(map[int]store.ReviewRow, len(stored))
 	for _, row := range stored {
 		rows[row.Number] = row
@@ -194,7 +185,7 @@ func explainPRs(c *cobra.Command, a *app.App, entry drive.Entry, live Live, stor
 		if err != nil {
 			return fmt.Errorf("--pr %q: %w", named, err)
 		}
-		found[i] = live.Explain(pr, snapshot, rows)
+		found[i] = live.Explain(pr, rows)
 	}
 	if asJSON {
 		return json.NewEncoder(c.OutOrStdout()).Encode(found)
@@ -259,7 +250,7 @@ func waitsCommand(a *app.App, opened func() (drive.Entry, string, error)) *cobra
 				return err
 			}
 			if len(prs) > 0 {
-				return explainPRs(c, a, entry, live, rows, prs, asJSON)
+				return explainPRs(c, live, rows, prs, asJSON)
 			}
 			found := live.Waits()
 			if asJSON {

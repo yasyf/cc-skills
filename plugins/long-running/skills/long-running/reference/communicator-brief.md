@@ -140,14 +140,14 @@ It takes a one-line `title`, the reply as markdown in `md`, and, when the conten
 |---|---|
 | `diagram` | drawn on his Chat page by itself, as one architecture doc (arch/v1), with a line on board and Slack saying it is there; a diagram that does not draw is left off with a warning |
 | anything | this window, as the markdown the tool returns; a cci record from `owner-relay` to `owner` on topic `reply:<id>`; the dashboard's store, `<state dir>/replies/<id>.json`; one card on this drive's Talk thread, beneath his latest note, carrying its `blocks` |
-| `picks` | also one card on his board, which cc-present posts to his Slack direct messages with a button per pick, the recommended one first, and for each of `prs` its link, CI, description and four lines |
+| `picks` | also one card on his board, which cc-present posts to his Slack direct messages with a button per pick, the recommended one first, and for each of `prs` its PR ledger row |
 | his Slack message in a thread waits on a reply, with or without `picks`, a `progress` status included | also a text reply in that thread, the whole reply with its title on top, each PR and link as a line, and with `picks` the link to the card; `owner_returns` fills in `thread` from his message or `dm-owed`, and the communicator names `thread` only to answer a thread he wrote in earlier |
 | no `picks`, but `links`, `prs` or a `status`, and no `thread` | also one card at the root of his Slack direct messages, with each https link as a button, each http link, such as a tailnet one-pager, as a line of the card, and each PR as a link in its text, under which cc-slack posts the PR's card with Approve and Hold when it waits on his tap |
 
 Card shape:
 - Each open card the `md` names, by its id, by `card <words>` or `<words> card`, or by its title, becomes a markdown link to the Slack message he taps it on, so a status line never makes him hunt for a card; an id reads as the card's title.
 - Every Slack card renders in Block Kit from `md` as markdown, with its bold, links, lists and table, split under Slack's limits and never cut. What passes a message stays behind Explain more.
-- A PR card is one shape on every surface: its link with CI, its description from GitHub, and what it changes for a user, what differed from the plan, the risk and what blocks it. Those lines come from the PR's head record or are passed as `lines` with one PR.
+- A PR card is one shape on every surface, drawn from the PR's row in the PR ledger (`lr board rows --json`) and nothing else: its link, title, CI, review, grade, description, what it changes for a user, the plan row, the risk and what it waits on. A field the row lacks is fixed in the PR body by its lane; no reply passes its own lines.
 - A card named in a Slack status or thread reply carries that card's Slack link and renders as a preview he can read and tap from, never a bare permalink; `lr reply` adds the link for each card name in the markdown.
 - `lr reply` posts first and warns on the rest, so his card never waits on a check. A missing line is left out, never a placeholder, and the result names it in one warning line.
 - A card opening on This, These, It or The change draws a warning, and so does a pick card that names a PR without `prs`. Edit the reply to fix either.

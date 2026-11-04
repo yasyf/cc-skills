@@ -4,11 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
-	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -19,66 +17,73 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
-	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/pass"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
-func TestAnOwnerMergeRowIsTheFullCardWithApproveAndHold(t *testing.T) {
-	card, ok := Card(repo, rows(t, withWords(t), facts(nil)), number)
-	if !ok {
-		t.Fatal("an owner merge row drew no card")
-	}
+func TestTheApproveCardIsTheLedgerRowWithApproveAndHold(t *testing.T) {
 	want := SlackCard{
 		Status: "needs_you", Title: "Approve #45583 at e718a74?",
 		PRs: []SlackPRRow{{
-			URL: "https://github.com/org/repo/pull/45583", Head: head, Review: "every other gate is met",
-			Change: "chats load faster", Plan: "nothing differed", Risk: "one cache key", Blocks: "your approval",
+			URL: "https://github.com/org/repo/pull/45583", Title: "sand: faster chats", Head: head,
+			Review: "CI green; approved by poetic-svc; grade pass, findings none; mergeable clean; lane lane-7, branch lane-7/fast, parent none",
+			Change: "chats load faster", Plan: "checked against the plan", Risk: "one cache key", Blocks: "Only your approval.", Description: "## Context",
 		}},
 		Options: []string{"Approve", "Hold"}, Recommended: "Approve", Waits: MergeWaits(number, head),
 	}
-	if !reflect.DeepEqual(card, want) {
+	if card := Card(repo, readyRow(nil)); !reflect.DeepEqual(card, want) {
 		t.Fatalf("card = %+v, want %+v", card, want)
 	}
 }
 
-func TestAPRWithNoOwnerRowDrawsNoCard(t *testing.T) {
-	for name, found := range map[string][]Row{
-		"another PR":       rows(t, withWords(t), facts(nil)),
-		"already tapped":   rows(t, withWords(t), facts(func(f *machine.Facts) { f.Tap = machine.TapTapped })),
-		"at an older head": rows(t, withWords(t), facts(func(f *machine.Facts) { f.Head = moved })),
+func TestOnlyALedgerRowReadyAndUntappedWaitsOnHim(t *testing.T) {
+	for name, c := range map[string]struct {
+		row     store.ReviewRow
+		waiting bool
+	}{
+		"ready":          {readyRow(nil), true},
+		"not ready":      {readyRow(func(r *store.ReviewRow) { r.ReadyForTap = false }), false},
+		"already tapped": {readyRow(func(r *store.ReviewRow) { r.Tapped = true }), false},
+		"another PR":     {readyRow(func(r *store.ReviewRow) { r.Number = number + 1 }), false},
 	} {
 		t.Run(name, func(t *testing.T) {
-			pr := number
-			if name == "another PR" {
-				pr = number + 1
-			}
-			if card, ok := Card(repo, found, pr); ok {
-				t.Fatalf("drew %+v", card)
+			found, err := waitingRows(withLedger(t, c.row), repo, []int{number})
+			if err != nil || (len(found) == 1) != c.waiting {
+				t.Fatalf("waiting = %+v, %v, want waiting %v", found, err, c.waiting)
 			}
 		})
 	}
 }
 
 func TestMergeOnTheCardTapsTheRowAndHoldHoldsIt(t *testing.T) {
-	s, hooks := withItem(t), &recorded{}
-	if err := Respond(s, repo, hooks.hooks(), rows(t, s, facts(nil)), number, MergeWaits(number, head), "Hold", t0); err != nil {
+	s, hooks := withLedger(t, readyRow(nil)), &recorded{}
+	found, err := ledgerRows(s, repo, []int{number})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Respond(s, repo, hooks.hooks(), found, number, MergeWaits(number, head), "Hold", t0); err != nil {
 		t.Fatal(err)
 	}
 	if want := []Key{{number, head}}; !reflect.DeepEqual(hooks.holds, want) || len(hooks.taps) != 0 {
 		t.Fatalf("holds = %+v, taps = %+v", hooks.holds, hooks.taps)
 	}
-	if err := Respond(s, repo, hooks.hooks(), rows(t, s, facts(nil)), number, MergeWaits(number, head), "Merge", t0); err != nil {
+	if err := Respond(s, repo, hooks.hooks(), found, number, MergeWaits(number, head), "Merge", t0); err != nil {
 		t.Fatal(err)
 	}
 	if want := []TapRecord{{number, head, "owner", machine.TapTapped}}; !reflect.DeepEqual(hooks.taps, want) {
 		t.Fatalf("taps = %+v", hooks.taps)
 	}
+	if again, err := waitingRows(s, repo, []int{number}); err != nil || len(again) != 0 {
+		t.Fatalf("rows after his tap = %+v, %v", again, err)
+	}
 }
 
 func TestACardAnswerForAMovedHeadOrAnotherLabelIsRefused(t *testing.T) {
-	s, hooks := withItem(t), &recorded{}
-	found := rows(t, s, facts(nil))
+	s, hooks := withLedger(t, readyRow(nil)), &recorded{}
+	found, err := ledgerRows(s, repo, []int{number})
+	if err != nil {
+		t.Fatal(err)
+	}
 	for label, said := range map[string]string{"Approve": "moved to e718a7434fa0", "Merge": "moved to e718a7434fa0", "Ship it": `not "Ship it"`} {
 		err := Respond(s, repo, hooks.hooks(), found, number, MergeWaits(number, moved), label, t0)
 		if err == nil || !strings.Contains(err.Error(), said) {
@@ -91,12 +96,7 @@ func TestACardAnswerForAMovedHeadOrAnotherLabelIsRefused(t *testing.T) {
 }
 
 func TestABareNumberNamesEveryDrivePRHoldingItAndNoOther(t *testing.T) {
-	s := withItem(t)
-	for _, pr := range []store.PR{{Repo: "yasyf/cc-skills", Number: 2475}, {Repo: "yasyf/cc-slack", Number: 66}, {Repo: "Forge-AI/monorepo", Number: 66}, {Repo: "Forge-AI/monorepo", Number: 49032}} {
-		if err := s.PutPR(store.PR{Repo: pr.Repo, Number: pr.Number, Head: head, Base: "main", Lane: "lane-7", State: machine.StateGrading, ReadAt: t0}); err != nil {
-			t.Fatal(err)
-		}
-	}
+	s := withLedger(t, store.ReviewRow{Repo: "yasyf/cc-skills", Number: 2475, Head: head}, store.ReviewRow{Repo: "yasyf/cc-slack", Number: 66, Head: head}, store.ReviewRow{Repo: "Forge-AI/monorepo", Number: 66, Head: head}, store.ReviewRow{Repo: "Forge-AI/monorepo", Number: 49032, Head: head})
 	held, err := Holders(s, []int{2475, 66, 7}, []SlackPR{{"yasyf/cc-skills", 2475}})
 	if err != nil {
 		t.Fatal(err)
@@ -144,54 +144,6 @@ func (c *countedShell) Run(context.Context, shell.Command) (shell.Result, error)
 	return shell.Result{}, fmt.Errorf("the card ran a command")
 }
 
-func passed(t *testing.T, s *store.Store, snapshot map[int]machine.Facts) {
-	t.Helper()
-	found := slices.Collect(maps.Values(snapshot))
-	if _, err := pass.Run(s, found, t0, func([]string, bus.Body) error { return nil }, nil, func(string) string { return "" }, func(string) (string, error) { return "", nil }); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestACardFromTheStoreIsTheCardTheLiveReadDraws(t *testing.T) {
-	for name, change := range map[string]func(*machine.Facts){
-		"untapped":           nil,
-		"tap given":          func(f *machine.Facts) { f.Tap, f.Condition = machine.TapConditional, "only if covered" },
-		"unsafe on dev":      func(f *machine.Facts) { f.UnsafeWait = "do not merge until the cutover" },
-		"lane the pass read": func(f *machine.Facts) { f.Lane = "lane-9" },
-	} {
-		t.Run(name, func(t *testing.T) {
-			s, snapshot := withWords(t), facts(change)
-			passed(t, s, snapshot)
-			want, ok := Card(repo, rows(t, s, snapshot), number)
-			if !ok {
-				t.Fatal("the live read drew no card")
-			}
-			stored, err := StoredRows(s, repo, []int{number})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if got, ok := Card(repo, stored, number); !ok || !reflect.DeepEqual(got, want) {
-				t.Fatalf("stored card = %+v, want %+v", got, want)
-			}
-		})
-	}
-}
-
-func TestATapOnTheCardTakesItOffBeforeTheNextPass(t *testing.T) {
-	s, hooks := withWords(t), &recorded{}
-	passed(t, s, facts(nil))
-	found, err := StoredRows(s, repo, []int{number})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := Respond(s, repo, hooks.hooks(), found, number, MergeWaits(number, head), "Merge", t0); err != nil {
-		t.Fatal(err)
-	}
-	if again, err := StoredRows(s, repo, []int{number}); err != nil || len(again) != 0 {
-		t.Fatalf("rows after his tap = %+v, %v", again, err)
-	}
-}
-
 func TestTheCardReadsNothingButTheStoreAtOneAndAThousandPRs(t *testing.T) {
 	for _, n := range []int{1, 1000} {
 		t.Run(strconv.Itoa(n), func(t *testing.T) {
@@ -214,14 +166,15 @@ func TestTheCardReadsNothingButTheStoreAtOneAndAThousandPRs(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			snapshot := map[int]machine.Facts{}
+			ready := make([]store.ReviewRow, n)
 			asked := make([]SlackPR, n)
 			for i := range n {
-				f := facts(nil)[number]
-				f.Number = number + i
-				snapshot[f.Number], asked[i] = f, SlackPR{repo, f.Number}
+				ready[i] = readyRow(func(r *store.ReviewRow) { r.Number = number + i })
+				asked[i] = SlackPR{repo, number + i}
 			}
-			passed(t, s, snapshot)
+			if err := s.PutReviewRows(ready); err != nil {
+				t.Fatal(err)
+			}
 			if err := s.Close(); err != nil {
 				t.Fatal(err)
 			}
@@ -271,33 +224,6 @@ func TestASlackMergeCardTapIsAnOwnerRecordThatReachesTheLandingHost(t *testing.T
 	}
 }
 
-func TestTheApproveCardReadsThePRLedgerWhenNoHeadRecordCarriesWords(t *testing.T) {
-	s := withItem(t)
-	if err := s.PutReviewRows([]store.ReviewRow{{
-		Repo: repo, Number: number, Head: head, ReadyForTap: true, Title: "sand: faster chats", ForUsers: "chats load faster", PlanRow: "checked against the plan",
-		Risk: "one cache key", Description: "## Context", WaitsOn: "Only your approval.", Review: "approved by poetic-svc", Grade: "pass", GradeFindings: "none",
-		Mergeable: "clean", Lane: "lane-7", Branch: "lane-7/fast", Parent: "none",
-	}}); err != nil {
-		t.Fatal(err)
-	}
-	found, err := StoredRows(s, repo, []int{number})
-	if err != nil {
-		t.Fatal(err)
-	}
-	card, ok := Card(repo, found, number)
-	if !ok {
-		t.Fatal("drew no card")
-	}
-	want := SlackPRRow{
-		URL: "https://github.com/org/repo/pull/45583", Title: "sand: faster chats", Head: head,
-		Review: "every other gate is met; approved by poetic-svc; grade pass, findings none; mergeable clean; lane lane-7, branch lane-7/fast, parent none",
-		Change: "chats load faster", Plan: "checked against the plan", Risk: "one cache key", Blocks: "Only your approval.", Description: "## Context",
-	}
-	if !reflect.DeepEqual(card.PRs[0], want) {
-		t.Fatalf("row = %+v, want %+v", card.PRs[0], want)
-	}
-}
-
 func TestPlanWordsSayASentenceTheLineAndRowShareOnce(t *testing.T) {
 	for _, tc := range []struct {
 		line, row, want string
@@ -307,8 +233,8 @@ func TestPlanWordsSayASentenceTheLineAndRowShareOnce(t *testing.T) {
 		{"the plan's step", "", "the plan's step"},
 		{"line 73", "the plan's step", "line 73 the plan's step"},
 	} {
-		if got := planWords(store.ReviewRow{PlanLine: tc.line, PlanRow: tc.row}); got != tc.want {
-			t.Fatalf("planWords(%q, %q) = %q, want %q", tc.line, tc.row, got, tc.want)
+		if got := PlanWords(store.ReviewRow{PlanLine: tc.line, PlanRow: tc.row}); got != tc.want {
+			t.Fatalf("PlanWords(%q, %q) = %q, want %q", tc.line, tc.row, got, tc.want)
 		}
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
@@ -62,6 +63,23 @@ func Decide(row store.ReviewRow) store.ReviewRow {
 		row.WaitsOn = onlyHim
 	}
 	return row
+}
+
+// Tap is the row once the owner's tap at its head is recorded, by the fold's
+// rule, for the writer of the tap fact to store at once.
+func Tap(row store.ReviewRow, by string, at time.Time) store.ReviewRow {
+	row.Tapped, row.TapRefused, row.TappedAt, row.TappedBy = true, None, store.Stamp(at), by
+	if row.State == StateOpen {
+		row.State = StateTapped
+	}
+	return Decide(row)
+}
+
+// Withdraw is the row once its lane withdraws the tap it asked for, by the
+// fold's rule, for the writer of the withdrawn fact to store at once.
+func Withdraw(row store.ReviewRow, why string) store.ReviewRow {
+	row.SupersededBy, row.State = why, StateSuperseded
+	return Decide(row)
 }
 
 func firstUnmet(row store.ReviewRow) string {

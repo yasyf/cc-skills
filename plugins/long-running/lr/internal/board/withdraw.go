@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
@@ -33,7 +34,7 @@ func (c Cards) Pull(ctx context.Context, lane, target, why string, out io.Writer
 	if err != nil {
 		return false, err
 	}
-	prs, err := c.Store.NumberedPRs([]int{number})
+	prs, err := c.Store.NumberedReviewRows([]int{number})
 	if err != nil {
 		return false, err
 	}
@@ -57,6 +58,9 @@ func (c Cards) Pull(ctx context.Context, lane, target, why string, out io.Writer
 			continue
 		}
 		if _, err := c.Store.PutFact(pr.Repo, pr.Number, pr.Head, FactWithdrawn, why, c.Now()); err != nil {
+			return false, err
+		}
+		if err := c.Store.PutReviewRows([]store.ReviewRow{prrow.Withdraw(pr, why)}); err != nil {
 			return false, err
 		}
 		if err := c.Withdraw(ctx, lane, fmt.Sprintf("%s#%d", pr.Repo, pr.Number), fmt.Sprintf("Withdrew the %s#%d tap at %s from the owner's queue: %s.", pr.Repo, pr.Number, short(pr.Head), why)); err != nil {

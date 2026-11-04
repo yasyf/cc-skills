@@ -33,20 +33,10 @@ type Body interface {
 }
 
 type Head struct {
-	PR      int    `json:"pr"`
-	Head    string `json:"head"`
-	Lane    string `json:"lane"`
-	Title   string `json:"title,omitempty"`
-	Change  string `json:"change,omitempty"`
-	Plan    string `json:"plan,omitempty"`
-	Risk    string `json:"risk,omitempty"`
-	Blocks  string `json:"blocks,omitempty"`
-	Group   string `json:"group,omitempty"`
-	Summary string `json:"summary,omitempty"`
-}
-
-func (h Head) Words() map[string]string {
-	return map[string]string{"title": h.Title, "change": h.Change, "plan": h.Plan, "risk": h.Risk, "blocks": h.Blocks, "group": h.Group, "summary": h.Summary}
+	PR    int    `json:"pr"`
+	Head  string `json:"head"`
+	Lane  string `json:"lane"`
+	Title string `json:"title,omitempty"`
 }
 
 type Grade struct {

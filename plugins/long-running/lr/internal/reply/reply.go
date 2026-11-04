@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -80,8 +79,7 @@ type Build struct {
 	None   string `json:"none,omitempty"`
 }
 
-// Lines are a PR's four plain lines, when the lane drawing its card passes them
-// in place of a head record's.
+// Lines are a PR's four plain lines, read from its row in the PR ledger.
 type Lines struct {
 	Change string `json:"change,omitempty"`
 	Plan   string `json:"plan,omitempty"`
@@ -89,11 +87,12 @@ type Lines struct {
 	Blocks string `json:"blocks,omitempty"`
 }
 
-// prCard is one PR a pick card draws, with its lines read or passed.
+// prCard is one PR a pick card draws, with its lines read from the PR ledger.
 type prCard struct {
-	URL   string `json:"url"`
-	Head  string `json:"head,omitempty"`
-	Title string `json:"title,omitempty"`
+	URL         string `json:"url"`
+	Head        string `json:"head,omitempty"`
+	Title       string `json:"title,omitempty"`
+	Description string `json:"description,omitempty"`
 	Lines
 }
 
@@ -108,7 +107,6 @@ type Reply struct {
 	Build       *Build   `json:"build,omitempty"`
 	Links       []Link   `json:"links,omitempty"`
 	PRs         []string `json:"prs,omitempty"`
-	Lines       *Lines   `json:"lines,omitempty"`
 	PRCards     []prCard `json:"pr_cards,omitempty"`
 	Thread      string   `json:"thread,omitempty"`
 	Order       string   `json:"order,omitempty"`
@@ -411,10 +409,10 @@ func (r Reply) bareExplainMore() error {
 	return nil
 }
 
-// withPRCards reads the head-record lines of each PR the reply names, for its
-// card to carry. The reply posts whatever it finds: the second result is one
-// warning line naming what is missing, or empty. A PR that does not wait on his
-// tap, on a reply with no picks, is only a mention.
+// withPRCards reads each PR the reply names from the drive's PR ledger, for
+// its card to carry. The reply posts whatever it finds: the second result is
+// one warning line naming what is missing, or empty. A PR that does not wait on
+// his tap, on a reply with no picks, is only a mention.
 func (f Fanout) withPRCards(r Reply) (Reply, string) {
 	if len(r.PRs) == 0 {
 		return r, ""
@@ -423,32 +421,33 @@ func (f Fanout) withPRCards(r Reply) (Reply, string) {
 	for n, pr := range r.PRs {
 		numbers[n], _ = strconv.Atoi(pullURL.FindStringSubmatch(pr)[2])
 	}
-	repo, rows, read := board.Waiting(f.Entry, numbers)
-	lines := r.Lines
+	repo, rows, read := board.Rows(f.Entry, numbers)
 	var short []string
-	if lines != nil && len(r.PRs) != 1 {
-		lines = nil
-		short = append(short, "lines are one PR's, so they were not used")
-	}
 	cards := make([]prCard, 0, len(r.PRs))
 	for n, pr := range r.PRs {
-		at := slices.IndexFunc(rows, func(row board.Row) bool {
-			return row.PR == numbers[n] && strings.EqualFold(repo, pullURL.FindStringSubmatch(pr)[1])
+		at := slices.IndexFunc(rows, func(row store.ReviewRow) bool {
+			return row.Number == numbers[n] && strings.EqualFold(repo, pullURL.FindStringSubmatch(pr)[1])
 		})
-		if at < 0 && len(r.Picks) == 0 && lines == nil {
+		if at < 0 {
+			if len(r.Picks) > 0 {
+				short = append(short, pr+" has no row in the PR ledger")
+				cards = append(cards, prCard{URL: pr})
+			}
 			continue
 		}
-		card := prCard{URL: pr}
-		words := map[string]string{}
-		if at >= 0 {
-			card.Head, card.Title, words = rows[at].Head, rows[at].Words[board.FactTitle], rows[at].Words
+		row := rows[at]
+		if len(r.Picks) == 0 && (!row.ReadyForTap || row.Tapped) {
+			continue
 		}
-		if lines != nil {
-			words = passed(words, *lines)
+		card := prCard{URL: pr, Head: row.Head, Title: row.Title, Description: row.Description, Lines: Lines{row.ForUsers, board.PlanWords(row), row.Risk, row.WaitsOn}}
+		var missing []string
+		for _, field := range []struct{ said, name string }{{row.ForUsers, "what it changes for a user"}, {row.PlanRow, "the plan row"}, {row.Risk, "the risk"}} {
+			if field.said == "" {
+				missing = append(missing, field.name)
+			}
 		}
-		card.Lines = Lines{words[board.FactChange], words[board.FactPlan], words[board.FactRisk], words[board.FactBlocks]}
-		if missing := board.MissingOf(words); len(missing) > 0 {
-			short = append(short, fmt.Sprintf("%s has no line for %s", pr, strings.Join(missing, ", ")))
+		if len(missing) > 0 {
+			short = append(short, fmt.Sprintf("%s has no %s in its ledger row", pr, strings.Join(missing, ", ")))
 		}
 		cards = append(cards, card)
 	}
@@ -458,21 +457,11 @@ func (f Fanout) withPRCards(r Reply) (Reply, string) {
 	if len(short) == 0 {
 		return r, ""
 	}
-	warning := strings.Join(short, "; ") + ", so post a head record carrying them, or pass lines, and edit this reply"
+	warning := strings.Join(short, "; ") + ", so its lane fixes the PR body's Summary, plan reference or Risk profile, and this reply is edited once the row has them"
 	if read != nil {
-		warning += fmt.Sprintf("; the drive's head records did not read: %v", read)
+		warning += fmt.Sprintf("; the PR ledger did not read: %v", read)
 	}
 	return r, warning
-}
-
-func passed(words map[string]string, lines Lines) map[string]string {
-	out := maps.Clone(words)
-	for fact, said := range map[string]string{board.FactChange: lines.Change, board.FactPlan: lines.Plan, board.FactRisk: lines.Risk, board.FactBlocks: lines.Blocks} {
-		if said != "" {
-			out[fact] = said
-		}
-	}
-	return out
 }
 
 func (r Reply) prChild(id, pr string) map[string]any {
@@ -500,6 +489,9 @@ func (r Reply) prChild(id, pr string) map[string]any {
 	}
 	if card.Title != "" {
 		child["title"] = card.Title
+	}
+	if card.Description != "" {
+		child["description"] = card.Description
 	}
 	return child
 }

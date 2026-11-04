@@ -703,9 +703,9 @@ func TestBusRecordsLandAsFactRowsAndMoveTheCursor(t *testing.T) {
 	}
 }
 
-func TestAHeadRecordsTheBoardsWordsAsFactsOnItsHead(t *testing.T) {
+func TestAHeadRecordStoresOnlyItsLaneOnItsHeadNeverASecondCopyOfThePRsWords(t *testing.T) {
 	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
-	post(t, "lane-7", bus.Head{PR: 1, Head: head, Lane: "lane-7", Title: "the title", Change: "what a user sees", Risk: "none"}, "supervisor")
+	post(t, "lane-7", bus.Head{PR: 1, Head: head, Lane: "lane-7", Title: "the title"}, "supervisor")
 
 	h.snapshot(t)
 
@@ -713,7 +713,7 @@ func TestAHeadRecordsTheBoardsWordsAsFactsOnItsHead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]string{"lane": "lane-7", "seen": "yes", "words-title": "the title", "words-change": "what a user sees", "words-risk": "none"}
+	want := map[string]string{"lane": "lane-7", "seen": "yes"}
 	if !maps.Equal(stored, want) {
 		t.Fatalf("facts = %+v, want %+v", stored, want)
 	}

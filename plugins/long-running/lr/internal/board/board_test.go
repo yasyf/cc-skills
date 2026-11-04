@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
-	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -19,10 +18,7 @@ const (
 	moved  = "aa11bb22cc33dd44ee55ff6677889900aabbccdd"
 )
 
-var (
-	t0    = time.Date(2026, 10, 30, 21, 0, 0, 0, time.UTC)
-	words = map[string]string{FactChange: "chats load faster", FactPlan: "nothing differed", FactRisk: "one cache key", FactBlocks: "your approval"}
-)
+var t0 = time.Date(2026, 10, 30, 21, 0, 0, 0, time.UTC)
 
 type recorded struct {
 	taps    []TapRecord
@@ -59,11 +55,27 @@ func withItem(t *testing.T) *store.Store {
 	return s
 }
 
-func withWords(t *testing.T) *store.Store {
+func readyRow(change func(*store.ReviewRow)) store.ReviewRow {
+	row := store.ReviewRow{
+		Repo: repo, Number: number, Head: head, ReadyForTap: true, State: "open", Title: "sand: faster chats", ForUsers: "chats load faster",
+		PlanRow: "checked against the plan", Risk: "one cache key", Description: "## Context", WaitsOn: "Only your approval.", CI: "green",
+		Review: "approved by poetic-svc", Grade: "pass", GradeFindings: "none", Mergeable: "clean", Lane: "lane-7", Branch: "lane-7/fast", Parent: "none",
+	}
+	if change != nil {
+		change(&row)
+	}
+	return row
+}
+
+func withLedger(t *testing.T, rows ...store.ReviewRow) *store.Store {
 	t.Helper()
-	s := withItem(t)
-	for kind, value := range words {
-		put(t, s, head, kind, value)
+	s, err := store.Memory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+	if err := s.PutReviewRows(rows); err != nil {
+		t.Fatal(err)
 	}
 	return s
 }
@@ -97,29 +109,6 @@ type Key struct {
 	Head string
 }
 
-func rows(t *testing.T, s *store.Store, snapshot map[int]machine.Facts) []Row {
-	t.Helper()
-	items, err := s.OpenItems(repo, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var found []Row
-	for _, item := range items {
-		f, open := snapshot[item.Number]
-		if item.Mover != machine.MoverOwner || !open || !f.Ours() || f.Head != item.Head || f.Tapped() || f.Hold != "" {
-			continue
-		}
-		words, err := s.Facts(repo, item.Number, item.Head)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if words[FactWithdrawn] == "" {
-			found = append(found, Row{item.Number, item.Head, item.Kind, f.Lane, gates.Missing(f), words})
-		}
-	}
-	return found
-}
-
 func stored(t *testing.T, s *store.Store) map[string]string {
 	t.Helper()
 	found, err := s.Facts(repo, number, head)
@@ -131,7 +120,7 @@ func stored(t *testing.T, s *store.Store) map[string]string {
 
 func TestApprovedBecomesATapFactAndATapRecord(t *testing.T) {
 	s, hooks := withItem(t), &recorded{}
-	if err := Answer(s, repo, hooks.hooks(), rows(t, s, facts(nil))[0], verdictApproved, t0); err != nil {
+	if err := Answer(s, repo, hooks.hooks(), readyRow(nil), verdictApproved, t0); err != nil {
 		t.Fatal(err)
 	}
 	if stored(t, s)["tap"] != "tapped" {
@@ -143,15 +132,15 @@ func TestApprovedBecomesATapFactAndATapRecord(t *testing.T) {
 	if len(hooks.holds) != 0 {
 		t.Fatalf("holds = %+v", hooks.holds)
 	}
-	if found := rows(t, s, facts(func(f *machine.Facts) { f.Tap = machine.TapTapped })); len(found) != 0 {
-		t.Fatalf("a tapped head keeps its row: %+v", found)
+	if found, err := waitingRows(s, repo, []int{number}); err != nil || len(found) != 0 {
+		t.Fatalf("a tapped head still waits on him: %+v, %v", found, err)
 	}
 }
 
 func TestApprovedOnARowNotReadyIsRefusedWithItsReasonAndTapsNothing(t *testing.T) {
 	s, hooks := withItem(t), &recorded{}
 	rowWaits(t, s, "held by root")
-	if err := Answer(s, repo, hooks.hooks(), rows(t, s, facts(nil))[0], verdictApproved, t0); err == nil || !strings.Contains(err.Error(), "held by root") {
+	if err := Answer(s, repo, hooks.hooks(), readyRow(func(r *store.ReviewRow) { r.ReadyForTap, r.WaitsOn = false, "held by root" }), verdictApproved, t0); err == nil || !strings.Contains(err.Error(), "held by root") {
 		t.Fatalf("err = %v, want the refusal for the card to tell him", err)
 	}
 	if len(hooks.taps) != 0 || stored(t, s)["tap"] != "" {
@@ -164,7 +153,7 @@ func TestApprovedOnARowNotReadyIsRefusedWithItsReasonAndTapsNothing(t *testing.T
 
 func TestRejectedGoesToTheHoldHookAndTapsNothing(t *testing.T) {
 	s, hooks := withItem(t), &recorded{}
-	if err := Answer(s, repo, hooks.hooks(), rows(t, s, facts(nil))[0], verdictRejected, t0); err != nil {
+	if err := Answer(s, repo, hooks.hooks(), readyRow(nil), verdictRejected, t0); err != nil {
 		t.Fatal(err)
 	}
 	if want := []Key{{number, head}}; !reflect.DeepEqual(hooks.holds, want) {
@@ -177,32 +166,8 @@ func TestRejectedGoesToTheHoldHookAndTapsNothing(t *testing.T) {
 
 func TestAnUnknownAnswerIsRefused(t *testing.T) {
 	s, hooks := withItem(t), &recorded{}
-	err := Answer(s, repo, hooks.hooks(), rows(t, s, facts(nil))[0], "Ship it", t0)
+	err := Answer(s, repo, hooks.hooks(), readyRow(nil), "Ship it", t0)
 	if err == nil || err.Error() != `not a board answer: "Ship it"` {
 		t.Fatalf("err = %v", err)
-	}
-}
-
-func TestACarriedTapAsksNothing(t *testing.T) {
-	s := withItem(t)
-	put(t, s, head, "tap", "tapped")
-	openTap(t, s, moved, t0.Add(time.Hour))
-	snapshot := facts(func(f *machine.Facts) {
-		f.Head, f.Tap, f.TapFrom, f.CarriedBy = moved, machine.TapTapped, head, gates.BySameDiff
-	})
-	if found := rows(t, s, snapshot); len(found) != 0 {
-		t.Fatalf("rows = %+v", found)
-	}
-}
-
-func TestAStaleItemForAnOlderHeadRendersNothing(t *testing.T) {
-	if found := rows(t, withItem(t), facts(func(f *machine.Facts) { f.Head = moved })); len(found) != 0 {
-		t.Fatalf("rows = %+v", found)
-	}
-}
-
-func TestAnOwnerItemOnAnotherPersonsPRALaneCarriesDrawsNoRow(t *testing.T) {
-	if found := rows(t, withItem(t), facts(func(f *machine.Facts) { f.ForeignAuthor = "teammate" })); len(found) != 0 {
-		t.Fatalf("rows = %+v", found)
 	}
 }
