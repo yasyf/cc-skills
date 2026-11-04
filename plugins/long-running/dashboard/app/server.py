@@ -27,7 +27,7 @@ from zoneinfo import ZoneInfo
 
 import plainwords
 from brief import COORDINATORS, ROOT, Curator
-from owed import kept, overdue_rows, owner_ask_rows, trimmed
+from owed import kept, order_replies, overdue_rows, owner_ask_rows, told_asks, trimmed
 from pages import PAGES, source_key, stamp
 from review_assistant import ReviewAssistant
 from story import Stories
@@ -88,6 +88,7 @@ PR_TAG = re.compile(r"\s*\bpr:\S+")
 FILE_PATH = re.compile(r"\s*(?<![\w.])~?/(?:[\w.@-]+/)+[\w.@-]+")
 ASKED_PREFIX = "Asked on the dashboard: "
 OWNER_LANES = frozenset({"dashboard", "owner-board", "owner"})
+NOT_A_REPLY = frozenset({"ask", "decide", "go", "blocked", "hold"})
 COMMUNICATOR = "owner-relay"
 LANE_ROUTE = re.compile(r"/api/lane/([\w.-]+)")
 REGISTER_DAY = dt.timedelta(days=1)
@@ -714,26 +715,34 @@ def live_evidence(evidence, prs, runner, records):
     return {number: entry for number, entry in evidence.items() if still_open(number, prs, runner) and entry["at"] >= (pushed_at(records, number, prs[number].get("head") or "") or "")}
 
 
-def owner_asks(records, prs):
-    """Each pull request's questions from the owner's row box, oldest first, with every reply down its chain; one stays open until an answer lands in that chain or a new version of the pull request is pushed (owner 12:03 AM Nov 2, root #308820)."""
+def owner_asks(records, prs, told=None):
+    """Each pull request's questions from the owner's row box, oldest first; one stays open until a lane confirms it down its chain, a reply to him names it, or a new version of the pull request is pushed (owner 12:03 AM Nov 2, root #308820). It carries only the reply written to him, never a record between lanes (m347, m380)."""
     children = {}
     for record in records:
-        if record.get("re"):
-            children.setdefault(record["re"], []).append(record)
+        for parent in {record.get("re"), record.get("resolves"), *(record.get("also_resolves") or [])} - {None}:
+            children.setdefault(parent, []).append(record)
     asks = {}
     for record in records:
         if record["lane"] != "owner-board" or record["kind"] != "ask":
             continue
-        replies, frontier = [], [record["seq"]]
+        confirmed, frontier = False, [record["seq"]]
         while frontier:
             for child in children.get(frontier.pop(), []):
                 frontier.append(child["seq"])
-                replies += [child] if child["kind"] != "ask" else []
+                confirmed = confirmed or (child["kind"] not in NOT_A_REPLY and child["lane"] not in OWNER_LANES)
         asked_at = ((record.get("fields") or {}).get("attrs") or {}).get("head") or ""
+        reply = (told or {}).get(record["seq"]) or {}
         for number in map(str, (record.get("refs") or {}).get("prs") or []):
             live = (prs.get(number) or {}).get("head") or ""
             pushed = bool(asked_at and live and not live.startswith(asked_at))
-            asks.setdefault(number, []).append({"seq": record["seq"], "at": record["at"], "text": record["text"], "replies": lean(sorted(replies, key=lambda r: r["seq"])), "answered": pushed or any(r["kind"] == "answer" for r in replies)})
+            asks.setdefault(number, []).append({
+                "seq": record["seq"],
+                "at": record["at"],
+                "text": record["text"],
+                "answered": pushed or confirmed or bool(reply),
+                "action": None if pushed else reply.get("action"),
+                "reply": reply.get("id"),
+            })
     return asks
 
 
@@ -910,6 +919,7 @@ class Drive:
         self.status_rejected = None
         self.owed = {"owner_asks": {"messages": [], "taps": [], "store": []}, "coordinator_overdue": []}
         self.replies = []
+        self.told_asks = {}
         self.pages = {page.name: Curator(config, self.curator_model, self.bump, page) for page in PAGES}
         self.curators = (self.curator, *self.pages.values())
         self.stories = Stories(config, self.lane_names, self.worker_reports)
@@ -1169,7 +1179,9 @@ class Drive:
             render = subprocess.run(["lr", "update", "render", "--drive", drive], capture_output=True, text=True, timeout=SLOW_REFRESH).stdout
             store = json.loads(run(["lr", "asks", "--drive", drive, "--json"]))
             ledger = Path(self.config["owner_ledger"]).read_text()
-            answers = {path.stem: path.read_text() for path in (Path(self.config["owner_ledger"]).parent / "answers").glob("*.md")}
+            told = order_replies(self.replies)
+            self.told_asks = told_asks(ledger, told)
+            answers = {path.stem: path.read_text() for path in (Path(self.config["owner_ledger"]).parent / "answers").glob("*.md")} | {row: reply["md"] for row, reply in told.items()}
             lanes = set(self.lane_names())
             self.owed = {
                 "owner_asks": owner_ask_rows(ledger, known, self.model.get("prs", {}), store, lanes, now.astimezone(PACIFIC).year, answers),
@@ -1541,7 +1553,7 @@ class Drive:
             "title": self.config["title"],
             "repo": self.config["repo"],
             "records": records[-1500:],
-            "asks": owner_asks(records, self.slow["prs"]),
+            "asks": owner_asks(records, self.slow["prs"], self.told_asks),
             "trees": {n: entry["trees"] for n, entry in self.paths.items()},
             "tree_names": [tree["name"] for tree in self.config["trees"]],
             "lanes": lanes,

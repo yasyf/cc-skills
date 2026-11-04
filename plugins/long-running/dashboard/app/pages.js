@@ -341,9 +341,8 @@ function askMessage(a) {
   const facts = [
     a.lanes.length ? `<dt>Who holds it</dt><dd>${a.lanes.map((lane) => `<a href="#/worker/${encodeURIComponent(lane)}">${esc(workerName(lane))}</a>`).join(', ')}</dd>` : '',
     a.prs.length ? `<dt>Pull requests</dt><dd>${a.prs.map((ref) => (ref.includes('#') ? esc(ref) : `<a href="#/review/${esc(ref)}">${esc(plainTitle(ref))}</a>`)).join('<br>')}</dd>` : '',
-    a.latest_seq ? `<dt>Latest record</dt><dd><a href="/record/${a.latest_seq}" target="_blank" rel="noopener">${esc(a.latest.slice(0, 160))} ↗</a></dd>` : '',
   ].join('');
-  return askRow({ id: `ask-m${a.m}`, iso: a.iso, at: clock(a.iso), title: a.title ?? askTitle(a.text) }, a.state, where, `${a.answer ? `<div class="md">${markdown(a.answer)}</div>` : ''}${facts ? `<dl class="pg-facts st-full">${facts}</dl>` : ''}`);
+  return askRow({ id: `ask-m${a.m}`, iso: a.iso, at: clock(a.iso), title: a.title ?? askTitle(a.text) }, a.state, where, `${a.answer ? `<div class="md">${markdown(plain(a.answer))}</div>` : ''}${facts ? `<dl class="pg-facts st-full">${facts}</dl>` : ''}`);
 }
 function overdueRows() {
   const clipped = (item) => esc(item.text.replace(/^(.{120}\S*)\s.+$/s, '$1…'));

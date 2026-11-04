@@ -3,7 +3,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "dashboard" / "app"))
 
-from owed import kept, overdue_rows, owner_ask_rows
+from owed import kept, order_replies, overdue_rows, owner_ask_rows, told_asks
 
 LEDGER = """| m | at | text | record | mark |
 |---|---|---|---|---|
@@ -122,3 +122,21 @@ def test_only_records_a_row_can_use_are_kept():
     assert kept(record(1, "a", "ask", "anything"))
     assert kept(record(1, "a", "report", "m7 done"))
     assert not kept(record(1, "a", "report", "no message named"))
+
+
+def test_a_row_answered_with_no_reply_to_him_says_so_and_never_shows_the_record_between_lanes():
+    found = by_message(rows([record(1, "lane-1", "report", "m8 board-refresher-7: withdraw the card.")]))
+    assert found[8]["answer"] == "Answered, nothing for you."
+    assert "latest" not in found[8] and "withdraw" not in str(found[8])
+
+
+def test_the_newest_reply_naming_a_row_is_its_answer_and_reaches_the_question_that_row_routed():
+    newest_first = [
+        {"reply": {"id": "b", "md": "Done, nothing for you.\n\nSecond.", "order": "m20"}},
+        {"reply": {"id": "a", "md": "First.", "order": "m20"}},
+        {"reply": {"id": "c", "md": "An update."}},
+    ]
+    told = order_replies(newest_first)
+    ledger = "| m20 | Nov 3 9:17 PM | why? | 77 | responded |\n| m21 | Nov 3 9:18 PM | how? | 78 | responded |\n"
+    assert {row: reply["id"] for row, reply in told.items()} == {"m20": "b"}
+    assert {seq: reply["id"] for seq, reply in told_asks(ledger, told).items()} == {77: "b"}

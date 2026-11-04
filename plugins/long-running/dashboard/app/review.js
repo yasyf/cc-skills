@@ -262,11 +262,15 @@ function nextForYou(row) {
   const at = rows.findIndex((r) => r.number === row.number);
   return [...rows.slice(at + 1), ...rows.slice(0, at)].find((r) => verdictState(r) === 'you' && !awaitingReply(r.number));
 }
+function needsHim(ask) {
+  return ask.action && !state.model.board.answered[`card-${ask.reply}`];
+}
+function openAsk(ask) {
+  if (needsHim(ask)) return `<div class="fb-said">${dotted(ask.action, 'you')} <a href="#/replies">Read the reply</a></div>`;
+  return `<div class="fb-said">${dotted('You asked; waiting on the reply', 'you')}<span class="fb-words">${esc(ask.text)}</span><small>${clock(ask.at)}</small></div>`;
+}
 function changeBox(n, head) {
-  const thread = changeAsks(n).map((ask) => {
-    const replies = ask.replies ?? [];
-    return `<div class="fb-said">${ask.answered ? dotted('You asked; answered', 'ok') : dotted('You asked; waiting on the reply', 'you')}<span class="fb-words">${esc(ask.text)}</span><small>${clock(ask.at)}</small>${replies.map((r) => `<div class="fb-reply"><b>${esc(workerName(r.lane))}</b> ${esc(r.text.length > 220 ? `${r.text.slice(0, 220)}…` : r.text)} <a href="/record/${r.seq}" target="_blank" rel="noopener">${clock(r.at)} ↗</a></div>`).join('') || '<div class="fb-reply dim">No reply yet.</div>'}</div>`;
-  }).join('');
+  const thread = changeAsks(n).filter((ask) => !ask.answered || needsHim(ask)).map(openAsk).join('');
   const busy = changesSending.has(Number(n));
   return `<div class="fb-box">${thread}<form class="fb" data-change="${n}" data-head="${esc(head ?? '')}"><kbd>F</kbd><input name="change" data-draft="${n}" value="${esc(changeDrafts[n] ?? '')}" placeholder="Tell Claude what to change" autocomplete="off"${busy ? ' disabled' : ''}><button class="btn"${busy ? ' disabled' : ''}>${busy ? 'Sending' : 'Send'}</button>${changesUnsent[n] ? `<span class="pill bad">Not sent: ${esc(changesUnsent[n])}</span>` : ''}</form></div>`;
 }

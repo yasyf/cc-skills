@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 
 PACIFIC = ZoneInfo("America/Los_Angeles")
 LEDGER_ROW = re.compile(r"\| m(\d+) \| (\w+ \d+ \d+:\d+ [AP]M) \| (.*) \| (\S*) \| (\S*) \|$")
+ANSWERED = "Answered, nothing for you."
 MENTION = re.compile(r"\bm(\d{1,3})\b")
 ITEM = re.compile(r"\bM(\d{1,3})\b")
 PR_NAMED = re.compile(r"(?<![\w/])#(\d{5})\b")
@@ -77,18 +78,16 @@ def owner_ask_rows(ledger, records, prs, store, known_lanes, year, answers):
         named = named_prs([*workers, *finished])[:3]
         words = " ".join(r["text"] for r in mine) + " " + follow_up
         holders = list(dict.fromkeys([*[lane for lane, _ in collections.Counter(r["lane"] for r in workers).most_common(3)], *[r["lane"] for r in finished], *sorted(set(LANE.findall(words)) & known_lanes)]))[:3]
-        latest = (finished or mine or [{"text": "", "seq": None}])[-1]
         answer = answers.get(f"m{number}", "")
+        state = message_state(mark, finished, mine, named, prs, answer)
         asks.append({
             "m": number,
             "iso": iso,
             "text": text,
-            "state": message_state(mark, finished, mine, named, prs, answer),
+            "state": state,
             "lanes": holders,
             "prs": named,
-            "latest": latest["text"][:300],
-            "latest_seq": latest["seq"],
-            "answer": answer,
+            "answer": answer or (ANSWERED if state == "answered" else ""),
         })
     return {"messages": asks, "taps": taps, "store": store}
 
@@ -106,6 +105,14 @@ def tap_row(number, iso, text, prs):
         "pr": approved[1] if approved else "",
         "state": "applied" if approved and (prs.get(approved[1]) or {}).get("state") == "landed" else "answered",
     }
+
+
+def order_replies(replies):
+    return {entry["reply"]["order"]: entry["reply"] for entry in reversed(replies) if entry["reply"].get("order")}
+
+
+def told_asks(ledger, told):
+    return {int(row[4]): told[f"m{row[1]}"] for row in map(LEDGER_ROW.match, ledger.splitlines()) if row and row[4].isdigit() and f"m{row[1]}" in told}
 
 
 def message_state(mark, finished, records, named, prs, answer):
