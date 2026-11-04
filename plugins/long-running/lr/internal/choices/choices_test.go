@@ -16,8 +16,11 @@ import (
 )
 
 const (
-	testDrive = "d"
-	boardDesk = "board-refresher-7"
+	testDrive   = "d"
+	boardDesk   = "board-refresher-7"
+	metaDesk    = "meta-desk-2"
+	mainSubject = "0c1d6f0e9b2a4c3d8e7f6a5b4c3d2e1f"
+	mainSlug    = "drive-board--1a2b3c4d"
 )
 
 func post(t *testing.T, draft client.Draft) int64 {
@@ -35,6 +38,8 @@ func newCheck(now time.Time, asks ...board.OpenAsk) *choices.Check {
 		Drive:    testDrive,
 		Asks:     func(context.Context) ([]board.OpenAsk, error) { return asks, nil },
 		Desk:     func() (string, error) { return boardDesk, nil },
+		Main:     func(context.Context) ([]string, error) { return []string{mainSubject, mainSlug}, nil },
+		Owners:   func(lane string) ([]string, error) { return []string{lane + "-launcher", metaDesk}, nil },
 		Now:      func() time.Time { return now },
 		Patience: time.Hour,
 	}
@@ -162,6 +167,71 @@ func TestALaneBlockedOnHisPickWithNothingBuiltIsToldToBuildOnceADay(t *testing.T
 	}
 	if parked != 1 {
 		t.Fatalf("told %d lanes, want lane-a once", parked)
+	}
+}
+
+func TestAParkOnASideBoardOrAnUnsentCardIsADefectToItsLauncherAndMetaDeskOnceADay(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	side := post(t, client.Draft{Lane: "dashboard-content-1", Kind: "blocked", To: []string{"meta-desk-1", metaDesk}, Text: "Waiting on the owner's taps on board f02f306df1d09223c6ea40de1a5a8097: http://yasyf-forge-studio:61118/p/dashboard-mockups-for-your-tap--7b8a71f4 . No taps yet; the cards are not mirrored to Slack, so he only sees it once the communicator links it."})
+	unsent := post(t, client.Draft{Lane: "lane-a", Kind: "blocked", Text: "Waits on his pick on card-unsent; nothing built."})
+	post(t, client.Draft{Lane: "lane-b", Kind: "blocked", Text: "Waits on his pick on card-sent on board " + mainSubject + ": http://127.0.0.1:57524/p/" + mainSlug + " ; nothing built."})
+
+	passTwice(t, newCheck(time.Now(), board.OpenAsk{ID: "card-unsent", Title: "Where does the table go?"}, board.OpenAsk{ID: "card-sent", Title: "Sent", Slack: true}))
+
+	told := map[string]client.Record{}
+	for _, record := range said(t) {
+		if strings.Contains(record.Text, "OFF-BOARD") {
+			told[strings.Fields(record.Text)[3]] = record
+		}
+	}
+	if len(told) != 2 {
+		t.Fatalf("told %v, want dashboard-content-1 and lane-a once each", told)
+	}
+	for lane, want := range map[string]struct {
+		re  int64
+		why string
+	}{
+		"dashboard-content-1": {side, "board f02f306df1d09223c6ea40de1a5a8097, dashboard-mockups-for-your-tap--7b8a71f4 is not his main board and its cards have no Slack copy"},
+		"lane-a":              {unsent, "card-unsent has no Slack copy"},
+	} {
+		record := told[lane]
+		if record.Re != want.re || !strings.Contains(record.Text, want.why) || len(record.To) != 2 || record.To[0] != lane+"-launcher" || record.To[1] != metaDesk {
+			t.Errorf("told %s %+v", lane, record)
+		}
+	}
+	for _, record := range said(t) {
+		if strings.Contains(record.Text, "PARKED") && record.To[0] != "lane-b" {
+			t.Errorf("told a defect lane to build on its park: %+v", record)
+		}
+	}
+}
+
+func TestACardOnASideBoardOutsideAParkIsTheSameDefect(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	shown := post(t, client.Draft{Lane: "dashboard-content-1", Kind: "report", To: []string{metaDesk}, Text: "13 cards are up for his taps: http://yasyf-forge-studio:61118/p/dashboard-mockups-for-your-tap--7b8a71f4 ."})
+	post(t, client.Draft{Lane: "owner-relay", Kind: "note", To: []string{"root"}, Text: "Linked him http://yasyf-forge-studio:61118/p/dashboard-mockups-for-your-tap--7b8a71f4 ."})
+	post(t, client.Draft{Lane: "lane-b", Kind: "report", Text: "card-sent is on http://127.0.0.1:57524/p/" + mainSlug + " ."})
+
+	passTwice(t, newCheck(time.Now()))
+
+	records := said(t)
+	if len(records) != 1 || records[0].Re != shown || !strings.Contains(records[0].Text, "OFF-BOARD") || records[0].To[1] != metaDesk {
+		t.Fatalf("said %+v", records)
+	}
+}
+
+func TestAParkNamingABoardIsNoDefectWhenTheMainBoardIsUnread(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	post(t, client.Draft{Lane: "dashboard-content-1", Kind: "blocked", To: []string{metaDesk}, Text: "Parked on the owner's taps on the dashboard mockups board, 13 cards, none tapped when last checked: http://yasyf-forge-studio:61118/p/dashboard-mockups-for-your-tap--7b8a71f4 ."})
+
+	check := newCheck(time.Now())
+	check.Main = func(context.Context) ([]string, error) { return nil, errors.New("no daemon") }
+	passTwice(t, check)
+
+	for _, record := range said(t) {
+		if strings.Contains(record.Text, "OFF-BOARD") {
+			t.Fatalf("said %q", record.Text)
+		}
 	}
 }
 

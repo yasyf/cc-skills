@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 
@@ -110,5 +111,19 @@ func TestABoardThatDoesNotReadIsNamed(t *testing.T) {
 	outcomes, err := ReadOutcomes(context.Background(), scripted{shell.Result{Stdout: "note\n" + `{"doc":{"a":1},"interactions":{}}`}}, "s")
 	if err != nil || outcomes.Doc["a"] != 1.0 {
 		t.Fatalf("outcomes = %+v, %v", outcomes, err)
+	}
+}
+
+func TestTheMainBoardIsTheArtifactBoundToTheRootSession(t *testing.T) {
+	listing := "cc-present daemon 0.54.14 · port 61118\n\n" +
+		"SUBJECT                           SLUG                                     SESSION      STATUS  EVENTS  URL\n" +
+		"f02f306df1d09223c6ea40de1a5a8097  dashboard-mockups-for-your-tap--7b8a71f4  lane-session  open    12      http://127.0.0.1:61118/p/dashboard-mockups-for-your-tap--7b8a71f4\n" +
+		"0c1d6f0e9b2a4c3d8e7f6a5b4c3d2e1f  drive-board--1a2b3c4d                     root-session  open    90      http://127.0.0.1:61118/p/drive-board--1a2b3c4d\n"
+	names, err := MainBoard(context.Background(), scripted{shell.Result{Stdout: listing}}, "root-session")
+	if err != nil || !slices.Equal(names, []string{"0c1d6f0e9b2a4c3d8e7f6a5b4c3d2e1f", "drive-board--1a2b3c4d"}) {
+		t.Fatalf("names = %q, %v", names, err)
+	}
+	if _, err := MainBoard(context.Background(), scripted{shell.Result{Code: 1, Stderr: "no daemon"}}, "root-session"); err == nil {
+		t.Fatal("an unread listing named a main board")
 	}
 }

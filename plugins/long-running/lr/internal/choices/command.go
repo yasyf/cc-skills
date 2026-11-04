@@ -4,12 +4,14 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/board"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/explain"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/pass"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/watch"
@@ -26,6 +28,12 @@ func New(ctx context.Context, a *app.App, entry drive.Entry, claude string, s *s
 			}
 			return route(pass.BoardDesk), nil
 		},
+		Main: func(ctx context.Context) ([]string, error) {
+			return board.MainBoard(ctx, a.Runner, entry.Root())
+		},
+		Owners: func(lane string) ([]string, error) {
+			return lanes.Owners(s, lane)
+		},
 		Now:      a.Now,
 		Patience: patience,
 	}
@@ -39,7 +47,7 @@ func Command(a *app.App) *cobra.Command {
 	var driveName string
 	cmd := &cobra.Command{
 		Use:   "choices",
-		Short: "List what he should be choosing and cannot see: a CARD record with no card, a card with no Slack copy, a choice in prose or a design doc, and a repeated order",
+		Short: "List what he should be choosing and cannot see: a CARD record with no card, a card with no Slack copy, a park on a board that is not his main one, a choice in prose or a design doc, and a repeated order",
 		Args:  cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			entry, err := drive.Named(driveName)
@@ -58,7 +66,7 @@ func Command(a *app.App) *cobra.Command {
 			check := New(c.Context(), a, entry, claude, s)
 			check.Patience = 0
 			for _, finding := range check.Findings(c.Context()) {
-				fmt.Fprintf(c.OutOrStdout(), "-> %s: %s\n", finding.To, finding.Line)
+				fmt.Fprintf(c.OutOrStdout(), "-> %s: %s\n", strings.Join(finding.To, ","), finding.Line)
 			}
 			return nil
 		},

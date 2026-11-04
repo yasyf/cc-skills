@@ -347,6 +347,15 @@ func MetaDesk(s *store.Store) (desk string, err error) {
 	return Root, nil
 }
 
+func Owners(s *store.Store, name string) (owners []string, err error) {
+	defer recovered(&err)
+	meta := must(MetaDesk(s))
+	if lane, found := laneOf(s, name); found && lane.Launcher != "" && lane.Launcher != meta {
+		return []string{lane.Launcher, meta}, nil
+	}
+	return []string{meta}, nil
+}
+
 func retire(s *store.Store, name, by string, at time.Time) {
 	do(s.SetLaneState(name, store.LaneRetired, at, by, ""))
 	do(s.SetLaneWaiting(name, 0, time.Time{}, ""))
