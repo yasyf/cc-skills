@@ -777,7 +777,7 @@ func (s *finderPassState) landedFixes() ([]landedFix, error) {
 	if len(shas) == 0 {
 		return nil, nil
 	}
-	log, err := s.git(append([]string{"log", "--ignore-missing", "--no-walk=unsorted", "--no-renames", "--name-only", "--format=@%H"}, shas...)...)
+	log, err := s.gitFed(lines(shas), "log", "--ignore-missing", "--no-walk=unsorted", "--no-renames", "--name-only", "--format=@%H", "--stdin")
 	if err != nil {
 		return nil, err
 	}

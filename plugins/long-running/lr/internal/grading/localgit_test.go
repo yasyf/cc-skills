@@ -20,6 +20,37 @@ func git(t *testing.T, checkout string, args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
+func TestAShallowCloneTakesItsWholeHistorySoARangeFromTheTrunkStopsAtTheirForkOnce(t *testing.T) {
+	origin, checkout, root := t.TempDir(), t.TempDir(), t.TempDir()
+	git(t, origin, "init", "-q", "-b", "dev")
+	git(t, origin, "commit", "-q", "--allow-empty", "-m", "fork")
+	fork := git(t, origin, "rev-parse", "HEAD")
+	git(t, origin, "commit", "-q", "--allow-empty", "-m", "trunk")
+	trunk := git(t, origin, "rev-parse", "HEAD")
+	git(t, origin, "checkout", "-q", "-b", "pr", fork)
+	git(t, origin, "commit", "-q", "--allow-empty", "-m", "own")
+	head := git(t, origin, "rev-parse", "HEAD")
+	git(t, origin, "checkout", "-q", "dev")
+	git(t, checkout, "clone", "-q", "--depth", "1", "--branch", "dev", "file://"+origin, ".")
+	git(t, checkout, "fetch", "-q", "origin", "pr")
+	if got := git(t, checkout, "rev-list", "--count", trunk+".."+head); got != "2" {
+		t.Fatalf("the shallow clone reads %s commits past the trunk, want the fork counted too", got)
+	}
+
+	for range 2 {
+		if err := onLocalDisk(checkout, root); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if got := git(t, checkout, "rev-parse", "--is-shallow-repository"); got != "false" {
+		t.Fatalf("is shallow: %s", got)
+	}
+	if got := git(t, checkout, "rev-list", trunk+".."+head); got != head {
+		t.Fatalf("past the trunk: %s, want only %s", got, head)
+	}
+}
+
 func TestAClonesGitMovesToTheLocalDiskOnceAndStillReadsWithoutItsLeftovers(t *testing.T) {
 	checkout, root := t.TempDir(), t.TempDir()
 	git(t, checkout, "init", "-q")

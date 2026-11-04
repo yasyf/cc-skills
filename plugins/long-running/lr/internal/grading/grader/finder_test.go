@@ -368,7 +368,8 @@ func TestAHeadWhoseParentWasRestackedReadsOnlyItsOwnCommitsAgainstTheBaseBranchs
 	shell, repo := newFinderFake(t, replyOf())
 	repo.own = map[string][]string{shaBase + ".." + shaHead: {shaOwn, shaNewer}}
 	mustFinder(t, directory, shell)
-	sameList(t, shell.gitCalls("--no-lazy-fetch", "rev-list", "--cherry-pick")[0][:8], []string{"git", "--no-lazy-fetch", "rev-list", "--cherry-pick", "--right-only", "--no-merges", "--reverse", shaBase + "..." + shaHead})
+	sameList(t, shell.gitCalls("--no-lazy-fetch", "rev-list", "--cherry-pick")[0], []string{"git", "--no-lazy-fetch", "rev-list", "--cherry-pick", "--right-only", "--no-merges", "--reverse", "--stdin"})
+	equal(t, strings.Split(shell.gitStdins("--no-lazy-fetch", "rev-list", "--cherry-pick")[0], "\n")[0], shaBase+"..."+shaHead)
 	question := readText(t, directory, "question-1.md")
 	holdsAll(t, question, "`git diff "+shaOwn+"^ "+shaHead+"`")
 	holdsNone(t, question, shaBase+"..."+shaHead, shaStale+"..."+shaHead)
@@ -377,7 +378,7 @@ func TestAHeadWhoseParentWasRestackedReadsOnlyItsOwnCommitsAgainstTheBaseBranchs
 func TestThePatchMatchAgainstTheTrunkReadsOnlyThePathsTheHeadsOwnCommitsTouch(t *testing.T) {
 	shell, _ := newFinderFake(t, replyOf())
 	mustFinder(t, finderJobDir(t, nil), shell)
-	sameList(t, shell.gitCalls("--no-lazy-fetch", "rev-list", "--cherry-pick")[0][8:], append([]string{"--"}, ownPaths...))
+	sameList(t, strings.Fields(shell.gitStdins("--no-lazy-fetch", "rev-list", "--cherry-pick")[0])[1:], append([]string{"--"}, ownPaths...))
 }
 
 func TestThePatchMatchFetchesBothSidesOfEveryDiffItComparesInOneRequestAndNeverFetchesLazily(t *testing.T) {
@@ -1114,6 +1115,39 @@ func TestEveryCommandAPassRunsLogsItsDuration(t *testing.T) {
 	holdsAll(t, logged.String(), `stage="sh -c exit 0"`, "stage=false", "seconds=")
 }
 
+func TestAPathListOfTheFailingSizeStillReadsTheHeadsOwnCommits(t *testing.T) {
+	const paths = 4000
+	directory, tail := strings.Repeat(strings.Repeat("d", 240)+"/", 3), strings.Repeat("x", 223)
+	var stream strings.Builder
+	stream.WriteString("blob\nmark :1\ndata 1\nx\ncommit refs/heads/base\nmark :2\ncommitter lr <lr@example.com> 1 +0000\ndata 4\nbase\n")
+	stream.WriteString("commit refs/heads/head\ncommitter lr <lr@example.com> 2 +0000\ndata 4\nhead\nfrom :2\n")
+	for index := range paths {
+		fmt.Fprintf(&stream, "M 100644 :1 %s%06d-%s\n", directory, index, tail)
+	}
+	live := &pass{Deps: Deps{Runner: shell.Exec{}, Log: slog.New(slog.DiscardHandler), Config: t.TempDir()}, ctx: context.Background(), job: &Job{Checkout: t.TempDir()}}
+	if _, err := live.git("init", "-q"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := live.gitFed(stream.String(), "fast-import", "--quiet"); err != nil {
+		t.Fatal(err)
+	}
+	base, err := live.git("rev-parse", "base")
+	if err != nil {
+		t.Fatal(err)
+	}
+	head, err := live.git("rev-parse", "head")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	own, err := live.beyond([]string{base}, head)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sameList(t, own, []string{head})
+}
+
 func TestACommandPastItsDeadlineReportsATimeoutNotAnExit(t *testing.T) {
 	live := &pass{Deps: Deps{Runner: shell.Exec{}, Log: slog.New(slog.DiscardHandler), Config: t.TempDir()}, ctx: context.Background()}
 	_, err := live.run([]string{"sleep", "30"}, "", 50*time.Millisecond)
@@ -1175,7 +1209,7 @@ func TestASecondBugFixInAnAreaTheDriveAlreadyFixedPostsABlockingPointNamingTheEa
 	if !strings.HasPrefix(shell.posted[0]["--text"], "finder: major "+shaHead+" 1 open "+wholeRecord+": go/sand/internal/replica/follow.go:40 "+secondFix+".") {
 		t.Errorf("posted %q", shell.posted[0]["--text"])
 	}
-	sameList(t, shell.gitCalls("log", "--ignore-missing")[0][len(shell.gitCalls("log", "--ignore-missing")[0])-2:], []string{shaFixed, shaOtherArea})
+	sameList(t, strings.Fields(shell.gitStdins("log", "--ignore-missing")[0]), []string{shaFixed, shaOtherArea})
 }
 
 func TestASecondFixWhoseBodyNamesTheClassItRemovesOrTheCutoverDeletionStandsOk(t *testing.T) {
