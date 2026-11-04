@@ -789,7 +789,7 @@ func TestANewWorktreeChecksOutOnlyTheRootFilesTheAgentDirsAndTheBriefsPaths(t *t
 	if got := h.gitIn(wt, "status", "--porcelain"); got != "" {
 		t.Fatal(got)
 	}
-	if want := "lane-a sparse: .agents .claude tools infra/ci/hooks/lib go/ci infra; widen with git -C " + wt + " sparse-checkout add <dir>"; !strings.Contains(h.stderr.String(), want) {
+	if want := "lane-a sparse: .agents .claude tools infra/ci/hooks/lib release infra/envs go/ci infra; widen with git -C " + wt + " sparse-checkout add <dir>"; !strings.Contains(h.stderr.String(), want) {
 		t.Fatal(h.stderr.String())
 	}
 	if !strings.HasSuffix(h.spec(), sparseLine) {
