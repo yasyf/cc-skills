@@ -368,3 +368,23 @@ func TestASweepCutOffMidPassKeepsWhatItJudged(t *testing.T) {
 		t.Fatalf("the next pass judged %q, want only the card the cut-off pass never finished", judged)
 	}
 }
+
+func TestACardItsSweepStampedStillHasNoEndCondition(t *testing.T) {
+	cards, _, _ := settledBoard(t, oldChatUp, upgradeOnce)
+	judge := &judgeCalls{verdict: "unsure"}
+	if err := cards.Pass(context.Background(), "supervisor", judge.judge, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	if err := cards.Pass(context.Background(), "supervisor", judge.judge, &out); err != nil {
+		t.Fatalf("a stamped card failed the next pass: %v", err)
+	}
+
+	if !strings.Contains(out.String(), "PROBLEM "+oldChatCard+": no end condition") {
+		t.Fatalf("out = %q", out.String())
+	}
+	if missing, err := cards.Missing(context.Background(), []string{oldChatCard}); err != nil || len(missing) != 1 {
+		t.Fatalf("Missing = %v, %v; want the stamped card named", missing, err)
+	}
+}
