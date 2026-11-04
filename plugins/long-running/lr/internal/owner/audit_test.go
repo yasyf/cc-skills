@@ -49,29 +49,71 @@ func TestALiveLaneWhoseBriefNamesTheOrderDeliversItAndARetiredOneDoesNot(t *test
 	}
 }
 
-func TestALandedOrDoneRecordDeliversTheOrderItNamesOrItsLaneCarries(t *testing.T) {
+func standing(rows []Row) []string {
+	out := make([]string, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, row.ID+" "+row.Status+" "+row.Lane)
+	}
+	return out
+}
+
+func TestALandedOrDoneRecordMovesTheOrderItNamesOrItsLaneCarriesToInProgressNeverToDelivered(t *testing.T) {
 	rows := Parse([]byte(auditLedger))
 	lanes := []Lane{{Name: "wire-1", Orders: []string{"m2"}}, {Name: "mute-1", Orders: []string{"m3"}}}
-	installed := client.Record{Lane: "install-desk-1", Kind: "done", Text: "installed and seen working"}
+	installed := client.Record{Seq: 3, Lane: "install-desk-1", Kind: "done", Text: "installed and seen working"}
 	installed.Refs.Lanes = []string{"mute-1"}
-	proofs := []client.Record{{Lane: "wire-1", Kind: "landed", Text: "wire-1: merged, not installed"}, installed, {Lane: "fix-9", Kind: "landed", Text: "owner:m9 closed out for good"}}
+	proofs := []client.Record{{Seq: 1, Lane: "wire-1", Kind: "landed", Text: "wire-1: merged, not installed"}, installed, {Seq: 4, Lane: "fix-9", Kind: "landed", Text: "owner:m9 closed out for good"}}
 
-	got := ids(Undelivered(rows, lanes, proofs))
+	got := standing(Undelivered(rows, lanes, proofs))
 
-	if want := []string{"m1", "m5", "m8"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("got %v, want %v", got, want)
+	if want := []string{"m1 open ", "m2 in progress wire-1", "m3 in progress mute-1", "m5 open ", "m8 open ", "m9 in progress fix-9"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %q, want %q", got, want)
 	}
 }
 
-func TestOnlyADeliveredAttrMakesAReportProofAndAReplyNamingTheRowIsNot(t *testing.T) {
+func TestOnlyADeliveredAttrDeliversAndAReportNamingTheRowLeavesItInProgress(t *testing.T) {
 	rows := Parse([]byte(auditLedger))
-	delivered := client.Record{Lane: "owner-relay", Kind: "report", Text: "he picked B on the options"}
+	delivered := client.Record{Seq: 1, Lane: "owner-relay", Kind: "report", Text: "he picked B on the options"}
 	delivered.Fields.Attrs = map[string]string{"delivered": "owner:m2 owner:m3"}
-	acknowledged := client.Record{Lane: "owner-relay", Kind: "note", Text: "owner:m1 routed to a lane"}
+	carriedBy := client.Record{Seq: 2, Lane: "owner-orders-sweep-a", Kind: "report", Text: "owner:m1 carried by phone-app-1"}
 
-	got := ids(Undelivered(rows, []Lane{{Name: "owner-relay", Orders: []string{"m5"}}}, []client.Record{delivered, acknowledged}))
+	got := standing(Undelivered(rows, []Lane{{Name: "owner-relay", Orders: []string{"m5"}}}, []client.Record{delivered, carriedBy}))
 
-	if want := []string{"m1", "m5", "m8", "m9"}; !reflect.DeepEqual(got, want) {
+	if want := []string{"m1 in progress owner-orders-sweep-a", "m5 open owner-relay", "m8 open ", "m9 open "}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestAnOrderWhoseLastLaneLeftAPartOpenIsParkedWithThatHoldAndLane(t *testing.T) {
+	rows := Parse([]byte(auditLedger))
+	lanes := []Lane{{Name: "phone-app-1", Orders: []string{"m1"}}, {Name: "wire-1", Orders: []string{"m2"}}}
+	proofs := []client.Record{
+		{Seq: 1, Lane: "phone-app-1", Kind: "landed", Text: "phone-app-1: the approval tool merged, not installed. Left open: the dashboard page it reports to. Retiring."},
+		{Seq: 2, Lane: "owner-orders-sweep-a", Kind: "report", Text: "owner:m1 carried by phone-app-1"},
+		{Seq: 3, Lane: "wire-1", Kind: "report", Text: "wire-1: the new format is held behind the SandSQL release freeze"},
+		{Seq: 4, Lane: "fix-9", Kind: "report", Text: "owner:m9 is built and its gate holds firm"},
+	}
+
+	got := Undelivered(rows, lanes, proofs)
+
+	if want := []string{"m1 parked phone-app-1", "m2 parked wire-1", "m3 open ", "m5 open ", "m8 open ", "m9 in progress fix-9"}; !reflect.DeepEqual(standing(got), want) {
+		t.Fatalf("got %q, want %q", standing(got), want)
+	}
+	if got[0].Hold != "Left open: the dashboard page it reports to" || got[1].Hold != "wire-1: the new format is held behind the SandSQL release freeze" {
+		t.Fatalf("holds %q, %q", got[0].Hold, got[1].Hold)
+	}
+	if want := "m1 Nov 3 4:50 AM: build the phone app for approvals [parked: Left open: the dashboard page it reports to; last lane phone-app-1]"; got[0].Line() != want {
+		t.Fatalf("line %q, want %q", got[0].Line(), want)
+	}
+}
+
+func TestALiveLaneOwnsAParkedOrderAgain(t *testing.T) {
+	rows := Parse([]byte(auditLedger))
+	proofs := []client.Record{{Seq: 1, Lane: "phone-app-1", Kind: "landed", Text: "phone-app-1 merged, not installed. Left open: the dashboard page."}}
+
+	got := ids(Undelivered(rows, []Lane{{Name: "phone-app-1", Orders: []string{"m1"}}, {Name: "phone-app-2", Working: true, Orders: []string{"m1"}}}, proofs))
+
+	if want := []string{"m2", "m3", "m5", "m8", "m9"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %v, want %v", got, want)
 	}
 }
@@ -109,13 +151,13 @@ const splitLedger = `| id | time | message | routed | state |
 | m204 | Nov 3 2:05 PM | why does it need Touch ID? |  | responded |
 `
 
-func TestEachAskOfOneMessageStaysOpenUntilItsOwnRowIsAnswered(t *testing.T) {
+func TestEachAskOfOneMessageMovesOnlyByItsOwnRowsToken(t *testing.T) {
 	proofs := []client.Record{{Lane: "recap-1", Kind: "landed", Text: "owner:m203.2 recapped and shipped"}, {Lane: "other-1", Kind: "landed", Text: "owner:m203 named whole"}}
 
-	got := ids(Undelivered(Parse([]byte(splitLedger)), nil, proofs))
+	got := standing(Undelivered(Parse([]byte(splitLedger)), nil, proofs))
 
-	if want := []string{"m203.1", "m203.3"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("got %v, want %v", got, want)
+	if want := []string{"m203.1 open ", "m203.2 in progress recap-1", "m203.3 open "}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %q, want %q", got, want)
 	}
 }
 
