@@ -38,6 +38,7 @@ var readMethods = map[string]bool{
 	"orchestration.runList":    true,
 	"orchestration.runShow":    true,
 	"orchestration.taskList":   true,
+	"orchestration.inbox":      true,
 	"terminal.list":            true,
 	"terminal.show":            true,
 	"terminal.read":            true,
@@ -50,7 +51,7 @@ var readMethods = map[string]bool{
 func readOnly(method string, params any) bool {
 	if method == checkMethod {
 		check, typed := params.(CheckParams)
-		return typed && (check.Peek || check.All)
+		return typed && !check.mutates()
 	}
 	return readMethods[method]
 }
@@ -113,6 +114,7 @@ type request struct {
 	ContractVersion       int             `json:"orchestrationContractVersion,omitempty"`
 	CompatibilityID       string          `json:"compatibilityInvocationId,omitempty"`
 	CompatibilityEvidence map[string]any  `json:"orchestrationCompatibilityEvidence,omitempty"`
+	RequestID             string          `json:"orchestrationRequestId,omitempty"`
 	ExpectedRuntimeSource *expectedSource `json:"expectedRuntimeSource,omitempty"`
 }
 
@@ -230,6 +232,14 @@ func (c *Conn) call(ctx context.Context, method string, params any, timeout time
 	if !readOnly(method, params) {
 		return Response{}, fmt.Errorf("%w: %s", ErrWriteMethod, method)
 	}
+	return c.send(ctx, method, params, timeout, "")
+}
+
+func (c *Conn) mutateCheck(ctx context.Context, check CheckParams, timeout time.Duration, requestID string) (Response, error) {
+	return c.send(ctx, checkMethod, check, timeout, requestID)
+}
+
+func (c *Conn) send(ctx context.Context, method string, params any, timeout time.Duration, requestID string) (Response, error) {
 	id, err := newUUID()
 	if err != nil {
 		return Response{}, err
@@ -241,6 +251,9 @@ func (c *Conn) call(ctx context.Context, method string, params any, timeout time
 		if outgoing.CompatibilityID, err = newUUID(); err != nil {
 			return Response{}, err
 		}
+	}
+	if requestID != "" {
+		outgoing.RequestID, outgoing.CompatibilityID = requestID, requestID
 	}
 	if method != "status.get" {
 		outgoing.ExpectedRuntimeSource = c.fence

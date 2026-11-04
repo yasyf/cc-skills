@@ -20,6 +20,7 @@ const (
 	flagRun       = "run"
 	flagPeek      = "peek"
 	flagAll       = "all"
+	flagAck       = "ack"
 	flagBrief     = "brief"
 	flagScreen    = "screen"
 	flagReady     = "ready"
@@ -77,6 +78,16 @@ type CheckParams struct {
 	Types            string `json:"types,omitempty"`
 	CompatibilityCLI string `json:"compatibilityCliCommand"`
 	Run              string `json:"run,omitempty"`
+	Ack              string `json:"ack,omitempty"`
+}
+
+func (c CheckParams) mutates() bool {
+	return c.Ack != "" || (!c.Peek && !c.All)
+}
+
+type InboxParams struct {
+	Limit    int    `json:"limit,omitempty"`
+	Terminal string `json:"terminal,omitempty"`
 }
 
 type invocation struct {
@@ -129,10 +140,18 @@ var verbs = map[string]verb{
 		finish: finishWorkerList,
 	},
 	"orchestration check": {
-		allowed:  []string{flagTerminal, flagRun, flagPeek, flagAll, "types", flagFull, flagJSON},
+		allowed:  []string{flagTerminal, flagRun, flagPeek, flagAll, flagAck, "types", flagFull, flagJSON},
 		required: []string{flagFull, flagJSON},
 		build:    buildCheck,
 		finish:   finishCheck,
+	},
+	"orchestration inbox": {
+		allowed:  []string{flagTerminal, flagLimit, flagFull, flagJSON},
+		required: []string{flagFull, flagJSON},
+		build: func(_ *Client, in invocation) (call, bool) {
+			limit, ok := in.positive(flagLimit)
+			return call{method: "orchestration.inbox", params: InboxParams{Limit: limit, Terminal: in.flags[flagTerminal]}}, ok
+		},
 	},
 	"orchestration run-show": {
 		allowed:  []string{"id", flagFull, flagJSON},
@@ -246,7 +265,7 @@ func parseInvocation(args []string) (string, invocation, bool) {
 			continue
 		}
 		index++
-		if index == len(args) || strings.HasPrefix(args[index], "-") {
+		if index == len(args) || args[index] == "" || strings.HasPrefix(args[index], "-") {
 			return "", in, false
 		}
 		in.flags[name] = args[index]
@@ -278,10 +297,13 @@ func contains(names []string, name string) bool {
 }
 
 func buildCheck(c *Client, in invocation) (call, bool) {
-	if in.has(flagPeek) == in.has(flagAll) {
+	if in.has(flagPeek) && in.has(flagAll) {
 		return call{}, false
 	}
-	params := CheckParams{Terminal: in.flags[flagTerminal], Peek: in.has(flagPeek), All: in.has(flagAll), Types: in.flags["types"], CompatibilityCLI: c.cliCommand(), Run: in.flags[flagRun]}
+	params := CheckParams{Terminal: in.flags[flagTerminal], Peek: in.has(flagPeek), All: in.has(flagAll), Types: in.flags["types"], CompatibilityCLI: c.cliCommand(), Run: in.flags[flagRun], Ack: in.flags[flagAck]}
+	if params.mutates() && params.Run == "" {
+		return call{}, false
+	}
 	if params.Peek {
 		unread := false
 		params.Unread = &unread

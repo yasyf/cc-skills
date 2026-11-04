@@ -33,6 +33,7 @@ type frame struct {
 	ContractVersion       int             `json:"orchestrationContractVersion"`
 	CompatibilityID       string          `json:"compatibilityInvocationId"`
 	CompatibilityEvidence map[string]any  `json:"orchestrationCompatibilityEvidence"`
+	RequestID             string          `json:"orchestrationRequestId"`
 	ExpectedRuntimeSource *expectedSource `json:"expectedRuntimeSource"`
 }
 
@@ -154,6 +155,8 @@ func TestServeLeavesEverythingElseToTheCLI(t *testing.T) {
 		{"orchestration", "check", "--terminal", "t", "--full", "--json"},
 		{"orchestration", "check", "--terminal", "t", "--peek", "--all", "--full", "--json"},
 		{"orchestration", "check", "--terminal", "t", "--peek", "--ack", "d", "--full", "--json"},
+		{"orchestration", "check", "--run", "r", "--terminal", "", "--full", "--json"},
+		{"orchestration", "inbox", "--terminal", "", "--full", "--json"},
 		{"orchestration", "check", "--terminal", "t", "--peek", "--wait", "--full", "--json"},
 		{"terminal", "read", "--terminal", "t", "--environment", "box", "--json"},
 		{"terminal", "read", "--json"},
@@ -230,6 +233,79 @@ func TestCheckPeekUsesCallerEnvironment(t *testing.T) {
 	want := `{"terminal":"term_env","terminalPaneKey":"pane","unread":false,"peek":true,"compatibilityCliCommand":"` + client.cliCommand() + `","run":"run_1"}`
 	if got := string(seen.all()[0].Params); got != want {
 		t.Fatalf("params = %s, want %s", got, want)
+	}
+}
+
+func TestConsumingRunCheckIsDurable(t *testing.T) {
+	coordinator := map[string]string{"ORCA_TERMINAL_HANDLE": "term_1", "ORCA_PANE_KEY": ""}
+	for name, tc := range map[string]struct {
+		args []string
+		want string
+	}{
+		"take": {[]string{"--run", "run_1"}, `{"terminal":"term_1","compatibilityCliCommand":"%s","run":"run_1"}`},
+		"ack":  {[]string{"--run", "run_1", "--ack", "d1", "--peek"}, `{"terminal":"term_1","unread":false,"peek":true,"compatibilityCliCommand":"%s","run":"run_1","ack":"d1"}`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			client, seen := serve(t, coordinator, answering(`{"runId":"run_1","messages":[],"count":0}`))
+			served(t, client, slices.Concat([]string{"orchestration", "check"}, tc.args, []string{"--full", "--json"})...)
+			got := seen.all()[0]
+			if want := fmt.Sprintf(tc.want, client.cliCommand()); string(got.Params) != want {
+				t.Errorf("params = %s, want %s", got.Params, want)
+			}
+			if got.RequestID == "" || got.CompatibilityID != got.RequestID {
+				t.Errorf("request id = %q, compatibility id = %q", got.RequestID, got.CompatibilityID)
+			}
+		})
+	}
+}
+
+func TestReadsCarryNoRequestID(t *testing.T) {
+	client, seen := serve(t, map[string]string{"ORCA_TERMINAL_HANDLE": "term_1"}, answering(`{"messages":[],"count":0}`))
+	served(t, client, "orchestration", "check", "--run", "run_1", "--peek", "--full", "--json")
+	served(t, client, "orchestration", "inbox", "--terminal", "run:run_1", "--limit", "100", "--full", "--json")
+	frames := seen.all()
+	if frames[0].RequestID != "" || frames[1].RequestID != "" {
+		t.Fatalf("request ids = %q, %q", frames[0].RequestID, frames[1].RequestID)
+	}
+	if want := `{"limit":100,"terminal":"run:run_1"}`; string(frames[1].Params) != want {
+		t.Fatalf("inbox params = %s, want %s", frames[1].Params, want)
+	}
+}
+
+func TestConsumingCheckNeverRunsAFreshCLIAfterSending(t *testing.T) {
+	refused := func(got frame) []string {
+		return []string{fmt.Sprintf(`{"id":%q,"ok":false,"error":{"code":"consumer_fenced","message":"no"},"_meta":{"runtimeId":"rt"}}`, got.ID)}
+	}
+	legacy := func(got frame) []string {
+		return []string{ok(got.ID, `{"messages":[],"count":0,"legacyCompatibility":{"ackMessageIds":["m1"]}}`)}
+	}
+	lost := func(frame) []string { return []string{"not json"} }
+	for name, answer := range map[string]func(frame) []string{"refused": refused, "only the CLI can finish": legacy, "reply lost": lost} {
+		t.Run(name, func(t *testing.T) {
+			client, seen := serve(t, map[string]string{"ORCA_TERMINAL_HANDLE": "term_1"}, answer)
+			reply, handled := client.Serve(context.Background(), []string{"orchestration", "check", "--run", "run_1", "--full", "--json"})
+			if handled {
+				t.Fatalf("served %s", reply.Stdout)
+			}
+			if sent := seen.all()[0].RequestID; sent == "" || reply.Retry != sent {
+				t.Fatalf("retry = %q, sent %q", reply.Retry, sent)
+			}
+		})
+	}
+}
+
+func TestRunnerRetriesAConsumingCheckByRequestID(t *testing.T) {
+	client, seen := serve(t, nil, func(frame) []string { return []string{"not json"} })
+	next := &fakeNext{}
+	runner := Runner{Next: next}
+	t.Setenv("ORCA_USER_DATA_PATH", client.UserData)
+	argv := []string{"orca", "orchestration", "check", "--run", "run_1", "--full", "--json"}
+	if _, err := runner.Run(context.Background(), shell.Command{Argv: argv, Env: []string{"ORCA_TERMINAL_HANDLE=term_1"}}); err != nil {
+		t.Fatal(err)
+	}
+	want := append(slices.Clone(argv), "--retry-request", seen.all()[0].RequestID)
+	if got := next.calls[0].Argv; !slices.Equal(got, want) {
+		t.Fatalf("argv = %v, want %v", got, want)
 	}
 }
 
