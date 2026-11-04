@@ -126,9 +126,10 @@ linked by cc-slack, which posts its merge-row card from `lr board card` in the
 same thread when the PR waits on his tap. `owner_returns.py` refuses a plain pick
 and a stop that leaves the pick inline. Its session
 holds the owner's DM: `owner_returns.py` arms a channel watch on the DM at session start
-and on each prompt, so his reply in any DM thread reaches it as well as the lane that
+and on each prompt, so his reply in a DM thread reaches it as well as the lane that
 posted there, and refuses a stop while `cc-slack dm-owed` lists a reply nobody has
-answered in its thread. One session holds the DM at a time: while another live session
+answered in its thread. A reply in the thread of a card another live session posted
+reaches only that session, and this one neither sees nor owes it. One session holds the DM at a time: while another live session
 holds it, this one takes no watch and owes no replies. A reply unacked after 30 seconds adds one line to its next tool result. `register_capture.py` posts each such reply once as an `owner`
 record with id `slack:<ts>` and attrs `ts` and `thread`, so a forward names the id instead of pasting his words. It talks only to the
 coordinator, the meta and signal lanes and helpers it spawned for its own work,
