@@ -15,6 +15,7 @@ const (
 	boardTap      = "Owner on board "
 	lineChars     = 160
 	deliveredAttr = "delivered"
+	retractedAttr = "undelivered"
 	Open          = "open"
 	Late          = "late"
 	InProgress    = "in progress"
@@ -115,6 +116,9 @@ func Undelivered(rows []Row, lanes []Lane, proofs []client.Record) []Row {
 		}
 		for _, id := range Orders(proof.Fields.Attrs[deliveredAttr]) {
 			delivered[id] = true
+		}
+		for _, id := range Orders(proof.Fields.Attrs[retractedAttr]) {
+			delete(delivered, id)
 		}
 		for _, id := range Orders(proof.Text) {
 			claimed[id] = true

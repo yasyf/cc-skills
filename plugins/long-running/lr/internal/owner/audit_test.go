@@ -168,3 +168,17 @@ func TestOrdersReadsAnAsksTokenApartFromItsMessage(t *testing.T) {
 		t.Fatalf("got %v, want %v", got, want)
 	}
 }
+
+func TestARetractedDeliveryPutsTheOrderBackOnTheAudit(t *testing.T) {
+	rows := Parse([]byte(auditLedger))
+	delivered := client.Record{Seq: 1, Lane: "fix-1", Kind: "report"}
+	delivered.Fields.Attrs = map[string]string{deliveredAttr: "owner:m1"}
+	if got := ids(Undelivered(rows, nil, []client.Record{delivered})); !reflect.DeepEqual(got, []string{"m2", "m3", "m5", "m8", "m9"}) {
+		t.Fatalf("a delivered order stayed on the audit: %v", got)
+	}
+	retracted := client.Record{Seq: 2, Lane: "fix-1", Kind: "report"}
+	retracted.Fields.Attrs = map[string]string{retractedAttr: "owner:m1"}
+	if got := ids(Undelivered(rows, nil, []client.Record{delivered, retracted})); !reflect.DeepEqual(got, []string{"m1", "m2", "m3", "m5", "m8", "m9"}) {
+		t.Fatalf("a retracted order left the audit: %v", got)
+	}
+}
