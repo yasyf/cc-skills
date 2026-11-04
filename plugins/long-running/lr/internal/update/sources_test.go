@@ -3,6 +3,7 @@ package update
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -151,9 +152,36 @@ func TestTheCoordinatorsOverdueItemsOpenTheUpdateOldestFirstWithOneDueThisMoment
 
 	lines := renderedWith(t, s)
 
-	want := []string{"", "2 overdue:", "- ask #12, due " + pacific(ago(44)), "- unfinished ask/000001, due " + pacific(now), ""}
+	want := []string{"", "2 overdue:", "- ask #12, due " + pacific(ago(44)), "- unfinished ask rows: 1, oldest due " + pacific(now), ""}
 	if !strings.HasPrefix(lines[0], "# Owner update: ") || !reflect.DeepEqual(lines[1:6], want) || !strings.HasPrefix(lines[6], "## "+workstreamsTitle) {
 		t.Fatalf("the update opens:\n%s", strings.Join(lines[:7], "\n"))
+	}
+}
+
+func TestUnfinishedRowsCountPerLedgerAtTheirOldestClockInsteadOfOneIDEach(t *testing.T) {
+	items := []store.Item{
+		{Kind: "unfinished", Head: "pick/313956", Deadline: ago(90)},
+		{Kind: "lift", Number: 48593, Deadline: ago(80)},
+		{Kind: "unfinished", Head: "retro/000018", Deadline: ago(70)},
+		{Kind: "unfinished", Head: "pick/314286", Deadline: ago(60)},
+	}
+
+	want := []string{"", "4 overdue:", "- unfinished pick rows: 2, oldest due " + pacific(ago(90)), "- lift #48593, due " + pacific(ago(80)), "- unfinished retro rows: 1, oldest due " + pacific(ago(70))}
+	if got := overdueLines(items); !reflect.DeepEqual(got, want) {
+		t.Fatalf("overdue lines:\n%s", strings.Join(got, "\n"))
+	}
+}
+
+func TestAnOrderListOverItsCapShowsTheNewestAndCountsTheRest(t *testing.T) {
+	rows := make([]owner.Row, newestOrders+3)
+	for i := range rows {
+		rows[i] = owner.Row{ID: fmt.Sprintf("m%d", i), At: "Nov 3 4:50 AM", Text: "an ask"}
+	}
+
+	lines := orderLines(rows)
+
+	if !strings.HasSuffix(lines[1], fmt.Sprintf("(%d):", len(rows))) || !strings.HasPrefix(lines[2], "- m3 ") || lines[len(lines)-1] != "- The 3 older ones are in `lr owner audit`." || len(lines) != newestOrders+3 {
+		t.Fatalf("order lines:\n%s", strings.Join(lines, "\n"))
 	}
 }
 

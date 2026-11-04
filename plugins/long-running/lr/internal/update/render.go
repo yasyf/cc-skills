@@ -34,6 +34,8 @@ const (
 	gapsTitle      = "Gaps in this update"
 	reapTitle      = "Session reap"
 	reapPasses     = 6
+	newestOrders   = 10
+	unfinishedKind = "unfinished"
 	workstream     = "Workstream "
 	workstreams    = "Lanes by workstream"
 	firstUpdate    = "- The first update from this generator: every row below is new."
@@ -501,14 +503,32 @@ func overdueLines(items []store.Item) []string {
 		return nil
 	}
 	lines := []string{"", fmt.Sprintf("%d overdue:", len(items))}
+	ledgerRows := map[string]int{}
 	for _, item := range items {
-		subject := item.Head
-		if item.Number != 0 {
-			subject = fmt.Sprintf("#%d", item.Number)
+		if item.Kind == unfinishedKind {
+			ledgerRows[ledgerOf(item)]++
 		}
-		lines = append(lines, fmt.Sprintf("- %s %s, due %s", item.Kind, subject, pacific(item.Deadline)))
+	}
+	for _, item := range items {
+		if item.Kind != unfinishedKind {
+			subject := item.Head
+			if item.Number != 0 {
+				subject = fmt.Sprintf("#%d", item.Number)
+			}
+			lines = append(lines, fmt.Sprintf("- %s %s, due %s", item.Kind, subject, pacific(item.Deadline)))
+			continue
+		}
+		if rows := ledgerRows[ledgerOf(item)]; rows > 0 {
+			lines = append(lines, fmt.Sprintf("- unfinished %s rows: %d, oldest due %s", ledgerOf(item), rows, pacific(item.Deadline)))
+			ledgerRows[ledgerOf(item)] = 0
+		}
 	}
 	return lines
+}
+
+func ledgerOf(item store.Item) string {
+	ledger, _, _ := strings.Cut(item.Head, "/")
+	return ledger
 }
 
 func orderLines(rows []owner.Row) []string {
@@ -516,8 +536,12 @@ func orderLines(rows []owner.Row) []string {
 		return nil
 	}
 	lines := []string{"", fmt.Sprintf("Owner asks nobody has delivered, orders with no live lane, open PR or delivered proof and questions nobody answered (%d):", len(rows))}
-	for _, row := range rows {
+	older := max(0, len(rows)-newestOrders)
+	for _, row := range rows[older:] {
 		lines = append(lines, "- "+row.Line())
+	}
+	if older > 0 {
+		lines = append(lines, fmt.Sprintf("- The %d older ones are in `lr owner audit`.", older))
 	}
 	return lines
 }
