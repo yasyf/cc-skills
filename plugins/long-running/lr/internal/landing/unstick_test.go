@@ -68,8 +68,9 @@ func (r *stuckRig) unstick() landing.Unstick {
 }
 
 func (r *stuckRig) patches() []string {
-	var patched []string
-	for _, call := range r.runner.Calls() {
+	calls := r.runner.Calls()
+	patched := make([]string, 0, len(calls))
+	for _, call := range calls {
 		patched = append(patched, strings.Join(call.Argv, " "))
 	}
 	return patched
