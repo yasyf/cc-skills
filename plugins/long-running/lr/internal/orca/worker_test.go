@@ -697,6 +697,20 @@ func TestABriefThatOrdersNoPRSaysSoInTheSpriteSpec(t *testing.T) {
 	}
 }
 
+func TestAReadLaneTheMacsLoadSentToASpriteIsToldItsStoreStartsAtLaunch(t *testing.T) {
+	for header, want := range map[string]bool{"ccx: role=read place=local": true, "ccx: role=read place=remote": false, "ccx: role=build place=local why=predecessor-worked-here": false} {
+		f := newWorkerFixture(t)
+		text := "# Lane A\n" + header + "\nRead what the drive recorded.\n"
+		f.write(f.brief, text, 0o600)
+		f.spriteWith(overlaid(prepared(), object{"brief": object{"path": "/box/brief.md", "sha256": hexSum(text), "bytes": len(text)}}))
+		f.launched()
+		spec := flag(f.calls[len(f.calls)-1], "--spec")
+		if strings.HasSuffix(spec, "cci store starts at its launch: check on the Mac before you report anything absent.") != want {
+			t.Fatal(header, spec)
+		}
+	}
+}
+
 func TestASponsorJoinsTheSpriteToTheDefaultMeshBeforeTheWorkerStartsAndNeverLogsTheKey(t *testing.T) {
 	f := newWorkerFixture(t)
 	f.sprite()

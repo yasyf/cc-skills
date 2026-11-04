@@ -17,11 +17,12 @@ import (
 )
 
 const (
-	namesNothing = "none"
-	roleFix      = "fix"
-	briefFile    = "brief.md"
-	sliceLine    = "Register slice:"
-	handoffLane  = "-handoff"
+	namesNothing   = "none"
+	roleFix        = "fix"
+	briefFile      = "brief.md"
+	sliceLine      = "Register slice:"
+	handoffLane    = "-handoff"
+	whyPredecessor = "predecessor-worked-here"
 )
 
 var (
@@ -32,7 +33,8 @@ var (
 	briefStanding = regexp.MustCompile(`(?m)^Standing: *\S`)
 	briefMonitor  = regexp.MustCompile(`(?m)^ccx:.*\bmonitor=(\d{4,})`)
 	briefPlace    = regexp.MustCompile(`(?m)^ccx:(?:.*[ \t])?place=(remote|local)(?:\s|$)`)
-	briefWhy      = regexp.MustCompile(`(?m)^ccx:(?:.*[ \t])?(?:why=\S|role=read(?:\s|$))`)
+	briefWhy      = regexp.MustCompile(`(?m)^ccx:(?:.*[ \t])?why=(\S+)`)
+	briefRead     = regexp.MustCompile(`(?m)^ccx:(?:.*[ \t])?role=read(?:\s|$)`)
 	fableModel    = regexp.MustCompile(`(?i)(^|[-_.])fable([-_.0-9]|$)`)
 	successorLane = regexp.MustCompile(`^.+-(\d+)$`)
 	notFixRoles   = []string{"evidence", "proof", "closeout", "desk", "audit"}
@@ -140,8 +142,21 @@ func (o Order) scaleFault(text string, written time.Time) string {
 }
 
 func macPinned(lane, model, text string) bool {
+	return macRequired(lane, model, text) || macPreferred(text)
+}
+
+func macRequired(lane, model, text string) bool {
+	needs := slices.ContainsFunc(submatches(briefWhy, text), func(why string) bool { return why != whyPredecessor })
+	return lane == coordinatorLane || fableModel.MatchString(model) || model == agentIncident || model == modelIncidentOpus || placedLocal(text) && needs
+}
+
+func macPreferred(text string) bool {
+	return placedLocal(text) && (briefRead.MatchString(text) || slices.Contains(submatches(briefWhy, text), whyPredecessor))
+}
+
+func placedLocal(text string) bool {
 	placed := briefPlace.FindStringSubmatch(text)
-	return lane == coordinatorLane || fableModel.MatchString(model) || model == agentIncident || model == modelIncidentOpus || (placed != nil && placed[1] == "local" && briefWhy.MatchString(text))
+	return placed != nil && placed[1] == "local"
 }
 
 func carryFault(ctx context.Context, runner shell.Runner, home, repo, brief, text string) (string, error) {

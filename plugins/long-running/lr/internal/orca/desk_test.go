@@ -77,6 +77,7 @@ type deskWorld struct {
 	fireErr          error
 	sentID           int
 	busy             string
+	load             string
 	ccnFails         bool
 	release          string
 	refuseTime       bool
@@ -96,7 +97,7 @@ func newDeskWorld(t *testing.T) *deskWorld {
 	}
 	config := DeskConfig{
 		Source: filepath.Join(home, "state", "runner.json"), Store: filepath.Join(home, "store", "incidents"), Drive: testDrive, DeskInbox: filepath.Join(home, "state", "inbox", "orca-desk.md"), Run: testRun,
-		Receipts: filepath.Join(home, "receipts"), BriefsRepo: filepath.Join(home, "repo"), BriefsLog: "log_1", StartMinutes: 10, LaunchMinutes: 15, HoldMinutes: 15, CaseLanes: 2,
+		Receipts: filepath.Join(home, "receipts"), BriefsRepo: filepath.Join(home, "repo"), BriefsLog: "log_1", StartMinutes: 10, LaunchMinutes: 15, HoldMinutes: 15, CaseLanes: 2, LoadLimit: 32,
 	}
 	w.write(config.Source, `{"drive":"brook","orca":{"run":"run_1"}}`)
 	registry, err := store.Memory()
@@ -288,6 +289,10 @@ func (w *deskWorld) Run(_ context.Context, c shell.Command) (shell.Result, error
 		return w.orchestrationReply(argv)
 	case argv[0] == "top":
 		return shell.Result{Stdout: "CPU usage: 1% user, 1% sys, " + w.busy + "% idle\n"}, nil
+	case argv[0] == "sysctl" && w.load == "":
+		return shell.Result{Code: 1, Stderr: "sysctl: unknown oid 'vm.loadavg'"}, &shell.ExitError{Argv: argv, Code: 1}
+	case argv[0] == "sysctl":
+		return shell.Result{Stdout: "{ " + w.load + " 30.00 20.00 }\n"}, nil
 	case argv[0] == "cci":
 		return shell.Result{}, nil
 	case argv[0] == "ccn":
@@ -2166,6 +2171,79 @@ func TestTheCoordinatorLaunchesOnTheMacWhileALaneWithNoPlaceTakesASprite(t *test
 			}
 		})
 	}
+}
+
+func TestOverTheMacsLoadLimitALaneThatOnlyPrefersTheMacTakesASprite(t *testing.T) {
+	for _, tt := range []struct {
+		name, ccx, load, want string
+	}{
+		{"a read lane over the limit", "ccx: role=read place=local", "41.20", "sprite"},
+		{"a read lane at the limit", "ccx: role=read place=local", "32.00", "start"},
+		{"a read lane under the limit", "ccx: role=read place=local", "31.90", "start"},
+		{"a read lane on an unreadable load", "ccx: role=read place=local", "", "start"},
+		{"a predecessor's lane over the limit", "ccx: role=build place=local why=predecessor-worked-here", "41.20", "sprite"},
+		{"a lane naming its need over the limit", "ccx: role=build place=local why=devbox", "41.20", "start"},
+		{"a read lane naming its need over the limit", "ccx: role=read place=local why=devbox", "41.20", "start"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			w := newDeskWorld(t)
+			w.load = tt.load
+			launcher := spriteConfig(w)
+			brief := w.brief(testLane, testBrief+tt.ccx+"\n")
+			w.lines()
+			w.line(launchText(testLane, brief))
+			w.lines()
+			w.step(w.desk.deliver)
+			if len(w.spawns) != 1 {
+				t.Fatal(w.spawns)
+			}
+			got := "sprite"
+			if w.spawns[0].argv[0] != launcher {
+				got = w.spawns[0].argv[2]
+			}
+			if got != tt.want {
+				t.Fatal(w.spawns)
+			}
+		})
+	}
+}
+
+func TestTheMacsRunnerAndTheHostsRunnerRouteALaunchOnItsFirstLoadReading(t *testing.T) {
+	w := newDeskWorld(t)
+	parsed := parseDirective(launchText(testLane, w.brief(testLane, testBrief+"ccx: role=read place=local\n")))
+	w.load = "41.20"
+	w.desk.Config.Launches = launchesMac
+	mac, err := w.desk.takes(t.Context(), parsed, "R7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.load = "12.00"
+	w.desk.Config.Launches = launchesSprite
+	host, err := w.desk.takes(t.Context(), parsed, "R7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mac || !host {
+		t.Fatalf("the Mac's runner takes it: %v, the host's runner takes it: %v", mac, host)
+	}
+}
+
+func TestALaunchTheMacsLoadSentToASpriteSaysWhyInItsLaunchedLine(t *testing.T) {
+	w := newDeskWorld(t)
+	w.load = "41.20"
+	spriteConfig(w)
+	brief := w.brief(testLane, testBrief+"ccx: role=read place=local\n")
+	w.lines()
+	line := w.line(launchText(testLane, brief))
+	key := "R" + strings.TrimPrefix(line.Name(), "#")
+	w.launchOut[testLane] = `{"task":"t","dispatch":"ctx_s","terminal":"term_s","worktree":"/box/w","workspace":"pool-1"}` + "\n"
+	w.lines()
+	w.step(w.desk.deliver)
+	attempt := spriteAttempt(brief)
+	w.write(filepath.Join(attempt, spriteReceipt), `{"result":{"dispatchId":"ctx_s"}}`)
+	w.write(filepath.Join(attempt, spriteMade), `{"workspace":"pool-1"}`)
+	w.step(w.desk.reap)
+	wantContains(t, w.wantEscalation("LAUNCHED "+key), "on Sprite pool-1: Mac load 41 over 32")
 }
 
 func TestAnIncidentLaunchOverLoadStartsAnywayAndTellsTheWatchdog(t *testing.T) {
