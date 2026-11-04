@@ -873,7 +873,7 @@ func (w *workerLaunch) startLocal() (string, error) {
 }
 
 func (w *workerLaunch) bootClaude() error {
-	command := "claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions --disallowedTools AskUserQuestion,EnterPlanMode,ExitPlanMode --strict-mcp-config --model " + shellQuote(w.modelID) + " --effort " + shellQuote(w.effort)
+	command := "env " + claudeLaneEnv + " claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions --disallowedTools AskUserQuestion,EnterPlanMode,ExitPlanMode --strict-mcp-config --model " + shellQuote(w.modelID) + " --effort " + shellQuote(w.effort)
 	if mcp := w.Env("WORKER_MCP_CONFIG"); mcp != "" {
 		command += " --mcp-config " + shellQuote(mcp)
 	}

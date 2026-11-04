@@ -11,6 +11,7 @@ from pathlib import Path
 SCRIPT = Path(__file__).resolve().parents[1] / "bin/orca-worker-launch.sh"
 RUN = "run_1"
 LANE = "lane-a"
+LANE_ENV = "DISABLE_AUTOUPDATER=1 CLAUDE_CODE_DISABLE_FILE_CHECKPOINTING=1"
 WORKSPACE = "pool-spare"
 REPO = "repo-local"
 BASE_BRANCH = "origin/main"
@@ -185,7 +186,7 @@ class Launch:
         return ["orca", "orchestration", "worker-start", "--run", RUN, "--spec", spec, "--task-title", LANE, *placement, "--timeout-ms", "600000", "--full", "--json"]
 
     def local_calls(self, model: str = "claude-fable-5-1", effort: str = "xhigh", repo: str = REPO, cone: tuple[str, ...] = CONE) -> list[list[str]]:
-        claude = f"claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions --disallowedTools AskUserQuestion,EnterPlanMode,ExitPlanMode --strict-mcp-config --model {model} --effort {effort}"
+        claude = f"env {LANE_ENV} claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions --disallowedTools AskUserQuestion,EnterPlanMode,ExitPlanMode --strict-mcp-config --model {model} --effort {effort}"
         pointer = f"Lane '{LANE}'. Your full brief is the file {self.brief}: read it in full with the Read tool before anything else and execute it exactly (Orca truncates pasted specs). Your Orca worktree is {LOCAL_WORKTREE}.{f" This lane is sparse: widen with `{WIDEN}` before reading outside it." if cone else ""} You run in bypass-permissions mode; the brief's Escalate rules still hold."
         return [
             CURRENT,
