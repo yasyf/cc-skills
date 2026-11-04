@@ -91,7 +91,7 @@ def missing(words: tuple[str, ...], binary: str = str(LR)) -> str | None:
         (".md", "run `lr wait 60 mailbox:x -- gh pr checks --watch` once", [("wait",)]),
         (".md", "```sh\nlr drive sub start <name> --objective y\n```\n", [("drive", "sub", "start", "--objective")]),
         (".md", "the lr verb for a chore, or `for meta: lr verb for <chore>`", []),
-        (".py", 'MARK = "`{lr} owner mark {row} responded|addressed [--routed <seq>] --drive {drive}`"', [("owner", "mark", "--routed", "--drive")]),
+        (".py", 'MARK = "`{lr} owner mark {row} responded|addressed|due [--routed <seq>] [--reply <id>] [--by <clock>] --drive {drive}`"', [("owner", "mark", "--routed", "--reply", "--by", "--drive")]),
         (".py", 'NEXT = "lr coordinator next --drive d"', [("coordinator", "next", "--drive")]),
         (".py", "from lr import loop", []),
         (".py", '"""Every pass runs `lr stop-sprites`; lr decides which lanes ended."""', [("stop-sprites",)]),
