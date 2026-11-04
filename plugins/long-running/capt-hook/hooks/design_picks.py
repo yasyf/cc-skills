@@ -18,8 +18,8 @@ PLACEMENT = re.compile(r"\b(?:volume|pvc|persistentvolumeclaim|storageclass|recl
 ROWS = "infra/rows/"
 CARDS_SECONDS = 30
 REFUSAL = (
-    "This PR waits for the owner's pick: {found}. A concrete rule in his design order is an input to that design and ships with his pick, never ahead of it;"
-    " only the incident fix and its headroom go first. Cite his pick in the PR body as `owner:m<N>` or its ccn answer id, or push the work as a branch and open no PR until he picks."
+    "This PR waits for the owner's pick, since only the incident fix and its headroom ship ahead of his design: {found}."
+    " Cite his pick in the PR body as `owner:m<N>` or its ccn answer id, or push the work as a branch with no PR."
 )
 INCIDENT = "Warning, nothing was refused: this incident lane's PR goes ahead as the incident fix or its headroom, though {found}; anything past the fix waits for his pick."
 UNREAD = "Warning, nothing was refused: {why}, so this PR goes ahead without the design-card check. Hold it if it touches the paths `lr board cards paths` prints."
@@ -67,15 +67,15 @@ def design_cards(evt: BaseHookEvent) -> dict[str, list[str]]:
     Event.PreToolUse,
     only_if=[Bound(), Tool("Bash"), Or(Runs("gh"), Runs("ccx", "vcs", "ship"))],
     tests={
-        Input(command=SHIP_IT, env=LANE_ENV, commands=JOURNAL): Block(pattern=r"^This PR waits for the owner's pick: `go/sand/internal/cloudrunner/journal/evict\.go` under card `card-journal-storage`"),
-        Input(command=PICKED, env=LANE_ENV, commands=JOURNAL): Allow(),
-        Input(command=SHIP_IT, env=DRIVE_ENV | {"CLAUDE_LONG_RUNNING_LANE": "incident-journal-disk"}, commands=JOURNAL): Warn(pattern=r"^Warning, nothing was refused: this incident lane's PR goes ahead"),
-        Input(command=SHIP_IT, env=LANE_ENV, commands=ELSEWHERE): Allow(),
-        Input(command=SHIP_IT, env=LANE_ENV, commands=ROWS_PVC | {CARDS: "{}"}): Block(pattern=r"`infra/rows/executor/template\.ts` changes where data lives or how long it is kept"),
-        Input(command=SHIP_IT, env=LANE_ENV, commands=ROWS_LABEL | {CARDS: "{}"}): Allow(),
-        Input(command=SHIP_IT, env=LANE_ENV, commands=ELSEWHERE | {CARDS: (1, "cc-present down")}): Warn(pattern=r"^Warning, nothing was refused: `board cards` exited 1: cc-present down"),
-        Input(command="gh pr view 12", env=LANE_ENV, commands=JOURNAL): Allow(),
-        Input(command=SHIP_IT, env=DRIVE_ENV | {"CLAUDE_LONG_RUNNING_LANE": "root"}, commands=JOURNAL): Allow(),
+        Input(cwd="/w", command=SHIP_IT, env=LANE_ENV, commands=JOURNAL): Block(pattern=r"^This PR waits for the owner's pick, since only the incident fix[\s\S]*`go/sand/internal/cloudrunner/journal/evict\.go` under card `card-journal-storage`"),
+        Input(cwd="/w", command=PICKED, env=LANE_ENV, commands=JOURNAL): Allow(),
+        Input(cwd="/w", command=SHIP_IT, env=DRIVE_ENV | {"CLAUDE_LONG_RUNNING_LANE": "incident-journal-disk"}, commands=JOURNAL): Warn(pattern=r"^Warning, nothing was refused: this incident lane's PR goes ahead"),
+        Input(cwd="/w", command=SHIP_IT, env=LANE_ENV, commands=ELSEWHERE): Allow(),
+        Input(cwd="/w", command=SHIP_IT, env=LANE_ENV, commands=ROWS_PVC | {CARDS: "{}"}): Block(pattern=r"`infra/rows/executor/template\.ts` changes where data lives or how long it is kept"),
+        Input(cwd="/w", command=SHIP_IT, env=LANE_ENV, commands=ROWS_LABEL | {CARDS: "{}"}): Allow(),
+        Input(cwd="/w", command=SHIP_IT, env=LANE_ENV, commands=ELSEWHERE | {CARDS: (1, "cc-present down")}): Warn(pattern=r"^Warning, nothing was refused: `board cards` exited 1: cc-present down"),
+        Input(cwd="/w", command="gh pr view 12", env=LANE_ENV, commands=JOURNAL): Allow(),
+        Input(cwd="/w", command=SHIP_IT, env=DRIVE_ENV | {"CLAUDE_LONG_RUNNING_LANE": "root"}, commands=JOURNAL): Allow(),
     },
 )
 def ships_wait_for_his_design_pick(evt: BaseHookEvent) -> HookResult | None:
