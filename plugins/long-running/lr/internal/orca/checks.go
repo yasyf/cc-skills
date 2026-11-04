@@ -30,6 +30,7 @@ var (
 	briefScale    = regexp.MustCompile(`(?m)^[ \t>*_-]*Scale:`)
 	briefIncident = regexp.MustCompile(`(?m)^ccx:.*\bincident=([\w.-]+)`)
 	briefStanding = regexp.MustCompile(`(?m)^Standing: *\S`)
+	briefSlack    = regexp.MustCompile(`(?m)^ccx:(?:.*[ \t])?mcp=slack(?:\s|$)`)
 	briefMonitor  = regexp.MustCompile(`(?m)^ccx:.*\bmonitor=(\d{4,})`)
 	briefPlace    = regexp.MustCompile(`(?m)^ccx:(?:.*[ \t])?place=(remote|local)(?:\s|$)`)
 	briefWhy      = regexp.MustCompile(`(?m)^ccx:(?:.*[ \t])?why=\S`)
