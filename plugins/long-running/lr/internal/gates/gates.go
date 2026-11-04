@@ -16,6 +16,7 @@ const (
 	BehaviorFact = "behavior"
 	SinceFact    = "behavior-since"
 	ChangedFact  = "what-changed"
+	MissingFact  = "gates-missing"
 	fidelityFact = "fidelity"
 
 	BehaviorSame    = "same"

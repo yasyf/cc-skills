@@ -242,6 +242,49 @@ func (s *Store) OpenItems(repo string, number int) ([]Item, error) {
 	return s.items("WHERE closed IS NULL AND (?1 IS NULL OR repo = ?1) AND (?2 IS NULL OR number = ?2) ORDER BY id", text(repo), whole(int64(number)))
 }
 
+type OpenRow struct {
+	Item
+	Lane  string
+	Facts map[string]string
+}
+
+func (s *Store) OpenRows(repo, kind string, mover machine.Mover, numbers []int) ([]OpenRow, error) {
+	given, err := json.Marshal(numbers)
+	if err != nil {
+		return nil, err
+	}
+	type joined struct {
+		row         OpenRow
+		kind, value string
+	}
+	rows, err := s.db.Query(`SELECT i.id, i.kind, i.repo, i.number, i.head, i.mover, i.worker, i.created, i.deadline, i.closed, coalesce(p.lane, ''), f.kind, f.value
+FROM items i
+LEFT JOIN prs p ON p.repo = i.repo AND p.number = i.number
+LEFT JOIN facts f ON f.repo = i.repo AND f.number = i.number AND length(f.head) >= 7 AND (substr(i.head, 1, length(f.head)) = f.head OR length(i.head) >= 7 AND substr(f.head, 1, length(i.head)) = i.head)
+WHERE i.closed IS NULL AND i.repo = ? AND i.kind = ? AND i.mover = ? AND i.number IN (SELECT value FROM json_each(?))
+ORDER BY i.id, f.posted, length(f.head)`, repo, kind, string(mover), string(given))
+	found, err := collect(rows, err, func(rows *sql.Rows) (joined, error) {
+		var j joined
+		item := &j.row.Item
+		err := rows.Scan(&item.ID, &item.Kind, &item.Repo, &item.Number, &item.Head, &item.Mover, nullable[string]{&item.Worker}, moment{&item.Created}, moment{&item.Deadline}, moment{&item.Closed}, &j.row.Lane, nullable[string]{&j.kind}, nullable[string]{&j.value})
+		return j, err
+	})
+	if err != nil {
+		return nil, err
+	}
+	var out []OpenRow
+	for _, j := range found {
+		if len(out) == 0 || out[len(out)-1].ID != j.row.ID {
+			j.row.Facts = map[string]string{}
+			out = append(out, j.row)
+		}
+		if j.kind != "" {
+			out[len(out)-1].Facts[j.kind] = j.value
+		}
+	}
+	return out, nil
+}
+
 func (s *Store) Overdue(now time.Time) ([]Item, error) {
 	return s.items("WHERE closed IS NULL AND deadline <= ? ORDER BY deadline, id", Stamp(now))
 }
