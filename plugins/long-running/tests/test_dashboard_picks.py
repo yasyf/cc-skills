@@ -40,7 +40,7 @@ def test_an_option_table_moves_into_its_options_and_leaves_the_context():
     assert options["a"]["hint"] == ""
     assert options["a"]["note"] == "(recommended by the coordinator), as you said"
     assert "title" not in options["a"]
-    assert options["b"]["title"] == "2. A second read-only credential over run folders"
+    assert options["b"]["title"] == "2: A second read-only credential over run folders"
     assert options["b"]["note"] == "minted on first read"
     assert options["c"]["note"] == ""
 

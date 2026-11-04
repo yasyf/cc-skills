@@ -6,6 +6,7 @@ OPTION_HEAD = re.compile(r"^(?:options?|picks?|choices?|answers?)$", re.I)
 GOOD_COLUMN = re.compile(r"\b(?:for|gains?|pros?|upsides?|benefits?)\b", re.I)
 BAD_COLUMN = re.compile(r"\b(?:against|costs?|cons?|downsides?|risks?)\b", re.I)
 BOLD_NAME = re.compile(r"^\*\*(.+?)\*\*")
+NUMBERED_NAME = re.compile(r"^(\d+|[A-Z])\.\s+")
 RECOMMENDED_MARK = re.compile(r"\s*\(recommended\b[^)]*\)", re.I)
 RECOMMENDED_SENTENCE = re.compile(r"\s*Recommended: .*?\.(?=\s|$)")
 TAP_LEAD = re.compile(r"^Tap one below[.:]?\s*", re.I)
@@ -42,7 +43,7 @@ def row_name(cell):
 def fold_row(option, columns, row):
     name, rest = row_name(row[0])
     if words(name) - words(option["label"]):
-        option["title"] = name
+        option["title"] = NUMBERED_NAME.sub(r"\1: ", name)
     option["note"] = re.sub(r"\s*\(recommended\)", "", rest, flags=re.I).strip(" ,;:.")
     option["hint"] = ""
     option["facts"] = [*option["facts"], *({"label": column, "value": value, "tone": tone_of(column)} for column, value in zip(columns, row[1:]) if value)]

@@ -1776,7 +1776,7 @@ def handler(drive, tailnet_owner, names):
         def refuse(self):
             return self.send(403, "application/json", json.dumps({"error": "only the drive's owner can do this, and this device is not signed in as them"}).encode())
 
-        def source(self):
+        def source_lines(self):
             if not self.owner_calling():
                 return self.refuse()
             query = dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(self.path).query))
@@ -1827,7 +1827,7 @@ def handler(drive, tailnet_owner, names):
                     words = drive.model.get("words", [])
                 return self.send(200, "application/json", json.dumps(words).encode())
             if path == "/api/source":
-                return self.source()
+                return self.source_lines()
             if path == "/api/stream":
                 return self.stream()
             if path == "/api/alerts":
