@@ -17,9 +17,8 @@ ROOT_LANE = "root"
 NOTE_LANE = "gate5"
 OVERRIDE = "GATE5_OWNER_OVERRIDE"
 OWNER_LANES = frozenset({"owner", "owner-relay"})
-RELEASE_VERBS = frozenset({"start", "hotfix"})
-VALUE_FLAGS = frozenset({"without", "only", "stack", "commit", "from"})
-SAND_NEXT = "sand-next"
+NOT_NAMING_FLAGS = frozenset({"without", "exclude", "commit", "from"})
+VALUE_FLAGS = frozenset({"commit", "from"})
 NAMES_SAND_NEXT = re.compile(r"(?:^|/)sand-next(?:/|$)")
 PASS = re.compile(r"GATE5 PASS ([0-9a-fA-F]{7,40})\b")
 READ_SECONDS = 20
@@ -31,15 +30,15 @@ GREP = "cci grep"
 
 UNGATED = (
     "GATE5: this release carries sand-next at {commit}, and switch-drive has posted no `GATE5 PASS <sha>` for that commit"
-    " on drive durable-agents-rebuild in the last 12 hours. Ask switch-drive for a gate run on it, or start the release with `--without sand-next`."
+    " in the last 12 hours. Ask switch-drive for a gate run on it, or leave `sand-next` out of the start."
 )
 UNCHECKABLE = (
-    "GATE5: a {what} that carries sand-next names no commit the gate can check against switch-drive's `GATE5 PASS <sha>` records."
-    " Start it with `--without sand-next`, or start a release that names its commit with `--from <sha>` once switch-drive posts `GATE5 PASS <sha>` for it."
+    "GATE5: a `--green` release that names sand-next names no commit the gate can check against `GATE5 PASS <sha>` records."
+    " Leave `sand-next` out, or name its commit with `--from <sha>` once switch-drive posts `GATE5 PASS <sha>`."
 )
 UNREAD = (
     "GATE5 fails closed: it could not read whether switch-drive passed this sand-next release ({why})."
-    " Fix the read and retry, or start the release with `--without sand-next`."
+    " Fix the read and retry, or leave `sand-next` out of the start."
 )
 NOT_OWNER = "GATE5: {OVERRIDE}={seq} names a record from `{lane}`, and only an owner record from `owner` or `owner-relay` overrides the gate."
 OVERRIDDEN = "GATE5 OVERRIDE: `{command}` carries sand-next without a gate pass, under owner record #{seq}."
@@ -72,15 +71,17 @@ def release_flags(args: tuple[str, ...]) -> dict[str, list[str]]:
     return flags
 
 
-def names(flags: dict[str, list[str]], flag: str) -> list[str]:
-    return [name for value in flags.get(flag, ()) for name in (part.strip() for part in value.split(",")) if name]
-
-
-def carries_sand_next(flags: dict[str, list[str]]) -> bool:
-    if SAND_NEXT in names(flags, "without"):
-        return False
-    narrowed = names(flags, "only") + names(flags, "stack")
-    return not narrowed or any(NAMES_SAND_NEXT.search(name) for name in narrowed)
+def carries_sand_next(args: tuple[str, ...]) -> bool:
+    words = iter(args)
+    for word in words:
+        flag, inline, value = word[2:].partition("=") if word.startswith("--") else ("", "", word)
+        if flag in NOT_NAMING_FLAGS:
+            if not inline:
+                next(words, "")
+            continue
+        if any(NAMES_SAND_NEXT.search(name.strip()) for name in value.split(",")):
+            return True
+    return False
 
 
 def released_commit(flags: dict[str, list[str]], cwd: str) -> tuple[str, str]:
@@ -118,13 +119,13 @@ def overridden(call: Call, seq: str) -> str | None:
 
 
 def gated(call: Call, cwd: str) -> str | None:
-    flags = release_flags(call.args[2:])
-    if not carries_sand_next(flags):
+    if not carries_sand_next(call.args[2:]):
         return None
+    flags = release_flags(call.args[2:])
     if seq := dict(call.command.env).get(OVERRIDE):
         return overridden(call, seq)
-    if call.args[1] == "hotfix" or "green" in flags:
-        return UNCHECKABLE.format(what="hotfix" if call.args[1] == "hotfix" else "`--green` release")
+    if "green" in flags:
+        return UNCHECKABLE
     sha, commit = released_commit(flags, cwd)
     return None if gate_passed(sha) else UNGATED.format(commit=commit)
 
@@ -154,32 +155,39 @@ def release(command: str, said: str | tuple[int, str] = "", routed: str = GATE_L
         Input(command="tools/ci release start --manual --stack api/plat-usw2-prod --commit dc94738"): Allow(),
         Input(command="tools/ci release hotfix 48885 --without sand-next"): Allow(),
         Input(command="tools/ci release status"): Allow(),
-        release("tools/ci release start sand"): Block(pattern=r"^GATE5: this release carries sand-next at origin dev's tip, and switch-drive has posted no"),
-        release("./tools/ci release start sand --without sand-next/core-usw2-auto"): Block(pattern=r"Ask switch-drive for a gate run"),
-        release("tools/ci release start sand", passes(SHA)): Allow(),
-        release("cd /repo && ci release start --targets sand --from dc94738", passes(SHA)): Allow(),
-        release("tools/ci release start sand", passes(OTHER)): Block(pattern=r"^GATE5: this release carries sand-next"),
-        release("tools/ci release start sand", passes(SHA, "switch-drive-2"), routed="switch-drive-2"): Allow(),
-        release("tools/ci release start sand", passes(SHA), routed=ROOT_LANE): Allow(),
+        release("tools/ci release start sand-next"): Block(pattern=r"^GATE5: this release carries sand-next at origin dev's tip, and switch-drive has posted no"),
+        Input(command="./tools/ci release start sand --without sand-next/core-usw2-auto"): Allow(),
+        Input(command="tools/ci release start sand"): Allow(),
+        Input(command="tools/ci release start everything"): Allow(),
+        Input(command="tools/ci release start --hotfix 49538"): Allow(),
+        Input(command="tools/ci release hotfix 49538 --dry-run"): Allow(),
+        Input(command="tools/ci release hotfix --help"): Allow(),
+        release("tools/ci release start --only sand-next,api"): Block(pattern=r"Ask switch-drive for a gate run"),
+        release("tools/ci release start --manual sand-next --env core-usw2-auto --commit dc94738", passes(OTHER)): Block(pattern=r"^GATE5: this release carries sand-next at `dc94738`,"),
+        release("tools/ci release start sand-next", passes(SHA)): Allow(),
+        release("cd /repo && ci release start --targets sand-next --from dc94738", passes(SHA)): Allow(),
+        release("tools/ci release start sand-next", passes(OTHER)): Block(pattern=r"^GATE5: this release carries sand-next"),
+        release("tools/ci release start sand-next", passes(SHA, "switch-drive-2"), routed="switch-drive-2"): Allow(),
+        release("tools/ci release start sand-next", passes(SHA), routed=ROOT_LANE): Allow(),
         release("tools/ci release start --manual --stack sand-next/core-usw2-auto", passes(OTHER)): Block(pattern=r"^GATE5: this release carries sand-next at `HEAD`,"),
-        release("tools/ci release start sand", (1, "cci: daemon unavailable")): Block(pattern=r"^GATE5 fails closed: it could not read[\s\S]*daemon unavailable"),
-        release("tools/ci release start sand", **{"git ls-remote": (128, "fatal: could not read from remote")}): Block(pattern=r"^GATE5 fails closed[\s\S]*could not read from remote"),
-        release("tools/ci release start sand", env={"CLAUDE_CONFIG_DIR": "/nonexistent"}): Block(pattern=r"no drive durable-agents-rebuild is registered"),
-        release("ci release hotfix 48885"): Block(pattern=r"^GATE5: a hotfix that carries sand-next names no commit"),
-        release("tools/ci release start sand --green"): Block(pattern=r"^GATE5: a `--green` release"),
+        release("tools/ci release start sand-next", (1, "cci: daemon unavailable")): Block(pattern=r"^GATE5 fails closed: it could not read[\s\S]*daemon unavailable"),
+        release("tools/ci release start sand-next", **{"git ls-remote": (128, "fatal: could not read from remote")}): Block(pattern=r"^GATE5 fails closed[\s\S]*could not read from remote"),
+        release("tools/ci release start sand-next", env={"CLAUDE_CONFIG_DIR": "/nonexistent"}): Block(pattern=r"no drive durable-agents-rebuild is registered"),
+        Input(command="ci release hotfix 48885"): Allow(),
+        release("tools/ci release start sand-next --green"): Block(pattern=r"^GATE5: a `--green` release"),
         release(
-            "GATE5_OWNER_OVERRIDE=356990 tools/ci release start sand",
+            "GATE5_OWNER_OVERRIDE=356990 tools/ci release start sand-next",
             **{"cci show 356990": json.dumps({"seq": 356990, "lane": "owner-relay", "kind": "answer", "text": "ship sand-next now"}), "cci post": "#357200"},
         ): Allow(),
-        release("GATE5_OWNER_OVERRIDE=356990 tools/ci release start sand", **{"cci show 356990": json.dumps({"seq": 356990, "lane": "release-6", "kind": "note", "text": "x"})}): Block(
+        release("GATE5_OWNER_OVERRIDE=356990 tools/ci release start sand-next", **{"cci show 356990": json.dumps({"seq": 356990, "lane": "release-6", "kind": "note", "text": "x"})}): Block(
             pattern=r"names a record from `release-6`"
         ),
-        release("GATE5_OWNER_OVERRIDE=356990 tools/ci release start sand", **{"cci show 356990": (1, "no record has this number")}): Block(pattern=r"could not read"),
+        release("GATE5_OWNER_OVERRIDE=356990 tools/ci release start sand-next", **{"cci show 356990": (1, "no record has this number")}): Block(pattern=r"could not read"),
     },
 )
 def sand_next_release_needs_gate5_pass(evt: BaseHookEvent) -> HookResult | None:
     for call in evt.command.calls("ci"):
-        if call.args[:1] != ("release",) or call.args[1:2] == () or call.args[1] not in RELEASE_VERBS:
+        if call.args[:1] != ("release",) or call.args[1:2] == () or call.args[1] != "start":
             continue
         try:
             refusal = gated(call, str(call.cwd or evt.cwd))
