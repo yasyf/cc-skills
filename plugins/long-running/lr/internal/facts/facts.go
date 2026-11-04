@@ -573,7 +573,11 @@ func (s Source) assemble(ctx context.Context, rows []statusRow, open openRead, r
 			f.ForeignAuthor = author
 		}
 		if err := s.carryTap(ctx, &f, stored); err != nil {
-			return nil, fmt.Errorf("#%d tap: %w", row.Number, err)
+			if !errors.Is(err, errDiffUnread) || ctx.Err() != nil {
+				return nil, fmt.Errorf("#%d tap: %w", row.Number, err)
+			}
+			s.Log.Warn("pull request unread this pass", "pr", row.Number, "err", err)
+			continue
 		}
 		out = append(out, f)
 	}
@@ -605,17 +609,19 @@ func (s Source) carryTap(ctx context.Context, f *machine.Facts, stored map[strin
 	return nil
 }
 
+var errDiffUnread = errors.New("diff unread")
+
 func (s Source) hashDiff(ctx context.Context, f machine.Facts, stored map[string]string) error {
 	if stored[gates.DiffFact] != "" {
 		return nil
 	}
 	base := "refs/remotes/origin/" + f.Base
 	if _, err := s.Runner.Run(ctx, shell.Command{Argv: []string{"git", "fetch", "--no-write-fetch-head", "-q", "origin", f.Head, "+refs/heads/" + f.Base + ":" + base}}); err != nil {
-		return err
+		return fmt.Errorf("%w: %w", errDiffUnread, err)
 	}
 	diff, err := s.Runner.Run(ctx, shell.Command{Argv: []string{"git", "diff", "--no-color", "--no-ext-diff", base + "..." + f.Head}})
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: %w", errDiffUnread, err)
 	}
 	stored[gates.DiffFact] = gates.DiffHash(diff.Stdout)
 	_, err = s.Store.PutFact(s.Repo, f.Number, f.Head, gates.DiffFact, stored[gates.DiffFact], s.Now())

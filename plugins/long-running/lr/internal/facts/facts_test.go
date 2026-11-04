@@ -700,6 +700,39 @@ func TestATapStandsOnlyAsTheOwnerLeftIt(t *testing.T) {
 	}
 }
 
+type goneRef struct {
+	shell.Runner
+	head string
+}
+
+func (g goneRef) Run(ctx context.Context, c shell.Command) (shell.Result, error) {
+	if slices.Contains(c.Argv, "fetch") && slices.Contains(c.Argv, g.head) {
+		return shell.Result{Code: 128}, &shell.ExitError{Argv: c.Argv, Code: 128, Stderr: "fatal: couldn't find remote ref refs/heads/gone"}
+	}
+	return g.Runner.Run(ctx, c)
+}
+
+func TestATapWhoseDiffWillNotReadSkipsThatPRAndThePassMovesOn(t *testing.T) {
+	h := newHarness(t, []recordedPR{
+		{number: 1, head: head, login: "drive-bot", diff: ownDiff},
+		{number: 2, head: head2, login: "drive-bot", diff: ownDiff},
+	}, status(1), status(2, func(row *statusRow) { row.Head = head2 }))
+	putFact(t, h.store, 1, head, "tap", "tapped", tappedAt)
+	putFact(t, h.store, 2, head2, "tap", "tapped", tappedAt)
+	a := app.New(io.Discard)
+	a.Runner = goneRef{h.runner, head}
+	cfg := config.Config{Repo: repo, Drive: "d", Checkout: "/checkouts/repo", Author: "drive-bot", Label: "drive", Trunk: "dev"}
+
+	rows, err := facts.New(a, cfg, h.store).Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("one PR's gone ref failed the whole pass: %v", err)
+	}
+
+	if len(rows) != 1 || rows[0].Number != 2 || rows[0].Tap != machine.TapTapped {
+		t.Fatalf("rows = %+v, want only #2, tapped", rows)
+	}
+}
+
 func TestATapTheOldCarryLeftOnTheCurrentHeadStandsThereAndAnchorsTheNextHead(t *testing.T) {
 	s := memory(t)
 	putFact(t, s, 1, head2, "tap", "tapped", tappedAt)
