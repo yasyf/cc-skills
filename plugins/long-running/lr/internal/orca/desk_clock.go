@@ -19,6 +19,8 @@ import (
 )
 
 const (
+	clockFacts    = "incident-clocks"
+	clockWork     = "incident-clock-work"
 	clockBackup   = "-opus"
 	clockRetry    = ":retry"
 	clockLookback = 14 * 24 * time.Hour
@@ -77,25 +79,32 @@ func (d *Desk) clockPass(ctx context.Context) error {
 }
 
 func (d *Desk) incidentClock(ctx context.Context) error {
-	books, err := d.containers(lanePrefix)
+	watching, err := d.clockLanes()
 	if err != nil {
 		return err
 	}
 	var incidents []client.Record
-	for _, container := range books {
+	for _, lane := range watching {
+		container := laneBook(lane)
+		kept, err := d.clockOf(lane)
+		if err != nil {
+			return err
+		}
 		launch, err := d.fixLaunch(container)
 		if err != nil {
 			return err
 		}
 		if launch == nil {
+			if err := d.pruneClockLane(lane, kept); err != nil {
+				return err
+			}
 			continue
-		}
-		kept, err := d.clockOf(container)
-		if err != nil {
-			return err
 		}
 		current := kept.Key == launch.ActionID
 		if current && kept.Ended != "" {
+			if err := d.pruneClockLane(lane, kept); err != nil {
+				return err
+			}
 			continue
 		}
 		if incidents == nil {
@@ -107,12 +116,12 @@ func (d *Desk) incidentClock(ctx context.Context) error {
 		if current {
 			clock.Reached = kept.Reached
 		}
-		tended, err := d.tendClock(ctx, strings.TrimPrefix(container, lanePrefix), *launch, clock, incidents)
+		tended, err := d.tendClock(ctx, lane, *launch, clock, incidents)
 		if err != nil {
 			return err
 		}
 		if tended && (clock.Key != kept.Key || clock.Ended != kept.Ended || !maps.Equal(clock.Reached, kept.Reached)) {
-			if err := d.setFact(container, clockFact, clock); err != nil {
+			if err := d.setClock(lane, *clock); err != nil {
 				return err
 			}
 		}
@@ -120,9 +129,9 @@ func (d *Desk) incidentClock(ctx context.Context) error {
 	return nil
 }
 
-func (d *Desk) clockOf(container string) (incidentClockState, error) {
+func (d *Desk) clockOf(lane string) (incidentClockState, error) {
 	var clock incidentClockState
-	value, found, err := d.factOf(container, clockFact)
+	value, found, err := d.store.FactEntry(deskRunner, clockFacts, lane)
 	if err != nil || !found {
 		return clock, err
 	}
@@ -131,6 +140,54 @@ func (d *Desk) clockOf(container string) (incidentClockState, error) {
 		return clock, err
 	}
 	return clock, json.Unmarshal(raw, &clock)
+}
+
+func (d *Desk) clockLanes() ([]string, error) {
+	return d.store.FactEntryKeys(deskRunner, clockWork)
+}
+
+func (d *Desk) watchClockLane(lane string) error {
+	return d.store.Edit(deskRunner, func(tx *incident.Tx) error {
+		return tx.SetFactEntry(clockWork, lane, true)
+	})
+}
+
+func (d *Desk) pendingClockLane(lane string) (bool, error) {
+	launches, err := d.laneActions(laneBook(lane), kindLaunch, incident.ActionAccepted, incident.ActionStarted)
+	return len(launches) > 0, err
+}
+
+func (d *Desk) pruneClockLane(lane string, clock incidentClockState) error {
+	if clock.Key != "" && clock.Ended == "" {
+		return nil
+	}
+	pending, err := d.pendingClockLane(lane)
+	if err != nil || pending {
+		return err
+	}
+	return d.store.Edit(deskRunner, func(tx *incident.Tx) error {
+		return tx.DropFactEntry(clockWork, lane)
+	})
+}
+
+func (d *Desk) setClock(lane string, clock incidentClockState) error {
+	pending := false
+	if clock.Ended != "" {
+		var err error
+		pending, err = d.pendingClockLane(lane)
+		if err != nil {
+			return err
+		}
+	}
+	return d.store.Edit(deskRunner, func(tx *incident.Tx) error {
+		if err := tx.SetFactEntry(clockFacts, lane, clock); err != nil {
+			return err
+		}
+		if clock.Ended == "" || pending {
+			return tx.SetFactEntry(clockWork, lane, true)
+		}
+		return tx.DropFactEntry(clockWork, lane)
+	})
 }
 
 func (d *Desk) clockIncidents(ctx context.Context) ([]client.Record, error) {
@@ -563,26 +620,26 @@ func (d *Desk) refuseStop(ctx context.Context, lane string, launch incident.Acti
 }
 
 func (d *Desk) inProcess(ctx context.Context) error {
-	books, err := d.containers(lanePrefix)
+	watching, err := d.liveClocks()
 	if err != nil {
 		return err
 	}
-	for _, container := range books {
-		launch, err := d.fixLaunch(container)
+	for _, lane := range watching {
+		launch, err := d.fixLaunch(laneBook(lane))
 		if err != nil {
 			return err
 		}
 		if launch == nil {
 			continue
 		}
-		clock, err := d.clockOf(container)
+		clock, err := d.clockOf(lane)
 		if err != nil {
 			return err
 		}
 		if clock.Key != launch.ActionID || clock.Ended != "" {
 			continue
 		}
-		if err := d.retryFallback(ctx, strings.TrimPrefix(container, lanePrefix), *launch); err != nil {
+		if err := d.retryFallback(ctx, lane, *launch); err != nil {
 			return err
 		}
 	}

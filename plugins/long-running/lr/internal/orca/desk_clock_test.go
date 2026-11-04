@@ -23,7 +23,7 @@ func clockedWorld(t *testing.T) *deskWorld {
 
 func (w *deskWorld) clock() incidentClockState {
 	w.t.Helper()
-	clock, err := w.desk.clockOf(laneBook(clockLane))
+	clock, err := w.desk.clockOf(clockLane)
 	if err != nil {
 		w.t.Fatal(err)
 	}

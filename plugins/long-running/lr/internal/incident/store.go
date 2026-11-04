@@ -477,7 +477,7 @@ func (s Store) Fact(id, key string) (any, bool, error) {
 	var value any
 	var found bool
 	err := s.read(id, func(tx *sql.Tx) (err error) {
-		value, found, err = readFact(tx, key)
+		value, found, err = readFact(tx, "", key)
 		return err
 	})
 	return value, found, err
@@ -804,11 +804,11 @@ func (t *Tx) SetFact(key string, value any) error {
 }
 
 func (t *Tx) Fact(key string) (any, bool, error) {
-	return readFact(t.sql, key)
+	return readFact(t.sql, "", key)
 }
 
 func (t *Tx) DropFact(key string) error {
-	return dropFact(t.sql, key)
+	return dropFact(t.sql, "", key)
 }
 
 func (t *Tx) Offer(owner string) {

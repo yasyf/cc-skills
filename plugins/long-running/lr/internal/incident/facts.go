@@ -36,8 +36,8 @@ func scanFacts(rows *sql.Rows) ([]factRow, error) {
 	return found, rows.Err()
 }
 
-func factTree(found []factRow) (map[string]any, error) {
-	nodes := map[string]map[string]any{"": {}}
+func factTree(found []factRow, parent string) (map[string]any, error) {
+	nodes := map[string]map[string]any{parent: {}}
 	for _, row := range found {
 		if row.kind == factDict {
 			nodes[row.path] = map[string]any{}
@@ -54,7 +54,7 @@ func factTree(found []factRow) (map[string]any, error) {
 		}
 		nodes[row.parent][row.key] = value
 	}
-	return nodes[""], nil
+	return nodes[parent], nil
 }
 
 func readAllFacts(tx *sql.Tx) (map[string]any, error) {
@@ -66,7 +66,7 @@ func readAllFacts(tx *sql.Tx) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	return factTree(found)
+	return factTree(found, "")
 }
 
 func readFacts(tx *sql.Tx, keys []string) (Facts, error) {
@@ -83,7 +83,7 @@ func readFacts(tx *sql.Tx, keys []string) (Facts, error) {
 		}
 		found = append(found, subtree...)
 	}
-	tree, err := factTree(found)
+	tree, err := factTree(found, "")
 	if err != nil {
 		return Facts{}, err
 	}
@@ -104,8 +104,8 @@ func normalize(value any) (any, error) {
 	return normal, json.Unmarshal(raw, &normal)
 }
 
-func readFact(tx *sql.Tx, key string) (any, bool, error) {
-	path := factPath("", key)
+func readFact(tx *sql.Tx, parent, key string) (any, bool, error) {
+	path := factPath(parent, key)
 	rows, err := tx.Query("SELECT path, parent, key, kind, record FROM fact WHERE path = ? OR (path >= ? AND path < ?) ORDER BY ordinal", path, path+"/", path+"0")
 	if err != nil {
 		return nil, false, err
@@ -114,7 +114,7 @@ func readFact(tx *sql.Tx, key string) (any, bool, error) {
 	if err != nil {
 		return nil, false, err
 	}
-	tree, err := factTree(found)
+	tree, err := factTree(found, parent)
 	if err != nil {
 		return nil, false, err
 	}
@@ -122,8 +122,8 @@ func readFact(tx *sql.Tx, key string) (any, bool, error) {
 	return value, present, nil
 }
 
-func dropFact(tx *sql.Tx, key string) error {
-	path := factPath("", key)
+func dropFact(tx *sql.Tx, parent, key string) error {
+	path := factPath(parent, key)
 	_, err := tx.Exec("DELETE FROM fact WHERE path = ? OR (path >= ? AND path < ?)", path, path+"/", path+"0")
 	return err
 }

@@ -3042,7 +3042,7 @@ func TestFlushPostsEachEscalationOnceWithItsKindAndWholeMessage(t *testing.T) {
 func TestAnIncidentClockDefersOutsideNoiseUntilItEnds(t *testing.T) {
 	w := newDeskWorld(t)
 	fixedLane(t, w, "api-fix")
-	if err := w.desk.setFact(laneBook("api-fix"), clockFact, object{"ended": ""}); err != nil {
+	if err := w.desk.setClock("api-fix", incidentClockState{Key: "R1"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := w.desk.record("escalation:deadline:x", "DEADLINE deadline:x lane-b: late"); err != nil {
@@ -3055,7 +3055,7 @@ func TestAnIncidentClockDefersOutsideNoiseUntilItEnds(t *testing.T) {
 	if len(w.posts) != 1 || !strings.Contains(w.posts[0].Text, "api-fix") {
 		t.Fatal(w.posts)
 	}
-	if err := w.desk.setFact(laneBook("api-fix"), clockFact, object{"ended": "fix-live"}); err != nil {
+	if err := w.desk.setClock("api-fix", incidentClockState{Key: "R1", Ended: "fix-live"}); err != nil {
 		t.Fatal(err)
 	}
 	w.step(w.desk.flush)
