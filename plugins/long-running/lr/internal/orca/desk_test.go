@@ -3773,3 +3773,93 @@ func TestAnUnreadableMailboxLeavesTheDeadlineSaying(t *testing.T) {
 	wantContains(t, w.wantEscalation("DEADLINE "), "no started reply")
 	w.noEscalation("NOT-DELIVERED ")
 }
+
+func (w *deskWorld) overdueUnreadRelay() {
+	w.t.Helper()
+	w.live(testLane, testDispatch, testTerminal)
+	thread := w.sentRelay("R2", "meta-desk")
+	w.unread[testTerminal] = []orcaMessage{{ID: "relay_held", ThreadID: thread}}
+	w.calls = nil
+	w.now = w.now.Add(11 * time.Minute)
+}
+
+func TestAnUnreadRelayIsNoBlockerOnceTheLaneHasPostedSince(t *testing.T) {
+	w := newDeskWorld(t)
+	w.overdueUnreadRelay()
+	w.add(object{"lane": testLane, "kind": "report", "text": "acted on it"})
+	w.step(w.desk.deadlines)
+	w.noEscalation("NOT-DELIVERED ")
+	if slices.ContainsFunc(w.posts, func(post client.Draft) bool { return strings.HasPrefix(post.Text, "NOT-DELIVERED ") }) {
+		t.Fatal(w.posts)
+	}
+	if sends := w.typed(); len(sends) != 1 {
+		t.Fatal("a lane that posted still gets its wake, so the mail is read", sends)
+	}
+	wantContains(t, w.wantEscalation("DEADLINE "), "sent to "+testDispatch+", no started reply")
+}
+
+func TestARecordFromBeforeTheRelayIsNotActingOnIt(t *testing.T) {
+	w := newDeskWorld(t)
+	w.add(object{"lane": testLane, "kind": "report", "text": "earlier work"})
+	w.now = w.now.Add(time.Minute)
+	w.overdueUnreadRelay()
+	w.step(w.desk.deadlines)
+	found := false
+	for _, post := range w.posts {
+		if strings.HasPrefix(post.Text, "NOT-DELIVERED ") {
+			found = true
+			wantContains(t, post.Text, "the lane has posted nothing since")
+		}
+	}
+	if !found {
+		t.Fatal(w.posts)
+	}
+}
+
+func TestAnotherLanesRecordIsNotTheLaneActing(t *testing.T) {
+	w := newDeskWorld(t)
+	w.overdueUnreadRelay()
+	w.add(object{"lane": "another-lane", "kind": "report", "text": "unrelated"})
+	w.step(w.desk.deadlines)
+	if !slices.ContainsFunc(w.posts, func(post client.Draft) bool { return strings.HasPrefix(post.Text, "NOT-DELIVERED ") }) {
+		t.Fatal(w.posts)
+	}
+}
+
+func TestAnUnreadRelayToARetiredLaneIsNoBlockerAndNoWake(t *testing.T) {
+	w := newDeskWorld(t)
+	w.overdueUnreadRelay()
+	if _, err := w.desk.Registry.WantLane(store.Lane{Name: testLane, Brief: "/b", Model: "opus", Effort: "high", Role: "build", State: store.LaneDesired}, w.now); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.desk.Registry.SetLaneState(testLane, store.LaneRetired, w.now, "done", ""); err != nil {
+		t.Fatal(err)
+	}
+	w.step(w.desk.deadlines)
+	w.noEscalation("NOT-DELIVERED ")
+	if sends := w.typed(); len(sends) != 0 {
+		t.Fatal(sends)
+	}
+}
+
+func TestAnUnreadRelayToAStoodDownLaneIsNoBlockerAndNoWake(t *testing.T) {
+	w := newDeskWorld(t)
+	w.overdueUnreadRelay()
+	w.add(object{"lane": supervisorLane, "kind": kindStandDown, "text": "retired", "to": []string{testLane}})
+	w.step(w.desk.deadlines)
+	w.noEscalation("NOT-DELIVERED ")
+	if sends := w.typed(); len(sends) != 0 {
+		t.Fatal(sends)
+	}
+}
+
+func TestAnUnreadRelayToAMissingTerminalIsNoBlockerAndNoWake(t *testing.T) {
+	w := newDeskWorld(t)
+	w.overdueUnreadRelay()
+	w.dispatches[testDispatch].observation = "missing"
+	w.step(w.desk.deadlines)
+	w.noEscalation("NOT-DELIVERED ")
+	if sends := w.typed(); len(sends) != 0 {
+		t.Fatal(sends)
+	}
+}

@@ -3,6 +3,7 @@ package orca
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"slices"
@@ -343,6 +344,10 @@ func (d *Desk) reportUnread(ctx context.Context, container, about string, action
 	if err != nil || report == "" {
 		return false, err
 	}
+	ended, err := d.laneEnded(ctx, about, dispatch)
+	if err != nil || ended {
+		return false, err
+	}
 	spec, err := relayOf(action)
 	if err != nil {
 		return false, err
@@ -351,7 +356,39 @@ func (d *Desk) reportUnread(ctx context.Context, container, about string, action
 	if err := d.wakeOnce(ctx, thread, about, dispatch.Terminal, dispatch.Environment, fmt.Sprintf("%s: read Orca message on thread %s now", action.AuthorityRef, thread)); err != nil {
 		return false, err
 	}
+	acted, err := d.laneActedSince(ctx, about, action)
+	if err != nil || acted {
+		return false, err
+	}
 	return true, d.escalateTo(ctx, fmt.Sprintf("undelivered:%s/%s", container, action.ActionID), "NOT-DELIVERED", about, report, verdictTo(spec.From))
+}
+
+func (d *Desk) laneEnded(ctx context.Context, lane string, dispatch *laneDispatch) (bool, error) {
+	row, found, err := d.Registry.Lane(lane)
+	if err != nil {
+		return false, err
+	}
+	if dispatch.Missing || (found && row.State == store.LaneRetired) {
+		return true, nil
+	}
+	stoodDown, err := d.laneStoodDown(ctx, lane)
+	var failure *tailFailure
+	if errors.As(err, &failure) {
+		return true, d.noteTailFailure(err)
+	}
+	return stoodDown != "", err
+}
+
+func (d *Desk) laneActedSince(ctx context.Context, lane string, action incident.Action) (bool, error) {
+	since, err := store.Parse(action.AcceptedAt)
+	if err != nil {
+		return false, err
+	}
+	posted, err := d.laneRecordsSince(ctx, lane, since)
+	if err != nil {
+		return true, d.noteTailFailure(err)
+	}
+	return len(posted) > 0, nil
 }
 
 func (d *Desk) sentTo(ctx context.Context, container, about string, action incident.Action) (*laneDispatch, bool, error) {
@@ -382,7 +419,7 @@ func notDelivered(rows []orcaMessage, container string, action incident.Action, 
 		if err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("%s relay not delivered: %s is still unread in the mailbox of %s; accepted %d min ago", action.AuthorityRef, row.ID, dispatch, int(now.Sub(accepted).Minutes())), nil
+		return fmt.Sprintf("%s relay not delivered: %s is still unread in the mailbox of %s, and the lane has posted nothing since; accepted %d min ago", action.AuthorityRef, row.ID, dispatch, int(now.Sub(accepted).Minutes())), nil
 	}
 	return "", nil
 }
