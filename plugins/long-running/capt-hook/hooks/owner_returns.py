@@ -20,7 +20,7 @@ from .lane_slack_status import CC_SLACK, CLI, WRITE_TOOLS
 from .register_capture import OPERATOR, slack_dms
 from .register_gates import blocker, cause
 from .root_context import CC_SLACK as CC_SLACK_CLI, OwnerPrompt, ReadsNewestSlackMessage, runs_verb, SLACK_THREAD_TOOLS
-from .root_replies import SENTENCE_END, owner_message
+from .root_replies import owner_message
 from .tests.register_fixtures import DRIVE_CONFIG
 
 RETURN_GAP_SECONDS = 60 * 60
@@ -41,9 +41,6 @@ SLACK_POSTED = re.compile(r"\bts\W{1,4}\d{10}\.\d{6}|/archives/\w+/p\d{16}")
 BOARD_VERBS = frozenset({"push", "update-block", "ask", "send"})
 INLINE_PICK = "A pick for the owner never sits inline or in plain Slack text; he answers with a button. Send it with the `reply` tool, the answers as its `picks` and one of them as `recommended`, then stop again."
 PLAIN_PICK = "Warning, nothing was blocked: A pick for the owner is never plain text in his Slack DM; he taps a button. Send it with the `reply` tool, the answers as its `picks` and one of them as `recommended`."
-PR_REF = re.compile(r"github\.com/[\w.-]+/[\w.-]+/pull/(\d+)|[\w.-]+/[\w.-]+#(\d+)|\b(?i:PR|pull request) #?(\d+)\b|(?<![\w&/])#(\d+)\b")
-PR_STATE = re.compile(r"\b(?:stale|merged|queued|red|green)\b", re.IGNORECASE)
-UNREAD_PR = "A reply that calls a PR stale, merged, queued, red or green follows a cci or ccx read of that PR this turn. Read {prs} with `ccx vcs pr status <n>` and say what it shows."
 PICK = "Two ways to fix the relay:\n\nA) Keep one shared replica\nB) Give each chat its own\n\nWhich do you want?"
 REMINDER = Binary(
     "The owner's words this turn are below; his typos are his, so read through them."
@@ -55,20 +52,7 @@ UNROUTED_REMINDER = (
     "Every owner reminder or correction spawns a meta tooling lane that makes the behaviour automatic."
     " Before stopping, post one ask to meta naming his ledger row, `owner:m<row>` plus your one-line order, or launch the lane with `lr launch`."
 )
-STATUS_QUESTION = Binary(
-    "The owner's words this turn are below; his typos are his, so read through them."
-    " Yes when he asks how far a lane or a piece of running work has got: its progress or status, whether it is done, where it stands, including a pronoun such as 'that' or 'it' pointing at work named earlier."
-    " No for a new request, a pick, or a question about how something works."
-)
-UNREAD_STATUS = (
-    "A status question is answered from the lane's newest record, never from what the lane is for."
-    " Read it with `cci tail --lane <lane> -n 1` and answer with what it says, its `#<seq>`, clock time and age in minutes;"
-    " if the lane has no record, say so and name when it launched."
-)
-CCI_TOOLS = "mcp__plugin_cc-inbox_cci__"
-SEQ = re.compile(r"#(\d+)\b")
-READ_SEQ = re.compile(r"#(\d+)\b|^(\d+)(?:@\w+)? ", re.MULTILINE)
-CLOCK = re.compile(r"\b(?:1[0-2]|0?[1-9]):[0-5]\d\s?[AP]M\b", re.IGNORECASE)
+WAIT_TOOLS = frozenset({"Agent", "Task", "Monitor"})
 FILE_PATH = (
     "The owner never opens a file, so a reply to him names no path under the drive's state dir, a scratch dir or progress-desk."
     " Link the dashboard section that shows it on the tailnet instead, and say what it shows in plain words."
@@ -106,13 +90,8 @@ YES = BinaryAnswer(p_yes=0.97, confidence=0.94)
 SIGNAL = "how does the signal server decide which replica a chat talks to"
 WHY = "The relay dropped your message because both chats shared one replica, so the second chat's write replaced the first."
 PAGE = "https://mac.tail1.ts.net:8665/one-pagers/relay-replicas/"
-CALM = {"reminder": NO, "status_question": NO}
+CALM = {"reminder": NO}
 REMINDED = CALM | {"reminder": BinaryAnswer(p_yes=0.97, confidence=0.94)}
-ASKED = CALM | {"status_question": BinaryAnswer(p_yes=0.96, confidence=0.93)}
-HOW_FAR = "you told me what the relay fix lane is for already, I asked how far along it is"
-NEWEST = "#359771 3:02 AM REPORT relay-fix-2 opened yasyf/cc-skills#2190, CI running"
-TAILED = T.tool_turn("Bash", result=NEWEST, command="cci tail --lane relay-fix-2 -n 1")
-COMPACT_TAILED = T.tool_turn("Bash", result="@3:02 AM\n359771 report relay-fix-2 opened yasyf/cc-skills#2190, CI running", command="cci tail --lane relay-fix-2 -n 1")
 HIS_1_34_AM = (
     "every tjme i need to remknd you to do skemtjjng, hou need to spawn a meta tooling lane foe thay (includkng tbis)."
     " uou did tjay for the ildate after being away a long tome, so good job, but make sure thay is durable behavior not just this session."
@@ -274,14 +253,6 @@ def ask_to(*to: str) -> str:
     return json.dumps({"seq": 361445, "lane": "owner-relay", "kind": "ask", "to": list(to), "text": "owner:m47 name the row"})
 
 
-def stated(reply: str, *calls: dict) -> Input:
-    return Input(transcript=[T.user("where are we"), *calls, T.assistant(reply)], state=[CompactionState(active=True, communicator=True)], decide=CALM)
-
-
-def asked(reply: str, *calls: dict, words: str = HOW_FAR, decide: dict = ASKED) -> Input:
-    return Input(transcript=[T.user(words), *calls, T.assistant(reply)], state=[CompactionState(active=True, communicator=True)], decide=decide)
-
-
 @on(
     Event.Stop,
     only_if=[Communicator()],
@@ -296,6 +267,10 @@ def asked(reply: str, *calls: dict, words: str = HOW_FAR, decide: dict = ASKED) 
         owed(json.dumps({"replies": [OWED_REPLY], "holder_session": HOLDER}), *T.tool_turn(REPLY, result="Designing.\n\nReply rp; pass this id to edit it on every surface.\n- record: #12@2479ec97\n- ledger: m447 due Nov 3 11:30 PM", title="Vector search", md="Designing.", status="progress", order="m447", by="11:30 PM")): Allow(),
         owed(json.dumps({"replies": [OWED_REPLY], "holder_session": HOLDER}), *T.tool_turn(REPLY, result="Designing.\n\nReply rp; pass this id to edit it on every surface.\n- record: #12@2479ec97\n- ledger FAILED: no row m9", title="Vector search", md="Designing.", status="progress", order="m9")): Block(pattern=r"owner_mark"),
         owed(json.dumps({"replies": [OWED_REPLY], "holder_session": HOLDER}), *T.tool_turn(OWNER_MARK, result="no row m9", is_error=True, row="m9", state="responded")): Block(pattern=r"^The owner wrote in Slack"),
+        owed(json.dumps({"replies": [OWED_REPLY], "holder_session": HOLDER}), *T.tool_turn("Agent", result="started", description="status", prompt="read every lane")): Allow(),
+        owed(json.dumps({"replies": [OWED_REPLY], "holder_session": HOLDER}), *T.tool_turn("Monitor", result="armed", description="status read", timeout_ms=1000)): Allow(),
+        owed(json.dumps({"replies": [OWED_REPLY], "holder_session": HOLDER}), *T.tool_turn("Bash", result="started", command="zsh read.zsh", run_in_background=True)): Allow(),
+        owed(json.dumps({"replies": [OWED_REPLY], "holder_session": HOLDER}), *T.tool_turn("Bash", result="launched", command="lr ask-lane 'how far along is relay-fix-2'")): Allow(),
         owed((1, "cc-slack can't reach the daemon")): Allow(),
         picked(): Block(pattern=r"^A pick for the owner never sits inline"),
         picked(*T.tool_turn("mcp__plugin_cc-slack_cc-slack__slack_send", result=SENT, channel_id="D0B6Z", text=PICK)): Block(pattern=r"never sits inline.*the `reply` tool, the answers as its `picks`"),
@@ -328,14 +303,6 @@ def asked(reply: str, *calls: dict, words: str = HOW_FAR, decide: dict = ASKED) 
         woken(RESUMED, NO_OUTPUT, REMINDER_FEEDBACK): Allow(),
         woken(TEAMMATE_WAKE, CCI_WAKE, REMINDER_FEEDBACK): Allow(),
         woken(T.user(HIS_1_34_AM), NO_OUTPUT, REMINDER_FEEDBACK): Allow(),
-        asked("relay-fix-2 opened its PR and CI is running (#359771, 3:02 AM, 8 minutes ago).", *TAILED): Allow(),
-        asked("relay-fix-2 opened its PR and CI is running (#359771, 3:02 AM, 8 minutes ago).", *COMPACT_TAILED): Allow(),
-        asked("relay-fix-2 opened its PR and CI is running (#359772, 3:02 AM, 8 minutes ago).", *COMPACT_TAILED): Block(pattern=r"never from what the lane is for"),
-        asked("relay-fix-2 opened its PR and CI is running (#359771, 3:02 AM, 8 minutes ago)."): Block(pattern=r"^A status question is answered from the lane's newest record.*`cci tail --lane <lane> -n 1`"),
-        asked("relay-fix-2 rebuilds the relay so each chat keeps its own replica.", *TAILED): Block(pattern=r"never from what the lane is for"),
-        asked("relay-fix-2 rebuilds the relay so each chat keeps its own replica.", decide=CALM | {"status_question": BinaryAnswer(p_yes=0.9, confidence=0.3)}): Allow(),
-        asked("Launched relay-fix-3 for it.", words="start a second lane on the relay fix", decide=CALM): Allow(),
-        asked("relay-fix-2 rebuilds the relay so each chat keeps its own replica.", decide=CALM | {"status_question": Refused()}): Allow(),
         pathed("The full update is in /s/brook/update-0312.md."): Block(pattern=r"^The owner never opens a file.*Link the dashboard section"),
         pathed("Notes are at ~/.claude/scratch/relay-notes.md."): Block(pattern=r"never opens a file"),
         pathed("The rows are in `progress-desk/steps.json`."): Block(pattern=r"never opens a file"),
@@ -348,17 +315,14 @@ def asked(reply: str, *calls: dict, words: str = HOW_FAR, decide: dict = ASKED) 
         explain_defect(*TRIED_EXPLAIN, defects=(1, "bus down")): Allow(),
         explain_defect(*TRIED_EXPLAIN, defects=""): Block(pattern=r"carries a hosted one-pager"),
         explain_defect(defects=FILED_DEFECT): Block(pattern=r"carries a hosted one-pager"),
-        stated("yasyf/cc-skills#2196 merged, so the relay keeps one replica per chat."): Block(pattern=r"^A reply that calls a PR stale, merged, queued, red or green.*Read PR 2196 with `ccx vcs pr status <n>`"),
-        stated(f"{RELAY_PR} is queued.", *TAILED): Block(pattern=r"Read PR 2196 with"),
-        stated("PR 2196 is green.", *T.tool_turn("Bash", result="#2196 MERGED at 3:10 AM", command="ccx vcs pr status 2196")): Allow(),
-        stated("#2196 is red.", *T.tool_turn(f"{CCI_TOOLS}tail", result="#361807 REPORT relay-fix-2 yasyf/cc-skills#2196 CI red", lane="relay-fix-2")): Allow(),
-        stated("The relay dashboard is green again, and the queue is empty."): Allow(),
     }),
 )
 def communicator_reply_follows_the_owner_rules(evt: BaseHookEvent) -> HookResult | None:
     route_reminder(evt)
+    if any(hands_off(use) for use in evt.ctx.turn.tool_calls.items):
+        return None
     reply = AssistantMessage().content(evt) or ""
-    problems = [problem for problem in (unanswered_reply(evt), missing_update(evt, reply), inline_pick(evt, reply), unread_status(evt, reply), file_path(evt, reply), unexplained(evt, reply), unread_pr_state(evt, reply)) if problem]
+    problems = [problem for problem in (unanswered_reply(evt), missing_update(evt, reply), inline_pick(evt, reply), file_path(evt, reply), unexplained(evt, reply)) if problem]
     return evt.block(" ".join(problems)) if problems else None
 
 
@@ -590,29 +554,10 @@ def route_reminder(evt: BaseHookEvent) -> None:
             read(["cci", "post", "--drive", bus_name(drive_entry(evt)), "--lane", COMMUNICATOR_LANE, "--kind", "ask", "--to", "meta-desk", "--text", text])
 
 
-def unread_status(evt: BaseHookEvent, reply: str) -> str | None:
-    read = {tagged or head for use in evt.ctx.turn.tool_calls.items if reads_records(use) for tagged, head in READ_SEQ.findall(use.result.content)}
-    if (CLOCK.search(reply) and read & set(SEQ.findall(reply))) or not (words := owner_words(evt)):
-        return None
-    match (decision := evt.decide(words, {"status_question": STATUS_QUESTION})) and decision.answers["status_question"]:
-        case BinaryAnswer(p_yes=p_yes, confidence=confidence) if p_yes > 0.5 and confidence > 0.5:
-            return UNREAD_STATUS
-    return None
-
-
-def unread_pr_state(evt: BaseHookEvent, reply: str) -> str | None:
-    claimed = {pr for sentence in SENTENCE_END.split(reply) if PR_STATE.search(LINK.sub("", sentence)) for found in PR_REF.findall(sentence) for pr in found if pr}
-    read = "\n".join(f"{json.dumps(use.call.raw)}\n{use.result.content}" for use in evt.ctx.turn.tool_calls.items if reads_records(use, "ccx"))
-    unread = sorted(pr for pr in claimed if not re.search(rf"(?<!\d){pr}(?!\d)", read))
-    return UNREAD_PR.format(prs=", ".join(f"PR {pr}" for pr in unread)) if unread else None
-
-
-def reads_records(use: object, reader: str = "lr") -> bool:
-    if use.result is None or use.result.is_error:
-        return False
-    if use.call.name.startswith(CCI_TOOLS):
-        return use.call.name != f"{CCI_TOOLS}post"
-    return use.call.name == "Bash" and any(Path(cmd.argv[0]).name == reader or (Path(cmd.argv[0]).name == "cci" and "post" not in cmd.argv[1:2]) for cmd in use.call.command_line if cmd.argv)
+def hands_off(use: object) -> bool:
+    if use.call.name in WAIT_TOOLS:
+        return True
+    return use.call.name == "Bash" and (bool(use.call.raw.get("run_in_background")) or any(cmd.runs("lr", "ask-lane") for cmd in use.call.command_line))
 
 
 def file_path(evt: BaseHookEvent, reply: str) -> str | None:
