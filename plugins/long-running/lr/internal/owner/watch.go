@@ -66,7 +66,7 @@ func watch(ctx context.Context, runner shell.Runner, threads threadsAt, out io.W
 	if _, err := fmt.Fprintf(out, watching+"\n", me.User); err != nil {
 		return err
 	}
-	return streamLines(ctx, runner, []string{"cc-slack", "watch"}, func(line []byte) error {
+	return streamLines(ctx, runner, []string{"cc-slack", "watch", "--only-delivery"}, func(line []byte) error {
 		var event slackEvent
 		if err := json.Unmarshal(line, &event); err != nil {
 			return fmt.Errorf("cc-slack watch printed %q: %w", line, err)
