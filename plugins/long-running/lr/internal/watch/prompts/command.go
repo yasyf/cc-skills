@@ -25,8 +25,10 @@ func busPost(drive string) func(context.Context, Notice) (int64, error) {
 	}
 }
 
+const reshowEvery = 3 * time.Minute
+
 func NewWatch(a *app.App, drive string) *Watch {
-	return &Watch{Runner: a.Runner, Post: busPost(drive), Now: a.Now, Sleep: time.Sleep}
+	return &Watch{Runner: a.Runner, Post: busPost(drive), Now: a.Now, Sleep: time.Sleep, Reshow: reshowEvery}
 }
 
 func printShown(out io.Writer, shown Shown, asJSON bool) error {

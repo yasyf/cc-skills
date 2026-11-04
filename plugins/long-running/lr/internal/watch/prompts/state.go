@@ -101,6 +101,8 @@ type Row struct {
 	Wake            *Wake            `json:"wake,omitempty"`
 	Capture         string           `json:"capture,omitempty"`
 	SupervisorInput string           `json:"supervisor_input,omitempty"`
+	Listed          string           `json:"listed,omitempty"`
+	ShownAt         string           `json:"shown_at,omitempty"`
 }
 
 type saved struct {

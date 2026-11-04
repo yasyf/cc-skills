@@ -77,6 +77,7 @@ type Watch struct {
 	Post   func(context.Context, Notice) (int64, error)
 	Now    func() time.Time
 	Sleep  func(time.Duration)
+	Reshow time.Duration
 
 	successor *os.File
 }
@@ -104,6 +105,7 @@ type subject struct {
 	terminal    string
 	environment string
 	dispatch    string
+	listed      string
 	failure     *orcaError
 }
 
@@ -117,6 +119,7 @@ type seen struct {
 	title     string
 	countdown string
 	code      string
+	reused    bool
 }
 
 func (w *Watch) orca(ctx context.Context, environment string, env []string, argv ...string) reply {
@@ -198,16 +201,37 @@ func howToAnswer(s seen, by string) string {
 	return "The watch answers nothing."
 }
 
+type listedWorker struct {
+	DispatchID     string `json:"dispatchId"`
+	RunID          string `json:"runId"`
+	Terminal       string `json:"agentTerminalHandle"`
+	WorkerState    string `json:"workerState"`
+	DispatchStatus string `json:"dispatchStatus"`
+	TerminalState  string `json:"terminalState"`
+	Projection     struct {
+		Outcome    string          `json:"outcome"`
+		Stage      json.RawMessage `json:"stage"`
+		Attention  json.RawMessage `json:"attention"`
+		NextAction json.RawMessage `json:"nextAction"`
+		Liveness   struct {
+			Verdict string `json:"verdict"`
+		} `json:"liveness"`
+		Evidence struct {
+			LiveStatus string `json:"liveStatus"`
+		} `json:"evidence"`
+	} `json:"projection"`
+}
+
+func (l listedWorker) signature() string {
+	return strings.Join([]string{
+		l.Terminal, l.WorkerState, l.DispatchStatus, l.TerminalState, string(l.Projection.Stage), string(l.Projection.Attention),
+		string(l.Projection.NextAction), l.Projection.Liveness.Verdict, l.Projection.Evidence.LiveStatus,
+	}, "|")
+}
+
 type workerList struct {
-	Workers []struct {
-		DispatchID string `json:"dispatchId"`
-		RunID      string `json:"runId"`
-		Terminal   string `json:"agentTerminalHandle"`
-		Projection struct {
-			Outcome string `json:"outcome"`
-		} `json:"projection"`
-	} `json:"workers"`
-	Page struct {
+	Workers []listedWorker `json:"workers"`
+	Page    struct {
 		HasMore    bool   `json:"hasMore"`
 		NextCursor string `json:"nextCursor"`
 	} `json:"page"`
@@ -229,6 +253,7 @@ func (w *Watch) workers(ctx context.Context, e Entry, rows map[string]*Row) ([]s
 		env = []string{terminalEnv + "=" + e.RootTerminal}
 	}
 	var dispatches []string
+	signatures := map[string]string{}
 	var cursor []string
 	var run string
 	for {
@@ -248,6 +273,7 @@ func (w *Watch) workers(ctx context.Context, e Entry, rows map[string]*Row) ([]s
 		for _, worker := range result.Workers {
 			if worker.Projection.Outcome == inProgress {
 				dispatches = append(dispatches, worker.DispatchID)
+				signatures[worker.DispatchID] = worker.signature()
 			}
 		}
 		if !result.Page.HasMore {
@@ -258,7 +284,14 @@ func (w *Watch) workers(ctx context.Context, e Entry, rows map[string]*Row) ([]s
 	if e.OrcaRun != "" {
 		run = e.OrcaRun
 	}
-	return namedWorkers(dispatches, run, rows)
+	found, err := namedWorkers(dispatches, run, rows)
+	if err != nil {
+		return nil, err
+	}
+	for i := range found {
+		found[i].listed = signatures[found[i].dispatch]
+	}
+	return found, nil
 }
 
 func namedWorkers(dispatches []string, run string, rows map[string]*Row) ([]subject, error) {
@@ -744,11 +777,21 @@ func (w *Watch) settle(ctx context.Context, e Entry, row *Row, s seen, superviso
 	return nil
 }
 
-func (w *Watch) observeAll(ctx context.Context, subjects []subject) []seen {
+func (w *Watch) unchanged(s subject, row *Row) bool {
+	return w.Reshow > 0 && row != nil && s.listed != "" && s.listed == row.Listed && row.State == Clear && row.Reported == "" &&
+		len(row.Alerts) == 0 && w.Now().Sub(parseStamp(row.ShownAt)) < w.Reshow
+}
+
+func (w *Watch) observeAll(ctx context.Context, subjects []subject, rows map[string]*Row) []seen {
 	found := make([]seen, len(subjects))
 	limit := make(chan struct{}, showWorkers)
 	var group sync.WaitGroup
 	for i, s := range subjects {
+		if row := rows[s.key]; w.unchanged(s, row) {
+			s.terminal, s.environment = row.Terminal, row.Environment
+			found[i] = seen{subject: s, state: Clear, reused: true}
+			continue
+		}
 		group.Go(func() {
 			limit <- struct{}{}
 			defer func() { <-limit }()
@@ -850,7 +893,7 @@ func (w *Watch) poll(ctx context.Context, e Entry) error {
 	if err != nil {
 		return err
 	}
-	found := w.observeAll(ctx, subjects)
+	found := w.observeAll(ctx, subjects, rows)
 	down := downCodes(found)
 	var supervisor, unlisted *seen
 	for i := range found {
@@ -869,6 +912,10 @@ func (w *Watch) poll(ctx context.Context, e Entry) error {
 		}
 		delete(rows, s.subject.key)
 		fresh[s.subject.key] = row
+		row.Listed = s.subject.listed
+		if !s.reused {
+			row.ShownAt = stamp(w.Now())
+		}
 		if err := w.settle(ctx, e, row, s, supervisor, len(down) > 0); err != nil {
 			return err
 		}
