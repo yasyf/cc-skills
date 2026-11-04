@@ -31,14 +31,19 @@ This is R11 in `SKILL.md`.
 ## Start a release and post it
 
 - Fast-forward the lane's checkout to the trunk head before every cut: `tools/ci` builds from the checkout, and a stale one makes the cut refuse.
-- Drive releases start with `--manual`, so the pipeline posts no Slack narration from agent releases. A manual release may have no approve gate, so read the build's approve block before any claim that it is parked at approval.
+- A drive release starts without `--manual`, so Platy posts its card at the top level of #releases. That card is what the owner sees of a release. `--manual` posts nothing to Slack and leaves no card to link, so it is only for the refusal recovery the release skill names. A manual release may have no approve gate, so read the build's approve block before any claim that it is parked at approval.
 
-**Post a `release` record right after a start prints its build.**
+**Post a `release` record right after a start prints its build, and put the Platy card on it and on every record that follows.**
 
 ```sh
 cci post --drive <drive> --lane <lane> --kind release --target <component> \
-  --build <build url> --to root "CUT releases/<id> build <number>"
+  --build <build url> --attr card=<Platy permalink> --to root \
+  "<what users get, in plain words>. CUT releases/<id> build <number>"
 ```
+
+- The permalink is in the build's `release-slack-root` annotation, as `Posted in #releases`. The card's What's new section is the source of the plain words, and it appears once the plan is read, so a start record may lead with the link alone.
+- A record leads with the link and what users get, then the counts. owner-relay relays these records, so what a record leads with is what he reads. A release number always has plain words beside it, and a PR-number list never stands in for them.
+- `owner_posts_carry_cards.py` warns on a `release` record, and on any record to owner-relay about a release build, that carries no permalink. It warns the same way on a release word to him with no card link, whichever lane posts it.
 
 - The runner records `<lane>@<drive>` as the build's owner under `releases` in the drive registry and runs `cci claim --for <lane>@<drive> --build <build url> --rel started`. That needs `cc-inbox` 0.23.0 or newer. `cci who --build <build> --rel started` then names your session. A failed claim logs `RELEASE-CLAIM-FAILED` to the coordinator once.
 - Only the session that started a release may cancel it, and no lane ever cancels a running apply. To stop a release another session started, find it with `cci who` and ask it:
