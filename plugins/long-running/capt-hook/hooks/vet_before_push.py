@@ -6,6 +6,7 @@ from collections import defaultdict
 from pathlib import Path
 
 from captain_hook import Allow, BaseHookEvent, Block, Call, Event, HookResult, Input, Tool, Warn, WorkflowState, on
+from captain_hook.util.builds import LOAD_PER_CORE, HostLoad, is_local_build, routes_off_host
 from pydantic import BaseModel
 
 from .compaction_handoff import COMMUNICATOR_LANE, ROOT_LANE
@@ -28,12 +29,14 @@ NOT_PACKAGES = frozenset({"testdata", "vendor"})
 NOT_LANES = frozenset({None, "", ROOT_LANE, COMMUNICATOR_LANE})
 FIXTURE = Path(__file__).parent / "tests" / "fixtures" / "vet-push"
 LANE_ENV = {"CLAUDE_LONG_RUNNING_LANE": "lane-a"}
+SATURATED = LANE_ENV | {LOAD_PER_CORE: "0"}
+HEALTHY = LANE_ENV | {LOAD_PER_CORE: "1000000"}
 SHIP = "ccx vcs ship -m 'sand: 🐛 fix the vm'"
 REPO = {"git rev-parse --show-toplevel": f"{FIXTURE}\n", "git config --bool core.sparseCheckout": (1, ""), "go env GOROOT": "/usr/local/go\n"}
 GO_DIFF = REPO | {"git diff": "go/sand/internal/vm/vm.go\ndocs/vm.md\n"}
 TS_DIFF = REPO | {"git diff": "api/src/a.ts\n"}
 REFUSAL = (
-    "A lane runs `go build` and `go vet` over the Go packages it touched, and the typecheck over its TypeScript, after its last edit and before it pushes; CI still runs every test."
+    "A lane runs `go build` and `go vet` over the Go packages it touched, and the typecheck over its TypeScript, after its last edit and before it pushes; a run the host load gate refused counts, and CI still runs every test."
     " Run these, then push again:\n```\n{commands}\n```"
 )
 UNREAD = "Warning, nothing was refused: {why}, so this push goes ahead unchecked. Run `go build`, `go vet` and the typecheck over what it touched where they can run."
@@ -141,8 +144,27 @@ def compiles(evt: BaseHookEvent, call: Call) -> list[tuple[str, Path, bool]]:
     },
 )
 def note_compile_checks(evt: BaseHookEvent) -> None:
-    if not in_lane(evt) or not (found := [check for call in evt.command.calls() for check in compiles(evt, call)]):
+    if in_lane(evt) and (found := [check for call in evt.command.calls() for check in compiles(evt, call)]):
+        record(evt, found)
+
+
+@on(
+    Event.PreToolUse,
+    only_if=[Tool("Bash")],
+    tests={
+        Input(command="go -C go/sand vet ./...", env=SATURATED, cwd=str(FIXTURE)): Allow(),
+        Input(command="go -C go/sand vet ./...", env=HEALTHY, cwd=str(FIXTURE)): Allow(),
+        Input(command="yarn tsc:api", env=SATURATED, cwd=str(FIXTURE)): Allow(),
+    },
+)
+def note_load_refused_checks(evt: BaseHookEvent) -> None:
+    gated = [call for call in evt.command.calls() if call.name == "go" and is_local_build(call)]
+    if not in_lane(evt) or not gated or not HostLoad.sample().saturated or all(routes_off_host(call) for call in gated):
         return
+    record(evt, [check for call in gated for check in compiles(evt, call)])
+
+
+def record(evt: BaseHookEvent, found: list[tuple[str, Path, bool]]) -> None:
     with CompileChecks.mutate(evt) as state:
         state.checks += [Check(kind=kind, root=str(root), recursive=recursive, at=time.time()) for kind, root, recursive in found]
 
