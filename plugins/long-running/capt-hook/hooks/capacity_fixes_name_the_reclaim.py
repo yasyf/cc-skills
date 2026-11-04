@@ -24,8 +24,8 @@ RECLAIM_REFUSAL = (
     " because the capacity is headroom and the reclaim fix is the fix: add both to the line below and post it again."
 )
 WRITER_REFUSAL = (
-    "An incident's hand apply, and a FIX-LIVE that grows capacity, name the file:line or row that next writes the same field and either the live PR that makes it agree"
-    " or that it does not reset the value, as in `the template at executor_template.ts:52 requests 32Gi since #2690 went live`: add both to the line below and post it again."
+    "An incident's hand apply, and a FIX-LIVE that grows capacity, name the file:line or row that next writes the field and either its live PR or that it does not reset the value,"
+    " as in `executor_template.ts:52 requests 32Gi since #2690 went live`: add both to the line below and post again."
 )
 LANE = "incident-journal-disk"
 GROWN = "FIX-LIVE incident-journal-disk: grew the journal volume from 5Gi to 32Gi; disk at 18% on the released build"
