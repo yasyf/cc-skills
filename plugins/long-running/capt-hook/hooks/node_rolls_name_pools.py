@@ -15,7 +15,7 @@ from .tests.node_roll_fixtures import (
     POOL_TEST_ONLY,
     UNCOUNTED,
 )
-from .tests.refusal_fixtures import NO_DRIVE, sources
+from .tests.refusal_fixtures import sources
 
 ACTIVE = [CompactionState(active=True, coordinator=True)]
 LANE = "alane-a-0123456789abcdef"
@@ -26,8 +26,8 @@ CHANGED = re.compile(r"^(?:\+\+\+ b|--- a)/(?P<path>\S+)$", re.MULTILINE)
 COUNT = re.compile(r"\b\d[\d,]*\s+nodes?\b", re.IGNORECASE)
 POOL = re.compile(r"\bpools?\b", re.IGNORECASE)
 WARNING = (
-    "Warning, nothing was blocked: this PR changes {files}, and a node class or node pool edit can replace every node of the pools on it."
-    " Name in its body each pool it drifts and that pool's node count, such as `forge-executor (51 nodes)`, so a reviewer and the release owner see the roll before a cut."
+    "Warning, nothing was blocked: {files} can replace every node of the pools on it. Name each pool this PR drifts and its node count"
+    " in the body, such as `forge-executor (51 nodes)`, so the roll is seen before a release."
 )
 
 
@@ -35,7 +35,8 @@ def unnamed_roll(diff: str, body: str) -> str | None:
     files = sorted({path for path in CHANGED.findall(diff) if NODE_FILE.match(path)})
     if not files or (POOL.search(body) and COUNT.search(body)):
         return None
-    return WARNING.format(files=", ".join(f"`{path}`" for path in files))
+    more = f" and {len(files) - 1} more node files" if len(files) > 1 else ""
+    return WARNING.format(files=f"`{files[0]}`{more}")
 
 
 def ship(command: str, diff: str) -> Input:
@@ -58,7 +59,7 @@ def ship(command: str, diff: str) -> Input:
             f"ccx vcs ship -m 'infra: grow node disks' --pr-body-file {UNCOUNTED}",
             CLASS_CHANGE,
         ): Warn(
-            pattern=r"^Warning, nothing was blocked: this PR changes `infra/rows/k8s/nodeClasses\.ts`[\s\S]*forge-executor \(51 nodes\)"
+            pattern=r"^Warning, nothing was blocked: `infra/rows/k8s/nodeClasses\.ts` can replace every node[\s\S]*forge-executor \(51 nodes\)"
         ),
         ship(f"ccx vcs ship --pr-body-file {COUNTED}", CLASS_CHANGE): Allow(),
         ship(
@@ -70,7 +71,6 @@ def ship(command: str, diff: str) -> Input:
         ship(f"ccx vcs ship --no-pr --pr-body-file {UNCOUNTED}", CLASS_CHANGE): Allow(),
         Input(
             command=f"ccx vcs ship --pr-body-file {UNCOUNTED}",
-            env=NO_DRIVE,
             commands=sources(CLASS_CHANGE),
         ): Allow(),
     },
