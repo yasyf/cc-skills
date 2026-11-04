@@ -16,6 +16,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -140,12 +141,20 @@ func Respond(s *store.Store, repo string, hooks Hooks, rows []store.ReviewRow, n
 	}
 	found := slices.IndexFunc(rows, func(row store.ReviewRow) bool { return row.Number == number })
 	if found < 0 {
-		return fmt.Errorf("#%d has no row in the PR ledger", number)
+		return refuseCard(hooks, number, waits, fmt.Sprintf("#%d has no row in the PR ledger", number))
 	}
 	if now := MergeWaits(number, rows[found].Head); now != waits {
-		return fmt.Errorf("#%d moved to %s since the card asked %s; its new card asks again", number, short(rows[found].Head), waits)
+		return refuseCard(hooks, number, waits, fmt.Sprintf("#%d moved to %s since the card asked %s; its new card asks again", number, short(rows[found].Head), waits))
 	}
 	return Answer(s, repo, hooks, rows[found], verdict, at)
+}
+
+func refuseCard(hooks Hooks, number int, waits, reason string) error {
+	cardHead := waits[strings.LastIndex(waits, ":")+1:]
+	if err := hooks.Refuse(TapRecord{number, cardHead, byOwner, machine.TapTapped}, reason); err != nil {
+		return err
+	}
+	return errors.New(reason)
 }
 
 func slackCardCommand(a *app.App) *cobra.Command {
