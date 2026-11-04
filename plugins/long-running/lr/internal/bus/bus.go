@@ -246,6 +246,10 @@ func (b Bus) PostFields(ctx context.Context, kind string, fields map[string]any,
 }
 
 func (b Bus) postRaw(ctx context.Context, kind string, raw json.RawMessage, to []string, path string) (Record, error) {
+	return b.postKeyed(ctx, kind, raw, to, path, "")
+}
+
+func (b Bus) postKeyed(ctx context.Context, kind string, raw json.RawMessage, to []string, path, key string) (Record, error) {
 	if err := Check(kind, raw, to); err != nil {
 		return Record{}, err
 	}
@@ -258,6 +262,9 @@ func (b Bus) postRaw(ctx context.Context, kind string, raw json.RawMessage, to [
 	draft := client.Draft{Drive: b.Drive, Lane: b.Lane, Kind: namespace + "." + kind, Text: summary(kind, schema.Names(), fields), To: to, Body: raw, Path: path}
 	if len(schema.Identity) > 0 {
 		draft.ID = identity(kind, schema.Identity, fields)
+	}
+	if key != "" {
+		draft.ID = key
 	}
 	if pr, ok := fields["pr"]; ok {
 		draft.PRs = []string{plain(pr)}

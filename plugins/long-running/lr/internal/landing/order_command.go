@@ -63,7 +63,7 @@ func runOrder(ctx context.Context, a *app.App, number int, seq int64, stdout io.
 	if !open {
 		return fmt.Errorf("#%d is not an open pull request", number)
 	}
-	posted, err := bus.Bus{Drive: cfg.Drive, Lane: facts.OrderLane}.Post(ctx, nil, bus.Tap{PR: number, Head: head, By: bus.OwnerBy, Value: string(machine.TapTapped)})
+	posted, err := bus.Bus{Drive: cfg.Drive, Lane: facts.OrderLane}.PostOrder(ctx, bus.Tap{PR: number, Head: head, By: bus.OwnerBy, Value: string(machine.TapTapped)}, records[0])
 	if err != nil {
 		return err
 	}

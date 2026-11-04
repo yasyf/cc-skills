@@ -76,7 +76,7 @@ func (s Source) writeOrder(ctx context.Context, record client.Record, tap bus.Ta
 		return err
 	}
 	tap.Head = head
-	_, err = bus.Bus{Drive: s.Drive, Lane: OrderLane}.Post(ctx, nil, tap)
+	_, err = bus.Bus{Drive: s.Drive, Lane: OrderLane}.PostOrder(ctx, tap, record)
 	return err
 }
 

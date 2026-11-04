@@ -136,3 +136,5 @@ Loop, one foreground Bash call each, timeout 570000 ms:
 At three hours, write a handoff note beside the dashboard config naming your cursor and
 the last update file, post `cci post --to owner-relay` with `rotate update-desk: <path>`, and stop.
 ```
+
+A thread answer that lands or merges a PR is his land order: record it, then run `lr landing order <PR> --record <seq>` on that record, so the landing pass reads it. A status line that says a PR waits on his tap quotes `lr board waits --pr <PR>`, never an older record.

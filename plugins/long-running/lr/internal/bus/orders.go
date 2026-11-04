@@ -1,7 +1,9 @@
 package bus
 
 import (
+	"cmp"
 	"context"
+	"encoding/json"
 	"regexp"
 	"slices"
 	"strconv"
@@ -33,6 +35,15 @@ func (b Bus) ReadOwner(ctx context.Context, since int64, floor time.Time) ([]cli
 		query.Since = floor
 	}
 	return client.Tail(ctx, query)
+}
+
+// PostOrder keys the order by the owner record it carries out, so a tap undone and given again at one head is a new order, and a second machine reading the same record writes nothing.
+func (b Bus) PostOrder(ctx context.Context, tap Tap, from client.Record) (Record, error) {
+	raw, err := json.Marshal(tap)
+	if err != nil {
+		return Record{}, err
+	}
+	return b.postKeyed(ctx, tap.Kind(), raw, nil, "", namespace+"."+tap.Kind()+"/"+cmp.Or(from.ID, from.Name()))
 }
 
 // OrderOf reads the land order one owner record carries. An empty Head means the record names no head, so the order lands at the PR's head when it is written.

@@ -122,6 +122,22 @@ func TestAShortHeadOnAPRThatMovedOrdersTheHeadHeTappedNotItsNewOne(t *testing.T)
 	}
 }
 
+func TestATapUndoneAndGivenAgainAtOneHeadStands(t *testing.T) {
+	h := surfaceHarness(t)
+	row := func(verdict string) map[string]string {
+		return map[string]string{"event": "triage.decided", "block": "merge-prs", "row": "4242", "verdict": verdict, "head": "abc1234"}
+	}
+	ownerRecord(t, "Owner on board b, merge-prs: 4242 approved at abc1234", row("approved"))
+	ownerRecord(t, "Owner on board b, merge-prs: 4242 cleared at abc1234", row("cleared"))
+	ownerRecord(t, "Owner on board b, merge-prs: 4242 approved at abc1234", row("approved"))
+
+	got := h.snapshot(t)[surfacePR]
+
+	if got.Tap != machine.TapTapped || len(orders(t)) != 3 {
+		t.Fatalf("tap = %q, orders = %+v", got.Tap, orders(t))
+	}
+}
+
 func TestAQueuedPRHeTappedOnACardIsNotPulled(t *testing.T) {
 	h := surfaceHarness(t)
 	ownerRecord(t, landOnCard, pickAttrs)
