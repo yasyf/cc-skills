@@ -41,8 +41,9 @@ type SlackPR struct {
 }
 
 type slackAsk struct {
-	PRs    []SlackPR `json:"prs"`
-	Answer *struct {
+	PRs     []SlackPR `json:"prs"`
+	Numbers []int     `json:"numbers"`
+	Answer  *struct {
 		SlackPR
 		Waits string `json:"waits"`
 		Label string `json:"label"`
@@ -73,6 +74,19 @@ func Card(repo string, rows []Row, number int) (SlackCard, bool) {
 	}, true
 }
 
+func Holders(s *store.Store, numbers []int, held []SlackPR) ([]SlackPR, error) {
+	prs, err := s.NumberedPRs(numbers)
+	if err != nil {
+		return nil, err
+	}
+	for _, pr := range prs {
+		if found := (SlackPR{pr.Repo, pr.Number}); !slices.Contains(held, found) {
+			held = append(held, found)
+		}
+	}
+	return held, nil
+}
+
 func Respond(s *store.Store, repo string, hooks Hooks, rows []Row, number int, waits, label string, at time.Time) error {
 	verdict, known := map[string]string{mergeLabel: verdictApproved, holdLabel: verdictRejected}[label]
 	if !known {
@@ -92,7 +106,7 @@ func slackCardCommand(a *app.App) *cobra.Command {
 	var lane string
 	cmd := &cobra.Command{
 		Use:   "card",
-		Short: "Read {\"prs\": [...]} or {\"answer\": {...}} on stdin: print the merge-row card for each PR that waits on the owner, or apply his Merge or Hold",
+		Short: "Read {\"prs\": [...]}, {\"numbers\": [...]} or {\"answer\": {...}} on stdin: print the merge-row card for each PR that waits on the owner, every drive PR holding each number, or apply his Merge or Hold",
 		Args:  cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			var ask slackAsk
@@ -111,6 +125,21 @@ func slackCardCommand(a *app.App) *cobra.Command {
 				return withRows(c, a, live[at], func(s *store.Store, repository string, rows []Row) error {
 					return Respond(s, repository, postHooks(c.Context(), live[at].Bus(), lane, repository), rows, k.Number, k.Waits, k.Label, a.Now())
 				})
+			}
+			if len(ask.Numbers) > 0 {
+				held := []SlackPR{}
+				for _, entry := range live {
+					s, err := store.Open(entry.Store())
+					if err != nil {
+						return err
+					}
+					held, err = Holders(s, ask.Numbers, held)
+					_ = s.Close()
+					if err != nil {
+						return err
+					}
+				}
+				return json.NewEncoder(c.OutOrStdout()).Encode(map[string][]SlackPR{"prs": held})
 			}
 			cards := []SlackPRCard{}
 			for _, entry := range live {

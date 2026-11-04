@@ -182,7 +182,19 @@ func (s *Store) PutPR(pr PR) error {
 }
 
 func (s *Store) PRs(repo string) ([]PR, error) {
-	rows, err := s.db.Query("SELECT repo, number, head, base, lane, state, read_at FROM prs WHERE repo = ? ORDER BY number", repo)
+	return s.prs("WHERE repo = ? ORDER BY number", repo)
+}
+
+func (s *Store) NumberedPRs(numbers []int) ([]PR, error) {
+	given, err := json.Marshal(numbers)
+	if err != nil {
+		return nil, err
+	}
+	return s.prs("WHERE number IN (SELECT value FROM json_each(?)) ORDER BY number, repo", string(given))
+}
+
+func (s *Store) prs(query string, args ...any) ([]PR, error) {
+	rows, err := s.db.Query("SELECT repo, number, head, base, lane, state, read_at FROM prs "+query, args...)
 	return collect(rows, err, func(rows *sql.Rows) (PR, error) {
 		var pr PR
 		err := rows.Scan(&pr.Repo, &pr.Number, &pr.Head, &pr.Base, &pr.Lane, &pr.State, moment{&pr.ReadAt})
