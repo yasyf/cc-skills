@@ -818,6 +818,14 @@ def test_chat_shows_each_ask_as_its_summary_and_state_with_its_answer_right_unde
     now(page)
 
 
+def test_a_pick_in_flight_or_failed_holds_the_page_from_reloading_and_a_recorded_one_does_not(page):
+    now(page)
+    assert page.evaluate("""() => {
+      const held = (sent) => { ov.sent.set('probe', sent); const out = pickUnsettled(); ov.sent.delete('probe'); return out; };
+      return [held({}), held({ error: 'x' }), held({ recorded: true })];
+    }""") == [True, True, False]
+
+
 def test_needs_me_fits_a_phone(page):
     tap_screen(page)
     page.set_viewport_size({"width": 390, "height": 800})

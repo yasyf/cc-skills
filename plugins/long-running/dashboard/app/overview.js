@@ -152,6 +152,9 @@ function sending(block) {
   const sent = ov.sent.get(block);
   return Boolean(sent && !sent.error);
 }
+function pickUnsettled() {
+  return [...ov.sent.values()].some((sent) => !sent.recorded);
+}
 function sentNote(block) {
   const sent = ov.sent.get(block);
   if (!sent) return '';
@@ -164,9 +167,14 @@ async function answer(body) {
   const out = await fetch('/api/answer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
     .then((res) => res.json())
     .catch((failure) => ({ error: `could not reach the dashboard server (${failure.message})` }));
-  ov.sent.set(body.block, out.error ? { error: out.error } : { recorded: true });
+  const result = out.error ? { error: out.error } : { recorded: true };
+  ov.sent.set(body.block, result);
+  setTimeout(() => {
+    if (ov.sent.get(body.block) !== result) return;
+    ov.sent.delete(body.block);
+    refresh();
+  }, body.kind === 'note' && !out.error ? 4000 : 30000);
   if (out.error) return render();
-  setTimeout(() => { ov.sent.delete(body.block); refresh(); }, body.kind === 'note' ? 4000 : 30000);
   const answer = { choice: { optionIds: body.options ?? [], other: body.other }, approval: { verdict: body.verdict, note: body.text }, input: { text: body.text } }[body.kind];
   tapped({ seq: out.seq, block: body.block, ...(answer ? { answer } : { noted: true }) });
 }

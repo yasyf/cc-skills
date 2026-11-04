@@ -1074,6 +1074,8 @@ class Drive:
                 pass
         except urllib.error.HTTPError as error:
             return error.code, {"error": error.read().decode().strip()}
+        except (urllib.error.URLError, TimeoutError) as error:
+            return 502, {"error": f"the board did not answer ({error})"}
         return 200, {"seq": self.store_seq()}
 
     def ccn(self, *args):
@@ -1209,6 +1211,9 @@ class Drive:
                 self.alerting.notify_all()
 
     def browser_report(self, client, agent, report):
+        if "page_error" in report:
+            print(f"{dt.datetime.now(PACIFIC):%b %d %H:%M:%S} page error from {client}: {report['page_error']}", flush=True)
+            return 200, {}
         self.browsers[client, agent] = {**report, "client": client, "agent": agent, "at": dt.datetime.now(PACIFIC).isoformat()}
         return 200, {}
 
@@ -1878,6 +1883,8 @@ def handler(drive, tailnet_owner, names):
                     status, out = 502, {"error": f"the drive's records could not take it ({getattr(failure, 'stderr', None) or failure})"}
             else:
                 status, out = drive.decide(body["block"], body["number"], body["verdict"], body.get("head"), body.get("note"))
+            if self.path in ("/api/answer", "/api/verdict"):
+                print(f"{dt.datetime.now(PACIFIC):%b %d %H:%M:%S} {self.path} {body.get('block')} {body.get('number', '')} -> {status} {out.get('error', '')}", flush=True)
             self.send(status, "application/json", json.dumps(out).encode())
 
         def source(self, title, text):
