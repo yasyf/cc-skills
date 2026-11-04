@@ -96,6 +96,7 @@ DOC_TOOLS = (
 )
 MCP_EXEMPT = ("mcp__plugin_cc-notes_", "mcp__plugin_cc-present_", "mcp__plugin_codex_")
 STANDING = r"\b(?:from now on|always|never|I told you|the plan is)\b"
+CRON_WAKE = re.compile(r"wake \d{1,2}:\d{2}\b")
 HARNESS_PREFIXES = ("<", "Another Claude session sent a message", "This session is being continued", "[Request interrupted")
 SYSTEM_PREFIXES = (*HARNESS_PREFIXES, "/")
 RULING_LABELS = ("scope:durable", "owner-ruling")
@@ -209,7 +210,7 @@ class OwnerPrompt:
 
     def check(self, evt: BaseHookEvent) -> bool:
         text = (evt.user_prompt or "").strip()
-        return not text.startswith(self.prefixes) and "<teammate-message" not in text and "<cross-session-message" not in text
+        return not text.startswith(self.prefixes) and not CRON_WAKE.match(text) and "<teammate-message" not in text and "<cross-session-message" not in text
 
 
 class OversizedTool:

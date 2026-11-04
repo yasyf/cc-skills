@@ -13,6 +13,8 @@ from captain_hook.events import PostToolUseEvent, PreToolUseEvent, StopEvent, Us
 from captain_hook.testing.helpers import build_context
 
 from fire import fire
+from types import SimpleNamespace
+
 from hooks import owner_ledger, owner_returns, root_context
 from hooks.compaction_handoff import CompactionState
 
@@ -557,3 +559,9 @@ def test_a_coordinator_window_captures_no_answer(drive: Path, lr: Path) -> None:
     coordinator.stop(last_assistant_message=BUG_TABLE)
 
     assert not coordinator.answer("m1").exists() and not lr.exists()
+
+
+def test_a_cron_wake_is_not_his_words_and_a_message_about_waking_still_is():
+    is_his = root_context.OwnerPrompt().check
+    assert not is_his(SimpleNamespace(user_prompt="wake 10:21 (owner-relay): check the clocks"))
+    assert is_his(SimpleNamespace(user_prompt="wake me at 9 if the release fails"))
