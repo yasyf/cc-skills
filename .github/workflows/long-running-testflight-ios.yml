@@ -1,0 +1,65 @@
+name: long-running TestFlight (iOS)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "plugins/long-running/ios/**"
+  schedule:
+    - cron: "23 9 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  upload:
+    runs-on: xcode-27
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Write App Store Connect API key
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          KEY_PATH="$RUNNER_TEMP/asc_authkey.p8"
+          printf '%s' "$ASC_KEY_P8" > "$KEY_PATH"
+          echo "ASC_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
+
+      - name: Archive (cloud signing)
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: >
+          xcodebuild archive
+          -project plugins/long-running/ios/LongRunning.xcodeproj
+          -scheme LongRunning
+          -destination 'generic/platform=iOS'
+          -archivePath build/LongRunning.xcarchive
+          -allowProvisioningUpdates
+          -authenticationKeyPath "$ASC_KEY_PATH"
+          -authenticationKeyID "$ASC_KEY_ID"
+          -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+          CODE_SIGN_IDENTITY=-
+          AD_HOC_CODE_SIGNING_ALLOWED=YES
+          DEVELOPMENT_TEAM="$APPLE_TEAM_ID"
+          CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER"
+
+      - name: Export and upload to TestFlight
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: >
+          xcodebuild -exportArchive
+          -archivePath build/LongRunning.xcarchive
+          -exportOptionsPlist plugins/long-running/ios/ExportOptions.plist
+          -exportPath build/export
+          -allowProvisioningUpdates
+          -authenticationKeyPath "$ASC_KEY_PATH"
+          -authenticationKeyID "$ASC_KEY_ID"
+          -authenticationKeyIssuerID "$ASC_ISSUER_ID"

@@ -1,0 +1,44 @@
+name: long-running iOS
+
+on:
+  push:
+    branches: [main, "owner-apps/**"]
+    paths:
+      - "plugins/long-running/ios/**"
+      - ".github/workflows/long-running-ios.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "plugins/long-running/ios/**"
+      - ".github/workflows/long-running-ios.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: xcode-27
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+      - name: Test (iOS Simulator)
+        env:
+          TEST_RUNNER_SNAPSHOT_DIR: ${{ runner.temp }}/screen-snapshots
+        run: >
+          mkdir -p "$TEST_RUNNER_SNAPSHOT_DIR" &&
+          xcodebuild test
+          -project plugins/long-running/ios/LongRunning.xcodeproj
+          -scheme LongRunning
+          -destination 'platform=iOS Simulator,name=iPhone 17'
+          CODE_SIGNING_ALLOWED=NO
+      - name: Upload screen snapshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: screen-snapshots
+          path: ${{ runner.temp }}/screen-snapshots
+          if-no-files-found: warn
