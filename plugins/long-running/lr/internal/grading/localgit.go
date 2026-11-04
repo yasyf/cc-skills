@@ -61,7 +61,38 @@ func onLocalDisk(checkout, root string) error {
 			return err
 		}
 	}
+	if err := wholeHistory(checkout); err != nil {
+		return err
+	}
 	return attributesFromHead(checkout)
+}
+
+func wholeHistory(checkout string) error {
+	shallow, err := isShallow(checkout)
+	if err != nil || !shallow {
+		return err
+	}
+	lock, err := lockFetch(checkout)
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
+	shallow, err = isShallow(checkout)
+	if err != nil || !shallow {
+		return err
+	}
+	if out, err := exec.Command("git", "-C", checkout, "fetch", "-q", "--unshallow", "origin").CombinedOutput(); err != nil {
+		return fmt.Errorf("git fetch --unshallow: %w: %s", err, out)
+	}
+	return nil
+}
+
+func isShallow(checkout string) (bool, error) {
+	out, err := exec.Command("git", "-C", checkout, "rev-parse", "--is-shallow-repository").CombinedOutput()
+	if err != nil {
+		return false, fmt.Errorf("git rev-parse --is-shallow-repository: %w: %s", err, out)
+	}
+	return strings.TrimSpace(string(out)) == "true", nil
 }
 
 func attributesFromHead(checkout string) error {

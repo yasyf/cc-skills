@@ -13,8 +13,9 @@ codex, codex-ask, ccx, ccn and cci installed, is joined to the drive's cci relay
 and holds a clone at the job's checkout whose remotes fetch the branches and
 cc-notes refs the job reads, cc-notes from an unfiltered remote when the clone
 is partial. `lr grade` moves that clone's .git to the Sprite's local disk on the
-first pass that finds it on the network disk home lives on, and starts one
-background move of the clone's worktree and the tools a pass reads. <dir> and each
+first pass that finds it on the network disk home lives on, takes the clone's
+whole history when it is shallow, since a shallow trunk reads every commit behind
+a head as the head's own, and starts one background move of the clone's worktree and the tools a pass reads. <dir> and each
 copy this script ships land on the local disk too, behind a link at the same path,
 and <dir> goes once it is copied back.
 

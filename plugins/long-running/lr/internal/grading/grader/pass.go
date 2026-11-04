@@ -370,7 +370,7 @@ func (p *pass) earlierOwn(base, trunk, last string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	listed, err := p.git(append([]string{"log", "--no-walk=unsorted", "--format=%s"}, earlier...)...)
+	listed, err := p.gitFed(lines(earlier), "log", "--no-walk=unsorted", "--format=%s", "--stdin")
 	if err != nil {
 		return nil, err
 	}
@@ -389,24 +389,29 @@ func (p *pass) ownSince(other, head string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	var paths []string
+	span := []string{other + "..." + head, "--"}
+	seen := map[string]bool{}
 	for path := range strings.SplitSeq(listed, "\n") {
-		if path != "" && !slices.Contains(paths, path) {
-			paths = append(paths, path)
+		if path != "" && !seen[path] {
+			seen[path] = true
+			span = append(span, path)
 		}
 	}
-	span := append([]string{other + "..." + head, "--"}, paths...)
 	if err := p.prefetch(span); err != nil {
 		return "", err
 	}
-	return p.git(append([]string{"--no-lazy-fetch", "rev-list", "--cherry-pick", "--right-only", "--no-merges", "--reverse"}, span...)...)
+	return p.gitFed(lines(span), "--no-lazy-fetch", "rev-list", "--cherry-pick", "--right-only", "--no-merges", "--reverse", "--stdin")
+}
+
+func lines(words []string) string {
+	return strings.Join(words, "\n") + "\n"
 }
 
 func (p *pass) prefetch(walks ...[]string) error {
 	seen := map[string]bool{}
 	var blobs strings.Builder
 	for _, walk := range walks {
-		raw, err := p.git(append([]string{"log", "--raw", "--no-abbrev", "--no-merges", "--no-renames", "--format="}, walk...)...)
+		raw, err := p.gitFed(lines(walk), "log", "--raw", "--no-abbrev", "--no-merges", "--no-renames", "--format=", "--stdin")
 		if err != nil {
 			return err
 		}

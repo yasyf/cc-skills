@@ -88,7 +88,7 @@ func (f *fakeShell) route(command Command) (string, error) {
 	case len(argv) > 3 && slices.Equal(argv[:3], []string{"ccx", "vcs", "gh"}):
 		return f.view(argv)
 	case argv[0] == "git" || argv[0] == "sh":
-		return f.gitFn(argv)
+		return f.gitFn(expanded(command))
 	case argv[0] == rulingsPath:
 		f.timeouts[argv[1]] = command.Timeout
 		if argv[1] == "slice" {
@@ -107,6 +107,14 @@ func (f *fakeShell) route(command Command) (string, error) {
 		return f.findings, nil
 	}
 	return "", fmt.Errorf("unexpected call %v", argv)
+}
+
+func expanded(command Command) []string {
+	at := slices.Index(command.Argv, "--stdin")
+	if at < 0 {
+		return command.Argv
+	}
+	return slices.Concat(command.Argv[:at], command.Argv[at+1:], strings.Split(strings.TrimSuffix(command.Stdin, "\n"), "\n"))
 }
 
 func (f *fakeShell) view(argv []string) (string, error) {
@@ -220,6 +228,16 @@ func (f *fakeShell) gitCalls(prefix ...string) [][]string {
 	for _, call := range f.snapshot() {
 		if len(call.Argv) > len(prefix) && call.Argv[0] == "git" && slices.Equal(call.Argv[1:1+len(prefix)], prefix) {
 			found = append(found, call.Argv)
+		}
+	}
+	return found
+}
+
+func (f *fakeShell) gitStdins(prefix ...string) []string {
+	var found []string
+	for _, call := range f.snapshot() {
+		if len(call.Argv) > len(prefix) && call.Argv[0] == "git" && slices.Equal(call.Argv[1:1+len(prefix)], prefix) {
+			found = append(found, call.Stdin)
 		}
 	}
 	return found
