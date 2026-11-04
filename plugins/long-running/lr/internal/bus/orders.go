@@ -61,7 +61,7 @@ func (b Bus) PostCardTap(ctx context.Context, repo string, tap Tap) error {
 }
 
 func (b Bus) PostWordTap(ctx context.Context, repo string, tap Tap, word client.Record) error {
-	return b.postOwnerTap(ctx, repo, tap, "word-tap/"+cmp.Or(word.ID, word.Name()), "in "+word.Name())
+	return b.postOwnerTap(ctx, repo, tap, fmt.Sprintf("word-tap/%s/%d/%s", cmp.Or(word.ID, word.Name()), tap.PR, tap.Head), "in "+word.Name())
 }
 
 func (b Bus) postOwnerTap(ctx context.Context, repo string, tap Tap, id, where string) error {

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -68,6 +69,52 @@ func TestAWordGivenAgainAtOneHeadIsANewOrder(t *testing.T) {
 	}
 	if len(written) != 1 {
 		t.Fatalf("written = %+v", written)
+	}
+}
+
+func TestOneWordOrdersEachPRAndEachHeadItCovers(t *testing.T) {
+	const (
+		first = "e718a7434fa01ee9835f992a9a647a825350732c"
+		moved = "91eea694e47f88917ef2021aa5d7f7d9c72b431d"
+	)
+	t.Setenv("CCI_HOME", t.TempDir())
+	ctx := context.Background()
+	s, err := store.Memory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	word, err := client.Post(ctx, client.Draft{Drive: "d", Lane: "owner-relay", Kind: "owner", Text: "Owner in thread: merge #7 and #8"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	orders := bus.Bus{Drive: "d", Lane: "tap-orders"}
+	order := func(number int, head string) {
+		t.Helper()
+		if err := s.PutReviewRows([]store.ReviewRow{{Repo: "o/r", Number: number, Head: head, ReadyForTap: true}}); err != nil {
+			t.Fatal(err)
+		}
+		var out bytes.Buffer
+		if err := writeOrder(ctx, s, "o/r", orders, number, word, &out); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	order(7, first)
+	order(8, first)
+	order(7, moved)
+	order(7, moved)
+
+	written, err := client.Tail(ctx, client.Query{Drive: "d", After: word.Seq})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, record := range written {
+		got = append(got, record.Fields.Attrs["row"]+" "+record.Fields.Attrs["head"][:7])
+	}
+	if want := []string{"7 e718a74", "8 e718a74", "7 91eea69"}; !slices.Equal(got, want) {
+		t.Fatalf("written = %v, want %v", got, want)
 	}
 }
 
