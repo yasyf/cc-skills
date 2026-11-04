@@ -706,48 +706,51 @@ func TestAnUnchangedClearWorkerIsReadAgainOnlyOnChangeOrAfterTheWindow(t *testin
 	check(2)
 	check(2)
 
-	f.clock = f.clock.Add(reshowEvery)
+	f.clock = f.clock.Add(reshowEvery * 5 / 4)
 	check(3)
 }
 
-func TestADownHostIsProbedOnceAWindowNotOncePerWorker(t *testing.T) {
+func TestAWorkerTheListSaysHasNoHostIsNotReadUntilTheHostReturns(t *testing.T) {
 	f := newFake(t)
 	e := workersUp(t, f, "clear")
-	f.orca[workerKey(remote)] = fixture(t, "error.remote-runtime-unavailable")
 	f.orca[workerListKey] = edited(t, "worker-list", func(doc map[string]any) {
 		for _, worker := range doc["result"].(map[string]any)["workers"].([]any) {
 			row := worker.(map[string]any)
-			if row["dispatchId"] == remote || row["dispatchId"] == gone {
-				row["projection"].(map[string]any)["host"] = map[string]any{"kind": "remote", "id": "host-down"}
+			if row["dispatchId"] == gone {
+				row["projection"].(map[string]any)["liveness"] = map[string]any{"verdict": "unverifiable", "reason": hostUnavailable}
 			}
 		}
 	})
 	w := f.watch()
 	w.Reshow = reshowEvery
-	check := func(shown int) map[string]*Row {
+	check := func() map[string]*Row {
 		t.Helper()
 		if err := w.Check(context.Background(), e); err != nil {
 			t.Fatal(err)
 		}
 		f.clock = f.clock.Add(pollInterval)
-		want(t, shownCount(f, remote)+shownCount(f, gone), shown)
 		return rowsOf(t, e)
 	}
 
-	first := check(2)
-	second := check(2)
-	want(t, second["dispatch:"+gone].State, first["dispatch:"+gone].State)
-	want(t, second["dispatch:"+remote].State, first["dispatch:"+remote].State)
+	want(t, check()["dispatch:"+gone].State, Unreachable)
+	want(t, check()["dispatch:"+gone].State, Unreachable)
+	want(t, shownCount(f, gone), 0)
 
-	f.clock = f.clock.Add(reshowEvery)
-	check(3)
-	check(3)
+	f.orca[workerListKey] = fixture(t, "worker-list")
+	check()
+	want(t, shownCount(f, gone), 1)
+}
 
-	f.orca[workerKey(remote)] = fixture(t, "worker-show.remote")
-	f.orca[workerKey(gone)] = fixture(t, "worker-show.remote")
-	f.clock = f.clock.Add(reshowEvery)
-	check(4)
-	check(6)
+func TestReshowWindowsStayWithinAQuarterOfTheSettingAndDiffer(t *testing.T) {
+	w := &Watch{Reshow: reshowEvery}
+	seen := map[time.Duration]bool{}
+	for _, key := range []string{"dispatch:a", "dispatch:b", "dispatch:c", "dispatch:d"} {
+		window := w.reshowOf(key)
+		want(t, window == w.reshowOf(key), true)
+		want(t, window >= reshowEvery*3/4 && window < reshowEvery*5/4, true)
+		seen[window] = true
+	}
+	want(t, len(seen) > 1, true)
 }
 
 func TestAWaitingWorkerIsReadEveryPoll(t *testing.T) {

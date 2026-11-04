@@ -105,18 +105,11 @@ type Row struct {
 	ShownAt         string           `json:"shown_at,omitempty"`
 }
 
-type downHost struct {
-	At      string `json:"at"`
-	Code    string `json:"code"`
-	Message string `json:"message"`
-}
-
 type saved struct {
-	Drive    string              `json:"drive"`
-	At       string              `json:"at"`
-	PID      int                 `json:"pid"`
-	Subjects map[string]*Row     `json:"subjects"`
-	Down     map[string]downHost `json:"down,omitempty"`
+	Drive    string          `json:"drive"`
+	At       string          `json:"at"`
+	PID      int             `json:"pid"`
+	Subjects map[string]*Row `json:"subjects"`
 }
 
 func where(row *Row) string {
