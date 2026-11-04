@@ -75,6 +75,10 @@ func run(ctx context.Context, a *app.App, binary string) error {
 	if err != nil {
 		return err
 	}
+	settings, err := readSettings(state)
+	if err != nil {
+		return err
+	}
 	if gone := missing(ctx, a.Runner, exec.LookPath, cfg); len(gone) > 0 {
 		text := "SUPERVISOR-REFUSED the supervisor will not start: " + strings.Join(gone, "; ")
 		_, err := client.Post(ctx, client.Draft{Drive: cfg.Drive, Lane: lanes.Self, Kind: "blocker", To: []string{lanes.Root}, ID: "supervisor-start", Text: text})
@@ -105,7 +109,7 @@ func run(ctx context.Context, a *app.App, binary string) error {
 		defer stop()
 	}
 	version := Installed(env.Claude)
-	upgrade := &Upgrade{Env: env, Running: version, Binary: binary, Read: read, Holding: lanes.GCPassRunning, Serve: func(installed string) error {
+	upgrade := &Upgrade{Env: env, Running: version, Binary: binary, Read: read, Settings: settings, Holding: lanes.GCPassRunning, Serve: func(installed string) error {
 		return s.ServeVersion(cfg.Drive, os.Getpid(), installed)
 	}}
 	deps.Stale = upgrade.Stale

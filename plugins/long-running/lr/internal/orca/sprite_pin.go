@@ -224,6 +224,30 @@ func cciPin(env map[string]string) (spriteTool, bool) {
 	return spriteTool{Kind: "binary", Name: "cci", URL: env[cciURLEnv], SHA256: env[cciSHAEnv], Version: version[1], Follows: "cc-inbox@cc-inbox"}, true
 }
 
+func Settings(path string) (string, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	var whole map[string]any
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	if err := decoder.Decode(&whole); err != nil {
+		return "", fmt.Errorf("%s: %w", path, err)
+	}
+	if route, on := whole["orca"].(map[string]any); on {
+		if sprite, on := route["sprite"].(map[string]any); on {
+			delete(sprite, "tools")
+			if env, on := sprite["env"].(map[string]any); on {
+				delete(env, cciURLEnv)
+				delete(env, cciSHAEnv)
+			}
+		}
+	}
+	settings, err := json.Marshal(whole)
+	return string(settings), err
+}
+
 func writePins(runner string, tools, cci []spriteTool) error {
 	raw, err := os.ReadFile(runner)
 	if err != nil {
