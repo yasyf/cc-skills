@@ -42,6 +42,7 @@ KEPT_REFUSALS = KEPT | {
     "blocking_asks.drive_roots_never_park_on_asks": PARKS,
     "capacity_fixes_name_the_reclaim.applies_name_the_next_writer": "the owner ordered the refusal: a hand apply on an incident names the next writer of its field, and a capacity fix-live waits until that writer agrees, since the next launch undoes an apply nobody checked",
     "capacity_fixes_name_the_reclaim.capacity_fixes_name_the_reclaim": "the owner ordered the refusal: an incident fix that only adds capacity names what stopped reclaiming it before fix-live, since the capacity is headroom and the reclaim fix is the fix",
+    "dashboard_live_needs_his_yes.dashboard_live_needs_his_yes": "the owner ordered the refusal: a dashboard or board change is live only once he saw its render on a card and said yes, and he reads a live record the moment it reaches him",
     "chat_formats.reply_formats_are_0_or_1": "the owner ordered the refusal: he reads a sessions migration number as a chat format",
     "chat_formats.chat_formats_are_0_or_1": STOP.format(what="the owner would read a sessions migration number as a chat format"),
     "thread_owner_relay.thread_replies_reach_their_card_owner": "the owner ordered the refusal: a warned forward still reaches the wrong drive's lane, which acts on his reply to another session's card (cci 399129)",
