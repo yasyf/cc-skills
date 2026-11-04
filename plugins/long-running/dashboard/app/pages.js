@@ -739,7 +739,7 @@ function chatTurn(item, kids) {
   return `<article class="ct-turn ${item.you ? 'ct-you' : 'ct-them'}"${id}>${chatBody(item, kids)}${item.sending ? '' : chatThread(item, kids)}</article>`;
 }
 function repliesScreen() {
-  if (state.shown !== location.hash) rp.bottom = true;
+  if (state.shown !== location.hash) Object.assign(rp, { bottom: true, touched: false });
   const entries = chatEntries();
   const keys = new Set(entries.map((item) => item.key));
   const threaded = entries.filter((item) => keys.has(item.on));
@@ -827,9 +827,13 @@ function syncChatModal() {
 document.addEventListener('close', (e) => {
   if (e.target.id === 'chatmodal') rp.modal = null;
 }, true);
+for (const type of ['wheel', 'touchstart', 'keydown', 'pointerdown']) {
+  window.addEventListener(type, () => { rp.touched = true; }, { passive: true, capture: true });
+}
 window.addEventListener('scroll', () => {
   const page = document.documentElement;
-  rp.bottom = window.innerHeight + window.scrollY >= page.scrollHeight - 160;
+  const atBottom = window.innerHeight + window.scrollY >= page.scrollHeight - 160;
+  if (atBottom || rp.touched) rp.bottom = atBottom;
 }, { passive: true });
 document.addEventListener('keydown', (e) => {
   if (e.target.name === 'chat' && e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
