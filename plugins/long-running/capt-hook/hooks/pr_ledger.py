@@ -40,7 +40,7 @@ PUBLISHED = re.compile(r"\bpublished (?P<head>[0-9a-f]{7,40})\b")
 RECORD_TIMEOUT_SECONDS = 15
 SHIP = ("ccx", "vcs", "ship")
 SHIP_BODY = "--pr-body-file"
-SHIP_OPENS_NOTHING = frozenset({"--no-pr", "--no-push", "--dry-run"})
+SHIP_OPENS_NOTHING = frozenset({"--no-pr", "--no-push", "--dry-run", "--help", "-h"})
 SHIP_NEW_PR = ("--new-branch", "--create", "--new-pr")
 NO_PR = "no pull requests found"
 PR_VIEW = "url,title,headRefName,baseRefName,headRefOid,body"
@@ -283,6 +283,7 @@ def opens_a_pr(call: Call, cwd: Path | None) -> bool:
         Input(command="ccx vcs ship -m 'x: ✨ y' --pr-body-file /b.md", env=LANE_ENV, commands=NOT_OPEN): Allow(),
         Input(command="ccx vcs ship -m 'x: ✨ y' --no-pr", env=LANE_ENV, commands=NOT_OPEN): Allow(),
         Input(command="ccx vcs ship -m 'x: ✨ y' --no-push", env=LANE_ENV, commands=NOT_OPEN): Allow(),
+        Input(command="ccx vcs ship --help", env=LANE_ENV, commands=NOT_OPEN): Allow(),
         Input(command="ccx vcs ship -m 'x: 🐛 z'", env=LANE_ENV, commands={"gh pr view": '{"number":9}'}): Allow(),
         Input(command="ccx vcs ship -m 'x: 🐛 z'", env=LANE_ENV, commands={"gh pr view": (1, "HTTP 502: Bad Gateway")}): Allow(),
     },
