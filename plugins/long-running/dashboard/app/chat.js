@@ -270,7 +270,10 @@ function replyObject(entry, t) {
   const card = replyCard(r);
   const links = `${replyLinks(r)}${replyOthers(r)}${prObjects(prNumbers(r))}`;
   const picked = cardAnswered(`card-${r.id}`);
-  if (card?.decides && !picked) return `${questionObject(card, r.id)}${links}`;
+  if (card?.decides && !picked) {
+    const foot = t.rows.length ? '' : `<div class="thread-foot"><span></span><button data-chat-thread="${esc(key)}">${chatIcon('reply')} Reply</button></div>${objectReplyBox(key, about)}`;
+    return `${questionObject(card, r.id)}${links}${foot}`;
+  }
   const kind = REPLY_KIND[r.type];
   const failed = entry.surfaces.filter((s) => s.error).map((s) => `<p class="ct-failed">${esc(SURFACE_WORD[s.surface])} failed: ${esc(s.error)}</p>`).join('');
   if (t.rows.length && r.order && !r.picks?.length && r.type === 'update') return `<div class="update-row" id="rp-${esc(r.id)}">${chatIcon('spark')}<div><span class="update-title">${esc(replyTitle(r))} <time>${clock(entry.at)}</time>${objectReplyButton(key)}</span>${chatBody(r.id, r.md, replyTitle(r))}${failed}${objectReplyBox(key, about)}</div></div>${links}`;
