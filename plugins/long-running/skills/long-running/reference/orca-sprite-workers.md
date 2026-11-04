@@ -186,14 +186,18 @@ destroy, so the kept box can sleep. A live dispatch or a busy terminal keeps its
 tunnel.
 
 The same service appends one JSON line every 10 seconds to
-`~/.cc-remote/samples.log`, fsynced, because a stop reboots the kernel and wipes
-its counters while home survives. Each line has the time, kernel uptime,
-MemAvailable, swap in use, the balloon's net size, the kernel's `oom_kill` count,
-`/proc/loadavg`, the top 3 processes by RSS, each `claude` or `codex` with its
-parent, and `memory.events` when readable. The file keeps about 2 hours. A failed
-read writes no line, warns, and leaves the hold running. To tell which went first,
-compare the last line naming an agent with the last line of the kernel's uptime:
-an agent gone while uptime keeps climbing means the agent died before the box.
+`/tmp/cc-remote-samples.log`, fsynced, because a stop can reboot the kernel and
+wipe its counters. `/tmp` is the Sprite's local disk, which survives a stop. Home
+is `nbd0`, a network disk whose connection can die, and a write to it hangs first,
+so a sample written there would stop before the event it should record. Each line
+has the time, kernel uptime, MemAvailable, swap in use, the balloon's net size,
+the kernel's `oom_kill` count, `/proc/loadavg`, the count of processes waiting on
+a disk, the top 3 processes by RSS with their command lines, each `claude` or
+`codex` with its parent, `memory.events` when readable, and any new kernel lines
+naming `nbd0`. The file keeps about 2 hours. A failed read writes no line, warns,
+and leaves the hold running. To tell which went first, compare the last line
+naming an agent with the last line of the kernel's uptime: an agent gone while
+uptime keeps climbing means the agent died before the box.
 
 Prepare starts the Sprite's Orca runtime through its `orca` CLI, and Orca
 1.4.224 serves it on its managed server, `orcad`. The prepared task records that
