@@ -1,7 +1,7 @@
 {
   "name": "plans",
   "description": "Write a plan in plan mode with code-grounded fix steps and a workflow table, and answer a code review that re-enters plan mode with every comment carried verbatim.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "author": {
     "name": "Yasyf Mohamedali",
     "url": "https://github.com/yasyf"

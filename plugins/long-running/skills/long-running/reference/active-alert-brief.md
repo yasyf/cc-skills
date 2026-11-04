@@ -59,6 +59,7 @@ An incident is its records on the drive's cci bus:
 - No "real-or-not" or "ours-or-not" verdict, no mechanism-depth mandate, no `AskUserQuestion`, and no mute treated as resolution.
 - Diagnosis redirects the fix lane; it never precedes it. The owner's "if it is real, fix it" means launching the fix and evidence lanes, not a verdict gate.
 - The fix lane's route is `incident` on every surface, including CI or tooling breakages.
+- While a drive incident is open, the pack's `owner_facing` hooks block plan mode, an off-incident `AskUserQuestion`, and a root-run probe.
 - The pack's `owner_facing` hook blocks the coordinator's `Agent` spawn when the name starts with `incident-` or `outage-`, or the brief's first line says incident or outage. It allows a name carrying a support role (`evidence`, `export`, `ship`, `comms`, `intake`, `retro`, `watch`, `handoff`) or the Opus 5.5 `-backup` lane.
 - Fix every incident forward (the no-rollback rule is in step 0 of the [Fix lane brief](#fix-lane-brief)). The never-cancel-a-running-apply rule holds.
 - Only the owner's explicit order to mute an alert runs `lr alert mute <monitor> --why '<reason>'`, which mutes it, stands down its lanes, and keeps every launch off it.

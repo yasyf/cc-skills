@@ -134,7 +134,7 @@ orca orchestration worker-start --run "<run>" --spec "<pointer>" \
 - Count `unsupervised` as launched.
 - The lane reports with `cci post --drive <drive> --lane <lane> --kind report --to root --text "<report>"` and reads deliveries with `cci tail --drive <drive> --cursor <lane> --reader <lane>`, without Orca `worker_done` or escalation plumbing.
 
-`orca-launch.sh <lane> incident xhigh <brief>` runs this command, then `orca orchestration worker-start --terminal`:
+`plugins/long-running/bin/orca-launch.sh <lane> incident xhigh <brief>` runs this command, then `orca orchestration worker-start --terminal`:
 
 ```
 codex --dangerously-bypass-approvals-and-sandbox -c model=gpt-6.1-sol -c service_tier=fast -c model_reasoning_effort=xhigh
