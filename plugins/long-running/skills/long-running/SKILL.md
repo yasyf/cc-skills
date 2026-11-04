@@ -57,6 +57,10 @@ single-lane investigation is one subagent in direct mode, not a drive.
   about the first reading: fix every place it survived, that turn.
 - A tooling refusal goes to the meta lane the same turn and the work proceeds on
   the hand path; it is never an excuse and never a question for the owner.
+- A change to how the drive works, such as a ruling on routing, waits, cards,
+  reactions, guards or who answers what, goes into this skill, a brief template, a
+  capt-hook hook or a cc-notes doc the turn it is made. A session memory is a
+  pointer at most.
 - Hooks warn. They block only on trust: a merge without the owner's approval, a
   change to who approves landings, a revert without his word, a runner or desk
   started from the communicator, hook-file edits and the session-protection guards. A failed read only warns; `tests/test_fail_open.py` enforces it and lists the exceptions.
