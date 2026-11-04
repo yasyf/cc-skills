@@ -16,6 +16,7 @@ from .compaction_handoff import FOREGROUND_JUDGE_SECONDS, LR, Bound, CompactionS
 from .judge_metrics import judge_call
 from .owner_facing import CC_SLACK, SLACK_CARD, STDIN, Reads, as_read, board_bytes, fenced, readable, shown, slack_card, status_words
 from .owner_lines_skip_refused_topics import reaches_him
+from .owner_posts_carry_cards import CARD_LINK, PLATY_CARD, RELEASE_WORD, posted_words
 from .owner_replies_carry_news import HIS_DM, PEER, dm_posts
 from .owner_returns import REPLY
 from .register_injection import drive_args
@@ -34,6 +35,7 @@ BARE_PR = "A pick card about a PR passes it in `prs`, which gives him its link, 
 HOLD = "A post to the owner links what it names, carries the cards it asks him to tap, names the concrete things it changes and answers his first question. Fix each line below, or send the same post again unchanged and it goes through."
 BARE_ID = re.compile(r"(?i)(?<![\w/.:-])#?\d{6,}\b|\bSentry\s+#?\d+\b")
 TAP_WORDS = re.compile(r"(?i)\b(?:tap|taps|tapping|(?:wait|waits|waiting|blocked) (?:on|for) (?:you|your|a yes or no|yes or no)|needs? a yes or no|yes or no from you|your (?:yes|no|picks?|answers?|word))\b|\byes or no\?|(?<!release )\bcards?\b")
+NO_PLATY_LINE = "no Platy card: a release word to him says what users get and links the Platy release card: add its #releases permalink, which the build's `release-slack-root` annotation names"
 HIDDEN_CITE = re.compile(r"<!--.*?-->", re.DOTALL)
 ALERT_HOST = r"[^)|>\s]*(?:sentry\.io/|datadoghq\.com/monitors|slack\.com/archives)[^)|>\s]*"
 LABELLED_ALERT = re.compile(rf"\]\(<?https://{ALERT_HOST}>?\)|<https://{ALERT_HOST}\|")
@@ -64,6 +66,7 @@ CONCRETE = {"title": "Big chats open on their newest turns", "md": "A chat over 
 LANDED = "Landed, live at 12:20 PM."
 STATUS = "The nightly build is still running on the staging cluster, and it should finish within the hour."
 REMINDER = "Six things still wait on your tap, so please open your board and go through them today."
+RELEASED = "Release 12881 is live."
 WAITS_ON_HIM = "The support reply is separate and waits on your Yes or No."
 THIRD_PARTY = "The new prompt asks the user yes or no before it deletes a chat, and the sidebar shows the result."
 STATUS_POST = f"/plugins/cc-slack/bin/cc-slack dm-status --thread 1793829658.340949 --agent claude '{WAITS_ON_HIM}' 2>&1 | head -5"
@@ -187,13 +190,17 @@ def carries_cards(evt: BaseHookEvent, reads: Reads) -> bool:
 
 
 def lane_dm_words(evt: BaseHookEvent, reads: Reads) -> str:
-    return "\n\n".join(text for channel, text in dm_posts(evt) if TAP_WORDS.search(readable(text)) and reaches_him(reads, channel))
+    return "\n\n".join(text for channel, text in dm_posts(evt) if (TAP_WORDS.search(readable(text)) or RELEASE_WORD.search(as_read(text))) and reaches_him(reads, channel))
+
+
+def release_without_its_card(evt: BaseHookEvent, said: str) -> bool:
+    return bool(RELEASE_WORD.search(as_read(said))) and not PLATY_CARD.search("\n".join([said, *posted_words(evt)]))
 
 
 def unlinked_or_cardless(evt: BaseHookEvent, posted: str, said: str, reads: Reads) -> list[str]:
-    bare = [f"bare number: {hit}: make it a link, and name no cci record number at all" for hit in dict.fromkeys(found[0] for found in BARE_ID.finditer(posted))]
-    named = TAP_WORDS.search(said)
-    return [*bare, *([f'no cards: "{named[0]}": put the yes or no itself in this post, as `picks` or `prs` on a reply, `options` on a dm-status card, or `--tap-pr`; a link to a card only where the post cannot carry one; and if you removed the card, say so here with its replacement'] if named and not carries_cards(evt, reads) else [])]
+    bare = [f"bare number: {hit}: make it a link, and name no cci record number at all" for hit in dict.fromkeys(found[0] for found in BARE_ID.finditer(readable(posted)))]
+    named = TAP_WORDS.search(readable(said))
+    return [*bare, *([f'no cards: "{named[0]}": put the yes or no itself in this post, as `picks` or `prs` on a reply, `options` on a dm-status card, or `--tap-pr`; a link to a card only where the post cannot carry one; and if you removed the card, say so here with its replacement'] if named and not carries_cards(evt, reads) else []), *([NO_PLATY_LINE] if release_without_its_card(evt, said) else [])]
 
 
 def hold(evt: BaseHookEvent, drive: str, key: str, lines: list[str]) -> HookResult:
@@ -284,7 +291,7 @@ def resent(title: str, md: str) -> list[HeldPosts]:
         reply("Big chats", VAGUE_POST, commands=HOLDS, state=resent("Big chats", VAGUE_POST)): Allow(),
         reply("Big chats", f"{VAGUE_POST} Reworded.", commands=HOLDS, state=resent("Big chats", VAGUE_POST)): Block(),
         reply(CONCRETE["title"], CONCRETE["md"], commands=judged()): Allow(),
-        reply("Released", LANDED, commands=HOLDS): Allow(),
+        reply("Landed", LANDED, commands=HOLDS): Allow(),
         reply("Big chats", VAGUE_POST, commands=sonnet_says("unsure")): Block(pattern=r"It adds one new setting[\s\S]*Which fields"),
         reply("Big chats", VAGUE_POST, commands=sonnet_says("yes", evidence="words no record carries")): Block(pattern=r"Which fields"),
         reply("Nightly build", STATUS, commands=sonnet_says("unsure")): Allow(),
@@ -299,11 +306,11 @@ def resent(title: str, md: str) -> list[HeldPosts]:
         reply("Your list", REMINDER, state=resent("Your list", REMINDER)): Allow(),
         Input(tool=SLACK_CARD, tool_input={"card": {"title": "Your list", "body": REMINDER}}, env=HOOK_ENV): Block(pattern=r"no cards"),
         Input(tool=SLACK_CARD, tool_input={"card": {"title": "Your list", "body": REMINDER, "options": ["Land", "Hold"]}}, env=HOOK_ENV, commands=judged()): Allow(),
-        reply("Release", "The Platy release card is up, and it is live on plat.", commands=judged()): Allow(),
+        reply("Live", f"The Platy release card is up at {CARD_LINK}, and it is live on plat.", commands=judged()): Allow(),
         reply("Alert", "Sentry 4821 fired again."): Block(pattern=r"bare number: Sentry 4821"),
         reply("Alert", f"[Sentry 4821]({SENTRY_LINK}) fired again."): Allow(),
-        reply("Release", f"Live as [the relay fix]({LAND_PR}).", commands=HOLDS): Block(pattern=r"first question: Which fields"),
-        reply("Release", f"Live as <{LAND_PR}|the relay fix>.", commands=HOLDS): Block(pattern=r"first question: Which fields"),
+        reply("Landed", f"Live as [the relay fix]({LAND_PR}).", commands=HOLDS): Block(pattern=r"first question: Which fields"),
+        reply("Landed", f"Live as <{LAND_PR}|the relay fix>.", commands=HOLDS): Block(pattern=r"first question: Which fields"),
         reply("Alert", "Record #427030 says so."): Block(pattern=r"bare number: #427030"),
         reply("Why", "It dropped because both chats shared a replica. <!-- cci #384714 -->", commands=judged()): Allow(),
         Input(command="cc-slack reply --channel D0B6Z --text 'Sentry 4821 fired again.'", env=HOOK_ENV): Allow(),
@@ -328,6 +335,16 @@ def resent(title: str, md: str) -> list[HeldPosts]:
         Input(tool=DM_TOOLS[1], tool_input={"channel_id": "D0B6Z", "text": WAITS_ON_HIM}, env=LANE_DM_ENV, commands={PEER: HIS_DM}): Block(pattern=r"no cards"),
         Input(tool=DM_TOOLS[1], tool_input={"channel_id": "D0B6Z", "text": WAITS_ON_HIM}, env=LANE_DM_ENV, commands={PEER: json.dumps({"channel_id": "D0B6Z", "peer": "U0SOMEONE", "peer_name": "Sam"})}): Allow(),
         Input(tool=DM_TOOLS[1], tool_input={"channel_id": "C0RELEASES1", "text": WAITS_ON_HIM}, env=LANE_DM_ENV): Allow(),
+        reply("Live", RELEASED): Block(pattern=r"no Platy card"),
+        reply("Live", f"{RELEASED} {CARD_LINK}", commands=judged()): Allow(),
+        reply("Live", f"[{RELEASED}]({CARD_LINK})", commands=judged()): Allow(),
+        reply("Live", RELEASED, given={"links": [CARD_LINK]}, commands=judged()): Allow(),
+        reply("Live", RELEASED, state=resent("Live", RELEASED)): Allow(),
+        reply("Build", "The build at https://buildkite.com/forge/release/builds/12890 passed.", commands=judged()): Allow(),
+        Input(command=f"cc-slack dm-status '{RELEASED}'", env=LANE_ENV): Block(pattern=r"no Platy card"),
+        Input(command=f"cc-slack dm-status '{RELEASED} {CARD_LINK}'", env=LANE_ENV, commands=judged()): Allow(),
+        Input(tool=DM_TOOLS[1], tool_input={"channel_id": "D0B6Z", "text": RELEASED}, env=LANE_DM_ENV, commands={PEER: HIS_DM}): Block(pattern=r"no Platy card"),
+        Input(tool=DM_TOOLS[1], tool_input={"channel_id": "D0B6Z", "text": RELEASED}, env=LANE_DM_ENV, commands={PEER: json.dumps({"channel_id": "D0B6Z", "peer": "U0SOMEONE", "peer_name": "Sam"})}): Allow(),
     },
 )
 def posts_answer_his_first_question(evt: BaseHookEvent) -> HookResult | None:
@@ -338,7 +355,7 @@ def posts_answer_his_first_question(evt: BaseHookEvent) -> HookResult | None:
     said = posted or lane_dm_words(evt, reads)
     if not said or (key := post_key(as_read(said))) in HeldPosts.load(evt).held:
         return None
-    if lines := unlinked_or_cardless(evt, readable(posted), readable(said), reads):
+    if lines := unlinked_or_cardless(evt, posted, said, reads):
         return hold(evt, which[1], key, lines)
     text = as_read(posted)
     if plain_answer(text):
