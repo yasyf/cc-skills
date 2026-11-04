@@ -2,6 +2,7 @@ package explain
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -302,10 +303,18 @@ type Owner struct {
 }
 
 func (o Owner) Announce(ctx context.Context, n Notice) error {
-	if o.Lane != "" && o.Lane != relay {
-		if _, err := o.Post(ctx, client.Draft{Drive: o.Drive, Lane: o.Lane, Kind: "report", To: []string{relay}, Text: fmt.Sprintf("one-pager for the owner, %s: %s", n.Title, n.Link)}); err != nil {
-			return err
-		}
+	draft := client.Draft{
+		Drive: o.Drive,
+		Lane:  cmp.Or(o.Lane, Topic),
+		Kind:  "report",
+		Text:  fmt.Sprintf("one-pager for the owner, %s: %s", n.Title, n.Link),
+		Attrs: map[string]string{"one-pager-url": n.Link, "one-pager-title": n.Title, "one-pager-lede": n.Lede},
+	}
+	if o.Lane != relay {
+		draft.To = []string{relay}
+	}
+	if _, err := o.Post(ctx, draft); err != nil {
+		return err
 	}
 	err := o.dm(ctx, n)
 	if err == nil {

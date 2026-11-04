@@ -242,18 +242,31 @@ func TestTailnetServesTheWorktreeOnLoopbackBehindTailscaleServeAndReturnsItsHTTP
 	}
 }
 
-func TestAnnouncingFromASessionWithNoLaneCardsTheOwnerAndPostsNothing(t *testing.T) {
-	slack := &shelltest.Fake{}
-	slack.Reply(`{"ok": true}`, "cc-slack", "dm-status")
-	sent := &posts{}
-
+func TestAnnouncingRecordsThePageForTheDashboardWhoeverPublishesIt(t *testing.T) {
 	notice := Notice{Title: "How a lane resumes", Lede: "A lane picks up from its newest handoff.", Link: "https://mac.tail1.ts.net:8665/one-pagers/lane-resume/"}
-	if err := (Owner{Runner: slack, Post: sent.Post, Drive: "d1"}).Announce(context.Background(), notice); err != nil {
-		t.Fatal(err)
-	}
+	for _, test := range []struct {
+		lane, recordedAs string
+		to               []string
+	}{
+		{lane: "", recordedAs: Topic, to: []string{"owner-relay"}},
+		{lane: "signal-1", recordedAs: "signal-1", to: []string{"owner-relay"}},
+		{lane: "owner-relay", recordedAs: "owner-relay"},
+	} {
+		slack := &shelltest.Fake{}
+		slack.Reply(`{"ok": true}`, "cc-slack", "dm-status")
+		sent := &posts{}
 
-	if len(sent.drafts) != 0 || len(slack.Calls()) != 1 {
-		t.Fatalf("posted %+v, calls %v", sent.drafts, slack.Calls())
+		if err := (Owner{Runner: slack, Post: sent.Post, Drive: "d1", Lane: test.lane}).Announce(context.Background(), notice); err != nil {
+			t.Fatal(err)
+		}
+
+		if len(sent.drafts) != 1 || len(slack.Calls()) != 1 {
+			t.Fatalf("lane %q: posted %+v, calls %v", test.lane, sent.drafts, slack.Calls())
+		}
+		got := sent.drafts[0]
+		if got.Lane != test.recordedAs || !slices.Equal(got.To, test.to) || got.Attrs["one-pager-url"] != notice.Link || got.Attrs["one-pager-title"] != notice.Title || got.Attrs["one-pager-lede"] != notice.Lede {
+			t.Fatalf("lane %q: posted %+v", test.lane, got)
+		}
 	}
 }
 
@@ -285,7 +298,7 @@ func TestAnnouncingAPageTellsOwnerRelayAndCardsTheOwnersDMAndAFailedCardRaisesAB
 	if !errors.As(err, &exit) || !strings.Contains(err.Error(), notice.Link) {
 		t.Fatalf("err %v", err)
 	}
-	if len(sent.drafts) != 1 || sent.drafts[0].Kind != "blocker" || !slices.Equal(sent.drafts[0].To, []string{"root"}) || !strings.Contains(sent.drafts[0].Text, notice.Link) {
+	if len(sent.drafts) != 2 || sent.drafts[1].Kind != "blocker" || !slices.Equal(sent.drafts[1].To, []string{"root"}) || !strings.Contains(sent.drafts[1].Text, notice.Link) {
 		t.Fatalf("posted %+v", sent.drafts)
 	}
 }
