@@ -27,7 +27,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/wait"
 )
 
-const spriteInstallTimeout = 5 * time.Minute
+const spriteInstallTimeout = 15 * time.Minute
 
 type runWorkers interface {
 	Workers(ctx context.Context, run string) ([]Worker, error)
