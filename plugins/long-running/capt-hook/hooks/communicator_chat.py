@@ -185,7 +185,7 @@ def ask_for_a_verb(evt: BaseHookEvent, shape: str) -> None:
         Input(command=TAIL, state=ACTIVE, env=DRIVE_CONFIG, seen={CHORE_RUNS: [TAIL_SHAPE]}, commands={"cci post": (1, "bus down")}): Allow(),
         Input(command=f"{TAIL} && cci tail --lane fix-3 -n 1", state=ACTIVE, env=DRIVE_CONFIG, commands={"cci post": ""}): Allow(),
         Input(command="ls /drive", state=ACTIVE, env=DRIVE_CONFIG): Allow(),
-        Input(command="lr owner mark m1 addressed --routed 1", state=ACTIVE, env=DRIVE_CONFIG, seen={CHORE_RUNS: ["lr owner --routed"]}): Allow(),
+        Input(command="lr owner mark m1 addressed", state=ACTIVE, env=DRIVE_CONFIG, seen={CHORE_RUNS: ["lr owner"]}): Allow(),
     }),
 )
 def repeated_chores_ask_for_a_verb(evt: BaseHookEvent) -> None:
