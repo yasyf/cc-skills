@@ -5,6 +5,8 @@ on:
     branches: [main]
     paths:
       - "plugins/long-running/lr/**"
+      - "!plugins/long-running/lr/**/*_test.go"
+      - "!plugins/long-running/lr/**/testdata/**"
       - ".github/workflows/long-running-lr-release.yml"
   workflow_dispatch:
 
@@ -132,3 +134,11 @@ jobs:
         run: |
           gh workflow run long-running-ci.yml --ref main
           gh workflow run autobump.yml --ref main
+
+  batch:
+    needs: pin
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Hold the concurrency group so pushes in the next 10 minutes release as one
+        run: sleep 600

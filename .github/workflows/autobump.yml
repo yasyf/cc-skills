@@ -3,7 +3,7 @@ name: Autobump
 on:
   push:
     branches: [main]
-    paths: ["plugins/**"]
+    paths: ["plugins/**", "!plugins/long-running/lr/**"]
   schedule:
     - cron: "23 10 * * 1"
   workflow_dispatch:
