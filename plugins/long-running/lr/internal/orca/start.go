@@ -27,6 +27,7 @@ const (
 	agentIncident          = "incident"
 	modelIncidentOpus      = "incident-opus"
 	claudeFastSettings     = ` --settings '{"fastMode":true}'`
+	claudeLaneEnv          = "DISABLE_AUTOUPDATER=1 CLAUDE_CODE_DISABLE_FILE_CHECKPOINTING=1"
 	startPoll              = 4 * time.Second
 	stallRetry             = 30 * time.Second
 	coordinatorLane        = "root"
@@ -564,7 +565,7 @@ func (l *launch) composeCommand() error {
 	if l.drive != "" {
 		extra.WriteString(" CLAUDE_LONG_RUNNING_DRIVE=" + l.drive)
 	}
-	command := "env CLAUDE_LONG_RUNNING_LANE=" + l.lane + extra.String()
+	command := "env CLAUDE_LONG_RUNNING_LANE=" + l.lane + extra.String() + " " + claudeLaneEnv
 	if l.lane == coordinatorLane {
 		command += fmt.Sprintf(" CLAUDE_CODE_PROMPT_CACHE_TTL=1h CLAUDE_CODE_AUTO_COMPACT_WINDOW=%d", coordinatorCompact)
 	}

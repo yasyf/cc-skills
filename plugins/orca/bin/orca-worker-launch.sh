@@ -11,6 +11,7 @@ run=${WORKER_RUN:?set WORKER_RUN to the Orca Run id}
 ref=${WORKER_REF:-}
 expect=${WORKER_EXPECT_BASE:-}
 tier=${WORKER_SERVICE_TIER:-}
+lane_env='DISABLE_AUTOUPDATER=1 CLAUDE_CODE_DISABLE_FILE_CHECKPOINTING=1'
 
 die() {
   echo "$*" >&2
@@ -221,7 +222,7 @@ terminal=
   jq -r 'first(.result.terminals[] | select((.agentIdentity // "") == "") | .handle) // empty')
 # terminal create --command times out waiting for the handle while claude boots in a fresh worktree.
 [ -n "$terminal" ] || terminal=$(orca_json terminal create --worktree "path:$wt" --title "$lane" | jq -er '.result.terminal.handle')
-printf -v claude 'claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions --disallowedTools AskUserQuestion,EnterPlanMode,ExitPlanMode --strict-mcp-config --model %q --effort %q' "$model_id" "$effort"
+printf -v claude 'env %s claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions --disallowedTools AskUserQuestion,EnterPlanMode,ExitPlanMode --strict-mcp-config --model %q --effort %q' "$lane_env" "$model_id" "$effort"
 [ -z "${WORKER_MCP_CONFIG:-}" ] || printf -v claude '%s --mcp-config %q' "$claude" "$WORKER_MCP_CONFIG"
 orca_json terminal send --terminal "$terminal" --enter --text "$claude" >/dev/null
 

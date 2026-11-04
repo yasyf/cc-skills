@@ -506,7 +506,7 @@ func TestAWorkerLaunchedInsideADriveCarriesTheDriveToClaude(t *testing.T) {
 	h.env[driveEnv] = "900424b6"
 	h.launched()
 	command := flag(h.orcaCalls("terminal create")[0], "--command")
-	if !strings.HasPrefix(command, "env CLAUDE_LONG_RUNNING_LANE=lane-a CLAUDE_LONG_RUNNING_DRIVE=900424b6 claude ") {
+	if !strings.HasPrefix(command, "env CLAUDE_LONG_RUNNING_LANE=lane-a CLAUDE_LONG_RUNNING_DRIVE=900424b6 "+claudeLaneEnv+" claude ") {
 		t.Fatal(command)
 	}
 }
@@ -520,7 +520,7 @@ func TestOnlyTheCoordinatorLaunchesOnTheLongCacheUnderALowCompactionCeiling(t *t
 	h.launched()
 	creates := h.orcaCalls("terminal create")
 	command := flag(creates[0], "--command")
-	if !strings.HasPrefix(command, "env CLAUDE_LONG_RUNNING_LANE=root CLAUDE_CODE_PROMPT_CACHE_TTL=1h CLAUDE_CODE_AUTO_COMPACT_WINDOW=210000 claude ") {
+	if !strings.HasPrefix(command, "env CLAUDE_LONG_RUNNING_LANE=root "+claudeLaneEnv+" CLAUDE_CODE_PROMPT_CACHE_TTL=1h CLAUDE_CODE_AUTO_COMPACT_WINDOW=210000 claude ") {
 		t.Fatal(command)
 	}
 	for _, want := range []string{"--disallowedTools AskUserQuestion,EnterPlanMode,ExitPlanMode" + coordinatorDenied + " ", `--settings '{"skillListingBudgetFraction":0.001}' `} {
@@ -532,7 +532,7 @@ func TestOnlyTheCoordinatorLaunchesOnTheLongCacheUnderALowCompactionCeiling(t *t
 		t.Fatalf("a drive that names no rules kept its instructions out: %q", command)
 	}
 	other := flag(creates[1], "--command")
-	if !strings.HasPrefix(other, "env CLAUDE_LONG_RUNNING_LANE=lane-a claude ") || strings.Contains(other, coordinatorDenied) || strings.Contains(other, "--settings") {
+	if !strings.HasPrefix(other, "env CLAUDE_LONG_RUNNING_LANE=lane-a "+claudeLaneEnv+" claude ") || strings.Contains(other, coordinatorDenied) || strings.Contains(other, "--settings") {
 		t.Fatal(other)
 	}
 }
@@ -585,7 +585,7 @@ func TestAWorkerLaunchedByASessionlessRunnerCarriesTheDriveOfItsOrcaRun(t *testi
 	bindDrive(h, object{"drive": "900424b6", "sessions": []string{}, "orca_run": "run_1"}, "900424b6")
 	h.launched()
 	command := flag(h.orcaCalls("terminal create")[0], "--command")
-	if !strings.HasPrefix(command, "env CLAUDE_LONG_RUNNING_LANE=lane-a CLAUDE_LONG_RUNNING_DRIVE=900424b6 claude ") {
+	if !strings.HasPrefix(command, "env CLAUDE_LONG_RUNNING_LANE=lane-a CLAUDE_LONG_RUNNING_DRIVE=900424b6 "+claudeLaneEnv+" claude ") {
 		t.Fatal(command)
 	}
 }
@@ -706,7 +706,7 @@ func TestLaunchCreatesAChildWorktreeAndABypassTerminal(t *testing.T) {
 		t.Fatal("the branch tracks something")
 	}
 	create := h.orcaCalls("terminal create")[0]
-	wantLine(t, flag(create, "--command"), "env CLAUDE_LONG_RUNNING_LANE=lane-a claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions --disallowedTools AskUserQuestion,EnterPlanMode,ExitPlanMode --strict-mcp-config --channels plugin:cc-review@cc-review --model claude-opus-5-5 --effort high")
+	wantLine(t, flag(create, "--command"), "env CLAUDE_LONG_RUNNING_LANE=lane-a "+claudeLaneEnv+" claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions --disallowedTools AskUserQuestion,EnterPlanMode,ExitPlanMode --strict-mcp-config --channels plugin:cc-review@cc-review --model claude-opus-5-5 --effort high")
 	start := h.orcaCalls("orchestration worker-start")[0]
 	if flag(start, "--terminal") != "term_a" || flag(start, "--run") != "run_1" || slices.Contains(start, "--model") || slices.Contains(start, "--effort") {
 		t.Fatal(start)

@@ -28,10 +28,12 @@
 orca worktree create --name "<lane>-<run>-<n>" --repo "id:<repo id>" --base-branch "origin/<base>" \
   --parent-worktree "path:<coordinator worktree>" --setup run --json
 orca terminal create --worktree "path:<wt>" --json \
-  --command "claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions --disallowedTools AskUserQuestion,EnterPlanMode,ExitPlanMode --strict-mcp-config --channels plugin:cc-review@cc-review --model <id> --effort <level>"
+  --command "env DISABLE_AUTOUPDATER=1 CLAUDE_CODE_DISABLE_FILE_CHECKPOINTING=1 claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions --disallowedTools AskUserQuestion,EnterPlanMode,ExitPlanMode --strict-mcp-config --channels plugin:cc-review@cc-review --model <id> --effort <level>"
 orca orchestration worker-start --run "<run>" --spec "<pointer>" \
   --worktree "path:<wt>" --terminal "<handle>" --json
 ```
+
+A lane leaves plugin and CLI updates to interactive sessions and to `claude plugin update`, and writes no `/rewind` file backups. `claudeLaneEnv` in `lr/internal/orca/start.go` holds this list.
 
 `<handle>` is `result.terminal.handle` from `terminal create`. On `worker-start`, `--model` and `--effort` cannot combine with `--terminal`; put both on the `claude` command. Shift-tab is a fallback only before the worker opens a plan. The script checks the terminal screen for `bypass permissions on`. A launch that fails before `worker-start` removes the worktree its create made with `orca worktree rm --force`.
 
