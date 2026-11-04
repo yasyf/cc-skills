@@ -21,10 +21,8 @@ PLAN_SECONDS = 120
 BOARD_SECONDS = 30
 GATED = "{stack} under card `{card}`"
 REFUSAL = "This release ships what an open owner card gates: {gated}. Start it again with `--without {stacks}`, or wait for his tap on the card and start it once he answers."
-UNREAD = (
-    "Warning, nothing was blocked: release_cards could not read {what} ({why}), so this start runs unchecked against the owner's open cards."
-    " Read `tools/ci release plan` for the same selection and `lr board waits --drive <drive>` before it applies."
-)
+WHY_CHARS = 80
+UNREAD = "Warning, nothing was blocked: release_cards could not read {what} ({why}). Check `tools/ci release plan` and `lr board waits` yourself before the start applies."
 
 LANE_ENV = DRIVE_ENV | {"CLAUDE_LONG_RUNNING_LANE": "release-6"}
 SANDSQL_CARD = {"kind": "pick", "block": "card-sandsql-release-without", "subject": "sandsql-choice", "title": "Release SandSQL with the next cut, or leave it out until the replica fix lands?"}
@@ -72,6 +70,10 @@ def plan_words(call: Call) -> list[str]:
 def shipped(call: Call, cwd: str) -> set[str]:
     plan = json.loads(read([call.command.executable, "release", "plan", *plan_words(call), "--json"], PLAN_SECONDS, cwd))["plan"]
     return {name for picked in plan.get("picked") or () for name in (picked["component"], *(picked.get("parts") or ()))} | {pull["component"] for pull in plan.get("additions") or ()}
+
+
+def unread(evt: BaseHookEvent, what: str, why: object) -> HookResult:
+    return evt.context(UNREAD.format(what=what, why=str(why)[:WHY_CHARS]))
 
 
 def words(text: str) -> tuple[str, ...]:
@@ -123,18 +125,18 @@ def release_leaves_out_what_his_open_cards_gate(evt: BaseHookEvent) -> HookResul
         if open_incidents(evt, read_incident_source):
             return None
     except (OSError, subprocess.SubprocessError, ValueError, KeyError) as failed:
-        return evt.context(UNREAD.format(what="whether an incident is open", why=failed))
+        return unread(evt, "whether an incident is open", failed)
     if (entry := drive_entry(evt)) is None:
-        return evt.context(UNREAD.format(what="the owner's board", why="this session names no registered drive"))
+        return unread(evt, "the owner's board", "this session names no registered drive")
     try:
         cards = list({card["block"]: card for card in json.loads(read([str(LR), "board", "waits", "--drive", bus_name(entry), "--json"], BOARD_SECONDS)) if card["kind"] == "pick"}.values())
     except (Unread, ValueError, KeyError) as failed:
-        return evt.context(UNREAD.format(what="the owner's board", why=failed))
+        return unread(evt, "the owner's board", failed)
     for call in calls:
         try:
             found = gating(shipped(call, str(call.cwd or evt.cwd)), cards)
         except (Unread, ValueError, KeyError) as failed:
-            return evt.context(UNREAD.format(what="the release plan", why=failed))
+            return unread(evt, "the release plan", failed)
         if found:
             gated = "; ".join(GATED.format(stack=stack, card=card["block"]) for stack, card in found)
             return evt.block(REFUSAL.format(gated=gated, stacks=",".join(dict.fromkeys(stack for stack, _ in found))))
