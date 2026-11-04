@@ -186,6 +186,9 @@ func (p Poster) Launch(ctx context.Context, order Order, timeout time.Duration) 
 	if grant := order.grantWarning(string(raw)); grant != "" {
 		warnings = append(warnings, grant)
 	}
+	if doubled := doubledCCXWarning(order.Brief, string(raw)); doubled != "" {
+		warnings = append(warnings, doubled)
+	}
 	for _, warning := range warnings {
 		fmt.Fprintln(p.Out, "WARN "+warning)
 	}
@@ -258,4 +261,12 @@ func wrongLaneFaults(orders []Order) ([]string, error) {
 		}
 	}
 	return faults, nil
+}
+
+func doubledCCXWarning(brief, text string) string {
+	lines := briefCCX.FindAllString(text, -1)
+	if len(lines) < 2 {
+		return ""
+	}
+	return fmt.Sprintf("brief %s has %d `ccx:` lines, and each field reads the first line naming it, so keep one: %s", brief, len(lines), strings.Join(lines, " | "))
 }
