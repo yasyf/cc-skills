@@ -823,3 +823,20 @@ def test_a_timer_warns_only_when_the_judge_reads_it_as_named_by_neither_his_word
         1,
         ["MECHANISM-BANNED timer go/sand/cmd/runner_grant.go:2 `time.NewTicker`\tNothing he said asks for a renewal timer. Remove it, or bring the owner the case for it."],
     )
+
+
+def test_a_head_removing_a_stateful_store_names_its_records_before_and_after(package: Path, state: Path, registered: Path, capsys) -> None:
+    diff = DIFF + """diff --git a/infra/rows/sandsql/signalValkey.ts b/infra/rows/sandsql/signalValkey.ts
+--- a/infra/rows/sandsql/signalValkey.ts
++++ b/infra/rows/sandsql/signalValkey.ts
+@@ -1,2 +1,1 @@
+ export const signal = {};
+-export const cache = new aws.elasticache.ReplicationGroup("signal-valkey");
+"""
+    counted = CLEAN.replace("The pool drains when a run closes.", "The pool drains when a run closes.\nThe signal store held 2,025 keys before and 2,025 after the move.")
+
+    assert check(capsys, CheckShell(pinned(package), diff=diff)) == (
+        1,
+        ["STORE-UNCOUNTED infra/rows/sandsql/signalValkey.ts:2 elasticache\tadd a body line naming the records the store held before and after this change"],
+    )
+    assert check(capsys, CheckShell(pinned(package), body=counted, diff=diff)) == (0, [])

@@ -56,6 +56,7 @@ type DeskLaunch struct {
 	Name          string
 	FixBrief      string
 	EvidenceBrief string
+	CommsBrief    string
 	Alert         string
 	Claude        string
 	Timeout       time.Duration
@@ -134,6 +135,9 @@ func (d DeskLaunch) plan() ([]plannedLane, error) {
 	if d.EvidenceBrief != "" {
 		planned = append(planned, plannedLane{name + "-" + RoleEvidence, RoleEvidence, d.EvidenceBrief})
 	}
+	if d.CommsBrief != "" {
+		planned = append(planned, plannedLane{name + "-" + RoleComms, RoleComms, d.CommsBrief})
+	}
 	for _, lane := range planned {
 		if info, err := os.Stat(lane.brief); err != nil || info.IsDir() {
 			return nil, fmt.Errorf("brief %s is not a file", lane.brief)
@@ -161,8 +165,8 @@ func written(entry driveEntry, lane plannedLane, alert string) (string, error) {
 
 func (d DeskLaunch) fallback(planned []plannedLane) string {
 	text := fmt.Sprintf("spawn an Agent named `%s`", planned[0].lane)
-	if len(planned) > 1 {
-		text += fmt.Sprintf(" and one named `%s`", planned[1].lane)
+	for _, lane := range planned[1:] {
+		text += fmt.Sprintf(" and one named `%s`", lane.lane)
 	}
 	return text + " instead"
 }

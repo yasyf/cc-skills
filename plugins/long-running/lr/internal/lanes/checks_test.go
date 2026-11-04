@@ -723,6 +723,31 @@ func TestACcRemoteOlderThanOrcaStopStopsNothingAndPostsNothingUntilItsPinReaches
 	equal(t, len(bus.posted), 0)
 }
 
+func TestAnAlertLaunchStartsNoCommsLane(t *testing.T) {
+	plugin, err := filepath.Abs(filepath.Join("..", "..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	claude := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(claude, "long-running"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(plugin, filepath.Join(claude, "long-running", "current")); err != nil {
+		t.Fatal(err)
+	}
+	var argv []string
+	env := Env{Config: config.Config{Drive: testDrive, Checkout: "/checkout"}, Claude: claude, State: t.TempDir(), Now: func() time.Time { return t0 }, Runner: scripted(func(args []string) (shell.Result, error) {
+		argv = args
+		return shell.Result{}, nil
+	})}
+
+	if _, err := env.IncidentLaunch(context.Background(), Fired{"dd-1", "it broke", "https://slack/p1", t0.Add(-mins(4)), nil}); err != nil {
+		t.Fatal(err)
+	}
+
+	equal(t, slices.Contains(argv, "--comms-brief"), false)
+}
+
 func TestTwoFiringsOfOneMonitorInAPassLaunchOnce(t *testing.T) {
 	triggered := "Triggered: runtime-api-next logging errors — plat\n" + monitorLink
 	bus := &fakeBus{}

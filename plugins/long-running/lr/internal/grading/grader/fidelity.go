@@ -25,6 +25,7 @@ const (
 	fidelityOK      = "fidelity: ok"
 	fidelityMissing = "fidelity: missing"
 	fidelityReader  = "fidelity: reader"
+	oldAppPending   = "OLD-APP-PENDING"
 	behaviorLine    = "behavior:"
 	findingChars    = 160
 	fidelityTimeout = 3600 * time.Second
@@ -1024,7 +1025,11 @@ func (s *fidelityPassState) gradedLines(reply fidelityReply) []gradeLine {
 			lines = append(lines, gradeLine{reader, spec.Readers})
 		}
 	default:
-		lines = append(lines, gradeLine{reader, spec.Readers})
+		line := gradeLine{reader, spec.Readers}
+		if _, touched := s.touchedOldApp(); touched {
+			line = gradeLine{text: fmt.Sprintf("%s %s %s: %s", fidelityReader, head, oldAppPending, squeezed(reply.Reader))}
+		}
+		lines = append(lines, line)
 	}
 	for _, key := range reply.Touches {
 		lines = append(lines, gradeLine{text: "touches " + key})

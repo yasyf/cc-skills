@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -151,12 +152,27 @@ func (p Poster) Launch(ctx context.Context, order Order, timeout time.Duration) 
 	if err := p.requireRunner(ctx, bus, "spawn an Agent named `"+order.Lane+"` instead"); err != nil {
 		return "", err
 	}
+	raw, err := os.ReadFile(order.Brief)
+	if err != nil {
+		return "", err
+	}
+	claims := briefClaims(string(raw))
+	warnings := p.claimedBeside(ctx, bus, order.Lane, claims)
+	if grant := order.grantWarning(string(raw)); grant != "" {
+		warnings = append(warnings, grant)
+	}
+	for _, warning := range warnings {
+		fmt.Fprintln(p.Out, "WARN "+warning)
+	}
 	stored, err := p.post(ctx, bus, order.Lane, order.Line())
 	if err != nil {
 		return "", err
 	}
 	key := "R" + strings.TrimPrefix(stored.Name(), "#")
 	label, err := p.settle(ctx, bus, stored.Seq-1, key, order.Lane, timeout)
+	if label == verdictLaunched {
+		p.claim(ctx, bus, order.Lane, claims)
+	}
 	if err != nil || label != "" {
 		return label, err
 	}
@@ -192,11 +208,14 @@ func (p Poster) settle(ctx context.Context, bus string, since int64, key, lane s
 	return "", nil
 }
 
-func incidentOrders(name, fixBrief, evidenceBrief string) []Order {
+func incidentOrders(name, fixBrief, evidenceBrief, commsBrief string) []Order {
 	stem := strings.TrimSuffix(name, "-"+roleFix)
 	orders := []Order{{Lane: stem + "-" + roleFix, Model: agentIncident, Effort: "xhigh", Role: roleFix, Brief: fixBrief, Now: true}}
 	if evidenceBrief != "" {
 		orders = append(orders, Order{Lane: stem + "-evidence", Model: agentIncident, Effort: "xhigh", Role: "evidence", Brief: evidenceBrief, Now: true})
+	}
+	if commsBrief != "" {
+		orders = append(orders, Order{Lane: stem + "-comms", Model: agentIncident, Effort: "xhigh", Role: "comms", Brief: commsBrief, Now: true})
 	}
 	return orders
 }
