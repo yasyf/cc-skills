@@ -45,7 +45,7 @@ func emitted(t *testing.T, s *store.Store, runner streamed, line string) map[str
 	t.Helper()
 	runner.lines = []string{line}
 	var out bytes.Buffer
-	if err := watch(context.Background(), runner, s.SlackThreadAt, &out); err != nil {
+	if err := watch(context.Background(), runner, s.SlackThreadAt, noRows, &out); err != nil {
 		t.Fatal(err)
 	}
 	last := strings.TrimSpace(strings.TrimPrefix(out.String(), started))
@@ -87,7 +87,7 @@ func TestAMessageInAnUnknownThreadEmitsPlainly(t *testing.T) {
 	runner := watched(hisEvent)
 	var out bytes.Buffer
 
-	if err := watch(context.Background(), runner, threadStore(t).SlackThreadAt, &out); err != nil {
+	if err := watch(context.Background(), runner, threadStore(t).SlackThreadAt, noRows, &out); err != nil {
 		t.Fatal(err)
 	}
 
@@ -102,7 +102,7 @@ func TestAThreadThatDoesNotReadStillDeliversHisMessage(t *testing.T) {
 	}
 	var out bytes.Buffer
 
-	if err := watch(context.Background(), watched(hisEvent), broken, &out); err != nil {
+	if err := watch(context.Background(), watched(hisEvent), broken, noRows, &out); err != nil {
 		t.Fatal(err)
 	}
 
@@ -122,7 +122,7 @@ func TestReadingTheJoinStaysFlatAsRepliesGrow(t *testing.T) {
 			reads++
 			return s.SlackThreadAt(ts)
 		}
-		if err := watch(context.Background(), runner, counted, &bytes.Buffer{}); err != nil {
+		if err := watch(context.Background(), runner, counted, noRows, &bytes.Buffer{}); err != nil {
 			t.Fatal(err)
 		}
 		return len(runner.Calls()), reads
@@ -179,7 +179,7 @@ func TestALinkThatDoesNotReadStillDeliversHisMessage(t *testing.T) {
 	line := `{"type":"slack.message","channel_id":"D0B6Z","thread_ts":"2.0","ts":"2.0","user":"U1","text":"` + permalink + `"}`
 	var out bytes.Buffer
 
-	if err := watch(context.Background(), streamed{Fake: fake, lines: []string{line}}, threadStore(t).SlackThreadAt, &out); err != nil {
+	if err := watch(context.Background(), streamed{Fake: fake, lines: []string{line}}, threadStore(t).SlackThreadAt, noRows, &out); err != nil {
 		t.Fatal(err)
 	}
 

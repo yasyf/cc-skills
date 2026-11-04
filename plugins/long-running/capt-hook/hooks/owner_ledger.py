@@ -12,9 +12,7 @@ from captain_hook import Allow, BaseHookEvent, Block, Event, FromSubagent, HookR
 from captain_hook.util import reqenv
 
 from .compaction_handoff import CCN_TIMEOUT_SECONDS, COMMUNICATOR_LANE, Bound, Communicator, CompactionState, bus_name, communicator_tests, drive_entry
-from .owner_facing import REPLY_WINDOW
-from .owner_returns import RowThreads, dm_owed
-from .register_capture import CREDENTIAL, REDACTED, STAMP, dm_digest, overlaps, slack_dms
+from .register_capture import CREDENTIAL, REDACTED, overlaps
 from .register_gates import folded, written_paths
 from .root_context import PACIFIC, OwnerPrompt, answers, message_label, ruling_body, typed_words
 from .tests.register_fixtures import CWD, DRIVE_CONFIG
@@ -61,11 +59,6 @@ NO_ASK = "The communicator never calls `AskUserQuestion`. Put the question on th
 
 
 log = logging.getLogger(__name__)
-
-
-@workflow_state("long_running_owner_ledger")
-class LedgeredDms(WorkflowState):
-    digests: list[str] = []
 
 
 @workflow_state("long_running_owner_turn")
@@ -130,13 +123,6 @@ def add_rows(path: Path, at: datetime, text: str) -> list[tuple[str, str]]:
         with path.open("a") as file:
             file.write(heading + "".join(f"| {row} | {stamp} | {cell} |  | open |\n" for row, cell in zip(ids, cells, strict=True)))
     return list(zip(ids, split, strict=True))
-
-
-def threaded(evt: BaseHookEvent, rows: list[tuple[str, str]], thread: str, ts: str) -> None:
-    if thread == ts:
-        return
-    with RowThreads.mutate(evt) as state:
-        state.threads |= {key: thread for row, _ in rows for key in (row, row.split(".")[0])}
 
 
 def post_owner_row(entry: dict, row: str, text: str) -> None:
@@ -214,52 +200,6 @@ def record_owner_answer(evt: BaseHookEvent) -> None:
         land_answer_on_notes(evt, owed)
         with TurnRows.mutate(evt) as turn:
             turn.answers_owed.remove(owed)
-
-
-@on(
-    Event.PostToolUse | Event.Stop,
-    only_if=[Communicator()],
-    skip_if=[FromSubagent()],
-    transcript_events=REPLY_WINDOW,
-    tests=communicator_tests({
-        Input(command="ls", state=ACTIVE): Allow(),
-        Input(command="ls"): Allow(),
-    }),
-)
-def add_owner_slack_dms(evt: BaseHookEvent) -> HookResult | None:
-    ledgered = LedgeredDms.load(evt).digests
-    if not (new := [dm for dm in slack_dms(evt, evt.ctx.t.events) if dm["digest"] not in ledgered]) or not (entry := drive_entry(evt)):
-        return None
-    with LedgeredDms.mutate(evt) as state:
-        for dm in new:
-            rows = add_rows(ledger_of(entry), datetime.strptime(dm["at"], STAMP).replace(tzinfo=UTC), dm["text"])
-            for row, ask in rows:
-                post_owner_row(entry, row, ask)
-            threaded(evt, rows, dm["thread"], dm["ts"])
-            state.digests.append(dm["digest"])
-    return None
-
-
-@on(
-    Event.Stop,
-    only_if=[Communicator()],
-    skip_if=[FromSubagent()],
-    tests=communicator_tests({
-        Input(state=ACTIVE): Allow(),
-    }),
-)
-def owed_slack_messages_get_rows(evt: BaseHookEvent) -> None:
-    owed = dm_owed(evt)
-    if not owed or owed["holder_session"] != evt.session_id or not (entry := drive_entry(evt)):
-        return
-    ledgered = LedgeredDms.load(evt).digests
-    with LedgeredDms.mutate(evt) as state:
-        for reply in (reply for reply in owed["replies"] if dm_digest(evt, reply["ts"]) not in ledgered):
-            rows = add_rows(ledger_of(entry), datetime.fromtimestamp(float(reply["ts"]), UTC), reply["text"])
-            for row, ask in rows:
-                post_owner_row(entry, row, ask)
-            threaded(evt, rows, reply["thread_ts"], reply["ts"])
-            state.digests.append(dm_digest(evt, reply["ts"]))
 
 
 def land_answer(entry: dict, row: str, state: str, text: str) -> None:

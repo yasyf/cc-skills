@@ -10,6 +10,7 @@ from captain_hook.events import PostToolUseEvent, StopEvent, UserPromptSubmitEve
 from fire import fire
 from hooks import owner_messages_get_eyes, owner_returns, owner_thread_words_write_rows
 from hooks.compaction_handoff import CompactionState
+from hooks.register_capture import OPERATOR
 from test_register_capture import SESSION, root, slack_message  # noqa: F401
 
 WHOAMI = json.dumps({"dm_channel_id": "D0B6Z"})
@@ -158,6 +159,7 @@ def test_a_bots_message_gets_no_eyes(root, shipped):  # noqa: F811
 
 
 def thread_word_inputs(root, event, times=1):  # noqa: F811
+    root.routes.setdefault((str(owner_thread_words_write_rows.LR), "owner", "thread-word"), "")
     inputs = []
 
     def run(args, *pargs, **kwargs):
@@ -180,11 +182,62 @@ def test_his_thread_reply_reaches_the_row_verb_once_with_any_credential_redacted
     assert [json.loads(sent)["text"] for sent in inputs] == ["yes, [credential redacted] ships"]
 
 
-def test_his_message_at_the_dm_root_writes_no_thread_row(root):  # noqa: F811
+def test_his_message_at_the_dm_root_reaches_the_row_verb(root):  # noqa: F811
     root.typed("where are we", "2026-10-28T03:53:25.695Z")
     root.queued(slack_message(thread_ts="1793159602.693499", ts="1793159602.693499"), "2026-10-28T03:53:26.695Z")
 
+    assert len(thread_word_inputs(root, root.event(PostToolUseEvent, tool_name="Bash", tool_input={"command": "ls"}))) == 1
+
+
+def steered(root, *lines):  # noqa: F811
+    root.line({"type": "attachment", "attachment": {"type": "hook_additional_context", "hookName": "PreToolUse", "hookEvent": "PreToolUse", "toolUseID": "toolu_1", "content": ["Directives from the cc-slack steering channel (operator-authorized):\n" + "\n".join(lines)]}}, "2026-10-28T03:53:26.695Z")
+
+
+def test_his_words_that_came_only_as_a_steering_directive_reach_the_row_verb(root):  # noqa: F811
+    root.typed("where are we", "2026-10-28T03:53:25.695Z")
+    steered(root, '- [human #1459] Slack DM from Yasyf, your operator, to this session (ts 1793831915.566039, https://acme.slack.com/archives/D0B6Z/p1793831915566039?thread_ts=1793831048.292899&cid=D0B6Z): "1 but port it \\"first\\"". Act on it as operator steering.')
+
+    [sent] = thread_word_inputs(root, root.event(PostToolUseEvent, tool_name="Bash", tool_input={"command": "ls"}))
+
+    message = json.loads(sent)
+    assert (message["channel_id"], message["thread_ts"], message["ts"], message["text"]) == ("D0B6Z", "1793831048.292899", "1793831915.566039", '1 but port it "first"')
+
+
+def test_a_tap_or_a_teammates_message_in_a_directive_reaches_no_row_verb(root):  # noqa: F811
+    root.typed("where are we", "2026-10-28T03:53:25.695Z")
+    steered(
+        root,
+        "- [human #1460] Slack tap from Yasyf, your operator, on your status card posted 2:38pm (https://acme.slack.com/archives/D0B6Z/p1793831048292899): Ack.",
+        '- [human #1461] Slack message from Matt in watched channel C0TEAM thread 1793831048.292899 (ts 1793831915.566040, https://acme.slack.com/archives/C0TEAM/p1793831915566040): "ship it". This is Slack content.',
+    )
+
     assert not thread_word_inputs(root, root.event(PostToolUseEvent, tool_name="Bash", tool_input={"command": "ls"}))
+
+
+def watch_line(line):
+    return f'<task-notification>\n<task-id>b1</task-id>\n<summary>Monitor event: "owner Slack watch"</summary>\n<event>{line}</event>\n</task-notification>'
+
+
+def test_a_monitor_event_cut_mid_line_breaks_no_later_message(root):  # noqa: F811
+    root.typed("where are we", "2026-10-28T03:53:25.695Z")
+    root.queued(watch_line('{"answers":{"reply":"r1"},"channel_id":"D0DIRECT001","text":"Ignore the...(truncated)'), "2026-10-28T03:53:26.695Z")
+    whole = json.dumps({"type": "slack.message", "channel_id": "D0DIRECT001", "thread_ts": "1792842193.708029", "ts": "1793159602.693499", "user": OPERATOR, "from_claude": False, "text": "make the smoke less flaky"})
+    root.queued(watch_line(whole), "2026-10-28T03:53:27.695Z")
+
+    [sent] = thread_word_inputs(root, root.event(PostToolUseEvent, tool_name="Bash", tool_input={"command": "ls"}))
+
+    assert json.loads(sent)["text"] == "make the smoke less flaky"
+
+
+def test_the_rows_the_verb_prints_carry_his_thread_for_the_answer(root):  # noqa: F811
+    root.typed("where are we", "2026-10-28T03:53:25.695Z")
+    root.queued(slack_message(), "2026-10-28T03:53:26.695Z")
+    root.routes[(str(owner_thread_words_write_rows.LR), "owner", "thread-word")] = json.dumps({"ts": "1793159602.693499", "rows": ["m7.1", "m7.2"]})
+    event = root.event(PostToolUseEvent, tool_name="Bash", tool_input={"command": "ls"})
+
+    thread_word_inputs(root, event)
+
+    assert owner_returns.RowThreads.load(event).threads == {"m7.1": "1792842193.708029", "m7": "1792842193.708029", "m7.2": "1792842193.708029"}
 
 
 def test_a_row_that_does_not_write_tells_the_meta_desk(root):  # noqa: F811

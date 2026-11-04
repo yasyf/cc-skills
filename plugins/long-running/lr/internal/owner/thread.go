@@ -45,7 +45,7 @@ func threadWordCommand(a *app.App, driveName *string) *cobra.Command {
 	var session string
 	cmd := &cobra.Command{
 		Use:   "thread-word",
-		Short: "Read one slack.message of his on stdin and, when it replies in a card's own Slack thread, write the from:owner answer row a tap writes, once per message",
+		Short: "Read one slack.message of his on stdin, give it its ledger rows and print them, and when it replies in a card's own Slack thread also write the from:owner answer row a tap writes, once per message",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			var word threadWord
@@ -61,6 +61,15 @@ func threadWordCommand(a *app.App, driveName *string) *cobra.Command {
 				return err
 			}
 			defer s.Close()
+			rows, err := word.rows(cmd.Context(), a.Runner, entry)
+			if err != nil {
+				return err
+			}
+			if len(rows) > 0 {
+				if err := json.NewEncoder(cmd.OutOrStdout()).Encode(wordRows{TS: word.TS, Rows: rows}); err != nil {
+					return err
+				}
+			}
 			return word.record(cmd.Context(), a.Runner, s.SlackThreadAt, entry, session)
 		},
 	}
@@ -69,6 +78,9 @@ func threadWordCommand(a *app.App, driveName *string) *cobra.Command {
 }
 
 func (w threadWord) record(ctx context.Context, runner shell.Runner, threads threadsAt, entry drive.Entry, session string) error {
+	if w.Thread == w.TS {
+		return nil
+	}
 	card, found, err := w.card(ctx, runner, threads, entry, session)
 	if err != nil || !found || w.Text == "" {
 		return err

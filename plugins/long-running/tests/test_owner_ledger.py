@@ -143,11 +143,6 @@ def slack_dm(**fields) -> str:
     return f'<channel source="plugin:cc-slack:cc-slack" subject_id="50c3b930" type="slack.message">\n{json.dumps(payload)}\n</channel>'
 
 
-def watched_dm(**fields) -> str:
-    payload = {"type": "slack.message", "watch_id": 742, "kind": "dm", "channel_id": "D0DIRECT001", "thread_ts": "1792842193.708029", "ts": "1793159602.693499", "user": "U05FTPXU8PP", "from_claude": False, "text": "Meant to approve 43807"} | fields
-    return f'<task-notification>\n<task-id>bi4wzi4te</task-id>\n<summary>Monitor event: "owner Slack watch"</summary>\n<event>{json.dumps(payload)}</event>\n</task-notification>'
-
-
 def test_a_prompt_on_the_communicator_adds_a_row_with_its_full_text(communicator: Window) -> None:
     [result] = communicator.prompt("keep the report | the nightly one\nand the weekly")
 
@@ -247,59 +242,8 @@ def test_the_rows_lr_marks_are_the_rows_the_stop_hook_reads() -> None:
     assert owner_ledger.open_rows(TESTDATA / "added.md")[-1] == r"m13 Nov 2 9:10 PM: a pick \| on the board<br>and a line"
 
 
-def test_an_owner_slack_dm_adds_one_row_with_its_slack_time(communicator: Window) -> None:
+def test_an_owner_slack_message_writes_no_row_from_the_communicator_hooks(communicator: Window) -> None:
     communicator.queued(slack_dm())
-
-    communicator.fire(PostToolUseEvent, tool_name="Bash", tool_input={"command": "ls"})
-    communicator.fire(PostToolUseEvent, tool_name="Bash", tool_input={"command": "ls"})
-
-    assert communicator.rows() == ["| m1 | Oct 27 8:53 PM | Meant to approve 43807 |  | open |"]
-
-
-def test_an_owner_thread_message_from_the_watch_records_its_thread_on_its_row(communicator: Window) -> None:
-    communicator.queued(watched_dm())
-
-    communicator.fire(PostToolUseEvent, tool_name="Bash", tool_input={"command": "ls"})
-
-    assert communicator.rows() == ["| m1 | Oct 27 8:53 PM | Meant to approve 43807 |  | open |"]
-    assert owner_returns.RowThreads.load(communicator.event(PostToolUseEvent, tool_name="Bash")).threads == {"m1": "1792842193.708029"}
-
-
-def test_a_stop_feedback_wake_still_records_the_watch_messages_thread_on_its_row(communicator: Window, monkeypatch: pytest.MonkeyPatch) -> None:
-    communicator.queued(watched_dm())
-    feedback = {"type": "user", "isMeta": True, "isSidechain": False, "uuid": "u2", "parentUuid": "u1", "sessionId": SESSION, "timestamp": "2026-10-28T03:54:25.695Z", "message": {"role": "user", "content": "Stop hook feedback:\nAn owner Slack message has no answer."}}
-    with communicator.transcript.open("a") as transcript:
-        transcript.write(json.dumps(feedback) + "\n")
-    monkeypatch.setattr(owner_ledger, "dm_owed", lambda _evt: {"replies": [], "holder_session": SESSION})
-
-    communicator.stop()
-
-    assert owner_returns.RowThreads.load(communicator.event(StopEvent)).threads == {"m1": "1792842193.708029"}
-
-
-def test_a_watch_message_at_the_dm_root_records_no_thread(communicator: Window) -> None:
-    communicator.queued(watched_dm(thread_ts="1793159602.693499"))
-
-    communicator.fire(PostToolUseEvent, tool_name="Bash", tool_input={"command": "ls"})
-
-    assert owner_returns.RowThreads.load(communicator.event(PostToolUseEvent, tool_name="Bash")).threads == {}
-
-
-def test_a_watch_message_still_owed_after_its_row_moved_on_adds_no_second_row(communicator: Window, monkeypatch: pytest.MonkeyPatch) -> None:
-    communicator.queued(watched_dm())
-    communicator.fire(PostToolUseEvent, tool_name="Bash", tool_input={"command": "ls"})
-    communicator.seed(communicator.ledger.read_text().replace("| open |", "| due Nov 4 1:00 PM |"))
-    reply = {"thread_ts": "1792842193.708029", "ts": "1793159602.693499", "text": "Meant to approve 43807", "permalink": "https://acme.slack.com/archives/D0DIRECT001/p1793159602693499"}
-    monkeypatch.setattr(owner_ledger, "dm_owed", lambda _evt: {"replies": [reply], "holder_session": SESSION})
-
-    communicator.stop()
-
-    assert len(communicator.rows()) == 1
-
-
-@pytest.mark.parametrize("fields", [{"user": "U01OTHER"}, {"from_claude": True}, {"channel_id": "C0TEAM0001"}])
-def test_a_slack_message_that_is_not_the_owners_dm_adds_no_row(communicator: Window, fields: dict) -> None:
-    communicator.queued(slack_dm(**fields))
 
     communicator.fire(PostToolUseEvent, tool_name="Bash", tool_input={"command": "ls"})
 
@@ -454,14 +398,6 @@ def test_a_coordinator_window_posts_and_registers_nothing(drive: Path, bus: Bus,
     assert bus.posts() == [] and notes.added == []
 
 
-def test_an_owner_slack_dm_row_posts_its_owner_record(communicator: Window, bus: Bus, notes: Notes) -> None:
-    communicator.queued(slack_dm())
-
-    communicator.fire(PostToolUseEvent, tool_name="Bash", tool_input={"command": "ls"})
-
-    assert bus.posts() == [owner_record("m1", "Meant to approve 43807")] and notes.added == []
-
-
 @pytest.mark.parametrize(
     ("text", "want"),
     [
@@ -517,37 +453,14 @@ def test_the_next_message_numbers_past_a_split_one(communicator: Window) -> None
 
 
 RELAY_FIX = "ship the relay fix before the release cut"
-DASHBOARD = "and move the dashboard to the tailnet tonight"
 
 
-def slack_seen(communicator: Window, text: str, ts: str = "1793159602.693499") -> None:
-    communicator.queued(slack_dm(text=text, ts=ts))
-    communicator.fire(PostToolUseEvent, tool_name="Bash", tool_input={"command": "ls"})
-
-
-def test_an_owner_message_on_slack_and_then_the_board_is_one_row(communicator: Window, bus: Bus) -> None:
-    slack_seen(communicator, RELAY_FIX)
+def test_a_prompt_repeating_a_row_a_slack_message_wrote_adds_no_row(communicator: Window, bus: Bus) -> None:
+    communicator.seed(owner_ledger.HEADER + f"| m1 | Nov 4 2:38 PM | {RELAY_FIX} |  | open |\n")
 
     assert communicator.prompt(f"{RELAY_FIX}\n") == []
 
-    assert len(communicator.rows()) == len(bus.posts()) == 1
-
-
-def test_an_owner_message_on_the_board_and_then_slack_is_one_row(communicator: Window, bus: Bus) -> None:
-    communicator.prompt(RELAY_FIX)
-
-    slack_seen(communicator, RELAY_FIX)
-
-    assert len(communicator.rows()) == len(bus.posts()) == 1
-
-
-def test_a_board_message_carrying_two_slack_messages_adds_no_row(communicator: Window, bus: Bus) -> None:
-    slack_seen(communicator, RELAY_FIX)
-    slack_seen(communicator, DASHBOARD, ts="1793159662.693499")
-
-    assert communicator.prompt(f"{RELAY_FIX}\n\n{DASHBOARD}") == []
-
-    assert [row.split(" | ")[0] for row in communicator.rows()] == ["| m1", "| m2"]
+    assert len(communicator.rows()) == 1 and bus.posts() == []
 
 
 def test_a_repeat_delivery_of_a_split_message_records_nothing(communicator: Window, bus: Bus) -> None:

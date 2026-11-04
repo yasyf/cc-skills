@@ -21,13 +21,14 @@ const (
 	InProgress    = "in progress"
 	Parked        = "parked"
 	Working       = "working"
+	orderVerbs    = "add|build|bring|change|check|close|consider|cut|delete|design|dig|drop|explain|figure|find|fix|get|give|keep|land|let|make|merge|move|mute|put|raise|redesign|release|remove|restore|run|send|ship|show|spin|start|stop|switch|tell|turn|use|write"
 )
 
 var (
 	ledgerRow  = regexp.MustCompile(`(?m)^\| (m\d+(?:\.\d+)?) \| ([^|]*) \| (.*) \| [^|]* \| (open|responded|addressed|no-order|due [^|]*) \|$`)
 	orderToken = regexp.MustCompile(`\bowner:(m\d+(?:\.\d+)?)\b`)
 	sentence   = regexp.MustCompile(`[^.!?\n]+`)
-	imperative = regexp.MustCompile(`(?i)^\W*(?:(?:also|and|but|ok|so|now|then|please)\W+)*(?:add|build|bring|change|check|close|consider|cut|delete|design|dig|drop|explain|figure|find|fix|get|give|keep|land|let|make|merge|move|mute|put|raise|redesign|release|remove|restore|run|send|ship|show|spin|start|stop|switch|tell|turn|use|write)\b`)
+	imperative = regexp.MustCompile(`(?i)^\W*(?:(?:also|and|but|ok|so|now|then|please)\W+)*(?:` + orderVerbs + `)\b`)
 	obligation = regexp.MustCompile(`(?i)\b(?:need to|should(?:n['’]t)?|must|make sure|let['’]s|don['’]t|do not|never|always)\b`)
 	plainCell  = strings.NewReplacer(`\|`, "|", "<br>", " ")
 	holdLine   = regexp.MustCompile(`(?i)\b(?:on hold|behind (?:a|the|its) hold|held (?:at|behind|by|for|on)|parked|blocked on|waiting on|left (?:\w+ ){0,3}open|leaves? (?:\w+ ){0,3}open|still open|not (?:yet )?built)\b`)

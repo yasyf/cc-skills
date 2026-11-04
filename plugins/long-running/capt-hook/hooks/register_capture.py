@@ -35,6 +35,7 @@ SLACK_MESSAGE = re.compile(r'<channel source="plugin:cc-slack:cc-slack"[^>]*type
 OPERATOR = "U05FTPXU8PP"
 FALLBACK_POST = "_(Yasyf's Claude)_"
 OWNER_WATCH = "owner Slack watch"
+MONITOR_CUT = "...(truncated)"
 WATCH_EVENT = re.compile(rf'<summary>Monitor event: "{OWNER_WATCH}"</summary>\s*<event>(?P<lines>.*?)</event>', re.DOTALL)
 PASTED_IMAGE = re.compile(r"\[Image #\d+\]")
 ENDS = frozenset({"?", ".", "!", ",", ";", ":", "\n", "and", "or", "but", "wtf"})
@@ -240,7 +241,7 @@ def owner_slack_messages(prompts: Iterable[str]) -> list[dict]:
 
 
 def owner_messages_heard(prompts: Sequence[str]) -> list[dict]:
-    watched = (json.loads(line) for prompt in prompts for found in WATCH_EVENT.finditer(prompt) for line in found["lines"].splitlines() if line.startswith("{"))
+    watched = (json.loads(line) for prompt in prompts for found in WATCH_EVENT.finditer(prompt) for line in found["lines"].splitlines() if line.startswith("{") and not line.endswith(MONITOR_CUT))
     heard = [*owner_slack_messages(prompts), *(event for event in watched if event.get("type") == "slack.message" and his_message(event))]
     return sorted({message["ts"]: message for message in heard}.values(), key=lambda message: float(message["ts"]))
 

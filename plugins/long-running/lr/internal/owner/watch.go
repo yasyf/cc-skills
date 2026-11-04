@@ -3,6 +3,7 @@ package owner
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
 
@@ -47,12 +49,29 @@ func watchCommand(a *app.App, driveName *string) *cobra.Command {
 				return err
 			}
 			defer closed()
-			return watch(cmd.Context(), a.Runner, threads, cmd.OutOrStdout())
+			rows, err := wordRowsOn(a.Runner, *driveName)
+			if err != nil {
+				return err
+			}
+			return watch(cmd.Context(), a.Runner, threads, rows, cmd.OutOrStdout())
 		},
 	}
 }
 
-func watch(ctx context.Context, runner shell.Runner, threads threadsAt, out io.Writer) error {
+type rowsOf func(ctx context.Context, word threadWord) ([]string, error)
+
+func wordRowsOn(runner shell.Runner, driveName string) (rowsOf, error) {
+	entry, err := drive.Named(driveName)
+	if errors.Is(err, drive.ErrNoDrive) {
+		return func(context.Context, threadWord) ([]string, error) { return nil, nil }, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return func(ctx context.Context, word threadWord) ([]string, error) { return word.rows(ctx, runner, entry) }, nil
+}
+
+func watch(ctx context.Context, runner shell.Runner, threads threadsAt, rows rowsOf, out io.Writer) error {
 	shown, err := runner.Run(ctx, shell.Command{Argv: []string{"cc-slack", "whoami"}, Timeout: slackCall})
 	if err != nil {
 		return err
@@ -78,10 +97,21 @@ func watch(ctx context.Context, runner shell.Runner, threads threadsAt, out io.W
 			if _, err := runner.Run(ctx, shell.Command{Argv: []string{"cc-slack", "react", "--channel", event.Channel, "--ts", event.TS, "--name", lookingAt}, Timeout: slackCall}); err != nil {
 				fmt.Fprintf(out, "%s did not land on his message %s: %v\n", lookingAt, event.TS, err)
 			}
+			var word threadWord
+			if err := json.Unmarshal(line, &word); err != nil {
+				return fmt.Errorf("cc-slack watch printed %q: %w", line, err)
+			}
+			written, err := rows(ctx, word)
+			if err != nil {
+				fmt.Fprintf(out, "his message %s wrote no ledger row: %v\n", event.TS, err)
+			}
 			var missed []string
 			line, missed = joined(ctx, runner, threads, line, event)
 			for _, miss := range missed {
 				fmt.Fprintln(out, miss)
+			}
+			if line, err = fitted(line, written); err != nil {
+				return err
 			}
 		}
 		_, err := fmt.Fprintln(out, string(line))
