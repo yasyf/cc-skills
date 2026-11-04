@@ -90,10 +90,10 @@ TITLE = re.compile(r"<title>(.*?)</title>", re.DOTALL)
 EXPLAIN_TOPIC = "lr-explain"
 SYSTEM_RAISED = Binary(
     "The owner's words this turn are below, then the titles of the one-pagers already hosted for him; his typos are his, so read through them."
-    " Yes when his words raise a system, a worry about how something works, or how something is meant to work, and no listed page already explains it."
-    " No for status, a pick, an approval, thanks, a request that asks nothing about how a system works, or a topic a listed page covers."
+    " Yes only when he asks a design question, how a system works or is meant to work, and no listed page already explains it."
+    " No for a bug report, a complaint, a screenshot of something broken, an order to fix or build something, status, a pick, an approval, thanks, or a topic a listed page covers."
 )
-RAISED = "His words raise how a system works or is meant to work. Before replying, run `lr explain <topic> --from <markdown with a mermaid diagram>` and put the link it prints in the reply."
+RAISED = "He asked how a system works or is meant to work. Before replying, run `lr explain <topic> --from <markdown with a mermaid diagram>` and put the link it prints in the reply."
 MECHANISM = Binary(
     "The assistant's reply to the owner is below."
     " Yes when it explains a mechanism, an incident or a design change to him: how something works, why something failed, or what a design now does differently."
@@ -215,7 +215,7 @@ def raised(decide: dict, prompt: str = SIGNAL, **fields: object) -> Input:
     only_if=[Communicator()],
     skip_if=[FromSubagent()],
     tests=communicator_tests({
-        raised({"system_raised": YES}): Warn(pattern=r"^His words raise how a system works or is meant to work\. Before replying, run `lr explain <topic>"),
+        raised({"system_raised": YES}): Warn(pattern=r"^He asked how a system works or is meant to work\. Before replying, run `lr explain <topic>"),
         raised({"system_raised": NO}): Allow(),
         raised({"system_raised": Refused()}): Allow(),
         raised({"system_raised": YES}, prompt="<task-notification>signal-1 finished</task-notification>"): Allow(),
