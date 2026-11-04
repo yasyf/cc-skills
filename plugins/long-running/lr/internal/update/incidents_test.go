@@ -1,0 +1,97 @@
+package update
+
+import (
+	"reflect"
+	"strings"
+	"testing"
+)
+
+func opened(seq int64, lane, text string, minutes int, to string) Record {
+	r := record(seq, lane, kindIncident, text, minutes)
+	r.Status, r.To = statusOpen, []string{to}
+	return r
+}
+
+func incidentFixture() ([]Lane, []Record) {
+	lanes := []Lane{heard("api-fix", "desired", 5), heard("creds-fix", "desired", 500)}
+	records := []Record{
+		opened(1, "root", "INCIDENT OPEN api: 5xx on runs", 90, "api-fix"),
+		opened(2, "root", "INCIDENT OPEN creds: rotation failing", 80, "creds-fix"),
+		opened(3, "root", "INCIDENT OPEN sso: login loop", 70, "sso-fix"),
+		opened(4, "api-fix", "SCOPE api-fix: active yes; plan keeps path yes", 60, root),
+		record(5, "api-fix", "mechanism", "pool exhausted by retries", 50),
+		opened(6, "api-fix", "SCOPE api-fix: active yes; 3 teams hit", 40, root),
+		record(7, "api-fix", "report", "FIX-LIVE api: retry cap live on prod", 20),
+		record(8, "root", "decide", "INCIDENT sso CLOSED", 10),
+	}
+	records[7].To = []string{"sso-fix"}
+	return lanes, records
+}
+
+func TestAnIncidentReadsItsNewestScopeMechanismAndFixLiveAndOnlyARegistryLiveLaneIsOnIt(t *testing.T) {
+	lanes, records := incidentFixture()
+	byName := map[string]Incident{}
+	for _, i := range viewOf(lanes, records, nil).incidents(records, testDrive) {
+		byName[i.Name] = i
+	}
+	api := byName["api"]
+	if api.Scope.Seq != 6 || api.Mechanism.Seq != 5 || api.FixLive.Seq != 7 || api.work.who != "api-fix" {
+		t.Fatalf("api = scope #%d mechanism #%d fix-live #%d on %q", api.Scope.Seq, api.Mechanism.Seq, api.FixLive.Seq, api.work.who)
+	}
+	if creds := byName["creds"]; creds.work.who != nobody || !creds.Open {
+		t.Fatalf("creds-fix is quiet past the registry window, yet creds is on %q, open %v", creds.work.who, creds.Open)
+	}
+	if want := "closes it: the coordinator posts INCIDENT api CLOSED citing #7"; api.lines()[7] != want {
+		t.Fatalf("closes line = %q", api.lines()[7])
+	}
+}
+
+func TestTheIncidentTableListsUnownedFirstAndAgreesWithTheUpdatesIncidentRows(t *testing.T) {
+	lanes, records := incidentFixture()
+	v := viewOf(lanes, records, nil)
+	table := incidentTable(v.incidents(records, testDrive))
+	names := make([]string, 0, len(table)-2)
+	for _, line := range table[2:] {
+		names = append(names, strings.TrimSpace(strings.Split(line, "|")[1]))
+	}
+	if want := []string{"creds", "api", "sso"}; !reflect.DeepEqual(names, want) {
+		t.Fatalf("table order = %v, want %v", names, want)
+	}
+	open := map[string]bool{}
+	for _, row := range v.incidentRows(records, testDrive) {
+		open[row.Name] = !row.Done
+	}
+	for _, i := range v.incidents(records, testDrive) {
+		if open[i.Name] != i.Open {
+			t.Fatalf("lr update calls %s open=%v, the table open=%v", i.Name, open[i.Name], i.Open)
+		}
+	}
+}
+
+func TestARowCallsAnIncidentFixedOnlyWithAFixLiveSeq(t *testing.T) {
+	lanes, records := incidentFixture()
+	closing := record(9, "root", "decide", "INCIDENT api CLOSED", 5)
+	closing.To = []string{"api-fix"}
+	records = append(records, closing)
+	for _, i := range viewOf(lanes, records, nil).incidents(records, testDrive) {
+		switch i.Name {
+		case "api":
+			if want := "fixed: fix live by #7, closed by #9"; i.state() != want {
+				t.Fatalf("api state = %q, want %q", i.state(), want)
+			}
+		case "sso":
+			if strings.Contains(i.state(), "fixed") || !strings.Contains(i.state(), "no fix-live record") {
+				t.Fatalf("sso closed with no FIX-LIVE reads %q", i.state())
+			}
+		}
+	}
+}
+
+func TestAFixLiveMentionInsideAnotherRecordIsNoMilestone(t *testing.T) {
+	if got := milestone(record(1, "api-fix", "report", "stays open until FIX-LIVE", 1)); got != "" {
+		t.Fatalf("milestone = %q", got)
+	}
+	if got := milestone(record(1, "api-fix", "report", "5:12 PM FIX-LIVE api: live", 1)); got != milestoneFixLive {
+		t.Fatalf("milestone = %q", got)
+	}
+}

@@ -507,36 +507,15 @@ func (v view) laneRow(lane Lane) Row {
 }
 
 func (v view) incidentRows(records []Record, drive string) []Row {
-	still := openIncidents(records)
-	groups := map[string][]Record{}
-	var names []string
-	for _, record := range bySeq(records) {
-		if record.Kind != "incident" || record.Drive != drive {
-			continue
-		}
-		name := incidentRole.ReplaceAllString(incidentName(record), "")
-		if _, seen := groups[name]; !seen {
-			names = append(names, name)
-		}
-		groups[name] = append(groups[name], record)
-	}
-	out := make([]Row, 0, len(names))
-	for _, name := range names {
-		group := groups[name]
-		open := slices.ContainsFunc(group, func(record Record) bool { return still[record.Seq] })
-		var lanes []string
-		for _, lane := range v.lanes {
-			if lane.Name == name || strings.HasPrefix(lane.Name, name+"-") {
-				lanes = append(lanes, lane.Name)
-			}
-		}
-		w := v.workOf(lanes)
+	found := v.incidents(records, drive)
+	out := make([]Row, len(found))
+	for i, incident := range found {
 		word := "closed"
-		if open {
+		if incident.Open {
 			word = "open"
 		}
-		newest := group[len(group)-1]
-		out = append(out, Row{name, clip(group[0].Text), fmt.Sprintf("%s since %s; newest %s: %s", word, pacific(group[0].At), pacific(newest.At), clip(newest.Text)), w.who, w.blocks, w.unblock, w.wrong, !open})
+		w := incident.work
+		out[i] = Row{incident.Name, clip(incident.Fired.Text), fmt.Sprintf("%s since %s; newest %s: %s", word, pacific(incident.Fired.At), pacific(incident.Newest.At), clip(incident.Newest.Text)), w.who, w.blocks, w.unblock, w.wrong, !incident.Open}
 	}
 	return out
 }
