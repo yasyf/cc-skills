@@ -465,7 +465,7 @@ INCIDENT-CLOCK <lane> ready: not ready 20 min after its launch at <time>, limit 
 - The relay fills [reference/unfixed-case-brief.md](unfixed-case-brief.md) with the case verbatim, the reporting lane, the path of that lane's brief, and the PRs its cci `opened` records name. It attaches `<first>-case<n>.full.md`, clocks the new lane, and logs:
 
 ```text
-INCIDENT <lane>: its fix does not cover: <case> | case lane <first>-case<n> launching on incident xhigh, brief <path>; coordinator: ratify, and keep the reporter told that this case is still open
+INCIDENT <lane>: its fix does not cover: <case> | case lane <first>-case<n> launching on incident xhigh, brief <path>; coordinator: ratify, and have the fix's one post to the reporter say this case is still open
 ```
 
 - A case whose launch is refused, or whose brief does not attach, logs `not launched` with the reason and launches on the next report that names it.

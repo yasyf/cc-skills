@@ -1166,7 +1166,7 @@ func (d *Desk) caseLane(ctx context.Context, lane, parent string, launch inciden
 	if _, _, err := d.acceptLaunch(key, lane, launchTarget{Model: agentIncident, Effort: "xhigh", Brief: brief, By: deskRunner}); err != nil {
 		return false, err
 	}
-	return true, d.record(log, fmt.Sprintf("%s | case lane %s launching on incident xhigh, brief %s; root: ratify, and keep the reporter told that this case is still open", line, lane, brief))
+	return true, d.record(log, fmt.Sprintf("%s | case lane %s launching on incident xhigh, brief %s; root: ratify, and have the fix's one post to the reporter say this case is still open", line, lane, brief))
 }
 
 func (d *Desk) offerCases(ctx context.Context, key, first, parent string, launch incident.Action, cases []string, reason string) error {

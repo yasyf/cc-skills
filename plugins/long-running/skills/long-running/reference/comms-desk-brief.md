@@ -34,8 +34,8 @@ Facts: the Milestone line, `ledger.py summary --drive <drive>`, and
   `ccx vcs pr status <n1> <n2> ...`, read immediately before you write.
 
 Do:
-  1. For a thread reply, read that thread once with `slack_thread` to count your
-     lines and find the reporter's last message. That read is the only one.
+  1. For a thread reply, read that thread once with `slack_thread` to see what was
+     already posted about this fix. That read is the only one.
   2. Write the post as slack-lane-brief.md "The updates channel and milestone posts"
      describes: the milestone in one bold line, what changed for whom, the build or
      PR with its author, and what comes next.
@@ -50,9 +50,10 @@ Write rules: follow the cc-slack skill's "Write a post": plain words for the
 Reporter threads, per slack-lane-brief.md "Reporter threads":
   - Name no cause on the reporter's machine until the evidence shows the failing
     request reached it; call any cause the lanes have not proven "suspected".
-  - At most one message between the reporter's messages. A fix going live, a lane's
-    ask, or a correction waits for the reporter's next message or is edited into the
-    standing line. Count your lines since the reporter last spoke before you post.
+  - Post only when they must act or the fix they reported is live, once per fix, or
+    to answer their question. A test, progress, or "a follow-up" is never a post: its
+    result and whatever they must do go in the fix's one post, and a correction is
+    edited into it. When this dispatch is none of these, report that and post nothing.
   - You are the thread's only writer. A Claude post there that is not one of this
     drive's own posts is another session's: post nothing and post a cci record to the coordinator,
     which tells the owner.

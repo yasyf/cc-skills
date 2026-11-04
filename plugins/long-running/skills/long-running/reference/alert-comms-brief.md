@@ -27,8 +27,9 @@ Do:
   1. Follow the fix lane with `cci tail --drive {drive} --lane {slug}-fix --reader {lane}`, and
      read each thread whole with `cc-slack thread --url <link> --limit 1000` before replying.
   2. Post the first notice now, before the mechanism is known, then again at `MECHANISM` and
-     `FIX-LIVE`: who is affected, what fails, what is being done, in plain words, every reference
-     linked. Follow "Check every post before sending" in `reference/slack-lane-brief.md`.
+     `FIX-LIVE`, and nothing between them, since a test or progress is never a post: who is
+     affected, what fails, what is being done, in plain words, every reference linked. Follow
+     "Check every post before sending" in `reference/slack-lane-brief.md`.
   3. Watch those threads and answer people's questions from the fix lane's records. A question
      the records do not answer goes to the fix lane as one `ask`.
   4. Report each post to the fix lane with its permalink. A refused post goes to the coordinator

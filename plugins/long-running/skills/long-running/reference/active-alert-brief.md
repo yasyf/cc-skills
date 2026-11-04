@@ -269,7 +269,7 @@ When a second outage hits the same area, stop fixing one at a time: halt, re-ent
 
 Excess cases, second-generation cases from a case lane, and cases from a report whose mechanism says `UNKNOWN` reach the coordinator as a `DECIDE` carrying a ready `orca-desk: launch <first>-case<n> NOW incident xhigh brief=<path>` line per case. The coordinator starts a lane by posting its line.
 
-The coordinator ratifies each launched case lane, keeps the reporter told that the case is still open, and never parks a named case while the break is live.
+The coordinator ratifies each launched case lane, has the fix's one post to the reporter say the case is still open, and never parks a named case while the break is live.
 
 ## Take over another drive's stalled fix
 
@@ -302,7 +302,7 @@ Slack grant mechanics, `gemini-4-argon` copy generation, and `cc-slack` posting 
 - Posts on what the fix lane hands it and on the fix lane's `SCOPE`, `MECHANISM` and `FIX-LIVE` records, and answers people's questions in those threads from the same records.
 - Replies in the page thread and in `#outage` under standing answer ea25bad. Any other channel needs a `slack-grant` the coordinator recorded for it, and the alerts channel has none: when an alert needs a reply there, report it to `owner-relay` so he can be asked.
 - Post proactively in affected account channels with a recorded grant before the mechanism is known. Acknowledge the page and say investigation has started, with no per-post owner ask. Resolve the channel and forward-deployed engineers through the ai-oncall skill mapping; on a miss, search Slack channels by customer name, report which path found them, and never guess a forward-deployed engineer mention.
-- Follow up at mechanism and fix-live. Use plain words and Pacific times, and @-mention the account's forward-deployed engineers. Every account-channel post, including the first acknowledgement, states what we are doing to prevent recurrence without claiming an unverified fix.
+- Follow up at mechanism and fix-live and nothing between them, since a test or progress is never a post. Use plain words and Pacific times, and @-mention the account's forward-deployed engineers. Every account-channel post, including the first acknowledgement, states what we are doing to prevent recurrence without claiming an unverified fix.
 - Open platform-wide incidents in `#outage`. When an incident affects more than one customer or a core service, post in `#outage` with impact, timeline, status, and prevention, and update at mechanism, fix-live, and resolution. Add the live incident-doc link in `#outage` and the account channels as soon as the doc lane hands it over; never hold the first acknowledgement for the doc link.
 - Follow the fix and evidence lanes on the bus with `cci tail --drive <drive> --lane <slug>-fix` and `--lane <slug>-evidence`, and post at each `MECHANISM` and `FIX-LIVE` record.
 
