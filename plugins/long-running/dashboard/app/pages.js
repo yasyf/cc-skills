@@ -390,7 +390,7 @@ function verdictPill(row) {
 function rowFacts(row) {
   const w = rowWords(row);
   if (row.md && !row.change) return `<div class="md">${markdown(row.md)}</div>`;
-  return `<dl class="mr-f"><dt>For users</dt><dd class="md">${markdown(w.change)}</dd><dt>Plan</dt><dd class="md">${markdown(w.plan)}</dd><dt>Risk</dt><dd class="md">${markdown(w.risk)}</dd><dt>Review</dt><dd>${esc(w.review)}</dd></dl>`;
+  return `<dl class="mr-f"><dt>For users</dt><dd class="md">${markdown(w.change)}</dd><dt>Plan</dt><dd class="md">${markdown(w.plan)}</dd><dt>Risk</dt><dd class="md">${markdown(w.risk)}</dd><dt>Review</dt><dd>${esc(w.review)}</dd>${(row.meta ?? []).map(([label, value]) => `<dt>${esc(label)}</dt><dd>${esc(value)}</dd>`).join('')}</dl>`;
 }
 function waitLine(row, w) {
   const since = waitingSince(row.number);
