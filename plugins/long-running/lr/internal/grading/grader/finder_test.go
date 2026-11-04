@@ -1102,6 +1102,7 @@ func TestASecondBugFixInAnAreaTheDriveAlreadyFixedPostsABlockingPointNamingTheEa
 func TestASecondFixWhoseBodyNamesTheClassItRemovesOrTheCutoverDeletionStandsOk(t *testing.T) {
 	for _, body := range []string{
 		"## Summary\nThe class: a resubscribe that reads its position twice. This fix removes it, since one owner holds the position.",
+		"## Design\n- Invariant: a claim carries a fence only while its transfer waits. Single owner: `Control.Transfer`.",
 		"## Summary\nThe replica reader is deleted at cutover, so this is its last fix.",
 	} {
 		directory := finderJobDir(t, nil)
