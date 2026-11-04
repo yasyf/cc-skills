@@ -655,6 +655,9 @@ function chatBox(on, about, placeholder) {
   const failed = rp.failed.get(on);
   return `${failed ? `<p class="ct-failed">Not sent: ${esc(failed)}. Try again.</p>` : ''}<form class="ct-box" data-chat-send="${esc(on)}" data-about="${esc(about)}"><textarea name="chat" data-draft="${esc(on)}" rows="1" placeholder="${placeholder}"></textarea><button class="ct-send" aria-label="Send"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5"/></svg></button></form>`;
 }
+function onlyState(r) {
+  return r.order && !r.picks?.length && (r.status === 'progress' || r.status === 'info');
+}
 function chatEntries() {
   const m = state.model;
   const rowOf = (line) => m.owner_asks.messages.find((row) => row.text.includes(line.text.trim()));
@@ -670,7 +673,7 @@ function chatEntries() {
   const typed = m.chat_lines.map((line) => ({ key: `seq:${line.seq}`, on: line.on, at: line.at, sort: above(rowOf(line)), you: true, text: line.text, row: rowOf(line), about: `his line #${line.seq} "${line.text.slice(0, 80).replaceAll('\n', ' ')}"` }));
   const landed = new Set(m.chat_lines.map((line) => line.seq));
   const waiting = rp.sent.filter((sent) => !landed.has(sent.seq)).map((sent) => ({ key: `sent:${sent.at}`, on: sent.on, at: sent.at, you: true, text: sent.text, sending: true }));
-  const replies = m.replies.map((entry) => ({ key: `reply:${entry.reply.id}`, on: entry.reply.on ?? '', at: entry.at, entry, about: `reply ${entry.reply.id} "${entry.reply.title}"` }));
+  const replies = m.replies.filter((entry) => !onlyState(entry.reply)).map((entry) => ({ key: `reply:${entry.reply.id}`, on: entry.reply.on ?? '', at: entry.at, entry, about: `reply ${entry.reply.id} "${entry.reply.title}"` }));
   return [...replies, ...asks, ...taps, ...typed, ...waiting].sort((a, b) => new Date(a.sort ?? a.at) - new Date(b.sort ?? b.at));
 }
 function bareAskOpen(entry, answeredInThread) {

@@ -863,6 +863,7 @@ CHAT_MODEL = """(n) => {
     { ...reply('plain', { status: 'needs_you' }), at: new Date().toISOString() },
     reply('stale', { status: 'needs_you' }),
     reply('old', { status: 'needs_you', picks: ['x', 'y'] }),
+    reply('routed', { status: 'progress', order: 'm7' }),
     ...Array.from({ length: n }, (_, i) => ({ ...reply(`r${i}`, {}), at: '2026-11-03T19:00:00Z' })),
   ];
   state.model.board.cards = [card('open2', ['Yes', 'No']), card('open3', ['a', 'b', 'c'])];
@@ -926,6 +927,7 @@ def test_a_yes_no_answers_inline_and_anything_else_opens_the_task(page):
     open_chat(page)
     assert page.locator("#rp-open2 .ct-acts [data-choose]").all_inner_texts() == ["Yes", "No"]
     assert page.locator("#rp-old [data-choose]").count() == 0
+    assert page.locator("#rp-routed").count() == 0
     assert page.locator("#rp-old .ct-closed").count() == 1
     assert page.locator("#rp-plain [data-chat-done]").count() == 1
     assert page.locator("#rp-stale [data-chat-done], #rp-stale .ct-flag").count() == 0
