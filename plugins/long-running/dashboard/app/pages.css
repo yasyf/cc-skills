@@ -297,8 +297,7 @@ body #pal .it.on { background: color-mix(in srgb, var(--ok) 9%, transparent); bo
 .hs .ev-named li { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 10px; padding: 3px 0; border: 0; }
 .hs .ev-named time { display: block; color: var(--ink-3); }
 .ev-side{max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.alerts-on { margin-left: auto; white-space: nowrap; }
-.alerts-on:not([hidden]) + .kbtn { margin-left: 0; }
+.alerts-bar:not([hidden]) { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px 14px; padding: 10px 22px; background: color-mix(in srgb, var(--amber) 16%, transparent); border-bottom: 1px solid var(--amber); }
 .rp-ask { position: static; max-width: none; margin: 0 0 18px; }
 .ev-more .rp-ask { margin: 12px 0 0; }
 .rp-md { color: var(--ink); font-size: 14px; line-height: 1.55; }

@@ -612,7 +612,7 @@ const NOISE = [
   [/\b[\w.-]+(?:\/[\w.-]+)?#\d+\b/g, 'a tooling change'],
 ];
 function plain(text) {
-  const workers = (state.model.lanes ?? []).map((row) => row.lane).filter((lane) => lane && /-/.test(lane) && /\d/.test(lane));
+  const workers = (state.model?.lanes ?? []).map((row) => row.lane).filter((lane) => lane && /-/.test(lane) && /\d/.test(lane));
   const scrubbed = NOISE.reduce((out, [pattern, word]) => out.replace(pattern, word), text);
   return workers.reduce((out, lane) => out.replaceAll(lane, 'a worker'), scrubbed).replace(/ +([,.;:])/g, '$1').replace(/ {2,}/g, ' ');
 }
@@ -735,35 +735,77 @@ document.addEventListener('submit', (e) => {
   e.preventDefault();
   replyBack(form.dataset.replyBack, form.reply.value);
 });
-function noticeReplies(alerts) {
-  const seen = JSON.parse(localStorage.getItem('replies-noticed'));
-  localStorage.setItem('replies-noticed', JSON.stringify(alerts.map((a) => a.id)));
-  if (!seen || Notification.permission !== 'granted') return;
-  for (const a of alerts.filter((alert) => !seen.includes(alert.id)).reverse()) {
-    const notice = new Notification(a.incident && !/^incident/i.test(a.title) ? `Incident: ${plain(a.title)}` : plain(a.title), { body: a.picks.join(' · '), tag: a.id, requireInteraction: a.incident });
-    notice.onclick = () => {
-      window.focus();
-      state.open.add(`rp-${a.id}`);
-      location.hash = '#/replies';
-      render();
-    };
+const NOTICED_KEPT = 500;
+function reportBrowser() {
+  (navigator.serviceWorker?.getRegistration() ?? Promise.resolve()).then((worker) => fetch('/api/browser', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url: location.origin, secure: window.isSecureContext, permission: window.Notification?.permission ?? 'absent', service_worker: Boolean(worker), hidden: document.hidden, fired: JSON.parse(localStorage.getItem('alerts-fired')) }),
+  }));
+}
+function openNotice(a) {
+  window.focus();
+  if (a.card) {
+    location.hash = `#/review/q/${encodeURIComponent(a.card)}`;
+    return;
   }
+  state.open.add(`rp-${a.id}`);
+  location.hash = '#/replies';
+  render();
+}
+function fireNotice(a) {
+  const title = a.incident && !/^incident/i.test(a.title) ? `Incident: ${plain(a.title)}` : plain(a.title);
+  const notice = new Notification(title, { body: a.body, tag: a.id, requireInteraction: a.incident });
+  const fired = (outcome) => {
+    localStorage.setItem('alerts-fired', JSON.stringify({ title, at: new Date().toISOString(), outcome }));
+    reportBrowser();
+  };
+  notice.onshow = () => fired('shown');
+  notice.onerror = () => fired('refused');
+  notice.onclick = () => openNotice(a);
+}
+function noticeAlerts(alerts) {
+  const seen = JSON.parse(localStorage.getItem('alerts-noticed'));
+  localStorage.setItem('alerts-noticed', JSON.stringify([...new Set([...(seen ?? []), ...alerts.map((a) => a.id)])].slice(-NOTICED_KEPT)));
+  if (!seen || Notification.permission !== 'granted') return;
+  alerts.filter((a) => !seen.includes(a.id)).reverse().forEach(fireNotice);
 }
 function followAlerts() {
   const es = new EventSource('/api/alerts');
-  es.addEventListener('alerts', (e) => noticeReplies(JSON.parse(e.data)));
+  es.onopen = reportBrowser;
+  es.addEventListener('build', (e) => { if (e.data !== $('meta[name="build"]').content) reloadWhenIdle(); });
+  es.addEventListener('alerts', (e) => noticeAlerts(JSON.parse(e.data)));
   es.onerror = () => { es.close(); setTimeout(followAlerts, 3000); };
 }
-function alertsButton() {
+function alertsBar() {
   const el = $('#alerts');
-  el.hidden = Notification.permission === 'granted';
-  el.disabled = Notification.permission === 'denied';
-  el.textContent = el.disabled ? 'Alerts blocked in this browser' : 'Turn on alerts';
+  const home = $('meta[name="secure-url"]').content;
+  const permission = window.Notification?.permission;
+  el.innerHTML = home && new URL(home).origin !== location.origin
+    ? `<span>Browser notifications cannot work on this address.</span><a class="btn pri" href="${esc(home)}${esc(location.hash)}">Open the address where they work</a>`
+    : !window.isSecureContext ? ''
+    : permission === 'default' ? '<span>Get a browser notification on each new reply, card and update.</span><button class="btn pri" id="alerts-on">Turn on notifications</button>'
+    : permission === 'denied' ? '<span>This browser blocks the dashboard\'s notifications. Click the icon left of the address and set Notifications to Allow.</span>'
+    : '';
+  el.hidden = !el.innerHTML;
 }
 function startAlerts() {
+  alertsBar();
+  reportBrowser();
   if (!window.isSecureContext || !('Notification' in window)) return;
-  alertsButton();
-  $('#alerts').addEventListener('click', () => Notification.requestPermission().then(alertsButton));
+  $('#alerts').addEventListener('click', (e) => {
+    if (e.target.id !== 'alerts-on') return;
+    Notification.requestPermission().then((answer) => {
+      alertsBar();
+      if (answer === 'granted') fireNotice({ id: 'alerts-on', title: 'Notifications are on', body: 'One lands here on each new reply, card and update.', incident: false });
+    });
+  });
+  navigator.permissions.query({ name: 'notifications' }).then((status) => {
+    status.onchange = () => {
+      alertsBar();
+      reportBrowser();
+    };
+  });
   navigator.locks.request('drive-alerts', () => {
     followAlerts();
     return new Promise(() => {});

@@ -29,12 +29,13 @@ TAGGED_AS_OWNER_WHOIS = {"Node": {"Name": "sprite.", "Tags": ["tag:sprite"]}, "U
 OTHER_WHOIS = {"Node": {"Name": "laptop."}, "UserProfile": {"LoginName": "someone-else@example.test"}}
 MODEL_KEY = "model-key-the-browser-never-sees"
 MODEL_REPLY = b'data: {"choices": [{"delta": {"content": "hello"}}]}\n\ndata: [DONE]\n\n'
-ROUTE_ACTIONS = {"/api/verdict": "decide", "/api/answer": "answer", "/api/asked": "asked", "/api/change": "change_request"}
+ROUTE_ACTIONS = {"/api/verdict": "decide", "/api/answer": "answer", "/api/asked": "asked", "/api/change": "change_request", "/api/browser": "browser_report"}
 WRITES = {
     "/api/verdict": {"block": "b", "number": 7, "verdict": "approved", "head": "abc"},
     "/api/answer": {"kind": "input", "block": "b", "text": "yes"},
     "/api/asked": {"text": "why?"},
     "/api/change": {"number": 7, "head": "abc", "text": "no lock"},
+    "/api/browser": {"secure": True, "permission": "granted"},
 }
 REFUSED_CALLERS = [json.dumps(TAGGED_WHOIS), json.dumps(TAGGED_AS_OWNER_WHOIS), json.dumps(OTHER_WHOIS), "not json", "null", json.dumps({"Node": {}}), json.dumps({"Node": {}, "UserProfile": None}), json.dumps({"Node": None, "UserProfile": {"LoginName": TAILNET_OWNER}}), subprocess.CalledProcessError(1, "tailscale", stderr="no match for IP"), subprocess.TimeoutExpired("tailscale", 60), FileNotFoundError(2, "No such file or directory", "tailscale")]
 NOW = dt.datetime(2026, 10, 27, 8, 0, tzinfo=dt.timezone.utc)
@@ -1159,6 +1160,108 @@ def dashboard(monkeypatch):
     finally:
         httpd.shutdown()
         model.shutdown()
+
+
+@pytest.fixture
+def live_alerts():
+    drive = Drive({"drive": "d", "board_url": "http://board/p/x", "board_session": "s"}, None)
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.handler(drive, TAILNET_OWNER, {"127.0.0.1"}))
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    try:
+        yield SimpleNamespace(url=f"http://127.0.0.1:{httpd.server_port}", drive=drive)
+    finally:
+        httpd.shutdown()
+
+
+def sse_events(stream):
+    event = {}
+    for raw in stream:
+        line = raw.decode().rstrip("\n")
+        if line.startswith(":"):
+            continue
+        if not line:
+            if event:
+                yield event
+            event = {}
+            continue
+        field, _, value = line.partition(": ")
+        event[field] = value
+
+
+def board_with(*titles):
+    return json.dumps({"interactions": {"triage": {}, "feedback": {}}, "doc": {"blocks": [{"type": "card", "id": title, "title": title, "summary": "", "status": "open"} for title in titles]}})
+
+
+def test_the_alert_stream_names_the_build_waits_for_the_first_read_and_carries_a_new_card(live_alerts, monkeypatch):
+    drive = live_alerts.drive
+    monkeypatch.setattr(server, "run", lambda argv, cwd=None: board_with("card-one"))
+    with urllib.request.urlopen(f"{live_alerts.url}/api/alerts", timeout=5) as stream:
+        events = sse_events(stream)
+        assert next(events) == {"event": "build", "data": server.BUILD}
+        assert json.loads(urllib.request.urlopen(f"{live_alerts.url}/api/browser", timeout=5).read())["listening"] == {"127.0.0.1": 1}
+        drive.read_cards()
+        first = next(events)
+        assert first["event"] == "alerts" and [alert["id"] for alert in json.loads(first["data"])] == ["one"]
+        monkeypatch.setattr(server, "run", lambda argv, cwd=None: board_with("card-one", "card-two"))
+        drive.read_cards()
+        assert [alert["id"] for alert in json.loads(next(events)["data"])] == ["one", "two"]
+
+
+def test_an_unchanged_board_wakes_no_alert_stream(live_alerts, monkeypatch):
+    drive = live_alerts.drive
+    monkeypatch.setattr(server, "run", lambda argv, cwd=None: board_with("card-one"))
+    drive.read_cards()
+    published = drive.alerts
+    drive.read_cards()
+    assert drive.alerts is published
+
+
+def test_a_failed_board_read_keeps_the_last_alerts_and_says_so(live_alerts, monkeypatch):
+    drive = live_alerts.drive
+    monkeypatch.setattr(server, "run", lambda argv, cwd=None: board_with("card-one"))
+    drive.read_cards()
+    published = drive.alerts
+
+    def down(argv, cwd=None):
+        raise subprocess.CalledProcessError(1, argv)
+
+    monkeypatch.setattr(server, "run", down)
+    drive.read_cards()
+    assert drive.alerts is published and "cards" in drive.errors
+
+
+def test_a_browser_report_from_the_owner_reads_back_with_its_address_and_agent(live_alerts, monkeypatch):
+    whois_answers(monkeypatch, json.dumps(OWNER_WHOIS))
+    report = {"url": "https://mac:1", "secure": True, "permission": "granted", "service_worker": False, "hidden": True, "fired": {"title": "t", "at": "2026-11-03T21:00:00Z", "outcome": "shown"}}
+    status, _, _ = call(live_alerts.url, "/api/browser", report)
+    assert status == 200
+    browsers = json.loads(call(live_alerts.url, "/api/browser")[1])["browsers"]
+    assert len(browsers) == 1 and browsers[0]["client"] == "127.0.0.1" and {key: browsers[0][key] for key in report} == report
+
+
+def test_a_second_report_from_one_browser_replaces_its_row(live_alerts, monkeypatch):
+    whois_answers(monkeypatch, json.dumps(OWNER_WHOIS))
+    call(live_alerts.url, "/api/browser", {"permission": "default"})
+    call(live_alerts.url, "/api/browser", {"permission": "granted"})
+    assert [row["permission"] for row in json.loads(call(live_alerts.url, "/api/browser")[1])["browsers"]] == ["granted"]
+
+
+def test_the_page_names_the_address_where_notifications_work(live_alerts, monkeypatch):
+    live_alerts.drive.secure_url = "https://mac.example.ts.net:2/"
+    monkeypatch.setattr(server.ssl, "SSLSocket", socket.socket)
+    assert b'<meta name="secure-url" content="https://mac.example.ts.net:2/">' in call(live_alerts.url, "/")[1]
+
+
+def test_a_plain_address_goes_to_the_one_where_notifications_work(live_alerts):
+    live_alerts.drive.secure_url = "https://mac.example.ts.net:2/"
+
+    class NoFollow(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, *args):
+            return None
+
+    with pytest.raises(urllib.error.HTTPError) as moved:
+        urllib.request.build_opener(NoFollow).open(f"{live_alerts.url}/", timeout=5)
+    assert moved.value.code == 302 and moved.value.headers["Location"] == "https://mac.example.ts.net:2/"
 
 
 def whois_answers(monkeypatch, answer):

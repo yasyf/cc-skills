@@ -1,11 +1,13 @@
 import datetime as dt
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
+import server
 from brief import Curator
 from pages import PAGES, REVIEW_SCHEMA, open_question, plan_slot, review_digest, review_slot, stamp, waiting_since
-from server import ALERTS_SENT, bot_words, drawable, reply_alerts, stored_replies, unanswered
+from server import ALERTS_SENT, bot_words, drawable, drive_alerts, stored_replies, unanswered
 
 NOW = dt.datetime(2026, 10, 27, 23, 0, tzinfo=dt.timezone.utc)
 ROW = {
@@ -207,15 +209,38 @@ def reply_entry(id, **fields):
     return {"at": "2026-11-03T18:00:00Z", "surfaces": [], "reply": {"id": id, "title": f"title {id}", "md": "body", **fields}}
 
 
-def test_alerts_carry_each_reply_that_needs_him_and_no_other():
-    replies = [reply_entry("n", status="needs_you"), reply_entry("i", status="incident"), reply_entry("p", status="info", picks=["a", "b"]), reply_entry("d", status="done"), reply_entry("g", status="progress"), reply_entry("x")]
-    assert reply_alerts(replies) == [
-        {"id": "n", "title": "title n", "incident": False, "picks": []},
-        {"id": "i", "title": "title i", "incident": True, "picks": []},
-        {"id": "p", "title": "title p", "incident": False, "picks": ["a", "b"]},
+def alert_card(id, **fields):
+    return {"id": id, "title": f"title {id}", "summary": f"summary {id}", **fields}
+
+
+def test_every_new_reply_raises_an_alert_whatever_its_status():
+    replies = [reply_entry("n", status="needs_you"), reply_entry("i", status="incident"), reply_entry("p", status="info", picks=["a", "b"]), reply_entry("d", status="done"), reply_entry("g", status="progress", md="**9:00 PM**\nsecond line"), reply_entry("x")]
+    assert drive_alerts(replies, []) == [
+        {"id": "n", "title": "title n", "body": "body", "incident": False},
+        {"id": "i", "title": "title i", "body": "body", "incident": True},
+        {"id": "p", "title": "title p", "body": "a · b", "incident": False},
+        {"id": "d", "title": "title d", "body": "body", "incident": False},
+        {"id": "g", "title": "title g", "body": "9:00 PM", "incident": False},
+        {"id": "x", "title": "title x", "body": "body", "incident": False},
     ]
+
+
+def test_a_card_alone_raises_its_own_alert_and_a_card_with_a_reply_raises_one():
+    alerts = drive_alerts([reply_entry("r1", status="needs_you")], [alert_card("card-r1"), alert_card("card-alone")])
+    assert [(alert["id"], alert.get("card")) for alert in alerts] == [("r1", None), ("alone", "card-alone")]
+    assert alerts[1]["title"] == "title card-alone" and alerts[1]["body"] == "summary card-alone"
+
+
+def test_a_card_keeps_the_same_id_after_its_reply_ages_out_so_it_never_fires_twice():
+    replies = [reply_entry(f"r{n}") for n in range(ALERTS_SENT)] + [reply_entry("old")]
+    assert [alert["id"] for alert in drive_alerts(replies, [alert_card("card-old")])][-1] == "old"
 
 
 def test_alerts_keep_the_newest_when_many_wait():
     replies = [reply_entry(f"r{n}", status="needs_you") for n in range(ALERTS_SENT + 5)]
-    assert [alert["id"] for alert in reply_alerts(replies)] == [f"r{n}" for n in range(ALERTS_SENT)]
+    assert [alert["id"] for alert in drive_alerts(replies, [])] == [f"r{n}" for n in range(ALERTS_SENT)]
+
+
+@pytest.mark.parametrize("script", sorted(Path(server.__file__).parent.glob("*.js")), ids=lambda path: path.name)
+def test_every_page_script_parses(script):
+    subprocess.run(["node", "--check", str(script)], check=True)
