@@ -100,11 +100,12 @@ func drawnCard(t *testing.T, c shell.Command) boardCard {
 }
 
 type slackCard struct {
-	Key   string `json:"key"`
-	Title string `json:"title"`
-	Body  string `json:"body"`
-	Links []Link `json:"links"`
-	Refs  []Link `json:"refs"`
+	Key      string `json:"key"`
+	Replaces string `json:"replaces"`
+	Title    string `json:"title"`
+	Body     string `json:"body"`
+	Links    []Link `json:"links"`
+	Refs     []Link `json:"refs"`
 }
 
 func slack(t *testing.T, c shell.Command) slackCard {
@@ -303,9 +304,9 @@ func TestAnEditUpdatesEachSurfaceInPlace(t *testing.T) {
 					t.Errorf("board write %+v is not card-r3", card)
 				}
 			}
-			for _, c := range calls(fake, "cc-slack") {
-				if card := slack(t, c); card.Key != "r3" {
-					t.Errorf("slack card key = %q, want r3 so cc-slack redraws the card", card.Key)
+			if posted := calls(fake, "cc-slack"); len(posted) == 2 {
+				if first, edit := slack(t, posted[0]), slack(t, posted[1]); first.Key != "r3" || first.Replaces != "" || edit.Replaces != permalink || edit.Key != "" {
+					t.Errorf("slack cards = %+v then %+v, want the first keyed r3 and the edit replacing %s", first, edit, permalink)
 				}
 			}
 			records := calls(fake, "cci")
@@ -1190,5 +1191,267 @@ func TestAnEditThatDropsPicksInHisThreadStaysOnTheCard(t *testing.T) {
 	after := calls(fake, "cc-slack")[before:]
 	if len(after) != 1 || slices.Contains(after[0].Argv, "--thread") {
 		t.Fatalf("cc-slack calls = %+v, want the card edited in place and no thread post", after)
+	}
+}
+
+const (
+	hisThread   = "1793804574.412309"
+	threadCopy  = "https://brook.slack.com/archives/D0B6Z/p1793820906093619?thread_ts=" + hisThread
+	cardCopy    = "https://brook.slack.com/archives/D0B6Z/p1793820000000100"
+	missingEdit = "message_not_found"
+)
+
+func postedInThread(fake *shelltest.Fake, ref string) {
+	fake.Reply(`{"channel_id":"D0B6Z","thread_ts":"`+hisThread+`","ts":"1793820906.093619","permalink":"`+ref+`"}`, "cc-slack", "dm-status")
+	fake.Reply(posted, "cci", "post")
+	fake.Reply(`{"doc":{}}`, "cc-present", "outcomes")
+}
+
+func threadedFake() *shelltest.Fake {
+	fake := &shelltest.Fake{}
+	fake.Reply("updated card\nsent: card ts=1793820000.000100 "+cardCopy+"\n", "cc-present", "update-block")
+	fake.Reply("removed\nrev: 9\n", "cc-present", "remove-block")
+	postedInThread(fake, threadCopy)
+	return fake
+}
+
+func TestAThreadedReplyWithItsIDEditsItsMessageAndPostsNothing(t *testing.T) {
+	fake := threadedFake()
+	f := fanout(t, fake)
+	f.Send(context.Background(), Reply{ID: "r1", Title: "205 s vs 28 s", MD: "Both numbers are right.", Thread: hisThread})
+	sent := f.Send(context.Background(), Reply{ID: "r1", Title: "Done: 205 s vs 28 s", MD: "A run, then a pause.", Status: info, Order: "m671", Thread: hisThread})
+
+	posted := calls(fake, "cc-slack")
+	if len(posted) != 2 || flag(t, posted[0].Argv, "--thread") != hisThread {
+		t.Fatalf("cc-slack calls = %+v, want one thread post and one edit", posted)
+	}
+	if slices.Contains(posted[1].Argv, "--thread") {
+		t.Fatalf("the edit %q posted under the thread", posted[1].Argv)
+	}
+	edit := slack(t, posted[1])
+	if edit.Replaces != threadCopy || edit.Key != "" || edit.Title != "Done: 205 s vs 28 s" || edit.Body != "A run, then a pause." {
+		t.Fatalf("edit = %+v, want the new words on %s", edit, threadCopy)
+	}
+	if got := surface(sent, "slack"); got != (Outcome{Surface: "slack", Ref: threadCopy}) {
+		t.Fatalf("slack outcome = %+v, want the same message", got)
+	}
+}
+
+func TestAnEditThatNamesNoThreadStillEditsTheThreadedMessage(t *testing.T) {
+	fake := threadedFake()
+	f := fanout(t, fake)
+	f.Send(context.Background(), Reply{ID: "r1", Title: "t", MD: "first", Thread: hisThread})
+	f.Send(context.Background(), Reply{ID: "r1", Title: "t", MD: "second"})
+
+	posted := calls(fake, "cc-slack")
+	if len(posted) != 2 || slack(t, posted[1]).Replaces != threadCopy {
+		t.Fatalf("cc-slack calls = %+v, want the edit on %s", posted, threadCopy)
+	}
+}
+
+func TestARootReplyAnsweredInAThreadLaterEditsAtTheRoot(t *testing.T) {
+	fake := scripted()
+	f := fanout(t, fake)
+	f.Send(context.Background(), Reply{ID: "r2", Title: "t", MD: "first", Status: info})
+	f.Send(context.Background(), Reply{ID: "r2", Title: "t", MD: "second", Status: info, Order: "m9", Thread: hisThread})
+
+	posted := calls(fake, "cc-slack")
+	if len(posted) != 2 || slices.Contains(posted[1].Argv, "--thread") || slack(t, posted[1]).Replaces != permalink {
+		t.Fatalf("cc-slack calls = %+v, want the root card edited and nothing in the thread", posted)
+	}
+}
+
+func TestAnIDWithNoPostedMessagePostsOnce(t *testing.T) {
+	for name, r := range map[string]Reply{
+		"thread": {ID: "fresh", Title: "t", MD: "m", Thread: hisThread},
+		"root":   {ID: "fresh", Title: "t", MD: "m", Status: info},
+	} {
+		t.Run(name, func(t *testing.T) {
+			fake := scripted()
+			sent := fanout(t, fake).Send(context.Background(), r)
+			posted := calls(fake, "cc-slack")
+			if len(posted) != 1 || surface(sent, "slack").Ref != permalink {
+				t.Fatalf("cc-slack calls = %+v and outcomes %+v, want one post", posted, sent)
+			}
+			if r.Thread == "" && slack(t, posted[0]).Replaces != "" {
+				t.Fatalf("the first post %+v replaces a message that does not exist", slack(t, posted[0]))
+			}
+		})
+	}
+}
+
+func TestAFailedEditSaysSoPostsNothingAndTheNextEditStillFindsTheMessage(t *testing.T) {
+	healthy := threadedFake()
+	f := fanout(t, healthy)
+	f.Send(context.Background(), Reply{ID: "r1", Title: "t", MD: "first", Thread: hisThread})
+
+	failing := &shelltest.Fake{}
+	failing.Fail(1, missingEdit, "cc-slack", "dm-status")
+	postedInThread(failing, threadCopy)
+	f.Runner = failing
+	sent := f.Send(context.Background(), Reply{ID: "r1", Title: "t", MD: "second", Thread: hisThread})
+
+	got := surface(sent, "slack")
+	if !strings.Contains(got.Error, missingEdit) || !strings.Contains(got.Error, "posted nothing new") || got.Ref != threadCopy {
+		t.Fatalf("slack outcome = %+v, want the failure named and the message kept", got)
+	}
+	tried := calls(failing, "cc-slack")
+	if len(tried) != 1 || slices.Contains(tried[0].Argv, "--thread") {
+		t.Fatalf("cc-slack calls = %+v, want one edit attempt and no post", tried)
+	}
+	if !strings.Contains(receipt(Reply{ID: "r1", MD: "m"}, sent), "slack FAILED: did not edit") {
+		t.Fatalf("receipt does not tell the lane: %s", receipt(Reply{ID: "r1", MD: "m"}, sent))
+	}
+
+	f.Runner = healthy
+	f.Send(context.Background(), Reply{ID: "r1", Title: "t", MD: "third", Thread: hisThread})
+	if last := calls(healthy, "cc-slack"); len(last) != 2 || slack(t, last[1]).Replaces != threadCopy {
+		t.Fatalf("cc-slack calls = %+v, want the retry on the first message", last)
+	}
+}
+
+func TestAProgressReplyWithItsIDEditsTheMessageItPosted(t *testing.T) {
+	fake := scripted()
+	f := fanout(t, fake)
+	ledgered(t, f)
+	f.Send(context.Background(), Reply{ID: "r4", Title: "t", MD: "first", Status: info})
+	sent := f.Send(context.Background(), Reply{ID: "r4", Title: "t", MD: "under way", Status: progress, Order: "m447"})
+
+	posted := calls(fake, "cc-slack")
+	if len(posted) != 2 || slack(t, posted[1]).Replaces != permalink {
+		t.Fatalf("cc-slack calls = %+v, want the message edited", posted)
+	}
+	if surface(sent, "ledger").Surface == "" {
+		t.Fatalf("outcomes = %+v, want the ledger row still written", sent)
+	}
+}
+
+func TestAProgressReplyWithNoMessageAndNoThreadStaysOffSlack(t *testing.T) {
+	fake := scripted()
+	f := fanout(t, fake)
+	ledgered(t, f)
+	f.Send(context.Background(), Reply{ID: "r5", Title: "t", MD: "under way", Status: progress, Order: "m447"})
+	if posted := calls(fake, "cc-slack"); len(posted) != 0 {
+		t.Fatalf("cc-slack calls = %+v, want none", posted)
+	}
+}
+
+func TestAPickReplyInHisThreadEditsItsThreadCopyAcrossEdits(t *testing.T) {
+	fake := threadedFake()
+	f := fanout(t, fake)
+	ask := Reply{ID: "r6", Title: "Land?", MD: "Checks passed.", Picks: []string{"Land", "Hold"}, Recommended: "Land", Thread: hisThread}
+	f.Send(context.Background(), ask)
+	ask.MD = "Checks passed again."
+	sent := f.Send(context.Background(), ask)
+
+	posted := calls(fake, "cc-slack")
+	if len(posted) != 2 || slices.Contains(posted[1].Argv, "--thread") {
+		t.Fatalf("cc-slack calls = %+v, want one thread post and one edit", posted)
+	}
+	edit := slack(t, posted[1])
+	if edit.Replaces != threadCopy || !strings.Contains(edit.Body, cardCopy) || !strings.HasPrefix(edit.Body, "Checks passed again.") {
+		t.Fatalf("edit = %+v, want the thread copy with the new words and the card's link", edit)
+	}
+	if surface(sent, "slack").Ref != cardCopy || surface(sent, "slack thread").Ref != threadCopy {
+		t.Fatalf("outcomes = %+v, want the card and the thread copy apart", sent)
+	}
+
+	sent = f.Send(context.Background(), Reply{ID: "r6", Title: "Landed", MD: "It merged.", Thread: hisThread})
+	posted = calls(fake, "cc-slack")[2:]
+	if len(posted) != 2 || slack(t, posted[0]).Replaces != cardCopy || slack(t, posted[1]).Replaces != threadCopy {
+		t.Fatalf("cc-slack calls = %+v, want the card then the thread copy edited and nothing posted", posted)
+	}
+	if body := slack(t, posted[1]).Body; strings.Contains(body, pickLead) {
+		t.Fatalf("thread copy = %q still tells him to tap a withdrawn card", body)
+	}
+	if surface(sent, "slack thread").Ref != threadCopy {
+		t.Fatalf("outcomes = %+v, want the thread copy kept for the next edit", sent)
+	}
+}
+
+func TestAMessageThatGainsPicksPointsAtItsCardInsteadOfStayingStale(t *testing.T) {
+	fake := threadedFake()
+	f := fanout(t, fake)
+	f.Send(context.Background(), Reply{ID: "r8", Title: "t", MD: "first", Thread: hisThread})
+	sent := f.Send(context.Background(), Reply{ID: "r8", Title: "Land?", MD: "Pick one.", Picks: []string{"Land", "Hold"}, Recommended: "Land", Thread: hisThread})
+
+	posted := calls(fake, "cc-slack")
+	if len(posted) != 2 || slack(t, posted[1]).Replaces != threadCopy || !strings.Contains(slack(t, posted[1]).Body, cardCopy) {
+		t.Fatalf("cc-slack calls = %+v, want the first message edited to link the card", posted)
+	}
+	if surface(sent, "slack").Ref != cardCopy || surface(sent, "slack thread").Ref != threadCopy {
+		t.Fatalf("outcomes = %+v", sent)
+	}
+}
+
+func TestAWithdrawnCardAskedAgainLeavesTheRedrawnCardItsButtons(t *testing.T) {
+	fake := threadedFake()
+	f := fanout(t, fake)
+	ask := Reply{ID: "r9", Title: "Land?", MD: "Checks passed.", Picks: []string{"Land", "Hold"}, Recommended: "Land"}
+	f.Send(context.Background(), ask)
+	f.Send(context.Background(), Reply{ID: "r9", Title: "Held", MD: "Held for now."})
+	before := len(calls(fake, "cc-slack"))
+	sent := f.Send(context.Background(), ask)
+
+	if after := calls(fake, "cc-slack")[before:]; len(after) != 0 {
+		t.Fatalf("cc-slack calls = %+v, want cc-present alone to redraw the card, since a replacing card has no buttons", after)
+	}
+	if surface(sent, "slack").Ref != cardCopy {
+		t.Fatalf("outcomes = %+v, want the redrawn card", sent)
+	}
+}
+
+func TestACardThatNeverReachedSlackPostsOnceWhenEdited(t *testing.T) {
+	fake := &shelltest.Fake{}
+	fake.Fail(1, "daemon not running", "cc-present", "update-block")
+	fake.Reply("removed\nrev: 9\n", "cc-present", "remove-block")
+	postedInThread(fake, threadCopy)
+	f := fanout(t, fake)
+	f.Send(context.Background(), Reply{ID: "r11", Title: "Land?", MD: "Checks passed.", Picks: []string{"Land", "Hold"}, Recommended: "Land"})
+	sent := f.Send(context.Background(), Reply{ID: "r11", Title: "Landed", MD: "It merged.", Thread: hisThread})
+
+	posted := calls(fake, "cc-slack")
+	if len(posted) != 1 || flag(t, posted[0].Argv, "--thread") != hisThread || surface(sent, "slack").Ref != threadCopy {
+		t.Fatalf("cc-slack calls = %+v and outcomes %+v, want one post", posted, sent)
+	}
+}
+
+func TestAFailedBoardUpdateKeepsTheCardItAlreadyPosted(t *testing.T) {
+	fake := threadedFake()
+	f := fanout(t, fake)
+	ask := Reply{ID: "r12", Title: "Land?", MD: "Checks passed.", Picks: []string{"Land", "Hold"}, Recommended: "Land"}
+	f.Send(context.Background(), ask)
+
+	failing := &shelltest.Fake{}
+	failing.Fail(1, "daemon not running", "cc-present", "update-block")
+	postedInThread(failing, threadCopy)
+	f.Runner = failing
+	f.Send(context.Background(), ask)
+
+	f.Runner = fake
+	f.Send(context.Background(), Reply{ID: "r12", Title: "Landed", MD: "It merged."})
+	if posted := calls(fake, "cc-slack"); len(posted) != 1 || slack(t, posted[0]).Replaces != cardCopy {
+		t.Fatalf("cc-slack calls = %+v, want the first card edited", posted)
+	}
+}
+
+func TestAnEditOfACardHeAnsweredSaysWhySlackKeepsWhatHeAnswered(t *testing.T) {
+	fake := threadedFake()
+	f := fanout(t, fake)
+	ask := Reply{ID: "r13", Title: "Land?", MD: "Checks passed.", Picks: []string{"Land", "Hold"}, Recommended: "Land"}
+	f.Send(context.Background(), ask)
+
+	answered := &shelltest.Fake{}
+	answered.Reply("updated card\n", "cc-present", "update-block")
+	postedInThread(answered, threadCopy)
+	f.Runner = answered
+	ask.MD = "Checks passed, and a bug is new."
+	got := surface(f.Send(context.Background(), ask), "slack")
+
+	if got.Ref != cardCopy || !strings.Contains(got.Error, "already answered") {
+		t.Fatalf("slack outcome = %+v, want the posted card kept and the reason named", got)
+	}
+	if posted := calls(answered, "cc-slack"); len(posted) != 0 {
+		t.Fatalf("cc-slack calls = %+v, want Slack left as he answered it", posted)
 	}
 }
