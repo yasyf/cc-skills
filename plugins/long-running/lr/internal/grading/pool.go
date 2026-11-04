@@ -40,6 +40,7 @@ const (
 	readTimeout           = 120 * time.Second
 	failedHold            = 10 * time.Minute
 	spriteFailingFor      = 10 * time.Minute
+	deadlineCancel        = "its deadline"
 )
 
 var (
@@ -391,9 +392,9 @@ func (p *JobPool) Settle(ctx context.Context, workers []string) (map[string]bool
 		ref := refOf(name)
 		directory := filepath.Join(p.root, ref.lane, ref.base)
 		state := stateOf(directory, commands)
+		late := false
 		if state == jobRunning {
-			late, err := p.timedOut(ref.lane, directory)
-			if err != nil {
+			if late, err = p.timedOut(ref.lane, directory); err != nil {
 				return nil, err
 			}
 			if !late {
@@ -404,6 +405,11 @@ func (p *JobPool) Settle(ctx context.Context, workers []string) (map[string]bool
 		}
 		if err := p.finished(ctx, ref, directory, state); err != nil {
 			return nil, err
+		}
+		if late {
+			if err := p.cancel(ctx, directory, deadlineCancel); err != nil {
+				return nil, err
+			}
 		}
 		if err := grader.Repost(ctx, directory, client.Post); err != nil {
 			p.Log.Warn("reposting a desk record failed", "job", directory, "error", err)
@@ -636,18 +642,24 @@ func (p *JobPool) cancelSuperseded(ctx context.Context, workers []store.Worker, 
 		if ref.lane != grader.FinderLane || !strings.HasPrefix(ref.base, prefix) || strings.HasPrefix(ref.base, current) || isWhole(worker.Name) {
 			continue
 		}
-		directory := filepath.Join(p.root, ref.lane, ref.base)
-		if err := os.WriteFile(filepath.Join(directory, grader.CancelledFile), []byte(head+"\n"), 0o600); err != nil {
+		if err := p.cancel(ctx, filepath.Join(p.root, ref.lane, ref.base), head); err != nil {
 			return err
 		}
-		runs, err := filepath.Glob(filepath.Join(directory, "codex-*"))
-		if err != nil {
-			return err
-		}
-		for _, run := range runs {
-			if _, err := p.Runner.Run(ctx, shell.Command{Argv: []string{"codex-ask", "--cancel", run}, Timeout: readTimeout}); err != nil {
-				p.Log.Warn("cancelling a codex run failed", "run", run, "error", err)
-			}
+	}
+	return nil
+}
+
+func (p *JobPool) cancel(ctx context.Context, directory, by string) error {
+	if err := os.WriteFile(filepath.Join(directory, grader.CancelledFile), []byte(by+"\n"), 0o600); err != nil {
+		return err
+	}
+	runs, err := filepath.Glob(filepath.Join(directory, "codex-*"))
+	if err != nil {
+		return err
+	}
+	for _, run := range runs {
+		if _, err := p.Runner.Run(ctx, shell.Command{Argv: []string{"codex-ask", "--cancel", run}, Timeout: readTimeout}); err != nil {
+			p.Log.Warn("cancelling a codex run failed", "run", run, "error", err)
 		}
 	}
 	return nil
