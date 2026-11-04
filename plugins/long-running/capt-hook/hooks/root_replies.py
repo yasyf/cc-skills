@@ -148,11 +148,16 @@ def owner_text(event: object) -> str:
             return ""
 
 
+def owner_message(event: object) -> str:
+    text = owner_text(event)
+    return text if text and not event.meta.is_meta and not text.lstrip().startswith(SYSTEM_PREFIXES) else ""
+
+
 def owner_turns(evt: BaseHookEvent) -> list[tuple[datetime, list[str]]]:
     return [
         (event.meta.timestamp.astimezone(PACIFIC), spoken(text))
         for event in evt.ctx.t.events
-        if (text := owner_text(event)) and not text.lstrip().startswith(SYSTEM_PREFIXES)
+        if (text := owner_message(event))
     ]
 
 

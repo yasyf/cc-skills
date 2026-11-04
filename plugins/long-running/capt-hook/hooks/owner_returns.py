@@ -20,7 +20,7 @@ from .lane_slack_status import CC_SLACK, CLI, WRITE_TOOLS
 from .register_capture import OPERATOR, slack_dms
 from .register_gates import blocker, cause
 from .root_context import OwnerPrompt
-from .root_replies import SENTENCE_END, SYSTEM_PREFIXES, owner_text
+from .root_replies import SENTENCE_END, owner_message
 from .tests.register_fixtures import DRIVE_CONFIG
 
 RETURN_GAP_SECONDS = 60 * 60
@@ -131,6 +131,10 @@ CARDED = '{"channel_id": "D0B6Z", "thread_ts": "1793635190.051179", "ts": "17936
 RELAY_CARD = {"title": "How do we fix the relay?", "body": "Each chat keeps its own replica, or they share one.", "options": ["Keep one shared replica", "Give each chat its own"], "recommended": "Give each chat its own"}
 RELAY_PR = "https://github.com/yasyf/cc-skills/pull/2196"
 LAND_CARD = {"title": "Land the relay fix tonight?", "body": f"Its checks passed: {RELAY_PR}", "options": ["Land", "Hold"], "recommended": "Land"}
+RESUMED = T.user("This session is being continued from a previous conversation that ran out of context.")
+CCI_WAKE = T.user('<channel source="plugin:cc-inbox:cci" kind="correction" lane="relay-join-1" seq="366942">Correction to 366939.</channel>', isMeta=True)
+NO_OUTPUT = T.user("[Your previous response had no visible output. Please continue and produce a user-visible response.]", isMeta=True)
+REMINDER_FEEDBACK = T.user(f"Stop hook feedback:\n{UNROUTED_REMINDER}", isMeta=True)
 
 
 @workflow_state("long_running_owner_returns")
@@ -250,6 +254,10 @@ def reminded(*calls: dict, decide: dict = REMINDED, asks: str | tuple = "") -> I
     return Input(transcript=[T.user(HIS_1_34_AM), *calls, T.assistant("On it.")], state=[CompactionState(active=True)], env=DRIVE_CONFIG, commands={ASKS: asks}, decide=decide)
 
 
+def woken(*said: dict) -> Input:
+    return Input(transcript=[*said, T.assistant("Correction to my last line: the rejoin proof failed.")], state=[CompactionState(active=True)], env=DRIVE_CONFIG, commands={ASKS: ""}, decide=REMINDED)
+
+
 def ask_to(*to: str) -> str:
     return json.dumps({"seq": 361445, "lane": "owner-relay", "kind": "ask", "to": list(to), "text": "owner:m47 name the row"})
 
@@ -297,6 +305,9 @@ def asked(reply: str, *calls: dict, words: str = HOW_FAR, decide: dict = ASKED) 
         reminded(*T.tool_turn("Bash", result="R1", command="bash ~/.claude/long-running/current/bin/orca-launch.sh /drive/fix-3 brief.md")): Allow(),
         reminded(decide=CALM): Allow(),
         reminded(decide=CALM | {"reminder": Refused()}): Allow(),
+        woken(RESUMED, CCI_WAKE, NO_OUTPUT): Allow(),
+        woken(RESUMED, NO_OUTPUT, REMINDER_FEEDBACK): Allow(),
+        woken(T.user(HIS_1_34_AM), NO_OUTPUT, REMINDER_FEEDBACK): Block(pattern=r"^Every owner reminder or correction spawns a meta tooling lane"),
         asked("relay-fix-2 opened its PR and CI is running (#359771, 3:02 AM, 8 minutes ago).", *TAILED): Allow(),
         asked("relay-fix-2 opened its PR and CI is running (#359771, 3:02 AM, 8 minutes ago).", *COMPACT_TAILED): Allow(),
         asked("relay-fix-2 opened its PR and CI is running (#359772, 3:02 AM, 8 minutes ago).", *COMPACT_TAILED): Block(pattern=r"never from what the lane is for"),
@@ -545,7 +556,7 @@ def explain_failed(evt: BaseHookEvent) -> bool:
 
 def owner_words(evt: BaseHookEvent) -> str:
     events = list(evt.ctx.turn.events)
-    typed = [text for event in events if (text := owner_text(event)) and not text.lstrip().startswith(SYSTEM_PREFIXES)]
+    typed = [text for event in events if (text := owner_message(event))]
     dms = slack_dms(evt, events)
     held = bool(dms) and dm_owed(evt)["holder_session"] == evt.session_id
     return "\n\n".join([*typed, *(dm["text"] for dm in dms if held)])

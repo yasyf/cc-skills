@@ -7,7 +7,7 @@ from pathlib import Path
 from captain_hook import Allow, BaseHookEvent, Block, Event, FromSubagent, HookResult, Input, T, on
 
 from .compaction_handoff import Communicator, communicator_tests, CompactionState
-from .root_replies import ACTIVE, PACIFIC, REPLY_WINDOW, SYSTEM_PREFIXES, owner_text
+from .root_replies import ACTIVE, PACIFIC, REPLY_WINDOW, owner_message
 
 PERMALINK = re.compile(r"https://[\w-]+\.slack\.com/archives/[A-Z0-9]+/p(?P<seconds>\d{10})(?P<micros>\d{6})(?:\?\S*?thread_ts=(?P<thread>\d{10}\.\d{6}))?")
 HANDOFF_TOOLS = frozenset({
@@ -74,6 +74,15 @@ def names(use: object, wanted: set[str]) -> bool:
             transcript=[ASKED, T.assistant(T.tool("mcp__plugin_cc-inbox_cci__post", kind="note", to="meta-desk-2", text=f"{LINK} is deleted; answered in the Lookups thread"), timestamp="2026-11-02T18:34:00Z")],
             state=ACTIVE,
         ): Allow(),
+        Input(
+            transcript=[
+                ASKED,
+                T.assistant(T.tool("Agent", name="bugs-comms-1", prompt=f"Follow up in {LINK}"), timestamp="2026-11-02T18:34:00Z"),
+                T.user(f"Stop hook feedback:\n10:33 AM {LINK}", isMeta=True, timestamp="2026-11-02T18:35:00Z"),
+                T.assistant("Routed."),
+            ],
+            state=ACTIVE,
+        ): Allow(),
         Input(transcript=[T.user(f"<teammate-message>{LINK}</teammate-message>", timestamp="2026-11-02T18:33:00Z"), T.assistant("Noted.")], state=ACTIVE): Allow(),
         Input(transcript=[ASKED, T.assistant("Looking into the bug reports.")]): Allow(),
     }),
@@ -85,7 +94,7 @@ def owner_slack_links_get_routed(evt: BaseHookEvent) -> HookResult | None:
     calls = evt.ctx.t.tool_calls.items
     lines = []
     for event in evt.ctx.t.events:
-        if not (text := owner_text(event)) or text.lstrip().startswith(SYSTEM_PREFIXES):
+        if not (text := owner_message(event)):
             continue
         asked = event.meta.timestamp
         for link in PERMALINK.finditer(text):
