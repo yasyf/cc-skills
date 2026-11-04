@@ -25,7 +25,7 @@ const (
 )
 
 var (
-	namedDeadline     = regexp.MustCompile(`(?i)\b(?:by|before|until|due(?:\s+(?:by|at))?)\s+(` + clockTime + `)\b`)
+	namedDeadline     = regexp.MustCompile(`(?i)\b(?:by|before|until|due(?:[ \t]+(?:by|at))?)[ \t]+(` + clockTime + `)\b`)
 	leadingClock      = regexp.MustCompile(`(?i)^(?:` + clockTime + `)\b`)
 	machineLanes      = []string{Lane, "stall-watch", "desk-runner", lanes.Self}
 	ordersOwingNoPlan = []string{"hold", "go", "lift"}
@@ -51,7 +51,7 @@ func deadlineOf(record client.Record) string {
 		return due
 	}
 	for _, at := range namedDeadline.FindAllStringSubmatchIndex(record.Text, -1) {
-		if !strings.HasSuffix(strings.ToLower(strings.TrimSpace(record.Text[:at[0]])), "since") {
+		if !strings.HasSuffix(strings.ToLower(strings.TrimSpace(record.Text[:at[0]])), "since") && !strings.HasPrefix(record.Text[at[3]:], ":") {
 			return record.Text[at[2]:at[3]]
 		}
 	}
