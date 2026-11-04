@@ -1,14 +1,25 @@
 package board
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/pass"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
@@ -121,5 +132,119 @@ func TestACardReadsTheNamedDriveAndSkipsOneThatEnded(t *testing.T) {
 		if len(found) != 1 || found[0].Drive != want {
 			t.Fatalf("cardDrives(%q) = %+v, want only %s", name, found, want)
 		}
+	}
+}
+
+type countedShell struct{ calls int }
+
+func (c *countedShell) Run(context.Context, shell.Command) (shell.Result, error) {
+	c.calls++
+	return shell.Result{}, fmt.Errorf("the card ran a command")
+}
+
+func passed(t *testing.T, s *store.Store, snapshot map[int]machine.Facts) {
+	t.Helper()
+	found := slices.Collect(maps.Values(snapshot))
+	if _, err := pass.Run(s, found, t0, func([]string, bus.Body) error { return nil }, nil, func(string) string { return "" }, func(string) (string, error) { return "", nil }); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestACardFromTheStoreIsTheCardTheLiveReadDraws(t *testing.T) {
+	for name, change := range map[string]func(*machine.Facts){
+		"untapped":           nil,
+		"tap given":          func(f *machine.Facts) { f.Tap, f.Condition = machine.TapConditional, "only if covered" },
+		"unsafe on dev":      func(f *machine.Facts) { f.UnsafeWait = "do not merge until the cutover" },
+		"lane the pass read": func(f *machine.Facts) { f.Lane = "lane-9" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			s, snapshot := withWords(t), facts(change)
+			passed(t, s, snapshot)
+			want, ok := Card(repo, rows(t, s, snapshot), number)
+			if !ok {
+				t.Fatal("the live read drew no card")
+			}
+			stored, err := StoredRows(s, repo, []int{number})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got, ok := Card(repo, stored, number); !ok || !reflect.DeepEqual(got, want) {
+				t.Fatalf("stored card = %+v, want %+v", got, want)
+			}
+		})
+	}
+}
+
+func TestATapOnTheCardTakesItOffBeforeTheNextPass(t *testing.T) {
+	s, hooks := withWords(t), &recorded{}
+	passed(t, s, facts(nil))
+	found, err := StoredRows(s, repo, []int{number})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Respond(s, repo, hooks.hooks(), found, number, MergeWaits(number, head), "Merge", t0); err != nil {
+		t.Fatal(err)
+	}
+	if again, err := StoredRows(s, repo, []int{number}); err != nil || len(again) != 0 {
+		t.Fatalf("rows after his tap = %+v, %v", again, err)
+	}
+}
+
+func TestTheCardReadsNothingButTheStoreAtOneAndAThousandPRs(t *testing.T) {
+	for _, n := range []int{1, 1000} {
+		t.Run(strconv.Itoa(n), func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("CLAUDE_CONFIG_DIR", home)
+			registry, state := filepath.Join(home, "long-running", "drives"), filepath.Join(home, "running")
+			for _, dir := range []string{registry, state} {
+				if err := os.MkdirAll(dir, 0o700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			cfg := fmt.Sprintf(`{"repo":%q,"drive":"running","checkout":"/c","author":"a","label":"l","movers":["lanes"]}`, repo)
+			entry := fmt.Sprintf(`{"drive":"running","repo":%q,"state_dir":%q,"sessions":["s"]}`, repo, state)
+			for path, body := range map[string]string{filepath.Join(state, configFile): cfg, filepath.Join(registry, "running.json"): entry} {
+				if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			s, err := store.Open(filepath.Join(state, "lr.sqlite"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			snapshot := map[int]machine.Facts{}
+			asked := make([]SlackPR, n)
+			for i := range n {
+				f := facts(nil)[number]
+				f.Number = number + i
+				snapshot[f.Number], asked[i] = f, SlackPR{repo, f.Number}
+			}
+			passed(t, s, snapshot)
+			if err := s.Close(); err != nil {
+				t.Fatal(err)
+			}
+			counted := &countedShell{}
+			ask, err := json.Marshal(map[string]any{"prs": asked})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var out strings.Builder
+			cmd := Command(&app.App{Runner: counted, CCX: ccx.CLI{Runner: counted}, Now: func() time.Time { return t0 }})
+			cmd.SetArgs([]string{"card", "--drive", "running", "--lane", "board-watch"})
+			cmd.SetIn(strings.NewReader(string(ask)))
+			cmd.SetOut(&out)
+			if err := cmd.Execute(); err != nil {
+				t.Fatal(err)
+			}
+			var answer struct {
+				Cards []SlackPRCard `json:"cards"`
+			}
+			if err := json.Unmarshal([]byte(out.String()), &answer); err != nil {
+				t.Fatal(err)
+			}
+			if len(answer.Cards) != n || counted.calls != 0 {
+				t.Fatalf("%d cards for %d PRs with %d commands run, want %d and none", len(answer.Cards), n, counted.calls, n)
+			}
+		})
 	}
 }

@@ -1,6 +1,7 @@
 package pass
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"slices"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/grading"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
@@ -181,6 +183,15 @@ func classifyOne(s *store.Store, f machine.Facts, byBranch map[string]machine.Fa
 	item, err := s.OpenItem(store.NewItem{Kind: string(verdict.Action), Repo: f.Repo, Number: f.Number, Head: f.Head, Mover: verdict.Mover, Deadline: verdict.Deadline}, now)
 	if err != nil {
 		return err
+	}
+	if verdict.Action == machine.ActionTap {
+		missing, err := json.Marshal(gates.Missing(f))
+		if err != nil {
+			return err
+		}
+		if _, err := s.PutFact(f.Repo, f.Number, f.Head, gates.MissingFact, string(missing), now); err != nil {
+			return err
+		}
 	}
 	if item.Created.Equal(now) {
 		out.Opened = append(out.Opened, item)

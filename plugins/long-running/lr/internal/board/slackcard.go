@@ -14,7 +14,10 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
@@ -78,6 +81,28 @@ func Card(repo string, rows []Row, number int) (SlackCard, bool) {
 	}, true
 }
 
+func StoredRows(s *store.Store, repo string, numbers []int) ([]Row, error) {
+	open, err := s.OpenRows(repo, string(machine.ActionTap), machine.MoverOwner, numbers)
+	if err != nil {
+		return nil, err
+	}
+	var out []Row
+	for _, row := range open {
+		_, exempt := row.Facts["exempt"]
+		if (machine.Facts{Tap: machine.Tap(row.Facts[tapFact]), Exempt: exempt}).Tapped() {
+			continue
+		}
+		var missing []string
+		if said := row.Facts[gates.MissingFact]; said != "" {
+			if err := json.Unmarshal([]byte(said), &missing); err != nil {
+				return nil, fmt.Errorf("#%d at %s: the gates its pass stored: %w", row.Number, short(row.Head), err)
+			}
+		}
+		out = append(out, Row{row.Number, row.Head, row.Kind, row.Lane, missing, row.Facts})
+	}
+	return out, nil
+}
+
 func Holders(s *store.Store, numbers []int, held []SlackPR) ([]SlackPR, error) {
 	prs, err := s.NumberedPRs(numbers)
 	if err != nil {
@@ -126,7 +151,7 @@ func slackCardCommand(a *app.App) *cobra.Command {
 				if at < 0 {
 					return fmt.Errorf("no live drive holds %s#%d", k.Repo, k.Number)
 				}
-				return withRows(c, a, live[at], func(s *store.Store, repository string, rows []Row) error {
+				return withRows(c, live[at], []int{k.Number}, func(s *store.Store, repository string, rows []Row) error {
 					return Respond(s, repository, postHooks(c.Context(), live[at].Bus(), lane, repository), rows, k.Number, k.Waits, k.Label, a.Now())
 				})
 			}
@@ -151,7 +176,11 @@ func slackCardCommand(a *app.App) *cobra.Command {
 				if len(held) == 0 {
 					continue
 				}
-				if err := withRows(c, a, entry, func(_ *store.Store, repository string, rows []Row) error {
+				numbers := make([]int, len(held))
+				for i, pr := range held {
+					numbers[i] = pr.Number
+				}
+				if err := withRows(c, entry, numbers, func(_ *store.Store, repository string, rows []Row) error {
 					for _, pr := range held {
 						if card, ok := Card(repository, rows, pr.Number); ok {
 							cards = append(cards, SlackPRCard{pr, card})
@@ -187,19 +216,19 @@ func cardDrives(name string) ([]drive.Entry, error) {
 	}), nil
 }
 
-func withRows(c *cobra.Command, a *app.App, entry drive.Entry, use func(*store.Store, string, []Row) error) error {
+func withRows(c *cobra.Command, entry drive.Entry, numbers []int, use func(*store.Store, string, []Row) error) error {
+	cfg, err := config.Load(filepath.Join(entry.StateDir, configFile), c.ErrOrStderr())
+	if err != nil {
+		return err
+	}
 	s, err := store.Open(entry.Store())
 	if err != nil {
 		return err
 	}
 	defer func() { _ = s.Close() }()
-	repository, snapshot, err := snapshotOf(c.Context(), a, entry, s, c.ErrOrStderr())
+	rows, err := StoredRows(s, cfg.Repo, numbers)
 	if err != nil {
 		return err
 	}
-	rows, err := Rows(s, repository, snapshot)
-	if err != nil {
-		return err
-	}
-	return use(s, repository, rows)
+	return use(s, cfg.Repo, rows)
 }
