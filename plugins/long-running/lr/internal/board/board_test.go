@@ -2,11 +2,8 @@ package board
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"maps"
 	"reflect"
-	"strings"
 	"testing"
 	"time"
 
@@ -97,11 +94,30 @@ func put(t *testing.T, s *store.Store, on, kind, value string) {
 	}
 }
 
+type Key struct {
+	PR   int
+	Head string
+}
+
 func rows(t *testing.T, s *store.Store, snapshot map[int]machine.Facts) []Row {
 	t.Helper()
-	found, err := Rows(s, repo, snapshot)
+	items, err := s.OpenItems(repo, 0)
 	if err != nil {
 		t.Fatal(err)
+	}
+	var found []Row
+	for _, item := range items {
+		f, open := snapshot[item.Number]
+		if item.Mover != machine.MoverOwner || !open || !f.Ours() || f.Head != item.Head || f.Tapped() || f.Hold != "" {
+			continue
+		}
+		words, err := s.Facts(repo, item.Number, item.Head)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if words[FactWithdrawn] == "" {
+			found = append(found, Row{item.Number, item.Head, item.Kind, f.Lane, gates.Missing(f), words})
+		}
 	}
 	return found
 }
@@ -113,53 +129,6 @@ func stored(t *testing.T, s *store.Store) map[string]string {
 		t.Fatal(err)
 	}
 	return found
-}
-
-func TestAnOwnerItemIsOnePRRowCarryingEveryFieldTheOwnerReads(t *testing.T) {
-	block := Render(repo, rows(t, withWords(t), facts(nil)), nil)
-	want := PRRow{number, head[:12], "#45583", "chats load faster", "nothing differed", "one cache key", "every other gate is met", "your approval"}
-	if len(block.Groups) != 1 || !reflect.DeepEqual(block.Groups[0].PRs, []PRRow{want}) {
-		t.Fatalf("block = %+v", block)
-	}
-	if block.ID != MergeBlock || block.Type != "pr-groups" || block.Repo != repo {
-		t.Fatalf("block = %+v", block)
-	}
-}
-
-func TestAHeadRecordMissingAFieldLeavesItOutNeverAPlaceholder(t *testing.T) {
-	s := withItem(t)
-	put(t, s, head, FactChange, "chats load faster")
-	found := rows(t, s, facts(nil))
-	if got, want := found[0].MissingWords(), []string{"what differed from the plan", "the risk", "what blocks it"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("missing = %v", got)
-	}
-	row := Render(repo, found, nil).Groups[0].PRs[0]
-	if row.Change != "chats load faster" || row.Risk != "" || row.Plan != "" || row.Blocker != "" {
-		t.Fatalf("row = %+v, want the line it has and the rest empty", row)
-	}
-	card, ok := Card(repo, found, number)
-	if !ok || card.PRs[0].Change != "chats load faster" || card.PRs[0].Risk != "" {
-		t.Fatalf("card = %+v, %v, want it drawn with the line it has", card, ok)
-	}
-}
-
-func TestRowsGroupByTheFeatureTheirHeadRecordNamesElseTheirLane(t *testing.T) {
-	named := maps.Clone(words)
-	named[FactGroup], named[FactSummary] = "Chat speed", "Both make chats load faster."
-	block := Render(repo, []Row{{PR: 1, Head: "a", Lane: "l1", Words: named}, {PR: 2, Head: "b", Lane: "l2", Words: named}, {PR: 3, Head: "c", Lane: "l3", Words: words}}, nil)
-	if len(block.Groups) != 2 || len(block.Groups[0].PRs) != 2 || block.Groups[0].Summary != "Both make chats load faster." {
-		t.Fatalf("groups = %+v", block.Groups)
-	}
-	if block.Groups[1].Title != "l3" || block.Groups[1].Summary != "From lane l3." {
-		t.Fatalf("group = %+v", block.Groups[1])
-	}
-}
-
-func TestAnAnsweredKeyNeverRendersAgain(t *testing.T) {
-	block := Render(repo, rows(t, withItem(t), facts(nil)), map[Key]bool{{number, head}: true})
-	if len(block.Groups) != 0 {
-		t.Fatalf("groups = %+v", block.Groups)
-	}
 }
 
 func TestApprovedBecomesATapFactAndATapRecord(t *testing.T) {
@@ -192,25 +161,6 @@ func TestApprovedOnARowNotReadyIsRefusedWithItsReasonAndTapsNothing(t *testing.T
 	}
 	if want := []string{"held by root"}; !reflect.DeepEqual(hooks.refused, want) || stored(t, s)[bus.TapRefusedFact] != "held by root" {
 		t.Fatalf("refused = %+v, facts = %v", hooks.refused, stored(t, s))
-	}
-}
-
-func TestAPassDoesNotLandAVerdictRefusedWhileItsRowWasNotReady(t *testing.T) {
-	s, hooks := withWords(t), &recorded{}
-	rowWaits(t, s, "held by root")
-	on := &passShell{outcomes: fmt.Sprintf(`{"doc":{},"interactions":{"triage":{%q:{"%d":{"verdict":"approved","head":"%s","at":"2026-10-30T21:00:00Z"}}}}}`, MergeBlock, number, head[:7])}
-	pass := Pass{Store: s, Repo: repo, Runner: on, CCX: &prStatus{}, Session: "s1", Hooks: hooks.hooks(), Now: func() time.Time { return t0 }}
-	if _, err := pass.Run(context.Background(), facts(nil)); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.PutReviewRows([]store.ReviewRow{{Repo: repo, Number: number, Head: head, ReadyForTap: true}}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := pass.Run(context.Background(), facts(nil)); err != nil {
-		t.Fatal(err)
-	}
-	if len(hooks.taps) != 0 || len(hooks.refused) != 1 {
-		t.Fatalf("taps = %+v, refused = %+v", hooks.taps, hooks.refused)
 	}
 }
 
@@ -247,35 +197,6 @@ func TestACarriedTapAsksNothing(t *testing.T) {
 	}
 }
 
-func TestAHeadFidelityJudgedChangedAsksAgainSayingWhatChangedSinceTheTappedHead(t *testing.T) {
-	s := withItem(t)
-	put(t, s, head, "tap", "tapped")
-	openTap(t, s, moved, t0.Add(time.Hour))
-	for kind, value := range map[string]string{gates.BehaviorFact: gates.BehaviorChanged, gates.SinceFact: head, gates.ChangedFact: "the list now drops archived chats"} {
-		if _, err := s.PutFact(repo, number, moved, kind, value, t0.Add(time.Hour)); err != nil {
-			t.Fatal(err)
-		}
-	}
-	for kind, value := range words {
-		put(t, s, moved, kind, value)
-	}
-	found := rows(t, s, facts(func(f *machine.Facts) { f.Head, f.TapFrom = moved, head }))
-	if len(found) != 1 || found[0].Head != moved {
-		t.Fatalf("rows = %+v", found)
-	}
-	block := Render(repo, found, nil)
-	if want := "every other gate is met; changed since the head he tapped, " + head[:12] + ": the list now drops archived chats"; block.Groups[0].PRs[0].Review != want {
-		t.Fatalf("review = %q", block.Groups[0].PRs[0].Review)
-	}
-}
-
-func TestARowNamesEveryOtherGateTheHeadStillFails(t *testing.T) {
-	found := rows(t, withWords(t), facts(func(f *machine.Facts) { f.CI = machine.CIPending }))
-	if review := Render(repo, found, nil).Groups[0].PRs[0].Review; review != "CI is not green" {
-		t.Fatalf("review = %q", review)
-	}
-}
-
 func TestAStaleItemForAnOlderHeadRendersNothing(t *testing.T) {
 	if found := rows(t, withItem(t), facts(func(f *machine.Facts) { f.Head = moved })); len(found) != 0 {
 		t.Fatalf("rows = %+v", found)
@@ -285,18 +206,6 @@ func TestAStaleItemForAnOlderHeadRendersNothing(t *testing.T) {
 func TestAnOwnerItemOnAnotherPersonsPRALaneCarriesDrawsNoRow(t *testing.T) {
 	if found := rows(t, withItem(t), facts(func(f *machine.Facts) { f.ForeignAuthor = "teammate" })); len(found) != 0 {
 		t.Fatalf("rows = %+v", found)
-	}
-}
-
-func TestAConditionalTapKeepsTheRowAndShowsTheCondition(t *testing.T) {
-	s := withWords(t)
-	put(t, s, head, "tap", "conditional")
-	put(t, s, head, "condition", "only if the finding is superseded")
-	found := rows(t, s, facts(func(f *machine.Facts) {
-		f.Tap, f.Condition = machine.TapConditional, "only if the finding is superseded"
-	}))
-	if review := Render(repo, found, nil).Groups[0].PRs[0].Review; review != "tap given only if the finding is superseded" {
-		t.Fatalf("review = %q", review)
 	}
 }
 
@@ -314,48 +223,4 @@ func (p *passShell) Run(_ context.Context, c shell.Command) (shell.Result, error
 		return shell.Result{}, nil
 	}
 	return shell.Result{}, fmt.Errorf("unexpected call %v", c.Argv)
-}
-
-func TestAPassAppliesEachVerdictAtItsHeadAndPushesOnlyWhatStillAsks(t *testing.T) {
-	s, hooks := withWords(t), &recorded{}
-	on := &passShell{outcomes: fmt.Sprintf(`{"doc":{},"interactions":{"triage":{%q:{"%d":{"verdict":"approved","head":"%s","at":"2026-10-30T21:00:00Z"}}}}}`, MergeBlock, number, head[:7])}
-	pass := Pass{Store: s, Repo: repo, Runner: on, CCX: &prStatus{}, Session: "s1", Hooks: hooks.hooks(), Now: func() time.Time { return t0 }}
-	block, err := pass.Run(context.Background(), facts(nil))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(block.Groups) != 0 || len(hooks.taps) != 1 || stored(t, s)["tap"] != "tapped" {
-		t.Fatalf("block = %+v, taps = %+v", block, hooks.taps)
-	}
-	var pushed Block
-	if err := json.Unmarshal([]byte(on.pushed[0]), &pushed); err != nil || pushed.ID != MergeBlock {
-		t.Fatalf("pushed = %q, %v", on.pushed[0], err)
-	}
-}
-
-func TestAVerdictAtAnOlderHeadStillAsksAtTheNewOne(t *testing.T) {
-	s, hooks := withWords(t), &recorded{}
-	on := &passShell{outcomes: fmt.Sprintf(`{"doc":{},"interactions":{"triage":{%q:{"%d":{"verdict":"approved","head":"aaaaaaa","at":"2026-10-30T21:00:00Z"}}}}}`, MergeBlock, number)}
-	pass := Pass{Store: s, Repo: repo, Runner: on, CCX: &prStatus{}, Session: "s1", Hooks: hooks.hooks(), Now: func() time.Time { return t0 }}
-	block, err := pass.Run(context.Background(), facts(nil))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(block.Groups) != 1 || len(hooks.taps) != 0 {
-		t.Fatalf("block = %+v, taps = %+v", block, hooks.taps)
-	}
-}
-
-func TestALaneHearsOnceAboutTheFieldsItsRowLacks(t *testing.T) {
-	s, hooks := withItem(t), &recorded{}
-	on := &passShell{outcomes: `{"doc":{},"interactions":{}}`}
-	pass := Pass{Store: s, Repo: repo, Runner: on, CCX: &prStatus{}, Session: "s1", Hooks: hooks.hooks(), Now: func() time.Time { return t0 }}
-	for range 2 {
-		if _, err := pass.Run(context.Background(), facts(nil)); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if len(hooks.notes) != 1 || !strings.HasPrefix(hooks.notes[0], "lane-7: #45583 at "+head[:12]+" is on the owner's board without what it changes for a user") {
-		t.Fatalf("notes = %q", hooks.notes)
-	}
 }

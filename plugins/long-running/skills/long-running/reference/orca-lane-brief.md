@@ -156,6 +156,7 @@ Address `head` and `state` records `--to desk-runner,fidelity-pipeline,finder-de
   the coordinator hears asks, decides, blockers, defects, incidents, corrections and withdraws.
 Address every lane by its stem, the name without a trailing `-<n>`, such as `--to board-refresher`; cci delivers it to the
   stem's newest live lane, and a stood-down lane's mail to its successor.
+Your PRs are the rows of `lr board rows`; keep no list of your own, and put a PR's state in its records rather than asking anyone for a board entry.
 A choice that is the owner's goes to him as one record: `cci post --kind ask --to board-refresher "CARD: card-<slug>: <question>" --path <card.json>`, options recommended first, with a `From:` line: the plan step and date, his ruling id, or whose PR it ports. Prose naming his pick is flagged as an untyped choice.
 Standing rules register: <id of the newest `standing-rules:<slug>` doc, or "none">.
   Claude lanes receive the register once at start through hooks.

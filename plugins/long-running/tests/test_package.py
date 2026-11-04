@@ -20,7 +20,7 @@ def test_engine_has_one_canonical_package_identity(name):
     assert name not in sys.modules
 
 
-@pytest.mark.parametrize("name", ("board_rows", "drive", "ledger", "rulings"))
+@pytest.mark.parametrize("name", ("drive", "ledger", "rulings"))
 def test_stable_cli_entrypoint_from_an_unrelated_directory(name, tmp_path):
     result = subprocess.run(
         [sys.executable, str(SCRIPTS / f"{name}.py"), "--help"],

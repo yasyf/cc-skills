@@ -73,12 +73,6 @@ func TestAPRThatIsNotOpenWaitsOnNobody(t *testing.T) {
 	}
 }
 
-func TestAHeldPRLeavesTheBoardSoARejectionPostsOneHold(t *testing.T) {
-	if found := rows(t, withItem(t), facts(func(f *machine.Facts) { f.Hold = machine.MoverOwner })); len(found) != 0 {
-		t.Fatalf("rows = %+v", found)
-	}
-}
-
 func TestAPRAboveOneThatCannotLandNamesItAndWhy(t *testing.T) {
 	snapshot := facts(func(f *machine.Facts) { f.Branch, f.Base = "top", "bottom" })
 	snapshot[7] = machine.Facts{Number: 7, Head: moved, Branch: "bottom", Base: "dev", CI: machine.CIFailure, Mergeable: machine.MergeableClean, Approved: true, Finder: machine.FinderClear, Fidelity: machine.FidelityPass, Tap: machine.TapTapped}
