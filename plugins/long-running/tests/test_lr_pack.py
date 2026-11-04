@@ -167,6 +167,12 @@ def test_compactions_in_reads_boundaries_from_an_offset(tmp_path):
     assert pack.compactions_in(transcript, offset) == ([], offset)
 
 
+def registered_drive(config: Path, terminal: str) -> None:
+    drives = config / "long-running" / "drives"
+    drives.mkdir(parents=True)
+    (drives / "900424b6.json").write_text(json.dumps({"drive": "900424b6", "sessions": ["root-session"], "root_terminal": terminal}))
+
+
 @pytest.mark.parametrize(
     ("session", "named", "binds"),
     [
@@ -176,12 +182,12 @@ def test_compactions_in_reads_boundaries_from_an_offset(tmp_path):
         ("lane-session", "900424b6", False),
     ],
 )
-def test_a_coordinator_session_rebinds_the_prompt_watch_to_its_terminal(monkeypatch, session, named, binds):
+def test_a_coordinator_session_rebinds_the_prompt_watch_to_its_terminal(monkeypatch, tmp_path, session, named, binds):
     spawned = []
+    registered_drive(tmp_path, "term_old")
     monkeypatch.setattr(hook.subprocess, "Popen", lambda argv, **kw: spawned.append((argv, kw["start_new_session"])))
-    monkeypatch.setattr(hook.reqenv, "getenv", {"ORCA_TERMINAL_HANDLE": "term_new", "CLAUDE_LONG_RUNNING_DRIVE": named}.get)
+    monkeypatch.setattr(hook.reqenv, "getenv", {"ORCA_TERMINAL_HANDLE": "term_new", "CLAUDE_LONG_RUNNING_DRIVE": named, "CLAUDE_CONFIG_DIR": str(tmp_path)}.get)
     monkeypatch.setattr(hook.reqenv, "env_map", dict)
-    monkeypatch.setattr(hook, "entries", lambda: [{"drive": "900424b6", "sessions": ["root-session"], "root_terminal": "term_old"}])
 
     assert hook.bind_prompt_watch_to_this_terminal(SimpleNamespace(session_id=session)) is None
 
@@ -189,11 +195,11 @@ def test_a_coordinator_session_rebinds_the_prompt_watch_to_its_terminal(monkeypa
     assert spawned == ([(bind, True)] if binds else [])
 
 
-def test_a_coordinator_session_already_in_the_saved_terminal_binds_nothing(monkeypatch):
+def test_a_coordinator_session_already_in_the_saved_terminal_binds_nothing(monkeypatch, tmp_path):
     spawned = []
+    registered_drive(tmp_path, "term_same")
     monkeypatch.setattr(hook.subprocess, "Popen", lambda argv, **kw: spawned.append(argv))
-    monkeypatch.setattr(hook.reqenv, "getenv", {"ORCA_TERMINAL_HANDLE": "term_same"}.get)
-    monkeypatch.setattr(hook, "entries", lambda: [{"drive": "900424b6", "sessions": ["root-session"], "root_terminal": "term_same"}])
+    monkeypatch.setattr(hook.reqenv, "getenv", {"ORCA_TERMINAL_HANDLE": "term_same", "CLAUDE_CONFIG_DIR": str(tmp_path)}.get)
 
     hook.bind_prompt_watch_to_this_terminal(SimpleNamespace(session_id="root-session"))
 

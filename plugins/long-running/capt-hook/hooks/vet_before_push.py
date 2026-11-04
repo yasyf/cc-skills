@@ -9,6 +9,7 @@ from captain_hook import Allow, BaseHookEvent, Block, Call, Event, HookResult, I
 from captain_hook.util.builds import LOAD_PER_CORE, is_local_build
 from pydantic import BaseModel
 
+from .call_dir import UnknownDirectory, unknown_dir
 from .compaction_handoff import COMMUNICATOR_LANE, ROOT_LANE, Bound
 from .lane_landing import HELP_FLAGS, lane_name, program, run_quietly
 
@@ -125,6 +126,8 @@ def remote_vet_checks(base: Path, args: tuple[str, ...]) -> list[tuple[str, Path
 
 
 def compiles(evt: BaseHookEvent, call: Call) -> list[tuple[str, Path, bool]]:
+    if unknown_dir(evt, call):
+        return []
     base = Path(evt.cwd, call.cwd or ".")
     if call.name == "go":
         return go_checks(base, call.args)
@@ -228,6 +231,8 @@ def ts_commands(evt: BaseHookEvent, top: Path, changed: list[Path]) -> list[str]
 
 
 def branch_diff(evt: BaseHookEvent, call: Call, *flags: str) -> tuple[Path, str] | str:
+    if unknown_dir(evt, call):
+        return str(UnknownDirectory(call))
     if not (shown := run_quietly(["git", "rev-parse", "--show-toplevel"], str(Path(evt.cwd, call.cwd or ".")))) or shown.returncode or not shown.stdout.strip():
         return "the checkout's top level did not read"
     top = Path(shown.stdout.strip())
@@ -241,10 +246,12 @@ def unchecked(evt: BaseHookEvent, call: Call) -> list[str] | str:
     if isinstance(diffed := branch_diff(evt, call, "--name-only"), str):
         return diffed
     top, names = diffed
+    changed = [top / line for line in names.splitlines() if line.strip()]
+    if not any(path.suffix == ".go" or path.suffix in TS_SUFFIXES for path in changed):
+        return []
     sparse = run_quietly(["git", "config", "--bool", "--default", "false", "core.sparseCheckout"], str(top))
     if not sparse or sparse.returncode or sparse.stdout.strip() == "true":
         return "sparse checkout: `lr sparse add <dir>`; TypeScript: `node_modules/.bin/tsgo --noEmit -p <project> --preserveSymlinks false --composite false`"
-    changed = [top / line for line in names.splitlines() if line.strip()]
     go = go_commands(evt, top, changed)
     return go if isinstance(go, str) else go + ts_commands(evt, top, changed)
 
@@ -265,8 +272,10 @@ def unchecked(evt: BaseHookEvent, call: Call) -> list[str] | str:
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=REPO | {"git diff": "docs/vm.md\n.github/workflows/ci.yml\n"}): Allow(),
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=GO_DIFF | {"go env GOROOT": (127, "go: not found")}): Warn(pattern=r"^Warning, nothing was refused: no Go toolchain"),
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=GO_DIFF | {"git config --bool --default false core.sparseCheckout": "true\n"}): Warn(pattern=r"sparse checkout"),
+        Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=REPO | {"git diff": "docs/vm.md\n", "git config --bool --default false core.sparseCheckout": "true\n"}): Allow(),
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=REPO | {"git diff": (128, "fatal: bad revision 'origin/HEAD'")}): Warn(pattern=r"`origin/HEAD` did not read"),
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=REPO | {"git diff": "tools/loose/main.go\n"}): Warn(pattern=r"has no `go.mod`"),
+        Input(command=f". /env.sh; cd $A; {SHIP}", env=LANE_ENV, cwd=str(FIXTURE), commands=GO_DIFF): Warn(pattern=r"`cd` this hook cannot follow"),
         Input(command="git push --dry-run", env=LANE_ENV, cwd=str(FIXTURE), commands=GO_DIFF): Allow(),
         Input(command="ccx vcs ship --help", env=LANE_ENV, cwd=str(FIXTURE), commands=GO_DIFF): Allow(),
         Input(command="gofmt -l . ; git log -1 ; git push -h", env=LANE_ENV, cwd=str(FIXTURE), commands=GO_DIFF): Allow(),

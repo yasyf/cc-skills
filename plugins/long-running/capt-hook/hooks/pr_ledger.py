@@ -11,10 +11,11 @@ from dataclasses import dataclass
 from functools import cache, partial
 from pathlib import Path
 
-from captain_hook import Allow, Annotated, BaseHookEvent, Block, Call, Event, HookResult, Input, Or, Runs, Tool, on
+from captain_hook import Allow, Annotated, BaseHookEvent, Block, Call, Event, HookResult, Input, Or, Runs, Tool, Warn, on
 from captain_hook.util import reqenv
 
-from .compaction_handoff import Bound, script
+from .compaction_handoff import Bound, drive_entry, script
+from .lane_landing import outside_drive_repo
 from .session_tree import drive_lane
 from .tests.ledger_fixtures import FIXTURES
 
@@ -108,6 +109,7 @@ UNSETTLED = (
 LANDED = f"{sys.executable} {script('drive.py')} landed"
 UNPOSTED = "#{number} has no fresh row in the landing store: {reason}. It stays out of Waiting on you until `ccx vcs ship --no-commit --pr-body-file <body>` posts it."
 SHIP_NEEDS_BODY = "This ship opens a PR, and a drive PR's row takes its card from the body: write the body first and pass `--pr-body-file <path>`. `--no-pr` or `--no-push` opens nothing."
+SHIP_CLIPPED = "This ship's output was cut before its PR line, so the PR has no board row and no head record. Rerun `ccx vcs ship --no-commit --pr-body-file <body>` with no pipe."
 DETACHED_LOG = Path.home() / ".cache" / "ccn-ledger" / "detached-drive.log"
 LANE_ENV = {"CLAUDE_LONG_RUNNING_DRIVE": "d", "CLAUDE_LONG_RUNNING_LANE": "lane-a"}
 NOT_OPEN = {"gh pr view": (1, 'no pull requests found for branch "lane/fix"')}
@@ -264,13 +266,20 @@ def ledger_note(evt: BaseHookEvent, prs: list[OpenedPr]) -> str | None:
         ): Allow(),
         Input(command="gh pr view 28534", output="https://github.com/Forge-AI/monorepo/pull/28534"): Allow(),
         Input(command="ccx vcs ship -m 'ci: ✨ x' --no-push", output="committed 1caa098d30 \"ci: ✨ x\""): Allow(),
+        Input(command="ccx vcs ship -m 'ci: ✨ x' | tail -3", output="pushes lane/fix", env=LANE_ENV, cwd="/"): Warn(pattern=r"^This ship's output was cut"),
+        Input(command="ccx vcs ship -m 'ci: ✨ x' --no-push | tail -3", output="committed 1caa098d30", env=LANE_ENV, cwd="/"): Allow(),
+        Input(command="ccx vcs ship -m 'ci: ✨ x'", output="pushes lane/fix", env=LANE_ENV, cwd="/"): Allow(),
     },
 )
 def record_opened_prs(evt: BaseHookEvent) -> HookResult | None:
     if not (prs := opened_prs(response_text(evt.tool_response))):
-        return None
+        return evt.context(SHIP_CLIPPED) if any(ship_output_clipped(evt, call) for call in ship_calls(evt)) else None
     notes = [note for note in (ledger_note(evt, prs), *post_row_records(evt, prs)) if note]
     return evt.context("\n".join(notes)) if notes else None
+
+
+def ship_output_clipped(evt: BaseHookEvent, call: Call) -> bool:
+    return call.occurrence.piped and not SHIP_OPENS_NOTHING.intersection(call.args) and not outside_drive_repo(evt, call, drive_entry(evt))
 
 
 def opens_a_pr(call: Call) -> bool:

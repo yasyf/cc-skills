@@ -1,30 +1,16 @@
 from __future__ import annotations
 
-import json
 import subprocess
 from pathlib import Path
 
 from captain_hook import Allow, BaseHookEvent, Event, FromSubagent, HookResult, Input, on
 from captain_hook.util import reqenv
 
-from .compaction_handoff import LR, CompactionState, Coordinator, coordinator_tests
+from .compaction_handoff import LR, CompactionState, Coordinator, coordinator_tests, drive_entry
 from .lane_rotation import DriveActive
 
 FIXTURES = Path(__file__).parent / "tests" / "fixtures"
 DRIVE_ENV = {"CLAUDE_LONG_RUNNING_DRIVE": "900424b6", "CLAUDE_CONFIG_DIR": str(FIXTURES / "claude-config")}
-
-
-def config_dir() -> Path:
-    return Path(reqenv.getenv("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
-
-
-def entries() -> list[dict]:
-    return [json.loads(path.read_text()) for path in sorted((config_dir() / "long-running" / "drives").glob("*.json"))]
-
-
-def entry_of(evt: BaseHookEvent) -> dict | None:
-    named = reqenv.getenv("CLAUDE_LONG_RUNNING_DRIVE")
-    return next((entry for entry in entries() if entry["drive"] == named or (not named and evt.session_id in entry["sessions"])), None)
 
 
 @on(
@@ -41,7 +27,7 @@ def entry_of(evt: BaseHookEvent) -> dict | None:
     }),
 )
 def bind_prompt_watch_to_this_terminal(evt: BaseHookEvent) -> HookResult | None:
-    entry = entry_of(evt)
+    entry = drive_entry(evt)
     handle = reqenv.getenv("ORCA_TERMINAL_HANDLE")
     if entry and handle and evt.session_id in entry["sessions"] and handle != entry.get("root_terminal"):
         subprocess.Popen([str(LR), "watch", "prompts", "bind", "--drive", entry["drive"], "--root-terminal", handle], env=dict(reqenv.env_map()), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
