@@ -70,6 +70,15 @@ Do:
      that says the fix itself is wrong, ending the push with `# fix-is-wrong: <slug>`. Never run stack-enqueue, rebase, or push
      a queued branch. A red check the branch rules do not require is read for its
      content and never waited on.
+     A fix that adds capacity, such as disk, memory, replicas or a limit, is
+     headroom: before `FIX-LIVE`, name what stopped the thing that used to
+     reclaim it and the PR or commit that stopped it, found in the subsystem's
+     recent PRs and `ccn answer search <subsystem>`, and put both in the
+     `FIX-LIVE` line, which a hook refuses without them.
+     A hand apply's `applied` record names the file:line or row that next
+     writes the same field and whether it agrees, and a capacity `FIX-LIVE`
+     waits until that writer's PR carrying the applied value is live, or says
+     the writer does not reset it.
   3. The orca desk's clock runs from your launch. It reads the cci records you
      post as `{lane}`. Post each line with `cci post --drive <drive>
      --lane {lane} --kind <kind> --to <deploy lane> --topic {parent} --text "<line>"`,

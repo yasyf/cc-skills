@@ -137,6 +137,15 @@ Do:
      Name what lies under the trigger: the order or dependency that let it break
      this path. A fix that stops the trigger and leaves that order says so and names
      who owes the rest.
+     A fix that adds capacity, such as disk, memory, replicas or a limit, is
+     headroom: before `FIX-LIVE`, name what stopped the thing that used to
+     reclaim it and the PR or commit that stopped it, found in the subsystem's
+     recent PRs and `ccn answer search <subsystem>`, and put both in the
+     `FIX-LIVE` line, which a hook refuses without them.
+     A hand apply's `applied` record names the file:line or row that next
+     writes the same field and whether it agrees, and a capacity `FIX-LIVE`
+     waits until that writer's PR carrying the applied value is live, or says
+     the writer does not reset it.
      Read the paging monitor too (`pup --no-agent --read-only monitors get <id>`):
      one created or modified in the last hour is the first suspect, ahead of the
      product, and so is the release that applied it, finished or failed; a failed
