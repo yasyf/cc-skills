@@ -37,7 +37,7 @@ A lane that needs a devbox or an EC2 Mac box is `place=local why=devbox`, since 
 
 A local lane that sends a build to a shared Sprite runs it with `sprite-cargo.sh <sprite> <lane> <repo> <ref> <command> <path>...`, never a hand-rolled `sprite exec`. Each lane builds into its own `target-<lane>` so two lanes never clobber each other's build-script output, and every call removes targets and source trees idle for more than six hours.
 
-A lane checks its change before pushing with `remote-vet.py --config <runner config> --lane <lane> [<worktree>]`, never a local `go build`, `go vet`, `cargo check`, `gofmt`, or `cargo fmt`. `remote-vet.py` ships everything the worktree changed since its merge base with the branch below it in its stack, including uncommitted and untracked files. The script sends those changes to the lane's own worktree on the least loaded Sprite in the config's `vet.sprite`, which lists Sprites where no finder or fidelity pass runs.
+A lane checks its change before pushing with `go build` and `go vet` over the Go packages it touched and the workspace typecheck over the TypeScript it touched, run locally or, on a Mac, through `remote-vet.py --config <runner config> --lane <lane> [<worktree>]`; never a local `cargo check`, `gofmt`, or `cargo fmt`. The `vet_before_push` hook refuses a lane's push when no such run follows the last edit, and names the commands. `remote-vet.py` ships everything the worktree changed since its merge base with the branch below it in its stack, including uncommitted and untracked files. The script sends those changes to the lane's own worktree on the least loaded Sprite in the config's `vet.sprite`, which lists Sprites where no finder or fidelity pass runs.
 
 `remote-vet.py` runs the config's `vet.prepare` code generation, formats changed Go files and touched crates with `gofmt -w` and `cargo fmt`, and builds and vets only the touched Go packages and Rust crates. It then applies the formatting back as a patch to the lane's worktree for the lane to commit before pushing, and exits `1` on any `FAIL`. When every vet Sprite is over load 16, `remote-vet.py` exits `3` at once, and the lane pushes and lets CI grade the change.
 
@@ -238,7 +238,7 @@ Shell text: Claude Code holds any Bash command holding `$$(`, `$${` or `$$[` on 
   file with the Write tool and run it with a Bash command free of them.
 Run subagents and codex in the foreground (blocking), or poll the reply file in a foreground loop to a terminal state; never background-and-end-turn.
 Record each sub-dispatch with `ledger.py ask` before dispatch and `ledger.py answer` when its reply lands.
-Verification: no local test runs, builds, typechecks or lint; CI grades; a red CI step is read from its log, fixed, and pushed.
+Verification: before each push, `go build` and `go vet` over the Go packages you touched and the typecheck over the TypeScript you touched; no local test runs or lint; CI grades; a red CI step is read from its log, fixed, and pushed.
 PR comments: nobody edits a PR body after it opens, so the evidence goes in two comments
   the lane posts: one opening with `## Rulings`, and one opening with `## Regression tests`
   that lists each test id the change adds or edits and links one CI run where that test
@@ -356,11 +356,12 @@ Worktree and VCS:
   command>. Load <the repo's submit skill> before opening a PR. <title and body format>.
   A PR without a body, or left as a draft, is forbidden.
 - <the repo's forbidden commands, verbatim>
-- Before every push run `remote-vet.py --config <runner config> --lane <lane>` from your
-  worktree: it formats the Go and Rust you changed on a build machine, applies the
-  formatting back into your worktree, then builds and vets only the packages and crates
-  you touched; never a local `go build`, `go vet`, `cargo check`, `gofmt` or `cargo fmt`.
-  Exit 3 means every build machine is busy: push and let CI grade.
+- Before every push run `go build` and `go vet` over the Go packages you touched and the
+  typecheck over the TypeScript you touched. On a Mac, `remote-vet.py --config <runner config>
+  --lane <lane>` from your worktree does the Go part on a build machine: it formats the Go and
+  Rust you changed, applies the formatting back into your worktree, then builds and vets only
+  the packages and crates you touched. Never a local `cargo check`, `gofmt` or `cargo fmt`, and
+  tests run only in CI. Exit 3 means every build machine is busy: push and let CI grade.
 - Commit and push every coherent checkpoint. Open a non-draft PR with a body for
   finished changes in the same turn. Drive it through landing under D1.
 - When a PR's title no longer says what its diff does, rewrite it yourself with the

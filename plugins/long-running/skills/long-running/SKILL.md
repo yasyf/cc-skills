@@ -368,8 +368,10 @@ an implementer; the coordinator never spawns one. One lane installs per night. A
 interrupts nothing: the supervisor takes a release between ticks and the relay between passes. No new Python enters the pack; a fix to a Python
 script is a Go verb.
 
-**R15.** CI is the verifier. No lane runs tests, builds, typechecks or lint locally;
-the `local_builds` hook refuses them. Batch jobs run on in-region compute.
+**R15.** CI is the verifier and runs every test. Before it pushes, a lane runs `go build`
+and `go vet` over the Go packages it touched and the typecheck over the TypeScript it
+touched, and the `vet_before_push` hook refuses a push without them; the `local_builds`
+hook refuses every other local test, build and lint. Batch jobs run on in-region compute.
 
 **R16.** An active alert gets its executor the same turn, without a coordinator:
 the supervisor launches the fix and evidence lanes for an alert nobody answered in
