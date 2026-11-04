@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/awake"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -24,7 +25,7 @@ type Sprite struct {
 }
 
 const (
-	HostRunning     Host = "running"
+	HostRunning     Host = awake.WorkerRunning
 	HostEmpty       Host = "none"
 	HostUnreachable Host = "unreachable"
 
@@ -33,7 +34,6 @@ const (
 	reprobeAfter   = StaleAfter
 	goneAfter      = 2 * StaleAfter
 	lostAfter      = 5 * time.Minute
-	workerScript   = `for comm in /proc/[0-9]*/comm; do read -r name < "$comm" 2>/dev/null || continue; case $name in claude|codex) echo running; exit;; esac; done; echo none`
 )
 
 func runningProbe(lane string) string {
@@ -86,7 +86,11 @@ func proofs(s *store.Store, d Deps, lanes []store.Lane, found map[string]Peer, n
 		if sprite, listed := sprites[lane.Name]; listed && sprite.Status != spriteRunning && !settledLane(lane) {
 			proven[lane.Name] = Verdict{Kind: Ok}
 			if now.Sub(sprite.LastRunning) >= lostAfter {
-				proven[lane.Name] = Verdict{Lost, fmt.Sprintf("has a Sprite %s that is %s and last ran at %s", sprite.Name, sprite.Status, pacific(sprite.LastRunning))}
+				why := fmt.Sprintf("has a Sprite %s that is %s", sprite.Name, sprite.Status)
+				if !sprite.LastRunning.IsZero() {
+					why += " and last ran at " + pacific(sprite.LastRunning)
+				}
+				proven[lane.Name] = Verdict{Lost, why}
 			}
 			continue
 		}
@@ -198,7 +202,7 @@ func (e Env) hosts(ctx context.Context, lanes []string, sprites map[string]Sprit
 }
 
 func (e Env) host(ctx context.Context, sprite string) (Host, error) {
-	result, err := e.Runner.Run(ctx, shell.Command{Argv: []string{"sprite", "exec", "-s", sprite, "--no-stdin", "--", "sh", "-c", workerScript}, Timeout: readTimeout})
+	result, err := e.Runner.Run(ctx, shell.Command{Argv: []string{"sprite", "exec", "-s", sprite, "--no-stdin", "--", "sh", "-c", awake.WorkerScript}, Timeout: readTimeout})
 	var exit *shell.ExitError
 	if errors.As(err, &exit) || errors.Is(err, context.DeadlineExceeded) {
 		return HostUnreachable, nil

@@ -42,6 +42,10 @@ const (
 	beforeWorker      = "before-worker.sh"
 	notesRefs         = "+refs/cc-notes/*:refs/cc-notes/*"
 	notesReceipt      = "notes.log"
+	workerAwake       = "worker-awake"
+	holdReceipt       = "awake.log"
+	holdTimeout       = time.Minute
+	holdWorker        = `sprite-env services create ` + workerAwake + ` --cmd "$HOME/.local/bin/lr" --args sprites,hold --no-stream`
 	fetchNotesScript  = `IFS= read -r NOTES_TOKEN; export NOTES_TOKEN; exec git -c credential.helper= -c 'credential.helper=!f() { echo username=x-access-token; echo "password=$NOTES_TOKEN"; }; f' -C "$1" fetch --quiet origin "$2"`
 	unpackCarried     = `mkdir -p "$1" && tar -xzf - -C "$1"`
 	joinRelay         = `CCI_SERVICE_KEY=$(cat); export CCI_SERVICE_KEY; ~/.local/bin/cci relay join --instance --drive "$1" --url "$2" --ttl 24h --owner "$3" && sprite-env services create cci --cmd "$HOME/.local/bin/cci" --args supervise --no-stream`
@@ -752,9 +756,21 @@ func (w *workerLaunch) startSprite() (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if err := w.holdAwake(workspace); err != nil {
+		return "", err
+	}
 	made, _ := textOf(allocation["allocation"])
 	line, err := json.Marshal(spriteStarted{workerStarted{"ready", taskID, dispatch, w.terminal, w.worktree}, w.lane, workspace, made})
 	return string(line), err
+}
+
+func (w *workerLaunch) holdAwake(workspace string) error {
+	held, err := w.Runner.Run(w.ctx, shell.Command{Argv: []string{"sprite", "exec", "-s", workspace, "--no-stdin", "--", "sh", "-c", holdWorker}, Timeout: holdTimeout})
+	if err == nil {
+		return nil
+	}
+	fmt.Fprintf(w.Stderr, "warning: Sprite %s holds no %s task, so lane %s dies if the Sprite goes cold; %s keeps the output\n", workspace, workerAwake, w.lane, filepath.Join(w.attempt, holdReceipt))
+	return w.receipt(holdReceipt, held.Stdout+held.Stderr+err.Error()+"\n")
 }
 
 func (w *workerLaunch) orcaJSON(args ...string) (string, bool) {

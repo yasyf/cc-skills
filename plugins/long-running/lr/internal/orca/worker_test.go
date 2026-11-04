@@ -390,6 +390,10 @@ func joinCall(workspace string) []string {
 	return []string{"sprite", "exec", "-s", workspace, "--", "sh", "-c", joinRelay, "sh", "drive-a,drive-b", relayURL, ownerKey}
 }
 
+func holdCall(workspace string) []string {
+	return []string{"sprite", "exec", "-s", workspace, "--no-stdin", "--", "sh", "-c", holdWorker}
+}
+
 func relayCalls(workspace string) [][]string {
 	return [][]string{{"cci", "relay", "status", "--json"}, {"cci", "node", "--json"}, {"sprite", "exec", "-s", sponsorBox, "--no-stdin", "--", "cat", sponsorKey}, joinCall(workspace)}
 }
@@ -404,6 +408,10 @@ func (f *workerFixture) startCalls(task object) [][]string {
 
 func (f *workerFixture) fullSpriteCalls() [][]string {
 	return slices.Concat([][]string{versionCall, currentRunCall, f.prepareCall()}, f.startCalls(prepared()))
+}
+
+func (f *workerFixture) heldSpriteCalls() [][]string {
+	return append(f.fullSpriteCalls(), holdCall(workerWorkspace))
 }
 
 func (f *workerFixture) localCalls(model, effort, repo string) [][]string {
@@ -521,7 +529,7 @@ func TestThePinnedCCRemotePrepares(t *testing.T) {
 		f.sprite()
 		f.reply("cc-remote version", version)
 		f.launched()
-		f.wantCalls(f.fullSpriteCalls()...)
+		f.wantCalls(f.heldSpriteCalls()...)
 	}
 }
 
@@ -563,7 +571,7 @@ func TestAnAttemptThatNeverStartedAWorkerLeavesTheBriefFreeAndKeepsItsReceipts(t
 			f.write(filepath.Join(f.attempt, "prepare.status"), "1\n", 0o600)
 		}
 		f.launched()
-		f.wantCalls(f.fullSpriteCalls()...)
+		f.wantCalls(f.heldSpriteCalls()...)
 		if kept := f.kept(); !slices.Equal(kept, spriteKept) {
 			t.Fatal(kept)
 		}
@@ -622,7 +630,7 @@ func TestALaunchRefusedBeforeAnyWorkerStartedRelaunchesOnTheSameBrief(t *testing
 	}
 	f.sprite()
 	f.launched()
-	f.wantCalls(slices.Concat([][]string{versionCall, currentRunCall, f.prepareCall()}, f.fullSpriteCalls())...)
+	f.wantCalls(slices.Concat([][]string{versionCall, currentRunCall, f.prepareCall()}, f.heldSpriteCalls())...)
 	if kept := f.kept(); !slices.Equal(kept, spriteKept) {
 		t.Fatal(kept)
 	}
@@ -640,7 +648,7 @@ func TestTheDefaultPreparesOneSpriteAndStartsItOnce(t *testing.T) {
 	if !reflect.DeepEqual(printed, want) || strings.Contains(line, "\n") || f.stderr.Len() != 0 {
 		t.Fatal(line, f.stderr.String())
 	}
-	f.wantCalls(f.fullSpriteCalls()...)
+	f.wantCalls(f.heldSpriteCalls()...)
 	if kept := f.kept(); !slices.Equal(kept, spriteKept) {
 		t.Fatal(kept)
 	}
@@ -716,12 +724,28 @@ func TestASponsorJoinsTheSpriteToTheDefaultMeshBeforeTheWorkerStartsAndNeverLogs
 	f.sprite()
 	f.reply("sprite exec", workerReply{}, workerReply{out: "the sponsor key"}, workerReply{})
 	f.launched()
-	f.wantCalls(f.fullSpriteCalls()...)
+	f.wantCalls(f.heldSpriteCalls()...)
 	if f.stdins[strings.Join(joinCall(workerWorkspace), " ")] != "the sponsor key" {
 		t.Fatal(f.stdins)
 	}
 	if strings.Contains(f.receiptText(joinReceipt), "the sponsor key") {
 		t.Fatal("the log holds the key")
+	}
+}
+
+func TestAHoldThatFailsToStartLeavesTheWorkerRunningAndSaysSo(t *testing.T) {
+	f := newWorkerFixture(t)
+	f.sprite()
+	f.reply("sprite exec", workerReply{}, workerReply{out: "the sponsor key"}, workerReply{}, workerReply{code: 1, err: "services are down"})
+	if line := f.launched(); !strings.Contains(line, `"state":"ready"`) {
+		t.Fatal(line)
+	}
+	f.wantCalls(f.heldSpriteCalls()...)
+	if !strings.Contains(f.stderr.String(), "holds no "+workerAwake+" task") {
+		t.Fatal(f.stderr.String())
+	}
+	if !strings.Contains(f.receiptText(holdReceipt), "services are down") {
+		t.Fatal(f.receiptText(holdReceipt))
 	}
 }
 
@@ -731,7 +755,7 @@ func TestARelayFailureThenASuccessJoinsAndStartsTheWorker(t *testing.T) {
 	f.reply("sprite exec", workerReply{}, workerReply{out: "the sponsor key"}, workerReply{code: 1, err: relayFailure}, workerReply{out: "joined mesh default\n"})
 	f.launched()
 	spec := f.startCalls(prepared())
-	f.wantCalls(slices.Concat([][]string{versionCall, currentRunCall, f.prepareCall()}, spec[:len(spec)-1], [][]string{joinCall(workerWorkspace)}, spec[len(spec)-1:])...)
+	f.wantCalls(slices.Concat([][]string{versionCall, currentRunCall, f.prepareCall()}, spec[:len(spec)-1], [][]string{joinCall(workerWorkspace)}, spec[len(spec)-1:], [][]string{holdCall(workerWorkspace)})...)
 	if !slices.Equal(f.slept, joinWaits[:1]) {
 		t.Fatal(f.slept)
 	}
@@ -1111,7 +1135,7 @@ func TestAnExplicitCLIRunsAgainstTheCheckoutsConfigAtTheHelperPin(t *testing.T) 
 	f.env["WORKER_CC_REMOTE"] = selected
 	f.sprite()
 	f.launched()
-	f.wantCalls(f.fullSpriteCalls()...)
+	f.wantCalls(f.heldSpriteCalls()...)
 }
 
 func TestAMissingCCRemoteRefuses(t *testing.T) {
@@ -1129,7 +1153,7 @@ func TestAnExplicitConfigOfAnotherCheckoutLeavesTheVersionToCCRemote(t *testing.
 	f.env["CC_REMOTE_CONFIG"] = other
 	f.sprite()
 	f.launched()
-	f.wantCalls(slices.Concat([][]string{currentRunCall, f.prepareCall()}, f.startCalls(prepared()))...)
+	f.wantCalls(slices.Concat([][]string{currentRunCall, f.prepareCall()}, f.startCalls(prepared()), [][]string{holdCall(workerWorkspace)})...)
 	if !slices.Equal(f.configs, []string{"CC_REMOTE_CONFIG=" + other}) {
 		t.Fatal(f.configs)
 	}
@@ -1143,7 +1167,7 @@ func TestACodexModelKeepsItsEffortTierRefAndMCP(t *testing.T) {
 	if _, failed, err := f.launch(workerLane, "gpt-6.1-sol", "xhigh"); err != nil || failed != "" {
 		t.Fatal(failed, err)
 	}
-	f.wantCalls(slices.Concat([][]string{versionCall, currentRunCall, f.prepareCallFor(workerLane, "codex", "gpt-6.1-sol", "xhigh", "--ref", "release/2026.10", "--service-tier", "fast", "--mcp-config", "{}")}, f.startCalls(task))...)
+	f.wantCalls(slices.Concat([][]string{versionCall, currentRunCall, f.prepareCallFor(workerLane, "codex", "gpt-6.1-sol", "xhigh", "--ref", "release/2026.10", "--service-tier", "fast", "--mcp-config", "{}")}, f.startCalls(task), [][]string{holdCall(workerWorkspace)})...)
 }
 
 func TestAnExpectedBaseMismatchLeavesThePreparedWorkerIdle(t *testing.T) {
@@ -1162,7 +1186,7 @@ func TestAnExpectedBaseThatMatchesAttaches(t *testing.T) {
 	f.env["WORKER_EXPECT_BASE"] = remoteBase
 	f.sprite()
 	f.launched()
-	f.wantCalls(f.fullSpriteCalls()...)
+	f.wantCalls(f.heldSpriteCalls()...)
 }
 
 func TestAFailedPrepareKeepsItsRawOutputAndAttachesNothing(t *testing.T) {
@@ -1229,7 +1253,7 @@ func TestAnEmptyPoolCreatesTheRequestedLaneOnce(t *testing.T) {
 	if err := json.Unmarshal([]byte(f.launched()), &printed); err != nil || printed["workspace"] != workerLane || printed["allocation"] != "created" {
 		t.Fatal(printed, err)
 	}
-	f.wantCalls(slices.Concat([][]string{versionCall, currentRunCall, f.prepareCall()}, f.startCalls(task))...)
+	f.wantCalls(slices.Concat([][]string{versionCall, currentRunCall, f.prepareCall()}, f.startCalls(task), [][]string{holdCall(workerLane)})...)
 }
 
 func TestAnAllocationMustBindTheRequestedLaneAndActualTask(t *testing.T) {
