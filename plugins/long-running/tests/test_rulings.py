@@ -1885,7 +1885,7 @@ AKAMAI_RULING = {
 
 
 def alert_brief(path: Path, alert: str) -> Path:
-    path.write_text(f"# dd-1-fix: fix the production alert dd-1\n\nAlert: {alert}\n\nStanding orders, fixed in this template:\n  - the customer edge is boilerplate here\n\nRegister slice: lane=dd-1-fix step=incident\n")
+    path.write_text(f"# dd-1-fix: fix the production alert dd-1\n\nAlert: {alert}\nLink: https://slack/p1\n\nYou are the fix lane; the customer edge is boilerplate here.\n\nDrive facts:\ndrive brook\nmonitor runner-cadence\n\nStanding orders, fixed in this template:\n  - the gsk edge is boilerplate here\n\nRegister slice: lane=dd-1-fix step=incident\n")
     return path
 
 
@@ -1903,6 +1903,19 @@ def test_an_alert_that_names_nothing_of_the_ruling_is_not_handed_it_by_its_templ
     code, _ = ran(capsys, RegisterShell(seeded(package), answers=[AKAMAI_RULING]), "slice", "--refresh", str(brief))
     assert code == 0
     assert "Do we chase Akamai" not in brief.read_text()
+
+
+def test_a_templated_brief_matches_its_case_and_its_facts_and_a_plain_brief_all_its_words(home: Path, package: Path, state: Path, capsys) -> None:
+    case = state / "case.md"
+    case.write_text("# case-1: fix the case dd-1 left unfixed\n\nThe case, in the words of `dd-1-fix`:\nThe list fails at the gsk edge.\n\nYou are a fix lane.\n\nRegister slice: lane=case-1 step=incident\n")
+    facts = state / "facts.md"
+    facts.write_text("# dd-2-fix\n\nAlert: it broke\n\nDrive facts:\ndrive brook\nmonitor the gsk edge\n\nRegister slice: lane=dd-2-fix step=incident\n")
+    plain = state / "plain.md"
+    plain.write_text("# lane-c: read a thing\n\nFind why the customer edge refuses us.\n\nRegister slice: lane=lane-c step=all\n")
+    for brief in (case, facts, plain):
+        code, _ = ran(capsys, RegisterShell(seeded(package), answers=[AKAMAI_RULING]), "slice", "--refresh", str(brief))
+        assert code == 0
+        assert "- ff7fca1 Do we chase Akamai edge 403s (GSK or any tenant proxy) at all, ever?" in brief.read_text().splitlines()
 
 
 def test_a_launch_refresh_opens_the_brief_with_the_answers_its_topics_and_paths_find_newest_first(home: Path, package: Path, state: Path, capsys) -> None:

@@ -204,7 +204,7 @@ SLICE_CAP = 40_000
 SLICE_TAIL = 1_000
 ANSWERS_CAP = 16_000
 MATCHED_BODY_CAP = 1_500
-INCIDENT_BOILERPLATE = "Standing orders, fixed in this template:"
+TEMPLATED_WORDS = re.compile(r"^Alert: .*\n|^The case, in the words of .*\n(?:.+\n)+|^Drive facts:\n(?:.+\n)+", re.MULTILINE)
 REPEAT_MARKERS = re.compile(
     r"\bi\b\W+(?:\w+\W+){0,2}?t[oi]ld you\b|\bi have said this\b|\bhow many times\b|\bwhy are you ignoring\b|\bwe already said\b",
     re.IGNORECASE,
@@ -1152,7 +1152,7 @@ def refresh(loaded: Register, brief: Path, plan: Path | None) -> str:
     old = None
     if (stamp := SLICE_HASH.search(text, header.end())) and not SLICE_HEADER.search(text, header.end(), stamp.start()):
         old, end = stamp["hash"], stamp.end()
-    fresh = lane_slice(loaded, Want.parse(header), plan, text.partition(INCIDENT_BOILERPLATE)[0] if INCIDENT_BOILERPLATE in text else text[: header.start()] + text[end:])
+    fresh = lane_slice(loaded, Want.parse(header), plan, "".join(found[0] for found in TEMPLATED_WORDS.finditer(text)) or text[: header.start()] + text[end:])
     new = SLICE_HASH.search(fresh)["hash"]
     if old == new and text[header.start() : end] == fresh.rstrip("\n"):
         return f"fresh {brief} slice-hash {new}"
