@@ -398,6 +398,40 @@ def test_the_next_message_numbers_past_a_split_one(communicator: Window) -> None
     assert communicator.rows()[-1].startswith("| m2 | ")
 
 
+RELAY_FIX = "ship the relay fix before the release cut"
+DASHBOARD = "and move the dashboard to the tailnet tonight"
+
+
+def slack_seen(communicator: Window, text: str, ts: str = "1793159602.693499") -> None:
+    communicator.queued(slack_dm(text=text, ts=ts))
+    communicator.fire(PostToolUseEvent, tool_name="Bash", tool_input={"command": "ls"})
+
+
+def test_an_owner_message_on_slack_and_then_the_board_is_one_row(communicator: Window, bus: Bus) -> None:
+    slack_seen(communicator, RELAY_FIX)
+
+    assert communicator.prompt(f"{RELAY_FIX}\n") == []
+
+    assert len(communicator.rows()) == len(bus.posts()) == 1
+
+
+def test_an_owner_message_on_the_board_and_then_slack_is_one_row(communicator: Window, bus: Bus) -> None:
+    communicator.prompt(RELAY_FIX)
+
+    slack_seen(communicator, RELAY_FIX)
+
+    assert len(communicator.rows()) == len(bus.posts()) == 1
+
+
+def test_a_board_message_carrying_two_slack_messages_adds_no_row(communicator: Window, bus: Bus) -> None:
+    slack_seen(communicator, RELAY_FIX)
+    slack_seen(communicator, DASHBOARD, ts="1793159662.693499")
+
+    assert communicator.prompt(f"{RELAY_FIX}\n\n{DASHBOARD}") == []
+
+    assert [row.split(" | ")[0] for row in communicator.rows()] == ["| m1", "| m2"]
+
+
 def test_a_repeat_delivery_of_a_split_message_records_nothing(communicator: Window, bus: Bus) -> None:
     communicator.prompt(SEVERAL_ASKS)
 

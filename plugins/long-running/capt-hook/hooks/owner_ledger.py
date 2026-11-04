@@ -12,8 +12,8 @@ from captain_hook.util import reqenv
 
 from .compaction_handoff import CCN_TIMEOUT_SECONDS, COMMUNICATOR_LANE, Bound, Communicator, CompactionState, bus_name, communicator_tests, drive_entry
 from .owner_facing import REPLY_WINDOW
-from .register_capture import CREDENTIAL, REDACTED, STAMP, slack_dms
-from .register_gates import written_paths
+from .register_capture import CREDENTIAL, REDACTED, STAMP, overlaps, slack_dms
+from .register_gates import folded, written_paths
 from .root_context import PACIFIC, OwnerPrompt, answers, message_label, ruling_body
 from .tests.register_fixtures import CWD, DRIVE_CONFIG
 
@@ -104,16 +104,20 @@ def asks(text: str) -> list[str]:
     return merged if 1 < len(merged) <= MOST_ASKS else [text]
 
 
+def still_open(ask: str, rows: list[tuple[str, ...]]) -> bool:
+    words = folded(ask)
+    return any(state == "open" and (words == (row := folded(text.replace("<br>", "\n").replace(r"\|", "|"))) or overlaps(words, row)) for _, _, _, text, state in rows)
+
+
 def add_rows(path: Path, at: datetime, text: str) -> list[tuple[str, str]]:
     path.parent.mkdir(parents=True, exist_ok=True)
     with (path.parent / LOCK).open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         ledger = path.read_text() if path.exists() else ""
         rows = ROW.findall(ledger)
-        split = asks(CREDENTIAL.sub(REDACTED, text))
-        cells = ["<br>".join(ask.replace("|", r"\|").splitlines()) for ask in split]
-        if [found[3:] for found in rows[-len(cells) :]] == [(cell, "open") for cell in cells]:
+        if not (split := [ask for ask in asks(CREDENTIAL.sub(REDACTED, text)) if not still_open(ask, rows)]):
             return []
+        cells = ["<br>".join(ask.replace("|", r"\|").splitlines()) for ask in split]
         number = max((int(found[1]) for found in rows), default=0) + 1
         ids = [f"m{number}"] if len(cells) == 1 else [f"m{number}.{part}" for part in range(1, len(cells) + 1)]
         heading = "" if HEADER in ledger else f"\n{HEADER}"
