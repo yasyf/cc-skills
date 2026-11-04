@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/asks"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/board"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/deletions"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
@@ -64,6 +65,8 @@ type Inputs struct {
 	Incidents []Record
 	Releases  []Record
 	Board     []string
+	Cards     []board.Wait
+	Unboarded error
 	Before    Snapshot
 	Retro     []Retro
 	Owed      []deletions.Owed
@@ -418,7 +421,7 @@ func Render(in Inputs) Report {
 	words, gaps := ownerWords(recordsFrom(in.All, in.Before.At))
 	lists := v.listSections(in, lanes, plan.doneLines)
 	lead := leadRows(in)
-	streams, streamGaps := workstreamLines(in.Streams, in.Unread, lanes)
+	streams, streamGaps := v.workstreamLines(in, lanes)
 	found := draft{
 		header:     fmt.Sprintf("# Owner update: %s, %s", in.Drive, pacific(in.Now)),
 		lead:       lead,

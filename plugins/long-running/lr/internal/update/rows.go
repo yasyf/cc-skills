@@ -463,8 +463,11 @@ func (v view) stepRow(name, delivers string, step *plans.Step, lanes []string) R
 	if len(step.Tasks) > 0 {
 		state = fmt.Sprintf("%d of %d tasks done, %d in progress, %d blocked", step.Count(plans.Done), len(step.Tasks), step.Count(plans.InProgress), step.Count(plans.Blocked))
 	}
-	if w.who == nobody && step.Count(plans.InProgress) > 0 {
+	switch {
+	case w.who == nobody && step.Count(plans.InProgress) > 0:
 		state = fmt.Sprintf("%d of %d tasks done, %d stale with no lane on them, %d blocked; %s", step.Count(plans.Done), len(step.Tasks), step.Count(plans.InProgress), step.Count(plans.Blocked), v.lastWorked(step.Number))
+	case w.who == nobody && step.Number != "" && !stepIsDone(step):
+		state += fmt.Sprintf("; %s, %s", noLiveLane, v.lastWorked(step.Number))
 	}
 	var blocks []string
 	for _, task := range step.Tasks {
@@ -483,7 +486,7 @@ func (v view) lastWorked(number string) string {
 	if !found {
 		return "no lane record names it"
 	}
-	return fmt.Sprintf("last worked by %s, %s %s", last.Lane, last.Kind, pacific(last.At))
+	return fmt.Sprintf("last worked by %s, %s %s", last.Lane, last.Kind, stamp(last.At, v.now))
 }
 
 func (v view) laneRow(lane Lane) Row {
@@ -573,10 +576,7 @@ func (v view) askRow(ask asks.Graded) Row {
 }
 
 func (v view) prRow(pr asks.PR, held map[string]int64) Row {
-	state := queueLabelled
-	if !pr.CarriesLabel() {
-		state = orWord(pr.WaitingReason(), "open")
-	}
+	state := prState(pr)
 	w := v.workOf(slices.DeleteFunc([]string{v.ownerOfPR(pr.Number), pr.Lane}, func(lane string) bool { return lane == "" }))
 	number := strconv.Itoa(pr.Number)
 	switch seq, isHeld := held[number]; {
