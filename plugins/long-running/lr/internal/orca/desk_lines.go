@@ -28,6 +28,7 @@ const (
 	withdrawnFact   = "withdrawn"
 	withdrawPending = "withdraw-pending"
 	launchValid     = 15 * time.Minute
+	briefLineShown  = 160
 	passesTimed     = 10
 	stopConfirm     = 30 * time.Second
 	stopPoll        = 2 * time.Second
@@ -652,6 +653,9 @@ func (d *Desk) launchLine(ctx context.Context, at, key, rest, by string) error {
 	}
 	raw, readErr := os.ReadFile(order.Brief)
 	text := string(raw)
+	if why := refusedBrief(d.Config.RefusedBriefs, text); why != "" {
+		return failed(why)
+	}
 	if !order.Now {
 		holder, err := d.duplicateHolder(ctx, order.Lane, text)
 		if err != nil {
@@ -693,6 +697,24 @@ func (d *Desk) acceptLaunch(key, lane string, spec launchTarget) (incident.Actio
 		return incident.Action{}, false, err
 	}
 	return d.accept(container, key, kindLaunch, target, key, d.Now().Add(time.Duration(d.Config.LaunchMinutes)*time.Minute))
+}
+
+type BriefRefusal struct {
+	Match  *regexp.Regexp `json:"match"`
+	Except *regexp.Regexp `json:"except"`
+	Why    string         `json:"why"`
+}
+
+func refusedBrief(refusals []BriefRefusal, brief string) string {
+	for _, refusal := range refusals {
+		for line := range strings.SplitSeq(brief, "\n") {
+			if refusal.Match.MatchString(line) && !refusal.Except.MatchString(line) {
+				line = strings.TrimSpace(line)
+				return fmt.Sprintf("%s; brief line: %s", refusal.Why, line[:min(len(line), briefLineShown)])
+			}
+		}
+	}
+	return ""
 }
 
 func (d *Desk) launchRefusal(ctx context.Context, key string, order Order) (string, error) {
