@@ -125,7 +125,11 @@ func (r SpriteRoll) runs(box string, pins spritePins) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	for _, tool := range pins.tools {
+	wanted := slices.Clone(pins.tools)
+	if version := cciVersion.FindStringSubmatch(pins.ccURL); version != nil {
+		wanted = append(wanted, spriteTool{Name: "cci", Version: version[1]})
+	}
+	for _, tool := range wanted {
 		if !slices.ContainsFunc(recorded, func(t store.SpriteTool) bool {
 			return t.Sprite == box && t.Name == tool.Name && t.Version == tool.Version
 		}) {
