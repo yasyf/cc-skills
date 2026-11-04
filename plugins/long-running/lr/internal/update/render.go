@@ -380,8 +380,9 @@ func Render(in Inputs) Report {
 	v := newView(in.Lanes, in.Records, in.Waits, in.Now)
 	v.retro = in.Retro
 	v.rulings = rulingsReplacer(in.Rulings)
+	v.history = bySeq(slices.Concat(in.Records, in.All))
 	pinned, pinnedSteps := v.pinnedRows(in, lanes)
-	plan := v.planSections(in.Plans, lanes)
+	plan := v.planSections(in.Plans, lanesWhere(lanes, func(lane Lane) bool { return lane.Standing == "" }))
 	sections := append([]section{{title: pinnedTitle, rows: pinned}, {title: dutiesTitle, rows: v.dutyRows()}}, plan.sections...)
 	rest := lanesWhere(lanes, func(lane Lane) bool { return !plan.placed[lane.Name] })
 	var named []string

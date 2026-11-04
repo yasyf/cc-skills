@@ -64,6 +64,7 @@ If that is still over, the render drops whole lines from the end of the body, ke
 |---|---|---|---|---|---|---|
 
 - **Who is on it right now**: each lane on the work that was heard within two hours, or **nobody**.
+- **State** of a plan step: its task counts. With **nobody** on it, its tasks in progress count as stale, and the cell names the last lane whose record named the step, with that record's kind and time. A standing desk is never on a plan step, by its brief's step or by its records.
 - **What blocks it**: each such lane's open ask or blocker to the coordinator, with its seq and time, or a plan task's wait.
 - **What we are doing to unblock it, and by when**: each lane's newest record, and the time its next record is due by the supervisor's stale line. With nobody on it, it says the coordinator starts a lane this turn.
 - **What went wrong or slowed it**: each open retro-table row its lanes own, with what prevents a repeat, its state and due time; lanes parked on a gate that has not fired, with the gate; lanes that took over. "None recorded" only when there is none.

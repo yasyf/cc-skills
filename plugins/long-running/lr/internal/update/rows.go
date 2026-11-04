@@ -302,6 +302,7 @@ type view struct {
 	latest  map[string]Record
 	waits   map[string]Record
 	records []Record
+	history []Record
 	retro   []Retro
 	rulings *strings.Replacer
 	now     time.Time
@@ -309,6 +310,7 @@ type view struct {
 
 func newView(lanes []Lane, records, waits []Record, now time.Time) view {
 	v := view{lanes: lanes, byLane: map[string]Lane{}, latest: map[string]Record{}, waits: map[string]Record{}, records: bySeq(records), rulings: strings.NewReplacer(), now: now}
+	v.history = v.records
 	for _, lane := range lanes {
 		v.byLane[lane.Name] = lane
 	}
@@ -349,7 +351,18 @@ func (v view) ownerOfPR(number int) string {
 }
 
 func (v view) ownerOfStep(number string) string {
-	return v.newestNaming(stepWorkKinds, regexp.MustCompile(`(?i)\bstep[ =]`+regexp.QuoteMeta(number)+`(?:\.\d+)*\b`), "")
+	last, _ := v.lastOnStep(number)
+	return last.Lane
+}
+
+func (v view) lastOnStep(number string) (Record, bool) {
+	pattern := regexp.MustCompile(`(?i)\bstep[ =]` + regexp.QuoteMeta(number) + `(?:\.\d+)*\b`)
+	for _, record := range slices.Backward(v.history) {
+		if slices.Contains(stepWorkKinds, record.Kind) && !slices.Contains(coordinators, record.Lane) && v.byLane[record.Lane].Standing == "" && pattern.MatchString(record.Text) {
+			return record, true
+		}
+	}
+	return Record{}, false
 }
 
 type work struct {
@@ -450,6 +463,9 @@ func (v view) stepRow(name, delivers string, step *plans.Step, lanes []string) R
 	if len(step.Tasks) > 0 {
 		state = fmt.Sprintf("%d of %d tasks done, %d in progress, %d blocked", step.Count(plans.Done), len(step.Tasks), step.Count(plans.InProgress), step.Count(plans.Blocked))
 	}
+	if w.who == nobody && step.Count(plans.InProgress) > 0 {
+		state = fmt.Sprintf("%d of %d tasks done, %d stale with no lane on them, %d blocked; %s", step.Count(plans.Done), len(step.Tasks), step.Count(plans.InProgress), step.Count(plans.Blocked), v.lastWorked(step.Number))
+	}
 	var blocks []string
 	for _, task := range step.Tasks {
 		if task.State == plans.Blocked && task.Waiting != "" {
@@ -460,6 +476,14 @@ func (v view) stepRow(name, delivers string, step *plans.Step, lanes []string) R
 		blocks = append(blocks, w.blocks)
 	}
 	return Row{name, delivers, state, w.who, strings.Join(blocks, "; "), w.unblock, w.wrong, stepIsDone(step)}
+}
+
+func (v view) lastWorked(number string) string {
+	last, found := v.lastOnStep(number)
+	if !found {
+		return "no lane record names it"
+	}
+	return fmt.Sprintf("last worked by %s, %s %s", last.Lane, last.Kind, pacific(last.At))
 }
 
 func (v view) laneRow(lane Lane) Row {
