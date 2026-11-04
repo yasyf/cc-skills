@@ -159,7 +159,7 @@ func carried(path, replies, row, reply string) error {
 		return err
 	}
 	i := slices.IndexFunc(Parse(ledger), func(r Row) bool { return r.ID == row })
-	if i < 0 || !contentAsk.MatchString(Parse(ledger)[i].Text) {
+	if i < 0 || !contentAsk.MatchString(hisWords(Parse(ledger)[i].Text)) {
 		return nil
 	}
 	refusal := fmt.Sprintf("%s asks for an update, recap or report, so responded needs --reply with the reply that carries it; until then mark it due --by <clock>", row)
@@ -171,15 +171,25 @@ func carried(path, replies, row, reply string) error {
 		return fmt.Errorf("%s: %w", refusal, err)
 	}
 	var body struct {
-		MD string `json:"md"`
+		Reply struct {
+			MD string `json:"md"`
+		} `json:"reply"`
 	}
 	if err := json.Unmarshal(sent, &body); err != nil {
 		return err
 	}
-	if len(body.MD) < carriedChars {
-		return fmt.Errorf("%s; reply %s is %d characters, a promise rather than the content", refusal, reply, len(body.MD))
+	if len(body.Reply.MD) < carriedChars {
+		return fmt.Errorf("%s; reply %s is %d characters, a promise rather than the content", refusal, reply, len(body.Reply.MD))
 	}
 	return nil
+}
+
+func hisWords(text string) string {
+	open, closed := strings.Index(text, `"`), strings.LastIndex(text, `"`)
+	if open < 0 || open == closed {
+		return text
+	}
+	return text[open+1 : closed]
 }
 
 func Rows(path string, all bool) ([]string, error) {
