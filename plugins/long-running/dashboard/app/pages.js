@@ -617,6 +617,7 @@ const REPLY_WORD = { info: ['Note', ''], progress: ['Progress', 'acc'], needs_yo
 const SURFACE_WORD = { board: 'Board', slack: 'Slack', record: 'Record' };
 const CHAT_AT_REST = 60;
 const SIMPLE_PICK = 50;
+const BARE_ASK_MINUTES = 60;
 const collate = new Intl.Collator('en', { numeric: true, sensitivity: 'base' }).compare;
 const chatDraft = (on) => `draft:chat:${on}:`;
 const rp = { sort: new Map(), sent: [], failed: new Map(), threads: new Set(Object.keys(localStorage).flatMap((key) => /^draft:chat:(.+):$/.exec(key)?.[1] ?? [])), limit: CHAT_AT_REST, bottom: true, anchor: null, focus: null, box: null, modal: null };
@@ -708,6 +709,9 @@ function chatEntries() {
   const replies = m.replies.map((entry) => ({ key: `reply:${entry.reply.id}`, on: entry.reply.on ?? '', at: entry.at, entry, about: `reply ${entry.reply.id} "${entry.reply.title}"` }));
   return [...replies, ...asks, ...taps, ...typed, ...waiting].sort((a, b) => new Date(a.at) - new Date(b.at));
 }
+function bareAskOpen(entry, answeredInThread) {
+  return entry.reply.status === 'needs_you' && !entry.reply.picks?.length && !answeredInThread && minutesSince(entry.at) < BARE_ASK_MINUTES;
+}
 function chatAction(entry, answeredInThread) {
   const r = entry.reply;
   const key = `reply:${r.id}`;
@@ -721,13 +725,13 @@ function chatAction(entry, answeredInThread) {
     return `<div class="ct-acts">${card.options.map((o) => `<button class="btn${o.recommended ? ' pri' : ''}" data-choose="${esc(o.id)}" data-choice="${esc(card.choice)}"${busy}>${esc(o.label.replace(/\s*\(Recommended\)\s*$/i, ''))}</button>`).join('')}</div>${sentNote(card.choice)}`;
   }
   if (r.picks?.length) return '<p class="ct-closed">This pick is no longer open.</p>';
-  if (r.status === 'needs_you' && !answeredInThread) return `<div class="ct-acts"><button class="btn pri" data-chat-done="${esc(key)}" data-about="${esc(about)}">Done</button></div>`;
+  if (bareAskOpen(entry, answeredInThread)) return `<div class="ct-acts"><button class="btn pri" data-chat-done="${esc(key)}" data-about="${esc(about)}">Done</button></div>`;
   return '';
 }
 function chatFlag(entry, answeredInThread) {
   const r = entry.reply;
   if (r.status === 'incident') return '<span class="ct-flag bad">Incident</span>';
-  const open = replyCard(r) ? !state.model.board.answered[`card-${r.id}`] : r.status === 'needs_you' && !r.picks?.length && !answeredInThread;
+  const open = replyCard(r) ? !state.model.board.answered[`card-${r.id}`] : bareAskOpen(entry, answeredInThread);
   return open ? '<span class="ct-flag you">Needs you</span>' : '';
 }
 function chatTheirs(item, kids) {
