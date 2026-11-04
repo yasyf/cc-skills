@@ -586,14 +586,9 @@ document.addEventListener('click', (e) => {
   row.querySelector('a[href*="question/"], a[href*="review/"]')?.click();
 });
 
-const REPLY_WORD = { info: ['Note', ''], progress: ['Progress', 'acc'], needs_you: ['Needs you', 'you'], incident: ['Incident', 'bad'], done: ['Done', 'ok'] };
 const SURFACE_WORD = { board: 'Board', talk: 'Talk', slack: 'Slack', record: 'Record' };
-const CHAT_AT_REST = 60;
-const SIMPLE_PICK = 50;
-const BARE_ASK_MINUTES = 60;
 const collate = new Intl.Collator('en', { numeric: true, sensitivity: 'base' }).compare;
-const chatDraft = (on) => `draft:chat:${on}:`;
-const rp = { sort: new Map(), sent: [], failed: new Map(), threads: new Set(Object.keys(localStorage).flatMap((key) => /^draft:chat:(.+):$/.exec(key)?.[1] ?? [])), limit: CHAT_AT_REST, bottom: true, anchor: null, focus: null, box: null, modal: null };
+const rp = { sort: new Map(), sent: [], failed: new Map(), modal: null };
 const NOISE = [
   [/<!--[\s\S]*?-->/g, ''],
   [/\s*\([^()]*\b(?:records?|owner table|card-[a-z0-9-]+)\b[^()]*\)/gi, ''],
@@ -617,9 +612,6 @@ function namedChanges(md) {
 }
 function replyCard(r) {
   return state.model.board.cards.find((c) => c.id === `card-${r.id}`);
-}
-function openReplies() {
-  return state.model?.replies ? state.model.replies.filter((entry) => bareAskOpen(entry, false)).length : 0;
 }
 function sortableTable(key, lines) {
   const cells = (line) => line.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim());
@@ -656,243 +648,6 @@ function replyMarkdown(id, md) {
   flush();
   return out.join('');
 }
-function replyPR(url) {
-  const [, repo, n] = /github\.com\/([\w.-]+\/[\w.-]+)\/pull\/(\d+)$/.exec(url);
-  return `<a class="prc" href="${esc(url)}" target="_blank" rel="noopener">${repo === state.model.repo ? esc(changeWords(n)) : 'A tooling change'} ↗</a>`;
-}
-function liveChatBox(on) {
-  return $('#main').querySelector(`[name="chat"][data-draft="${CSS.escape(on)}"]`);
-}
-function chatBox(on, about, placeholder) {
-  const failed = rp.failed.get(on);
-  return `${failed ? `<p class="ct-failed">Not sent: ${esc(failed)}. Try again.</p>` : ''}<form class="ct-box" data-chat-send="${esc(on)}" data-about="${esc(about)}"><textarea name="chat" data-draft="${esc(on)}" rows="1" placeholder="${placeholder}"></textarea><button class="ct-send" aria-label="Send"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5"/></svg></button></form>`;
-}
-function onlyState(r) {
-  return r.order && !r.picks?.length && (r.status === 'progress' || r.status === 'info');
-}
-function chatEntries() {
-  const m = state.model;
-  const rowOf = (line) => m.owner_asks.messages.find((row) => row.text.includes(line.text.trim()));
-  const typedHere = new Set(m.chat_lines.map((line) => rowOf(line)?.m));
-  const told = m.replies.map((entry) => entry.reply.md).join('\n');
-  const firstAnswer = new Map(m.replies.filter((entry) => entry.reply.order).map((entry) => [entry.reply.order, entry.at]));
-  const above = (row) => (firstAnswer.has(`m${row?.m}`) ? new Date(new Date(firstAnswer.get(`m${row.m}`)) - 1).toISOString() : undefined);
-  const asks = m.owner_asks.messages.filter((row) => !typedHere.has(row.m)).flatMap((row) => [
-    { key: `line:m${row.m}`, on: '', at: row.iso, sort: above(row), you: true, text: row.text, row, about: `his line m${row.m} "${row.text.slice(0, 80).replaceAll('\n', ' ')}"` },
-    ...(row.answer && !told.includes(row.answer.slice(0, 40)) ? [{ key: `answer:m${row.m}`, on: '', at: row.iso, answer: row.answer, about: `your answer to his line m${row.m}` }] : []),
-  ]);
-  const taps = m.owner_asks.taps.filter((tap) => !tap.pr && !m.board.answered[tap.card]).map((tap) => ({ key: `tap:m${tap.m}:${tap.card}`, on: '', at: tap.iso, tap }));
-  const typed = m.chat_lines.map((line) => ({ key: `seq:${line.seq}`, on: line.on, at: line.at, sort: above(rowOf(line)), you: true, text: line.text, row: rowOf(line), about: `his line #${line.seq} "${line.text.slice(0, 80).replaceAll('\n', ' ')}"` }));
-  const landed = new Set(m.chat_lines.map((line) => line.seq));
-  const waiting = rp.sent.filter((sent) => !landed.has(sent.seq)).map((sent) => ({ key: `sent:${sent.at}`, on: sent.on, at: sent.at, you: true, text: sent.text, sending: true }));
-  const replies = m.replies.filter((entry) => !onlyState(entry.reply)).map((entry) => ({ key: `reply:${entry.reply.id}`, on: entry.reply.on ?? '', at: entry.at, entry, about: `reply ${entry.reply.id} "${entry.reply.title}"` }));
-  return [...replies, ...asks, ...taps, ...typed, ...waiting].sort((a, b) => new Date(a.sort ?? a.at) - new Date(b.sort ?? b.at));
-}
-function bareAskOpen(entry, answeredInThread) {
-  return entry.reply.status === 'needs_you' && !entry.reply.picks?.length && !answeredInThread && minutesSince(entry.at) < BARE_ASK_MINUTES;
-}
-function chatAction(entry, answeredInThread) {
-  const r = entry.reply;
-  const key = `reply:${r.id}`;
-  const about = `reply ${r.id} "${r.title}"`;
-  const picked = state.model.board.answered[`card-${r.id}`]?.picked ?? keptWords(`card-${r.id}`);
-  if (picked) return `<p class="ct-picked">You picked <b>${esc(picked)}</b></p>`;
-  const card = replyCard(r);
-  if (card) {
-    if (!card.choice || card.embed || card.options.length > 2 || card.options.some((o) => o.label.length > SIMPLE_PICK)) return `<div class="ct-acts"><button class="btn pri" data-chat-modal="${esc(card.id)}">Open the pick</button></div>`;
-    return `<div class="ct-acts">${pickSet(card)}</div>`;
-  }
-  if (r.picks?.length) return '<p class="ct-closed">This pick is no longer open.</p>';
-  if (bareAskOpen(entry, answeredInThread)) return `<div class="ct-acts"><button class="btn pri" data-chat-done="${esc(key)}" data-about="${esc(about)}">Done</button></div>`;
-  return '';
-}
-function chatFlag(entry, answeredInThread) {
-  const r = entry.reply;
-  if (r.status === 'incident') return '<span class="ct-flag bad">Incident</span>';
-  const open = replyCard(r) ? !state.model.board.answered[`card-${r.id}`] : bareAskOpen(entry, answeredInThread);
-  return open ? '<span class="ct-flag you">Needs you</span>' : '';
-}
-function chatTheirs(item, kids) {
-  const entry = item.entry;
-  const r = entry.reply;
-  const answeredInThread = kids.some((kid) => kid.you);
-  const failed = entry.surfaces.filter((s) => s.error).map((s) => `<li class="bad">${SURFACE_WORD[s.surface]} failed: ${esc(s.error)}</li>`).join('');
-  return `<div class="ct-from">Communicator <time>${clock(item.at)}</time>${chatFlag(entry, answeredInThread)}</div>
-    <h3 class="ct-title">${esc(plain(r.title).replace(/#\d{4,5}\b,? ?/g, ''))}</h3>
-    <div class="rp-md prose">${replyMarkdown(r.id, plain(namedChanges(r.md)))}</div>
-    ${chatAction(entry, answeredInThread)}
-    ${r.links?.length ? `<ul class="rp-links">${r.links.map((l) => `<li><a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(plain(l.label).replace(/^#(\d{5})$/, (_, n) => changeWords(n)))} ↗</a></li>`).join('')}</ul>` : ''}
-    ${r.prs?.length ? `<p class="rp-prs">${r.prs.map(replyPR).join(' ')}</p>` : ''}
-    ${failed ? `<ul class="rp-went">${failed}</ul>` : ''}`;
-}
-function lineState(row) {
-  return row?.due ? receivedLine(row) : ACK[row?.ack ?? 'received'][0];
-}
-function chatYours(item) {
-  const words = item.text.replace(/\[Image #\d+\]/g, ' ').trim();
-  const title = item.row?.title ?? askTitle(words);
-  const shot = /\[Image #\d+\]/.test(item.text) ? '<span class="ct-shot">Screenshot</span>' : '';
-  const id = `said-${item.key}`;
-  const whole = title === words ? '' : `<details class="ct-whole" data-id="${esc(id)}"${state.open.has(id) ? ' open' : ''}><summary>Whole message</summary>${esc(item.text)}</details>`;
-  return `<div class="ct-bubble">${esc(title)}${shot ? ` ${shot}` : ''}${whole}</div><div class="ct-from"><time>${item.sending ? 'Sending…' : `${clock(item.at)} · ${lineState(item.row)}`}</time></div>`;
-}
-function chatBody(item, kids) {
-  if (item.entry) return chatTheirs(item, kids);
-  if (item.answer) return `<div class="ct-from">Communicator <time>${clock(item.at)}</time></div><div class="rp-md prose">${markdown(plain(namedChanges(item.answer)))}</div>`;
-  return chatYours(item);
-}
-function chatWaiting(after) {
-  return new Date(after.at) > new Date(state.model.replies[0]?.at ?? 0) ? '<p class="ct-wait">Waiting for the communicator<i></i><i></i><i></i></p>' : '';
-}
-function chatThread(item, kids) {
-  const open = rp.threads.has(item.key);
-  const replies = kids.length === 1 ? '1 reply' : `${kids.length} replies`;
-  const toggle = `<button class="ct-link" data-chat-thread="${esc(item.key)}">${open ? 'Hide thread' : kids.length ? replies : 'Reply'}</button>`;
-  if (!open) return `<div class="ct-tools${kids.length ? ' has' : ''}">${toggle}</div>`;
-  const last = kids.at(-1);
-  return `<div class="ct-tools has">${toggle}</div><div class="ct-thread">${kids.map((kid) => `<article class="ct-turn ${kid.you ? 'ct-you' : 'ct-them'}">${chatBody(kid, [])}</article>`).join('')}${last?.you ? chatWaiting(last) : ''}${chatBox(item.key, item.about, 'Reply in thread')}</div>`;
-}
-function chatTurn(item, kids) {
-  if (item.tap) return `<p class="ct-tap">You answered ${esc(askTitle(plain(item.tap.question).replace(/^Owner on board,?\s*/, '')))}: <b>${esc(item.tap.said)}</b> <time>${clock(item.at)}</time></p>`;
-  const id = item.entry ? ` id="rp-${esc(item.entry.reply.id)}"` : '';
-  return `<article class="ct-turn ${item.you ? 'ct-you' : 'ct-them'}"${id}>${chatBody(item, kids)}${item.sending ? '' : chatThread(item, kids)}</article>`;
-}
-function repliesScreen() {
-  if (state.shown !== location.hash) Object.assign(rp, { bottom: true, touched: false });
-  const entries = chatEntries();
-  const keys = new Set(entries.map((item) => item.key));
-  const threaded = entries.filter((item) => keys.has(item.on));
-  const flow = entries.filter((item) => !keys.has(item.on));
-  const kidsOf = (item) => threaded.filter((kid) => kid.on === item.key);
-  const shown = flow.slice(-rp.limit);
-  const hidden = flow.length - shown.length;
-  const last = flow.at(-1);
-  const overdue = [...overdueRows(), ...picksRow()];
-  return `<div class="ct">
-    ${overdue.length ? `<div class="ct-owed">${eventList(overdue)}</div>` : ''}
-    ${hidden ? `<button class="ct-link ct-earlier" data-chat-earlier>Show earlier (${hidden})</button>` : ''}
-    ${flow.length ? '' : '<div class="ct-empty"><b>Ask the communicator</b><span>It answers here, and you can reply to any message in a thread.</span></div>'}
-    <div class="ct-flow">${shown.map((item) => chatTurn(item, kidsOf(item))).join('')}${last?.you ? chatWaiting(last) : ''}</div>
-    <div class="ct-foot">${chatBox('', '', 'Message the communicator')}</div>
-  </div>`;
-}
-async function chatSend(on, about, text) {
-  if (!text.trim()) return;
-  const sent = { on, text: text.trim(), at: new Date().toISOString() };
-  rp.sent.push(sent);
-  localStorage.removeItem(chatDraft(on));
-  if (liveChatBox(on)) liveChatBox(on).value = '';
-  rp.failed.delete(on);
-  if (!on) rp.bottom = true;
-  render();
-  const out = await fetch('/api/reply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, on, about }) })
-    .then((res) => res.json())
-    .catch((failure) => ({ error: `could not reach the dashboard server (${failure.message})` }));
-  if (out.error) {
-    rp.sent.splice(rp.sent.indexOf(sent), 1);
-    localStorage.setItem(chatDraft(on), text);
-    if (liveChatBox(on)) liveChatBox(on).value = text;
-    rp.failed.set(on, out.error);
-  } else {
-    sent.seq = out.seq;
-  }
-  render();
-}
-function liveChatBoxes() {
-  return new Map([...$('#main').querySelectorAll('.ct-box')].filter((form) => form.chat.value || form.contains(document.activeElement)).map((form) => [form.dataset.chatSend, form]));
-}
-function keepChatBoxes(live) {
-  for (const form of $('#main').querySelectorAll('.ct-box')) {
-    const held = live.get(form.dataset.chatSend);
-    if (held) form.replaceWith(held);
-  }
-}
-function chatScroll() {
-  const page = document.documentElement;
-  const spot = rp.focus && document.getElementById(`rp-${rp.focus}`);
-  if (spot) {
-    rp.focus = null;
-    rp.bottom = false;
-    spot.scrollIntoView({ block: 'center' });
-  } else if (rp.anchor !== null) {
-    window.scrollBy(0, page.scrollHeight - rp.anchor);
-    rp.anchor = null;
-  } else if (rp.bottom) {
-    window.scrollTo(0, page.scrollHeight);
-  }
-  if (rp.box !== null) {
-    liveChatBox(rp.box)?.focus();
-    rp.box = null;
-  }
-}
-function syncChatModal() {
-  const box = $('#chatmodal');
-  const card = rp.modal && state.model.board.cards.find((c) => c.id === rp.modal);
-  if (!card || state.model.board.answered[card.id]) {
-    rp.modal = null;
-    delete box.dataset.card;
-    if (box.open) box.close();
-    return;
-  }
-  if (!box.open) box.showModal();
-  if (box.dataset.card === card.id && (card.embed || box.contains(document.activeElement))) return;
-  box.dataset.card = card.id;
-  const body = card.embed
-    ? `<iframe title="${esc(card.title)}" src="${esc(framedUrl(card.embed))}"></iframe>`
-    : boardCard({ card });
-  box.innerHTML = `<header><b>${inline(plain(card.title))}</b><button class="btn ghost" data-chat-close>Close</button></header>${body}`;
-  restoreBoxes();
-}
-document.addEventListener('close', (e) => {
-  if (e.target.id === 'chatmodal') rp.modal = null;
-}, true);
-for (const type of ['wheel', 'touchstart', 'keydown', 'pointerdown']) {
-  window.addEventListener(type, () => { rp.touched = true; }, { passive: true, capture: true });
-}
-window.addEventListener('scroll', () => {
-  const page = document.documentElement;
-  const atBottom = window.innerHeight + window.scrollY >= page.scrollHeight - 160;
-  if (atBottom || rp.touched) rp.bottom = atBottom;
-}, { passive: true });
-document.addEventListener('keydown', (e) => {
-  if (e.target.name === 'chat' && e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
-    e.preventDefault();
-    e.target.form.requestSubmit();
-  }
-});
-document.addEventListener('click', (e) => {
-  const thread = e.target.closest('[data-chat-thread]');
-  if (thread) {
-    const key = thread.dataset.chatThread;
-    if (!rp.threads.delete(key)) {
-      rp.threads.add(key);
-      rp.box = key;
-    }
-    rp.bottom = false;
-    return render();
-  }
-  const done = e.target.closest('[data-chat-done]');
-  if (done) {
-    rp.threads.add(done.dataset.chatDone);
-    rp.bottom = false;
-    return chatSend(done.dataset.chatDone, done.dataset.about, 'Done');
-  }
-  const opener = e.target.closest('[data-chat-modal]');
-  if (opener) {
-    rp.modal = opener.dataset.chatModal;
-    return render();
-  }
-  if (e.target.closest('[data-chat-close]') || e.target.id === 'chatmodal') {
-    rp.modal = null;
-    return render();
-  }
-  if (e.target.closest('[data-chat-earlier]')) {
-    rp.limit += CHAT_AT_REST;
-    rp.bottom = false;
-    rp.anchor = document.documentElement.scrollHeight;
-    return render();
-  }
-});
 document.addEventListener('click', (e) => {
   const sorter = e.target.closest('[data-sort]');
   if (!sorter) return;
@@ -900,12 +655,6 @@ document.addEventListener('click', (e) => {
   const was = rp.sort.get(sorter.dataset.sort);
   rp.sort.set(sorter.dataset.sort, { col, dir: was?.col === col ? -was.dir : 1 });
   render();
-});
-document.addEventListener('submit', (e) => {
-  const form = e.target.closest('[data-chat-send]');
-  if (!form) return;
-  e.preventDefault();
-  chatSend(form.dataset.chatSend, form.dataset.about, form.chat.value);
 });
 const NOTICED_KEPT = 500;
 function reportBrowser() {
@@ -921,8 +670,7 @@ function openNotice(a) {
     location.hash = `#/needs~question/${encodeURIComponent(a.card)}`;
     return;
   }
-  rp.focus = a.id;
-  rp.limit = Infinity;
+  chatAim(a.id);
   location.hash = '#/replies';
   render();
 }

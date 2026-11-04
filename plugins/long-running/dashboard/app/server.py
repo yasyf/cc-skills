@@ -28,7 +28,7 @@ from zoneinfo import ZoneInfo
 import plainwords
 from brief import COORDINATORS, ROOT, Curator
 from owed import CHAT_HOLDER, closed_asks, kept, order_replies, overdue_rows, owner_ask_rows, told_asks, trimmed
-from pages import PAGES, source_key, stamp
+from pages import PAGES, asks_brief, source_key, stamp, titled_asks
 from review_assistant import ReviewAssistant
 from screens import SCREENS, changed_screens, screen_kind, screen_view
 from story import Stories
@@ -158,7 +158,7 @@ BOXES = 12
 SEVERITY = {"blocker": "bad", "defect": "bad", "incident": "bad", "ask": "you", "owner": "you", "landed": "ok", "go": "ok", "fix-live": "ok"}
 TONE_RANK = {"bad": 3, "you": 2, "ok": 1, "info": 0}
 PR_MENTION = re.compile(r"#(4\d{4})\b")
-STATIC = {"/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"), "/app.css": ("app.css", "text/css"), "/review.js": ("review.js", "text/javascript"), "/review.css": ("review.css", "text/css"), "/overview.js": ("overview.js", "text/javascript"), "/overview.css": ("overview.css", "text/css"), "/cockpit.css": ("cockpit.css", "text/css"), "/now.js": ("now.js", "text/javascript"), "/now.css": ("now.css", "text/css"), "/pages.js": ("pages.js", "text/javascript"), "/pages.css": ("pages.css", "text/css"), "/theme.css": ("theme.css", "text/css")}
+STATIC = {"/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"), "/app.css": ("app.css", "text/css"), "/review.js": ("review.js", "text/javascript"), "/review.css": ("review.css", "text/css"), "/overview.js": ("overview.js", "text/javascript"), "/overview.css": ("overview.css", "text/css"), "/cockpit.css": ("cockpit.css", "text/css"), "/now.js": ("now.js", "text/javascript"), "/now.css": ("now.css", "text/css"), "/pages.js": ("pages.js", "text/javascript"), "/pages.css": ("pages.css", "text/css"), "/chat.js": ("chat.js", "text/javascript"), "/chat.css": ("chat.css", "text/css"), "/theme.css": ("theme.css", "text/css")}
 
 
 def gh(repo, *args):
@@ -1045,7 +1045,8 @@ class Drive:
                 continue
             self.curator.brief = model["brief"]
             for name, curator in self.pages.items():
-                curator.brief = model["pages"][name]
+                curator.brief = model["pages"].get(name)
+            self.pages["asks"].brief = asks_brief(model["owner_asks"])
             self.touch()
             self.bump()
             time.sleep(30)
@@ -1311,8 +1312,11 @@ class Drive:
                 render = subprocess.run(["lr", "update", "render", "--drive", drive], capture_output=True, text=True, timeout=SLOW_REFRESH).stdout
                 store = json.loads(run(["lr", "asks", "--drive", drive, "--json"]))
                 threads = {ask["seq"]: ask for asks in self.model.get("asks", {}).values() for ask in asks}
+                asks = self.owner_rows(known, store, set(self.lane_names()), threads, now)
+                if len(asks["messages"]) != len(self.owed["owner_asks"]["messages"]):
+                    self.pages["asks"].poke()
                 self.owed = {
-                    "owner_asks": self.owner_rows(known, store, set(self.lane_names()), threads, now),
+                    "owner_asks": asks,
                     "coordinator_overdue": overdue_rows(render, known, store),
                 }
                 self.reported_owed = None
@@ -1663,12 +1667,13 @@ class Drive:
             "status_tables": [table for table in self.read(self.config["status_tables"]) if table["id"] not in ("plan", "what-waits-on-you")],
             "step_records": {step["id"]: {"wrong": step.get("went_wrong", ""), "lanes": step.get("lanes", []), "prs": step.get("prs", [])} for step in progress["steps"]},
             **self.owed,
+            "owner_asks": titled_asks(self.owed["owner_asks"], self.pages["asks"].brief),
             "replies": self.replies,
             "chat_lines": self.chat_lines,
             "register_log": "register" in self.config,
             "latest_words": self.words(),
             "evidence": live_evidence(self.evidences(), model["prs"], progress.get("pr_state", {}), pushes),
-            "pages": without_finished_prs({name: curator.brief for name, curator in self.pages.items()}, model["prs"], progress.get("pr_state", {})),
+            "pages": without_finished_prs({name: curator.brief for name, curator in self.pages.items() if name != "asks"}, model["prs"], progress.get("pr_state", {})),
             "milestone_state": milestone_rows,
             "milestones": [m["name"] for m in self.config["milestones"]],
             "milestones_label": self.config["milestones_label"],

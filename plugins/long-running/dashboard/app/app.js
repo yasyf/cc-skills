@@ -339,7 +339,10 @@ document.addEventListener('submit', (e) => {
   const other = form.elements['pick-other'].value.trim();
   if (!other || sending(block)) return;
   answer({ kind: 'choice', block, options: [], other }).then(() => {
-    if (!ov.sent.get(block)?.error) localStorage.removeItem(`draft:pick-other:${block}:`);
+    if (ov.sent.get(block)?.error) return;
+    localStorage.removeItem(`draft:pick-other:${block}:`);
+    form.elements['pick-other'].value = '';
+    render();
   });
 });
 document.addEventListener('keydown', (e) => {
@@ -427,7 +430,7 @@ function stackHash(base, stack) {
 }
 function route(hash = location.hash) {
   const parts = (stackOf(hash).at(-1) ?? baseOf(hash)).replace(/^#\/?/, '').split('/').filter(Boolean);
-  return { screen: parts[0] ?? 'overview', id: parts[1], tab: parts[2] };
+  return { screen: parts[0] === 'chat' ? 'replies' : parts[0] ?? 'overview', id: parts[1], tab: parts[2] };
 }
 function prOpen(r = route()) {
   return stackOf().length > 0 && r.screen === 'review' && /^\d+$/.test(r.id ?? '');
@@ -464,7 +467,7 @@ document.addEventListener('focusout', (e) => {
   setTimeout(refresh);
 });
 document.addEventListener('submit', (e) => {
-  if (e.target.matches('.bq-ask, .ct-box')) return;
+  if (e.target.matches('.bq-ask, [data-chat-send]')) return;
   for (const el of e.target.elements) if (el.name) localStorage.removeItem(boxKey(el));
 }, true);
 function render() {
@@ -479,14 +482,15 @@ function render() {
   const p = pageRoute();
   const stack = stackOf();
   document.title = m.title;
-  $('.brand').textContent = m.title;
+  $('.brand b').textContent = m.title;
   const tabs = [['overview', 'Now'], ['needs', 'Needs me', openTaps().length], ['plan', 'Plan'], ['status', 'Status'], ['work', 'Work'], ['review', 'Review', prsWaiting()], ['replies', 'Chat', openReplies()], ['history', 'History']];
   $('#kbtn').classList.toggle('on', p.screen === 'jump');
   const typing = document.activeElement?.matches('#main input, #main textarea') ? document.activeElement : null;
   const caret = typing && [typing.name, typing.dataset.draft ?? '', typing.selectionStart, typing.selectionEnd];
   const spotRoot = [$('#main'), $('#tabs')].find((el) => el.contains(document.activeElement));
   const spot = !typing && state.shown === location.hash && spotRoot && focusSpot(spotRoot);
-  $('#tabs').innerHTML = tabs.map(([id, label, count]) => `<a class="tab${(p.screen === 'milestone' ? 'plan' : p.screen) === id ? ' on' : ''}" href="#/${id === 'overview' ? '' : id}">${label}${count ? `<span class="count">${count}</span>` : ''}</a>`).join('');
+  $('#tabs').innerHTML = tabs.map(([id, label, count]) => `<a class="tab${(p.screen === 'milestone' ? 'plan' : p.screen) === id ? ' on' : ''}" href="#/${id === 'overview' ? '' : id}">${chatIcon(NAV_ICONS[id])}${label}${count ? `<span class="count">${count}</span>` : ''}</a>`).join('');
+  if (chatInPlace(p, stack)) return;
   const screens = { overview: nowScreen, plan: planScreen, work: workScreen, review: () => reviewScreen(p.id ?? ''), milestone: () => (curated('plan') ? milestonePage(curated('plan'), Number(p.id)) : writing(state.model.milestones[p.id])), history: () => historyScreen(p.id), needs: needsScreen, replies: repliesScreen, ask: askScreen, status: () => statusScreen(p.id, p.tab), jump: () => `<div class="pg">${pageHead('Jump to anything')}<p class="pg-lead">Find a change, a part of the plan, a piece of work or a page, or ask the assistant a question.</p></div>` };
   const y = window.scrollY;
   const kept = [...document.querySelectorAll('[data-keep-scroll]')].map((el) => [el.dataset.keepScroll, el.scrollLeft, el.scrollTop]);
@@ -500,14 +504,16 @@ function render() {
   const chatBoxes = liveChatBoxes();
   $('#main').innerHTML = screen + drawers(stack) + `<div class="foot">${m.errors && Object.keys(m.errors).length ? `Some sources could not be read just now (${esc(Object.keys(m.errors).join(', '))}). ` : ''}All times Pacific.</div>`;
   keepChatBoxes(chatBoxes);
+  if (p.screen === 'replies') patchChat();
   for (const el of $('#main').children) el.inert = stack.length > 0 && !el.matches('.pr-scrim, .pr-drawer');
   if (stack.length > (state.depth ?? 0)) $('#main .pr-drawer.front')?.classList.add('in');
   state.depth = stack.length;
   decorate(p);
   composeLinks(stack);
   holdPeek();
+  const arrived = baseOf(state.shown ?? '') !== baseOf();
   if (state.shown !== location.hash) {
-    if (baseOf(state.shown ?? '') !== baseOf()) {
+    if (arrived) {
       $('#main').classList.add('enter');
       setTimeout(() => $('#main').classList.remove('enter'), 220);
     }
@@ -518,7 +524,7 @@ function render() {
   if (again) { again.focus(); again.setSelectionRange(caret[2], caret[3]); }
   if (spot) refocus(spot, spotRoot);
   window.scrollTo(0, y);
-  if (p.screen === 'replies') chatScroll();
+  if (p.screen === 'replies') chatScroll(arrived);
   syncChatModal();
   for (const [id, left, top] of kept) { const el = document.querySelector(`[data-keep-scroll="${id}"]`); if (el) [el.scrollLeft, el.scrollTop] = [left, top]; }
   syncReviewEmbed(route());

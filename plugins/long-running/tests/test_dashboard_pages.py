@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 import server
 from brief import Curator
-from pages import PAGES, REVIEW_SCHEMA, open_question, plan_slot, review_digest, review_slot, stamp, waiting_since
+from pages import ASK_BATCH, PAGES, REVIEW_SCHEMA, asks_brief, asks_carry, asks_digest, open_question, plan_slot, review_digest, review_slot, stamp, titled_asks, waiting_since
 from server import ALERTS_SENT, bot_words, drawable, drive_alerts, stored_replies, unanswered
 
 NOW = dt.datetime(2026, 10, 27, 23, 0, tzinfo=dt.timezone.utc)
@@ -244,3 +244,30 @@ def test_alerts_keep_the_newest_when_many_wait():
 @pytest.mark.parametrize("script", sorted(Path(server.__file__).parent.glob("*.js")), ids=lambda path: path.name)
 def test_every_page_script_parses(script):
     subprocess.run(["node", "--check", str(script)], check=True)
+
+
+def test_a_folded_ask_gets_one_title_asked_for_once_and_kept_across_runs():
+    rows = [{"m": "5.1", "text": "first part"}, {"m": "5.2", "text": "second part"}, {"m": 6, "text": "known"}]
+    model = {"owner_asks": {"messages": rows}, "records": [], "lanes": []}
+    previous = {"titles": [{"key": "m6", "title": "Known"}]}
+    assert asks_digest(model, {}, previous, NOW)["asks"] == [{"key": "m5", "said": "first part second part"}]
+    kept = asks_carry({"titles": [{"key": "m5", "title": "Both parts"}, {"key": "m9", "title": ""}]}, previous)
+    assert kept["titles"] == [{"key": "m6", "title": "Known"}, {"key": "m5", "title": "Both parts"}]
+    assert asks_digest(model, {}, kept, NOW) is None
+    assert [row["title"] for row in titled_asks(model["owner_asks"], kept)["messages"]] == ["Both parts", "Both parts", "Known"]
+
+
+def test_titles_past_one_batch_say_more_is_left_so_a_quiet_drive_drains():
+    rows = [{"m": n, "text": f"ask {n}"} for n in range(ASK_BATCH + 1)]
+    facts = asks_digest({"owner_asks": {"messages": rows}, "records": [], "lanes": []}, {}, None, NOW)
+    assert facts["more"] and len(facts["asks"]) == ASK_BATCH and facts["asks"][-1]["key"] == f"m{ASK_BATCH}"
+
+
+def test_a_mirror_rebuilds_the_titles_from_the_rows_it_was_served():
+    asks = {"messages": [{"m": "5.1", "title": "Both parts"}, {"m": 6, "text": "no title yet"}]}
+    assert asks_brief(asks) == {"titles": [{"key": "m5", "title": "Both parts"}]}
+
+
+def test_an_ask_with_no_title_yet_stays_untitled_so_the_page_falls_back():
+    asks = {"messages": [{"m": 7, "text": "just arrived"}], "taps": []}
+    assert "title" not in titled_asks(asks, None)["messages"][0]

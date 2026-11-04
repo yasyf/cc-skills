@@ -381,7 +381,7 @@ def test_what_the_coordinator_owes_is_on_chat_folded_by_kind_and_not_on_now(page
     }""")
     assert "overdue item" not in page.locator(".nw").inner_text().lower()
     page.evaluate("location.hash = '#/replies'")
-    page.wait_for_selector(".ct-owed .ev-rows")
+    page.locator(".ct-owed > summary").click()
     rows = page.locator(".ct-owed .ev-rows > li")
     assert [row.locator("summary").inner_text().split("\n")[-1] for row in rows.all()][:2] == ["2 of your picks not carried out", "1 ask with no answer"]
     assert "Delete the leftovers?" in rows.first.text_content()
@@ -630,8 +630,8 @@ def test_an_incident_tap_leads_needs_me_even_with_nothing_waiting_on_it(page):
 def chat_box(page):
     now(page)
     page.evaluate("() => { state.model.replies = []; state.model.chat_lines = []; state.model.owner_asks ??= { messages: [], taps: [], store: [] }; location.hash = '#/replies'; }")
-    page.wait_for_selector(".ct-foot textarea")
-    return page.locator(".ct-foot textarea")
+    page.wait_for_selector(".composer textarea")
+    return page.locator(".composer textarea")
 
 
 def test_a_chat_box_stays_the_same_element_through_a_refresh_and_a_draft_survives_a_reload(page):
@@ -640,10 +640,10 @@ def test_a_chat_box_stays_the_same_element_through_a_refresh_and_a_draft_survive
     box.click()
     page.keyboard.type("half a thought")
     assert page.evaluate("""() => {
-      const el = document.querySelector('.ct-foot textarea');
+      const el = document.querySelector('.composer textarea');
       refresh();
       render();
-      return document.querySelector('.ct-foot textarea') === el && document.activeElement === el && !state.owed;
+      return document.querySelector('.composer textarea') === el && document.activeElement === el && !state.owed;
     }""")
     page.keyboard.type(" more")
     assert box.input_value() == "half a thought more"
@@ -676,13 +676,13 @@ def test_a_failed_chat_line_returns_to_its_box_and_a_sent_one_clears_it(page):
     box.click()
     page.keyboard.type("send me")
     page.route("**/api/reply", lambda route: route.fulfill(status=502, json={"error": "the records were down"}))
-    page.evaluate("document.querySelector('.ct-foot form').requestSubmit()")
+    page.evaluate("document.querySelector('.composer').requestSubmit()")
     page.wait_for_function("rp.failed.get('')")
     assert box.input_value() == "send me"
     assert page.evaluate("localStorage.getItem('draft:chat::')") == "send me"
     page.unroute("**/api/reply")
     page.route("**/api/reply", lambda route: route.fulfill(json={"seq": 5}))
-    page.evaluate("document.querySelector('.ct-foot form').requestSubmit()")
+    page.evaluate("document.querySelector('.composer').requestSubmit()")
     page.wait_for_function("rp.sent.at(-1)?.seq === 5")
     assert box.input_value() == ""
     assert page.evaluate("localStorage.getItem('draft:chat::')") is None
@@ -785,37 +785,41 @@ def test_review_lists_pull_requests_only_and_its_count_leaves_out_questions(page
     page.wait_for_selector(".mr.bq.note")
     assert "A note" in page.locator("#main").inner_text()
     page.evaluate("state.model.needs = window.keptNeeds; state.model.board.cards = state.model.board.cards.filter((card) => card.id !== 'card-note')")
-def test_chat_shows_each_ask_as_its_summary_and_state_with_its_answer_right_under_it(page):
+def test_chat_shows_each_ask_as_one_title_and_state_with_its_answer_under_it(page):
     now(page)
     page.evaluate("""() => {
       state.model.board.answered = {};
       state.model.chat_lines = [];
       state.model.coordinator_overdue = [];
       state.model.replies = [
-        { reply: { id: 'ans', title: 'Fixed', md: 'The box holds now', order: 'm1' }, at: '2026-11-03T14:00:00Z', surfaces: [] },
-        { reply: { id: 'later', title: 'Something else', md: 'Another thing' }, at: '2026-11-03T13:00:00Z', surfaces: [] },
+        { reply: { id: 'ans', title: 'Done, nothing for you: Fixed', md: 'Done, nothing for you. The box holds now', status: 'done', order: 'm1.2' }, at: '2026-11-03T14:00:00Z', surfaces: [] },
+        { reply: { id: 'later', title: 'Something else', md: 'Another thing', status: 'info' }, at: '2026-11-03T13:00:00Z', surfaces: [] },
       ];
       state.model.owner_asks = { messages: [
-        { m: 1, iso: '2026-11-03T12:00:00Z', text: 'Please fix the typing box. It resets on every refresh and I lose what I typed.', state: 'asked', ack: 'routed', lanes: [], prs: [], answer: '' },
-        { m: 2, iso: '2026-11-03T12:30:00Z', text: 'A second ask that nobody answered with words', state: 'answered', ack: 'done', lanes: [], prs: [], answer: '' },
+        { m: '1.1', iso: '2026-11-03T12:00:00Z', title: 'Fix the typing box', text: 'Please fix the typing box. It resets on every refresh and I lose what I typed.', state: 'asked', ack: 'routed', lanes: [], prs: [], answer: '' },
+        { m: '1.2', iso: '2026-11-03T12:00:00Z', text: 'and the second part of that same message', state: 'asked', ack: 'routed', lanes: [], prs: [], answer: '' },
+        { m: 2, iso: '2026-11-03T12:30:00Z', text: 'A second ask that nobody answered with words', state: 'asked', ack: 'routed', lanes: ['a-1'], prs: [], answer: '' },
       ], taps: [], store: [] };
-      location.hash = '#/replies';
+      location.hash = '#/chat';
     }""")
-    page.wait_for_selector(".ct-foot .ct-box")
-    turns = page.locator(".ct-flow > .ct-turn")
-    assert turns.count() == 4
-    assert "A second ask" in turns.nth(0).inner_text() and "Done" in turns.nth(0).locator(".ct-from").first.inner_text()
-    assert "Something else" in turns.nth(1).inner_text()
-    ask = turns.nth(2)
-    assert "Please fix the typing box" in ask.locator(".ct-bubble").inner_text()
-    assert "It resets on every refresh" not in ask.locator(".ct-bubble").inner_text()
-    assert "Routed" in ask.locator(".ct-from").first.inner_text()
-    ask.locator(".ct-whole summary").click()
-    assert "It resets on every refresh" in page.locator(".ct-whole[open]").inner_text()
-    assert "The box holds now" in turns.nth(3).inner_text()
-    assert "nothing for you" not in page.locator(".ct").inner_text()
-    assert page.locator("#tabs a", has_text="Your asks").count() == 0
-    page.evaluate("state.open.delete('said-line:m1')")
+    page.wait_for_selector(".cw .thread")
+    assert page.locator(".cw .ct-bubble").count() == 0
+    asks = page.locator(".cw .thread:has(.ask-head)")
+    assert asks.count() == 2
+    second = asks.nth(0)
+    assert "A second ask" in second.locator(".ask-title").inner_text()
+    assert second.locator(".pill").inner_text() == "In progress"
+    first = asks.nth(1)
+    assert first.locator(".ask-title").inner_text() == "Fix the typing box"
+    assert first.locator(".pill").inner_text() == "Completed"
+    assert not first.locator(".ask-detail").is_visible()
+    first.locator(".ask-head").click()
+    whole = first.locator(".ask-detail").inner_text()
+    assert "It resets on every refresh" in whole and "the second part" in whole
+    assert first.locator(".decision-card h3").inner_text() == "Fixed"
+    assert "nothing for you" not in page.locator(".cw").inner_text().lower()
+    assert "Another thing" in page.locator(".thread.loose").inner_text()
+    page.evaluate("cw.open.clear()")
     now(page)
 
 
@@ -988,16 +992,21 @@ CHAT_MODEL = """(n) => {
   const reply = (id, extra) => ({ reply: { id, title: `Title ${id}`, md: `Body ${id}`, ...extra }, at: '2026-11-03T20:00:00Z', surfaces: [] });
   const card = (id, labels) => ({ id: `card-${id}`, title: id, summary: 'Why', chips: [], prs: [], parts: [], key: id, decides: true, choice: `${id}-choice`, options: labels.map((label, i) => ({ id: `${id}-${i + 1}`, label, recommended: i === 0 })) });
   state.model.replies = [
+    reply('open4', { status: 'needs_you', picks: ['p', 'q', 'r'] }),
     reply('open3', { status: 'needs_you', picks: ['a', 'b', 'c'] }),
     reply('open2', { status: 'needs_you', picks: ['Yes', 'No'] }),
     { ...reply('plain', { status: 'needs_you' }), at: new Date().toISOString() },
     reply('stale', { status: 'needs_you' }),
     reply('old', { status: 'needs_you', picks: ['x', 'y'] }),
     reply('routed', { status: 'progress', order: 'm7' }),
+    reply('change', { status: 'info', md: 'See #77001 for it', links: [{ url: 'https://example.ts.net:8665/one-pagers/how-it-works/', label: 'How it works' }, { url: 'https://example.slack.com/x', label: 'The thread' }] }),
     ...Array.from({ length: n }, (_, i) => ({ ...reply(`r${i}`, {}), at: '2026-11-03T19:00:00Z' })),
   ];
-  state.model.board.cards = [card('open2', ['Yes', 'No']), card('open3', ['a', 'b', 'c'])];
+  state.model.board.cards = [card('open2', ['Yes', 'No']), card('open3', ['a', 'b', 'c']), card('open4', ['p', 'q', 'r'])];
   state.model.board.answered = {};
+  state.model.prs[77001] = { title: 'dashboard: 🐛 fix the box', test_state: 'passed', ai_review: 'success', changed_files: '3', head: 'abc1234' };
+  state.model.board.rows = state.model.board.rows.filter((row) => row.number !== 77001).concat({ number: 77001, head: 'abc1234', title: 'fix the box', change: 'Keeps what he typed', state: 'you', blocker: '', plan: '', risk: '', review: '' });
+  state.drive.set(77001, { number: 77001, state: 'you' });
   state.model.owner_asks = { messages: [{ m: 7, iso: '2026-11-03T21:00:00-08:00', text: 'my line', state: 'asked', ack: 'routed', lanes: ['a-1'], prs: [] }], taps: [], store: [] };
   state.model.chat_lines = [];
   render();
@@ -1008,13 +1017,15 @@ def open_chat(page, n=0):
     now(page)
     page.evaluate(CHAT_MODEL, n)
     page.evaluate("location.hash = '#/replies'")
-    page.wait_for_selector(".ct-foot .ct-box")
+    page.wait_for_selector(".cw .thread")
 
 
-def test_chat_opens_at_its_newest_message_when_he_comes_from_another_tab(page):
+def test_chat_leads_with_what_needs_him_and_then_the_newest(page):
     open_chat(page, 100)
-    assert page.evaluate("window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 200")
-    assert page.evaluate("window.scrollY") > 0
+    keys = page.evaluate("[...document.querySelectorAll('.cw .thread')].map((el) => el.dataset.k)")
+    assert set(keys[:4]) == {"reply:open2", "reply:open3", "reply:open4", "reply:plain"}
+    assert keys[4] == "line:m7"
+    assert page.locator(".dayline .eyebrow").first.inner_text().lower() == "needs you first"
     now(page)
 
 
@@ -1033,61 +1044,238 @@ def test_a_status_table_nobody_has_updated_says_so_and_a_fresh_one_does_not(page
 
 
 def test_a_thread_reply_names_its_parent_and_shows_under_it(page):
-    """Owner 10:07 PM Nov 3: any message threads, and Claude gets the line knowing what it hangs on."""
     open_chat(page)
-    line = page.locator(".ct-you", has_text="my line")
-    assert "Routed" in line.locator(".ct-from").first.inner_text()
+    line = page.locator(".thread", has_text="my line")
+    assert line.locator(".ask-head .pill").inner_text() == "In progress"
     page.route("**/api/reply", lambda route: route.fulfill(json={"seq": 42}))
-    line.locator("[data-chat-thread]").click()
-    line.locator(".ct-thread textarea").fill("on that")
+    line.locator(".thread-foot [data-chat-thread]").click()
+    assert page.evaluate("document.activeElement.name") == "chat"
+    line.locator(".reply-editor textarea").fill("on that")
     with page.expect_request("**/api/reply") as sent:
-        line.locator(".ct-thread textarea").press("Enter")
+        line.locator(".reply-editor textarea").press("Enter")
     body = sent.value.post_data_json
     assert body["on"] == "line:m7" and body["text"] == "on that" and "m7" in body["about"]
     page.wait_for_function("rp.sent.at(-1)?.seq === 42")
     page.evaluate("state.model.chat_lines = [{ seq: 42, at: '2026-11-04T06:00:00Z', on: 'line:m7', text: 'on that' }]; render()")
-    assert line.locator(".ct-thread .ct-bubble").inner_text() == "on that"
-    assert page.locator(".ct-flow > .ct-you > .ct-bubble", has_text="on that").count() == 0
+    assert "on that" in line.locator(".reply-receipt").inner_text()
+    assert page.locator(".ask-title", has_text="on that").count() == 0
     page.unroute("**/api/reply")
+    page.evaluate("rp.sent.length = 0")
     now(page)
 
 
-def test_a_yes_no_answers_inline_and_anything_else_opens_the_task(page):
-    """Owner 10:07 PM Nov 3: a button inline if simple yes/no, a modal to the proper task otherwise."""
+def test_any_object_threads_and_the_communicator_gets_what_it_hangs_on(page):
     open_chat(page)
-    assert page.locator("#rp-open2 .ct-acts .pk-t").all_inner_texts() == ["Yes", "No"]
+    card = page.locator("#rp-change")
+    page.route("**/api/reply", lambda route: route.fulfill(json={"seq": 43}))
+    card.hover()
+    card.locator(".obj-reply").click()
+    card.locator(".reply-editor textarea").fill("about this")
+    with page.expect_request("**/api/reply") as sent:
+        card.locator(".reply-editor textarea").press("Enter")
+    assert sent.value.post_data_json["on"] == "reply:change"
+    page.unroute("**/api/reply")
+    page.evaluate("rp.sent.length = 0")
+    now(page)
+
+
+def test_a_yes_no_answers_on_the_row_and_a_bigger_question_opens_on_hover(page):
+    open_chat(page)
+    assert page.locator("#rp-open2 .inline-picks .action").all_inner_texts() == ["Yes", "No"]
     assert page.locator("#rp-old [data-choose]").count() == 0
-    assert page.locator("#rp-routed").count() == 0
     assert page.locator("#rp-old .ct-closed").count() == 1
     assert page.locator("#rp-plain [data-chat-done]").count() == 1
-    assert page.locator("#rp-stale [data-chat-done], #rp-stale .ct-flag").count() == 0
-    page.locator("#rp-open3 [data-chat-modal]").click()
-    assert page.locator("#chatmodal [data-choose]").count() == 3
-    page.locator("#chatmodal [data-chat-close]").click()
-    assert not page.evaluate("document.querySelector('#chatmodal').open")
+    assert page.locator("#rp-stale [data-chat-done]").count() == 0
+    options = page.locator("#rp-open3 .choices")
+    assert not options.is_visible()
+    page.locator("#rp-open3").hover()
+    assert options.is_visible()
+    assert options.locator("[data-choose]").count() == 3
+    page.mouse.move(0, 0)
+    assert not options.is_visible()
+    page.locator("#rp-open3 [data-q-pin]").click()
+    page.mouse.move(0, 0)
+    assert options.is_visible()
+    page.keyboard.press("Escape")
     now(page)
 
 
-def test_a_pick_tapped_in_chat_posts_its_answer_inline_and_in_the_task_window(page):
+def test_a_pick_tapped_in_chat_posts_its_answer_inline_on_hover_and_in_the_window(page):
     page.route("**/api/answer", lambda route: route.fulfill(json={"seq": 10**9}))
     open_chat(page)
     with page.expect_request("**/api/answer") as inline:
-        page.locator('#rp-open2 .ct-acts [data-choose="open2-2"]').click()
+        page.locator('#rp-open2 [data-choose="open2-2"]').click()
     assert inline.value.post_data_json == {"kind": "choice", "block": "open2-choice", "options": ["open2-2"]}
-    page.locator("#rp-open3 [data-chat-modal]").click()
+    page.wait_for_selector("#rp-open2 .obj-picked")
+    assert "You picked" in page.locator("#rp-open2 .obj-picked").inner_text()
+    page.locator("#rp-open3").hover()
+    page.locator("#rp-open3 .write-in textarea").fill("neither")
+    with page.expect_request("**/api/answer") as written:
+        page.locator("#rp-open3 .write-in button").click()
+    assert written.value.post_data_json == {"kind": "choice", "block": "open3-choice", "options": [], "other": "neither"}
+    page.wait_for_selector("#rp-open3 .obj-picked")
+    page.evaluate("rp.modal = 'card-open4'; render()")
     with page.expect_request("**/api/answer") as windowed:
-        page.locator('#chatmodal [data-choose="open3-1"]').click()
-    assert windowed.value.post_data_json == {"kind": "choice", "block": "open3-choice", "options": ["open3-1"]}
-    page.wait_for_selector("#rp-open2 .ct-picked")
-    assert "You picked" in page.locator("#rp-open2 .ct-picked").inner_text()
-    page.evaluate("ov.sent.clear(); ov.kept.clear(); state.taps.length = 0")
+        page.locator('#chatmodal [data-choose="open4-1"]').click()
+    assert windowed.value.post_data_json == {"kind": "choice", "block": "open4-choice", "options": ["open4-1"]}
+    page.evaluate("ov.sent.clear(); ov.kept.clear(); state.taps.length = 0; rp.modal = null; render()")
     page.unroute("**/api/answer")
+    now(page)
+
+
+def test_a_change_named_in_a_reply_is_a_small_card_with_real_approve_and_hold(page):
+    open_chat(page)
+    card = page.locator("#pr-77001")
+    assert card.locator("h3").inner_text() == "Fix the box"
+    assert "Keeps what he typed" in card.inner_text()
+    assert page.locator(".pr-card#pr-77001").count() == 1
+    page.route("**/api/verdict", lambda route: route.fulfill(json={}))
+    with page.expect_request("**/api/verdict") as held:
+        card.locator("[data-hold-row]").click()
+    assert held.value.post_data_json["verdict"] == "rejected" and held.value.post_data_json["number"] == 77001
+    page.evaluate("pending.number = null; pending.error = null; boardRow(77001).state = 'you'; patchChat()")
+    with page.expect_request("**/api/verdict") as approved:
+        card.locator("[data-approve]").click()
+    assert approved.value.post_data_json["verdict"] == "approved" and approved.value.post_data_json["head"] == "abc1234"
+    page.unroute("**/api/verdict")
+    page.evaluate("pending.number = null; pending.error = null")
+    now(page)
+
+
+def test_a_one_pager_previews_small_reads_full_on_hover_and_opens_in_the_window(page):
+    page.route("https://example.ts.net:8665/**", lambda route: route.fulfill(body="<h1>Doc</h1>", content_type="text/html"))
+    open_chat(page)
+    tile = page.locator(".document-card .diagram-trigger")
+    popover = tile.locator(".diagram-popover")
+    assert not popover.is_visible()
+    assert tile.locator(".diagram-popover iframe").get_attribute("src") is None
+    tile.hover()
+    assert popover.is_visible()
+    assert "how-it-works" in tile.locator(".diagram-popover iframe").get_attribute("src")
+    page.mouse.move(0, 0)
+    page.locator(".document-card .doc-footer button").click()
+    assert "how-it-works" in page.locator("#chatmodal iframe").get_attribute("src")
+    page.locator("#chatmodal [data-chat-close]").click()
+    assert not page.evaluate("document.querySelector('#chatmodal').open")
+    assert page.locator(".decision-tail a", has_text="The thread").count() == 1
+    page.unroute("https://example.ts.net:8665/**")
+    now(page)
+
+
+def test_a_refresh_leaves_a_thread_it_did_not_change_as_the_same_elements(page):
+    open_chat(page)
+    assert page.evaluate("""() => {
+      const frame = document.querySelector('.document-card iframe');
+      const thread = document.querySelector('[data-k="line:m7"]');
+      thread.querySelector('.ask-head').click();
+      state.model.replies = [{ reply: { id: 'fresh', title: 'Fresh', md: 'New', status: 'info' }, at: new Date().toISOString(), surfaces: [] }, ...state.model.replies];
+      render();
+      const kept = document.querySelector('.document-card iframe') === frame && document.querySelector('[data-k="line:m7"]') === thread && thread.classList.contains('open');
+      cw.open.clear();
+      return kept && Boolean(document.querySelector('[data-k="reply:fresh"]'));
+    }""")
+    now(page)
+
+
+def test_a_reply_box_with_text_survives_a_change_to_its_own_thread(page):
+    open_chat(page)
+    line = page.locator('[data-k="line:m7"]')
+    line.locator(".thread-foot [data-chat-thread]").click()
+    line.locator(".reply-editor textarea").fill("half a reply")
+    assert page.evaluate("""() => {
+      const box = document.querySelector('[data-k="line:m7"] .reply-editor textarea');
+      box.setSelectionRange(2, 4);
+      state.model.replies = [{ reply: { id: 'arrived', title: 'Arrived', md: 'New answer', status: 'done', order: 'm7' }, at: new Date().toISOString(), surfaces: [] }, ...state.model.replies];
+      render();
+      return document.querySelector('[data-k="line:m7"] .reply-editor textarea') === box && document.activeElement === box && box.selectionStart === 2 && box.selectionEnd === 4;
+    }""")
+    assert line.locator(".reply-editor textarea").input_value() == "half a reply"
+    assert line.locator(".ask-head .pill").inner_text() == "Completed"
+    assert line.locator("#rp-arrived").count() == 1
+    page.evaluate("localStorage.removeItem('draft:chat:line:m7:'); cw.replying.clear(); document.querySelector('[data-k=\"line:m7\"] form').remove()")
+    now(page)
+
+
+def test_a_pick_keeps_its_receipt_after_the_board_drops_the_card(page):
+    open_chat(page)
+    page.evaluate("state.model.board.cards = state.model.board.cards.filter((c) => c.id !== 'card-open2'); state.model.board.answered['card-open2'] = { picked: 'No' }; render()")
+    assert "You picked No" in page.locator("#rp-open2 .obj-picked").inner_text()
+    assert page.locator("#rp-open2 .ct-closed").count() == 0
+    now(page)
+
+
+def test_an_ask_typed_here_keeps_its_thread_replies_and_draft_when_its_ledger_row_arrives(page):
+    open_chat(page)
+    page.evaluate("""() => {
+      state.model.chat_lines = [{ seq: 42, at: new Date().toISOString(), on: '', text: 'typed just now' }];
+      state.model.replies = [{ reply: { id: 'typed-answer', title: 'Typed answer', md: 'Here', status: 'info', on: 'seq:42' }, at: new Date().toISOString(), surfaces: [] }, ...state.model.replies];
+      render();
+    }""")
+    thread = page.locator('[data-k="seq:42"]')
+    assert thread.locator("#rp-typed-answer").count() == 1
+    thread.locator(".thread-foot [data-chat-thread]").click()
+    thread.locator(".reply-editor textarea").fill("a draft")
+    assert page.evaluate("""() => {
+      const before = document.querySelector('[data-k="seq:42"]');
+      state.model.owner_asks.messages.push({ m: 8, iso: new Date().toISOString(), title: 'Typed ask', text: 'typed just now', state: 'answered', ack: 'done', lanes: [], prs: [] });
+      render();
+      return document.querySelector('[data-k="seq:42"]') === before;
+    }""")
+    assert thread.locator(".ask-title").inner_text() == "Typed ask"
+    assert thread.locator(".reply-editor textarea").input_value() == "a draft"
+    assert page.locator('[data-k="line:m8"]').count() == 0
+    page.evaluate("localStorage.removeItem('draft:chat:seq:42:'); cw.replying.clear(); document.querySelector('[data-k=\"seq:42\"] form').remove(); state.model.chat_lines = []; render()")
+    now(page)
+
+
+def test_a_notification_shows_its_reply_past_any_filter_or_attention_cap(page):
+    open_chat(page)
+    page.evaluate("""() => {
+      const late = Array.from({ length: 8 }, (_, i) => ({ reply: { id: `ask${i}`, title: `Ask ${i}`, md: 'x', status: 'needs_you' }, at: new Date(Date.now() - i * 60000).toISOString(), surfaces: [] }));
+      state.model.replies = [...late, ...state.model.replies];
+      cw.filter = 'completed';
+      cw.query = 'nothing matches this';
+      render();
+      chatAim('ask7');
+      render();
+    }""")
+    assert page.locator("#rp-ask7").is_visible()
+    assert page.evaluate("cw.focus") is None
+    assert page.evaluate("cw.filter") == "all"
+    page.evaluate("render()")
+    assert page.locator("#rp-ask7").is_visible()
+    page.evaluate("cw.limit = 30; cw.lead = 5")
+    now(page)
+
+
+def test_arriving_from_another_page_lands_on_the_notified_reply_not_the_old_scroll(page):
+    open_chat(page, 100)
+    page.evaluate("location.hash = '#/plan'")
+    page.wait_for_function("pageRoute().screen === 'plan'")
+    page.evaluate("chatAim('r60'); location.hash = '#/replies'")
+    page.wait_for_selector("#rp-r60")
+    page.wait_for_function("cw.focus === null")
+    box = page.evaluate("document.querySelector('#rp-r60').getBoundingClientRect().top")
+    assert 0 <= box <= page.viewport_size["height"]
+    page.evaluate("cw.limit = 30")
+    now(page)
+
+
+def test_the_sidebar_holds_the_navigation_on_a_wide_screen_and_a_bar_on_a_phone(page):
+    now(page)
+    assert page.evaluate("getComputedStyle(document.querySelector('.top')).position") == "fixed"
+    assert page.locator("#tabs .tab .ico").count() == 8
+    assert page.evaluate("document.querySelector('.tab').getBoundingClientRect().left") < 194 < page.evaluate("document.querySelector('#main').getBoundingClientRect().left + 1")
+    size = page.viewport_size
+    page.set_viewport_size({"width": 390, "height": 844})
+    assert page.evaluate("getComputedStyle(document.querySelector('.top')).position") == "sticky"
+    assert not page.locator("#tabs .tab .ico").first.is_visible()
+    page.set_viewport_size(size)
     now(page)
 
 
 @pytest.mark.parametrize("n", [1, 1000])
 def test_the_chat_draws_a_bounded_window_at_any_length(page, n):
     open_chat(page, n)
-    assert page.locator(".ct-flow > .ct-turn").count() <= 60
+    assert page.locator(".cw .thread").count() <= 30
     now(page)
-
