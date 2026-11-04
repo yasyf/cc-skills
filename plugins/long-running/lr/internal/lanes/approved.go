@@ -71,8 +71,8 @@ func approvedIn(records []client.Record) []int {
 		if record.Fields.Attrs["event"] == backfillEvent {
 			continue
 		}
-		for _, fact := range bus.LegacyFacts(record, "", nil) {
-			newest[fact.PR] = fact.Value
+		if order, ordered := bus.OrderOf(record, ""); ordered {
+			newest[order.PR] = order.Value
 		}
 	}
 	var approved []int

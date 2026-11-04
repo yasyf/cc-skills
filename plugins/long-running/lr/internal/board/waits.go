@@ -72,10 +72,14 @@ func (l Live) Explain(pr int, snapshot map[int]machine.Facts) PRWait {
 		return PRWait{PR: pr, Line: fmt.Sprintf("#%d: not waiting on you: %s", pr, noOpenPR)}
 	}
 	subject := fmt.Sprintf("#%d at %s", pr, abbreviate(f.Head))
-	if wait, found := l.tapAt(strconv.Itoa(pr), f.Head); found {
+	if wait, found := l.tapAt(strconv.Itoa(pr), f.Head); found && !f.Tapped() {
 		return PRWait{pr, f.Head, true, fmt.Sprintf("%s: waits on your tap on %s, up since %s", subject, wait.Block, wait.Since)}
 	}
-	held := slices.Insert(withoutTap(gates.Missing(f)), 0, l.boardFact(strconv.Itoa(pr), f.Head))
+	fact := l.boardFact(strconv.Itoa(pr), f.Head)
+	if f.Tapped() && l.Decided(MergeRow{PR: strconv.Itoa(pr), Head: f.Head}) == "" {
+		fact = "a land order stands at " + abbreviate(f.Head)
+	}
+	held := slices.Insert(withoutTap(gates.Missing(f)), 0, fact)
 	if below, stuck := stuckBelow(f, snapshot); stuck {
 		held = append(held, fmt.Sprintf("the PR below it, #%d, cannot land yet: %s", below.Number, strings.Join(gates.Missing(below), "; ")))
 	}

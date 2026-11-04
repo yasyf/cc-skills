@@ -1,0 +1,545 @@
+[
+ {
+  "surface": "dashboard review screen, Approve",
+  "event": {
+   "type": "triage.decided",
+   "blockId": "merge-prs",
+   "verdicts": {
+    "4242": {
+     "verdict": "approved",
+     "head": "abc1234"
+    }
+   }
+  },
+  "doc": {
+   "blocks": []
+  },
+  "record": {
+   "text": "Owner on board board-1, merge-prs: 4242 approved at abc1234",
+   "attrs": {
+    "event": "triage.decided",
+    "block": "merge-prs",
+    "row": "4242",
+    "verdict": "approved",
+    "head": "abc1234"
+   }
+  },
+  "value": "tapped",
+  "head": "abc1234"
+ },
+ {
+  "surface": "dashboard review screen, Hold",
+  "event": {
+   "type": "triage.decided",
+   "blockId": "merge-prs",
+   "verdicts": {
+    "4242": {
+     "verdict": "rejected",
+     "head": "abc1234",
+     "note": "split it"
+    }
+   }
+  },
+  "doc": {
+   "blocks": []
+  },
+  "record": {
+   "text": "Owner on board board-1, merge-prs: 4242 rejected at abc1234 noted “split it”",
+   "attrs": {
+    "event": "triage.decided",
+    "block": "merge-prs",
+    "row": "4242",
+    "verdict": "rejected",
+    "head": "abc1234"
+   }
+  },
+  "value": "withdrawn",
+  "head": "abc1234"
+ },
+ {
+  "surface": "dashboard review screen, undo an approval",
+  "event": {
+   "type": "triage.decided",
+   "blockId": "merge-prs",
+   "verdicts": {
+    "4242": {
+     "verdict": "cleared"
+    }
+   }
+  },
+  "doc": {
+   "blocks": []
+  },
+  "record": {
+   "text": "Owner on board board-1, merge-prs: 4242 cleared",
+   "attrs": {
+    "event": "triage.decided",
+    "block": "merge-prs",
+    "row": "4242",
+    "verdict": "cleared"
+   }
+  },
+  "value": "withdrawn",
+  "head": ""
+ },
+ {
+  "surface": "dashboard Talk card, a land pick",
+  "event": {
+   "type": "choice.selected",
+   "blockId": "land-choice",
+   "optionIds": [
+    "opt-0"
+   ]
+  },
+  "doc": {
+   "blocks": [
+    {
+     "id": "land-card",
+     "type": "card",
+     "title": "Land #4242 (the fix)?",
+     "children": [
+      {
+       "id": "land-choice",
+       "type": "choice",
+       "prompt": "Land #4242 (the fix)?",
+       "options": [
+        {
+         "id": "opt-0",
+         "label": "Land #4242 now"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  "record": {
+   "text": "Owner on board board-1, Land #4242 (the fix)? (land-choice): picked “Land #4242 now”",
+   "attrs": {
+    "event": "choice.selected",
+    "block": "land-choice",
+    "picked": "opt-0"
+   }
+  },
+  "value": "tapped",
+  "head": ""
+ },
+ {
+  "surface": "board card, a merge pick",
+  "event": {
+   "type": "choice.selected",
+   "blockId": "land-choice",
+   "optionIds": [
+    "opt-0"
+   ]
+  },
+  "doc": {
+   "blocks": [
+    {
+     "id": "land-card",
+     "type": "card",
+     "title": "Merge #4242 (the fix)?",
+     "children": [
+      {
+       "id": "land-choice",
+       "type": "choice",
+       "prompt": "Merge #4242 (the fix)?",
+       "options": [
+        {
+         "id": "opt-0",
+         "label": "Merge #4242 now"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  "record": {
+   "text": "Owner on board board-1, Merge #4242 (the fix)? (land-choice): picked “Merge #4242 now”",
+   "attrs": {
+    "event": "choice.selected",
+    "block": "land-choice",
+    "picked": "opt-0"
+   }
+  },
+  "value": "tapped",
+  "head": ""
+ },
+ {
+  "surface": "Slack button on a synced card, its card names the head",
+  "event": {
+   "type": "choice.selected",
+   "blockId": "land-choice",
+   "optionIds": [
+    "opt-0"
+   ],
+   "heads": {
+    "org/repo#4242": "abc1234"
+   }
+  },
+  "doc": {
+   "blocks": [
+    {
+     "id": "land-card",
+     "type": "card",
+     "title": "Land #4242 (the fix)?",
+     "children": [
+      {
+       "id": "land-choice",
+       "type": "choice",
+       "prompt": "Land #4242 (the fix)?",
+       "options": [
+        {
+         "id": "opt-0",
+         "label": "Land #4242 now"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  "record": {
+   "text": "Owner on board board-1, Land #4242 (the fix)? (land-choice): picked “Land #4242 now” at org/repo#4242 abc1234",
+   "attrs": {
+    "event": "choice.selected",
+    "block": "land-choice",
+    "picked": "opt-0",
+    "heads": "org/repo#4242=abc1234"
+   }
+  },
+  "value": "tapped",
+  "head": "abc1234"
+ },
+ {
+  "surface": "a hold pick",
+  "event": {
+   "type": "choice.selected",
+   "blockId": "land-choice",
+   "optionIds": [
+    "opt-0"
+   ]
+  },
+  "doc": {
+   "blocks": [
+    {
+     "id": "land-card",
+     "type": "card",
+     "title": "Land #4242 (the fix)?",
+     "children": [
+      {
+       "id": "land-choice",
+       "type": "choice",
+       "prompt": "Land #4242 (the fix)?",
+       "options": [
+        {
+         "id": "opt-0",
+         "label": "Hold #4242"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  "record": {
+   "text": "Owner on board board-1, Land #4242 (the fix)? (land-choice): picked “Hold #4242”",
+   "attrs": {
+    "event": "choice.selected",
+    "block": "land-choice",
+    "picked": "opt-0"
+   }
+  },
+  "value": "withdrawn",
+  "head": ""
+ },
+ {
+  "surface": "approval card, approved",
+  "event": {
+   "type": "decision.created",
+   "blockId": "land-approval",
+   "verdict": "approved"
+  },
+  "doc": {
+   "blocks": [
+    {
+     "id": "land-card",
+     "type": "card",
+     "title": "Land #4242?",
+     "children": [
+      {
+       "id": "land-approval",
+       "type": "approval",
+       "prompt": "Land it"
+      }
+     ]
+    }
+   ]
+  },
+  "record": {
+   "text": "Owner on board board-1, Land #4242? (land-approval): approved “Land it”",
+   "attrs": {
+    "event": "decision.created",
+    "block": "land-approval",
+    "verdict": "approved"
+   }
+  },
+  "value": "tapped",
+  "head": ""
+ },
+ {
+  "surface": "approval card, rejected",
+  "event": {
+   "type": "decision.created",
+   "blockId": "land-approval",
+   "verdict": "rejected"
+  },
+  "doc": {
+   "blocks": [
+    {
+     "id": "land-card",
+     "type": "card",
+     "title": "Land #4242?",
+     "children": [
+      {
+       "id": "land-approval",
+       "type": "approval",
+       "prompt": "Land it"
+      }
+     ]
+    }
+   ]
+  },
+  "record": {
+   "text": "Owner on board board-1, Land #4242? (land-approval): rejected",
+   "attrs": {
+    "event": "decision.created",
+    "block": "land-approval",
+    "verdict": "rejected"
+   }
+  },
+  "value": "withdrawn",
+  "head": ""
+ },
+ {
+  "surface": "a pick that decides something else on a card naming a PR",
+  "event": {
+   "type": "choice.selected",
+   "blockId": "land-choice",
+   "optionIds": [
+    "opt-0"
+   ]
+  },
+  "doc": {
+   "blocks": [
+    {
+     "id": "land-card",
+     "type": "card",
+     "title": "Chat tab is live; one storage pick on #4242",
+     "children": [
+      {
+       "id": "land-choice",
+       "type": "choice",
+       "prompt": "Chat tab is live; one storage pick on #4242",
+       "options": [
+        {
+         "id": "opt-0",
+         "label": "A: keep 30 days, ship as is"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  "record": {
+   "text": "Owner on board board-1, Chat tab is live; one storage pick on #4242 (land-choice): picked “A: keep 30 days, ship as is”",
+   "attrs": {
+    "event": "choice.selected",
+    "block": "land-choice",
+    "picked": "opt-0"
+   }
+  },
+  "value": "",
+  "head": ""
+ },
+ {
+  "surface": "a land pick on a card naming two PRs",
+  "event": {
+   "type": "choice.selected",
+   "blockId": "land-choice",
+   "optionIds": [
+    "opt-0"
+   ]
+  },
+  "doc": {
+   "blocks": [
+    {
+     "id": "land-card",
+     "type": "card",
+     "title": "Land #4242 after #4243?",
+     "children": [
+      {
+       "id": "land-choice",
+       "type": "choice",
+       "prompt": "Land #4242 after #4243?",
+       "options": [
+        {
+         "id": "opt-0",
+         "label": "Land #4242 now"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  "record": {
+   "text": "Owner on board board-1, Land #4242 after #4243? (land-choice): picked “Land #4242 now”",
+   "attrs": {
+    "event": "choice.selected",
+    "block": "land-choice",
+    "picked": "opt-0"
+   }
+  },
+  "value": "",
+  "head": ""
+ },
+ {
+  "surface": "a write-in, which the communicator routes",
+  "event": {
+   "type": "choice.selected",
+   "blockId": "land-choice",
+   "optionIds": [],
+   "other": "land it"
+  },
+  "doc": {
+   "blocks": [
+    {
+     "id": "land-card",
+     "type": "card",
+     "title": "Land #4242?",
+     "children": [
+      {
+       "id": "land-choice",
+       "type": "choice",
+       "prompt": "Land #4242?",
+       "options": [
+        {
+         "id": "opt-0",
+         "label": "Land"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  "record": {
+   "text": "Owner on board board-1, Land #4242? (land-choice): wrote “land it”",
+   "attrs": {
+    "event": "choice.selected",
+    "block": "land-choice",
+    "other": "1"
+   }
+  },
+  "value": "",
+  "head": ""
+ },
+ {
+  "surface": "a typed answer, which the communicator routes",
+  "event": {
+   "type": "input.submitted",
+   "blockId": "land-input",
+   "text": "land #4242"
+  },
+  "doc": {
+   "blocks": [
+    {
+     "id": "land-input",
+     "type": "input",
+     "prompt": "Anything?"
+    }
+   ]
+  },
+  "record": {
+   "text": "Owner on board board-1, land-input: wrote “land #4242”",
+   "attrs": {
+    "event": "input.submitted",
+    "block": "land-input"
+   }
+  },
+  "value": "",
+  "head": ""
+ },
+ {
+  "surface": "a note on a card, which the communicator routes",
+  "event": {
+   "type": "feedback.created",
+   "blockId": "land-input",
+   "text": "why #4242?"
+  },
+  "doc": {
+   "blocks": [
+    {
+     "id": "land-input",
+     "type": "input",
+     "prompt": "Anything?"
+    }
+   ]
+  },
+  "record": {
+   "text": "Owner on board board-1, land-input: noted “why #4242?”",
+   "attrs": {
+    "event": "feedback.created",
+    "block": "land-input"
+   }
+  },
+  "value": "",
+  "head": ""
+ },
+ {
+  "surface": "a pack pick, which carries no land label",
+  "event": {
+   "type": "pack.interaction",
+   "blockId": "pack-1",
+   "payload": "Land #4242"
+  },
+  "doc": {
+   "blocks": [
+    {
+     "id": "pack-1",
+     "type": "pack"
+    }
+   ]
+  },
+  "record": {
+   "text": "Owner on board board-1, pack-1: picked “Land #4242”",
+   "attrs": {
+    "event": "pack.interaction",
+    "block": "pack-1"
+   }
+  },
+  "value": "",
+  "head": ""
+ },
+ {
+  "surface": "a round closing",
+  "event": {
+   "type": "submit",
+   "revision": 3
+  },
+  "doc": {
+   "blocks": []
+  },
+  "record": {
+   "text": "Owner on board board-1, the board: closed round 3",
+   "attrs": {
+    "event": "submit"
+   }
+  },
+  "value": "",
+  "head": ""
+ }
+]

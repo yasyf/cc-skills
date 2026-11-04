@@ -20,11 +20,10 @@ const (
 )
 
 var (
-	legacyKinds    = []string{"review", "owner", "go", "decide", "decision", "withdraw", "correction"}
+	legacyKinds    = []string{"review", "go", "decide", "decision", "withdraw", "correction"}
 	goKinds        = []string{"go", "decide", "decision"}
 	finderDesk     = []string{"finder-desk"}
 	fidelityLanes  = []string{"fidelity-pipeline", "fidelity-desk", "fidelity-sweep"}
-	ownerTaps      = map[string]string{"approved": "tapped", "rejected": "withdrawn"}
 	laneNumber     = regexp.MustCompile(`^(.+?)(?:-(\d+))?$`)
 	shortSHA       = regexp.MustCompile(`\b[0-9a-f]{7,40}\b`)
 	finderSays     = regexp.MustCompile(`(?i)\bfinder(?:\s*\[\d+\])?:?\s+(ok|lgtm|major|issues)\b`)
@@ -65,7 +64,7 @@ func (b Bus) ReadLegacy(ctx context.Context, since int64, now time.Time) ([]clie
 func LegacyFacts(record client.Record, repo string, goLanes []string) []Fact {
 	kind := string(record.Kind)
 	switch {
-	case kind == "withdraw" || kind == "correction":
+	case kind == "withdraw" || kind == "correction" || kind == ownerKind:
 		return nil
 	case kind == "review" && delegated(record.Lane, finderDesk) && strings.HasPrefix(record.Text, "finder:"):
 		grade, head := finderVerdicts[finderGrade(record.Text)], firstSHA(record.Text)
@@ -86,8 +85,6 @@ func LegacyFacts(record client.Record, repo string, goLanes []string) []Fact {
 		return factsPerPR(record, repo, head, "fidelity", grade)
 	case kind == "review" && delegated(record.Lane, fidelityLanes) && strings.HasPrefix(record.Text, "behavior:"):
 		return behaviorFacts(record, repo)
-	case kind == "owner":
-		return ownerTap(record)
 	case !delegated(record.Lane, append([]string{rootLane}, goLanes...)):
 		return nil
 	}
@@ -126,16 +123,6 @@ func factsPerPR(record client.Record, repo, head, kind, value string) []Fact {
 		}
 	}
 	return out
-}
-
-func ownerTap(record client.Record) []Fact {
-	attrs := record.Fields.Attrs
-	value, tap := ownerTaps[attrs["verdict"]]
-	row, err := strconv.Atoi(attrs["row"])
-	if attrs["block"] != "merge-prs" || !tap || attrs["head"] == "" || err != nil {
-		return nil
-	}
-	return []Fact{{row, strings.ToLower(attrs["head"]), "tap", value}}
 }
 
 func delegated(lane string, delegates []string) bool {
