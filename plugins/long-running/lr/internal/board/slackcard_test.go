@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
 func TestAnOwnerMergeRowIsTheFullCardWithMergeAndHold(t *testing.T) {
@@ -70,5 +71,22 @@ func TestACardAnswerForAMovedHeadOrAnotherLabelIsRefused(t *testing.T) {
 	}
 	if len(hooks.taps)+len(hooks.holds) != 0 {
 		t.Fatalf("taps = %+v, holds = %+v", hooks.taps, hooks.holds)
+	}
+}
+
+func TestABareNumberNamesEveryDrivePRHoldingItAndNoOther(t *testing.T) {
+	s := withItem(t)
+	for _, pr := range []store.PR{{Repo: "yasyf/cc-skills", Number: 2475}, {Repo: "yasyf/cc-slack", Number: 66}, {Repo: "Forge-AI/monorepo", Number: 66}, {Repo: "Forge-AI/monorepo", Number: 49032}} {
+		if err := s.PutPR(store.PR{Repo: pr.Repo, Number: pr.Number, Head: head, Base: "main", Lane: "lane-7", State: machine.StateGrading, ReadAt: t0}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	held, err := Holders(s, []int{2475, 66, 7}, []SlackPR{{"yasyf/cc-skills", 2475}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []SlackPR{{"yasyf/cc-skills", 2475}, {"Forge-AI/monorepo", 66}, {"yasyf/cc-slack", 66}}
+	if !reflect.DeepEqual(held, want) {
+		t.Fatalf("held = %+v, want %+v", held, want)
 	}
 }
