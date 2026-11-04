@@ -2496,7 +2496,9 @@ func TestTheOwningDeskIsTheNewestLiveLaneOfWhoeverLaunchedTheLane(t *testing.T) 
 		{"the meta desk answers to the communicator", []store.Lane{{Name: desk, Role: RoleMeta}}, nil, OwnerRelay},
 		{"a lane the meta desk launched answers to it with no launch line", []store.Lane{{Name: worker, Launcher: desk}, {Name: desk, Role: RoleMeta}}, nil, desk},
 		{"a lane a meta lane's helper launched answers to that helper", []store.Lane{{Name: "board-mirror-1-finder", Launcher: worker}, {Name: worker, Launcher: desk}, {Name: desk, Role: RoleMeta}}, nil, worker},
-		{"a meta lane whose launcher retired answers to the communicator", []store.Lane{{Name: worker, Launcher: desk}, {Name: desk, Role: RoleMeta, State: store.LaneRetired, RetiredBy: "done"}}, nil, OwnerRelay},
+		{"a meta lane whose launcher retired answers to the live meta desk", []store.Lane{{Name: worker, Launcher: "helper-1"}, {Name: "helper-1", Launcher: desk, State: store.LaneRetired, RetiredBy: "done"}, {Name: desk, Role: RoleMeta}}, nil, desk},
+		{"a meta lane with no live meta desk answers to root", []store.Lane{{Name: worker, Launcher: desk}, {Name: desk, Role: RoleMeta, State: store.LaneRetired, RetiredBy: "done"}}, nil, Root},
+		{"a desk a retired meta lane launched answers to root, never the communicator", []store.Lane{{Name: worker, Role: "desk", Launcher: "desks-move-1"}, {Name: "desks-move-1", Launcher: desk, State: store.LaneRetired, RetiredBy: "done"}, {Name: desk, Role: RoleMeta}}, nil, Root},
 		{"a lane root launched answers to root", []store.Lane{{Name: worker, Launcher: Root}, {Name: Root}}, nil, Root},
 	}
 	for _, c := range cases {
