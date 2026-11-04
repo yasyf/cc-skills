@@ -227,7 +227,7 @@ func TestAFailedLaunchOfAReleaseAlertRaisesALERTUNOPENED(t *testing.T) {
 		}
 	}
 
-	equal(t, len(bus.posted), 3)
+	equal(t, len(bus.posted), 4)
 	equal(t, bus.posted[0].Kind, blockerKind)
 	contains(t, bus.posted[0].Text, "ALERT-UNOPENED :warning: ultraviolet-wainaina is live, but Tenant smoke test on AIG went red")
 	contains(t, bus.posted[0].Text, "launch of "+smokeSlug+"-fix failed: lr incident run exited 2")
