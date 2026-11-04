@@ -1,4 +1,4 @@
-package supervisor
+package profile
 
 import (
 	"errors"
@@ -11,9 +11,7 @@ import (
 	"time"
 )
 
-const profileFile = "supervisor-pprof.sock"
-
-func serveProfiles(path string, log *slog.Logger) (func(), error) {
+func Serve(path string, log *slog.Logger) (func(), error) {
 	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, err
 	}
@@ -31,7 +29,7 @@ func serveProfiles(path string, log *slog.Logger) (func(), error) {
 	server := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 	go func() {
 		if err := server.Serve(listener); !errors.Is(err, http.ErrServerClosed) {
-			log.Warn("the supervisor's profile socket stopped", "err", err)
+			log.Warn("a profile socket stopped", "path", path, "err", err)
 		}
 	}()
 	return func() { _ = server.Close() }, nil

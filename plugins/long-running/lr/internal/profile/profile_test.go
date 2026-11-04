@@ -1,4 +1,4 @@
-package supervisor
+package profile
 
 import (
 	"context"
@@ -12,17 +12,17 @@ import (
 	"testing"
 )
 
-func TestTheSupervisorAnswersHeapProfilesOnlyToItsOwner(t *testing.T) {
+func TestASocketAnswersHeapProfilesOnlyToItsOwner(t *testing.T) {
 	dir, err := os.MkdirTemp("", "lr-pprof")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	path := filepath.Join(dir, profileFile)
+	path := filepath.Join(dir, "pprof.sock")
 	if err := os.WriteFile(path, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	stop, err := serveProfiles(path, slog.Default())
+	stop, err := Serve(path, slog.Default())
 	if err != nil {
 		t.Fatalf("a stale socket path should be replaced: %v", err)
 	}
@@ -38,7 +38,7 @@ func TestTheSupervisorAnswersHeapProfilesOnlyToItsOwner(t *testing.T) {
 		var dialer net.Dialer
 		return dialer.DialContext(ctx, "unix", path)
 	}}}
-	resp, err := client.Get("http://supervisor/debug/pprof/heap?debug=1")
+	resp, err := client.Get("http://profile/debug/pprof/heap?debug=1")
 	if err != nil {
 		t.Fatal(err)
 	}
