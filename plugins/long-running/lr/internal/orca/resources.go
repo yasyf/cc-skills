@@ -47,6 +47,7 @@ type Worker struct {
 	Workspace      string
 	Worktree       string
 	Environment    string
+	HostGone       bool
 }
 
 func (w Worker) Settled() bool {
@@ -72,11 +73,14 @@ type workerRow struct {
 			Kind string `json:"kind"`
 			ID   string `json:"id"`
 		} `json:"host"`
+		Liveness struct {
+			Reason string `json:"reason"`
+		} `json:"liveness"`
 	} `json:"projection"`
 }
 
 func (r workerRow) worker() Worker {
-	worker := Worker{Dispatch: r.Dispatch, Status: r.Status, TerminalState: r.State, Terminal: r.Terminal}
+	worker := Worker{Dispatch: r.Dispatch, Status: r.Status, TerminalState: r.State, Terminal: r.Terminal, HostGone: r.Projection.Liveness.Reason == hostUnavailable}
 	if r.Resource != nil {
 		worker.Ownership = r.Resource.Ownership
 		worker.RetainedReason = r.Resource.Retained
