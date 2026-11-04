@@ -146,11 +146,11 @@ func TestASessionFindsOnlyTheDriveItCarriesAndNoDriveIsOnePlainRefusal(t *testin
 	write(t, dir, "brook.json", `{"drive":"brook","state_dir":"/scratch/brook","sessions":["s1"]}`)
 	write(t, dir, "reef.json", `{"drive":"reef","state_dir":"/scratch/reef","sessions":["s2"]}`)
 	t.Setenv(Env, "reef")
-	entry, err := Find("")
+	entry, err := Named("")
 	if err != nil || entry.Config() != "/scratch/reef/lr.json" {
 		t.Fatalf("session drive = %+v, %v", entry, err)
 	}
-	if entry, err := Find("brook"); err != nil || entry.Drive != "brook" {
+	if entry, err := Named("brook"); err != nil || entry.Drive != "brook" {
 		t.Fatalf("named drive = %+v, %v", entry, err)
 	}
 	t.Setenv(Env, "")

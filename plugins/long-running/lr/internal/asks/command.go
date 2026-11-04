@@ -86,7 +86,7 @@ func Command(a *app.App) *cobra.Command {
 		Short: "Every open owner ask, what is landed but not live first, from the store",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			entry, err := drive.Find(driveName)
+			entry, err := drive.Named(driveName)
 			if err != nil {
 				return err
 			}
@@ -121,7 +121,7 @@ func Command(a *app.App) *cobra.Command {
 		Short: "Refresh the store's copy of the drive's ledger",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			entry, err := drive.Find(driveName)
+			entry, err := drive.Named(driveName)
 			if err != nil {
 				return err
 			}
@@ -171,7 +171,7 @@ func refusal(now time.Time, bus string) func(ctx context.Context, lane string) (
 func writeCommands(a *app.App, driveName *string) []*cobra.Command {
 	opened := func(run func(cmd *cobra.Command, entry drive.Entry, mirror Mirror) error) func(*cobra.Command, []string) error {
 		return func(cmd *cobra.Command, _ []string) error {
-			entry, err := drive.Find(*driveName)
+			entry, err := drive.Named(*driveName)
 			if err != nil {
 				return err
 			}

@@ -74,7 +74,7 @@ func questionCommands(a *app.App, driveName *string) []*cobra.Command {
 		Short: "Route the question on stdin from his review page to the coordinator and the communicator, with its row and acknowledgement; prints the record's seq",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			entry, err := drive.Find(*driveName)
+			entry, err := drive.Named(*driveName)
 			if err != nil {
 				return err
 			}
@@ -105,7 +105,7 @@ func questionCommands(a *app.App, driveName *string) []*cobra.Command {
 		Short: "Give the question on stdin, routed already, its row and acknowledgement; prints the row",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			entry, err := drive.Find(*driveName)
+			entry, err := drive.Named(*driveName)
 			if err != nil {
 				return err
 			}

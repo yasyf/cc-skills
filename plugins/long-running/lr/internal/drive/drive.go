@@ -117,6 +117,9 @@ func Live() ([]Entry, error) {
 }
 
 func Named(name string) (Entry, error) {
+	if name == "" {
+		return Session()
+	}
 	live, err := Live()
 	if err != nil {
 		return Entry{}, err
@@ -130,13 +133,6 @@ func Named(name string) (Entry, error) {
 		}
 	}
 	return Entry{}, fmt.Errorf("no drive registry entry for %s names a coordinator session", name)
-}
-
-func Find(name string) (Entry, error) {
-	if name != "" {
-		return Named(name)
-	}
-	return Session()
 }
 
 func Session() (Entry, error) {
