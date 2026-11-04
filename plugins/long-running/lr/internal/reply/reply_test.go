@@ -400,3 +400,22 @@ func TestSlackBodiesTurnMarkdownIntoMrkdwn(t *testing.T) {
 		t.Fatalf("fitted kept %d runes, want the first paragraph and an ellipsis", len([]rune(got)))
 	}
 }
+
+func TestAHiddenCiteStaysOnTheRecordAndOffEverySurfaceHeReads(t *testing.T) {
+	fake := &shelltest.Fake{}
+	fake.Reply(posted, "cci", "post")
+	f := fanout(t, fake)
+	r := Reply{ID: "r1", Title: "Why the run crashed", MD: "The runner reads only migration 0. <!-- cci #384714 -->", Links: []Link{{Label: "page", URL: "https://x"}}}
+
+	f.Send(context.Background(), r)
+
+	for _, call := range calls(fake, "cc-slack") {
+		if strings.Contains(strings.Join(call.Argv, " "), "384714") {
+			t.Fatalf("a cite reached Slack: %q", call.Argv)
+		}
+	}
+	record := calls(fake, "cci")
+	if len(record) != 1 || !strings.Contains(record[0].Stdin, "384714") {
+		t.Fatalf("the record lost its cite: %+v", record)
+	}
+}

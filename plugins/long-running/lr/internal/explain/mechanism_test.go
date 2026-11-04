@@ -28,6 +28,8 @@ func TestUncitedPassesAMechanismThatCitesItsProofOrIsLabelledUnproven(t *testing
 		"He said \"it broke because of the skew\" and asked for the record.",
 		"```\nfails because of skew\n```",
 		"The cloud runner reads chats at migration 0.",
+		"The run crashed because the cloud runner reads only migration 0. <!-- cci #384714 -->",
+		"The run crashed because the cloud runner reads only migration 0 <!-- cci #384714 -->.",
 	} {
 		if got := Uncited([]byte(source)); len(got) != 0 {
 			t.Errorf("Uncited(%q) = %q, want none", source, got)
@@ -57,5 +59,12 @@ func TestExplainRefusesAnUncitedMechanismBeforeItWritesHostsOrAnnouncesAPage(t *
 	}
 	if got := Uncited([]byte(cited)); len(got) != 0 {
 		t.Fatalf("the refusal's example %q does not pass", cited)
+	}
+}
+
+func TestAHiddenCiteProvesTheSentenceAndNeverReachesHim(t *testing.T) {
+	source := "The run crashed because the runner reads only migration 0. <!-- cci #384714 -->\n\nIt is fixed."
+	if got := string(Visible([]byte(source))); got != "The run crashed because the runner reads only migration 0.\n\nIt is fixed." {
+		t.Fatalf("Visible = %q", got)
 	}
 }

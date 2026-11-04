@@ -12,6 +12,7 @@ from .tests.register_fixtures import DRIVE_CONFIG
 from .urgent_lines_name_the_harm import ACTIVE, DM_TOOLS, card, tool_lines, updated
 
 FENCE = re.compile(r"```.*?```", re.DOTALL)
+CITE_AFTER_STOP = re.compile(r"([.!?])(\s*<!--.*?-->)", re.DOTALL)
 LEAD = re.compile(r"^[\s>*_#-]*(?:\d+\.\s*)?")
 MECHANISM = re.compile(
     r"\b(?:because|caus(?:e|ed|es|ing)|due to|mechanism|root[- ]cause|the flaw|which means|is why|led to|skew|so\b[^.;]*?\b(?:fail|crash|break|error)\w*|likely|probably|presumably)\b",
@@ -27,8 +28,8 @@ PR_NAMED = re.compile(rf"{PR_CITATION}|\bPRs?\b", re.IGNORECASE)
 BROKE = re.compile(r"\b(?:broke|breaks|redden\w*|(?:went|turned|goes|turns) red)\b", re.IGNORECASE)
 UNPROVEN = "Unproven:"
 UNCITED_REFUSAL = (
-    "A sentence to the owner that says why something happened cites, in it or the sentence before, the record, PR, build, file:line, monitor, notebook or ccn id that proves it,"
-    f" or opens with `{UNPROVEN}`; otherwise it is not written. Cite, label or drop each sentence below, then send it again."
+    "A sentence to the owner saying why something happened cites, in it or the one before, the record, PR, build, file:line, monitor, notebook or ccn id that proves it,"
+    f" in an HTML comment he never sees, or opens with `{UNPROVEN}`; otherwise it is not written. Cite, label or drop each below, then resend."
 )
 UNKNOWN = re.compile(r"\b(?:unanswered|unproven|nobody knows|no one knows)\b", re.IGNORECASE)
 UNSEARCHED = (
@@ -36,7 +37,7 @@ UNSEARCHED = (
     " Run `cci grep --drive <drive> -- <its terms>`, cite what it finds or keep the label, then send it again."
 )
 GREPPED = T.tool_turn("Bash", result="#382682 report schema1-provenance-2 ...", command="cci grep --drive durable-agents-rebuild -- 'which Mac wrote'")
-EXAMPLE = "example: The run crashed because the cloud runner reads only migration 0 (#384714)."
+EXAMPLE = "example: The run crashed because the cloud runner reads only migration 0. <!-- cci #384714 -->"
 SKEW = (
     "The evidence now says: a normal fleet sand on an FDE Mac writes chats at sessions migration 6 (dc94738, release 12280) and the old-tree cloud runner on plat reads only 0,"
     " so any FDE run that passes a chat to a deployed workflow crashes. That is a release skew between Mac sand and cloud runner, likely ours."
@@ -46,7 +47,7 @@ LABELLED = "Unproven: a release skew between Mac sand and the cloud runner, whic
 
 
 def sentences(text: str) -> list[tuple[str, str]]:
-    parts = filter(None, (part.strip() for part in SENTENCE_BREAK.split(FENCE.sub("\n", text))))
+    parts = filter(None, (part.strip() for part in SENTENCE_BREAK.split(CITE_AFTER_STOP.sub(r"\2\1", FENCE.sub("\n", text)))))
     return [(sentence, LEAD.sub("", URL.sub(" ", CODE.sub(" ", OWNER_QUOTE.sub(" ", sentence))))) for sentence in parts]
 
 
@@ -80,8 +81,9 @@ def refused(evt: BaseHookEvent, texts: list[str]) -> HookResult | None:
     Event.PreToolUse,
     only_if=[Tool("Bash", SLACK_CARD, *DM_TOOLS)],
     tests={
-        card(title="Why did the FDE run crash?", body=SKEW): Block(pattern=r"^A sentence to the owner that says why[\s\S]*migration 6[\s\S]*That is a release skew[\s\S]*example: "),
+        card(title="Why did the FDE run crash?", body=SKEW): Block(pattern=r"^A sentence to the owner saying why[\s\S]*migration 6[\s\S]*That is a release skew[\s\S]*example: "),
         card(title="Why did the FDE run crash?", body=CITED): Allow(),
+        card(title="Why did the FDE run crash?", body="The FDE run crashed because the runner reads only format 0. <!-- cci #384714 -->"): Allow(),
         card(title="Why did the FDE run crash?", body="Build 12280 ships the old reader. So every FDE run on it fails at the first chat."): Allow(),
         card(title="Why did the FDE run crash?", body=LABELLED): Block(pattern=r"^A line to the owner calling a question unanswered[\s\S]*Unproven: a release skew"),
         Input(tool=SLACK_CARD, tool_input={"card": {"title": "Why did the FDE run crash?", "body": LABELLED}}, env=DRIVE_CONFIG, transcript=[T.user("why"), *GREPPED]): Allow(),
