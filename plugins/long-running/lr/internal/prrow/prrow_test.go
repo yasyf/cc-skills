@@ -355,8 +355,11 @@ func TestARefusedTapShowsOnItsRowUntilALaterTapStands(t *testing.T) {
 		t.Fatalf("row = %+v", refused)
 	}
 	tapped := Materialize(store.ReviewRow{Number: 1, Head: headA}, map[string]string{bus.TapRefusedFact: reason, "tap": "tapped"}, "", nil, "dev")
-	if tapped.TapRefused != "" || !tapped.Tapped {
+	if tapped.TapRefused != None || !tapped.Tapped {
 		t.Fatalf("row = %+v", tapped)
+	}
+	if never := Materialize(store.ReviewRow{Number: 1, Head: headA}, nil, "", nil, "dev"); never.TapRefused != None {
+		t.Fatalf("row = %+v", never)
 	}
 }
 

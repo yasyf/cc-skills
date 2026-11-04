@@ -320,9 +320,9 @@ func Materialize(row store.ReviewRow, facts map[string]string, hold string, bran
 	_, exempt := facts["exempt"]
 	row.Tapped = machine.Tap(facts["tap"]) == machine.TapTapped || exempt
 	row.TappedAt, row.TappedBy = NotYet, NotYet
-	row.TapRefused = facts[bus.TapRefusedFact]
+	row.TapRefused = orElse(facts[bus.TapRefusedFact], None)
 	if row.Tapped {
-		row.TapRefused = ""
+		row.TapRefused = None
 		row.TappedAt, row.TappedBy = orElse(facts[FactTapAt], "not recorded"), orElse(facts[FactTapBy], "not recorded")
 	}
 	row.State = stateOf(row, facts)
