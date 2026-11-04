@@ -26,11 +26,6 @@ const (
 	staleLock          = 5 * time.Minute
 )
 
-var plainRefusals = map[string]bool{
-	"dispatch_not_found":         true,
-	"remote_runtime_unavailable": true,
-}
-
 type Served struct {
 	Stdout []byte
 	Code   int
@@ -45,12 +40,14 @@ func (c *Client) Serve(ctx context.Context, args []string) (Served, bool) {
 	if !known || !spec.accepts(in) {
 		return Served{}, false
 	}
-	request, ok := spec.build(c, in)
-	if !ok {
-		return Served{}, false
+	var request call
+	if spec.build != nil {
+		if request, ok = spec.build(c, in); !ok {
+			return Served{}, false
+		}
 	}
 	if in.has(flagEnvironment) {
-		return c.serveRemote(ctx, in.flags[flagEnvironment], spec, in, request)
+		return c.serveRemote(ctx, in.flags[flagEnvironment], path, spec, in, request)
 	}
 	conn, err := c.Dial(ctx)
 	if err != nil {
@@ -60,12 +57,19 @@ func (c *Client) Serve(ctx context.Context, args []string) (Served, bool) {
 	if c.Gate != nil && !c.Gate.allows(ctx, conn) {
 		return Served{}, false
 	}
+	if spec.offline != nil {
+		reply, listed := spec.offline(c)
+		if !listed {
+			return Served{}, false
+		}
+		return rendered(reply, 0)
+	}
 	reply, err := conn.call(ctx, request.method, request.params, request.timeout)
 	if err != nil {
 		return Served{}, false
 	}
 	if !reply.OK {
-		return refusal(reply)
+		return refusal(path, in, reply, false)
 	}
 	code := 0
 	if spec.finish != nil {
@@ -83,17 +87,6 @@ func (c *Client) Serve(ctx context.Context, args []string) (Served, bool) {
 		return Served{}, false
 	}
 	return Served{Stdout: stdout, Code: code}, true
-}
-
-func refusal(reply Response) (Served, bool) {
-	if reply.Error == nil || !plainRefusals[reply.Error.Code] {
-		return Served{}, false
-	}
-	stdout, err := Render(reply)
-	if err != nil {
-		return Served{}, false
-	}
-	return Served{Stdout: stdout, Code: 1}, true
 }
 
 func (c *Client) omittedSelectors(hostIDs []string) (json.RawMessage, error) {

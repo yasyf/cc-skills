@@ -598,11 +598,82 @@ func TestRemoteRefusals(t *testing.T) {
 	}
 	args := []string{"terminal", "show", "--terminal", "t", "--environment", "box", "--json"}
 	reply := served(t, pairedClient(t, "rt-remote", "device", refusing("terminal_handle_stale")), args...)
-	if reply.Code != 1 || !strings.Contains(string(reply.Stdout), `"code": "terminal_handle_stale"`) {
-		t.Fatalf("reply = %+v", reply)
+	if reply.Code != 1 || !strings.Contains(string(reply.Stdout), `"code": "terminal_handle_stale"`) || strings.Contains(string(reply.Stdout), "nextSteps") {
+		t.Fatalf("reply = %s", reply.Stdout)
 	}
 	if _, handled := pairedClient(t, "rt-remote", "device", refusing("invalid_argument")).Serve(context.Background(), args); handled {
 		t.Fatal("a refusal the CLI adds to was served")
+	}
+}
+
+func TestLocalRefusalsCarryTheCLIRecovery(t *testing.T) {
+	refusing := func(code string) func(frame) []string {
+		return func(got frame) []string {
+			return []string{fmt.Sprintf(`{"id":%q,"ok":false,"error":{"code":%q,"message":%q},"_meta":{"runtimeId":"rt"}}`, got.ID, code, code)}
+		}
+	}
+	for name, tc := range map[string]struct {
+		code string
+		args []string
+		want string
+	}{
+		"stale terminal": {"terminal_handle_stale", []string{"terminal", "show", "--terminal", "t", "--json"}, `"data":{"nextSteps":["` + staleHandleHint + `"]}`},
+		"missing worktree": {
+			"selector_not_found",
+			[]string{"worktree", "show", "--worktree", "path:/x", "--json"},
+			`"data":{"selector":"path:/x","validSelectorForms":["id:<repo-id>::<absolute-path>","path:<absolute-path>","name:<display-name>","branch:<branch>","identity:<identity-key>","issue:<number>","current","active"],"suggestions":[],"nextSteps":["No Orca workspace matched the worktree selector \"path:/x\".","Valid selector forms: id:<repo-id>::<absolute-path>, path:<absolute-path>, name:<display-name>, branch:<branch>, identity:<identity-key>, issue:<number>, current, active.","List the exact values with ` + "`orca worktree list --json`" + `; a bare repository id is not a worktree id."]}`,
+		},
+		"wait timeout": {"timeout", []string{"terminal", "wait", "--terminal", "t", "--for", "tui-idle", "--timeout-ms", "1", "--json"}, `"error":{"code":"timeout","message":"timeout"},"_meta"`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			client, _ := serve(t, nil, refusing(tc.code))
+			reply := served(t, client, tc.args...)
+			var compact bytes.Buffer
+			if err := json.Compact(&compact, reply.Stdout); err != nil {
+				t.Fatal(err)
+			}
+			if reply.Code != 1 || !strings.Contains(compact.String(), tc.want) {
+				t.Fatalf("code = %d, got %s, want %s", reply.Code, compact.String(), tc.want)
+			}
+		})
+	}
+}
+
+func TestSelectorSuggestions(t *testing.T) {
+	for selector, want := range map[string][]string{
+		"id:repo":     {"id:repo::<absolute-path>", "path:<absolute-path>"},
+		"id:repo::/x": {},
+		"branch:main": {},
+		"/x":          {"path:/x"},
+		`C:\\x`:       {`path:C:\\x`},
+		"thing":       {"id:thing::<absolute-path>", "name:thing", "branch:thing"},
+	} {
+		if got := suggestSelectorForms(selector); !slices.Equal(got, want) {
+			t.Errorf("%s: got %v, want %v", selector, got, want)
+		}
+	}
+}
+
+func TestEnvironmentListRedactsSecrets(t *testing.T) {
+	client, _ := serve(t, nil, answering(`{}`))
+	store := `{"version":1,"environments":[{"id":"a","name":"box","endpoints":[{"id":"ws","deviceToken":"secret","kind":"websocket","publicKeyB64":"key"}],"lastUsedAt":null}]}`
+	if err := os.WriteFile(filepath.Join(client.UserData, environmentStore), []byte(store), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reply := served(t, client, "environment", "list", "--json")
+	var compact bytes.Buffer
+	if err := json.Compact(&compact, reply.Stdout); err != nil {
+		t.Fatal(err)
+	}
+	want := `"result":{"environments":[{"id":"a","name":"box","endpoints":[{"id":"ws","kind":"websocket"}],"lastUsedAt":null}]},"_meta":{"runtimeId":"local"}`
+	if !strings.Contains(compact.String(), want) || !strings.HasPrefix(compact.String(), `{"id":"local"`) {
+		t.Fatalf("got %s", compact.String())
+	}
+	if err := os.WriteFile(filepath.Join(client.UserData, environmentSidecar), []byte(`{"version":1,"entries":{"a":{}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, handled := client.Serve(context.Background(), []string{"environment", "list", "--json"}); handled {
+		t.Fatal("served without the sidecar's state")
 	}
 }
 
