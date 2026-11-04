@@ -26,7 +26,7 @@ func TestTreeIsGitsTreeOfTheServedFilesWithoutBytecodeOrEmptyDirectories(t *test
 	write(t, filepath.Join(dir, "app", "__pycache__", "s.pyc"), "x")
 	write(t, filepath.Join(dir, "app.css"), "body{}\n")
 	write(t, filepath.Join(dir, "app.js"), "b\n")
-	if err := os.Chmod(filepath.Join(dir, "app.js"), 0o700); err != nil {
+	if err := os.Chmod(filepath.Join(dir, "app.js"), 0o700); err != nil { //nolint:gosec // the tree has to hold an executable file
 		t.Fatal(err)
 	}
 	if err := os.Mkdir(filepath.Join(dir, "empty"), 0o750); err != nil {

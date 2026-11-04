@@ -2,7 +2,7 @@ package dashboard
 
 import (
 	"bytes"
-	"crypto/sha1"
+	"crypto/sha1" //nolint:gosec // G505: a git object id is SHA-1 by git's format, not a security hash.
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -218,6 +218,6 @@ func treeName(entry fs.DirEntry) string {
 }
 
 func hashed(kind string, body []byte) []byte {
-	sum := sha1.Sum(append([]byte(fmt.Sprintf("%s %d\x00", kind, len(body))), body...))
+	sum := sha1.Sum(append([]byte(fmt.Sprintf("%s %d\x00", kind, len(body))), body...)) //nolint:gosec // G401: git object ids are SHA-1.
 	return sum[:]
 }
