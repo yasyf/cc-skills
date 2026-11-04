@@ -56,7 +56,7 @@ def test_a_finished_job_returns_without_waiting_out_the_tender_sleep(tmp_path: P
     job_script, grader = plugin_with_job(mac, RESTARTED_JOB), "finder"
     executable(mac / "bin" / "sprite", SPRITE)
     executable(mac / "bin" / "cci", "#!/bin/sh\n")
-    executable(mac / "bin" / "sleep", "#!/bin/sh\nexec /bin/sleep 300\n")
+    executable(mac / "bin" / "sleep", '#!/bin/sh\n[ "$1" = 60 ] && exec /bin/sleep 300\nexec /bin/sleep 0.05\n')
     directory.mkdir(parents=True)
     (directory / "job.json").write_text(json.dumps({"drive": "d1", "checkout": str(checkout)}))
     (config / "long-running" / "drives").mkdir(parents=True)
