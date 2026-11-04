@@ -13,7 +13,7 @@ from captain_hook.util import reqenv
 
 from .compaction_handoff import CCN_TIMEOUT_SECONDS, COMMUNICATOR_LANE, Bound, Communicator, CompactionState, bus_name, communicator_tests, drive_entry
 from .owner_facing import REPLY_WINDOW
-from .owner_returns import dm_owed
+from .owner_returns import RowThreads, dm_owed
 from .register_capture import CREDENTIAL, REDACTED, STAMP, overlaps, slack_dms
 from .register_gates import folded, written_paths
 from .root_context import PACIFIC, OwnerPrompt, answers, message_label, ruling_body
@@ -132,6 +132,13 @@ def add_rows(path: Path, at: datetime, text: str) -> list[tuple[str, str]]:
     return list(zip(ids, split, strict=True))
 
 
+def threaded(evt: BaseHookEvent, rows: list[tuple[str, str]], thread: str, ts: str) -> None:
+    if thread == ts:
+        return
+    with RowThreads.mutate(evt) as state:
+        state.threads |= {key: thread for row, _ in rows for key in (row, row.split(".")[0])}
+
+
 def post_owner_row(entry: dict, row: str, text: str) -> None:
     argv = ["cci", "post", "--drive", bus_name(entry), "--lane", COMMUNICATOR_LANE, "--kind", "owner", "--id", f"owner:{row}", "--attr", f"row={row}", "--quoted", CREDENTIAL.sub(REDACTED, text)]
     subprocess.run(argv, capture_output=True, text=True, timeout=CCN_TIMEOUT_SECONDS, env=dict(reqenv.env_map()))
@@ -225,8 +232,10 @@ def add_owner_slack_dms(evt: BaseHookEvent) -> HookResult | None:
         return None
     with LedgeredDms.mutate(evt) as state:
         for dm in new:
-            for row, ask in add_rows(ledger_of(entry), datetime.strptime(dm["at"], STAMP).replace(tzinfo=UTC), dm["text"]):
+            rows = add_rows(ledger_of(entry), datetime.strptime(dm["at"], STAMP).replace(tzinfo=UTC), dm["text"])
+            for row, ask in rows:
                 post_owner_row(entry, row, ask)
+            threaded(evt, rows, dm["thread"], dm["ts"])
             state.digests.append(dm["digest"])
     return None
 
@@ -246,8 +255,10 @@ def owed_slack_messages_get_rows(evt: BaseHookEvent) -> None:
     ledgered = LedgeredDms.load(evt).digests
     with LedgeredDms.mutate(evt) as state:
         for reply in (reply for reply in owed["replies"] if reply["ts"] not in ledgered):
-            for row, ask in add_rows(ledger_of(entry), datetime.fromtimestamp(float(reply["ts"]), UTC), reply["text"]):
+            rows = add_rows(ledger_of(entry), datetime.fromtimestamp(float(reply["ts"]), UTC), reply["text"])
+            for row, ask in rows:
                 post_owner_row(entry, row, ask)
+            threaded(evt, rows, reply["thread_ts"], reply["ts"])
             state.digests.append(reply["ts"])
 
 
