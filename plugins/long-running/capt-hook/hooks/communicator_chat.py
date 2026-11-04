@@ -21,7 +21,7 @@ REFUSED = {"type": "attachment", "timestamp": "2026-01-15T20:19:00Z", "attachmen
 NOOP = "A do-nothing Bash call ends no turn, and the owner sees every one. A wake with nothing for him ends here: no text and no tool call, even when Claude Code says he has not heard from you in a while."
 READS = "Two Bash reads in a row with no subagent between them. Hand the rest of this read to `Agent` with `Explore` and `model: sonnet`, and keep only its answer."
 
-ACTIVE = [CompactionState(active=True)]
+ACTIVE = [CompactionState(active=True, communicator=True)]
 
 
 def closing(text: str) -> list:

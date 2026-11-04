@@ -141,11 +141,11 @@ class OwnerReturns(WorkflowState):
 
 
 def away(minutes: float) -> list:
-    return [CompactionState(active=True), OwnerReturns(prompted_at=time.time() - 60 * minutes)]
+    return [CompactionState(active=True, communicator=True), OwnerReturns(prompted_at=time.time() - 60 * minutes)]
 
 
 def back(reply: str, returned: bool = True) -> Input:
-    return Input(transcript=[T.user("where are we"), T.assistant(reply)], state=[CompactionState(active=True), OwnerReturns(returned=returned)], decide=CALM)
+    return Input(transcript=[T.user("where are we"), T.assistant(reply)], state=[CompactionState(active=True, communicator=True), OwnerReturns(returned=returned)], decide=CALM)
 
 
 @on(
@@ -165,7 +165,7 @@ def communicator_holds_the_owners_dm(evt: BaseHookEvent) -> None:
     tests=communicator_tests({
         Input(prompt="where are we", state=away(61), env=DRIVE_CONFIG): Warn(pattern=r"^The owner is back after 61 minutes away\..*`/s/brook/progress-desk/steps\.json`"),
         Input(prompt="where are we", state=away(59), env=DRIVE_CONFIG): Allow(),
-        Input(prompt="where are we", state=[CompactionState(active=True)], env=DRIVE_CONFIG): Allow(),
+        Input(prompt="where are we", state=[CompactionState(active=True, communicator=True)], env=DRIVE_CONFIG): Allow(),
         Input(prompt="<task-notification>update-desk finished</task-notification>", state=away(61), env=DRIVE_CONFIG): Allow(),
         Input(prompt="where are we", state=away(61), env=DRIVE_CONFIG, agent_id="a1b2c3"): Allow(),
     }),
@@ -185,15 +185,15 @@ def waiting(replies: str | tuple) -> Input:
     payload = {"type": "slack.message", "channel_id": "D0B6Z", "thread_ts": OWED_REPLY["thread_ts"], "ts": OWED_REPLY["ts"], "user": OPERATOR, "from_claude": False, "text": OWED_REPLY["text"]}
     tagged = f'<channel source="plugin:cc-slack:cc-slack" subject_id="50c3b930" type="slack.message">\n{json.dumps(payload)}\n</channel>'
     delivered = {"type": "attachment", "timestamp": "2026-11-03T17:00:00Z", "attachment": {"type": "queued_command", "prompt": tagged, "commandMode": "prompt"}}
-    return Input(session_id=HOLDER, command="ls", transcript=[T.user("where are we", timestamp="2026-11-03T16:59:00Z"), delivered], state=[CompactionState(active=True)], env=DRIVE_CONFIG, commands={f"{SHIPPED_CC_SLACK} dm-owed": replies})
+    return Input(session_id=HOLDER, command="ls", transcript=[T.user("where are we", timestamp="2026-11-03T16:59:00Z"), delivered], state=[CompactionState(active=True, communicator=True)], env=DRIVE_CONFIG, commands={f"{SHIPPED_CC_SLACK} dm-owed": replies})
 
 
 def owed(replies: str | tuple) -> Input:
-    return Input(session_id=HOLDER, transcript=[T.user("where are we"), T.assistant("On it.")], state=[CompactionState(active=True)], env=DRIVE_CONFIG, commands={f"{SHIPPED_CC_SLACK} dm-owed": replies}, decide=CALM)
+    return Input(session_id=HOLDER, transcript=[T.user("where are we"), T.assistant("On it.")], state=[CompactionState(active=True, communicator=True)], env=DRIVE_CONFIG, commands={f"{SHIPPED_CC_SLACK} dm-owed": replies}, decide=CALM)
 
 
 def raised(decide: dict, prompt: str = SIGNAL, **fields: object) -> Input:
-    return Input(prompt=prompt, state=[CompactionState(active=True)], env=DRIVE_CONFIG, decide=decide, **fields)
+    return Input(prompt=prompt, state=[CompactionState(active=True, communicator=True)], env=DRIVE_CONFIG, decide=decide, **fields)
 
 
 @on(
@@ -231,23 +231,23 @@ def hosted_titles() -> list[str]:
 
 
 def explained(reply: str, mechanism: object = YES, due: bool = False) -> Input:
-    return Input(transcript=[T.user("why did my message vanish"), T.assistant(reply)], state=[CompactionState(active=True), OwnerReturns(explain_due=due)], decide=CALM | {"mechanism": mechanism})
+    return Input(transcript=[T.user("why did my message vanish"), T.assistant(reply)], state=[CompactionState(active=True, communicator=True), OwnerReturns(explain_due=due)], decide=CALM | {"mechanism": mechanism})
 
 
 def explain_defect(*calls: dict, defects: str | tuple) -> Input:
-    return Input(transcript=[T.user("why did my message vanish"), *calls, T.assistant(WHY)], state=[CompactionState(active=True), OwnerReturns(explain_due=True)], env=DRIVE_CONFIG, commands={EXPLAIN_DEFECTS: defects}, decide=CALM | {"mechanism": YES})
+    return Input(transcript=[T.user("why did my message vanish"), *calls, T.assistant(WHY)], state=[CompactionState(active=True, communicator=True), OwnerReturns(explain_due=True)], env=DRIVE_CONFIG, commands={EXPLAIN_DEFECTS: defects}, decide=CALM | {"mechanism": YES})
 
 
 def picked(*calls: dict) -> Input:
-    return Input(transcript=[T.user("how do we fix the relay"), *calls, T.assistant(PICK)], state=[CompactionState(active=True)], decide=CALM)
+    return Input(transcript=[T.user("how do we fix the relay"), *calls, T.assistant(PICK)], state=[CompactionState(active=True, communicator=True)], decide=CALM)
 
 
 def pathed(reply: str) -> Input:
-    return Input(transcript=[T.user("where are we"), T.assistant(reply)], state=[CompactionState(active=True)], env=DRIVE_CONFIG, decide=CALM)
+    return Input(transcript=[T.user("where are we"), T.assistant(reply)], state=[CompactionState(active=True, communicator=True)], env=DRIVE_CONFIG, decide=CALM)
 
 
 def reminded(*calls: dict, decide: dict = REMINDED, asks: str | tuple = "") -> Input:
-    return Input(transcript=[T.user(HIS_1_34_AM), *calls, T.assistant("On it.")], state=[CompactionState(active=True)], env=DRIVE_CONFIG, commands={ASKS: asks}, decide=decide)
+    return Input(transcript=[T.user(HIS_1_34_AM), *calls, T.assistant("On it.")], state=[CompactionState(active=True, communicator=True)], env=DRIVE_CONFIG, commands={ASKS: asks}, decide=decide)
 
 
 def ask_to(*to: str) -> str:
@@ -255,11 +255,11 @@ def ask_to(*to: str) -> str:
 
 
 def stated(reply: str, *calls: dict) -> Input:
-    return Input(transcript=[T.user("where are we"), *calls, T.assistant(reply)], state=[CompactionState(active=True)], decide=CALM)
+    return Input(transcript=[T.user("where are we"), *calls, T.assistant(reply)], state=[CompactionState(active=True, communicator=True)], decide=CALM)
 
 
 def asked(reply: str, *calls: dict, words: str = HOW_FAR, decide: dict = ASKED) -> Input:
-    return Input(transcript=[T.user(words), *calls, T.assistant(reply)], state=[CompactionState(active=True)], decide=decide)
+    return Input(transcript=[T.user(words), *calls, T.assistant(reply)], state=[CompactionState(active=True, communicator=True)], decide=decide)
 
 
 @on(
@@ -283,7 +283,7 @@ def asked(reply: str, *calls: dict, words: str = HOW_FAR, decide: dict = ASKED) 
         picked(*T.tool_turn(f"{CC_SLACK}{DM_CARD}", result=CARDED, text=PICK)): Block(pattern=r"never sits inline"),
         picked(*T.tool_turn("Bash", result="updated relay-card\nsent: relay-card ts=1793635190.051179 https://brook.slack.com/archives/D0B6Z/p1793635190051179", command="cc-present update-block relay-card --session s --block -")): Allow(),
         picked(*T.tool_turn("Bash", result="updated relay-card", command="cc-present update-block relay-card --block -")): Block(pattern=r"never sits inline"),
-        Input(transcript=[T.user("where are we"), T.assistant("Three things landed:\n\n1. The relay fix merged.\n2. The dashboard shows step 2.\n3. CI is green on main.")], state=[CompactionState(active=True)], decide=CALM): Allow(),
+        Input(transcript=[T.user("where are we"), T.assistant("Three things landed:\n\n1. The relay fix merged.\n2. The dashboard shows step 2.\n3. CI is green on main.")], state=[CompactionState(active=True, communicator=True)], decide=CALM): Allow(),
         back("Since you were away, three PRs merged.\n\n" + UPDATE): Block(pattern=r"lacks the dashboard link on its first line\."),
         back("http://dash.brook.ts.net:8840/\n\nThree PRs merged while you were away."): Block(pattern=r"lacks the owner table under a feature heading\."),
         back(UPDATE): Allow(),
@@ -334,7 +334,7 @@ def communicator_reply_follows_the_owner_rules(evt: BaseHookEvent) -> HookResult
 
 
 def dm(tool: str = DM_CARD, **given: object) -> Input:
-    return Input(tool=f"{CC_SLACK}{tool}", tool_input=given, state=[CompactionState(active=True)])
+    return Input(tool=f"{CC_SLACK}{tool}", tool_input=given, state=[CompactionState(active=True, communicator=True)])
 
 
 @on(
@@ -350,15 +350,15 @@ def dm(tool: str = DM_CARD, **given: object) -> Input:
         dm(text="A) keeps one replica for every chat. B) gives each chat its own, so one slow chat stalls nobody.", about="pick-buttons:relay"): Allow(),
         dm("slack_send", channel_id="D0B6Z", text="The relay fix merged at 3:10 AM, and the dashboard shows it."): Allow(),
         dm("slack_send", channel_id="C0RELEASES1", text=PICK): Allow(),
-        Input(command="cc-slack dm-status 'Reply with A or B: A) one shared replica, B) one per chat'", state=[CompactionState(active=True)]): Warn(pattern=r"never plain text"),
-        Input(command=f"cc-slack send --channel D0B6Z --text '{PICK}'", state=[CompactionState(active=True)]): Warn(pattern=r"never plain text"),
-        Input(command=f"cc-slack dm-status --card '{json.dumps(RELAY_CARD)}'", state=[CompactionState(active=True)]): Allow(),
-        Input(command="cc-slack dm-status 'The relay fix merged at 3:10 AM.'", state=[CompactionState(active=True)]): Allow(),
-        Input(command="ls", state=[CompactionState(active=True)]): Allow(),
+        Input(command="cc-slack dm-status 'Reply with A or B: A) one shared replica, B) one per chat'", state=[CompactionState(active=True, communicator=True)]): Warn(pattern=r"never plain text"),
+        Input(command=f"cc-slack send --channel D0B6Z --text '{PICK}'", state=[CompactionState(active=True, communicator=True)]): Warn(pattern=r"never plain text"),
+        Input(command=f"cc-slack dm-status --card '{json.dumps(RELAY_CARD)}'", state=[CompactionState(active=True, communicator=True)]): Allow(),
+        Input(command="cc-slack dm-status 'The relay fix merged at 3:10 AM.'", state=[CompactionState(active=True, communicator=True)]): Allow(),
+        Input(command="ls", state=[CompactionState(active=True, communicator=True)]): Allow(),
         dm(card=LAND_CARD): Allow(),
         dm(text=f"Should I land {RELAY_PR} tonight?"): Allow(),
         dm(text=f"{RELAY_PR} merged at 3:10 AM, so the relay keeps one replica per chat."): Allow(),
-        Input(command="cc-slack dm-status 'Land PR 2196 tonight, or hold it for the morning build?'", state=[CompactionState(active=True)]): Allow(),
+        Input(command="cc-slack dm-status 'Land PR 2196 tonight, or hold it for the morning build?'", state=[CompactionState(active=True, communicator=True)]): Allow(),
     }),
 )
 def owner_asks_post_as_cards(evt: BaseHookEvent) -> HookResult | None:
@@ -415,7 +415,7 @@ def unread_cc_slack(evt: BaseHookEvent, verb: str, why: str) -> None:
         waiting(json.dumps({"replies": [OWED_REPLY | {"ts": f"{time.time() + 3600:.6f}"}], "holder_session": HOLDER})): Allow(),
         waiting(json.dumps({"replies": [], "holder_session": HOLDER})): Allow(),
         waiting((1, "cc-slack can't reach the daemon")): Allow(),
-        Input(session_id=HOLDER, command="ls", transcript=[T.user("where are we")], state=[CompactionState(active=True)], env=DRIVE_CONFIG): Allow(),
+        Input(session_id=HOLDER, command="ls", transcript=[T.user("where are we")], state=[CompactionState(active=True, communicator=True)], env=DRIVE_CONFIG): Allow(),
     }),
 )
 def owner_reply_gets_a_fast_ack(evt: BaseHookEvent) -> HookResult | None:

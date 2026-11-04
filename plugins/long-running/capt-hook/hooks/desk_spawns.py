@@ -6,7 +6,7 @@ from captain_hook import Allow, BaseHookEvent, Event, HookResult, Input, Or, Too
 
 from .compaction_handoff import CompactionState, Communicator, Coordinator
 
-COMMUNICATING = [CompactionState(active=True)]
+COMMUNICATING = [CompactionState(active=True, communicator=True)]
 COORDINATING = [CompactionState(active=True, coordinator=True)]
 ROLE = r"(?:landing-desk|progress-desk|drive-watchdog|fidelity-desk|fidelity-sweep|red-sweep|alerts-desk|board-refresher|meta(?:-desk)?|chores|signal)(?:-\d+)?"
 NAMED = re.compile(ROLE)

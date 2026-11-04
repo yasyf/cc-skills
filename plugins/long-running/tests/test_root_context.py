@@ -38,7 +38,7 @@ class Root:
         self.plan.write_text(LONG)
         (home / "src" / ".git").mkdir(parents=True)
         self.verdict: dict = {}
-        CompactionState(active=True, plan_path=str(self.plan), slug="brook").save(self.event(PostToolUseEvent, tool_name="Bash"))
+        CompactionState(active=True, communicator=True, plan_path=str(self.plan), slug="brook").save(self.event(PostToolUseEvent, tool_name="Bash"))
 
     def event(self, cls, **raw):
         payload = {"session_id": "0123456789abcdef", "transcript_path": str(self.transcript), "cwd": str(self.home)}

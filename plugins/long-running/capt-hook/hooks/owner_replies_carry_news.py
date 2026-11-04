@@ -24,7 +24,7 @@ UNREAD_PEER = "Warning, nothing was blocked: this short DM reply was not checked
 HIS_DM = json.dumps({"channel_id": "D0B6Z", "peer": OPERATOR, "peer_name": "owner"})
 PEER = f"{SHIPPED_CC_SLACK} dm-peer"
 LANE = DRIVE_CONFIG | {"CLAUDE_LONG_RUNNING_LANE": "release-5"}
-ACTIVE = [CompactionState(active=True)]
+ACTIVE = [CompactionState(active=True, communicator=True)]
 
 
 def reply(text: str, peer: str | tuple = HIS_DM, **given: object) -> Input:

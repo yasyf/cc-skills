@@ -31,7 +31,7 @@ class Window:
         self.transcript = home / "root.jsonl"
         self.transcript.write_text("")
         self.session_dir = home / "session"
-        CompactionState(active=active, coordinator=coordinator, slug="brook").save(self.event(PostToolUseEvent, tool_name="Bash"))
+        CompactionState(active=active, communicator=active, coordinator=coordinator, slug="brook").save(self.event(PostToolUseEvent, tool_name="Bash"))
 
     def event(self, cls, **raw):
         payload = {"session_id": SESSION, "transcript_path": str(self.transcript), "cwd": str(self.transcript.parent)}
