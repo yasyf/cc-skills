@@ -709,6 +709,9 @@ func (f Fanout) slack(ctx context.Context, r Reply, sent []Outcome) []Outcome {
 	if own := was.ownMessage(r); own.Ref != "" {
 		return []Outcome{f.edit(ctx, r, own, r.withPickLink(r.MD, drawn))}
 	}
+	if surface(was.Surfaces, "slack").Ref != "" || len(r.Picks) > 0 && drawn.Ref == "" {
+		return nil
+	}
 	if r.Thread != "" && (drawn.Surface == "" || len(r.Picks) > 0) {
 		return f.inThread(ctx, r, drawn)
 	}

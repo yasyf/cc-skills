@@ -279,7 +279,7 @@ func Command(a *app.App) *cobra.Command {
 				return err
 			}
 			if state == responded && !namedBy(filepath.Join(entry.StateDir, repliesDir), row, reply) {
-				fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s is responded with no reply naming it, so nothing told him whether he has anything to do; send the reply with order=%s and pass it as --reply\n", row, row)
+				fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s is responded with no reply naming it, so nothing told him whether he has anything to do; send that reply again with its id and order=%s, which edits it in place, and pass it as --reply\n", row, row)
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", row, state)
 			return nil
