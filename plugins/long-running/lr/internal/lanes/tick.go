@@ -131,6 +131,9 @@ func Tick(s *store.Store, d Deps, now time.Time, generation int64) (out Outcome,
 	said := fold(s, records, adoptable, d.Briefs, d)
 	out.Adopted = append(said.adopted, adoptStanding(s, d, found, now)...)
 	announce(s, d, said)
+	for _, one := range said.refused {
+		refusedRelaunch(s, d, one, now, &out)
+	}
 	for _, name := range said.unheard {
 		raiseUnheard(s, d, name, now)
 	}
@@ -252,6 +255,10 @@ func act(s *store.Store, d Deps, lane store.Lane, found map[string]Peer, proven 
 	case CameUp:
 		do(s.SetLaneState(lane.Name, store.LaneDesired, now, "", ""))
 	case NoShow:
+		if lane.Placement == placedOnSprite {
+			lost(s, d, lane, found, Verdict{Lost, fmt.Sprintf("has posted no record and is not live %d minutes after its launch", int(StaleAfter.Minutes()))}, taken, now, out)
+			return
+		}
 		hold(s, lane.Name, verdict.Why, now)
 		escalate(s, d, "lane:"+lane.Name, fmt.Sprintf("%s; brief %s", verdict.Why, filepath.Join(d.Briefs, lane.Name+".brief.md")), now)
 		out.Held = append(out.Held, lane.Name)
@@ -482,9 +489,14 @@ func relaunchCoordinator(s *store.Store, d Deps, old store.Lane, found map[strin
 		transcript = d.Transcript(peer.Row)
 	}
 	do(os.WriteFile(path, []byte(must(coordinatorBrief(old, why, d, transcript))), 0o600))
+	if err := launchOrRetry(d, Root, old.Model, old.Effort, path); err != nil {
+		hold(s, Root, why, now)
+		escalate(s, d, "lane:"+Root, fmt.Sprintf("held, not relaunched: its launch was refused twice, last with %s; it %s; brief %s", err, why, path), now)
+		out.Held = append(out.Held, Root)
+		return
+	}
 	do(s.SetLaneState(Root, store.LaneLaunching, now, "", why))
 	must(s.ReleaseWorker(Root))
-	do(d.Launch(Root, old.Model, old.Effort, path))
 	do(d.Post(Post{Kind: "report", To: []string{d.coordinatorReportsTo()}, LaneRef: Root, Text: fmt.Sprintf("RELAUNCHED the coordinator: it %s; handoff %s; brief %s", why, or(old.Handoff, "none, the new session writes it"), path)}))
 	out.Relaunched = append(out.Relaunched, Relaunch{Root, Root, why})
 }
@@ -554,12 +566,41 @@ func relaunch(s *store.Store, d Deps, old store.Lane, found map[string]Peer, why
 		transcript = d.Transcript(peer.Row)
 	}
 	do(os.WriteFile(path, []byte(must(successorBrief(old, name, why, partial, d, transcript))), 0o600))
+	if err := launchOrRetry(d, name, old.Model, old.Effort, path); err != nil {
+		hold(s, old.Name, why, now)
+		escalateTo(s, d, "lane:"+old.Name, fmt.Sprintf("held, not relaunched: its relaunch as %s was refused twice, last with %s; it %s; brief %s", name, err, why, path), must(MetaDesk(s)), now)
+		out.Held = append(out.Held, old.Name)
+		return ""
+	}
 	retire(s, old.Name, name, now)
-	must(s.WantLane(store.Lane{Name: name, Brief: old.Brief, Model: old.Model, Effort: old.Effort, Role: old.Role, State: store.LaneLaunching, Handoff: old.Handoff, PRs: old.PRs, Predecessor: old.Name, Reason: why, Launcher: old.Launcher}, now))
-	do(d.Launch(name, old.Model, old.Effort, path))
+	must(s.WantLane(store.Lane{Name: name, Brief: old.Brief, Model: old.Model, Effort: old.Effort, Role: old.Role, State: store.LaneLaunching, Handoff: old.Handoff, PRs: old.PRs, Predecessor: old.Name, Reason: why, Placement: old.Placement, Launcher: old.Launcher}, now))
 	do(d.Post(Post{Kind: "report", To: []string{owningDesk(s, d, old.Name)}, LaneRef: name, Text: fmt.Sprintf("RELAUNCHED %s as %s: it %s; handoff %s; PRs %s; brief %s", old.Name, name, why, or(old.Handoff, "none, the successor writes it"), or(numberList(old.PRs), "none"), path)}))
 	out.Relaunched = append(out.Relaunched, Relaunch{old.Name, name, why})
 	return name
+}
+
+func launchOrRetry(d Deps, name, model, effort, brief string) error {
+	if err := d.Launch(name, model, effort, brief); err == nil {
+		return nil
+	}
+	return d.Launch(name, model, effort, brief)
+}
+
+func refusedRelaunch(s *store.Store, d Deps, refused refusal, now time.Time, out *Outcome) {
+	lane, found := laneOf(s, refused.lane)
+	if !found || lane.State != store.LaneLaunching || lane.Reason == "" {
+		return
+	}
+	path, retried := filepath.Join(d.Briefs, lane.Name+".brief.md"), "relaunch-retried:"+lane.Name
+	if _, again := must(s.Probes())[retried]; !again {
+		do(s.Probe(retried, now))
+		if d.Launch(lane.Name, lane.Model, lane.Effort, path) == nil {
+			return
+		}
+	}
+	hold(s, lane.Name, refused.why, now)
+	escalateTo(s, d, "lane:"+lane.Name, fmt.Sprintf("held, not launched: the runner refused the supervisor's relaunch as %s twice, last with %s; brief %s", lane.Name, refused.why, path), must(MetaDesk(s)), now)
+	out.Held = append(out.Held, lane.Name)
 }
 
 func successorBrief(old store.Lane, name, why, partial string, d Deps, transcript string) (string, error) {
@@ -569,6 +610,21 @@ func successorBrief(old store.Lane, name, why, partial string, d Deps, transcrip
 	}
 	drive, checkout := d.Drive, d.Checkout
 	start := handoffStart(old, d, transcript)
+	before := []string{
+		"Before any write (an edit, commit, push, ship, PR comment, or a record that claims work):",
+		fmt.Sprintf("  1. From %s, run `drive.py lane-status %s --held`. Each line is a worktree %s made, with its branch, dirty files, push state, and PR; `no worktree found` means it made none.", checkout, old.Name, old.Name),
+		fmt.Sprintf("  2. From %s, never from inside one of those worktrees, run for each worktree path it printed:", checkout),
+		`     lsof -n -d cwd 2>/dev/null | awk -v w='<worktree>' '$NF == w || index($NF, w "/") == 1'`,
+		fmt.Sprintf("  3. If any line printed, write nothing: post `cci post --drive %s --lane %s --kind blocker --to root --text \"LIVE %s: <worktree> pids <pids>\"` and stop. Never stop or signal those processes.", drive, name, old.Name),
+		fmt.Sprintf("  4. With no live process in any worktree, continue in %s's worktree and branch from the state lane-status shows; the trees of the PRs it only named print without `--held`.", old.Name),
+	}
+	if old.Placement == placedOnSprite {
+		start = fmt.Sprintf("Before anything else, read %s's records with `cci tail --drive %s --lane %s --oldest`.", old.Name, drive, old.Name)
+		if old.Handoff != "" {
+			start = fmt.Sprintf("Your handoff is `ccn doc show %s`; read it first, then %s's records with `cci tail --drive %s --lane %s --oldest`.", old.Handoff, old.Name, drive, old.Name)
+		}
+		before = []string{fmt.Sprintf("%s's worktree and transcript stayed on its Sprite: continue from its pushed branches and PRs, and redo any edit it never pushed.", old.Name)}
+	}
 	owned := "none recorded"
 	if len(old.PRs) > 0 {
 		owned = strings.ReplaceAll(numberList(old.PRs), " ", ", ")
@@ -591,17 +647,14 @@ func successorBrief(old store.Lane, name, why, partial string, d Deps, transcrip
 		fmt.Sprintf("Ask, report and raise a blocker only with `cci post --drive %s --lane %s --kind ask|report|blocker`; Orca's `send` and `ask` carry the dispatch lifecycle alone.", drive, name),
 		fmt.Sprintf("If the handoff and %s's records show its deliverable is already complete, post `cci post --drive %s --lane %s --kind done --to root --text '<what it delivered>'` and stop.", old.Name, drive, name),
 		"",
-		"Before any write (an edit, commit, push, ship, PR comment, or a record that claims work):",
-		fmt.Sprintf("  1. From %s, run `drive.py lane-status %s --held`. Each line is a worktree %s made, with its branch, dirty files, push state, and PR; `no worktree found` means it made none.", checkout, old.Name, old.Name),
-		fmt.Sprintf("  2. From %s, never from inside one of those worktrees, run for each worktree path it printed:", checkout),
-		`     lsof -n -d cwd 2>/dev/null | awk -v w='<worktree>' '$NF == w || index($NF, w "/") == 1'`,
-		fmt.Sprintf("  3. If any line printed, write nothing: post `cci post --drive %s --lane %s --kind blocker --to root --text \"LIVE %s: <worktree> pids <pids>\"` and stop. Never stop or signal those processes.", drive, name, old.Name),
-		fmt.Sprintf("  4. With no live process in any worktree, continue in %s's worktree and branch from the state lane-status shows; the trees of the PRs it only named print without `--held`.", old.Name),
+	}
+	lines = append(lines, before...)
+	lines = append(lines,
 		"",
 		fmt.Sprintf("When the deliverable is done, post `cci post --drive %s --lane %s --kind done --to root` before your final message; told to stand down after a task, post that `done` when the task is finished. On `ROTATE`, write your state to cc-notes and post `cci post --drive %s --lane %s --kind handoff --ccn <doc id> --re <the ROTATE record>`, then keep working.", drive, name, drive, name),
 		"",
 		string(body),
-	}
+	)
 	if partial != "" {
 		lines = append([]string{partial}, lines...)
 	}
@@ -664,7 +717,7 @@ func chaseUnread(s *store.Store, d Deps, found map[string]Peer, already []string
 			woken = append(woken, lane.Name)
 		}
 		pastDue := slices.DeleteFunc(slices.Clone(orders), func(order store.Unread) bool { return order.Raised || now.Sub(order.At) < unreadAfter })
-		if len(pastDue) > 0 {
+		if len(pastDue) > 0 && lane.Placement != placedOnSprite {
 			to := noticeTo(s, lane.Name)
 			late[to] = append(late[to], fmt.Sprintf("%s holds %s, the oldest for %d min", lane.Name, orderWords(pastDue), int(now.Sub(pastDue[0].At).Minutes())))
 			raised[to] = append(raised[to], lane.Name)

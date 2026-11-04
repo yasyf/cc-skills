@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"os"
@@ -304,6 +305,7 @@ func (e Env) orcaRows(ctx context.Context, names []string) ([]Row, error) {
 		}
 		if !settled && read.Liveness == agentUnverifiable {
 			row.Unverified = fmt.Sprintf("has an Orca agent that reads unverifiable (%s)", or(read.Why, "no reason given"))
+			row.HostGone = read.Why == hostUnavailable
 		}
 		rows = append(rows, row)
 	}
@@ -713,6 +715,23 @@ func rotateAt(settings string) (int, error) {
 	return (window - outputReserve - autocompactBuffer) * rotatePercent / 100, nil
 }
 
+func attach(log string, argv ...string) error {
+	output, err := os.OpenFile(log, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = output.Close() }()
+	var said bytes.Buffer
+	cmd := exec.Command(argv[0], argv[1:]...)
+	cmd.Stdout = io.MultiWriter(output, &said)
+	cmd.Stderr = cmd.Stdout
+	if err := cmd.Run(); err != nil {
+		lines := strings.Split(strings.TrimSpace(said.String()), "\n")
+		return fmt.Errorf("%s (%w)", lines[len(lines)-1], err)
+	}
+	return nil
+}
+
 func detach(log string, argv ...string) error {
 	output, err := os.OpenFile(log, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
@@ -840,7 +859,7 @@ func (e Env) Deps(ctx context.Context) (Deps, error) {
 			return nil
 		},
 		Launch: func(name, model, effort, brief string) error {
-			return detach(filepath.Join(briefs, name+".launch.log"), launcher, "lane", name, model, effort, brief, "--drive", e.Config.Drive, "--lane", Self)
+			return attach(filepath.Join(briefs, name+".launch.log"), launcher, "lane", name, model, effort, brief, "--drive", e.Config.Drive, "--lane", Self, "--timeout-seconds", "0")
 		},
 		Withdraw: func(name string) error {
 			return detach(filepath.Join(briefs, name+".launch.log"), launcher, "withdraw", name, "--drive", e.Config.Drive, "--lane", Self)

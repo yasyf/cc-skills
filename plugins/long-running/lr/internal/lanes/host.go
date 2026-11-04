@@ -34,6 +34,7 @@ const (
 	reprobeAfter   = StaleAfter
 	goneAfter      = 2 * StaleAfter
 	lostAfter      = 5 * time.Minute
+	hostGoneAfter  = 10 * time.Minute
 )
 
 func runningProbe(lane string) string {
@@ -42,6 +43,10 @@ func runningProbe(lane string) string {
 
 func unreachableProbe(lane string) string {
 	return "host-unreachable:" + lane
+}
+
+func hostGoneProbe(lane string) string {
+	return "host-gone:" + lane
 }
 
 func peerOf(found map[string]Peer, name string) *Peer {
@@ -64,10 +69,20 @@ func needsProof(lane store.Lane, silent, retireAfter time.Duration) bool {
 
 func proofs(s *store.Store, d Deps, lanes []store.Lane, found map[string]Peer, now time.Time) map[string]Verdict {
 	proven := map[string]Verdict{}
+	probes := must(s.Probes())
 	var unproven []store.Lane
 	var names []string
 	for _, lane := range lanes {
-		if lane.Placement == placedOnSprite && lane.State == store.LaneDesired && Classify(lane, peerOf(found, lane.Name), now, 0, 0).Kind == Unproven {
+		peer, gone := peerOf(found, lane.Name), hostGoneProbe(lane.Name)
+		_, tracked := probes[gone]
+		switch down := lane.Placement == placedOnSprite && peer != nil && peer.Row.HostGone; {
+		case down && !tracked:
+			do(s.Probe(gone, now))
+		case !down && tracked:
+			do(s.Unprobe(gone))
+			delete(probes, gone)
+		}
+		if lane.Placement == placedOnSprite && lane.State == store.LaneDesired && Classify(lane, peer, now, 0, 0).Kind == Unproven {
 			unproven = append(unproven, lane)
 			names = append(names, lane.Name)
 		}
@@ -80,7 +95,6 @@ func proofs(s *store.Store, d Deps, lanes []store.Lane, found map[string]Peer, n
 		slog.Warn("no sprite read this tick, since the Sprites list failed", "err", err)
 		return proven
 	}
-	probes := must(s.Probes())
 	var asked []string
 	for _, lane := range unproven {
 		if sprite, listed := sprites[lane.Name]; listed && sprite.Status != spriteRunning && !settledLane(lane) {
@@ -92,6 +106,10 @@ func proofs(s *store.Store, d Deps, lanes []store.Lane, found map[string]Peer, n
 				}
 				proven[lane.Name] = Verdict{Lost, why}
 			}
+			continue
+		}
+		if why := abandoned(lane, probes, now); why != "" && !settledLane(lane) {
+			proven[lane.Name] = Verdict{Lost, why}
 			continue
 		}
 		if !needsProof(lane, silence(lane, now), d.RetireAfter) {
@@ -129,6 +147,16 @@ func proofs(s *store.Store, d Deps, lanes []store.Lane, found map[string]Peer, n
 		}
 	}
 	return proven
+}
+
+func abandoned(lane store.Lane, probes map[string]store.Probe, now time.Time) string {
+	if gone, tracked := probes[hostGoneProbe(lane.Name)]; tracked && now.Sub(gone.Asked) >= hostGoneAfter {
+		return fmt.Sprintf("has a Sprite host Orca has reported unavailable for %d min", int(now.Sub(gone.Asked).Minutes()))
+	}
+	if lane.Heard.IsZero() && now.Sub(lane.Since) >= StaleAfter {
+		return fmt.Sprintf("has posted no record in the %d min since its launch, and Orca does not report it live", int(now.Sub(lane.Since).Minutes()))
+	}
+	return ""
 }
 
 func residueTo(s *store.Store, d Deps, lane string) string {

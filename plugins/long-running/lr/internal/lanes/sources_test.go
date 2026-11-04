@@ -343,7 +343,7 @@ func TestAnOrcaLaneReadsLiveOnlyWhileItsAgentDoes(t *testing.T) {
 	}
 
 	equal(t, rows, []Row{
-		{Lane: "cold", SeenAt: launched, Dispatch: "ctx_3", Unverified: "has an Orca agent that reads unverifiable (host_unavailable)"},
+		{Lane: "cold", SeenAt: launched, Dispatch: "ctx_3", Unverified: "has an Orca agent that reads unverifiable (host_unavailable)", HostGone: true},
 		{Lane: "exited", SeenAt: launched, Dispatch: "ctx_2"},
 		{Lane: "working", Live: true, SeenAt: t0, Dispatch: "ctx_1"},
 	})

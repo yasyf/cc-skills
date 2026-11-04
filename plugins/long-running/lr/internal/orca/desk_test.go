@@ -3955,3 +3955,26 @@ func TestAnUnreadRelayToAMissingTerminalIsNoBlockerAndNoWake(t *testing.T) {
 		t.Fatal(sends)
 	}
 }
+
+func TestAStandingDesksNamedPRsNeverMakeItADuplicateButAnotherLanesBriefStillIs(t *testing.T) {
+	w := newDeskWorld(t)
+	const holder = "fork-share-grant-2"
+	if _, _, err := w.desk.acceptLaunch("R1", holder, launchTarget{Model: "opus", Effort: "xhigh", Brief: w.brief(holder, testBrief)}); err != nil {
+		t.Fatal(err)
+	}
+	w.live(holder, "ctx_f", "term_f")
+	w.write(w.desk.receiptPath(holder, ".worktree"), w.home+"\n")
+	w.add(object{"lane": holder, "kind": "head", "text": "#49387 abc", "refs": object{"prs": []int{49387}}})
+	for brief, held := range map[string]bool{
+		"Lands #49387.\n": true,
+		"Standing: lands every green PR in the queue\nWatches #49387 among 33 others.\n": false,
+	} {
+		found, err := w.desk.duplicateHolder(context.Background(), "pr-unblock-3", testBrief+brief)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if (found != "") != held {
+			t.Fatalf("brief %q: holder %q, want held=%v", brief, found, held)
+		}
+	}
+}

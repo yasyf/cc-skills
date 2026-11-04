@@ -52,6 +52,7 @@ const (
 	agentLive         = "live"
 	agentExited       = "exited"
 	agentUnverifiable = "unverifiable"
+	hostUnavailable   = "host_unavailable"
 )
 
 var sessionIdentity = []string{"CCI_AGENT_ID", "CCI_LANE", "CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID"}
@@ -123,6 +124,7 @@ var (
 	numbered      = regexp.MustCompile(`^(.+)-(\d{1,2})$`)
 	handedOff     = regexp.MustCompile(`\bhandoff ([\w.-]+): doc ([0-9a-f]{7,40})\b`)
 	workerDone    = regexp.MustCompile(`^OUTCOME \S+ ([\w.-]+): worker_done succeeded\b`)
+	launchRefused = regexp.MustCompile(`(?s)^(LAUNCH-FAILED|LAUNCH-DUPLICATE|LAUNCH-EXPIRED|UNVERIFIABLE|SPRITE-UNVERIFIABLE) (?:desk-lane-[\w.-]+/)?R\d+(?:@\w+)? ([\w.-]+): (.*)`)
 	withdrawnWork = regexp.MustCompile(`^WITHDRAWN \S+ ([\w.-]+): by \S+; dispatch `)
 	standDownList = regexp.MustCompile(`(?i)\bstand[ -]?down\s+([^.(;:\n]+)`)
 	laneWord      = regexp.MustCompile(`[\w.-]+`)
@@ -489,6 +491,7 @@ type Row struct {
 	Dispatch   string    `json:"dispatch,omitempty"`
 	Succeeded  bool      `json:"succeeded,omitempty"`
 	Unverified string    `json:"unverified,omitempty"`
+	HostGone   bool      `json:"host_gone,omitempty"`
 }
 
 type Peer struct {
