@@ -32,6 +32,7 @@ BARE_ID = re.compile(r"(?i)(?<![\w/.:-])#?\d{6,}\b|\bSentry\s+#?\d+\b")
 TAP_WORDS = re.compile(r"(?i)\b(?:tap|taps|tapping|waiting on you|waits on you)\b|(?<!release )\bcards?\b")
 HIDDEN_CITE = re.compile(r"<!--.*?-->", re.DOTALL)
 SHORT_WORDS = 12
+HELD_CHARS = 400
 CHANGE = re.compile(r"(?i)\b(?:add|chang|clean|delet|drop|fix|migrat|mov|refactor|remov|renam|replac|rewrit|split)\w*")
 DRAW_SCRIPT = "draw.zsh"
 ASK_OWNER = CommandSchema(
@@ -166,9 +167,10 @@ def unlinked_or_cardless(evt: BaseHookEvent, text: str, reads: Reads) -> list[st
     return [*bare, *([f'no cards: "{named[0]}": re-post each thing that waits on him as its card, in `picks` or `prs`'] if named and not carries_cards(evt, reads) else [])]
 
 
-def hold(evt: BaseHookEvent, key: str, lines: list[str]) -> HookResult:
+def hold(evt: BaseHookEvent, drive: str, key: str, lines: list[str]) -> HookResult:
     with HeldPosts.mutate(evt) as state:
         state.held = [*state.held, key]
+    JUDGE.record(drive, "first-question-hold", "none", "held", {"seconds": 0.0, "cost_usd": 0.0, "tokens": 0, "asks": 0, "p_yes": None, "error": ""}, " | ".join(lines)[:HELD_CHARS], env=reqenv.env_map())
     return evt.block(fenced(HOLD, lines))
 
 
@@ -245,11 +247,11 @@ def posts_answer_his_first_question(evt: BaseHookEvent) -> HookResult | None:
     if not text or (key := post_key(text)) in HeldPosts.load(evt).held:
         return None
     if lines := unlinked_or_cardless(evt, text, reads):
-        return hold(evt, key, lines)
+        return hold(evt, which[1], key, lines)
     if plain_answer(text):
         return None
     env = reqenv.env_map()
     verdict = judge_call(JUDGE, "first-question", picked_out(text), text, backend=JUDGE.backend_from(env), drive=which[1], timeout=reqenv.clamp_timeout(FOREGROUND_JUDGE_SECONDS), env=env)
     if verdict is None or not (verdict.flagged or verdict.verdict == "unsure" and describes_change(text)):
         return evt.context(reads.warning("posts_answer_his_first_question")) if reads.failures else None
-    return hold(evt, key, [f'sentence: "{verdict.artifact_phrase}"', f"first question: {verdict.sentence}"])
+    return hold(evt, which[1], key, [f'sentence: "{verdict.artifact_phrase}"', f"first question: {verdict.sentence}"])
