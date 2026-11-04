@@ -413,3 +413,7 @@ body #pal .it.on { background: color-mix(in srgb, var(--ok) 9%, transparent); bo
 .bq-ask { display: flex; gap: 8px; margin-top: 12px; }
 .bq-ask textarea { flex: 1; min-width: 0; min-height: 34px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); font: 14px var(--sans); resize: vertical; }
 @media (max-width: 640px) { .bq-facts { grid-template-columns: minmax(0, 1fr); } .bq-facts dt { margin-top: 6px; } }
+.ct-whole { margin-top: 6px; font-size: 13px; opacity: .92; }
+.ct-whole summary { cursor: pointer; font-size: 12px; opacity: .85; }
+.ct-owed { margin-bottom: 18px; }
+#chatmodal .bq > header { display: none; }

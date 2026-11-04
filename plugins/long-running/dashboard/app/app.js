@@ -309,7 +309,7 @@ async function ask(question) {
 
 const DRAWER = /^(?:review\/\d+(?:\/code)?|plan\/[^/~]+|status\/s\d+|(?:work|story|worker|blocker|question)\/[^/~]+)$/;
 const NATURAL = { review: '#/review', plan: '#/plan', status: '#/status', work: '#/work', worker: '#/work' };
-const BASE_WORD = { overview: 'Now', needs: 'Needs me', plan: 'Plan', status: 'Status', work: 'Work', review: 'Review', asks: 'Your asks', replies: 'Chat', history: 'History', ask: 'Ask' };
+const BASE_WORD = { overview: 'Now', needs: 'Needs me', plan: 'Plan', status: 'Status', work: 'Work', review: 'Review', replies: 'Chat', history: 'History', ask: 'Ask' };
 function drawerSeg(href) {
   const path = String(href ?? '').replace(/^#\/?/, '');
   return DRAWER.test(path) ? path.replace(/^story\//, 'work/') : null;
@@ -336,7 +336,7 @@ function pageRoute() {
 function cutDraws() {
   return pageRoute().screen === 'overview' && stackOf().every((seg) => /^review\/\d+/.test(seg) && state.model.prs[seg.split('/')[1]]);
 }
-const BOX = '#main form textarea, #main form input';
+const BOX = '#main form textarea, #main form input, #chatmodal form textarea';
 function boxKey(el) {
   const form = el.closest('form');
   return `draft:${el.name}:${el.dataset.draft ?? form.id}:${form.dataset.askPr ?? form.dataset.hold ?? ''}`;
@@ -378,14 +378,14 @@ function render() {
   const stack = stackOf();
   document.title = m.title;
   $('.brand').textContent = m.title;
-  const tabs = [['overview', 'Now'], ['needs', 'Needs me', openTaps().length], ['plan', 'Plan'], ['status', 'Status'], ['work', 'Work'], ['review', 'Review', prsWaiting()], ['asks', 'Your asks', openAsks()], ['replies', 'Chat', openReplies()], ['history', 'History']];
+  const tabs = [['overview', 'Now'], ['needs', 'Needs me', openTaps().length], ['plan', 'Plan'], ['status', 'Status'], ['work', 'Work'], ['review', 'Review', prsWaiting()], ['replies', 'Chat', openReplies()], ['history', 'History']];
   $('#kbtn').classList.toggle('on', p.screen === 'jump');
   const typing = document.activeElement?.matches('#main input, #main textarea') ? document.activeElement : null;
   const caret = typing && [typing.name, typing.dataset.draft ?? '', typing.selectionStart, typing.selectionEnd];
   const spotRoot = [$('#main'), $('#tabs')].find((el) => el.contains(document.activeElement));
   const spot = !typing && state.shown === location.hash && spotRoot && focusSpot(spotRoot);
   $('#tabs').innerHTML = tabs.map(([id, label, count]) => `<a class="tab${(p.screen === 'milestone' ? 'plan' : p.screen) === id ? ' on' : ''}" href="#/${id === 'overview' ? '' : id}">${label}${count ? `<span class="count">${count}</span>` : ''}</a>`).join('');
-  const screens = { overview: nowScreen, plan: planScreen, work: workScreen, review: () => reviewScreen(p.id ?? ''), milestone: () => (curated('plan') ? milestonePage(curated('plan'), Number(p.id)) : writing(state.model.milestones[p.id])), history: () => historyScreen(p.id), asks: () => asksScreen(p.id), needs: needsScreen, replies: repliesScreen, ask: askScreen, status: () => statusScreen(p.id, p.tab), jump: () => `<div class="pg">${pageHead('Jump to anything')}<p class="pg-lead">Find a change, a part of the plan, a piece of work or a page, or ask the assistant a question.</p></div>` };
+  const screens = { overview: nowScreen, plan: planScreen, work: workScreen, review: () => reviewScreen(p.id ?? ''), milestone: () => (curated('plan') ? milestonePage(curated('plan'), Number(p.id)) : writing(state.model.milestones[p.id])), history: () => historyScreen(p.id), needs: needsScreen, replies: repliesScreen, ask: askScreen, status: () => statusScreen(p.id, p.tab), jump: () => `<div class="pg">${pageHead('Jump to anything')}<p class="pg-lead">Find a change, a part of the plan, a piece of work or a page, or ask the assistant a question.</p></div>` };
   const y = window.scrollY;
   const kept = [...document.querySelectorAll('[data-keep-scroll]')].map((el) => [el.dataset.keepScroll, el.scrollLeft, el.scrollTop]);
   let screen;

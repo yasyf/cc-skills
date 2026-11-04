@@ -4,12 +4,12 @@ import re
 from zoneinfo import ZoneInfo
 
 PACIFIC = ZoneInfo("America/Los_Angeles")
-LEDGER_ROW = re.compile(r"\| m(\d+) \| (\w+ \d+ \d+:\d+ [AP]M) \| (.*) \| (\S*) \| ([^|]*?) \|$")
+LEDGER_ROW = re.compile(r"\| m(\d+(?:\.\d+)?) \| (\w+ \d+ \d+:\d+ [AP]M) \| (.*) \| (\S*) \| ([^|]*?) \|$")
 DUE = "due "
 CHAT_HOLDER = "your chat"
 CLOSED_MARKS = {"responded", "addressed", "no-order"}
 CARD_ID = re.compile(r" \([\w:-]+\)(?=: |$)")
-ANSWERED = "Answered, nothing for you."
+RELAYED_COPY = re.compile(r"^m\d+(?:\.\d+)?: ")
 MENTION = re.compile(r"\bm(\d{1,3})\b")
 ITEM = re.compile(r"\bM(\d{1,3})\b")
 PR_NAMED = re.compile(r"(?<![\w/])#(\d{5})\b")
@@ -63,18 +63,20 @@ def owner_ask_rows(ledger, records, prs, store, known_lanes, year, answers, thre
     for index, line in enumerate(lines):
         if not (row := LEDGER_ROW.match(line)):
             continue
-        number, stamp, mark = int(row[1]), row[2], row[5]
+        ident, stamp, mark = row[1], row[2], row[5]
+        number = int(ident.split(".")[0])
+        m = int(ident) if ident.isdigit() else ident
         thread = (threads or {}).get(int(row[4])) if row[4].isdigit() else None
         waiting = mark.startswith(DUE) and not (thread and thread["answered"])
         due = stamp_iso(mark.removeprefix(DUE), year) if waiting else None
         holder = thread["holder"] if thread else CHAT_HOLDER
         lines_said = [said.strip() for said in row[3].split("<br>") if said.strip()]
         text = " ".join(said for said in lines_said if not said.startswith(">")) or " ".join(lines_said)
-        if len(text) < MIN_ASK and not waiting and not thread:
+        if (len(text) < MIN_ASK and not waiting and not thread) or RELAYED_COPY.match(text):
             continue
         iso = stamp_iso(stamp, year)
         if text.startswith("Owner on board"):
-            taps.append(tap_row(number, iso, text, prs) | ({"state": "asked", "due": due, "holder": holder} if waiting else {}))
+            taps.append(tap_row(m, iso, text, prs) | ({"state": "asked", "due": due, "holder": holder} if waiting else {}))
             continue
         mine = by_message[number]
         follow_up = " ".join(following for following in lines[index + 1 : index + 3] if not following.startswith("| m"))
@@ -86,18 +88,19 @@ def owner_ask_rows(ledger, records, prs, store, known_lanes, year, answers, thre
         named = named_prs([*workers, *finished])[:3]
         words = " ".join(r["text"] for r in mine) + " " + follow_up
         holders = list(dict.fromkeys([*[lane for lane, _ in collections.Counter(r["lane"] for r in workers).most_common(3)], *[r["lane"] for r in finished], *sorted(set(LANE.findall(words)) & known_lanes)]))[:3]
-        answer = answers.get(f"m{number}", "")
+        answer = answers.get(f"m{ident}", "")
         state = message_state("responded" if thread and thread["answered"] else mark, finished, mine, named, prs, answer)
         asks.append({
-            "m": number,
+            "m": m,
             "iso": iso,
             "text": text,
             "state": state,
+            "ack": ack_state(row[4], mark, state),
             "due": due,
             "holder": holder,
             "lanes": holders,
             "prs": named,
-            "answer": answer or (ANSWERED if state == "answered" else ""),
+            "answer": answer,
         })
     return {"messages": asks, "taps": taps, "store": store}
 
@@ -135,6 +138,12 @@ def message_state(mark, finished, records, named, prs, answer):
     if answer or mark == "responded" or any(r["kind"] in {"answer", "report"} for r in records):
         return "answered"
     return "asked"
+
+
+def ack_state(routed, mark, state):
+    if state != "asked" or mark in CLOSED_MARKS:
+        return "done"
+    return "routed" if routed or mark.startswith(DUE) else "received"
 
 
 def overdue_rows(render, records, store):
