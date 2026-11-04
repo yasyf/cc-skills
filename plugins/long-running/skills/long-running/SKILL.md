@@ -399,15 +399,13 @@ Slack copy outside the Slack lane.
 
 **R22.** Every brief quotes the owner's design verbatim with the entry point at
 `file:line`; the lane posts a `contract` before `READY-FOR-SHIP`; the design ships
-whole or holds, never split.
-A ruling that changes a data model, a namespace layout or an embedding model is a
-design order, never a PR order: the lane's first deliverable is a one-pager with the
-open choices as specific cards, and it builds only after he has read it or said build.
+whole or holds, never split. A ruling that changes a data model, namespace layout or
+embedding model is a design order: first a one-pager with its open choices as specific
+cards, and building only after he has read it or said build.
 
 **R23.** Every finished agent is stopped the turn its completion arrives, and
-before any spawn; a settled lane's Orca workspace and terminal are reclaimed by
-`lr gc` the same pass, and a new lane starts remote unless it drives the Mac's Orca
-app (owner, Nov 3 2:41 AM).
+before any spawn; `lr gc` reclaims a settled lane's Orca workspace and terminal the
+same pass, and a new lane starts remote unless it drives the Mac's Orca app.
 
 **R24.** Every production operation is one line in the cc-notes log
 `production-operations` that turn; incident lanes read its last day before naming
@@ -415,8 +413,7 @@ a mechanism.
 
 **R25.** A deadline comes with a plan. A record, update line or card that states a
 time something must happen by names the lane that meets it and the steps, and the
-pack refuses one without them (owner, Nov 3 2:45 AM: the one-time schema step
-before 4 PM had a time and no plan).
+pack refuses one without them.
 
 ## Lanes and desks
 
