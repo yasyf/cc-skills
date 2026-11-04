@@ -125,7 +125,7 @@ func listed(t *testing.T) []string {
 	if err := json.Unmarshal(out.Bytes(), &response); err != nil {
 		t.Fatalf("%v: %s", err, out.String())
 	}
-	var names []string
+	names := make([]string, 0, len(response.Result.Tools))
 	for _, tool := range response.Result.Tools {
 		names = append(names, tool.Name)
 	}
