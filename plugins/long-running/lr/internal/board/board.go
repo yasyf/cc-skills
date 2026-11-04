@@ -70,13 +70,6 @@ func (r Row) MissingWords() []string {
 	return missing
 }
 
-func (r Row) word(fact string) string {
-	if said := r.Words[fact]; said != "" {
-		return said
-	}
-	return fmt.Sprintf("missing: %s owes this on its head record", r.Lane)
-}
-
 type PRRow struct {
 	Number  int    `json:"number"`
 	Head    string `json:"head"`
@@ -172,7 +165,7 @@ func prRow(row Row) PRRow {
 	if title == "" {
 		title = fmt.Sprintf("#%d", row.PR)
 	}
-	return PRRow{row.PR, short(row.Head), title, row.word(FactChange), row.word(FactPlan), row.word(FactRisk), review(row), row.word(FactBlocks)}
+	return PRRow{row.PR, short(row.Head), title, row.Words[FactChange], row.Words[FactPlan], row.Words[FactRisk], review(row), row.Words[FactBlocks]}
 }
 
 func review(row Row) string {
