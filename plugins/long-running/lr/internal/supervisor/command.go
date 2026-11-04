@@ -242,6 +242,14 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 		deps.Pool = pool
 	}
 	if slices.Contains(env.Config.Movers, moverLanes) {
+		claude, err := drive.ConfigDir()
+		if err != nil {
+			return Deps{}, err
+		}
+		followPins := func(ctx context.Context) error {
+			return orca.FollowPins(ctx, a.Runner, s, claude, filepath.Join(env.State, runnerFile), a.Now, a.Stderr)
+		}
+		deps.Checks = append(deps.Checks, (&background{name: "follow-pins", every: PassEvery, run: followPins, store: s, post: post, log: a.Log}).Check)
 		if entry, err := drive.Named(env.Config.Drive); err != nil {
 			a.Log.Warn("the talk follower has no drive entry and stays off", "drive", env.Config.Drive, "err", err)
 		} else {

@@ -30,6 +30,8 @@ type spriteTool struct {
 	Follows string `json:"follows,omitempty"`
 }
 
+var hostTools = []string{"long-running@skills", "ccx"}
+
 type spritePins struct {
 	ccURL, ccSHA, lrURL, lrSHA, lrMember string
 	tools                                []spriteTool
@@ -96,6 +98,11 @@ func (p *spritePins) pinTools(raw string) error {
 		}
 	}
 	return nil
+}
+
+func (p spritePins) forHost() spritePins {
+	p.tools = slices.DeleteFunc(slices.Clone(p.tools), func(tool spriteTool) bool { return !slices.Contains(hostTools, tool.Name) })
+	return p
 }
 
 func (p spritePins) installArgv(workspace string, needs []string) []string {

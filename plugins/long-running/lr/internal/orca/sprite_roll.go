@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"maps"
 	"os"
@@ -47,6 +48,17 @@ type SpriteRoll struct {
 	Out    io.Writer
 }
 
+func FollowPins(ctx context.Context, runner shell.Runner, s *store.Store, claude, path string, now func() time.Time, out io.Writer) error {
+	err := MoveSpritePins(ctx, s, claude, path, out)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return RollHost(ctx, runner, s, path, now, out)
+}
+
 func RollHost(ctx context.Context, runner shell.Runner, s *store.Store, path string, now func() time.Time, out io.Writer) error {
 	file, err := readRunnerFile(path)
 	if err != nil || file.Host.Sprite == "" {
@@ -56,12 +68,34 @@ func RollHost(ctx context.Context, runner shell.Runner, s *store.Store, path str
 	if err != nil {
 		return err
 	}
-	roll := SpriteRoll{Runner: runner, Store: s, Host: file.Host.Sprite, Now: now, Out: out}
-	pins, err := roll.pins(env)
+	pins, err := readPins(env)
 	if err != nil {
 		return err
 	}
+	roll := SpriteRoll{Runner: runner, Store: s, Host: file.Host.Sprite, Now: now, Out: out}
+	if err := roll.notBad(pins.forHost()); err != nil {
+		return err
+	}
+	level, err := roll.runs(file.Host.Sprite, pins.forHost())
+	if err != nil || level {
+		return err
+	}
 	return roll.install(ctx, pins, []string{file.Host.Sprite}, file.Host.Sprite)
+}
+
+func (r SpriteRoll) runs(box string, pins spritePins) (bool, error) {
+	recorded, err := r.Store.SpriteTools()
+	if err != nil {
+		return false, err
+	}
+	for _, tool := range pins.tools {
+		if !slices.ContainsFunc(recorded, func(t store.SpriteTool) bool {
+			return t.Sprite == box && t.Name == tool.Name && t.Version == tool.Version
+		}) {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 func (r SpriteRoll) pins(env func(string) string) (spritePins, error) {
@@ -69,16 +103,20 @@ func (r SpriteRoll) pins(env func(string) string) (spritePins, error) {
 	if err != nil {
 		return pins, err
 	}
+	return pins, r.notBad(pins)
+}
+
+func (r SpriteRoll) notBad(pins spritePins) error {
 	for _, tool := range pins.tools {
 		why, err := r.Store.BadTool(tool.Name, tool.Version)
 		if err != nil {
-			return pins, err
+			return err
 		}
 		if why != "" {
-			return pins, refuse("nothing rolled: %s %s is marked bad, since %s; pin another version", tool.Name, tool.Version, why)
+			return refuse("nothing rolled: %s %s is marked bad, since %s; pin another version", tool.Name, tool.Version, why)
 		}
 	}
-	return pins, nil
+	return nil
 }
 
 func (r SpriteRoll) Run(ctx context.Context, run string, env func(string) string, probe string, probeOnly bool) error {
@@ -122,7 +160,11 @@ func (r SpriteRoll) install(ctx context.Context, pins spritePins, boxes []string
 	var unreached []string
 	var hostStayed error
 	for done, box := range boxes {
-		result, err := r.Runner.Run(ctx, shell.Command{Argv: pins.installArgv(box, nil), Timeout: spriteInstallTimeout})
+		boxPins := pins
+		if box == r.Host {
+			boxPins = pins.forHost()
+		}
+		result, err := r.Runner.Run(ctx, shell.Command{Argv: boxPins.installArgv(box, nil), Timeout: spriteInstallTimeout})
 		installed := installedTools(result.Stdout)
 		if recorded := r.Store.RecordSpriteTools(box, installed, r.Now()); recorded != nil {
 			return recorded

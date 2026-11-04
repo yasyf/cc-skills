@@ -159,6 +159,38 @@ func TestAFailureOnTheDeskHostMarksNoPinBadAndTheRollGoesOn(t *testing.T) {
 	}
 }
 
+func TestTheDeskHostGetsOnlyWhatItsServicesRun(t *testing.T) {
+	pins := spritePins{tools: []spriteTool{{Name: "orca@skills"}, {Name: "long-running@skills"}, {Name: "ccx"}, {Name: "capt-hookd"}}}
+
+	got := pins.forHost().tools
+
+	if len(got) != 2 || got[0].Name != "long-running@skills" || got[1].Name != "ccx" {
+		t.Fatal(got)
+	}
+	if len(pins.tools) != 4 {
+		t.Fatal("the host's list cut the fleet's", pins.tools)
+	}
+}
+
+func TestRollHostLeavesAHostAlreadyOnThePinsAlone(t *testing.T) {
+	w := newRollWorld(t)
+	t.Setenv("BINRUN_PLUGIN_ROOT", w.env["BINRUN_PLUGIN_ROOT"])
+	runner := filepath.Join(t.TempDir(), "runner.json")
+	raw := `{"host":{"sprite":"desk-host"},"orca":{"sprite":{"env":{"WORKER_CCI_URL":"` + testCCIURL + `","WORKER_CCI_SHA256":"` + testCCISHA + `"},"tools":` + rollTools + `}}}`
+	if err := os.WriteFile(runner, []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	now := func() time.Time { return time.Date(2026, 11, 4, 3, 0, 0, 0, time.UTC) }
+	for range 2 {
+		if err := RollHost(context.Background(), w, w.store, runner, now, &w.out); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !slices.Equal(w.boxes, []string{"desk-host"}) {
+		t.Fatal("a host on the pins was rolled again", w.boxes)
+	}
+}
+
 func TestRollHostInstallsOnlyOnTheDeskHost(t *testing.T) {
 	w := newRollWorld(t)
 	t.Setenv("BINRUN_PLUGIN_ROOT", w.env["BINRUN_PLUGIN_ROOT"])
