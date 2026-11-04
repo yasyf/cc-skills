@@ -513,6 +513,7 @@ Artifact: <the live artifact: its URL or app, and the repo path that renders it>
 Design record: <the ccn docs, answers and owner picks on this artifact, by id, or "none found" with the searches run>.
 First step, before any mockup: open the live artifact and screenshot it as it is; read its design record; list the owner's prior picks on it, each with its answer id and his words. Post the list as a `contract` record. Then draw each proposed change inside the live artifact, never as a standalone page.
 Card: the card that shows the change sets `design.changes` to this artifact, `design.live` and `design.inPlace` to the two screenshots on the card, and `design.record` to the record above; cc-present refuses it without them.
+Live: a real screenshot of the new render, such as the `lr dashboard restart --proof` shots, goes on a card before the change ships, and every live or landed record of it cites `card:<card id>` or the `owner:<m-id>` row of his yes there, since live means he saw and accepted the render; `dashboard_live_needs_his_yes` refuses the record otherwise.
 ```
 
 ## A standing desk's brief
