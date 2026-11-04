@@ -95,7 +95,6 @@ type prCard struct {
 	Head        string `json:"head,omitempty"`
 	Title       string `json:"title,omitempty"`
 	Review      string `json:"review,omitempty"`
-	Description string `json:"description,omitempty"`
 	Lines
 }
 
@@ -461,7 +460,7 @@ func (f Fanout) withPRCards(r Reply) (Reply, string) {
 		if len(r.Picks) == 0 && (!row.ReadyForTap || row.Tapped) {
 			continue
 		}
-		card := prCard{URL: pr, Head: row.Head, Title: row.Title, Review: board.Standing(row), Description: row.Description, Lines: Lines{row.ForUsers, board.PlanWords(row), row.Risk, row.WaitsOn}}
+		card := prCard{URL: pr, Head: row.Head, Title: row.Title, Review: board.Standing(row), Lines: Lines{row.ForUsers, board.PlanWords(row), row.Risk, row.WaitsOn}}
 		var missing []string
 		for _, field := range []struct{ said, name string }{{row.ForUsers, "what it changes for a user"}, {row.PlanRow, "the plan row"}, {row.Risk, "the risk"}} {
 			if field.said == "" {
@@ -503,6 +502,9 @@ func (r Reply) prChild(id, pr string) map[string]any {
 			summary = append(summary, "**"+line.label+":** "+line.said)
 		}
 	}
+	if card.Review != "" {
+		summary = append(summary, "**Status:** "+card.Review)
+	}
 	if len(summary) > 0 {
 		child["summary"] = strings.Join(summary, "\n\n")
 	}
@@ -511,12 +513,6 @@ func (r Reply) prChild(id, pr string) map[string]any {
 	}
 	if card.Title != "" {
 		child["title"] = card.Title
-	}
-	if card.Review != "" {
-		child["review"] = card.Review
-	}
-	if card.Description != "" {
-		child["description"] = card.Description
 	}
 	return child
 }
