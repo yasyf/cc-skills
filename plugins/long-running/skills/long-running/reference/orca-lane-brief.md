@@ -130,9 +130,8 @@ Do:
   2. <step>
 Compute: <for a pass, backfill, dry run, or bulk rewrite: the in-region box recipe,
   region, and the bucket or team each process owns; never this Mac. "none" otherwise>.
-  A Namespace box is made with `lr nsc create --drive <drive> --lane <name> -- <nsc create
-  flags>` and extended with `lr nsc extend <id> --drive <drive> --lane <name> -- --duration <d>`,
-  never bare `nsc`, so the box carries its lane and its deadline is watched.
+  A box a lane tests on is an EC2 box: `ci devbox`, or `ci mac-box` for a Mac. Namespace belongs to CI, never to a lane's testing. A Namespace box a lane still holds
+  is extended with `lr nsc extend <id> --drive <drive> --lane <name> -- --duration <d>`, never bare `nsc`, so its deadline is watched.
   A Mac that outlives one CI job, such as a drive's builder or test box, is an EC2 Mac box through the monorepo's `ci mac-box` and its `test-mac` skill, never a Namespace instance from `nsc create`. The Namespace macOS pool belongs to CI, eight VMs in all, and every long-lived box there makes CI jobs wait.
 Escalate early, do not improvise: scope surprise, an assumption the code refutes,
   an auth or approval gate, or two failed approaches. Return findings + 2-4 options.
@@ -489,7 +488,7 @@ Change: <the outcome to produce, such as "one failing database never blocks a re
 Constraints: <invariants, compatibility rules, do-not-touch boundaries>.
 Ownership: <what this lane edits; every shared file and who edits it after it>.
 Compute: <for a pass, backfill, dry run, or bulk rewrite: the in-region box recipe, region, and the bucket or team each process owns; never this Mac (SKILL.md R15). "none" otherwise>.
-A Namespace box is made with `lr nsc create --drive <drive> --lane <name> -- <nsc create flags>` and extended with `lr nsc extend <id> --drive <drive> --lane <name> -- --duration <d>`, never bare `nsc`, so the box carries its lane and its deadline is watched. A Mac that outlives one CI job, such as a drive's builder or test box, is an EC2 Mac box through the monorepo's `ci mac-box` and its `test-mac` skill, never a Namespace instance from `nsc create`. The Namespace macOS pool belongs to CI, eight VMs in all, and every long-lived box there makes CI jobs wait.
+A box a lane tests on is an EC2 box: `ci devbox`, or `ci mac-box` for a Mac. Namespace belongs to CI, never to a lane's testing. A Namespace box a lane still holds is extended with `lr nsc extend <id> --drive <drive> --lane <name> -- --duration <d>`, never bare `nsc`, so its deadline is watched. A Mac that outlives one CI job, such as a drive's builder or test box, is an EC2 Mac box through the monorepo's `ci mac-box` and its `test-mac` skill, never a Namespace instance from `nsc create`. The Namespace macOS pool belongs to CI, eight VMs in all, and every long-lived box there makes CI jobs wait.
 Verified facts, do not re-derive: <ids, shas, URLs, state already confirmed>.
 Design rulings, verbatim: <relevant register rules, their linked answer ids, and the entry point (symbol at file:line) each requires; or "none">. A contract quotes the owner's words for each pick. A narrower reading the build needs, such as per key for per Mac, is an ask to the coordinator, never a choice. Its failing-first test asserts the owner's invariant, such as process count flat in chat count, not the narrowed case.
 Design check: before READY-FOR-SHIP, post `DESIGN-CHECK <symbol at file:line>; <each ruling, met how>; leaves out: <none, or each piece>` as a `contract` record on the bus and keep building; never wait for a confirm. The coordinator withdraws it only on a mismatch; a change that leaves out part of a ruling holds.
