@@ -218,12 +218,13 @@ def command(argv: list[str], *, input: str | None = None, timeout: float, env: M
 def headless(env: Mapping[str, str] | None) -> tuple[dict[str, str], Path]:
     """The environment and working directory a stateless `claude -p` starts in.
 
-    Claude Code sweeps its plugin cache for orphans and indexes its working directory before it reads the prompt, so a call that inherits the shared plugin cache or a large caller directory, such as a hook worker's `$TMPDIR`, spends minutes of disk I/O at startup. A private plugin cache and an empty directory under the profile's `long-running` folder leave both walks nothing to read. A call that loads the user's settings would also clone the official marketplace into that private cache, so the environment turns that install off."""
+    Claude Code sweeps its plugin cache for orphans and indexes its working directory before it reads the prompt, so a call that inherits the shared plugin cache or a large caller directory, such as a hook worker's `$TMPDIR`, spends minutes of disk I/O at startup. A private plugin cache and an empty directory under the profile's `long-running` folder leave both walks nothing to read. A call that loads the user's settings would also clone the official marketplace into that private cache, so the environment turns that install off. Auto-update stays off too: a call that outlives its random delay would refresh every marketplace in that cache and re-clone any without a readable checkout."""
     child_env = dict(os.environ if env is None else env)
     home = Path(child_env.get("HOME") or Path.home())
     root = Path(child_env.get("CLAUDE_CONFIG_DIR") or home / ".claude") / "long-running"
     child_env["CLAUDE_CODE_PLUGIN_CACHE_DIR"] = str(root / "headless-plugins")
     child_env["CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL"] = "1"
+    child_env["DISABLE_AUTOUPDATER"] = "1"
     cwd = root / "headless-cwd"
     cwd.mkdir(parents=True, exist_ok=True)
     return child_env, cwd
