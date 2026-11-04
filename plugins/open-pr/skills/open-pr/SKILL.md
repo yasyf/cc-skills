@@ -15,7 +15,7 @@ Opening a PR well is a research problem before a git problem. A reviewer decides
 ```bash
 ccx vcs lane --json
 ccx vcs diff
-ccx vcs ship -m "<subject>" --no-watch --pr-title "<title>" --pr-body-file "$BODY"
+ccx vcs ship --no-watch --pr-title-file "$TITLE" --pr-body-file "$BODY"
 ```
 
 The body still says what changed and why, in the repo's template when it has one, and the title still matches the grammar of the last few merged PRs — one `gh pr list --state merged --limit 5 --json title` read, not a scout. Express drops research, never the body: a bodyless PR is the one thing no lane ships.
@@ -90,10 +90,11 @@ States the change and its measured effect; the reviewer verifies instead of trus
 </example>
 </examples>
 
-Write the body to a file, never a shell argument — a body with backticks, `$`, or a code fence doesn't survive a command line intact:
+Write the body and the title to files, never shell arguments — a body with backticks, `$`, or a code fence doesn't survive a command line intact, and a title is refused there for less (see Ship):
 
 ```bash
 BODY=$(mktemp)
+TITLE=$(mktemp)
 ```
 
 The body is prose, so it takes the prose gate before it ships: `slop-cop check "$BODY" --lang=markdown`, triaging the flags rather than accepting all of them.
@@ -126,12 +127,14 @@ since origin is the backup.
 The flag combination is load-bearing:
 
 ```bash
-ccx vcs ship -m "<subject>" --no-watch --pr-title "<title>" --pr-body-file "$BODY"
+ccx vcs ship --no-watch --pr-title-file "$TITLE" --pr-body-file "$BODY"
 ```
+
+Write the title to a one-line file beside the body file and pass `--pr-title-file`, never an inline `--pr-title`. A worktree-isolated agent's Bash sandbox refuses any argument that pairs a quote with the word git or a shell name, such as `GitHub's ... git`, and a title in a file never reaches the command line. Ship takes the commit subject from that title and the commit body from the PR body, so `-m` is needed only for a subject that differs from the title.
 
 `--no-watch` because ship's built-in watch blocks until CI concludes — right when you're waiting, wrong when the watch is about to be handed off. Ship owns PR create-and-update in every lane: a hand-rolled `gh pr create` alongside it produces a PR the gt lane cannot reconcile with its own stack.
 
-On the gt lane one submit can create several PRs, and every PR in the submit that has no body yet gets one. `--pr-title` and `--pr-body-file` repeat and scope by branch (`--pr-body-file <branch>=<path>`; a bare value applies to the tip); `ccx vcs lane --json` is what tells you which downstack PRs are bodyless.
+On the gt lane one submit can create several PRs, and every PR in the submit that has no body yet gets one. `--pr-title-file` and `--pr-body-file` repeat and scope by branch (`--pr-body-file <branch>=<path>`; a bare value applies to the tip); `ccx vcs lane --json` is what tells you which downstack PRs are bodyless.
 
 A refusal is information, not a retry: `nothing to commit` means a prior ship already landed this; ship replays a gt `needs_restack` itself. When ship still refuses because a branch is off its parent or trunk moved, run `ccx vcs stack submit` (or hand the refusal verbatim to the stack's owner when another lane owns it), then re-run ship.
 
