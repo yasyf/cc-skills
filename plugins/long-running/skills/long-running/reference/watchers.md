@@ -126,7 +126,7 @@ A lane is dead only when it lacks both a live process and a record within `STALE
 - A `ccx: place=local` line for running the lane on the Mac beside its inputs.
 - A `Register slice:` line for the new name.
 - The newest handoff doc, or the order to spawn `<lane>-handoff` from [reference/handoff-subagent-brief.md](handoff-subagent-brief.md) when none exists.
-- The `drive.py lane-status` live-process check before any write, followed by the old brief.
+- The `drive.py lane-status --held` live-process check before any write, followed by the old brief.
 The supervisor launches the successor with `lr launch lane` and posts one `RELAUNCHED` report. Once the successor appears in `cci who`, one `stand-down --successor` record carrying the PRs moves the old name's mail to it. A `SPAWNED` record for that name from another brief, such as a lane the coordinator spawned by hand, withdraws the supervisor's launch.
 
 **Rotate lanes in place with `ROTATE`.** A live lane that posted within the window and passed its context line gets one `ROTATE` ask on cci. An idle lane or a lane whose newest record is `handoff`, `done`, `stand-down`, or `stopped` is never asked. The asked lane flushes in place, so its `handoff --ccn <doc>` reply becomes its newest handoff and the lane keeps working. The supervisor never relaunches a lane for size; the handoff seeds a successor only if the lane later dies.

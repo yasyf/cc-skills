@@ -140,7 +140,7 @@ record with id `slack:<ts>` and attrs `ts` and `thread`, so a forward names the 
 coordinator, the meta and signal lanes and helpers it spawned for its own work,
 never to the coordinator's children, and beyond the launches at drive start it posts
 no `go`, `hold`, `decide` or `launch`. Every owner message lands in its message
-ledger as it arrives, and its turn cannot end while a row is not marked responded
+ledger as it arrives, one row per ask, and its turn cannot end while a row is not marked responded
 or addressed (`lr owner mark <id> responded|addressed`). A coordinator `ask` or
 `blocked` record that waits on him is a ledger row the moment it posts, delivered by
 the cci channel the communicator subscribed to, never found by a later read: on Nov 3
@@ -232,12 +232,12 @@ racing opens a fix, never a report. A meta task is done only when its change is 
 where it runs and has been seen working: its `done` record carries `--attr installed=` and
 `--attr proof=`, a lane that only merged posts `landed`, and `lr waste` flags a merged meta
 PR older than 30 minutes with no such record. A standing lane's `done` closes that item, never the lane. `lr waste` also flags an owner Slack reply older
-than two minutes with no in-thread answer, from what `cc-slack dm-owed` has stored. The
+than two minutes with no in-thread answer, from what `cc-slack dm-owed` has stored, and ranks Codex compactions per lane hour, counted from the Codex session files bound to the drive's lanes, with the lane that lost the most turns named (floor 6 an hour; a 200,000-token limit measured 1.8, a 64,000-token one 17.9). The
 `waste` section of `runner.json`
 holds `lane` (the meta lane's name, default `meta`), `ignore` (recipients that never post
 by design), `growth` (the factor a repeated finding must reach to post again, default 2),
 `fan_out_recipients`, `transcripts` (the most it reads an hour, largest first), `hook_logs`,
-`merge_lookback_hours`,
+`merge_lookback_hours`, `codex_sessions` (the Codex sessions directory, default `$CODEX_HOME/sessions` or `~/.codex/sessions`),
 and `floors` per signal.
 
 **The signal lane** is a standing Sonnet session the communicator launches at drive

@@ -160,6 +160,10 @@ usage: lr launch start <lane> <model> <effort> <brief-file>
 
 A failed launch prints `<lane> failed <step and reason>` and exits 1; invalid usage exits 2. The script writes `<receipt dir>/<lane>.json`, `<lane>.terminal` holding the handle `orca-check.sh` maps back to the lane, and `<lane>.worktree`. Even when `worker-start` fails after allocating a task and dispatch, the script writes the receipt so a permitted retry addresses that dispatch instead of opening a second task.
 
+A stalled launch retries once. One wait outlasting `ORCA_LAUNCH_STALL_SECONDS` fails a launch with `LAUNCH-FAILED: <wait> for <n>s`. When that happens before any `worker-start` call and the rollback left nothing behind, the same process starts the lane again under the next worktree name. An `incident` lane retries at once, and any other lane after 30 seconds. Stderr says `<lane> retries once after a stall: <wait>`, and only a second failure prints a failure line, which ends `; this was its one retry`. A refusal, a failure after `worker-start`, and a rollback that kept anything never retry.
+
+A rollback deletes the branch its launch cut unless that branch holds commits not on the base, and the failure line names anything it keeps with the reason in parentheses.
+
 **Retry failed or blocked tasks without duplicating sessions.** Retry a failed dispatch only after confirming its session has ended and getting the coordinator's ruling. Run the same command with the same lane and receipt directory. When `orca orchestration task-list --status failed` or `--status blocked` lists the receipt's `result.taskId`, the script passes `--task <taskId> --retry-of <dispatchId>` instead of `--spec`, creating a new terminal while keeping the worktree. If the recorded task completed, such as an incident lane relaunched for a recurring alert, it opens a fresh task from `--spec`. A follow-up alone is not a relaunch; edit the brief file, then send its pointer with `send --type dispatch` to the current dispatch.
 
 **Understand internal boot and checkout retries.** Worktree creation gets four attempts and terminal creation gets three.

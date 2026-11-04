@@ -217,7 +217,7 @@ func requiredChecks(ctx context.Context, gh ccx.Client, repo, landing string) ([
 }
 
 func hashDiff(ctx context.Context, runner shell.Runner, checkout, base, head string) (string, error) {
-	tracked := "refs/remotes/origin/" + base
+	tracked := "refs/pr-desk/" + base
 	if _, err := runner.Run(ctx, shell.Command{Dir: checkout, Argv: []string{"git", "fetch", "--no-write-fetch-head", "-q", "origin", head, "+refs/heads/" + base + ":" + tracked}}); err != nil {
 		return "", err
 	}

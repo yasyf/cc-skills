@@ -51,6 +51,7 @@ type fidelityRepo struct {
 	rangeDiff string
 	shows     map[string]string
 	diff      string
+	names     string
 }
 
 func (r *fidelityRepo) git(full []string) (string, error) {
@@ -91,6 +92,9 @@ func (r *fidelityRepo) git(full []string) (string, error) {
 		}
 		return "", &ExitError{Argv: full, Code: 1}
 	case "diff":
+		if slices.Contains(argv, "--name-only") {
+			return r.names, nil
+		}
 		return r.diff, nil
 	}
 	return "", fmt.Errorf("unexpected git %v", argv)
@@ -488,11 +492,12 @@ func TestACommentPostedWhileCodexReadTheHeadIsReadOnceMoreBeforeTheGradePosts(t 
 
 func TestACodexOkPostsTheGradeWithItsExemptPhraseThenTouchesAndOldApp(t *testing.T) {
 	directory := fidelityDir(t, map[string]any{"grades": []any{}})
-	shell, _ := newFidelityFake(t, samePatch, fidelityReplyOf(map[string]any{
-		"exempt":  "test-only",
+	shell, repo := newFidelityFake(t, samePatch, fidelityReplyOf(map[string]any{
+		"exempt":  "none",
 		"touches": []string{"prompt/1026-105052"},
 		"old_app": map[string]string{"grade": "changes", "why": "go/sand/next only"},
 	}))
+	repo.names = "go/sand/next/replica/follow_test.go\n.buildkite/pipeline.yml\n"
 	mustFidelity(t, directory, shell)
 	sameList(t, shell.texts(), []string{
 		"fidelity: ok " + shaHead + " " + testOnly + ": Resubscribes from the fetched position after a cut.",
@@ -679,6 +684,43 @@ func TestAReplyThatJudgesNoBehaviorAgainstHisTapOrNamesNoChangeIsAskedOnceMore(t
 const regressionPhrase = "class regression, fixes shipped production code"
 
 var classes = map[string]string{"port": portPhrase, "test-only": testOnly, "regression": regressionPhrase}
+
+func TestAnOkNamesTheClassItsChangedPathsDecideWhateverTheModelSaid(t *testing.T) {
+	const tooling = "class ci-tooling"
+	pathClasses := map[string]string{"port": portPhrase, "test-only": testOnly, "regression": regressionPhrase, "ci-tooling": tooling}
+	grades := []string{portPhrase, testOnly, regressionPhrase, tooling}
+	for name, tc := range map[string]struct {
+		names  string
+		exempt string
+		said   string
+	}{
+		"#49240's tooling pin with no class from the model": {"mise.toml\ntools/cc-remote/config.yaml\ntools/versions.toml\n", "none", tooling + ": "},
+		"tooling over a class the model judged":             {"go/remote-builder/cli/rb/exec.go\ntools/remote-builder/README.md\n", "regression", tooling + ": "},
+		"a product path keeps the model's judgment":         {"go/sand/next/replica/follow.go\n", "regression", regressionPhrase + ": "},
+		"a product path names no path class the model gave": {"go/sand/next/replica/follow.go\ngo/sand/next/replica/follow_test.go\n", "test-only", ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			directory := fidelityDir(t, map[string]any{"grades": []any{}, "exempt": pathClasses, "exempt_grades": grades})
+			shell, repo := newFidelityFake(t, samePatch, fidelityReplyOf(map[string]any{"exempt": tc.exempt}))
+			repo.names = tc.names
+			mustFidelity(t, directory, shell)
+			equal(t, shell.texts()[0], "fidelity: ok "+shaHead+" "+tc.said+"Resubscribes from the fetched position after a cut.")
+			question := readText(t, directory, "question-1.md")
+			holdsAll(t, question, "`regression` (\""+regressionPhrase+"\")")
+			holdsNone(t, question, "`ci-tooling` (", "`test-only` (")
+		})
+	}
+}
+
+func TestARestackCarriedOntoATestOnlyDiffNamesItsPathClassThoughTheGradeItCarriesNamedNone(t *testing.T) {
+	plain := gradeOf(170001, "fidelity-desk-5", "fidelity: ok "+shaOld+" resubscribes after a cut.")
+	directory := fidelityDir(t, map[string]any{"grades": []any{plain}})
+	shell, repo := newFidelityFake(t, samePatch)
+	repo.names = "go/sand/next/replica/follow_test.go\n"
+	mustFidelity(t, directory, shell)
+	equal(t, len(shell.asks()), 0)
+	equal(t, shell.texts()[0], "fidelity: ok "+shaHead+" "+testOnly+": carried from "+shaOld[:7]+" (cci #170001), patch-identical by git patch-id over its own commits.")
+}
 
 func TestAnOkNamesAnyClassTheGateAcceptsAndTheBriefListsThemAll(t *testing.T) {
 	directory := fidelityDir(t, map[string]any{"grades": []any{}, "exempt": classes})

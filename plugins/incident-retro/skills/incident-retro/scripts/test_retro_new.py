@@ -207,12 +207,14 @@ class AwaitMerges(unittest.TestCase):
         merges = [(argv, cwd) for argv, cwd in calls if argv[:3] == ["gh", "pr", "merge"]]
         self.assertEqual(merges, [(["gh", "pr", "merge", self.URL, "--rebase"], root.parents[1])])
 
-    def await_with(self, views, behind=False):
+    def await_with(self, views, behind=False, off_base=""):
         views, synced = iter(views), []
 
         def gh(argv, cwd=None, check=True):
             if argv[:3] == ["gh", "pr", "view"]:
                 return next(views)
+            if "diff" in argv:
+                return off_base
             if argv[:2] == ["gh", "api"]:
                 return json.dumps({"allow_squash_merge": False, "allow_rebase_merge": True, "allow_merge_commit": False})
             return ""
@@ -245,6 +247,47 @@ class AwaitMerges(unittest.TestCase):
     def test_a_failure_on_an_up_to_date_branch_still_fails(self):
         code, synced = self.await_with([self.pr("OPEN", "BLOCKED", "FAILURE")], behind=False)
         self.assertEqual((code, synced), (1, []))
+
+    def test_a_merged_pr_missing_this_revision_is_not_rendered(self):
+        code, synced = self.await_with([self.pr("MERGED", "UNKNOWN", "SUCCESS")],
+                                       off_base="incident-retros/slug/retro.json\n")
+        self.assertEqual((code, synced), (1, []))
+
+
+class PublishOpensAPr(unittest.TestCase):
+    def publish_with(self, found):
+        calls = []
+
+        def gh(argv, cwd=None, check=True):
+            calls.append(argv)
+            if argv[:3] == ["gh", "pr", "view"]:
+                return found
+            if argv[:3] == ["gh", "pr", "create"]:
+                return "https://github.com/Forge-AI/design-docs/pull/74\n"
+            return ""
+
+        root = Path(tempfile.mkdtemp()) / "incident-retros" / "slug"
+        args = argparse.Namespace(retro=retro, dir=str(root), await_pr=None, seconds=60)
+        with unittest.mock.patch.object(retro_new, "run", gh), \
+                unittest.mock.patch.object(retro_new, "gate", return_value=0), \
+                unittest.mock.patch.object(retro_new, "sync_and_push"), \
+                unittest.mock.patch.object(retro_new, "title_of", return_value="t"), \
+                unittest.mock.patch.object(retro_new, "pr_body", return_value="b"), \
+                unittest.mock.patch.object(retro_new, "await_rendered", return_value=0) as awaited, \
+                contextlib.redirect_stdout(io.StringIO()):
+            retro_new.publish(args)
+        return [argv[:3] for argv in calls if argv[:2] == ["gh", "pr"]], awaited.call_args.args[1]
+
+    def test_a_branch_whose_pr_merged_opens_a_new_pr(self):
+        calls, awaited = self.publish_with(json.dumps({"url": "https://github.com/Forge-AI/design-docs/pull/73", "state": "MERGED"}))
+        self.assertIn(["gh", "pr", "create"], calls)
+        self.assertNotIn(["gh", "pr", "edit"], calls)
+        self.assertEqual(awaited, "https://github.com/Forge-AI/design-docs/pull/74")
+
+    def test_an_open_pr_is_edited_in_place(self):
+        calls, awaited = self.publish_with(json.dumps({"url": "https://github.com/Forge-AI/design-docs/pull/73", "state": "OPEN"}))
+        self.assertNotIn(["gh", "pr", "create"], calls)
+        self.assertEqual(awaited, "https://github.com/Forge-AI/design-docs/pull/73")
 
 
 SYNC_INDEX = """#!/usr/bin/env bash
@@ -320,6 +363,12 @@ class PublishRebases(unittest.TestCase):
         self.assertEqual(git(self.docs, "log", "-1", "--format=%s"), "incident retros: 📝 B, revised")
         self.assertEqual(git(self.docs, "show", "--format=", "--name-only", head).splitlines(), [
             "incident-retros/2026-10-02-b/retro.json", "incident-retros/index.html", "index.html"])
+
+    def test_a_revision_after_the_merged_branch_was_deleted_pushes(self):
+        git(self.other, "push", "-q", "origin", "--delete", "retro/b")
+        (self.root / "retro.json").write_text(json.dumps({"meta": {"title": "B, revised again"}}) + "\n")
+        head = self.publish()
+        self.assertEqual(git(self.other, "ls-remote", "origin", "refs/heads/retro/b").split()[0], head)
 
     def test_a_checkout_on_another_branch_is_never_pushed_over_the_pr(self):
         git(self.docs, "switch", "-q", "main")

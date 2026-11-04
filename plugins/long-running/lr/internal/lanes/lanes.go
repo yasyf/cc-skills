@@ -530,6 +530,7 @@ const (
 	NoShow    VerdictKind = "no-show"
 	Dead      VerdictKind = "dead"
 	Unproven  VerdictKind = "unproven"
+	Lost      VerdictKind = "lost"
 	StoodDown VerdictKind = "stood-down"
 	AskRotate VerdictKind = "ask-rotate"
 )

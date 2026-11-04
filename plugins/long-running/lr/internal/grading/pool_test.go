@@ -19,6 +19,7 @@ import (
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/grading/grader"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
@@ -294,7 +295,7 @@ func TestAFidelityJobCarriesGradesOldAppsRulingsContractAndSources(t *testing.T)
 	if !strings.Contains(spec.Contract, "builds the resubscribe") {
 		t.Errorf("contract = %q", spec.Contract)
 	}
-	if spec.Exempt["port"] != "plain port" || spec.Exempt["test-only"] != testOnlyPhrase || !slices.Equal(spec.ExemptGrades, []string{"plain port", testOnlyPhrase}) {
+	if spec.Exempt["port"] != "plain port" || spec.Exempt["test-only"] != gates.TestOnlyGrade || !slices.Equal(spec.ExemptGrades, []string{"plain port", gates.TestOnlyGrade}) {
 		t.Errorf("exempt %v %v", spec.Exempt, spec.ExemptGrades)
 	}
 	if spec.Baseline != "base-1" || spec.Checkout != "/srv/main" {
@@ -354,7 +355,7 @@ func TestAFidelityJobNamesTheHeadHeTappedOnlyWhileHisTapAwaitsProofThere(t *test
 func TestAFidelityJobOffersEveryClassTheGateAcceptsAndTheClassesLanesClaimedAtThisHead(t *testing.T) {
 	const regression = "class regression, fixes shipped production code"
 	f := newPool(t, map[string]any{
-		"landing":  map[string]any{"checkout": "/srv/main", "fidelity_lane": "fidelity-desk-4", "exempt_grades": []string{portPhrase, testOnlyPhrase, regression}},
+		"landing":  map[string]any{"checkout": "/srv/main", "fidelity_lane": "fidelity-desk-4", "go_classes": []string{regression, "class ci-tooling"}},
 		"fidelity": map[string]any{"baseline": "base-1"},
 	})
 	post(t, client.Draft{Lane: "go-sweep-9", Kind: kindGo, Text: "go #45489 at " + head[:7] + " on green [exempt: regression]", PRs: []string{pull}})
@@ -363,9 +364,10 @@ func TestAFidelityJobOffersEveryClassTheGateAcceptsAndTheClassesLanesClaimedAtTh
 	f.started(t, GraderFidelity)
 
 	spec := readJob[grader.FidelityJob](t, filepath.Join(f.pool.root, grader.FidelityLane, jobDir))
-	if want := map[string]string{"port": portPhrase, "test-only": testOnlyPhrase, "regression": regression}; !maps.Equal(spec.Exempt, want) {
+	if want := map[string]string{"port": gates.PortGrade, "test-only": gates.TestOnlyGrade, "regression": regression, "ci-tooling": "class ci-tooling"}; !maps.Equal(spec.Exempt, want) {
 		t.Errorf("exempt = %v, want %v", spec.Exempt, want)
 	}
+	sameStrings(t, spec.ExemptGrades, []string{gates.PortGrade, gates.TestOnlyGrade, regression, "class ci-tooling"})
 	sameStrings(t, spec.Claims, []string{"regression"})
 }
 

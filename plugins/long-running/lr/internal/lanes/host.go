@@ -2,9 +2,11 @@ package lanes
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -15,14 +17,22 @@ import (
 
 type Host string
 
+type Sprite struct {
+	Name        string    `json:"name"`
+	Status      string    `json:"status"`
+	LastRunning time.Time `json:"last_running_at"`
+}
+
 const (
 	HostRunning     Host = "running"
 	HostEmpty       Host = "none"
 	HostUnreachable Host = "unreachable"
 
 	placedOnSprite = "sprite"
+	spriteRunning  = "running"
 	reprobeAfter   = StaleAfter
 	goneAfter      = 2 * StaleAfter
+	lostAfter      = 5 * time.Minute
 	workerScript   = `for comm in /proc/[0-9]*/comm; do read -r name < "$comm" 2>/dev/null || continue; case $name in claude|codex) echo running; exit;; esac; done; echo none`
 )
 
@@ -53,11 +63,34 @@ func needsProof(lane store.Lane, silent, retireAfter time.Duration) bool {
 }
 
 func proofs(s *store.Store, d Deps, lanes []store.Lane, found map[string]Peer, now time.Time) map[string]Verdict {
-	probes := must(s.Probes())
 	proven := map[string]Verdict{}
-	var asked []string
+	var unproven []store.Lane
+	var names []string
 	for _, lane := range lanes {
-		if lane.Placement != placedOnSprite || lane.State != store.LaneDesired || Classify(lane, peerOf(found, lane.Name), now, 0, 0).Kind != Unproven || !needsProof(lane, silence(lane, now), d.RetireAfter) {
+		if lane.Placement == placedOnSprite && lane.State == store.LaneDesired && Classify(lane, peerOf(found, lane.Name), now, 0, 0).Kind == Unproven {
+			unproven = append(unproven, lane)
+			names = append(names, lane.Name)
+		}
+	}
+	if len(unproven) == 0 {
+		return proven
+	}
+	sprites, err := d.Sprites(names)
+	if err != nil {
+		slog.Warn("no sprite read this tick, since the Sprites list failed", "err", err)
+		return proven
+	}
+	probes := must(s.Probes())
+	var asked []string
+	for _, lane := range unproven {
+		if sprite, listed := sprites[lane.Name]; listed && sprite.Status != spriteRunning && !settledLane(lane) {
+			proven[lane.Name] = Verdict{Kind: Ok}
+			if now.Sub(sprite.LastRunning) >= lostAfter {
+				proven[lane.Name] = Verdict{Lost, fmt.Sprintf("has a Sprite %s that is %s and last ran at %s", sprite.Name, sprite.Status, pacific(sprite.LastRunning))}
+			}
+			continue
+		}
+		if !needsProof(lane, silence(lane, now), d.RetireAfter) {
 			continue
 		}
 		if seen, ok := probes[runningProbe(lane.Name)]; ok && now.Sub(seen.Asked) < reprobeAfter {
@@ -69,7 +102,7 @@ func proofs(s *store.Store, d Deps, lanes []store.Lane, found map[string]Peer, n
 	if len(asked) == 0 {
 		return proven
 	}
-	for name, host := range d.Hosts(asked) {
+	for name, host := range d.Hosts(asked, sprites) {
 		gone := unreachableProbe(name)
 		switch host {
 		case HostRunning:
@@ -104,25 +137,52 @@ func residueTo(s *store.Store, d Deps, lane string) string {
 	return must(MetaDesk(s))
 }
 
-func (e Env) hosts(ctx context.Context, lanes []string) map[string]Host {
-	listed, err := e.sprites(ctx)
-	if err != nil {
-		slog.Warn("no sprite probed this tick, since sprite list failed", "err", err)
-		return nil
+func (e Env) laneSprites(ctx context.Context, lanes []string) (map[string]Sprite, error) {
+	listed := map[string]Sprite{}
+	for path := "/sprites"; ; {
+		result, err := e.Runner.Run(ctx, shell.Command{Argv: []string{"sprite", "api", path}, Timeout: readTimeout})
+		if err != nil {
+			return nil, err
+		}
+		var page struct {
+			Sprites []Sprite `json:"sprites"`
+			HasMore bool     `json:"has_more"`
+			Next    string   `json:"next_continuation_token"`
+		}
+		if err := json.Unmarshal([]byte(result.Stdout), &page); err != nil {
+			return nil, fmt.Errorf("sprite api %s: %w", path, err)
+		}
+		for _, sprite := range page.Sprites {
+			listed[sprite.Name] = sprite
+		}
+		if !page.HasMore {
+			break
+		}
+		path = "/sprites?continuation_token=" + url.QueryEscape(page.Next)
 	}
 	receipts := e.receipts()
+	sprites := map[string]Sprite{}
+	for _, lane := range lanes {
+		if sprite, ok := listed[spriteOf(receipts, lane)]; ok {
+			sprites[lane] = sprite
+		}
+	}
+	return sprites, nil
+}
+
+func (e Env) hosts(ctx context.Context, lanes []string, sprites map[string]Sprite) map[string]Host {
 	read := make([]Host, len(lanes))
 	var wg sync.WaitGroup
 	for i, lane := range lanes {
-		sprite := spriteOf(receipts, lane)
-		if !listed[sprite] {
+		sprite, listed := sprites[lane]
+		if !listed {
 			read[i] = HostUnreachable
 			continue
 		}
 		wg.Go(func() {
-			host, err := e.host(ctx, sprite)
+			host, err := e.host(ctx, sprite.Name)
 			if err != nil {
-				slog.Warn("sprite not probed this tick", "lane", lane, "sprite", sprite, "err", err)
+				slog.Warn("sprite not probed this tick", "lane", lane, "sprite", sprite.Name, "err", err)
 			}
 			read[i] = host
 		})

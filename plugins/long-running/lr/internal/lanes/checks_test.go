@@ -746,4 +746,25 @@ func TestAnAlertLaunchStartsNoCommsLane(t *testing.T) {
 	}
 
 	equal(t, slices.Contains(argv, "--comms-brief"), false)
+||||||| 61626b907
+
+func TestTwoFiringsOfOneMonitorInAPassLaunchOnce(t *testing.T) {
+	triggered := "Triggered: runtime-api-next logging errors — plat\n" + monitorLink
+	bus := &fakeBus{}
+	history := fmt.Sprintf(`{"messages":[{"ts":"%d.000001","text":%q,"permalink":"https://slack/p2"},{"ts":"%d.000001","text":%q,"permalink":"https://slack/p1"}]}`, t0.Add(-mins(2)).Unix(), triggered, t0.Add(-mins(30)).Unix(), triggered)
+	env := Env{Bus: bus, Config: config.Config{Drive: testDrive}, MonitorLane: noMonitorLane, Runner: scripted(func([]string) (shell.Result, error) {
+		return shell.Result{Stdout: history}, nil
+	})}
+	launches := 0
+	check := Alerts{Env: env, Store: memory(t), Channels: []string{"C1"}, Log: slog.Default(), Launch: func(context.Context, Fired) (string, error) {
+		launches++
+		return "/state/lanes/dd-338724738-fix.brief.md", nil
+	}}
+
+	if err := check.Check(context.Background(), t0); err != nil {
+		t.Fatal(err)
+	}
+
+	equal(t, launches, 1)
+	equal(t, len(bus.posted), 1)
 }

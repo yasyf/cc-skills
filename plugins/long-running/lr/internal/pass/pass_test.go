@@ -783,26 +783,15 @@ func TestAGreenHeadMissingAGradeTellsTheGraderAndLaneAtAnHourAndRootAtThreeOnce(
 	}
 }
 
-func TestAGreenUngradedHeadNoLaneOwnsReachesOnlyRootAtThreeHoursSayingHowToOwnIt(t *testing.T) {
+func TestAGreenUngradedHeadNoLaneOwnsTellsNobody(t *testing.T) {
 	s, r := newStore(t), &recorder{}
-	given := facts(48967, func(f *machine.Facts) { f.Lane, f.Finder, f.Fidelity, f.Tap = "", "", "", "" })
+	given := facts(31976, func(f *machine.Facts) { f.Lane, f.Finder, f.Fidelity, f.Tap = "", "", "", "" })
 
 	run(t, s, r, t0, all, given)
-	run(t, s, r, t0.Add(2*time.Hour), all, given)
-	if got := ungradedPosts(r); len(got) != 0 {
-		t.Fatalf("before three hours: %+v", got)
-	}
-
 	run(t, s, r, t0.Add(3*time.Hour), all, given)
-	want := []posted{{[]string{"root"}, bus.Escalation{
-		Subject: "org/repo#48967 at e718a7434f",
-		Cause:   "green and ungraded for 180 minutes: no finder or fidelity grade; no lane owns it, so no grade item opens until `lr request owner <lane> --pr 48967`",
-	}}}
-	if got := ungradedPosts(r); !reflect.DeepEqual(got, want) {
+
+	if got := ungradedPosts(r); len(got) != 0 {
 		t.Fatalf("posts = %+v", got)
-	}
-	if open, err := s.OpenItems(repo, 48967); err != nil || len(open) != 0 {
-		t.Fatalf("open = %+v, %v", open, err)
 	}
 }
 

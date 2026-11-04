@@ -77,6 +77,7 @@ type Alerts struct {
 	Log      *slog.Logger
 	Launch   func(ctx context.Context, fired Fired) (string, error)
 	threads  map[string]string
+	launched map[string]bool
 }
 
 type Fired struct {
@@ -276,6 +277,9 @@ func (a *Alerts) raise(ctx context.Context, channel string, card, message slackM
 		}
 		return nil
 	}
+	if a.launched[alert.slug] {
+		return nil
+	}
 	incidents, err := a.Env.Bus.Tail(ctx, client.Query{Drive: a.Env.Config.Drive, Since: fired, Kinds: []string{"incident"}})
 	if err != nil {
 		return fmt.Errorf("%w: cci tail incident: %w", ErrUnread, err)
@@ -302,6 +306,10 @@ func (a *Alerts) raise(ctx context.Context, channel string, card, message slackM
 		failure := []rune(launchErr.Error())
 		draft.Text = fmt.Sprintf("ALERT-UNOPENED %s: no incident record names %s %d min after it fired, and the supervisor's launch of %s-fix failed: %s | coordinator: open the incident on sight with `lr incident open --kind alert` and launch its fix lane this turn", headline, alert.name, minutes, alert.slug, string(failure[max(0, len(failure)-200):]))
 	} else {
+		if a.launched == nil {
+			a.launched = map[string]bool{}
+		}
+		a.launched[alert.slug] = true
 		draft.Kind, draft.ID = kindSpawn, "alert-launched:"+channel+":"+message.TS
 		draft.LaneRefs = []string{alert.slug + "-fix"}
 		draft.Attrs = map[string]string{"brief": brief, "role": "fix", "model": "incident", "effort": "xhigh"}

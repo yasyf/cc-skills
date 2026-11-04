@@ -842,7 +842,8 @@ func (e Env) Deps(ctx context.Context) (Deps, error) {
 		RotateAt:              at,
 		RetireAfter:           e.Config.RetireSilent,
 		OpenBranches:          func() (map[string][]int, error) { return e.openBranches(ctx) },
-		Hosts:                 func(names []string) map[string]Host { return e.hosts(ctx, names) },
+		Sprites:               func(names []string) (map[string]Sprite, error) { return e.laneSprites(ctx, names) },
+		Hosts:                 func(names []string, sprites map[string]Sprite) map[string]Host { return e.hosts(ctx, names, sprites) },
 		BuildRecommendedOrder: e.Config.BuildRecommendedOrder,
 	}, nil
 }

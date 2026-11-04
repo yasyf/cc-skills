@@ -303,8 +303,8 @@ def pull_line(pull: dict) -> str:
     return f"PR #{pull['number']} open {ci_state((rollup.get('contexts') or {}).get('nodes') or [])}"
 
 
-def lane_status(lane: str, records: list[dict], receipts: Iterable[Path], checkout: Path, repo: str, trunk: str, now: datetime, run: Run, excluded: frozenset[str] = frozenset()) -> list[Worktree]:
-    found = lane_worktrees(lane, records, receipts, checkout, repo, run, excluded)
+def lane_status(lane: str, records: list[dict], receipts: Iterable[Path], checkout: Path, repo: str, trunk: str, now: datetime, run: Run, excluded: frozenset[str] = frozenset(), held: bool = False) -> list[Worktree]:
+    found = [worktree for worktree in lane_worktrees(lane, records, receipts, checkout, repo, run, excluded) if worktree.owned or not held]
     for worktree in [worktree for worktree in found if worktree.sources == [NAMED_RECORD]][:-NAMED_INSPECTED]:
         worktree.error = NOT_INSPECTED
     worktrees = concurrently(lambda worktree: worktree if worktree.error else inspect(worktree, trunk, now, run), found)

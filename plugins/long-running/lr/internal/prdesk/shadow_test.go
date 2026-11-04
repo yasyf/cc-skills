@@ -3,7 +3,10 @@ package prdesk
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log/slog"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -11,6 +14,7 @@ import (
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell/shelltest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
@@ -183,3 +187,31 @@ func TestAHoldRecordHoldsItsPRsUntilItsOwnLifterResolvesIt(t *testing.T) {
 		expect(t, s.Desk, 7, step.want)
 	}
 }
+
+func TestAFailedDiffHashSkipsThatReadAndHashesOnlyIntoTheDesksOwnRefs(t *testing.T) {
+	s := shadowOf(t, &[]client.Draft{})
+	s.Log = slog.New(slog.DiscardHandler)
+	s.Hash = func(context.Context, string, string) (string, error) {
+		return "", errors.New("cannot lock ref 'refs/remotes/origin/dev'")
+	}
+	e, err := s.changed(context.Background(), PullRequest{readMeta(), 7, "lane/a", landing, h1, true, false, ""})
+	if e != nil || err != nil {
+		t.Fatalf("a failed hash gave %+v, %v, want the read skipped", e, err)
+	}
+	fake := &shelltest.Fake{}
+	fake.Reply("", "git", "fetch")
+	fake.Reply("diff --git a/x b/x\n", "git", "diff")
+	if _, err := hashDiff(context.Background(), fake, "/checkout", landing, h1); err != nil {
+		t.Fatal(err)
+	}
+	for _, call := range fake.Calls() {
+		if strings.Contains(strings.Join(call.Argv, " "), "refs/remotes/") {
+			t.Fatalf("the hash wrote a shared tracking ref: %q", call.Argv)
+		}
+	}
+	if !slices.Contains(fake.Calls()[0].Argv, "+refs/heads/"+landing+":refs/pr-desk/"+landing) {
+		t.Fatalf("fetch ran as %q", fake.Calls()[0].Argv)
+	}
+}
+
+func readMeta() Meta { return Meta{Source: readSource, Seq: 1, Key: "pr:7", At: t0, Repo: repo} }

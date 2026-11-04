@@ -484,8 +484,9 @@ landed first. A conflict confined to the two index pages takes the default
 branch's copy; any other conflict aborts the rebase and exits nonzero. It then
 runs the checkout's `sync-index.sh`, which regenerates both index pages' cards
 from every `retro.json`. It commits only the retro directory and the two index pages
-as `incident retros: 📝 <meta.title>`, then pushes with a lease. It opens a ready PR or
-edits the existing PR and marks it ready.
+as `incident retros: 📝 <meta.title>`, then pushes with a lease. It edits the branch's
+open PR and marks it ready, or opens a ready PR when the branch has none open, such as
+a revision of a retro whose PR already merged.
 The PR body contains the summary panels rendered as Markdown with gemini-4-argon's
 text verbatim, plus the page URL from `CNAME`.
 
@@ -499,7 +500,8 @@ anonymous fetch does not. On success, the last line is
 `RENDERED: https://<CNAME>/incident-retros/<slug>/`, and the command exits 0.
 For Forge-AI/design-docs, that page is on docs.poetic.design.
 
-A failed check or a PR closed without merging exits 1. After `--seconds`
+A failed check, a PR closed without merging, or a merged PR whose base branch lacks
+this revision of the retro directory exits 1. After `--seconds`
 (default 540), an unfinished wait exits 75 with an `AWAIT:` command. Run
 that command to resume the wait:
 

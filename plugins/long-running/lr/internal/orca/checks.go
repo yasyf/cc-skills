@@ -28,6 +28,7 @@ var (
 	briefSlice    = regexp.MustCompile(`(?m)^` + sliceLine)
 	briefScale    = regexp.MustCompile(`(?m)^[ \t>*_-]*Scale:`)
 	briefIncident = regexp.MustCompile(`(?m)^ccx:.*\bincident=([\w.-]+)`)
+	briefStanding = regexp.MustCompile(`(?m)^Standing: *\S`)
 	briefMonitor  = regexp.MustCompile(`(?m)^ccx:.*\bmonitor=(\d{4,})`)
 	briefPlace    = regexp.MustCompile(`(?m)^ccx:(?:.*[ \t])?place=(remote|local)(?:\s|$)`)
 	fableModel    = regexp.MustCompile(`(?i)(^|[-_.])fable([-_.0-9]|$)`)

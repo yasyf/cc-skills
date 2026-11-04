@@ -100,3 +100,29 @@ func TestOrdersReadsEachOwnerTokenOnce(t *testing.T) {
 		t.Fatalf("got %v, want %v", got, want)
 	}
 }
+
+const splitLedger = `| id | time | message | routed | state |
+|---|---|---|---|---|
+| m203.1 | Nov 3 2:00 PM | is the old-tree failure the same bug or another one? | 384100 | open |
+| m203.2 | Nov 3 2:00 PM | also recap the last hour's orders with an ETA each, and ship the incident fix | 384101 | responded |
+| m203.3 | Nov 3 2:00 PM | also if an old-tree Mac chat started the run, why is it in the new format? |  | open |
+| m204 | Nov 3 2:05 PM | why does it need Touch ID? |  | responded |
+`
+
+func TestEachAskOfOneMessageStaysOpenUntilItsOwnRowIsAnswered(t *testing.T) {
+	proofs := []client.Record{{Lane: "recap-1", Kind: "landed", Text: "owner:m203.2 recapped and shipped"}, {Lane: "other-1", Kind: "landed", Text: "owner:m203 named whole"}}
+
+	got := ids(Undelivered(Parse([]byte(splitLedger)), nil, proofs))
+
+	if want := []string{"m203.1", "m203.3"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestOrdersReadsAnAsksTokenApartFromItsMessage(t *testing.T) {
+	got := Orders("carry owner:m203.2, then owner:m203.")
+
+	if want := []string{"m203.2", "m203"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}

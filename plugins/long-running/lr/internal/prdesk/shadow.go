@@ -48,7 +48,7 @@ func (s Shadow) Run(ctx context.Context) error {
 	wake := make(chan struct{}, 1)
 	apply := func(e Event) error {
 		e, err := s.changed(ctx, e)
-		if err != nil {
+		if err != nil || e == nil {
 			return err
 		}
 		moved, err := s.Desk.Apply(e)
@@ -153,8 +153,12 @@ func (s Shadow) changed(ctx context.Context, e Event) (Event, error) {
 		return pr, nil
 	}
 	change, err := s.Hash(ctx, pr.Base, pr.Head)
+	if err != nil {
+		s.Log.Warn("a diff hash failed, so this read of the PR changes nothing until the next", "pr", pr.Number, "head", pr.Head, "err", err)
+		return nil, nil
+	}
 	pr.Change = change
-	return pr, err
+	return pr, nil
 }
 
 func (s Shadow) events(r client.Record) []Event {

@@ -22,7 +22,12 @@ const (
 	shortHead    = 7
 )
 
-var DefaultExemptGrades = []string{"pure port, no interaction", "test-only or CI-only, no non-test code"}
+const (
+	PortGrade     = "pure port, no interaction"
+	TestOnlyGrade = "test-only or CI-only, no non-test code"
+)
+
+var DefaultExemptGrades = []string{PortGrade, TestOnlyGrade}
 
 type Claim struct {
 	Repo string
@@ -153,6 +158,16 @@ func exemptPhrase(text string, exempt []string) string {
 		}
 	}
 	return ""
+}
+
+func Grades(exempt, goClasses []string, port string) []string {
+	if exempt == nil {
+		exempt = slices.Clone(DefaultExemptGrades)
+		if port != "" {
+			exempt[0] = port
+		}
+	}
+	return slices.Concat(exempt, goClasses)
 }
 
 func ClassOf(phrase string) string {

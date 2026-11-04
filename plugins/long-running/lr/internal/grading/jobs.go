@@ -1,6 +1,7 @@
 package grading
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -20,12 +21,10 @@ import (
 )
 
 const (
-	runnerLane     = "desk-runner"
-	defaultModel   = "sol"
-	portPhrase     = "pure port, no interaction"
-	testOnlyPhrase = "test-only or CI-only, no non-test code"
-	optionsBranch  = "options/"
-	docChars       = 7
+	runnerLane    = "desk-runner"
+	defaultModel  = "sol"
+	optionsBranch = "options/"
+	docChars      = 7
 )
 
 type job struct {
@@ -208,15 +207,8 @@ func (p *JobPool) contract(ctx context.Context, lane, repo, pr string) (string, 
 	return newestContract(contracts, repo, pr), nil
 }
 
-func (p *JobPool) port() string {
-	if p.landing.PortPhrase != "" {
-		return p.landing.PortPhrase
-	}
-	return portPhrase
-}
-
 func (p *JobPool) classes() map[string]string {
-	classes := map[string]string{"port": p.port(), "test-only": testOnlyPhrase}
+	classes := map[string]string{"port": cmp.Or(p.landing.PortPhrase, gates.PortGrade), "test-only": gates.TestOnlyGrade}
 	for _, phrase := range p.exemptGrades() {
 		if !slices.Contains(slices.Collect(maps.Values(classes)), phrase) {
 			classes[gates.ClassOf(phrase)] = phrase
@@ -238,10 +230,7 @@ func claimedClasses(gos []client.Record, facts machine.Facts) []string {
 }
 
 func (p *JobPool) exemptGrades() []string {
-	if p.landing.ExemptGrades != nil {
-		return p.landing.ExemptGrades
-	}
-	return []string{p.port(), testOnlyPhrase}
+	return gates.Grades(p.landing.ExemptGrades, p.landing.GoClasses, p.landing.PortPhrase)
 }
 
 func gradeRecords(grades []client.Record) []grader.Record {

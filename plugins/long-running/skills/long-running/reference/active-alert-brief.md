@@ -135,7 +135,7 @@ A fix that grows into a redesign of a path the plan deletes is a signal to stop,
 
 **A lane cannot post a mechanism and go silent.** `mechanism` is not a turn end, so `cci hook stop` refuses the lane's stop until it posts `opened` or `blocker`. Read a lane's code state with `drive.py lane-status <lane>`.
 
-`drive.py lane-status <lane>` finds every worktree the lane owns from launch receipts, `WORKTREE` records posted by the `announce_lane_worktree` hook, `git worktree list`, and PR head branches. Each line names the branch, dirty files, commits ahead of trunk, the last commit's age, whether the origin branch holds HEAD, and the PR with its CI state. A lane with no worktree on this Mac, such as an Orca worker on a paired remote server, reads from the drive's Orca Run instead, or `--run <run>` or a `ctx_` dispatch id. It prints one line per dispatch whose task title, display name, or spec names the lane, with its worktree, environment, branch, stage, outcome, liveness, last update and heartbeat, terminal, and last message to the Run. A lane that is an in-process teammate of the drive's coordinator session also gets a line naming its agent type, model, whether it runs or sits idle, its last activity, and when it joined. With none, it prints `no worktree found for lane <lane>` and exits 1.
+`drive.py lane-status <lane>` finds every worktree the lane owns from launch receipts, `WORKTREE` records posted by the `announce_lane_worktree` hook, `git worktree list`, and PR head branches; `--held` keeps only the worktrees the lane made, which is what a successor's live-process check reads. Each line names the branch, dirty files, commits ahead of trunk, the last commit's age, whether the origin branch holds HEAD, and the PR with its CI state. A lane with no worktree on this Mac, such as an Orca worker on a paired remote server, reads from the drive's Orca Run instead, or `--run <run>` or a `ctx_` dispatch id. It prints one line per dispatch whose task title, display name, or spec names the lane, with its worktree, environment, branch, stage, outcome, liveness, last update and heartbeat, terminal, and last message to the Run. A lane that is an in-process teammate of the drive's coordinator session also gets a line naming its agent type, model, whether it runs or sits idle, its last activity, and when it joined. With none, it prints `no worktree found for lane <lane>` and exits 1.
 
 ## Case lanes for unfixed cases
 
@@ -372,6 +372,8 @@ Do:
      who owes the rest.
      The moment you know the mechanism, record it for the executor:
      `incident.py note --incident <incident id> --mechanism "<mechanism, one line>"`.
+     The line cites what proves it: a record, PR, build, `file:line`, monitor or
+     notebook. A cause you infer and have not proven opens with `Unproven:`.
      Also send a status Run message with subject `mechanism: <evidence>`.
   4. Design check, when the brief quotes design rulings. Before the PR opens,
      record the entry point your change calls and how it meets each ruling:
@@ -474,6 +476,7 @@ Do:
      <incident topic>, with query, time window, and evidence pointers. Once the
      mechanism is clear, record it:
      `incident.py note --incident <incident id> --mechanism "<mechanism, one line>"`.
+     The line cites what proves it, or opens with `Unproven:`.
   5. If the alert is a monitor defect, send the evidence to redirect the fix lane
      to a monitor fix. A muted monitor is not resolved.
   6. Record every artifact in cc-notes, never under ~/.claude/scratch:
