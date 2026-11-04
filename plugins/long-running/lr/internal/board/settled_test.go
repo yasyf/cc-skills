@@ -260,6 +260,110 @@ func TestARepushOfACardAlreadyOnHisBoardIsLeftToTheSweep(t *testing.T) {
 	}
 }
 
+func renderBlock(shot map[string]any) map[string]any {
+	card := oldChatBlock()
+	children := card["children"].([]any)
+	if shot["type"] == "image" {
+		card["children"] = append(children, shot)
+		return card
+	}
+	children[0].(map[string]any)["options"].([]any)[0].(map[string]any)["visual"] = shot["visual"]
+	return card
+}
+
+var (
+	screenshotChild  = map[string]any{"id": "shot", "type": "image", "src": "asset:6184", "alt": "The new screen"}
+	screenshotVisual = map[string]any{"visual": map[string]any{"id": "shot", "type": "image", "src": "asset:6184", "alt": "The new screen"}}
+)
+
+func answeredWith(tags ...string) ownerAnswer {
+	answer := upgradeOnce
+	answer.Tags = tags
+	return answer
+}
+
+func TestOnlyHisAnswerToACardSettlesItWhenItShowsARender(t *testing.T) {
+	cases := []struct {
+		name   string
+		card   map[string]any
+		answer ownerAnswer
+		settle bool
+	}{
+		{"a screenshot child and an older answer stays up", renderBlock(screenshotChild), answeredWith("from:owner"), false},
+		{"a screenshot on an option and an older answer stays up", renderBlock(screenshotVisual), answeredWith("from:owner"), false},
+		{"his answer to the card before it stays up", renderBlock(screenshotChild), answeredWith("card:card-chat-live", "board-card:card-chat-live"), false},
+		{"his Slack tap on it settles", renderBlock(screenshotChild), answeredWith(cardLabel + oldChatCard), true},
+		{"his board pick on it settles", renderBlock(screenshotVisual), answeredWith(boardCardLabel + oldChatCard), true},
+		{"no screenshot and an older answer settles", oldChatBlock(), answeredWith("from:owner"), true},
+	}
+	for _, tc := range cases {
+		t.Run("sweep: "+tc.name, func(t *testing.T) {
+			shown, err := json.Marshal(map[string]any{"rev": 7, "onBoard": true, "doc": map[string]any{"blocks": []any{tc.card}}, "answers": []any{}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			cards, fake, withdrawn := settledBoardFirst(t, func(fake *shelltest.Fake) { fake.Reply(string(shown), "cc-present", "outcomes", "--block") }, []any{tc.card}, tc.answer)
+			if err := cards.Unask(context.Background(), "board-refresher", (&judgeCalls{verdict: "yes"}).judge, &bytes.Buffer{}); err != nil {
+				t.Fatal(err)
+			}
+			if removed := removedBlocks(fake); (len(removed) == 1) != tc.settle || (len(*withdrawn) == 1) != tc.settle {
+				t.Fatalf("removed %q, withdrew %q, want settled = %v", removed, *withdrawn, tc.settle)
+			}
+		})
+		t.Run("draw: "+tc.name, func(t *testing.T) {
+			block, err := json.Marshal(tc.card)
+			if err != nil {
+				t.Fatal(err)
+			}
+			cards, _, _ := settledBoard(t, nil, tc.answer)
+			refused, err := cards.Check(context.Background(), (&judgeCalls{verdict: "yes"}).judge, block)
+			if err != nil || (refused != nil) != tc.settle {
+				t.Fatalf("refused = %v, %v, want refused = %v", refused, err, tc.settle)
+			}
+		})
+	}
+}
+
+func TestHisAnswerToARenderCardReachesTheJudgeBehindCloserAnswers(t *testing.T) {
+	theirs := answeredWith(cardLabel + oldChatCard)
+	theirs.Updated = "2026-11-04T01:00:00Z"
+	answers := make([]ownerAnswer, 0, answersJudged+2)
+	answers = append(answers, theirs)
+	for i := range answersJudged + 1 {
+		closer := upgradeOnce
+		closer.ID = fmt.Sprintf("c%d", i)
+		answers = append(answers, closer)
+	}
+	block, err := json.Marshal(renderBlock(screenshotChild))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cards, _, _ := settledBoard(t, nil, answers...)
+	refused, err := cards.Check(context.Background(), (&judgeCalls{verdict: "yes"}).judge, block)
+	if err != nil || refused == nil {
+		t.Fatalf("refused = %v, %v; want his answer judged past the cap", refused, err)
+	}
+}
+
+func TestALaneReportNeverFinishesACardShowingARender(t *testing.T) {
+	card := renderBlock(screenshotChild)
+	shown, err := json.Marshal(map[string]any{"rev": 7, "onBoard": true, "doc": map[string]any{"blocks": []any{card}}, "answers": []any{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cards, fake, _ := settledBoardFirst(t, func(fake *shelltest.Fake) { fake.Reply(string(shown), "cc-present", "outcomes", "--block") }, []any{card})
+	cards.Reports = func(context.Context) ([]ownerAnswer, error) { return []ownerAnswer{stepsDone}, nil }
+	var judged []string
+
+	if err := cards.Finished(context.Background(), "supervisor", finishedJudge("yes", &judged), &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+
+	if removed := removedBlocks(fake); len(removed) != 0 || len(judged) != 0 {
+		t.Fatalf("removed %q after judging %q", removed, judged)
+	}
+}
+
 func TestACardWhoseExplainMoreIsOnlyALinkIsRefusedBeforeAnyJudgeRuns(t *testing.T) {
 	board, _, _ := settledBoard(t, nil, upgradeOnce)
 	judged := &judgeCalls{verdict: "no"}

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"slices"
 	"strings"
 	"sync"
@@ -26,13 +27,16 @@ const (
 	finishedField      = "finished-checked"
 	finishedAskedField = "finished-asked"
 	askedField         = "settled-asked"
+	cardLabel          = "card:"
+	boardCardLabel     = "board-card:"
 )
 
 type ownerAnswer struct {
-	ID      string `json:"id"`
-	Title   string `json:"title"`
-	Body    string `json:"body"`
-	Updated string `json:"updated_at"`
+	ID      string   `json:"id"`
+	Title   string   `json:"title"`
+	Body    string   `json:"body"`
+	Updated string   `json:"updated_at"`
+	Tags    []string `json:"tags"`
 }
 
 type Settling struct {
@@ -112,7 +116,37 @@ func candidates(title string, answers []ownerAnswer, since string) []ownerAnswer
 	return out
 }
 
-func settles(ctx context.Context, judge Judge, source settlingSource, card json.RawMessage, found []ownerAnswer) (*Settling, error) {
+func holdsImage(value any) bool {
+	switch shown := value.(type) {
+	case map[string]any:
+		return shown["type"] == "image" || slices.ContainsFunc(slices.Collect(maps.Values(shown)), holdsImage)
+	case []any:
+		return slices.ContainsFunc(shown, holdsImage)
+	}
+	return false
+}
+
+func renderShown(card json.RawMessage) (string, bool) {
+	var shown map[string]any
+	if json.Unmarshal(card, &shown) != nil || !holdsImage(shown) {
+		return "", false
+	}
+	id, _ := shown["id"].(string)
+	return id, true
+}
+
+func answersThatCanSettle(card json.RawMessage, answers []ownerAnswer) []ownerAnswer {
+	id, render := renderShown(card)
+	if !render {
+		return answers
+	}
+	return slices.DeleteFunc(slices.Clone(answers), func(answer ownerAnswer) bool {
+		return !slices.Contains(answer.Tags, cardLabel+id) && !slices.Contains(answer.Tags, boardCardLabel+id)
+	})
+}
+
+func settles(ctx context.Context, judge Judge, source settlingSource, card json.RawMessage, question string, answers []ownerAnswer, since string) (*Settling, error) {
+	found := candidates(question, answersThatCanSettle(card, answers), since)
 	verdicts := make([]*Judgment, len(found))
 	failed := make([]error, len(found))
 	var wg sync.WaitGroup
@@ -189,7 +223,7 @@ func (c Cards) Check(ctx context.Context, judge Judge, card json.RawMessage) (re
 	if err != nil {
 		return nil, errors.Join(append(failed, err)...)
 	}
-	settled, err := settles(ctx, judge, c.settledByHim(), card, candidates(title, answers, ""))
+	settled, err := settles(ctx, judge, c.settledByHim(), card, title, answers, "")
 	if settled != nil {
 		return settled.Refusal(), nil
 	}
@@ -246,9 +280,8 @@ func (c Cards) takeDown(ctx context.Context, lane string, judge Judge, source se
 		if source.finished {
 			question += " " + ask.ID
 		}
-		found := candidates(question, answers, since)
 		stamp := ledger.Row{Key: cardPrefix + ask.ID, Fields: map[string]string{source.checked: newest, source.asked: ask.Title}}
-		if len(found) == 0 {
+		if len(candidates(question, answers, since)) == 0 {
 			unjudged = append(unjudged, stamp)
 			continue
 		}
@@ -259,7 +292,7 @@ func (c Cards) takeDown(ctx context.Context, lane string, judge Judge, source se
 		if !onBoard {
 			continue
 		}
-		settled, err := settles(ctx, judge, source, shown, found)
+		settled, err := settles(ctx, judge, source, shown, question, answers, since)
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}

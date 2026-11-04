@@ -206,6 +206,25 @@ func TestAPostgresRulingWithdrawsTheLookupsCardItDecidesAndTellsTheCommunicator(
 	}
 }
 
+func TestARulingRedrawsARenderCardItWouldHaveDecided(t *testing.T) {
+	render := map[string]any{"id": lookupsCard, "type": "card", "title": lookupsDoc["title"], "children": append([]any{map[string]any{"id": "shot", "type": "image", "src": "asset:6184"}}, lookupsDoc["children"].([]any)...)}
+	f := newDeps(t, render)
+	ctx := context.Background()
+	if _, err := f.Cards.Depend(ctx, lookupsCard, "lane-a", nil); err != nil {
+		t.Fatal(err)
+	}
+	f.postgresRuling(t)
+	f.says(lookupsCard, premiseKind, "yes", "Lookups now read Postgres.")
+	f.says(lookupsCard, decidedKind, "yes", "his ruling moves lookups to Postgres, so the S3 merge is moot")
+	moved, err := f.Ruling(ctx, []string{postgresRule})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(moved) != 1 || moved[0].How != "redrew" || len(f.shell.removed) != 0 {
+		t.Fatalf("moved = %v, removed = %v; his ruling elsewhere is no yes to a render he has not seen", moved, f.shell.removed)
+	}
+}
+
 func TestAPostgresRulingRedrawsTheLookupsCardOnItsNewPremiseKeepingItsQuestion(t *testing.T) {
 	f := newDeps(t, lookupsDoc)
 	ctx := context.Background()
