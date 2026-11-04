@@ -250,3 +250,10 @@ func TestABodyThatNamesHowItIsSafeOnDevOrWaitsOnNothingLands(t *testing.T) {
 		}
 	}
 }
+
+func TestAHoldHisTapEndsMissesOnlyHisTap(t *testing.T) {
+	f := machine.Facts{CI: machine.CISuccess, Mergeable: machine.MergeableClean, Finder: machine.FinderClear, Fidelity: machine.FidelityPass, Approved: true, Tap: machine.TapTapped, Hold: machine.MoverRoot, HoldAwaitsTap: true}
+	if got := Missing(f); !slices.Equal(got, []string{NoTap}) {
+		t.Fatalf("Missing = %v", got)
+	}
+}

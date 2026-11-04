@@ -8,7 +8,7 @@ import (
 
 const ReviewRowsCursor = "review-rows"
 
-const reviewRowColumns = "repo, number, title, lane, branch, base, parent, parent_state, head, head_at, read_head, for_users, plan_line, plan_row, risk, description, unsafe_wait, ci, approvers, review, grade, grade_findings, mergeable, queue, hold, superseded_by, waits_on, ready_for_tap, state, tapped, tap_refused, tapped_at, tapped_by, landed_at, last_record, written_at"
+const reviewRowColumns = "repo, number, title, lane, branch, base, parent, parent_state, head, head_at, read_head, for_users, plan_line, plan_row, risk, description, unsafe_wait, ci, approvers, review, grade, grade_findings, mergeable, queue, hold, awaits_tap, superseded_by, waits_on, ready_for_tap, state, tapped, tap_refused, tapped_at, tapped_by, landed_at, last_record, written_at"
 
 type ReviewRow struct {
 	Repo          string `json:"repo"`
@@ -36,6 +36,7 @@ type ReviewRow struct {
 	Mergeable     string `json:"mergeable"`
 	Queue         string `json:"queue"`
 	Hold          string `json:"hold"`
+	AwaitsTap     string `json:"awaits_tap"`
 	SupersededBy  string `json:"superseded_by"`
 	WaitsOn       string `json:"waits_on"`
 	ReadyForTap   bool   `json:"ready_for_tap"`
@@ -50,11 +51,11 @@ type ReviewRow struct {
 }
 
 func (r *ReviewRow) columns() []any {
-	return []any{&r.Repo, &r.Number, &r.Title, &r.Lane, &r.Branch, &r.Base, &r.Parent, &r.ParentState, &r.Head, &r.HeadAt, &r.ReadHead, &r.ForUsers, &r.PlanLine, &r.PlanRow, &r.Risk, &r.Description, &r.UnsafeWait, &r.CI, &r.Approvers, &r.Review, &r.Grade, &r.GradeFindings, &r.Mergeable, &r.Queue, &r.Hold, &r.SupersededBy, &r.WaitsOn, &r.ReadyForTap, &r.State, &r.Tapped, &r.TapRefused, &r.TappedAt, &r.TappedBy, &r.LandedAt, &r.LastRecord, &r.WrittenAt}
+	return []any{&r.Repo, &r.Number, &r.Title, &r.Lane, &r.Branch, &r.Base, &r.Parent, &r.ParentState, &r.Head, &r.HeadAt, &r.ReadHead, &r.ForUsers, &r.PlanLine, &r.PlanRow, &r.Risk, &r.Description, &r.UnsafeWait, &r.CI, &r.Approvers, &r.Review, &r.Grade, &r.GradeFindings, &r.Mergeable, &r.Queue, &r.Hold, &r.AwaitsTap, &r.SupersededBy, &r.WaitsOn, &r.ReadyForTap, &r.State, &r.Tapped, &r.TapRefused, &r.TappedAt, &r.TappedBy, &r.LandedAt, &r.LastRecord, &r.WrittenAt}
 }
 
 func (r ReviewRow) values() []any {
-	return []any{r.Repo, r.Number, r.Title, r.Lane, r.Branch, r.Base, r.Parent, r.ParentState, r.Head, r.HeadAt, r.ReadHead, r.ForUsers, r.PlanLine, r.PlanRow, r.Risk, r.Description, r.UnsafeWait, r.CI, r.Approvers, r.Review, r.Grade, r.GradeFindings, r.Mergeable, r.Queue, r.Hold, r.SupersededBy, r.WaitsOn, r.ReadyForTap, r.State, r.Tapped, r.TapRefused, r.TappedAt, r.TappedBy, r.LandedAt, r.LastRecord, r.WrittenAt}
+	return []any{r.Repo, r.Number, r.Title, r.Lane, r.Branch, r.Base, r.Parent, r.ParentState, r.Head, r.HeadAt, r.ReadHead, r.ForUsers, r.PlanLine, r.PlanRow, r.Risk, r.Description, r.UnsafeWait, r.CI, r.Approvers, r.Review, r.Grade, r.GradeFindings, r.Mergeable, r.Queue, r.Hold, r.AwaitsTap, r.SupersededBy, r.WaitsOn, r.ReadyForTap, r.State, r.Tapped, r.TapRefused, r.TappedAt, r.TappedBy, r.LandedAt, r.LastRecord, r.WrittenAt}
 }
 
 func (t *Tx) PutReviewRows(rows []ReviewRow) error {

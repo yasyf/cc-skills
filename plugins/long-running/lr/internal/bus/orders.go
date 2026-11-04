@@ -27,6 +27,10 @@ const (
 	refusalAttr    = "reason"
 	refusedHead    = "head"
 	keyedReason    = 8
+
+	holdEndedKind = "note"
+	holdUntilAttr = "until"
+	holdUntilTap  = "tap"
 )
 
 var (
@@ -83,6 +87,18 @@ func (b Bus) PostRefusal(ctx context.Context, repo string, tap Tap, reason strin
 		PRs:   []string{fmt.Sprintf("%s#%d", repo, tap.PR)},
 		Attrs: map[string]string{refusedHead: tap.Head, refusalAttr: reason},
 		Text:  fmt.Sprintf("tap on #%d at %s refused: %s", tap.PR, tap.Head[:min(12, len(tap.Head))], reason),
+	})
+	return err
+}
+
+func (b Bus) PostHoldEnded(ctx context.Context, repo string, pr int, held client.Record) error {
+	_, err := client.Post(ctx, client.Draft{
+		Drive: b.Drive, Lane: b.Lane, Kind: holdEndedKind,
+		ID:       fmt.Sprintf("hold-ended/%s", cmp.Or(held.ID, held.Name())),
+		PRs:      []string{fmt.Sprintf("%s#%d", repo, pr)},
+		Resolves: held.Seq,
+		To:       []string{held.Lane},
+		Text:     fmt.Sprintf("his tap on #%d ends hold %s", pr, held.Name()),
 	})
 	return err
 }
