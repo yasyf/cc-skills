@@ -184,7 +184,8 @@ func Tick(s *store.Store, d Deps, now time.Time, generation int64) (out Outcome,
 func tellRetired(s *store.Store, d Deps, running []store.Lane, told []stoodDown) {
 	for _, was := range running {
 		lane, _ := laneOf(s, was.Name)
-		if lane.State != store.LaneRetired || lane.RetiredBy == "stand-down" || slices.Contains([]string{"done", "stopped", "stand-down", "handoff"}, lane.Last) || slices.ContainsFunc(told, func(one stoodDown) bool { return one.name == lane.Name }) {
+		endedItself := slices.Contains([]string{"done", "stopped", "stand-down", "handoff"}, lane.Last)
+		if lane.State != store.LaneRetired || lane.RetiredBy == "stand-down" && !endedItself || slices.ContainsFunc(told, func(one stoodDown) bool { return one.name == lane.Name }) {
 			continue
 		}
 		post := Post{Kind: "stand-down", To: []string{lane.Name}, Text: fmt.Sprintf("%s stood down: the supervisor retired it (%s).", lane.Name, lane.RetiredBy), PRs: lane.PRs}
