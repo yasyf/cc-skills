@@ -98,7 +98,7 @@ def search_his_answers_before_asking(evt: BaseHookEvent) -> HookResult:
 
 
 CHECK_SECONDS = 300
-REFUSED = "Error: refused: "
+REFUSED = "lr: refused: "
 DRAW_REFUSED = "No card below reaches his board: each asks what a card on it already asks, asks him to grade a reading of his words, or asks what his answer named below already settles. Apply his answer or act on your reading and say what you did, instead of asking."
 CHECK = f"{LR} board --drive d --session s cards check -"
 SETTLED_CARD = {"id": "card-old-snapshot-new-build-choice", "type": "card", "title": "An old chat will not open on the new build: what should happen to chats like this?", "children": [{"id": "pick", "type": "choice"}]}
@@ -114,11 +114,11 @@ class PushesABoard:
     Event.PreToolUse,
     only_if=[Bound(), Tool("Bash"), PushesABoard()],
     tests={
-        Input(**DRAWN, commands={CHECK: (1, 'Error: refused: his answer to "When does an old-build chat convert?" already settles it: each old chat gets one background upgrade attempt on open (cc-notes answer 29b2e59)')}): Block(
+        Input(**DRAWN, commands={CHECK: (1, 'lr: refused: his answer to "When does an old-build chat convert?" already settles it: each old chat gets one background upgrade attempt on open (cc-notes answer 29b2e59)')}): Block(
             pattern=r"^No card below reaches his board[\s\S]*his answer to \"When does an old-build chat convert\?\" already settles it"
         ),
         Input(**DRAWN, commands={CHECK: "WARNING the card draws unchecked against his answers: claude: overloaded\n"}): Warn(pattern=r"draws unchecked against his answers"),
-        Input(**DRAWN, commands={CHECK: (1, "Error: drive d: no such drive")}): Warn(pattern=r"no such drive"),
+        Input(**DRAWN, commands={CHECK: (1, "lr: drive d: no such drive")}): Warn(pattern=r"no such drive"),
         Input(**DRAWN, commands={CHECK: ""}): Allow(),
         Input(**{**DRAWN, "env": {}}): Allow(),
         Input(**{**DRAWN, "command": "cc-present push ~/owner-board.json --session s --dry-run"}): Allow(),
