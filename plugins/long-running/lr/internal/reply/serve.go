@@ -118,7 +118,7 @@ func Tool(a *app.App) channel.Tool {
 				return "reply: " + err.Error(), true
 			}
 			fanout := Fanout{Runner: a.Runner, Entry: entry, Now: a.Now, Judge: board.PackJudge(a.Runner)}
-			if warning := fanout.tappableWithoutCards(r); warning != "" {
+			if warning := fanout.tapWarning(r); warning != "" {
 				warned = append(warned, warning)
 			}
 			r, warning := fanout.withPRCards(r)

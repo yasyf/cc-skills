@@ -1644,7 +1644,7 @@ func TestAReplyNamingATappablePRItDoesNotListWarnsAndChangesNothing(t *testing.T
 		t.Run(name, func(t *testing.T) {
 			f := fanout(t, scripted())
 			ledgerRow(t, f, tc.row)
-			warning := f.tappableWithoutCards(tc.reply)
+			warning := f.tapWarning(tc.reply)
 			if tc.warns != strings.Contains(warning, landPR) || tc.warns != (warning != "") {
 				t.Fatalf("warning = %q, want warns %v", warning, tc.warns)
 			}
@@ -1655,7 +1655,7 @@ func TestAReplyNamingATappablePRItDoesNotListWarnsAndChangesNothing(t *testing.T
 func TestATappablePRNamedTwiceIsNamedOnceInTheWarning(t *testing.T) {
 	f := fanout(t, scripted())
 	ledgerRow(t, f, store.ReviewRow{ReadyForTap: true})
-	if warning := f.tappableWithoutCards(Reply{MD: "#2196 is ready. Tap #2196."}); strings.Count(warning, landPR) != 1 {
+	if warning := f.tapWarning(Reply{MD: "#2196 is ready. Tap #2196."}); strings.Count(warning, landPR) != 1 {
 		t.Fatalf("warning = %q, want %s once", warning, landPR)
 	}
 }
@@ -1787,5 +1787,27 @@ func TestOnlyAPickFreeReplyAsksForTheTapCardsOfItsPRs(t *testing.T) {
 		if slices.Contains(call.Argv, "--tap-pr") {
 			t.Fatalf("a pick reply asked for a tap card: %q; its pick card is the offer", call.Argv)
 		}
+	}
+}
+
+func TestAReplyAskingAboutAPRHeAlreadyTappedWarns(t *testing.T) {
+	tapped := store.ReviewRow{ReadyForTap: true, Tapped: true}
+	for name, tc := range map[string]struct {
+		reply Reply
+		warns bool
+	}{
+		"a pick naming it":      {Reply{MD: "Land #2196?", Picks: []string{"Land", "Hold"}}, true},
+		"a pick listing it":     {Reply{MD: "Land it?", Picks: []string{"Land", "Hold"}, PRs: []string{landPR}}, true},
+		"a status mentioning":   {Reply{MD: "You approved #2196, and it lands next."}, false},
+		"another repo's number": {Reply{MD: "Land monorepo#2196?", Picks: []string{"Land", "Hold"}}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := fanout(t, scripted())
+			ledgerRow(t, f, tapped)
+			warning := f.tapWarning(tc.reply)
+			if tc.warns != strings.Contains(warning, "already tapped") || tc.warns != strings.Contains(warning, landPR) {
+				t.Fatalf("warning = %q, want warns %v", warning, tc.warns)
+			}
+		})
 	}
 }
