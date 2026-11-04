@@ -789,12 +789,13 @@ def review_rows(stored, shown, verdicts):
             "head": row["head"],
             "title": row["title"],
             "blocker": "your approval" if row["ready"] else row["waits"],
-            "group": same.get("group", alias),
-            "group_id": same.get("group_id", alias),
-            "group_summary": same.get("group_summary", ""),
+            "group": alias,
+            "group_id": alias,
+            "group_summary": "",
             "block": MERGE_BLOCK,
             "verdict": verdicts.get(MERGE_BLOCK, {}).get(str(row["number"])),
             "tapped": bool(row["tapped"]),
+            "ready": bool(row["ready"]),
         })
     return rows
 
@@ -1514,6 +1515,8 @@ class Drive:
             row["go_head"] = row["head"] if row.get("tapped") else row["checked_at"] if exempt or self.carried.get(row["number"]) else None
             stored = verdict_state({**row, "go_head": None}) == "approved"
             row["state"] = verdict_state(row)
+            if row["state"] == "you" and row.get("ready") is False:
+                row["state"] = "not-ready"
             row["ci_fix_go"] = row["state"] == "approved" and not stored and exempt
 
     def stored_rows(self):

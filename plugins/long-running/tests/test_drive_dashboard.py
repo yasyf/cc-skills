@@ -94,17 +94,18 @@ def test_the_tab_lists_each_stored_pr_once_whatever_the_board_copy_holds():
     rows = server.review_rows(stored, shown, {"merge-prs": {"1": {"verdict": "approved", "head": "aaaaaaa"}}})
 
     assert [row["number"] for row in rows] == [1, 2, 3]
-    assert rows[0]["change"] == "C." and rows[0]["group"] == "G" and rows[0]["verdict"] == {"verdict": "approved", "head": "aaaaaaa"} and rows[0]["blocker"] == "your approval"
+    assert rows[0]["change"] == "C." and rows[0]["group"] == "lane" and rows[0]["verdict"] == {"verdict": "approved", "head": "aaaaaaa"} and rows[0]["blocker"] == "your approval"
     assert "change" not in rows[1] and rows[1]["head"] == "bbbbbbbcccc" and rows[1]["blocker"] == "CI is not green; held by root"
     assert rows[2]["group"] == "old-chat-convert" and rows[2]["tapped"] is True
 
 
 def test_a_stored_tap_reads_approved_without_a_board_verdict():
     drive = Drive({"board_url": "http://board/p/x"}, None)
-    rows = server.review_rows([stored_row(3, "ddddddd", tapped=1), stored_row(4, "eeeeeee")], [], {})
+    rows = server.review_rows([stored_row(3, "ddddddd", tapped=1), stored_row(4, "eeeeeee"), stored_row(5, "fffffff", ready=0, waits="CI is not green")], [], {})
     drive.check_gos(rows)
 
-    assert [row["state"] for row in rows] == ["approved", "you"]
+    assert [row["state"] for row in rows] == ["approved", "you", "not-ready"]
+    assert [item["prs"][0]["number"] for item in server.merge_needs(rows, "http://board") if item["prs"]] == [4]
 
 
 def test_read_board_finds_a_verdict_keyed_by_the_bare_pr_number():

@@ -26,7 +26,7 @@ function pageHead(title, written, extra = '') {
 }
 function reviewHead() {
   const at = state.model.board.rows_at;
-  return `<header class="pg-h"><div><h1>Review</h1>${at ? `<span class="pg-at">Every open change, read from the landing facts at ${clock(at)}</span>` : ''}</div></header>`;
+  return `<header class="pg-h"><div><h1>Review</h1>${at ? `<span class="pg-at">Every open change of this drive, read from the landing facts at ${clock(at)}</span>` : ''}</div></header>`;
 }
 function ring(done, total, label) {
   const p = total ? Math.round((done / total) * 100) : 0;
@@ -405,6 +405,7 @@ function waitLine(row, w) {
 }
 function rowActs(row) {
   const busy = pending.number === row.number && !pending.error;
+  if (verdictState(row) === 'not-ready') return '';
   return verdictState(row) === 'you'
     ? `<button class="btn pri" data-approve="${row.number}" data-head="${esc(row.head)}"${busy ? ' disabled' : ''}>${busy ? 'Sending' : 'Approve'}</button><button class="btn" data-hold-row="${row.number}"${busy ? ' disabled' : ''}>Hold</button>`
     : verdictPill(row);
@@ -439,7 +440,9 @@ function holdPeek() {
 function reviewScreen(list) {
   const m = state.model;
   const decided = m.board.rows.filter((r) => ['approved', 'held'].includes(verdictState(r)));
-  const chips = `<nav class="pg-filters"><a href="#/review" class="${list ? '' : 'on'}">Waiting on you <b>${prsWaiting()}</b></a><a href="#/review/decided" class="${list === 'decided' ? 'on' : ''}">You approved or held <b>${decided.length}</b></a></nav>`;
+  const notReady = m.board.rows.filter((r) => verdictState(r) === 'not-ready');
+  const chips = `<nav class="pg-filters"><a href="#/review" class="${list ? '' : 'on'}">Waiting on you <b>${prsWaiting()}</b></a><a href="#/review/not-ready" class="${list === 'not-ready' ? 'on' : ''}">Not ready yet <b>${notReady.length}</b></a><a href="#/review/decided" class="${list === 'decided' ? 'on' : ''}">You approved or held <b>${decided.length}</b></a></nav>`;
+  if (list === 'not-ready') return `<div class="pg">${reviewHead()}${chips}<p class="pg-lead">Not yours to approve yet. Each row names what it still waits on, and it moves to Waiting on you when nothing but your approval is left.</p><div class="mr-list">${notReady.map(mergeRow).join('') || '<p class="pg-none">Every open change is ready for you.</p>'}</div></div>`;
   if (list === 'decided') return `<div class="pg">${reviewHead()}${chips}<div class="mr-list">${decided.map(mergeRow).join('') || '<p class="pg-none">Nothing you approved is still waiting to land.</p>'}</div></div>`;
   const merges = m.needs.filter((item) => item.kind === 'prs').map((g) => {
     const words = rewritten('groups', g.key);
