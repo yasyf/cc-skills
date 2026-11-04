@@ -76,26 +76,6 @@ func runQuestion(t *testing.T, now time.Time, words string, args ...string) aske
 	return asked{fake.Calls(), state, string(ledger), out.String(), runErr}
 }
 
-func storedReply(t *testing.T, state, row string) storedBody {
-	t.Helper()
-	data, err := os.ReadFile(filepath.Join(state, "replies", "received-"+row+".json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var stored struct {
-		Reply storedBody `json:"reply"`
-	}
-	if err := json.Unmarshal(data, &stored); err != nil {
-		t.Fatal(err)
-	}
-	return stored.Reply
-}
-
-type storedBody struct {
-	Title string `json:"title"`
-	MD    string `json:"md"`
-}
-
 func TestAReviewPageQuestionReachesBothAndCarriesItsDeadline(t *testing.T) {
 	got := runQuestion(t, addedAt, stdinWords, "ask", "--pr", "49162", "--head", "e573d23")
 	if got.err != nil {
@@ -127,9 +107,8 @@ func TestAQuestionGetsTheSameLineOnThePageAndInTheChat(t *testing.T) {
 	if slices.Contains(batchedKinds, flag(wake, "--kind")) {
 		t.Fatalf("kind %s waits up to five minutes in the communicator's batch", flag(wake, "--kind"))
 	}
-	stored := storedReply(t, got.state, "m1")
-	if stored.Title != want || !strings.Contains(stored.MD, "> "+stdinWords) {
-		t.Fatalf("stored reply: %+v", stored)
+	if _, err := os.Stat(filepath.Join(got.state, "replies")); !os.IsNotExist(err) {
+		t.Fatalf("a received line wrote a reply to his Chat tab: %v", err)
 	}
 }
 
@@ -162,7 +141,7 @@ func TestADeadlinePastMidnightDatesItsRowTheNextDay(t *testing.T) {
 	}
 }
 
-func TestABoardQuestionIsHeldByTheChatAndItsLineCarriesNoCardID(t *testing.T) {
+func TestABoardQuestionIsHeldByTheChat(t *testing.T) {
 	words := "Owner on board 1f2e3d4c, Should a share open? (share-open-pick): wrote “only for the team”"
 	got := runQuestion(t, addedAt, words, "received", "--routed", "77")
 	if got.err != nil {
@@ -171,12 +150,9 @@ func TestABoardQuestionIsHeldByTheChatAndItsLineCarriesNoCardID(t *testing.T) {
 	if want := "| 77 | due Nov 2 9:25 PM |\n"; !strings.Contains(got.ledger, want) {
 		t.Fatalf("no %q in:\n%s", want, got.ledger)
 	}
-	stored := storedReply(t, got.state, "m1")
-	if stored.Title != "Received, with your chat, answer by 9:25 PM" {
-		t.Fatalf("title %q", stored.Title)
-	}
-	if !strings.Contains(stored.MD, "> Should a share open?: wrote “only for the team”") || strings.Contains(stored.MD, "share-open-pick") || strings.Contains(stored.MD, "1f2e3d4c") {
-		t.Fatalf("md %q", stored.MD)
+	wake := got.posts[len(got.posts)-1]
+	if flag(wake, "--text") != "Received, with your chat, answer by 9:25 PM" || flag(wake, "--to") != communicator {
+		t.Fatalf("window record: %q", wake.Argv)
 	}
 }
 

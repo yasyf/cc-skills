@@ -3,10 +3,8 @@ package owner
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -14,7 +12,6 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
-	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/reply"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
 
@@ -25,11 +22,7 @@ const (
 	postWait     = 30 * time.Second
 )
 
-var (
-	holderWords = map[string]string{coordinator: "the coordinator", communicator: "your chat"}
-	boardLead   = regexp.MustCompile(`^Owner on board \S+, `)
-	cardID      = regexp.MustCompile(` \([\w:-]+\)(: |$)`)
-)
+var holderWords = map[string]string{coordinator: "the coordinator", communicator: "your chat"}
 
 type pageQuestion struct {
 	words  string
@@ -60,31 +53,17 @@ func (q pageQuestion) plan() []string {
 	}
 }
 
-func (q pageQuestion) spoken() string {
-	said := cardID.ReplaceAllString(boardLead.ReplaceAllString(q.words, ""), "$1")
-	return "> " + strings.ReplaceAll(said, "\n", "\n> ")
-}
-
 func (q pageQuestion) acknowledge(ctx context.Context, a *app.App, entry drive.Entry, routed int) (string, error) {
 	row, err := Add(Ledger(entry.StateDir), a.Now(), q.words, duePrefix+q.due.In(pacific).Format(rowTime), routed)
 	if err != nil {
 		return "", err
 	}
-	var failed []error
-	sent := reply.Fanout{Runner: a.Runner, Entry: entry, Now: a.Now}.Send(ctx, reply.Reply{ID: "received-" + row, Title: q.line(), MD: q.line() + "\n\n" + q.spoken()})
-	for _, surface := range sent {
-		if surface.Error != "" {
-			failed = append(failed, fmt.Errorf("%s: %s", surface.Surface, surface.Error))
-		}
-	}
 	argv := append([]string{"cci", "post", "--drive", entry.Bus(), "--lane", questionLane, "--kind", "posted", "--to", communicator, "--attr", "row=" + row, "--text", q.line()}, q.plan()...)
 	if routed != 0 {
 		argv = append(argv, "--re", strconv.Itoa(routed))
 	}
-	if _, err := a.Runner.Run(ctx, shell.Command{Argv: argv, Timeout: postWait}); err != nil {
-		failed = append(failed, err)
-	}
-	return row, errors.Join(failed...)
+	_, err = a.Runner.Run(ctx, shell.Command{Argv: argv, Timeout: postWait})
+	return row, err
 }
 
 func questionCommands(a *app.App, driveName *string) []*cobra.Command {
