@@ -308,7 +308,7 @@ function render() {
   const stack = stackOf();
   document.title = m.title;
   $('.brand').textContent = m.title;
-  const tabs = [['overview', 'Now'], ['plan', 'Plan'], ['status', 'Status'], ['work', 'Work'], ['review', 'Review', needsTotal()], ['asks', 'Your asks', openAsks()], ['replies', 'Replies', openReplies()], ['history', 'History']];
+  const tabs = [['overview', 'Now'], ['plan', 'Plan'], ['status', 'Status'], ['work', 'Work'], ['review', 'Review', needsTotal()], ['asks', 'Your asks', openAsks()], ['replies', 'Replies', waitingOnYou()], ['history', 'History']];
   $('#kbtn').classList.toggle('on', p.screen === 'jump');
   const typing = document.activeElement?.matches('#main input, #main textarea') ? document.activeElement : null;
   const caret = typing && [typing.name, typing.dataset.draft ?? '', typing.selectionStart, typing.selectionEnd];

@@ -866,6 +866,7 @@ class Drive:
         self.serving = threading.Condition()
         self.alerting = threading.Condition()
         self.alerts = []
+        self.update_render = ""
         self.secure_url = None
         self.served = None
         self.live_model = None
@@ -911,7 +912,7 @@ class Drive:
             self.serving.wait_for(lambda: self.live_model is not None and self.live_at >= asked)
             self.watchers -= 1
             live = self.live_model
-        return {**live, "fetch": self.fetch}
+        return {**live, "fetch": self.fetch, "update_render": self.update_render}
 
     def lane_names(self):
         with self.lock:
@@ -932,7 +933,7 @@ class Drive:
                 continue
             self.curator.brief = model["brief"]
             for name, curator in self.pages.items():
-                curator.brief = model["pages"][name]
+                curator.brief = model["pages"].get(name, curator.brief)
             self.touch()
             self.bump()
             time.sleep(30)
@@ -1129,7 +1130,7 @@ class Drive:
             fresh = self.read_records(OWED_KINDS, now - OWED_WINDOW, after)
             known += [trimmed(record) for record in fresh if kept(record)]
             after = fresh[-1]["seq"] if fresh else after
-            render = subprocess.run(["lr", "update", "render", "--drive", drive], capture_output=True, text=True, timeout=SLOW_REFRESH).stdout
+            render = self.update_render = subprocess.run(["lr", "update", "render", "--drive", drive], capture_output=True, text=True, timeout=SLOW_REFRESH).stdout
             store = json.loads(run(["lr", "asks", "--drive", drive, "--json"]))
             ledger = Path(self.config["owner_ledger"]).read_text()
             lanes = set(self.lane_names())
