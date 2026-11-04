@@ -722,7 +722,7 @@ func TestADeskSpriteCopiesItsStoreDetachedAfterItsWorkerStartsSoACopyNeverHoldsT
 		t.Fatal(line)
 	}
 
-	want := [][]string{{"sh", "-c", seedStore, "sh", "the-drive", workerWorkspace}}
+	want := [][]string{{"sh", "-c", seedStore, "sh", "the-drive", workerWorkspace, filepath.Join(f.attempt, seedCopy)}}
 	if !reflect.DeepEqual(f.spawned, want) {
 		t.Fatalf("spawned %v, want %v", f.spawned, want)
 	}

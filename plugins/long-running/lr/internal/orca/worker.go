@@ -39,6 +39,7 @@ const (
 	joinReceipt       = "relay-join.log"
 	workerDriveDir    = "WORKER_DRIVE_DIR"
 	seedReceipt       = "store-seed.log"
+	seedCopy          = "store-seed.gz"
 	lrPlatform        = "linux-x86_64"
 	toolsMissing      = 3
 	beforeWorker      = "before-worker.sh"
@@ -50,7 +51,7 @@ const (
 	holdWorker        = `sprite-env services create ` + workerAwake + ` --cmd "$HOME/.local/bin/lr" --args sprites,hold --no-stream`
 	fetchNotesScript  = `IFS= read -r NOTES_TOKEN; export NOTES_TOKEN; exec git -c credential.helper= -c 'credential.helper=!f() { echo username=x-access-token; echo "password=$NOTES_TOKEN"; }; f' -C "$1" fetch --quiet origin "$2"`
 	unpackCarried     = `mkdir -p "$1" && tar -xzf - -C "$1"`
-	seedStore         = `cci relay export --drive "$1" | sprite exec -s "$2" -- sh -c '"$HOME"/.local/bin/cci relay seed --drive "$1"' sh "$1"`
+	seedStore         = `cci relay export --drive "$1" > "$3" && sprite exec -s "$2" --no-stdin --file "$3:/tmp/store-seed.gz" -- sh -c 'sprite-env services create store-seed --cmd sh --args "-c,$HOME/.local/bin/cci relay seed --drive $1 < /tmp/store-seed.gz; rm /tmp/store-seed.gz; sprite-env services delete store-seed" --no-stream' sh "$1"; rm -f "$3"`
 	joinRelay         = `CCI_SERVICE_KEY=$(cat); export CCI_SERVICE_KEY; ~/.local/bin/cci relay join --instance --drive "$1" --url "$2" --ttl 24h --owner "$3" && sprite-env services create cci --cmd "$HOME/.local/bin/cci" --args supervise --no-stream`
 )
 
@@ -663,7 +664,7 @@ func (w *workerLaunch) seedDesk(workspace string) error {
 		return nil
 	}
 	log := filepath.Join(w.attempt, seedReceipt)
-	if _, err := w.Spawn([]string{"sh", "-c", seedStore, "sh", drive, workspace}, log, nil); err != nil {
+	if _, err := w.Spawn([]string{"sh", "-c", seedStore, "sh", drive, workspace, filepath.Join(w.attempt, seedCopy)}, log, nil); err != nil {
 		return w.receipt(seedReceipt, err.Error()+"\n")
 	}
 	return nil
