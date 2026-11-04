@@ -1818,7 +1818,7 @@ func TestAHostOrcaCallsUnavailableIsProofAndTheDispatchIsAbandoned(t *testing.T)
 	orca.stops["ctx_s"] = fenceReply{detail: CodeRuntimeDown}
 	orca.abandons["ctx_s"] = fenceReply{state: "abandoned"}
 	var out bytes.Buffer
-	gc := &GC{Orca: orca, Git: newGit(checkout(testWT)), Out: &out, Keep: map[string]bool{}}
+	gc := &GC{Orca: orca, Git: newGit(checkout(testWT)), Out: &out, Keep: map[string]bool{}, Pause: Pause{Resumed: t.TempDir()}}
 
 	got, err := gc.proveStale(context.Background(), "run_x", []string{"ctx_s"})
 	if err != nil || !slices.Equal(got, []string{"ctx_s"}) {
