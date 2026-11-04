@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"strconv"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-interact/channel"
@@ -66,18 +67,26 @@ func Tool(a *app.App) channel.Tool {
 			if err := json.Unmarshal(args, &r); err != nil {
 				return "reply: " + err.Error(), true
 			}
+			r, warned := r.mended()
+			r = r.led()
+			if r.MD == "" {
+				return "reply: md carries the reply itself", true
+			}
+			if err := r.bareExplainMore(); err != nil {
+				return "reply: " + err.Error(), true
+			}
 			if r.ID == "" {
 				r.ID = "r" + strconv.FormatInt(a.Now().UnixMilli(), 36)
-			}
-			r = r.led()
-			if err := r.check(); err != nil {
-				return "reply: " + err.Error(), true
 			}
 			entry, err := drive.Session()
 			if err != nil {
 				return "reply: " + err.Error(), true
 			}
-			return receipt(r, Fanout{Runner: a.Runner, Entry: entry, Now: a.Now}.Send(ctx, r)), false
+			sent := receipt(r, Fanout{Runner: a.Runner, Entry: entry, Now: a.Now}.Send(ctx, r))
+			if len(warned) > 0 {
+				sent = "Warning, posted anyway: " + strings.Join(warned, "; ") + ".\n" + sent
+			}
+			return sent, false
 		},
 	}
 }
