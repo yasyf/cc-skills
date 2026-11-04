@@ -14,7 +14,7 @@ from .release_cards import Unread, read
 from .vet_before_push import branch_diff, in_lane
 
 PICK = re.compile(r"\bowner:m\d+(?:\.\d+)?\b|\b(?:ccn|answer)[: ][0-9a-f]{7,}\b")
-PLACEMENT = re.compile(r"\b(?:volume|pvc|persistentvolumeclaim|storageclass|reclaim|retention|evict)\w*", re.IGNORECASE)
+PLACEMENT = re.compile(r"\b(?:volumeclaim|persistentvolume|pvc|storageclass|reclaim|retention|evict)\w*", re.IGNORECASE)
 ROWS = "infra/rows/"
 CARDS_SECONDS = 30
 REFUSAL = (
@@ -30,6 +30,8 @@ STORAGE = json.dumps({"card-journal-storage": ["go/sand/internal/cloudrunner/jou
 REPO = {"git rev-parse --show-toplevel": "/w\n", CARDS: STORAGE}
 JOURNAL = REPO | {"git diff": "diff --git a/go/sand/internal/cloudrunner/journal/evict.go b/go/sand/internal/cloudrunner/journal/evict.go\n+func evictFinished() {}\n"}
 ROWS_PVC = REPO | {"git diff": "diff --git a/infra/rows/executor/template.ts b/infra/rows/executor/template.ts\n-  storage: '5Gi', reclaimPolicy: 'Retain',\n+  storage: '5Gi', reclaimPolicy: 'Delete',\n"}
+ROWS_SCRATCH = REPO | {"git diff": "diff --git a/infra/rows/llm-gateway.ts b/infra/rows/llm-gateway.ts\n+  volumes: [{ name: 'tmp', emptyDir: {} }],\n+  volumeMounts: [{ name: 'tmp', mountPath: '/tmp' }],\n"}
+ROWS_CLAIM = REPO | {"git diff": "diff --git a/infra/rows/executor/template.ts b/infra/rows/executor/template.ts\n+  volumeClaimTemplates: [{ metadata: { name: 'data' } }],\n"}
 ROWS_LABEL = REPO | {"git diff": "diff --git a/infra/rows/executor/template.ts b/infra/rows/executor/template.ts\n+  labels: { team: 'plat' },\n"}
 ELSEWHERE = REPO | {"git diff": "diff --git a/api/src/a.ts b/api/src/a.ts\n+export const a = 1\n"}
 SHIP_IT = "ccx vcs ship -m 'cloudrunner: 🐛 evict finished journals'"
@@ -72,6 +74,8 @@ def design_cards(evt: BaseHookEvent) -> dict[str, list[str]]:
         Input(cwd="/w", command=SHIP_IT, env=DRIVE_ENV | {"CLAUDE_LONG_RUNNING_LANE": "incident-journal-disk"}, commands=JOURNAL): Warn(pattern=r"^Warning, nothing was refused: this incident lane's PR goes ahead"),
         Input(cwd="/w", command=SHIP_IT, env=LANE_ENV, commands=ELSEWHERE): Allow(),
         Input(cwd="/w", command=SHIP_IT, env=LANE_ENV, commands=ROWS_PVC | {CARDS: "{}"}): Block(pattern=r"`infra/rows/executor/template\.ts` changes where data lives or how long it is kept"),
+        Input(cwd="/w", command=SHIP_IT, env=LANE_ENV, commands=ROWS_CLAIM | {CARDS: "{}"}): Block(pattern=r"`infra/rows/executor/template\.ts` changes where data lives or how long it is kept"),
+        Input(cwd="/w", command=SHIP_IT, env=LANE_ENV, commands=ROWS_SCRATCH | {CARDS: "{}"}): Allow(),
         Input(cwd="/w", command=SHIP_IT, env=LANE_ENV, commands=ROWS_LABEL | {CARDS: "{}"}): Allow(),
         Input(cwd="/w", command=SHIP_IT, env=LANE_ENV, commands=ELSEWHERE | {CARDS: (1, "cc-present down")}): Warn(pattern=r"^Warning, nothing was refused: `board cards` exited 1: cc-present down"),
         Input(cwd="/w", command="gh pr view 12", env=LANE_ENV, commands=JOURNAL): Allow(),
