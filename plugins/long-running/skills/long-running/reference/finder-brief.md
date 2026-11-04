@@ -35,7 +35,7 @@ After the row verdicts, `swept` lists the files the finder read.
 
 **Census findings.** A finding with `defect` starting `census:` rests only on lines the diff leaves as they were (the prompt defines it). The lane appends census findings to `<drive scratch>/finder-desk/census-<YYYY-MM-DD>.md` with the PR, head, cite, and claim, and posts one `finder census:` note to the coordinator, never a major.
 
-**Follow-ups a port owes.** On a PR body that opens `port of #<n>`, a finding with `defect` starting `follow-up:` is one the old-tree PR's own lines share (the prompt defines it). It holds nothing: the lane lists it on the `finder: ok` record as owed, whatever its severity, and the port's lane opens the follow-up PR after the port. On any other body that word gives it no pass.
+**Follow-ups a port owes.** On a PR body that opens `port of #<n>`, a finding with `defect` starting `follow-up:` is one the old-tree PR's own lines share (the prompt defines it). It holds nothing: the lane lists it on the `finder: ok` record as owed, whatever its severity, and the port's lane opens the follow-up PR after the port. On any other body that word gives it no pass. The second-fix check follows the same line: on such a body it adds the class fix to that list as a follow-up instead of posting a major, and on any other body the major stands.
 
 ## Post the finder record
 
