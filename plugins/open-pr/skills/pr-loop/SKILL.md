@@ -226,7 +226,10 @@ no question.
 be right; bring back "cap at 2 and update the test, or restore 3?"
 </example>
 
-After a fix: re-run the check's local equivalent where one exists, ship with
+After a fix: re-run the check's local equivalent where one exists. Batch
+every fix the current round of reds and comments determines into one ship,
+since each push supersedes the running build and reruns CI and the review
+bots. Ship with
 `ccx vcs ship -m "<subject in the repo's convention>" --no-watch`, record
 the attempt and the `applied` entry in the state file, and keep watching —
 the monitor reports the rerun.

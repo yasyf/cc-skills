@@ -317,7 +317,10 @@ found them, briefs as attachments on the `briefs: <slug>` log, nothing hand-made
 under `~/.claude/scratch`.
 
 **R6.** Every owner request is in flight the turn it arrives, one lane per ask,
-stacked where files overlap, never appended to a busy lane's queue.
+never appended to a busy lane's queue. A lane owns one PR per deliverable and
+lands its fixes as commits on it. It stacks on another open PR where files
+overlap. It stacks on its own PR only when a parent must land before other
+lanes can proceed, or when review needs the split.
 
 **R7.** A PR's state is read before it is reported: `ccx vcs status` or the squash
 commit on fetched trunk, never a message or memory.
@@ -360,7 +363,9 @@ and ships before it is destroyed ([release-lanes.md](reference/release-lanes.md)
 **R12.** Every red goes to its owning lane the same turn with a 15-minute
 deadline; a red with no live owner gets a lane.
 
-**R13.** Every owed item is dispatched the same turn, one lane each.
+**R13.** Every owed item is dispatched the same turn, one lane each. A fix or
+review response owed on an open PR goes to the lane that owns it, as a commit on
+that PR, never a new lane or a stacked child.
 
 **R14.** A process fix is a PR the turn it is adopted, driven to merge, release
 and install by its lane, proven on the record that reported the defect. A tooling
