@@ -20,6 +20,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/quotes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -52,6 +53,7 @@ type Source struct {
 	Store   *store.Store
 	Log     *slog.Logger
 	Now     func() time.Time
+	Grounds func(context.Context, client.Record) (bool, error)
 }
 
 func New(a *app.App, cfg config.Config, s *store.Store) Source {
@@ -69,6 +71,9 @@ func New(a *app.App, cfg config.Config, s *store.Store) Source {
 		Store:   s,
 		Log:     a.Log,
 		Now:     a.Now,
+		Grounds: func(ctx context.Context, record client.Record) (bool, error) {
+			return quotes.NewReader(runner, cfg.Drive).Grounded(ctx, record)
+		},
 	}
 }
 
@@ -413,6 +418,16 @@ func (s Source) ingestLegacy(ctx context.Context) error {
 	}
 	for _, record := range records {
 		facts := bus.LegacyFacts(record, s.Repo, s.GoLanes)
+		if bus.Appeal(record) {
+			grounded, err := s.Grounds(ctx, record)
+			if err != nil {
+				s.Log.Warn("an appeal's owner rows went unread, so it and later records wait for the next pass", "seq", record.Seq, "error", err)
+				return nil
+			}
+			if grounded {
+				facts = append(facts, bus.AppealFacts(record)...)
+			}
+		}
 		if err := s.putFacts(append(facts, graderWords(facts, record.Text)...), record.At.UTC()); err != nil {
 			return err
 		}
@@ -781,7 +796,11 @@ func (s Source) carry(ctx context.Context, f *machine.Facts, stored map[string]s
 	} else if goHead, err = s.Store.StandingGo(s.Repo, f.Number); err != nil {
 		return err
 	}
-	if tapped == "" && goHead == "" {
+	overrides, err := s.Store.HeadFacts(s.Repo, f.Number, gates.OverrideFacts)
+	if err != nil {
+		return err
+	}
+	if tapped == "" && goHead == "" && len(overrides) == 0 {
 		return nil
 	}
 	if err := s.hashDiff(ctx, *f, stored); err != nil {
@@ -808,6 +827,26 @@ func (s Source) carry(ctx context.Context, f *machine.Facts, stored map[string]s
 			return err
 		}
 		f.Exempt = gates.SameDiff(atGo, stored)
+	}
+	return s.carryOverrides(ctx, *f, stored, overrides)
+}
+
+func (s Source) carryOverrides(ctx context.Context, f machine.Facts, stored map[string]string, overrides []store.HeadFact) error {
+	for _, from := range gates.OverrideHeads(overrides, f.Head) {
+		atFrom, err := s.Store.Facts(s.Repo, f.Number, from)
+		if err != nil {
+			return err
+		}
+		carried := gates.CarriedOverrides(atFrom, stored)
+		for _, grader := range carried {
+			text := gates.CarriedOverride(f.Number, f.Head, from, grader, atFrom[machine.OverrideFact(grader)])
+			if _, err := client.Post(ctx, client.Draft{Drive: s.Drive, Lane: bus.SweepLane, Kind: "decide", PRs: []string{strconv.Itoa(f.Number)}, Text: text}); err != nil {
+				return err
+			}
+		}
+		if len(carried) > 0 {
+			return nil
+		}
 	}
 	return nil
 }

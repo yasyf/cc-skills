@@ -52,6 +52,7 @@ type fidelityRepo struct {
 	shows     map[string]string
 	diff      string
 	names     string
+	stat      string
 }
 
 func (r *fidelityRepo) git(full []string) (string, error) {
@@ -97,6 +98,9 @@ func (r *fidelityRepo) git(full []string) (string, error) {
 	case "diff":
 		if slices.Contains(argv, "--name-only") {
 			return r.names, nil
+		}
+		if slices.Contains(argv, "--numstat") {
+			return r.stat, nil
 		}
 		return r.diff, nil
 	}
@@ -848,12 +852,55 @@ func TestADeletionOnOwnerWordsThatNeverNameTheDeletedThingGradesMissing(t *testi
 
 func TestAnUnnamedDeletionPostsMissingWithNoModelCall(t *testing.T) {
 	directory := fidelityDir(t, map[string]any{"grades": []any{}})
-	shell, _ := newFidelityFake(t, samePatch)
+	shell, repo := newFidelityFake(t, samePatch)
+	repo.stat = "0\t212\tapi/src/graphiql.ts\n delete mode 100644 api/src/graphiql.ts\n"
 	shell.title, shell.body = graphiqlTitle, graphiqlBody
 	mustFidelity(t, directory, shell)
 	equal(t, len(shell.asks()), 0)
 	if !strings.HasPrefix(shell.texts()[0], "fidelity: missing "+shaHead+" "+deletionKey+" deletes /graphiql page") {
 		t.Errorf("posted %q", shell.texts()[0])
+	}
+}
+
+func TestADeletionTitleOverADiffThatRemovesNoCodeDrawsNoFinding(t *testing.T) {
+	for name, stat := range map[string]string{
+		"no removals": "40\t0\tgo/memory/delete_asked.go\n",
+		"a rewrite":   "231\t8\tgo/memory/delete_asked.go\n",
+		"a rename":    "0\t0\tgo/{old.go => new.go}\n rename go/{old.go => new.go} (100%)\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			directory := fidelityDir(t, map[string]any{"grades": []any{}})
+			shell, repo := newFidelityFake(t, otherPatch, fidelityReplyOf(nil))
+			repo.stat = stat
+			shell.title, shell.body = graphiqlTitle, graphiqlBody
+			mustFidelity(t, directory, shell)
+			equal(t, len(shell.asks()), 1)
+			for _, text := range shell.texts() {
+				if strings.Contains(text, deletionKey) {
+					t.Errorf("posted %q", text)
+				}
+			}
+		})
+	}
+}
+
+func TestRemovesCode(t *testing.T) {
+	for name, tc := range map[string]struct {
+		stat string
+		want bool
+	}{
+		"nothing removed":                {"12\t0\ta.go\n", false},
+		"more added than removed":        {"55\t5\ta.go\n", false},
+		"as much added as removed":       {"5\t5\ta.go\n", false},
+		"more removed than added":        {"3\t90\ta.go\n", true},
+		"removed across files":           {"10\t0\ta.go\n0\t11\tb.go\n", true},
+		"a deleted file among additions": {"900\t0\ta.go\n0\t12\tb.go\n delete mode 100644 b.go\n", true},
+		"a deleted binary":               {"-\t-\tlogo.png\n delete mode 100644 logo.png\n", true},
+		"a binary changed":               {"-\t-\tlogo.png\n", false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			equal(t, removesCode(tc.stat), tc.want)
+		})
 	}
 }
 

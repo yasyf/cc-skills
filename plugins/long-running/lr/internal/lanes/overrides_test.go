@@ -151,3 +151,43 @@ func TestAnOverrideOnAStoppedLanesPRReachesRootAsUnowned(t *testing.T) {
 	}
 	t.Fatalf("posted = %+v", fake.posted)
 }
+
+func TestAnAppealCitingNoRowThatExistsGoesBackToItsLane(t *testing.T) {
+	const override = "finder-override #47755 at abc1234: 174488. "
+	for name, tc := range map[string]struct {
+		text string
+		stub func(*shelltest.Fake)
+	}{
+		"no such answer": {override + "Answer 1111111 grounds it", func(runner *shelltest.Fake) { runner.Fail(3, "not-found", "ccn") }},
+		"no row at all":  {override + "The finding is wrong", func(*shelltest.Fake) {}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			fake := &fakeBus{tail: []client.Record{{Seq: 9, Lane: "grader-appeals-1", Kind: "decide", At: t0, Text: tc.text}}}
+			runner := &shelltest.Fake{}
+			tc.stub(runner)
+			check := &OverrideRefusals{Env: Env{Bus: fake, Runner: runner, Config: config.Config{Drive: testDrive}}, Store: memory(t)}
+			registerDrive(t)
+
+			if err := check.Check(context.Background(), t0); err != nil {
+				t.Fatal(err)
+			}
+
+			if len(fake.posted) != 1 || fake.posted[0].To[0] != "grader-appeals-1" || !strings.HasPrefix(fake.posted[0].Text, "OVERRIDE-REFUSED cci #9 cites no owner row that exists") {
+				t.Fatalf("posted = %+v", fake.posted)
+			}
+		})
+	}
+}
+
+func TestAnotherLanesDecideNamingAnOverrideDrawsNothing(t *testing.T) {
+	fake := &fakeBus{tail: []client.Record{{Seq: 9, Lane: "lane-7", Kind: "decide", At: t0, Text: "finder-override #47755 at abc1234: 174488"}}}
+	check := &OverrideRefusals{Env: Env{Bus: fake, Runner: &shelltest.Fake{}, Config: config.Config{Drive: testDrive}}, Store: memory(t)}
+
+	if err := check.Check(context.Background(), t0); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(fake.posted) != 0 {
+		t.Fatalf("posted = %+v", fake.posted)
+	}
+}

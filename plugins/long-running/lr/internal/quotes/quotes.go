@@ -161,10 +161,25 @@ func (r *Reader) Check(ctx context.Context, text string) []string {
 }
 
 func (r *Reader) Override(ctx context.Context, record client.Record) []string {
-	if record.Lane != rootLane || len(bus.Overrides(record)) == 0 {
+	if len(bus.Overrides(record)) == 0 || record.Lane != rootLane && !bus.Appeal(record) {
 		return nil
 	}
 	return r.Check(ctx, bus.FullText(record))
+}
+
+func (r *Reader) Grounded(ctx context.Context, record client.Record) (bool, error) {
+	cited := citation.FindAllString(bus.FullText(record), -1)
+	for _, key := range cited {
+		_, err := r.words(ctx, strings.Join(strings.Fields(key), " "))
+		var exit *shell.ExitError
+		if errors.Is(err, ErrUnknownKey) || errors.As(err, &exit) && exit.Code == noSuchNote {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+	}
+	return len(cited) > 0, nil
 }
 
 func (r *Reader) Whole(ctx context.Context, key string) (string, error) {

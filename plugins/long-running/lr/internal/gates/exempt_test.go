@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -67,7 +68,7 @@ func TestTonightsWrongExemptGosAreRefusedFromTheRecordsTheirPostersRead(t *testi
 		want   string
 	}{
 		"#48704 go 350192, a head his tap still holds":             {"48704", 48704, "cb9ae506fc0cd466404f9c05efa86ec23f04462a", 350192, nil, "fidelity-pipeline's newest grade #18147@06eb0455 is missing"},
-		"#48375 go 355825, citing an override that does not exist": {"48375", 48375, "71bd0ab1c2dc27453798cbc7fb75db730f59bf84", 355825, nil, "finder: no finder-desk grade at 71bd0ab, and no root decide reads finder-override #48375"},
+		"#48375 go 355825, citing an override that does not exist": {"48375", 48375, "71bd0ab1c2dc27453798cbc7fb75db730f59bf84", 355825, nil, "finder: no finder-desk grade at 71bd0ab, and no counted decide reads finder-override #48375"},
 		"#48375 after ask 355738, whose text reads as an override": {"48375", 48375, "71bd0ab1c2dc27453798cbc7fb75db730f59bf84", 355739, nil, "finder: no finder-desk grade at 71bd0ab"},
 		"#48879 go 357125, over his open card":                     {"48879", 48879, "c541801b719e3c072b38b1d4ede5afb7af23d3f6", 357125, []Card{countCard}, "owner card card-48879-lookup-count-dedupe is open"},
 		"#48879 go 357125, over a missing fidelity grade":          {"48879", 48879, "c541801b719e3c072b38b1d4ede5afb7af23d3f6", 357125, nil, "fidelity-pipeline's newest grade #55194@b5522464 is missing"},
@@ -130,7 +131,7 @@ func TestAnOverrideCitingARecordThatDoesNotExistSettlesNothing(t *testing.T) {
 	records := recordsBefore(t, "48375", 355825)
 	records = append(records, client.Record{Seq: 355824, Lane: "root", Kind: "decide", Text: "12:22 AM finder-override #48375 at 71bd0ab: 346573"})
 	text, refusals := gate(records, 48375, "71bd0ab1c2dc27453798cbc7fb75db730f59bf84")
-	refusedWith(t, text, refusals, "no root decide reads finder-override #48375 at 71bd0ab citing a record that exists")
+	refusedWith(t, text, refusals, "no counted decide reads finder-override #48375 at 71bd0ab citing a record that exists")
 }
 
 func TestAGradedHeadWithRootsOverrideAndAnExemptClassGetsItsGo(t *testing.T) {
@@ -302,4 +303,22 @@ func TestAFlakeRecordDoesNotExcuseAMissingFidelityGrade(t *testing.T) {
 	records := []client.Record{graded(t, "class test-only")[0], headRecord(t, portHead, `,"flake-fix":"TestChatStream"`)}
 	text, refusals := ExemptGo(Claim{Repo: monorepo, PR: portPR, Head: portHead}, Read{Records: records, Exempt: driveClasses})
 	refusedWith(t, text, refusals, "fidelity: no ok grade at abc1234 names an exempt class")
+}
+
+func TestAnAppealSettlesTheFinderOnlyWhenItsRowWasFound(t *testing.T) {
+	records := recordsBefore(t, "48375", 355825)
+	cite := strconv.FormatInt(records[0].Seq, 10)
+	records = append(records, client.Record{Seq: 355824, Lane: "grader-appeals-1", Kind: "decide", Text: "finder-override #48375 at 71bd0ab: " + cite + ". Row rule/4236611 grounds it"})
+	const at = "71bd0ab1c2dc27453798cbc7fb75db730f59bf84"
+	claim := Claim{Repo: monorepo, PR: 48375, Head: at}
+	finder := func(refusal string) bool { return strings.HasPrefix(refusal, "finder:") }
+
+	_, unfound := ExemptGo(claim, Read{Records: records, GoLanes: goLanes, Exempt: driveClasses})
+	if !slices.ContainsFunc(unfound, finder) {
+		t.Fatalf("an appeal whose row was not found settled the finder: %q", unfound)
+	}
+	_, found := ExemptGo(claim, Read{Records: records, Grounded: map[int64]bool{355824: true}, GoLanes: goLanes, Exempt: driveClasses})
+	if slices.ContainsFunc(found, finder) {
+		t.Fatalf("an appeal whose row exists left the finder refused: %q", found)
+	}
 }

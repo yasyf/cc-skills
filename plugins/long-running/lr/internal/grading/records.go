@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/grading/grader"
 )
 
@@ -396,7 +397,9 @@ func decideSettles(decide client.Record, text, repo, pr string, r client.Record)
 	return strings.HasPrefix(r.Text, fidelityMissing) && r.Seq < decide.Seq && overridden(text, overrideFidelity, pr, sha)
 }
 
-func rootSettled(ctx context.Context, drive, repo, pr string, named []client.Record) (map[string]int64, error) {
+type grounds func(context.Context, client.Record) (bool, error)
+
+func rootSettled(ctx context.Context, drive, repo, pr string, named []client.Record, grounded grounds) (map[string]int64, error) {
 	settled := map[string]int64{}
 	if len(named) == 0 {
 		return settled, nil
@@ -421,10 +424,42 @@ func rootSettled(ctx context.Context, drive, repo, pr string, named []client.Rec
 		}
 	}
 	pull := repo + "#" + pr
+	if err := settleByCountedOverrides(ctx, drive, pull, pr, oldest, named, settled, grounded); err != nil {
+		return nil, err
+	}
 	if err := settleByRebuttals(ctx, drive, repo, pr, pull, oldest, seqs, settled); err != nil {
 		return nil, err
 	}
 	return settled, settleByAcceptance(ctx, drive, pull, seqs, settled)
+}
+
+func settleByCountedOverrides(ctx context.Context, drive, pull, pr string, oldest int64, named []client.Record, settled map[string]int64, grounded grounds) error {
+	decides, err := client.Tail(ctx, client.Query{Drive: drive, Kinds: []string{kindDecide}, PR: pull, After: oldest})
+	if err != nil {
+		return err
+	}
+	for _, decide := range decides {
+		if decide.Lane != bus.SweepLane {
+			if !bus.Appeal(decide) {
+				continue
+			}
+			if counts, err := grounded(ctx, decide); err != nil || !counts {
+				continue
+			}
+		}
+		text := fullText(decide)
+		for _, r := range named {
+			if !hasSettled(settled, r.Seq) && r.Seq < decide.Seq && overrideNames(text, pr, r.Text) {
+				settled[strconv.FormatInt(r.Seq, 10)] = decide.Seq
+			}
+		}
+	}
+	return nil
+}
+
+func overrideNames(text, pr, grade string) bool {
+	sha := shortSHA.FindString(grade)
+	return strings.HasPrefix(grade, finderLine) && overridden(text, overrideFinder, pr, sha) || strings.HasPrefix(grade, fidelityMissing) && overridden(text, overrideFidelity, pr, sha)
 }
 
 func settleByRebuttals(ctx context.Context, drive, repo, pr, pull string, oldest int64, seqs map[int64]bool, settled map[string]int64) error {

@@ -44,6 +44,7 @@ const (
 )
 
 var (
+	OverrideFacts  = []string{machine.OverrideFact(finderKind), machine.OverrideFact(fidelityKind)}
 	DeltaFacts     = []string{DeltaFact, DeltaFromFact, DeltaWhyFact}
 	carryingWords  = map[string]string{DeltaRebase: "a rebase", DeltaReviewFix: "a review fix", DeltaOrderedFix: "a fix the owner ordered"}
 	returningWords = map[string]string{DeltaBehavior: "a behavior change", DeltaScope: "a scope change"}
@@ -86,6 +87,39 @@ func DiffHash(diff string) string {
 
 func SameDiff(atFrom, atHead map[string]string) bool {
 	return atFrom[DiffFact] != "" && atFrom[DiffFact] == atHead[DiffFact]
+}
+
+func CarriedOverrides(atFrom, atHead map[string]string) []string {
+	if atHead[verdictFact] != "" || !SameDiff(atFrom, atHead) {
+		return nil
+	}
+	var carried []string
+	for _, grader := range []string{finderKind, fidelityKind} {
+		if atFrom[machine.OverrideFact(grader)] != "" {
+			carried = append(carried, grader)
+		} else if grade := cmp.Or(atHead[grader], atFrom[grader]); grade != string(machine.FinderClear) && grade != string(machine.FidelityPass) {
+			return nil
+		}
+	}
+	return carried
+}
+
+func CarriedOverride(number int, head, from, grader, cites string) string {
+	cited := ""
+	if cites != "accept" {
+		cited = ": " + cites
+	}
+	return fmt.Sprintf("%s-override #%d at %s%s. Carried from %s, whose own diff is the same.", grader, number, head, cited, short(from))
+}
+
+func OverrideHeads(facts []store.HeadFact, head string) []string {
+	var heads []string
+	for _, fact := range slices.Backward(facts) {
+		if !sameHead(fact.Head, head) && !slices.Contains(heads, fact.Head) {
+			heads = append(heads, fact.Head)
+		}
+	}
+	return heads
 }
 
 func CarriedBy(tapped, head string, atTap, atHead map[string]string, deltas []store.HeadFact) (by, returned string) {
