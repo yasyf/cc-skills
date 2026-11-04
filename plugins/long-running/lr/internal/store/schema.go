@@ -135,6 +135,7 @@ CREATE TABLE IF NOT EXISTS holds (
 CREATE INDEX IF NOT EXISTS holds_open ON holds (repo, number) WHERE lifted IS NULL;
 CREATE INDEX IF NOT EXISTS holds_until ON holds (repo, until) WHERE lifted IS NULL;
 CREATE TABLE IF NOT EXISTS changes (repo TEXT NOT NULL, head TEXT NOT NULL, change TEXT NOT NULL, PRIMARY KEY (repo, head));
+CREATE INDEX IF NOT EXISTS grades_head ON grades (repo, head);
 CREATE TABLE IF NOT EXISTS behaviors (
   repo TEXT NOT NULL, number INTEGER NOT NULL, head TEXT NOT NULL, since TEXT NOT NULL, behavior TEXT NOT NULL,
   what_changed TEXT NOT NULL, record TEXT NOT NULL, at TEXT NOT NULL,

@@ -362,14 +362,15 @@ func tapOf(tx *store.Tx, repo Repo, f store.PRFacts, change string, grades map[s
 	if err != nil {
 		return "", nil, "", err
 	}
-	if tap.Verdict == string(machine.TapConditional) && tap.Head != f.Head {
+	own := strings.HasPrefix(f.Head, tap.Head)
+	if tap.Verdict == string(machine.TapConditional) && !own {
 		tap = store.Tap{}
 	}
 	carry := func(from store.Tap, proof store.Proof, grade string) *store.Carry {
 		return &store.Carry{Repo: repo.Name, Number: f.Number, FromNumber: from.Number, FromHead: from.Head, ToHead: f.Head, Proof: proof, Grade: grade, At: f.At}
 	}
 	if tap.Verdict != "" {
-		if tap.Head == f.Head {
+		if own {
 			return tap.Verdict, nil, "", nil
 		}
 		return tap.Verdict, carry(tap, store.ProofSameDiff, ""), "", nil

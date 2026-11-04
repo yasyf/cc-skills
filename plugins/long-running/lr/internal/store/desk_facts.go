@@ -201,20 +201,24 @@ func (t *Tx) PutChange(repo, head, change string) error {
 	if _, err := t.tx.Exec("INSERT INTO changes (repo, head, change) VALUES (?, ?, ?) ON CONFLICT (repo, head) DO UPDATE SET change = excluded.change", repo, head, change); err != nil {
 		return err
 	}
-	if _, err := t.tx.Exec("UPDATE OR IGNORE taps SET change = ? WHERE repo = ? AND change = ?", change, repo, head); err != nil {
+	if _, err := t.tx.Exec("UPDATE OR IGNORE taps SET change = ?1 WHERE repo = ?2 AND change BETWEEN substr(?3, 1, 7) AND ?3 AND substr(?3, 1, length(change)) = change", change, repo, head); err != nil {
 		return err
 	}
-	_, err := t.tx.Exec("UPDATE grades SET change = ? WHERE repo = ? AND head = ? AND change = ''", change, repo, head)
+	_, err := t.tx.Exec("UPDATE grades SET change = ?1 WHERE repo = ?2 AND change = '' AND head BETWEEN substr(?3, 1, 7) AND ?3 AND substr(?3, 1, length(head)) = head", change, repo, head)
 	return err
 }
 
 func (t *Tx) ChangeOf(repo, head string) (string, error) {
-	var change string
-	err := t.tx.QueryRow("SELECT change FROM changes WHERE repo = ? AND head = ?", repo, head).Scan(&change)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", nil
+	rows, err := t.tx.Query("SELECT change FROM changes WHERE repo = ?1 AND head BETWEEN ?2 AND ?2 || 'g' AND substr(head, 1, length(?2)) = ?2 LIMIT 2", repo, head)
+	found, err := collect(rows, err, func(rows *sql.Rows) (string, error) {
+		var change string
+		err := rows.Scan(&change)
+		return change, err
+	})
+	if err != nil || len(found) != 1 {
+		return "", err
 	}
-	return change, err
+	return found[0], nil
 }
 
 func (t *Tx) PutBehavior(b Behavior) error {
