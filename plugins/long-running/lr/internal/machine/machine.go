@@ -149,6 +149,7 @@ type Facts struct {
 	Carries       []int
 	Condition     string
 	UnsafeWait    string
+	Body          string `json:"-"`
 	GradeStopped  string
 }
 

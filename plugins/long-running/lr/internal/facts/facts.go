@@ -661,6 +661,7 @@ func (s Source) factsOf(row statusRow, pr pullRequest, required []string, stored
 		Tap:          machine.Tap(stored["tap"]),
 		Condition:    stored["condition"],
 		UnsafeWait:   gates.UnsafeWait(pr.Body),
+		Body:         pr.Body,
 		GradeStopped: stored[machine.GradeStoppedFact],
 	}
 	if queue == machine.QueueQueued {

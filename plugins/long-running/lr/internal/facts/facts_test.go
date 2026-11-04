@@ -221,6 +221,9 @@ func TestTheOpenListReadNamesTheWaitEachDrivePRsBodyLeavesUnsafeOnDev(t *testing
 	if got[1].UnsafeWait != "This goes live only after #46014 is live on every cluster" || got[2].UnsafeWait != "" {
 		t.Fatalf("waits = %q, %q", got[1].UnsafeWait, got[2].UnsafeWait)
 	}
+	if !strings.Contains(got[1].Body, "This goes live only after #46014") {
+		t.Fatalf("body = %q, want the PR body the review row reads its fields from", got[1].Body)
+	}
 }
 
 func TestADraftIsReadAsADraft(t *testing.T) {
