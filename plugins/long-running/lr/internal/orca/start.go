@@ -22,6 +22,7 @@ import (
 )
 
 const (
+	warmLane               = "tools/hooks/warm-lane.sh"
 	agentClaude            = "claude"
 	agentCodex             = "codex"
 	agentIncident          = "incident"
@@ -796,11 +797,11 @@ func (l *launch) start() (string, error) {
 	if err := l.runPrepare(); err != nil {
 		return "", l.fail("prepare: %v", err)
 	}
-	if info, err := os.Stat(filepath.Join(l.wt, "tools", "hooks", "warm-lane.sh")); err == nil && info.Mode().IsRegular() {
+	if l.hasWarmLane() {
 		l.node = " node_modules is a shared symlink farm; never run yarn install, ask warm-lane to rebuild for a changed lockfile."
 	}
 	if out, _ := l.output(shell.Command{Argv: []string{"git", "-C", l.wt, "config", "--get", "--bool", "core.sparseCheckout"}}); strings.TrimSpace(out) == "true" {
-		l.sparse = " This lane is sparse: widen with `git sparse-checkout add <dir>` before reading outside it."
+		l.sparse = " This lane is sparse: widen with `lr sparse add <dir>` before reading outside it."
 	}
 	if err := l.composeSpec(); err != nil {
 		return "", l.fail("spec: %v", err)
@@ -934,7 +935,13 @@ func (l *launch) sparseCone(briefText string) []string {
 	if strings.Count(listing, "\n") <= l.sparseFiles {
 		return nil
 	}
-	return cone
+	return withGoModules(cone, func(goMod string) string {
+		read, code := l.output(shell.Command{Argv: []string{"git", "-C", l.wt, "show", "HEAD:" + goMod}})
+		if code != 0 {
+			return ""
+		}
+		return read
+	})
 }
 
 func (l *launch) addSparseWorktree() error {
@@ -984,7 +991,7 @@ func (l *launch) addSparseWorktree() error {
 		return l.fail("worktree checkout %s: %s", l.wt, tailLines(said+checkedOut.String(), 3))
 	}
 	if len(cone) > 0 {
-		fmt.Fprintf(l.Stderr, "%s sparse: %s; widen with git -C %s sparse-checkout add <dir>\n", l.lane, strings.Join(cone, " "), l.wt)
+		fmt.Fprintf(l.Stderr, "%s sparse: %s; widen with cd %s && lr sparse add <dir>\n", l.lane, strings.Join(cone, " "), l.wt)
 	}
 	if err := l.listedWorktree(); err != nil {
 		return err
@@ -1054,7 +1061,15 @@ func (l *launch) placeWorktree() error {
 	return l.createWorktree()
 }
 
+func (l *launch) hasWarmLane() bool {
+	info, err := os.Stat(filepath.Join(l.wt, warmLane))
+	return err == nil && info.Mode().IsRegular()
+}
+
 func (l *launch) runPrepare() error {
+	if l.prepare == "" && l.hasWarmLane() {
+		l.prepare = warmLane
+	}
 	if !l.created || l.prepare == "" {
 		return nil
 	}

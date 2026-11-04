@@ -249,7 +249,7 @@ Only the terminal bound to the Run may call worker-start, so a launch from any o
   ORCA_LAUNCH_CODEX_MCP      inline TOML table for an incident worker's mcp_servers, default {}
   ORCA_LAUNCH_BOOT_SECONDS   ceiling on the waits for a terminal, its agent and its first turn, default 180
   ORCA_LAUNCH_WORKTREE_SECONDS  ceiling on the waits for a worktree to register and check out, default 180
-  ORCA_LAUNCH_PREPARE        shell command run in each worktree this launch creates, before its worker starts
+  ORCA_LAUNCH_PREPARE        shell command run in each worktree this launch creates, before its worker starts, default tools/hooks/warm-lane.sh where the worktree has it
   ORCA_LAUNCH_PREPARE_SECONDS  ceiling on that command, default 120
   ORCA_LAUNCH_SPARSE         1 adds each new worktree by git worktree add
   ORCA_LAUNCH_SPARSE_FILES   tracked-file count above which an added worktree is sparse, default 5000`,
