@@ -1,10 +1,8 @@
 # The chores lane's brief
 
-The communicator launches one chores lane per drive at drive start, on Sonnet, as a
-sibling Orca session bound to its own lane `chores`
-(`lr launch chores <state dir>/chores/brief.md`). Each call the coordinator makes re-reads
-its whole context, so every read and shell chore it would run itself runs here instead.
-Fill the angle brackets and write the result to `<state dir>/chores/brief.md`.
+The chores lane runs the coordinator's reads, counts, tables and cleanups. Each call the coordinator makes re-reads its whole context, so every read and shell chore it runs itself runs here instead.
+
+The communicator launches one chores lane per drive at drive start, on Sonnet, as a sibling Orca session bound to its own lane `chores`: `lr launch chores <state dir>/chores/brief.md`. Fill the angle brackets and write the result to `<state dir>/chores/brief.md`.
 
 ```
 # chores: the coordinator's chores lane on the <drive> drive

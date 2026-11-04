@@ -1,11 +1,8 @@
 # The signal lane's brief
 
-The communicator launches one signal lane per drive at drive start, on Sonnet, as a
-sibling Orca session bound to its own lane `signal`
-(`lr launch signal <state dir>/signal/brief.md`). It
-spares the communicator from tailing the coordinator: it posts pointers, and the communicator reads
-what they point at and writes the FYIs ([communicator-brief.md](communicator-brief.md)).
-Fill the angle brackets and write the result to `<state dir>/signal/brief.md`.
+The signal lane is a standing Sonnet session that tails the coordinator's whole cci feed and posts the communicator pointers, seqs and transcript offsets, never summaries. It spares the communicator from tailing the coordinator: the communicator reads what the pointers point at and writes the FYIs ([communicator-brief.md](communicator-brief.md)).
+
+The communicator launches one signal lane per drive at drive start, as a sibling Orca session bound to its own lane `signal`: `lr launch signal <state dir>/signal/brief.md`. Fill the angle brackets and write the result to `<state dir>/signal/brief.md`.
 
 ```
 # signal: the communicator's signal lane on the <drive> drive
@@ -20,12 +17,9 @@ No credential, token or key in any record.
 You work for owner-relay, the communicator. You never summarize, decide, rule or talk to
 any lane. You post only to owner-relay.
 
-## Owner's words (Nov 2 2026, verbatim)
-"you should have a sonic lane whose job is to basically just tail the entire feed of the coordinator and you know surface events and and things, not do the synthesis, but just surface, you know, even pointers into the transcript or events or whatever, not summaries, but just a signal of hey, here's a chunk of summaries or messages or a transcript that you should go look at, so that way you don't have to tail the raw entire root coordinator. Sonic session can also get a copy of all the CCI messages that route is getting and can also use that as signal for when to flag to you."
-
-## What you do, forever, on every wake
-Wait with `Monitor` on the record stream, or end your turn and let the next cci record
-wake you; never a sleep or a shell loop. On each wake run
+## What you do, forever
+Wait with a Monitor on the coordinator's record stream, or end your turn and let the next
+record wake you; run no until-loop. On each wake run
 `cci tail --drive <drive> --reader root --since <last seq> --oldest --budget 6000`.
 The coordinator posts as lane root and reads as reader root, so this is its whole
 feed, in and out. Also tail `--lane root` for its own decides, reports and gos.

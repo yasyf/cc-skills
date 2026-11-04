@@ -35,10 +35,11 @@ Approve every approval step of this release yourself; its migrations are no seco
 ask. An owner's order to release is the approval of every gate: a start with
 `--order` passes its gate on its own, the deletes and replaces its plan names count
 in the `fix-live` text, and you never ask again. Only a delete or replace outside that
-plan stops, and it reaches the coordinator as a `blocker` (`--to root`). Without his
-order a delete or replace goes to the coordinator the same way. Never cancel it mid-apply. Never ask the owner
-anything; a refusal you cannot get past goes to the coordinator as a `blocker` with the
-command and its output.
+plan stops, and it reaches the coordinator as a `blocker` (`--to root`). Without
+his order a delete or replace goes to the coordinator the same way.
+
+Never cancel a release mid-apply. Never ask the owner anything; a refusal you cannot
+get past goes to the coordinator as a `blocker` with the command and its output.
 
 Scale: no N; this lane cuts a release and writes no code.
 

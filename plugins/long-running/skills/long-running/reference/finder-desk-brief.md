@@ -57,7 +57,7 @@ Read the code around every changed symbol at that sha, its callers and callees i
    "test <name> pins unplanned behavior:".
    A port is a change whose PR body, or the fidelity grade it quotes, says it ports an
    old-tree PR by number. For a port, a test that asserts what a test of that old-tree PR
-   asserts is graded against the old-tree PR, which is the contract (plan 0.4; rule 784f1ab:
+   asserts is graded against the old-tree PR, which is the contract (rule 784f1ab:
    a port keeps its regression tests), never against the plan: cite it as
    "tests: <test> <- old-tree #<n>" and raise no "pins unplanned behavior" finding for it.
    Read the old-tree PR's tests pinned by sha: `git ls-remote origin refs/pull/<n>/head`,

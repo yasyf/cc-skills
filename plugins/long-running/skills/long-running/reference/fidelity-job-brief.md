@@ -23,7 +23,8 @@ PR's own commits add or change, as new-file line ranges:
 
 The rows you grade against are in {rows}. Each holds the owner's words verbatim, oldest
 first, and for a tap the board card it answered, agent-written apart from what he picked or
-typed. Read his words for what he meant, given what they answered, never word for word:
+typed. His answers in that file are the ones this PR cites, the topics it names and the top-ranked on its title's scope, not everything he has said. Before you call an answer or a ruling of his absent, look: `ccn answer show <id>` reads one by id, and `ccn answer search <word>` finds one by subject; use one or two words, since every word must match.
+Read his words for what he meant, given what they answered, never word for word:
 - A tap picks one option and rules out the others on its card, so a head that builds an
   option he passed over breaks the row. The card's wording is ours: where an option says
   less than his own words, his words rule.
@@ -33,6 +34,11 @@ typed. Read his words for what he meant, given what they answered, never word fo
   exception or a smaller count his words lack ("per X", "same X"), or too literally,
   applying his words to cases his purpose does not cover so that it adds the very cost his
   words removed.
+- A row keyed `answer/<id>` is one of his answers in cc-notes on a topic this PR's text names
+  or its files touch. A head that builds what the answer rules out, or drops what it asks for,
+  breaks it even where the plan says nothing: that is `missing` keyed `answer/<id>`, and the
+  grade line reads "departs from ruling <id>". Only a newer answer of his changes a ruling, and
+  it supersedes the old one in cc-notes, so an answer row in this file still binds.
 A design row or exception holds the plan's text, the coordinator's words his answers approve.
 Where a row names where it bears (names, surfaces, tests), that is the coordinator's reading, a
 pointer and never the standard. The rows file leaves out the register's implications on
@@ -102,8 +108,9 @@ Answer in the schema:
 - `touches`: the key of every reserved row the head touches, whatever the verdict.
 - `exempt`: `port` only when the PR ports an old-tree PR its body names by number, line for
   line, and touches no code or behavior the plan's steps changed or own ("{port}");
-  `test-only` only when every file it changes is a test or CI configuration ("{test_only}");
   any other class among {classes} only when the head is what its words say; `none` otherwise.
+  A class the changed paths alone decide, such as test-only or ci-tooling, is not yours to
+  name: the pass reads it from the diff's files.
 - `old_app`: what the head changes for a user of the live old app, against {baseline}:
   `unchanged` when it touches nothing the old app runs, `bug fix` when it only fixes a defect
   in what the old app does, `changes` otherwise; `why` names the paths or behavior that
@@ -151,7 +158,7 @@ Missing points the coordinator settled on this PR. Do not raise one again, in th
 this head changes the code it cites:
 {settled}
 
-Coordinator's decides and answers about this PR. A point one of them settles stays settled for every later
+The coordinator's decides and answers about this PR. A point one of them settles stays settled for every later
 head, in any wording:
 {root_rulings}
 

@@ -2,21 +2,29 @@
 
 The coordinator starts `drive-watchdog` remote with `lr desks start`, model opus, effort xhigh, beside the landing desk.
 
-## Coordinator discipline
+## Contents
 
-**W1. One lane watches the whole drive against the plan.** `drive-watchdog` reads every lane's cci records and judges each for off-plan work, distractions, excuses or deferrals, parked lanes, and coordinator drift. The watchdog posts each finding as a `decide` to the lane and the coordinator with the correction and the rule it cites. When the lane has not corrected within 15 minutes, `drive-watchdog` posts again to the coordinator. This desk writes no code and leaves stopping a lane to the coordinator, which acts on its second post that turn.
+- [Rules for the watchdog and the coordinator](#rules-for-the-watchdog-and-the-coordinator)
+- [Spawn brief](#spawn-brief)
 
-The coordinator addresses the watchdog over the cci bus and never by `SendMessage` under I4 in [bus-contracts.md](bus-contracts.md), using `cci post --drive <drive> --lane root --kind decide --to drive-watchdog --text "<ruling>"`.
+## Rules for the watchdog and the coordinator
 
-Within 10 minutes of a watchdog `decide`, the coordinator re-briefs the lane, stands it down, or posts the ruling that makes the finding moot. The coordinator never argues a finding in a reply; it fixes the cause or records the plan line that makes the work on-plan.
+**W1. One lane watches the whole drive against the plan.** `drive-watchdog` judges every lane's cci records and posts each finding as a `decide` (the spawn brief has the classes, the post and the 15-minute follow-up). It writes no code and leaves stopping a lane to the coordinator, which acts on the second post that turn.
+- The coordinator addresses the watchdog over the cci bus, never by `SendMessage` (I4 in [bus-contracts.md](bus-contracts.md)): `cci post --drive <drive> --lane root --kind decide --to drive-watchdog --text "<ruling>"`.
+- Within 10 minutes of a watchdog `decide`, the coordinator re-briefs the lane, stands it down, or posts the ruling that makes the finding moot. It never argues a finding in a reply; it fixes the cause or records the plan line that makes the work on-plan.
 
-**W2. The watchdog keeps the retro.** Each finding is one entry in its cc-notes log, tagged `[step <n>]` with the plan step it slowed. That log feeds the owner table's last column in [owner-report-table.md](owner-report-table.md). Every 30 minutes the watchdog posts the coordinator the top three things slowing the critical path. It feeds no dashboard.
+**W2. The watchdog keeps the retro.** Its cc-notes log feeds the owner table's last column ([owner-report-table.md](owner-report-table.md)). It feeds no dashboard.
 
-**W3. No sweep finding or owner pick is lost.** A sweep or audit lane posts each finding with `bin/findings.py post --sweep <lane> --owner <lane> --verdict <word> [--pr N] [--line path:line] <text>`, which posts a cci `defect` opening with `[finding:<lane>]` addressed to the lane that owns the fix. `findings.py sync` keeps every finding, and every pick or write-in the owner gives on a board card, as a row of the drive's findings ledger in `findings.json` in the state dir. A row stays open until a later `head` or `landed` record names its PR or seq, or a pick's card, which marks it fixed. An answer or a resolve without a fix marks it routed and still live, because a finding never waits on a card.
+**W3. No sweep finding or owner pick is lost.**
+- A sweep or audit lane posts each finding with `bin/findings.py post --sweep <lane> --owner <lane> --verdict <word> [--pr N] [--line path:line] <text>`. That posts a cci `defect` opening with `[finding:<lane>]`, addressed to the lane that owns the fix.
+- `findings.py sync` keeps every finding, and every pick or write-in the owner gives on a board card, as a row of the drive's findings ledger (`findings.json` in the state dir).
+- A row stays open until a later `head` or `landed` record names its PR or seq, or a pick's card, which marks it fixed. An answer or a resolve without a fix marks it routed and still live, because a finding never waits on a card.
+- `findings.py open` prints the open and routed rows by sweep. `findings.py track <seq>` adds an older record. `findings.py close --why` settles a one-shot pick no lane builds.
+- A lane that builds a pick names the pick's seq or card in its `HEAD` record.
+- The fidelity pipeline ([fidelity-desk-brief.md](fidelity-desk-brief.md)) grades a head `missing` with no model call while its PR has an open finding.
+- `drive-watchdog` raises a finding open two hours with no fix head to the coordinator. The dashboard's What failed section lists the open rows per sweep.
 
-`findings.py open` prints the open and routed rows by sweep, `findings.py track <seq>` adds an older record, and `findings.py close --why` settles a one-shot pick no lane builds. A lane that builds a pick names the pick's seq or card in its `HEAD` record. The fidelity pipeline in [fidelity-desk-brief.md](fidelity-desk-brief.md) grades a head `missing` with no model call while its PR has an open finding. `drive-watchdog` raises a finding open two hours with no fix head to the coordinator, and the dashboard's What failed section lists the open rows per sweep.
-
-**W4. A measure-and-improve loop runs no round unasked.** Before each new full round, the coordinator puts stop-or-go to the owner with a `reply` card that carries what the last round moved, rounds run, days elapsed, and running cost. A round ordered without one is a finding at once, because a scorecard that keeps improving never says the loop should stop. Six rounds ran on `dagger-spike` with the watchdog posting no findings, until the owner wrote on Nov 3 at 6:14 PM, "this has been going on for days what on earth have you been doing", and at 6:15 PM, "just spin down the pool if ur just wasting time and not geting this to be faster". The coordinator answers the finding by holding the round and sending that card.
+**W4. A measure-and-improve loop runs no round unasked.** Before each new full round, the coordinator puts stop-or-go to the owner with a `reply` card that carries what the last round moved, rounds run, days elapsed, and running cost. A round ordered without one is a finding at once, because a scorecard that keeps improving never says the loop should stop. The coordinator answers the finding by holding the round and sending that card.
 
 ## Spawn brief
 
@@ -34,8 +42,8 @@ its block, row and head; an empty tap list or a coordinator go is no tap.
 `lr approved [--since <seq>]` lists the PRs the board approved, split into not open
 and still open, from one record read and one batched PR read; never rebuild that list
 from records.
-`lr lanes` names a lane on another node by its record's own clock: `heard 4:12 AM on
-110f10f5, arrived 55 min late`. It reads `lagging` until as long as that delay has passed,
+`lr lanes` names a lane on another node by its record's own clock: `heard <time> on
+<node>, arrived <n> min late`. It reads `lagging` until as long as that delay has passed,
 because this node cannot yet tell a silent lane from a late replica; only `silent` is silence.
 An escalation subject of the form `<kind>/<count>/<sum>` is one record for many waits;
 `cci show <seq>` prints each id and what moves it.

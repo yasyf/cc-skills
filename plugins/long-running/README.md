@@ -50,7 +50,7 @@ The resumed the coordinator runs `drive.py start --drive <id> --ledger <id>` to 
 
 | Piece | Kind | What it does |
 | --- | --- | --- |
-| `long-running:long-running` | skill | Context discipline for multi-lane orchestration: twenty-four hard rules (R1-R24) plus landing-desk D-rules applied with judgment first, ready-to-paste `reference/` lane briefs, and templates for the lane brief, scoped resume, sequencer lane, merge train lane, polling loop, and compaction handoff |
+| `long-running:long-running` | skill | Context discipline for multi-lane orchestration: numbered rules (R1-R25) plus landing-desk D-rules applied with judgment first, ready-to-paste `reference/` lane briefs, and templates for the lane brief, scoped resume, sequencer lane, merge train lane, polling loop, and compaction handoff |
 | `long-running:lane` | agent | A desk, shard, sequencer, poller, or other lane that invokes no skill; restricted tool allowlist that leaves out `Skill`, `ToolSearch`, and every Model Context Protocol tool except `cc-slack`, 1h prompt cache so a nine-minute poll never rewrites its context |
 | `long-running:lane-ship` | agent | `lane` plus the `Skill` tool, for an implementation lane that ships a PR or calls a skill such as `submit-pr`, `open-pr`, or `codex` |
 | `capt-hook/hooks/` | hook pack | About 30 captain-hook hooks, among them `root_context`, `task_list`, `lane_landing`, and `settled_questions`. They warn by default and block only on trust: an unapproved merge, revert, or rollback, hook-file edits, and session-protection guards. A judgment reminder re-injects the rules every 30 minutes; `judgment_reminder_minutes` changes it. |

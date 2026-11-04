@@ -10,6 +10,12 @@ A lane classes a red head with `cci post --kind red --pr <n> --text "class=<inhe
 
 A red head opens a `fix-red` item for the PR's lane with a 20-minute clock, and past it the item goes to the coordinator, whether or not a `red-sweep` lane is live.
 
+A red or conflicting PR that stays stalled after its first alert is re-alerted at a fixed interval until it is green or closed, and each stalled-red alert is routed to its owner in the same turn it arrives.
+
+## Fix flakes and dev reds together
+
+Never fix flakes and dev reds one at a time. Build a complete seven-day census from merge-queue flaky analytics, CI retries and red-sweep classes, then run one cause-fix lane per class. A fix changes code or harness, never test expectations; a retry, rerun, resume, sleep, or flake flag is no fix. A flaky test the owner names is fixed at its cause the same turn.
+
 ## Spawn brief
 
 Fill the angle brackets and paste the brief.
