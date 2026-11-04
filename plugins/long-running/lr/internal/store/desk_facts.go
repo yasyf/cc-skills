@@ -247,8 +247,8 @@ func (t *Tx) OpenHold(h Hold) error {
 	return err
 }
 
-func (t *Tx) LiftBy(key, lifter string, at time.Time) ([]Hold, error) {
-	rows, err := t.tx.Query("UPDATE holds SET lifted = ?1 WHERE (key = ?2 OR key LIKE ?2 || '#%') AND lifter = ?3 AND lifted IS NULL RETURNING "+holdColumns, Stamp(at), key, lifter)
+func (t *Tx) LiftAll(key string, at time.Time) ([]Hold, error) {
+	rows, err := t.tx.Query("UPDATE holds SET lifted = ?1 WHERE (key = ?2 OR key LIKE ?2 || '#%') AND lifted IS NULL RETURNING "+holdColumns, Stamp(at), key)
 	return collect(rows, err, func(rows *sql.Rows) (Hold, error) { return scanHold(rows) })
 }
 

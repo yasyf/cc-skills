@@ -104,7 +104,6 @@ type Behavior struct {
 type Lift struct {
 	Meta
 	Hold string
-	By   machine.Mover
 }
 
 type Timer struct {
@@ -225,7 +224,7 @@ func (e Hold) past(tx *store.Tx) (bool, time.Time, error) {
 }
 
 func (e Lift) record(tx *store.Tx) ([]int, error) {
-	lifted, err := tx.LiftBy(e.Hold, string(e.By), e.At)
+	lifted, err := tx.LiftAll(e.Hold, e.At)
 	touched := make([]int, 0, len(lifted))
 	for _, h := range lifted {
 		touched = append(touched, h.Number)
