@@ -241,6 +241,7 @@ func inputs(t *testing.T) Inputs {
 			{Number: "3", Title: "3. The writers", Tasks: []plans.Task{{Title: "Writers", State: plans.Open}}},
 		}}},
 		Programs: []Program{{"cci token cut", "building", "nothing", "lands tonight"}},
+		Streams:  []Workstream{{"Sealed journal", []string{"ship"}, "building", "readers ported", "nothing", "nothing"}},
 	}
 }
 
@@ -308,5 +309,40 @@ func TestAPlainWordsUpdatePassesOnItsSubjectsWithNoRawIds(t *testing.T) {
 	written := "The journal readers are moving to the sealed format. We are measuring idle resources across every worker: measure is half done."
 	if got, want := Missing(written, needs), []string{"#48402"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("missing = %v", got)
+	}
+}
+
+func TestAStandingDeskIsOnNoPlanStepEvenWhenItsStepOrItsRecordsNameOne(t *testing.T) {
+	in := inputs(t)
+	desk := heard("meta-desk-3", "desired", 5)
+	desk.Standing, desk.Step = "drive tooling", "3"
+	in.Lanes = append(in.Lanes, desk)
+	in.Records = append(in.Records, record(6, "meta-desk-3", "report", "plan step 2 and step 3 tooling rows", 4))
+	report := Render(in)
+	for _, title := range []string{"### The readers\n", "### The writers\n"} {
+		_, after, found := strings.Cut(report.Text, title)
+		if !found {
+			t.Fatalf("no %q in\n%s", title, report.Text)
+		}
+		step, _, _ := strings.Cut(after, "\n#")
+		if strings.Contains(step, "meta-desk-3") {
+			t.Errorf("%s carries the desk:\n%s", title, step)
+		}
+	}
+}
+
+func TestAStepWithTasksInProgressAndNoLaneCallsThemStaleAndNamesTheLastLaneThatWorkedIt(t *testing.T) {
+	old := heard("readers-1", "retired", 600)
+	desk := heard("meta-desk-3", "desired", 5)
+	desk.Standing = "drive tooling"
+	v := viewOf([]Lane{old, desk}, []Record{record(1, "readers-1", "report", "step 4 half ported", 300), record(2, "meta-desk-3", "report", "step 4 tooling", 5)}, nil)
+	tasks := []plans.Task{{Title: "Port", State: plans.InProgress}, {Title: "Base", State: plans.Done}}
+	worked := v.stepRow("Step 4", "4. The readers", &plans.Step{Number: "4", Tasks: tasks}, nil)
+	if want := "1 of 2 tasks done, 1 stale with no lane on them, 0 blocked; last worked by readers-1, report " + pacific(ago(300)); worked.State != want {
+		t.Fatalf("state = %q", worked.State)
+	}
+	untouched := v.stepRow("Step 5", "5. The writers", &plans.Step{Number: "5", Tasks: tasks}, nil)
+	if want := "1 of 2 tasks done, 1 stale with no lane on them, 0 blocked; no lane record names it"; untouched.State != want {
+		t.Fatalf("state = %q", untouched.State)
 	}
 }
