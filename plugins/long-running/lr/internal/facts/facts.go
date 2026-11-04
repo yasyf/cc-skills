@@ -137,8 +137,12 @@ func (s Source) WriteRows(ctx context.Context, snapshot []machine.Facts) error {
 	if err != nil {
 		return errors.Join(posted, err)
 	}
-	_, err = s.Rows().Pass(ctx, heldWords(held))
-	return errors.Join(posted, err)
+	rows, err := s.Rows().Pass(ctx, heldWords(held))
+	if err != nil {
+		return errors.Join(posted, err)
+	}
+	readRows(snapshot, rows)
+	return posted
 }
 
 func liveNumbers(rows []store.ReviewRow) []int {
@@ -174,10 +178,21 @@ func (s Source) fromRows(rows []store.ReviewRow, held map[int]hold) ([]machine.F
 			return nil, err
 		}
 		f.Hold, f.HoldSeq = held[row.Number].by, held[row.Number].seq
-		f.RowWait = gates.RowWait(row, true, row.Head)
 		out = append(out, f)
 	}
+	readRows(out, rows)
 	return out, nil
+}
+
+func readRows(snapshot []machine.Facts, rows []store.ReviewRow) {
+	drawn := make(map[int]store.ReviewRow, len(rows))
+	for _, row := range rows {
+		drawn[row.Number] = row
+	}
+	for at := range snapshot {
+		row, found := drawn[snapshot[at].Number]
+		snapshot[at].RowWait = gates.RowWait(row, found, snapshot[at].Head)
+	}
 }
 
 func factsOfRow(repo string, row store.ReviewRow, stored map[string]string) (machine.Facts, error) {
@@ -621,9 +636,7 @@ func (s Source) assemble(ctx context.Context, rows []statusRow, open memberRead,
 	if err != nil {
 		return nil, err
 	}
-	drawn := make(map[int]store.ReviewRow, len(known))
 	for _, row := range known {
-		drawn[row.Number] = row
 		if owners[row.Number] == "" {
 			owners[row.Number] = row.Lane
 		}
@@ -643,8 +656,6 @@ func (s Source) assemble(ctx context.Context, rows []statusRow, open memberRead,
 			return nil, err
 		}
 		f.Hold, f.HoldSeq, f.Carries = held[row.Number].by, held[row.Number].seq, open.carries[row.Number]
-		review, found := drawn[row.Number]
-		f.RowWait = gates.RowWait(review, found, row.Head)
 		if author := open.authors[row.Number]; author != s.Author {
 			f.ForeignAuthor = author
 		}
@@ -657,6 +668,7 @@ func (s Source) assemble(ctx context.Context, rows []statusRow, open memberRead,
 		}
 		out = append(out, f)
 	}
+	readRows(out, known)
 	return out, nil
 }
 

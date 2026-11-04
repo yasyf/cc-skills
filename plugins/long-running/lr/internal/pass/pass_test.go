@@ -863,17 +863,41 @@ func TestOnlyAGreenOpenHeadThatCanBeGradedStartsTheUngradedClock(t *testing.T) {
 	}
 }
 
-func TestATappedPRWhoseRowIsNotReadyIsNeitherQueuedNorAskedOf(t *testing.T) {
+func TestATappedPRWhoseRowIsNotReadyIsNotQueuedAndItsLaneOwnsTheWait(t *testing.T) {
 	s, r := newStore(t), &recorder{}
 
 	out := run(t, s, r, t0, all, facts(1, func(f *machine.Facts) { f.RowWait = "not graded" }))
 
-	open, err := s.OpenItems(repo, 1)
-	if err != nil {
-		t.Fatal(err)
+	item := openOne(t, s, 1)
+	if out.Verdicts[1].State != machine.StateNotReady || len(out.Acts) != 0 || len(out.Escalated) != 0 {
+		t.Fatalf("out = %+v", out)
 	}
-	if out.Verdicts[1].State != machine.StateNotReady || len(out.Acts) != 0 || len(open) != 0 || len(out.Escalated) != 0 {
-		t.Fatalf("out = %+v, open = %+v", out, open)
+	if item.Kind != string(machine.ActionRowWait) || item.Mover != machine.MoverLane {
+		t.Fatalf("item = %+v", item)
+	}
+	told := r.of("item")
+	if len(told) != 1 || !slices.Equal(told[0].to, []string{"lane-7"}) {
+		t.Fatalf("told = %+v", told)
+	}
+}
+
+func TestRowsWaitingOnTheirLanesReachRootOnceAsOneRecord(t *testing.T) {
+	s, r := newStore(t), &recorder{}
+	waiting := func(f *machine.Facts) { f.RowWait = "its PR body has no Summary" }
+	snapshot := []machine.Facts{facts(1, waiting), facts(2, waiting), facts(3, waiting)}
+
+	run(t, s, r, t0, all, snapshot...)
+	run(t, s, r, t0.Add(machine.LaneClock+time.Minute), all, snapshot...)
+	if len(r.of("escalation")) != 0 || len(r.of("note")) != 0 {
+		t.Fatalf("told before the hour: %+v", r.posts)
+	}
+
+	late := run(t, s, r, t0.Add(time.Hour+time.Minute), all, snapshot...)
+	run(t, s, r, t0.Add(2*time.Hour), all, snapshot...)
+
+	told := r.of("escalation")
+	if len(told) != 1 || !slices.Equal(told[0].to, []string{"root"}) || len(late.Escalated) != 1 || !strings.Contains(late.Escalated[0].Cause, "#1, #2, #3") {
+		t.Fatalf("told = %+v, escalated = %+v", told, late.Escalated)
 	}
 }
 

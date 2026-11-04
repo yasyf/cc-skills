@@ -33,7 +33,7 @@ func unreadDrive(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	config := filepath.Join(dir, "lr.json")
-	if err := os.WriteFile(config, []byte(`{"repo":"acme/app","drive":"d","checkout":"/co","author":"a","label":"l","movers":["lanes"]}`), 0o600); err != nil {
+	if err := os.WriteFile(config, []byte(`{"repo":"acme/app","drive":"d","checkout":"/co","author":"a","label":"l","queue_script":"tools/queue","movers":["lanes","landing"]}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	s, err := store.Open(filepath.Join(dir, lanes.StoreFile))
