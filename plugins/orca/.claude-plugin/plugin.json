@@ -1,7 +1,7 @@
 {
   "name": "orca",
   "description": "Launch Orca workers on a Sprite or a local worktree with orca-worker-launch.sh, reclaim what a settled Dispatch left behind with orca-reclaim.py, and diagnose a stuck lane with the orca-doctor agent; a repository names its cc-remote pair, Orca repository, base branch and sparse cone once in .orca.json.",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "author": {
     "name": "Yasyf Mohamedali",
     "url": "https://github.com/yasyf"
