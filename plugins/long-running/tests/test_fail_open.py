@@ -42,6 +42,7 @@ KEPT_REFUSALS = KEPT | {
     "blocking_asks.drive_roots_never_park_on_asks": PARKS,
     "chat_formats.reply_formats_are_0_or_1": "the owner ordered the refusal: he reads a sessions migration number as a chat format",
     "chat_formats.chat_formats_are_0_or_1": STOP.format(what="the owner would read a sessions migration number as a chat format"),
+    "thread_owner_relay.thread_replies_reach_their_card_owner": "the owner ordered the refusal: a warned forward still reaches the wrong drive's lane, which acts on his reply to another session's card (cci 399129)",
     "communicator_chat.communicator_chat:llm_gate_communicator_replies_carry_owner_news": STOP.format(what="the owner would read internal bookkeeping as his update"),
     "communicator_chat.A do-nothing Bash call ends no turn, and t": "the call has already shown in the owner's window when a warning lands",
     "desk_ownership.The coordinator owns the relay and every d": "trust: a runner or desk started from the communicator",

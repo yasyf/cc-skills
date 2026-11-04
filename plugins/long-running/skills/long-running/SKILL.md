@@ -137,7 +137,7 @@ posted there, and refuses a stop while `cc-slack dm-owed` lists a reply nobody h
 answered in its thread. A reply in the thread of a card another live session posted
 reaches only that session, and this one neither sees nor owes it. One session holds the DM at a time: while another live session
 holds it, this one takes no watch and owes no replies. A reply unacked after 30 seconds adds one line to its next tool result. `register_capture.py` posts each such reply once as an `owner`
-record with id `slack:<ts>` and attrs `ts` and `thread`, so a forward names the id instead of pasting his words. It talks only to the
+record with id `slack:<ts>` and attrs `ts` and `thread`, so a forward names the id instead of pasting his words. A reply under another session's card goes to that session, never to a lane of this drive ([communicator-brief.md](reference/communicator-brief.md#his-replies-under-another-sessions-card)). It talks only to the
 coordinator, the meta and signal lanes and helpers it spawned for its own work,
 never to the coordinator's children, and beyond the launches at drive start it posts
 no `go`, `hold`, `decide` or `launch`. Every owner message lands in its message
