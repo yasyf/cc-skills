@@ -118,7 +118,6 @@ func TestAHandoffRetriesACcnDocAddThatFailsOnce(t *testing.T) {
 	bus := &fakeBus{}
 
 	id, err := handoffEnv(bus, &handoffRun{failDocAdd: 1}).WriteHandoff(context.Background(), s, lane2, "/work/lane", "")
-
 	if err != nil {
 		t.Fatal(err)
 	}
