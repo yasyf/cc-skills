@@ -245,6 +245,58 @@ func TestARowFromTheRecordsCarriesEveryFieldAndComesReady(t *testing.T) {
 	}
 }
 
+func TestAReadFillsTheCardFromGitHubsBodyAndCarriesItOnlyWhenItChanges(t *testing.T) {
+	f, s := foldFor(t)
+	postOpened(t, 1, headA, "dev", "")
+	folded(t, f, 1)
+	gradeClear(t, s, 1, headA)
+	pass := func(pr machine.Facts) store.ReviewRow {
+		t.Helper()
+		if err := f.PostReads(context.Background(), []machine.Facts{pr}); err != nil {
+			t.Fatal(err)
+		}
+		return folded(t, f, 1)
+	}
+	counts := func() (reads, bodies int) {
+		t.Helper()
+		found, err := client.Tail(context.Background(), client.Query{Drive: "d", Kinds: []string{readKind}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, record := range found {
+			if len(record.Body) > 0 {
+				bodies++
+			}
+		}
+		return len(found), bodies
+	}
+
+	read := cleanRead(1, headA)
+	read.Body = fullBody
+	row := pass(read)
+	if !row.ReadyForTap || row.ForUsers != "A user sees it." {
+		t.Fatalf("row = %+v, want its card from the read and ready", row)
+	}
+	pass(read)
+	if reads, bodies := counts(); reads != 1 || bodies != 1 {
+		t.Fatalf("reads = %d, bodies = %d after a repeat, want 1 and 1", reads, bodies)
+	}
+
+	red := read
+	red.CI, red.Failing = machine.CIFailure, []string{"lint"}
+	pass(red)
+	if reads, bodies := counts(); reads != 2 || bodies != 1 {
+		t.Fatalf("reads = %d, bodies = %d after a status change, want 2 and 1", reads, bodies)
+	}
+
+	edited := read
+	edited.Body = strings.Replace(fullBody, "A user sees it.", "A user sees more.", 1)
+	row = pass(edited)
+	if reads, bodies := counts(); reads != 3 || bodies != 2 || row.ForUsers != "A user sees more." {
+		t.Fatalf("reads = %d, bodies = %d, for users = %q after an edit", reads, bodies, row.ForUsers)
+	}
+}
+
 func TestANewHeadClearsCIReviewGradeAndMergeableAndKeepsTheBody(t *testing.T) {
 	f, s := foldFor(t)
 	postOpened(t, 1, headA, "dev", fullBody)

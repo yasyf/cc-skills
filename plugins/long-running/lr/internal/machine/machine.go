@@ -153,6 +153,7 @@ type Facts struct {
 	Carries       []int
 	Condition     string
 	UnsafeWait    string
+	Body          string
 	GradeStopped  string
 	RowWait       string
 	TapRefused    string

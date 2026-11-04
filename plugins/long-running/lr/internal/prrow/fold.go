@@ -2,6 +2,8 @@ package prrow
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -31,6 +33,7 @@ const (
 	FactBumps        = "mergeable-bumps"
 
 	foldWindow  = 72 * time.Hour
+	bodyBytes   = 60_000
 	readKind    = "github"
 	readRecord  = "pr.read"
 	readLane    = "pr-read"
@@ -42,6 +45,7 @@ const (
 	factMergeable = "read-mergeable"
 	factQueue     = "read-queue"
 	factValues    = "read-values"
+	factBody      = "read-body"
 	factSeen      = "seen"
 	saidSuffix    = "-said"
 )
@@ -229,6 +233,10 @@ func (f Fold) pushed(t *store.Tx, row store.ReviewRow, record client.Record, hea
 	return row, nil
 }
 
+func BodyRecord(body string) (json.RawMessage, error) {
+	return json.Marshal(map[string]string{"body": strings.ToValidUTF8(body[:min(len(body), bodyBytes)], "")})
+}
+
 func bodyOf(record client.Record) (string, bool) {
 	var carried struct {
 		Body *string `json:"body"`
@@ -259,7 +267,7 @@ func (f Fold) read(t *store.Tx, row store.ReviewRow, record client.Record) (stor
 	head := attrs["head"]
 	for kind, value := range map[string]string{
 		factCI: attrs["ci"], factApprovers: attrs["approvers"], factMergeable: attrs["mergeable"], factQueue: attrs["queue"],
-		FactFailing: attrs["failing"], FactDraft: attrs["draft"], FactForeign: attrs["foreign"], factValues: valuesOf(attrs),
+		FactFailing: attrs["failing"], FactDraft: attrs["draft"], FactForeign: attrs["foreign"], factValues: valuesOf(attrs), factBody: attrs["body"],
 	} {
 		if err := t.PutFact(f.Repo, row.Number, head, kind, value, record.At); err != nil {
 			return row, err
@@ -281,6 +289,9 @@ func (f Fold) read(t *store.Tx, row store.ReviewRow, record client.Record) (stor
 		row.Head = longer(row.Head, head)
 	}
 	row.Title, row.Base, row.Branch = record.Text, attrs["base"], attrs["branch"]
+	if body, carried := bodyOf(record); carried {
+		ApplyBody(&row, body)
+	}
 	switch attrs["state"] {
 	case stateMerged:
 		row.State, row.LandedAt = StateLanded, store.Stamp(record.At)
@@ -420,11 +431,19 @@ func (f Fold) PostReads(ctx context.Context, snapshot []machine.Facts) error {
 		if facts[factValues] == valuesOf(attrs) {
 			continue
 		}
+		var body json.RawMessage
+		if attrs["body"] != "" && facts[factBody] != attrs["body"] {
+			if body, err = BodyRecord(pr.Body); err != nil {
+				failed = append(failed, err)
+				continue
+			}
+		}
 		_, err = client.Post(ctx, client.Draft{
 			Drive: f.Drive, Lane: readLane, Kind: readKind, Text: titleOr(pr), To: []string{readReader}, Force: true,
 			ID:    fmt.Sprintf("%s/%d/%d", readRecord, pr.Number, f.Now().UnixNano()),
 			PRs:   []string{fmt.Sprintf("%s#%d", f.Repo, pr.Number)},
 			Attrs: attrs,
+			Body:  body,
 		})
 		failed = append(failed, err)
 	}
@@ -490,6 +509,10 @@ func readAttrs(repo string, pr machine.Facts) map[string]string {
 	}
 	if pr.ForeignAuthor != "" {
 		attrs["foreign"] = pr.ForeignAuthor
+	}
+	if pr.Body != "" {
+		sum := sha256.Sum256([]byte(pr.Body))
+		attrs["body"] = hex.EncodeToString(sum[:8])
 	}
 	return attrs
 }
