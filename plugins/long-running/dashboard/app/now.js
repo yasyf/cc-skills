@@ -79,7 +79,8 @@ const OVERDUE_GROUP = {
 function overdueBand() {
   const items = state.model.coordinator_overdue ?? [];
   if (!items.length) return '';
-  const named = (item) => `<li><time>${esc(item.due)}</time> ${item.seq ? `<a href="/record/${item.seq}" target="_blank" rel="noopener">${esc(askTitle(item.text))}</a>` : esc(askTitle(item.text))}</li>`;
+  const clipped = (item) => esc(item.text.replace(/^(.{120}\S*)\s.+$/s, '$1…'));
+  const named = (item) => `<li><time>${esc(item.due)}</time><span>${item.seq ? `<a href="/record/${item.seq}" target="_blank" rel="noopener">${clipped(item)}</a>` : clipped(item)}</span></li>`;
   const groups = new Map(groupBy(items, (item) => item.group));
   const rows = Object.keys(OVERDUE_GROUP).filter((group) => groups.has(group)).map((group) => {
     const list = groups.get(group);
