@@ -156,7 +156,7 @@ class ReviewAssistant:
             session = ["--resume" if any((claude_dir / "projects").glob(f"*/{self.session(number)}.jsonl")) else "--session-id", self.session(number)]
             plugin = json.loads((claude_dir / "plugins" / "installed_plugins.json").read_text())["plugins"]["cc-review@cc-review"][0]["installPath"]
             with (self.scope(number) / "assistant.log").open("a") as log:
-                ran = subprocess.run(["claude", "-p", prompt, "--model", "claude-sonnet-5-5", "--effort", "low", "--restricted", "--tools", "Agent,Bash,Read,Grep,Glob,ToolSearch", "--plugin-dir", plugin, "--add-dir", str(Path.home() / ".cc-review"), "--permission-mode", "dontAsk", "--allowedTools", *self.allowed_tools(number), *session], cwd=self.scope(number), stdin=subprocess.DEVNULL, stdout=log, stderr=log)
+                ran = subprocess.run(["claude", "-p", prompt, "--model", "claude-sonnet-5-5", "--effort", "low", "--restricted", "--tools", "Agent,Bash,Read,Grep,Glob,ToolSearch", "--plugin-dir", plugin, "--add-dir", str(Path.home() / ".cc-review"), "--permission-mode", "dontAsk", "--allowedTools", *self.allowed_tools(number), *session], cwd=self.scope(number), env=os.environ | {"DISABLE_AUTOUPDATER": "1"}, stdin=subprocess.DEVNULL, stdout=log, stderr=log)
                 if ran.returncode:
                     log.write(f"exit {ran.returncode} on {event['type']}\n")
 
