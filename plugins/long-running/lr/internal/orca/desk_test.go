@@ -3657,11 +3657,17 @@ func (w *deskWorld) typed() [][]string {
 	return sends
 }
 
-func TestARelaySentToASpriteWakesItsTerminalOnThatSprite(t *testing.T) {
+func TestARelayToASpriteLaneIsARecordAddressedToItAndWakesItsTerminalOnThatSprite(t *testing.T) {
 	w := newDeskWorld(t)
 	w.live(testLane, testDispatch, testTerminal)
 	w.dispatches[testDispatch].environment = "env_sprite"
 	w.sentRelay("R2", "")
+	if sent := w.orcaCalls("orchestration send"); len(sent) != 0 {
+		t.Fatal(sent)
+	}
+	if !slices.ContainsFunc(w.posts, func(post client.Draft) bool { return post.Text == "go" && slices.Equal(post.To, []string{testLane}) }) {
+		t.Fatal(w.posts)
+	}
 	sends := w.typed()
 	if len(sends) != 1 || flag(sends[0], "--environment") != "env_sprite" || flag(sends[0], "--terminal") != testTerminal {
 		t.Fatal(sends)
@@ -3686,7 +3692,6 @@ func TestARelayToAMacLaneNamesNoEnvironment(t *testing.T) {
 func TestAnOverdueRelayStillUnreadIsReportedToItsSenderAsNotDelivered(t *testing.T) {
 	w := newDeskWorld(t)
 	w.live(testLane, testDispatch, testTerminal)
-	w.dispatches[testDispatch].environment = "env_sprite"
 	thread := w.sentRelay("R2", "meta-desk")
 	w.unread[testTerminal] = []orcaMessage{{ID: "relay_held", ThreadID: thread}}
 	w.now = w.now.Add(11 * time.Minute)
