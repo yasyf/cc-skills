@@ -10,6 +10,7 @@ import (
 	"maps"
 	"os"
 	"os/signal"
+	"os/user"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -302,12 +303,19 @@ func SpritesCommand(a *app.App) *cobra.Command {
 	}
 	hold := &cobra.Command{
 		Use:   "hold",
-		Short: "Run on a Sprite as its service: keep the Sprite awake while a claude or codex runs on it, so the hold lapses within 5 minutes of the agent's exit",
+		Short: "Run on a Sprite as its service: keep the Sprite awake while a claude or codex runs on it, so the hold lapses within 5 minutes of the agent's exit, and append a memory sample to ~/.cc-remote/samples.log every 10 seconds",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGTERM, os.Interrupt)
 			defer stop()
-			awake.Holder{Runner: a.Runner, Task: workerAwake, Every: awake.Every, Log: slog.New(slog.NewTextHandler(cmd.ErrOrStderr(), nil)), Wanted: awake.WorkerAlive(a.Runner)}.Run(ctx)
+			log := slog.New(slog.NewTextHandler(cmd.ErrOrStderr(), nil))
+			home, err := user.Current()
+			if err != nil {
+				log.Warn("no memory samples will be written", "err", err)
+			} else {
+				go awake.Sampler{Proc: "/proc", Events: "/sys/fs/cgroup/memory.events", Path: filepath.Join(home.HomeDir, awake.SampleFile), Every: awake.SampleEvery, Now: a.Now, Log: log}.Run(ctx)
+			}
+			awake.Holder{Runner: a.Runner, Task: workerAwake, Every: awake.Every, Log: log, Wanted: awake.WorkerAlive(a.Runner)}.Run(ctx)
 			return nil
 		},
 	}
