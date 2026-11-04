@@ -28,7 +28,7 @@ func runDeskSync(t *testing.T, deployment string, sumExit string) deskSyncRun {
 		"getent":    `echo "desk:x:1:1::` + home + `:/bin/bash"`,
 		"aws":       `case "$*" in *deployment*) printf '%s' "$DEPLOYMENT";; *) echo key;; esac`,
 		"curl":      `for last; do :; done; touch "$last"`,
-		"sha256sum": `exit ` + sumExit,
+		"sha256sum": `cat >/dev/null; exit ` + sumExit,
 		"tar":       `printf '#!/bin/sh\necho v1\n'`,
 		"runuser":   `echo "runuser $*" >>"$LOG"; if [ "$4" = install ]; then ls -ld "$(dirname "$7")" >>"$LOG"; fi`,
 		"systemctl": `echo "systemctl $*" >>"$LOG"`,
