@@ -66,8 +66,9 @@ orca worktree set --worktree "path:<wt>" --display-name "<lane>-<run>-<n>" \
 ```
 
 - Like `orca worktree create`, the script links the repo's Orca `symlinkPaths` from the main checkout and copies each existing, gitignored path `.worktreeinclude` names.
-- It runs no Orca setup hook; put one in `ORCA_LAUNCH_PREPARE`, which runs in the sparse checkout.
-- It prints the cone and the widen command on stderr, `git -C <wt> sparse-checkout add <dir>`, and the worker's pointer says "This lane is sparse: widen with `git sparse-checkout add <dir>` before reading outside it." `git sparse-checkout disable` restores the full tree.
+- It runs no Orca setup hook. `ORCA_LAUNCH_PREPARE` runs in the sparse checkout, and defaults to `tools/hooks/warm-lane.sh` where the worktree has it.
+- It widens each cone directory inside a Go module to that module, and adds the module's local `replace` targets, followed through their own `go.mod`s. With a package's siblings missing, `go build` walks the module graph and stops at the first absent `replace` target. `lr sparse add <dir>` does the same when a lane widens later.
+- It prints the cone and the widen command on stderr, `cd <wt> && lr sparse add <dir>`, and the worker's pointer says "This lane is sparse: widen with `lr sparse add <dir>` before reading outside it." `git sparse-checkout disable` restores the full tree.
 - A sparse launch that fails before `worker-start` hands its worktree to `ccx vcs worktree rm --path <wt> --force` and deletes the branch it created.
 
 ### Parent worktree and brief pointer
@@ -110,7 +111,7 @@ codex --dangerously-bypass-approvals-and-sandbox -c model=gpt-6.1-sol -c model_r
 
 **This Mac's local values.** Shared code reads them from local config, never from a hard-coded path. `~/.config/vcache/env`, loaded by launchd, zsh and fish, holds `NM_STORE_DIR`, `STACK_ENQUEUE_CACHE`, `STACK_ENQUEUE_WORKTREES`, `ORCA_LAUNCH_SPARSE=1`, `CCX_SEMSEARCH_CACHE`, and captain-hook's `HOOKS_LAYOUT_PROTECTED_ROOTS`, `HOOKS_LAYOUT_SEARCHABLE_UNITS`, `HOOKS_LAYOUT_CHECKOUT_COLLECTIONS` and `HOOKS_LAYOUT_WORKTREE_POOLS`. Global git config holds `ccx.worktreeRoot`, `ccx.sparseLanes=true`, and `ccx.sparseInclude` = `tools`, `infra/ci/hooks`. The monorepo's node_modules farm, sparse worker lanes and never-reused names ship for everyone; in ccx and this plugin the worktree root and sparse lanes stay behind config, and captain-hook's extra search roots and lane-install guard come from its local config.
 
-**Monorepo lane setup.** A monorepo lane gets `node_modules` from `tools/hooks/warm-lane.sh`, which links it to the shared store for its lockfile. A dependency change runs `yarn <verb> --mode=update-lockfile`, then `warm-lane.sh`; a changed lockfile rebuilds the store, never the lane. Monorepo clones here skip LFS smudge, so a checkout holds pointers: `git lfs pull --include <path>` or `tools/ensure-lfs-file.sh` fetches a real file. A buck2 build of flatc or the LLVM packages, and a `zig build` reading `zig/zigjs/vendor/bellard-mquickjs-*.tar.gz`, runs that first.
+**Monorepo lane setup.** A monorepo lane gets `node_modules` at launch from `tools/hooks/warm-lane.sh`, which links it to the shared store for its lockfile. A dependency change runs `yarn <verb> --mode=update-lockfile`, then `warm-lane.sh`; a changed lockfile rebuilds the store, never the lane. Monorepo clones here skip LFS smudge, so a checkout holds pointers: `git lfs pull --include <path>` or `tools/ensure-lfs-file.sh` fetches a real file. A buck2 build of flatc or the LLVM packages, and a `zig build` reading `zig/zigjs/vendor/bellard-mquickjs-*.tar.gz`, runs that first.
 
 ## Launch fast-tier incident workers
 
@@ -217,7 +218,7 @@ usage: lr launch start <lane> <model> <effort> <brief-file>
 | `ORCA_LAUNCH_CLAUDE_ARGS` | Extra arguments from Orca's agent defaults (excluding plan mode); defaults to none. |
 | `ORCA_LAUNCH_BOOT_SECONDS` | Ceiling in seconds waiting for Orca to detect the terminal's idle agent; defaults to `180`. |
 | `ORCA_LAUNCH_WORKTREE_SECONDS` | Ceiling in seconds on each worktree wait: a failed create registering, its checkout filling, and Orca listing a worktree the launch added or resumes; defaults to `180`. |
-| `ORCA_LAUNCH_PREPARE` | Optional shell command run in the new worktree before worker start, such as code generators, or `tools/hooks/warm-lane.sh` in a repo that has it; never a JavaScript dependency install. |
+| `ORCA_LAUNCH_PREPARE` | Shell command run in the new worktree before worker start, such as code generators; never a JavaScript dependency install. Defaults to `tools/hooks/warm-lane.sh` in a repo that has it. |
 | `ORCA_LAUNCH_PREPARE_SECONDS` | Timeout in seconds for `ORCA_LAUNCH_PREPARE`; defaults to `120`. |
 | `ORCA_LAUNCH_SPARSE` | `1` adds each new worktree with `git worktree add`, sparse in a large repo, instead of `orca worktree create`; defaults to unset. |
 | `ORCA_LAUNCH_SPARSE_FILES` | Tracked-file count above which a worktree `ORCA_LAUNCH_SPARSE` adds is sparse; defaults to `5000`. |
