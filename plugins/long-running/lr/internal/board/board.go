@@ -40,7 +40,9 @@ func short(head string) string {
 	return head[:min(shortSHA, len(head))]
 }
 
-func standing(row store.ReviewRow) string {
+// Standing is the row's one line of CI, review, grade, mergeability and place
+// in its stack, as every PR card shows it.
+func Standing(row store.ReviewRow) string {
 	return fmt.Sprintf("CI %s; %s; grade %s, findings %s; mergeable %s; lane %s, branch %s, parent %s", row.CI, row.Review, row.Grade, row.GradeFindings, row.Mergeable, row.Lane, row.Branch, row.Parent)
 }
 
@@ -61,10 +63,7 @@ func Answer(s *store.Store, repo string, hooks Hooks, row store.ReviewRow, verdi
 			}
 			return fmt.Errorf("#%d: %s", row.Number, refusal)
 		}
-		if _, err := s.PutFact(repo, row.Number, row.Head, tapFact, string(machine.TapTapped), at); err != nil {
-			return err
-		}
-		if err := s.PutReviewRows([]store.ReviewRow{prrow.Tap(row, byOwner, at)}); err != nil {
+		if err := prrow.Tap(s, repo, row.Number, row.Head, byOwner, at); err != nil {
 			return err
 		}
 		return hooks.Tap(tap)

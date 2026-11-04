@@ -600,3 +600,47 @@ func TestATappedRowIsStillReadySoLandingCanRequireBoth(t *testing.T) {
 		t.Fatalf("row = %+v", row)
 	}
 }
+
+func memoryWith(t *testing.T, row store.ReviewRow) *store.Store {
+	t.Helper()
+	s, err := store.Memory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+	if err := s.PutReviewRows([]store.ReviewRow{row}); err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+func TestATapWritesItsByAndAtFactsSoTheNextFoldKeepsThem(t *testing.T) {
+	at := time.Date(2026, 11, 4, 19, 0, 0, 0, time.UTC)
+	s := memoryWith(t, Decide(readyRow()))
+	if err := Tap(s, testRepo, 1, headA, "owner", at); err != nil {
+		t.Fatal(err)
+	}
+	facts, err := s.Facts(testRepo, 1, headA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if facts["tap"] != string(machine.TapTapped) || facts[FactTapBy] != "owner" || facts[FactTapAt] != store.Stamp(at) {
+		t.Fatalf("facts = %v, want the tap with who and when for Materialize to read", facts)
+	}
+	row, _, err := s.ReviewRow(testRepo, 1)
+	if err != nil || !row.Tapped || row.ReadyForTap && !row.Tapped || row.TappedBy != "owner" {
+		t.Fatalf("row = %+v, %v, want it tapped by the owner at once", row, err)
+	}
+}
+
+func TestWithdrawingAStaleCardLeavesALandedRowLanded(t *testing.T) {
+	landed := readyRow()
+	landed.State = StateLanded
+	s := memoryWith(t, landed)
+	if err := Withdraw(s, testRepo, 1, headA, "redone", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if row, _, err := s.ReviewRow(testRepo, 1); err != nil || row.State != StateLanded || row.SupersededBy == "redone" {
+		t.Fatalf("row = %+v, %v, want it still landed", row, err)
+	}
+}

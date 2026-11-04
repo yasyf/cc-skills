@@ -71,7 +71,7 @@ func Card(repo string, row store.ReviewRow) SlackCard {
 	return SlackCard{
 		Status: "needs_you", Title: fmt.Sprintf("Approve #%d at %s?", row.Number, row.Head[:min(waitsSHA, len(row.Head))]),
 		PRs: []SlackPRRow{{
-			URL: fmt.Sprintf("https://github.com/%s/pull/%d", repo, row.Number), Title: row.Title, Head: row.Head, Review: standing(row),
+			URL: fmt.Sprintf("https://github.com/%s/pull/%d", repo, row.Number), Title: row.Title, Head: row.Head, Review: Standing(row),
 			Change: row.ForUsers, Plan: PlanWords(row), Risk: row.Risk, Blocks: row.WaitsOn, Description: row.Description,
 		}},
 		Options: []string{approveLabel, holdLabel}, Recommended: approveLabel, Waits: MergeWaits(row.Number, row.Head),

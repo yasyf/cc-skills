@@ -57,10 +57,7 @@ func (c Cards) Pull(ctx context.Context, lane, target, why string, out io.Writer
 			fmt.Fprintf(out, "UNCHANGED %s#%d at %s: its tap was already withdrawn\n", pr.Repo, pr.Number, short(pr.Head))
 			continue
 		}
-		if _, err := c.Store.PutFact(pr.Repo, pr.Number, pr.Head, FactWithdrawn, why, c.Now()); err != nil {
-			return false, err
-		}
-		if err := c.Store.PutReviewRows([]store.ReviewRow{prrow.Withdraw(pr, why)}); err != nil {
+		if err := prrow.Withdraw(c.Store, pr.Repo, pr.Number, pr.Head, why, c.Now()); err != nil {
 			return false, err
 		}
 		if err := c.Withdraw(ctx, lane, fmt.Sprintf("%s#%d", pr.Repo, pr.Number), fmt.Sprintf("Withdrew the %s#%d tap at %s from the owner's queue: %s.", pr.Repo, pr.Number, short(pr.Head), why)); err != nil {

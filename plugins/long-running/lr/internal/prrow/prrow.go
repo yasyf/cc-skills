@@ -3,6 +3,7 @@ package prrow
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -65,21 +66,45 @@ func Decide(row store.ReviewRow) store.ReviewRow {
 	return row
 }
 
-// Tap is the row once the owner's tap at its head is recorded, by the fold's
-// rule, for the writer of the tap fact to store at once.
-func Tap(row store.ReviewRow, by string, at time.Time) store.ReviewRow {
-	row.Tapped, row.TapRefused, row.TappedAt, row.TappedBy = true, None, store.Stamp(at), by
-	if row.State == StateOpen {
-		row.State = StateTapped
-	}
-	return Decide(row)
+// Tap records the owner's tap at head as its facts and applies the fold's rule
+// to the row in the same transaction, so a card drawn next reads it tapped.
+func Tap(s *store.Store, repo string, number int, head, by string, at time.Time) error {
+	facts := map[string]string{"tap": string(machine.TapTapped), FactTapBy: by, FactTapAt: store.Stamp(at)}
+	return transition(s, repo, number, head, facts, at, func(row store.ReviewRow) store.ReviewRow {
+		row.Tapped, row.TapRefused, row.TappedAt, row.TappedBy = true, None, store.Stamp(at), by
+		if row.State == StateOpen {
+			row.State = StateTapped
+		}
+		return row
+	})
 }
 
-// Withdraw is the row once its lane withdraws the tap it asked for, by the
-// fold's rule, for the writer of the withdrawn fact to store at once.
-func Withdraw(row store.ReviewRow, why string) store.ReviewRow {
-	row.SupersededBy, row.State = why, StateSuperseded
-	return Decide(row)
+// Withdraw records a lane's withdrawn tap at head as its fact and applies the
+// fold's rule to the row in the same transaction.
+func Withdraw(s *store.Store, repo string, number int, head, why string, at time.Time) error {
+	return transition(s, repo, number, head, map[string]string{FactWithdrawn: why}, at, func(row store.ReviewRow) store.ReviewRow {
+		row.SupersededBy, row.State = why, StateSuperseded
+		return row
+	})
+}
+
+func transition(s *store.Store, repo string, number int, head string, facts map[string]string, at time.Time, change func(store.ReviewRow) store.ReviewRow) error {
+	return s.Update(func(t *store.Tx) error {
+		for kind, value := range facts {
+			if err := t.PutFact(repo, number, head, kind, value, at); err != nil {
+				return err
+			}
+		}
+		rows, err := t.ReviewRows(repo)
+		if err != nil {
+			return err
+		}
+		found := slices.IndexFunc(rows, func(row store.ReviewRow) bool { return row.Number == number && sameHead(row.Head, head) })
+		if found < 0 || Terminal(rows[found].State) {
+			return nil
+		}
+		return t.PutReviewRows([]store.ReviewRow{Decide(change(rows[found]))})
+	})
 }
 
 func firstUnmet(row store.ReviewRow) string {
