@@ -17,6 +17,8 @@ type staleShell struct {
 	outcomes string
 	calls    [][]string
 	pushed   []string
+	retired  []string
+	pulled   []string
 }
 
 func (s *staleShell) Run(_ context.Context, c shell.Command) (shell.Result, error) {
@@ -51,6 +53,18 @@ func runStale(t *testing.T, outcomes string, snapshot ...machine.Facts) (*staleS
 	sweep := StaleTaps{Runner: on, Session: "s1", Say: func(_ context.Context, tap DroppedTap) error {
 		said = append(said, tap)
 		return nil
+	}, Retire: func(_ context.Context, card, why string) error {
+		if namesID.MatchString(why) {
+			t.Fatalf("the owner would read an id: %s", why)
+		}
+		on.retired = append(on.retired, card)
+		return nil
+	}, Pull: func(_ context.Context, target, why string) error {
+		if namesID.MatchString(why) {
+			t.Fatalf("the owner would read an id: %s", why)
+		}
+		on.pulled = append(on.pulled, target)
+		return nil
 	}}
 	if err := sweep.Pass(context.Background(), snapshot); err != nil {
 		t.Fatal(err)
@@ -82,6 +96,9 @@ func TestATapStaysAtItsHeadAndLeavesWhenTheHeadMovesOrAGradeGoesBad(t *testing.T
 			}
 			if len(on.calls) != 1 || on.calls[0][1] != "update-block" || len(said) != 1 || said[0].PR != 1 || said[0].Lane != "lane-7" {
 				t.Fatalf("wrote %v, said %v", on.calls, said)
+			}
+			if pulled := len(on.pulled) == 1 && on.pulled[0] == "#1"; pulled == said[0].Moved {
+				t.Fatalf("moved %v pulled %v: only a bad grade at the shown head stamps that head withdrawn", said[0].Moved, on.pulled)
 			}
 		})
 	}
@@ -123,21 +140,25 @@ func mergeCardBoard(answered bool) string {
 	return fmt.Sprintf(`{"rev":4,"doc":{"blocks":[{"id":"merge:1:aaaaaaa","type":"card","children":[{"id":"merge:1:aaaaaaa-answer","type":"choice"}]}]},"interactions":{"choices":%s,"triage":{}}}`, choices)
 }
 
-func TestAMergeCardComesOffTheBoardWhenItsHeadMovesWhichWithdrawsItsSlackCopy(t *testing.T) {
+func TestAMergeCardRetiresWhenItsHeadMovesAndAGradeGoingBadWithdrawsItsHead(t *testing.T) {
 	on, said := runStale(t, mergeCardBoard(false), graded(1, "bbbbbbb", nil))
-	if len(on.calls) != 1 || on.calls[0][1] != "remove-block" || on.calls[0][2] != "merge:1:aaaaaaa" || len(said) != 1 {
-		t.Fatalf("wrote %v, said %v", on.calls, said)
+	if len(on.retired) != 1 || on.retired[0] != "merge:1:aaaaaaa" || len(on.pulled) != 0 || len(said) != 1 {
+		t.Fatalf("retired %v, pulled %v, said %v", on.retired, on.pulled, said)
 	}
-	if on, _ := runStale(t, mergeCardBoard(false), graded(1, shownHead, nil)); len(on.calls) != 0 {
-		t.Fatalf("a current card was removed: %v", on.calls)
+	on, said = runStale(t, mergeCardBoard(false), graded(1, shownHead, func(f *machine.Facts) { f.Finder = machine.FinderAsk }))
+	if len(on.pulled) != 1 || on.pulled[0] != "merge:1:aaaaaaa" || len(on.retired) != 0 || len(said) != 1 {
+		t.Fatalf("retired %v, pulled %v, said %v", on.retired, on.pulled, said)
 	}
-	if on, _ := runStale(t, mergeCardBoard(true), graded(1, "bbbbbbb", nil)); len(on.calls) != 0 {
-		t.Fatalf("an answered card was removed: %v", on.calls)
+	if on, _ := runStale(t, mergeCardBoard(false), graded(1, shownHead, nil)); len(on.retired)+len(on.pulled) != 0 {
+		t.Fatalf("a current card was removed: %v %v", on.retired, on.pulled)
+	}
+	if on, _ := runStale(t, mergeCardBoard(true), graded(1, "bbbbbbb", nil)); len(on.retired)+len(on.pulled) != 0 {
+		t.Fatalf("an answered card was removed: %v %v", on.retired, on.pulled)
 	}
 }
 
 func TestALaterWriteUsesTheRevTheEarlierOnePrinted(t *testing.T) {
-	both := `{"rev":4,"doc":{"blocks":[{"id":"merge-prs","type":"pr-groups","groups":[{"id":"g","prs":[{"number":1,"head":"aaaaaaa"}]}]},{"id":"merge:2:aaaaaaa","type":"card"}]},"interactions":{"choices":{},"triage":{}}}`
+	both := `{"rev":4,"doc":{"blocks":[{"id":"merge-prs","type":"pr-groups","groups":[{"id":"g","prs":[{"number":1,"head":"aaaaaaa"}]}]},{"id":"more-prs","type":"pr-groups","groups":[{"id":"h","prs":[{"number":2,"head":"aaaaaaa"}]}]}]},"interactions":{"choices":{},"triage":{}}}`
 	on := &staleRevShell{outcomes: both}
 	sweep := StaleTaps{Runner: on, Session: "s1", Say: func(context.Context, DroppedTap) error { return nil }}
 	if err := sweep.Pass(context.Background(), []machine.Facts{graded(1, "bbbbbbb", nil), graded(2, "bbbbbbb", nil)}); err != nil {

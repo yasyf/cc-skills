@@ -19,22 +19,25 @@ type DroppedTap struct {
 	Head  string
 	Lane  string
 	Why   string
+	Moved bool
 }
 
 type StaleTaps struct {
 	Runner  shell.Runner
 	Session string
 	Say     func(context.Context, DroppedTap) error
+	Retire  func(ctx context.Context, card, why string) error
+	Pull    func(ctx context.Context, target, why string) error
 }
 
-func staleWhy(shown string, f machine.Facts) string {
+func staleWhy(shown string, f machine.Facts) (string, bool) {
 	if !namesHead(shown, f.Head) && f.CarriedBy == "" {
-		return fmt.Sprintf("its head moved from %s to %s, so his tap no longer covers it", abbreviate(shown), abbreviate(f.Head))
+		return "a new version replaced it, so the tap no longer covers it", true
 	}
 	if f.Graded() && !f.Cleared() {
-		return fmt.Sprintf("a grade at %s went major or failed and needs a verdict", abbreviate(f.Head))
+		return "a check of this version found a problem that needs a verdict first", false
 	}
-	return ""
+	return "", false
 }
 
 func withoutStale(block map[string]any, facts map[int]machine.Facts) []DroppedTap {
@@ -45,15 +48,15 @@ func withoutStale(block map[string]any, facts map[int]machine.Facts) []DroppedTa
 		for _, pr := range listOf(group, "prs") {
 			number, _ := strconv.Atoi(prNumber(pr))
 			f, open := facts[number]
-			why := ""
+			why, moved := "", false
 			if open {
-				why = staleWhy(text(pr, "head"), f)
+				why, moved = staleWhy(text(pr, "head"), f)
 			}
 			if why == "" {
 				kept = append(kept, pr)
 				continue
 			}
-			dropped = append(dropped, DroppedTap{text(block, "id"), number, text(pr, "head"), f.Lane, why})
+			dropped = append(dropped, DroppedTap{text(block, "id"), number, text(pr, "head"), f.Lane, why, moved})
 		}
 		if len(kept) > 0 {
 			group["prs"] = kept
@@ -77,6 +80,11 @@ func (t StaleTaps) write(ctx context.Context, rev int64, argv []string, stdin st
 
 func (t StaleTaps) say(ctx context.Context, dropped []DroppedTap) error {
 	for _, tap := range dropped {
+		if !tap.Moved {
+			if err := t.Pull(ctx, fmt.Sprintf("#%d", tap.PR), tap.Why); err != nil {
+				return err
+			}
+		}
 		if err := t.Say(ctx, tap); err != nil {
 			return err
 		}
@@ -124,19 +132,20 @@ func (t StaleTaps) Pass(ctx context.Context, snapshot []machine.Facts) error {
 		if !open {
 			continue
 		}
-		why := staleWhy(named[2], f)
+		why, moved := staleWhy(named[2], f)
 		if why == "" {
 			continue
 		}
-		next, wrote, err := t.write(ctx, rev, []string{"cc-present", "remove-block", text(card, "id")}, "")
+		if moved {
+			err = t.Retire(ctx, text(card, "id"), why)
+		} else {
+			err = t.Pull(ctx, text(card, "id"), why)
+		}
 		if err != nil {
 			return err
 		}
-		if wrote {
-			rev = next
-			if err := t.say(ctx, []DroppedTap{{text(card, "id"), number, named[2], f.Lane, why}}); err != nil {
-				return err
-			}
+		if err := t.Say(ctx, DroppedTap{text(card, "id"), number, named[2], f.Lane, why, moved}); err != nil {
+			return err
 		}
 	}
 	return nil

@@ -186,8 +186,14 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 				return Deps{}, err
 			}
 			inputs := &landing.InputsPublisher{Runner: a.Runner, Store: s, FixLane: fixLanes, LiveClocks: liveClocks, Session: entry.Root(), Config: a.ConfigPath, Now: a.Now}
+			cards := board.CardsOf(a, entry, entry.Root(), s)
 			dropStale = board.StaleTaps{Runner: a.Runner, Session: entry.Root(), Say: func(ctx context.Context, tap board.DroppedTap) error {
 				return sayDropped(ctx, env.Config.Drive, env.Config.Repo, tap)
+			}, Retire: func(ctx context.Context, card, why string) error {
+				return cards.Retire(ctx, lanes.Self, why, []string{card}, io.Discard)
+			}, Pull: func(ctx context.Context, target, why string) error {
+				_, err := cards.Pull(ctx, lanes.Self, target, why, io.Discard)
+				return err
 			}}.Pass
 			checks = append(checks,
 				(&background{name: "choices", every: choiceEvery, run: choices.New(ctx, a, entry, env.Claude, s).Pass, store: s, post: post, log: a.Log}).Check,
