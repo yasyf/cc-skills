@@ -86,6 +86,7 @@ UNREAD = "Warning, nothing was blocked: {hook} could not read what it checks, so
 SHOWN = frozenset({"title", "summary", "intro", "md", "prompt", "label", "hint", "value", "pros", "cons", "placeholder", "note", "body", "options"})
 URL = re.compile(r"https?://\S+")
 LINK = re.compile(r"<https?://[^|>\s]+(?:\|[^>\n]*)?>|\[[^\]\n]*\]\(https?://[^)\s]+\)")
+LINK_LABEL = re.compile(r"\[([^\]\n]*)\]\(https?://[^)\s]+\)|<https?://[^|>\s]+\|([^>\n]*)>")
 PATH_CITE = re.compile(r"`?[\w./-]+:\d+(?:[-,]\d+)*`?\s*@\s*`?[0-9a-f]{7,40}\b`?")
 QUOTE_CITE = re.compile(r"[\"”]\s*\([^)\n]*\)")
 OWNER_QUOTE = re.compile(r"\"[^\"\n]*\"|“[^”\n]*”")
@@ -503,6 +504,10 @@ def readable(text: str) -> str:
     return text
 
 
+def as_read(text: str) -> str:
+    return readable(LINK_LABEL.sub(lambda link: link[1] or link[2] or " ", text))
+
+
 def squeeze(text: str) -> str:
     return " ".join(text.split()).strip("\"“”' ").rstrip(".")
 
@@ -519,7 +524,7 @@ def outside_cites(text: str) -> str:
 
 
 def plan_words(text: str, reads: Reads) -> list[str]:
-    return judged_plain(reads, readable(text), outside_cites(text))
+    return judged_plain(reads, as_read(text), outside_cites(text))
 
 
 def reason(failure: BaseException) -> str:
@@ -621,8 +626,8 @@ def unsaid(evt: BaseHookEvent, problems: list[str]) -> list[str]:
 
 
 def plain_words(texts: list[str], reads: Reads) -> list[str]:
-    text = "\n\n".join(readable(text) for text in texts if text.strip())
-    return judged_plain(reads, text, text)
+    said = [text for text in texts if text.strip()]
+    return judged_plain(reads, "\n\n".join(map(as_read, said)), "\n\n".join(map(readable, said)))
 
 
 def piped_boards(evt: BaseHookEvent) -> list[str]:

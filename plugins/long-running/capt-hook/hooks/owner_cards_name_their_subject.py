@@ -13,7 +13,7 @@ from .board_text_gate import calls
 from .call_dir import located
 from .compaction_handoff import FOREGROUND_JUDGE_SECONDS, Bound, CompactionState, script_module
 from .judge_metrics import judge_call
-from .owner_facing import SLACK_CARD, STDIN, Reads, board_bytes, fenced, readable, shown, slack_card
+from .owner_facing import SLACK_CARD, STDIN, Reads, as_read, board_bytes, fenced, readable, shown, slack_card
 from .owner_replies_carry_news import dm_posts
 from .owner_returns import REPLY
 from .register_injection import drive_args
@@ -151,7 +151,7 @@ def post_text(evt: BaseHookEvent, reads: Reads) -> str:
         lines = [given(evt, "title"), given(evt, "md"), given(evt, "action"), *map(str, evt._tool_input.get("picks") or ())]
     else:
         lines = [*owner_lines(evt, reads), *(command_lines(evt, reads) if evt.tool_name == "Bash" else ())]
-    return "\n\n".join(readable(HIDDEN_CITE.sub(" ", line)) for line in lines if line.strip())
+    return "\n\n".join(HIDDEN_CITE.sub(" ", line) for line in lines if line.strip())
 
 
 def carries_cards(evt: BaseHookEvent, reads: Reads) -> bool:
@@ -234,6 +234,8 @@ def resent(title: str, md: str) -> list[HeldPosts]:
         reply("Release", "The Platy release card is up, and it is live on plat.", commands=judged()): Allow(),
         reply("Alert", "Sentry 4821 fired again."): Block(pattern=r"bare number: Sentry 4821"),
         reply("Alert", f"[Sentry 4821]({SENTRY_LINK}) fired again."): Allow(),
+        reply("Release", f"Live as [the relay fix]({LAND_PR}).", commands=HOLDS): Block(pattern=r"first question: Which fields"),
+        reply("Release", f"Live as <{LAND_PR}|the relay fix>.", commands=HOLDS): Block(pattern=r"first question: Which fields"),
         reply("Alert", "Record #427030 says so."): Block(pattern=r"bare number: #427030"),
         reply("Why", "It dropped because both chats shared a replica. <!-- cci #384714 -->", commands=judged()): Allow(),
         Input(command="cc-slack reply --channel D0B6Z --text 'Sentry 4821 fired again.'", env=HOOK_ENV): Allow(),
@@ -244,10 +246,11 @@ def posts_answer_his_first_question(evt: BaseHookEvent) -> HookResult | None:
     if not (which := drive_args(evt)):
         return None
     reads = Reads(evt, which)
-    text = post_text(evt, reads)
+    posted = post_text(evt, reads)
+    text = as_read(posted)
     if not text or (key := post_key(text)) in HeldPosts.load(evt).held:
         return None
-    if lines := unlinked_or_cardless(evt, text, reads):
+    if lines := unlinked_or_cardless(evt, readable(posted), reads):
         return hold(evt, which[1], key, lines)
     if plain_answer(text):
         return None
