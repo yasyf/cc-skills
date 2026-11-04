@@ -37,6 +37,7 @@ func scripted() *shelltest.Fake {
 	fake.Reply("updated card\nsent: card ts=1793635190.051179 "+permalink+"\n", "cc-present", "update-block")
 	fake.Reply(`{"channel_id":"D0B6Z","thread_ts":"1793635190.051179","ts":"1793635190.051179","permalink":"`+permalink+`"}`, "cc-slack", "dm-status")
 	fake.Reply(posted, "cci", "post")
+	fake.Reply(`{"doc":{}}`, "cc-present", "outcomes")
 	return fake
 }
 
@@ -50,7 +51,7 @@ func fanout(t *testing.T, runner shell.Runner) Fanout {
 }
 
 func calls(fake *shelltest.Fake, tool string) []shell.Command {
-	return slices.DeleteFunc(fake.Calls(), func(c shell.Command) bool { return c.Argv[0] != tool || onThread(c) })
+	return slices.DeleteFunc(fake.Calls(), func(c shell.Command) bool { return c.Argv[0] != tool || onThread(c) || c.Argv[1] == "outcomes" })
 }
 
 func onThread(c shell.Command) bool {
@@ -1084,5 +1085,120 @@ func TestADiagramIsStoredForChatAndTheOtherSurfacesOnlySayItIsThere(t *testing.T
 	}
 	if !strings.Contains(said, diagramNote) {
 		t.Fatalf("no other surface says the diagram is there:\n%s", said)
+	}
+}
+
+const (
+	cardMessage = "https://brook.slack.com/archives/D0B6Z/p1793742129719979"
+	evictionAsk = "Where should storage eviction start?"
+)
+
+func boardWith(answers string) string {
+	return `{"doc":{"blocks":[` +
+		`{"id":"card-storage-eviction","type":"card","title":"` + evictionAsk + `","slack":{"url":"` + cardMessage + `"},"children":[{"id":"evict-pick","type":"choice"}]},` +
+		`{"id":"card-storage-eviction-window","type":"card","title":"How long is the window?","slack":{"url":"https://brook.slack.com/archives/D0B6Z/p2"},"children":[{"id":"window-pick","type":"choice"}]},` +
+		`{"id":"card-never-sent","type":"card","title":"Never reached Slack","children":[{"id":"unsent-pick","type":"choice"}]}` +
+		`]},"interactions":{"choices":` + answers + `}}`
+}
+
+func linkedMD(t *testing.T, r Reply, answers string) string {
+	t.Helper()
+	fake := &shelltest.Fake{}
+	fake.Reply(boardWith(answers), "cc-present", "outcomes")
+	got, warning := fanout(t, fake).withCardLinks(context.Background(), r)
+	if warning != "" {
+		t.Fatalf("warning = %q", warning)
+	}
+	return got.MD
+}
+
+func TestAnOpenCardTheReplyNamesLinksToTheMessageHeTapsItOn(t *testing.T) {
+	linked := "[" + evictionAsk + "](" + cardMessage + ")"
+	for name, tc := range map[string]struct{ md, want string }{
+		"its id":           {"Waiting on card-storage-eviction now.", "Waiting on " + linked + " now."},
+		"its id in code":   {"Waiting on `card-storage-eviction` now.", "Waiting on " + linked + " now."},
+		"its words":        {"Card storage eviction if it needs you.", "[Card storage eviction](" + cardMessage + ") if it needs you."},
+		"its words after":  {"The storage eviction card needs you.", "The [storage eviction card](" + cardMessage + ") needs you."},
+		"its title":        {"Asked: where should storage eviction start?", "Asked: [where should storage eviction start?](" + cardMessage + ")"},
+		"a longer name":    {"Waiting on card-storage-eviction-window.", "Waiting on [How long is the window?](https://brook.slack.com/archives/D0B6Z/p2)."},
+		"already linked":   {"See [the card](" + cardMessage + ") for storage eviction card.", "See [the card](" + cardMessage + ") for storage eviction card."},
+		"no card":          {"Storage eviction merged.", "Storage eviction merged."},
+		"a card off Slack": {"Waiting on card-never-sent.", "Waiting on card-never-sent."},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := linkedMD(t, Reply{ID: "r1", MD: tc.md}, "{}"); got != tc.want {
+				t.Fatalf("md = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestACardHeAnsweredOrThisReplyDrawsTakesNoLink(t *testing.T) {
+	md := "Waiting on card-storage-eviction."
+	if got := linkedMD(t, Reply{ID: "r1", MD: md}, `{"evict-pick":{"optionIds":["a"]}}`); got != md {
+		t.Fatalf("an answered card was linked: %q", got)
+	}
+	if got := linkedMD(t, Reply{ID: "storage-eviction", MD: md}, "{}"); got != md {
+		t.Fatalf("a card was linked to itself: %q", got)
+	}
+}
+
+func TestABoardThatDoesNotReadPostsTheReplyWithAWarning(t *testing.T) {
+	fake := &shelltest.Fake{}
+	fake.Fail(1, "daemon not running", "cc-present", "outcomes")
+	r, warning := fanout(t, fake).withCardLinks(context.Background(), Reply{ID: "r1", MD: "card-storage-eviction"})
+	if r.MD != "card-storage-eviction" || !strings.Contains(warning, "daemon not running") {
+		t.Fatalf("md = %q, warning = %q", r.MD, warning)
+	}
+}
+
+func TestAProgressReplyInHisThreadAnswersThereAndKeepsTheLedgerRow(t *testing.T) {
+	fake := scripted()
+	f := fanout(t, fake)
+	path := ledgered(t, f)
+	sent := f.Send(context.Background(), Reply{ID: "rp", Title: "Vector search", MD: "It went to [the design lane](https://x.test/d).", Status: progress, Order: "m447", By: "11:30 PM", Routed: 400803, Thread: "1793684147.131059"}.led())
+	posted := calls(fake, "cc-slack")
+	if len(posted) != 1 || flag(t, posted[0].Argv, "--thread") != "1793684147.131059" {
+		t.Fatalf("cc-slack calls = %+v, want one post in his thread", posted)
+	}
+	if text := posted[0].Argv[len(posted[0].Argv)-1]; text != "*Vector search*\nIt went to <https://x.test/d|the design lane>." {
+		t.Fatalf("thread text = %q", text)
+	}
+	if got := surface(sent, "ledger"); got.Ref != "m447 due Nov 3 11:30 PM" {
+		t.Fatalf("ledger outcome = %+v", got)
+	}
+	if ledger, _ := os.ReadFile(path); !strings.Contains(string(ledger), "due Nov 3 11:30 PM") {
+		t.Fatalf("ledger = %q", ledger)
+	}
+	if len(threadWrites(fake)) != 0 {
+		t.Fatalf("a progress reply reached Talk: %+v", threadWrites(fake))
+	}
+}
+
+func TestAPickReplyInHisThreadAnswersThereWithTheLinkToItsCard(t *testing.T) {
+	fake := scripted()
+	sent := fanout(t, fake).Send(context.Background(), Reply{ID: "r9", Title: "Land the relay fix?", MD: "Its checks passed.", Picks: []string{"Land", "Hold"}, Recommended: "Land", Thread: "1793684147.131059"})
+	posted := calls(fake, "cc-slack")
+	if len(posted) != 1 || flag(t, posted[0].Argv, "--thread") != "1793684147.131059" {
+		t.Fatalf("cc-slack calls = %+v, want one post in his thread", posted)
+	}
+	if text := posted[0].Argv[len(posted[0].Argv)-1]; !strings.Contains(text, "<"+permalink+"|"+pickLead+">") {
+		t.Fatalf("thread text = %q, want the card's link", text)
+	}
+	if surface(sent, "slack").Ref != permalink || surface(sent, "slack thread").Ref != permalink {
+		t.Fatalf("outcomes = %+v, want the card and the thread reply apart", sent)
+	}
+}
+
+func TestAnEditThatDropsPicksInHisThreadStaysOnTheCard(t *testing.T) {
+	fake := scripted()
+	fake.Reply("removed card-r10\nrev: 9\n", "cc-present", "remove-block")
+	f := fanout(t, fake)
+	f.Send(context.Background(), Reply{ID: "r10", Title: "Land it?", MD: "Checks passed.", Picks: []string{"Land", "Hold"}, Recommended: "Land"})
+	before := len(calls(fake, "cc-slack"))
+	f.Send(context.Background(), Reply{ID: "r10", Title: "Landed", MD: "Withdrawn.", Thread: "1793684147.131059"})
+	after := calls(fake, "cc-slack")[before:]
+	if len(after) != 1 || slices.Contains(after[0].Argv, "--thread") {
+		t.Fatalf("cc-slack calls = %+v, want the card edited in place and no thread post", after)
 	}
 }
