@@ -92,7 +92,7 @@ def test_all_current_hook_call_expressions_reach_real_dispatch_without_a_python_
         "CANDIDATES": 3, "CANDIDATE_BYTES": 1024, "excluded": [],
         "MOMENT_CHARS": 1024, "MATCH_TIMEOUT_SECONDS": 2, "reqenv": reqenv,
         "ROWS_PER_ARTIFACT": 2, "MATCH_BYTES": 6000, "MATCH_CHARS": 2000,
-        "spec": "acme/app#12", "head": "cafef00d",
+        "spec": "acme/app#12", "head": "cafef00d", "GATE_READ_SECONDS": 5,
     }
     expression = compile(ast.Expression(copy.deepcopy(node)), str(HOOKS / f"{module}.py"), "eval")
     cwd, args, kwargs = eval(expression, scope)
