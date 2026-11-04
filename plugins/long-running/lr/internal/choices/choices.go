@@ -38,7 +38,6 @@ var (
 	ownerWords  = regexp.MustCompile(`(?i)\bneeds? (?:his|the owner'?s?) (?:pick|call|word|choice)\b|\bfor him to (?:pick|decide|choose)\b|\bfork is his\b|\bwait(?:s|ing)? on (?:his|the owner'?s?) (?:pick|call|word|choice)\b|\b(?:needs?|one|an) owner pick\b|\bowner pick (?:asked|needed|before|open)\b|\bplan (?:fork|gap)\b`)
 	optionWords = regexp.MustCompile(`(?is)\bA \(recommended\)|\boption A\b.*\boption B\b|\boptions?:\s*(?:A|1)\b`)
 	repeatWords = regexp.MustCompile(`(?i)\ba repeat\b|\bhe repeated\b|\brepeated (?:an? )?(?:order|ruling)\b|\bhas now given\b`)
-	deskLane    = regexp.MustCompile(`^(?:board-refresher|board-watch|card-mirror|owner-relay|desk-runner|supervisor|fidelity|finder|grader|judge|go-sweep|progress-desk|meta-desk|root$)`)
 	clockTime   = regexp.MustCompile(`(?i)\b\d{1,2}:\d{2}(?::\d{2})? ?(?:AM|PM)\b`)
 	proseKinds  = []string{kindAsk, kindDecide, kindBlocked, "report", kindNote}
 	onHisPick   = regexp.MustCompile(`(?i)\b(?:his|the owner'?s?|owner)\s+(?:\d+\s+|two\s+)?(?:picks?|answers?|taps?)\b[^.#]*\b(?:card|board)\b|\b(?:his|owner'?s?) picks?\b|\buntil he picks\b`)
@@ -177,7 +176,7 @@ func (c *Check) prose(ctx context.Context, now time.Time) []Finding {
 	var found []Finding
 	for _, record := range recent {
 		var side []string
-		if string(record.Kind) != kindBlocked && !deskLane.MatchString(record.Lane) {
+		if string(record.Kind) != kindBlocked && !board.DeskLane.MatchString(record.Lane) {
 			side = c.sideBoards(ctx, record.Text)
 		}
 		switch {
@@ -207,7 +206,7 @@ func (c *Check) parked(ctx context.Context, unsent []string) []Finding {
 	}
 	var found []Finding
 	for _, record := range open {
-		if deskLane.MatchString(record.Lane) {
+		if board.DeskLane.MatchString(record.Lane) {
 			continue
 		}
 		if unseen := c.unseen(ctx, record, unsent); unseen != "" {
@@ -278,7 +277,7 @@ func (c *Check) offBoard(record client.Record, unseen string) (Finding, bool) {
 }
 
 func untyped(record client.Record) bool {
-	if deskLane.MatchString(record.Lane) || namesCard.MatchString(record.Text) {
+	if board.DeskLane.MatchString(record.Lane) || namesCard.MatchString(record.Text) {
 		return false
 	}
 	if ownerWords.MatchString(record.Text) {

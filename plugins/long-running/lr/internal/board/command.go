@@ -101,7 +101,7 @@ func Command(a *app.App) *cobra.Command {
 		}
 		return CardsOf(a, entry, board, s), func() { _ = s.Close() }, nil
 	}
-	cmd.AddCommand(waitsCommand(a, opened), redsCommand(a, opened), cardsCommand(cards, PackJudge(a.Runner)), passCommand(a, opened), rowsCommand(opened), classifyCommand(), slackCardCommand(a), linkCommand(a, opened), drawCommand(a, opened, PackJudge(a.Runner)))
+	cmd.AddCommand(wakeCommand(a, cards), waitsCommand(a, opened), redsCommand(a, opened), cardsCommand(cards, PackJudge(a.Runner)), passCommand(a, opened), rowsCommand(opened), classifyCommand(), slackCardCommand(a), linkCommand(a, opened), drawCommand(a, opened, PackJudge(a.Runner)))
 	return cmd
 }
 
@@ -296,9 +296,12 @@ func cardsCommand(cards func() (Cards, func(), error), judge Judge) *cobra.Comma
 				return err
 			}
 			defer done()
-			end, err := board.Until(c.Context(), args[0], until, paths...)
+			end, err := board.Until(c.Context(), args[0], until, owner, paths...)
 			if err != nil {
 				return err
+			}
+			if DeskLane.MatchString(owner) {
+				fmt.Fprintf(c.ErrOrStderr(), "WARNING %s is a desk: pass --lane with the lane whose ask drew %s, so his answer wakes it\n", owner, args[0])
 			}
 			deps, err := board.Depend(c.Context(), args[0], owner, on)
 			if err != nil {
@@ -309,7 +312,7 @@ func cardsCommand(cards func() (Cards, func(), error), judge Judge) *cobra.Comma
 		},
 	}
 	record.Flags().StringVar(&until, "until", "", "at:TIME, pr:N, release:STACK@ENV:COMMIT or record:SEQ")
-	record.Flags().StringVar(&owner, "lane", os.Getenv("CLAUDE_LONG_RUNNING_LANE"), "the lane that owns the card, told when a ruling may change it")
+	record.Flags().StringVar(&owner, "lane", os.Getenv("CLAUDE_LONG_RUNNING_LANE"), "the lane whose ask drew the card, woken by his answer and told when a ruling may change it; a desk drawing for another lane names that lane")
 	record.Flags().StringArrayVar(&on, "on", nil, "an object or card:ID the card rests on beyond the PRs and register names it cites, repeatable")
 	record.Flags().StringArrayVar(&paths, "path", nil, "a repo-relative path prefix of the subsystem a design card decides, where a drive lane's PR waits for his pick, repeatable")
 	recheck := &cobra.Command{
