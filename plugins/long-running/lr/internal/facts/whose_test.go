@@ -38,7 +38,7 @@ func TestWhoseNamesTheAuthorAndWhetherTheDriveOwnsIt(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []facts.Whose{
-		{Number: 46018, Author: "andrew", Name: "Andrew Benton"},
+		{Number: 46018, Author: "andrew", Name: "Andrew Benton", Foreign: true},
 		{Number: 49336, Author: "drive-bot", Lane: "chat-version-land-1", Ours: true},
 		{Number: 46019, Author: "drive-bot", Ours: true},
 		{Number: 47000, Author: "drive-bot"},

@@ -50,7 +50,7 @@ NAMED = "Urgent: the delete drops SoFi's old signal store for good, so their cha
 WHOSE = "\n".join(
     json.dumps(row)
     for row in (
-        {"number": 46018, "author": "andrew", "name": "Andrew Benton", "ours": False},
+        {"number": 46018, "author": "andrew", "name": "Andrew Benton", "ours": False, "foreign": True},
         {"number": 49336, "author": "drive-bot", "lane": "chat-version-land-1", "ours": True},
     )
 )
@@ -123,7 +123,7 @@ def whose(reads: Reads, numbers: list[int]) -> dict[int, dict]:
 
 def theirs(reads: Reads, texts: list[str]) -> list[tuple[str, dict]]:
     found = whose(reads, prs_named(texts))
-    return [(text, row) for text in texts for number in prs_named([text]) if (row := found.get(number)) and not row["ours"]]
+    return [(text, row) for text in texts for number in prs_named([text]) if (row := found.get(number)) and row.get("foreign")]
 
 
 def person(row: dict) -> str:
