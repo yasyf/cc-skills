@@ -39,8 +39,8 @@ and `noted` (a verdict with a note) to the coordinator and to `owner-relay`; bot
 names the block, its card, or the merge row (`merge-row-<pr>` or `merge:<pr>`); `free-text` (a
 write-in, a note, an input, any other reply) goes to `owner-relay` alone and resolves nothing, since
 the communicator routes it; `none` (a submit, an emptied choice) goes to the coordinator. Each answer also adds a row
-to the communicator's owner ledger with `lr owner add`: `addressed` at its record for `structured`,
-`open` for `noted` and `free-text`. The communicator hears of taps only in batches: every tenth
+to the communicator's owner ledger: `lr owner add` writes it `addressed` at its record for `structured`, and `lr owner received` writes
+`noted` and `free-text` due at their deadline, with the acknowledgement he reads on that row and in chat. The communicator hears of taps only in batches: every tenth
 `structured` answer on a board posts one `note` to `owner-relay` on topic `tap-batch`, a single line
 naming those ten, which `<state dir>/boards/<session>-taps.jsonl` holds until the tenth arrives. Its idempotency key is the event's line number
 in the events file plus a hash of the line, so a restart that resumes from the watch's cursor
@@ -531,8 +531,9 @@ def post_owner(shell: Shell, bus: Bus, key: str, text: str, block: str, names: l
 
 def add_ledger_row(shell: Shell, bus: Bus, session: str, text: str, answer: str, posted: str) -> None:
     seq = posted.strip().removeprefix("#")
-    state = ["--state", "addressed", *(["--routed", seq] if seq.isdigit() else [])] if answer == STRUCTURED else ["--state", "open"]
-    done = shell.lr(["owner", "add", "--drive", bus.drive, *state], text)
+    routed = ["--routed", seq] if seq.isdigit() else []
+    verb = ["add", "--drive", bus.drive, "--state", "addressed", *routed] if answer == STRUCTURED else ["received", "--drive", bus.drive, *routed]
+    done = shell.lr(["owner", *verb], text)
     if done.returncode:
         print(f"board-watch {session}: the ledger row did not write: {done.stderr.strip()}", flush=True)
 

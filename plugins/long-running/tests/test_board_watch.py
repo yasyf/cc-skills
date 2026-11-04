@@ -427,14 +427,14 @@ def test_a_write_in_reaches_owner_relay_alone_resolves_nothing_and_opens_a_row(t
 
     assert (shell.posted("--to"), shell.posted("--resolves-seq"), shell.posted("--topic", "ask")) == (["owner-relay"], [], [])
     assert attrs(shell.posts[0])["answer"] == "free-text"
-    assert shell.ledger == [(["owner", "add", "--drive", "brook", "--state", "open"], f"{QUESTION}: wrote \u201conly for the team\u201d")]
+    assert shell.ledger == [(["owner", "received", "--drive", "brook", "--routed", "77"], f"{QUESTION}: wrote \u201conly for the team\u201d")]
 
 
 def test_a_verdict_with_a_note_acts_at_once_and_still_opens_a_row_for_the_note(tmp_path: Path) -> None:
     shell = streamed(tmp_path, NOTED_VERDICT, [ask(21, "parked on banner-ok")])
 
     assert (shell.posted("--to"), shell.posted("--resolves-seq")) == (["root,owner-relay"], ["21"])
-    assert [argv[-1] for argv, _ in shell.ledger] == ["open"]
+    assert [argv[1] for argv, _ in shell.ledger] == ["received"]
 
 
 def test_a_submit_reaches_root_and_adds_no_row(tmp_path: Path) -> None:
@@ -455,7 +455,7 @@ def test_an_answer_lr_cannot_classify_goes_to_owner_relay_with_an_open_row(tmp_p
     shell = streamed(tmp_path, TAP, classifies=False)
 
     assert shell.posted("--to") == ["owner-relay"]
-    assert [argv[-1] for argv, _ in shell.ledger] == ["open"]
+    assert [argv[1] for argv, _ in shell.ledger] == ["received"]
     assert "lr board classify did not run" in capsys.readouterr().out
 
 
