@@ -90,32 +90,53 @@ func Add(path string, at time.Time, text, state string, routed int) (string, err
 		if err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return err
 		}
-		next := 1
-		for _, found := range rowID.FindAllSubmatch(ledger, -1) {
-			seen, err := strconv.Atoi(string(found[1]))
-			if err != nil {
-				return err
-			}
-			next = max(next, seen+1)
-		}
-		row = "m" + strconv.Itoa(next)
-		heading := ""
-		if !bytes.Contains(ledger, []byte(header)) {
-			heading = "\n" + header
-		}
-		record := ""
-		if routed != 0 {
-			record = strconv.Itoa(routed)
-		}
-		file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+		rows, err := appendRows(path, ledger, at, []string{text}, state, routed)
 		if err != nil {
 			return err
 		}
-		defer file.Close()
-		_, err = fmt.Fprintf(file, "%s| %s | %s | %s | %s | %s |\n", heading, row, at.In(pacific).Format(rowTime), cellBreak.Replace(strings.TrimSpace(text)), record, state)
-		return err
+		row = rows[0]
+		return nil
 	})
 	return row, err
+}
+
+func appendRows(path string, ledger []byte, at time.Time, texts []string, state string, routed int) ([]string, error) {
+	if len(texts) == 0 {
+		return nil, nil
+	}
+	next := 1
+	for _, found := range rowID.FindAllSubmatch(ledger, -1) {
+		seen, err := strconv.Atoi(string(found[1]))
+		if err != nil {
+			return nil, err
+		}
+		next = max(next, seen+1)
+	}
+	heading := ""
+	if !bytes.Contains(ledger, []byte(header)) {
+		heading = "\n" + header
+	}
+	record := ""
+	if routed != 0 {
+		record = strconv.Itoa(routed)
+	}
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	rows := make([]string, len(texts))
+	var written strings.Builder
+	written.WriteString(heading)
+	for i, text := range texts {
+		rows[i] = "m" + strconv.Itoa(next)
+		if len(texts) > 1 {
+			rows[i] += "." + strconv.Itoa(i+1)
+		}
+		fmt.Fprintf(&written, "| %s | %s | %s | %s | %s |\n", rows[i], at.In(pacific).Format(rowTime), cellBreak.Replace(strings.TrimSpace(text)), record, state)
+	}
+	_, err = file.WriteString(written.String())
+	return rows, err
 }
 
 func Mark(path, row, state string, routed int) error {
