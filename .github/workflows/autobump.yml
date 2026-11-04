@@ -31,3 +31,16 @@ jobs:
       guard-plugins: "codex slop-cop"
       lockstep: "plugins/long-running/bin/lr.binrun plugins/long-running/lr"
       lockstep-check: "uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_lr_verbs.py"
+
+  publish:
+    needs: autobump
+    if: github.event_name == 'workflow_dispatch' && !inputs.dry_run
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: A run GITHUB_TOKEN dispatched fires no workflow_run, so start the pack release from here
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run long-running-pack-release.yml --ref main --repo "$GITHUB_REPOSITORY"
