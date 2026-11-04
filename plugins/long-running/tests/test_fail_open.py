@@ -76,6 +76,7 @@ KEPT_REFUSALS = KEPT | {
     "owner_returns.communicator_reply_follows_the_owner_rules": STOP.format(what="the owner would read the reply as sent"),
     "owner_returns.The communicator reads only the Slack thre": "the owner corrected the communicator's warned wide searches twice, so a warning did not stop them",
     "owner_slack_links.owner_slack_links_get_routed": STOP.format(what="a thread the owner linked would go unanswered"),
+    "pr_ledger.ships_that_open_a_pr_name_its_body": "the plan the owner picked (1cc85e1) makes this a failure: a PR opened with no body has an empty row, and a warning lands after the PR is open and its CI and review bots have started",
     "register_gates.hook_edit_guard": "trust: hook-file edits",
     "release_cards.release_leaves_out_what_his_open_cards_gate": "an apply cannot be recalled and sandsql cannot roll back, so a warning on the start lands after the stack ships (cci 386973)",
     "root_context.The communicator runs no search inline: as": "the owner corrected the communicator's warned wide searches twice, so a warning did not stop them",
