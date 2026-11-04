@@ -1135,10 +1135,10 @@ def test_a_tap_records_only_on_a_row_the_board_still_holds_at_the_head_the_page_
 def test_a_change_request_the_record_tool_cannot_post_answers_with_the_reason(monkeypatch):
     drive = Drive({"drive": "d", "board_url": "http://board/p/x"}, None)
 
-    def record_tool_missing(argv, cwd=None):
+    def record_tool_missing(argv, cwd=None, stdin=None):
         if argv[0] == "tailscale":
             return json.dumps(OWNER_WHOIS)
-        raise FileNotFoundError(2, "No such file or directory", "cci")
+        raise FileNotFoundError(2, "No such file or directory", "lr")
 
     monkeypatch.setattr(server, "run", record_tool_missing)
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.handler(drive, TAILNET_OWNER, {"127.0.0.1"}))
@@ -1148,9 +1148,56 @@ def test_a_change_request_the_record_tool_cannot_post_answers_with_the_reason(mo
         with pytest.raises(urllib.error.HTTPError) as failed:
             urllib.request.urlopen(request, timeout=5)
         assert failed.value.code == 502
-        assert "cci" in json.loads(failed.value.read())["error"]
+        assert "lr" in json.loads(failed.value.read())["error"]
     finally:
         httpd.shutdown()
+
+
+def test_a_page_question_goes_through_the_ledger_verb_with_his_words_on_stdin(monkeypatch):
+    drive = Drive({"drive": "d", "board_url": "http://board/p/x"}, None)
+    calls = []
+    monkeypatch.setattr(server, "run", lambda argv, cwd=None, stdin=None: calls.append((argv, stdin)) or "77\n")
+
+    assert drive.change_request(7, "abc", "why by hand?") == (200, {"seq": 77})
+    assert calls == [(["lr", "owner", "ask", "--drive", "d", "--pr", "7", "--head", "abc"], "why by hand?")]
+
+
+def test_a_routed_question_whose_received_line_failed_is_not_reported_unsent(monkeypatch):
+    drive = Drive({"drive": "d", "board_url": "http://board/p/x"}, None)
+    defects = []
+    monkeypatch.setattr(drive, "report_defect", defects.append)
+
+    def routed_then_failed(argv, cwd=None, stdin=None):
+        raise subprocess.CalledProcessError(1, argv, output="77\n", stderr="the ledger is locked")
+
+    monkeypatch.setattr(server, "run", routed_then_failed)
+
+    assert drive.change_request(7, "abc", "why by hand?") == (200, {"seq": 77})
+    assert "the ledger is locked" in defects[0]
+
+
+def test_a_question_nothing_routed_is_reported_unsent(monkeypatch):
+    drive = Drive({"drive": "d", "board_url": "http://board/p/x"}, None)
+
+    def refused(argv, cwd=None, stdin=None):
+        raise subprocess.CalledProcessError(1, argv, output="", stderr="cci refused it")
+
+    monkeypatch.setattr(server, "run", refused)
+
+    with pytest.raises(subprocess.CalledProcessError):
+        drive.change_request(7, "abc", "why by hand?")
+
+
+def test_a_page_question_carries_who_has_it_and_its_deadline_until_it_is_settled():
+    attrs = {"head": "aaaa111", "deadline": "2026-11-04T05:32:00Z", "owner": "root"}
+    ask = lambda seq, number: {"seq": seq, "lane": "owner-board", "kind": "ask", "at": "2026-11-04T05:17:00Z", "text": "why?", "refs": {"prs": [number]}, "fields": {"attrs": attrs}}
+    acknowledged = {"seq": 2, "lane": "owner-board", "kind": "posted", "at": "2026-11-04T05:17:01Z", "re": 1, "text": "Received, with the coordinator, answer by 9:32 PM", "refs": {}}
+    prs = {str(n): {"head": "aaaa111"} for n in (7, 8)}
+
+    asks = server.owner_asks([ask(1, 7), acknowledged, ask(3, 8)], prs, {3: {"closed": "responded"}})
+
+    assert (asks["7"][0]["answered"], asks["7"][0]["due"], asks["7"][0]["holder"]) == (False, "2026-11-04T05:32:00Z", "the coordinator")
+    assert asks["8"][0]["answered"] is True
 
 
 class FakeModel(BaseHTTPRequestHandler):

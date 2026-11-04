@@ -27,7 +27,7 @@ from zoneinfo import ZoneInfo
 
 import plainwords
 from brief import COORDINATORS, ROOT, Curator
-from owed import kept, order_replies, overdue_rows, owner_ask_rows, told_asks, trimmed
+from owed import CHAT_HOLDER, kept, order_replies, overdue_rows, owner_ask_rows, told_asks, trimmed
 from pages import PAGES, source_key, stamp
 from review_assistant import ReviewAssistant
 from screens import SCREENS, changed_screens, screen_kind, screen_view
@@ -97,6 +97,7 @@ ASKED_PREFIX = "Asked on the dashboard: "
 OWNER_LANES = frozenset({"dashboard", "owner-board", "owner"})
 NOT_A_REPLY = frozenset({"ask", "decide", "go", "blocked", "hold"})
 COMMUNICATOR = "owner-relay"
+HOLDER_WORDS = {"root": "the coordinator", COMMUNICATOR: CHAT_HOLDER}
 LANE_ROUTE = re.compile(r"/api/lane/([\w.-]+)")
 REGISTER_DAY = dt.timedelta(days=1)
 REGISTER_SHOWN = 25
@@ -155,8 +156,8 @@ def gh(repo, *args):
     return run(["env", "CCX_CALLER=drive-dashboard", f"GH_REPO={repo}", "ccx", "vcs", "gh", "--max-age", "5m", "--", *args])
 
 
-def run(argv, cwd=None):
-    return subprocess.run(argv, cwd=cwd, capture_output=True, text=True, check=True, timeout=60).stdout
+def run(argv, cwd=None, stdin=None):
+    return subprocess.run(argv, cwd=cwd, input=stdin, capture_output=True, text=True, check=True, timeout=60).stdout
 
 
 def cci(path, **query):
@@ -258,6 +259,12 @@ def with_releases(history, releases):
             events.append({"ts": record["at"], "kind": "release", "text": record["text"], "holder": None, "next": None})
             events.sort(key=lambda event: event["ts"], reverse=True)
     return merged
+
+
+def until_changed(path, within):
+    seen, ends = path.stat().st_mtime_ns, time.monotonic() + within
+    while time.monotonic() < ends and path.stat().st_mtime_ns == seen:
+        time.sleep(1)
 
 
 def lean(records):
@@ -737,7 +744,8 @@ def owner_asks(records, prs, told=None):
             for child in children.get(frontier.pop(), []):
                 frontier.append(child["seq"])
                 confirmed = confirmed or (child["kind"] not in NOT_A_REPLY and child["lane"] not in OWNER_LANES)
-        asked_at = ((record.get("fields") or {}).get("attrs") or {}).get("head") or ""
+        attrs = (record.get("fields") or {}).get("attrs") or {}
+        asked_at = attrs.get("head") or ""
         reply = (told or {}).get(record["seq"]) or {}
         for number in map(str, (record.get("refs") or {}).get("prs") or []):
             live = (prs.get(number) or {}).get("head") or ""
@@ -749,6 +757,8 @@ def owner_asks(records, prs, told=None):
                 "answered": pushed or confirmed or bool(reply),
                 "action": None if pushed else reply.get("action"),
                 "reply": reply.get("id"),
+                "due": attrs.get("deadline"),
+                "holder": HOLDER_WORDS.get(attrs.get("owner")),
             })
     return asks
 
@@ -1047,8 +1057,14 @@ class Drive:
     def change_request(self, number, head, text):
         if "mirror" in self.config:
             return 409, {"error": "a test copy sends no change requests"}
-        seq = run(["cci", "post", "--drive", self.config["drive"], "--lane", "owner-board", "--kind", "ask", "--to", "root", "--pr", str(number), "--attr", f"head={head}", "--text", text]).strip().splitlines()[-1].lstrip("#")
-        return 200, {"seq": int(seq)}
+        try:
+            seq = run(["lr", "owner", "ask", "--drive", self.config["drive"], "--pr", str(number), "--head", head], stdin=text)
+        except subprocess.CalledProcessError as failure:
+            if not failure.stdout.strip():
+                raise
+            self.report_defect(f"the question on #{number} reached the records with no received line: {failure.stderr.strip()}")
+            seq = failure.stdout
+        return 200, {"seq": int(seq.strip())}
 
     def interact(self, interaction, subject=None):
         origin, _, main = self.config["board_url"].partition("/p/")
@@ -1218,18 +1234,20 @@ class Drive:
             after = fresh[-1]["seq"] if fresh else after
             render = subprocess.run(["lr", "update", "render", "--drive", drive], capture_output=True, text=True, timeout=SLOW_REFRESH).stdout
             store = json.loads(run(["lr", "asks", "--drive", drive, "--json"]))
-            ledger = Path(self.config["owner_ledger"]).read_text()
+            ledger_file = Path(self.config["owner_ledger"])
+            ledger = ledger_file.read_text()
             told = order_replies(self.replies)
             self.told_asks = told_asks(ledger, told)
-            answers = {path.stem: path.read_text() for path in (Path(self.config["owner_ledger"]).parent / "answers").glob("*.md")} | {row: reply["md"] for row, reply in told.items()}
+            answers = {path.stem: path.read_text() for path in (ledger_file.parent / "answers").glob("*.md")} | {row: reply["md"] for row, reply in told.items()}
+            threads = {ask["seq"]: ask for asks in self.model.get("asks", {}).values() for ask in asks}
             lanes = set(self.lane_names())
             self.owed = {
-                "owner_asks": owner_ask_rows(ledger, known, self.model.get("prs", {}), store, lanes, now.astimezone(PACIFIC).year, answers),
+                "owner_asks": owner_ask_rows(ledger, known, self.model.get("prs", {}), store, lanes, now.astimezone(PACIFIC).year, answers, threads),
                 "coordinator_overdue": overdue_rows(render, known, store),
             }
             self.touch()
             self.bump()
-            time.sleep(SLOW_REFRESH)
+            until_changed(ledger_file, SLOW_REFRESH)
 
     def follow_replies(self):
         store = Path(self.config["replies"])

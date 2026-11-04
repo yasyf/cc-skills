@@ -4,7 +4,11 @@ import re
 from zoneinfo import ZoneInfo
 
 PACIFIC = ZoneInfo("America/Los_Angeles")
-LEDGER_ROW = re.compile(r"\| m(\d+) \| (\w+ \d+ \d+:\d+ [AP]M) \| (.*) \| (\S*) \| (\S*) \|$")
+LEDGER_ROW = re.compile(r"\| m(\d+) \| (\w+ \d+ \d+:\d+ [AP]M) \| (.*) \| (\S*) \| ([^|]*?) \|$")
+DUE = "due "
+CHAT_HOLDER = "your chat"
+CLOSED_MARKS = {"responded", "addressed", "no-order"}
+CARD_ID = re.compile(r" \([\w:-]+\)(?=: |$)")
 ANSWERED = "Answered, nothing for you."
 MENTION = re.compile(r"\bm(\d{1,3})\b")
 ITEM = re.compile(r"\bM(\d{1,3})\b")
@@ -47,7 +51,7 @@ def named_prs(records):
     return sorted(numbers)
 
 
-def owner_ask_rows(ledger, records, prs, store, known_lanes, year, answers):
+def owner_ask_rows(ledger, records, prs, store, known_lanes, year, answers, threads=None):
     lines = ledger.splitlines()
     done = [r for r in worker_records(records) if r["kind"] == "done"]
     by_message = collections.defaultdict(list)
@@ -60,13 +64,17 @@ def owner_ask_rows(ledger, records, prs, store, known_lanes, year, answers):
         if not (row := LEDGER_ROW.match(line)):
             continue
         number, stamp, mark = int(row[1]), row[2], row[5]
+        thread = (threads or {}).get(int(row[4])) if row[4].isdigit() else None
+        waiting = mark.startswith(DUE) and not (thread and thread["answered"])
+        due = stamp_iso(mark.removeprefix(DUE), year) if waiting else None
+        holder = thread["holder"] if thread else CHAT_HOLDER
         lines_said = [said.strip() for said in row[3].split("<br>") if said.strip()]
         text = " ".join(said for said in lines_said if not said.startswith(">")) or " ".join(lines_said)
-        if len(text) < MIN_ASK:
+        if len(text) < MIN_ASK and not waiting and not thread:
             continue
         iso = stamp_iso(stamp, year)
         if text.startswith("Owner on board"):
-            taps.append(tap_row(number, iso, text, prs))
+            taps.append(tap_row(number, iso, text, prs) | ({"state": "asked", "due": due, "holder": holder} if waiting else {}))
             continue
         mine = by_message[number]
         follow_up = " ".join(following for following in lines[index + 1 : index + 3] if not following.startswith("| m"))
@@ -79,12 +87,14 @@ def owner_ask_rows(ledger, records, prs, store, known_lanes, year, answers):
         words = " ".join(r["text"] for r in mine) + " " + follow_up
         holders = list(dict.fromkeys([*[lane for lane, _ in collections.Counter(r["lane"] for r in workers).most_common(3)], *[r["lane"] for r in finished], *sorted(set(LANE.findall(words)) & known_lanes)]))[:3]
         answer = answers.get(f"m{number}", "")
-        state = message_state(mark, finished, mine, named, prs, answer)
+        state = message_state("responded" if thread and thread["answered"] else mark, finished, mine, named, prs, answer)
         asks.append({
             "m": number,
             "iso": iso,
             "text": text,
             "state": state,
+            "due": due,
+            "holder": holder,
             "lanes": holders,
             "prs": named,
             "answer": answer or (ANSWERED if state == "answered" else ""),
@@ -101,7 +111,7 @@ def tap_row(number, iso, text, prs):
         "iso": iso,
         "card": found[2] if found else "",
         "said": said,
-        "question": found[1] if found else text,
+        "question": found[1] if found else CARD_ID.sub("", TAP_LEAD.sub("", text)),
         "pr": approved[1] if approved else "",
         "state": "applied" if approved and (prs.get(approved[1]) or {}).get("state") == "landed" else "answered",
     }
@@ -112,7 +122,8 @@ def order_replies(replies):
 
 
 def told_asks(ledger, told):
-    return {int(row[4]): told[f"m{row[1]}"] for row in map(LEDGER_ROW.match, ledger.splitlines()) if row and row[4].isdigit() and f"m{row[1]}" in told}
+    rows = [row for row in map(LEDGER_ROW.match, ledger.splitlines()) if row and row[4].isdigit()]
+    return {int(row[4]): {"closed": row[5]} for row in rows if row[5] in CLOSED_MARKS} | {int(row[4]): told[f"m{row[1]}"] for row in rows if f"m{row[1]}" in told}
 
 
 def message_state(mark, finished, records, named, prs, answer):
