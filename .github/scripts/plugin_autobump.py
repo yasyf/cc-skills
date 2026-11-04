@@ -37,6 +37,7 @@ import re
 import shlex
 import subprocess
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -317,6 +318,9 @@ def commit_and_push(repo: Path, bumps: list[Result], branch: str, lockstep: tupl
     return False
 
 
+TAG_PUSH_PAUSES = (0, 5, 15, 30, 60)
+
+
 def tag_bumps(repo: Path, bumps: list[Result]) -> bool:
     targets = {}
     for result in bumps:
@@ -332,7 +336,15 @@ def tag_bumps(repo: Path, bumps: list[Result]) -> bool:
     for ref in missing:
         if ref not in local:
             _git_out(repo, "tag", ref.removeprefix("refs/tags/"), targets[ref])
-    return not missing or _git(repo, "push", "origin", *missing).returncode == 0
+    return not missing or pushed(repo, missing)
+
+
+def pushed(repo: Path, refs: list[str]) -> bool:
+    for pause in TAG_PUSH_PAUSES:
+        time.sleep(pause)
+        if _git(repo, "push", "origin", *refs).returncode == 0:
+            return True
+    return False
 
 
 def main() -> int:
