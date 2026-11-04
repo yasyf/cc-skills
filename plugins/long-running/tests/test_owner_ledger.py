@@ -43,8 +43,11 @@ class Window:
     def prompt(self, text: str, **raw) -> list:
         return self.fire(UserPromptSubmitEvent, prompt=text, **raw)
 
-    def stop(self) -> list:
-        return self.fire(StopEvent)
+    def stop(self, **raw) -> list:
+        return self.fire(StopEvent, **raw)
+
+    def answer(self, row: str) -> Path:
+        return self.ledger.parent / "answers" / f"{row}.md"
 
     def seed(self, text: str) -> None:
         self.ledger.parent.mkdir(parents=True, exist_ok=True)
@@ -109,6 +112,22 @@ def bus(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Bus:
     cci.chmod(0o755)
     monkeypatch.setenv("PATH", f"{cci.parent}:{Path(sys.executable).parent}:/usr/bin:/bin")
     return fake
+
+
+@pytest.fixture
+def lr(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    calls = tmp_path / "lr.jsonl"
+    fake = tmp_path / "bin" / "lr"
+    ledger = tmp_path / "scratch" / "brook" / "owner-relay" / "owner-ledger.md"
+    fake.write_text(
+        f"#!{sys.executable}\nimport json, pathlib, sys\n"
+        f"open({str(calls)!r}, 'a').write(json.dumps(sys.argv[1:]) + '\\n')\n"
+        f"ledger = pathlib.Path({str(ledger)!r})\n"
+        "ledger.write_text(''.join(line.replace('| open |', '| responded |') if line.startswith(f'| {sys.argv[3]} |') else line for line in ledger.read_text().splitlines(keepends=True)))\n"
+    )
+    fake.chmod(0o755)
+    monkeypatch.setattr(owner_ledger, "LR", fake)
+    return calls
 
 
 def owner_record(row: str, text: str) -> dict:
@@ -385,3 +404,80 @@ def test_a_repeat_delivery_of_a_split_message_records_nothing(communicator: Wind
     assert communicator.prompt(SEVERAL_ASKS) == []
 
     assert len(communicator.rows()) == len(bus.posts()) == 3
+
+
+BUG_TABLE = "Three bugs from the m271 run:\n\n| bug | cause |\n|---|---|\n| stale row | no capture |"
+
+
+def test_a_chat_answer_lands_on_the_row_it_answered_and_moves_it(communicator: Window, lr: Path) -> None:
+    communicator.prompt("which bugs did the last run hit?")
+
+    assert communicator.stop(last_assistant_message=BUG_TABLE) == []
+
+    assert communicator.answer("m1").read_text() == BUG_TABLE
+    assert communicator.rows()[0].endswith("| responded |")
+    assert [json.loads(line) for line in lr.read_text().splitlines()] == [["owner", "mark", "m1", "responded", "--drive", "brook-drive"]]
+
+
+def test_one_answer_lands_on_every_ask_of_its_message(communicator: Window, lr: Path) -> None:
+    communicator.prompt(SEVERAL_ASKS)
+
+    communicator.stop(last_assistant_message=BUG_TABLE)
+
+    assert [communicator.answer(row).read_text() for row in ("m1.1", "m1.2", "m1.3")] == [BUG_TABLE] * 3
+
+
+def test_a_turn_no_owner_message_started_changes_nothing(communicator: Window, lr: Path) -> None:
+    communicator.seed(owner_ledger.HEADER + OPEN)
+
+    communicator.stop(last_assistant_message=BUG_TABLE)
+
+    assert communicator.ledger.read_text() == owner_ledger.HEADER + OPEN
+    assert not communicator.answer("m1").exists() and not lr.exists()
+
+
+def test_a_row_the_ledger_lost_changes_nothing_and_warns(communicator: Window, lr: Path, caplog: pytest.LogCaptureFixture) -> None:
+    communicator.prompt("which bugs did the last run hit?")
+    communicator.seed(owner_ledger.HEADER)
+
+    communicator.stop(last_assistant_message=BUG_TABLE)
+
+    assert not communicator.answer("m1").exists() and not lr.exists()
+    assert "owner row m1: the communicator's chat answer did not land, the ledger has no such row" in caplog.text
+
+
+def test_an_answer_lands_once_per_turn(communicator: Window, lr: Path) -> None:
+    communicator.prompt("which bugs did the last run hit?")
+    communicator.stop(last_assistant_message=BUG_TABLE)
+
+    communicator.stop(last_assistant_message=BUG_TABLE + " and one more line")
+
+    assert communicator.answer("m1").read_text() == BUG_TABLE
+
+
+def test_a_shorter_answer_never_replaces_a_longer_one(communicator: Window, lr: Path) -> None:
+    communicator.prompt("which bugs did the last run hit?")
+    communicator.answer("m1").parent.mkdir()
+    communicator.answer("m1").write_text(BUG_TABLE)
+
+    communicator.stop(last_assistant_message="Marked.")
+
+    assert communicator.answer("m1").read_text() == BUG_TABLE
+
+
+def test_a_credential_never_reaches_a_captured_answer(communicator: Window, lr: Path) -> None:
+    communicator.prompt("which token did the run use?")
+
+    communicator.stop(last_assistant_message="it used ghp_abcdefghijklmnopqrstuvwxyz0123")
+
+    assert communicator.answer("m1").read_text() == "it used [credential redacted]"
+
+
+def test_a_coordinator_window_captures_no_answer(drive: Path, lr: Path) -> None:
+    coordinator = Window(drive, coordinator=True)
+    coordinator.seed(owner_ledger.HEADER + OPEN)
+
+    coordinator.prompt("which bugs did the last run hit?")
+    coordinator.stop(last_assistant_message=BUG_TABLE)
+
+    assert not coordinator.answer("m1").exists() and not lr.exists()
