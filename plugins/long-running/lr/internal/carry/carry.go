@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"maps"
 	"os"
 	"path"
@@ -84,8 +85,15 @@ func Command(a *app.App) *cobra.Command {
 }
 
 func (c Carrier) Carry(ctx context.Context, brief string) (string, error) {
+	rewritten, faults := c.rewrite(ctx, brief, map[source]string{})
+	if len(faults) > 0 {
+		return "", errors.New(strings.Join(faults, "; "))
+	}
+	return rewritten, nil
+}
+
+func (c Carrier) rewrite(ctx context.Context, brief string, copies map[source]string) (string, []string) {
 	var rewritten strings.Builder
-	copies := map[source]string{}
 	var faults []string
 	last := 0
 	vars := c.varsOf(brief)
@@ -101,14 +109,48 @@ func (c Carrier) Carry(ctx context.Context, brief string) (string, error) {
 				faults = append(faults, err.Error())
 			}
 			copies[named] = copied
+			if err == nil && isBrief(named.id) {
+				if err := c.follow(ctx, named.id, copies); err != nil {
+					faults = append(faults, err.Error())
+				}
+			}
+		}
+		if copied == "" {
+			continue
 		}
 		rewritten.WriteString(brief[last:match[0]] + copied)
 		last = end
 	}
-	if len(faults) > 0 {
-		return "", errors.New(strings.Join(faults, "; "))
+	return rewritten.String() + brief[last:], faults
+}
+
+func isBrief(name string) bool {
+	base := path.Base(name)
+	return base == "brief.md" || strings.HasSuffix(base, ".brief.md")
+}
+
+func (c Carrier) follow(ctx context.Context, name string, copies map[source]string) error {
+	if path.Base(name) == "brief.md" {
+		if _, err := c.file(filepath.Dir(name)); err != nil {
+			slog.Warn("a carried brief's directory stays behind", "brief", name, "err", err)
+		}
 	}
-	return rewritten.String() + brief[last:], nil
+	info, err := os.Stat(name)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	text, err := os.ReadFile(name)
+	if err != nil {
+		return err
+	}
+	rewritten, faults := c.rewrite(ctx, string(text), copies)
+	for _, fault := range faults {
+		slog.Warn("a carried brief names what stays behind", "brief", name, "fault", fault)
+	}
+	return write(filepath.Join(c.Into, name), []byte(rewritten), info.Mode().Perm())
 }
 
 func (c Carrier) varsOf(brief string) map[string]string {
