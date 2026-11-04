@@ -443,7 +443,7 @@ func (p *pass) prefetch(walks ...[]string) error {
 }
 
 func (p *pass) resolve(name string) (string, error) {
-	out, err := p.git("rev-parse", "--verify", "--quiet", name+"^{commit}")
+	out, err := p.git("--no-lazy-fetch", "rev-parse", "--verify", "--quiet", name+"^{commit}")
 	if exited(err) {
 		return "", nil
 	}
