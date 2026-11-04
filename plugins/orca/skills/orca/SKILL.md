@@ -406,8 +406,9 @@ does this only once no unsettled Dispatch shares the workspace, the terminal
 reads idle twice, and the checkout, read over ssh, is clean with its HEAD on
 origin or landed; `--done` skips the idle check. GitHub answers whether the HEAD
 is on origin or landed, for the Sprite's own origin, so the check doesn't depend
-on which checkout you run from, and a Sprite without a GitHub origin is kept. A
-Sprite with no matching task record is left alone.
+on which checkout you run from. A Sprite without a GitHub origin is kept, and so
+is one GitHub can't answer for, such as under a rate limit, while the rest of
+the pass continues. A Sprite with no matching task record is left alone.
 
 The reclaimer is paused until `~/.local/state/orca-gc/resumed` exists, or
 `$XDG_STATE_HOME/orca-gc/resumed` when that variable is set. A paused pass
