@@ -19,8 +19,14 @@ SESSION = "900424b6-7393-480c-a26a-f1bd21da6e57"
 @pytest.mark.parametrize(
     ("fixture", "expected"),
     [
-        ("ccx-ship-gt.txt", [OpenedPr("28534", "Forge-AI/monorepo", "1caa098d30a8")]),
-        ("ccx-stack-submit.txt", [OpenedPr("28557", None, "03afab1d4802"), OpenedPr("28558", None, "af664caed71b")]),
+        ("ccx-ship-gt.txt", [OpenedPr("28534", "Forge-AI/monorepo", "1caa098d30a8", "yasyf/v3-deploy-experience/since", "yasyf/v3-deploy-experience/errors", "ci: ✨ tools/deploy --since deploys exactly the stacks a landed range reaches")]),
+        (
+            "ccx-stack-submit.txt",
+            [
+                OpenedPr("28557", None, "03afab1d4802", "yasyf/v3-deploy-experience/tenant-branch-lists", "dev", "api: 🐛 the tenant routes admit any deploy selection in the branch, lists and hashes included"),
+                OpenedPr("28558", None, "af664caed71b", "yasyf/v3-deploy-experience/since", "yasyf/v3-deploy-experience/tenant-branch-lists", "ci: ✨ tools/deploy --since deploys exactly the stacks a landed range reaches"),
+            ],
+        ),
         ("ccx-ship-git.txt", [OpenedPr("123", "yasyf/cc-skills")]),
         ("gh-pr-create.txt", [OpenedPr("28612", "Forge-AI/monorepo")]),
         ("gt-submit.txt", [OpenedPr("28560", "Forge-AI/monorepo"), OpenedPr("28562", "Forge-AI/monorepo")]),
@@ -131,6 +137,7 @@ def test_a_pr_an_in_process_lane_shipped_registers_under_that_lane_without_a_war
         return subprocess.CompletedProcess(argv, 0, "registered p8a-step5-5 #28534", "")
 
     monkeypatch.setattr(pr_ledger.subprocess, "run", record)
+    monkeypatch.setattr(pr_ledger, "post_row_records", lambda evt, prs: [])
     evt = in_process_lane_with_unloadable_transcript(tmp_path, monkeypatch)
     evt._raw["tool_response"] = (FIXTURES / "ccx-ship-gt.txt").read_text()
 
@@ -169,6 +176,7 @@ def test_a_pr_no_named_lane_opened_registers_under_root_and_says_so_only_to_a_su
         return subprocess.CompletedProcess(argv, 0, "registered root #28534", "")
 
     monkeypatch.setattr(pr_ledger.subprocess, "run", record)
+    monkeypatch.setattr(pr_ledger, "post_row_records", lambda evt, prs: [])
     evt = event(tmp_path, agent_id)
     evt._raw["tool_response"] = (FIXTURES / "ccx-ship-gt.txt").read_text()
 
@@ -214,6 +222,7 @@ def test_a_lane_in_no_drive_is_told_its_pr_was_not_recorded(tmp_path, monkeypatc
         "run",
         lambda *args, **kwargs: subprocess.CompletedProcess(args, 0, "", "no drive claims session x (lane y)"),
     )
+    monkeypatch.setattr(pr_ledger, "post_row_records", lambda evt, prs: [])
     evt = event(tmp_path)
     evt._raw["tool_response"] = (FIXTURES / "ccx-ship-gt.txt").read_text()
 
@@ -265,3 +274,197 @@ def test_a_landing_that_times_out_names_the_command_that_settles_it(tmp_path, mo
     assert result is not None
     assert f"drive.py timed out after {pr_ledger.RECORD_TIMEOUT_SECONDS}s" in result.message
     assert result.message.endswith(f"drive.py landed --session {SESSION} --pr 31159`; it reads the ledger id and checkout from the drive registry.")
+
+
+SHA = "1caa098d30a81caa098d30a81caa098d30a81caa"
+ROW = json.dumps({"seq": 1, "kind": "opened", "fields": {"attrs": {"repo": "Forge-AI/monorepo", "head": "abc1234"}}})
+HAND_POSTED = json.dumps({"seq": 2, "kind": "opened", "fields": {}})
+GT_SHIP = (FIXTURES / "ccx-ship-gt.txt").read_text()
+GT_REF = "Forge-AI/monorepo#28534"
+VIEW = json.dumps({"url": "https://github.com/Forge-AI/monorepo/pull/28534", "title": "x: y", "headRefName": "lane/fix", "baseRefName": "dev", "headRefOid": SHA, "body": "from github"})
+
+
+@pytest.fixture
+def tools(monkeypatch):
+    from hooks import pr_ledger
+
+    monkeypatch.setenv("CLAUDE_LONG_RUNNING_DRIVE", "d")
+    monkeypatch.setenv("CLAUDE_LONG_RUNNING_LANE", "lane-a")
+    calls = []
+    answers = {("git", "rev-parse"): SHA, ("git", "symbolic-ref"): "origin/dev", ("cci", "grep"): "", ("cci", "post"): "#9", ("gh", "pr"): VIEW}
+
+    def run(argv, **kwargs):
+        calls.append((argv, kwargs.get("input")))
+        answer = answers.get(tuple(argv[:2]), "")
+        return subprocess.CompletedProcess(argv, *answer) if isinstance(answer, tuple) else subprocess.CompletedProcess(argv, 0, answer, "")
+
+    monkeypatch.setattr(pr_ledger.subprocess, "run", run)
+    monkeypatch.setattr(pr_ledger, "ledger_note", lambda evt, prs: None)
+    return calls, answers
+
+
+def posted(calls: list) -> list[tuple[dict[str, list[str]], dict | None]]:
+    records = []
+    for argv, stdin in calls:
+        if argv[:2] != ["cci", "post"]:
+            continue
+        flags: dict[str, list[str]] = {}
+        for name, value in zip(argv[2:], argv[3:]):
+            if name.startswith("--") and not value.startswith("--"):
+                flags.setdefault(name, []).append(value)
+        records.append((flags, json.loads(stdin) if stdin else None))
+    return records
+
+
+def viewed(calls: list) -> list:
+    return [argv for argv, _ in calls if argv[:3] == ["gh", "pr", "view"]]
+
+
+def shipped(tmp_path: Path, output: str = GT_SHIP, command: str = "ccx vcs ship -m x") -> PostToolUseEvent:
+    evt = event(tmp_path, command=command)
+    evt._raw["tool_response"] = output
+    return evt
+
+
+def test_a_new_pr_posts_opened_with_the_named_file_as_its_whole_body_and_reads_no_github(tmp_path, tools):
+    from hooks import pr_ledger
+
+    calls, _ = tools
+    body = "## Summary\n" + "word " * 200
+    (tmp_path / "body.md").write_text(body)
+
+    assert pr_ledger.record_opened_prs(shipped(tmp_path, command="ccx vcs ship -m x --pr-body-file body.md")) is None
+
+    assert viewed(calls) == []
+    [(flags, carried)] = posted(calls)
+    assert flags["--kind"] == ["opened"]
+    assert flags["--pr"] == [GT_REF]
+    assert carried == {"body": body}
+    assert flags["--attr"] == [
+        "repo=Forge-AI/monorepo",
+        "branch=yasyf/v3-deploy-experience/since",
+        "base=yasyf/v3-deploy-experience/errors",
+        f"head={SHA}",
+        "parent=yasyf/v3-deploy-experience/errors",
+        "title=ci: ✨ tools/deploy --since deploys exactly the stacks a landed range reaches",
+    ]
+    assert len(flags["--text"][0]) <= 400
+
+
+def test_a_new_pr_with_no_named_file_reads_its_body_once_from_github(tmp_path, tools):
+    from hooks import pr_ledger
+
+    calls, _ = tools
+
+    assert pr_ledger.record_opened_prs(shipped(tmp_path)) is None
+
+    assert len(viewed(calls)) == 1
+    [(flags, carried)] = posted(calls)
+    assert flags["--kind"] == ["opened"]
+    assert carried == {"body": "from github"}
+
+
+def test_a_lanes_hand_posted_opened_record_is_not_a_row(tmp_path, tools):
+    from hooks import pr_ledger
+
+    calls, answers = tools
+    answers["cci", "grep"] = HAND_POSTED + "\n"
+
+    pr_ledger.record_opened_prs(shipped(tmp_path))
+
+    assert [flags["--kind"] for flags, _ in posted(calls)] == [["opened"]]
+
+
+def test_a_new_head_on_a_known_row_posts_head_with_no_body_and_no_github_read(tmp_path, tools):
+    from hooks import pr_ledger
+
+    calls, answers = tools
+    answers["cci", "grep"] = ROW + "\n"
+
+    assert pr_ledger.record_opened_prs(shipped(tmp_path)) is None
+
+    assert viewed(calls) == []
+    [(flags, carried)] = posted(calls)
+    assert flags["--kind"] == ["head"]
+    assert flags["--head"] == [f"{GT_REF}={SHA}"]
+    assert carried is None
+
+
+def test_a_changed_body_at_the_same_head_is_a_new_record(tmp_path, tools):
+    from hooks import pr_ledger
+
+    calls, answers = tools
+    answers["cci", "grep"] = ROW + "\n"
+    (tmp_path / "body.md").write_text("first")
+    command = "ccx vcs ship --no-commit --pr-body-file body.md"
+    pr_ledger.record_opened_prs(shipped(tmp_path, command=command))
+    (tmp_path / "body.md").write_text("second")
+    pr_ledger.record_opened_prs(shipped(tmp_path, command=command))
+    pr_ledger.record_opened_prs(shipped(tmp_path))
+
+    records = posted(calls)
+    assert [carried for _, carried in records] == [{"body": "first"}, {"body": "second"}, None]
+    assert len({flags["--id"][0] for flags, _ in records}) == 3
+
+
+def test_a_pr_on_trunk_has_no_parent_and_a_stacked_pr_names_its_base(tmp_path, tools):
+    from hooks import pr_ledger
+
+    calls, answers = tools
+    answers["gh", "pr"] = json.dumps({"url": "https://github.com/Forge-AI/monorepo/pull/1", "title": "x: y", "headRefName": "x", "baseRefName": "dev", "headRefOid": SHA, "body": "b"})
+
+    pr_ledger.record_opened_prs(shipped(tmp_path, (FIXTURES / "ccx-stack-submit.txt").read_text(), "ccx vcs stack submit"))
+
+    [(trunk, _), (stacked, _)] = posted(calls)
+    assert not [attr for attr in trunk["--attr"] if attr.startswith("parent=")]
+    assert "parent=yasyf/v3-deploy-experience/tenant-branch-lists" in stacked["--attr"]
+
+
+def test_a_branch_scoped_file_reaches_only_its_branch(tmp_path, tools):
+    from hooks import pr_ledger
+
+    calls, answers = tools
+    answers["cci", "grep"] = ROW + "\n"
+    (tmp_path / "body.md").write_text("for the lower one")
+    command = "ccx vcs ship --no-commit --pr-body-file yasyf/v3-deploy-experience/tenant-branch-lists=body.md"
+
+    pr_ledger.record_opened_prs(shipped(tmp_path, (FIXTURES / "ccx-stack-submit.txt").read_text(), command))
+
+    assert [carried for _, carried in posted(calls)] == [{"body": "for the lower one"}, None]
+
+
+@pytest.mark.parametrize("failing", [("cci", "post"), ("cci", "grep"), ("gh", "pr")], ids=["post", "row-read", "github-read"])
+def test_a_failed_read_or_post_warns_and_never_refuses(tmp_path, tools, failing):
+    from hooks import pr_ledger
+
+    _, answers = tools
+    answers[failing] = (1, "", "HTTP 502: Bad Gateway")
+
+    result = pr_ledger.record_opened_prs(shipped(tmp_path))
+
+    assert result.action != "block"
+    assert "#28534 has no fresh row" in result.message
+    assert "HTTP 502" in result.message
+
+
+def test_an_edited_body_on_a_known_row_posts_head_with_the_new_body(tmp_path, tools):
+    from hooks import pr_ledger
+
+    calls, answers = tools
+    answers["cci", "grep"] = ROW + "\n"
+
+    assert pr_ledger.record_edited_bodies(shipped(tmp_path, "https://github.com/Forge-AI/monorepo/pull/28534", "gh pr edit 28534 --body-file body.md")) is None
+
+    [(flags, carried)] = posted(calls)
+    assert flags["--kind"] == ["head"]
+    assert carried == {"body": "from github"}
+
+
+def test_an_edited_body_on_a_pr_with_no_row_posts_nothing(tmp_path, tools):
+    from hooks import pr_ledger
+
+    calls, _ = tools
+
+    assert pr_ledger.record_edited_bodies(shipped(tmp_path, "https://github.com/Forge-AI/monorepo/pull/28534", "gh pr edit 28534 --body hello")) is None
+
+    assert posted(calls) == []

@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 import shlex
 import subprocess
 import sys
+from collections.abc import Iterator
 from dataclasses import dataclass
+from functools import cache, partial
 from pathlib import Path
 
-from captain_hook import Allow, BaseHookEvent, Event, HookResult, Input, Or, Runs, Tool, on
+from captain_hook import Allow, Annotated, BaseHookEvent, Block, Call, Event, HookResult, Input, Or, Runs, Tool, on
 from captain_hook.util import reqenv
 
 from .compaction_handoff import Bound, script
@@ -30,9 +34,20 @@ SUBMITTED = (
 )
 SETTLERS = (("cci", "post"), ("gh", "pr", "close"))
 PULL_URL = re.compile(r"/pull/(?P<pr>\d+)")
-STACK_HEAD = re.compile(r"^\S+ · #(?P<pr>\d+) · head (?P<head>[0-9a-f]{7,40}) · ", re.MULTILINE)
+STACK_HEAD = re.compile(r"^(?P<branch>\S+) · #(?P<pr>\d+) · head (?P<head>[0-9a-f]{7,40}) · (?:parent (?P<base>\S+))?", re.MULTILINE)
+RESTACKED = re.compile(r'^(?P<branch>\S+) · onto (?P<base>\S+) · .*#(?P<pr>\d+) "(?P<title>.*)"$', re.MULTILINE)
 PUBLISHED = re.compile(r"\bpublished (?P<head>[0-9a-f]{7,40})\b")
 RECORD_TIMEOUT_SECONDS = 15
+SHIP = ("ccx", "vcs", "ship")
+SHIP_BODY = "--pr-body-file"
+SHIP_OPENS_NOTHING = frozenset({"--no-pr", "--no-push", "--dry-run"})
+SHIP_NEW_PR = ("--new-branch", "--create", "--new-pr")
+NO_PR = "no pull requests found"
+PR_VIEW = "url,title,headRefName,baseRefName,headRefOid,body"
+EDITED_BODY = ("--body", "-b", "--body-file", "-F")
+SEEN_RECORDS = "10"
+SEEN_BUDGET = str(1 << 20)
+ID_HASH_CHARS = 12
 
 
 @dataclass(frozen=True)
@@ -40,6 +55,9 @@ class OpenedPr:
     number: str
     repo: str | None = None
     head: str | None = None
+    branch: str | None = None
+    base: str | None = None
+    title: str | None = None
 
     @property
     def spec(self) -> str:
@@ -59,11 +77,16 @@ def response_text(response: object) -> str:
 def opened_prs(output: str) -> list[OpenedPr]:
     submitted = [match for pattern in SUBMITTED for match in pattern.finditer(output)]
     repos = {match.groupdict().get("pr") or match["url_pr"]: match["gh"] or match["gt"] for match in submitted}
-    heads = {match["pr"]: match["head"] for match in STACK_HEAD.finditer(output)}
+    stack = list(STACK_HEAD.finditer(output))
+    heads = {match["pr"]: match["head"] for match in stack}
+    restacked = list(RESTACKED.finditer(output))
+    branches = {match["pr"]: match["branch"] for match in (*stack, *restacked)}
+    bases = {match["pr"]: match["base"] for match in (*stack, *restacked) if match["base"]}
+    titles = {match["pr"]: match["title"] for match in restacked}
     if len(repos) == 1 and (published := PUBLISHED.findall(output)):
         heads.setdefault(next(iter(repos)), published[-1])
     numbers = dict.fromkeys([*heads, *repos])
-    return [OpenedPr(number, repos.get(number), heads.get(number)) for number in numbers]
+    return [OpenedPr(number, repos.get(number), heads.get(number), branches.get(number), bases.get(number), titles.get(number)) for number in numbers]
 
 
 def opener_cwd(evt: BaseHookEvent) -> Path | None:
@@ -83,6 +106,10 @@ UNSETTLED = (
     "Rerun `{retry}`; it reads the ledger id and checkout from the drive registry."
 )
 LANDED = f"{sys.executable} {script('drive.py')} landed"
+UNPOSTED = "#{number} has no fresh row in the landing store: {reason}. It stays out of Waiting on you until `ccx vcs ship --no-commit --pr-body-file <body>` posts it."
+SHIP_NEEDS_BODY = "This ship opens a PR, and a drive PR's row takes its card from the body: write the body first and pass `--pr-body-file <path>`. `--no-pr` or `--no-push` opens nothing."
+LANE_ENV = {"CLAUDE_LONG_RUNNING_DRIVE": "d", "CLAUDE_LONG_RUNNING_LANE": "lane-a"}
+NOT_OPEN = {"gh pr view": (1, 'no pull requests found for branch "lane/fix"')}
 
 
 def run_drive(argv: list[str]) -> tuple[subprocess.CompletedProcess[str] | None, str]:
@@ -97,9 +124,113 @@ def run_drive(argv: list[str]) -> tuple[subprocess.CompletedProcess[str] | None,
     return done, (done.stderr.strip().splitlines() or [f"drive.py exited {done.returncode}"])[-1]
 
 
+class Unposted(Exception):
+    pass
+
+
+def tool(argv: list[str], cwd: Path | None, stdin: str | None = None) -> str:
+    try:
+        done = subprocess.run(argv, capture_output=True, text=True, timeout=RECORD_TIMEOUT_SECONDS, cwd=cwd, input=stdin, env=dict(reqenv.env_map()))
+    except (OSError, subprocess.TimeoutExpired) as failure:
+        raise Unposted(f"`{' '.join(argv[:3])}`: {failure}") from failure
+    if done.returncode:
+        raise Unposted(f"`{' '.join(argv[:3])}` exited {done.returncode}: {(done.stderr or done.stdout).strip()}")
+    return done.stdout
+
+
+def pr_view(pr: OpenedPr, cwd: Path | None) -> dict[str, str]:
+    return json.loads(tool(["gh", "pr", "view", pr.number, *(("-R", pr.repo) if pr.repo else ()), "--json", PR_VIEW], cwd))
+
+
+def full_commit(rev: str, cwd: Path | None) -> str | None:
+    try:
+        return tool(["git", "rev-parse", "--verify", f"{rev}^{{commit}}"], cwd).strip()
+    except Unposted:
+        return None
+
+
+def trunk(cwd: Path | None) -> str | None:
+    try:
+        return tool(["git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD"], cwd).strip().removeprefix("origin/")
+    except Unposted:
+        return None
+
+
+def drive_flag() -> list[str]:
+    return ["--drive", drive] if (drive := reqenv.getenv("CLAUDE_LONG_RUNNING_DRIVE")) else []
+
+
+def has_row(ref: str, cwd: Path | None) -> bool:
+    lines = tool(["cci", "grep", ".", *drive_flag(), "--json", "--kind", "opened", "--pr", ref, "-n", SEEN_RECORDS, "--budget", SEEN_BUDGET], cwd).splitlines()
+    return any(json.loads(line).get("fields", {}).get("attrs", {}).get("repo") for line in lines if line.startswith("{"))
+
+
+def post_row_record(pr: OpenedPr, body: str | None, cwd: Path | None, lane: str, *, edited: bool = False) -> None:
+    viewed = cache(partial(pr_view, pr, cwd))
+    repo = pr.repo or "/".join(viewed()["url"].split("/")[3:5])
+    ref = f"{repo}#{pr.number}"
+    fresh = not has_row(ref, cwd)
+    if edited and fresh:
+        return
+    branch = pr.branch or viewed()["headRefName"]
+    base = pr.base or viewed()["baseRefName"]
+    head = full_commit(pr.head or f"refs/heads/{branch}", cwd) or pr.head or viewed()["headRefOid"]
+    if body is None and (fresh or edited):
+        body = viewed()["body"]
+    title = pr.title or (viewed()["title"] if fresh else None)
+    attrs = {"repo": repo, "branch": branch, "base": base, "head": head} | ({} if base == trunk(cwd) else {"parent": base}) | ({"title": title} if title else {})
+    words = ["--kind", "opened", "--id", f"row-opened:{ref}", "--text", f"{ref} on {branch}"]
+    if not fresh:
+        said = "" if body is None else hashlib.sha256(body.encode()).hexdigest()[:ID_HASH_CHARS]
+        words = ["--kind", "head", "--id", f"row-head:{ref}:{head}:{said}", "--head", f"{ref}={head}"]
+    argv = ["cci", "post", *drive_flag(), "--lane", lane, *words, "--pr", ref, *(arg for key, value in attrs.items() for arg in ("--attr", f"{key}={value}"))]
+    tool([*argv, "--body-file", "-"] if body is not None else argv, cwd, None if body is None else json.dumps({"body": body}))
+
+
+def ship_calls(evt: BaseHookEvent) -> Iterator[Call]:
+    return (call for call in evt.cmd.calls() if (call.name, *call.args)[: len(SHIP)] == SHIP)
+
+
+def named_bodies(evt: BaseHookEvent) -> dict[str, str]:
+    values = (value for call in ship_calls(evt) for value in flag_values(call.args, SHIP_BODY))
+    return {branch if path else "": path or branch for branch, _, path in (value.partition("=") for value in values)}
+
+
+def body_text(path: str | None, cwd: Path | None) -> str | None:
+    if not path or path == "-":
+        return None
+    try:
+        return Path(cwd or ".", path).expanduser().read_text()
+    except (OSError, ValueError):
+        return None
+
+
+def post_row_records(evt: BaseHookEvent, prs: list[OpenedPr]) -> list[str]:
+    cwd, lane, bodies, failed = opener_cwd(evt), lane_name(evt), named_bodies(evt), []
+    for pr in prs:
+        path = (pr.branch and bodies.get(pr.branch)) or (bodies.get("") if pr is prs[-1] else None)
+        try:
+            post_row_record(pr, body_text(path, cwd), cwd, lane)
+        except (Unposted, ValueError, KeyError) as failure:
+            failed.append(UNPOSTED.format(number=pr.number, reason=failure))
+    return failed
+
+
+def ledger_note(evt: BaseHookEvent, prs: list[OpenedPr]) -> str | None:
+    argv = [sys.executable, str(script("drive.py")), "record", "--session", evt.session_id, "--lane", lane_name(evt), "--cwd", str(opener_cwd(evt)), *drive_flag()]
+    for pr in prs:
+        argv += ["--pr", pr.spec]
+    done, reason = run_drive(argv)
+    if done is None or done.returncode:
+        return UNRECORDED.format(reason=reason, retry=shlex.join(argv))
+    if done.stdout.strip():
+        return UNNAMED if evt.agent_id and not drive_lane(evt) else None
+    return done.stderr.strip() if done.stderr.strip() and reqenv.getenv("CLAUDE_LONG_RUNNING_LANE") else None
+
+
 @on(
     Event.PostToolUse,
-    only_if=[Bound(), 
+    only_if=[Bound(),
         Tool("Bash"),
         Or(*(Runs(*argv) for argv in OPENERS)),
     ],
@@ -125,16 +256,66 @@ def run_drive(argv: list[str]) -> tuple[subprocess.CompletedProcess[str] | None,
 def record_opened_prs(evt: BaseHookEvent) -> HookResult | None:
     if not (prs := opened_prs(response_text(evt.tool_response))):
         return None
-    argv = [sys.executable, str(script("drive.py")), "record", "--session", evt.session_id, "--lane", lane_name(evt), "--cwd", str(opener_cwd(evt))]
-    argv += ["--drive", drive] if (drive := reqenv.getenv("CLAUDE_LONG_RUNNING_DRIVE")) else []
-    for pr in prs:
-        argv += ["--pr", pr.spec]
-    done, reason = run_drive(argv)
-    if done is None or done.returncode:
-        return evt.context(UNRECORDED.format(reason=reason, retry=shlex.join(argv)))
-    if done.stdout.strip():
-        return evt.context(UNNAMED) if evt.agent_id and not drive_lane(evt) else None
-    return evt.context(done.stderr.strip()) if done.stderr.strip() and reqenv.getenv("CLAUDE_LONG_RUNNING_LANE") else None
+    notes = [note for note in (ledger_note(evt, prs), *post_row_records(evt, prs)) if note]
+    return evt.context("\n".join(notes)) if notes else None
+
+
+def opens_a_pr(call: Call, cwd: Path | None) -> bool:
+    if flag_values(call.args, SHIP_BODY) or SHIP_OPENS_NOTHING.intersection(call.args):
+        return False
+    if any(arg == flag or arg.startswith(f"{flag}=") for arg in call.args for flag in SHIP_NEW_PR):
+        return True
+    try:
+        tool(["gh", "pr", "view", "--json", "number"], cwd)
+    except Unposted as failure:
+        return NO_PR in str(failure)
+    return False
+
+
+@on(
+    Event.PreToolUse,
+    only_if=[Bound(), Tool("Bash"), Runs(*SHIP)],
+    skip_if=[Annotated("raw")],
+    tests={
+        Input(command="ccx vcs ship -m 'x: ✨ y'  # ccx:raw", env=LANE_ENV, commands=NOT_OPEN): Allow(),
+        Input(command="ccx vcs ship -m 'x: ✨ y'", env=LANE_ENV, commands=NOT_OPEN): Block(pattern=r"^This ship opens a PR"),
+        Input(command="ccx vcs ship -m 'x: ✨ y' --new-branch lane/fix", env=LANE_ENV, commands={"gh pr view": '{"number":9}'}): Block(pattern=r"--pr-body-file <path>"),
+        Input(command="ccx vcs ship -m 'x: ✨ y' --pr-body-file /b.md", env=LANE_ENV, commands=NOT_OPEN): Allow(),
+        Input(command="ccx vcs ship -m 'x: ✨ y' --no-pr", env=LANE_ENV, commands=NOT_OPEN): Allow(),
+        Input(command="ccx vcs ship -m 'x: ✨ y' --no-push", env=LANE_ENV, commands=NOT_OPEN): Allow(),
+        Input(command="ccx vcs ship -m 'x: 🐛 z'", env=LANE_ENV, commands={"gh pr view": '{"number":9}'}): Allow(),
+        Input(command="ccx vcs ship -m 'x: 🐛 z'", env=LANE_ENV, commands={"gh pr view": (1, "HTTP 502: Bad Gateway")}): Allow(),
+    },
+)
+def ships_that_open_a_pr_name_its_body(evt: BaseHookEvent) -> HookResult | None:
+    if any(opens_a_pr(call, call.cwd or evt.cwd) for call in ship_calls(evt)):
+        return evt.block(SHIP_NEEDS_BODY)
+    return None
+
+
+@on(
+    Event.PostToolUse,
+    only_if=[Bound(), Tool("Bash"), Runs("gh", "pr", "edit")],
+    tests={
+        Input(command="gh pr edit 9 --title 'x: y'", output="https://github.com/o/r/pull/9", env=LANE_ENV): Allow(),
+        Input(
+            command="gh pr edit 9 --body-file /b.md",
+            output="https://github.com/o/r/pull/9",
+            env=LANE_ENV,
+            commands={"cci grep": ""},
+        ): Allow(),
+    },
+)
+def record_edited_bodies(evt: BaseHookEvent) -> HookResult | None:
+    if not any(flag_values(call.args, flag) for call in evt.command.calls("gh") for flag in EDITED_BODY):
+        return None
+    failed = []
+    for pr in opened_prs(response_text(evt.tool_response)):
+        try:
+            post_row_record(pr, None, opener_cwd(evt), lane_name(evt), edited=True)
+        except (Unposted, ValueError, KeyError) as failure:
+            failed.append(UNPOSTED.format(number=pr.number, reason=failure))
+    return evt.context("\n".join(failed)) if failed else None
 
 
 def flag_values(args: tuple[str, ...], name: str) -> list[str]:
@@ -166,7 +347,7 @@ def settled_prs(evt: BaseHookEvent) -> list[str]:
 
 @on(
     Event.PostToolUse,
-    only_if=[Bound(), 
+    only_if=[Bound(),
         Tool("Bash"),
         Or(*(Runs(*argv) for argv in SETTLERS)),
     ],

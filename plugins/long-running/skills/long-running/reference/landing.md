@@ -314,7 +314,7 @@ For an owner ask, append an optional fourth line, `ask <id>`, such as `ask/00010
 - Pass the full pushed head sha, and verify `git ls-remote origin refs/heads/<branch>` matches local `HEAD` before reporting so a detached worktree does not silently push nothing.
 - Re-report every new push in the same turn, and check `ccx vcs pr status <n>` before pushing to a reported PR. If it is `queued`, ship the delta as a new stacked PR instead of amending a branch the queue already snapshotted. After the `merge` label goes on, the branch is not the lane's to amend and further work is a new branch off a fresh trunk.
 - Report `conflicting` while mid-rebase and push nothing labeled; report `clean` again only on the rebased head. Put prose in a cc-notes note cited on line 2.
-- Running `ccx vcs ship` records each PR it opens by using the hook and posts `opened` on cci in cci 0.19.0 or later; a Codex worker gets neither from `ship` and runs `drive.py record --opened` after it.
+- Running `ccx vcs ship` records each PR it opens by using the hook and posts `opened` on cci in cci 0.19.0 or later, carrying the raw PR body and the repo, branch, base, head and parent attrs the review row folds; a later push posts `head` the same way, with the body when the call changes it. A drive lane's ship that would open a PR with no `--pr-body-file` is refused before it runs. A Codex worker gets neither from `ship` and runs `drive.py record --opened` after it.
 
 ### Owner asks in the ledger
 

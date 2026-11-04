@@ -395,7 +395,8 @@ Landing desk (PR rows in cc-notes, lane messages in cci, shared by every checkou
 - Holds are coordinator cci `hold` records; `ledger.py held --drive <drive>` prints the held PRs.
 - You are a separate session. Register your prefix and report verdicts yourself;
   in a Claude session `ccx vcs ship` records each PR you open in the ledger and posts its
-  `opened` record on cci, so never post `opened` yourself; a Codex session runs the
+  `opened` record on cci with the PR body, so never post `opened` yourself, and pass
+  `--pr-body-file` on the ship that opens a PR, since one with no body is refused; a Codex session runs the
   `drive.py record --opened` line under `## PR record` right after each ship instead.
   Never SendMessage a subagent.
 - On spawn: `ledger.py register --ledger <id> --lane <lane> --repo <owner/name> --branch-prefix
