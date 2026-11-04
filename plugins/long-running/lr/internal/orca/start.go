@@ -30,7 +30,7 @@ const (
 	startPoll              = 4 * time.Second
 	stallRetry             = 30 * time.Second
 	coordinatorLane        = "root"
-	coordinatorCompact     = 210000
+	coordinatorCompact     = 400000
 	coordinatorDenied      = ",Workflow,ScheduleWakeup,ReportFindings,ListAgents,Monitor,SendMessage,TaskGet"
 	coordinatorListing     = `"skillListingBudgetFraction":0.001`
 	coordinatorNoMemory    = `"autoMemoryEnabled":false,"claudeMdExcludes":["**/CLAUDE.md","**/AGENTS.md"],`
