@@ -66,6 +66,8 @@ PUSH = "cc-present update-block - <<'EOF'\n" + json.dumps({"type": "card", "id":
         Input(command=HOLD.replace("--pr 46018", "").replace("Hold until", "Hold Forge-AI/monorepo#46018 until"), env=DRIVE_CONFIG, commands=WHOSE_STUB): Block(pattern=r"#46018 is Andrew"),
         Input(command=HOLD.replace("--pr 46018", "").replace("Hold until", "Hold yasyf/cc-skills#46018 until"), env=DRIVE_CONFIG, commands=WHOSE_STUB): Allow(),
         Input(command=HOLD.replace("--pr 46018", "").replace("Hold until", "Hold cc-skills PR 46018 until"), env=DRIVE_CONFIG, commands=WHOSE_STUB): Allow(),
+        Input(command=HOLD.replace("--pr 46018", "--pr yasyf/cc-skills#46018"), env=DRIVE_CONFIG, commands=WHOSE_STUB): Allow(),
+        Input(command=HOLD.replace("--pr 46018", "--pr Forge-AI/monorepo#46018"), env=DRIVE_CONFIG, commands=WHOSE_STUB): Block(pattern=r"#46018 is Andrew"),
         Input(command=OWN_HOLD, env=DRIVE_CONFIG, commands=WHOSE_STUB): Allow(),
         Input(command=OWN_HOLD, env=DRIVE_CONFIG, commands={f"{LR} facts whose": json.dumps({"number": 49336, "author": "drive-bot", "ours": False, "foreign": False})}): Allow(),
         Input(command="cci post --kind report --to root --text \"not ours, Andrew's #46018 resolves #382199\"", env=DRIVE_CONFIG, commands=WHOSE_STUB): Allow(),

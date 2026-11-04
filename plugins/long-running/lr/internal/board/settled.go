@@ -194,16 +194,20 @@ func (c Cards) Unask(ctx context.Context, lane string, judge Judge, out io.Write
 	if err != nil {
 		return err
 	}
-	var checked []ledger.Row
+	var unjudged []ledger.Row
 	for _, ask := range asks {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		fields := known[ask.ID]
 		since := fields[checkedField]
 		if fields[askedField] != ask.Title {
 			since = ""
 		}
 		found := candidates(ask.Title, answers, since)
+		stamp := ledger.Row{Key: cardPrefix + ask.ID, Fields: map[string]string{checkedField: newest, askedField: ask.Title}}
 		if len(found) == 0 {
-			checked = append(checked, ledger.Row{Key: cardPrefix + ask.ID, Fields: map[string]string{checkedField: newest, askedField: ask.Title}})
+			unjudged = append(unjudged, stamp)
 			continue
 		}
 		shown, onBoard, _, err := c.card(ctx, ask.ID)
@@ -214,6 +218,9 @@ func (c Cards) Unask(ctx context.Context, lane string, judge Judge, out io.Write
 			continue
 		}
 		settled, err := settles(ctx, judge, shown, found)
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		if settled != nil {
 			if err := c.sweepOff(ctx, lane, ask.ID, fields, settled.Line(), settled.Line(), out); err != nil {
 				return err
@@ -224,10 +231,12 @@ func (c Cards) Unask(ctx context.Context, lane string, judge Judge, out io.Write
 			fmt.Fprintf(out, "WARNING %s stays up: its check against his answers failed and runs again next pass: %s\n", ask.ID, strings.ReplaceAll(err.Error(), "\n", "; "))
 			continue
 		}
-		checked = append(checked, ledger.Row{Key: cardPrefix + ask.ID, Fields: map[string]string{checkedField: newest, askedField: ask.Title}})
+		if err := c.Ledger.Sync(ctx, id, []ledger.Row{stamp}); err != nil {
+			return err
+		}
 	}
-	if len(checked) == 0 {
+	if len(unjudged) == 0 {
 		return nil
 	}
-	return c.Ledger.Sync(ctx, id, checked)
+	return c.Ledger.Sync(ctx, id, unjudged)
 }

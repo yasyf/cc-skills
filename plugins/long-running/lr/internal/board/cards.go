@@ -120,7 +120,9 @@ func (c Cards) ends(ctx context.Context) (map[string]map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	maps.DeleteFunc(known, func(_ string, fields map[string]string) bool { return fields["withdrawn"] != "" })
+	maps.DeleteFunc(known, func(_ string, fields map[string]string) bool {
+		return fields["withdrawn"] != "" || fields["until"] == ""
+	})
 	return known, nil
 }
 
