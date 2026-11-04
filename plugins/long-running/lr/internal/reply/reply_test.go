@@ -14,6 +14,7 @@ import (
 
 	"github.com/yasyf/cc-interact/channel"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/board"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/owner"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
@@ -36,6 +37,7 @@ func scripted() *shelltest.Fake {
 	fake.Reply(`{"channel_id":"D0B6Z","thread_ts":"1793635190.051179","ts":"1793635190.051179","permalink":"`+permalink+`"}`, "cc-slack", "dm-status")
 	fake.Reply(posted, "cci", "post")
 	fake.Reply(`{"doc":{}}`, "cc-present", "outcomes")
+	fake.Reply(`[]`, "ccn")
 	return fake
 }
 
@@ -1185,6 +1187,7 @@ func linkedMD(t *testing.T, r Reply, answers string) string {
 	t.Helper()
 	fake := &shelltest.Fake{}
 	fake.Reply(boardWith(answers), "cc-present", "outcomes")
+	fake.Reply(`[]`, "ccn")
 	got, warning := fanout(t, fake).withCardLinks(context.Background(), r)
 	if warning != "" {
 		t.Fatalf("warning = %q", warning)
@@ -1605,5 +1608,84 @@ func TestAPickReplyWhoseBoardFailedPostsNoButtonlessCopyInHisThread(t *testing.T
 	}
 	if got := surface(sent, "board"); !strings.Contains(got.Error, "daemon not running") {
 		t.Fatalf("board outcome = %+v, want the failure returned to the caller", got)
+	}
+}
+
+func TestAReplyNamingATappablePRItDoesNotListWarnsAndChangesNothing(t *testing.T) {
+	ready := store.ReviewRow{ReadyForTap: true}
+	for name, tc := range map[string]struct {
+		row   store.ReviewRow
+		reply Reply
+		warns bool
+	}{
+		"a PR waiting on his tap, by number": {ready, Reply{MD: "#2196 is ready."}, true},
+		"in the title":                       {ready, Reply{Title: "PR 2196 is ready", MD: "It passed."}, true},
+		"by its repo":                        {ready, Reply{MD: "cc-skills#2196 is ready."}, true},
+		"by a link in the text":              {ready, Reply{MD: "<https://github.com/YASYF/cc-skills/pull/2196|#2196> is ready."}, true},
+		"on a reply with picks":              {ready, Reply{MD: "Hold for #2196?", Picks: []string{"Hold", "Go"}}, true},
+		"listed in prs":                      {ready, Reply{MD: "#2196 is ready.", PRs: []string{landPR}}, false},
+		"tapped already":                     {store.ReviewRow{ReadyForTap: true, Tapped: true}, Reply{MD: "#2196 is ready."}, false},
+		"not ready":                          {store.ReviewRow{WaitsOn: "CI"}, Reply{MD: "#2196 waits on CI."}, false},
+		"not ready, on a question":           {store.ReviewRow{WaitsOn: "CI"}, Reply{MD: "Hold for #2196?", Picks: []string{"Hold", "Go"}}, false},
+		"another repo's PR with that number": {ready, Reply{MD: "monorepo#2196 is ready."}, false},
+		"another repo's link":                {ready, Reply{MD: "https://github.com/yasyf/cc-slack/pull/2196 is ready."}, false},
+		"a number in no ledger row":          {ready, Reply{MD: "#50026 is ready."}, false},
+		"a URL fragment":                     {ready, Reply{MD: "See https://example.com/#2196 for why."}, false},
+		"no PR":                              {ready, Reply{MD: "All quiet."}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := fanout(t, scripted())
+			ledgerRow(t, f, tc.row)
+			warning := f.tappableWithoutCards(tc.reply)
+			if tc.warns != strings.Contains(warning, landPR) || tc.warns != (warning != "") {
+				t.Fatalf("warning = %q, want warns %v", warning, tc.warns)
+			}
+		})
+	}
+}
+
+func TestATappablePRNamedTwiceIsNamedOnceInTheWarning(t *testing.T) {
+	f := fanout(t, scripted())
+	ledgerRow(t, f, store.ReviewRow{ReadyForTap: true})
+	if warning := f.tappableWithoutCards(Reply{MD: "#2196 is ready. Tap #2196."}); strings.Count(warning, landPR) != 1 {
+		t.Fatalf("warning = %q, want %s once", warning, landPR)
+	}
+}
+
+func TestAPickHisAnswerSettlesIsNotLinkedAndNamedInTheWarning(t *testing.T) {
+	answers := `[{"id":"29b2e59aaaa","title":"Storage eviction: where to start","body":"Storage eviction should start with the oldest chats.","updated_at":"2026-11-04T09:00:00Z"}]`
+	fake := &shelltest.Fake{}
+	fake.Reply(boardWith("{}"), "cc-present", "outcomes")
+	fake.Reply(answers, "ccn", "-R", "/repo", "answer", "list")
+	f := fanout(t, fake)
+	calls := 0
+	f.Judge = func(_ context.Context, _, _, _ string) (*board.Judgment, error) {
+		calls++
+		return &board.Judgment{Verdict: "yes", Sentence: "He said at night."}, nil
+	}
+	r := Reply{ID: "r1", MD: "Waiting on card-storage-eviction now."}
+	got, warning := f.withCardLinks(context.Background(), r)
+	if got.MD != r.MD || !strings.Contains(warning, "card-storage-eviction is not linked") || !strings.Contains(warning, "He said at night") {
+		t.Fatalf("md = %q, warning %q; want the card unlinked and his answer named", got.MD, warning)
+	}
+	if calls == 0 {
+		t.Fatal("the judge never read his answer")
+	}
+}
+
+func TestAReplyNamingNoCardReadsNoAnswers(t *testing.T) {
+	fake := &shelltest.Fake{}
+	fake.Reply(boardWith("{}"), "cc-present", "outcomes")
+	f := fanout(t, fake)
+	f.Judge = func(_ context.Context, _, _, _ string) (*board.Judgment, error) {
+		t.Fatal("judged a card the reply does not name")
+		return nil, nil
+	}
+	got, warning := f.withCardLinks(context.Background(), Reply{ID: "r1", MD: "All quiet."})
+	if got.MD != "All quiet." || warning != "" {
+		t.Fatalf("md = %q, warning %q", got.MD, warning)
+	}
+	if len(calls(fake, "ccn")) != 0 {
+		t.Fatal("read his answers with no card named")
 	}
 }

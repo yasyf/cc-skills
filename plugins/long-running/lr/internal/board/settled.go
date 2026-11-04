@@ -241,6 +241,27 @@ func (c Cards) Check(ctx context.Context, judge Judge, card json.RawMessage) (re
 	return nil, errors.Join(failed...)
 }
 
+func (c Cards) SettledByHim(ctx context.Context, judge Judge, open []OpenCard) (map[string]*Settling, error) {
+	if len(open) == 0 {
+		return nil, nil
+	}
+	answers, err := c.answers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	found := map[string]*Settling{}
+	var failed []error
+	for _, card := range open {
+		_, title, _ := asksTitle(card.Block)
+		settled, err := settles(ctx, judge, c.settledByHim(), card.Block, title, answers, "")
+		failed = append(failed, err)
+		if settled != nil {
+			found[card.ID] = settled
+		}
+	}
+	return found, errors.Join(failed...)
+}
+
 func (c Cards) settledByHim() settlingSource {
 	return settlingSource{checked: checkedField, asked: askedField, kind: decidedKind, read: c.answers, unread: "his answers", evidence: hisAnswer}
 }

@@ -69,6 +69,7 @@ var (
 	slackSent  = regexp.MustCompile(`(?m)^sent: \S+ ts=\d{10}\.\d{6} (\S+)`)
 	mdLink     = regexp.MustCompile(`\[([^\]\n]+)\]\((https?://[^\s)]+)\)`)
 	notebook   = regexp.MustCompile(`https://[\w.-]*datadoghq\.com/notebook/\d+`)
+	namedPR    = regexp.MustCompile(`(?i)github\.com/([\w.-]+/[\w.-]+)/pull/(\d+)|([\w.-]+)#(\d+)\b|(?:^|[^\w/#-])#(\d+)\b|\bPRs? #?(\d+)\b`)
 )
 
 type Link struct {
@@ -148,6 +149,7 @@ type Fanout struct {
 	Runner shell.Runner
 	Entry  drive.Entry
 	Now    func() time.Time
+	Judge  board.Judge
 }
 
 func (f Fanout) Send(ctx context.Context, r Reply) []Outcome {
@@ -196,14 +198,55 @@ func (f Fanout) withCardLinks(ctx context.Context, r Reply) (Reply, string) {
 	if err != nil {
 		return r, fmt.Sprintf("the board did not read, so no card this names carries its Slack link: %v", err)
 	}
-	cards := outcomes.OpenCards()
+	cards := slices.DeleteFunc(outcomes.OpenCards(), func(card board.OpenCard) bool {
+		return card.ID == cardPrefix+r.ID || linkedCard(r.MD, card) == r.MD && !strings.Contains(r.MD, card.URL)
+	})
 	slices.SortFunc(cards, func(one, other board.OpenCard) int { return cmp.Compare(len(other.ID), len(one.ID)) })
-	for _, card := range cards {
-		if card.ID != cardPrefix+r.ID {
-			r.MD = linkedCard(r.MD, card)
-		}
+	checking, stop := context.WithTimeout(ctx, postTimeout)
+	defer stop()
+	settled, checked := board.Cards{Runner: f.Runner, Checkout: f.Entry.Checkout}.SettledByHim(checking, f.Judge, cards)
+	var warned []string
+	if checked != nil {
+		warned = append(warned, fmt.Sprintf("his answers did not read for every card this names, so one he settled may still be linked: %v", checked))
 	}
-	return r, ""
+	for _, card := range cards {
+		if found := settled[card.ID]; found != nil {
+			warned = append(warned, fmt.Sprintf("%s is not linked because %s; take the words off this reply and run `lr board cards sweep` to take it down", card.ID, found.Line()))
+			continue
+		}
+		r.MD = linkedCard(r.MD, card)
+	}
+	return r, strings.Join(warned, "; ")
+}
+
+func (f Fanout) tappableWithoutCards(r Reply) string {
+	said := namedPR.FindAllStringSubmatch(r.Title+"\n"+r.MD, -1)
+	numbers := make([]int, 0, len(said))
+	for _, found := range said {
+		number, _ := strconv.Atoi(cmp.Or(found[2], found[4], found[5], found[6]))
+		numbers = append(numbers, number)
+	}
+	if len(numbers) == 0 {
+		return ""
+	}
+	repo, rows, err := board.Rows(f.Entry, numbers)
+	if err != nil {
+		return fmt.Sprintf("the PR ledger did not read, so no PR this names was checked for a tap he owes: %v", err)
+	}
+	var missing []string
+	for n, found := range said {
+		at := slices.IndexFunc(rows, func(row store.ReviewRow) bool { return row.Number == numbers[n] })
+		url := fmt.Sprintf("https://github.com/%s/pull/%d", repo, numbers[n])
+		listed := func(pr string) bool { return strings.EqualFold(pr, url) }
+		if at < 0 || !rows[at].ReadyForTap || rows[at].Tapped || !strings.HasSuffix(strings.ToLower(repo), strings.ToLower(cmp.Or(found[1], found[3], repo))) || slices.ContainsFunc(r.PRs, listed) || slices.Contains(missing, url) {
+			continue
+		}
+		missing = append(missing, url)
+	}
+	if len(missing) == 0 {
+		return ""
+	}
+	return "this names a PR waiting on his tap and does not list it, so it carries no tap card; edit the reply with it in prs: " + strings.Join(missing, ", ")
 }
 
 func linkedCard(md string, card board.OpenCard) string {
