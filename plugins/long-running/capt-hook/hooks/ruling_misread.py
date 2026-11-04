@@ -22,7 +22,7 @@ from captain_hook import (
 from captain_hook.util import reqenv
 
 from .compaction_handoff import Bound, CompactionState, rulings, script, script_module
-from .pr_ledger import OPENERS, OpenedPr, opened_prs, response_text
+from .pr_ledger import OPENERS, OpenedPr, opened_prs, opener_cwd, response_text
 from .register_gates import fenced
 from .register_injection import drive_args
 from .tests.register_fixtures import CWD, DRIVE_CONFIG
@@ -72,16 +72,18 @@ def posted(command: str, verdict: dict = FLAGGED, commands: dict[str, str] | Non
 
 
 def pr_rows(evt: BaseHookEvent, drive: list[str], pr: OpenedPr) -> str:
-    spec = f"{pr.repo}#{pr.number}" if pr.repo else pr.number
-    head = pr.head or subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=True, cwd=evt.cwd).stdout.strip()
+    spec, where = f"{pr.repo}#{pr.number}" if pr.repo else pr.number, opener_cwd(evt)
+    head = pr.head or subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=True, cwd=where).stdout.strip()
     try:
-        return rulings(str(evt.cwd), "slice", *drive, "--required", "--words", "--pr", spec, "--head", head, evt=evt)
+        return rulings(str(where), "slice", *drive, "--required", "--words", "--pr", spec, "--head", head, evt=evt)
     except subprocess.TimeoutExpired:
         return ""
 
 
 def shipped_tests(evt: BaseHookEvent) -> list[tuple[str, str]]:
     if not any((Path(call.name).name, *call.args)[: len(argv)] == argv for call in evt.command.calls() for argv in OPENERS):
+        return []
+    if (where := opener_cwd(evt)) is None:
         return []
     tests = script_module("long_running.testfiles").TEST_FILE
     try:
@@ -90,14 +92,14 @@ def shipped_tests(evt: BaseHookEvent) -> list[tuple[str, str]]:
             capture_output=True,
             text=True,
             check=True,
-            cwd=evt.cwd,
+            cwd=where,
         ).stdout.strip()
         names = subprocess.run(
             ["git", "diff", "--name-only", base],
             capture_output=True,
             text=True,
             check=True,
-            cwd=evt.cwd,
+            cwd=where,
         ).stdout.split()
         changed = [name for name in names if tests.search(name)]
         diff = (
@@ -106,7 +108,7 @@ def shipped_tests(evt: BaseHookEvent) -> list[tuple[str, str]]:
                 capture_output=True,
                 text=True,
                 check=True,
-                cwd=evt.cwd,
+                cwd=where,
             ).stdout
             if changed
             else ""
@@ -145,6 +147,14 @@ def shipped_tests(evt: BaseHookEvent) -> list[tuple[str, str]]:
             commands={"git merge-base HEAD origin/HEAD": "abc123\n", "git diff --name-only abc123": "src/refusal.go\n"},
         ): Allow(),
         posted("ccx vcs ship -m 'ci: ✨ x' --no-push", output='committed 1caa098d30 "ci: ✨ x"'): Allow(),
+        posted(
+            "cd /other/lane && ccx vcs ship -m 'ci: ✨ x'",
+            commands={"git merge-base HEAD origin/HEAD": "abc123\n", "git diff --name-only abc123": "src/refusal_test.go\n", f"{DIFF} abc123": TESTS_DIFF},
+        ): Warn(pattern=r"test, rule/8b1048a: You said"),
+        posted(
+            ". /env.sh; cd $A; ccx vcs ship -m 'ci: ✨ x'",
+            commands={"git merge-base HEAD origin/HEAD": "abc123\n", "git diff --name-only abc123": "src/refusal_test.go\n", f"{DIFF} abc123": TESTS_DIFF},
+        ): Allow(),
     }),
 )
 def misread_rulings(evt: BaseHookEvent) -> HookResult | None:

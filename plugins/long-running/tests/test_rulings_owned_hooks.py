@@ -84,7 +84,7 @@ def test_all_current_hook_call_expressions_reach_real_dispatch_without_a_python_
     scope = {
         "rulings": lambda cwd, *args, **kwargs: (cwd, args, kwargs),
         "register_of": lambda cwd, *args, **kwargs: (cwd, ("register", *args), kwargs),
-        "evt": evt, "reads": reads, "self": reads, "which": which,
+        "evt": evt, "reads": reads, "self": reads, "which": which, "where": REPO,
         "flags": [] if module == "board_text_gate" else which,
         "drive": which if module in {"refusal_kinds_need_owner_answer", "ruling_misread", "ruling_judge"} else "brook-drive",
         "seq": "8", "text": "owner words", "key": "owner words",
