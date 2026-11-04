@@ -1,7 +1,7 @@
 const TONE_GLYPH = { you: '★', failing: '✕', held: '⏸', moving: '▶', queued: '⧗', waiting: '○', done: '✓', later: '⚑' };
 const TONE_SAY = { you: 'Needs you', failing: 'Tests failing', held: 'Held', moving: 'Being worked on', queued: 'Approved, waiting to land', waiting: 'Waiting its turn', done: 'Done', later: 'Later' };
 const LIGHT_ORDER = ['landed', 'queued', 'doing', 'you', 'failing', 'held', 'waiting'];
-const ov = { page: 0, planTab: 'steps', only: null, was: new Map(), scrub: 0, dragX: null, embedCard: null, sent: new Map() };
+const ov = { page: 0, planTab: 'steps', only: null, was: new Map(), scrub: 0, dragX: null, embedCard: null, sent: new Map(), kept: new Map() };
 const PAST_HOURS = [1, 3, 6, 12, 24, 48, 96];
 
 function scrubAt() {
@@ -162,12 +162,15 @@ function sentNote(block) {
 }
 async function answer(body) {
   if (sending(body.block)) return;
-  ov.sent.set(body.block, {});
+  ov.sent.set(body.block, { option: body.options?.[0] });
+  if (body.kind === 'choice') document.activeElement?.blur();
   render();
   const out = await fetch('/api/answer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
     .then((res) => res.json())
     .catch((failure) => ({ error: `could not reach the dashboard server (${failure.message})` }));
   const result = out.error ? { error: out.error } : { recorded: true };
+  const answer = { choice: { optionIds: body.options ?? [], other: body.other }, approval: { verdict: body.verdict, note: body.text }, input: { text: body.text } }[body.kind];
+  if (!out.error && body.kind === 'choice') keepPicked(body.block, answer);
   ov.sent.set(body.block, result);
   setTimeout(() => {
     if (ov.sent.get(body.block) !== result) return;
@@ -175,7 +178,6 @@ async function answer(body) {
     refresh();
   }, body.kind === 'note' && !out.error ? 4000 : 30000);
   if (out.error) return render();
-  const answer = { choice: { optionIds: body.options ?? [], other: body.other }, approval: { verdict: body.verdict, note: body.text }, input: { text: body.text } }[body.kind];
   tapped({ seq: out.seq, block: body.block, ...(answer ? { answer } : { noted: true }) });
 }
 function showOnly(label, numbers) {
@@ -286,6 +288,7 @@ document.addEventListener('mouseover', (e) => {
 document.addEventListener('click', (e) => {
   if (e.metaKey || e.ctrlKey) return;
   const choose = e.target.closest('[data-choose]');
+  if (choose && (e.target.closest('a') || String(getSelection()))) return;
   if (choose) return answer({ kind: 'choice', block: choose.dataset.choice, options: [choose.dataset.choose], ...(choose.dataset.subject ? { subject: choose.dataset.subject } : {}) });
   if (!e.target.closest('.ck, .overlay, .pr-facts, #cardembed, .nw-needs, .pg')) return;
   const light = e.target.closest('.ck .dot[data-n]');

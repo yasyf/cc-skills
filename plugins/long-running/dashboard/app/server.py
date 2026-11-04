@@ -37,6 +37,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "skills" / "long-ru
 import drive
 import holds
 import milestones
+import picks
 import taps
 
 HERE = Path(__file__).resolve().parent
@@ -1738,13 +1739,14 @@ class Drive:
                 continue
             choice = next((child for child in asks if child["type"] == "choice" and not answers[child["id"]]), None)
             decides = any(not answers[child["id"]] and (child["type"] != "choice" or sum(not OTHER.match(option["label"]) for option in child.get("options", [])) > 1) for child in asks)
+            embed = any(child["type"] not in NATIVE or child.get("multi") for child in children)
+            parts = [] if embed else picks.fold_picks([card_part(child, answers.get(child["id"])) for child in children])
             options = [{"id": option["id"], "label": option["label"], "recommended": bool(option.get("recommended"))} for option in (choice or {}).get("options", []) if not OTHER.match(option["label"])]
             recommended = next((option["label"] for option in options if option["recommended"]), None)
-            embed = any(child["type"] not in NATIVE or child.get("multi") for child in children)
             cards.append({
-                "id": block["id"], "title": block.get("title", ""), "summary": block.get("summary", ""), "chips": block.get("chips") or [], "prs": sorted({int(number) for number in taps.PR_NUMBER.findall(json.dumps(block))}),
+                "id": block["id"], "title": block.get("title", ""), "summary": picks.context_summary(block.get("summary", ""), options), "chips": block.get("chips") or [], "prs": sorted({int(number) for number in taps.PR_NUMBER.findall(json.dumps(block))}),
                 "recommended": recommended, "choice": choice and choice["id"], "options": options, "decides": decides,
-                "parts": [] if embed else [card_part(child, answers.get(child["id"])) for child in children],
+                "parts": parts,
                 "thread": self.board_threads.get(block["id"], []),
                 "embed": f"{self.config['board_url']}?{urllib.parse.urlencode({'block': block['id'], 'theme': 'dark'})}" if embed else None,
             })

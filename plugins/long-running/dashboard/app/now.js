@@ -96,15 +96,7 @@ function needLine(item) {
     const busy = pending.number === r.number && !pending.error;
     return line(prTitle(r.number), item.why, `<button class="nbtn pri" data-approve="${r.number}" data-head="${esc(r.head)}"${busy || !boardRow(r.number) ? ' disabled' : ''}>${busy ? 'Sending' : 'Approve'}</button><a class="nbtn" href="#/review/${r.number}">Details</a>`, item.why);
   }
-  if (item.kind === 'card') {
-    const c = item.card;
-    const rec = c.options.find((o) => o.recommended);
-    const busy = sending(c.choice ?? c.id) ? ' disabled' : '';
-    const said = rewritten('cards', c.key);
-    const question = said?.question ?? c.title;
-    if (!rec) return line(question, item.why, `<a class="nbtn" href="#/question/${encodeURIComponent(c.id)}">Choose an answer</a>`);
-    return line(question, item.why, `<button class="nbtn pri" data-choose="${esc(rec.id)}" data-card="${esc(c.id)}" data-choice="${esc(c.choice)}"${busy}>Pick it</button><a class="nbtn" href="#/question/${encodeURIComponent(c.id)}">Other answers</a>`, `Recommended: ${said?.answers?.[c.options.indexOf(rec)] || rec.label.replace(/\s*\(Recommended\)\s*$/i, '')}`);
-  }
+  if (item.kind === 'card') return line(rewritten('cards', item.card.key)?.question ?? item.card.title, item.why, `<a class="nbtn pri" href="#/question/${encodeURIComponent(item.card.id)}">Answer it</a>`);
   return line(item.ask.what, item.why, item.ask.link ? `<a class="nbtn" href="${esc(item.ask.link)}" target="_blank" rel="noopener">${esc(item.ask.link_text ?? 'Open')}</a>` : '<a class="nbtn" href="#/needs">Details</a>');
 }
 
