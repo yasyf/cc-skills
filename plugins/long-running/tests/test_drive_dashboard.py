@@ -222,6 +222,26 @@ def test_a_pick_the_board_cannot_take_comes_back_as_an_error_he_can_read(monkeyp
     assert status == 502 and "the board did not answer" in out["error"]
 
 
+def test_his_messages_show_at_once_and_a_failed_read_leaves_them_up_and_the_follower_running(tmp_path, monkeypatch):
+    ledger = tmp_path / "ledger.md"
+    ledger.write_text("| m1 | Nov 3 3:00 AM | please fix the typing box now |  | open |\n")
+    drive = Drive({"drive": "d", "owner_ledger": str(ledger), "board_url": "http://board/p/x"}, None)
+    monkeypatch.setattr(drive, "read_records", lambda *_args: [])
+    monkeypatch.setattr(server.subprocess, "run", lambda argv, **_kwargs: server.subprocess.CompletedProcess(argv, 0, "", ""))
+    def refused(argv, cwd=None):
+        raise server.subprocess.CalledProcessError(1, argv)
+    monkeypatch.setattr(server, "run", refused)
+    class Waited(Exception):
+        pass
+    def waited(*_args):
+        raise Waited
+    monkeypatch.setattr(server, "until_changed", waited)
+    with pytest.raises(Waited):
+        drive.follow_owed()
+    assert [message["m"] for message in drive.owed["owner_asks"]["messages"]] == [1]
+    assert drive.reported_owed
+
+
 def test_a_card_of_words_a_picture_a_table_and_a_pull_request_draws_on_the_dashboard():
     block = card("whole", ("markdown", "m"), ("image", "i"), ("table", "t"), ("pr", "p"), ("choice", "c"))
     block["children"][0]["md"] = "Why it matters"
