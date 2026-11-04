@@ -475,13 +475,6 @@ func (d *Desk) clockFallback(ctx context.Context, lane string, launch incident.A
 	if held != nil {
 		return "the Opus fallback " + backup + " is already launched", nil
 	}
-	rival, err := d.executorBackup(ctx, lane)
-	if err != nil {
-		return "", err
-	}
-	if rival != "" {
-		return fmt.Sprintf("no fallback launched for %s: the incident executor's Opus backup %s is launching or live, and a fix lane gets one Opus fallback", backup, rival), nil
-	}
 	brief, err := d.briefFor(ctx, lane)
 	if err != nil {
 		return "", err
@@ -535,45 +528,6 @@ func openIncidentOf(lane string, incidents []client.Record) *client.Record {
 		}
 	}
 	return newest
-}
-
-func (d *Desk) executorBackup(ctx context.Context, lane string) (string, error) {
-	ids, err := d.Incidents.IDs()
-	if err != nil {
-		return "", err
-	}
-	for _, id := range ids {
-		family, err := d.Incidents.ActionFamily(id, "dispatch:backup")
-		if err != nil {
-			return "", err
-		}
-		if len(family) == 0 {
-			continue
-		}
-		adopted, _, err := d.Incidents.Fact(id, "adopted")
-		if err != nil {
-			return "", err
-		}
-		fields, _ := adopted.(map[string]any)
-		backup := family[len(family)-1]
-		if fields["fix"] != lane {
-			continue
-		}
-		if backup.Status == incident.ActionAccepted || backup.Status == incident.ActionStarted {
-			return backup.Target, nil
-		}
-		if backup.Status != incident.ActionVerified {
-			continue
-		}
-		shown, err := d.show(ctx, backup.Target, string(backup.DispatchID))
-		if err != nil {
-			return "", err
-		}
-		if shown.active() {
-			return backup.Target, nil
-		}
-	}
-	return "", nil
 }
 
 func (d *Desk) briefFor(ctx context.Context, lane string) (string, error) {
@@ -659,10 +613,6 @@ func (d *Desk) retryFallback(ctx context.Context, lane string, launch incident.A
 	failed := func(action incident.Action) bool { return action.Status == incident.ActionFailed }
 	if len(tries) == 0 || slices.ContainsFunc(tries, func(action incident.Action) bool { return !failed(action) }) {
 		return nil
-	}
-	rival, err := d.executorBackup(ctx, lane)
-	if err != nil || rival != "" {
-		return err
 	}
 	spec, err := launchOf(tries[0])
 	if err != nil {

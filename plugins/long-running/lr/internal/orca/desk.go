@@ -191,7 +191,6 @@ type Desk struct {
 	Plugin       string
 	Stderr       io.Writer
 	FireIncident func(ctx context.Context, fired lanes.Fired) error
-	Incidents    incident.Store
 	Registry     *store.Store
 
 	background  sync.WaitGroup

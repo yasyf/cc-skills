@@ -10,7 +10,6 @@ import (
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
-	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/incident"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
@@ -201,9 +200,9 @@ func TestAFixLaneTheLanesMachineLaunchedStillSquashesOnALandingOnlyMachine(t *te
 	lane(t, p.Store, "dd-1-fix", store.LaneRetired, "", now.Add(-time.Hour))
 	lane(t, p.Store, "dd-1-fix-old", store.LaneRetired, "", now.Add(-incidentHorizon-time.Hour))
 	m := mirrored(t, p)
-	q := &Squash{Store: m.Store, Incidents: incident.Store{Root: t.TempDir()}, Trunk: "dev", FixLane: m.FixLane}
+	q := &Squash{Store: m.Store, Trunk: "dev", FixLane: m.FixLane}
 
-	named, _, err := q.tagged([]machine.Facts{
+	named, err := q.tagged([]machine.Facts{
 		{Repo: "o/r", Number: 7, Base: "dev", Lane: "dd-1-fix"},
 		{Repo: "o/r", Number: 8, Base: "dev", Lane: "dd-1-fix-old"},
 		{Repo: "o/r", Number: 9, Base: "dev", Lane: "ordinary"},

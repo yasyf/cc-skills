@@ -319,7 +319,7 @@ func (a *Alerts) raise(ctx context.Context, channel string, card, message slackM
 	if launchErr != nil {
 		draft.Kind, draft.ID = blockerKind, "alert-unopened:"+channel+":"+message.TS
 		failure := []rune(launchErr.Error())
-		draft.Text = fmt.Sprintf("ALERT-UNOPENED %s: no incident record names %s %d min after it fired, and the supervisor's launch of %s-fix failed: %s | coordinator: open the incident on sight with `lr incident open --kind alert` and launch its fix lane this turn", headline, alert.name, minutes, alert.slug, string(failure[max(0, len(failure)-200):]))
+		draft.Text = fmt.Sprintf("ALERT-UNOPENED %s: no incident record names %s %d min after it fired, and the supervisor's launch of %s-fix failed: %s | coordinator: launch its fix lane this turn with `lr incident run %s --fix-brief <file>`", headline, alert.name, minutes, alert.slug, string(failure[max(0, len(failure)-200):]), alert.slug)
 	} else {
 		if a.launched == nil {
 			a.launched = map[string]bool{}
