@@ -141,3 +141,16 @@ func TestAGradingPRSaysWhichGradeItWaitsOn(t *testing.T) {
 		t.Fatalf("a graded new diff after a tap is %s, %q", got.State, got.Reason)
 	}
 }
+
+func TestATapAndASettleNamingAShortHeadCountForThatHeadsChange(t *testing.T) {
+	d, c := memory(t), &clock{}
+	apply(t, d, tapped(c, 0, 1, h1[:12], machine.TapTapped))
+	apply(t, d, green(c, 1, 1, "lane/a", landing, h1, "c1")...)
+	if got := state(t, d, 1); got.State != machine.StateReady {
+		t.Fatalf("a tap recorded by short head before the diff hash is %s (%s), want ready", got.State, got.Reason)
+	}
+	apply(t, d, Grade{c.at(2), 1, h1, "finder", 2, string(machine.FinderAsk)})
+	expect(t, d, 1, machine.StateAppeal)
+	apply(t, d, Grade{c.at(3), 1, h1[:12], "appeal", 0, "settle"})
+	expect(t, d, 1, machine.StateReady)
+}
