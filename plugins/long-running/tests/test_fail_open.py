@@ -40,6 +40,7 @@ PARKS = "AskUserQuestion parks the session, so a warning lands too late (answer 
 STOP = "a warning on Stop reaches nobody, and {what}"
 KEPT_REFUSALS = KEPT | {
     "blocking_asks.drive_roots_never_park_on_asks": PARKS,
+    "capacity_fixes_name_the_reclaim.applies_name_the_next_writer": "the owner ordered the refusal: a hand apply on an incident names the next writer of its field, and a capacity fix-live waits until that writer agrees, since the next launch undoes an apply nobody checked",
     "capacity_fixes_name_the_reclaim.capacity_fixes_name_the_reclaim": "the owner ordered the refusal: an incident fix that only adds capacity names what stopped reclaiming it before fix-live, since the capacity is headroom and the reclaim fix is the fix",
     "chat_formats.reply_formats_are_0_or_1": "the owner ordered the refusal: he reads a sessions migration number as a chat format",
     "chat_formats.chat_formats_are_0_or_1": STOP.format(what="the owner would read a sessions migration number as a chat format"),
