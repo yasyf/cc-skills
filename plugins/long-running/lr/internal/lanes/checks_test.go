@@ -70,7 +70,7 @@ func TestAnAlertNobodyAnsweredThreeMinutesOnLaunchesItsLanes(t *testing.T) {
 			if c.launched {
 				equal(t, []string{launched[0].Slug, launched[0].What, launched[0].Link}, []string{"dd-338724738", "Triggered: runtime-api-next logging errors — plat", "https://slack/p1"})
 				posted := bus.posted[0]
-				equal(t, []any{posted.Kind, posted.To, posted.LaneRefs, posted.Attrs["brief"]}, []any{kindSpawn, []string{Root}, []string{"dd-338724738-fix", "dd-338724738-evidence"}, "/state/lanes/dd-338724738-fix.brief.md"})
+				equal(t, []any{posted.Kind, posted.To, posted.LaneRefs, posted.Attrs["brief"]}, []any{kindSpawn, []string{Root}, []string{"dd-338724738-fix"}, "/state/lanes/dd-338724738-fix.brief.md"})
 				contains(t, posted.Text, "ALERT-LAUNCHED Triggered: runtime-api-next logging errors — plat: no incident record named 338724738 4 min after it fired")
 			}
 		})
@@ -132,7 +132,9 @@ func TestAFailedAlertLaunchRaisesOneBlockerToRoot(t *testing.T) {
 	env := Env{Bus: bus, Config: config.Config{Drive: testDrive}, MonitorLane: noMonitorLane, Runner: scripted(func([]string) (shell.Result, error) {
 		return shell.Result{Stdout: slackHistory(t0.Add(-mins(4)), "Triggered: x\n"+monitorLink)}, nil
 	})}
-	check := Alerts{Env: env, Store: s, Channels: []string{"C1"}, Log: slog.Default(), Launch: func(context.Context, Fired) (string, error) { return "", errors.New("desk-launch exited 2") }}
+	check := Alerts{Env: env, Store: s, Channels: []string{"C1"}, Log: slog.Default(), Launch: func(context.Context, Fired) (string, error) {
+		return "", errors.New(strings.Repeat("--flag ", 40) + "desk-launch exited 2")
+	}}
 
 	for range 2 {
 		if err := check.Check(context.Background(), t0); err != nil {
@@ -142,7 +144,8 @@ func TestAFailedAlertLaunchRaisesOneBlockerToRoot(t *testing.T) {
 
 	equal(t, len(bus.posted), 1)
 	equal(t, bus.posted[0].Kind, blockerKind)
-	contains(t, bus.posted[0].Text, "ALERT-UNOPENED Triggered: x: no incident record names 338724738 4 min after it fired, and the supervisor's launch of dd-338724738-fix failed: desk-launch exited 2")
+	contains(t, bus.posted[0].Text, "ALERT-UNOPENED Triggered: x: no incident record names 338724738 4 min after it fired, and the supervisor's launch of dd-338724738-fix failed: ")
+	contains(t, bus.posted[0].Text, "desk-launch exited 2")
 }
 
 func TestAnAlertWithAFixLaneNamingItJoinsThatLaneAndLaunchesNothing(t *testing.T) {
