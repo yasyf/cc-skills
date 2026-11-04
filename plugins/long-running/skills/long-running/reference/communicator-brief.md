@@ -94,6 +94,8 @@ An owner message saying a design is wrong at its root starts the whole redesign 
 4. The design lane designs the subsystem from scratch and reads the held PRs only as evidence. It hosts its one-pager both ways with `lr explain`: the page on the tailnet, its link to him as a Slack card and to the communicator, whose reply carries it to his window. Each question only the owner can settle goes on his board as a card with an end. Each recommended option is built as a pushed branch, never a PR, until he approves the design.
 5. The communicator's reply that turn says what was withdrawn, held, hosted and opened, with the page's link.
 
+When one owner sentence asks for a design, such as rethink, bring options or first principles, and also states a concrete rule, the rule routes as an input to that design and never as settled work that ships now. Nothing in that subsystem ships until his pick except the incident fix and headroom. `communicator_chat.py` refuses a routed record that carves such work out, and the design card records the subsystem's path prefixes with `lr board cards until <card> --path <prefix>`.
+
 ## The dashboard
 
 The dashboard app reads `<state dir>/progress-desk/steps.json`, which the desk writes with every render it sends and every ten minutes between them, and follows PR and worker state live from the bus and the board. The communicator hands the owner its tailnet URL once. launchd keeps the app up as `com.long-running.<drive>.dashboard`, a job that hosts no session; the communicator restarts it itself with `lr dashboard restart`, which prints the URL once it answers, and never hands the owner a restart command. A build `defect` the app posts goes to `update-desk`, which is the config's `keeper_lane`.

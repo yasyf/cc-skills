@@ -318,6 +318,12 @@ he can try, not a provisional pick: nothing lands from it before his answer, and
 branch he rejects is deleted. `board_text_gate` refuses a card that names neither
 an hour after its first draw.
 
+A concrete rule inside his design order ships only with his pick, cited in the PR body
+as `owner:m<N>` or a ccn answer id. So does a change to where data lives or how long
+it is kept, such as a volume, claim, reclaim, retention or eviction field. Only
+the incident fix and its headroom go first. `design_picks.py` refuses a PR without the
+cite when it touches an open design card's paths or those fields under `infra/rows/`.
+
 Never end a turn waiting, and never loop over `orca orchestration check`: Orca
   delivers its mail into your terminal, and `lr wait 540 cci:<drive>:<name> -- orca
   orchestration check --terminal "$ORCA_TERMINAL_HANDLE" --wait --timeout-ms 540000 --json`

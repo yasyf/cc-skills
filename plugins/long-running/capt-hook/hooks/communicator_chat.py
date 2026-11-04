@@ -8,7 +8,9 @@ from cc_transcript.models import AssistantEvent, AttachmentEvent, UserEvent
 from captain_hook import Allow, AssistantMessage, BaseHookEvent, Block, Event, FromSubagent, hook, HookResult, Input, llm_gate, on, T, Tool, Warn
 from captain_hook.util import reqenv
 
+from .cci_mcp_posts import POST_TOOL
 from .compaction_handoff import bus_name, CCN_TIMEOUT_SECONDS, Communicator, COMMUNICATOR_LANE, communicator_tests, CompactionState, drive_entry
+from .meta_records import posts
 from .root_replies import owner_text, read_call
 from .tests.register_fixtures import DRIVE_CONFIG
 
@@ -29,6 +31,14 @@ CHORE_VERBS = frozenset({"lr", "cci"})
 TAIL = "cci tail --lane relay-fix-2 -n 1"
 TAIL_SHAPE = "cci tail --lane -n"
 READS = "Two Bash reads in a row with no subagent between them. Hand the rest of this read to `Agent` with `Explore` and `model: sonnet`, and keep only its answer."
+DESIGN_ASK = re.compile(r"\b(?:rethink\w*|redesign\w*|first[- ]principles?|bring (?:me|him) options|options? (?:card|covering)|design (?:order|ask|card))\b", re.IGNORECASE)
+CARVE_OUT = re.compile(r"\bships? (?:\w+ ){0,3}now\b|\bcan ship\b|\bsettle[sd]?\b", re.IGNORECASE)
+QUOTED = re.compile(r"\"[^\"]*\"|“[^”]*”")
+CARVED = (
+    "This record carves work that ships now or is settled out of his design order, which is a routing defect:"
+    " route the concrete rule onto the design's options card as an input, and say that nothing in that subsystem ships until his pick except the incident fix and headroom."
+)
+ROUTED = "cci post --lane owner-relay --kind decide --to journal-evict-fix --text '{text}'"
 
 ACTIVE = [CompactionState(active=True, communicator=True)]
 
@@ -192,3 +202,20 @@ def repeated_chores_ask_for_a_verb(evt: BaseHookEvent) -> None:
     for shape in chores(evt):
         if not evt.ctx.s.once(shape, scope=CHORE_RUNS) and evt.ctx.s.once(shape, scope=CHORE_ASKS):
             ask_for_a_verb(evt, shape)
+
+
+@on(  # capt-hook: no-escape the owner ordered that a design order's rule never reaches a lane as work that ships ahead of his pick
+    Event.PreToolUse,
+    only_if=[Communicator(), Tool("Bash", POST_TOOL)],
+    skip_if=[FromSubagent()],
+    tests=communicator_tests({
+        Input(command=ROUTED.format(text="Owner m469: bring him options covering all angles on journal storage; clean finish cleanup is settled and ships now."), state=ACTIVE): Block(pattern=r"^This record carves work that ships now"),
+        Input(command=ROUTED.format(text="Owner m469: bring him options covering all angles on journal storage; nothing there ships until his pick except the incident fix and headroom."), state=ACTIVE): Allow(),
+        Input(command=ROUTED.format(text='Owner m476: a first-principles design of journal storage; this supersedes "clean finish cleanup ships now".'), state=ACTIVE): Allow(),
+        Input(command=ROUTED.format(text="Owner m480: the relay fix is settled and ships now."), state=ACTIVE): Allow(),
+        Input(command=ROUTED.format(text="Owner m469: rethink journal storage; the cleanup ships now."), agent_id="a1b2c3", state=ACTIVE): Allow(),
+    }),
+)
+def design_orders_carve_out_nothing(evt: BaseHookEvent) -> HookResult | None:
+    carved = any(DESIGN_ASK.search(text) and CARVE_OUT.search(QUOTED.sub("", text)) for _, _, _, text, _, _ in posts(evt))
+    return evt.block(CARVED) if carved else None
