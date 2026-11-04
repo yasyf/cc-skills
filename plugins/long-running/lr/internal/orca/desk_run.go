@@ -441,6 +441,9 @@ func MonitorLane(a *app.App) (func(ctx context.Context, monitor, lane string) (s
 	}
 	desk.open()
 	return func(ctx context.Context, monitor, lane string) (string, error) {
+		if muted, err := desk.ownerMuted(ctx, []string{monitor}); muted != "" || err != nil {
+			return muted, err
+		}
 		return desk.incidentLane(ctx, map[string]bool{monitor: true}, lane)
 	}, nil
 }
