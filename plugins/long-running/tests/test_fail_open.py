@@ -84,6 +84,7 @@ KEPT_REFUSALS = KEPT | {
     "not_ours_holds.not_ours_holds": "the owner ordered the refusal: a hold or card on another person's PR reaches lanes and his board the moment it posts",
     "urgent_lines_name_the_harm.urgent_lines_name_the_harm": "the owner ordered the refusal: he acts on an urgent line the moment it reaches him",
     "urgent_lines_name_the_harm.urgent_replies_name_the_harm": STOP.format(what="the owner would act on an urgent line that names no harm"),
+    "waits_on_him_is_ready.waits_on_him_is_ready": "the plan the owner picked (1cc85e1) makes this a refusal: a line saying a PR waits on his tap reaches him the moment it posts, so a warning lands after he has read it",
     "vet_before_push.lanes_vet_before_they_push": "the owner ordered that every lane runs go build, go vet and the typecheck over what it touched before it pushes, held by a hook rather than goodwill, and a warning lands after the push has already turned CI red",
 }
 REAL_STUBS = helpers.stubbed_commands

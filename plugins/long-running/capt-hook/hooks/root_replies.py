@@ -587,9 +587,11 @@ FALSE_TAP = (
     "Restate it in plain words from these lines, and quote what `{command}` prints:\n```\n{lines}\n```"
 )
 NOTHING_WAITS = "nothing on his board awaits his tap or pick"
-FALSE_PR = json.dumps([{"pr": "45507", "head": "632c4a5", "waiting": False, "line": "#45507 at 632c4a5: not waiting on you: the board holds no row for it; its fidelity grade by fidelity-desk-3 reads missing since 3:02 AM (cci #203600); a PR comment by yasyf answered it at 3:19 AM and no grade has followed"}])
-TRUE_PR = json.dumps([{"pr": "45541", "head": "3502b11", "waiting": True, "line": "#45541 at 3502b11: waits on your tap on merge-prs, up since 4:50 AM"}])
-CHECK_PR = f"{OWNER_WAITS} --drive brook-drive --json --pr"
+FALSE_PR = json.dumps([{"number": 45507, "ready_for_tap": False, "waits_on": "fidelity grade missing at head"}])
+TRUE_PR = json.dumps([{"number": 45541, "ready_for_tap": True, "waits_on": ""}])
+ROWS_READ = f"{LR} board rows --drive brook-drive --json"
+UNREADY = "#{pr} is not ready for his tap: {waits}"
+NO_ROW = "it has no row"
 CHECK_BOARD = f"{OWNER_WAITS} --drive brook-drive --json"
 
 
@@ -607,6 +609,12 @@ def tap_claims(reply: str) -> tuple[list[str], bool]:
     return prs, bare
 
 
+def unready(drive: str, prs: list[str]) -> list[str]:
+    done = subprocess.run([str(LR), "board", "rows", "--drive", drive, "--json"], capture_output=True, text=True, timeout=OWNER_WAITS_SECONDS, env=dict(reqenv.env_map()), check=True)
+    rows = {str(row["number"]): row for row in json.loads(done.stdout)}
+    return [UNREADY.format(pr=pr, waits=rows[pr]["waits_on"] if pr in rows else NO_ROW) for pr in prs if pr not in rows or not rows[pr]["ready_for_tap"]]
+
+
 def owner_waits(drive: str, *args: str) -> list[dict]:
     argv = [str(LR), "board", "waits", "--drive", drive, "--json", *args]
     done = subprocess.run(argv, capture_output=True, text=True, timeout=OWNER_WAITS_SECONDS, env=dict(reqenv.env_map()), check=True)
@@ -619,14 +627,14 @@ def owner_waits(drive: str, *args: str) -> list[dict]:
     transcript_events=REPLY_WINDOW,
     only_if=[Communicator()],
     tests=communicator_tests({
-        Input(transcript=[T.user("anything for me?"), T.assistant("#45507 waits on your tap, and #45524 waits on it below.")], state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={f"{CHECK_PR} 45507": FALSE_PR}): Block(
-            pattern=r"#45507 at 632c4a5: not waiting on you: the board holds no row for it; its fidelity grade .* reads missing since 3:02 AM"
+        Input(transcript=[T.user("anything for me?"), T.assistant("#45507 waits on your tap, and #45524 waits on it below.")], state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={ROWS_READ: FALSE_PR}): Block(
+            pattern=r"#45507 is not ready for his tap: fidelity grade missing at head"
         ),
-        Input(transcript=[T.user("anything for me?"), T.assistant("#45541 waits on your tap.")], state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={f"{CHECK_PR} 45541": TRUE_PR}): Allow(),
+        Input(transcript=[T.user("anything for me?"), T.assistant("#45541 waits on your tap.")], state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={ROWS_READ: TRUE_PR}): Allow(),
         Input(transcript=[T.user("anything for me?"), T.assistant("Two fixes are waiting on your approval.")], state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={CHECK_BOARD: "[]"}): Block(pattern=NOTHING_WAITS),
         Input(transcript=[T.user("anything for me?"), T.assistant("The routing card is on your board.")], state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={CHECK_BOARD: TRUE_PR}): Allow(),
         Input(transcript=[T.user("anything for me?"), T.assistant("No PR waits on your tap; #45507 is not waiting on your approval either.")], state=DRIVE_ACTIVE, env=DRIVE_CONFIG): Allow(),
-        Input(transcript=[T.user("anything for me?"), T.assistant("#45507 waits on your tap.")], state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={f"{CHECK_PR} 45507": (1, "cc-present down")}): Allow(),
+        Input(transcript=[T.user("anything for me?"), T.assistant("#45507 waits on your tap.")], state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={ROWS_READ: (1, "store unreadable")}): Allow(),
         Input(transcript=[T.user("anything for me?"), T.assistant("#45507 waits on your tap.")], state=DRIVE_ACTIVE, env=DRIVE_CONFIG, agent_id="a1b2c3"): Allow(),
         Input(transcript=[T.user("status?"), T.assistant("The release worker has finished and stopped. Platform cluster: everything shipped, and the health check passed with nothing missing. Customer clusters: every memory fix is live there except the retry-alert counting change, which goes out with a later release. Health: job starts stayed normal and there were no error spikes. One false alarm along the way: the post-deploy check went red, but nothing was rolled back. It's the same pipeline defect the worker noted earlier, where the check counts running jobs over only a few seconds right after a deploy.")], state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={CHECK_BOARD: "[]"}): Allow(),
         Input(transcript=[T.user("status?"), T.assistant("The durable-agents session owns it, and I've asked them to either put it on your board or merge it themselves."), T.user("release worker stood down")], state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={CHECK_BOARD: "[]"}): Allow(),
@@ -635,7 +643,7 @@ def owner_waits(drive: str, *args: str) -> list[dict]:
     }),
 )
 def tap_claims_match_the_board(evt: BaseHookEvent) -> HookResult | None:
-    """A communicator reply that says a PR or anything else waits on the owner's tap, approval or pick stands only when `cci owner-waits` finds a board row awaiting him at that PR's head, or anything awaiting him for a claim naming no PR; otherwise the reply goes back with the real state to say instead (owner, 4:40 AM Oct 30, #207532). A board that does not read blocks nothing."""
+    """A communicator reply that says a PR or anything else waits on the owner's tap, approval or pick stands only when that PR's row in `lr board rows` says ready_for_tap, or when `lr board waits` finds anything awaiting him for a claim naming no PR; otherwise the reply goes back with the real state to say instead (owner, 4:40 AM Oct 30, #207532). A board that does not read blocks nothing."""
     if not CompactionState.load(evt).active or not (entry := drive_entry(evt)):
         return None
     prs, bare = tap_claims(last_reply(evt))
@@ -643,9 +651,9 @@ def tap_claims_match_the_board(evt: BaseHookEvent) -> HookResult | None:
         return None
     drive = bus_name(entry)
     try:
-        lines = [found["line"] for found in owner_waits(drive, *(arg for pr in prs for arg in ("--pr", pr))) if not found["waiting"]] if prs else []
+        lines = unready(drive, prs) if prs else []
         if bare and not owner_waits(drive):
             lines.append(NOTHING_WAITS)
-    except (OSError, subprocess.SubprocessError, ValueError):
+    except (OSError, subprocess.SubprocessError, ValueError, KeyError):
         return None
-    return evt.block(FALSE_TAP.format(lines="\n".join(lines), command=f"lr board waits --drive {drive}")) if lines else None
+    return evt.block(FALSE_TAP.format(lines="\n".join(lines), command=f"lr board rows --json --drive {drive}")) if lines else None
