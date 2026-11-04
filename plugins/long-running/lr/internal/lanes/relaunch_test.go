@@ -169,6 +169,20 @@ func TestAQuietSpriteLaneOrcaReportsLiveIsNeverRelaunchedForPostingNoRecord(t *t
 	equal(t, out.Relaunched, []Relaunch{{lane2, "conflicts-3", "has posted no record in the 61 min since its launch, and Orca does not report it live"}})
 }
 
+func TestAnOverdueItemsAskToAParkedLaneIsRelayedThroughTheDesk(t *testing.T) {
+	s := memory(t)
+	f := adopted(t, s, writeBrief(t), "")
+	f.feed = append(f.feed, rec(2, Self, "lr.ask", t0, "org/repo#1 restack overdue", lane2))
+	f.peers = []Row{{Lane: lane2, Live: true, SeenAt: t0.Add(mins(11)), Dispatch: "ctx_1"}}
+
+	tick(t, s, f, t0.Add(mins(11)))
+
+	relays := f.ofKind("go")
+	if len(relays) != 1 || !strings.HasPrefix(relays[0].Text, "orca-desk: relay to "+lane2+": Orders addressed to you are unread: supervisor's lr.ask #2") {
+		t.Fatalf("relays = %+v", relays)
+	}
+}
+
 func TestUnreadOrdersAreRelayedThroughTheDeskExceptForASpriteLaneTheSupervisorSeesNoToolCallsFrom(t *testing.T) {
 	for name, c := range map[string]struct {
 		setup  func(*testing.T, *store.Store) *fake

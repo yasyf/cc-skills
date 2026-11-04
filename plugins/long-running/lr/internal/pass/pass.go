@@ -293,7 +293,12 @@ func escalateOverdue(s *store.Store, snapshot []machine.Facts, now time.Time, po
 				cause = "UNOWNED, " + lane + " is not running: " + cause
 			}
 		}
-		if err := escalate(s, fmt.Sprintf("%s#%d", item.Repo, item.Number), cause, said, to, now, post, out); err != nil {
+		subject := fmt.Sprintf("%s#%d", item.Repo, item.Number)
+		body := bus.Overdue(to, subject, cause+said)
+		if !deskOwns && !rootOwned && to != root {
+			body = bus.Ask{Text: subject + " " + cause + said}
+		}
+		if err := raise(s, subject, cause, said, to, now, body, post, out); err != nil {
 			return err
 		}
 	}
@@ -538,12 +543,16 @@ func releaseStale(s *store.Store, now time.Time, post Post, route Route, out *Ou
 }
 
 func escalate(s *store.Store, subject, cause, detail, to string, now time.Time, post Post, out *Outcome) error {
+	return raise(s, subject, cause, detail, to, now, bus.Overdue(to, subject, cause+detail), post, out)
+}
+
+func raise(s *store.Store, subject, cause, detail, to string, now time.Time, body bus.Body, post Post, out *Outcome) error {
 	raised, err := s.Escalate(subject, cause, to, now)
 	if err != nil || !raised {
 		return err
 	}
 	out.Escalated = append(out.Escalated, Escalated{subject, cause + detail, to})
-	return post([]string{to}, bus.Overdue(to, subject, cause+detail))
+	return post([]string{to}, body)
 }
 
 func audience(verdict machine.Verdict, f machine.Facts) string {

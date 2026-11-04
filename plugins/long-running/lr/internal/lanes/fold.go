@@ -253,7 +253,7 @@ func foldRecord(s *store.Store, r Record, late time.Duration, fresh bool, at tim
 	if !fresh && (kind == "blocker" || (kind == "ask" && name == Root)) {
 		foldPage(s, r, name, addressed)
 	}
-	if !fresh && (kind == "ask" || kind == kindRequest) {
+	if !fresh && (kind == "ask" || kind == "lr.ask" || kind == kindRequest) {
 		foldOrder(s, r, addressed, at)
 	}
 	foldGates(s, r, fresh, at)
