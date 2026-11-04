@@ -367,6 +367,9 @@ func TestADueRowGoesFirstOnceItsClockPasses(t *testing.T) {
 	if _, err := dueBy("6:40 PM", now); err == nil {
 		t.Fatal("a clock already past was accepted")
 	}
+	if state, err := dueBy("12:15 AM", time.Date(2026, 11, 3, 23, 29, 0, 0, pacific)); err != nil || state != "due Nov 4 12:15 AM" {
+		t.Fatalf("a clock past midnight read as %q, %v", state, err)
+	}
 	rows := Parse([]byte(header + "| m1 | Nov 3 6:17 PM | update | 391 | " + state + " |\n| m2 | Nov 3 6:18 PM | recap |  | due Nov 3 7:00 PM |\n"))
 	late := PastDue(rows, now)
 	if len(late) != 1 || late[0].ID != "m1" {
