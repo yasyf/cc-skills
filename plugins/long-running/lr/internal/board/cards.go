@@ -454,7 +454,7 @@ func (c Cards) close(ctx context.Context, lane, card string, prior map[string]st
 		fmt.Fprintf(out, "PROBLEM %s: the owner's answer on %s has no ccn answer row; run board_watch.py backfill --session %s --program %s before it leaves the board\n", card, strings.Join(owed, ", "), c.Session, c.Bus)
 		return nil
 	}
-	if _, err := c.present(ctx, "remove-block", card, "--reason", why); err != nil {
+	if _, err := c.present(ctx, "remove-block", card, "--reason", why, "--lane", lane, "--take-over"); err != nil {
 		return err
 	}
 	if err := c.Withdraw(ctx, lane, card, fmt.Sprintf("Withdrew %s from the owner's board: %s.", card, why)); err != nil {
