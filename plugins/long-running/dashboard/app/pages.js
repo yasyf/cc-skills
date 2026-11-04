@@ -370,7 +370,7 @@ function askRows() {
   });
   return [...overdueRows(), ...newestFirst([
     ...data.messages.map(askMessage),
-    ...data.taps.filter((t) => !t.pr).map((t) => askRow({ id: `ask-m${t.m}`, iso: t.iso, at: clock(t.iso), title: t.question.replace(/^(.{96}\S*)\s.+$/, '$1…'), why: t.said.replace(/^picked /, 'You picked ') }, t.state, 'Board', `<p><a href="${esc(state.model.board.url)}?block=${encodeURIComponent(t.card)}" target="_blank" rel="noopener">Open the card on your board ↗</a></p>`)),
+    ...data.taps.filter((t) => !t.pr).map((t) => askRow({ id: `ask-m${t.m}`, iso: t.iso, at: clock(t.iso), title: t.question.replace(/^(.{96}\S*)\s.+$/, '$1…'), why: t.said.replace(/^picked /, 'You picked ') }, t.state, 'Card', '')),
     ...approvalRow('applied', approvals.filter((t) => t.state === 'applied'), 'changes you approved have landed'),
     ...approvalRow('answered', approvals.filter((t) => t.state !== 'applied'), 'changes you approved have not landed yet'),
     ...store,
@@ -494,7 +494,7 @@ function reviewScreen(list) {
     ${notes.length ? `<section class="pg-sec" id="review-notes"><h2>For your information</h2><div class="mr-list">${notes.map(noteCard).join('')}</div></section>` : ''}</div>`;
 }
 function noteCard(c) {
-  return `<article class="mr bq note" id="card-${esc(c.id)}"><header><span class="mr-t">${esc(words(c.title))}</span><span class="mr-acts"><a class="btn ghost" href="${esc(state.model.board.url)}?block=${encodeURIComponent(c.id)}" target="_blank" rel="noopener">Open on your board</a></span></header>${c.summary ? `<p class="mr-why">${esc(words(c.summary))}</p>` : ''}</article>`;
+  return `<article class="mr bq note" id="card-${esc(c.id)}"><header><span class="mr-t">${esc(words(c.title))}</span></header>${c.summary ? `<p class="mr-why">${esc(words(c.summary))}</p>` : ''}</article>`;
 }
 
 function firstClause(text) {
@@ -859,7 +859,7 @@ function syncChatModal() {
   const body = card.embed
     ? `<iframe title="${esc(card.title)}" src="${esc(framedUrl(card.embed))}"></iframe>`
     : `<div class="rp-md prose">${markdown(plain(namedChanges(card.summary)))}</div><div class="ct-acts">${card.options.map((o) => `<button class="btn${o.recommended ? ' pri' : ''}" data-choose="${esc(o.id)}" data-choice="${esc(card.choice)}"${busy}>${esc(o.label.replace(/\s*\(Recommended\)\s*$/i, ''))}</button>`).join('')}</div>${sentNote(card.choice)}`;
-  box.innerHTML = `<header><b>${inline(plain(card.title))}</b><a class="btn ghost" href="${esc(state.model.board.url)}?block=${encodeURIComponent(card.id)}" target="_blank" rel="noopener">On your board ↗</a><button class="btn ghost" data-chat-close>Close</button></header>${body}`;
+  box.innerHTML = `<header><b>${inline(plain(card.title))}</b><button class="btn ghost" data-chat-close>Close</button></header>${body}`;
 }
 document.addEventListener('close', (e) => {
   if (e.target.id === 'chatmodal') rp.modal = null;
