@@ -938,7 +938,7 @@ func TestAPRCardCarriesItsLedgerRowToEverySurface(t *testing.T) {
 		t.Fatal(err)
 	}
 	pr := card.Children[len(card.Children)-1]
-	if pr["type"] != "pr" || pr["change"] != "Chats load" || !strings.Contains(fmt.Sprint(pr["review"]), "CI ") || pr["blocker"] != "Your tap" || pr["title"] != "Relay fix" || !strings.Contains(pr["summary"].(string), "**Risk:** Low") {
+	if pr["type"] != "pr" || pr["change"] != "Chats load" || !strings.Contains(pr["summary"].(string), "**Status:** CI ") || pr["review"] != nil || pr["description"] != nil || pr["blocker"] != "Your tap" || pr["title"] != "Relay fix" || !strings.Contains(pr["summary"].(string), "**Risk:** Low") {
 		t.Fatalf("pr child = %+v, want its lines for Slack and for the board", pr)
 	}
 }
