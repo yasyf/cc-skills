@@ -112,8 +112,8 @@ cards, holds the PRs, hosts the page and opens a design lane that builds each
 recommended option as a branch, never a PR
 ([communicator-brief.md](reference/communicator-brief.md#redesigns)).
 When the owner writes after an hour or more away, its reply opens with the
-full update: the dashboard link, then the owner table grouped by feature. A question
-about how far a lane has got is answered from that lane's newest record,
+dashboard link, then what changed in a few lines; the full table lives on the
+dashboard. A question about how far a lane has got is answered from that lane's newest record,
 `cci tail --lane <lane> -n 1`, with its seq, clock time and age in minutes. Every
 message it sends him goes out through one call, the `reply` tool on the plugin's
 `lr` MCP server, which lands it in this window, a cci record and the dashboard's

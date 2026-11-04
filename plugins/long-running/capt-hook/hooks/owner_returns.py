@@ -24,14 +24,9 @@ from .root_replies import SENTENCE_END, owner_message
 from .tests.register_fixtures import DRIVE_CONFIG
 
 RETURN_GAP_SECONDS = 60 * 60
-STEPS = Path("progress-desk") / "steps.json"
 LINK = re.compile(r"https?://\S+")
-OWNER_TABLE = re.compile(r"^#+ .+\n(?:.*\n)*?\| Row \| What it delivers \|", re.MULTILINE)
-RETURNED = "The owner is back after {minutes} minutes away. Open this reply with the full update: the dashboard link on its first line, then the owner table grouped by feature from `{steps}`."
-MISSING = "A reply to the owner's return opens with the full update, and this one lacks {missing}. Rewrite it to open with the dashboard link, then the owner table under a heading per feature."
-NO_LINK = "the dashboard link on its first line"
-NO_TABLE = "the owner table under a feature heading"
-UPDATE = "http://dash.brook.ts.net:8840/\n\n## Durable agents, step Rebuild\n| Row | What it delivers | State | Who is on it right now | What blocks it | What we are doing to unblock it, and by when | What went wrong or slowed it |\n|---|---|---|---|---|---|---|\n| Step 2 | Agents resume | open | fix-3 | nothing recorded | fix-3 lands it | None recorded |"
+RETURNED = "The owner is back after {minutes} minutes away. Open this reply with the dashboard link on its first line, then what changed in a few lines; the full table lives on the dashboard."
+MISSING = "A reply to the owner's return opens with the dashboard link on its first line, and this one does not. Rewrite it with the link first, then what changed in a few lines."
 LETTERED = re.compile(r"^[ \t>*-]*\(?([A-H])[).:]\**\s|(?<![\w(])\(([A-H])\)\s|(?<![\w(])([A-H])\)\**\s", re.MULTILINE)
 CHOICE = re.compile(
     r"\b(?i:option) \(?[A-H1-9]\b|(?i:\bpick one\b|\bwhich (?:do you want|would you like|do you prefer|one do you)\b)"
@@ -168,7 +163,7 @@ def communicator_holds_the_owners_dm(evt: BaseHookEvent) -> None:
     only_if=[Communicator()],
     skip_if=[FromSubagent()],
     tests=communicator_tests({
-        Input(prompt="where are we", state=away(61), env=DRIVE_CONFIG): Warn(pattern=r"^The owner is back after 61 minutes away\..*`/s/brook/progress-desk/steps\.json`"),
+        Input(prompt="where are we", state=away(61), env=DRIVE_CONFIG): Warn(pattern=r"^The owner is back after 61 minutes away\..*dashboard link on its first line"),
         Input(prompt="where are we", state=away(59), env=DRIVE_CONFIG): Allow(),
         Input(prompt="where are we", state=[CompactionState(active=True, communicator=True)], env=DRIVE_CONFIG): Allow(),
         Input(prompt="<task-notification>update-desk finished</task-notification>", state=away(61), env=DRIVE_CONFIG): Allow(),
@@ -183,7 +178,7 @@ def owner_return_opens_with_the_update(evt: BaseHookEvent) -> HookResult | None:
         state.prompted_at = now if owner else state.prompted_at
     if not state.returned:
         return None
-    return evt.context(RETURNED.format(minutes=int(gap // 60), steps=Path(drive_entry(evt)["state_dir"]) / STEPS))
+    return evt.context(RETURNED.format(minutes=int(gap // 60)))
 
 
 def waiting(replies: str | tuple) -> Input:
@@ -293,9 +288,8 @@ def asked(reply: str, *calls: dict, words: str = HOW_FAR, decide: dict = ASKED) 
         picked(*T.tool_turn("Bash", result="updated relay-card\nsent: relay-card ts=1793635190.051179 https://brook.slack.com/archives/D0B6Z/p1793635190051179", command="cc-present update-block relay-card --session s --block -")): Allow(),
         picked(*T.tool_turn("Bash", result="updated relay-card", command="cc-present update-block relay-card --block -")): Block(pattern=r"never sits inline"),
         Input(transcript=[T.user("where are we"), T.assistant("Three things landed:\n\n1. The relay fix merged.\n2. The dashboard shows step 2.\n3. CI is green on main.")], state=[CompactionState(active=True, communicator=True)], decide=CALM): Allow(),
-        back("Since you were away, three PRs merged.\n\n" + UPDATE): Block(pattern=r"lacks the dashboard link on its first line\."),
-        back("http://dash.brook.ts.net:8840/\n\nThree PRs merged while you were away."): Block(pattern=r"lacks the owner table under a feature heading\."),
-        back(UPDATE): Allow(),
+        back("Since you were away, three PRs merged.\n\nhttp://dash.brook.ts.net:8840/"): Block(pattern=r"opens with the dashboard link on its first line"),
+        back("http://dash.brook.ts.net:8840/\n\nThree PRs merged while you were away."): Allow(),
         back("Since you were away, three PRs merged.", returned=False): Allow(),
         reminded(): Block(pattern=r"^Every owner reminder or correction spawns a meta tooling lane.*owner:m<row>"),
         reminded(asks=ask_to("meta", "meta-desk-2", "root")): Allow(),
@@ -462,10 +456,9 @@ def unanswered_reply(evt: BaseHookEvent) -> str | None:
 
 
 def missing_update(evt: BaseHookEvent, reply: str) -> str | None:
-    if not OwnerReturns.load(evt).returned:
+    if not OwnerReturns.load(evt).returned or LINK.search(reply.split("\n", 1)[0]):
         return None
-    missing = [gap for gap, found in ((NO_LINK, LINK.search(reply.split("\n", 1)[0])), (NO_TABLE, OWNER_TABLE.search(reply))) if not found]
-    return MISSING.format(missing=" and ".join(missing)) if missing else None
+    return MISSING
 
 
 def inline_pick(evt: BaseHookEvent, reply: str) -> str | None:
