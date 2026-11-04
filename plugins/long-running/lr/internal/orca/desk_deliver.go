@@ -90,7 +90,7 @@ func (d *Desk) transfer(lane string) error {
 	if err != nil {
 		return err
 	}
-	header, err := d.store.Header(container)
+	header, err := d.store.PassHeader(container)
 	if err != nil {
 		return err
 	}

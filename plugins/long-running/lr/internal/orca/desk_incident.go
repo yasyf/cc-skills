@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
@@ -48,11 +49,32 @@ var (
 	settlingKinds  = []string{"release", "fix-live"}
 )
 
+type readBriefText struct {
+	modified time.Time
+	size     int64
+	text     string
+}
+
+var (
+	readBriefsMu sync.Mutex
+	readBriefs   = map[string]readBriefText{}
+)
+
 func readBrief(path string) string {
+	info, err := os.Stat(path)
+	if err != nil {
+		return ""
+	}
+	readBriefsMu.Lock()
+	defer readBriefsMu.Unlock()
+	if kept, found := readBriefs[path]; found && kept.size == info.Size() && kept.modified.Equal(info.ModTime()) {
+		return kept.text
+	}
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return ""
 	}
+	readBriefs[path] = readBriefText{info.ModTime(), info.Size(), string(raw)}
 	return string(raw)
 }
 
@@ -409,7 +431,7 @@ func (d *Desk) laneStoodDown(ctx context.Context, lane string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	posted, err := d.tail(ctx, client.Query{Lanes: []string{coordinatorLane, supervisorLane}, Kinds: []string{kindStandDown, kindStopped}})
+	posted, err := d.readStandDowns(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -419,6 +441,34 @@ func (d *Desk) laneStoodDown(ctx context.Context, lane string) (string, error) {
 		}
 	}
 	return "", nil
+}
+
+type standDownReads struct {
+	mu      sync.Mutex
+	passing bool
+	kept    bool
+	records []client.Record
+}
+
+func (d *Desk) readStandDowns(ctx context.Context) ([]client.Record, error) {
+	d.standDowns.mu.Lock()
+	defer d.standDowns.mu.Unlock()
+	if d.standDowns.kept {
+		return d.standDowns.records, nil
+	}
+	records, err := d.tail(ctx, client.Query{Lanes: []string{coordinatorLane, supervisorLane}, Kinds: []string{kindStandDown, kindStopped}})
+	if err != nil {
+		return nil, err
+	}
+	d.standDowns.records, d.standDowns.kept = records, d.standDowns.passing
+	return records, nil
+}
+
+func (d *Desk) startPass() {
+	d.store.StartPass()
+	d.standDowns.mu.Lock()
+	defer d.standDowns.mu.Unlock()
+	d.standDowns.passing, d.standDowns.kept = true, false
 }
 
 func standsDown(record client.Record, names []string) bool {

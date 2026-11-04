@@ -266,7 +266,7 @@ func (d *Desk) holdClock(ctx context.Context, lane string, launch incident.Actio
 	if err != nil {
 		return err
 	}
-	stops, err := d.laneRecords(ctx, lane, kindStopped, clockIncident)
+	stops, err := d.laneRecordsSince(ctx, lane, launched, kindStopped, clockIncident)
 	if err != nil {
 		return err
 	}
@@ -304,7 +304,7 @@ func (d *Desk) holdClock(ctx context.Context, lane string, launch incident.Actio
 
 func (d *Desk) clockReached(ctx context.Context, lane string, launched time.Time) (map[string]string, error) {
 	var marks []clockStamp
-	own, err := d.laneRecords(ctx, lane)
+	own, err := d.laneRecordsSince(ctx, lane, launched)
 	if err != nil {
 		return nil, err
 	}

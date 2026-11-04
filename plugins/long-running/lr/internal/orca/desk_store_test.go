@@ -57,3 +57,29 @@ func TestRelayReadsReuseSQLiteSharedMemoryAndSeeExternalWrites(t *testing.T) {
 		t.Fatal("relay never reached its idle boundary")
 	}
 }
+
+func TestALaneStoodDownAsksTheInboxOnceAPassAndEveryTimeOutsideOne(t *testing.T) {
+	w := newDeskWorld(t)
+	ctx := context.Background()
+	stoodDown := func(want string) {
+		t.Helper()
+		if down, err := w.desk.laneStoodDown(ctx, testLane); err != nil || down != want {
+			t.Fatalf("stood down %q, want %q, err %v", down, want, err)
+		}
+	}
+	stoodDown("")
+	first := w.add(object{"lane": supervisorLane, "kind": kindStandDown, "text": "retired", "to": []string{testLane}})
+	stoodDown(seqReceipt(first.Seq))
+
+	w.desk.startPass()
+	stoodDown(seqReceipt(first.Seq))
+	tails := w.tails
+	stoodDown(seqReceipt(first.Seq))
+	if w.tails != tails {
+		t.Fatalf("a second read in a pass asked the inbox %d more times", w.tails-tails)
+	}
+	w.records = nil
+	stoodDown(seqReceipt(first.Seq))
+	w.desk.startPass()
+	stoodDown("")
+}
