@@ -187,25 +187,39 @@ apply the answer, cite it, and never put it in an ask or in an owner-question li
 An owner-question list you write marks, for every item, which authorities you checked
 (plan section, durable answer id, memory) and holds only items none of them settles.
 
-Every owner ask other than a PR tap is a question card from `drive.py ask-owner` with
-two to four answers and one recommended. Its text answers the first question he will
+Every owner ask other than a PR tap is a question card you draw yourself, with one verb,
+from any host:
+
+```
+lr ask-owner --title '<the question>?' --background '<what it is for, what it touches, what each answer changes>' \
+  --option 'LABEL :: what picking it does' --option 'LABEL :: what picking it does' \
+  --branch OWNER/NAME:BRANCH --until at:3d
+```
+
+It puts the card on his main board and at the root of his Slack direct message with you as
+its owner, and his answer wakes you. Nobody draws it for you: never ask owner-relay or
+board-refresher. The first option is the recommended one, two to four in all. `--until` is
+at:TIME or a span such as at:3d, pr:N, release:STACK@ENV:COMMIT or record:SEQ. `--from` names
+the plan step and date, his ruling id, or whose PR it ports. `--shot 'PATH or https URL ::
+what it shows'` adds a real screenshot; a path is read on the board's Mac, so a Sprite lane
+gives a URL. A card with diagrams or records goes as `--card FILE|-`, a whole cc-present card,
+and `--withdraw ID` takes yours down when its question goes away.
+
+The command prints the card's link, or exits 1 with what to change. It refuses a card with
+no background, one whose question a card on his board already asks or he already answered,
+one offering only ways to live with a failure and no fix for its cause, and one naming a
+loss with no plan beside it. Its text answers the first question he will
 ask, and a change it describes names its concrete things: which fields and where they
 live, which chats or users, and what happens before and after. Anything it names, such
 as a Sentry issue, build or PR, is a link, and it never names a cci record (R21). A settled
 question never reaches the board,
-a card he touched stays until he submits the round, and nobody calls `AskUserQuestion`;
-an urgent yes/no is the same card sent to his Slack with `cc-present ask`.
+a card he touched stays until he submits the round, and nobody calls `AskUserQuestion`.
 A question that reaches his board has its recommended answer built on a branch as
 soon as the question is asked. Push the branch, open no PR for it until he answers,
-and name it on the card's recommended option as `build`
-(`drive.py ask-owner --branch OWNER/NAME:BRANCH`), or give `build.none` with the
-reason a pick such as a process choice has nothing to build. The branch is something
-he can try, not a provisional pick: nothing lands from it before his answer, and a
-branch he rejects is deleted. `board_text_gate` refuses a card that names neither
-an hour after its first draw. An owner choice goes to him as one record:
-`cci post --kind ask --to board-refresher "CARD: card-<slug>: <question>" --path <card.json>`,
-options recommended first, with a `From:` line: the plan step and date, his ruling id,
-or whose PR it ports. Prose naming his pick is flagged as an untyped choice.
+and name it with `--branch`, or give `--nothing-to-build REASON` when a pick such as a
+process choice has nothing to build. The branch is something he can try, not a provisional
+pick: nothing lands from it before his answer, and a branch he rejects is deleted. Prose
+naming his pick is flagged as an untyped choice.
 
 A concrete rule inside his design order ships only with his pick, cited in the PR body
 as `owner:m<N>` or a ccn answer id. So does a change to where data lives or how long

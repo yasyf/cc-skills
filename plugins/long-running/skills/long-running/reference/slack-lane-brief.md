@@ -138,7 +138,7 @@ Every lane that writes in a thread where a person reported a break follows these
 
 ## Owner questions on the board
 
-Owner picks go on the cc-present board. An urgent yes/no goes to his Slack as an ask card with buttons (`cc-present ask`), synced with the board, and nobody calls `AskUserQuestion`. The board, `drive.py ask-owner`, `Explain more` taps, `cci owner-waits` and the board recorder are in SKILL.md under "The owner's surfaces".
+Owner picks go on the cc-present board. An urgent yes/no goes to his Slack as an ask card with buttons (`cc-present ask`), synced with the board, and nobody calls `AskUserQuestion`. The board, `lr ask-owner`, `Explain more` taps, `cci owner-waits` and the board recorder are in SKILL.md under "The owner's surfaces".
 
 ## Slack lane spawn brief
 

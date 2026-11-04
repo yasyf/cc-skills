@@ -5,6 +5,7 @@ import re
 import subprocess
 import sys
 from collections.abc import Callable, Iterator
+from itertools import pairwise
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from functools import cached_property
@@ -22,6 +23,7 @@ from captain_hook import (
     Input,
     Operand,
     Option,
+    Runs,
     T,
     TaskCall,
     Tool,
@@ -33,7 +35,7 @@ from captain_hook.annotations import dispatch_pairs
 from captain_hook.cmd import Call
 from captain_hook.util import reqenv
 
-from .compaction_handoff import ccn, Communicator, communicator_tests, CompactionState, Coordinator, coordinator_tests, drive_entry, rulings, script, script_module
+from .compaction_handoff import Bound, ccn, Communicator, communicator_tests, CompactionState, Coordinator, coordinator_tests, drive_entry, rulings, script, script_module
 from .judge_metrics import judge_call
 from .nudges import once_per_hour
 from .register_injection import drive_args, incident_spawn, prose
@@ -166,6 +168,7 @@ ROUTING = re.compile(r"(?i)\brout(?:e|es|ed|ing)\b|\bcluster (?:assignment|move)
 BOARD_VERBS = ("push", "start", "update-block", "reply")
 BOARD_DOCS = ("ask", "push", "start", "update-block")
 STDIN = "-"
+ASKED_FLAGS = ("--title", "--background", "--option")
 AUTHORIZED_BESIDE_A_QUESTION = (
     "Warning, nothing was blocked: A GO, LIFT, or UNBLOCK line or `cci post` record is never written while an owner question on its subject is unanswered."
     " Wait for the answer, then write it in a later turn."
@@ -741,6 +744,38 @@ def plain_words_in_owner_questions(evt: BaseHookEvent) -> HookResult | None:
     problems = plain_words([text for _, text in owner_strings(evt, reads)], reads)
     if reads.failures:
         return evt.context(reads.warning("plain_words_in_owner_questions"))
+    return evt.context(fenced(PLAIN_WORDS, problems)) if (problems := unsaid(evt, problems)) else None
+
+
+def asked_cards(evt: BaseHookEvent, reads: Reads) -> list[str]:
+    asked: list[str] = []
+    for call in evt.command.calls("lr"):
+        if call.args[:1] != ("ask-owner",):
+            continue
+        asked += [value for flag, value in pairwise(call.args) if flag in ASKED_FLAGS]
+        for flag, source in pairwise(call.args):
+            if flag == "--card" and (card := reads.read(f"the card {source}", lambda source=source, call=call: json.loads(board_bytes(evt, call, source, 0)))):
+                asked += [text for _, text in shown(card)]
+    return asked
+
+
+@on(
+    Event.PreToolUse,
+    only_if=[Bound(), Tool("Bash"), Runs("lr", "ask-owner")],
+    skip_if=[FromSubagent()],
+    tests=separate("owner_facing.plain_words_in_a_lanes_card", {
+        Input(command="lr ask-owner --title 'Merge the slice?' --background 'Its checks passed.' --until at:3d", state=PROGRAM_ACTIVE, env=DRIVE_CONFIG, commands={**PLAIN_READS, **judged("slice")}): Warn(pattern=r'plain words, "slice"'),
+        Input(command="lr ask-owner --title 'Merge the chat-list fix?' --background 'Its checks passed.' --until at:3d", state=PROGRAM_ACTIVE, env=DRIVE_CONFIG, commands=PLAIN_READS): Allow(),
+        Input(command="lr ask-owner --withdraw card-chat-list", state=PROGRAM_ACTIVE, env=DRIVE_CONFIG, commands=PLAIN_READS): Allow(),
+    }),
+)
+def plain_words_in_a_lanes_card(evt: BaseHookEvent) -> HookResult | None:
+    if not (which := drive_args(evt)):
+        return None
+    reads = Reads(evt, which)
+    problems = plain_words(asked_cards(evt, reads), reads)
+    if reads.failures:
+        return evt.context(reads.warning("plain_words_in_a_lanes_card"))
     return evt.context(fenced(PLAIN_WORDS, problems)) if (problems := unsaid(evt, problems)) else None
 
 

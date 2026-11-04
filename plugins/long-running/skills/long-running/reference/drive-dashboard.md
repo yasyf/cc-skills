@@ -57,7 +57,7 @@ What the app serves and how it is guarded:
 
 Drawing cards:
 - Check that a new card id is unused before drawing. A card reusing an answered id is dropped by update-block with a warning and exit 0; run `block show <id>` first.
-- A card on a side board reaches nobody. Draw every card on the owner's main board and in Slack the same turn, read the card back, and chase a tap that sits. On a park record, ask where the card lives. `lr board draw` exits 0 with no link.
+- A card on a side board reaches nobody. Draw every card on the owner's main board and in Slack the same turn, read the card back, and chase a tap that sits. On a park record, ask where the card lives. `lr ask-owner` draws on both and exits 1 when no board link answers.
 - A card returned to a lane needs a live owner: check the dispatch and fix it or get a worker the same turn. Incident-gating cards draw first.
 
 ## Owner bar and user testing

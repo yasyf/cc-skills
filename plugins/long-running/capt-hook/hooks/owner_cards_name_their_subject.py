@@ -114,8 +114,6 @@ def pick_cards_pass_their_prs(evt: BaseHookEvent) -> HookResult | None:
 
 
 def drawn_file(call: Call) -> str | None:
-    if call.name == "lr" and call.args[:2] == ("board", "draw"):
-        return next((word for word in call.args[2:] if word.endswith(".json")), None)
     if DRAW_SCRIPT in {Path(word).name for word in (call.name, *call.args)}:
         return next((word for word in reversed(call.args) if word.endswith(".json")), None)
     return None
@@ -210,7 +208,6 @@ def resent(title: str, md: str) -> list[HeldPosts]:
         Input(command="lr ask-owner --withdraw card-add-the-setting --lane first-question", env=HOOK_ENV, commands=HOLDS): Allow(),
         Input(command=f"cc-present update-block {board('clean-card.json')}", env=HOOK_ENV, commands=HOLDS): Block(),
         Input(command=f"CARD_NO_CODE=1 zsh draw.zsh --new-question 'not settled' {board('clean-card.json')}", env=HOOK_ENV, commands=HOLDS): Block(),
-        Input(command=f"lr board draw {board('clean-card.json')} --lane board-refresher", env=HOOK_ENV, commands=HOLDS): Block(),
         Input(command=f"cc-present ask {board('clean-card.json')}", env=HOOK_ENV, commands=HOLDS): Block(),
         reply("Added fields", "Added a few fields.", commands=HOLDS): Block(),
         reply("Big chats", VAGUE_POST, commands=HOLDS, state=resent("Big chats", VAGUE_POST)): Allow(),

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from itertools import pairwise
 from pathlib import Path
 
 from captain_hook import Allow, BaseHookEvent, Block, Event, HookResult, Input, Tool, on
@@ -29,9 +30,9 @@ def held_posts(evt: BaseHookEvent) -> list[str]:
 def drawn_rows(evt: BaseHookEvent, reads: Reads) -> list[str]:
     found = []
     for call in evt.command.calls("lr"):
-        if call.args[:2] != ("board", "draw"):
+        if call.args[:1] != ("ask-owner",):
             continue
-        source = next((arg for arg in call.args[2:] if not arg.startswith("-") and arg != "-"), None)
+        source = next((arg for flag, arg in pairwise(call.args) if flag == "--card" and arg != "-"), None)
         found.append(str(evt._tool_input.get("command") or ""))
         if source and (text := reads.read(f"the board row {source}", lambda source=source, call=call: Path(str(call.cwd or evt.cwd), source).expanduser().read_text())):
             found.append(text)
@@ -50,7 +51,7 @@ def held_lines(evt: BaseHookEvent, reads: Reads) -> list[str]:
 HOLD = "cci post --kind hold --to go-sweep,landing-desk-3 --pr 46018 --text 'Hold until 12414 settles its column drop.'"
 CARD = "cci post --kind report --to root --topic card-46018-column-drop --text 'Card drawn: approve the column drop.'"
 OWN_HOLD = "cci post --kind hold --to go-sweep --pr 49336 --text 'Hold until 12414 settles.'"
-DRAW = "lr board draw --lane release-6 --key card-46018 - <<'EOF'\n{\"type\": \"card\", \"id\": \"card-46018-column-drop\", \"title\": \"Approve Andrew's #46018 column drop?\"}\nEOF"
+DRAW = "lr ask-owner --lane release-6 --until at:3d --card - <<'EOF'\n{\"type\": \"card\", \"id\": \"card-46018-column-drop\", \"title\": \"Approve Andrew's #46018 column drop?\"}\nEOF"
 PUSH = "cc-present update-block - <<'EOF'\n" + json.dumps({"type": "card", "id": "card-46018-column-drop", "title": "Approve the column drop, #46018?"}) + "\nEOF"
 
 
@@ -61,6 +62,8 @@ PUSH = "cc-present update-block - <<'EOF'\n" + json.dumps({"type": "card", "id":
         Input(command=HOLD, env=DRIVE_CONFIG, commands=WHOSE_STUB): Block(pattern=r"^A hold, card or board row is for a PR[\s\S]*#46018 is Andrew Benton \(andrew\)'s PR"),
         Input(command=CARD, env=DRIVE_CONFIG, commands=WHOSE_STUB): Block(pattern=r"#46018 is Andrew"),
         Input(command=DRAW, env=DRIVE_CONFIG, commands=WHOSE_STUB): Block(pattern=r"#46018 is Andrew"),
+        Input(command="lr ask-owner --title 'Approve the column drop, #46018?' --until at:3d", env=DRIVE_CONFIG, commands=WHOSE_STUB): Block(pattern=r"#46018 is Andrew"),
+        Input(command="lr ask-owner --withdraw card-chat-limits", env=DRIVE_CONFIG, commands=WHOSE_STUB): Allow(),
         Input(command=PUSH, env=DRIVE_CONFIG, commands=WHOSE_STUB): Block(pattern=r"#46018 is Andrew"),
         Input(tool=SLACK_CARD, tool_input={"card": {"title": "Approve the column drop, #46018?"}}, env=DRIVE_CONFIG, commands=WHOSE_STUB): Block(pattern=r"#46018 is Andrew"),
         Input(command=HOLD.replace("--pr 46018", "").replace("Hold until", "Hold Forge-AI/monorepo#46018 until"), env=DRIVE_CONFIG, commands=WHOSE_STUB): Block(pattern=r"#46018 is Andrew"),

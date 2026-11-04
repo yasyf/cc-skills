@@ -201,7 +201,7 @@ func TestARetiredLaneWithALiveHeirWakesTheHeir(t *testing.T) {
 	}
 }
 
-func TestAPickNoLaneAskedForGoesToMetaDeskOnlyWhenUnclaimedIsSet(t *testing.T) {
+func TestAPickNoLaneAskedForGoesToOwnerRelayOnlyWhenUnclaimedIsSet(t *testing.T) {
 	f := newWaker(t)
 	quiet := pick
 	quiet.Unclaimed = false
@@ -216,7 +216,7 @@ func TestAPickNoLaneAskedForGoesToMetaDeskOnlyWhenUnclaimedIsSet(t *testing.T) {
 	if err := f.Wake(context.Background(), pick); err != nil {
 		t.Fatal(err)
 	}
-	if len(f.posts) != 1 || !slices.Equal(f.posts[0].To, []string{"meta-desk"}) || !strings.HasPrefix(f.posts[0].Text, "NEEDS-LANE card-chat") {
+	if len(f.posts) != 1 || !slices.Equal(f.posts[0].To, []string{communicator}) || !strings.HasPrefix(f.posts[0].Text, "NEEDS-LANE card-chat") {
 		t.Fatalf("posts = %+v", f.posts)
 	}
 }
