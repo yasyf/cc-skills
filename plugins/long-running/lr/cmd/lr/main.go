@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
@@ -35,27 +36,19 @@ func root(a *app.App) *cobra.Command {
 	for _, verb := range verbs {
 		cmd.AddCommand(verb(a))
 	}
-	refuseUnknownVerbs(cmd)
 	return cmd
 }
 
-func refuseUnknownVerbs(cmd *cobra.Command) {
-	for _, verb := range cmd.Commands() {
-		refuseUnknownVerbs(verb)
+func execute(cmd *cobra.Command, args []string) error {
+	if verb, rest, err := cmd.Find(args); err == nil && verb.HasSubCommands() && !verb.Runnable() && len(rest) > 0 && !strings.HasPrefix(rest[0], "-") {
+		return fmt.Errorf("%s has no verb %s; see %s --help", verb.CommandPath(), rest[0], verb.CommandPath())
 	}
-	if !cmd.HasSubCommands() || cmd.Runnable() {
-		return
-	}
-	cmd.RunE = func(cmd *cobra.Command, args []string) error {
-		if len(args) > 0 {
-			return fmt.Errorf("%s has no verb %s; see %s --help", cmd.CommandPath(), args[0], cmd.CommandPath())
-		}
-		return cmd.Help()
-	}
+	cmd.SetArgs(args)
+	return cmd.Execute()
 }
 
 func main() {
-	if err := root(app.New(os.Stderr)).Execute(); err != nil {
+	if err := execute(root(app.New(os.Stderr)), os.Args[1:]); err != nil {
 		var exit *wait.ExitError
 		if errors.As(err, &exit) {
 			os.Exit(exit.Code)
