@@ -9,7 +9,7 @@ require (
 	github.com/coder/websocket v1.8.15
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/spf13/cobra v1.10.2
-	github.com/yasyf/cc-inbox v0.49.50
+	github.com/yasyf/cc-inbox v0.49.52
 	github.com/yasyf/cc-interact v0.40.0
 	github.com/yuin/goldmark v1.8.7
 	golang.org/x/crypto v0.58.0
