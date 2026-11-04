@@ -48,7 +48,7 @@ func Command(a *app.App) *cobra.Command {
 	cmd := &cobra.Command{Use: "supervisor", Short: "The drive's one leased process, kept alive by launchd"}
 	cmd.AddCommand(
 		&cobra.Command{Use: "run", Short: "Hold the lease and tick until a newer generation or release takes over", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
-			return run(cmd.Context(), a)
+			return run(cmd.Context(), a, cmd.Root().Version)
 		}},
 		&cobra.Command{Use: "install", Short: "Write this drive's launchd agent and bootstrap it", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 			return Install(cmd, a)
@@ -60,7 +60,7 @@ func Command(a *app.App) *cobra.Command {
 	return cmd
 }
 
-func run(ctx context.Context, a *app.App) error {
+func run(ctx context.Context, a *app.App, binary string) error {
 	if err := lanes.Adopt(lanes.Self); err != nil {
 		return err
 	}
@@ -99,7 +99,9 @@ func run(ctx context.Context, a *app.App) error {
 		defer stop()
 	}
 	version := Installed(env.Claude)
-	upgrade := &Upgrade{Env: env, Running: version, Read: read, Holding: lanes.GCPassRunning}
+	upgrade := &Upgrade{Env: env, Running: version, Binary: binary, Read: read, Holding: lanes.GCPassRunning, Serve: func(installed string) error {
+		return s.ServeVersion(cfg.Drive, os.Getpid(), installed)
+	}}
 	deps.Stale = upgrade.Stale
 	_, ended, err := Run(ctx, s, cfg.Drive, version, os.Getpid(), deps, 0)
 	if err != nil {

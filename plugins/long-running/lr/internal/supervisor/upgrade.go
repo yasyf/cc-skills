@@ -45,8 +45,10 @@ func Installed(claude string) string {
 type Upgrade struct {
 	Env     lanes.Env
 	Running string
+	Binary  string
 	Read    time.Time
 	Holding func() bool
+	Serve   func(version string) error
 }
 
 func (u *Upgrade) Stale(ctx context.Context) (bool, error) {
@@ -56,7 +58,18 @@ func (u *Upgrade) Stale(ctx context.Context) (bool, error) {
 	if changed, err := u.configChanged(ctx); changed || err != nil {
 		return changed, err
 	}
-	return Behind(u.Running, Installed(u.Env.Claude)), nil
+	installed := Installed(u.Env.Claude)
+	if !Behind(u.Running, installed) {
+		return false, nil
+	}
+	if pinned := u.Env.PinnedBinary(); pinned == "" || pinned != u.Binary {
+		return true, nil
+	}
+	if err := u.Serve(installed); err != nil {
+		return false, err
+	}
+	u.Running = installed
+	return false, nil
 }
 
 func (u *Upgrade) configChanged(ctx context.Context) (bool, error) {

@@ -101,6 +101,23 @@ func NewEnv(runner shell.Runner, cfg config.Config, state string, now func() tim
 
 func (e Env) plugin() string { return filepath.Join(e.Claude, "long-running", "current") }
 
+func (e Env) PinnedBinary() string {
+	data, err := os.ReadFile(e.tool("lr.binrun"))
+	if err != nil {
+		return ""
+	}
+	_, descriptor, _ := bytes.Cut(data, []byte("\n"))
+	var pin struct {
+		Version struct {
+			Static string `json:"static"`
+		} `json:"version"`
+	}
+	if json.Unmarshal(descriptor, &pin) != nil {
+		return ""
+	}
+	return pin.Version.Static
+}
+
 func (e Env) tool(name string) string { return filepath.Join(e.plugin(), "bin", name) }
 
 func (e Env) receipts() string {

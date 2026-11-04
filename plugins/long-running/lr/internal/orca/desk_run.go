@@ -416,13 +416,7 @@ func newDesk(a *app.App) (*Desk, error) {
 	}
 	return &Desk{
 		Config: config, Bus: deskCCI{}, Runner: a.Runner, Spawn: SpawnDetached, Env: os.Getenv, Now: a.Now, Sleep: time.Sleep, AliveTicks: time.Tick(aliveEvery),
-		Release: func() string {
-			lease, err := registry.Lease(cfg.Drive)
-			if err != nil {
-				return ""
-			}
-			return lease.Version
-		},
+		Release: env.PinnedBinary,
 		Plugin: os.Getenv("BINRUN_PLUGIN_ROOT"), Stderr: os.Stderr,
 		Incidents: incident.Store{Root: executors},
 		FireIncident: func(ctx context.Context, fired lanes.Fired) error {

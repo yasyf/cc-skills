@@ -15,7 +15,7 @@
 
 ## Run the desk processes
 
-**`lr relay run` owns Orca worker traffic.** One relay runs on the Mac as its own launchd job, `com.long-running.<drive>.relay`, whenever `orca.desk_inbox` is set; the communicator starts nothing. launchd restarts it, a restart reads from the saved cursor and is idempotent, and `relay.lock` keeps it to one process per drive. It leaves for a new binary between passes, once the supervisor's lease names a newer release.
+**`lr relay run` owns Orca worker traffic.** One relay runs on the Mac as its own launchd job, `com.long-running.<drive>.relay`, whenever `orca.desk_inbox` is set; the communicator starts nothing. launchd restarts it, a restart reads from the saved cursor and is idempotent, and `relay.lock` keeps it to one process per drive. It leaves for a new binary between passes, once the installed plugin pins a different `lr` release.
 
 Restarting the relay never relaunches its workers. No model-operated orca-desk sits between the coordinator and Orca. The coordinator never runs the check/ack loop, relaunch sweeps, or helper scripts inline.
 
