@@ -214,7 +214,7 @@ func TestAFixLaneTheLanesMachineLaunchedStillSquashesOnALandingOnlyMachine(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	var snapshot []machine.Facts
+	snapshot := make([]machine.Facts, 0, len(owners))
 	for _, number := range []int{7, 8, 9} {
 		snapshot = append(snapshot, machine.Facts{Repo: "o/r", Number: number, Base: "dev", Lane: owners[number]})
 	}
