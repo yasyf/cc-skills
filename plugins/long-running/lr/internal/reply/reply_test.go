@@ -1501,3 +1501,66 @@ func TestAnEditOfACardHeAnsweredSaysWhySlackKeepsWhatHeAnswered(t *testing.T) {
 		t.Fatalf("cc-slack calls = %+v, want Slack left as he answered it", posted)
 	}
 }
+
+func TestAnEditOfACardNeverStartsAThreadCopy(t *testing.T) {
+	fake := threadedFake()
+	f := fanout(t, fake)
+	ask := Reply{ID: "r14", Title: "Land?", MD: "Checks passed.", Picks: []string{"Land", "Hold"}, Recommended: "Land"}
+	f.Send(context.Background(), ask)
+
+	ask.MD, ask.Thread = "Checks passed again.", hisThread
+	sent := f.Send(context.Background(), ask)
+
+	if posted := calls(fake, "cc-slack"); len(posted) != 0 {
+		t.Fatalf("cc-slack calls = %+v, want the card redrawn by cc-present and nothing posted", posted)
+	}
+	if surface(sent, "slack").Ref != cardCopy {
+		t.Fatalf("outcomes = %+v, want the card", sent)
+	}
+}
+
+func TestAFailedBoardAndTalkOnAnEditFallThroughToNoPost(t *testing.T) {
+	for name, first := range map[string]Reply{
+		"card alone":              {ID: "r15", Title: "Land?", MD: "Checks passed.", Picks: []string{"Land", "Hold"}, Recommended: "Land"},
+		"card with a thread post": {ID: "r15", Title: "Land?", MD: "Checks passed.", Picks: []string{"Land", "Hold"}, Recommended: "Land", Thread: hisThread},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := fanout(t, threadedFake())
+			f.Send(context.Background(), first)
+
+			failing := &shelltest.Fake{}
+			failing.Fail(1, `decode pr block: json: unknown field "description"`, "cc-present", "update-block")
+			postedInThread(failing, threadCopy)
+			f.Runner = failing
+			edit := first
+			edit.MD, edit.Thread = "Checks passed again.", hisThread
+			sent := f.Send(context.Background(), edit)
+
+			if got := surface(sent, "board"); !strings.Contains(got.Error, "unknown field") {
+				t.Fatalf("board outcome = %+v, want the failure returned to the caller", got)
+			}
+			if got := surface(sent, "talk"); !strings.Contains(got.Error, "unknown field") {
+				t.Fatalf("talk outcome = %+v, want the failure returned to the caller", got)
+			}
+			for _, c := range calls(failing, "cc-slack") {
+				if slices.Contains(c.Argv, "--thread") || slack(t, c).Replaces != threadCopy {
+					t.Fatalf("cc-slack call %q created a message", c.Argv)
+				}
+			}
+		})
+	}
+}
+
+func TestAPickReplyWhoseBoardFailedPostsNoButtonlessCopyInHisThread(t *testing.T) {
+	fake := &shelltest.Fake{}
+	fake.Fail(1, "daemon not running", "cc-present", "update-block")
+	postedInThread(fake, threadCopy)
+	sent := fanout(t, fake).Send(context.Background(), Reply{ID: "r16", Title: "Land?", MD: "Checks passed.", Picks: []string{"Land", "Hold"}, Recommended: "Land", Thread: hisThread})
+
+	if posted := calls(fake, "cc-slack"); len(posted) != 0 {
+		t.Fatalf("cc-slack calls = %+v, want no copy without its buttons", posted)
+	}
+	if got := surface(sent, "board"); !strings.Contains(got.Error, "daemon not running") {
+		t.Fatalf("board outcome = %+v, want the failure returned to the caller", got)
+	}
+}
