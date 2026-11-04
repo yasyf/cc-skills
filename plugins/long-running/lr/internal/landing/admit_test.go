@@ -83,7 +83,7 @@ func newGates(t *testing.T) *gateFixture {
 	tool := &rulingsTool{Fake: fake, refusals: map[string]string{}}
 	f := &gateFixture{fake: fake, tool: tool, now: t0}
 	f.gates = &landing.Gates{
-		Runner: tool, CCX: ccx.CLI{Runner: fake}, Store: s, Drive: "d", Repo: monorepo, Checkout: "/co", Rulings: gateTool,
+		Runner: tool, CCX: ccx.CLI{Runner: fake}, Store: s, Drive: "d", Repo: monorepo, Trunk: "dev", Checkout: "/co", Rulings: gateTool,
 		Session: func(context.Context) (string, error) { return "board-1", nil },
 		Now:     func() time.Time { return f.now },
 		Log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
@@ -356,7 +356,7 @@ func TestAHandEnqueueGateReadsEveryHeadTheEnqueueTakes(t *testing.T) {
 		{"a PR the drive does not hold", []string{"9"}, false, []string{"#9 is no open PR of this drive"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			got := newGates(t).gates.HandEnqueueLines(context.Background(), snapshot, test.named, test.partial)
+			got := newGates(t).gates.HandEnqueueLines(context.Background(), snapshot, test.named, test.partial, false)
 			if !slices.Equal(got, test.want) {
 				t.Fatalf("lines = %q, want %q", got, test.want)
 			}
@@ -368,7 +368,7 @@ func TestAHandEnqueueGateNamesAReservedRowAndABuildBreakAndChangesNothing(t *tes
 	f := buildGates(t, "go/sand/next/run.go\n", buildAnnotation("go/sand/next/run undefined: Foo"), `[]`)
 	f.tool.refusals[monorepo+"#1"] = "RESERVED-NO-ANSWER reserved/cloud-delete\tNo cloud deletion."
 
-	got := f.gates.HandEnqueueLines(context.Background(), []machine.Facts{gateFacts(1, "one", "dev", nil)}, []string{"1"}, false)
+	got := f.gates.HandEnqueueLines(context.Background(), []machine.Facts{gateFacts(1, "one", "dev", nil)}, []string{"1"}, false, false)
 
 	if len(got) != 2 || got[0] != "#1 e718a7434f RESERVED reserved/cloud-delete: No cloud deletion." || !strings.HasPrefix(got[1], "#1 e718a7434f BUILD-FAILED go/sand/next/run fails to build at e718a7434f on "+gateBuild) {
 		t.Fatalf("lines = %q", got)
@@ -388,9 +388,77 @@ func TestAHandEnqueueGateDoesNotReadAHeadTheRunnerCleared(t *testing.T) {
 	f := newGates(t)
 	f.admit(t, []pass.Act{enqueueAct(1, "one", "dev")}, 1)
 
-	got := f.gates.HandEnqueueLines(context.Background(), []machine.Facts{gateFacts(1, "one", "dev", nil)}, []string{"1"}, false)
+	got := f.gates.HandEnqueueLines(context.Background(), []machine.Facts{gateFacts(1, "one", "dev", nil)}, []string{"1"}, false, false)
 
 	if len(got) != 0 || f.tool.reads != 1 {
 		t.Fatalf("lines = %q, reads = %d", got, f.tool.reads)
+	}
+}
+
+func queueCheckArgv(number int) []string {
+	return []string{"ccx", "vcs", "gh", "--max-age", "0s", "--", "api", "repos/" + monorepo + "/commits/" + gateHead(number) + "/check-runs?filter=latest&check_name=Trunk+Merge+Queue+%28dev%29"}
+}
+
+func TestADirectMergeGateNamesEachHeadTheQueueDidNotPass(t *testing.T) {
+	untested := func(number int) string {
+		return "#" + strconv.Itoa(number) + " e718a7434f QUEUE-UNTESTED Trunk Merge Queue (dev) has not passed at this head"
+	}
+	for _, test := range []struct {
+		name       string
+		conclusion string
+		want       []string
+	}{
+		{"the queue passed it", "success\n", nil},
+		{"the queue never ran on it", "null\n", []string{untested(1)}},
+		{"the queue is still testing it", "\n", []string{untested(1)}},
+		{"the queue failed it", "failure\n", []string{untested(1)}},
+		{"the queue cancelled it", "cancelled\n", []string{untested(1)}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			f := newGates(t)
+			f.fake.Reply(test.conclusion, queueCheckArgv(1)...)
+
+			got := f.gates.HandEnqueueLines(context.Background(), []machine.Facts{gateFacts(1, "one", "dev", nil)}, []string{"1"}, true, true)
+
+			if !slices.Equal(got, test.want) {
+				t.Fatalf("lines = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
+func TestADirectMergeGateReadsEveryHeadBelowWhatItNames(t *testing.T) {
+	f := newGates(t)
+	f.fake.Reply("success\n", queueCheckArgv(1)...)
+	f.fake.Reply("null\n", queueCheckArgv(2)...)
+	snapshot := []machine.Facts{gateFacts(1, "low", "dev", nil), gateFacts(2, "top", "low", nil), gateFacts(3, "other", "dev", nil)}
+
+	got := f.gates.HandEnqueueLines(context.Background(), snapshot, []string{"2"}, true, true)
+
+	if len(got) != 1 || !strings.HasPrefix(got[0], "#2 ") {
+		t.Fatalf("lines = %q", got)
+	}
+}
+
+func TestADirectMergeGatePassesAHeadWhoseCheckDoesNotRead(t *testing.T) {
+	f := newGates(t)
+	f.fake.Fail(1, "rate limited", queueCheckArgv(1)...)
+
+	got := f.gates.HandEnqueueLines(context.Background(), []machine.Facts{gateFacts(1, "one", "dev", nil)}, []string{"1"}, true, true)
+
+	if len(got) != 0 {
+		t.Fatalf("lines = %q", got)
+	}
+}
+
+func TestAnEnqueueGateNeverReadsTheQueuesCheck(t *testing.T) {
+	f := newGates(t)
+
+	f.gates.HandEnqueueLines(context.Background(), []machine.Facts{gateFacts(1, "one", "dev", nil)}, []string{"1"}, true, false)
+
+	for _, call := range f.fake.Calls() {
+		if strings.Contains(strings.Join(call.Argv, " "), "check-runs") {
+			t.Fatalf("read the queue's check for a landing the queue tests itself: %v", call.Argv)
+		}
 	}
 }

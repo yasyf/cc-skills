@@ -57,6 +57,7 @@ type Gates struct {
 	Store    *store.Store
 	Drive    string
 	Repo     string
+	Trunk    string
 	Checkout string
 	Rulings  string
 	Session  func(ctx context.Context) (string, error)
@@ -85,7 +86,7 @@ func NewGates(a *app.App, s *store.Store, cfg config.Config, runnerPath string) 
 		return nil, err
 	}
 	return &Gates{
-		Runner: a.Runner, CCX: a.CCX, Store: s, Drive: cfg.Drive, Repo: cfg.Repo, Checkout: cfg.Checkout,
+		Runner: a.Runner, CCX: a.CCX, Store: s, Drive: cfg.Drive, Repo: cfg.Repo, Trunk: cfg.Trunk, Checkout: cfg.Checkout,
 		Rulings: filepath.Join(claude, "long-running", "current", "bin", "rulings.py"),
 		Session: func(ctx context.Context) (string, error) {
 			inputs, err := readGateInputs(ctx, cfg.Drive, a.Now())

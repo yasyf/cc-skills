@@ -326,7 +326,11 @@ func (s Source) requiredChecks(ctx context.Context) ([]string, error) {
 }
 
 func (s Source) queueCheck() string {
-	return "Trunk Merge Queue (" + s.Trunk + ")"
+	return QueueCheck(s.Trunk)
+}
+
+func QueueCheck(trunk string) string {
+	return "Trunk Merge Queue (" + trunk + ")"
 }
 
 func (s Source) ingestBus(ctx context.Context) error {

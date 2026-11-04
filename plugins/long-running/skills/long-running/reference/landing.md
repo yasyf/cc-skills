@@ -8,8 +8,8 @@ Contents:
 - [Fidelity, finder, and rulings checks](#fidelity-finder-and-rulings-checks)
 - [Merge mode, taps, and board blocks](#merge-mode-taps-and-board-blocks)
 - [Holds, priority, dequeue, and requeue](#holds-priority-dequeue-and-requeue)
-- [Five-minute go-to-queue and overflow](#five-minute-go-to-queue-and-overflow)
-- [Graphite down and direct merge](#graphite-down-and-direct-merge)
+- [Go to queue](#go-to-queue)
+- [Queue down](#queue-down)
 - [Trunk health and redundant skips](#trunk-health-and-redundant-skips)
 - [Incident fixes and release on landing](#incident-fixes-and-release-on-landing)
 - [Desk cadence and commands](#desk-cadence-and-commands)
@@ -20,8 +20,8 @@ Contents:
 | You are | Read |
 | --- | --- |
 | A lane shipping a PR | [Rules D1 to D23](#rules-d1-to-d23), the ones that govern a lane (D1, D2, D13, D16 to D19, D21 to D24), [Who lands what](#who-lands-what), [Holds, priority, dequeue, and requeue](#holds-priority-dequeue-and-requeue), [Incident fixes and release on landing](#incident-fixes-and-release-on-landing) if you are an incident lane, and [The lane report](#the-lane-report-three-lines) |
-| The landing desk | Roles, every D-rule, [Queue adapters and runner passes](#queue-adapters-and-runner-passes), [The check registry](#the-check-registry), [Fidelity, finder, and rulings checks](#fidelity-finder-and-rulings-checks), Holds, [Five-minute go-to-queue and overflow](#five-minute-go-to-queue-and-overflow), [Trunk health and redundant skips](#trunk-health-and-redundant-skips), [Desk cadence and commands](#desk-cadence-and-commands), [Message contracts](#message-contracts) |
-| The coordinator | Roles, [Merge mode, taps, and board blocks](#merge-mode-taps-and-board-blocks), Holds, Go-to-queue, [Graphite down and direct merge](#graphite-down-and-direct-merge), Trunk health, Incident fixes and release, and Message contracts for asks, `RULING NEEDED` and the summary |
+| The landing desk | Roles, every D-rule, [Queue adapters and runner passes](#queue-adapters-and-runner-passes), [The check registry](#the-check-registry), [Fidelity, finder, and rulings checks](#fidelity-finder-and-rulings-checks), Holds, [Go to queue](#go-to-queue), [Trunk health and redundant skips](#trunk-health-and-redundant-skips), [Desk cadence and commands](#desk-cadence-and-commands), [Message contracts](#message-contracts) |
+| The coordinator | Roles, [Merge mode, taps, and board blocks](#merge-mode-taps-and-board-blocks), Holds, Go-to-queue, [Queue down](#queue-down), Trunk health, Incident fixes and release, and Message contracts for asks, `RULING NEEDED` and the summary |
 | A merge-train lane | D7 here, then `reference/merge-train-brief.md` |
 
 ## Roles and architecture
@@ -364,7 +364,7 @@ Every prefix passes the check registry before it enqueues. `landing.checks` list
 
 ### Untapped queue entries
 
-- A queued PR with no tap and no exempt class at its head is dequeued the pass it is read, whatever path entered it (a withdrawn go, the runner's overflow path, an untraced enqueue). The dequeue is an `UNTAPPED-DEQUEUED` blocker to its lane and the meta desk. A queued untapped PR no longer clears the PRs above it.
+- A queued PR with no tap and no exempt class at its head is dequeued the pass it is read, whatever path entered it (a withdrawn go, a hand enqueue). The dequeue is an `UNTAPPED-DEQUEUED` blocker to its lane and the meta desk. A queued untapped PR no longer clears the PRs above it.
 - An exempt PR stays queued. An incident fix the squash would merge is left to the squash: untapped and squashable it is squashed, not dequeued; untapped and not squashable it is dequeued.
 - A queued PR with a withdrawn tap or a conditional tap counts as untapped.
 - A person who finds an untapped queue entry takes it straight to the coordinator, the only one who may dequeue; asking a desk first costs the minutes Trunk needs to land it.
@@ -512,27 +512,19 @@ Until cutover, every old-tree PR that lands on `dev` and is not the rebuild's ow
 - A hand `stack-enqueue --dequeue` records nothing and draws a warning naming `cci post --kind hold`.
 - A hand `stack-enqueue` runs `lr landing gate <n>...` through the `lane_landing` hook and warns on failing checks, so never wrap `stack-enqueue` in a custom script.
 - In a Forge-AI/monorepo drive, every hand landing, whether `gh pr merge`, `ccx vcs merge`, `gh stack merge`, `stack-enqueue`, `ci trunk submit`, or a `merge` label, is blocked when that gate prints `TAP-REQUIRED`, the same tap read the runner makes, so a carried or standing tap counts. The refusal names the PR and head and points to a card asking the owner's tap, or to the runner.
+- A hand landing that merges outside the queue, whether `gh pr merge`, `ccx vcs merge`, `gh stack merge`, or a `PUT` on the merge endpoint, is warned when the gate, run with `--direct`, prints `QUEUE-UNTESTED`: the queue's own check has not passed at that head. This warns and does not block, so a tapped hand merge can still land untested.
 - `desk-runner`, `merge-train`, and desk landings, an incident lane's plain squash, and merges in other repos such as yasyf/* are not hand landings. A gate that does not read warns, names the failure, and lets the landing through.
 
-## Five-minute go-to-queue and overflow
+## Go to queue
 
 - A green PR a coordinator `go` names at its head enters the merge queue within five minutes of that `go`.
-- A stack left out that long, unheld and unrefused, goes to a stack worker through the runner's overflow. Overflow runs the same check, admission, and merge-mode gates as a pass and sends the whole stack once any PR in it is due; a blocked enqueue five minutes old no longer keeps it out.
-- Every head a `go` or exemption admits gets, from the pass that admits it, one `QUEUED`, `REFUSED`, or `BELOW-BLOCKED` record per change of outcome. `REFUSED` names the gate line or check, `REFUSED unsettled:` with the last branch if unsettled, or `gating off: <why>` when gating is off.
-- A go'd head whose queue draft closed unmerged is dequeued once and enqueued afresh as `ORPHAN-RELEASED`, never `--recover`ed.
-- The runner logs one `GO-UNQUEUED` per head still out only when its own newest enqueue of that head since the `go` ended blocked, failed, stranded, or unsettled, or was evicted after enqueue, never for backlog. That log names the outcome or eviction time and reason, and the coordinator clears that blocker in the same turn or spawns a lane to do so. A head evicted before any enqueue gets one blocker to the coordinator and its lane.
-- A green admitted head with no `ai-review` run on a PR the review bot reviewed at an earlier head gets one `@forge-pr-reviewer review` comment and one `REVIEW-REREQUESTED` note once per head.
+- Every head a `go` or exemption admits gets, from the pass that admits it, one `QUEUED` or `REFUSED` record per change of outcome. `REFUSED` names the gate line or check, `REFUSED unsettled:` with the last branch if unsettled, or `gating off: <why>` when gating is off.
 - When the bot's newest `ai-review` run reads `Held`, the line states the bot holds it on N blocking findings and routes one record per head to the owning lane to fix or accept them. `Waiting for restack` reads as waiting for a restack push. Neither is a missing verdict.
 
-## Graphite down and direct merge
+## Queue down
 
-- On `trunk-stack-enqueue`, Trunk failures or unreadable queue states stay `BLOCKED` or `UNKNOWN` and never trigger direct merges or automated orphan, own-red, or flake recovery. Native retry is a manual `stack-enqueue --flake` after inspecting verification.
-- On `graphite-stack-enqueue` only, Graphite reads down when no batch has started in 15 minutes while PRs are queued, or its two newest batches both timed out.
-- Then the runner posts `GRAPHITE-DOWN` to the coordinator and the landing desks, stops overflow, and becomes the sole merger with one merge in flight at a time. It squash-merges each green, approved, unheld stack it would have enqueued, including evicted heads.
-- If a stack is behind `dev`, the runner rebases it with `git replay` and keeps it only when its own patch is unchanged. That pass pushes in one atomic push leased on the admitted heads and waits up to 10 minutes for the review bot's re-approval. Any conflict, changed patch, or missing approval routes as one blocker per head to the PR's lane and `landing.restack_lane`.
-- A lone PR merges with `gh pr merge --squash --match-head-commit`. A longer chain merges with `gh stack link` and one all-or-nothing `gh stack merge --squash`. The runner waits for each squash and posts `MERGED #N at <head> direct as <squash>, Graphite down`.
-- It posts `GRAPHITE-UP` after the first batch Graphite starts again.
-- Whenever the queue is unavailable and a lane merges directly, merge serially: rebase each PR on the latest dev, grade it green on that exact base (never on a no-file-overlap shortcut), and re-read the inbox before each `gh pr merge`.
+- Trunk failures or unreadable queue states stay `BLOCKED` or `UNKNOWN`. The runner never merges around the queue and runs no automated orphan, own-red, or flake recovery. Native retry is a manual `stack-enqueue --flake` after inspecting verification.
+- A tapped hand merge around a down queue is not blocked: it draws the `QUEUE-UNTESTED` warning and lands untested. Whoever takes that risk merges serially: rebase each PR on the latest dev, grade it green on that exact base (never on a no-file-overlap shortcut), and re-read the inbox before each `gh pr merge`.
 
 ## Trunk health and redundant skips
 
@@ -576,7 +568,7 @@ Until cutover, every old-tree PR that lands on `dev` and is not the rebuild's ow
 ## Incident fixes and release on landing
 
 **Incident fix merges.**
-- Incident fixes land by plain squash through `gh pr merge <n> --squash --match-head-commit <head>`, taking the same rebase as a Graphite-down merge when behind `dev`. They merge in the pass their head is approved and green, under every merge mode and even during `checks_wait_for_go`, and never enter the trunk queue or use `--fast`. The squash merges only a head whose required checks are green at that head, rebased or not, so what lands outside the queue has passed the same test the queue would run on it against dev. A fix rebased onto dev waits while CI runs at its new head and merges once green.
+- Incident fixes land by plain squash through `gh pr merge <n> --squash --match-head-commit <head>`. They merge in the pass their head is approved and green, under every merge mode and even during `checks_wait_for_go`, and never enter the trunk queue or use `--fast`. The squash merges only a head whose required checks are green at that head, rebased or not, so what lands outside the queue has passed the same test the queue would run on it against dev. A fix rebased onto dev waits while CI runs at its new head and merges once green.
 - The fidelity desks grade an incident fix row first in their queue and never waive the plan check. The finder grade does not gate the merge; the runner logs `UNGRADED-30` once if no `finder: ok` arrives within 30 minutes after landing.
 - `check-pr --incident` refuses the merge with one cci `RULINGS-REFUSED` blocker to the PR's lane and the coordinator if it names `RULINGS-UNCITED`, `RESERVED-NO-ANSWER`, or `TEST-REMOVED`; the fix merges in the first pass they clear.
 - Just before `gh pr merge`, the runner reads open cci `hold` records again. If no open incident record names the fix or its lane, a hold refuses it. While an open incident record names the fix or its lane, a hold logs `INCIDENT-HOLD-WARNED` once, the fix merges anyway, and the incident clock launches no Opus fallback.
