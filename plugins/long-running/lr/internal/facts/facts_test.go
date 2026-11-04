@@ -47,6 +47,7 @@ type recordedPR struct {
 	body      string
 	unopened  bool
 	approvers []string
+	reviews   []map[string]any
 	state     string
 	branch    string
 }
@@ -79,6 +80,7 @@ func memberReply(prs []recordedPR) string {
 		for _, login := range pr.approvers {
 			reviews = append(reviews, map[string]any{"state": "APPROVED", "author": map[string]any{"login": login}, "commit": map[string]any{"oid": pr.head}})
 		}
+		reviews = append(reviews, pr.reviews...)
 		state := pr.state
 		if state == "" {
 			state = "OPEN"
@@ -86,8 +88,8 @@ func memberReply(prs []recordedPR) string {
 		repository[fmt.Sprintf("r%d", pr.number)] = map[string]any{
 			"number": pr.number, "state": state, "isDraft": pr.draft, "headRefOid": pr.head, "headRefName": pr.branch, "baseRefName": "dev", "body": pr.body,
 			"author": map[string]any{"login": pr.login}, "labels": map[string]any{"nodes": labels}, "commits": map[string]any{"nodes": commits}, "mergeable": pr.merge,
-			"tip":                      map[string]any{"nodes": []map[string]any{{"commit": map[string]any{"statusCheckRollup": rollup}}}},
-			"latestOpinionatedReviews": map[string]any{"nodes": reviews},
+			"tip":     map[string]any{"nodes": []map[string]any{{"commit": map[string]any{"statusCheckRollup": rollup}}}},
+			"reviews": map[string]any{"nodes": reviews},
 		}
 	}
 	encoded, err := json.Marshal(map[string]any{"data": map[string]any{"repository": repository}})
@@ -742,6 +744,22 @@ func TestRedCountsOnlyARequiredCheck(t *testing.T) {
 
 	if by[1].CI != machine.CIFailure || by[2].CI != machine.CISuccess || by[3].CI != machine.CIPending {
 		t.Fatalf("ci = %v, %v, %v", by[1].CI, by[2].CI, by[3].CI)
+	}
+}
+
+func TestAnApprovalAtAHeadStandsAfterLaterReviewsOnOtherCommits(t *testing.T) {
+	review := func(state, login, oid string) map[string]any {
+		return map[string]any{"state": state, "author": map[string]any{"login": login}, "commit": map[string]any{"oid": oid}}
+	}
+	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot", reviews: []map[string]any{
+		review("APPROVED", "kept", head),
+		review("APPROVED", "withdrew", head),
+		review("CHANGES_REQUESTED", "withdrew", head),
+		review("APPROVED", "kept", head2),
+	}}}, status(1))
+
+	if got := h.snapshot(t)[1].Approvers; !slices.Equal(got, []string{"kept"}) {
+		t.Fatalf("approvers = %v, want only the reviewer whose last word at this head approved", got)
 	}
 }
 
