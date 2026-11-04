@@ -1200,9 +1200,9 @@ func TestTheFixBriefNamesTheReportTimeAndItsDueTime(t *testing.T) {
 			t.Fatalf("brief lacks %q:\n%s", want, brief)
 		}
 	}
-	for _, refused := range []string{"go build", "go vet"} {
-		if strings.Contains(brief, refused) {
-			t.Fatalf("brief carries %q", refused)
+	for _, want := range []string{"before each push, `go build` and `go vet`", "no local test runs"} {
+		if !strings.Contains(brief, want) {
+			t.Fatalf("brief lacks %q:\n%s", want, brief)
 		}
 	}
 }

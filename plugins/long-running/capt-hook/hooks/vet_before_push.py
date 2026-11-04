@@ -6,7 +6,7 @@ from collections import defaultdict
 from pathlib import Path
 
 from captain_hook import Allow, BaseHookEvent, Block, Call, Event, HookResult, Input, Tool, Warn, WorkflowState, on
-from captain_hook.util.builds import LOAD_PER_CORE, HostLoad, is_local_build, routes_off_host
+from captain_hook.util.builds import LOAD_PER_CORE, HostLoad, is_local_build
 from pydantic import BaseModel
 
 from .compaction_handoff import COMMUNICATOR_LANE, ROOT_LANE
@@ -159,7 +159,7 @@ def note_compile_checks(evt: BaseHookEvent) -> None:
 )
 def note_load_refused_checks(evt: BaseHookEvent) -> None:
     gated = [call for call in evt.command.calls() if call.name == "go" and is_local_build(call)]
-    if not in_lane(evt) or not gated or not HostLoad.sample().saturated or all(routes_off_host(call) for call in gated):
+    if not in_lane(evt) or not gated or not HostLoad.sample().saturated:
         return
     record(evt, [check for call in gated for check in compiles(evt, call)])
 
