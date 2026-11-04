@@ -128,11 +128,6 @@ func (e Env) IncidentLaunch(ctx context.Context, fired Fired) (string, error) {
 	case !errors.Is(err, fs.ErrNotExist):
 		return "", err
 	}
-	comms, err := e.incidentBrief(fired.Slug+"-comms", "alert-comms-brief.md", fired)
-	if err != nil {
-		return "", err
-	}
-	argv = append(argv, "--comms-brief", comms)
 	_, err = e.Runner.Run(ctx, shell.Command{Argv: append(argv, "--drive", e.Config.Drive, "--lane", Self), Timeout: launchWait})
 	return fix, err
 }
@@ -310,7 +305,7 @@ func (a *Alerts) raise(ctx context.Context, channel string, card, message slackM
 		draft.Kind, draft.ID = kindSpawn, "alert-launched:"+channel+":"+message.TS
 		draft.LaneRefs = []string{alert.slug + "-fix"}
 		draft.Attrs = map[string]string{"brief": brief, "role": "fix", "model": "incident", "effort": "xhigh"}
-		draft.Text = fmt.Sprintf("ALERT-LAUNCHED %s: no incident record named %s %d min after it fired, so the supervisor launched %s-fix, %s-evidence and a read-only %s-comms", headline, alert.name, minutes, alert.slug, alert.slug, alert.slug)
+		draft.Text = fmt.Sprintf("ALERT-LAUNCHED %s: no incident record named %s %d min after it fired, so the supervisor launched %s-fix and %s-evidence", headline, alert.name, minutes, alert.slug, alert.slug)
 	}
 	if _, err := a.Env.Bus.Post(ctx, draft); err != nil {
 		return fmt.Errorf("%w: cci post: %w", ErrUnread, err)

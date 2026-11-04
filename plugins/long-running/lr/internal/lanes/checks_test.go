@@ -723,7 +723,7 @@ func TestACcRemoteOlderThanOrcaStopStopsNothingAndPostsNothingUntilItsPinReaches
 	equal(t, len(bus.posted), 0)
 }
 
-func TestAnUnansweredAlertLaunchesAReadOnlyCommsLaneBesideItsFixLane(t *testing.T) {
+func TestAnAlertLaunchStartsNoCommsLane(t *testing.T) {
 	plugin, err := filepath.Abs(filepath.Join("..", "..", ".."))
 	if err != nil {
 		t.Fatal(err)
@@ -745,16 +745,5 @@ func TestAnUnansweredAlertLaunchesAReadOnlyCommsLaneBesideItsFixLane(t *testing.
 		t.Fatal(err)
 	}
 
-	at := slices.Index(argv, "--comms-brief")
-	if at < 0 {
-		t.Fatalf("argv %q", argv)
-	}
-	text, err := os.ReadFile(argv[at+1])
-	if err != nil {
-		t.Fatal(err)
-	}
-	contains(t, string(text), "# dd-1-comms: draft the comms for the production alert dd-1")
-	contains(t, string(text), "Post nothing to Slack")
-	contains(t, string(text), "card-unreported-exposure-notice")
-	contains(t, string(text), "cci tail --drive d1 --lane dd-1-fix")
+	equal(t, slices.Contains(argv, "--comms-brief"), false)
 }
