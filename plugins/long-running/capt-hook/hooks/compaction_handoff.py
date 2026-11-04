@@ -742,7 +742,7 @@ def activate_on_command(evt: BaseHookEvent) -> HookResult | None:
     },
 )
 def arm_communicator(evt: BaseHookEvent) -> HookResult | None:
-    if any("owner start" in " ".join(call.args) for call in evt.command.calls("lr")):
+    if any("owner start" in " ".join(call.args) and not {"-h", "--help"} & set(call.args) for call in evt.command.calls("lr")):
         with CompactionState.mutate(evt) as state:
             state.active = state.communicator = True
     return None
