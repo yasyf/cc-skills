@@ -236,9 +236,9 @@ recorded verbatim, confirmed with him and applied to every live artifact at once
 spawns the Slack lane and the doing lane that turn in one batch, and one `report` to the
 communicator names both. Nobody reads Slack or writes Slack copy outside the Slack lane.
 
-**R21.** Only the communicator owes the owner his own terms: plain words, Pacific times, the thing's
-name never a codename or id, the fix and when it is live rather than how it broke, the human layer
-before the agent layer.
+**R21.** Whoever drafts for the owner writes down the first question he will ask and answers it in the
+same message, and a change names its concrete things: which fields and where they live, which chats or
+users, before and after. The communicator also owes him his own terms ([brief](reference/communicator-brief.md)).
 
 **R22.** Every brief quotes the owner's design verbatim with the entry point at `file:line`; the lane
 posts a `contract` before `READY-FOR-SHIP`; the design ships whole or holds, never split. A ruling
