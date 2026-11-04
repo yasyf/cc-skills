@@ -162,7 +162,7 @@ func (w *TrunkWatch) Pass(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return errors.Join(w.compareBuilds(ctx, history), w.watchFlakes(ctx, history), w.watchNotices(ctx), w.reopenUnfixed(ctx), w.askPastDue(ctx), w.reportRed(ctx, history))
+	return errors.Join(w.compareBuilds(ctx, history), w.watchFlakes(ctx, history), w.watchNotices(ctx), w.reopenUnfixed(ctx), w.superviseOpen(ctx), w.reportRed(ctx, history))
 }
 
 func (w *TrunkWatch) history(ctx context.Context) ([]trunkCommit, error) {
@@ -698,11 +698,12 @@ func (w *TrunkWatch) mergedPR(ctx context.Context, closer client.Record) (int, e
 	return 0, nil
 }
 
-func (w *TrunkWatch) askPastDue(ctx context.Context) error {
-	if w.Asks == nil {
-		return nil
-	}
+func (w *TrunkWatch) superviseOpen(ctx context.Context) error {
 	open, err := w.openFlakes(ctx)
+	if err != nil || len(open) == 0 {
+		return err
+	}
+	peers, err := client.Who(ctx, w.Drive)
 	if err != nil {
 		return err
 	}
@@ -711,15 +712,32 @@ func (w *TrunkWatch) askPastDue(ctx context.Context) error {
 		return err
 	}
 	for _, flake := range open {
+		held := slices.ContainsFunc(peers, func(peer client.Peer) bool {
+			return peer.Live && (client.Stem(peer.Lane) == client.Stem(flake.To[0]) || client.Stem(peer.Lane) == client.Stem(w.Config.FlakeLane))
+		})
 		due := flake.At.Add(flakeDue)
-		if w.Now().Before(due) || asked[flake.Name()] != "" {
+		if held && w.Now().Before(due) {
 			continue
 		}
-		line, held, err := w.Asks.Add(ctx, asks.NewAsk{Text: fmt.Sprintf("Fix the flake %s names: %s", flake.Name(), flake.Fields.Attrs[flakeAttr]), Lane: flake.To[0], Accept: "a merged PR fixes its cause and resolves " + flake.Name(), Due: due.UTC().Format(time.RFC3339)}, func(context.Context, string) (string, error) { return "", nil })
+		if !held && w.Config.FlakeLane != "" {
+			lane, err := w.launchFlakeLane(ctx)
+			if err != nil {
+				return err
+			}
+			if lane != flake.To[0] {
+				if _, err := client.Post(ctx, client.Draft{Drive: w.Drive, Lane: self, Kind: "note", To: []string{lane}, Topic: trunkTopic, ID: fmt.Sprintf("flake-handover:%d:%s", flake.Seq, lane), Re: flake.Seq, Force: true, Text: fmt.Sprintf("%s owns %s now, since no lane on it is live: %s", lane, flake.Name(), flake.Text)}); err != nil {
+					return err
+				}
+			}
+		}
+		if w.Asks == nil || asked[flake.Name()] != "" {
+			continue
+		}
+		line, holder, err := w.Asks.Add(ctx, asks.NewAsk{Text: fmt.Sprintf("Fix the flake %s names: %s", flake.Name(), flake.Fields.Attrs[flakeAttr]), Lane: flake.To[0], Accept: "a merged PR fixes its cause and resolves " + flake.Name(), Due: due.UTC().Format(time.RFC3339)}, func(context.Context, string) (string, error) { return "", nil })
 		if err != nil {
 			return err
 		}
-		if _, err := w.Store.PutFact(w.Repo, 0, flakeAsked, flake.Name(), cmp.Or(held, line), w.Now()); err != nil {
+		if _, err := w.Store.PutFact(w.Repo, 0, flakeAsked, flake.Name(), cmp.Or(holder, line), w.Now()); err != nil {
 			return err
 		}
 	}

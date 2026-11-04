@@ -413,3 +413,24 @@ func TestAJobThatFailedOnAGitHubQuotaIsNamedInfrastructureNotAFlakyTest(t *testi
 		t.Fatalf("flakes = %+v, want the quota failure named as infrastructure", flakes)
 	}
 }
+
+func TestAnOpenFlakeWhoseLaneIsGoneGetsANewLaneFromTheSupervisor(t *testing.T) {
+	f := newTrunkWatch(t)
+	flake, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "supervisor", Kind: "defect", To: []string{"red-sweep-5"}, Topic: "dev-red", Force: true, Attrs: map[string]string{"flake": "TestRace"}, Text: "[finding:supervisor] - - flake owner red-sweep-5: FLAKE TestRace failed"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	f.pass(t, trunkHistory(), nil)
+	f.pass(t, trunkHistory(), nil)
+
+	launches := trunkRecords(t, "go")
+	if len(launches) != 1 || !strings.HasPrefix(launches[0].Text, "orca-desk: launch red-sweep-") {
+		t.Fatalf("launches = %+v, want one red-sweep lane", launches)
+	}
+	lane := strings.Fields(launches[0].Text)[2]
+	handed := trunkRecords(t, "note")
+	if len(handed) != 1 || handed[0].To[0] != lane || handed[0].Re != flake.Seq {
+		t.Fatalf("notes = %+v, want %s handed to %s", handed, flake.Name(), lane)
+	}
+}
