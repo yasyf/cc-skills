@@ -4,6 +4,7 @@ import json
 import re
 import subprocess
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -13,7 +14,6 @@ from captain_hook.events import PostToolUseEvent, PreToolUseEvent, StopEvent, Us
 from captain_hook.testing.helpers import build_context
 
 from fire import fire
-from types import SimpleNamespace
 
 from hooks import owner_ledger, owner_returns, root_context
 from hooks.compaction_handoff import CompactionState
@@ -607,7 +607,37 @@ def test_a_coordinator_window_captures_no_answer(drive: Path, lr: Path) -> None:
     assert not coordinator.answer("m1").exists() and not lr.exists()
 
 
-def test_a_cron_wake_is_not_his_words_and_a_message_about_waking_still_is():
-    is_his = root_context.OwnerPrompt().check
-    assert not is_his(SimpleNamespace(user_prompt="wake 10:21 (owner-relay): check the clocks"))
-    assert is_his(SimpleNamespace(user_prompt="wake me at 9 if the release fails"))
+def test_a_prompt_this_session_scheduled_adds_no_row_whatever_its_words(communicator: Window) -> None:
+    prompt = "keep the nightly report and ship it by 3 PM"
+    fire(root_context, communicator.event(PostToolUseEvent, tool_name="CronCreate", tool_input={"cron": "37 11 4 11 *", "prompt": prompt}))
+
+    communicator.prompt(prompt)
+
+    assert not communicator.ledger.exists()
+
+
+def test_his_own_words_saying_wake_add_a_row_beside_a_scheduled_prompt(communicator: Window) -> None:
+    fire(root_context, communicator.event(PostToolUseEvent, tool_name="CronCreate", tool_input={"cron": "37 11 4 11 *", "prompt": "wake 10:21 (owner-relay): check the clocks"}))
+
+    communicator.prompt("wake 10:30 me if the release fails")
+
+    assert len(communicator.rows()) == 1
+
+
+def routed_to(*to: str) -> Callable[[list[str]], str]:
+    record = json.dumps({"seq": 425461, "lane": "owner-relay", "kind": "decide", "to": list(to), "text": "OWNER, verbatim: fix the hook"})
+    return lambda argv: record if "decide" in argv else ""
+
+
+def test_a_correction_the_relay_routed_to_meta_in_a_decide_is_forwarded(communicator: Window, monkeypatch: pytest.MonkeyPatch) -> None:
+    communicator.queued("fix the hook yourself")
+    monkeypatch.setattr(owner_returns, "read", routed_to("root", "meta-desk"))
+
+    assert owner_returns.forwarded(communicator.event(StopEvent))
+
+
+def test_a_decide_that_reached_no_meta_lane_forwards_nothing(communicator: Window, monkeypatch: pytest.MonkeyPatch) -> None:
+    communicator.queued("fix the hook yourself")
+    monkeypatch.setattr(owner_returns, "read", routed_to("root"))
+
+    assert not owner_returns.forwarded(communicator.event(StopEvent))

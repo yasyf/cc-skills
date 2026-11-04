@@ -172,7 +172,7 @@ cci post --kind ask --to board-refresher "CARD: card-<slug>: <question>" --path 
 ```
 
 - The record stays open until the card is drawn. The desk that draws it runs `lr board cards until <card> --lane <the lane that asked>`, so the card carries the asking lane, not the desk's.
-- The owner's answer wakes that lane through `lr board wake` the moment board-watch records it. A stopped lane draws `NEEDS-LANE` to meta-desk with its brief path.
+- The owner's answer wakes that lane through `lr board wake` the moment board-watch records it. A stopped lane draws `NEEDS-LANE` to meta-desk with its brief path. A card no lane asked for draws it only when no decide or claim has named the card since his answer.
 - Any record of the lane naming the card within ten minutes is the acknowledgement. Past that, meta-desk and the communicator hear once and nothing blocks.
 - A decide with options, a plan fork, an open item in a design doc and an owner-pick line are the same case.
 - A lane does not park on a card with nothing built. It builds the recommended option as a branch, no PR, and the owner can overturn it, unless the pick deletes data, sends a message or needs the owner's hand. This branches-only rule covers design questions the owner has not ordered built.

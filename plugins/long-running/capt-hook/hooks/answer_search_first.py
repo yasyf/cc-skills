@@ -56,7 +56,7 @@ class Searched:
 
 class AsksOrOpensAPR:
     def check(self, evt: BaseHookEvent) -> bool:
-        if any(kinds & ASKING and OPTIONS.search(text) for text, kinds, _ in posts(evt)):
+        if any(kinds & ASKING and OPTIONS.search(text) for text, kinds, *_ in posts(evt)):
             return True
         return evt.tool_name == "Bash" and any(tuple([call.name, *call.args])[: len(opener)] == opener for call in evt.command.calls() for opener in OPENERS)
 

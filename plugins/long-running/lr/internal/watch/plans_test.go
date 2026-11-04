@@ -218,6 +218,61 @@ func TestAReplyRestatingAPostedPlansClockIsNoNewDeadline(t *testing.T) {
 	}
 }
 
+func TestARecordCitingAnotherForItsClockRestatesItAndANewClockStillPages(t *testing.T) {
+	written := time.Date(2026, 11, 4, 11, 0, 0, 0, pacific)
+	plan := withAttrs(client.Record{Seq: 425066, Lane: "root", Kind: "answer", At: written, Text: "the override lands first"}, map[string]string{"owner": "one-reader", "step:1": "6 PM Nov 5 stacked fold PR"})
+	noClock := client.Record{Seq: 425066, Lane: "root", Kind: "answer", At: written, Text: "the fold PR opens"}
+	unplanned := client.Record{Seq: 425066, Lane: "root", Kind: "answer", At: written, Text: "the fold PR opens by 6 PM Nov 5"}
+	order := client.Record{Seq: 425066, Lane: "root", Kind: "hold", At: written, Text: "hold the fold until 6 PM Nov 5"}
+	later := written.Add(time.Minute)
+	for _, tt := range []struct {
+		name  string
+		first client.Record
+		text  string
+		names string
+	}{
+		{"named by bare number", plan, "Your 425066 took A; the fold opens by 6 PM Nov 5", ""},
+		{"named with a hash", plan, "per #425066 the fold opens by 6 PM Nov 5", ""},
+		{"a new clock beside the named one", plan, "per 425066 the fold opens by 6 PM Nov 5, the docs by 8 PM", "8 PM"},
+		{"citing a record with no plan for its clock", unplanned, "per 425066 the fold opens by 6 PM Nov 5", ""},
+		{"citing a record that never named the clock", noClock, "per 425066 the fold opens by 6 PM Nov 5", "6 PM"},
+		{"taking on a clock from an order, which owes no plan itself", order, "per 425066 the fold opens by 6 PM Nov 5", "6 PM"},
+		{"a pull request number is no record", plan, "#50107 lands by 6 PM Nov 5", "6 PM"},
+		{"a finder id ending in the number", plan, "finder 9@425066 lands by 6 PM Nov 5", "6 PM"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			restating := client.Record{Seq: 425610, Lane: "grader-appeals", Kind: "decide", At: later, Text: tt.text}
+			waits := slices.DeleteFunc(Unplanned([]client.Record{tt.first, restating}, written.Add(5*time.Minute)), func(wait Wait) bool { return wait.Number != 425610 })
+			if tt.names == "" {
+				want(t, len(waits), 0)
+				return
+			}
+			want(t, len(waits), 1)
+			if !strings.Contains(waits[0].Cause, "a deadline by "+tt.names+" ") {
+				t.Fatalf("cause %q", waits[0].Cause)
+			}
+		})
+	}
+}
+
+func TestAReplyToARecordWithNoPlanRestatesItsClockAndOnlyTheFirstPages(t *testing.T) {
+	written := time.Date(2026, 11, 4, 11, 0, 0, 0, pacific)
+	first := client.Record{Seq: 40, Lane: "root", Kind: "report", At: written, Text: "the review lands by 3 PM"}
+	reply := client.Record{Seq: 41, Lane: "lane-a", Kind: "report", Re: 40, At: written.Add(time.Minute), Text: "still lands by 3 PM"}
+
+	waits := Unplanned([]client.Record{first, reply}, written.Add(5*time.Minute))
+
+	want(t, len(waits), 1)
+	want(t, waits[0].Number, 40)
+}
+
+func TestHisOwnWordsNamingAClockOweNoPlan(t *testing.T) {
+	said := at(t, "2026-11-03T10:00:00Z")
+	row := client.Record{Seq: 40, Lane: "owner-relay", Kind: "owner", At: said, Text: "get this done by 3 PM"}
+
+	want(t, len(Unplanned([]client.Record{row}, said)), 0)
+}
+
 func TestAnOrderNamingAClockOwesNoPlanAndAReportNamingOneStillDoes(t *testing.T) {
 	said := at(t, "2026-11-03T10:00:00Z")
 	text := "orca-desk: relay to iris-open-fix: land it by 11:10 AM"

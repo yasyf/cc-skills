@@ -221,6 +221,33 @@ func TestAPickNoLaneAskedForGoesToMetaDeskOnlyWhenUnclaimedIsSet(t *testing.T) {
 	}
 }
 
+func TestAPickTheRelayAlreadyRoutedDrawsNoNeedsLane(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		record client.Record
+		posts  int
+	}{
+		{"a decide after his answer", client.Record{Seq: 701, Lane: "owner-relay", Kind: "decide", Text: "OWNER TAP card-chat: picked Combined. chat-apps: yours."}, 0},
+		{"a claim after his answer", client.Record{Seq: 701, Lane: "chat-apps", Kind: "claim", Text: "Claiming card-chat for the pick."}, 0},
+		{"a decide before his answer", client.Record{Seq: 699, Lane: "owner-relay", Kind: "decide", Text: "Drawing card-chat for him."}, 1},
+		{"a decide naming another card", client.Record{Seq: 701, Lane: "owner-relay", Kind: "decide", Text: "OWNER TAP card-chat-2: picked Combined."}, 1},
+		{"its own earlier wake", client.Record{Seq: 701, Lane: "board-watch", Kind: "decide", Text: "WAKE card-chat: the owner answered your card."}, 1},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newWaker(t)
+			f.bus = []client.Record{tt.record}
+
+			if err := f.Wake(context.Background(), pick); err != nil {
+				t.Fatal(err)
+			}
+
+			if len(f.posts) != tt.posts {
+				t.Fatalf("posts = %+v", f.posts)
+			}
+		})
+	}
+}
+
 func wakeRecord(seq int64, lane string, age time.Duration) client.Record {
 	var r client.Record
 	r.Seq, r.Lane, r.Kind, r.Topic, r.Re, r.At = seq, "board-watch", wakeKind, wakeTopic+"card-chat", 700, cardsNow.Add(-age)

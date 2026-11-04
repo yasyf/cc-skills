@@ -23,6 +23,7 @@ const (
 	metaDesk       = "meta-desk"
 	wakeKind       = "decide"
 	askKind        = "ask"
+	claimKind      = "claim"
 	lateKind       = "report"
 	wakeTopic      = "card-wake:"
 	lateTopic      = "card-wake-late:"
@@ -59,6 +60,10 @@ func (w Waker) Wake(ctx context.Context, a CardAnswer) error {
 	if asker == "" {
 		if !a.Unclaimed {
 			return nil
+		}
+		routed, err := w.routed(ctx, a)
+		if err != nil || routed {
+			return err
 		}
 		return w.needsLane(ctx, a, "", "No lane asked for this card, so launch one whose brief carries this answer")
 	}
@@ -115,6 +120,17 @@ func (w Waker) asker(ctx context.Context, a CardAnswer) (string, error) {
 		}
 	}
 	return "", nil
+}
+
+func (w Waker) routed(ctx context.Context, a CardAnswer) (bool, error) {
+	records, err := w.Tail(ctx, client.Query{Drive: w.Cards.Bus, Kinds: []string{wakeKind, claimKind}, After: a.OwnerSeq, Since: w.Cards.Now().Add(-wakeWindow)})
+	if err != nil {
+		return false, err
+	}
+	naming := namesAny(a.Card, a.Block)
+	return slices.ContainsFunc(records, func(record client.Record) bool {
+		return record.Lane != w.Lane && naming.MatchString(record.Text)
+	}), nil
 }
 
 func namesAny(names ...string) *regexp.Regexp {
