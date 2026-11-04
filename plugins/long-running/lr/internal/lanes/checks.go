@@ -23,6 +23,7 @@ import (
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bkread"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 	"golang.org/x/mod/semver"
@@ -78,6 +79,7 @@ type Alerts struct {
 	Store    *store.Store
 	Channels []string
 	Log      *slog.Logger
+	Refused  []config.Refusal
 	Launch   func(ctx context.Context, fired Fired) (string, error)
 	threads  map[string]string
 	launched map[string]bool
@@ -260,6 +262,10 @@ func firedAt(ts string) (time.Time, error) {
 func (a *Alerts) raise(ctx context.Context, channel string, card, message slackMessage, now time.Time) error {
 	alert, ok := alertOf(card, message)
 	if !ok {
+		return nil
+	}
+	if refusal, _, refused := config.RefusedLine(a.Refused, card.Text+"\n"+message.Text); refused {
+		a.Log.Debug("alert on a refused topic dropped", "alert", alert.slug, "why", refusal.Why)
 		return nil
 	}
 	fired, err := firedAt(message.TS)
@@ -622,6 +628,25 @@ func ReadRunnerLanding(state string) (RunnerLanding, error) {
 		return RunnerLanding{}, fmt.Errorf("runner.json: %w", err)
 	}
 	return runner.Landing, nil
+}
+
+func ReadRefusedBriefs(state string) ([]config.Refusal, error) {
+	data, err := os.ReadFile(filepath.Join(state, "runner.json"))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var runner struct {
+		Orca struct {
+			RefusedBriefs []config.Refusal `json:"refused_briefs"`
+		} `json:"orca"`
+	}
+	if err := json.Unmarshal(data, &runner); err != nil {
+		return nil, fmt.Errorf("runner.json: %w", err)
+	}
+	return runner.Orca.RefusedBriefs, nil
 }
 
 func (n *LandedNotLive) landings(ctx context.Context, now time.Time) (map[int]landing, error) {
@@ -1021,8 +1046,12 @@ func (e Env) Checks(s *store.Store, log *slog.Logger) ([]Check, error) {
 			channels = append(channels, channel)
 		}
 	}
+	refused, err := ReadRefusedBriefs(e.State)
+	if err != nil {
+		return nil, err
+	}
 	if len(channels) > 0 {
-		checks = append(checks, (&Alerts{Env: e, Store: s, Channels: channels, Log: log, Launch: e.IncidentLaunch}).Check)
+		checks = append(checks, (&Alerts{Env: e, Store: s, Channels: channels, Log: log, Refused: refused, Launch: e.IncidentLaunch}).Check)
 	}
 	checks = append(checks, (&OverrideRefusals{Env: e, Store: s}).Check)
 	landing, err := ReadRunnerLanding(e.State)
@@ -1038,7 +1067,7 @@ func (e Env) Checks(s *store.Store, log *slog.Logger) ([]Check, error) {
 		checks = append(checks, (&FixLiveGC{Env: e, Log: log}).Check, (&SettledGC{Env: e, Store: s, Log: log}).Check)
 	}
 	if len(landing.Pages.Channels) > 0 {
-		checks = append(checks, (&PageWatch{Env: e, Store: s, Channels: landing.Pages.Channels, BuildCLI: landing.Pages.Build, Token: bkread.Token{Command: landing.CITokenCommand}, Log: log}).Check)
+		checks = append(checks, (&PageWatch{Env: e, Store: s, Channels: landing.Pages.Channels, BuildCLI: landing.Pages.Build, Token: bkread.Token{Command: landing.CITokenCommand}, Log: log, Refused: refused}).Check)
 	}
 	remote, err := CcRemoteOf(e.State)
 	if err != nil {

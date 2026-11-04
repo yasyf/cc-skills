@@ -1,0 +1,85 @@
+from __future__ import annotations
+
+import json
+import re
+from pathlib import Path
+
+from captain_hook import Allow, BaseHookEvent, Event, FromSubagent, HookResult, Input, Tool, on
+
+from .compaction_handoff import Bound, Communicator, communicator_tests
+from .owner_answers import read
+from .owner_facing import REPLY_WINDOW, SLACK_CARD, Reads, fenced, last_reply
+from .owner_replies_carry_news import dm_posts
+from .owner_returns import shipped_cc_slack
+from .register_capture import OPERATOR
+from .register_injection import drive_args
+from .tests.handoff_fixtures import reply_transcript
+from .tests.register_fixtures import DRIVE_CONFIG
+from .urgent_lines_name_the_harm import ACTIVE, DM_TOOLS, card, owner_lines
+
+REFUSED = "The owner ruled this class is never reported to him. Drop each line below and send the rest."
+
+
+def refusals(reads: Reads) -> list[tuple[re.Pattern[str], re.Pattern[str] | None]]:
+    def load() -> list[tuple[re.Pattern[str], re.Pattern[str] | None]]:
+        if not reads.entry or not (config := Path(reads.entry["state_dir"]) / "runner.json").exists():
+            return []
+        rows = json.loads(config.read_text()).get("orca", {}).get("refused_briefs") or []
+        return [(re.compile(row["match"]), None if row.get("except") is None else re.compile(row["except"])) for row in rows]
+
+    return reads.read("the drive's refused_briefs", load) or []
+
+
+def refused_lines(reads: Reads, texts: list[str]) -> list[str]:
+    if not texts:
+        return []
+    listed = refusals(reads)
+    return [line for text in texts for line in text.splitlines() if any(match.search(line) and not (spared and spared.search(line)) for match, spared in listed)]
+
+
+def reaches_him(reads: Reads, channel: str) -> bool:
+    def load() -> bool:
+        peer = read([str(shipped_cc_slack()), "dm-peer", "--channel", channel])
+        if peer is None:
+            raise OSError("`cc-slack dm-peer` did not read")
+        return json.loads(peer)["peer"] == OPERATOR
+
+    return bool(reads.read(f"who DM {channel} reaches", load))
+
+
+def lane_dm_lines(evt: BaseHookEvent, reads: Reads) -> list[str]:
+    if Communicator().check(evt):
+        return []
+    return [line for channel, text in dm_posts(evt) for line in refused_lines(reads, [text]) if reaches_him(reads, channel)]
+
+
+@on(  # capt-hook: no-escape the owner ordered this class never reaches him
+    Event.PreToolUse,
+    only_if=[Bound(), Tool("Bash", SLACK_CARD, *DM_TOOLS)],
+    tests={
+        card(title="Why is it failing?", body="An edge-vendor 403 on the tenant host."): Allow(),
+        Input(tool=DM_TOOLS[0], tool_input={"channel_id": "D0B6Z", "thread_ts": "1.2", "text": "An edge-vendor 403 on the tenant host."}, state=ACTIVE, env=DRIVE_CONFIG): Allow(),
+        Input(command="cc-present reply --block skew --body 'An edge-vendor 403 on the tenant host.'", env=DRIVE_CONFIG): Allow(),
+        Input(command="ls", env=DRIVE_CONFIG): Allow(),
+    },
+)
+def owner_lines_skip_refused_topics(evt: BaseHookEvent) -> HookResult | None:
+    if not (which := drive_args(evt)):
+        return None
+    reads = Reads(evt, which)
+    if found := [*refused_lines(reads, owner_lines(evt, reads)), *lane_dm_lines(evt, reads)]:
+        return evt.block(fenced(REFUSED, found))
+    return evt.context(reads.warning("owner_lines_skip_refused_topics")) if reads.failures else None
+
+
+@on(  # capt-hook: no-escape the owner ordered this class never reaches him
+    Event.Stop,
+    only_if=[Communicator()],
+    skip_if=[FromSubagent()],
+    transcript_events=REPLY_WINDOW,
+    tests=communicator_tests({
+        Input(transcript=reply_transcript("An edge-vendor 403 on the tenant host."), state=ACTIVE, env=DRIVE_CONFIG): Allow(),
+    }),
+)
+def owner_replies_skip_refused_topics(evt: BaseHookEvent) -> HookResult | None:
+    return evt.block(fenced(REFUSED, found)) if (found := refused_lines(Reads(evt, []), [last_reply(evt)])) else None

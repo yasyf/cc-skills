@@ -78,7 +78,7 @@ PLAIN_WORDS = (
 )
 QUOTED_TERM = re.compile(r'"([^"\n]+)"')
 SLACK_CARD = "mcp__plugin_cc-slack_cc-slack__slack_dm_status"
-READ_FAILURES = (OSError, subprocess.SubprocessError, ValueError, LookupError)
+READ_FAILURES = (OSError, subprocess.SubprocessError, ValueError, LookupError, re.error)
 UNREAD = "Warning, nothing was blocked: {hook} could not read what it checks, so this text went unchecked."
 SHOWN = frozenset({"title", "summary", "intro", "md", "prompt", "label", "hint", "value", "pros", "cons", "placeholder", "note", "body", "options"})
 URL = re.compile(r"https?://\S+")

@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/incident"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
@@ -65,7 +66,7 @@ type DeskConfig struct {
 	Source, Store, Drive, DeskInbox, Run, Receipts, BriefsRepo, BriefsLog, GC, AlertFacts, LandingRepo, LandingCheckout string
 	Launches                                                                                                            string
 	LaunchEnv                                                                                                           map[string]string
-	RefusedBriefs                                                                                                       []BriefRefusal
+	RefusedBriefs                                                                                                       []config.Refusal
 	IncidentMechanismMinutes, IncidentPRMinutes, IncidentReadyMinutes                                                   int
 	StartMinutes, LaunchMinutes, HoldMinutes, CaseLanes, LoadLimit                                                      int
 }
@@ -85,7 +86,7 @@ type runnerFile struct {
 		LaunchEnv     map[string]string `json:"launch_env"`
 		GC            string            `json:"gc"`
 		Sprite        *spriteRoute      `json:"sprite"`
-		RefusedBriefs []BriefRefusal    `json:"refused_briefs"`
+		RefusedBriefs []config.Refusal  `json:"refused_briefs"`
 	} `json:"orca"`
 	Deadlines struct {
 		Start  *int `json:"start_minutes"`

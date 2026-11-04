@@ -14,6 +14,7 @@ import (
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bkread"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -44,6 +45,7 @@ type PageWatch struct {
 	BuildCLI string
 	Token    bkread.Token
 	Log      *slog.Logger
+	Refused  []config.Refusal
 
 	after  int64
 	polled time.Time
@@ -220,6 +222,10 @@ func (w *PageWatch) raise(ctx context.Context, channel string, messages []pageMe
 		at, err := firedAt(message.TS)
 		if err != nil {
 			return err
+		}
+		if refusal, _, refused := config.RefusedLine(w.Refused, message.Text); refused {
+			w.Log.Debug("page on a refused topic dropped", "channel", channel, "why", refusal.Why)
+			continue
 		}
 		if at.UnixMicro() > after && (message.User != "" || livePage.MatchString(message.Text)) {
 			pages = append(pages, dated{message, at})
