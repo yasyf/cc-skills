@@ -1,6 +1,7 @@
 package board
 
 import (
+	"slices"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -17,6 +18,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -51,8 +53,29 @@ func TestOnlyALedgerRowReadyAndUntappedWaitsOnHim(t *testing.T) {
 			if err != nil || (len(found) == 1) != c.waiting {
 				t.Fatalf("waiting = %+v, %v, want waiting %v", found, err, c.waiting)
 			}
+			if card := Card(repo, c.row); c.row.Number == number && (card.Waits != "" && len(card.Options) == 2) != c.waiting {
+				t.Fatalf("card = %+v, want buttons %v", card, c.waiting)
+			}
 		})
 	}
+}
+
+func TestARowThatNoLongerWaitsStillDrawsItsCardInItsOwnWords(t *testing.T) {
+	landed := readyRow(func(r *store.ReviewRow) {
+		r.Tapped, r.State, r.WaitsOn = true, prrow.StateLanded, "Nothing; it landed."
+	})
+	card := Card(repo, landed)
+	if card.Status != "done" || card.Waits != "" || len(card.Options) != 0 || card.Recommended != "" {
+		t.Fatalf("card = %+v, want a done card with no buttons", card)
+	}
+	if got := card.PRs[0]; got.Blocks != "Nothing; it landed." || got.Change != "chats load faster" || got.Title != "sand: faster chats" {
+		t.Fatalf("card PR = %+v, want the row's own words", got)
+	}
+}
+
+func waitingRows(s *store.Store, repo string, numbers []int) ([]store.ReviewRow, error) {
+	rows, err := ledgerRows(s, repo, numbers)
+	return slices.DeleteFunc(rows, func(row store.ReviewRow) bool { return !waitsOnHim(row) }), err
 }
 
 func TestMergeOnTheCardTapsTheRowAndHoldHoldsIt(t *testing.T) {
