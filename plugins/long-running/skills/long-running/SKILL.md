@@ -380,7 +380,7 @@ the `local_builds` hook refuses every other local test, build and lint. Batch jo
 **R16.** An active alert gets its fix lane the same turn, without a coordinator:
 the supervisor launches the fix and evidence lanes for an alert nobody answered in three minutes.
 When an alert reaches the coordinator first (a link the communicator relayed, an `#outage` report, a page, a runner `PAGE`, a failing release check, an `ALERT-UNOPENED` blocker), it runs `lr incident run <slug> --fix-brief <file>`
-before anything else, with no real-or-not verdict and no mute treated as resolution. Fixes land forward; a rollback runs only on the owner's own word.
+before anything else, with no real-or-not verdict and no mute treated as resolution. Fixes land forward; a rollback runs only on the owner's own word. Only his explicit order to mute an alert runs `lr alert mute <monitor> --why '<reason>'`, which mutes it, stands down its lanes, and keeps every launch off it.
 Each incident has one actor: when `tools/ci oncall incidents` shows an open ai-oncall incident covering the alert, the fix lane hands its findings and requests to that incident's commander with `ci oncall connect` and `ci oncall say`,
 and never takes it over: `ci oncall takeover` runs only on the owner's own words, since it records the takeover in the owner's name. It investigates freely and never ships, rolls back, freezes, mutes, pages or posts beside the commander,
 and another drive's sessions follow the same rule (retro AI12, page 4oov3m; page eu7ayk, two lanes took over in the owner's name when connect was refused during commander startup).
