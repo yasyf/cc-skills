@@ -513,6 +513,11 @@ document.addEventListener('click', (e) => {
     return render();
   }
   if (!e.target.closest('.cw')) return;
+  const written = e.target.closest('[data-choose]')?.closest('.question')?.querySelector('[name="pick-other"]');
+  if (written) {
+    written.value = '';
+    localStorage.removeItem(`draft:pick-other:${written.dataset.draft}:`);
+  }
   const read = e.target.closest('[data-read]');
   if (read) {
     if (!cw.read.delete(read.dataset.read)) cw.read.add(read.dataset.read);

@@ -339,7 +339,10 @@ document.addEventListener('submit', (e) => {
   const other = form.elements['pick-other'].value.trim();
   if (!other || sending(block)) return;
   answer({ kind: 'choice', block, options: [], other }).then(() => {
-    if (!ov.sent.get(block)?.error) localStorage.removeItem(`draft:pick-other:${block}:`);
+    if (ov.sent.get(block)?.error) return;
+    localStorage.removeItem(`draft:pick-other:${block}:`);
+    form.elements['pick-other'].value = '';
+    render();
   });
 });
 document.addEventListener('keydown', (e) => {
