@@ -25,6 +25,8 @@ const (
 	clauseMarks = `.!?,;:"()¶`
 	shownWords  = 80
 	quotedForm  = `"[^"\n]+"|“[^”\n]+”`
+	noSuchNote  = 3
+	scopeHits   = "20"
 )
 
 var (
@@ -217,23 +219,66 @@ func answerID(key string) (string, bool) {
 	return id, found
 }
 
-func (r *Reader) answer(ctx context.Context, id string) (string, error) {
-	if text, read := r.answers[id]; read {
-		return text, nil
+type Answer struct {
+	ID        string `json:"id"`
+	Title     string `json:"title"`
+	Body      string `json:"body"`
+	UpdatedAt string `json:"updated_at"`
+}
+
+func (r *Reader) Answers(ctx context.Context, ids []string, scope string) ([]Answer, error) {
+	found := []Answer{}
+	for _, id := range ids {
+		out, err := r.ccn(ctx, "answer", "show", id, "--json")
+		var exit *shell.ExitError
+		if errors.As(err, &exit) && exit.Code == noSuchNote {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		var answer Answer
+		if err := json.Unmarshal([]byte(out), &answer); err != nil {
+			return nil, fmt.Errorf("answer %s: %w", id, err)
+		}
+		found = append(found, answer)
 	}
+	if scope == "" {
+		return found, nil
+	}
+	out, err := r.ccn(ctx, "answer", "search", scope, "--label", "scope:durable", "--limit", scopeHits, "--json")
+	if err != nil {
+		return nil, err
+	}
+	var ranked []Answer
+	if err := json.Unmarshal([]byte(out), &ranked); err != nil {
+		return nil, fmt.Errorf("answers on %s: %w", scope, err)
+	}
+	return append(found, ranked...), nil
+}
+
+func (r *Reader) ccn(ctx context.Context, args ...string) (string, error) {
 	entry, err := r.resolved()
 	if err != nil {
 		return "", err
 	}
-	result, err := r.Runner.Run(ctx, shell.Command{Argv: []string{"ccn", "-R", entry.Checkout, "answer", "show", id}})
+	result, err := r.Runner.Run(ctx, shell.Command{Argv: slices.Concat([]string{"ccn", "-R", entry.Checkout}, args)})
+	return result.Stdout, err
+}
+
+func (r *Reader) answer(ctx context.Context, id string) (string, error) {
+	if text, read := r.answers[id]; read {
+		return text, nil
+	}
+	text, err := r.ccn(ctx, "answer", "show", id)
 	if err != nil {
 		return "", err
 	}
 	if r.answers == nil {
 		r.answers = map[string]string{}
 	}
-	r.answers[id] = result.Stdout
-	return result.Stdout, nil
+	r.answers[id] = text
+	return text, nil
 }
 
 func (r *Reader) resolved() (drive.Entry, error) {

@@ -171,3 +171,41 @@ func TestReadingTheRegisterOnceServesEveryQuote(t *testing.T) {
 		t.Fatalf("read the register %d times", shows)
 	}
 }
+
+func TestAnswersReadsEachCitedIDAndHisTopRankedOnTheScopeAndSkipsAnIDNoAnswerHolds(t *testing.T) {
+	fake := &shelltest.Fake{}
+	fake.Reply(`{"id":"0531fdd00","title":"which routes","body":"every route","updated_at":"2026-11-04","tags":["topic:llm-gateway"]}`, "ccn", "-R", "/repo", "answer", "show", "0531fdd", "--json")
+	fake.Fail(3, "not-found: entity not found", "ccn", "-R", "/repo", "answer", "show", "7777777", "--json")
+	fake.Reply(`[{"id":"c47347100","title":"a night","body":"what changed","updated_at":"2026-11-02"}]`, "ccn", "-R", "/repo", "answer", "search", "dream", "--label", "scope:durable")
+	found, err := (&Reader{Runner: fake, Entry: func() (drive.Entry, error) { return drive.Entry{Checkout: "/repo"}, nil }}).Answers(context.Background(), []string{"0531fdd", "7777777"}, "dream")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Answer{{ID: "0531fdd00", Title: "which routes", Body: "every route", UpdatedAt: "2026-11-04"}, {ID: "c47347100", Title: "a night", Body: "what changed", UpdatedAt: "2026-11-02"}}
+	if !reflect.DeepEqual(found, want) {
+		t.Fatalf("Answers = %+v, want %+v", found, want)
+	}
+}
+
+func TestAnswersFailsWhenTheStoreCannotBeRead(t *testing.T) {
+	fake := &shelltest.Fake{}
+	fake.Fail(1, "open git repository", "ccn", "-R", "/repo", "answer", "show", "0531fdd", "--json")
+	if _, err := (&Reader{Runner: fake, Entry: func() (drive.Entry, error) { return drive.Entry{Checkout: "/repo"}, nil }}).Answers(context.Background(), []string{"0531fdd"}, ""); err == nil {
+		t.Fatal("a store that cannot be read must not read as an answer that does not exist")
+	}
+}
+
+func TestAnswersWithNoIDAndNoScopeRunsNoCommandAndPrintsAnEmptyList(t *testing.T) {
+	fake := &shelltest.Fake{}
+	found, err := (&Reader{Runner: fake, Entry: func() (drive.Entry, error) { return drive.Entry{Checkout: "/repo"}, nil }}).Answers(context.Background(), nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(found)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(encoded) != "[]" || len(fake.Calls()) != 0 {
+		t.Fatalf("encoded %s after %d calls", encoded, len(fake.Calls()))
+	}
+}

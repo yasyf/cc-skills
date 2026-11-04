@@ -23,7 +23,8 @@ PR's own commits add or change, as new-file line ranges:
 
 The rows you grade against are in {rows}. Each holds the owner's words verbatim, oldest
 first, and for a tap the board card it answered, agent-written apart from what he picked or
-typed. Read his words for what he meant, given what they answered, never word for word:
+typed. His answers in that file are the ones this PR cites, the topics it names and the top-ranked on its title's scope, not everything he has said. Before you call an answer or a ruling of his absent, look: `ccn answer show <id>` reads one by id, and `ccn answer search <word>` finds one by subject; use one or two words, since every word must match.
+Read his words for what he meant, given what they answered, never word for word:
 - A tap picks one option and rules out the others on its card, so a head that builds an
   option he passed over breaks the row. The card's wording is ours: where an option says
   less than his own words, his words rule.

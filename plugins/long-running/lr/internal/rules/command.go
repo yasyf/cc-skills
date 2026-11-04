@@ -43,7 +43,7 @@ func Command(a *app.App) *cobra.Command {
 			}
 			return nil
 		},
-	}, pickCommand(a, opened), &cobra.Command{
+	}, pickCommand(a, opened), answersCommand(a), &cobra.Command{
 		Use:   "row KEY",
 		Short: "Print an owner row whole, with every repeat and implication, or an answer as `answer <id>`; read this before quoting him",
 		Args:  cobra.ExactArgs(1),
@@ -105,6 +105,28 @@ func Command(a *app.App) *cobra.Command {
 		},
 	})
 	return rules
+}
+
+func answersCommand(a *app.App) *cobra.Command {
+	var repo, scope string
+	answers := &cobra.Command{
+		Use:   "answers [ID...]",
+		Short: "Print as JSON each answer named by id, as `row` finds one, and his top-ranked durable answers on a PR's scope; an id no answer holds is left out",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			reader := &quotes.Reader{Runner: a.Runner, Entry: func() (drive.Entry, error) { return drive.Entry{Checkout: repo}, nil }}
+			found, err := reader.Answers(cmd.Context(), args, scope)
+			if err != nil {
+				return err
+			}
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(found)
+		},
+	}
+	answers.Flags().StringVar(&repo, "repo", "", "the checkout whose cc-notes hold the answers")
+	answers.Flags().StringVar(&scope, "scope", "", "the word of a PR title's scope to search his durable answers for")
+	if err := answers.MarkFlagRequired("repo"); err != nil {
+		panic(err)
+	}
+	return answers
 }
 
 func pickCommand(a *app.App, opened func() (*store.Store, error)) *cobra.Command {
