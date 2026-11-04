@@ -455,11 +455,11 @@ class CcRemote:
 
     def checkout(self, sprite: Sprite) -> Checkout | str:
         git_c = f"git -C {shlex.quote(sprite.root)}"
-        argv = ["ssh", "-F", sprite.ssh_config, "-o", "BatchMode=yes", sprite.host, f"{git_c} remote get-url origin && {git_c} rev-list --count --branches --glob=refs/stash --not HEAD --remotes=origin && {git_c} status --porcelain=v2 --branch"]
+        argv = ["ssh", "-F", sprite.ssh_config, "-o", "BatchMode=yes", sprite.host, f"{git_c} remote get-url origin && {git_c} rev-list --count --branches --glob=refs/stash --not HEAD --remotes=origin && {git_c} worktree list --porcelain | sed -n 's/^worktree //p' | while read -r tree; do [ ! -e \"$tree\" ] || git -C \"$tree\" status --porcelain || echo unreadable; done | wc -l && {git_c} status --porcelain=v2 --branch"]
         done = subprocess.run(argv, capture_output=True, text=True)
         if done.returncode != 0:
             return f"ssh to {sprite.host} could not read {sprite.root}: {(done.stderr.strip().splitlines() or [f'exit {done.returncode}'])[-1]}"
-        origin, off_origin, *lines = done.stdout.splitlines()
+        origin, off_origin, worktree_changes, *lines = done.stdout.splitlines()
         hub = GITHUB_ORIGIN.search(origin)
         if hub is None:
             return f"{sprite.root} has no GitHub origin to check its HEAD against"
@@ -471,7 +471,7 @@ class CcRemote:
             return str(refused)
         return Checkout(
             path=sprite.root,
-            dirty=any(not line.startswith("# ") for line in lines),
+            dirty=int(worktree_changes) > 0 or any(not line.startswith("# ") for line in lines),
             branch=None if branch == "(detached)" else branch,
             head=head,
             on_trunk=on_trunk,
@@ -743,7 +743,7 @@ def main() -> int:
         "git worktree remove without --force and so refuses modified or untracked files, and no Mac process scan applies. "
         "A settled dispatch whose worktree and terminal a cc-remote Sprite task records, with the workspace still recorded, has its Sprite destroyed "
         "with cc-remote destroy, WORKER_CC_REMOTE, else ccRemote in the working directory's .orca.json, else cc-remote on PATH, under the CC_REMOTE_CONFIG it inherits, else ccRemoteConfig in that .orca.json, which refuses a machine without that workspace's label, and its Orca environment removed, once no unsettled dispatch "
-        "shares the workspace, its terminal reads idle twice (skipped under --done), and its checkout, read over ssh, is clean, holds no commit off origin on another branch or stash, and has its HEAD on origin "
+        "shares the workspace, its terminal reads idle twice (skipped under --done), and its checkout, read over ssh, is clean in every worktree, holds no commit off origin on another branch or stash, and has its HEAD on origin "
         "or landed, which GitHub answers for the Sprite's own origin from any working directory; when GitHub cannot answer, such as under a rate limit, the Sprite is kept and named. A removal Orca answers with an error, such as runtime_unavailable when the runtime drops the connection, still counts as removed when "
         "the worktree's directory is gone afterwards, and the Orca error follows on its own error line. A worktree Orca answers selector_not_found for, because it "
         "no longer tracks it, is removed with git worktree remove after the same checks, and kept and named when git refuses. Cleanup is paused until $XDG_STATE_HOME/orca-gc/resumed, default ~/.local/state/orca-gc/resumed, "
