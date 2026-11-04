@@ -553,7 +553,7 @@ func releasedUnchanged(t *testing.T, releases string) (*LandedNotLive, *fakeBus)
 	check.holds = map[[2]string]bool{{"s0", "abc"}: false, {"n0", "def"}: false, {"39ba620", "abc"}: true, {"39ba620", "def"}: true}
 	answers := check.Env.Runner
 	check.Env.Runner = commanded(func(c shell.Command) (shell.Result, error) {
-		if slices.Equal(c.Argv[len(c.Argv)-2:], []string{"status", "--json"}) {
+		if slices.Contains(c.Argv, "status") {
 			return shell.Result{Stdout: releases}, nil
 		}
 		return answers.Run(context.Background(), c)
