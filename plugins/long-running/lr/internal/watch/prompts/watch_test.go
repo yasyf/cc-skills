@@ -747,7 +747,7 @@ func TestADownHostIsProbedOnceAWindowNotOncePerWorker(t *testing.T) {
 	f.orca[workerKey(gone)] = fixture(t, "worker-show.remote")
 	f.clock = f.clock.Add(reshowEvery)
 	check(4)
-	check(5)
+	check(6)
 }
 
 func TestAWaitingWorkerIsReadEveryPoll(t *testing.T) {
