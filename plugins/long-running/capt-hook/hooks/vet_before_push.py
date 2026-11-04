@@ -6,7 +6,7 @@ from collections import defaultdict
 from pathlib import Path
 
 from captain_hook import Allow, BaseHookEvent, Block, Call, Event, HookResult, Input, Tool, Warn, WorkflowState, on
-from captain_hook.util.builds import LOAD_PER_CORE, HostLoad, is_local_build
+from captain_hook.util.builds import LOAD_PER_CORE, is_local_build
 from pydantic import BaseModel
 
 from .compaction_handoff import COMMUNICATOR_LANE, ROOT_LANE, Bound
@@ -158,9 +158,9 @@ def note_compile_checks(evt: BaseHookEvent) -> None:
         Input(command="yarn tsc:api", env=SATURATED, cwd=str(FIXTURE)): Allow(),
     },
 )
-def note_load_refused_checks(evt: BaseHookEvent) -> None:
+def note_attempted_checks(evt: BaseHookEvent) -> None:
     gated = [call for call in evt.command.calls() if call.name == "go" and is_local_build(call)]
-    if not in_lane(evt) or not gated or not HostLoad.sample().saturated:
+    if not in_lane(evt) or not gated:
         return
     record(evt, [check for call in gated for check in compiles(evt, call)])
 
