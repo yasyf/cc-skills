@@ -151,7 +151,7 @@ func TestTheCoordinatorsOverdueItemsOpenTheUpdateOldestFirstWithOneDueThisMoment
 	lines := renderedWith(t, s)
 
 	want := []string{"", "2 overdue:", "- ask #12, due " + pacific(ago(44)), "- unfinished ask/000001, due " + pacific(now), ""}
-	if !strings.HasPrefix(lines[0], "# Owner update: ") || !reflect.DeepEqual(lines[1:6], want) || !strings.HasPrefix(lines[6], "## "+sinceTitle) {
+	if !strings.HasPrefix(lines[0], "# Owner update: ") || !reflect.DeepEqual(lines[1:6], want) || !strings.HasPrefix(lines[6], "## "+workstreamsTitle) {
 		t.Fatalf("the update opens:\n%s", strings.Join(lines[:7], "\n"))
 	}
 }
@@ -169,7 +169,7 @@ func TestUndeliveredOwnerOrdersFollowTheOverdueItemsAtTheTop(t *testing.T) {
 	lines := strings.Split(Render(in).Text, "\n")
 
 	want := []string{"", "Owner asks nobody has delivered, orders with no live lane, open PR or delivered proof and questions nobody answered (1):", "- m85 Nov 3 4:50 AM: build the phone app for approvals", ""}
-	if !reflect.DeepEqual(lines[1:5], want) || !strings.HasPrefix(lines[5], "## "+sinceTitle) {
+	if !reflect.DeepEqual(lines[1:5], want) || !strings.HasPrefix(lines[5], "## "+workstreamsTitle) {
 		t.Fatalf("the update opens:\n%s", strings.Join(lines[:6], "\n"))
 	}
 }
@@ -179,7 +179,7 @@ func TestNothingOverdueAddsNoLine(t *testing.T) {
 
 	lines := renderedWith(t, s)
 
-	if lines[1] != "" || !strings.HasPrefix(lines[2], "## "+sinceTitle) {
+	if lines[1] != "" || !strings.HasPrefix(lines[2], "## "+workstreamsTitle) {
 		t.Fatalf("the update opens:\n%s", strings.Join(lines[:3], "\n"))
 	}
 }
