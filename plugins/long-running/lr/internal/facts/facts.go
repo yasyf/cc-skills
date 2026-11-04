@@ -843,6 +843,7 @@ func (s Source) factsOf(row statusRow, pr pullRequest, required []string, stored
 		Uncomputed: mergeable == machine.MergeableUnknown && !strings.Contains(row.Verdict, queueUnknown),
 		Queue:      queue,
 		UnsafeWait: gates.UnsafeWait(pr.Body),
+		Body:       pr.Body,
 	}
 	if queue == machine.QueueQueued {
 		f.QueuedHead = row.Head

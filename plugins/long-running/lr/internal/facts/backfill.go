@@ -2,15 +2,12 @@ package facts
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"slices"
-	"strings"
 
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
 )
-
-const bodyBytes = 60_000
 
 func (s Source) Backfill(ctx context.Context) (int, error) {
 	lanes := make(map[int]string)
@@ -45,7 +42,7 @@ func (s Source) Backfill(ctx context.Context) (int, error) {
 		if !found || pr.State != "OPEN" {
 			continue
 		}
-		body, err := json.Marshal(map[string]string{"body": strings.ToValidUTF8(pr.Body[:min(len(pr.Body), bodyBytes)], "")})
+		body, err := prrow.BodyRecord(pr.Body)
 		if err != nil {
 			return posted, err
 		}
