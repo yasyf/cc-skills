@@ -498,10 +498,6 @@ func (d *Desk) liveClocks() ([]string, error) {
 	return d.store.MatchingFactEntries(deskRunner, clockFacts, "ended", "")
 }
 
-func blank(value any) bool {
-	return value == nil || value == "" || value == false
-}
-
 func (d *Desk) flush(ctx context.Context) error {
 	clocks, err := d.liveClocks()
 	if err != nil {

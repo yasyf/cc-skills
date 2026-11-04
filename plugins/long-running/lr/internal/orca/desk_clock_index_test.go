@@ -71,3 +71,21 @@ func TestClockChangesAndWorkSetChangesRollBackTogether(t *testing.T) {
 		t.Fatal("partial clock write survived rollback", found, err)
 	}
 }
+
+func TestUnmigratedRelayReleasesItsLockBeforeProcessingWork(t *testing.T) {
+	w := newDeskWorld(t)
+	if err := w.desk.store.Edit(deskRunner, func(tx *incident.Tx) error { return tx.DropFact(clockWork) }); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.desk.Run(context.Background(), true); err == nil {
+		t.Fatal("relay ran before the clock store was initialized")
+	}
+	if len(w.calls) != 0 || len(w.posts) != 0 {
+		t.Fatal("uninitialized relay processed work", w.calls, w.posts)
+	}
+	lock, held, err := w.desk.holdRelayLock()
+	if err != nil || !held {
+		t.Fatal("uninitialized relay retained its migration lock", held, err)
+	}
+	defer lock.Close()
+}
