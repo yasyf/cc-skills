@@ -78,7 +78,7 @@ func (w Waker) Wake(ctx context.Context, a CardAnswer) error {
 	}
 	text := fmt.Sprintf("WAKE %s: the owner answered your card: %s. Act on it now; any record of yours naming %s acknowledges it.", a.Card, a.Said[:min(len(a.Said), saidLimit)], a.Card)
 	if _, err := w.Post(ctx, client.Draft{
-		Drive: w.Cards.Bus, Lane: w.Lane, Kind: wakeKind, ID: wakeTopic + a.Key, Topic: wakeTopic + a.Card, To: []string{asker}, Re: a.OwnerSeq, Text: text,
+		Drive: w.Cards.Bus, Lane: w.Lane, Kind: wakeKind, ID: wakeTopic + a.Key, Topic: wakeTopic + a.Card, To: []string{asker}, Re: a.OwnerSeq, Text: text, Force: true,
 		Attrs: map[string]string{"session": w.Cards.Session, "card": a.Card, "block": a.Block, laneField: asker},
 	}); err != nil {
 		return err
@@ -129,7 +129,7 @@ func namesAny(names ...string) *regexp.Regexp {
 
 func (w Waker) needsLane(ctx context.Context, a CardAnswer, lane, what string) error {
 	_, err := w.Post(ctx, client.Draft{
-		Drive: w.Cards.Bus, Lane: w.Lane, Kind: askKind, ID: needsLaneTopic + a.Key, Topic: needsLaneTopic + a.Card, To: []string{metaDesk}, Re: a.OwnerSeq,
+		Drive: w.Cards.Bus, Lane: w.Lane, Kind: askKind, ID: needsLaneTopic + a.Key, Topic: needsLaneTopic + a.Card, To: []string{metaDesk}, Re: a.OwnerSeq, Force: true,
 		Text:  fmt.Sprintf("NEEDS-LANE %s on board %s: the owner answered: %s. %s.", a.Card, w.Cards.Session, a.Said, what),
 		Attrs: map[string]string{"session": w.Cards.Session, "card": a.Card, "block": a.Block, laneField: lane},
 	})
@@ -169,7 +169,7 @@ func (w Waker) Late(ctx context.Context) error {
 		}
 		attrs, topic := wake.Fields.Attrs, lateTopic+strconv.FormatInt(wake.Seq, 10)
 		if _, err := w.Post(ctx, client.Draft{
-			Drive: w.Cards.Bus, Lane: w.Lane, Kind: lateKind, ID: topic, Topic: topic, To: []string{metaDesk, communicator}, Re: wake.Seq,
+			Drive: w.Cards.Bus, Lane: w.Lane, Kind: lateKind, ID: topic, Topic: topic, To: []string{metaDesk, communicator}, Re: wake.Seq, Force: true,
 			Text: fmt.Sprintf("%s has not acknowledged the owner's answer on %s ten minutes after wake #%d. Nothing is blocked.", attrs[laneField], attrs["card"], wake.Seq),
 		}); err != nil {
 			return err
