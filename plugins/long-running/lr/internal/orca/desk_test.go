@@ -1329,6 +1329,16 @@ func TestAnIncidentRecordNamingALiveLaneOnTheMonitorSkipsTheLaunch(t *testing.T)
 	wantContains(t, w.wantEscalation("LAUNCH-SKIPPED "), "duplicate of journal-open-fix")
 }
 
+func TestAnIncidentOnAnOwnerMutedMonitorLaunchesNothing(t *testing.T) {
+	w := newDeskWorld(t)
+	w.add(object{"kind": "hold", "lane": coordinatorLane, "text": "OWNER-MUTED 334038082", "fields": object{"attrs": map[string]string{"monitor": "334038082", "mute": "dt-1"}}})
+	w.incidentOnMonitor()
+	if len(w.fired) != 0 {
+		t.Fatal(w.fired)
+	}
+	wantContains(t, w.wantEscalation("INCIDENT-MUTED "), "the owner muted monitor 334038082 (Datadog downtime dt-1")
+}
+
 func TestAnIncidentRecordNamingAFinishedLaneDoesNotSkipTheLaunch(t *testing.T) {
 	w := newDeskWorld(t)
 	w.add(object{"kind": "incident", "lane": coordinatorLane, "text": "monitor 334038082 is journal-open-plat", "refs": object{"lanes": []string{"journal-open-fix"}}, "fields": object{"attrs": map[string]string{"monitor": "334038082"}}})
