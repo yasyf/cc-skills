@@ -179,3 +179,16 @@ func TestReadStartsAtALineBoundaryInsideALongTranscript(t *testing.T) {
 		t.Fatalf("tasks = %+v, want the task in the tail", tasks)
 	}
 }
+
+func TestReadTakesToolInputsRecordedAsStrings(t *testing.T) {
+	at := now.Add(-time.Minute)
+	tasks := read(t,
+		assistantCall(t, process, "a1", "Agent", map[string]any{"name": "update-desk", "description": "desk", "run_in_background": "true"}, at),
+		assistantCall(t, process, "b1", "Bash", map[string]any{"command": "lr wait 49", "run_in_background": "true"}, at),
+		assistantCall(t, process, "m1", "Monitor", map[string]any{"command": "tail -f ci.log", "timeout_ms": "1800000"}, at),
+		assistantCall(t, process, "f1", "Bash", map[string]any{"command": "ls", "run_in_background": "false"}, at),
+	)
+	if len(tasks) != 3 {
+		t.Fatalf("tasks = %+v, want the Agent, the background Bash and the Monitor", tasks)
+	}
+}

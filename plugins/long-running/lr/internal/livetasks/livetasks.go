@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -69,8 +70,17 @@ type call struct {
 	Command         string `json:"command"`
 	Description     string `json:"description"`
 	Name            string `json:"name"`
-	TimeoutMs       int64  `json:"timeout_ms"`
-	RunInBackground bool   `json:"run_in_background"`
+	TimeoutMs       scalar `json:"timeout_ms"`
+	RunInBackground scalar `json:"run_in_background"`
+}
+
+// scalar reads a tool input a transcript may record as a JSON string or as its
+// plain value: Claude Code keeps the form the model sent.
+type scalar string
+
+func (s *scalar) UnmarshalJSON(raw []byte) error {
+	*s = scalar(strings.Trim(string(raw), `"`))
+	return nil
 }
 
 type started struct {
@@ -201,7 +211,7 @@ func background(b block) (*started, bool) {
 	switch {
 	case b.Name == "Monitor":
 		return &started{call: c, kind: "Monitor", raw: string(b.Input)}, true
-	case (b.Name == "Bash" || b.Name == "Agent") && c.RunInBackground:
+	case (b.Name == "Bash" || b.Name == "Agent") && c.RunInBackground == "true":
 		return &started{call: c, kind: b.Name, raw: string(b.Input)}, true
 	}
 	return nil, false
@@ -247,8 +257,8 @@ func (s *started) expired(now time.Time) bool {
 	if s.kind != "Monitor" {
 		return false
 	}
-	timeout := s.call.TimeoutMs
-	if timeout == 0 {
+	timeout, err := strconv.ParseInt(string(s.call.TimeoutMs), 10, 64)
+	if err != nil || timeout == 0 {
 		timeout = defaultMonitorMs
 	}
 	return s.at.Add(time.Duration(timeout) * time.Millisecond).Before(now)
