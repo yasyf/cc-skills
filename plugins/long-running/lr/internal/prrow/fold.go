@@ -1,6 +1,7 @@
 package prrow
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -36,6 +37,7 @@ const (
 	FactUnknownSince = "unknown-since"
 	FactBumps        = "mergeable-bumps"
 
+	shortSHA    = 7
 	foldWindow  = 72 * time.Hour
 	bodyBytes   = 60_000
 	readKind    = "github"
@@ -51,7 +53,16 @@ const (
 	factValues    = "read-values"
 	factBody      = "read-body"
 	factSeen      = "seen"
+	factCarriedBy = "read-carried-by"
+	factTapFrom   = "read-tap-from"
+	factReturned  = "read-tap-returned"
 	saidSuffix    = "-said"
+
+	deltaAttr       = "delta"
+	carriedByAttr   = "carried_by"
+	tapFromAttr     = "tap_from"
+	tapReturnedAttr = "tap_returned"
+	notRecorded     = "not recorded"
 )
 
 var (
@@ -162,7 +173,7 @@ func (f Fold) apply(t *store.Tx, rows map[int]store.ReviewRow, record client.Rec
 			if !known {
 				continue
 			}
-			row, err = f.pushed(t, row, record, headOf(record, number))
+			row, err = f.pushed(t, row, record, f.headOf(record, number))
 		case "lr.head":
 			if !known {
 				continue
@@ -198,9 +209,14 @@ func newRow(repo string, number int) store.ReviewRow {
 
 const noReview = "no approving review at this head"
 
-func headOf(record client.Record, number int) string {
+func (f Fold) headNamed(record client.Record, number int) string {
 	attrs := record.Fields.Attrs
-	if named := attrs["head:"+strconv.Itoa(number)]; named != "" {
+	return cmp.Or(attrs["head:"+strconv.Itoa(number)], attrs[fmt.Sprintf("head:%s#%d", f.Repo, number)])
+}
+
+func (f Fold) headOf(record client.Record, number int) string {
+	attrs := record.Fields.Attrs
+	if named := f.headNamed(record, number); named != "" {
 		_, sha, moved := strings.Cut(strings.Fields(named)[0], "..")
 		if moved {
 			return sha
@@ -215,6 +231,15 @@ func headOf(record client.Record, number int) string {
 
 func (f Fold) pushed(t *store.Tx, row store.ReviewRow, record client.Record, head string) (store.ReviewRow, error) {
 	at := store.Stamp(record.At)
+	if head != "" {
+		replaced := ""
+		if at >= row.HeadAt && !sameHead(row.Head, head) {
+			replaced = row.Head
+		}
+		if err := f.putDelta(t, row.Number, record, head, replaced); err != nil {
+			return row, err
+		}
+	}
 	if at < row.HeadAt {
 		return row, nil
 	}
@@ -235,6 +260,30 @@ func (f Fold) pushed(t *store.Tx, row store.ReviewRow, record client.Record, hea
 		ApplyBody(&row, body)
 	}
 	return row, nil
+}
+
+func (f Fold) putDelta(t *store.Tx, number int, record client.Record, head, replaced string) error {
+	was, why := "", ""
+	if fields := strings.Fields(f.headNamed(record, number)); len(fields) > 0 {
+		named, _, moved := strings.Cut(fields[0], "..")
+		if moved {
+			was = named
+		}
+		why = strings.Join(fields[1:], " ")
+	}
+	said := map[string]string{gates.DeltaFromFact: cmp.Or(was, replaced)}
+	if class := record.Fields.Attrs[deltaAttr]; class != "" {
+		said[gates.DeltaFact], said[gates.DeltaWhyFact] = class, clip(cmp.Or(why, record.Text), fieldChars)
+	}
+	for kind, value := range said {
+		if value == "" {
+			continue
+		}
+		if err := t.PutFact(f.Repo, number, head, kind, value, record.At); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func BodyRecord(body string) (json.RawMessage, error) {
@@ -272,6 +321,7 @@ func (f Fold) read(t *store.Tx, row store.ReviewRow, record client.Record) (stor
 	for kind, value := range map[string]string{
 		factCI: attrs["ci"], factApprovers: attrs["approvers"], factMergeable: attrs["mergeable"], factQueue: attrs["queue"],
 		FactFailing: attrs["failing"], FactDraft: attrs["draft"], FactForeign: attrs["foreign"], factValues: valuesOf(attrs), factBody: attrs["body"],
+		factCarriedBy: attrs[carriedByAttr], factTapFrom: attrs[tapFromAttr], factReturned: attrs[tapReturnedAttr],
 	} {
 		if err := t.PutFact(f.Repo, row.Number, head, kind, value, record.At); err != nil {
 			return row, err
@@ -285,6 +335,11 @@ func (f Fold) read(t *store.Tx, row store.ReviewRow, record client.Record) (stor
 		}
 		pushed, unstamped := store.Parse(row.HeadAt)
 		if !seen || unstamped != nil || record.At.Sub(pushed) >= headGrace {
+			if row.Head != "" {
+				if err := t.PutFact(f.Repo, row.Number, head, gates.DeltaFromFact, row.Head, record.At); err != nil {
+					return row, err
+				}
+			}
 			row.Head, row.HeadAt = head, store.Stamp(record.At)
 			if err := t.PutFact(f.Repo, row.Number, head, factSeen, "yes", record.At); err != nil {
 				return row, err
@@ -342,15 +397,44 @@ func Materialize(row store.ReviewRow, facts map[string]string, hold string, bran
 	row.SupersededBy = orElse(facts[FactWithdrawn], None)
 	row.Parent, row.ParentState = parentOf(row, branches, trunk)
 	_, exempt := facts["exempt"]
-	row.Tapped = machine.Tap(facts["tap"]) == machine.TapTapped || exempt
+	tappedHere := machine.Tap(facts["tap"]) == machine.TapTapped
+	carried := facts[factCarriedBy] != "" && !tappedHere
+	row.Tapped = tappedHere || exempt || carried
 	row.TappedAt, row.TappedBy = NotYet, NotYet
 	row.TapRefused = orElse(facts[bus.TapRefusedFact], None)
 	if row.Tapped {
 		row.TapRefused = None
-		row.TappedAt, row.TappedBy = orElse(facts[FactTapAt], "not recorded"), orElse(facts[FactTapBy], "not recorded")
+		unstated := notRecorded
+		if carried {
+			unstated = "carried from " + shortHead(facts[factTapFrom])
+		}
+		row.TappedAt, row.TappedBy = orElse(facts[FactTapAt], unstated), orElse(facts[FactTapBy], unstated)
 	}
 	row.State = stateOf(row, facts)
-	return Decide(row)
+	row = Decide(row)
+	if tappedHere || row.SupersededBy != None {
+		return row
+	}
+	return withCarry(row, facts)
+}
+
+func withCarry(row store.ReviewRow, facts map[string]string) store.ReviewRow {
+	from := shortHead(facts[factTapFrom])
+	said := ""
+	switch {
+	case facts[factCarriedBy] != "":
+		said = fmt.Sprintf("your tap at %s carried to this head: %s", from, gates.CarryWhy(facts[factCarriedBy]))
+	case facts[factReturned] != "":
+		said = fmt.Sprintf("your tap at %s does not carry to this head: %s", from, facts[factReturned])
+	default:
+		return row
+	}
+	row.WaitsOn = strings.TrimSuffix(row.WaitsOn, ".") + "; " + said
+	return row
+}
+
+func shortHead(head string) string {
+	return head[:min(shortSHA, len(head))]
 }
 
 func stateOf(row store.ReviewRow, facts map[string]string) string {
@@ -519,6 +603,15 @@ func readAttrs(repo string, pr machine.Facts) map[string]string {
 	}
 	if pr.ForeignAuthor != "" {
 		attrs["foreign"] = pr.ForeignAuthor
+	}
+	if pr.TapFrom != "" {
+		attrs[tapFromAttr] = pr.TapFrom
+	}
+	if pr.CarriedBy != "" {
+		attrs[carriedByAttr] = pr.CarriedBy
+	}
+	if pr.TapReturned != "" {
+		attrs[tapReturnedAttr] = pr.TapReturned
 	}
 	if pr.Body != "" {
 		sum := sha256.Sum256([]byte(pr.Body))

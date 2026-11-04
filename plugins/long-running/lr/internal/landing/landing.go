@@ -142,7 +142,7 @@ func dequeued(f machine.Facts, said string) Said {
 	case !f.Tapped():
 		answer.Accepted, answer.Refused, answer.Alarm = "UNTAPPED-DEQUEUED", "UNTAPPED-DEQUEUE-REFUSED", true
 		if f.TapFrom != "" {
-			answer.Text = fmt.Sprintf("his tap at %s does not carry to this head, which no read calls the same; ", f.TapFrom[:min(10, len(f.TapFrom))])
+			answer.Text = fmt.Sprintf("his tap at %s does not carry to this head: %s; ", f.TapFrom[:min(10, len(f.TapFrom))], f.TapReturned)
 		}
 		answer.Text += "it was queued with no owner tap and no go naming an exempt class at this head; a class on fidelity's ok admits it only through a go lane's lr go, so ask for that go, then queue it; an incident fix asks for nothing and lands by plain squash once approved and green"
 	default:

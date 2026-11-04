@@ -987,12 +987,15 @@ func TestATapCarriesToANewHeadOnlyWhenItMeansWhatTheTappedHeadMeant(t *testing.T
 		diff   string
 		graded map[string]string
 		by     string
+		back   string
 	}{
 		"a restack whose own diff is the same":       {diff: restacked, by: gates.BySameDiff},
 		"whitespace changed inside a line, ungraded": {diff: respaced},
 		"fidelity judged the new head the same":      {diff: respaced, graded: judged(gates.BehaviorSame, head2), by: gates.ByFidelity},
 		"fidelity judged the new head changed":       {diff: respaced, graded: judged(gates.BehaviorChanged, head2)},
 		"fidelity judged it against another head":    {diff: respaced, graded: judged(gates.BehaviorSame, head3)},
+		"a review fix its head record names":         {diff: respaced, graded: map[string]string{gates.DeltaFact: gates.DeltaReviewFix, gates.DeltaFromFact: head2}, by: gates.DeltaReviewFix},
+		"a behavior change its head record names":    {diff: respaced, graded: map[string]string{gates.DeltaFact: gates.DeltaBehavior, gates.DeltaFromFact: head2, gates.DeltaWhyFact: "drops chats"}, back: "a behavior change at " + head[:7] + ": drops chats"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			s := memory(t)
@@ -1006,6 +1009,9 @@ func TestATapCarriesToANewHeadOnlyWhenItMeansWhatTheTappedHeadMeant(t *testing.T
 
 			if row.TapFrom != head2 || row.CarriedBy != tc.by || row.Tapped() != (tc.by != "") {
 				t.Fatalf("tap %q from %q by %q, want from %s by %q", row.Tap, row.TapFrom, row.CarriedBy, head2, tc.by)
+			}
+			if tc.back != "" && row.TapReturned != tc.back {
+				t.Fatalf("returned %q, want %q", row.TapReturned, tc.back)
 			}
 		})
 	}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"regexp"
 	"strconv"
+	"strings"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
@@ -32,7 +33,7 @@ type StaleTaps struct {
 
 func staleWhy(shown string, f machine.Facts) (string, bool) {
 	if !namesHead(shown, f.Head) && f.CarriedBy == "" {
-		return "a new version replaced it, so the tap no longer covers it", true
+		return strings.TrimSuffix("a new version replaced it, so the tap no longer covers it: "+f.TapReturned, ": "), true
 	}
 	if f.Graded() && !f.Cleared() {
 		return "a check of this version found a problem that needs a verdict first", false

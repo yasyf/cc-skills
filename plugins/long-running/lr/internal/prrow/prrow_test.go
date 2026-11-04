@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -642,5 +644,86 @@ func TestWithdrawingAStaleCardLeavesALandedRowLanded(t *testing.T) {
 	}
 	if row, _, err := s.ReviewRow(testRepo, 1); err != nil || row.State != StateLanded || row.SupersededBy == "redone" {
 		t.Fatalf("row = %+v, %v, want it still landed", row, err)
+	}
+}
+
+func postClassed(t *testing.T, number int, was, head, class, note string) {
+	t.Helper()
+	if _, err := client.Post(context.Background(), client.Draft{
+		Drive: "d", Lane: "lane-7", Kind: "head", Text: fmt.Sprintf("HEAD #%d %s", number, head), PRs: []string{fmt.Sprintf("%s#%d", testRepo, number)},
+		ID: fmt.Sprintf("head/%d/%s/%s", number, head, class), Attrs: map[string]string{fmt.Sprintf("head:%d", number): was + ".." + head + " " + note, "delta": class},
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAHeadRecordsClassAndWhatItReplacedReachTheStore(t *testing.T) {
+	f, s := foldFor(t)
+	const tapped, unnamed, classed = "aaaaaaaaaaaa", "bbbbbbbbbbbb", "cccccccccccc"
+	postOpened(t, 1, tapped, "dev", "body")
+	folded(t, f, 1)
+	postHead(t, 1, unnamed)
+	folded(t, f, 1)
+	postClassed(t, 1, unnamed, classed, gates.DeltaReviewFix, "the finder's nit")
+
+	folded(t, f, 1)
+
+	got, err := s.HeadFacts(testRepo, 1, gates.DeltaFacts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	said := map[string]string{}
+	for _, fact := range got {
+		said[fact.Head+" "+fact.Kind] = fact.Value
+	}
+	want := map[string]string{
+		unnamed + " " + gates.DeltaFromFact: tapped,
+		classed + " " + gates.DeltaFromFact: unnamed,
+		classed + " " + gates.DeltaFact:     gates.DeltaReviewFix,
+		classed + " " + gates.DeltaWhyFact:  "the finder's nit",
+	}
+	if !maps.Equal(said, want) {
+		t.Fatalf("facts = %v, want %v", said, want)
+	}
+}
+
+func TestARowSaysHisTapCarriedOrReturnedAndWhy(t *testing.T) {
+	const from = "aaaaaaaaaaaa"
+	ready := readyRow()
+	for name, tc := range map[string]struct {
+		facts  map[string]string
+		tapped bool
+		waits  string
+	}{
+		"carried by a class":          {map[string]string{factCarriedBy: "review-fix", factTapFrom: from}, true, "You approved it; the landing desk lands it next; your tap at aaaaaaa carried to this head: every change since the tapped head is a review fix"},
+		"carried by the same diff":    {map[string]string{factCarriedBy: gates.BySameDiff, factTapFrom: from}, true, "You approved it; the landing desk lands it next; your tap at aaaaaaa carried to this head: the PR's own diff is the same as at the tapped head"},
+		"returned by a behavior head": {map[string]string{factReturned: "a behavior change at bbbbbbb: drops chats", factTapFrom: from}, false, "Only your approval; your tap at aaaaaaa does not carry to this head: a behavior change at bbbbbbb: drops chats"},
+		"his own tap at this head":    {map[string]string{"tap": string(machine.TapTapped), factCarriedBy: "rebase", factTapFrom: from}, true, tappedWaits},
+	} {
+		t.Run(name, func(t *testing.T) {
+			facts := map[string]string{factCI: CIGreen, factApprovers: "a", factMergeable: string(machine.MergeableClean), "finder": string(machine.FinderClear), "fidelity": string(machine.FidelityPass)}
+			maps.Copy(facts, tc.facts)
+			row := Materialize(ready, facts, "", nil, "dev")
+			if row.Tapped != tc.tapped || row.WaitsOn != tc.waits {
+				t.Fatalf("tapped %v, waits %q; want %v, %q", row.Tapped, row.WaitsOn, tc.tapped, tc.waits)
+			}
+		})
+	}
+}
+
+func TestACarryReachesTheRowThroughTheRead(t *testing.T) {
+	f, _ := foldFor(t)
+	postOpened(t, 1, "aaaaaaaaaaaa", "dev", "body")
+	folded(t, f, 1)
+	read := cleanRead(1, "aaaaaaaaaaaa")
+	read.TapFrom, read.CarriedBy = "9999999", gates.DeltaRebase
+
+	if err := f.PostReads(context.Background(), []machine.Facts{read}); err != nil {
+		t.Fatal(err)
+	}
+	row := folded(t, f, 1)
+
+	if !row.Tapped || row.TappedBy != "carried from 9999999" || !strings.Contains(row.WaitsOn, "is a rebase") {
+		t.Fatalf("tapped %v by %q, waits %q", row.Tapped, row.TappedBy, row.WaitsOn)
 	}
 }

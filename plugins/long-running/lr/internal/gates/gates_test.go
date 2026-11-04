@@ -98,10 +98,69 @@ func TestATapCarriesOnlyWhenTheNewHeadMeansTheSameAsTheTappedOne(t *testing.T) {
 		"no diff recorded at the tapped head":       {map[string]string{}, map[string]string{DiffFact: ""}, ""},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if got := CarriedBy(oldHead, c.atTap, c.atHead); got != c.want {
+			if got, _ := CarriedBy(oldHead, newHead, c.atTap, c.atHead, nil); got != c.want {
 				t.Fatalf("carried by %q, want %q", got, c.want)
 			}
 		})
+	}
+}
+
+func TestAHeadRecordsClassDecidesWhetherHisTapCarries(t *testing.T) {
+	const middle, far = "bb22cc33dd44", "cc33dd44ee55"
+	link := func(head, class, from, why string) []store.HeadFact {
+		facts := []store.HeadFact{{Head: head, Kind: DeltaFromFact, Value: from}}
+		if class != "" {
+			facts = append(facts, store.HeadFact{Head: head, Kind: DeltaFact, Value: class}, store.HeadFact{Head: head, Kind: DeltaWhyFact, Value: why})
+		}
+		return facts
+	}
+	same, changed := map[string]string{DiffFact: "tapped"}, map[string]string{DiffFact: "other"}
+	for name, c := range map[string]struct {
+		atHead   map[string]string
+		deltas   []store.HeadFact
+		by, back string
+	}{
+		"a review-fix head carries":             {changed, link(newHead, DeltaReviewFix, oldHead, "the finder's nit"), "review-fix", ""},
+		"a fix he ordered carries":              {changed, link(newHead, DeltaOrderedFix, oldHead, "his fix"), "ordered-fix", ""},
+		"a behavior head returns saying so":     {changed, link(newHead, DeltaBehavior, oldHead, "drops archived chats"), "", "a behavior change at " + newHead[:7] + ": drops archived chats"},
+		"a scope head returns saying so":        {changed, link(newHead, DeltaScope, oldHead, "adds the export"), "", "a scope change at " + newHead[:7] + ": adds the export"},
+		"a rebase then a behavior head returns": {changed, slices.Concat(link(middle, DeltaRebase, oldHead, "onto dev"), link(newHead, DeltaBehavior, middle, "drops chats")), "", "a behavior change at " + newHead[:7] + ": drops chats"},
+		"a behavior head then a rebase returns": {changed, slices.Concat(link(middle, DeltaBehavior, oldHead, "drops chats"), link(newHead, DeltaRebase, middle, "onto dev")), "", "a behavior change at " + middle[:7] + ": drops chats"},
+		"a rebase then a review fix names both": {changed, slices.Concat(link(middle, DeltaRebase, oldHead, "onto dev"), link(newHead, DeltaReviewFix, middle, "nit")), "rebase,review-fix", ""},
+		"a class on the same diff names itself": {same, link(newHead, DeltaRebase, oldHead, "onto dev"), "rebase", ""},
+		"no class with the same diff carries":   {same, link(newHead, "", oldHead, ""), BySameDiff, ""},
+		"a label cannot outrank the same diff":  {same, link(newHead, DeltaBehavior, oldHead, "said so"), BySameDiff, ""},
+		"no class with a changed diff returns":  {changed, link(newHead, "", oldHead, ""), "", unjudged},
+		"a class the rule does not know":        {changed, link(newHead, "cleanup", oldHead, "tidy"), "", unjudged},
+		"a classed head with an unclassed one":  {changed, slices.Concat(link(middle, "", oldHead, ""), link(newHead, DeltaRebase, middle, "onto dev")), "", unjudged},
+		"a chain that never reaches his tap":    {changed, link(newHead, DeltaReviewFix, far, "nit"), "", unjudged},
+		"heads that point at each other":        {changed, slices.Concat(link(middle, DeltaRebase, newHead, "back"), link(newHead, DeltaRebase, middle, "forth")), "", unjudged},
+		"a class beside fidelity judging a change": {
+			map[string]string{DiffFact: "other", BehaviorFact: BehaviorChanged, SinceFact: oldHead, ChangedFact: "drops chats"},
+			link(newHead, DeltaReviewFix, oldHead, "nit"), "", "fidelity judged a change: drops chats",
+		},
+		"a behavior class beside fidelity judging it the same": {
+			map[string]string{DiffFact: "other", BehaviorFact: BehaviorSame, SinceFact: oldHead, fidelityFact: "pass"},
+			link(newHead, DeltaBehavior, oldHead, "drops chats"), "", "a behavior change at " + newHead[:7] + ": drops chats",
+		},
+		"no class with fidelity judging it the same": {
+			map[string]string{DiffFact: "other", BehaviorFact: BehaviorSame, SinceFact: oldHead, fidelityFact: "pass"},
+			link(newHead, "", oldHead, ""), ByFidelity, "",
+		},
+		"a shorter form of each head": {changed, link(newHead[:7], DeltaRebase, oldHead[:7], "onto dev"), "rebase", ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			by, back := CarriedBy(oldHead, newHead, same, c.atHead, c.deltas)
+			if by != c.by || back != c.back {
+				t.Fatalf("carried by %q, returned %q; want %q, %q", by, back, c.by, c.back)
+			}
+		})
+	}
+}
+
+func TestCarryWhyWordsEachClassPlainly(t *testing.T) {
+	if got, want := CarryWhy("rebase,review-fix"), "every change since the tapped head is a rebase or a review fix"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
 	}
 }
 

@@ -181,3 +181,10 @@ func (s *staleRevShell) Run(_ context.Context, c shell.Command) (shell.Result, e
 	s.revs = append(s.revs, c.Argv[len(c.Argv)-1])
 	return shell.Result{Stdout: "rev: 5\n"}, nil
 }
+
+func TestATapLeavingTheBoardSaysWhatChanged(t *testing.T) {
+	why, moved := staleWhy(shownHead, machine.Facts{Head: "bbbbbbb", TapReturned: "a behavior change at bbbbbbb: drops chats"})
+	if want := "a new version replaced it, so the tap no longer covers it: a behavior change at bbbbbbb: drops chats"; why != want || !moved {
+		t.Fatalf("why %q moved %v, want %q", why, moved, want)
+	}
+}
