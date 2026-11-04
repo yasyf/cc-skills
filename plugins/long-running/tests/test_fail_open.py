@@ -49,6 +49,7 @@ KEPT_REFUSALS = KEPT | {
     "communicator_chat.A do-nothing Bash call ends no turn, and t": "the call has already shown in the owner's window when a warning lands",
     "desk_ownership.The coordinator owns the relay and every d": "trust: a runner or desk started from the communicator",
     "no_credential_on_a_shell.no_credential_on_a_shell": "the owner ordered the refusal: a credential in a transcript cannot be taken back",
+    "no_credential_on_a_shell.no_whole_object_kubectl_reads": "the owner ordered the refusal: a pod env value printed by a whole-object read cannot be taken back",
     "incident_accepts_findings.incident_accepts_findings": "a push restarts the incident PR's CI the moment it lands, so a warning comes too late (cci 382428)",
     "incident_commands.release_undo_cites_its_cause": "trust: a rollback without the owner's word",
     "landing_approval.Only the owner changes who approves landin": "trust: a change to who approves landings",
