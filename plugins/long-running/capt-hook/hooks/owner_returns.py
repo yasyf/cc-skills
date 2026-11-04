@@ -17,10 +17,10 @@ from captain_hook.util import reqenv
 from .compaction_handoff import bus_name, Communicator, COMMUNICATOR_LANE, communicator_tests, CompactionState, drive_entry, ROOT_LANE
 from .owner_answers import read, RECORD_BYTES
 from .lane_slack_status import CC_SLACK, CLI, WRITE_TOOLS
-from .register_capture import OPERATOR, slack_dms
+from .register_capture import OPERATOR, owner_slack_messages, queued_prompts, slack_dms
 from .register_gates import blocker, cause
 from .root_context import CC_SLACK as CC_SLACK_CLI, OwnerPrompt, ReadsNewestSlackMessage, runs_verb, SLACK_THREAD_TOOLS
-from .root_replies import owner_message
+from .root_replies import owner_message, REPLY_WINDOW
 from .tests.register_fixtures import DRIVE_CONFIG
 
 RETURN_GAP_SECONDS = 60 * 60
@@ -74,6 +74,7 @@ WATCH_COMMAND = "lr owner watch"
 WATCH_CALL = f"`Monitor` with description `{OWNER_WATCH}`, command `{WATCH_COMMAND}` and `timeout_ms` 1800000"
 ARM_WATCH = f"An idle window hears the owner's Slack messages only through its standing watch. Arm {WATCH_CALL} unless it already runs, and again each time it ends."
 UNWATCHED = f"The owner's Slack watch is not running, so his next message waits until this window moves. Arm {WATCH_CALL}, then stop."
+WATCH_EVENT = re.compile(rf'<summary>Monitor event: "{OWNER_WATCH}"</summary>\s*<event>(?P<lines>.*?)</event>', re.DOTALL)
 WATCHING = [{"id": "w1", "type": "shell", "status": "running", "description": OWNER_WATCH, "command": WATCH_COMMAND}]
 HOLDER = "900424b6-0000"
 OWED_REPLY = {"thread_ts": "1793684147.131059", "ts": "1793705742.180139", "text": "A, but as buttons", "permalink": "https://acme.slack.com/archives/D0B6Z/p1793705742180139"}
@@ -539,9 +540,23 @@ class ReadsAnsweredThread:
         if (owed := dm_owed(evt)) is None:
             return True
         held = owed["replies"] if owed["holder_session"] == evt.session_id else []
-        threads = {ts for reply in held for ts in (reply["thread_ts"], reply["ts"])} | {ts for dm in slack_dms(evt, evt.ctx.turn.events) for ts in (dm["thread"], dm["ts"])}
+        threads = {ts for reply in held for ts in (reply["thread_ts"], reply["ts"])} | owner_dm_threads(evt)
         named = json.dumps(evt.input.raw)
         return any(ts in named or f"p{ts.replace('.', '')}" in named for ts in threads)
+
+
+def owner_dm_threads(evt: BaseHookEvent) -> set[str]:
+    prompts = [*queued_prompts(evt.ctx.t.events), evt.user_prompt or ""]
+    watched = [json.loads(line) for prompt in prompts for found in WATCH_EVENT.finditer(prompt) for line in found["lines"].splitlines() if line.startswith("{")]
+    heard = [*owner_slack_messages(prompts), *(event for event in watched if event.get("type") == "slack.message" and event.get("user") == OPERATOR and not event.get("from_claude"))]
+    return {ts for message in heard if message["channel_id"].startswith("D") for ts in (message["thread_ts"], message["ts"])}
+
+
+def watch_delivered(thread: str) -> list:
+    payload = {"type": "slack.message", "watch_id": 742, "kind": "dm", "channel_id": "D0B6Z", "thread_ts": thread, "ts": OWED_REPLY["ts"], "user": OPERATOR, "from_claude": False, "text": OWED_REPLY["text"]}
+    notified = f'<task-notification>\n<task-id>bi4wzi4te</task-id>\n<summary>Monitor event: "{OWNER_WATCH}"</summary>\n<event>{json.dumps(payload)}</event>\n</task-notification>'
+    queued = {"type": "attachment", "timestamp": "2026-11-03T17:00:00Z", "attachment": {"type": "queued_command", "prompt": notified, "commandMode": "prompt"}}
+    return [T.user("where are we", timestamp="2026-11-03T16:59:00Z"), queued, T.assistant("Answering."), T.user(f"Stop hook feedback:\n{UNANSWERED}", isMeta=True)]
 
 
 NONE_OWED = json.dumps({"replies": [], "holder_session": HOLDER})
@@ -552,7 +567,10 @@ hook(  # capt-hook: no-escape the refusal names the lane verb that reads any oth
     message=THREAD_READ,
     only_if=[Communicator(), Or(Tool(*SLACK_THREAD_TOOLS), runs_verb(CC_SLACK_CLI, ("thread",)))],
     skip_if=[FromSubagent(), ReadsNewestSlackMessage(), ReadsAnsweredThread()],
+    transcript_events=REPLY_WINDOW,
     tests=communicator_tests({
+        reading(watch_delivered(OWED_REPLY["thread_ts"]), NONE_OWED, channel_id="D0B6Z", thread_ts=OWED_REPLY["thread_ts"], limit=6): Allow(),
+        reading(watch_delivered(OWED_REPLY["thread_ts"]), NONE_OWED, channel_id="D0B6Z", thread_ts="1793600000.000001", limit=6): Block(pattern=r"^The communicator reads only the Slack thread it is answering"),
         reading([T.user("where are we")], OWED_HERE, channel_id="D0B6Z", thread_ts=OWED_REPLY["thread_ts"], limit=1000): Allow(),
         reading([T.user("where are we")], OWED_HERE, "Bash", command="cc-slack thread --url D0B6Z/p1793684147131059"): Allow(),
         reading([T.user("where are we")], OWED_HERE, "Bash", command=f"cc-slack thread --url '{OWED_REPLY['permalink']}'"): Allow(),
