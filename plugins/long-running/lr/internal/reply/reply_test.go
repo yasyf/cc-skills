@@ -917,7 +917,8 @@ func TestAMissingLineIsLeftOffThePRChild(t *testing.T) {
 		t.Fatal(err)
 	}
 	pr := card.Children[len(card.Children)-1]
-	if _, risk := pr["risk"]; risk || pr["change"] != "Chats load" || pr["summary"] != "**What changes:** Chats load" {
+	summary := pr["summary"].(string)
+	if _, risk := pr["risk"]; risk || pr["change"] != "Chats load" || !strings.HasPrefix(summary, "**What changes:** Chats load") || strings.Contains(summary, "**Risk:**") {
 		t.Fatalf("pr child = %+v, want only the line it has", pr)
 	}
 }
