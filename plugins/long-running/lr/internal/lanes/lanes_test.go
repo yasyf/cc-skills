@@ -1360,6 +1360,36 @@ func TestWhileTheBuildRecommendedOrderStandsTheHourlyPassWakesEveryLaneParkedOnA
 	}
 }
 
+func TestALaneParkedOnAPickIsWokenOnceForItAndNeverWhileItHasAPR(t *testing.T) {
+	const parked = "parked on the owner's pick on card-phone-app-platform"
+	for name, withPR := range map[string]bool{"woken once": false, "has a PR": true} {
+		t.Run(name, func(t *testing.T) {
+			s, f, at := recommendedDrive(t, parked)
+			f.deps.BuildRecommendedOrder = "owner:m104"
+			if withPR {
+				if err := s.SetLanePRs(lane2, []int{48977}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			tick(t, s, f, at)
+			if err := s.SetLaneWaiting(lane2, 2, at, parked); err != nil {
+				t.Fatal(err)
+			}
+
+			later := at.Add(2 * time.Hour)
+			f.peers = []Row{who(lane2, true, later), who("meta-desk-3", true, later)}
+			tick(t, s, f, later)
+
+			equal(t, row(t, s, lane2).Awaits, parked)
+			woke := 1
+			if withPR {
+				woke = 0
+			}
+			equal(t, len(slices.DeleteFunc(reportsTo(f, "meta-desk-3"), func(text string) bool { return !strings.Contains(text, "woke these lanes") })), woke)
+		})
+	}
+}
+
 func TestACardWithNoRecommendationOrNoStandingOrderLeavesTheLaneParked(t *testing.T) {
 	for name, c := range map[string]struct{ parked, order string }{
 		"no recommendation": {"card-phone-app-platform recommends none: no-recommendation", "owner:m104"},

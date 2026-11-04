@@ -950,9 +950,12 @@ func recommendedSweep(s *store.Store, d Deps, now time.Time) {
 		return
 	}
 	var woken []string
+	built := must(s.BranchCards())
 	for _, lane := range must(s.Lanes(live...)) {
-		cards := card.FindAllString(lane.Awaits, -1)
-		if len(cards) == 0 || slices.Contains(strings.Fields(lane.Awaits), noRecommendation) {
+		cards := slices.DeleteFunc(card.FindAllString(lane.Awaits, -1), func(found string) bool {
+			return slices.ContainsFunc(built, func(b store.BranchCard) bool { return b.Lane == lane.Name && b.Card == found })
+		})
+		if len(cards) == 0 || len(lane.PRs) > 0 || slices.Contains(strings.Fields(lane.Awaits), noRecommendation) {
 			continue
 		}
 		why := fmt.Sprintf("%s stands, so no lane parks on a pick that recommends an option: build the recommended option of %s as a branch, never a PR, and carry on. If the card recommends none, re-post blocked naming it with %s.", d.BuildRecommendedOrder, strings.Join(cards, ", "), noRecommendation)
