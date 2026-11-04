@@ -35,6 +35,16 @@ func TestUncitedPassesAMechanismThatCitesItsProofOrIsLabelledUnproven(t *testing
 	}
 }
 
+func TestUncitedNamesAPRBlamedForARedUntilARecordProvesIt(t *testing.T) {
+	blamed := "#49475 broke dev's sand-next vet job."
+	if got := Uncited([]byte(blamed)); len(got) != 1 || got[0] != blamed {
+		t.Fatalf("Uncited(%q) = %q, want that sentence", blamed, got)
+	}
+	if got := Uncited([]byte("#49475 broke dev's sand-next vet job: build 12290 logs its missing import.")); len(got) != 0 {
+		t.Fatalf("Uncited = %q, want none for a blame that cites its build", got)
+	}
+}
+
 func TestExplainRefusesAnUncitedMechanismBeforeItWritesHostsOrAnnouncesAPage(t *testing.T) {
 	runner := &shelltest.Fake{}
 	h, owner := &host{}, &told{}
