@@ -1000,7 +1000,7 @@ CHAT_MODEL = """(n) => {
     reply('old', { type: 'for_you', status: 'needs_you', picks: ['x', 'y'] }),
     reply('routed', { type: 'update', status: 'progress', order: 'm7' }),
     reply('change', { type: 'explanation', status: 'info', md: 'See #77001 for it', links: [{ url: 'https://example.ts.net:8665/one-pagers/how-it-works/', label: 'How it works' }, { url: 'https://example.slack.com/x', label: 'The thread' }] }),
-    ...Array.from({ length: n }, (_, i) => ({ ...reply(`r${i}`, {}), at: '2026-11-03T19:00:00Z' })),
+    ...Array.from({ length: n }, (_, i) => ({ ...reply(`r${i}`, { type: 'update', status: 'info' }), at: '2026-11-03T19:00:00Z' })),
   ];
   state.model.board.cards = [card('open2', ['Yes', 'No']), card('open3', ['a', 'b', 'c']), card('open4', ['p', 'q', 'r'])];
   state.model.board.answered = {};
@@ -1324,7 +1324,7 @@ def test_a_note_with_no_message_above_it_is_not_open_work_and_only_an_undelivere
 def test_an_answer_wears_the_type_it_records_not_its_status(page):
     typed = {"reply": {"id": "typed", "title": "Plainly typed", "md": "The words", "type": "done", "status": "info"}, "at": "2026-11-03T13:00:00Z", "surfaces": []}
     chat_with(page, [typed], [])
-    assert page.locator("#rp-typed .artifact-top").inner_text().split("\n")[0].strip() == "Done"
+    assert page.locator("#rp-typed .artifact-top").inner_text().split("\n")[0].strip() == "DONE"
     now(page)
 
 
@@ -1332,6 +1332,6 @@ def test_a_diagram_draws_its_own_card_with_no_one_pager(page):
     drawn = {"reply": {"id": "dia", "title": "How the relay runs", "md": "One picture.", "type": "explanation", "diagram": {"arch": 1, "name": "relay", "title": "The relay", "nodes": []}}, "at": "2026-11-03T13:00:00Z", "surfaces": []}
     chat_with(page, [drawn], [])
     card = page.locator(".cw .document-card")
-    assert card.locator(".artifact-top").inner_text().strip() == "Diagram"
+    assert card.locator(".artifact-top").inner_text().strip() == "DIAGRAM"
     assert card.locator(".document-title").inner_text() == "The relay"
     now(page)

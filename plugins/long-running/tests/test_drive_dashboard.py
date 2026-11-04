@@ -752,7 +752,7 @@ def test_merge_needs_keep_the_board_groups_and_each_rows_facts():
         ("done", "All approved", "Nothing left.", [board_row(43300, "approved")]),
         ("gate", "Release 1 waits on this", "The first release cannot start without it.", [board_row(43258, "you")]),
     )
-    stamp({"rows": rows})
+    stamp({"rows": rows, "cards": []})
 
     out = needs(rows, [], [], "http://board/p/x", set())
 
