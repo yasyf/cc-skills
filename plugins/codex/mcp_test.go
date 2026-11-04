@@ -1,6 +1,8 @@
 package main
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -208,4 +210,41 @@ func TestMCPListingHangRefusesBeforeMinting(t *testing.T) {
 		t.Fatalf("hung listing held the caller %s, past the %s bound", elapsed, mcpListTimeout)
 	}
 	mustBeEmpty(t, runs, "a hung MCP listing")
+}
+
+func TestMCPListingReadsTheConfigFromAHomeItLeavesUntouched(t *testing.T) {
+	home := shortHome(t)
+	codexHome := filepath.Join(home, ".codex")
+	if err := os.MkdirAll(codexHome, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(codexHome, "config.toml"), []byte("[mcp_servers.datadog]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	seen := filepath.Join(mustTempDir(t), "listed")
+	stub := "#!/bin/sh\n[ \"$1\" = mcp ] && { { echo \"$CODEX_HOME\"; cat \"$CODEX_HOME/config.toml\"; } > " + seen + "; mkdir -p \"$CODEX_HOME/tmp/arg0\"; echo '[]'; exit 0; }\n" + stubCodexReplyBody
+
+	stdout, stderr, code := askRunHome(t, home, mustTempDir(t), "", stub, "ping")
+	if code != 0 {
+		t.Fatalf("dispatch exit %d\nstderr: %s", code, stderr)
+	}
+	laneDir(t, stdout)
+
+	listed, err := os.ReadFile(seen) //nolint:gosec // the test's own temp file
+	if err != nil {
+		t.Fatal(err)
+	}
+	listingHome, config, _ := strings.Cut(string(listed), "\n")
+	if config != "[mcp_servers.datadog]\n" {
+		t.Fatalf("the listing read config %q", config)
+	}
+	if listingHome == codexHome {
+		t.Fatal("the listing ran from the real CODEX_HOME")
+	}
+	if _, err := os.Stat(filepath.Join(codexHome, "tmp")); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("the listing wrote under the real CODEX_HOME: %v", err)
+	}
+	if _, err := os.Stat(listingHome); !errors.Is(err, fs.ErrNotExist) { //nolint:gosec // the path the test's own stub wrote
+		t.Fatalf("the listing left its home behind: %v", err)
+	}
 }
