@@ -76,7 +76,7 @@ func TestMacJobsWaitingOverTenMinutesNoteTheHoldersOfTheLongestHeldBoxesOnePerJo
 	first, second := rig.bus.posted[0], rig.bus.posted[1]
 	equal(t, []string{first.Kind, first.Lane, first.To[0], first.ID}, []string{nscRenewed, Self, "lane-a", fmt.Sprintf("mac-wait:oldest:%d", t0.Add(-mins(25)).Unix())})
 	equal(t, second.To, []string{"lane-b"})
-	contains(t, first.Text, `MAC-WAIT: 2 CI Mac jobs have waited over 10 minutes for an agent; the longest, "mac job 1" in https://buildkite.com/org/test/builds/1, has waited 25 minutes, and a rerun of that job makes Namespace try a fresh create.`)
+	contains(t, first.Text, `MAC-WAIT: 2 CI Mac jobs have waited over 10 minutes for an agent; the longest, "mac job 1" in https://buildkite.com/org/test/builds/1, has waited 25 minutes, and a rerun makes Namespace try a fresh create: cancel that job and retry it, never inside a trunk-merge build without asking.`)
 	contains(t, first.Text, "Lanes hold 3 macOS boxes, 18 of the 48 vCPU the workspace allows")
 	contains(t, first.Text, "Your box oldest, up 5h30m, is number 1 of 3 by age. If its work is done, destroy it with `nsc destroy oldest`; a builder that must stay up belongs on `tools/ci mac-box`.")
 	contains(t, second.Text, "Your box middle, up 3h00m, is number 2 of 3 by age.")

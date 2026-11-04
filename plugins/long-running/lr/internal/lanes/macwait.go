@@ -115,7 +115,7 @@ func (m *MacWaits) note(box nscBox, rank int, jobs []macJob, held []nscBox, now 
 	return client.Draft{
 		Drive: m.Env.Config.Drive, Lane: Self, Kind: nscRenewed, To: []string{cmp.Or(box.Labels[nscLabel], Root)}, Force: true,
 		ID: fmt.Sprintf("mac-wait:%s:%d", box.ID, oldest.RunnableAt.Unix()),
-		Text: fmt.Sprintf("MAC-WAIT: %d CI Mac jobs have waited over %d minutes for an agent; the longest, %q in %s, has waited %d minutes, and a rerun of that job makes Namespace try a fresh create. Lanes hold %d macOS boxes, %d of the %d vCPU the workspace allows, and CI's mac queue runs on the rest. Your box %s, up %dh%02dm, is number %d of %d by age. If its work is done, destroy it with `nsc destroy %s`; a builder that must stay up belongs on `tools/ci mac-box`. The supervisor touched nothing.",
+		Text: fmt.Sprintf("MAC-WAIT: %d CI Mac jobs have waited over %d minutes for an agent; the longest, %q in %s, has waited %d minutes, and a rerun makes Namespace try a fresh create: cancel that job and retry it, never inside a trunk-merge build without asking. Lanes hold %d macOS boxes, %d of the %d vCPU the workspace allows, and CI's mac queue runs on the rest. Your box %s, up %dh%02dm, is number %d of %d by age. If its work is done, destroy it with `nsc destroy %s`; a builder that must stay up belongs on `tools/ci mac-box`. The supervisor touched nothing.",
 			len(jobs), int(macWaitAfter.Minutes()), oldest.Label, oldest.Build.URL, int(now.Sub(oldest.RunnableAt).Minutes()),
 			len(held), vcpuOf(held), m.Queue.LimitVCPU, box.ID, int(up.Hours()), int(up.Minutes())%60, rank+1, len(held), box.ID),
 	}
