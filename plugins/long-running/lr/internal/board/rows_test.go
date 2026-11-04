@@ -89,3 +89,20 @@ func TestAParentThatCannotLandIsSaidOnTheRowAbove(t *testing.T) {
 		}
 	}
 }
+
+func TestAPRWithdrawnAtItsHeadLeavesTheTabAndANewHeadBringsItBack(t *testing.T) {
+	s, err := store.Open(filepath.Join(t.TempDir(), "lr.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if _, err := s.PutFact(rowsRepo, 1, "aaaaaaaaaa", FactWithdrawn, "replaced by a newer change", time.Date(2026, 11, 4, 9, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
+	if rows := written(t, s, rowFacts(1, nil), rowFacts(2, nil)); len(rows) != 1 || rows[2].Number != 2 {
+		t.Fatalf("rows = %+v, want only #2 while #1 is withdrawn at its head", rows)
+	}
+	if rows := written(t, s, rowFacts(1, func(f *machine.Facts) { f.Head = "bbbbbbbbbb" })); rows[1].Head != "bbbbbbbbbb" {
+		t.Fatalf("rows = %+v, want #1 back at its new head", rows)
+	}
+}
