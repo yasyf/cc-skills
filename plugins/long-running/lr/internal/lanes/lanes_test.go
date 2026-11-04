@@ -2758,7 +2758,7 @@ func TestTheHourlyReportNamesEachLanesOpenWorkDeepestFirst(t *testing.T) {
 	equal(t, f.posts[0].Text, "Open work by lane, so no queue grows unseen (retro row 133): tooling-1 2 defects, 1 ask (oldest #10); desk-3 1 blocker (oldest #13).")
 }
 
-func TestTheHourlyTickNamesEveryUndeliveredOwnerOrderToTheCommunicator(t *testing.T) {
+func TestTheHourlyTickNamesEachUndeliveredOwnerOrderToTheCommunicatorOnce(t *testing.T) {
 	s := memory(t)
 	f := adopted(t, s, writeBrief(t), "")
 	f.orders = []owner.Row{{ID: "m2", Status: owner.Open}, {ID: "m85", Status: owner.Open}, {ID: "m38", Status: owner.InProgress, Lane: "rich-reply-1"}}
@@ -2768,7 +2768,22 @@ func TestTheHourlyTickNamesEveryUndeliveredOwnerOrderToTheCommunicator(t *testin
 	tick(t, s, f, at)
 
 	equal(t, f.kinds(), []string{"report:" + OwnerRelay})
-	equal(t, f.posts[0].Text, "2 owner asks are open, orders with no live lane, no open PR and no landed or carried record and questions nobody answered: owner:m2, owner:m85. Answer each question and mark its row, restart each order, or mark a row that orders nothing no-order with `mcp__plugin_long-running_lr__owner_mark`; a lane delivering an order names its owner:<row> token in its brief. 1 owner orders are in progress, landed or carried with no live lane and no delivered proof: owner:m38. Post `cci post --kind report --attr delivered=owner:<row>` once he has what the row asked for, or restart the order.")
+	equal(t, f.posts[0].Text, "2 owner asks newly open, orders with no live lane, no open PR and no landed or carried record and questions nobody answered: owner:m2, owner:m85. Answer each question and mark its row, restart each order, or mark a row that orders nothing no-order with `mcp__plugin_long-running_lr__owner_mark`; a lane delivering an order names its owner:<row> token in its brief. 1 owner orders newly in progress, landed or carried with no live lane and no delivered proof: owner:m38. Post `cci post --kind report --attr delivered=owner:<row>` once he has what the row asked for, or restart the order. Each row is named once; `lr owner audit` lists them all.")
+
+	f.posts = nil
+	at = at.Add(mins(60))
+	f.peers = []Row{who(lane2, true, at)}
+	tick(t, s, f, at)
+	equal(t, f.kinds(), []string{})
+
+	f.orders = append(f.orders, owner.Row{ID: "m90", Status: owner.Open})
+	at = at.Add(mins(60))
+	f.peers = []Row{who(lane2, true, at)}
+	tick(t, s, f, at)
+	equal(t, f.kinds(), []string{"report:" + OwnerRelay})
+	if text := f.posts[0].Text; !strings.Contains(text, "1 owner asks newly open") || !strings.Contains(text, "owner:m90") || strings.Contains(text, "owner:m2,") {
+		t.Fatalf("report = %q, want only the new row", text)
+	}
 }
 
 func TestEveryOtherHourTheParkedOrdersGoToTheProgressDeskAsOneNoteAndPageNobody(t *testing.T) {
