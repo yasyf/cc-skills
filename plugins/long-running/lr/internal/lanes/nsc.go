@@ -29,9 +29,16 @@ const (
 
 var nscExtended = regexp.MustCompile(`(?m)^New deadline: (\S+)`)
 
+type nscShape struct {
+	VCPU int    `json:"virtual_cpu"`
+	OS   string `json:"os"`
+}
+
 type nscBox struct {
-	ID     string            `json:"cluster_id"`
-	Labels map[string]string `json:"labels"`
+	ID      string            `json:"cluster_id"`
+	Created time.Time         `json:"created_at"`
+	Labels  map[string]string `json:"labels"`
+	Shape   nscShape          `json:"shape"`
 }
 
 type NscDeadlines struct {
@@ -231,7 +238,10 @@ func NscCommand(a *app.App) *cobra.Command {
 		}
 	}
 	cmd.AddCommand(
-		&cobra.Command{Use: "create [-- NSC_CREATE_FLAGS...]", Short: "Run nsc create with the label lane=<lane> and record the box's deadline", RunE: func(cmd *cobra.Command, flags []string) error {
+		&cobra.Command{Use: "create [-- NSC_CREATE_FLAGS...]", Short: "Run nsc create with the label lane=<lane> and record the box's deadline; a macOS box also prints how many macOS boxes lanes hold against the workspace limit", RunE: func(cmd *cobra.Command, flags []string) error {
+			if warning := macCreateWarning(cmd.Context(), a.Runner, drive, flags); warning != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), warning)
+			}
 			printed, err := MakeNscBox(cmd.Context(), a.Runner, CCI{}, drive, lane, flags)
 			fmt.Fprint(cmd.OutOrStdout(), printed)
 			return err

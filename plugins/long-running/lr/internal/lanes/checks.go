@@ -600,6 +600,7 @@ type RunnerLanding struct {
 	CITokenCommand []string `json:"ci_token_command"`
 	FlakeLane      string   `json:"flake_lane"`
 	FlakyChannel   string   `json:"flaky_channel"`
+	MacQueue       MacQueue `json:"mac_queue"`
 	Pages          struct {
 		Channels []string `json:"channels"`
 		Build    string   `json:"build"`
@@ -1048,6 +1049,9 @@ func (e Env) Checks(s *store.Store, log *slog.Logger) ([]Check, error) {
 	}
 	if _, err := exec.LookPath("nsc"); err == nil {
 		checks = append(checks, (&NscDeadlines{Env: e, Store: s, Log: log}).Check)
+		if cli := strings.Fields(e.Config.BuildkiteCLI); landing.MacQueue.Queue != "" && len(cli) > 0 {
+			checks = append(checks, (&MacWaits{Env: e, Queue: landing.MacQueue, CLI: cli, Token: bkread.Token{Command: landing.CITokenCommand}, Log: log}).Check)
+		}
 	}
 	if cli := strings.Fields(landing.ReleaseCLI); len(cli) > 0 {
 		checks = append(checks, (&LandedNotLive{Env: e, Store: s, ReleaseCLI: cli, Token: bkread.Token{Command: landing.CITokenCommand}, Builds: builds, Log: log}).Check, (&ReleaseGates{Env: e, ReleaseCLI: cli, Token: bkread.Token{Command: landing.CITokenCommand}, Log: log}).Check)
