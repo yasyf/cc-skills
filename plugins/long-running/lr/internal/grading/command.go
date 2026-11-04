@@ -28,6 +28,7 @@ func Command(a *app.App) *cobra.Command {
 		gradeVerb(a, GraderFinder, "One codex finder pass over one drive head", grader.Finder),
 		gradeVerb(a, GraderFidelity, "One fidelity grade of one drive head", grader.Fidelity),
 		moveOffHomeCommand(),
+		queueCommand(a),
 	)
 	return cmd
 }

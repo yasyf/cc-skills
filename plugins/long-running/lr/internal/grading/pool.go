@@ -539,10 +539,7 @@ type attemptPlan struct {
 }
 
 func (p *JobPool) nextAttempt(ctx context.Context, d desk, base string) (attemptPlan, error) {
-	tried := 0
-	for tried < maxAttempts && exists(filepath.Join(p.root, d.lane, attemptBase(base, tried+1))) {
-		tried++
-	}
+	tried := p.triedAttempts(d, base)
 	if tried == 0 {
 		return attemptPlan{number: 1}, nil
 	}
@@ -577,6 +574,14 @@ func (p *JobPool) nextAttempt(ctx context.Context, d desk, base string) (attempt
 		return attemptPlan{done: true, why: why}, p.exhausted(ctx, d, directory)
 	}
 	return attemptPlan{number: tried + 1}, nil
+}
+
+func (p *JobPool) triedAttempts(d desk, base string) int {
+	tried := 0
+	for tried < maxAttempts && exists(filepath.Join(p.root, d.lane, attemptBase(base, tried+1))) {
+		tried++
+	}
+	return tried
 }
 
 func (p *JobPool) place(d desk, workers []store.Worker, first bool) (string, error) {
