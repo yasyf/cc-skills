@@ -143,10 +143,10 @@
         "source": "git-subdir",
         "url": "https://github.com/yasyf/cc-skills",
         "path": "plugins/orca",
-        "ref": "orca--v0.1.1"
+        "ref": "orca--v0.1.2"
       },
       "description": "Launch Orca workers on a Sprite or a local worktree, reclaim what a settled Dispatch left behind, and diagnose a stuck lane, with a repository's values checked in once as .orca.json.",
-      "version": "0.1.1"
+      "version": "0.1.2"
     },
     {
       "name": "long-running",
@@ -165,10 +165,10 @@
         "source": "git-subdir",
         "url": "https://github.com/yasyf/cc-skills",
         "path": "plugins/live-dashboard",
-        "ref": "live-dashboard--v0.5.11"
+        "ref": "live-dashboard--v0.5.12"
       },
       "description": "A live dashboard assembled per task from typed components: PRs waiting for review, stack landing previews, Slack test-thread feeds, latency percentiles, design gates, Datadog monitors, cci lanes, and local components written for the job at hand, served on a stable port with a scheduler that caches, backs off, and drops secret-shaped payloads.",
-      "version": "0.5.11"
+      "version": "0.5.12"
     },
     {
       "name": "open-pr",
