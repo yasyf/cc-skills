@@ -17,11 +17,15 @@ const (
 	milestoneMechanism = "mechanism"
 	milestoneFixLive   = "fix-live"
 	milestoneNotOurs   = "not-ours"
+	describeWindow     = 48 * time.Hour
+	describeCells      = 200
 )
 
 var (
 	milestoneLine = regexp.MustCompile(`^(?:\d{1,2}:\d{2} [AP]M )?(MECHANISM|FIX-LIVE|NOT-OURS)\b`)
 	scopeLine     = regexp.MustCompile(`\bSCOPE\b`)
+	recordLead    = regexp.MustCompile(`^(?:\d{1,2}:\d{2} [AP]M )?(?:GO fix lane \S+ for class \S+|INCIDENT (?:OPEN |REOPENED )?\S+|MECHANISM(?: \S+)?)?\s*:?\s*`)
+	noDescription = regexp.MustCompile(`^orca-desk:|\bSCOPE\b|\blaunch(?:ed)?\b`)
 )
 
 type Incident struct {
@@ -188,6 +192,50 @@ func incidentTable(incidents []Incident) []string {
 	return lines
 }
 
+func descriptionRank(record Record) int {
+	const incidentLine, report, goLine, mechanism, unranked = 0, 1, 2, 3, 4
+	switch found := milestone(record); {
+	case found == milestoneMechanism:
+		return mechanism
+	case found != "" || closesIncident(record) || !slices.Contains(coordinators, record.Lane):
+		return unranked
+	}
+	switch record.Kind {
+	case kindIncident:
+		return incidentLine
+	case "report":
+		return report
+	case "go":
+		return goLine
+	}
+	return unranked
+}
+
+func firstSentence(text string) string {
+	sentence := strings.Join(strings.Fields(recordLead.ReplaceAllString(text, "")), " ")
+	if end := strings.Index(sentence, ". "); end >= 0 {
+		sentence = sentence[:end]
+	}
+	return strings.TrimRight(clipTo(sentence, describeCells), ".")
+}
+
+func describeIncident(records []Record, name string) string {
+	described, best := "", descriptionRank(Record{})
+	for _, record := range bySeq(records) {
+		rank := descriptionRank(record)
+		if rank >= best || noDescription.MatchString(record.Text) {
+			continue
+		}
+		if incidentRole.ReplaceAllString(record.Topic, "") != name && incidentRole.ReplaceAllString(incidentName(record), "") != name {
+			continue
+		}
+		if sentence := firstSentence(record.Text); sentence != "" {
+			described, best = sentence, rank
+		}
+	}
+	return described
+}
+
 func readIncidents(ctx context.Context, src Sources, bus string, now time.Time) ([]Incident, error) {
 	lanes, err := src.Lanes(ctx)
 	if err != nil {
@@ -242,8 +290,32 @@ func IncidentCommands(a *app.App) []*cobra.Command {
 			return nil
 		},
 	}
-	for _, cmd := range []*cobra.Command{status, list} {
+	describe := &cobra.Command{
+		Use:   "describe SLUG",
+		Short: "One sentence on what an incident is, from its own records of the last two days: the coordinator's, else its fix lane's mechanism; exit 1 when none says",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(c *cobra.Command, args []string) error {
+			opened, err := open(a, driveName)
+			if err != nil {
+				return err
+			}
+			defer opened.store.Close()
+			records, err := opened.src.Records(c.Context(), a.Now().Add(-describeWindow))
+			if err != nil {
+				return err
+			}
+			name := incidentRole.ReplaceAllString(args[0], "")
+			described := describeIncident(records, name)
+			if described == "" {
+				return fmt.Errorf("no record describes %s", name)
+			}
+			fmt.Fprintln(c.OutOrStdout(), described)
+			return nil
+		},
+	}
+	commands := []*cobra.Command{status, list, describe}
+	for _, cmd := range commands {
 		cmd.Flags().StringVar(&driveName, "drive", os.Getenv("LR_DRIVE"), "the drive's bus name")
 	}
-	return []*cobra.Command{status, list}
+	return commands
 }

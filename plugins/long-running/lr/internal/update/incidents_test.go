@@ -121,3 +121,31 @@ func TestAFixLiveMentionInsideAnotherRecordIsNoMilestone(t *testing.T) {
 		t.Fatalf("milestone = %q", got)
 	}
 }
+
+func TestAnIncidentIsDescribedByItsOwnRecordsTheCoordinatorsWordsFirst(t *testing.T) {
+	topic := func(r Record, name string) Record {
+		r.Topic = name
+		return r
+	}
+	launch := topic(record(1, root, "go", "orca-desk: launch pool-fix-2 NOW incident xhigh brief=/x/brief.md", 90), "pool-fix-2")
+	goLine := topic(record(2, root, "go", "GO fix lane pool-fix for class pool: retries exhaust the pool; cap them", 80), "pool")
+	reported := topic(record(3, root, "report", "Runs are starving because retries exhaust the pool. pool-fix has the go.", 70), "pool")
+	mechanism := record(4, "pool-fix", "mechanism", "MECHANISM pool: each retry opens a second connection", 60)
+	scope := opened(5, "pool-fix", "SCOPE pool-fix: active yes; 3 teams hit", 50, root)
+	other := topic(record(6, root, "report", "Another incident entirely.", 40), "sso")
+	for _, tt := range []struct {
+		name    string
+		records []Record
+		want    string
+	}{
+		{"its INCIDENT line", []Record{opened(7, root, "INCIDENT OPEN pool: 5xx on runs", 90, "pool-fix"), reported}, "5xx on runs"},
+		{"a report beats a go", []Record{launch, goLine, reported, mechanism}, "Runs are starving because retries exhaust the pool"},
+		{"a go line loses its lead", []Record{launch, goLine, mechanism}, "retries exhaust the pool; cap them"},
+		{"its fix lane's mechanism when the coordinator only launched it", []Record{launch, scope, mechanism}, "each retry opens a second connection"},
+		{"nothing when only a launch and a scope name it", []Record{launch, scope, other}, ""},
+	} {
+		if got := describeIncident(tt.records, "pool"); got != tt.want {
+			t.Errorf("%s: got %q, want %q", tt.name, got, tt.want)
+		}
+	}
+}
