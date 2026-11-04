@@ -19,7 +19,7 @@
 <header class="top">
   <a class="brand" href="#/"></a>
   <nav class="tabs" id="tabs"></nav>
-  <button class="kbtn" id="talkbtn" type="button" hidden>✎ <span>Talk</span></button>
+  <button class="kbtn" id="talkbtn" type="button" hidden><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 3.5h11v7.5h-6l-3 2.5V11h-2z"/></svg> <span>Talk</span></button>
   <a class="kbtn" id="kbtn" href="#/jump">⌕ <span>Jump to anything</span><kbd>⌘K</kbd></a>
   <span class="fresh" id="fresh"></span>
 </header>
@@ -27,7 +27,7 @@
 <main id="main" class="wrap"><div class="sk"></div><div class="sk"></div><div class="sk"></div></main>
 <section id="embed" class="review-embed" hidden></section>
 <section id="cardembed" hidden></section>
-<aside id="talk" class="talk-drawer" hidden><iframe id="talkframe" title="Talk to the communicator"></iframe></aside>
+<aside id="talk" class="talk-drawer" hidden><header class="talk-head"><span>Talk</span><button id="talkclose" type="button" aria-label="Close Talk">×</button></header><iframe id="talkframe" title="Talk to the communicator"></iframe></aside>
 <script src="/review.js"></script>
 <script src="/overview.js"></script>
 <script src="/now.js"></script>

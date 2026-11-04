@@ -2,9 +2,12 @@
 #talkbtn { margin-left: 0; cursor: pointer; }
 #talkbtn + #kbtn { margin-left: 0; }
 .top #talkbtn { margin-left: auto; }
-.talk-drawer { position: fixed; z-index: 40; top: 54px; right: 0; bottom: 0; width: var(--talk-width); background: var(--bg); border-left: 1px solid var(--surface-3); }
+.talk-drawer { position: fixed; z-index: 40; top: 54px; right: 0; bottom: 0; width: var(--talk-width); display: flex; flex-direction: column; background: var(--bg); border-left: 1px solid var(--line); }
+.talk-head { flex: none; display: flex; align-items: center; justify-content: space-between; height: 44px; padding: 0 8px 0 16px; border-bottom: 1px solid var(--line); color: var(--ink); font-size: 14px; font-weight: 600; }
+#talkclose { width: 32px; height: 32px; border: 0; border-radius: 6px; background: none; color: var(--ink-2); font-size: 20px; line-height: 1; cursor: pointer; }
+#talkclose:hover { background: var(--surface-2); color: var(--ink); }
 .talk-drawer[hidden] { display: none; }
-.talk-drawer iframe { display: block; width: 100%; height: 100%; border: 0; background: transparent; }
+.talk-drawer iframe { display: block; flex: 1; min-height: 0; width: 100%; border: 0; background: var(--bg); }
 @media (min-width: 1200px) {
   body.talk-open #main, body.talk-open #embed, body.talk-open #cardembed { margin-right: var(--talk-width); }
 }

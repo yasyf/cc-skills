@@ -47,4 +47,8 @@ document.addEventListener('DOMContentLoaded', () => {
     localStorage.setItem(TALK_OPEN, talkIsOpen() ? '0' : '1');
     syncTalk(state.model.talk);
   });
+  document.getElementById('talkclose').addEventListener('click', () => {
+    localStorage.setItem(TALK_OPEN, '0');
+    syncTalk(state.model.talk);
+  });
 });
