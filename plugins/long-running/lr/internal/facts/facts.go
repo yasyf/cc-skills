@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"regexp"
 	"slices"
@@ -20,6 +19,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -31,26 +31,8 @@ const (
 	trunkFailed    = "trunk-failed"
 	trunkCancelled = "trunk-cancelled"
 	trunkMerged    = "trunk-merged"
-	settleBatch    = 25
-	settleFields   = `number headRefOid mergeable mergeStateStatus tip: commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }`
-	openQuery      = `query($owner: String!, $name: String!, $endCursor: String) {
-  repository(owner: $owner, name: $name) {
-    pullRequests(states: OPEN, first: 100, after: $endCursor) {
-      pageInfo { hasNextPage endCursor }
-      nodes {
-        number
-        title
-        isDraft
-        headRefOid
-        headRefName
-        body
-        author { login }
-        labels(first: 50) { nodes { name } }
-        commits(first: 100) { nodes { commit { oid } } }
-      }
-    }
-  }
-}`
+	memberBatch    = 25
+	memberFields   = `number state title isDraft headRefOid headRefName baseRefName body author { login } labels(first: 50) { nodes { name } } commits(first: 100) { nodes { commit { oid } } } mergeable mergeStateStatus tip: commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } latestOpinionatedReviews(first: 20) { nodes { state author { login } commit { oid } } }`
 )
 
 var carriedAbove = regexp.MustCompile(`\(PR_NOT_ENQUEUEABLE\): PR #\d+, above this one in the same stack, is already in the merge queue`)
@@ -61,9 +43,9 @@ type Source struct {
 	Repo    string
 	Drive   string
 	Author  string
-	Label   string
 	Trunk   string
 	GoLanes []string
+	Reads   bool
 	Runner  shell.Runner
 	CCX     ccx.Client
 	Bus     bus.Bus
@@ -78,9 +60,9 @@ func New(a *app.App, cfg config.Config, s *store.Store) Source {
 		Repo:    cfg.Repo,
 		Drive:   cfg.Drive,
 		Author:  cfg.Author,
-		Label:   cfg.Label,
 		Trunk:   cfg.Trunk,
 		GoLanes: cfg.GoLaneNames(),
+		Reads:   slices.Contains(cfg.Movers, config.MoverLanding),
 		Runner:  runner,
 		CCX:     ccx.CLI{Runner: runner},
 		Bus:     bus.Bus{Drive: cfg.Drive},
@@ -112,30 +94,111 @@ func (s Source) Snapshot(ctx context.Context) ([]machine.Facts, error) {
 	if err := s.ingestLegacy(ctx); err != nil {
 		return nil, fmt.Errorf("read today's records: %w", err)
 	}
-	open, err := s.readOpen(ctx)
+	held, err := s.holds(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("read the open pull requests: %w", err)
+		return nil, fmt.Errorf("read holds: %w", err)
 	}
-	numbers, err := s.withOpenItems(open.numbers)
+	rows, err := s.Rows().Pass(ctx, heldWords(held))
+	if err != nil {
+		return nil, fmt.Errorf("fold the review rows: %w", err)
+	}
+	if !s.Reads {
+		return s.fromRows(rows, held)
+	}
+	numbers, err := s.withOpenItems(liveNumbers(rows))
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.statuses(ctx, numbers)
+	members, err := s.readMembers(ctx, numbers)
+	if err != nil {
+		return nil, fmt.Errorf("read the drive's pull requests: %w", err)
+	}
+	statuses, err := s.statuses(ctx, numbers)
 	if err != nil {
 		return nil, fmt.Errorf("read queue and CI: %w", err)
-	}
-	if err := s.settle(ctx, rows, open.prs); err != nil {
-		return nil, fmt.Errorf("read the heads the status read left unsettled: %w", err)
 	}
 	required, err := s.requiredChecks(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("read required checks: %w", err)
 	}
+	return s.assemble(ctx, statuses, members, required, held, rows)
+}
+
+func (s Source) Rows() prrow.Fold {
+	return prrow.Fold{Drive: s.Drive, Repo: s.Repo, Trunk: s.Trunk, Store: s.Store, Now: s.Now}
+}
+
+func (s Source) WriteRows(ctx context.Context, snapshot []machine.Facts) error {
+	var posted error
+	if s.Reads {
+		posted = s.Rows().PostReads(ctx, snapshot)
+	}
 	held, err := s.holds(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("read holds: %w", err)
+		return errors.Join(posted, err)
 	}
-	return s.assemble(ctx, rows, open, required, held)
+	_, err = s.Rows().Pass(ctx, heldWords(held))
+	return errors.Join(posted, err)
+}
+
+func liveNumbers(rows []store.ReviewRow) []int {
+	numbers := make([]int, 0, len(rows))
+	for _, row := range rows {
+		if !prrow.Terminal(row.State) {
+			numbers = append(numbers, row.Number)
+		}
+	}
+	return numbers
+}
+
+func (s Source) fromRows(rows []store.ReviewRow, held map[int]hold) ([]machine.Facts, error) {
+	items, err := s.Store.OpenItems(s.Repo, 0)
+	if err != nil {
+		return nil, err
+	}
+	itemed := make(map[int]bool, len(items))
+	for _, item := range items {
+		itemed[item.Number] = true
+	}
+	atHeads, err := s.Store.FactsAtRowHeads(s.Repo)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]machine.Facts, 0, len(rows))
+	for _, row := range rows {
+		if row.ReadHead == "" || prrow.Terminal(row.State) && !itemed[row.Number] {
+			continue
+		}
+		f, err := factsOfRow(s.Repo, row, atHeads[row.Number])
+		if err != nil {
+			return nil, err
+		}
+		f.Hold, f.HoldSeq = held[row.Number].by, held[row.Number].seq
+		out = append(out, f)
+	}
+	return out, nil
+}
+
+func factsOfRow(repo string, row store.ReviewRow, stored map[string]string) (machine.Facts, error) {
+	queue := machine.Queue(row.Queue)
+	f := machine.Facts{
+		Repo: repo, Number: row.Number, Title: row.Title, Head: row.Head, Branch: row.Branch, Base: row.Base,
+		ForeignAuthor: stored[prrow.FactForeign], Draft: stored[prrow.FactDraft] == "yes",
+		Closed: prrow.Terminal(row.State), Merged: row.State == prrow.StateLanded,
+		CI: prrow.CIFromWords(row.CI), Approved: row.Approvers != prrow.None, Mergeable: machine.Mergeable(row.Mergeable), Queue: queue,
+		UnsafeWait: row.UnsafeWait,
+	}
+	if row.Approvers != prrow.None {
+		f.Approvers = strings.Split(row.Approvers, ", ")
+	}
+	if failing := stored[prrow.FactFailing]; failing != "" {
+		f.Failing = strings.Split(failing, "; ")
+	}
+	if queue == machine.QueueQueued {
+		f.QueuedHead = row.Head
+	}
+	err := fromStored(&f, stored, row.Lane)
+	return f, err
 }
 
 type ciRead struct {
@@ -163,43 +226,6 @@ func (s Source) statuses(ctx context.Context, numbers []int) ([]statusRow, error
 	}
 	var rows []statusRow
 	return rows, json.Unmarshal([]byte(result.Stdout), &rows)
-}
-
-func (s Source) settle(ctx context.Context, rows []statusRow, prs map[int]pullRequest) error {
-	unsettled := make([]int, 0, len(rows))
-	for _, row := range rows {
-		if row.State == "OPEN" && (row.CI.State == "pending" || strings.Contains(row.Verdict, "mergeable-unknown")) {
-			unsettled = append(unsettled, row.Number)
-		}
-	}
-	for batch := range slices.Chunk(unsettled, settleBatch) {
-		out, err := s.graphQL(ctx, settleQuery(batch))
-		if err != nil {
-			return err
-		}
-		var reply struct {
-			Data struct {
-				Repository map[string]pullRequest `json:"repository"`
-			} `json:"data"`
-		}
-		if err := json.Unmarshal([]byte(out), &reply); err != nil {
-			return err
-		}
-		for _, read := range reply.Data.Repository {
-			pr := prs[read.Number]
-			pr.HeadRefOid, pr.Mergeable, pr.MergeStateStatus, pr.Tip = read.HeadRefOid, read.Mergeable, read.MergeStateStatus, read.Tip
-			prs[read.Number] = pr
-		}
-	}
-	return nil
-}
-
-func settleQuery(numbers []int) string {
-	var aliases strings.Builder
-	for _, number := range numbers {
-		fmt.Fprintf(&aliases, "r%d: pullRequest(number: %d) { %s } ", number, number, settleFields)
-	}
-	return "query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { " + aliases.String() + "} }"
 }
 
 func (s Source) graphQL(ctx context.Context, query string, flags ...string) (string, error) {
@@ -268,7 +294,7 @@ func (s Source) ingestRecord(record bus.Record) error {
 	case bus.Grade:
 		facts = []bus.Fact{{PR: body.PR, Head: body.Head, Kind: body.Grader, Value: body.Verdict}}
 	case bus.Tap:
-		facts = tapFacts(body)
+		facts = append(tapFacts(body), bus.Fact{PR: body.PR, Head: body.Head, Kind: prrow.FactTapBy, Value: body.By}, bus.Fact{PR: body.PR, Head: body.Head, Kind: prrow.FactTapAt, Value: store.Stamp(record.At)})
 	case bus.Verdict:
 		facts = []bus.Fact{{PR: body.PR, Head: body.Head, Kind: "verdict", Value: body.Verdict}}
 	case bus.Head:
@@ -321,7 +347,8 @@ func (s Source) ingestLegacy(ctx context.Context) error {
 		return err
 	}
 	for _, record := range records {
-		if err := s.putFacts(bus.LegacyFacts(record, s.Repo, s.GoLanes), record.At.UTC()); err != nil {
+		facts := bus.LegacyFacts(record, s.Repo, s.GoLanes)
+		if err := s.putFacts(append(facts, graderWords(facts, record.Text)...), record.At.UTC()); err != nil {
 			return err
 		}
 		if err := s.clearWithdrawn(ctx, record); err != nil {
@@ -332,6 +359,16 @@ func (s Source) ingestLegacy(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+func graderWords(facts []bus.Fact, text string) []bus.Fact {
+	var said []bus.Fact
+	for _, fact := range facts {
+		if fact.Kind == "finder" || fact.Kind == "fidelity" {
+			said = append(said, bus.Fact{PR: fact.PR, Head: fact.Head, Kind: prrow.SaidFact(fact.Kind), Value: text})
+		}
+	}
+	return said
 }
 
 func (s Source) clearWithdrawn(ctx context.Context, record client.Record) error {
@@ -356,8 +393,7 @@ func (s Source) clearWithdrawn(ctx context.Context, record client.Record) error 
 	return nil
 }
 
-type openRead struct {
-	numbers []int
+type memberRead struct {
 	carries map[int][]int
 	prs     map[int]pullRequest
 	authors map[int]string
@@ -369,10 +405,12 @@ type label struct {
 
 type pullRequest struct {
 	Number      int    `json:"number"`
+	State       string `json:"state"`
 	Title       string `json:"title"`
 	IsDraft     bool   `json:"isDraft"`
 	HeadRefOid  string `json:"headRefOid"`
 	HeadRefName string `json:"headRefName"`
+	BaseRefName string `json:"baseRefName"`
 	Body        string `json:"body"`
 	Author      struct {
 		Login string `json:"login"`
@@ -398,6 +436,28 @@ type pullRequest struct {
 			} `json:"commit"`
 		} `json:"nodes"`
 	} `json:"tip"`
+	Reviews struct {
+		Nodes []struct {
+			State  string `json:"state"`
+			Author struct {
+				Login string `json:"login"`
+			} `json:"author"`
+			Commit struct {
+				OID string `json:"oid"`
+			} `json:"commit"`
+		} `json:"nodes"`
+	} `json:"latestOpinionatedReviews"`
+}
+
+func (pr pullRequest) approversAt(head string) []string {
+	var approvers []string
+	for _, review := range pr.Reviews.Nodes {
+		if review.State == "APPROVED" && review.Commit.OID == head {
+			approvers = append(approvers, review.Author.Login)
+		}
+	}
+	slices.Sort(approvers)
+	return approvers
 }
 
 func (pr pullRequest) labelled(names ...string) bool {
@@ -416,62 +476,40 @@ func (pr pullRequest) mergeableAt(head string) bool {
 	return pr.HeadRefOid == head && pr.Mergeable == "MERGEABLE" && pr.MergeStateStatus != "DIRTY"
 }
 
-func (s Source) readOpen(ctx context.Context) (openRead, error) {
-	out, err := s.graphQL(ctx, openQuery, "--paginate")
-	if err != nil {
-		return openRead{}, err
-	}
-	prs, err := decodePages(out)
-	if err != nil {
-		return openRead{}, err
-	}
-	authors := make(map[int]string, len(prs))
-	for _, pr := range prs {
-		authors[pr.Number] = pr.Author.Login
-	}
-	admitted := slices.DeleteFunc(prs, func(pr pullRequest) bool { return !s.admits(pr) })
-	byNumber := make(map[int]pullRequest, len(admitted))
-	for _, pr := range admitted {
-		byNumber[pr.Number] = pr
-	}
-	return openRead{numbers(admitted), carried(admitted), byNumber, authors}, nil
-}
-
-func decodePages(out string) ([]pullRequest, error) {
-	dec := json.NewDecoder(strings.NewReader(out))
-	var prs []pullRequest
-	for {
-		var page struct {
+func (s Source) readMembers(ctx context.Context, numbers []int) (memberRead, error) {
+	prs := make([]pullRequest, 0, len(numbers))
+	for batch := range slices.Chunk(numbers, memberBatch) {
+		out, err := s.graphQL(ctx, membersQuery(batch))
+		if err != nil {
+			return memberRead{}, err
+		}
+		var reply struct {
 			Data struct {
-				Repository struct {
-					PullRequests struct {
-						Nodes []pullRequest `json:"nodes"`
-					} `json:"pullRequests"`
-				} `json:"repository"`
+				Repository map[string]pullRequest `json:"repository"`
 			} `json:"data"`
 		}
-		err := dec.Decode(&page)
-		if errors.Is(err, io.EOF) {
-			return prs, nil
+		if err := json.Unmarshal([]byte(out), &reply); err != nil {
+			return memberRead{}, err
 		}
-		if err != nil {
-			return nil, err
+		for _, pr := range reply.Data.Repository {
+			prs = append(prs, pr)
 		}
-		prs = append(prs, page.Data.Repository.PullRequests.Nodes...)
 	}
-}
-
-func (s Source) admits(pr pullRequest) bool {
-	return pr.Author.Login == s.Author || slices.Contains(pr.Labels.Nodes, label{s.Label})
-}
-
-func numbers(prs []pullRequest) []int {
-	out := make([]int, 0, len(prs))
+	authors := make(map[int]string, len(prs))
+	byNumber := make(map[int]pullRequest, len(prs))
 	for _, pr := range prs {
-		out = append(out, pr.Number)
+		authors[pr.Number] = pr.Author.Login
+		byNumber[pr.Number] = pr
 	}
-	slices.Sort(out)
-	return out
+	return memberRead{carried(prs), byNumber, authors}, nil
+}
+
+func membersQuery(numbers []int) string {
+	var aliases strings.Builder
+	for _, number := range numbers {
+		fmt.Fprintf(&aliases, "r%d: pullRequest(number: %d) { %s } ", number, number, memberFields)
+	}
+	return "query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { " + aliases.String() + "} }"
 }
 
 func carried(prs []pullRequest) map[int][]int {
@@ -507,6 +545,34 @@ func (s Source) withOpenItems(open []int) ([]int, error) {
 type hold struct {
 	by  machine.Mover
 	seq int64
+	why string
+}
+
+var (
+	holdOpening = regexp.MustCompile(`(?i)^\s*hold\s+#?\d+\s*[:,-]?\s*`)
+	planNamed   = regexp.MustCompile(`(?i)\bplan (?:row|step|\d)`)
+)
+
+func holdWhy(record client.Record, by machine.Mover) string {
+	line, _, _ := strings.Cut(record.Text, "\n")
+	why := fmt.Sprintf("%s (record #%d)", holdOpening.ReplaceAllString(line, ""), record.Seq)
+	switch {
+	case by == machine.MoverOwner:
+		return "owner:" + why
+	case strings.Contains(strings.ToLower(record.Lane+" "+line), "cutover"):
+		return "cutover:" + why
+	case planNamed.MatchString(line):
+		return "plan:" + why
+	}
+	return "root:" + why
+}
+
+func heldWords(held map[int]hold) map[int]string {
+	words := make(map[int]string, len(held))
+	for number, one := range held {
+		words[number] = one.why
+	}
+	return words
 }
 
 func (s Source) holds(ctx context.Context) (map[int]hold, error) {
@@ -533,16 +599,16 @@ func (s Source) holds(ctx context.Context) (map[int]hold, error) {
 		for _, pr := range bus.HeldBy(record, s.Repo) {
 			switch {
 			case byOwner:
-				held[pr] = hold{machine.MoverOwner, record.Seq}
+				held[pr] = hold{machine.MoverOwner, record.Seq, holdWhy(record, machine.MoverOwner)}
 			case !bus.GoLifts(gos, record, pr) && held[pr].by != machine.MoverOwner:
-				held[pr] = hold{machine.MoverRoot, record.Seq}
+				held[pr] = hold{machine.MoverRoot, record.Seq, holdWhy(record, machine.MoverRoot)}
 			}
 		}
 	}
 	return held, nil
 }
 
-func (s Source) assemble(ctx context.Context, rows []statusRow, open openRead, required []string, held map[int]hold) ([]machine.Facts, error) {
+func (s Source) assemble(ctx context.Context, rows []statusRow, open memberRead, required []string, held map[int]hold, known []store.ReviewRow) ([]machine.Facts, error) {
 	if len(rows) == 0 {
 		return nil, nil
 	}
@@ -553,6 +619,11 @@ func (s Source) assemble(ctx context.Context, rows []statusRow, open openRead, r
 	owners, err := s.Store.OwnerOf(numbers)
 	if err != nil {
 		return nil, err
+	}
+	for _, row := range known {
+		if owners[row.Number] == "" {
+			owners[row.Number] = row.Lane
+		}
 	}
 	out := make([]machine.Facts, 0, len(rows))
 	for _, row := range rows {
@@ -637,45 +708,47 @@ func (s Source) factsOf(row statusRow, pr pullRequest, required []string, stored
 	if queue == machine.QueueNone && carriedAbove.MatchString(stored["enqueued"]) {
 		queue = machine.QueueQueued
 	}
-	lane := stored["lane"]
-	if lane == "" {
-		lane = owner
-	}
-	resubmitted, err := atoiOrZero(stored["resubmitted"])
-	if err != nil {
-		return machine.Facts{}, fmt.Errorf("#%d resubmitted: %w", row.Number, err)
-	}
 	f := machine.Facts{
-		Repo:         s.Repo,
-		Number:       row.Number,
-		Title:        pr.Title,
-		Head:         row.Head,
-		Branch:       pr.HeadRefName,
-		Base:         row.Base,
-		Lane:         lane,
-		Draft:        pr.IsDraft,
-		Closed:       row.State != "OPEN",
-		Merged:       row.State == "MERGED" || row.Queue == "landed" || row.Queue == "unknown" && pr.labelled(trunkMerged),
-		CI:           ci,
-		Failing:      row.CI.Failing,
-		Approved:     row.Approval.State == "approved",
-		Mergeable:    mergeableOf(row, pr),
-		Queue:        queue,
-		Resubmitted:  resubmitted,
-		Finder:       machine.Finder(stored["finder"]),
-		Fidelity:     machine.Fidelity(stored["fidelity"]),
-		Tap:          machine.Tap(stored["tap"]),
-		Condition:    stored["condition"],
-		UnsafeWait:   gates.UnsafeWait(pr.Body),
-		Body:         pr.Body,
-		GradeStopped: stored[machine.GradeStoppedFact],
+		Repo:       s.Repo,
+		Number:     row.Number,
+		Title:      pr.Title,
+		Head:       row.Head,
+		Branch:     pr.HeadRefName,
+		Base:       row.Base,
+		Draft:      pr.IsDraft,
+		Closed:     row.State != "OPEN",
+		Merged:     row.State == "MERGED" || row.Queue == "landed" || row.Queue == "unknown" && pr.labelled(trunkMerged),
+		CI:         ci,
+		Failing:    row.CI.Failing,
+		Approved:   row.Approval.State == "approved",
+		Approvers:  pr.approversAt(row.Head),
+		Mergeable:  mergeableOf(row, pr),
+		Queue:      queue,
+		UnsafeWait: gates.UnsafeWait(pr.Body),
 	}
 	if queue == machine.QueueQueued {
 		f.QueuedHead = row.Head
 	}
+	err = fromStored(&f, stored, owner)
+	return f, err
+}
+
+func fromStored(f *machine.Facts, stored map[string]string, owner string) error {
+	f.Lane = stored["lane"]
+	if f.Lane == "" {
+		f.Lane = owner
+	}
+	resubmitted, err := atoiOrZero(stored["resubmitted"])
+	if err != nil {
+		return fmt.Errorf("#%d resubmitted: %w", f.Number, err)
+	}
+	f.Resubmitted = resubmitted
+	f.Finder, f.Fidelity = machine.Finder(stored["finder"]), machine.Fidelity(stored["fidelity"])
+	f.Tap, f.Condition = machine.Tap(stored["tap"]), stored["condition"]
+	f.GradeStopped = stored[machine.GradeStoppedFact]
 	_, f.Verdict = stored["verdict"]
 	_, f.Exempt = stored["exempt"]
-	return f, nil
+	return nil
 }
 
 func atoiOrZero(text string) (int, error) {

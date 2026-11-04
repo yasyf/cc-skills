@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/board"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/grading"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/landing"
@@ -49,11 +48,11 @@ type Deps struct {
 	Stagger   time.Duration
 	Followers []func(context.Context)
 	Snapshot  func(ctx context.Context) ([]machine.Facts, error)
+	WriteRows func(ctx context.Context, snapshot []machine.Facts) error
 	Post      pass.Post
 	Queue     landing.Queue
 	Restacker landing.Restacker
 	Trunk     string
-	Repo      string
 	Admit     func(ctx context.Context, acts []pass.Act, snapshot []machine.Facts) []pass.Act
 	DropStale func(ctx context.Context, snapshot []machine.Facts) error
 	Pool      grading.Pool
@@ -123,10 +122,12 @@ func runPass(ctx context.Context, s *store.Store, drive string, generation int64
 		return report, nil
 	}
 	report.PRs = len(snapshot)
-	if err := board.WriteReviewRows(s, d.Repo, snapshot, now); err != nil {
-		d.Log.Warn("the review tab's rows were not written", "err", err)
-		if err := tellUnwritten(s, d.Post, err, now); err != nil {
-			d.Log.Warn("unwritten review rows could not say so", "err", err)
+	if d.WriteRows != nil {
+		if err := d.WriteRows(ctx, snapshot); err != nil {
+			d.Log.Warn("the review tab's rows were not written", "err", err)
+			if err := tellUnwritten(s, d.Post, err, now); err != nil {
+				d.Log.Warn("unwritten review rows could not say so", "err", err)
+			}
 		}
 	}
 	route, err := watch.Desks(s)

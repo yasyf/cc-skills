@@ -112,8 +112,16 @@ CREATE TABLE IF NOT EXISTS due (
 );
 CREATE INDEX IF NOT EXISTS due_at ON due (at);
 CREATE TABLE IF NOT EXISTS review_rows (
-  repo TEXT NOT NULL, number INTEGER NOT NULL, head TEXT NOT NULL, lane TEXT NOT NULL, title TEXT NOT NULL,
-  waits TEXT NOT NULL, ready INTEGER NOT NULL, tapped INTEGER NOT NULL, drawn_at TEXT NOT NULL,
+  repo TEXT NOT NULL, number INTEGER NOT NULL, title TEXT NOT NULL, lane TEXT NOT NULL, branch TEXT NOT NULL,
+  base TEXT NOT NULL, parent TEXT NOT NULL, parent_state TEXT NOT NULL, head TEXT NOT NULL,
+  head_at TEXT NOT NULL, read_head TEXT NOT NULL, for_users TEXT NOT NULL, plan_line TEXT NOT NULL,
+  plan_row TEXT NOT NULL, risk TEXT NOT NULL, description TEXT NOT NULL, unsafe_wait TEXT NOT NULL,
+  ci TEXT NOT NULL, approvers TEXT NOT NULL, review TEXT NOT NULL, grade TEXT NOT NULL,
+  grade_findings TEXT NOT NULL, mergeable TEXT NOT NULL, queue TEXT NOT NULL, hold TEXT NOT NULL,
+  superseded_by TEXT NOT NULL, waits_on TEXT NOT NULL, ready_for_tap INTEGER NOT NULL, state TEXT NOT NULL,
+  tapped INTEGER NOT NULL, tapped_at TEXT NOT NULL, tapped_by TEXT NOT NULL, landed_at TEXT NOT NULL,
+  last_record INTEGER NOT NULL, written_at TEXT NOT NULL,
+  waits TEXT NOT NULL, ready INTEGER NOT NULL, drawn_at TEXT NOT NULL, plan TEXT NOT NULL,
   PRIMARY KEY (repo, number)
 );
 CREATE TABLE IF NOT EXISTS pr_facts (
@@ -173,8 +181,4 @@ var addedColumns = []struct{ table, column, kind string }{
 	{"grades", "change", "TEXT NOT NULL DEFAULT ''"},
 	{"pr_facts", "change", "TEXT NOT NULL DEFAULT ''"},
 	{"queue", "entry", "TEXT NOT NULL DEFAULT ''"},
-	{"review_rows", "for_users", "TEXT NOT NULL DEFAULT ''"},
-	{"review_rows", "plan", "TEXT NOT NULL DEFAULT ''"},
-	{"review_rows", "risk", "TEXT NOT NULL DEFAULT ''"},
-	{"review_rows", "review", "TEXT NOT NULL DEFAULT ''"},
 }

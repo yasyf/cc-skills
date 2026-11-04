@@ -133,6 +133,7 @@ type Facts struct {
 	CI            CI
 	Failing       []string
 	Approved      bool
+	Approvers     []string
 	Mergeable     Mergeable
 	Queue         Queue
 	QueuedHead    string
@@ -149,7 +150,6 @@ type Facts struct {
 	Carries       []int
 	Condition     string
 	UnsafeWait    string
-	Body          string `json:"-"`
 	GradeStopped  string
 }
 

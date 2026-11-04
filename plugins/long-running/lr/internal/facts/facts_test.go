@@ -21,6 +21,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/facts"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell/shelltest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
@@ -34,43 +35,20 @@ const (
 )
 
 type recordedPR struct {
-	number  int
-	head    string
-	login   string
-	labels  []string
-	commits []string
-	rollup  string
-	merge   string
-	draft   bool
-	diff    string
-	body    string
-}
-
-func graphQLPages(prs []recordedPR) string {
-	var pages strings.Builder
-	for start := 0; start == 0 || start < len(prs); start += 100 {
-		page := prs[start:min(start+100, len(prs))]
-		nodes := make([]map[string]any, 0, len(page))
-		for _, pr := range page {
-			labels, commits := make([]map[string]any, 0, len(pr.labels)), make([]map[string]any, 0, len(pr.commits))
-			for _, name := range pr.labels {
-				labels = append(labels, map[string]any{"name": name})
-			}
-			for _, oid := range pr.commits {
-				commits = append(commits, map[string]any{"commit": map[string]any{"oid": oid}})
-			}
-			nodes = append(nodes, map[string]any{
-				"number": pr.number, "isDraft": pr.draft, "headRefOid": pr.head, "body": pr.body, "author": map[string]any{"login": pr.login},
-				"labels": map[string]any{"nodes": labels}, "commits": map[string]any{"nodes": commits},
-			})
-		}
-		encoded, err := json.Marshal(map[string]any{"data": map[string]any{"repository": map[string]any{"pullRequests": map[string]any{"nodes": nodes}}}})
-		if err != nil {
-			panic(err)
-		}
-		pages.Write(encoded)
-	}
-	return pages.String()
+	number    int
+	head      string
+	login     string
+	labels    []string
+	commits   []string
+	rollup    string
+	merge     string
+	draft     bool
+	diff      string
+	body      string
+	unopened  bool
+	approvers []string
+	state     string
+	branch    string
 }
 
 type ciRow struct {
@@ -84,16 +62,32 @@ type statusRow struct {
 	CI ciRow `json:"ci"`
 }
 
-func settleReply(prs []recordedPR) string {
+func memberReply(prs []recordedPR) string {
 	repository := make(map[string]any, len(prs))
 	for _, pr := range prs {
 		var rollup any
 		if pr.rollup != "" {
 			rollup = map[string]any{"state": pr.rollup}
 		}
+		labels, commits, reviews := make([]map[string]any, 0, len(pr.labels)), make([]map[string]any, 0, len(pr.commits)), make([]map[string]any, 0, len(pr.approvers))
+		for _, name := range pr.labels {
+			labels = append(labels, map[string]any{"name": name})
+		}
+		for _, oid := range pr.commits {
+			commits = append(commits, map[string]any{"commit": map[string]any{"oid": oid}})
+		}
+		for _, login := range pr.approvers {
+			reviews = append(reviews, map[string]any{"state": "APPROVED", "author": map[string]any{"login": login}, "commit": map[string]any{"oid": pr.head}})
+		}
+		state := pr.state
+		if state == "" {
+			state = "OPEN"
+		}
 		repository[fmt.Sprintf("r%d", pr.number)] = map[string]any{
-			"number": pr.number, "headRefOid": pr.head, "mergeable": pr.merge,
-			"tip": map[string]any{"nodes": []map[string]any{{"commit": map[string]any{"statusCheckRollup": rollup}}}},
+			"number": pr.number, "state": state, "isDraft": pr.draft, "headRefOid": pr.head, "headRefName": pr.branch, "baseRefName": "dev", "body": pr.body,
+			"author": map[string]any{"login": pr.login}, "labels": map[string]any{"nodes": labels}, "commits": map[string]any{"nodes": commits}, "mergeable": pr.merge,
+			"tip":                      map[string]any{"nodes": []map[string]any{{"commit": map[string]any{"statusCheckRollup": rollup}}}},
+			"latestOpinionatedReviews": map[string]any{"nodes": reviews},
 		}
 	}
 	encoded, err := json.Marshal(map[string]any{"data": map[string]any{"repository": repository}})
@@ -110,6 +104,8 @@ func status(number int, overrides ...func(*statusRow)) statusRow {
 	}
 	return row
 }
+
+var landingConfig = config.Config{Repo: repo, Drive: "d", Checkout: "/checkouts/repo", Author: "drive-bot", Trunk: "dev", Movers: []string{config.MoverLanding}}
 
 type harness struct {
 	source facts.Source
@@ -132,18 +128,25 @@ func newHarness(t *testing.T, prs []recordedPR, rows ...statusRow) harness {
 		t.Fatal(err)
 	}
 	runner := &shelltest.Fake{}
-	runner.Reply(graphQLPages(prs), "ccx", "vcs", "gh", "--max-age", "0s", "--", "api", "graphql", "--paginate")
-	runner.Reply(settleReply(prs), "ccx", "vcs", "gh", "--max-age", "0s", "--", "api", "graphql")
+	runner.Reply(memberReply(prs), "ccx", "vcs", "gh", "--max-age", "0s", "--", "api", "graphql")
 	runner.Reply(branchRules, "ccx", "vcs", "gh", "--max-age", "5m")
 	runner.Reply(string(statuses), "ccx", "vcs", "pr", "status")
 	runner.Reply("", "git", "fetch")
 	for _, pr := range prs {
 		runner.Reply(pr.diff, "git", "diff", "--no-color", "--no-ext-diff", "refs/remotes/origin/dev..."+pr.head)
 	}
-	cfg := config.Config{Repo: repo, Drive: "d", Checkout: "/checkouts/repo", Author: "drive-bot", Label: "drive", Trunk: "dev"}
+	seeded := make([]store.ReviewRow, 0, len(prs))
+	for _, pr := range prs {
+		if !pr.unopened {
+			seeded = append(seeded, store.ReviewRow{Repo: repo, Number: pr.number, Head: pr.head, State: prrow.StateOpen})
+		}
+	}
+	if err := s.PutReviewRows(seeded); err != nil {
+		t.Fatal(err)
+	}
 	a := app.New(io.Discard)
 	a.Runner = runner
-	return harness{facts.New(a, cfg, s), s, runner}
+	return harness{facts.New(a, landingConfig, s), s, runner}
 }
 
 func (h harness) snapshot(t *testing.T) map[int]machine.Facts {
@@ -177,24 +180,153 @@ func post(t *testing.T, lane string, body bus.Body, to ...string) {
 	}
 }
 
-func TestEveryOpenPRByTheDriveAuthorOrLabelIsAdmitted(t *testing.T) {
+func TestOnlyAPROpenedOnTheRecordIsRead(t *testing.T) {
 	h := newHarness(t, []recordedPR{
-		{number: 45757, head: head, login: "unregistered-user", labels: []string{"drive"}},
+		{number: 45757, head: head, login: "drive-bot"},
 		{number: 1, head: head2, login: "drive-bot"},
-		{number: 2, head: head3, login: "someone-else"},
+		{number: 2, head: head3, login: "drive-bot", unopened: true},
 	}, status(1), status(45757))
 
 	h.snapshot(t)
 
 	if got := h.statusNumbers(t); !slices.Equal(got, []string{"1", "45757"}) {
-		t.Fatalf("status read = %v", got)
+		t.Fatalf("status read = %v, want the rows only and never a PR no record opened", got)
+	}
+	for _, call := range h.runner.Calls() {
+		if slices.ContainsFunc(call.Argv, func(arg string) bool { return strings.Contains(arg, "pullRequests(") }) {
+			t.Fatalf("a read listed GitHub's open PRs: %v", call.Argv)
+		}
 	}
 }
 
-func TestAPRAnotherPersonWroteReadsWithTheirLoginWhetherALabelOrAnOpenItemKeepsItAndTheDrivesOwnWithNone(t *testing.T) {
+func TestAnOpenedRecordMakesTheRow(t *testing.T) {
+	h := newHarness(t, []recordedPR{{number: 7, head: head, login: "drive-bot", unopened: true}}, status(7))
+	if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "lane-7", Kind: "opened", Text: "opened", PRs: []string{repo + "#7"}, Attrs: map[string]string{"repo": repo, "head": head}}); err != nil {
+		t.Fatal(err)
+	}
+
+	by := h.snapshot(t)
+
+	if by[7].Head != head || by[7].Lane != "lane-7" {
+		t.Fatalf("#7 = %+v, want it read at its head under the lane that opened it", by[7])
+	}
+}
+
+func TestAHostWithoutTheLandingMoverReadsTheRowsAndNeverGitHub(t *testing.T) {
+	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
+	if _, err := client.Post(context.Background(), client.Draft{
+		Drive: "d", Lane: "supervisor", Kind: "github", Text: "the title", PRs: []string{repo + "#1"},
+		Attrs: map[string]string{"record": "pr.read", "repo": repo, "head": head, "state": "open", "base": "dev", "branch": "b", "ci": "green", "approvers": "a, b", "mergeable": "clean", "queue": "none"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	a := app.New(io.Discard)
+	a.Runner = h.runner
+	away := landingConfig
+	away.Movers = []string{"lanes", "grading"}
+
+	rows, err := facts.New(a, away, h.store).Snapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if calls := h.runner.Calls(); len(calls) != 0 {
+		t.Fatalf("it read GitHub: %+v", calls)
+	}
+	if len(rows) != 1 || rows[0].CI != machine.CISuccess || rows[0].Mergeable != machine.MergeableClean || !rows[0].Approved || rows[0].Title != "the title" {
+		t.Fatalf("rows = %+v, want the landing host's read", rows)
+	}
+}
+
+func TestAHostWithoutTheLandingMoverActsOnNoRowTheLandingHostHasNotRead(t *testing.T) {
+	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}})
+	a := app.New(io.Discard)
+	a.Runner = h.runner
+	away := landingConfig
+	away.Movers = []string{"lanes", "grading"}
+
+	rows, err := facts.New(a, away, h.store).Snapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(rows) != 0 {
+		t.Fatalf("rows = %+v, want none: an unread row may already have merged", rows)
+	}
+}
+
+func TestACutoverHoldComesThroughWithItsReason(t *testing.T) {
+	h := newHarness(t, []recordedPR{{number: 49428, head: head, login: "drive-bot"}, {number: 49307, head: head2, login: "drive-bot"}}, status(49428), status(49307))
+	for lane, text := range map[string]string{
+		"cutover-deletion-sweep-4": "Hold #49428: deletes the run takeover; held until plan 12.0 reads true",
+		"root":                     "hold #49307 until the old-route warn lines have stopped",
+	} {
+		number := "49428"
+		if lane == "root" {
+			number = "49307"
+		}
+		if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: lane, Kind: "hold", Text: text, PRs: []string{number}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	h.snapshot(t)
+
+	cutover, _, err := h.store.ReviewRow(repo, 49428)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(cutover.Hold, "cutover:deletes the run takeover; held until plan 12.0 reads true (record #") || cutover.ReadyForTap || !strings.Contains(cutover.WaitsOn, "cutover:") {
+		t.Fatalf("cutover row = %+v", cutover)
+	}
+	root, _, err := h.store.ReviewRow(repo, 49307)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(root.Hold, "root:until the old-route warn lines have stopped (record #") {
+		t.Fatalf("root hold = %q", root.Hold)
+	}
+}
+
+func TestBackfillPostsOneOpenedRecordPerOpenPRItFindsThroughOwnersAndRows(t *testing.T) {
 	h := newHarness(t, []recordedPR{
-		{number: 47613, head: head, login: "teammate"},
-		{number: 47615, head: head, login: "teammate", labels: []string{"drive"}},
+		{number: 1, head: head, login: "drive-bot", branch: "one", body: "## Summary\n\nA user sees it.\n", unopened: true},
+		{number: 2, head: head2, login: "drive-bot", state: "MERGED", unopened: true},
+		{number: 3, head: head3, login: "drive-bot", branch: "three", body: "## Summary\n\nThree.\n"},
+	})
+	if err := h.store.Own("lane-7", []int{1, 2}); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.store.PutReviewRows([]store.ReviewRow{{Repo: repo, Number: 3, Head: head3, Lane: "lane-9", State: prrow.StateOpen}}); err != nil {
+		t.Fatal(err)
+	}
+
+	posted, err := h.source.Backfill(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if posted != 2 {
+		t.Fatalf("posted = %d, want #1 and #3 and never a merged PR", posted)
+	}
+
+	h.snapshot(t)
+
+	one, known, err := h.store.ReviewRow(repo, 1)
+	if err != nil || !known {
+		t.Fatalf("#1 row = %+v, %v, %v", one, known, err)
+	}
+	if one.ForUsers != "A user sees it." || one.Lane != "lane-7" || one.Branch != "one" || one.Head != head {
+		t.Fatalf("#1 = %+v, want its body's fields, its owner and its head", one)
+	}
+	if _, known, _ := h.store.ReviewRow(repo, 2); known {
+		t.Fatal("a merged PR got a row")
+	}
+}
+
+func TestAPRAnotherPersonWroteReadsWithTheirLoginWhetherARowOrAnOpenItemKeepsItAndTheDrivesOwnWithNone(t *testing.T) {
+	h := newHarness(t, []recordedPR{
+		{number: 47613, head: head, login: "teammate", unopened: true},
+		{number: 47615, head: head, login: "teammate"},
 		{number: 1, head: head2, login: "drive-bot"},
 	}, status(1), status(47613), status(47615))
 	if _, err := h.store.OpenItem(store.NewItem{Kind: "tap", Repo: repo, Number: 47613, Head: head, Mover: machine.MoverOwner, Deadline: time.Hour}, time.Now()); err != nil {
@@ -210,7 +342,7 @@ func TestAPRAnotherPersonWroteReadsWithTheirLoginWhetherALabelOrAnOpenItemKeepsI
 	}
 }
 
-func TestTheOpenListReadNamesTheWaitEachDrivePRsBodyLeavesUnsafeOnDev(t *testing.T) {
+func TestTheMemberReadNamesTheWaitEachDrivePRsBodyLeavesUnsafeOnDev(t *testing.T) {
 	h := newHarness(t, []recordedPR{
 		{number: 1, head: head, login: "drive-bot", body: "## Risk\n\nThis goes live only after #46014 is live on every cluster.\n"},
 		{number: 2, head: head2, login: "drive-bot", body: "Nothing calls this yet. It goes live only after #46014 is live.\n"},
@@ -220,9 +352,6 @@ func TestTheOpenListReadNamesTheWaitEachDrivePRsBodyLeavesUnsafeOnDev(t *testing
 
 	if got[1].UnsafeWait != "This goes live only after #46014 is live on every cluster" || got[2].UnsafeWait != "" {
 		t.Fatalf("waits = %q, %q", got[1].UnsafeWait, got[2].UnsafeWait)
-	}
-	if !strings.Contains(got[1].Body, "This goes live only after #46014") {
-		t.Fatalf("body = %q, want the PR body the review row reads its fields from", got[1].Body)
 	}
 }
 
@@ -241,7 +370,7 @@ func TestADraftIsReadAsADraft(t *testing.T) {
 	}
 }
 
-func TestAPassReadsEachSourceOnceWhateverThePRCount(t *testing.T) {
+func TestAPassesGitHubCallsGrowOnlyByPageWhateverThePRCount(t *testing.T) {
 	calls := map[int]int{}
 	for _, n := range []int{1, 1000} {
 		prs, rows := make([]recordedPR, 0, n), make([]statusRow, 0, n)
@@ -258,70 +387,35 @@ func TestAPassReadsEachSourceOnceWhateverThePRCount(t *testing.T) {
 
 		calls[n] = len(h.runner.Calls())
 	}
-	if calls[1] != 3 || calls[1000] != calls[1] {
-		t.Fatalf("command runs at 1 and 1,000 open PRs = %d, %d, want 3 each", calls[1], calls[1000])
+	if calls[1] != 3 || calls[1000] != 3+39 {
+		t.Fatalf("command runs at 1 and 1,000 PRs = %d, %d, want 3 and 42: one status read, one rules read, one read per page of 25", calls[1], calls[1000])
 	}
 }
 
-func settleReads(calls []shell.Command) []string {
-	var queries []string
-	for _, call := range calls {
-		if !slices.Contains(call.Argv, "graphql") || slices.Contains(call.Argv, "--paginate") {
-			continue
-		}
-		queries = append(queries, call.Argv[len(call.Argv)-1])
-	}
-	return queries
-}
-
-func TestOnlyARowLeftUnsettledCostsASettleReadInBatchesGitHubAnswers(t *testing.T) {
-	const unsettled = 60
-	prs, rows := []recordedPR{{number: 1, head: head, login: "drive-bot"}}, []statusRow{status(1)}
-	for i := 2; i < 2+unsettled; i++ {
+func TestTheMemberReadAsksByNumberInBatchesGitHubAnswers(t *testing.T) {
+	const members = 60
+	prs := make([]recordedPR, 0, members)
+	for i := 1; i <= members; i++ {
 		prs = append(prs, recordedPR{number: i, head: head, login: "drive-bot"})
-		rows = append(rows, status(i, func(r *statusRow) {
-			if i%2 == 0 {
-				r.CI.State = "pending"
-				return
-			}
-			r.Verdict = "blocked:mergeable-unknown"
-		}))
 	}
-	h := newHarness(t, prs, rows...)
+	h := newHarness(t, prs)
 
 	h.snapshot(t)
 
-	queries := settleReads(h.runner.Calls())
-	if len(queries) != 3 {
-		t.Fatalf("%d settle reads for %d rows, want 3 batches", len(queries), unsettled)
-	}
-	asked := 0
-	for _, query := range queries {
-		named := strings.Count(query, "pullRequest(number:")
+	var batches, asked int
+	for _, call := range h.runner.Calls() {
+		if !slices.Contains(call.Argv, "graphql") {
+			continue
+		}
+		batches++
+		named := strings.Count(call.Argv[len(call.Argv)-1], "pullRequest(number:")
 		if named > 25 {
 			t.Errorf("a batch of %d is past what GitHub answers before it times out", named)
 		}
-		if strings.Contains(query, "r1: pullRequest") {
-			t.Errorf("a settled row was read: %s", query)
-		}
 		asked += named
 	}
-	if asked != unsettled {
-		t.Fatalf("asked %d rows, want %d", asked, unsettled)
-	}
-}
-
-func TestTheOpenListReadLeavesTheFieldsGitHubCannotComputeForAWholePage(t *testing.T) {
-	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
-
-	h.snapshot(t)
-
-	list := strings.Join(h.runner.Calls()[0].Argv, " ")
-	if !strings.Contains(list, "--paginate") || strings.Contains(list, "statusCheckRollup") || strings.Contains(list, "mergeable") {
-		t.Fatalf("open list read = %s", list)
-	}
-	if reads := settleReads(h.runner.Calls()); len(reads) != 0 {
-		t.Fatalf("a settled pass read %v", reads)
+	if batches != 3 || asked != members {
+		t.Fatalf("%d batches naming %d PRs, want 3 naming %d", batches, asked, members)
 	}
 }
 
@@ -343,12 +437,12 @@ func TestEveryReadRunsFromTheCheckoutNamingItsRepositoryAndCaller(t *testing.T) 
 		}
 	}
 	graphql := calls[0].Argv
-	if !slices.Equal(graphql[:10], []string{"ccx", "vcs", "gh", "--max-age", "0s", "--", "api", "graphql", "--paginate", "-f"}) || !slices.Contains(graphql, "owner=org") || !slices.Contains(graphql, "name=repo") {
+	if !slices.Equal(graphql[:9], []string{"ccx", "vcs", "gh", "--max-age", "0s", "--", "api", "graphql", "-f"}) || !slices.Contains(graphql, "owner=org") || !slices.Contains(graphql, "name=repo") {
 		t.Errorf("GraphQL read = %v", graphql)
 	}
 }
 
-func TestTheOpenListReadsPastOnePage(t *testing.T) {
+func TestTheMemberReadReadsPastOnePage(t *testing.T) {
 	prs := make([]recordedPR, 0, 700)
 	for i := 1; i <= 700; i++ {
 		prs = append(prs, recordedPR{number: i, head: fmt.Sprintf("%040x", i), login: "drive-bot"})
@@ -721,9 +815,8 @@ func TestATapWhoseDiffWillNotReadSkipsThatPRAndThePassMovesOn(t *testing.T) {
 	putFact(t, h.store, 2, head2, "tap", "tapped", tappedAt)
 	a := app.New(io.Discard)
 	a.Runner = goneRef{h.runner, head}
-	cfg := config.Config{Repo: repo, Drive: "d", Checkout: "/checkouts/repo", Author: "drive-bot", Label: "drive", Trunk: "dev"}
 
-	rows, err := facts.New(a, cfg, h.store).Snapshot(context.Background())
+	rows, err := facts.New(a, landingConfig, h.store).Snapshot(context.Background())
 	if err != nil {
 		t.Fatalf("one PR's gone ref failed the whole pass: %v", err)
 	}
@@ -1191,7 +1284,10 @@ func TestAFailedGitHubReadSkipsThePassAndLeavesNoRows(t *testing.T) {
 	runner.Fail(1, "ccx: GitHub rate limit floor: graphql", "ccx", "vcs", "gh")
 	a := app.New(io.Discard)
 	a.Runner = runner
-	source := facts.New(a, config.Config{Repo: repo, Drive: "d", Checkout: "/checkouts/repo", Author: "drive-bot", Label: "drive"}, s)
+	if err := s.PutReviewRows([]store.ReviewRow{{Repo: repo, Number: 1, Head: head, State: prrow.StateOpen}}); err != nil {
+		t.Fatal(err)
+	}
+	source := facts.New(a, landingConfig, s)
 
 	rows, err := source.Snapshot(context.Background())
 
@@ -1199,7 +1295,7 @@ func TestAFailedGitHubReadSkipsThePassAndLeavesNoRows(t *testing.T) {
 	if !errors.As(err, &exit) || rows != nil {
 		t.Fatalf("Snapshot = %+v, %v", rows, err)
 	}
-	if !strings.Contains(err.Error(), "read the open pull requests") {
+	if !strings.Contains(err.Error(), "read the drive's pull requests") {
 		t.Fatalf("err = %v", err)
 	}
 }

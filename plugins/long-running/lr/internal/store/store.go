@@ -148,6 +148,15 @@ func (s *Store) Close() error {
 }
 
 func (s *Store) migrate() error {
+	var folded int
+	if err := s.db.QueryRow("SELECT count(*) FROM pragma_table_info('review_rows') WHERE name = 'waits_on'").Scan(&folded); err != nil {
+		return err
+	}
+	if folded == 0 {
+		if _, err := s.db.Exec("DROP TABLE IF EXISTS review_rows"); err != nil {
+			return err
+		}
+	}
 	if _, err := s.db.Exec(schema); err != nil {
 		return err
 	}

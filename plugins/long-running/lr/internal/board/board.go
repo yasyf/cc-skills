@@ -12,6 +12,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -26,7 +27,7 @@ const (
 	FactBlocks    = "words-blocks"
 	FactGroup     = "words-group"
 	FactSummary   = "words-summary"
-	FactWithdrawn = "withdrawn"
+	FactWithdrawn = prrow.FactWithdrawn
 
 	tapFact   = "tap"
 	notedFact = "words-noted"
