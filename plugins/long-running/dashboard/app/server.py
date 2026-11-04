@@ -785,6 +785,10 @@ def rows_written(stored):
     return max((row["written_at"] for row in stored), default=None)
 
 
+def was_refused(row):
+    return row["tap_refused"] not in ("", "none")
+
+
 def refused_words(row):
     refused = row["tap_refused"]
     if refused == row["waits_on"]:
@@ -795,7 +799,7 @@ def refused_words(row):
 def review_blocker(row):
     if row["ready_for_tap"] and not row["tapped"]:
         return "your approval"
-    return refused_words(row) if row["tap_refused"] else row["waits_on"]
+    return refused_words(row) if was_refused(row) else row["waits_on"]
 
 
 def review_rows(stored, verdicts):
@@ -818,7 +822,7 @@ def review_rows(stored, verdicts):
             "group_id": alias,
             "group_summary": "",
             "block": MERGE_BLOCK,
-            "verdict": None if row["tap_refused"] else verdicts.get(MERGE_BLOCK, {}).get(str(row["number"])),
+            "verdict": None if was_refused(row) else verdicts.get(MERGE_BLOCK, {}).get(str(row["number"])),
             "tapped": tapped,
             "ready": ready,
         })
