@@ -10,7 +10,11 @@ import (
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/incident"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
 type boardRunner struct {
@@ -39,7 +43,45 @@ func publisher(t *testing.T, stdout string, now *time.Time) (*InputsPublisher, *
 		t.Fatal(err)
 	}
 	runner := &boardRunner{stdout: stdout}
-	return &InputsPublisher{Runner: runner, Session: "board", Config: path, Now: func() time.Time { return *now }}, runner
+	s, err := store.Memory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	return &InputsPublisher{
+		Runner: runner, Store: s, Session: "board", Config: path, Now: func() time.Time { return *now },
+		FixLane:    func(lane string) (bool, error) { return strings.HasPrefix(lane, "dd-1-fix"), nil },
+		LiveClocks: func() ([]string, error) { return []string{"dd-1-fix-2"}, nil },
+	}, runner
+}
+
+func lane(t *testing.T, s *store.Store, name string, state store.LaneState, retiredBy string, at time.Time) {
+	t.Helper()
+	if _, err := s.WantLane(store.Lane{Name: name, State: store.LaneDesired}, at); err != nil {
+		t.Fatal(err)
+	}
+	if state != store.LaneDesired {
+		if err := s.SetLaneState(name, state, at, retiredBy, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func mirrored(t *testing.T, p *InputsPublisher) *InputsMirror {
+	t.Helper()
+	if err := p.Pass(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	s, err := store.Memory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	m := &InputsMirror{Drive: "d", Store: s, CopyLanes: true, Now: p.Now}
+	if err := m.Pass(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	return m
 }
 
 func posted(t *testing.T) []client.Record {
@@ -61,7 +103,7 @@ func TestASpriteReadsTheBoardsOpenCardAndTheRunnersRulesFromTheRecordTheMacPoste
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(inputs.Cards) != 1 || inputs.Cards[0].ID != "card-49064" || len(inputs.GoLanes) != 1 || inputs.GoLanes[0] != "go-sweep-10" || len(inputs.TapRules["rule/1"]) != 1 {
+	if len(inputs.Cards) != 1 || inputs.Cards[0].ID != "card-49064" || len(inputs.GoLanes) != 1 || inputs.GoLanes[0] != "go-sweep-10" || len(inputs.TapRules["rule/1"]) != 1 || inputs.Session != "board" {
 		t.Fatalf("inputs = %+v", inputs)
 	}
 	claim := gates.Claim{Repo: "o/r", PR: 49064, Head: strings.Repeat("a", 40)}
@@ -128,5 +170,59 @@ func TestAGateWithNoFreshRecordRefusesToReadTheBoardAsEmpty(t *testing.T) {
 	}
 	if _, err := readGateInputs(context.Background(), "d", now.Add(inputsStale+time.Minute)); err == nil {
 		t.Fatal("a record older than the stale limit was read as the board")
+	}
+}
+
+func TestALandingOnlyStoreRoutesEachLaneWhereTheLanesMachineDoes(t *testing.T) {
+	now := time.Now()
+	p, _ := publisher(t, openBoard, &now)
+	lane(t, p.Store, "api-fix-2", store.LaneDesired, "", now)
+	lane(t, p.Store, "api-fix", store.LaneRetired, "api-fix-2", now)
+	lane(t, p.Store, "parked", store.LaneHeld, "", now)
+	lane(t, p.Store, "done", store.LaneRetired, "", now)
+	m := mirrored(t, p)
+
+	for name, want := range map[string]string{"api-fix": "api-fix-2", "parked": lanes.Root, "done": lanes.Root} {
+		if got, err := lanes.Running(m.Store, "d", name); err != nil || got != want {
+			t.Fatalf("Running(%s) = %q, %v; want %q", name, got, err, want)
+		}
+	}
+	if got, err := lanes.Holder(m.Store, "d", "parked"); err != nil || got != "parked" {
+		t.Fatalf("Holder(parked) = %q, %v", got, err)
+	}
+	if clocks, err := m.LiveClocks(); err != nil || len(clocks) != 1 || clocks[0] != "dd-1-fix-2" {
+		t.Fatalf("clocks = %v, %v", clocks, err)
+	}
+}
+
+func TestAFixLaneTheLanesMachineLaunchedStillSquashesOnALandingOnlyMachine(t *testing.T) {
+	now := time.Now()
+	p, _ := publisher(t, openBoard, &now)
+	lane(t, p.Store, "dd-1-fix", store.LaneRetired, "", now.Add(-time.Hour))
+	lane(t, p.Store, "dd-1-fix-old", store.LaneRetired, "", now.Add(-incidentHorizon-time.Hour))
+	m := mirrored(t, p)
+	q := &Squash{Store: m.Store, Incidents: incident.Store{Root: t.TempDir()}, Trunk: "dev", FixLane: m.FixLane}
+
+	named, _, err := q.tagged([]machine.Facts{
+		{Repo: "o/r", Number: 7, Base: "dev", Lane: "dd-1-fix"},
+		{Repo: "o/r", Number: 8, Base: "dev", Lane: "dd-1-fix-old"},
+		{Repo: "o/r", Number: 9, Base: "dev", Lane: "ordinary"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(named) != 1 || named[0].Number != 7 {
+		t.Fatalf("squash takes %+v, want only #7 from the retired fix lane", named)
+	}
+}
+
+func TestALandingOnlyMachineWithNoInputsRefusesToCallAnyLaneAFix(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	m := &InputsMirror{Drive: "d", Now: time.Now}
+	if err := m.Pass(context.Background()); err == nil {
+		t.Fatal("a mirror with no inputs record read")
+	}
+	if _, err := m.FixLane("dd-1-fix"); err == nil {
+		t.Fatal("a mirror with no inputs record answered whether a lane is a fix")
 	}
 }

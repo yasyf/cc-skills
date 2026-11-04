@@ -37,7 +37,7 @@ from .compaction_handoff import ccn, Communicator, communicator_tests, Compactio
 from .judge_metrics import judge_call
 from .nudges import once_per_hour
 from .register_injection import drive_args, incident_spawn, prose
-from .root_context import operand_targets, reads_stdin
+from .root_context import HARNESS_PREFIXES, operand_targets, reads_stdin
 from .tests.board_fixtures import ANSWERS, GLOSSARY, JUDGE, REPO, ROWS, board, judged
 from .tests.brief_fixtures import INCIDENT_ADJACENT, INCIDENT_TURN, NOT_AN_INCIDENT
 from .tests.handoff_fixtures import reply_transcript
@@ -399,7 +399,7 @@ def owner_words(evt: BaseHookEvent) -> list[str]:
         and not event.meta.is_meta
         and not event.is_agent_injected
         and event.text
-        and not event.text.lstrip().startswith(("<", "[Request interrupted", "This session is being continued"))
+        and not event.text.lstrip().startswith(HARNESS_PREFIXES)
     ]
 
 

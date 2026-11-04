@@ -24,7 +24,7 @@ Standing orders, fixed in this template:
     report, by {due} PT; the desk's limits below run from your launch, inside it.
   - "stop asking people for things you can collect yourself": never ask a reporter
     or anyone else for evidence; read telemetry and Sentry yourself.
-  - Verification: no local test runs, builds, typechecks or lint; CI grades; a red CI step is read from its log, fixed, and pushed.
+  - Verification: before each push, `go build` and `go vet` over the Go packages you touched and the typecheck over the TypeScript you touched; no local test runs or lint; CI grades; a red CI step is read from its log, fixed, and pushed.
   - Any repair pass or backfill runs on in-region EC2, never on
     this Mac.
   - A tooling failure goes to the meta lane the same turn, as one `defect` record to

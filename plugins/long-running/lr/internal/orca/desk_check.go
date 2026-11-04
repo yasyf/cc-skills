@@ -367,7 +367,7 @@ func (d *Desk) parkedOn(ctx context.Context, lane string) (int64, error) {
 		return 0, nil
 	}
 	newest := records[len(records)-1]
-	if string(newest.Kind) != kindBlocked || !newest.At.After(row.Answered) {
+	if string(newest.Kind) != kindBlocked && string(newest.Kind) != kindAsk || !newest.At.After(row.Answered) {
 		return 0, nil
 	}
 	return newest.Seq, nil

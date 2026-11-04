@@ -56,6 +56,20 @@ def test_a_higher_version_replaces_the_link_and_a_lower_one_does_not(cache: Path
     assert named() == str(cache / "0.7.57")
 
 
+def test_a_machine_that_installs_through_lr_only_never_moves_the_link_from_a_process(cache: Path):
+    promote(cache / "0.7.44")
+    (release.link().parent / "lr-install-only").touch()
+    promote(cache / "0.7.57")
+    assert named() == str(cache / "0.7.44")
+
+
+def test_lr_install_only_still_lets_the_first_process_create_the_link(cache: Path):
+    release.link().parent.mkdir(parents=True)
+    (release.link().parent / "lr-install-only").touch()
+    promote(cache / "0.7.44")
+    assert named() == str(cache / "0.7.44")
+
+
 def test_versions_compare_by_number_not_by_text(cache: Path):
     promote(cache / "0.7.9")
     promote(cache / "0.7.44")

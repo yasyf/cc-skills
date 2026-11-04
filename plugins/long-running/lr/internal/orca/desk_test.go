@@ -1369,11 +1369,13 @@ func TestARootResolveOfTheRunnersDecideAnswersThatQuestion(t *testing.T) {
 }
 
 func TestAParkedLanesStopNoticeRaisesNoDecide(t *testing.T) {
-	w := newDeskWorld(t)
-	w.live(testLane, testDispatch, testTerminal)
-	w.add(object{"lane": testLane, "kind": kindBlocked, "text": "waits on #1"})
-	w.checked(runMessage("msg_s", typeEscalation, testTerminal, 1))
-	w.noEscalation("DECIDE ")
+	for _, kind := range []string{kindBlocked, kindAsk} {
+		w := newDeskWorld(t)
+		w.live(testLane, testDispatch, testTerminal)
+		w.add(object{"lane": testLane, "kind": kind, "text": "waits on #1"})
+		w.checked(runMessage("msg_s", typeEscalation, testTerminal, 1))
+		w.noEscalation("DECIDE ")
+	}
 }
 
 func TestAParkedLanesQuestionStillRaisesADecide(t *testing.T) {
