@@ -24,6 +24,10 @@ function rewritten(kind, key) {
 function pageHead(title, written, extra = '') {
   return `<header class="pg-h"><div><h1>${title}</h1>${written ? `<span class="pg-at">Written from the drive's records at ${clock(written.at)}</span>` : ''}</div>${extra}</header>`;
 }
+function reviewHead() {
+  const at = state.model.board.rows_at;
+  return `<header class="pg-h"><div><h1>Review</h1>${at ? `<span class="pg-at">Every open change, read from the landing facts at ${clock(at)}</span>` : ''}</div></header>`;
+}
 function ring(done, total, label) {
   const p = total ? Math.round((done / total) * 100) : 0;
   return `<div class="pg-ringwrap"><div class="pg-ring" style="--p:${p}"><b>${p}<small>%</small></b></div><span>${done} of ${total} ${label}</span></div>`;
@@ -436,14 +440,14 @@ function reviewScreen(list) {
   const m = state.model;
   const decided = m.board.rows.filter((r) => ['approved', 'held'].includes(verdictState(r)));
   const chips = `<nav class="pg-filters"><a href="#/review" class="${list ? '' : 'on'}">Waiting on you <b>${prsWaiting()}</b></a><a href="#/review/decided" class="${list === 'decided' ? 'on' : ''}">You approved or held <b>${decided.length}</b></a></nav>`;
-  if (list === 'decided') return `<div class="pg">${pageHead('Review', curated('review'))}${chips}<div class="mr-list">${decided.map(mergeRow).join('') || '<p class="pg-none">Nothing you approved is still waiting to land.</p>'}</div></div>`;
+  if (list === 'decided') return `<div class="pg">${reviewHead()}${chips}<div class="mr-list">${decided.map(mergeRow).join('') || '<p class="pg-none">Nothing you approved is still waiting to land.</p>'}</div></div>`;
   const merges = m.needs.filter((item) => item.kind === 'prs').map((g) => {
     const words = rewritten('groups', g.key);
     const relation = words ? words.relation : g.relation;
     const head = g.prs.length > 1 ? `<h3>${esc(words?.title ?? g.group)}</h3>${relation ? `<p class="pg-rel">${esc(relation)}</p>` : ''}` : '';
     return `<section class="pg-sec mr-group">${head}<div class="mr-list">${g.prs.map(mergeRow).join('')}</div></section>`;
   }).join('');
-  return `<div class="pg">${pageHead('Review', curated('review'))}${chips}
+  return `<div class="pg">${reviewHead()}${chips}
     ${merges ? '' : '<p class="pg-lead">No change waits on your approval. When one does, it shows here and in the band on Now.</p>'}
     ${merges}</div>`;
 }

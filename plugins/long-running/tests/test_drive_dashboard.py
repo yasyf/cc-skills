@@ -84,6 +84,29 @@ def test_parse_plan_skips_a_doc_without_the_section():
     assert parse_plan("id: x\nupdated: now\n\n## Lanes live\n1. **A.** b\n") is None
 
 
+def stored_row(number, head, **change):
+    return {"number": number, "head": head, "lane": "lane-7", "title": "T", "waits": "Only your approval.", "ready": 1, "tapped": 0, "drawn_at": "2026-11-04T09:40:00Z", **change}
+
+
+def test_the_tab_lists_each_stored_pr_once_whatever_the_board_copy_holds():
+    shown = [{"number": 1, "head": "aaaaaaa", "title": "copy", "change": "C.", "group": "G", "group_id": "g", "group_summary": "S."}, {"number": 9, "head": "ccccccc", "title": "gone"}, {"number": 2, "head": "old1234", "title": "moved", "change": "stale"}]
+    stored = [stored_row(1, "aaaaaaabbbb"), stored_row(2, "bbbbbbbcccc", ready=0, waits="CI is not green; held by root"), stored_row(3, "ddddddd", lane="old-chat-convert-5", tapped=1)]
+    rows = server.review_rows(stored, shown, {"merge-prs": {"1": {"verdict": "approved", "head": "aaaaaaa"}}})
+
+    assert [row["number"] for row in rows] == [1, 2, 3]
+    assert rows[0]["change"] == "C." and rows[0]["group"] == "G" and rows[0]["verdict"] == {"verdict": "approved", "head": "aaaaaaa"} and rows[0]["blocker"] == "your approval"
+    assert "change" not in rows[1] and rows[1]["head"] == "bbbbbbbcccc" and rows[1]["blocker"] == "CI is not green; held by root"
+    assert rows[2]["group"] == "old-chat-convert" and rows[2]["tapped"] is True
+
+
+def test_a_stored_tap_reads_approved_without_a_board_verdict():
+    drive = Drive({"board_url": "http://board/p/x"}, None)
+    rows = server.review_rows([stored_row(3, "ddddddd", tapped=1), stored_row(4, "eeeeeee")], [], {})
+    drive.check_gos(rows)
+
+    assert [row["state"] for row in rows] == ["approved", "you"]
+
+
 def test_read_board_finds_a_verdict_keyed_by_the_bare_pr_number():
     row = {"number": 43211, "head": "8242887", "title": "T", "change": "C.", "plan": "P.", "risk": "R.", "review": "V.", "blocker": "B."}
     board = {
@@ -107,6 +130,7 @@ def test_the_board_still_reads_after_he_submits_it(monkeypatch):
     monkeypatch.setattr(Drive, "store_seq", lambda self: 3240)
     monkeypatch.setattr(Drive, "answer_times", lambda self: {})
     monkeypatch.setattr(Drive, "read_threads", lambda self: {})
+    monkeypatch.setattr(Drive, "stored_rows", lambda self: [stored_row(43211, "8242887")])
     rows = Drive({"board_url": "http://board/p/x", "board_session": "s"}, None).board()["rows"]
     assert rows[0]["verdict"] == {"verdict": "approved", "head": "8242887"}
 
@@ -147,6 +171,7 @@ def test_a_card_he_answered_reads_as_his_picks_at_the_time_of_his_last_answer(mo
     monkeypatch.setattr(server, "run", lambda argv: json.dumps(store))
     monkeypatch.setattr(Drive, "store_seq", lambda self: 7)
     monkeypatch.setattr(Drive, "read_threads", lambda self: {})
+    monkeypatch.setattr(Drive, "stored_rows", lambda self: [])
     monkeypatch.setattr(Drive, "answer_times", lambda self: {"when": "2026-10-30T12:53:00+00:00", "ok": "2026-10-30T12:59:00+00:00", "why": "2026-10-30T12:54:00+00:00", "pick": "2026-10-30T11:00:00+00:00"})
 
     out = Drive({"board_url": "http://board/p/x", "board_session": "s"}, None).board()
@@ -815,11 +840,11 @@ def test_an_answer_on_the_dashboard_is_the_same_board_interaction(body, interact
 
 
 def test_a_tap_answers_with_the_board_position_and_leaves_the_slow_sources_alone(monkeypatch):
-    drive = Drive({"board_url": "http://board/p/x", "board_session": "s"}, None)
+    drive = Drive({"board_url": "http://board/p/x", "board_session": "s", "drive": "d"}, None)
     drive.store_seq = lambda: 41
+    drive.stored_rows = lambda: [stored_row(43211, "8242887")]
     drive.slow_at = 123.0
-    monkeypatch.setattr(server, "run", lambda argv: json.dumps(board_with([{"number": 43211, "head": "8242887"}])))
-    monkeypatch.setattr("urllib.request.urlopen", lambda *args, **kwargs: contextlib.nullcontext())
+    monkeypatch.setattr(server, "run", lambda argv: "")
 
     assert drive.decide("merge-prs", 43211, "approved", "8242887", None) == (200, {"seq": 41})
     assert drive.slow_at == 123.0
@@ -1173,28 +1198,39 @@ def test_a_page_that_stops_updating_reports_each_new_failure_to_root_once(monkey
     assert drive.reported_live is None
 
 
-def board_with(prs, **triage):
-    return {"doc": {"blocks": [{"id": "card-merge", "type": "card", "children": [{"id": "merge-prs", "type": "pr-groups", "groups": [{"id": "g", "title": "G", "prs": prs}]}]}]}, "interactions": {"triage": {"merge-prs": triage}}}
-
-
 @pytest.mark.parametrize(
-    ("store", "number", "verdict", "head", "status", "out", "posted"),
+    ("stored", "number", "verdict", "head", "status", "out", "posted"),
     [
-        (board_with([{"number": 45579, "head": "598d220"}]), 45579, "approved", "598d220", 200, {"seq": 9}, True),
-        (board_with([], **{"45533": {"verdict": "approved", "head": "705ab74bdf157bd115542a4b02e2c20c8022f6ce", "at": "2026-10-30T20:05:04Z"}}), 45533, "approved", "705ab74", 200, {"seq": 9, "recorded": "2026-10-30T20:05:04Z"}, False),
-        (board_with([]), 45533, "approved", "705ab74", 409, {"error": "#45533 left your board after this page last updated, so this tap changed nothing; reload the page to see where it went"}, False),
-        (board_with([], **{"45533": {"verdict": "approved", "head": "705ab74", "at": "2026-10-30T20:05:04Z"}}), 45533, "cleared", "705ab74", 409, {"error": "#45533 left your board after this page last updated, so this tap changed nothing; reload the page to see where it went"}, False),
-        (board_with([{"number": 45533, "head": "9e0a1b2"}]), 45533, "approved", "705ab74", 409, {"error": "#45533 is now at 9e0a1b2, not the 705ab74 this page shows, so this tap changed nothing; reload the page to see what changed"}, False),
+        ([stored_row(45579, "598d220")], 45579, "approved", "598d220", 200, {"seq": 9}, True),
+        ([], 45533, "approved", "705ab74", 409, {"error": "#45533 left your board after this page last updated, so this tap changed nothing; reload the page to see where it went"}, False),
+        ([stored_row(45533, "9e0a1b2")], 45533, "approved", "705ab74", 409, {"error": "#45533 is now at 9e0a1b2, not the 705ab74 this page shows, so this tap changed nothing; reload the page to see what changed"}, False),
     ],
 )
-def test_a_tap_records_only_on_a_row_the_board_still_holds_at_the_head_the_page_shows(monkeypatch, store, number, verdict, head, status, out, posted):
-    monkeypatch.setattr(server, "run", lambda argv: json.dumps(store) if argv[:3] == ["cc-present", "outcomes", "--block"] else pytest.fail(argv))
+def test_a_tap_records_only_on_a_stored_row_at_the_head_the_page_shows(monkeypatch, stored, number, verdict, head, status, out, posted):
     monkeypatch.setattr(Drive, "store_seq", lambda self: 9)
+    monkeypatch.setattr(Drive, "stored_rows", lambda self: stored)
     sent = []
-    monkeypatch.setattr(Drive, "interact", lambda self, interaction: sent.append(interaction) or (200, {"seq": 9}))
+    monkeypatch.setattr(server, "run", lambda argv: sent.append(argv) or "")
 
-    assert Drive({"board_url": "http://board/p/x", "board_session": "s"}, None).decide("merge-prs", number, verdict, head, None) == (status, out)
+    assert Drive({"board_url": "http://board/p/x", "board_session": "s", "drive": "d"}, None).decide("merge-prs", number, verdict, head, None) == (status, out)
     assert bool(sent) is posted
+    if posted:
+        attrs = [sent[0][at + 1] for at, word in enumerate(sent[0]) if word == "--attr"]
+        assert {f"row={number}", f"verdict={verdict}", f"head={head}", "block=merge-prs"} <= set(attrs)
+        assert sent[0][sent[0].index("--kind") + 1] == "owner" and sent[0][sent[0].index("--lane") + 1] == "board-watch"
+
+
+def test_a_tap_shows_on_the_row_before_the_next_pass_writes_it(monkeypatch):
+    drive = Drive({"board_url": "http://board/p/x", "board_session": "s", "drive": "d"}, None)
+    monkeypatch.setattr(Drive, "store_seq", lambda self: 9)
+    monkeypatch.setattr(Drive, "stored_rows", lambda self: [stored_row(45579, "598d220")])
+    monkeypatch.setattr(Drive, "answer_times", lambda self: {})
+    monkeypatch.setattr(Drive, "read_threads", lambda self: {})
+    monkeypatch.setattr(server, "run", lambda argv: json.dumps({"doc": {"blocks": []}, "interactions": {"triage": {}, "choices": {}}}) if argv[0] == "cc-present" else "")
+
+    drive.decide("merge-prs", 45579, "approved", "598d220", None)
+
+    assert drive.board()["rows"][0]["verdict"]["verdict"] == "approved"
 
 
 def test_a_change_request_the_record_tool_cannot_post_answers_with_the_reason(monkeypatch):

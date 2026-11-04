@@ -143,6 +143,9 @@ NATIVE = {*ASKS, "record", "display.page", "markdown", "image", "pr", "table"}
 OTHER = re.compile(r"^other$", re.I)
 MERGE_ONLY = re.compile(r"^(waits? (for|on)|lands? after|after|stacked on)[\s#\d,\-–and]+(to (merge|land))?( first)?\.?$", re.I)
 MERGE_CARD = "card-merge-triage"
+MERGE_BLOCK = "merge-prs"
+LR_STORE = "lr.sqlite"
+LANE_NUMBER = re.compile(r"-\d+$")
 ACTIVE = dt.timedelta(minutes=30)
 WORKING = dt.timedelta(minutes=20)
 BOX = dt.timedelta(minutes=5)
@@ -773,6 +776,29 @@ def awaiting_reply(rows, asks):
     return [{**row, "awaiting": open_ask(row["number"])} for row in rows]
 
 
+def review_rows(stored, shown, verdicts):
+    words = {row["number"]: row for row in shown}
+    rows = []
+    for row in stored:
+        said = words.get(row["number"], {})
+        same = said if said.get("head", "")[:7] == row["head"][:7] else {}
+        alias = LANE_NUMBER.sub("", row["lane"])
+        rows.append({
+            **same,
+            "number": row["number"],
+            "head": row["head"],
+            "title": row["title"],
+            "blocker": "your approval" if row["ready"] else row["waits"],
+            "group": same.get("group", alias),
+            "group_id": same.get("group_id", alias),
+            "group_summary": same.get("group_summary", ""),
+            "block": MERGE_BLOCK,
+            "verdict": verdicts.get(MERGE_BLOCK, {}).get(str(row["number"])),
+            "tapped": bool(row["tapped"]),
+        })
+    return rows
+
+
 def merge_needs(rows, board_url):
     groups = {}
     for row in rows:
@@ -899,6 +925,7 @@ def parse_plan(body):
 
 class Drive:
     def __init__(self, config, assistant):
+        self.tapped = {}
         self.config = config
         self.assistant = assistant
         self.lock = threading.Lock()
@@ -1010,17 +1037,16 @@ class Drive:
         return self.assistant.review_url(number, pr.get("head") or row.get("head"), pr.get("state") == "landed")
 
     def decide(self, block, number, verdict, head, note):
-        state = json.loads(run(["cc-present", "outcomes", "--block", block, "--session", self.config["board_session"]]))
-        shown = next((row["head"] for card in state["doc"]["blocks"] for child in card.get("children", []) if child["id"] == block for group in child["groups"] for row in group["prs"] if row["number"] == number), None)
-        given = state["interactions"]["triage"].get(block, {}).get(str(number))
-        if shown is None and given and given["verdict"] == verdict != "cleared" and given["head"][:7] == head[:7]:
-            return 200, {"seq": self.store_seq(), "recorded": given["at"]}
+        shown = next((row["head"] for row in self.stored_rows() if row["number"] == int(number)), None)
         if shown is None:
             return 409, {"error": f"#{number} left your board after this page last updated, so this tap changed nothing; reload the page to see where it went"}
         if verdict != "cleared" and shown[:7] != head[:7]:
             return 409, {"error": f"#{number} is now at {shown[:7]}, not the {head[:7]} this page shows, so this tap changed nothing; reload the page to see what changed"}
-        entry = {"verdict": verdict} if verdict == "cleared" else {"verdict": verdict, "head": head, **({"note": note} if note else {})}
-        return self.interact({"type": "triage.decided", "blockId": block, "verdicts": {str(number): entry}})
+        said = f"Owner on the dashboard: {number} {verdict} at {head[:7]}" + (f": {note}" if note else "")
+        run(["cci", "post", "--drive", self.config["drive"], "--lane", "board-watch", "--kind", "owner", "--to", "root", "--pr", str(number), "--topic", block, "--attr", "event=triage.decided", "--attr", f"block={block}", "--attr", f"row={number}", "--attr", f"verdict={verdict}", "--attr", f"head={head}", "--text", said])
+        self.tapped[str(number)] = {"verdict": verdict, "head": head, "at": dt.datetime.now(dt.timezone.utc).isoformat(), **({"note": note} if note else {})}
+        self.touch()
+        return 200, {"seq": self.store_seq()}
 
     def answer(self, body):
         if body["kind"] == "choice":
@@ -1485,10 +1511,26 @@ class Drive:
         for row in rows:
             exempt = row["number"] in self.ci_fixes and self.config["ci_fix_excludes"] not in self.paths.get(str(row["number"]), {"trees": [self.config["ci_fix_excludes"]]})["trees"]
             row["checked_at"] = self.gos.get(row["number"])
-            row["go_head"] = row["checked_at"] if exempt or self.carried.get(row["number"]) else None
+            row["go_head"] = row["head"] if row.get("tapped") else row["checked_at"] if exempt or self.carried.get(row["number"]) else None
             stored = verdict_state({**row, "go_head": None}) == "approved"
             row["state"] = verdict_state(row)
             row["ci_fix_go"] = row["state"] == "approved" and not stored and exempt
+
+    def stored_rows(self):
+        store_path = Path(self.config["steps"]).parents[1] / LR_STORE
+        with sqlite3.connect(f"file:{store_path}?mode=ro", uri=True) as store:
+            store.row_factory = sqlite3.Row
+            return [dict(row) for row in store.execute("SELECT number, head, lane, title, waits, ready, tapped, drawn_at FROM review_rows WHERE repo = ? ORDER BY ready DESC, number", (self.config["repo"],))]
+
+    def follow_rows(self):
+        seen = None
+        while True:
+            stored = self.stored_rows()
+            written = stored[0]["drawn_at"] if stored else None
+            if written != seen:
+                seen = written
+                self.touch()
+            time.sleep(1)
 
     def store_seq(self):
         subject = self.config["board_url"].rsplit("/p/", 1)[1]
@@ -1530,6 +1572,9 @@ class Drive:
             self.board_threads = self.read_threads()
             self.board_seq = seq
         read = self.read_board(self.board_doc)
+        stored = self.stored_rows()
+        read["rows"] = review_rows(stored, read["rows"], {MERGE_BLOCK: {**self.board_doc["interactions"]["triage"].get(MERGE_BLOCK, {}), **self.tapped}})
+        read["rows_at"] = stored[0]["drawn_at"] if stored else None
         answered = {card: {"picked": answer["picked"], "at": max(self.board_times[ask] for ask in answer["asks"])} for card, answer in read["answered"].items()}
         return {**read, "answered": answered, "seq": seq}
 
@@ -2098,7 +2143,7 @@ def main():
     after = drive.load_records()
     drive.load_gos()
     writers = [(drive.follow_mirror, ())] if "mirror" in config else [(curator.loop, ()) for curator in drive.curators]
-    for target, rest in ((drive.follow_code, ()), *writers, (drive.follow_records, (after,)), (drive.follow_board, ()), (drive.follow_cards, ()), (drive.follow_steps, ()), (drive.follow_owed, ()), (drive.follow_replies, ()), (drive.follow_status, ()), (drive.refresh_loop, (snapshot,)), (drive.follow_paths, ())):
+    for target, rest in ((drive.follow_code, ()), *writers, (drive.follow_records, (after,)), (drive.follow_board, ()), (drive.follow_rows, ()), (drive.follow_cards, ()), (drive.follow_steps, ()), (drive.follow_owed, ()), (drive.follow_replies, ()), (drive.follow_status, ()), (drive.refresh_loop, (snapshot,)), (drive.follow_paths, ())):
         threading.Thread(target=target, args=rest, daemon=True).start()
     app = handler(drive, config["tailnet_owner"], own_names(config["host"]))
     if "tls_port" in config:
