@@ -166,7 +166,7 @@ async function answer(body) {
     .catch((failure) => ({ error: `could not reach the dashboard server (${failure.message})` }));
   ov.sent.set(body.block, out.error ? { error: out.error } : { recorded: true });
   if (out.error) return render();
-  setTimeout(() => { ov.sent.delete(body.block); render(); }, body.kind === 'note' ? 4000 : 30000);
+  setTimeout(() => { ov.sent.delete(body.block); refresh(); }, body.kind === 'note' ? 4000 : 30000);
   const answer = { choice: { optionIds: body.options ?? [], other: body.other }, approval: { verdict: body.verdict, note: body.text }, input: { text: body.text } }[body.kind];
   tapped({ seq: out.seq, block: body.block, ...(answer ? { answer } : { noted: true }) });
 }
@@ -361,6 +361,6 @@ settleLook();
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) return localStorage.setItem('drive-hidden-at', String(Date.now()));
   settleLook();
-  if (state.model) render();
+  if (state.model) refresh();
 });
 window.addEventListener('pagehide', () => localStorage.setItem('drive-hidden-at', String(Date.now())));

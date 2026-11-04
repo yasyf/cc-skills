@@ -63,7 +63,7 @@ function describe(n) {
     fetch(`/api/pr/${n}`, { cache: 'no-store' })
       .then((res) => res.json())
       .catch((failure) => ({ error: failure.message }))
-      .then((out) => { described[key] = out; render(); });
+      .then((out) => { described[key] = out; refresh(); });
   }
   return described[key];
 }
@@ -96,7 +96,7 @@ function diagramFigure(diagram) {
     mermaidLoad
       .then((mermaid) => mermaid.render(id, diagram.source))
       .then(({ svg }) => svg, () => '')
-      .then((drawn) => { diagrams.set(diagram.source, drawn); render(); });
+      .then((drawn) => { diagrams.set(diagram.source, drawn); refresh(); });
   }
   return `<figure class="bot-diagram" data-keep-scroll="diagram"><figcaption>${esc(diagram.title)}</figcaption>${diagrams.get(diagram.source) ?? '<div class="dg-wait">Drawing the diagram…</div>'}</figure>`;
 }
