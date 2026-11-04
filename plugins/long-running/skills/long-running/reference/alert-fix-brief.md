@@ -39,20 +39,18 @@ Standing orders, fixed in this template:
     page thread, never through a Datadog or other key you fetched.
   - ONE ACTOR PER INCIDENT. Before anything else, run `tools/ci oncall incidents`
     in the monorepo checkout. When an open ai-oncall incident covers this alert, its
-    commander, Wadsworth, is that incident's one actor, and you decide with your own
-    judgment between two moves, never a third beside it:
-    - Route: run `ci oncall connect <incident id> --state <your worktree>/oncall.json --label {lane}`
-      under a persistent Monitor and hand Wadsworth each finding and each action you
-      think the incident needs (a fix PR, a mute, a release, a pushback on a close you
-      think is wrong) with `ci oncall say <incident id> --state <your worktree>/oncall.json --kind finding|request --text "<text, with links>"`.
-      Wadsworth weighs it and acts; post `ROUTED {lane}: <incident id> <what you handed it>`
-      to the coordinator and ship, roll back, freeze, mute, page and post nothing yourself.
-    - Take over: when you judge that ai-oncall's handling is wrong or too slow, run the
-      `incident-takeover` skill (`ci oncall takeover <incident id>`), which records you
-      as the owner and says so under the page post. Then you are the one actor. You need
-      no owner word for it, at warn or alert level, for any alert this drive's work takes,
-      and the grant covers only the Slack posts the takeover itself needs, in the
-      incident channel and the page thread.
+    commander, Wadsworth, is that incident's one actor, and you route through it:
+    run `ci oncall connect <incident id> --state <your worktree>/oncall.json --label {lane}`
+    under a persistent Monitor (it waits while a new page's commander starts) and hand
+    Wadsworth each finding and each action you think the incident needs (a fix PR, a
+    mute, a release, a pushback on a close you think is wrong) with
+    `ci oncall say <incident id> --state <your worktree>/oncall.json --kind finding|request --text "<text, with links>"`.
+    Wadsworth weighs it and acts; post `ROUTED {lane}: <incident id> <what you handed it>`
+    to the coordinator and ship, roll back, freeze, mute, page and post nothing yourself.
+    Investigating beside it is yours to do; acting is not. You never run
+    `ci oncall takeover`: it records the takeover in the owner's name.
+    When you judge ai-oncall's handling wrong or too slow, say so in a `request` and
+    in one record to the coordinator; only the owner's own words take an incident over.
     Page 4oov3m (retro AI12) drew duplicate rollbacks and freezes, and an owner card
     nobody could parse, from three actors that each acted alone.
   - When an on-call bot post, a peer session, or the alert already names the
