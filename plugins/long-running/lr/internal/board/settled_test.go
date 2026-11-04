@@ -31,6 +31,8 @@ var (
 	sonnetPool = ownerAnswer{ID: "5a5a5a5", Title: "Which pool should Sonnet bill to?", Body: "The shared pool.", Updated: "2026-11-04T05:40:00Z"}
 )
 
+var oldChatUp = []any{oldChatBlock()}
+
 func oldChatBlock() map[string]any {
 	return map[string]any{"id": oldChatCard, "type": "card", "title": oldChatTitle, "children": []any{
 		map[string]any{"id": oldChatCard + "-pick", "type": "choice", "options": []any{map[string]any{"id": "a", "label": "Show the can't-open screen"}}},
@@ -61,13 +63,13 @@ func (j *judgeCalls) judge(_ context.Context, kind, evidence, _ string) (*Judgme
 	return &Judgment{Verdict: "no"}, nil
 }
 
-func settledBoard(t *testing.T, answers ...ownerAnswer) (Cards, *shelltest.Fake, *[]string) {
+func settledBoard(t *testing.T, board []any, answers ...ownerAnswer) (Cards, *shelltest.Fake, *[]string) {
 	t.Helper()
 	listed, err := json.Marshal(answers)
 	if err != nil {
 		t.Fatal(err)
 	}
-	all, err := json.Marshal(map[string]any{"doc": map[string]any{"blocks": []any{oldChatBlock()}}, "interactions": map[string]any{"choices": map[string]any{}}})
+	all, err := json.Marshal(map[string]any{"doc": map[string]any{"blocks": board}, "interactions": map[string]any{"choices": map[string]any{}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +105,7 @@ func removedBlocks(fake *shelltest.Fake) []string {
 }
 
 func TestADrawHisAnswerSettlesIsRefusedNamingHisAnswer(t *testing.T) {
-	cards, _, _ := settledBoard(t, sonnetPool, upgradeOnce)
+	cards, _, _ := settledBoard(t, nil, sonnetPool, upgradeOnce)
 	judge := &judgeCalls{verdict: "yes"}
 	block, err := json.Marshal(oldChatBlock())
 	if err != nil {
@@ -130,7 +132,7 @@ func TestADrawStaysUnrefusedWhenTheJudgeIsUnsureOrFails(t *testing.T) {
 	}
 	for name, judge := range map[string]*judgeCalls{"unsure": {verdict: "unsure"}, "failed": {err: errors.New("claude: overloaded")}} {
 		t.Run(name, func(t *testing.T) {
-			cards, _, _ := settledBoard(t, upgradeOnce)
+			cards, _, _ := settledBoard(t, nil, upgradeOnce)
 			refused, err := cards.Check(context.Background(), judge.judge, block)
 			if refused != nil {
 				t.Fatalf("refused on %s: %v", name, refused)
@@ -143,7 +145,7 @@ func TestADrawStaysUnrefusedWhenTheJudgeIsUnsureOrFails(t *testing.T) {
 }
 
 func TestASweepTakesDownAnOpenCardHisAnswerSettlesWithAPlainWhy(t *testing.T) {
-	cards, fake, withdrawn := settledBoard(t, sonnetPool, upgradeOnce)
+	cards, fake, withdrawn := settledBoard(t, oldChatUp, sonnetPool, upgradeOnce)
 	var out bytes.Buffer
 
 	if err := cards.Unask(context.Background(), "board-refresher", (&judgeCalls{verdict: "yes"}).judge, &out); err != nil {
@@ -163,7 +165,7 @@ func TestASweepTakesDownAnOpenCardHisAnswerSettlesWithAPlainWhy(t *testing.T) {
 }
 
 func TestASweepJudgesACardOnlyAgainstAnswersNewerThanItsLastCheck(t *testing.T) {
-	cards, fake, _ := settledBoard(t, upgradeOnce)
+	cards, fake, _ := settledBoard(t, oldChatUp, upgradeOnce)
 	judge := &judgeCalls{verdict: "unsure"}
 	for range 2 {
 		if err := cards.Unask(context.Background(), "board-refresher", judge.judge, &bytes.Buffer{}); err != nil {
@@ -175,7 +177,7 @@ func TestASweepJudgesACardOnlyAgainstAnswersNewerThanItsLastCheck(t *testing.T) 
 	}
 
 	newer := ownerAnswer{ID: "77e7e7e", Title: "What happens when an old chat will not open on the new build?", Body: "It stays read-only.", Updated: "2026-11-04T06:29:11Z"}
-	next, _, _ := settledBoard(t, upgradeOnce, newer)
+	next, _, _ := settledBoard(t, oldChatUp, upgradeOnce, newer)
 	next.Ledger, next.StateDir = cards.Ledger, cards.StateDir
 	judge.evidence = nil
 	if err := next.Unask(context.Background(), "board-refresher", judge.judge, &bytes.Buffer{}); err != nil {
@@ -187,7 +189,7 @@ func TestASweepJudgesACardOnlyAgainstAnswersNewerThanItsLastCheck(t *testing.T) 
 }
 
 func TestASweepKeepsACardAndWarnsWhenTheJudgeFails(t *testing.T) {
-	cards, fake, _ := settledBoard(t, upgradeOnce)
+	cards, fake, _ := settledBoard(t, oldChatUp, upgradeOnce)
 	judge := &judgeCalls{err: errors.New("claude: overloaded")}
 	var out bytes.Buffer
 	for range 2 {
@@ -201,7 +203,7 @@ func TestASweepKeepsACardAndWarnsWhenTheJudgeFails(t *testing.T) {
 }
 
 func TestADrawAskingWhatACardOnHisBoardAlreadyAsksIsRefused(t *testing.T) {
-	cards, _, _ := settledBoard(t)
+	cards, _, _ := settledBoard(t, oldChatUp)
 	second := oldChatBlock()
 	second["id"], second["title"] = "card-old-snapshot-again", "  an old chat will not open on the new build: is that the expected you meant?   What should happen to chats like this?"
 	block, err := json.Marshal(second)
@@ -217,7 +219,7 @@ func TestADrawAskingWhatACardOnHisBoardAlreadyAsksIsRefused(t *testing.T) {
 }
 
 func TestADrawAskingHimToGradeAReadingOfHisWordsIsRefused(t *testing.T) {
-	cards, _, _ := settledBoard(t)
+	cards, _, _ := settledBoard(t, nil)
 	reading := map[string]any{"id": "card-read-sessions", "type": "card", "title": "Did I read this correctly? Try to move more sessions to remote machines from now on", "children": []any{
 		map[string]any{"id": "card-read-sessions-pick", "type": "choice", "options": []any{map[string]any{"id": "right", "label": "Right"}, map[string]any{"id": "wrong", "label": "Wrong"}}},
 	}}
@@ -230,5 +232,20 @@ func TestADrawAskingHimToGradeAReadingOfHisWordsIsRefused(t *testing.T) {
 
 	if err != nil || refused == nil || !strings.Contains(refused.Error(), "grade a reading of his own words") {
 		t.Fatalf("refused = %v, %v; want the reading card refused", refused, err)
+	}
+}
+
+func TestARepushOfACardAlreadyOnHisBoardIsLeftToTheSweep(t *testing.T) {
+	cards, _, _ := settledBoard(t, oldChatUp, upgradeOnce)
+	judge := &judgeCalls{verdict: "yes", confirms: "yes"}
+	block, err := json.Marshal(oldChatBlock())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	refused, err := cards.Check(context.Background(), judge.judge, block)
+
+	if refused != nil || err != nil || len(judge.evidence) != 0 {
+		t.Fatalf("refused = %v, %v after %d judgments; want the card already up passed unjudged", refused, err, len(judge.evidence))
 	}
 }

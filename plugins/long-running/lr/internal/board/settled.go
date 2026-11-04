@@ -144,7 +144,10 @@ func (c Cards) Check(ctx context.Context, judge Judge, card json.RawMessage) (re
 		failed = append(failed, fmt.Errorf("his board was not read for a card asking the same: %w", err))
 	}
 	for _, ask := range open {
-		if ask.ID != id && sameText(ask.Title, title) {
+		if ask.ID == id && sameText(ask.Title, title) {
+			return nil, nil
+		}
+		if sameText(ask.Title, title) {
 			return fmt.Errorf("refused: %s already asks him %q; change that card instead of drawing a second", ask.ID, strings.TrimSpace(ask.Title)), nil
 		}
 	}
