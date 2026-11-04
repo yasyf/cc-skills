@@ -727,3 +727,49 @@ func TestACarryReachesTheRowThroughTheRead(t *testing.T) {
 		t.Fatalf("tapped %v by %q, waits %q", row.Tapped, row.TappedBy, row.WaitsOn)
 	}
 }
+
+func TestAPortAsksHimOnlyWhenItSaysItInteractsOrTheGateRefusesIt(t *testing.T) {
+	const reason = "port: infra/rows/x.ts is outside go/sand/next/, so it is no pure port and lands on his tap"
+	clean := map[string]string{gates.PortOfAttr: "49000", gates.PortInteractsAttr: gates.PortCleanWord}
+	for name, tc := range map[string]struct {
+		facts map[string]string
+		ready bool
+		waits string
+	}{
+		"a clean port waits on nothing of his":                 {clean, false, portLands},
+		"a port that interacts asks him":                       {map[string]string{gates.PortOfAttr: "49000", gates.PortInteractsAttr: "yes"}, true, onlyHim},
+		"a port silent on interaction asks him":                {map[string]string{gates.PortOfAttr: "49000"}, true, onlyHim},
+		"a head with no port claim asks him":                   {nil, true, onlyHim},
+		"a clean claim the gate refused asks him and says why": {map[string]string{gates.PortOfAttr: "49000", gates.PortInteractsAttr: gates.PortCleanWord, gates.StandingRefused: reason}, true, "Only your approval; the gate refused it: " + reason},
+		"a flake fix waits on nothing of his":                  {map[string]string{gates.FlakeFixAttr: "TestChatStream"}, false, flakeLands},
+		"a clean port with its go is ready to land":            {map[string]string{gates.PortOfAttr: "49000", gates.PortInteractsAttr: gates.PortCleanWord, "exempt": gates.OldTreePortClass}, true, tappedWaits},
+	} {
+		t.Run(name, func(t *testing.T) {
+			facts := map[string]string{factCI: CIGreen, factApprovers: "a", factMergeable: string(machine.MergeableClean), "finder": string(machine.FinderClear), "fidelity": string(machine.FidelityPass)}
+			maps.Copy(facts, tc.facts)
+			row := Materialize(readyRow(), facts, "", nil, "dev")
+			if row.ReadyForTap != tc.ready || row.WaitsOn != tc.waits {
+				t.Fatalf("ready %v, waits %q; want %v, %q", row.ReadyForTap, row.WaitsOn, tc.ready, tc.waits)
+			}
+		})
+	}
+}
+
+func TestAPortHeadRecordReachesTheRowsFactsAtItsHead(t *testing.T) {
+	f, s := foldFor(t)
+	postOpened(t, 1, headA, "dev", fullBody)
+	if _, err := client.Post(context.Background(), client.Draft{
+		Drive: "d", Lane: "lane-7", Kind: "head", Text: "HEAD #1", PRs: []string{testRepo + "#1"},
+		Attrs: map[string]string{"head:1": headA, gates.PortOfAttr: "49000", gates.PortInteractsAttr: gates.PortCleanWord},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	folded(t, f, 1)
+	facts, err := s.Facts(testRepo, 1, headA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if facts[gates.PortOfAttr] != "49000" || facts[gates.PortInteractsAttr] != gates.PortCleanWord {
+		t.Fatalf("facts = %v, want the head record's port claim", facts)
+	}
+}

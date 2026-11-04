@@ -27,7 +27,7 @@ const (
 	kindGo   = "go"
 	openPR   = "OPEN"
 	mergedPR = "MERGED"
-	filesJQ  = ".[].filename"
+	filesJQ  = ".[] | [.filename, .patch] | @json"
 	goReader = "desk-runner"
 )
 
@@ -119,29 +119,37 @@ func (g goGate) one(ctx context.Context, number int, head string, flags goFlags)
 	}
 	claim := gates.Claim{Repo: cfg.Repo, PR: number, Head: head}
 	read := gates.Read{Lifts: lifts, Records: records, GoLanes: inputs.GoLanes, Exempt: inputs.Exempt, TapRules: inputs.TapRules, Cards: inputs.Cards}
-	if port, claimed := gates.PortAt(claim, records); claimed {
+	port, claimed := gates.PortAt(claim, records)
+	if claimed {
 		sources, err := a.CCX.PRStatus(ctx, cfg.Repo, []int{port.Source})
 		if err != nil {
 			return false, err
 		}
 		read.PortSourceMerged = slices.ContainsFunc(sources, func(source ccx.PRStatus) bool { return source.State == mergedPR })
 	}
+	standing := claimed && !port.Interacts || gates.FlakeAt(claim, records)
 	if flags.sweep {
 		if _, refusals := gates.ExemptGo(claim, read); len(refusals) > 0 {
 			fmt.Fprintf(stdout, "REFUSED #%d at %s: %s\n", number, head[:7], strings.Join(refusals, "; "))
-			return true, nil
+			return true, noteStandingRefused(s, claim, standing, refusals, a.Now())
 		}
 	}
 	files, err := a.CCX.GH(ctx, ccx.MaxAgeFresh, "api", "--paginate", fmt.Sprintf("repos/%s/pulls/%d/files", cfg.Repo, number), "--jq", filesJQ)
 	if err != nil {
 		return false, err
 	}
-	read.Files = strings.Fields(files)
+	read.Files, read.Patches, err = changedFiles(files)
+	if err != nil {
+		return false, err
+	}
 	read.Body, err = a.CCX.GH(ctx, ccx.MaxAgeFresh, "pr", "view", strconv.Itoa(number), "--repo", cfg.Repo, "--json", "body", "--jq", ".body")
 	if err != nil {
 		fmt.Fprintf(stdout, "WARNING #%d: could not read its body, so no wait it names refuses it: %v\n", number, err)
 	}
 	text, refusals := gates.ExemptGo(claim, read)
+	if err := noteStandingRefused(s, claim, flags.sweep && standing, refusals, a.Now()); err != nil {
+		return false, err
+	}
 	if flags.before == 0 {
 		row, found, err := s.ReviewRow(cfg.Repo, number)
 		if err != nil {
@@ -165,6 +173,29 @@ func (g goGate) one(ctx context.Context, number int, head string, flags goFlags)
 	}
 	fmt.Fprintf(stdout, "GO #%d at %s: posted %s: %s\n", number, head[:7], posted.Name(), text)
 	return false, nil
+}
+
+func changedFiles(lines string) ([]string, map[string]*string, error) {
+	var files []string
+	patches := map[string]*string{}
+	for line := range strings.Lines(lines) {
+		var entry [2]*string
+		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+			return nil, nil, fmt.Errorf("changed file %q: %w", line, err)
+		}
+		files = append(files, *entry[0])
+		patches[*entry[0]] = entry[1]
+	}
+	return files, patches, nil
+}
+
+func noteStandingRefused(s *store.Store, claim gates.Claim, standing bool, refusals []string, at time.Time) error {
+	if !standing || len(refusals) == 0 {
+		return nil
+	}
+	return s.Update(func(t *store.Tx) error {
+		return t.PutFact(claim.Repo, claim.PR, claim.Head, gates.StandingRefused, strings.Join(refusals, "; "), at)
+	})
 }
 
 const goRegate = 10 * time.Minute

@@ -398,14 +398,24 @@ Until cutover, every old-tree PR that lands on `dev` and is not the rebuild's ow
 - **Who runs it.** `old-tree-port-desk` walks `dev` and keeps the census: ported, in flight, not ported, superseded, old-only. It gets a lane for each not-ported PR, and root names the lane if the desk cannot. Its brief carries a `Standing:` line, so the supervisor relaunches it when it is lost. Without that line the desk stopped silently and nothing relaunched it.
 - **What proves it runs.** Each walk posts `cci post --kind state --topic port-census "<counts>"`, also when `dev` brought nothing new. The stall watch tells root once when the newest walk is more than 6 hours old. A drive that never posts a census is left alone.
 - **When it ends.** At cutover and no sooner: the desk posts a last census with `--attr ended=cutover`, which stops the alert, then stands down. Plan step 12.0 reads "port census has no gaps" before the promote.
-- **What proves a PR is a port.** A word in its title proves nothing. The lane says so on the `head` record of every push, `--head <pr>=<was>..<sha> --attr port-of=<old PR> --attr port-interacts=no|yes`, and the record at the exact head decides. The newest such record wins. A restack with the same diff keeps its go, as any go does.
+- **What proves a PR is a port.** A word in its title proves nothing. The lane says so on the `head` record of every push, `--head <pr>=<was>..<sha> --attr port-of=<old PR> --attr port-interacts=no|yes`, and the record at the exact head decides. The newest such record wins. A restack with the same diff keeps its go, as any go does, but a new head with no port attributes reads as no claim and asks him, so a restack posts them too.
 - **A clean port needs no tap.** `lr landing go` posts `[exempt: old-tree-port]` past `landing.tap_rules` when all of these hold at the head:
   - Fidelity's `ok` names `class old-tree-port` or `pure port, no interaction`.
   - The head record says `port-of=<n>` and `port-interacts=no`; a record silent on interaction counts as interacting.
   - `#<n>` is a merged pull request.
   - Every changed file is under `go/sand/next/`.
+  Its row reads `ready_for_tap` false from the head record on, says it lands on his standing word, and no drawer offers it. If the sweep's gate refuses the claim, the row turns ready for his tap and says why.
 - **A port that interacts goes to him.** Interaction takes judgment, so the lane decides: it writes `port-interacts=yes` when the port changes anything a rebuild change or plan step rewrote, beyond moving imports. It posts one card, recommending that our change supersedes the port, and the PR lands only on his tap.
 - **Everything else stays.** CI, approval, finder, fidelity, holds, open cards and the row's other waits apply to a port like any PR. A port with one file outside the tree lands on his tap.
+
+### Test-flake fixes
+
+A PR whose whole change fixes a test flake needs no tap. The owner gave that as a standing word, and this class sits beside the port class.
+
+- **What proves it.** The lane names the test that flaked on the `head` record of every push, `--attr flake-fix=<test or red record>`. A test-only PR without that record is not a flake fix: it keeps its own class and stays under `landing.tap_rules`.
+- **What the gate checks at the head.** Every changed file is test or fixture code, which CI config is not, and no added line names a timeout or deadline. A file GitHub returned no patch for counts as unproven. The go reads `[exempt: flake-fix]`.
+- **Everything else stays.** CI, approval, finder, fidelity's `ok`, holds and open cards apply. A fix that touches product code lands on his tap.
+- **The row.** Same as a clean port: `ready_for_tap` false, saying it lands on his standing word, until the gate posts its go or refuses, and a refused row returns to him with the reason.
 
 ### Exempt go gate
 

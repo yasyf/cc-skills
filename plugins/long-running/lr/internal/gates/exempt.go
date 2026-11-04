@@ -30,12 +30,18 @@ const (
 	OldTreePortClass  = "old-tree-port"
 	PortOfAttr        = "port-of"
 	PortInteractsAttr = "port-interacts"
-	portCleanWord     = "no"
+	PortCleanWord     = "no"
+	FlakeFixClass     = "flake-fix"
+	FlakeFixAttr      = "flake-fix"
+	StandingRefused   = "standing-refused"
 	portTree          = "go/sand/next/"
 	headKind          = "head"
 )
 
-var DefaultExemptGrades = []string{PortGrade, TestOnlyGrade}
+var (
+	DefaultExemptGrades = []string{PortGrade, TestOnlyGrade}
+	timeoutWord         = regexp.MustCompile(`(?i)time_?out|deadline`)
+)
 
 type Claim struct {
 	Repo string
@@ -57,6 +63,7 @@ type Read struct {
 	Cards    []Card
 	Lifts    map[int64]bool
 	Body     string
+	Patches  map[string]*string
 
 	PortSourceMerged bool
 }
@@ -75,20 +82,24 @@ type PortClaim struct {
 func ExemptGo(c Claim, r Read) (string, []string) {
 	finder, finderRefusal := finderCite(c, r.Records)
 	port, claimed := PortAt(c, r.Records)
+	flaked := FlakeAt(c, r.Records)
 	exempt := r.Exempt
 	if claimed {
 		exempt = portsFirst(exempt)
 	}
-	class, fidelity, fidelityRefusals := fidelityCite(c, r.Records, exempt)
+	class, fidelity, fidelityRefusals := fidelityCite(c, r.Records, exempt, flaked)
 	rules := tapRules(r.TapRules, r.Files)
-	var portRefused []string
-	if isPortClass(class) {
-		portRefused = portRefusals(c, r, port, claimed)
-		if len(portRefused) == 0 {
-			rules = nil
-		}
+	var classRefused []string
+	switch {
+	case class == FlakeFixClass:
+		classRefused = flakeRefusals(r)
+	case isPortClass(class):
+		classRefused = portRefusals(c, r, port, claimed)
 	}
-	refusals := slices.Concat(nonEmpty(finderRefusal), fidelityRefusals, portRefused, openHolds(c, r.Records, r.Lifts), openCards(c, r), rules, standingGos(c, r), nonEmpty(UnsafeOnDev(UnsafeWait(r.Body))))
+	if (class == FlakeFixClass || isPortClass(class)) && len(classRefused) == 0 {
+		rules = nil
+	}
+	refusals := slices.Concat(nonEmpty(finderRefusal), fidelityRefusals, classRefused, openHolds(c, r.Records, r.Lifts), openCards(c, r), rules, standingGos(c, r), nonEmpty(UnsafeOnDev(UnsafeWait(r.Body))))
 	if len(refusals) > 0 {
 		return "", refusals
 	}
@@ -104,9 +115,37 @@ func PortAt(c Claim, records []client.Record) (PortClaim, bool) {
 		if err != nil {
 			continue
 		}
-		return PortClaim{source, record.Fields.Attrs[PortInteractsAttr] != portCleanWord, record}, true
+		return PortClaim{source, record.Fields.Attrs[PortInteractsAttr] != PortCleanWord, record}, true
 	}
 	return PortClaim{}, false
+}
+
+func FlakeAt(c Claim, records []client.Record) bool {
+	return slices.ContainsFunc(records, func(record client.Record) bool {
+		return string(record.Kind) == headKind && record.Fields.Attrs[FlakeFixAttr] != "" && namesHead(record, c)
+	})
+}
+
+func flakeRefusals(r Read) []string {
+	var out []string
+	for _, file := range r.Files {
+		patch := r.Patches[file]
+		switch {
+		case !testCode(file):
+			out = append(out, fmt.Sprintf("flake fix: %s is not test or fixture code, so it lands on his tap", file))
+		case patch == nil:
+			out = append(out, fmt.Sprintf("flake fix: GitHub returned no patch for %s, so no timeout bump can be ruled out", file))
+		case addsTimeout(*patch):
+			out = append(out, fmt.Sprintf("flake fix: %s adds a timeout line, and a timeout bump lands on his tap", file))
+		}
+	}
+	return out
+}
+
+func addsTimeout(patch string) bool {
+	return slices.ContainsFunc(strings.Split(patch, "\n"), func(line string) bool {
+		return strings.HasPrefix(line, "+") && timeoutWord.MatchString(line)
+	})
 }
 
 func namesHead(record client.Record, c Claim) bool {
@@ -127,7 +166,7 @@ func portRefusals(c Claim, r Read, port PortClaim, claimed bool) []string {
 	}
 	var out []string
 	if port.Interacts {
-		out = append(out, fmt.Sprintf("port: head record %s does not read %s=%s, so it goes to the owner on one card and lands on his tap", port.Record.Name(), PortInteractsAttr, portCleanWord))
+		out = append(out, fmt.Sprintf("port: head record %s does not read %s=%s, so it goes to the owner on one card and lands on his tap", port.Record.Name(), PortInteractsAttr, PortCleanWord))
 	}
 	if !r.PortSourceMerged {
 		out = append(out, fmt.Sprintf("port: its source #%d is not a merged pull request", port.Source))
@@ -180,7 +219,7 @@ func finderCite(c Claim, records []client.Record) (string, string) {
 	return "", fmt.Sprintf("finder: %s at %s, and no root decide reads finder-override #%d at %s citing a record that exists", said, short(c.Head), c.PR, short(c.Head))
 }
 
-func fidelityCite(c Claim, records []client.Record, exempt []string) (string, string, []string) {
+func fidelityCite(c Claim, records []client.Record, exempt []string, flaked bool) (string, string, []string) {
 	var lanes []string
 	standing := map[string]standingGrade{}
 	for _, record := range records {
@@ -204,6 +243,9 @@ func fidelityCite(c Claim, records []client.Record, exempt []string) (string, st
 		}
 		if phrase := exemptPhrase(grade.record.Text, exempt); phrase != "" && class == "" {
 			class, cite = ClassOf(phrase), "fidelity ok "+grade.record.Name()
+		}
+		if flaked {
+			class, cite = FlakeFixClass, "fidelity ok "+grade.record.Name()
 		}
 	}
 	if class == "" {
