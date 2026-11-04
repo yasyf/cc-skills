@@ -851,6 +851,19 @@ def test_a_tap_answers_with_the_board_position_and_leaves_the_slow_sources_alone
     assert drive.slow_at == 123.0
 
 
+def test_a_tap_undone_and_given_again_is_a_new_record_the_bus_cannot_call_a_duplicate(monkeypatch):
+    drive = Drive({"board_url": "http://board/p/x", "board_session": "s", "drive": "d"}, None)
+    drive.store_seq = lambda: 41
+    drive.stored_rows = lambda: [stored_row(43211, "8242887")]
+    posted = []
+    monkeypatch.setattr(server, "run", lambda argv: posted.append(argv) or "")
+
+    for verdict in ("approved", "cleared", "approved"):
+        drive.decide("merge-prs", 43211, verdict, "8242887", None)
+
+    assert len({argv[argv.index("--id") + 1] for argv in posted}) == 3
+
+
 def test_a_build_failure_is_reported_once_and_only_when_the_next_build_fails_the_same_way():
     drive = Drive({"board_url": "http://board/p/x"}, None)
     reported = []
