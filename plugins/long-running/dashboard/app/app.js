@@ -11,6 +11,9 @@ const $ = (sel) => document.querySelector(sel);
 function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 }
+function framable(url) {
+  return location.protocol === 'http:' || url.startsWith('https:');
+}
 function clock(iso) {
   const d = new Date(iso);
   const today = dayFmt.format(new Date()) === dayFmt.format(d);
@@ -204,7 +207,7 @@ function boardCard(item) {
   const others = c.options.map((o, i) => (i === lead ? '' : button(o, i))).join('');
   const id = `answers-${c.id}`;
   const answers = c.embed
-    ? `<button class="btn" data-embed-card="${esc(c.id)}">${ov.embedCard === c.id ? 'Showing the card' : 'Answer it here'}</button>`
+    ? framable(c.embed) ? `<button class="btn" data-embed-card="${esc(c.id)}">${ov.embedCard === c.id ? 'Showing the card' : 'Answer it here'}</button>` : `<a class="btn" href="${esc(c.embed)}" target="_blank" rel="noopener">Answer it on your board ↗</a>`
     : c.choice ? `${lead >= 0 ? button(c.options[lead], lead) : ''}<details class="bq-more" data-id="${esc(id)}"${state.open.has(id) || lead < 0 ? ' open' : ''}><summary>${lead >= 0 ? 'Other answers' : 'Answers'}</summary><div class="bq-acts">${others}</div></details>` : '';
   return `<article class="mr bq" id="card-${esc(c.id)}"><header><span class="mr-t">${esc(said?.question ?? words(c.title))}</span><span class="mr-acts"><a class="btn ghost" href="${esc(state.model.board.url)}?block=${encodeURIComponent(c.id)}" target="_blank" rel="noopener">Background on your board</a></span></header>
     ${said ? `<p class="mr-why">${esc(said.means)}</p>` : ''}${answers ? `<div class="bq-acts">${answers}</div>` : ''}${c.choice ? sentNote(c.choice) : ''}</article>`;
@@ -639,4 +642,5 @@ window.addEventListener('DOMContentLoaded', () => {
   setInterval(tickFresh, 1000);
   load();
   connect();
+  startAlerts();
 });

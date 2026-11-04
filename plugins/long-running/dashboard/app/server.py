@@ -9,6 +9,7 @@ import queue
 import re
 import signal
 import sqlite3
+import ssl
 import subprocess
 import sys
 import threading
@@ -67,6 +68,8 @@ WITHDRAWN_GO = re.compile(r"\bgo\b[^.]*\bwithdr(?:aw|awn|ew)\b", re.I)
 CARD_ID = re.compile(r"\bcard-[a-z0-9]+(?:-[a-z0-9]+)*")
 PR_REF = re.compile(r"#(\d{4,6})\b")
 PR_RANGE = re.compile(r"#(\d{4,6})-#(\d{4,6})")
+ALERTS_SENT = 20
+CERT_CHECK = 24 * 60 * 60
 REVIEW_ROUTE = re.compile(r"/api/review/(\d+)")
 MODEL_ROUTE = "/ai/chat/completions"
 MODEL_URL = "https://api.cerebras.ai/v1/chat/completions"
@@ -823,6 +826,11 @@ def stored_replies(read, store):
     return sorted((read(str(path)) for path in store.glob("*.json")), key=lambda entry: at(entry["at"]), reverse=True)
 
 
+def reply_alerts(replies):
+    wanted = (entry["reply"] for entry in replies if entry["reply"].get("status") in ("needs_you", "incident") or entry["reply"].get("picks"))
+    return [{"id": reply["id"], "title": reply["title"], "incident": reply.get("status") == "incident", "picks": reply.get("picks", [])} for reply in wanted][:ALERTS_SENT]
+
+
 def open_findings(rows):
     groups = {}
     for fields in sorted((row["fields"] for row in rows if row["fields"]["state"] in UNSETTLED), key=lambda fields: fields["at"]):
@@ -856,6 +864,9 @@ class Drive:
         self.version = 0
         self.model = {}
         self.serving = threading.Condition()
+        self.alerting = threading.Condition()
+        self.alerts = []
+        self.secure_url = None
         self.served = None
         self.live_model = None
         self.watchers = 0
@@ -1138,6 +1149,9 @@ class Drive:
             if stamp != seen:
                 seen = stamp
                 self.replies = stored_replies(self.read, store) if stamp else []
+                with self.alerting:
+                    self.alerts = reply_alerts(self.replies)
+                    self.alerting.notify_all()
                 self.touch()
             time.sleep(1)
 
@@ -1609,6 +1623,11 @@ def handler(drive, tailnet_owner, names):
             path = self.path.split("?", 1)[0]
             if STORY_ROUTE.fullmatch(path) and not self.owner_calling():
                 return self.refuse()
+            if path == "/" and drive.secure_url and not isinstance(self.connection, ssl.SSLSocket):
+                self.send_response(302)
+                self.send_header("Location", drive.secure_url)
+                self.send_header("Content-Length", "0")
+                return self.end_headers()
             if path in STATIC:
                 name, kind = STATIC[path]
                 body = (HERE / name).read_text()
@@ -1631,6 +1650,8 @@ def handler(drive, tailnet_owner, names):
                 return self.send(200, "application/json", json.dumps(words).encode())
             if path == "/api/stream":
                 return self.stream()
+            if path == "/api/alerts":
+                return self.alerts()
             if found := STORY_ROUTE.fullmatch(path):
                 return self.story(found[1])
             if found := TRANSCRIPT_ROUTE.fullmatch(path):
@@ -1777,6 +1798,26 @@ def handler(drive, tailnet_owner, names):
                 except OSError:
                     return
 
+        def alerts(self):
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            sent = None
+            try:
+                while True:
+                    with drive.alerting:
+                        drive.alerting.wait_for(lambda: drive.alerts is not sent, timeout=15)
+                        alerts = drive.alerts
+                    if alerts is sent:
+                        self.wfile.write(b": keep-alive\n\n")
+                    else:
+                        self.wfile.write(f"event: alerts\ndata: {json.dumps(alerts)}\n\n".encode())
+                        sent = alerts
+                    self.wfile.flush()
+            except OSError:
+                return
+
         def stream(self):
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
@@ -1806,6 +1847,36 @@ def handler(drive, tailnet_owner, names):
     return Handler
 
 
+def tailnet_name():
+    return json.loads(run(["tailscale", "status", "--json"]))["Self"]["DNSName"].rstrip(".").lower()
+
+
+def serve_tls(drive, config, app, store):
+    name, cert, key = tailnet_name(), store / "tls.crt", store / "tls.key"
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+
+    def certify():
+        run(["tailscale", "cert", "--cert-file", str(cert), "--key-file", str(key), name])
+        context.load_cert_chain(cert, key)
+
+    def keep_certified():
+        while True:
+            time.sleep(CERT_CHECK)
+            try:
+                certify()
+            except (subprocess.SubprocessError, ssl.SSLError):
+                traceback.print_exc()
+
+    certify()
+    server = ThreadingHTTPServer((config["host"], config["tls_port"]), app)
+    server.daemon_threads = True
+    server.socket = context.wrap_socket(server.socket, server_side=True, do_handshake_on_connect=False)
+    threading.Thread(target=keep_certified, daemon=True).start()
+    drive.secure_url = f"https://{name}:{config['tls_port']}/"
+    print(drive.secure_url, flush=True)
+    server.serve_forever()
+
+
 def reap_inherited():
     lister = subprocess.Popen(["ps", "-A", "-o", "pid=,ppid="], stdout=subprocess.PIPE, text=True)
     rows = [line.split() for line in lister.communicate()[0].splitlines()]
@@ -1827,7 +1898,10 @@ def main():
     writers = [(drive.follow_mirror, ())] if "mirror" in config else [(curator.loop, ()) for curator in drive.curators]
     for target, rest in ((drive.follow_code, ()), *writers, (drive.follow_records, (after,)), (drive.follow_board, ()), (drive.follow_steps, ()), (drive.follow_owed, ()), (drive.follow_replies, ()), (drive.follow_status, ()), (drive.refresh_loop, (snapshot,)), (drive.follow_paths, ())):
         threading.Thread(target=target, args=rest, daemon=True).start()
-    server = ThreadingHTTPServer((config["host"], config["port"]), handler(drive, config["tailnet_owner"], own_names(config["host"])))
+    app = handler(drive, config["tailnet_owner"], own_names(config["host"]))
+    if "tls_port" in config:
+        threading.Thread(target=serve_tls, args=(drive, config, app, args.config.parent), daemon=True).start()
+    server = ThreadingHTTPServer((config["host"], config["port"]), app)
     server.daemon_threads = True
     print(f"http://{config['host']}:{config['port']}/", flush=True)
     server.serve_forever()
