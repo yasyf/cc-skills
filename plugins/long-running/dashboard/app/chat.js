@@ -273,7 +273,7 @@ function replyObject(entry, t) {
   const failed = entry.surfaces.filter((s) => s.error).map((s) => `<p class="ct-failed">${esc(SURFACE_WORD[s.surface])} failed: ${esc(s.error)}</p>`).join('');
   if (t.rows.length && r.order && !r.picks?.length && r.status === 'progress') return `<div class="update-row" id="rp-${esc(r.id)}">${chatIcon('spark')}<div><span class="update-title">${esc(replyTitle(r))} <time>${clock(entry.at)}</time>${objectReplyButton(key)}</span>${chatBody(r.id, r.md, replyTitle(r))}${failed}${objectReplyBox(key, about)}</div></div>${links}`;
   const label = picked ? 'Decision' : kind.label;
-  const pickLine = picked ? `<p class="obj-picked">${chatIcon('check')}You picked <b>${esc(picked)}</b></p>` : r.picks?.length ? '<p class="ct-closed">This pick is no longer open.</p>' : '';
+  const pickLine = picked ? `<p class="obj-picked">${chatIcon('check')}<span>You picked <b>${esc(picked)}</b></span></p>` : r.picks?.length ? '<p class="ct-closed">This pick is no longer open.</p>' : '';
   const done = !picked && bareAskOpen(entry, t.said.length > 0) ? `<div class="decision-tail"><button class="action primary" data-chat-done="${esc(key)}" data-about="${esc(about)}">Done</button></div>` : '';
   return `<div class="artifact decision-card ${picked ? 'ok' : kind.tone}" id="rp-${esc(r.id)}"><div class="artifact-top">${chatIcon(picked ? 'check' : kind.icon)} ${label}<span class="right">${clock(entry.at)}${objectReplyButton(key)}</span></div><h3>${esc(replyTitle(r))}</h3>${pickLine}${chatBody(r.id, r.md, replyTitle(r))}${done}${failed}${objectReplyBox(key, about)}</div>${links}`;
 }
