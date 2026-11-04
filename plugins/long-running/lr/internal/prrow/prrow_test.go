@@ -230,7 +230,7 @@ func TestARowFromTheRecordsCarriesEveryFieldAndComesReady(t *testing.T) {
 		t.Fatalf("row = %+v, want ready", row)
 	}
 	want := store.ReviewRow{
-		Repo: testRepo, Number: 1, Title: "the title", Lane: "lane-7", Branch: "branch-1", Base: "dev", Parent: None, ParentState: None, Head: headA,
+		Repo: testRepo, Number: 1, Title: "the title", Lane: "lane", Branch: "branch-1", Base: "dev", Parent: None, ParentState: None, Head: headA,
 		ForUsers: "A user sees it.", PlanLine: "This carries plan step 1.", PlanRow: "This carries plan step 1. " + planChecked, Risk: "Low.",
 		CI: CIGreen, Approvers: "a, b", Review: "approved by a, b", Grade: GradePass, GradeFindings: None, Mergeable: "clean", Queue: "none",
 		Hold: None, SupersededBy: None, WaitsOn: onlyHim, ReadyForTap: true, State: StateOpen, TapRefused: None, TappedAt: NotYet, TappedBy: NotYet, LandedAt: NotYet,
@@ -393,6 +393,23 @@ func TestAReadCorrectsARowAStaleHeadRecordMovedBackOnceTheGraceEnds(t *testing.T
 	}
 }
 
+func TestARowNamesTheLaneThatLastPushedItByAlias(t *testing.T) {
+	f, _ := foldFor(t)
+	postOpened(t, 1, headA, "dev", fullBody)
+	if row := folded(t, f, 1); row.Lane != "lane" {
+		t.Fatalf("lane = %q, want the opener's alias", row.Lane)
+	}
+	if _, err := client.Post(context.Background(), client.Draft{
+		Drive: "d", Lane: "run-search-shape-2", Kind: "head", Text: "HEAD #1 " + headB, PRs: []string{fmt.Sprintf("%s#%d", testRepo, 1)},
+		ID: "head/1/successor",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if row := folded(t, f, 1); row.Lane != "run-search-shape" {
+		t.Fatalf("lane = %q, want the lane that pushed last", row.Lane)
+	}
+}
+
 func TestAReadPostsOnlyWhenAValueChanged(t *testing.T) {
 	f, _ := foldFor(t)
 	postOpened(t, 1, headA, "dev", fullBody)
@@ -502,7 +519,7 @@ func TestAClaimMakesARowThatTheReadFillsAndThatStaysNotReadyWithNoBody(t *testin
 		t.Fatal(err)
 	}
 	row := folded(t, f, 1)
-	if row.Head != "" || row.ReadyForTap || row.Lane != "lane-7" || row.WaitsOn != "no record names its head yet" {
+	if row.Head != "" || row.ReadyForTap || row.Lane != "lane" || row.WaitsOn != "no record names its head yet" {
 		t.Fatalf("row = %+v, want a row at once, under its lane, saying no head is known", row)
 	}
 

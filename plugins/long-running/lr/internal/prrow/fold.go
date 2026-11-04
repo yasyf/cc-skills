@@ -156,7 +156,6 @@ func (f Fold) apply(t *store.Tx, rows map[int]store.ReviewRow, record client.Rec
 			if !known {
 				row = newRow(f.Repo, number)
 			}
-			row.Lane = record.Lane
 			row, err = f.pushed(t, row, record, attrs["head"])
 		case "head":
 			if !known {
@@ -218,6 +217,7 @@ func (f Fold) pushed(t *store.Tx, row store.ReviewRow, record client.Record, hea
 	if at < row.HeadAt {
 		return row, nil
 	}
+	row.Lane = client.Stem(record.Lane)
 	attrs := record.Fields.Attrs
 	for field, value := range map[*string]string{&row.Branch: attrs["branch"], &row.Base: attrs["base"], &row.Title: attrs["title"]} {
 		if value != "" {
@@ -324,6 +324,7 @@ func longer(a, b string) string {
 }
 
 func Materialize(row store.ReviewRow, facts map[string]string, hold string, branches map[string]store.ReviewRow, trunk string) store.ReviewRow {
+	row.Lane = client.Stem(row.Lane)
 	row.CI, row.Approvers = orElse(facts[factCI], CIPending), orElse(facts[factApprovers], None)
 	row.Review = noReview
 	if row.Approvers != None {

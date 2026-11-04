@@ -306,7 +306,7 @@ func TestAnOpenedRecordMakesTheRow(t *testing.T) {
 
 	by := h.snapshot(t)
 
-	if by[7].Head != head || by[7].Lane != "lane-7" {
+	if by[7].Head != head || by[7].Lane != "lane" {
 		t.Fatalf("#7 = %+v, want it read at its head under the lane that opened it", by[7])
 	}
 }
@@ -414,7 +414,7 @@ func TestBackfillPostsOneOpenedRecordPerOpenPRItFindsThroughOwnersAndRows(t *tes
 	if err != nil || !known {
 		t.Fatalf("#1 row = %+v, %v, %v", one, known, err)
 	}
-	if one.ForUsers != "A user sees it." || one.Lane != "lane-7" || one.Branch != "one" || one.Head != head {
+	if one.ForUsers != "A user sees it." || one.Lane != "lane" || one.Branch != "one" || one.Head != head {
 		t.Fatalf("#1 = %+v, want its body's fields, its owner and its head", one)
 	}
 	if _, known, _ := h.store.ReviewRow(repo, 2); known {
