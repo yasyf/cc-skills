@@ -98,11 +98,11 @@ def leaving(values: dict[str, tuple], read_board, session: str) -> list[tuple[st
     match next(iter(values.get("verb", ())), None), values.get("words", ()):
         case "remove-block", (block, *_):
             return [(block, None)]
-        case "push", _:
+        case "push", (_, *_):
             live = json.loads(ran(["cc-present"], ["outcomes", "--all", "--no-doc", "--session", session]))["rounds"]["blockRounds"]
             pushed = {block["id"] for block in json.loads(read_board())["blocks"]}
             return [(top, None) for top in sorted(set(live) - pushed)]
-        case "update-block", _:
+        case "update-block", (_, *_):
             block = json.loads(read_board())
             if block.get("type") != "card":
                 return []
@@ -249,6 +249,8 @@ def board_rows_skip_approved_prs(evt: BaseHookEvent) -> HookResult | None:
             commands={CARD_SHOWN: shown_card([WRITE_IN])},
         ): Allow(),
         Input(command="cc-present remove-block card-a --session s", commands={CARD_SHOWN: shown_card([WRITE_IN]), ROW_LIST: "[]"}): Allow(),
+        Input(command="cc-present update-block --help", env=DRIVE_CONFIG): Allow(),
+        Input(command="cc-present push --help", env=DRIVE_CONFIG): Allow(),
     },
 )
 def answered_cards_keep_their_rows(evt: BaseHookEvent) -> HookResult | None:
