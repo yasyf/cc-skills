@@ -3,6 +3,8 @@ package reply
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -11,6 +13,8 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 )
+
+var everyTurn = []string{"reply", "owner_mark"}
 
 var schema = map[string]any{
 	"type": "object",
@@ -47,11 +51,24 @@ func Command(a *app.App, commands func() *cobra.Command) *cobra.Command {
 			if _, err := drive.Session(); err == nil {
 				tools = append(tools, VerbTools(commands)...)
 			}
+			tools = pinnedInTheCommunicator(tools, os.Getenv(drive.Env))
 			server := channel.NewServer(channel.ServerInfo{Name: "lr", Version: cmd.Root().Version}, tools)
 			return server.Serve(cmd.Context(), cmd.InOrStdin(), cmd.OutOrStdout())
 		},
 	})
 	return reply
+}
+
+func pinnedInTheCommunicator(tools []channel.Tool, laneDrive string) []channel.Tool {
+	if laneDrive != "" || len(tools) == 1 {
+		return tools
+	}
+	for i, tool := range tools {
+		if slices.Contains(everyTurn, tool.Name) {
+			tools[i].Meta = map[string]any{"anthropic/alwaysLoad": true}
+		}
+	}
+	return tools
 }
 
 func Tool(a *app.App) channel.Tool {
