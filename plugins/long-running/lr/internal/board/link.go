@@ -291,7 +291,7 @@ func linkCommand(a *app.App, opened func() (drive.Entry, string, error), judge J
 	}
 	install := &cobra.Command{
 		Use:   "install",
-		Short: "Keep the link running under launchd, starting after the card changes already on the bus",
+		Short: "Keep the link running under launchd on the pinned lr, starting after the card changes already on the bus",
 		Args:  cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			entry, _, err := opened()
@@ -309,7 +309,10 @@ func linkCommand(a *app.App, opened func() (drive.Entry, string, error), judge J
 			if err != nil {
 				return err
 			}
-			return agents.Install(c.Context(), LinkJob(entry.Drive, filepath.Join(home, ".claude", "long-running", "current", "bin", "lr"), os.Getenv("PATH"), entry.StateDir))
+			if err := agents.Install(c.Context(), LinkJob(entry.Drive, filepath.Join(home, ".claude", "long-running", "current", "bin", "lr"), os.Getenv("PATH"), entry.StateDir)); err != nil {
+				return err
+			}
+			return agents.Restart(c.Context(), LinkLabel(entry.Drive))
 		},
 	}
 	cmd.AddCommand(serve, install)
