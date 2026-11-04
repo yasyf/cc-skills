@@ -423,10 +423,10 @@ def test_a_refresh_asks_for_what_changed_since_its_version_and_merges_it_onto_th
     fresh.wait_for_selector(".nw-spine")
     asked = []
     delta = {"version": model["version"] + 1, "changed": {"version": model["version"] + 1, "brief": {**model["brief"], "headline": "A fresher headline"}}}
-    fresh.route(re.compile(r"/api/model\?since="), lambda route: (asked.append(route.request.url), route.fulfill(json=delta)))
+    fresh.route(re.compile(r"/api/model\?rows=1&since="), lambda route: (asked.append(route.request.url), route.fulfill(json=delta)))
     fresh.evaluate("load()")
     fresh.wait_for_selector(".nw-head:has-text('A fresher headline')")
-    assert asked == [f"{page.url.split('#')[0]}api/model?since={model['version']}"]
+    assert asked == [f"{page.url.split('#')[0]}api/model?rows=1&since={model['version']}"]
     assert fresh.evaluate("Object.keys(state.model.prs).length") == len(model["prs"])
     fresh.close()
 
@@ -1407,6 +1407,17 @@ def test_a_phone_keeps_chat_clear_until_he_writes_and_reply_send_above_the_new_a
     sent.wait_for()
     assert sent.bounding_box()["y"] + sent.bounding_box()["height"] <= composer.bounding_box()["y"]
     context.close()
+
+
+def test_a_row_delta_rebuilds_the_lists_the_browser_holds_in_their_new_order(page):
+    rebuilt = page.evaluate("""() => withDelta(
+        { version: 7, records: [1, 2, 3], brief: 'old', drive: { prs: ['a', 'b'], at: 'old', gone: 1 } },
+        { changed: { version: 8, brief: 'new' }, patched: {
+            records: { $runs: [[1, 2], { row: 4 }] },
+            drive: { $keys: { prs: { $runs: [[0, 1], { row: 'c' }] }, at: { $value: 'new' } }, $gone: ['gone'] },
+        } },
+    )""")
+    assert rebuilt == {"version": 8, "records": [2, 3, 4], "brief": "new", "drive": {"prs": ["a", "c"], "at": "new"}}
 
 
 def test_a_note_with_no_message_above_it_is_not_open_work_and_only_an_undelivered_order_is(page):
