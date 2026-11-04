@@ -879,7 +879,7 @@ def inbox_text(evt: BaseHookEvent) -> str:
 
 
 def record_text(values: dict[str, tuple]) -> str:
-    prs = [f"#{tail[0]}" for value in values.get("pr", ()) if value for part in value.split(",") if (tail := PR_TAIL.search(part))]
+    prs = [part if "/" in part and "#" in part else f"#{tail[0]}" for value in values.get("pr", ()) if value for part in value.split(",") if (tail := PR_TAIL.search(part))]
     words = [*values.get("text", ()), *values.get("words", ())[1:], *values.get("topic", ())]
     return " ".join([*(str(word) for word in words if word), *prs])
 
