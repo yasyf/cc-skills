@@ -137,6 +137,7 @@ type Facts struct {
 	Approved      bool
 	Approvers     []string
 	Mergeable     Mergeable
+	Uncomputed    bool
 	Queue         Queue
 	QueuedHead    string
 	Resubmitted   int

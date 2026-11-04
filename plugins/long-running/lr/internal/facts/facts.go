@@ -32,6 +32,7 @@ const (
 	trunkCancelled = "trunk-cancelled"
 	trunkMerged    = "trunk-merged"
 	memberBatch    = 25
+	queueUnknown   = "queue-unknown"
 	memberFields   = `number state title isDraft headRefOid headRefName baseRefName body author { login } labels(first: 50) { nodes { name } } commits(first: 100) { nodes { commit { oid } } } mergeable mergeStateStatus tip: commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } reviews(last: 50, states: [APPROVED, CHANGES_REQUESTED]) { nodes { state author { login } commit { oid } } }`
 )
 
@@ -588,6 +589,18 @@ func (s Source) readMembers(ctx context.Context, numbers []int) (memberRead, err
 	return memberRead{carried(prs), byNumber, authors, missing}, nil
 }
 
+func (s Source) ReadMergeable(ctx context.Context, numbers []int) (map[int]string, error) {
+	members, err := s.readMembers(ctx, numbers)
+	if err != nil {
+		return nil, err
+	}
+	read := make(map[int]string, len(members.prs))
+	for number, pr := range members.prs {
+		read[number] = fmt.Sprintf("%s %s at %s", pr.Mergeable, pr.MergeStateStatus, pr.HeadRefOid)
+	}
+	return read, nil
+}
+
 func membersQuery(numbers []int) string {
 	var aliases strings.Builder
 	for _, number := range numbers {
@@ -773,6 +786,7 @@ func (s Source) hashDiff(ctx context.Context, f machine.Facts, stored map[string
 
 func (s Source) factsOf(row statusRow, pr pullRequest, required []string, stored map[string]string, owner string) (machine.Facts, error) {
 	ci := s.ciOf(row, pr, required)
+	mergeable := mergeableOf(row, pr)
 	queue, err := queueOf(row, pr, ci)
 	if err != nil {
 		return machine.Facts{}, err
@@ -797,7 +811,8 @@ func (s Source) factsOf(row statusRow, pr pullRequest, required []string, stored
 		Failing:    row.CI.Failing,
 		Approved:   row.Approval.State == "approved",
 		Approvers:  pr.approversAt(row.Head),
-		Mergeable:  mergeableOf(row, pr),
+		Mergeable:  mergeable,
+		Uncomputed: mergeable == machine.MergeableUnknown && !strings.Contains(row.Verdict, queueUnknown),
 		Queue:      queue,
 		UnsafeWait: gates.UnsafeWait(pr.Body),
 	}
@@ -905,7 +920,7 @@ func mergeableOf(row statusRow, pr pullRequest) machine.Mergeable {
 	switch {
 	case slices.Contains(causes, "conflict"):
 		return machine.MergeableConflict
-	case slices.Contains(causes, "queue-unknown"):
+	case slices.Contains(causes, queueUnknown):
 		return machine.MergeableUnknown
 	case slices.Contains(causes, "mergeable-unknown") && !pr.mergeableAt(row.Head):
 		return machine.MergeableUnknown

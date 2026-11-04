@@ -55,6 +55,7 @@ type Deps struct {
 	Trunk     string
 	Admit     func(ctx context.Context, acts []pass.Act, snapshot []machine.Facts) []pass.Act
 	DropStale func(ctx context.Context, snapshot []machine.Facts) error
+	Unstick   func(ctx context.Context, snapshot []machine.Facts) error
 	Pool      grading.Pool
 	Stale     func(ctx context.Context) (bool, error)
 	Log       *slog.Logger
@@ -166,6 +167,11 @@ func runPass(ctx context.Context, s *store.Store, drive string, generation int64
 			d.Log.Warn("a queue answer went unposted", "err", err)
 		}
 		report.Enqueued = len(landed.Enqueued) + len(landed.Resubmitted)
+		if d.Unstick != nil {
+			if err := d.Unstick(ctx, snapshot); err != nil {
+				d.Log.Warn("a PR stuck on an unknown mergeability was not retried", "err", err)
+			}
+		}
 	}
 	if slices.Contains(d.Movers, "grading") {
 		items, err := s.OpenItems("", 0)
