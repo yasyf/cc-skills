@@ -96,7 +96,7 @@ DOC_TOOLS = (
 )
 MCP_EXEMPT = ("mcp__plugin_cc-notes_", "mcp__plugin_cc-present_", "mcp__plugin_codex_")
 STANDING = r"\b(?:from now on|always|never|I told you|the plan is)\b"
-HARNESS_PREFIXES = ("<", "This session is being continued", "[Request interrupted")
+HARNESS_PREFIXES = ("<", "Another Claude session sent a message", "This session is being continued", "[Request interrupted")
 SYSTEM_PREFIXES = (*HARNESS_PREFIXES, "/")
 RULING_LABELS = ("scope:durable", "owner-ruling")
 PACIFIC = ZoneInfo("America/Los_Angeles")
