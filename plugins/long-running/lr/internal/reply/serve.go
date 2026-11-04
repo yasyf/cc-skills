@@ -21,6 +21,7 @@ var schema = map[string]any{
 		"picks":       map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "2 to 4 answers he picks from, each one tap button on his board and in Slack."},
 		"recommended": map[string]any{"type": "string", "description": "The pick you recommend; required with picks."},
 		"build":       map[string]any{"type": "object", "properties": map[string]any{"repo": map[string]any{"type": "string"}, "branch": map[string]any{"type": "string"}, "none": map[string]any{"type": "string"}}, "description": "The branch the recommended pick is built on, as repo OWNER/NAME and branch, or none with the reason it has nothing to build; his board and Slack card show it under that pick."},
+		"blocks":      map[string]any{"type": "array", "items": map[string]any{"type": "object"}, "description": "Up to 8 live cc-present blocks drawn on Talk beneath md, such as a table with filter, sort, rowKey, details and actions, a chart, a diagram or a display.artifact. Your window and Slack get md alone, so md must still say the answer."},
 		"links":       map[string]any{"type": "array", "items": map[string]any{"type": "object", "properties": map[string]any{"label": map[string]any{"type": "string"}, "url": map[string]any{"type": "string"}}, "required": []string{"label", "url"}}, "description": "Up to 5 links, such as a hosted one-pager; an https link is a button in Slack, an http one a line of the card."},
 		"prs":         map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Up to 10 GitHub pull request urls, each shown as its live PR card."},
 		"thread":      map[string]any{"type": "string", "description": "The ts of the Slack DM thread this reply answers. An ask he sent as a thread reply this turn fills it in; name it only to answer a thread he wrote in on an earlier turn."},
@@ -28,6 +29,7 @@ var schema = map[string]any{
 		"action":      map[string]any{"type": "string", "description": "With order, the one thing he must do, on one line. Omit it when he need do nothing."},
 		"by":          map[string]any{"type": "string", "description": "With order and status progress or info, the clock it is due by, such as 11:30 PM: the ledger row reads due by it. Omit it and the row reads responded."},
 		"routed":      map[string]any{"type": "integer", "description": "With order and status progress or info, the seq of the cci record that routed his ask, written to the ledger row."},
+		"on":          map[string]any{"type": "string", "description": "The dashboard chat message this reply answers in its thread: the topic of his thread line, such as reply:<id> or line:m<n>. Omit it for a reply in the main conversation."},
 	},
 	"required": []string{"title", "md"},
 }

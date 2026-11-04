@@ -30,6 +30,7 @@ type Config struct {
 	OrcaRun               string
 	RemoteBox             string
 	GoLanes               string
+	TalkWriters           string
 	Trunk                 string
 	QueueScript           string
 	QueueKey              string
@@ -43,6 +44,8 @@ type Config struct {
 }
 
 func (c Config) GoLaneNames() []string { return listed(c.GoLanes) }
+
+func (c Config) TalkWriterNames() []string { return listed(c.TalkWriters) }
 
 func (c Config) ReleasePipelineSlugs() []string { return listed(c.ReleasePipelines) }
 
@@ -71,7 +74,7 @@ func Load(path string, warn io.Writer) (Config, error) {
 		"author": &loaded.Author, "label": &loaded.Label,
 	}
 	optional := map[string]*string{
-		"orca_run": &loaded.OrcaRun, "remote_box": &loaded.RemoteBox, "go_lanes": &loaded.GoLanes,
+		"orca_run": &loaded.OrcaRun, "remote_box": &loaded.RemoteBox, "go_lanes": &loaded.GoLanes, "talk_writers": &loaded.TalkWriters,
 		"trunk": &loaded.Trunk, "queue_script": &loaded.QueueScript, "queue_key": &loaded.QueueKey,
 		"alert_channels": &loaded.AlertChannels, "release_pipelines": &loaded.ReleasePipelines,
 		"buildkite_cli": &loaded.BuildkiteCLI, "parent": &loaded.Parent, "build_recommended_order": &loaded.BuildRecommendedOrder, "tap_queue_url": &loaded.TapQueueURL,

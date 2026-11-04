@@ -16,6 +16,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/owner"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell/shelltest"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/talkboard"
 )
 
 const (
@@ -36,11 +37,23 @@ func scripted() *shelltest.Fake {
 
 func fanout(t *testing.T, runner shell.Runner) Fanout {
 	t.Helper()
-	return Fanout{Runner: runner, Entry: drive.Entry{Drive: "d", CCIDrive: "dar", StateDir: t.TempDir(), Checkout: "/repo", Sessions: []string{"board-session"}}, Now: func() time.Time { return sentAt }}
+	entry := drive.Entry{Drive: "d", CCIDrive: "dar", StateDir: t.TempDir(), Checkout: "/repo", Sessions: []string{"board-session"}}
+	if err := os.WriteFile(filepath.Join(entry.StateDir, talkboard.Links), []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return Fanout{Runner: runner, Entry: entry, Now: func() time.Time { return sentAt }}
 }
 
 func calls(fake *shelltest.Fake, tool string) []shell.Command {
-	return slices.DeleteFunc(fake.Calls(), func(c shell.Command) bool { return c.Argv[0] != tool })
+	return slices.DeleteFunc(fake.Calls(), func(c shell.Command) bool { return c.Argv[0] != tool || onThread(c) })
+}
+
+func onThread(c shell.Command) bool {
+	return slices.Contains(c.Argv, "talk-d")
+}
+
+func threadWrites(fake *shelltest.Fake) []shell.Command {
+	return slices.DeleteFunc(fake.Calls(), func(c shell.Command) bool { return !onThread(c) })
 }
 
 func flag(t *testing.T, argv []string, name string) string {
@@ -190,7 +203,7 @@ func TestOneReplyThroughTheMCPToolReachesEverySurfaceUnderOneID(t *testing.T) {
 		t.Fatalf("window text opens with the title, so an update's dashboard link is not its first line:\n%s", text)
 	}
 	reply, surfaces := stored(t, f, id)
-	if reply.ID != id || len(surfaces) != 3 || surfaces[1] != (Outcome{Surface: "slack", Ref: permalink}) {
+	if reply.ID != id || len(surfaces) != 4 || surfaces[1] != (Outcome{Surface: "slack", Ref: permalink}) {
 		t.Fatalf("dashboard response = %+v %+v, want the reply under %s with its board, slack and record", reply, surfaces, id)
 	}
 	if len(calls(fake, "cc-slack")) != 0 {
@@ -207,6 +220,7 @@ func TestASlackFailureStillReachesTheOtherSurfacesAndNamesItself(t *testing.T) {
 
 	sent := f.Send(context.Background(), r)
 
+	sent = slices.DeleteFunc(sent, func(o Outcome) bool { return o.Surface == "talk" })
 	if len(sent) != 3 || sent[0].Surface != "slack" || !strings.Contains(sent[0].Error, "channel_not_found") {
 		t.Fatalf("outcomes = %+v, want slack failed with its reason", sent)
 	}
@@ -345,11 +359,11 @@ func TestAFailedWithdrawalNamesItselfAndStillRecordsTheEdit(t *testing.T) {
 
 	sent := f.Send(context.Background(), Reply{ID: "r7", Title: "Landed", MD: "It merged.", Status: "done"})
 
-	if len(sent) != 4 || sent[0].Surface != "board" || !strings.Contains(sent[0].Error, "daemon not running") || sent[1].Surface != "slack" || !strings.Contains(sent[1].Error, "keeps its buttons") {
+	if len(sent) != 5 || sent[0].Surface != "board" || !strings.Contains(sent[0].Error, "daemon not running") || sent[1].Surface != "slack" || !strings.Contains(sent[1].Error, "keeps its buttons") {
 		t.Fatalf("outcomes = %+v, want board failed with its reason and slack naming the live buttons", sent)
 	}
-	if sent[2] != (Outcome{Surface: "record", Ref: "#12@2479ec97"}) || sent[3].Surface != "dashboard" || sent[3].Error != "" {
-		t.Fatalf("outcomes = %+v, want the record and dashboard delivered", sent)
+	if sent[2].Surface != "talk" || sent[3] != (Outcome{Surface: "record", Ref: "#12@2479ec97"}) || sent[4].Surface != "dashboard" || sent[4].Error != "" {
+		t.Fatalf("outcomes = %+v, want talk attempted and the record and dashboard delivered", sent)
 	}
 	if posted := calls(fake, "cc-slack"); len(posted) != 0 {
 		t.Fatalf("cc-slack calls = %+v, want no new Slack message", posted)
@@ -437,7 +451,7 @@ func TestAnAnswerToHisThreadReplyPostsInThatThreadAsWholeText(t *testing.T) {
 	if text := posted[0].Argv[len(posted[0].Argv)-1]; text != want {
 		t.Fatalf("thread text = %q, want the title, the whole reply, its PR and its link", text)
 	}
-	if sent[0] != (Outcome{Surface: "slack", Ref: permalink}) {
+	if surface(sent, "slack") != (Outcome{Surface: "slack", Ref: permalink}) {
 		t.Fatalf("outcomes = %+v, want the thread reply's permalink", sent)
 	}
 }
@@ -469,6 +483,62 @@ func TestACardCarriesItsLeadParagraphOnce(t *testing.T) {
 	}
 	if card := board(t, sent[1]); card.Summary != "Checks passed." || card.Children[0].Type != "choice" {
 		t.Fatalf("card %+v, want a one-paragraph reply in the summary with no markdown child", card)
+	}
+}
+
+func TestAReplyLandsOnTheThreadBeneathTheLastNoteAndStaysThereWhenEdited(t *testing.T) {
+	fake := scripted()
+	f := fanout(t, fake)
+	notes := filepath.Join(f.Entry.StateDir, "owner-relay", "talk-notes")
+	if err := os.MkdirAll(filepath.Dir(notes), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(notes, []byte("n1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	first := Reply{ID: "r9", Title: "Gateway", MD: "It is healthy.", PRs: []string{landPR}}
+	f.Send(context.Background(), first)
+	if err := os.WriteFile(notes, []byte("n1\nn2\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	first.MD = "It is healthy again."
+	f.Send(context.Background(), first)
+
+	writes := threadWrites(fake)
+	if len(writes) != 2 {
+		t.Fatalf("thread writes = %+v, want one per send", writes)
+	}
+	for n, want := range []string{"It is healthy.", "It is healthy again."} {
+		var card struct {
+			ID       string  `json:"id"`
+			Re       string  `json:"re"`
+			Mirror   bool    `json:"mirror"`
+			Children []child `json:"children"`
+		}
+		if err := json.Unmarshal([]byte(writes[n].Stdin), &card); err != nil {
+			t.Fatal(err)
+		}
+		if card.ID != "reply-r9" || card.Re != "n1" || card.Mirror || card.Children[0].MD != want {
+			t.Errorf("write %d = %+v, want reply-r9 beneath n1, off Slack, reading %q", n, card, want)
+		}
+		if card.Children[1].Type != "pr" || card.Children[1].Number != 2196 {
+			t.Errorf("write %d children = %+v, want the pull request as a block", n, card.Children)
+		}
+	}
+}
+
+func TestAThreadFailureIsNamedAndTheOtherSurfacesStillGo(t *testing.T) {
+	fake := &shelltest.Fake{}
+	fake.Fail(1, "no artifact", "cc-present", "update-block")
+	fake.Reply(posted, "cci", "post")
+	f := fanout(t, fake)
+	sent := f.Send(context.Background(), Reply{ID: "r1", Title: "Done", MD: "Done."})
+	byName := map[string]Outcome{}
+	for _, o := range sent {
+		byName[o.Surface] = o
+	}
+	if byName["talk"].Error == "" || byName["record"].Ref == "" || byName["dashboard"].Error != "" {
+		t.Fatalf("sent = %+v, want talk named as failed and record and dashboard delivered", sent)
 	}
 }
 
@@ -596,5 +666,57 @@ func TestByAndRoutedAreRefusedOffAQuietOrderReply(t *testing.T) {
 		if err := r.led().check(); err == nil {
 			t.Fatalf("%s passed check", name)
 		}
+	}
+}
+
+func TestLiveBlocksLandOnTheThreadAndTheirActionsPostToTalk(t *testing.T) {
+	fake := scripted()
+	f := fanout(t, fake)
+	table := json.RawMessage(`{"id":"anything","type":"table","columns":[{"key":"team","label":"Team"}],"rows":[{"team":"AIG"}],"rowKey":"team","actions":[{"id":"why","label":"Why?"}]}`)
+	f.Send(context.Background(), Reply{ID: "r7", Title: "Indexing", MD: "Caught up.", Blocks: []json.RawMessage{table}})
+
+	var card struct {
+		Children []struct {
+			ID      string `json:"id"`
+			Type    string `json:"type"`
+			Actions []struct {
+				Target string `json:"target"`
+			} `json:"actions"`
+		} `json:"children"`
+	}
+	writes := threadWrites(fake)
+	if len(writes) != 1 {
+		t.Fatalf("thread writes = %+v, want one", writes)
+	}
+	if err := json.Unmarshal([]byte(writes[0].Stdin), &card); err != nil {
+		t.Fatal(err)
+	}
+	if len(card.Children) != 2 || card.Children[1].Type != "table" || card.Children[1].ID != "reply-r7-b1" {
+		t.Fatalf("children = %+v, want the markdown, then the table under an id of its own", card.Children)
+	}
+	if card.Children[1].Actions[0].Target != "talk" {
+		t.Fatalf("action = %+v, want its press to reach the Talk section, where only named devices post", card.Children[1].Actions[0])
+	}
+	if strings.Contains(calls(fake, "cci")[0].Stdin, "anything") {
+		t.Fatal("the record carried the block, want the reply's prose alone")
+	}
+}
+
+func TestABlockWithNoTypeIsRefusedBeforeAnythingPosts(t *testing.T) {
+	r := Reply{ID: "r8", Title: "T", MD: "M", Blocks: []json.RawMessage{json.RawMessage(`{"id":"x"}`)}}
+	if err := r.check(); err == nil || !strings.Contains(err.Error(), "block 1") {
+		t.Fatalf("check = %v, want block 1 named", err)
+	}
+}
+
+func TestADriveWithNoTalkBoardSkipsTheThread(t *testing.T) {
+	fake := scripted()
+	f := fanout(t, fake)
+	if err := os.Remove(filepath.Join(f.Entry.StateDir, talkboard.Links)); err != nil {
+		t.Fatal(err)
+	}
+	sent := f.Send(context.Background(), Reply{ID: "r9", Title: "T", MD: "M"})
+	if len(threadWrites(fake)) != 0 || surface(sent, "talk").Surface != "" {
+		t.Fatalf("thread writes %+v and outcomes %+v, want nothing on a board that was never opened", threadWrites(fake), sent)
 	}
 }
