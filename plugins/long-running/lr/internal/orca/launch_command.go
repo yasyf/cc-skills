@@ -108,24 +108,57 @@ func laneCommand(a *app.App) *cobra.Command {
 	var now bool
 	var role string
 	var timeout float64
+	var written NewBrief
 	cmd := &cobra.Command{
-		Use:   "lane LANE MODEL EFFORT BRIEF",
+		Use:   "lane LANE MODEL EFFORT BRIEF | lane LANE [MODEL EFFORT] --title TITLE --body-file FILE",
 		Short: "Post one lane's launch to the orca runner and wait for its verdict; a stem launches as its next number",
 		Long: `Run every check the runner applies, post the launch, and print the runner's verdict.
 
-Exit 0 when the lane launched, or when no verdict came within --timeout-seconds while the runner is alive, since its verdict then arrives as a desk-runner record; 1 when the runner refused it or a check did; and 2 when no verdict came and the runner has posted no orca alive record in five minutes. A drive whose orca runner posted no orca alive record in five minutes posts nothing.`,
-		Args: cobra.ExactArgs(4),
+Exit 0 when the lane launched, or when no verdict came within --timeout-seconds while the runner is alive, since its verdict then arrives as a desk-runner record; 1 when the runner refused it or a check did; and 2 when no verdict came and the runner has posted no orca alive record in five minutes. A drive whose orca runner posted no orca alive record in five minutes posts nothing.
+
+With --body-file the launch writes the brief itself, to <state dir>/<lane>/brief.md, from --title, the register slice line, --scale, --place, the --contract file, the body and an Owner orders line naming each m<row> the body cites; it takes no BRIEF, and MODEL and EFFORT default to opus xhigh.`,
+		Args: func(cmd *cobra.Command, args []string) error {
+			if written.BodyFile == "" {
+				return cobra.ExactArgs(4)(cmd, args)
+			}
+			if len(args) != 1 && len(args) != 3 {
+				return errors.New("--body-file takes LANE, or LANE MODEL EFFORT, and writes the brief itself")
+			}
+			return nil
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			poster := flags.poster(cmd, a)
 			lane, err := poster.Numbered(cmd.Context(), args[0])
 			if err != nil {
 				return err
 			}
-			order := Order{Lane: lane, Model: args[1], Effort: args[2], Role: role, Brief: args[3], Now: now}
+			if written.BodyFile == "" {
+				order := Order{Lane: lane, Model: args[1], Effort: args[2], Role: role, Brief: args[3], Now: now}
+				return poster.LaunchOrExit(cmd.Context(), order, seconds(timeout))
+			}
+			entry, err := poster.Entry()
+			if err != nil {
+				return err
+			}
+			brief, err := written.Write(entry.StateDir, lane)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "wrote %s\n", brief)
+			order := Order{Lane: lane, Model: defaultLaneModel, Effort: defaultLaneEffort, Role: role, Brief: brief, Now: now}
+			if len(args) == 3 {
+				order.Model, order.Effort = args[1], args[2]
+			}
 			return poster.LaunchOrExit(cmd.Context(), order, seconds(timeout))
 		},
 	}
 	flags.bind(cmd)
+	cmd.Flags().StringVar(&written.Title, "title", "", "with --body-file, the brief's title")
+	cmd.Flags().StringVar(&written.BodyFile, "body-file", "", "write the brief from this file instead of taking BRIEF")
+	cmd.Flags().StringVar(&written.Contract, "contract", "", "with --body-file, a file the brief carries above the body, such as a desk's helper contract")
+	cmd.Flags().StringVar(&written.Scale, "scale", "medium", "with --body-file, the brief's Scale line")
+	cmd.Flags().StringVar(&written.Place, "place", placeLocal, "with --body-file, where the lane runs: local, on this Mac, or remote")
+	cmd.Flags().StringSliceVar(&written.Topics, "topics", nil, "with --body-file, the subjects the lane decides on, for the register slice's owner answers")
 	cmd.Flags().BoolVar(&now, "now", false, "owner-directed: launch beside a live lane already holding this work")
 	cmd.Flags().StringVar(&role, "role", "", "the role the lane registry records for it, over the brief's ccx role")
 	cmd.Flags().Float64Var(&timeout, "timeout-seconds", defaultTimeout, "how long to wait for the runner's verdict")
