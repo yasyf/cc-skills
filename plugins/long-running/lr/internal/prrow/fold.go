@@ -490,7 +490,8 @@ func stateOf(row store.ReviewRow, facts map[string]string) string {
 
 func gradeOf(facts map[string]string) (string, string) {
 	_, verdict := facts["verdict"]
-	graded := machine.Facts{Finder: machine.Finder(facts["finder"]), Fidelity: machine.Fidelity(facts["fidelity"]), Verdict: verdict}
+	finder, fidelity := machine.GradesOf(facts)
+	graded := machine.Facts{Finder: finder, Fidelity: fidelity, Verdict: verdict}
 	switch {
 	case !graded.Graded():
 		return GradePending, None

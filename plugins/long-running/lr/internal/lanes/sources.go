@@ -882,6 +882,7 @@ func (e Env) Deps(ctx context.Context) (Deps, error) {
 		OpenBranches:          func(s *store.Store) (map[string][]int, error) { return openBranches(s, e.Config.Repo) },
 		Sprites:               func(names []string) (map[string]Sprite, error) { return e.laneSprites(ctx, names) },
 		Hosts:                 func(names []string, sprites map[string]Sprite) map[string]Host { return e.hosts(ctx, names, sprites) },
+		LastWords:             func(sprite string) string { return e.lastWords(ctx, sprite) },
 		BuildRecommendedOrder: e.Config.BuildRecommendedOrder,
 	}, nil
 }

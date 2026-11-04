@@ -5,7 +5,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -38,6 +40,9 @@ var toolingCause = regexp.MustCompile(`[0-9a-f]{7,}|\d+|/\S+`)
 func (p *JobPool) finished(ctx context.Context, ref workerRef, directory string, state jobState) error {
 	switch state {
 	case jobLost:
+		if err := p.tellLost(ctx, ref.lane, directory); err != nil {
+			return err
+		}
 		if ref.box != localBox {
 			return p.stamp(failuresDir, ref.box)
 		}
@@ -83,6 +88,24 @@ func jobNames(directory string) (grader.Job, error) {
 	var spec grader.Job
 	err = json.Unmarshal(data, &spec)
 	return spec, err
+}
+
+func (p *JobPool) tellLost(ctx context.Context, lane, directory string) error {
+	spec, err := jobNames(directory)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	desk := graderOf(lane)
+	to := spec.Lane
+	if to == "" {
+		to = rootLane
+	}
+	id := "grader-lost:" + desk + ":" + spec.PR + ":" + spec.Head
+	text := fmt.Sprintf("GRADER-LOST #%s %s: its %s pass ended with no grade: %s; the pool runs it again, up to %d attempts in all, and the head has no %s grade until one completes", spec.PR, short(spec.Head), desk, squeezed(failureOf(directory)), maxAttempts, desk)
+	return p.notice(ctx, client.Draft{Lane: runnerLane, Kind: kindNote, Text: text, To: []string{to}, Topic: id, ID: id, PRs: []string{spec.Repo + "#" + spec.PR}})
 }
 
 func (p *JobPool) toolingFailed(ctx context.Context, lane, directory string) error {
@@ -163,7 +186,7 @@ func (p *JobPool) TellStopped(ctx context.Context, facts machine.Facts, why stri
 			to = append(to, lane)
 		}
 	}
-	text := fmt.Sprintf("GRADE-STOPPED #%s %s: no grader pass is left to run at this head, so its grade item closes and a verdict item opens for its lane. %s. A grade posted at this head, a desk's read or `finder: whole`, clears it; a new head gets new passes.", pr, short(facts.Head), squeezed(why))
+	text := fmt.Sprintf("GRADE-STOPPED #%s %s: no grader pass is left to run at this head, so its grade item closes and a verdict item opens for its lane. %s. A grade posted at this head, a desk's read or `finder: whole`, clears it, and so does root's `fidelity-override #%s at %s: <seq>` or `finder-override #%s at %s: <seq>` for the grader that stopped; a new head gets new passes.", pr, short(facts.Head), squeezed(why), pr, short(facts.Head), pr, short(facts.Head))
 	id := "grade-stopped:" + facts.Repo + "#" + pr + ":" + facts.Head
 	return p.notice(ctx, client.Draft{Lane: runnerLane, Kind: kindReport, Text: text, To: to, Topic: id, ID: id, PRs: []string{facts.Repo + "#" + pr}})
 }

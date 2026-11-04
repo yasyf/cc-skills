@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 )
 
 const (
@@ -252,9 +253,10 @@ func UnreadOverrides(record client.Record) []string {
 func overrides(text string) []Fact {
 	var out []Fact
 	for _, override := range overridesIn(text) {
-		fact := Fact{override.PR, override.Head, "verdict", "accept"}
-		if !slices.Contains(out, fact) {
-			out = append(out, fact)
+		for _, fact := range []Fact{{override.PR, override.Head, "verdict", "accept"}, {override.PR, override.Head, machine.OverrideFact(override.Grader), "accept"}} {
+			if !slices.Contains(out, fact) {
+				out = append(out, fact)
+			}
 		}
 	}
 	return out

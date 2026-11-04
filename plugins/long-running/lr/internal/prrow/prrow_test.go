@@ -859,3 +859,19 @@ func TestAPortHeadRecordReachesTheRowsFactsAtItsHead(t *testing.T) {
 		t.Fatalf("facts = %v, want the head record's port claim", facts)
 	}
 }
+
+func TestARootOverrideAtAHeadWhosePassesStoppedReadsAsItsGrade(t *testing.T) {
+	ready := store.ReviewRow{Number: 50125, Head: headA, Hold: None, SupersededBy: None, State: StateOpen}
+	base := map[string]string{factCI: CIGreen, factApprovers: "a", factMergeable: string(machine.MergeableClean), "finder": string(machine.FinderClear), machine.GradeStoppedFact: "fidelity: its pass ended without a grade"}
+
+	before := Materialize(ready, base, Held{}, nil, "dev")
+	if before.Grade != GradePending || !strings.HasPrefix(before.WaitsOn, NotGraded) {
+		t.Fatalf("no override: grade %q, waits %q", before.Grade, before.WaitsOn)
+	}
+
+	overridden := maps.Clone(base)
+	overridden["verdict"], overridden[machine.OverrideFact("fidelity")] = "accept", "accept"
+	if after := Materialize(ready, overridden, Held{}, nil, "dev"); after.Grade != GradePass {
+		t.Fatalf("overridden: grade %q, waits %q", after.Grade, after.WaitsOn)
+	}
+}

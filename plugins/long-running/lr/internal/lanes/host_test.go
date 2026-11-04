@@ -146,6 +146,21 @@ func lostReports(f *fake) []Post {
 	return out
 }
 
+func TestALostSpritesLastWordsReachItsReport(t *testing.T) {
+	s := memory(t)
+	f := onSprite(t, s)
+	f.lastWords = "its last sample before the stop read 5558 MB free; block nbd0: Dead connection"
+	f.peers = nil
+	lostOnSprite(t, s, f, lane2, t0.Add(-mins(20)))
+
+	out := tick(t, s, f, t0)
+
+	equal(t, len(out.Relaunched), 1)
+	reports := lostReports(f)
+	equal(t, len(reports), 1)
+	contains(t, reports[0].Text, "; its last sample before the stop read 5558 MB free; block nbd0: Dead connection")
+}
+
 func TestALaneHeardNeverWhoseSpriteWentColdIsReportedLostAndRelaunchedFromItsBriefOnce(t *testing.T) {
 	s := memory(t)
 	registered(t, s, store.Lane{Name: "build-desk", Role: "lane"})

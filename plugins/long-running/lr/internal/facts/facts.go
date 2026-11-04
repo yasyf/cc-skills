@@ -886,7 +886,7 @@ func fromStored(f *machine.Facts, stored map[string]string, owner string) error 
 		return fmt.Errorf("#%d resubmitted: %w", f.Number, err)
 	}
 	f.Resubmitted = resubmitted
-	f.Finder, f.Fidelity = machine.Finder(stored["finder"]), machine.Fidelity(stored["fidelity"])
+	f.Finder, f.Fidelity = machine.GradesOf(stored)
 	f.Tap, f.Condition = machine.Tap(stored["tap"]), stored["condition"]
 	f.GradeStopped = stored[machine.GradeStoppedFact]
 	f.TapRefused = stored[bus.TapRefusedFact]

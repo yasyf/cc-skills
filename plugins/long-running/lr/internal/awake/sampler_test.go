@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -337,5 +338,75 @@ func waitFor(t *testing.T, ready func() bool) {
 			t.Fatal("the sampler never got there")
 		}
 		time.Sleep(time.Millisecond)
+	}
+}
+
+func sampleLine(t *testing.T, sample Sample) string {
+	t.Helper()
+	line, err := json.Marshal(sample)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(line) + "\n"
+}
+
+func TestLastWordsReadTheBootThatStoppedAndNotTheWakeThatReadsIt(t *testing.T) {
+	stopped := Sample{Time: "2026-11-04T21:15:18Z", UptimeSeconds: 2995, MemAvailableMB: 5558, Load: "12.46 9 6", DiskWaiting: 2, Agents: []Agent{{Comm: "claude"}}, Kernel: []string{"<6>[ 3.0] nbd0: detected capacity change", "<3>[ 2990.0] block nbd0: Dead connection"}}
+	woken := Sample{Time: "2026-11-04T21:18:35Z", UptimeSeconds: 25, MemAvailableMB: 8517, Load: "1.61 1 1"}
+	want := "its last sample before the stop, 2026-11-04T21:15:18Z at uptime 2995 s, read 5558 MB free, 0 OOM kills, load 12.46, 2 waiting on disk, 1 agents; <3>[ 2990.0] block nbd0: Dead connection"
+
+	for name, samples := range map[string]string{
+		"no sample since the wake": sampleLine(t, stopped),
+		"a sample since the wake":  sampleLine(t, stopped) + "not json\n" + sampleLine(t, woken),
+	} {
+		if got := LastWords(samples); got != want {
+			t.Errorf("%s: %s", name, got)
+		}
+	}
+}
+
+func TestLastWordsSayWhenNoKernelErrorOrNoSampleWasLeft(t *testing.T) {
+	quiet := sampleLine(t, Sample{Time: "t", UptimeSeconds: 1331, Load: "7.26 5 2", Kernel: []string{"<6>[ 3.2] EXT4-fs (nbd0): mounted filesystem"}})
+	if got := LastWords(quiet); !strings.HasSuffix(got, "; no kernel error on nbd0") {
+		t.Error(got)
+	}
+	if got := LastWords(""); !strings.Contains(got, "left no sample") {
+		t.Error(got)
+	}
+}
+
+func TestAKernelLineReachesTheFileWellBeforeTheNextSample(t *testing.T) {
+	s := sprite(t)
+	s.Every = time.Hour
+	var log atomic.Value
+	log.Store("")
+	s.Kernel = func() ([]byte, error) { return []byte(log.Load().(string)), nil }
+	ctx, stop := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		s.Run(ctx)
+		close(done)
+	}()
+	waitFor := func(want int) []Sample {
+		t.Helper()
+		deadline := time.Now().Add(30 * time.Second)
+		for time.Now().Before(deadline) {
+			if got := samplesIn(t, s.Path); len(got) >= want {
+				return got
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		t.Fatalf("fewer than %d samples", want)
+		return nil
+	}
+	waitFor(1)
+	log.Store("<3>[ 1453.2] block nbd0: Dead connection, failed to find a fallback\n")
+
+	got := waitFor(2)
+	stop()
+	<-done
+
+	if len(got[1].Kernel) != 1 || !strings.Contains(got[1].Kernel[0], "Dead connection") {
+		t.Fatalf("%+v", got[1])
 	}
 }

@@ -51,8 +51,8 @@ func TestEachGradeTapAndExemptionBecomesOneFact(t *testing.T) {
 		{"the sweep desk's fidelity ok", legacyRecord(t, "review", "fidelity-sweep", "fidelity: ok "+head[:7]+" stays in scope", []int{1}, nil), []bus.Fact{{PR: 1, Head: head[:7], Kind: "fidelity", Value: "pass"}}},
 		{"fidelity missing", legacyRecord(t, "review", "fidelity-pipeline", "fidelity: missing "+head[:7]+" plan:12 the plan's cap is gone", []int{1}, nil), []bus.Fact{{PR: 1, Head: head[:7], Kind: "fidelity", Value: "fail"}}},
 		{"coordinator go names an exempt class", legacyRecord(t, "go", "root", "5:26 PM go #9 at e718a74 on green [exempt: regression]", []int{9}, nil), []bus.Fact{{PR: 9, Head: "e718a74", Kind: "exempt", Value: "regression"}}},
-		{"a finder override", legacyRecord(t, "decide", "root", "finder-override #9 at e718a74: the finding reads a deleted file", []int{9}, nil), []bus.Fact{{PR: 9, Head: "e718a74", Kind: "verdict", Value: "accept"}}},
-		{"an override after a clock and a root label", legacyRecord(t, "decide", "root", "5:26 PM root: fidelity-override 9 e718a74", []int{9}, nil), []bus.Fact{{PR: 9, Head: "e718a74", Kind: "verdict", Value: "accept"}}},
+		{"a finder override", legacyRecord(t, "decide", "root", "finder-override #9 at e718a74: the finding reads a deleted file", []int{9}, nil), []bus.Fact{{PR: 9, Head: "e718a74", Kind: "verdict", Value: "accept"}, {PR: 9, Head: "e718a74", Kind: "override-finder", Value: "accept"}}},
+		{"an override after a clock and a root label", legacyRecord(t, "decide", "root", "5:26 PM root: fidelity-override 9 e718a74", []int{9}, nil), []bus.Fact{{PR: 9, Head: "e718a74", Kind: "verdict", Value: "accept"}, {PR: 9, Head: "e718a74", Kind: "override-fidelity", Value: "accept"}}},
 		{"fidelity judged a head the same as the tapped one", legacyRecord(t, "review", "fidelity-pipeline", "behavior: same "+head+" since a28ab62c0ffe", []int{1}, nil), []bus.Fact{{PR: 1, Head: head, Kind: "behavior", Value: "same"}, {PR: 1, Head: head, Kind: "behavior-since", Value: "a28ab62c0ffe"}}},
 		{"fidelity judged a head changed since the tapped one", legacyRecord(t, "review", "fidelity-pipeline", "behavior: changed "+head+" since a28ab62c0ffe: a cold list now finds its team by lineage", []int{1}, nil), []bus.Fact{{PR: 1, Head: head, Kind: "behavior", Value: "changed"}, {PR: 1, Head: head, Kind: "behavior-since", Value: "a28ab62c0ffe"}, {PR: 1, Head: head, Kind: "what-changed", Value: "a cold list now finds its team by lineage"}}},
 	} {
@@ -172,7 +172,7 @@ func TestAnOverrideInASpilledBodyCounts(t *testing.T) {
 
 	got := bus.LegacyFacts(record, repo, nil)
 
-	if want := []bus.Fact{{PR: 9, Head: "e718a74", Kind: "verdict", Value: "accept"}}; !reflect.DeepEqual(got, want) {
+	if want := []bus.Fact{{PR: 9, Head: "e718a74", Kind: "verdict", Value: "accept"}, {PR: 9, Head: "e718a74", Kind: "override-finder", Value: "accept"}}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("LegacyFacts = %+v, want %+v", got, want)
 	}
 }
@@ -187,7 +187,7 @@ func TestAnOverrideInASpilledBodyOfManyLinesCounts(t *testing.T) {
 
 	got := bus.LegacyFacts(record, repo, nil)
 
-	if want := []bus.Fact{{PR: 9, Head: "e718a74", Kind: "verdict", Value: "accept"}}; !reflect.DeepEqual(got, want) {
+	if want := []bus.Fact{{PR: 9, Head: "e718a74", Kind: "verdict", Value: "accept"}, {PR: 9, Head: "e718a74", Kind: "override-finder", Value: "accept"}}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("LegacyFacts = %+v, want %+v", got, want)
 	}
 }

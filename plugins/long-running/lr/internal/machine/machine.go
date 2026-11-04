@@ -110,6 +110,24 @@ const (
 
 const GradeStoppedFact = "grade-stopped"
 
+func OverrideFact(grader string) string {
+	return "override-" + grader
+}
+
+func GradesOf(stored map[string]string) (Finder, Fidelity) {
+	finder, fidelity := Finder(stored["finder"]), Fidelity(stored["fidelity"])
+	if stored[GradeStoppedFact] == "" {
+		return finder, fidelity
+	}
+	if finder == "" && stored[OverrideFact("finder")] != "" {
+		finder = FinderClear
+	}
+	if fidelity == "" && stored[OverrideFact("fidelity")] != "" {
+		fidelity = FidelityPass
+	}
+	return finder, fidelity
+}
+
 const (
 	SupervisorClock = 10 * time.Minute
 	GradeClock      = 10 * time.Minute

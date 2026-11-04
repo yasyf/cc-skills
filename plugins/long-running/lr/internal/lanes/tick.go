@@ -59,6 +59,7 @@ type Deps struct {
 	OpenBranches          func(s *store.Store) (map[string][]int, error)
 	Sprites               func(lanes []string) (map[string]Sprite, error)
 	Hosts                 func(lanes []string, sprites map[string]Sprite) map[string]Host
+	LastWords             func(sprite string) string
 	BuildRecommendedOrder string
 }
 
