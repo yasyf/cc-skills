@@ -153,23 +153,32 @@ func (d *Desk) readLines(ctx context.Context) error {
 	if err != nil {
 		return d.noteTailFailure(err)
 	}
+	var skipped int64
 	for _, record := range records {
+		if !toDesk(record) && !rootReplies(record) {
+			skipped = record.Seq
+			continue
+		}
 		if err := d.readLine(ctx, record); err != nil {
 			return err
 		}
 		if err := d.setFact(deskRunner, fact, record.Seq); err != nil {
 			return err
 		}
+		skipped = 0
+	}
+	if skipped != 0 {
+		return d.setFact(deskRunner, fact, skipped)
 	}
 	return nil
 }
 
+func rootReplies(record client.Record) bool {
+	return record.Lane == coordinatorLane && (record.Re != 0 || len(resolvedSeqs(record)) > 0)
+}
+
 func (d *Desk) readLine(ctx context.Context, record client.Record) error {
 	desk := toDesk(record)
-	rootReply := record.Lane == coordinatorLane && (record.Re != 0 || len(resolvedSeqs(record)) > 0)
-	if !desk && !rootReply {
-		return nil
-	}
 	replyTo := record.Re
 	if replyTo == 0 {
 		seq, err := d.resolvedDecide(ctx, record)
