@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -598,5 +599,205 @@ func TestATappedRowIsStillReadySoLandingCanRequireBoth(t *testing.T) {
 	row.State, row.Tapped = StateTapped, true
 	if row = Decide(row); !row.ReadyForTap {
 		t.Fatalf("row = %+v", row)
+	}
+}
+
+func delivered(t *testing.T, topic string, number int, at time.Time, commit, outcome string, attrs map[string]string) client.Record {
+	t.Helper()
+	draft := client.Draft{Drive: "delivered", Lane: "github", Kind: GithubKind, Text: topic, Topic: topic, Attrs: attrs}
+	if number != 0 {
+		draft.PRs = []string{fmt.Sprintf("%s#%d", testRepo, number)}
+	}
+	record, err := client.Post(context.Background(), draft)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record.At, record.Fields.Commit, record.Fields.Outcome = at, commit, outcome
+	return record
+}
+
+func hear(t *testing.T, f Fold, record client.Record) {
+	t.Helper()
+	if err := f.Store.Update(func(tx *store.Tx) error {
+		stored, err := tx.ReviewRows(f.Repo)
+		if err != nil {
+			return err
+		}
+		rows := make(map[int]store.ReviewRow, len(stored))
+		for _, row := range stored {
+			rows[row.Number] = row
+		}
+		if err := f.applyGithub(tx, rows, record); err != nil {
+			return err
+		}
+		return tx.PutReviewRows(values(rows))
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func readRow(t *testing.T, f Fold, number int, head string) store.ReviewRow {
+	t.Helper()
+	if err := f.PostReads(context.Background(), []machine.Facts{cleanRead(number, head)}); err != nil {
+		t.Fatal(err)
+	}
+	return folded(t, f, number)
+}
+
+func readCount(t *testing.T, number int) int {
+	t.Helper()
+	records, err := client.Tail(context.Background(), client.Query{Drive: "d", Kinds: []string{readKind}, PR: fmt.Sprintf("%s#%d", testRepo, number)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return len(records)
+}
+
+func TestAPushOnGitHubMovesTheRowWithNoRead(t *testing.T) {
+	f, _ := foldFor(t)
+	postOpened(t, 1, headA, "dev", fullBody)
+	folded(t, f, 1)
+	readRow(t, f, 1, headA)
+	reads := readCount(t, 1)
+
+	hear(t, f, delivered(t, topicPull, 1, time.Now().Add(time.Minute), headB, "synchronize", map[string]string{"base": "dev", "branch": "branch-1", "draft": "false"}))
+
+	row := folded(t, f, 1)
+	if row.Head != headB || row.CI != CIPending || row.Approvers != None {
+		t.Fatalf("row = %+v, want the new head with nothing carried from the old one", row)
+	}
+	if got := readCount(t, 1); got != reads {
+		t.Fatalf("reads = %d, want %d: the row moves on the record alone", got, reads)
+	}
+}
+
+func TestAPullRequestRecordEndsReopensAndDraftsTheRow(t *testing.T) {
+	f, _ := foldFor(t)
+	postOpened(t, 1, headA, "dev", fullBody)
+	folded(t, f, 1)
+	readRow(t, f, 1, headA)
+	attrs := map[string]string{"base": "dev", "branch": "branch-1", "draft": "false"}
+	at := time.Now().Add(time.Minute)
+
+	hear(t, f, delivered(t, topicPull, 1, at, headA, StateClosed, attrs))
+	if row := folded(t, f, 1); row.State != StateClosed {
+		t.Fatalf("closed: state = %q", row.State)
+	}
+	hear(t, f, delivered(t, topicPull, 1, at.Add(time.Minute), headA, "reopened", attrs))
+	if row := folded(t, f, 1); row.State != StateOpen {
+		t.Fatalf("reopened: state = %q", row.State)
+	}
+	hear(t, f, delivered(t, topicPull, 1, at.Add(2*time.Minute), headA, "converted_to_draft", map[string]string{"base": "dev", "branch": "branch-1", "draft": "true"}))
+	if row := folded(t, f, 1); row.State != StateDraft {
+		t.Fatalf("draft: state = %q", row.State)
+	}
+	hear(t, f, delivered(t, topicPull, 1, at.Add(3*time.Minute), headA, stateMerged, attrs))
+	if row := folded(t, f, 1); row.State != StateLanded || row.LandedAt == NotYet {
+		t.Fatalf("merged: row = %+v", row)
+	}
+}
+
+func TestAnOlderPullRequestRecordNeverMovesTheRowBack(t *testing.T) {
+	f, _ := foldFor(t)
+	postOpened(t, 1, headA, "dev", fullBody)
+	postHead(t, 1, headB)
+	folded(t, f, 1)
+
+	hear(t, f, delivered(t, topicPull, 1, time.Now().Add(-time.Hour), headA, "synchronize", map[string]string{"base": "dev", "branch": "branch-1"}))
+
+	if row := folded(t, f, 1); row.Head != headB {
+		t.Fatalf("head = %q, want the newer %q", row.Head, headB)
+	}
+}
+
+func TestAReviewRecordChangesOnlyThatReviewersPlaceAtTheRowsHead(t *testing.T) {
+	f, _ := foldFor(t)
+	postOpened(t, 1, headA, "dev", fullBody)
+	folded(t, f, 1)
+	review := func(commit, reviewer, outcome string) {
+		hear(t, f, delivered(t, topicReview, 1, time.Now(), commit, outcome, map[string]string{"reviewer": reviewer}))
+	}
+	for _, step := range []struct {
+		commit, reviewer, outcome, want string
+	}{
+		{headA, "b", "approved", "b"},
+		{headA, "a", "approved", "a, b"},
+		{headA, "c", "commented", "a, b"},
+		{headB, "d", "approved", "a, b"},
+		{headA, "b", "changes_requested", "a"},
+		{headA, "a", "dismissed", None},
+	} {
+		review(step.commit, step.reviewer, step.outcome)
+		if got := folded(t, f, 1).Approvers; got != step.want {
+			t.Fatalf("%s %s at %s: approvers = %q, want %q", step.reviewer, step.outcome, step.commit[:1], got, step.want)
+		}
+	}
+}
+
+func TestTheNextReadCorrectsARowARecordGotWrong(t *testing.T) {
+	f, _ := foldFor(t)
+	postOpened(t, 1, headA, "dev", fullBody)
+	folded(t, f, 1)
+	readRow(t, f, 1, headA)
+
+	hear(t, f, delivered(t, topicReview, 1, time.Now(), headA, "dismissed", map[string]string{"reviewer": "a"}))
+	if got := folded(t, f, 1).Approvers; got != "b" {
+		t.Fatalf("after the record: approvers = %q, want b", got)
+	}
+
+	if row := readRow(t, f, 1, headA); row.Approvers != "a, b" {
+		t.Fatalf("after the read: approvers = %q, want GitHub's a, b even though the read's values match the last one posted", row.Approvers)
+	}
+}
+
+func TestARecordOfAnotherRepoOrAnUnknownPRChangesNoRow(t *testing.T) {
+	f, _ := foldFor(t)
+	postOpened(t, 1, headA, "dev", fullBody)
+	folded(t, f, 1)
+
+	hear(t, f, delivered(t, topicPull, 2, time.Now(), headB, "opened", map[string]string{"base": "dev", "branch": "other"}))
+
+	rows, err := f.Pass(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].Head != headA {
+		t.Fatalf("rows = %+v, want only #1 at its own head", rows)
+	}
+}
+
+func TestMovedNamesTheRowsARecordCanChange(t *testing.T) {
+	f, _ := foldFor(t)
+	rows := []store.ReviewRow{
+		{Repo: testRepo, Number: 1, Head: headA, Branch: "low", Base: "dev"},
+		{Repo: testRepo, Number: 2, Head: headB, Branch: "high", Base: "low"},
+		{Repo: testRepo, Number: 3, Head: "ccc", Branch: "alone", Base: "other"},
+	}
+	now := f.Now()
+	cases := []struct {
+		name   string
+		record client.Record
+		want   []int
+	}{
+		{"a push names the row and the row stacked on it", delivered(t, topicPull, 1, now, headA, "synchronize", nil), []int{1, 2}},
+		{"a review names its row", delivered(t, topicReview, 2, now, headB, "approved", nil), []int{2}},
+		{"a check names the row at its commit", delivered(t, topicCheck, 0, now, headB, "success", map[string]string{"repo": testRepo}), []int{2}},
+		{"a check at no row's head names none", delivered(t, topicCheck, 0, now, "ddd", "success", map[string]string{"repo": testRepo}), nil},
+		{"another repo's check names none", delivered(t, topicCheck, 0, now, headB, "success", map[string]string{"repo": "o/other"}), nil},
+		{"a trunk push names the rows on trunk", delivered(t, topicPush, 0, now, "eee", "pushed", map[string]string{"repo": testRepo, "branch": "dev"}), []int{1}},
+		{"another branch's push names none", delivered(t, topicPush, 0, now, "eee", "pushed", map[string]string{"repo": testRepo, "branch": "main"}), nil},
+		{"an unknown PR names none", delivered(t, topicPull, 9, now, "fff", "opened", nil), nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var got []int
+			for number := range Moved([]client.Record{tc.record}, rows, testRepo, "dev") {
+				got = append(got, number)
+			}
+			slices.Sort(got)
+			if !slices.Equal(got, tc.want) {
+				t.Fatalf("moved = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }

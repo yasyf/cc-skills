@@ -32,7 +32,7 @@ func (s Source) Backfill(ctx context.Context) (int, error) {
 		numbers = append(numbers, number)
 	}
 	slices.Sort(numbers)
-	read, err := s.readMembers(ctx, numbers)
+	read, err := s.readMembers(ctx, numbers, nil)
 	if err != nil {
 		return 0, err
 	}

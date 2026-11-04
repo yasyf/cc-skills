@@ -157,6 +157,7 @@ type Facts struct {
 	GradeStopped  string
 	RowWait       string
 	TapRefused    string
+	FromRow       bool
 }
 
 func (f Facts) Green() bool {

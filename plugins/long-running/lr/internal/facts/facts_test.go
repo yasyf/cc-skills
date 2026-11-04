@@ -491,6 +491,130 @@ func TestAPassesGitHubCallsGrowOnlyByPageWhateverThePRCount(t *testing.T) {
 	}
 }
 
+func (h harness) statusReads() [][]string {
+	var reads [][]string
+	for _, call := range h.runner.Calls() {
+		if slices.Equal(call.Argv[:5], []string{"ccx", "vcs", "pr", "status", "--repo"}) {
+			reads = append(reads, call.Argv[slices.Index(call.Argv, "--json")+1:])
+		}
+	}
+	return reads
+}
+
+func TestARecordNarrowsThePassToItsPRAndTheSlowReadStillCoversEveryOne(t *testing.T) {
+	idleCalls := map[int]int{}
+	for _, n := range []int{1, 1000} {
+		prs, rows := make([]recordedPR, 0, n), make([]statusRow, 0, n)
+		for i := 1; i <= n; i++ {
+			sha := fmt.Sprintf("%040x", i)
+			prs = append(prs, recordedPR{number: i, head: sha, login: "drive-bot", commits: []string{sha}})
+			rows = append(rows, status(i, func(row *statusRow) { row.Head = sha }))
+		}
+		h := newHarness(t, prs, rows...)
+		now := time.Now()
+		h.source.Now = func() time.Time { return now }
+		first, err := h.source.Snapshot(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := h.source.WriteRows(context.Background(), first); err != nil {
+			t.Fatal(err)
+		}
+		posted := func() int {
+			records, err := client.Tail(context.Background(), client.Query{Drive: "d", Kinds: []string{prrow.GithubKind}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			return len(records)
+		}
+		before, calls := posted(), len(h.runner.Calls())
+
+		now = now.Add(3 * time.Minute)
+		idle, err := h.source.Snapshot(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(idle) != n || !idle[0].FromRow {
+			t.Fatalf("n=%d: idle pass has %d rows, first %+v, want every row from the store", n, len(idle), idle[0])
+		}
+		if err := h.source.WriteRows(context.Background(), idle); err != nil {
+			t.Fatal(err)
+		}
+		if got := posted(); got != before {
+			t.Fatalf("n=%d: idle pass posted %d reads", n, got-before)
+		}
+		idleCalls[n] = len(h.runner.Calls()) - calls
+
+		if _, err := client.Post(context.Background(), client.Draft{Drive: prrow.GithubDrive, Lane: "github", Kind: prrow.GithubKind, Text: "reviewed", Topic: "review", PRs: []string{repo + "#1"}}); err != nil {
+			t.Fatal(err)
+		}
+		now = now.Add(3 * time.Minute)
+		named := h.snapshot(t)
+		if reads := h.statusReads(); len(named) != n || !slices.Equal(reads[len(reads)-1], []string{"1"}) {
+			t.Fatalf("n=%d: %d rows, last status read %v, want every row and a read of #1 alone", n, len(named), reads[len(reads)-1])
+		}
+
+		now = now.Add(facts.ReadAllEvery)
+		if _, err := h.source.Snapshot(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if reads := h.statusReads(); len(reads[len(reads)-1]) != n {
+			t.Fatalf("n=%d: the slow read asked for %d PRs", n, len(reads[len(reads)-1]))
+		}
+	}
+	if idleCalls[1] != 1 || idleCalls[1000] != 1 {
+		t.Fatalf("an idle pass's commands at 1 and 1,000 PRs = %d, %d, want only the cached rules read", idleCalls[1], idleCalls[1000])
+	}
+}
+
+func TestATrunkPushRereadsTheRowsOnTrunk(t *testing.T) {
+	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
+	now := time.Now()
+	h.source.Now = func() time.Time { return now }
+	first, err := h.source.Snapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.source.WriteRows(context.Background(), first); err != nil {
+		t.Fatal(err)
+	}
+	reads := len(h.statusReads())
+	if _, err := client.Post(context.Background(), client.Draft{Drive: prrow.GithubDrive, Lane: "github", Kind: prrow.GithubKind, Text: "pushed", Topic: "push", Attrs: map[string]string{"repo": repo, "branch": "dev"}}); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(3 * time.Minute)
+	if _, err := h.source.Snapshot(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := len(h.statusReads()); got != reads+1 {
+		t.Fatalf("status reads = %d, want %d: GitHub sends no event for mergeability, so a trunk push asks for a read", got, reads+1)
+	}
+}
+
+func TestATappedRowIsReadEveryPass(t *testing.T) {
+	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
+	now := time.Now()
+	h.source.Now = func() time.Time { return now }
+	first, err := h.source.Snapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.source.WriteRows(context.Background(), first); err != nil {
+		t.Fatal(err)
+	}
+	post(t, "owner", bus.Tap{PR: 1, Head: head, Value: string(machine.TapTapped), By: "owner"})
+	now = now.Add(3 * time.Minute)
+	if _, err := h.source.Snapshot(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	reads := len(h.statusReads())
+	now = now.Add(3 * time.Minute)
+	row := h.snapshot(t)[1]
+	if got := len(h.statusReads()); got != reads+1 || row.FromRow {
+		t.Fatalf("status reads = %d, want %d, and row from GitHub, got FromRow=%v: a landing decision reads GitHub's own answer", got, reads+1, row.FromRow)
+	}
+}
+
 func TestTheMemberReadAsksByNumberInBatchesGitHubAnswers(t *testing.T) {
 	const members = 60
 	prs := make([]recordedPR, 0, members)

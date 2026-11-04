@@ -116,7 +116,12 @@ func (s Source) Snapshot(ctx context.Context) ([]machine.Facts, error) {
 	}
 	slices.Sort(numbers)
 	numbers = slices.Compact(numbers)
-	members, err := s.readMembers(ctx, numbers)
+	plan, err := s.planReads(ctx, rows, numbers)
+	if err != nil {
+		return nil, fmt.Errorf("read the github records: %w", err)
+	}
+	numbers = plan.numbers
+	members, err := s.readMembers(ctx, numbers, rows)
 	if err != nil {
 		return nil, fmt.Errorf("read the drive's pull requests: %w", err)
 	}
@@ -132,7 +137,18 @@ func (s Source) Snapshot(ctx context.Context) ([]machine.Facts, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read required checks: %w", err)
 	}
-	return s.assemble(ctx, statuses, members, required, held, rows)
+	read, err := s.assemble(ctx, statuses, members, required, held, rows)
+	if err != nil {
+		return nil, err
+	}
+	unread, err := s.fromRows(unreadRows(rows, numbers), held)
+	if err != nil {
+		return nil, err
+	}
+	for at := range unread {
+		unread[at].FromRow = true
+	}
+	return slices.Concat(read, unread), s.settleReads(plan)
 }
 
 func (s Source) Rows() prrow.Fold {
@@ -549,7 +565,7 @@ type graphError struct {
 	Type string `json:"type"`
 }
 
-func (s Source) readMembers(ctx context.Context, numbers []int) (memberRead, error) {
+func (s Source) readMembers(ctx context.Context, numbers []int, rows []store.ReviewRow) (memberRead, error) {
 	prs := make([]pullRequest, 0, len(numbers))
 	missing := make(map[int]bool)
 	for batch := range slices.Chunk(numbers, memberBatch) {
@@ -586,11 +602,11 @@ func (s Source) readMembers(ctx context.Context, numbers []int) (memberRead, err
 		authors[pr.Number] = pr.Author.Login
 		byNumber[pr.Number] = pr
 	}
-	return memberRead{carried(prs), byNumber, authors, missing}, nil
+	return memberRead{carried(prs, rows), byNumber, authors, missing}, nil
 }
 
 func (s Source) ReadMergeable(ctx context.Context, numbers []int) (map[int]string, error) {
-	members, err := s.readMembers(ctx, numbers)
+	members, err := s.readMembers(ctx, numbers, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -609,8 +625,13 @@ func membersQuery(numbers []int) string {
 	return "query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { " + aliases.String() + "} }"
 }
 
-func carried(prs []pullRequest) map[int][]int {
-	byHead := make(map[string]int, len(prs))
+func carried(prs []pullRequest, rows []store.ReviewRow) map[int][]int {
+	byHead := make(map[string]int, len(prs)+len(rows))
+	for _, row := range rows {
+		if !prrow.Terminal(row.State) {
+			byHead[row.Head] = row.Number
+		}
+	}
 	for _, pr := range prs {
 		byHead[pr.HeadRefOid] = pr.Number
 	}

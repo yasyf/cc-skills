@@ -43,6 +43,13 @@ const (
 	readReader  = "supervisor"
 	stateMerged = "merged"
 
+	GithubDrive = "github"
+	GithubKind  = "github"
+	topicPull   = "pull_request"
+	topicReview = "review"
+	topicCheck  = "check"
+	topicPush   = "push"
+
 	factCI        = "read-ci"
 	factApprovers = "read-approvers"
 	factMergeable = "read-mergeable"
@@ -79,6 +86,10 @@ func (f Fold) Pass(ctx context.Context, held map[int]string) ([]store.ReviewRow,
 	if err != nil {
 		return nil, err
 	}
+	heard, err := Heard(ctx, f.Store, store.ReviewRowsGithubCursor, f.Now())
+	if err != nil {
+		return nil, err
+	}
 	var out []store.ReviewRow
 	err = f.Store.Update(func(t *store.Tx) error {
 		if err := t.Advance(store.ReviewRowsCursor, 0); err != nil {
@@ -106,6 +117,9 @@ func (f Fold) Pass(ctx context.Context, held map[int]string) ([]store.ReviewRow,
 			if err := t.Advance(store.ReviewRowsCursor, record.Seq); err != nil {
 				return err
 			}
+		}
+		if err := f.applyHeard(t, rows, heard); err != nil {
+			return err
 		}
 		if err := t.PutReviewRows(values(rows)); err != nil {
 			return err
@@ -185,6 +199,162 @@ func (f Fold) apply(t *store.Tx, rows map[int]store.ReviewRow, record client.Rec
 		rows[number] = row
 	}
 	return nil
+}
+
+func Heard(ctx context.Context, s *store.Store, cursor string, now time.Time) ([]client.Record, error) {
+	after, err := s.Cursor(cursor)
+	if err != nil {
+		return nil, err
+	}
+	query := client.Query{Drive: GithubDrive, After: after, Kinds: []string{GithubKind}}
+	if after == 0 {
+		query.Since = now.Add(-foldWindow)
+	}
+	return client.Tail(ctx, query)
+}
+
+func (f Fold) applyHeard(t *store.Tx, rows map[int]store.ReviewRow, heard []client.Record) error {
+	position, err := t.Cursor(store.ReviewRowsGithubCursor)
+	if err != nil {
+		return err
+	}
+	for _, record := range heard {
+		if record.Seq <= position {
+			continue
+		}
+		if err := f.applyGithub(t, rows, record); err != nil {
+			return err
+		}
+		if err := t.Advance(store.ReviewRowsGithubCursor, record.Seq); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (f Fold) applyGithub(t *store.Tx, rows map[int]store.ReviewRow, record client.Record) error {
+	for _, number := range bus.HeldBy(record, f.Repo) {
+		row, known := rows[number]
+		if !known {
+			continue
+		}
+		var err error
+		switch record.Topic {
+		case topicPull:
+			row, err = f.pulled(t, row, record)
+		case topicReview:
+			err = f.reviewed(t, row, record)
+		default:
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		row.LastRecord = record.Seq
+		rows[number] = row
+	}
+	return nil
+}
+
+func (f Fold) pulled(t *store.Tx, row store.ReviewRow, record client.Record) (store.ReviewRow, error) {
+	at := store.Stamp(record.At)
+	if at < row.HeadAt {
+		return row, nil
+	}
+	attrs, head := record.Fields.Attrs, record.Fields.Commit
+	row.Base, row.Branch = attrs["base"], attrs["branch"]
+	if sameHead(row.Head, head) {
+		row.Head = longer(row.Head, head)
+	} else {
+		row.Head, row.HeadAt = head, at
+	}
+	draft := ""
+	if attrs["draft"] == "true" {
+		draft = "yes"
+	}
+	for kind, value := range map[string]string{factSeen: "yes", FactDraft: draft, factValues: ""} {
+		if err := t.PutFact(f.Repo, row.Number, row.Head, kind, value, record.At); err != nil {
+			return row, err
+		}
+	}
+	switch record.Fields.Outcome {
+	case stateMerged:
+		row.State, row.LandedAt = StateLanded, at
+	case StateClosed:
+		row.State = StateClosed
+	default:
+		if Terminal(row.State) {
+			row.State = StateOpen
+		}
+	}
+	if Terminal(row.State) {
+		row = Decide(row)
+	}
+	return row, nil
+}
+
+func (f Fold) reviewed(t *store.Tx, row store.ReviewRow, record client.Record) error {
+	outcome := record.Fields.Outcome
+	if outcome == "commented" || !sameHead(row.Head, record.Fields.Commit) {
+		return nil
+	}
+	said, err := t.Fact(f.Repo, row.Number, row.Head, factApprovers)
+	if err != nil {
+		return err
+	}
+	reviewer := record.Fields.Attrs["reviewer"]
+	approvers := slices.DeleteFunc(strings.Split(said, ", "), func(login string) bool {
+		return login == "" || login == None || login == reviewer
+	})
+	if outcome == "approved" {
+		approvers = append(approvers, reviewer)
+	}
+	slices.Sort(approvers)
+	for kind, value := range map[string]string{factApprovers: orElse(strings.Join(approvers, ", "), None), factValues: ""} {
+		if err := t.PutFact(f.Repo, row.Number, row.Head, kind, value, record.At); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func Moved(records []client.Record, rows []store.ReviewRow, repo, trunk string) map[int]bool {
+	byNumber := make(map[int]store.ReviewRow, len(rows))
+	atHead := make(map[string]int, len(rows))
+	for _, row := range rows {
+		byNumber[row.Number], atHead[row.Head] = row, row.Number
+	}
+	moved := map[int]bool{}
+	bases := map[string]bool{}
+	for _, record := range records {
+		attrs := record.Fields.Attrs
+		switch record.Topic {
+		case topicPull:
+			for _, number := range bus.HeldBy(record, repo) {
+				if row, known := byNumber[number]; known {
+					moved[number], bases[row.Branch] = true, true
+				}
+			}
+		case topicReview:
+			for _, number := range bus.HeldBy(record, repo) {
+				moved[number] = true
+			}
+		case topicCheck:
+			if number, known := atHead[record.Fields.Commit]; known && strings.EqualFold(attrs["repo"], repo) {
+				moved[number] = true
+			}
+		case topicPush:
+			if strings.EqualFold(attrs["repo"], repo) && attrs["branch"] == trunk {
+				bases[trunk] = true
+			}
+		}
+	}
+	for _, row := range rows {
+		if bases[row.Base] {
+			moved[row.Number] = true
+		}
+	}
+	return moved
 }
 
 func newRow(repo string, number int) store.ReviewRow {
@@ -419,6 +589,9 @@ func SaidFact(grader string) string {
 func (f Fold) PostReads(ctx context.Context, snapshot []machine.Facts) error {
 	var failed []error
 	for _, pr := range snapshot {
+		if pr.FromRow {
+			continue
+		}
 		row, known, err := f.Store.ReviewRow(f.Repo, pr.Number)
 		if err != nil || !known {
 			failed = append(failed, err)

@@ -5,7 +5,10 @@ import (
 	"time"
 )
 
-const ReviewRowsCursor = "review-rows"
+const (
+	ReviewRowsCursor       = "review-rows"
+	ReviewRowsGithubCursor = "review-rows-github"
+)
 
 const reviewRowColumns = "repo, number, title, lane, branch, base, parent, parent_state, head, head_at, read_head, for_users, plan_line, plan_row, risk, description, unsafe_wait, ci, approvers, review, grade, grade_findings, mergeable, queue, hold, superseded_by, waits_on, ready_for_tap, state, tapped, tap_refused, tapped_at, tapped_by, landed_at, last_record, written_at"
 
@@ -149,6 +152,15 @@ func (t *Tx) PutFact(repo string, number int, head, kind, value string, at time.
 		repo, number, head, kind, value, Stamp(at),
 	)
 	return err
+}
+
+func (t *Tx) Fact(repo string, number int, head, kind string) (string, error) {
+	var value string
+	err := t.tx.QueryRow("SELECT value FROM facts WHERE repo = ? AND number = ? AND head = ? AND kind = ?", repo, number, head, kind).Scan(&value)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return value, err
 }
 
 func (t *Tx) HeadSeen(repo string, number int, head, kind string) (bool, error) {
