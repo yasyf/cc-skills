@@ -666,6 +666,43 @@ func TestRemoteLeavesToTheCLI(t *testing.T) {
 	}
 }
 
+func TestPeekOnAPairedServerCarriesTheCallersEvidence(t *testing.T) {
+	var seen remoteRequest
+	client := pairedClient(t, "rt-remote", "device", func(got remoteRequest) string {
+		seen = got
+		return `{"id":"REQUEST","ok":true,"result":{"messages":[],"count":0},"_meta":{"runtimeId":"rt-remote"}}`
+	})
+	coordinator := client.Getenv
+	client.Getenv = func(name string) string {
+		if name == "ORCA_TERMINAL_HANDLE" {
+			return "term_coordinator"
+		}
+		return coordinator(name)
+	}
+	served(t, client, "orchestration", "check", "--terminal", "term_1", "--peek", "--environment", "box", "--full", "--json")
+	params, err := json.Marshal(seen.Params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := fmt.Sprintf(`{"compatibilityCliCommand":%q,"peek":true,"terminal":"term_1","unread":false}`, client.cliCommand()); string(params) != want {
+		t.Errorf("params = %s, want %s", params, want)
+	}
+	if seen.ContractVersion != orchestrationContract || seen.CompatibilityID == "" || seen.CompatibilityEvidence["terminalHandle"] != "term_coordinator" {
+		t.Errorf("envelope = %+v", seen)
+	}
+	for _, args := range [][]string{
+		{"orchestration", "check", "--terminal", "term_1", "--environment", "box", "--full", "--json"},
+		{"orchestration", "check", "--run", "r", "--terminal", "term_1", "--environment", "box", "--full", "--json"},
+		{"orchestration", "check", "--run", "r", "--terminal", "term_1", "--ack", "d", "--peek", "--environment", "box", "--full", "--json"},
+		{"orchestration", "check", "--peek", "--environment", "box", "--full", "--json"},
+		{"orchestration", "inbox", "--terminal", "run:r", "--environment", "box", "--full", "--json"},
+	} {
+		if _, handled := client.Serve(context.Background(), args); handled {
+			t.Errorf("%v was served", args)
+		}
+	}
+}
+
 func TestRemoteRefusals(t *testing.T) {
 	refusing := func(code string) func(remoteRequest) string {
 		return func(remoteRequest) string {

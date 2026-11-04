@@ -140,6 +140,7 @@ var verbs = map[string]verb{
 		finish: finishWorkerList,
 	},
 	"orchestration check": {
+		remote:   true,
 		allowed:  []string{flagTerminal, flagRun, flagPeek, flagAll, flagAck, "types", flagFull, flagJSON},
 		required: []string{flagFull, flagJSON},
 		build:    buildCheck,
@@ -302,6 +303,9 @@ func buildCheck(c *Client, in invocation) (call, bool) {
 	}
 	params := CheckParams{Terminal: in.flags[flagTerminal], Peek: in.has(flagPeek), All: in.has(flagAll), Types: in.flags["types"], CompatibilityCLI: c.cliCommand(), Run: in.flags[flagRun], Ack: in.flags[flagAck]}
 	if params.mutates() && params.Run == "" {
+		return call{}, false
+	}
+	if in.has(flagEnvironment) && (params.mutates() || params.Terminal == "" || strings.TrimSpace(c.getenv("ORCA_AGENT_SESSION_ID")) != "") {
 		return call{}, false
 	}
 	if params.Peek {
