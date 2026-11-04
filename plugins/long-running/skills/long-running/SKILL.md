@@ -453,6 +453,8 @@ one refusal prints all of them.
 
 ## The owner's surfaces
 
+A line to him that names something breaking names the plan to fix it beside it, and a card option is never drawn with a loss and no fix.
+
 Every PR goes to the owner. A PR that is green, approved and graded at its head
 reaches his tap card within one runner pass and lands on his tap; only the classes
 he exempted land on a go, nothing new joins them without his word, and the
